@@ -1,11 +1,17 @@
 // ---------------------------------------------------------------------------
-// Versioned DrawOp wire protocol (OCIR envelope).
+// Versioned DrawOp wire protocol (OCIR envelope) — canonical self-contained
+// encoding (issue #45).
 //
 // Single Skia-compatible binary contract owned by core (issue #22):
 //
-//   header: magic "OCIR" | version u32 | section_count u32 | pipeline_epoch u32
+//   header: magic "OCIR" | version u32 | section_count u32
 //   section directory: section_count × { id u32, offset u32, len u32 }
 //   payloads: 4-byte aligned sections for ops, pools, paints, paths, ...
+//
+// The envelope is a pure function of RenderFrame: encode(RenderFrame) produces
+// byte-identical output for the same RenderFrame, requires no epoch/delta/
+// history state, and a fresh decoder can independently decode any single frame.
+// Generated-image RGBA is fully encoded every frame (section 12).
 //
 // Ops layout (section 1):
 //   [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
@@ -22,6 +28,7 @@ use crate::canvas::paint::{
     BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
     PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
+use crate::ir::RenderFrame;
 
 // ---------------------------------------------------------------------------
 // Magic, version, sections
@@ -32,9 +39,15 @@ pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 
 /// Wire protocol version.
 ///
+/// v5 (issue #45): No pipeline_epoch in the header. OCIR is a pure, self-
+/// contained encoding of RenderFrame: encode(RenderFrame) is a pure function,
+/// requires no epoch/delta/history state, and a fresh decoder can independently
+/// decode any single frame. Generated-image RGBA is fully encoded every frame
+/// in SECTION_GENERATED_IMAGES (12). Section 12 is always present (count may be 0).
+///
 /// v4: pipeline_epoch in the header + SECTION_GENERATED_IMAGES (12) for the
-/// per-frame generated-image delta. Section 12 is always present (count may be 0).
-pub const IR_VERSION: u32 = 4;
+/// per-frame generated-image delta.
+pub const IR_VERSION: u32 = 5;
 
 /// Section identifiers in the OCIR directory.
 pub mod section {
@@ -352,28 +365,28 @@ fn lookup_string_id(strings: &[String], s: &str) -> u32 {
 // OCIR section encoders + envelope packer
 // ---------------------------------------------------------------------------
 
-/// Pack a typed draw frame + generated-image delta into the single OCIR envelope.
+/// Pack a typed render frame into the single self-contained OCIR envelope.
+///
+/// Canonical encoding (issue #45): the same `RenderFrame` always produces
+/// byte-identical output; no epoch/delta/history state is needed.
 ///
 /// Callers that need image/Lottie string ids in the table should run
-/// [`intern_image_strings`] first.
+/// [`intern_image_strings`] on the frame's draw first.
 pub fn encode_ir_envelope(
-    draw: &super::draw_frame::DrawOpFrame,
+    render_frame: &RenderFrame,
     scratch: &mut super::draw_frame::DrawFrameScratch,
-    pipeline_epoch: u32,
-    generated_delta: &[FrameGeneratedImage],
 ) -> Result<Vec<u8>, EncodeError> {
-    let sections = encode_draw_sections(draw, scratch);
-    pack_ir_envelope(draw, &sections, pipeline_epoch, generated_delta)
+    let sections = encode_draw_sections(&render_frame.draw, scratch);
+    pack_ir_envelope(&render_frame.draw, &render_frame.media.generated_images, &sections)
 }
 
 /// Pack pre-encoded op/string sections with paints/paths/… into OCIR bytes.
 pub fn pack_ir_envelope(
     draw: &super::draw_frame::DrawOpFrame,
+    generated_images: &[FrameGeneratedImage],
     encoded: &EncodedDrawSections,
-    pipeline_epoch: u32,
-    generated_delta: &[FrameGeneratedImage],
 ) -> Result<Vec<u8>, EncodeError> {
-    let generated_images_section = encode_generated_images(generated_delta);
+    let generated_images_section = encode_generated_images(generated_images);
     let section_payloads = [
         (section::OPS, encoded.ops.clone()),
         (section::SUBTREES, encoded.subtrees.clone()),
@@ -392,7 +405,7 @@ pub fn pack_ir_envelope(
         (section::GENERATED_IMAGES, generated_images_section),
     ];
 
-    let header_len = 16 + section_payloads.len() * 12;
+    let header_len = 12 + section_payloads.len() * 12;
     let mut offsets = Vec::with_capacity(section_payloads.len());
     let mut cursor = header_len as u32;
     for (_, bytes) in &section_payloads {
@@ -407,7 +420,6 @@ pub fn pack_ir_envelope(
     out.extend_from_slice(&IR_MAGIC);
     write_u32(&mut out, IR_VERSION);
     write_u32(&mut out, section_payloads.len() as u32);
-    write_u32(&mut out, pipeline_epoch);
     for ((id, bytes), offset) in section_payloads.iter().zip(offsets.iter()) {
         write_u32(&mut out, *id);
         write_u32(&mut out, *offset);
@@ -1283,7 +1295,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                 ImageRef::Generated { id } => {
                     // tag 2 reserved for Generated; RGBA is published separately
                     // via the generated-image delta (see issue #10). The JS
-                    // decoder resolves the image from (pipeline_epoch, id).
+                    // decoder resolves the image from its id.
                     write_u8(buf, 2); // tag: Generated
                     write_u64(buf, id.0); // generated id
                     write_u32(buf, 0); // reserved (pad id-slot to 12 bytes)
@@ -1532,6 +1544,17 @@ mod tests {
     };
     use crate::render::builder::DrawOpBuilder;
 
+    /// Wrap a DrawOpFrame + generated images into a RenderFrame for encoding.
+    fn to_render_frame(draw: DrawOpFrame, generated_images: Vec<FrameGeneratedImage>) -> RenderFrame {
+        RenderFrame {
+            draw,
+            media: crate::ir::media_plan::FrameMediaPlan {
+                generated_images,
+                ..Default::default()
+            },
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Required tests from the task specification
     // -----------------------------------------------------------------------
@@ -1542,7 +1565,7 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
         assert!(encoded.ops.is_empty());
-        let envelope = pack_ir_envelope(&frame, &encoded, 0, &[]).expect("envelope");
+        let envelope = pack_ir_envelope(&frame, &[], &encoded).expect("envelope");
         assert_eq!(&envelope[0..4], b"OCIR");
         assert_eq!(u32::from_le_bytes(envelope[4..8].try_into().unwrap()), IR_VERSION);
     }
@@ -1561,11 +1584,11 @@ mod tests {
 
     #[test]
     fn encoded_envelope_magic_is_constant() {
-        let frame = DrawOpFrame::default();
+        let frame = to_render_frame(DrawOpFrame::default(), vec![]);
         let mut scratch = DrawFrameScratch::default();
-        let a = encode_ir_envelope(&frame, &mut scratch, 1, &[]).unwrap();
+        let a = encode_ir_envelope(&frame, &mut scratch).unwrap();
         scratch.clear();
-        let b = encode_ir_envelope(&frame, &mut scratch, 1, &[]).unwrap();
+        let b = encode_ir_envelope(&frame, &mut scratch).unwrap();
         assert_eq!(&a[0..4], b"OCIR");
         assert_eq!(&b[0..4], b"OCIR");
         assert_eq!(a, b);
@@ -2130,7 +2153,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Unified OCIR envelope (issue #22)
+    // Canonical self-contained OCIR envelope (issue #45)
     // -----------------------------------------------------------------------
 
     fn read_u32(bytes: &[u8], at: usize) -> u32 {
@@ -2142,7 +2165,7 @@ mod tests {
         assert_eq!(read_u32(envelope, 4), IR_VERSION);
         let section_count = read_u32(envelope, 8) as usize;
         for i in 0..section_count {
-            let base = 16 + i * 12;
+            let base = 12 + i * 12;
             let id = read_u32(envelope, base);
             let offset = read_u32(envelope, base + 4) as usize;
             let len = read_u32(envelope, base + 8) as usize;
@@ -2154,38 +2177,57 @@ mod tests {
     }
 
     #[test]
-    fn envelope_stamps_pipeline_epoch_in_header() {
-        let frame = DrawOpFrame::default();
+    fn envelope_header_has_no_pipeline_epoch() {
+        // v5 header is only 12 bytes (magic + version + section_count).
+        // No pipeline_epoch field exists — OCIR is self-contained.
+        let frame = to_render_frame(DrawOpFrame::default(), vec![]);
         let mut scratch = DrawFrameScratch::default();
-        let bytes = encode_ir_envelope(&frame, &mut scratch, 7, &[]).unwrap();
-        assert_eq!(read_u32(&bytes, 12), 7);
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
+
+        // Header: 4 magic + 4 version + 4 section_count = 12 bytes
+        assert_eq!(&bytes[0..4], b"OCIR");
+        assert_eq!(read_u32(&bytes, 4), IR_VERSION);
+        // section_count at offset 8
+        let section_count = read_u32(&bytes, 8);
+        assert!(section_count > 0, "empty envelope still has required sections");
+        // Header is exactly 12 bytes; directory starts at 12
+        let dir_start = 12;
+        // First section entry at offset 12
+        let first_id = read_u32(&bytes, dir_start);
+        assert!(first_id >= 1 && first_id <= 12, "valid section id");
         let generated = section_payload(&bytes, section::GENERATED_IMAGES);
         assert_eq!(generated, &0u32.to_le_bytes());
     }
 
     #[test]
-    fn generated_image_delta_round_trips_field_by_field() {
+    fn generated_images_fully_encoded_every_frame() {
         use crate::ir::generated_image::GeneratedImageId;
         use std::sync::Arc;
 
-        let frame = DrawOpFrame::default();
+        let render_frame = to_render_frame(
+            DrawOpFrame::default(),
+            vec![
+                FrameGeneratedImage {
+                    id: GeneratedImageId(0x0123_4567_89ab_cdef),
+                    width: 3,
+                    height: 2,
+                    rgba: Arc::from(vec![0xAB; 3 * 2 * 4]),
+                },
+                FrameGeneratedImage {
+                    id: GeneratedImageId(42),
+                    width: 1,
+                    height: 1,
+                    rgba: Arc::from(vec![0x11; 4]),
+                },
+            ],
+        );
         let mut scratch = DrawFrameScratch::default();
-        let delta = vec![
-            FrameGeneratedImage {
-                id: GeneratedImageId(0x0123_4567_89ab_cdef),
-                width: 3,
-                height: 2,
-                rgba: Arc::from(vec![0xAB; 3 * 2 * 4]),
-            },
-            FrameGeneratedImage {
-                id: GeneratedImageId(42),
-                width: 1,
-                height: 1,
-                rgba: Arc::from(vec![0x11; 4]),
-            },
-        ];
-        let bytes = encode_ir_envelope(&frame, &mut scratch, 3, &delta).unwrap();
-        assert_eq!(read_u32(&bytes, 12), 3);
+        let bytes = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
+
+        // No pipeline_epoch in header
+        assert_eq!(&bytes[0..4], b"OCIR");
+        assert_eq!(read_u32(&bytes, 4), IR_VERSION);
+
         let generated = section_payload(&bytes, section::GENERATED_IMAGES);
         assert_eq!(read_u32(generated, 0), 2);
         assert_eq!(u64::from_le_bytes(generated[4..12].try_into().unwrap()), 0x0123_4567_89ab_cdef);
@@ -2215,8 +2257,9 @@ mod tests {
             fill_type: FillType::EvenOdd,
             ops: vec![PathOp::MoveTo { x: 1.0, y: 2.0 }, PathOp::Close],
         });
+        let render_frame = to_render_frame(frame, vec![]);
         let mut scratch = DrawFrameScratch::default();
-        let bytes = encode_ir_envelope(&frame, &mut scratch, 1, &[]).unwrap();
+        let bytes = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
         let paints = section_payload(&bytes, section::PAINTS);
         assert_eq!(read_u32(paints, 0), 1);
         let paths = section_payload(&bytes, section::PATHS);
@@ -2237,15 +2280,16 @@ mod tests {
             paint: None,
         });
         intern_image_strings(&mut frame);
+        let render_frame = to_render_frame(frame, vec![]);
         let mut scratch = DrawFrameScratch::default();
-        encode_ir_envelope(&frame, &mut scratch, 0, &[]).expect("encodable after intern");
+        encode_ir_envelope(&render_frame, &mut scratch).expect("encodable after intern");
     }
 
     #[test]
     fn all_required_sections_present_in_empty_envelope() {
-        let frame = DrawOpFrame::default();
+        let frame = to_render_frame(DrawOpFrame::default(), vec![]);
         let mut scratch = DrawFrameScratch::default();
-        let bytes = encode_ir_envelope(&frame, &mut scratch, 0, &[]).unwrap();
+        let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
         for id in [
             section::OPS,
             section::F32_POOL,
@@ -2265,23 +2309,19 @@ mod tests {
     }
 
     /// Build the fixed AC5 fixture frame: ops, paint, path, string, image ref,
-    /// effect, and generated-image delta. Used by the Rust snapshot and by the
+    /// effect, and generated images. Used by the Rust snapshot and by the
     /// committed binary that TypeScript decodes field-for-field.
-    fn roundtrip_fixture_frame() -> (
-        crate::ir::draw_frame::DrawOpFrame,
-        Vec<FrameGeneratedImage>,
-        u32,
-    ) {
+    fn roundtrip_fixture_render_frame() -> RenderFrame {
         use crate::canvas::paint::{
             BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeCap, StrokeJoin, StrokeSpec,
         };
         use crate::ir::generated_image::GeneratedImageId;
         use std::sync::Arc;
 
-        let mut frame = DrawOpFrame::default();
-        frame.ops.push(DrawOp::Save);
-        frame.ops.push(DrawOp::Translate { x: 10.0, y: 20.0 });
-        frame.ops.push(DrawOp::Image {
+        let mut draw = DrawOpFrame::default();
+        draw.ops.push(DrawOp::Save);
+        draw.ops.push(DrawOp::Translate { x: 10.0, y: 20.0 });
+        draw.ops.push(DrawOp::Image {
             image: ImageRef::Static {
                 asset_id: "hero.png".into(),
             },
@@ -2289,9 +2329,9 @@ mod tests {
             y: 2.0,
             paint: Some(PaintId(0)),
         });
-        frame.ops.push(DrawOp::Restore);
-        frame.strings.push("hero.png".into());
-        frame.paints.push(PaintSpec {
+        draw.ops.push(DrawOp::Restore);
+        draw.strings.push("hero.png".into());
+        draw.paints.push(PaintSpec {
             fill: FillSpec::Solid([1.0, 0.25, 0.0, 1.0]),
             style: PaintStyle::Stroke,
             stroke: Some(StrokeSpec {
@@ -2307,7 +2347,7 @@ mod tests {
             mask_filter: None,
             path_effect: None,
         });
-        frame.paths.push(EncodedPath {
+        draw.paths.push(EncodedPath {
             fill_type: FillType::EvenOdd,
             ops: vec![
                 PathOp::MoveTo { x: 1.0, y: 2.0 },
@@ -2315,31 +2355,29 @@ mod tests {
                 PathOp::Close,
             ],
         });
-        frame.effects.push(EffectRef {
+        draw.effects.push(EffectRef {
             hash: 0xdead_beef_cafe_u64,
             sksl: "half4 main() { return half4(1); }".into(),
         });
-        let delta = vec![FrameGeneratedImage {
+        to_render_frame(draw, vec![FrameGeneratedImage {
             id: GeneratedImageId(0x1111_2222_3333_4444),
             width: 2,
             height: 1,
             rgba: Arc::from([0x10u8, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]),
-        }];
-        (frame, delta, 42)
+        }])
     }
 
     #[test]
     fn paint_path_string_effect_generated_fields_round_trip_in_core() {
         use crate::canvas::paint::{FillSpec, PaintStyle, StrokeCap, StrokeJoin};
 
-        let (mut frame, delta, epoch) = roundtrip_fixture_frame();
-        intern_image_strings(&mut frame);
+        let mut render_frame = roundtrip_fixture_render_frame();
+        intern_image_strings(&mut render_frame.draw);
         let mut scratch = DrawFrameScratch::default();
-        let bytes = encode_ir_envelope(&frame, &mut scratch, epoch, &delta).unwrap();
+        let bytes = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
 
         assert_eq!(&bytes[0..4], b"OCIR");
         assert_eq!(read_u32(&bytes, 4), IR_VERSION);
-        assert_eq!(read_u32(&bytes, 12), 42);
 
         // Strings: one range for "hero.png"
         let strings_utf8 = section_payload(&bytes, section::STRINGS_UTF8);
@@ -2407,15 +2445,16 @@ mod tests {
         // Writes the fixed binary fixture that vitest loads for AC5 core→TS
         // round-trip. Always rewrites so the committed file stays in lockstep
         // with encode_ir_envelope; the test also asserts a stable non-empty size.
-        let (mut frame, delta, epoch) = roundtrip_fixture_frame();
-        intern_image_strings(&mut frame);
+        let mut render_frame = roundtrip_fixture_render_frame();
+        intern_image_strings(&mut render_frame.draw);
         let mut scratch = DrawFrameScratch::default();
-        let bytes = encode_ir_envelope(&frame, &mut scratch, epoch, &delta).unwrap();
+        let bytes = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
 
         let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../web/src/fixtures/ocir");
         std::fs::create_dir_all(&fixture_dir).expect("fixture dir");
-        let path = fixture_dir.join("roundtrip_v4.ocir");
+        // v5: canonical self-contained OCIR — no pipeline_epoch in header
+        let path = fixture_dir.join("roundtrip_v5.ocir");
         std::fs::write(&path, &bytes).expect("write fixture");
         assert!(bytes.len() > 64, "fixture must be non-trivial");
         // Sanity: re-read matches.

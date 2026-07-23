@@ -189,12 +189,12 @@ Running the Lottie oracle surfaced a real bug, fixed in
 `crates/opencat-web/src/resource/wasm_api.rs`:
 
 - **Before:** `preload_assets` stored the Lottie primary JSON only under the
-  bundle id `lottie:{element_id}`. Core's `build_catalog` looks Lottie bytes up
+  bundle id `lottie:{element_id}`. Core's probe looked Lottie bytes up
   by the path/url-derived probe key, so it got a miss → empty bytes → the
   Lottie scene rendered blank → SSIM collapse.
 - **After:** the BlobStore now holds the primary JSON under **both** keys — the
   bundle id (for Skottie / `FrameMediaPlan` / DrawOp) and the path/url probe key
-  (for `build_catalog`). This mirrors the lookup contract the engine satisfies
+  (for host metadata extraction). This mirrors the lookup contract the engine satisfies
   through its separate handle map.
 - **Evidence:** Lottie oracle recovered to **0.986303** (≥ 0.985 band) after the
   fix; was failing before.

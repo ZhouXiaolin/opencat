@@ -41,9 +41,7 @@ pub use self::parse::preflight::{
 };
 pub use self::parse::{ParsedComposition, markup, parse};
 pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
-pub use self::probe::{
-    AudioSource, ImageMeta, ImageSource, PreparedResourceCatalog, VideoInfoMeta, hydrate_captions,
-};
+pub use self::probe::{AudioSource, ImageSource};
 pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRealm,
     asset_id_for_script_locator,

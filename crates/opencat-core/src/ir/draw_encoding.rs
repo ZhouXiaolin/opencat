@@ -132,6 +132,10 @@ pub mod opcode {
     pub const PATH_ADD_RRECT: u16 = 6;
     pub const PATH_ADD_OVAL: u16 = 7;
     pub const PATH_ADD_ARC: u16 = 8;
+
+    /// Number of f32 values for each PathOp sub-opcode by its stored kind.
+    /// Indexed by PATH_* value (0=MoveTo … 8=AddArc).
+    pub const PATH_OP_F32_WIDTHS: [u8; 9] = [2, 2, 4, 6, 0, 4, 5, 4, 6];
 }
 
 
@@ -295,7 +299,7 @@ fn encode_color_u8(c: ColorU8) -> u32 {
 /// Encode a LineCap variant as its u32 discriminant.
 /// Mapping: 0=Butt, 1=Round, 2=Square.
 #[inline]
-fn encode_line_cap(cap: LineCap) -> u32 {
+pub(crate) fn encode_line_cap(cap: LineCap) -> u32 {
     match cap {
         LineCap::Butt => 0,
         LineCap::Round => 1,
@@ -306,7 +310,7 @@ fn encode_line_cap(cap: LineCap) -> u32 {
 /// Encode a LineJoin variant as its u32 discriminant.
 /// Mapping: 0=Miter, 1=Round, 2=Bevel.
 #[inline]
-fn encode_line_join(join: LineJoin) -> u32 {
+pub(crate) fn encode_line_join(join: LineJoin) -> u32 {
     match join {
         LineJoin::Miter => 0,
         LineJoin::Round => 1,
@@ -317,7 +321,7 @@ fn encode_line_join(join: LineJoin) -> u32 {
 /// Encode a PointMode variant as its u32 discriminant.
 /// Mapping: 0=Points, 1=Lines, 2=Polygon.
 #[inline]
-fn encode_point_mode(mode: PointMode) -> u32 {
+pub(crate) fn encode_point_mode(mode: PointMode) -> u32 {
     match mode {
         PointMode::Points => 0,
         PointMode::Lines => 1,
@@ -921,14 +925,14 @@ fn align4(value: u32) -> u32 {
     (value + 3) & !3
 }
 
-fn encode_paint_style(style: PaintStyle) -> u8 {
+pub(crate) fn encode_paint_style(style: PaintStyle) -> u8 {
     match style {
         PaintStyle::Fill => 0,
         PaintStyle::Stroke => 1,
     }
 }
 
-fn encode_stroke_cap(cap: StrokeCap) -> u8 {
+pub(crate) fn encode_stroke_cap(cap: StrokeCap) -> u8 {
     match cap {
         StrokeCap::Butt => 0,
         StrokeCap::Round => 1,
@@ -936,7 +940,7 @@ fn encode_stroke_cap(cap: StrokeCap) -> u8 {
     }
 }
 
-fn encode_stroke_join(join: StrokeJoin) -> u8 {
+pub(crate) fn encode_stroke_join(join: StrokeJoin) -> u8 {
     match join {
         StrokeJoin::Miter => 0,
         StrokeJoin::Round => 1,
@@ -944,7 +948,7 @@ fn encode_stroke_join(join: StrokeJoin) -> u8 {
     }
 }
 
-fn encode_blend_mode(mode: BlendMode) -> u8 {
+pub(crate) fn encode_blend_mode(mode: BlendMode) -> u8 {
     match mode {
         BlendMode::Clear => 0,
         BlendMode::Src => 1,
@@ -978,7 +982,7 @@ fn encode_blend_mode(mode: BlendMode) -> u8 {
     }
 }
 
-fn encode_tile_mode(mode: TileMode) -> u8 {
+pub(crate) fn encode_tile_mode(mode: TileMode) -> u8 {
     match mode {
         TileMode::Clamp => 0,
         TileMode::Repeat => 1,
@@ -987,7 +991,7 @@ fn encode_tile_mode(mode: TileMode) -> u8 {
     }
 }
 
-fn encode_blur_style(style: BlurStyle) -> u8 {
+pub(crate) fn encode_blur_style(style: BlurStyle) -> u8 {
     match style {
         BlurStyle::Normal => 0,
         BlurStyle::Inner => 1,
@@ -996,7 +1000,7 @@ fn encode_blur_style(style: BlurStyle) -> u8 {
     }
 }
 
-fn encode_path_fill_type(fill_type: FillType) -> u8 {
+pub(crate) fn encode_path_fill_type(fill_type: FillType) -> u8 {
     match fill_type {
         FillType::Winding => 0,
         FillType::EvenOdd => 1,

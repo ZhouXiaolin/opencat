@@ -4,7 +4,7 @@
 //! [`VideoFrameTiming`]; resolution into authoritative microsecond timestamps
 //! is owned by core via [`VideoFrameRequest::resolve_time_micros`].
 
-use crate::resource::catalog::VideoInfoMeta;
+use crate::probe::catalog::VideoInfoMeta;
 use crate::time::{secs_to_micros, timestamp_micros_to_secs, DurationMicros, TimestampMicros};
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -116,7 +116,7 @@ fn clamp_video_time_micros(time_secs: f64, duration: Option<DurationMicros>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::catalog::VideoInfoMeta;
+    use crate::probe::catalog::VideoInfoMeta;
     use crate::time::DurationMicros;
 
     fn info(duration_secs: Option<f64>) -> VideoInfoMeta {

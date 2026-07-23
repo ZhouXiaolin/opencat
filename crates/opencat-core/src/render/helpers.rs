@@ -24,7 +24,7 @@ use crate::parse::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
 use crate::render::builder::DrawOpBuilder;
-use crate::resource::catalog::VideoInfoMeta;
+use crate::probe::catalog::VideoInfoMeta;
 use crate::style::{
     BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, CssFilter, CssFilterKind,
     DropShadow, GradientDirection, InsetShadow, ObjectFit,
@@ -2739,7 +2739,7 @@ pub fn render_lottie(
     let style = &item.paint;
     let dst = kurbo_rect(item.bounds);
 
-    let meta = crate::resource::lottie::LottieMeta {
+    let meta = crate::lottie::LottieMeta {
         width: item.width,
         height: item.height,
         fps: item.fps,
@@ -2751,7 +2751,7 @@ pub fn render_lottie(
         composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,
         timing: item.timing,
     };
-    let Some(local_frame) = crate::resource::lottie::resolve_lottie_frame(&request, &meta) else {
+    let Some(local_frame) = crate::lottie::resolve_lottie_frame(&request, &meta) else {
         return Ok(());
     };
 

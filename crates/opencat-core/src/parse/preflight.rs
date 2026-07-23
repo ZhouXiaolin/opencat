@@ -209,7 +209,7 @@ mod tests {
         primitives::{AudioSource, VideoSource, div, image, video, video_url},
         transition::{fade, timeline},
     };
-    use crate::resource::fonts::FontManifest;
+    use crate::fonts::FontManifest;
 
     fn parsed_from_root(root: Node) -> ParsedComposition {
         ParsedComposition {

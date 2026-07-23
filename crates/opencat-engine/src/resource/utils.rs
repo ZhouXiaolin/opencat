@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use opencat_core::resource::asset_id::{AssetId, ResourceKind, stable_hash};
+use opencat_core::ir::asset_id::{AssetId, ResourceKind, stable_hash};
 
 /// 生成 cache 文件路径。统一 `.bin` 扩展名 —— 运行时不依赖扩展名，
 /// 格式由文件内容（image/video container header）决定。

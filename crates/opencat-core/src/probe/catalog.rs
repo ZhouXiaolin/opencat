@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 pub use crate::ir::asset_id::{AssetId, ResourceKind};
 pub use crate::parse::primitives::VideoSource;
 use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource};
-use crate::resource::lottie::LottieMeta;
+use crate::lottie::LottieMeta;
 
 /// One unique Lottie source locator — bundle identity is source-based.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -44,7 +44,7 @@ pub struct ImageMeta {
 }
 
 /// Probe/prepare video metadata. Duration is microsecond-based so engine and
-/// web share one time unit with [`crate::resource::catalog::VideoInfoMeta`].
+/// web share one time unit with [`VideoInfoMeta`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VideoInfoMeta {
     pub width: u32,
@@ -159,8 +159,8 @@ impl PreparedResourceCatalog {
     }
 
     /// Look up video metadata by AssetId.
-    pub fn video_info(&self, id: &AssetId) -> Option<crate::resource::catalog::VideoInfoMeta> {
-        self.videos.get(id).map(|m| crate::resource::catalog::VideoInfoMeta {
+    pub fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
+        self.videos.get(id).map(|m| VideoInfoMeta {
             width: m.width,
             height: m.height,
             duration_micros: m.duration_micros,

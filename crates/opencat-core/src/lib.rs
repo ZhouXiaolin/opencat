@@ -1,23 +1,24 @@
 //! opencat-core — 纯数据 + trait + 算法，零 IO/平台依赖。
 
-pub mod analyze;
+pub(crate) mod analyze;
 pub mod cache;
 pub mod canvas;
-pub mod display;
+pub(crate) mod display;
+pub mod fonts;
 pub mod frame_ctx;
 pub mod ir;
-pub mod layout;
+pub(crate) mod layout;
 pub mod lifecycle;
+pub mod lottie;
 pub mod media;
 pub mod parse;
 pub mod pipeline;
 pub mod probe;
 pub mod profile;
-pub mod render;
+pub(crate) mod render;
 pub mod resolve;
-pub mod resource;
 pub mod script;
-pub mod semantic;
+pub(crate) mod semantic;
 pub mod style;
 pub mod text;
 pub mod time;

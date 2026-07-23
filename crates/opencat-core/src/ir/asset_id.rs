@@ -20,7 +20,7 @@ pub enum ResourceKind {
     Subtitle,
     Lottie,
     /// Document font face from `<fonts>` / `FontManifest`. Stable identity is
-    /// [`crate::resource::fonts::font_asset_id`]; host supplies raw bytes only.
+    /// [`crate::fonts::font_asset_id`]; host supplies raw bytes only.
     Font,
     /// External script file. Host supplies raw text; core never reads files.
     Script,

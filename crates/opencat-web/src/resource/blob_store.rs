@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use opencat_core::resource::asset_id::AssetId;
+use opencat_core::ir::asset_id::AssetId;
 
 #[derive(Default)]
 pub struct BlobStore {

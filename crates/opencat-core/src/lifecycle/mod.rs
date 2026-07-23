@@ -35,7 +35,7 @@ use crate::parse::ParsedComposition;
 use crate::pipeline::DefaultPipeline;
 use crate::probe::catalog::PreparedResourceCatalog;
 use crate::probe::prepare::hydrate_captions;
-use crate::resource::fonts::{font_asset_id, merge_document_over_base};
+use crate::fonts::{font_asset_id, merge_document_over_base};
 use crate::script::js_context::JsContext;
 use crate::script::ScriptDriver;
 
@@ -249,7 +249,7 @@ impl HostInputs {
     pub fn insert_lottie(
         &mut self,
         id: AssetId,
-        meta: crate::resource::lottie::LottieMeta,
+        meta: crate::lottie::LottieMeta,
     ) -> Result<(), PrepareError> {
         self.record_supply(&id)?;
         self.catalog.lotties.insert(id, meta);
@@ -1370,7 +1370,7 @@ mod tests {
 
     #[test]
     fn prepare_errors_on_invalid_lottie_layout_or_timing_metadata() {
-        use crate::resource::lottie::LottieMeta;
+        use crate::lottie::LottieMeta;
         let markup = r#"
             <opencat width="10" height="10" fps="30" duration="0.1">
               <div id="root">
@@ -1470,7 +1470,7 @@ mod tests {
     #[test]
     fn host_agnostic_lottie_contract() {
         use crate::ir::draw_op::DrawOp;
-        use crate::resource::lottie::LottieMeta;
+        use crate::lottie::LottieMeta;
 
         let sources = [
             r#"

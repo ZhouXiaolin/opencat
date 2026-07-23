@@ -26,7 +26,7 @@ use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, Resour
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
 use opencat_core::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
-use opencat_core::resource::fonts::font_asset_id;
+use opencat_core::fonts::font_asset_id;
 use opencat_core::script::js_context::JsContext;
 
 use crate::js_context::WebJsContext;
@@ -765,7 +765,7 @@ mod tests {
         use opencat_core::ir::draw_op::DrawOp;
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, ResourceKind};
         use opencat_core::pipeline::Pipeline;
-        use opencat_core::resource::lottie::LottieMeta;
+        use opencat_core::lottie::LottieMeta;
         use opencat_core::script::js_context::JsContext;
 
         let markup = r#"

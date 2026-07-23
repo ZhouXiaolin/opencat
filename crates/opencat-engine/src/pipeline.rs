@@ -19,7 +19,7 @@ use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
-use opencat_core::resource::fonts::font_asset_id;
+use opencat_core::fonts::font_asset_id;
 use opencat_core::ir::asset_id::asset_id_for_lottie;
 use opencat_core::parse::primitives::LottieSource;
 

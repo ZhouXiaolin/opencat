@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn load_manifest_sets_sans_serif_from_default_id() {
-        let bytes = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
+        let bytes = include_bytes!("../../../assets/NotoSansSC-Regular.otf").to_vec();
         let mut map = HashMap::new();
         map.insert("sans".to_string(), bytes);
         let manifest = FontManifest {
@@ -283,8 +283,8 @@ mod tests {
 
     #[test]
     fn document_fonts_take_precedence_over_same_family_fallback() {
-        let sans = include_bytes!("../../../../assets/NotoSansSC-Regular.otf").to_vec();
-        let emoji = include_bytes!("../../../../assets/NotoColorEmoji.ttf").to_vec();
+        let sans = include_bytes!("../../../assets/NotoSansSC-Regular.otf").to_vec();
+        let emoji = include_bytes!("../../../assets/NotoColorEmoji.ttf").to_vec();
         let mut map = HashMap::new();
         map.insert("doc-sans".to_string(), sans.clone());
         let manifest = FontManifest {

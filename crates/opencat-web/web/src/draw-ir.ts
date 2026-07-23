@@ -3,6 +3,10 @@ import {
   getCachedVideoFrameRgba,
   getCachedVideoFrameSource,
 } from './media/video-frame-injector';
+import {
+  SECTION,
+  OP,
+} from '../../../../web/src/generated/ocir-schema.generated';
 import type {
   BlendMode,
   BlurStyle,
@@ -77,63 +81,62 @@ type CanvasKitEnum =
 
 export type EncodedDrawFrame = Uint8Array;
 
-const SECTION_OPS = 1;
-const SECTION_F32_POOL = 2;
-const SECTION_BYTES = 3;
-const SECTION_BYTE_RANGES = 4;
-const SECTION_STRINGS_UTF8 = 5;
-const SECTION_STRING_RANGES = 6;
-const SECTION_PAINTS = 7;
-const SECTION_PATHS = 8;
-const SECTION_CHILDREN = 9;
-const SECTION_EFFECTS = 10;
-const SECTION_SUBTREES = 11;
-// v5+: core-rasterized color-emoji RGBA, fully encoded every frame (issue #45).
-// Self-contained — no epoch/delta/history dependency. JS caches the resulting
-// CanvasKit images by id. The full OCIR envelope schema is owned by core (issue #22);
-// this decoder must match encode_ir_envelope.
-const SECTION_GENERATED_IMAGES = 12;
+// Wire-protocol section and opcode constants — imported from the canonical
+// Rust-generated schema so drift between core and the TypeScript decoder is
+// caught by the schema drift test.  Do not hardcode values here.
+const SECTION_OPS = SECTION.OPS;
+const SECTION_F32_POOL = SECTION.F32_POOL;
+const SECTION_BYTES = SECTION.BYTES;
+const SECTION_BYTE_RANGES = SECTION.BYTE_RANGES;
+const SECTION_STRINGS_UTF8 = SECTION.STRINGS_UTF8;
+const SECTION_STRING_RANGES = SECTION.STRING_RANGES;
+const SECTION_PAINTS = SECTION.PAINTS;
+const SECTION_PATHS = SECTION.PATHS;
+const SECTION_CHILDREN = SECTION.CHILDREN;
+const SECTION_EFFECTS = SECTION.EFFECTS;
+const SECTION_SUBTREES = SECTION.SUBTREES;
+const SECTION_GENERATED_IMAGES = SECTION.GENERATED_IMAGES;
 
-const OP_SAVE = 0;
-const OP_SAVE_LAYER = 1;
-const OP_RESTORE = 2;
-const OP_RESTORE_TO_COUNT = 3;
-const OP_TRANSLATE = 4;
-const OP_SCALE = 5;
-const OP_ROTATE = 6;
-const OP_SKEW = 7;
-const OP_CONCAT = 8;
-const OP_SET_FILL_STYLE = 9;
-const OP_SET_STROKE_STYLE = 10;
-const OP_SET_LINE_WIDTH = 11;
-const OP_SET_LINE_CAP = 12;
-const OP_SET_LINE_JOIN = 13;
-const OP_SET_LINE_DASH = 14;
-const OP_CLEAR_LINE_DASH = 15;
-const OP_SET_GLOBAL_ALPHA = 16;
-const OP_SET_ANTI_ALIAS = 17;
-const OP_BEGIN_PATH = 18;
-const OP_PATH = 19;
-const OP_FILL_PATH = 20;
-const OP_STROKE_PATH = 21;
-const OP_CLIP_PATH = 22;
-const OP_CLEAR = 23;
-const OP_PAINT = 24;
-const OP_RECT = 25;
-const OP_R_RECT = 26;
-const OP_D_RRECT = 27;
-const OP_OVAL = 28;
-const OP_CIRCLE = 29;
-const OP_ARC = 30;
-const OP_LINE = 31;
-const OP_POINTS = 32;
-const OP_DRAW_PATH = 33;
-const OP_IMAGE = 34;
-const OP_IMAGE_RECT = 35;
-const OP_RUNTIME_EFFECT = 36;
-const OP_REPLAY_RANGE = 37;
-const OP_DRAW_SUBTREE_PICTURE = 38;
-const OP_LOTTIE_RECT = 39;
+const OP_SAVE = OP.SAVE;
+const OP_SAVE_LAYER = OP.SAVE_LAYER;
+const OP_RESTORE = OP.RESTORE;
+const OP_RESTORE_TO_COUNT = OP.RESTORE_TO_COUNT;
+const OP_TRANSLATE = OP.TRANSLATE;
+const OP_SCALE = OP.SCALE;
+const OP_ROTATE = OP.ROTATE;
+const OP_SKEW = OP.SKEW;
+const OP_CONCAT = OP.CONCAT;
+const OP_SET_FILL_STYLE = OP.SET_FILL_STYLE;
+const OP_SET_STROKE_STYLE = OP.SET_STROKE_STYLE;
+const OP_SET_LINE_WIDTH = OP.SET_LINE_WIDTH;
+const OP_SET_LINE_CAP = OP.SET_LINE_CAP;
+const OP_SET_LINE_JOIN = OP.SET_LINE_JOIN;
+const OP_SET_LINE_DASH = OP.SET_LINE_DASH;
+const OP_CLEAR_LINE_DASH = OP.CLEAR_LINE_DASH;
+const OP_SET_GLOBAL_ALPHA = OP.SET_GLOBAL_ALPHA;
+const OP_SET_ANTI_ALIAS = OP.SET_ANTI_ALIAS;
+const OP_BEGIN_PATH = OP.BEGIN_PATH;
+const OP_PATH = OP.PATH_OP;
+const OP_FILL_PATH = OP.FILL_PATH;
+const OP_STROKE_PATH = OP.STROKE_PATH;
+const OP_CLIP_PATH = OP.CLIP_PATH;
+const OP_CLEAR = OP.CLEAR;
+const OP_PAINT = OP.PAINT;
+const OP_RECT = OP.RECT;
+const OP_R_RECT = OP.R_RECT;
+const OP_D_RRECT = OP.D_RRECT;
+const OP_OVAL = OP.OVAL;
+const OP_CIRCLE = OP.CIRCLE;
+const OP_ARC = OP.ARC;
+const OP_LINE = OP.LINE;
+const OP_POINTS = OP.POINTS;
+const OP_DRAW_PATH = OP.DRAW_PATH;
+const OP_IMAGE = OP.IMAGE;
+const OP_IMAGE_RECT = OP.IMAGE_RECT;
+const OP_RUNTIME_EFFECT = OP.RUNTIME_EFFECT;
+const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
+const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
+const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
 
 const NO_PAINT = 0xffff_ffff;
 

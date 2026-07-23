@@ -190,14 +190,20 @@ pub fn asset_id_for_subtitle(src: &SubtitleSource) -> AssetId {
 
 /// Canonical `AssetId` for a Lottie source, or `None` for `Unset`.
 ///
-/// `element_id` is the `<lottie id="…">` node id; the bundle id is
-/// `lottie:{element_id}` regardless of where the bytes come from.
-pub fn asset_id_for_lottie(element_id: &str, src: &LottieSource) -> Option<AssetId> {
+/// Bundle identity is determined by the source locator (path or URL), not by
+/// the element id. Multiple `<lottie>` nodes sharing the same locator resolve
+/// to the same bundle, while each retains independent render state (timing,
+/// frame, transform).
+pub fn asset_id_for_lottie(src: &LottieSource) -> Option<AssetId> {
     match src {
         LottieSource::Unset => None,
-        LottieSource::Path(_) | LottieSource::Url(_) => Some(AssetId::new(
+        LottieSource::Path(p) => Some(AssetId::new(
             ResourceKind::Lottie,
-            format!("lottie:{element_id}"),
+            format!("lottie:path:{p}"),
+        )),
+        LottieSource::Url(u) => Some(AssetId::new(
+            ResourceKind::Lottie,
+            format!("lottie:url:{u}"),
         )),
     }
 }
@@ -331,17 +337,17 @@ mod tests {
     }
 
     #[test]
-    fn asset_id_for_lottie_is_element_id_based_and_unset_yields_none() {
-        assert_eq!(asset_id_for_lottie("hero", &LottieSource::Unset), None);
+    fn asset_id_for_lottie_is_source_based_and_unset_yields_none() {
+        assert_eq!(asset_id_for_lottie(&LottieSource::Unset), None);
         assert_eq!(
-            asset_id_for_lottie("hero", &LottieSource::Path("a.json".into()))
+            asset_id_for_lottie(&LottieSource::Path("anim/loader.json".into()))
                 .map(|i| i.as_str().to_owned()),
-            Some("lottie:hero".to_string()),
+            Some("lottie:path:anim/loader.json".to_string()),
         );
         assert_eq!(
-            asset_id_for_lottie("hero", &LottieSource::Url("https://e.com/a.json".into()))
+            asset_id_for_lottie(&LottieSource::Url("https://e.com/a.json".into()))
                 .map(|i| i.as_str().to_owned()),
-            Some("lottie:hero".to_string()),
+            Some("lottie:url:https://e.com/a.json".to_string()),
         );
     }
 

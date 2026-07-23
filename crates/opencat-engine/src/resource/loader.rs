@@ -316,10 +316,8 @@ impl EngineLoader {
                 // Also register under the canonical bundle id from core
                 // (`asset_id_for_lottie`) so DrawOp::LottieRect / FrameMediaPlan
                 // can resolve bytes without re-deriving the scheme.
-                let bundle_id = asset_id_for_lottie(&lottie_req.element_id, &lottie_req.source)
-                    .unwrap_or_else(|| {
-                        AssetId::new(ResourceKind::Lottie, format!("lottie:{}", lottie_req.element_id))
-                    });
+                let bundle_id = asset_id_for_lottie(&lottie_req.source)
+                    .expect("Unset LottieSource was already filtered above");
                 new_handles.push((bundle_id.clone(), cached_path.clone()));
 
                 // Host-only: scan primary JSON for external deps and cache them

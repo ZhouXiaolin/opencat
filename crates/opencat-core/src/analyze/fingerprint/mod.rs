@@ -802,8 +802,7 @@ mod tests {
 
     #[test]
     fn video_bitmap_fingerprint_tracks_paint_epoch() {
-        let asset_id =
-            AssetId::new(crate::ir::asset_id::ResourceKind::Video, "/tmp/fake.mp4");
+        let asset_id = AssetId::new(crate::ir::asset_id::ResourceKind::Video, "/tmp/fake.mp4");
         let item_a = DisplayItem::Bitmap(BitmapDisplayItem {
             bounds: empty_bounds(),
             asset_id: asset_id.clone(),
@@ -859,8 +858,7 @@ mod tests {
 
     #[test]
     fn item_paint_fingerprint_uses_layout_record_size_not_item_bounds() {
-        let asset_id =
-            AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/image.png");
+        let asset_id = AssetId::new(crate::ir::asset_id::ResourceKind::Image, "/tmp/image.png");
         let same_record_size = LayoutOutputFingerprint {
             record_size: 11,
             ..LayoutOutputFingerprint::default()
@@ -1026,8 +1024,7 @@ mod tests {
 
     #[test]
     fn video_bitmap_paint_fingerprint_is_some() {
-        let asset_id =
-            AssetId::new(crate::ir::asset_id::ResourceKind::Video, "/tmp/fake.mp4");
+        let asset_id = AssetId::new(crate::ir::asset_id::ResourceKind::Video, "/tmp/fake.mp4");
 
         let item = DisplayItem::Bitmap(BitmapDisplayItem {
             bounds: empty_bounds(),

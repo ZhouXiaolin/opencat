@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
 pub use crate::ir::asset_id::{AssetId, ResourceKind};
+use crate::lottie::LottieMeta;
 pub use crate::parse::primitives::VideoSource;
 use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource};
-use crate::lottie::LottieMeta;
 
 /// One unique Lottie source locator — bundle identity is source-based.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

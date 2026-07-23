@@ -435,7 +435,10 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
 
         for asset in canvas.assets_ref() {
             let target = cx.assets.resolve_image(&asset.source)?;
-            cx.assets.alias(AssetId::new(ResourceKind::Image, asset.asset_id.clone()), &target)?;
+            cx.assets.alias(
+                AssetId::new(ResourceKind::Image, asset.asset_id.clone()),
+                &target,
+            )?;
         }
 
         let mut commands = Vec::new();
@@ -610,17 +613,17 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
 
         // Bundle identity is source-based: same locator → same bundle.
         let bundle_id = cx.assets.resolve_lottie(lottie.source())?;
-        let meta =
-            cx.assets
-                .lottie_meta(&bundle_id)
-                .unwrap_or(crate::lottie::LottieMeta {
-                    width: 100,
-                    height: 100,
-                    fps: 30.0,
-                    in_frame: 0.0,
-                    out_frame: 30.0,
-                    dependencies: vec![],
-                });
+        let meta = cx
+            .assets
+            .lottie_meta(&bundle_id)
+            .unwrap_or(crate::lottie::LottieMeta {
+                width: 100,
+                height: 100,
+                fps: 30.0,
+                in_frame: 0.0,
+                out_frame: 30.0,
+                dependencies: vec![],
+            });
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -1772,7 +1775,8 @@ mod tests {
         // rewritten to its canonical AssetId before leaving resolve.
         let mut catalog = PreparedResourceCatalog::default();
         let canonical = catalog.register_dimensions("/tmp/a.png", 10, 10);
-        let alias_id = crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "hero");
+        let alias_id =
+            crate::ir::asset_id::AssetId::new(crate::ir::asset_id::ResourceKind::Image, "hero");
         catalog.alias(alias_id.clone(), &canonical).unwrap();
 
         let mut commands = vec![DrawOp::Image {

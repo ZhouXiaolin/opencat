@@ -15,8 +15,8 @@ use crate::style::NodeStyle;
 pub mod tailwind;
 
 use crate::parse::document::{
-    build_tree, build_tree_with_tl, join_scripts, script_driver_from_decls,
-    validate_unique_ids, DeclaredScript,
+    DeclaredScript, build_tree, build_tree_with_tl, join_scripts, script_driver_from_decls,
+    validate_unique_ids,
 };
 
 #[derive(Debug, Deserialize, Clone, Serialize)]

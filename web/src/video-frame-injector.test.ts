@@ -22,13 +22,9 @@ function mockFn<T extends (...args: any[]) => any>(fn: T) {
   return fn as unknown as ReturnType<typeof vi.fn>;
 }
 
-// Build a renderer mock whose `prepare_frame` returns the given video
-// frames. `timeMicros` is the authoritative core media identity.
-function rendererWith(videoFrames: { assetId: string; timeMicros: number }[]) {
-  return {
-    prepare_frame: () =>
-      JSON.stringify({ videoFrames }),
-  };
+// Build a mediaPlan string with the given video frames.
+function mediaPlanWith(videoFrames: { assetId: string; timeMicros: number }[]): string {
+  return JSON.stringify({ videoFrames });
 }
 
 describe('video frame injector', () => {
@@ -37,27 +33,19 @@ describe('video frame injector', () => {
     clearCachedVideoFrames();
   });
 
-  test('prepares the core frame once before decoding its media plan', async () => {
+  test('parses mediaPlan and decodes video frames for each entry', async () => {
     const frameSource = {
       displayWidth: 640,
       displayHeight: 360,
       close: vi.fn(),
     } as unknown as VideoFrame;
     mockFn(getDecodedVideoFrame).mockResolvedValue(frameSource);
-    const renderer = {
-      prepare_frame: vi.fn(() => JSON.stringify({
-        videoFrames: [{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }],
-      })),
-    };
 
     await injectVideoFramesForRender({
-      renderer: renderer as any,
-      frame: 42,
+      mediaPlan: mediaPlanWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]),
       quality: 'exact',
     });
 
-    expect(renderer.prepare_frame).toHaveBeenCalledOnce();
-    expect(renderer.prepare_frame).toHaveBeenCalledWith(42);
     expect(getDecodedVideoFrame).toHaveBeenCalledWith('video:test.mp4', 1.25, 'exact');
   });
 
@@ -69,10 +57,8 @@ describe('video frame injector', () => {
     } as unknown as VideoFrame;
     mockFn(getDecodedVideoFrame).mockResolvedValue(frameSource);
 
-    // 1.25s = 1_250_000 micros
     await injectVideoFramesForRender({
-      renderer: rendererWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]) as any,
-      frame: 42,
+      mediaPlan: mediaPlanWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]),
       quality: 'exact',
     });
 
@@ -96,11 +82,10 @@ describe('video frame injector', () => {
       .mockResolvedValueOnce(secondFrame);
 
     await injectVideoFramesForRender({
-      renderer: rendererWith([
+      mediaPlan: mediaPlanWith([
         { assetId: 'video:test.mp4', timeMicros: 1_250_000 },
         { assetId: 'video:test.mp4', timeMicros: 12_250_000 },
-      ]) as any,
-      frame: 42,
+      ]),
       quality: 'exact',
     });
 
@@ -120,8 +105,7 @@ describe('video frame injector', () => {
     mockFn(getDecodedFrameRgba).mockResolvedValue(rgbaFrame);
 
     await injectVideoFramesForRender({
-      renderer: rendererWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]) as any,
-      frame: 42,
+      mediaPlan: mediaPlanWith([{ assetId: 'video:test.mp4', timeMicros: 1_250_000 }]),
       quality: 'exact',
       frameOutput: 'rgba',
     });
@@ -136,8 +120,7 @@ describe('video frame injector', () => {
     mockFn(prefetchDecodedVideoFrame).mockResolvedValue(undefined);
 
     await prefetchVideoFramesForRender({
-      renderer: rendererWith([{ assetId: 'video:test.mp4', timeMicros: 2_500_000 }]) as any,
-      frame: 75,
+      mediaPlan: mediaPlanWith([{ assetId: 'video:test.mp4', timeMicros: 2_500_000 }]),
       quality: 'realtime',
     });
 
@@ -150,12 +133,11 @@ describe('video frame injector', () => {
     mockFn(prefetchDecodedVideoFrame).mockResolvedValue(undefined);
 
     await prefetchVideoFramesForRender({
-      renderer: rendererWith([
+      mediaPlan: mediaPlanWith([
         { assetId: 'video:test.mp4', timeMicros: 1_250_000 },
         { assetId: 'video:test.mp4', timeMicros: 1_250_000 }, // dup of the first
         { assetId: 'video:test.mp4', timeMicros: 12_250_000 },
-      ]) as any,
-      frame: 42,
+      ]),
       quality: 'realtime',
     });
 

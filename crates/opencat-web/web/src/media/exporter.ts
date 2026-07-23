@@ -161,17 +161,18 @@ class ExportClip implements IClip {
     this.onProgress(frameNum, this.totalFrames, 'rendering');
     if (frameNum === 0 || frameNum % 5 === 0) await yieldToBrowser();
 
+    // One-shot ABI: build_frame_ir returns both OCIR and media plan.
+    const result = renderer.build_frame_ir(frameNum);
+
     await injectVideoFramesForRender({
-      renderer,
-      frame: frameNum,
+      mediaPlan: result.mediaPlan,
       quality: 'exact',
     });
 
     const surface = this.getSurface(CK);
 
     const ckCanvas = surface.getCanvas();
-    const ir = renderer.build_frame_ir(frameNum);
-    renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
+    renderEncodedDrawFrame(result.ir, ckCanvas, CK, { surface });
     surface.flush();
 
     const startSecs = timeSecs;
@@ -447,9 +448,11 @@ export async function exportPngFrame(
   const catalogJson = await renderer.open_design(jsonlContent);
   await prepareCatalogVideoSources(catalogJson);
 
+  // One-shot ABI: build_frame_ir returns both OCIR and media plan.
+  const result = renderer.build_frame_ir(frame);
+
   await injectVideoFramesForRender({
-    renderer,
-    frame,
+    mediaPlan: result.mediaPlan,
     quality: 'exact',
   });
 
@@ -460,8 +463,7 @@ export async function exportPngFrame(
     if (!surface) throw new Error('createExportSurface failed');
     const ckCanvas = surface.getCanvas();
 
-    const ir = renderer.build_frame_ir(frame);
-    renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
+    renderEncodedDrawFrame(result.ir, ckCanvas, CK, { surface });
     surface.flush();
 
     const blob = await canvasToPngBlob(canvas);

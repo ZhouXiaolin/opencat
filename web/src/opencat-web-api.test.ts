@@ -45,10 +45,11 @@ describe('opencat.js browser API', () => {
     expect(frame).toBeInstanceOf(Uint8Array);
 
     const renderer = {
-      build_frame_ir: (_frame: number) => frame,
+      build_frame_ir: (_frame: number) => ({ ir: frame, mediaPlan: '{}' }),
     } satisfies Pick<WebRendererInstance, 'build_frame_ir'>;
 
-    expect(renderer.build_frame_ir(0)).toBe(frame);
+    expect(renderer.build_frame_ir(0).ir).toBe(frame);
+    expect(renderer.build_frame_ir(0).mediaPlan).toBe('{}');
   });
 
   test('opens a design and returns its web-owned resource catalog', async () => {

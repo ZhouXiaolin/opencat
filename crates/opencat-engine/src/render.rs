@@ -82,8 +82,15 @@ fn render_pipeline_frame_to_rgba(
 /// Premix the whole composition audio track.
 /// Shared by `render_from_jsonl` and `opencat-see`.
 ///
-/// Segment timing comes from core [`opencat_core::AudioPlan`] on
-/// `CompositionInfo` (issue #18). The engine only decodes and mixes.
+/// Segment timing comes exclusively from the canonical core
+/// [`opencat_core::AudioPlan`] on `CompositionInfo::audio_plan` (issue #18 /
+/// issue #47). The engine only decodes and mixes — it never re-walks the
+/// composition tree to calculate its own segment offsets.
+///
+/// The plan is already anchored in microsecond precision; the engine converts
+/// `start_micros` / `end_micros` directly to sample frames for the mix
+/// buffer, so no second derivation of timeline/scene/transition geometry is
+/// possible.
 pub fn build_audio_track_from_pipeline(
     pipeline: &crate::EnginePipeline,
 ) -> Result<Option<AudioTrack>> {

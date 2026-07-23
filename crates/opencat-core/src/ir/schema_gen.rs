@@ -361,54 +361,64 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    const GENERATED_DIR: &str = "../../web/src/generated";
+    /// Package decoder path (rootDir-safe for crates/opencat-web/web tsc).
+    const PACKAGE_GENERATED_DIR: &str = "../opencat-web/web/src/generated";
+    /// Web app test path (draw-ir.test.ts imports from here).
+    const WEB_GENERATED_DIR: &str = "../../web/src/generated";
     const GENERATED_FILE: &str = "ocir-schema.generated.ts";
 
-    /// Absolute path to the checked-in generated file.
-    fn generated_path() -> String {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(GENERATED_DIR);
-        dir.join(GENERATED_FILE).to_string_lossy().to_string()
-    }
-
-    /// Helper: read the existing generated file (if any).
-    fn read_generated() -> Option<String> {
-        std::fs::read_to_string(generated_path()).ok()
+    fn generated_paths() -> [String; 2] {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        [
+            root.join(PACKAGE_GENERATED_DIR)
+                .join(GENERATED_FILE)
+                .to_string_lossy()
+                .into_owned(),
+            root.join(WEB_GENERATED_DIR)
+                .join(GENERATED_FILE)
+                .to_string_lossy()
+                .into_owned(),
+        ]
     }
 
     // -----------------------------------------------------------------------
     // Schema drift — CI bouncer
     // -----------------------------------------------------------------------
 
-    /// Assert that the checked-in generated file is up to date with the core
+    /// Assert that every checked-in generated file is up to date with the core
     /// canonical constants.  If this fails, re-run the `write_ocir_schema` test
-    /// below to regenerate it.
+    /// below to regenerate them.
     #[test]
     fn ocir_schema_generated_file_is_up_to_date() {
-        let generated = read_generated()
-            .unwrap_or_else(|| panic!("Generated file not found at {}", generated_path()));
         let current = generate_ocir_schema_ts();
-        assert_eq!(
-            generated, current,
-            "\n\
-             OCIR TypeScript schema is out of date with core canonical constants.\n\
-             \n\
-             To regenerate:\n\
-               cargo test -p opencat-core write_ocir_schema -- --ignored\n\
-             \n\
-             Then commit the updated file:\n\
-               git add web/src/generated/ocir-schema.generated.ts\n\
-             \n\
-             If the schema changed intentionally, this is expected.\n\
-             If you see this in CI, the PR author forgot to re-run the generator.\n",
-        );
+        for path in generated_paths() {
+            let generated = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("Generated file not found at {path}: {e}"));
+            assert_eq!(
+                generated, current,
+                "\n\
+                 OCIR TypeScript schema is out of date with core canonical constants.\n\
+                 Path: {path}\n\
+                 \n\
+                 To regenerate:\n\
+                   cargo test -p opencat-core write_ocir_schema -- --ignored\n\
+                 \n\
+                 Then commit the updated files:\n\
+                   git add crates/opencat-web/web/src/generated/ocir-schema.generated.ts \\\n\
+                           web/src/generated/ocir-schema.generated.ts\n\
+                 \n\
+                 If the schema changed intentionally, this is expected.\n\
+                 If you see this in CI, the PR author forgot to re-run the generator.\n",
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
     // Write — run manually or on `-- --ignored` to regenerate
     // -----------------------------------------------------------------------
 
-    /// Write the generated TypeScript file.  Run this when core canonical
-    /// constants change so that the Web build stays in sync.
+    /// Write the generated TypeScript file to package + web-app paths.  Run this
+    /// when core canonical constants change so that the Web build stays in sync.
     ///
     /// This test is `#[ignore]`d by default so it doesn't write to the source
     /// tree on every `cargo test`.  Run it explicitly:
@@ -417,20 +427,21 @@ mod tests {
     #[test]
     #[ignore]
     fn write_ocir_schema() {
-        let path = generated_path();
-        let dir = Path::new(&path).parent().unwrap();
-        std::fs::create_dir_all(dir)
-            .unwrap_or_else(|e| panic!("failed to create {dir:?}: {e}"));
-
         let ts = generate_ocir_schema_ts();
-        std::fs::write(&path, &ts)
-            .unwrap_or_else(|e| panic!("failed to write {path}: {e}"));
+        for path in generated_paths() {
+            let dir = Path::new(&path).parent().unwrap();
+            std::fs::create_dir_all(dir)
+                .unwrap_or_else(|e| panic!("failed to create {dir:?}: {e}"));
 
-        // Sanity: re-read matches.
-        let reread = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("failed to re-read {path}: {e}"));
-        assert_eq!(reread, ts, "written file must be byte-identical");
+            std::fs::write(&path, &ts)
+                .unwrap_or_else(|e| panic!("failed to write {path}: {e}"));
 
-        eprintln!("OCIR schema written to {path}");
+            // Sanity: re-read matches.
+            let reread = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("failed to re-read {path}: {e}"));
+            assert_eq!(reread, ts, "written file must be byte-identical: {path}");
+
+            eprintln!("OCIR schema written to {path}");
+        }
     }
 }

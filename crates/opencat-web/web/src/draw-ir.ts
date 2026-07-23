@@ -11,7 +11,7 @@ import {
   PATH_OP_SUB,
   PATH_OP_F32_WIDTHS,
   BLEND_MODE,
-} from '../../../../web/src/generated/ocir-schema.generated';
+} from './generated/ocir-schema.generated';
 import type {
   BlendMode,
   BlurStyle,
@@ -116,6 +116,7 @@ const NO_PAINT = 0xffff_ffff;
 
 // Derive CanvasKit PascalCase blend-mode names from the generated wire enum so
 // mapBlendMode stays drift-proof against additions to the Rust encoder.
+// Indexed via `as keyof typeof CK.BlendMode` — BlendModeEnumValues has no string index signature.
 const BLEND_MODE_NAMES: readonly string[] = (() => {
   const pascal = (s: string): string =>
     s.split('_').map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
@@ -1512,7 +1513,8 @@ function mapPaintStyle(CK: CanvasKit, value: number): CanvasKitEnum {
 }
 
 function mapBlendMode(CK: CanvasKit, value: number): CanvasKitEnum {
-  return CK.BlendMode[BLEND_MODE_NAMES[value] ?? 'SrcOver'] as CanvasKitEnum;
+  const name = (BLEND_MODE_NAMES[value] ?? 'SrcOver') as keyof typeof CK.BlendMode;
+  return CK.BlendMode[name] as CanvasKitEnum;
 }
 
 function mapStrokeCap(CK: CanvasKit, value: number): CanvasKitEnum {

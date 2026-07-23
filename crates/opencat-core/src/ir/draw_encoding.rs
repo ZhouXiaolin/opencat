@@ -2461,4 +2461,43 @@ mod tests {
         let reread = std::fs::read(&path).unwrap();
         assert_eq!(reread, bytes);
     }
+
+    /// AC #48: OCIR encoding is byte-deterministic for a non-trivial RenderFrame.
+    /// Encoding the same frame must produce byte-identical output regardless of
+    /// scratch reuse or fresh allocation.
+    #[test]
+    fn encode_non_trivial_frame_is_byte_deterministic() {
+        let mut render_frame = roundtrip_fixture_render_frame();
+        intern_image_strings(&mut render_frame.draw);
+
+        // Encode twice with the same reused scratch.
+        let mut scratch = DrawFrameScratch::default();
+        let bytes_a = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
+        scratch.clear();
+        let bytes_b = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
+        assert_eq!(
+            bytes_a, bytes_b,
+            "same RenderFrame encoded twice (reused scratch) must produce byte-identical OCIR"
+        );
+
+        // Encode again with a fresh scratch — still identical.
+        let mut fresh_scratch = DrawFrameScratch::default();
+        let bytes_c = encode_ir_envelope(&render_frame, &mut fresh_scratch).unwrap();
+        assert_eq!(
+            bytes_a, bytes_c,
+            "same RenderFrame encoded with fresh scratch must produce byte-identical OCIR"
+        );
+
+        // Each envelope is a valid self-contained OCIR v5.
+        assert_eq!(&bytes_a[0..4], b"OCIR");
+        assert_eq!(
+            u32::from_le_bytes(bytes_a[4..8].try_into().unwrap()),
+            IR_VERSION,
+        );
+        let section_count = u32::from_le_bytes(bytes_a[8..12].try_into().unwrap());
+        assert!(
+            section_count > 0,
+            "non-trivial envelope must have sections"
+        );
+    }
 }

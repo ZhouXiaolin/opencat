@@ -705,7 +705,7 @@ impl MutationStore {
             .unwrap_or_default()
     }
 
-    pub fn morph_svg_dispose(&mut self, handle: i32) {
+    pub fn morph_svg_dispose(&mut self, _handle: i32) {
         // Morph entries are in a Vec; we mark invalid by blanking, or just
         // leave them since reset_for_frame clears everything next frame.
     }
@@ -733,7 +733,7 @@ impl MutationStore {
             .unwrap_or((0.0, 0.0, 0.0))
     }
 
-    pub fn along_path_dispose(&mut self, handle: i32) {
+    pub fn along_path_dispose(&mut self, _handle: i32) {
         // Path entries are in a Vec; reset_for_frame clears everything next frame.
     }
 }

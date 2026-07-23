@@ -476,7 +476,7 @@ macro_rules! for_each_binding {
             );
         }}
 
-        // ── Cmd: store mutations (5 entries: animate, morph, along_path) ──
+        // ── Cmd: store mutations (3 entries: animate, morph, along_path) ──
         $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
             let clamp = clamp_flag != 0;
             let yoyo = yoyo_flag != 0;
@@ -486,16 +486,8 @@ macro_rules! for_each_binding {
         $binding! { cmd $store morph_svg_create (from_svg: String, to_svg: String, grid_size: f32) -> i32 {
             Ok($store.morph_svg_create(&from_svg, &to_svg, grid_size as u32).unwrap_or(-1))
         }}
-        $binding! { cmd $store morph_svg_dispose (handle: i32) -> () {
-            $store.morph_svg_dispose(handle);
-            Ok(())
-        }}
         $binding! { cmd $store along_path_create (svg: String) -> i32 {
             $store.along_path_create(&svg).ok_or_else(|| anyhow::anyhow!("invalid SVG path"))
-        }}
-        $binding! { cmd $store along_path_dispose (handle: i32) -> () {
-            $store.along_path_dispose(handle);
-            Ok(())
         }}
 
         // ── Qry: store reads (10 entries: animate, morph, text, along_path) ─

@@ -78,13 +78,9 @@ fn collect_sources_static(node: &Node, req: &mut ResourceRequests) {
                 lottie.source(),
                 crate::parse::primitives::LottieSource::Unset
             ) {
-                let id = lottie.style_ref().id.clone();
-                if !id.is_empty() {
-                    req.lotties.insert(crate::probe::catalog::LottieRequest {
-                        element_id: id,
-                        source: lottie.source().clone(),
-                    });
-                }
+                req.lotties.insert(crate::probe::catalog::LottieRequest {
+                    source: lottie.source().clone(),
+                });
             }
         }
         NodeKind::Video(video) => {
@@ -159,13 +155,9 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
                 lottie.source(),
                 crate::parse::primitives::LottieSource::Unset
             ) {
-                let id = lottie.style_ref().id.clone();
-                if !id.is_empty() {
-                    req.lotties.insert(crate::probe::catalog::LottieRequest {
-                        element_id: id,
-                        source: lottie.source().clone(),
-                    });
-                }
+                req.lotties.insert(crate::probe::catalog::LottieRequest {
+                    source: lottie.source().clone(),
+                });
             }
         }
         NodeKind::Video(video) => {

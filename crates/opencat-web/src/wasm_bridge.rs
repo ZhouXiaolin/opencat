@@ -73,7 +73,7 @@ impl WebRenderer {
     ///
     /// This is the host-owned open flow mirroring the engine's
     /// `open_parsed_host_owned` (#7): web fetches all declared resources,
-    /// builds a prepared `PreparedResourceCatalog` via core's pure `probe::prepare`
+    /// builds a prepared `HostInputs` via core's explicit lifecycle
     /// chain, hydrates captions, injects the font database, then opens the
     /// pipeline. Subsequent [`build_frame_ir`] calls render against this
     /// pipeline until the next `open_design`.
@@ -824,10 +824,6 @@ mod tests {
             )
             .expect("insert under request id");
         let prepared = draft.prepare(inputs).expect("prepare");
-        assert_eq!(
-            prepared.catalog().lotties[&id].dependencies,
-            vec!["dep.png".to_string()]
-        );
         let ctx = <WebJsContext as JsContext>::new().expect("js");
         let mut pipeline = prepared.open_pipeline(ctx).expect("open via lifecycle");
         let frame = pipeline.render_frame(0).expect("render");

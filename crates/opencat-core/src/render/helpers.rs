@@ -23,8 +23,8 @@ use crate::parse::gl_transition;
 use crate::parse::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
 };
-use crate::render::builder::DrawOpBuilder;
 use crate::probe::catalog::VideoInfoMeta;
+use crate::render::builder::DrawOpBuilder;
 use crate::style::{
     BackgroundFill, BorderRadius, BorderStyle, BoxShadow, ColorToken, CssFilter, CssFilterKind,
     DropShadow, GradientDirection, InsetShadow, ObjectFit,

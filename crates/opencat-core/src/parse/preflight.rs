@@ -203,13 +203,13 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::fonts::FontManifest;
     use crate::parse::{
         composition::{AudioAttachment, Composition, CompositionAudioSource},
         document::ParsedComposition,
         primitives::{AudioSource, VideoSource, div, image, video, video_url},
         transition::{fade, timeline},
     };
-    use crate::fonts::FontManifest;
 
     fn parsed_from_root(root: Node) -> ParsedComposition {
         ParsedComposition {

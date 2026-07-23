@@ -53,11 +53,10 @@ impl TestCatalog {
     }
 
     pub fn alias(&mut self, alias: AssetId, target: &AssetId) -> anyhow::Result<()> {
-        let dims = self
-            .dims
-            .get(target)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("alias target {target:?} is not a declared asset"))?;
+        let dims =
+            self.dims.get(target).copied().ok_or_else(|| {
+                anyhow::anyhow!("alias target {target:?} is not a declared asset")
+            })?;
         self.dims.insert(alias.clone(), dims);
         self.aliases.insert(alias, target.clone());
         Ok(())
@@ -147,7 +146,10 @@ impl TestCatalog {
         self.video_info.get(id).copied()
     }
 
-    pub fn resolve_lottie(&mut self, src: &crate::parse::primitives::LottieSource) -> anyhow::Result<AssetId> {
+    pub fn resolve_lottie(
+        &mut self,
+        src: &crate::parse::primitives::LottieSource,
+    ) -> anyhow::Result<AssetId> {
         crate::ir::asset_id::asset_id_for_lottie(src)
             .ok_or_else(|| anyhow::anyhow!("unset lottie source"))
     }

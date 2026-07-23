@@ -691,8 +691,6 @@ function decodeFrame(bytes: Uint8Array): DecodedFrame {
 /// Image is built on first use by resolveImage. Since v5+ is self-contained
 /// (no epoch), a glyph whose id already has an entry is replaced transparently
 /// — the same id always carries the same RGBA from the same RenderFrame.
-const generatedImageRgba = new Map<string, { width: number; height: number; rgba: Uint8Array }>();
-
 function parseGeneratedImages(section: Uint8Array): void {
   const reader = new BinaryReader(section);
   const count = reader.u32();

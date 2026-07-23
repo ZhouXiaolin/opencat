@@ -5,8 +5,8 @@ declare module '../pkg/opencat_web.js' {
   export class WebRenderer {
     constructor();
     open_design(compositionSource: string): Promise<string>;
-    build_frame_ir(frame: number): Uint8Array;
-    prepare_frame(frame: number): string;
+    build_frame_ir(frame: number): { ir: Uint8Array; mediaPlan: string; frame: number };
+    get_frame_plan(frame: number): string;
     load_default_fonts(sans_sc: Uint8Array, color_emoji: Uint8Array): void;
     load_font_data(bytes: Uint8Array): void;
     decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;

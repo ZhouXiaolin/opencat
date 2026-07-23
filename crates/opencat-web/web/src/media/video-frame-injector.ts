@@ -1,4 +1,4 @@
-import { getBlobBytes, type WebRendererInstance } from '../wasm';
+import { getBlobBytes } from '../wasm';
 import {
   getDecodedFrameRgba,
   getDecodedVideoFrame,
@@ -13,8 +13,8 @@ interface MediaPlanVideoFrame {
 }
 
 interface InjectVideoFramesOptions {
-  renderer: WebRendererInstance;
-  frame: number;
+  /** Media plan JSON string from `build_frame_ir` result or `get_frame_plan`. */
+  mediaPlan: string;
   quality: VideoPreviewQuality;
   frameOutput?: 'source' | 'rgba';
 }
@@ -124,19 +124,18 @@ export async function prepareCatalogVideoSources(
 }
 
 export async function injectVideoFramesForRender({
-  renderer,
-  frame,
+  mediaPlan,
   quality,
   frameOutput = 'source',
 }: InjectVideoFramesOptions): Promise<void> {
   clearCachedVideoFrames();
 
-  // Read the frame's media plan directly from the core pipeline (issue #8):
-  // the plan carries the authoritative `timeMicros`, replacing the old
+  // Parse the frame media plan (from build_frame_ir or get_frame_plan).
+  // The plan carries the authoritative `timeMicros`, replacing the old
   // `plan_video_frames` tree walk.
   let videoFrames: MediaPlanVideoFrame[] = [];
   try {
-    const plan = JSON.parse(renderer.prepare_frame(frame));
+    const plan = JSON.parse(mediaPlan);
     videoFrames = (plan.videoFrames ?? []) as MediaPlanVideoFrame[];
   } catch {
     return;
@@ -186,13 +185,12 @@ export async function injectVideoFramesForRender({
 }
 
 export async function prefetchVideoFramesForRender({
-  renderer,
-  frame,
+  mediaPlan,
   quality,
 }: InjectVideoFramesOptions): Promise<void> {
   let videoFrames: MediaPlanVideoFrame[] = [];
   try {
-    const plan = JSON.parse(renderer.prepare_frame(frame));
+    const plan = JSON.parse(mediaPlan);
     videoFrames = (plan.videoFrames ?? []) as MediaPlanVideoFrame[];
   } catch {
     return;

@@ -453,7 +453,7 @@ mod tests {
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        // Open through the host-owned chain (fetch/cache → build_catalog →
+        // Open through the host-owned chain (fetch/cache → probe metadata →
         // hydrate captions → open_pipeline), the same path the
         // engine uses in production. No open_parsed / loader_mut here.
         let pipeline = crate::pipeline::open_parsed_host_owned(

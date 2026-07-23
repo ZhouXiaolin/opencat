@@ -38,15 +38,14 @@ impl BlobStore {
     }
 
     /// Iterate over `(asset_id, bytes)` pairs. Used by the host-owned open
-    /// flow to build the `ByteSource` map fed to core's pure `build_catalog`.
+    /// flow to supply bytes to the next pipeline's BlobStore.
     pub fn iter(&self) -> impl Iterator<Item = (&AssetId, &Arc<[u8]>)> {
         self.blobs.iter()
     }
 
     /// Snapshot every `(canonical asset id, bytes)` pair into an owned map
-    /// keyed by `AssetId` string. This is the host-side bridge to core's pure
-    /// `probe::prepare::build_catalog` (which keys on canonical id strings),
-    /// mirroring the engine's `collect_probe_bytes_by_asset_id`.
+    /// keyed by `AssetId` string. Host uses this to pass bytes to the next
+    /// pipeline stage.
     pub fn to_byte_map(&self) -> std::collections::HashMap<String, Vec<u8>> {
         self.blobs
             .iter()

@@ -79,6 +79,31 @@ impl<C: JsContext> ScriptRealm<C> {
         )?;
         self.ctx.install_dispatcher(dispatch_binding)?;
         self.ctx.eval(&binding_shim_js())?;
+
+        // Override Math.random with a seeded deterministic version sourced
+        // from the frame number (set via apply_frame_ctx before user code
+        // runs). This ensures cross-frame determinism — same frame index
+        // always produces the same random sequence.
+        // Must be done AFTER the binding shim is installed so
+        // __util_random_seeded is available.
+        self.ctx.eval(
+            "var __opencatOriginalRandom = Math.random;\
+             Math.random = function() {\
+               var seed = typeof ctx !== 'undefined' && ctx ? Number(ctx.frame || 0) : 0;\
+               return __util_random_seeded(seed + __opencatRandomCallIndex++);\
+             };\
+             globalThis.__opencatRandomCallIndex = 0;",
+        )?;
+
+        // Disable real clock: Date.now always returns 0 so scripts cannot
+        // depend on wall-clock time. The only time a script should read is
+        // ctx.currentTime / ctx.frame, both sourced from FrameCtx.
+        self.ctx.eval(
+            "var _Date = Date;\
+             Date = function() { return new _Date(0); };\
+             Date.now = function() { return 0; };",
+        )?;
+
         self.ctx.eval(NODE_STYLE_RUNTIME)?;
         self.ctx.eval(CANVAS_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
@@ -107,6 +132,10 @@ impl<C: JsContext> ScriptRealm<C> {
     ) -> Result<()> {
         self.ctx
             .with_store_mut(|s| s.reset_for_frame(frame_ctx.current_frame, frame_ctx.fps));
+
+        // Reset the Math.random call index so each frame starts with the same
+        // random sequence at the same frame number.
+        self.ctx.eval("globalThis.__opencatRandomCallIndex = 0;")?;
 
         // Text sources are realm-scoped and reapplied every run so callers can
         // clear/register between nodes without leaking into other pipelines.

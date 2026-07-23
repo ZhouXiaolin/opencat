@@ -1,31 +1,33 @@
-//! wasm-bindgen bridge: build each frame as one binary DrawOp IR blob.
+//! wasm-bindgen bridge: one-shot compiled frame ABI (issue #61).
 //!
 //! Host-owned persistent pipeline (issue #8 / #11). The renderer holds a single
 //! `DefaultPipeline<WebJsContext>` opened once via
 //! [`WebRenderer::open_design`]; each [`WebRenderer::build_frame_ir`] call
-//! just runs `pipeline.render_frame(frame)` and encodes the draw ops. Core
-//! never fetches — web fetches all declared assets during `open_design`,
+//! runs `pipeline.render_frame(frame)`, encodes the draw ops, and returns
+//! **both** the self-contained OCIR envelope and the frame media plan in a
+//! single call — no separate `prepare_frame`, no `pending_frame` cache.
+//!
+//! Core never fetches — web fetches all declared assets during `open_design`,
 //! feeds host-probed metadata into core's explicit lifecycle
 //! (`CompositionDraft` → `HostInputs` → `prepare` → `open_pipeline`). This
 //! mirrors the engine's `open_parsed_host_owned` path (#7 / #15).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
+use js_sys::Object;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
-use opencat_core::ir::GeneratedImageId;
 use opencat_core::ir::CompositionInfo;
 use opencat_core::ir::RenderFrame;
-use opencat_core::ir::asset_id::{asset_id_for_subtitle, AssetId};
+use opencat_core::ir::asset_id::{asset_id_for_subtitle};
 use opencat_core::ir::draw_frame::DrawFrameScratch;
 use opencat_core::ir::draw_types::ImageRef;
-use opencat_core::ir::media_plan::{FrameGeneratedImage, FrameMediaPlan};
+use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
-use opencat_core::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
+use opencat_core::probe::catalog::ResourceRequests;
 use opencat_core::fonts::font_asset_id;
 use opencat_core::script::js_context::JsContext;
 
@@ -39,7 +41,6 @@ pub struct WebRenderer {
     pipeline: Option<DefaultPipeline<WebJsContext>>,
     /// Cached composition metadata from the opened pipeline.
     info: Option<CompositionInfo>,
-    pending_frame: Option<(u32, RenderFrame)>,
     scratch: DrawFrameScratch,
     audio: WebAudio,
     default_sans_sc: Option<Vec<u8>>,
@@ -60,7 +61,6 @@ impl WebRenderer {
         Ok(Self {
             pipeline: None,
             info: None,
-            pending_frame: None,
             scratch: DrawFrameScratch::default(),
             audio,
             default_sans_sc: None,
@@ -101,56 +101,68 @@ impl WebRenderer {
         let (info, pipeline, catalog_json) = result?;
         self.info = Some(info);
         self.pipeline = Some(pipeline);
-        self.pending_frame = None;
         Ok(catalog_json)
     }
 
-    /// Render `frame` against the opened pipeline and encode its draw ops as a
-    /// self-contained OCIR envelope (issue #45). All generated-image RGBA is
-    /// fully encoded every frame — no epoch/delta/history dependency. Call
-    /// [`open_design`] first.
+    /// One-shot build of a compiled frame (issue #61).
+    ///
+    /// Renders `frame` against the opened pipeline, encodes its draw ops as a
+    /// self-contained OCIR envelope, and returns **both** the OCIR bytes and the
+    /// frame's media plan in a single JS object `{ ir: Uint8Array, mediaPlan: string }`.
+    ///
+    /// There is no separate `prepare_frame` or `pending_frame` cache — every call
+    /// is independent and self-contained. The JS host uses the `mediaPlan` to
+    /// drive its own video decoder window / readahead / Lottie / image fetching,
+    /// then feeds the `ir` bytes to `renderEncodedDrawFrame`.
     #[wasm_bindgen]
-    pub fn build_frame_ir(&mut self, frame: u32) -> Result<Vec<u8>, JsValue> {
+    pub fn build_frame_ir(&mut self, frame: u32) -> Result<JsValue, JsValue> {
         let pipeline = self.pipeline.as_mut().ok_or_else(|| {
             JsValue::from_str("build_frame_ir: no design opened; call open_design first")
         })?;
 
-        let render = match self.pending_frame.take() {
-            Some((pending_index, render)) if pending_index == frame => render,
-            _ => pipeline
-                .render_frame(frame)
-                .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?,
+        let render = pipeline
+            .render_frame(frame)
+            .map_err(|e| JsValue::from_str(&format!("render_frame: {e}")))?;
+
+        let mut render = RenderFrame {
+            draw: render.draw,
+            media: render.media,
         };
 
-        crate::consumer::encode_render_frame_envelope(
-            &mut RenderFrame {
-                draw: render.draw,
-                media: render.media,
-            },
+        // Extract the media plan BEFORE encoding (encoding mutates draw internals).
+        let plan_json = media_plan_to_json(&render.media);
+
+        let ocir = crate::consumer::encode_render_frame_envelope(
+            &mut render,
             &mut self.scratch,
         )
-        .map_err(|e| JsValue::from_str(&e.0))
+        .map_err(|e| JsValue::from_str(&e.0))?;
+
+        // Build JS object: { ir: Uint8Array, mediaPlan: string }
+        let obj = Object::new();
+        let ir_array = js_sys::Uint8Array::from(&ocir[..]);
+        js_sys::Reflect::set(&obj, &JsValue::from_str("ir"), &ir_array)
+            .map_err(|_| JsValue::from_str("build_frame_ir: failed to set ir"))?;
+        js_sys::Reflect::set(&obj, &JsValue::from_str("mediaPlan"), &JsValue::from_str(&plan_json))
+            .map_err(|_| JsValue::from_str("build_frame_ir: failed to set mediaPlan"))?;
+        Ok(JsValue::from(obj))
     }
 
-    /// Return the current frame's [`FrameMediaPlan`] as JSON so JS can drive
-    /// its own video decoder window / readahead / Lottie / image fetching from
-    /// the core-derived media contract (replaces the old `plan_video_frames`
-    /// tree walk). Call after [`open_design`].
+    /// Return the current frame's [`FrameMediaPlan`] as JSON — convenience alias
+    /// that JS can use for readahead/prefetch without the full `build_frame_ir`
+    /// cost. Renders the frame and returns only the plan (no caching).
     ///
     /// Shape: `{ videoFrames: [{assetId, timeMicros}], images: [assetId],
     /// lottieBundles: [id], generatedImages: [{id,width,height}], ... }`.
-    /// Full RGBA for generated images is on the OCIR envelope, not this JSON.
     #[wasm_bindgen]
-    pub fn prepare_frame(&mut self, frame: u32) -> Result<String, JsValue> {
+    pub fn get_frame_plan(&mut self, frame: u32) -> Result<String, JsValue> {
         let pipeline = self.pipeline.as_mut().ok_or_else(|| {
-            JsValue::from_str("prepare_frame: no design opened; call open_design first")
+            JsValue::from_str("get_frame_plan: no design opened; call open_design first")
         })?;
         let render = pipeline
             .render_frame(frame)
-            .map_err(|e| JsValue::from_str(&format!("prepare_frame render: {e}")))?;
-        let plan_json = media_plan_to_json(&render.media);
-        self.pending_frame = Some((frame, render));
-        Ok(plan_json)
+            .map_err(|e| JsValue::from_str(&format!("get_frame_plan render: {e}")))?;
+        Ok(media_plan_to_json(&render.media))
     }
 
     pub async fn decode_audio_file(
@@ -320,7 +332,7 @@ fn media_plan_to_json(plan: &FrameMediaPlan) -> String {
         .iter()
         .map(|id| json!({ "bundleId": id }))
         .collect();
-    // JS prepare_frame only needs ids for cache bookkeeping; full RGBA rides
+    // The media plan only needs ids for cache bookkeeping; full RGBA rides
     // the OCIR envelope (section 12). Width/height are still useful for
     // allocation hints without decoding the binary delta.
     let generated_images: Vec<Value> = plan

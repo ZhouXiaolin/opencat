@@ -127,9 +127,9 @@
         // Headless SwiftShader often cannot import VideoFrame textures via
         // makeImageFromTextureSource. Inject as CPU RGBA so draw-ir can
         // MakeImage() without a GPU texture path.
+        const result = renderer.build_frame_ir(frame);
         await injectVideoFramesForRender({
-          renderer,
-          frame,
+          mediaPlan: result.mediaPlan,
           quality: 'exact',
           frameOutput: 'rgba',
         });
@@ -143,7 +143,7 @@
           if (!surface) throw new Error('surface creation failed');
 
           const ckCanvas = surface.getCanvas();
-          const ir = renderer.build_frame_ir(frame);
+          const ir = result.ir;
           renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
           surface.flush();
 

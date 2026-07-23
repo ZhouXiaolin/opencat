@@ -29,7 +29,7 @@ describe('PNG frame export', () => {
     };
     const renderer = {
       open_design: vi.fn(async () => {}),
-      build_frame_ir: vi.fn(() => new Uint8Array()),
+      build_frame_ir: vi.fn(() => ({ ir: new Uint8Array(), mediaPlan: '{}' })),
     };
     const anchor = {
       href: '',

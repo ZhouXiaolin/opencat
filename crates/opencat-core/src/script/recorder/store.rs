@@ -32,12 +32,9 @@ pub struct MutationStore {
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
     text_sources: HashMap<String, ScriptTextSource>,
-    animate_entries: HashMap<i32, AnimateEntry>,
-    animate_next_id: i32,
-    morph_entries: HashMap<i32, MorphSvgEntry>,
-    morph_next_id: i32,
-    path_entries: HashMap<i32, PathMeasureEntry>,
-    path_next_id: i32,
+    animate_entries: Vec<AnimateEntry>,
+    morph_entries: Vec<MorphSvgEntry>,
+    path_entries: Vec<PathMeasureEntry>,
     current_frame: u32,
     fps: u32,
 }
@@ -623,28 +620,24 @@ impl MutationStore {
         };
         let settled = repeat >= 0 && current_frame >= delay_u32.saturating_add(total_frames);
         let settle_frame = delay_u32.saturating_add(total_frames);
-        let handle = self.animate_next_id;
-        self.animate_next_id += 1;
-        self.animate_entries.insert(
-            handle,
-            AnimateEntry {
-                progress,
-                settled,
-                settle_frame,
-                duration: duration_u32,
-                delay: delay_u32,
-                clamp,
-                easing,
-                repeat,
-                yoyo,
-                repeat_delay: repeat_delay_u32,
-            },
-        );
+        let handle = self.animate_entries.len() as i32;
+        self.animate_entries.push(AnimateEntry {
+            progress,
+            settled,
+            settle_frame,
+            duration: duration_u32,
+            delay: delay_u32,
+            clamp,
+            easing,
+            repeat,
+            yoyo,
+            repeat_delay: repeat_delay_u32,
+        });
         handle
     }
 
     pub fn animate_value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
-        if let Some(entry) = self.animate_entries.get(&handle) {
+        if let Some(entry) = self.animate_entries.get(handle as usize) {
             crate::parse::easing::animate_value(
                 current_frame,
                 entry.duration,
@@ -663,7 +656,7 @@ impl MutationStore {
     }
 
     pub fn animate_color(&self, handle: i32, from: &str, to: &str) -> String {
-        let Some(entry) = self.animate_entries.get(&handle) else {
+        let Some(entry) = self.animate_entries.get(handle as usize) else {
             return from.to_string();
         };
         match (parse_color(from), parse_color(to)) {
@@ -677,21 +670,21 @@ impl MutationStore {
 
     pub fn animate_progress(&self, handle: i32) -> f32 {
         self.animate_entries
-            .get(&handle)
+            .get(handle as usize)
             .map(|e| e.progress)
             .unwrap_or(0.0)
     }
 
     pub fn animate_settled(&self, handle: i32) -> bool {
         self.animate_entries
-            .get(&handle)
+            .get(handle as usize)
             .map(|e| e.settled)
             .unwrap_or(false)
     }
 
     pub fn animate_settle_frame(&self, handle: i32) -> u32 {
         self.animate_entries
-            .get(&handle)
+            .get(handle as usize)
             .map(|e| e.settle_frame)
             .unwrap_or(0)
     }
@@ -700,49 +693,48 @@ impl MutationStore {
 
     pub fn morph_svg_create(&mut self, from_svg: &str, to_svg: &str, grid: u32) -> Option<i32> {
         let entry = MorphSvgEntry::new(from_svg, to_svg, grid)?;
-        let handle = self.morph_next_id;
-        self.morph_next_id += 1;
-        self.morph_entries.insert(handle, entry);
+        let handle = self.morph_entries.len() as i32;
+        self.morph_entries.push(entry);
         Some(handle)
     }
 
     pub fn morph_svg_sample(&self, handle: i32, t: f32, tolerance: f32) -> String {
         self.morph_entries
-            .get(&handle)
+            .get(handle as usize)
             .map(|e| e.sample(t, tolerance))
             .unwrap_or_default()
     }
 
     pub fn morph_svg_dispose(&mut self, handle: i32) {
-        self.morph_entries.remove(&handle);
+        // Morph entries are in a Vec; we mark invalid by blanking, or just
+        // leave them since reset_for_frame clears everything next frame.
     }
 
     // ── Along Path ──
 
     pub fn along_path_create(&mut self, svg: &str) -> Option<i32> {
         let entry = PathMeasureEntry::from_svg(svg)?;
-        let handle = self.path_next_id;
-        self.path_next_id += 1;
-        self.path_entries.insert(handle, entry);
+        let handle = self.path_entries.len() as i32;
+        self.path_entries.push(entry);
         Some(handle)
     }
 
     pub fn along_path_length(&self, handle: i32) -> f32 {
         self.path_entries
-            .get(&handle)
+            .get(handle as usize)
             .map(|e| e.total_length)
             .unwrap_or(0.0)
     }
 
     pub fn along_path_at(&self, handle: i32, t: f32) -> (f32, f32, f32) {
         self.path_entries
-            .get(&handle)
+            .get(handle as usize)
             .map(|e| e.sample(t))
             .unwrap_or((0.0, 0.0, 0.0))
     }
 
     pub fn along_path_dispose(&mut self, handle: i32) {
-        self.path_entries.remove(&handle);
+        // Path entries are in a Vec; reset_for_frame clears everything next frame.
     }
 }
 
@@ -1046,7 +1038,8 @@ impl MutationRecorder for MutationStore {
         self.styles.clear();
         self.canvases.clear();
         self.animate_entries.clear();
-        self.animate_next_id = 0;
+        self.morph_entries.clear();
+        self.path_entries.clear();
         self.current_frame = current_frame;
         self.fps = fps.max(1);
     }

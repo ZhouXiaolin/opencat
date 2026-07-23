@@ -64,7 +64,11 @@ impl EnginePipelineHost {
         &mut self.loader
     }
 
-    /// Delegate: composition info (width/height/fps/duration/requests/audio plan).
+    /// Delegate: composition info (width/height/fps/duration/audio plan).
+    ///
+    /// `audio_plan` on the returned [`CompositionInfo`] is the **canonical**
+    /// composition-level audio schedule. All decode/mix/encode code reads from
+    /// this plan; it must not re-walk the AST for segment offsets.
     pub fn info(&self) -> &opencat_core::ir::CompositionInfo {
         use opencat_core::pipeline::Pipeline;
         self.pipeline.info()

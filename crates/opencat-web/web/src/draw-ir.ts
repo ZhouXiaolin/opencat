@@ -288,6 +288,135 @@ const effectCache = new Map<bigint, RuntimeEffect>();
 const generatedImageCache = new Map<string, Image>();
 const generatedImageRgba = new Map<string, { width: number; height: number; rgba: Uint8Array }>();
 
+// ---------------------------------------------------------------------------
+// Media validation — typed errors for atomic fail-fast before CanvasKit replay
+// ---------------------------------------------------------------------------
+
+/**
+ * Error thrown when validation detects a missing or failed media entry before
+ * replay starts. Each instance carries the asset type and identifier so the
+ * host can distinguish failure modes without string matching.
+ */
+export class MediaValidationError extends Error {
+  constructor(
+    public readonly mediaType: 'image' | 'video' | 'lottie' | 'generatedImage' | 'runtimeEffect',
+    public readonly assetId: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'MediaValidationError';
+  }
+}
+
+/** Walk a decoded frame and check every referenced media entry is available. */
+function validateFrameMedia(frame: DecodedFrame): void {
+  // Check every op for media references.
+  const entries = parseOps(frame.ops);
+
+  const checkImage = (image: DecodedImageRef) => {
+    if (image.type === 'static') {
+      const bytes = getBlobBytes(image.assetId);
+      if (!bytes || bytes.length === 0) {
+        throw new MediaValidationError(
+          'image',
+          image.assetId,
+          `Missing image data for assetId="${image.assetId}"`,
+        );
+      }
+    } else if (image.type === 'video') {
+      const cached = getCachedVideoFrameRgba(image.assetId, image.timeMicros);
+      const source = getCachedVideoFrameSource(image.assetId, image.timeMicros);
+      if (!cached && !source) {
+        throw new MediaValidationError(
+          'video',
+          `${image.assetId}@${image.timeMicros}`,
+          `Missing video frame for assetId="${image.assetId}" at time ${image.timeMicros}`,
+        );
+      }
+    }
+    // Generated images are validated by section 12 parsing.
+  };
+
+  const checkLottie = (bundleId: string) => {
+    const bytes = getBlobBytes(bundleId);
+    if (!bytes || bytes.length === 0) {
+      throw new MediaValidationError(
+        'lottie',
+        bundleId,
+        `Missing Lottie bundle data for bundleId="${bundleId}"`,
+      );
+    }
+  };
+
+  const checkRuntimeEffect = (hash: bigint, sksl: string) => {
+    if (!sksl || sksl.length === 0) {
+      throw new MediaValidationError(
+        'runtimeEffect',
+        `0x${hash.toString(16)}`,
+        `Empty sksl for runtime effect ${hash}`,
+      );
+    }
+  };
+
+  const payload = new Payload(frame.ops, 0, frame.ops.byteLength);
+  for (const entry of entries) {
+    switch (entry.opcode) {
+      case OP_IMAGE: {
+        const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
+        const image = readImageRef(p, frame);
+        checkImage(image);
+        break;
+      }
+      case OP_IMAGE_RECT: {
+        const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
+        const image = readImageRef(p, frame);
+        checkImage(image);
+        break;
+      }
+      case OP_LOTTIE_RECT: {
+        const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
+        const bundleId = frame.strings[p.u32()] ?? '';
+        checkLottie(bundleId);
+        break;
+      }
+      case OP_RUNTIME_EFFECT: {
+        const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
+        const effectId = p.u32();
+        const spec = frame.effects[effectId];
+        if (spec) checkRuntimeEffect(spec.hash, spec.sksl);
+        break;
+      }
+    }
+  }
+
+  // Validate Lottie bundles and images referenced in subtrees.
+  for (let si = 0; si < frame.subtrees.length; si++) {
+    const subOps = parseOps(frame.subtrees[si]);
+    for (const entry of subOps) {
+      const payload = new Payload(frame.subtrees[si], entry.payloadOffset, entry.payloadLen);
+      switch (entry.opcode) {
+        case OP_IMAGE:
+        case OP_IMAGE_RECT: {
+          const image = readImageRef(payload, frame);
+          checkImage(image);
+          break;
+        }
+        case OP_LOTTIE_RECT: {
+          const bundleId = frame.strings[payload.u32()] ?? '';
+          checkLottie(bundleId);
+          break;
+        }
+      }
+    }
+  }
+
+  // Validate runtime effect children (ImageRefs referenced in children table).
+  for (let ci = 0; ci < frame.children.length; ci++) {
+    const child = frame.children[ci];
+    if (child.type === 'image') checkImage(child.image);
+  }
+}
+
 function initialRenderState(): RenderState {
   return {
     fillColor: [0, 0, 0, 1],
@@ -308,6 +437,11 @@ export function renderEncodedDrawFrame(
   options: RenderEncodedDrawFrameOptions = {},
 ): void {
   const frame = decodeFrame(encoded);
+  // Atomic fail-fast: validate all current-frame media exists before any
+  // CanvasKit operation. If any image, video frame, Lottie bundle, or runtime
+  // effect is missing or failed, a typed MediaValidationError is thrown and no
+  // partial drawing is observable.
+  validateFrameMedia(frame);
   const entries = parseOps(frame.ops);
   const subtreeEntries = new Map<number, OpEntry[]>();
   const transientImageCache = new Map<string, Image>();
@@ -491,7 +625,17 @@ export function renderEncodedDrawFrame(
           const y = p.f32();
           const paintId = p.u32();
           const ckImage = resolveFrameImage(image);
-          if (ckImage) targetCanvas.drawImage(ckImage, x, y, paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId));
+          if (!ckImage) {
+            const assetDesc = image.type === 'static' ? image.assetId
+              : image.type === 'video' ? `${image.assetId}@${image.timeMicros}`
+              : `generated:${image.id}`;
+            throw new MediaValidationError(
+              'image',
+              assetDesc,
+              `resolveFrameImage returned null for ${assetDesc}`,
+            );
+          }
+          targetCanvas.drawImage(ckImage, x, y, paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId));
           break;
         }
         case OP_IMAGE_RECT: {
@@ -501,7 +645,16 @@ export function renderEncodedDrawFrame(
           const dst = readRect4(p);
           const paintId = p.u32();
           const ckImage = resolveFrameImage(image);
-          if (!ckImage) break;
+          if (!ckImage) {
+            const assetDesc = image.type === 'static' ? image.assetId
+              : image.type === 'video' ? `${image.assetId}@${image.timeMicros}`
+              : `generated:${image.id}`;
+            throw new MediaValidationError(
+              'image',
+              assetDesc,
+              `resolveFrameImage returned null for ${assetDesc}`,
+            );
+          }
           const sourceRect = hasSrc ? ckRect(CK, src) : imageBounds(CK, ckImage);
           targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? new CK.Paint() : buildPaintById(CK, frame, paintId));
           break;
@@ -511,7 +664,13 @@ export function renderEncodedDrawFrame(
           const lottieFrame = p.f32();
           const dst = readRect4(p);
           const anim = resolveLottieAnimation(CK, bundleId);
-          if (!anim) break;
+          if (!anim) {
+            throw new MediaValidationError(
+              'lottie',
+              bundleId,
+              `resolveLottieAnimation returned null for bundleId="${bundleId}"`,
+            );
+          }
           anim.seekFrame(lottieFrame, undefined);
           const dstRect = ckRect(CK, dst);
           targetCanvas.save();
@@ -1263,11 +1422,23 @@ function drawRuntimeEffect(
   const childLen = payload.u32();
   const dst = readRect4(payload);
   const spec = frame.effects[effectId];
-  if (!spec) return;
+  if (!spec) {
+    throw new MediaValidationError(
+      'runtimeEffect',
+      `effectId:${effectId}`,
+      `RuntimeEffect spec missing at index ${effectId}`,
+    );
+  }
   let effect: RuntimeEffect | undefined = effectCache.get(spec.hash);
   if (!effect) {
     const compiled = CK.RuntimeEffect.Make(spec.sksl);
-    if (!compiled) return;
+    if (!compiled) {
+      throw new MediaValidationError(
+        'runtimeEffect',
+        `0x${spec.hash.toString(16)}`,
+        `RuntimeEffect compilation failed for hash ${spec.hash}`,
+      );
+    }
     effect = compiled;
     effectCache.set(spec.hash, effect);
   }

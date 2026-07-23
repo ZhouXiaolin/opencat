@@ -18,7 +18,7 @@ pub mod runtime;
 pub mod script;
 pub mod source_io;
 
-pub use crate::consumer::execute_render_frame;
+pub use crate::consumer::{ConsumerError, MediaError, execute_render_frame};
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
 
 /// Engine host that owns a lifecycle-opened core pipeline plus resource loader.

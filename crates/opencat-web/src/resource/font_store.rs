@@ -18,7 +18,7 @@ pub fn take_all() -> HashMap<String, Vec<u8>> {
 }
 
 pub fn get_manifest_bytes(
-    manifest: &opencat_core::resource::fonts::FontManifest,
+    manifest: &opencat_core::fonts::FontManifest,
 ) -> HashMap<String, Vec<u8>> {
     FONT_BYTES.with(|store| {
         let store = store.borrow();

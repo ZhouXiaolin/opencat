@@ -931,7 +931,7 @@ mod tests {
     use crate::parse::primitives::image;
     use crate::probe::catalog::ImageMeta;
     use crate::probe::PreparedResourceCatalog as ProbeResourceCatalog;
-    use crate::resource::fonts::FontManifest;
+    use crate::fonts::FontManifest;
 
     /// Build a minimal `ParsedComposition` from a root node, for tests that
     /// drive the pipeline without going through markup/jsonl parsing.

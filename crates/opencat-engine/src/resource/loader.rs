@@ -16,7 +16,7 @@ use opencat_core::ir::asset_id::{
 };
 use opencat_core::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource};
 use opencat_core::probe::catalog::ResourceRequests;
-use opencat_core::resource::fonts::{FontManifest, font_asset_id};
+use opencat_core::fonts::{FontManifest, font_asset_id};
 
 use crate::resource::fetch::{EngineFetcher, build_preload_runtime};
 use crate::resource::utils::cache_file_path;
@@ -66,7 +66,7 @@ impl EngineLoader {
         let mut out = std::collections::HashMap::new();
         for face in &manifest.faces {
             let bytes = match &face.source {
-                opencat_core::resource::fonts::FontSource::Path(path) => {
+                opencat_core::fonts::FontSource::Path(path) => {
                     // Manifest path is a logical locator; join document base when relative.
                     let resolved = if path.is_absolute() {
                         path.clone()
@@ -77,10 +77,10 @@ impl EngineLoader {
                         format!("read font `{}` from {}", face.id, resolved.display())
                     })?
                 }
-                opencat_core::resource::fonts::FontSource::Url(url) => {
+                opencat_core::fonts::FontSource::Url(url) => {
                     let id = AssetId::new(
                         ResourceKind::Font,
-                        font_asset_id(&opencat_core::resource::fonts::FontSource::Url(url.clone())),
+                        font_asset_id(&opencat_core::fonts::FontSource::Url(url.clone())),
                     );
                     let bytes = self
                         .runtime
@@ -475,7 +475,7 @@ fn parse_openverse_response(bytes: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opencat_core::resource::fonts::{FontFaceDecl, FontSource};
+    use opencat_core::fonts::{FontFaceDecl, FontSource};
 
     #[test]
     fn load_all_with_local_path_registers_handle() {

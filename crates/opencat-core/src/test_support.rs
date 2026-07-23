@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::parse::primitives::{AudioSource, ImageSource};
-use crate::resource::catalog::VideoInfoMeta;
+use crate::probe::catalog::VideoInfoMeta;
 
 pub fn mock_font_provider() -> impl crate::text::FontProvider {
     crate::text::DefaultFontProvider::from_arc(Arc::new(crate::text::test_default_font_db()))

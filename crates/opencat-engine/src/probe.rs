@@ -61,7 +61,7 @@ pub fn probe_video(bytes: &[u8]) -> Result<VideoInfoMeta> {
 }
 
 /// Parse Lottie JSON metadata (width/height/fps/frame range/dependencies).
-pub fn parse_lottie_meta(json: &str) -> Result<opencat_core::resource::lottie::LottieMeta> {
+pub fn parse_lottie_meta(json: &str) -> Result<opencat_core::lottie::LottieMeta> {
     #[derive(Deserialize)]
     struct LottieRoot {
         #[serde(default)]
@@ -80,7 +80,7 @@ pub fn parse_lottie_meta(json: &str) -> Result<opencat_core::resource::lottie::L
 
     let root: LottieRoot = serde_json::from_str(json).context("parse lottie json for meta")?;
     let dependencies = external_dependency_names(&root.assets);
-    Ok(opencat_core::resource::lottie::LottieMeta {
+    Ok(opencat_core::lottie::LottieMeta {
         width: root.w.unwrap_or(0.0).round().max(0.0) as u32,
         height: root.h.unwrap_or(0.0).round().max(0.0) as u32,
         fps: root.fr.unwrap_or(0.0) as f32,

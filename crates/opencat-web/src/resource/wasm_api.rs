@@ -13,8 +13,8 @@ use anyhow::Context;
 use opencat_core::ir::asset_id::{asset_id_for_subtitle, asset_id_for_url, kind_from_canonical_str};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::{LottieSource, SubtitleSource};
-use opencat_core::resource::asset_id::{AssetId, ResourceKind};
-use opencat_core::resource::fonts::{FontSource, font_asset_id};
+use opencat_core::ir::asset_id::{AssetId, ResourceKind};
+use opencat_core::fonts::{FontSource, font_asset_id};
 use opencat_core::probe::catalog::PreparedResourceCatalog;
 
 use crate::resource::blob_store::BlobStore;
@@ -51,7 +51,7 @@ pub(crate) fn blob_bytes_owned(id: &str) -> Option<Vec<u8>> {
 
 fn font_manifest_from_source(
     source: &str,
-) -> anyhow::Result<opencat_core::resource::fonts::FontManifest> {
+) -> anyhow::Result<opencat_core::fonts::FontManifest> {
     let trimmed = source.trim();
     if trimmed.starts_with('{') {
         Ok(opencat_core::parse::jsonl::parse_with_base_dir(source, None)?.font_manifest)
@@ -252,7 +252,7 @@ pub fn clear_asset_reader() {
 }
 
 /// Host-owned Lottie JSON metadata parser (issue #40).
-fn parse_lottie_meta(json: &str) -> anyhow::Result<opencat_core::resource::lottie::LottieMeta> {
+fn parse_lottie_meta(json: &str) -> anyhow::Result<opencat_core::lottie::LottieMeta> {
     use serde::Deserialize;
 
     #[derive(Deserialize)]
@@ -308,7 +308,7 @@ fn parse_lottie_meta(json: &str) -> anyhow::Result<opencat_core::resource::lotti
         names
     };
 
-    Ok(opencat_core::resource::lottie::LottieMeta {
+    Ok(opencat_core::lottie::LottieMeta {
         width: root.w.unwrap_or(0.0).round().max(0.0) as u32,
         height: root.h.unwrap_or(0.0).round().max(0.0) as u32,
         fps: root.fr.unwrap_or(0.0) as f32,

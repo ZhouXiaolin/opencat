@@ -24,8 +24,8 @@ export type AssetReader = (path: string) => AssetReaderResult | Promise<AssetRea
 
 export interface WebRendererInstance {
   open_design(compositionSource: string): Promise<string>;
-  /** One-shot: renders frame and returns { ir: Uint8Array, mediaPlan: string } */
-  build_frame_ir(frame: number): { ir: Uint8Array; mediaPlan: string };
+  /** One-shot: renders frame and returns { ir: Uint8Array, mediaPlan: string, frame: number } */
+  build_frame_ir(frame: number): { ir: Uint8Array; mediaPlan: string; frame: number };
   /** Renders frame and returns only its media plan JSON (for readahead/prefetch). */
   get_frame_plan(frame: number): string;
   load_default_fonts(sans_sc: Uint8Array, color_emoji: Uint8Array): void;

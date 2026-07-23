@@ -107,8 +107,14 @@ impl WebRenderer {
     /// One-shot build of a compiled frame (issue #61).
     ///
     /// Renders `frame` against the opened pipeline, encodes its draw ops as a
-    /// self-contained OCIR envelope, and returns **both** the OCIR bytes and the
-    /// frame's media plan in a single JS object `{ ir: Uint8Array, mediaPlan: string }`.
+    /// self-contained OCIR envelope, and returns the OCIR bytes, the frame's
+    /// media plan, and the frame index in a single JS object
+    /// `{ ir: Uint8Array, mediaPlan: string, frame: number }`.
+    ///
+    /// The `frame` field echoes the input frame index, giving the JS host an
+    /// unambiguous identity token to match each response to its request.
+    /// Every call triggers exactly one `pipeline.render_frame(frame)` call —
+    /// there is no dedup cache or record-keeping of previous frames.
     ///
     /// There is no separate `prepare_frame` or `pending_frame` cache — every call
     /// is independent and self-contained. The JS host uses the `mediaPlan` to
@@ -138,13 +144,19 @@ impl WebRenderer {
         )
         .map_err(|e| JsValue::from_str(&e.0))?;
 
-        // Build JS object: { ir: Uint8Array, mediaPlan: string }
+        // Build JS object: { ir: Uint8Array, mediaPlan: string, frame: number }
         let obj = Object::new();
         let ir_array = js_sys::Uint8Array::from(&ocir[..]);
         js_sys::Reflect::set(&obj, &JsValue::from_str("ir"), &ir_array)
             .map_err(|_| JsValue::from_str("build_frame_ir: failed to set ir"))?;
         js_sys::Reflect::set(&obj, &JsValue::from_str("mediaPlan"), &JsValue::from_str(&plan_json))
             .map_err(|_| JsValue::from_str("build_frame_ir: failed to set mediaPlan"))?;
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("frame"),
+            &JsValue::from_f64(f64::from(frame)),
+        )
+        .map_err(|_| JsValue::from_str("build_frame_ir: failed to set frame"))?;
         Ok(JsValue::from(obj))
     }
 

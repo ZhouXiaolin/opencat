@@ -3,23 +3,24 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { __generatedImageTestSeam } from '../../crates/opencat-web/web/src/draw-ir';
+import { SECTION } from './generated/ocir-schema.generated';
 
 // Issue #10 / #45: OCIR v5 self-contained envelope. Hand-built envelopes exercise
 // decoder error paths and cache semantics; `roundtrip_v5.ocir` is produced by core
 // `encode_ir_envelope` (see write_ts_roundtrip_fixture_bytes) for AC5.
 
-const SECTION_OPS = 1;
-const SECTION_F32_POOL = 2;
-const SECTION_BYTES = 3;
-const SECTION_BYTE_RANGES = 4;
-const SECTION_STRINGS_UTF8 = 5;
-const SECTION_STRING_RANGES = 6;
-const SECTION_PAINTS = 7;
-const SECTION_PATHS = 8;
-const SECTION_CHILDREN = 9;
-const SECTION_EFFECTS = 10;
-const SECTION_SUBTREES = 11;
-const SECTION_GENERATED_IMAGES = 12;
+const SECTION_OPS = SECTION.OPS;
+const SECTION_F32_POOL = SECTION.F32_POOL;
+const SECTION_BYTES = SECTION.BYTES;
+const SECTION_BYTE_RANGES = SECTION.BYTE_RANGES;
+const SECTION_STRINGS_UTF8 = SECTION.STRINGS_UTF8;
+const SECTION_STRING_RANGES = SECTION.STRING_RANGES;
+const SECTION_PAINTS = SECTION.PAINTS;
+const SECTION_PATHS = SECTION.PATHS;
+const SECTION_CHILDREN = SECTION.CHILDREN;
+const SECTION_EFFECTS = SECTION.EFFECTS;
+const SECTION_SUBTREES = SECTION.SUBTREES;
+const SECTION_GENERATED_IMAGES = SECTION.GENERATED_IMAGES;
 
 function u32(n: number): number[] {
   return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];

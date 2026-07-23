@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { __generatedImageTestSeam } from '../../crates/opencat-web/web/src/draw-ir';
-import { SECTION } from './generated/ocir-schema.generated';
+import { SECTION, IR_MAGIC, IR_VERSION } from './generated/ocir-schema.generated';
 
 // Issue #10 / #45: OCIR v5 self-contained envelope. Hand-built envelopes exercise
 // decoder error paths and cache semantics; `roundtrip_v5.ocir` is produced by core
@@ -65,8 +65,8 @@ function packOcirEnvelope(sections: [number, number[]][]): Uint8Array {
     cursor += payload.length;
   }
   const out: number[] = [];
-  out.push(0x4f, 0x43, 0x49, 0x52); // "OCIR"
-  out.push(...u32(5));               // version 5
+  out.push(...IR_MAGIC);
+  out.push(...u32(IR_VERSION));
   out.push(...u32(sections.length)); // section_count
   for (let i = 0; i < sections.length; i++) {
     out.push(...u32(sections[i][0]));
@@ -104,6 +104,37 @@ function buildV5Envelope(images: GeneratedRecord[]): Uint8Array {
   }));
 }
 
+describe('OCIR generated schema constants (#66)', () => {
+  test('IR_MAGIC from generated schema matches the OCIR envelope magic', () => {
+    expect(IR_MAGIC).toEqual([0x4f, 0x43, 0x49, 0x52]);
+  });
+
+  test('IR_VERSION from generated schema matches v5', () => {
+    expect(IR_VERSION).toBe(5);
+  });
+
+  test('rejects envelope whose magic does not match IR_MAGIC', () => {
+    // Wrap a valid v5 envelope with bad magic and verify decoder rejects it.
+    const sections: [number, number[]][] = [];
+    const payload: number[] = [0x4f, 0x43, 0x49, 0x00]; // last byte differs
+    payload.push(...u32(IR_VERSION));
+    payload.push(...u32(sections.length));
+    expect(() => __generatedImageTestSeam.decode(new Uint8Array(payload))).toThrow(
+      /Invalid OpenCat IR magic/,
+    );
+  });
+
+  test('rejects envelope whose version does not match IR_VERSION', () => {
+    const sections: [number, number[]][] = [];
+    const payload: number[] = [0x4f, 0x43, 0x49, 0x52];
+    payload.push(...u32(3)); // v3 — deliberately mismatched
+    payload.push(...u32(sections.length));
+    expect(() => __generatedImageTestSeam.decode(new Uint8Array(payload))).toThrow(
+      /Unsupported OpenCat IR version/,
+    );
+  });
+});
+
 describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
   beforeEach(() => {
     __generatedImageTestSeam.reset();
@@ -113,7 +144,7 @@ describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
     const bytes = buildV5Envelope([]);
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
-    expect(view.getUint32(4, true)).toBe(5);
+    expect(view.getUint32(4, true)).toBe(IR_VERSION);
     // No pipeline_epoch at offset 12; directory starts at offset 12.
     const sectionCount = view.getUint32(8, true);
     expect(sectionCount).toBe(12); // all required sections
@@ -298,7 +329,7 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
     // Header: v5 has no pipeline_epoch
     expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    expect(view.getUint32(4, true)).toBe(5);
+    expect(view.getUint32(4, true)).toBe(IR_VERSION);
 
     const frame = __generatedImageTestSeam.decode(bytes) as {
       strings: string[];

@@ -138,8 +138,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
         let primary_arc = std::sync::Arc::<[u8]>::from(primary);
         // Bundle id for DrawOp / FrameMediaPlan / Skottie.
         blobs.insert(bundle_id.clone(), primary_arc.clone());
-        // build_catalog (core probe) reads Lottie primary JSON by the path/url
-        // key, while Skottie / FrameMediaPlan read it by bundle id — the web
+        // Skottie / FrameMediaPlan read it by bundle id — the web
         // BlobStore is one flat map, so insert under both. (Engine keeps these
         // in separate structures and keys probe bytes by path/url only.)
         let probe_key = match &request.source {

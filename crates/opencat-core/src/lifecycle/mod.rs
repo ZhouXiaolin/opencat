@@ -24,20 +24,20 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::ir::asset_id::{
-    asset_id_for_audio, asset_id_for_image, asset_id_for_lottie, asset_id_for_subtitle,
-    asset_id_for_video, AssetId,
+    AssetId, asset_id_for_audio, asset_id_for_image, asset_id_for_lottie, asset_id_for_subtitle,
+    asset_id_for_video,
 };
 // `ResourceKind` is brought into scope by the `pub use` above (single source in
 // `ir::asset_id`); re-listing it here would shadow that and trigger E0252.
-use crate::parse::primitives::LottieSource;
-use crate::parse::preflight::collect_resource_requests_from_parsed;
+use crate::fonts::{font_asset_id, merge_document_over_base};
 use crate::parse::ParsedComposition;
+use crate::parse::preflight::collect_resource_requests_from_parsed;
+use crate::parse::primitives::LottieSource;
 use crate::pipeline::DefaultPipeline;
 use crate::probe::catalog::PreparedResourceCatalog;
 use crate::probe::prepare::hydrate_captions;
-use crate::fonts::{font_asset_id, merge_document_over_base};
-use crate::script::js_context::JsContext;
 use crate::script::ScriptDriver;
+use crate::script::js_context::JsContext;
 
 impl CompositionDraft {
     /// Build a draft from an already-parsed composition.
@@ -195,6 +195,7 @@ impl HostInputs {
             document_fonts: HashMap::new(),
             script_texts: HashMap::new(),
             supplied: HashSet::new(),
+            confirmed_absent: HashMap::new(),
         }
     }
 
@@ -302,9 +303,29 @@ impl HostInputs {
         Ok(())
     }
 
+    /// Explicitly confirm a declared asset as absent with a structured reason.
+    /// The host has checked and determined the resource is definitively
+    /// unavailable (e.g. "not found", "access denied", "timeout"). Core
+    /// distinguishes this from "host has not responded" — prepare returns
+    /// [`PrepareError::AbsentInput`] for absent assets, not [`PrepareError::MissingInput`].
+    ///
+    /// Duplicate entries error with [`PrepareError::DuplicateInput`] like all
+    /// other `insert_*` methods.
+    pub fn mark_absent(
+        &mut self,
+        id: AssetId,
+        reason: impl Into<String>,
+    ) -> Result<(), PrepareError> {
+        self.record_supply(&id)?;
+        self.confirmed_absent.insert(id, reason.into());
+        Ok(())
+    }
+
     fn record_supply(&mut self, id: &AssetId) -> Result<(), PrepareError> {
         if !self.supplied.insert(id.clone()) {
-            return Err(PrepareError::DuplicateInput { asset_id: id.clone() });
+            return Err(PrepareError::DuplicateInput {
+                asset_id: id.clone(),
+            });
         }
         Ok(())
     }
@@ -445,9 +466,11 @@ fn prepare_font_db(
         bytes_by_face_id.insert(face.id.clone(), bytes.clone());
     }
 
-    let (db, _index) = merge_document_over_base(&base, manifest, &bytes_by_face_id)
-        .map_err(|err| PrepareError::Internal {
-            message: format!("font merge failed: {err}"),
+    let (db, _index) =
+        merge_document_over_base(&base, manifest, &bytes_by_face_id).map_err(|err| {
+            PrepareError::Internal {
+                message: format!("font merge failed: {err}"),
+            }
         })?;
     Ok(Arc::new(db))
 }
@@ -509,10 +532,7 @@ fn validate_inputs(
                                 .into(),
                         });
                     }
-                    return Err(PrepareError::MissingInput {
-                        asset_id: req.asset_id.clone(),
-                        kind: req.kind,
-                    });
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
                 };
                 if meta.width == 0 || meta.height == 0 {
                     return Err(PrepareError::InvalidMetadata {
@@ -540,10 +560,7 @@ fn validate_inputs(
                                 .into(),
                         });
                     }
-                    return Err(PrepareError::MissingInput {
-                        asset_id: req.asset_id.clone(),
-                        kind: req.kind,
-                    });
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
                 };
                 if meta.width == 0 || meta.height == 0 {
                     return Err(PrepareError::InvalidMetadata {
@@ -559,13 +576,13 @@ fn validate_inputs(
                 // and must not fail prepare — hosts still decode via time_micros.
             }
             ResourceKind::Audio => {
+                if inputs.confirmed_absent.contains_key(&req.asset_id) {
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
+                }
                 if !inputs.catalog.audios.contains(&req.asset_id)
                     && !inputs.supplied.contains(&req.asset_id)
                 {
-                    return Err(PrepareError::MissingInput {
-                        asset_id: req.asset_id.clone(),
-                        kind: req.kind,
-                    });
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
                 }
             }
             ResourceKind::Lottie => {
@@ -583,10 +600,7 @@ fn validate_inputs(
                                 .into(),
                         });
                     }
-                    return Err(PrepareError::MissingInput {
-                        asset_id: req.asset_id.clone(),
-                        kind: req.kind,
-                    });
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
                 };
                 if meta.width == 0 || meta.height == 0 {
                     return Err(PrepareError::InvalidMetadata {
@@ -632,37 +646,25 @@ fn validate_inputs(
                 if !inputs.subtitle_texts.contains_key(&req.asset_id)
                     && !inputs.catalog.subtitles.contains_key(&req.asset_id)
                 {
-                    return Err(PrepareError::MissingInput {
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
+                }
+            }
+            ResourceKind::Font => match inputs.document_fonts.get(&req.asset_id) {
+                None => {
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
+                }
+                Some(bytes) if bytes.is_empty() => {
+                    return Err(PrepareError::InvalidMetadata {
                         asset_id: req.asset_id.clone(),
                         kind: req.kind,
+                        reason: "empty font bytes; document font faces must be loadable".into(),
                     });
                 }
-            }
-            ResourceKind::Font => {
-                match inputs.document_fonts.get(&req.asset_id) {
-                    None => {
-                        return Err(PrepareError::MissingInput {
-                            asset_id: req.asset_id.clone(),
-                            kind: req.kind,
-                        });
-                    }
-                    Some(bytes) if bytes.is_empty() => {
-                        return Err(PrepareError::InvalidMetadata {
-                            asset_id: req.asset_id.clone(),
-                            kind: req.kind,
-                            reason: "empty font bytes; document font faces must be loadable"
-                                .into(),
-                        });
-                    }
-                    Some(_) => {}
-                }
-            }
+                Some(_) => {}
+            },
             ResourceKind::Script => match inputs.script_texts.get(&req.asset_id) {
                 None => {
-                    return Err(PrepareError::MissingInput {
-                        asset_id: req.asset_id.clone(),
-                        kind: req.kind,
-                    });
+                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
                 }
                 Some(text) if text.is_empty() => {
                     return Err(PrepareError::InvalidMetadata {
@@ -677,6 +679,25 @@ fn validate_inputs(
     }
 
     Ok(())
+}
+
+/// Return [`PrepareError::AbsentInput`] if the asset is in `confirmed_absent`,
+/// otherwise [`PrepareError::MissingInput`]. This is the core distinction
+/// between "host has checked and the resource is unavailable" and "host has
+/// not responded."
+fn absent_or_missing(id: &AssetId, kind: ResourceKind, inputs: &HostInputs) -> PrepareError {
+    if let Some(reason) = inputs.confirmed_absent.get(id) {
+        PrepareError::AbsentInput {
+            asset_id: id.clone(),
+            kind,
+            reason: reason.clone(),
+        }
+    } else {
+        PrepareError::MissingInput {
+            asset_id: id.clone(),
+            kind,
+        }
+    }
 }
 
 fn collect_script_requirements(
@@ -727,9 +748,7 @@ fn walk_inject_scripts(
                             next.externals
                                 .first()
                                 .map(|e| e.asset_id.clone())
-                                .unwrap_or_else(|| {
-                                    AssetId::new(ResourceKind::Script, "script:?")
-                                })
+                                .unwrap_or_else(|| AssetId::new(ResourceKind::Script, "script:?"))
                         });
                     return Err(PrepareError::MissingInput {
                         asset_id: missing,
@@ -951,9 +970,11 @@ mod tests {
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
-            .prepare(HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect_err("missing image must fail prepare");
         assert!(matches!(
             err,
@@ -1160,12 +1181,9 @@ mod tests {
         assert!(
             has,
             "media plan images={:?}, expected static {}",
-            frame.media.images,
-            id.key
+            frame.media.images, id.key
         );
     }
-
-
 
     /// Contract both engine and web must satisfy for video (#16): logical locator,
     /// host-supplied `VideoInfoMeta` with microsecond duration, prepare fail-fast
@@ -1175,7 +1193,7 @@ mod tests {
     fn host_agnostic_video_metadata_and_time_contract() {
         use crate::ir::draw_types::ImageRef;
         use crate::probe::catalog::VideoInfoMeta;
-        use crate::time::{secs_to_micros, DurationMicros};
+        use crate::time::{DurationMicros, secs_to_micros};
 
         // JSONL path/locator contract (timing attrs are markup-only today).
         {
@@ -1189,8 +1207,8 @@ mod tests {
             assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
+                .with_base_font_faces(crate::test_support::test_font_faces())
+                .with_sans_serif_family("Noto Sans SC");
             inputs
                 .insert_video(
                     id.clone(),
@@ -1263,9 +1281,11 @@ mod tests {
 {"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
-            .prepare(HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect_err("missing video must fail prepare");
         assert!(matches!(
             err,
@@ -1355,9 +1375,11 @@ mod tests {
         "#;
         let draft = CompositionDraft::parse(markup).unwrap();
         let err = draft
-            .prepare(HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect_err("missing lottie must fail prepare");
         assert!(matches!(
             err,
@@ -1453,7 +1475,9 @@ mod tests {
                 },
             )
             .unwrap();
-        let err = draft.prepare(inputs).expect_err("empty frame range must fail");
+        let err = draft
+            .prepare(inputs)
+            .expect_err("empty frame range must fail");
         assert!(matches!(
             err,
             PrepareError::InvalidMetadata {
@@ -1472,15 +1496,13 @@ mod tests {
         use crate::ir::draw_op::DrawOp;
         use crate::lottie::LottieMeta;
 
-        let sources = [
-            r#"
+        let sources = [r#"
             <opencat width="64" height="64" fps="30" duration="0.1">
               <div id="root" class="w-full h-full">
                 <lottie id="loader" path="anim/loader.json" class="w-[32px] h-[32px]" />
               </div>
             </opencat>
-            "#,
-        ];
+            "#];
         for input in sources {
             let draft = CompositionDraft::parse(input).expect("parse");
             let reqs = draft.requirements().requests();
@@ -1490,8 +1512,8 @@ mod tests {
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
+                .with_base_font_faces(crate::test_support::test_font_faces())
+                .with_sans_serif_family("Noto Sans SC");
             // Host supplies only metadata — never Lottie JSON/bytes — under request id.
             inputs
                 .insert_lottie(
@@ -1529,7 +1551,9 @@ mod tests {
                 frame.media.images
             );
             let lottie_frame = frame.draw.ops.iter().find_map(|op| match op {
-                DrawOp::LottieRect { bundle_id, frame, .. } if bundle_id == &id.key => Some(*frame),
+                DrawOp::LottieRect {
+                    bundle_id, frame, ..
+                } if bundle_id == &id.key => Some(*frame),
                 _ => None,
             });
             let lottie_frame = lottie_frame.unwrap_or_else(|| {
@@ -1572,8 +1596,8 @@ mod tests {
 
             let id = reqs[0].asset_id.clone();
             let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
+                .with_base_font_faces(crate::test_support::test_font_faces())
+                .with_sans_serif_family("Noto Sans SC");
             // Host supplies only metadata — never image bytes — under the request id.
             inputs
                 .insert_image(
@@ -1609,7 +1633,6 @@ mod tests {
             );
         }
     }
-
 
     // --- fonts & subtitles (#19) -------------------------------------------------
 
@@ -1666,9 +1689,11 @@ mod tests {
         "#;
         let draft = CompositionDraft::parse(xml).expect("parse");
         let err = draft
-            .prepare(HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect_err("missing document font must fail prepare");
         assert!(
             matches!(
@@ -1765,10 +1790,7 @@ mod tests {
         fn find_text_family(node: &crate::parse::node::Node) -> Option<String> {
             match node.kind() {
                 NodeKind::Text(t) => t.style_ref().font_family.clone(),
-                NodeKind::Div(d) => d
-                    .children_ref()
-                    .iter()
-                    .find_map(|c| find_text_family(c)),
+                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_text_family(c)),
                 _ => None,
             }
         }
@@ -1897,7 +1919,10 @@ mod tests {
         let prepared = draft.prepare(inputs).expect("prepare");
         use crate::parse::node::NodeKind;
         use crate::parse::primitives::CaptionNode;
-        fn find_caption<'a>(node: &'a crate::parse::node::Node, id: &str) -> Option<&'a CaptionNode> {
+        fn find_caption<'a>(
+            node: &'a crate::parse::node::Node,
+            id: &str,
+        ) -> Option<&'a CaptionNode> {
             match node.kind() {
                 NodeKind::Caption(c) if c.style_ref().id == id => Some(c),
                 NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption(c, id)),
@@ -1937,7 +1962,10 @@ mod tests {
         fn find_caption_entries(node: &crate::parse::node::Node) -> Option<usize> {
             match node.kind() {
                 NodeKind::Caption(c) => Some(c.entries_ref().len()),
-                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption_entries(c)),
+                NodeKind::Div(d) => d
+                    .children_ref()
+                    .iter()
+                    .find_map(|c| find_caption_entries(c)),
                 _ => None,
             }
         }
@@ -1977,7 +2005,10 @@ mod tests {
         let prepared = draft.prepare(inputs).expect("prepare");
         use crate::parse::node::NodeKind;
         use crate::parse::primitives::CaptionNode;
-        fn find_caption<'a>(node: &'a crate::parse::node::Node, id: &str) -> Option<&'a CaptionNode> {
+        fn find_caption<'a>(
+            node: &'a crate::parse::node::Node,
+            id: &str,
+        ) -> Option<&'a CaptionNode> {
             match node.kind() {
                 NodeKind::Caption(c) if c.style_ref().id == id => Some(c),
                 NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption(c, id)),
@@ -2001,9 +2032,11 @@ mod tests {
         let draft = CompositionDraft::parse(xml).expect("parse xml");
         // No subtitle text supplied → MissingInput fail-fast.
         let err = draft
-            .prepare(HostInputs::empty()
-                .with_base_font_faces(crate::test_support::test_font_faces())
-                .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect_err("missing subtitle text must fail");
         assert!(
             matches!(
@@ -2054,7 +2087,9 @@ mod tests {
         for r in &audio_reqs {
             inputs.insert_audio(r.asset_id.clone()).unwrap();
         }
-        let prepared = draft.prepare(inputs).expect("prepare without audio probe meta");
+        let prepared = draft
+            .prepare(inputs)
+            .expect("prepare without audio probe meta");
         let pipeline = prepared
             .open_pipeline(NoopJsContext::new().unwrap())
             .expect("open");
@@ -2124,13 +2159,15 @@ mod tests {
             .with_sans_serif_family("Noto Sans SC");
         inputs.insert_audio(id).unwrap();
         let prepared = draft.prepare(inputs).expect("audio presence-only ok");
-        assert!(!prepared
-            .open_pipeline(NoopJsContext::new().unwrap())
-            .unwrap()
-            .info()
-            .audio_plan
-            .segments
-            .is_empty());
+        assert!(
+            !prepared
+                .open_pipeline(NoopJsContext::new().unwrap())
+                .unwrap()
+                .info()
+                .audio_plan
+                .segments
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2156,9 +2193,11 @@ mod tests {
 {"type":"script","path":"missing.js"}"#;
         let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
-            .prepare(HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect_err("missing script text must fail");
         assert!(matches!(
             err,
@@ -2267,10 +2306,338 @@ mod tests {
             "inline markup scripts are not host requirements"
         );
         let prepared = draft
-            .prepare(HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC"))
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
             .expect("inline scripts need no host text");
         assert!(prepared.parsed().root.style_ref().script_driver.is_some());
+    }
+
+    // --- Explicit Absent contract (#62) -----------------------------------------
+
+    #[test]
+    fn mark_absent_stores_reason() {
+        let mut inputs = HostInputs::empty();
+        let id = AssetId::new(ResourceKind::Image, "photos/missing.png");
+        inputs
+            .mark_absent(id.clone(), "not found")
+            .expect("mark absent");
+        assert!(
+            inputs.confirmed_absent.contains_key(&id),
+            "absent id must be tracked"
+        );
+        assert_eq!(
+            inputs.confirmed_absent[&id], "not found",
+            "reason must be preserved"
+        );
+    }
+
+    #[test]
+    fn mark_absent_duplicate_errors() {
+        let mut inputs = HostInputs::empty();
+        let id = AssetId::new(ResourceKind::Image, "photos/gone.png");
+        inputs.mark_absent(id.clone(), "not found").unwrap();
+        let err = inputs
+            .mark_absent(id.clone(), "access denied")
+            .expect_err("duplicate absent must error");
+        assert!(
+            matches!(err, PrepareError::DuplicateInput { .. }),
+            "duplicate mark_absent must return DuplicateInput; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn mark_absent_then_insert_image_is_duplicate() {
+        let mut inputs = HostInputs::empty();
+        let id = AssetId::new(ResourceKind::Image, "photos/gone.png");
+        inputs.mark_absent(id.clone(), "not found").unwrap();
+        let err = inputs
+            .insert_image(
+                id,
+                crate::probe::catalog::ImageMeta {
+                    width: 1,
+                    height: 1,
+                },
+            )
+            .expect_err("insert after absent must error");
+        assert!(matches!(err, PrepareError::DuplicateInput { .. }));
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_image_when_marked_absent() {
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "file not found on remote").unwrap();
+        let err = draft.prepare(inputs).expect_err("absent image must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Image,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent image; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_video_when_marked_absent() {
+        use crate::probe::catalog::VideoInfoMeta;
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "server timeout").unwrap();
+        let err = draft.prepare(inputs).expect_err("absent video must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Video,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent video; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_audio_when_marked_absent() {
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"audio","id":"bgm","attach":"root","url":"https://example.com/bgm.mp3"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "not found on CDN").unwrap();
+        let err = draft.prepare(inputs).expect_err("absent audio must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Audio,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent audio; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_lottie_when_marked_absent() {
+        let markup = r#"
+            <opencat width="10" height="10" fps="30" duration="0.1">
+              <div id="root">
+                <lottie id="loader" path="anim/loader.json" />
+              </div>
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(markup).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "file not found").unwrap();
+        let err = draft.prepare(inputs).expect_err("absent lottie must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Lottie,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent lottie; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_subtitle_when_marked_absent() {
+        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div"}
+{"id":"subs","parentId":"root","type":"caption","path":"missing.srt"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "SRT file not uploaded").unwrap();
+        let err = draft
+            .prepare(inputs)
+            .expect_err("absent subtitle must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Subtitle,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent subtitle; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_font_when_marked_absent() {
+        let xml = r#"
+            <opencat width="64" height="64" fps="30" duration="0.1">
+              <fonts default="sans">
+                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
+              </fonts>
+              <div id="root" class="w-full h-full" />
+            </opencat>
+        "#;
+        let draft = CompositionDraft::parse(xml).unwrap();
+        let id = draft
+            .requirements()
+            .requests()
+            .iter()
+            .find(|r| r.kind == ResourceKind::Font)
+            .unwrap()
+            .asset_id
+            .clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs
+            .mark_absent(id, "font file missing from CDN")
+            .unwrap();
+        let err = draft.prepare(inputs).expect_err("absent font must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Font,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent font; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_returns_absent_input_for_missing_script_when_marked_absent() {
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"id":"root","parentId":null,"type":"div","className":"flex"}
+{"type":"script","path":"missing.js"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "script not delivered").unwrap();
+        let err = draft.prepare(inputs).expect_err("absent script must fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::AbsentInput {
+                    kind: ResourceKind::Script,
+                    ..
+                }
+            ),
+            "expected AbsentInput for marked-absent script; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn prepare_still_returns_missing_input_when_not_marked() {
+        // Verifies that a host that has not responded at all still gets
+        // MissingInput, not AbsentInput — the two are distinguishable.
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let err = draft
+            .prepare(
+                HostInputs::empty()
+                    .with_base_font_faces(crate::test_support::test_font_faces())
+                    .with_sans_serif_family("Noto Sans SC"),
+            )
+            .expect_err("missing image must still fail");
+        assert!(
+            matches!(
+                err,
+                PrepareError::MissingInput {
+                    kind: ResourceKind::Image,
+                    ..
+                }
+            ),
+            "unresponsive host must still get MissingInput; got {err:?}"
+        );
+    }
+
+    #[test]
+    fn absent_input_reason_is_preserved_in_error() {
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let id = draft.requirements().requests()[0].asset_id.clone();
+        let mut inputs = HostInputs::empty()
+            .with_base_font_faces(crate::test_support::test_font_faces())
+            .with_sans_serif_family("Noto Sans SC");
+        inputs.mark_absent(id, "explicit not found").unwrap();
+        let err = draft.prepare(inputs).expect_err("must fail");
+        match err {
+            PrepareError::AbsentInput { reason, .. } => {
+                assert_eq!(reason, "explicit not found");
+            }
+            other => panic!("expected AbsentInput with reason, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn absent_input_display_includes_reason() {
+        let err = PrepareError::AbsentInput {
+            asset_id: AssetId::new(ResourceKind::Image, "photos/a.png"),
+            kind: ResourceKind::Image,
+            reason: "not found".into(),
+        };
+        let display = format!("{err}");
+        assert!(
+            display.contains("absent"),
+            "Display must include 'absent', got: {display}"
+        );
+        assert!(
+            display.contains("photos/a.png"),
+            "Display must include asset key"
+        );
+        assert!(display.contains("not found"), "Display must include reason");
+    }
+
+    #[test]
+    fn absent_input_is_separate_variant_from_missing_input() {
+        // Pattern-match proof that the two are distinct variants.
+        let absent = PrepareError::AbsentInput {
+            asset_id: AssetId::new(ResourceKind::Image, "photos/a.png"),
+            kind: ResourceKind::Image,
+            reason: "gone".into(),
+        };
+        let missing = PrepareError::MissingInput {
+            asset_id: AssetId::new(ResourceKind::Image, "photos/a.png"),
+            kind: ResourceKind::Image,
+        };
+        // PartialEq safety: different variants must not compare equal.
+        assert_ne!(
+            absent, missing,
+            "AbsentInput and MissingInput must be distinct variants"
+        );
+        assert!(!matches!(absent, PrepareError::MissingInput { .. }));
+        assert!(!matches!(missing, PrepareError::AbsentInput { .. }));
     }
 }

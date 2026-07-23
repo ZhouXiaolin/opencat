@@ -330,12 +330,12 @@ fn format_image_source(source: &ImageSource) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FrameCtx;
     use crate::layout::tree::{LayoutNode, LayoutOutputFingerprint, LayoutRect, LayoutTree};
     use crate::parse::primitives::{div, text};
     use crate::probe::catalog::PreparedResourceCatalog;
     use crate::resolve::resolve::resolve_ui_tree;
     use crate::test_support::MockScriptHost;
-    use crate::FrameCtx;
 
     #[test]
     fn collect_rects_matches_layout_geometry_and_draw_order() {
@@ -355,9 +355,8 @@ mod tests {
         };
         let mut catalog = PreparedResourceCatalog::default();
         let mut scripts = MockScriptHost::default();
-        let element_root =
-            resolve_ui_tree(&source, &frame_ctx, &mut catalog, None, &mut scripts)
-                .expect("resolve");
+        let element_root = resolve_ui_tree(&source, &frame_ctx, &mut catalog, None, &mut scripts)
+            .expect("resolve");
 
         // Hand-built layout tree with absolute coordinates matching what
         // layout would produce for fixed-size children.

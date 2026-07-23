@@ -80,8 +80,8 @@ impl ScriptFrameCtx {
 
 #[cfg(test)]
 mod tests {
-    use super::duration_secs_to_frames;
     use super::FrameCtx;
+    use super::duration_secs_to_frames;
 
     #[test]
     fn duration_secs_to_frames_tolerates_fraction_rounding() {

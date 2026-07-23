@@ -138,7 +138,6 @@ pub mod opcode {
     pub const PATH_OP_F32_WIDTHS: [u8; 9] = [2, 2, 4, 6, 0, 4, 5, 4, 6];
 }
 
-
 // ---------------------------------------------------------------------------
 // Intermediate section payloads (not a second on-wire envelope)
 // ---------------------------------------------------------------------------
@@ -364,7 +363,6 @@ fn lookup_string_id(strings: &[String], s: &str) -> u32 {
         as u32
 }
 
-
 // ---------------------------------------------------------------------------
 // OCIR section encoders + envelope packer
 // ---------------------------------------------------------------------------
@@ -381,7 +379,11 @@ pub fn encode_ir_envelope(
     scratch: &mut super::draw_frame::DrawFrameScratch,
 ) -> Result<Vec<u8>, EncodeError> {
     let sections = encode_draw_sections(&render_frame.draw, scratch);
-    pack_ir_envelope(&render_frame.draw, &render_frame.media.generated_images, &sections)
+    pack_ir_envelope(
+        &render_frame.draw,
+        &render_frame.media.generated_images,
+        &sections,
+    )
 }
 
 /// Pack pre-encoded op/string sections with paints/paths/… into OCIR bytes.
@@ -398,7 +400,10 @@ pub fn pack_ir_envelope(
         (section::BYTES, encoded.bytes.clone()),
         (section::BYTE_RANGES, encode_ranges(&encoded.byte_ranges)),
         (section::STRINGS_UTF8, encoded.strings_utf8.clone()),
-        (section::STRING_RANGES, encode_ranges(&encoded.string_ranges)),
+        (
+            section::STRING_RANGES,
+            encode_ranges(&encoded.string_ranges),
+        ),
         (section::PAINTS, encode_paints(&draw.paints)?),
         (section::PATHS, encode_paths(&draw.paths)),
         (
@@ -1539,17 +1544,20 @@ mod tests {
     use super::*;
     use crate::ir::draw_frame::DrawFrameScratch;
     use crate::ir::draw_frame::DrawOpFrame;
-    use crate::ir::media_plan::FrameGeneratedImage;
     use crate::ir::draw_op::{
         ColorF32, ColorU8, F32Range, LineCap, LineJoin, PointMode, Radii4, Rect4,
     };
     use crate::ir::draw_types::{
         ChildRange, DrawOpRange, EffectRef, EncodedPath, FillType, ImageRef, PaintId, PathOp,
     };
+    use crate::ir::media_plan::FrameGeneratedImage;
     use crate::render::builder::DrawOpBuilder;
 
     /// Wrap a DrawOpFrame + generated images into a RenderFrame for encoding.
-    fn to_render_frame(draw: DrawOpFrame, generated_images: Vec<FrameGeneratedImage>) -> RenderFrame {
+    fn to_render_frame(
+        draw: DrawOpFrame,
+        generated_images: Vec<FrameGeneratedImage>,
+    ) -> RenderFrame {
         RenderFrame {
             draw,
             media: crate::ir::media_plan::FrameMediaPlan {
@@ -1571,7 +1579,10 @@ mod tests {
         assert!(encoded.ops.is_empty());
         let envelope = pack_ir_envelope(&frame, &[], &encoded).expect("envelope");
         assert_eq!(&envelope[0..4], b"OCIR");
-        assert_eq!(u32::from_le_bytes(envelope[4..8].try_into().unwrap()), IR_VERSION);
+        assert_eq!(
+            u32::from_le_bytes(envelope[4..8].try_into().unwrap()),
+            IR_VERSION
+        );
     }
 
     #[test]
@@ -2193,7 +2204,10 @@ mod tests {
         assert_eq!(read_u32(&bytes, 4), IR_VERSION);
         // section_count at offset 8
         let section_count = read_u32(&bytes, 8);
-        assert!(section_count > 0, "empty envelope still has required sections");
+        assert!(
+            section_count > 0,
+            "empty envelope still has required sections"
+        );
         // Header is exactly 12 bytes; directory starts at 12
         let dir_start = 12;
         // First section entry at offset 12
@@ -2234,7 +2248,10 @@ mod tests {
 
         let generated = section_payload(&bytes, section::GENERATED_IMAGES);
         assert_eq!(read_u32(generated, 0), 2);
-        assert_eq!(u64::from_le_bytes(generated[4..12].try_into().unwrap()), 0x0123_4567_89ab_cdef);
+        assert_eq!(
+            u64::from_le_bytes(generated[4..12].try_into().unwrap()),
+            0x0123_4567_89ab_cdef
+        );
         assert_eq!(read_u32(generated, 12), 3);
         assert_eq!(read_u32(generated, 16), 2);
         assert_eq!(read_u32(generated, 20), 24);
@@ -2243,7 +2260,7 @@ mod tests {
 
     #[test]
     fn paint_and_path_sections_round_trip_layout() {
-        use crate::canvas::paint::{FillSpec, PaintSpec, PaintStyle, BlendMode};
+        use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
 
         let mut frame = DrawOpFrame::default();
         frame.paints.push(PaintSpec {
@@ -2363,12 +2380,15 @@ mod tests {
             hash: 0xdead_beef_cafe_u64,
             sksl: "half4 main() { return half4(1); }".into(),
         });
-        to_render_frame(draw, vec![FrameGeneratedImage {
-            id: GeneratedImageId(0x1111_2222_3333_4444),
-            width: 2,
-            height: 1,
-            rgba: Arc::from([0x10u8, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]),
-        }])
+        to_render_frame(
+            draw,
+            vec![FrameGeneratedImage {
+                id: GeneratedImageId(0x1111_2222_3333_4444),
+                width: 2,
+                height: 1,
+                rgba: Arc::from([0x10u8, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]),
+            }],
+        )
     }
 
     #[test]
@@ -2437,11 +2457,19 @@ mod tests {
         assert_eq!(read_u32(generated, 12), 2);
         assert_eq!(read_u32(generated, 16), 1);
         assert_eq!(read_u32(generated, 20), 8);
-        assert_eq!(&generated[24..32], &[0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]);
+        assert_eq!(
+            &generated[24..32],
+            &[0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]
+        );
 
         // Ops stream non-empty (Save/Translate/Image/Restore)
         assert!(!section_payload(&bytes, section::OPS).is_empty());
-        let _ = (FillSpec::Solid([0.0; 4]), PaintStyle::Fill, StrokeCap::Butt, StrokeJoin::Miter);
+        let _ = (
+            FillSpec::Solid([0.0; 4]),
+            PaintStyle::Fill,
+            StrokeCap::Butt,
+            StrokeJoin::Miter,
+        );
     }
 
     #[test]
@@ -2454,8 +2482,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&render_frame, &mut scratch).unwrap();
 
-        let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../web/src/fixtures/ocir");
+        let fixture_dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/src/fixtures/ocir");
         std::fs::create_dir_all(&fixture_dir).expect("fixture dir");
         // v5: canonical self-contained OCIR — no pipeline_epoch in header
         let path = fixture_dir.join("roundtrip_v5.ocir");
@@ -2499,9 +2527,6 @@ mod tests {
             IR_VERSION,
         );
         let section_count = u32::from_le_bytes(bytes_a[8..12].try_into().unwrap());
-        assert!(
-            section_count > 0,
-            "non-trivial envelope must have sections"
-        );
+        assert!(section_count > 0, "non-trivial envelope must have sections");
     }
 }

@@ -4,8 +4,7 @@ use crate::parse::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
     primitives::{
-        ImageSource, VideoSource, canvas, caption, div, image, lucide, path, text, video,
-        video_url,
+        ImageSource, VideoSource, canvas, caption, div, image, lucide, path, text, video, video_url,
     },
     transition::{
         Transition, clock_wipe, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
@@ -13,12 +12,12 @@ use crate::parse::{
 };
 use crate::script::ScriptDriver;
 
+use crate::fonts::{FontFamilyIndex, merge_faces_into_db};
 use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
 use crate::parse::document::{
     CanvasChildrenMode, DeclaredScript, ParsedComposition, ParsedDocumentParts, ParsedElement,
     ParsedElementKind, ParsedTransition,
 };
-use crate::fonts::{FontFamilyIndex, merge_faces_into_db};
 
 #[derive(Debug, Clone, Copy)]
 pub struct BuildOptions {
@@ -67,7 +66,9 @@ fn join_global_scripts(scripts: Vec<DeclaredScript>) -> Option<String> {
 ///   pieces recorded; prepare injects external text then re-joins.
 ///
 /// Multiple externals on the same parent are concatenated at prepare in order.
-pub fn script_driver_from_decls(scripts: Vec<DeclaredScript>) -> anyhow::Result<Option<ScriptDriver>> {
+pub fn script_driver_from_decls(
+    scripts: Vec<DeclaredScript>,
+) -> anyhow::Result<Option<ScriptDriver>> {
     if scripts.is_empty() {
         return Ok(None);
     }
@@ -111,10 +112,7 @@ pub fn script_driver_from_decls(scripts: Vec<DeclaredScript>) -> anyhow::Result<
     Ok(Some(ScriptDriver::from_pieces(pieces_inline, externals)))
 }
 
-fn attach_scripts_to_root(
-    root: Node,
-    globals: Vec<DeclaredScript>,
-) -> anyhow::Result<Node> {
+fn attach_scripts_to_root(root: Node, globals: Vec<DeclaredScript>) -> anyhow::Result<Node> {
     let mut decls = Vec::new();
     if let Some(existing) = root.style_ref().script_driver.as_ref() {
         // Reconstruct declarations from the existing driver so we do not drop it.
@@ -123,7 +121,10 @@ fn attach_scripts_to_root(
                 decls.push(DeclaredScript::Inline(frag.clone()));
             }
         }
-        if existing.externals.is_empty() && !existing.source.is_empty() && existing.inline_fragments.is_empty() {
+        if existing.externals.is_empty()
+            && !existing.source.is_empty()
+            && existing.inline_fragments.is_empty()
+        {
             decls.push(DeclaredScript::Inline(existing.source.clone()));
         }
         for ext in &existing.externals {
@@ -139,7 +140,6 @@ fn attach_scripts_to_root(
         Ok(root)
     }
 }
-
 
 pub fn build_parsed_document(
     mut parts: ParsedDocumentParts,

@@ -619,10 +619,10 @@ mod tests {
         analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         parse,
         parse::primitives::{div, lucide},
+        probe::catalog::PreparedResourceCatalog,
         resolve::{resolve::resolve_ui_tree, tree::ElementNode},
         style::{ColorToken, ObjectFit},
         test_support::MockScriptHost,
-        probe::catalog::PreparedResourceCatalog,
     };
     use crate::{
         display::list::DisplayItem,

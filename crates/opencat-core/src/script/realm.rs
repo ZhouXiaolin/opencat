@@ -32,6 +32,11 @@ pub struct ScriptRealm<C: JsContext> {
     installed: HashMap<u64, ()>,
     text_sources: HashMap<String, ScriptTextSource>,
     target_registry: Option<ScriptTargetRegistry>,
+    /// Tracks the last frame number that had global cleanup applied, so
+    /// cross-frame mutable global state cannot accumulate. All drivers within
+    /// the same frame number share globals; crossing a frame boundary deletes
+    /// any non-system global keys added by user scripts in the prior frame.
+    last_cleanup_frame: Option<u32>,
 }
 
 impl<C: JsContext> ScriptRealm<C> {
@@ -42,6 +47,7 @@ impl<C: JsContext> ScriptRealm<C> {
             installed: HashMap::new(),
             text_sources: HashMap::new(),
             target_registry: None,
+            last_cleanup_frame: None,
         })
     }
 
@@ -85,6 +91,11 @@ impl<C: JsContext> ScriptRealm<C> {
         if let Some(registry) = &self.target_registry {
             apply_target_registry(&self.ctx, registry)?;
         }
+        // Record the baseline system keys after all runtime components are
+        // installed. Every subsequent install() adds its driver function to
+        // this allowlist so frame-boundary cleanup never removes runtime or
+        // driver globals — only user-created cross-frame state.
+        self.record_system_keys()?;
         self.runtime_installed = true;
         Ok(())
     }
@@ -141,14 +152,66 @@ impl<C: JsContext> ScriptRealm<C> {
         // prefixes that some engines treat specially.
         format!("__opencatDriver_{}", id.0)
     }
+
+    /// Snapshot current own-property names of `globalThis` as the baseline
+    /// system-key allowlist. Uses `getOwnPropertyNames` (not `keys`) so
+    /// non-enumerable but non-configurable built-in globals are captured and
+    /// never targeted by frame-boundary cleanup.
+    ///
+    /// Must be called once after runtime installation is complete, and again
+    /// after each `install()` so driver functions are protected.
+    fn record_system_keys(&self) -> Result<()> {
+        self.ctx.eval(
+            "var __k = Object.getOwnPropertyNames(globalThis);\
+             __k.push('__opencatSystemKeys');\
+             globalThis.__opencatSystemKeys = __k;",
+        )
+    }
+
+    /// Add a single key to the system-key allowlist (e.g. a newly installed
+    /// driver function). Called from `install()` to prevent frame-boundary
+    /// cleanup from removing the driver's global function.
+    fn add_system_key(&self, key: &str) -> Result<()> {
+        let js = format!("globalThis.__opencatSystemKeys.push('{key}');");
+        self.ctx.eval(&js)
+    }
+
+    /// Delete every own-property on `globalThis` that is not in the system-key
+    /// allowlist. This prevents user scripts from accumulating mutable state on
+    /// the global object across frame boundaries. Drivers within the same frame
+    /// (same `current_frame`) still share globals — only frame transitions
+    /// trigger cleanup, preserving intra-frame cross-driver communication.
+    ///
+    /// Uses `getOwnPropertyNames` (consistent with `record_system_keys`) and
+    /// only attempts deletion on configurable properties, so built-in
+    /// non-configurable globals are never touched.
+    fn cleanup_globals(&self) -> Result<()> {
+        self.ctx.eval(
+            "var __sk = globalThis.__opencatSystemKeys;\
+             if (__sk) {\
+               __sk = __sk.slice();\
+               __sk.push('__opencatSystemKeys');\
+               var __keys = Object.getOwnPropertyNames(globalThis);\
+               for (var __i = 0; __i < __keys.length; __i++) {\
+                 if (__sk.indexOf(__keys[__i]) < 0) {\
+                   var __desc = Object.getOwnPropertyDescriptor(globalThis, __keys[__i]);\
+                   if (__desc && __desc.configurable) {\
+                     delete globalThis[__keys[__i]];\
+                   }\
+                 }\
+               }\
+             }",
+        )
+    }
 }
 
 impl<C: JsContext> ScriptHost for ScriptRealm<C> {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
         self.ensure_runtime()?;
         let id = driver_id_from_source(source);
+        let fn_name = Self::driver_fn_name(id);
+        let is_new = matches!(self.installed.entry(id.0), std::collections::hash_map::Entry::Vacant(_));
         if let std::collections::hash_map::Entry::Vacant(e) = self.installed.entry(id.0) {
-            let fn_name = Self::driver_fn_name(id);
             // Install once; subsequent installs of the same source are no-ops so
             // realm-local JS state set by prior frames is preserved.
             let run_fn = format!("globalThis.{fn_name} = function() {{\n{source}\n}};");
@@ -160,6 +223,13 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 id.0
             ))?;
             e.insert(());
+        }
+        // Register the driver function as a system key so frame-boundary cleanup
+        // preserves it. Done after the entry scope to avoid mutable borrow conflict
+        // with self.installed. Re-registration (no-op) is harmless — push adds a
+        // duplicate that indexOf still matches.
+        if is_new {
+            self.add_system_key(&fn_name)?;
         }
         Ok(id)
     }
@@ -183,6 +253,17 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             return Err(anyhow!("script driver {} not installed in realm", driver.0));
         }
         self.ensure_runtime()?;
+
+        // Frame-boundary global-state cleanup: when the frame number changes,
+        // delete any non-system globalThis keys added by user scripts in the
+        // previous frame. Drivers within the same frame (e.g. scene + node
+        // drivers) share globals; only crossing a frame number triggers cleanup.
+        let frame = frame_ctx.current_frame;
+        if self.last_cleanup_frame != Some(frame) {
+            self.cleanup_globals()?;
+            self.last_cleanup_frame = Some(frame);
+        }
+
         self.apply_frame_ctx(frame_ctx, current_node_id)?;
 
         let fn_name = Self::driver_fn_name(driver);

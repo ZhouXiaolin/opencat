@@ -1,6 +1,6 @@
-use opencat_core::ir::draw_encoding::{encode_ir_envelope, intern_image_strings};
-use opencat_core::ir::draw_frame::{DrawFrameScratch, DrawOpFrame};
-use opencat_core::ir::media_plan::FrameGeneratedImage;
+use opencat_core::ir::draw_encoding::encode_ir_envelope;
+use opencat_core::ir::draw_frame::DrawFrameScratch;
+use opencat_core::ir::RenderFrame;
 
 /// Error wrapper bridging encoding failures into std::error::Error / JsValue.
 #[derive(Debug)]
@@ -14,17 +14,18 @@ impl std::fmt::Display for WebConsumeError {
 
 impl std::error::Error for WebConsumeError {}
 
-/// Encode a core draw frame plus generated-image delta into the single OCIR envelope.
+/// Encode a core RenderFrame into the single self-contained OCIR envelope
+/// (issue #45). The same RenderFrame always produces byte-identical output;
+/// no epoch/delta/history state is needed. Generated-image RGBA is fully
+/// encoded every frame.
 ///
 /// Core owns the full versioned wire protocol (#22). This host path only interns
 /// image strings and forwards bytes — no second envelope, no protocol re-encoding.
 pub(crate) fn encode_render_frame_envelope(
-    draw: &mut DrawOpFrame,
+    render_frame: &mut RenderFrame,
     scratch: &mut DrawFrameScratch,
-    pipeline_epoch: u32,
-    generated_delta: &[FrameGeneratedImage],
 ) -> Result<Vec<u8>, WebConsumeError> {
-    intern_image_strings(draw);
-    encode_ir_envelope(draw, scratch, pipeline_epoch, generated_delta)
-        .map_err(|e| WebConsumeError(e.0))
+    // Intern any asset_id / bundle_id strings so the binary IR can reference them.
+    opencat_core::ir::draw_encoding::intern_image_strings(&mut render_frame.draw);
+    encode_ir_envelope(render_frame, scratch).map_err(|e| WebConsumeError(e.0))
 }

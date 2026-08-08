@@ -1,5 +1,4 @@
 
-
 <div align="center">
 
 # OpenCat
@@ -24,9 +23,9 @@
 
 </div>
 
-XML define escenas, animaciones y diseños. Skia GPU renderiza, FFmpeg codifica a MP4: determinista, multiplataforma y consistente entre máquinas. Sin instantáneas de Chromium, sin Puppeteer, sin una pipeline de renderizado Web sobrecargada.
+XML define escenas, animaciones y diseños. Skia GPU renderiza, FFmpeg codifica a MP4: determinista, multiplataforma y consistente entre máquinas. Sin instantáneas de Chromium, sin Puppeteer, sin un pipeline de renderizado Web sobrecargado.
 
-Un video es simplementeun archivo XML:
+Un video es simplemente un archivo XML:
 
 ```xml
 <opencat width="1920" height="1080" fps="30" duration="3">
@@ -116,7 +115,7 @@ Define componentes reutilizables con `<template>`, parametriza con `$variable` y
 </opencat>
 ```
 
-Las plantillas se expanden en tiempo de análisis: costo en tiempo de ejecución cerocero, totalmente composables y admiten anidamiento.
+Las plantillas se expanden en tiempo de análisis: costo en tiempo de ejecución cero, totalmente composables y admiten anidamiento.
 
 ### Renderizado WASM en el navegador
 
@@ -207,7 +206,7 @@ Comparación píxel a píxel del Skia nativo vs WASM CanvasKit con ChromeDriver 
 # 1) multimedia usada por los ejemplos (profile-showcase carga http://127.0.0.1:8080/...)
 #    sirva tu árbol de mp4/png/mp3 en :8080
 
-# 2) construiracumular la fachada web (wasm + JS + web-demuxer.wasm → dist/)
+# 2) construir la fachada web (wasm + JS + web-demuxer.wasm → dist/)
 cd crates/opencat-web/web && npm run build && cd -
 
 # 3) oráculo multi-frame (0–413, paso 10) — necesita Chrome + chromedriver + ffmpeg
@@ -245,7 +244,7 @@ opencat
 
 ## Compilar desde el código fuente
 
-### Prerequisitos
+### Requisitos previos
 
 - **Toolchain de Rust** (edición 2024). Instala mediante [rustup](https://rustup.rs/):
   ```bash
@@ -319,7 +318,7 @@ opencat
 
   macOS proporciona Metal a través del SDK del sistema (sin instalación manual). Windows proporciona OpenGL a través del controlador del sistema.
 
-  `opencat-see` (el visor de vista previa de escritorio) crea su contexto GL víavia EGL en Linux, coincidiendo con el backend de Skia precompilado. Actualmente requiere un identificador de ventana X11, por lo que en una sesión Wayland se ejecuta a través de XWayland (configura `WAYLAND_DISPLAY=` solo si la selección automática falla). El soporte nativo de Wayland (`wl_surface`) aúnda no está conectado.
+  `opencat-see` (el visor de vista previa de escritorio) crea su contexto GL vía EGL en Linux, coincidiendo con el backend de Skia precompilado. Actualmente requiere un identificador de ventana X11, por lo que en una sesión Wayland se ejecuta a través de XWayland (configura `WAYLAND_DISPLAY=` solo si la selección automática falla). El soporte nativo de Wayland (`wl_surface`) aún no está conectado.
 
 - **Biblioteca de desarrollo de Fontconfig** (Linux):
 

@@ -540,8 +540,11 @@ fn build_node_inner(
             icon_node.style = style;
             Ok(Node::new(icon_node))
         }
-        ParsedElementKind::Path { data } => {
+        ParsedElementKind::Path { data, view_box } => {
             let mut path_node = path(data);
+            if let Some(vb) = view_box {
+                path_node.set_view_box(*vb);
+            }
             path_node.style = style;
             Ok(Node::new(path_node))
         }

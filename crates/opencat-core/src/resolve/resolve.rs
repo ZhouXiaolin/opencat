@@ -458,7 +458,16 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
             kind: ElementKind::Canvas(ElementCanvas { commands }),
             style: computed.clone(),
             children,
-            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            // Canvas commands are carried by `ElementCanvas.commands` (the
+            // node's DrawScript display item). `draw_slot_for` resolves the
+            // exact same mutation-stack commands a second time, and the
+            // renderer paints both the item (dispatch::render_display_item)
+            // and the slot (dispatch: draw_slot branch), so filling the slot
+            // here drew every canvas op twice per frame (alpha composed
+            // twice: a_eff = 1-(1-a)^2). The slot is only a carrier for
+            // non-canvas elements, which have no DrawScript item of their
+            // own.
+            draw_slot: ElementDrawSlot::default(),
             fingerprints: Default::default(),
         })
     })();
@@ -715,14 +724,20 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
-            let vb = path_bounds::compute_view_box(&pd).unwrap_or_else(|_| {
-                path_bounds::compute_view_box(&[path.data().to_string()])
-                    .unwrap_or(path_bounds::EMPTY_PATH_VIEW_BOX)
-            });
+            let vb = match path.view_box() {
+                Some(explicit) => explicit,
+                None => path_bounds::compute_view_box(&pd).unwrap_or_else(|_| {
+                    path_bounds::compute_view_box(&[path.data().to_string()])
+                        .unwrap_or(path_bounds::EMPTY_PATH_VIEW_BOX)
+                }),
+            };
             (pd, vb)
         } else {
             let pd = vec![path.data().to_string()];
-            let vb = path_bounds::compute_view_box(&pd)?;
+            let vb = match path.view_box() {
+                Some(explicit) => explicit,
+                None => path_bounds::compute_view_box(&pd)?,
+            };
             (pd, vb)
         };
 
@@ -1192,6 +1207,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         },
         visual: ComputedVisualStyle {
             opacity: style.opacity.unwrap_or(1.0),
+            blend_mode: style.blend_mode.unwrap_or_default(),
             background: resolve_background(style),
             fill: style
                 .fill_color
@@ -1242,11 +1258,19 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
 /// Priority: explicit arbitrary layers (`bg-[gradient]`) win; otherwise the
 /// legacy `bg-gradient-*` / `bg-radial` shorthand builds a single layer; finally
 /// `bg_color` is a flat solid fallback. Returns an empty `Vec` for no background.
+///
+/// CSS background 共存语义：`bg_color` 与任意渐变层可同时声明（如
+/// `.tickbox` 的 `background-color:#010101` + 低 alpha `background-image`），
+/// 此时 `bg_color` 作为 Solid 层沉到所有 image 层之下。
 fn resolve_background(style: &NodeStyle) -> Vec<crate::style::BackgroundFill> {
     use crate::style::BackgroundFill;
 
     if !style.background_layers.is_empty() {
-        return style.background_layers.clone();
+        let mut layers = style.background_layers.clone();
+        if let Some(color) = style.bg_color {
+            layers.insert(0, BackgroundFill::Solid { color });
+        }
+        return layers;
     }
 
     if let (Some(center), Some(from), Some(to)) = (
@@ -1334,7 +1358,7 @@ mod tests {
     use crate::{
         FrameCtx,
         ir::{draw_op::DrawOp, draw_types::ImageRef},
-        parse::primitives::{SrtEntry, caption, div, lucide, path, text, video},
+        parse::primitives::{SrtEntry, canvas, caption, div, lucide, path, text, video},
         probe::catalog::PreparedResourceCatalog,
         resolve::tree::ElementKind,
         script::{
@@ -1403,6 +1427,58 @@ mod tests {
         assert_eq!(
             resolved.children[1].style.text.color,
             crate::style::ColorToken::Blue
+        );
+    }
+
+    #[test]
+    fn canvas_element_does_not_duplicate_mutation_commands_in_draw_slot() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+
+        let root = div().id("root").child(canvas().id("c"));
+
+        let mutations = StyleMutations {
+            mutations: Default::default(),
+            canvas_mutations: [(
+                "c".to_string(),
+                crate::script::CanvasMutations {
+                    commands: vec![DrawOp::SetFillStyle {
+                        color: crate::ir::draw_op::ColorU8 {
+                            r: 223,
+                            g: 223,
+                            b: 221,
+                            a: 187,
+                        },
+                    }],
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+
+        let mut mock = MockScriptHost::default();
+        let resolved = resolve_ui_tree(&root.into(), &frame_ctx, &mut assets, Some(&mutations), &mut mock)
+            .expect("tree should resolve");
+
+        let canvas_node = &resolved.children[0];
+        let ElementKind::Canvas(canvas) = &canvas_node.kind else {
+            panic!("expected canvas element");
+        };
+        // Commands land on the canvas item (the node's DrawScript display
+        // item)…
+        assert_eq!(canvas.commands.len(), 1);
+        // …and must NOT be duplicated into the draw slot: the renderer paints
+        // the item and the slot separately, so a filled slot here would draw
+        // every canvas op twice per frame.
+        assert!(
+            canvas_node.draw_slot.commands.is_empty(),
+            "canvas draw_slot must stay empty; commands are already carried by the canvas item"
         );
     }
 
@@ -1604,6 +1680,32 @@ mod tests {
         assert_eq!(svg.path_data, vec!["M0 0 L10 0 L10 20 L0 20 Z".to_string()]);
         assert_eq!(svg.view_box, [0.0, 0.0, 10.0, 20.0]);
         assert_eq!(svg.intrinsic_size, None);
+    }
+
+    #[test]
+    fn resolve_path_honors_explicit_view_box_over_bounds() {
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 1,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+
+        // Bounds of this path are [100, 200, 50, 50]; the explicit view box
+        // must win so several sibling paths can share one coordinate space.
+        let mut child = path("M100 200 L150 200 L150 250 L100 250 Z")
+            .id("rect")
+            .size(40.0, 80.0);
+        child.set_view_box([0.0, 0.0, 512.0, 512.0]);
+        let root = div().id("root").child(child);
+
+        let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("path should resolve");
+        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
+            panic!("child should resolve to svg path element");
+        };
+        assert_eq!(svg.view_box, [0.0, 0.0, 512.0, 512.0]);
     }
 
     #[test]
@@ -1843,5 +1945,40 @@ mod tests {
             err.to_string().contains("unknown asset"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn background_layers_coexist_with_bg_color_as_solid_base() {
+        // CSS 语义：`bg-[#010101] bg-[linear-gradient(...)]` 时 bg_color 作为
+        // Solid 沉底、渐变层叠上（此前渐变层会整体忽略/清除 bg_color）。
+        use crate::style::{BackgroundFill, ColorToken, NodeStyle};
+
+        let mut style = NodeStyle::default();
+        style.bg_color = Some(ColorToken::Custom(1, 1, 1, 255));
+        style.background_layers = vec![BackgroundFill::Solid {
+            color: ColorToken::Custom(200, 200, 200, 8),
+        }];
+
+        let layers = super::resolve_background(&style);
+        assert_eq!(layers.len(), 2);
+        assert_eq!(
+            layers[0],
+            BackgroundFill::Solid {
+                color: ColorToken::Custom(1, 1, 1, 255)
+            },
+            "bg_color should sink to the base layer"
+        );
+
+        // 渐变层存在但无 bg_color：行为不变。
+        let mut style = NodeStyle::default();
+        style.background_layers = vec![BackgroundFill::Solid {
+            color: ColorToken::Custom(200, 200, 200, 8),
+        }];
+        assert_eq!(super::resolve_background(&style).len(), 1);
+
+        // 只有 bg_color：仍为单个 Solid。
+        let mut style = NodeStyle::default();
+        style.bg_color = Some(ColorToken::Custom(1, 1, 1, 255));
+        assert_eq!(super::resolve_background(&style).len(), 1);
     }
 }

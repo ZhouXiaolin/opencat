@@ -35,6 +35,11 @@ pub struct MutationStore {
     animate_entries: Vec<AnimateEntry>,
     morph_entries: Vec<MorphSvgEntry>,
     path_entries: Vec<PathMeasureEntry>,
+    /// Script-recorded generated images (canvas putImageData path, e.g. the
+    /// k3 dissolve rasters). NOT cleared by reset_for_frame: recorded during
+    /// script runs, drained once per frame by the render pipeline into the
+    /// pipeline `GeneratedImageTable`. Ids must be deterministic per content.
+    pending_generated_images: Vec<crate::ir::FrameGeneratedImage>,
     current_frame: u32,
     fps: u32,
 }
@@ -109,6 +114,46 @@ fn clip_path_from_value(value: &serde_json::Value) -> Option<Option<ClipPath>> {
 }
 
 impl MutationStore {
+    /// Record a script-generated RGBA image (canvas `putImageData` path) and
+    /// return its draw payload. The pixels go to
+    /// [`Self::pending_generated_images`]; the caller records the matching
+    /// `DrawOp::Image { image: ImageRef::Generated { id }, .. }` for the
+    /// canvas node. Ids must be deterministic per content — re-recording the
+    /// same id with different pixels is a hard error downstream.
+    pub fn record_frame_generated_image(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+        rgba: std::sync::Arc<[u8]>,
+    ) {
+        self.pending_generated_images
+            .push(crate::ir::FrameGeneratedImage {
+                id,
+                width,
+                height,
+                rgba,
+            });
+        self.record_draw_op(
+            node_id,
+            crate::ir::draw_op::DrawOp::Image {
+                image: crate::ir::draw_types::ImageRef::Generated { id },
+                x,
+                y,
+                paint: None,
+            },
+        );
+    }
+
+    /// Drain all pending generated images (called once per rendered frame by
+    /// the pipeline, which inserts them into the `GeneratedImageTable`).
+    pub fn take_pending_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
+        std::mem::take(&mut self.pending_generated_images)
+    }
+
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
         self.styles.entry(id.to_string()).or_default()
     }

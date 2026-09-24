@@ -1,3 +1,4 @@
+use crate::canvas::paint::BlendMode;
 use crate::style::{
     AlignItems, BackgroundFill, BoxShadow, ClipPath, ComputedTextStyle, CssFilter, DropShadow,
     FlexDirection, FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow,
@@ -103,6 +104,7 @@ pub struct ComputedLayoutStyle {
 #[derive(Clone, Debug)]
 pub struct ComputedVisualStyle {
     pub opacity: f32,
+    pub blend_mode: BlendMode,
     pub background: Vec<BackgroundFill>,
     pub fill: Option<BackgroundFill>,
     pub border_radius: crate::style::BorderRadius,

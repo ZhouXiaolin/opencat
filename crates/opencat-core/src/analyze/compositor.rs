@@ -164,6 +164,7 @@ mod ordered_scene_tests {
                     inset_shadow: Vec::new(),
                     drop_shadow: Vec::new(),
                     backdrop_blur_sigma: None,
+                    blend_mode: Default::default(),
                 },
             }),
             children,
@@ -620,6 +621,7 @@ mod ordered_scene_tests {
                             inset_shadow: Vec::new(),
                             drop_shadow: Vec::new(),
                             backdrop_blur_sigma: None,
+                            blend_mode: Default::default(),
                         },
                         transition: Some(TimelineTransitionDisplay {
                             progress: 0.5,
@@ -924,6 +926,7 @@ mod reuse_tests {
                         inset_shadow: Vec::new(),
                         drop_shadow: Vec::new(),
                         backdrop_blur_sigma: None,
+                        blend_mode: Default::default(),
                     },
                 }),
                 Vec::new(),

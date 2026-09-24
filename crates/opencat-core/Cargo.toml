@@ -18,6 +18,9 @@ kurbo = "0.13.1"
 unicode-segmentation = "1.11"
 cosmic-text = "0.19.0"
 fontdb = "0.23.0"
+# Direct swash access for the script offscreen-surface text rasterizer
+# (`text::surface`). Same major version cosmic-text 0.19 uses internally.
+swash = "0.2"
 # removed: imagesize, nom-exif — host-owned probing (issue #40)
 url = "2.5"
 bumpalo = "3.20.2"

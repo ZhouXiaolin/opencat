@@ -131,6 +131,53 @@ impl<'js> IntoJs<'js> for JsonReturn {
     }
 }
 
+/// `__opencatSurfaceReadInto` 原生：把 offscreen surface 的 RGBA 区域写入
+/// JS 预分配的 `Uint8Array`，返回写入字节数。
+///
+/// 独立成泛型函数而不是闭包：`Context::with` 是 HRTB（`Ctx<'_>` 匿名生命
+/// 周期），闭包若返回 `ArrayBuffer<'_>`，两个匿名生命周期因不变性无法合一
+/// （`IntoJsFunc` 不满足）；命名 `'js` 的 `fn` 项在调用点统一。
+///
+/// 「填充而非返回」同样是刻意的：实测返回 `ArrayBuffer<'js>` 且捕获 `Ctx`
+/// 克隆的原生会在 QuickJS 释放时触发 `list_empty(&rt->gc_obj_list)` 堆断言
+/// （GC 对象泄漏）。本闭包零捕获、返回标量，字节经 `TypedArray::as_raw`
+/// 直写 JS 侧缓冲。
+fn make_surface_read_into<'js>(ctx: &Ctx<'js>) -> rquickjs::Result<rquickjs::Function<'js>> {
+    rquickjs::Function::new(
+        ctx.clone(),
+        move |id: String,
+              x: f64,
+              y: f64,
+              w: f64,
+              h: f64,
+              out: rquickjs::Value<'js>|
+              -> Result<usize, JsError> {
+            let bytes = opencat_core::text::surface::surface_get_rgba(&id, x, y, w, h)
+                .map_err(|e| {
+                    JsError::new_from_js_message("surface.read", "rgba", &e.to_string())
+                })?;
+            let ta = rquickjs::TypedArray::<u8>::from_value(out).map_err(|e| {
+                JsError::new_from_js_message("surface.read", "out", &e.to_string())
+            })?;
+            let raw = ta.as_raw().ok_or_else(|| {
+                JsError::new_from_js_message("surface.read", "out", "detached typed array")
+            })?;
+            if raw.len < bytes.len() {
+                return Err(JsError::new_from_js_message(
+                    "surface.read",
+                    "out",
+                    "destination Uint8Array smaller than region",
+                ));
+            }
+            // `out` 在调用栈上存活，缓冲区不可能在 copy 期间被 GC 回收。
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.ptr.as_ptr(), bytes.len());
+            }
+            Ok(bytes.len())
+        },
+    )
+}
+
 // ── RqJsContext ──────────────────────────────────────────────────────
 
 pub struct RqJsContext {
@@ -205,6 +252,66 @@ impl JsContext for RqJsContext {
                 },
             )?;
             ctx.globals().set("__opencatCallNative", f)?;
+
+            // ── Binary fast paths (typed arrays bypass the JSON dispatcher) ──
+            // The generic dispatcher marshals every arg through
+            // `serde_json::Value`, which is unworkable for pixel-sized
+            // payloads (k3 dissolve: 1.3 MB / frame). These two natives give
+            // the script offscreen-surface capability (`opencat_core::text::
+            // surface`) direct ArrayBuffer / Uint8Array access. Web hosts do
+            // not register them; runtime JS guards on `typeof`.
+            let pixel_store = self.store.clone();
+            let put = Function::new(
+                ctx.clone(),
+                move |node_id: String,
+                      key: String,
+                      pixels: rquickjs::Value<'_>,
+                      x: f64,
+                      y: f64,
+                      w: f64,
+                      h: f64|
+                      -> Result<(), JsError> {
+                    let bytes = rquickjs::TypedArray::<u8>::from_value(pixels)
+                        .map_err(|e| {
+                            JsError::new_from_js_message(
+                                "putImageData",
+                                "pixels",
+                                &e.to_string(),
+                            )
+                        })?
+                        .as_bytes()
+                        .map(<[u8]>::to_vec)
+                        .ok_or_else(|| {
+                            JsError::new_from_js_message(
+                                "putImageData",
+                                "pixels",
+                                "detached typed array",
+                            )
+                        })?;
+                    // Deterministic id: same key ⇒ same id on fresh and reused
+                    // pipelines (GeneratedImageTable idempotency contract).
+                    let id = opencat_core::ir::GeneratedImageId::from_key(&key);
+                    let mut guard = pixel_store.lock().map_err(|e| {
+                        JsError::new_from_js_message("script", "lock", &e.to_string())
+                    })?;
+                    guard.record_frame_generated_image(
+                        &node_id,
+                        id,
+                        x as f32,
+                        y as f32,
+                        w as u32,
+                        h as u32,
+                        bytes.into(),
+                    );
+                    Ok(())
+                },
+            )?;
+            ctx.globals().set("__opencatPutImageData", put)?;
+
+            // 见 `make_surface_read_into` 文档：HRTB 生命周期经由命名 `'js`
+            // 的 fn 项统一；「填充而非返回」规避 GC 泄漏断言。
+            let read = make_surface_read_into(&ctx)?;
+            ctx.globals().set("__opencatSurfaceReadInto", read)?;
             Ok(())
         })
     }

@@ -8,3 +8,4 @@ out/
 .codegraph
 .qoder
 .worktrees
+__pycache__/

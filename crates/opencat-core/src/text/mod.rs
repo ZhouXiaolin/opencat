@@ -306,6 +306,15 @@ pub fn rasterize_glyphs(
     TextRasterization { glyphs, lines }
 }
 
+// ── Script offscreen surface (canvas drawText / getImageData capability) ───
+
+pub mod surface;
+
+// ── Script dissolve effect op (k3 scene-H scramble; pixels never cross the
+//    JS bridge — see §16 architecture principle) ─────────────────────────────
+
+pub mod dissolve;
+
 // ── Script text measurement ────────────────────────────────────────────────
 
 /// Measure single-line text width for the script engine canvas API.

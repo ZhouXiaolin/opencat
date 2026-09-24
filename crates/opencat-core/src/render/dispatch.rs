@@ -220,12 +220,14 @@ pub(crate) fn save_composite_layer(
                         sigma_x: sigma,
                         sigma_y: sigma,
                         crop_rect: None,
+                        decal: false,
                     }),
                 ),
                 None => ImageFilterSpec::Blur {
                     sigma_x: sigma,
                     sigma_y: sigma,
                     crop_rect: None,
+                    decal: false,
                 },
             };
             let paint = PaintSpec {
@@ -1167,6 +1169,7 @@ mod tests {
                     inset_shadow: Vec::new(),
                     drop_shadow: Vec::new(),
                     backdrop_blur_sigma: None,
+                    blend_mode: Default::default(),
                 },
             }),
             children,

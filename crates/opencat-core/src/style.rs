@@ -1,5 +1,6 @@
 use std::{hash::Hash, sync::Arc};
 
+use crate::canvas::paint::BlendMode;
 use crate::script::ScriptDriver;
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
@@ -646,12 +647,26 @@ pub enum GradientDirection {
     ToBottomRight,
 }
 
+/// 渐变停止点位置的单位。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StopUnit {
+    /// 归一化比例，`pos` 位于 `0..1`（相对渐变线长度，或重复渐变的周期）。
+    #[default]
+    Fraction,
+    /// CSS 像素（相对渐变线长度，或重复渐变的周期解析为比例）。
+    Px,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GradientStop {
-    /// Stop position in 0..1 (relative to the gradient extent).
+    /// Stop position. Interpretation depends on `unit`.
     #[serde(rename = "pos")]
     pub pos: f32,
+    /// Unit for `pos` (fraction of the gradient line, or CSS px).
+    #[serde(default, rename = "unit")]
+    pub unit: StopUnit,
     #[serde(rename = "color")]
     pub color: ColorToken,
 }
@@ -662,7 +677,68 @@ impl Eq for GradientStop {}
 impl std::hash::Hash for GradientStop {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.pos.to_bits().hash(state);
+        self.unit.hash(state);
         self.color.hash(state);
+    }
+}
+
+/// 径向渐变的形状。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RadialShape {
+    Circle,
+    /// CSS 默认形状为椭圆。
+    #[default]
+    Ellipse,
+}
+
+/// 径向渐变的 extent 关键字。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RadialExtent {
+    ClosestSide,
+    ClosestCorner,
+    FarthestSide,
+    #[default]
+    FarthestCorner,
+}
+
+/// 径向渐变显式半径的长度（像素或相对盒子对应维度的百分比）。
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "unit", rename_all = "camelCase")]
+pub enum GradientLength {
+    #[serde(rename = "px")]
+    Px {
+        #[serde(rename = "value")]
+        value: f32,
+    },
+    #[serde(rename = "percent")]
+    Percent {
+        #[serde(rename = "value")]
+        value: f32,
+    },
+}
+
+impl Eq for GradientLength {}
+
+impl std::hash::Hash for GradientLength {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            GradientLength::Px { value } | GradientLength::Percent { value } => {
+                value.to_bits().hash(state)
+            }
+        }
+    }
+}
+
+impl GradientLength {
+    /// 按参考长度解析为像素值（`Percent` 使用 `reference`）。
+    pub fn resolve(self, reference: f32) -> f32 {
+        match self {
+            GradientLength::Px { value } => value,
+            GradientLength::Percent { value } => value / 100.0 * reference,
+        }
     }
 }
 
@@ -699,6 +775,15 @@ pub enum ArbitraryGradient {
         size: Option<[f32; 2]>,
         #[serde(rename = "repeat")]
         repeat: bool,
+        /// 形状（`circle` / `ellipse`）。
+        #[serde(default, rename = "shape")]
+        shape: RadialShape,
+        /// 显式半径 `[rx, ry]`；`None` 时回退到 `extent` 关键字。
+        #[serde(default, rename = "radii")]
+        radii: Option<[GradientLength; 2]>,
+        /// extent 关键字（无显式半径时生效）。
+        #[serde(default, rename = "extent")]
+        extent: RadialExtent,
     },
 }
 
@@ -718,8 +803,7 @@ impl std::hash::Hash for ArbitraryGradient {
                 }
                 direction.hash(state);
                 for stop in stops {
-                    stop.pos.to_bits().hash(state);
-                    stop.color.hash(state);
+                    stop.hash(state);
                 }
                 if let Some(s) = size {
                     s[0].to_bits().hash(state);
@@ -732,18 +816,26 @@ impl std::hash::Hash for ArbitraryGradient {
                 stops,
                 size,
                 repeat,
+                shape,
+                radii,
+                extent,
             } => {
                 center[0].to_bits().hash(state);
                 center[1].to_bits().hash(state);
                 for stop in stops {
-                    stop.pos.to_bits().hash(state);
-                    stop.color.hash(state);
+                    stop.hash(state);
                 }
                 if let Some(s) = size {
                     s[0].to_bits().hash(state);
                     s[1].to_bits().hash(state);
                 }
                 repeat.hash(state);
+                shape.hash(state);
+                if let Some(r) = radii {
+                    r[0].hash(state);
+                    r[1].hash(state);
+                }
+                extent.hash(state);
             }
         }
     }
@@ -800,16 +892,14 @@ impl std::hash::Hash for BackgroundFill {
             BackgroundFill::LinearGradient { direction, stops } => {
                 direction.hash(state);
                 for stop in stops {
-                    stop.pos.to_bits().hash(state);
-                    stop.color.hash(state);
+                    stop.hash(state);
                 }
             }
             BackgroundFill::RadialGradient { center, stops } => {
                 center[0].to_bits().hash(state);
                 center[1].to_bits().hash(state);
                 for stop in stops {
-                    stop.pos.to_bits().hash(state);
-                    stop.color.hash(state);
+                    stop.hash(state);
                 }
             }
             BackgroundFill::ArbitraryGradient { gradient } => gradient.hash(state),
@@ -829,24 +919,29 @@ impl BackgroundFill {
             Some(mid) => vec![
                 GradientStop {
                     pos: 0.0,
+                    unit: StopUnit::Fraction,
                     color: from,
                 },
                 GradientStop {
                     pos: 0.5,
+                    unit: StopUnit::Fraction,
                     color: mid,
                 },
                 GradientStop {
                     pos: 1.0,
+                    unit: StopUnit::Fraction,
                     color: to,
                 },
             ],
             None => vec![
                 GradientStop {
                     pos: 0.0,
+                    unit: StopUnit::Fraction,
                     color: from,
                 },
                 GradientStop {
                     pos: 1.0,
+                    unit: StopUnit::Fraction,
                     color: to,
                 },
             ],
@@ -865,24 +960,29 @@ impl BackgroundFill {
             Some(mid) => vec![
                 GradientStop {
                     pos: 0.0,
+                    unit: StopUnit::Fraction,
                     color: from,
                 },
                 GradientStop {
                     pos: 0.5,
+                    unit: StopUnit::Fraction,
                     color: mid,
                 },
                 GradientStop {
                     pos: 1.0,
+                    unit: StopUnit::Fraction,
                     color: to,
                 },
             ],
             None => vec![
                 GradientStop {
                     pos: 0.0,
+                    unit: StopUnit::Fraction,
                     color: from,
                 },
                 GradientStop {
                     pos: 1.0,
+                    unit: StopUnit::Fraction,
                     color: to,
                 },
             ],
@@ -1292,6 +1392,9 @@ pub struct NodeStyle {
 
     // Visual
     pub opacity: Option<f32>,
+    /// CSS `mix-blend-mode` — per-node compositing blend mode. `None` means the
+    /// default (`SrcOver`).
+    pub blend_mode: Option<BlendMode>,
     pub bg_color: Option<ColorToken>,
     pub bg_gradient_from: Option<ColorToken>,
     pub bg_gradient_via: Option<ColorToken>,
@@ -1301,7 +1404,8 @@ pub struct NodeStyle {
     /// 与 `bg_gradient_direction` 互斥：解析时设置一方会清除另一方。
     pub bg_gradient_radial_center: Option<[f32; 2]>,
     /// 任意值语法（`bg-[linear-gradient(...)]` 等）解析得到的背景层。
-    /// 多层时按声明顺序叠加（第一层在最底）。与 `bg_color` 互斥：有任意层时忽略 `bg_color`。
+    /// 多层时按声明顺序叠加（第一层在最底）。CSS 语义下 `bg_color` 与渐变层
+    /// 共存：resolve 时 `bg_color` 作为 Solid 层沉到所有 image 层之下。
     pub background_layers: Vec<BackgroundFill>,
     /// `bg-[length:Wpx_Hpx]`，绑定到最近添加的背景层（grid 等瓦片背景）。
     pub bg_size: Option<[f32; 2]>,

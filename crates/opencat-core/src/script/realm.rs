@@ -311,6 +311,10 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.target_registry = Some(registry);
     }
 
+    fn take_frame_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
+        self.ctx.with_store_mut(|s| s.take_pending_generated_images())
+    }
+
     fn set_style_defaults(
         &mut self,
         defaults: &HashMap<String, HashMap<String, serde_json::Value>>,

@@ -156,6 +156,11 @@ fn convert_blur_style(s: BlurStyle) -> SkBlurStyle {
 // ── Shader ────────────────────────────────────────────────────────────
 
 fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
+    // CSS Images 4 requires gradient stops to interpolate in premultiplied
+    // space; Skia defaults to unpremultiplied interpolation, which couples
+    // RGB with alpha (a `transparent → color` ramp renders RGB as color·t²
+    // instead of color·t). Force premul interpolation to match browsers.
+    let grad_flags = Some(gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL);
     match spec {
         ShaderSpec::LinearGradient {
             from,
@@ -172,7 +177,7 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
                 skia_colors.as_slice(),
                 Some(stops.as_slice()),
                 convert_tile_mode(*tile_mode),
-                None,
+                grad_flags,
                 matrix.as_ref(),
             )
         }
@@ -192,7 +197,7 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
                 skia_colors.as_slice(),
                 Some(stops.as_slice()),
                 convert_tile_mode(*tile_mode),
-                None,
+                grad_flags,
                 matrix.as_ref(),
             )
         }
@@ -211,6 +216,7 @@ fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
             sigma_x,
             sigma_y,
             crop_rect,
+            decal,
         } => {
             let crop = crop_rect.as_ref().map(|r| {
                 skia_safe::Rect::from_xywh(
@@ -220,9 +226,17 @@ fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
                     r.height() as f32,
                 )
             });
+            // `decal` = CSS filter semantics: the input is transparent past its
+            // bounds so the gaussian falloff decays instead of smearing the
+            // edge colour (Clamp) across the outset layer bounds.
+            let tile = if *decal {
+                SkTileMode::Decal
+            } else {
+                SkTileMode::Clamp
+            };
             image_filters::blur(
                 (*sigma_x, *sigma_y),
-                SkTileMode::Clamp,
+                tile,
                 None,
                 crop.map(image_filters::CropRect::from),
             )

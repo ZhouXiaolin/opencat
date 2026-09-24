@@ -546,6 +546,57 @@ macro_rules! for_each_binding {
         $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}
+        // ── Pure: offscreen pixel surface (canvas 2D subset, real-font text;
+        //    used by the k3 dissolve port — see text::surface) ───────────────
+        $binding! { pure surface_create (id: String, width: f64, height: f64) -> bool {
+            Ok($crate::text::surface::surface_create(&id, width as u32, height as u32).is_ok())
+        }}
+        $binding! { pure surface_clear (id: String, x: f64, y: f64, w: f64, h: f64) -> bool {
+            Ok($crate::text::surface::surface_clear(&id, x, y, w, h).is_ok())
+        }}
+        $binding! { pure surface_measure_text (text: String, family: String, weight: u32, size_px: f64, letter_spacing_px: f64) -> $crate::text::surface::InkMetrics {
+            $crate::text::surface::surface_measure_text(&text, &family, weight, size_px, letter_spacing_px)
+        }}
+        $binding! { pure surface_fill_text (id: String, text: String, x: f64, y: f64, family: String, weight: u32, size_px: f64, letter_spacing_px: f64, scale_x: f64, color: String) -> bool {
+            let c = $crate::script::helpers::parse_color(&color, "surface.fillText")?;
+            Ok($crate::text::surface::surface_fill_text(
+                &id, &text, x, y, &family, weight, size_px, letter_spacing_px, scale_x,
+                [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0],
+            ).is_ok())
+        }}
+        // ── Dissolve effect op (k3 scene-H scramble; §16 architecture: the
+        //    per-pixel algorithm runs HERE in Rust — pixels never cross the
+        //    JS bridge; JS only makes thin marker calls) ────────────────────
+        // Build once per surface: mask threshold + 3-4 chamfer distance field
+        // over the rasterized card lockup (see text::dissolve).
+        $binding! { pure surface_build_dissolve (id: String, x: f64, y: f64, w: f64, h: f64) -> bool {
+            Ok($crate::text::dissolve::dissolve_build(&id, x, y, w, h).is_ok())
+        }}
+        // Render one frame and draw it: everything (window test, frame index,
+        // scramble noise, glow band) is computed inside core; on a hit this
+        // records the frame-scoped generated image + the matching
+        // `DrawOp::Image { Generated }` on the canvas node. Returns whether
+        // the frame was inside the dissolve window.
+        $binding! { cmd $store canvas_apply_dissolve (node_id: String, surface_id: String, key_prefix: String, t: f64, fps: f64, win_start: f64, win_end: f64, max_frame: f64, dx: f64, dy: f64) -> bool {
+            match $crate::text::dissolve::dissolve_render(
+                &surface_id, t, fps, win_start, win_end, max_frame as u32, dx, dy,
+            )? {
+                Some(rendered) => {
+                    let key = format!("{key_prefix}{}", rendered.frame);
+                    $store.record_frame_generated_image(
+                        &node_id,
+                        $crate::ir::GeneratedImageId::from_key(&key),
+                        rendered.dx as f32,
+                        rendered.dy as f32,
+                        rendered.width,
+                        rendered.height,
+                        rendered.rgba,
+                    );
+                    Ok(true)
+                }
+                None => Ok(false),
+            }
+        }}
         $binding! { pure util_random_seeded (seed: f32) -> f32 {
             Ok(random_from_seed(seed))
         }}

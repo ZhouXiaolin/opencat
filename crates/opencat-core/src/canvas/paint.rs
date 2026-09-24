@@ -107,6 +107,11 @@ pub enum ImageFilterSpec {
         sigma_x: f32,
         sigma_y: f32,
         crop_rect: Option<Rect>,
+        /// Tile the blur input transparently past its bounds (CSS
+        /// `filter: blur()` semantics, where content outside the element
+        /// is transparent). `false` = `Clamp` (backdrop blur, where the
+        /// backdrop edge should extend past the snapshot).
+        decal: bool,
     },
     DropShadow {
         dx: f32,
@@ -297,15 +302,18 @@ impl PartialEq for ImageFilterSpec {
                     sigma_x: ax,
                     sigma_y: ay,
                     crop_rect: ar,
+                    decal: adecal,
                 },
                 ImageFilterSpec::Blur {
                     sigma_x: bx,
                     sigma_y: by,
                     crop_rect: br,
+                    decal: bdecal,
                 },
             ) => {
                 ax.to_bits() == bx.to_bits()
                     && ay.to_bits() == by.to_bits()
+                    && adecal == bdecal
                     && match (ar, br) {
                         (Some(a), Some(b)) => {
                             a.x0.to_bits() == b.x0.to_bits()
@@ -359,9 +367,11 @@ impl Hash for ImageFilterSpec {
                 sigma_x,
                 sigma_y,
                 crop_rect,
+                decal,
             } => {
                 sigma_x.to_bits().hash(state);
                 sigma_y.to_bits().hash(state);
+                decal.hash(state);
                 if let Some(r) = crop_rect {
                     1u8.hash(state);
                     r.x0.to_bits().hash(state);

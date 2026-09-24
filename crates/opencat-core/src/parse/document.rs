@@ -94,6 +94,7 @@ pub enum ParsedElementKind {
     },
     Path {
         data: String,
+        view_box: Option<[f32; 4]>,
     },
     Video {
         source: VideoSource,

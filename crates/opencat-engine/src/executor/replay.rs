@@ -223,21 +223,26 @@ fn replay_op(
             paint,
             alpha,
         } => {
-            let sk_paint = paint
-                .as_ref()
-                .map(|pid| paint_from_spec(&draw.paints[pid.0 as usize]));
             let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
-            let mut rec = skia_safe::canvas::SaveLayerRec::default();
-            if let Some(ref p) = sk_paint {
-                rec = rec.paint(p);
-            }
-            if let Some(ref r) = sk_rect {
-                rec = rec.bounds(r);
-            }
-            if sk_paint.is_none() {
-                canvas.save_layer_alpha(sk_rect, (*alpha * 255.0) as u32);
-            } else {
-                canvas.save_layer(&rec);
+            match paint {
+                Some(pid) => {
+                    // The layer alpha must compose with the paint (it used to
+                    // be dropped whenever a paint was present, which made
+                    // filtered layers render fully opaque).
+                    let mut sk_paint = paint_from_spec(&draw.paints[pid.0 as usize]);
+                    if *alpha < 1.0 {
+                        apply_global_alpha(&mut sk_paint, *alpha);
+                    }
+                    let rec = skia_safe::canvas::SaveLayerRec::default().paint(&sk_paint);
+                    let rec = match sk_rect {
+                        Some(ref r) => rec.bounds(r),
+                        None => rec,
+                    };
+                    canvas.save_layer(&rec);
+                }
+                None => {
+                    canvas.save_layer_alpha(sk_rect, (*alpha * 255.0) as u32);
+                }
             }
             Ok(())
         }

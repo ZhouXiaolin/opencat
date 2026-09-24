@@ -559,10 +559,12 @@ fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<()
             sigma_x,
             sigma_y,
             crop_rect,
+            decal,
         } => {
             write_u8(out, 0);
             write_f32(out, *sigma_x);
             write_f32(out, *sigma_y);
+            write_u8(out, u8::from(*decal));
             match crop_rect {
                 Some(rect) => {
                     write_u8(out, 1);

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
 
+use crate::canvas::paint::BlendMode;
 use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, ColorToken, CssFilterKind, DropShadow, DropShadowStyle,
     FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows,
@@ -182,6 +183,30 @@ fn exact_class_action(class: &str) -> Option<ExactClassAction> {
         .find_map(|(name, action)| (*name == class).then_some(*action))
 }
 
+/// Map a CSS `mix-blend-mode` keyword to the canvas `BlendMode`.
+fn blend_mode_from_css_name(name: &str) -> Option<BlendMode> {
+    Some(match name {
+        "normal" => BlendMode::SrcOver,
+        "multiply" => BlendMode::Multiply,
+        "screen" => BlendMode::Screen,
+        "overlay" => BlendMode::Overlay,
+        "darken" => BlendMode::Darken,
+        "lighten" => BlendMode::Lighten,
+        "color-dodge" => BlendMode::ColorDodge,
+        "color-burn" => BlendMode::ColorBurn,
+        "hard-light" => BlendMode::HardLight,
+        "soft-light" => BlendMode::SoftLight,
+        "difference" => BlendMode::Difference,
+        "exclusion" => BlendMode::Exclusion,
+        "hue" => BlendMode::Hue,
+        "saturation" => BlendMode::Saturation,
+        "color" => BlendMode::Color,
+        "luminosity" => BlendMode::Luminosity,
+        "plus-lighter" => BlendMode::Plus,
+        _ => return None,
+    })
+}
+
 fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
     match action {
         ExactClassAction::Position(value) => style.position = Some(value),
@@ -241,6 +266,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         }
         ExactClassAction::LineThrough => style.line_through = true,
         ExactClassAction::Noop => {}
+        ExactClassAction::BlendMode(value) => style.blend_mode = Some(value),
         ExactClassAction::InsetZero => {
             let zero = LengthPercentageAuto::length(0.0);
             style.inset_left = Some(zero);
@@ -318,6 +344,16 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         && let Some(shadows) = parse_text_shadows(value)
     {
         style.text_shadows.extend(shadows);
+        return true;
+    }
+
+    // `[mix-blend-mode:<value>]` — 任意属性语法，映射到 PaintSpec 的混合模式。
+    if let Some(value) = class
+        .strip_prefix("[mix-blend-mode:")
+        .and_then(|v| v.strip_suffix(']'))
+        && let Some(blend_mode) = blend_mode_from_css_name(value.trim())
+    {
+        style.blend_mode = Some(blend_mode);
         return true;
     }
 
@@ -647,8 +683,9 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         // CSS 渐变函数：`bg-[linear-gradient(...)]` 等（可含多层逗号分隔）。
         if let Some(layers) = crate::parse::gradient::parse_background_gradient(rest) {
             style.background_layers.extend(layers);
-            // bg_color 与任意渐变层互斥：有任意层时清除 bg_color。
-            style.bg_color = None;
+            // CSS 语义：background-image 与 background-color 共存，color 沉底。
+            // 之前这里清除了 bg_color，导致 `bg-[#010101] bg-[linear-gradient(...)]`
+            // （.tickbox 类结构）丢掉底色、低 alpha 渐变直接透出下层。
             return true;
         }
     }
@@ -985,6 +1022,7 @@ enum ExactClassAction {
     RowEndAuto,
     GridColsNone,
     GridRowsNone,
+    BlendMode(BlendMode),
 }
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_jsonl_rules.rs"));
@@ -2114,8 +2152,57 @@ fn parse_aspect_ratio(value: &str) -> Option<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_class_name;
+    use super::{blend_mode_from_css_name, parse_class_name};
+    use crate::canvas::paint::BlendMode;
     use crate::style::ColorToken;
+
+    #[test]
+    fn parses_mix_blend_mode_arbitrary_property() {
+        let style = parse_class_name("[mix-blend-mode:difference]");
+        assert_eq!(style.blend_mode, Some(BlendMode::Difference));
+    }
+
+    #[test]
+    fn parses_named_mix_blend_utilities() {
+        assert_eq!(
+            parse_class_name("mix-blend-normal").blend_mode,
+            Some(BlendMode::SrcOver)
+        );
+        assert_eq!(
+            parse_class_name("mix-blend-multiply").blend_mode,
+            Some(BlendMode::Multiply)
+        );
+        assert_eq!(
+            parse_class_name("mix-blend-screen").blend_mode,
+            Some(BlendMode::Screen)
+        );
+        assert_eq!(
+            parse_class_name("mix-blend-difference").blend_mode,
+            Some(BlendMode::Difference)
+        );
+        assert_eq!(
+            parse_class_name("mix-blend-luminosity").blend_mode,
+            Some(BlendMode::Luminosity)
+        );
+        assert_eq!(
+            parse_class_name("mix-blend-plus-lighter").blend_mode,
+            Some(BlendMode::Plus)
+        );
+    }
+
+    #[test]
+    fn unknown_mix_blend_value_leaves_default() {
+        assert_eq!(parse_class_name("").blend_mode, None);
+        assert_eq!(parse_class_name("[mix-blend-mode:bogus]").blend_mode, None);
+    }
+
+    #[test]
+    fn maps_css_blend_keywords() {
+        assert_eq!(blend_mode_from_css_name("difference"), Some(BlendMode::Difference));
+        assert_eq!(blend_mode_from_css_name("color-dodge"), Some(BlendMode::ColorDodge));
+        assert_eq!(blend_mode_from_css_name("plus-lighter"), Some(BlendMode::Plus));
+        assert_eq!(blend_mode_from_css_name("nope"), None);
+    }
 
     #[test]
     fn parses_box_drop_and_inset_shadows_separately() {
@@ -2498,8 +2585,20 @@ mod tests {
         let style =
             parse_class_name("bg-[radial-gradient(circle,rgba(0,255,136,0.14),transparent_70%)]");
         assert_eq!(style.background_layers.len(), 1);
-        // 有任意渐变层时 bg_color 应被清除。
+        // 单独一个渐变类不引入 bg_color（默认 None）。
         assert_eq!(style.bg_color, None);
+    }
+
+    #[test]
+    fn parses_bg_color_coexisting_with_gradient_layer() {
+        // CSS 语义：`background-color` 与 `background-image` 共存（如参考
+        // .tickbox 的 #010101 底 + 低 alpha 100deg 渐变）。此前渐变类会清除
+        // bg_color，导致底色丢失。
+        let style = parse_class_name(
+            "bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))]",
+        );
+        assert_eq!(style.background_layers.len(), 1);
+        assert_eq!(style.bg_color, Some(crate::style::ColorToken::Custom(1, 1, 1, 255)));
     }
 
     #[test]

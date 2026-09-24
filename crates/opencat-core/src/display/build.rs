@@ -437,6 +437,7 @@ fn display_item_for_node(
             bounds,
             paint: RectPaintStyle {
                 background: element.style.visual.background.clone(),
+                blend_mode: element.style.visual.blend_mode,
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
                 border_top_width: element.style.visual.border_top_width,
@@ -455,6 +456,7 @@ fn display_item_for_node(
             bounds,
             paint: RectPaintStyle {
                 background: element.style.visual.background.clone(),
+                blend_mode: element.style.visual.blend_mode,
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
                 border_top_width: element.style.visual.border_top_width,

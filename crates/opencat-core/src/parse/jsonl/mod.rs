@@ -451,7 +451,7 @@ pub fn parse_with_base_dir(
                     parent_id,
                     duration,
                     style,
-                    kind: ParsedElementKind::Path { data: d },
+                    kind: ParsedElementKind::Path { data: d, view_box: None },
                 });
             }
         }

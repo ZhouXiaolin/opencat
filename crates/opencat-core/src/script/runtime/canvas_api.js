@@ -1250,6 +1250,75 @@
                 const resolved = ensureSubTreeHandle(handle);
                 __canvas_draw_picture(id, resolved.ownerId, toFiniteNumber(x), toFiniteNumber(y));
                 return this;
+            },
+
+            /* ── 2D-canvas pixel shims (k3 dissolve port) ─────────────────
+               createImageData: zero-init pixel buffer (Uint8ClampedArray).
+               putImageData: uploads the buffer as a frame-scoped generated
+               image drawn at (dx, dy) in canvas-node coordinates. The engine
+               registers `__opencatPutImageData` (binary fast path, bypasses
+               the JSON dispatcher); `key` MUST be frame-unique because the
+               generated-image table treats a repeated key as an idempotent
+               no-op (identical pixels) or hard error (differing pixels). */
+            createImageData(w, h) {
+                const ww = Math.max(1, Math.round(toFiniteNumber(w)));
+                const hh = Math.max(1, Math.round(toFiniteNumber(h)));
+                return { width: ww, height: hh, data: new Uint8ClampedArray(ww * hh * 4) };
+            },
+
+            putImageData(img, dx, dy, key) {
+                if (typeof __opencatPutImageData !== 'function') {
+                    throw new Error('putImageData: engine native __opencatPutImageData unavailable');
+                }
+                if (!img || !isArrayLike(img.data)) {
+                    throw new Error('putImageData: expected an ImageData-like value');
+                }
+                if (key == null) {
+                    throw new Error('putImageData: a frame-scoped key is required');
+                }
+                const src = img.data;
+                const u8 = src instanceof Uint8Array
+                    ? src
+                    : new Uint8Array(src.buffer, src.byteOffset, src.byteLength);
+                __opencatPutImageData(
+                    id,
+                    String(key),
+                    u8,
+                    toFiniteNumber(dx),
+                    toFiniteNumber(dy),
+                    img.width,
+                    img.height
+                );
+                return this;
+            },
+
+            /* ── Dissolve draw (k3 scene-H) — the §16-conformant path ───────
+               Thin marker ONLY: the engine rasterizes the mask, runs the
+               chamfer field, evaluates the per-pixel scramble noise / glow
+               for `t`, and records the generated image + draw op in Rust.
+               No pixel buffer ever crosses the JS bridge.
+               opts: { surface, t, fps=30, windowStart=13.699, windowEnd=15.2,
+                       maxFrame=455, dx, dy, keyPrefix='k3dis_f' }.
+               Returns true when `t` was inside the dissolve window. */
+            applyDissolve(opts) {
+                if (!opts || typeof opts.surface !== 'string') {
+                    throw new Error('applyDissolve: opts.surface (surface id) is required');
+                }
+                if (opts.dx == null || opts.dy == null) {
+                    throw new Error('applyDissolve: opts.dx/dy (put position) are required');
+                }
+                return __canvas_apply_dissolve(
+                    id,
+                    opts.surface,
+                    String(opts.keyPrefix == null ? 'k3dis_f' : opts.keyPrefix),
+                    toFiniteNumber(opts.t),
+                    toFiniteNumber(opts.fps, 30),
+                    toFiniteNumber(opts.windowStart, 13.699),
+                    toFiniteNumber(opts.windowEnd, 15.2),
+                    toFiniteNumber(opts.maxFrame, 455),
+                    toFiniteNumber(opts.dx),
+                    toFiniteNumber(opts.dy)
+                ) === true;
             }
         };
     }
@@ -1293,5 +1362,148 @@
         }
         canvasCache[id].__saveCount = 1;
         return canvasCache[id];
+    };
+
+    /* ══ Offscreen 2D surface facade (k3 dissolve port) ══════════════════
+       Backed by `opencat_core::text::surface` — real-font glyph
+       rasterization (swash over the scoped fontdb), kern-free hmtx advances
+       with trailing letter-spacing, and canvas-2D ink-box metrics. Pixel
+       readback goes through the engine's binary native
+       `__opencatSurfaceRead` (ArrayBuffer; no JSON marshaling).
+
+       Supported 2D subset (exactly what the reference drawDissolve uses):
+       save / restore / translate / scale(sx,1) / clearRect / fillStyle /
+       font / letterSpacing / textBaseline='alphabetic' / measureText /
+       fillText / getImageData. Rotated or y-scaled text is rejected. */
+    const surfaceCache = {};
+
+    function parseCssFont(font) {
+        const m = /^\s*(\d+)\s+([0-9.]+)px\s+(.+?)\s*$/.exec(String(font));
+        if (!m) {
+            throw new Error('unsupported font shorthand: ' + font);
+        }
+        // CSS family list: resolve the FIRST family only (no font fallback
+        // in the core surface; unknown families error at the binding).
+        const family = m[3].split(',')[0].replace(/["']/g, '').trim();
+        return { weight: parseInt(m[1], 10), size: parseFloat(m[2]), family };
+    }
+
+    function makeSurface(id) {
+        const state = {
+            font: '400 16px sans-serif',
+            letterSpacing: '0px',
+            fillStyle: '#000',
+            textBaseline: 'alphabetic'
+        };
+        // translate + uniform-ish scaleX subset: fillText device position is
+        // (tx + a*x, ty + y); the x-scale also squeezes glyphs (scale_x).
+        const matrix = { tx: 0, ty: 0, a: 1 };
+        const stack = [];
+        function fontSpec() {
+            const f = parseCssFont(state.font);
+            const ls = parseFloat(String(state.letterSpacing));
+            return {
+                weight: f.weight,
+                size: f.size,
+                family: f.family,
+                letterSpacing: Number.isFinite(ls) ? ls : 0
+            };
+        }
+        return {
+            __opencatSurface: true,
+            save() {
+                stack.push({ tx: matrix.tx, ty: matrix.ty, a: matrix.a });
+            },
+            restore() {
+                const s = stack.pop();
+                if (s) { matrix.tx = s.tx; matrix.ty = s.ty; matrix.a = s.a; }
+            },
+            translate(x, y) {
+                matrix.tx += matrix.a * toFiniteNumber(x);
+                matrix.ty += toFiniteNumber(y);
+            },
+            scale(sx, sy) {
+                if (toFiniteNumber(sy, 1) !== 1) {
+                    throw new Error('surface scale: only scale(sx, 1) is supported');
+                }
+                matrix.a *= toFiniteNumber(sx, 1);
+            },
+            clearRect(x, y, w, h) {
+                __surface_clear(id, toFiniteNumber(x), toFiniteNumber(y), toFiniteNumber(w), toFiniteNumber(h));
+            },
+            measureText(text) {
+                const f = fontSpec();
+                const m = __surface_measure_text(String(text), f.family, f.weight, f.size, f.letterSpacing);
+                return {
+                    width: m.width,
+                    actualBoundingBoxLeft: m.ink_left,
+                    actualBoundingBoxRight: m.ink_right,
+                    actualBoundingBoxAscent: m.ink_ascent,
+                    actualBoundingBoxDescent: m.ink_descent
+                };
+            },
+            fillText(text, x, y) {
+                if (state.textBaseline !== 'alphabetic') {
+                    throw new Error('surface fillText: only the alphabetic baseline is supported');
+                }
+                const f = fontSpec();
+                __surface_fill_text(
+                    id,
+                    String(text),
+                    matrix.tx + matrix.a * toFiniteNumber(x),
+                    matrix.ty + toFiniteNumber(y),
+                    f.family,
+                    f.weight,
+                    f.size,
+                    f.letterSpacing,
+                    matrix.a,
+                    colorToCss(state.fillStyle)
+                );
+            },
+            getImageData(x, y, w, h) {
+                if (typeof __opencatSurfaceReadInto !== 'function') {
+                    throw new Error('getImageData: engine native __opencatSurfaceReadInto unavailable');
+                }
+                const ww = Math.round(toFiniteNumber(w));
+                const hh = Math.round(toFiniteNumber(h));
+                // Fill-in-place: the engine native writes bytes into this
+                // preallocated buffer (a returning-native form leaks QuickJS
+                // GC objects at runtime teardown).
+                const u8 = new Uint8Array(Math.max(0, ww * hh * 4));
+                __opencatSurfaceReadInto(id, toFiniteNumber(x), toFiniteNumber(y), ww, hh, u8);
+                return {
+                    width: ww,
+                    height: hh,
+                    data: new Uint8ClampedArray(u8.buffer)
+                };
+            },
+            /* Dissolve field build (marker only): thresholds the drawn region
+               into a mask + 3-4 chamfer distance field INSIDE the engine
+               (text::dissolve). Pixels stay in Rust; call once after the
+               region has been fillText'ed. */
+            buildDissolve(x, y, w, h) {
+                if (__surface_build_dissolve(id, toFiniteNumber(x), toFiniteNumber(y),
+                    toFiniteNumber(w), toFiniteNumber(h)) !== true) {
+                    throw new Error('buildDissolve: engine rejected region ' + [x, y, w, h]);
+                }
+            },
+            get font() { return state.font; },
+            set font(v) { state.font = String(v); },
+            get letterSpacing() { return state.letterSpacing; },
+            set letterSpacing(v) { state.letterSpacing = String(v); },
+            get fillStyle() { return state.fillStyle; },
+            set fillStyle(v) { state.fillStyle = v; },
+            get textBaseline() { return state.textBaseline; },
+            set textBaseline(v) { state.textBaseline = String(v); }
+        };
+    }
+
+    ctx.createSurface = function(id, w, h) {
+        id = String(id);
+        if (!surfaceCache[id]) {
+            __surface_create(id, toFiniteNumber(w), toFiniteNumber(h));
+            surfaceCache[id] = makeSurface(id);
+        }
+        return surfaceCache[id];
     };
 })();

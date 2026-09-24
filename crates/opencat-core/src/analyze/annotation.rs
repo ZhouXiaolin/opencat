@@ -473,6 +473,7 @@ mod tests {
                     inset_shadow: Vec::new(),
                     drop_shadow: Vec::new(),
                     backdrop_blur_sigma: None,
+                    blend_mode: Default::default(),
                 },
             }),
             children,

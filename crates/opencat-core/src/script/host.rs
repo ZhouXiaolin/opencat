@@ -61,6 +61,13 @@ pub trait ScriptHost {
     }
     /// Set base style for a single node from its resolved NodeStyle.
     fn set_initial_style_from_node(&mut self, _id: &str, _style: &crate::style::NodeStyle) {}
+    /// Drain script-recorded generated images (canvas `putImageData` path,
+    /// e.g. the k3 dissolve rasters). Called once per rendered frame by the
+    /// render pipeline; drained entries are inserted into the pipeline
+    /// `GeneratedImageTable` and carried to hosts via `FrameMediaPlan`.
+    fn take_frame_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

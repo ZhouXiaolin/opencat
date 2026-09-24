@@ -7,7 +7,8 @@
 //! as `_`; this module restores it before tokenizing.
 
 use crate::style::{
-    ArbitraryGradient, BackgroundFill, ColorToken, GradientDirection, GradientStop,
+    ArbitraryGradient, BackgroundFill, ColorToken, GradientDirection, GradientLength,
+    GradientStop, RadialExtent, RadialShape, StopUnit,
 };
 
 /// Parse the interior of a `bg-[...]` class (after stripping the `bg-[` prefix
@@ -184,15 +185,17 @@ fn parse_linear(args: &[String], repeat: bool) -> BackgroundFill {
         stop_args = &args[1..];
     }
 
-    let stops = normalize_stops(stop_args);
+    let stops = normalize_stops(stop_args, repeat);
     let stops = if stops.is_empty() {
         vec![
             GradientStop {
                 pos: 0.0,
+                unit: StopUnit::Fraction,
                 color: ColorToken::Transparent,
             },
             GradientStop {
                 pos: 1.0,
+                unit: StopUnit::Fraction,
                 color: ColorToken::Transparent,
             },
         ]
@@ -232,176 +235,330 @@ fn parse_linear_direction(term: &str) -> Option<(Option<f32>, Option<GradientDir
     direction.map(|d| (None, Some(d)))
 }
 
+/// A radial-gradient shape/size/position descriptor (the argument before the
+/// color stops), e.g. `circle`, `ellipse 64% 70% at 50% 50%`, `farthest-corner`.
+#[derive(Default)]
+struct RadialDescriptor {
+    center: [f32; 2],
+    shape: RadialShape,
+    radii: Option<[GradientLength; 2]>,
+    extent: RadialExtent,
+    recognized: bool,
+}
+
 /// Parse a radial-gradient argument list.
-/// The first argument may be a shape/size term (`circle`, `ellipse`, `closest-side`,
-/// `farthest-corner`, …); we accept and ignore it, defaulting to circle centered.
+/// The first argument may be a shape/size/position descriptor
+/// (`circle`, `ellipse 64% 70% at 50% 50%`, `closest-side`, …).
 /// The rest are color stops.
 fn parse_radial(args: &[String]) -> BackgroundFill {
     let mut stop_args = args;
 
-    // Skip the leading shape/extent term if present (it is not a color stop).
+    // Skip the leading shape/size/position term if present (it is not a color stop).
     if let Some(first) = args.first()
-        && !is_color_stop(first)
+        && split_color_positions(first).is_none()
     {
-        stop_args = &args[1..];
+        let desc = parse_radial_descriptor(first);
+        if desc.recognized {
+            stop_args = &args[1..];
+            return BackgroundFill::ArbitraryGradient {
+                gradient: ArbitraryGradient::RadialGradient {
+                    center: desc.center,
+                    stops: radial_stops(stop_args),
+                    size: None,
+                    repeat: false,
+                    shape: desc.shape,
+                    radii: desc.radii,
+                    extent: desc.extent,
+                },
+            };
+        }
     }
 
-    let stops = normalize_stops(stop_args);
-    let stops = if stops.is_empty() {
+    BackgroundFill::ArbitraryGradient {
+        gradient: ArbitraryGradient::RadialGradient {
+            center: [0.5, 0.5],
+            stops: radial_stops(stop_args),
+            size: None,
+            repeat: false,
+            shape: RadialShape::Ellipse,
+            radii: None,
+            extent: RadialExtent::FarthestCorner,
+        },
+    }
+}
+
+fn radial_stops(stop_args: &[String]) -> Vec<GradientStop> {
+    let stops = normalize_stops(stop_args, false);
+    if stops.is_empty() {
         vec![
             GradientStop {
                 pos: 0.0,
+                unit: StopUnit::Fraction,
                 color: ColorToken::Transparent,
             },
             GradientStop {
                 pos: 1.0,
+                unit: StopUnit::Fraction,
                 color: ColorToken::Transparent,
             },
         ]
     } else {
         stops
-    };
-
-    BackgroundFill::ArbitraryGradient {
-        gradient: ArbitraryGradient::RadialGradient {
-            center: [0.5, 0.5],
-            stops,
-            size: None,
-            repeat: false,
-        },
     }
 }
 
-/// Heuristic: does this argument look like a color stop (contains a color)
-/// rather than a shape/extent keyword?
-fn is_color_stop(term: &str) -> bool {
-    let term = term.trim();
-    // A color stop contains a color token: starts with #, rgb, rgba, or is a
-    // known color keyword / `transparent`.
-    if term.starts_with('#')
-        || term.starts_with("rgb")
-        || term == "transparent"
-        || crate::style::color_token_from_class_suffix(term).is_some()
+/// Parse `circle` / `ellipse <rx> <ry>` / `at <x> <y>` / extent keywords.
+fn parse_radial_descriptor(term: &str) -> RadialDescriptor {
+    let mut desc = RadialDescriptor {
+        center: [0.5, 0.5],
+        ..Default::default()
+    };
+
+    // Split off a trailing `at <pos>` clause.
+    let (shape_part, at_part) = match term.find(" at ") {
+        Some(idx) => (&term[..idx], Some(&term[idx + 4..])),
+        None => (term, None),
+    };
+
+    if let Some(at) = at_part
+        && let Some(center) = parse_radial_position(at)
     {
-        return true;
+        desc.center = center;
+        desc.recognized = true;
     }
-    // A color stop may also be `<position>` only in linear (handled by direction),
-    // so treat leading numeric-with-unit as part of a stop only when a color is
-    // also present. For radial leading terms like `circle`/`ellipse`/`closest-side`
-    // this returns false.
-    false
+
+    let mut lengths: Vec<GradientLength> = Vec::new();
+    for tok in shape_part.split_whitespace() {
+        match tok {
+            "circle" => {
+                desc.shape = RadialShape::Circle;
+                desc.recognized = true;
+            }
+            "ellipse" => {
+                desc.shape = RadialShape::Ellipse;
+                desc.recognized = true;
+            }
+            "closest-side" => {
+                desc.extent = RadialExtent::ClosestSide;
+                desc.recognized = true;
+            }
+            "closest-corner" => {
+                desc.extent = RadialExtent::ClosestCorner;
+                desc.recognized = true;
+            }
+            "farthest-side" => {
+                desc.extent = RadialExtent::FarthestSide;
+                desc.recognized = true;
+            }
+            "farthest-corner" => {
+                desc.extent = RadialExtent::FarthestCorner;
+                desc.recognized = true;
+            }
+            other => {
+                if let Some(len) = parse_gradient_length(other) {
+                    lengths.push(len);
+                    desc.recognized = true;
+                }
+            }
+        }
+    }
+
+    match lengths.len() {
+        1 => desc.radii = Some([lengths[0], lengths[0]]),
+        2 => desc.radii = Some([lengths[0], lengths[1]]),
+        _ => {}
+    }
+
+    desc
+}
+
+/// Parse a radial center position (relative to the box as unit fractions):
+/// `50% 50%`, `center`, `left top`, `20% center`, `at 30% 10%`, …
+fn parse_radial_position(term: &str) -> Option<[f32; 2]> {
+    let toks: Vec<&str> = term.split_whitespace().collect();
+    let resolve = |tok: &str, axis_len_ok: bool| -> Option<f32> {
+        let _ = axis_len_ok;
+        match tok {
+            "center" => Some(0.5),
+            "left" | "top" => Some(0.0),
+            "right" | "bottom" => Some(1.0),
+            other => other
+                .strip_suffix('%')
+                .and_then(|p| p.parse::<f32>().ok())
+                .map(|v| (v / 100.0).clamp(0.0, 1.0)),
+        }
+    };
+    match toks.as_slice() {
+        [x] => Some([resolve(x, true)?, 0.5]),
+        [x, y] => Some([resolve(x, true)?, resolve(y, false)?]),
+        _ => None,
+    }
+}
+
+fn parse_gradient_length(tok: &str) -> Option<GradientLength> {
+    if let Some(pct) = tok.strip_suffix('%') {
+        return pct
+            .parse::<f32>()
+            .ok()
+            .map(|value| GradientLength::Percent { value });
+    }
+    if let Some(px) = tok.strip_suffix("px") {
+        return px
+            .parse::<f32>()
+            .ok()
+            .map(|value| GradientLength::Px { value });
+    }
+    None
 }
 
 // ── Color stop normalization ───────────────────────────────────────────
 
-/// Parse a slice of raw stop strings (e.g. `rgba(0,255,136,0.06) 1px`) into
-/// `GradientStop`s with positions normalized to 0..1 relative to the gradient
-/// extent. Position may be `%` (relative to extent) or `px` (absolute; kept as
-/// pixels for repeating gradients where the extent equals the period).
-fn normalize_stops(args: &[String]) -> Vec<GradientStop> {
-    let mut stops: Vec<(Option<f32>, ColorToken)> = Vec::new();
+/// Parse a slice of raw stop strings (e.g. `rgba(0,255,136,0.06) 1px`,
+/// `#ff0000 0%`, or a two-position stop like `rgba(0,0,0,0.5) 0 1px`) into
+/// `GradientStop`s. Position units are preserved (`%` → fraction, `px` → px) so
+/// the renderer can resolve px against the real gradient-line length. When
+/// `repeat` is true the positions are normalized against the repeating period
+/// so a single period maps to `0..1` (tiled by `TileMode::Repeat`).
+fn normalize_stops(args: &[String], repeat: bool) -> Vec<GradientStop> {
+    let mut entries: Vec<(Option<(f32, StopUnit)>, ColorToken)> = Vec::new();
     for arg in args {
-        let Some((pos, color)) = parse_one_stop(arg.trim()) else {
+        let Some((color, positions)) = split_color_positions(arg.trim()) else {
             continue;
         };
-        stops.push((pos, color));
+        if positions.is_empty() {
+            entries.push((None, color));
+        } else {
+            for p in positions {
+                entries.push((Some(p), color));
+            }
+        }
     }
-    if stops.is_empty() {
+    if entries.is_empty() {
         return Vec::new();
     }
 
-    // Resolve positions: CSS auto-distributes un-positioned stops evenly between
-    // their neighbors. First fill in explicit positions, then interpolate gaps.
-    // Positions can be in % (0..1 after /100) or px (kept absolute; for repeating
-    // gradients the period is the last explicit px position).
-    let mut explicit: Vec<Option<f32>> = stops.iter().map(|(p, _)| *p).collect();
+    // Reference used to compare px and fraction positions while interpolating
+    // auto-distributed stops: the largest explicit px position (fallback 1).
+    let ref_px = entries
+        .iter()
+        .filter_map(|(p, _)| match p {
+            Some((v, StopUnit::Px)) => Some(*v),
+            _ => None,
+        })
+        .fold(0.0_f32, f32::max)
+        .max(1.0);
 
     // Leading/trailing defaults.
-    if explicit[0].is_none() {
-        explicit[0] = Some(0.0);
+    if entries[0].0.is_none() {
+        entries[0].0 = Some((0.0, StopUnit::Fraction));
     }
-    let last_idx = explicit.len() - 1;
-    if explicit[last_idx].is_none() {
-        explicit[last_idx] = Some(1.0);
+    let last_idx = entries.len() - 1;
+    if entries[last_idx].0.is_none() {
+        let default = if repeat {
+            // The last stop defines the repeating period; anchor it at the
+            // largest explicit position (px) or at 1.0 for fraction stops.
+            entries
+                .iter()
+                .filter_map(|(p, _)| match p {
+                    Some((v, StopUnit::Px)) => Some((*v, StopUnit::Px)),
+                    _ => None,
+                })
+                .next_back()
+                .unwrap_or((1.0, StopUnit::Fraction))
+        } else {
+            (1.0, StopUnit::Fraction)
+        };
+        entries[last_idx].0 = Some(default);
     }
 
-    // Fill interior gaps linearly between known neighbors (in normalized 0..1).
+    // Convert a position to a comparable scalar for gap interpolation.
+    let to_scalar = |p: (f32, StopUnit)| match p.1 {
+        StopUnit::Px => p.0,
+        StopUnit::Fraction => p.0 * ref_px,
+    };
+    let from_scalar = |v: f32, unit: StopUnit| match unit {
+        StopUnit::Px => (v, StopUnit::Px),
+        StopUnit::Fraction => (v / ref_px, StopUnit::Fraction),
+    };
+
+    // Fill interior gaps linearly between known neighbors.
     let mut i = 0;
-    while i < explicit.len() {
-        if explicit[i].is_some() {
+    while i < entries.len() {
+        if entries[i].0.is_some() {
             i += 1;
             continue;
         }
-        // Find next explicit.
         let mut j = i;
-        while j < explicit.len() && explicit[j].is_none() {
+        while j < entries.len() && entries[j].0.is_none() {
             j += 1;
         }
-        let start_pos = explicit[i - 1].unwrap_or(0.0);
-        let end_pos = explicit.get(j).and_then(|p| *p).unwrap_or(1.0);
-        let span = end_pos - start_pos;
+        let start = entries[i - 1].0.map(to_scalar).unwrap_or(0.0);
+        let end = entries.get(j).and_then(|e| e.0).map(to_scalar).unwrap_or(ref_px);
+        let unit = entries[i - 1].0.map(|p| p.1).unwrap_or(StopUnit::Fraction);
+        let span = end - start;
         let count = (j - (i - 1)) as f32;
-        for (k, slot) in explicit.iter_mut().enumerate().take(j).skip(i) {
+        for k in i..j {
             let frac = (k - (i - 1)) as f32 / count;
-            *slot = Some(start_pos + span * frac);
+            entries[k].0 = Some(from_scalar(start + span * frac, unit));
         }
         i = j + 1;
     }
 
-    stops
-        .iter()
-        .zip(explicit.iter())
-        .map(|((_, color), pos)| GradientStop {
-            pos: pos.unwrap_or(0.0).clamp(0.0, 1.0),
-            color: *color,
+    entries
+        .into_iter()
+        .map(|(p, color)| {
+            let (v, unit) = p.unwrap_or((0.0, StopUnit::Fraction));
+            GradientStop {
+                pos: if matches!(unit, StopUnit::Fraction) {
+                    v.clamp(0.0, 1.0)
+                } else {
+                    v.max(0.0)
+                },
+                unit,
+                color,
+            }
         })
         .collect()
 }
 
-/// Parse a single color stop string like `rgba(0,255,136,0.06) 1px` or
-/// `transparent 70%` or `#00ff88`. Returns `(position, color)` where position is
-/// `None` when absent. Position semantics:
-///   - `N%` → `N/100` (normalized within the gradient extent)
-///   - `Npx` → `None` (px positions are only meaningful with a background-size;
-///     for repeating gradients they imply the period; we mark them None here and
-///     the renderer relies on the size/tile-mode. To keep scanlines working we
-///     convert px to a fraction of the repeating period at parse time below.)
-fn parse_one_stop(raw: &str) -> Option<(Option<f32>, ColorToken)> {
-    // Split color from trailing position(s). The color may contain spaces
-    // (e.g. inside rgba it does not, since args are comma-separated), so the
-    // color is the first whitespace-separated run that parses as a color, and
-    // the remainder is the position. But colors like `rgba(...)` have no spaces
-    // here (commas), and hex/named are single tokens. A position is a trailing
-    // `<len>%?` token.
-    let raw = raw.trim();
-
-    // Try: the whole thing is just a color (no position).
-    if let Some(color) = parse_color(raw) {
-        return Some((None, color));
-    }
-
-    // Otherwise split off the last token as position, the rest as color.
-    // Find the last whitespace.
-    let last_space = raw.rfind(' ')?;
-    let (color_part, pos_part) = raw.split_at(last_space);
-    let color = parse_color(color_part.trim())?;
-    let pos = parse_position(pos_part.trim());
-    Some((pos, color))
-}
-
-fn parse_position(token: &str) -> Option<f32> {
-    let token = token.trim();
-    if let Some(pct) = token.strip_suffix('%') {
-        return pct.parse::<f32>().ok().map(|v| (v / 100.0).clamp(0.0, 1.0));
-    }
-    // px positions: meaningful only with a background-size/period. Without a
-    // known period we cannot normalize to 0..1, so return None and let the
-    // even-distribution step handle it. (For repeating gradients with explicit
-    // px stops the caller sets size = period and the renderer tiles accordingly.)
-    if token.ends_with("px") {
+/// Split a raw color-stop argument like `rgba(0,255,136,0.06) 1px` or
+/// `#ff0000 0%` or `transparent 70%` into its color and (0..2) trailing position
+/// tokens. Returns `None` when the argument is not a color stop (e.g. a shape
+/// keyword such as `circle`).
+fn split_color_positions(term: &str) -> Option<(ColorToken, Vec<(f32, StopUnit)>)> {
+    let toks: Vec<&str> = term.split_whitespace().collect();
+    if toks.is_empty() {
         return None;
     }
-    token.parse::<f32>().ok().map(|v| v.clamp(0.0, 1.0))
+    let mut n_pos = 0usize;
+    let mut positions: Vec<(f32, StopUnit)> = Vec::new();
+    for tok in toks.iter().rev() {
+        match parse_stop_position(tok) {
+            Some(p) => {
+                positions.push(p);
+                n_pos += 1;
+            }
+            None => break,
+        }
+    }
+    positions.reverse();
+    let color_part = toks[..toks.len() - n_pos].join(" ");
+    let color = parse_color(&color_part)?;
+    Some((color, positions))
+}
+
+fn parse_stop_position(token: &str) -> Option<(f32, StopUnit)> {
+    let token = token.trim();
+    if let Some(pct) = token.strip_suffix('%') {
+        return pct
+            .parse::<f32>()
+            .ok()
+            .map(|v| ((v / 100.0).clamp(0.0, 1.0), StopUnit::Fraction));
+    }
+    if let Some(px) = token.strip_suffix("px") {
+        return px.parse::<f32>().ok().map(|v| (v, StopUnit::Px));
+    }
+    token.parse::<f32>().ok().map(|v| (v, StopUnit::Fraction))
 }
 
 fn parse_color(token: &str) -> Option<ColorToken> {

@@ -272,7 +272,7 @@ const VIDEO_ATTRS: &[&str] = &[
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
 const TL_ATTRS: &[&str] = &["id", "class"];
 const CAPTION_ATTRS: &[&str] = &["id", "class", "duration", "path"];
-const PATH_ATTRS: &[&str] = &["id", "class", "duration", "d"];
+const PATH_ATTRS: &[&str] = &["id", "class", "duration", "d", "view-box"];
 const TRANSITION_ATTRS: &[&str] = &[
     "from",
     "to",
@@ -918,6 +918,10 @@ fn parse_visual_node(
         "path" => {
             ensure_allowed_attrs(node, PATH_ATTRS)?;
             let d = required_non_empty_attr(node, "d")?;
+            let view_box = match node.attribute("view-box") {
+                Some(raw) => Some(parse_view_box_attr(raw)?),
+                None => None,
+            };
             let parent_id = parent_id.map(|s| s.to_string());
             parts.elements.push(ParsedElement {
                 id: id.to_string(),
@@ -926,6 +930,7 @@ fn parse_visual_node(
                 style,
                 kind: ParsedElementKind::Path {
                     data: d.to_string(),
+                    view_box,
                 },
             });
             validate_no_element_children(node, "path")?;
@@ -1514,6 +1519,34 @@ fn required_non_empty_attr<'a>(
     Ok(value)
 }
 
+/// Parses an SVG-style view box (`"minx,miny,w,h"` — comma or whitespace
+/// separated, matching the SVG `viewBox` attribute grammar).
+fn parse_view_box_attr(raw: &str) -> anyhow::Result<[f32; 4]> {
+    let parts: Vec<&str> = raw
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.len() != 4 {
+        anyhow::bail!(
+            "`view-box` must be `min-x,min-y,width,height` (4 numbers, got {})",
+            parts.len()
+        );
+    }
+    let mut out = [0.0f32; 4];
+    for (slot, part) in out.iter_mut().zip(parts.iter()) {
+        *slot = part
+            .parse::<f32>()
+            .map_err(|e| anyhow::anyhow!("`view-box`: invalid number `{part}`: {e}"))?;
+        if !slot.is_finite() {
+            anyhow::bail!("`view-box` values must be finite");
+        }
+    }
+    if out[2] <= 0.0 || out[3] <= 0.0 {
+        anyhow::bail!("`view-box` width and height must be positive");
+    }
+    Ok(out)
+}
+
 fn parse_required_f64_positive(node: roxmltree::Node<'_, '_>, name: &str) -> anyhow::Result<f64> {
     let value = required_non_empty_attr(node, name)?;
     let n: f64 = value
@@ -1620,6 +1653,76 @@ mod tests {
     use crate::probe::catalog::PreparedResourceCatalog;
     use crate::resolve::{resolve::resolve_ui_tree, tree::ElementKind};
     use crate::test_support::MockScriptHost;
+
+    #[test]
+    fn parses_path_view_box_attribute() {
+        let parts = parse_parts_with_base_dir(
+            r#"<opencat width="320" height="180" fps="30" duration="1">
+  <div id="root">
+    <path id="a" d="M0 0 L10 10" view-box="0 0 512 512" />
+    <path id="b" d="M0 0 L10 10" />
+  </div>
+</opencat>"#,
+            None,
+        )
+        .expect("markup should parse");
+
+        let a = parts.elements.iter().find(|e| e.id == "a").unwrap();
+        match &a.kind {
+            ParsedElementKind::Path { data, view_box } => {
+                assert_eq!(data, "M0 0 L10 10");
+                assert_eq!(*view_box, Some([0.0, 0.0, 512.0, 512.0]));
+            }
+            other => panic!("element `a` should be a path, got {other:?}"),
+        }
+
+        let b = parts.elements.iter().find(|e| e.id == "b").unwrap();
+        match &b.kind {
+            ParsedElementKind::Path { view_box, .. } => {
+                assert_eq!(*view_box, None, "absent attribute stays None");
+            }
+            other => panic!("element `b` should be a path, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_path_view_box_with_whitespace_separators() {
+        let parts = parse_parts_with_base_dir(
+            r#"<opencat width="320" height="180" fps="30" duration="1">
+  <div id="root">
+    <path id="a" d="M0 0 L10 10" view-box="-10.5  -20 640 640" />
+  </div>
+</opencat>"#,
+            None,
+        )
+        .expect("markup should parse");
+
+        let a = parts.elements.iter().find(|e| e.id == "a").unwrap();
+        match &a.kind {
+            ParsedElementKind::Path { view_box, .. } => {
+                assert_eq!(*view_box, Some([-10.5, -20.0, 640.0, 640.0]));
+            }
+            other => panic!("element should be a path, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_path_view_box_values() {
+        for bad in ["0 0 512", "0 0 512 512 10", "a b c d", "0 0 -1 512", ""] {
+            let xml = format!(
+                r#"<opencat width="320" height="180" fps="30" duration="1">
+  <div id="root"><path id="a" d="M0 0 L10 10" view-box="{bad}" /></div>
+</opencat>"#
+            );
+            let err = parse_parts_with_base_dir(&xml, None)
+                .err()
+                .unwrap_or_else(|| panic!("view-box `{bad}` should be rejected"));
+            assert!(
+                err.to_string().contains("view-box"),
+                "error for `{bad}` should mention view-box: {err}"
+            );
+        }
+    }
 
     #[test]
     fn extracts_raw_script_with_unescaped_js_and_removes_island() {

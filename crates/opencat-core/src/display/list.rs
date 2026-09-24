@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+use crate::canvas::paint::BlendMode;
+
 /// Serializable glyph data produced by cosmic-text rasterization.
 /// Contains deduplicated glyph shapes (outline paths or color bitmaps)
 /// and per-line positioning info, enabling the web renderer to draw
@@ -196,6 +198,7 @@ pub struct DrawScriptDisplayItem {
 #[derive(Clone, Debug, Default)]
 pub struct RectPaintStyle {
     pub background: Vec<BackgroundFill>,
+    pub blend_mode: BlendMode,
     pub border_radius: BorderRadius,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,

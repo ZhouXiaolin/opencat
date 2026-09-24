@@ -31,6 +31,20 @@ use anyhow::{Result, bail};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GeneratedImageId(pub u64);
 
+impl GeneratedImageId {
+    /// Deterministic id from a frame-scoped cache key (canvas `putImageData`
+    /// / script dissolve path). Same key ⇒ same id on fresh and reused
+    /// pipelines (the [`GeneratedImageTable`] idempotency contract above).
+    /// Single shared implementation — every key→id call site must route
+    /// through this so engine/core can never drift apart.
+    pub fn from_key(key: &str) -> Self {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        GeneratedImageId(hasher.finish())
+    }
+}
+
 /// Owned RGBA bitmap for one generated image.
 #[derive(Clone, Debug)]
 pub struct GeneratedImageEntry {

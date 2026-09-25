@@ -71,6 +71,11 @@ struct VideoDecoder {
     duration_secs: Option<f64>,
     keyframe_pts_us: Vec<u64>,
     current_pts_secs: f64,
+    /// Previous request target. Frame-display semantics ("first frame with
+    /// pts >= target") let the displayed frame's pts lead a forward-moving
+    /// target by up to one source frame interval, so a lagging target on a
+    /// monotonic timeline must keep the current frame instead of seeking.
+    last_target_secs: f64,
     current_size: Option<(u32, u32)>,
     current_frame: Option<Arc<Vec<u8>>>,
     /// Last decoded source frame (pre-scale). Kept so that a same-time-but-
@@ -138,6 +143,7 @@ impl VideoDecoder {
             duration_secs,
             keyframe_pts_us,
             current_pts_secs: -1.0,
+            last_target_secs: f64::NEG_INFINITY,
             current_size: None,
             current_frame: None,
             current_source: None,
@@ -163,6 +169,8 @@ impl VideoDecoder {
         let same_time =
             self.current_frame.is_some() && (self.current_pts_secs - target_secs).abs() < 1e-6;
         let same_size = self.current_size == Some(resolved_size);
+        let monotonic = target_secs >= self.last_target_secs - 1e-9;
+        self.last_target_secs = target_secs;
         if same_time && same_size {
             return Ok(self
                 .current_frame
@@ -183,6 +191,19 @@ impl VideoDecoder {
                 .current_frame
                 .clone()
                 .expect("scaled frame just produced"));
+        }
+
+        // Frame-display semantics: while the request timeline moves forward,
+        // the current frame is "first pts >= target" and may lead the target
+        // by up to one source frame interval. Keep it instead of seeking back.
+        if monotonic
+            && self.current_frame.is_some()
+            && target_secs <= self.current_pts_secs
+        {
+            return Ok(self
+                .current_frame
+                .clone()
+                .expect("current frame should exist"));
         }
 
         if self.should_seek_to_target(target_secs, quality) {
@@ -234,6 +255,7 @@ impl VideoDecoder {
 
         self.decoder.flush();
         self.current_pts_secs = -1.0;
+        self.last_target_secs = f64::NEG_INFINITY;
         self.current_size = None;
         self.current_frame = None;
         self.current_source = None;
@@ -243,6 +265,13 @@ impl VideoDecoder {
 
     fn decode_forward(&mut self, target_secs: f64, target_size: Option<(u32, u32)>) -> Result<()> {
         if self.eof {
+            // Packets are exhausted, but the (frame-threaded) decoder may
+            // still hold decoded frames past `current_pts_secs` that an
+            // earlier `receive_until` never drained — it returns as soon as
+            // its own target is met. Drain once before giving up.
+            if self.receive_until(target_secs, target_size)? {
+                return Ok(());
+            }
             return Ok(());
         }
 

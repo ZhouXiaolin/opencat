@@ -247,16 +247,29 @@ fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
             sigma_x,
             sigma_y,
             color,
+            keep_content,
         } => {
             let c = float4_to_color(*color);
-            image_filters::drop_shadow_only(
-                (*dx, *dy),
-                (*sigma_x, *sigma_y),
-                c,
-                None::<skia_safe::ColorSpace>,
-                None::<ImageFilter>,
-                None::<image_filters::CropRect>,
-            )
+            if *keep_content {
+                // CSS `filter: drop-shadow()` 语义：阴影 + 原内容。
+                image_filters::drop_shadow(
+                    (*dx, *dy),
+                    (*sigma_x, *sigma_y),
+                    c,
+                    None::<skia_safe::ColorSpace>,
+                    None::<ImageFilter>,
+                    None::<image_filters::CropRect>,
+                )
+            } else {
+                image_filters::drop_shadow_only(
+                    (*dx, *dy),
+                    (*sigma_x, *sigma_y),
+                    c,
+                    None::<skia_safe::ColorSpace>,
+                    None::<ImageFilter>,
+                    None::<image_filters::CropRect>,
+                )
+            }
         }
         ImageFilterSpec::ColorFilter(cf) => {
             if let Some(skia_cf) = build_color_filter(cf) {

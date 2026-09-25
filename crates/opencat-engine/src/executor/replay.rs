@@ -5,10 +5,10 @@ use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
-use opencat_core::ir::draw_types::{DrawOpRange, PathOp, RuntimeEffectChildRef, SubtreeId};
+use opencat_core::ir::draw_types::{DrawOpRange, ImageRef, PathOp, RuntimeEffectChildRef, SubtreeId};
 use skia_safe::{
-    Canvas, FilterMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, Shader,
-    TileMode, Vector,
+    Canvas, CubicResampler, FilterMode, MipmapMode, Paint, PathBuilder, Picture, PictureRecorder,
+    Point, RRect, Rect, SamplingOptions, Shader, TileMode, Vector,
 };
 
 fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
@@ -533,14 +533,53 @@ fn replay_op(
                 let src_arg = src_rect
                     .as_ref()
                     .map(|r| (r, skia_safe::canvas::SrcRectConstraint::Fast));
+                // r6: ImageRect 重采样质量。实测（examples/codex-five.xml 的 fig 1.2×
+                // 放大 vs 参考视频）：Chrome 对 CSS 缩放的 video 元素用高质量 cubic
+                // 重建，Mitchell(B=1/3,C=1/3) 把 fig 躯干窗 p8 从 10.0% 压到 3.9%、
+                // p32 从 1.12% 压到 0.01%（catmull_rom 5.8%，nearest/旧默认 10%）。
+                // 因此 VideoFrame（声明式 <video>，媒体路径）默认 = Mitchell cubic；
+                // Static（JS canvas drawImageRect 的像素精确语义）保持 Skia 默认。
+                // OPENCAT_IMG_SAMPLING=catmull|nearest|linear|legacy 仅供调试回退
+                // （作用于 VideoFrame 路径）。
+                let sampling = match std::env::var("OPENCAT_IMG_SAMPLING").as_deref() {
+                    Ok("catmull") => SamplingOptions {
+                        use_cubic: true,
+                        cubic: CubicResampler::catmull_rom(),
+                        ..SamplingOptions::default()
+                    },
+                    Ok("nearest") => SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+                    Ok("linear") => SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
+                    _ => match image {
+                        ImageRef::VideoFrame { .. } => SamplingOptions {
+                            use_cubic: true,
+                            cubic: CubicResampler::mitchell(),
+                            ..SamplingOptions::default()
+                        },
+                        ImageRef::Static { .. } | ImageRef::Generated { .. } => {
+                            SamplingOptions::default()
+                        }
+                    },
+                };
                 if let Some(pid) = pid {
                     let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
                     apply_global_alpha(&mut paint, exec.current_alpha);
-                    canvas.draw_image_rect(sk_image, src_arg, dst_rect, &paint);
+                    canvas.draw_image_rect_with_sampling_options(
+                        sk_image,
+                        src_arg,
+                        dst_rect,
+                        sampling,
+                        &paint,
+                    );
                 } else {
                     let mut paint = Paint::default();
                     apply_global_alpha(&mut paint, exec.current_alpha);
-                    canvas.draw_image_rect(sk_image, src_arg, dst_rect, &paint);
+                    canvas.draw_image_rect_with_sampling_options(
+                        sk_image,
+                        src_arg,
+                        dst_rect,
+                        sampling,
+                        &paint,
+                    );
                 }
             }
             Ok(())
@@ -764,7 +803,7 @@ fn drrect_to_skia(spec: &DRRectSpec) -> RRect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use opencat_core::canvas::paint::{FillSpec, PaintSpec, PaintStyle};
+    use opencat_core::canvas::paint::{FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
     use opencat_core::ir::draw_op::Rect4;
     use opencat_core::ir::draw_types::{
         BytesRangeId, ChildRange, DrawOpRange, EffectId, EffectRef,
@@ -779,6 +818,202 @@ mod tests {
             frame[index + 2],
             frame[index + 3],
         ]
+    }
+
+    #[test]
+    fn canvas_draw_script_bounds_clip_then_script_clip_keeps_content() {
+        // Mirror `render_draw_script`: it first clips the canvas to the element
+        // bounds, then the script's own clip follows. Content drawn after both
+        // clips must still land in the intersection.
+        let mut frame = DrawOpFrame::default();
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        // 1) render_draw_script's own bounds clip (8x8 element)
+        frame.ops.push(DrawOp::Save);
+        frame.ops.push(DrawOp::BeginPath);
+        frame.ops.push(DrawOp::Path(PathOp::AddRect {
+            x: 0.0,
+            y: 0.0,
+            width: 8.0,
+            height: 8.0,
+        }));
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        // 2) the script's own triangle clip (left half)
+        frame.ops.push(DrawOp::Save);
+        frame.ops.push(DrawOp::BeginPath);
+        frame.ops.push(DrawOp::Path(PathOp::MoveTo { x: 0.0, y: 0.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::Close));
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 8.0,
+            },
+            paint: opencat_core::ir::draw_types::PaintId(0),
+        });
+        frame.ops.push(DrawOp::Restore);
+        frame.ops.push(DrawOp::Restore);
+
+        let media = EnginePreparedFrameMedia::default();
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((8, 8)).expect("surface should create");
+        let canvas = surface.canvas();
+        for op in &frame.ops {
+            replay_op(&mut exec, canvas, &frame, &media, op)
+                .expect("clip ops should replay");
+        }
+
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((8, 8), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 8 * 8 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            8 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+
+        // (3,4) lies strictly inside the triangle (the hypotenuse passes
+        // through x=2 at y=4, so sampling there would measure a correct
+        // ~75%-coverage anti-aliased edge instead of full paint).
+        let inside = pixel_rgba(&rgba, 8, 3, 4);
+        let outside = pixel_rgba(&rgba, 8, 6, 4);
+        assert!(
+            inside[0] > 200 && inside[3] > 200,
+            "content inside both clips must be painted, got {inside:?}"
+        );
+        assert_eq!(
+            outside[3], 0,
+            "content outside the script clip must be culled, got {outside:?}"
+        );
+    }
+
+    #[test]
+    fn canvas_clip_coverage_matrix_dump() {
+        // Diagnostic: dump center-row pixel coverage for clip variants.
+        let variants: Vec<(&str, bool, bool)> = vec![
+            // (name, include_bounds_clip, triangle_clip_aa)
+            ("clip-only-aa", false, true),
+            ("clip-only-noaa", false, false),
+            ("bounds+clip-aa", true, true),
+            ("bounds+clip-noaa", true, false),
+        ];
+        for (name, with_bounds, tri_aa) in variants {
+            let mut frame = DrawOpFrame::default();
+            frame.paints.push(PaintSpec {
+                fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+                style: PaintStyle::Fill,
+                ..Default::default()
+            });
+            frame.ops.push(DrawOp::Save);
+            if with_bounds {
+                frame.ops.push(DrawOp::BeginPath);
+                frame.ops.push(DrawOp::Path(PathOp::AddRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 8.0,
+                    height: 8.0,
+                }));
+                frame.ops.push(DrawOp::ClipPath { anti_alias: false });
+            }
+            frame.ops.push(DrawOp::BeginPath);
+            frame.ops.push(DrawOp::Path(PathOp::MoveTo { x: 0.0, y: 0.0 }));
+            frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
+            frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
+            frame.ops.push(DrawOp::Path(PathOp::Close));
+            frame.ops.push(DrawOp::ClipPath { anti_alias: tri_aa });
+            frame.ops.push(DrawOp::Rect {
+                rect: Rect4 { x: 0.0, y: 0.0, width: 8.0, height: 8.0 },
+                paint: opencat_core::ir::draw_types::PaintId(0),
+            });
+            frame.ops.push(DrawOp::Restore);
+
+            let media = EnginePreparedFrameMedia::default();
+            let mut exec = EngineDrawExecutor::new();
+            exec.begin_frame();
+            let mut surface = surfaces::raster_n32_premul((8, 8)).expect("surface");
+            let canvas = surface.canvas();
+            for op in &frame.ops {
+                replay_op(&mut exec, canvas, &frame, &media, op).unwrap();
+            }
+            let image = surface.image_snapshot();
+            let info = ImageInfo::new((8, 8), ColorType::RGBA8888, AlphaType::Premul, None);
+            let mut rgba = vec![0_u8; 8 * 8 * 4];
+            assert!(image.read_pixels(&info, rgba.as_mut_slice(), 8 * 4, (0, 0), CachingHint::Allow));
+            let row: Vec<u8> = (0..8).map(|x| pixel_rgba(&rgba, 8, x, 4)[3]).collect();
+            eprintln!("clip-matrix {name}: alpha row4 = {row:?}");
+        }
+    }
+
+    #[test]
+    fn canvas_clip_path_intersects_subsequent_draws() {
+        // Repro for the codex-five bootstrap: a script canvas that builds a
+        // path, clips to it, then draws — the draw must land inside the clip.
+        let mut frame = DrawOpFrame::default();
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        // Clip to the left half of the 8x8 canvas.
+        frame.ops.push(DrawOp::BeginPath);
+        frame.ops.push(DrawOp::Path(PathOp::MoveTo { x: 0.0, y: 0.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 0.0, y: 8.0 }));
+        frame.ops.push(DrawOp::Path(PathOp::Close));
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        // Fill the whole canvas red; only the left half may receive paint.
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 8.0,
+                height: 8.0,
+            },
+            paint: opencat_core::ir::draw_types::PaintId(0),
+        });
+
+        let media = EnginePreparedFrameMedia::default();
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((8, 8)).expect("surface should create");
+        let canvas = surface.canvas();
+        for op in &frame.ops {
+            replay_op(&mut exec, canvas, &frame, &media, op)
+                .expect("clip ops should replay");
+        }
+
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((8, 8), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 8 * 8 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            8 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+
+        let inside = pixel_rgba(&rgba, 8, 2, 4);
+        let outside = pixel_rgba(&rgba, 8, 6, 4);
+        assert!(
+            inside[0] > 200 && inside[3] > 200,
+            "draw inside the clip must be painted, got {inside:?}"
+        );
+        assert_eq!(
+            outside[3], 0,
+            "draw outside the clip must be culled, got {outside:?}"
+        );
     }
 
     #[test]
@@ -1037,5 +1272,98 @@ half4 main(float2 coord) {
             [0, 0, 0, 0],
             "Pixels outside the translated content should remain transparent"
         );
+    }
+
+    /// CSS chained text-shadow semantics for the codex-five bootstrap: nested
+    /// `SaveLayer`s with `keep_content: true` DropShadow filters must compound
+    /// — the inner layer's output (shadow 1 + content) is the input of the
+    /// outer shadow filter, so BOTH shadow lobes appear around the body. A
+    /// regression that dropped the inner output (or kept `drop_shadow_only`)
+    /// would lose one lobe.
+    #[test]
+    fn nested_keep_content_shadow_layers_compound() {
+        use skia_safe::surfaces;
+
+        fn keep_shadow_paint(dx: f32, dy: f32, sigma: f32) -> PaintSpec {
+            PaintSpec {
+                fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+                style: PaintStyle::Fill,
+                anti_alias: true,
+                blend_mode: opencat_core::canvas::paint::BlendMode::SrcOver,
+                image_filter: Some(ImageFilterSpec::DropShadow {
+                    dx,
+                    dy,
+                    sigma_x: sigma,
+                    sigma_y: sigma,
+                    color: [0.0, 0.0, 0.0, 1.0],
+                    keep_content: true,
+                }),
+                ..Default::default()
+            }
+        }
+
+        // 64x48 white canvas; content = small opaque square in the middle.
+        // Shadow A offset (+24, 0), shadow B offset (-24, 0), sigma 4 each.
+        let mut frame = DrawOpFrame::default();
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.paints.push(keep_shadow_paint(24.0, 0.0, 4.0));
+        frame.paints.push(keep_shadow_paint(-24.0, 0.0, 4.0));
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.2, 0.2, 0.2, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 { x: 0.0, y: 0.0, width: 64.0, height: 48.0 },
+            paint: opencat_core::ir::draw_types::PaintId(0),
+        });
+        frame.ops.push(DrawOp::SaveLayer {
+            bounds: None,
+            paint: Some(opencat_core::ir::draw_types::PaintId(1)),
+            alpha: 1.0,
+        });
+        frame.ops.push(DrawOp::SaveLayer {
+            bounds: None,
+            paint: Some(opencat_core::ir::draw_types::PaintId(2)),
+            alpha: 1.0,
+        });
+        frame.ops.push(DrawOp::Rect {
+            rect: Rect4 { x: 28.0, y: 18.0, width: 8.0, height: 12.0 },
+            paint: opencat_core::ir::draw_types::PaintId(3),
+        });
+        frame.ops.push(DrawOp::Restore);
+        frame.ops.push(DrawOp::Restore);
+
+        let media = EnginePreparedFrameMedia::default();
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((64, 48)).expect("surface");
+        let canvas = surface.canvas();
+        for op in &frame.ops {
+            replay_op(&mut exec, canvas, &frame, &media, op).expect("shadow chain replay");
+        }
+        let image = surface.image_snapshot();
+        let info = ImageInfo::new((64, 48), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 64 * 48 * 4];
+        assert!(image.read_pixels(&info, rgba.as_mut_slice(), 64 * 4, (0, 0), CachingHint::Allow));
+
+        fn luminance(rgba: &[u8], w: usize, x: usize, y: usize) -> u8 {
+            let i = (y * w + x) * 4;
+            rgba[i]
+        }
+        // Content square itself.
+        let body = luminance(&rgba, 64, 32, 24);
+        assert!(body < 80, "body square must be drawn, got {body}");
+        // Right lobe (shadow A at +24): x≈58, y=24 must be darkened.
+        let right = luminance(&rgba, 64, 57, 24);
+        assert!(right < 220, "chained outer shadow lobe (+24) missing, got {right}");
+        // Left lobe (shadow B at -24): x≈6, y=24 must be darkened — this only
+        // happens when the inner keep_content output feeds the outer filter.
+        let left = luminance(&rgba, 64, 6, 24);
+        assert!(left < 220, "chained inner shadow lobe (-24) missing, got {left}");
     }
 }

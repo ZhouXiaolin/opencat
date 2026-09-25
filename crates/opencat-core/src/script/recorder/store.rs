@@ -299,6 +299,10 @@ impl MutationStore {
                 // strings
                 "morphSVG" | "d" => mutations.svg_path.as_ref().map(|s| json!(s)),
                 "text" => mutations.text_content.as_ref().map(|s| json!(s)),
+                "textShadow" | "textShadows" => mutations
+                    .text_shadows
+                    .as_ref()
+                    .map(|shadows| crate::script::mutations::text_shadows_to_value(shadows)),
                 _ => None,
             };
             if v.is_some() {
@@ -585,6 +589,13 @@ impl MutationStore {
                     if let Some(sh) = drop_shadow_from_name(s) {
                         entry.drop_shadow = Some(sh);
                     }
+                }
+            }
+            // Overwrite semantics: the script sets the whole text-shadow stack
+            // (see NodeStyleMutations::text_shadows).
+            "textShadow" | "textShadows" => {
+                if let Some(shadows) = crate::script::mutations::text_shadows_from_value(&value) {
+                    entry.text_shadows = Some(shadows);
                 }
             }
 
@@ -1168,6 +1179,68 @@ mod tests {
         store.reset_for_frame(7, 30);
         let snap = store.snapshot_mutations();
         assert!(snap.mutations.is_empty());
+    }
+
+    #[test]
+    fn text_shadow_write_applies_overwrite_semantics_and_replays() {
+        let mut store = MutationStore::default();
+
+        let payload = json!([
+            [12.0, 9.0, 74.25, "rgba(0,0,0,1)"],
+            [8.0, 6.0, 47.25, "rgba(0,0,0,0.9)"],
+            [0.0, 0.0, 60.75, "rgba(0,0,0,0.7)"]
+        ]);
+        store.write_style_value("hl", "textShadow", payload);
+        store.write_style_value("hl", "textShadow", json!([[4.0, 3.0, 20.0, "#000000"]]));
+
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("hl").expect("hl recorded");
+        let shadows = entry.text_shadows.as_ref().expect("text shadows set");
+        // Overwrite semantics: the second write replaces the whole stack.
+        assert_eq!(shadows.len(), 1);
+        assert_eq!(shadows[0].offset_x, 4.0);
+        assert_eq!(shadows[0].offset_y, 3.0);
+        assert_eq!(shadows[0].blur_sigma, 20.0);
+
+        // Applied to a NodeStyle, the stack fully replaces the base shadows.
+        let mut style = crate::style::NodeStyle::default();
+        style.text_shadows = vec![crate::style::TextShadow {
+            offset_x: 99.0,
+            offset_y: 99.0,
+            blur_sigma: 99.0,
+            color: crate::style::ColorToken::Custom(1, 2, 3, 255),
+        }];
+        entry.apply_to(&mut style);
+        assert_eq!(style.text_shadows.len(), 1);
+        assert_eq!(style.text_shadows[0].offset_x, 4.0);
+
+        // Snapshot replay keeps the same stack (precomputed host path).
+        let mut replay = MutationStore::default();
+        use super::MutationRecorder as _;
+        snap.apply_to_recorder(&mut replay);
+        let replayed = replay
+            .read_style_value("hl", "textShadow")
+            .expect("replayed textShadow");
+        let parsed = crate::script::mutations::text_shadows_from_value(&replayed)
+            .expect("replayed payload parses");
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].blur_sigma, 20.0);
+    }
+
+    #[test]
+    fn text_shadow_write_rejects_malformed_payload() {
+        let mut store = MutationStore::default();
+        // Missing color entry.
+        store.write_style_value("hl", "textShadow", json!([[1.0, 2.0, 3.0]]));
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("hl").expect("entry exists");
+        assert!(entry.text_shadows.is_none());
+
+        // Not an array at all.
+        store.write_style_value("hl2", "textShadow", json!("12px 9px 74px black"));
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("hl2").expect("entry exists");
+        assert!(entry.text_shadows.is_none());
     }
 
     #[test]

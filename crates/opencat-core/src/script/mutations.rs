@@ -89,6 +89,12 @@ pub struct NodeStyleMutations {
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
     pub clip_path: Option<ClipPath>,
+    /// Overwrite semantics (unlike the push-style `box_shadow`/`drop_shadow`):
+    /// scripts set the *whole* text-shadow stack per frame, e.g. to grow the
+    /// shadow with a scale animation the way CSS `filter: drop-shadow` does in
+    /// Chrome — the filter is applied in the element's local space and the
+    /// result is then scaled by ancestor transforms.
+    pub text_shadows: Option<Vec<crate::style::TextShadow>>,
 }
 
 impl NodeStyleMutations {
@@ -248,10 +254,77 @@ impl NodeStyleMutations {
         if let Some(v) = self.clip_path {
             style.clip_path = Some(v);
         }
+        if let Some(v) = &self.text_shadows {
+            style.text_shadows = v.clone();
+        }
     }
 }
 
 // ── Canvas mutations ──────────────────────────────────────────────
+
+/// Serialize a text-shadow stack to the JSON form used by the script
+/// `textShadow` write channel: `[[x, y, blurSigma, "color"], ...]`.
+pub fn text_shadows_to_value(
+    shadows: &[crate::style::TextShadow],
+) -> serde_json::Value {
+    serde_json::Value::Array(
+        shadows
+            .iter()
+            .map(|s| {
+                let (r, g, b, a) = s.color.rgba();
+                serde_json::json!([
+                    s.offset_x,
+                    s.offset_y,
+                    s.blur_sigma,
+                    format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)
+                ])
+            })
+            .collect(),
+    )
+}
+
+/// Parse the script `textShadow` write payload: an array of
+/// `[x, y, blurSigma, "color"]` entries (or `{offsetX, offsetY, blurSigma, color}`
+/// objects). Returns `None` when the payload is not a valid stack.
+pub fn text_shadows_from_value(value: &serde_json::Value) -> Option<Vec<crate::style::TextShadow>> {
+    let arr = value.as_array()?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let (x, y, blur, color) = if let Some(parts) = item.as_array() {
+            if parts.len() < 4 {
+                return None;
+            }
+            (
+                parts[0].as_f64()? as f32,
+                parts[1].as_f64()? as f32,
+                parts[2].as_f64()? as f32,
+                crate::style::color_token_from_script_string(parts[3].as_str()?)?,
+            )
+        } else if let Some(obj) = item.as_object() {
+            let get_f = |keys: &[&str]| -> Option<f32> {
+                keys.iter().find_map(|k| obj.get(*k).and_then(|v| v.as_f64())).map(|v| v as f32)
+            };
+            let color_str = obj
+                .get("color")
+                .and_then(|v| v.as_str())?;
+            (
+                get_f(&["offsetX", "x"])?,
+                get_f(&["offsetY", "y"])?,
+                get_f(&["blurSigma", "blur", "sigma"])?,
+                crate::style::color_token_from_script_string(color_str)?,
+            )
+        } else {
+            return None;
+        };
+        out.push(crate::style::TextShadow {
+            offset_x: x,
+            offset_y: y,
+            blur_sigma: blur.max(0.0),
+            color,
+        });
+    }
+    Some(out)
+}
 
 use crate::ir::draw_op::DrawOp;
 
@@ -431,6 +504,13 @@ pub fn apply_node_to_recorder(
     }
     if let Some(sh) = m.drop_shadow {
         recorder.record_drop_shadow(id, sh);
+    }
+    if let Some(shadows) = &m.text_shadows {
+        // Round-trip through the generic write channel so snapshot replay keeps
+        // the same overwrite semantics as a live `n.textShadow(...)` call.
+        let value = serde_json::to_value(text_shadows_to_value(shadows))
+            .unwrap_or_else(|_| serde_json::Value::Null);
+        recorder.write_style_value(id, "textShadow", value);
     }
     if let Some(color) = m.bg_color {
         recorder.record_bg_color(id, color);

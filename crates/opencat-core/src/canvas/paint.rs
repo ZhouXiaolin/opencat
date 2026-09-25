@@ -119,6 +119,12 @@ pub enum ImageFilterSpec {
         sigma_x: f32,
         sigma_y: f32,
         color: [f32; 4],
+        /// `true` = Skia `drop_shadow`（输出阴影 **并** 保留输入内容，
+        /// 即 CSS `filter: drop-shadow()` 语义）；`false` = `drop_shadow_only`
+        /// （仅阴影；配合外层单独绘制内容）。多个 CSS 阴影的链式语义由
+        /// 渲染层用嵌套 `SaveLayer` 表达：内层输出（影+内容）成为外层
+        /// filter 的输入。
+        keep_content: bool,
     },
     ColorFilter(Box<ColorFilterSpec>),
     Compose(Box<ImageFilterSpec>, Box<ImageFilterSpec>),
@@ -332,6 +338,7 @@ impl PartialEq for ImageFilterSpec {
                     sigma_x: asx,
                     sigma_y: asy,
                     color: ac,
+                    keep_content: akc,
                 },
                 ImageFilterSpec::DropShadow {
                     dx: bx,
@@ -339,6 +346,7 @@ impl PartialEq for ImageFilterSpec {
                     sigma_x: bsx,
                     sigma_y: bsy,
                     color: bc,
+                    keep_content: bkc,
                 },
             ) => {
                 ax.to_bits() == bx.to_bits()
@@ -349,6 +357,7 @@ impl PartialEq for ImageFilterSpec {
                         .iter()
                         .zip(bc.iter())
                         .all(|(a, b)| a.to_bits() == b.to_bits())
+                    && akc == bkc
             }
             (ImageFilterSpec::ColorFilter(a), ImageFilterSpec::ColorFilter(b)) => a == b,
             (ImageFilterSpec::Compose(a1, a2), ImageFilterSpec::Compose(b1, b2)) => {
@@ -388,12 +397,14 @@ impl Hash for ImageFilterSpec {
                 sigma_x,
                 sigma_y,
                 color,
+                keep_content,
             } => {
                 dx.to_bits().hash(state);
                 dy.to_bits().hash(state);
                 sigma_x.to_bits().hash(state);
                 sigma_y.to_bits().hash(state);
                 color.iter().for_each(|v| v.to_bits().hash(state));
+                keep_content.hash(state);
             }
             ImageFilterSpec::ColorFilter(cf) => cf.hash(state),
             ImageFilterSpec::Compose(a, b) => {

@@ -421,18 +421,9 @@ pub fn render_text_with_shadows(
         let (left, top, right, bottom) = shadow.outsets();
         let shadow_bounds = item.bounds.outset(left, top, right, bottom);
         let (image_filter, _color) = drop_shadow_to_image_filter(shadow);
-        let layer_paint = PaintSpec {
-            fill: FillSpec::Solid([0.0; 4]),
-            style: PaintStyle::Fill,
-            stroke: None,
-            anti_alias: true,
-            blend_mode: BlendMode::SrcOver,
-            image_filter: Some(image_filter),
-            color_filter: None,
-            mask_filter: None,
-            path_effect: None,
-        };
-        let paint_id = ctx.builder.intern_paint(layer_paint);
+        let paint_id = ctx
+            .builder
+            .intern_paint(super::helpers::filter_layer_paint(image_filter));
         ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(display_rect_to_rect4(shadow_bounds)),
             paint: Some(paint_id),
@@ -458,41 +449,88 @@ pub fn render_text_with_shadows(
                 }
             }
             render_text_body(ctx, &shadow_item)?;
-            continue;
         }
-
-        let (left, top, right, bottom) = shadow.outsets();
-        let shadow_bounds = item.bounds.outset(left, top, right, bottom);
-        let image_filter = ImageFilterSpec::DropShadow {
-            dx: shadow.offset_x,
-            dy: shadow.offset_y,
-            sigma_x: shadow.blur_sigma,
-            sigma_y: shadow.blur_sigma,
-            color: super::helpers::color_token_to_rgba(&shadow.color),
-        };
-        let layer_paint = PaintSpec {
-            fill: FillSpec::Solid([0.0; 4]),
-            style: PaintStyle::Fill,
-            stroke: None,
-            anti_alias: true,
-            blend_mode: BlendMode::SrcOver,
-            image_filter: Some(image_filter),
-            color_filter: None,
-            mask_filter: None,
-            path_effect: None,
-        };
-        let paint_id = ctx.builder.intern_paint(layer_paint);
-        ctx.builder.push(DrawOp::SaveLayer {
-            bounds: Some(display_rect_to_rect4(shadow_bounds)),
-            paint: Some(paint_id),
-            alpha: 1.0,
-        });
-        render_text_body(ctx, item)?;
-        ctx.builder.push(DrawOp::Restore);
     }
 
-    render_text_body(ctx, item)?;
+    // Blurred text-shadows compound with CSS `filter` list semantics: each later
+    // shadow takes the previous shadow's output (shadow + content) as its input.
+    // Nested `SaveLayer`s express the chain — the inner `keep_content` shadow
+    // layer's output becomes the input of the next outer shadow filter. The
+    // innermost body draw is retained by every level, so no extra final body
+    // draw is needed.
+    let blurred: Vec<&crate::style::TextShadow> = item
+        .text_shadows
+        .iter()
+        .filter(|s| s.blur_sigma > f32::EPSILON)
+        .collect();
+    if !blurred.is_empty() {
+        // Per-level SaveLayer bounds must contain every deeper shadow's spread
+        // too (each level's output includes the deeper shadows), so use the
+        // suffix-max of the outsets.
+        let suffix = suffix_max_outsets(&blurred);
+        render_blurred_shadow_chain(ctx, item, &blurred, &suffix, 0)?;
+    } else {
+        render_text_body(ctx, item)?;
+    }
     Ok(())
+}
+
+/// Per-level SaveLayer bounds outsets for a chained (nested) shadow stack: the
+/// outsets at index `i` are the component-wise max over `shadows[i..]`, because
+/// level `i`'s layer output contains every deeper shadow as well.
+fn suffix_max_outsets(
+    shadows: &[&crate::style::TextShadow],
+) -> Vec<(f32, f32, f32, f32)> {
+    let mut suffix: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(shadows.len());
+    let mut acc: Option<(f32, f32, f32, f32)> = None;
+    for shadow in shadows.iter().rev() {
+        let (l, t, r, b) = shadow.outsets();
+        acc = Some(match acc {
+            Some((al, at, ar, ab)) => (al.max(l), at.max(t), ar.max(r), ab.max(b)),
+            None => (l, t, r, b),
+        });
+        suffix.push(acc.unwrap());
+    }
+    suffix.reverse();
+    suffix
+}
+
+/// Recursively emit nested `SaveLayer`s for the blurred text-shadow chain.
+/// `level` indexes into `blurred`/`suffix_max`; the innermost level draws the
+/// text body itself.
+fn render_blurred_shadow_chain(
+    ctx: &mut RenderCtx,
+    item: &TextDisplayItem,
+    blurred: &[&crate::style::TextShadow],
+    suffix_max: &[(f32, f32, f32, f32)],
+    level: usize,
+) -> Result<(), RenderError> {
+    let shadow = blurred[level];
+    let (left, top, right, bottom) = suffix_max[level];
+    let shadow_bounds = item.bounds.outset(left, top, right, bottom);
+    let image_filter = ImageFilterSpec::DropShadow {
+        dx: shadow.offset_x,
+        dy: shadow.offset_y,
+        sigma_x: shadow.blur_sigma,
+        sigma_y: shadow.blur_sigma,
+        color: super::helpers::color_token_to_rgba(&shadow.color),
+        keep_content: true,
+    };
+    let paint_id = ctx
+        .builder
+        .intern_paint(super::helpers::filter_layer_paint(image_filter));
+    ctx.builder.push(DrawOp::SaveLayer {
+        bounds: Some(display_rect_to_rect4(shadow_bounds)),
+        paint: Some(paint_id),
+        alpha: 1.0,
+    });
+    let result = if level + 1 < blurred.len() {
+        render_blurred_shadow_chain(ctx, item, blurred, suffix_max, level + 1)
+    } else {
+        render_text_body(ctx, item)
+    };
+    ctx.builder.push(DrawOp::Restore);
+    result
 }
 
 fn render_text_body(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), RenderError> {
@@ -500,5 +538,44 @@ fn render_text_body(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), R
         render_text_with_unit_overrides(ctx, item)
     } else {
         render_text(ctx, item)
+    }
+}
+
+#[cfg(test)]
+mod chained_shadow_tests {
+    use super::suffix_max_outsets;
+    use crate::style::{ColorToken, TextShadow};
+
+    fn shadow(dx: f32, dy: f32, sigma: f32) -> TextShadow {
+        TextShadow {
+            offset_x: dx,
+            offset_y: dy,
+            blur_sigma: sigma,
+            color: ColorToken::Custom(0, 0, 0, 255),
+        }
+    }
+
+    /// Chained (nested) shadow layers need per-level bounds that also contain
+    /// every deeper shadow's spread: level i's output includes shadows i+1..,
+    /// so its outsets are the suffix max, not just its own.
+    #[test]
+    fn suffix_max_outsets_takes_component_wise_suffix_max() {
+        let shadows = vec![shadow(100.0, 0.0, 6.0), shadow(0.0, 60.0, 3.0)];
+        let refs: Vec<&TextShadow> = shadows.iter().collect();
+        let suffix = suffix_max_outsets(&refs);
+        // shadow_outsets: (max(3s−dx,0), max(3s−dy,0), 3s+dx, 3s+dy).
+        // shadow(100,0,6) → (0,18,118,18); shadow(0,60,3) → (9,0,9,69).
+        assert_eq!(suffix.len(), 2);
+        assert_eq!(suffix[0], (9.0, 18.0, 118.0, 69.0));
+        assert_eq!(suffix[1], (9.0, 0.0, 9.0, 69.0));
+    }
+
+    #[test]
+    fn suffix_max_outsets_single_shadow_is_identity() {
+        let shadows = vec![shadow(5.0, 7.0, 2.0)];
+        let refs: Vec<&TextShadow> = shadows.iter().collect();
+        let suffix = suffix_max_outsets(&refs);
+        assert_eq!(suffix.len(), 1);
+        assert_eq!(suffix[0], (1.0, 0.0, 11.0, 13.0));
     }
 }

@@ -582,6 +582,7 @@ fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<()
             sigma_x,
             sigma_y,
             color,
+            keep_content,
         } => {
             write_u8(out, 1);
             write_f32(out, *dx);
@@ -589,6 +590,7 @@ fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<()
             write_f32(out, *sigma_x);
             write_f32(out, *sigma_y);
             write_f32_array(out, color);
+            write_u8(out, if *keep_content { 1 } else { 0 });
         }
         ImageFilterSpec::ColorFilter(filter) => {
             write_u8(out, 2);

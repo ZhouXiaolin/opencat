@@ -291,8 +291,29 @@ pub fn drop_shadow_to_image_filter(shadow: &DropShadow) -> (ImageFilterSpec, [f3
         sigma_x: shadow.blur_sigma,
         sigma_y: shadow.blur_sigma,
         color,
+        keep_content: false,
     };
     (filter, color)
+}
+
+/// Paint for a `SaveLayer` that exists only to carry an image filter (shadow
+/// layers). Nothing is ever drawn with this paint — but its **alpha modulates
+/// the whole layer** when the executor composites it back
+/// (`replay.rs` `DrawOp::SaveLayer`). It must therefore be fully opaque:
+/// a transparent fill (`[0.0; 4]`, alpha 0) silently multiplies the filtered
+/// content by zero and the shadow disappears.
+pub(crate) fn filter_layer_paint(image_filter: ImageFilterSpec) -> PaintSpec {
+    PaintSpec {
+        fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+        style: PaintStyle::Fill,
+        stroke: None,
+        anti_alias: true,
+        blend_mode: BlendMode::SrcOver,
+        image_filter: Some(image_filter),
+        color_filter: None,
+        mask_filter: None,
+        path_effect: None,
+    }
 }
 
 /// Gradient box geometry: the box (in device px) a gradient is defined over,
@@ -912,18 +933,7 @@ pub fn draw_item_drop_shadow(
     let shadow_bounds = kurbo_rect(bounds.outset(left, top, right, bottom));
 
     let (image_filter, _color) = drop_shadow_to_image_filter(shadow);
-    let paint = PaintSpec {
-        fill: FillSpec::Solid([0.0; 4]),
-        style: PaintStyle::Fill,
-        stroke: None,
-        anti_alias: true,
-        blend_mode: BlendMode::SrcOver,
-        image_filter: Some(image_filter),
-        color_filter: None,
-        mask_filter: None,
-        path_effect: None,
-    };
-    let paint_id = ctx.builder.intern_paint(paint);
+    let paint_id = ctx.builder.intern_paint(filter_layer_paint(image_filter));
     ctx.builder.push(DrawOp::SaveLayer {
         bounds: Some(rect_to_rect4(shadow_bounds)),
         paint: Some(paint_id),
@@ -3031,6 +3041,42 @@ mod script_runtime_effect_tests {
     //   - `record_canvas_runtime_effect_pushes_script_effect` in `script::recorder::store`
     //   - the end-to-end render of `json/canvas-ripple-card.xml` and
     //     `json/profile-showcase.xml`.
+}
+
+#[cfg(test)]
+mod filter_layer_paint_tests {
+    use super::filter_layer_paint;
+    use crate::canvas::paint::{FillSpec, ImageFilterSpec, PaintStyle};
+
+    /// Regression: shadow `SaveLayer` carrier paints used to be built with a
+    /// transparent fill (`[0.0; 4]`, alpha 0). The executor composites a
+    /// `SaveLayer` through the paint's alpha, so every blurred shadow layer
+    /// was multiplied by zero and silently disappeared (white-on-white
+    /// headline glyphs became invisible). The carrier paint must be opaque.
+    #[test]
+    fn shadow_layer_paint_is_opaque_and_carries_filter() {
+        let filter = ImageFilterSpec::DropShadow {
+            dx: 12.0,
+            dy: 9.0,
+            sigma_x: 5.5,
+            sigma_y: 5.5,
+            color: [0.0, 0.0, 0.0, 1.0],
+            keep_content: false,
+        };
+        let paint = filter_layer_paint(filter);
+        match paint.fill {
+            FillSpec::Solid(c) => {
+                assert!(
+                    (c[3] - 1.0).abs() < f32::EPSILON,
+                    "layer carrier paint alpha must be 1.0, got {}",
+                    c[3]
+                );
+            }
+            other => panic!("expected solid fill, got {other:?}"),
+        }
+        assert!(paint.image_filter.is_some(), "filter must be carried");
+        assert_eq!(paint.style, PaintStyle::Fill);
+    }
 }
 
 #[cfg(test)]

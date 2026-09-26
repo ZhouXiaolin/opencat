@@ -217,6 +217,51 @@ mod tests {
         assert_eq!(a.sksl, b.sksl);
     }
 
+    /// README "HTML in Canvas" 示例（subtree 纹理 + lambda 折射/色散）——
+    /// 保持 README 代码可编译、可派发到 SKSL。
+    #[test]
+    fn readme_subtree_ripple_lambda_lowers_to_sksl() {
+        const RIPPLE: &str = r#"(uv, image, u) => {
+  const d = uv - [180.0, 240.0];
+  const dist = length(d);
+  const dir = dist < 1.0 ? [0.0, 0.0] : d / dist;
+  const tang = [-dir.y, dir.x];
+  const wave = sin(dist * u.frequency - u.progress * u.speed);
+  const base = uv + dir * (wave * u.amplitude * exp(-dist * u.decay));
+  const r = image.eval(base + tang * u.split);
+  const g = image.eval(base);
+  const b = image.eval(base - tang * u.split);
+  const a = max(max(r.a, g.a), b.a);
+  return [r.r, g.g, b.b, a];
+}"#;
+        let c = compile_effect(
+            RIPPLE,
+            &spec(&[
+                ("progress", "float"),
+                ("amplitude", "float"),
+                ("frequency", "float"),
+                ("speed", "float"),
+                ("decay", "float"),
+                ("split", "float"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(c.backend, Backend::Sksl);
+        let sksl = c.sksl.unwrap();
+        assert!(sksl.contains("u_oc_c0.eval("), "{sksl}");
+        assert!(sksl.contains("half4 main(float2 xy)"), "{sksl}");
+    }
+
+    /// skill/references/templates.md §7 示例（subtree 纹理 + lambda 波形位移）。
+    #[test]
+    fn templates_wave_lambda_lowers_to_sksl() {
+        const WAVE: &str =
+            "(uv, image, u) => { const src = uv + [sin(uv.y * 0.04 + u.t * 4.0) * 6.0, 0.0]; return image.eval(src); }";
+        let c = compile_effect(WAVE, &spec(&[("t", "float")])).unwrap();
+        assert_eq!(c.backend, Backend::Sksl);
+        assert!(c.sksl.unwrap().contains("u_oc_c0.eval("));
+    }
+
     #[test]
     fn interpreter_gradient_pixels() {
         let mut s = spec(&[("w", "float"), ("h", "float")]);

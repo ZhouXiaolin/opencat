@@ -66,7 +66,7 @@
             <div id="slide-1-ray-c" class="absolute left-[646px] bottom-[72px] w-[156px] h-[3px] rounded-full bg-[#8b5cf6]" />
           </slot>
         </stage-slide>
-        <stage-slide id="slide-2" class="absolute inset-0 opacity-0" bandTone="bg-[#fff7ed]" accentTone="bg-[#f59e0b]" kicker="CANVASKIT" kickerTone="text-[#c2410c]" title="Subtree FX" titleTone="text-[#431407]" body="HTML in Canvas: capture an XML subtree as a texture, pass it through an SKSL RuntimeEffect, then paint the warped result back." bodyTone="text-[#7c2d12]" panelTone="opacity-0 bg-[#ffedd5] border-[1px] border-[#fed7aa]" panelMarkATone="bg-[#431407]" panelMarkBTone="bg-[#fdba74]" panelMarkCTone="bg-[#D97757]" pill="RuntimeEffect" pillTone="bg-[#D97757]" pillTextTone="text-white">
+        <stage-slide id="slide-2" class="absolute inset-0 opacity-0" bandTone="bg-[#fff7ed]" accentTone="bg-[#f59e0b]" kicker="CANVASKIT" kickerTone="text-[#c2410c]" title="Subtree FX" titleTone="text-[#431407]" body="HTML in Canvas: capture an XML subtree as a texture, pass it through a compiled effect lambda, then paint the warped result back." bodyTone="text-[#7c2d12]" panelTone="opacity-0 bg-[#ffedd5] border-[1px] border-[#fed7aa]" panelMarkATone="bg-[#431407]" panelMarkBTone="bg-[#fdba74]" panelMarkCTone="bg-[#D97757]" pill="Effect lambda" pillTone="bg-[#D97757]" pillTextTone="text-white">
           <slot name="content">
             <canvas id="slide-2-html-canvas" class="absolute right-[24px] top-[92px] w-[404px] h-[304px] rounded-[8px] overflow-hidden bg-[#111827] border-[1px] border-[#f59e0b]/45">
               <div id="slide-2-html-root" class="absolute inset-0 bg-[#111827]">
@@ -86,13 +86,13 @@
                     <text id="slide-2-html-chip-text" class="text-[11px] font-bold text-white">shader child</text>
                   </div>
                 </div>
-                <text id="slide-2-html-footer" class="absolute left-[28px] bottom-[24px] text-[16px] font-semibold text-[#fed7aa]">RuntimeEffect samples the subtree texture</text>
+                <text id="slide-2-html-footer" class="absolute left-[28px] bottom-[24px] text-[16px] font-semibold text-[#fed7aa]">Effect lambda samples the subtree texture</text>
               </div>
             </canvas>
             <div id="slide-2-arrow-a" class="absolute left-[484px] top-[208px] w-[66px] h-[3px] rounded-full bg-[#f59e0b]" />
             <div id="slide-2-arrow-b" class="absolute left-[536px] top-[198px] w-[22px] h-[3px] rounded-full bg-[#f59e0b]" />
             <div id="slide-2-arrow-c" class="absolute left-[536px] top-[218px] w-[22px] h-[3px] rounded-full bg-[#f59e0b]" />
-            <text id="slide-2-caption" class="absolute left-[558px] top-[414px] text-[16px] font-bold text-[#9a3412]">Subtree texture -> SKSL -> Canvas</text>
+            <text id="slide-2-caption" class="absolute left-[558px] top-[414px] text-[16px] font-bold text-[#9a3412]">Subtree texture -> lambda -> SKSL -> Canvas</text>
           </slot>
         </stage-slide>
         <stage-slide id="slide-3" class="absolute inset-0 opacity-0" bandTone="bg-[#ecfeff]" accentTone="bg-[#0891b2]" kicker="LINE REVEAL" kickerTone="text-[#0e7490]" title="Show lines" titleTone="text-[#164e63]" body="The final beat keeps the structure simple: draw the guides, reveal each row, and let the layout read clearly." bodyTone="text-[#155e75]" panelTone="opacity-0 bg-[#cffafe] border-[1px] border-[#a5f3fc]" panelMarkATone="bg-[#164e63]" panelMarkBTone="bg-[#67e8f9]" panelMarkCTone="bg-[#0891b2]" pill="Lines" pillTone="bg-[#0891b2]" pillTextTone="text-white">
@@ -143,40 +143,44 @@
     var htmlTexture = htmlCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
     var htmlLocalTime = Math.max(0, ctx.currentTime - 4.0);
     var htmlPulse = Math.max(0, Math.min(htmlLocalTime / 1.8, 1));
-    var sksl = [
-      'uniform shader image;',
-      'uniform float t;',
-      'uniform float pulse;',
-      'half4 main(float2 xy) {',
-      '  float2 center = float2(202.0, 152.0);',
-      '  float2 delta = xy - center;',
-      '  float dist = length(delta);',
-      '  float wave = sin(dist * 0.055 - t * 5.0);',
-      '  float ring = smoothstep(132.0, 18.0, abs(dist - 118.0 - sin(t * 1.7) * 22.0));',
-      '  float glass = smoothstep(230.0, 24.0, dist);',
-      '  float2 dir = dist < 1.0 ? float2(0.0, 0.0) : normalize(delta);',
-      '  float2 tangent = float2(-dir.y, dir.x);',
-      '  float bend = wave * 9.0 * glass + ring * 13.0 * pulse;',
-      '  float2 uv = xy + dir * bend + tangent * sin(t * 2.4 + dist * 0.035) * 5.0;',
-      '  half4 base = image.eval(uv);',
-      '  half4 warm = image.eval(uv + tangent * (4.0 + ring * 6.0));',
-      '  half4 cool = image.eval(uv - tangent * (4.0 + ring * 6.0));',
-      '  half3 rgb = half3(warm.r, base.g, cool.b);',
-      '  float portal = smoothstep(5.0, 0.0, abs(dist - 118.0 - sin(t * 1.7) * 22.0));',
-      '  rgb = mix(rgb, half3(1.0, 0.64, 0.18), half(portal * 0.32));',
-      '  float vignette = smoothstep(310.0, 120.0, dist);',
-      '  return half4(rgb * half(0.72 + vignette * 0.42), max(base.a, half(0.96)));',
-      '}',
-    ].join('\n');
-    var effect = CK.RuntimeEffect.Make(sksl);
-    if (effect) {
-      var shader = effect.makeShaderWithChildren([htmlLocalTime, htmlPulse], [htmlTexture]);
-      var shaderPaint = new CK.Paint();
-      shaderPaint.setShader(shader);
-      htmlCanvas.drawRect(CK.XYWHRect(0, 0, 404, 304), shaderPaint);
-    } else {
-      htmlCanvas.drawPicture(htmlCanvas.getSubTree(), 0, 0);
-    }
+    /* ══ lambda 折射玻璃（Effect lambda DSL，§Effect.fromLambda）══════════
+       原 25 行手写 SKSL 改写为 JS lambda：只写 op 与简单数据计算，被 Rust
+       编译（绝不执行）。全浮点 op → 自动派发 SKSL 后端，仍走 RuntimeEffect
+       管线（picture child 采样 HTML subtree）。
+       语义对齐：原 SKSL 返回 premul 域颜色（rgb 保留采样值、alpha 抬到
+       ≥0.96）；DSL 契约是返回 straight 色、codegen 自动预乘 —— 故除回
+       alpha（恒 ≥0.96，无除零）后再返回，两式在数学上等价。 */
+    var REFRACT_LAMBDA = (uv, image, u) => {
+      const delta = uv - [202.0, 152.0];
+      const dist = length(delta);
+      const wave = sin(dist * 0.055 - u.t * 5.0);
+      const ringArg = abs(dist - 118.0 - sin(u.t * 1.7) * 22.0);
+      const ring = smoothstep(132.0, 18.0, ringArg);
+      const glass = smoothstep(230.0, 24.0, dist);
+      const dir = dist < 1.0 ? [0.0, 0.0] : normalize(delta);
+      const tangent = [-dir.y, dir.x];
+      const bend = wave * 9.0 * glass + ring * 13.0 * u.pulse;
+      const spos = uv + dir * bend + tangent * sin(u.t * 2.4 + dist * 0.035) * 5.0;
+      const base = image.eval(spos);
+      const warm = image.eval(spos + tangent * (4.0 + ring * 6.0));
+      const cool = image.eval(spos - tangent * (4.0 + ring * 6.0));
+      let rgb = [warm.r, base.g, cool.b];
+      const portal = smoothstep(5.0, 0.0, ringArg);
+      rgb = mix(rgb, [1.0, 0.64, 0.18], portal * 0.32);
+      const vig = smoothstep(310.0, 120.0, dist);
+      const a = max(base.a, 0.96);
+      const k = (0.72 + vig * 0.42) / a;
+      return [rgb.x * k, rgb.y * k, rgb.z * k, a];
+    };
+    var REFRACT_SPEC = {
+      uniforms: [['t', 'float'], ['pulse', 'float']],
+      backend: 'auto'
+    };
+    var refractEffect = CK.Effect.fromLambda(REFRACT_LAMBDA, REFRACT_SPEC);
+    var shader = refractEffect.makeShaderWithChildren([htmlLocalTime, htmlPulse], [htmlTexture]);
+    var shaderPaint = new CK.Paint();
+    shaderPaint.setShader(shader);
+    htmlCanvas.drawRect(CK.XYWHRect(0, 0, 404, 304), shaderPaint);
 
     ctx.fromTo('canvas',
       { opacity: 0, scale: 0.985 },

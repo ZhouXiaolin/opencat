@@ -618,11 +618,19 @@ fn replay_op(
                     match child_ref {
                         RuntimeEffectChildRef::Image(img_ref) => {
                             if let Some(idx) = media.image_index.get(img_ref) {
+                                // 约定（skill canvaskit §Effect lambda）：image
+                                // child 的 tile 空间原点 = effect dst 本地原点，
+                                // 与 `uv = xy - rect.xy` 对齐 —— 用本地矩阵平移
+                                // dst.xy，使 child.eval(uv) 取到"该矩形自己的"
+                                // 像素（与 lambda CPU 后端 ChildImage 采样一致）。
+                                let mut local =
+                                    skia_safe::Matrix::new_identity();
+                                local.set_translate((-dst.x, -dst.y));
                                 if let Some(shader) = skia_safe::shaders::image(
                                     &media.images[*idx],
                                     (skia_safe::TileMode::Clamp, skia_safe::TileMode::Clamp),
                                     &skia_safe::SamplingOptions::default(),
-                                    None::<&skia_safe::Matrix>,
+                                    Some(&local),
                                 ) {
                                     inputs.push(shader.into());
                                 } else {
@@ -808,7 +816,10 @@ mod tests {
     use opencat_core::ir::draw_types::{
         BytesRangeId, ChildRange, DrawOpRange, EffectId, EffectRef,
     };
-    use skia_safe::{AlphaType, ColorType, ImageInfo, RuntimeEffect, image::CachingHint, surfaces};
+    use skia_safe::{
+        AlphaType, ColorType, Data, ImageInfo, RuntimeEffect, images,
+        image::CachingHint, surfaces,
+    };
 
     fn pixel_rgba(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
         let index = (y * width + x) * 4;
@@ -1365,5 +1376,238 @@ half4 main(float2 coord) {
         // happens when the inner keep_content output feeds the outer filter.
         let left = luminance(&rgba, 64, 6, 24);
         assert!(left < 220, "chained inner shadow lobe (-24) missing, got {left}");
+    }
+
+    /// lambda → SKSL → RuntimeEffect 的 raster 端到端：水平渐变亮度递增，
+    /// 且 u_oc_rect 偏移生效（dst 从 (4,2) 起绘制，内部坐标仍从 0 数起）。
+    #[test]
+    fn lambda_sksl_gradient_raster_e2e() {
+        let source = "(uv, u) => { const g = uv.x / u.w; return [g, g, g, 1]; }";
+        let mut spec = opencat_core::script::effects_lambda::EffectSpec::default();
+        spec.uniforms
+            .push(("w".to_string(), opencat_core::script::effects_lambda::program::Ty::Float));
+        let compiled =
+            opencat_core::script::effects_lambda::compile_effect(source, &spec)
+                .expect("lambda should compile");
+        assert_eq!(
+            compiled.backend,
+            opencat_core::script::effects_lambda::Backend::Sksl
+        );
+        let sksl = compiled.sksl.expect("sksl backend carries code");
+
+        let rt = RuntimeEffect::make_for_shader(&sksl, None).expect("generated SKSL should compile");
+
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef { hash: compiled.hash, sksl: sksl.clone() });
+        // uniforms: w=8.0 f32，随后 u_oc_rect = dst(0,0,8,8)
+        let mut uniform_bytes = Vec::new();
+        for v in [8.0f32, 0.0, 0.0, 8.0, 8.0] {
+            uniform_bytes.extend_from_slice(&v.to_ne_bytes());
+        }
+        frame.bytes.extend_from_slice(&uniform_bytes);
+        frame
+            .byte_ranges
+            .push(opencat_core::ir::draw_types::TableRange { start: 0, len: uniform_bytes.len() as u32 });
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 0 },
+            dst: Rect4 { x: 0.0, y: 0.0, width: 8.0, height: 8.0 },
+        });
+
+        let media = EnginePreparedFrameMedia {
+            runtime_effects: vec![rt],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((8, 8)).expect("surface");
+        let canvas = surface.canvas();
+        replay_op(
+            &mut exec,
+            canvas,
+            &frame,
+            &media,
+            &frame.ops[0],
+        )
+        .expect("lambda runtime effect should replay");
+
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((8, 8), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 8 * 8 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            8 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+        // 水平亮度单调递增（premul 但 alpha=1）；byte index = col*4（row 0）
+        let lum = |col: usize| rgba[col * 4];
+        assert!(lum(0) < lum(3) && lum(3) < lum(6), "gradient not increasing: {} {} {}", lum(0), lum(3), lum(6));
+    }
+
+    /// 后端一致性：同一 float-only lambda，SKSL（skia raster）与 f64 解释器
+    /// 输出逐通道容差比对。
+    #[test]
+    fn lambda_backend_consistency_sksl_vs_interpreter() {
+        let source =
+            "(uv, u) => { const g = smoothstep(0.0, u.w, uv.x); return [g, 0.5, 1 - g, 1]; }";
+        let mut spec = opencat_core::script::effects_lambda::EffectSpec::default();
+        spec.uniforms
+            .push(("w".to_string(), opencat_core::script::effects_lambda::program::Ty::Float));
+
+        // CPU（解释器）
+        let mut cpu_spec = spec.clone();
+        cpu_spec.backend_override =
+            Some(opencat_core::script::effects_lambda::Backend::Cpu);
+        let cpu = opencat_core::script::effects_lambda::compile_effect(source, &cpu_spec)
+            .expect("cpu compile");
+        let ctx = opencat_core::script::effects_lambda::interp::InterpCtx {
+            uniforms: &[opencat_core::script::effects_lambda::program::Val::F(8.0)],
+            rect: [0.0, 0.0, 8.0, 8.0],
+            children: &[],
+        };
+        let cpu_rgba =
+            opencat_core::script::effects_lambda::interp::render(&cpu.program, 8, 8, &ctx);
+
+        // SKSL（skia raster）
+        let mut sksl_spec = spec.clone();
+        sksl_spec.backend_override =
+            Some(opencat_core::script::effects_lambda::Backend::Sksl);
+        let sksl_c = opencat_core::script::effects_lambda::compile_effect(source, &sksl_spec)
+            .expect("sksl compile");
+        let rt = RuntimeEffect::make_for_shader(sksl_c.sksl.as_deref().unwrap(), None)
+            .expect("generated SKSL should compile");
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef { hash: sksl_c.hash, sksl: sksl_c.sksl.clone().unwrap() });
+        let mut uniform_bytes = Vec::new();
+        for v in [8.0f32, 0.0, 0.0, 8.0, 8.0] {
+            uniform_bytes.extend_from_slice(&v.to_ne_bytes());
+        }
+        frame.bytes.extend_from_slice(&uniform_bytes);
+        frame
+            .byte_ranges
+            .push(opencat_core::ir::draw_types::TableRange { start: 0, len: uniform_bytes.len() as u32 });
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 0 },
+            dst: Rect4 { x: 0.0, y: 0.0, width: 8.0, height: 8.0 },
+        });
+        let media = EnginePreparedFrameMedia {
+            runtime_effects: vec![rt],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((8, 8)).expect("surface");
+        replay_op(&mut exec, surface.canvas(), &frame, &media, &frame.ops[0]).expect("replay");
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((8, 8), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut sksl_rgba = vec![0_u8; 8 * 8 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            sksl_rgba.as_mut_slice(),
+            8 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+
+        for i in 0..8 * 8 * 4 {
+            let (a, b) = (cpu_rgba[i], sksl_rgba[i]);
+            assert!(
+                (a as i32 - b as i32).abs() <= 3,
+                "px {i}: cpu {a} vs sksl {b}"
+            );
+        }
+    }
+
+    /// lambda → SKSL 的 generated image child：child.eval(uv) 以 dst 本地
+    /// 坐标取像素（tile 原点 = dst 原点）。
+    #[test]
+    fn lambda_sksl_generated_child_samples_local_space() {
+        use opencat_core::ir::GeneratedImageId;
+
+        let source =
+            "(uv, tex, u) => { const c = tex.eval(uv); return [c.r, c.g, c.b, 1]; }";
+        let mut spec = opencat_core::script::effects_lambda::EffectSpec::default();
+        let compiled =
+            opencat_core::script::effects_lambda::compile_effect(source, &spec)
+                .expect("lambda should compile");
+        let sksl = compiled.sksl.expect("sksl");
+        let rt = RuntimeEffect::make_for_shader(&sksl, None).expect("compile");
+
+        // 2×1 child：红、绿两像素（straight）
+        let child_rgba: Vec<u8> = vec![255, 0, 0, 255, 0, 255, 0, 255];
+        let gid = GeneratedImageId(0x1A2B);
+        let child_info =
+            ImageInfo::new((2, 1), ColorType::RGBA8888, AlphaType::Unpremul, None);
+        let child_img = images::raster_from_data(
+            &child_info,
+            Data::new_copy(&child_rgba),
+            2 * 4,
+        )
+        .expect("child image should decode");
+
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef { hash: compiled.hash, sksl });
+        frame.children.push(RuntimeEffectChildRef::Image(ImageRef::Generated { id: gid }));
+        // u_oc_rect = dst(0,0,2,1)（无用户 uniform）
+        let mut uniform_bytes = Vec::new();
+        for v in [0.0f32, 0.0, 2.0, 1.0] {
+            uniform_bytes.extend_from_slice(&v.to_ne_bytes());
+        }
+        frame.bytes.extend_from_slice(&uniform_bytes);
+        frame
+            .byte_ranges
+            .push(opencat_core::ir::draw_types::TableRange { start: 0, len: uniform_bytes.len() as u32 });
+        frame.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+            style: PaintStyle::Fill,
+            ..Default::default()
+        });
+        frame.ops.push(DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 1 },
+            dst: Rect4 { x: 0.0, y: 0.0, width: 2.0, height: 1.0 },
+        });
+
+        let media = EnginePreparedFrameMedia {
+            images: vec![child_img],
+            image_index: {
+                let mut m = std::collections::HashMap::new();
+                m.insert(ImageRef::Generated { id: gid }, 0usize);
+                m
+            },
+            runtime_effects: vec![rt],
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut surface = surfaces::raster_n32_premul((2, 1)).expect("surface");
+        replay_op(&mut exec, surface.canvas(), &frame, &media, &frame.ops[0]).expect("replay");
+        let image = surface.image_snapshot();
+        let image_info = ImageInfo::new((2, 1), ColorType::RGBA8888, AlphaType::Premul, None);
+        let mut rgba = vec![0_u8; 2 * 1 * 4];
+        assert!(image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            2 * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ));
+        assert_eq!(rgba[0..3].to_vec(), vec![255, 0, 0], "left = red");
+        assert_eq!(rgba[4..7].to_vec(), vec![0, 255, 0], "right = green");
     }
 }

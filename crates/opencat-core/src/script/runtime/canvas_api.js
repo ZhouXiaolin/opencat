@@ -432,7 +432,9 @@
                 return this;
             }
             if (shader.__opencatShader !== 'runtime'
-                && shader.__opencatShader !== 'image') {
+                && shader.__opencatShader !== 'image'
+                && shader.__opencatShader !== 'lambda'
+                && shader.__opencatShader !== 'generated') {
                 throw new Error('setShader expects a shader handle');
             }
             this._shader = shader;
@@ -579,12 +581,127 @@
         };
     }
 
+    /* ── Effect lambda（编译型效果 DSL）────────────────────────────────
+       fn 只被读取源码（fn.toString()）、从不被执行：Rust 侧解析该源码并
+       重建计算，自动派发 SKSL（RuntimeEffect）或纯 CPU 逐像素后端。
+       约束：lambda 必须是源码内联的箭头函数（不可是原生函数/被压缩）；
+       白名单语法 —— 数值/布尔/数组字面量、算术/比较/逻辑/三目、if/else、
+       let/const、std 内建与 Math.*、u.<name>、child.eval(pos)、swizzle 读。
+       spec: { uniforms: [['t','float'], ...], backend: 'auto'|'sksl'|'cpu' }。
+       uniforms 展平顺序必须与 spec 声明序一致（向量按分量展开）。 */
+    class LambdaEffect {
+        constructor(fn, spec) {
+            if (typeof fn !== 'function') {
+                throw new Error('Effect.fromLambda: fn must be a function');
+            }
+            const src = fn.toString();
+            if (src.length === 0 || src.includes('[native code]')) {
+                throw new Error(
+                    'Effect.fromLambda: lambda source unavailable (native or minified fn)'
+                );
+            }
+            this.__opencatLambdaEffect = true;
+            this._fnSource = src;
+            const s = spec || {};
+            this._spec = {
+                uniforms: Array.isArray(s.uniforms) ? s.uniforms : [],
+                backend: s.backend == null ? 'auto' : String(s.backend),
+            };
+        }
+        delete() {}
+
+        makeShader(uniforms) {
+            return makeLambdaShader(this, uniforms, []);
+        }
+
+        makeShaderWithChildren(uniforms, children) {
+            return makeLambdaShader(this, uniforms, children);
+        }
+    }
+
+    /* spec 声明序展开 uniforms：float→1 个数，float2/3/4→2/3/4 个数。
+       输入可以是平铺数组（元素为数或数）或 {name: value} 映射。 */
+    function flattenLambdaUniforms(effect, uniforms) {
+        const specUniforms = effect._spec.uniforms;
+        const out = [];
+        const pushValue = (ty, v, label) => {
+            const n = ty === 'float' ? 1 : Number(String(ty).slice(5)) || 0;
+            if (!(n >= 1 && n <= 4)) {
+                throw new Error(`Effect.fromLambda: unsupported uniform type '${ty}'`);
+            }
+            if (n === 1) {
+                if (Array.isArray(v)) {
+                    throw new Error(`uniform '${label}' expects a number`);
+                }
+                out.push(toFiniteNumber(v));
+                return;
+            }
+            if (!isArrayLike(v) || v.length !== n) {
+                throw new Error(`uniform '${label}' expects ${n} numbers`);
+            }
+            for (let i = 0; i < n; i++) out.push(toFiniteNumber(v[i]));
+        };
+        if (uniforms == null) {
+            for (const [name, ty] of specUniforms) pushValue(ty, 0, name);
+            return out;
+        }
+        if (isArrayLike(uniforms)) {
+            let flat = [];
+            for (const v of uniforms) {
+                if (isArrayLike(v)) flat.push(...v);
+                else flat.push(v);
+            }
+            let k = 0;
+            for (const [name, ty] of specUniforms) {
+                const n = ty === 'float' ? 1 : Number(String(ty).slice(5)) || 0;
+                if (k + n > flat.length) {
+                    throw new Error(
+                        `Effect.fromLambda: not enough uniform values for '${name}'`
+                    );
+                }
+                pushValue(ty, n === 1 ? flat[k] : flat.slice(k, k + n), name);
+                k += n;
+            }
+            return out;
+        }
+        if (typeof uniforms === 'object') {
+            for (const [name, ty] of specUniforms) {
+                if (!(name in uniforms)) {
+                    throw new Error(`Effect.fromLambda: missing uniform '${name}'`);
+                }
+                pushValue(ty, uniforms[name], name);
+            }
+            return out;
+        }
+        throw new Error('Effect.fromLambda: uniforms must be an array or object');
+    }
+
+    function makeLambdaShader(effect, uniforms, children) {
+        return {
+            __opencatShader: 'lambda',
+            effect,
+            uniforms: flattenLambdaUniforms(effect, uniforms),
+            children: (children || []).map(ensureChildShader),
+        };
+    }
+
+    /* 帧级生成图像 child（溶解 field 烘焙等）：key 与 bakeDissolve 一致。 */
+    function makeGeneratedShader(key) {
+        return { __opencatShader: 'generated', key: String(key) };
+    }
+
     function ensureChildShader(c) {
         if (!c) throw new Error('child shader is null');
         if (c.__opencatShader === 'image') return c;
         if (c.__opencatShader === 'picture') return c;
+        if (c.__opencatShader === 'generated') {
+            if (typeof c.key !== 'string' || c.key.length === 0) {
+                throw new Error('generated child shader requires a frame-scoped key');
+            }
+            return c;
+        }
         throw new Error(
-            'only image and picture child shaders are supported; gradient not implemented'
+            'only image, picture and generated child shaders are supported; gradient not implemented'
         );
     }
 
@@ -719,6 +836,13 @@
             Make(sksl) {
                 if (typeof sksl !== 'string' || sksl.length === 0) return null;
                 return new RuntimeEffect(sksl);
+            }
+        },
+        /* 效果 lambda：统一 SKSL 与逐像素（溶解类）效果的编译型 DSL。
+           后端由 Rust 依 lambda 用到的内建自动派发（spec.backend 可强制）。 */
+        Effect: {
+            fromLambda(fn, spec) {
+                return new LambdaEffect(fn, spec);
             }
         },
         BLACK: [0, 0, 0, 1],
@@ -948,6 +1072,22 @@
                     __canvas_runtime_effect_draw(
                         id,
                         sh.effect._sksl,
+                        sh.uniforms,
+                        JSON.stringify(sh.children),
+                        normalized.x,
+                        normalized.y,
+                        normalized.width,
+                        normalized.height,
+                    );
+                    return this;
+                }
+                if (resolvedPaint._shader
+                    && resolvedPaint._shader.__opencatShader === 'lambda') {
+                    const sh = resolvedPaint._shader;
+                    __canvas_lambda_effect_draw(
+                        id,
+                        sh.effect._fnSource,
+                        JSON.stringify(sh.effect._spec),
                         sh.uniforms,
                         JSON.stringify(sh.children),
                         normalized.x,
@@ -1291,35 +1431,6 @@
                 );
                 return this;
             },
-
-            /* ── Dissolve draw (k3 scene-H) — the §16-conformant path ───────
-               Thin marker ONLY: the engine rasterizes the mask, runs the
-               chamfer field, evaluates the per-pixel scramble noise / glow
-               for `t`, and records the generated image + draw op in Rust.
-               No pixel buffer ever crosses the JS bridge.
-               opts: { surface, t, fps=30, windowStart=13.699, windowEnd=15.2,
-                       maxFrame=455, dx, dy, keyPrefix='k3dis_f' }.
-               Returns true when `t` was inside the dissolve window. */
-            applyDissolve(opts) {
-                if (!opts || typeof opts.surface !== 'string') {
-                    throw new Error('applyDissolve: opts.surface (surface id) is required');
-                }
-                if (opts.dx == null || opts.dy == null) {
-                    throw new Error('applyDissolve: opts.dx/dy (put position) are required');
-                }
-                return __canvas_apply_dissolve(
-                    id,
-                    opts.surface,
-                    String(opts.keyPrefix == null ? 'k3dis_f' : opts.keyPrefix),
-                    toFiniteNumber(opts.t),
-                    toFiniteNumber(opts.fps, 30),
-                    toFiniteNumber(opts.windowStart, 13.699),
-                    toFiniteNumber(opts.windowEnd, 15.2),
-                    toFiniteNumber(opts.maxFrame, 455),
-                    toFiniteNumber(opts.dx),
-                    toFiniteNumber(opts.dy)
-                ) === true;
-            }
         };
     }
 
@@ -1486,6 +1597,20 @@
                     toFiniteNumber(w), toFiniteNumber(h)) !== true) {
                     throw new Error('buildDissolve: engine rejected region ' + [x, y, w, h]);
                 }
+            },
+            /* Bake the built field into a frame-scoped generated image under
+               `key` (R=mask, G/B=dist lo/hi bytes). Register-only: no draw op.
+               Call EVERY frame before a lambda effect samples it as a
+               `{__opencatShader:'generated', key}` child (the pending table
+               drains each frame). */
+            bakeDissolve(key) {
+                if (typeof __surface_bake_dissolve !== 'function') {
+                    throw new Error('bakeDissolve: engine native __surface_bake_dissolve unavailable');
+                }
+                if (__surface_bake_dissolve(id, String(key)) !== true) {
+                    throw new Error('bakeDissolve: no built field for surface ' + id);
+                }
+                return makeGeneratedShader(key);
             },
             get font() { return state.font; },
             set font(v) { state.font = String(v); },

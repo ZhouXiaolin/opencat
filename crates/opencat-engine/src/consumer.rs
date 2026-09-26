@@ -327,11 +327,7 @@ fn prepare_frame(
 
     let mut runtime_effects = Vec::with_capacity(plan.runtime_effects.len());
     for effect_ref in &plan.runtime_effects {
-        let effect = RuntimeEffect::make_for_shader(&effect_ref.sksl, None)
-            .map_err(|e| MediaError::RuntimeEffectCompileFailed {
-                hash: effect_ref.hash,
-                detail: e.to_string(),
-            })?;
+        let effect = compile_runtime_effect_cached(effect_ref.hash, &effect_ref.sksl)?;
         runtime_effects.push(effect);
     }
 
@@ -339,6 +335,38 @@ fn prepare_frame(
         images: sk_images,
         image_index,
         runtime_effects,
+    })
+}
+
+/// 会话级 SKSL 编译 memo（thread_local，按 hash 复用编译好的
+/// `RuntimeEffect`）：同一效果逐帧绘制时不再重复编译。宿主在会话结束/
+/// 换 composition 时可调 [`clear_runtime_effect_cache`] 归还内存。
+thread_local! {
+    static RUNTIME_EFFECT_CACHE: std::cell::RefCell<HashMap<u64, RuntimeEffect>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// 清空 SKSL 编译 memo（会话切换时宿主可选调用；不清也不影响正确性，
+/// 只是常驻内存）。
+pub fn clear_runtime_effect_cache() {
+    RUNTIME_EFFECT_CACHE.with(|c| c.borrow_mut().clear());
+}
+
+fn compile_runtime_effect_cached(hash: u64, sksl: &str) -> Result<RuntimeEffect, ConsumerError> {
+    RUNTIME_EFFECT_CACHE.with(|c| {
+        if let Some(hit) = c.borrow().get(&hash) {
+            // skia-safe 对象非 Clone；这里复用引用计数？RuntimeEffect 内部是
+            // refcounted handle —— 直接 clone 句柄即可。
+            return Ok(hit.clone());
+        }
+        let effect = RuntimeEffect::make_for_shader(sksl, None).map_err(|e| {
+            MediaError::RuntimeEffectCompileFailed {
+                hash,
+                detail: e.to_string(),
+            }
+        })?;
+        c.borrow_mut().insert(hash, effect.clone());
+        Ok(effect)
     })
 }
 

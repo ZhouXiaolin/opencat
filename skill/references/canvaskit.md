@@ -352,7 +352,7 @@ var subtreeShader = canvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMod
 
 `CK.RuntimeEffect.Make(sksl)` 创建 RuntimeEffect。它可以直接生成 shader，也可以带 image / picture child shader。
 
-最常见用法是：把 canvas hidden subtree 作为 shader child，经过 SKSL 处理后画回 canvas。
+最常见用法是：把 canvas hidden subtree 作为 shader child，经过 SKSL 处理后画回 canvas。**新效果的优先写法是效果 lambda**（`CK.Effect.fromLambda`，见下节）——只有 lambda 白名单表达不了的需求（如依赖 SKSL 特有构造）才手写 SKSL 字符串。
 
 ```js
 var CK = ctx.CanvasKit;
@@ -447,6 +447,8 @@ canvas.drawRect(CK.XYWHRect(0, 0, 360, 480), paint);
 
 `spec.backend` 可强制 `'sksl'` 或 `'cpu'`（强制 sksl 但用了 CpuOnly op 会报错）。两后端共享同一语义锚：所有用户算术是 f64（JS Number），`uv` 语义一致，child 采样空间一致。
 
+从手写 SKSL 迁移时注意域差异：SKSL `main` 返回**预乘**色，而 lambda 返回 **straight** 色（codegen 自动预乘）。若原 SKSL 直接返回采样色（预乘域），在 lambda 中把 rgb 除回 alpha 再返回即可（确保 alpha 有下界，避免除零）。
+
 ### 白名单（允许）
 
 - 数值/布尔字面量、2-4 元数组字面量（构造向量）
@@ -475,7 +477,10 @@ paint.setShader(effect.makeShaderWithChildren({ t: ctx.currentTime }, [fieldShad
 canvas.drawRect(CK.XYWHRect(x, y, w, h), paint);
 ```
 
-参考实现：`examples/k3-promo.xml` 场景 H（scramble dissolve 全量迁移到 lambda）。
+参考实现（两个后端各一）：
+
+- SKSL 后端 + subtree picture child：`examples/xxx.xml`（slide-2 折射玻璃，自手写 SKSL 迁移，与原实现逐位一致）。
+- 纯 CPU 后端 + generated child：`examples/k3-promo.xml` 场景 H（scramble dissolve 全量迁移到 lambda）。
 
 ---
 

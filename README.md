@@ -132,47 +132,39 @@ Pure WASM + CanvasKit, no server required.
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-A `<canvas>` node's subtree content can be live-textured and fed into a custom SkSL shader:
+A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source and auto-lowers it to SKSL or dispatches to a CPU renderer):
 
 ```js
 var CK = ctx.CanvasKit;
 var c = ctx.getCanvasById('s1-canvas');
-var subtree = c.getSubTree();
-var subtreeShader = subtree.makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+var subtreeShader = c.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
 
-var sksl = [
-  'uniform shader image;',
-  'uniform float  progress;',
-  'uniform float  amplitude;',
-  'uniform float  frequency;',
-  'uniform float  speed;',
-  'uniform float  decay;',
-  'uniform float  split;',
-  'half4 main(float2 xy) {',
-  '  float2 uv = xy;',
-  '  float dist = distance(uv, center);',
-  '  float ripple = sin(dist * frequency - progress * speed);',
-  '  float falloff = exp(-dist * decay);',
-  '  float disp = ripple * amplitude * falloff;',
-  '  float2 dir = normalize(uv - center);',
-  '  float2 tangent = float2(-dir.y, dir.x);',
-  '  half4 r = image.eval(uv + dir * disp + tangent * split);',
-  '  half4 g = image.eval(uv + dir * disp);',
-  '  half4 b = image.eval(uv + dir * disp - tangent * split);',
-  '  return half4(r.r, g.g, b.b, max(max(r.a, g.a), b.a));',
-  '}',
-].join('\n');
+var ripple = CK.Effect.fromLambda(
+  (uv, image, u) => {
+    const d = uv - [180.0, 240.0];
+    const dist = length(d);
+    const dir = dist < 1.0 ? [0.0, 0.0] : d / dist;
+    const tang = [-dir.y, dir.x];
+    const wave = sin(dist * u.frequency - u.progress * u.speed);
+    const base = uv + dir * (wave * u.amplitude * exp(-dist * u.decay));
+    const r = image.eval(base + tang * u.split);
+    const g = image.eval(base);
+    const b = image.eval(base - tang * u.split);
+    const a = max(max(r.a, g.a), b.a);
+    return [r.r, g.g, b.b, a];
+  },
+  { uniforms: [['progress','float'],['amplitude','float'],['frequency','float'],
+               ['speed','float'],['decay','float'],['split','float']] }
+);
 
-var effect = CK.RuntimeEffect.Make(sksl);
-if (effect) {
-  var shader = effect.makeShaderWithChildren([progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
-  var paint = new CK.Paint();
-  paint.setShader(shader);
-  c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
-}
+var shader = ripple.makeShaderWithChildren(
+  [progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
+var paint = new CK.Paint();
+paint.setShader(shader);
+c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ```
 
-Any HTML subtree — layout, images, text, video → texture → shader → output.
+Any HTML subtree — layout, images, text, video → texture → shader → output. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work.
 
 ### More
 

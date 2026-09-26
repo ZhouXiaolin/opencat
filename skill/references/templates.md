@@ -230,6 +230,8 @@
 
 把 XML 子树作为画面纹理，经过 SKSL shader 处理后画回 canvas。用于扭曲、玻璃、portal 等 hero 效果。
 
+逐像素处理优先用效果 lambda（`CK.Effect.fromLambda`，见 [canvaskit.md](canvaskit.md) 的 "Effect.fromLambda"）：lambda 编译后自动走同一条 RuntimeEffect 管线，无需手写 SKSL。完整示例见 `examples/xxx.xml`（折射玻璃）。
+
 ```xml
 <opencat width="1280" height="720" fps="30" duration="4">
 
@@ -249,22 +251,18 @@
     var canvas = ctx.getCanvasById('surface');
     var child = canvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
 
-    var sksl = [
-      'uniform shader image;',
-      'uniform float t;',
-      'half4 main(float2 xy) {',
-      '  float2 uv = xy + float2(sin(xy.y * 0.04 + t * 4.0) * 6.0, 0);',
-      '  return image.eval(uv);',
-      '}',
-    ].join('\n');
+    var wave = CK.Effect.fromLambda(
+      (uv, image, u) => {
+        const src = uv + [sin(uv.y * 0.04 + u.t * 4.0) * 6.0, 0.0];
+        return image.eval(src);
+      },
+      { uniforms: [['t', 'float']] }
+    );
 
-    var effect = CK.RuntimeEffect.Make(sksl);
-    if (effect) {
-      var shader = effect.makeShaderWithChildren([ctx.currentTime], [child]);
-      var paint = new CK.Paint();
-      paint.setShader(shader);
-      canvas.drawRect(CK.XYWHRect(0, 0, 640, 720), paint);
-    }
+    var shader = wave.makeShaderWithChildren([ctx.currentTime], [child]);
+    var paint = new CK.Paint();
+    paint.setShader(shader);
+    canvas.drawRect(CK.XYWHRect(0, 0, 640, 720), paint);
   </script>
 </opencat>
 ```

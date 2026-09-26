@@ -134,47 +134,39 @@ await exportMp4({ /* ... */ });
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-`<canvas>` 节点的子树内容可实时纹理化，传入自定义 SkSL 着色器做后处理：
+`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染）：
 
 ```js
 var CK = ctx.CanvasKit;
 var c = ctx.getCanvasById('s1-canvas');
-var subtree = c.getSubTree();
-var subtreeShader = subtree.makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+var subtreeShader = c.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
 
-var sksl = [
-  'uniform shader image;',
-  'uniform float  progress;',
-  'uniform float  amplitude;',
-  'uniform float  frequency;',
-  'uniform float  speed;',
-  'uniform float  decay;',
-  'uniform float  split;',
-  'half4 main(float2 xy) {',
-  '  float2 uv = xy;',
-  '  float dist = distance(uv, center);',
-  '  float ripple = sin(dist * frequency - progress * speed);',
-  '  float falloff = exp(-dist * decay);',
-  '  float disp = ripple * amplitude * falloff;',
-  '  float2 dir = normalize(uv - center);',
-  '  float2 tangent = float2(-dir.y, dir.x);',
-  '  half4 r = image.eval(uv + dir * disp + tangent * split);',
-  '  half4 g = image.eval(uv + dir * disp);',
-  '  half4 b = image.eval(uv + dir * disp - tangent * split);',
-  '  return half4(r.r, g.g, b.b, max(max(r.a, g.a), b.a));',
-  '}',
-].join('\n');
+var ripple = CK.Effect.fromLambda(
+  (uv, image, u) => {
+    const d = uv - [180.0, 240.0];
+    const dist = length(d);
+    const dir = dist < 1.0 ? [0.0, 0.0] : d / dist;
+    const tang = [-dir.y, dir.x];
+    const wave = sin(dist * u.frequency - u.progress * u.speed);
+    const base = uv + dir * (wave * u.amplitude * exp(-dist * u.decay));
+    const r = image.eval(base + tang * u.split);
+    const g = image.eval(base);
+    const b = image.eval(base - tang * u.split);
+    const a = max(max(r.a, g.a), b.a);
+    return [r.r, g.g, b.b, a];
+  },
+  { uniforms: [['progress','float'],['amplitude','float'],['frequency','float'],
+               ['speed','float'],['decay','float'],['split','float']] }
+);
 
-var effect = CK.RuntimeEffect.Make(sksl);
-if (effect) {
-  var shader = effect.makeShaderWithChildren([progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
-  var paint = new CK.Paint();
-  paint.setShader(shader);
-  c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
-}
+var shader = ripple.makeShaderWithChildren(
+  [progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
+var paint = new CK.Paint();
+paint.setShader(shader);
+c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ```
 
-画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。
+画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。
 
 ### 更多能力
 

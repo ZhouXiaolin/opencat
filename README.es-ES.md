@@ -133,47 +133,39 @@ WASM y CanvasKit puros, sin servidor necesario.
 
 ### HTML en Canvas — Muestreo de Textura de Subárbol
 
-El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un shader SkSL personalizado:
+El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código y lo convierte automáticamente a SKSL o lo despacha a un renderizador de CPU):
 
 ```js
 var CK = ctx.CanvasKit;
 var c = ctx.getCanvasById('s1-canvas');
-var subtree = c.getSubTree();
-var subtreeShader = subtree.makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+var subtreeShader = c.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
 
-var sksl = [
-  'uniform shader image;',
-  'uniform float  progress;',
-  'uniform float  amplitude;',
-  'uniform float  frequency;',
-  'uniform float  speed;',
-  'uniform float  decay;',
-  'uniform float  split;',
-  'half4 main(float2 xy) {',
-  '  float2 uv = xy;',
-  '  float dist = distance(uv, center);',
-  '  float ripple = sin(dist * frequency - progress * speed);',
-  '  float falloff = exp(-dist * decay);',
-  '  float disp = ripple * amplitude * falloff;',
-  '  float2 dir = normalize(uv - center);',
-  '  float2 tangent = float2(-dir.y, dir.x);',
-  '  half4 r = image.eval(uv + dir * disp + tangent * split);',
-  '  half4 g = image.eval(uv + dir * disp);',
-  '  half4 b = image.eval(uv + dir * disp - tangent * split);',
-  '  return half4(r.r, g.g, b.b, max(max(r.a, g.a), b.a));',
-  '}',
-].join('\n');
+var ripple = CK.Effect.fromLambda(
+  (uv, image, u) => {
+    const d = uv - [180.0, 240.0];
+    const dist = length(d);
+    const dir = dist < 1.0 ? [0.0, 0.0] : d / dist;
+    const tang = [-dir.y, dir.x];
+    const wave = sin(dist * u.frequency - u.progress * u.speed);
+    const base = uv + dir * (wave * u.amplitude * exp(-dist * u.decay));
+    const r = image.eval(base + tang * u.split);
+    const g = image.eval(base);
+    const b = image.eval(base - tang * u.split);
+    const a = max(max(r.a, g.a), b.a);
+    return [r.r, g.g, b.b, a];
+  },
+  { uniforms: [['progress','float'],['amplitude','float'],['frequency','float'],
+               ['speed','float'],['decay','float'],['split','float']] }
+);
 
-var effect = CK.RuntimeEffect.Make(sksl);
-if (effect) {
-  var shader = effect.makeShaderWithChildren([progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
-  var paint = new CK.Paint();
-  paint.setShader(shader);
-  c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
-}
+var shader = ripple.makeShaderWithChildren(
+  [progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
+var paint = new CK.Paint();
+paint.setShader(shader);
+c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ```
 
-Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida.
+Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando.
 
 ### Más
 

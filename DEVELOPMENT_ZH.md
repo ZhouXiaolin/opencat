@@ -142,3 +142,17 @@ cargo build --bin opencat-web-compare --release
 ### Host 视频契约（web）
 
 `open_design` / `openDesign` 之后、调用 `injectVideoFramesForRender` **之前**，host 必须执行 `prepareCatalogVideoSources(catalogJson)`。否则 WebCodecs 收不到源，所有 `ImageRef::VideoFrame` 会画成空白（大视频区域 SSIM 会断崖下跌）。
+
+---
+
+## 效果 Lambda DSL（`script::effects_lambda`）
+
+逐像素效果以**只被编译、从不执行的 JS lambda** 表达：Rust 用 oxc 解析 lambda 源码，逐条白名单校验，按 uniform spec 类型推断，然后原生重建计算。
+
+- **后端自动派发。** 只用 SKSL 可表达 op 的 lambda 降为 SKSL、走 `RuntimeEffect` 管线；使用精确整数语义（`h01`/`imul`/`byte`）的 lambda 派发到 f64 AST 解释器（rayon 按行并行）、走 `GeneratedImage` 路径。spec 可强制后端（`backend: 'cpu' | 'sksl'`）；CpuOnly lambda 强制 `'sksl'` 是编译错误。
+- **像素缓冲永不跨进 JS。** lambda 只见 `uv`/`rect`/`u.<name>` 与 `child.eval(pos)`。
+- JS facade：`CK.Effect.fromLambda(fn, spec)` —— 编写指南、白名单与拒绝项见 `skill/references/canvaskit.md`。
+- 模块地图：`crates/opencat-core/src/script/effects_lambda/{parse,program,stdlib,lower_sksl,interp,mod}.rs`。
+- k3-promo 场景 H（`examples/k3-promo.xml`）是 CPU 后端的参考迁移：溶解 field 用 `surface.buildDissolve` 构建、每帧经 `surface.bakeDissolve(key)` 烘焙（`crates/opencat-core/src/text/dissolve.rs`），以 `{__opencatShader:'generated'}` child 传入 lambda。
+- `examples/xxx.xml` 是 SKSL 后端的参考迁移：slide-2 折射玻璃从手写 SKSL 数组迁到 `REFRACT_LAMBDA` + subtree picture child，全片 360 帧与原实现逐位一致。手写 SKSL 返回预乘色而 lambda 返回 straight 色（codegen 自动预乘），故 lambda 返回前把 rgb 除回 alpha（有下界 ≥0.96）。
+- 测试：`cargo test -p opencat-core effects_lambda`（白名单、派发、解释器 vs h01 锚点、烘焙 roundtrip）与 `cargo test -p opencat-engine lambda`（SKSL raster 端到端、SKSL vs 解释器一致性、generated child 本地空间采样）。

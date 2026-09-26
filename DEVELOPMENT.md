@@ -143,3 +143,16 @@ cargo build --bin opencat-web-compare --release
 ### Host video contract (web)
 
 After `open_design` / `openDesign`, hosts **must** call `prepareCatalogVideoSources(catalogJson)` before `injectVideoFramesForRender`. Otherwise WebCodecs never sees the asset and every `ImageRef::VideoFrame` draws blank (SSIM collapses on large video regions).
+
+---
+
+## Effect Lambda DSL (`script::effects_lambda`)
+
+Per-pixel effects are authored as **JS lambdas that are compiled, never executed**: Rust parses the lambda source with `oxc`, whitelists every construct, type-checks it against the uniform spec, and rebuilds the computation natively.
+
+- **Backend dispatch is automatic.** Lambdas using only SKSL-expressible ops lower to SKSL and ride the `RuntimeEffect` pipeline; lambdas using exact-integer ops (`h01`, `imul`, `byte`) dispatch to the f64 AST interpreter (rayon per-row) and draw through the `GeneratedImage` path. A spec may force a backend (`backend: 'cpu' | 'sksl'`); forcing `'sksl'` on a CpuOnly lambda is a compile error.
+- **Pixel buffers never cross into JS.** The lambda sees `uv`/`rect`/`u.<name>` and `child.eval(pos)` only.
+- JS facade: `CK.Effect.fromLambda(fn, spec)` — see `skill/references/canvaskit.md` for the authoring guide, whitelist and rejections.
+- Module map: `crates/opencat-core/src/script/effects_lambda/{parse,program,stdlib,lower_sksl,interp,mod}.rs`.
+- k3-promo scene H (`examples/k3-promo.xml`) is the reference migration: the dissolve field is built with `surface.buildDissolve`, baked per frame via `surface.bakeDissolve(key)` (`crates/opencat-core/src/text/dissolve.rs`), and sampled by the lambda as a `{__opencatShader:'generated'}` child.
+- Tests: `cargo test -p opencat-core effects_lambda` (whitelist, dispatch, interpreter vs h01 oracle anchors, bake roundtrip) and `cargo test -p opencat-engine lambda` (SKSL raster e2e, SKSL-vs-interpreter consistency, generated-child local-space sampling).

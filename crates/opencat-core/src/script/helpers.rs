@@ -59,6 +59,16 @@ pub enum ScriptChildSpec {
         #[serde(rename = "tileY", default = "default_tile_mode")]
         _tile_y: TileModeName,
     },
+    /// Frame-scoped generated image (e.g. dissolve field bake). Pixels were
+    /// registered for THIS frame via the pending generated-image table.
+    #[serde(rename = "generated")]
+    Generated {
+        key: String,
+        #[serde(rename = "tileX", default = "default_tile_mode")]
+        _tile_x: TileModeName,
+        #[serde(rename = "tileY", default = "default_tile_mode")]
+        _tile_y: TileModeName,
+    },
 }
 
 #[derive(serde::Deserialize, Debug, Clone, Copy)]
@@ -88,6 +98,13 @@ impl ScriptChildSpec {
                 crate::ir::draw_types::ScriptRuntimeEffectChild::PictureSubtree {
                     owner_id: owner_id.clone(),
                 }
+            }
+            ScriptChildSpec::Generated { key, .. } => {
+                crate::ir::draw_types::ScriptRuntimeEffectChild::Image(
+                    crate::ir::draw_types::ImageRef::Generated {
+                        id: crate::ir::GeneratedImageId::from_key(key),
+                    },
+                )
             }
         }
     }

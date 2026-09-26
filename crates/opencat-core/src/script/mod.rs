@@ -16,6 +16,7 @@
 pub mod animate;
 pub mod bindings;
 pub mod dispatch;
+pub mod effects_lambda;
 pub mod helpers;
 pub mod host;
 pub mod js_context;

@@ -260,6 +260,8 @@ OpenCat 使用 XML 格式描述动态图形合成。运行时解析 XML，构建
 
 `<canvas>` 用于程序化视觉：粒子、噪声、数据纹理、路径绘制，以及需要 Skia/RuntimeEffect 的画面层。完整的 CanvasKit 子集、Subtree 和 RuntimeEffect 用法见 [canvaskit.md](canvaskit.md)。
 
+逐像素效果（filter/shader 类）优先用效果 lambda：`CK.Effect.fromLambda(fn, spec)` —— JS lambda 只写 op 与简单数据计算，被 Rust 编译（绝不执行）并自动派发到 SKSL 或纯 CPU 后端，见 [canvaskit.md](canvaskit.md) 的 "Effect.fromLambda" 一节。
+
 `<canvas>` 在 markup 模式下允许子元素（作为 hidden children），但子节点里不能有 `<audio>`。
 
 入口：`ctx.getCanvasById(id)` 获取绘制接口，`ctx.CanvasKit` 访问辅助函数。

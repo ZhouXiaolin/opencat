@@ -154,6 +154,39 @@ impl MutationStore {
         std::mem::take(&mut self.pending_generated_images)
     }
 
+    /// Register a frame-scoped generated image WITHOUT recording a draw op —
+    /// the pixels become available to later draws in the same frame (e.g. a
+    /// lambda-effect child sampling the dissolve field bake). Same idempotency
+    /// contract as [`Self::record_frame_generated_image`]: re-recording the
+    /// same id with different pixels is a downstream hard error.
+    pub fn register_frame_generated_image(
+        &mut self,
+        id: crate::ir::GeneratedImageId,
+        width: u32,
+        height: u32,
+        rgba: std::sync::Arc<[u8]>,
+    ) {
+        self.pending_generated_images
+            .push(crate::ir::FrameGeneratedImage {
+                id,
+                width,
+                height,
+                rgba,
+            });
+    }
+
+    /// Latest registered pixels for a generated image id (this frame).
+    pub fn pending_generated_image(
+        &self,
+        id: &crate::ir::GeneratedImageId,
+    ) -> Option<(u32, u32, &std::sync::Arc<[u8]>)> {
+        self.pending_generated_images
+            .iter()
+            .rev()
+            .find(|img| &img.id == id)
+            .map(|img| (img.width, img.height, &img.rgba))
+    }
+
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
         self.styles.entry(id.to_string()).or_default()
     }

@@ -256,10 +256,10 @@ impl JsContext for RqJsContext {
             // ── Binary fast paths (typed arrays bypass the JSON dispatcher) ──
             // The generic dispatcher marshals every arg through
             // `serde_json::Value`, which is unworkable for pixel-sized
-            // payloads (k3 dissolve: 1.3 MB / frame). These two natives give
-            // the script offscreen-surface capability (`opencat_core::text::
-            // surface`) direct ArrayBuffer / Uint8Array access. Web hosts do
-            // not register them; runtime JS guards on `typeof`.
+            // payloads (full-frame rasters: >1 MB each). These two natives
+            // give the script offscreen-surface capability (`opencat_core::
+            // text::surface`) direct ArrayBuffer / Uint8Array access. Web
+            // hosts do not register them; runtime JS guards on `typeof`.
             let pixel_store = self.store.clone();
             let put = Function::new(
                 ctx.clone(),

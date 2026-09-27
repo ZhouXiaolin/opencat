@@ -465,9 +465,10 @@ The `EncodedDrawFrame` format bridges Rust (WASM) and JS/CanvasKit. Instead of J
 逐像素效果统一以 JS lambda 表达（`CK.Effect.fromLambda(fn, spec)`）。lambda **只被编译、从不被执行**：JS 侧仅保留 `fn.toString()` 源码；Rust 用 oxc 解析 → 白名单校验（拒绝循环/嵌套函数/位运算等，报错带行列与源码摘录）→ 类型推断 → 自有 IR（`program.rs`），再自动派发后端：
 
 - **SKSL**（`lower_sksl.rs`）：纯浮点 lambda → codegen SKSL → `EffectRef` → `RuntimeEffect`（CPU raster 管线；web CanvasKit 解码零改动）。镜像"手写 SKSL 字符串"世界（`examples/xxx.xml` 的折射玻璃即由此形态迁来，全片与手写实现逐位一致）。向量 uniform 拆成标量分量声明以规避 Skia 对齐规则；`u_oc_rect`（dst）隐式追加；return straight 色自动 premul（手写 SKSL 迁移时需在 lambda 中除回 alpha）。
-- **CPU**（`interp.rs`）：含精确整数语义（`h01`/`imul`/`u32`/`i32`，stdlib 能力标记 `CpuOnly`）→ f64 AST 解释器逐像素（rayon 按行并行）→ 生成图像 `DrawOp::Image { Generated }`。镜像"Rust 手写逐像素循环"世界（k3 溶解即此形态），f64 语义与参考 JS 逐位对齐。
+- **CPU**（`interp.rs`）：含精确整数语义（`h01`/`imul`/`u32`/`i32`，stdlib 能力标记 `CpuOnly`）→ f64 AST 解释器逐像素（rayon 按行并行）→ 生成图像 `DrawOp::Image { Generated }`。镜像"Rust 手写逐像素循环"世界，f64 语义与参考 JS 逐位对齐。
+- **CPU 顺序扫描**（`interp.rs::render_scan`）：scan 类 lambda（`spec.kind: 'scan'`，首参 `get(dx,dy)` 读 in-progress 缓冲）**就地**单线程遍历，遍历顺序由 executor 拥有（forward/backward）；无 SKSL 形态。
 
-派发由 op 能力标记自动决定，spec.backend 可强制。像素循环永不落在 JS，像素缓冲永不跨 JS 桥；溶解 field 等"构建一次、逐帧采样"数据由引擎烘焙为帧级生成图像，以 generated child 传入 lambda（`surface.bakeDissolve`）。同一 lambda 源码整段渲染期只解析一次（thread_local 编译缓存）；SKSL 类效果在 engine 侧按 hash 复用编译好的 `RuntimeEffect`。
+派发由 op 能力标记自动决定，spec.backend 可强制。像素循环永不落在 JS，像素缓冲永不跨 JS 桥；Rust 侧只有**通用执行器**、不固化任何效果算法——offscreen surface 即脚本侧 render target：`surface.runEffect`（pixel 类重绘）/ `surface.scanPass`（scan 类就地扫描）/ `surface.bake`（注册帧级生成图像）；lambda 以 `{__opencatShader:'surface', id}` child 直采其它 surface（session 级，不上 wire），SKSL 绘制路径遇 surface child 报错引导先 bake。同一 lambda 源码整段渲染期只解析一次（thread_local 编译缓存）；SKSL 类效果在 engine 侧按 hash 复用编译好的 `RuntimeEffect`。
 
 ---
 

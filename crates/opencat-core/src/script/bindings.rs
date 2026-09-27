@@ -426,7 +426,7 @@ macro_rules! for_each_binding {
         $binding! { node $rec $id canvas_runtime_effect_draw ($id: &str, sksl: String, uniforms: Vec<f32>, children_json: String, dst_x: f32, dst_y: f32, dst_w: f32, dst_h: f32) {
             let specs = $crate::script::helpers::parse_script_children(&children_json)?;
             let child_refs: Vec<$crate::ir::draw_types::ScriptRuntimeEffectChild> =
-                specs.iter().map(|c| c.to_script_child()).collect();
+                specs.iter().map(|c| c.to_script_child()).collect::<Result<_, _>>()?;
             let uniforms_bytes: Vec<u8> = uniforms
                 .iter()
                 .flat_map(|v| v.to_ne_bytes())
@@ -450,18 +450,23 @@ macro_rules! for_each_binding {
         // Rust 编译 lambda 源码并自主派发后端：
         //   Sksl → 生成 SKSL 走 record_canvas_runtime_effect（手写 SKSL 同路，
         //          web CanvasKit 解码零改动；u_oc_rect 追加在 uniforms 末尾）；
-        //   Cpu  → 解释器 rayon 逐像素 → record_frame_generated_image（现
-        //          dissolve 的执行模式泛化）。
+        //   Cpu  → 解释器 rayon 逐像素 → record_frame_generated_image（或
+        //          直接采样核心内 render target surface）。
         $binding! { cmd $store canvas_lambda_effect_draw (node_id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, children_json: String, dst_x: f32, dst_y: f32, dst_w: f32, dst_h: f32) -> bool {
             let spec_value: serde_json::Value = serde_json::from_str(&spec_json)
                 .map_err(|e| anyhow::anyhow!("lambda spec decode: {e}"))?;
             let spec = $crate::script::effects_lambda::EffectSpec::from_json(&spec_value)?;
             let compiled = $crate::script::effects_lambda::compile_effect(&lambda, &spec)?;
             let children = $crate::script::helpers::parse_script_children(&children_json)?;
-            let child_refs: Vec<$crate::ir::draw_types::ScriptRuntimeEffectChild> =
-                children.iter().map(|c| c.to_script_child()).collect();
             match compiled.backend {
                 $crate::script::effects_lambda::Backend::Sksl => {
+                    // 仅 SKSL/wire 侧需要 child 引用（surface 不能上 wire，
+                    // 在此报错引导先 bake；CPU 后端直接采样核心内像素）
+                    let child_refs: Vec<$crate::ir::draw_types::ScriptRuntimeEffectChild> =
+                        children
+                            .iter()
+                            .map(|c| c.to_script_child())
+                            .collect::<Result<_, _>>()?;
                     let sksl = compiled.sksl.clone().ok_or_else(|| {
                         anyhow::anyhow!("lambda compiled to sksl backend but sksl is missing")
                     })?;
@@ -490,60 +495,21 @@ macro_rules! for_each_binding {
                     use $crate::script::effects_lambda::interp::{ChildImage, InterpCtx};
                     // uniform f32 平铺 → Val（按 spec 声明序消费）
                     let program = &compiled.program;
-                    let mut cursor = 0usize;
-                    let mut uniform_vals: Vec<$crate::script::effects_lambda::program::Val>
-                        = Vec::with_capacity(program.uniforms.len());
-                    for u in &program.uniforms {
-                        let n = u.ty.vec_len().unwrap_or(1);
-                        if cursor + n > uniforms.len() {
-                            return Err(anyhow::anyhow!(
-                                "lambda uniforms: need {} f32s, got {}",
-                                program.uniform_f32_len(),
-                                uniforms.len()
-                            ));
-                        }
-                        let take = |i: usize| uniforms[cursor + i] as f64;
-                        let val = match n {
-                            1 => $crate::script::effects_lambda::program::Val::F(take(0)),
-                            2 => $crate::script::effects_lambda::program::Val::V2([
-                                take(0), take(1),
-                            ]),
-                            3 => $crate::script::effects_lambda::program::Val::V3([
-                                take(0), take(1), take(2),
-                            ]),
-                            _ => $crate::script::effects_lambda::program::Val::V4([
-                                take(0), take(1), take(2), take(3),
-                            ]),
-                        };
-                        cursor += n;
-                        uniform_vals.push(val);
-                    }
-                    // generated child → 本帧已注册的像素（溶解 field 烘焙）
-                    let mut child_images: Vec<ChildImage> = Vec::new();
-                    for c in &children {
-                        let $crate::script::helpers::ScriptChildSpec::Generated { key, .. } = c else {
-                            return Err(anyhow::anyhow!(
-                                "lambda CPU backend: 仅支持 generated child（溶解 field 烘焙），当前 child 类型不受支持"
-                            ));
-                        };
-                        let gid = $crate::ir::GeneratedImageId::from_key(key);
-                        let Some((w, h, rgba)) = $store.pending_generated_image(&gid) else {
-                            return Err(anyhow::anyhow!(
-                                "lambda CPU backend: generated child `{key}` 本帧未注册（需先烘焙）"
-                            ));
-                        };
-                        child_images.push(ChildImage {
-                            width: w,
-                            height: h,
-                            rgba: rgba.clone(),
-                        });
-                    }
+                    let uniform_vals = $crate::script::helpers::uniform_f32s_to_vals(
+                        &program.uniforms,
+                        &uniforms,
+                    )?;
+                    // generated → 本帧已注册像素；surface → 核心内 session 级
+                    // render target（溶解 field 等构建一次的数据）
+                    let child_images: Vec<ChildImage> =
+                        $crate::script::helpers::cpu_child_images($store, &children)?;
                     let w = dst_w.max(1.0).round() as u32;
                     let h = dst_h.max(1.0).round() as u32;
                     let ctx = InterpCtx {
                         uniforms: &uniform_vals,
                         rect: [dst_x as f64, dst_y as f64, dst_w as f64, dst_h as f64],
                         children: &child_images,
+                        scan: None,
                     };
                     let rgba: std::sync::Arc<[u8]> = std::sync::Arc::from(
                         $crate::script::effects_lambda::interp::render(program, w, h, &ctx),
@@ -680,8 +646,8 @@ macro_rules! for_each_binding {
         $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}
-        // ── Pure: offscreen pixel surface (canvas 2D subset, real-font text;
-        //    used by the k3 dissolve port — see text::surface) ───────────────
+        // ── Pure: offscreen pixel surface — session 级 render target
+        //    （canvas 2D 子集 + runEffect/scanPass/bake，见 text::surface）
         $binding! { pure surface_create (id: String, width: f64, height: f64) -> bool {
             Ok($crate::text::surface::surface_create(&id, width as u32, height as u32).is_ok())
         }}
@@ -698,26 +664,101 @@ macro_rules! for_each_binding {
                 [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0],
             ).is_ok())
         }}
-        // ── Dissolve effect op (k3 scene-H scramble; §16 architecture: the
-        //    per-pixel algorithm runs HERE in Rust — pixels never cross the
-        //    JS bridge; JS only makes thin marker calls) ────────────────────
-        // Build once per surface: mask threshold + 3-4 chamfer distance field
-        // over the rasterized card lockup (see text::dissolve).
-        $binding! { pure surface_build_dissolve (id: String, x: f64, y: f64, w: f64, h: f64) -> bool {
-            Ok($crate::text::dissolve::dissolve_build(&id, x, y, w, h).is_ok())
-        }}
-        // 把已构建的 mask/dist field 烘焙为帧级生成图像（R=mask、G/B=dist
-        // 低/高字节），只注册像素不录 draw op —— lambda 效果的 CPU 后端以
-        // generated child 采样它。每帧调用（pending 表逐帧清空）。
-        $binding! { cmd $store surface_bake_dissolve (id: String, key: String) -> bool {
-            let Some(field) = $crate::text::dissolve::dissolve_field(&id) else {
-                return Ok(false);
+        // ── Render target ops（通用机制：JS 拥有算法，Rust 只有执行器）────
+        // runEffect：pixel 类 lambda 逐像素渲染进目标 surface（f64 解释器，
+        // rayon 按行并行）。children 可采样 generated（本帧烘焙）或其它
+        // surface（session 级 render target）。像素缓冲永不跨进 JS。
+        $binding! { cmd $store surface_apply_effect (id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, children_json: String) -> bool {
+            let spec_value: serde_json::Value = serde_json::from_str(&spec_json)
+                .map_err(|e| anyhow::anyhow!("lambda spec decode: {e}"))?;
+            let mut spec = $crate::script::effects_lambda::EffectSpec::from_json(&spec_value)?;
+            // 本 binding 只做逐像素渲染：未声明 kind 时按 pixel 处理
+            if spec_value.get("kind").is_none() {
+                spec.kind = $crate::script::effects_lambda::program::ScanKind::Pixel;
+            }
+            if spec.kind == $crate::script::effects_lambda::program::ScanKind::Scan {
+                return Err(anyhow::anyhow!(
+                    "surface.runEffect 需要 pixel 类 lambda（顺序扫描请用 surface.scanPass）"
+                ));
+            }
+            // 目标运算恒走 f64 解释器（参考语义；SKSL 是绘制期后端，不落目标）
+            spec.backend_override = Some($crate::script::effects_lambda::Backend::Cpu);
+            let compiled = $crate::script::effects_lambda::compile_effect(&lambda, &spec)?;
+            let children = $crate::script::helpers::parse_script_children(&children_json)?;
+            let child_images = $crate::script::helpers::cpu_child_images($store, &children)?;
+            let (w, h) = $crate::text::surface::surface_dimensions(&id)?;
+            let uniform_vals = $crate::script::helpers::uniform_f32s_to_vals(
+                &compiled.program.uniforms,
+                &uniforms,
+            )?;
+            let ctx = $crate::script::effects_lambda::interp::InterpCtx {
+                uniforms: &uniform_vals,
+                rect: [0.0, 0.0, w as f64, h as f64],
+                children: &child_images,
+                scan: None,
             };
+            let rgba = $crate::script::effects_lambda::interp::render(
+                &compiled.program,
+                w,
+                h,
+                &ctx,
+            );
+            $crate::text::surface::surface_write_rgba(&id, w, h, rgba)?;
+            Ok(true)
+        }}
+        // scanPass：scan 类 lambda（首参 get）对本 surface **就地**一遍顺序
+        // 扫描。遍历顺序由 executor 拥有（forward/backward），JS 源码无循环；
+        // get(dx, dy) 读 in-progress 缓冲（clamp-to-edge）。单线程。
+        $binding! { cmd $store surface_scan_pass (id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, direction: String) -> bool {
+            let spec_value: serde_json::Value = serde_json::from_str(&spec_json)
+                .map_err(|e| anyhow::anyhow!("lambda spec decode: {e}"))?;
+            let mut spec = $crate::script::effects_lambda::EffectSpec::from_json(&spec_value)?;
+            // 本 binding 只做顺序扫描：未声明 kind 时按 scan 处理
+            if spec_value.get("kind").is_none() {
+                spec.kind = $crate::script::effects_lambda::program::ScanKind::Scan;
+            }
+            if spec.kind != $crate::script::effects_lambda::program::ScanKind::Scan {
+                return Err(anyhow::anyhow!(
+                    "surface.scanPass 需要 scan 类 lambda（spec.kind: 'scan'；逐像素请用 surface.runEffect）"
+                ));
+            }
+            spec.backend_override = Some($crate::script::effects_lambda::Backend::Cpu);
+            let compiled = $crate::script::effects_lambda::compile_effect(&lambda, &spec)?;
+            let Some(direction) = $crate::script::effects_lambda::interp::ScanDirection::from_name(&direction)
+            else {
+                return Err(anyhow::anyhow!(
+                    "surface.scanPass: direction 仅支持 'forward' / 'backward'"
+                ));
+            };
+            let uniform_vals = $crate::script::helpers::uniform_f32s_to_vals(
+                &compiled.program.uniforms,
+                &uniforms,
+            )?;
+            $crate::text::surface::surface_with_rgba_mut(&id, |w, h, buf| {
+                $crate::script::effects_lambda::interp::render_scan(
+                    &compiled.program,
+                    w,
+                    h,
+                    &uniform_vals,
+                    direction,
+                    buf,
+                );
+                Ok(())
+            })?;
+            Ok(true)
+        }}
+        // bake：把 surface 当前像素注册为帧级生成图像（只注册像素不录 draw
+        // op），返回后 JS 以 {__opencatShader:'generated', key} 采样。供
+        // SKSL/绘制路径消费（CPU lambda 可直接用 surface child 免烘焙）。
+        // 幂等契约同 putImageData：同 key 异像素 = hard error。
+        $binding! { cmd $store surface_bake (id: String, key: String) -> bool {
+            let (w, h) = $crate::text::surface::surface_dimensions(&id)?;
+            let rgba = $crate::text::surface::surface_rgba_arc(&id)?;
             $store.register_frame_generated_image(
                 $crate::ir::GeneratedImageId::from_key(&key),
-                field.w,
-                field.h,
-                $crate::text::dissolve::bake_rgba(&field),
+                w,
+                h,
+                rgba,
             );
             Ok(true)
         }}

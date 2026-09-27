@@ -144,6 +144,10 @@ fn emit_expr(program: &Program, expr: &Expr) -> LambdaResult<String> {
             "child `{}` 不能作为值使用（只能 .eval(pos)）",
             program.children[*idx]
         ))),
+        // 编译期已拒绝 scan 类强制 SKSL（compile_uncached），这里仅穷尽匹配
+        Expr::ScanGet { .. } => Err(LambdaError::msg(
+            "scan 类 lambda 没有 SKSL 形态（顺序扫描仅 CPU 解释器）",
+        )),
         Expr::Bin(op, l, r, _) => {
             let (ls, rs) = (emit_expr(program, l)?, emit_expr(program, r)?);
             Ok(match op {

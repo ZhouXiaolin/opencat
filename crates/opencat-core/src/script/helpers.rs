@@ -59,11 +59,23 @@ pub enum ScriptChildSpec {
         #[serde(rename = "tileY", default = "default_tile_mode")]
         _tile_y: TileModeName,
     },
-    /// Frame-scoped generated image (e.g. dissolve field bake). Pixels were
-    /// registered for THIS frame via the pending generated-image table.
+    /// Frame-scoped generated image (script `surface.bake` / putImageData
+    /// path). Pixels were registered for THIS frame via the pending
+    /// generated-image table.
     #[serde(rename = "generated")]
     Generated {
         key: String,
+        #[serde(rename = "tileX", default = "default_tile_mode")]
+        _tile_x: TileModeName,
+        #[serde(rename = "tileY", default = "default_tile_mode")]
+        _tile_y: TileModeName,
+    },
+    /// Session-scoped offscreen surface (render target). CPU-side lambda
+    /// backends sample its pixels directly; SKSL-path children must bake to a
+    /// generated image first (surfaces live in core, not on the wire).
+    #[serde(rename = "surface")]
+    Surface {
+        id: String,
         #[serde(rename = "tileX", default = "default_tile_mode")]
         _tile_x: TileModeName,
         #[serde(rename = "tileY", default = "default_tile_mode")]
@@ -85,8 +97,10 @@ fn default_tile_mode() -> TileModeName {
 }
 
 impl ScriptChildSpec {
-    pub fn to_script_child(&self) -> crate::ir::draw_types::ScriptRuntimeEffectChild {
-        match self {
+    /// SKSL / wire 侧的 child 形态。`Surface` 不能跨线（surfaces 是核心
+    /// 进程内的 session 缓冲）——需要先 `surface.bake(key)` 成 generated。
+    pub fn to_script_child(&self) -> anyhow::Result<crate::ir::draw_types::ScriptRuntimeEffectChild> {
+        let child = match self {
             ScriptChildSpec::Image { asset_id, .. } => {
                 crate::ir::draw_types::ScriptRuntimeEffectChild::Image(
                     crate::ir::draw_types::ImageRef::Static {
@@ -106,12 +120,85 @@ impl ScriptChildSpec {
                     },
                 )
             }
-        }
+            ScriptChildSpec::Surface { id, .. } => {
+                return Err(anyhow::anyhow!(
+                    "surface child `{id}` 不能用于 SKSL/绘制路径：请先 surface.bake(key) 烘为 generated child（CPU lambda 可直接采样 surface）"
+                ));
+            }
+        };
+        Ok(child)
     }
 }
 
 pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow::Error> {
     serde_json::from_str(json).map_err(|e| anyhow::anyhow!("children_json decode: {e}"))
+}
+
+/// f32 平铺 uniforms → `Val`（按 spec 声明序消费；CPU 解释器入口共用）。
+pub fn uniform_f32s_to_vals(
+    uniforms_spec: &[crate::script::effects_lambda::program::UniformSpec],
+    uniforms: &[f32],
+) -> anyhow::Result<Vec<crate::script::effects_lambda::program::Val>> {
+    use crate::script::effects_lambda::program::Val;
+    let mut cursor = 0usize;
+    let mut out = Vec::with_capacity(uniforms_spec.len());
+    for u in uniforms_spec {
+        let n = u.ty.vec_len().unwrap_or(1);
+        if cursor + n > uniforms.len() {
+            anyhow::bail!(
+                "lambda uniforms: need {} f32s, got {}",
+                uniforms_spec
+                    .iter()
+                    .map(|u| u.ty.vec_len().unwrap_or(1))
+                    .sum::<usize>(),
+                uniforms.len()
+            );
+        }
+        let take = |i: usize| uniforms[cursor + i] as f64;
+        let val = match n {
+            1 => Val::F(take(0)),
+            2 => Val::V2([take(0), take(1)]),
+            3 => Val::V3([take(0), take(1), take(2)]),
+            _ => Val::V4([take(0), take(1), take(2), take(3)]),
+        };
+        cursor += n;
+        out.push(val);
+    }
+    Ok(out)
+}
+
+/// CPU 后端的 child 像素解析：`generated` → 本帧 pending 表（先烘焙），
+/// `surface` → 核心内 session 级 surface（render target 直接采样）。
+pub fn cpu_child_images(
+    store: &crate::script::recorder::MutationStore,
+    children: &[ScriptChildSpec],
+) -> anyhow::Result<Vec<crate::script::effects_lambda::interp::ChildImage>> {
+    use crate::script::effects_lambda::interp::ChildImage;
+    let mut out = Vec::new();
+    for c in children {
+        match c {
+            ScriptChildSpec::Generated { key, .. } => {
+                let gid = crate::ir::GeneratedImageId::from_key(key);
+                let Some((w, h, rgba)) = store.pending_generated_image(&gid) else {
+                    anyhow::bail!(
+                        "lambda CPU backend: generated child `{key}` 本帧未注册（需先烘焙）"
+                    );
+                };
+                out.push(ChildImage { width: w, height: h, rgba: rgba.clone() });
+            }
+            ScriptChildSpec::Surface { id, .. } => {
+                let (w, h) = crate::text::surface::surface_dimensions(id)?;
+                let rgba = crate::text::surface::surface_rgba_arc(id)?;
+                out.push(ChildImage { width: w, height: h, rgba });
+            }
+            _ => {
+                anyhow::bail!(
+                    "lambda CPU backend: 仅支持 generated / surface child，当前 child 类型不受支持"
+                );
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

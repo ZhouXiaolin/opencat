@@ -24,20 +24,25 @@ impl ChildImage {
     /// 最近邻 + clamp-to-edge 采样，返回 0..1 straight 色。
     /// SKSL 侧 image child 同为 clamp tile；坐标为像素空间（像素 `i` 中心=i）。
     pub fn sample(&self, px: f64, py: f64) -> [f64; 4] {
-        let clamp_i = |v: f64, max: i64| -> usize {
-            let i = v.floor() as i64;
-            i.clamp(0, max) as usize
-        };
-        let ix = clamp_i(px, self.width as i64 - 1);
-        let iy = clamp_i(py, self.height as i64 - 1);
-        let o = (iy * self.width as usize + ix) * 4;
-        [
-            self.rgba[o] as f64 / 255.0,
-            self.rgba[o + 1] as f64 / 255.0,
-            self.rgba[o + 2] as f64 / 255.0,
-            self.rgba[o + 3] as f64 / 255.0,
-        ]
+        sample_rgba(&self.rgba, self.width, self.height, px, py)
     }
+}
+
+/// 最近邻 + clamp-to-edge 的 RGBA8 采样（行主序 straight 色，像素 `i` 中心=i）。
+fn sample_rgba(buf: &[u8], width: u32, height: u32, px: f64, py: f64) -> [f64; 4] {
+    let clamp_i = |v: f64, max: i64| -> usize {
+        let i = v.floor() as i64;
+        i.clamp(0, max) as usize
+    };
+    let ix = clamp_i(px, width as i64 - 1);
+    let iy = clamp_i(py, height as i64 - 1);
+    let o = (iy * width as usize + ix) * 4;
+    [
+        buf[o] as f64 / 255.0,
+        buf[o + 1] as f64 / 255.0,
+        buf[o + 2] as f64 / 255.0,
+        buf[o + 3] as f64 / 255.0,
+    ]
 }
 
 /// 一次逐像素求值的常量上下文。
@@ -47,6 +52,37 @@ pub struct InterpCtx<'a> {
     /// drawRect dst 的 [x, y, w, h]。
     pub rect: [f64; 4],
     pub children: &'a [ChildImage],
+    /// 仅 scan 类：`get(dx, dy)` 读取的 in-progress 缓冲与当前像素坐标。
+    pub scan: Option<ScanView<'a>>,
+}
+
+/// scan pass 的采样视图：目标缓冲（being written）+ 当前像素。
+#[derive(Clone, Copy)]
+pub struct ScanView<'a> {
+    pub buf: &'a [u8],
+    pub width: u32,
+    pub height: u32,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// scan 遍历方向。executor 拥有顺序（JS 源码里没有循环）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanDirection {
+    /// 逐行自上而下、行内自左向右。
+    Forward,
+    /// 逐行自下而上、行内自右向左。
+    Backward,
+}
+
+impl ScanDirection {
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "forward" => Some(Self::Forward),
+            "backward" => Some(Self::Backward),
+            _ => None,
+        }
+    }
 }
 
 /// 渲染一帧 w×h 的 lambda 输出（straight RGBA8）。rayon 按行并行。
@@ -60,12 +96,93 @@ pub fn render(program: &Program, width: u32, height: u32, ctx: &InterpCtx) -> Ve
         let py = y as f64 + 0.5;
         for (x, px_chunk) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let px = x as f64 + 0.5;
-            let [r, g, b, a] = eval_pixel(program, px, py, ctx);
+            let rgba = eval_pixel(program, px, py, ctx);
             let q = |v: f64| -> u8 { (v.clamp(0.0, 1.0) * 255.0).round() as u8 };
-            *px_chunk = [q(r), q(g), q(b), q(a)];
+            *px_chunk = [q(rgba[0]), q(rgba[1]), q(rgba[2]), q(rgba[3])];
         }
     });
     out
+}
+
+/// scan pass：对 `buf`（w×h×4，straight RGBA8）**就地**做一遍顺序扫描。
+/// 第 (x, y) 像素的返回值量化后立即写回，后续像素的 `get` 读到的即已更新
+/// 的缓冲——顺序语义由本函数拥有（Forward/Backward），JS 只提供逐像素
+/// 更新函数。单线程：扫描的邻居依赖无法按行并行（构建一次的数据，代价可接受）。
+pub fn render_scan(
+    program: &Program,
+    width: u32,
+    height: u32,
+    uniforms: &[Val],
+    direction: ScanDirection,
+    buf: &mut [u8],
+) {
+    debug_assert_eq!(program.backend(), Backend::Cpu);
+    debug_assert_eq!(buf.len(), width as usize * height as usize * 4);
+    let w = width as usize;
+    let h = height as usize;
+    let q = |v: f64| -> u8 { (v.clamp(0.0, 1.0) * 255.0).round() as u8 };
+    let write_px = |buf: &mut [u8], x: usize, y: usize, rgba: [f64; 4]| {
+        let o = (y * w + x) * 4;
+        buf[o] = q(rgba[0]);
+        buf[o + 1] = q(rgba[1]);
+        buf[o + 2] = q(rgba[2]);
+        buf[o + 3] = q(rgba[3]);
+    };
+    match direction {
+        ScanDirection::Forward => {
+            for y in 0..h {
+                for x in 0..w {
+                    let ctx = InterpCtx {
+                        uniforms,
+                        rect: [0.0, 0.0, width as f64, height as f64],
+                        children: &[],
+                        scan: Some(ScanView {
+                            buf,
+                            width,
+                            height,
+                            x: x as f64,
+                            y: y as f64,
+                        }),
+                    };
+                    let rgba = eval_scan_pixel(program, &ctx);
+                    write_px(buf, x, y, rgba);
+                }
+            }
+        }
+        ScanDirection::Backward => {
+            for y in (0..h).rev() {
+                for x in (0..w).rev() {
+                    let ctx = InterpCtx {
+                        uniforms,
+                        rect: [0.0, 0.0, width as f64, height as f64],
+                        children: &[],
+                        scan: Some(ScanView {
+                            buf,
+                            width,
+                            height,
+                            x: x as f64,
+                            y: y as f64,
+                        }),
+                    };
+                    let rgba = eval_scan_pixel(program, &ctx);
+                    write_px(buf, x, y, rgba);
+                }
+            }
+        }
+    }
+}
+
+/// scan 类的单像素求值（整型像素坐标，无 +0.5 中心偏移）。
+fn eval_scan_pixel(program: &Program, ctx: &InterpCtx) -> [f64; 4] {
+    let view = ctx.scan.expect("render_scan requires scan view");
+    let mut locals: Vec<Val> = vec![Val::F(0.0); program.local_tys.len()];
+    for stmt in &program.body {
+        match eval_stmt(stmt, &mut locals, view.x, view.y, ctx) {
+            Flow::Continue => {}
+            Flow::Return(v) => return val_to_rgba(v),
+        }
+    }
+    [0.0, 0.0, 0.0, 0.0]
 }
 
 /// 单像素求值，返回 0..1 straight RGBA。
@@ -250,6 +367,21 @@ fn eval_expr(
                 .map(|img| img.sample(sx, sy))
                 .unwrap_or([0.0, 0.0, 0.0, 0.0]);
             Val::V4(color)
+        }
+        Expr::ScanGet { dx, dy } => {
+            let Some(view) = &ctx.scan else {
+                // parse 层保证 get 只出现在 scan 类里，解释路径必有视图
+                return Val::V4([0.0, 0.0, 0.0, 0.0]);
+            };
+            let ddx = eval_expr(dx, locals, px, py, ctx).as_f64();
+            let ddy = eval_expr(dy, locals, px, py, ctx).as_f64();
+            Val::V4(sample_rgba(
+                view.buf,
+                view.width,
+                view.height,
+                view.x + ddx,
+                view.y + ddy,
+            ))
         }
     }
 }
@@ -482,8 +614,8 @@ fn f64_arg(args: &[Val], i: usize) -> f64 {
     args.get(i).map(|v| v.as_f64()).unwrap_or(0.0)
 }
 
-/// 确定性像素哈希 —— 与 `text::dissolve::h01`（参考 index.html:1316-1321）
-/// 逐位一致：u32 wrapping 乘、XOR、逻辑右移。
+/// 确定性像素哈希（参考 index.html:1316-1321 的 mulberry 风格 scramble）：
+/// u32 wrapping 乘、XOR、逻辑右移。
 pub fn h01(a: u32, b: u32, c: u32) -> f64 {
     let mut h = (a.wrapping_add(374_761)).wrapping_mul(0x9E37_79B1)
         ^ (b.wrapping_add(668_265)).wrapping_mul(0x85EB_CA6B)
@@ -496,7 +628,7 @@ pub fn h01(a: u32, b: u32, c: u32) -> f64 {
 mod tests {
     use super::*;
 
-    /// h01 与 text::dissolve 的 oracle 锚点逐位一致。
+    /// h01 与参考实现的 oracle 锚点逐位一致。
     #[test]
     fn h01_matches_oracle_anchors() {
         let cases: [(u32, u32, u32, f64); 4] = [

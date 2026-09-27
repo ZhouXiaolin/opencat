@@ -80,9 +80,11 @@ impl Val {
     }
 }
 
-/// Lambda 的参数槽。约定：第一参数 = `uv`（rect 本地像素坐标，像素中心
-/// 取 `i + 0.5`）；名为 `rect` 的参数 = `[x, y, w, h]`；名为 `u` 的参数 =
-/// uniforms 访问器（`u.<name>`）；其余参数依序为 child shader。
+/// Lambda 的参数槽。pixel 类约定：第一参数 = `uv`（rect 本地像素坐标，
+/// 像素中心取 `i + 0.5`）；名为 `rect` 的参数 = `[x, y, w, h]`；名为 `u` 的
+/// 参数 = uniforms 访问器（`u.<name>`）；其余参数依序为 child shader。
+/// scan 类（[`ScanKind::Scan`]）约定：第一参数 = `get`（本目标 in-progress
+/// 采样器，`get(dx, dy)`）；`rect`/`u` 同上；child 不可用。
 #[derive(Debug, Clone, PartialEq)]
 pub enum Param {
     Uv,
@@ -90,6 +92,17 @@ pub enum Param {
     /// `u` 参数：uniforms 访问器，只能以 `u.<name>` 出现。
     Uniforms,
     Child { index: usize },
+    /// `get` 参数（仅 scan 类）：`get(dx, dy)` 读目标 in-progress 字节。
+    Get,
+}
+
+/// lambda 类。pixel = 逐像素纯函数（uv → 色）；scan = 顺序扫描 pass
+/// （executor 拥有遍历顺序，JS 拥有邻居更新函数）。scan 恒走 CPU 解释器。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ScanKind {
+    #[default]
+    Pixel,
+    Scan,
 }
 
 #[derive(Debug, Clone)]
@@ -140,6 +153,9 @@ pub enum Expr {
     VecCons(Vec<Expr>, Ty),
     /// `child.eval(pos)`，恒为 Vec4（0..1 straight 色）。
     Eval { child: usize, pos: Box<Expr> },
+    /// `get(dx, dy)`（仅 scan 类）：读目标 in-progress 字节，恒为 Vec4
+    /// （0..1 straight 色，clamp-to-edge）。
+    ScanGet { dx: Box<Expr>, dy: Box<Expr> },
 }
 
 #[derive(Debug, Clone)]
@@ -172,11 +188,15 @@ pub struct Program {
     pub return_ty: Ty,
     pub uses_cpu_only: bool,
     pub backend_override: Option<Backend>,
+    pub kind: ScanKind,
 }
 
 impl Program {
-    /// 实际派发的后端。
+    /// 实际派发的后端。scan 类恒为 CPU（顺序扫描无 SKSL 形态）。
     pub fn backend(&self) -> Backend {
+        if self.kind == ScanKind::Scan {
+            return Backend::Cpu;
+        }
         match self.backend_override {
             Some(Backend::Cpu) => Backend::Cpu,
             Some(Backend::Sksl) => {
@@ -224,6 +244,7 @@ impl Program {
             Expr::Swizzle { ty, .. } => *ty,
             Expr::VecCons(_, ty) => *ty,
             Expr::Eval { .. } => Ty::Vec4,
+            Expr::ScanGet { .. } => Ty::Vec4,
         }
     }
 }

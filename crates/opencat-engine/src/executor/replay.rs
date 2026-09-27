@@ -1472,6 +1472,7 @@ half4 main(float2 coord) {
             uniforms: &[opencat_core::script::effects_lambda::program::Val::F(8.0)],
             rect: [0.0, 0.0, 8.0, 8.0],
             children: &[],
+            scan: None,
         };
         let cpu_rgba =
             opencat_core::script::effects_lambda::interp::render(&cpu.program, 8, 8, &ctx);

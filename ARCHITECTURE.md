@@ -506,7 +506,7 @@ The `EncodedDrawFrame` format bridges Rust (WASM) and JS/CanvasKit. Instead of J
 | `crates/opencat-core/src/frame_ctx.rs` | `FrameCtx` |
 | `crates/opencat-core/src/canvas/` | Paint/Shader/Canvas API specs |
 | `crates/opencat-core/src/script/` | Script runtime (animation engine) |
-| `crates/opencat-core/src/script/effects_lambda/` | Effect lambda DSL (parse → whitelist → IR → SKSL/CPU dispatch) |
+| `crates/opencat-core/src/script/effects_lambda/` | Effect lambda DSL (parse → whitelist → IR → SKSL/CPU dispatch; scan class = in-place CPU sweeps) |
 | `crates/opencat-core/src/style/` | `NodeStyle` (Tailwind → style) |
 | `crates/opencat-core/src/text/` | Text shaping, font database, emoji |
 | `crates/opencat-engine/src/pipeline.rs` | `EnginePipeline`, `open()`, `open_parsed_host_owned()` |

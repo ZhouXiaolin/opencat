@@ -238,7 +238,7 @@ slow reveal -> data lock -> product pass -> editorial hold
 - **Push / wipe / slide**：内容在同一空间里推进
 - **Zoom / blur**：镜头穿越或注意力切换
 - **Hard cut**：强调、反差、节奏点
-- **Shader / RuntimeEffect**：hero reveal、品牌 moment、视觉高潮
+- **Shader / 效果 lambda（RuntimeEffect）**：hero reveal、品牌 moment、视觉高潮
 
 不要每一幕都用最强转场。强转场通常只放在峰值或 CTA 前。
 

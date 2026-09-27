@@ -155,4 +155,4 @@ cargo build --bin opencat-web-compare --release
 - 模块地图：`crates/opencat-core/src/script/effects_lambda/{parse,program,stdlib,lower_sksl,interp,mod}.rs`。
 - k3-promo 场景 H（`examples/k3-promo.xml`）是 render-target 通路的参考迁移：mask + chamfer 距离场完全由 JS 编写——seed pixel lambda 经 `surface.runEffect` 采样离屏 surface child，再用两个 chamfer 扫描 lambda 经 `surface.scanPass`（forward/backward）构建进 `k3dis-field` surface，绘制 lambda 以 `{__opencatShader:'surface'}` child 直采——不再每帧烘焙上 wire。全片渲染与迁移前（field 在 Rust 中）**逐字节一致**（同一 mp4 md5）。
 - `examples/xxx.xml` 是 SKSL 后端的参考迁移：slide-2 折射玻璃从手写 SKSL 数组迁到 `REFRACT_LAMBDA` + subtree picture child，全片 360 帧与原实现逐位一致。手写 SKSL 返回预乘色而 lambda 返回 straight 色（codegen 自动预乘），故 lambda 返回前把 rgb 除回 alpha（有下界 ≥0.96）。
-- 测试：`cargo test -p opencat-core effects_lambda`（白名单、派发、解释器 vs h01 锚点、烘焙 roundtrip）与 `cargo test -p opencat-engine lambda`（SKSL raster 端到端、SKSL vs 解释器一致性、generated child 本地空间采样）。
+- 测试：`cargo test -p opencat-core effects_lambda`（白名单拒绝、后端派发、scan 链 vs chamfer oracle 逐位全等、render target bindings 端到端、kind 互斥拒绝）与 `cargo test -p opencat-engine lambda`（SKSL raster 端到端、SKSL vs 解释器一致性、generated child 本地空间采样）。

@@ -133,7 +133,7 @@ WASM y CanvasKit puros, sin servidor necesario.
 
 ### HTML en Canvas — Muestreo de Textura de Subárbol
 
-El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código y lo convierte automáticamente a SKSL o lo despacha a un renderizador de CPU):
+El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código, lo convierte automáticamente a SKSL o lo despacha al renderizador de CPU, y no codifica rígidamente ningún algoritmo de efecto):
 
 ```js
 var CK = ctx.CanvasKit;
@@ -166,6 +166,8 @@ c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ```
 
 Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando.
+
+Las superficies offscreen (`ctx.createSurface`) sirven también como **render targets** para datos que se construyen una vez y se muestrean por fotograma (máscaras, campos de distancia): `surface.runEffect` reescribe los píxeles con una lambda de clase pixel, `surface.scanPass` la recorre in situ con una lambda de clase scan (`get(dx,dy)` lee el búfer en progreso; el orden del barrido lo posee el ejecutor) y `surface.bake(key)` registra los píxeles como imagen del fotograma para muestreo por shader. Las lambdas pueden muestrear otras superficies directamente (children `{__opencatShader:'surface', id}`) — el algoritmo vive por completo en tu JS, los píxeles nunca. Referencia: `examples/k3-promo.xml` escena H; guía: `skill/references/canvaskit.md`.
 
 ### Más
 

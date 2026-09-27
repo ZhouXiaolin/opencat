@@ -325,7 +325,7 @@ pub(crate) fn expand_markup_templates(input: &str) -> anyhow::Result<String> {
     }
 
     let mut out = String::new();
-    write_element_open(&mut out, root, "opencat", None);
+    write_element_open(&mut out, root, "opencat", None, None);
     for child in root.children() {
         if child.is_element() && child.tag_name().name() == "template" {
             continue;
@@ -398,11 +398,11 @@ fn serialize_template_node<'a, 'input>(
                 return Ok(());
             }
             if let Some(template) = templates.get(tag) {
-                expand_template_call(out, node, *template, templates, params, stack)?;
+                expand_template_call(out, node, *template, templates, params, None, stack)?;
                 return Ok(());
             }
 
-            write_element_open(out, node, tag, Some(params));
+            write_element_open(out, node, tag, Some(params), None);
             for child in node.children() {
                 serialize_template_node(out, child, templates, params, slots, allow_slot, stack)?;
             }
@@ -426,6 +426,7 @@ fn expand_template_call<'a, 'input>(
     template: roxmltree::Node<'a, 'input>,
     templates: &HashMap<String, roxmltree::Node<'a, 'input>>,
     parent_params: &HashMap<String, String>,
+    class_delta: Option<&str>,
     stack: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let name = call.tag_name().name();
@@ -433,8 +434,19 @@ fn expand_template_call<'a, 'input>(
         anyhow::bail!("recursive template call `{name}` is not allowed");
     }
 
+    let caller_class = call
+        .attribute("class")
+        .map(|value| substitute_template_vars(value, parent_params));
+    let root_class = match (caller_class, class_delta) {
+        (Some(caller), Some(delta)) => Some(format!("{caller} {delta}")),
+        (Some(caller), None) => Some(caller),
+        (None, Some(delta)) => Some(delta.to_string()),
+        (None, None) => None,
+    };
+
     let params = call
         .attributes()
+        .filter(|attr| attr.name() != "class")
         .map(|attr| {
             (
                 attr.name().to_string(),
@@ -445,8 +457,36 @@ fn expand_template_call<'a, 'input>(
     let slots = collect_slot_values(call)?;
 
     stack.push(name.to_string());
-    for child in template.children() {
-        serialize_template_node(out, child, templates, &params, &slots, true, stack)?;
+    if let Some(delta) = root_class.as_deref() {
+        let roots = template
+            .children()
+            .filter(|child| child.is_element())
+            .collect::<Vec<_>>();
+        if roots.len() != 1 {
+            anyhow::bail!(
+                "template `{name}` must have exactly one root element to accept a caller `class`"
+            );
+        }
+        let root = roots[0];
+        let root_tag = root.tag_name().name();
+        if root_tag == "slot" {
+            anyhow::bail!(
+                "template `{name}` must have exactly one root element to accept a caller `class`"
+            );
+        }
+        if let Some(inner) = templates.get(root_tag) {
+            expand_template_call(out, root, *inner, templates, &params, Some(delta), stack)?;
+        } else {
+            write_element_open(out, root, root_tag, Some(&params), Some(delta));
+            for child in root.children() {
+                serialize_template_node(out, child, templates, &params, &slots, true, stack)?;
+            }
+            write_element_close(out, root_tag);
+        }
+    } else {
+        for child in template.children() {
+            serialize_template_node(out, child, templates, &params, &slots, true, stack)?;
+        }
     }
     stack.pop();
 
@@ -497,6 +537,7 @@ fn write_element_open(
     node: roxmltree::Node<'_, '_>,
     tag: &str,
     params: Option<&HashMap<String, String>>,
+    class_delta: Option<&str>,
 ) {
     out.push('<');
     out.push_str(tag);
@@ -507,7 +548,21 @@ fn write_element_open(
         let value = params
             .map(|params| substitute_template_vars(attr.value(), params))
             .unwrap_or_else(|| attr.value().to_string());
+        let value = if attr.name() == "class"
+            && let Some(delta) = class_delta
+        {
+            format!("{value} {delta}")
+        } else {
+            value
+        };
         out.push_str(&escape_attr(&value));
+        out.push('"');
+    }
+    if let Some(delta) = class_delta
+        && node.attribute("class").is_none()
+    {
+        out.push_str(" class=\"");
+        out.push_str(&escape_attr(delta));
         out.push('"');
     }
     out.push('>');
@@ -1938,6 +1993,64 @@ mod tests {
         };
         assert_eq!(label.style_ref().id, "card-main-label");
         assert_eq!(label.content(), "Nested");
+    }
+
+    #[test]
+    fn template_call_class_appends_after_template_root_class() {
+        let expanded = expand_markup_templates(
+            r#"<opencat>
+  <template name="chip"><div id="$id" class="absolute h-[13px] w-[13px] bg-[#e6e6e6]"></div></template>
+  <template name="bare"><div id="$id"></div></template>
+  <chip id="dot" class="-left-[20px] -top-[20px]" />
+  <bare id="n" class="relative z-[2]" />
+</opencat>"#,
+        )
+        .expect("template should expand");
+
+        assert!(
+            expanded.contains(
+                r#"class="absolute h-[13px] w-[13px] bg-[#e6e6e6] -left-[20px] -top-[20px]""#
+            ),
+            "caller class should be appended after the template root class: {expanded}"
+        );
+        assert!(
+            expanded.contains(r#"<div id="n" class="relative z-[2]"></div>"#),
+            "caller class should become the root class when the template root has none: {expanded}"
+        );
+    }
+
+    #[test]
+    fn caller_class_overrides_template_class_same_field() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" duration="1">
+  <template name="box"><div id="$id" class="w-[10px] h-[10px]"></div></template>
+  <box id="b" class="w-[20px]" />
+</opencat>"#,
+        )
+        .expect("template call with class should parse");
+
+        let NodeKind::Div(box_node) = parsed.root.kind() else {
+            panic!("root should be the expanded template root div");
+        };
+        assert_eq!(box_node.style_ref().id, "b");
+        assert_eq!(box_node.style_ref().width, Some(20.0));
+        assert_eq!(box_node.style_ref().height, Some(10.0));
+    }
+
+    #[test]
+    fn rejects_caller_class_on_multi_root_template() {
+        let err = parse(
+            r#"<opencat>
+  <template name="pair"><div id="a"></div><div id="b"></div></template>
+  <pair class="w-[8px]" />
+</opencat>"#,
+        )
+        .expect_err("multi-root template with caller class should fail");
+
+        assert!(
+            err.to_string().contains("exactly one root element"),
+            "error should mention the single-root requirement: {err}"
+        );
     }
 
     #[test]

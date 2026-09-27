@@ -24,6 +24,10 @@ pub fn parse_class_name_with_context(
     parse_class_name_impl(class_name, Some((node_id, line_number)))
 }
 
+/// 同一 class 串按 `split_whitespace` 顺序逐个应用，同类属性工具类后者胜
+/// （模板基座 class 在前、调用点覆盖 class 在后正是依赖这一点）。
+/// shorthand/longhand（如 `px-`/`pl-` → `padding_x`/`padding_left`）写入不同
+/// 字段，由 Taffy 字段特异性裁决，与出现顺序无关。
 fn parse_class_name_impl(class_name: &str, context: Option<(&str, usize)>) -> NodeStyle {
     let mut style = NodeStyle {
         auto_size: true,
@@ -2220,6 +2224,14 @@ mod tests {
 
         assert_eq!(a.box_shadow_color, Some(ColorToken::Red500));
         assert_eq!(b.box_shadow_color, Some(ColorToken::Red500));
+    }
+
+    #[test]
+    fn duplicate_same_field_utility_keeps_last_occurrence() {
+        let style = parse_class_name("px-[4px] px-[8px] w-[10px] w-[20px]");
+
+        assert_eq!(style.padding_x, Some(8.0));
+        assert_eq!(style.width, Some(20.0));
     }
 
     #[test]

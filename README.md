@@ -132,7 +132,7 @@ Pure WASM + CanvasKit, no server required.
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source and auto-lowers it to SKSL or dispatches to a CPU renderer):
+A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source, auto-lowers it to SKSL or dispatches it to the CPU renderer, and hardcodes no effect algorithm itself):
 
 ```js
 var CK = ctx.CanvasKit;
@@ -165,6 +165,8 @@ c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ```
 
 Any HTML subtree — layout, images, text, video → texture → shader → output. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work.
+
+Offscreen surfaces (`ctx.createSurface`) double as **render targets** for build-once, sample-per-frame data (masks, distance fields): `surface.runEffect` rewrites pixels with a pixel-class lambda, `surface.scanPass` sweeps it in place with a scan-class lambda (`get(dx,dy)` reads the in-progress buffer; the executor owns the traversal order), and `surface.bake(key)` registers the pixels as a frame image for shader sampling. Lambdas can sample other surfaces directly (`{__opencatShader:'surface', id}` children) — the algorithm lives entirely in your JS, the pixels never do. Reference: `examples/k3-promo.xml` scene H; guide: `skill/references/canvaskit.md`.
 
 ### More
 

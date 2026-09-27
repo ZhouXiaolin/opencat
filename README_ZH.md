@@ -134,7 +134,7 @@ await exportMp4({ /* ... */ });
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染）：
+`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）：
 
 ```js
 var CK = ctx.CanvasKit;
@@ -167,6 +167,8 @@ c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ```
 
 画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。
+
+离屏 surface（`ctx.createSurface`）同时是**render target**，承载"构建一次、逐帧采样"的数据（mask、距离场等）：`surface.runEffect` 用 pixel 类 lambda 逐像素重绘，`surface.scanPass` 用 scan 类 lambda（`get(dx,dy)` 读 in-progress 缓冲，遍历顺序由 executor 拥有）就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。lambda 还能以 `{__opencatShader:'surface', id}` child 直采其它 surface——算法完全在 JS，像素永不跨桥。参考：`examples/k3-promo.xml` 场景 H；指南：`skill/references/canvaskit.md`。
 
 ### 更多能力
 

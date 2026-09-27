@@ -1,6 +1,6 @@
 ---
 name: opencat-creator
-description: 用 OpenCat XML 格式设计并生成视频合成。适用于创建或修改 OpenCat XML、规划多场景视频、设计标题卡/产品演示/品牌短片/社交广告、编排动画、CanvasKit 绘制、Subtree/RuntimeEffect 视觉、字幕和转场。输出以可渲染的 OpenCat XML 为准。
+description: 用 OpenCat XML 格式设计并生成视频合成。适用于创建或修改 OpenCat XML、规划多场景视频、设计标题卡/产品演示/品牌短片/社交广告、编排动画、CanvasKit 绘制、效果 lambda / Subtree / RuntimeEffect 视觉、surface render target、字幕和转场。输出以可渲染的 OpenCat XML 为准。
 ---
 
 # OpenCat Creator
@@ -41,7 +41,7 @@ OpenCat XML 是视频的事实来源。你的目标不是复刻网页，也不�
 - `references/opencat.md` — XML 结构、节点、属性、布局硬规则
 - `references/animations.md` — 动画 API 和插件（需要写 `<script>` 时）
 - `references/transitions.md` — 转场效果（多场景时）
-- `references/canvaskit.md` — CanvasKit 子集（需要 canvas / Subtree / RuntimeEffect 时）
+- `references/canvaskit.md` — CanvasKit 子集（需要 canvas / Subtree / 效果 lambda / RuntimeEffect / surface render target 时）
 - `references/templates.md` — 经典模板和常用模式
 
 布局先于动画：先写每个 scene 最可见时刻的静态 hero frame，再用脚本描述入场、呼吸和转场。

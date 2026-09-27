@@ -503,7 +503,7 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 | `crates/opencat-core/src/frame_ctx.rs` | `FrameCtx` |
 | `crates/opencat-core/src/canvas/` | Paint/Shader/Canvas API 规范 |
 | `crates/opencat-core/src/script/` | 脚本运行时（动画引擎） |
-| `crates/opencat-core/src/script/effects_lambda/` | 效果 lambda DSL（解析 → 白名单 → IR → SKSL/CPU 派发） |
+| `crates/opencat-core/src/script/effects_lambda/` | 效果 lambda DSL（解析 → 白名单 → IR → SKSL/CPU 派发；scan 类 = CPU 就地顺序扫描） |
 | `crates/opencat-core/src/style/` | `NodeStyle`（Tailwind → 样式） |
 | `crates/opencat-core/src/text/` | 文字排版、字体数据库、emoji |
 | `crates/opencat-engine/src/pipeline.rs` | `EnginePipeline`、`open()`、`open_parsed_host_owned()` |

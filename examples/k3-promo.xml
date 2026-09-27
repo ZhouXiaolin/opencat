@@ -285,11 +285,13 @@
     </div>
 
     <!-- ═══ SCENE H+I: glitch dissolve → K3 wordmark (track 2, 13.7→16.467s) ═══
-         Dissolve = engine op (opencat-core text::dissolve, Rust): the script
-         fillTexts the lockup once into an offscreen surface, then makes two
-         thin marker calls per §16 — surface.buildDissolve (mask + chamfer
-         field in Rust) and canvas.applyDissolve per frame (scramble noise +
-         dust + glow in Rust; no pixel buffer crosses the JS bridge).
+         Dissolve is fully JS-authored over generic render-target ops: the
+         script fillTexts the lockup once into an offscreen surface, then
+         builds mask + chamfer distance field with its own lambdas
+         (surface.runEffect seed + two surface.scanPass sweeps) and draws the
+         per-frame scramble as a lambda-effect drawRect. Rust owns only
+         generic executors — no pixel buffer crosses the JS bridge and no
+         effect algorithm is hardcoded there (§render target).
          hbox CSS bakes the GSAP set x:-23 y:66 (index.html:1742) offset. -->
     <div id="sceneHI" class="absolute inset-0 z-[2] opacity-0">
       <!-- g2qmarks (makeQmarks/makePlusses index.html:1195-1196) live in #gfurn2,
@@ -1649,21 +1651,28 @@
     }
 
     /* ════════════ SCENE H+I: glitch dissolve → K3 wordmark (13.7→16.467) ═══
-       Dissolve = engine op (text::dissolve, Rust). This script only makes
-       thin marker calls (§16 architecture: pixels never cross the JS
-       bridge, no per-pixel loops in JS):
+       Dissolve is JS-authored over generic render-target ops (pixels never
+       cross the JS bridge, no per-pixel loops in JS — JS writes the ALGORITHM
+       as lambdas, Rust's generic executors run them):
          1. fillText the card lockup ONCE into an offscreen surface
-            (ctx.createSurface → real Inter faces via swash), then
-            surface.buildDissolve() thresholds it into a mask + 3-4 chamfer
-            distance field inside the engine;
-         2. each frame canvas.applyDissolve() evaluates the scramble noise /
-            dust / glow in Rust and records the generated image + draw op.
+            (ctx.createSurface → real Inter faces via swash);
+         2. build the mask + 3-4 chamfer distance field with our own lambdas
+            into the 'k3dis-field' render target: a seed pixel lambda
+            (surface.runEffect, samples 'k3dis-off' as a surface child)
+            writes R=mask / G,B=dist lo,hi bytes, then two scan lambdas
+            (surface.scanPass forward/backward) do the chamfer sweeps —
+            the get(dx,dy) primitive reads the in-progress buffer with
+            clamp-to-edge (harmless for this min-update: a clamped neighbor
+            is a real cell read at ≥ the direct move's weight);
+         3. each frame a lambda-effect drawRect evaluates the scramble
+            noise / dust / glow, sampling the field surface directly (no
+            per-frame bake on the wire).
        The build-once flag lives on a non-configurable global — realm
        frame-boundary cleanup deletes only configurable keys.
        Hatch lines are exact 26° CSS geometry (index.html:1203-1212),
        staggered 13.77 + k*0.04. */
 
-    /* ---- dissolve markers (index.html:1249-1349 → text::dissolve) ---- */
+    /* ---- dissolve field construction (index.html:1249-1349 → lambdas) ---- */
     var DIS_R = { X0: 232, Y0: 430, W: 1460, H: 222 };         // index.html:1253
     var CARD_TOP = 478, CARD_CAP = 108;                        // index.html:1177
     var FGB_TOP = 480, FGB_H = 119;                            // index.html:1175
@@ -1726,9 +1735,63 @@
       ox.fillText('{', 400 + mL.actualBoundingBoxLeft, bBase);
       var mR = ox.measureText('}');
       ox.fillText('}', 1469 + mR.actualBoundingBoxLeft, bBase);
-      // mask + 3-4 chamfer distance field are built INSIDE the engine
-      // (text::dissolve) from this surface's pixels — no JS pixel access.
-      ox.buildDissolve(DIS_R.X0, DIS_R.Y0, DIS_R.W, DIS_R.H);
+      /* mask + 3-4 chamfer distance field, fully JS-authored over the
+         generic render-target ops (§render target). Packing matches the
+         reference field exactly: R=mask (source alpha), G=dist lo byte,
+         B=dist hi byte, A=255 (dist in px*3, sentinel 3000). Seed byte()
+         truncation ≡ the engine's u8 casts; % and floor are exact in f64,
+         so the packed bytes round-trip losslessly through the 0..1 channels. */
+      var field = ctx.createSurface('k3dis-field', DIS_R.W, DIS_R.H);
+      field.runEffect(
+        /* seed: sample 'k3dis-off' (surface child, offset X0/Y0 baked into
+           the source) → mask = alpha, dist = alpha>120 ? 0 : 3000, pack. */
+        (uv, src) => {
+          const c = src.eval(uv + [232, 430]);
+          const m = byte(c.a * 255 + 0.5);
+          const d = m > 120 ? 0 : 3000;
+          return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
+        },
+        null, null, [{ __opencatShader: 'surface', id: 'k3dis-off' }]
+      );
+      field.scanPass(
+        /* forward 3-4 chamfer sweep (index.html:1278-1291): read left /
+           up / up-left / up-right at weights 3/3/4/4, take the min, write
+           back. get(dx,dy) reads the in-progress buffer; the executor owns
+           the row-major order. Ties keep the incumbent, same as the
+           reference strict `<` updates (value-wise identical). */
+        (get) => {
+          const c = get(0, 0);
+          const d = byte(c.g * 255 + 0.5) + byte(c.b * 255 + 0.5) * 256;
+          const l = get(-1, 0);
+          const t = get(0, -1);
+          const tl = get(-1, -1);
+          const tr = get(1, -1);
+          const m = min(min(d, byte(l.g * 255 + 0.5) + byte(l.b * 255 + 0.5) * 256 + 3),
+                        min(byte(t.g * 255 + 0.5) + byte(t.b * 255 + 0.5) * 256 + 3,
+                            min(byte(tl.g * 255 + 0.5) + byte(tl.b * 255 + 0.5) * 256 + 4,
+                                byte(tr.g * 255 + 0.5) + byte(tr.b * 255 + 0.5) * 256 + 4)));
+          return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
+        },
+        'forward'
+      );
+      field.scanPass(
+        /* backward sweep (index.html:1292-1313): right / down / down-right /
+           down-left at 3/3/4/4, mirrored traversal. */
+        (get) => {
+          const c = get(0, 0);
+          const d = byte(c.g * 255 + 0.5) + byte(c.b * 255 + 0.5) * 256;
+          const r = get(1, 0);
+          const b = get(0, 1);
+          const br = get(1, 1);
+          const bl = get(-1, 1);
+          const m = min(min(d, byte(r.g * 255 + 0.5) + byte(r.b * 255 + 0.5) * 256 + 3),
+                        min(byte(b.g * 255 + 0.5) + byte(b.b * 255 + 0.5) * 256 + 3,
+                            min(byte(br.g * 255 + 0.5) + byte(br.b * 255 + 0.5) * 256 + 4,
+                                byte(bl.g * 255 + 0.5) + byte(bl.b * 255 + 0.5) * 256 + 4)));
+          return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
+        },
+        'backward'
+      );
       Object.defineProperty(globalThis, '__k3disBuilt', {
         value: true, writable: true, enumerable: true, configurable: false
       });
@@ -1738,11 +1801,11 @@
     /* ══ lambda 溶解（CK.Effect.fromLambda，§Effect lambda DSL）══════════
        场景 H scramble 的泛化路径：逐像素算法写成 JS lambda（只被编译、
        从不执行），Rust 解析源码后重建计算。`h01` 属 CpuOnly 能力 → 自动
-       派发纯 CPU 后端（f64 AST 解释器，语义与 text::dissolve::h01 逐位
-       一致）；field（mask/dist）由 surface.bakeDissolve 每帧烘焙为生成
-       图像、以 generated child 采样（R=mask、G/B=dist 低/高字节 px*3）。
-       逐帧标量（bandP 行、ep/fr、streak 包络、dust 基线）= "简单数据
-       计算"，留在 JS 以 uniforms 传入。像素缓冲不跨 JS 桥。 */
+       派发纯 CPU 后端（f64 AST 解释器）。field surface（mask/dist，见上
+       rebuildDissolveField）以 surface child 直接采样（R=mask、G/B=dist
+       低/高字节 px*3）——session 级 render target 不上 wire、无需每帧
+       烘焙。逐帧标量（bandP 行、ep/fr、streak 包络、dust 基线）= "简单
+       数据计算"，留在 JS 以 uniforms 传入。像素缓冲不跨 JS 桥。 */
 
     /* 距离带点亮概率（index.html:1323-1331，与 DIS_TAB 一致）+ 线性插值 */
     var DIS_TAB = [
@@ -1874,14 +1937,14 @@
     };
     var DIS_EFFECT = CK.Effect.fromLambda(DIS_LAMBDA, DIS_SPEC);
 
-    /* per-frame：窗口内烘焙 field → drawRect 通用路径（lambda shader）。
-       put 位置 (232, 230) 与尺寸 1460x222 同 applyDissolve 旧路（键也由
-       uniform 指纹决定，幂等契约不变）。 */
+    /* per-frame：lambda drawRect 通用路径。field 是 session 级 render
+       target（rebuildDissolveField 构建一次），以 surface child 直采，
+       不再每帧烘焙上 wire。put 位置 (232, 230) 与尺寸 1460x222 同
+       applyDissolve 旧路。 */
     function drawDissolve(cvx, t) {
       if (t < 13.699 || t > 15.2) return false;
       var f = Math.floor(t * 30 + 1e-4);
       if (f < 0 || f > 455) return false;
-      ctx.createSurface('k3dis-off').bakeDissolve('k3dis-field');
       var row = bandP(f);
       var ep = Math.floor(f / 7);
       var fr = (f % 7) / 7;
@@ -1895,7 +1958,7 @@
         sxL = 240 + (f - 436) * 18;
         sxR = 1686 - (f - 436) * 18;
       }
-      var fieldShader = { __opencatShader: 'generated', key: 'k3dis-field' };
+      var fieldShader = { __opencatShader: 'surface', id: 'k3dis-field' };
       var p = new CK.Paint();
       p.setShader(DIS_EFFECT.makeShaderWithChildren({
         x0: DIS_R.X0, y0: DIS_R.Y0, f: f, ep: ep, fr: fr,
@@ -1931,8 +1994,9 @@
         }
       }
 
-      // scramble dissolve: thin marker → text::dissolve (index.html:1448-1523);
-      // the generated image lands at hcanvas-local (232, 230) = screen (232, 430)
+      // scramble dissolve: lambda drawRect over the field render target
+      // (index.html:1448-1523); the draw lands at hcanvas-local (232, 230)
+      // = screen (232, 430)
       var hDCv = ctx.getCanvasById('hcanvas');
       if (hDCv) {
         hDCv.clear();

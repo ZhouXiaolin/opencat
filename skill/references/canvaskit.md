@@ -393,7 +393,7 @@ effect.delete(); // no-op
 
 限制：
 
-- `children` 当前支持 image shader、subtree picture shader 和 generated（帧级生成图像，如溶解 field 烘焙）。
+- `children` 当前支持 image shader、subtree picture shader、generated（帧级生成图像，如 `surface.bake` 的产物）和 surface（session 级 render target，仅 CPU lambda 后端可采样；见下文 render target 一节）。
 - gradient shader child 当前没有 JS facade。
 - RuntimeEffect shader 当前通过 `paint.setShader(shader)` + `canvas.drawRect()` 触发绘制。
 - SKSL 必须能被 native / web CanvasKit 编译；`Make()` 对空字符串返回 `null`。
@@ -429,21 +429,23 @@ canvas.drawRect(CK.XYWHRect(0, 0, 360, 480), paint);
 
 | 参数 | 含义 |
 |---|---|
-| 第一参 | `uv`：rect 本地像素坐标（`i + 0.5`），float2 |
+| 第一参（pixel 类） | `uv`：rect 本地像素坐标（`i + 0.5`），float2 |
+| 第一参（scan 类） | `get(dx, dy)`：读本目标的 in-progress 像素（clamp-to-edge），返回 float4 |
 | 名为 `rect` | dst 的 `[x, y, w, h]`（画布坐标），float4 |
 | 名为 `u` | uniforms 访问器：`u.<name>`，名字与类型来自 spec |
 | 其余参数 | child shader（依声明序）：`child.eval(float2)` → float4 |
 
 ### spec
 
-`{ uniforms: [['name', 'type'], ...], backend: 'auto' }` —— uniforms 是**保序数组**（顺序 = 打包顺序，必须与传参一致）；type ∈ float/float2/float3/float4。uniforms 传参支持对象形式（按名字）或平铺数组（按 spec 顺序，向量按分量展开）。
+`{ uniforms: [['name', 'type'], ...], backend: 'auto', kind: 'pixel' }` —— uniforms 是**保序数组**（顺序 = 打包顺序，必须与传参一致）；type ∈ float/float2/float3/float4。`kind`：`'pixel'`（默认，逐像素纯函数）或 `'scan'`（顺序扫描，见下文 render target）。uniforms 传参支持对象形式（按名字）或平铺数组（按 spec 顺序，向量按分量展开）。
 
 ### 后端自动派发（Rust 自主决定）
 
 | lambda 用到的 op | 后端 | 执行方式 |
 |---|---|---|
 | 纯浮点（sin/mix/smoothstep/…） | SKSL | codegen SKSL → RuntimeEffect（与手写 SKSL 同一条 wire，web CanvasKit 零改动） |
-| `h01` / `imul` / `u32` / `i32`（整数精确语义，溶解类） | 纯 CPU | f64 树解释器逐像素（rayon）→ 生成图像（与溶解同一条 wire） |
+| `h01` / `imul` / `u32` / `i32`（整数精确语义） | 纯 CPU | f64 树解释器逐像素（rayon）→ 生成图像 |
+| scan 类（`spec.kind: 'scan'`） | 强制 CPU | f64 解释器**单线程**顺序扫描（顺序语义由 executor 拥有；无 SKSL 形态，强制 sksl 编译期报错） |
 
 `spec.backend` 可强制 `'sksl'` 或 `'cpu'`（强制 sksl 但用了 CpuOnly op 会报错）。两后端共享同一语义锚：所有用户算术是 f64（JS Number），`uv` 语义一致，child 采样空间一致。
 
@@ -462,25 +464,58 @@ canvas.drawRect(CK.XYWHRect(0, 0, 360, 480), paint);
 
 嵌套函数、闭包捕获、循环（for/while）、try/catch、裸代码块、对象字面量、字符串/模板串、位运算符（提示 `imul`/`h01`/`byte`）、`**`（提示 `pow`）、`new`/`this`、`Math.random`、对 child/u/Math/builtin 的非白名单用法、return 后的不可达语句。
 
-### 逐像素效果 + field child（溶解形态）
+### 逐像素效果 + render target（surface.runEffect / scanPass / bake）
 
-大区域的 mask/距离场等"构建一次、逐帧采样"的数据，由引擎烘焙成帧级生成图像、以 generated child 传入 lambda（像素不进 JS）：
+offscreen surface 是脚本侧的 **render target**：JS 拥有算法（lambda 源码只被 Rust 编译、从不执行），引擎只提供三个通用执行器——像素缓冲永不跨进 JS，Rust 不固化任何具体效果算法：
+
+| 方法 | 语义 |
+|---|---|
+| `surface.runEffect(fn, spec, uniforms, children)` | pixel 类 lambda 逐像素**重绘**本 surface（f64 解释器，rayon 按行并行）；children 可采样 generated（本帧烘焙）或**其它 surface** |
+| `surface.scanPass(fn, direction, spec, uniforms)` | scan 类 lambda（首参 `get`）对本 surface **就地**顺序扫描一遍；`direction: 'forward' \| 'backward'`，遍历顺序由 executor 拥有，单线程 |
+| `surface.bake(key)` | 当前像素注册为帧级生成图像（同 key 异像素 = 硬错误），返回 generated shader 供 SKSL/绘制路径采样 |
+
+`{__opencatShader:'surface', id}` child 直接采样其它 surface（session 级 render target，不上 wire、无需每帧烘焙）；SKSL 绘制路径遇 surface child 会报错——先 `bake(key)` 烘为 generated。
 
 ```js
-surface.buildDissolve(x, y, w, h);      // 构建一次（mask + chamfer 距离场）
-var fieldShader = surface.bakeDissolve('my-field');  // 每帧烘焙（pending 表逐帧清空）
-// field 打包：R=mask(0..255)，G=dist 低字节，B=dist 高字节（dist 单位 px*3）
-// lambda 内还原：byte(c.r*255+0.5)、byte(c.g*255+0.5)+256*byte(c.b*255+0.5)
-
+// 例：阈值 mask + 双遍 chamfer 距离场（k3-promo 场景 H 的完整形态）
+// 1) seed：从另一 surface 采样 alpha → 打包进本 surface
+field.runEffect(
+  (uv, src) => {
+    const c = src.eval(uv + [232, 430]);
+    const m = byte(c.a * 255 + 0.5);
+    const d = m > 120 ? 0 : 3000;
+    return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];  // R=mask, G/B=dist lo/hi
+  },
+  null, null, [{ __opencatShader: 'surface', id: 'offscreen' }]
+);
+// 2) 双遍 chamfer：get(dx,dy) 读 in-progress 缓冲，min 后写回
+field.scanPass(
+  (get) => {
+    const c = get(0, 0);
+    const d = byte(c.g * 255 + 0.5) + byte(c.b * 255 + 0.5) * 256;
+    const l = get(-1, 0), t = get(0, -1), tl = get(-1, -1), tr = get(1, -1);
+    const m = min(min(d, byte(l.g * 255 + 0.5) + byte(l.b * 255 + 0.5) * 256 + 3),
+                  min(byte(t.g * 255 + 0.5) + byte(t.b * 255 + 0.5) * 256 + 3,
+                      min(byte(tl.g * 255 + 0.5) + byte(tl.b * 255 + 0.5) * 256 + 4,
+                          byte(tr.g * 255 + 0.5) + byte(tr.b * 255 + 0.5) * 256 + 4)));
+    return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
+  },
+  'forward'
+);
+field.scanPass(/* 镜像邻居 get(1,0)/get(0,1)/get(1,1)/get(-1,1) */, 'backward');
+// 3) 逐帧绘制：CPU lambda 以 surface child 直采 field（不 bake 不上 wire）
 var paint = new CK.Paint();
-paint.setShader(effect.makeShaderWithChildren({ t: ctx.currentTime }, [fieldShader]));
+paint.setShader(effect.makeShaderWithChildren({ t: ctx.currentTime },
+                          [{ __opencatShader: 'surface', id: 'field' }]));
 canvas.drawRect(CK.XYWHRect(x, y, w, h), paint);
 ```
 
-参考实现（两个后端各一）：
+scan 类约定：spec `kind: 'scan'`（`scanPass` 会自动注入）；lambda 无 `uv`、无 child；整数精确语义（`byte` 等）与 pixel 类一致——跨通道往返（`%256`/`floor(d/256)` + `byte(*255+0.5)`）在 f64 下逐位无损。
+
+参考实现（三个形态各一）：
 
 - SKSL 后端 + subtree picture child：`examples/xxx.xml`（slide-2 折射玻璃，自手写 SKSL 迁移，与原实现逐位一致）。
-- 纯 CPU 后端 + generated child：`examples/k3-promo.xml` 场景 H（scramble dissolve 全量迁移到 lambda）。
+- 纯 CPU 后端 + render target（seed + 双 scan + surface child）：`examples/k3-promo.xml` 场景 H（glitch dissolve 全量 JS 化，与迁移前逐字节一致）。
 
 ---
 

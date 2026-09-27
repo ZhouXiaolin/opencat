@@ -2,9 +2,11 @@
 //!
 //! 原则：lambda 只被编译、从不被执行。JS 源码被转成受限 IR，白名单之外的
 //! 结构一律以带源码位置的错误拒绝。允许的语法面：
-//! - 参数（首参 = `uv`；`rect`；`u`；其余按序为 child）
+//! - 参数（pixel 类首参 = `uv`；scan 类首参 = `get`；`rect`；`u`；其余按序
+//!   为 child，仅 pixel 类）
 //! - 数值/布尔/数组字面量；算术/比较/逻辑/三目；`if/else`；`let/const`
-//! - stdlib 裸名调用与 `Math.*` 映射；向量 swizzle 读；`child.eval(pos)`
+//! - stdlib 裸名调用与 `Math.*` 映射；向量 swizzle 读；`child.eval(pos)`；
+//!   scan 类的 `get(dx, dy)`
 //! - 语句级赋值（仅 let 变量）
 //!
 //! 拒绝：嵌套函数、循环、裸块、try/catch、对象/字符串/模板串、位运算、
@@ -149,10 +151,15 @@ pub fn parse_lambda(source: &str, spec: &EffectSpec) -> LambdaResult<Program> {
         }
     };
 
-    // 参数分类：首参 uv；`rect`；`u`；其余 child
+    // 参数分类：pixel 类首参 uv；scan 类首参 get。其余：`rect`；`u`；
+    // child（仅 pixel 类）
     if param_names.is_empty() {
         return Err(LambdaError::at(
-            "lambda 至少需要一个 `uv` 参数",
+            if spec.kind == super::program::ScanKind::Scan {
+                "scan lambda 至少需要一个 `get` 参数"
+            } else {
+                "lambda 至少需要一个 `uv` 参数"
+            },
             (0, source.len() as u32),
             source,
         ));
@@ -171,12 +178,24 @@ pub fn parse_lambda(source: &str, spec: &EffectSpec) -> LambdaResult<Program> {
     let mut params: Vec<(String, Param)> = Vec::new();
     for (i, name) in param_names.iter().enumerate() {
         let param = if i == 0 {
-            Param::Uv
+            if spec.kind == super::program::ScanKind::Scan {
+                Param::Get
+            } else {
+                Param::Uv
+            }
         } else if name == "rect" {
             Param::Rect
         } else if name == "u" {
             // 占位：`u` 通过 u.<name> 成员访问解析
             Param::Uniforms
+        } else if spec.kind == super::program::ScanKind::Scan {
+            return Err(LambdaError::at(
+                format!(
+                    "scan lambda 不支持 child 参数 `{name}`（采样只能通过 `get(dx, dy)` 读本目标）"
+                ),
+                (0, source.len() as u32),
+                source,
+            ));
         } else {
             let index = ctx.children.len();
             ctx.children.push(name.clone());
@@ -206,6 +225,7 @@ pub fn parse_lambda(source: &str, spec: &EffectSpec) -> LambdaResult<Program> {
         return_ty,
         uses_cpu_only: ctx.uses_cpu_only,
         backend_override: None,
+        kind: spec.kind,
     })
 }
 
@@ -395,6 +415,10 @@ fn parse_expr(ctx: &mut Ctx, expr: &Expression) -> LambdaResult<ExprT> {
                 )),
                 Some(Param::Child { .. }) => Err(ctx.err(
                     format!("child `{name}` 不能作为值使用，只能 `.eval(pos)`"),
+                    expr,
+                )),
+                Some(Param::Get) => Err(ctx.err(
+                    "`get` 不能单独使用，只能 `get(dx, dy)` 采样",
                     expr,
                 )),
                 None => {
@@ -696,6 +720,34 @@ fn parse_call(ctx: &mut Ctx, call: &oxc_ast::ast::CallExpression) -> LambdaResul
     // 裸名调用
     if let Expression::Identifier(id) = &call.callee {
         let name = id.name.as_str();
+        if let Some(Param::Get) = ctx.params.get(name) {
+            // get(dx, dy)：scan 类的 in-progress 采样
+            if call.arguments.len() != 2 {
+                return Err(ctx.err("get 需要 2 个标量参数 (dx, dy)", call));
+            }
+            let mut comps: [Option<Expr>; 2] = [None, None];
+            for (i, arg) in call.arguments.iter().enumerate() {
+                let Some(expr) = arg.as_expression() else {
+                    return Err(ctx.err("get 参数不允许 spread", call));
+                };
+                let (e, ty) = parse_expr(ctx, expr)?;
+                if !ty.is_scalar_num() {
+                    return Err(ctx.err(
+                        format!("get 参数需要标量数值，得到 {ty:?}"),
+                        expr,
+                    ));
+                }
+                comps[i] = Some(e);
+            }
+            let [dx, dy] = [comps[0].take(), comps[1].take()];
+            return Ok((
+                Expr::ScanGet {
+                    dx: Box::new(dx.unwrap_or(Expr::LitF(0.0))),
+                    dy: Box::new(dy.unwrap_or(Expr::LitF(0.0))),
+                },
+                Ty::Vec4,
+            ));
+        }
         let Some((bid, cap)) = stdlib::lookup(name) else {
             return Err(ctx.err(format!("未知函数 `{name}`"), call));
         };

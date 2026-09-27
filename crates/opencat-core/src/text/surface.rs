@@ -1,9 +1,10 @@
 //! 离屏像素 surface + 真字体 2D 文本光栅化（脚本引擎 canvas 能力补全）。
 //!
-//! 参考实现 `index.html drawDissolve`（HyperFrames k3-promo，1240-1523 行）依赖
-//! 三个 DOM canvas 2D 能力：真字体 `fillText`、`measureText`（ink box）、
-//! `getImageData` 像素读回。本模块在 core 内以 fontdb + swash 直接实现这三者，
-//! 不依赖 Skia（core 无渲染后端）。
+//! 参考实现 `index.html` 的离屏 2D canvas（HyperFrames k3-promo，1240-1523
+//! 行）依赖三个 DOM canvas 2D 能力：真字体 `fillText`、`measureText`
+//! （ink box）、`getImageData` 像素读回。本模块在 core 内以 fontdb + swash
+//! 直接实现这三者，不依赖 Skia（core 无渲染后端）。surface 同时是脚本的
+//! render target（`runEffect` / `scanPass` / `bake` 的目标缓冲）。
 //!
 //! 语义锚定（canvas 2D / Chrome）：
 //! - advance = hmtx 横向步进之和，**无 kerning**（handoff §14.3-4：canvas
@@ -122,6 +123,45 @@ pub fn surface_get_rgba(id: &str, x: f64, y: f64, w: f64, h: f64) -> Result<Vec<
         }
         Ok(out)
     })
+}
+
+/// 整图读取（Arc 拷贝），供 render target 采样（lambda 的 surface child /
+/// bake 注册生成图像）。
+pub fn surface_rgba_arc(id: &str) -> Result<std::sync::Arc<[u8]>> {
+    with_surface(id, |surface| {
+        Ok(std::sync::Arc::from(surface.rgba.clone()))
+    })
+}
+
+/// 整图写回（尺寸必须与既有 surface 完全一致）——render target 的
+/// runEffect 写入口。
+pub fn surface_write_rgba(id: &str, width: u32, height: u32, rgba: Vec<u8>) -> Result<()> {
+    with_surface(id, |surface| {
+        if surface.width != width || surface.height != height {
+            bail!(
+                "surface `{id}`: write dims {width}x{height} != surface {}x{}",
+                surface.width,
+                surface.height
+            );
+        }
+        if rgba.len() != surface.rgba.len() {
+            bail!(
+                "surface `{id}`: write payload {} bytes != {}",
+                rgba.len(),
+                surface.rgba.len()
+            );
+        }
+        surface.rgba = rgba;
+        Ok(())
+    })
+}
+
+/// 就地访问整图缓冲（render target 的 scanPass 写入口）。
+pub fn surface_with_rgba_mut<R>(
+    id: &str,
+    f: impl FnOnce(u32, u32, &mut [u8]) -> Result<R>,
+) -> Result<R> {
+    with_surface(id, |surface| f(surface.width, surface.height, &mut surface.rgba))
 }
 
 /// `measureText` 的 ink-box 结果（CSS 单位 px，基线y向下）。

@@ -35,8 +35,8 @@ pub struct MutationStore {
     animate_entries: Vec<AnimateEntry>,
     morph_entries: Vec<MorphSvgEntry>,
     path_entries: Vec<PathMeasureEntry>,
-    /// Script-recorded generated images (canvas putImageData path, e.g. the
-    /// k3 dissolve rasters). NOT cleared by reset_for_frame: recorded during
+    /// Script-recorded generated images (canvas putImageData / script
+    /// `surface.bake` path). NOT cleared by reset_for_frame: recorded during
     /// script runs, drained once per frame by the render pipeline into the
     /// pipeline `GeneratedImageTable`. Ids must be deterministic per content.
     pending_generated_images: Vec<crate::ir::FrameGeneratedImage>,
@@ -156,7 +156,7 @@ impl MutationStore {
 
     /// Register a frame-scoped generated image WITHOUT recording a draw op —
     /// the pixels become available to later draws in the same frame (e.g. a
-    /// lambda-effect child sampling the dissolve field bake). Same idempotency
+    /// lambda-effect child sampling a baked render target). Same idempotency
     /// contract as [`Self::record_frame_generated_image`]: re-recording the
     /// same id with different pixels is a downstream hard error.
     pub fn register_frame_generated_image(

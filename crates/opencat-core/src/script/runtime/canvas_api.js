@@ -1561,7 +1561,9 @@
                     actualBoundingBoxLeft: m.ink_left,
                     actualBoundingBoxRight: m.ink_right,
                     actualBoundingBoxAscent: m.ink_ascent,
-                    actualBoundingBoxDescent: m.ink_descent
+                    actualBoundingBoxDescent: m.ink_descent,
+                    fontBoundingBoxAscent: m.font_ascent,
+                    fontBoundingBoxDescent: m.font_descent
                 };
             },
             fillText(text, x, y) {

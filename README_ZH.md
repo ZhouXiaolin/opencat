@@ -186,9 +186,6 @@ cargo run --bin opencat -- examples/profile-showcase.xml
 
 # 桌面播放器实时预览（macOS / Windows）
 cargo run --bin opencat-see -- path/to/input.xml
-
-# Hello World 示例
-cargo run --example hello_world
 ```
 
 > Web (WASM)：`cd crates/opencat-web/web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
@@ -349,12 +346,6 @@ cargo run --release --bin opencat -- examples/profile-showcase.xml
 
 ```bash
 cargo run --release --bin opencat-see -- path/to/input.xml
-```
-
-**Hello World：**
-
-```bash
-cargo run --example hello_world
 ```
 
 **Web（WASM）：**

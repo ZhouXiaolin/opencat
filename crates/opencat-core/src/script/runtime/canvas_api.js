@@ -849,7 +849,7 @@
                 return new RuntimeEffect(sksl);
             }
         },
-        /* 效果 lambda：统一 SKSL 与逐像素（溶解类）效果的编译型 DSL。
+        /* 效果 lambda：统一 SKSL 与逐像素效果的编译型 DSL。
            后端由 Rust 依 lambda 用到的内建自动派发（spec.backend 可强制）。 */
         Effect: {
             fromLambda(fn, spec) {

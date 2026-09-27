@@ -451,7 +451,44 @@
     function vis(id, on) { ctx.getNode(id).opacity(on ? 1 : 0); }
     function frac(v) { return v - Math.floor(v); }
 
-    /* ════════════ TYPE CALIBRATION (baked constants) ══════════════════
+    var FAM = '"Inter", "Helvetica Neue", Arial, sans-serif';  // index.html:438
+
+    /* inkMetrics (index.html:427-437) + natW/swapW (index.html:471-496) over the
+       real-font measure surface (1x1 — measurement never touches pixels).
+       Top-level so the type calibration, pill widths and the dissolve field
+       all share ONE measure stack (the same one the renderer rasterises with). */
+    var MSR = ctx.createSurface('k3dis-msr', 1, 1);
+    function inkM(weight, probe) {
+      MSR.font = weight + ' 100px ' + FAM;
+      MSR.letterSpacing = '0px';
+      var m = MSR.measureText(probe);
+      return { capAsc: m.actualBoundingBoxAscent / 100, desc: m.actualBoundingBoxDescent / 100,
+               fbAsc: m.fontBoundingBoxAscent / 100, fbDesc: m.fontBoundingBoxDescent / 100 };
+    }
+    function natW(weight, fs, ls, s) {
+      MSR.font = weight + ' ' + fs + 'px ' + FAM;
+      MSR.letterSpacing = ls + 'px';
+      return MSR.measureText(s).width;
+    }
+    function swapW(oldTarget, newStr, oldStr, fs, ls, weight) {
+      var wt = weight || 400;
+      return oldTarget * natW(wt, fs, ls || 0, newStr) / natW(wt, fs, ls || 0, oldStr);
+    }
+    /* reference natRun: Σ (measureText(c).width − 2.5) — identical to per-char
+       advance with ls=-2.5 (letterSpacing rides after every char). */
+    function natRunOf(s, fs) {
+      var t = 0, i;
+      for (i = 0; i < s.length; i++) t += natW(400, fs, -2.5, s[i]);
+      return t;
+    }
+    /* agent-pill offsetWidth replica: round(advance(26px w500 ls+0.2) + 14*2 +
+       1.5*2). Engine stack reproduces all five baked widths exactly
+       (parity harness k3_type_calibration_parity_report). */
+    var PILL_W = ['Agentic', 'Delta Attention', '1M Context', 'Vision', 'Coding'].map(function (l) {
+      return Math.round(natW(500, 26, 0.2, l) + 31);
+    });
+
+    /* ════════════ TYPE CALIBRATION (index.html:1356-1439) ═════════════
        The reference computes every calibrated run's font-size from a target
        cap height, then squeezes the run horizontally to an exact measured
        width (transform-origin 0 50% + left = centre - W/2). Our <text> box
@@ -459,20 +496,29 @@
        box CENTRE, so the equivalent is scaleX = W/advance_natural with
        left = centre - advance_natural/2.
 
-       Constants were derived offline with PIL from the bundled Inter faces:
-         capAsc = 0.7275 (1490/2048); with leading-none the baseline sits
-         0.86em below the node top, so nodeTop = capTop - 0.1325*fontSize.
-         advance(s) = getlength(s) + ls*len(s)  (ls applied after every char).
-       Font sizes / lefts / tops are baked into the classes below; only the
-       scaleX factors need the script. */
+       Squeeze factors the engine measure reproduces (parity harness, all
+       Δ <= 1.1e-5) are derived at runtime below; the rest stay baked —
+       their constants embed PIL-measured nats (kerned/hinted stack) that
+       the engine advance cannot reproduce to <0.5px: aline1 Δ-6.4e-4,
+       aline2 Δ+4.0e-4, t-649 Δ-1.6e-3, t-650 Δ-7.4e-4, btitle Δ+1.8e-2,
+       fw2/gw2 Δ-8.7e-3/-8.1e-3, gw3 Δ-2.2e-1, open family Δ~-4.5e-3.
+       Font sizes / lefts / tops stay in the classes: tops were calibrated
+       to a 0.86em baseline (Chrome true factor via fontBoundingBox is
+       0.86377em → +0.24..0.56px at our sizes — kept baked to preserve the
+       pixel-validated layout), and the F/G word lefts carry measured
+       corrections vs the stock fStart/gStart formulas (~9px, intentional). */
     var CAL_SCALEX = {
       aline1: 0.9963656, aline1p: 0.9963656,
       aline2: 0.9284404, aline2p: 0.9284404,
       opentext: 0.9391232, openmid: 0.9427169, openrem: 0.948126,
-      btitle: 0.961545, otxt: 0.9368873, 't-649': 0.9227896, 't-650': 1.046992,
-      fw1: 0.8777021, fw2: 0.8756328,
-      gw1: 0.8264503, gw2: 0.9546101, gw3: 0.8845424,
-      't-651': 0.9710805
+      btitle: 0.961545,
+      otxt: 663 / natRunOf('Every order', 133.3333),
+      't-649': 0.9227896, 't-650': 1.046992,
+      fw1: 246 / natW(400, 148.4536, -2.5, 'One'),
+      fw2: 0.8756328,
+      gw1: 260 / natW(400, 148.4536, -2.5, 'JTX.'),
+      gw2: 0.9546101, gw3: 0.8845424,
+      't-651': 132 / natW(500, 107.2165, -2.5, 'K3')
     };
     for (var calId in CAL_SCALEX) {
       var calN = ctx.getNode(calId);
@@ -927,12 +973,10 @@
         });
       });
       var pillIds = ['ap1', 'ap2', 'ap3', 'ap4', 'ap5'];
-      // pill box widths measured from the real DOM layout (scratch probe
-      // zz-pillwidth-probe renders the five .pill boxes at scale 1): text
-      // advance + px-14*2 + border 1.5*2. CK.Font(null,26).measureText is
-      // NOT usable here — it resolves to the system fallback font and
-      // returns ~59px for "Delta Attention" vs the real DOM width 219.
-      var pillW = [128, 219, 172, 109, 121];
+      // pill box widths = offsetWidth replica: round(advance(26px w500 ls+0.2) + px-14*2 +
+      // border 1.5*2) over the real-font surface measure (engine stack; parity harness
+      // reproduces all five baked widths exactly). bstack reuses the same map (bsw).
+      var pillW = PILL_W;
       // per-pill hstrip stripe phase (r18): Chrome rasterises each .hstrip's
       // repeating gradient with a per-element subpixel phase — static per pill,
       // frame-independent (measured f48/f56/f60/f96/f100, stripe-centre vs
@@ -1147,7 +1191,7 @@
         var bsCv = ctx.getCanvasById('bstack-canvas');
         if (bsCv) {
         bsCv.clear();
-        var bsw = [219, 121, 172, 109, 128], bst = [0, 113, 227, 340, 456];
+        var bsw = [PILL_W[1], PILL_W[4], PILL_W[2], PILL_W[3], PILL_W[0]], bst = [0, 113, 227, 340, 456];
         for (var bi = 0; bi < 5; bi++) {
           if (T < 4.6333 + bi * 0.0333) continue;
           var Wp = bsw[bi];
@@ -1410,10 +1454,13 @@
       }
       vis('otxt', T>= 7.9963); /* row takes over once the tracking settle ends (7.5663+0.43) */
       // otxt per-char entry: ow1 "Every" @7.5333, ow2 " modality" @7.5663 (ref tl.set autoAlpha);
-      // glyphs x=(i-6.5)*21 → 0, dur 0.43 power2.out(cubic). Run box = natRun 896.8357 flex-centred
-      // at card centre x=959, whole run squeezed by CAL otxt 0.9368873 about the box centre.
+      // glyphs x=(i-6.5)*21 → 0, dur 0.43 power2.out(cubic). Run box = natRun("Every modality")
+      // flex-centred at card centre x=959, whole run squeezed by 663/natRun("Every order")
+      // (calibrate-time string, index.html:1395-1400) about the box centre — the same
+      // derived values CAL_SCALEX.otxt applies to the run node (parity: oNat exact,
+      // oS Δ8.5e-6 vs the former baked 0.9368873).
       {
-        var oS = 0.9368873, oNat = 896.8357;
+        var oS = 663 / natRunOf('Every order', 133.3333), oNat = natRunOf('Every modality', 133.3333);
         var OCH = [
           ['oc0', 0.00, 80.14], ['oc1', 77.64, 74.93], ['oc2', 150.08, 77.73], ['oc3', 225.31, 50.20],
           ['oc4', 273.01, 74.93], null, /* space */
@@ -1670,26 +1717,9 @@
     var DIS_R = { X0: 232, Y0: 430, W: 1460, H: 222 };         // index.html:1253
     var CARD_TOP = 478, CARD_CAP = 108;                        // index.html:1177
     var FGB_TOP = 480, FGB_H = 119;                            // index.html:1175
-    var FAM = '"Inter", "Helvetica Neue", Arial, sans-serif';  // index.html:438
-
-    /* inkMetrics (index.html:427-437) + swapW (index.html:490-496) over the
-       real-font measure surface (1x1 — measurement never touches pixels). */
-    var MSR = ctx.createSurface('k3dis-msr', 1, 1);
-    function inkM(weight, probe) {
-      MSR.font = weight + ' 100px ' + FAM;
-      MSR.letterSpacing = '0px';
-      var m = MSR.measureText(probe);
-      return { capAsc: m.actualBoundingBoxAscent / 100, desc: m.actualBoundingBoxDescent / 100 };
-    }
-    function natW(weight, fs, ls, s) {
-      MSR.font = weight + ' ' + fs + 'px ' + FAM;
-      MSR.letterSpacing = ls + 'px';
-      return MSR.measureText(s).width;
-    }
-    function swapW(oldTarget, newStr, oldStr, fs, ls, weight) {
-      var wt = weight || 400;
-      return oldTarget * natW(wt, fs, ls || 0, newStr) / natW(wt, fs, ls || 0, oldStr);
-    }
+    /* measure helpers (FAM/MSR/inkM/natW/swapW/natRunOf/PILL_W) live top-level
+       above the type calibration — calibration, pills and this field share
+       one measure stack. */
 
     /* offscreen lockup raster + mask + chamfer distance field
        (index.html:1254-1314). Runs once: globalThis.DIS is defined

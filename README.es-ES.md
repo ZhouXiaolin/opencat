@@ -185,9 +185,6 @@ cargo run --bin opencat -- examples/profile-showcase.xml
 
 # Visor de vista previa de escritorio (macOS / Windows / Linux)
 cargo run --bin opencat-see -- path/to/input.xml
-
-# Ejemplo Hello World
-cargo run --example hello_world
 ```
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requiere un entorno `Cross-Origin-Isolated`.
@@ -348,12 +345,6 @@ cargo run --release --bin opencat -- examples/profile-showcase.xml
 
 ```bash
 cargo run --release --bin opencat-see -- path/to/input.xml
-```
-
-**Hello World:**
-
-```bash
-cargo run --example hello_world
 ```
 
 **Web (WASM):**

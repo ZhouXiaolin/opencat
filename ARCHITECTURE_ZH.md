@@ -48,19 +48,19 @@ deprecation wrapper。
 
 两种可互换的输入格式，最终都产生 `ParsedComposition`：
 
-**Markup (XML)** — `crates/opencat-core/src/parse/markup/`：
+**Markup (XML)** — `crates/opencat-core/src/parse/markup.rs`：
 ```rust
-parse::markup::parse(input)  // crates/opencat-core/src/parse/markup/mod.rs
+parse::markup::parse(input)
 ```
 支持 `<template>`、`<slot>`、`<transition>`、`<script>`、`<tl>` 等。模板在解析时展开。XML 路径经过 `parse::document::builder::build_parsed_document()` 产生 `ParsedDocumentParts` → 装配成 `ParsedComposition`。
 
 **JSONL** — `crates/opencat-core/src/parse/jsonl/mod.rs`：
 ```rust
-parse::jsonl::parse(input)  // crates/opencat-core/src/parse/jsonl/mod.rs:162
+parse::jsonl::parse(input)
 ```
 每行一个 JSON 对象。每行类型直接映射到 `ParsedElement`（Div、Text、Image、Video、Audio、Canvas、Icon、Path、Caption、Timeline、Transition）。然后调用 `build_tree()` 或 `build_tree_with_tl()` 组装节点树。
 
-两者产生相同的 `ParsedComposition`（`crates/opencat-core/src/parse/document.rs:132`）：
+两者产生相同的 `ParsedComposition`（`crates/opencat-core/src/parse/document.rs`）：
 ```rust
 pub struct ParsedComposition {
     pub width: i32,
@@ -242,7 +242,7 @@ let ordered_scene = OrderedSceneProgram::build(&annotated);
 
 ```rust
 render_display_tree(&mut ctx, &annotated, &mut cache)
-// crates/opencat-core/src/render/dispatch.rs:480
+// crates/opencat-core/src/render/dispatch.rs:482
 ```
 遍历 `OrderedSceneProgram`，向 `DrawOpBuilder` 发出 `DrawOp`。关键缓存机制：
 - **场景快照**：如果根指纹与上一帧匹配，直接返回缓存的 `DrawOpFrame`
@@ -316,23 +316,22 @@ JS 侧（`crates/opencat-web/web/src/draw-ir.ts`）：
 
 ```rust
 pub fn open(input: &str, loader: EngineLoader, scripts: RqJsContext) -> Result<EnginePipeline>
-// crates/opencat-engine/src/pipeline.rs:98
+// crates/opencat-engine/src/pipeline.rs:103
 ```
 Engine 的 `open` 函数实现了完整的 Host 链：
-1. 解析输入（markup 或 JSONL）
-2. `loader.load_font_manifest()` → 获取声明的字体字节
-3. `engine_font_db_with_document_fonts()` → 构建 `Arc<fontdb::Database>`
-4. `build_parsed_document()`（仅 markup，展开模板）
-5. `open_parsed_host_owned()`（下面的链）
+1. 解析输入（markup 走 `parse_parts_with_base_dir()` + `build_parsed_document()`，JSONL 走 `parse_with_base_dir()`）
+2. `loader.load_font_manifest()` → 获取声明的字体字节，`register_font_handles()` 注册缓存句柄（fontdb 合并在 core prepare 中进行）
+3. `open_parsed_host_owned_with_fonts()`（crate 内私有链，见下）
 
 ```rust
-pub fn open_parsed_host_owned(
+pub(crate) fn open_parsed_host_owned_with_fonts(
     parsed: ParsedComposition,
     mut loader: EngineLoader,
     scripts: RqJsContext,
-    font_db: Arc<fontdb::Database>,
-) -> Result<EnginePipeline>
-// crates/opencat-engine/src/pipeline.rs:141
+    font_bytes: Vec<Vec<u8>>,
+    font_bytes_by_face_id: HashMap<String, Vec<u8>>,
+) -> Result<EnginePipelineHost>
+// crates/opencat-engine/src/pipeline.rs:154
 ```
 1. `collect_resource_requests_from_parsed()`
 2. **Engine 获取资源**（通过 `EngineLoader`，文件系统读取 + 缓存）
@@ -344,12 +343,12 @@ pub fn open_parsed_host_owned(
 
 ```rust
 fn render_pipeline_frame_to_rgba(...) -> Result<Vec<u8>>
-// crates/opencat-engine/src/render.rs:61
+// crates/opencat-engine/src/render.rs:28
 ```
 1. `pipeline.render_frame(frame_index)` → `RenderFrame`
 2. 创建 Skia 光栅表面（`RasterN32Premul`）
 3. `EngineLoaderFrameConsumer::consume_frame()`：
-   - `prepare_frame()`（`crates/opencat-engine/src/consumer.rs:82`）：
+   - `prepare_frame()`（`crates/opencat-engine/src/consumer.rs:203`）：
      - 从文件路径解码静态图片 → Skia `Image`
      - 通过 `MediaContext::frame_rgba_at_time_by_path()` 寻址视频帧 → Skia `Image`
      - 从 SkSL 构建 `RuntimeEffect`
@@ -374,8 +373,8 @@ Engine 使用 `ffmpeg-next` 将渲染帧编码为 MP4。音频混音通过 `audi
 
 ```rust
 WebRenderer::open_design(&mut self, source: String) -> Result<String>
-// crates/opencat-web/src/wasm_bridge.rs:145
-// → open_design_pipeline() 第 414 行
+// crates/opencat-web/src/wasm_bridge.rs:88
+// → open_design_pipeline() 第 381 行
 ```
 1. `preload_assets(source)`（`crates/opencat-web/src/resource/wasm_api.rs:65`）：
    - 下载所有资源（字体、图片、视频、Lottie、字幕）
@@ -476,7 +475,7 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 | `crates/opencat-core/src/parse/` | XML/JSONL 解析 → `ParsedComposition` |
 | `crates/opencat-core/src/parse/composition.rs` | `Composition` 结构体（时间相关根节点） |
 | `crates/opencat-core/src/parse/node.rs` | `Node`（解析 AST，`Arc<NodeKind>`） |
-| `crates/opencat-core/src/parse/markup/` | XML 解析器（含模板） |
+| `crates/opencat-core/src/parse/markup.rs` | XML 解析器（含模板） |
 | `crates/opencat-core/src/parse/jsonl/` | JSONL 解析器 |
 | `crates/opencat-core/src/parse/jsonl/tailwind.rs` | Tailwind class → `NodeStyle` |
 | `crates/opencat-core/src/probe/prepare.rs` | `hydrate_captions()`、`parse_srt()` |
@@ -484,12 +483,13 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 | `crates/opencat-core/src/resolve/tree.rs` | `resolve_ui_tree()` → `ElementNode` |
 | `crates/opencat-core/src/layout/mod.rs` | `LayoutSession`（Taffy + Merkle 缓存） |
 | `crates/opencat-core/src/display/build.rs` | `DisplayBuildSession` → `DisplayTree` |
-| `crates/opencat-core/src/render/analyze.rs` | 指纹分析、重用决策 |
-| `crates/opencat-core/src/render/scene.rs` | `OrderedSceneProgram` |
+| `crates/opencat-core/src/analyze/` | 指纹分析、重用决策（annotation / compositor / fingerprint / invalidation） |
+| `crates/opencat-core/src/analyze/compositor.rs` | `OrderedSceneProgram` |
 | `crates/opencat-core/src/render/dispatch.rs` | `render_display_tree()` → `DrawOp` 发射 |
 | `crates/opencat-core/src/render/builder.rs` | `DrawOpBuilder`（侧表内联） |
 | `crates/opencat-core/src/render/media_plan.rs` | `build_media_plan()` |
-| `crates/opencat-core/src/render/cache/` | `RenderCache`（场景/段/节点自有缓存） |
+| `crates/opencat-core/src/cache/lru.rs` | `BoundedLruCache` |
+| `crates/opencat-core/src/ir/cache.rs` | `RenderCache`（DrawOp IR 段缓存） |
 | `crates/opencat-core/src/ir/draw_op.rs` | `DrawOp` 枚举（规范绘制 IR） |
 | `crates/opencat-core/src/ir/draw_types.rs` | 侧表 ID 类型（`PaintId`、`PathId`、`EffectId` 等） |
 | `crates/opencat-core/src/ir/draw_frame.rs` | `DrawOpFrame`、`RenderFrame` |
@@ -504,14 +504,14 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 | `crates/opencat-core/src/canvas/` | Paint/Shader/Canvas API 规范 |
 | `crates/opencat-core/src/script/` | 脚本运行时（动画引擎） |
 | `crates/opencat-core/src/script/effects_lambda/` | 效果 lambda DSL（解析 → 白名单 → IR → SKSL/CPU 派发；scan 类 = CPU 就地顺序扫描） |
-| `crates/opencat-core/src/style/` | `NodeStyle`（Tailwind → 样式） |
+| `crates/opencat-core/src/style.rs` | `NodeStyle`（样式模型） |
 | `crates/opencat-core/src/text/` | 文字排版、字体数据库、emoji |
 | `crates/opencat-engine/src/pipeline.rs` | `EnginePipeline`、`open()`、`open_parsed_host_owned()` |
 | `crates/opencat-engine/src/render.rs` | `render_pipeline_frame_to_rgba()`、完整 MP4 渲染 |
 | `crates/opencat-engine/src/executor/` | `EngineDrawExecutor`（DrawOp → Skia Canvas） |
 | `crates/opencat-engine/src/consumer.rs` | `EngineLoaderFrameConsumer`（解码 + 执行） |
 | `crates/opencat-engine/src/resource/` | `EngineLoader`（文件系统资源） |
-| `crates/opencat-engine/src/audio_plan.rs` | Engine 音频混音 |
+| `crates/opencat-engine/src/media/` | 媒体解码/编码/seek、视频缓存、音频混音 |
 | `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness、`compute_ssim_rgba()` |
 | `crates/opencat-web/src/wasm_bridge.rs` | `WebRenderer`（open_design、build_frame_ir） |
 | `crates/opencat-web/src/resource/` | Web 资源获取（fetch API、BlobStore） |

@@ -148,7 +148,7 @@
         </div>
         <!-- corner qmarks: makeQmarks("cqmarks", …) (index.html:1035) drawn on one
              canvas in cpanel space (the .sq/.lv/.lh divs carry the global GSAP set
-             x:-23 y:66, index.html:1527-1529 — baked into drawQmarks coords) -->
+             x:-23 y:66, index.html:1527-1529 — applied as QX/QY in drawQmarks) -->
         <stage-canvas id="cqmarks-canvas" />
       </div>
     </div>
@@ -263,7 +263,7 @@
           <tick id="d-557" h="15px" />
         </div>
         <!-- deqmarks: makeQmarks + makePlusses (index.html:1171-1172), same global
-             (-23,+66) offset baked in; fades with the D/E layer (index.html:1710) -->
+             (-23,+66) offset via QX/QY; fades with the D/E layer (index.html:1710) -->
         <stage-canvas id="deqmarks-canvas" />
       </div>
     </div>
@@ -302,13 +302,14 @@
          per-frame scramble as a lambda-effect drawRect. Rust owns only
          generic executors — no pixel buffer crosses the JS bridge and no
          effect algorithm is hardcoded there (§render target).
-         hbox CSS bakes the GSAP set x:-23 y:66 (index.html:1742) offset. -->
+         hbox keeps its source CSS position (index.html:165, left 400 top 265);
+         the GSAP set x:-23 y:66 (index.html:1742-1746) rides the node transform. -->
     <div id="sceneHI" class="absolute inset-0 z-[2] opacity-0">
       <!-- g2qmarks (makeQmarks/makePlusses index.html:1195-1196) live in #gfurn2,
            the FIRST child of sceneHI — must paint under hbox/iwordmark -->
       <stage-canvas id="g2qmarks-canvas" />
       <!-- wireframe dissolve box -->
-      <div id="hbox" class="absolute border-[1px] border-[#6a6a6a] overflow-hidden left-[377px] top-[331px] w-[1150px] h-[385px] opacity-0">
+      <div id="hbox" class="absolute border-[1px] border-[#6a6a6a] overflow-hidden left-[400px] top-[265px] w-[1150px] h-[385px] opacity-0">
         <cdot id="d-558" s="12px" c="#e6e6e6" class="-left-[24px] -top-[24px]" />
         <cdot id="d-559" s="12px" c="#e6e6e6" class="-right-[24px] -top-[24px]" />
         <cdot id="d-560" s="12px" c="#e6e6e6" class="-left-[24px] -bottom-[24px]" />
@@ -1172,26 +1173,29 @@
 
     /* ═══ corner marks + ruler strips ═══════════════════════════════════
        makeQmarks / makePlusses (index.html:519-546,563-566) and makeStrip
-       (index.html:499-520). The global `gsap.set(".sq"|".qmark .lv"|".lh"|
-       ".plusm", { x:-23, y:66 })` (index.html:1527-1532) is BAKED into every
-       coordinate here — the reference displaces all four furniture classes
-       by the same offset, so screen positions are source coords + (-23,+66). */
+       (index.html:499-520), plus the reference's global
+       `gsap.set(".sq"|".qmark .lv"|".lh"|".plusm", { x:-23, y:66 })`
+       (index.html:1527-1532) applied here as the QX/QY offset — all four
+       furniture classes displace by the same (-23,+66), so screen rects
+       = source coords + QOFF. */
+    var QX = -23, QY = 66; // gsap.set x/y, index.html:1527-1532
     function drawQmarks(cv, pts) {
       var sq = new CK.Paint(); sq.setStyle(CK.PaintStyle.Fill); sq.setColor(CK.parseColorString('#b9b9bc'));
       var ln = new CK.Paint(); ln.setStyle(CK.PaintStyle.Fill); ln.setColor(CK.parseColorString('#9a9a9e'));
       for (var i = 0; i < pts.length; i++) {
         var cx = pts[i][0], cy = pts[i][1], fx = pts[i][2], fy = pts[i][3];
-        cv.drawRect([cx - 29.5, cy + 59.5, cx - 16.5, cy + 72.5], sq);
-        var lvx = cx + (fx> 0 ? -13.5 : -40.5), lvy = cy + (fy> 0 ? 76.5 : 31.5);
+        var bx = cx - 6.5 + QX, by = cy - 6.5 + QY; // .sq anchor (13x13)
+        cv.drawRect([bx, by, bx + 13, by + 13], sq);
+        var lvx = bx + (fx> 0 ? 16 : -11), lvy = by + (fy> 0 ? 17 : -28);
         cv.drawRect([lvx, lvy, lvx + 1.5, lvy + 20], ln);
-        var lhx = cx + (fx> 0 ? -9.5 : -56.5), lhy = cy + (fy> 0 ? 75.5 : 49.5);
+        var lhx = bx + (fx> 0 ? 20 : -27), lhy = by + (fy> 0 ? 16 : -10);
         cv.drawRect([lhx, lhy, lhx + 20, lhy + 1.5], ln);
       }
     }
     function drawPlusses(cv, pts, size, op) {
       var p = new CK.Paint(); p.setStyle(CK.PaintStyle.Fill); p.setColor(CK.Color(207, 207, 210, op));
       for (var i = 0; i < pts.length; i++) {
-        var px = pts[i][0] - 23, py = pts[i][1] + 66, h = size / 2;
+        var px = pts[i][0] + QX, py = pts[i][1] + QY, h = size / 2; // .plusm center
         cv.drawRect([px - 0.5, py - h, px + 0.5, py + h], p);
         cv.drawRect([px - h, py - 0.5, px + h, py + 0.5], p);
       }
@@ -1963,6 +1967,11 @@
     var HI_ON = (T>= 13.7);
     vis('sceneHI', HI_ON);
     if (HI_ON) {
+      // gsap.set("#hbox", { x:-23, y:66 }) (index.html:1742-1746): the box CSS
+      // stays at its source position (400,265); the offset rides the transform,
+      // translate before scale (CSS/GSAP order)
+      ctx.getNode('hbox').translateX(-23);
+      ctx.getNode('hbox').translateY(66);
       // wireframe box pop-in (13.74→13.86 power2.out), shrink+fade (14.6→14.74 power2.in)
       if (T < 13.74) ctx.getNode('hbox').opacity(0);
       else if (T < 13.86) { var hp = clamp((T - 13.74) / 0.12, 0, 1); ctx.getNode('hbox').opacity(1); ctx.getNode('hbox').scale(0.94 + 0.06 * hp * (2 - hp)); }

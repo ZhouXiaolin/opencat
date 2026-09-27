@@ -9,6 +9,14 @@
     <font id="k3-mono-bold" family="JetBrains Mono" path="../assets/JetBrainsMono-Bold.ttf" role="mono" />
   </fonts>
 
+  <!-- ═══ 结构模板：解析前展开（markup::expand_markup_templates），运行时只见普通节点。
+       公共 class 收拢于此，调用点只传差异参数。渲染与展开前逐字节一致。 -->
+  <template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+  <template name="tick"><div id="$id" class="w-[2px] h-[$h] bg-[#cfcfd2] $mb"></div></template>
+  <template name="cbar"><div id="bar-$n" class="absolute left-0 top-[$top] w-[0px] h-[38px] bg-[linear-gradient(90deg,$g)]"><div id="pale-$n" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]"></div></div></template>
+  <template name="oc-letter"><text id="oc$n" class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">$t</text></template>
+  <template name="agent-pill"><div id="$id" class="absolute left-[0] top-[0] opacity-0"><div id="$id-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="$id-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">$t</text></div></div></template>
+
   <!-- k3-promo: single continuous stage (no tl/transition); every layer is
        made visible inside its time window via opacity, driven by ctx.time.
        Layer z mirrors the source data-track-index: ghostcols(1) < sceneA/DE/HI(2)
@@ -17,7 +25,7 @@
 
     <!-- ═══ ghost order-book columns (track 1, window 4.583→7.35s) ═══ -->
     <div id="ghostcols" class="absolute inset-0 z-[1] opacity-0">
-      <canvas id="ghostcols-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+      <stage-canvas id="ghostcols-canvas" />
     </div>
 
     <!-- ═══ SCENE A: node field (track 2, window 0.75→4.62s) ═══ -->
@@ -26,7 +34,7 @@
       <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
         <!-- white lattice field, masked by a radial gradient -->
         <div id="afield" class="absolute inset-0">
-          <canvas id="afield-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+          <stage-canvas id="afield-canvas" />
         </div>
         <!-- field edge fade overlay (CSS mask-image not supported, use overlay) -->
         <div id="afield-mask" class="absolute inset-0 bg-[radial-gradient(ellipse_64%_70%_at_50%_50%,transparent_52%,#010101_100%)]"></div>
@@ -43,7 +51,7 @@
         </div>
         <div id="apwrap" class="absolute inset-0 opacity-0">
           <div id="afieldp" class="absolute inset-0">
-            <canvas id="afieldp-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+            <stage-canvas id="afieldp-canvas" />
           </div>
           <!-- afieldp-mask overlay REMOVED (r12): the reference masks #afieldp
                with CSS mask-image, which multiplies only the subtree's own
@@ -65,12 +73,12 @@
       </div>
       <!-- pills sit OUTSIDE the zoom layer (screen-space orbit) -->
       <div id="apills" class="absolute inset-0">
-        <canvas id="apill-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
-        <div id="ap1" class="absolute left-[0] top-[0] opacity-0"><div id="ap1-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="ap1-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Agentic</text></div></div>
-        <div id="ap2" class="absolute left-[0] top-[0] opacity-0"><div id="ap2-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="ap2-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Delta Attention</text></div></div>
-        <div id="ap3" class="absolute left-[0] top-[0] opacity-0"><div id="ap3-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="ap3-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">1M Context</text></div></div>
-        <div id="ap4" class="absolute left-[0] top-[0] opacity-0"><div id="ap4-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="ap4-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Vision</text></div></div>
-        <div id="ap5" class="absolute left-[0] top-[0] opacity-0"><div id="ap5-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="ap5-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Coding</text></div></div>
+        <stage-canvas id="apill-canvas" />
+        <agent-pill id="ap1" t="Agentic" />
+        <agent-pill id="ap2" t="Delta Attention" />
+        <agent-pill id="ap3" t="1M Context" />
+        <agent-pill id="ap4" t="Vision" />
+        <agent-pill id="ap5" t="Coding" />
       </div>
       <!-- A furniture (ruler strips). makeStrip (index.html:499-520) sets i/b
            opacity on the CHILDREN (i op.9 / b op.7 — already in paint alpha);
@@ -117,29 +125,29 @@
           <text id="t-648" class="absolute text-[#89cfba] left-[687px] top-[0] text-[47px]">↓ 25% cost</text>
         </div>
         <div id="cbars" class="absolute left-[467px] top-[443px] w-[700px] h-[700px] overflow-hidden">
-          <div id="bar-0" class="absolute left-0 top-[0px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-0" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-1" class="absolute left-0 top-[38px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-1" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-2" class="absolute left-0 top-[76px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-2" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-3" class="absolute left-0 top-[114px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#3f74bf,#102a52)]"><div id="pale-3" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-4" class="absolute left-0 top-[152px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-4" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-5" class="absolute left-0 top-[190px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-5" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-6" class="absolute left-0 top-[228px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-6" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-7" class="absolute left-0 top-[266px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-7" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-8" class="absolute left-0 top-[304px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#3f74bf,#102a52)]"><div id="pale-8" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-9" class="absolute left-0 top-[342px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-9" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-10" class="absolute left-0 top-[380px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-10" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-11" class="absolute left-0 top-[418px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-11" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-12" class="absolute left-0 top-[456px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-12" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-13" class="absolute left-0 top-[494px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#3f74bf,#102a52)]"><div id="pale-13" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-14" class="absolute left-0 top-[532px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-14" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-15" class="absolute left-0 top-[570px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#254a7e,#0a1830)]"><div id="pale-15" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-16" class="absolute left-0 top-[608px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#1a8a6a,#0b3d2e)]"><div id="pale-16" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
-          <div id="bar-17" class="absolute left-0 top-[646px] w-[0px] h-[38px] bg-[linear-gradient(90deg,#1a8a6a,#0b3d2e)]"><div id="pale-17" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]" /></div>
+          <cbar n="0" top="0px" g="#254a7e,#0a1830" />
+          <cbar n="1" top="38px" g="#254a7e,#0a1830" />
+          <cbar n="2" top="76px" g="#254a7e,#0a1830" />
+          <cbar n="3" top="114px" g="#3f74bf,#102a52" />
+          <cbar n="4" top="152px" g="#254a7e,#0a1830" />
+          <cbar n="5" top="190px" g="#254a7e,#0a1830" />
+          <cbar n="6" top="228px" g="#254a7e,#0a1830" />
+          <cbar n="7" top="266px" g="#254a7e,#0a1830" />
+          <cbar n="8" top="304px" g="#3f74bf,#102a52" />
+          <cbar n="9" top="342px" g="#254a7e,#0a1830" />
+          <cbar n="10" top="380px" g="#254a7e,#0a1830" />
+          <cbar n="11" top="418px" g="#254a7e,#0a1830" />
+          <cbar n="12" top="456px" g="#254a7e,#0a1830" />
+          <cbar n="13" top="494px" g="#3f74bf,#102a52" />
+          <cbar n="14" top="532px" g="#254a7e,#0a1830" />
+          <cbar n="15" top="570px" g="#254a7e,#0a1830" />
+          <cbar n="16" top="608px" g="#1a8a6a,#0b3d2e" />
+          <cbar n="17" top="646px" g="#1a8a6a,#0b3d2e" />
         </div>
         <!-- corner qmarks: makeQmarks("cqmarks", …) (index.html:1035) drawn on one
              canvas in cpanel space (the .sq/.lv/.lh divs carry the global GSAP set
              x:-23 y:66, index.html:1527-1529 — baked into drawQmarks coords) -->
-        <canvas id="cqmarks-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+        <stage-canvas id="cqmarks-canvas" />
       </div>
     </div>
 
@@ -179,19 +187,19 @@
                shows at 7.5333, ow2 " modality" at 7.5663; glyphs start at x=(i-6.5)*21 and
                settle to 0 by 7.9963 via power2.out). Advances = Inter-Regular hmtx @133.3333px
                (fontTools), cum includes the -2.5 letter-spacing per char; run width 896.8357. -->
-          <text id="oc0"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">E</text>
-          <text id="oc1"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">v</text>
-          <text id="oc2"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">e</text>
-          <text id="oc3"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">r</text>
-          <text id="oc4"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">y</text>
-          <text id="oc6"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">m</text>
-          <text id="oc7"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">o</text>
-          <text id="oc8"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">d</text>
-          <text id="oc9"  class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">a</text>
-          <text id="oc10" class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">l</text>
-          <text id="oc11" class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">i</text>
-          <text id="oc12" class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">t</text>
-          <text id="oc13" class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">y</text>
+          <oc-letter n="0" t="E" />
+          <oc-letter n="1" t="v" />
+          <oc-letter n="2" t="e" />
+          <oc-letter n="3" t="r" />
+          <oc-letter n="4" t="y" />
+          <oc-letter n="6" t="m" />
+          <oc-letter n="7" t="o" />
+          <oc-letter n="8" t="d" />
+          <oc-letter n="9" t="a" />
+          <oc-letter n="10" t="l" />
+          <oc-letter n="11" t="i" />
+          <oc-letter n="12" t="t" />
+          <oc-letter n="13" t="y" />
         </div>
         <!-- left flanking box: "Every market" -->
         <div id="mktgrp" class="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[130px] top-[437px] w-[520px] h-[183px] opacity-0">
@@ -229,32 +237,32 @@
       <!-- D/E furniture -->
       <div id="furnDE" class="absolute inset-0">
         <div id="stripDL" class="absolute left-[75px] top-[533px] flex items-end gap-[6px] opacity-90">
-          <div id="d-520" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-521" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-522" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-523" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-524" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-525" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-526" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-527" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-528" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-529" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-530" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-531" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-532" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-533" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-534" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-535" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-536" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-537" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-538" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div>
+          <tick id="d-520" h="15px" /><tick id="d-521" h="7px" mb="mb-[3px]" />
+          <tick id="d-522" h="15px" /><tick id="d-523" h="7px" mb="mb-[3px]" />
+          <tick id="d-524" h="15px" /><tick id="d-525" h="7px" mb="mb-[3px]" />
+          <tick id="d-526" h="15px" /><tick id="d-527" h="7px" mb="mb-[3px]" />
+          <tick id="d-528" h="15px" /><tick id="d-529" h="7px" mb="mb-[3px]" />
+          <tick id="d-530" h="15px" /><tick id="d-531" h="7px" mb="mb-[3px]" />
+          <tick id="d-532" h="15px" /><tick id="d-533" h="7px" mb="mb-[3px]" />
+          <tick id="d-534" h="15px" /><tick id="d-535" h="7px" mb="mb-[3px]" />
+          <tick id="d-536" h="15px" /><tick id="d-537" h="7px" mb="mb-[3px]" />
+          <tick id="d-538" h="15px" />
         </div>
         <div id="stripDR" class="absolute left-[1700px] top-[533px] flex items-end gap-[6px] opacity-90">
-          <div id="d-539" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-540" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-541" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-542" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-543" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-544" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-545" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-546" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-547" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-548" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-549" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-550" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-551" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-552" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-553" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-554" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-555" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div><div id="d-556" class="w-[2px] h-[7px] bg-[#cfcfd2] mb-[3px]"></div>
-          <div id="d-557" class="w-[2px] h-[15px] bg-[#cfcfd2]"></div>
+          <tick id="d-539" h="15px" /><tick id="d-540" h="7px" mb="mb-[3px]" />
+          <tick id="d-541" h="15px" /><tick id="d-542" h="7px" mb="mb-[3px]" />
+          <tick id="d-543" h="15px" /><tick id="d-544" h="7px" mb="mb-[3px]" />
+          <tick id="d-545" h="15px" /><tick id="d-546" h="7px" mb="mb-[3px]" />
+          <tick id="d-547" h="15px" /><tick id="d-548" h="7px" mb="mb-[3px]" />
+          <tick id="d-549" h="15px" /><tick id="d-550" h="7px" mb="mb-[3px]" />
+          <tick id="d-551" h="15px" /><tick id="d-552" h="7px" mb="mb-[3px]" />
+          <tick id="d-553" h="15px" /><tick id="d-554" h="7px" mb="mb-[3px]" />
+          <tick id="d-555" h="15px" /><tick id="d-556" h="7px" mb="mb-[3px]" />
+          <tick id="d-557" h="15px" />
         </div>
         <!-- deqmarks: makeQmarks + makePlusses (index.html:1171-1172), same global
              (-23,+66) offset baked in; fades with the D/E layer (index.html:1710) -->
-        <canvas id="deqmarks-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+        <stage-canvas id="deqmarks-canvas" />
       </div>
     </div>
 
@@ -279,8 +287,8 @@
         <!-- F/G furniture canvases: makeStrip stripFL/FR (index.html:1185-1186) and
              stripGL/GR + gqmarks + plusses (index.html:1187-1188,1189); hosts
              #ffurn (11.633→12.717) / #gfurn (12.7297→clip end) gate visibility -->
-        <canvas id="ffurn-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
-        <canvas id="gfurn-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+        <stage-canvas id="ffurn-canvas" />
+        <stage-canvas id="gfurn-canvas" />
       </div>
     </div>
 
@@ -296,7 +304,7 @@
     <div id="sceneHI" class="absolute inset-0 z-[2] opacity-0">
       <!-- g2qmarks (makeQmarks/makePlusses index.html:1195-1196) live in #gfurn2,
            the FIRST child of sceneHI — must paint under hbox/iwordmark -->
-      <canvas id="g2qmarks-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+      <stage-canvas id="g2qmarks-canvas" />
       <!-- wireframe dissolve box -->
       <div id="hbox" class="absolute border-[1px] border-[#6a6a6a] overflow-hidden left-[377px] top-[331px] w-[1150px] h-[385px] opacity-0">
         <div id="d-558" class="absolute -left-[24px] -top-[24px] w-[12px] h-[12px] bg-[#e6e6e6]"></div>
@@ -354,52 +362,52 @@
       <div id="idashR" class="absolute h-[3px] bg-[#a9a9ac] left-[1172px] top-[538px] w-[30px] opacity-0"></div>
       <!-- ifurn: makeStrip stripIL/IR + iqmarks + plusses (index.html:1197-1200),
            shown 15.3→15.46 (tl.to #ifurn autoAlpha 1, index.html:1771) -->
-      <canvas id="ifurn-canvas" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas>
+      <stage-canvas id="ifurn-canvas" />
     </div>
 
     <!-- ═══ OPEN brace card (track 9, window 0→1.12s) — on top at start ═══ -->
     <div id="opencard" class="absolute inset-0 z-[9] opacity-0">
       <div id="stripOL" class="absolute left-[32px] top-[528px] flex items-end gap-[6.8px] opacity-90">
-        <div id="d-566" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-567" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-568" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-569" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-570" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-571" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-572" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-573" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-574" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-575" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-576" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-577" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-578" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-579" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-580" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-581" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-582" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-583" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-584" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-585" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-586" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-587" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-588" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-589" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-590" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-591" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-592" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-593" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-594" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-595" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-596" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-597" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-598" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-599" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-600" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-601" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-602" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div>
+        <tick id="d-566" h="23px" /><tick id="d-567" h="10px" mb="mb-[6px]" />
+        <tick id="d-568" h="23px" /><tick id="d-569" h="10px" mb="mb-[6px]" />
+        <tick id="d-570" h="23px" /><tick id="d-571" h="10px" mb="mb-[6px]" />
+        <tick id="d-572" h="23px" /><tick id="d-573" h="10px" mb="mb-[6px]" />
+        <tick id="d-574" h="23px" /><tick id="d-575" h="10px" mb="mb-[6px]" />
+        <tick id="d-576" h="23px" /><tick id="d-577" h="10px" mb="mb-[6px]" />
+        <tick id="d-578" h="23px" /><tick id="d-579" h="10px" mb="mb-[6px]" />
+        <tick id="d-580" h="23px" /><tick id="d-581" h="10px" mb="mb-[6px]" />
+        <tick id="d-582" h="23px" /><tick id="d-583" h="10px" mb="mb-[6px]" />
+        <tick id="d-584" h="23px" /><tick id="d-585" h="10px" mb="mb-[6px]" />
+        <tick id="d-586" h="23px" /><tick id="d-587" h="10px" mb="mb-[6px]" />
+        <tick id="d-588" h="23px" /><tick id="d-589" h="10px" mb="mb-[6px]" />
+        <tick id="d-590" h="23px" /><tick id="d-591" h="10px" mb="mb-[6px]" />
+        <tick id="d-592" h="23px" /><tick id="d-593" h="10px" mb="mb-[6px]" />
+        <tick id="d-594" h="23px" /><tick id="d-595" h="10px" mb="mb-[6px]" />
+        <tick id="d-596" h="23px" /><tick id="d-597" h="10px" mb="mb-[6px]" />
+        <tick id="d-598" h="23px" /><tick id="d-599" h="10px" mb="mb-[6px]" />
+        <tick id="d-600" h="23px" /><tick id="d-601" h="10px" mb="mb-[6px]" />
+        <tick id="d-602" h="23px" />
       </div>
       <div id="stripOR" class="absolute left-[1627px] top-[528px] flex items-end gap-[6.8px] opacity-90">
-        <div id="d-603" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-604" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-605" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-606" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-607" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-608" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-609" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-610" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-611" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-612" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-613" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-614" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-615" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-616" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-617" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-618" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-619" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-620" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-621" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-622" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-623" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-624" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-625" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-626" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-627" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-628" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-629" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-630" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-631" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-632" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-633" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-634" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-635" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-636" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-637" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div><div id="d-638" class="w-[2px] h-[10px] bg-[#cfcfd2] mb-[6px]"></div>
-        <div id="d-639" class="w-[2px] h-[23px] bg-[#cfcfd2]"></div>
+        <tick id="d-603" h="23px" /><tick id="d-604" h="10px" mb="mb-[6px]" />
+        <tick id="d-605" h="23px" /><tick id="d-606" h="10px" mb="mb-[6px]" />
+        <tick id="d-607" h="23px" /><tick id="d-608" h="10px" mb="mb-[6px]" />
+        <tick id="d-609" h="23px" /><tick id="d-610" h="10px" mb="mb-[6px]" />
+        <tick id="d-611" h="23px" /><tick id="d-612" h="10px" mb="mb-[6px]" />
+        <tick id="d-613" h="23px" /><tick id="d-614" h="10px" mb="mb-[6px]" />
+        <tick id="d-615" h="23px" /><tick id="d-616" h="10px" mb="mb-[6px]" />
+        <tick id="d-617" h="23px" /><tick id="d-618" h="10px" mb="mb-[6px]" />
+        <tick id="d-619" h="23px" /><tick id="d-620" h="10px" mb="mb-[6px]" />
+        <tick id="d-621" h="23px" /><tick id="d-622" h="10px" mb="mb-[6px]" />
+        <tick id="d-623" h="23px" /><tick id="d-624" h="10px" mb="mb-[6px]" />
+        <tick id="d-625" h="23px" /><tick id="d-626" h="10px" mb="mb-[6px]" />
+        <tick id="d-627" h="23px" /><tick id="d-628" h="10px" mb="mb-[6px]" />
+        <tick id="d-629" h="23px" /><tick id="d-630" h="10px" mb="mb-[6px]" />
+        <tick id="d-631" h="23px" /><tick id="d-632" h="10px" mb="mb-[6px]" />
+        <tick id="d-633" h="23px" /><tick id="d-634" h="10px" mb="mb-[6px]" />
+        <tick id="d-635" h="23px" /><tick id="d-636" h="10px" mb="mb-[6px]" />
+        <tick id="d-637" h="23px" /><tick id="d-638" h="10px" mb="mb-[6px]" />
+        <tick id="d-639" h="23px" />
       </div>
       <!-- braces + headline centered in the 698px brace box -->
       <text id="obl" class="absolute font-[k3-sans-light] text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{</text>

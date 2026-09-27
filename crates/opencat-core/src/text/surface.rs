@@ -177,6 +177,11 @@ pub struct InkMetrics {
     pub ink_ascent: f64,
     /// 基线到 ink 底缘，向下为正（canvas `actualBoundingBoxDescent`）。
     pub ink_descent: f64,
+    /// 基线到字体盒顶缘，向上为正（canvas `fontBoundingBoxAscent`；hhea/OS/2
+    /// typo 垂直度量 × size/upem，与文本内容无关）。
+    pub font_ascent: f64,
+    /// 基线到字体盒底缘，向下为正（canvas `fontBoundingBoxDescent`）。
+    pub font_descent: f64,
 }
 
 /// 以 scoped 字体库（`scope_font_db`）解析 family+weight → swash `FontRef`。
@@ -243,6 +248,12 @@ pub fn surface_measure_text(
     letter_spacing: f64,
 ) -> Result<InkMetrics> {
     with_resolved_font(family, weight, |font| {
+        // 字体盒（fontBoundingBox）：swash 已按 USE_TYPO_METRICS 优先取 OS/2
+        // typo 垂直度量，否则 hhea（Chrome/Skia 同口径）；descent 恒正。
+        let fm = font.metrics(&[]);
+        let font_scale = size_px / f64::from(fm.units_per_em);
+        let font_ascent = f64::from(fm.ascent) * font_scale;
+        let font_descent = f64::from(fm.descent) * font_scale;
         if text.is_empty() {
             return Ok(InkMetrics {
                 width: 0.0,
@@ -250,6 +261,8 @@ pub fn surface_measure_text(
                 ink_right: 0.0,
                 ink_ascent: 0.0,
                 ink_descent: 0.0,
+                font_ascent,
+                font_descent,
             });
         }
         let (placed, width) = layout_text(font, text, size_px, letter_spacing);
@@ -284,6 +297,8 @@ pub fn surface_measure_text(
                 ink_right: 0.0,
                 ink_ascent: 0.0,
                 ink_descent: 0.0,
+                font_ascent,
+                font_descent,
             });
         }
         Ok(InkMetrics {
@@ -293,6 +308,8 @@ pub fn surface_measure_text(
             ink_right: ink_r,
             ink_ascent: ink_t,
             ink_descent: -ink_b,
+            font_ascent,
+            font_descent,
         })
     })
 }
@@ -495,6 +512,146 @@ mod tests {
         super::super::scope_font_db(&inter_font_db(), || {
             let err = surface_measure_text("A", "NoSuchFamily", 400, 20.0, 0.0).unwrap_err();
             assert!(err.to_string().contains("no font face"));
+        });
+    }
+
+    /// k3-promo 量测对拍 harness：引擎 measureText 推导值 vs XML 烘焙常数
+    /// （calibrateType 移植接线前的逐值校验；接线只接 <0.5px 级子项）。
+    /// `cargo test -p opencat-core k3_type_calibration -- --nocapture`
+    fn db3() -> fontdb::Database {
+        let mut db = fontdb::Database::new();
+        db.load_font_data(include_bytes!("../../../../assets/Inter-Light.ttf").to_vec());
+        db.load_font_data(include_bytes!("../../../../assets/Inter-Regular.ttf").to_vec());
+        db.load_font_data(include_bytes!("../../../../assets/Inter-Medium.ttf").to_vec());
+        db
+    }
+
+    #[test]
+    fn k3_type_calibration_parity_report() {
+        super::super::scope_font_db(&db3(), || {
+            let m = |text: &str, weight: u32, size: f64, ls: f64| {
+                surface_measure_text(text, "Inter", weight, size, ls).unwrap()
+            };
+            let cap_asc = m("H", 400, 100.0, 0.0).ink_ascent / 100.0;
+            let brace = m("{", 300, 100.0, 0.0);
+            let brace_total = (brace.ink_ascent + brace.ink_descent) / 100.0;
+            let fb_asc = m("H", 400, 100.0, 0.0).font_ascent / 100.0;
+            let fb_desc = m("H", 400, 100.0, 0.0).font_descent / 100.0;
+            println!("== primitives ==");
+            println!("capAsc(H,400)      = {cap_asc:.7}   baked 0.7275 (Δ vs baked {})",
+                cap_asc - 0.7275);
+            println!("brace ink total    = {brace_total:.7}   implied by obl fs {}", 117.0 / brace_total);
+            println!("fbAsc/fbDesc        = {fb_asc:.7}/{fb_desc:.7}  → baseline factor {:.6} (port calibrated 0.86, Δfactor {:.6})",
+                (1.0 - (fb_asc + fb_desc)) / 2.0 + fb_asc,
+                (1.0 - (fb_asc + fb_desc)) / 2.0 + fb_asc - 0.86);
+
+            // 烘焙 squeeze = target/nat（nat = advance + ls*len）；引擎同口径。
+            // fs 取 XML class 携带的字号（fitW 读的是 el 自身 font-size）。
+            let fs_a = 63.6426; // = 46.3/0.7275
+            let fs_open = 64.4305;
+            let fs_o = 133.3333; // = 97/0.7275
+            let fs_m = 68.7285; // = 50/0.7275
+            let fs_c = 148.4536; // = 108/0.7275
+            let fs_w = 107.2165; // = 78/0.7275
+            let mut fails: Vec<String> = Vec::new();
+            println!("== squeeze factors (target/nat) ==");
+            // WIRED（引擎推导值与烘焙差 ≤1.1e-5 → 已接进 XML 运行时）：
+            let wired: Vec<(&str, f64, f64)> = vec![
+                ("fw1", 246.0 / m("One", 400, fs_c, -2.5).width, 0.8777021),
+                ("gw1", 260.0 / m("JTX.", 400, fs_c, -2.5).width, 0.8264503),
+                ("t-651", 132.0 / m("K3", 500, fs_w, -2.5).width, 0.9710805),
+            ];
+            for (id, derived, baked) in &wired {
+                let d = derived - baked;
+                println!("{id:8} derived {derived:.7}  baked {baked}  Δ{d:+.2e}  [WIRED]");
+                if d.abs() >= 2e-5 {
+                    fails.push(format!("{id}: derived {derived} vs baked {baked}"));
+                }
+            }
+            // KEPT BAKED（引擎 advance 无法复现 PIL/实测常数到 <0.5px 级；见 XML 注释）：
+            let kept: Vec<(&str, f64, f64)> = vec![
+                ("aline1", 381.0 / m("Every Solana", 400, fs_a, -0.8).width, 0.9963656),
+                ("aline2", 414.0 / m("liquidity source", 400, fs_a, -0.8).width, 0.9284404),
+                ("btitle", 396.0 / m("One book", 400, 90.0, -1.0).width, 0.961545),
+                ("t-649", 395.0 / m("Every market", 400, fs_m, 0.0).width, 0.9227896),
+                ("t-650", 395.0 / m("Every asset", 400, fs_m, 0.0).width, 1.046992),
+                ("fw2", 493.0 / m("platform", 400, fs_c, -2.5).width, 0.8756328),
+                ("gw2", 298.0 / m("Now", 400, fs_c, -2.5).width, 0.9546101),
+                ("gw3", 245.0 / m("Open", 400, fs_c, -2.5).width, 0.8845424),
+            ];
+            for (id, derived, baked) in &kept {
+                let d = derived - baked;
+                println!("{id:8} derived {derived:.7}  baked {baked}  Δ{d:+.2e}  [KEPT BAKED]");
+                if d.abs() < 2e-5 {
+                    // 若引擎开始精确复现，应把该子项转为接线
+                    println!("{id:8} NOTE: now matches — consider wiring");
+                }
+            }
+
+            // opentext 族（KEPT BAKED）：目标宽含 100px 无 ls 的 advance 比例
+            // （OPEN_CAP/midW/remW）；引擎 nat 与烘焙差 ~4.5e-3（>0.5px 级）。
+            let r_ss = m("Stocks on Solana", 400, 100.0, 0.0).width;
+            let r_full = m("Open Frontier Intelligence", 400, 100.0, 0.0).width;
+            let open_cap = 70.0 * r_ss / r_full;
+            println!("== open card ==");
+            println!("OPEN_CAP = {open_cap:.4} → fs {:.4}  (baked class 64.4305)", open_cap / cap_asc);
+            let mid100 = m("en Frontier Intelligen", 400, 100.0, 0.0).width;
+            let rem100 = m("ier", 400, 100.0, 0.0).width;
+            let full_open = m("Open Frontier Intelligence", 400, fs_open, -1.6).width;
+            let mid_open = m("en Frontier Intelligen", 400, fs_open, -1.6).width;
+            let rem_open = m("ier", 400, fs_open, -1.6).width;
+            for (id, derived, baked) in [
+                ("opentext", 698.0 / full_open, 0.9391232),
+                ("openmid", 698.0 * mid100 / r_full / mid_open, 0.9427169),
+                ("openrem", 698.0 * rem100 / r_full / rem_open, 0.948126),
+            ] {
+                let d = derived - baked;
+                println!("{id:8} derived {derived:.7}  baked {baked}  Δ{d:+.2e}  [KEPT BAKED]");
+            }
+
+            // otxt：oS = 663/natRun("Every order")（calibrate 时刻 otxt 的字符串，
+            // index.html:1395-1400）；oNat = natRun("Every modality")（当前串，
+            // 驱动 ocX 居中布局）。natRun = Σ per-char advance −2.5/char。
+            let mut nat_order = 0.0;
+            for ch in "Every order".chars() {
+                nat_order += m(&ch.to_string(), 400, fs_o, -2.5).width;
+            }
+            let mut nat_run = 0.0;
+            for ch in "Every modality".chars() {
+                nat_run += m(&ch.to_string(), 400, fs_o, -2.5).width;
+            }
+            println!("== otxt ==");
+            println!("natRun(order) = {nat_order:.4}  → 663/natRun = {:.7}  (baked oS 0.9368873)  [WIRED]",
+                663.0 / nat_order);
+            println!("natRun(modality) = {nat_run:.4}  (baked oNat 896.8357, Δ{:.4})  [WIRED]",
+                nat_run - 896.8357);
+            if (663.0 / nat_order - 0.9368873).abs() >= 2e-5 {
+                fails.push(format!("oS {}", 663.0 / nat_order));
+            }
+            if (nat_run - 896.8357).abs() >= 0.05 {
+                fails.push(format!("natRun {nat_run}"));
+            }
+
+            // pillW：offsetWidth = round(advance(26px,500,+0.2ls) + 14×2 + 1.5×2)
+            let labels = ["Agentic", "Delta Attention", "1M Context", "Vision", "Coding"];
+            let baked_pills = [128.0, 219.0, 172.0, 109.0, 121.0];
+            println!("== pillW ==");
+            for (label, baked) in labels.iter().zip(baked_pills.iter()) {
+                let w = (m(label, 500, 26.0, 0.2).width + 31.0).round();
+                println!("{label:16} derived {w:.0}  baked {baked}");
+                if w != *baked {
+                    fails.push(format!("pill {label}: derived {w} vs baked {baked}"));
+                }
+            }
+            println!("== verdict ==");
+            if fails.is_empty() {
+                println!("ALL WIRED SUB-ITEMS within tolerance");
+            } else {
+                for f in &fails {
+                    println!("FAIL {f}");
+                }
+                panic!("wired sub-items drifted from baked constants: {fails:?}");
+            }
         });
     }
 }

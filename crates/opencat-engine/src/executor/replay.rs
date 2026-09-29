@@ -704,6 +704,7 @@ fn replay_op(
             frame,
             dst,
         } => {
+            #[cfg(not(target_os = "macos"))]
             if let Some(anim) = exec.lottie_cache.get(bundle_id) {
                 anim.seek_frame(*frame as f64);
                 let size = anim.size();
@@ -716,6 +717,11 @@ fn replay_op(
                 canvas.scale((dst.width / iw, dst.height / ih));
                 anim.render(canvas, None);
                 canvas.restore();
+            }
+            #[cfg(target_os = "macos")]
+            {
+                // No native Skottie renderer (feature off); skip the op.
+                let _ = (frame, dst);
             }
             Ok(())
         }

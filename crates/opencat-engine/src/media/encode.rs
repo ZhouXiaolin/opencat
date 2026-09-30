@@ -1,4 +1,6 @@
-use std::{path::Path, ptr};
+use std::path::{Path, PathBuf};
+use std::ptr;
+use std::sync::mpsc::{Receiver, sync_channel};
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
@@ -36,6 +38,96 @@ impl Default for Mp4Config {
     }
 }
 
+/// Depth of the bounded channel feeding the encode thread. Large enough to
+/// keep the encoder busy while the render thread produces the next frame,
+/// small enough to bound the number of RGBA frames held in memory.
+const FRAME_QUEUE_DEPTH: usize = 3;
+
+/// Encode-thread body: consumes rendered RGBA frames from `frames` and runs
+/// the exact per-frame sequence the previous synchronous loop ran
+/// (copy → swscale → send_frame → drain packets), then EOF drain, audio mux
+/// and trailer. Runs concurrently with rendering, but the frame order and all
+/// encoder/muxer calls are identical to the serial loop, so the output file is
+/// byte-for-byte unchanged.
+#[allow(clippy::too_many_arguments)]
+fn encode_worker(
+    mut output: format::context::Output,
+    output_path: PathBuf,
+    mut video_encoder: ffmpeg::codec::encoder::video::Encoder,
+    video_stream_index: usize,
+    video_packet_time_base: Rational,
+    stream_time_base: Rational,
+    video_frame_duration: i64,
+    width: u32,
+    height: u32,
+    frame_count: u32,
+    audio_track: Option<AudioTrack>,
+    frames: Receiver<Vec<u8>>,
+    mut on_video_frame_encoded: impl FnMut(u32, u32),
+) -> Result<()> {
+    let audio_context = match &audio_track {
+        Some(track) if !track.is_empty() => Some(create_audio_output_context(
+            &mut output,
+            &output_path,
+            track,
+        )?),
+        _ => None,
+    };
+
+    output.write_header()?;
+
+    let mut scaler = ScalingContext::get(
+        Pixel::RGBA,
+        width,
+        height,
+        Pixel::YUV420P,
+        width,
+        height,
+        ScalingFlags::BILINEAR,
+    )?;
+
+    for frame_index in 0..frame_count {
+        let rgba = frames
+            .recv()
+            .context("render channel closed before all video frames were encoded")?;
+
+        let mut rgba_frame = Video::new(Pixel::RGBA, width, height);
+        write_rgba_to_frame_ptr(&rgba, &mut rgba_frame, width as usize, height as usize);
+
+        let mut yuv_frame = Video::new(Pixel::YUV420P, width, height);
+        scaler.run(&rgba_frame, &mut yuv_frame)?;
+        yuv_frame.set_pts(Some(frame_index as i64));
+
+        video_encoder.send_frame(&yuv_frame)?;
+        write_video_packets(
+            &mut video_encoder,
+            &mut output,
+            video_stream_index,
+            video_packet_time_base,
+            stream_time_base,
+            video_frame_duration,
+        )?;
+        on_video_frame_encoded(frame_index + 1, frame_count);
+    }
+
+    video_encoder.send_eof()?;
+    write_video_packets(
+        &mut video_encoder,
+        &mut output,
+        video_stream_index,
+        video_packet_time_base,
+        stream_time_base,
+        video_frame_duration,
+    )?;
+
+    if let Some(audio_context) = audio_context {
+        write_audio_track(audio_context, &mut output)?;
+    }
+
+    output.write_trailer()?;
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn encode_rgba_frames(
     output_path: impl AsRef<Path>,
@@ -45,7 +137,7 @@ pub fn encode_rgba_frames(
     frame_count: u32,
     config: &Mp4Config,
     audio_track: Option<&AudioTrack>,
-    mut on_video_frame_encoded: impl FnMut(u32, u32),
+    on_video_frame_encoded: impl FnMut(u32, u32) + Send + 'static,
     mut frame_provider: impl FnMut(u32) -> Result<Vec<u8>>,
 ) -> Result<()> {
     ffmpeg::init()?;
@@ -85,7 +177,7 @@ pub fn encode_rgba_frames(
         encode_options.set("crf", &config.crf.to_string());
         encode_options.set("preset", &config.preset);
     }
-    let mut video_encoder = video_encoder_ctx.open_as_with(video_codec, encode_options)?;
+    let video_encoder = video_encoder_ctx.open_as_with(video_codec, encode_options)?;
     let video_packet_time_base = nominal_time_base;
     let video_frame_duration = 1_i64;
 
@@ -98,66 +190,70 @@ pub fn encode_rgba_frames(
         stream.index()
     };
 
-    let audio_context = if let Some(track) = audio_track.filter(|track| !track.is_empty()) {
-        Some(create_audio_output_context(
-            &mut output,
-            output_path,
-            track,
-        )?)
-    } else {
-        None
-    };
+    // The audio output context borrows the track for the whole mux; hand the
+    // encode thread its own clone so it can own the data ('static spawn).
+    let audio_track_owned = audio_track.map(AudioTrack::clone);
+    let output_path = output_path.to_path_buf();
 
-    output.write_header()?;
+    // Producer/consumer: rendering stays on this thread (the JS/Skia render
+    // pipeline is not Send), while swscale + x264 + muxing run on a dedicated
+    // thread fed by a bounded channel. The channel applies back-pressure so at
+    // most FRAME_QUEUE_DEPTH rendered frames queue up while the encoder works
+    // through earlier ones — encode overlaps render instead of serializing
+    // behind it.
+    let (frame_tx, frame_rx) = sync_channel::<Vec<u8>>(FRAME_QUEUE_DEPTH);
 
-    let mut scaler = ScalingContext::get(
-        Pixel::RGBA,
-        width,
-        height,
-        Pixel::YUV420P,
-        width,
-        height,
-        ScalingFlags::BILINEAR,
-    )?;
+    let encode_thread = std::thread::Builder::new()
+        .name("opencat-encode".to_string())
+        .spawn(move || {
+            encode_worker(
+                output,
+                output_path,
+                video_encoder,
+                video_stream_index,
+                video_packet_time_base,
+                stream_time_base,
+                video_frame_duration,
+                width,
+                height,
+                frame_count,
+                audio_track_owned,
+                frame_rx,
+                on_video_frame_encoded,
+            )
+        })?;
 
+    // Producer loop: identical per-frame render calls, in the same order, as
+    // the previous serial loop.
+    let mut provider_error = None;
     for frame_index in 0..frame_count {
-        let rgba = frame_provider(frame_index)?;
-
-        let mut rgba_frame = Video::new(Pixel::RGBA, width, height);
-        write_rgba_to_frame_ptr(&rgba, &mut rgba_frame, width as usize, height as usize);
-
-        let mut yuv_frame = Video::new(Pixel::YUV420P, width, height);
-        scaler.run(&rgba_frame, &mut yuv_frame)?;
-        yuv_frame.set_pts(Some(frame_index as i64));
-
-        video_encoder.send_frame(&yuv_frame)?;
-        write_video_packets(
-            &mut video_encoder,
-            &mut output,
-            video_stream_index,
-            video_packet_time_base,
-            stream_time_base,
-            video_frame_duration,
-        )?;
-        on_video_frame_encoded(frame_index + 1, frame_count);
+        match frame_provider(frame_index) {
+            Ok(rgba) => {
+                // Blocks while the encoder is FRAME_QUEUE_DEPTH frames behind;
+                // fails only when the encode thread already exited on error.
+                if frame_tx.send(rgba).is_err() {
+                    break;
+                }
+            }
+            Err(err) => {
+                provider_error = Some(err);
+                break;
+            }
+        }
     }
+    drop(frame_tx);
 
-    video_encoder.send_eof()?;
-    write_video_packets(
-        &mut video_encoder,
-        &mut output,
-        video_stream_index,
-        video_packet_time_base,
-        stream_time_base,
-        video_frame_duration,
-    )?;
+    let encode_result = encode_thread
+        .join()
+        .map_err(|panic| anyhow!("mp4 encode thread panicked: {panic:?}"))
+        .and_then(std::convert::identity);
 
-    if let Some(audio_context) = audio_context {
-        write_audio_track(audio_context, &mut output)?;
+    // A render error takes precedence: the encode thread's "channel closed"
+    // error is only the consequence of the producer stopping early.
+    match provider_error {
+        Some(err) => Err(err),
+        None => encode_result,
     }
-
-    output.write_trailer()?;
-    Ok(())
 }
 
 fn select_video_encoder() -> Result<ffmpeg::Codec> {

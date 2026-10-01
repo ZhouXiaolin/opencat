@@ -245,6 +245,8 @@ fn hash_display_node_composite_subtree<H: Hasher>(node: &DisplayNode, hasher: &m
 fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
     F32Hash(node.transform.translation_x).hash(hasher);
     F32Hash(node.transform.translation_y).hash(hasher);
+    F32Hash(node.transform.origin.x).hash(hasher);
+    F32Hash(node.transform.origin.y).hash(hasher);
     F32Hash(node.opacity).hash(hasher);
     node.css_filter.hash(hasher);
     node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
@@ -338,6 +340,7 @@ mod tests {
             translation_y,
             bounds: empty_bounds(),
             transforms: Vec::new(),
+            origin: Default::default(),
         }
     }
 

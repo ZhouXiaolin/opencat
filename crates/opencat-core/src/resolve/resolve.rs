@@ -1230,6 +1230,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             clip_contents: style.overflow_hidden,
             clip_path: style.clip_path,
             transforms: style.transforms.clone(),
+            transform_origin: style.transform_origin.unwrap_or_default(),
             box_shadow: style
                 .box_shadow
                 .iter()

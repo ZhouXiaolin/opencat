@@ -314,6 +314,8 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::RowEndAuto => style.row_end = Some(GridPlacement::Auto),
         ExactClassAction::GridColsNone => style.grid_template_columns = None,
         ExactClassAction::GridRowsNone => style.grid_template_rows = None,
+        ExactClassAction::TransformOrigin(origin) => style.transform_origin = Some(origin),
+        ExactClassAction::NoWrap => style.no_wrap = true,
     }
 }
 
@@ -358,6 +360,17 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         && let Some(blend_mode) = blend_mode_from_css_name(value.trim())
     {
         style.blend_mode = Some(blend_mode);
+        return true;
+    }
+
+    // `[transform-origin:<value>]` — 任意属性语法。静态锚点，供脚本变换围绕。
+    // Tailwind 将空白编码为 `_`（如 `top_center`），解析前还原。
+    if let Some(value) = class
+        .strip_prefix("[transform-origin:")
+        .and_then(|v| v.strip_suffix(']'))
+        && let Some(origin) = crate::style::TransformOrigin::parse(&value.replace('_', " "))
+    {
+        style.transform_origin = Some(origin);
         return true;
     }
 
@@ -1027,6 +1040,8 @@ enum ExactClassAction {
     GridColsNone,
     GridRowsNone,
     BlendMode(BlendMode),
+    TransformOrigin(crate::style::TransformOrigin),
+    NoWrap,
 }
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_jsonl_rules.rs"));
@@ -2198,6 +2213,29 @@ mod tests {
     fn unknown_mix_blend_value_leaves_default() {
         assert_eq!(parse_class_name("").blend_mode, None);
         assert_eq!(parse_class_name("[mix-blend-mode:bogus]").blend_mode, None);
+    }
+
+    #[test]
+    fn parses_transform_origin_arbitrary_and_named() {
+        use crate::style::TransformOrigin;
+        let o = parse_class_name("[transform-origin:top_center]")
+            .transform_origin
+            .expect("arbitrary transform-origin");
+        assert_eq!(o, TransformOrigin { x: 0.5, y: 0.0 });
+        let o = parse_class_name("[transform-origin:left_center]")
+            .transform_origin
+            .expect("left center");
+        assert_eq!(o, TransformOrigin { x: 0.0, y: 0.5 });
+        assert_eq!(
+            parse_class_name("origin-top-left").transform_origin,
+            Some(TransformOrigin { x: 0.0, y: 0.0 })
+        );
+        assert_eq!(
+            parse_class_name("origin-bottom").transform_origin,
+            Some(TransformOrigin { x: 0.5, y: 1.0 })
+        );
+        // Unrecognized value must not be reported as supported.
+        assert_eq!(parse_class_name("[transform-origin:bogus]").transform_origin, None);
     }
 
     #[test]

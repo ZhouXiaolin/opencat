@@ -326,6 +326,8 @@ fn apply_segment_key(plan: &ApplyPlan<'_>) -> u64 {
     plan.transform.translation_y.to_bits().hash(&mut hasher);
     plan.transform.bounds.width.to_bits().hash(&mut hasher);
     plan.transform.bounds.height.to_bits().hash(&mut hasher);
+    plan.transform.origin.x.to_bits().hash(&mut hasher);
+    plan.transform.origin.y.to_bits().hash(&mut hasher);
     plan.transform.transforms.len().hash(&mut hasher);
     for transform in &plan.transform.transforms {
         hash_transform(transform, &mut hasher);
@@ -1026,8 +1028,10 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
     if transform.transforms.is_empty() {
         return;
     }
-    let center_x = transform.bounds.width / 2.0;
-    let center_y = transform.bounds.height / 2.0;
+    // The pivot is the node's static `transform-origin` (default centre). Scale/
+    // rotate/skew anchor here; translations are unaffected.
+    let center_x = transform.bounds.width * transform.origin.x;
+    let center_y = transform.bounds.height * transform.origin.y;
 
     for t in transform.transforms.iter() {
         match *t {
@@ -1189,6 +1193,7 @@ mod tests {
                 height: 100.0,
             },
             transforms: Vec::new(),
+            origin: Default::default(),
         }
     }
 

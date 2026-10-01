@@ -14,7 +14,6 @@
   <template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
   <template name="tick"><div id="$id" class="w-[2px] h-[$h] bg-[#cfcfd2] $mb"></div></template>
   <template name="cbar"><div id="bar-$n" class="absolute left-0 top-[$top] w-[0px] h-[38px] bg-[linear-gradient(90deg,$g)]"><div id="pale-$n" class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]"></div></div></template>
-  <template name="oc-letter"><text id="oc$n" class="absolute left-0 top-[122.833px] text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] opacity-0">$t</text></template>
   <template name="agent-pill"><div id="$id" class="absolute left-[0] top-[0] opacity-0"><div id="$id-box" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="$id-txt" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">$t</text></div></div></template>
   <template name="cdot"><div id="$id" class="absolute w-[$s] h-[$s] bg-[$c]"></div></template>
   <template name="bigword"><text id="$id" class="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[$left] top-[458.3299px] opacity-0">$t</text></template>
@@ -187,23 +186,6 @@
           <cdot id="d-510" s="13px" c="#e6e6e6" class="-left-[26px] -bottom-[26px]" />
           <cdot id="d-511" s="13px" c="#e6e6e6" class="-right-[26px] -bottom-[26px]" />
           <text id="otxt" class="text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] tracking-[-2.5px] opacity-0">Every modality</text>
-          <!-- per-char entry clones (ref: otxt is 14 inline-block glyph spans; ow1 "Every"
-               shows at 7.5333, ow2 " modality" at 7.5663; glyphs start at x=(i-6.5)*21 and
-               settle to 0 by 7.9963 via power2.out). Advances = Inter-Regular hmtx @133.3333px
-               (fontTools), cum includes the -2.5 letter-spacing per char; run width 896.8357. -->
-          <oc-letter n="0" t="E" />
-          <oc-letter n="1" t="v" />
-          <oc-letter n="2" t="e" />
-          <oc-letter n="3" t="r" />
-          <oc-letter n="4" t="y" />
-          <oc-letter n="6" t="m" />
-          <oc-letter n="7" t="o" />
-          <oc-letter n="8" t="d" />
-          <oc-letter n="9" t="a" />
-          <oc-letter n="10" t="l" />
-          <oc-letter n="11" t="i" />
-          <oc-letter n="12" t="t" />
-          <oc-letter n="13" t="y" />
         </div>
         <!-- left flanking box: "Every market" -->
         <div id="mktgrp" class="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[130px] top-[437px] w-[520px] h-[183px] opacity-0">
@@ -904,9 +886,14 @@
         ? (T < 3.23 ? ioEase((T - 3.03) / 0.2) : (T> 3.83 ? ioEase(1 - (T - 3.83) / 0.17) : 1)) : 0;
       if (ppOp> 0) { paintField('afieldp-canvas', true); drawLanes('afieldp-canvas', true); }
 
-      // selection box + title fade-in (1.73 white, 1.79 purple)
-      vis('atitlegrp', T>= 1.73);
-      vis('atitlegrpp', T>= 1.79 && ppOp> 0);
+      // selection box + title fade-in (index.html:1607-1619): the box itself is a
+      // 0.06s power1.out tween @1.73; the words/lines after it are `set` steps.
+      // #atitlegrpp sits inside #apwrap, whose crossfade is the declarative tween
+      // above, so its own opacity is a plain set (no ppOp gate needed here).
+      ctx.timeline()
+        .set(['atitlegrp', 'atitlegrpp'], { opacity: 0 }, 0.75)
+        .to('atitlegrp', { opacity: 1, duration: 0.06, ease: 'power1.out' }, 1.73)
+        .set('atitlegrpp', { opacity: 1 }, 1.79);
       vis('aw1', T>= 1.8); vis('aline1', T>= 1.8); vis('aline1p', T>= 1.8 && ppOp> 0);
       vis('aw2', T>= 1.8330);
       vis('aline2', T>= 1.8663); vis('aline2p', T>= 1.8663 && ppOp> 0);
@@ -1375,7 +1362,8 @@
     vis('sceneDE', DE_ON);
     if (DE_ON) {
       // Node tweens (index.html:1668-1712). The canvas pin waves, helix, box
-      // hatch, per-char otxt entry and the pin-wave envelope stay per-frame.
+      // hatch and the pin-wave envelope stay per-frame; the otxt per-char entry
+      // is declarative below (splitText + timeline).
       var dTl = ctx.timeline()
         .set(['ddashL', 'ddashR'], { opacity: 0 }, 7.35)
         .set(['mktgrp', 'astgrp'], { opacity: 0 }, 7.35)
@@ -1465,40 +1453,30 @@
           }
         }
       }
-      vis('otxt', T>= 7.9963); /* row takes over once the tracking settle ends (7.5663+0.43) */
-      // otxt per-char entry: ow1 "Every" @7.5333, ow2 " modality" @7.5663 (ref tl.set autoAlpha);
-      // glyphs x=(i-6.5)*21 → 0, dur 0.43 power2.out(cubic). Run box = natRun("Every modality")
-      // flex-centred at card centre x=959, whole run squeezed by 663/natRun("Every order")
-      // (calibrate-time string, index.html:1395-1400) about the box centre — the same
-      // derived values CAL_SCALEX.otxt applies to the run node (parity: oNat exact,
-      // oS Δ8.5e-6 vs the former baked 0.9368873).
-      {
-        var oS = 663 / natRunOf('Every order', 133.3333), oNat = natRunOf('Every modality', 133.3333);
-        var OCH = [
-          ['oc0', 0.00, 80.14], ['oc1', 77.64, 74.93], ['oc2', 150.08, 77.73], ['oc3', 225.31, 50.20],
-          ['oc4', 273.01, 74.93], null, /* space */
-          ['oc6', 380.44, 116.80], ['oc7', 494.74, 79.95], ['oc8', 572.19, 81.64], ['oc9', 651.33, 74.87],
-          ['oc10', 723.70, 32.29], ['oc11', 753.49, 32.29], ['oc12', 783.28, 43.62], ['oc13', 824.40, 74.93]
-        ];
-        var oSettleE = 1 - Math.pow(1 - clamp((T - 7.5663) / 0.43, 0, 1), 3);
-        for (var oi = 0; oi < 14; oi++) {
-          var oc = OCH[oi];
-          if (!oc) continue;
-          var ocOn = T >= (oi < 5 ? 7.5333 : 7.5663) && T < 7.9963;
-          ctx.getNode(oc[0]).opacity(ocOn ? 1 : 0);
-          if (ocOn) {
-            /* glyph x offset rides OUTSIDE the run squeeze (f226 probe: char-centre spacing
-               ratio ref/ours = 1.066 ≈ 1/0.9369), so add it after the squeezed layout term */
-            var ocX = 505 + (oc[1] - oNat / 2) * oS + (oi - 6.5) * 21 * (1 - oSettleE); /* card-local: ordergrp centre x=505 */
-            var ocN = ctx.getNode(oc[0]);
-            /* CALL ORDER MATTERS: translate first, scale second = standard CSS semantics
-               (probe zz-tscale: tx-then-sx keeps centre=tx+W/2; sx-then-tx scales the tx).
-               Pre-shift by adv*(1-S)/2 so the VISUAL left edge lands on ocX. */
-            ocN.translateX(ocX - oc[2] * (1 - oS) / 2);
-            ocN.scaleX(oS);
-          }
+      // otxt per-char entry — declarative via splitText + timeline. otxt is flex-centred
+      // in the card and CAL_SCALEX.otxt squeezes the node to scaleX(663/natRun("Every
+      // order")) (index.html:1395-1400). The char spans are otxt's children, so their
+      // per-glyph x composes INSIDE that squeeze — exactly how splitText parts behave
+      // here (MDN transform: each function opens the next coordinate space; probe:
+      // split x:200 under a parent scaleX(0.5) moves 100px). Ref (index.html:1683-1692):
+      // "Every" shows @7.5333, " modality" @7.5663 (tl.set autoAlpha); every glyph starts
+      // at x=(i-6.5)*21 and settles to 0 by 7.9963 (dur 0.43, power2.out/cubic). The parts
+      // API supplies the glyph layout (adv-backed unit ranges) + per-unit x/opacity, so the
+      // old OCH advance table, the oc-letter clones and the hand-written settle are gone.
+      // Parts are not nodes, so the settle is a fromTo (a `.to` would read the default 0).
+      vis('otxt', true); /* node visible for the whole D/E window; visibility is per-glyph */
+      (function () {
+        var parts = ctx.splitText('otxt', { type: 'chars' });
+        var gTl = ctx.timeline();
+        for (var oi = 0; oi < parts.length; oi++) {
+          if (parts[oi].text === ' ') continue; /* inter-word space: a real unit, no ink */
+          var ocOn = oi < 5 ? 7.5333 : 7.5663; /* ow1 "Every" / ow2 " modality" */
+          gTl.set(parts[oi], { opacity: 0 }, 7.35)
+             .set(parts[oi], { opacity: 1 }, ocOn)
+             .fromTo(parts[oi], { x: (oi - 6.5) * 21 },
+                                  { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
         }
-      }
+      })();
       // D/E box hatch — ref .bhatch divs (index.html:138-149 CSS, :283/:291/:299 DOM).
       // Each is an inset:-30px div holding repeating-linear-gradient(132deg, C 0 1.5px,
       // transparent 1.5px P), clipped by the overflow:hidden tickbox; drawn here on a

@@ -578,7 +578,10 @@
         .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
         .to(['afield', 'afieldp'], { opacity: 0.60, duration: 0.4, ease: 'power1.inOut' }, 2.4)
         .to(['afield', 'afieldp'], { opacity: 0.08, duration: 1.4333, ease: 'none' }, 2.8)
-        .to(['afield', 'afieldp'], { opacity: 0.02, duration: 0.3, ease: 'none' }, 4.2333);
+        .to(['afield', 'afieldp'], { opacity: 0.02, duration: 0.3, ease: 'none' }, 4.2333)
+        // ruler strips retire (index.html:1634); the ref ease is power1.in
+        // (the former hand-written fade was linear).
+        .to('afurn', { opacity: 0, duration: 0.18, ease: 'power1.in' }, 4.35);
 
       // lattice field canvas — tables computed at runtime by porting the
       // reference's own generator (index.html:599-820) 1:1 — no baked data.
@@ -1091,9 +1094,7 @@
         }
       }
 
-      // A furniture fade + whole-layer exit
-      var afOp = T>= 4.35 ? clamp(1 - (T - 4.35) / 0.18, 0, 1) : 1;
-      ctx.getNode('afurn').opacity(afOp);
+      // #afurn fades out via the timeline above.
     }
 
     /* ════════════ GLOBAL PRNG STREAM replay (mulberry32(1337)) ═══════ */

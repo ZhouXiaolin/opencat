@@ -1390,6 +1390,9 @@
                            { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.55, ease: 'power3.out' }, 9.133)
         .fromTo('astgrp', { opacity: 0, x: 700, y: 600, scale: 2.6 },
                            { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.55, ease: 'power3.out' }, 9.18)
+        // helix pins layer fade-in (ref #epins, index.html:1703-1705)
+        .set('epins-canvas', { opacity: 0 }, 7.35)
+        .to('epins-canvas', { opacity: 1, duration: 0.2, ease: 'power1.out' }, 9.0)
         // whole D/E layer fades out (ref fades #deinner + furniture together)
         .to(['deinner', 'furnDE'], { opacity: 0, duration: 0.13, ease: 'power1.in' }, 11.193);
       ['dl1', 'dl2', 'dl3'].forEach(function (id, i) {
@@ -1431,9 +1434,9 @@
         }
       }
       // E helix pins via canvas projection. Visibility: helixPins updates over
-      // 8.85-11.35s but #epins autoAlpha is set 0 @7.35 then to 1 dur 0.2 @9.0
-      // (default power1.out → alpha = 1-(1-q)², index.html:1703-1705) — so paint
-      // only from 9.0 and multiply alpha during the 9.0-9.2 fade-in.
+      // 8.85-11.35s; #epins autoAlpha (set 0 @7.35, to 1 dur 0.2 @9.0) is a
+      // declarative node-opacity tween (dTl above), so paint at full alpha
+      // from 9.0 — the layer opacity carries the 9.0-9.2 fade-in.
       // Perspective (index.html:126 + measured note :1060-1065): rotateX(phi-90deg)
       // under perspective:4100px about the SCREEN centre. A rod point at local
       // (x=hx-960, h, 0) rotates to y'=h·sinφ, z'=-h·cosφ and projects with
@@ -1445,7 +1448,7 @@
       if (hcv) {
         hcv.clear();
         if (T>= 9.0 && T <= 11.35) {
-          var epA = T >= 9.2 ? 1 : 1 - Math.pow(1 - (T - 9.0) / 0.2, 2);
+          var epA = 1;
           var HX_C = 1.33 - 2.405 * 9.6, P4 = 4100;
           var rod = new CK.Paint(); rod.setStyle(CK.PaintStyle.Stroke); rod.setStrokeWidth(3.5); rod.setStrokeCap(CK.StrokeCap.Round);
           var dot = new CK.Paint(); dot.setStyle(CK.PaintStyle.Fill); dot.setColor(CK.Color(87,87,90,epA));

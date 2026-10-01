@@ -566,11 +566,19 @@
     var A_ON = (T>= 0.75 && T < 4.62);
     vis('sceneA', A_ON);
     if (A_ON) {
-      // A zoom: azoom scale 1.07 → 0.9417 over 3.667s from 0.933
-      if (T>= 0.933) {
-        var zW = clamp((T - 0.933) / 3.667, 0, 1);
-        ctx.getNode('azoom').scale(1.07 + (0.9417 - 1.07) * zW);
-      }
+      // A zoom + field-energy envelope are declarative (index.html:1569,1576-1580).
+      // The zoom holds at its CSS scale until 0.933, then tweens 1.07→0.9417
+      // (a `.set` seeds the 1.07 from-value; a `fromTo` would immediate-render
+      // 1.07 from t=0, which measured 0.07pp worse at f23-27). The envelope
+      // targets both #afield and #afieldp.
+      ctx.timeline()
+        .set('azoom', { scale: 1.07 }, 0.933)
+        .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
+        .set(['afield', 'afieldp'], { opacity: 1 }, 0.75)
+        .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
+        .to(['afield', 'afieldp'], { opacity: 0.60, duration: 0.4, ease: 'power1.inOut' }, 2.4)
+        .to(['afield', 'afieldp'], { opacity: 0.08, duration: 1.4333, ease: 'none' }, 2.8)
+        .to(['afield', 'afieldp'], { opacity: 0.02, duration: 0.3, ease: 'none' }, 4.2333);
 
       // lattice field canvas — tables computed at runtime by porting the
       // reference's own generator (index.html:599-820) 1:1 — no baked data.
@@ -681,15 +689,6 @@
       var FIELD_BORN = K3FIELD.born;
       var FIELD_RING = K3FIELD.ring;
       function ioEase(p) { p = p < 0 ? 0 : (p > 1 ? 1 : p); return p < 0.5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p); }
-      // field-energy envelope; ramps 1-2 are power1.inOut in the reference
-      function fieldOpacity(t) {
-        if (t < 1.9667) return 1;
-        if (t < 2.4) return 1 + (0.35 - 1) * ioEase((t - 1.9667) / 0.4333);
-        if (t < 2.8) return 0.35 + (0.60 - 0.35) * ioEase((t - 2.4) / 0.4);
-        if (t < 4.2333) return 0.60 + (0.08 - 0.60) * clamp((t - 2.8) / 1.4333, 0, 1);
-        return 0.08 + (0.02 - 0.08) * clamp((t - 4.2333) / 0.3, 0, 1);
-      }
-      var fo = fieldOpacity(T);
 
       function paintField(canvasId, purple) {
         var cv = ctx.getCanvasById(canvasId); if (!cv) return;
@@ -884,7 +883,7 @@
       }
 
 
-      ctx.getNode('afield').opacity(fo);
+      // #afield opacity comes from the field-energy timeline above.
       // tl.set("#afield", { filter: "brightness(0.5) sepia(1) hue-rotate(215deg)
       // saturate(2.2)" }, 3.5) — from n105 the surviving white-field elements
       // hue-shift to dark purple (index.html:1583). Engine supports the full
@@ -897,7 +896,7 @@
       var ppOp = (T>= 3.03 && T <= 4.0)
         ? (T < 3.23 ? ioEase((T - 3.03) / 0.2) : (T> 3.83 ? ioEase(1 - (T - 3.83) / 0.17) : 1)) : 0;
       ctx.getNode('apwrap').opacity(ppOp);
-      if (ppOp> 0) { ctx.getNode('afieldp').opacity(fo); paintField('afieldp-canvas', true); drawLanes('afieldp-canvas', true); }
+      if (ppOp> 0) { paintField('afieldp-canvas', true); drawLanes('afieldp-canvas', true); }
 
       // selection box + title fade-in (1.73 white, 1.79 purple)
       vis('atitlegrp', T>= 1.73);

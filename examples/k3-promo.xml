@@ -2018,29 +2018,27 @@
         .fromTo('iglow1', { opacity: 0.95 }, { opacity: 0.28, duration: 0.95, ease: 'power2.out' }, 14.95)
         .set(['idashL', 'idashR'], { opacity: 0 }, 13.7)
         .set(['idashL', 'idashR'], { opacity: 0.85 }, 14.7)
-        .to(['idashL', 'idashR'], { opacity: 0, duration: 0.25, ease: 'power1.out' }, 15.1);
-      // g2qmarks: in #gfurn2 — visible from clip start, fades 14.75 + 0.12
-      // (tl.to autoAlpha 0, default power1.out → value = (1-q)², index.html:1758)
+        .to(['idashL', 'idashR'], { opacity: 0, duration: 0.25, ease: 'power1.out' }, 15.1)
+        // g2qmarks fade-out (ref #gfurn2, default power1.out, index.html:1758)
+        // and ifurn fade-in (ref #ifurn, power1.out, index.html:1771)
+        .set('g2qmarks-canvas', { opacity: 1 }, 13.7)
+        .to('g2qmarks-canvas', { opacity: 0, duration: 0.12, ease: 'power1.out' }, 14.75)
+        .set('ifurn-canvas', { opacity: 0 }, 13.7)
+        .to('ifurn-canvas', { opacity: 1, duration: 0.16, ease: 'power1.out' }, 15.3);
+      // g2qmarks furniture (ref makeQmarks/makePlusses); opacity is declarative.
       var g2Cv = ctx.getCanvasById('g2qmarks-canvas');
       if (g2Cv) {
         g2Cv.clear();
-        if (T < 14.87) {
-          ctx.getNode('g2qmarks-canvas').opacity(T < 14.75 ? 1 : Math.pow(1 - clamp((T - 14.75) / 0.12, 0, 1), 2));
-          drawQmarks(g2Cv, [[343, 265, -1, -1], [1575, 265, 1, -1], [343, 813, -1, 1], [1575, 813, 1, 1]]);
-          drawPlusses(g2Cv, [[252, 178], [1668, 178], [252, 898], [1668, 898]], 22, 0.4);
-        } else ctx.getNode('g2qmarks-canvas').opacity(0);
+        drawQmarks(g2Cv, [[343, 265, -1, -1], [1575, 265, 1, -1], [343, 813, -1, 1], [1575, 813, 1, 1]]);
+        drawPlusses(g2Cv, [[252, 178], [1668, 178], [252, 898], [1668, 898]], 22, 0.4);
       }
-      // ifurn: stripIL/IR + iqmarks + plusses, fade-in 15.3 + 0.16 power1.out
-      // (tl.to #ifurn autoAlpha 1, index.html:1771)
+      // ifurn: stripIL/IR + iqmarks + plusses (opacity is declarative).
       var ifCv = ctx.getCanvasById('ifurn-canvas');
       if (ifCv) {
         ifCv.clear();
-        if (T>= 15.3) {
-          ctx.getNode('ifurn-canvas').opacity(1 - Math.pow(1 - clamp((T - 15.3) / 0.16, 0, 1), 2));
-          drawStrip(ifCv, 306, 535, 109, 9, 15); drawStrip(ifCv, 1504, 535, 109, 9, 15);
-          drawQmarks(ifCv, [[400, 290, -1, -1], [1520, 290, 1, -1], [400, 780, -1, 1], [1520, 780, 1, 1]]);
-          drawPlusses(ifCv, [[300, 205], [1615, 205], [300, 875], [1615, 875]], 25, 0.45);
-        } else ctx.getNode('ifurn-canvas').opacity(0);
+        drawStrip(ifCv, 306, 535, 109, 9, 15); drawStrip(ifCv, 1504, 535, 109, 9, 15);
+        drawQmarks(ifCv, [[400, 290, -1, -1], [1520, 290, 1, -1], [400, 780, -1, 1], [1520, 780, 1, 1]]);
+        drawPlusses(ifCv, [[300, 205], [1615, 205], [300, 875], [1615, 875]], 25, 0.45);
       }
     }
   </script>

@@ -2,13 +2,25 @@
 //!
 //! Shared by:
 //! - `inspect::tests::web_frame_oracle` (single / multi-frame SSIM regression)
-//! - `scripts/compare-mp4.sh` via the `opencat-web-compare` binary (sampled frames)
+//! - `scripts/compare-mp4.sh` via the `opencat-web-compare` binary (sampled hex
+//!   or whole-range video)
 //!
-//! The browser path always goes through `web/test-oracle.html` + CanvasKit
-//! `readPixels` (raw RGBA). Whole-video WebAV `exportMp4` is intentionally
-//! not used here: the facade leaves `@webav/av-cliper` external, and codec
-//! re-encode would muddy the SSIM signal. Prefer raw-frame sampling for
-//! whole-design smoke tests.
+//! The browser path always goes through `web/test-oracle.html`. Two transports
+//! are exposed:
+//! - **hex** (sampled oracle): one frame per call, CanvasKit `readPixels` → raw
+//!   RGBA hex. Exact, but ships 16.6 MB of hex per 1920×1080 frame and grows the
+//!   page JS heap without bound → the tab OOMs after a few hundred frames.
+//! - **video** (whole-range sweep): render a frame range in-page, encode with
+//!   WebCodecs, mux with MP4Box.js, and return one H.264 MP4; the harness
+//!   decodes it with ffmpeg. Only the compressed bitstream (a few MB total,
+//!   bounded by the muxer) crosses the boundary, so a full 494-frame sweep
+//!   needs no chunking. Codec loss is negligible on real content (measured:
+//!   H.264 CRF 12 → mae 0.006–0.17, p8 ≈ 0 vs the ~1.64 baseline), so the
+//!   k3diff pixel gate stays meaningful.
+//!
+//! Whole-video WebAV `exportMp4` is still intentionally not used: the facade
+//! leaves `@webav/av-cliper` external and it pulls in OPFS + a DOM-bound
+//! muxer worker; the oracle uses WebCodecs + MP4Box.js directly instead.
 
 use std::{
     fs,
@@ -142,6 +154,16 @@ impl StaticRoutes {
                 return None;
             }
             return Some(self.repo.join("crates/opencat-web/web/dist").join(rest));
+        }
+
+        // MP4Box.js muxer for the video transport: `web/test-oracle.html` loads
+        // it as a classic script (`<script src="/mp4box.js">` → global
+        // `MP4Box`). Served straight from web/node_modules, same as CanvasKit.
+        if request_path == "/mp4box.js" {
+            return Some(
+                self.repo
+                    .join("web/node_modules/@webav/mp4box.js/dist/mp4box.all.js"),
+            );
         }
 
         // CanvasKit (the wasm + its JS loader) comes from the dev app's
@@ -494,6 +516,58 @@ impl BrowserHarness {
         )
     }
 
+    /// Render `[start_frame, end_frame]` (inclusive) and return one H.264 MP4
+    /// produced in-page by WebCodecs + MP4Box.js (see the module doc).
+    ///
+    /// Unlike [`Self::render_frame`], only the compressed bitstream crosses the
+    /// WebDriver boundary, so this scales to a full sweep without chunking.
+    pub async fn render_frames_to_mp4(
+        &self,
+        jsonl: &str,
+        start_frame: u32,
+        end_frame: u32,
+    ) -> Result<FramesMp4> {
+        let result = webdriver_post(
+            &self.client,
+            &self.webdriver_url,
+            &self.session_id,
+            "execute/async",
+            json!({
+                "script": r#"
+                    const jsonl = arguments[0];
+                    const start = arguments[1];
+                    const end = arguments[2];
+                    const done = arguments[arguments.length - 1];
+                    if (!window.__opencatOracle || typeof window.__opencatOracle.renderFramesToMp4 !== 'function') {
+                      done({ ok: false, error: 'window.__opencatOracle.renderFramesToMp4 is not available' });
+                      return;
+                    }
+                    window.__opencatOracle.renderFramesToMp4(jsonl, start, end)
+                      .then((result) => done({ ok: true, result }))
+                      .catch((err) => done({ ok: false, error: String(err && (err.stack || err.message) || err) }));
+                "#,
+                "args": [jsonl, start_frame, end_frame],
+            }),
+        )
+        .await?;
+
+        if result.get("ok").and_then(Value::as_bool) != Some(true) {
+            bail!(
+                "{}",
+                result
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("browser oracle returned an unknown error")
+            );
+        }
+
+        parse_frames_mp4(
+            result
+                .get("result")
+                .ok_or_else(|| anyhow!("browser video oracle response missing result"))?,
+        )
+    }
+
     pub async fn shutdown(mut self) -> Result<()> {
         let _ = self
             .client
@@ -715,6 +789,68 @@ fn parse_u32(value: &Value, key: &str) -> Result<u32> {
         .and_then(Value::as_u64)
         .ok_or_else(|| anyhow!("browser oracle result missing numeric field `{key}`: {value}"))?;
     u32::try_from(number).with_context(|| format!("field `{key}` is out of range: {number}"))
+}
+
+/// One in-page-encoded H.264 MP4 covering a contiguous frame range, returned by
+/// [`BrowserHarness::render_frames_to_mp4`]. `first_frame` is the composition
+/// index of sample 0 (0 unless the range was chunked); `fps` is the track
+/// timescale. Decode with [`decode_mp4_bytes_frames_rgba`].
+pub struct FramesMp4 {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub first_frame: u32,
+    pub frames_encoded: u32,
+    pub mp4: Vec<u8>,
+}
+
+fn parse_frames_mp4(value: &Value) -> Result<FramesMp4> {
+    let width = parse_u32(value, "width")?;
+    let height = parse_u32(value, "height")?;
+    let fps = parse_u32(value, "fps")?;
+    let first_frame = parse_u32(value, "firstFrame")?;
+    let frames_encoded = parse_u32(value, "framesEncoded")?;
+    let b64 = value
+        .get("videoBase64")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("browser video oracle result missing videoBase64 string"))?;
+    use base64::Engine as _;
+    let mp4 = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .context("decode browser video oracle base64 payload")?;
+    if mp4.is_empty() {
+        bail!("browser video oracle returned an empty MP4");
+    }
+    Ok(FramesMp4 {
+        width,
+        height,
+        fps,
+        first_frame,
+        frames_encoded,
+        mp4,
+    })
+}
+
+/// Decode an in-memory MP4 (from [`FramesMp4`]) to RGBA via ffmpeg.
+///
+/// The bytes are written to a temp file because ffmpeg pipes do not seek the
+/// `moov` atom reliably; the oracle MP4 is at most a few MB.
+pub fn decode_mp4_bytes_frames_rgba(
+    mp4: &[u8],
+    width: u32,
+    height: u32,
+    frames: &[u32],
+) -> Result<std::collections::HashMap<u32, Vec<u8>>> {
+    let mut tmp = tempfile::Builder::new()
+        .prefix("opencat-oracle-")
+        .suffix(".mp4")
+        .tempfile()
+        .context("create temp file for oracle MP4")?;
+    tmp.write_all(mp4).context("write oracle MP4 to temp file")?;
+    tmp.as_file_mut()
+        .sync_all()
+        .context("flush oracle MP4 temp file")?;
+    decode_reference_frames_rgba(tmp.path(), width, height, frames)
 }
 
 #[allow(dead_code)] // retained for per-pixel diagnostics; the oracle uses SSIM

@@ -93,6 +93,35 @@
         return 'inset(' + out.map(formatLengthPercentage).join(' ') + ')';
     }
 
+    // GSAP lets a tween move the pivot it scales/rotates around. The origin is
+    // not interpolated (GSAP snaps it), so `interpolate` picks the endpoint and
+    // the value stays put for the whole tween. A `null` default keeps an
+    // origin-less tween from stamping the box centre onto the node.
+    function makeOriginProperty(nodeSetter, objectKey) {
+        return {
+            defaultValue: null,
+            interpolate: function(from, to, progress) {
+                if (to == null) return from;
+                return progress < 1 && from != null ? from : to;
+            },
+            apply: function(target, value) {
+                if (value == null) return;
+                var payload = typeof value === 'string' ? value : [Number(value[0]), Number(value[1])];
+                if (target.node) {
+                    target.node[nodeSetter](payload);
+                    return;
+                }
+                if (target.set) {
+                    var values = {};
+                    values[objectKey] = payload;
+                    target.set(values);
+                    return;
+                }
+                throw new Error('target does not accept style property `' + objectKey + '`');
+            },
+        };
+    }
+
     // Transform
     animation.registerProperty('opacity', makeStyleProperty('opacity', 'opacity', 1));
     animation.registerProperty('x', copyOwn(makeStyleProperty('translateX', 'x', 0), { aliases: ['translateX'] }));
@@ -103,6 +132,8 @@
     animation.registerProperty('rotation', copyOwn(makeStyleProperty('rotate', 'rotation', 0), { aliases: ['rotate'] }));
     animation.registerProperty('skewX', makeStyleProperty('skewX', 'skewX', 0));
     animation.registerProperty('skewY', makeStyleProperty('skewY', 'skewY', 0));
+    animation.registerProperty('transformOrigin', makeOriginProperty('transformOrigin', 'transformOrigin'));
+    animation.registerProperty('svgOrigin', makeOriginProperty('svgOrigin', 'svgOrigin'));
 
     // Layout
     animation.registerProperty('left', makeStyleProperty('left', 'left', 0));

@@ -6,7 +6,7 @@
 与平台 API。DrawOp 是 **Skia-compatible IR**，由原生 Skia 与 CanvasKit 共用。
 
 从旧 open 路径迁移到 prepare / `open_pipeline`、HostInputs、AudioPlan、RenderFrame、
-OCIR v4：见 [`docs/MIGRATION.md`](docs/MIGRATION.md)。
+OCIR v5：见 [`docs/MIGRATION.md`](docs/MIGRATION.md)。
 
 ```
 输入 (XML / JSONL)
@@ -32,7 +32,7 @@ PreparedComposition::open_pipeline(scripts)  →  DefaultPipeline
   │                         （generated image 完整 RGBA 在 media plan）
   │
   ┌───────────┴───────────┐
-  Engine (Skia)           Web (CanvasKit / OCIR v4)
+  Engine (Skia)           Web (CanvasKit / OCIR v5)
   MP4 / PNG               Canvas / MP4
 ```
 
@@ -292,14 +292,14 @@ let media_plan = build_media_plan(&frame);
 
 `crates/opencat-core/src/ir/draw_encoding.rs`
 
-`encode_draw_frame()` 将 `DrawOpFrame` 序列化为 `EncodedDrawFrame` — 一组平坦的 `Vec<u8>`/`Vec<f32>`/`Vec<TableRange>`，通过 wasm-bindgen 作为类型化数组传递给 JS。
+`encode_ir_envelope()` 将 `RenderFrame` 序列化为 **OCIR v5** 信封——单个自包含字节缓冲（平坦 `Vec<u8>` 段），通过 wasm-bindgen 作为类型化数组传递给 JS。它是帧的纯函数：无 epoch/delta/history 状态，任意单帧都能被全新解码器独立解码。
 
-二进制信封格式：
-- **Section 1 — 指令流**：小端序指令流（opcode u16 + flags u16 + payload_len u32 + payload）
-- **Section 2 — f32 池**：平坦 f32 数组（Points、SetLineDash 等共享）
-- **Section 3 — 字符串**：UTF-8 拼接 + 范围表
-- **Section 4 — 子树**：长度前缀的指令流（隐藏图片子树）
-- **Section 12 — 生成图增量**：新颜色-emoji 字形的 RGBA
+信封格式：
+- **Header**：magic `"OCIR"`（4）+ version u32（=5）+ section_count u32
+- **Directory**：section_count × `{ id u32, offset u32, len u32 }`
+- **Payload**（4 字节对齐段）：`OPS`(1)、`F32_POOL`(2)、`BYTES`(3)、`BYTE_RANGES`(4)、`STRINGS_UTF8`(5)、`STRING_RANGES`(6)、`PAINTS`(7)、`PATHS`(8)、`CHILDREN`(9)、`EFFECTS`(10)、`SUBTREES`(11)、`GENERATED_IMAGES`(12)
+
+指令为小端序列：`[opcode u16][flags u16][payload_len u32][payload]`，每条按 4 字节对齐。`GENERATED_IMAGES` **每帧携带完整 RGBA**（颜色-emoji 字形；段恒在，count 可为 0）。
 
 JS 侧（`crates/opencat-web/web/src/draw-ir.ts`）：
 - `decodeFrame()` 解析信封为 `DecodedFrame`
@@ -396,8 +396,7 @@ WebRenderer::build_frame_ir(&mut self, frame: u32) -> Result<Vec<u8>>
 ```
 1. `pipeline.render_frame(frame)` → `RenderFrame`
 2. `WebFrameConsumer::consume_frame()`（web consumer）：
-   - `encode_draw_frame()` → 二进制 `EncodedDrawFrame`
-   - 追加生成图增量（自上帧以来的新颜色-emoji 字形）
+   - `encode_render_frame_envelope()` → `encode_ir_envelope()`（OCIR v5 字节；生成图 RGBA 已在帧内）
 3. 返回二进制信封给 JS
 
 ### 8c. JS CanvasKit 执行
@@ -450,11 +449,11 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 
 ### 确定性构造
 
-`RenderFrame { draw: DrawOpFrame, media: FrameMediaPlan }` 是 `(pipeline, frame_index)` 的纯函数。同一 pipeline 的同一帧总是产生字节完全相同的绘制指令。这使得 engine 和 web 之间的 SSIM 回归测试成为可能。
+`RenderFrame { draw: DrawOpFrame, media: FrameMediaPlan }` 是 `(pipeline, frame_index)` 的纯函数。同一 pipeline 的同一帧总是产生字节完全相同的绘制指令，这正是 engine/web 逐帧 oracle 回归（k3diff 像素指标）得以成立的前提。
 
 ### 跨语言传输的二进制 IR
 
-`EncodedDrawFrame` 格式桥接 Rust（WASM）和 JS/CanvasKit。绘制命令不通过 JSON 序列化（慢、冗长），而是打包成紧凑的二进制信封（opcode + payload_len + payload）。侧表（paints、paths、strings、f32_pool）在构建时去重和内联，然后平坦编码，通过 wasm-bindgen 类型化数组实现零拷贝传输。
+OCIR 信封桥接 Rust（WASM）和 JS/CanvasKit。绘制命令不通过 JSON 序列化（慢、冗长），而是打包成紧凑的二进制信封（opcode + payload_len + payload）。侧表（paints、paths、strings、f32_pool）在构建时去重和内联，然后平坦编码，通过 wasm-bindgen 类型化数组实现零拷贝传输。
 
 ### 效果 Lambda DSL（`crates/opencat-core/src/script/effects_lambda/`）
 
@@ -493,7 +492,7 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 | `crates/opencat-core/src/ir/draw_op.rs` | `DrawOp` 枚举（规范绘制 IR） |
 | `crates/opencat-core/src/ir/draw_types.rs` | 侧表 ID 类型（`PaintId`、`PathId`、`EffectId` 等） |
 | `crates/opencat-core/src/ir/draw_frame.rs` | `DrawOpFrame`、`RenderFrame` |
-| `crates/opencat-core/src/ir/draw_encoding.rs` | 二进制信封编码 → `EncodedDrawFrame` |
+| `crates/opencat-core/src/ir/draw_encoding.rs` | OCIR v5 信封编码（`encode_ir_envelope`） |
 | `crates/opencat-core/src/ir/media_plan.rs` | `FrameMediaPlan` |
 | `crates/opencat-core/src/ir/generated_image.rs` | `GeneratedImageTable`（颜色-emoji） |
 | `crates/opencat-core/src/lifecycle/` | `CompositionDraft` → `prepare` → `PreparedComposition::open_pipeline()` |
@@ -512,7 +511,7 @@ Core 从不做 I/O。它声明需要的资源（`ResourceRequests`），通过�
 | `crates/opencat-engine/src/consumer.rs` | `EngineLoaderFrameConsumer`（解码 + 执行） |
 | `crates/opencat-engine/src/resource/` | `EngineLoader`（文件系统资源） |
 | `crates/opencat-engine/src/media/` | 媒体解码/编码/seek、视频缓存、音频混音 |
-| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness、`compute_ssim_rgba()` |
+| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness、k3diff 像素指标（`compute_pixel_diff_rgba`） |
 | `crates/opencat-web/src/wasm_bridge.rs` | `WebRenderer`（open_design、build_frame_ir） |
 | `crates/opencat-web/src/resource/` | Web 资源获取（fetch API、BlobStore） |
 | `crates/opencat-web/src/consumer.rs` | `WebFrameConsumer`（编码 DrawOpFrame → 二进制） |

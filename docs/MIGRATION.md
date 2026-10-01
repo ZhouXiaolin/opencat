@@ -18,7 +18,7 @@ Input (XML / JSONL)
   → draft.prepare(inputs) → PreparedComposition
   → prepared.open_pipeline(scripts) → DefaultPipeline
   → render_frame(i) → RenderFrame { draw, media }
-  → Engine (Skia) | Web (OCIR v4 → CanvasKit)
+  → Engine (Skia) | Web (OCIR v5 → CanvasKit)
 ```
 
 Core is a pure derivation kernel. Ordinary media **bytes never enter prepare**.
@@ -147,20 +147,24 @@ concern (web stamps pipeline epoch into the OCIR envelope).
 
 ---
 
-## DrawOp wire protocol (OCIR v4)
+## DrawOp wire protocol (OCIR v5)
 
-Single versioned envelope, encoded only in core (`encode_ir_envelope`):
+Single self-contained envelope, encoded only in core (`encode_ir_envelope`):
 
 ```text
-magic "OCIR" | version u32 (=4) | section_count u32 | pipeline_epoch u32
+magic "OCIR" | version u32 (=5) | section_count u32
 directory: repeated (section_id u32, offset u32, length u32)
 payloads: OPS, F32_POOL, BYTES, BYTE_RANGES, STRINGS_UTF8, STRING_RANGES,
           PAINTS, PATHS, CHILDREN, EFFECTS, SUBTREES, GENERATED_IMAGES
 ```
 
+`encode(RenderFrame)` is a pure function — no `pipeline_epoch`, no delta/history
+state — so a fresh decoder can decode any single frame on its own. Generated-image
+RGBA is encoded in full every frame (section 12; always present, count may be 0).
+
 - Rust: `opencat_core::ir::{encode_ir_envelope, IR_VERSION, IR_MAGIC}`
 - TypeScript: `crates/opencat-web/web/src/draw-ir.ts` decoder (must stay field-locked)
-- Cross-language fixture: `web/src/fixtures/ocir/roundtrip_v4.ocir`
+- Cross-language fixture: `web/src/fixtures/ocir/roundtrip_v5.ocir`
   - Written by core test `write_ts_roundtrip_fixture_bytes`
   - Asserted field-by-field in `web/src/draw-ir.test.ts` (`core encoder → TS decoder`)
 
@@ -176,7 +180,7 @@ After `open_design` / `openDesign`:
 2. Per frame: read media plan → inject video RGBA → `build_frame_ir` → CanvasKit.
 3. Use core `audio_plan()` for preview/export mix schedules.
 
-Skipping video prepare blanks every `ImageRef::VideoFrame` (SSIM collapse on
+Skipping video prepare blanks every `ImageRef::VideoFrame` (`mae`/`p8` jump on
 video scenes). See `DEVELOPMENT.md` (Engine / Web pixel alignment).
 
 ---
@@ -208,7 +212,7 @@ Everything else: import from `opencat_core` / `opencat_engine` directly.
 | Audio plan | core `media/audio_plan` unit tests; web `playback.test.ts`; engine `build_audio_track_from_pipeline` |
 | Script isolation | engine `runtime::script_runtime_tests::{one_realm_shares…, separate_realms_do_not…}`; resolve isolation tests |
 | DrawOp wire field parity | core `paint_path_string_effect_generated_fields_round_trip_in_core` + vitest fixture AC5 |
-| SSIM thresholds | still ≥ 0.99; video-active ≥ 0.97; Lottie ≥ 0.985 — artifacts under `target/opencat-web-oracle/` |
+| k3diff gates | strict `mae ≤ 1.0, p8 ≤ 0.02`; video-active `mae ≤ 2.0, p8 ≤ 0.03`; Lottie `mae ≤ 2.0, p8 ≤ 0.02` — artifacts under `target/opencat-web-oracle/` (see `DEVELOPMENT.md`) |
 
 ### Oracle commands
 
@@ -241,7 +245,7 @@ cargo build --bin opencat-web-compare --release
   --out-dir out/compare --interval-secs 0.5
 ```
 
-Regression results for a given release train should be recorded in
-[`regression-evidence.md`](regression-evidence.md) with SSIM min/avg and any
-frames that used the video tolerance band. The current release-train numbers
-(#25) live there now.
+Regression results for a given release train are recorded in
+[`regression-evidence.md`](regression-evidence.md) with `mae`/`p8` and any frames
+that used the video tolerance band. Current numbers: `DEVELOPMENT.md`
+(Engine / Web pixel alignment).

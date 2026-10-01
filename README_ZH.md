@@ -383,7 +383,7 @@ cargo run --bin opencat -- --version
 - [设计原则](skill/references/design-principles.md)
 - [开发指南](DEVELOPMENT_ZH.md)
 - [架构文档](ARCHITECTURE_ZH.md)
-- [迁移指南](docs/MIGRATION.md) — 显式 lifecycle、HostInputs、AudioPlan、RenderFrame、OCIR v4
+- [迁移指南](docs/MIGRATION.md) — 显式 lifecycle、HostInputs、AudioPlan、RenderFrame、OCIR v5
 
 ## Community
 

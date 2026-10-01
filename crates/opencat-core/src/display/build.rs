@@ -383,6 +383,7 @@ fn assemble_display_node(
             translation_y: layout.rect.y,
             bounds,
             transforms: element.style.visual.transforms.clone(),
+            origin: element.style.visual.transform_origin,
         },
         element_id: element.id,
         opacity: element.style.visual.opacity,
@@ -573,6 +574,10 @@ fn display_item_for_node(
 
 fn text_element_allows_wrap(element: &ElementNode) -> bool {
     if element.style.layout.truncate {
+        return false;
+    }
+
+    if element.style.text.no_wrap {
         return false;
     }
 

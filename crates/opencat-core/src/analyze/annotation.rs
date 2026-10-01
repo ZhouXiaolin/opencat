@@ -451,6 +451,7 @@ mod tests {
                 translation_y: 0.0,
                 bounds: rect_bounds(),
                 transforms: Vec::new(),
+                origin: Default::default(),
             },
             opacity: 1.0,
             css_filter: Default::default(),

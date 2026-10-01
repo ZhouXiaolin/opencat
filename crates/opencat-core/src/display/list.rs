@@ -109,6 +109,8 @@ pub struct DisplayTransform {
     pub translation_y: f32,
     pub bounds: DisplayRect,
     pub transforms: Vec<crate::style::Transform>,
+    /// Static anchor (fractions of `bounds`) that `transforms` pivot around.
+    pub origin: crate::style::TransformOrigin,
 }
 
 #[derive(Clone, Debug)]

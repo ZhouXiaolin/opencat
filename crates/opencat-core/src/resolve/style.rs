@@ -3,6 +3,7 @@ use crate::style::{
     AlignItems, BackgroundFill, BoxShadow, ClipPath, ComputedTextStyle, CssFilter, DropShadow,
     FlexDirection, FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow,
     JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextShadow, Transform,
+    TransformOrigin,
 };
 
 #[derive(Clone, Debug)]
@@ -125,6 +126,8 @@ pub struct ComputedVisualStyle {
     pub clip_contents: bool,
     pub clip_path: Option<ClipPath>,
     pub transforms: Vec<Transform>,
+    /// Static `transform-origin` anchor (fractions of the box). Defaults to centre.
+    pub transform_origin: TransformOrigin,
     pub box_shadow: Vec<BoxShadow>,
     pub inset_shadow: Vec<InsetShadow>,
     pub drop_shadow: Vec<DropShadow>,

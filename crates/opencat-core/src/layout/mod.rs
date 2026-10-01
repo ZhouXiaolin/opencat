@@ -439,6 +439,10 @@ fn text_element_allows_wrap(element: &ElementNode) -> bool {
         return false;
     }
 
+    if element.style.text.no_wrap {
+        return false;
+    }
+
     let has_definite_width = element.style.layout.width.is_some()
         || element.style.layout.width_percent.is_some()
         || element.style.layout.width_full;

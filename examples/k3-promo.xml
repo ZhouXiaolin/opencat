@@ -527,37 +527,35 @@
 
     /* ════════════ OPEN BRACE CARD (0 → 1.12s) ═════════════════════════
        Source lines 1549-1566. Type-in two words, un-type via remnants,
-       braces widen, fade. Section visible 0→1.12s. */
+       braces widen, fade. Declarative tweens (absolute times); the
+       `opencard` visibility window stays a per-frame gate. */
     var OPEN_ON = (T>= 0 && T < 1.12);
     vis('opencard', OPEN_ON);
     if (OPEN_ON) {
-      vis('openmid', false); vis('openrem', false);
-      vis('ot1', T>= 0.0333); vis('ot2', T>= 0.0663);
       // un-type: the braces snap inward to the remnant headline widths.
       // Offsets are the reference's computed values relative to the type-in
       // rest ink lefts (511 / 1371):
       //   bGapMid = midW/2 + 68  -> obl +67.5225, obr -66.5225
       //   bGapRem = remW/2 + 52  -> obl +325.5715, obr -324.5715
-      var oblX = 0, obrX = 0;
-      if (T>= 0.9333) {
-        vis('opentext', false); vis('openmid', true);
-        oblX = 67.5225; obrX = -66.5225;
-      }
-      if (T>= 0.9663) {
-        vis('openmid', false); ctx.getNode('openrem').opacity(0.75);
-        oblX = 325.5715; obrX = -324.5715;
-      }
-      // fade out 1.0 → 1.07 (braces drift a further +24 / -24)
-      var oFade = T>= 1.0 ? clamp(1 - (T - 1.0) / 0.07, 0, 1) : 1;
-      if (T>= 1.0) { var bdX = clamp((T - 1.0) / 0.07, 0, 1); oblX += 24 * bdX; obrX -= 24 * bdX; }
-      ctx.getNode('obl').translateX(oblX);
-      ctx.getNode('obr').translateX(obrX);
-      ctx.getNode('obl').opacity(oFade);
-      ctx.getNode('obr').opacity(oFade);
-      ctx.getNode('openrem').opacity((T>= 0.9663 ? 0.75 : 0) * oFade);
-      var sFade = T>= 0.95 ? clamp(1 - (T - 0.95) / 0.12, 0, 1) : 1;
-      vis('stripOL', sFade> 0); ctx.getNode('stripOL').opacity(sFade * 0.9);
-      vis('stripOR', sFade> 0); ctx.getNode('stripOR').opacity(sFade * 0.9);
+      ctx.timeline()
+        .set(['openmid', 'openrem', 'ot1', 'ot2'], { opacity: 0 }, 0)
+        .set('ot1', { opacity: 1 }, 0.0333)
+        .set('ot2', { opacity: 1 }, 0.0663)
+        .set('opentext', { opacity: 0 }, 0.9333)
+        .set('openmid', { opacity: 1 }, 0.9333)
+        .set('obl', { x: 67.5225 }, 0.9333)
+        .set('obr', { x: -66.5225 }, 0.9333)
+        .set('openmid', { opacity: 0 }, 0.9663)
+        .set('openrem', { opacity: 0.75 }, 0.9663)
+        .set('obl', { x: 325.5715 }, 0.9663)
+        .set('obr', { x: -324.5715 }, 0.9663)
+        // fade out 1.0 → 1.07 (braces drift a further +24 / -24).
+        // NOTE: the reference omits `ease` here, so GSAP's default power1.out
+        // applies; our engine default is linear, so it is spelled out.
+        .to(['obl', 'obr', 'openrem'], { opacity: 0, duration: 0.07, ease: 'power1.in' }, 1.0)
+        .to('obl', { x: 325.5715 + 24, duration: 0.07, ease: 'power1.out' }, 1.0)
+        .to('obr', { x: -324.5715 - 24, duration: 0.07, ease: 'power1.out' }, 1.0)
+        .to(['stripOL', 'stripOR'], { opacity: 0, duration: 0.12, ease: 'power1.out' }, 0.95);
     }
 
     /* ════════════ SCENE A: lattice field (0.75 → 4.62s) ═══════════════

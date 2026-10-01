@@ -97,7 +97,108 @@ pub struct NodeStyleMutations {
     pub text_shadows: Option<Vec<crate::style::TextShadow>>,
 }
 
+/// Slot index of each independent transform component on the CSS `transform`
+/// list. GSAP treats `x`/`y`/`scaleX`/`scaleY`/`rotation`/`skewX`/`skewY` as
+/// separate writable properties, so each occupies exactly one slot.
+fn transform_slots(t: &Transform) -> &'static [usize] {
+    match t {
+        Transform::TranslateX { .. } => &[0],
+        Transform::TranslateY { .. } => &[1],
+        Transform::Translate { .. } => &[0, 1],
+        Transform::Scale { .. } => &[2, 3],
+        Transform::ScaleX { .. } => &[2],
+        Transform::ScaleY { .. } => &[3],
+        Transform::RotateDeg { .. } => &[4],
+        Transform::SkewXDeg { .. } => &[5],
+        Transform::SkewYDeg { .. } => &[6],
+        Transform::SkewDeg { .. } => &[5, 6],
+    }
+}
+
+/// Split a multi-component transform shorthand into its independent
+/// components. Only `translate`/`scale` have an exact split: translations add
+/// and uniform scale factors multiply, so `TranslateX+TranslateY` and
+/// `ScaleX+ScaleY` compose to the *same matrix* as the shorthands. `SkewDeg`
+/// stays atomic — `skewX(sx)·skewY(sy)` is not the same matrix as a combined
+/// skew — so a collision with it simply drops the whole shorthand.
+fn split_components(t: &Transform) -> Vec<Transform> {
+    match *t {
+        Transform::Translate { x, y } => vec![
+            Transform::TranslateX { value: x },
+            Transform::TranslateY { value: y },
+        ],
+        Transform::Scale { value } => vec![
+            Transform::ScaleX { value },
+            Transform::ScaleY { value },
+        ],
+        Transform::SkewDeg { x, y } => vec![
+            Transform::SkewXDeg { value: x },
+            Transform::SkewYDeg { value: y },
+        ],
+        // Single-slot components split into themselves.
+        other => vec![other],
+    }
+}
+
 impl NodeStyleMutations {
+    /// Record one transform-component write with GSAP's per-component
+    /// last-write-wins semantics: a later write to `x` replaces the earlier
+    /// `x` rather than stacking on top of it. Transform components are
+    /// independent slots (`x`,`y`,`scaleX`,`scaleY`,`rotation`,`skewX`,
+    /// `skewY`); writes to different slots coexist and keep insertion order.
+    ///
+    /// Without this, `node.translateX(a); node.translateX(b)` accumulated to
+    /// `a+b` (measured on the OPEN card braces: two `.set('obl',{x})` in one
+    /// frame summed 67.5225 + 325.5715 and collapsed the brace onto the text).
+    pub fn push_transform(&mut self, t: Transform) {
+        let incoming_slots = transform_slots(&t);
+        let collides = self
+            .transforms
+            .iter()
+            .any(|e| transform_slots(e).iter().any(|s| incoming_slots.contains(s)));
+        if !collides {
+            // Fast path — no overlap, so keep the write atomic (`Scale`, etc.).
+            // Splitting a lone `scale` into scaleX·scaleY changes the rendered
+            // float path, so only pay that cost when a real collision forces it.
+            self.transforms.push(t);
+            return;
+        }
+        // Collision: decompose both sides into independent single-slot
+        // components so only the genuinely-overlapping slots are superseded —
+        // a later `x` replaces the earlier `x` but leaves `y` untouched.
+        let mut out = Vec::new();
+        for existing in self.transforms.drain(..) {
+            for component in split_components(&existing) {
+                if !transform_slots(&component)
+                    .iter()
+                    .any(|s| incoming_slots.contains(s))
+                {
+                    out.push(component);
+                }
+            }
+        }
+        out.extend(split_components(&t));
+        self.transforms = out;
+    }
+
+    /// Read back the value of a transform component (last write, if any).
+    /// Mirrors the GSAP property names (`x`,`y`,`scaleX`,…) so a tween written
+    /// *without* an explicit `from` (e.g. `.to('obl',{x: L})`) can read the
+    /// current value it should start from, instead of defaulting to 0.
+    pub fn read_transform_value(&self, property: &str) -> Option<f32> {
+        self.transforms.iter().rev().find_map(|t| match (property, t) {
+            ("x" | "translateX", Transform::TranslateX { value }) => Some(*value),
+            ("y" | "translateY", Transform::TranslateY { value }) => Some(*value),
+            ("scale" | "scaleX", Transform::ScaleX { value }) => Some(*value),
+            ("scale" | "scaleY", Transform::ScaleY { value }) => Some(*value),
+            ("scale", Transform::Scale { value }) => Some(*value),
+            ("rotation" | "rotate", Transform::RotateDeg { value }) => Some(*value),
+            ("skewX", Transform::SkewXDeg { value }) => Some(*value),
+            ("skewY", Transform::SkewYDeg { value }) => Some(*value),
+            _ => None,
+        })
+    }
+
     pub fn apply_to(&self, style: &mut crate::style::NodeStyle) {
         if let Some(v) = self.position {
             style.position = Some(v);

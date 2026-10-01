@@ -373,6 +373,84 @@ pub fn compute_progress(
     if clamp { p.clamp(0.0, 1.0) } else { p }
 }
 
+/// Time-based variant of [`compute_progress`] (all quantities in **seconds**).
+///
+/// GSAP advances tweens by elapsed wall-clock time, so this is the faithful
+/// model: `duration`/`delay`/`repeat_delay` stay fractional and progress is a
+/// function of `current_time`. The frame-based [`compute_progress`] quantises to
+/// whole frames, which drifts up to half a frame on short tweens.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_progress_secs(
+    current_time: f32,
+    duration: f32,
+    delay: f32,
+    easing: &Easing,
+    clamp: bool,
+    repeat: i32,
+    yoyo: bool,
+    repeat_delay: f32,
+) -> f32 {
+    if current_time <= delay {
+        return 0.0;
+    }
+    if duration <= 0.0 {
+        return 1.0;
+    }
+    let elapsed = current_time - delay;
+    let cycle_len = duration + repeat_delay.max(0.0);
+    let cycle_idx = (elapsed / cycle_len).floor() as i32;
+
+    if repeat >= 0 && cycle_idx > repeat {
+        return if yoyo && (repeat % 2 == 1) { 0.0 } else { 1.0 };
+    }
+
+    let in_cycle = elapsed - (cycle_idx as f32) * cycle_len;
+    if in_cycle >= duration {
+        return if !yoyo || cycle_idx % 2 == 0 {
+            1.0
+        } else {
+            0.0
+        };
+    }
+
+    let mut t = (in_cycle / duration).clamp(0.0, 1.0);
+    if yoyo && (cycle_idx % 2 == 1) {
+        t = 1.0 - t;
+    }
+    let p = easing.apply(t);
+    if clamp { p.clamp(0.0, 1.0) } else { p }
+}
+
+/// Time-based variant of [`animate_value`] (all quantities in **seconds**).
+#[allow(clippy::too_many_arguments)]
+pub fn animate_value_secs(
+    current_time: f32,
+    duration: f32,
+    delay: f32,
+    from: f32,
+    to: f32,
+    easing: &Easing,
+    clamp: bool,
+    repeat: i32,
+    yoyo: bool,
+    repeat_delay: f32,
+) -> f32 {
+    if current_time <= delay {
+        return from;
+    }
+    let p = compute_progress_secs(
+        current_time,
+        duration,
+        delay,
+        easing,
+        clamp,
+        repeat,
+        yoyo,
+        repeat_delay,
+    );
+    from + (to - from) * p
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn animate_value(
     current_frame: u32,

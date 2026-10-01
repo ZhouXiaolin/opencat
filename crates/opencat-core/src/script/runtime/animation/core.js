@@ -104,6 +104,95 @@
         return normalized;
     }
 
+    /// GSAP object-form keyframes: `[{scale:1, rotation:0, duration:0},
+    /// {scale:1.2, rotation:10, duration:0.5}, ...]`. Each entry's `duration`
+    /// is the time to reach it from the previous entry, so the entry timeline
+    /// is the cumulative sum. Every property seen anywhere becomes its own
+    /// track, with the value carried forward across entries that omit it.
+    /// True when an array literally holds GSAP state-object keyframes — at
+    /// least one object carrying `duration` (the reference's `duration: 0`
+    /// first entry). `{value:[...]}` and shorthand `[1, 1.2, 1]` forms are
+    /// excluded so they keep going through `normalizeKeyframes`.
+    function isStateKeyframeArray(spec) {
+        if (spec.length === 0) return false;
+        for (var i = 0; i < spec.length; i++) {
+            var kf = spec[i];
+            if (kf == null || typeof kf !== 'object' || Array.isArray(kf)) return false;
+            if (hasOwn(kf, 'duration')) return true;
+        }
+        return false;
+    }
+
+    function normalizeObjectKeyframes(spec) {
+        var times = [];
+        var easings = [];
+        var props = {};
+        var total = 0;
+        for (var i = 0; i < spec.length; i++) {
+            total += Number(spec[i].duration || 0);
+        }
+        if (!(total > 0)) {
+            // All-zero durations: fall back to an even spread so the tween is
+            // still a continuous function of progress.
+            total = Math.max(1, spec.length - 1);
+        }
+        var elapsed = 0;
+        var carried = {};
+        for (var i = 0; i < spec.length; i++) {
+            elapsed += Number(spec[i].duration || 0);
+            times.push(i * 0 + elapsed / total);
+            easings.push(spec[i].easing != null ? resolveEasingTag(spec[i].easing) : null);
+            for (var key in spec[i]) {
+                if (!hasOwn(spec[i], key)) continue;
+                if (key === 'duration' || key === 'easing' || key === 'at') continue;
+                carried[key] = spec[i][key];
+            }
+            for (var pname in carried) {
+                if (!hasOwn(carried, pname)) continue;
+                if (!props[pname]) props[pname] = [];
+                props[pname].push(carried[pname]);
+            }
+        }
+        times[0] = 0;
+        times[times.length - 1] = 1;
+        return { times: times, easings: easings, props: props, totalDuration: total };
+    }
+
+    function evaluateObjectKeyframes(progress, multi, propName, descriptor, target, track, handle, timing) {
+        var values = multi.props[propName];
+        if (!values || values.length === 0) return undefined;
+        var p = Math.max(0, Math.min(1, Number(progress)));
+        var times = multi.times;
+        if (p <= times[0]) return values[0];
+        var last = values.length - 1;
+        if (p >= times[last]) return values[last];
+        for (var i = 0; i < last; i++) {
+            if (p >= times[i] && p <= times[i + 1]) {
+                var span = times[i + 1] - times[i];
+                var localT = span > 0 ? (p - times[i]) / span : 0;
+                var easing = multi.easings[i + 1];
+                if (easing) localT = __easing_apply(easing, localT);
+                var a = values[i];
+                var b = values[i + 1];
+                if (typeof a === 'number' && typeof b === 'number') {
+                    return a + (b - a) * localT;
+                }
+                if (typeof descriptor.interpolate === 'function') {
+                    return descriptor.interpolate(a, b, localT, {
+                        target: target,
+                        handle: handle,
+                        timing: timing,
+                        core: runtime.core,
+                        inputName: track.inputName,
+                        name: track.name,
+                    });
+                }
+                return localT < 0.5 ? a : b;
+            }
+        }
+        return values[last];
+    }
+
     function evaluateKeyframes(progress, kfs, descriptor, target, track, handle, timing) {
         var p = Math.max(0, Math.min(1, Number(progress)));
         if (p <= kfs[0].at) return kfs[0].value;
@@ -338,6 +427,7 @@
     function collectTracks(fromVars, toVars, timing) {
         var tracks = [];
         var byCanonical = {};
+        var duration = timing ? timing.duration : undefined;
 
         function add(inputName) {
             if (animation.isReservedKey(inputName)) {
@@ -375,9 +465,44 @@
 
         var keyframesSpec = timing.keyframes || (toVars && toVars.keyframes) || null;
         if (keyframesSpec) {
-            for (var kfKey in keyframesSpec) {
-                if (hasOwn(keyframesSpec, kfKey)) {
-                    add(kfKey).keyframes = normalizeKeyframes(keyframesSpec[kfKey]);
+            // GSAP form A — state array:
+            //   keyframes: [{scale:1, rotation:0, duration:0}, {scale:1.2, ...
+            // Each entry is a complete state; properties carry forward. The
+            // array's own `duration` is the sum of the entries' durations.
+            if (Array.isArray(keyframesSpec) && isStateKeyframeArray(keyframesSpec)) {
+                var multi = normalizeObjectKeyframes(keyframesSpec);
+                timing.duration = Number(timing.duration) || 0;
+                for (var pname in multi.props) {
+                    if (!hasOwn(multi.props, pname)) continue;
+                    add(pname).objectKeyframes = multi;
+                }
+                // Tween-level vars that the state array never mentions (GSAP
+                // writes `transformOrigin`/`ease` beside `keyframes`) hold one
+                // value for the whole tween.
+                var levelVars = [];
+                for (var lk in toVars) if (hasOwn(toVars, lk)) levelVars.push(lk);
+                for (var lk2 in fromVars) if (hasOwn(fromVars, lk2)) levelVars.push(lk2);
+                for (var li = 0; li < levelVars.length; li++) {
+                    var lname = levelVars[li];
+                    var lcanon = animation.canonicalName(lname);
+                    if (!lcanon || multi.props[lcanon] || multi.props[lname]) continue;
+                    var lval = toVars[lname] !== undefined ? toVars[lname] : fromVars[lname];
+                    add(lname).objectKeyframes = {
+                        times: [0, 1],
+                        easings: [null, null],
+                        props: (function(k, v) { var o = {}; o[k] = [v, v]; return o; })(lcanon, lval),
+                    };
+                }
+                // In the reference every state-entry tween starts with a
+                // `duration: 0` entry, so the sum of the entries equals the
+                // tween's `duration` field; use the sum when one is missing.
+                if (duration === undefined) duration = multi.totalDuration > 0 ? multi.totalDuration : 0;
+            } else {
+                // GSAP form B — `{scale:[1,1.2,1], rotation:[{at,value}...]}`.
+                for (var kfKey in keyframesSpec) {
+                    if (hasOwn(keyframesSpec, kfKey)) {
+                        add(kfKey).keyframes = normalizeKeyframes(keyframesSpec[kfKey]);
+                    }
                 }
             }
         }
@@ -401,6 +526,19 @@
         var easingTag = resolveEasingTag(timing.ease != null ? timing.ease : timing.easing);
         var isSpring = easingTag.indexOf('spring:') === 0;
         var duration = timing.duration;
+        // Object-form keyframes carry their own timeline (the sum of the
+        // entries' durations), so `duration` may be omitted entirely.
+        var rawKeyframes = timing.keyframes || toVars.keyframes;
+        if (duration === undefined && Array.isArray(rawKeyframes)) {
+            var kfTotal = 0;
+            for (var ki = 0; ki < rawKeyframes.length; ki++) {
+                kfTotal += Number((rawKeyframes[ki] && rawKeyframes[ki].duration) || 0);
+            }
+            if (kfTotal > 0) {
+                duration = kfTotal;
+                timing.duration = kfTotal;
+            }
+        }
         if (duration === undefined && !isSpring) {
             throw new Error('duration is required for non-spring tweens');
         }
@@ -470,7 +608,23 @@
             }
 
             var value;
-            if (track.keyframes) {
+            if (track.objectKeyframes) {
+                value = evaluateObjectKeyframes(
+                    progress,
+                    track.objectKeyframes,
+                    track.name,
+                    descriptor,
+                    target,
+                    track,
+                    handle,
+                    timing
+                );
+                if (value === undefined) {
+                    // This property is absent from the state array — leave it out
+                    // instead of stamping a default.
+                    continue;
+                }
+            } else if (track.keyframes) {
                 value = evaluateKeyframes(
                     progress,
                     track.keyframes,

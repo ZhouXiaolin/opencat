@@ -683,3 +683,75 @@ fn separate_realms_same_source_produce_field_identical_output() {
         op_a,
     );
 }
+
+/// GSAP object-form keyframes: `[{scale, rotation, duration}, ...]`. Each entry
+/// is a full state, properties carry forward, and the entries' durations sum to
+/// the tween duration (no top-level `duration` needed).
+#[test]
+fn object_form_keyframes_interpolate_with_per_entry_durations() {
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("badge".into());
+    realm.set_target_registry(registry);
+
+    let driver = realm
+        .install(
+            "ctx.set('badge', { scale: 1, rotation: 0 });\
+             ctx.to('badge', {\
+               keyframes: [\
+                 { scale: 1, rotation: 0, duration: 0 },\
+                 { scale: 2, rotation: 90, duration: 0.5 },\
+                 { scale: 1, rotation: 0, duration: 0.5 }\
+               ],\
+               ease: 'none'\
+             });",
+        )
+        .expect("install");
+
+    let run_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> (f32, f32) {
+        // 20 fps → frame N is t = N/20 s; the tween spans 1 s (0..=20).
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: 20,
+            width: 64,
+            height: 36,
+            frames: 40,
+        };
+        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+        let mut rec = MutationStore::default();
+        realm
+            .run_frame(driver, &script_frame_ctx, Some("badge"), &mut rec)
+            .expect("run");
+        let entry = rec.snapshot_mutations().mutations.remove("badge").expect("badge");
+        // `scale` lowers to a paired ScaleX/ScaleY write, so read either axis.
+        let scale = entry
+            .transforms
+            .iter()
+            .find_map(|t| match t {
+                opencat_core::style::Transform::ScaleX { value }
+                | opencat_core::style::Transform::ScaleY { value }
+                | opencat_core::style::Transform::Scale { value } => Some(*value),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("scale track; transforms = {:?}", entry.transforms));
+        let rotation = entry
+            .transforms
+            .iter()
+            .find_map(|t| match t {
+                opencat_core::style::Transform::RotateDeg { value } => Some(*value),
+                _ => None,
+            })
+            .expect("rotation track");
+        (scale, rotation)
+    };
+
+    // Half-way through the first segment: scale 1→2, rotation 0→90.
+    let (s5, r5) = run_at(&mut realm, 5);
+    assert!((s5 - 1.5).abs() < 0.02, "frame 5 scale: {s5}");
+    assert!((r5 - 45.0).abs() < 0.5, "frame 5 rotation: {r5}");
+
+    // Half-way through the second segment: scale 2→1, rotation 90→0.
+    let (s15, r15) = run_at(&mut realm, 15);
+    assert!((s15 - 1.5).abs() < 0.02, "frame 15 scale: {s15}");
+    assert!((r15 - 45.0).abs() < 0.5, "frame 15 rotation: {r15}");
+}

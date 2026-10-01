@@ -188,9 +188,9 @@ cargo run --bin opencat-see -- path/to/input.xml
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requires `Cross-Origin-Isolated` environment.
 
-### Engine / Web alignment (SSIM)
+### Engine / Web alignment (k3diff pixel metrics)
 
-Pixel-compare native Skia vs WASM CanvasKit with ChromeDriver + SSIM. Full steps: **[Development Guide](DEVELOPMENT.md#engine--web-pixel-alignment-ssim-frame-oracle)**.
+Pixel-compare native Skia vs WASM CanvasKit with ChromeDriver using hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM). Can also compare the web render directly against the original reference video via `--reference`. Full steps: **[Development Guide](DEVELOPMENT.md#engine--web-pixel-alignment-k3diff-frame-oracle)**.
 
 ```bash
 # 1) media used by examples (profile-showcase loads http://127.0.0.1:8080/...)
@@ -379,7 +379,7 @@ No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a stan
 - [Canvas API](skill/references/canvaskit.md)
 - [Templates](skill/references/templates.md)
 - [Design Principles](skill/references/design-principles.md)
-- [Development Guide](DEVELOPMENT.md) — Tailwind/Taffy layout alignment & engine/web SSIM comparison
+- [Development Guide](DEVELOPMENT.md) — Tailwind/Taffy layout alignment & engine/web k3diff pixel comparison
 - [开发指南](DEVELOPMENT_ZH.md)
 - [Architecture](ARCHITECTURE.md) — complete rendering pipeline from XML/JSONL to pixels
 - [架构文档](ARCHITECTURE_ZH.md)

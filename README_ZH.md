@@ -190,9 +190,9 @@ cargo run --bin opencat-see -- path/to/input.xml
 
 > Web (WASM)：`cd crates/opencat-web/web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
 
-### Engine / Web 像素对齐（SSIM）
+### Engine / Web 像素对齐（k3diff 像素指标）
 
-用 ChromeDriver + SSIM 对比原生 Skia 与 WASM CanvasKit 逐帧输出。完整步骤见 **[开发指南](DEVELOPMENT_ZH.md#engine--web-像素对齐ssim-frame-oracle)**。
+用 ChromeDriver + 硬像素指标（`mae`/`maxd`/`p8`，非 SSIM）对比原生 Skia 与 WASM CanvasKit 逐帧输出。也可用 `--reference` 把 web 渲染直接和原始参考视频比对。完整步骤见 **[开发指南](DEVELOPMENT_ZH.md#engine--web-像素对齐k3diff-frame-oracle)**。
 
 ```bash
 # 1) examples 依赖的媒体（profile-showcase 会请求 http://127.0.0.1:8080/...）

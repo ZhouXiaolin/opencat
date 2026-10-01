@@ -33,9 +33,11 @@ cargo test generated_layout_fixture_templates_cover_utilities_manifest
 
 ---
 
-## Engine / Web 像素对齐（SSIM frame oracle）
+## Engine / Web 像素对齐（k3diff frame oracle）
 
-逐帧对比 **原生 engine（Skia）** 与 **web（WASM + CanvasKit）**，用 SSIM 衡量结构相似度。
+逐帧对比 **原生 engine（Skia）** 与 **web（WASM + CanvasKit）**，用**硬像素指标（非 SSIM）**。
+
+> **方法论。** SSIM 太粗：它把一帧压成一个结构相似度标量，会掩盖局部错位。对齐改用 k3diff 的逐帧指标——`mae`（R,G,B 平均绝对误差）、`maxd`（单通道最大差）、以及变化像素比例阶梯 `p2`/`p4`/`p8`/`p16`/`p32`/`p64`/`p128`（与 `tools/k3diff.py` 同阶梯）。原生实现 `compute_pixel_diff_rgba` 已与 `k3diff.py` 在同一对 PNG 上逐字节一致。整片原生对参考视频的比较仍以 `tools/k3diff.py` 为准（见 `out/`）。
 
 ### 流程
 
@@ -43,8 +45,8 @@ cargo test generated_layout_fixture_templates_cover_utilities_manifest
 2. Headless Chrome 经 ChromeDriver 打开 `web/test-oracle.html`
 3. Web：`open_design` → `prepareCatalogVideoSources` → 注入视频帧 →
    `build_frame_ir` → CanvasKit 绘制 → `readPixels` → RGBA
-4. `compute_ssim_rgba` 调用 `ffmpeg ssim`
-5. 阈值：**≥ 0.99**（静态 / 管线帧），**≥ 0.97**（含活跃视频的帧）
+4. `compute_pixel_diff_rgba`（k3diff 语义，不经过 ffmpeg）
+5. 门限（编译期 `PixelGate { max_mae, max_p8 }`）：**mae ≤ 1.0、p8 ≤ 0.02**（静态帧）；**mae ≤ 2.0、p8 ≤ 0.03**（含活跃视频帧）。`p8` 主要由字形反走样构成——Skia 与 CanvasKit 在文字边缘的覆盖率差约 1% 像素，且无位置偏移。
 
 失败帧产物：
 
@@ -52,12 +54,24 @@ cargo test generated_layout_fixture_templates_cover_utilities_manifest
 target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png
 ```
 
+### 直接与参考视频对齐
+
+engine-vs-web oracle 只能发现 engine/web 的**分歧**，发现不了两者共有的问题（共享解析/渲染核心的 bug 会照样通过）。要拿到更可信的对齐信号，把 wasm headless 渲染**直接和原始参考渲染**（hyperframes-launch `k3-promo.mp4`）比对：
+
+```bash
+./target/release/opencat-web-compare examples/k3-promo.xml \
+  --out-dir out/k3-web-vs-ref --interval-secs 1 \
+  --reference /home/solaren/Projects/hyperframes-launches/k3-promo/k3-promo.mp4
+```
+
+`--reference <video>` 用 ffmpeg 解出采样帧，用同一套 k3diff 指标衡量 web 渲染；summary 会记录 `reference:`，两种基准不会混淆。原生 engine 对同一参考的 `mae`（`tools/k3diff.py`）是下界——web 的 `mae` 与之相差仅百分之几，说明 wasm 通路自身没有引入明显误差。
+
 ### 前置条件
 
 | 依赖 | 说明 |
 |------|------|
 | Chrome + ChromeDriver | 主版本一致；可自动探测，或设 `CHROME_BIN` / `CHROMEDRIVER_BIN` |
-| FFmpeg | `PATH` 中有 `ffmpeg`（ssim filter） |
+| FFmpeg | `PATH` 中有 `ffmpeg`（解码参考视频） |
 | Node / npm（或 bun） | 构建 web facade |
 | Dev app 依赖 | `cd web && bun install`（或 npm）— oracle 静态服务需要 CanvasKit + `web-demuxer` |
 | **:8080** 媒体服务 | 如 `examples/profile-showcase.jsonl` 会请求 `http://127.0.0.1:8080/mp4/...` |
@@ -124,16 +138,14 @@ cargo build --bin opencat-web-compare --release
 | `CHROME_BIN` | Chrome 可执行路径 | 自动探测 |
 | `CHROMEDRIVER_BIN` | chromedriver 路径 | 自动探测 |
 | `CHROMEDRIVER_URL` | 远程 WebDriver（不启本地） | 未设置 |
-| `MIN_SSIM` | 严格 SSIM（当前代码中为常量 `0.99`） | `0.99` |
-| `VIDEO_MIN_SSIM` | 视频帧 SSIM（当前代码中为常量 `0.97`） | `0.97` |
 
-> 说明：`web_frame_oracle.rs` 内阈值目前是编译期常量；表中 env 为工具链约定/预留。
+> 说明：k3diff 门限（`PixelGate { max_mae, max_p8 }`）是 `web_frame_oracle.rs` 内的编译期常量。`opencat-web-compare` 以 CLI 参数暴露（`--max-mae`、`--max-maxd`、`--frac-threshold`、`--max-frac`），默认值对齐 `STRICT_GATE`。
 
 ### 代码位置
 
 | 路径 | 作用 |
 |------|------|
-| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness、静态服务、SSIM |
+| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness、静态服务、k3diff 像素指标 |
 | `crates/opencat-engine/src/inspect/tests/web_frame_oracle.rs` | Oracle 用例 |
 | `web/test-oracle.html` | 浏览器入口：open design、prepare 视频、绘制 IR |
 | `crates/opencat-web/web/src/media/video-frame-injector.ts` | `prepareCatalogVideoSources` + inject |
@@ -141,7 +153,7 @@ cargo build --bin opencat-web-compare --release
 
 ### Host 视频契约（web）
 
-`open_design` / `openDesign` 之后、调用 `injectVideoFramesForRender` **之前**，host 必须执行 `prepareCatalogVideoSources(catalogJson)`。否则 WebCodecs 收不到源，所有 `ImageRef::VideoFrame` 会画成空白（大视频区域 SSIM 会断崖下跌）。
+`open_design` / `openDesign` 之后、调用 `injectVideoFramesForRender` **之前**，host 必须执行 `prepareCatalogVideoSources(catalogJson)`。否则 WebCodecs 收不到源，所有 `ImageRef::VideoFrame` 会画成空白（大视频区域 `mae`/`p8` 会断崖上升）。
 
 ---
 

@@ -1,35 +1,40 @@
 #!/usr/bin/env bash
-# Sampled web-vs-engine SSIM via the inspect ChromeDriver harness.
+# Sampled web-vs-engine frame diff via the inspect ChromeDriver harness.
+#
+# Methodology: hard pixel metrics (k3diff), NOT SSIM — SSIM is too coarse and
+# hides localized misalignment. Each sample is judged by mae / maxd / p8.
 #
 # Design decision (why not whole web MP4?):
 # - Inspect oracle / web ground truth is raw RGBA from web/test-oracle.html
 #   (CanvasKit readPixels), not WebAV exportMp4.
 # - Facade leaves @webav/av-cliper external; headless whole-video export is not
-#   the inspect contract and re-encoding would muddy SSIM.
+#   the inspect contract and re-encoding would muddy the metrics.
 # - So this script samples frames every INTERVAL_SECS (default 0.5s) on both
 #   engine and web through opencat-web-compare, which reuses
 #   opencat_engine::inspect::browser::{BrowserHarness, WebAppServer}.
 #
-# For native-vs-native whole-video SSIM (main vs branch), use compare-ssim.sh.
+# For whole-video native-vs-reference comparison, use tools/k3diff.py.
 #
 # Usage (from branch worktree):
 #   ./scripts/compare-mp4.sh
 #   ./scripts/compare-mp4.sh examples/profile-showcase.jsonl
 #   INTERVAL_SECS=0.5 MAX_SAMPLES=20 ./scripts/compare-mp4.sh examples/profile-showcase.jsonl
-#   MIN_SSIM=0.99 VIDEO_MIN_SSIM=0.97 ./scripts/compare-mp4.sh examples/xhs-neo-brutalism.xml
+#   MAX_MAE=1.0 MAX_FRAC=0.02 ./scripts/compare-mp4.sh examples/xhs-neo-brutalism.xml
 #
 # Env:
 #   INTERVAL_SECS       sample period in seconds (default 0.5)
 #   MAX_SAMPLES         optional cap on number of samples
-#   MIN_SSIM            strict threshold (default 0.99)
-#   VIDEO_MIN_SSIM      soft threshold for video-decoder tolerance (default 0.97)
+#   MAX_MAE             per-frame MAE ceiling (default 1.0)
+#   MAX_MAXD            per-frame max-channel-delta ceiling (0 = off)
+#   FRAC_THRESHOLD      k3diff ladder threshold for the fraction gate (default 8)
+#   MAX_FRAC            allowed fraction above FRAC_THRESHOLD (default 0.02)
 #   SAVE_ALL=1          keep engine/web/diff PNGs for every sample
 #   SKIP_BUILD=1        reuse existing opencat-web-compare binary
 #   CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL
 #   SKIA_BINARIES_URL
 #
 # Prerequisites:
-#   chromedriver + Chrome, ffmpeg (for per-frame SSIM),
+#   chromedriver + Chrome,
 #   (cd crates/opencat-web/web && bun install && bun run build)
 #   (cd web && bun install)
 set -euo pipefail
@@ -42,8 +47,10 @@ STEM="$(basename "$EXAMPLE")"
 STEM="${STEM%.*}"
 OUT_DIR="${OUT_DIR:-$REPO/out/compare-mp4-${STEM}}"
 INTERVAL_SECS="${INTERVAL_SECS:-0.5}"
-MIN_SSIM="${MIN_SSIM:-0.99}"
-VIDEO_MIN_SSIM="${VIDEO_MIN_SSIM:-0.97}"
+MAX_MAE="${MAX_MAE:-1.0}"
+MAX_MAXD="${MAX_MAXD:-0}"
+FRAC_THRESHOLD="${FRAC_THRESHOLD:-8}"
+MAX_FRAC="${MAX_FRAC:-0.02}"
 
 need_cmd() {
     command -v "$1" >/dev/null 2>&1 || {
@@ -53,8 +60,6 @@ need_cmd() {
 }
 
 need_cmd cargo
-need_cmd ffmpeg
-need_cmd python3
 
 if [ ! -f "$EXAMPLE" ]; then
     echo "Error: example not found: $EXAMPLE" >&2
@@ -65,13 +70,13 @@ branch=$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
 sha=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo '?')
 
 echo "========================================"
-echo "  Web vs Engine sampled SSIM"
+echo "  Web vs Engine sampled k3diff"
 echo "  (inspect ChromeDriver / test-oracle.html)"
 echo "  Example:   $EXAMPLE"
 echo "  Repo:      $REPO ($branch @ $sha)"
 echo "  Report:    $OUT_DIR"
 echo "  Interval:  ${INTERVAL_SECS}s"
-echo "  Threshold: min=${MIN_SSIM} video=${VIDEO_MIN_SSIM}"
+echo "  Gate:      mae<=${MAX_MAE} maxd<=${MAX_MAXD} p${FRAC_THRESHOLD}<=${MAX_FRAC}"
 echo "========================================"
 echo ""
 
@@ -105,8 +110,10 @@ args=(
     "$BIN" "$EXAMPLE"
     --out-dir "$OUT_DIR"
     --interval-secs "$INTERVAL_SECS"
-    --min-ssim "$MIN_SSIM"
-    --video-min-ssim "$VIDEO_MIN_SSIM"
+    --max-mae "$MAX_MAE"
+    --max-maxd "$MAX_MAXD"
+    --frac-threshold "$FRAC_THRESHOLD"
+    --max-frac "$MAX_FRAC"
 )
 if [ -n "${MAX_SAMPLES:-}" ]; then
     args+=(--max-samples "$MAX_SAMPLES")
@@ -115,7 +122,7 @@ if [ "${SAVE_ALL:-0}" = "1" ]; then
     args+=(--save-all)
 fi
 
-echo "--- Sample + SSIM ---"
+echo "--- Sample + k3diff ---"
 set +e
 "${args[@]}"
 code=$?
@@ -127,7 +134,8 @@ if [ -f "$OUT_DIR/summary.txt" ]; then
     cat "$OUT_DIR/summary.txt"
 fi
 
-echo "CSV:     $OUT_DIR/ssim_samples.csv"
+echo "CSV:     $OUT_DIR/pixel.csv"
+echo "JSON:    $OUT_DIR/summary.json"
 echo "Summary: $OUT_DIR/summary.txt"
 echo "========================================"
 exit "$code"

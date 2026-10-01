@@ -339,6 +339,8 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
         antiAlias: boolean;
         blendMode: number;
         stroke?: { width: number; cap: number; join: number; miterLimit: number };
+        imageFilter?: unknown;
+        colorFilter?: unknown;
       }>;
       paths: Array<{ fillType: number; ops: Array<{ kind: number; values: number[] }> }>;
       effects: Array<{ hash: bigint; sksl: string }>;
@@ -347,7 +349,7 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
 
     expect(frame.strings).toContain('hero.png');
 
-    expect(frame.paints).toHaveLength(1);
+    expect(frame.paints).toHaveLength(2);
     expect(frame.paints[0].fill.type).toBe('solid');
     expect(frame.paints[0].fill.color[0]).toBeCloseTo(1.0);
     expect(frame.paints[0].fill.color[1]).toBeCloseTo(0.25);
@@ -361,6 +363,41 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
       cap: 1, // Round
       join: 2, // Bevel
       miterLimit: 4.0,
+    });
+
+    // ImageFilter wire: Compose(ColorFilter, DropShadow{keep_content:true}).
+    // Missing `decal` / `keep_content` reads desynced the decoder and crashed
+    // every k3-promo frame with a drop shadow (RangeError), so both flags are
+    // pinned here against the core-encoded fixture.
+    expect(frame.paints[0].imageFilter).toEqual({
+      type: 'compose',
+      outer: { type: 'colorFilter', filter: { type: 'linearToSrgbGamma' } },
+      inner: {
+        type: 'dropShadow',
+        dx: 3.0,
+        dy: 4.0,
+        sigmaX: 1.5,
+        sigmaY: 2.5,
+        color: [
+          expect.closeTo(0.1),
+          expect.closeTo(0.2),
+          expect.closeTo(0.3),
+          expect.closeTo(0.4),
+        ],
+        keepContent: true,
+      },
+    });
+    expect(frame.paints[0].colorFilter).toEqual({
+      type: 'blendColor',
+      color: [expect.closeTo(0.9), expect.closeTo(0.8), expect.closeTo(0.7), 1.0],
+      mode: 3,
+    });
+    // Paint #1: Blur with decal=false and a crop rect.
+    expect(frame.paints[1].imageFilter).toEqual({
+      type: 'blur',
+      sigmaX: 5.0,
+      sigmaY: 6.0,
+      decal: false,
     });
 
     expect(frame.paths).toHaveLength(1);

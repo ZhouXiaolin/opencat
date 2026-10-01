@@ -1,3 +1,4 @@
+#![cfg(target_arch = "wasm32")]
 //! opencat-web — WASM/Web rendering target for opencat-core.
 
 pub mod codec;

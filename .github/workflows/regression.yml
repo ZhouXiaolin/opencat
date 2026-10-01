@@ -69,7 +69,7 @@ jobs:
         run: bunx vite build
 
   oracle-regression:
-    name: Browser oracle SSIM (AC5-AC7)
+    name: Browser oracle k3diff (AC5-AC7)
     runs-on: ubuntu-latest
     needs: [native-regression, web-regression]
     if: github.ref == 'refs/heads/main'
@@ -82,7 +82,7 @@ jobs:
         uses: nanasess/setup-chromedriver@v2
       - name: Setup ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg miniserve
-      - name: Run SSIM oracle tests
+      - name: Run k3diff oracle tests
         id: oracle
         continue-on-error: true
         run: |

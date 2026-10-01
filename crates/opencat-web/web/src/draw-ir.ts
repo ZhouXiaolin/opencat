@@ -153,8 +153,8 @@ type PaintSpec = {
 };
 
 type ImageFilterSpec =
-  | { type: 'blur'; sigmaX: number; sigmaY: number }
-  | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[] }
+  | { type: 'blur'; sigmaX: number; sigmaY: number; decal: boolean }
+  | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[]; keepContent: boolean }
   | { type: 'colorFilter'; filter: ColorFilterSpec }
   | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec };
 
@@ -973,13 +973,20 @@ function readOptionalMatrix(reader: BinaryReader): number[] | null {
 function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
   const kind = reader.u8();
   if (kind === 0) {
+    // Blur: sigma_x, sigma_y, decal flag, optional crop rect — mirrors
+    // `encode_image_filter`. `decal` selects CSS filter semantics (transparent
+    // past the bounds) vs Clamp, so it must be read even though CanvasKit's
+    // MakeBlur has no crop-rect parameter.
     const sigmaX = reader.f32();
     const sigmaY = reader.f32();
+    const decal = reader.u8() !== 0;
     const hasCrop = reader.u8() !== 0;
     if (hasCrop) reader.f32Array(4);
-    return { type: 'blur', sigmaX, sigmaY };
+    return { type: 'blur', sigmaX, sigmaY, decal };
   }
   if (kind === 1) {
+    // DropShadow: dx, dy, sigma_x, sigma_y, color, keep_content — `keep_content`
+    // picks MakeDropShadow (shadow + content) vs MakeDropShadowOnly.
     return {
       type: 'dropShadow',
       dx: reader.f32(),
@@ -987,6 +994,7 @@ function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
       sigmaX: reader.f32(),
       sigmaY: reader.f32(),
       color: reader.f32Array(4),
+      keepContent: reader.u8() !== 0,
     };
   }
   if (kind === 2) return { type: 'colorFilter', filter: parseColorFilter(reader) };
@@ -1204,9 +1212,19 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader
 }
 
 function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec): ImageFilter | null {
-  if (spec.type === 'blur') return CK.ImageFilter.MakeBlur(spec.sigmaX, spec.sigmaY, CK.TileMode.Decal ?? CK.TileMode.Clamp, null);
+  if (spec.type === 'blur') {
+    return CK.ImageFilter.MakeBlur(
+      spec.sigmaX,
+      spec.sigmaY,
+      spec.decal ? CK.TileMode.Decal : CK.TileMode.Clamp,
+      null,
+    );
+  }
   if (spec.type === 'dropShadow') {
-    return CK.ImageFilter.MakeDropShadow(
+    const make = spec.keepContent
+      ? CK.ImageFilter.MakeDropShadow
+      : CK.ImageFilter.MakeDropShadowOnly;
+    return make(
       spec.dx,
       spec.dy,
       spec.sigmaX,

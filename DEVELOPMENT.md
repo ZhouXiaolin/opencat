@@ -33,9 +33,20 @@ Dependencies: ChromeDriver, Chrome, bun dependencies in `crates/opencat-engine/t
 
 ---
 
-## Engine / Web pixel alignment (SSIM frame oracle)
+## Engine / Web pixel alignment (k3diff frame oracle)
 
-Compares **native engine (Skia)** vs **web (WASM + CanvasKit)** frame-by-frame with SSIM.
+Compares **native engine (Skia)** vs **web (WASM + CanvasKit)** frame-by-frame
+with **hard pixel metrics, not SSIM**.
+
+> **Methodology.** SSIM (and its source-vs-render gate) was too coarse: it
+> collapses a frame to one structural scalar and hides localized misalignment.
+> Alignment is judged by k3diff's per-frame metrics instead — `mae` (mean
+> absolute error over R,G,B), `maxd` (max per-channel delta), and the changed-
+> pixel fraction ladder `p2`/`p4`/`p8`/`p16`/`p32`/`p64`/`p128` — the same
+> ladder as `tools/k3diff.py`. The native metric
+> (`compute_pixel_diff_rgba`) is verified byte-for-byte against `k3diff.py` on
+> the same PNG pair. `tools/k3diff.py` remains the reference gate for whole-video
+> native-vs-reference comparisons (see `out/`).
 
 ### Pipeline
 
@@ -43,8 +54,11 @@ Compares **native engine (Skia)** vs **web (WASM + CanvasKit)** frame-by-frame w
 2. Headless Chrome loads `web/test-oracle.html` via ChromeDriver
 3. Web: `open_design` → `prepareCatalogVideoSources` → inject video frames →
    `build_frame_ir` → CanvasKit draw → `readPixels` → RGBA
-4. `ffmpeg ssim` via `compute_ssim_rgba`
-5. Thresholds: **≥ 0.99** (pipeline / still frames), **≥ 0.97** (frames with active video)
+4. `compute_pixel_diff_rgba` (k3diff semantics, no ffmpeg)
+5. Gates (compile-time `PixelGate { max_mae, max_p8 }`): **mae ≤ 1.0, p8 ≤ 0.02**
+   (still frames); **mae ≤ 2.0, p8 ≤ 0.03** (frames with active video). `p8` is
+   dominated by glyph antialiasing — Skia vs CanvasKit coverage-differ on text
+   edges by ~1% of pixels with no positional shift.
 
 Failing frames write `engine.png` / `web.png` / `diff.png` under:
 
@@ -52,12 +66,32 @@ Failing frames write `engine.png` / `web.png` / `diff.png` under:
 target/opencat-web-oracle/<stem>-frame-NNNN/
 ```
 
+### Compare the web render directly against the reference video
+
+The engine-vs-web oracle catches engine/web **divergence**, but not problems
+common to both: a bug in the shared parser/render core would pass it. For a
+faithful alignment signal, compare the wasm headless render **directly against
+the original reference render** (hyperframes-launch `k3-promo.mp4`):
+
+```bash
+./target/release/opencat-web-compare examples/k3-promo.xml \
+  --out-dir out/k3-web-vs-ref --interval-secs 1 \
+  --reference /home/solaren/Projects/hyperframes-launches/k3-promo/k3-promo.mp4
+```
+
+`--reference <video>` decodes the sampled frames from the video (ffmpeg) and
+measures the web render against them with the same k3diff metrics; the CLI
+summary records `reference:` so the two baselines are never confused. The
+native engine's `mae` against the same reference (`tools/k3diff.py`) is the
+floor — web `mae` within a few hundredths of it means the wasm path adds no
+meaningful error of its own.
+
 ### Prerequisites
 
 | Dependency | Notes |
 |------------|--------|
 | Chrome + ChromeDriver | Same major version; auto-detected or set `CHROME_BIN` / `CHROMEDRIVER_BIN` |
-| FFmpeg | `ffmpeg` on `PATH` (SSIM filter) |
+| FFmpeg | `ffmpeg` on `PATH` (decode reference video) |
 | Node / npm (or bun) | Build the web facade |
 | Dev app deps | `cd web && bun install` (or npm) — CanvasKit + `web-demuxer` for the oracle server |
 | Media server on **:8080** | Compositions such as `examples/profile-showcase.jsonl` load `http://127.0.0.1:8080/mp4/...` |
@@ -125,16 +159,17 @@ cargo build --bin opencat-web-compare --release
 | `CHROME_BIN` | Chrome binary | Auto-detected |
 | `CHROMEDRIVER_BIN` | chromedriver path | Auto-detected |
 | `CHROMEDRIVER_URL` | Remote WebDriver (skip local spawn) | unset |
-| `MIN_SSIM` | Strict SSIM (code constant today: `0.99`) | `0.99` |
-| `VIDEO_MIN_SSIM` | Video-active SSIM (code constant today: `0.97`) | `0.97` |
 
-> Note: thresholds in `web_frame_oracle.rs` are currently compile-time constants; env vars in the table are reserved / used by tooling where wired.
+> Note: the k3diff gate (`PixelGate { max_mae, max_p8 }`) is a compile-time
+> constant in `web_frame_oracle.rs`. `opencat-web-compare` takes it as CLI flags
+> (`--max-mae`, `--max-maxd`, `--frac-threshold`, `--max-frac`) with defaults
+> mirroring `STRICT_GATE`.
 
 ### Code map
 
 | Path | Role |
 |------|------|
-| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness, static server, SSIM |
+| `crates/opencat-engine/src/inspect/browser.rs` | ChromeDriver harness, static server, k3diff pixel metrics |
 | `crates/opencat-engine/src/inspect/tests/web_frame_oracle.rs` | Oracle test cases |
 | `web/test-oracle.html` | Browser entry: open design, prepare video, draw IR |
 | `crates/opencat-web/web/src/media/video-frame-injector.ts` | `prepareCatalogVideoSources` + inject |
@@ -142,7 +177,7 @@ cargo build --bin opencat-web-compare --release
 
 ### Host video contract (web)
 
-After `open_design` / `openDesign`, hosts **must** call `prepareCatalogVideoSources(catalogJson)` before `injectVideoFramesForRender`. Otherwise WebCodecs never sees the asset and every `ImageRef::VideoFrame` draws blank (SSIM collapses on large video regions).
+After `open_design` / `openDesign`, hosts **must** call `prepareCatalogVideoSources(catalogJson)` before `injectVideoFramesForRender`. Otherwise WebCodecs never sees the asset and every `ImageRef::VideoFrame` draws blank (`mae`/`p8` jump on large video regions).
 
 ---
 

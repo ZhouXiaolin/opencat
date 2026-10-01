@@ -2338,7 +2338,8 @@ mod tests {
     /// committed binary that TypeScript decodes field-for-field.
     fn roundtrip_fixture_render_frame() -> RenderFrame {
         use crate::canvas::paint::{
-            BlendMode, FillSpec, PaintSpec, PaintStyle, StrokeCap, StrokeJoin, StrokeSpec,
+            BlendMode, ColorFilterSpec, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle,
+            StrokeCap, StrokeJoin, StrokeSpec,
         };
         use crate::ir::generated_image::GeneratedImageId;
         use std::sync::Arc;
@@ -2367,7 +2368,43 @@ mod tests {
             }),
             anti_alias: true,
             blend_mode: BlendMode::SrcOver,
-            image_filter: None,
+            // Blur(Decal)+crop → Compose(ColorFilter, DropShadow(keep_content))
+            // exercises every ImageFilter field the wire carries — including the
+            // `decal` / `keep_content` flags the TS decoder must consume.
+            image_filter: Some(ImageFilterSpec::Compose(
+                Box::new(ImageFilterSpec::ColorFilter(Box::new(
+                    ColorFilterSpec::LinearToSrgbGamma,
+                ))),
+                Box::new(ImageFilterSpec::DropShadow {
+                    dx: 3.0,
+                    dy: 4.0,
+                    sigma_x: 1.5,
+                    sigma_y: 2.5,
+                    color: [0.1, 0.2, 0.3, 0.4],
+                    keep_content: true,
+                }),
+            )),
+            color_filter: Some(ColorFilterSpec::BlendColor {
+                color: [0.9, 0.8, 0.7, 1.0],
+                mode: BlendMode::SrcOver,
+            }),
+            mask_filter: None,
+            path_effect: None,
+        });
+        // Second paint: Blur with decal=false + crop rect, to cover the other
+        // blur branch and the optional crop payload.
+        draw.paints.push(PaintSpec {
+            fill: FillSpec::Solid([0.0, 0.0, 0.0, 0.0]),
+            style: PaintStyle::Fill,
+            stroke: None,
+            anti_alias: false,
+            blend_mode: BlendMode::SrcOver,
+            image_filter: Some(ImageFilterSpec::Blur {
+                sigma_x: 5.0,
+                sigma_y: 6.0,
+                crop_rect: Some(crate::canvas::Rect::new(1.0, 2.0, 3.0, 4.0)),
+                decal: false,
+            }),
             color_filter: None,
             mask_filter: None,
             path_effect: None,
@@ -2415,9 +2452,9 @@ mod tests {
         let len = read_u32(string_ranges, 4) as usize;
         assert_eq!(&strings_utf8[start..start + len], b"hero.png");
 
-        // Paints: count 1, solid fill R=1 G=0.25, stroke style
+        // Paints: count 2 (solid/stroke w/ filters, blur/crop w/ decal=false)
         let paints = section_payload(&bytes, section::PAINTS);
-        assert_eq!(read_u32(paints, 0), 1);
+        assert_eq!(read_u32(paints, 0), 2);
         let rec_len = read_u32(paints, 4) as usize;
         let rec = &paints[8..8 + rec_len];
         assert_eq!(rec[0], 0); // solid
@@ -2431,6 +2468,23 @@ mod tests {
         assert_eq!(rec[after_color + 1], 1); // aa
         assert_eq!(rec[after_color + 2], 3); // SrcOver
         assert_eq!(rec[after_color + 3], 1); // has stroke
+
+        // Paint #0 image_filter is Compose(ColorFilter, DropShadow{keep_content:true}).
+        // Record layout after the stroke (offset 31): image_filter presence(1) +
+        // Compose kind(1) + ColorFilter kind(1) + LinearToSrgbGamma(1) +
+        // DropShadow kind(1)+dx/dy/sx/sy(16)+color(16)+keep_content(1). Then
+        // color_filter presence+BlendColor(1+18), mask presence(1), path presence(1).
+        // Full size: 31 + 38 + 19 + 1 + 1 = 90, with keep_content at 90-1-21 = 68.
+        assert_eq!(rec_len, 90, "paint #0 record size pins the wire layout");
+        assert_eq!(rec[68], 1, "DropShadow keep_content byte must be encoded");
+
+        // Paint #1 record: Blur{decal:false, crop_rect:Some} — 17 fill + 4 flags +
+        // 28 image_filter (presence + kind + 2 sigma + decal + has_crop + 16 crop)
+        // + 3 empty optionals = 52.
+        let rec1_off = 8 + rec_len;
+        let rec1_len = read_u32(paints, rec1_off) as usize;
+        assert_eq!(rec1_len, 52, "paint #1 record size pins the blur/crop layout");
+        assert_eq!(paints.len(), rec1_off + 4 + rec1_len, "second paint fully parsed");
 
         // Paths: EvenOdd + 3 ops
         let paths = section_payload(&bytes, section::PATHS);

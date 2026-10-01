@@ -7,7 +7,6 @@ edition.workspace = true
 profile = ["opencat-core/profile"]
 
 [dependencies]
-roxmltree = "0.21.1"
 tokio = { version = "1.51.0", features = ["rt-multi-thread"] }
 serde_json.workspace = true
 opencat-core = { path = "../opencat-core" }

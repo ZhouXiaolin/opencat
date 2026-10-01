@@ -581,7 +581,10 @@
         .to(['afield', 'afieldp'], { opacity: 0.02, duration: 0.3, ease: 'none' }, 4.2333)
         // ruler strips retire (index.html:1634); the ref ease is power1.in
         // (the former hand-written fade was linear).
-        .to('afurn', { opacity: 0, duration: 0.18, ease: 'power1.in' }, 4.35);
+        .to('afurn', { opacity: 0, duration: 0.18, ease: 'power1.in' }, 4.35)
+        // purple clone crossfade (index.html:1613-1614, power1.inOut)
+        .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03)
+        .to('apwrap', { opacity: 0, duration: 0.17, ease: 'power1.inOut' }, 3.83);
 
       // lattice field canvas — tables computed at runtime by porting the
       // reference's own generator (index.html:599-820) 1:1 — no baked data.
@@ -895,10 +898,10 @@
       if (T >= 3.5) ctx.getNode('afield').filter('brightness(0.5) sepia(1) hue-rotate(215deg) saturate(2.2)');
       paintField('afield-canvas', false);
 
-      // purple clone crossfade (3.03→3.23 in, 3.83→4.00 out; power1.inOut)
+      // purple clone crossfade (3.03→3.23 in, 3.83→4.00 out; power1.inOut) is
+      // declarative (see timeline); ppOp below only gates the purple-child work.
       var ppOp = (T>= 3.03 && T <= 4.0)
         ? (T < 3.23 ? ioEase((T - 3.03) / 0.2) : (T> 3.83 ? ioEase(1 - (T - 3.83) / 0.17) : 1)) : 0;
-      ctx.getNode('apwrap').opacity(ppOp);
       if (ppOp> 0) { paintField('afieldp-canvas', true); drawLanes('afieldp-canvas', true); }
 
       // selection box + title fade-in (1.73 white, 1.79 purple)

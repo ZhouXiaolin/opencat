@@ -1371,6 +1371,28 @@
     var DE_ON = (T>= 7.35 && T < 11.293);
     vis('sceneDE', DE_ON);
     if (DE_ON) {
+      // Node tweens (index.html:1668-1712). The canvas pin waves, helix, box
+      // hatch, per-char otxt entry and the pin-wave envelope stay per-frame.
+      var dTl = ctx.timeline()
+        .set(['ddashL', 'ddashR'], { opacity: 0 }, 7.35)
+        .set(['mktgrp', 'astgrp'], { opacity: 0 }, 7.35)
+        .set('ordergrp', { opacity: 1 }, 7.4)
+        // box pops small then grows to final
+        .fromTo('ordergrp', { scale: 0.7, x: -85, y: -55 },
+                             { scale: 1, x: 0, y: 0, duration: 0.23, ease: 'power2.out' }, 7.4)
+        .set(['ddashL', 'ddashR'], { opacity: 0.85 }, 7.6)
+        // D -> E morph: box shrinks as the flanking boxes fly in
+        .to('ordergrp', { scale: 0.493, x: 4, y: -11, duration: 0.55, ease: 'power3.out' }, 9.103)
+        .fromTo('mktgrp', { opacity: 0, x: -700, y: 600, scale: 2.6 },
+                           { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.55, ease: 'power3.out' }, 9.133)
+        .fromTo('astgrp', { opacity: 0, x: 700, y: 600, scale: 2.6 },
+                           { opacity: 1, x: 0, y: 0, scale: 1, duration: 0.55, ease: 'power3.out' }, 9.18)
+        // whole D/E layer fades out (ref fades #deinner + furniture together)
+        .to(['deinner', 'furnDE'], { opacity: 0, duration: 0.13, ease: 'power1.in' }, 11.193);
+      ['dl1', 'dl2', 'dl3'].forEach(function (id, i) {
+        dTl.set(id, { opacity: 0, scaleY: 0 }, 7.35)
+           .to(id, { opacity: 0.9, scaleY: 1, duration: 0.3, ease: 'power2.out' }, 10.653 + i * 0.09);
+      });
       // D bottom pin wave (7.34 → 9.5s)
       var dcv = ctx.getCanvasById('dpins-canvas');
       if (dcv) {
@@ -1437,18 +1459,6 @@
           }
         }
       }
-      // order box pop-in (7.4 → 7.63) then hold
-      if (T>= 7.4) {
-        ctx.getNode('ordergrp').opacity(1);
-        if (T < 7.63) {
-          var oW = clamp((T - 7.4) / 0.23, 0, 1);
-          oW = 1 - Math.pow(1 - oW, 3); /* ref ease "power2.out": GSAP Power2 = CUBIC */
-          ctx.getNode('ordergrp').scale(0.7 + 0.3 * oW);
-          ctx.getNode('ordergrp').translateX(-85 * (1 - oW)); ctx.getNode('ordergrp').translateY(-55 * (1 - oW));
-        } else if (T < 9.103) {
-          ctx.getNode('ordergrp').scale(1); ctx.getNode('ordergrp').translateX(0); ctx.getNode('ordergrp').translateY(0);
-        }
-      }
       vis('otxt', T>= 7.9963); /* row takes over once the tracking settle ends (7.5663+0.43) */
       // otxt per-char entry: ow1 "Every" @7.5333, ow2 " modality" @7.5663 (ref tl.set autoAlpha);
       // glyphs x=(i-6.5)*21 → 0, dur 0.43 power2.out(cubic). Run box = natRun("Every modality")
@@ -1483,8 +1493,6 @@
           }
         }
       }
-      ctx.getNode('ddashL').opacity(T>= 7.6 ? 0.85 : 0);
-      ctx.getNode('ddashR').opacity(T>= 7.6 ? 0.85 : 0);
       // D/E box hatch — ref .bhatch divs (index.html:138-149 CSS, :283/:291/:299 DOM).
       // Each is an inset:-30px div holding repeating-linear-gradient(132deg, C 0 1.5px,
       // transparent 1.5px P), clipped by the overflow:hidden tickbox; drawn here on a
@@ -1591,38 +1599,7 @@
           drawMA(aHC, 1260, 44.9, Xa2, [0]);
         }
       }
-      // D→E morph: order box shrinks (9.103 → 9.653)
-      if (T>= 9.103 && T < 9.703) {
-        var mW = clamp((T - 9.103) / 0.55, 0, 1);
-        mW = 1 - Math.pow(1 - mW, 4); /* ref ease "power3.out": GSAP Power3 = QUART (naming off-by-one), 1-(1-q)^4 */
-        ctx.getNode('ordergrp').scale(1 + (0.493 - 1) * mW);
-        ctx.getNode('ordergrp').translateX(4 * mW); ctx.getNode('ordergrp').translateY(-11 * mW);
-      } else if (T>= 9.703) {
-        ctx.getNode('ordergrp').scale(0.493); ctx.getNode('ordergrp').translateX(4); ctx.getNode('ordergrp').translateY(-11);
-      }
-      // flanking boxes fly in from offscreen
-      [['mktgrp', 9.133, -700, 600], ['astgrp', 9.18, 700, 600]].forEach(function (b) {
-        if (T < b[1]) { ctx.getNode(b[0]).opacity(0); }
-        else if (T < b[1] + 0.55) {
-          var bw = clamp((T - b[1]) / 0.55, 0, 1);
-          bw = 1 - Math.pow(1 - bw, 4); /* ref ease "power3.out": GSAP Power3 = QUART, 1-(1-q)^4 (f278 probe: y 725.5/s 1.525 exact) */
-          ctx.getNode(b[0]).opacity(bw); /* ref tweens autoAlpha 0→1 in the SAME tween: opacity follows the ease */
-          ctx.getNode(b[0]).translateX(b[2] * (1 - bw)); ctx.getNode(b[0]).translateY(b[3] * (1 - bw));
-          ctx.getNode(b[0]).scale(2.6 + (1 - 2.6) * bw);
-        } else { ctx.getNode(b[0]).opacity(1); ctx.getNode(b[0]).translateX(0); ctx.getNode(b[0]).translateY(0); ctx.getNode(b[0]).scale(1); }
-      });
-      // three drop-lines rise (10.653 + i*0.09), ease power2.out
-      // (index.html:1708 `tl.to(id,{autoAlpha:0.9, scaleY:1, duration:0.3, ease:"power2.out"})`)
-      ['dl1', 'dl2', 'dl3'].forEach(function (id, i) {
-        var dlStart = 10.653 + i * 0.09;
-        if (T < dlStart) { ctx.getNode(id).opacity(0); ctx.getNode(id).scaleY(0); }
-        else if (T < dlStart + 0.3) {
-          var dlQ = clamp((T - dlStart) / 0.3, 0, 1);
-          var dw = 1 - Math.pow(1 - dlQ, 3); /* GSAP power2.out = 1-(1-q)^3 */
-          ctx.getNode(id).opacity(0.9 * dw); ctx.getNode(id).scaleY(dw);
-        }
-        else { ctx.getNode(id).opacity(0.9); ctx.getNode(id).scaleY(1); }
-      });
+      // D→E morph, flanking-box fly-in and drop-lines are declarative (dTl).
       // deqmarks: 4 qmarks + 4 plusses, static while the clip is on (the
       // layer fade below carries them out — ref fades #deqmarks in the same
       // 11.193 tween as #deinner, index.html:1710)
@@ -1632,12 +1609,7 @@
         drawQmarks(dqCv, [[205, 215, -1, -1], [1720, 215, 1, -1], [205, 870, -1, 1], [1720, 870, 1, 1]]);
         drawPlusses(dqCv, [[75, 100], [1845, 100], [75, 970], [1845, 970]], 25, 0.5);
       }
-      // whole D/E layer fades out 11.193 → 11.323 (ref ease power1.in,
-      // index.html:1710 — value = 1 - q²)
-      if (T>= 11.193) {
-        var eFadeW = clamp((T - 11.193) / 0.13, 0, 1);
-        ctx.getNode('sceneDE').opacity(1 - eFadeW * eFadeW);
-      }
+      // whole D/E layer fade-out is declarative (dTl, ref #deinner 11.193).
     }
 
     /* ════════════ SCENE F+G: brace card (11.233 → 13.7s) ═════════════ */

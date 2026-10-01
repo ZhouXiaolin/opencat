@@ -18,34 +18,47 @@
   <a href="README.md">English</a> · <a href="README_ZH.md">中文</a>
 </p>
 
-  <video width="60%" controls autoplay loop muted playsinline src="https://github.com/user-attachments/assets/62ae6af6-095b-4b54-af53-97ba79945a6d"></video>
+  <video width="60%" controls autoplay loop muted playsinline src="https://github.com/user-attachments/assets/e3263ec6-a36c-4b73-ba4c-c0e6b64b86ee"></video>
 
 </div>
 
 XML defines scenes, animations, and layouts. Skia GPU renders, FFmpeg encodes to MP4 — deterministic, cross-platform, cross-machine consistent. No Chromium snapshots, no Puppeteer, no bloated Web rendering pipeline.
 
-A video is just an XML file:
+A video is just an XML file (this is scene A of [`examples/k3-promo.xml`](examples/k3-promo.xml), the spot above):
 
 ```xml
-<opencat width="1920" height="1080" fps="30" duration="3">
-  <div id="root" class="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
-    <div id="pink-glow" class="absolute inset-0 opacity-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_50%,rgba(234,76,137,0.05)_0%,transparent_70%)]" />
-    <div id="logo-container" class="absolute inset-0 flex items-center justify-center">
-      <path id="logo-path" class="fill-white stroke-[#EA4C89] stroke-[1.5] stroke-dasharray-[1800] stroke-dashoffset-[1800]" d="..." />
+<opencat width="1920" height="1080" fps="30" duration="16.4667">
+  <fonts default="k3-sans">
+    <font id="k3-sans" family="Inter" path="assets/Inter-Regular.ttf" role="sans" />
+  </fonts>
+  <template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden">
+    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
+      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
+        <div id="afield" class="absolute inset-0"><stage-canvas id="afield-canvas" /></div>
+        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
+          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
+          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
+        </div>
+      </div>
     </div>
-    <canvas id="particle-canvas" class="absolute inset-0 pointer-events-none w-[1920px] h-[1080px]" />
   </div>
   <script>
-    var tl = ctx.timeline();
-    tl.to('logo-path', { strokeDashoffset: 0, duration: 2, ease: 'power2.inOut' }, 0);
-    tl.to('logo-path', { fillColor: '#0D0C22', strokeColor: '#0D0C22', duration: 0.3, ease: 'power2.out' }, 2);
-    // particles on canvas, scene exit blur...
+    var T = ctx.time;                       // seconds over the whole 16.4667s
+    ctx.getNode('sceneA').opacity(T >= 0.75 && T < 4.62 ? 1 : 0);
+    if (T >= 0.75 && T < 4.62) {
+      ctx.timeline()
+        .set('azoom', { scale: 1.07 }, 0.933)
+        .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
+        .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
+    }
   </script>
 </opencat>
 ```
 
 ```bash
-cargo run --bin opencat -- examples/dribbble-logo-animated.xml
+cargo run --bin opencat -- examples/k3-promo.xml
 ```
 
 MP4 ready. No browser, no screenshots, no GUI needed.
@@ -70,13 +83,21 @@ Remotion reuses the Web ecosystem, but Chrome snapshot has inherent limitations 
 ### Declarative animation, GSAP-grade API
 
 ```js
-ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 0.67, ease: 'spring.gentle'});
-ctx.to('rocket', {path: 'M100 360 C400 80 880 640 1180 360', duration: 4, ease: 'ease-in-out'});
-ctx.from(ctx.splitText('title', {type: 'chars'}), {opacity: 0, y: 20, stagger: 0.07, ease: 'spring.wobbly'});
+// Declarative timeline — scene A of examples/k3-promo.xml
+ctx.timeline()
+  .set('azoom', { scale: 1.07 }, 0.933)
+  .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
+  .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
+  .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
 
-ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
-  .from('title', {opacity: 0, y: 30})
-  .from('subtitle', {opacity: 0, y: 18}, '-=0.27');
+// GSAP-shape per-character text: splitText parts settle with a power2.out ease
+var parts = ctx.splitText('otxt', { type: 'chars' });
+var tl = ctx.timeline();
+parts.forEach(function (p, i) {
+  tl.set(p, { opacity: 0 }, 7.35)
+    .set(p, { opacity: 1 }, 7.5333)
+    .fromTo(p, { x: (i - 6.5) * 21 }, { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
+});
 ```
 
 ### Multi-scene timelines + transitions
@@ -93,28 +114,29 @@ Built-in: fade / slide / wipe / clock_wipe / iris / light_leak, with custom GLSL
 
 ### XML Templates — reusable components with slots & variables
 
-Define reusable components with `<template>`, parameterize with `$variable`, and compose with `<slot>`:
+Define reusable components with `<template>`, parameterize with `$variable`, and compose with `<slot>`. `k3-promo` hoists six shared building blocks out of the node tree — parsed once, expanded to plain nodes before rendering:
 
 ```xml
-<opencat>
-  <!-- Define a template -->
-  <template name="card">
-    <div class="w-[400px] rounded-xl bg-$bg shadow-lg p-6">
-      <h2 class="text-xl font-bold text-$titleColor">$title</h2>
-      <slot name="body" />
-    </div>
-  </template>
+<template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+<template name="cdot"><div id="$id" class="absolute w-[$s] h-[$s] bg-[$c]"></div></template>
+<template name="agent-pill"><div id="$id" class="absolute opacity-0"><div id="$id-box" class="px-[14px] py-[10px] border-[1.5px] border-[#dcdcde]">…</div></div></template>
 
-  <!-- Use it -->
-  <card bg="white" titleColor="gray-900" title="Hello">
-    <slot name="body">
-      <p class="text-gray-500">This is the card content.</p>
-    </slot>
-  </card>
-</opencat>
+<!-- call sites pass only the differences -->
+<stage-canvas id="afield-canvas" />
+<cdot id="a-tl" s="13px" c="#d8d8da" />
+<agent-pill id="ap1" t="Agentic" />
 ```
 
-Templates expand at parse time — zero runtime cost, fully composable, and support nesting.
+Templates expand at parse time — zero runtime cost, fully composable, and support nesting. A `<slot>` composes markup from the call site:
+
+```xml
+<template name="card">
+  <div class="w-[400px] rounded-xl bg-$bg p-6"><h2 class="text-$titleColor">$title</h2><slot name="body" /></div>
+</template>
+<card bg="white" titleColor="gray-900" title="Hello">
+  <slot name="body"><p class="text-gray-500">Card content.</p></slot>
+</card>
+```
 
 ### WASM rendering in the browser
 
@@ -132,41 +154,42 @@ Pure WASM + CanvasKit, no server required.
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source, auto-lowers it to SKSL or dispatches it to the CPU renderer, and hardcodes no effect algorithm itself):
+A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source, lowers it to SKSL or dispatches it to the CPU renderer, and hardcodes no effect algorithm). Offscreen surfaces (`ctx.createSurface`) double as **render targets** for build-once, sample-per-frame data. `examples/k3-promo.xml` scene H builds its dissolve distance field entirely in JS:
 
 ```js
-var CK = ctx.CanvasKit;
-var c = ctx.getCanvasById('s1-canvas');
-var subtreeShader = c.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+// 1) raster the lockup once into an offscreen surface
+var ox = ctx.createSurface('k3dis-off', 1920, 1080);
+ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-var ripple = CK.Effect.fromLambda(
-  (uv, image, u) => {
-    const d = uv - [180.0, 240.0];
-    const dist = length(d);
-    const dir = dist < 1.0 ? [0.0, 0.0] : d / dist;
-    const tang = [-dir.y, dir.x];
-    const wave = sin(dist * u.frequency - u.progress * u.speed);
-    const base = uv + dir * (wave * u.amplitude * exp(-dist * u.decay));
-    const r = image.eval(base + tang * u.split);
-    const g = image.eval(base);
-    const b = image.eval(base - tang * u.split);
-    const a = max(max(r.a, g.a), b.a);
-    return [r.r, g.g, b.b, a];
-  },
-  { uniforms: [['progress','float'],['amplitude','float'],['frequency','float'],
-               ['speed','float'],['decay','float'],['split','float']] }
-);
+// 2) seed a mask + distance field — a pixel-class lambda sampling that surface as a child
+var field = ctx.createSurface('k3dis-field', 1460, 222);
+field.runEffect(
+  (uv, src) => {
+    const c = src.eval(uv + [232, 430]);
+    const m = byte(c.a * 255 + 0.5);
+    const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
+    return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
+  }, null, null, [{ __opencatShader: 'surface', id: 'k3dis-off' }]);
 
-var shader = ripple.makeShaderWithChildren(
-  [progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
-var paint = new CK.Paint();
-paint.setShader(shader);
-c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
+// 3) chamfer sweeps — a scan-class lambda, in place; get(dx,dy) reads the in-progress
+//    buffer and the executor owns the traversal order (forward/backward)
+field.scanPass((get) => {
+  const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
+  const c = get(0, 0), d = at(c);
+  const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
+              min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
+  return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
+}, 'forward');
+
+// 4) each frame: a per-pixel lambda samples the field surface directly — no per-frame bake
+var DIS = CK.Effect.fromLambda((uv, field, u) => {
+  const c = field.eval(uv);
+  const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
+  /* scramble noise · dust · glow → straight RGBA */
+}, { uniforms: [['x0','float'], ['f','float'], ['ep','float'], ['pa','float4']] });
 ```
 
-Any HTML subtree — layout, images, text, video → texture → shader → output. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work.
-
-Offscreen surfaces (`ctx.createSurface`) double as **render targets** for build-once, sample-per-frame data (masks, distance fields): `surface.runEffect` rewrites pixels with a pixel-class lambda, `surface.scanPass` sweeps it in place with a scan-class lambda (`get(dx,dy)` reads the in-progress buffer; the executor owns the traversal order), and `surface.bake(key)` registers the pixels as a frame image for shader sampling. Lambdas can sample other surfaces directly (`{__opencatShader:'surface', id}` children) — the algorithm lives entirely in your JS, the pixels never do. Reference: `examples/k3-promo.xml` scene H; guide: `skill/references/canvaskit.md`.
+Any HTML subtree — layout, images, text, video → texture → shader → output. Pixel buffers never cross the JS bridge and the Rust side holds only a **generic executor**: `surface.runEffect` rewrites pixels with a pixel-class lambda, `surface.scanPass` sweeps in place with a scan-class lambda, and `surface.bake(key)` registers the pixels as a frame image for shader sampling. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work. Reference: `examples/k3-promo.xml` scene H; guide: `skill/references/canvaskit.md`.
 
 ### More
 
@@ -179,8 +202,8 @@ Offscreen surfaces (`ctx.createSurface`) double as **render targets** for build-
 ## Quick start
 
 ```bash
-# Render MP4
-cargo run --bin opencat -- examples/profile-showcase.xml
+# Render MP4 (the spot above)
+cargo run --bin opencat -- examples/k3-promo.xml
 
 # Desktop player for live preview (macOS / Windows / Linux)
 cargo run --bin opencat-see -- path/to/input.xml

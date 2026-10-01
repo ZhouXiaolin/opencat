@@ -18,34 +18,47 @@
   <a href="README.md">English</a> · <a href="README_ZH.md">中文</a>
 </p>
 
-  <video width="60%" controls autoplay loop muted playsinline src="https://github.com/user-attachments/assets/62ae6af6-095b-4b54-af53-97ba79945a6d"></video>
+  <video width="60%" controls autoplay loop muted playsinline src="https://github.com/user-attachments/assets/e3263ec6-a36c-4b73-ba4c-c0e6b64b86ee"></video>
 
 </div>
 
 XML 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出 MP4 —— 跨机器、跨平台、确定性一致。告别 Chromium 快照、Puppeteer 和笨重的 Web 渲染管线。
 
-写一个视频，就是写一个 XML 文件：
+写一个视频，就是写一个 XML 文件（下面是 [`examples/k3-promo.xml`](examples/k3-promo.xml) 的场景 A，即上方示例）：
 
 ```xml
-<opencat width="1920" height="1080" fps="30" duration="3">
-  <div id="root" class="relative w-[1920px] h-[1080px] bg-white overflow-hidden">
-    <div id="pink-glow" class="absolute inset-0 opacity-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_50%,rgba(234,76,137,0.05)_0%,transparent_70%)]" />
-    <div id="logo-container" class="absolute inset-0 flex items-center justify-center">
-      <path id="logo-path" class="fill-white stroke-[#EA4C89] stroke-[1.5] stroke-dasharray-[1800] stroke-dashoffset-[1800]" d="..." />
+<opencat width="1920" height="1080" fps="30" duration="16.4667">
+  <fonts default="k3-sans">
+    <font id="k3-sans" family="Inter" path="assets/Inter-Regular.ttf" role="sans" />
+  </fonts>
+  <template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden">
+    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
+      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
+        <div id="afield" class="absolute inset-0"><stage-canvas id="afield-canvas" /></div>
+        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
+          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
+          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
+        </div>
+      </div>
     </div>
-    <canvas id="particle-canvas" class="absolute inset-0 pointer-events-none w-[1920px] h-[1080px]" />
   </div>
   <script>
-    var tl = ctx.timeline();
-    tl.to('logo-path', { strokeDashoffset: 0, duration: 2, ease: 'power2.inOut' }, 0);
-    tl.to('logo-path', { fillColor: '#0D0C22', strokeColor: '#0D0C22', duration: 0.3, ease: 'power2.out' }, 2);
-    // particles on canvas, scene exit blur...
+    var T = ctx.time;                       // 秒，覆盖整个 16.4667s
+    ctx.getNode('sceneA').opacity(T >= 0.75 && T < 4.62 ? 1 : 0);
+    if (T >= 0.75 && T < 4.62) {
+      ctx.timeline()
+        .set('azoom', { scale: 1.07 }, 0.933)
+        .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
+        .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
+    }
   </script>
 </opencat>
 ```
 
 ```bash
-cargo run --bin opencat -- examples/dribbble-logo-animated.xml
+cargo run --bin opencat -- examples/k3-promo.xml
 ```
 
 MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界面。
@@ -70,15 +83,21 @@ Remotion 复用了 Web 生态，但 Chrome snapshot 的先天缺陷无法绕过 
 ### 声明式动画，GSAP 级表达
 
 ```js
-ctx.fromTo('title', {opacity: 0, y: 30}, {opacity: 1, y: 0, duration: 0.67, ease: 'spring.gentle'});
-ctx.set('caption', {opacity: 0});
-ctx.to('rocket', {path: 'M100 360 C400 80 880 640 1180 360', duration: 4, ease: 'ease-in-out'});
-ctx.from(ctx.splitText('title', {type: 'chars'}), {opacity: 0, y: 20, stagger: 0.07, ease: 'spring.wobbly'});
+// 声明式 timeline —— examples/k3-promo.xml 场景 A
+ctx.timeline()
+  .set('azoom', { scale: 1.07 }, 0.933)
+  .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
+  .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
+  .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
 
-ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
-  .set('caption', {opacity: 0}, 0)
-  .from('title', {opacity: 0, y: 30})
-  .from('subtitle', {opacity: 0, y: 18}, '-=0.27');
+// GSAP 形态的逐字符文本：splitText 拆分后按 power2.out 曲线归位
+var parts = ctx.splitText('otxt', { type: 'chars' });
+var tl = ctx.timeline();
+parts.forEach(function (p, i) {
+  tl.set(p, { opacity: 0 }, 7.35)
+    .set(p, { opacity: 1 }, 7.5333)
+    .fromTo(p, { x: (i - 6.5) * 21 }, { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
+});
 ```
 
 ### 多场景 + 转场
@@ -95,28 +114,29 @@ ctx.timeline({defaults: {duration: 0.6, ease: 'spring.gentle'}})
 
 ### XML 模板 —— 带插槽和变量的可复用组件
 
-用 `<template>` 定义组件，用 `$variable` 参数化，用 `<slot>` 组合内容：
+用 `<template>` 定义组件，用 `$variable` 参数化，用 `<slot>` 组合内容。`k3-promo` 把六个公共构件从节点树中提出来——解析一次，渲染前展开为普通节点：
 
 ```xml
-<opencat>
-  <!-- 定义模板 -->
-  <template name="card">
-    <div class="w-[400px] rounded-xl bg-$bg shadow-lg p-6">
-      <h2 class="text-xl font-bold text-$titleColor">$title</h2>
-      <slot name="body" />
-    </div>
-  </template>
+<template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+<template name="cdot"><div id="$id" class="absolute w-[$s] h-[$s] bg-[$c]"></div></template>
+<template name="agent-pill"><div id="$id" class="absolute opacity-0"><div id="$id-box" class="px-[14px] py-[10px] border-[1.5px] border-[#dcdcde]">…</div></div></template>
 
-  <!-- 使用模板 -->
-  <card bg="white" titleColor="gray-900" title="Hello">
-    <slot name="body">
-      <p class="text-gray-500">这是卡片内容。</p>
-    </slot>
-  </card>
-</opencat>
+<!-- 调用点只传差异参数 -->
+<stage-canvas id="afield-canvas" />
+<cdot id="a-tl" s="13px" c="#d8d8da" />
+<agent-pill id="ap1" t="Agentic" />
 ```
 
-模板在解析时展开 —— 零运行时开销、完全可组合、支持嵌套。
+模板在解析时展开 —— 零运行时开销、完全可组合、支持嵌套。`<slot>` 从调用点注入内容：
+
+```xml
+<template name="card">
+  <div class="w-[400px] rounded-xl bg-$bg p-6"><h2 class="text-$titleColor">$title</h2><slot name="body" /></div>
+</template>
+<card bg="white" titleColor="gray-900" title="Hello">
+  <slot name="body"><p class="text-gray-500">卡片内容。</p></slot>
+</card>
+```
 
 ### 浏览器内 WASM 渲染
 
@@ -134,41 +154,42 @@ await exportMp4({ /* ... */ });
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）：
+`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）。离屏 surface（`ctx.createSurface`）同时是**render target**，承载"构建一次、逐帧采样"的数据。`examples/k3-promo.xml` 场景 H 的溶解距离场完全在 JS 里构建：
 
 ```js
-var CK = ctx.CanvasKit;
-var c = ctx.getCanvasById('s1-canvas');
-var subtreeShader = c.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+// 1) 文字锁排一次性栅格化进离屏 surface
+var ox = ctx.createSurface('k3dis-off', 1920, 1080);
+ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-var ripple = CK.Effect.fromLambda(
-  (uv, image, u) => {
-    const d = uv - [180.0, 240.0];
-    const dist = length(d);
-    const dir = dist < 1.0 ? [0.0, 0.0] : d / dist;
-    const tang = [-dir.y, dir.x];
-    const wave = sin(dist * u.frequency - u.progress * u.speed);
-    const base = uv + dir * (wave * u.amplitude * exp(-dist * u.decay));
-    const r = image.eval(base + tang * u.split);
-    const g = image.eval(base);
-    const b = image.eval(base - tang * u.split);
-    const a = max(max(r.a, g.a), b.a);
-    return [r.r, g.g, b.b, a];
-  },
-  { uniforms: [['progress','float'],['amplitude','float'],['frequency','float'],
-               ['speed','float'],['decay','float'],['split','float']] }
-);
+// 2) 用 pixel 类 lambda 播种 mask + 距离场，以 surface child 采样那个 surface
+var field = ctx.createSurface('k3dis-field', 1460, 222);
+field.runEffect(
+  (uv, src) => {
+    const c = src.eval(uv + [232, 430]);
+    const m = byte(c.a * 255 + 0.5);
+    const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist 低/高字节
+    return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
+  }, null, null, [{ __opencatShader: 'surface', id: 'k3dis-off' }]);
 
-var shader = ripple.makeShaderWithChildren(
-  [progress, amplitude, frequency, speed, decay, split], [subtreeShader]);
-var paint = new CK.Paint();
-paint.setShader(shader);
-c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
+// 3) chamfer 扫描——scan 类 lambda 就地遍历；get(dx,dy) 读 in-progress 缓冲，
+//    遍历顺序由 executor 拥有（forward/backward）
+field.scanPass((get) => {
+  const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
+  const c = get(0, 0), d = at(c);
+  const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
+              min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
+  return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
+}, 'forward');
+
+// 4) 每帧：lambda 直接采样 field surface——无需每帧烘焙
+var DIS = CK.Effect.fromLambda((uv, field, u) => {
+  const c = field.eval(uv);
+  const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
+  /* scramble 噪点 · dust · glow → straight RGBA */
+}, { uniforms: [['x0','float'], ['f','float'], ['ep','float'], ['pa','float4']] });
 ```
 
-画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。
-
-离屏 surface（`ctx.createSurface`）同时是**render target**，承载"构建一次、逐帧采样"的数据（mask、距离场等）：`surface.runEffect` 用 pixel 类 lambda 逐像素重绘，`surface.scanPass` 用 scan 类 lambda（`get(dx,dy)` 读 in-progress 缓冲，遍历顺序由 executor 拥有）就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。lambda 还能以 `{__opencatShader:'surface', id}` child 直采其它 surface——算法完全在 JS，像素永不跨桥。参考：`examples/k3-promo.xml` 场景 H；指南：`skill/references/canvaskit.md`。
+画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`surface.runEffect` 用 pixel 类 lambda 重绘，`surface.scanPass` 用 scan 类 lambda 就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo.xml` 场景 H；指南：`skill/references/canvaskit.md`。
 
 ### 更多能力
 
@@ -181,8 +202,8 @@ c.drawRect(CK.LTRBRect(0, 0, 360, 480), paint);
 ## Quick start
 
 ```bash
-# 渲染 MP4
-cargo run --bin opencat -- examples/profile-showcase.xml
+# 渲染 MP4（上方示例）
+cargo run --bin opencat -- examples/k3-promo.xml
 
 # 桌面播放器实时预览（macOS / Windows）
 cargo run --bin opencat-see -- path/to/input.xml

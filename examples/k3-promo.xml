@@ -1967,15 +1967,13 @@
     vis('sceneHI', HI_ON);
     if (HI_ON) {
       // gsap.set("#hbox", { x:-23, y:66 }) (index.html:1742-1746): the box CSS
-      // stays at its source position (400,265); the offset rides the transform,
-      // translate before scale (CSS/GSAP order)
-      ctx.getNode('hbox').translateX(-23);
-      ctx.getNode('hbox').translateY(66);
-      // wireframe box pop-in (13.74→13.86 power2.out), shrink+fade (14.6→14.74 power2.in)
-      if (T < 13.74) ctx.getNode('hbox').opacity(0);
-      else if (T < 13.86) { var hp = clamp((T - 13.74) / 0.12, 0, 1); ctx.getNode('hbox').opacity(1); ctx.getNode('hbox').scale(0.94 + 0.06 * hp * (2 - hp)); }
-      else if (T < 14.6) { ctx.getNode('hbox').opacity(1); ctx.getNode('hbox').scale(1); }
-      else { var hbW = clamp((T - 14.6) / 0.14, 0, 1); var hb2 = hbW * hbW; ctx.getNode('hbox').scale(1 - 0.6 * hb2); ctx.getNode('hbox').opacity(1 - hb2); }
+      // stays at its source position (400,265); the offset rides the transform.
+      // Pop-in (power2.out), then shrink+fade (power2.in).
+      ctx.timeline()
+        .set('hbox', { opacity: 0, x: -23, y: 66 }, 13.7)
+        .set('hbox', { opacity: 1 }, 13.74)
+        .fromTo('hbox', { scale: 0.94 }, { scale: 1, duration: 0.12, ease: 'power2.out' }, 13.74)
+        .to('hbox', { scale: 0.4, opacity: 0, duration: 0.14, ease: 'power2.in' }, 14.6);
 
       // hatch lines inside the box (hbox-canvas coords = box-local 1150x385)
       var hCv = ctx.getCanvasById('hbox-canvas');

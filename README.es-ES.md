@@ -189,9 +189,9 @@ cargo run --bin opencat-see -- path/to/input.xml
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requiere un entorno `Cross-Origin-Isolated`.
 
-### Alineación Engine / Web (SSIM)
+### Alineación Engine / Web (métricas de píxel k3diff)
 
-Comparación píxel a píxel del Skia nativo vs WASM CanvasKit con ChromeDriver + SSIM. Pasos completos: **[Guía de Desarrollo](DEVELOPMENT.md#engine--web-pixel-alignment-ssim-frame-oracle)**.
+Comparación píxel a píxel del Skia nativo vs WASM CanvasKit con ChromeDriver usando métricas de píxel duras (`mae`/`maxd`/`p8`, no SSIM). También puede comparar el render web directamente contra el video de referencia original con `--reference`. Pasos completos: **[Guía de Desarrollo](DEVELOPMENT.md#engine--web-pixel-alignment-k3diff-frame-oracle)**.
 
 ```bash
 # 1) multimedia usada por los ejemplos (profile-showcase carga http://127.0.0.1:8080/...)
@@ -380,16 +380,16 @@ No se necesitan las variables de entorno `ffmpegDir` o `SKIA_BINARIES_URL` en un
 - [API de Canvas](skill/references/canvaskit.md)
 - [Plantillas](skill/references/templates.md)
 - [Principios de Diseño](skill/references/design-principles.md)
-- [Guía de Desarrollo](DEVELOPMENT.md) — Alineación de diseño Tailwind/Taffy y comparación SSIM engine/web
-- [开发指南](DEVELOPMENT_ZH.md)
+- [Guía de Desarrollo](DEVELOPMENT.md) — Alineación de diseño Tailwind/Taffy y comparación k3diff engine/web
+- [Guía de Desarrollo (chino)](DEVELOPMENT_ZH.md)
 - [Arquitectura](ARCHITECTURE.md) — pipeline de renderizado completo desde XML/JSONL a píxeles
-- [架构文档](ARCHITECTURE_ZH.md)
-- [Guía de Migración](docs/MIGRATION.md) — ciclo de vida explícito, HostInputs, AudioPlan, RenderFrame, OCIR v4
+- [Arquitectura (chino)](ARCHITECTURE_ZH.md)
+- [Guía de Migración](docs/MIGRATION.md) — ciclo de vida explícito, HostInputs, AudioPlan, RenderFrame, OCIR v5
 
 ## Comunidad
 
 - Errores / Solicitudes de funciones → [Abrir un Issue](https://github.com/ZhouXiaolin/opencat/issues)
-- Discusión en Linux Do → [OpenCat 社区讨论](https://linux.do/t/topic/2090262/7)
+- Discusión en Linux Do → [Comunidad OpenCat](https://linux.do/t/topic/2090262/7)
 
 ## Historial de Estrellas
 

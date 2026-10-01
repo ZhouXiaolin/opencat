@@ -380,15 +380,15 @@ No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a stan
 - [Templates](skill/references/templates.md)
 - [Design Principles](skill/references/design-principles.md)
 - [Development Guide](DEVELOPMENT.md) — Tailwind/Taffy layout alignment & engine/web k3diff pixel comparison
-- [开发指南](DEVELOPMENT_ZH.md)
+- [Development Guide (Chinese)](DEVELOPMENT_ZH.md)
 - [Architecture](ARCHITECTURE.md) — complete rendering pipeline from XML/JSONL to pixels
-- [架构文档](ARCHITECTURE_ZH.md)
-- [Migration Guide](docs/MIGRATION.md) — explicit lifecycle, HostInputs, AudioPlan, RenderFrame, OCIR v4
+- [Architecture (Chinese)](ARCHITECTURE_ZH.md)
+- [Migration Guide](docs/MIGRATION.md) — explicit lifecycle, HostInputs, AudioPlan, RenderFrame, OCIR v5
 
 ## Community
 
 - Bugs / Feature requests → [Open an Issue](https://github.com/ZhouXiaolin/opencat/issues)
-- Linux Do Discussion → [OpenCat 社区讨论](https://linux.do/t/topic/2090262/7)
+- Linux Do Discussion → [OpenCat Community](https://linux.do/t/topic/2090262/7)
 
 ## Star History
 

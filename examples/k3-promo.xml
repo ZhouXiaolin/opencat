@@ -1158,16 +1158,15 @@
     var B_ON = (T>= 4.563 && T < 5.853);
     vis('sceneB', B_ON);
     if (B_ON) {
-      // index.html:1644 tl.fromTo("#bcluster",{x:190},{x:0,dur:0.577,ease:"power2.out"},4.653)
-      // power2.out = cubic (handoff 14.3-1): x = 190*(1-q)^3.
-      var bx = T < 4.653 ? 190 : (T < 5.23 ? 190 * Math.pow(1 - clamp((T - 4.653) / 0.577, 0, 1), 3) : 0);
-      ctx.getNode('bcluster').translateX(bx);
-      // index.html:1649 tl.to("#bcluster",{autoAlpha:0,dur:0.3,ease:"power1.in"},5.463)
-      // power1.in = q^2: opacity = 1 - q^2.
-      var bFade = T> 5.463 ? 1 - Math.pow(clamp((T - 5.463) / 0.3, 0, 1), 2) : 1;
-      ctx.getNode('bcluster').opacity(bFade);
-      vis('btitle', T>= 4.6333);
-      ['bs1', 'bs2', 'bs3', 'bs4', 'bs5'].forEach(function (id, i) { vis(id, T>= 4.6333 + i * 0.0333); });
+      // index.html:1644-1649 — cluster slides in (power2.out/cubic) and fades
+      // (power1.in/quad); pill waterfall is a 1-frame stagger.
+      var bTl = ctx.timeline()
+        .fromTo('bcluster', { x: 190 }, { x: 0, duration: 0.577, ease: 'power2.out' }, 4.653)
+        .set('btitle', { opacity: 1 }, 4.6333)
+        .to('bcluster', { opacity: 0, duration: 0.3, ease: 'power1.in' }, 5.463);
+      ['bs1', 'bs2', 'bs3', 'bs4', 'bs5'].forEach(function (id, i) {
+        bTl.set(id, { opacity: 1 }, 4.6333 + i * 0.0333);
+      });
       // .pill .hstrip diagonal hatch under each stack pill (index.html:76-81 CSS,
       // :1003 DOM, :1629-1632 roll x 0→-44 dur 3.6 ease none @0.933 — finished at
       // 4.533, before B starts, so the roll is parked at -44 here). Same box-model

@@ -48,13 +48,17 @@ pub struct AnimateEntry {
     pub progress: f32,
     pub settled: bool,
     pub settle_frame: u32,
-    pub duration: u32,
-    pub delay: u32,
+    /// Tween duration/delay in **seconds**, kept fractional (not rounded to whole
+    /// frames). GSAP advances tweens by elapsed *time*, so quantising to the frame
+    /// grid introduces up to a half-frame error — significant on short tweens
+    /// (0.07–0.12 s). Progress is evaluated from `current_time_secs` instead.
+    pub duration_secs: f32,
+    pub delay_secs: f32,
+    pub repeat_delay_secs: f32,
     pub clamp: bool,
     pub easing: Easing,
     pub repeat: i32,
     pub yoyo: bool,
-    pub repeat_delay: u32,
 }
 
 fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
@@ -296,6 +300,13 @@ impl MutationStore {
                 "top" => mutations.inset_top.map(|f| json!(f)),
                 "right" => mutations.inset_right.map(|f| json!(f)),
                 "bottom" => mutations.inset_bottom.map(|f| json!(f)),
+                // Transform components — so a tween written without an
+                // explicit `from` (e.g. `.to('obl',{x:L})`) starts from the
+                // value currently set on the node, as GSAP does.
+                "x" | "translateX" | "y" | "translateY" | "scale" | "scaleX" | "scaleY"
+                | "rotation" | "rotate" | "skewX" | "skewY" => {
+                    mutations.read_transform_value(property).map(|f| json!(f))
+                }
                 "filter" => (!mutations.css_filter.is_empty())
                     .then(|| css_filter_to_value(&mutations.css_filter)),
                 "clipPath" | "clip-path" => mutations
@@ -359,52 +370,42 @@ impl MutationStore {
             }
             "translateX" => {
                 if let Some(v) = value.as_f64() {
-                    entry
-                        .transforms
-                        .push(Transform::TranslateX { value: v as f32 });
+                    entry.push_transform(Transform::TranslateX { value: v as f32 });
                 }
             }
             "translateY" => {
                 if let Some(v) = value.as_f64() {
-                    entry
-                        .transforms
-                        .push(Transform::TranslateY { value: v as f32 });
+                    entry.push_transform(Transform::TranslateY { value: v as f32 });
                 }
             }
             "scale" => {
                 if let Some(v) = value.as_f64() {
-                    entry.transforms.push(Transform::Scale { value: v as f32 });
+                    entry.push_transform(Transform::Scale { value: v as f32 });
                 }
             }
             "scaleX" => {
                 if let Some(v) = value.as_f64() {
-                    entry.transforms.push(Transform::ScaleX { value: v as f32 });
+                    entry.push_transform(Transform::ScaleX { value: v as f32 });
                 }
             }
             "scaleY" => {
                 if let Some(v) = value.as_f64() {
-                    entry.transforms.push(Transform::ScaleY { value: v as f32 });
+                    entry.push_transform(Transform::ScaleY { value: v as f32 });
                 }
             }
             "rotate" | "rotation" => {
                 if let Some(v) = value.as_f64() {
-                    entry
-                        .transforms
-                        .push(Transform::RotateDeg { value: v as f32 });
+                    entry.push_transform(Transform::RotateDeg { value: v as f32 });
                 }
             }
             "skewX" => {
                 if let Some(v) = value.as_f64() {
-                    entry
-                        .transforms
-                        .push(Transform::SkewXDeg { value: v as f32 });
+                    entry.push_transform(Transform::SkewXDeg { value: v as f32 });
                 }
             }
             "skewY" => {
                 if let Some(v) = value.as_f64() {
-                    entry
-                        .transforms
-                        .push(Transform::SkewYDeg { value: v as f32 });
+                    entry.push_transform(Transform::SkewYDeg { value: v as f32 });
                 }
             }
             "left" => {
@@ -639,12 +640,8 @@ impl MutationStore {
                         arr.first().and_then(|v| v.as_f64()),
                         arr.get(1).and_then(|v| v.as_f64()),
                     ) {
-                        entry
-                            .transforms
-                            .push(Transform::TranslateX { value: x as f32 });
-                        entry
-                            .transforms
-                            .push(Transform::TranslateY { value: y as f32 });
+                        entry.push_transform(Transform::TranslateX { value: x as f32 });
+                        entry.push_transform(Transform::TranslateY { value: y as f32 });
                     }
                 }
             }
@@ -654,12 +651,8 @@ impl MutationStore {
                         arr.first().and_then(|v| v.as_f64()),
                         arr.get(1).and_then(|v| v.as_f64()),
                     ) {
-                        entry
-                            .transforms
-                            .push(Transform::SkewXDeg { value: x as f32 });
-                        entry
-                            .transforms
-                            .push(Transform::SkewYDeg { value: y as f32 });
+                        entry.push_transform(Transform::SkewXDeg { value: x as f32 });
+                        entry.push_transform(Transform::SkewYDeg { value: y as f32 });
                     }
                 }
             }
@@ -683,61 +676,69 @@ impl MutationStore {
     ) -> i32 {
         let easing = crate::script::animate::state::parse_easing_from_tag(easing_tag);
         let fps = self.fps.max(1) as f32;
-        let duration_u32 = if duration < 0.0 {
-            easing.default_duration(fps).unwrap_or(1)
+        // Keep seconds fractional (see `AnimateEntry`): GSAP advances by elapsed
+        // time, so progress must not be snapped to the frame grid.
+        let duration_secs = if duration < 0.0 {
+            easing.default_duration(fps).unwrap_or(1) as f32 / fps
         } else {
-            self.seconds_to_frames(duration)
+            duration
         };
-        let delay_u32 = self.seconds_to_frames(delay);
-        let repeat_delay_u32 = self.seconds_to_frames(repeat_delay.max(0.0));
-        let progress = crate::parse::easing::compute_progress(
-            current_frame,
-            duration_u32,
-            delay_u32,
+        let delay_secs = delay.max(0.0);
+        let repeat_delay_secs = repeat_delay.max(0.0);
+        let current_time = current_frame as f32 / fps;
+        let progress = crate::parse::easing::compute_progress_secs(
+            current_time,
+            duration_secs,
+            delay_secs,
             &easing,
             clamp,
             repeat,
             yoyo,
-            repeat_delay_u32,
+            repeat_delay_secs,
         );
+        // Settle frame is only a *lower bound* hint for callers (whole frames):
+        // use the frame width for rounding duration/delay up.
+        let duration_frames = self.seconds_to_frames(duration_secs);
+        let delay_frames = self.seconds_to_frames(delay_secs);
         let total_frames = if repeat >= 0 {
-            duration_u32
+            duration_frames
                 .saturating_mul(repeat as u32 + 1)
-                .saturating_add(repeat_delay_u32.saturating_mul(repeat as u32))
+                .saturating_add(self.seconds_to_frames(repeat_delay_secs).saturating_mul(repeat as u32))
         } else {
             u32::MAX
         };
-        let settled = repeat >= 0 && current_frame >= delay_u32.saturating_add(total_frames);
-        let settle_frame = delay_u32.saturating_add(total_frames);
+        let settled = repeat >= 0 && current_frame >= delay_frames.saturating_add(total_frames);
+        let settle_frame = delay_frames.saturating_add(total_frames);
         let handle = self.animate_entries.len() as i32;
         self.animate_entries.push(AnimateEntry {
             progress,
             settled,
             settle_frame,
-            duration: duration_u32,
-            delay: delay_u32,
+            duration_secs,
+            delay_secs,
+            repeat_delay_secs,
             clamp,
             easing,
             repeat,
             yoyo,
-            repeat_delay: repeat_delay_u32,
         });
         handle
     }
 
     pub fn animate_value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
         if let Some(entry) = self.animate_entries.get(handle as usize) {
-            crate::parse::easing::animate_value(
-                current_frame,
-                entry.duration,
-                entry.delay,
+            let current_time = current_frame as f32 / self.fps.max(1) as f32;
+            crate::parse::easing::animate_value_secs(
+                current_time,
+                entry.duration_secs,
+                entry.delay_secs,
                 from,
                 to,
                 &entry.easing,
                 entry.clamp,
                 entry.repeat,
                 entry.yoyo,
-                entry.repeat_delay,
+                entry.repeat_delay_secs,
             )
         } else {
             from
@@ -832,54 +833,35 @@ impl MutationRecorder for MutationStore {
         self.entry(id).opacity = Some(v);
     }
     fn record_translate(&mut self, id: &str, x: f32, y: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::Translate { x, y });
+        self.entry(id).push_transform(Transform::Translate { x, y });
     }
     fn record_translate_x(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::TranslateX { value: v });
+        self.entry(id).push_transform(Transform::TranslateX { value: v });
     }
     fn record_translate_y(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::TranslateY { value: v });
+        self.entry(id).push_transform(Transform::TranslateY { value: v });
     }
     fn record_scale(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::Scale { value: v });
+        self.entry(id).push_transform(Transform::Scale { value: v });
     }
     fn record_scale_x(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::ScaleX { value: v });
+        self.entry(id).push_transform(Transform::ScaleX { value: v });
     }
     fn record_scale_y(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::ScaleY { value: v });
+        self.entry(id).push_transform(Transform::ScaleY { value: v });
     }
     fn record_rotate(&mut self, id: &str, deg: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::RotateDeg { value: deg });
+        self.entry(id).push_transform(Transform::RotateDeg { value: deg });
     }
     fn record_skew_x(&mut self, id: &str, deg: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::SkewXDeg { value: deg });
+        self.entry(id).push_transform(Transform::SkewXDeg { value: deg });
     }
     fn record_skew_y(&mut self, id: &str, deg: f32) {
-        self.entry(id)
-            .transforms
-            .push(Transform::SkewYDeg { value: deg });
+        self.entry(id).push_transform(Transform::SkewYDeg { value: deg });
     }
     fn record_skew(&mut self, id: &str, x_deg: f32, y_deg: f32) {
         self.entry(id)
-            .transforms
-            .push(Transform::SkewDeg { x: x_deg, y: y_deg });
+            .push_transform(Transform::SkewDeg { x: x_deg, y: y_deg });
     }
     fn record_left(&mut self, id: &str, v: f32) {
         self.entry(id).inset_left = Some(v);
@@ -1020,7 +1002,7 @@ impl MutationRecorder for MutationStore {
     }
 
     fn record_transform(&mut self, id: &str, t: Transform) {
-        self.entry(id).transforms.push(t);
+        self.entry(id).push_transform(t);
     }
 
     fn record_text_content(&mut self, id: &str, text: String) {
@@ -1177,12 +1159,63 @@ mod tests {
     }
 
     #[test]
-    fn record_translate_pushes_transform() {
+    fn lone_translate_stays_atomic() {
+        // No collision → the write stays as a single `Translate`, so the
+        // rendered matrix path is unchanged from before this fix.
         let mut store = MutationStore::default();
         store.record_translate("node-a", 12.0, -8.0);
         let snap = store.snapshot_mutations();
         let entry = snap.mutations.get("node-a").expect("node-a recorded");
-        assert_eq!(entry.transforms.len(), 1);
+        assert_eq!(entry.transforms, vec![Transform::Translate { x: 12.0, y: -8.0 }]);
+    }
+
+    #[test]
+    fn translate_then_translate_x_replaces_only_x() {
+        // A later x-write supersedes the x component of the earlier translate
+        // while leaving y intact.
+        let mut store = MutationStore::default();
+        store.record_translate("node-a", 12.0, -8.0);
+        store.record_translate_x("node-a", 5.0);
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("node-a").expect("node-a recorded");
+        assert_eq!(
+            entry.transforms,
+            vec![
+                Transform::TranslateY { value: -8.0 },
+                Transform::TranslateX { value: 5.0 },
+            ]
+        );
+    }
+
+    #[test]
+    fn repeated_translate_x_replaces_not_accumulates() {
+        // GSAP's `x` is a single writable property: two writes in one frame are
+        // last-write-wins. The old append behaviour summed them and collapsed
+        // the k3 OPEN-card braces onto the text.
+        let mut store = MutationStore::default();
+        store.record_translate_x("node-a", 67.5225);
+        store.record_translate_x("node-a", 325.5715);
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("node-a").expect("node-a recorded");
+        assert_eq!(entry.transforms, vec![Transform::TranslateX { value: 325.5715 }]);
+    }
+
+    #[test]
+    fn distinct_transform_slots_coexist() {
+        // Writing x then y then x again keeps both slots, with x last-write-wins.
+        let mut store = MutationStore::default();
+        store.record_translate_x("node-a", 1.0);
+        store.record_translate_y("node-a", 2.0);
+        store.record_translate_x("node-a", 3.0);
+        let snap = store.snapshot_mutations();
+        let entry = snap.mutations.get("node-a").expect("node-a recorded");
+        assert_eq!(
+            entry.transforms,
+            vec![
+                Transform::TranslateY { value: 2.0 },
+                Transform::TranslateX { value: 3.0 },
+            ]
+        );
     }
 
     #[test]

@@ -18,7 +18,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
     },
     thread,
     thread::JoinHandle,
@@ -28,8 +28,6 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
-
-static SSIM_TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 pub fn web_source_for_oracle(path: &str, source: &str) -> String {
     // Browser font fetch uses `/fonts/` (served from repo `assets/`), not
@@ -768,65 +766,150 @@ fn compare_rgba(expected: &[u8], actual: &[u8], channel_tolerance: u8) -> Result
     })
 }
 
-/// Compute the SSIM between two RGBA buffers using ffmpeg, matching the metric
-/// used by `scripts/compare-ssim.sh` (engine-vs-engine). Each buffer is written
-/// to a temporary PNG and compared via `ffmpeg -filter_complex ssim`; the
-/// returned value is the "All" SSIM (1.0 = identical).
+/// Hard pixel-level difference between two RGBA buffers — the native
+/// equivalent of `tools/k3diff.py` (per-channel max delta, not SSIM).
 ///
-/// This is the per-frame web-vs-engine regression metric for the host-owned
-/// web pipeline (#8). ffmpeg is required on PATH.
-pub fn compute_ssim_rgba(a: &[u8], b: &[u8], width: u32, height: u32) -> Result<f64> {
-    let temp_id = SSIM_TEMP_ID.fetch_add(1, Ordering::Relaxed);
-    let tmp = std::env::temp_dir().join(format!(
-        "opencat-web-oracle-ssim-{}-{temp_id}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&tmp)?;
-    let a_png = tmp.join("engine.png");
-    let b_png = tmp.join("web.png");
-    write_png(&a_png, width, height, a)?;
-    write_png(&b_png, width, height, b)?;
+/// SSIM collapses to a single "structural similarity" scalar and hides
+/// localized misalignment; the alignment methodology uses this instead so
+/// every frame is judged by `mae` / `maxd` / per-threshold changed-pixel
+/// fractions, exactly like the reference gate.
+#[derive(Debug, Clone, Copy)]
+pub struct PixelDiff {
+    /// Mean absolute error across R,G,B (0..255).
+    pub mae: f64,
+    /// Max per-pixel channel delta in the frame.
+    pub maxd: u32,
+    /// Fraction of pixels whose max-channel delta is above
+    /// `[2, 4, 8, 16, 32, 64, 128]` (k3diff `p2`..`p128`).
+    pub frac_above: [f64; 7],
+    /// Bounding box (x0,y0,x1,y1) of pixels above the 16 delta threshold.
+    pub bbox: Option<(u32, u32, u32, u32)>,
+}
 
-    let output = Command::new("ffmpeg")
+/// k3diff threshold ladder (excludes the `p0` = "changed at all" bucket).
+pub const PIXEL_DIFF_THRESHOLDS: [u32; 7] = [2, 4, 8, 16, 32, 64, 128];
+
+/// Compare two RGBA buffers with hard pixel metrics (k3diff semantics).
+pub fn compute_pixel_diff_rgba(
+    a: &[u8],
+    b: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<PixelDiff> {
+    let pixels = width as usize * height as usize;
+    let expected = pixels * 4;
+    if a.len() != expected || b.len() != expected {
+        bail!(
+            "pixel diff expects {expected} bytes per buffer, got a={} b={}",
+            a.len(),
+            b.len()
+        );
+    }
+
+    let mut sum: u64 = 0;
+    let mut maxd: u32 = 0;
+    let mut counts = [0u64; PIXEL_DIFF_THRESHOLDS.len()];
+    let mut bbox: Option<(u32, u32, u32, u32)> = None;
+
+    for i in 0..pixels {
+        let base = i * 4;
+        let mut dm: u32 = 0;
+        // k3diff max-channel delta is over R,G,B only (alpha excluded).
+        for c in 0..3 {
+            let d = a[base + c].abs_diff(b[base + c]) as u32;
+            sum += u64::from(d);
+            dm = dm.max(d);
+        }
+        maxd = maxd.max(dm);
+        for (k, t) in PIXEL_DIFF_THRESHOLDS.iter().enumerate() {
+            if dm > *t {
+                counts[k] += 1;
+            }
+        }
+        // bbox uses the k3diff default bbox threshold (> 16).
+        if dm > 16 {
+            let x = (i % width as usize) as u32;
+            let y = (i / width as usize) as u32;
+            bbox = Some(match bbox {
+                None => (x, y, x, y),
+                Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+            });
+        }
+    }
+
+    let mae = sum as f64 / (pixels as f64 * 3.0);
+    let frac_above = counts.map(|c| c as f64 / pixels as f64);
+    Ok(PixelDiff {
+        mae,
+        maxd,
+        frac_above,
+        bbox,
+    })
+}
+
+/// Decode selected frames from a reference video (e.g. the hyperframes-launch
+/// `k3-promo.mp4`) as RGBA at `width`x`height`, streaming the file once.
+///
+/// This lets the web (wasm + CanvasKit) path be pixel-aligned **directly
+/// against the original reference render**, not merely against the native
+/// engine — which surfaces wasm-specific problems the engine-vs-web oracle
+/// cannot (both sides would share an engine bug). Frames past the end of the
+/// video are omitted from the result. ffmpeg is required on PATH.
+pub fn decode_reference_frames_rgba(
+    path: &Path,
+    width: u32,
+    height: u32,
+    frames: &[u32],
+) -> Result<std::collections::HashMap<u32, Vec<u8>>> {
+    use std::collections::{BTreeSet, HashMap};
+
+    let mut wanted: BTreeSet<u32> = frames.iter().copied().collect();
+    let Some(max_frame) = wanted.iter().next_back().copied() else {
+        return Ok(HashMap::new());
+    };
+
+    let mut child = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
         .args([
-            "-i",
-            &a_png.to_string_lossy(),
-            "-i",
-            &b_png.to_string_lossy(),
-            "-filter_complex",
-            "ssim",
             "-f",
-            "null",
+            "rawvideo",
+            "-pix_fmt",
+            "rgba",
+            "-s",
+            &format!("{width}x{height}"),
             "-",
         ])
-        .stderr(Stdio::piped())
-        .stdout(Stdio::null())
-        .output()
-        .context("run ffmpeg ssim")?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .with_context(|| format!("spawn ffmpeg to decode {}", path.display()))?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .context("ffmpeg stdout should be piped")?;
 
-    let _ = fs::remove_dir_all(&tmp);
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    // ffmpeg prints `SSIM avg: ... (...): All:1.000000 (...)` — capture the
-    // `All:<value>` token (same field compare-ssim.sh greps).
-    let line = stderr
-        .lines()
-        .rev()
-        .find(|l| l.contains("SSIM") && l.contains("All:"))
-        .ok_or_else(|| anyhow!("ffmpeg produced no SSIM line:\n{stderr}"))?;
-    let after = line
-        .split("All:")
-        .nth(1)
-        .ok_or_else(|| anyhow!("malformed SSIM line: {line}"))?;
-    let value = after
-        .split(|c: char| !c.is_ascii_digit() && c != '.' && c != '-')
-        .next()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow!("could not parse SSIM value from: {line}"))?;
-    value
-        .parse::<f64>()
-        .with_context(|| format!("parse SSIM value `{value}`"))
+    let frame_len = width as usize * height as usize * 4;
+    let mut buf = vec![0u8; frame_len];
+    let mut out = HashMap::new();
+    let mut idx: u32 = 0;
+    loop {
+        if stdout.read_exact(&mut buf).is_err() {
+            break;
+        }
+        if wanted.remove(&idx) {
+            out.insert(idx, buf.clone());
+        }
+        if idx >= max_frame {
+            break;
+        }
+        idx += 1;
+    }
+    drop(stdout);
+    let _ = child.wait();
+    Ok(out)
 }
+
 
 pub fn write_artifacts(
     dir: &Path,

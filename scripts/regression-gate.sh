@@ -4,7 +4,7 @@
 #
 # Usage:  regression-gate.sh [--oracle] [--ci]
 #
-#   --oracle   Also run browser oracle SSIM tests (requires ChromeDriver,
+#   --oracle   Also run browser oracle k3diff tests (requires ChromeDriver,
 #              ffmpeg, and miniserve). Oracle tests are #[ignore] and run
 #              via `cargo test -- --ignored web_frame_oracle`.
 #   --ci       CI mode: skip preconditions check, skip interactive steps.
@@ -22,7 +22,7 @@
 #   - Rust: cargo test + clippy for core, engine, opencat (lib)
 #   - Web:  bun run test, bunx tsc --noEmit, bun run build (root web)
 #   - Crate: tsc build:types + vite build (crates/opencat-web/web)
-#   - (oracle only) Browser SSIM: chromedriver oracle tests (AC 5-7)
+#   - (oracle only) Browser k3diff: chromedriver oracle tests (AC 5-7)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -100,13 +100,13 @@ run_check "WEB" "crate tsc build:types" \
 run_check "WEB" "crate vite build" \
     bunx vite build
 
-# ---- Browser oracle SSIM (AC 5-7) ----
+# ---- Browser oracle k3diff (AC 5-7) ----
 if [ "$RUN_ORACLE" -eq 1 ]; then
     echo ""
-    echo "===== [ORACLE] Browser SSIM tests (AC 5-7) ====="
+    echo "===== [ORACLE] Browser k3diff tests (AC 5-7) ====="
     cd "$ROOT"
 
-    run_check "ORACLE" "chromedriver oracle SSIM tests (AC 5-7)" \
+    run_check "ORACLE" "chromedriver oracle k3diff tests (AC 5-7)" \
         cargo test -- --ignored web_frame_oracle 2>&1
 fi
 

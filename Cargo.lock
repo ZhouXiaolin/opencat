@@ -2600,7 +2600,6 @@ dependencies = [
  "opencat-engine",
  "raw-window-handle",
  "rodio",
- "roxmltree 0.21.1",
  "serde_json",
  "skia-safe",
  "tokio",

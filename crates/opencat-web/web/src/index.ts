@@ -28,6 +28,8 @@ export type { AssetReader, AssetReaderResult, WebRendererInstance } from './wasm
 export {
   renderEncodedDrawFrame,
   MediaValidationError,
+  isEncodedDrawEnvelope,
+  decodeDrawEnvelope,
 } from './draw-ir';
 export type {
   EncodedDrawFrame,
@@ -59,6 +61,8 @@ export {
 
 export {
   createSurfaceWithFallback,
+  getReusableSurface,
+  releaseReusableSurface,
   downloadMp4,
   exportMp4,
   exportPngFrame,

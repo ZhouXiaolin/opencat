@@ -2621,6 +2621,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "kurbo",
  "log",
+ "miniz_oxide",
  "oxc_allocator",
  "oxc_ast",
  "oxc_parser",
@@ -2643,6 +2644,7 @@ name = "opencat-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "core-graphics-types",
  "dirs",
  "ffmpeg-next",

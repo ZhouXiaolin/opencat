@@ -13,9 +13,10 @@
 // history state, and a fresh decoder can independently decode any single frame.
 // Generated-image RGBA is fully encoded every frame (section 12).
 //
-// Ops layout (section 1):
-//   [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
-//   each op padded to 4-byte alignment.
+// Ops layout (section 1, v6):
+//   [opcode: u8] [payload...]   payload length fixed per opcode, no length
+//   field, no alignment padding. A decoder advances by
+//   1 + OPCODE_PAYLOAD_LEN[opcode] and may read at any byte offset.
 //
 // WASM transport only copies these bytes to JS — it does not re-encode
 // protocol semantics. TypeScript decodeFrame must match this schema field-for-field.
@@ -39,6 +40,16 @@ pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 
 /// Wire protocol version.
 ///
+/// v6 (issue #46): Dense op packing. The 8-byte op header
+/// (`opcode u16 | flags u16 | payload_len u32`) and 4-byte alignment padding
+/// are gone. Every op is now `[opcode: u8][payload]` where the payload length
+/// is derived from [`opcode::OPCODE_PAYLOAD_LEN`] — no length field, no
+/// padding, ops are unpacked op-by-op and may straddle any byte offset (the JS
+/// decoder reads through `DataView`, which is offset-agnostic). `PathOp` is no
+/// longer a sub-typed `PATH_OP` op; each path command is promoted to its own
+/// top-level opcode (40..=48). Still byte-deterministic and self-contained
+/// (no epoch/delta/history): encode(RenderFrame) is a pure function.
+///
 /// v5 (issue #45): No pipeline_epoch in the header. OCIR is a pure, self-
 /// contained encoding of RenderFrame: encode(RenderFrame) is a pure function,
 /// requires no epoch/delta/history state, and a fresh decoder can independently
@@ -47,7 +58,7 @@ pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 ///
 /// v4: pipeline_epoch in the header + SECTION_GENERATED_IMAGES (12) for the
 /// per-frame generated-image delta.
-pub const IR_VERSION: u32 = 5;
+pub const IR_VERSION: u32 = 6;
 
 /// Section identifiers in the OCIR directory.
 pub mod section {
@@ -133,8 +144,93 @@ pub mod opcode {
     pub const PATH_ADD_OVAL: u16 = 7;
     pub const PATH_ADD_ARC: u16 = 8;
 
+    // v6: PathOp sub-opcodes promoted to top-level opcodes (40..=48). In v6 an
+    // opcode is a u8 on the wire; these replace the old `PATH_OP` (19) op with
+    // its embedded u16 sub-opcode, so a path command costs 1 byte of header
+    // instead of 10.
+    pub const PATH_MOVE_TO_OP: u16 = 40;
+    pub const PATH_LINE_TO_OP: u16 = 41;
+    pub const PATH_QUAD_TO_OP: u16 = 42;
+    pub const PATH_CUBIC_TO_OP: u16 = 43;
+    pub const PATH_CLOSE_OP: u16 = 44;
+    pub const PATH_ADD_RECT_OP: u16 = 45;
+    pub const PATH_ADD_RRECT_OP: u16 = 46;
+    pub const PATH_ADD_OVAL_OP: u16 = 47;
+    pub const PATH_ADD_ARC_OP: u16 = 48;
+
+    /// Per-opcode payload length in bytes for the v6 dense op stream.
+    ///
+    /// Index by opcode (0..=48). An op is encoded as `[opcode: u8][N payload
+    /// bytes]` with no length field and no padding, so `N` must be a fixed
+    /// constant for every opcode variant — which holds: every optional-looking
+    /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
+    /// unconditionally and signals absence via a flag byte, and `ImageRef`
+    /// always writes tag(1) + id-slot(12).
+    pub const OPCODE_PAYLOAD_LEN: [u16; 49] = [
+        0,  // 0  SAVE
+        25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
+        0,  // 2  RESTORE
+        4,  // 3  RESTORE_TO_COUNT
+        8,  // 4  TRANSLATE
+        8,  // 5  SCALE
+        12, // 6  ROTATE
+        8,  // 7  SKEW
+        36, // 8  CONCAT
+        4,  // 9  SET_FILL_STYLE
+        4,  // 10 SET_STROKE_STYLE
+        4,  // 11 SET_LINE_WIDTH
+        4,  // 12 SET_LINE_CAP
+        4,  // 13 SET_LINE_JOIN
+        12, // 14 SET_LINE_DASH
+        0,  // 15 CLEAR_LINE_DASH
+        4,  // 16 SET_GLOBAL_ALPHA
+        1,  // 17 SET_ANTI_ALIAS
+        0,  // 18 BEGIN_PATH
+        0,  // 19 PATH_OP        (v5 only; unused in v6)
+        0,  // 20 FILL_PATH
+        0,  // 21 STROKE_PATH
+        1,  // 22 CLIP_PATH
+        16, // 23 CLEAR
+        4,  // 24 PAINT
+        20, // 25 RECT
+        36, // 26 R_RECT
+        68, // 27 D_RRECT
+        20, // 28 OVAL
+        16, // 29 CIRCLE
+        29, // 30 ARC
+        20, // 31 LINE
+        16, // 32 POINTS
+        8,  // 33 DRAW_PATH
+        25, // 34 IMAGE
+        50, // 35 IMAGE_RECT
+        32, // 36 RUNTIME_EFFECT
+        8,  // 37 REPLAY_RANGE
+        12, // 38 DRAW_SUBTREE_PICTURE
+        24, // 39 LOTTIE_RECT  [u32 bundle_id][f32 frame][4xf32 dst]
+        8,  // 40 PATH_MOVE_TO   [2xf32]
+        8,  // 41 PATH_LINE_TO   [2xf32]
+        16, // 42 PATH_QUAD_TO   [4xf32]
+        24, // 43 PATH_CUBIC_TO  [6xf32]
+        0,  // 44 PATH_CLOSE
+        16, // 45 PATH_ADD_RECT  [4xf32]
+        20, // 46 PATH_ADD_RRECT [5xf32]
+        16, // 47 PATH_ADD_OVAL  [4xf32]
+        24, // 48 PATH_ADD_ARC   [6xf32]
+    ];
+
+    /// Highest opcode in use. v6 encoders never emit an opcode above this, so
+    /// it must fit in the wire's 1-byte opcode field.
+    pub const MAX_OPCODE: u16 = PATH_ADD_ARC_OP;
+
+    /// Map a PathOp sub-opcode (0..=8) to its v6 top-level opcode.
+    #[inline]
+    pub fn path_sub_to_opcode(sub: u16) -> u16 {
+        PATH_MOVE_TO_OP + sub
+    }
+
     /// Number of f32 values for each PathOp sub-opcode by its stored kind.
-    /// Indexed by PATH_* value (0=MoveTo … 8=AddArc).
+    /// Indexed by PATH_* value (0=MoveTo … 8=AddArc). Retained for the
+    /// section-8 PATHS table (whose path commands still use the u16 sub-opcode).
     pub const PATH_OP_F32_WIDTHS: [u8; 9] = [2, 2, 4, 6, 0, 4, 5, 4, 6];
 }
 
@@ -281,12 +377,18 @@ fn write_u8(buf: &mut Vec<u8>, v: u8) {
     buf.push(v);
 }
 
-/// Write the 8-byte op header: opcode (u16), flags (u16), payload_len (u32).
+/// Write a v6 op header: a single `[opcode: u8]`. The payload that follows is
+/// exactly `OPCODE_PAYLOAD_LEN[opcode]` bytes (see [`opcode`]); there is no
+/// length field and ops are not padded, so a decoder advances by
+/// `1 + OPCODE_PAYLOAD_LEN[opcode]` and ops may straddle any byte offset.
 #[inline]
-fn write_op_header(buf: &mut Vec<u8>, op: u16, payload_len: u32) {
-    buf.extend_from_slice(&op.to_le_bytes());
-    buf.extend_from_slice(&0u16.to_le_bytes()); // flags (reserved)
-    buf.extend_from_slice(&payload_len.to_le_bytes());
+fn write_op_header(buf: &mut Vec<u8>, op: u16) {
+    debug_assert!(
+        op <= opcode::MAX_OPCODE,
+        "opcode {op} exceeds MAX_OPCODE ({}); must fit in a u8",
+        opcode::MAX_OPCODE
+    );
+    buf.push(op as u8);
 }
 
 /// Encode a ColorU8 as a packed u32: R | G<<8 | B<<16 | A<<24.
@@ -1022,13 +1124,13 @@ pub(crate) fn encode_path_fill_type(fill_type: FillType) -> u8 {
 
 /// Write a single DrawOp into the binary ops buffer with header format:
 /// [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
-/// Each op is padded to 4-byte alignment.
+/// v6: each op is `[opcode: u8][fixed-length payload]` with no padding.
 fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: &[String]) {
     match op {
         // ===================================================================
         // Stack management — zero payload
         // ===================================================================
-        DrawOp::Save => write_op_header(buf, opcode::SAVE, 0),
+        DrawOp::Save => write_op_header(buf, opcode::SAVE),
 
         // ===================================================================
         // SaveLayer — fixed 25-byte payload
@@ -1040,7 +1142,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             paint,
             alpha,
         } => {
-            write_op_header(buf, opcode::SAVE_LAYER, 25);
+            write_op_header(buf, opcode::SAVE_LAYER);
             let mut flags: u8 = 0;
             if bounds.is_some() {
                 flags |= 0b01;
@@ -1065,13 +1167,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // ===================================================================
         // Stack management — zero payload
         // ===================================================================
-        DrawOp::Restore => write_op_header(buf, opcode::RESTORE, 0),
+        DrawOp::Restore => write_op_header(buf, opcode::RESTORE),
 
         // ===================================================================
         // RestoreToCount { count: i32 } — 4 byte payload
         // ===================================================================
         DrawOp::RestoreToCount { count } => {
-            write_op_header(buf, opcode::RESTORE_TO_COUNT, 4);
+            write_op_header(buf, opcode::RESTORE_TO_COUNT);
             write_u32(buf, *count as u32);
         }
 
@@ -1079,32 +1181,32 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // Transforms
         // ===================================================================
         DrawOp::Translate { x, y } => {
-            write_op_header(buf, opcode::TRANSLATE, 8);
+            write_op_header(buf, opcode::TRANSLATE);
             write_f32(buf, *x);
             write_f32(buf, *y);
         }
 
         DrawOp::Scale { x, y } => {
-            write_op_header(buf, opcode::SCALE, 8);
+            write_op_header(buf, opcode::SCALE);
             write_f32(buf, *x);
             write_f32(buf, *y);
         }
 
         DrawOp::Rotate { degrees, cx, cy } => {
-            write_op_header(buf, opcode::ROTATE, 12);
+            write_op_header(buf, opcode::ROTATE);
             write_f32(buf, *degrees);
             write_f32(buf, *cx);
             write_f32(buf, *cy);
         }
 
         DrawOp::Skew { sx, sy } => {
-            write_op_header(buf, opcode::SKEW, 8);
+            write_op_header(buf, opcode::SKEW);
             write_f32(buf, *sx);
             write_f32(buf, *sy);
         }
 
         DrawOp::Concat { matrix } => {
-            write_op_header(buf, opcode::CONCAT, 36); // 9 x f32
+            write_op_header(buf, opcode::CONCAT); // 9 x f32
             for &v in matrix.iter() {
                 write_f32(buf, v);
             }
@@ -1114,62 +1216,62 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // Paint state setters
         // ===================================================================
         DrawOp::SetFillStyle { color } => {
-            write_op_header(buf, opcode::SET_FILL_STYLE, 4);
+            write_op_header(buf, opcode::SET_FILL_STYLE);
             write_u32(buf, encode_color_u8(*color));
         }
 
         DrawOp::SetStrokeStyle { color } => {
-            write_op_header(buf, opcode::SET_STROKE_STYLE, 4);
+            write_op_header(buf, opcode::SET_STROKE_STYLE);
             write_u32(buf, encode_color_u8(*color));
         }
 
         DrawOp::SetLineWidth { width } => {
-            write_op_header(buf, opcode::SET_LINE_WIDTH, 4);
+            write_op_header(buf, opcode::SET_LINE_WIDTH);
             write_f32(buf, *width);
         }
 
         DrawOp::SetLineCap { cap } => {
-            write_op_header(buf, opcode::SET_LINE_CAP, 4);
+            write_op_header(buf, opcode::SET_LINE_CAP);
             write_u32(buf, encode_line_cap(*cap));
         }
 
         DrawOp::SetLineJoin { join } => {
-            write_op_header(buf, opcode::SET_LINE_JOIN, 4);
+            write_op_header(buf, opcode::SET_LINE_JOIN);
             write_u32(buf, encode_line_join(*join));
         }
 
         DrawOp::SetLineDash { intervals, phase } => {
-            write_op_header(buf, opcode::SET_LINE_DASH, 12); // u32 start + u32 len + f32 phase
+            write_op_header(buf, opcode::SET_LINE_DASH); // u32 start + u32 len + f32 phase
             write_u32(buf, intervals.start);
             write_u32(buf, intervals.len);
             write_f32(buf, *phase);
         }
 
-        DrawOp::ClearLineDash => write_op_header(buf, opcode::CLEAR_LINE_DASH, 0),
+        DrawOp::ClearLineDash => write_op_header(buf, opcode::CLEAR_LINE_DASH),
 
         DrawOp::SetGlobalAlpha { alpha } => {
-            write_op_header(buf, opcode::SET_GLOBAL_ALPHA, 4);
+            write_op_header(buf, opcode::SET_GLOBAL_ALPHA);
             write_f32(buf, *alpha);
         }
 
         DrawOp::SetAntiAlias { enabled } => {
-            write_op_header(buf, opcode::SET_ANTI_ALIAS, 1);
+            write_op_header(buf, opcode::SET_ANTI_ALIAS);
             write_u8(buf, if *enabled { 1 } else { 0 });
         }
 
         // ===================================================================
         // Path construction
         // ===================================================================
-        DrawOp::BeginPath => write_op_header(buf, opcode::BEGIN_PATH, 0),
+        DrawOp::BeginPath => write_op_header(buf, opcode::BEGIN_PATH),
 
         DrawOp::Path(path_op) => encode_path_op(buf, path_op),
 
-        DrawOp::FillPath => write_op_header(buf, opcode::FILL_PATH, 0),
+        DrawOp::FillPath => write_op_header(buf, opcode::FILL_PATH),
 
-        DrawOp::StrokePath => write_op_header(buf, opcode::STROKE_PATH, 0),
+        DrawOp::StrokePath => write_op_header(buf, opcode::STROKE_PATH),
 
         DrawOp::ClipPath { anti_alias } => {
-            write_op_header(buf, opcode::CLIP_PATH, 1);
+            write_op_header(buf, opcode::CLIP_PATH);
             write_u8(buf, if *anti_alias { 1 } else { 0 });
         }
 
@@ -1177,7 +1279,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // Drawing — immediate-mode primitives
         // ===================================================================
         DrawOp::Clear { color } => {
-            write_op_header(buf, opcode::CLEAR, 16); // ColorF32: 4 x f32
+            write_op_header(buf, opcode::CLEAR); // ColorF32: 4 x f32
             write_f32(buf, color.r);
             write_f32(buf, color.g);
             write_f32(buf, color.b);
@@ -1185,18 +1287,18 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         DrawOp::Paint { paint } => {
-            write_op_header(buf, opcode::PAINT, 4);
+            write_op_header(buf, opcode::PAINT);
             write_u32(buf, paint.0);
         }
 
         DrawOp::Rect { rect, paint } => {
-            write_op_header(buf, opcode::RECT, 20); // 4xf32 + u32
+            write_op_header(buf, opcode::RECT); // 4xf32 + u32
             write_rect4(buf, *rect);
             write_u32(buf, paint.0);
         }
 
         DrawOp::RRect { rect, radii, paint } => {
-            write_op_header(buf, opcode::R_RECT, 36); // 4xf32 + 4xf32 + u32
+            write_op_header(buf, opcode::R_RECT); // 4xf32 + 4xf32 + u32
             write_rect4(buf, *rect);
             write_radii4(buf, *radii);
             write_u32(buf, paint.0);
@@ -1207,14 +1309,14 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             inner,
             paint,
         } => {
-            write_op_header(buf, opcode::D_RRECT, 68); // (4+4)xf32 outer + (4+4)xf32 inner + u32
+            write_op_header(buf, opcode::D_RRECT); // (4+4)xf32 outer + (4+4)xf32 inner + u32
             write_drrect_spec(buf, *outer);
             write_drrect_spec(buf, *inner);
             write_u32(buf, paint.0);
         }
 
         DrawOp::Oval { rect, paint } => {
-            write_op_header(buf, opcode::OVAL, 20); // 4xf32 + u32
+            write_op_header(buf, opcode::OVAL); // 4xf32 + u32
             write_rect4(buf, *rect);
             write_u32(buf, paint.0);
         }
@@ -1225,7 +1327,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             radius,
             paint,
         } => {
-            write_op_header(buf, opcode::CIRCLE, 16); // 3xf32 + u32
+            write_op_header(buf, opcode::CIRCLE); // 3xf32 + u32
             write_f32(buf, *cx);
             write_f32(buf, *cy);
             write_f32(buf, *radius);
@@ -1240,7 +1342,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             paint,
         } => {
             // Payload: 4xf32(rect) + 2xf32(start,sweep) + 1u8(use_center) + 4u32(paint) = 29
-            write_op_header(buf, opcode::ARC, 29);
+            write_op_header(buf, opcode::ARC);
             write_rect4(buf, *rect);
             write_f32(buf, *start);
             write_f32(buf, *sweep);
@@ -1255,7 +1357,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             y1,
             paint,
         } => {
-            write_op_header(buf, opcode::LINE, 20); // 4xf32 + u32
+            write_op_header(buf, opcode::LINE); // 4xf32 + u32
             write_f32(buf, *x0);
             write_f32(buf, *y0);
             write_f32(buf, *x1);
@@ -1268,7 +1370,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             points,
             paint,
         } => {
-            write_op_header(buf, opcode::POINTS, 16); // u32 mode + 2xu32 range + u32 paint
+            write_op_header(buf, opcode::POINTS); // u32 mode + 2xu32 range + u32 paint
             write_u32(buf, encode_point_mode(*mode));
             write_u32(buf, points.start);
             write_u32(buf, points.len);
@@ -1276,7 +1378,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         DrawOp::DrawPath { path, paint } => {
-            write_op_header(buf, opcode::DRAW_PATH, 8); // 2 x u32
+            write_op_header(buf, opcode::DRAW_PATH); // 2 x u32
             write_u32(buf, path.0);
             write_u32(buf, paint.0);
         }
@@ -1290,7 +1392,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // ===================================================================
         DrawOp::Image { image, x, y, paint } => {
             // Payload: 1 + 12 + 4 + 4 + 4 = 25
-            write_op_header(buf, opcode::IMAGE, 25);
+            write_op_header(buf, opcode::IMAGE);
             match image {
                 ImageRef::Static { asset_id } => {
                     write_u8(buf, 0); // tag: Static
@@ -1330,7 +1432,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             paint,
         } => {
             // Payload: 1 + 12 + 1 + 16 + 16 + 4 = 50
-            write_op_header(buf, opcode::IMAGE_RECT, 50);
+            write_op_header(buf, opcode::IMAGE_RECT);
             match image {
                 ImageRef::Static { asset_id } => {
                     write_u8(buf, 0); // tag: Static
@@ -1369,7 +1471,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             frame,
             dst,
         } => {
-            write_op_header(buf, opcode::LOTTIE_RECT, 4 + 4 + 16);
+            write_op_header(buf, opcode::LOTTIE_RECT);
             write_u32(buf, lookup_string_id(strings, bundle_id));
             write_f32(buf, *frame);
             write_rect4(buf, *dst);
@@ -1384,7 +1486,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             children,
             dst,
         } => {
-            write_op_header(buf, opcode::RUNTIME_EFFECT, 32);
+            write_op_header(buf, opcode::RUNTIME_EFFECT);
             write_u32(buf, effect.0);
             write_u32(buf, uniforms.0);
             write_u32(buf, children.start);
@@ -1396,13 +1498,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // ReplayRange — 2 x u32 = 8
         // ===================================================================
         DrawOp::ReplayRange { range } => {
-            write_op_header(buf, opcode::REPLAY_RANGE, 8);
+            write_op_header(buf, opcode::REPLAY_RANGE);
             write_u32(buf, range.start_op);
             write_u32(buf, range.op_len);
         }
 
         DrawOp::ReplaySubtreePicture { subtree, x, y } => {
-            write_op_header(buf, opcode::DRAW_SUBTREE_PICTURE, 12);
+            write_op_header(buf, opcode::DRAW_SUBTREE_PICTURE);
             write_u32(buf, subtree.0);
             write_f32(buf, *x);
             write_f32(buf, *y);
@@ -1422,36 +1524,34 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             );
         }
     }
-
-    // Pad to 4-byte alignment after each op
-    while !buf.len().is_multiple_of(4) {
-        buf.push(0);
-    }
+    // v6: no trailing pad — the next op starts immediately after this op's
+    // fixed-length payload.
 }
 
 // ---------------------------------------------------------------------------
 // PathOp sub-encoder
 // ---------------------------------------------------------------------------
 
-/// Encode a PathOp as the payload of a PATH_OP DrawOp.
-/// Layout: [sub_opcode: u16 LE] [sub_payload...]
+/// Encode a PathOp as a top-level v6 op.
+///
+/// v6 promotes each path command to its own opcode (`PATH_MOVE_TO_OP` …), so the
+/// wire layout is the same as any other op — `[opcode: u8][f32 payload]` — with
+/// no embedded u16 sub-opcode. The section-8 PATHS table still uses the u16
+/// sub-opcode form via [`encode_section_path_op`]; only the op stream changes.
 fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
     match path_op {
         PathOp::MoveTo { x, y } => {
-            write_op_header(buf, opcode::PATH_OP, 10); // u16 sub + 2xf32
-            buf.extend_from_slice(&opcode::PATH_MOVE_TO.to_le_bytes());
+            write_op_header(buf, opcode::PATH_MOVE_TO_OP);
             write_f32(buf, *x);
             write_f32(buf, *y);
         }
         PathOp::LineTo { x, y } => {
-            write_op_header(buf, opcode::PATH_OP, 10);
-            buf.extend_from_slice(&opcode::PATH_LINE_TO.to_le_bytes());
+            write_op_header(buf, opcode::PATH_LINE_TO_OP);
             write_f32(buf, *x);
             write_f32(buf, *y);
         }
         PathOp::QuadTo { cx, cy, x, y } => {
-            write_op_header(buf, opcode::PATH_OP, 18); // u16 sub + 4xf32
-            buf.extend_from_slice(&opcode::PATH_QUAD_TO.to_le_bytes());
+            write_op_header(buf, opcode::PATH_QUAD_TO_OP);
             write_f32(buf, *cx);
             write_f32(buf, *cy);
             write_f32(buf, *x);
@@ -1465,8 +1565,7 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             x,
             y,
         } => {
-            write_op_header(buf, opcode::PATH_OP, 26); // u16 sub + 6xf32
-            buf.extend_from_slice(&opcode::PATH_CUBIC_TO.to_le_bytes());
+            write_op_header(buf, opcode::PATH_CUBIC_TO_OP);
             write_f32(buf, *c1x);
             write_f32(buf, *c1y);
             write_f32(buf, *c2x);
@@ -1475,8 +1574,7 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             write_f32(buf, *y);
         }
         PathOp::Close => {
-            write_op_header(buf, opcode::PATH_OP, 2); // u16 sub
-            buf.extend_from_slice(&opcode::PATH_CLOSE.to_le_bytes());
+            write_op_header(buf, opcode::PATH_CLOSE_OP);
         }
         PathOp::AddRect {
             x,
@@ -1484,8 +1582,7 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             width,
             height,
         } => {
-            write_op_header(buf, opcode::PATH_OP, 18); // u16 sub + 4xf32
-            buf.extend_from_slice(&opcode::PATH_ADD_RECT.to_le_bytes());
+            write_op_header(buf, opcode::PATH_ADD_RECT_OP);
             write_f32(buf, *x);
             write_f32(buf, *y);
             write_f32(buf, *width);
@@ -1498,8 +1595,7 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             height,
             radius,
         } => {
-            write_op_header(buf, opcode::PATH_OP, 22); // u16 sub + 5xf32
-            buf.extend_from_slice(&opcode::PATH_ADD_RRECT.to_le_bytes());
+            write_op_header(buf, opcode::PATH_ADD_RRECT_OP);
             write_f32(buf, *x);
             write_f32(buf, *y);
             write_f32(buf, *width);
@@ -1512,8 +1608,7 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             width,
             height,
         } => {
-            write_op_header(buf, opcode::PATH_OP, 18); // u16 sub + 4xf32
-            buf.extend_from_slice(&opcode::PATH_ADD_OVAL.to_le_bytes());
+            write_op_header(buf, opcode::PATH_ADD_OVAL_OP);
             write_f32(buf, *x);
             write_f32(buf, *y);
             write_f32(buf, *width);
@@ -1527,8 +1622,7 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             start_angle,
             sweep_angle,
         } => {
-            write_op_header(buf, opcode::PATH_OP, 26); // u16 sub + 6xf32
-            buf.extend_from_slice(&opcode::PATH_ADD_ARC.to_le_bytes());
+            write_op_header(buf, opcode::PATH_ADD_ARC_OP);
             write_f32(buf, *x);
             write_f32(buf, *y);
             write_f32(buf, *width);
@@ -1597,7 +1691,7 @@ mod tests {
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
-        // Each op has a 8-byte header + payload, so ops buffer should be non-empty
+        // Each op is a 1-byte opcode + payload, so ops buffer should be non-empty
         assert!(!encoded.ops.is_empty());
     }
 
@@ -1620,10 +1714,9 @@ mod tests {
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
-        // Op header: 2(u16 opcode) + 2(u16 flags) + 4(u32 payload_len) = 8 bytes
-        // Translate payload: 2 x f32 = 8 bytes
-        // Total = 16 bytes (padded to 4-byte alignment)
-        assert_eq!(encoded.ops.len(), 16);
+        // v6 op: 1-byte opcode + Translate payload (2 x f32 = 8 bytes) = 9 bytes.
+        // No length field, no padding.
+        assert_eq!(encoded.ops.len(), 9);
     }
 
     // -----------------------------------------------------------------------
@@ -1904,8 +1997,24 @@ mod tests {
 
         // Should have encoded all ops
         assert!(!encoded.ops.is_empty());
-        // Verify the ops buffer is 4-byte aligned
-        assert_eq!(encoded.ops.len() % 4, 0);
+
+        // v6 invariant: the dense op stream walks cleanly with the static
+        // OPCODE_PAYLOAD_LEN table — every emitted op's on-wire length matches
+        // the table, and the walk lands exactly on the buffer end. This is what
+        // lets the TS decoder advance without a length field.
+        let mut pos = 0usize;
+        let mut opcode_seen: Vec<u16> = Vec::new();
+        while pos < encoded.ops.len() {
+            let op = encoded.ops[pos] as usize;
+            assert!(op < opcode::OPCODE_PAYLOAD_LEN.len(), "unknown opcode {op} at {pos}");
+            opcode_seen.push(op as u16);
+            pos += 1 + opcode::OPCODE_PAYLOAD_LEN[op] as usize;
+        }
+        assert_eq!(pos, encoded.ops.len(), "dense op walk must land on buffer end");
+        // Both promoted path opcodes and an ordinary op appear.
+        assert!(opcode_seen.contains(&opcode::PATH_MOVE_TO_OP));
+        assert!(opcode_seen.contains(&opcode::PATH_ADD_RRECT_OP));
+        assert!(opcode_seen.contains(&opcode::SAVE));
     }
 
     #[test]
@@ -1939,21 +2048,20 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // ClearLineDash: 8 byte header + 0 byte payload = 8 bytes
-        assert_eq!(encoded.ops.len(), 8);
+        // ClearLineDash: 1-byte opcode + 0-byte payload = 1 byte
+        assert_eq!(encoded.ops.len(), 1);
     }
 
     #[test]
-    fn encode_set_anti_alias_padded_to_4_byte_alignment() {
+    fn encode_set_anti_alias_is_opcode_plus_one_byte() {
         let mut builder = DrawOpBuilder::default();
         builder.push(DrawOp::SetAntiAlias { enabled: true });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // SetAntiAlias: 8 byte header + 1 byte payload, padded to 12 bytes
-        assert_eq!(encoded.ops.len(), 12);
-        assert_eq!(encoded.ops.len() % 4, 0);
+        // SetAntiAlias: 1-byte opcode + 1-byte payload = 2 bytes, no padding.
+        assert_eq!(encoded.ops.len(), 2);
     }
 
     #[test]
@@ -2028,8 +2136,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 36 payload = 44 bytes
-        assert_eq!(encoded.ops.len(), 44);
+        // 1-byte opcode + 36-byte payload = 37 bytes
+        assert_eq!(encoded.ops.len(), 37);
     }
 
     #[test]
@@ -2040,8 +2148,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 4 payload = 12 bytes
-        assert_eq!(encoded.ops.len(), 12);
+        // 1-byte opcode + 4-byte payload = 5 bytes
+        assert_eq!(encoded.ops.len(), 5);
     }
 
     #[test]
@@ -2056,9 +2164,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 25 payload = 33, padded to 36
-        assert_eq!(encoded.ops.len(), 36);
-        assert_eq!(encoded.ops.len() % 4, 0);
+        // 1-byte opcode + 25-byte payload = 26 bytes
+        assert_eq!(encoded.ops.len(), 26);
     }
 
     #[test]
@@ -2077,9 +2184,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 25 payload = 33, padded to 36
-        assert_eq!(encoded.ops.len(), 36);
-        assert_eq!(encoded.ops.len() % 4, 0);
+        // 1-byte opcode + 25-byte payload = 26 bytes
+        assert_eq!(encoded.ops.len(), 26);
     }
 
     #[test]
@@ -2104,9 +2210,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 50 payload = 58, padded to 60 (4-byte alignment)
-        assert_eq!(encoded.ops.len(), 60);
-        assert_eq!(encoded.ops.len() % 4, 0);
+        // 1-byte opcode + 50-byte payload = 51 bytes
+        assert_eq!(encoded.ops.len(), 51);
     }
 
     #[test]
@@ -2127,8 +2232,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 32 payload = 40 bytes (already aligned)
-        assert_eq!(encoded.ops.len(), 40);
+        // 1-byte opcode + 32-byte payload = 33 bytes
+        assert_eq!(encoded.ops.len(), 33);
     }
 
     #[test]
@@ -2144,8 +2249,8 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
 
-        // 8 header + 8 payload = 16 bytes
-        assert_eq!(encoded.ops.len(), 16);
+        // 1-byte opcode + 8-byte payload = 9 bytes
+        assert_eq!(encoded.ops.len(), 9);
     }
 
     #[test]
@@ -2543,13 +2648,22 @@ mod tests {
         let fixture_dir =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/src/fixtures/ocir");
         std::fs::create_dir_all(&fixture_dir).expect("fixture dir");
-        // v5: canonical self-contained OCIR — no pipeline_epoch in header
-        let path = fixture_dir.join("roundtrip_v5.ocir");
+        // v6: dense op packing — [opcode: u8][fixed payload], no length/pad.
+        let path = fixture_dir.join("roundtrip_v6.ocir");
         std::fs::write(&path, &bytes).expect("write fixture");
+        // The v5 fixture is superseded by v6; drop a stale copy if present.
+        let _ = std::fs::remove_file(fixture_dir.join("roundtrip_v5.ocir"));
         assert!(bytes.len() > 64, "fixture must be non-trivial");
         // Sanity: re-read matches.
         let reread = std::fs::read(&path).unwrap();
         assert_eq!(reread, bytes);
+
+        // Compressed-transport fixture (issue #46, part 1): the same envelope
+        // wrapped in the raw-deflate container, so the vitest suite can prove the
+        // browser `DecompressionStream('deflate-raw')` path matches core.
+        let packed = crate::ir::transport::compress_ir_envelope(&bytes, 6);
+        std::fs::write(fixture_dir.join("roundtrip_v6.ocir.deflate"), &packed)
+            .expect("write compressed fixture");
     }
 
     /// AC #48: OCIR encoding is byte-deterministic for a non-trivial RenderFrame.

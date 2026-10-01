@@ -6,7 +6,7 @@
 与平台 API。DrawOp 是 **Skia-compatible IR**，由原生 Skia 与 CanvasKit 共用。
 
 从旧 open 路径迁移到 prepare / `open_pipeline`、HostInputs、AudioPlan、RenderFrame、
-OCIR v5：见 [`docs/MIGRATION.md`](docs/MIGRATION.md)。
+OCIR v6：见 [`docs/MIGRATION.md`](docs/MIGRATION.md)。
 
 ```
 输入 (XML / JSONL)
@@ -32,7 +32,7 @@ PreparedComposition::open_pipeline(scripts)  →  DefaultPipeline
   │                         （generated image 完整 RGBA 在 media plan）
   │
   ┌───────────┴───────────┐
-  Engine (Skia)           Web (CanvasKit / OCIR v5)
+  Engine (Skia)           Web (CanvasKit / OCIR v6)
   MP4 / PNG               Canvas / MP4
 ```
 
@@ -292,7 +292,7 @@ let media_plan = build_media_plan(&frame);
 
 `crates/opencat-core/src/ir/draw_encoding.rs`
 
-`encode_ir_envelope()` 将 `RenderFrame` 序列化为 **OCIR v5** 信封——单个自包含字节缓冲（平坦 `Vec<u8>` 段），通过 wasm-bindgen 作为类型化数组传递给 JS。它是帧的纯函数：无 epoch/delta/history 状态，任意单帧都能被全新解码器独立解码。
+`encode_ir_envelope()` 将 `RenderFrame` 序列化为 **OCIR v6** 信封——单个自包含字节缓冲（平坦 `Vec<u8>` 段），通过 wasm-bindgen 作为类型化数组传递给 JS。它是帧的纯函数：无 epoch/delta/history 状态，任意单帧都能被全新解码器独立解码。
 
 信封格式：
 - **Header**：magic `"OCIR"`（4）+ version u32（=5）+ section_count u32
@@ -396,7 +396,7 @@ WebRenderer::build_frame_ir(&mut self, frame: u32) -> Result<Vec<u8>>
 ```
 1. `pipeline.render_frame(frame)` → `RenderFrame`
 2. `WebFrameConsumer::consume_frame()`（web consumer）：
-   - `encode_render_frame_envelope()` → `encode_ir_envelope()`（OCIR v5 字节；生成图 RGBA 已在帧内）
+   - `encode_render_frame_envelope()` → `encode_ir_envelope()`（OCIR v6 字节；生成图 RGBA 已在帧内）
 3. 返回二进制信封给 JS
 
 ### 8c. JS CanvasKit 执行
@@ -492,7 +492,7 @@ OCIR 信封桥接 Rust（WASM）和 JS/CanvasKit。绘制命令不通过 JSON �
 | `crates/opencat-core/src/ir/draw_op.rs` | `DrawOp` 枚举（规范绘制 IR） |
 | `crates/opencat-core/src/ir/draw_types.rs` | 侧表 ID 类型（`PaintId`、`PathId`、`EffectId` 等） |
 | `crates/opencat-core/src/ir/draw_frame.rs` | `DrawOpFrame`、`RenderFrame` |
-| `crates/opencat-core/src/ir/draw_encoding.rs` | OCIR v5 信封编码（`encode_ir_envelope`） |
+| `crates/opencat-core/src/ir/draw_encoding.rs` | OCIR v6 信封编码（`encode_ir_envelope`） |
 | `crates/opencat-core/src/ir/media_plan.rs` | `FrameMediaPlan` |
 | `crates/opencat-core/src/ir/generated_image.rs` | `GeneratedImageTable`（颜色-emoji） |
 | `crates/opencat-core/src/lifecycle/` | `CompositionDraft` → `prepare` → `PreparedComposition::open_pipeline()` |

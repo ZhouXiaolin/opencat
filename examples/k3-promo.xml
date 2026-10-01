@@ -27,7 +27,9 @@
 
     <!-- ═══ ghost order-book columns (track 1, window 4.583→7.35s) ═══ -->
     <div id="ghostcols" class="absolute inset-0 z-[1] opacity-0">
-      <stage-canvas id="ghostcols-canvas" />
+      <div id="ghostinner" class="absolute inset-0">
+        <stage-canvas id="ghostcols-canvas" />
+      </div>
     </div>
 
     <!-- ═══ SCENE A: node field (track 2, window 0.75→4.62s) ═══ -->
@@ -1129,15 +1131,15 @@
 
     /* ════════════ GHOST COLUMNS (4.583 → 7.35s) ══════════════════════
        Layout = K3STREAM.ghost (index.html:975-993): 42 columns, 948 cells.
-       Alpha = colOp*cellOp*0.9*fade applied ONCE here (reference:
-       #ghostinner opacity tween 0→0.9 power1.inOut @4.683/0.55s). */
+       Cell alpha is the static colOp*cellOp; the build-in fade is the
+       reference's `#ghostinner` opacity tween (0→0.9, power1.inOut @4.683),
+       now declarative instead of baked into every cell. */
     var G_ON = (T>= 4.583 && T < 7.35);
     vis('ghostcols', G_ON);
     if (G_ON) {
-      var gf = clamp((T - 4.683) / 0.55, 0, 1);
-      var gEase = gf < 0.5 ? 2 * gf * gf : 1 - 2 * (1 - gf) * (1 - gf); // power1.inOut
-      var gFade = gEase * 0.9;
-      ctx.getNode('ghostcols').opacity(1);
+      ctx.timeline()
+        .set('ghostinner', { opacity: 0 }, 4.583)
+        .to('ghostinner', { opacity: 0.9, duration: 0.55, ease: 'power1.inOut' }, 4.683);
       var gcv = ctx.getCanvasById('ghostcols-canvas');
       if (gcv) {
         gcv.clear();
@@ -1147,7 +1149,7 @@
           var colOp = GHOST_COLS[c][0], gcells = GHOST_COLS[c][1];
           for (var gi = 0; gi < gcells.length; gi += 3) {
             var gy = gcells[gi], gh = gcells[gi + 1], gop = gcells[gi + 2];
-            gPaint.setColor(CK.Color(16, 16, 16, colOp * gop * gFade));
+            gPaint.setColor(CK.Color(16, 16, 16, colOp * gop));
             gcv.drawRRect(CK.RRectXY([c * 46, gy, c * 46 + 30, gy + gh], 3, 3), gPaint);
           }
         }

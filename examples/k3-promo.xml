@@ -1258,8 +1258,20 @@
     var C_ON = (T>= 5.433 && T < 7.35);
     vis('sceneC', C_ON);
     if (C_ON) {
-      ctx.getNode('ctab').opacity(T>= 5.5 ? 1 - Math.pow(1 - clamp((T - 5.5) / 0.1, 0, 1), 2) : 0);
-      ctx.getNode('cicons').opacity(T>= 5.533 ? 1 - Math.pow(1 - clamp((T - 5.533) / 0.1, 0, 1), 2) : 0);
+      // chrome fade-ins + panel pan + pale-bar dissolve are plain tweens
+      // (index.html:1655-1672); the bar bodies stay a per-frame fitted model
+      // (BAR_CHAINS) because the recording deviates from stock GSAP there.
+      // Reference omits `ease` on the fades, so GSAP's default power1.out
+      // applies; our engine default is linear, so it is spelled out.
+      var cTl = ctx.timeline()
+        .fromTo('ctab', { opacity: 0 }, { opacity: 1, duration: 0.1, ease: 'power1.out' }, 5.5)
+        .fromTo('cicons', { opacity: 0 }, { opacity: 1, duration: 0.1, ease: 'power1.out' }, 5.533)
+        .fromTo('cliverow', { opacity: 0 }, { opacity: 1, duration: 0.14, ease: 'power1.out' }, 5.6)
+        .fromTo('cpanel', { x: 18, y: 27 }, { x: -17.5, y: -27, duration: 1.417, ease: 'none' }, 5.933);
+      for (var pi2 = 0; pi2 < 18; pi2++) {
+        cTl.set('pale-' + pi2, { opacity: 1 }, 5.433)
+           .to('pale-' + pi2, { opacity: 0, duration: 0.42, ease: 'power1.inOut' }, 5.83 + pi2 * 0.022);
+      }
       // cicons: 3 mini bars + dot + trend line
       var ciCv = ctx.getCanvasById('cicons');
       if (ciCv) {
@@ -1274,7 +1286,6 @@
         var ciLn = new CK.Paint(); ciLn.setStyle(CK.PaintStyle.Stroke); ciLn.setStrokeWidth(5); ciLn.setStrokeJoin(CK.StrokeJoin.Round); ciLn.setColor(CK.parseColorString('#b9b9b5'));
         var lp = new CK.Path(); lp.moveTo(150, 66); lp.lineTo(173, 35); lp.lineTo(191, 51); lp.lineTo(216, 20); ciCv.drawPath(lp, ciLn);
       }
-      ctx.getNode('cliverow').opacity(T>= 5.6 ? 1 - Math.pow(1 - clamp((T - 5.6) / 0.14, 0, 1), 2) : 0);
       // 18 bars: DOM nodes with real CSS gradients; width + pale opacity are
       // driven per-frame from the reference GSAP timeline. BAR_INIT and BAR_EV
       // are handed over by K3STREAM (the reference's global mulberry32(1337)
@@ -1335,26 +1346,13 @@
         }
         return chains;
       })();
+      // bar bodies only: the fitted deviation model picks the live value per
+      // bar; the pale dissolve and the panel pan are declarative (cTl above).
       for (var bi = 0; bi < 18; bi++) {
         var sx = barSample(BAR_CHAINS[bi], T);
         if (sx < 0) sx = 0;
-        var pStart = 5.83 + bi * 0.022;
-        var pOp = T < pStart ? 1 : 1 - barEase('p1io', clamp((T - pStart) / 0.42, 0, 1));
         var barN = ctx.getNode('bar-' + bi); if (barN) barN.width(sx * 660);
-        var paleN = ctx.getNode('pale-' + bi); if (paleN) paleN.opacity(pOp);
       }
-      // cpanel transform: fromTo (18,27)→(-17.5,-27), 1.417s linear from
-      // 5.933; immediateRender holds (18,27) before that. Must be a SINGLE
-      // translateX/translateY call: the engine ACCUMULATES multiple calls
-      // within a frame (double-application measured at f200 pre-fix).
-      var cX = 18, cY = 27;
-      if (T>= 5.933) {
-        var pW = clamp((T - 5.933) / 1.417, 0, 1);
-        cX = 18 + (-17.5 - 18) * pW;
-        cY = 27 + (-27 - 27) * pW;
-      }
-      ctx.getNode('cpanel').translateX(cX);
-      ctx.getNode('cpanel').translateY(cY);
       // corner qmarks — visible for the whole scene C clip (no separate
       // autoAlpha tween on #cqmarks in the reference timeline)
       var cqCv = ctx.getCanvasById('cqmarks-canvas');

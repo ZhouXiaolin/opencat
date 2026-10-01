@@ -1645,33 +1645,27 @@
     var FG_ON = (T>= 11.233 && T < 13.7);
     vis('sceneFG', FG_ON);
     if (FG_ON) {
-      // braces pop + widen (11.333 → 11.673, power2.out) then retype to rest
-      if (T>= 11.333) {
-        ctx.getNode('fgbl').opacity(1); ctx.getNode('fgbr').opacity(1); ctx.getNode('fstem').opacity(0.9);
-        var bW = clamp((T - 11.333) / 0.34, 0, 1);
-        var bE = 1 - Math.pow(1 - bW, 3);
-        var txL = 380 + (50 - 380) * bE;
-        var txR = -369 + (-39 - -369) * bE;
-        // F→G retype (12.717): braces ease back to their measured rest position
-        if (T>= 12.717) {
-          var rgW = clamp((T - 12.717) / 0.233, 0, 1);
-          var rgE = 1 - Math.pow(1 - rgW, 3);
-          txL = 50 * (1 - rgE); txR = -39 * (1 - rgE);
-        }
-        ctx.getNode('fgbl').translateX(txL);
-        ctx.getNode('fgbr').translateX(txR);
-        // ease power2.out (index.html:1723 `fromTo("#fstem",{scaleY:1},{scaleY:0,...,ease:"power2.out"})`)
-        var stemQ = clamp((T - 11.333) / 0.5, 0, 1);
-        var stemE = 1 - Math.pow(1 - stemQ, 3);
-        ctx.getNode('fstem').scaleY(1 - stemE);
-        if (T>= 11.85) ctx.getNode('fstem').opacity(0);
-      }
-      vis('fw1', T>= 11.4); vis('fw2', T>= 11.533);
-      vis('fd1', T>= 11.633); vis('fd2', T>= 11.633);
-      if (T>= 12.717) {
-        vis('fw1', false); vis('fw2', false); vis('fd1', false); vis('fd2', false);
-        vis('gw1', T>= 12.7297); vis('gw2', T>= 12.7663); vis('gw3', T>= 12.7997);
-      }
+      // Braces pop + widen (11.333 → 11.673, power2.out) then retype to rest.
+      // Declarative tweens at absolute scene times; only the canvas furniture
+      // below stays a per-frame gate. (index.html:1710-1730)
+      ctx.timeline()
+        .set(['fw1', 'fw2', 'fd1', 'fd2', 'gw1', 'gw2', 'gw3'], { opacity: 0 }, 11.233)
+        .set(['fgbl', 'fgbr'], { opacity: 1 }, 11.333)
+        .fromTo('fgbl', { x: 380 }, { x: 50, duration: 0.34, ease: 'power2.out' }, 11.333)
+        .fromTo('fgbr', { x: -369 }, { x: -39, duration: 0.34, ease: 'power2.out' }, 11.333)
+        .set('fstem', { opacity: 0.9 }, 11.333)
+        .fromTo('fstem', { scaleY: 1 }, { scaleY: 0, duration: 0.5, ease: 'power2.out' }, 11.333)
+        .set('fstem', { opacity: 0 }, 11.85)
+        .set('fw1', { opacity: 1 }, 11.4)
+        .set('fw2', { opacity: 1 }, 11.533)
+        .set(['fd1', 'fd2'], { opacity: 1 }, 11.633)
+        // F -> G retype: braces ease back to their measured rest position.
+        .set(['fw1', 'fw2', 'fd1', 'fd2'], { opacity: 0 }, 12.717)
+        .to('fgbl', { x: 0, duration: 0.233, ease: 'power2.out' }, 12.717)
+        .to('fgbr', { x: 0, duration: 0.233, ease: 'power2.out' }, 12.717)
+        .set('gw1', { opacity: 1 }, 12.7297)
+        .set('gw2', { opacity: 1 }, 12.7663)
+        .set('gw3', { opacity: 1 }, 12.7997);
       // word positions: baked from the calibrated F/G run geometry
       // (F run center 958.5, G run center 962.5, cap 108, ls -2.5)
       ctx.getNode('fw1').left(611.4953); ctx.getNode('fw2').left(894.5192);

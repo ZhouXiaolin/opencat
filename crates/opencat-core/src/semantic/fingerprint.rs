@@ -231,6 +231,8 @@ impl Hash for ApplyInputLocal<'_> {
         let visual = &self.0.style.visual;
         F32Hash(visual.opacity).hash(state);
         visual.transforms.hash(state);
+        F32Hash(visual.transform_origin.x).hash(state);
+        F32Hash(visual.transform_origin.y).hash(state);
         visual.css_filter.hash(state);
         visual.backdrop_blur_sigma.map(F32Hash).hash(state);
     }
@@ -334,6 +336,7 @@ impl Hash for TextLayoutInput<'_> {
         style.line_height_px.map(F32Hash).hash(state);
         style.text_transform.hash(state);
         style.wrap_text.hash(state);
+        style.no_wrap.hash(state);
     }
 }
 

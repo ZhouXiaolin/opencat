@@ -935,6 +935,45 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("overflow-hidden", "ExactClassAction::OverflowHidden"),
         ("truncate", "ExactClassAction::Truncate"),
         ("line-through", "ExactClassAction::LineThrough"),
+        // 静态文本不换行：`white-space: nowrap` 的 Tailwind 工具类。
+        ("whitespace-nowrap", "ExactClassAction::NoWrap"),
+        // 静态 transform-origin 锚点（缩放/旋转的支点），供脚本变换围绕。
+        (
+            "origin-center",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.5, y: 0.5 })",
+        ),
+        (
+            "origin-top",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.5, y: 0.0 })",
+        ),
+        (
+            "origin-top-right",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 1.0, y: 0.0 })",
+        ),
+        (
+            "origin-right",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 1.0, y: 0.5 })",
+        ),
+        (
+            "origin-bottom-right",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 1.0, y: 1.0 })",
+        ),
+        (
+            "origin-bottom",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.5, y: 1.0 })",
+        ),
+        (
+            "origin-bottom-left",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.0, y: 1.0 })",
+        ),
+        (
+            "origin-left",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.0, y: 0.5 })",
+        ),
+        (
+            "origin-top-left",
+            "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.0, y: 0.0 })",
+        ),
         ("pointer-events-none", "ExactClassAction::Noop"),
         // 选区 / 字体样式：渲染器目前不区分这些表现，但作为合法 Tailwind 输入需要静默接受。
         ("select-none", "ExactClassAction::Noop"),

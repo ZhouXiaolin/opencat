@@ -274,8 +274,8 @@
         <!-- center stem that retracts as braces settle -->
         <div id="fstem" class="absolute w-[3px] bg-[#bdbdb9] left-[958px] top-[0] h-[330px] [transform-origin:top_center] opacity-0"></div>
         <!-- F/G braces (light weight) -->
-        <text id="fgbl" class="absolute font-[k3-sans-light] text-[#dcdcde] leading-none left-[390.564px] top-[468.467px] text-[131.0573px] opacity-0">{</text>
-        <text id="fgbr" class="absolute font-[k3-sans-light] text-[#dcdcde] leading-none left-[1460.35px] top-[468.467px] text-[131.0573px] opacity-0">}</text>
+        <text id="fgbl" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[390.564px] top-[468.467px] text-[131.0573px] opacity-0">{</text>
+        <text id="fgbr" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1460.35px] top-[468.467px] text-[131.0573px] opacity-0">}</text>
         <!-- F words: "One" + "model" -->
         <bigword id="fw1" left="611.4953px" t="One" />
         <bigword id="fw2" left="894.5192px" t="model" />
@@ -309,7 +309,7 @@
            the FIRST child of sceneHI — must paint under hbox/iwordmark -->
       <stage-canvas id="g2qmarks-canvas" />
       <!-- wireframe dissolve box -->
-      <div id="hbox" class="absolute border-[1px] border-[#6a6a6a] overflow-hidden left-[400px] top-[265px] w-[1150px] h-[385px] opacity-0">
+      <div id="hbox" class="absolute border-[1px] border-[#6a6a6a] left-[400px] top-[265px] w-[1150px] h-[385px] opacity-0">
         <cdot id="d-558" s="12px" c="#e6e6e6" class="-left-[24px] -top-[24px]" />
         <cdot id="d-559" s="12px" c="#e6e6e6" class="-right-[24px] -top-[24px]" />
         <cdot id="d-560" s="12px" c="#e6e6e6" class="-left-[24px] -bottom-[24px]" />
@@ -413,8 +413,8 @@
         <tick id="d-639" h="23px" />
       </div>
       <!-- braces + headline centered in the 698px brace box -->
-      <text id="obl" class="absolute font-[k3-sans-light] text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{</text>
-      <text id="obr" class="absolute font-[k3-sans-light] text-[#dcdcde] leading-none left-[1362.496px] top-[473.661px] text-[128.8546px]">}</text>
+      <text id="obl" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{</text>
+      <text id="obr" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1362.496px] top-[473.661px] text-[128.8546px]">}</text>
       <div id="opentext" class="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none flex whitespace-nowrap left-[590.3768px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px]"><text id="ot1">Open Frontier</text><text id="ot2"> Intelligence</text></div>
       <text id="openmid" class="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap left-[666.7227px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">en Frontier Intelligen</text>
       <text id="openrem" class="absolute font-[k3-sans] font-normal text-[#98989c] leading-none whitespace-nowrap left-[923.6878px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">ier</text>
@@ -1614,11 +1614,16 @@
           ctx.getNode(b[0]).scale(2.6 + (1 - 2.6) * bw);
         } else { ctx.getNode(b[0]).opacity(1); ctx.getNode(b[0]).translateX(0); ctx.getNode(b[0]).translateY(0); ctx.getNode(b[0]).scale(1); }
       });
-      // three drop-lines rise (10.653 + i*0.09)
+      // three drop-lines rise (10.653 + i*0.09), ease power2.out
+      // (index.html:1708 `tl.to(id,{autoAlpha:0.9, scaleY:1, duration:0.3, ease:"power2.out"})`)
       ['dl1', 'dl2', 'dl3'].forEach(function (id, i) {
         var dlStart = 10.653 + i * 0.09;
         if (T < dlStart) { ctx.getNode(id).opacity(0); ctx.getNode(id).scaleY(0); }
-        else if (T < dlStart + 0.3) { var dw = clamp((T - dlStart) / 0.3, 0, 1); ctx.getNode(id).opacity(0.9 * dw); ctx.getNode(id).scaleY(dw); }
+        else if (T < dlStart + 0.3) {
+          var dlQ = clamp((T - dlStart) / 0.3, 0, 1);
+          var dw = 1 - Math.pow(1 - dlQ, 3); /* GSAP power2.out = 1-(1-q)^3 */
+          ctx.getNode(id).opacity(0.9 * dw); ctx.getNode(id).scaleY(dw);
+        }
         else { ctx.getNode(id).opacity(0.9); ctx.getNode(id).scaleY(1); }
       });
       // deqmarks: 4 qmarks + 4 plusses, static while the clip is on (the
@@ -1657,8 +1662,10 @@
         }
         ctx.getNode('fgbl').translateX(txL);
         ctx.getNode('fgbr').translateX(txR);
-        var stemW = clamp((T - 11.333) / 0.5, 0, 1);
-        ctx.getNode('fstem').scaleY(1 - stemW);
+        // ease power2.out (index.html:1723 `fromTo("#fstem",{scaleY:1},{scaleY:0,...,ease:"power2.out"})`)
+        var stemQ = clamp((T - 11.333) / 0.5, 0, 1);
+        var stemE = 1 - Math.pow(1 - stemQ, 3);
+        ctx.getNode('fstem').scaleY(1 - stemE);
         if (T>= 11.85) ctx.getNode('fstem').opacity(0);
       }
       vis('fw1', T>= 11.4); vis('fw2', T>= 11.533);

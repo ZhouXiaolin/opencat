@@ -1099,6 +1099,89 @@ impl std::hash::Hash for Transform {
     }
 }
 
+/// CSS `transform-origin` — the anchor point a node's transforms pivot around.
+///
+/// This is a **static** style property, not an animation channel: a script's
+/// `scaleY(...)`/`scale(...)` reads it to know where to pin the node. Defaults to
+/// the box centre (`50% 50%`), matching `apply_transform`'s historical behaviour.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransformOrigin {
+    /// Horizontal anchor as a fraction of the box width (`0` = left, `1` = right).
+    pub x: f32,
+    /// Vertical anchor as a fraction of the box height (`0` = top, `1` = bottom).
+    pub y: f32,
+}
+
+impl Default for TransformOrigin {
+    fn default() -> Self {
+        Self { x: 0.5, y: 0.5 }
+    }
+}
+
+impl TransformOrigin {
+    /// Parse a CSS `transform-origin` value. Accepts one or two components, each a
+    /// percentage (`50%`), a keyword (`left`/`center`/`right`, `top`/`center`/`bottom`;
+    /// `center` is ambiguous and only resolves positionally), or a length. The second
+    /// component, if present, is the vertical anchor. Returns `None` when any token is
+    /// unrecognized so the caller can keep default/previous values.
+    ///
+    /// Tailwind encodes whitespace in arbitrary values as `_`, so callers pass the
+    /// already-underscore-decoded string (e.g. `top center`, `50% 50%`).
+    pub fn parse(value: &str) -> Option<Self> {
+        let tokens: Vec<&str> = value.split_whitespace().collect();
+        match tokens.as_slice() {
+            // A single component: a vertical keyword positions y (x centred),
+            // anything else positions x (y centred). `center` centres both.
+            [token] => match *token {
+                "top" | "bottom" => Some(Self {
+                    x: 0.5,
+                    y: parse_origin_axis(token)?,
+                }),
+                _ => Some(Self {
+                    x: parse_origin_axis(token)?,
+                    y: 0.5,
+                }),
+            },
+            // Two components: CSS accepts either `[x] [y]` or `[y] [x]` keyword
+            // order, so a leading `top`/`bottom` means the author wrote y-first.
+            [a, b] => {
+                let (h, v) = if matches!(*a, "top" | "bottom") {
+                    (b, a)
+                } else {
+                    (a, b)
+                };
+                Some(Self {
+                    x: parse_origin_axis(h)?,
+                    y: parse_origin_axis(v)?,
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Resolve a single transform-origin keyword/percentage into a fraction `0..1`
+/// (fraction of the box along *either* axis — `left`/`top` = 0, `right`/`bottom` = 1).
+fn parse_origin_axis(token: &str) -> Option<f32> {
+    match token {
+        "left" | "top" => Some(0.0),
+        "right" | "bottom" => Some(1.0),
+        "center" => Some(0.5),
+        // A bare `0` length is unambiguous (the box edge) even without a box size;
+        // any other bare length needs the box size, which we don't have here.
+        other => {
+            if let Some(pct) = other.strip_suffix('%') {
+                pct.trim().parse::<f32>().ok().map(|p| p / 100.0)
+            } else if other.trim().parse::<f32>().ok() == Some(0.0) {
+                Some(0.0)
+            } else {
+                None
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CssFilterKind {
@@ -1424,6 +1507,8 @@ pub struct NodeStyle {
     pub clip_path: Option<ClipPath>,
     pub truncate: bool,
     pub transforms: Vec<Transform>,
+    /// Static CSS `transform-origin` (the anchor for `transforms`). `None` = box centre.
+    pub transform_origin: Option<TransformOrigin>,
 
     // SVG / Path (Tailwind align: fill-*, stroke-*)
     pub fill_color: Option<ColorToken>,
@@ -1450,6 +1535,9 @@ pub struct NodeStyle {
     pub line_height_px: Option<f32>,
     pub text_transform: Option<TextTransform>,
     pub line_through: bool,
+    /// CSS `white-space: nowrap` (`whitespace-nowrap`). When `true`, this node's text
+    /// never breaks lines even inside a definite-width container — it overflows.
+    pub no_wrap: bool,
 
     // Shadow
     pub box_shadow: Vec<BoxShadow>,
@@ -1483,6 +1571,9 @@ pub struct ComputedTextStyle {
     pub line_height_px: Option<f32>,
     pub text_transform: TextTransform,
     pub wrap_text: bool,
+    /// Set by `whitespace-nowrap`: the text must lay out on a single line even when
+    /// its container has a definite width (overflowing instead of wrapping).
+    pub no_wrap: bool,
     pub line_through: bool,
 }
 
@@ -1498,6 +1589,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.line_height_px.map(f32::to_bits).hash(state);
         self.text_transform.hash(state);
         self.wrap_text.hash(state);
+        self.no_wrap.hash(state);
         self.line_through.hash(state);
     }
 }
@@ -1515,6 +1607,7 @@ impl Default for ComputedTextStyle {
             line_height_px: None,
             text_transform: TextTransform::None,
             wrap_text: false,
+            no_wrap: false,
             line_through: false,
         }
     }
@@ -1548,6 +1641,8 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         line_height_px,
         text_transform: style.text_transform.unwrap_or(parent.text_transform),
         wrap_text: parent.wrap_text,
+        // CSS `white-space` is inherited.
+        no_wrap: style.no_wrap || parent.no_wrap,
         line_through: style.line_through,
     }
 }

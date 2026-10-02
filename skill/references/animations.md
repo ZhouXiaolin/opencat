@@ -360,7 +360,8 @@ stagger: { each: 0.08, from: 'center', grid: [3, 4], axis: 'y' }
 
 ## Keyframes
 
-`keyframes` 用于单个 tween 内的多段数值变化。
+`keyframes` 用于单个 tween 内的多段变化，支持两种形式：**状态数组**（GSAP object
+form，每段一组属性快照）与**数值曲线对象**。
 
 ```js
 ctx.to('mark', {
@@ -374,6 +375,33 @@ ctx.to('mark', {
   },
   duration: 1.4,
 });
+```
+
+### 状态数组形式（GSAP object form）
+
+GSAP 的 `keyframes` 也接受**状态对象数组**：每个元素是一次完整状态快照，`duration`
+是该段走到这个状态所需的时间（秒）。属性在段间**延续**（未写的属性沿用上一个状态）。
+数组各段 `duration` 之和即总时长，此时 tween 层不再需要 `duration`。
+
+```js
+// 三段弹跳：0 → 放大旋转 → 收回。总时长 1.0s，无顶层 duration。
+ctx.to('badge', {
+  keyframes: [
+    { scale: 1, rotation: 0, duration: 0 },      // 起始状态（duration 0 = 瞬时设定）
+    { scale: 2, rotation: 90, duration: 0.5 },   // 0→0.5s 走到这里
+    { scale: 1, rotation: 0, duration: 0.5 },    // 0.5→1.0s 走回这里
+  ],
+  ease: 'none',
+});
+```
+
+判定规则：数组元素都是**非数组对象且至少一个带 `duration`** 时，即按状态数组解析；
+否则按数值曲线数组解析（见上）。
+
+### 数值曲线形式
+
+```js
+ctx.to('mark', { keyframes: { scale: [1, 1.2, 0.96, 1] }, duration: 1.4 });
 ```
 
 当前 keyframes 只建议用于数值属性。颜色、文字、路径变形更稳的写法是拆成多个 tween 或使用对应插件字段。
@@ -397,6 +425,21 @@ ctx.to('mark', {
 | `rotation` | `rotate` | 旋转角度 |
 | `skewX` | - | X 轴倾斜 |
 | `skewY` | - | Y 轴倾斜 |
+| `transformOrigin` | `svgOrigin` | 变换锚点，见下 |
+
+变换锚点（`transformOrigin` / `svgOrigin`，GSAP 语义）先于其它变换应用，决定
+`scale` / `rotation` / `skew` 绕哪个点发生。取值同 CSS：百分比、关键字
+（`top`/`left`/`center`/`bottom`/`right`）或尺寸；百分比是**相对元素盒**的分数。
+
+```js
+// 绕左边缘、垂直中线下收缩（GSAP 常见 pop 锚点写法）
+ctx.to('badge', { scale: 0.6, transformOrigin: '0% 50%', duration: 0.4 });
+// 绕自身左上角做 ink 锚 pop（百分比需带 % —— 裸分数 0.5 不解析）
+ctx.set('glyph', { transformOrigin: '0% 0%' });
+```
+
+> 注意：`transformOrigin` 是**快照属性**（不插值），tween 内取值恒为起点的值；
+> 需要中途换锚点就拆成两个 tween，各自带上自己的 `transformOrigin`。
 
 ### Layout / Style
 

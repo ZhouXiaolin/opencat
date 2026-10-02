@@ -20,7 +20,7 @@ use crate::script::{
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ClipPath, ColorToken, CssFilter, CssFilterKind, DropShadow,
     FlexDirection, FontWeight, InsetShadow, JustifyContent, NodeStyle, ObjectFit, Position,
-    TextAlign, Transform, color_token_from_script_string,
+    TextAlign, Transform, TransformOrigin, color_token_from_script_string,
 };
 
 #[derive(Default)]
@@ -307,6 +307,10 @@ impl MutationStore {
                 | "rotation" | "rotate" | "skewX" | "skewY" => {
                     mutations.read_transform_value(property).map(|f| json!(f))
                 }
+                "transformOrigin" | "svgOrigin" => mutations
+                    .transform_origin
+                    .map(|o| json!([o.x, o.y]))
+                    .or_else(|| Some(json!([0.5, 0.5]))),
                 "filter" => (!mutations.css_filter.is_empty())
                     .then(|| css_filter_to_value(&mutations.css_filter)),
                 "clipPath" | "clip-path" => mutations
@@ -406,6 +410,25 @@ impl MutationStore {
             "skewY" => {
                 if let Some(v) = value.as_f64() {
                     entry.push_transform(Transform::SkewYDeg { value: v as f32 });
+                }
+            }
+            // GSAP `transformOrigin` / `svgOrigin`. For a node whose box matches
+            // the SVG viewBox (the case in OpenCat's port: one wrapper per mark)
+            // svgOrigin coordinates and box-relative px coincide, so both map to
+            // the same box fraction.
+            "transformOrigin" | "svgOrigin" => {
+                if let Some(s) = value.as_str() {
+                    entry.set_transform_origin(s);
+                } else if let Some(arr) = value.as_array() {
+                    if let (Some(x), Some(y)) = (
+                        arr.first().and_then(|v| v.as_f64()),
+                        arr.get(1).and_then(|v| v.as_f64()),
+                    ) {
+                        entry.transform_origin = Some(TransformOrigin {
+                            x: x as f32,
+                            y: y as f32,
+                        });
+                    }
                 }
             }
             "left" => {
@@ -1005,6 +1028,10 @@ impl MutationRecorder for MutationStore {
         self.entry(id).push_transform(t);
     }
 
+    fn record_transform_origin(&mut self, id: &str, origin: TransformOrigin) {
+        self.entry(id).transform_origin = Some(origin);
+    }
+
     fn record_text_content(&mut self, id: &str, text: String) {
         self.entry(id).text_content = Some(text.clone());
         self.text_sources.insert(
@@ -1215,6 +1242,47 @@ mod tests {
                 Transform::TranslateY { value: 2.0 },
                 Transform::TranslateX { value: 3.0 },
             ]
+        );
+    }
+
+    #[test]
+    fn transform_origin_parses_gsap_forms() {
+        // Bare `0px 0px` (GSAP's favourite ink-anchor spelling) normalises to the
+        // element's top-left; percentages/kewords pass through as box fractions.
+        let mut store = MutationStore::default();
+        store.write_style_value("node-a", "transformOrigin", json!("0px 0px"));
+        let snap = store.snapshot_mutations();
+        let o = snap
+            .mutations
+            .get("node-a")
+            .expect("node-a recorded")
+            .transform_origin
+            .expect("origin recorded");
+        assert_eq!((o.x, o.y), (0.0, 0.0));
+
+        store.write_style_value("node-b", "svgOrigin", json!("50% 100%"));
+        let snap = store.snapshot_mutations();
+        let o = snap
+            .mutations
+            .get("node-b")
+            .expect("node-b recorded")
+            .transform_origin
+            .expect("origin recorded");
+        assert_eq!((o.x, o.y), (0.5, 1.0));
+    }
+
+    #[test]
+    fn transform_origin_is_last_write_wins_and_reads_back() {
+        let mut store = MutationStore::default();
+        store.write_style_value("node-a", "transformOrigin", json!("0% 0%"));
+        store.write_style_value("node-a", "transformOrigin", json!("100% 50%"));
+        let o = store.read_style_value("node-a", "transformOrigin").unwrap();
+        assert_eq!(o, json!([1.0, 0.5]));
+        // A touched node that never set an origin falls back to the CSS centre.
+        store.record_opacity("node-z", 0.5);
+        assert_eq!(
+            store.read_style_value("node-z", "transformOrigin").unwrap(),
+            json!([0.5, 0.5])
         );
     }
 

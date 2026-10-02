@@ -71,6 +71,10 @@ pub struct NodeStyleMutations {
     pub border_style: Option<BorderStyle>,
     pub object_fit: Option<ObjectFit>,
     pub transforms: Vec<Transform>,
+    /// Script-writable `transform-origin` (GSAP `transformOrigin`/`svgOrigin`).
+    /// Fractions of the node's box, same convention as the static style value.
+    /// Written per frame like GSAP's origin properties; the last write wins.
+    pub transform_origin: Option<crate::style::TransformOrigin>,
     pub text_color: Option<ColorToken>,
     pub text_px: Option<f32>,
     pub font_weight: Option<FontWeight>,
@@ -95,6 +99,28 @@ pub struct NodeStyleMutations {
     /// Chrome — the filter is applied in the element's local space and the
     /// result is then scaled by ancestor transforms.
     pub text_shadows: Option<Vec<crate::style::TextShadow>>,
+}
+
+/// Parse a GSAP-flavoured transform origin into box fractions.
+///
+/// Delegates to the static [`crate::style::TransformOrigin::parse`] grammar
+/// (keywords, percentages, bare `0`) and additionally accepts the `0px`/`0em`
+/// spelling GSAP uses for the element corner (`"0px 0px"`). Px lengths other
+/// than zero need a box size the write channel does not have, so callers that
+/// need a pixel-accurate anchor should emit a percentage instead.
+fn parse_transform_origin(value: &str) -> Option<crate::style::TransformOrigin> {
+    let normalized = value
+        .split_whitespace()
+        .map(|tok| {
+            let bare = tok.strip_suffix("px").or_else(|| tok.strip_suffix("em"));
+            match bare.and_then(|b| b.trim().parse::<f32>().ok()) {
+                Some(n) if n == 0.0 => "0",
+                _ => tok,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    crate::style::TransformOrigin::parse(&normalized)
 }
 
 /// Slot index of each independent transform component on the CSS `transform`
@@ -179,6 +205,19 @@ impl NodeStyleMutations {
         }
         out.extend(split_components(&t));
         self.transforms = out;
+    }
+
+    /// Set the transform origin from a GSAP `transformOrigin`/`svgOrigin`
+    /// string. Returns `false` when the string is unparseable (the caller
+    /// leaves the previous origin in place, as GSAP does for a bad value).
+    pub fn set_transform_origin(&mut self, value: &str) -> bool {
+        match parse_transform_origin(value) {
+            Some(origin) => {
+                self.transform_origin = Some(origin);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Read back the value of a transform component (last write, if any).
@@ -306,6 +345,9 @@ impl NodeStyleMutations {
         }
         if !self.transforms.is_empty() {
             style.transforms.extend(self.transforms.iter().cloned());
+        }
+        if let Some(origin) = self.transform_origin {
+            style.transform_origin = Some(origin);
         }
         if let Some(v) = self.text_color {
             style.text_color = Some(v);
@@ -650,6 +692,9 @@ pub fn apply_node_to_recorder(
             Transform::SkewYDeg { value } => recorder.record_skew_y(id, value),
             Transform::SkewDeg { x, y } => recorder.record_skew(id, x, y),
         }
+    }
+    if let Some(origin) = m.transform_origin {
+        recorder.record_transform_origin(id, origin);
     }
     if let Some(ref text) = m.text_content {
         recorder.record_text_content(id, text.clone());

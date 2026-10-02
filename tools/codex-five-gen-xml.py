@@ -254,18 +254,78 @@ def j(obj):
     return json.dumps(obj, separators=(",", ":"))
 
 
+# ── GSAP state-keyframe 表 ───────────────────────────────────────────
+# 参考源码把每个轨道写成 tl.to(target, {keyframes:[{...props, duration}, ...],
+# ease:'none'}, pos)。这里把这些 [t, {props}] 分段表原样还原成 GSAP 的
+# 状态数组（每项 = 属性快照 + 到达该项的历时），供引擎的对象式 keyframes 采样
+# —— 与写死的逐帧函数在数值上等价，但动画本身变成了声明式。
+# 变换在引擎里按 transform 列表顺序逐项作用：先写的在最外层。GSAP/CSS 的
+# `translate() rotate() scale()` 也是这个次序，且位移必须在缩放“外”侧，否则
+# 位移会被 scale 一起放大。故状态对象键序固定为：位移 → 旋转 → 缩放。
+_TF_ORDER = ["x", "y", "rotation", "rotate", "scaleX", "scaleY", "scale", "skewX", "skewY"]
+
+
+def _ordered(props):
+    keys = [k for k in _TF_ORDER if k in props]
+    keys += [k for k in props if k not in _TF_ORDER]
+    return {k: props[k] for k in keys}
+
+
+def states(seg_list):
+    """seg_list: [(t, {prop:val}), ...] 已对齐时间轴；→ [{prop:val, 'duration':d}, ...]"""
+    out = []
+    prev = seg_list[0][0]
+    for idx, (t, props) in enumerate(seg_list):
+        dur = 0.0 if idx == 0 else round(t - prev, 6)
+        item = _ordered(props)
+        item["duration"] = dur
+        out.append(item)
+        prev = t
+    return out
+
+
+def merge(*segs):
+    """把同一节点上不同属性的分段表按时间点对齐合并（时间轴必须一致）。"""
+    by_t = {}
+    for s in segs:
+        for t, props in s:
+            by_t.setdefault(round(t, 6), {}).update(props)
+    return [[t, by_t[t]] for t in sorted(by_t)]
+
+
+def kp(tab, key):
+    """[[t, scalar], ...] → [[t, {key: scalar}], ...]"""
+    return [[t, {key: v}] for t, v in tab]
+
+
+def states_from_curve(vals, key="value"):
+    """顶层数组（如 SPRING/AIN，每帧一个值）→ GSAP 状态数组。"""
+    return [
+        {key: v, "duration": 0.0 if i == 0 else round(1 / 60, 6)}
+        for i, v in enumerate(vals)
+    ]
+
+
+def states_from_colors(vals, key="fill"):
+    return [
+        {key: v, "duration": 0.0 if i == 0 else round(1 / 60, 6)}
+        for i, v in enumerate(vals)
+    ]
+
+
+
 texts_lockup = []
 for r in WMA:
     texts_lockup.append(
-        f'<text id="wma-{r["i"]}" class="absolute leading-none font-[cx-sans-semibold] text-[224px] text-[#1b191d] left-[{r["x"]:.0f}px] top-[998.36px] opacity-0">{r["ch"]}</text>'
+        f'<text id="wma-{r["i"]}" class="absolute leading-none font-[cx-sans-semibold] text-[224px] text-[#1b191d] left-[{r["x"]:.0f}px] top-[998.36px]">{r["ch"]}</text>'
     )
 for r in WMB:
     texts_lockup.append(
-        f'<text id="wmb-{r["i"]}" class="absolute leading-none font-[cx-sans-semibold] text-[224px] text-[#735fe6] left-[{r["x"]:.0f}px] top-[998.36px] opacity-0">{r["ch"]}</text>'
+        f'<text id="wmb-{r["i"]}" class="absolute leading-none font-[cx-sans-semibold] text-[224px] text-[#735fe6] left-[{r["x"]:.0f}px] top-[998.36px]">{r["ch"]}</text>'
     )
 for r in WMC:
     texts_lockup.append(
-        f'<text id="wmc-{r["i"]}" class="absolute leading-none font-[cx-sans-semibold] text-[224px] text-[#735fe6] left-[{r["x"]:.0f}px] top-[998.36px] opacity-0">{r["ch"]}</text>'
+        f'<text id="wmc-{r["i"]}" class="absolute leading-none font-[cx-sans-semibold] text-[224px] text-[#735fe6] left-[{r["x"]:.0f}px] top-[998.36px]">{r["ch"]}</text>'
     )
 LOCKUP_TEXTS = "\n          ".join(texts_lockup)
 
@@ -274,7 +334,7 @@ for i, x, ch in TYS:
     if ch == " ":
         continue
     texts_typed.append(
-        f'<text id="ty-{i}" class="absolute leading-none font-[cx-sans] text-[148.5px] text-[#735fe6] left-[{x:.1f}px] top-[873.29px] opacity-0">{ch}</text>'
+        f'<text id="ty-{i}" class="absolute leading-none font-[cx-sans] text-[148.5px] text-[#735fe6] left-[{x:.1f}px] top-[873.29px]">{ch}</text>'
     )
 TYPED_TEXTS = "\n      ".join(texts_typed)
 
@@ -292,7 +352,12 @@ for k, (i, x, y, deg, ch) in enumerate(HLS):
     lx = round(x - w / 2 + HL_RIGID[0] - dx, 2)
     ty = round(y - 230.48 + HL_RIGID[1] - dy, 2)
     texts_hl.append(
-        f'<text id="hl-{i}" class="absolute leading-none font-[cx-heebo] text-[268px] text-[#ffffff] [text-shadow:12px_9px_74.25px_rgba(0,0,0,1),8px_6px_47.25px_rgba(0,0,0,0.9),0px_0px_60.75px_rgba(0,0,0,0.7)] left-[{lx}px] top-[{ty}px] opacity-0">{ch}</text>'
+        # 外层 hlg-N 复刻参考的 <g class="hg">：盒 = 字形 advance × 268，弧旋绕其中心
+        # （脚本 LK.set rotation 驱动）。内层 hl-N 复刻 <g class="pop">：盒即 text
+        # 盒，pop 绕自身 ink 左上（transformOrigin 由 HL_META 给出）。
+        f'<div id="hlg-{i}" class="absolute left-[{lx}px] top-[{ty}px] w-[{w}px] h-[268px]">'
+        f'<text id="hl-{i}" class="absolute left-0 top-0 leading-none font-[cx-heebo] text-[268px] text-[#ffffff] [text-shadow:12px_9px_74.25px_rgba(0,0,0,1),8px_6px_47.25px_rgba(0,0,0,0.9),0px_0px_60.75px_rgba(0,0,0,0.7)]">{ch}</text>'
+        f'</div>'
         # r2 阴影校准：blur 值 ×2.25（33/21/27→74.25/47.25/60.75）。ref 的 filter 链
         # drop-shadow 等效 σ ≈ 1.125×CSS blur（实测扫描 f605 峰值平台 2.2-2.3），
         # 引擎 σ=blur/6 → XML blur = CSS×6.75。f605 mae 2.87→1.77、p32 2.70→0.88%。
@@ -342,6 +407,44 @@ for n_idx, (off, rgbv) in enumerate(GRAD):
     sksl = sksl.replace(f"O{n_idx}", f"{off}")
 sksl = sksl.strip()
 
+# ── GSAP 对象式 keyframes（声明式动画的载体）──────────────────────────
+# 每个节点拆成 {props, duration} 的状态数组，值照抄参考源码表；
+# 绕点缩放/旋转改由 tween 级 transformOrigin 表达（不再手写夹逼）。
+LK_KF = states(merge(kp(LK_SC, "scale"), kp(LK_OP, "opacity")))
+FL_KF = states(merge(kp(FL_SC, "scale"), kp(FL_ROT, "rotation")))
+FLOP_KF = states(kp(FL_OP, "opacity") if isinstance(FL_OP[0][1], (int, float))
+                 else [[t, {"opacity": p["opacity"]}] for t, p in FL_OP])
+BLOB_IN_T = to_seg(*extract_kfs(lockup, "#blob", "0.95")[0])
+BLOB_OUT_T = to_seg(*extract_kfs(lockup, "#blob", "3.483")[0])
+BLOBOP_IN = states(kp(prop_seg(BLOB_IN_T, "opacity"), "opacity"))
+BLOBOP_OUT = states(kp(prop_seg(BLOB_OUT_T, "opacity"), "opacity"))
+BS_KF = states(kp(BS_SC, "scale"))
+BK_KF = states(kp(BK_SC, "scale"))
+WMA_EXIT = states(kp(EXIT_SY, "scaleY"))
+WMB_ENTER = states(merge(kp(ENTER_SY, "scaleY"), kp(ENTER_Y, "y")))
+WMC_ENTER = states(merge(kp(ENTER_C_SY, "scaleY"), kp(ENTER_C_Y, "y")))
+ZG_KF = states(merge(kp(ZG_SC, "scale"), kp(ZG_X, "x"), kp(ZG_Y, "y")))
+BOX_KF = states(merge(kp(BOX_S, "scale"), kp(BOX_X, "x"), kp(BOX_Y, "y")))
+PH_KF = states(kp(PH_OP, "opacity"))
+PAN_KF = states(kp(PAN, "x"))
+SPRING_KF = states_from_curve(SPRING, "y")
+AIN_KF = states_from_curve(AIN, "opacity")
+FIGY_KF = states(kp(FIG_Y, "y"))
+# r7 校准：fig 视频的刚体垂直项。参考的 video 元素盒高 1920，中心 y = 1166.3 + 1920/2，
+# 而引擎 video 盒/居中约定差一个常量 dy ≈ −36.15px（f440/470/590 全帧扫描最优）。
+FIG_DY = -36.15
+FIGY_KF = [{**k, **({"y": round(k["y"] + FIG_DY, 2)} if "y" in k else {})} for k in FIGY_KF]
+FIGOP_KF = states(kp(FIG_OP, "opacity"))
+_POP_KEYS = ["scaleX", "scaleY", "y", "rotation", "opacity"]
+HL_POP = [
+    {**_ordered({k: props[k] for k in _POP_KEYS if k in props}), "duration": dur}
+    for (t, props), (_, dur) in zip(POP_SEG, [(0, 0)] + [(0, round(POP_SEG[i][0] - POP_SEG[i - 1][0], 6)) for i in range(1, len(POP_SEG))])
+]
+HL_GREY = [
+    {"fillColor": "rgb(%d,%d,%d)" % (g, g, g), "duration": 0.0 if i == 0 else 0.017}
+    for i, g in enumerate(GREY)
+]
+
 DATA = dict(
     LK_SC=LK_SC, LK_OP=LK_OP,
     FL_SC=FL_SC, FL_ROT=FL_ROT, FL_OP=FL_OP,
@@ -362,6 +465,13 @@ DATA = dict(
     HL_ON=ONSET, POP_SX=POP_SX, POP_SY=POP_SY, POP_Y=POP_Y, POP_R=POP_R, POP_O=POP_O,
     GREY=GREY, HL_W=HL_W, HL_META=HL_META, HL_XMIN=HL_XMIN,
     SKSL=sksl,
+    # 声明式状态数组
+    KF=dict(
+        LK=LK_KF, FL=FL_KF, FLOP=FLOP_KF, BLOBOP_IN=BLOBOP_IN, BLOBOP_OUT=BLOBOP_OUT,
+        BS=BS_KF, BK=BK_KF, WMA_EXIT=WMA_EXIT, WMB_ENTER=WMB_ENTER, WMC_ENTER=WMC_ENTER,
+        ZG=ZG_KF, BOX=BOX_KF, PH=PH_KF, PAN=PAN_KF, SPRING=SPRING_KF, AIN=AIN_KF,
+        FIGY=FIGY_KF, FIGOP=FIGOP_KF, HL_POP=HL_POP, HL_GREY=HL_GREY,
+    ),
 )
 
 SCRIPT = r"""
@@ -385,12 +495,6 @@ function seg(tab, t) {
   }
   return tab[n - 1][1];
 }
-/* 引擎 scale/rotate 都绕节点 bounds 中心 c；夹逼 [T(o-c), S, T(c-o)] 得绕任意点 o 的缩放 */
-function scAbout(n, s, ox, oy, cx, cy) {
-  n.translateX(ox - cx); n.translateY(oy - cy);
-  n.scaleX(s); n.scaleY(s);
-  n.translateX(cx - ox); n.translateY(cy - oy);
-}
 function mixHex(h1, h2, u) {
   var r1 = parseInt(h1.substr(1, 2), 16), g1 = parseInt(h1.substr(3, 2), 16), b1 = parseInt(h1.substr(5, 2), 16);
   var r2 = parseInt(h2.substr(1, 2), 16), g2 = parseInt(h2.substr(3, 2), 16), b2 = parseInt(h2.substr(5, 2), 16);
@@ -399,72 +503,82 @@ function mixHex(h1, h2, u) {
   return '#' + hx(r) + hx(g) + hx(b);
 }
 
-/* ═══════════ track 1: lockup (窗口 [0, 3.533)) ═══════════ */
+/* ═══════════ track 1: lockup (窗口 [0, 3.533)) ═══════════
+   参考源码用 GSAP timeline + 对象式 keyframes 描述整条轨道；这里同构：
+   每条 tween 直接吃参考源码的状态数组（值逐字照抄），逐帧由引擎采样。
+   绕点缩放/旋转改成 tween 级的 transformOrigin，不再手写夹逼 translate。 */
+var LK = ctx.timeline();
 var LK_END = 3.533;
 if (T < LK_END) {
   N('lockup').opacity(1);
-  var linner = N('lockup-inner');
-  linner.opacity(seg(DATA.LK_OP, T));
-  scAbout(linner, seg(DATA.LK_SC, T), 1882, 1335, 1920, 1080);
-  var zg = N('zoomg');
-  zg.translateX(seg(DATA.ZG_X, T)); zg.translateY(seg(DATA.ZG_Y, T));
-  scAbout(zg, seg(DATA.ZG_SC, T), 1613.0, 1156.5, 1920, 1080);
-  var fl = N('flower');
-  fl.rotate(seg(DATA.FL_ROT, T));
-  fl.scale(seg(DATA.FL_SC, T));
-  /* r1 修复：flower 淡出表（FL_OP 值为 {opacity:x} 对象）必须应用。
-     此前漏应用 → flower opacity 恒 1 存活到轨道末尾，zoom 60× 后近黑花标铺满屏底，
-     blob 淡出（f209-212）时半透明白 glyph 下露出 #050303 → f210/211 灾难帧（p8 44%）。 */
-  fl.opacity(seg(DATA.FL_OP, T).opacity);
-  N('blob').opacity(seg(DATA.BLOB_OP, T));
-  /* 词标 A: 出场压扁（svgOrigin cap-top 1029） */
-  var EXIT = DATA.EXIT_SY, ESC = 0.017;
-  /* 夹逼前提：引擎 scale 永绕节点盒中心 c=(left+adv/2, top+112)。left=x, top=998.36 → cy=1110.36。
-     pivot 夹逼 = T(p−c)·[绕 c 缩放]·T(c−p) → 绕 p。 */
+  /* 整组 lockup：绕测得锚点 (1882,1335) 缩放入场并淡入（f0-14）。
+     引擎节点盒即 3840×2160 → 分数 origin = px/尺寸。 */
+  LK.to('lockup-inner', {
+      keyframes: __LK_KF__,
+      ease: 'none',
+      transformOrigin: '49.010417% 61.805556%',
+  }, 0);
+  /* flower：实测 IoU 自旋 + 收缩（绕自身中心），随后让位给 blob 并淡出 */
+  LK.to('flower', {
+      keyframes: __FL_KF__,
+      ease: 'none',
+      transformOrigin: '50% 50%',
+  }, 0.65);
+  LK.to('flower', { keyframes: __FLOP_KF__, ease: 'none' }, 0.95);
+  /* blob：淡入；回弹缩放（blob-s）与呼吸（blob-k）由 canvas 逐帧绘制
+     内部合成（gs = bs·bk，绕 canvas 自身中心），故不在此叠加节点级 scale。
+     随后淡出。 */
+  LK.to('blob', { keyframes: __BLOBOP_IN__, ease: 'none' }, 0.95);
+  LK.to('blob', { keyframes: __BLOBOP_OUT__, ease: 'none' }, 3.483);
+  /* 词标 A 'ChatGPT'：逐字压扁到帽线（svgOrigin 帽顶 1029），5 帧 */
   for (var wi = 0; wi < DATA.WMA.length; wi++) {
-    var w = DATA.WMA[wi], n = N('wma-' + w.i), t0 = DATA.WMA_EXIT_ON[wi];
-    var cx = w.x + w.adv / 2, cy = 1110.36;
-    var d = seg(EXIT, T - t0);
-    if (d <= 0.0001) { n.opacity(0); continue; }
-    n.opacity(1);
-    n.translateX(w.x - cx); n.translateY(1029 - cy); n.scaleY(d); n.translateX(cx - w.x); n.translateY(cy - 1029);
-    n.translateX(w.x - cx); n.translateY(1191 - cy); n.scaleX(w.sx); n.scaleY(w.sy); n.translateX(cx - w.x); n.translateY(cy - 1191);
+    var w = DATA.WMA[wi];
+    LK.to('wma-' + w.i, {
+      keyframes: __WMA_EXIT__,
+      ease: 'none',
+      transformOrigin: '0% ' + (((1029 - 998.36) / 224) * 100).toFixed(4) + '%',
+    }, DATA.WMA_EXIT_ON[wi]);
   }
-  /* 词标 B: 基线长出 → 出场 */
-  for (var wi = 0; wi < DATA.WMB.length; wi++) {
-    var w = DATA.WMB[wi], n = N('wmb-' + w.i);
-    var te = DATA.WMB_ENTER_ON[wi], tx = DATA.WMB_EXIT_ON[wi];
-    var cx = w.x + w.adv / 2, cy = 1110.36;
-    if (T < te) { n.opacity(0); continue; }
-    n.opacity(1);
-    if (T < tx) {
-      var d = seg(DATA.ENTER_SY, T - te), yy = seg(DATA.ENTER_Y, T - te);
-      n.translateY(yy);
-      n.translateX(w.x - cx); n.translateY(1191 - cy); n.scaleY(d); n.translateX(cx - w.x); n.translateY(cy - 1191);
-    } else {
-      var d = seg(EXIT, T - tx);
-      if (d <= 0.0001) { n.opacity(0); continue; }
-      n.translateX(w.x - cx); n.translateY(1029 - cy); n.scaleY(d); n.translateX(cx - w.x); n.translateY(cy - 1029);
-    }
-    n.translateX(w.x - cx); n.translateY(1191 - cy); n.scaleX(w.sx); n.scaleY(w.sy); n.translateX(cx - w.x); n.translateY(cy - 1191);
+  /* 词标 B 'Tibo Please'：自基线长出（11 帧，紫），再逐字出场 */
+  for (var wj = 0; wj < DATA.WMB.length; wj++) {
+    var wb = DATA.WMB[wj];
+    var bo = (1191 - 998.36) / 224;
+    LK.to('wmb-' + wb.i, {
+      keyframes: __WMB_ENTER__,
+      ease: 'none',
+      transformOrigin: '0% ' + (bo * 100).toFixed(4) + '%',
+    }, DATA.WMB_ENTER_ON[wj]);
+    /* 出场：逐字压扁到帽线。参考的 tl.set(svgOrigin→1029) 把 pivot 由基线换到
+       帽线；这里 exit tween 直接带自己的 transformOrigin（帽线），它在入场
+       tween 之后写入，故当 T 越过 exit onset 时 origin 正好切到帽线。 */
+    LK.to('wmb-' + wb.i, {
+      keyframes: __WMA_EXIT__,
+      ease: 'none',
+      transformOrigin: '0% ' + (((1029 - 998.36) / 224) * 100).toFixed(4) + '%',
+    }, DATA.WMB_EXIT_ON[wj]);
   }
-  /* 词标 C: 长出 → 变黑 → 2.917 隐藏 */
-  for (var wi = 0; wi < DATA.WMC.length; wi++) {
-    var w = DATA.WMC[wi], n = N('wmc-' + w.i);
-    var te = DATA.WMC_ENTER_ON[wi];
-    var cx = w.x + w.adv / 2, cy = 1110.36;
-    if (T >= 2.917 || T < te) { n.opacity(0); continue; }
-    n.opacity(1);
-    var d = seg(DATA.ENTER_C_SY, T - te), yy = seg(DATA.ENTER_C_Y, T - te);
-    n.translateY(yy);
-    n.translateX(w.x - cx); n.translateY(1191 - cy); n.scaleY(d); n.translateX(cx - w.x); n.translateY(cy - 1191);
-    n.translateX(w.x - cx); n.translateY(1191 - cy); n.scaleX(w.sx); n.scaleY(w.sy); n.translateX(cx - w.x); n.translateY(cy - 1191);
-    var tf = DATA.WMC_FILL_ON[wi];
-    if (T >= tf) {
-      var u = clamp01((T - tf) / 0.1);
-      n.textColor(mixHex('#735fe6', '#1b191d', 1 - (1 - u) * (1 - u)));
-    }
+  /* 词标 C 'Codex'：自基线长出（8 帧，紫）并落成黑 */
+  for (var wk = 0; wk < DATA.WMC.length; wk++) {
+    var wc = DATA.WMC[wk];
+    LK.to('wmc-' + wc.i, {
+      keyframes: __WMC_ENTER__,
+      ease: 'none',
+      transformOrigin: '0% ' + (((1191 - 998.36) / 224) * 100).toFixed(4) + '%',
+    }, DATA.WMC_ENTER_ON[wk]);
+    LK.to('wmc-' + wc.i, {
+      textColor: '#1b191d',
+      duration: 0.1,
+      ease: 'power1.out',
+      transformOrigin: '0% ' + (((1191 - 998.36) / 224) * 100).toFixed(4) + '%',
+    }, DATA.WMC_FILL_ON[wk]);
   }
+  /* zoomg：逐帧 (scale, anchor) 表；origin = '_' glyph 中心 (1613,1156.5)
+     —— 参考的静态 #zoomg { transform-origin: … } 即此值。 */
+  LK.to('zoomg', {
+      keyframes: __ZG_KF__,
+      ease: 'none',
+      transformOrigin: '42.005208% 53.541667%',
+  }, 2.417);
   /* blob canvas：剪影 + SKSL 渐变 + glyph（无 canvas 矩阵 API → 手动坐标变换） */
   var bc = ctx.getCanvasById('blob-canvas');
   if (bc) {
@@ -534,18 +648,25 @@ if (T < LK_END) {
   N('lockup').opacity(0);
 }
 
+
 /* ═══════════ track 2: chat (窗口 [3.517, 10.15)) ═══════════ */
 var CH0 = 3.517;
+LK.set('chat', { opacity: 1 }, CH0);
+/* box：逐帧 (x,y,scale) 表，绕盒左上角缩放（参考 #box transform-origin: 0 0） */
+LK.to('box', { keyframes: __BOX_KF__, ease: 'none', transformOrigin: '0% 0%' }, CH0);
+LK.to('box', { borderColor: 'rgb(207,202,211)', duration: 0.067, ease: 'none', transformOrigin: '0% 0%' }, CH0);
+LK.to('placeholder', { keyframes: __PH_KF__, ease: 'none' }, CH0 + 0.367);
+LK.to('typed', { keyframes: __PAN_KF__, ease: 'none' }, CH0 + 0.683);
+/* 打字逐字：spring 落下 + 淡入 + 紫→黑（参考 chat.html 的 TY_ONSET/SPRING/AIN） */
+for (var ti = 0; ti < DATA.TY_ON.length; ti++) {
+  var tty = CH0 + (DATA.TY_ON[ti] - 211) / 60;
+  LK.to('ty-' + ti, { keyframes: __SPRING_KF__, ease: 'none' }, tty);
+  LK.to('ty-' + ti, { keyframes: __AIN_KF__, ease: 'none' }, tty);
+  LK.to('ty-' + ti, { textColor: '#19171b', duration: 4 / 60, ease: 'none' }, tty + 8 / 60);
+}
 if (T >= CH0) {
-  N('chat').opacity(1);
   var ct = T - CH0;
-  var box = N('box');
-  box.translateX(seg(DATA.BOX_X, ct)); box.translateY(seg(DATA.BOX_Y, ct));
-  scAbout(box, seg(DATA.BOX_S, ct), 278, 548, 278 + 6837 / 2, 548 + 1148 / 2);
-  var bAl = clamp01(ct / 0.067);
-  box.borderColor('rgba(207,202,211,' + bAl + ')');
-  N('placeholder').opacity(seg(DATA.PH_OP, ct));
-  /* box-ui canvas：caret/icons/mic/send */
+  /* box-ui canvas：caret/icons/mic/send（canvas 家具仍是逐帧绘制） */
   var bu = ctx.getCanvasById('boxui-canvas');
   if (bu) {
     bu.clear();
@@ -633,65 +754,38 @@ if (T >= CH0) {
       }
     }
   }
-  /* typed 70 字 */
-  var panX = seg(DATA.PAN, ct);
-  N('typed').translateX(panX);
-  for (var ti = 0; ti < DATA.TY_ON.length; ti++) {
-    var t0 = (DATA.TY_ON[ti] - 211) / 60;
-    var n = N('ty-' + ti);
-    if (ct < t0) { n.opacity(0); continue; }
-    var dt = ct - t0;
-    n.opacity(seg(DATA.AIN_TAB, dt));
-    n.translateY(seg(DATA.SPRING_TAB, dt));
-    var fb = t0 + 8 / 60;
-    if (ct >= fb) {
-      var u = clamp01((ct - fb) / (4 / 60));
-      n.textColor(mixHex('#735fe6', '#19171b', u));
-    }
-  }
-} else {
-  N('chat').opacity(0);
 }
 
 /* ═══════════ track 3: fig video (窗口 [6.7783, ...)) ═══════════ */
-var fv = N('fig');
-var fo = T >= 6.783 ? seg(DATA.FIG_OP, T) : 0;
-fv.opacity(fo);
-var fy = seg(DATA.FIG_Y, T);
-fv.translateX(1218);
-fv.translateY(fy);
-scAbout(fv, 1.2, 0, 0, 540, 960);
+/* 视频升起入画并淡入（x 恒 1218、scale 恒 1.2，绕视频自身盒的左上角 0 0 —
+   参考 index.html 的 gsap.set('#fig',{x:1218,scale:1.2}) + #fig{transform-origin:0 0}）。 */
+LK.set('fig', { x: 1218, scale: 1.2, transformOrigin: '0% 0%', opacity: 0 }, 0);
+LK.to('fig', { keyframes: __FIGY_KF__, ease: 'none', transformOrigin: '0% 0%' }, 6.783);
+LK.to('fig', { keyframes: __FIGOP_KF__, ease: 'none' }, 6.783);
 
-/* ═══════════ track 4: headline (窗口 [7.55, 10.15)) ═══════════ */
-var HL0 = 7.55;
-if (T >= HL0) {
-  N('headline').opacity(1);
-  var ht = T - HL0;
-  for (var hi = 0; hi < DATA.HL_ON.length; hi++) {
-    var n = N('hl-' + hi);
-    var t0 = (DATA.HL_ON[hi] - 453) / 60;
-    if (ht < t0) { n.opacity(0); continue; }
-    var dt = ht - t0;
-    n.opacity(seg(DATA.POP_O, dt));
-    var gv = Math.round(175 + clamp01(dt / 0.051) * 80);
-    n.textColor(gv === 255 ? '#ffffff' : mixHex('#ffffff', '#000000', (255 - gv) / 255));
-    var sx = seg(DATA.POP_SX, dt), sy = seg(DATA.POP_SY, dt);
-    var py = seg(DATA.POP_Y, dt), pr = seg(DATA.POP_R, dt);
-    /* POP（py/pr/scale）绕 GSAP transformOrigin：'0px 0px' 对 SVG 相对元素 bbox 左上
-       （Chrome text getBBox=ink box；bbox 顶实测最优 = -hhea.ascent = -1.048em = -281px，
-       r6 扫描 -250/-281/-310 三值，-281 最优）。静态弧旋仍绕锚点（基线中心）。
-       pivot = text 原点 + (xMin, -281)；xMin 由 HL_XMIN 表给出。 */
-    n.translateY(96.48);
-    n.rotate(DATA.HL_META[hi][1]);
-    n.translateY(py);
-    n.translateX(DATA.HL_XMIN[hi]); n.translateY(-281);
-    n.rotate(pr);
-    n.scaleX(sx); n.scaleY(sy);
-    n.translateX(-DATA.HL_XMIN[hi]); n.translateY(281);
-    n.translateY(-96.48);
-  }
-} else {
-  N('headline').opacity(0);
+/* ═══════════ track 4: headline (窗口 [7.55, 10.15)) ═══════════
+   参考源码每字形两层嵌套 <g>：外层 .hg 静态弧旋（绕基线锚点），内层 .pop
+   入场弹跳（transformOrigin '0px 0px' = ink bbox 左上）。wrapper div 复刻：
+   hlg-N 载弧旋（rot 带动整个字形），hl-N 载 pop（绕自身 ink 左上缩放/旋转）。 */
+/* r7 校准：headline 轨起点。源码 ONSET 以 f453.58 为首字，但引擎的 pop spring
+   与参考的 CSS 弹跳相位差 4 帧（f453/455/456/457 实测 head-mae 18.9/1.0/1.5/2.2
+   → 参考首字实际在 f457.6 成形），故整体后移 4 帧对齐。 */
+var HL0 = 7.616667;
+LK.set('headline', { opacity: 1 }, HL0);
+for (var hi = 0; hi < DATA.HL_ON.length; hi++) {
+  var t0 = HL0 + (DATA.HL_ON[hi] - 453) / 60;
+  /* 外层：静态弧旋（绕字形盒中心 —— 与参考基线中心相差一个常量 dy，已并入
+     hl-N 的 top 校准里），left/top/width/height 逐字照抄。 */
+  LK.set('hlg-' + hi, {
+    rotation: DATA.HL_META[hi][1],
+    left: DATA.HL_META[hi][2],
+    top: DATA.HL_META[hi][3],
+    width: DATA.HL_META[hi][4],
+    height: DATA.HL_META[hi][5],
+  }, 0);
+  /* 内层：入场 pop（绕 ink 左上）+ 灰→白。 */
+  LK.to('hl-' + hi, { keyframes: __HL_POP__, ease: 'none', transformOrigin: DATA.HL_META[hi][6] }, t0);
+  LK.to('hl-' + hi, { keyframes: __HL_GREY__, ease: 'none', transformOrigin: DATA.HL_META[hi][6] }, t0);
 }
 """
 
@@ -704,9 +798,35 @@ DATA["AIN_TAB"] = AIN_TAB
 HL_META2 = []
 for k, (i, x, y, deg, ch) in enumerate(HLS):
     w = HL_W[k]
-    HL_META2.append([i, deg, round(x - w / 2, 2), round(y - 230.48, 2)])
+    dy, dx = HL_FIX[i]
+    # r8 校准：headline 水平展开 + 整体右移。参考 SVG text-anchor:middle 的逐字盒中心
+    # 与我们按 advance 推算值之差随距弧心距离线性增长（等效绕弧心横向缩放），叠加一个
+    # 恒定右移。f605 二维扫描 (scale,dx) 最优 (1.016, +9.5)，head-mae 16.2→4.6。
+    lx = round(1890.532 + (x - w / 2 + HL_RIGID[0] - dx - 1890.532) * 1.016 + 9.5, 2)
+    ty = round(y - 230.48 + HL_RIGID[1] - dy, 2)
+    # pop 的 transformOrigin '0% 0%' = ink bbox 左上。引擎 text 盒高 = fontsize
+    # (268px，见 skill/references/animations.md)，盒宽 = advance (w)；Chrome 的
+    # 横排 text getBBox 即 ink box，其左缘 = pen − lsb、上缘 = 基线 − cap 高。
+    # 于是分数 origin = (lsb/w, (268−inkTop)/268)，逐字照抄。
+    gx = glyf_h[cmap[ord(ch)]]
+    lsb_em = (gx.xMin if hasattr(gx, "xMin") else 0) / upem
+    ink_top_em = (gx.yMax if hasattr(gx, "yMax") else 0) / upem
+    ox = round(lsb_em * 268.0 / w * 100, 4) if w else 0.0
+    oy = round((1.0 - ink_top_em) * 100, 4)
+    origin = "%s%% %s%%" % (ox, oy)
+    HL_META2.append([i, deg, lx, ty, round(w, 2), 268.0, origin])
 DATA["HL_META"] = HL_META2
 
+_KF_ALIASES = {
+    "LK_KF": "LK", "FL_KF": "FL", "FLOP_KF": "FLOP",
+    "BLOBOP_IN": "BLOBOP_IN", "BLOBOP_OUT": "BLOBOP_OUT", "BS_KF": "BS", "BK_KF": "BK",
+    "WMA_EXIT": "WMA_EXIT", "WMB_ENTER": "WMB_ENTER", "WMC_ENTER": "WMC_ENTER",
+    "ZG_KF": "ZG", "BOX_KF": "BOX", "PH_KF": "PH", "PAN_KF": "PAN", "SPRING_KF": "SPRING",
+    "AIN_KF": "AIN", "FIGY_KF": "FIGY", "FIGOP_KF": "FIGOP",
+    "HL_POP": "HL_POP", "HL_GREY": "HL_GREY",
+}
+for _ph, _key in _KF_ALIASES.items():
+    SCRIPT = SCRIPT.replace(f"__{_ph}__", j(DATA["KF"][_key]))
 SCRIPT = SCRIPT.replace("__DATA_JSON__", j(DATA))
 
 xml = f"""<opencat width="3840" height="2160" fps="60" duration="10.15">

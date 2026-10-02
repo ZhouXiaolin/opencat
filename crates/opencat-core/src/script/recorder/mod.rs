@@ -13,7 +13,7 @@ use crate::script::ScriptTextSource;
 use crate::script::mutations::{StyleMutations, TextUnitGranularity};
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
-    InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform,
+    InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform, TransformOrigin,
 };
 
 /// Per-text-unit override values.
@@ -93,6 +93,7 @@ pub trait MutationRecorder {
     fn record_drop_shadow_color(&mut self, id: &str, color: ColorToken);
 
     fn record_transform(&mut self, id: &str, t: Transform);
+    fn record_transform_origin(&mut self, id: &str, origin: TransformOrigin);
     fn record_text_content(&mut self, id: &str, text: String);
     fn record_text_unit_override(
         &mut self,

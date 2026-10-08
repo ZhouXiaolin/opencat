@@ -773,6 +773,55 @@ fn object_form_keyframes_interpolate_with_per_entry_durations() {
     assert!((r15 - 45.0).abs() < 0.5, "frame 15 rotation: {r15}");
 }
 
+/// A tween-level `transformOrigin` (`.to`/`.fromTo` vars) must snap to that
+/// origin for the WHOLE tween, not only on its final frame. GSAP does not
+/// interpolate the pivot; the opener zoom-through (`transformOrigin:'66% 59%'`)
+/// scaled about the box centre until this was fixed.
+#[test]
+fn tween_transform_origin_applies_for_whole_tween_not_just_last_frame() {
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("scene".into());
+    realm.set_target_registry(registry);
+
+    let driver = realm
+        .install("ctx.to('scene', { scale: 1.6, duration: 1, ease: 'none', transformOrigin: '66% 59%' }, 0);")
+        .expect("install");
+
+    let origin_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> Option<(f32, f32)> {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: 20,
+            width: 1920,
+            height: 1080,
+            frames: 40,
+        };
+        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+        let mut rec = MutationStore::default();
+        realm
+            .run_frame(driver, &script_frame_ctx, Some("scene"), &mut rec)
+            .expect("run");
+        rec.snapshot_mutations()
+            .mutations
+            .get("scene")
+            .and_then(|m| m.transform_origin)
+            .map(|o| (o.x, o.y))
+    };
+
+    // Mid-tween (t=0.25 s of 1 s): the tween's origin must already be in effect.
+    let mid = origin_at(&mut realm, 5).expect("transform_origin written mid-tween");
+    assert!(
+        (mid.0 - 0.66).abs() < 1e-4 && (mid.1 - 0.59).abs() < 1e-4,
+        "mid-tween origin must be the tween's 66% 59%, got {mid:?}"
+    );
+    // Final frame too.
+    let last = origin_at(&mut realm, 20).expect("transform_origin written on last frame");
+    assert!(
+        (last.0 - 0.66).abs() < 1e-4 && (last.1 - 0.59).abs() < 1e-4,
+        "final-frame origin must be 66% 59%, got {last:?}"
+    );
+}
+
 /// GSAP value-level relative strings: `y: "+=6"` tweens from the node's current
 /// value to `current + 6`, not from 0 to the literal `"+6"`.
 #[test]

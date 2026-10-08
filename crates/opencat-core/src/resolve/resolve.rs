@@ -1447,6 +1447,7 @@ mod tests {
 
         let mutations = StyleMutations {
             mutations: Default::default(),
+            scene3_mutations: Default::default(),
             canvas_mutations: [(
                 "c".to_string(),
                 crate::script::CanvasMutations {
@@ -1760,10 +1761,12 @@ mod tests {
             StyleMutations {
                 mutations: [("t".to_string(), lower)].into_iter().collect(),
                 canvas_mutations: Default::default(),
+                scene3_mutations: Default::default(),
             },
             StyleMutations {
                 mutations: [("t".to_string(), upper)].into_iter().collect(),
                 canvas_mutations: Default::default(),
+                scene3_mutations: Default::default(),
             },
         ];
 

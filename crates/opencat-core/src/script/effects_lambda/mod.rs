@@ -282,6 +282,38 @@ mod tests {
         assert!(c.sksl.unwrap().contains("u_oc_c0.eval("));
     }
 
+    /// noise2 内建：浮点 op，自动派发 SKSL 后端；codegen 发射辅助函数并映射调用。
+    #[test]
+    fn noise2_lambda_lowers_to_sksl() {
+        const N: &str = "(uv, u) => { const n = noise2(uv * u.freq + [u.t, 0.0]); return [n * 0.5 + 0.5, 0, 0, 1]; }";
+        let c = compile_effect(N, &spec(&[("freq", "float"), ("t", "float")])).unwrap();
+        assert_eq!(c.backend, Backend::Sksl);
+        let sksl = c.sksl.unwrap();
+        assert!(sksl.contains("float oc_noise2(float2 p)"), "{sksl}");
+        assert!(sksl.contains("oc_noise2("), "{sksl}");
+    }
+
+    /// atan2 codegen 映射为 SKSL 双参 atan(y, x)。
+    #[test]
+    fn atan2_lowers_to_sksl_atan() {
+        let c = compile_effect(
+            "(uv, u) => { const a = atan2(uv.y, uv.x); return [a, 0, 0, 1]; }",
+            &EffectSpec::default(),
+        )
+        .unwrap();
+        let sksl = c.sksl.unwrap();
+        assert!(sksl.contains("atan(oc_uv.y, oc_uv.x)"), "{sksl}");
+        assert!(!sksl.contains("atan2"), "{sksl}");
+    }
+
+    /// noise2 参数类型检查：只接受 float2。
+    #[test]
+    fn noise2_rejects_scalar_arg() {
+        let err = compile_effect("(uv, u) => { return [noise2(1.0), 0, 0, 1]; }", &EffectSpec::default())
+            .unwrap_err();
+        assert!(err.to_string().contains("noise2"), "{err}");
+    }
+
     #[test]
     fn interpreter_gradient_pixels() {
         let mut s = spec(&[("w", "float"), ("h", "float")]);

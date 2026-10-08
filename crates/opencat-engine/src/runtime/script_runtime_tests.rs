@@ -3,6 +3,7 @@
 #![cfg(test)]
 
 use opencat_core::frame_ctx::{FrameCtx, ScriptFrameCtx};
+use opencat_core::script::js_context::JsContext;
 use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 use opencat_core::script::{
     ScriptDriverId, ScriptHost, ScriptRealm, ScriptTargetRegistry, ScriptTextSource,
@@ -10,6 +11,22 @@ use opencat_core::script::{
 };
 
 use crate::js_context::RqJsContext;
+
+/// Scene3Raster 测试桩：不产出真实像素，只验证注入契约（run_frame 会把
+/// 3D 快照转成帧级 generated image + `DrawOp::Image`）。
+struct StubScene3Raster;
+
+impl opencat_core::ir::scene3::Scene3Raster for StubScene3Raster {
+    fn render(
+        &self,
+        _scene: &opencat_core::ir::scene3::Scene3,
+        _geometries: &opencat_core::ir::scene3::GeometryRegistry,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<std::sync::Arc<[u8]>> {
+        Ok(std::sync::Arc::from(vec![0u8; (width as usize) * (height as usize) * 4]))
+    }
+}
 
 fn open_with_source(source: &str) -> (ScriptRealm<RqJsContext>, ScriptDriverId) {
     let mut realm = ScriptRealm::<RqJsContext>::open().expect("script realm should open");
@@ -800,4 +817,469 @@ fn relative_value_strings_offset_from_current_value() {
     assert!((run_at(&mut realm, 0) - 10.0).abs() < 0.05, "t=0");
     assert!((run_at(&mut realm, 20) - 16.0).abs() < 0.05, "t=1");
     assert!((run_at(&mut realm, 10) - 13.0).abs() < 0.05, "t=0.5");
+}
+
+#[test]
+fn three_like_api_commits_scene3_snapshot_per_frame() {
+    let source = r#"
+        const T = ctx.three;
+        const scene = new T.Scene();
+        scene.background = new T.Color(0x101014);
+        const camera = new T.PerspectiveCamera(45, 16 / 9, 0.1, 100);
+        camera.position.set(2.2, 1.8, 3.0);
+        camera.lookAt(0, 0, 0);
+        const hemi = new T.HemisphereLight(0xffffff, 0x7eb6a4, 2.1);
+        const light = new T.DirectionalLight(0xffffff, 1.0);
+        light.position.set(-2, -4, -5);
+        const pivot = new T.Group();
+        const mat = new T.MeshLambertMaterial({
+            color: 0xe64a33,
+            noiseDisplacement: { amplitude: 0.12, frequency: 1.5, worldFrequency: 0.1, timeSpeed: 0.4 },
+        });
+        pivot.add(new T.Mesh(new T.BoxGeometry(1, 1, 1), mat));
+        scene.add(hemi, light, pivot);
+        const renderer = new T.Renderer('c3d', 320, 180);
+        pivot.rotation.y = ctx.frame * 0.1;
+        mat.noiseTime = ctx.frame * 0.05;
+        renderer.render(scene, camera);
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
+
+    let recorder = run_driver(&mut realm, driver, 30, None);
+    let snap = recorder.snapshot_mutations();
+    let scene3 = snap
+        .scene3_mutations
+        .get("c3d")
+        .expect("renderer.render() should commit a Scene3 snapshot");
+
+    // 渲染目标尺寸随快照提交（Renderer(id, w, h) → Scene3.target）。
+    assert_eq!(scene3.target, [320, 180]);
+
+    // 光栅化接通：快照同时变成一帧 generated image + 目标 canvas 上的
+    // `DrawOp::Image { ImageRef::Generated }`（z 序 = canvas 命令流）。
+    let commands = &snap
+        .canvas_mutations
+        .get("c3d")
+        .expect("rasterized scene should draw on its canvas")
+        .commands;
+    assert_eq!(commands.len(), 1, "one DrawOp::Image per committed scene");
+    let generated_id = match &commands[0] {
+        opencat_core::ir::draw_op::DrawOp::Image {
+            image: opencat_core::ir::draw_types::ImageRef::Generated { id },
+            x,
+            y,
+            ..
+        } => {
+            assert_eq!((*x, *y), (0.0, 0.0), "full-target raster draws at origin");
+            *id
+        }
+        other => panic!("expected DrawOp::Image(Generated), got {other:?}"),
+    };
+    // 像素落在帧级 generated-image 队列，等 pipeline 取走进表。
+    let drained = realm
+        .ctx()
+        .with_store_mut(|s| s.take_pending_generated_images());
+    assert_eq!(drained.len(), 1, "one pending generated image");
+    assert_eq!(drained[0].id, generated_id);
+    assert_eq!((drained[0].width, drained[0].height), (320, 180));
+    assert_eq!(drained[0].rgba.len(), 320 * 180 * 4);
+
+    // 背景 0x101014：Color.setHex → 线性 working space（ColorManagement.js:205
+    // SRGBToLinear）；shim 默认 outputColorSpace=Linear → 清屏原样写线性分量。
+    // （SRGB 输出下 WebGLBackground setClear 回编码 → 16/255 round-trip，见
+    // three_like_api_background_clear_encodes_to_output_space。）
+    for (got, want) in scene3
+        .clear
+        .iter()
+        .zip([0.005_181_517, 0.005_181_517, 0.006_995_410, 1.0])
+    {
+        assert!((got - want).abs() < 1e-6, "clear {got} vs {want}");
+    }
+
+    // 相机：position/lookAt 直通。
+    assert_eq!(scene3.camera.fov_y_degrees, 45.0);
+    for (got, want) in scene3.camera.position.iter().zip([2.2, 1.8, 3.0]) {
+        assert!((got - want).abs() < 1e-5);
+    }
+    assert!(scene3.camera.target.iter().all(|v| v.abs() < 1e-6));
+
+    // 灯光：Hemisphere（先）+ Directional；direction = -position（未归一化，
+    // 渲染器归一化）。
+    assert_eq!(scene3.lights.len(), 2);
+    match &scene3.lights[0] {
+        opencat_core::ir::scene3::Light3::Hemisphere {
+            sky_color,
+            ground_color,
+            intensity,
+        } => {
+            for c in sky_color {
+                assert!((c - 1.0).abs() < 1e-6, "sky 0xffffff");
+            }
+            for (got, want) in ground_color
+                .iter()
+                .zip([0.208_636_870, 0.467_783_796, 0.371_237_680])
+            {
+                assert!((got - want).abs() < 1e-6, "ground 0x7eb6a4 linear {got} vs {want}");
+            }
+            assert!((intensity - 2.1).abs() < 1e-6);
+        }
+        other => panic!("expected hemisphere light, got {other:?}"),
+    }
+    match &scene3.lights[1] {
+        opencat_core::ir::scene3::Light3::Directional {
+            direction,
+            color,
+            intensity,
+        } => {
+            for (got, want) in direction.iter().zip([2.0, 4.0, 5.0]) {
+                assert!((got - want).abs() < 1e-5);
+            }
+            for c in color {
+                assert!((c - 1.0).abs() < 1e-6);
+            }
+            assert!((intensity - 1.0).abs() < 1e-6);
+        }
+        other => panic!("expected directional light, got {other:?}"),
+    }
+
+    // 网格：Group（无自身变换）内 Mesh rotation.y = 30 * 0.1 = 3.0 弧度。
+    // three.js 'XYZ' 列主序绕 Y：col0 = (cos, 0, -sin)，col2 = (sin, 0, cos)。
+    assert_eq!(scene3.meshes.len(), 1);
+    let mesh = &scene3.meshes[0];
+    let (s, c) = (3.0f32.sin(), 3.0f32.cos());
+    assert!((mesh.matrix[0] - c).abs() < 1e-5, "m[0]");
+    assert!((mesh.matrix[2] + s).abs() < 1e-5, "m[2]");
+    assert!((mesh.matrix[8] - s).abs() < 1e-5, "m[8]");
+    assert!((mesh.matrix[10] - c).abs() < 1e-5, "m[10]");
+
+    // 材质：0xe64a33 → setHex 线性 working space（SRGBToLinear），Lambert。
+    let want = [0.791_297_940, 0.068_478_170, 0.033_104_767, 1.0];
+    for (got, want) in mesh.material.base_color.iter().zip(want) {
+        assert!((got - want).abs() < 1e-6, "base_color {got} vs {want}");
+    }
+    assert!(matches!(
+        mesh.material.shading,
+        opencat_core::ir::scene3::Shading3::Lambert
+    ));
+
+    // 位移参数与逐帧 noiseTime（frame 30 → 30*0.05 = 1.5）。
+    let disp = mesh.material.displacement.as_ref().expect("noiseDisplacement");
+    assert!((disp.amplitude - 0.12).abs() < 1e-6);
+    assert!((disp.frequency - 1.5).abs() < 1e-6);
+    assert!((disp.world_frequency - 0.1).abs() < 1e-6);
+    assert!((disp.time_speed - 0.4).abs() < 1e-6);
+    assert!((disp.time - 1.5).abs() < 1e-5, "noiseTime at frame 30");
+
+    // BoxGeometry(1,1,1)：24 顶点 / 36 索引。
+    match &mesh.geometry {
+        opencat_core::ir::scene3::Geometry3::Inline {
+            positions,
+            normals,
+            indices,
+            ..
+        } => {
+            assert_eq!(positions.len(), 24);
+            assert_eq!(normals.len(), 24);
+            assert_eq!(indices.len(), 36);
+        }
+        other => panic!("expected inline geometry, got {other:?}"),
+    }
+
+    // 下一帧重提交：快照随帧变化（rotation 随 ctx.frame）。
+    let next = run_driver(&mut realm, driver, 60, None);
+    let next_scene = next.snapshot_mutations().scene3_mutations.remove("c3d").unwrap();
+    assert!(
+        (next_scene.meshes[0].matrix[0] - (6.0f32.cos())).abs() < 1e-5,
+        "frame 60 → rotation.y = 6.0"
+    );
+}
+
+#[test]
+fn three_like_api_physical_attenuation_distance_sentinel() {
+    // three.js MeshPhysicalMaterial 缺省 attenuationDistance = Infinity（不
+    // 衰减）。快照 JSON 无法表达 ±inf（serde f32 拒绝，r8 前缺省路径直接
+    // 炸 render 提交），shim 按渲染器 WGSL volumeAttenuation 的 ≥1e29 哨兵
+    // 语义发 1e30（lib.rs:519 注释的既定契约）；显式有限值直通。
+    let source = r#"
+        const T = ctx.three;
+        const scene = new T.Scene();
+        const camera = new T.PerspectiveCamera(45, 16 / 9, 0.1, 100);
+        camera.position.set(0, 0, 5);
+        camera.lookAt(0, 0, 0);
+        const a = new T.MeshPhysicalMaterial({ transmission: 1 });
+        const b = new T.MeshPhysicalMaterial({ transmission: 1, attenuationDistance: Infinity });
+        const c = new T.MeshPhysicalMaterial({ transmission: 1, attenuationDistance: 2 });
+        scene.add(new T.Mesh(new T.SphereGeometry(0.5, 16, 16), a));
+        scene.add(new T.Mesh(new T.SphereGeometry(0.5, 16, 16), b));
+        scene.add(new T.Mesh(new T.SphereGeometry(0.5, 16, 16), c));
+        const renderer = new T.Renderer('c3d', 320, 180);
+        renderer.render(scene, camera);
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
+    let recorder = run_driver(&mut realm, driver, 1, None);
+    let scene3 = recorder
+        .snapshot_mutations()
+        .scene3_mutations
+        .get("c3d")
+        .expect("snapshot committed")
+        .clone();
+    assert_eq!(scene3.meshes.len(), 3);
+    let distances: Vec<f32> = scene3
+        .meshes
+        .iter()
+        .map(|m| match &m.material.shading {
+            opencat_core::ir::scene3::Shading3::Physical(p) => p.attenuation_distance,
+            other => panic!("expected Physical, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(distances[0], 1e30, "缺省 Infinity → 1e30 哨兵");
+    assert_eq!(distances[1], 1e30, "显式 Infinity → 1e30 哨兵");
+    assert!((distances[2] - 2.0).abs() < 1e-6, "显式有限值直通");
+}
+
+#[test]
+fn three_like_api_background_clear_encodes_to_output_space() {
+    // WebGLBackground.js setClear（r181）：scene.background 的线性 working
+    // 分量经 getRGB(getUnlitUniformColorSpace(renderer)) 转到输出色彩空间再
+    // 清屏。SRGB 输出下 0x101014 → linear(0.00518…) → OETF 回 16/255,
+    // 16/255, 20/255 —— 数值 round-trip 恒等（hex 即 sRGB 编码）。
+    let source = r#"
+        const T = ctx.three;
+        const scene = new T.Scene();
+        scene.background = new T.Color(0x101014);
+        const camera = new T.PerspectiveCamera(45, 16 / 9, 0.1, 100);
+        camera.position.set(0, 0, 3);
+        camera.lookAt(0, 0, 0);
+        const renderer = new T.Renderer('c3d', 320, 180);
+        renderer.outputColorSpace = T.SRGBColorSpace;
+        renderer.render(scene, camera);
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
+
+    let recorder = run_driver(&mut realm, driver, 1, None);
+    let scene3 = recorder
+        .snapshot_mutations()
+        .scene3_mutations
+        .get("c3d")
+        .expect("render() commits a snapshot")
+        .clone();
+    // 容差 1e-5：srgbToLinear→linearToSrgb 两次浮点传递函数往返不严格恒等
+    //（实测 |Δ| ≈ 4.1e-6，16/255 处）。
+    for (got, want) in scene3.clear.iter().zip([16.0 / 255.0, 16.0 / 255.0, 20.0 / 255.0, 1.0]) {
+        assert!((got - want).abs() < 1e-5, "clear srgb {got} vs {want}");
+    }
+}
+
+#[test]
+fn three_like_gltf_geometry_registers_and_commits_asset_reference() {
+    // 真 GLB（prism 11280 顶点）：GLTFGeometry → 宿主一次性解码注册 →
+    // 快照只带 Asset{id}；YXZ Euler（参考 js:339）进世界矩阵。
+    let glb_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/lbr/heygen-prism.glb");
+    let source = "const T = ctx.three;\n".to_string()
+        + "const scene = new T.Scene();\n"
+        + "const camera = new T.PerspectiveCamera(45, 16 / 9, 0.1, 100);\n"
+        + "camera.position.set(0, 0, 7);\n"
+        + &format!(
+            "const geo = new T.GLTFGeometry({glb:?}, 'prism');\n",
+            glb = glb_path
+        )
+        + "const mesh = new T.Mesh(geo, new T.MeshBasicMaterial({ color: 0xffffff }));\n"
+        + "mesh.rotation.order = 'YXZ';\n" // 参考 js:339
+        + "mesh.rotation.set(0.139 * Math.PI, -1.17 * Math.PI, 0);\n" // js:499-500 dock 姿态
+        + "scene.add(mesh);\n"
+        + "const renderer = new T.Renderer('c3d', 64, 64);\n"
+        + "renderer.render(scene, camera);\n";
+    let (mut realm, driver) = open_with_source(&source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    registry.canvas_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
+
+    let recorder = run_driver(&mut realm, driver, 1, None);
+    let snap = recorder.snapshot_mutations();
+    let scene3 = snap.scene3_mutations.get("c3d").expect("scene snapshot");
+    assert_eq!(scene3.meshes.len(), 1);
+    let mesh = &scene3.meshes[0];
+
+    // 快照只带 id，不带几何体（重网格不逐帧过 JSON 桥）。
+    match &mesh.geometry {
+        opencat_core::ir::scene3::Geometry3::Asset { id } => assert_eq!(id, "prism"),
+        other => panic!("expected Asset geometry, got {other:?}"),
+    }
+
+    // 注册表里是真几何：GLB 的 11280 顶点 / 60096 索引 / 全属性。
+    let geometries = realm.ctx().with_store_mut(|s| s.geometry_registry());
+    let prism = geometries.get("prism").expect("prism registered");
+    match prism.as_ref() {
+        opencat_core::ir::scene3::Geometry3::Inline {
+            positions,
+            normals,
+            indices,
+            uvs,
+            colors,
+            colors1,
+        } => {
+            assert_eq!(positions.len(), 11280, "GLB POSITION count");
+            assert_eq!(normals.len(), 11280);
+            assert_eq!(uvs.len(), 11280, "TEXCOORD_0 count");
+            assert_eq!(colors.len(), 11280, "COLOR_0 count");
+            assert_eq!(colors1.len(), 11280, "COLOR_1 count");
+            assert_eq!(indices.len(), 60096, "GLB indices count");
+        }
+        other => panic!("expected inline geometry in registry, got {other:?}"),
+    }
+
+    // YXZ 判别元：m(0,1) = sin y · sin x（'XYZ' 下该元为 0）——
+    // 列主序 m[4]。dock 姿态 z=0。
+    let (x, y) = (0.139f32 * std::f32::consts::PI, -1.17f32 * std::f32::consts::PI);
+    let want_m01 = y.sin() * x.sin();
+    assert!(
+        (mesh.matrix[4] - want_m01).abs() < 1e-5,
+        "YXZ m[4]: {} vs {want_m01}",
+        mesh.matrix[4]
+    );
+}
+
+#[test]
+fn three_like_shader_material_adapts_glsl_and_commits() {
+    // ShaderMaterial（参考 js:62-97 形状）：WebGL1 方言 GLSL 逐字进 shim →
+    // adaptShaderMaterial 改写成 450 core → 快照携带适配后源 + uniforms
+    // 当前值；PlaneGeometry 带 uv 与 three.js 索引序（背景场 vUv 的输入）。
+    let source = r#"
+        const T = ctx.three;
+        const scene = new T.Scene();
+        const camera = new T.PerspectiveCamera(35, 16 / 9, 0.1, 100);
+        camera.position.set(0, 0, 7);
+        camera.lookAt(0, 0, 0);
+        const mat = new T.ShaderMaterial({
+            depthWrite: false,
+            depthTest: false,
+            toneMapped: false,
+            uniforms: { uFade: { value: 1 } },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                  vUv = uv;
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                precision highp float;
+                varying vec2 vUv;
+                uniform float uFade;
+                void main() {
+                  gl_FragColor = vec4(vec3(0.957, 0.949, 0.918) * (0.985 + 0.035 * vUv.y), 1.0);
+                }
+            `,
+        });
+        const mesh = new T.Mesh(new T.PlaneGeometry(15, 8.5), mat);
+        mesh.position.set(0, 0, -3.5);
+        scene.add(mesh);
+        const renderer = new T.Renderer('c3d', 64, 64);
+        mat.uniforms.uFade.value = 1 - ctx.frame * 0.25;   // js:527 的对应物
+        renderer.render(scene, camera);
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    registry.canvas_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
+
+    let recorder = run_driver(&mut realm, driver, 2, None);
+    let snap = recorder.snapshot_mutations();
+    let scene3 = snap.scene3_mutations.get("c3d").expect("scene snapshot");
+    assert_eq!(scene3.meshes.len(), 1);
+    let mesh = &scene3.meshes[0];
+
+    let shader = match &mesh.material.shading {
+        opencat_core::ir::scene3::Shading3::Shader(s) => s,
+        other => panic!("expected Shader shading, got {other:?}"),
+    };
+    // 顶点段：450 core + 三方块前缀 + varying→out location 化 + 无残留方言。
+    assert!(shader.vertex_shader.starts_with("#version 450 core"), "vs header");
+    assert!(
+        shader
+            .vertex_shader
+            .contains("layout(std140, set = 0, binding = 0) uniform ThreeBuiltins"),
+        "vs 前缀三方块"
+    );
+    assert!(
+        shader
+            .vertex_shader
+            .contains("layout(location = 0) out vec2 vUv;"),
+        "varying → location 化 out: {}",
+        shader.vertex_shader
+    );
+    assert!(!shader.vertex_shader.contains("varying"), "方言残留 varying");
+    assert!(
+        shader
+            .vertex_shader
+            .contains("gl_Position = projectionMatrix * modelViewMatrix"),
+        "用户体保留"
+    );
+    // 片元段：varying→in、gl_FragColor→fragOutput（声明在前）、uniform 进
+    // UserUniforms 块（set 1）。
+    assert!(shader.fragment_shader.starts_with("#version 450 core"), "fs header");
+    assert!(
+        shader
+            .fragment_shader
+            .contains("layout(std140, set = 1, binding = 0) uniform UserUniforms {\n  float uFade;\n};"),
+        "standalone uniform 收进 set1 块: {}",
+        shader.fragment_shader
+    );
+    assert!(
+        shader
+            .fragment_shader
+            .contains("layout(location = 0) in vec2 vUv;"),
+        "varying → location 化 in"
+    );
+    let out_pos = shader.fragment_shader.find("layout(location = 0) out vec4 fragOutput;");
+    let body_pos = shader.fragment_shader.find("fragOutput = vec4(");
+    assert!(out_pos.is_some() && body_pos.is_some(), "fragOutput 改名");
+    assert!(out_pos.unwrap() < body_pos.unwrap(), "声明在体之前");
+    assert!(!shader.fragment_shader.contains("gl_FragColor"), "方言残留 gl_FragColor");
+    assert!(!shader.fragment_shader.contains("precision highp float;\nprecision"), "precision 不重复");
+
+    // uniforms 逐帧值：frame 2 → uFade = 1 - 2*0.25 = 0.5。
+    assert_eq!(shader.uniforms.len(), 1, "uniform 载荷");
+    assert_eq!(shader.uniforms[0].name, "uFade");
+    match shader.uniforms[0].value {
+        opencat_core::ir::scene3::ShaderValue3::Float(v) => {
+            assert!((v - 0.5).abs() < 1e-6, "uFade 随帧 = {v}");
+        }
+        other => panic!("expected Float uniform, got {other:?}"),
+    }
+
+    // PlaneGeometry：uv (0,1)(1,1)(0,0)(1,0) + three.js 索引 (a,b,d),(b,c,d)。
+    match &mesh.geometry {
+        opencat_core::ir::scene3::Geometry3::Inline {
+            positions,
+            indices,
+            uvs,
+            ..
+        } => {
+            assert_eq!(positions.len(), 4);
+            assert_eq!(
+                uvs,
+                &vec![[0.0, 1.0], [1.0, 1.0], [0.0, 0.0], [1.0, 0.0]],
+                "three.js PlaneGeometry uv（v=1 顶行）"
+            );
+            assert_eq!(indices, &vec![0u32, 2, 1, 2, 3, 1], "(a,b,d),(b,c,d)");
+        }
+        other => panic!("expected inline geometry, got {other:?}"),
+    }
 }

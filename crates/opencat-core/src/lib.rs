@@ -6,6 +6,7 @@ pub mod canvas;
 pub(crate) mod display;
 pub mod fonts;
 pub mod frame_ctx;
+pub mod geom;
 pub mod ir;
 pub(crate) mod layout;
 pub mod lifecycle;

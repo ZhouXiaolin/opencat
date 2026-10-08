@@ -9,6 +9,9 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+# GLB/glTF 解析一律走现成 crate（容器/accessor/后续材质层级），不再手写。
+# default-features = false 关掉 import（会拖 image 解码栈）；utils 提供遍历工具。
+gltf = { version = "1.4", default-features = false, features = ["utils"] }
 taffy = "0.10.0"
 serde.workspace = true
 serde_json.workspace = true

@@ -607,7 +607,33 @@ pub fn eval_builtin(id: B, args: &[Val]) -> Val {
             );
             Val::F(h)
         }
+        B::Noise2 => match args.first() {
+            Some(Val::V2(p)) => Val::F(noise2(p[0], p[1])),
+            _ => Val::F(0.0),
+        },
     }
+}
+
+/// 二维确定性值噪声，返回 [-1,1]。与 SKSL codegen 的 `oc_noise2` 同式
+/// （sin-hash + smootherstep 双线性插值）：CPU 与 SKSL 后端各自自洽。
+pub fn noise2(x: f64, y: f64) -> f64 {
+    fn hash2(x: f64, y: f64) -> f64 {
+        let v = (x * 127.1 + y * 311.7).sin() * 43758.5453123;
+        v - v.floor()
+    }
+    let ix = x.floor();
+    let iy = y.floor();
+    let fx = x - ix;
+    let fy = y - iy;
+    let ux = fx * fx * (3.0 - 2.0 * fx);
+    let uy = fy * fy * (3.0 - 2.0 * fy);
+    let a = hash2(ix, iy);
+    let b = hash2(ix + 1.0, iy);
+    let c = hash2(ix, iy + 1.0);
+    let d = hash2(ix + 1.0, iy + 1.0);
+    let ab = a + (b - a) * ux;
+    let cd = c + (d - c) * ux;
+    (ab + (cd - ab) * uy) * 2.0 - 1.0
 }
 
 fn f64_arg(args: &[Val], i: usize) -> f64 {
@@ -655,5 +681,34 @@ mod tests {
         assert_eq!(js_rem(-5.0, 3.0), -2.0);
         assert_eq!(js_rem(5.0, 3.0), 2.0);
         assert_eq!(js_rem(7.5, 2.0), 1.5);
+    }
+
+    /// noise2：确定性、值域 [-1,1]、整数格点处等于 hash 映射、插值连续。
+    #[test]
+    fn noise2_is_deterministic_bounded_and_continuous() {
+        // 同一输入 → 同一输出
+        assert_eq!(noise2(1.7, 2.3), noise2(1.7, 2.3));
+        // 值域
+        for i in 0..500 {
+            let x = (i as f64) * 0.37 - 40.0;
+            let y = (i as f64) * 0.71 - 60.0;
+            let v = noise2(x, y);
+            assert!((-1.0..=1.0).contains(&v), "noise2({x},{y})={v} out of range");
+        }
+        // 相邻采样差有界（连续，无突变）
+        let mut prev = noise2(0.0, 0.0);
+        for i in 1..200 {
+            let v = noise2(i as f64 * 0.01, 0.0);
+            assert!((v - prev).abs() < 0.5, "discontinuity at i={i}");
+            prev = v;
+        }
+    }
+
+    /// noise2 内建经解释器派发：返回浮点且与直接调用一致。
+    #[test]
+    fn noise2_builtin_dispatches_in_interpreter() {
+        let r = eval_builtin(B::Noise2, &[Val::V2([3.25, -7.5])]);
+        assert_eq!(r, Val::F(noise2(3.25, -7.5)));
+        assert_eq!(eval_builtin(B::Noise2, &[Val::F(1.0)]), Val::F(0.0));
     }
 }

@@ -98,6 +98,14 @@ pub struct CachedDrawSegment {
     pub f32_pool: Vec<f32>,
     pub resources: Vec<ResourceRef>,
     pub effects: Vec<EffectRef>,
+    /// True when any op in `ops` references the builder's hidden-subtree table
+    /// (`DrawOp::ReplaySubtreePicture`, or a `RuntimeEffect` child of kind
+    /// `SubtreePicture`). Those subtree ids are resolved by the engine against
+    /// `DrawOpFrame.subtrees`, which this segment does **not** carry, so such a
+    /// segment is not safely re-importable into a later frame's builder (the id
+    /// would dangle — see `render/dispatch.rs`). Callers must therefore refuse
+    /// to store/import segments with this flag set and re-record instead.
+    pub references_subtree: bool,
 }
 
 #[cfg(test)]
@@ -119,6 +127,7 @@ mod tests {
             f32_pool: Vec::new(),
             resources: Vec::new(),
             effects: Vec::new(),
+            references_subtree: false,
         };
         assert_eq!(segment.ops.len(), 2);
     }

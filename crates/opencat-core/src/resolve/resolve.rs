@@ -1209,6 +1209,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             opacity: style.opacity.unwrap_or(1.0),
             blend_mode: style.blend_mode.unwrap_or_default(),
             background: resolve_background(style),
+            background_clip: style.background_clip,
             fill: style
                 .fill_color
                 .map(|color| crate::style::BackgroundFill::Solid { color }),

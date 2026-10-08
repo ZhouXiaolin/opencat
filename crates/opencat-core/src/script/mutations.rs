@@ -391,8 +391,12 @@ impl NodeStyleMutations {
         if let Some(v) = self.backdrop_blur_sigma {
             style.backdrop_blur_sigma = Some(v.max(0.0));
         }
+        // A script's `filter` is an inline style: it replaces the class-level
+        // filter wholesale (CSS cascade), rather than stacking onto it. Merging
+        // here would leave a tween that animates `blur(20px)` → `blur(0px)` on a
+        // `blur-[20px]` node stuck at 20px, because both ops survive.
         if !self.css_filter.is_empty() {
-            style.css_filter.merge_from(&self.css_filter);
+            style.css_filter = self.css_filter.clone();
         }
         if let Some(v) = self.clip_path {
             style.clip_path = Some(v);

@@ -107,6 +107,8 @@ pub struct ComputedVisualStyle {
     pub opacity: f32,
     pub blend_mode: BlendMode,
     pub background: Vec<BackgroundFill>,
+    /// CSS `background-clip`. Only `Text` is acted on (gradient-filled glyphs).
+    pub background_clip: crate::style::BackgroundClip,
     pub fill: Option<BackgroundFill>,
     pub border_radius: crate::style::BorderRadius,
     pub border_width: Option<f32>,

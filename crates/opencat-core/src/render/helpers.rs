@@ -317,10 +317,10 @@ pub(crate) fn filter_layer_paint(image_filter: ImageFilterSpec) -> PaintSpec {
 }
 
 /// Gradient box geometry: the box (in device px) a gradient is defined over,
-/// plus its origin. The shader is expressed in normalized box coordinates
-/// (`0..1`) and mapped onto the box with `local_matrix`, so it survives for any
-/// rect size (rather than being evaluated in device coordinates and clamping to
-/// the last stop — the long-standing solid-fill bug).
+/// plus its origin. Linear gradients are emitted directly in device coordinates
+/// (endpoints offset by the box origin), so their direction does not depend on
+/// the box aspect ratio; radial gradients keep a normalized shape mapped by an
+/// explicit local matrix.
 #[derive(Clone, Copy, Debug)]
 struct GradientBox {
     /// Box width/height in device px.
@@ -352,18 +352,9 @@ impl GradientBox {
         }
     }
 
-    /// Row-major affine matrix mapping normalized box coords to device coords:
-    /// `device = [w, 0, ox; 0, h, oy; 0, 0, 1] * local`.
-    fn matrix(&self) -> [f32; 9] {
-        [self.w, 0.0, self.ox, 0.0, self.h, self.oy, 0.0, 0.0, 1.0]
-    }
-
-    /// Normalize a box-space point into shader-local coords.
-    fn to_local(&self, px: f32, py: f32) -> [f32; 2] {
-        [
-            if self.w != 0.0 { px / self.w } else { 0.0 },
-            if self.h != 0.0 { py / self.h } else { 0.0 },
-        ]
+    /// Absolute device-space point of a box-space coordinate.
+    fn to_device(&self, px: f32, py: f32) -> [f32; 2] {
+        [self.ox + px, self.oy + py]
     }
 }
 
@@ -471,13 +462,21 @@ fn build_linear_gradient(
         .map(|s| color_token_to_rgba(&s.color))
         .collect();
 
+    // Linear gradient endpoints are kept in box (device) space with no local
+    // matrix. Normalizing them into the unit box and scaling back with an
+    // anisotropic `local_matrix = scale(w, h)` would re-interpret the angle in
+    // non-uniform coordinates: a gradient direction `(dx, dy)` in device space
+    // becomes `(dx/w², dy/h²)` after the round trip, so the perceived angle
+    // skews with the box aspect ratio (a 95deg gradient in a 400×100 box
+    // rendered at ~54deg). CSS evaluates the angle in the element's own
+    // coordinate system, so the raw box-space endpoints are correct.
     ShaderSpec::LinearGradient {
-        from: box_.to_local(from_box.0, from_box.1),
-        to: box_.to_local(to_box.0, to_box.1),
+        from: box_.to_device(from_box.0, from_box.1),
+        to: box_.to_device(to_box.0, to_box.1),
         stops: positions,
         colors,
         tile_mode,
-        local_matrix: Some(box_.matrix()),
+        local_matrix: None,
     }
 }
 
@@ -3132,15 +3131,16 @@ mod radial_gradient_tests {
         else {
             panic!("expected linear gradient");
         };
-        // Endpoints in normalized box coords: (0, 0.5) -> (1, 0.5).
-        assert!(approx_pt(from, [0.0, 0.5]), "from = {from:?}");
-        assert!(approx_pt(to, [1.0, 0.5]), "to = {to:?}");
+        // Endpoints in box (device) coords, centered on the 800x100 rect:
+        // (0, 50) -> (800, 50). Device space (no local matrix) keeps the angle
+        // independent of the box aspect ratio.
+        assert!(approx_pt(from, [0.0, 50.0]), "from = {from:?}");
+        assert!(approx_pt(to, [800.0, 50.0]), "to = {to:?}");
         // Percent stops stay put.
         assert_eq!(stops, vec![0.0, 1.0]);
         assert_eq!(colors.len(), 2);
         assert_eq!(tile_mode, TileMode::Clamp);
-        // The 800x100 rect maps the unit square via scale(800, 100).
-        assert_eq!(local_matrix, Some([800.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(local_matrix, None);
     }
 
     // ── Case b: red -> transparent across the width ──────────────────────
@@ -3158,12 +3158,12 @@ mod radial_gradient_tests {
         else {
             panic!("expected linear gradient");
         };
-        assert!(approx_pt(from, [0.0, 0.5]));
-        assert!(approx_pt(to, [1.0, 0.5]));
+        assert!(approx_pt(from, [0.0, 50.0]));
+        assert!(approx_pt(to, [800.0, 50.0]));
         assert_eq!(stops, vec![0.0, 1.0]);
         assert_eq!(colors[0], [1.0, 0.0, 0.0, 1.0]);
         assert_eq!(colors[1], [0.0, 0.0, 0.0, 0.0]);
-        assert_eq!(local_matrix, Some([800.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(local_matrix, None);
     }
 
     // ── Case c: radial-gradient(circle, red, blue) covering the box ──────
@@ -3214,12 +3214,12 @@ mod radial_gradient_tests {
         assert_eq!(tile_mode, TileMode::Repeat);
         // 0deg = vertical: endpoints sit on the box's vertical center line, and
         // the shader line spans exactly one 10px period.
-        assert!(approx_pt(from, [0.5, 1.0]), "from = {from:?}");
-        assert!(approx_pt(to, [0.5, 0.9]), "to = {to:?}");
+        assert!(approx_pt(from, [400.0, 100.0]), "from = {from:?}");
+        assert!(approx_pt(to, [400.0, 90.0]), "to = {to:?}");
         // px stops resolved against the 10px period: 0px, 1px, 1px, 10px.
         assert_eq!(stops, vec![0.0, 0.1, 0.1, 1.0]);
         assert_eq!(colors.len(), 4); // dark, dark, transparent, transparent
-        assert_eq!(local_matrix, Some([800.0, 0.0, 0.0, 0.0, 100.0, 0.0, 0.0, 0.0, 1.0]));
+        assert_eq!(local_matrix, None);
     }
 
     // ── Case e: ellipse with % radii must not collapse to a circle ───────

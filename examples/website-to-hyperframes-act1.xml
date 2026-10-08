@@ -1,0 +1,318 @@
+<opencat width="1920" height="1080" fps="30" duration="12.0">
+  <fonts default="inter">
+    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
+    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
+    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-Regular.ttf" />
+    <font id="mono500" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+    <font id="bungee" family="Bungee Shade" path="../assets/BungeeShade-Regular.ttf" />
+  </fonts>
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#f5f3ee] overflow-hidden">
+
+    <div id="canvas" class="absolute inset-0 bg-[radial-gradient(1400px_800px_at_50%_50%,rgba(0,0,0,0.025),transparent_65%),#f5f3ee]"></div>
+
+    <!-- ═══ MORPH BOX: CTA → Claude Code ═══ -->
+    <div id="morph" class="absolute left-[100px] top-[450px] w-[1720px] h-[180px] bg-[#1a1b1f] rounded-[20px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.28),0_12px_22px_rgba(11,11,15,0.14)]">
+      <div id="cta" class="absolute inset-0 flex items-center pl-[56px]">
+        <text id="x001" class="font-[mono] font-normal text-[44px] tracking-[-0.005em] mr-[4px] text-[#c86d3f]">$ </text>
+        <text id="cta-cmd" class="font-[mono] font-normal text-[44px] tracking-[-0.005em] text-[#f7f8f8]">npx skills add heygen-com/hyperframes</text>
+        <div id="cta-caret" class="w-[4px] h-[44px] bg-[#f7f8f8] ml-[2px]"></div>
+      </div>
+
+      <div id="term-content" class="absolute inset-0 opacity-0">
+        <div id="d001" class="flex items-center gap-[14px] px-[22px] h-[54px] bg-[#15161a] border-b-[1px] border-[rgba(255,255,255,0.06)]">
+          <div id="d002" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
+          <div id="d003" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
+          <div id="d004" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
+          <image id="claude-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/claude.png" />
+          <text id="x002" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Claude Code · Opus 4.7</text>
+        </div>
+        <div id="d005" class="absolute left-[24px] right-[24px] bottom-[28px] px-[16px] pt-[14px] pb-[12px] bg-[rgba(11,11,15,0.4)] border-[1px] border-[rgba(200,109,63,0.55)] rounded-[12px]">
+          <div id="d006" class="flex items-center px-[6px] pt-[6px] pb-[14px] border-b-[1px] border-[rgba(255,255,255,0.06)]">
+            <text id="p1" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">make a 30s promo for https://stripe.com</text>
+            <div id="c1" class="w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
+          </div>
+          <div id="d007" class="flex justify-between items-center pt-[10px]">
+            <div id="d008" class="flex gap-[8px]">
+              <div id="d009" class="w-[26px] h-[26px] rounded-[6px] bg-[rgba(255,255,255,0.05)] flex items-center justify-center"><text id="x003" class="font-[mono] text-[14px] text-[#8a8f98]">+</text></div>
+              <div id="d010" class="w-[26px] h-[26px] rounded-[6px] bg-[rgba(255,255,255,0.05)] flex items-center justify-center"><text id="x004" class="font-[mono] text-[14px] text-[#8a8f98]">/</text></div>
+              <div id="d011" class="w-[26px] h-[26px] rounded-full border-[1.5px] border-[rgba(200,109,63,0.7)]"></div>
+            </div>
+            <div id="d012" class="flex items-center gap-[14px]">
+              <text id="x005" class="font-[mono] text-[12px] text-[#8a8f98]">Ask before edits</text>
+              <div id="d013" class="w-[32px] h-[32px] bg-[#c86d3f] rounded-[6px] flex items-center justify-center"><text id="x006" class="font-[mono] text-[14px] text-[#ffffff]">↑</text></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Cursor pointer (CTA entry) ═══ -->
+    <div id="mc-main" class="absolute left-[1120px] top-[560px] w-[18px] h-[30px] bg-[#0b0b0f] border-[1.5px] border-[#f7f8f8] opacity-0 z-[30]"></div>
+
+    <!-- ═══ PANEL 2: Cursor ═══ -->
+    <div id="t-cursor" class="absolute left-[260px] top-[150px] w-[1400px] h-[780px] bg-[#1a1b1f] rounded-[22px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.32),0_12px_22px_rgba(11,11,15,0.16)] opacity-0">
+      <div id="d014" class="flex items-center gap-[14px] px-[22px] h-[54px] bg-[#15161a] border-b-[1px] border-[rgba(255,255,255,0.06)]">
+        <div id="d015" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
+        <div id="d016" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
+        <div id="d017" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
+        <image id="cursor-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/cursor.png" />
+        <text id="x007" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Cursor · Agent</text>
+      </div>
+      <div id="d018" class="absolute inset-x-0 top-[54px] bottom-0 px-[36px] pt-[32px]">
+        <div id="d019" class="flex justify-between items-center mb-[18px]"><text id="x008" class="font-[inter400] text-[14px] text-[#c7c7c9]">New Chat</text><text id="x009" class="font-[inter400] text-[14px] text-[#8a8f98]">＋　···</text></div>
+        <div id="d020" class="relative border-[1.5px] border-[rgba(120,120,140,0.45)] rounded-[14px] px-[18px] pt-[18px] pb-[14px] bg-[rgba(11,11,15,0.22)] h-[214px]">
+          <text id="cu-hint" class="absolute left-[22px] top-[20px] font-[inter400] text-[15px] text-[#6e7077]">Plan, @ for context, / for commands</text>
+          <div id="d021" class="absolute left-[22px] top-[20px] flex items-center overflow-hidden">
+            <text id="p2" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">need a cinematic brand video from https://framer.com</text>
+            <div id="c2" class="inline-block w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
+          </div>
+          <div id="d022" class="absolute left-[18px] right-[18px] bottom-[14px] flex items-center gap-[14px]">
+            <div id="d023" class="flex items-center gap-[6px] px-[12px] py-[5px] border-[1px] border-[#3a3b3f] rounded-full"><text id="x010" class="font-[inter400] text-[13px] text-[#f0f0f0]">Agent ⌄</text></div>
+            <text id="x011" class="font-[inter400] text-[13px] text-[#c7c7c9]">Opus 4.7 ⌄</text>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PANEL 3: Codex ═══ -->
+    <div id="t-codex" class="absolute left-[260px] top-[150px] w-[1400px] h-[780px] bg-[#1a1b1f] rounded-[22px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.32),0_12px_22px_rgba(11,11,15,0.16)] opacity-0">
+      <div id="d024" class="flex items-center gap-[14px] px-[22px] h-[54px] bg-[#15161a] border-b-[1px] border-[rgba(255,255,255,0.06)]">
+        <div id="d025" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
+        <div id="d026" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
+        <div id="d027" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
+        <image id="codex-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/codex.png" />
+        <text id="x012" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Codex · GPT-5.4</text>
+      </div>
+      <div id="d028" class="absolute inset-x-0 top-[54px] bottom-0 px-[36px] pt-[32px]">
+        <div id="d029" class="flex items-center gap-[12px]"><text id="x013" class="font-[inter400] font-medium text-[14px] text-[#f7f8f8]">New thread</text><div id="x014" class="px-[12px] py-[4px] bg-[#7a6aff] rounded-full"><text id="x014t" class="font-[inter400] text-[11px] text-[#f0f0f0]">✦ Get Plus</text></div></div>
+        <div id="d030" class="absolute left-[600px] top-[180px] w-[200px] text-center">
+          <image id="codex-big" class="w-[44px] h-[44px] mb-[14px] mx-auto" path="../assets/w2h-logos/codex-large.png" />
+          <text id="x015" class="font-[inter400] text-[28px] font-medium text-[#f0f0f0]">Let's build</text>
+          <text id="x016" class="font-[inter400] text-[15px] text-[#8a8f98]">New project ⌄</text>
+        </div>
+        <div id="d031" class="absolute left-[24px] right-[24px] bottom-[60px] flex items-center gap-[14px] px-[14px] py-[12px] bg-[#15161a] border-[1px] border-[#2e2e32] rounded-[12px]">
+          <text id="x017" class="font-[inter400] text-[18px] text-[#8a8f98]">＋</text>
+          <div id="d032" class="flex-1 flex items-center overflow-hidden">
+            <text id="p3" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">build me an instagram ad from https://vibecode.app</text>
+            <div id="c3" class="inline-block w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
+          </div>
+          <div id="d033" class="w-[26px] h-[26px] bg-[#2e2e32] rounded-full flex items-center justify-center"><text id="x018" class="font-[inter400] text-[12px] text-[#f0f0f0]">↑</text></div>
+        </div>
+        <div id="d034" class="absolute left-[24px] bottom-[22px] flex gap-[8px]">
+          <div id="d035" class="px-[10px] py-[4px] border-[1px] border-[#2e2e32] rounded-full"><text id="x019" class="font-[inter400] text-[11px] text-[#c7c7c9]">GPT-5.4 ⌄</text></div>
+          <div id="d036" class="px-[10px] py-[4px] border-[1px] border-[#2e2e32] rounded-full"><text id="x020" class="font-[inter400] text-[11px] text-[#c7c7c9]">High ⌄</text></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PANEL 4: Gemini CLI ═══ -->
+    <div id="t-gemini" class="absolute left-[260px] top-[150px] w-[1400px] h-[780px] bg-[#1a1b1f] rounded-[22px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.32),0_12px_22px_rgba(11,11,15,0.16)] opacity-0">
+      <div id="d037" class="flex items-center gap-[14px] px-[22px] h-[54px] bg-[#15161a] border-b-[1px] border-[rgba(255,255,255,0.06)]">
+        <div id="d038" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
+        <div id="d039" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
+        <div id="d040" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
+        <image id="gemini-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/gemini.png" />
+        <text id="x021" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Gemini CLI · gemini-3-flash</text>
+      </div>
+      <div id="d041" class="absolute inset-x-0 top-[54px] bottom-0 px-[28px] pt-[22px]">
+        <div id="d042" class="flex justify-between pt-[18px] pb-[14px]"><text id="x022" class="font-[mono] text-[12px] text-[#8a8f98]">Shift+Tab to accept edits</text><text id="x023" class="font-[mono] text-[12px] text-[#8a8f98]">12 skills</text></div>
+        <div id="d043" class="border-t-[1px] border-dashed border-[rgba(255,255,255,0.14)]"></div>
+        <div id="d044" class="relative flex items-center gap-[10px] py-[80px]">
+          <text id="x024" class="font-[mono] text-[18px] text-[#8a8f98]">&gt;</text>
+          <text id="p4" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">launch video for https://heygen.com</text>
+          <div id="c4" class="inline-block w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
+          <text id="ge-ph" class="absolute right-0 font-[mono] text-[13px] text-[#6e7077]">Type your message or @path/to/file</text>
+        </div>
+        <div id="d045" class="border-t-[1px] border-dashed border-[rgba(255,255,255,0.14)]"></div>
+        <div id="d046" class="grid grid-cols-3 gap-[30px] pt-[18px]">
+          <div id="gecol1"><text id="x025" class="font-[mono] text-[11px] text-[#8a8f98]">workspace</text><text id="x026" class="block font-[mono] text-[11px] font-medium text-[#f0f0f0]">~/Desktop</text></div>
+          <div id="gecol2"><text id="x027" class="font-[mono] text-[11px] text-[#8a8f98]">sandbox</text><text id="x028" class="block font-[mono] text-[11px] font-medium text-[#ff5577]">no-sandbox</text></div>
+          <div id="gecol3"><text id="x029" class="font-[mono] text-[11px] text-[#8a8f98]">/model</text><text id="x030" class="block font-[mono] text-[11px] font-medium text-[#f0f0f0]">gemini-3-flash-preview</text></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Phrase ═══ -->
+    <div id="phrase" class="absolute left-0 top-[288px] w-[1920px] text-center tracking-[-0.025em] z-[18]">
+      <text id="pw1" class="block font-[inter800] font-extrabold text-[160px] leading-[1.05] text-[#0b0b0f] opacity-0 blur-[14px]">Now</text>
+      <text id="pw2" class="block font-[inter800] font-extrabold text-[160px] leading-[1.05] text-[#533afd] opacity-0 blur-[14px]">any site becomes</text>
+      <text id="pw3" class="block font-[inter800] font-extrabold italic text-[160px] leading-[1.05] text-[#00a7d9] opacity-0 blur-[14px]">video.</text>
+    </div>
+
+    <!-- ═══ YEAHH ═══ -->
+    <div id="yeahh" class="absolute left-0 top-[420px] w-[1920px] text-center opacity-0 z-[20]">
+      <text id="yeahh-t" class="font-[bungee] text-[240px] leading-none text-[#ffd60a] [text-shadow:3px_3px_0_#ff006e,6px_6px_0_rgba(0,0,0,0.4)]">YEAHH</text>
+    </div>
+
+    <!-- ═══ Click cursors + ripples ═══ -->
+    <div id="mc-tl" class="absolute left-[812px] top-[450px] w-[16px] h-[28px] bg-[#0b0b0f] border-[1.5px] border-[#f7f8f8] opacity-0 z-[32]"></div>
+    <div id="mc-bl" class="absolute left-[812px] top-[989px] w-[16px] h-[28px] bg-[#0b0b0f] border-[1.5px] border-[#f7f8f8] opacity-0 z-[32]"></div>
+    <div id="cr-tl" class="absolute left-[816px] top-[470px] w-[60px] h-[60px] border-[2px] border-[rgba(255,255,255,0.8)] rounded-full opacity-0 z-[31]"></div>
+    <div id="cr-bl" class="absolute left-[816px] top-[1009px] w-[60px] h-[60px] border-[2px] border-[rgba(255,255,255,0.8)] rounded-full opacity-0 z-[31]"></div>
+
+    <!-- ═══ Sent bubbles ═══ -->
+    <div id="sm-claude" class="absolute left-[350px] top-[160px] z-[24] rounded-[14px] px-[16px] py-[10px] bg-[rgba(200,109,63,0.22)] border-[1px] border-[rgba(200,109,63,0.45)] opacity-0">
+      <text id="x031" class="font-[mono] text-[13px] text-[#f2e6d5] whitespace-nowrap">make a 30s promo for https://stripe.com</text>
+    </div>
+    <div id="sm-cursor" class="absolute left-[1310px] top-[130px] z-[24] rounded-[14px] px-[16px] py-[10px] bg-[rgba(120,110,180,0.22)] border-[1px] border-[rgba(150,140,220,0.4)] opacity-0">
+      <text id="x032" class="font-[mono] text-[13px] text-[#e8e6f2] whitespace-nowrap">need a cinematic brand video from https://framer.com</text>
+    </div>
+    <div id="sm-codex" class="absolute left-[350px] top-[700px] z-[24] rounded-[14px] px-[16px] py-[10px] bg-[rgba(110,100,180,0.22)] border-[1px] border-[rgba(140,130,210,0.4)] opacity-0">
+      <text id="x033" class="font-[mono] text-[13px] text-[#e8e6f2] whitespace-nowrap">build me an instagram ad from https://vibecode.app</text>
+    </div>
+    <div id="sm-gemini" class="absolute left-[1150px] top-[780px] z-[24] rounded-[14px] px-[16px] py-[10px] opacity-0">
+      <text id="x034" class="font-[mono] text-[13px] text-[#7aaa7a] whitespace-nowrap">✓ task accepted · website-to-hyperframes queued</text>
+    </div>
+
+    <!-- Master bottom captions (VO-synced) -->
+    <div id="mc1" class="absolute left-0 bottom-[95px] w-[1920px] flex justify-center opacity-0 z-[25]">
+      <div id="mp1" class="px-[26px] py-[10px] rounded-[14px] bg-[rgba(11,11,15,0.42)] backdrop-blur-[12px] shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
+        <text id="mt1" class="font-[inter800] font-extrabold text-[60px] leading-none tracking-[-0.025em] text-[#ffffff] whitespace-nowrap">Promo for your app?</text>
+      </div>
+    </div>
+    <div id="mc2" class="absolute left-0 bottom-[95px] w-[1920px] flex justify-center opacity-0 z-[25]">
+      <div id="mp2" class="px-[26px] py-[10px] rounded-[14px] bg-[rgba(11,11,15,0.42)] backdrop-blur-[12px] shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
+        <text id="mt2" class="font-[inter800] font-extrabold text-[60px] leading-none tracking-[-0.025em] text-[#ffffff] whitespace-nowrap">Brand video?</text>
+      </div>
+    </div>
+    <div id="mc3" class="absolute left-0 bottom-[95px] w-[1920px] flex justify-center opacity-0 z-[25]">
+      <div id="mp3" class="px-[26px] py-[10px] rounded-[14px] bg-[rgba(11,11,15,0.42)] backdrop-blur-[12px] shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
+        <text id="mt3" class="font-[inter800] font-extrabold text-[60px] leading-none tracking-[-0.025em] text-[#ffffff] whitespace-nowrap">Social ad?</text>
+      </div>
+    </div>
+    <div id="mc4" class="absolute left-0 bottom-[95px] w-[1920px] flex justify-center opacity-0 z-[25]">
+      <div id="mp4" class="px-[26px] py-[10px] rounded-[14px] bg-[rgba(11,11,15,0.42)] backdrop-blur-[12px] shadow-[0_6px_18px_rgba(0,0,0,0.28)]">
+        <text id="mt4" class="font-[inter800] font-extrabold text-[60px] leading-none tracking-[-0.025em] text-[#ffffff] whitespace-nowrap">Launch clip?</text>
+      </div>
+    </div>
+
+    <div id="flash" class="absolute inset-0 bg-[#ffffff] opacity-0 z-[40]"></div>
+  </div>
+
+  <script>
+    var T = ctx.timeline();
+
+    // Typing via steps() easing on clipPath. Stripe the prompt texts to their
+    // full width; `splitText`-free char reveal matches the reference's
+    // `steps(N)` clipPath by animating the inset from 100%→0 in N steps.
+    var p1 = 'make a 30s promo for https://stripe.com';
+    var p2 = 'need a cinematic brand video from https://framer.com';
+    var p3 = 'build me an instagram ad from https://vibecode.app';
+    var p4 = 'launch video for https://heygen.com';
+
+    // Phase 1: CTA caret + typing
+    T.to('cta-caret', { opacity: 0, duration: 0.15 }, 0.20);
+    T.to('cta-caret', { opacity: 1, duration: 0.15 }, 0.40);
+    T.fromTo('cta-cmd', { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.90, ease: 'steps(36)' }, 0.45);
+    T.to('cta-caret', { opacity: 0, duration: 0.15 }, 1.38);
+    T.to('cta-caret', { opacity: 1, duration: 0.15 }, 1.53);
+
+    // 1.65: send the CTA
+    T.to('cta', { y: -50, scale: 1.02, opacity: 0, duration: 0.28, ease: 'power2.out' }, 1.65);
+    T.to('morph', { scale: 0.98, duration: 0.12, ease: 'power2.in' }, 1.65);
+    T.to('morph', { scale: 1.0, duration: 0.10, ease: 'power2.out' }, 1.77);
+
+    // main cursor entrance
+    T.fromTo('mc-main', { opacity: 0, x: 220, y: 140 }, { opacity: 1, x: 40, y: 30, duration: 0.55, ease: 'power2.out' }, 0.80);
+    T.to('mc-main', { x: 0, y: 0, duration: 0.45, ease: 'power2.inOut' }, 1.25);
+    T.to('mc-main', { scale: 0.9, duration: 0.08, ease: 'power2.in' }, 1.65);
+    T.to('mc-main', { scale: 1, opacity: 0, duration: 0.12 }, 1.74);
+
+    // Phase 2: morph to terminal. The reference `.morph-box` is centered
+    // (left:50%; top:50%; translate(-50%,-50%)) and resizes about its center,
+    // so animate left/top (100,450 -> 260,150) in lockstep with width/height
+    // (1720x180 -> 1400x780) to keep the center pinned at (960,540).
+    T.fromTo('morph', { width: 1720, height: 180, left: 100, top: 450 }, { width: 1400, height: 780, left: 260, top: 150, duration: 0.45, ease: 'power3.inOut' }, 1.75);
+    T.to('term-content', { opacity: 1, duration: 0.30, ease: 'power2.out' }, 1.98);
+
+    // Phase 3: panel typing
+    T.fromTo('p1', { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 1.05, ease: 'steps(38)' }, 2.15);
+    T.to('c1', { opacity: 1, duration: 0.12 }, 3.20);
+
+    T.fromTo('t-cursor', { opacity: 0, x: 400, y: -80, scale: 0.92, rotation: -8 }, { opacity: 1, x: -55, y: -28, scale: 0.98, rotation: -4, duration: 0.55, ease: 'power3.out' }, 3.30);
+    T.to('cu-hint', { opacity: 0, duration: 0.2 }, 3.45);
+    T.set('p2', { clipPath: 'inset(0 55% 0 0)' }, 3.30);
+    T.to('p2', { clipPath: 'inset(0 0% 0 0)', duration: 0.90, ease: 'steps(21)' }, 3.40);
+    T.to('c2', { opacity: 1, duration: 0.12 }, 4.30);
+
+    T.fromTo('t-codex', { opacity: 0, x: -400, y: 90, scale: 0.92, rotation: 10 }, { opacity: 1, x: 50, y: 32, scale: 0.97, rotation: 5, duration: 0.55, ease: 'power3.out' }, 4.80);
+    T.set('p3', { clipPath: 'inset(0 60% 0 0)' }, 4.80);
+    T.to('p3', { clipPath: 'inset(0 0% 0 0)', duration: 0.80, ease: 'steps(25)' }, 4.90);
+    T.to('c3', { opacity: 1, duration: 0.12 }, 5.70);
+
+    T.fromTo('t-gemini', { opacity: 0, x: 60, y: -220, scale: 0.92, rotation: -7 }, { opacity: 1, x: -28, y: 48, scale: 0.96, rotation: -3, duration: 0.55, ease: 'power3.out' }, 6.40);
+    T.set('p4', { clipPath: 'inset(0 50% 0 0)' }, 6.40);
+    T.to('ge-ph', { opacity: 0, duration: 0.18 }, 6.40);
+    T.to('p4', { clipPath: 'inset(0 0% 0 0)', duration: 0.80, ease: 'steps(18)' }, 6.50);
+    T.to('c4', { opacity: 1, duration: 0.12 }, 7.30);
+
+    // caret blinks
+    var blinks = [[3.20,'c1'],[4.30,'c2'],[5.70,'c3'],[7.30,'c4']];
+    for (var i = 0; blinks.length > i; i++) {
+      T.to(blinks[i][1], { opacity: 0, duration: 0.2 }, blinks[i][0] + 0.45);
+      T.to(blinks[i][1], { opacity: 1, duration: 0.2 }, blinks[i][0] + 0.65);
+    }
+
+    // Phase 4: charge
+    var TERMS = ['morph','t-cursor','t-codex','t-gemini'];
+    T.to(TERMS, { x: '+=3', yoyo: true, repeat: 5, duration: 0.045, ease: 'none' }, 8.00);
+
+    // Phase 5: scatter
+    T.to('morph',    { x: -480, y: -270, rotation: 0, scale: 0.52, duration: 0.20, ease: 'power3.out' }, 8.15);
+    T.to('t-cursor', { x:  480, y: -270, rotation: 0, scale: 0.52, duration: 0.20, ease: 'power3.out' }, 8.15);
+    T.to('t-codex',  { x: -480, y:  270, rotation: 0, scale: 0.52, duration: 0.20, ease: 'power3.out' }, 8.15);
+    T.to('t-gemini', { x:  480, y:  270, rotation: 0, scale: 0.52, duration: 0.20, ease: 'power3.out' }, 8.15);
+    T.to(TERMS, { scale: 0.55, duration: 0.14, ease: 'power2.out' }, 8.35);
+    T.to(TERMS, { scale: 0.52, duration: 0.20, ease: 'elastic.out(1, 0.7)' }, 8.49);
+
+    // Phase 6: phrase
+    T.to(TERMS, { opacity: 0.12, duration: 0.4, ease: 'power2.out' }, 8.36);
+    T.to('pw1', { opacity: 1, filter: 'blur(0px)', duration: 0.32, ease: 'power2.out' }, 8.45);
+    T.to('pw2', { opacity: 1, filter: 'blur(0px)', duration: 0.35, ease: 'power2.out' }, 9.00);
+    T.to('pw3', { opacity: 1, filter: 'blur(0px)', duration: 0.4, ease: 'power2.out' }, 9.85);
+
+    // Phase 7: YEAHH. The reference `.yeahh { transform: rotate(-3deg) }` is a
+    // *static* inner rotation that composes with the wrap tween's rotation
+    // (-8 -> -3), giving -6deg at rest; the XML had dropped it (only the wrap's
+    // -3). Set it once on the text child so the two compose.
+    T.set('yeahh-t', { rotation: -3 }, 0);
+    T.to(['pw1','pw2','pw3'], { opacity: 0, y: -8, duration: 0.22, ease: 'power2.in' }, 10.40);
+    T.to(TERMS, { opacity: 1, duration: 0.18, ease: 'power2.out' }, 10.40);
+    T.fromTo('yeahh', { opacity: 0, scale: 0, rotation: -8 }, { opacity: 1, scale: 1.18, rotation: -3, duration: 0.18, ease: 'back.out(2.5)' }, 10.55);
+    T.to('yeahh', { scale: 1.0, duration: 0.1, ease: 'power2.out' }, 10.73);
+    T.to('yeahh', { opacity: 0, scale: 0.3, duration: 0.18, ease: 'power2.in' }, 10.95);
+
+    // Phase 8: sending
+    T.to(['mc-tl','mc-bl'], { opacity: 1, duration: 0.18, ease: 'power2.out', stagger: { each: 0.03 } }, 11.05);
+    T.to(['mc-tl','mc-bl'], { scale: 0.92, duration: 0.08, ease: 'power2.in' }, 11.35);
+    T.to(['mc-tl','mc-bl'], { scale: 1, duration: 0.12, ease: 'power2.out' }, 11.43);
+    T.to(['p1','p2','p3','p4'], { y: -40, scale: 1.03, opacity: 0, duration: 0.4, ease: 'power2.out' }, 11.35);
+    T.to(['c1','c2','c3','c4'], { opacity: 0, duration: 0.1 }, 11.35);
+
+    T.fromTo('cr-tl', { scale: 0, opacity: 0 }, { scale: 1.3, opacity: 0.45, duration: 0.22, ease: 'power2.out' }, 11.35);
+    T.fromTo('cr-bl', { scale: 0, opacity: 0 }, { scale: 1.3, opacity: 0.45, duration: 0.22, ease: 'power2.out' }, 11.38);
+    T.to(['cr-tl','cr-bl'], { scale: 2.0, opacity: 0, duration: 0.30, ease: 'power2.out' }, 11.52);
+
+    var bubbles = ['sm-claude','sm-cursor','sm-codex','sm-gemini'];
+    for (var b = 0; bubbles.length > b; b++) {
+      T.fromTo(bubbles[b], { opacity: 0, y: 14, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.28, ease: 'back.out(1.4)' }, 11.55 + b * 0.03);
+    }
+    T.to(['mc-tl','mc-bl'], { opacity: 0, duration: 0.18, ease: 'power2.in' }, 11.70);
+    T.to(bubbles, { opacity: 0, duration: 0.15, ease: 'power2.in' }, 11.90);
+
+    // Master bottom captions (data-start 1.66/3.30/4.80/6.40, dur 1.30/1.02/0.98/1.02)
+    var MC = [['mc1',1.66,1.30],['mc2',3.30,1.02],['mc3',4.80,0.98],['mc4',6.40,1.02]];
+    for (var k = 0; MC.length > k; k++) {
+      var mid = MC[k][0], at = MC[k][1], dur = MC[k][2];
+      T.set(mid, { opacity: 0, y: 18, scale: 0.82 }, at);
+      T.to(mid, { opacity: 1, y: -2, scale: 1.04, duration: 0.182, ease: [0.34, 1.56, 0.64, 1] }, at);
+      T.to(mid, { y: 0, scale: 1.0, duration: 0.078, ease: [0.34, 1.56, 0.64, 1] }, at + 0.182);
+      T.set(mid, { opacity: 0 }, at + dur);
+    }
+
+    // Phase 9: flash
+    T.to('flash', { opacity: 1, duration: 0.05, ease: 'none' }, 11.92);
+    T.to('flash', { opacity: 0, duration: 0.18, ease: 'power2.out' }, 11.98);
+  </script>
+</opencat>

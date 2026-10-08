@@ -386,6 +386,17 @@ pub enum BorderStyle {
     Dotted,
 }
 
+/// CSS `background-clip`. `Text` is the one case the renderer acts on: the
+/// element's background paints through the glyph outlines instead of behind
+/// them (the `bg-clip-text` + `text-transparent` gradient-wordmark idiom).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BackgroundClip {
+    #[default]
+    BorderBox,
+    Text,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BoxShadowStyle {
     TwoXs,
@@ -1505,6 +1516,9 @@ pub struct NodeStyle {
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
     pub clip_path: Option<ClipPath>,
+    /// CSS `background-clip`. `Text` makes the element's background fill its
+    /// glyphs (gradient text); the glyphs otherwise paint with `text_color`.
+    pub background_clip: BackgroundClip,
     pub truncate: bool,
     pub transforms: Vec<Transform>,
     /// Static CSS `transform-origin` (the anchor for `transforms`). `None` = box centre.

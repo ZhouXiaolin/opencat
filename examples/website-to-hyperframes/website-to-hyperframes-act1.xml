@@ -1,11 +1,11 @@
 <opencat width="1920" height="1080" fps="30" duration="12.0">
   <fonts default="inter">
-    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
-    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
-    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
-    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-Regular.ttf" />
-    <font id="mono500" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
-    <font id="bungee" family="Bungee Shade" path="../assets/BungeeShade-Regular.ttf" />
+    <font id="inter" family="Inter" path="assets/fonts/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="assets/fonts/Inter-400.ttf" />
+    <font id="inter800" family="Inter" path="assets/fonts/Inter-800.ttf" />
+    <font id="mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-Regular.ttf" />
+    <font id="mono500" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-500.ttf" />
+    <font id="bungee" family="Bungee Shade" path="assets/fonts/BungeeShade-Regular.ttf" />
   </fonts>
   <div id="root" class="relative w-[1920px] h-[1080px] bg-[#f5f3ee] overflow-hidden">
 
@@ -24,7 +24,7 @@
           <div id="d002" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
           <div id="d003" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
           <div id="d004" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
-          <image id="claude-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/claude.png" />
+          <image id="claude-logo" class="w-[28px] h-[28px] rounded-[5px]" path="assets/w2h-logos/claude.png" />
           <text id="x002" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Claude Code · Opus 4.7</text>
         </div>
         <div id="d005" class="absolute left-[24px] right-[24px] bottom-[28px] px-[16px] pt-[14px] pb-[12px] bg-[rgba(11,11,15,0.4)] border-[1px] border-[rgba(200,109,63,0.55)] rounded-[12px]">
@@ -56,7 +56,7 @@
         <div id="d015" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
         <div id="d016" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
         <div id="d017" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
-        <image id="cursor-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/cursor.png" />
+        <image id="cursor-logo" class="w-[28px] h-[28px] rounded-[5px]" path="assets/w2h-logos/cursor.png" />
         <text id="x007" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Cursor · Agent</text>
       </div>
       <div id="d018" class="absolute inset-x-0 top-[54px] bottom-0 px-[36px] pt-[32px]">
@@ -81,13 +81,13 @@
         <div id="d025" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
         <div id="d026" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
         <div id="d027" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
-        <image id="codex-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/codex.png" />
+        <image id="codex-logo" class="w-[28px] h-[28px] rounded-[5px]" path="assets/w2h-logos/codex.png" />
         <text id="x012" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Codex · GPT-5.4</text>
       </div>
       <div id="d028" class="absolute inset-x-0 top-[54px] bottom-0 px-[36px] pt-[32px]">
         <div id="d029" class="flex items-center gap-[12px]"><text id="x013" class="font-[inter400] font-medium text-[14px] text-[#f7f8f8]">New thread</text><div id="x014" class="px-[12px] py-[4px] bg-[#7a6aff] rounded-full"><text id="x014t" class="font-[inter400] text-[11px] text-[#f0f0f0]">✦ Get Plus</text></div></div>
         <div id="d030" class="absolute left-[600px] top-[180px] w-[200px] text-center">
-          <image id="codex-big" class="w-[44px] h-[44px] mb-[14px] mx-auto" path="../assets/w2h-logos/codex-large.png" />
+          <image id="codex-big" class="w-[44px] h-[44px] mb-[14px] mx-auto" path="assets/w2h-logos/codex-large.png" />
           <text id="x015" class="font-[inter400] text-[28px] font-medium text-[#f0f0f0]">Let's build</text>
           <text id="x016" class="font-[inter400] text-[15px] text-[#8a8f98]">New project ⌄</text>
         </div>
@@ -112,7 +112,7 @@
         <div id="d038" class="w-[13px] h-[13px] rounded-full bg-[#ff5f57]"></div>
         <div id="d039" class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
         <div id="d040" class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
-        <image id="gemini-logo" class="w-[28px] h-[28px] rounded-[5px]" path="../assets/w2h-logos/gemini.png" />
+        <image id="gemini-logo" class="w-[28px] h-[28px] rounded-[5px]" path="assets/w2h-logos/gemini.png" />
         <text id="x021" class="font-[mono] font-medium text-[18px] text-[#8a8f98]">Gemini CLI · gemini-3-flash</text>
       </div>
       <div id="d041" class="absolute inset-x-0 top-[54px] bottom-0 px-[28px] pt-[22px]">

@@ -13,10 +13,10 @@
        smoothstep ring). The CTA and the white end card are crisp DOM/SVG.
        ════════════════════════════════════════════════════════════════════ -->
   <fonts default="inter">
-    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
-    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
-    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
-    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+    <font id="inter" family="Inter" path="assets/fonts/Inter-500v.ttf" />
+    <font id="inter800" family="Inter" path="assets/fonts/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="assets/fonts/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-500.ttf" />
   </fonts>
   <div id="root" class="relative w-[1920px] h-[1080px] bg-[#000000] overflow-hidden">
 
@@ -52,7 +52,7 @@
          transparent inside the growing disc (revealing this card), opaque
          outside (the CTA front texture). ────────────────────────────────── -->
     <div id="portal-logo-frame" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#FFFFFF] flex flex-col items-center justify-center gap-[42px] opacity-0">
-      <image id="end-logo" class="w-[650px] h-[195px]" path="../assets/vhc/hyperframes-dark.png" />
+      <image id="end-logo" class="w-[650px] h-[195px]" path="assets/hyperframes-dark.png" />
       <text id="end-url" class="text-[#111111] font-[mono] font-medium text-[32px] opacity-[0.72]">hyperframes.heygen.com/catalog</text>
     </div>
 

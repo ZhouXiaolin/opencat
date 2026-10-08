@@ -3,10 +3,10 @@
        所有数值照抄 hyperframes-launches/codex-five-hour-limit-replica 源码；
        颜色照抄 authored 值（含渲染器预补偿）。由 /tmp/codex-boot/gen_xml.py 生成。 -->
   <fonts default="cx-sans">
-    <font id="cx-sans" family="Inter" path="../assets/Inter-400.ttf" role="sans" />
-    <font id="cx-sans-med" family="Inter" path="../assets/Inter-500.ttf" />
-    <font id="cx-sans-semibold" family="Inter" path="../assets/Inter-600.ttf" />
-    <font id="cx-heebo" family="Heebo" path="../assets/Heebo-900.ttf" />
+    <font id="cx-sans" family="Inter" path="assets/fonts/Inter-400.ttf" role="sans" />
+    <font id="cx-sans-med" family="Inter" path="assets/fonts/Inter-500.ttf" />
+    <font id="cx-sans-semibold" family="Inter" path="assets/fonts/Inter-600.ttf" />
+    <font id="cx-heebo" family="Heebo" path="assets/fonts/Heebo-900.ttf" />
   </fonts>
   <div id="root" class="relative w-[3840px] h-[2160px] bg-[#ffffff] overflow-hidden font-[cx-sans]">
 
@@ -125,7 +125,7 @@
     </div>
 
     <!-- ═══ track 3: fig video（z3，窗口 6.7783 起 3.37s；FFV1 bgra 保 alpha）═══ -->
-    <video id="fig" path="../assets/codex-fig-60.mkv" data-start="6.7783" data-duration="3.37" data-media-start="0" class="absolute left-[0px] top-[0px] w-[1080px] h-[1920px] z-[3] opacity-0"></video>
+    <video id="fig" path="assets/codex-fig-60.mkv" data-start="6.7783" data-duration="3.37" data-media-start="0" class="absolute left-[0px] top-[0px] w-[1080px] h-[1920px] z-[3] opacity-0"></video>
 
     <!-- ═══ track 4: headline（z4，窗口 7.55→10.15）═══ -->
     <div id="headline" class="absolute inset-0 z-[4] opacity-0">

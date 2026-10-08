@@ -568,7 +568,7 @@ mod tests {
     #[test]
     fn diag_galaxie_space_advance() {
         use crate::text::font_db_from_bytes;
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/p2v/");
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/pr-to-video-launch/assets/");
         let mut faces = vec![];
         for f in [
             "HankenGrotesk-400.ttf",

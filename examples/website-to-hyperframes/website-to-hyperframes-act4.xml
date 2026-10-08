@@ -1,9 +1,9 @@
 <opencat width="1920" height="1080" fps="30" duration="8.0">
   <fonts default="inter">
-    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
-    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
-    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
-    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+    <font id="inter" family="Inter" path="assets/fonts/Inter-500v.ttf" />
+    <font id="inter800" family="Inter" path="assets/fonts/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="assets/fonts/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-500.ttf" />
   </fonts>
   <div id="root" class="relative w-[1920px] h-[1080px] bg-[#06070B] overflow-hidden">
 

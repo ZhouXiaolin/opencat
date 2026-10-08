@@ -22,7 +22,7 @@
 #   MAX_MAE=1.0 MAX_FRAC=0.02 ./scripts/compare-mp4.sh examples/xhs-neo-brutalism.xml
 #   # whole every-frame sweep against a reference video, one MP4:
 #   WEB_VIDEO=1 INTERVAL_SECS=0.033333 REFERENCE=~/ref/k3-promo.mp4 \
-#     ./scripts/compare-mp4.sh examples/k3-promo.xml
+#     ./scripts/compare-mp4.sh examples/k3-promo/k3-promo.xml
 #
 # Env:
 #   INTERVAL_SECS       sample period in seconds (default 0.5)

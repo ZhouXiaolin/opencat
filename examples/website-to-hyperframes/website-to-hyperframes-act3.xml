@@ -1,25 +1,25 @@
 <opencat width="1920" height="1080" fps="30" duration="21.8">
   <fonts default="inter">
-    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
-    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
-    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
-    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-Regular.ttf" />
+    <font id="inter" family="Inter" path="assets/fonts/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="assets/fonts/Inter-400.ttf" />
+    <font id="inter800" family="Inter" path="assets/fonts/Inter-800.ttf" />
+    <font id="mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-Regular.ttf" />
   </fonts>
   <div id="root" class="relative w-[1920px] h-[1080px] bg-[#0A0A0A] overflow-hidden">
 
     <!-- Act 3 — 11 hard-cut video clips (12.0→33.8 rel → 0→21.8 local).
          Each clip is visible only inside its data-start/data-duration window. -->
-    <video id="v01" path="../assets/w2h-a3/a3-01-stripe.mp4"          data-start="0.0"  data-duration="1.500" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v02" path="../assets/w2h-a3/a3-02-tailwindcss.mp4"     data-start="1.5"  data-duration="1.917" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v03" path="../assets/w2h-a3/a3-03-framer.mp4"          data-start="3.4"  data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v04" path="../assets/w2h-a3/a3-04-spotify.mp4"         data-start="5.4"  data-duration="1.800" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v05" path="../assets/w2h-a3/a3-05-heygen.mp4"          data-start="7.2"  data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v06" path="../assets/w2h-a3/a3-06-vercel.mp4"          data-start="9.2"  data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v07" path="../assets/w2h-a3/a3-07-vibecode.mp4"        data-start="11.2" data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v08" path="../assets/w2h-a3/a3-08-linear.mp4"          data-start="13.2" data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v09" path="../assets/w2h-a3/a3-09-dribbble.mp4"        data-start="15.2" data-duration="3.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v10" path="../assets/w2h-a3/a3-10-tailwindcss-logo.mp4" data-start="18.2" data-duration="1.608" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
-    <video id="v11" path="../assets/w2h-a3/a3-11-github.mp4"          data-start="19.8" data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v01" path="assets/w2h-a3/a3-01-stripe.mp4"          data-start="0.0"  data-duration="1.500" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v02" path="assets/w2h-a3/a3-02-tailwindcss.mp4"     data-start="1.5"  data-duration="1.917" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v03" path="assets/w2h-a3/a3-03-framer.mp4"          data-start="3.4"  data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v04" path="assets/w2h-a3/a3-04-spotify.mp4"         data-start="5.4"  data-duration="1.800" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v05" path="assets/w2h-a3/a3-05-heygen.mp4"          data-start="7.2"  data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v06" path="assets/w2h-a3/a3-06-vercel.mp4"          data-start="9.2"  data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v07" path="assets/w2h-a3/a3-07-vibecode.mp4"        data-start="11.2" data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v08" path="assets/w2h-a3/a3-08-linear.mp4"          data-start="13.2" data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v09" path="assets/w2h-a3/a3-09-dribbble.mp4"        data-start="15.2" data-duration="3.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v10" path="assets/w2h-a3/a3-10-tailwindcss-logo.mp4" data-start="18.2" data-duration="1.608" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
+    <video id="v11" path="assets/w2h-a3/a3-11-github.mp4"          data-start="19.8" data-duration="2.000" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover z-[5] opacity-0"></video>
 
     <!-- Captions — top-left card, per clip. Light variant on 05 and 09. -->
     <div id="c01" class="a3cap absolute left-[56px] top-[54px] z-[20] border-l-[1px] border-[rgba(255,255,255,0.65)] bg-[rgba(11,11,15,0.28)] rounded-[4px] px-[18px] py-[12px] pl-[22px] leading-[1.15] opacity-0">

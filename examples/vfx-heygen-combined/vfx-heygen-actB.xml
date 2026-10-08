@@ -14,13 +14,13 @@
        (prompt UI, typing, send click) is 1:1 DOM/Tailwind + script.
        ════════════════════════════════════════════════════════════════════ -->
   <fonts default="inter">
-    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
-    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
-    <font id="inter600" family="Inter" path="../assets/Inter-600.ttf" />
-    <font id="inter700" family="Inter" path="../assets/Inter-700.ttf" />
-    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
-    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
-    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+    <font id="inter" family="Inter" path="assets/fonts/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="assets/fonts/Inter-400.ttf" />
+    <font id="inter600" family="Inter" path="assets/fonts/Inter-600.ttf" />
+    <font id="inter700" family="Inter" path="assets/fonts/Inter-700.ttf" />
+    <font id="inter800" family="Inter" path="assets/fonts/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="assets/fonts/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-500.ttf" />
   </fonts>
   <div id="root" class="relative w-[1920px] h-[1080px] bg-[#050508] overflow-hidden">
 
@@ -29,7 +29,7 @@
      its media begins at 0 at abs 5.58. The actB window opens at abs 6.20
      (= HEYGEN_START 5.58 + 0.62), so media(local) = local + (6.20 − 5.58)
      = local + 0.62. -->
-    <video id="bg-video" path="../assets/vhc/bg.mp4" data-start="0" data-duration="5.0" data-media-start="0.62" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0"></video>
+    <video id="bg-video" path="assets/bg.mp4" data-start="0" data-duration="5.0" data-media-start="0.62" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0"></video>
 
     <!-- ── 2D iPhone (Three.js GLB approximation) ──────────────────────
          Source geometry: model height 3.2 world at PerspectiveCamera(34) →
@@ -69,7 +69,7 @@
     </div>
 
     <!-- ── pointing finger ──────────────────────────────────────────── -->
-    <image id="finger" class="absolute left-[1260px] top-[1220px] w-[820px] h-[1716px] opacity-0" path="../assets/vhc/finger.png" />
+    <image id="finger" class="absolute left-[1260px] top-[1220px] w-[820px] h-[1716px] opacity-0" path="assets/finger.png" />
 
     <!-- ── prompt scene (HeyGen composer UI, 1:1 DOM/Tailwind) ──────── -->
     <div id="prompt-scene" class="absolute left-0 top-0 w-[1920px] h-[1080px] overflow-hidden bg-[#F5F4ED] opacity-0">
@@ -101,7 +101,7 @@
           <text id="prompt-meta" class="text-[#3D3929] text-[13px] font-[inter400] opacity-0">Claude can make mistakes. Please double-check responses.</text>
         </div>
       </div>
-      <image id="click-cursor" class="absolute left-[500px] top-[620px] w-[118px] h-[118px] opacity-0" path="../assets/vhc/cursor.png" />
+      <image id="click-cursor" class="absolute left-[500px] top-[620px] w-[118px] h-[118px] opacity-0" path="assets/cursor.png" />
       <div id="game-change-copy" class="absolute left-0 top-[0px] w-[1920px] h-[1080px] flex items-center justify-center opacity-0">
         <text id="game-change-line" class="text-[#3D3929] text-[136px] font-[inter800] font-extrabold leading-[0.94] text-center">You can make this too</text>
       </div>

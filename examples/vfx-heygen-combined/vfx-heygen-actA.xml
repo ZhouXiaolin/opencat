@@ -13,13 +13,13 @@
        source GSAP timeline. Brand wordmarks are rasterised artwork.
        ════════════════════════════════════════════════════════════════════ -->
   <fonts default="inter">
-    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
-    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
-    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
-    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
-    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
-    <font id="big" family="Big Shoulders Display" path="../assets/vhc/BigShouldersDisplay-900.ttf" />
-    <font id="serifd" family="DM Serif Display" path="../assets/vhc/DMSerifDisplay-Italic.ttf" />
+    <font id="inter" family="Inter" path="assets/fonts/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="assets/fonts/Inter-400.ttf" />
+    <font id="inter800" family="Inter" path="assets/fonts/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="assets/fonts/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-500.ttf" />
+    <font id="big" family="Big Shoulders Display" path="assets/BigShouldersDisplay-900.ttf" />
+    <font id="serifd" family="DM Serif Display" path="assets/DMSerifDisplay-Italic.ttf" />
   </fonts>
   <div id="root" class="relative w-[1920px] h-[1080px] bg-[#050508] overflow-hidden">
 
@@ -32,12 +32,12 @@
          source, so it is nested here too. -->
     <canvas id="sting-canvas" class="absolute left-[0px] top-[0px] w-[1920px] h-[1080px]">
       <div id="logo-field" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
-        <image id="lf-img" class="absolute left-0 top-0 w-[1920px] h-[1080px]" path="../assets/vhc/logo-field.png" />
+        <image id="lf-img" class="absolute left-0 top-0 w-[1920px] h-[1080px]" path="assets/logo-field.png" />
       </div>
     </canvas>
 
     <!-- ── V2/V3: refraction video + glass card (from 3.1 s) ─────────── -->
-    <video id="next-bg" path="../assets/vhc/bg-2.mp4" data-start="3.1" data-duration="3.3667" data-media-start="0" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0"></video>
+    <video id="next-bg" path="assets/bg-2.mp4" data-start="3.1" data-duration="3.3667" data-media-start="0" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0"></video>
 
     <div id="next-card" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.17)] bg-[linear-gradient(160deg,rgba(255,255,255,0.11)_0%,rgba(255,255,255,0.045)_42%,rgba(255,255,255,0.018)_70%,rgba(255,255,255,0.075)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.42)] opacity-0 overflow-hidden">
       <div id="glow-a" class="absolute left-[-40px] top-[520px] w-[560px] h-[560px] rounded-full bg-[radial-gradient(closest-side,rgba(73,242,255,0.14),transparent)]"></div>

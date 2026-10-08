@@ -107,7 +107,7 @@
        引擎侧加载期一次性 PMREM 预滤波（PMREMGenerator.fromEquirectangular
        对应物，CPU 卷积）+ cubeUV 采样进 fs_physical 间接光；BitmapTexture
        的 mapping/colorSpace 由 Renderer.render 校验（fail-loud shim）。 */
-    var gardenEnvironment3d = new T3.BitmapTexture('../assets/lbr/equirect-garden.jpg'); // js:37/43
+    var gardenEnvironment3d = new T3.BitmapTexture('assets/equirect-garden.jpg'); // js:37/43
     gardenEnvironment3d.mapping = T3.EquirectangularReflectionMapping;   // js:48
     gardenEnvironment3d.colorSpace = T3.SRGBColorSpace;                  // js:49
     scene3d.environment = gardenEnvironment3d;                           // js:50
@@ -215,13 +215,13 @@
           主面 COLOR_0≈0 按 COLOR_1 字节 id 选 8 路 facet 视频槽、屏幕空间
           surfaceUv 采样 + frost；非主面取主导通道 corner 色）——常量全部
           引自参考 shader 源码（括号内为 js 行号）。 ── */
-    var prismGeo3d = new T3.GLTFGeometry('../assets/lbr/heygen-prism.glb', 'prism');
+    var prismGeo3d = new T3.GLTFGeometry('assets/heygen-prism.glb', 'prism');
     // js:230-241：8 路 VideoTexture（opencat 侧路径 = 参考仓库 assets/
     // 01..08.mp4 的逐字节拷贝，data-start 0 / duration 6 语义下采样合成
     // 时间 t 处的帧）。
     var facetTextures3d = [];
     for (var fi = 0; fi < 8; fi++) {
-      facetTextures3d.push(new T3.VideoTexture('../assets/lbr/facet-0' + (fi + 1) + '.mp4'));
+      facetTextures3d.push(new T3.VideoTexture('assets/0' + (fi + 1) + '.mp4'));
     }
     var prismMaterial3d = new T3.MeshMosaicMaterial({
       // js:267-270 modelFaceIdToVideoId（GLB COLOR_1 字节 id → 视频槽）。
@@ -258,7 +258,7 @@
           （js:391-401）。isHeygenWebgl 分支常量：finalWordmarkHeight = 0.55
           （js:382）、position (0.35, 0.14, -0.35)（js:407）、renderOrder 2
           （js:408）、visible = time>=3.0（js:494）。贴图 = 官方 wordmark SVG
-          的预栅格化位图（assets/lbr/wordmark.png，3356×1000 源画布；参考
+          的预栅格化位图（assets/wordmark.png，3356×1000 源画布；参考
           自身也是浏览器把 SVG 光栅化进 TextureLoader 纹理，js:42-57）。
           在 opencat 的材质表达：MeshBasicMaterial 的 unlit+map 通道 = 引擎
           Unlit 分支（map_fragment vec4 语义，r7 起含 texel alpha），而
@@ -284,7 +284,7 @@
          时定义），tonemapping_fragment 为空；下方 GLSL 相应无 ACES 项，
          仅保留恒注入的 colorspace_fragment（WebGLProgram.js:839）。 */
       toneMapped: false,
-      map: new T3.BitmapTexture('../assets/lbr/wordmark.png'),    // js:385（js:42-45/57-60 TextureLoader）
+      map: new T3.BitmapTexture('assets/wordmark.png'),    // js:385（js:42-45/57-60 TextureLoader）
       uniforms: {
         uWordmarkReveal: { value: 0 },                              // js:383/392 wordmarkReveal
         diffuse: { value: [1, 1, 1] },                              // js:164 color 0xffffff（内建 diffuse）

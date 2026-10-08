@@ -2,11 +2,11 @@
 
 
   <fonts default="k3-sans">
-    <font id="k3-sans" family="Inter" path="../assets/Inter-Regular.ttf" role="sans" />
-    <font id="k3-sans-light" family="Inter" path="../assets/Inter-Light.ttf" />
-    <font id="k3-sans-medium" family="Inter" path="../assets/Inter-Medium.ttf" />
-    <font id="k3-mono" family="JetBrains Mono" path="../assets/JetBrainsMono-Regular.ttf" role="mono" />
-    <font id="k3-mono-bold" family="JetBrains Mono" path="../assets/JetBrainsMono-Bold.ttf" role="mono" />
+    <font id="k3-sans" family="Inter" path="assets/fonts/Inter-Regular.ttf" role="sans" />
+    <font id="k3-sans-light" family="Inter" path="assets/fonts/Inter-Light.ttf" />
+    <font id="k3-sans-medium" family="Inter" path="assets/fonts/Inter-Medium.ttf" />
+    <font id="k3-mono" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-Regular.ttf" role="mono" />
+    <font id="k3-mono-bold" family="JetBrains Mono" path="assets/fonts/JetBrainsMono-Bold.ttf" role="mono" />
   </fonts>
 
   <!-- ═══ 结构模板：解析前展开（markup::expand_markup_templates），运行时只见普通节点。

@@ -320,6 +320,30 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
 }
 
 fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
+    // `bg-clip-text` paints a node's background through its glyphs (gradient
+    // text). The other `bg-clip-*` values clip to the border box, which is what
+    // we always do, so they resolve to the default.
+    if let Some(clip) = match class {
+        "bg-clip-text" => Some(crate::style::BackgroundClip::Text),
+        "bg-clip-border" | "bg-clip-padding" | "bg-clip-content" => {
+            Some(crate::style::BackgroundClip::BorderBox)
+        }
+        _ => class
+            .strip_prefix("[background-clip:")
+            .and_then(|v| v.strip_suffix(']'))
+            .map(str::trim)
+            .and_then(|value| match value {
+                "text" => Some(crate::style::BackgroundClip::Text),
+                "border-box" | "padding-box" | "content-box" => {
+                    Some(crate::style::BackgroundClip::BorderBox)
+                }
+                _ => None,
+            }),
+    } {
+        style.background_clip = clip;
+        return true;
+    }
+
     if parse_tailwind_css_filter(class, style) {
         return true;
     }
@@ -1365,7 +1389,7 @@ fn parse_shadow_length(token: &str) -> Option<f32> {
 }
 
 fn parse_shadow_blur(token: &str) -> Option<f32> {
-    parse_shadow_length(token).map(|value| value / 6.0)
+    parse_shadow_length(token).map(|value| value / 2.0)
 }
 
 fn apply_bracket_hex_color_rule(
@@ -2182,6 +2206,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_bg_clip_text_named_and_arbitrary() {
+        assert_eq!(
+            parse_class_name("bg-clip-text").background_clip,
+            crate::style::BackgroundClip::Text
+        );
+        assert_eq!(
+            parse_class_name("[background-clip:text]").background_clip,
+            crate::style::BackgroundClip::Text
+        );
+        // Non-text clips resolve to the default (we always clip to the border box).
+        assert_eq!(
+            parse_class_name("bg-clip-padding").background_clip,
+            crate::style::BackgroundClip::BorderBox
+        );
+        assert_eq!(
+            parse_class_name("text-transparent").text_color,
+            Some(ColorToken::Transparent)
+        );
+    }
+
+    #[test]
     fn parses_named_mix_blend_utilities() {
         assert_eq!(
             parse_class_name("mix-blend-normal").blend_mode,
@@ -2281,13 +2326,13 @@ mod tests {
         let box_shadow = style.box_shadow.first().expect("box shadow should parse");
         assert_eq!(box_shadow.offset_x, 0.0);
         assert_eq!(box_shadow.offset_y, 8.0);
-        assert!((box_shadow.blur_sigma - 4.0).abs() < f32::EPSILON);
+        assert!((box_shadow.blur_sigma - 12.0).abs() < f32::EPSILON);
         assert_eq!(box_shadow.color, ColorToken::Custom(0, 0, 0, 46));
 
         let drop_shadow = style.drop_shadow.first().expect("drop shadow should parse");
         assert_eq!(drop_shadow.offset_x, 2.0);
         assert_eq!(drop_shadow.offset_y, 4.0);
-        assert!((drop_shadow.blur_sigma - 2.0).abs() < f32::EPSILON);
+        assert!((drop_shadow.blur_sigma - 6.0).abs() < f32::EPSILON);
         assert_eq!(drop_shadow.color, ColorToken::Custom(0, 0, 0, 102));
     }
 
@@ -2298,10 +2343,10 @@ mod tests {
         let first = &style.box_shadow[0];
         assert_eq!(first.offset_x, 0.0);
         assert_eq!(first.offset_y, 0.0);
-        assert!((first.blur_sigma - 20.0 / 6.0).abs() < 1e-5);
+        assert!((first.blur_sigma - 20.0 / 2.0).abs() < 1e-5);
         assert_eq!(first.color, ColorToken::Custom(0, 255, 136, 255));
         let second = &style.box_shadow[1];
-        assert!((second.blur_sigma - 50.0 / 6.0).abs() < 1e-5);
+        assert!((second.blur_sigma - 50.0 / 2.0).abs() < 1e-5);
         // #00ff8860 is 8-digit hex: R=0x00=0, G=0xff=255, B=0x88=136, A=0x60=96
         assert_eq!(second.color, ColorToken::Custom(0, 255, 136, 96));
     }
@@ -2324,11 +2369,11 @@ mod tests {
         assert_eq!(cyan.offset_y, 0.0);
         assert_eq!(cyan.color, ColorToken::Custom(0, 212, 255, 255));
 
-        // 辉光：dx=dy=0，blur=32px → σ=32/6。
+        // 辉光：dx=dy=0，blur=32px → σ=32/2 (σ≈blur/2, CSS 标准)。
         let glow = &style.text_shadows[2];
         assert_eq!(glow.offset_x, 0.0);
         assert_eq!(glow.offset_y, 0.0);
-        assert!((glow.blur_sigma - 32.0 / 6.0).abs() < 1e-5);
+        assert!((glow.blur_sigma - 32.0 / 2.0).abs() < 1e-5);
         assert_eq!(glow.color, ColorToken::Custom(0, 255, 136, 112)); // 0x70 = 112
     }
 
@@ -2339,7 +2384,7 @@ mod tests {
         let glow = &style.text_shadows[0];
         assert_eq!(glow.offset_x, 0.0);
         assert_eq!(glow.offset_y, 0.0);
-        assert!((glow.blur_sigma - 24.0 / 6.0).abs() < 1e-5);
+        assert!((glow.blur_sigma - 24.0 / 2.0).abs() < 1e-5);
     }
 
     #[test]

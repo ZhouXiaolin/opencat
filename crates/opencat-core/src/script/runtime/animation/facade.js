@@ -270,9 +270,14 @@
 
         var api = {
             flush: function() {
-                var sceneDuration = Number(ctx.sceneDuration || ctx.duration || ctx.totalDuration || 0);
-                var totalEnd = baseDelay + state.cursor;
-                var scale = sceneDuration > 0 && totalEnd > sceneDuration ? sceneDuration / totalEnd : 1;
+                // GSAP timelines do NOT rescale their children to fit the scene
+                // duration; absolute times are preserved verbatim (a tween whose
+                // end overruns `duration` is simply clipped by the composition's
+                // frame count). The previous `sceneDuration/totalEnd` rescale made
+                // every tween play slightly fast whenever any tween ended late
+                // (e.g. act1's flash at 12.16 in a 12.0s comp), shifting all
+                // keyframes by a frame or more.
+                var scale = 1;
 
                 for (var i = 0; i < state.items.length; i++) {
                     var item = state.items[i];

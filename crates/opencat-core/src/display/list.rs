@@ -135,6 +135,9 @@ pub struct TextDisplayItem {
     pub bounds: DisplayRect,
     pub text: String,
     pub style: ComputedTextStyle,
+    /// `background-clip: text` — resolved background layers to paint through
+    /// the glyph outlines instead of `style.color`. `None` = normal solid text.
+    pub text_fill: Option<Vec<crate::style::BackgroundFill>>,
     pub allow_wrap: bool,
     pub truncate: bool,
     pub drop_shadow: Vec<DropShadow>,
@@ -380,6 +383,7 @@ mod tests {
             },
             text: "Hello".into(),
             style: ComputedTextStyle::default(),
+            text_fill: None,
             allow_wrap: false,
             truncate: false,
             drop_shadow: Vec::new(),

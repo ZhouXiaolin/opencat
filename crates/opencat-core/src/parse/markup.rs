@@ -2143,7 +2143,7 @@ mod tests {
             main.style_ref().text_shadows[0].color,
             crate::style::ColorToken::Custom(0, 255, 136, 77)
         );
-        assert!((main.style_ref().text_shadows[0].blur_sigma - (10.0 / 6.0)).abs() < 1e-6);
+        assert!((main.style_ref().text_shadows[0].blur_sigma - (10.0 / 2.0)).abs() < 1e-6);
 
         assert_eq!(after.style_ref().id, "hero-after");
         assert_eq!(after.content(), "Transform");

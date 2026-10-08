@@ -211,6 +211,67 @@ fn timeline_set_applies_from_position_and_ignores_gsap_control_fields() {
 }
 
 #[test]
+fn timeline_tween_times_are_not_rescaled_to_fit_scene_duration() {
+    // Regression: a tween whose end overruns the composition duration must keep
+    // its absolute GSAP times. Previously `flush()` scaled every timing by
+    // `sceneDuration / totalEnd`, so a single late tween (e.g. a flash ending at
+    // 12.16s in a 12.0s comp) played the *whole* timeline ~1.3% fast, shifting
+    // every keyframe by one or more frames.
+    fn inner_x_at(frame: u32) -> f32 {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: 30,
+            width: 400,
+            height: 100,
+            frames: 360,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+        let mut script_runtime = ScriptRealm::<RqJsContext>::open().expect("script realm");
+
+        // Linear ramp x: 0 -> 300px over 1.0..3.0s, plus a no-op set ending at
+        // 24.0s (= 2× the 12.0s composition duration). Without the rescale, at
+        // frame 45 (t=1.5s) progress is (1.5-1.0)/2.0 = 0.25 -> x = 75. With the
+        // old rescale (scale = 12.0/24.0 = 0.5) the delay/duration halve and the
+        // ramp already completes, so x would read 300 — an unmistakable drift.
+        let root = div()
+            .id("root")
+            .script_source(
+                r#"
+                var tl = ctx.timeline();
+                tl.fromTo("box", { x: 0 }, { x: 300, duration: 2.0, ease: "none" }, 1.0);
+                tl.set("box", { opacity: 1 }, 24.0);
+            "#,
+            )
+            .expect("script should compile")
+            .child(div().id("box"));
+
+        let resolved = resolve_ui_tree(
+            &root.into(),
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut script_runtime,
+        )
+        .expect("tree should resolve");
+        let transforms = &resolved.children[0].style.visual.transforms;
+        transforms
+            .iter()
+            .find_map(|t| match t {
+                opencat_core::style::Transform::TranslateX { value } => Some(*value),
+                _ => None,
+            })
+            .unwrap_or(0.0)
+    }
+
+    // t = 45/30 = 1.5s -> quarter of the 1.0..3.0 ramp -> x = 300*0.25 = 75.
+    let x = inner_x_at(45);
+    assert!(
+        (x - 75.0).abs() < 1.0,
+        "timeline tween was rescaled to fit the scene: x={x} (expected ~75)"
+    );
+}
+
+#[test]
 fn parent_script_can_split_descendant_text_before_child_resolution() {
     let frame_ctx = FrameCtx {
         frame: 0,

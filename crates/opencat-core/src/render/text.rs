@@ -24,6 +24,149 @@ fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
     }
 }
 
+fn display_rect_to_kurbo(r: DisplayRect) -> crate::canvas::Rect {
+    crate::canvas::Rect::new(
+        r.x as f64,
+        r.y as f64,
+        (r.x + r.width) as f64,
+        (r.y + r.height) as f64,
+    )
+}
+
+/// The paint fills a text item's glyphs should be drawn with, bottom layer first.
+///
+/// Normally this is the single solid `text_color`. With `background-clip: text`
+/// the node's background layers become the glyph fill (gradient text), painted
+/// in declaration order so translucent layers composite the CSS way. A
+/// non-transparent `color` is appended on top, matching CSS (where it would
+/// cover the clipped background).
+pub(crate) fn text_fill_specs(
+    item: &TextDisplayItem,
+    lines: &[crate::text::TextLine],
+) -> Vec<FillSpec> {
+    let Some(layers) = item.text_fill.as_ref() else {
+        return vec![FillSpec::Solid(super::helpers::color_token_to_rgba(
+            &item.style.color,
+        ))];
+    };
+    let bg_box = text_background_box(item, lines);
+    let rect = display_rect_to_kurbo(bg_box);
+    let mut fills: Vec<FillSpec> = layers
+        .iter()
+        .map(|layer| super::helpers::background_fill_to_fill_spec(layer, rect))
+        .collect();
+    let color = super::helpers::color_token_to_rgba(&item.style.color);
+    if color[3] > 0.0 {
+        fills.push(FillSpec::Solid(color));
+    }
+    if fills.is_empty() {
+        fills.push(FillSpec::Solid([0.0; 4]));
+    }
+    fills
+}
+
+/// The box a `background-clip: text` gradient is mapped over.
+///
+/// CSS anchors the background to the element's **content box**. Text elements
+/// here are usually shrink-to-fit (the reference marks are `inline-block`), so
+/// the content box is the text's advance width, not the element's laid-out
+/// width — mapping the gradient over the full element would squash the whole
+/// sweep into the leading glyphs. Falls back to the element box when no line
+/// was shaped.
+fn text_background_box(
+    item: &TextDisplayItem,
+    lines: &[crate::text::TextLine],
+) -> DisplayRect {
+    let mut box_ = item.bounds;
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let line_height = item.style.resolved_line_height_px();
+    for line in lines {
+        let shift = compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);
+        let x0 = item.bounds.x + shift;
+        min_x = min_x.min(x0);
+        max_x = max_x.max(x0 + line.width);
+        box_.y = box_.y.min(item.bounds.y + line.y - item.style.text_px);
+        box_.height = box_.height.max(line_height);
+    }
+    if min_x.is_finite() && max_x > min_x {
+        box_.x = min_x;
+        box_.width = max_x - min_x;
+    }
+    box_
+}
+
+/// Whether any glyph fill is a shader (gradient text). Shader fills are
+/// resolved in the current CTM, so those glyphs must not carry a per-glyph
+/// transform.
+fn text_fill_is_shader(item: &TextDisplayItem) -> bool {
+    item.text_fill.is_some()
+}
+
+/// Glyph outline with the placement transform folded in: `(p * s + origin)`,
+/// y negated (font space is y-up). Used for gradient text so the shader sees
+/// one stable coordinate system across all glyphs.
+fn build_glyph_path_placed(
+    commands: &[Command],
+    scale: f32,
+    draw_scale: f32,
+    origin_x: f32,
+    origin_y: f32,
+) -> EncodedPath {
+    let s = scale * draw_scale;
+    let map = |p: (f32, f32)| (p.0 * s + origin_x, -p.1 * s + origin_y);
+    let ops = commands
+        .iter()
+        .map(|cmd| match cmd {
+            Command::MoveTo(p) => {
+                let (x, y) = map((p.x, p.y));
+                PathOp::MoveTo { x, y }
+            }
+            Command::LineTo(p) => {
+                let (x, y) = map((p.x, p.y));
+                PathOp::LineTo { x, y }
+            }
+            Command::QuadTo(c, p) => {
+                let (cx, cy) = map((c.x, c.y));
+                let (x, y) = map((p.x, p.y));
+                PathOp::QuadTo { cx, cy, x, y }
+            }
+            Command::CurveTo(c1, c2, p) => {
+                let (c1x, c1y) = map((c1.x, c1.y));
+                let (c2x, c2y) = map((c2.x, c2.y));
+                let (x, y) = map((p.x, p.y));
+                PathOp::CubicTo {
+                    c1x,
+                    c1y,
+                    c2x,
+                    c2y,
+                    x,
+                    y,
+                }
+            }
+            Command::Close => PathOp::Close,
+        })
+        .collect();
+    EncodedPath {
+        fill_type: FillType::Winding,
+        ops,
+    }
+}
+
+fn glyph_paint(fill: FillSpec) -> PaintSpec {
+    PaintSpec {
+        fill,
+        style: PaintStyle::Fill,
+        stroke: None,
+        anti_alias: true,
+        blend_mode: BlendMode::SrcOver,
+        image_filter: None,
+        color_filter: None,
+        mask_filter: None,
+        path_effect: None,
+    }
+}
+
 fn build_glyph_path(commands: &[Command], scale: f32) -> EncodedPath {
     let ops = commands
         .iter()
@@ -69,21 +212,17 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
         ctx.font_db,
     );
 
-    let rgba = super::helpers::color_token_to_rgba(&item.style.color);
-    let paint = PaintSpec {
-        fill: FillSpec::Solid(rgba),
-        style: PaintStyle::Fill,
-        stroke: None,
-        anti_alias: true,
-        blend_mode: BlendMode::SrcOver,
-        image_filter: None,
-        color_filter: None,
-        mask_filter: None,
-        path_effect: None,
+    // One interned paint per fill layer (usually exactly one solid). Gradient
+    // text (`background-clip: text`) yields several, painted bottom-up.
+    let paint_ids = {
+        let builder = &mut ctx.builder;
+        text_fill_specs(item, &raster.lines)
+            .into_iter()
+            .map(|fill| builder.intern_paint(glyph_paint(fill)))
+            .collect::<Vec<_>>()
     };
 
     let builder = &mut ctx.builder;
-    let paint_id = builder.intern_paint(paint);
 
     for line in &raster.lines {
         let line_x_shift =
@@ -100,6 +239,23 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                 GlyphData::Outline(commands, upem) => {
                     let draw_scale = item.style.text_px / *upem;
                     let unscale = *upem / item.style.text_px;
+                    // A shader fill lives in the *current* CTM, so a per-glyph
+                    // translate/scale would move and resize the gradient for
+                    // every glyph (visible as banding). Gradient text therefore
+                    // bakes the glyph placement into the path and draws under
+                    // the text box's own identity coordinate system.
+                    if text_fill_is_shader(item) {
+                        let encoded =
+                            build_glyph_path_placed(commands, unscale, draw_scale, abs_x, abs_y);
+                        let path_id = builder.intern_path(encoded);
+                        for &paint_id in &paint_ids {
+                            builder.push(DrawOp::DrawPath {
+                                path: path_id,
+                                paint: paint_id,
+                            });
+                        }
+                        continue;
+                    }
                     let encoded = build_glyph_path(commands, unscale);
                     let path_id = builder.intern_path(encoded);
                     builder.push(DrawOp::Save);
@@ -110,10 +266,12 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                             y: draw_scale,
                         });
                     }
-                    builder.push(DrawOp::DrawPath {
-                        path: path_id,
-                        paint: paint_id,
-                    });
+                    for &paint_id in &paint_ids {
+                        builder.push(DrawOp::DrawPath {
+                            path: path_id,
+                            paint: paint_id,
+                        });
+                    }
                     builder.push(DrawOp::Restore);
                 }
                 GlyphData::ColorImage {
@@ -133,7 +291,7 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                         image: ImageRef::Generated { id },
                         x: ix,
                         y: iy,
-                        paint: Some(paint_id),
+                        paint: paint_ids.first().copied(),
                     });
                 }
             }

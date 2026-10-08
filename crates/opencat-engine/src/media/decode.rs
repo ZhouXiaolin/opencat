@@ -62,7 +62,7 @@ struct VideoDecoder {
     path: PathBuf,
     input: format::context::Input,
     decoder: ffmpeg::decoder::Video,
-    scalers: VecDeque<((u32, u32), ScalingContext)>,
+    scalers: VecDeque<((u32, u32, ColorspaceSpec), YuvRgbScaler)>,
     source_format: Pixel,
     stream_index: usize,
     time_base: ffmpeg::util::rational::Rational,
@@ -120,10 +120,16 @@ impl VideoDecoder {
             .map(|duration_ticks| duration_ticks as f64 / time_base.denominator() as f64);
         let keyframe_pts_us = collect_video_keyframe_pts_us(path, stream_index, time_base)?;
         let source_format = decoder.format();
+        // The initial context is built with the stream's declared matrix so
+        // the very first frame already converts correctly (per-frame specs
+        // that disagree with this fall back to the key-mismatch rebuild in
+        // `scaler_for`). AVCodecContext colorspace is populated from the
+        // container metadata by the demuxer/parser before the first decode.
+        let initial_spec = ColorspaceSpec::from_codec(&decoder);
         let mut scalers = VecDeque::with_capacity(MAX_SCALERS_PER_DECODER);
         scalers.push_back((
-            (width, height),
-            ScalingContext::get(
+            (width, height, initial_spec),
+            YuvRgbScaler::new(
                 source_format,
                 width,
                 height,
@@ -131,6 +137,7 @@ impl VideoDecoder {
                 width,
                 height,
                 ScalingFlags::BILINEAR,
+                initial_spec,
             )?,
         ));
 
@@ -395,7 +402,8 @@ impl VideoDecoder {
     ) -> Result<()> {
         let (out_w, out_h) = target_size.unwrap_or((self.width, self.height));
 
-        let scaler = self.scaler_for(out_w, out_h)?;
+        let spec = ColorspaceSpec::from_frame(frame);
+        let scaler = self.scaler_for(out_w, out_h, spec)?;
         let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, out_w, out_h);
         scaler.run(frame, &mut rgba)?;
         self.current_pts_secs = pts_secs;
@@ -404,11 +412,11 @@ impl VideoDecoder {
         Ok(())
     }
 
-    fn scaler_for(&mut self, out_w: u32, out_h: u32) -> Result<&mut ScalingContext> {
+    fn scaler_for(&mut self, out_w: u32, out_h: u32, spec: ColorspaceSpec) -> Result<&mut YuvRgbScaler> {
         if let Some(idx) = self
             .scalers
             .iter()
-            .position(|(size, _)| *size == (out_w, out_h))
+            .position(|(key, _)| *key == (out_w, out_h, spec))
         {
             // LRU touch: move to back.
             if idx + 1 != self.scalers.len() {
@@ -416,7 +424,7 @@ impl VideoDecoder {
                 self.scalers.push_back(entry);
             }
         } else {
-            let scaler = ScalingContext::get(
+            let scaler = YuvRgbScaler::new(
                 self.source_format,
                 self.width,
                 self.height,
@@ -424,13 +432,165 @@ impl VideoDecoder {
                 out_w,
                 out_h,
                 ScalingFlags::BILINEAR,
+                spec,
             )?;
             if self.scalers.len() >= MAX_SCALERS_PER_DECODER {
                 self.scalers.pop_front();
             }
-            self.scalers.push_back(((out_w, out_h), scaler));
+            self.scalers
+                .push_back(((out_w, out_h, spec), scaler));
         }
         Ok(&mut self.scalers.back_mut().expect("scaler just pushed").1)
+    }
+}
+
+/// The YUV→RGB matrix a scaling context is built with. Streams decoded from
+/// modern HD containers are BT.709; swscale's built-in default is the BT.601
+/// family, which tints every converted pixel (~8/255 mean on a real HD frame
+/// versus the matrix the container declares).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ColorspaceSpec {
+    /// swscale built-in default (BT.601 coefficients, limited-range input) —
+    /// the historical behavior for untagged streams.
+    Default,
+    /// BT.709 coefficients with the frame's declared range.
+    BT709 { full_range: bool },
+}
+
+impl ColorspaceSpec {
+    fn from_frame(frame: &frame::Video) -> Self {
+        use ffmpeg::color::{Range, Space};
+        match frame.color_space() {
+            Space::BT709 => ColorspaceSpec::BT709 {
+                full_range: frame.color_range() == Range::JPEG,
+            },
+            _ => ColorspaceSpec::Default,
+        }
+    }
+
+    /// Stream-level fallback for the initial context: the codec context
+    /// carries the container metadata before the first frame decodes.
+    fn from_codec(decoder: &ffmpeg::decoder::Video) -> Self {
+        use ffmpeg::color::{Range, Space};
+        match decoder.color_space() {
+            Space::BT709 => ColorspaceSpec::BT709 {
+                full_range: decoder.color_range() == Range::JPEG,
+            },
+            _ => ColorspaceSpec::Default,
+        }
+    }
+}
+
+/// A yuv→rgb scaling context built through the documented allocation
+/// sequence — `sws_alloc_context` → AVOptions → `sws_setColorspaceDetails`
+/// → `sws_init_context`.
+///
+/// `sws_getContext` cannot express a source matrix: it initializes the
+/// context immediately with the BT.601 default coefficients, and calling
+/// `sws_setColorspaceDetails` afterwards corrupts the pre-expanded conversion
+/// tables on FFmpeg ≥7 (the conversion goes black), so the coefficients must
+/// land before `sws_init_context`, exactly as the libswscale docs prescribe.
+struct YuvRgbScaler {
+    ptr: *mut ffmpeg::sys::SwsContext,
+}
+
+// The context is owned exclusively by the decoder that built it; swscale
+// contexts are not thread-bound but the decode lanes never share one.
+unsafe impl Send for YuvRgbScaler {}
+
+impl YuvRgbScaler {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        src_format: Pixel,
+        src_w: u32,
+        src_h: u32,
+        dst_format: Pixel,
+        dst_w: u32,
+        dst_h: u32,
+        flags: ScalingFlags,
+        spec: ColorspaceSpec,
+    ) -> Result<Self> {
+        use ffmpeg::sys;
+        unsafe {
+            let ptr = sys::sws_alloc_context();
+            if ptr.is_null() {
+                return Err(anyhow!("sws_alloc_context failed"));
+            }
+            // swscale AVOptions (`libswscale/options.c`): dimensions, formats,
+            // rescale flags, and the source range. Names are NUL-terminated
+            // via CStr literals.
+            let set_opt = |ctx: *mut sys::SwsContext, name: &str, value: i64| {
+                let cstr = std::ffi::CString::new(name).expect("option name");
+                sys::av_opt_set_int(
+                    ctx.cast(),
+                    cstr.as_ptr(),
+                    value,
+                    0, // search flags: exact object only
+                );
+            };
+            set_opt(ptr, "srcw", i64::from(src_w));
+            set_opt(ptr, "srch", i64::from(src_h));
+            let src_fmt: sys::AVPixelFormat = src_format.into();
+            // bindgen's `AVPixelFormat` is a repr(C) int enum; the numeric id
+            // feeds the "src_format" AVOption.
+            set_opt(ptr, "src_format", i64::from(unsafe {
+                std::mem::transmute::<sys::AVPixelFormat, std::os::raw::c_int>(src_fmt)
+            }));
+            set_opt(ptr, "dstw", i64::from(dst_w));
+            set_opt(ptr, "dsth", i64::from(dst_h));
+            let dst_fmt: sys::AVPixelFormat = dst_format.into();
+            set_opt(ptr, "dst_format", i64::from(unsafe {
+                std::mem::transmute::<sys::AVPixelFormat, std::os::raw::c_int>(dst_fmt)
+            }));
+            set_opt(ptr, "flags", i64::from(flags.bits()));
+            // srcRange semantics (libswscale/swscale.h): 1 = jpeg/full, 0 =
+            // mpeg/limited. Untagged sources keep the built-in default.
+            if let ColorspaceSpec::BT709 { full_range } = spec {
+                sys::sws_setColorspaceDetails(
+                    ptr,
+                    sys::sws_getCoefficients(sys::SWS_CS_ITU709),
+                    i32::from(full_range),
+                    sys::sws_getCoefficients(sys::SWS_CS_DEFAULT),
+                    0, // RGBA destination is always full range
+                    0,
+                    1 << 16, // contrast/saturation are 16.16 fixed point; 1<<16 == 1.0
+                    1 << 16,
+                );
+            }
+            let rc = sys::sws_init_context(ptr, std::ptr::null_mut(), std::ptr::null_mut());
+            if rc < 0 {
+                sys::sws_freeContext(ptr);
+                return Err(anyhow!("sws_init_context failed: {rc}"));
+            }
+            Ok(Self { ptr })
+        }
+    }
+
+    fn run(&mut self, input: &frame::Video, output: &mut frame::Video) -> Result<()> {
+        unsafe {
+            let rc = ffmpeg::sys::sws_scale(
+                self.ptr,
+                (*input.as_ptr()).data.as_ptr() as *const *const _,
+                (*input.as_ptr()).linesize.as_ptr() as *const _,
+                0,
+                input.height() as std::os::raw::c_int,
+                (*output.as_mut_ptr()).data.as_ptr(),
+                (*output.as_mut_ptr()).linesize.as_ptr() as *mut _,
+            );
+            if rc < 0 {
+                return Err(anyhow!("sws_scale failed: {rc}"));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for YuvRgbScaler {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe { ffmpeg::sys::sws_freeContext(self.ptr) };
+            self.ptr = std::ptr::null_mut();
+        }
     }
 }
 
@@ -653,7 +813,13 @@ fn pack_rgba(frame: &ffmpeg::frame::Video, width: u32, height: u32) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use super::ColorspaceSpec;
+    use super::ScalingFlags;
+    use super::Pixel;
+    use super::YuvRgbScaler;
     use super::floor_advance;
+    use super::VideoDecodeCache;
+    use ffmpeg_next as ffmpeg;
 
     /// Core hands the host a microsecond-quantized target (clip-local 1/3 s →
     /// 0.333333). A source frame at the exact rational boundary (8/24 s =
@@ -682,5 +848,147 @@ mod tests {
     fn boundary_pts_equal_to_target_selects_the_frame() {
         let target_micros = (1.0_f64 * 1_000_000.0).round() as i64;
         assert!(floor_advance(target_micros, 1.0));
+    }
+
+    /// A BT.709-labelled stream must be converted with the BT.709 matrix —
+    /// the matrix a browser `<video>` decodes with — not swscale's BT.601
+    /// default (getting it wrong tints every video texture ~8/255 mean on a
+    /// real HD frame). Verified at the pixel level: BT.709/limited green
+    /// (Y 173, U 42, V 26) must decode to green with R≈0, while the 601
+    /// default gives R≈20; and 709 white (Y 235, U=V=128) must come out
+    /// full-range (≈255), never RGB-limited (≈235).
+    #[test]
+    fn bt709_frame_metadata_selects_bt709_sws_coefficients() {
+        use ffmpeg::{color::Range, color::Space};
+
+        // BT.709 green: R must land at ≈0, not the 601 default's ≈20.
+        let mut scaler = YuvRgbScaler::new(
+            Pixel::YUV420P,
+            4,
+            4,
+            Pixel::RGBA,
+            4,
+            4,
+            ScalingFlags::BILINEAR,
+            ColorspaceSpec::BT709 { full_range: false },
+        )
+        .expect("scaler context");
+        let frame = solid_yuv_frame(173, 42, 26);
+        let rgba = convert(&mut scaler, &frame);
+        assert!(rgba[0] <= 3, "R={} (601 residue would be ~20)", rgba[0]);
+        assert!(rgba[1] >= 250, "G={}", rgba[1]);
+
+        // BT.709 white must land full-range: ≈255, not ≈235 (limited RGB).
+        let mut scaler = YuvRgbScaler::new(
+            Pixel::YUV420P,
+            4,
+            4,
+            Pixel::RGBA,
+            4,
+            4,
+            ScalingFlags::BILINEAR,
+            ColorspaceSpec::BT709 { full_range: false },
+        )
+        .expect("scaler context");
+        let white = solid_yuv_frame(235, 128, 128);
+        let rgba = convert(&mut scaler, &white);
+        assert!(rgba[0] >= 253, "R={} (RGB-limited would be ~235)", rgba[0]);
+
+        // Full-range label must widen the luma expansion (JPEG white Y=255).
+        let mut scaler = YuvRgbScaler::new(
+            Pixel::YUV420P,
+            4,
+            4,
+            Pixel::RGBA,
+            4,
+            4,
+            ScalingFlags::BILINEAR,
+            ColorspaceSpec::BT709 { full_range: true },
+        )
+        .expect("scaler context");
+        let jpeg_white = solid_yuv_frame(255, 128, 128);
+        let rgba = convert(&mut scaler, &jpeg_white);
+        assert!(rgba[0] >= 253, "R={} (limited expansion would be ~235)", rgba[0]);
+
+        // Untagged spec keeps the historical 601 default: 709 green decoded
+        // through it shows the 601 residue (this is the pre-fix behavior,
+        // pinned so the default-path semantics cannot silently drift).
+        let mut scaler = YuvRgbScaler::new(
+            Pixel::YUV420P,
+            4,
+            4,
+            Pixel::RGBA,
+            4,
+            4,
+            ScalingFlags::BILINEAR,
+            ColorspaceSpec::Default,
+        )
+        .expect("scaler context");
+        let frame = solid_yuv_frame(173, 42, 26);
+        let rgba = convert(&mut scaler, &frame);
+        assert!(
+            (11..=28).contains(&rgba[0]),
+            "R={} (untagged default should show 601 residue ~19)",
+            rgba[0]
+        );
+
+        // Spec equality keys the per-decoder scaler cache.
+        let mut mpeg = solid_yuv_frame(0, 128, 128);
+        mpeg.set_color_space(Space::BT709);
+        mpeg.set_color_range(Range::MPEG);
+        assert_eq!(
+            ColorspaceSpec::from_frame(&mpeg),
+            ColorspaceSpec::BT709 { full_range: false }
+        );
+        let mut untagged = solid_yuv_frame(0, 128, 128);
+        untagged.set_color_space(Space::Unspecified);
+        assert_eq!(ColorspaceSpec::from_frame(&untagged), ColorspaceSpec::Default);
+    }
+
+    /// Real-asset end-to-end probe: decode an actual BT.709 mp4 through the
+    /// production decoder and confirm the returned RGBA is not black. This
+    /// closes the gap the synthetic-frame test above cannot see (decoder
+    /// plane layout / initial-context reuse). Ignored by default; run with
+    /// `--ignored` and LBR_FACET_MP4 pointing at a bt709 yuv420p asset.
+    #[test]
+    #[ignore = "needs a real mp4 asset; set LBR_FACET_MP4"]
+    fn real_bt709_asset_decodes_nonblack() {
+        let path = std::env::var("LBR_FACET_MP4")
+            .expect("set LBR_FACET_MP4 to a bt709 yuv420p mp4");
+        let mut cache = VideoDecodeCache::new();
+        let rgba = cache
+            .get_frame(
+                std::path::Path::new(&path),
+                31.0 / 30.0,
+                crate::media::VideoPreviewQuality::Exact,
+                None,
+            )
+            .expect("decode frame");
+        let nonblack = rgba
+            .iter()
+            .step_by(4)
+            .filter(|&&r| r > 8)
+            .count();
+        assert!(
+            nonblack > rgba.len() / 8,
+            "decoded frame looks black: {nonblack} nonblack R of {} px",
+            rgba.len() / 4
+        );
+    }
+
+    fn solid_yuv_frame(y: u8, u: u8, v: u8) -> ffmpeg::frame::Video {
+        let mut frame = ffmpeg::frame::Video::new(Pixel::YUV420P, 4, 4);
+        frame.data_mut(0).fill(y);
+        frame.data_mut(1).fill(u);
+        frame.data_mut(2).fill(v);
+        frame
+    }
+
+    fn convert(scaler: &mut YuvRgbScaler, frame: &ffmpeg::frame::Video) -> Vec<u8> {
+        let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, 4, 4);
+        scaler
+            .run(frame, &mut rgba)
+            .expect("yuv→rgb conversion");
+        rgba.data(0)[..4].to_vec()
     }
 }

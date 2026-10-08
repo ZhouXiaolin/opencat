@@ -273,7 +273,17 @@ fn open_parsed_host_owned_with_fonts(
     }
 
     let prepared = draft.prepare(inputs).map_err(prepare_err)?;
-    let pipeline = prepared.open_pipeline(scripts)?;
+    let mut pipeline = prepared.open_pipeline(scripts)?;
+    // 3D 光栅化器（opencat-three，wgpu，懒初始化）：engine 是唯一必须能
+    // 光栅化 Scene3 的宿主；无 3D 场景的合成不付任何 GPU 成本，GPU 不可用
+    // 时只在真正提交 3D 场景的脚本处报错（见 LazyRenderer3d）。engine 侧
+    // 包装 [`TexturedRaster3d`]：把快照里的纹理**来源**（视频帧/位图路径）
+    // 用 MediaContext 解码成位图表再交给 wgpu——core 与 opencat-three 都
+    // 不碰媒体解码，像素不过 JSON 桥。
+    pipeline.set_scene3_raster(std::sync::Arc::new(TexturedRaster3d::default()));
+    // 文档 base 目录：脚本内相对资产路径（GLTFGeometry 等）对它 join——
+    // three.js GLTFLoader 相对 URL 语义的 opencat 对应物。
+    pipeline.set_document_base(&loader.base_dir().to_string_lossy());
 
     let composition = pipeline.composition().clone();
     loader.register_canvas_asset_aliases(&composition);
@@ -283,6 +293,134 @@ fn open_parsed_host_owned_with_fonts(
 
 fn prepare_err(err: PrepareError) -> anyhow::Error {
     anyhow::anyhow!(err)
+}
+
+/// 引擎侧 3D 光栅化器：[`opencat_three::LazyRenderer3d`] + 视频帧/位图
+/// 解码。纹理槽表按「逐 mesh 先 `textures` 槽表后 `map`，场景序」的遍历
+/// 规则构建（与 opencat-three 的槽位推导规则一致）。
+///
+/// 解码在专属 worker 线程上进行：`MediaContext`（ffmpeg 解码缓存）不是
+/// `Send`，不能跨线程移动——它在 worker 线程内构造并终身驻留，channel 只
+/// 携带 `Texture3`（来源，Send）进、`TextureBitmap3`（像素，Send）出。
+/// 逐帧顺序渲染下 worker 内的解码缓存与 2D 路径同温（顺序解码，不回 seek）。
+#[derive(Default)]
+struct TexturedRaster3d {
+    inner: opencat_three::LazyRenderer3d,
+    resolve_tx: std::sync::OnceLock<std::sync::mpsc::Sender<TextureResolveJob>>,
+}
+
+/// 一帧的纹理解析请求（进 worker：来源列表；出 worker：按同序的位图表）。
+struct TextureResolveJob {
+    sources: Vec<opencat_core::ir::scene3::Texture3>,
+    reply: std::sync::mpsc::SyncSender<anyhow::Result<opencat_three::TextureTable3>>,
+}
+
+fn spawn_texture_worker() -> std::sync::mpsc::Sender<TextureResolveJob> {
+    let (tx, rx) = std::sync::mpsc::channel::<TextureResolveJob>();
+    std::thread::Builder::new()
+        .name("scene3-textures".into())
+        .spawn(move || {
+            // MediaContext 诞生并终身驻留在本线程（!Send 依赖不跨线程）。
+            let mut media = crate::media::MediaContext::new();
+            for job in rx {
+                let out = (|| -> anyhow::Result<opencat_three::TextureTable3> {
+                    let mut table = opencat_three::TextureTable3::new();
+                    for source in &job.sources {
+                        let bitmap = match source {
+                            opencat_core::ir::scene3::Texture3::VideoFrame { path, time } => {
+                                let bmp = media.frame_rgba_at_time_by_path(
+                                    std::path::Path::new(path),
+                                    *time as f64,
+                                )?;
+                                opencat_three::TextureBitmap3 {
+                                    rgba: bmp.data,
+                                    width: bmp.width,
+                                    height: bmp.height,
+                                }
+                            }
+                            opencat_core::ir::scene3::Texture3::Bitmap { path } => {
+                                let (data, w, h) =
+                                    media.get_bitmap(std::path::Path::new(path), None)?;
+                                opencat_three::TextureBitmap3 {
+                                    rgba: data,
+                                    width: w,
+                                    height: h,
+                                }
+                            }
+                        };
+                        table.push((source.table_key(), bitmap));
+                    }
+                    Ok(table)
+                })();
+                if job.reply.send(out).is_err() {
+                    break; // 渲染侧已放弃本帧（管线关闭），收尾退出。
+                }
+            }
+        })
+        .expect("spawn scene3-texture worker");
+    tx
+}
+
+impl opencat_core::ir::scene3::Scene3Raster for TexturedRaster3d {
+    fn render(
+        &self,
+        scene: &opencat_core::ir::scene3::Scene3,
+        geometries: &opencat_core::ir::scene3::GeometryRegistry,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<std::sync::Arc<[u8]>> {
+        // 遍历规则即槽位序：textures 在前（马赛克槽表）、map 在后。
+        let mut sources: Vec<opencat_core::ir::scene3::Texture3> = Vec::new();
+        for mesh in &scene.meshes {
+            for tex in mesh.material.textures.iter().chain(mesh.material.map.iter()) {
+                let key = tex.table_key();
+                if sources.iter().any(|s| s.table_key() == key) {
+                    continue;
+                }
+                sources.push(tex.clone());
+            }
+        }
+        if sources.len() > opencat_three::MAX_TEXTURE_SLOTS {
+            anyhow::bail!(
+                "3D 纹理来源 {} 路超过上限 {}（马赛克槽表 + map 合计）",
+                sources.len(),
+                opencat_three::MAX_TEXTURE_SLOTS
+            );
+        }
+        let tx = self.resolve_tx.get_or_init(spawn_texture_worker);
+        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
+        tx.send(TextureResolveJob {
+            sources,
+            reply: reply_tx,
+        })
+        .map_err(|_| anyhow::anyhow!("scene3-texture worker 已退出"))?;
+        let table = reply_rx
+            .recv()
+            .map_err(|_| anyhow::anyhow!("scene3-texture worker 丢失应答"))??;
+        // 场景环境（three.js scene.environment，js:23-26）：equirect 位图
+        // 走同一 worker 解码，交给渲染器做一次性 PMREM 预滤波
+        //（LazyRenderer3d::set_environment 内按 Arc 指针缓存）。
+        if let Some(env) = &scene.environment {
+            let (env_tx, env_rx) = std::sync::mpsc::sync_channel(1);
+            tx.send(TextureResolveJob {
+                sources: vec![env.clone()],
+                reply: env_tx,
+            })
+            .map_err(|_| anyhow::anyhow!("scene3-texture worker 已退出"))?;
+            let env_table = env_rx
+                .recv()
+                .map_err(|_| anyhow::anyhow!("scene3-texture worker 丢失应答"))??;
+            let (_, env_bitmap) = env_table
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("环境纹理来源解析为空表"))?;
+            self.inner
+                .set_environment(&env_bitmap)
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+        }
+        self.inner
+            .render_with_textures(scene, geometries, &table, width, height)
+    }
 }
 
 #[cfg(test)]

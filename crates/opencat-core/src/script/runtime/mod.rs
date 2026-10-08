@@ -12,6 +12,7 @@
 //! 6. `ANIMATION_FACADE` — `ctx.from/to/fromTo/set()`, `ctx.timeline()`, `flushTimelines`
 //! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API
 //! 8. `CANVAS_API_RUNTIME` — `ctx.canvas(id).fillRect(...)` CanvasKit subset
+//! 9. `THREE_API_RUNTIME` — `ctx.three` three.js 风格 3D 场景图 + `Renderer.render()`
 //!
 //! All files are IIFE-wrapped and assume the existence of native
 //! `__record_*`, `__canvas_*`, `__animate_*`, `__text_source_*`
@@ -19,6 +20,7 @@
 
 pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
+pub const THREE_API_RUNTIME: &str = include_str!("three_api.js");
 
 pub const ANIMATION_BOOTSTRAP: &str = include_str!("animation/bootstrap.js");
 pub const ANIMATION_CORE: &str = include_str!("animation/core.js");

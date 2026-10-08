@@ -22,9 +22,11 @@ pub enum Easing {
     EaseIn,
     EaseOut,
     EaseInOut,
-    BackIn,
-    BackOut,
-    BackInOut,
+    // GSAP back easings carry the overshoot amount `s` (e.g. `back.out(2.5)`);
+    // the bare CSS-style `back-out` uses GSAP's default 1.70158.
+    BackIn(f32),
+    BackOut(f32),
+    BackInOut(f32),
     ElasticIn,
     ElasticOut,
     ElasticInOut,
@@ -67,9 +69,9 @@ impl Easing {
             Easing::EaseIn => cubic_bezier(t, 0.42, 0.0, 1.0, 1.0),
             Easing::EaseOut => cubic_bezier(t, 0.0, 0.0, 0.58, 1.0),
             Easing::EaseInOut => cubic_bezier(t, 0.42, 0.0, 0.58, 1.0),
-            Easing::BackIn => back_in(t, 1.70158),
-            Easing::BackOut => back_out(t, 1.70158),
-            Easing::BackInOut => back_in_out(t, 1.70158),
+            Easing::BackIn(s) => back_in(t, *s),
+            Easing::BackOut(s) => back_out(t, *s),
+            Easing::BackInOut(s) => back_in_out(t, *s),
             Easing::ElasticIn => elastic_in(t),
             Easing::ElasticOut => elastic_out(t),
             Easing::ElasticInOut => elastic_in_out(t),
@@ -523,9 +525,9 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "ease-in" | "ease_in" => Some(Easing::EaseIn),
         "ease-out" | "ease_out" => Some(Easing::EaseOut),
         "ease-in-out" | "ease_in_out" => Some(Easing::EaseInOut),
-        "back-in" | "back_in" => Some(Easing::BackIn),
-        "back-out" | "back_out" => Some(Easing::BackOut),
-        "back-in-out" | "back_in_out" => Some(Easing::BackInOut),
+        "back-in" | "back_in" => Some(Easing::BackIn(1.70158)),
+        "back-out" | "back_out" => Some(Easing::BackOut(1.70158)),
+        "back-in-out" | "back_in_out" => Some(Easing::BackInOut(1.70158)),
         "elastic-in" | "elastic_in" => Some(Easing::ElasticIn),
         "elastic-out" | "elastic_out" => Some(Easing::ElasticOut),
         "elastic-in-out" | "elastic_in_out" => Some(Easing::ElasticInOut),
@@ -567,13 +569,13 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "sine.inOut" | "sine.inout" => Some(Easing::SineInOut),
         // GSAP-style back easings with parameter
         s if s.starts_with("back.in(") && s.ends_with(')') => {
-            parse_gsap_back(&s[8..s.len() - 1], Easing::BackIn)
+            parse_gsap_back(&s[8..s.len() - 1]).map(Easing::BackIn)
         }
         s if s.starts_with("back.out(") && s.ends_with(')') => {
-            parse_gsap_back(&s[9..s.len() - 1], Easing::BackOut)
+            parse_gsap_back(&s[9..s.len() - 1]).map(Easing::BackOut)
         }
         s if s.starts_with("back.inOut(") && s.ends_with(')') => {
-            parse_gsap_back(&s[11..s.len() - 1], Easing::BackInOut)
+            parse_gsap_back(&s[11..s.len() - 1]).map(Easing::BackInOut)
         }
         // GSAP-style elastic easings with parameters
         s if s.starts_with("elastic.in(") && s.ends_with(')') => {
@@ -598,11 +600,15 @@ fn parse_bezier(input: &str) -> Option<Easing> {
     Some(Easing::CubicBezier(x1, y1, x2, y2))
 }
 
-fn parse_gsap_back(input: &str, _default: Easing) -> Option<Easing> {
-    // GSAP back easing parameter is the overshoot amount
-    // We ignore the parameter for now and use the default back easing
-    let _overshoot: f32 = input.parse().ok()?;
-    Some(_default)
+/// Parses the GSAP `back.<dir>(<overshoot>)` argument. The overshoot defaults
+/// to 1.70158 when omitted (GSAP's own default), and is otherwise forwarded
+/// verbatim as the back-easing strength `s`.
+fn parse_gsap_back(input: &str) -> Option<f32> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Some(1.70158);
+    }
+    trimmed.parse::<f32>().ok()
 }
 
 fn parse_gsap_elastic(input: &str, is_in: bool) -> Option<Easing> {
@@ -715,24 +721,48 @@ mod tests {
 
     #[test]
     fn back_easings_have_overshoot() {
-        let v = Easing::BackOut.apply(0.5);
+        let v = Easing::BackOut(1.70158).apply(0.5);
         assert!(v > 0.5, "BackOut at 0.5 should be > 0.5, got {v}");
-        assert!((Easing::BackOut.apply(0.0) - 0.0).abs() < 1e-4);
-        assert!((Easing::BackOut.apply(1.0) - 1.0).abs() < 1e-4);
-        let v = Easing::BackIn.apply(0.5);
+        assert!((Easing::BackOut(1.70158).apply(0.0) - 0.0).abs() < 1e-4);
+        assert!((Easing::BackOut(1.70158).apply(1.0) - 1.0).abs() < 1e-4);
+        let v = Easing::BackIn(1.70158).apply(0.5);
         assert!(v < 0.5, "BackIn at 0.5 should be < 0.5, got {v}");
     }
 
     #[test]
+    fn back_out_overshoot_tracks_parameter() {
+        // GSAP `back.out(s)` peaks at 1 + (s+1)^? ...; larger s => larger peak.
+        let peak_s = |s: f32| {
+            let mut m = f32::MIN;
+            let mut t = 0.0f32;
+            while t <= 1.0 {
+                m = m.max(Easing::BackOut(s).apply(t));
+                t += 1.0 / 4096.0;
+            }
+            m
+        };
+        let p17 = peak_s(1.70158);
+        let p25 = peak_s(2.5);
+        assert!((p17 - 1.10).abs() < 1e-3, "default peak ~1.10, got {p17}");
+        assert!((p25 - 1.189).abs() < 2e-3, "s=2.5 peak ~1.189, got {p25}");
+        assert!(p25 > p17, "larger overshoot must peak higher");
+        // Parameter must actually reach the easing, not be discarded.
+        assert_ne!(Easing::BackOut(2.5).apply(0.7), Easing::BackOut(1.0).apply(0.7));
+    }
+
+    #[test]
     fn back_easings_via_name() {
-        assert!(matches!(easing_from_name("back-in"), Some(Easing::BackIn)));
+        assert!(matches!(
+            easing_from_name("back-in"),
+            Some(Easing::BackIn(_))
+        ));
         assert!(matches!(
             easing_from_name("back-out"),
-            Some(Easing::BackOut)
+            Some(Easing::BackOut(_))
         ));
         assert!(matches!(
             easing_from_name("back-in-out"),
-            Some(Easing::BackInOut)
+            Some(Easing::BackInOut(_))
         ));
     }
 
@@ -1033,17 +1063,23 @@ mod tests {
 
     #[test]
     fn gsap_back_easings_with_parameter() {
+        // The overshoot argument must be captured, not dropped.
         assert!(matches!(
             easing_from_name("back.in(1.7)"),
-            Some(Easing::BackIn)
+            Some(Easing::BackIn(s)) if (s - 1.7).abs() < 1e-5
         ));
         assert!(matches!(
-            easing_from_name("back.out(1.7)"),
-            Some(Easing::BackOut)
+            easing_from_name("back.out(2.5)"),
+            Some(Easing::BackOut(s)) if (s - 2.5).abs() < 1e-5
         ));
         assert!(matches!(
             easing_from_name("back.inOut(1.7)"),
-            Some(Easing::BackInOut)
+            Some(Easing::BackInOut(s)) if (s - 1.7).abs() < 1e-5
+        ));
+        // Missing / empty argument falls back to GSAP's default overshoot.
+        assert!(matches!(
+            easing_from_name("back.out()"),
+            Some(Easing::BackOut(s)) if (s - 1.70158).abs() < 1e-4
         ));
     }
 

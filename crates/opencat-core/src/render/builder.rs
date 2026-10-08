@@ -322,6 +322,7 @@ impl DrawOpBuilder {
             f32_pool: self.f32_pool.clone(),
             resources,
             effects,
+            references_subtree: segment_references_subtree(ops_slice, &self.children),
         }
     }
 
@@ -347,6 +348,31 @@ impl DrawOpBuilder {
 /// Opaque token returned by `begin_range`.
 pub struct RangeMarker {
     start: u32,
+}
+
+/// Detect whether a recorded op range depends on the builder's hidden-subtree
+/// table (`DrawOpFrame.subtrees`), which a `CachedDrawSegment` cannot carry.
+///
+/// `DrawOp::ReplaySubtreePicture` names a `SubtreeId` directly;
+/// `DrawOp::RuntimeEffect` may hold a `RuntimeEffectChildRef::SubtreePicture`
+/// among its children; `DrawOp::DrawSubtreePicture` is an unexpanded hidden
+/// picture that the engine replay treats as a no-op. Re-importing any of these
+/// into a later frame would reference a subtree id the engine never recorded,
+/// so segments flagged here must not enter the item/node-own caches.
+fn segment_references_subtree(ops: &[DrawOp], children: &[RuntimeEffectChildRef]) -> bool {
+    ops.iter().any(|op| match op {
+        DrawOp::ReplaySubtreePicture { .. } | DrawOp::DrawSubtreePicture { .. } => true,
+        DrawOp::RuntimeEffect { children: range, .. } => {
+            let start = range.start as usize;
+            let end = start.saturating_add(range.len as usize);
+            children.get(start..end).is_some_and(|slice| {
+                slice
+                    .iter()
+                    .any(|c| matches!(c, RuntimeEffectChildRef::SubtreePicture(_)))
+            })
+        }
+        _ => false,
+    })
 }
 
 fn collect_references(
@@ -902,5 +928,93 @@ mod tests {
                 y: 5.0,
             }
         ));
+    }
+
+    #[test]
+    fn segment_references_subtree_flags_replay_subtree_picture() {
+        use crate::ir::draw_types::SubtreeId;
+        let ops = vec![
+            DrawOp::Save,
+            DrawOp::ReplaySubtreePicture {
+                subtree: SubtreeId(0),
+                x: 0.0,
+                y: 0.0,
+            },
+        ];
+        assert!(segment_references_subtree(&ops, &[]));
+    }
+
+    #[test]
+    fn segment_references_subtree_flags_runtime_effect_with_subtree_child() {
+        use crate::ir::draw_op::Rect4;
+        use crate::ir::draw_types::{ChildRange, SubtreeId};
+        let children = vec![RuntimeEffectChildRef::SubtreePicture(SubtreeId(0))];
+        let ops = vec![DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 1 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+        }];
+        assert!(segment_references_subtree(&ops, &children));
+    }
+
+    #[test]
+    fn segment_references_subtree_ignores_plain_runtime_effect() {
+        use crate::ir::draw_op::Rect4;
+        use crate::ir::draw_types::ChildRange;
+        let children = vec![RuntimeEffectChildRef::Image(ImageRef::Static {
+            asset_id: "x".into(),
+        })];
+        let ops = vec![DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 1 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
+        }];
+        assert!(!segment_references_subtree(&ops, &children));
+    }
+
+    #[test]
+    fn snapshot_range_marks_subtree_reference() {
+        use crate::ir::draw_types::SubtreeId;
+        let mut builder = DrawOpBuilder::default();
+        let marker = builder.begin_range();
+        builder.push(DrawOp::ReplaySubtreePicture {
+            subtree: SubtreeId(0),
+            x: 1.0,
+            y: 2.0,
+        });
+        let range = builder.end_range(marker);
+
+        let segment = builder.snapshot_range(range);
+        assert!(
+            segment.references_subtree,
+            "a segment holding a ReplaySubtreePicture must be flagged non-cacheable"
+        );
+    }
+
+    #[test]
+    fn snapshot_range_plain_ops_are_cacheable() {
+        let mut builder = DrawOpBuilder::default();
+        let marker = builder.begin_range();
+        builder.push(DrawOp::Save);
+        builder.push(DrawOp::Restore);
+        let range = builder.end_range(marker);
+
+        let segment = builder.snapshot_range(range);
+        assert!(
+            !segment.references_subtree,
+            "plain draw ops must remain cacheable"
+        );
     }
 }

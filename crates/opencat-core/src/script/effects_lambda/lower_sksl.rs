@@ -38,6 +38,14 @@ pub fn lower(program: &Program) -> LambdaResult<String> {
     for (index, _) in program.children.iter().enumerate() {
         out.push_str(&format!("uniform shader u_oc_c{index};\n"));
     }
+    // noise2 内建：二维确定性值噪声（[-1,1]）。移植参考的 simplex 顶点位移
+    // 到 2D 屏幕空间；与解释器同式（sin-hash + smootherstep 插值）。
+    out.push_str(
+        "float oc_hash2(float2 p) {\n    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123);\n}\n",
+    );
+    out.push_str(
+        "float oc_noise2(float2 p) {\n    float2 i = floor(p);\n    float2 f = fract(p);\n    float2 u = f * f * (3.0 - 2.0 * f);\n    float a = oc_hash2(i);\n    float b = oc_hash2(i + float2(1.0, 0.0));\n    float c = oc_hash2(i + float2(0.0, 1.0));\n    float d = oc_hash2(i + float2(1.0, 1.0));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;\n}\n",
+    );
     out.push_str("half4 main(float2 xy) {\n");
     out.push_str("    float4 u_oc_rect = float4(u_oc_rect_0, u_oc_rect_1, u_oc_rect_2, u_oc_rect_3);\n");
     out.push_str("    float2 oc_uv = xy - u_oc_rect.xy;\n");
@@ -190,9 +198,12 @@ fn emit_expr(program: &Program, expr: &Expr) -> LambdaResult<String> {
             let emitted: Result<Vec<_>, _> = args.iter().map(|e| emit_expr(program, e)).collect();
             let emitted = emitted?;
             // byte() 不是 SKSL 内建：JS `x|0` 截断语义 → trunc(x)（向零取整）
+            // atan2(y,x) 在 SKSL 是双参 atan(y, x)（无 atan2 标识符）。
             let name = match *id {
                 super::stdlib::BuiltinId::Byte => "trunc".to_string(),
                 super::stdlib::BuiltinId::CastF => "float".to_string(),
+                super::stdlib::BuiltinId::Noise2 => "oc_noise2".to_string(),
+                super::stdlib::BuiltinId::Atan2 => "atan".to_string(),
                 _ => super::stdlib::name_of(*id).to_string(),
             };
             Ok(format!("{}({})", name, emitted.join(", ")))

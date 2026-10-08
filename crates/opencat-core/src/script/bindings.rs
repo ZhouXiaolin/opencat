@@ -105,6 +105,47 @@ macro_rules! for_each_binding {
             $rec . record_draw_op($id, DrawOp::Path(PathOp::LineTo { x: x1, y: y1 }));
             $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
+        // ── Node: 3D 场景快照（three-like shim 每帧全量重提交）──
+
+        $binding! { node $rec $id scene3_commit ($id: &str, scene: crate::ir::scene3::Scene3) {
+            $rec . record_scene3($id, scene);
+        }}
+
+        // ── Cmd: 3D 几何注册表（GLB 一次性解码 → 重网格不逐帧过 JSON 桥）──
+
+        $binding! { cmd $store scene3_geometry_register (path: String, id: String) -> String {
+            let geometry = $crate::ir::scene3_glb::load_glb_file(&path)?;
+            $store . record_geometry(&id, std::sync::Arc::new(geometry));
+            Ok(id)
+        }}
+
+        // 脚本内建几何（SphereGeometry 等）一次性注册：重网格不逐帧过 JSON 桥。
+        $binding! { cmd $store scene3_geometry_register_inline (id: String, positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, indices: Vec<u32>) -> String {
+            let count = positions.len();
+            if normals.len() != count {
+                anyhow::bail!(
+                    "scene3_geometry_register_inline '{id}': normals 数量 {} != positions 数量 {count}",
+                    normals.len()
+                );
+            }
+            if let Some((j, idx)) = indices.iter().enumerate().find(|(_, i)| (**i as usize) >= count) {
+                anyhow::bail!(
+                    "scene3_geometry_register_inline '{id}': indices[{j}] = {idx} 越界（positions = {count}）"
+                );
+            }
+            $store . record_geometry(&id, std::sync::Arc::new(
+                $crate::ir::scene3::Geometry3::Inline {
+                    positions,
+                    normals,
+                    indices,
+                    uvs: Vec::new(),
+                    colors: Vec::new(),
+                    colors1: Vec::new(),
+                },
+            ));
+            Ok(id)
+        }}
+
         $binding! { node $rec $id canvas_fill_circle ($id: &str, cx: f32, cy: f32, radius: f32) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval {
@@ -764,6 +805,36 @@ macro_rules! for_each_binding {
         }}
         $binding! { pure util_random_seeded (seed: f32) -> f32 {
             Ok(random_from_seed(seed))
+        }}
+        // Pure geometry: minimum-area enclosing rectangle of a 2-D point set.
+        // `points` is a flat [x0,y0, x1,y1, ...]; returns [angle_rad, w, h].
+        // Used to recover a 3-D mesh's projected in-plane orientation from a
+        // handful of projected hull points (see examples/liquid-brand-refraction.xml).
+        $binding! { pure util_min_area_rect (points: Vec<f64>) -> Vec<f64> {
+            if points.len() < 2 {
+                return Err(anyhow::anyhow!("util_min_area_rect: need >=1 point"));
+            }
+            let pts: Vec<[f64; 2]> = points
+                .chunks_exact(2)
+                .map(|c| [c[0], c[1]])
+                .collect();
+            let (angle, w, h) = $crate::geom::min_area_rect(&pts)
+                .ok_or_else(|| anyhow::anyhow!("util_min_area_rect: empty"))?;
+            Ok(vec![angle, w, h])
+        }}
+        // Pure geometry: pinhole camera view basis (forward, right, up) for
+        // `eye` looking at `target`, matching Three.js
+        // `PerspectiveCamera.lookAt` semantics. Returns a flat
+        // [fx,fy,fz, rx,ry,rz, ux,uy,uz]. Used so the chromatic-plane effect
+        // derives its ray basis from the source camera constants rather than
+        // picking a cross-product sign by measurement.
+        $binding! { pure util_camera_basis (eye: Vec<f64>, target: Vec<f64>) -> Vec<f64> {
+            if eye.len() != 3 || target.len() != 3 {
+                return Err(anyhow::anyhow!("util_camera_basis: eye/target must be 3"));
+            }
+            let (f, r, u) = $crate::geom::camera_basis(
+                [eye[0], eye[1], eye[2]], [target[0], target[1], target[2]]);
+            Ok(vec![f[0], f[1], f[2], r[0], r[1], r[2], u[0], u[1], u[2]])
         }}
         $binding! { pure text_graphemes (text: String) -> Vec<String> {
             Ok(grapheme_strings(&text).into_iter().collect())

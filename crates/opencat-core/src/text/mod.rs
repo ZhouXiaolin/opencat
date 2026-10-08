@@ -566,6 +566,85 @@ mod tests {
     use crate::style::{ComputedTextStyle, FontWeight, TextTransform};
 
     #[test]
+    fn diag_galaxie_space_advance() {
+        use crate::text::font_db_from_bytes;
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/p2v/");
+        let mut faces = vec![];
+        for f in [
+            "HankenGrotesk-400.ttf",
+            "HankenGrotesk-500.ttf",
+            "HankenGrotesk-600.ttf",
+            "HankenGrotesk-700.ttf",
+            "GalaxieCopernicus-Book.ttf",
+            "SplineSansMono-400.ttf",
+            "SplineSansMono-500.ttf",
+            "ArchivoBlack.ttf",
+        ] {
+            faces.push(std::fs::read(format!("{dir}{f}")).unwrap());
+        }
+        let db = font_db_from_bytes(&faces, "Hanken Grotesk");
+        // also try WITHOUT the Noto fallbacks to compare
+        {
+            let style = ComputedTextStyle {
+                text_px: 100.0,
+                font_family: Some("Galaxie Copernicus".to_string()),
+                ..ComputedTextStyle::default()
+            };
+            let m = measure_text("A A", &style, f32::INFINITY, false, &db);
+            eprintln!("WITHOUT_NOTO A A width={:.2}", m.width);
+        }
+        let emoji = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/NotoColorEmoji.ttf")).unwrap();
+        let sanssc = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/NotoSansSC-Regular.otf")).unwrap();
+        for (label, extra) in [("EMOJI_ONLY", vec![emoji.clone()]), ("SANSSC_ONLY", vec![sanssc.clone()]), ("BOTH", vec![emoji.clone(), sanssc.clone()])] {
+            let mut d = db.clone();
+            for b in extra { d.load_font_data(b); }
+            let style = ComputedTextStyle {
+                text_px: 100.0,
+                font_family: Some("Galaxie Copernicus".to_string()),
+                ..ComputedTextStyle::default()
+            };
+            let m = measure_text("A A", &style, f32::INFINITY, false, &d);
+            eprintln!("{label} A A width={:.2}", m.width);
+            // try weight 500 too
+            let style5 = ComputedTextStyle { font_weight: crate::style::FontWeight(500), ..style.clone() };
+            let m5 = measure_text("A A", &style5, f32::INFINITY, false, &d);
+            eprintln!("{label} A A @w500 width={:.2}", m5.width);
+            // which font shapes the space? inspect via cosmic directly
+            {
+                use cosmic_text::{Attrs, Buffer, FontSystem, Metrics, Shaping};
+                let mut fs = FontSystem::new_with_locale_and_db("en-US".to_string(), d.clone());
+                let mut buf = Buffer::new(&mut fs, Metrics::new(100.0, 120.0));
+                let a = Attrs::new().family(cosmic_text::Family::Name("Galaxie Copernicus"));
+                buf.set_text("A A", &a, Shaping::Advanced, None);
+                buf.shape_until_scroll(&mut fs, false);
+                for run in buf.layout_runs() {
+                    for g in run.glyphs {
+                        let fid = g.font_id;
+                        let fam = fs.db().face(fid).map(|f| f.families.first().map(|x| x.0.clone())).flatten();
+                        eprintln!("   glyph id={} font={:?} w={}", g.glyph_id, fam, g.w);
+                    }
+                }
+            }
+        }
+        for face in db.faces() {
+            if let fontdb::Source::Binary(_) = &face.source {
+                eprintln!("FACE {:?} families={:?} weight={:?}", face.id, face.families, face.weight);
+            }
+        }
+        let style = ComputedTextStyle {
+            text_px: 100.0,
+            font_family: Some("Galaxie Copernicus".to_string()),
+            ..ComputedTextStyle::default()
+        };
+        for t in ["A", "AA", "A A"] {
+            let m = measure_text(t, &style, f32::INFINITY, false, &db);
+            let r = rasterize_glyphs(t, &style, f32::INFINITY, false, false, &db);
+            let xs: Vec<f32> = r.lines[0].positions.iter().map(|p| p.x).collect();
+            eprintln!("TEXT {:?} width={:.2} glyph_x={:?}", t, m.width, xs);
+        }
+    }
+
+    #[test]
     fn cosmic_text_measures_short_english_text() {
         let db = test_default_font_db();
         let style = ComputedTextStyle::default();

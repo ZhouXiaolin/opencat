@@ -1,0 +1,644 @@
+<opencat width="1920" height="1080" fps="30" duration="30.0">
+  <!-- ════════════════════════════════════════════════════════════════════
+       pr-to-video-launch — 1:1 port of the hyperframes 30 s launch film.
+       One root comp holds ten z-stacked scenes as sibling divs, absolutely
+       positioned, cross-faded by the root timeline (T) exactly as
+       index.html does. Static styling = Tailwind px (source cqw/cqh
+       converted ×19.2 / ×10.8); motion = script, times divided by the
+       source inner timeScale (feature-card comps authored ~2–2.5× fast).
+       ════════════════════════════════════════════════════════════════════ -->
+  <fonts default="hk4">
+    <font id="hk4" family="Hanken Grotesk" path="../assets/p2v/HankenGrotesk-400.ttf" role="sans"/>
+    <font id="hk5" family="Hanken Grotesk" path="../assets/p2v/HankenGrotesk-500.ttf"/>
+    <font id="hk6" family="Hanken Grotesk" path="../assets/p2v/HankenGrotesk-600.ttf"/>
+    <font id="hk7" family="Hanken Grotesk" path="../assets/p2v/HankenGrotesk-700.ttf"/>
+    <font id="gal" family="Galaxie Copernicus" path="../assets/p2v/GalaxieCopernicus-Book.ttf"/>
+    <font id="mono4" family="Spline Sans Mono" path="../assets/p2v/SplineSansMono-400.ttf" role="mono"/>
+    <font id="mono5" family="Spline Sans Mono" path="../assets/p2v/SplineSansMono-500.ttf" role="mono"/>
+    <font id="black" family="Archivo Black" path="../assets/p2v/ArchivoBlack.ttf"/>
+  </fonts>
+
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#F0EFE9] overflow-hidden font-[hk4]">
+
+    <!-- ═════════════════ SCENE 1 — opener (0–5.2 s) ═════════════════ -->
+    <div id="s-opener" class="absolute inset-0 z-[1] font-[hk4]">
+      <div id="op-win" class="absolute left-[160px] top-[102.6px] w-[1599.36px] h-[874.8px] rounded-[25.92px] bg-[#1D1F1F] overflow-hidden shadow-[0_38px_115px_-38px_rgba(20,20,18,0.45)]">
+        <div id="op-bar" class="absolute left-[30.7px] top-[26.9px] flex gap-[11.9px] opacity-0">
+          <div id="auto001" class="w-[20.2px] h-[20.2px] rounded-full bg-[#FF5F57]"></div>
+          <div id="auto002" class="w-[20.2px] h-[20.2px] rounded-full bg-[#FEBC2E]"></div>
+          <div id="auto003" class="w-[20.2px] h-[20.2px] rounded-full bg-[#28C840]"></div>
+        </div>
+        <div id="op-feed" class="absolute left-[65.3px] right-[65.3px] top-[115.2px] bottom-[286.8px] overflow-hidden">
+          <div id="op-stack" class="absolute left-0 right-0 bottom-0 flex flex-col gap-[30.72px]">
+            <div id="op-m1" class="self-end flex flex-col items-end text-right opacity-0">
+              <text id="op-m1-a" class="text-[30.72px] text-[#EFEADD] leading-[1.4]">Someone on our team just opened a PR for a new pr-to-video skill — can</text>
+              <div id="auto000" class="flex items-baseline">
+                <text id="op-m1-b" class="text-[30.72px] text-[#EFEADD] leading-[1.4]">you review it?</text>
+                <text id="op-prlink" class="text-[30.72px] font-[hk6] font-semibold text-[#D97757] leading-[1.4]">github.com/heygen-com/hyperframes/pull/1635</text>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="op-composer" class="absolute left-[65.3px] w-[1468.76px] bottom-[65.3px]">
+          <div id="op-chips" class="flex gap-[11.52px] mb-[17.28px]">
+            <div id="auto004" class="flex items-center gap-[9.6px] bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><path id="auto005" d="M4 5h16v11H4z M2 19h20" view-box="0 0 24 24" class="w-[21.1px] h-[21.1px] stroke-[#C9C6BC] fill-none"/><text id="auto006" class="text-[18.8px] font-[hk5] font-medium text-[#D7D4CA]">Local</text></div>
+            <div id="auto007" class="flex items-center gap-[9.6px] bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><path id="auto008" d="M3 7.5A2 2 0 0 1 5 5.5h4.2l2 2.2H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" view-box="0 0 24 24" class="w-[21.1px] h-[21.1px] stroke-[#C9C6BC] fill-none"/><text id="auto009" class="text-[18.8px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text></div>
+          </div>
+          <div id="op-input" class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[17.28px] min-h-[92.24px] px-[23px]">
+            <div id="auto010" class="flex-1 flex items-center pr-[50px]"><text id="op-typed" class="text-[22.08px] text-[#E6E2D6] whitespace-nowrap">Someone on our team just opened a PR for a new pr-to-video skill — can you review it?</text><text id="op-caret" class="text-[27.84px] text-[#D97757]">▏</text></div>
+            <text id="op-ret" class="absolute right-[21px] text-[#6F6E66] text-[23px]">↵</text>
+          </div>
+          <div id="op-meta" class="flex justify-between items-center mt-[16.3px]">
+            <div id="auto011" class="flex items-center gap-[19.2px]"><text id="auto012" class="text-[17.7px] font-[hk5] font-medium bg-[rgba(202,164,62,0.16)] text-[#CAA43E] px-[13.4px] py-[4.2px] rounded-[8.64px]">Auto</text><text id="auto013" class="text-[22.1px] text-[#8C8B83]">＋</text></div>
+            <div id="auto014" class="flex items-center gap-[19.2px]"><text id="auto015" class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text><text id="auto016" class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</text><div id="op-orb" class="w-[24px] h-[24px] rounded-full border-[3.26px] border-[rgba(96,148,214,0.26)]"></div></div>
+          </div>
+        </div>
+      </div>
+      <path id="op-cursor" d="M6 4 L6 23 L11 18 L14.5 25 L17.5 23.6 L14 17 L21 17 Z" view-box="0 0 28 28" class="absolute w-[105.6px] h-[105.6px] z-[30] opacity-0 fill-[#1c1c1c] stroke-[#ffffff]"/>
+      <div id="op-ripple" class="absolute w-[96px] h-[96px] rounded-full border-[5.4px] border-[rgba(217,119,87,0.85)] z-[29] opacity-0"></div>
+    </div>
+
+    <!-- ═════════════════ SCENE 2 — pr-scroll (5.2–8.4 s) ═════════════════ -->
+    <div id="s-prscroll" class="absolute inset-0 z-[2] font-[hk4] opacity-0">
+      <div id="prs-browser" class="absolute left-[49.9px] top-[86.4px] w-[1017.6px] h-[907.2px] bg-[#fff] rounded-[23.04px] overflow-hidden shadow-[0_35px_96px_-38px_rgba(20,20,18,0.4)]">
+        <div id="auto017" class="flex items-center gap-[10.56px] h-[61.44px] px-[26.9px] bg-[#e9e6df] border-b-[1px] border-[#d8d2c6]">
+          <div id="auto018" class="w-[18.24px] h-[18.24px] rounded-full bg-[#FF5F57]"></div>
+          <div id="auto019" class="w-[18.24px] h-[18.24px] rounded-full bg-[#FEBC2E]"></div>
+          <div id="auto020" class="w-[18.24px] h-[18.24px] rounded-full bg-[#28C840]"></div>
+          <div id="auto021" class="ml-[19.2px] flex items-center gap-[8.64px] bg-[#fff] border-[1px] border-[#d8d2c6] rounded-[9.6px] h-[37.44px] px-[17.3px]"><path id="auto022" d="M5 11h14v9H5z M8 11V8a4 4 0 0 1 8 0v3" view-box="0 0 24 24" class="w-[17.3px] h-[17.3px] stroke-[#6c6a64] fill-none"/><text id="auto023" class="text-[17.66px] text-[#3d3a34] font-[mono4]">github.com/heygen-com/hyperframes/pull/1635</text></div>
+        </div>
+        <div id="auto024" class="flex items-center gap-[30.72px] px-[30.72px] py-[19.2px] border-b-[1px] border-[#d0d7de]">
+          <div id="auto025" class="flex items-baseline"><text id="prs-tab0" class="text-[19.2px] text-[#59636e] font-[hk6] font-semibold">Conversation </text><text id="auto026" class="text-[19.2px] text-[#1f2328] font-[hk6] font-semibold">38</text></div>
+          <div id="auto027" class="flex items-baseline"><text id="prs-tab1" class="text-[19.2px] text-[#59636e] font-[hk5] font-medium">Commits </text><text id="auto028" class="text-[19.2px] text-[#1f2328] font-[hk5] font-medium">4</text></div>
+          <div id="auto029" class="flex items-baseline"><text id="prs-tab2" class="text-[19.2px] text-[#59636e] font-[hk5] font-medium">Files changed </text><text id="auto030" class="text-[19.2px] text-[#1f2328] font-[hk5] font-medium">629</text></div>
+        </div>
+        <div id="prs-wbody" class="absolute left-0 right-0 top-[142.1px] bottom-0 overflow-hidden">
+          <div id="prs-review" class="absolute inset-0 px-[30.72px] py-[11.52px]">
+            <div id="prs-r1" class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0"><div id="auto031" class="w-[36.5px] h-[36.5px] rounded-full bg-[#ddd6c8]"></div><div id="auto032" class="flex items-center gap-[8px]"><text id="auto033" class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">jrusso1020</text><text id="auto034" class="text-[20.2px] text-[#3d3a34]"> requested changes · 14 comments</text></div></div>
+            <div id="prs-r2" class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0"><div id="auto035" class="w-[36.5px] h-[36.5px] rounded-full bg-[#ddd6c8]"></div><div id="auto036" class="flex items-center gap-[8px]"><text id="auto037" class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">miguel-heygen</text><text id="auto038" class="text-[20.2px] text-[#3d3a34]"> left 9 comments on 6 files</text></div></div>
+            <div id="prs-r3" class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0"><div id="auto039" class="w-[36.5px] h-[36.5px] rounded-full bg-[#ddd6c8]"></div><div id="auto040" class="flex items-center gap-[8px]"><text id="auto041" class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">WaterrrForever</text><text id="auto042" class="text-[20.2px] text-[#3d3a34]"> pushed 4 commits</text></div></div>
+            <div id="prs-r4" class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0"><div id="auto043" class="w-[36.5px] h-[36.5px] rounded-full bg-[#ddd6c8]"></div><div id="auto044" class="flex items-center gap-[8px]"><text id="auto045" class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">jrusso1020</text><text id="auto046" class="text-[20.2px] text-[#3d3a34]"> approved · 3 threads open</text></div></div>
+            <div id="prs-r5" class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0"><div id="auto047" class="w-[36.5px] h-[36.5px] rounded-full bg-[#ddd6c8]"></div><div id="auto048" class="flex items-center gap-[8px]"><text id="auto049" class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">miguel-heygen</text><text id="auto050" class="text-[20.2px] text-[#3d3a34]"> resolved 5 conversations</text></div></div>
+            <div id="prs-r6" class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0"><div id="auto051" class="w-[36.5px] h-[36.5px] rounded-full bg-[#ddd6c8]"></div><div id="auto052" class="flex items-center gap-[8px]"><text id="auto053" class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">WaterrrForever</text><text id="auto054" class="text-[20.2px] text-[#3d3a34]"> re-requested review</text></div></div>
+          </div>
+          <div id="prs-files" class="absolute inset-0 opacity-0">
+            <div id="prs-inner" class="absolute left-0 right-0 top-0">
+              <div id="auto055" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto057" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/pr-to-video/SKILL.md</text><text id="auto058" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+212 </text><text id="auto059" class="text-[19.2px] font-[mono4] text-[#cf222e]">−40</text></div>
+              <div id="auto060" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto062" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/pr-to-video/scripts/fetch-pr.mjs</text><text id="auto063" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+148 </text><text id="auto064" class="text-[19.2px] font-[mono4] text-[#cf222e]">−0</text></div>
+              <div id="auto065" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto067" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/pr-to-video/scripts/ingest.mjs</text><text id="auto068" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+96 </text><text id="auto069" class="text-[19.2px] font-[mono4] text-[#cf222e]">−0</text></div>
+              <div id="auto070" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto072" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/product-launch/SKILL.md</text><text id="auto073" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+96 </text><text id="auto074" class="text-[19.2px] font-[mono4] text-[#cf222e]">−311</text></div>
+              <div id="auto075" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto077" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/product-launch/references/story-design.md</text><text id="auto078" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+40 </text><text id="auto079" class="text-[19.2px] font-[mono4] text-[#cf222e]">−642</text></div>
+              <div id="auto080" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto082" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/faceless-explainer/SKILL.md</text><text id="auto083" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+58 </text><text id="auto084" class="text-[19.2px] font-[mono4] text-[#cf222e]">−280</text></div>
+              <div id="auto085" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto087" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/faceless-explainer/references/story.md</text><text id="auto088" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+44 </text><text id="auto089" class="text-[19.2px] font-[mono4] text-[#cf222e]">−980</text></div>
+              <div id="auto090" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto092" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/hyperframes-core/references/storyboard-format.md</text><text id="auto093" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+61 </text><text id="auto094" class="text-[19.2px] font-[mono4] text-[#cf222e]">−120</text></div>
+              <div id="auto095" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto097" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/hyperframes-media/references/tts.md</text><text id="auto098" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+19 </text><text id="auto099" class="text-[19.2px] font-[mono4] text-[#cf222e]">−3,402</text></div>
+              <div id="auto100" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto102" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/hyperframes-animation/references/blueprints.md</text><text id="auto103" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+30 </text><text id="auto104" class="text-[19.2px] font-[mono4] text-[#cf222e]">−5,118</text></div>
+              <div id="auto105" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto107" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/hyperframes-creative/frame-presets/claude/FRAME.md</text><text id="auto108" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+402 </text><text id="auto109" class="text-[19.2px] font-[mono4] text-[#cf222e]">−0</text></div>
+              <div id="auto110" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto112" class="text-[19.2px] text-[#1f2328] font-[mono4]">registry/blocks/code-diff/block.html</text><text id="auto113" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+140 </text><text id="auto114" class="text-[19.2px] font-[mono4] text-[#cf222e]">−12</text></div>
+              <div id="auto115" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto117" class="text-[19.2px] text-[#1f2328] font-[mono4]">registry/blocks/code-typing/block.html</text><text id="auto118" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+96 </text><text id="auto119" class="text-[19.2px] font-[mono4] text-[#cf222e]">−8</text></div>
+              <div id="auto120" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto122" class="text-[19.2px] text-[#1f2328] font-[mono4]">packages/cli/src/commands/init.ts</text><text id="auto123" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+24 </text><text id="auto124" class="text-[19.2px] font-[mono4] text-[#cf222e]">−240</text></div>
+              <div id="auto125" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto127" class="text-[19.2px] text-[#1f2328] font-[mono4]">packages/engine/src/capture/scroll.ts</text><text id="auto128" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+12 </text><text id="auto129" class="text-[19.2px] font-[mono4] text-[#cf222e]">−1,904</text></div>
+              <div id="auto130" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto132" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/hyperframes-animation/atoms/transitions.md</text><text id="auto133" class="ml-auto text-[19.2px] font-[mono4] text-[#1a7f37]">+8 </text><text id="auto134" class="text-[19.2px] font-[mono4] text-[#cf222e]">−6,210</text></div>
+              <div id="auto135" class="flex items-center gap-[17.3px] px-[30.72px] py-[17.7px] border-b-[1px] border-[#f0f0f0]"><text id="auto137" class="text-[19.2px] text-[#1f2328] font-[mono4]">skills/hyperframes-media/voices/registry.json</text><text id="auto138" class="ml-auto text-[19.2px] font-[mono4] text-[#cf222e]">−14,880</text></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="auto139" class="absolute left-[1152px] top-[540px] -mt-[183.6px] w-[691.2px]">
+        <text id="prs-head" class="whitespace-nowrap font-[gal] text-[72.96px] leading-[1.04] tracking-[-1.15px] text-[#262624] opacity-0">A thousand</text>
+        <text id="prs-head2" class="whitespace-nowrap font-[gal] text-[72.96px] leading-[1.04] tracking-[-1.15px] text-[#262624] mb-[34.56px] opacity-0">slices of change.</text>
+        <div id="prs-s1" class="flex items-baseline gap-[11.52px] mb-[17.28px] border-t-[1px] border-[#ddd6c8] pt-[17.28px] opacity-0"><text id="prs-files-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none">629</text><text id="prs-cr1" class="font-[mono5] text-[40.32px] text-[#D97757] mx-[9.6px] opacity-0">▏</text><text id="auto140" class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">files changed</text></div>
+        <div id="prs-s2" class="flex items-baseline gap-[11.52px] mb-[17.28px] border-t-[1px] border-[#ddd6c8] pt-[17.28px] opacity-0"><text id="prs-lines-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none">87,291</text><text id="prs-cr2" class="font-[mono5] text-[40.32px] text-[#D97757] mx-[9.6px] opacity-0">▏</text><text id="auto141" class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">lines removed</text></div>
+        <div id="prs-s3" class="flex items-baseline gap-[11.52px] mb-[17.28px] border-t-[1px] border-[#ddd6c8] pt-[17.28px] opacity-0"><text id="prs-commits-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none">4</text><text id="prs-cr3" class="font-[mono5] text-[40.32px] text-[#D97757] mx-[9.6px] opacity-0">▏</text><text id="auto142" class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">commits to read through</text></div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 3 — hard-read (8.4–9.3 s) ═════════════════ -->
+    <div id="s-hard" class="absolute inset-0 z-[3] bg-[#1D1F1F] font-[gal] opacity-0">
+      <div id="hr-txt" class="absolute left-0 right-0 top-[540px] -mt-[90px] text-center opacity-0"><text id="hr-t" class="text-[182.4px] tracking-[-3.456px] text-[#EFEADD] leading-none">Hard to read</text></div>
+    </div>
+
+    <!-- ═════════════════ SCENE 4 — summarize (9.3–12.3 s) ═════════════════ -->
+    <div id="s-summarize" class="absolute inset-0 z-[4] font-[hk4] opacity-0">
+      <div id="auto143" class="absolute inset-0 bg-[#1D1F1F] overflow-hidden">
+        <div id="sm-feed" class="absolute left-[115.2px] right-[153.6px] top-[115.2px] bottom-[115.2px] overflow-hidden opacity-0">
+          <div id="sm-inner" class="absolute left-0 right-0 top-0">
+            <div id="auto144" class="flex items-center gap-[13.44px] text-[31.68px] font-[hk5] font-medium text-[#D8D4C8] mb-[21.12px]"><text id="auto145" class="text-[#D97757] text-[31.68px]">✳</text><text id="auto146" class="text-[31.68px] text-[#D8D4C8]">Here's the summary:</text></div>
+            <text id="auto147" class="text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] mt-[23px] mb-[11.5px]">## TL;DR</text>
+            <text id="auto148" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">Three video skills now share one script-driven engine — less duplication, one place to fix bugs.</text>
+            <text id="auto149" class="text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] mt-[23px] mb-[11.5px]">## What moved</text>
+            <text id="auto150" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- product-launch, pr-to-video, faceless-explainer → one fetch / build-frame / audio / caption / assemble pipeline.</text>
+            <text id="auto151" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- each SKILL.md slimmed; the inline step logic now lives in shared scripts.</text>
+            <text id="auto152" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- story / tts / blueprints references trimmed where the engine owns the flow.</text>
+            <text id="auto153" class="text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] mt-[23px] mb-[11.5px]">## By the numbers</text>
+            <text id="auto154" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- 629 files touched, +8,322 / −87,291.</text>
+            <text id="auto155" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- the −87,291 is mostly moved, not deleted; net behaviour unchanged.</text>
+            <text id="auto156" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- 4 commits, each a coherent slice.</text>
+            <text id="auto157" class="text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] mt-[23px] mb-[11.5px]">## New surface</text>
+            <text id="auto158" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- a claude frame preset (FRAME.md + caption-skin.html).</text>
+            <text id="auto159" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- code-diff / code-typing / code-morph registry blocks for code beats.</text>
+            <text id="auto160" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- a shared audio engine: TTS + BGM lookup + SFX + duration sync.</text>
+            <text id="auto161" class="text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] mt-[23px] mb-[11.5px]">## Behaviour changes</text>
+            <text id="auto162" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- pr-to-video ingests via gh → a synthetic capture package; no website capture.</text>
+            <text id="auto163" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- product-launch keeps capture but delegates audio + captions to the engine.</text>
+            <text id="auto164" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- faceless-explainer drops its bespoke audio path entirely.</text>
+            <text id="auto165" class="text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] mt-[23px] mb-[11.5px]">## Risks to check</text>
+            <text id="auto166" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- the shared audio engine is a single point of failure for all three skills.</text>
+            <text id="auto167" class="text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]">- verify no skill lost a reference in the move.</text>
+          </div>
+        </div>
+        <div id="sm-composer" class="absolute left-[540px] w-[840px] bottom-[370px] origin-bottom-left">
+          <div id="auto168" class="flex gap-[11.52px] mb-[17.28px]"><div id="auto169" class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text id="auto170" class="text-[18.8px] font-[hk5] font-medium text-[#D7D4CA]">Local</text></div><div id="auto171" class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text id="auto172" class="text-[18.8px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text></div></div>
+          <div id="auto173" class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[17.28px] min-h-[92.24px] px-[23px]"><div id="auto174" class="flex-1 flex items-center pr-[50px]"><text id="sm-typed" class="text-[23.04px] font-[mono4] text-[#E6E2D6] whitespace-nowrap">summarize this PR</text><text id="sm-caret" class="text-[27.84px] text-[#D97757]">▏</text></div><text id="auto175" class="absolute right-[21px] text-[#6F6E66] text-[23px]">↵</text></div>
+          <div id="auto176" class="flex justify-between items-center mt-[16.3px]"><div id="auto177" class="flex items-center gap-[19.2px]"><text id="auto178" class="text-[17.7px] font-[hk5] font-medium bg-[rgba(202,164,62,0.16)] text-[#CAA43E] px-[13.4px] py-[4.2px] rounded-[8.64px]">Auto</text><text id="auto179" class="text-[22.1px] text-[#8C8B83]">＋</text></div><div id="auto180" class="flex items-center gap-[19.2px]"><text id="auto181" class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text><text id="auto182" class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</text><div id="sm-orb" class="w-[24px] h-[24px] rounded-full border-[3.26px] border-[rgba(96,148,214,0.26)]"></div></div></div>
+        </div>
+        <div id="sm-veil" class="absolute inset-0 bg-[#1D1F1F] opacity-0"></div>
+        <div id="sm-still" class="absolute left-0 right-0 top-[540px] -mt-[86px] text-center opacity-0"><text id="auto183" class="font-[gal] text-[172.8px] tracking-[-3.456px] text-[#EFEADD] leading-none">Still too long</text></div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 5 — use-skill (12.3–16.1 s) ═════════════════ -->
+    <div id="s-useskill" class="absolute inset-0 z-[5] font-[hk4] opacity-0">
+      <div id="auto184" class="absolute left-[163.2px] top-[102.6px] w-[1599.36px] h-[874.8px] bg-[#1D1F1F] rounded-[25.92px] overflow-hidden shadow-[0_38px_115px_-38px_rgba(20,20,18,0.45)]">
+        <div id="auto185" class="absolute left-[30.7px] top-[26.9px] flex items-center gap-[11.9px] z-[5]">
+          <div id="auto186" class="w-[20.2px] h-[20.2px] rounded-full bg-[#FF5F57]"></div>
+          <div id="auto187" class="w-[20.2px] h-[20.2px] rounded-full bg-[#FEBC2E]"></div>
+          <div id="auto188" class="w-[20.2px] h-[20.2px] rounded-full bg-[#28C840]"></div>
+          <text id="auto189" class="ml-[17.3px] text-[19.2px] font-[mono4] text-[#8C8B83]">claude — ~/hyperframes</text>
+        </div>
+        <div id="auto190" class="absolute left-[65.3px] right-[65.3px] top-[105.6px] bottom-[316.8px] overflow-hidden">
+          <div id="us-stack" class="absolute left-0 right-0 bottom-0 flex flex-col gap-[26.88px]">
+            <div id="us-cmd" class="self-end text-right opacity-0"><text id="auto191" class="text-[25.92px] font-[mono4] text-[#E6E2D6]">use pr-to-video to make a video for this pr</text></div>
+            <div id="us-out" class="self-start opacity-0">
+              <div id="us-think" class="flex items-center gap-[13.44px] mb-[19.2px] opacity-0"><text id="us-ast" class="text-[#D97757] text-[30.72px]">✳</text><text id="auto192" class="text-[26.88px] text-[#8C8B83]">thinking…</text></div>
+              <div id="us-l0" class="flex items-start gap-[13.44px] opacity-0"><text id="auto193" class="text-[#D97757] text-[27.84px] font-[hk7] font-bold">⏺</text><text id="auto194" class="text-[27.84px] font-[mono4] text-[#A09D96]">Reading PR #1635 · 629 files · 4 commits</text></div>
+            </div>
+          </div>
+        </div>
+        <div id="auto195" class="absolute left-[65.3px] right-[65.3px] bottom-[65.3px]">
+          <div id="auto196" class="flex gap-[11.52px] mb-[17.28px]"><div id="auto197" class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text id="auto198" class="text-[18.8px] font-[hk5] font-medium text-[#D7D4CA]">Local</text></div><div id="auto199" class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text id="auto200" class="text-[18.8px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text></div></div>
+          <div id="auto201" class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[17.28px] min-h-[92.24px] px-[23px] shadow-[0_0_0_2.3px_rgba(217,119,87,0.45)]"><div id="auto202" class="flex-1 flex items-center pr-[50px]"><text id="us-typed" class="text-[21.12px] font-[mono4] text-[#E6E2D6] whitespace-nowrap">use pr-to-video to make a video for this pr</text><text id="us-caret" class="text-[27.84px] text-[#D97757]">▏</text><text id="us-ph" class="text-[22.08px] text-[#6F6E66]">Reply to Claude…</text></div><text id="auto203" class="absolute right-[21px] text-[#6F6E66] text-[23px]">↵</text></div>
+          <div id="auto204" class="flex justify-between items-center mt-[16.3px]"><div id="auto205" class="flex items-center gap-[19.2px]"><text id="auto206" class="text-[17.7px] font-[hk5] font-medium bg-[rgba(202,164,62,0.16)] text-[#CAA43E] px-[13.4px] py-[4.2px] rounded-[8.64px]">Auto</text><text id="auto207" class="text-[22.1px] text-[#8C8B83]">＋</text></div><div id="auto208" class="flex items-center gap-[19.2px]"><text id="auto209" class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text><text id="auto210" class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</text><div id="us-orb" class="w-[24px] h-[24px] rounded-full border-[3.26px] border-[rgba(96,148,214,0.26)]"></div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 6 — feature-code (16.1–18.5 s) ═════════════════ -->
+    <div id="s-fcode" class="absolute inset-0 z-[6] bg-[#F0EFE9] font-[hk4] opacity-0">
+      <div id="auto211" class="absolute left-0 right-0 top-[54px] flex items-center justify-center gap-[8.64px] h-[105.6px] z-[5]">
+        <text id="fc-ttext" class="font-[black] text-[88.32px] text-[#1D1F1F] leading-none whitespace-nowrap"></text>
+        <div id="fc-tcaret" class="w-[6.53px] h-[74.88px] bg-[#D97757] rounded-[1.34px]"></div>
+      </div>
+      <div id="auto212" class="absolute inset-0 z-[2] flex items-center justify-center">
+        <div id="fc-pwin" class="relative w-[1228.8px] mt-[64.8px] bg-[#1D1F1F] rounded-[23.04px] overflow-hidden shadow-[0_46px_134px_-38px_rgba(20,20,18,0.5)]">
+          <div id="auto213" class="flex items-center gap-[11.9px] bg-[#1D1F1F] px-[28.8px] py-[20.2px]">
+            <div id="auto214" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FF5F57]"></div>
+            <div id="auto215" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FEBC2E]"></div>
+            <div id="auto216" class="w-[19.2px] h-[19.2px] rounded-full bg-[#28C840]"></div>
+            <text id="auto217" class="ml-[17.3px] text-[20.2px] font-[mono4] text-[#cfcabd]">hyperframes-pr-1635.mp4</text>
+            <text id="auto218" class="ml-auto text-[18.24px] font-[mono4] text-[#8C8B83]">scene 1 / 6</text>
+          </div>
+          <div id="auto219" class="relative w-[1171.2px] h-[658.56px] mx-[28.8px] rounded-[7.68px] overflow-hidden bg-[#1A1B1A]">
+            <div id="auto220" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+              <div id="fc-codeview" class="absolute inset-0 bg-[#1A1B1A] font-[mono4] opacity-0">
+                <div id="auto221" class="flex items-center gap-[14px] bg-[#252320] px-[40px] py-[26px]">
+                  <div id="auto222" class="w-[20px] h-[20px] rounded-full bg-[#FF5F57]"></div>
+                  <div id="auto223" class="w-[20px] h-[20px] rounded-full bg-[#FEBC2E]"></div>
+                  <div id="auto224" class="w-[20px] h-[20px] rounded-full bg-[#28C840]"></div>
+                  <text id="auto225" class="ml-[18px] text-[28px] text-[#9c9485]">skills/pr-to-video/scripts/</text><text id="auto226" class="text-[28px] text-[#F5EFE6] font-[mono5]">fetch-pr.mjs</text>
+                  <text id="auto227" class="ml-auto text-[26px] text-[#5DB872]">+164 −0</text>
+                </div>
+                <div id="auto228" class="relative pt-[34px]">
+                  <div id="auto229" class="px-[54px] text-[33px] leading-[62px]">
+                    <div id="fc-nonkeyA">
+                      <div id="auto230" class="flex whitespace-nowrap"><text id="auto231" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">5</text><text id="auto232" class="text-[#D97757]">function</text><text id="auto233" class="text-[#E0C9A6]"> ghTry</text><text id="auto234" class="text-[#cfcabd]">(args) {</text></div>
+                      <div id="auto235" class="flex whitespace-nowrap"><text id="auto236" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">6</text><text id="auto237" class="text-[#cfcabd]">  </text><text id="auto238" class="text-[#D97757]">try</text><text id="auto239" class="text-[#cfcabd]"> {</text></div>
+                      <div id="auto240" class="flex whitespace-nowrap"><text id="auto241" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">7</text><text id="auto242" class="text-[#cfcabd]">    </text><text id="auto243" class="text-[#D97757]">const</text><text id="auto244" class="text-[#cfcabd]"> out = </text><text id="auto245" class="text-[#E0C9A6]">execFileSync</text><text id="auto246" class="text-[#cfcabd]">(</text><text id="auto247" class="text-[#5DB8A6]">"gh"</text><text id="auto248" class="text-[#cfcabd]">, args, { encoding: </text><text id="auto249" class="text-[#5DB8A6]">"utf8"</text><text id="auto250" class="text-[#cfcabd]"> });</text></div>
+                      <div id="auto251" class="flex whitespace-nowrap"><text id="auto252" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">8</text><text id="auto253" class="text-[#cfcabd]">    </text><text id="auto254" class="text-[#D97757]">return</text><text id="auto255" class="text-[#cfcabd]"> { ok: </text><text id="auto256" class="text-[#D97757]">true</text><text id="auto257" class="text-[#cfcabd]">, stdout: out };</text></div>
+                      <div id="auto258" class="flex whitespace-nowrap"><text id="auto259" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">9</text><text id="auto260" class="text-[#cfcabd]">  } </text><text id="auto261" class="text-[#D97757]">catch</text><text id="auto262" class="text-[#cfcabd]"> (e) { </text><text id="auto263" class="text-[#D97757]">return</text><text id="auto264" class="text-[#cfcabd]"> { ok: </text><text id="auto265" class="text-[#D97757]">false</text><text id="auto266" class="text-[#cfcabd]">, stderr: e.stderr }; }</text></div>
+                      <div id="auto267" class="flex whitespace-nowrap"><text id="auto268" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">10</text><text id="auto269" class="text-[#cfcabd]">}</text></div>
+                      <div id="auto270" class="flex whitespace-nowrap"><text id="auto271" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">11</text><text id="auto272" class="text-[#cfcabd]"></text></div>
+                      <div id="auto273" class="flex whitespace-nowrap"><text id="auto274" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">12</text><text id="auto275" class="text-[#D97757]">const</text><text id="auto276" class="text-[#cfcabd]"> view = </text><text id="auto277" class="text-[#E0C9A6]">ghTry</text><text id="auto278" class="text-[#cfcabd]">([</text><text id="auto279" class="text-[#5DB8A6]">"pr"</text><text id="auto280" class="text-[#cfcabd]">, </text><text id="auto281" class="text-[#5DB8A6]">"view"</text><text id="auto282" class="text-[#cfcabd]">, prRef, </text><text id="auto283" class="text-[#5DB8A6]">"--json"</text><text id="auto284" class="text-[#cfcabd]">, FIELDS]);</text></div>
+                      <div id="auto285" class="flex whitespace-nowrap"><text id="auto286" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">13</text><text id="auto287" class="text-[#cfcabd]"></text></div>
+                    </div>
+                    <div id="fc-key">
+                      <div id="auto288" class="flex whitespace-nowrap"><text id="auto289" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">14</text><text id="auto290" class="text-[#6F6E66]">  // complete the files list — the truncation fix</text></div>
+                      <div id="auto291" class="flex whitespace-nowrap"><text id="auto292" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">15</text><text id="auto293" class="text-[#D97757]">const</text><text id="auto294" class="text-[#cfcabd]"> files = </text><text id="auto295" class="text-[#E0C9A6]">ghTry</text><text id="auto296" class="text-[#cfcabd]">([</text><text id="auto297" class="text-[#5DB8A6]">"api"</text><text id="auto298" class="text-[#cfcabd]">, </text><text id="auto299" class="text-[#5DB8A6]">"--paginate"</text><text id="auto300" class="text-[#cfcabd]">,</text></div>
+                      <div id="auto301" class="flex whitespace-nowrap"><text id="auto302" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">16</text><text id="auto303" class="text-[#cfcabd]">  </text><text id="auto304" class="text-[#5DB8A6]">`repos/${owner}/${repo}/pulls/${number}/files`</text><text id="auto305" class="text-[#cfcabd]">]);</text></div>
+                    </div>
+                    <div id="fc-nonkeyB">
+                      <div id="auto306" class="flex whitespace-nowrap"><text id="auto307" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">17</text><text id="auto308" class="text-[#cfcabd]"></text></div>
+                      <div id="auto309" class="flex whitespace-nowrap"><text id="auto310" class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">18</text><text id="auto311" class="text-[#D97757]">if</text><text id="auto312" class="text-[#cfcabd]"> (files.ok) pr.files = </text><text id="auto313" class="text-[#E0C9A6]">parseNDJSON</text><text id="auto314" class="text-[#cfcabd]">(files.stdout);</text></div>
+                    </div>
+                  </div>
+                  <div id="fc-band" class="absolute left-[24px] right-[24px] top-[622px] h-[198px] rounded-[10px] bg-[rgba(217,119,87,0.13)] border-l-[7px] border-[#D97757] opacity-0"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="auto315" class="flex items-center gap-[23px] px-[28.8px] pt-[23px] pb-[26.9px]">
+            <path id="auto316" d="M8 5l11 7-11 7z" view-box="0 0 24 24" class="w-[28.8px] h-[28.8px] fill-[#D97757] flex-none"/>
+            <div id="auto317" class="relative flex-1 h-[6.53px] bg-[rgba(255,255,255,0.12)] rounded-full"><div id="fc-pfill" class="absolute left-0 top-0 h-full w-full bg-[#D97757] rounded-full origin-left"></div><div id="fc-pknob" class="absolute top-[540px] w-[19.2px] h-[19.2px] -mt-[9.6px] -ml-[9.6px] rounded-full bg-[#F0EFE9] shadow-[0_0_0_3.84px_rgba(217,119,87,0.35)]"></div></div>
+            <text id="fc-ptime" class="text-[19.2px] font-[mono4] text-[#9b988f] flex-none text-right">0:02 / 0:32</text>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 7 — feature-flow (18.5–21.0 s) ═════════════════ -->
+    <div id="s-fflow" class="absolute inset-0 z-[7] bg-[#F0EFE9] font-[hk4] opacity-0">
+      <div id="auto318" class="absolute left-0 right-0 top-[54px] flex items-center justify-center gap-[8.64px] h-[105.6px] z-[5]">
+        <text id="ff-ttext" class="font-[black] text-[88.32px] text-[#1D1F1F] leading-none whitespace-nowrap"></text>
+        <div id="ff-tcaret" class="w-[6.53px] h-[74.88px] bg-[#D97757] rounded-[1.34px]"></div>
+      </div>
+      <div id="auto319" class="absolute inset-0 z-[2] flex items-center justify-center">
+        <div id="ff-pwin" class="relative w-[1228.8px] mt-[64.8px] bg-[#1D1F1F] rounded-[23.04px] overflow-hidden shadow-[0_46px_134px_-38px_rgba(20,20,18,0.5)]">
+          <div id="auto320" class="flex items-center gap-[11.9px] bg-[#1D1F1F] px-[28.8px] py-[20.2px]">
+            <div id="auto321" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FF5F57]"></div>
+            <div id="auto322" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FEBC2E]"></div>
+            <div id="auto323" class="w-[19.2px] h-[19.2px] rounded-full bg-[#28C840]"></div>
+            <text id="auto324" class="ml-[17.3px] text-[20.2px] font-[mono4] text-[#cfcabd]">hyperframes-pr-1635.mp4</text>
+            <text id="auto325" class="ml-auto text-[18.24px] font-[mono4] text-[#8C8B83]">scene 2 / 6</text>
+          </div>
+          <div id="auto326" class="relative w-[1171.2px] h-[658.56px] mx-[28.8px] rounded-[7.68px] overflow-hidden bg-[#FAF9F5]">
+            <div id="auto327" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+              <div id="auto328" class="absolute inset-0 bg-[#FAF9F5] font-[mono4] text-[#141413] flex items-center justify-center gap-[38px]">
+                <div id="ff-diff" class="w-[560px] bg-[#1A1B1A] rounded-[14px] overflow-hidden opacity-0">
+                  <div id="auto329" class="flex items-center gap-[9px] bg-[#252320] px-[22px] py-[16px]"><div id="auto330" class="w-[14px] h-[14px] rounded-full bg-[#cc5f57]"></div><div id="auto331" class="w-[14px] h-[14px] rounded-full bg-[#d8a44a]"></div><div id="auto332" class="w-[14px] h-[14px] rounded-full bg-[#5db872]"></div><text id="auto333" class="ml-[14px] text-[24px] text-[#9c9485]">PR #1635 · the diff</text></div>
+                  <div id="auto334" class="flex gap-[18px] px-[26px] py-[6px] text-[26px]"><text id="auto335" class="text-[#c64545]">-</text><text id="auto336" class="text-[#b87d77]">gh pr view --json files</text></div>
+                  <div id="auto337" class="flex gap-[18px] px-[26px] py-[6px] text-[26px]"><text id="auto338" class="text-[#5db872]">+</text><text id="auto339" class="text-[#9fc9a8]">gh api --paginate …/files</text></div>
+                  <div id="auto340" class="flex gap-[18px] px-[26px] py-[6px] mb-[22px] text-[26px]"><text id="auto341" class="text-[#5db872]">+</text><text id="auto342" class="text-[#9fc9a8]">storyboard → frames → render</text></div>
+                </div>
+                <path id="ff-a1" d="M6 20 H104 M92 9 L110 20 L92 31" view-box="0 0 120 40" class="w-[120px] h-[40px] flex-none stroke-[#CC785C] fill-none opacity-0"/>
+                <div id="auto343" class="relative flex gap-[18px] items-start justify-center">
+                  <div id="ff-fc1" class="relative w-[134px] bg-[#FFFFFF] border-[1px] border-[rgba(20,20,19,0.10)] rounded-[13px] flex flex-col gap-[12px] p-[12px] opacity-0"><div id="auto344" class="w-full h-[62px] rounded-[8px] bg-[#ECD6CB]"></div><div id="auto345" class="w-[82%] h-[7px] rounded-[4px] bg-[rgba(20,20,19,0.17)]"></div><text id="auto346" class="absolute left-[8px] top-[8px] text-[14px] font-[mono5] text-[#3a392f]">01</text></div>
+                  <div id="ff-fc2" class="relative w-[134px] bg-[#FFFFFF] border-[1px] border-[rgba(20,20,19,0.10)] rounded-[13px] flex flex-col gap-[12px] p-[12px] opacity-0"><div id="auto347" class="w-full h-[62px] rounded-[8px] bg-[#1D1F1F]"></div><div id="auto348" class="w-[82%] h-[7px] rounded-[4px] bg-[rgba(20,20,19,0.17)]"></div><text id="auto349" class="absolute left-[8px] top-[8px] text-[14px] font-[mono5] text-[#3a392f]">02</text></div>
+                  <div id="ff-fc3" class="relative w-[134px] bg-[#FFFFFF] border-[1px] border-[rgba(20,20,19,0.10)] rounded-[13px] flex flex-col gap-[12px] p-[12px] opacity-0"><div id="auto350" class="w-full h-[62px] rounded-[8px] bg-[#D2E4D6]"></div><div id="auto351" class="w-[82%] h-[7px] rounded-[4px] bg-[rgba(20,20,19,0.17)]"></div><text id="auto352" class="absolute left-[8px] top-[8px] text-[14px] font-[mono5] text-[#3a392f]">03</text></div>
+                  <div id="ff-fc4" class="relative w-[134px] bg-[#FFFFFF] border-[1px] border-[rgba(20,20,19,0.10)] rounded-[13px] flex flex-col gap-[12px] p-[12px] opacity-0"><div id="auto353" class="w-full h-[62px] rounded-[8px] bg-[#EEE0C6]"></div><div id="auto354" class="w-[82%] h-[7px] rounded-[4px] bg-[rgba(20,20,19,0.17)]"></div><text id="auto355" class="absolute left-[8px] top-[8px] text-[14px] font-[mono5] text-[#3a392f]">04</text></div>
+                  <div id="ff-fc5" class="relative w-[134px] bg-[#FFFFFF] border-[1px] border-[rgba(20,20,19,0.10)] rounded-[13px] flex flex-col gap-[12px] p-[12px] opacity-0"><div id="auto356" class="w-full h-[62px] rounded-[8px] bg-[#DBD1E8]"></div><div id="auto357" class="w-[82%] h-[7px] rounded-[4px] bg-[rgba(20,20,19,0.17)]"></div><text id="auto358" class="absolute left-[8px] top-[8px] text-[14px] font-[mono5] text-[#3a392f]">05</text></div>
+                  <text id="ff-striplbl" class="absolute left-[840px] top-[160px] text-[22px] text-[#6b6459] whitespace-nowrap opacity-0">storyboard · scene by scene</text>
+                </div>
+                <path id="ff-a2" d="M6 20 H104 M92 9 L110 20 L92 31" view-box="0 0 120 40" class="w-[120px] h-[40px] flex-none stroke-[#CC785C] fill-none opacity-0"/>
+                <div id="ff-video" class="w-[420px] h-[260px] bg-[#FAF9F5] border-[1.5px] border-[#CC785C] rounded-[14px] flex flex-col items-center justify-center gap-[22px] opacity-0">
+                  <div id="auto359" class="relative w-[104px] h-[104px] rounded-full bg-[#CC785C] flex items-center justify-center"><div id="ff-vring" class="absolute inset-0 rounded-full border-[3px] border-[#CC785C] opacity-0"></div><path id="auto360" d="M8 5l11 7-11 7z" view-box="0 0 24 24" class="w-[46px] h-[46px] ml-[6px] fill-[#FAF9F5]"/></div>
+                  <text id="auto361" class="text-[28px] text-[#141413]">video.mp4</text>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="auto362" class="flex items-center gap-[23px] px-[28.8px] pt-[23px] pb-[26.9px]">
+            <path id="auto363" d="M8 5l11 7-11 7z" view-box="0 0 24 24" class="w-[28.8px] h-[28.8px] fill-[#D97757] flex-none"/>
+            <div id="auto364" class="relative flex-1 h-[6.53px] bg-[rgba(255,255,255,0.12)] rounded-full"><div id="ff-pfill" class="absolute left-0 top-0 h-full w-full bg-[#D97757] rounded-full origin-left"></div><div id="ff-pknob" class="absolute top-[540px] w-[19.2px] h-[19.2px] -mt-[9.6px] -ml-[9.6px] rounded-full bg-[#F0EFE9] shadow-[0_0_0_3.84px_rgba(217,119,87,0.35)]"></div></div>
+            <text id="ff-ptime" class="text-[19.2px] font-[mono4] text-[#9b988f] flex-none text-right">0:07 / 0:32</text>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 8 — feature-discussion (21.0–23.0 s) ═════════════════ -->
+    <div id="s-fdisc" class="absolute inset-0 z-[8] bg-[#F0EFE9] font-[hk4] opacity-0">
+      <div id="auto365" class="absolute left-0 right-0 top-[54px] flex items-center justify-center gap-[8.64px] h-[105.6px] z-[5]">
+        <text id="fd-ttext" class="font-[black] text-[88.32px] text-[#1D1F1F] leading-none whitespace-nowrap"></text>
+        <div id="fd-tcaret" class="w-[6.53px] h-[74.88px] bg-[#D97757] rounded-[1.34px]"></div>
+      </div>
+      <div id="auto366" class="absolute inset-0 z-[2] flex items-center justify-center">
+        <div id="fd-pwin" class="relative w-[1228.8px] mt-[64.8px] bg-[#1D1F1F] rounded-[23.04px] overflow-hidden shadow-[0_46px_134px_-38px_rgba(20,20,18,0.5)]">
+          <div id="auto367" class="flex items-center gap-[11.9px] bg-[#1D1F1F] px-[28.8px] py-[20.2px]">
+            <div id="auto368" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FF5F57]"></div>
+            <div id="auto369" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FEBC2E]"></div>
+            <div id="auto370" class="w-[19.2px] h-[19.2px] rounded-full bg-[#28C840]"></div>
+            <text id="auto371" class="ml-[17.3px] text-[20.2px] font-[mono4] text-[#cfcabd]">hyperframes-pr-1635.mp4</text>
+            <text id="auto372" class="ml-auto text-[18.24px] font-[mono4] text-[#8C8B83]">scene 5 / 6</text>
+          </div>
+          <div id="auto373" class="relative w-[1171.2px] h-[658.56px] mx-[28.8px] rounded-[7.68px] overflow-hidden bg-[#FAF9F5]">
+            <div id="auto374" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+              <div id="auto375" class="absolute inset-0 bg-[#FAF9F5]">
+                <div id="fd-card" class="absolute left-[60px] right-[60px] top-[70px] h-[760px] border-[1px] border-[rgba(20,20,19,0.12)] rounded-[18px] bg-[rgba(236,227,212,0.32)] overflow-hidden opacity-0">
+                  <div id="fd-chead" class="flex items-center justify-between h-[72px] px-[30px] border-b-[1px] border-[rgba(20,20,19,0.1)] opacity-0">
+                    <text id="auto376" class="text-[24px] font-[mono5] text-[#D97757]">◆</text><text id="auto377" class="text-[24px] font-[mono5] text-[#3a392f]"> #1635 · Conversation</text>
+                    <text id="auto378" class="text-[20px] font-[mono4] text-[#8C8B83]">4 reviewers · 1 author</text>
+                  </div>
+                  <div id="auto379" class="relative px-[26px] py-[26px]">
+                    <div id="fd-r1" class="flex items-center gap-[24px] h-[104px] mb-[14px] px-[26px] bg-[#FAF8F2] border-[1px] border-[rgba(20,20,19,0.14)] rounded-[13px] opacity-0"><image id="fd-av1" path="../assets/p2v/avatars/ghas.png" class="w-[62px] h-[62px] rounded-full object-cover flex-none"/><div id="auto380" class="flex flex-col gap-[9px] flex-1"><div id="auto381" class="flex items-center gap-[13px]"><text id="auto382" class="text-[27px] font-[hk6] font-semibold text-[#1D1F1F]">CodeQL</text><text id="auto383" class="text-[15px] font-[mono5] text-[#B23A3A] bg-[rgba(214,69,69,0.12)] px-[11px] py-[4px] rounded-[7px]">security · bot</text></div><text id="auto384" class="text-[18px] font-[mono4] text-[#6b6a61] whitespace-nowrap">12 high-severity alerts · TOCTOU race + HTML injection</text></div><text id="fd-p1o" class="text-[17px] font-[mono5] text-[#B23A3A] bg-[rgba(214,69,69,0.12)] px-[14px] py-[7px] rounded-[9px] flex-none">● blocking</text><text id="fd-p1d" class="text-[17px] font-[mono5] text-[#2f6b3d] bg-[rgba(79,157,91,0.16)] px-[14px] py-[7px] rounded-[9px] flex-none opacity-0">✓ resolved</text></div>
+                    <div id="fd-r2" class="flex items-center gap-[24px] h-[104px] mb-[14px] px-[26px] bg-[#FAF8F2] border-[1px] border-[rgba(20,20,19,0.14)] rounded-[13px] opacity-0"><image id="fd-av2" path="../assets/p2v/avatars/jrusso1020.png" class="w-[62px] h-[62px] rounded-full object-cover flex-none"/><div id="auto385" class="flex flex-col gap-[9px] flex-1"><div id="auto386" class="flex items-center gap-[13px]"><text id="auto387" class="text-[27px] font-[hk6] font-semibold text-[#1D1F1F]">jrusso1020</text><text id="auto388" class="text-[15px] font-[mono5] text-[#9C5A1F] bg-[rgba(193,122,60,0.14)] px-[11px] py-[4px] rounded-[7px]">changes requested</text></div><text id="auto389" class="text-[18px] font-[mono4] text-[#6b6a61] whitespace-nowrap">CodeQL required check failing — blocks approve</text></div><text id="fd-p2o" class="text-[17px] font-[mono5] text-[#9C5A1F] bg-[rgba(193,122,60,0.12)] px-[14px] py-[7px] rounded-[9px] flex-none">● changes</text><text id="fd-p2d" class="text-[17px] font-[mono5] text-[#2f6b3d] bg-[rgba(79,157,91,0.16)] px-[14px] py-[7px] rounded-[9px] flex-none opacity-0">✓ resolved</text></div>
+                    <div id="fd-r3" class="flex items-center gap-[24px] h-[104px] mb-[14px] px-[26px] bg-[#FAF8F2] border-[1px] border-[rgba(20,20,19,0.14)] rounded-[13px] opacity-0"><image id="fd-av3" path="../assets/p2v/avatars/miguel.png" class="w-[62px] h-[62px] rounded-full object-cover flex-none"/><div id="auto390" class="flex flex-col gap-[9px] flex-1"><div id="auto391" class="flex items-center gap-[13px]"><text id="auto392" class="text-[27px] font-[hk6] font-semibold text-[#1D1F1F]">miguel-heygen</text><text id="auto393" class="text-[15px] font-[mono5] text-[#6b6a61] bg-[rgba(20,20,19,0.06)] px-[11px] py-[4px] rounded-[7px]">re-review</text></div><text id="auto394" class="text-[18px] font-[mono4] text-[#6b6a61] whitespace-nowrap">TOCTOU + sanitization in captions.mjs across 3 skills</text></div><text id="fd-p3o" class="text-[17px] font-[mono5] text-[#9C5A1F] bg-[rgba(193,122,60,0.12)] px-[14px] py-[7px] rounded-[9px] flex-none">● open</text><text id="fd-p3d" class="text-[17px] font-[mono5] text-[#2f6b3d] bg-[rgba(79,157,91,0.16)] px-[14px] py-[7px] rounded-[9px] flex-none opacity-0">✓ resolved</text></div>
+                    <div id="fd-r4" class="flex items-center gap-[24px] h-[104px] mb-[14px] px-[26px] bg-[#FAF8F2] border-[1px] border-[rgba(20,20,19,0.14)] rounded-[13px] opacity-0"><image id="fd-av4" path="../assets/p2v/avatars/miga.png" class="w-[62px] h-[62px] rounded-full object-cover flex-none"/><div id="auto395" class="flex flex-col gap-[9px] flex-1"><div id="auto396" class="flex items-center gap-[13px]"><text id="auto397" class="text-[27px] font-[hk6] font-semibold text-[#1D1F1F]">miga-heygen</text><text id="auto398" class="text-[15px] font-[mono5] text-[#6b6a61] bg-[rgba(20,20,19,0.06)] px-[11px] py-[4px] rounded-[7px]">review</text></div><text id="auto399" class="text-[18px] font-[mono4] text-[#6b6a61] whitespace-nowrap">major refactor · 630 files — verifying each commit</text></div><text id="fd-p4o" class="text-[17px] font-[mono5] text-[#9C5A1F] bg-[rgba(193,122,60,0.12)] px-[14px] py-[7px] rounded-[9px] flex-none">● reviewing</text><text id="fd-p4d" class="text-[17px] font-[mono5] text-[#2f6b3d] bg-[rgba(79,157,91,0.16)] px-[14px] py-[7px] rounded-[9px] flex-none opacity-0">✓ resolved</text></div>
+                    <div id="fd-r5" class="flex items-center gap-[24px] h-[104px] px-[26px] bg-[rgba(217,119,87,0.08)] border-[1px] border-[rgba(217,119,87,0.38)] rounded-[13px] opacity-0"><image id="fd-av5" path="../assets/p2v/avatars/waterrr.png" class="w-[62px] h-[62px] rounded-full object-cover flex-none"/><div id="auto400" class="flex flex-col gap-[9px] flex-1"><div id="auto401" class="flex items-center gap-[13px]"><text id="auto402" class="text-[27px] font-[hk6] font-semibold text-[#1D1F1F]">WaterrrForever</text><text id="auto403" class="text-[15px] font-[mono5] text-[#B4502F] bg-[rgba(217,119,87,0.14)] px-[11px] py-[4px] rounded-[7px]">author</text></div><text id="auto404" class="text-[18px] font-[mono4] text-[#6b6a61] whitespace-nowrap">pushed cfdc213 · cb6de92 · e882ce9 — fixpoint sanitize + atomic writes</text></div><text id="auto405" class="text-[17px] font-[mono5] text-[#B4502F] bg-[rgba(217,119,87,0.14)] px-[14px] py-[7px] rounded-[9px] flex-none">✚ pushed</text></div>
+                  </div>
+                </div>
+                <div id="fd-merge" class="absolute left-[630px] top-[880px] w-[660px] flex items-center justify-center gap-[11px] text-[30px] font-[mono5] text-[#2f6b3d] bg-[rgba(79,157,91,0.14)] border-[1px] border-[rgba(79,157,91,0.5)] rounded-[13px] px-[30px] py-[15px] opacity-0"><text id="auto406" class="text-[#4F9D5B] text-[31px]">✓</text><text id="auto407" class="text-[30px] font-[mono5] text-[#2f6b3d]">all conversations resolved · </text><text id="auto408" class="text-[30px] font-[mono5] text-[#2f6b3d]">ready to merge</text></div>
+              </div>
+            </div>
+          </div>
+          <div id="auto409" class="flex items-center gap-[23px] px-[28.8px] pt-[23px] pb-[26.9px]">
+            <path id="auto410" d="M8 5l11 7-11 7z" view-box="0 0 24 24" class="w-[28.8px] h-[28.8px] fill-[#D97757] flex-none"/>
+            <div id="auto411" class="relative flex-1 h-[6.53px] bg-[rgba(255,255,255,0.12)] rounded-full"><div id="fd-pfill" class="absolute left-0 top-0 h-full w-full bg-[#D97757] rounded-full origin-left"></div><div id="fd-pknob" class="absolute top-[540px] w-[19.2px] h-[19.2px] -mt-[9.6px] -ml-[9.6px] rounded-full bg-[#F0EFE9] shadow-[0_0_0_3.84px_rgba(217,119,87,0.35)]"></div></div>
+            <text id="fd-ptime" class="text-[19.2px] font-[mono4] text-[#9b988f] flex-none text-right">0:24 / 0:32</text>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 9 — feature-credits (23.0–25.6 s) ═════════════════ -->
+    <div id="s-fcredits" class="absolute inset-0 z-[9] bg-[#F0EFE9] font-[hk4] opacity-0">
+      <div id="auto412" class="absolute left-0 right-0 top-[54px] flex items-center justify-center gap-[8.64px] h-[105.6px] z-[5]">
+        <text id="cr-ttext" class="font-[black] text-[88.32px] text-[#1D1F1F] leading-none whitespace-nowrap"></text>
+        <div id="cr-tcaret" class="w-[6.53px] h-[74.88px] bg-[#D97757] rounded-[1.34px]"></div>
+      </div>
+      <div id="auto413" class="absolute inset-0 z-[2] flex items-center justify-center">
+        <div id="cr-pwin" class="relative w-[1228.8px] mt-[64.8px] bg-[#1D1F1F] rounded-[23.04px] overflow-hidden shadow-[0_46px_134px_-38px_rgba(20,20,18,0.5)]">
+          <div id="auto414" class="flex items-center gap-[11.9px] bg-[#1D1F1F] px-[28.8px] py-[20.2px]">
+            <div id="auto415" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FF5F57]"></div>
+            <div id="auto416" class="w-[19.2px] h-[19.2px] rounded-full bg-[#FEBC2E]"></div>
+            <div id="auto417" class="w-[19.2px] h-[19.2px] rounded-full bg-[#28C840]"></div>
+            <text id="auto418" class="ml-[17.3px] text-[20.2px] font-[mono4] text-[#cfcabd]">hyperframes-pr-1635.mp4</text>
+            <text id="auto419" class="ml-auto text-[18.24px] font-[mono4] text-[#8C8B83]">scene 6 / 6</text>
+          </div>
+          <div id="auto420" class="relative w-[1171.2px] h-[658.56px] mx-[28.8px] rounded-[7.68px] overflow-hidden bg-[#FAF9F5]">
+            <div id="auto421" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+              <div id="auto422" class="absolute inset-0 bg-[#FAF9F5] font-[mono4] text-[#141413]">
+                <text id="cr-g1" class="absolute left-[270px] top-[300px] text-[22px] font-[mono5] tracking-[3px] text-[#8C8B83] opacity-0">COMMITTED</text>
+                <text id="cr-g2" class="absolute left-[850px] top-[300px] text-[22px] font-[mono5] tracking-[3px] text-[#8C8B83] opacity-0">REVIEWED</text>
+                <text id="cr-g3" class="absolute left-[1560px] top-[300px] text-[22px] font-[mono5] tracking-[3px] text-[#CC785C] opacity-0">BUILT WITH</text>
+                <div id="cr-path" class="absolute left-[270px] top-[438px] w-[1410px] h-0 border-t-[2px] border-dashed border-[rgba(204,120,92,0.4)] origin-left"></div>
+                <div id="auto423" class="absolute left-[270px] top-[362px] w-[320px] -ml-[160px] flex flex-col items-center"><image id="cr-av1" path="../assets/p2v/avatars/waterrr.png" class="w-[150px] h-[150px] rounded-full object-cover opacity-0"/><text id="cr-nm1" class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">WaterrrForever</text><text id="cr-rl1" class="mt-[7px] text-[20px] text-[#8C8B83] whitespace-nowrap opacity-0">author · 11 commits</text></div>
+                <div id="auto424" class="absolute left-[600px] top-[362px] w-[320px] -ml-[160px] flex flex-col items-center"><image id="cr-av2" path="../assets/p2v/avatars/jrusso1020.png" class="w-[150px] h-[150px] rounded-full object-cover opacity-0"/><text id="cr-nm2" class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">jrusso1020</text><text id="cr-rl2" class="mt-[7px] text-[20px] text-[#8C8B83] whitespace-nowrap opacity-0">reviewer</text></div>
+                <div id="auto425" class="absolute left-[850px] top-[362px] w-[320px] -ml-[160px] flex flex-col items-center"><image id="cr-av3" path="../assets/p2v/avatars/miguel.png" class="w-[150px] h-[150px] rounded-full object-cover opacity-0"/><text id="cr-nm3" class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">miguel-heygen</text><text id="cr-rl3" class="mt-[7px] text-[20px] text-[#8C8B83] whitespace-nowrap opacity-0">reviewer</text></div>
+                <div id="auto426" class="absolute left-[1100px] top-[362px] w-[320px] -ml-[160px] flex flex-col items-center"><image id="cr-av4" path="../assets/p2v/avatars/miga.png" class="w-[150px] h-[150px] rounded-full object-cover opacity-0"/><text id="cr-nm4" class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">miga-heygen</text><text id="cr-rl4" class="mt-[7px] text-[20px] text-[#8C8B83] whitespace-nowrap opacity-0">reviewer</text></div>
+                <div id="auto427" class="absolute left-[1450px] top-[362px] w-[320px] -ml-[160px] flex flex-col items-center"><image id="cr-av5" path="../assets/p2v/avatars/claude.png" class="w-[150px] h-[150px] rounded-full object-cover opacity-0"/><text id="cr-nm5" class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">Claude</text><text id="cr-rl5" class="mt-[7px] text-[20px] text-[#bf7a5e] whitespace-nowrap opacity-0">co-authored · 11</text></div>
+                <div id="auto428" class="absolute left-[1680px] top-[362px] w-[320px] -ml-[160px] flex flex-col items-center"><image id="cr-av6" path="../assets/p2v/avatars/codex.png" class="w-[150px] h-[150px] rounded-full object-cover opacity-0"/><text id="cr-nm6" class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">Codex</text><text id="cr-rl6" class="mt-[7px] text-[20px] text-[#bf7a5e] whitespace-nowrap opacity-0">pair</text></div>
+                <text id="cr-sign" class="absolute left-[660px] top-[830px] text-[24px] text-[#8C8B83] whitespace-nowrap opacity-0">PR #1635 · heygen-com/hyperframes</text><text id="cr-sign2" class="absolute left-[1180px] top-[830px] text-[24px] text-[#4F9D5B] whitespace-nowrap opacity-0">✓ ready to merge</text>
+              </div>
+            </div>
+          </div>
+          <div id="auto429" class="flex items-center gap-[23px] px-[28.8px] pt-[23px] pb-[26.9px]">
+            <path id="auto430" d="M8 5l11 7-11 7z" view-box="0 0 24 24" class="w-[28.8px] h-[28.8px] fill-[#D97757] flex-none"/>
+            <div id="auto431" class="relative flex-1 h-[6.53px] bg-[rgba(255,255,255,0.12)] rounded-full"><div id="cr-pfill" class="absolute left-0 top-0 h-full w-full bg-[#D97757] rounded-full origin-left"></div><div id="cr-pknob" class="absolute top-[540px] w-[19.2px] h-[19.2px] -mt-[9.6px] -ml-[9.6px] rounded-full bg-[#F0EFE9] shadow-[0_0_0_3.84px_rgba(217,119,87,0.35)]"></div></div>
+            <text id="cr-ptime" class="text-[19.2px] font-[mono4] text-[#9b988f] flex-none text-right">0:30 / 0:32</text>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═════════════════ SCENE 10 — cta (25.6–30.0 s) ═════════════════ -->
+    <div id="s-cta" class="absolute inset-0 z-[10] bg-[#F0EFE9] font-[hk4] text-[#1D1F1F] opacity-0">
+      <div id="cta-top" class="absolute inset-0 origin-center">
+        <image id="cta-gh" path="../assets/p2v/avatars/../gh-mark.png" class="absolute left-[917.76px] top-[195.36px] w-[84.48px] h-[84.48px] opacity-0"/>
+        <div id="cta-headrow" class="absolute left-0 top-[356.4px] flex items-baseline whitespace-nowrap">
+          <text id="cta-h1" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#1D1F1F] whitespace-nowrap">Create your </text><text id="cta-h2" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#D97757] whitespace-nowrap">PR video</text><text id="cta-h3" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#1D1F1F] whitespace-nowrap"> today</text>
+          <text id="cta-hcaret" class="text-[96px] font-[hk4] leading-none text-[#D97757] ml-[0.77px]">▏</text>
+        </div>
+      </div>
+      <div id="cta-composer" class="absolute left-[364.8px] bottom-[205.2px] w-[1190.4px] opacity-0">
+        <div id="auto432" class="flex gap-[11.52px] mb-[18.24px]"><div id="auto433" class="bg-[#2C2C2B] rounded-[11.52px] px-[17.3px] py-[9.6px]"><text id="auto434" class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA]">Local</text></div><div id="auto435" class="bg-[#2C2C2B] rounded-[11.52px] px-[17.3px] py-[9.6px]"><text id="auto436" class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text></div></div>
+        <div id="auto437" class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[19.2px] min-h-[115.28px] px-[26.9px] shadow-[0_0_0_2.5px_rgba(217,119,87,0.55)]">
+          <div id="auto438" class="flex-1 flex items-center pr-[53.8px]"><text id="cta-cmd" class="text-[24.96px] font-[mono4] text-[#E6E2D6] whitespace-nowrap">use pr-to-video </text><text id="cta-url" class="text-[24.96px] font-[mono4] text-[#9CC4E6] whitespace-nowrap"></text><text id="cta-caret" class="text-[32.64px] text-[#D97757]">▏</text><text id="cta-ph" class="text-[25.92px] text-[#6F6E66]">Reply to Claude…</text></div>
+          <text id="cta-ret" class="absolute right-[23px] text-[#6F6E66] text-[26.9px]">↵</text>
+        </div>
+        <div id="auto439" class="flex justify-between items-center mt-[18.24px]"><div id="auto440" class="flex items-center gap-[21.12px]"><text id="auto441" class="text-[18.4px] font-[hk5] font-medium bg-[rgba(202,164,62,0.16)] text-[#CAA43E] px-[14.4px] py-[4.6px] rounded-[9.6px]">Auto</text><text id="auto442" class="text-[22.1px] text-[#8C8B83]">＋</text></div><div id="auto443" class="flex items-center gap-[21.12px]"><text id="auto444" class="text-[20.16px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text><text id="auto445" class="text-[20.16px] text-[#9A998F] font-[hk5] font-medium">High</text><div id="cta-orb" class="w-[25px] h-[25px] rounded-full border-[3.46px] border-[rgba(96,148,214,0.26)]"></div></div></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    var T = ctx.timeline();
+    var O2=5.2, O3=8.4, O4=9.3, O5=12.3, O6=16.1, O7=18.5, O8=21.0, O9=23.0, O10=25.6;
+
+    /* ── helpers ─────────────────────────────────────────────────────── */
+    // typewriter: reveal `msg` char-by-char (linear) over [t0,t0+dur]
+    function tw(id, msg, t0, dur, ease) {
+      var n = ctx.getNode(id);
+      var d = { set: function(v){ n.text(msg.slice(0, Math.round(v.opacity))); } };
+      T.fromTo(d, { opacity: 0 }, { opacity: msg.length, duration: dur, ease: ease || 'none' }, t0);
+    }
+    // per-char soft reveal: chars pop in on a power3.out curve, then settle
+    function rev(id, t0, dur) {
+      var parts = ctx.splitText(id, { type: 'chars' });
+      var N = parts.length;
+      T.set(id, { opacity: 0 }, 0);
+      T.set(id, { opacity: 1 }, t0);
+      for (var i = 0; i < N; i++) {
+        var local = (i + 1) / N;
+        T.set(parts[i], { opacity: 1 }, t0 + dur * local * local);
+      }
+      var settle = { set: function(){ for (var j = 0; j < N; j++) parts[j].set({ opacity: 1 }); } };
+      T.set(settle, { opacity: 1 }, t0 + dur);
+    }
+    // similar for non-node targets resolved by id list
+    function reveal(el, t) { T.fromTo(el, { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: .3, ease: 'power3.out' }, t); }
+
+    /* ════════════ ROOT — cross-fades (§2.2) ════════════ */
+    T.set(['s-prscroll','s-hard','s-summarize','s-useskill','s-fcode','s-fflow','s-fdisc','s-fcredits','s-cta'], { opacity: 0 }, 0);
+    function xfade(a, b, t, d) {
+      // Reference unmounts the outgoing scene instantly at its window end, so
+      // the light #F0EFE9 root shows through during the incoming fade-in (the
+      // old scene is NOT cross-faded out). Mirror with an instant set.
+      T.set(a, { opacity: 0 }, t);
+      T.fromTo(b, { opacity: 0 }, { opacity: 1, duration: d, ease: 'power1.inOut' }, t);
+    }
+    T.to('s-opener', { scale: 1.6, opacity: 0, filter: 'blur(8px)', duration: 0.4, ease: 'power2.in', transformOrigin: '66% 59%' }, 4.8);
+    T.set('s-opener', { opacity: 0 }, 5.22);
+    T.set('s-prscroll', { opacity: 1 }, 5.2);
+    T.fromTo('s-prscroll', { opacity: 0 }, { opacity: 1, duration: 0.3, ease: 'power2.out' }, 5.15);
+    xfade('s-prscroll', 's-hard',      8.4,  0.28);
+    xfade('s-hard',     's-summarize', 9.3,  0.28);
+    xfade('s-summarize','s-useskill',  12.3, 0.28);
+    xfade('s-useskill', 's-fcode',     16.1, 0.35);
+    xfade('s-fcode',    's-fflow',     18.5, 0.3);
+    xfade('s-fflow',    's-fdisc',     21.0, 0.3);
+    xfade('s-fdisc',    's-fcredits',  23.0, 0.3);
+    xfade('s-fcredits', 's-cta',       25.6, 0.35);
+    T.set('fc-pfill', { scaleX: .05 }, 0); T.set('fc-pknob', { left: 5 }, 0);
+    T.set('ff-pfill', { scaleX: .22 }, 0); T.set('ff-pknob', { left: 22 }, 0);
+    T.set('fd-pfill', { scaleX: .66 }, 0); T.set('fd-pknob', { left: 66 }, 0);
+    T.set('cr-pfill', { scaleX: .86 }, 0); T.set('cr-pknob', { left: 86 }, 0);
+    T.set('auto220', { scale: .61 }, 0); T.set('auto327', { scale: .61 }, 0);
+    T.set('auto328', { scale: .84 }, 0); T.set('auto374', { scale: .61 }, 0); T.set('auto421', { scale: .61 }, 0);
+
+    /* ════════════ SCENE 1 — opener ════════════ */
+    T.set('op-stack', { y: 160 }, 0);
+    T.set('op-win', { left: 0, top: 0, width: 1920, height: 1080, borderRadius: 0 }, 0);
+    T.set('op-composer', { left: 540, width: 840, bottom: 370, scale: 1.85, transformOrigin: '50% 100%' }, 0);
+    T.to('op-win', { left: 160, top: 102.6, width: 1599.36, height: 874.8, borderRadius: 25.92, duration: .55, ease: 'power2.inOut' }, 2.55);
+    T.to('op-composer', { left: 225.6, width: 1468.8, bottom: 65.28, scale: 1, duration: .55, ease: 'power2.inOut' }, 2.55);
+    T.fromTo('op-input', { x: 280, opacity: 0 }, { x: 0, opacity: 1, duration: .55, ease: 'power3.out' }, 0.02);
+    T.fromTo('op-chips', { x: 340, opacity: 0 }, { x: 0, opacity: 1, duration: .55, ease: 'power3.out' }, 0.10);
+    T.fromTo('op-meta',  { x: 340, opacity: 0 }, { x: 0, opacity: 1, duration: .55, ease: 'power3.out' }, 0.16);
+    T.to('op-orb', { rotation: 360, duration: 1.0, ease: 'none', repeat: 4 }, 0);
+    T.to('op-caret', { opacity: 0, duration: .4, ease: 'steps(1)', repeat: 1, yoyo: true }, 0.1);
+    T.set('op-caret', { opacity: 1 }, 0.6);
+    tw('op-typed', "Someone on our team just opened a PR for a new pr-to-video skill — can you review it?", 0.6, 1.5, 'none');
+    T.fromTo('op-cursor', { x: 834, y: 694, opacity: 0 }, { y: 394, opacity: 1, duration: .7, ease: 'power3.out' }, 1.3);
+    T.to('op-cursor', { scale: .84, duration: .1, ease: 'power2.in', transformOrigin: '21% 14%' }, 2.3);
+    T.to('op-cursor', { scale: 1, duration: .18, ease: 'power2.out', transformOrigin: '21% 14%' }, 2.4);
+    T.fromTo('op-ret', { color: '#6F6E66' }, { color: '#D97757', duration: .08, ease: 'power1.in' }, 2.35);
+    T.to('op-ret', { color: '#6F6E66', duration: .25 }, 2.5);
+    T.set({ set: function(){ ctx.getNode('op-typed').text(''); } }, { opacity: 1 }, 2.5);
+    T.set({ set: function(){ ctx.getNode('op-caret').opacity(0); } }, { opacity: 1 }, 2.5);
+    T.fromTo('op-bar', { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: .3, ease: 'power2.out' }, 2.85);
+    T.to('op-chips', { opacity: 0, height: 0, duration: .3, ease: 'power2.in' }, 2.6);
+    T.fromTo('op-m1', { opacity: 0 }, { opacity: 1, duration: .3, ease: 'power2.out' }, 3.2);
+    T.to('op-stack', { y: 0, duration: .45, ease: 'power3.out' }, 3.2);
+    T.to('op-cursor', { x: 908, y: 576, duration: .6, ease: 'power3.inOut' }, 3.5);
+    T.to('op-cursor', { scale: .84, duration: .1, ease: 'power2.in' }, 4.2);
+    T.to('op-cursor', { scale: 1, duration: .18, ease: 'power2.out' }, 4.3);
+    T.fromTo('op-prlink', { color: '#D97757' }, { color: '#F2A98C', duration: .1 }, 4.22);
+    T.to('op-prlink', { color: '#D97757', duration: .3 }, 4.42);
+    T.set('op-ripple', { left: 882, top: 440, scale: 0, opacity: 0 }, 4.22);
+    T.to('op-ripple', { scale: 1.1, opacity: .5, duration: .2, ease: 'power2.out' }, 4.22);
+    T.to('op-ripple', { scale: 1.9, opacity: 0, duration: .32, ease: 'power2.out' }, 4.42);
+    T.to({ set: function(v){} }, { opacity: 1, duration: .2 }, 5.0);
+
+    /* ════════════ SCENE 2 — pr-scroll ════════════ */
+    T.fromTo('prs-browser', { scale: 1.04, opacity: 0 }, { scale: 1, opacity: 1, duration: .4, ease: 'power3.out' }, O2);
+    T.set('prs-inner', { filter: 'blur(0px)' }, O2);
+    reveal('prs-head', O2 + 0.5);
+    reveal('prs-head2', O2 + 0.5);
+    T.to('prs-tab0', { textColor: '#1f2328', duration: .05 }, O2 + 0.25);
+    T.to('prs-tab1', { textColor: '#1f2328', duration: .05 }, O2 + 0.95);
+    T.to('prs-tab2', { textColor: '#1f2328', duration: .05 }, O2 + 1.15);
+    for (var i = 0; i < 6; i++) {
+      T.fromTo('prs-r' + (i + 1), { opacity: 0, x: 16 }, { opacity: 1, x: 0, duration: .18, ease: 'power2.out' }, O2 + 0.3 + i * 0.12);
+    }
+    T.to('prs-review', { opacity: 0, duration: .2 }, O2 + 1.1);
+    T.to('prs-files', { opacity: 1, duration: .2 }, O2 + 1.15);
+    T.to('prs-inner', { y: -3600, duration: 1.7, ease: 'power2.in' }, O2 + 1.2);
+    T.fromTo('prs-inner', { filter: 'blur(0px)' }, { filter: 'blur(2px)', duration: 1.1, ease: 'power2.in' }, O2 + 1.5);
+    reveal('prs-s1', O2 + 1.2); T.set('prs-cr1', { opacity: 1 }, O2 + 1.35); tw('prs-files-n', "629", O2 + 1.35, .45, 'none');
+    reveal('prs-s2', O2 + 1.75); T.set('prs-cr2', { opacity: 1 }, O2 + 1.9); tw('prs-lines-n', "87,291", O2 + 1.9, .7, 'none');
+    reveal('prs-s3', O2 + 2.35); T.set('prs-cr3', { opacity: 1 }, O2 + 2.5); tw('prs-commits-n', "4", O2 + 2.5, .2, 'none');
+    T.to('prs-cr1', { opacity: 0, duration: .25, ease: 'steps(1)', repeat: 1, yoyo: true }, O2 + 1.35 + .45);
+    T.to('prs-cr2', { opacity: 0, duration: .25, ease: 'steps(1)', repeat: 1, yoyo: true }, O2 + 1.9 + .7);
+    T.to('prs-cr3', { opacity: 0, duration: .25, ease: 'steps(1)', repeat: 1, yoyo: true }, O2 + 2.5 + .2);
+
+    /* ════════════ SCENE 3 — hard-read ════════════ */
+    T.fromTo('hr-txt', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: .28, ease: 'power3.out' }, O3);
+
+    /* ════════════ SCENE 4 — summarize ════════════ */
+    T.set('sm-composer', { scale: 1.85, transformOrigin: '50% 100%' }, 0);
+    T.to('sm-orb', { rotation: 360, duration: 1, ease: 'none', repeat: 2 }, O4);
+    tw('sm-typed', "summarize this PR", O4, 0.8, 'none');
+    T.set('sm-caret', { opacity: 0 }, O4 + 0.82);
+    T.to('sm-composer', { y: -44, opacity: 0, duration: .32, ease: 'power2.in' }, O4 + 0.85);
+    T.to('sm-feed', { opacity: 1, duration: .25, ease: 'power1.out' }, O4 + 0.92);
+    T.fromTo('sm-inner', { y: 0 }, { y: -2400, duration: 1.25, ease: 'power1.in' }, O4 + 1.0);
+    T.to('sm-veil', { opacity: 1, duration: .3, ease: 'power2.in' }, O4 + 2.2);
+    T.fromTo('sm-still', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: .32, ease: 'power3.out' }, O4 + 2.32);
+
+    /* ════════════ SCENE 5 — use-skill ════════════ */
+    T.set('us-stack', { y: 180 }, 0);
+    T.to('us-orb', { rotation: 360, duration: 1, ease: 'none', repeat: 3 }, O5);
+    T.to('us-caret', { opacity: 0, duration: .5, ease: 'steps(1)', repeat: 1, yoyo: true }, O5 + 0.1);
+    T.set('us-ph', { opacity: 0 }, O5 + 0.4);
+    T.set('us-caret', { opacity: 1 }, O5 + 0.4);
+    tw('us-typed', "use pr-to-video to make a video for this pr", O5 + 0.4, 1.4, 'none');
+    T.set('us-caret', { opacity: 0 }, O5 + 2.0);
+    T.fromTo('us-cmd', { opacity: 0 }, { opacity: 1, duration: .3, ease: 'power2.out' }, O5 + 2.05);
+    T.to('us-stack', { y: 90, duration: .4, ease: 'power3.out' }, O5 + 2.05);
+    T.fromTo('us-out', { opacity: 0 }, { opacity: 1, duration: .2 }, O5 + 2.45);
+    T.to('us-stack', { y: 0, duration: .4, ease: 'power3.out' }, O5 + 2.5);
+    T.fromTo('us-think', { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: .3, ease: 'power2.out' }, O5 + 2.5);
+    T.to('us-ast', { rotation: 360, duration: 1.0, ease: 'none', repeat: 1 }, O5 + 2.5);
+    T.fromTo('us-l0', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: .35, ease: 'power3.out' }, O5 + 3.0);
+
+    /* ════════════ SCENES 6–9 — feature cards (compressed inner time) ════════════ */
+    function cardTitle(id, caret, title, off, dur, signed) {
+      tw(id, title, off + 0.3 / signed, dur / signed, 'none');
+      T.to(caret, { opacity: 0, duration: .4, ease: 'steps(1)', repeat: 9, yoyo: true }, off + 0.3 / signed);
+      T.to(caret, { opacity: 0, duration: .3, ease: 'power2.in' }, off + 4.5 / signed);
+    }
+    // feature-code (timeScale 2.0)
+    cardTitle('fc-ttext', 'fc-tcaret', "SHOW YOUR CODE", O6, 1.15, 2.0);
+    T.fromTo('fc-pwin', { opacity: 0, scale: .62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: .6 / 2, ease: 'power3.out' }, O6 + 0.15 / 2);
+    T.to('fc-codeview', { opacity: 1, duration: .45 / 2, ease: 'power2.out' }, O6 + 1.0 / 2);
+    T.to('fc-pfill', { scaleX: .11, duration: 3.2 / 2, ease: 'none' }, O6 + 1.4 / 2);
+    T.to('fc-pknob', { left: 11, duration: 3.2 / 2, ease: 'none' }, O6 + 1.4 / 2);
+    T.to('fc-nonkeyA', { opacity: .32, duration: .4 / 2, ease: 'power2.out' }, O6 + 2.45 / 2);
+    T.to('fc-nonkeyB', { opacity: .32, duration: .4 / 2, ease: 'power2.out' }, O6 + 2.45 / 2);
+    T.to('fc-band', { opacity: 1, duration: .4 / 2, ease: 'power2.out' }, O6 + 2.5 / 2);
+    // feature-flow (2.56)
+    cardTitle('ff-ttext', 'ff-tcaret', "SHOW YOUR FEATURE", O7, 1.15, 2.56);
+    T.fromTo('ff-pwin', { opacity: 0, scale: .62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: .6 / 2.56, ease: 'power3.out' }, O7 + 0.15 / 2.56);
+    T.to('ff-pfill', { scaleX: .42, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
+    T.to('ff-pknob', { left: 42, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
+    T.fromTo('ff-diff', { opacity: 0, x: -30, scale: .95 }, { opacity: 1, x: 0, scale: 1, duration: .5 / 2.56, ease: 'power3.out' }, O7 + 2.0 / 2.56);
+    T.fromTo('ff-a1', { opacity: 0, x: -10 }, { opacity: 1, x: 0, duration: .35 / 2.56, ease: 'power2.out' }, O7 + 2.55 / 2.56);
+    for (var c = 1; c <= 5; c++) {
+      T.to('#ff-fc' + c, { opacity: 1, y: 0, scale: 1, duration: .4 / 2.56, ease: 'back.out(1.6)' }, O7 + 2.7 / 2.56 + (c - 1) * (0.1 / 2.56));
+    }
+    T.to('ff-striplbl', { opacity: 1, duration: .4 / 2.56, ease: 'power2.out' }, O7 + 3.0 / 2.56);
+    T.fromTo('ff-a2', { opacity: 0, x: -10 }, { opacity: 1, x: 0, duration: .35 / 2.56, ease: 'power2.out' }, O7 + 3.45 / 2.56);
+    T.fromTo('ff-video', { opacity: 0, scale: .8, x: 20 }, { opacity: 1, scale: 1, x: 0, duration: .55 / 2.56, ease: 'back.out(1.6)' }, O7 + 3.6 / 2.56);
+    T.fromTo('ff-vring', { opacity: .5, scale: 1 }, { opacity: 0, scale: 1.8, duration: 1.0 / 2.56, ease: 'power2.out', repeat: 1 }, O7 + 4.1 / 2.56);
+    // feature-discussion (outer 2.05, conversation 2x)
+    tw('fd-ttext', "SHOW YOUR REVIEW", O8 + 0.2 / 2.05, 0.9 / 2.05, 'none');
+    T.to('fd-tcaret', { opacity: 0, duration: .35, ease: 'steps(1)', repeat: 5, yoyo: true }, O8 + 0.2 / 2.05);
+    T.to('fd-tcaret', { opacity: 0, duration: .25, ease: 'power2.in' }, O8 + 3.6 / 2.05);
+    T.fromTo('fd-pwin', { opacity: 0, scale: .62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: .5 / 2.05, ease: 'power3.out' }, O8 + 0.1 / 2.05);
+    T.to('fd-pfill', { scaleX: .80, duration: 3.2 / 2.05, ease: 'none' }, O8 + 0.6 / 2.05);
+    T.to('fd-pknob', { left: 80, duration: 3.2 / 2.05, ease: 'none' }, O8 + 0.6 / 2.05);
+    // conversation `disc` timeline (authored 1×) is nested in `inner` (2.05×)
+    // then timeScale(2) → plays at 4.1×, so divide these events by 4.1.
+    T.to('fd-card', { opacity: 1, duration: .5 / 4.1, ease: 'power2.out' }, O8 + 0.5 / 4.1);
+    T.to('fd-chead', { opacity: 1, duration: .4 / 4.1, ease: 'power2.out' }, O8 + 0.9 / 4.1);
+    for (var r = 1; r <= 4; r++) {
+      T.fromTo('fd-r' + r, { opacity: 0, scale: .96, y: 14 }, { opacity: 1, scale: 1, y: 0, duration: .42 / 4.1, ease: 'back.out(1.5)' }, O8 + 1.4 / 4.1 + (r - 1) * (0.4 / 4.1));
+    }
+    T.fromTo('fd-r5', { opacity: 0, scale: .96, y: 18 }, { opacity: 1, scale: 1, y: 0, duration: .5 / 4.1, ease: 'back.out(1.6)' }, O8 + 3.4 / 4.1);
+    var pairs = [['fd-p4o','fd-p4d'],['fd-p3o','fd-p3d'],['fd-p2o','fd-p2d'],['fd-p1o','fd-p1d']];
+    for (var pi = 0; pi < 4; pi++) {
+      var pt = O8 + (4.2 + pi * 0.28) / 4.1;
+      T.to(pairs[pi][0], { opacity: 0, duration: .2 / 4.1, ease: 'power2.in' }, pt);
+      T.fromTo(pairs[pi][1], { opacity: 0, scale: .8 }, { opacity: 1, scale: 1, duration: .32 / 4.1, ease: 'back.out(1.7)' }, pt + .04 / 4.1);
+    }
+    T.to('fd-merge', { opacity: 1, scale: 1, y: 0, duration: .55 / 4.1, ease: 'back.out(1.6)' }, O8 + 5.9 / 4.1);
+    // feature-credits (2.54)
+    tw('cr-ttext', "SHOW YOUR CONTRIBUTOR", O9 + 0.3 / 2.54, 1.0 / 2.54, 'none');
+    T.to('cr-tcaret', { opacity: 0, duration: .4, ease: 'steps(1)', repeat: 7, yoyo: true }, O9 + 0.3 / 2.54);
+    T.to('cr-tcaret', { opacity: 0, duration: .3, ease: 'power2.in' }, O9 + 6.1 / 2.54);
+    T.fromTo('cr-pwin', { opacity: 0, scale: .62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: .6 / 2.54, ease: 'power3.out' }, O9 + 0.15 / 2.54);
+    T.to('cr-pfill', { scaleX: .98, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
+    T.to('cr-pknob', { left: 98, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
+    T.to(['cr-g1','cr-g2','cr-g3'], { opacity: 1, y: 0, duration: .4 / 2.54, ease: 'power3.out', stagger: .12 / 2.54 }, O9 + 1.95 / 2.54);
+    T.to('cr-path', { scaleX: 1, duration: 1.2 / 2.54, ease: 'power2.inOut' }, O9 + 2.0 / 2.54);
+    for (var ci = 1; ci <= 6; ci++) {
+      var ct = O9 + (2.05 + (ci - 1) * 0.16) / 2.54;
+      T.to('cr-av' + ci, { scale: 1, opacity: 1, duration: .45 / 2.54, ease: 'back.out(1.7)' }, ct);
+      T.to('cr-nm' + ci, { opacity: 1, y: 0, duration: .35 / 2.54, ease: 'power3.out' }, ct + .14 / 2.54);
+      T.to('cr-rl' + ci, { opacity: 1, y: 0, duration: .35 / 2.54, ease: 'power3.out' }, ct + .24 / 2.54);
+    }
+    T.to('cr-sign', { opacity: 1, y: 0, duration: .5 / 2.54, ease: 'power3.out' }, O9 + 3.9 / 2.54);
+    T.to('cr-sign2', { opacity: 1, y: 0, duration: .5 / 2.54, ease: 'power3.out' }, O9 + 3.9 / 2.54);
+
+    /* ════════════ SCENE 10 — cta ════════════ */
+    T.set('cta-top', { scale: 1.18, y: 206, transformOrigin: '50% 50%', opacity: 0 }, 0);
+    T.set('cta-headrow', { x: 364.5 }, 0);
+    T.to('cta-orb', { rotation: 360, duration: 1, ease: 'none', repeat: 4 }, O10);
+    T.to('cta-gh', { opacity: 1, scale: 1, duration: .6, ease: 'power2.out' }, O10 + 0.0);
+    T.to('cta-hcaret', { opacity: 0, duration: .3, ease: 'steps(1)', repeat: 1, yoyo: true }, O10 + 0.05);
+    T.set('cta-top', { opacity: 1 }, O10);
+    T.set('cta-hcaret', { opacity: 1 }, O10 + 0.3);
+    T.set('cta-h1', { opacity: 0 }, 0);
+    T.set('cta-h2', { opacity: 0 }, 0);
+    T.set('cta-h3', { opacity: 0 }, 0);
+    T.set('cta-h1', { opacity: 1 }, O10 + 0.3);
+    T.set('cta-h2', { opacity: 1 }, O10 + 0.3 + 12 * (0.95 / 24));
+    T.set('cta-h3', { opacity: 1 }, O10 + 0.3 + 20 * (0.95 / 24));
+    T.to('cta-top', { scale: 1, y: 0, duration: .55, ease: 'power3.inOut' }, O10 + 1.5);
+    T.to('cta-hcaret', { opacity: 0, duration: .2, ease: 'power1.out' }, O10 + 1.5);
+    T.to('cta-composer', { opacity: 1, y: 0, duration: .5, ease: 'power3.out' }, O10 + 1.75);
+    T.to('cta-ph', { opacity: 0, duration: .12 }, O10 + 2.15);
+    tw('cta-cmd', "use pr-to-video ", O10 + 2.2, 0.55, 'none');
+    // reference sets url.textContent instantly at 2.85. Insert the text AT that
+    // time (not at eval) so the dom node is empty until then — otherwise its full
+    // width occupies layout from t=0 and shoves the caret + placeholder to the
+    // centre of the bar (ref keeps them left-aligned until the URL appears).
+    T.set('cta-url', { opacity: 0 }, 0);
+    T.set({ set: function(){ ctx.getNode('cta-url').text("https://github.com/your-org/your-repo/pull/42"); } }, { opacity: 1 }, O10 + 2.85);
+    T.fromTo('cta-url', { scale: 1.07 }, { scale: 1, duration: .3, ease: 'power3.out', transformOrigin: '0% 50%' }, O10 + 2.85);
+    T.to('cta-caret', { opacity: 0, duration: .4, ease: 'steps(1)', repeat: 5, yoyo: true }, O10 + 3.15);
+    T.to('cta-ret', { color: '#D97757', scale: 1.18, duration: .16, ease: 'back.out(2)', transformOrigin: '50% 50%' }, O10 + 3.25);
+    T.to('cta-ret', { scale: 1, duration: .28, ease: 'power2.out' }, O10 + 3.42);
+  </script>
+</opencat>

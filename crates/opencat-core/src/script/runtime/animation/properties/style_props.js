@@ -102,7 +102,13 @@
             defaultValue: null,
             interpolate: function(from, to, progress) {
                 if (to == null) return from;
-                return progress < 1 && from != null ? from : to;
+                // GSAP snaps transformOrigin/svgOrigin to the tween's own value
+                // for the WHOLE tween (it is not interpolated). Holding the
+                // pre-tween `from` until progress===1 meant an explicit origin
+                // on a `.to`/`.fromTo` only took effect on the final frame —
+                // e.g. the opener zoom-through scaled about the box centre
+                // instead of 66% 59%.
+                return to;
             },
             apply: function(target, value) {
                 if (value == null) return;

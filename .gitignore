@@ -9,3 +9,5 @@ out/
 .qoder
 .worktrees
 __pycache__/
+.zcode/
+.commandcode/

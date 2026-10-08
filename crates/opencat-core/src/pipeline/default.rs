@@ -98,6 +98,22 @@ impl<S: JsContext> DefaultPipeline<S> {
         &self.scripts
     }
 
+    /// Inject the host's 3D rasterizer (engine = opencat-three, web = wasm
+    /// backend). Scripts that commit 3D scenes fail closed without one, so
+    /// hosts that can never rasterize simply skip this and keep the error.
+    pub fn set_scene3_raster(
+        &mut self,
+        raster: std::sync::Arc<dyn crate::ir::scene3::Scene3Raster>,
+    ) {
+        self.scripts.set_scene3_raster(raster);
+    }
+
+    /// Inject the document base directory (XML's parent): join base for
+    /// script-side relative asset paths (`GLTFGeometry` et al).
+    pub fn set_document_base(&mut self, base: &str) {
+        self.scripts.set_document_base(base);
+    }
+
     /// Inspect layout for a frame using the same resolve/layout sessions as
     /// [`Pipeline::render_frame`]. Does not re-seed catalogs or open a second
     /// script realm — host-prepared metadata and pipeline state are authoritative.

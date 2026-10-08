@@ -8,6 +8,9 @@ path = "src/lib.rs"
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
+# 3D 渲染后端（wgpu）：Scene3 快照 → straight-alpha RGBA，经 generated
+# image 进合成；web 侧走同一 WGSL 的 wasm 后端。
+opencat-three = { path = "../opencat-three" }
 fontdb = "0.23.0"
 anyhow.workspace = true
 image = "0.25.10"

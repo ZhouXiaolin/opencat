@@ -488,6 +488,9 @@ pub struct StyleMutations {
     pub mutations: HashMap<String, NodeStyleMutations>,
     #[serde(skip)]
     pub canvas_mutations: HashMap<String, CanvasMutations>,
+    /// three-like shim 每帧全量重提交的 3D 场景快照，key = 目标 canvas id。
+    #[serde(skip)]
+    pub scene3_mutations: HashMap<String, crate::ir::scene3::Scene3>,
 }
 
 impl StyleMutations {
@@ -529,6 +532,9 @@ impl StyleMutations {
             for cmd in &canvas_mutations.commands {
                 recorder.record_draw_op(canvas_id, cmd.clone());
             }
+        }
+        for (canvas_id, scene) in &self.scene3_mutations {
+            recorder.record_scene3(canvas_id, scene.clone());
         }
     }
 }

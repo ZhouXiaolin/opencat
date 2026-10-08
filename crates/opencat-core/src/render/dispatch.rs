@@ -106,8 +106,16 @@ fn render_display_item_cached(
 
     ctx.builder.push(DrawOp::Restore);
 
-    // Snapshot and store in cache
+    // Snapshot and store in cache. Segments that reference a hidden subtree
+    // (canvas `getSubTree().makeShader(...)` children) cannot be replayed on a
+    // later frame — the engine resolves `SubtreePicture` ids against the
+    // per-frame `subtrees` table, which a `CachedDrawSegment` does not carry.
+    // Re-recording them every frame keeps the output correct at the cost of
+    // losing the cache speedup for those (rare) canvas items.
     let segment = ctx.builder.snapshot_range(range);
+    if segment.references_subtree {
+        return Ok(());
+    }
     let segment_key = SegmentKey::Item(cache_key);
 
     cache.segments.insert(segment_key, segment);
@@ -649,34 +657,40 @@ fn render_reused_subtree(
     drop(_record_span);
 
     let segment = ctx.builder.snapshot_range(parent_range);
-    let segment_key = SegmentKey::NodeOwn(own_key);
+    // A node-own segment that references a hidden subtree must never be cached:
+    // importing it on a later frame would replay a `SubtreePicture` id that the
+    // current frame's builder never recorded (same root cause as the item-level
+    // guard above). Skip both caches and re-record this node every frame.
+    if !segment.references_subtree {
+        let segment_key = SegmentKey::NodeOwn(own_key);
 
-    cache.segments.insert(segment_key, segment);
+        cache.segments.insert(segment_key, segment);
 
-    // Also store in node-own cache for reuse when children change but this node doesn't.
-    {
-        let own_snapshot = CachedNodeOwnIr {
-            segment_key,
-            consecutive_hits: 0,
-            recorded_bounds: layer_bounds,
-        };
-        #[cfg(feature = "profile")]
-        let own_report = cache.node_own_segments.insert(own_key, own_snapshot);
-        #[cfg(not(feature = "profile"))]
-        let _own_report = cache.node_own_segments.insert(own_key, own_snapshot);
-        #[cfg(feature = "profile")]
+        // Also store in node-own cache for reuse when children change but this node doesn't.
         {
-            if own_report.replaced {
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "cache",
-                    name = "node_own_segment",
-                    result = "replaced",
-                    amount = 1_u64
-                );
+            let own_snapshot = CachedNodeOwnIr {
+                segment_key,
+                consecutive_hits: 0,
+                recorded_bounds: layer_bounds,
+            };
+            #[cfg(feature = "profile")]
+            let own_report = cache.node_own_segments.insert(own_key, own_snapshot);
+            #[cfg(not(feature = "profile"))]
+            let _own_report = cache.node_own_segments.insert(own_key, own_snapshot);
+            #[cfg(feature = "profile")]
+            {
+                if own_report.replaced {
+                    event!(
+                        target: "render.cache",
+                        Level::TRACE,
+                        kind = "cache",
+                        name = "node_own_segment",
+                        result = "replaced",
+                        amount = 1_u64
+                    );
+                }
+                record_cache_pressure("node_own", &own_report);
             }
-            record_cache_pressure("node_own", &own_report);
         }
     }
 

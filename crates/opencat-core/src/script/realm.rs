@@ -19,7 +19,7 @@ use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
-use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME};
+use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME};
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
 };
@@ -32,6 +32,14 @@ pub struct ScriptRealm<C: JsContext> {
     installed: HashMap<u64, ()>,
     text_sources: HashMap<String, ScriptTextSource>,
     target_registry: Option<ScriptTargetRegistry>,
+    /// 宿主注入的 3D 光栅化器（engine = opencat-three/wgpu，web = 同一
+    /// WGSL 的 wasm 后端）。`None` 时提交 3D 快照的脚本会在 run_frame
+    /// 报错——3D 进不了合成必须显式失败，不能静默吐黑帧。
+    scene3_raster: Option<std::sync::Arc<dyn crate::ir::scene3::Scene3Raster>>,
+    /// 文档 base 目录（宿主 = XML 所在目录）：`GLTFGeometry` 等相对路径的
+    /// join 基准——three.js `GLTFLoader` 相对 URL 对 import.meta.url 解析
+    /// （参考 js:40 `new URL(prismUrl, import.meta.url)`）的 opencat 对应物。
+    document_base: Option<String>,
 }
 
 impl<C: JsContext> ScriptRealm<C> {
@@ -42,7 +50,27 @@ impl<C: JsContext> ScriptRealm<C> {
             installed: HashMap::new(),
             text_sources: HashMap::new(),
             target_registry: None,
+            scene3_raster: None,
+            document_base: None,
         })
+    }
+
+    /// 注入 3D 光栅化器（宿主在 open pipeline 之后、首帧渲染之前调用一次）。
+    pub fn set_scene3_raster(
+        &mut self,
+        raster: std::sync::Arc<dyn crate::ir::scene3::Scene3Raster>,
+    ) {
+        self.scene3_raster = Some(raster);
+    }
+
+    /// 注入文档 base 目录（XML 所在目录）：脚本内相对资产路径
+    /// （`GLTFGeometry` 等）对它 join。见 [`Self::document_base`]。
+    pub fn set_document_base(&mut self, base: &str) {
+        self.document_base = Some(base.to_string());
+        // runtime 已装则立即生效；未装则 ensure_runtime 时统一注入。
+        if self.runtime_installed {
+            let _ = self.ctx.set_ctx_field("__documentBase", json!(base));
+        }
     }
 
     /// Build a realm from a freshly constructed backend context.
@@ -100,6 +128,7 @@ impl<C: JsContext> ScriptRealm<C> {
 
         self.ctx.eval(NODE_STYLE_RUNTIME)?;
         self.ctx.eval(CANVAS_API_RUNTIME)?;
+        self.ctx.eval(THREE_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
         self.ctx.eval(
             "globalThis.__opencatFlushTimelines = function() {\
@@ -109,6 +138,9 @@ impl<C: JsContext> ScriptRealm<C> {
         )?;
         if let Some(registry) = &self.target_registry {
             apply_target_registry(&self.ctx, registry)?;
+        }
+        if let Some(base) = &self.document_base {
+            self.ctx.set_ctx_field("__documentBase", json!(base))?;
         }
         // User-created globalThis keys persist for the realm lifetime: there
         // is no frame-boundary cleanup. The realm lives and dies with one
@@ -224,6 +256,13 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.ctx.call_global_fn(&fn_name)?;
         self.ctx.call_global_fn("__opencatFlushTimelines")?;
 
+        // three-like shim 每帧全量重提交的 3D 快照：在快照进 mutation 流之前
+        // 光栅化为帧级 generated image，并给目标 canvas 录入对应的
+        // `DrawOp::Image { ImageRef::Generated }`——像素经
+        // `FrameMediaPlan::generated_images` 进合成（z 序 = canvas 命令流位置，
+        // 与 2D 绘制同机制）。快照本身保留（scene3_mutations 语义不变）。
+        self.rasterize_scene3_snapshots()?;
+
         let snap = self.ctx.with_store_mut(|s| s.snapshot_mutations());
         snap.apply_to_recorder(recorder);
         Ok(())
@@ -263,6 +302,54 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.ctx.with_store_mut(|s| {
             s.set_initial_style_from_node(id, style);
         });
+    }
+}
+
+impl<C: JsContext> ScriptRealm<C> {
+    /// Rasterize every scene3 snapshot committed this frame into a frame
+    /// generated image + one `DrawOp::Image` on the target canvas.
+    fn rasterize_scene3_snapshots(&mut self) -> Result<()> {
+        let scenes = self.ctx.with_store_mut(|s| s.take_scene3s());
+        if scenes.is_empty() {
+            return Ok(());
+        }
+        // 几何注册表轻量快照（Arc 克隆）：`Asset { id }` 的解析来源。
+        let geometries = self.ctx.with_store_mut(|s| s.geometry_registry());
+        let Some(raster) = self.scene3_raster.clone() else {
+            let ids: Vec<&str> = scenes.keys().map(String::as_str).collect();
+            return Err(anyhow!(
+                "script committed a 3D scene to {ids:?} but no Scene3Raster is \
+                 configured; hosts must inject one (opencat-three) before rendering"
+            ));
+        };
+        for (id, scene) in &scenes {
+            let (width, height) = (scene.target[0], scene.target[1]);
+            let rgba = raster.render(scene, &geometries, width, height)?;
+            // 确定性 key：canvas id + 目标尺寸 + 像素内容。同内容同帧幂等，
+            // 异内容碰撞是 hard error（GeneratedImageTable 契约）。
+            let mut hf = ahash::AHasher::default();
+            use std::hash::{Hash, Hasher};
+            id.hash(&mut hf);
+            width.hash(&mut hf);
+            height.hash(&mut hf);
+            rgba.hash(&mut hf);
+            let key = format!("scene3:{id}:{:016x}", hf.finish());
+            self.ctx.with_store_mut(|s| {
+                s.record_frame_generated_image(
+                    id,
+                    crate::ir::GeneratedImageId::from_key(&key),
+                    0.0,
+                    0.0,
+                    width,
+                    height,
+                    rgba,
+                );
+                // 快照保留：mutation 流仍携带 scene3（对齐 engine 既有测试
+                // 的逐帧重提交语义；渲染只消费上面的 DrawOp）。
+                s.record_scene3(id, scene.clone());
+            });
+        }
+        Ok(())
     }
 }
 

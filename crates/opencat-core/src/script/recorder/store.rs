@@ -27,6 +27,12 @@ use crate::style::{
 pub struct MutationStore {
     styles: HashMap<String, NodeStyleMutations>,
     canvases: HashMap<String, CanvasMutations>,
+    /// three-like shim 每帧重提交的 3D 场景快照（key = 目标 canvas id）。
+    scene3s: HashMap<String, crate::ir::scene3::Scene3>,
+    /// realm 级 3D 几何注册表（GLB 一次性解码，快照只带 `Asset { id }`）。
+    /// NOT cleared by reset_for_frame：几何与资产同寿命（prism GLB
+    /// 11280 顶点 / 60096 索引 ≈ 2 MB，注册一次，全片复用）。
+    geometries: crate::ir::scene3::GeometryRegistry,
     /// Base-style values keyed by (node_id, property_name), set once before
     /// scripts run. Not cleared during reset_for_frame so read_style_value
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
@@ -189,6 +195,28 @@ impl MutationStore {
             .rev()
             .find(|img| &img.id == id)
             .map(|img| (img.width, img.height, &img.rgba))
+    }
+
+    /// Drain this frame's 3D scene snapshots (three-like shim 全量重提交).
+    /// Used by the realm to rasterize each snapshot into a frame generated
+    /// image; callers re-commit the scenes afterwards so the mutation
+    /// snapshot still carries them (`snapshot_mutations` 语义不变).
+    pub fn take_scene3s(
+        &mut self,
+    ) -> HashMap<String, crate::ir::scene3::Scene3> {
+        std::mem::take(&mut self.scene3s)
+    }
+
+    /// 注册一块几何（GLB 解码产物）。同 id 重复注册 = 覆盖（确定性解码
+    /// 下内容一致，等价 no-op）；不随帧清除（realm 级）。
+    pub fn record_geometry(&mut self, id: &str, geometry: std::sync::Arc<crate::ir::scene3::Geometry3>) {
+        self.geometries.insert(id.to_string(), geometry);
+    }
+
+    /// 几何注册表的轻量快照（`Arc` 计数 +1，无几何体拷贝）——realm 每次
+    /// 光栅化传给 [`crate::ir::scene3::Scene3Raster`]。
+    pub fn geometry_registry(&self) -> crate::ir::scene3::GeometryRegistry {
+        self.geometries.clone()
     }
 
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
@@ -1102,6 +1130,10 @@ impl MutationRecorder for MutationStore {
         self.canvas_entry(id).commands.push(cmd);
     }
 
+    fn record_scene3(&mut self, id: &str, scene: crate::ir::scene3::Scene3) {
+        self.scene3s.insert(id.to_string(), scene);
+    }
+
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32) {
         self.record_draw_op(
             target_id,
@@ -1135,6 +1167,7 @@ impl MutationRecorder for MutationStore {
     fn reset_for_frame(&mut self, current_frame: u32, fps: u32) {
         self.styles.clear();
         self.canvases.clear();
+        self.scene3s.clear();
         self.animate_entries.clear();
         self.morph_entries.clear();
         self.path_entries.clear();
@@ -1146,6 +1179,7 @@ impl MutationRecorder for MutationStore {
         StyleMutations {
             mutations: self.styles.clone(),
             canvas_mutations: self.canvases.clone(),
+            scene3_mutations: self.scene3s.clone(),
         }
     }
 
@@ -1313,6 +1347,78 @@ mod tests {
         store.reset_for_frame(7, 30);
         let snap = store.snapshot_mutations();
         assert!(snap.mutations.is_empty());
+    }
+
+    #[test]
+    fn scene3_commit_overwrites_and_resets_per_frame() {
+        let mut store = MutationStore::default();
+        let scene = |matrix: [f32; 16]| -> crate::ir::scene3::Scene3 {
+            crate::ir::scene3::Scene3 {
+                clear: [0.0, 0.0, 0.0, 0.0],
+                target: [64, 64],
+                camera: crate::ir::scene3::Camera3 {
+                    position: [0.0, 0.0, 3.0],
+                    target: [0.0; 3],
+                    fov_y_degrees: 45.0,
+                    near: 0.1,
+                    far: 10.0,
+                },
+                lights: vec![],
+                tone_mapping: crate::ir::scene3::ToneMapping3::None,
+                tone_mapping_exposure: 1.0,
+                output_color_space: crate::ir::scene3::OutputColorSpace3::Linear,
+                environment: None,
+                meshes: vec![crate::ir::scene3::Mesh3 {
+                    geometry: crate::ir::scene3::Geometry3::Inline {
+                        positions: vec![[0.0; 3]; 3],
+                        normals: vec![[0.0, 0.0, 1.0]; 3],
+                        indices: vec![0, 1, 2],
+                        uvs: vec![],
+                        colors: vec![],
+                        colors1: vec![],
+                    },
+                    material: crate::ir::scene3::Material3 {
+                        base_color: [1.0; 4],
+                        shading: crate::ir::scene3::Shading3::Lambert,
+                        displacement: None,
+                        map: None,
+                        textures: vec![],
+                        transparent: false,
+                    },
+                    matrix,
+                    render_order: 0,
+                }],
+            }
+        };
+        store.record_scene3("c3d", scene([1.0; 16]));
+        // 同 id 重复提交 → 覆盖（最后一次赢），不是追加。
+        store.record_scene3("c3d", scene([2.0; 16]));
+        assert_eq!(store.scene3s.len(), 1);
+        assert_eq!(store.scene3s["c3d"].meshes[0].matrix, [2.0; 16]);
+
+        store.reset_for_frame(1, 30);
+        assert!(store.scene3s.is_empty());
+        assert!(store.snapshot_mutations().scene3_mutations.is_empty());
+    }
+
+    #[test]
+    fn geometry_registry_survives_frame_reset() {
+        use crate::ir::scene3::Geometry3;
+        let mut store = MutationStore::default();
+        let geo = std::sync::Arc::new(Geometry3::Inline {
+            positions: vec![[0.0; 3]; 4],
+            normals: vec![[0.0, 0.0, 1.0]; 4],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            uvs: vec![],
+            colors: vec![],
+            colors1: vec![],
+        });
+        store.record_geometry("prism", geo.clone());
+        store.record_geometry("prism", geo.clone()); // 幂等覆盖
+        store.reset_for_frame(7, 30);
+        let registry = store.geometry_registry();
+        assert_eq!(registry.len(), 1, "注册表不随帧清除");
+        assert_eq!(registry["prism"].as_ref(), geo.as_ref());
     }
 
     #[test]

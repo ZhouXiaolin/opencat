@@ -55,6 +55,9 @@ pub enum BuiltinId {
     /// h01(a, b, c)：确定性像素哈希（参考 index.html `h01`），参数按 JS
     /// ToUint32 截断，返回 [0,1) 浮点。仅 CPU 后端。
     H01,
+    /// noise2(p)：二维确定性值噪声，返回 [-1,1]。移植参考的 simplex 顶点位移
+    /// （three.js `snoise`）到 2D 屏幕空间：液体 blob 的波浪边缘/表面起伏。
+    Noise2,
 }
 
 pub struct Builtin {
@@ -98,6 +101,7 @@ pub const BUILTINS: &[(&str, BuiltinId, Capability)] = &[
     ("float", BuiltinId::CastF, Capability::Sksl),
     ("imul", BuiltinId::Imul, Capability::CpuOnly),
     ("h01", BuiltinId::H01, Capability::CpuOnly),
+    ("noise2", BuiltinId::Noise2, Capability::Sksl),
 ];
 
 /// `Math.sin` 等 Math 命名空间成员 -> 内建 id；不在表内即白名单拒绝。
@@ -287,6 +291,14 @@ pub fn check_signature(
                 Some(Float)
             } else {
                 err("h01: 期望三个标量数值".into());
+                None
+            }
+        }
+        BuiltinId::Noise2 => {
+            if args.len() == 1 && args[0] == Vec2 {
+                Some(Float)
+            } else {
+                err("noise2: 期望 1 个 float2 参数".into());
                 None
             }
         }

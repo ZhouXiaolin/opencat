@@ -106,6 +106,9 @@ pub trait MutationRecorder {
 
     fn record_draw_op(&mut self, id: &str, cmd: DrawOp);
 
+    /// three-like shim 每帧整树提交一次（同 id 覆盖，最后一次赢）。
+    fn record_scene3(&mut self, id: &str, scene: crate::ir::scene3::Scene3);
+
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32);
 
     fn record_canvas_runtime_effect(

@@ -7,6 +7,8 @@ pub mod draw_op;
 pub mod draw_types;
 pub mod generated_image;
 pub mod media_plan;
+pub mod scene3;
+pub mod scene3_glb;
 pub mod schema_gen;
 pub mod transport;
 

@@ -240,6 +240,31 @@ fn eval_stmt(
             }
             Flow::Continue
         }
+        Stmt::ForLoop { var, start, end, le, body } => {
+            // start/end 各求值一次（JS for 语义：test 每轮求值，但端点纯函数，
+            // 这里预计算上界即可）。硬上限防止病态输入。
+            let s = eval_expr(start, locals, px, py, ctx).as_f64();
+            let e = eval_expr(end, locals, px, py, ctx).as_f64();
+            let mut i = s;
+            let mut guard: u32 = 0;
+            const MAX_ITERS: u32 = 1_000_000;
+            loop {
+                let cont = if *le { i <= e } else { i < e };
+                if !cont || guard >= MAX_ITERS {
+                    break;
+                }
+                locals[*var as usize] = Val::F(i);
+                for stmt in body {
+                    match eval_stmt(stmt, locals, px, py, ctx) {
+                        Flow::Continue => {}
+                        Flow::Return(v) => return Flow::Return(v),
+                    }
+                }
+                i += 1.0;
+                guard += 1;
+            }
+            Flow::Continue
+        }
         Stmt::Return(expr) => Flow::Return(eval_expr(expr, locals, px, py, ctx)),
     }
 }

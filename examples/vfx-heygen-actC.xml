@@ -1,0 +1,346 @@
+<opencat width="1920" height="1080" fps="30" duration="12.9667">
+  <!-- ════════════════════════════════════════════════════════════════════
+       vfx-heygen-actC — chromatic RGB split + CTA + portal reveal + end card
+       (ref frames 400-788, 13.333-26.267 s).
+       Source: hyperframes-launches/vfx-heygen-combined/index.html.
+       Local time = reference absolute − 13.333 s; a source script beat at
+       script time t lands at local (5.58 + t) − 13.333 = t − 7.753.
+
+       The two shader beats are approximated: the RGB split as three offset
+       coloured copies of the "You can make this too" still (source chromatic
+       planes + UnrealBloomPass), and the portal reveal as a procedural disc
+       effect-lambda (growing white portal + glow ring; source portal shader
+       smoothstep ring). The CTA and the white end card are crisp DOM/SVG.
+       ════════════════════════════════════════════════════════════════════ -->
+  <fonts default="inter">
+    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
+    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+  </fonts>
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#000000] overflow-hidden">
+
+    <!-- ── V8 tail: the reference's actC window (ref 400-404) still shows the
+         cream "You can make this too" card for ~5 frames before the dark
+         chromatic scene (propagated V8 copy, source #game-change-copy at
+         13.30 s). Sits at z0 so the chromatic canvas covers it once it starts;
+         gated off in the script after local 0.167. -->
+    <div id="head-copy" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#F5F4ED] flex items-center justify-center">
+      <text id="head-copy-line" class="text-[#3D3929] text-[136px] font-[inter800] font-extrabold leading-[0.94] text-center">You can make this too</text>
+    </div>
+
+    <!-- ── V9: chromatic RGB split (source #chromatic-canvas + #chromatic-cap
+         still, z low). Three additive channel planes sample the still; the
+         still itself (below) is only ever sampled as a shader child. ─────── -->
+    <canvas id="chromatic-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000000] opacity-0">
+      <div id="chrom-still" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#08060e]">
+        <div id="chrom-warm"  class="absolute left-[540px] top-[-270px] w-[1300px] h-[1300px] rounded-full bg-[radial-gradient(closest-side,rgba(255,49,93,0.26),transparent)]"></div>
+        <div id="chrom-blue"  class="absolute left-[70px]  top-[115px]  w-[1240px] h-[1240px] rounded-full bg-[radial-gradient(closest-side,rgba(37,200,255,0.24),transparent)]"></div>
+        <div id="chrom-green" class="absolute left-[440px] top-[35px]   w-[1040px] h-[1040px] rounded-full bg-[radial-gradient(closest-side,rgba(49,255,131,0.13),transparent)]"></div>
+        <text id="chrom-text" class="absolute left-0 top-[472px] w-[1920px] text-center text-[#F5F4ED] text-[136px] font-[inter800] font-extrabold leading-[0.94]">You can make this too</text>
+      </div>
+    </canvas>
+
+    <!-- ── V10: upgrade CTA (source #upgrade-cta, z8) ──────────────────── -->
+    <div id="upgrade-cta" class="absolute left-0 top-0 w-[1920px] h-[1080px] flex flex-col items-center justify-center gap-[38px] opacity-0">
+      <text id="cta-main" class="text-[#F5F4ED] text-[178px] font-[inter900] font-black leading-[0.88] text-center">Full catalog</text>
+      <text id="cta-sub" class="text-[rgba(245,244,237,0.82)] text-[92px] font-[inter800] font-extrabold leading-[0.92] text-center">available now</text>
+    </div>
+
+    <!-- ── V11: portal-logo-frame (source #portal-logo-frame, z9) — white
+         card with the brand logo + url. The portal canvas (z10) sits on top:
+         transparent inside the growing disc (revealing this card), opaque
+         outside (the CTA front texture). ────────────────────────────────── -->
+    <div id="portal-logo-frame" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#FFFFFF] flex flex-col items-center justify-center gap-[42px] opacity-0">
+      <image id="end-logo" class="w-[650px] h-[195px]" path="../assets/vhc/hyperframes-dark.png" />
+      <text id="end-url" class="text-[#111111] font-[mono] font-medium text-[32px] opacity-[0.72]">hyperframes.heygen.com/catalog</text>
+    </div>
+
+    <!-- ── portal reveal (source #portal-canvas, z10). Outside the growing
+         disc the canvas shows the CTA front texture (the source `tFront`
+         canvas: black vsync + "Full catalog / available now"); inside it is
+         transparent, revealing #portal-logo-frame below. ──────────────── -->
+    <canvas id="portal-canvas" class="absolute left-[0px] top-[0px] w-[1920px] h-[1080px] opacity-0">
+      <div id="chrome-front" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000000]">
+        <text id="cf-main" class="absolute left-0 top-[426px] w-[1920px] text-center text-[#F5F4ED] text-[178px] font-[inter900] font-black leading-[0.88]">Full catalog</text>
+        <text id="cf-sub"  class="absolute left-0 top-[600px] w-[1920px] text-center text-[rgba(245,244,237,0.82)] text-[92px] font-[inter800] font-extrabold leading-[0.92]">available now</text>
+      </div>
+    </canvas>
+  </div>
+
+  <script>
+    /* local = source script time − 7.753 (= HEYGEN_START 5.58 − actC origin
+       13.333). Every beat below is derived from the source constants in
+       index.html:1248-1259 (PROMPT_PAN_EXTRA 0.18, RGB_CUT_DELTA 0.5,
+       CHROMATIC_START 7.92, RGB_ROTATE_START 9.325, RGB_BLOOM_SETTLE_START
+       10.15, RGB_EXIT_START 10.45, PORTAL_START 11.44, HEYGEN_START 5.58),
+       never from measured pixels. */
+    var CK = ctx.CanvasKit;
+    var st = Math.max(0, ctx.time);
+    /* source state-channel defaults (index.html:914-941) */
+    var zSplit = 0, xSplit = 0, redRotY = 0, greenRotY = 0, blueRotY = 0;
+    var depthX = 0, depthZ = 0, planeScale = 1;
+    var camX = 0, camY = 0, camZ = 5, lookX = 0, lookY = 0;
+    var bloomStrength = 0.5, sceneAlpha = 1;
+    var portalRadius = 0, energyIntensity = 0, chromaticStrength = 0;
+    var distortionStrength = 0, edgeWidth = 0.06;
+    function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+    function lerp(a, b, t) { return a + (b - a) * clamp01(t); }
+    /* GSAP power1/power2/power3 in&out and in, as the source uses them */
+    function p1in(t)  { return clamp01(t); }
+    function p1io(t)  { t = clamp01(t); return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+    function p2io(t)  { t = clamp01(t); return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+    function p2out(t) { return 1 - Math.pow(1 - clamp01(t), 2); }
+    function p3out(t) { return 1 - Math.pow(1 - clamp01(t), 3); }
+    function p3in(t)  { return Math.pow(clamp01(t), 3); }
+    function expoOut(t){ t = clamp01(t); return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); }
+
+    /* segment helper: apply gsap .to(state, target, start, duration, ease) */
+    function seg(t, start, dur, ease, from, to) {
+      if (t <= start) return from;
+      var e = ease((t - start) / dur);
+      return from + (to - from) * e;
+    }
+    /* V8 tail card: the ref actC segment shows the cream card for seg frames
+       0..4 only (local < 5/30 = 0.1667); the chromatic scene's first frame is
+       seg 5 (src CHROMATIC_START 7.92 → actC local 0.16667). Gate excludes the
+       card at local >= 0.1667, matching frame-set 0..4. */
+    if (st >= 5.0 / 30.0) ctx.getNode('head-copy').opacity(0);
+
+    /* ── V9 chromatic split (source index.html:1446-1538) ───────────────
+       CHROMATIC_START 7.92 → local 0.167; RED/GREEN/BLUE are the three
+       additive channel planes sampling the "You can make this too" still. */
+    var CH0 = 7.92 - 7.753;               // 0.167
+    var ROT = 9.325 - 7.753;              // 1.572
+    var BSET = 10.15 - 7.753;             // 2.397
+    var EXIT = 10.45 - 7.753;             // 2.697
+    /* CHROMATIC_START ramp (dur .44, power2.out) */
+    zSplit = seg(st, CH0, 0.44, p2out, 0, 0.42);
+    redRotY = seg(st, CH0, 0.44, p2out, 0, -0.08);
+    blueRotY = seg(st, CH0, 0.44, p2out, 0, 0.08);
+    camZ = seg(st, CH0, 0.44, p2out, 5, 5.55);
+    camY = seg(st, CH0, 0.44, p2out, 0, 0.16);
+    bloomStrength = seg(st, CH0, 0.44, p2out, 0.5, 1.35);
+    /* camX 3.2 / camZ 4.0 / lookX -0.3 @8.34 dur 1.0 power2.inOut */
+    camX = seg(st, 8.34 - 7.753, 1.0, p2io, camX, 3.2);
+    camY = seg(st, 8.34 - 7.753, 1.0, p2io, camY, 0.3);
+    camZ = seg(st, 8.34 - 7.753, 1.0, p2io, camZ, 4.0);
+    lookX = seg(st, 8.34 - 7.753, 1.0, p2io, lookX, -0.3);
+    /* zSplit 0.56 @8.425 dur .425; zSplit 0.36 @8.875 dur .45 (both p2.inOut) */
+    zSplit = seg(st, 8.425 - 7.753, 0.425, p2io, zSplit, 0.56);
+    zSplit = seg(st, 8.875 - 7.753, 0.45, p2io, zSplit, 0.36);
+    /* bloom 1.05 @8.75 dur .6 p2.inOut; bloom 1.55 @9.475 dur .675 p2.out;
+       bloom 1.18 @10.15 dur (EXIT-BSET) p1.inOut */
+    bloomStrength = seg(st, 8.75 - 7.753, 0.6, p2io, bloomStrength, 1.05);
+    bloomStrength = seg(st, 9.475 - 7.753, 0.675, p2out, bloomStrength, 1.55);
+    bloomStrength = seg(st, BSET, EXIT - BSET, p1io, bloomStrength, 1.18);
+    /* RGB_ROTATE_START (9.325): camX/camZ/lookX, zSplit/xSplit, rotY (dur
+       EXIT-ROT, p2.inOut) */
+    camX = seg(st, ROT, EXIT - ROT, p2io, camX, 4.7);
+    camY = seg(st, ROT, EXIT - ROT, p2io, camY, 0.55);
+    camZ = seg(st, ROT, EXIT - ROT, p2io, camZ, 2.55);
+    lookX = seg(st, ROT, EXIT - ROT, p2io, lookX, -0.1);
+    lookY = seg(st, ROT, EXIT - ROT, p2io, lookY, 0.05);
+    zSplit = seg(st, ROT, EXIT - ROT, p2io, zSplit, 1.05);
+    xSplit = seg(st, ROT, EXIT - ROT, p2io, xSplit, 0.46);
+    redRotY = seg(st, ROT, EXIT - ROT, p2io, redRotY, -1.42);
+    greenRotY = seg(st, ROT, EXIT - ROT, p2io, greenRotY, -1.22);
+    blueRotY = seg(st, ROT, EXIT - ROT, p2io, blueRotY, -1.02);
+    /* exit @RGB_EXIT_START dur .31 power3.in: depthX/depthZ/xSplit/zSplit/
+       planeScale/bloom/sceneAlpha */
+    depthX = seg(st, EXIT, 0.31, p3in, depthX, -2.2);
+    depthZ = seg(st, EXIT, 0.31, p3in, depthZ, -2.65);
+    xSplit = seg(st, EXIT, 0.31, p3in, xSplit, 0.48);
+    zSplit = seg(st, EXIT, 0.31, p3in, zSplit, 0.48);
+    planeScale = seg(st, EXIT, 0.31, p3in, planeScale, 0.3);
+    bloomStrength = seg(st, EXIT, 0.31, p3in, bloomStrength, 0.58);
+    sceneAlpha = seg(st, EXIT, 0.31, p3in, sceneAlpha, 0.76);
+    camZ = seg(st, EXIT, 0.31, p2io, camZ, 4.35);   /* source uses p2.in here */
+    lookX = seg(st, EXIT, 0.31, p2io, lookX, -0.16);
+    /* final fade @EXIT+0.31 dur .11 p1.in: bloom→0, sceneAlpha→0 */
+    bloomStrength = seg(st, EXIT + 0.31, 0.11, p1in, bloomStrength, 0);
+    sceneAlpha = seg(st, EXIT + 0.31, 0.11, p1in, sceneAlpha, 0);
+
+    /* ── CTA entry: y 240→0 blur 12→0 (expo.out) + alpha (p1.out) @2.697 ── */
+    var T = ctx.timeline();
+    T.set('upgrade-cta', { y: 240, opacity: 0, filter: 'blur(12px)' }, 0);
+    T.to('upgrade-cta', { y: 0, filter: 'blur(0px)', duration: 0.38, ease: 'expo.out' }, EXIT + 0.31);
+    T.to('upgrade-cta', { opacity: 1, duration: 0.2, ease: 'power1.out' }, EXIT + 0.31);
+
+    /* ── portal reveal (source index.html:1550-1585) ────────────────────
+       PORTAL_START 11.44 → local 3.687: swap CTA→#portal-logo-frame, show the
+       portal canvas, reset the portal state, ramp energy (0.28 power3.out),
+       portalRadius 0→0.72 (7.59 s power1.inOut) then →1.8 (1.45 s power3.in)
+       from (19.4−RGB_CUT_DELTA)→local 11.147; energy→0 (0.55 power2.out) from
+       (20.35−RGB_CUT_DELTA)→local 12.097; canvas hidden at
+       (20.85−RGB_CUT_DELTA)→local 12.597. */
+    var PS = 11.44 - 7.753;               // 3.687
+    T.set('upgrade-cta', { opacity: 0 }, PS);
+    T.set('portal-logo-frame', { opacity: 1 }, PS);
+    T.set('portal-canvas', { opacity: 1 }, PS);
+    energyIntensity = seg(st, PS, 0.28, p3out, 0, 1.0);
+    chromaticStrength = seg(st, PS, 0.28, p3out, 0, 0.04);
+    distortionStrength = seg(st, PS, 0.28, p3out, 0, 0.06);
+    edgeWidth = seg(st, PS, 0.28, p3out, 0.06, 0.08);
+    portalRadius = seg(st, PS + 0.05, 7.59, p1io, 0, 0.72);
+    portalRadius = seg(st, 19.4 - 0.5 - 7.753, 1.45, p3in, portalRadius, 1.8);
+    var energy = seg(st, 20.35 - 0.5 - 7.753, 0.55, p2out, 1.0, 0.0);
+    T.set('portal-canvas', { opacity: 0 }, 20.85 - 0.5 - 7.753);   // 12.597
+
+    /* ── V9 chromatic planes: three additive channel planes over black.
+       redPlane = depthX−xSplit, depthZ+zSplit, rotY redRotY;
+       green = depthX, depthZ; blue = depthX+xSplit, depthZ−zSplit
+       (index.html:1071-1073). Projected with the source camera fov 40, z 5
+       (index.html:1009), so the three planes split apart in screen space. */
+    var chromCanvas = ctx.getCanvasById('chromatic-canvas');
+    var chromNode = ctx.getNode('chromatic-canvas');
+    /* Exact perspective ray/plane projection, 1:1 with the source
+       (PerspectiveCamera fov 40, W/H, position C = camX/camY/camZ looking at
+       lookX/lookY,0; index.html:1009/1071-1088). For pixel rect-local uv the
+       view direction is D = F + sx*tanH*aspect*R + sy*tanH*U with
+       sx,sy in [-1,1], F = normalize(L-C), R = normalize(F x up),
+       U = R x F, tanH = tan(fov/2). Each RGB plane sits at world center Pc
+       with a Y-rotation theta (normal n = (sin0,0,cos0)); the ray-plane hit is
+       hit = C + t*D with t = -dot(C-Pc, n)/dot(D, n). Plane-local coords
+       lx = (hit-Pc).x*cos - (hit-Pc).z*sin, ly = (hit-Pc).y; the still sample
+       is (0.5 + lx/planeW, 0.5 - ly/planeH), planeW = 3.0*aspect, planeH = 3.0.
+       The source uses three AdditiveBlending channel materials; we accumulate
+       them into one plane (single additive draw) with the source lum formula. */
+    var CHROM = (uv, image, u) => {
+      const sx = uv.x / u.w * 2.0 - 1.0;
+      const sy = uv.y / u.h * 2.0 - 1.0;
+      const Dx = u.fx + sx * u.rx + sy * u.ux;
+      const Dy = u.fy + sx * u.ry + sy * u.uy;
+      const Dz = u.fz + sx * u.rz + sy * u.uz;
+      const a = u.alpha;
+      /* red plane: Pc=(depthX-xSplit,0,depthZ+zSplit), theta=redRotY */
+      const tR = -(((u.cx - u.px0) * u.sn0 + (u.cz - u.pz0) * u.cs0)) /
+                 (Dx * u.sn0 + Dz * u.cs0);
+      const exR = (u.cx + tR * Dx) - u.px0;
+      const eyR = (u.cy + tR * Dy) - u.py0;
+      const ezR = (u.cz + tR * Dz) - u.pz0;
+      const lxR = (exR * u.cs0 - ezR * u.sn0) / u.scale;
+      const lyR = eyR / u.scale;
+      const sR = image.eval([clamp(lxR / u.pw + 0.5, 0.0, 1.0) * u.w,
+                             clamp(0.5 - lyR / u.ph, 0.0, 1.0) * u.h]);
+      /* green plane: Pc=(depthX,0,depthZ), theta=greenRotY */
+      const tG = -(((u.cx - u.px1) * u.sn1 + (u.cz - u.pz1) * u.cs1)) /
+                 (Dx * u.sn1 + Dz * u.cs1);
+      const exG = (u.cx + tG * Dx) - u.px1;
+      const eyG = (u.cy + tG * Dy) - u.py1;
+      const ezG = (u.cz + tG * Dz) - u.pz1;
+      const lxG = (exG * u.cs1 - ezG * u.sn1) / u.scale;
+      const lyG = eyG / u.scale;
+      const sG = image.eval([clamp(lxG / u.pw + 0.5, 0.0, 1.0) * u.w,
+                             clamp(0.5 - lyG / u.ph, 0.0, 1.0) * u.h]);
+      /* blue plane: Pc=(depthX+xSplit,0,depthZ-zSplit), theta=blueRotY */
+      const tB = -(((u.cx - u.px2) * u.sn2 + (u.cz - u.pz2) * u.cs2)) /
+                 (Dx * u.sn2 + Dz * u.cs2);
+      const exB = (u.cx + tB * Dx) - u.px2;
+      const eyB = (u.cy + tB * Dy) - u.py2;
+      const ezB = (u.cz + tB * Dz) - u.pz2;
+      const lxB = (exB * u.cs2 - ezB * u.sn2) / u.scale;
+      const lyB = eyB / u.scale;
+      const sB = image.eval([clamp(lxB / u.pw + 0.5, 0.0, 1.0) * u.w,
+                             clamp(0.5 - lyB / u.ph, 0.0, 1.0) * u.h]);
+      const lumR = sR.r * 0.6 + max(sR.g, sR.b) * 0.4;
+      const lumG = sG.g * 0.6 + max(sG.r, sG.b) * 0.4;
+      const lumB = sB.b * 0.6 + max(sB.r, sB.g) * 0.4;
+      return [sR.r * lumR * a, sG.g * lumG * a, sB.b * lumB * a, 1.0];
+    };
+    var chromEffect = CK.Effect.fromLambda(CHROM, {
+      uniforms: [['w', 'float'], ['h', 'float'], ['pw', 'float'], ['ph', 'float'],
+                 ['scale', 'float'], ['alpha', 'float'], ['bloom', 'float'],
+                 ['cx', 'float'], ['cy', 'float'], ['cz', 'float'],
+                 ['fx', 'float'], ['fy', 'float'], ['fz', 'float'],
+                 ['rx', 'float'], ['ry', 'float'], ['rz', 'float'],
+                 ['ux', 'float'], ['uy', 'float'], ['uz', 'float'],
+                 ['px0', 'float'], ['py0', 'float'], ['pz0', 'float'], ['cs0', 'float'], ['sn0', 'float'],
+                 ['px1', 'float'], ['py1', 'float'], ['pz1', 'float'], ['cs1', 'float'], ['sn1', 'float'],
+                 ['px2', 'float'], ['py2', 'float'], ['pz2', 'float'], ['cs2', 'float'], ['sn2', 'float']],
+      backend: 'sksl'
+    });
+    var chromChild = chromCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+    (function paintChromatic() {
+      if (st < CH0 || st > EXIT + 0.42) { chromNode.opacity(0); return; }
+      chromNode.opacity(1);
+      /* camera basis for the source PerspectiveCamera(40, W/H) at camX/camY/camZ
+         looking at lookX/lookY,0: F = normalize(L-C), R = normalize(F x up),
+         U = R x F. planeW/planeH = the source PlaneGeometry(3.0*aspect, 3.0). */
+      var PW = 1920.0, PH = 1080.0, aspect = PW / PH;
+      var planeW = 3.0 * aspect, planeH = 3.0;
+      var tanH = Math.tan(40.0 * Math.PI / 180.0 / 2.0);
+      /* View basis from the source camera constants via THREE
+         PerspectiveCamera.lookAt semantics — forward = normalize(target−eye),
+         right = normalize(cross(forward, up_world=(0,1,0))), up = cross(right,
+         forward). The engine derives this (util_camera_basis →
+         crates/opencat-core/src/geom.rs::camera_basis, unit-tested) so the ray
+         basis is a deterministic function of the source, never a sign picked
+         by which frame measures better. Returns flat [fx,fy,fz,rx,ry,rz,ux,uy,uz]. */
+      var B = __util_camera_basis([camX, camY, camZ], [lookX, lookY, 0.0]);
+      var Fx = B[0], Fy = B[1], Fz = B[2];
+      var Rx = B[3], Ry = B[4], Rz = B[5];
+      var Ux = B[6], Uy = B[7], Uz = B[8];
+      /* fold the half-angle FOV into the basis so the lambda ray is
+         D = F + sx*(tanH*aspect*R) + sy*(tanH*U), sx/sy in [-1,1] */
+      Rx *= tanH * aspect; Ry *= tanH * aspect; Rz *= tanH * aspect;
+      Ux *= tanH; Uy *= tanH; Uz *= tanH;
+      var c0 = [Math.cos(redRotY), Math.sin(redRotY)];
+      var c1 = [Math.cos(greenRotY), Math.sin(greenRotY)];
+      var c2 = [Math.cos(blueRotY), Math.sin(blueRotY)];
+      /* per-plane world center (index.html:1071-1073): red depthX-xSplit /
+         depthZ+zSplit; green depthX/depthZ; blue depthX+xSplit / depthZ-zSplit. */
+      var p = new CK.Paint();
+      p.setShader(chromEffect.makeShaderWithChildren([
+        PW, PH, planeW, planeH, planeScale, sceneAlpha, bloomStrength,
+        camX, camY, camZ,
+        Fx, Fy, Fz, Rx, Ry, Rz, Ux, Uy, Uz,
+        depthX - xSplit, 0.0, depthZ + zSplit, c0[0], c0[1],
+        depthX,          0.0, depthZ,          c1[0], c1[1],
+        depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1]
+      ], [chromChild]));
+      /* composite the three additive channel planes */
+      chromCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
+    })();
+
+    /* ── portal disc lambda (source index.html:1167-1213) ────────────────
+       Outside the disc the canvas shows the CTA front texture `tFront`
+       (mask = smoothstep(portalEdge-0.008, +0.008, dist)); inside the disc
+       transparent (the white #portal-logo-frame below shows through). A
+       glowing ring (source ring palette glows) rides the growing edge. */
+    var PORTAL = (uv, image, u) => {
+      const px = (uv.x / u.w - 0.5) * (u.w / u.h);
+      const py = uv.y / u.h - 0.5;
+      const dist = length([px, py]);
+      const edgeDist = abs(dist - u.edge);
+      const front = image.eval(uv);
+      const mask = smoothstep(u.edge - 0.008, u.edge + 0.008, dist);
+      const glowInner = smoothstep(u.ew, 0.0, edgeDist);
+      const glowOuter = smoothstep(u.ew * 2.5, u.ew * 0.5, edgeDist);
+      const glow = glowInner * glowOuter * u.energy;
+      const ang = atan2(py, px);
+      const phase = fract(ang / 6.2832 + u.time * 0.4);
+      const ringR = mix(0.486, 0.290, sin(phase * 6.2832) * 0.5 + 0.5);
+      const ringG = mix(0.227, 0.565, sin(phase * 6.2832) * 0.5 + 0.5);
+      const ringB = mix(0.929, 1.000, sin(phase * 6.2832) * 0.5 + 0.5);
+      const fr = front.r * mask + ringR * glow * 2.5;
+      const fg = front.g * mask + ringG * glow * 2.5;
+      const fb = front.b * mask + ringB * glow * 2.5;
+      return [fr, fg, fb, clamp(mask + glow * 0.5, 0.0, 1.0)];
+    };
+    var portalEffect = CK.Effect.fromLambda(PORTAL, {
+      uniforms: [['w','float'],['h','float'],['edge','float'],['energy','float'],
+                 ['time','float'],['ew','float']],
+      backend: 'sksl'
+    });
+    var portalCanvas = ctx.getCanvasById('portal-canvas');
+    var portalChild = portalCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+    (function paintPortal() {
+      if (st < PS) return;
+      var p = new CK.Paint();
+      p.setShader(portalEffect.makeShaderWithChildren(
+        [1920.0, 1080.0, portalRadius, energy, st, edgeWidth], [portalChild]));
+      portalCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
+    })();
+  </script>
+</opencat>

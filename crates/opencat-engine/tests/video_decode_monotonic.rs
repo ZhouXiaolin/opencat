@@ -7,7 +7,8 @@
 //! `eof` and never drained frames still queued in the frame-threaded
 //! decoder. These tests replay the exact per-frame target sequence of that
 //! composition against the same asset and assert the displayed-frame
-//! sequence expected from "first pts >= target" semantics.
+//! sequence expected from browser `<video>` semantics: the last source frame
+//! whose pts is <= the target (floor).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -29,12 +30,14 @@ fn pts_secs(frame: u64) -> f64 {
     ms as f64 / 1_000.0
 }
 
-/// Expected displayed asset frame for a media-local target under the
-/// engine's "first frame with pts >= target" semantics.
+/// Expected displayed asset frame for a media-local target under browser
+/// `<video>` semantics: the last frame with pts <= target (floor), clamped to
+/// the first frame when the target precedes it.
 fn expected_frame(target: f64) -> u64 {
     (1..=ASSET_FRAMES)
-        .find(|&k| pts_secs(k) + 1e-9 >= target)
-        .unwrap_or(ASSET_FRAMES)
+        .rev()
+        .find(|&k| pts_secs(k) <= target + 1e-9)
+        .unwrap_or(1)
 }
 
 #[test]
@@ -42,51 +45,43 @@ fn full_composition_replay_never_freezes() {
     let path = fig_asset();
     let fig_data_start = 6.7783_f64;
 
-    // Anchor frames decoded via a fresh cache with a single exact request
-    // (deterministic seek path), used as byte-exact references.
-    let anchor_targets = [3.125_000_f64, 3.167_000, 3.208_000, 3.333_000, 3.375_000];
-    let mut reference = VideoDecodeCache::new();
+    // Byte anchor for every source frame: decode it through a fresh cache
+    // with a single exact request at that frame's own pts. Every frame is a
+    // keyframe (FFV1), so the seek lands directly on it and floor semantics
+    // select exactly B_k. Comparing against the expected frame's anchor is
+    // robust to static content where adjacent source frames are
+    // byte-identical (a byte "did it change?" check would false-fail there),
+    // while a genuine freeze on the wrong source frame still differs.
     let mut refs: HashMap<u64, Vec<u8>> = HashMap::new();
-    for target in anchor_targets {
+    for k in 1..=ASSET_FRAMES {
+        let mut reference = VideoDecodeCache::new();
         let frame = reference
-            .get_frame(&path, target, VideoPreviewQuality::Realtime, None)
+            .get_frame(&path, pts_secs(k), VideoPreviewQuality::Realtime, None)
             .expect("reference decode should succeed");
-        refs.insert(expected_frame(target), frame.as_ref().clone());
+        assert_eq!(
+            expected_frame(pts_secs(k)),
+            k,
+            "anchor target for B{k} must select B{k}"
+        );
+        refs.insert(k, frame.as_ref().clone());
     }
 
     // Replay every fig composition frame of the codex-five run (f407..f608,
     // one get_frame per rendered frame, Realtime = the render default).
     let mut cache = VideoDecodeCache::new();
-    let mut prev: Option<(u64, Vec<u8>)> = None;
     for composition_frame in 407..=608_u32 {
         let target = composition_frame as f64 / 60.0 - fig_data_start;
         let frame = cache
             .get_frame(&path, target, VideoPreviewQuality::Realtime, None)
             .expect("decode should succeed");
         let expected_b = expected_frame(target);
-
-        if let Some((prev_expected, prev_bytes)) = &prev {
-            if expected_b == *prev_expected {
-                assert_eq!(
-                    frame.as_ref(),
-                    prev_bytes,
-                    "f{composition_frame}: expected same source frame B{expected_b}"
-                );
-            } else {
-                assert_ne!(
-                    frame.as_ref(),
-                    prev_bytes,
-                    "f{composition_frame}: decoder froze on B{prev_expected}; expected B{expected_b}"
-                );
-            }
-        }
-        if let Some(expected_bytes) = refs.get(&expected_b) {
-            assert_eq!(
-                frame.as_ref(),
-                expected_bytes,
-                "f{composition_frame}: displayed frame must be source frame B{expected_b}"
-            );
-        }
-        prev = Some((expected_b, frame.as_ref().clone()));
+        let anchor = refs
+            .get(&expected_b)
+            .expect("anchor for every source frame should exist");
+        assert_eq!(
+            frame.as_ref(),
+            anchor,
+            "f{composition_frame}: displayed frame must be source frame B{expected_b}"
+        );
     }
 }

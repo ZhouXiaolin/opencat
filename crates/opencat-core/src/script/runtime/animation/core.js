@@ -283,6 +283,33 @@
         return value;
     }
 
+    // GSAP value-level relative strings: `"+=20"`, `"-=5"`, `"*=2"`, `"/=4"`.
+    // The offset is applied to the value the property already holds, which is
+    // the tween's `from` value (what `getDescriptorDefault` read off the node).
+    var RELATIVE_VALUE = /^([+\-*/])=\s*(-?\d+(?:\.\d+)?)$/;
+
+    function resolveRelativeValue(value, current) {
+        if (typeof value !== 'string') {
+            return value;
+        }
+        var match = value.trim().match(RELATIVE_VALUE);
+        if (!match) {
+            return value;
+        }
+        var base = Number(current);
+        if (isNaN(base)) {
+            base = 0;
+        }
+        var amount = Number(match[2]);
+        switch (match[1]) {
+            case '+': return base + amount;
+            case '-': return base - amount;
+            case '*': return base * amount;
+            case '/': return amount === 0 ? base : base / amount;
+        }
+        return value;
+    }
+
     function getVarForTarget(vars, track, target, targetIndex) {
         return resolveVarValue(getVar(vars, track), target, targetIndex);
     }
@@ -595,6 +622,13 @@
             var fromVal = hasVar(fromVars, track)
                 ? getVarForTarget(fromVars, track, target, targetIndex)
                 : getDescriptorDefault(descriptor, target, track.name, toVal);
+
+            // Resolve `"+=n"`-style values against the value the node already
+            // holds, so every later stage (prepare, sample, keyframes) sees a
+            // plain number.
+            var liveValue = getDescriptorDefault(descriptor, target, track.name, 0);
+            toVal = resolveRelativeValue(toVal, liveValue);
+            fromVal = resolveRelativeValue(fromVal, liveValue);
 
             if (track.prepared == null && typeof descriptor.prepare === 'function') {
                 track.prepared = descriptor.prepare({

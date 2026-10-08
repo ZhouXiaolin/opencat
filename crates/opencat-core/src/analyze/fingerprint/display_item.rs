@@ -22,6 +22,16 @@ impl Hash for TextFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.text.hash(state);
         TextStyleFp(&self.0.style).hash(state);
+        // `background-clip: text` gradient layers change the glyph pixels, so
+        // they must participate in the paint fingerprint (BackgroundFill is
+        // Hash only through its stops; a debug repr is sufficient and cheap
+        // here because gradient text is rare).
+        self.0.text_fill.is_some().hash(state);
+        if let Some(layers) = &self.0.text_fill {
+            for layer in layers {
+                format!("{layer:?}").hash(state);
+            }
+        }
         self.0.allow_wrap.hash(state);
         self.0.truncate.hash(state);
         self.0.drop_shadow.hash(state);

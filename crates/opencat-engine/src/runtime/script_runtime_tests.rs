@@ -755,3 +755,49 @@ fn object_form_keyframes_interpolate_with_per_entry_durations() {
     assert!((s15 - 1.5).abs() < 0.02, "frame 15 scale: {s15}");
     assert!((r15 - 45.0).abs() < 0.5, "frame 15 rotation: {r15}");
 }
+
+/// GSAP value-level relative strings: `y: "+=6"` tweens from the node's current
+/// value to `current + 6`, not from 0 to the literal `"+6"`.
+#[test]
+fn relative_value_strings_offset_from_current_value() {
+    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("dot".into());
+    realm.set_target_registry(registry);
+
+    let driver = realm
+        .install(
+            "ctx.set('dot', { y: 10 });\
+             ctx.to('dot', { y: '+=6', duration: 1, ease: 'none' });",
+        )
+        .expect("install");
+
+    let run_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> f32 {
+        let frame_ctx = FrameCtx {
+            frame,
+            fps: 20,
+            width: 64,
+            height: 36,
+            frames: 40,
+        };
+        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+        let mut rec = MutationStore::default();
+        realm
+            .run_frame(driver, &script_frame_ctx, Some("dot"), &mut rec)
+            .expect("run");
+        let entry = rec.snapshot_mutations().mutations.remove("dot").expect("dot");
+        entry
+            .transforms
+            .iter()
+            .find_map(|t| match t {
+                opencat_core::style::Transform::TranslateY { value } => Some(*value),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("y track; transforms = {:?}", entry.transforms))
+    };
+
+    // Start stays at the node's current 10; end is 10 + 6 = 16.
+    assert!((run_at(&mut realm, 0) - 10.0).abs() < 0.05, "t=0");
+    assert!((run_at(&mut realm, 20) - 16.0).abs() < 0.05, "t=1");
+    assert!((run_at(&mut realm, 10) - 13.0).abs() < 0.05, "t=0.5");
+}

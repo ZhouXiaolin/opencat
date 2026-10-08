@@ -487,10 +487,19 @@ fn display_item_for_node(
                 text.text_unit_overrides.as_ref(),
                 text.text_style.text_px,
             );
+            let text_fill = match element.style.visual.background_clip {
+                crate::style::BackgroundClip::Text
+                    if !element.style.visual.background.is_empty() =>
+                {
+                    Some(element.style.visual.background.clone())
+                }
+                _ => None,
+            };
             DisplayItem::Text(TextDisplayItem {
                 bounds,
                 text: text.text.clone(),
                 style: text.text_style.clone(),
+                text_fill,
                 allow_wrap: text_element_allows_wrap(element),
                 truncate: element.style.layout.truncate,
                 drop_shadow: element.style.visual.drop_shadow.clone(),

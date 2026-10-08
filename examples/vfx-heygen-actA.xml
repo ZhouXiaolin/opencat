@@ -1,0 +1,254 @@
+<opencat width="1920" height="1080" fps="30" duration="6.4667">
+  <!-- ════════════════════════════════════════════════════════════════════
+       vfx-heygen-actA — VFX intro (ref frames 0-194, 6.467 s).
+       Source: hyperframes-launches/vfx-heygen-combined/compositions/
+               vfx-text-cursor.html (sub-composition, local 0..6.482 s).
+       Local time == reference local time (this act is not shifted).
+
+       Layers (bottom→top): sting ray-march field + wordmark (V1, 0-2.9 s),
+       bg-2.mp4 refraction video (from 3.1 s), glass #next-card with the
+       "HTML-in canvas" phrase (V2, 3.1-5.6 s) then the availability lockup
+       (V3). The card+bg bridge up at 5.85-6.35 s hands off to Act B.
+       Static styling = Tailwind classes; motion = script, 1:1 from the
+       source GSAP timeline. Brand wordmarks are rasterised artwork.
+       ════════════════════════════════════════════════════════════════════ -->
+  <fonts default="inter">
+    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
+    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+    <font id="big" family="Big Shoulders Display" path="../assets/vhc/BigShouldersDisplay-900.ttf" />
+    <font id="serifd" family="DM Serif Display" path="../assets/vhc/DMSerifDisplay-Italic.ttf" />
+  </fonts>
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#050508] overflow-hidden">
+
+    <!-- ── V1: ray-march logo sting (0..2.9 s) ─────────────────────────
+         ​1:1 port of the source's 112-sample screen-space ray-march
+         (`#define SAMPLES 112.0`, vfx-text-cursor.html:449-546). The mask/
+         colour textures are the source's own rasterised `.stage-logo` artwork
+         (`#logo-field`, full 1920×1080, mask=alpha / colour=rgb), sampled as a
+         subtree shader child. The wordmark lives inside the WebGL canvas in the
+         source, so it is nested here too. -->
+    <canvas id="sting-canvas" class="absolute left-[0px] top-[0px] w-[1920px] h-[1080px]">
+      <div id="logo-field" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
+        <image id="lf-img" class="absolute left-0 top-0 w-[1920px] h-[1080px]" path="../assets/vhc/logo-field.png" />
+      </div>
+    </canvas>
+
+    <!-- ── V2/V3: refraction video + glass card (from 3.1 s) ─────────── -->
+    <video id="next-bg" path="../assets/vhc/bg-2.mp4" data-start="3.1" data-duration="3.3667" data-media-start="0" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0"></video>
+
+    <div id="next-card" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.17)] bg-[linear-gradient(160deg,rgba(255,255,255,0.11)_0%,rgba(255,255,255,0.045)_42%,rgba(255,255,255,0.018)_70%,rgba(255,255,255,0.075)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.42)] opacity-0 overflow-hidden">
+      <div id="glow-a" class="absolute left-[-40px] top-[520px] w-[560px] h-[560px] rounded-full bg-[radial-gradient(closest-side,rgba(73,242,255,0.14),transparent)]"></div>
+      <div id="glow-b" class="absolute left-[1260px] top-[-10px] w-[440px] h-[440px] rounded-full bg-[radial-gradient(closest-side,rgba(255,79,216,0.11),transparent)]"></div>
+
+      <!-- phrase A: "HTML-in / canvas" — types in, then supporting words -->
+      <div id="phrase-a" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] flex flex-col items-center justify-center text-center text-[#ffffff] text-[292px] font-[inter900] font-black leading-[0.88] tracking-[0]">
+        <div id="line1" class="flex items-center justify-center">
+          <div id="html-word" class="relative text-left text-[#f6ff7a] font-[big] font-black tracking-[0.015em]">
+            <text id="html-type" class="font-[big] font-black tracking-[0.015em]">HTML</text>
+            <text id="html-caret" class="text-[#f6ff7a] opacity-0">|</text>
+          </div>
+          <text id="html-tail" class="opacity-0">&#8211;in</text>
+        </div>
+        <text id="canvas-word" class="opacity-0">canvas</text>
+      </div>
+
+      <!-- phrase B: availability lockup (V3) -->
+      <div id="phrase-b" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] block text-[#ffffff] opacity-0">
+        <text id="avail-now" class="absolute left-[0px] top-[76px] text-[161px] font-[inter800] font-extrabold leading-[0.88]">Now</text>
+        <text id="avail-natively" class="absolute left-[92px] top-[212px] text-[#f6ff7a] font-[serifd] text-[304px] italic font-normal leading-[0.78]">natively</text>
+        <div id="avail-supported-wrap" class="absolute left-[560px] top-[526px] w-[940px] flex items-baseline justify-end">
+          <text id="avail-supported" class="text-[161px] font-[inter800] font-extrabold leading-[0.88] whitespace-nowrap">supported.</text>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ── 1:1 port of compositions/vfx-text-cursor.html timeline ────────── */
+    var T = ctx.timeline();
+    var CK = ctx.CanvasKit;
+
+    function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+    function entryEase(t) { return -0.806 * t * t + 1.806 * t; }
+
+    /* ---- V1 ray-march sting (effect lambda, 1:1 source port) ----
+       vfx-text-cursor.html:449-546 is a 112-sample screen-space ray-march from
+       the cursor toward the wordmark; `acc` accumulates the logo mask and the
+       colour is composed from the source primitives:
+         hash(p)     = fract(sin(dot(p,[489,589,58]))*492)*2-1
+         spectrum(x) = cos((x - vec3(0,0.5,1)) * vec3(0.6,1,0.5) * PI)
+       The source renders into a GL canvas whose y is bottom-up; opencat's uv.y
+       is top-down, so the field maths is done in GL space (gy = 1 - uv.y/h)
+       while the mask/colour image sample is flipped back (1-ly) for the
+       top-down texture. Both mask textures are the source `.stage-logo`
+       artwork rasterised (#logo-field, full 1920×1080) and sampled as a
+       subtree shader child — never retyped. */
+    var STING = (uv, image, colormask, u) => {
+      const gx = uv.x / u.w;
+      const gy = 1.0 - uv.y / u.h;
+      const scale = u.scale;
+      const lx = (gx - 0.5) / scale + 0.5;
+      const ly = (gy - 0.5) / scale + 0.5 + u.logoY / u.h;
+      /* mask = the mask canvas coverage. The source `drawLogoMasks` paints
+         every `.stage-logo path` with maskCtx.fillStyle="#fff", so the mask
+         texture's RGB is (1,1,1) on ink and its coverage lives in the ALPHA
+         channel (vfx-text-cursor.html:597-620; readMask returns `.r` which is
+         1.0 on ink). We sample the composite PNG's `.a` as that coverage.
+         (`.r` here is the COLOUR channel, non-constant over the gradient
+         shards, so using it would under-read coverage on the bright/dark
+         gradient fills — measured 23.5% of ink has R<200.) */
+      const mask = colormask.eval([lx * u.w, (1.0 - ly) * u.h]).a;
+      const logo = image.eval([lx * u.w, (1.0 - ly) * u.h]);
+      const ax = (gx - 0.5) * (u.w / u.h);
+      const ay = gy - 0.5;
+      const progress = u.progress;
+      const mpx = (progress * 2.0 - 1.0) * (u.w / u.h);
+      const mpy = 0.0;
+      const dax = (mpx - ax) / 112.0;
+      const day = (mpy - ay) / 112.0;
+      var acc = 0.0;
+      var rx = ax;
+      var ry = ay;
+      for (let i = 0.0; i < 112.0; i++) {
+        rx += dax;
+        ry += day;
+        const h1 = fract(sin((rx * 489.0 + ry * 589.0 + i * 58.0)) * 492.0) * 2.0 - 1.0;
+        const h2 = fract(sin((rx * 489.0 + (ry + 1.0) * 589.0 + (i + 1.0) * 58.0)) * 492.0) * 2.0 - 1.0;
+        rx += h1 * 0.5 / 112.0;
+        ry += h2 * 0.5 / 112.0;
+        const bx = rx / (u.w / u.h) * 0.5 + 0.5;
+        const by = ry * 0.5 + 0.5;
+        const rlx = (bx - 0.5) / scale + 0.5;
+        const rly = (by - 0.5) / scale + 0.5 + u.logoY / u.h;
+        acc += colormask.eval([rlx * u.w, (1.0 - rly) * u.h]).a / 112.0;
+      }
+      var cr = cos((cos(acc * 4.9) - 0.0) * 0.6 * 3.141593) * acc * 3.65 - acc * 0.24;
+      var cg = cos((cos(acc * 4.9) - 0.5) * 1.0 * 3.141593) * acc * 3.65 - acc * 0.24;
+      var cb = cos((cos(acc * 4.9) - 1.0) * 0.5 * 3.141593) * acc * 3.65 - acc * 0.24;
+      cr = max(cr - 0.035, 0.0) * 1.16;
+      cg = max(cg - 0.035, 0.0) * 1.16;
+      cb = max(cb - 0.035, 0.0) * 1.16;
+      const sweep = exp(-pow((gx - progress) * 6.2, 2.0));
+      const textProx = smoothstep(0.006, 0.34, acc);
+      const longRay = smoothstep(0.004, 0.18, acc);
+      const sx = progress * 1.8;
+      const swR = 0.14 + cos((sx - 0.0) * 0.6 * 3.141593) * 0.28;
+      const swG = 0.65 + cos((sx - 0.5) * 1.0 * 3.141593) * 0.28;
+      const swB = 0.85 + cos((sx - 1.0) * 0.5 * 3.141593) * 0.28;
+      const lrR = cos((progress + acc * 2.0 - 0.0) * 0.6 * 3.141593);
+      const lrG = cos((progress + acc * 2.0 - 0.5) * 1.0 * 3.141593);
+      const lrB = cos((progress + acc * 2.0 - 1.0) * 0.5 * 3.141593);
+      const sweepTerm = sweep * (0.34 + textProx * 2.35);
+      cr += swR * sweepTerm + lrR * longRay * 0.58;
+      cg += swG * sweepTerm + lrG * longRay * 0.58;
+      cb += swB * sweepTerm + lrB * longRay * 0.58;
+      const logoTerm = acc * 1.18 + sweep * mask * 0.92;
+      cr += logo.r * logoTerm;
+      cg += logo.g * logoTerm;
+      cb += logo.b * logoTerm;
+      const mixv = u.mix;
+      cr *= mixv; cg *= mixv; cb *= mixv;
+      const lm = smoothstep(0.02, 0.75, logo.a);
+      cr = mix(cr, logo.r, lm);
+      cg = mix(cg, logo.g, lm);
+      cb = mix(cb, logo.b, lm);
+      const white = smoothstep(0.04, 0.38, mask) * 0.12 * mixv;
+      return [clamp(cr + white, 0.0, 1.0), clamp(cg + white, 0.0, 1.0),
+              clamp(cb + white, 0.0, 1.0), 1.0];
+    };
+    var stingEffect = CK.Effect.fromLambda(STING, {
+      uniforms: [['w', 'float'], ['h', 'float'], ['scale', 'float'],
+                 ['logoY', 'float'], ['mix', 'float'], ['progress', 'float']],
+      backend: 'sksl'
+    });
+    var stingCanvas = ctx.getCanvasById('sting-canvas');
+    var stingChild = stingCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
+
+    /* V1 state follows the source timeline: logoY 760→0 (power4.out, 1.0 s),
+       effectMix 0→1 (power3.out, 0.34 s at 0.72), progress 0→1 (none, 2.28 s
+       at 0.72), logoScale→0.4 (expo.in, 0.2 s at 2.9). */
+    var TT = Math.max(0, ctx.time);
+    var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 3));
+    var progress = TT <= 0.72 ? 0 : (TT >= 3.0 ? 1 : (TT - 0.72) / 2.28);
+    var logoScale = TT < 2.9 ? 1 : (TT >= 3.1 ? 0.4 : 1 - 0.6 * (TT - 2.9) / 0.2);
+    var logoT = TT >= 1.0 ? 1 : 1 - Math.pow(1 - TT, 4);
+    var logoY = 760 * (1 - logoT);
+    (function paintSting() {
+      if (TT > 3.12) return;   // V1 is fully faded out by 3.1 s; skip the march
+      var p = new CK.Paint();
+      p.setShader(stingEffect.makeShaderWithChildren(
+        [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
+        [stingChild, stingChild]));
+      stingCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
+    })();
+
+    /* ---- V2/V3 DOM refs ---- */
+    var phraseA = ctx.getNode('phrase-a');
+    var phraseB = ctx.getNode('phrase-b');
+    var nextCard = ctx.getNode('next-card');
+    var nextBg = ctx.getNode('next-bg');
+
+    /* addTextCardSequence — 1:1 from source (typeStep .085, titleHold .25) */
+    var HTML_TEXT = "HTML";
+    var typeStep = 0.085, titleHold = 0.25;
+    var htmlStart = 3.15;
+    var typeEnd = htmlStart + (HTML_TEXT.length - 1) * typeStep;   // 3.405
+    var slideStart = typeEnd + titleHold;                          // 3.655
+    var slideEnd = slideStart + 0.05;                              // 3.705
+
+    /* The source places the "HTML" word at the card centre at scale 1.8 (live
+       getBoundingClientRect offset) and slides it home. For the typed-HTML
+       look, type each glyph by revealing splitText parts (no textContent
+       mutation exists) and slide the whole #html-word from +HTML_SLIDE_X. */
+    var parts = ctx.splitText('html-type', { type: 'chars' });
+    T.set('html-type', { opacity: 1 }, 0);
+    T.set('html-word', { x: 300, y: -6, scale: 1.8, transformOrigin: '50% 50%' }, 0);
+    for (var i = 0; i < parts.length; i++) {
+      T.set(parts[i], { opacity: 0 }, 0);
+      T.set(parts[i], { opacity: 1 }, htmlStart + i * typeStep);
+    }
+    T.set('html-caret', { opacity: 1 }, htmlStart - 0.05);
+    T.set('html-caret', { opacity: 0 }, typeEnd);
+    T.to('html-word', { x: 0, y: 0, scale: 1, duration: 0.05, ease: 'power2.out' }, slideStart);
+
+    /* supporting words ("‑in", "canvas") enter, staggered 0.08 */
+    T.set('html-tail',   { opacity: 0, y: 54, scale: 0.96, filter: 'blur(10px)' }, 0);
+    T.set('canvas-word', { opacity: 0, y: 54, scale: 0.96, filter: 'blur(10px)' }, 0);
+    T.to('html-tail',   { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 0.42, ease: 'expo.out' }, slideEnd);
+    T.to('canvas-word', { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 0.42, ease: 'expo.out' }, slideEnd + 0.08);
+
+    /* Source V1 beats: logoY 760→0 (power4.out 1.0 s); effectMix 0→1
+       (power3.out 0.34 s) at 0.72; progress 0→1 (none 2.28 s) at 0.72;
+       logoScale→0.4 (expo.in 0.2 s) at 2.9 with canvas opacity→0, blur 16. */
+    T.set('sting-canvas', { opacity: 1 }, 0);
+    T.to('sting-canvas', { filter: 'blur(16px)', duration: 0.2, ease: 'expo.in' }, 2.9);
+    T.to('sting-canvas', { opacity: 0, duration: 0.2, ease: 'expo.in' }, 2.9);
+
+    /* ---- V2 card entry ---- */
+    T.set('next-bg', { opacity: 1 }, 3.1);
+    T.set('next-card', { opacity: 1, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 3.1);
+    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9,
+      /* source uses entryEase(t) = -0.806t²+1.806t (a fast ease-out, ~1% overshoot);
+         a JS-function ease isn't supported, so use the closest preset power2.out. */
+      ease: 'power2.out' }, 3.1);
+    T.to('next-card', { scale: 0.84, filter: 'blur(1.5px)', duration: 0.4, ease: 'linear' }, 4.0);
+
+    /* ---- V2→V3 phrase swap ----
+       phraseAReady = slideEnd + 0.42 + 0.08 = 4.205; phraseAExit = 4.705;
+       phraseBStart = 5.065 */
+    var phraseAExit = slideEnd + 0.42 + 0.08 + 0.5;   // 4.705
+    var phraseBStart = phraseAExit + 0.36;            // 5.065
+    T.to('phrase-a', { x: -1480, filter: 'blur(8px)', duration: 0.36, ease: 'power2.in' }, phraseAExit);
+    T.set('phrase-a', { opacity: 0 }, phraseBStart);
+    T.set('phrase-b', { opacity: 1, x: 1480, filter: 'blur(8px)' }, phraseBStart);
+    T.to('phrase-b', { x: 0, filter: 'blur(0px)', duration: 0.48, ease: 'expo.out' }, phraseBStart);
+
+    /* ---- V3→bridge (handoff to Act B), 5.85..6.35 ---- */
+    T.to('next-card', { y: -1180, filter: 'blur(24px)', duration: 0.5, ease: 'power2.in' }, 5.85);
+    T.to('next-bg', { opacity: 0, duration: 0.36, ease: 'power1.in' }, 5.99);
+    T.to('next-card', { opacity: 0, duration: 0.2, ease: 'power1.in' }, 6.15);
+  </script>
+</opencat>

@@ -95,6 +95,19 @@ fn emit_stmt(program: &Program, stmt: &Stmt, depth: usize, out: &mut String) -> 
                 out.push_str(&format!("{}}}\n", indent(depth)));
             }
         }
+        Stmt::ForLoop { var, start, end, le, body } => {
+            let cmp = if *le { "<=" } else { "<" };
+            out.push_str(&format!(
+                "{}for (float oc_l{var} = {}; oc_l{var} {cmp} {}; oc_l{var} += 1.0) {{\n",
+                indent(depth),
+                emit_expr(program, start)?,
+                emit_expr(program, end)?
+            ));
+            for s in body {
+                emit_stmt(program, s, depth + 1, out)?;
+            }
+            out.push_str(&format!("{}}}\n", indent(depth)));
+        }
         Stmt::Return(expr) => {
             // 返回 straight 色；SKSL 输出 premul，自动预乘。先落入临时变量，
             // 避免对复合表达式直接 swizzle。

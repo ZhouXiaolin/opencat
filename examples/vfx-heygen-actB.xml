@@ -1,0 +1,223 @@
+<opencat width="1920" height="1080" fps="30" duration="7.2">
+  <!-- ════════════════════════════════════════════════════════════════════
+       vfx-heygen-actB — phone + prompt + send (ref frames 186-400,
+       6.200-13.333 s; ~8 frame handle at each end).
+       Source: hyperframes-launches/vfx-heygen-combined/index.html. The parent
+       timeline shifts every beat by HEYGEN_START=5.58 s, so local time here =
+       reference absolute time − 6.20 s; a source beat at script time t lands
+       at local (5.58 + t) − 6.20 = t − 0.62 (OFFSET below).
+
+       opencat has no 3D pipeline (no GLB), so the Three.js iPhone is a 2D
+       approximation: rounded-rect body + screen with the HeyGen page
+       re-authored as DOM (source drawHeyGenPage fallback; screen-strip.png is
+       missing). Spin/push are faked with rotate/scaleX. Everything else
+       (prompt UI, typing, send click) is 1:1 DOM/Tailwind + script.
+       ════════════════════════════════════════════════════════════════════ -->
+  <fonts default="inter">
+    <font id="inter" family="Inter" path="../assets/Inter-500v.ttf" />
+    <font id="inter400" family="Inter" path="../assets/Inter-400.ttf" />
+    <font id="inter600" family="Inter" path="../assets/Inter-600.ttf" />
+    <font id="inter700" family="Inter" path="../assets/Inter-700.ttf" />
+    <font id="inter800" family="Inter" path="../assets/Inter-800.ttf" />
+    <font id="inter900" family="Inter" path="../assets/Inter-900.ttf" />
+    <font id="mono" family="JetBrains Mono" path="../assets/JetBrainsMono-500.ttf" />
+  </fonts>
+  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#050508] overflow-hidden">
+
+    <!-- bg.mp4 media clock, source-derived (no measurement): the source is
+     <video id="bg-video" data-start="5.58" ...> with NO data-media-start, so
+     its media begins at 0 at abs 5.58. The actB window opens at abs 6.20
+     (= HEYGEN_START 5.58 + 0.62), so media(local) = local + (6.20 − 5.58)
+     = local + 0.62. -->
+    <video id="bg-video" path="../assets/vhc/bg.mp4" data-start="0" data-duration="5.0" data-media-start="0.62" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0"></video>
+
+    <!-- ── 2D iPhone (Three.js GLB approximation) ──────────────────────
+         Source geometry: model height 3.2 world at PerspectiveCamera(34) →
+         ~855 px; screen aspect 390:844. Screen content re-authored. -->
+    <div id="phone" class="absolute left-[762px] top-[112px] w-[396px] h-[856px] opacity-0">
+      <div id="bd1" class="absolute inset-0 rounded-[58px] bg-[#07080c] border-[5px] border-[rgba(255,255,255,0.20)] shadow-[0_40px_90px_rgba(0,0,0,0.55)]">
+        <div id="bd2" class="absolute left-[70px] top-[16px] w-[256px] h-[30px] rounded-full bg-[#000000]"></div>
+      </div>
+      <div id="bd3" class="absolute left-[15px] top-[22px] w-[366px] h-[812px] rounded-[44px] overflow-hidden bg-[#f7f4ee]">
+        <div id="phone-page" class="absolute left-0 top-0 w-[366px] h-[1300px]">
+          <text id="bt1" class="absolute left-[22px] top-[30px] text-[#111111] font-[inter900] font-black text-[22px]">HeyGen</text>
+          <div id="bd4" class="absolute left-[236px] top-[26px] px-[16px] py-[8px] rounded-full bg-[#d7ff3f]"><text id="bt2" class="text-[#111111] font-[inter800] font-extrabold text-[12px]">Get Started</text></div>
+          <text id="bt3" class="absolute left-[22px] top-[92px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">Turn your</text>
+          <text id="bt4" class="absolute left-[22px] top-[140px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">ideas into</text>
+          <text id="bt5" class="absolute left-[22px] top-[188px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">videos in</text>
+          <text id="bt6" class="absolute left-[22px] top-[236px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">minutes</text>
+          <text id="bt7" class="absolute left-[22px] top-[318px] text-[rgba(17,17,17,0.66)] font-[inter400] text-[15px]">Go from script, image, presentation,</text>
+          <text id="bt8" class="absolute left-[22px] top-[340px] text-[rgba(17,17,17,0.66)] font-[inter400] text-[15px]">or PDF to finished video. No cameras,</text>
+          <text id="bt9" class="absolute left-[22px] top-[362px] text-[rgba(17,17,17,0.66)] font-[inter400] text-[15px]">no crew, no editing skills required.</text>
+          <div id="bd5" class="absolute left-[22px] top-[400px] px-[14px] py-[9px] rounded-full bg-[#111111]"><text id="bt10" class="text-[#f7f4ee] font-[inter700] text-[12px]">AI Video Generator</text></div>
+          <div id="bd6" class="absolute left-[178px] top-[400px] px-[14px] py-[9px] rounded-full bg-[#d7ff3f]"><text id="bt11" class="text-[#111111] font-[inter700] text-[12px]">Free to start</text></div>
+          <div id="bd7" class="absolute left-[22px] top-[470px] w-[322px] h-[220px] rounded-[28px] overflow-hidden bg-[linear-gradient(135deg,#10131c_0%,#4d78ff_52%,#d7ff3f_100%)]">
+            <text id="bt12" class="absolute left-[20px] top-[44px] text-[#ffffff] font-[inter800] font-extrabold text-[22px]">One-Shot Text-to-Video</text>
+            <text id="bt13" class="absolute left-[20px] top-[80px] text-[rgba(255,255,255,0.92)] font-[inter600] text-[13px]">Type your idea. Click generate.</text>
+            <text id="bt14" class="absolute left-[20px] top-[100px] text-[rgba(255,255,255,0.92)] font-[inter600] text-[13px]">Get a share-ready video.</text>
+            <div id="bd8" class="absolute left-[20px] top-[136px] px-[18px] py-[11px] rounded-[12px] bg-[rgba(255,255,255,0.92)]"><text id="bt15" class="text-[#111111] font-[inter800] text-[13px]">Generate</text></div>
+          </div>
+          <text id="bt16" class="absolute left-[22px] top-[712px] text-[#111111] font-[inter800] text-[26px]">128M+ videos generated</text>
+          <text id="bt17" class="absolute left-[22px] top-[750px] text-[#111111] font-[inter800] text-[26px]">102M+ avatars generated</text>
+          <text id="bt18" class="absolute left-[22px] top-[788px] text-[#111111] font-[inter800] text-[26px]">17M+ videos translated</text>
+          <text id="bt19" class="absolute left-[22px] top-[840px] text-[rgba(17,17,17,0.54)] font-[inter700] text-[12px]">Trusted by millions worldwide</text>
+          <text id="bt20" class="absolute left-[22px] top-[1090px] text-[#111111] font-[inter900] font-black text-[30px]">AI video creation</text>
+          <text id="bt21" class="absolute left-[22px] top-[1128px] text-[#111111] font-[inter900] font-black text-[30px]">just became your</text>
+          <text id="bt22" class="absolute left-[22px] top-[1166px] text-[#111111] font-[inter900] font-black text-[30px]">superpower</text>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── pointing finger ──────────────────────────────────────────── -->
+    <image id="finger" class="absolute left-[1260px] top-[1220px] w-[820px] h-[1716px] opacity-0" path="../assets/vhc/finger.png" />
+
+    <!-- ── prompt scene (HeyGen composer UI, 1:1 DOM/Tailwind) ──────── -->
+    <div id="prompt-scene" class="absolute left-0 top-0 w-[1920px] h-[1080px] overflow-hidden bg-[#F5F4ED] opacity-0">
+      <div id="prompt-app" class="absolute left-0 top-0 w-[1920px] h-[1080px] flex flex-col">
+        <div id="prompt-topbar" class="h-[64px] px-[28px] flex items-center justify-between border-b-[1px] border-[#EBE7DB] bg-[#FAF9F5]">
+          <div id="bd9" class="flex items-center gap-[14px]">
+            <text id="bt23" class="text-[#D97757] text-[26px] font-[inter900] font-black">&#10022;</text>
+            <text id="bt24" class="text-[#3D3929] text-[18px] font-[inter500]">HyperFrames Project</text>
+          </div>
+          <div id="bd10" class="flex items-center gap-[14px]">
+            <div id="bd11" class="px-[14px] py-[8px] rounded-full bg-[#F0ECE0] border-[1px] border-[#E5E0D1]"><text id="bt25" class="text-[#6B6757] text-[15px] font-[inter500]">Claude Opus 4.7</text></div>
+            <div id="bd12" class="w-[36px] h-[36px] rounded-full bg-[#D97757] flex items-center justify-center"><text id="bt26" class="text-[#ffffff] text-[15px] font-[inter600]">J</text></div>
+          </div>
+        </div>
+        <div id="bd13" class="flex-1"></div>
+        <div id="bd14" class="pb-[44px] flex flex-col items-center gap-[14px]">
+          <div id="prompt-composer" class="w-[900px] h-[240px] bg-[#FFFFFF] border-[1px] border-[#E5E0D1] rounded-[22px] shadow-[0_18px_48px_rgba(61,57,41,0.12)] px-[30px] pt-[30px] pb-[24px] flex flex-col justify-between">
+            <div id="bd15" class="flex items-center">
+              <text id="prompt-command" class="text-[#3D3929] text-[34px] font-[inter400] whitespace-nowrap">npx hyperframes add iphone-canvas</text>
+              <div id="prompt-caret" class="w-[14px] h-[38px] ml-[4px] rounded-[2px] bg-[#D97757] opacity-0"></div>
+            </div>
+            <div id="bd16" class="flex justify-end items-center gap-[10px]">
+              <text id="bt27" class="text-[#8C8674] text-[18px] font-[inter500]">&#128206;</text>
+              <div id="prompt-send" class="w-[36px] h-[36px] rounded-[10px] bg-[#D97757] flex items-center justify-center">
+                <text id="send-arrow" class="text-[#ffffff] font-[inter800] text-[20px]">&#8593;</text>
+              </div>
+            </div>
+          </div>
+          <text id="prompt-meta" class="text-[#3D3929] text-[13px] font-[inter400] opacity-0">Claude can make mistakes. Please double-check responses.</text>
+        </div>
+      </div>
+      <image id="click-cursor" class="absolute left-[500px] top-[620px] w-[118px] h-[118px] opacity-0" path="../assets/vhc/cursor.png" />
+      <div id="game-change-copy" class="absolute left-0 top-[0px] w-[1920px] h-[1080px] flex items-center justify-center opacity-0">
+        <text id="game-change-line" class="text-[#3D3929] text-[136px] font-[inter800] font-extrabold leading-[0.94] text-center">You can make this too</text>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* local = source script time + OFFSET (HEYGEN_START 5.58 − 6.20) */
+    var OFFSET = -0.62;
+
+    /* ── phone: procedural 2D approximation of the Three.js GLB ────────
+       Projected centre/size: projY(wy,depth) = 540 − wy·FOCAL/depth,
+       FOCAL = 540/tan(17°) ≈ 1766.6; phone world height 3.2. */
+    var FOCAL = 540.0 / Math.tan(17 * Math.PI / 180);
+    function clamp01(v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+    function lerp(a, b, t) { return a + (b - a) * clamp01(t); }
+    function pow2out(t) { return 1 - Math.pow(1 - clamp01(t), 2); }
+    function pow3out(t) { return 1 - Math.pow(1 - clamp01(t), 3); }
+    function pow3in(t)  { return Math.pow(clamp01(t), 3); }
+    function expoOut(t) { t = clamp01(t); return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); }
+    function power1out(t) { return clamp01(t); }
+    var st = Math.max(0, ctx.time);
+
+    var phY, phRY, cZ, phRZ = 0.006;
+    // S.phY −3.45→0.02 expo.out @0.08 source → local −0.54, dur 0.95
+    phY = st < -0.54 ? -3.45 : lerp(-3.45, 0.02, expoOut((st + 0.54) / 0.95));
+    // S.cZ 6.6→6.35 breatheEase @0.18 → local −0.44, dur 0.78
+    cZ = st < -0.44 ? 6.6 : lerp(6.6, 6.35, pow3out((st + 0.44) / 0.78));
+    // S.phRY PI−0.035 until spin @2.2 → local 1.58; PI→5PI over 1.73
+    if (st < 1.58) phRY = Math.PI - 0.035;
+    else if (st < 3.31) phRY = Math.PI - 0.035 + Math.PI * 4 * ((st - 1.58) / 1.73);
+    else phRY = Math.PI * 5 - 0.035;
+    // push-in @3.43 → local 2.81: phRZ→PI/2, cZ→3.85
+    if (st >= 2.81) {
+      var pk = pow3in((st - 2.81) / 0.85);
+      phRZ = lerp(0.006, Math.PI / 2, pk);
+      cZ = lerp(6.35, 3.85, pk);
+    }
+    var phoneH = 3.2 * FOCAL / cZ;
+    var phoneW = phoneH * (390 / 844);
+    var cy = 540 - phY * FOCAL / cZ;
+    var phoneNode = ctx.getNode('phone');
+    // exit @4.04 → local 3.42: x→−1220 expo.out 0.53, opacity→0 0.18
+    var exitX = st < 3.42 ? 0 : -1220 * expoOut((st - 3.42) / 0.53);
+    phoneNode.left(960 + exitX - phoneW * 0.5);
+    phoneNode.top(cy - phoneH * 0.5);
+    phoneNode.width(phoneW);
+    phoneNode.height(phoneH);
+    var sx = Math.abs(Math.cos(phRY));         // flat body foreshortens on spin
+    phoneNode.scaleX(sx < 0.05 ? 0.05 : sx);
+    phoneNode.rotate(phRZ * 180 / Math.PI);
+    var entryOp = pow2out((st + 0.54) / 0.5);
+    var exitOp = st < 3.42 ? 1 : 1 - clamp01((st - 3.42) / 0.18);
+    phoneNode.opacity(clamp01(entryOp) * exitOp);
+    // S.scroll 0→0.9 power1.out @2.05 → local 1.43, dur 2.45; page scrolls
+    var scroll = st < 1.43 ? 0 : 0.9 * power1out((st - 1.43) / 2.45);
+    ctx.getNode('phone-page').top(-scroll * 480);
+
+    /* ── decl: bg video, finger, prompt, typing, send, copy ─────────── */
+    var T = ctx.timeline();
+    // bg-video already faded in at abs 5.58 (before this act's 6.20 window)
+    T.set('bg-video', { opacity: 1 }, 0);
+
+    // finger: left 1260→805, top 1220→532 power3.out @0.30 dur 0.82
+    T.set('finger', { left: 1260, top: 1220, rotation: -75, opacity: 0 }, 0);
+    T.to('finger', { opacity: 1, duration: 0.2, ease: 'power1.out' }, 0.1);
+    T.to('finger', { left: 805, top: 532, duration: 0.82, ease: 'power3.out' }, 0.30);
+    // then top→−1900 power3.inOut @1.23 dur 0.68; opacity 0 @1.93
+    T.to('finger', { top: -1900, duration: 0.68, ease: 'power3.inOut' }, 1.23);
+    T.set('finger', { opacity: 0 }, 1.93);
+
+    // prompt-scene @3.46: visible, x 620→0 blur→0 0.27 power2.out, opacity→1 0.48
+    T.set('prompt-scene', { opacity: 0, x: 620, filter: 'blur(18px)' }, 0);
+    T.to('prompt-scene', { x: 0, filter: 'blur(0px)', duration: 0.27, ease: 'power2.out' }, 3.46);
+    T.to('prompt-scene', { opacity: 1, duration: 0.48, ease: 'power2.out' }, 3.46);
+    T.set('prompt-app', { x: 560, y: -120, scale: 3.15, transformOrigin: '50% 92%' }, 0);
+    // typing "npx hyperframes add iphone-canvas" @3.51 dur 0.9 — reveal glyphs
+    var cp = ctx.splitText('prompt-command', { type: 'chars' });
+    for (var i = 0; i < cp.length; i++) {
+      T.set(cp[i], { opacity: 0 }, 0);
+      T.set(cp[i], { opacity: 1 }, 3.51 + (i / cp.length) * 0.9);
+    }
+    T.set('prompt-caret', { opacity: 1 }, 3.46);
+    // caret stops typing @3.51+0.9=4.41
+    // blink @6.25 → local 5.63 (repeat 3 yoyo steps)
+    T.to('prompt-caret', { opacity: 0, duration: 0.12, repeat: 3, yoyo: true, ease: 'steps(1)' }, 5.63);
+    T.set('prompt-caret', { opacity: 0 }, 4.41);
+    // camera pan x→−1260 @3.51 dur 1.78 power1.in (accelerating)
+    T.to('prompt-app', { x: -1260, duration: 1.78, ease: 'power1.in' }, 3.51);
+    // meta opacity→1 @4.28 dur 0.18
+    T.to('prompt-meta', { opacity: 1, duration: 0.18, ease: 'power1.out' }, 4.28);
+    // topbar + command + meta fade/blur/scale0.86 @4.97 dur 0.2 power3.inOut
+    T.to('prompt-topbar', { opacity: 0, filter: 'blur(16px)', scale: 0.86, duration: 0.2, ease: 'power3.inOut', transformOrigin: '50% 50%' }, 4.97);
+    T.to('prompt-command', { opacity: 0, filter: 'blur(16px)', duration: 0.2, ease: 'power3.inOut' }, 4.97);
+    T.to('prompt-meta', { opacity: 0, filter: 'blur(16px)', duration: 0.2, ease: 'power3.inOut' }, 4.97);
+    // composer bg → transparent @4.97 dur 0.2
+    T.to('prompt-composer', { backgroundColor: 'rgba(255,255,255,0)', borderColor: 'rgba(229,224,209,0)', duration: 0.2, ease: 'power3.inOut' }, 4.97);
+    // send: y→−95 @5.07 dur 0.22 power2.out; scale→3 0.22 power3.out
+    T.set('prompt-send', { x: 0, y: 0, scale: 1 }, 0);
+    T.to('prompt-send', { y: -95, duration: 0.22, ease: 'power2.out' }, 5.07);
+    T.to('prompt-send', { scale: 3, duration: 0.22, ease: 'power3.out', transformOrigin: '50% 50%' }, 5.07);
+    // cursor @5.18 x280 y210 op1 0.28 power3.out; @5.48 x26 y38 0.46 power3.inOut
+    T.set('click-cursor', { x: 500, y: 620, scale: 0.95, opacity: 0, rotation: -6 }, 0);
+    T.to('click-cursor', { x: 280, y: 210, opacity: 1, duration: 0.28, ease: 'power3.out' }, 5.18);
+    T.to('click-cursor', { x: 26, y: 38, duration: 0.46, ease: 'power3.inOut' }, 5.48);
+    // click: send 3→2.62 (0.08 power2.in) @5.88; →3.12 back.out(2.2) 0.16 @5.97
+    T.to('prompt-send', { scale: 2.62, duration: 0.08, ease: 'power2.in' }, 5.88);
+    T.to('click-cursor', { scale: 0.82, duration: 0.08, ease: 'power2.in' }, 5.88);
+    T.to('prompt-send', { scale: 3.12, duration: 0.16, ease: 'back.out(2.2)' }, 5.97);
+    T.to('click-cursor', { scale: 0.95, duration: 0.16, ease: 'back.out(2.2)' }, 5.97);
+    // exit @6.06: send y→−260, cursor y→−165, blur 8, opacity 0 dur 0.28 power2.in
+    T.to('prompt-send', { y: -260, filter: 'blur(8px)', opacity: 0, duration: 0.28, ease: 'power2.in' }, 6.06);
+    T.to('click-cursor', { y: -165, filter: 'blur(8px)', opacity: 0, duration: 0.28, ease: 'power2.in' }, 6.06);
+    // game-change @6.34: y 220→0 blur→0 0.46 expo.out; opacity→1 0.24 power1.out
+    T.set('game-change-copy', { y: 220, opacity: 0, filter: 'blur(8px)' }, 0);
+    T.to('game-change-copy', { y: 0, filter: 'blur(0px)', duration: 0.46, ease: 'expo.out', transformOrigin: '50% 50%' }, 6.34);
+    T.to('game-change-copy', { opacity: 1, duration: 0.24, ease: 'power1.out' }, 6.34);
+  </script>
+</opencat>

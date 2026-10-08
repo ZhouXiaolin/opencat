@@ -18,6 +18,11 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 num_cpus = "1.17.0"
 dirs = "6.0.0"
 
+# Video-transport oracle: the harness hands back one base64 H.264 MP4 and
+# decodes it with ffmpeg, so base64 + a scratch path for the temp file.
+base64 = "0.22"
+tempfile = "3"
+
 # Host-owned resource probing (issue #40)
 imagesize = "=0.14.0"
 nom-exif = "=3.4.2"

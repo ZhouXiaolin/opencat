@@ -18,7 +18,7 @@ Input (XML / JSONL)
   → draft.prepare(inputs) → PreparedComposition
   → prepared.open_pipeline(scripts) → DefaultPipeline
   → render_frame(i) → RenderFrame { draw, media }
-  → Engine (Skia) | Web (OCIR v5 → CanvasKit)
+  → Engine (Skia) | Web (OCIR v6 → CanvasKit)
 ```
 
 Core is a pure derivation kernel. Ordinary media **bytes never enter prepare**.
@@ -147,26 +147,37 @@ concern (web stamps pipeline epoch into the OCIR envelope).
 
 ---
 
-## DrawOp wire protocol (OCIR v5)
+## DrawOp wire protocol (OCIR v6)
 
 Single self-contained envelope, encoded only in core (`encode_ir_envelope`):
 
 ```text
-magic "OCIR" | version u32 (=5) | section_count u32
+magic "OCIR" | version u32 (=6) | section_count u32
 directory: repeated (section_id u32, offset u32, length u32)
 payloads: OPS, F32_POOL, BYTES, BYTE_RANGES, STRINGS_UTF8, STRING_RANGES,
           PAINTS, PATHS, CHILDREN, EFFECTS, SUBTREES, GENERATED_IMAGES
 ```
 
+The `OPS` section is a **dense stream**: each op is `[opcode u8][payload]` with a
+payload length fixed per opcode (`OPCODE_PAYLOAD_LEN`) — no length field, no
+per-op padding. `PathOp` commands are promoted to their own opcodes. A decoder
+advances by `1 + OPCODE_PAYLOAD_LEN[opcode]`.
+
 `encode(RenderFrame)` is a pure function — no `pipeline_epoch`, no delta/history
 state — so a fresh decoder can decode any single frame on its own. Generated-image
 RGBA is encoded in full every frame (section 12; always present, count may be 0).
 
-- Rust: `opencat_core::ir::{encode_ir_envelope, IR_VERSION, IR_MAGIC}`
+An optional **compressed transport container** (`|OCZ1|version|codec|len|raw-deflate|`)
+carries the envelope across bandwidth-sensitive hops: core emits it
+(`opencat_core::ir::transport::compress_ir_envelope`), the browser inflates it with
+`DecompressionStream('deflate-raw')` (`decodeDrawEnvelope`).
+
+- Rust: `opencat_core::ir::{encode_ir_envelope, IR_VERSION, IR_MAGIC}`, `opencat_core::ir::transport`
 - TypeScript: `crates/opencat-web/web/src/draw-ir.ts` decoder (must stay field-locked)
-- Cross-language fixture: `web/src/fixtures/ocir/roundtrip_v5.ocir`
+- Cross-language fixtures: `web/src/fixtures/ocir/roundtrip_v6.ocir` (+ `.deflate`)
   - Written by core test `write_ts_roundtrip_fixture_bytes`
-  - Asserted field-by-field in `web/src/draw-ir.test.ts` (`core encoder → TS decoder`)
+  - Asserted field-by-field in `web/src/draw-ir.test.ts` (`core encoder → TS decoder`,
+    `compressed OCIR transport`)
 
 Do not maintain a second opcode table or envelope layout outside core.
 

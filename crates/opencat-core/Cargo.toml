@@ -25,6 +25,11 @@ swash = "0.2"
 url = "2.5"
 bumpalo = "3.20.2"
 log = "0.4"
+# Raw-deflate codec for the optional compressed OCIR transport variant
+# (`ir::draw_encoding::compress_ir_envelope`). The browser decodes the matching
+# stream with `DecompressionStream('deflate-raw')`, so we emit raw deflate
+# (no zlib/gzip wrapper). Already in the tree transitively via `image`.
+miniz_oxide = "0.8"
 roxmltree = "0.21.1"
 oxc_allocator.workspace = true
 oxc_ast.workspace = true

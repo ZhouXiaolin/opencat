@@ -2,7 +2,7 @@ import './style.css';
 import {
   clearVideoCache,
   compositionFrameCount,
-  createSurfaceWithFallback,
+  getReusableSurface,
   downloadMp4,
   exportMp4,
   exportPngFrame,
@@ -25,7 +25,7 @@ import {
   type WebRendererInstance,
 } from 'opencat.js';
 import CanvasKitInit from 'canvaskit-wasm/full';
-import type { CanvasKit, Surface } from 'canvaskit-wasm';
+import type { CanvasKit } from 'canvaskit-wasm';
 import { activeSegmentsAt, playbackPosition } from './playback';
 
 type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
@@ -277,7 +277,7 @@ function drawDownloadProgress(loaded: number, total: number): void {
   const CK = (globalThis as CanvasKitGlobal).__canvasKit;
   if (!CK || !currentComposition) return;
 
-  const surface = createSurfaceWithFallback(CK, previewCanvas);
+  const surface = getReusableSurface(CK, previewCanvas);
   if (!surface) return;
   const canvas = surface.getCanvas();
 
@@ -301,7 +301,6 @@ function drawDownloadProgress(loaded: number, total: number): void {
   font.delete();
   paint.delete();
   surface.flush();
-  surface.delete();
 }
 
 // --- Load Composition ---
@@ -413,18 +412,15 @@ async function renderFrameWithPipeline(
     quality,
   });
 
-  let surface: Surface | null = null;
-  try {
-    surface = createSurfaceWithFallback(CK, previewCanvas);
-    if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
+  // Reuse one surface for the whole playback loop. Creating a fresh canvas
+  // surface per frame leaks GPU-process memory (~8 MB/frame) until the tab
+  // crashes; a long stream should hold exactly one framebuffer.
+  const surface = getReusableSurface(CK, previewCanvas);
+  if (!surface) throw new Error('MakeWebGLCanvasSurface failed');
 
-    const ckCanvas = surface.getCanvas();
-    renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
-    surface.flush();
-    surface.flush();
-  } finally {
-    surface?.delete();
-  }
+  const ckCanvas = surface.getCanvas();
+  renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
+  surface.flush();
 
   const totalFrames = compositionFrameCount(comp);
   frameLabel.textContent = `${(frame / comp.fps).toFixed(2)}s / ${((totalFrames - 1) / comp.fps).toFixed(2)}s`;

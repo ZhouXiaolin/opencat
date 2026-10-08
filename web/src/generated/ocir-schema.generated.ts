@@ -11,7 +11,31 @@
 export const IR_MAGIC: [number, number, number, number] = [0x4f, 0x43, 0x49, 0x52];
 
 /// Wire protocol version (must match [super::draw_encoding::IR_VERSION]).
-export const IR_VERSION: number = 5;
+export const IR_VERSION: number = 6;
+
+// ---------------------------------------------------------------------------
+// Compressed OCIR transport container (issue #46, part 1)
+// ---------------------------------------------------------------------------
+//
+// Optional wrapper for hopping a raw OCIR envelope across a bandwidth-
+// sensitive link. The payload is a **raw DEFLATE** stream (RFC 1951);
+// decode it in the browser with `DecompressionStream('deflate-raw')`.
+//
+// Layout: magic | version u32 | codec u8 | reserved[3] |
+//         uncompressed_len u32 | deflate stream
+
+/// Magic bytes for the compressed OCIR container: "OCZ1".
+export const IR_COMPRESSED_MAGIC: [number, number, number, number] = [0x4f, 0x43, 0x5a, 0x31];
+
+/// Container format version.
+export const IR_COMPRESSED_VERSION: number = 1;
+
+/// Codec id for a raw DEFLATE payload (RFC 1951).
+export const CODEC_DEFLATE_RAW: number = 1;
+
+/// Fixed container header length in bytes.
+export const CONTAINER_HEADER_LEN: number = 16;
+
 
 // ---------------------------------------------------------------------------
 // Section identifiers in the OCIR directory
@@ -79,9 +103,24 @@ export const OP = {
     REPLAY_RANGE: 37,
     DRAW_SUBTREE_PICTURE: 38,
     LOTTIE_RECT: 39,
+    PATH_MOVE_TO: 40,
+    PATH_LINE_TO: 41,
+    PATH_QUAD_TO: 42,
+    PATH_CUBIC_TO: 43,
+    PATH_CLOSE: 44,
+    PATH_ADD_RECT: 45,
+    PATH_ADD_RRECT: 46,
+    PATH_ADD_OVAL: 47,
+    PATH_ADD_ARC: 48,
 } as const;
 
 export type Opcode = (typeof OP)[keyof typeof OP];
+
+/// Per-opcode payload length for the v6 dense op stream: an op is
+/// `[opcode: u8][OPCODE_PAYLOAD_LEN[opcode] payload bytes]` with no
+/// length field and no padding. Indexed by opcode (0..=MAX_OPCODE).
+/// Keep in sync with `opcode::OPCODE_PAYLOAD_LEN` in core.
+export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 36, 4, 4, 4, 4, 4, 12, 0, 4, 1, 0, 0, 0, 0, 1, 16, 4, 20, 36, 68, 20, 16, 29, 20, 16, 8, 25, 50, 32, 8, 12, 24, 8, 8, 16, 24, 0, 16, 20, 16, 24];
 
 // ---------------------------------------------------------------------------
 // PathOp sub-opcodes (embedded in PATH_OP payload)

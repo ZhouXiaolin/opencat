@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn whitelist_rejections_carry_position() {
         let cases: [(&str, &str); 8] = [
-            ("(uv, u) => { for (let i = 0; i < 4; i++) { } return [0,0,0,0]; }", "循环"),
+            ("(uv, u) => { let i = 0; while (i < 4) { i = i + 1; } return [0,0,0,0]; }", "循环"),
             ("(uv, u) => { const f = () => 1; return [0,0,0,0]; }", "嵌套函数"),
             ("(uv, u) => { return [1 & 2, 0, 0, 0]; }", "位运算"),
             ("(uv, u) => { return ['a', 0, 0, 0]; }", "字符串"),
@@ -384,6 +384,43 @@ mod tests {
             assert!(msg.contains(hint) || msg.contains("lambda 源码第"), "{src} → {msg}");
             assert!(err.line_col().is_some(), "{src} 缺位置：{msg}");
         }
+    }
+
+    /// 有界数值 for 循环：SKSL 派发 + 解释器逐像素一致（累加 0..n）。
+    #[test]
+    fn bounded_for_loop_lowers_and_agrees() {
+        const SUM: &str = "(uv, u) => { let acc = 0.0; for (let i = 0.0; i < u.n; i++) { acc += i; } return [acc, acc, acc, 1.0]; }";
+        let s = spec(&[("n", "float")]);
+        // 默认 backend auto → 纯浮点应派发 SKSL
+        let c = compile_effect(SUM, &s).unwrap();
+        assert_eq!(c.backend, Backend::Sksl);
+        let sksl = c.sksl.clone().unwrap();
+        assert!(sksl.contains("for (float oc_l"), "{sksl}");
+        assert!(sksl.contains("+= 1.0"), "{sksl}");
+        // 解释器路径（强制 CPU）：n=5 → 0+1+2+3+4 = 10
+        let mut sc = spec(&[("n", "float")]);
+        sc.backend_override = Some(Backend::Cpu);
+        let cc = compile_effect(SUM, &sc).unwrap();
+        let ctx = interp::InterpCtx {
+            uniforms: &[program::Val::F(5.0)],
+            rect: [0.0; 4],
+            children: &[],
+            scan: None,
+        };
+        let px = interp::eval_pixel(&cc.program, 0.5, 0.5, &ctx);
+        assert_eq!(px, [10.0, 10.0, 10.0, 1.0]);
+    }
+
+    /// for 循环上界端点各求值一次；`<=` 含端点（0..=3 → 6）。
+    #[test]
+    fn bounded_for_loop_inclusive_and_guarded() {
+        const SUM: &str = "(uv, u) => { let acc = 0.0; for (let i = 0.0; i <= 3.0; i += 1) { acc += i; } return [acc, 0, 0, 1]; }";
+        let mut s = EffectSpec::default();
+        s.backend_override = Some(Backend::Cpu);
+        let c = compile_effect(SUM, &s).unwrap();
+        let ctx = interp::InterpCtx { uniforms: &[], rect: [0.0; 4], children: &[], scan: None };
+        let px = interp::eval_pixel(&c.program, 0.5, 0.5, &ctx);
+        assert_eq!(px, [6.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

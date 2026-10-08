@@ -39,7 +39,7 @@ struct Ctx<'s> {
 type ExprT = (Expr, Ty);
 
 impl Ctx<'_> {
-    fn err(&self, msg: impl Into<String>, node: &impl GetSpan) -> LambdaError {
+    pub(crate) fn err(&self, msg: impl Into<String>, node: &impl GetSpan) -> LambdaError {
         let span = node.span();
         LambdaError::at(msg, (span.start, span.end), self.source)
     }
@@ -279,9 +279,14 @@ fn parse_statement(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
         }
         Statement::ExpressionStatement(es) => match &es.expression {
             Expression::AssignmentExpression(assign) => {
-                if assign.operator != oxc_ast::ast::AssignmentOperator::Assign {
-                    return Err(ctx.err("仅支持普通赋值 `=`", stmt));
-                }
+                let compound = match assign.operator {
+                    oxc_ast::ast::AssignmentOperator::Assign => None,
+                    oxc_ast::ast::AssignmentOperator::Addition => Some(BinOp::Add),
+                    oxc_ast::ast::AssignmentOperator::Subtraction => Some(BinOp::Sub),
+                    oxc_ast::ast::AssignmentOperator::Multiplication => Some(BinOp::Mul),
+                    oxc_ast::ast::AssignmentOperator::Division => Some(BinOp::Div),
+                    _ => return Err(ctx.err("仅支持 `=` `+=` `-=` `*=` `/=` 赋值", stmt)),
+                };
                 let name = assignment_target_name(ctx, &assign.left)?;
                 let Some(slot) = ctx
                     .local_names
@@ -295,14 +300,30 @@ fn parse_statement(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
                     return Err(ctx.err(format!("`{name}` 是 const，不可重新赋值"), stmt));
                 }
                 let want = ctx.local_tys[slot as usize];
-                let (expr, ty) = parse_expr(ctx, &assign.right)?;
-                if ty != want {
-                    return Err(ctx.err(
-                        format!("赋值类型不匹配：`{name}` 是 {want:?}，右侧是 {ty:?}"),
-                        stmt,
-                    ));
-                }
-                Ok(vec![Stmt::Assign { slot, value: expr }])
+                let (rhs, rty) = parse_expr(ctx, &assign.right)?;
+                let value = match compound {
+                    None => {
+                        if rty != want {
+                            return Err(ctx.err(
+                                format!("赋值类型不匹配：`{name}` 是 {want:?}，右侧是 {rty:?}"),
+                                stmt,
+                            ));
+                        }
+                        rhs
+                    }
+                    // `a += b` 脱糖为 `a = a + b`（复用 bin_ty 的类型规则）
+                    Some(op) => {
+                        let ty = bin_ty(ctx, op, want, rty, stmt)?;
+                        if ty != want {
+                            return Err(ctx.err(
+                                format!("复合赋值类型不匹配：`{name}` 是 {want:?}，右侧是 {rty:?}"),
+                                stmt,
+                            ));
+                        }
+                        Expr::Bin(op, Box::new(Expr::Local(slot)), Box::new(rhs), ty)
+                    }
+                };
+                Ok(vec![Stmt::Assign { slot, value }])
             }
             other => Err(ctx.err(
                 "表达式语句只允许赋值（效果 lambda 无副作用）",
@@ -321,6 +342,7 @@ fn parse_statement(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
             };
             Ok(vec![Stmt::If { cond, then, els }])
         }
+        Statement::ForStatement(for_stmt) => parse_for_loop(ctx, for_stmt),
         Statement::ReturnStatement(ret) => {
             let Some(arg) = &ret.argument else {
                 return Err(ctx.err("return 必须带值（float/vec3/vec4）", stmt));
@@ -360,20 +382,108 @@ fn parse_branch(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
         single @ (Statement::ReturnStatement(_)
         | Statement::ExpressionStatement(_)
         | Statement::VariableDeclaration(_)
+        | Statement::ForStatement(_)
         | Statement::IfStatement(_)) => parse_statement(ctx, single),
         other => Err(ctx.err("if 分支必须是代码块或单条语句", other)),
     }
 }
 
+/// 有界数值 `for` 循环。严格形状（唯一支持形态）：
+/// `for (let i = <start>; i <|<= <end>; i++ /* 或 i += 1 */) { … }`
+/// `start`/`end` 各求值一次；`i` 是可变 f64 槽。body 可含 return。
+fn parse_for_loop(ctx: &mut Ctx, for_stmt: &oxc_ast::ast::ForStatement) -> LambdaResult<Vec<Stmt>> {
+    // init：`let i = <expr>`（仅单声明、Let、普通标识符）
+    let Some(init) = &for_stmt.init else {
+        return Err(ctx.err("for 循环需要 `let i = 初值` 初始化", for_stmt));
+    };
+    let oxc_ast::ast::ForStatementInit::VariableDeclaration(decl) = init else {
+        return Err(ctx.err("for 初始化必须是 `let i = 初值`", init));
+    };
+    let decl: &oxc_ast::ast::VariableDeclaration = decl.as_ref();
+    if decl.declarations.len() != 1 {
+        return Err(ctx.err("for 初始化只支持单个变量", decl));
+    }
+    if !matches!(decl.kind, oxc_ast::ast::VariableDeclarationKind::Let) {
+        return Err(ctx.err(
+            "for 循环变量必须用 `let` 声明（循环体会更新它）",
+            decl,
+        ));
+    }
+    let declarator = &decl.declarations[0];
+    let BindingPattern::BindingIdentifier(id) = &declarator.id else {
+        return Err(ctx.err("for 循环变量必须是普通标识符", &declarator.id));
+    };
+    let Some(start_node) = &declarator.init else {
+        return Err(ctx.err("for 循环变量必须有初值", declarator));
+    };
+    let (start, sty) = parse_expr(ctx, start_node)?;
+    if sty != Ty::Float {
+        return Err(ctx.err("for 循环初值必须是数值", start_node));
+    }
+    let var = ctx.local_slot(id.name.as_str(), Ty::Float, true, &declarator.id)?;
+
+    // test：`i < end` 或 `i <= end`
+    let Some(test) = &for_stmt.test else {
+        return Err(ctx.err("for 循环必须有终止条件（有界循环）", for_stmt));
+    };
+    let Expression::BinaryExpression(bin) = test else {
+        return Err(ctx.err("for 终止条件必须是 `i < 上界` 或 `i <= 上界`", test));
+    };
+    let le = match bin.operator {
+        oxc_ast::ast::BinaryOperator::LessThan => false,
+        oxc_ast::ast::BinaryOperator::LessEqualThan => true,
+        _ => return Err(ctx.err("for 条件只支持 `<` 或 `<=`", test)),
+    };
+    let Expression::Identifier(test_id) = &bin.left else {
+        return Err(ctx.err("for 条件左侧必须是循环变量", &bin.left));
+    };
+    if test_id.name.as_str() != id.name.as_str() {
+        return Err(ctx.err("for 条件左侧必须是循环变量", &bin.left));
+    }
+    let (end, ety) = parse_expr(ctx, &bin.right)?;
+    if ety != Ty::Float {
+        return Err(ctx.err("for 循环上界必须是数值", &bin.right));
+    }
+
+    // update：`i++` / `++i` / `i += 1`
+    let Some(update) = &for_stmt.update else {
+        return Err(ctx.err("for 循环必须有 `i++` 更新（有界循环）", for_stmt));
+    };
+    let valid_update = match update {
+        Expression::UpdateExpression(u) => {
+            matches!(u.argument, oxc_ast::ast::SimpleAssignmentTarget::AssignmentTargetIdentifier(ref a) if a.name.as_str() == id.name.as_str())
+                && (u.operator == oxc_ast::ast::UpdateOperator::Increment)
+        }
+        Expression::AssignmentExpression(a)
+            if a.operator == oxc_ast::ast::AssignmentOperator::Addition =>
+        {
+            let target_ok = assignment_target_name(ctx, &a.left)
+                .map(|n| n == id.name.as_str())
+                .unwrap_or(false);
+            target_ok && matches!(&a.right, Expression::NumericLiteral(l) if l.value == 1.0)
+        }
+        _ => false,
+    };
+    if !valid_update {
+        return Err(ctx.err("for 更新只支持 `i++` / `++i` / `i += 1`", update));
+    }
+
+    // body：代码块或单条语句
+    let body = match &for_stmt.body {
+        Statement::BlockStatement(b) => parse_statements(ctx, &b.body)?,
+        single => parse_statement(ctx, single)?,
+    };
+    Ok(vec![Stmt::ForLoop { var, start, end, le, body }])
+}
+
 fn statement_reject_reason(stmt: &Statement) -> String {
     match stmt {
         Statement::FunctionDeclaration(_) => "不支持函数声明（效果 lambda 是单个函数体）".into(),
-        Statement::ForStatement(_)
-        | Statement::ForInStatement(_)
+        Statement::ForInStatement(_)
         | Statement::ForOfStatement(_)
         | Statement::WhileStatement(_)
         | Statement::DoWhileStatement(_) => {
-            "不支持循环（噪声请用 h01 等 hash 内建）".into()
+            "只支持有界 `for (let i = a; i < b; i++)` 循环；while/for-in/for-of 不支持".into()
         }
         Statement::TryStatement(_) => "不支持 try/catch".into(),
         Statement::ThrowStatement(_) => "不支持 throw".into(),

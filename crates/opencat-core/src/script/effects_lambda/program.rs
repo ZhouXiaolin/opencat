@@ -163,6 +163,11 @@ pub enum Stmt {
     Let { slot: u32, value: Expr },
     Assign { slot: u32, value: Expr },
     If { cond: Expr, then: Vec<Stmt>, els: Vec<Stmt> },
+    /// 有界数值 `for` 循环：`for (let <var> = <start>; <var> <op> <end>; ++) { body }`。
+    /// `var` 是可变 f64 计数槽；`start`/`end` 各求值一次；`le` 为真时条件用
+    /// `<=`，否则 `<`。循环体可含 `return`（向外传播）；executor 另有硬迭代
+    /// 上限防止病态输入卡死。
+    ForLoop { var: u32, start: Expr, end: Expr, le: bool, body: Vec<Stmt> },
     Return(Expr),
 }
 

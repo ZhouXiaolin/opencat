@@ -1,4 +1,5 @@
-//! Sampled web-vs-engine frame diff via the inspect ChromeDriver harness.
+//! Web-vs-engine (or web-vs-reference-video) frame diff via the inspect
+//! ChromeDriver harness.
 //!
 //! Alignment methodology: **hard pixel metrics (k3diff), not SSIM**. SSIM
 //! collapses a frame to one structural scalar and hides localized misalignment;
@@ -7,16 +8,29 @@
 //! `summary.json`) reuses k3diff's schema so the native and web gates are
 //! directly comparable.
 //!
-//! Why sampling (not whole MP4)?
-//! - Web ground truth in this repo is raw RGBA from `web/test-oracle.html`
-//!   (CanvasKit `readPixels`), the same path as `web_frame_oracle_tests`.
-//! - Facade `exportMp4` depends on external `@webav/av-cliper` and re-encodes;
-//!   that path is not the inspect oracle contract and is unreliable headless.
+//! Two transports for the web render:
+//! - **hex** (default): each sampled frame is read back with CanvasKit
+//!   `readPixels` and shipped as a raw RGBA hex string (16.6 MB/frame at
+//!   1920×1080). Exact, but the page JS heap grows without bound → the tab OOMs
+//!   after a few hundred frames, so long sweeps must be chunked via
+//!   `--start-frame`/`--end-frame`.
+//! - **video** (`--web-video`): the selected range is rendered in-page, encoded
+//!   with WebCodecs, muxed with MP4Box.js, and returned as one H.264 MP4 (a few
+//!   MB total) that ffmpeg decodes back to RGBA. A full every-frame sweep needs
+//!   no chunking. Codec loss is negligible on real content: on k3-promo it adds
+//!   ≈ 0.02–0.04 mae (frame-0 0.0065→0.0253 vs the native engine; a full sweep
+//!   vs the reference video lands at ≈ 1.685 vs the hex baseline 1.6443).
+//!   Facade `exportMp4` is still not used — it pulls `@webav/av-cliper`'s
+//!   OPFS + DOM-bound muxer worker; the oracle uses WebCodecs + MP4Box.js.
 //!
 //! Usage:
 //!   opencat-web-compare examples/profile-showcase.jsonl \
 //!     --out-dir out/compare-mp4-profile-showcase \
 //!     --interval-secs 0.5
+//!
+//!   # whole every-frame sweep against the reference render, one MP4:
+//!   opencat-web-compare examples/k3-promo.xml --out-dir out/k3 \
+//!     --interval-secs 0.033333 --reference <k3-promo.mp4> --web-video
 //!
 //! Env: CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL (same as oracle tests).
 
@@ -28,15 +42,15 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use opencat_engine::inspect::browser::{
     BrowserHarness, BrowserTestEnv, PIXEL_DIFF_THRESHOLDS, PixelDiff, WebAppServer,
-    compute_pixel_diff_rgba, decode_reference_frames_rgba, repo_root, web_source_for_oracle,
-    write_artifacts,
+    compute_pixel_diff_rgba, decode_mp4_bytes_frames_rgba, decode_reference_frames_rgba, repo_root,
+    web_source_for_oracle, write_artifacts,
 };
 use opencat_engine::render::render_single_frame_from_jsonl_with_base;
 
 #[derive(Parser, Debug)]
 #[command(
     name = "opencat-web-compare",
-    about = "Sample web frames via inspect ChromeDriver and SSIM against engine"
+    about = "Diff web frames (inspect ChromeDriver) against engine or reference video, k3diff metrics"
 )]
 struct Cli {
     /// Markup / JSONL example (repo-relative or absolute).
@@ -54,9 +68,9 @@ struct Cli {
     #[arg(long)]
     max_samples: Option<usize>,
 
-    /// Only sample frames within this range (inclusive). Long sweeps can be
-    /// chunked because a single headless Chrome tab may crash after a few
-    /// hundred frames (see issue with tab crashes on complex scenes).
+    /// Only sample frames within this range (inclusive). With the default hex
+    /// transport a long sweep must be chunked — the tab OOMs after a few
+    /// hundred frames; `--web-video` removes that limit.
     #[arg(long, default_value_t = 0)]
     start_frame: u32,
 
@@ -94,6 +108,14 @@ struct Cli {
     /// Always write web/diff PNGs for every sample (not only failures).
     #[arg(long, default_value_t = false)]
     save_all: bool,
+
+    /// Transport the web render as a single in-page-encoded H.264 MP4 (WebCodecs
+    /// + MP4Box.js) instead of per-frame `rgbaHex`. The MP4 crosses the
+    /// WebDriver boundary once, so a full every-frame sweep no longer OOMs the
+    /// page after a few hundred frames — no chunking needed. Codec loss is
+    /// negligible on real content (mae ≈ 0.01–0.17 vs the ~1.64 baseline).
+    #[arg(long, default_value_t = false)]
+    web_video: bool,
 }
 
 #[derive(Debug)]
@@ -186,6 +208,50 @@ fn rel_input(path: &Path, repo: &Path) -> String {
         .unwrap_or_else(|_| path.to_string_lossy().into_owned())
 }
 
+/// k3diff the web RGBA against the expected RGBA for one frame, record the
+/// result, and (on failure or `--save-all`) write engine/web/diff PNGs.
+#[allow(clippy::too_many_arguments)]
+fn compare_one(
+    cli: &Cli,
+    width: u32,
+    height: u32,
+    frac_idx: usize,
+    frame: u32,
+    engine_rgba: &[u8],
+    web_rgba: &[u8],
+    results: &mut Vec<SampleResult>,
+    any_fail: &mut bool,
+) -> Result<()> {
+    let diff = compute_pixel_diff_rgba(engine_rgba, web_rgba, width, height)
+        .with_context(|| format!("pixel diff frame {frame}"))?;
+
+    let frac = diff.frac_above[frac_idx];
+    let passed = diff.mae <= cli.max_mae
+        && (cli.max_maxd == 0 || diff.maxd <= cli.max_maxd)
+        && frac <= cli.max_frac;
+    if !passed {
+        *any_fail = true;
+    }
+
+    let frame_dir = cli.out_dir.join(format!("frame-{frame:04}"));
+    if !passed || cli.save_all {
+        write_artifacts(&frame_dir, width, height, engine_rgba, web_rgba)
+            .with_context(|| format!("write artifacts {}", frame_dir.display()))?;
+    }
+
+    let tag = if passed { "OK" } else { "FAIL" };
+    eprintln!(
+        "  [{tag}] frame {frame:>4}  mae={:.4}  maxd={}  p{}={:.5}",
+        diff.mae, diff.maxd, cli.frac_threshold, frac
+    );
+    results.push(SampleResult {
+        frame,
+        diff,
+        passed,
+    });
+    Ok(())
+}
+
 async fn run_web_compare(
     cli: &Cli,
     repo: &Path,
@@ -216,47 +282,105 @@ async fn run_web_compare(
 
     let mut results = Vec::with_capacity(frames.len());
     let mut any_fail = false;
+    // Both transports below assign this exactly once (definite assignment).
+    let transport_note: String;
 
-    for (frame, engine_rgba) in engine_frames {
-        let web = browser
-            .render_frame(web_source, *frame)
-            .await
-            .with_context(|| format!("web render frame {frame}"))?;
-        if web.width != width || web.height != height {
-            bail!(
-                "web frame {frame} size {}x{} != composition {width}x{height}",
-                web.width,
-                web.height
+    if cli.web_video {
+        // One in-page encode for the whole selected range, decoded via ffmpeg.
+        let start = frames.first().copied().unwrap_or(0);
+        let end = frames.last().copied().unwrap_or(0);
+        let span = end.saturating_sub(start) + 1;
+        if frames.len() < span as usize {
+            eprintln!(
+                "  note: --web-video encodes every frame in {start}..={end} ({span} frames); \
+                 {} of them are compared (interval {:?}s is sparser than the video)",
+                frames.len(),
+                cli.interval_secs
             );
         }
-
-        let diff = compute_pixel_diff_rgba(engine_rgba, &web.rgba, width, height)
-            .with_context(|| format!("pixel diff frame {frame}"))?;
-
-        let frac = diff.frac_above[frac_idx];
-        let passed = diff.mae <= cli.max_mae
-            && (cli.max_maxd == 0 || diff.maxd <= cli.max_maxd)
-            && frac <= cli.max_frac;
-        if !passed {
-            any_fail = true;
+        let mp4 = browser
+            .render_frames_to_mp4(web_source, start, end)
+            .await
+            .with_context(|| format!("web video render frames {start}..={end}"))?;
+        if mp4.width != width || mp4.height != height {
+            bail!(
+                "web video size {}x{} != composition {width}x{height}",
+                mp4.width,
+                mp4.height
+            );
         }
-
-        let frame_dir = cli.out_dir.join(format!("frame-{frame:04}"));
-        if !passed || cli.save_all {
-            write_artifacts(&frame_dir, width, height, engine_rgba, &web.rgba)
-                .with_context(|| format!("write artifacts {}", frame_dir.display()))?;
+        if mp4.first_frame != start {
+            bail!(
+                "web video first_frame {} != requested start {start}",
+                mp4.first_frame
+            );
         }
-
-        let tag = if passed { "OK" } else { "FAIL" };
+        let expected_frames = end - start + 1;
+        if mp4.frames_encoded != expected_frames {
+            bail!(
+                "web video encoded {} frames, expected {expected_frames} ({start}..={end})",
+                mp4.frames_encoded
+            );
+        }
         eprintln!(
-            "  [{tag}] frame {frame:>4}  mae={:.4}  maxd={}  p{}={:.5}",
-            diff.mae, diff.maxd, cli.frac_threshold, frac
+            "  web video transport: {} bytes ({} frames {}..={} @{}fps)",
+            mp4.mp4.len(),
+            mp4.frames_encoded,
+            start,
+            end,
+            mp4.fps
         );
-        results.push(SampleResult {
-            frame: *frame,
-            diff,
-            passed,
-        });
+
+        let decoded = decode_mp4_bytes_frames_rgba(&mp4.mp4, width, height, frames)
+            .context("decode web video MP4")?;
+        for (frame, engine_rgba) in engine_frames {
+            let Some(web_rgba) = decoded.get(frame) else {
+                bail!("web video MP4 is missing frame {frame}");
+            };
+            compare_one(
+                cli,
+                width,
+                height,
+                frac_idx,
+                *frame,
+                engine_rgba,
+                web_rgba,
+                &mut results,
+                &mut any_fail,
+            )?;
+        }
+        transport_note = format!(
+            "video:      in-page WebCodecs H.264 + MP4Box.js; {} frames encoded, \
+             {:.2} MB MP4 decoded via ffmpeg\n",
+            mp4.frames_encoded,
+            mp4.mp4.len() as f64 / (1024.0 * 1024.0),
+        );
+    } else {
+        transport_note = "video:      off — per-frame rgbaHex transport\n".to_string();
+        for (frame, engine_rgba) in engine_frames {
+            let web = browser
+                .render_frame(web_source, *frame)
+                .await
+                .with_context(|| format!("web render frame {frame}"))?;
+            if web.width != width || web.height != height {
+                bail!(
+                    "web frame {frame} size {}x{} != composition {width}x{height}",
+                    web.width,
+                    web.height
+                );
+            }
+            compare_one(
+                cli,
+                width,
+                height,
+                frac_idx,
+                *frame,
+                engine_rgba,
+                &web.rgba,
+                &mut results,
+                &mut any_fail,
+            )?;
+        }
     }
 
     browser.shutdown().await?;
@@ -276,11 +400,12 @@ async fn run_web_compare(
         None => "native engine (Skia)".to_string(),
     };
     let summary = format!(
-        "opencat-web-compare (inspect ChromeDriver, raw RGBA — k3diff metrics, no SSIM)\n\
+        "opencat-web-compare (inspect ChromeDriver, k3diff metrics, no SSIM)\n\
          input:          {input_rel}\n\
          reference:      {reference_label}\n\
          composition:    {width}x{height} @{fps}fps total_frames={total_frames}\n\
          sample:         every {interval:.2}s → {n} frames {frames:?}\n\
+         {transport_note}\
          gate:           mae<={max_mae}  maxd<={max_maxd_desc}  p{frac_threshold}<={max_frac}\n\
          mae mean/max:   {mae_mean:.6} / {mae_max:.6}\n\
          maxd max:       {maxd_max}\n\

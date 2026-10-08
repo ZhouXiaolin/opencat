@@ -2,12 +2,18 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { __generatedImageTestSeam } from '../../crates/opencat-web/web/src/draw-ir';
+import {
+  __generatedImageTestSeam,
+  decodeDrawEnvelope,
+  isEncodedDrawEnvelope,
+} from '../../crates/opencat-web/web/src/draw-ir';
 import { SECTION, IR_MAGIC, IR_VERSION } from './generated/ocir-schema.generated';
 
-// Issue #10 / #45: OCIR v5 self-contained envelope. Hand-built envelopes exercise
-// decoder error paths and cache semantics; `roundtrip_v5.ocir` is produced by core
+// Issue #10 / #45: OCIR self-contained envelope. Hand-built envelopes exercise
+// decoder error paths and cache semantics; `roundtrip_v6.ocir` is produced by core
 // `encode_ir_envelope` (see write_ts_roundtrip_fixture_bytes) for AC5.
+// v6 (#46): ops are `[opcode: u8][fixed-length payload]` with no length field and
+// no padding; each PathOp command is its own opcode.
 
 const SECTION_OPS = SECTION.OPS;
 const SECTION_F32_POOL = SECTION.F32_POOL;
@@ -54,7 +60,7 @@ function encodeGeneratedImages(images: GeneratedRecord[]): number[] {
   return out;
 }
 
-/** Pack section id → payload into a v5 OCIR envelope (no pipeline_epoch). Shared by hand-built tests. */
+/** Pack section id → payload into an OCIR v6 envelope (no pipeline_epoch). Shared by hand-built tests. */
 function packOcirEnvelope(sections: [number, number[]][]): Uint8Array {
   const headerLen = 12 + sections.length * 12;
   const offsets: number[] = [];
@@ -98,7 +104,7 @@ function emptySections(overrides: Partial<Record<number, number[]>> = {}): [numb
   return base.map(([id, payload]) => [id, overrides[id] ?? payload]);
 }
 
-function buildV5Envelope(images: GeneratedRecord[]): Uint8Array {
+function buildOcirV6Envelope(images: GeneratedRecord[]): Uint8Array {
   return packOcirEnvelope(emptySections({
     [SECTION_GENERATED_IMAGES]: encodeGeneratedImages(images),
   }));
@@ -109,12 +115,12 @@ describe('OCIR generated schema constants (#66)', () => {
     expect(IR_MAGIC).toEqual([0x4f, 0x43, 0x49, 0x52]);
   });
 
-  test('IR_VERSION from generated schema matches v5', () => {
-    expect(IR_VERSION).toBe(5);
+  test('IR_VERSION from generated schema matches v6', () => {
+    expect(IR_VERSION).toBe(6);
   });
 
   test('rejects envelope whose magic does not match IR_MAGIC', () => {
-    // Wrap a valid v5 envelope with bad magic and verify decoder rejects it.
+    // Wrap a valid v6 envelope with bad magic and verify decoder rejects it.
     const sections: [number, number[]][] = [];
     const payload: number[] = [0x4f, 0x43, 0x49, 0x00]; // last byte differs
     payload.push(...u32(IR_VERSION));
@@ -135,13 +141,13 @@ describe('OCIR generated schema constants (#66)', () => {
   });
 });
 
-describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
+describe('OCIR v6 generated-image self-contained decoder (#45)', () => {
   beforeEach(() => {
     __generatedImageTestSeam.reset();
   });
 
   test('reads the version and section_count from a 12-byte header', () => {
-    const bytes = buildV5Envelope([]);
+    const bytes = buildOcirV6Envelope([]);
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
     expect(view.getUint32(4, true)).toBe(IR_VERSION);
@@ -152,7 +158,7 @@ describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
 
   test('registers a glyph under its id with faithful fields', () => {
     const rgba = [0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff];
-    const bytes = buildV5Envelope([
+    const bytes = buildOcirV6Envelope([
       { id: 0x0123_4567_89ab_cdefn, width: 2, height: 1, rgba },
     ]);
     __generatedImageTestSeam.decode(bytes);
@@ -166,13 +172,13 @@ describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
   });
 
   test('an empty generated-images section registers no glyphs', () => {
-    const bytes = buildV5Envelope([]);
+    const bytes = buildOcirV6Envelope([]);
     __generatedImageTestSeam.decode(bytes);
     expect(__generatedImageTestSeam.cacheSize()).toBe(0);
   });
 
   test('multiple glyphs are all registered', () => {
-    const bytes = buildV5Envelope([
+    const bytes = buildOcirV6Envelope([
       { id: 1n, width: 1, height: 1, rgba: [0x10, 0x20, 0x30, 0x40] },
       { id: 2n, width: 3, height: 2, rgba: Array(24).fill(0xab) },
     ]);
@@ -184,13 +190,13 @@ describe('OCIR v5 generated-image self-contained decoder (#45)', () => {
   });
 
   test('same glyph re-encoded on every frame is idempotent (self-contained)', () => {
-    // In v5, every frame carries the full generated-image RGBA — no delta.
+    // In v6, every frame carries the full generated-image RGBA — no delta.
     // The second decode of the same glyph is a no-op in the cache.
     const glyph = { id: 99n, width: 2, height: 2, rgba: Array(16).fill(0x55) };
-    __generatedImageTestSeam.decode(buildV5Envelope([glyph]));
+    __generatedImageTestSeam.decode(buildOcirV6Envelope([glyph]));
     expect(__generatedImageTestSeam.cacheSize()).toBe(1);
 
-    __generatedImageTestSeam.decode(buildV5Envelope([]));
+    __generatedImageTestSeam.decode(buildOcirV6Envelope([]));
     expect(__generatedImageTestSeam.cacheSize()).toBe(1);
     expect(__generatedImageTestSeam.rgbaFor(99n)).toBeDefined();
   });
@@ -220,17 +226,17 @@ describe('OCIR protocol errors (#22)', () => {
   test('rejects truncated section directory', () => {
     const bytes = new Uint8Array([
       0x4f, 0x43, 0x49, 0x52,
-      ...u32(5),
+      ...u32(IR_VERSION),
       ...u32(1),
     ]);
     expect(() => __generatedImageTestSeam.decode(bytes)).toThrow(/Truncated OpenCat IR envelope/);
   });
 
   test('rejects illegal section range past envelope end', () => {
-    const headerLen = 12 + 12; // v5: 12-byte header + one directory entry
+    const headerLen = 12 + 12; // v6: 12-byte header + one directory entry
     const out: number[] = [];
     out.push(0x4f, 0x43, 0x49, 0x52);
-    out.push(...u32(5));
+    out.push(...u32(IR_VERSION));
     out.push(...u32(1));
     // directory entry at offset 12
     out.push(...u32(1));
@@ -244,7 +250,7 @@ describe('OCIR protocol errors (#22)', () => {
   test('rejects missing required section', () => {
     const out: number[] = [];
     out.push(0x4f, 0x43, 0x49, 0x52);
-    out.push(...u32(5));
+    out.push(...u32(IR_VERSION));
     out.push(...u32(0));
     expect(() => __generatedImageTestSeam.decode(new Uint8Array(out))).toThrow(
       /Missing OpenCat IR section/,
@@ -321,12 +327,12 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
 
   const fixturePath = join(
     dirname(fileURLToPath(import.meta.url)),
-    'fixtures/ocir/roundtrip_v5.ocir',
+    'fixtures/ocir/roundtrip_v6.ocir',
   );
 
   test('decodes committed core fixture field-by-field', () => {
     const bytes = new Uint8Array(readFileSync(fixturePath));
-    // Header: v5 has no pipeline_epoch
+    // Header: v6 has no pipeline_epoch
     expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe('OCIR');
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     expect(view.getUint32(4, true)).toBe(IR_VERSION);
@@ -421,8 +427,58 @@ describe('core encoder -> TS decoder fixture (#45 AC5)', () => {
 
     // Ops stream: Save / Translate / Image / Restore — non-empty
     expect(frame.ops.byteLength).toBeGreaterThan(0);
-    // First op opcode is Save (0) — read as u16 LE from the ops section itself
-    expect(new DataView(frame.ops.buffer, frame.ops.byteOffset, 2).getUint16(0, true)).toBe(0);
+    // v6: first op opcode is a single byte (Save = 0).
+    expect(frame.ops[0]).toBe(0);
+  });
+});
+
+describe('compressed OCIR transport (#46 part 1)', () => {
+  const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/ocir');
+  const rawPath = join(fixtureDir, 'roundtrip_v6.ocir');
+  const deflatePath = join(fixtureDir, 'roundtrip_v6.ocir.deflate');
+
+  beforeEach(() => {
+    __generatedImageTestSeam.reset();
+  });
+
+  test('raw envelope passes through decodeDrawEnvelope untouched', async () => {
+    const raw = new Uint8Array(readFileSync(rawPath));
+    expect(isEncodedDrawEnvelope(raw)).toBe(false);
+    const out = await decodeDrawEnvelope(raw);
+    expect(out).toBe(raw); // same reference — no copy on the raw path
+  });
+
+  test('detects the compressed container magic', () => {
+    const packed = new Uint8Array(readFileSync(deflatePath));
+    expect(isEncodedDrawEnvelope(packed)).toBe(true);
+    expect(String.fromCharCode(packed[0], packed[1], packed[2], packed[3])).toBe('OCZ1');
+  });
+
+  test('browser DecompressionStream(raw deflate) inflates the core container', async () => {
+    // AC: the container core produced (Rust miniz raw deflate) is decoded by the
+    // *platform* decoder here in Node/vitest, and must equal the raw fixture
+    // byte-for-byte — proving core emit ↔ browser decode agree.
+    const packed = new Uint8Array(readFileSync(deflatePath));
+    const raw = new Uint8Array(readFileSync(rawPath));
+
+    const infl = await decodeDrawEnvelope(packed);
+    expect(infl.byteLength).toBe(raw.byteLength);
+    expect(Array.from(infl)).toEqual(Array.from(raw));
+
+    // And the inflated bytes are a valid, decodable frame.
+    expect(() => __generatedImageTestSeam.decode(infl)).not.toThrow();
+  });
+
+  test('rejects an unsupported container codec', async () => {
+    const packed = new Uint8Array(readFileSync(deflatePath));
+    packed[8] = 7; // codec byte — not CODEC_DEFLATE_RAW
+    await expect(decodeDrawEnvelope(packed)).rejects.toThrow(/Unsupported OpenCat IR codec/);
+  });
+
+  test('rejects an unsupported container version', async () => {
+    const packed = new Uint8Array(readFileSync(deflatePath));
+    packed[4] = 99; // version byte
+    await expect(decodeDrawEnvelope(packed)).rejects.toThrow(/Unsupported OpenCat IR container version/);
   });
 });
 

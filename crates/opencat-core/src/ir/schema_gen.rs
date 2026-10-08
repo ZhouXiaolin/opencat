@@ -19,6 +19,8 @@ pub fn generate_ocir_schema_ts() -> String {
     ts.push('\n');
     magic_version(&mut ts);
     ts.push('\n');
+    transport_constants(&mut ts);
+    ts.push('\n');
     section_constants(&mut ts);
     ts.push('\n');
     opcode_constants(&mut ts);
@@ -56,6 +58,44 @@ fn magic_version(ts: &mut String) {
     );
     let _ = write!(ts, "{}", IR_VERSION);
     ts.push_str(";\n");
+}
+
+fn transport_constants(ts: &mut String) {
+    use std::fmt::Write;
+    use super::transport::{
+        CONTAINER_HEADER_LEN, CODEC_DEFLATE_RAW, IR_COMPRESSED_MAGIC, IR_COMPRESSED_VERSION,
+    };
+    ts.push_str(
+        "// ---------------------------------------------------------------------------\n\
+         // Compressed OCIR transport container (issue #46, part 1)\n\
+         // ---------------------------------------------------------------------------\n\
+         //\n\
+         // Optional wrapper for hopping a raw OCIR envelope across a bandwidth-\n\
+         // sensitive link. The payload is a **raw DEFLATE** stream (RFC 1951);\n\
+         // decode it in the browser with `DecompressionStream('deflate-raw')`.\n\
+         //\n\
+         // Layout: magic | version u32 | codec u8 | reserved[3] |\n\
+         //         uncompressed_len u32 | deflate stream\n\n\
+         /// Magic bytes for the compressed OCIR container: \"OCZ1\".\n\
+         export const IR_COMPRESSED_MAGIC: [number, number, number, number] = [",
+    );
+    for (i, b) in IR_COMPRESSED_MAGIC.iter().enumerate() {
+        if i > 0 {
+            ts.push_str(", ");
+        }
+        let _ = write!(ts, "0x{:02x}", b);
+    }
+    let _ = write!(
+        ts,
+        "];\n\n\
+         /// Container format version.\n\
+         export const IR_COMPRESSED_VERSION: number = {};\n\n\
+         /// Codec id for a raw DEFLATE payload (RFC 1951).\n\
+         export const CODEC_DEFLATE_RAW: number = {};\n\n\
+         /// Fixed container header length in bytes.\n\
+         export const CONTAINER_HEADER_LEN: number = {};\n\n",
+        IR_COMPRESSED_VERSION, CODEC_DEFLATE_RAW, CONTAINER_HEADER_LEN,
+    );
 }
 
 fn section_constants(ts: &mut String) {
@@ -138,14 +178,36 @@ fn opcode_constants(ts: &mut String) {
         ("REPLAY_RANGE", opcode::REPLAY_RANGE),
         ("DRAW_SUBTREE_PICTURE", opcode::DRAW_SUBTREE_PICTURE),
         ("LOTTIE_RECT", opcode::LOTTIE_RECT),
+        ("PATH_MOVE_TO", opcode::PATH_MOVE_TO_OP),
+        ("PATH_LINE_TO", opcode::PATH_LINE_TO_OP),
+        ("PATH_QUAD_TO", opcode::PATH_QUAD_TO_OP),
+        ("PATH_CUBIC_TO", opcode::PATH_CUBIC_TO_OP),
+        ("PATH_CLOSE", opcode::PATH_CLOSE_OP),
+        ("PATH_ADD_RECT", opcode::PATH_ADD_RECT_OP),
+        ("PATH_ADD_RRECT", opcode::PATH_ADD_RRECT_OP),
+        ("PATH_ADD_OVAL", opcode::PATH_ADD_OVAL_OP),
+        ("PATH_ADD_ARC", opcode::PATH_ADD_ARC_OP),
     ] {
         let _ = write!(ts, "    {}: {},\n", name, value);
     }
     ts.push_str(
         "} as const;\n\
          \n\
-         export type Opcode = (typeof OP)[keyof typeof OP];\n",
+         export type Opcode = (typeof OP)[keyof typeof OP];\n\
+         \n\
+         /// Per-opcode payload length for the v6 dense op stream: an op is\n\
+         /// `[opcode: u8][OPCODE_PAYLOAD_LEN[opcode] payload bytes]` with no\n\
+         /// length field and no padding. Indexed by opcode (0..=MAX_OPCODE).\n\
+         /// Keep in sync with `opcode::OPCODE_PAYLOAD_LEN` in core.\n\
+         export const OPCODE_PAYLOAD_LEN: readonly number[] = [",
     );
+    for (i, n) in opcode::OPCODE_PAYLOAD_LEN.iter().enumerate() {
+        if i > 0 {
+            ts.push_str(", ");
+        }
+        let _ = write!(ts, "{}", n);
+    }
+    ts.push_str("];\n");
 }
 
 fn path_op_sub_constants(ts: &mut String) {

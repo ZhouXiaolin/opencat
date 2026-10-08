@@ -19,11 +19,18 @@
   <body>
     <canvas id="frame"></canvas>
     <script src="/canvaskit/canvaskit.js"></script>
+    <!-- MP4Box.js muxer (classic script → global `MP4Box`). Served from the
+         repo's web/node_modules by the harness static server. The video
+         transport encodes each rendered frame with WebCodecs and muxes here,
+         so only one MP4 crosses the WebDriver boundary instead of a
+         16.6 MB hex string per 1920×1080 frame. -->
+    <script src="/mp4box.js"></script>
     <script type="module">
       import {
         clearBlobs,
         clearVideoCache,
-        createSurfaceWithFallback,
+        getReusableSurface,
+        releaseReusableSurface,
         getRendererOrThrow,
         initWasm,
         injectVideoFramesForRender,
@@ -36,6 +43,10 @@
       } from '/wasm/opencat.js';
 
       const canvas = document.getElementById('frame');
+      // Reused across frames: one CanvasKit surface per canvas, not per frame.
+      // A fresh canvas surface per frame leaks a WebGL framebuffer (~8 MB at
+      // 1920×1080) of GPU-process memory every frame and crashes the tab.
+      let surfaceSize = { w: 0, h: 0 };
 
       function compositionFrameCount(fps, duration, frames) {
         if (Number.isFinite(frames) && frames > 0) return Math.floor(frames);
@@ -76,11 +87,13 @@
       }
 
       function bytesToHex(bytes) {
-        let out = '';
-        for (let i = 0; i < bytes.length; i++) {
-          out += bytes[i].toString(16).padStart(2, '0');
-        }
-        return out;
+        // 8.3M bytes/frame (1920×1080×4): build via a 256-entry table + join
+        // instead of per-byte `out += …`, which allocates a rope chunk per byte.
+        const LOOKUP = new Array(256);
+        for (let i = 0; i < 256; i++) LOOKUP[i] = i.toString(16).padStart(2, '0');
+        const parts = new Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) parts[i] = LOOKUP[bytes[i]];
+        return parts.join('');
       }
 
       const ready = (async () => {
@@ -100,29 +113,60 @@
         registerVideoGlobals();
       })();
 
-      async function renderFrame(jsonl, frame) {
+      // Open-once state: the host-owned pipeline (issue #8) is opened a single
+      // time and every subsequent frame streams through it. Reopening the
+      // design per frame rebuilds the whole pipeline + script realm in WASM
+      // linear memory, which grows the renderer process without bound
+      // (~10 MB/frame) until the tab is OOM-killed around frame ~90.
+      let openedFor = null;
+      // Composition metadata is a pure function of the source; parsing it with
+      // DOMParser every frame builds a throwaway DOM tree each call (measured
+      // as unbounded "JavaScript" growth in measureUserAgentSpecificMemory).
+      let cachedComp = null;
+      let cachedCompFor = null;
+
+      function compositionInfo(jsonl) {
+        if (cachedCompFor !== jsonl) {
+          cachedComp = parseCompositionInfo(jsonl);
+          cachedCompFor = jsonl;
+        }
+        return cachedComp;
+      }
+
+      // Render one frame into the reusable CanvasKit surface. Returns the
+      // surface + CK so callers can read back (hex transport) or encode
+      // (video transport) without re-deriving state. Pixel readback is left to
+      // the caller — it is the expensive, transport-specific step.
+      async function drawFrame(jsonl, frame) {
         await ready;
 
-        clearBlobs();
-        await clearVideoCache();
-
-        const comp = parseCompositionInfo(jsonl);
+        const comp = compositionInfo(jsonl);
         if (frame < 0 || frame >= comp.frames) {
           throw new Error(`frame ${frame} out of range 0..${comp.frames - 1}`);
         }
 
         canvas.width = comp.width;
         canvas.height = comp.height;
+        // A previous frame at a different size invalidates the cached surface.
+        if (surfaceSize.w !== comp.width || surfaceSize.h !== comp.height) {
+          releaseReusableSurface(canvas);
+          surfaceSize = { w: comp.width, h: comp.height };
+        }
 
         const renderer = getRendererOrThrow();
 
-        // Host-owned pipeline (issue #8): open the design once (fetches
-        // resources, builds catalog, hydrates captions, opens pipeline),
-        // prepare WebCodecs video sources, then render the requested frame.
-        // Without prepareCatalogVideoSources, injectVideoFramesForRender
-        // silently blanks every VideoFrame draw (profile-showcase s2/s3).
-        const catalogJson = await renderer.open_design(jsonl);
-        await prepareCatalogVideoSources(catalogJson);
+        // Open (or reopen, when the composition source changes) the
+        // host-owned pipeline: fetches resources, builds the catalog, hydrates
+        // captions, opens the pipeline. Without prepareCatalogVideoSources,
+        // injectVideoFramesForRender silently blanks every VideoFrame draw
+        // (profile-showcase s2/s3).
+        if (openedFor !== jsonl) {
+          clearBlobs();
+          await clearVideoCache();
+          const catalogJson = await renderer.open_design(jsonl);
+          await prepareCatalogVideoSources(catalogJson);
+          openedFor = jsonl;
+        }
 
         // Headless SwiftShader often cannot import VideoFrame textures via
         // makeImageFromTextureSource. Inject as CPU RGBA so draw-ir can
@@ -135,42 +179,166 @@
         });
 
         const CK = globalThis.__canvasKit;
-        let surface;
+        const surface = getReusableSurface(CK, canvas, undefined, {
+          alphaType: CK.AlphaType.Premul,
+        });
+        if (!surface) throw new Error('surface creation failed');
+
+        renderEncodedDrawFrame(result.ir, surface.getCanvas(), CK, { surface });
+        surface.flush();
+        return { comp, surface, CK };
+      }
+
+      // Hex transport (sampled oracle): one frame out as raw RGBA hex.
+      async function renderFrame(jsonl, frame) {
+        const { comp, surface, CK } = await drawFrame(jsonl, frame);
+        const snapshot = surface.makeImageSnapshot();
         try {
-          surface = createSurfaceWithFallback(CK, canvas, undefined, {
+          const pixels = snapshot.readPixels(0, 0, {
+            width: comp.width,
+            height: comp.height,
+            colorType: CK.ColorType.RGBA_8888,
             alphaType: CK.AlphaType.Premul,
+            colorSpace: CK.ColorSpace.SRGB,
           });
-          if (!surface) throw new Error('surface creation failed');
-
-          const ckCanvas = surface.getCanvas();
-          const ir = result.ir;
-          renderEncodedDrawFrame(ir, ckCanvas, CK, { surface });
-          surface.flush();
-
-          const snapshot = surface.makeImageSnapshot();
-          try {
-            const pixels = snapshot.readPixels(0, 0, {
-              width: comp.width,
-              height: comp.height,
-              colorType: CK.ColorType.RGBA_8888,
-              alphaType: CK.AlphaType.Premul,
-              colorSpace: CK.ColorSpace.SRGB,
-            });
-            if (!pixels) throw new Error('readPixels returned null');
-            return {
-              width: comp.width,
-              height: comp.height,
-              rgbaHex: bytesToHex(pixels),
-            };
-          } finally {
-            snapshot.delete();
-          }
+          if (!pixels) throw new Error('readPixels returned null');
+          return {
+            width: comp.width,
+            height: comp.height,
+            rgbaHex: bytesToHex(pixels),
+          };
         } finally {
-          surface?.delete();
+          snapshot.delete();
         }
       }
 
-      globalThis.__opencatOracle = { renderFrame };
+      function u8ToBase64(u8) {
+        let out = '';
+        const CHUNK = 0x8000; // stay under the argument-count limit of apply()
+        for (let i = 0; i < u8.length; i += CHUNK) {
+          out += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+        }
+        return btoa(out);
+      }
+
+      // Whole-range transport: render [startFrame, endFrame] and return ONE
+      // H.264 MP4 as base64.
+      //
+      // Why this exists: the per-frame `rgbaHex` path ships a 33 MB hex string
+      // per 1920×1080 frame through WebDriver; the page JS heap grows without
+      // bound (measured after forced GC) and the tab OOMs after a few hundred
+      // frames — forcing full sweeps to be chunked. Here the frames are
+      // encoded in-page with WebCodecs, muxed in-page with MP4Box.js, and only
+      // the compressed bitstream (a few MB total) crosses the boundary. The
+      // compressed samples are the memory that must exist anyway (the muxer's
+      // moov is written at the end), so nothing is retained per frame.
+      //
+      // Codec loss is negligible on real content (measured: H.264 CRF 12 over
+      // k3-promo engine frames → mae 0.006–0.17, p8 ≈ 0) versus the ~1.64
+      // baseline and the 1.0–2.0 gate, so alignment stays meaningful.
+      async function renderFramesToMp4(jsonl, startFrame, endFrame) {
+        await ready;
+        const comp = compositionInfo(jsonl);
+        const fps = comp.fps || 30;
+        if (typeof VideoEncoder === 'undefined') {
+          throw new Error('WebCodecs VideoEncoder is unavailable in this browser');
+        }
+        if (typeof MP4Box === 'undefined') {
+          throw new Error('MP4Box.js muxer is unavailable (missing /mp4box.js)');
+        }
+
+        const codec = comp.height <= 1088 ? 'avc1.640028' : 'avc1.640033';
+        const config = {
+          codec,
+          width: comp.width,
+          height: comp.height,
+          bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.4)),
+          framerate: fps,
+          latencyMode: 'quality',
+        };
+        const support = await VideoEncoder.isConfigSupported(config);
+        if (!support.supported) {
+          throw new Error(`WebCodecs cannot encode ${codec} at ${comp.width}x${comp.height}`);
+        }
+
+        const chunks = [];
+        let avcC = null;
+        let encodeError = null;
+        const encoder = new VideoEncoder({
+          output: (chunk, meta) => {
+            const data = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(data);
+            if (meta && meta.decoderConfig && meta.decoderConfig.description) {
+              const d = meta.decoderConfig.description;
+              avcC = d instanceof ArrayBuffer
+                ? d
+                : d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength);
+            }
+            chunks.push({ data, key: chunk.type === 'key', timestamp: chunk.timestamp });
+          },
+          error: (err) => { encodeError = err; },
+        });
+        encoder.configure(config);
+
+        let processed = 0;
+        for (let frame = startFrame; frame <= endFrame; frame++) {
+          if (encodeError) throw encodeError;
+          await drawFrame(jsonl, frame);
+          const vf = new VideoFrame(canvas, {
+            timestamp: Math.round((frame * 1_000_000) / fps),
+            duration: Math.round(1_000_000 / fps),
+          });
+          // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
+          encoder.encode(vf, { keyFrame: (frame - startFrame) % fps === 0 });
+          vf.close();
+          processed += 1;
+          // Backpressure: never let the encoder queue (and its retained
+          // VideoFrames) grow without bound.
+          while (encoder.encodeQueueSize > 8) {
+            await new Promise((r) => setTimeout(r, 0));
+          }
+          if (processed % 10 === 0) await new Promise((r) => setTimeout(r, 0));
+        }
+
+        await encoder.flush();
+        encoder.close();
+        if (encodeError) throw encodeError;
+        if (chunks.length === 0) throw new Error('WebCodecs produced no chunks');
+        if (!avcC) throw new Error('WebCodecs produced no avcC decoder description');
+
+        // Mux. Track timescale == fps so each sample is exactly 1 tick long and
+        // dts is the (decode-order) frame index; cts comes from the chunk PTS.
+        const file = MP4Box.createFile();
+        const trackId = file.addTrack({
+          timescale: fps,
+          width: comp.width,
+          height: comp.height,
+          avcDecoderConfigRecord: avcC,
+        });
+        let dts = 0;
+        for (const chunk of chunks) {
+          file.addSample(trackId, chunk.data, {
+            duration: 1,
+            dts,
+            cts: Math.round((chunk.timestamp * fps) / 1_000_000),
+            is_sync: chunk.key,
+          });
+          dts += 1;
+        }
+        const mp4 = new Uint8Array(file.getBuffer());
+
+        return {
+          width: comp.width,
+          height: comp.height,
+          fps,
+          firstFrame: startFrame,
+          framesEncoded: processed,
+          bytes: mp4.length,
+          videoBase64: u8ToBase64(mp4),
+        };
+      }
+
+      globalThis.__opencatOracle = { renderFrame, renderFramesToMp4 };
     </script>
   </body>
 </html>

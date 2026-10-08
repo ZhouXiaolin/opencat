@@ -555,8 +555,8 @@ mod tests {
         Arc::from(vec![value; width as usize * height as usize * 4])
     }
 
-    /// Decode just enough of a v5 envelope to read the generated-image section (12),
-    /// mirroring the JS decoder. v5 has no pipeline_epoch in the header.
+    /// Decode just enough of a v6 envelope to read the generated-image section (12),
+    /// mirroring the JS decoder. v6 has no pipeline_epoch in the header.
     struct DecodedEnvelope {
         generated: Vec<FrameGeneratedImage>,
     }
@@ -617,7 +617,7 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
 
-        // v5 header is only 12 bytes — no pipeline_epoch.
+        // v6 header is only 12 bytes — no pipeline_epoch.
         assert_eq!(&bytes[0..4], b"OCIR");
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), IR_VERSION);
         let section_count = u32::from_le_bytes(bytes[8..12].try_into().unwrap());
@@ -692,7 +692,7 @@ mod tests {
 
     #[test]
     fn same_glyph_encoded_on_every_frame() {
-        // In v5, every frame carries the full generated-image RGBA — there is no
+        // In v6, every frame carries the full generated-image RGBA — there is no
         // delta or epoch-based suppression. The same glyph is fully encoded
         // regardless of whether it appeared on a previous frame.
         let glyph = FrameGeneratedImage {

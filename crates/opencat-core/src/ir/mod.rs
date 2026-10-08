@@ -8,6 +8,7 @@ pub mod draw_types;
 pub mod generated_image;
 pub mod media_plan;
 pub mod schema_gen;
+pub mod transport;
 
 pub use asset_id::*;
 pub use composition_info::CompositionInfo;

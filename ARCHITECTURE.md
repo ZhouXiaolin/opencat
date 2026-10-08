@@ -7,7 +7,7 @@ fetch, cache, decode, and platform APIs. DrawOp is a **Skia-compatible IR** shar
 by the native Skia engine and CanvasKit web backends.
 
 Host migration (old open paths → prepare/`open_pipeline`, HostInputs, AudioPlan,
-RenderFrame, OCIR v5): see [`docs/MIGRATION.md`](docs/MIGRATION.md).
+RenderFrame, OCIR v6): see [`docs/MIGRATION.md`](docs/MIGRATION.md).
 
 ```
 Input (XML / JSONL)
@@ -33,7 +33,7 @@ PreparedComposition::open_pipeline(scripts)  →  DefaultPipeline
   │                         (generated images: full RGBA in media plan)
   │
   ┌───────────┴───────────┐
-  Engine (Skia)           Web (CanvasKit / OCIR v5)
+  Engine (Skia)           Web (CanvasKit / OCIR v6)
   MP4 / PNG               Canvas / MP4
 ```
 
@@ -295,14 +295,16 @@ All variant payloads reference **side tables** via IDs (`PaintId`, `PathId`, `Ef
 
 `crates/opencat-core/src/ir/draw_encoding.rs`
 
-`encode_ir_envelope()` serializes a `RenderFrame` into the **OCIR v5** envelope — a single self-contained byte buffer (flat `Vec<u8>` sections) passed to JS via wasm-bindgen as a typed array. It is a pure function of the frame: no epoch/delta/history state, so a fresh decoder can decode any single frame independently.
+`encode_ir_envelope()` serializes a `RenderFrame` into the **OCIR v6** envelope — a single self-contained byte buffer (flat `Vec<u8>` sections) passed to JS via wasm-bindgen as a typed array. It is a pure function of the frame: no epoch/delta/history state, so a fresh decoder can decode any single frame independently.
 
 Envelope layout:
-- **Header**: magic `"OCIR"` (4) + version u32 (=5) + section_count u32
+- **Header**: magic `"OCIR"` (4) + version u32 (=6) + section_count u32
 - **Directory**: section_count × `{ id u32, offset u32, len u32 }`
 - **Payloads** (4-byte-aligned sections): `OPS` (1), `F32_POOL` (2), `BYTES` (3), `BYTE_RANGES` (4), `STRINGS_UTF8` (5), `STRING_RANGES` (6), `PAINTS` (7), `PATHS` (8), `CHILDREN` (9), `EFFECTS` (10), `SUBTREES` (11), `GENERATED_IMAGES` (12)
 
-Ops are a little-endian stream: `[opcode u16][flags u16][payload_len u32][payload]`, each op padded to 4-byte alignment. `GENERATED_IMAGES` carries **full RGBA every frame** for color-emoji glyphs (always present; count may be 0).
+Ops (section 1) are a **v6 dense stream**: `[opcode u8][payload]`, where the payload length is fixed per opcode by `OPCODE_PAYLOAD_LEN` — no length field and no per-op padding. A decoder advances by `1 + OPCODE_PAYLOAD_LEN[opcode]` and may read at any byte offset (the JS decoder uses `DataView`). Each `PathOp` command is promoted to its own top-level opcode (`PATH_MOVE_TO` … `PATH_ADD_ARC`), so a path command costs one header byte, not ten. `GENERATED_IMAGES` carries **full RGBA every frame** for color-emoji glyphs (always present; count may be 0).
+
+An optional **compressed transport container** (issue #46) wraps a raw envelope for bandwidth-sensitive hops: magic `"OCZ1"` + version u32 + codec u8 + reserved[3] + uncompressed_len u32 + a **raw-deflate** payload. Core produces it (`ir::transport::compress_ir_envelope`); browsers decode it with `DecompressionStream('deflate-raw')` via `decodeDrawEnvelope()`. It never replaces the in-memory envelope the wasm bridge hands to JS.
 
 On the JS side (`crates/opencat-web/web/src/draw-ir.ts`):
 - `decodeFrame()` parses the envelope into a `DecodedFrame`
@@ -399,7 +401,7 @@ WebRenderer::build_frame_ir(&mut self, frame: u32) -> Result<Vec<u8>>
 ```
 1. `pipeline.render_frame(frame)` → `RenderFrame`
 2. `WebFrameConsumer::consume_frame()` (web consumer):
-   - `encode_render_frame_envelope()` → `encode_ir_envelope()` (OCIR v5 bytes; generated-image RGBA is already in the frame)
+   - `encode_render_frame_envelope()` → `encode_ir_envelope()` (OCIR v6 bytes; generated-image RGBA is already in the frame)
 3. Returns the binary envelope to JS
 
 ### 8c. JS CanvasKit Execution
@@ -495,7 +497,7 @@ Dispatch is chosen automatically from op capability flags; `spec.backend` can fo
 | `crates/opencat-core/src/ir/draw_op.rs` | `DrawOp` enum (canonical draw IR) |
 | `crates/opencat-core/src/ir/draw_types.rs` | Side-table ID types (`PaintId`, `PathId`, `EffectId`, etc.) |
 | `crates/opencat-core/src/ir/draw_frame.rs` | `DrawOpFrame`, `RenderFrame` |
-| `crates/opencat-core/src/ir/draw_encoding.rs` | OCIR v5 envelope encoding (`encode_ir_envelope`) |
+| `crates/opencat-core/src/ir/draw_encoding.rs` | OCIR v6 envelope encoding (`encode_ir_envelope`) |
 | `crates/opencat-core/src/ir/media_plan.rs` | `FrameMediaPlan` |
 | `crates/opencat-core/src/ir/generated_image.rs` | `GeneratedImageTable` (color-emoji) |
 | `crates/opencat-core/src/lifecycle/` | `CompositionDraft` → `prepare` → `PreparedComposition::open_pipeline()` |

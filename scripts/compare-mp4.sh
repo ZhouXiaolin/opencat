@@ -4,22 +4,25 @@
 # Methodology: hard pixel metrics (k3diff), NOT SSIM — SSIM is too coarse and
 # hides localized misalignment. Each sample is judged by mae / maxd / p8.
 #
-# Design decision (why not whole web MP4?):
-# - Inspect oracle / web ground truth is raw RGBA from web/test-oracle.html
-#   (CanvasKit readPixels), not WebAV exportMp4.
-# - Facade leaves @webav/av-cliper external; headless whole-video export is not
-#   the inspect contract and re-encoding would muddy the metrics.
-# - So this script samples frames every INTERVAL_SECS (default 0.5s) on both
-#   engine and web through opencat-web-compare, which reuses
-#   opencat_engine::inspect::browser::{BrowserHarness, WebAppServer}.
+# Two transports for the web render:
+# - default (hex): web/test-oracle.html reads each sampled frame back with
+#   CanvasKit readPixels and ships raw RGBA hex. Exact, but a long sweep OOMs
+#   the tab after a few hundred frames.
+# - WEB_VIDEO=1: the whole selected range is rendered in-page, encoded with
+#   WebCodecs, muxed with MP4Box.js, and returned as one H.264 MP4 that ffmpeg
+#   decodes. No chunking needed for a full every-frame sweep. Facade exportMp4
+#   is still not used (external @webav/av-cliper + OPFS + DOM worker).
 #
-# For whole-video native-vs-reference comparison, use tools/k3diff.py.
+# For whole-video native-vs-reference comparison offline, use tools/k3diff.py.
 #
 # Usage (from branch worktree):
 #   ./scripts/compare-mp4.sh
 #   ./scripts/compare-mp4.sh examples/profile-showcase.jsonl
 #   INTERVAL_SECS=0.5 MAX_SAMPLES=20 ./scripts/compare-mp4.sh examples/profile-showcase.jsonl
 #   MAX_MAE=1.0 MAX_FRAC=0.02 ./scripts/compare-mp4.sh examples/xhs-neo-brutalism.xml
+#   # whole every-frame sweep against a reference video, one MP4:
+#   WEB_VIDEO=1 INTERVAL_SECS=0.033333 REFERENCE=~/ref/k3-promo.mp4 \
+#     ./scripts/compare-mp4.sh examples/k3-promo.xml
 #
 # Env:
 #   INTERVAL_SECS       sample period in seconds (default 0.5)
@@ -28,6 +31,10 @@
 #   MAX_MAXD            per-frame max-channel-delta ceiling (0 = off)
 #   FRAC_THRESHOLD      k3diff ladder threshold for the fraction gate (default 8)
 #   MAX_FRAC            allowed fraction above FRAC_THRESHOLD (default 0.02)
+#   WEB_VIDEO=1         transport as a single in-page H.264 MP4 (no chunking)
+#   REFERENCE           compare the web render against this video instead of
+#                       the native engine (adds --reference)
+#   START_FRAME/END_FRAME  restrict the sampled frame range
 #   SAVE_ALL=1          keep engine/web/diff PNGs for every sample
 #   SKIP_BUILD=1        reuse existing opencat-web-compare binary
 #   CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL
@@ -117,6 +124,18 @@ args=(
 )
 if [ -n "${MAX_SAMPLES:-}" ]; then
     args+=(--max-samples "$MAX_SAMPLES")
+fi
+if [ "${WEB_VIDEO:-0}" = "1" ]; then
+    args+=(--web-video)
+fi
+if [ -n "${REFERENCE:-}" ]; then
+    args+=(--reference "$REFERENCE")
+fi
+if [ -n "${START_FRAME:-}" ]; then
+    args+=(--start-frame "$START_FRAME")
+fi
+if [ -n "${END_FRAME:-}" ]; then
+    args+=(--end-frame "$END_FRAME")
 fi
 if [ "${SAVE_ALL:-0}" = "1" ]; then
     args+=(--save-all)

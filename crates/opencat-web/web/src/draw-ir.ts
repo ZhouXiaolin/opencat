@@ -8,6 +8,11 @@ import {
   OP,
   IR_MAGIC,
   IR_VERSION,
+  IR_COMPRESSED_MAGIC,
+  IR_COMPRESSED_VERSION,
+  CODEC_DEFLATE_RAW,
+  CONTAINER_HEADER_LEN,
+  OPCODE_PAYLOAD_LEN,
   PATH_OP_SUB,
   PATH_OP_F32_WIDTHS,
   BLEND_MODE,
@@ -90,7 +95,6 @@ const OP_CLEAR_LINE_DASH = OP.CLEAR_LINE_DASH;
 const OP_SET_GLOBAL_ALPHA = OP.SET_GLOBAL_ALPHA;
 const OP_SET_ANTI_ALIAS = OP.SET_ANTI_ALIAS;
 const OP_BEGIN_PATH = OP.BEGIN_PATH;
-const OP_PATH = OP.PATH_OP;
 const OP_FILL_PATH = OP.FILL_PATH;
 const OP_STROKE_PATH = OP.STROKE_PATH;
 const OP_CLIP_PATH = OP.CLIP_PATH;
@@ -111,6 +115,21 @@ const OP_RUNTIME_EFFECT = OP.RUNTIME_EFFECT;
 const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
 const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
 const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
+// v6: each PathOp command is promoted to its own top-level opcode (the old
+// OP_PATH / PATH_OP sub-opcode form is gone). One op = one path command.
+const OP_PATH_MOVE_TO = OP.PATH_MOVE_TO;
+const OP_PATH_LINE_TO = OP.PATH_LINE_TO;
+const OP_PATH_QUAD_TO = OP.PATH_QUAD_TO;
+const OP_PATH_CUBIC_TO = OP.PATH_CUBIC_TO;
+const OP_PATH_CLOSE = OP.PATH_CLOSE;
+const OP_PATH_ADD_RECT = OP.PATH_ADD_RECT;
+const OP_PATH_ADD_RRECT = OP.PATH_ADD_RRECT;
+const OP_PATH_ADD_OVAL = OP.PATH_ADD_OVAL;
+const OP_PATH_ADD_ARC = OP.PATH_ADD_ARC;
+/// Lowest v6 path opcode (records the contiguous path-command range).
+const OP_PATH_FIRST = OP_PATH_MOVE_TO;
+/// Highest v6 path opcode.
+const OP_PATH_LAST = OP_PATH_ADD_ARC;
 
 const NO_PAINT = 0xffff_ffff;
 
@@ -264,7 +283,6 @@ class BinaryReader {
 }
 
 const staticImageCache = new Map<string, Image>();
-const pathCache = new WeakMap<object, Path>();
 const effectCache = new Map<bigint, RuntimeEffect>();
 // Core-generated color-emoji glyphs (issue #10). In v5+ (issue #45) the OCIR is
 // self-contained — no epoch/delta — so the cache is keyed purely by the glyph id.
@@ -431,6 +449,21 @@ export function renderEncodedDrawFrame(
   const subtreeEntries = new Map<number, OpEntry[]>();
   const transientImageCache = new Map<string, Image>();
 
+  // Deterministic per-frame disposer. Everything this frame allocates on the
+  // CanvasKit/WASM heap lands here and is freed after the surface flush — never
+  // left to the GC, which cannot keep up with a per-frame render loop (the
+  // cause of the ~100-frame tab crash). Freeing earlier than the flush crashes
+  // with `Paint instance already deleted` / `PathBuilder instance already
+  // deleted`: CanvasKit resolves the deferred display list at flush time.
+  const frameDisposables: Array<{ delete: () => void }> = [];
+  // Per-frame path dedupe (id → Path), so repeated DrawPath ops in one frame
+  // build each path once without keeping it alive across frames.
+  const framePathCache = new Map<number, Path>();
+  const dispose: Dispose = (obj) => {
+    if (obj && typeof obj.delete === 'function') frameDisposables.push(obj as { delete: () => void });
+    return obj;
+  };
+
   const resolveFrameImage = (image: DecodedImageRef): Image | null => (
     resolveImage(CK, image, options.surface, transientImageCache)
   );
@@ -440,12 +473,14 @@ export function renderEncodedDrawFrame(
     let currentPathBuilder: PathBuilder | undefined;
 
     const ensurePathBuilder = () => {
-      currentPathBuilder ??= new CK.PathBuilder();
+      currentPathBuilder ??= dispose(new CK.PathBuilder());
       return currentPathBuilder;
     };
 
     const snapshotPath = () => {
-      currentPathBuilder ??= new CK.PathBuilder();
+      // The snapshot is handed to the canvas; the builder is freed at walk end
+      // (the snapshot owns its own memory).
+      currentPathBuilder ??= dispose(new CK.PathBuilder());
       return currentPathBuilder.snapshot();
     };
 
@@ -465,8 +500,8 @@ export function renderEncodedDrawFrame(
           const bounds = readRect4(p);
           const paintId = p.u32();
           const alpha = p.f32();
-          let paint = (flags & 0b10) !== 0 ? buildPaint(CK, frame.paints[paintId], 1) : null;
-          if ((flags & 0b10) === 0 && alpha < 1) paint = new CK.Paint();
+          let paint = (flags & 0b10) !== 0 ? buildPaint(CK, frame.paints[paintId], 1, dispose) : null;
+          if ((flags & 0b10) === 0 && alpha < 1) paint = dispose(new CK.Paint());
           if (paint && alpha < 1) paint.setAlphaf(alpha);
           targetCanvas.saveLayer(paint ?? undefined, (flags & 0b01) !== 0 ? ckRect(CK, bounds) : null);
           break;
@@ -526,43 +561,52 @@ export function renderEncodedDrawFrame(
           state.antiAlias = p.u8() !== 0;
           break;
         case OP_BEGIN_PATH:
-          currentPathBuilder?.delete();
-          currentPathBuilder = new CK.PathBuilder();
+          // The previous builder (if any) is already registered with the walk
+          // disposer; just start a fresh one.
+          currentPathBuilder = dispose(new CK.PathBuilder());
           break;
-        case OP_PATH:
-          applyPathPayload(CK, ensurePathBuilder(), p);
+        case OP_PATH_MOVE_TO:
+        case OP_PATH_LINE_TO:
+        case OP_PATH_QUAD_TO:
+        case OP_PATH_CUBIC_TO:
+        case OP_PATH_CLOSE:
+        case OP_PATH_ADD_RECT:
+        case OP_PATH_ADD_RRECT:
+        case OP_PATH_ADD_OVAL:
+        case OP_PATH_ADD_ARC:
+          applyPathPayload(CK, ensurePathBuilder(), p, entry.opcode - OP_PATH_FIRST);
           break;
         case OP_FILL_PATH: {
           const path = snapshotPath();
-          targetCanvas.drawPath(path, buildScriptPaint(CK, state, 'fill'));
-          path.delete?.();
+          targetCanvas.drawPath(path, dispose(buildScriptPaint(CK, state, 'fill', dispose)));
+          dispose(path);
           break;
         }
         case OP_STROKE_PATH: {
           const path = snapshotPath();
-          targetCanvas.drawPath(path, buildScriptPaint(CK, state, 'stroke'));
-          path.delete?.();
+          targetCanvas.drawPath(path, dispose(buildScriptPaint(CK, state, 'stroke', dispose)));
+          dispose(path);
           break;
         }
         case OP_CLIP_PATH: {
           const path = snapshotPath();
           targetCanvas.clipPath(path, CK.ClipOp.Intersect, p.u8() !== 0);
-          path.delete?.();
+          dispose(path);
           break;
         }
         case OP_CLEAR:
           targetCanvas.clear(CK.Color4f(p.f32(), p.f32(), p.f32(), p.f32()));
           break;
         case OP_PAINT:
-          targetCanvas.drawPaint(buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawPaint(buildPaintById(CK, frame, p.u32(), dispose));
           break;
         case OP_RECT:
-          targetCanvas.drawRect(ckRect(CK, readRect4(p)), buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawRect(ckRect(CK, readRect4(p)), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         case OP_R_RECT: {
           const rect = readRect4(p);
           const radii = p.f32Array(4);
-          targetCanvas.drawRRect(ckRRect(rect, radii), buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawRRect(ckRRect(rect, radii), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
         case OP_D_RRECT: {
@@ -571,37 +615,39 @@ export function renderEncodedDrawFrame(
           targetCanvas.drawDRRect(
             ckRRect(outer.rect, outer.radii),
             ckRRect(inner.rect, inner.radii),
-            buildPaintById(CK, frame, p.u32()),
+            buildPaintById(CK, frame, p.u32(), dispose),
           );
           break;
         }
         case OP_OVAL:
-          targetCanvas.drawOval(ckRect(CK, readRect4(p)), buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawOval(ckRect(CK, readRect4(p)), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         case OP_CIRCLE:
-          targetCanvas.drawCircle(p.f32(), p.f32(), p.f32(), buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawCircle(p.f32(), p.f32(), p.f32(), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         case OP_ARC: {
           const rect = readRect4(p);
           const arcStart = p.f32();
           const sweep = p.f32();
           const useCenter = p.u8() !== 0;
-          targetCanvas.drawArc(ckRect(CK, rect), arcStart, sweep, useCenter, buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawArc(ckRect(CK, rect), arcStart, sweep, useCenter, buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
         case OP_LINE:
-          targetCanvas.drawLine(p.f32(), p.f32(), p.f32(), p.f32(), buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawLine(p.f32(), p.f32(), p.f32(), p.f32(), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         case OP_POINTS: {
           const mode = p.u32();
           const pointStart = p.u32();
           const pointsLen = p.u32();
-          targetCanvas.drawPoints(mapPointMode(CK, mode), frame.f32Pool.slice(pointStart, pointStart + pointsLen), buildPaintById(CK, frame, p.u32()));
+          targetCanvas.drawPoints(mapPointMode(CK, mode), frame.f32Pool.slice(pointStart, pointStart + pointsLen), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
         case OP_DRAW_PATH: {
-          const path = buildPathById(CK, frame, p.u32());
-          targetCanvas.drawPath(path, buildPaintById(CK, frame, p.u32()));
+          // framePathCache dedupes within the frame; the path (and the builder
+          // that snapshotted it) are freed after the surface flush.
+          const path = buildPathById(CK, frame, p.u32(), framePathCache, dispose);
+          targetCanvas.drawPath(path, buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
         case OP_IMAGE: {
@@ -620,7 +666,7 @@ export function renderEncodedDrawFrame(
               `resolveFrameImage returned null for ${assetDesc}`,
             );
           }
-          targetCanvas.drawImage(ckImage, x, y, paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId));
+          targetCanvas.drawImage(ckImage, x, y, paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId, dispose));
           break;
         }
         case OP_IMAGE_RECT: {
@@ -641,7 +687,7 @@ export function renderEncodedDrawFrame(
             );
           }
           const sourceRect = hasSrc ? ckRect(CK, src) : imageBounds(CK, ckImage);
-          targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? new CK.Paint() : buildPaintById(CK, frame, paintId));
+          targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? dispose(new CK.Paint()) : buildPaintById(CK, frame, paintId, dispose));
           break;
         }
         case OP_LOTTIE_RECT: {
@@ -665,7 +711,7 @@ export function renderEncodedDrawFrame(
           break;
         }
         case OP_RUNTIME_EFFECT:
-          drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeOnCanvas, executeSubtreeOnCanvas, resolveFrameImage);
+          drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeOnCanvas, executeSubtreeOnCanvas, resolveFrameImage, dispose);
           break;
         case OP_REPLAY_RANGE:
           executeRange(p.u32(), p.u32());
@@ -685,7 +731,6 @@ export function renderEncodedDrawFrame(
     };
 
     executeRange(start, len);
-    currentPathBuilder?.delete();
   };
 
   const executeRangeOnCanvas: ExecuteRangeOnCanvas = (targetCanvas, start, len) => {
@@ -707,6 +752,13 @@ export function renderEncodedDrawFrame(
     executeRangeOnCanvas(ckCanvas, 0, entries.length);
   } finally {
     try { options.surface?.flush?.(); } catch { /* ignore CanvasKit cleanup flush failures */ }
+    // Free this frame's CanvasKit objects only after the flush above has
+    // consumed the display list (reverse order: dependents first).
+    for (let i = frameDisposables.length - 1; i >= 0; i--) {
+      try { frameDisposables[i].delete(); } catch { /* already freed by CanvasKit */ }
+    }
+    frameDisposables.length = 0;
+    framePathCache.clear();
     for (const image of transientImageCache.values()) {
       try { image.delete?.(); } catch { /* ignore CanvasKit cleanup failures */ }
     }
@@ -860,15 +912,19 @@ function requireSection(sections: Map<number, Uint8Array>, id: number): Uint8Arr
 }
 
 function parseOps(ops: Uint8Array): OpEntry[] {
-  const view = new DataView(ops.buffer, ops.byteOffset, ops.byteLength);
   const entries: OpEntry[] = [];
   let offset = 0;
   while (offset < ops.byteLength) {
-    const opcode = view.getUint16(offset, true);
-    const payloadLen = view.getUint32(offset + 4, true);
-    const payloadOffset = offset + 8;
+    // v6 dense stream: [opcode: u8][fixed-length payload], no length field and
+    // no padding. Advance by 1 + OPCODE_PAYLOAD_LEN[opcode].
+    const opcode = ops[offset]!;
+    const payloadLen = OPCODE_PAYLOAD_LEN[opcode];
+    if (payloadLen === undefined) {
+      throw new Error(`Unknown OpenCat IR opcode ${opcode} at offset ${offset}`);
+    }
+    const payloadOffset = offset + 1;
     entries.push({ opcode, payloadOffset, payloadLen });
-    offset = align4(payloadOffset + payloadLen);
+    offset = payloadOffset + payloadLen;
   }
   return entries;
 }
@@ -1136,32 +1192,42 @@ function readImageRefFromReader(reader: BinaryReader, strings: string[]): Decode
   return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
 }
 
-function buildPaintById(CK: CanvasKit, frame: DecodedFrame, paintId: number): Paint {
-  return buildPaint(CK, frame.paints[paintId], 1);
+// Every CanvasKit object whose lifetime ends with the frame is registered with
+// the current scope's disposer and freed at the end of the op-stream walk. This
+// is deterministic cleanup, not GC-dependent: without it, a long render loop
+// (playback, or a 495-frame oracle sweep) grows the WASM heap until the tab
+// OOM-crashes (~100 frames). Caches that outlive a frame (paths, images,
+// effects) are intentionally NOT tracked here.
+type Dispose = <T extends { delete?: () => void } | null | undefined>(obj: T) => T;
+
+function buildPaintById(CK: CanvasKit, frame: DecodedFrame, paintId: number, dispose: Dispose): Paint {
+  return buildPaint(CK, frame.paints[paintId], 1, dispose);
 }
 
-function buildPaint(CK: CanvasKit, spec: PaintSpec | undefined, alpha: number): Paint {
+function buildPaint(CK: CanvasKit, spec: PaintSpec | undefined, alpha: number, dispose: Dispose): Paint {
   const paint = new CK.Paint();
+  dispose(paint);
   if (!spec) return paint;
   paint.setAntiAlias(spec.antiAlias);
   paint.setStyle(mapPaintStyle(CK, spec.style));
   paint.setBlendMode(mapBlendMode(CK, spec.blendMode));
-  applyFill(CK, paint, spec.fill, alpha);
+  applyFill(CK, paint, spec.fill, alpha, dispose);
   if (spec.stroke) {
     paint.setStrokeWidth(spec.stroke.width);
     paint.setStrokeCap(mapStrokeCap(CK, spec.stroke.cap));
     paint.setStrokeJoin(mapStrokeJoin(CK, spec.stroke.join));
     paint.setStrokeMiter(spec.stroke.miterLimit);
   }
-  if (spec.imageFilter) paint.setImageFilter(buildImageFilter(CK, spec.imageFilter));
-  if (spec.colorFilter) paint.setColorFilter(buildColorFilter(CK, spec.colorFilter));
-  if (spec.maskFilter) paint.setMaskFilter(buildMaskFilter(CK, spec.maskFilter));
-  if (spec.pathEffect) paint.setPathEffect(buildPathEffect(CK, spec.pathEffect));
+  if (spec.imageFilter) paint.setImageFilter(buildImageFilter(CK, spec.imageFilter, dispose));
+  if (spec.colorFilter) paint.setColorFilter(buildColorFilter(CK, spec.colorFilter, dispose));
+  if (spec.maskFilter) paint.setMaskFilter(buildMaskFilter(CK, spec.maskFilter, dispose));
+  if (spec.pathEffect) paint.setPathEffect(buildPathEffect(CK, spec.pathEffect, dispose));
   return paint;
 }
 
-function buildScriptPaint(CK: CanvasKit, state: RenderState, style: 'fill' | 'stroke'): Paint {
+function buildScriptPaint(CK: CanvasKit, state: RenderState, style: 'fill' | 'stroke', dispose: Dispose): Paint {
   const paint = new CK.Paint();
+  dispose(paint);
   const color = [...(style === 'fill' ? state.fillColor : state.strokeColor)] as [number, number, number, number];
   color[3] *= state.globalAlpha;
   paint.setColor(CK.Color4f(color[0], color[1], color[2], color[3]));
@@ -1172,19 +1238,20 @@ function buildScriptPaint(CK: CanvasKit, state: RenderState, style: 'fill' | 'st
     paint.setStrokeCap(mapLineCap(CK, state.lineCap));
     paint.setStrokeJoin(mapLineJoin(CK, state.lineJoin));
     if (state.lineDash) {
-      paint.setPathEffect(CK.PathEffect.MakeDash(state.lineDash.intervals, state.lineDash.phase));
+      paint.setPathEffect(dispose(CK.PathEffect.MakeDash(state.lineDash.intervals, state.lineDash.phase)));
     }
   }
   return paint;
 }
 
-function applyFill(CK: CanvasKit, paint: Paint, fill: FillSpec, alpha: number): void {
+function applyFill(CK: CanvasKit, paint: Paint, fill: FillSpec, alpha: number, dispose: Dispose): void {
   if (fill.type === 'solid') {
     paint.setColor(CK.Color4f(fill.color[0], fill.color[1], fill.color[2], fill.color[3] * alpha));
     paint.setShader(null);
     return;
   }
   const shader = buildShader(CK, fill);
+  dispose(shader);
   paint.setShader(shader);
 }
 
@@ -1211,63 +1278,67 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader
   );
 }
 
-function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec): ImageFilter | null {
+function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec, dispose: Dispose): ImageFilter | null {
   if (spec.type === 'blur') {
-    return CK.ImageFilter.MakeBlur(
+    return dispose(CK.ImageFilter.MakeBlur(
       spec.sigmaX,
       spec.sigmaY,
       spec.decal ? CK.TileMode.Decal : CK.TileMode.Clamp,
       null,
-    );
+    ));
   }
   if (spec.type === 'dropShadow') {
     const make = spec.keepContent
       ? CK.ImageFilter.MakeDropShadow
       : CK.ImageFilter.MakeDropShadowOnly;
-    return make(
+    return dispose(make(
       spec.dx,
       spec.dy,
       spec.sigmaX,
       spec.sigmaY,
       CK.Color4f(spec.color[0], spec.color[1], spec.color[2], spec.color[3]),
       null,
-    );
+    ));
   }
-  if (spec.type === 'colorFilter') return CK.ImageFilter.MakeColorFilter(buildColorFilter(CK, spec.filter), null);
-  return CK.ImageFilter.MakeCompose(buildImageFilter(CK, spec.outer), buildImageFilter(CK, spec.inner));
+  if (spec.type === 'colorFilter') return dispose(CK.ImageFilter.MakeColorFilter(buildColorFilter(CK, spec.filter, dispose), null));
+  return dispose(CK.ImageFilter.MakeCompose(buildImageFilter(CK, spec.outer, dispose), buildImageFilter(CK, spec.inner, dispose)));
 }
 
-function buildColorFilter(CK: CanvasKit, spec: ColorFilterSpec): ColorFilter {
-  if (spec.type === 'matrix') return CK.ColorFilter.MakeMatrix(spec.matrix);
-  if (spec.type === 'blendColor') return CK.ColorFilter.MakeBlend(CK.Color4f(spec.color[0], spec.color[1], spec.color[2], spec.color[3]), mapBlendMode(CK, spec.mode));
-  if (spec.type === 'linearToSrgbGamma') return CK.ColorFilter.MakeLinearToSRGBGamma();
-  return CK.ColorFilter.MakeSRGBToLinearGamma();
+function buildColorFilter(CK: CanvasKit, spec: ColorFilterSpec, dispose: Dispose): ColorFilter {
+  if (spec.type === 'matrix') return dispose(CK.ColorFilter.MakeMatrix(spec.matrix));
+  if (spec.type === 'blendColor') return dispose(CK.ColorFilter.MakeBlend(CK.Color4f(spec.color[0], spec.color[1], spec.color[2], spec.color[3]), mapBlendMode(CK, spec.mode)));
+  if (spec.type === 'linearToSrgbGamma') return dispose(CK.ColorFilter.MakeLinearToSRGBGamma());
+  return dispose(CK.ColorFilter.MakeSRGBToLinearGamma());
 }
 
-function buildMaskFilter(CK: CanvasKit, spec: MaskFilterSpec): MaskFilter {
-  return CK.MaskFilter.MakeBlur(mapBlurStyle(CK, spec.style), spec.sigma, spec.respectCtm);
+function buildMaskFilter(CK: CanvasKit, spec: MaskFilterSpec, dispose: Dispose): MaskFilter {
+  return dispose(CK.MaskFilter.MakeBlur(mapBlurStyle(CK, spec.style), spec.sigma, spec.respectCtm));
 }
 
-function buildPathEffect(CK: CanvasKit, spec: PathEffectSpec): PathEffect {
-  return CK.PathEffect.MakeDash(spec.intervals, spec.phase);
+function buildPathEffect(CK: CanvasKit, spec: PathEffectSpec, dispose: Dispose): PathEffect {
+  return dispose(CK.PathEffect.MakeDash(spec.intervals, spec.phase));
 }
 
-function buildPathById(CK: CanvasKit, frame: DecodedFrame, id: number): Path {
+function buildPathById(CK: CanvasKit, frame: DecodedFrame, id: number, pathCache: Map<number, Path>, dispose: Dispose): Path {
+  // Cache is frame-scoped: `frame.paths[id]` spec objects are fresh per decoded
+  // frame, so a module-level WebMap keyed on them would keep every frame's
+  // paths alive until GC — the same unbounded growth the disposer exists to
+  // stop. Keyed by id it is freed with the frame.
+  const cached = pathCache.get(id);
+  if (cached) return cached;
   const spec = frame.paths[id];
   if (!spec) throw new Error(`Missing path ${id}`);
-  const cached = pathCache.get(spec);
-  if (cached) return cached;
-  const builder = new CK.PathBuilder();
+  const builder = dispose(new CK.PathBuilder());
   for (const op of spec.ops) applyPathCommand(CK, builder, op);
-  const path = builder.snapshot();
+  const path = dispose(builder.snapshot());
   path.setFillType?.(mapFillType(CK, spec.fillType));
-  builder.delete?.();
-  pathCache.set(spec, path);
+  pathCache.set(id, path);
   return path;
 }
 
-function applyPathPayload(CK: CanvasKit, builder: PathBuilder, payload: Payload): void {
-  const kind = payload.u16();
+function applyPathPayload(CK: CanvasKit, builder: PathBuilder, payload: Payload, kind: number): void {
+  // v6: `kind` is the PathOp sub-opcode (0..=8) carried by the top-level
+  // opcode; the payload is the raw f32 command args (no embedded sub-opcode).
   const width = PATH_OP_F32_WIDTHS[kind] ?? 0;
   applyPathCommand(CK, builder, { kind, values: payload.f32Array(width) });
 }
@@ -1417,6 +1488,7 @@ function drawRuntimeEffect(
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
   executeSubtreeOnCanvas: ExecuteSubtreeOnCanvas,
   resolveFrameImage: (image: DecodedImageRef) => Image | null,
+  dispose: Dispose,
 ): void {
   const effectId = payload.u32();
   const uniformRangeId = payload.u32();
@@ -1448,10 +1520,10 @@ function drawRuntimeEffect(
   const bytes = range ? frame.rawBytes.subarray(range.start, range.start + range.len) : new Uint8Array();
   const uniforms = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
   const children = frame.children.slice(childStart, childStart + childLen)
-    .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas, executeSubtreeOnCanvas, resolveFrameImage))
+    .map((child) => buildRuntimeChildShader(CK, frame, child, dst, executeRangeOnCanvas, executeSubtreeOnCanvas, resolveFrameImage, dispose))
     .filter((child): child is Shader => child !== null);
-  const shader = children.length > 0 ? effect.makeShaderWithChildren(uniforms, children) : effect.makeShader(uniforms);
-  const paint = new CK.Paint();
+  const shader = dispose(children.length > 0 ? effect.makeShaderWithChildren(uniforms, children) : effect.makeShader(uniforms));
+  const paint = dispose(new CK.Paint());
   paint.setShader(shader);
   canvas.drawRect(ckRect(CK, dst), paint);
 }
@@ -1464,12 +1536,13 @@ function buildRuntimeChildShader(
   executeRangeOnCanvas: ExecuteRangeOnCanvas,
   executeSubtreeOnCanvas: ExecuteSubtreeOnCanvas,
   resolveFrameImage: (image: DecodedImageRef) => Image | null,
+  dispose: Dispose,
 ): Shader | null {
-  if (child.type === 'shader') return buildShader(CK, child.shader);
+  if (child.type === 'shader') return dispose(buildShader(CK, child.shader));
   if (child.type === 'image') {
     const img = resolveFrameImage(child.image);
     if (!img?.makeShaderOptions) return null;
-    return img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode.Linear, CK.MipmapMode.None);
+    return dispose(img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode.Linear, CK.MipmapMode.None));
   }
   const width = Math.max(1, Math.ceil(dst.x + dst.width));
   const height = Math.max(1, Math.ceil(dst.y + dst.height));
@@ -1479,7 +1552,8 @@ function buildRuntimeChildShader(
   else executeRangeOnCanvas(canvas, child.range.start, child.range.len);
   const picture = recorder.finishRecordingAsPicture();
   recorder.delete();
-  return picture?.makeShader?.(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear) ?? null;
+  dispose(picture);
+  return dispose(picture?.makeShader?.(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode?.Linear) ?? null);
 }
 
 function readRect4(payload: Payload): Rect4 {
@@ -1571,13 +1645,70 @@ function align4(value: number): number {
   return (value + 3) & ~3;
 }
 
+/// True if `bytes` is a compressed OCIR transport container ("OCZ1"), as opposed
+/// to a raw "OCIR" envelope.
+export function isEncodedDrawEnvelope(body: ArrayBuffer | Uint8Array): boolean {
+  const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
+  return (
+    bytes.byteLength >= 4 &&
+    bytes[0] === IR_COMPRESSED_MAGIC[0] &&
+    bytes[1] === IR_COMPRESSED_MAGIC[1] &&
+    bytes[2] === IR_COMPRESSED_MAGIC[2] &&
+    bytes[3] === IR_COMPRESSED_MAGIC[3]
+  );
+}
+
+/// Unwrap a compressed OCIR container to the raw "OCIR" envelope, using the
+/// platform raw-deflate decoder (`DecompressionStream('deflate-raw')`). Passing
+/// a raw envelope through unchanged keeps callers agnostic to the wire variant.
+///
+/// The compressed form is the optional bandwidth-saving hop produced by core's
+/// `transport::compress_ir_envelope`; the raw form is what the wasm bridge emits
+/// in-process. Throws if the container is malformed or the codec is unsupported.
+export async function decodeDrawEnvelope(
+  body: ArrayBuffer | Uint8Array,
+): Promise<Uint8Array> {
+  const bytes = body instanceof Uint8Array ? body : new Uint8Array(body);
+  if (!isEncodedDrawEnvelope(bytes)) return bytes;
+
+  if (bytes.byteLength < CONTAINER_HEADER_LEN) {
+    throw new Error(`Truncated OpenCat IR container: needs ${CONTAINER_HEADER_LEN} bytes, got ${bytes.byteLength}`);
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const version = view.getUint32(4, true);
+  if (version !== IR_COMPRESSED_VERSION) {
+    throw new Error(`Unsupported OpenCat IR container version ${version}`);
+  }
+  const codec = bytes[8];
+  if (codec !== CODEC_DEFLATE_RAW) {
+    throw new Error(`Unsupported OpenCat IR codec ${codec}`);
+  }
+  const expectedLen = view.getUint32(12, true);
+  const payload = bytes.subarray(CONTAINER_HEADER_LEN);
+
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error("DecompressionStream unavailable; cannot decode a compressed OCIR container here");
+  }
+  const stream = new Blob([payload as BlobPart]).stream().pipeThrough(
+    new DecompressionStream('deflate-raw'),
+  );
+  const raw = new Uint8Array(await new Response(stream).arrayBuffer());
+  if (raw.byteLength !== expectedLen) {
+    throw new Error(`OpenCat IR container length mismatch: header ${expectedLen}, inflated ${raw.byteLength}`);
+  }
+  if (raw.byteLength < 4 || !(raw[0] === IR_MAGIC[0] && raw[1] === IR_MAGIC[1] && raw[2] === IR_MAGIC[2] && raw[3] === IR_MAGIC[3])) {
+    throw new Error('Inflated OpenCat IR container is not an OCIR envelope');
+  }
+  return raw;
+}
+
 // --- Test-only seam (issue #45) -------------------------------------------
 // The decoder mutates module-level generated-image state. Exposing a narrow
 // hook lets unit tests drive `decodeFrame` directly with a hand-built envelope
 // and inspect/observe the cache identity semantics without a full CanvasKit +
 // GPU surface. Not part of the public render API.
 export const __generatedImageTestSeam = {
-  /** Decode a raw OCIR v5 envelope without rendering. Exposed for tests. */
+  /** Decode a raw OCIR v6 envelope without rendering. Exposed for tests. */
   decode: (bytes: Uint8Array) => decodeFrame(bytes),
   /** Number of generated-image RGBA entries currently held. */
   cacheSize: () => {

@@ -22,6 +22,13 @@ pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 pub const THREE_API_RUNTIME: &str = include_str!("three_api.js");
 
+// JSX frontend (`parse::jsx`): element factory + `use*` registry + module
+// loader, and the JSX->h() source transform. Installed in every script realm
+// (the per-frame driver produced by `parse::jsx` depends on them); the
+// transform is also used by the host one-shot extraction pass.
+pub const JSX_RUNTIME: &str = include_str!("jsx_runtime.js");
+pub const JSX_TRANSFORM: &str = include_str!("jsx_transform.js");
+
 pub const ANIMATION_BOOTSTRAP: &str = include_str!("animation/bootstrap.js");
 pub const ANIMATION_CORE: &str = include_str!("animation/core.js");
 pub const ANIMATION_FACADE: &str = include_str!("animation/facade.js");

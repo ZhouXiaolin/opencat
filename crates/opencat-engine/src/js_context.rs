@@ -187,6 +187,19 @@ pub struct RqJsContext {
     _runtime: Runtime,
 }
 
+impl RqJsContext {
+    /// Evaluate `code` and marshal the result back as JSON.
+    ///
+    /// Used by the JSX frontend host pass (transform + tree extraction), where
+    /// the realm is throwaway and the only output is a value.
+    pub fn eval_json(&self, code: &str) -> anyhow::Result<JsonValue> {
+        self.context.with(|ctx| -> anyhow::Result<JsonValue> {
+            let value: Value = map_js_result(ctx.eval(code), &ctx, "script eval")?;
+            rq_to_json(&value)
+        })
+    }
+}
+
 impl JsContext for RqJsContext {
     fn new() -> anyhow::Result<Self> {
         let runtime = Runtime::new()?;

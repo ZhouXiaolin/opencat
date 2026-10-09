@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/opencat-core",
     "crates/opencat-engine",
+    "crates/opencat-liangyi",
     "crates/opencat-three",
     "crates/opencat-web",
     "crates/opencat",

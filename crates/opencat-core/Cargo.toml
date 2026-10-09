@@ -9,6 +9,9 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+# Liangyi（两仪）效果内核语言：script::effects_lambda 已抽为独立 crate，
+# 经 lib.rs 的 `pub use opencat_liangyi;` 再导出。
+opencat-liangyi = { path = "../opencat-liangyi" }
 # GLB/glTF 解析一律走现成 crate（容器/accessor/后续材质层级），不再手写。
 # default-features = false 关掉 import（会拖 image 解码栈）；utils 提供遍历工具。
 gltf = { version = "1.4", default-features = false, features = ["utils"] }

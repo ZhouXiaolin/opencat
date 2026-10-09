@@ -170,6 +170,17 @@ pub fn parse_with_base_dir(
     input: &str,
     base_dir: Option<&Path>,
 ) -> anyhow::Result<ParsedComposition> {
+    parse_with_base_dir_and_fonts(input, base_dir, None)
+}
+
+/// Same, with a document font manifest: Tailwind `font-[faceId]` classes and
+/// the default face resolve against it before tree build — the same pass the
+/// markup path runs in `build_parsed_document`.
+pub fn parse_with_base_dir_and_fonts(
+    input: &str,
+    base_dir: Option<&Path>,
+    manifest: Option<&crate::fonts::FontManifest>,
+) -> anyhow::Result<ParsedComposition> {
     let mut width = 1920;
     let mut height = 1080;
     let mut fps = 30;
@@ -459,6 +470,11 @@ pub fn parse_with_base_dir(
 
     validate_unique_ids(&elements, &audio_elements)?;
 
+    if let Some(manifest) = manifest.filter(|m| !m.is_empty()) {
+        let index = manifest.build_family_index();
+        manifest.apply_font_refs_to_styles(&index, &mut elements);
+    }
+
     let has_explicit_tl = !timeline_ids.is_empty();
     if !has_explicit_tl && !transitions.is_empty() {
         anyhow::bail!("transition records require an explicit tl parent");
@@ -523,7 +539,7 @@ pub fn parse_with_base_dir(
     }
 
     Ok(ParsedComposition {
-        font_manifest: Default::default(),
+        font_manifest: manifest.cloned().unwrap_or_default(),
         width,
         height,
         fps,

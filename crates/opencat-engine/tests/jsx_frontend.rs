@@ -108,6 +108,25 @@ export function Box(props) {
 }
 
 #[test]
+fn nexus_port_manifests_document_fonts() {
+    // `export const fonts` is a top-level export, separate from `meta` — this
+    // locks that it reaches the manifest (the XML `<fonts>` block equivalent).
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/nexus7-cyberpunk.jsx")
+        .canonicalize()
+        .expect("example file");
+    let source = std::fs::read_to_string(&path).expect("read example");
+    let parsed = parse_with_base_dir(&source, path.parent()).expect("jsx parse");
+
+    let manifest = &parsed.font_manifest;
+    assert_eq!(manifest.default_face_id.as_deref(), Some("noto-sans"));
+    assert_eq!(manifest.faces.len(), 5, "faces: {:?}", manifest.faces);
+    for id in ["noto-sans", "orbitron", "jmono", "jmono-bold", "emoji"] {
+        assert!(manifest.face_by_id(id).is_some(), "missing face `{id}`");
+    }
+}
+
+#[test]
 fn liquid_port_parses_full_three_script_body() {
     // Pixel parity for this port is pending a machine with a working wgpu
     // adapter (the XML original fails to render here too). What IS locked:

@@ -227,10 +227,12 @@
 
         var props = [];
         var selfClosing = false;
+        var isFragment = name === '__ocFragment';
         for (;;) {
             this.skipWs();
             var ch = this.src[this.i];
             if (ch === undefined) throw new Error('use: unterminated JSX element <' + name + '>');
+            if (isFragment && ch === '<') break; // `<>` has no attributes; child starts
             if (ch === '/' && this.src[this.i + 1] === '>') { this.i += 2; selfClosing = true; break; }
             if (ch === '>') { this.i++; break; }
             if (ch === '{') {

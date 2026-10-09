@@ -2967,6 +2967,7 @@ dependencies = [
  "kurbo",
  "log",
  "miniz_oxide 0.9.1",
+ "opencat-liangyi",
  "oxc_allocator",
  "oxc_ast",
  "oxc_parser",
@@ -3001,6 +3002,7 @@ dependencies = [
  "nom-exif",
  "num_cpus",
  "opencat-core",
+ "opencat-liangyi",
  "opencat-three",
  "reqwest",
  "rquickjs",
@@ -3012,6 +3014,20 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "opencat-liangyi"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "hashbrown 0.17.1",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_parser",
+ "oxc_span",
+ "rayon",
+ "serde_json",
 ]
 
 [[package]]

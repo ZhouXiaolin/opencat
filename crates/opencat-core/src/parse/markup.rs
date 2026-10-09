@@ -1599,7 +1599,7 @@ fn required_non_empty_attr<'a>(
 
 /// Parses an SVG-style view box (`"minx,miny,w,h"` — comma or whitespace
 /// separated, matching the SVG `viewBox` attribute grammar).
-fn parse_view_box_attr(raw: &str) -> anyhow::Result<[f32; 4]> {
+pub(crate) fn parse_view_box_attr(raw: &str) -> anyhow::Result<[f32; 4]> {
     let parts: Vec<&str> = raw
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|p| !p.is_empty())

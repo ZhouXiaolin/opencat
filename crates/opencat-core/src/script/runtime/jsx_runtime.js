@@ -15,6 +15,7 @@
  *
  * `use*` family (v1):
  *   useCanvas(ref, draw)   — per-frame CanvasKit 2D drawing on a <canvas ref>
+ *   useThree(ref, build)   — per-frame three.js-like 3D scene on a <canvas ref>
  *   useGSAP(build)         — per-frame timeline block (GSAP-like)
  *   useFrame(build)        — escape hatch: arbitrary per-frame `(ctx, t)` work
  *   useCanvasKit()         — the CanvasKit namespace, for module-level paints
@@ -186,6 +187,25 @@
         return canvas;
     }
 
+    // useThree(ref, build): the ref must point at a <canvas>; `build` receives
+    // (three, node, t, ctx) and owns the whole scene graph + render call, the
+    // same body a `<script>` block would run.
+    function useThree(ref, build) {
+        if (!ref || typeof ref !== 'object' || !('current' in ref)) {
+            throw new Error('useThree: first argument must be a ref from useRef()');
+        }
+        globalThis.__ocOnFrame(function () {
+            var node = ref.current;
+            if (!node || node.__ocEl !== true || node.tag !== 'canvas') {
+                throw new Error(
+                    'useThree: ref must point at a <canvas> element (got ' +
+                    (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
+                );
+            }
+            build(globalThis.ctx.three, node, globalThis.ctx.currentTime, globalThis.ctx);
+        });
+    }
+
     function useGSAP(build) {
         globalThis.__ocOnFrame(function () {
             var tl = globalThis.ctx.timeline();
@@ -212,6 +232,7 @@
         useRef: useRef,
         Fragment: FRAGMENT,
         useCanvas: useCanvas,
+        useThree: useThree,
         useGSAP: useGSAP,
         useFrame: useFrame,
         useCanvasKit: useCanvasKit,

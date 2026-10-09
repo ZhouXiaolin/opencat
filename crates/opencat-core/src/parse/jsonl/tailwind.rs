@@ -882,6 +882,12 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    // Tailwind arbitrary opacity: opacity-[0.012] — raw 0..1 value.
+    if let Some(n) = parse_prefixed_bracket_f32(class, "opacity-[") {
+        style.opacity = Some(n.clamp(0.0, 1.0));
+        return true;
+    }
+
     if let Some(n) = class
         .strip_prefix("opacity-")
         .and_then(|value| value.parse::<f32>().ok())

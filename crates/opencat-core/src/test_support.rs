@@ -130,6 +130,7 @@ impl TestCatalog {
                     width,
                     height,
                     duration_micros: crate::time::optional_secs_to_duration_micros(Some(duration)),
+                    color_matrix: None,
                 },
             );
         }

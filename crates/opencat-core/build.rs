@@ -937,6 +937,10 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("line-through", "ExactClassAction::LineThrough"),
         // 静态文本不换行：`white-space: nowrap` 的 Tailwind 工具类。
         ("whitespace-nowrap", "ExactClassAction::NoWrap"),
+        // CSS 默认 `white-space: normal`：允许文本在容器约束内换行（Tailwind
+        // `whitespace-normal`）。引擎默认 wrap_text=false（标题/标签语义），
+        // 该类把单个文本节点恢复到浏览器默认的可换行行为。
+        ("whitespace-normal", "ExactClassAction::NormalWrap"),
         // 静态 transform-origin 锚点（缩放/旋转的支点），供脚本变换围绕。
         (
             "origin-center",

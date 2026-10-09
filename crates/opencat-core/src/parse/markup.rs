@@ -180,7 +180,7 @@ pub(crate) fn extract_raw_script(input: &str) -> anyhow::Result<ExtractedMarkup>
 use std::{collections::HashMap, path::PathBuf};
 
 use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
-use crate::media::VideoFrameTiming;
+use crate::media::{VideoColorMatrix, VideoFrameTiming};
 use crate::parse::document::{
     BuildOptions, CanvasChildrenMode, ParsedAudioElement, ParsedComposition, ParsedDocumentParts,
     ParsedElement, ParsedElementKind, ParsedTransition, build_parsed_document,
@@ -256,6 +256,7 @@ const LOTTIE_ATTRS: &[&str] = &[
     "data-start",
     "data-duration",
     "data-media-start",
+    "data-color-matrix",
     "loop",
 ];
 const VIDEO_ATTRS: &[&str] = &[
@@ -267,6 +268,7 @@ const VIDEO_ATTRS: &[&str] = &[
     "data-start",
     "data-duration",
     "data-media-start",
+    "data-color-matrix",
     "loop",
 ];
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
@@ -1429,7 +1431,28 @@ fn parse_video_timing(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoFram
         media_start_secs: parse_optional_f64_non_negative(node, "data-media-start")?.unwrap_or(0.0),
         playback_rate: 1.0,
         looping: parse_optional_bool(node, "loop")?.unwrap_or(false),
+        color_matrix: parse_optional_color_matrix(node, "data-color-matrix")?,
     })
+}
+
+/// `data-color-matrix`: author assertion about a video asset's real YUV→RGB
+/// encoding (`bt601` | `bt709` | `auto`). Capture tools routinely encode
+/// BT.601 while tagging BT.709, so the author override routes the host
+/// decoder's conversion where stream metadata cannot be trusted. Anything
+/// other than the known tokens is a parse error, not a silent fallback.
+fn parse_optional_color_matrix(
+    node: roxmltree::Node<'_, '_>,
+    attr: &str,
+) -> anyhow::Result<Option<VideoColorMatrix>> {
+    match node.attribute(attr) {
+        None => Ok(None),
+        Some("auto") | Some("") => Ok(None),
+        Some("bt601") => Ok(Some(VideoColorMatrix::Bt601)),
+        Some("bt709") => Ok(Some(VideoColorMatrix::Bt709)),
+        Some(value) => anyhow::bail!(
+            "`{attr}` must be auto, bt601, or bt709 (got `{value}`)"
+        ),
+    }
 }
 
 fn parse_transition_node(
@@ -2181,8 +2204,51 @@ mod tests {
                 media_start_secs: 12.0,
                 playback_rate: 1.0,
                 looping: true,
+                color_matrix: None,
             }
         );
+    }
+
+    #[test]
+    fn parses_video_color_matrix_override() {
+        let parsed = parse(
+            r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
+  <div id="root">
+    <video id="a" path="a.mp4" data-color-matrix="bt601" />
+    <video id="b" path="b.mp4" data-color-matrix="bt709" />
+    <video id="c" path="c.mp4" data-color-matrix="auto" />
+  </div>
+</opencat>"#,
+        )
+        .expect("markup with data-color-matrix should parse");
+
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let mut timings = Vec::new();
+        for child in root.children_ref() {
+            let NodeKind::Video(video) = child.kind() else {
+                panic!("child should be video");
+            };
+            timings.push(video.timing().color_matrix);
+        }
+        assert_eq!(
+            timings,
+            vec![
+                Some(VideoColorMatrix::Bt601),
+                Some(VideoColorMatrix::Bt709),
+                None,
+            ]
+        );
+
+        let bad = parse(
+            r#"<opencat width="320" height="180" fps="30" duration="0.03333333333333333">
+  <div id="root">
+    <video id="a" path="a.mp4" data-color-matrix="bt2020" />
+  </div>
+</opencat>"#,
+        );
+        assert!(bad.is_err(), "unknown data-color-matrix must fail the parse");
     }
 
     #[test]

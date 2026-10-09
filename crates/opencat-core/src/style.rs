@@ -345,6 +345,34 @@ pub enum TextTransform {
     Uppercase,
 }
 
+/// CSS generic-family keyword at the tail of a font stack (`serif`, `sans-serif`,
+/// `monospace`, `system-ui`, …). Browsers resolve a missing glyph through the
+/// stack's generics with fontconfig's per-generic preference order; opencat
+/// mirrors that by letting the shaper reorder its fallback list by this class.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum GenericFamily {
+    Serif,
+    SansSerif,
+    Monospace,
+}
+
+impl GenericFamily {
+    /// Parse one CSS generic-family keyword. `system-ui`/`ui-*` map onto the
+    /// platform class Chrome resolves them to (system-ui → sans-serif on Linux).
+    /// Returns `None` for anything else (unknown keywords are skipped by CSS too).
+    pub fn parse_css(token: &str) -> Option<Self> {
+        match token.trim().to_ascii_lowercase().as_str() {
+            "serif" | "ui-serif" => Some(Self::Serif),
+            "sans-serif" | "system-ui" | "ui-sans-serif" | "ui-rounded" => Some(Self::SansSerif),
+            "monospace" | "ui-monospace" => Some(Self::Monospace),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BorderRadius {
@@ -1474,6 +1502,7 @@ pub struct NodeStyle {
     pub order: Option<i32>,
     pub aspect_ratio: Option<f32>,
     pub min_height: Option<LengthPercentageAuto>,
+    pub min_width: Option<LengthPercentageAuto>,
     pub flex_wrap: Option<FlexWrap>,
     pub align_content: Option<JustifyContent>,
     pub align_self: Option<AlignItems>,
@@ -1539,6 +1568,11 @@ pub struct NodeStyle {
     pub font_family: Option<String>,
     /// Reference to `<font id="...">` before manifest resolution.
     pub font_face_id: Option<String>,
+    /// Generic-family tail of the CSS font stack (`font-[mono4,monospace]`), or the
+    /// `<font role>` class of the resolved face. Drives which system faces the shaper
+    /// prefers when the primary face lacks a glyph — Chrome resolves the stack's
+    /// generic tail per glyph (e.g. `'Spline Sans Mono',monospace` → DejaVu Sans Mono).
+    pub font_generic: Option<GenericFamily>,
     /// Tailwind `font-sans` → document default face from `<fonts default="...">`.
     pub use_document_default_font: bool,
     pub font_weight: Option<FontWeight>,
@@ -1552,6 +1586,10 @@ pub struct NodeStyle {
     /// CSS `white-space: nowrap` (`whitespace-nowrap`). When `true`, this node's text
     /// never breaks lines even inside a definite-width container — it overflows.
     pub no_wrap: bool,
+    /// CSS `white-space: normal` (`whitespace-normal`): opts a text node back into
+    /// wrapping. The engine default keeps static title/label text on one line, so
+    /// browser-parity wrapping is opt-in per text node.
+    pub wrap_text: bool,
 
     // Shadow
     pub box_shadow: Vec<BoxShadow>,
@@ -1578,6 +1616,8 @@ pub struct ComputedTextStyle {
     pub text_px: f32,
     /// Shaping family name; `None` uses generic `sans-serif` (fontdb mapping).
     pub font_family: Option<String>,
+    /// Generic-family class of the resolved stack tail; reorders shaping fallback.
+    pub font_generic: Option<GenericFamily>,
     pub font_weight: FontWeight,
     pub letter_spacing: f32,
     pub text_align: TextAlign,
@@ -1596,6 +1636,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.color.hash(state);
         self.text_px.to_bits().hash(state);
         self.font_family.hash(state);
+        self.font_generic.hash(state);
         self.font_weight.hash(state);
         self.letter_spacing.to_bits().hash(state);
         self.text_align.hash(state);
@@ -1614,6 +1655,7 @@ impl Default for ComputedTextStyle {
             color: ColorToken::Black,
             text_px: 16.0,
             font_family: None,
+            font_generic: None,
             font_weight: FontWeight::NORMAL,
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
@@ -1648,13 +1690,15 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
             .font_family
             .clone()
             .or_else(|| parent.font_family.clone()),
+        // CSS font-family is inherited; so is the stack's generic class.
+        font_generic: style.font_generic.or(parent.font_generic),
         font_weight: style.font_weight.unwrap_or(parent.font_weight),
         letter_spacing,
         text_align: style.text_align.unwrap_or(parent.text_align),
         line_height,
         line_height_px,
         text_transform: style.text_transform.unwrap_or(parent.text_transform),
-        wrap_text: parent.wrap_text,
+        wrap_text: style.wrap_text || parent.wrap_text,
         // CSS `white-space` is inherited.
         no_wrap: style.no_wrap || parent.no_wrap,
         line_through: style.line_through,

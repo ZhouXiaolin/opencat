@@ -44,4 +44,10 @@ pub struct FrameMediaPlan {
     /// Core-generated images (color-emoji bitmap glyphs) referenced by
     /// `ImageRef::Generated`, deduplicated by id, each with full RGBA.
     pub generated_images: Vec<FrameGeneratedImage>,
+    /// Author-asserted YUV→RGB conversion matrices (`data-color-matrix`) for
+    /// the video assets this frame references, keyed by canonical asset id.
+    /// Hosts must decode the named assets with the declared matrix instead of
+    /// trusting stream metadata (capture tools often tag BT.709 over BT.601
+    /// encodes). Assets absent from this map decode automatically.
+    pub video_color_matrices: std::collections::BTreeMap<String, crate::media::VideoColorMatrix>,
 }

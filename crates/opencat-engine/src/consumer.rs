@@ -262,6 +262,11 @@ fn prepare_frame(
                     .ok_or_else(|| MediaError::MissingVideo {
                         asset_id: asset_id.clone(),
                     })?;
+                // Author-asserted YUV→RGB matrix (data-color-matrix): decode
+                // the asset with its real encoding, not a mislabeled tag.
+                if let Some(&matrix) = plan.video_color_matrices.get(asset_id) {
+                    video.set_video_color_matrix(path, matrix);
+                }
                 let frame =
                     video.frame_rgba_at_time_by_path(path, *time_micros as f64 / 1_000_000.0)
                         .map_err(|e| MediaError::VideoFrameDecodeFailed {

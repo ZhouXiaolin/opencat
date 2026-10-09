@@ -138,6 +138,13 @@ pub struct TextDisplayItem {
     /// `background-clip: text` — resolved background layers to paint through
     /// the glyph outlines instead of `style.color`. `None` = normal solid text.
     pub text_fill: Option<Vec<crate::style::BackgroundFill>>,
+    /// Node background painted as the inline box behind the glyphs (CSS
+    /// `background` on a text element — pill/badge chips). Empty when the
+    /// layers are routed into `text_fill` (`background-clip: text` paints no
+    /// box) or the node carries no background.
+    pub background: Vec<crate::style::BackgroundFill>,
+    pub background_border_radius: crate::style::BorderRadius,
+    pub background_blend_mode: BlendMode,
     pub allow_wrap: bool,
     pub truncate: bool,
     pub drop_shadow: Vec<DropShadow>,
@@ -384,6 +391,9 @@ mod tests {
             text: "Hello".into(),
             style: ComputedTextStyle::default(),
             text_fill: None,
+            background: Vec::new(),
+            background_border_radius: Default::default(),
+            background_blend_mode: Default::default(),
             allow_wrap: false,
             truncate: false,
             drop_shadow: Vec::new(),

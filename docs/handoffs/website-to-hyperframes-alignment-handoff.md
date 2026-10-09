@@ -1251,3 +1251,184 @@ No `crates/` changes this round (no rebuild needed beyond the up-to-date
 3. Do not re-chase: the caption text-shadow (net-negative), the caption pill
    position/geometry (optimal), the scatter transient (reference-side), the
    act3/act4 integer shifts (all zero), or the act3 source boundaries.
+
+## 21. Round 1 (r1, unified-XML series on dev) — act3 color-matrix regression root-caused and fixed
+
+Era note: this series runs on `dev` against the single combined
+`examples/website-to-hyperframes/website-to-hyperframes.xml` (the three act
+XMLs of §13–20 are read-only legacy). Baseline r0 re-measurement:
+whole **mae 2.24514 / avg_p8 0.025482** (act1 0.029315 / act3 0.026135 /
+act4 0.017951) — i.e. the unified port carried a **+0.006 whole-film
+regression vs R11 (0.019418), all of it in act3** (0.014528 → 0.026135).
+
+### What changed, with reference provenance
+
+- **Error source chosen: act3 clip decode color regression.** act3 alone
+  accounts for the entire whole-film gap to R11 (whole 0.025482 vs 0.019418;
+  act3 0.026135 vs 0.014528; act1/act4 already at/below their R11 values).
+- **Root cause — the act3 clips are BT.601-encoded but LABELED bt709.**
+  The 11 act3 `<video>` clips (`assets/w2h-a3/a3-01…a3-11`, byte-identical
+  per `md5sum` to the reference `compositions/act-3-clips/*`, R11 §20)
+  carry bt709 tags at both the container and frame-level VUI level, but the
+  capture tool actually encoded them with the BT.601 matrix. Fresh check
+  this round: `ffprobe -show_entries stream=color_space,color_transfer,
+  color_primaries,color_range` on `a3-01-stripe.mp4` reports
+  `color_space=bt709 / color_transfer=bt709 / color_primaries=bt709 /
+  color_range=tv` — the label the decoder was honoring. Commit c459607
+  ("按容器元数据重建解码色彩管理") made opencat follow declared metadata;
+  for these mislabeled assets that means decoding 601 data through a 709
+  matrix: every frame gets a hue shift, pushing whole regions across the
+  p8 threshold. The 5f405dc-era decoder blindly used swscale's 601 default
+  and was accidentally correct. Evidence: sum_p8 over the 11 clips
+  9.503 (old) → 17.373 (new), frames >0.08 going 5 → 34, while the replay
+  self-diff (old binary vs new, same frame picks) was frame-identical —
+  pure color, zero timing.
+- **A/B method (reusable, no git write ops):** `git archive <commit> |
+  tar -x -C /tmp/ab` + symlink the media assets dir +
+  `CARGO_TARGET_DIR=/tmp/ab-target`. The old binary reproduced R11's act3
+  0.014531 exactly.
+- **The generic fix: `data-color-matrix` author override** (asset-level,
+  same family as `data-media-start`). New optional attribute on `<video>`:
+  `data-color-matrix="bt601|bt709|auto"` (default `auto` = declared
+  metadata, exactly the previous behavior — zero risk to the lbr /
+  vfx-heygen / pr-to-video lines). Chain:
+  - `crates/opencat-core/src/media/types.rs` — `VideoColorMatrix` enum +
+    `VideoFrameTiming.color_matrix: Option<VideoColorMatrix>`.
+  - `crates/opencat-core/src/parse/markup.rs` — `data-color-matrix` attr +
+    `parse_optional_color_matrix` (unknown value bails).
+  - `crates/opencat-core/src/resolve/resolve.rs` → `probe/catalog.rs`
+    (`VideoInfoMeta.color_matrix`, `set_video_color_matrix`).
+  - `crates/opencat-core/src/ir/media_plan.rs` + `render/media_plan.rs` —
+    `FrameMediaPlan.video_color_matrices: BTreeMap<String, VideoColorMatrix>`,
+    filled per frame for the assets that frame references;
+    `crates/opencat-web/src/wasm_bridge.rs` serializes `videoColorMatrices`.
+  - `crates/opencat-engine/src/consumer.rs` — prepare_frame applies the
+    plan entry via `MediaContext.set_video_color_matrix` before decode.
+  - `crates/opencat-engine/src/media/decode.rs` — `open_with_matrix` +
+    `ColorspaceSpec::effective(declared, override)`; **plus a real bug
+    found during bring-up**: `VideoDecodeCache::info()` opened the lane
+    WITHOUT the override, then `get_frame`'s `Reuse` branch handed back
+    that stale lane (override silently ignored — the first patched build
+    rendered byte-identical to baseline). Fixed by opening via
+    `override_for(path)` in `info()` and re-opening in `Reuse` when the
+    lane's override mismatches. Tests:
+    `color_matrix_override_beats_declared_metadata`,
+    `decode_cache_override_drops_stale_lanes`,
+    `real_asset_decode_honors_override` (all green).
+  - XML: all 11 act3 `<video>` tags declare `data-color-matrix="bt601"`
+    (website-to-hyperframes.xml lines 224–234).
+
+### Measurement table (k3diff §7, offset 0; full-film render `out/_w2h-r1/full3.mp4`)
+
+| scope | r0 baseline (dev) | **r1 (this round)** | R11 era (3-act XML) |
+|---|---|---|---|
+| whole mae | 2.24514 | **2.11282** | 2.11821 |
+| whole avg_p8 | 0.025482 | **0.019377** (gate 0.02 ✓) | 0.019418 |
+| whole worst_p8 (record-only) | 0.721 | 0.680 | 0.680 |
+| act1 avg_p8 | 0.029315 | 0.029315 (untouched) | 0.029524 |
+| act3 avg_p8 | 0.026135 | **0.014429** | 0.014528 |
+| act3 mae | 1.26728 | 1.01357 | 1.0179 |
+| act4 avg_p8 | 0.017951 | 0.017951 (untouched) | 0.017580 |
+
+Whole-film avg_p8 **0.019377 < 0.02 gate** — better than the R11
+historical best (0.019418) on both whole and act3; historical best is now
+**0.01938 @r1**. act3 p8>0.08 frames 34 → 5; the 5 remaining
+(f11/f16/f21/f31/f81, worst 0.680) are the reference-side clip
+source→capture boundary frames (R8–R11 pinned; worst_p8 is record-only,
+never a gate). Checks actually run this round: `cargo build --release` ok;
+`cargo test -p opencat-core` 699 passed / 0 failed; `cargo test -p
+opencat-engine` 102 passed + 1 failure that is PRE-EXISTING and
+environmental (`three_like_gltf_geometry_registers_and_commits_asset_reference`
+needs the untracked local asset `assets/lbr/heygen-prism.glb`; the
+`assets/lbr/` directory does not exist on this checkout and the test file
+is unmodified — unrelated to this round's diff); the 3 new decode tests all
+green; the post-cleanup re-render (full3.mp4) reproduces full2.mp4 per-act
+exactly.
+
+### Negative results / pitfalls (don't re-chase)
+
+- **The "act3 clips play 1 frame early" brief is a symptom, not a cause.**
+  A ±1-frame phase scan over the media clock on three representative clips
+  strictly rejected the shift: clip1 d=0 sum 9.704 vs 10.4 (+1) / 10.6 (−1);
+  clip4/clip5 d=0 4.556 vs 9.6/9.8 — every shift roughly doubles the error.
+  floor(t) frame-pick semantics are correct; the color regression made
+  frames *look* phase-shifted. (The user has also ruled out mechanism
+  archaeology for the 33caafc-era observation; this chapter closes it.)
+- **Commit-archaeology trap:** the 33caafc-era commit is not on dev's
+  history anymore (rebase wound); its content-equivalent in the current
+  chain is c459607, the r11 era is 5f405dc. Don't hunt 33caafc with git log.
+- **Pitfall: stale decode-cache lanes** (§above) — any future per-asset
+  decode override must be honored in BOTH `info()` and the `get_frame`
+  `Reuse` path, or it silently no-ops.
+- **Pitfall: /tmp cleanup** — probe frames stored in /tmp vanished
+  mid-session; measurement artifacts now live under `out/_w2h-r1/`.
+- **Reference capture stutter is irreproducible** (src frame skips/holds —
+  src12/13 skipped, src15 held 4 frames, src27 held 7): real recorder
+  behavior, a fixed residual. The remaining act3 floor is the 5 boundary
+  frames above.
+- The 2026-10-06 soft reference remains disabled unless the user asks.
+
+### Next-round recommendations
+
+1. Gate is met this round (whole avg_p8 0.019377). Best movable residual:
+   **act1 0.029315** — the gemini panel ~12px-low content (the
+   `.ge-top-hint` / `.ge-input-line` content-box chain, R11 §20 candidate,
+   the biggest single-act residual); act4 0.017951 is decode-floor class
+   (R10/R11; integer cross-correlation shifts all zero).
+2. If any other alignment line's source videos turn out 601-encoded-with-
+   709-tags (same capture tool), `data-color-matrix="bt601"` is the
+   one-line fix — verify with a single-clip decode A/B first, don't guess.
+3. Do not re-chase: act3 media-clock phase (rejected by scan), the act3
+   boundary frames (reference-side), reference capture stutter, worst_p8
+   as a gate (never).
+
+## 22. hf-align unified-workflow closure (2026-10-09) — single-XML line CONFIRMED, gate met
+
+Terminal state of the hf-align unified workflow run. Every number below was
+re-verified this closure round from the artifacts (not copied from memory):
+`out/hf-w2h-final.mp4` + `out/hf-w2h-final-diff/{summary.json,pixel.csv}`
+(2026-10-09 00:41/00:42, workflow snapshot `out/_hf-w2h_snap_r1/`).
+
+### Final verification (k3diff, offset 0, full film, single XML render)
+
+| metric | value | source |
+|---|---|---|
+| frames | **1254** | `summary.json` `.agg.frames`; cross-checked `ffprobe -count_frames` on `out/hf-w2h-final.mp4` → `nb_read_frames=1254`, 1920×1080 @30fps |
+| mae | **2.1128** (2.112817) | `summary.json` `.agg.mae_mean` |
+| avg_p8 | **0.01938** (0.019377) | `summary.json` `.agg.avg_p8` |
+| worst_p8 (record-only, never a gate) | **0.6797** (0.679671) | max `p8` over `summary.json` `.rows`, at **f391** (act3 clip-1 source→capture boundary, §21 negative list) |
+| **gate 0.02** | **PASS** — 0.019377 < 0.02 | computed from `.agg` |
+
+This is the line's historical best (previous best R11 whole 0.019418,
+§20). Reproducibility check run this round: `md5sum out/hf-w2h-final.mp4
+out/hf-w2h-r1.mp4` → both `abbf68621d7b8ee44fedb6c461a270a9` — the
+workflow's final render is **byte-identical** to the r1-verified render of
+§21, so the §21 r1 numbers (incl. `cargo build --release` ok,
+`cargo test -p opencat-core` 699 passed, engine decode-cache tests green)
+carry over to this render unchanged. This closure round changed no code and
+re-ran no build/tests.
+
+### Single-XML merge conclusion
+
+The unified `examples/website-to-hyperframes/website-to-hyperframes.xml`
+(solo render, no per-act concat) reaches **whole avg_p8 0.019377 / mae
+2.1128** — better than the R11 three-act-XML era (0.019418 / 2.11821).
+The merge is complete and paid for itself via the `data-color-matrix="bt601"`
+fix (§21): single file, zero regression vs the three-act configuration.
+Per the no-git-writes rule the deletion is workspace-only:
+`git status --short -- examples/website-to-hyperframes/` (run this round)
+shows the three legacy act XMLs as `D`
+(`website-to-hyperframes-act1/act3/act4.xml`) and the unified XML as
+untracked `??` — commit them together whenever a commit is finally made.
+
+### Remaining error (record-only; gate already met)
+
+- worst_p8 0.6797 @ f391 and the residual whole-film mass: act3 clip
+  source→capture boundary frames (reference-side, §21: 5 frames >0.08) +
+  act1 0.029315 (Cursor/gemini panel glyph AA + the ~−3 bg decode offset).
+- Next actionable (optional, no gate pressure): act1 gemini panel
+  `.ge-top-hint` / `.ge-input-line` content-box chain (§20/§21 candidate,
+  biggest single-act residual).
+- Note: this subagent could not query the workflow-run registry
+  (introspection unavailable in this session); provenance above is by
+  artifact path, which is the durable record anyway.

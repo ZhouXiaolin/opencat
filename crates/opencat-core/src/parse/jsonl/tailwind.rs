@@ -4,9 +4,10 @@ use std::sync::{Mutex, OnceLock};
 use crate::canvas::paint::BlendMode;
 use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, ColorToken, CssFilterKind, DropShadow, DropShadowStyle,
-    FlexDirection, FlexWrap, FontWeight, GradientDirection, GridAutoFlow, GridAutoRows,
-    GridPlacement, InsetShadow, InsetShadowStyle, JustifyContent, LengthPercentageAuto, NodeStyle,
-    ObjectFit, Position, TextAlign, TextTransform, color_token_from_class_suffix,
+    FlexDirection, FlexWrap, FontWeight, GenericFamily, GradientDirection, GridAutoFlow,
+    GridAutoRows, GridPlacement, InsetShadow, InsetShadowStyle, JustifyContent,
+    LengthPercentageAuto, NodeStyle, ObjectFit, Position, TextAlign, TextTransform,
+    color_token_from_class_suffix,
 };
 
 static UNSUPPORTED_TAILWIND_CLASSES: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
@@ -316,6 +317,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         ExactClassAction::GridRowsNone => style.grid_template_rows = None,
         ExactClassAction::TransformOrigin(origin) => style.transform_origin = Some(origin),
         ExactClassAction::NoWrap => style.no_wrap = true,
+        ExactClassAction::NormalWrap => style.wrap_text = true,
     }
 }
 
@@ -604,6 +606,23 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
     {
         style.aspect_ratio = Some(ratio);
         return true;
+    }
+
+    // min-w-full → min-width: 100%, min-w-N, min-w-[Npx] (percent stored as -1 sentinel is
+    // min-h-screen only; min-w keeps the same bracket/spacing surface as min-h)
+    if let Some(value) = class.strip_prefix("min-w-") {
+        if value == "full" {
+            style.min_width = Some(LengthPercentageAuto::Percent(1.0));
+            return true;
+        }
+        if let Some(n) = parse_bracket_f32(value) {
+            style.min_width = Some(LengthPercentageAuto::Length(n));
+            return true;
+        }
+        if let Some(n) = parse_tailwind_spacing_token(value) {
+            style.min_width = Some(LengthPercentageAuto::Length(n));
+            return true;
+        }
     }
 
     // min-h-full → min-height: 100%, min-h-screen → min-height: 100vh, min-h-N, min-h-[Npx]
@@ -927,19 +946,30 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
-    // font-[N] weight or font-[faceId] manifest reference
+    // font-[N] weight or font-[faceId] manifest reference. A comma tail carries
+    // CSS generic-family keywords (`font-[mono4,monospace]` mirrors the reference
+    // stack `'Spline Sans Mono',monospace`); they steer missing-glyph fallback.
     if let Some(value) = class
         .strip_prefix("font-[")
         .and_then(|v| v.strip_suffix(']'))
     {
-        if let Ok(weight) = value.parse::<u16>()
+        let mut parts = value.split(',');
+        let head = parts.next().unwrap_or("");
+        let generic = parts.filter_map(GenericFamily::parse_css).next_back();
+        if let Ok(weight) = head.parse::<u16>()
             && (100..=950).contains(&weight)
         {
             style.font_weight = Some(FontWeight(weight));
+            if let Some(g) = generic {
+                style.font_generic = Some(g);
+            }
             return true;
         }
-        if !value.is_empty() {
-            style.font_face_id = Some(value.to_string());
+        if !head.is_empty() {
+            style.font_face_id = Some(head.to_string());
+            if let Some(g) = generic {
+                style.font_generic = Some(g);
+            }
             return true;
         }
     }
@@ -1066,6 +1096,7 @@ enum ExactClassAction {
     BlendMode(BlendMode),
     TransformOrigin(crate::style::TransformOrigin),
     NoWrap,
+    NormalWrap,
 }
 
 include!(concat!(env!("OUT_DIR"), "/tailwind_jsonl_rules.rs"));
@@ -2199,6 +2230,7 @@ mod tests {
     use crate::canvas::paint::BlendMode;
     use crate::style::ColorToken;
 
+
     #[test]
     fn parses_mix_blend_mode_arbitrary_property() {
         let style = parse_class_name("[mix-blend-mode:difference]");
@@ -2392,6 +2424,22 @@ mod tests {
         let style = parse_class_name("fill-none");
 
         assert_eq!(style.fill_color, Some(ColorToken::Transparent));
+    }
+
+    #[test]
+    fn whitespace_wrap_classes_toggle_wrap_and_no_wrap() {
+        // CSS 默认 white-space:normal；引擎文本默认不换行（标题语义），
+        // `whitespace-normal` 恢复浏览器默认的可换行行为。
+        let normal = parse_class_name("whitespace-normal");
+        assert!(normal.wrap_text, "whitespace-normal should set wrap_text");
+        assert!(!normal.no_wrap);
+
+        let nowrap = parse_class_name("whitespace-nowrap");
+        assert!(nowrap.no_wrap);
+        assert!(!nowrap.wrap_text);
+
+        let default_style = parse_class_name("text-[16px]");
+        assert!(!default_style.wrap_text && !default_style.no_wrap);
     }
 
     #[test]
@@ -2676,6 +2724,23 @@ mod tests {
     }
 
     #[test]
+    fn min_w_bracket_and_full_classes_set_min_width() {
+        let bracket = parse_class_name("min-w-[172.8px]");
+        assert_eq!(
+            bracket.min_width,
+            Some(crate::style::LengthPercentageAuto::Length(172.8))
+        );
+        let full = parse_class_name("min-w-full");
+        assert_eq!(
+            full.min_width,
+            Some(crate::style::LengthPercentageAuto::Percent(1.0))
+        );
+        // 未知 min-w 值不吞类（保持与其他未知类一致的 no-op 语义）。
+        let unknown = parse_class_name("min-w-[abc]");
+        assert_eq!(unknown.min_width, None);
+    }
+
+    #[test]
     fn parses_radial_gradient_glow_layer() {
         let style =
             parse_class_name("bg-[radial-gradient(circle,rgba(0,255,136,0.14),transparent_70%)]");
@@ -2713,4 +2778,30 @@ mod tests {
         );
         assert_eq!(style.background_layers.len(), 1);
     }
+    #[test]
+    fn parses_font_face_with_generic_tail() {
+        let style = parse_class_name("font-[mono4,monospace]");
+        assert_eq!(style.font_face_id.as_deref(), Some("mono4"));
+        assert_eq!(style.font_generic, Some(crate::style::GenericFamily::Monospace));
+
+        let style = parse_class_name("font-[hk4,sans-serif]");
+        assert_eq!(style.font_face_id.as_deref(), Some("hk4"));
+        assert_eq!(style.font_generic, Some(crate::style::GenericFamily::SansSerif));
+
+        // Bare face reference stays generic-free; role derivation fills it later.
+        let style = parse_class_name("font-[mono4]");
+        assert_eq!(style.font_face_id.as_deref(), Some("mono4"));
+        assert_eq!(style.font_generic, None);
+
+        // A weight plus generic tail keeps both.
+        let style = parse_class_name("font-[500,sans-serif]");
+        assert_eq!(style.font_weight, Some(crate::style::FontWeight(500)));
+        assert_eq!(style.font_generic, Some(crate::style::GenericFamily::SansSerif));
+
+        // Unknown generic keywords are skipped (CSS semantics), face still set.
+        let style = parse_class_name("font-[gal,fantasy]");
+        assert_eq!(style.font_face_id.as_deref(), Some("gal"));
+        assert_eq!(style.font_generic, None);
+    }
 }
+

@@ -173,6 +173,13 @@ pub(crate) fn css_filter_image_filter(filter: &CssFilter) -> Option<ImageFilterS
             continue;
         }
         let next = match op.kind {
+            // CSS `filter: blur(R)` is Gaussian sigma = R (MDN: R "defines the
+            // value of the standard deviation"; verified against Chrome on
+            // pr-to-video-launch s02: a blur(2px) frame's Laplacian variance
+            // sits within ~15-30% of a sigma=2 render, while sigma=1 is 16x
+            // sharper — the half-radius rule that applies to box-shadow's
+            // blur-radius does NOT apply to filter blur()). Skia takes the
+            // sigma directly, so pass R through unchanged.
             CssFilterKind::Blur => ImageFilterSpec::Blur {
                 sigma_x: op.value,
                 sigma_y: op.value,
@@ -1291,6 +1298,36 @@ fn draw_per_side_borders(
     }
     if r_bl > 0.0 && bottom_w > 0.0 && bottom_w == left_w {
         draw_corner_arc(builder, left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0);
+    }
+}
+
+/// Paint a node's background layers onto its box (fills bottom-up, honouring
+/// the corner radius). Shared by `render_rect` and the inline-box background
+/// painted behind text glyphs (`TextDisplayItem::background`).
+pub(crate) fn paint_background_box(
+    builder: &mut DrawOpBuilder,
+    bounds: DisplayRect,
+    background: &[BackgroundFill],
+    border_radius: &BorderRadius,
+    blend_mode: BlendMode,
+) {
+    if background.is_empty() {
+        return;
+    }
+    let rect = kurbo_rect(bounds);
+    let radii = effective_corner_radius(&rect, border_radius);
+    let has_radius = radii.iter().any(|&r| r > 0.0);
+    for background in background {
+        let paint_spec = background_fill_to_paint_spec(background, rect, blend_mode);
+        let paint_id = builder.intern_paint(paint_spec);
+        if has_radius {
+            push_draw_rrect(builder, rect, radii, paint_id);
+        } else {
+            builder.push(DrawOp::Rect {
+                rect: rect_to_rect4(rect),
+                paint: paint_id,
+            });
+        }
     }
 }
 
@@ -2857,6 +2894,7 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
                 width: item.width,
                 height: item.height,
                 duration_micros: None,
+                color_matrix: None,
             });
         let request = VideoFrameRequest {
             composition_time_secs: ctx.frame_ctx.frame as f64 / ctx.frame_ctx.fps.max(1) as f64,

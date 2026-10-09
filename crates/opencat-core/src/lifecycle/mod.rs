@@ -189,6 +189,7 @@ impl HostInputs {
     pub fn empty() -> Self {
         Self {
             base_font_faces: Vec::new(),
+            font_fallback_dirs: Vec::new(),
             sans_serif_family: String::new(),
             catalog: PreparedResourceCatalog::default(),
             subtitle_texts: HashMap::new(),
@@ -202,6 +203,19 @@ impl HostInputs {
     pub fn with_base_font_faces(mut self, faces: Vec<Vec<u8>>) -> Self {
         self.base_font_faces = faces;
         self
+    }
+
+    /// Append font directories to the glyph-fallback pool, loaded (best-effort,
+    /// file-backed) after document and base faces so their families never win
+    /// query matching — the pool only serves codepoints no declared face
+    /// covers (browser fontconfig fallback parity).
+    pub fn with_font_fallback_dirs(mut self, dirs: Vec<std::path::PathBuf>) -> Self {
+        self.font_fallback_dirs = dirs;
+        self
+    }
+
+    pub fn font_fallback_dirs(&self) -> &[std::path::PathBuf] {
+        &self.font_fallback_dirs
     }
 
     pub fn base_font_faces(&self) -> &[Vec<u8>] {
@@ -433,7 +447,7 @@ fn prepare_font_db(
     };
 
     if manifest.is_empty() {
-        return Ok(Arc::new(base));
+        return Ok(Arc::new(extend_db_with_fallback_dirs(base, inputs)));
     }
 
     // Remap asset-id → face-id for load_faces_into_db / merge_document_over_base.
@@ -475,7 +489,24 @@ fn prepare_font_db(
                 message: format!("font merge failed: {err}"),
             }
         })?;
-    Ok(Arc::new(db))
+    Ok(Arc::new(extend_db_with_fallback_dirs(db, inputs)))
+}
+
+/// Load the host's font-fallback directories into `db` (best-effort): unreadable
+/// or non-font entries are skipped silently — the pool exists so codepoints no
+/// declared face covers still shape to a real glyph instead of tofu. Loaded
+/// last, so document/base families keep priority in query matching. Emoji
+/// presentation stays on the color face via `BrowserEmojiFirstFallback`
+/// (text/mod.rs), which the shaper consults for every run shaped from this db.
+fn extend_db_with_fallback_dirs(
+    db: fontdb::Database,
+    inputs: &HostInputs,
+) -> fontdb::Database {
+    let mut db = db;
+    for dir in &inputs.font_fallback_dirs {
+        db.load_fonts_dir(dir);
+    }
+    db
 }
 
 fn validate_inputs(
@@ -1115,6 +1146,7 @@ mod tests {
                     width: 8,
                     height: 8,
                     duration_micros: None,
+                    color_matrix: None,
                 },
             )
             .unwrap();
@@ -1219,6 +1251,7 @@ mod tests {
                         width: 320,
                         height: 180,
                         duration_micros: Some(DurationMicros(secs_to_micros(60.0))),
+                        color_matrix: None,
                     },
                 )
                 .unwrap();
@@ -1253,6 +1286,7 @@ mod tests {
                     width: 320,
                     height: 180,
                     duration_micros: Some(DurationMicros(secs_to_micros(60.0))),
+                    color_matrix: None,
                 },
             )
             .unwrap();
@@ -1317,6 +1351,7 @@ mod tests {
                     width: 0,
                     height: 0,
                     duration_micros: None,
+                    color_matrix: None,
                 },
             )
             .unwrap();

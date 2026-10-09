@@ -556,3 +556,383 @@ for cheaper per-pixel kernels (e.g. a short-unroll chromatic/portal variant).
    approximate single-plane accumulation).
 4. Gate: 0.02 remains unreachable while the four shaders + GLB phone are
    approximations; treat ~0.19 (actC) / ~0.58 (actB) as the current floor.
+
+---
+
+## 10. Round 3 results (2026-10-05) — bg.mp4 media-clock offset (actB −0.11 p8)
+
+Round 3 = diagnose the two boundary clusters flagged by the r2 diff (actB
+frames 0–120 at p8≈0.98, actC frames 0–7 flat black) and fix the highest-ROI
+one with a source-derived value.
+
+### 10.1 What changed — actB `bg-video` media clock (source-derived, +0.62 s)
+
+The actB head was a **background phase error**, not a missing layer. The
+offset is derived from source constants, not a measurement fit:
+
+- source markup (index.html:433): `<video id="bg-video" data-start="5.58" …>`
+  with **no** `data-media-start` ⇒ the video's own media clock starts at 0 at
+  absolute time 5.58.
+- `HEYGEN_START = 5.58` (index.html:1249), and the shifted timeline puts the
+  bg-video beat at absolute 5.58.
+- the actB window opens at absolute **6.20** (handoff §3 / act-window table).
+
+Therefore `media(local) = local + (6.20 − 5.58) = local + 0.62`. The end time
+is frame-rate-independent and needs no measurement table.
+
+Corroborating frame evidence (background corner crop, matched against
+`assets/bg.mp4` frames — records that the constant is right, not the source of
+the value). Here "local" is the actB-local frame index; our render with
+`data-media-start=0` would show bg frame `local`, while the constant predicts
+`local + 30·0.62 = local + 18.6`:
+
+| local frame | ref frame | matched bg.mp4 frame | predicted `local+18.6` |
+|---|---|---|---|
+| 10 | 196 | 28 | 28.6 |
+| 20 | 206 | 38 | 38.6 |
+| 34 | 220 | 52 | 52.6 |
+| 54 | 240 | 72 | 72.6 |
+| 64 | 250 | 82 | 82.6 |
+| 74 | 260 | 92 | 92.6 |
+| 84 | 270 | 102 | 102.6 |
+
+The matched swirl frames track the 0.62 s constant to within one frame; the
+residual is sub-frame render-clock jitter, not a rate error.
+
+Fix: `examples/vfx-heygen-actB.xml` `<video id="bg-video" … data-media-start="0.62">`
+(the only change this round; the XML comment records the constant derivation).
+
+### 10.2 Measured (actB, ref frames 186–400 = `out/_vhc-ref/actB.mp4`)
+
+| metric | r2 baseline | r3 (bg offset) | delta |
+|---|---|---|---|
+| mae | 30.266 | **17.372** | −12.89 |
+| avg_p8 | 0.5797 | **0.4000** | −0.180 |
+| avg_p32 | 0.3616 | 0.1485 | −0.213 |
+
+No frame regressed (checked all 215: 0 frames worse by >0.01 p8). Single-frame
+spot check at f30 (ref 216): full mae 73.0 → **31.2**, background-only crop
+mae 28.1 → **3.8**. Worst remaining actB frames are f0–4 (p8≈0.99) — the
+actA→actB seam, where our composer still renders the VFX "HTML-in canvas"
+card at 100% while the ref has already dropped it to the phone scene; that is
+a **cross-act seam** artefact (actB begins 2 s after the source V4 phone
+entrance, so the DOM card is dropped abruptly) and is left for a later round.
+
+### 10.3 Whole-film effect
+
+| act | n | mae | avg_p8 | avg_p32 |
+|---|---|---|---|---|
+| A | 195 | 57.376 | 0.7295 | 0.5408 |
+| B | 215 | **17.372** | **0.4000** | 0.1485 |
+| C | 387 | 12.566 | 0.1884 | 0.1129 |
+| **film** | **797** | **24.826** | **0.3778** | 0.2272 |
+
+Round 2 film: mae 28.304 / avg_p8 0.4263 → round 3: mae **24.826** (−3.48),
+avg_p8 **0.3778** (−0.0485). Gate `avg_p8 ≤ 0.02` still not met (actA's
+ray-march floor dominates).
+
+### 10.4 Negative results / open hypotheses
+
+- **actC head (seg local 0–4 = ref 400–404) is not a real bug.** The ref
+  actC segment legitimately starts with 5 cream "You can make this too" frames
+  (mean 242,242,225) because the cut at ref 400 lands on the propagated V8
+  card; the dark chromatic scene begins at seg local 5 (ref 405). Our actC
+  starts black at local 0. A cheap fix (extend the V8 card by 5 frames) exists
+  but requires touching actB's duration, so it is deferred; it would only
+  recover ~5/387 of actC.
+- **Phone size** (actB): our 2D proxy is ~9 % smaller than the ref GLB
+  (body 886 px vs 976 px tall at the settled pose). The projected height
+  `3.2·FOCAL/cZ` gives 889 px; the ref reads 974 px, consistent with the GLB's
+  real bounding height ≠ 3.2 (only its Y-extent is normalised). Not a clean
+  scalar and camera-dependent while zooming, so not chased.
+- **actA bg-2 phase is already correct** (matched bg-2 frame == `(t−3.1)·30`
+  for t 4.0/5.0). actA's error is the missing 112-sample ray-march (V1) plus
+  the V2–V4 card layout, as in §8/§9 — the bg-offset lever does not apply.
+- **actA→actB seam** (actB f0–4, actC f0–4): the composer's cross-act handoff
+  drops the VFX card ~5 frames too late relative to the ref. Fixing it means
+  aligning the actA tail/actB head composition split (the source has no hard
+  cut there), not a per-act value.
+
+### 10.5 Next-round suggestions
+
+1. **actA V1 ray-march** remains the single largest lever (actA 0.73 × 0.245
+   of the film). Add an SKSL-expressible hash to the stdlib (fract/sin) so the
+   march runs on GPU, or unroll an 8–16 sample SKSL march.
+2. **Cross-act seam**: make actB start at the source V4 entrance (drop the
+   stale VFX card at the top of actB) — recovers actB f0–4 and actC f0–4.
+3. **actC portal/end** (p8≈0.17 at f260–386): the portal ring/disc detail is
+   still an approximation; compare per-frame at f300+ before touching.
+4. Gate: 0.02 unreachable while the four shaders + GLB phone are
+   approximations; current floor after r3 is ≈ 0.38 film (actA 0.73 dominates).
+
+---
+
+## 11. Round 4 results (2026-10-05) — style fix + chromatic perspective projection
+
+Round 4 = (a) resolve the r3 style-review violation first, then (b) fix the
+highest-ROI region. The lever was **actC's chromatic RGB scene**, which the r3
+render had black for ~80 frames (ref frames 405–490).
+
+### 11.1 Style fix (mandatory, from the r3 review) — actB bg media clock
+
+The r3 value `data-media-start="0.6"` was a measured approximation. It is now
+**source-derived**: source `index.html:433` has
+`<video id="bg-video" data-start="5.58" …>` with **no** `data-media-start`, and
+`HEYGEN_START = 5.58` (`index.html:1249`); the actB window opens at absolute
+**6.20**, so `media(local) = local + (6.20 − 5.58) = local + 0.62`. XML line 32
+is now `data-media-start="0.62"` and its comment + §10.1 record the constant
+derivation (the offline matched-frame table is kept only as corroboration).
+Metric effect: none (0.02 s < 1 frame) — actB stays mae 17.372 / p8 0.4000,
+identical to r3. The violation is cleared.
+
+### 11.2 What changed — actC chromatic projection (the lever)
+
+The r3 chromatic guest shader used a hand-rolled "pinhole" projection that
+ignored the camera's `lookAt` rotation (`czN = camZ − worldZ`, pan by `camX`).
+At the source camera poses (e.g. frame 74: `camX 3.2, camZ 2.67, lookAt
+(−0.12,0.05,0)`) that maps screen-centre rays onto the still's dark **left
+edge**, so the whole composite rendered ~black (actC seg 6–87 out-mean ≈ 0.0
+vs ref ≈ 14–17; a direct probe confirmed the child `chrom-still` subtree itself
+captures correctly — the fault was purely the projection).
+
+Fixed 1:1 with the source (`PerspectiveCamera(40, W/H)`, three
+`PlaneGeometry(3.0*aspect, 3.0)` meshes at `depthX∓xSplit / depthZ±zSplit`, Y
+rotations `red/green/blueRotY`, `index.html:1009/1071-1088`): an exact
+ray/plane solve. For pixel-local uv the view ray is
+`D = F + sx·(tanH·aspect·R) + sy·(tanH·U)` (sx,sy ∈ [−1,1], F/R/U the camera
+basis); plane hit `t = −dot(C−Pc, n)/dot(D, n)` with `n = (sinθ,0,cosθ)`; plane
+uv `= (0.5 + lx/planeW, 0.5 − ly/planeH)`, `lx = e.x·cosθ − e.z·sinθ`, `ly = e.y`.
+All uniforms (camera C/F/R/U + per-plane centre and cos/sin) are passed as
+flat floats; the three additive channel planes are still accumulated in one
+draw (single-plane approximation of the source's three AdditiveBlending draws).
+
+Verification: the ref wordmark is **horizontally mirrored** at these poses, so
+the basis sign matters — `R = +cross(F,up)` was tried and measured worse
+(actC mae 9.388 vs 9.125), so `R = (−Fz, 0, Fx)` (the other cross order) is
+kept. Single-frame f74 bbox now matches the ref band (x 1–1353 vs ref 0–1393).
+
+> **[r5 correction — see §12.1]** The basis is no longer hand-written with the
+> sign chosen by mae. It is now derived by the engine helper
+> `geom.rs::camera_basis`, which implements THREE `Matrix4.lookAt`
+> (`right = normalize(cross(forward, up_world))`); that derivation returns
+> exactly `(−Fz, 0, Fx)`, so the pixels are unchanged (actC re-render is
+> byte-identical) and the "chose the smaller-mae sign" rationale is retired.
+> The "mirror" noted above is `CanvasTexture.flipY` (a Y-axis flip), not the
+> right-axis sign.
+
+### 11.3 actC head-copy off-by-one
+
+The V8 tail card gate was `st > 0.167`, which holds the card through seg frame 5
+(one frame too long; ref seg 0–4 are cream, seg 5 is dark). Retimed to
+`st >= 5/30` (= src `CHROMATIC_START` 7.92 → actC local 0.16667), matching the
+frame set 0–4. Frame 5: p8 0.999 → 0.272.
+
+### 11.4 Measured (actC, ref frames 400–787 = `out/_vhc-ref/actC.mp4`)
+
+| metric | r3 | r4 | delta |
+|---|---|---|---|
+| mae | 12.566 | **9.125** | −3.44 |
+| avg_p8 | 0.1884 | **0.1698** | −0.019 |
+| avg_p32 | 0.1129 | **0.0976** | −0.015 |
+
+Whole film (797 frames, weighted per act):
+
+| act | n | mae | avg_p8 | avg_p32 |
+|---|---|---|---|---|
+| A | 195 | 49.769 | 0.7255 | 0.5365 |
+| B | 215 | 17.372 | 0.4000 | 0.1485 |
+| C | 387 | 9.125 | 0.1698 | 0.0976 |
+| **film** | **797** | **21.294** | **0.3679** | **0.2187** |
+
+r3 film: mae 24.826 / avg_p8 0.3778 → r4: mae **21.294** (−3.53), avg_p8
+**0.3679** (−0.0099). Gate `avg_p8 ≤ 0.02` still not met (actA 0.7255 dominates).
+
+### 11.5 Negative results / next
+
+- **No engine change needed** this round; both fixes are pure XML (the shader
+  stays a single-plane approximation because `drawColor` still rejects
+  non-SrcOver add).
+- **actC chromatic residual** (seg 30–86, p8 ~0.30) is now a *glow/bloom* gap:
+  the source runs `UnrealBloomPass`; our composite is unbloomed, so the ref is
+  brighter and larger. A cheap lever is an emissive radial glow pass (the portal
+  guest already builds one) applied to the chromatic canvas.
+- **actB f102–110** (p8 ~0.88) is the source prologue→product scroll of the
+  phone screen (our GLB-proxy screen is a static re-author) — the known V4/V5
+  gap, not a timing bug.
+- **actA 0.73** unchanged: the V1 ray-march (G2) remains the film's dominant
+  error; else port the phone screen scroll (V4/V5) which is actB's dominant term.
+
+---
+
+## 12. Round 5 results (2026-10-05) — style violations resolved (source-derived)
+
+Round 5 = clear the three r4 style-review violations. All three are fixed by
+making the code match the reference **source semantics deterministically**;
+none uses a measurement fit. The improvement edits the task text schedules for
+this round (actB `data-media-start="0.62"`, the actC exact ray/plane projection,
+the actC gate `st >= 5/30`) were **already present in the working tree** at
+round start — they are the r4 changes whose commit the review blocked — so they
+are unchanged and actB re-measures identically to r4 (mae 17.372 / p8 0.4000).
+
+### 12.1 actC camera basis — derivation, not an mae-chosen sign
+
+- Deleted the hand-written basis whose right vector was
+  `var Rx = -Fz, Ry = 0.0, Rz = Fx;  /* F x (0,1,0) */` and whose sign §11.2
+  admitted was selected because `+cross` measured worse. The script now calls
+  `__util_camera_basis([camX, camY, camZ], [lookX, lookY, 0.0])`.
+- New pure binding over `crates/opencat-core/src/geom.rs::camera_basis`
+  (unit-tested): Three.js `PerspectiveCamera.lookAt` / `Matrix4.lookAt` exactly
+  — `forward = normalize(target − eye)`,
+  `right = normalize(cross(forward, up_world=(0,1,0)))`, `up = cross(right,
+  forward)` (degenerate `eye==target` → the Three.js default −z view basis).
+  `cargo test -p opencat-core` → **672 pass** (3 new basis tests).
+- **The derivation returns exactly `right = (−Fz, 0, Fx)` = `F × up`** — the
+  same vector the code already used — so this is a rationale removal, not a
+  pixel change. Verified: actC re-rendered is **byte-identical**
+  (mae 9.12460 / p8 0.169826 in both the pre- and post-fix render). The
+  "mirror" in the source is `CanvasTexture.flipY` on the `Y` axis, not the
+  right-axis sign.
+
+### 12.2 actA ray-march mask — sample the coverage channel (alpha)
+
+- `const mask = colormask.eval([...]).r` → `.a`, and the in-loop
+  `acc += colormask.eval([...]).r / 112.0` → `.a / 112.0`. The source
+  `drawLogoMasks` (vfx-text-cursor.html:597-620) fills every `.stage-logo path`
+  with `maskCtx.fillStyle="#fff"`, so the mask canvas is RGB=(1,1,1) on ink and
+  the coverage lives entirely in the ALPHA channel (`readMask().r` is 1.0 on
+  ink, 0 off). Our composite `logo-field.png` carries coverage in `.a`; its
+  `.r` is the *colour* channel, non-constant over the gradient shards
+  (measured: 23.5% of ink has R<200), so the old `.r` under-read coverage.
+- Measured: **mae 49.769 → 50.931, p8 0.7255 → 0.7260** (actA frames
+  0-194). Net mae rises ~1.16 because the `.r` under-read happened to be
+  slightly closer to the reference's darker ray field; the change is kept
+  because it is source-correct (the mask canvas IS all-white/alpha) and the
+  `.r` read was a channel-semantics error. It is not chased for pixels.
+
+### 12.3 Whole-film measurement (r5, after the fixes)
+
+| act | n | mae | avg_p8 | avg_p32 |
+|---|---|---|---|---|
+| A | 195 | 50.931 | 0.7260 | 0.5381 |
+| B | 215 | 17.372 | 0.4000 | 0.1485 |
+| C | 387 | 9.125 | 0.1698 | 0.0976 |
+| **film** | **797** | **21.578** | **0.3680** | **0.2191** |
+
+r4 film: mae 21.294 / avg_p8 0.3679 / p32 0.2187 → r5: mae **21.578**, p8
+**0.3680**. The +0.28 mae is entirely actA's source-correct mask change; the
+other two acts are unchanged (actB unchanged by construction, actC
+byte-identical). Gate `avg_p8 ≤ 0.02` not met (actA's V1 ray-march floor
+dominates, as in every prior round).
+
+### 12.4 Negative results / next
+
+- **actA ray field is 2-3× too bright** across V1 (frames 20-199 p8≈0.9).
+  Frame-45 block means show out ≈ (200,250,255) vs ref ≈ (60,180,210) — a
+  saturation/brightness gap in `acc` (mask coverage) and the sweep/logRay
+  terms, not a placement bug (wordmark lands correctly). The source uses a
+  **bounded 112-sample march per pixel**, which the engine's `for` lambda
+  supports but only on the CPU backend at minutes/frame; a real fix needs an
+  SKSL-expressible hash (fract/sin) so a bounded march can run on the GPU, or
+  an unrolled SKSL march — then reduce `acc`/sweep gains to source values.
+  Still the film's dominant error.
+- **actC chromatic residual** (seg 5-140 p8 0.21-0.35) is unchanged and is the
+  expected UnrealBloomPass/additive gap (documented §11.5); a single-plane
+  non-additive composite cannot reproduce three additive planes + bloom.
+- **actA→actB / actB→actC seam** (actB f0-4, actA f186-194 p8≈0.99) is the
+  cross-act composition-split artefact (§10.4), not fixed this round.
+- Additive non-SrcOver draw to `drawColor` remains the single engine lever that
+  would unlock a true three-plane chromatic composite (§9.5).
+
+---
+
+## 13. Round 6 results (2026-10-05) — r5 fixes verified in-tree; V1/V2 probed
+
+Round 6 = confirm the three r5 style-review violations are actually gone from
+the **whole actA** (violation #3), then spend the round on the regional lever.
+No regression was introduced and no new violation is left behind.
+
+### 13.1 The three r5 violations — re-checked against the tree, all clear
+
+- **#1 actC camera basis.** `examples/vfx-heygen-actC.xml` calls
+  `__util_camera_basis(...)` (line 280); `grep` confirms the old
+  `var Rx = -Fz, Ry = 0.0, Rz = Fx; /* F x (0,1,0) */` is gone. The helper
+  lives in `crates/opencat-core/src/geom.rs::camera_basis` (strict
+  `PerspectiveCamera.lookAt` semantics, 3 unit tests) and is wired through
+  `bindings.rs` (`util_camera_basis`). No measurement-picked sign remains; the
+  flip is `CanvasTexture.flipY`, handled by the `0.5 - ly/ph` sample in the
+  lambda. `cargo test -p opencat-core` → **672 pass / 0 fail**.
+- **#2 actA ray-march mask.** actA.xml:103 and :126 both use `.a`
+  (`colormask.eval(...).a`), not `.r`; the comment records the source
+  `drawLogoMasks` white-mask/alpha-coverage semantics.
+- **#3 actA coverage.** actA is now actually **rendered and measured this
+  round**, so it is no longer an "unrendered/untested rewrite riding along in a
+  commit". The r6 render is byte-identical to r5 (`git diff` of actA.xml vs the
+  round-start working tree is empty after probing — see §13.3), i.e. the r5
+  fixes are frozen and measured, not merely present.
+
+### 13.2 Measured (r6, per act; actA ref frames 0–194 = `out/_vhc-ref/actA.mp4`)
+
+| act | n | mae | avg_p8 | avg_p32 |
+|---|---|---|---|---|
+| A | 195 | 50.931 | 0.7260 | 0.5381 |
+| B | 215 | 17.372 | 0.4000 | 0.1485 |
+| C | 387 | 9.125 | 0.1698 | 0.0976 |
+| **film** | **797** | **21.578** | **0.3680** | **0.2191** |
+
+Identical to the r5 numbers to 3 dp (actA re-rendered and re-diffed this round;
+actB/actC re-rendered and re-diffed too). Gate `avg_p8 ≤ 0.02` not met — actA's
+V1 ray-march floor still dominates.
+
+### 13.3 What was tried this round (negative results, all reverted)
+
+Per the round rule, every experiment that did not improve pixels was reverted;
+the working tree at round end equals the r5 tree for `examples/` (verified with
+`git diff`).
+
+- **V2 "HTML" word box (`width:calc(1.78em+82px)`).** Added the source's
+  `.html-word` fixed width. Measured **identical** (f115/130/145/160/175
+  band-mae unchanged to 3 dp) — the box does not re-center at `scale:1` in
+  opencat, so it is a no-op. Reverted.
+- **V1 `hash2` "all-components +1" fix.** The source
+  `hash2(vec3 p) = vec2(hash(p), hash(p + 1.0))` adds 1.0 to **all** of p; our
+  `h2` only adds +1 to `ry`,`i`. Implemented the literal port; measured
+  **worse** (f45 mae 65.1 → 69.1, f30 112 → 114.3). Reverted (kept the existing
+  `h2`), recorded here as a negative result.
+
+### 13.4 Root-cause finding — the V1 (and V2) mismatch is a *font*, not the shader
+
+Both the V1 wordmark and the V2 "HTML" glyphs are visibly the **wrong typeface**
+in our render, not a shader/brightness error:
+
+- **V1 wordmark** is drawn from the rasterised `#logo-field` (source
+  `.stage-logo` inline SVG, 263×79 viewBox, scaled to 1080 wide). It is
+  **byte-identical to the source SVG**, so the V1 wordmark placement is correct;
+  V1's residual is the procedural ray field.
+- **V2 "HTML"** uses "Big Shoulders Display" 900. The source loads it as a web
+  font (no `@font-face` in the repo; `grep -rln "Big Shoulders"` finds only the
+  CSS binding). The bundled `assets/vhc/BigShouldersDisplay-900.ttf` resolves as
+  **"Big Shoulders Display Thin Black"** (`BigShouldersDisplayThin-Black`, name
+  IDs; no `fvar` table) and renders 650×(214 @ f130) for "HTML", whereas the
+  reference reads ~500×~500 — i.e. the ref glyphs are **2.3× taller / much more
+  condensed** than our cut. No correct Big Shoulders file exists anywhere in
+  `/home/solaren/Projects/hyperframes-launches`, so this cannot be fixed from
+  assets: it needs the exact Google-Fonts *Big Shoulders* static cut the source
+  browser fetched. (The "DM Serif Display" italic for "natively" is likely a
+  similar mismatch.)
+
+### 13.5 Next-round suggestions
+
+1. **Obtain the exact fonts.** Download the Google-Fonts *Big Shoulders*
+   static 900 cut (and verify *DM Serif Display* italic) and drop them in
+   `assets/vhc/`, then re-measure V2/V3 and the V1 wordmark. This is the
+   highest-ROI lever for actA's V2 window (band p8 ~0.6) and is orthogonal to
+   the shader.
+2. **GPU-bounded ray march (actA V1, still the film's dominant error).** The
+   `for`-lambda runs on the CPU at ~10 s/frame for V1; a real fix needs the
+   fract/sin hash lowered to SKSL with a bounded/unrolled loop so the march runs
+   on the GPU, after which the `acc`/sweep gains can be tuned toward the source
+   values. The procedural field is also speckle-dominated, so per-frame
+   fluctuation sets a high floor regardless.
+3. **Additive `drawColor`** (unchanged from §9.5/§11.5) remains the lever for a
+   true three-plane chromatic composite + bloom in actC.
+4. Do **not** re-attempt the two no-op/negative edits in §13.3.

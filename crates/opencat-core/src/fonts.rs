@@ -21,6 +21,18 @@ pub enum FontRole {
     Mono,
 }
 
+impl FontRole {
+    /// The CSS generic-family class a role stands for. Emoji faces are
+    /// presentation-selected, not generic-selected, so they map to `None`.
+    pub fn generic_family(self) -> Option<crate::style::GenericFamily> {
+        match self {
+            Self::Sans => Some(crate::style::GenericFamily::SansSerif),
+            Self::Mono => Some(crate::style::GenericFamily::Monospace),
+            Self::Emoji => None,
+        }
+    }
+}
+
 /// One `<font>` entry from markup.
 #[derive(Debug, Clone)]
 pub struct FontFaceDecl {
@@ -69,6 +81,10 @@ impl FontManifest {
     }
 
     /// Apply `font-sans` / `font-[id]` on parsed element styles before tree build.
+    ///
+    /// A face whose `<font role>` declares a generic class (`mono`/`sans`) seeds
+    /// `font_generic` unless the class already carried an explicit generic tail —
+    /// the use-site stack wins, exactly as in CSS.
     pub fn apply_font_refs_to_styles(
         &self,
         index: &FontFamilyIndex,
@@ -84,6 +100,12 @@ impl FontManifest {
             if let Some(id) = style.font_face_id.take() {
                 if let Some(family) = self.family_for_id(index, &id) {
                     style.font_family = Some(family.to_string());
+                    if style.font_generic.is_none() {
+                        style.font_generic = self
+                            .face_by_id(&id)
+                            .and_then(|face| face.role)
+                            .and_then(FontRole::generic_family);
+                    }
                 } else {
                     style.font_face_id = Some(id);
                 }
@@ -327,5 +349,68 @@ mod tests {
         assert_eq!(noto_faces, 1);
         assert_eq!(emoji_faces, 1);
         assert_eq!(db.family_name(&fontdb::Family::SansSerif), "Noto Sans SC");
+    }
+    #[test]
+    fn face_role_seeds_generic_family_and_explicit_tail_wins() {
+        use crate::parse::document::{ParsedElement, ParsedElementKind};
+        use crate::style::{GenericFamily, NodeStyle};
+
+        fn element_with_face(id: &str) -> ParsedElement {
+            let mut el = ParsedElement {
+                id: "t".to_string(),
+                parent_id: None,
+                duration: None,
+                style: NodeStyle::default(),
+                kind: ParsedElementKind::Div,
+            };
+            el.style.font_face_id = Some(id.to_string());
+            el
+        }
+
+        let manifest = FontManifest {
+            default_face_id: None,
+            faces: vec![
+                FontFaceDecl {
+                    id: "mono4".to_string(),
+                    family: Some("Spline Sans Mono".to_string()),
+                    source: FontSource::Path(PathBuf::from("SplineSansMono-400.ttf")),
+                    role: Some(FontRole::Mono),
+                },
+                FontFaceDecl {
+                    id: "hk4".to_string(),
+                    family: Some("Hanken Grotesk".to_string()),
+                    source: FontSource::Path(PathBuf::from("HankenGrotesk-400.ttf")),
+                    role: Some(FontRole::Sans),
+                },
+            ],
+        };
+        let index = manifest.build_family_index();
+
+        // role="mono" seeds the generic class.
+        let mut elements = vec![element_with_face("mono4")];
+        manifest.apply_font_refs_to_styles(&index, &mut elements);
+        assert_eq!(elements[0].style.font_family.as_deref(), Some("Spline Sans Mono"));
+        assert_eq!(elements[0].style.font_generic, Some(GenericFamily::Monospace));
+
+        // An explicit generic tail on the class wins over the role.
+        let mut elements = vec![element_with_face("mono4")];
+        elements[0].style.font_generic = Some(GenericFamily::Serif);
+        manifest.apply_font_refs_to_styles(&index, &mut elements);
+        assert_eq!(elements[0].style.font_generic, Some(GenericFamily::Serif));
+
+        // A face without a role leaves the class untouched.
+        let bare = FontManifest {
+            default_face_id: None,
+            faces: vec![FontFaceDecl {
+                id: "black".to_string(),
+                family: Some("Archivo Black".to_string()),
+                source: FontSource::Path(PathBuf::from("ArchivoBlack.ttf")),
+                role: None,
+            }],
+        };
+        let bare_index = bare.build_family_index();
+        let mut elements = vec![element_with_face("black")];
+        bare.apply_font_refs_to_styles(&bare_index, &mut elements);
+        assert_eq!(elements[0].style.font_generic, None);
     }
 }

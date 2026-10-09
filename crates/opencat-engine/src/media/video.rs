@@ -54,6 +54,7 @@ impl From<&VideoInfo> for opencat_core::probe::catalog::VideoInfoMeta {
             width: v.width,
             height: v.height,
             duration_micros: opencat_core::time::optional_secs_to_duration_micros(v.duration_secs),
+            color_matrix: None,
         }
     }
 }
@@ -121,6 +122,17 @@ impl MediaContext {
 
     pub fn set_video_preview_quality(&mut self, quality: VideoPreviewQuality) {
         self.video_preview_quality = quality;
+    }
+
+    /// Author-asserted YUV→RGB matrix for a video asset
+    /// (`data-color-matrix`). Routes the decoder's conversion to the asset's
+    /// real encoding when stream metadata is mislabeled.
+    pub fn set_video_color_matrix(
+        &mut self,
+        path: &Path,
+        matrix: opencat_core::media::VideoColorMatrix,
+    ) {
+        self.videos.set_color_matrix_override(path, matrix);
     }
 
     pub fn video_preview_quality(&self) -> VideoPreviewQuality {

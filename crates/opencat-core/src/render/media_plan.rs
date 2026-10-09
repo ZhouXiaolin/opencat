@@ -90,6 +90,7 @@ impl MediaCollector {
 pub fn build_media_plan(
     frame: &DrawOpFrame,
     generated_table: &GeneratedImageTable,
+    video_color_matrices: &std::collections::BTreeMap<String, crate::media::VideoColorMatrix>,
 ) -> FrameMediaPlan {
     let mut collector = MediaCollector::new();
     collect_ops(frame, &frame.ops, &mut collector);
@@ -110,6 +111,21 @@ pub fn build_media_plan(
         });
     }
 
+    // Only surface overrides for assets this frame actually references, so
+    // the per-frame plan stays a pure function of the frame's draw ops plus
+    // the document's static asset declarations.
+    let video_color_matrices: std::collections::BTreeMap<String, crate::media::VideoColorMatrix> =
+        collector
+            .video_frames
+            .iter()
+            .filter_map(|r| match r {
+                ImageRef::VideoFrame { asset_id, .. } => video_color_matrices
+                    .get(asset_id)
+                    .map(|m| (asset_id.clone(), *m)),
+                _ => None,
+            })
+            .collect();
+
     FrameMediaPlan {
         images: collector.images,
         video_frames: collector.video_frames,
@@ -118,6 +134,7 @@ pub fn build_media_plan(
         // Runtime effects are interned in a side table; expose all of them
         // deduplicated by effect id (the table itself is already unique).
         runtime_effects: frame.effects.clone(),
+        video_color_matrices,
     }
 }
 
@@ -214,7 +231,7 @@ mod tests {
     #[test]
     fn empty_frame_produces_empty_plan() {
         let frame = DrawOpFrame::default();
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
         assert!(plan.images.is_empty());
         assert!(plan.video_frames.is_empty());
         assert!(plan.lottie_bundles.is_empty());
@@ -245,7 +262,7 @@ mod tests {
             },
         });
 
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.runtime_effects.len(), 2);
         assert_eq!(plan.runtime_effects[0].hash, 0xAA01);
@@ -278,7 +295,7 @@ mod tests {
             paint: None,
         });
         let frame = builder.finish();
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         // Static images and video frames are distinct categories, each kept.
         assert_eq!(plan.images.len(), 1);
@@ -313,7 +330,7 @@ mod tests {
             paint: None,
         });
         let frame = builder.finish();
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.images.len(), 1);
     }
@@ -335,7 +352,7 @@ mod tests {
             },
         });
         let frame = builder.finish();
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert!(plan.images.is_empty());
         assert_eq!(plan.runtime_effects.len(), 1);
@@ -366,7 +383,7 @@ mod tests {
                 height: 100.0,
             },
         });
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.images.len(), 1);
         assert_eq!(plan.images[0], child_img);
@@ -402,7 +419,7 @@ mod tests {
                 height: 100.0,
             },
         });
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.images.len(), 1);
     }
@@ -425,7 +442,7 @@ mod tests {
             y: 5.0,
         });
 
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.images, vec![img]);
     }
@@ -469,7 +486,7 @@ mod tests {
             },
         });
 
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.images, vec![img]);
     }
@@ -501,7 +518,7 @@ mod tests {
             },
         });
         let frame = builder.finish();
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.runtime_effects.len(), 1);
     }
@@ -541,7 +558,7 @@ mod tests {
             },
         });
         let frame = builder.finish();
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         // Lottie bundles are NOT images; they have their own bucket and do not
         // leak into the image or video categories.
@@ -569,7 +586,7 @@ mod tests {
             y: 0.0,
         });
 
-        let plan = build_media_plan(&frame, &empty_table());
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
 
         assert_eq!(plan.lottie_bundles, vec!["lottie:hidden"]);
     }
@@ -603,7 +620,7 @@ mod tests {
             paint: None,
         });
         let frame = builder.finish();
-        let plan = build_media_plan(&frame, &table);
+        let plan = build_media_plan(&frame, &table, &Default::default());
 
         assert!(plan.images.is_empty());
         assert!(plan.video_frames.is_empty());
@@ -637,7 +654,7 @@ mod tests {
             y: 0.0,
             paint: None,
         });
-        let plan = build_media_plan(&builder.finish(), &table);
+        let plan = build_media_plan(&builder.finish(), &table, &Default::default());
         assert_eq!(
             plan.generated_images
                 .iter()

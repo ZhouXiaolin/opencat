@@ -575,6 +575,19 @@ pub fn render_text_with_shadows(
     ctx: &mut RenderCtx,
     item: &TextDisplayItem,
 ) -> Result<(), RenderError> {
+    // CSS inline-box background (pill/badge chips on text elements): paint the
+    // node's background behind the glyphs before any shadow or glyph op. When
+    // `background-clip: text` is active the layers live in `text_fill` and no
+    // box is painted (CSS paints nothing behind the glyphs in that case).
+    if item.text_fill.is_none() {
+        super::helpers::paint_background_box(
+            &mut ctx.builder,
+            item.bounds,
+            &item.background,
+            &item.background_border_radius,
+            item.background_blend_mode,
+        );
+    }
     for shadow in &item.drop_shadow {
         let (left, top, right, bottom) = shadow.outsets();
         let shadow_bounds = item.bounds.outset(left, top, right, bottom);

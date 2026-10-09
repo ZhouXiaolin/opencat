@@ -239,6 +239,21 @@
             if (kind === 'fromTo') {
                 fromVars = a || {};
                 toVars = b || {};
+                // GSAP semantics: every fromVar is applied as the tween's start
+                // state, and a var the toVars never mention HOLDS its from value
+                // for the whole tween — it must not drift toward the node's
+                // current value the way a `.from()` tween's implicit target does
+                // (createTween resolves a from-only track to the live value).
+                // Pinning the missing toVars to their from values expresses that
+                // hold; pr-to-video-launch's opener cursor relies on it
+                // (`fromTo(cursor, {x: …, y: …}, {y: …})` — x stays put).
+                for (var fromKey in fromVars) {
+                    if (hasOwn(fromVars, fromKey)
+                        && !hasOwn(toVars, fromKey)
+                        && !runtime.animation.isTimingKey(fromKey)) {
+                        toVars[fromKey] = fromVars[fromKey];
+                    }
+                }
             } else if (kind === 'from') {
                 fromVars = a || {};
                 toVars = {};

@@ -688,7 +688,7 @@ macro_rules! for_each_binding {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}
         // ── Pure: offscreen pixel surface — session 级 render target
-        //    （canvas 2D 子集 + runEffect/scanPass/bake，见 text::surface）
+        //    （canvas 2D 子集 + run/sweep/bake，见 text::surface）
         $binding! { pure surface_create (id: String, width: f64, height: f64) -> bool {
             Ok($crate::text::surface::surface_create(&id, width as u32, height as u32).is_ok())
         }}
@@ -706,7 +706,7 @@ macro_rules! for_each_binding {
             ).is_ok())
         }}
         // ── Render target ops（通用机制：JS 拥有算法，Rust 只有执行器）────
-        // runEffect：pixel 类 lambda 逐像素渲染进目标 surface（f64 解释器，
+        // surface_apply_effect：pixel 类 lambda 逐像素渲染进目标 surface（f64 解释器，
         // rayon 按行并行）。children 可采样 generated（本帧烘焙）或其它
         // surface（session 级 render target）。像素缓冲永不跨进 JS。
         $binding! { cmd $store surface_apply_effect (id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, children_json: String) -> bool {
@@ -719,7 +719,7 @@ macro_rules! for_each_binding {
             }
             if spec.kind == $crate::opencat_liangyi::program::ScanKind::Scan {
                 return Err(anyhow::anyhow!(
-                    "surface.runEffect 需要 pixel 类 lambda（顺序扫描请用 surface.scanPass）"
+                    "surface_apply_effect 需要 pixel 类 lambda（顺序扫描请用 surface_scan_pass）"
                 ));
             }
             // 目标运算恒走 f64 解释器（参考语义；SKSL 是绘制期后端，不落目标）
@@ -742,7 +742,7 @@ macro_rules! for_each_binding {
             // 为 liangyi::pixel::RenderTarget（CPU 后端实例）。
             $crate::text::surface::surface_with_rgba_mut(&id, |w, h, buf| {
                 let mut target = $crate::opencat_liangyi::pixel::BufferViewMut::new(w, h, buf)
-                    .map_err(|e| anyhow::anyhow!("surface.runEffect: {e}"))?;
+                    .map_err(|e| anyhow::anyhow!("surface_apply_effect: {e}"))?;
                 $crate::opencat_liangyi::exec::run_pixel_into(
                     &compiled.program,
                     &mut target,
@@ -752,7 +752,7 @@ macro_rules! for_each_binding {
             })?;
             Ok(true)
         }}
-        // scanPass：scan 类 lambda（首参 get）对本 surface **就地**一遍顺序
+        // surface_scan_pass：scan 类 lambda（首参 get）对本 surface **就地**一遍顺序
         // 扫描。遍历顺序由 executor 拥有（forward/backward），JS 源码无循环；
         // get(dx, dy) 读 in-progress 缓冲（clamp-to-edge）。单线程。
         $binding! { cmd $store surface_scan_pass (id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, direction: String) -> bool {
@@ -765,7 +765,7 @@ macro_rules! for_each_binding {
             }
             if spec.kind != $crate::opencat_liangyi::program::ScanKind::Scan {
                 return Err(anyhow::anyhow!(
-                    "surface.scanPass 需要 scan 类 lambda（spec.kind: 'scan'；逐像素请用 surface.runEffect）"
+                    "surface_scan_pass 需要 scan 类 lambda（spec.kind: 'scan'；逐像素请用 surface_apply_effect）"
                 ));
             }
             spec.backend_override = Some($crate::opencat_liangyi::Backend::Cpu);
@@ -773,7 +773,7 @@ macro_rules! for_each_binding {
             let Some(direction) = $crate::opencat_liangyi::interp::ScanDirection::from_name(&direction)
             else {
                 return Err(anyhow::anyhow!(
-                    "surface.scanPass: direction 仅支持 'forward' / 'backward'"
+                    "surface_scan_pass: direction 仅支持 'forward' / 'backward'"
                 ));
             };
             let uniform_vals = $crate::script::helpers::uniform_f32s_to_vals(
@@ -782,7 +782,7 @@ macro_rules! for_each_binding {
             )?;
             $crate::text::surface::surface_with_rgba_mut(&id, |w, h, buf| {
                 let mut target = $crate::opencat_liangyi::pixel::BufferViewMut::new(w, h, buf)
-                    .map_err(|e| anyhow::anyhow!("surface.scanPass: {e}"))?;
+                    .map_err(|e| anyhow::anyhow!("surface_scan_pass: {e}"))?;
                 $crate::opencat_liangyi::exec::run_scan_into(
                     &compiled.program,
                     &mut target,

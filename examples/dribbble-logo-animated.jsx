@@ -4,7 +4,7 @@
 // calls are the XML `<script>` block. Everything time-varying lives in `use*`
 // callbacks, which the pipeline replays per frame — frame = f(t).
 
-import { useCanvas, useCanvasKit, useGSAP } from 'opencat/runtime';
+import { useCanvas, useCanvasKit, useGSAP, useRef } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 6 };
 
@@ -81,21 +81,20 @@ const particleDuration = 0.666667;
 const particleEnd = particleStart + particleDuration;
 
 function ParticleField() {
-  return useCanvas(
-    <canvas id="particle-canvas" class="absolute inset-0 z-30 pointer-events-none w-[1920px] h-[1080px]" />,
-    (canvas, t) => {
-      if (t < particleStart || t > particleEnd) {
-        canvas.clear();
-        return;
-      }
-      canvas.clear();
-      const progress = (t - particleStart) / particleDuration;
-      const eased = 1 - Math.pow(1 - progress, 3);
-      const paint = canvas.paint({ color: [0.918, 0.298, 0.537, 1 - progress], style: 'fill' });
-      for (let k = 0; k < PARTICLE_COUNT; k++) {
-        const p = particles[k];
-        canvas.drawCircle(p.cx + p.dx * eased, p.cy + p.dy * eased, p.r, paint);
-      }
+  const canvas = useRef();
+  useCanvas(canvas, (c, t) => {
+    if (t < particleStart || t > particleEnd) {
+      c.clear();
+      return;
     }
-  );
+    c.clear();
+    const progress = (t - particleStart) / particleDuration;
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const paint = c.paint({ color: [0.918, 0.298, 0.537, 1 - progress], style: 'fill' });
+    for (let k = 0; k < PARTICLE_COUNT; k++) {
+      const p = particles[k];
+      c.drawCircle(p.cx + p.dx * eased, p.cy + p.dy * eased, p.r, paint);
+    }
+  });
+  return <canvas id="particle-canvas" ref={canvas} class="absolute inset-0 z-30 pointer-events-none w-[1920px] h-[1080px]" />;
 }

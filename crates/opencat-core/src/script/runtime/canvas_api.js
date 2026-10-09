@@ -850,7 +850,8 @@
             }
         },
         /* 效果 lambda：统一 SKSL 与逐像素效果的编译型 DSL。
-           后端由 Rust 依 lambda 用到的内建自动派发（spec.backend 可强制）。 */
+           后端由 Rust 依 lambda 用到的内建自动派发（spec.backend 可强制）。
+           遗留别名——新代码请用 ly.kernel。 */
         Effect: {
             fromLambda(fn, spec) {
                 return new LambdaEffect(fn, spec);
@@ -1690,4 +1691,34 @@
         }
         return surfaceCache[id];
     };
+
+    /* ── ly：Liangyi（两仪）效果内核语言命名空间 ─────────────────────
+       后端无关门面：kernel/scan 声明内核（lambda 只被编译、从不执行），
+       target 是渲染目标（像素数据由后端实例化：CPU 解释器 / Skia
+       surface / 将来的 wgpu）。不再经由 CK（CanvasKit）命名空间；
+       CK.Effect.fromLambda 等旧入口保留为别名，行为不变。
+       - ly.kernel(fn, spec)：pixel 类内核（spec.kind 默认 'pixel'）
+       - ly.scan(fn, spec)：scan 类内核（就地顺序扫描）
+       - ly.target(id, w, h)：渲染目标；.runEffect/.scanPass/.bake
+         即内核的 CPU 执行入口 */
+    const ly = {
+        kernel(fn, spec) {
+            const s = spec || {};
+            return new LambdaEffect(
+                fn,
+                Object.assign({}, s, { kind: s.kind || 'pixel' })
+            );
+        },
+        scan(fn, spec) {
+            return new LambdaEffect(
+                fn,
+                Object.assign({}, spec || {}, { kind: 'scan' })
+            );
+        },
+        target(id, w, h) {
+            return ctx.createSurface(String(id), w, h);
+        },
+    };
+    globalThis.ly = ly;
+    ctx.ly = ly;
 })();

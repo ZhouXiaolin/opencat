@@ -8,6 +8,8 @@ path = "src/lib.rs"
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
+# Liangyi（两仪）效果内核语言（replay 用 lambda 编译做 SKSL codegen 校验）。
+opencat-liangyi = { path = "../opencat-liangyi" }
 # 3D 渲染后端（wgpu）：Scene3 快照 → straight-alpha RGBA，经 generated
 # image 进合成；web 侧走同一 WGSL 的 wasm 后端。
 opencat-three = { path = "../opencat-three" }

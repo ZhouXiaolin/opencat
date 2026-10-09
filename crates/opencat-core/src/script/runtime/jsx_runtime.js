@@ -14,7 +14,7 @@
  *      into a ParsedComposition). Runs BEFORE any per-frame driver.
  *
  * `use*` family (v1):
- *   useCanvas(node, draw)  — per-frame CanvasKit 2D drawing on a canvas node
+ *   useCanvas(ref, draw)   — per-frame CanvasKit 2D drawing on a <canvas ref>
  *   useGSAP(build)         — per-frame timeline block (GSAP-like)
  *   useFrame(build)        — escape hatch: arbitrary per-frame `(ctx, t)` work
  *   useCanvasKit()         — the CanvasKit namespace, for module-level paints
@@ -45,6 +45,10 @@
         out.push(value);
     }
 
+    function useRef(initial) {
+        return { current: initial === undefined ? null : initial };
+    }
+
     function h(tag, props) {
         var children = [];
         for (var i = 2; i < arguments.length; i++) flattenInto(arguments[i], children);
@@ -52,7 +56,11 @@
         if (props.id === undefined || props.id === null || props.id === '') {
             props.id = 'oc-' + (++idCounter);
         }
-        return { __ocEl: true, tag: tag, props: props, children: children };
+        var el = { __ocEl: true, tag: tag, props: props, children: children };
+        if (props.ref && typeof props.ref === 'object' && 'current' in props.ref) {
+            props.ref.current = el;
+        }
+        return el;
     }
 
     globalThis.h = h;
@@ -124,20 +132,23 @@
     };
 
     // ── use* registry ───────────────────────────────────────────────
-    function useCanvas(node, draw) {
-        if (!node || node.__ocEl !== true) {
-            throw new Error('useCanvas: first argument must be a JSX element');
+    function useCanvas(ref, draw) {
+        if (!ref || typeof ref !== 'object' || !('current' in ref)) {
+            throw new Error('useCanvas: first argument must be a ref from useRef()');
         }
-        if (node.tag !== 'canvas') {
-            throw new Error('useCanvas: expected a <canvas> element, got <' + node.tag + '>');
-        }
-        var id = String(node.props.id);
         globalThis.__ocOnFrame(function () {
+            var node = ref.current;
+            if (!node || node.__ocEl !== true || node.tag !== 'canvas') {
+                throw new Error(
+                    'useCanvas: ref must point at a <canvas> element (got ' +
+                    (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
+                );
+            }
+            var id = String(node.props.id);
             var canvas = globalThis.ctx.getCanvasById(id);
             augmentCanvas(canvas, id);
             draw(canvas, globalThis.ctx.currentTime, globalThis.ctx);
         });
-        return node;
     }
 
     // Full handle surface: the raw CanvasKit facade (clear / drawCircle /
@@ -198,6 +209,7 @@
 
     builtins['opencat/runtime'] = {
         h: h,
+        useRef: useRef,
         Fragment: FRAGMENT,
         useCanvas: useCanvas,
         useGSAP: useGSAP,

@@ -31,6 +31,10 @@ path = "src/bin/opencat.rs"
 name = "opencat-see"
 path = "src/bin/opencat-see.rs"
 
+[[bin]]
+name = "opencat-frames"
+path = "src/bin/opencat-frames.rs"
+
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 rodio = "0.22.2"
 

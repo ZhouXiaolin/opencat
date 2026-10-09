@@ -87,9 +87,17 @@ impl Easing {
             Easing::Steps(n) => {
                 if *n == 0 {
                     t
+                } else if t >= 1.0 {
+                    1.0
                 } else {
+                    // GSAP SteppedEase (gsap@3.12 Ease.js `steps` config, de-minified):
+                    // ratio(p) = (floor((N+1) * clamp(p, 0, 0.99999999)) + 0) / N.
+                    // steps(1) therefore jumps at the MIDDLE of the tween (floor(2p)),
+                    // not at the end — verified against the reference renders.
+                    // (The p>=1 case is handled above; JS doubles keep 0.99999999
+                    // distinct from 1.0 but f32 does not, so don't rely on the clamp.)
                     let nf = *n as f32;
-                    if t >= 1.0 { 1.0 } else { (t * nf).floor() / nf }
+                    ((nf + 1.0) * t.max(0.0)).floor() / nf
                 }
             }
             Easing::CubicBezier(x1, y1, x2, y2) => cubic_bezier(t, *x1, *y1, *x2, *y2),
@@ -833,12 +841,17 @@ mod tests {
 
     #[test]
     fn steps_easing_quantizes() {
+        // GSAP SteppedEase: eased(p) = floor((N+1)·clamp(p,0,0.99999999)) / N,
+        // i.e. jumps happen at k/(N+1) — steps(1) jumps at the midpoint.
         let e = Easing::Steps(4);
         assert!((e.apply(0.0) - 0.0).abs() < 1e-6);
-        assert!((e.apply(0.24) - 0.0).abs() < 1e-6);
-        assert!((e.apply(0.26) - 0.25).abs() < 1e-6);
+        assert!((e.apply(0.19) - 0.0).abs() < 1e-6); // first jump at 1/5 = 0.2
+        assert!((e.apply(0.24) - 0.25).abs() < 1e-6);
         assert!((e.apply(0.5) - 0.5).abs() < 1e-6);
         assert!((e.apply(1.0) - 1.0).abs() < 1e-6);
+        let half = Easing::Steps(1);
+        assert!((half.apply(0.49) - 0.0).abs() < 1e-6);
+        assert!((half.apply(0.5) - 1.0).abs() < 1e-6);
     }
 
     #[test]

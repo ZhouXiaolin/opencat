@@ -7,6 +7,21 @@
 use crate::probe::catalog::VideoInfoMeta;
 use crate::time::{DurationMicros, TimestampMicros, secs_to_micros, timestamp_micros_to_secs};
 
+/// The YUV→RGB matrix a host decoder must convert a video asset with.
+///
+/// Authors declare it per asset via `data-color-matrix` when a stream's
+/// metadata lies about its actual encoding (common with capture tools that
+/// encode BT.601 but tag BT.709). `None` keeps the host's automatic
+/// metadata-driven selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum VideoColorMatrix {
+    /// ITU-R BT.601 coefficients (SD-era / most capture-tool encodes).
+    Bt601,
+    /// ITU-R BT.709 coefficients (HD-era broadcasts, modern encodes).
+    Bt709,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoFrameTiming {
@@ -15,6 +30,9 @@ pub struct VideoFrameTiming {
     pub media_start_secs: f64,
     pub playback_rate: f64,
     pub looping: bool,
+    /// Author-asserted YUV→RGB matrix override for this asset (see
+    /// [`VideoColorMatrix`]). `None` = automatic (stream metadata).
+    pub color_matrix: Option<VideoColorMatrix>,
 }
 
 impl std::hash::Hash for VideoFrameTiming {
@@ -24,6 +42,7 @@ impl std::hash::Hash for VideoFrameTiming {
         self.media_start_secs.to_bits().hash(state);
         self.playback_rate.to_bits().hash(state);
         self.looping.hash(state);
+        self.color_matrix.hash(state);
     }
 }
 
@@ -35,6 +54,7 @@ impl Default for VideoFrameTiming {
             media_start_secs: 0.0,
             playback_rate: 1.0,
             looping: false,
+            color_matrix: None,
         }
     }
 }
@@ -124,6 +144,7 @@ mod tests {
             width: 1920,
             height: 1080,
             duration_micros: duration_secs.map(|s| DurationMicros(secs_to_micros(s))),
+            color_matrix: None,
         }
     }
 
@@ -137,6 +158,7 @@ mod tests {
                 media_start_secs: 1.5,
                 playback_rate: 0.5,
                 looping: false,
+                color_matrix: None,
             },
         };
 
@@ -154,6 +176,7 @@ mod tests {
                 media_start_secs: 1.0,
                 playback_rate: 1.0,
                 looping: true,
+                color_matrix: None,
             },
         };
 
@@ -170,6 +193,7 @@ mod tests {
                 media_start_secs: 2.0,
                 playback_rate: 1.0,
                 looping: false,
+                color_matrix: None,
             },
         };
 
@@ -186,6 +210,7 @@ mod tests {
                 media_start_secs: 12.0,
                 playback_rate: 1.0,
                 looping: false,
+                color_matrix: None,
             },
         };
 
@@ -202,6 +227,7 @@ mod tests {
                 media_start_secs: 2.0,
                 playback_rate: 1.0,
                 looping: true,
+                color_matrix: None,
             },
         };
 
@@ -218,6 +244,7 @@ mod tests {
                 media_start_secs: 12.0,
                 playback_rate: 1.0,
                 looping: false,
+                color_matrix: None,
             },
         };
 
@@ -234,6 +261,7 @@ mod tests {
                 media_start_secs: 12.0,
                 playback_rate: 1.0,
                 looping: false,
+                color_matrix: None,
             },
         };
 

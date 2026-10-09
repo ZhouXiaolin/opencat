@@ -57,6 +57,13 @@ pub struct HostInputs {
     /// the font database from these bytes during prepare, not from a
     /// prebuilt fontdb::Database.
     pub(super) base_font_faces: Vec<Vec<u8>>,
+    /// Directories loaded (file-backed, best-effort) into the final font
+    /// database *after* document and base faces, as a last-resort glyph
+    /// fallback pool. Mirrors the browser behaviour of resolving a missing
+    /// glyph through fontconfig: a face for the codepoint is picked from the
+    /// pool instead of rendering tofu. File sources stay lazy — directory
+    /// scanning reads face metadata only.
+    pub(super) font_fallback_dirs: Vec<std::path::PathBuf>,
     /// Default sans-serif family name for the base font database.
     /// Defaults to "sans-serif" which fontdb resolves to its own fallback.
     pub(super) sans_serif_family: String,

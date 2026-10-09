@@ -70,6 +70,10 @@ struct VideoDecoder {
     height: u32,
     duration_secs: Option<f64>,
     keyframe_pts_us: Vec<u64>,
+    /// Author-asserted YUV→RGB matrix (`data-color-matrix`). Stream metadata
+    /// is unreliable for capture-tool encodes (BT.601 data tagged BT.709), so
+    /// when present this wins over the frame/codec-declared colorspace.
+    color_matrix_override: Option<opencat_core::media::VideoColorMatrix>,
     current_pts_secs: f64,
     /// Previous request target. Frame-display semantics show the last source
     /// frame whose pts is <= target, so a forward-moving target occasionally
@@ -90,6 +94,13 @@ struct VideoDecoder {
 
 impl VideoDecoder {
     fn open(path: &Path) -> Result<Self> {
+        Self::open_with_matrix(path, None)
+    }
+
+    fn open_with_matrix(
+        path: &Path,
+        color_matrix_override: Option<opencat_core::media::VideoColorMatrix>,
+    ) -> Result<Self> {
         ffmpeg::init()?;
 
         let input = format::input(path)
@@ -120,12 +131,16 @@ impl VideoDecoder {
             .map(|duration_ticks| duration_ticks as f64 / time_base.denominator() as f64);
         let keyframe_pts_us = collect_video_keyframe_pts_us(path, stream_index, time_base)?;
         let source_format = decoder.format();
-        // The initial context is built with the stream's declared matrix so
-        // the very first frame already converts correctly (per-frame specs
-        // that disagree with this fall back to the key-mismatch rebuild in
+        // The initial context is built with the effective matrix (author
+        // override when present, else the stream's declared one) so the very
+        // first frame already converts correctly (per-frame specs that
+        // disagree with this fall back to the key-mismatch rebuild in
         // `scaler_for`). AVCodecContext colorspace is populated from the
         // container metadata by the demuxer/parser before the first decode.
-        let initial_spec = ColorspaceSpec::from_codec(&decoder);
+        let initial_spec = ColorspaceSpec::effective(
+            ColorspaceSpec::from_codec(&decoder),
+            color_matrix_override,
+        );
         let mut scalers = VecDeque::with_capacity(MAX_SCALERS_PER_DECODER);
         scalers.push_back((
             (width, height, initial_spec),
@@ -153,6 +168,7 @@ impl VideoDecoder {
             height,
             duration_secs,
             keyframe_pts_us,
+            color_matrix_override,
             current_pts_secs: -1.0,
             last_target_secs: f64::NEG_INFINITY,
             ahead_source: None,
@@ -402,7 +418,10 @@ impl VideoDecoder {
     ) -> Result<()> {
         let (out_w, out_h) = target_size.unwrap_or((self.width, self.height));
 
-        let spec = ColorspaceSpec::from_frame(frame);
+        let spec = ColorspaceSpec::effective(
+            ColorspaceSpec::from_frame(frame),
+            self.color_matrix_override,
+        );
         let scaler = self.scaler_for(out_w, out_h, spec)?;
         let mut rgba = ffmpeg::frame::Video::new(Pixel::RGBA, out_w, out_h);
         scaler.run(frame, &mut rgba)?;
@@ -477,6 +496,22 @@ impl ColorspaceSpec {
                 full_range: decoder.color_range() == Range::JPEG,
             },
             _ => ColorspaceSpec::Default,
+        }
+    }
+
+    /// The spec a decode actually uses: the author-asserted matrix when
+    /// present (stream tags are unreliable for capture encodes), otherwise
+    /// the stream's declared colorspace.
+    fn effective(
+        declared: ColorspaceSpec,
+        override_matrix: Option<opencat_core::media::VideoColorMatrix>,
+    ) -> Self {
+        match override_matrix {
+            Some(opencat_core::media::VideoColorMatrix::Bt601) => ColorspaceSpec::Default,
+            Some(opencat_core::media::VideoColorMatrix::Bt709) => ColorspaceSpec::BT709 {
+                full_range: matches!(declared, ColorspaceSpec::BT709 { full_range: true }),
+            },
+            None => declared,
         }
     }
 }
@@ -597,6 +632,8 @@ impl Drop for YuvRgbScaler {
 pub struct VideoDecodeCache {
     decoders: HashMap<PathBuf, VecDeque<VideoDecoder>>,
     max_lanes_per_asset: usize,
+    /// Per-asset author-asserted YUV→RGB matrices (`data-color-matrix`).
+    color_matrix_overrides: HashMap<PathBuf, opencat_core::media::VideoColorMatrix>,
 }
 
 impl VideoDecodeCache {
@@ -608,7 +645,27 @@ impl VideoDecodeCache {
         Self {
             decoders: HashMap::new(),
             max_lanes_per_asset: max_lanes_per_asset.max(1),
+            color_matrix_overrides: HashMap::new(),
         }
+    }
+
+    /// Author-asserted YUV→RGB matrix for an asset (`data-color-matrix`).
+    /// Lanes already open with a different override are dropped so the next
+    /// decode re-opens with the declared conversion.
+    pub fn set_color_matrix_override(
+        &mut self,
+        path: &Path,
+        matrix: opencat_core::media::VideoColorMatrix,
+    ) {
+        if self.color_matrix_overrides.get(path) == Some(&matrix) {
+            return;
+        }
+        self.color_matrix_overrides.insert(path.to_path_buf(), matrix);
+        self.decoders.remove(path);
+    }
+
+    fn override_for(&self, path: &Path) -> Option<opencat_core::media::VideoColorMatrix> {
+        self.color_matrix_overrides.get(path).copied()
     }
 
     pub fn get_frame(
@@ -619,6 +676,7 @@ impl VideoDecodeCache {
         target_size: Option<(u32, u32)>,
     ) -> Result<Arc<Vec<u8>>> {
         let path_buf = path.to_path_buf();
+        let override_matrix = self.override_for(path);
         let decoders = self.decoders.entry(path_buf).or_default();
         let cursors: Vec<_> = decoders.iter().map(VideoDecoder::cursor).collect();
         let selection = select_decoder_lane(
@@ -629,10 +687,22 @@ impl VideoDecodeCache {
         );
 
         let mut decoder = match selection {
-            DecoderLaneSelection::Reuse(index) => decoders
-                .remove(index)
-                .expect("selected decoder lane should exist"),
-            DecoderLaneSelection::OpenNew => VideoDecoder::open(path)?,
+            DecoderLaneSelection::Reuse(index) => {
+                let lane = decoders
+                    .remove(index)
+                    .expect("selected decoder lane should exist");
+                if lane.color_matrix_override == override_matrix {
+                    lane
+                } else {
+                    // The lane predates the asset's `data-color-matrix`
+                    // declaration; its scalers bake the wrong matrix, so
+                    // re-open with the declared conversion.
+                    VideoDecoder::open_with_matrix(path, override_matrix)?
+                }
+            }
+            DecoderLaneSelection::OpenNew => {
+                VideoDecoder::open_with_matrix(path, override_matrix)?
+            }
         };
 
         let frame = decoder.get_frame_at_time(target_time_secs, quality, target_size)?;
@@ -642,7 +712,7 @@ impl VideoDecodeCache {
 
     pub fn info(&mut self, path: &Path) -> Result<VideoInfo> {
         if !self.decoders.contains_key(path) {
-            let decoder = VideoDecoder::open(path)?;
+            let decoder = VideoDecoder::open_with_matrix(path, self.override_for(path))?;
             let mut lanes = VecDeque::new();
             lanes.push_back(decoder);
             self.decoders.insert(path.to_path_buf(), lanes);
@@ -842,6 +912,53 @@ mod tests {
         assert!(!floor_advance(target_micros, 9.0 / 24.0));
     }
 
+    /// `data-color-matrix` overrides the stream's declared colorspace.
+    /// Capture tools routinely encode BT.601 while tagging BT.709, so the
+    /// author assertion must win: `bt601` forces the swscale-default spec,
+    /// `bt709` keeps the 709 coefficients, and no override keeps `declared`.
+    #[test]
+    fn color_matrix_override_beats_declared_metadata() {
+        use opencat_core::media::VideoColorMatrix;
+
+        let declared = ColorspaceSpec::BT709 { full_range: false };
+        assert_eq!(
+            ColorspaceSpec::effective(declared, Some(VideoColorMatrix::Bt601)),
+            ColorspaceSpec::Default,
+            "bt601 override must decode with the swscale-default (601) matrix"
+        );
+        assert_eq!(
+            ColorspaceSpec::effective(declared, Some(VideoColorMatrix::Bt709)),
+            declared,
+            "bt709 override keeps the 709 coefficients"
+        );
+        assert_eq!(
+            ColorspaceSpec::effective(declared, None),
+            declared,
+            "no override keeps the declared spec"
+        );
+    }
+
+    /// The decode cache must drop lanes whose override differs, so a newly
+    /// declared matrix is honored instead of reusing scalers built with the
+    /// old one.
+    #[test]
+    fn decode_cache_override_drops_stale_lanes() {
+        use opencat_core::media::VideoColorMatrix;
+        use std::path::Path;
+
+        let mut cache = VideoDecodeCache::new();
+        // No decoder open yet: recording an override must not panic and must
+        // be observable through the override table.
+        cache.set_color_matrix_override(Path::new("clip.mp4"), VideoColorMatrix::Bt601);
+        assert_eq!(cache.override_for(Path::new("clip.mp4")), Some(VideoColorMatrix::Bt601));
+        assert!(
+            !cache.decoders.contains_key(Path::new("clip.mp4")),
+            "override bookkeeping must not open lanes"
+        );
+        // Re-setting the same value is a no-op for the lane table.
+        cache.set_color_matrix_override(Path::new("clip.mp4"), VideoColorMatrix::Bt601);
+    }
+
     /// Within a frame interval the floor frame wins; exactly on a boundary the
     /// frame starting there wins (its pts micros equals the target micros).
     #[test]
@@ -990,5 +1107,53 @@ mod tests {
             .run(frame, &mut rgba)
             .expect("yuv→rgb conversion");
         rgba.data(0)[..4].to_vec()
+    }
+}
+
+#[cfg(test)]
+mod override_integration_tests {
+    use super::*;
+
+    /// End-to-end: a BT.709-tagged asset decoded with the bt601 override must
+    /// produce different pixels than the automatic (709) decode — proving the
+    /// override reaches the scaler, not just the spec math.
+    #[test]
+    fn real_asset_decode_honors_override() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/website-to-hyperframes/assets/w2h-a3/a3-01-stripe.mp4"
+        ));
+        if !path.exists() {
+            return; // asset not present in this checkout
+        }
+        let auto = VideoDecoder::open(path).unwrap();
+        let forced = VideoDecoder::open_with_matrix(
+            path,
+            Some(opencat_core::media::VideoColorMatrix::Bt601),
+        )
+        .unwrap();
+        assert!(auto.color_matrix_override.is_none());
+        assert_eq!(
+            forced.color_matrix_override,
+            Some(opencat_core::media::VideoColorMatrix::Bt601)
+        );
+
+        let mut auto = auto;
+        let mut forced = forced;
+        let a = auto
+            .get_frame_at_time(0.5, crate::media::VideoPreviewQuality::Exact, None)
+            .unwrap();
+        let b = forced
+            .get_frame_at_time(0.5, crate::media::VideoPreviewQuality::Exact, None)
+            .unwrap();
+        let diff: u64 = a
+            .iter()
+            .zip(b.iter())
+            .map(|(x, y)| (i64::from(*x) - i64::from(*y)).unsigned_abs())
+            .sum();
+        assert!(
+            diff > 1_000_000,
+            "bt601 override must change decoded pixels on a 709-tagged asset (diff={diff})"
+        );
     }
 }

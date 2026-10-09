@@ -7,18 +7,18 @@ edition.workspace = true
 profile = ["opencat-core/profile"]
 
 [dependencies]
-tokio = { version = "1.51.0", features = ["rt-multi-thread"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread"] }
 serde_json.workspace = true
 opencat-core = { path = "../opencat-core" }
 opencat-engine = { path = "../opencat-engine" }
 
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
-dirs = "6.0.0"
+dirs = "7.0.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
-winit = "0.28.7"
-raw-window-handle = "0.5.2"
+winit = "0.30.13"
+raw-window-handle = "0.6.2"
 
 [lib]
 path = "src/lib.rs"
@@ -44,11 +44,11 @@ libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 foreign-types = "0.5.0"
-metal = "0.31.0"
+metal = "0.33.0"
 # No `skottie` — see the matching note in opencat-engine/Cargo.toml.
-skia-safe = { version = "0.93.1", features = ["metal", "binary-cache"] }
-core-graphics-types = "0.1.3"
-cocoa = "0.25.0"
+skia-safe = { version = "0.153.3", features = ["metal", "binary-cache"] }
+core-graphics-types = "0.2.0"
+cocoa = "0.27.0"
 objc = "0.2.7"
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -63,7 +63,7 @@ windows-sys = { version = "0.61.2", features = [
 # Skottie (only linux/egl), which would force a full Skia source build.
 # Native Lottie is disabled on Windows too — see
 # `executor::EngineDrawExecutor::ensure_lottie_animations`.
-skia-safe = { version = "0.93.1", features = ["binary-cache", "gl"] }
+skia-safe = { version = "0.153.3", features = ["binary-cache", "gl"] }
 
 [[bin]]
 name = "opencat-web-compare"

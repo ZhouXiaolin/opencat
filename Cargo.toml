@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/opencat-core",
     "crates/opencat-engine",
+    "crates/opencat-liangyi",
     "crates/opencat-three",
     "crates/opencat-web",
     "crates/opencat",
@@ -18,8 +19,8 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
-oxc_allocator = "0.151.0"
-oxc_ast = "0.151.0"
-oxc_parser = "0.151.0"
-oxc_span = "0.151.0"
+oxc_allocator = "0.153.0"
+oxc_ast = "0.153.0"
+oxc_parser = "0.153.0"
+oxc_span = "0.153.0"
 rayon = "1.12.0"

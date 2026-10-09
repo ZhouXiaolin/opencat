@@ -704,7 +704,7 @@ fn replay_op(
             frame,
             dst,
         } => {
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "linux")]
             if let Some(anim) = exec.lottie_cache.get(bundle_id) {
                 anim.seek_frame(*frame as f64);
                 let size = anim.size();
@@ -718,7 +718,7 @@ fn replay_op(
                 anim.render(canvas, None);
                 canvas.restore();
             }
-            #[cfg(target_os = "macos")]
+            #[cfg(not(target_os = "linux"))]
             {
                 // No native Skottie renderer (feature off); skip the op.
                 let _ = (frame, dst);
@@ -1389,15 +1389,15 @@ half4 main(float2 coord) {
     #[test]
     fn lambda_sksl_gradient_raster_e2e() {
         let source = "(uv, u) => { const g = uv.x / u.w; return [g, g, g, 1]; }";
-        let mut spec = opencat_core::script::effects_lambda::EffectSpec::default();
+        let mut spec = opencat_liangyi::EffectSpec::default();
         spec.uniforms
-            .push(("w".to_string(), opencat_core::script::effects_lambda::program::Ty::Float));
+            .push(("w".to_string(), opencat_liangyi::program::Ty::Float));
         let compiled =
-            opencat_core::script::effects_lambda::compile_effect(source, &spec)
+            opencat_liangyi::compile_effect(source, &spec)
                 .expect("lambda should compile");
         assert_eq!(
             compiled.backend,
-            opencat_core::script::effects_lambda::Backend::Sksl
+            opencat_liangyi::Backend::Sksl
         );
         let sksl = compiled.sksl.expect("sksl backend carries code");
 
@@ -1464,30 +1464,30 @@ half4 main(float2 coord) {
     fn lambda_backend_consistency_sksl_vs_interpreter() {
         let source =
             "(uv, u) => { const g = smoothstep(0.0, u.w, uv.x); return [g, 0.5, 1 - g, 1]; }";
-        let mut spec = opencat_core::script::effects_lambda::EffectSpec::default();
+        let mut spec = opencat_liangyi::EffectSpec::default();
         spec.uniforms
-            .push(("w".to_string(), opencat_core::script::effects_lambda::program::Ty::Float));
+            .push(("w".to_string(), opencat_liangyi::program::Ty::Float));
 
         // CPU（解释器）
         let mut cpu_spec = spec.clone();
         cpu_spec.backend_override =
-            Some(opencat_core::script::effects_lambda::Backend::Cpu);
-        let cpu = opencat_core::script::effects_lambda::compile_effect(source, &cpu_spec)
+            Some(opencat_liangyi::Backend::Cpu);
+        let cpu = opencat_liangyi::compile_effect(source, &cpu_spec)
             .expect("cpu compile");
-        let ctx = opencat_core::script::effects_lambda::interp::InterpCtx {
-            uniforms: &[opencat_core::script::effects_lambda::program::Val::F(8.0)],
+        let ctx = opencat_liangyi::interp::InterpCtx {
+            uniforms: &[opencat_liangyi::program::Val::F(8.0)],
             rect: [0.0, 0.0, 8.0, 8.0],
             children: &[],
             scan: None,
         };
         let cpu_rgba =
-            opencat_core::script::effects_lambda::interp::render(&cpu.program, 8, 8, &ctx);
+            opencat_liangyi::interp::render(&cpu.program, 8, 8, &ctx);
 
         // SKSL（skia raster）
         let mut sksl_spec = spec.clone();
         sksl_spec.backend_override =
-            Some(opencat_core::script::effects_lambda::Backend::Sksl);
-        let sksl_c = opencat_core::script::effects_lambda::compile_effect(source, &sksl_spec)
+            Some(opencat_liangyi::Backend::Sksl);
+        let sksl_c = opencat_liangyi::compile_effect(source, &sksl_spec)
             .expect("sksl compile");
         let rt = RuntimeEffect::make_for_shader(sksl_c.sksl.as_deref().unwrap(), None)
             .expect("generated SKSL should compile");
@@ -1548,9 +1548,9 @@ half4 main(float2 coord) {
 
         let source =
             "(uv, tex, u) => { const c = tex.eval(uv); return [c.r, c.g, c.b, 1]; }";
-        let mut spec = opencat_core::script::effects_lambda::EffectSpec::default();
+        let mut spec = opencat_liangyi::EffectSpec::default();
         let compiled =
-            opencat_core::script::effects_lambda::compile_effect(source, &spec)
+            opencat_liangyi::compile_effect(source, &spec)
                 .expect("lambda should compile");
         let sksl = compiled.sksl.expect("sksl");
         let rt = RuntimeEffect::make_for_shader(&sksl, None).expect("compile");

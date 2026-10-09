@@ -6,18 +6,18 @@ use opencat_core::ir::cache::CachedDrawRange;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use skia_safe::skottie::Animation;
 use std::collections::HashMap;
 use std::path::Path;
 
 /// Cached Lottie animation handle. A `()` placeholder keeps the cache field
 /// (and the replay match arm that reads it) compiling when Skottie is off.
-/// Keep the `not(target_os = "macos")` condition in sync with the `skottie`
+/// Keep the `target_os = "linux"` condition in sync with the `skottie`
 /// feature on `skia-safe` in `Cargo.toml`.
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub(crate) type LottieAnimation = Animation;
-#[cfg(target_os = "macos")]
+#[cfg(not(target_os = "linux"))]
 pub(crate) type LottieAnimation = ();
 
 /// Statistics returned after a frame execution.
@@ -48,8 +48,8 @@ pub struct EngineDrawExecutor {
     pub(crate) current_alpha: f32,
     pub(crate) compiled_pictures: HashMap<u64, skia_safe::Picture>,
     /// Native Lottie animations, keyed by bundle id. Stays empty when the
-    /// `skottie` feature is off (e.g. macOS) — see [`Self::ensure_lottie_animations`].
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    /// `skottie` feature is off (e.g. macOS and Windows) — see [`Self::ensure_lottie_animations`].
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) lottie_cache: HashMap<String, LottieAnimation>,
 }
 
@@ -100,7 +100,7 @@ impl EngineDrawExecutor {
         replay::replay_frame(self, target, draw, media)
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     pub fn ensure_lottie_animations<P: Fn(&str) -> Option<Vec<u8>>>(
         &mut self,
         draw: &DrawOpFrame,
@@ -131,7 +131,7 @@ impl EngineDrawExecutor {
     /// Without Skottie there is no native Lottie renderer: leave the cache
     /// empty so [`crate::executor::replay`] skips `LottieRect` ops instead of
     /// pulling `skottie` into the binary.
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     pub fn ensure_lottie_animations<P: Fn(&str) -> Option<Vec<u8>>>(
         &mut self,
         _draw: &DrawOpFrame,

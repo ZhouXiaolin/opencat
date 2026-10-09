@@ -1,0 +1,4 @@
+# 生成文件：固定 LF（schema_gen 产出 LF；autocrlf 检出成 CRLF 会让
+# ocir_schema 自检测试失败）
+crates/opencat-web/web/src/generated/** text eol=lf
+web/src/generated/** text eol=lf

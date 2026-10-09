@@ -61,6 +61,9 @@
         if (props.ref && typeof props.ref === 'object' && 'current' in props.ref) {
             props.ref.current = el;
         }
+        var name = String(tag);
+        var isComponent = typeof tag === 'function' || /^[A-Z]/.test(name) || name.indexOf('.') >= 0;
+        if (isComponent && children.length > 0) props.children = children;
         return el;
     }
 
@@ -206,10 +209,12 @@
         });
     }
 
+    // useGSAP(build): build(ctx, t) — author picks ctx.to/fromTo (facade) or
+    // ctx.timeline(). Entries are re-recorded every frame and flushed after
+    // the driver, exactly like the XML <script> block.
     function useGSAP(build) {
         globalThis.__ocOnFrame(function () {
-            var tl = globalThis.ctx.timeline();
-            build(tl, globalThis.ctx.currentTime);
+            build(globalThis.ctx, globalThis.ctx.currentTime);
         });
     }
 
@@ -240,6 +245,14 @@
     };
 
     // ── extraction: element tree -> JSONL lines ──────────────────────
+    // JSX string attributes ("3.6") must arrive at the Rust side as numbers.
+    function num(value) {
+        if (value === undefined || value === null || value === '') return undefined;
+        var n = Number(value);
+        if (!isFinite(n)) throw new Error('use: expected a number, got ' + JSON.stringify(value));
+        return n;
+    }
+
     function assignSource(line, props) {
         var src = props.src || props.path || props.url;
         if (src === undefined || src === null) return;
@@ -275,7 +288,8 @@
         if (parentId) line.parentId = parentId;
         var className = props.class || props.className;
         if (className) line.className = className;
-        if (props.duration !== undefined && props.duration !== null) line.duration = props.duration;
+        var duration = num(props.duration);
+        if (duration !== undefined) line.duration = duration;
         switch (el.tag) {
             case 'text': {
                 var text = '';
@@ -290,7 +304,21 @@
                 line.d = String(props.d);
                 break;
             case 'icon':
-                line.icon = String(props.name);
+                line.icon = String(props.icon || props.name);
+                break;
+            case 'transition':
+                line.from = String(props.from);
+                line.to = String(props.to);
+                line.effect = String(props.effect);
+                line.duration = num(props.duration);
+                if (props.direction) line.direction = String(props.direction);
+                if (props.timing) line.timing = String(props.timing);
+                line.damping = num(props.damping);
+                line.stiffness = num(props.stiffness);
+                line.mass = num(props.mass);
+                line.seed = num(props.seed);
+                line.hueShift = num(props.hueShift);
+                line.maskScale = num(props.maskScale);
                 break;
             case 'image':
             case 'video':
@@ -327,6 +355,6 @@
         }
         var lines = [];
         emitElement(root, null, lines);
-        return { meta: meta, lines: lines };
+        return { meta: meta, fonts: entryExports.fonts, lines: lines };
     };
 })();

@@ -640,6 +640,26 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             write_color_vec(out, colors);
             encode_optional_matrix(out, local_matrix);
         }
+        PaintShaderSpec::Turbulence {
+            base_frequency,
+            num_octaves,
+            seed,
+            tile,
+            origin,
+        } => {
+            write_u8(out, 2);
+            write_f32_array(out, base_frequency);
+            write_u32(out, *num_octaves);
+            write_u32(out, *seed);
+            match tile {
+                Some(t) => {
+                    write_u8(out, 1);
+                    write_f32_array(out, t);
+                }
+                None => write_u8(out, 0),
+            }
+            write_f32_array(out, origin);
+        }
     }
 }
 

@@ -48,6 +48,7 @@ fn is_gradient_function(value: &str) -> bool {
         "linear-gradient(",
         "radial-gradient(",
         "repeating-linear-gradient(",
+        "fe-turbulence(",
     ]
     .iter()
     .any(|prefix| value.starts_with(prefix))
@@ -90,7 +91,8 @@ pub fn apply_size_to_layers(layers: &mut [BackgroundFill], size: [f32; 2]) {
         if let BackgroundFill::ArbitraryGradient { gradient } = layer {
             match gradient {
                 ArbitraryGradient::LinearGradient { size: slot, .. }
-                | ArbitraryGradient::RadialGradient { size: slot, .. } => {
+                | ArbitraryGradient::RadialGradient { size: slot, .. }
+                | ArbitraryGradient::Turbulence { size: slot, .. } => {
                     *slot = Some(size);
                 }
             }
@@ -153,8 +155,29 @@ fn parse_single_gradient(layer: &str) -> Option<BackgroundFill> {
         "linear-gradient" => Some(parse_linear(&normalized_args, false)),
         "repeating-linear-gradient" => Some(parse_linear(&normalized_args, true)),
         "radial-gradient" => Some(parse_radial(&normalized_args)),
+        "fe-turbulence" => parse_fe_turbulence(&normalized_args),
         _ => None,
     }
+}
+
+/// `fe-turbulence(fractalNoise,0.9,2,7)` — SVG `feTurbulence` 原语。参数顺序
+/// 对齐 SVG 属性：type（目前仅 fractalNoise）、baseFrequency（单值，x/y
+/// 同频）、numOctaves、seed。background-size 由 `bg-[length:...]` 单独绑定。
+fn parse_fe_turbulence(args: &[String]) -> Option<BackgroundFill> {
+    if args.first()?.trim() != "fractalNoise" {
+        return None;
+    }
+    let base_frequency: f32 = args.get(1)?.trim().parse().ok()?;
+    let num_octaves: u32 = args.get(2)?.trim().parse().ok()?;
+    let seed: u32 = args.get(3)?.trim().parse().ok()?;
+    Some(BackgroundFill::ArbitraryGradient {
+        gradient: ArbitraryGradient::Turbulence {
+            base_frequency,
+            num_octaves,
+            seed,
+            size: None,
+        },
+    })
 }
 
 /// Split `func(args)` into `(func_name, args)`.
@@ -600,6 +623,38 @@ mod tests {
         )
         .expect("should parse");
         assert_eq!(fills.len(), 2);
+    }
+
+    #[test]
+    fn parses_fe_turbulence() {
+        let mut fills = parse_background_gradient("fe-turbulence(fractalNoise,0.9,2,7)")
+            .expect("should parse");
+        assert_eq!(fills.len(), 1);
+        let BackgroundFill::ArbitraryGradient { gradient } = &fills[0] else {
+            panic!("expected arbitrary gradient");
+        };
+        let ArbitraryGradient::Turbulence {
+            base_frequency,
+            num_octaves,
+            seed,
+            size,
+        } = gradient
+        else {
+            panic!("expected turbulence, got {gradient:?}");
+        };
+        assert!((base_frequency - 0.9).abs() < 1e-6);
+        assert_eq!((*num_octaves, *seed), (2, 7));
+        assert_eq!(*size, None);
+
+        // `bg-[length:...]` 绑定平铺瓦片。
+        apply_size_to_layers(&mut fills, [240.0, 240.0]);
+        let BackgroundFill::ArbitraryGradient { gradient } = &fills[0] else {
+            panic!("expected arbitrary gradient");
+        };
+        let ArbitraryGradient::Turbulence { size, .. } = gradient else {
+            panic!("expected turbulence");
+        };
+        assert_eq!(*size, Some([240.0, 240.0]));
     }
 
     #[test]

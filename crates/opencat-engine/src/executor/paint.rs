@@ -3,9 +3,10 @@ use opencat_core::canvas::paint::{
     PaintStyle, PathEffectSpec, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
 };
 use skia_safe::{
-    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorFilter, ImageFilter,
-    MaskFilter, Paint, PaintStyle as SkPaintStyle, PathEffect, Shader, TileMode as SkTileMode,
-    color_filters, gradient_shader, image_filters,
+    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorFilter, FilterMode, ImageFilter,
+    Matrix, MaskFilter, MipmapMode, Paint, PaintStyle as SkPaintStyle, PathEffect, SamplingOptions,
+    Shader, TileMode as SkTileMode, color_filters, gradient_shader, image_filters, surfaces,
+    scalar, shaders,
 };
 
 pub fn paint_from_spec(spec: &PaintSpec) -> Paint {
@@ -199,6 +200,43 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
                 convert_tile_mode(*tile_mode),
                 grad_flags,
                 matrix.as_ref(),
+            )
+        }
+        ShaderSpec::Turbulence {
+            base_frequency,
+            num_octaves,
+            seed,
+            tile,
+            origin,
+        } => {
+            // SVG feTurbulence 是用户空间的确定性噪声；Chrome 光栅化该滤镜用
+            // 的就是同一个 Skia 实现，同参数逐位一致（alpha 通道实测逐位相
+            // 同）。Skia 噪声输出为线性空间预乘值，SVG 滤镜输出前做
+            // linear→sRGB，用同一 gamma LUT 对齐。之后按 CSS background 语义
+            // 烘瓦片 Repeat 平铺，锚定在节点盒原点。
+            let noise = shaders::fractal_noise(
+                (base_frequency[0], base_frequency[1]),
+                *num_octaves as usize,
+                *seed as scalar,
+                None,
+            )?;
+            let Some([tw, th]) = tile.map(|t| [t[0].round() as i32, t[1].round() as i32]) else {
+                return None;
+            };
+            if tw <= 0 || th <= 0 {
+                return None;
+            }
+            let mut tile_surface = surfaces::raster_n32_premul((tw, th))?;
+            let mut fill = Paint::default();
+            fill.set_shader(noise);
+            fill.set_color_filter(color_filters::linear_to_srgb_gamma());
+            tile_surface.canvas().draw_paint(&fill);
+            let image = tile_surface.image_snapshot();
+            let matrix = Matrix::translate((origin[0], origin[1]));
+            image.to_shader(
+                (SkTileMode::Repeat, SkTileMode::Repeat),
+                SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+                &matrix,
             )
         }
     }

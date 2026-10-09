@@ -646,6 +646,23 @@ fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, rect: Rect) -
             };
             build_radial_gradient(box_, &params, stops, *repeat)
         }
+        ArbitraryGradient::Turbulence {
+            base_frequency,
+            num_octaves,
+            seed,
+            size,
+        } => {
+            // 无显式 background-size 时瓦片取节点盒：Repeat 永远不会在盒内
+            // 回绕，与“整盒一个未拼接噪声场”严格等价。
+            let tile = size.unwrap_or([rect.width() as f32, rect.height() as f32]);
+            ShaderSpec::Turbulence {
+                base_frequency: [*base_frequency, *base_frequency],
+                num_octaves: *num_octaves,
+                seed: *seed,
+                tile: Some(tile),
+                origin: [rect.x0 as f32, rect.y0 as f32],
+            }
+        }
     }
 }
 

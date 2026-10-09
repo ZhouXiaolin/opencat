@@ -156,6 +156,16 @@ pub enum ShaderSpec {
         tile_mode: TileMode,
         local_matrix: Option<[f32; 9]>,
     },
+    /// SVG `feTurbulence` fractal-noise 场。`tile` 为 `Some([w, h])` 时引擎先
+    /// 烘一块瓦片再以 Repeat 平铺（CSS background 语义），瓦片锚定在 `origin`
+    /// （节点盒原点）；`None` 时整个盒子直接铺未拼接的噪声场。
+    Turbulence {
+        base_frequency: [f32; 2],
+        num_octaves: u32,
+        seed: u32,
+        tile: Option<[f32; 2]>,
+        origin: [f32; 2],
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -489,6 +499,36 @@ impl PartialEq for ShaderSpec {
                     && atm == btm
                     && matrix_eq(alm, blm)
             }
+            (
+                ShaderSpec::Turbulence {
+                    base_frequency: af,
+                    num_octaves: ao,
+                    seed: asd,
+                    tile: at,
+                    origin: aorig,
+                },
+                ShaderSpec::Turbulence {
+                    base_frequency: bf,
+                    num_octaves: bo,
+                    seed: bsd,
+                    tile: bt,
+                    origin: borig,
+                },
+            ) => {
+                af[0].to_bits() == bf[0].to_bits()
+                    && af[1].to_bits() == bf[1].to_bits()
+                    && ao == bo
+                    && asd == bsd
+                    && match (at, bt) {
+                        (Some(a), Some(b)) => {
+                            a[0].to_bits() == b[0].to_bits() && a[1].to_bits() == b[1].to_bits()
+                        }
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && aorig[0].to_bits() == borig[0].to_bits()
+                    && aorig[1].to_bits() == borig[1].to_bits()
+            }
             _ => false,
         }
     }
@@ -534,6 +574,25 @@ impl Hash for ShaderSpec {
                     .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
                 matrix_hash(local_matrix, state);
+            }
+            ShaderSpec::Turbulence {
+                base_frequency,
+                num_octaves,
+                seed,
+                tile,
+                origin,
+            } => {
+                base_frequency
+                    .iter()
+                    .for_each(|v| v.to_bits().hash(state));
+                num_octaves.hash(state);
+                seed.hash(state);
+                if let Some(t) = tile {
+                    t[0].to_bits().hash(state);
+                    t[1].to_bits().hash(state);
+                }
+                tile.is_some().hash(state);
+                origin.iter().for_each(|v| v.to_bits().hash(state));
             }
         }
     }

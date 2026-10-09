@@ -824,6 +824,25 @@ pub enum ArbitraryGradient {
         #[serde(default, rename = "extent")]
         extent: RadialExtent,
     },
+    /// SVG `feTurbulence`（fractalNoise）原语（`bg-[fe-turbulence(...)]`）。
+    /// Chrome 光栅化该 SVG 滤镜用的就是 Skia 的 fractal-noise shader，
+    /// 同参数可逐位复现原始渲染的颗粒场。
+    #[serde(rename = "turbulence")]
+    Turbulence {
+        /// `baseFrequency`（单值，x/y 同频）。
+        #[serde(rename = "baseFrequency")]
+        base_frequency: f32,
+        /// `numOctaves`。
+        #[serde(rename = "numOctaves")]
+        num_octaves: u32,
+        /// `seed`。
+        seed: u32,
+        /// `background-size` 瓦片（px）。`Some` 时噪声先烘进瓦片再 Repeat
+        /// 平铺（data-URL SVG 背景的平铺语义），`None` 时整个盒子铺一个
+        /// 未拼接的噪声场。
+        #[serde(rename = "size")]
+        size: Option<[f32; 2]>,
+    },
 }
 
 impl std::hash::Hash for ArbitraryGradient {
@@ -876,6 +895,20 @@ impl std::hash::Hash for ArbitraryGradient {
                 }
                 extent.hash(state);
             }
+            ArbitraryGradient::Turbulence {
+                base_frequency,
+                num_octaves,
+                seed,
+                size,
+            } => {
+                base_frequency.to_bits().hash(state);
+                num_octaves.hash(state);
+                seed.hash(state);
+                if let Some(s) = size {
+                    s[0].to_bits().hash(state);
+                    s[1].to_bits().hash(state);
+                }
+            }
         }
     }
 }
@@ -885,6 +918,7 @@ impl ArbitraryGradient {
         match self {
             ArbitraryGradient::LinearGradient { stops, .. }
             | ArbitraryGradient::RadialGradient { stops, .. } => stops,
+            ArbitraryGradient::Turbulence { .. } => &[],
         }
     }
 
@@ -892,6 +926,7 @@ impl ArbitraryGradient {
         match self {
             ArbitraryGradient::LinearGradient { repeat, .. }
             | ArbitraryGradient::RadialGradient { repeat, .. } => *repeat,
+            ArbitraryGradient::Turbulence { .. } => false,
         }
     }
 }

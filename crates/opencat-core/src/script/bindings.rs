@@ -496,11 +496,11 @@ macro_rules! for_each_binding {
         $binding! { cmd $store canvas_lambda_effect_draw (node_id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, children_json: String, dst_x: f32, dst_y: f32, dst_w: f32, dst_h: f32) -> bool {
             let spec_value: serde_json::Value = serde_json::from_str(&spec_json)
                 .map_err(|e| anyhow::anyhow!("lambda spec decode: {e}"))?;
-            let spec = $crate::script::effects_lambda::EffectSpec::from_json(&spec_value)?;
-            let compiled = $crate::script::effects_lambda::compile_effect(&lambda, &spec)?;
+            let spec = $crate::opencat_liangyi::EffectSpec::from_json(&spec_value)?;
+            let compiled = $crate::opencat_liangyi::compile_effect(&lambda, &spec)?;
             let children = $crate::script::helpers::parse_script_children(&children_json)?;
             match compiled.backend {
-                $crate::script::effects_lambda::Backend::Sksl => {
+                $crate::opencat_liangyi::Backend::Sksl => {
                     // 仅 SKSL/wire 侧需要 child 引用（surface 不能上 wire，
                     // 在此报错引导先 bake；CPU 后端直接采样核心内像素）
                     let child_refs: Vec<$crate::ir::draw_types::ScriptRuntimeEffectChild> =
@@ -532,8 +532,8 @@ macro_rules! for_each_binding {
                     );
                     Ok(true)
                 }
-                $crate::script::effects_lambda::Backend::Cpu => {
-                    use $crate::script::effects_lambda::interp::{ChildImage, InterpCtx};
+                $crate::opencat_liangyi::Backend::Cpu => {
+                    use $crate::opencat_liangyi::interp::{ChildImage, InterpCtx};
                     // uniform f32 平铺 → Val（按 spec 声明序消费）
                     let program = &compiled.program;
                     let uniform_vals = $crate::script::helpers::uniform_f32s_to_vals(
@@ -553,7 +553,7 @@ macro_rules! for_each_binding {
                         scan: None,
                     };
                     let rgba: std::sync::Arc<[u8]> = std::sync::Arc::from(
-                        $crate::script::effects_lambda::interp::render(program, w, h, &ctx),
+                        $crate::opencat_liangyi::interp::render(program, w, h, &ctx),
                     );
                     // 确定性 key：lambda hash + uniforms 指纹 + dst（同帧同参
                     // 幂等，异参碰撞是 hard error；逐帧 uniform 变化自然产生
@@ -688,7 +688,7 @@ macro_rules! for_each_binding {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}
         // ── Pure: offscreen pixel surface — session 级 render target
-        //    （canvas 2D 子集 + runEffect/scanPass/bake，见 text::surface）
+        //    （canvas 2D 子集 + run/sweep/bake，见 text::surface）
         $binding! { pure surface_create (id: String, width: f64, height: f64) -> bool {
             Ok($crate::text::surface::surface_create(&id, width as u32, height as u32).is_ok())
         }}
@@ -706,25 +706,25 @@ macro_rules! for_each_binding {
             ).is_ok())
         }}
         // ── Render target ops（通用机制：JS 拥有算法，Rust 只有执行器）────
-        // runEffect：pixel 类 lambda 逐像素渲染进目标 surface（f64 解释器，
+        // surface_apply_effect：pixel 类 lambda 逐像素渲染进目标 surface（f64 解释器，
         // rayon 按行并行）。children 可采样 generated（本帧烘焙）或其它
         // surface（session 级 render target）。像素缓冲永不跨进 JS。
         $binding! { cmd $store surface_apply_effect (id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, children_json: String) -> bool {
             let spec_value: serde_json::Value = serde_json::from_str(&spec_json)
                 .map_err(|e| anyhow::anyhow!("lambda spec decode: {e}"))?;
-            let mut spec = $crate::script::effects_lambda::EffectSpec::from_json(&spec_value)?;
+            let mut spec = $crate::opencat_liangyi::EffectSpec::from_json(&spec_value)?;
             // 本 binding 只做逐像素渲染：未声明 kind 时按 pixel 处理
             if spec_value.get("kind").is_none() {
-                spec.kind = $crate::script::effects_lambda::program::ScanKind::Pixel;
+                spec.kind = $crate::opencat_liangyi::program::ScanKind::Pixel;
             }
-            if spec.kind == $crate::script::effects_lambda::program::ScanKind::Scan {
+            if spec.kind == $crate::opencat_liangyi::program::ScanKind::Scan {
                 return Err(anyhow::anyhow!(
-                    "surface.runEffect 需要 pixel 类 lambda（顺序扫描请用 surface.scanPass）"
+                    "surface_apply_effect 需要 pixel 类 lambda（顺序扫描请用 surface_scan_pass）"
                 ));
             }
             // 目标运算恒走 f64 解释器（参考语义；SKSL 是绘制期后端，不落目标）
-            spec.backend_override = Some($crate::script::effects_lambda::Backend::Cpu);
-            let compiled = $crate::script::effects_lambda::compile_effect(&lambda, &spec)?;
+            spec.backend_override = Some($crate::opencat_liangyi::Backend::Cpu);
+            let compiled = $crate::opencat_liangyi::compile_effect(&lambda, &spec)?;
             let children = $crate::script::helpers::parse_script_children(&children_json)?;
             let child_images = $crate::script::helpers::cpu_child_images($store, &children)?;
             let (w, h) = $crate::text::surface::surface_dimensions(&id)?;
@@ -732,43 +732,48 @@ macro_rules! for_each_binding {
                 &compiled.program.uniforms,
                 &uniforms,
             )?;
-            let ctx = $crate::script::effects_lambda::interp::InterpCtx {
+            let ctx = $crate::opencat_liangyi::interp::InterpCtx {
                 uniforms: &uniform_vals,
                 rect: [0.0, 0.0, w as f64, h as f64],
                 children: &child_images,
                 scan: None,
             };
-            let rgba = $crate::script::effects_lambda::interp::render(
-                &compiled.program,
-                w,
-                h,
-                &ctx,
-            );
-            $crate::text::surface::surface_write_rgba(&id, w, h, rgba)?;
+            // 就地执行：Skia surface 的可写像素缓冲经 BufferViewMut 实例化
+            // 为 liangyi::pixel::RenderTarget（CPU 后端实例）。
+            $crate::text::surface::surface_with_rgba_mut(&id, |w, h, buf| {
+                let mut target = $crate::opencat_liangyi::pixel::BufferViewMut::new(w, h, buf)
+                    .map_err(|e| anyhow::anyhow!("surface_apply_effect: {e}"))?;
+                $crate::opencat_liangyi::exec::run_pixel_into(
+                    &compiled.program,
+                    &mut target,
+                    &ctx,
+                );
+                Ok(())
+            })?;
             Ok(true)
         }}
-        // scanPass：scan 类 lambda（首参 get）对本 surface **就地**一遍顺序
+        // surface_scan_pass：scan 类 lambda（首参 get）对本 surface **就地**一遍顺序
         // 扫描。遍历顺序由 executor 拥有（forward/backward），JS 源码无循环；
         // get(dx, dy) 读 in-progress 缓冲（clamp-to-edge）。单线程。
         $binding! { cmd $store surface_scan_pass (id: String, lambda: String, spec_json: String, uniforms: Vec<f32>, direction: String) -> bool {
             let spec_value: serde_json::Value = serde_json::from_str(&spec_json)
                 .map_err(|e| anyhow::anyhow!("lambda spec decode: {e}"))?;
-            let mut spec = $crate::script::effects_lambda::EffectSpec::from_json(&spec_value)?;
+            let mut spec = $crate::opencat_liangyi::EffectSpec::from_json(&spec_value)?;
             // 本 binding 只做顺序扫描：未声明 kind 时按 scan 处理
             if spec_value.get("kind").is_none() {
-                spec.kind = $crate::script::effects_lambda::program::ScanKind::Scan;
+                spec.kind = $crate::opencat_liangyi::program::ScanKind::Scan;
             }
-            if spec.kind != $crate::script::effects_lambda::program::ScanKind::Scan {
+            if spec.kind != $crate::opencat_liangyi::program::ScanKind::Scan {
                 return Err(anyhow::anyhow!(
-                    "surface.scanPass 需要 scan 类 lambda（spec.kind: 'scan'；逐像素请用 surface.runEffect）"
+                    "surface_scan_pass 需要 scan 类 lambda（spec.kind: 'scan'；逐像素请用 surface_apply_effect）"
                 ));
             }
-            spec.backend_override = Some($crate::script::effects_lambda::Backend::Cpu);
-            let compiled = $crate::script::effects_lambda::compile_effect(&lambda, &spec)?;
-            let Some(direction) = $crate::script::effects_lambda::interp::ScanDirection::from_name(&direction)
+            spec.backend_override = Some($crate::opencat_liangyi::Backend::Cpu);
+            let compiled = $crate::opencat_liangyi::compile_effect(&lambda, &spec)?;
+            let Some(direction) = $crate::opencat_liangyi::interp::ScanDirection::from_name(&direction)
             else {
                 return Err(anyhow::anyhow!(
-                    "surface.scanPass: direction 仅支持 'forward' / 'backward'"
+                    "surface_scan_pass: direction 仅支持 'forward' / 'backward'"
                 ));
             };
             let uniform_vals = $crate::script::helpers::uniform_f32s_to_vals(
@@ -776,13 +781,13 @@ macro_rules! for_each_binding {
                 &uniforms,
             )?;
             $crate::text::surface::surface_with_rgba_mut(&id, |w, h, buf| {
-                $crate::script::effects_lambda::interp::render_scan(
+                let mut target = $crate::opencat_liangyi::pixel::BufferViewMut::new(w, h, buf)
+                    .map_err(|e| anyhow::anyhow!("surface_scan_pass: {e}"))?;
+                $crate::opencat_liangyi::exec::run_scan_into(
                     &compiled.program,
-                    w,
-                    h,
+                    &mut target,
                     &uniform_vals,
                     direction,
-                    buf,
                 );
                 Ok(())
             })?;

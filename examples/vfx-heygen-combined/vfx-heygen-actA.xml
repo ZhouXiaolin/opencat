@@ -159,9 +159,9 @@
       return [clamp(cr + white, 0.0, 1.0), clamp(cg + white, 0.0, 1.0),
               clamp(cb + white, 0.0, 1.0), 1.0];
     };
-    var stingEffect = CK.Effect.fromLambda(STING, {
-      uniforms: [['w', 'float'], ['h', 'float'], ['scale', 'float'],
-                 ['logoY', 'float'], ['mix', 'float'], ['progress', 'float']],
+    var stingEffect = ly.pixel(STING, {
+      uniforms: { w: 'float', h: 'float', scale: 'float',
+                  logoY: 'float', mix: 'float', progress: 'float' },
       backend: 'sksl'
     });
     var stingCanvas = ctx.getCanvasById('sting-canvas');
@@ -179,7 +179,7 @@
     (function paintSting() {
       if (TT > 3.12) return;   // V1 is fully faded out by 3.1 s; skip the march
       var p = new CK.Paint();
-      p.setShader(stingEffect.makeShaderWithChildren(
+      p.setShader(stingEffect.sample(
         [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
         [stingChild, stingChild]));
       stingCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);

@@ -87,10 +87,25 @@ impl ScanDirection {
 
 /// 渲染一帧 w×h 的 lambda 输出（straight RGBA8）。rayon 按行并行。
 pub fn render(program: &Program, width: u32, height: u32, ctx: &InterpCtx) -> Vec<u8> {
-    debug_assert_eq!(program.backend(), Backend::Cpu);
     let w = width as usize;
     let h = height as usize;
     let mut out = vec![0u8; w * h * 4];
+    render_into(program, width, height, ctx, &mut out);
+    out
+}
+
+/// 逐像素内核写入既有缓冲（宿主 [`crate::pixel::RenderTarget`] 的字节
+/// 视图）。rayon 按行并行；缓冲长度必须为 w×h×4。
+pub fn render_into(
+    program: &Program,
+    width: u32,
+    height: u32,
+    ctx: &InterpCtx,
+    out: &mut [u8],
+) {
+    debug_assert_eq!(program.backend(), Backend::Cpu);
+    debug_assert_eq!(out.len(), width as usize * height as usize * 4);
+    let w = width as usize;
     let row_len = w * 4;
     out.par_chunks_exact_mut(row_len).enumerate().for_each(|(y, row)| {
         let py = y as f64 + 0.5;
@@ -101,7 +116,6 @@ pub fn render(program: &Program, width: u32, height: u32, ctx: &InterpCtx) -> Ve
             *px_chunk = [q(rgba[0]), q(rgba[1]), q(rgba[2]), q(rgba[3])];
         }
     });
-    out
 }
 
 /// scan pass：对 `buf`（w×h×4，straight RGBA8）**就地**做一遍顺序扫描。

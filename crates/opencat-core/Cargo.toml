@@ -9,16 +9,19 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow.workspace = true
+# Liangyi（两仪）效果内核语言：script::effects_lambda 已抽为独立 crate，
+# 经 lib.rs 的 `pub use opencat_liangyi;` 再导出。
+opencat-liangyi = { path = "../opencat-liangyi" }
 # GLB/glTF 解析一律走现成 crate（容器/accessor/后续材质层级），不再手写。
 # default-features = false 关掉 import（会拖 image 解码栈）；utils 提供遍历工具。
 gltf = { version = "1.4", default-features = false, features = ["utils"] }
-taffy = "0.10.0"
+taffy = "0.14.0"
 serde.workspace = true
 serde_json.workspace = true
 ahash = "0.8"
 hashbrown = "0.17"
 kurbo = "0.13.1"
-unicode-segmentation = "1.11"
+unicode-segmentation = "1.13"
 # Version cosmic-text 0.19 pins internally; needed to implement its `Fallback`
 # trait (BrowserEmojiFirstFallback in text/mod.rs).
 unicode-script = "0.5"
@@ -29,13 +32,13 @@ fontdb = "0.23.0"
 swash = "0.2"
 # removed: imagesize, nom-exif — host-owned probing (issue #40)
 url = "2.5"
-bumpalo = "3.20.2"
+bumpalo = "3.20.3"
 log = "0.4"
 # Raw-deflate codec for the optional compressed OCIR transport variant
 # (`ir::draw_encoding::compress_ir_envelope`). The browser decodes the matching
 # stream with `DecompressionStream('deflate-raw')`, so we emit raw deflate
 # (no zlib/gzip wrapper). Already in the tree transitively via `image`.
-miniz_oxide = "0.8"
+miniz_oxide = "0.9"
 roxmltree = "0.21.1"
 oxc_allocator.workspace = true
 oxc_ast.workspace = true

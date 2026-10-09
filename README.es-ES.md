@@ -165,33 +165,34 @@ ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 // 2) siembra una máscara + campo de distancia — lambda de clase pixel que muestrea
 //    esa superficie como child
 var field = ctx.createSurface('k3dis-field', 1460, 222);
-field.runEffect(
-  (uv, src) => {
-    const c = src.eval(uv + [232, 430]);
-    const m = byte(c.a * 255 + 0.5);
-    const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
-    return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
-  }, null, null, [{ __opencatShader: 'surface', id: 'k3dis-off' }]);
+const seed = ly.pixel((uv, src) => {
+  const c = src.eval(uv + [232, 430]);
+  const m = byte(c.a * 255 + 0.5);
+  const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
+  return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
+});
+field.run(seed, { child: ox });
 
 // 3) barridos chamfer — lambda de clase scan, in situ; get(dx,dy) lee el búfer en
 //    progreso y el ejecutor posee el orden de recorrido (forward/backward)
-field.scanPass((get) => {
+field.sweep(ly.scan((get) => {
   const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
   const c = get(0, 0), d = at(c);
   const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
               min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
   return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
-}, 'forward');
+}, { dir: 'forward' }));
 
 // 4) cada fotograma: una lambda muestrea la superficie del campo directamente — sin bake
-var DIS = CK.Effect.fromLambda((uv, field, u) => {
+var DIS = ly.pixel((uv, field, u) => {
   const c = field.eval(uv);
   const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
   /* ruido scramble · dust · glow → RGBA straight */
-}, { uniforms: [['x0','float'], ['f','float'], ['ep','float'], ['pa','float4']] });
+}, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
+paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
 ```
 
-Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Los búferes de píxeles nunca cruzan el puente JS y el lado Rust solo tiene un **ejecutor genérico**: `surface.runEffect` reescribe con una lambda de clase pixel, `surface.scanPass` recorre in situ con una lambda de clase scan y `surface.bake(key)` registra los píxeles como imagen del fotograma para muestreo por shader. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando. Referencia: `examples/k3-promo.xml` escena H; guía: `skill/references/canvaskit.md`.
+Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Los búferes de píxeles nunca cruzan el puente JS y el lado Rust solo tiene un **ejecutor genérico**: `target.run` reescribe con un kernel pixel, `target.sweep` recorre in situ con un kernel scan y `surface.bake(key)` registra los píxeles como imagen del fotograma para muestreo por shader. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando. Referencia: `examples/k3-promo.xml` escena H; guía: `skill/references/canvaskit.md`.
 
 ### Más
 

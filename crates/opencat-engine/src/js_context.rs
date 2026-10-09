@@ -162,7 +162,7 @@ fn make_surface_read_into<'js>(ctx: &Ctx<'js>) -> rquickjs::Result<rquickjs::Fun
             let raw = ta.as_raw().ok_or_else(|| {
                 JsError::new_from_js_message("surface.read", "out", "detached typed array")
             })?;
-            if raw.len < bytes.len() {
+            if raw.len() < bytes.len() {
                 return Err(JsError::new_from_js_message(
                     "surface.read",
                     "out",
@@ -171,7 +171,7 @@ fn make_surface_read_into<'js>(ctx: &Ctx<'js>) -> rquickjs::Result<rquickjs::Fun
             }
             // `out` 在调用栈上存活，缓冲区不可能在 copy 期间被 GC 回收。
             unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.ptr.as_ptr(), bytes.len());
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), raw.as_ptr().cast::<u8>(), bytes.len());
             }
             Ok(bytes.len())
         },
@@ -271,16 +271,20 @@ impl JsContext for RqJsContext {
                       w: f64,
                       h: f64|
                       -> Result<(), JsError> {
-                    let bytes = rquickjs::TypedArray::<u8>::from_value(pixels)
-                        .map_err(|e| {
-                            JsError::new_from_js_message(
-                                "putImageData",
-                                "pixels",
-                                &e.to_string(),
-                            )
-                        })?
-                        .as_bytes()
-                        .map(<[u8]>::to_vec)
+                    // SAFETY: `pixels` is borrowed from this call's arguments and the
+                    // callback holds the JS context alive; the view cannot detach.
+                    let bytes = unsafe {
+                        rquickjs::TypedArray::<u8>::from_value(pixels)
+                            .map_err(|e| {
+                                JsError::new_from_js_message(
+                                    "putImageData",
+                                    "pixels",
+                                    &e.to_string(),
+                                )
+                            })?
+                            .as_bytes()
+                            .map(<[u8]>::to_vec)
+                    }
                         .ok_or_else(|| {
                             JsError::new_from_js_message(
                                 "putImageData",

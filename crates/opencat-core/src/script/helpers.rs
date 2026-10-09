@@ -136,10 +136,10 @@ pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow:
 
 /// f32 平铺 uniforms → `Val`（按 spec 声明序消费；CPU 解释器入口共用）。
 pub fn uniform_f32s_to_vals(
-    uniforms_spec: &[crate::script::effects_lambda::program::UniformSpec],
+    uniforms_spec: &[opencat_liangyi::program::UniformSpec],
     uniforms: &[f32],
-) -> anyhow::Result<Vec<crate::script::effects_lambda::program::Val>> {
-    use crate::script::effects_lambda::program::Val;
+) -> anyhow::Result<Vec<opencat_liangyi::program::Val>> {
+    use opencat_liangyi::program::Val;
     let mut cursor = 0usize;
     let mut out = Vec::with_capacity(uniforms_spec.len());
     for u in uniforms_spec {
@@ -172,8 +172,8 @@ pub fn uniform_f32s_to_vals(
 pub fn cpu_child_images(
     store: &crate::script::recorder::MutationStore,
     children: &[ScriptChildSpec],
-) -> anyhow::Result<Vec<crate::script::effects_lambda::interp::ChildImage>> {
-    use crate::script::effects_lambda::interp::ChildImage;
+) -> anyhow::Result<Vec<opencat_liangyi::interp::ChildImage>> {
+    use opencat_liangyi::interp::ChildImage;
     let mut out = Vec::new();
     for c in children {
         match c {

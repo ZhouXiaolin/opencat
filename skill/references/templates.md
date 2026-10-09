@@ -230,7 +230,7 @@
 
 把 XML 子树作为画面纹理，经过 SKSL shader 处理后画回 canvas。用于扭曲、玻璃、portal 等 hero 效果。
 
-逐像素处理优先用效果 lambda（`CK.Effect.fromLambda`，见 [canvaskit.md](canvaskit.md) 的 "Effect.fromLambda"）：lambda 编译后自动走同一条 RuntimeEffect 管线，无需手写 SKSL。需要"构建一次、逐帧采样"的场数据（mask/距离场等）时，用 surface render target（`surface.runEffect` / `surface.scanPass` / `surface.bake`，见 canvaskit.md "render target" 一节）。完整示例见 `examples/xxx.xml`（折射玻璃）与 `examples/k3-promo.xml` 场景 H（seed + 双 scan 的 render target 形态）。
+逐像素处理优先用 Liangyi 效果内核（`ly.pixel` / `ly.scan`，见 [canvaskit.md](canvaskit.md) 的 "ly.pixel / ly.scan"）：内核编译后自动走同一条 RuntimeEffect 管线，无需手写 SKSL。需要"构建一次、逐帧采样"的场数据（mask/距离场等）时，用 render target（`ly.target` / `target.run` / `target.sweep` / `bake`，见 canvaskit.md "render target" 一节）。完整示例见 `examples/xxx.xml`（折射玻璃）与 `examples/k3-promo.xml` 场景 H（seed + 双 sweep 的 render target 形态）。
 
 ```xml
 <opencat width="1280" height="720" fps="30" duration="4">
@@ -251,15 +251,15 @@
     var canvas = ctx.getCanvasById('surface');
     var child = canvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
 
-    var wave = CK.Effect.fromLambda(
+    var wave = ly.pixel(
       (uv, image, u) => {
         const src = uv + [sin(uv.y * 0.04 + u.t * 4.0) * 6.0, 0.0];
         return image.eval(src);
       },
-      { uniforms: [['t', 'float']] }
+      { uniforms: { t: 'float' } }
     );
 
-    var shader = wave.makeShaderWithChildren([ctx.currentTime], [child]);
+    var shader = wave.sample({ t: ctx.currentTime }, [child]);
     var paint = new CK.Paint();
     paint.setShader(shader);
     canvas.drawRect(CK.XYWHRect(0, 0, 640, 720), paint);

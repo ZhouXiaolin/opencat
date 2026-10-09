@@ -161,35 +161,36 @@ A `<canvas>` node's subtree content can be live-textured and fed into a per-pixe
 var ox = ctx.createSurface('k3dis-off', 1920, 1080);
 ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-// 2) seed a mask + distance field — a pixel-class lambda sampling that surface as a child
+// 2) seed a mask + distance field — a pixel kernel sampling that surface as a child
 var field = ctx.createSurface('k3dis-field', 1460, 222);
-field.runEffect(
-  (uv, src) => {
-    const c = src.eval(uv + [232, 430]);
-    const m = byte(c.a * 255 + 0.5);
-    const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
-    return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
-  }, null, null, [{ __opencatShader: 'surface', id: 'k3dis-off' }]);
+const seed = ly.pixel((uv, src) => {
+  const c = src.eval(uv + [232, 430]);
+  const m = byte(c.a * 255 + 0.5);
+  const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
+  return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
+});
+field.run(seed, { child: ox });
 
-// 3) chamfer sweeps — a scan-class lambda, in place; get(dx,dy) reads the in-progress
-//    buffer and the executor owns the traversal order (forward/backward)
-field.scanPass((get) => {
+// 3) chamfer sweeps — a scan kernel, in place; get(dx,dy) reads the in-progress
+//    buffer and the traversal direction rides on the kernel declaration
+field.sweep(ly.scan((get) => {
   const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
   const c = get(0, 0), d = at(c);
   const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
               min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
   return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
-}, 'forward');
+}, { dir: 'forward' }));
 
-// 4) each frame: a per-pixel lambda samples the field surface directly — no per-frame bake
-var DIS = CK.Effect.fromLambda((uv, field, u) => {
+// 4) each frame: a pixel kernel samples the field surface directly — no per-frame bake
+var DIS = ly.pixel((uv, field, u) => {
   const c = field.eval(uv);
   const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
   /* scramble noise · dust · glow → straight RGBA */
-}, { uniforms: [['x0','float'], ['f','float'], ['ep','float'], ['pa','float4']] });
+}, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
+paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
 ```
 
-Any HTML subtree — layout, images, text, video → texture → shader → output. Pixel buffers never cross the JS bridge and the Rust side holds only a **generic executor**: `surface.runEffect` rewrites pixels with a pixel-class lambda, `surface.scanPass` sweeps in place with a scan-class lambda, and `surface.bake(key)` registers the pixels as a frame image for shader sampling. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work. Reference: `examples/k3-promo.xml` scene H; guide: `skill/references/canvaskit.md`.
+Any HTML subtree — layout, images, text, video → texture → shader → output. Pixel buffers never cross the JS bridge and the Rust side holds only a **generic executor**: `target.run` rewrites pixels with a pixel kernel, `target.sweep` sweeps in place with a scan kernel, and `surface.bake(key)` registers the pixels as a frame image for shader sampling. The effect-kernel language is **Liangyi** (`ly.*` — `crates/opencat-liangyi`): JS-hosted, compiled never executed, dispatched to SKSL or a CPU interpreter by capability. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work. Reference: `examples/k3-promo.xml` scene H; guide: `skill/references/canvaskit.md`.
 
 ### More
 

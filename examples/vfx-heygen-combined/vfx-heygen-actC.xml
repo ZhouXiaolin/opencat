@@ -248,16 +248,16 @@
       const lumB = sB.b * 0.6 + max(sB.r, sB.g) * 0.4;
       return [sR.r * lumR * a, sG.g * lumG * a, sB.b * lumB * a, 1.0];
     };
-    var chromEffect = CK.Effect.fromLambda(CHROM, {
-      uniforms: [['w', 'float'], ['h', 'float'], ['pw', 'float'], ['ph', 'float'],
-                 ['scale', 'float'], ['alpha', 'float'], ['bloom', 'float'],
-                 ['cx', 'float'], ['cy', 'float'], ['cz', 'float'],
-                 ['fx', 'float'], ['fy', 'float'], ['fz', 'float'],
-                 ['rx', 'float'], ['ry', 'float'], ['rz', 'float'],
-                 ['ux', 'float'], ['uy', 'float'], ['uz', 'float'],
-                 ['px0', 'float'], ['py0', 'float'], ['pz0', 'float'], ['cs0', 'float'], ['sn0', 'float'],
-                 ['px1', 'float'], ['py1', 'float'], ['pz1', 'float'], ['cs1', 'float'], ['sn1', 'float'],
-                 ['px2', 'float'], ['py2', 'float'], ['pz2', 'float'], ['cs2', 'float'], ['sn2', 'float']],
+    var chromEffect = ly.pixel(CHROM, {
+      uniforms: { w: 'float', h: 'float', pw: 'float', ph: 'float',
+                  scale: 'float', alpha: 'float', bloom: 'float',
+                  cx: 'float', cy: 'float', cz: 'float',
+                  fx: 'float', fy: 'float', fz: 'float',
+                  rx: 'float', ry: 'float', rz: 'float',
+                  ux: 'float', uy: 'float', uz: 'float',
+                  px0: 'float', py0: 'float', pz0: 'float', cs0: 'float', sn0: 'float',
+                  px1: 'float', py1: 'float', pz1: 'float', cs1: 'float', sn1: 'float',
+                  px2: 'float', py2: 'float', pz2: 'float', cs2: 'float', sn2: 'float' },
       backend: 'sksl'
     });
     var chromChild = chromCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
@@ -291,7 +291,7 @@
       /* per-plane world center (index.html:1071-1073): red depthX-xSplit /
          depthZ+zSplit; green depthX/depthZ; blue depthX+xSplit / depthZ-zSplit. */
       var p = new CK.Paint();
-      p.setShader(chromEffect.makeShaderWithChildren([
+      p.setShader(chromEffect.sample([
         PW, PH, planeW, planeH, planeScale, sceneAlpha, bloomStrength,
         camX, camY, camZ,
         Fx, Fy, Fz, Rx, Ry, Rz, Ux, Uy, Uz,
@@ -328,9 +328,9 @@
       const fb = front.b * mask + ringB * glow * 2.5;
       return [fr, fg, fb, clamp(mask + glow * 0.5, 0.0, 1.0)];
     };
-    var portalEffect = CK.Effect.fromLambda(PORTAL, {
-      uniforms: [['w','float'],['h','float'],['edge','float'],['energy','float'],
-                 ['time','float'],['ew','float']],
+    var portalEffect = ly.pixel(PORTAL, {
+      uniforms: { w: 'float', h: 'float', edge: 'float', energy: 'float',
+                  time: 'float', ew: 'float' },
       backend: 'sksl'
     });
     var portalCanvas = ctx.getCanvasById('portal-canvas');
@@ -338,7 +338,7 @@
     (function paintPortal() {
       if (st < PS) return;
       var p = new CK.Paint();
-      p.setShader(portalEffect.makeShaderWithChildren(
+      p.setShader(portalEffect.sample(
         [1920.0, 1080.0, portalRadius, energy, st, edgeWidth], [portalChild]));
       portalCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
     })();

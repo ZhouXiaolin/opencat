@@ -581,33 +581,61 @@
         };
     }
 
-    /* ── Effect lambda（编译型效果 DSL）────────────────────────────────
+    /* ── Liangyi 内核（编译型效果 DSL，ly.pixel / ly.scan）────────────
        fn 只被读取源码（fn.toString()）、从不被执行：Rust 侧解析该源码并
        重建计算，自动派发 SKSL（RuntimeEffect）或纯 CPU 逐像素后端。
        约束：lambda 必须是源码内联的箭头函数（不可是原生函数/被压缩）；
        白名单语法 —— 数值/布尔/数组字面量、算术/比较/逻辑/三目、if/else、
        let/const、std 内建与 Math.*、u.<name>、child.eval(pos)、swizzle 读。
-       spec: { uniforms: [['t','float'], ...], backend: 'auto'|'sksl'|'cpu' }。
-       uniforms 展平顺序必须与 spec 声明序一致（向量按分量展开）。 */
-    class LambdaEffect {
-        constructor(fn, spec) {
-            this._fnSource = assertLambdaFn(fn, 'Effect.fromLambda');
-            this.__opencatLambdaEffect = true;
+       spec: { uniforms: {t:'float', ...} | [['t','float'], ...],
+               backend: 'auto'|'sksl'|'cpu' }；scan 内核另有 dir:
+       'forward'|'backward'（声明期固定，遍历顺序归 executor 所有）。
+       uniforms 展平顺序 = spec 声明序（向量按分量展开）。 */
+    class Kernel {
+        constructor(fn, spec, kind, who) {
+            this._fnSource = assertLambdaFn(fn, who);
+            this.__opencatKernel = true;
+            this.kind = kind;
             const s = spec || {};
-            this._spec = {
-                uniforms: Array.isArray(s.uniforms) ? s.uniforms : [],
-                backend: s.backend == null ? 'auto' : String(s.backend),
-            };
+            this.uniforms = normalizeUniformSpec(s.uniforms, who);
+            this.backend = s.backend == null ? 'auto' : String(s.backend);
+            if (kind === 'scan') {
+                this.dir = s.dir == null ? 'forward' : String(s.dir);
+                if (this.dir !== 'forward' && this.dir !== 'backward') {
+                    throw new Error(who + ": spec.dir must be 'forward' or 'backward'");
+                }
+            }
         }
-        delete() {}
 
-        makeShader(uniforms) {
-            return makeLambdaShader(this, uniforms, []);
+        /* spec JSON（数组保序；kind/backend 声明期固定）*/
+        specJson() {
+            return JSON.stringify({
+                kind: this.kind,
+                backend: this.backend,
+                uniforms: this.uniforms,
+            });
         }
 
-        makeShaderWithChildren(uniforms, children) {
-            return makeLambdaShader(this, uniforms, children);
+        /* 绘制期采样：uniforms 按名传（或平铺数组），children 为缓冲区/
+           shader 句柄；产出 paint shader（drawRect 等绘制路径）。 */
+        sample(uniforms, children) {
+            return makeKernelShader(this, uniforms, children);
         }
+    }
+
+    /* uniforms 声明序归一：对象形式 {name: type} → [['name','type'], ...]
+       （JS 字符串键保插入序，即 f32 打包序）；数组形式原样通过。 */
+    function normalizeUniformSpec(uniforms, who) {
+        if (uniforms == null) return [];
+        if (Array.isArray(uniforms)) return uniforms;
+        if (typeof uniforms === 'object') {
+            const out = [];
+            for (const name of Object.keys(uniforms)) {
+                out.push([name, String(uniforms[name])]);
+            }
+            return out;
+        }
+        throw new Error(who + ': spec.uniforms must be an object or array');
     }
 
     /* lambda 源码可用性检查（编译型契约：源码被 Rust 取走编译，从不执行）。
@@ -626,8 +654,8 @@
     /* spec 声明序展开 uniforms：float→1 个数，float2/3/4→2/3/4 个数。
        输入可以是平铺数组（元素为数或数）或 {name: value} 映射。 */
     function flattenLambdaUniforms(effect, uniforms, who) {
-        const label = who || 'Effect.fromLambda';
-        const specUniforms = effect._spec.uniforms;
+        const label = who || 'ly.pixel';
+        const specUniforms = effect.uniforms;
         const out = [];
         const pushValue = (ty, v, name) => {
             const n = ty === 'float' ? 1 : Number(String(ty).slice(5)) || 0;
@@ -681,7 +709,7 @@
         throw new Error(`${label}: uniforms must be an array or object`);
     }
 
-    function makeLambdaShader(effect, uniforms, children) {
+    function makeKernelShader(effect, uniforms, children) {
         return {
             __opencatShader: 'lambda',
             effect,
@@ -710,6 +738,13 @@
                 throw new Error('surface child shader requires a surface id');
             }
             return c;
+        }
+        /* ly.target 产出的渲染目标句柄：就地转成 surface child */
+        if (c.__opencatSurface === true) {
+            if (typeof c.id !== 'string' || c.id.length === 0) {
+                throw new Error('render target child requires a surface id');
+            }
+            return { __opencatShader: 'surface', id: c.id };
         }
         throw new Error(
             'only image, picture, generated and surface child shaders are supported; gradient not implemented'
@@ -847,14 +882,6 @@
             Make(sksl) {
                 if (typeof sksl !== 'string' || sksl.length === 0) return null;
                 return new RuntimeEffect(sksl);
-            }
-        },
-        /* 效果 lambda：统一 SKSL 与逐像素效果的编译型 DSL。
-           后端由 Rust 依 lambda 用到的内建自动派发（spec.backend 可强制）。
-           遗留别名——新代码请用 ly.kernel。 */
-        Effect: {
-            fromLambda(fn, spec) {
-                return new LambdaEffect(fn, spec);
             }
         },
         BLACK: [0, 0, 0, 1],
@@ -1099,7 +1126,7 @@
                     __canvas_lambda_effect_draw(
                         id,
                         sh.effect._fnSource,
-                        JSON.stringify(sh.effect._spec),
+                        sh.effect.specJson(),
                         sh.uniforms,
                         JSON.stringify(sh.children),
                         normalized.x,
@@ -1534,6 +1561,7 @@
         }
         return {
             __opencatSurface: true,
+            id: id,
             save() {
                 stack.push({ tx: matrix.tx, ty: matrix.ty, a: matrix.a });
             },
@@ -1603,67 +1631,48 @@
                 };
             },
             /* ── Render target（§render target）────────────────────────
-               JS 拥有算法：lambda 源码只被 Rust 编译、从不执行，像素缓冲
+               JS 拥有算法：内核源码只被 Rust 编译、从不执行，像素缓冲
                永不跨进 JS；引擎侧只有通用执行器（逐像素重绘 / 顺序扫描 /
                帧级烘焙），不含任何具体效果算法。
-               - runEffect(fn, spec, uniforms, children)：pixel 类 lambda
-                 逐像素重绘本目标（f64 解释器，rayon 按行并行）。children
-                 可采样 generated（本帧烘焙）或其它 surface（session 级
-                 render target），如 {__opencatShader:'surface', id:'x'}。
-               - scanPass(fn, direction, spec, uniforms)：scan 类 lambda
-                 （首参 get）就地顺序扫描一遍；get(dx,dy) 读 in-progress
-                 字节（clamp-to-edge）。遍历顺序由 executor 拥有
-                 （'forward'/'backward'），单线程。
+               - run(kernel, opts)：ly.pixel 内核逐像素重绘本目标（f64
+                 解释器，rayon 按行并行）。opts: { children, uniforms }。
+                 children 可采样 generated（本帧烘焙）、image 或其它
+                 渲染目标（ly.target 句柄，session 级，不上 wire）。
+               - sweep(kernel, opts)：ly.scan 内核（首参 get）就地顺序
+                 扫描一遍；方向声明在内核上（spec.dir），get(dx,dy) 读
+                 in-progress 字节（clamp-to-edge）。单线程。
                - bake(key)：当前像素注册为帧级生成图像（幂等契约：同 key
                  异像素 = 硬错误），返回 generated shader 供 SKSL/绘制
-                 路径采样。CPU lambda 可直接用 surface child 免烘焙。 */
-            runEffect(fn, spec, uniforms, children) {
-                const src = assertLambdaFn(fn, 'surface.runEffect');
-                const s = spec || {};
-                if (String(s.backend) === 'sksl') {
+                 路径采样。CPU 内核可直接采样渲染目标 child 免烘焙。 */
+            run(kernel, opts) {
+                if (!kernel || kernel.__opencatKernel !== true || kernel.kind !== 'pixel') {
+                    throw new Error('target.run: expected a ly.pixel kernel');
+                }
+                if (kernel.backend === 'sksl') {
                     throw new Error(
-                        'surface.runEffect: target ops always run on the CPU interpreter (sksl is a draw-time backend)'
+                        'target.run: target ops always run on the CPU interpreter (sksl is a draw-time backend)'
                     );
                 }
-                if (s.kind === 'scan') {
-                    throw new Error(
-                        'surface.runEffect is for pixel lambdas; ordered scans belong in surface.scanPass'
-                    );
-                }
-                const specJson = JSON.stringify(
-                    Object.assign({}, s, { kind: s.kind || 'pixel' })
-                );
-                const flat = flattenLambdaUniforms(
-                    { _spec: { uniforms: s.uniforms || [] } },
-                    uniforms,
-                    'surface.runEffect'
-                );
-                const kids = (children || []).map(ensureChildShader);
-                if (__surface_apply_effect(id, src, specJson, flat, JSON.stringify(kids)) !== true) {
-                    throw new Error('surface.runEffect: engine rejected the lambda');
+                const o = opts || {};
+                const flat = flattenLambdaUniforms(kernel, o.uniforms, 'target.run');
+                const kids = (o.children || (o.child == null ? [] : [o.child])).map(ensureChildShader);
+                if (__surface_apply_effect(id, kernel._fnSource, kernel.specJson(), flat, JSON.stringify(kids)) !== true) {
+                    throw new Error('target.run: engine rejected the kernel');
                 }
             },
-            scanPass(fn, direction, spec, uniforms) {
-                const src = assertLambdaFn(fn, 'surface.scanPass');
-                const s = spec || {};
-                if (String(s.backend) === 'sksl') {
+            sweep(kernel, opts) {
+                if (!kernel || kernel.__opencatKernel !== true || kernel.kind !== 'scan') {
+                    throw new Error('target.sweep: expected a ly.scan kernel');
+                }
+                if (kernel.backend === 'sksl') {
                     throw new Error(
-                        'surface.scanPass: scan lambdas have no SKSL form (ordered scan is CPU-interpreter only)'
+                        'target.sweep: scan kernels have no SKSL form (ordered scan is CPU-interpreter only)'
                     );
                 }
-                if (s.kind != null && s.kind !== 'scan') {
-                    throw new Error(
-                        'surface.scanPass requires spec.kind "scan" (per-pixel rewrites belong in surface.runEffect)'
-                    );
-                }
-                const specJson = JSON.stringify(Object.assign({}, s, { kind: 'scan' }));
-                const flat = flattenLambdaUniforms(
-                    { _spec: { uniforms: s.uniforms || [] } },
-                    uniforms,
-                    'surface.scanPass'
-                );
-                if (__surface_scan_pass(id, src, specJson, flat, String(direction || 'forward')) !== true) {
-                    throw new Error('surface.scanPass: engine rejected the lambda');
+                const o = opts || {};
+                const flat = flattenLambdaUniforms(kernel, o.uniforms, 'target.sweep');
+                if (__surface_scan_pass(id, kernel._fnSource, kernel.specJson(), flat, kernel.dir) !== true) {
+                    throw new Error('target.sweep: engine rejected the kernel');
                 }
             },
             bake(key) {
@@ -1693,27 +1702,25 @@
     };
 
     /* ── ly：Liangyi（两仪）效果内核语言命名空间 ─────────────────────
-       后端无关门面：kernel/scan 声明内核（lambda 只被编译、从不执行），
-       target 是渲染目标（像素数据由后端实例化：CPU 解释器 / Skia
-       surface / 将来的 wgpu）。不再经由 CK（CanvasKit）命名空间；
-       CK.Effect.fromLambda 等旧入口保留为别名，行为不变。
-       - ly.kernel(fn, spec)：pixel 类内核（spec.kind 默认 'pixel'）
-       - ly.scan(fn, spec)：scan 类内核（就地顺序扫描）
-       - ly.target(id, w, h)：渲染目标；.runEffect/.scanPass/.bake
-         即内核的 CPU 执行入口 */
+       后端无关门面：内核只被编译、从不执行；渲染目标的像素数据由后端
+       实例化（CPU 解释器 / Skia surface / 将来的 wgpu）。不经过 CK
+       （CanvasKit）——CK 只管绘制原语（Paint/Path/Rect 等）。
+       - ly.pixel(fn, spec)：pixel 类内核。spec.uniforms 用对象按名声明
+         （{t:'float', pa:'float4'}，键序即 f32 打包序）；spec.backend
+         'auto'（默认，Rust 依内建能力派发）| 'sksl' | 'cpu'。
+         用法一：kernel.sample(uniforms, children) → paint shader；
+         用法二：target.run(kernel, {children, uniforms})。
+       - ly.scan(fn, spec)：scan 类内核（首参 get）。spec.dir 声明
+         遍历方向（'forward' | 'backward'，声明期固定）；
+         target.sweep(kernel, {uniforms}) 就地扫描一遍。
+       - ly.target(id, w, h)：渲染目标（= ctx.createSurface）；句柄可
+         直接作为 child 传入（{child: target}）。 */
     const ly = {
-        kernel(fn, spec) {
-            const s = spec || {};
-            return new LambdaEffect(
-                fn,
-                Object.assign({}, s, { kind: s.kind || 'pixel' })
-            );
+        pixel(fn, spec) {
+            return new Kernel(fn, spec, 'pixel', 'ly.pixel');
         },
         scan(fn, spec) {
-            return new LambdaEffect(
-                fn,
-                Object.assign({}, spec || {}, { kind: 'scan' })
-            );
+            return new Kernel(fn, spec, 'scan', 'ly.scan');
         },
         target(id, w, h) {
             return ctx.createSurface(String(id), w, h);

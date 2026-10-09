@@ -166,7 +166,7 @@ fn surface_target_ops_reject_wrong_kind() {
         ],
     )
     .unwrap_err();
-    assert!(err.to_string().contains("runEffect"), "{err}");
+    assert!(err.to_string().contains("pixel 类 lambda"), "{err}");
 
     let err = dispatch_binding(
         &mut store,
@@ -180,7 +180,7 @@ fn surface_target_ops_reject_wrong_kind() {
         ],
     )
     .unwrap_err();
-    assert!(err.to_string().contains("scanPass"), "{err}");
+    assert!(err.to_string().contains("scan 类 lambda"), "{err}");
 
     // spec.kind 双向枚举仍与语言本体一致
     assert_eq!(ScanKind::default(), ScanKind::Pixel);

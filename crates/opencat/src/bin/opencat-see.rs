@@ -21,14 +21,15 @@ mod app {
     use skia_safe::Image;
     use std::collections::HashMap;
     use opencat_core::script::js_context::JsContext;
-    use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle};
+    use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
+    use winit::application::ApplicationHandler;
     use winit::dpi::PhysicalSize;
-    use winit::event::{Event, WindowEvent};
-    use winit::event_loop::ControlFlow;
+    use winit::event::WindowEvent;
+    use winit::event_loop::{ActiveEventLoop, ControlFlow};
     #[cfg(not(target_os = "linux"))]
     use winit::event_loop::EventLoop;
-    use winit::window::{Window, WindowBuilder};
+    use winit::window::{Window, WindowAttributes};
 
     #[cfg(target_os = "macos")]
     use cocoa::appkit::NSView;
@@ -531,9 +532,12 @@ mod app {
         width: i32,
         height: i32,
     ) -> Result<Box<WglSkiaRenderTarget>> {
-        let raw = window.raw_window_handle();
-        let hwnd = match raw {
-            RawWindowHandle::Win32(handle) => handle.hwnd as HWND,
+        let hwnd = match window
+            .window_handle()
+            .map_err(|e| anyhow!("window handle unavailable: {e}"))?
+            .as_raw()
+        {
+            RawWindowHandle::Win32(handle) => handle.hwnd.get() as HWND,
             _ => return Err(anyhow!("expected Win32 window handle on Windows")),
         };
         if hwnd.is_null() {
@@ -803,12 +807,16 @@ mod app {
         _width: i32,
         _height: i32,
     ) -> Result<Box<EglSkiaRenderTarget>> {
-        let display_handle = match window.raw_display_handle() {
+        let display_handle = match window
+            .display_handle()
+            .map_err(|e| anyhow!("display handle unavailable: {e}"))?
+            .as_raw()
+        {
             RawDisplayHandle::Xlib(handle) => {
-                if handle.display.is_null() {
+                let Some(display) = handle.display else {
                     return Err(anyhow!("Xlib display handle is null"));
-                }
-                handle.display
+                };
+                display.as_ptr()
             }
             _ => {
                 return Err(anyhow!(
@@ -816,7 +824,11 @@ mod app {
                 ));
             }
         };
-        let xwindow = match window.raw_window_handle() {
+        let xwindow = match window
+            .window_handle()
+            .map_err(|e| anyhow!("window handle unavailable: {e}"))?
+            .as_raw()
+        {
             RawWindowHandle::Xlib(handle) => handle.window,
             _ => {
                 return Err(anyhow!(
@@ -867,7 +879,7 @@ mod app {
         media_ctx: &mut MediaContext,
         executor: &mut EngineDrawExecutor,
         generated_cache: &mut HashMap<GeneratedImageId, Image>,
-        gpu_target: &mut impl GpuRenderTarget,
+        gpu_target: &mut dyn GpuRenderTarget,
         width: i32,
         height: i32,
         frame_index: u32,
@@ -946,6 +958,178 @@ mod app {
         }
     }
 
+    struct SeeApp {
+        pipeline: opencat::EnginePipeline,
+        media_ctx: MediaContext,
+        executor: EngineDrawExecutor,
+        generated_cache: HashMap<GeneratedImageId, Image>,
+        audio_samples: Option<Arc<Vec<f32>>>,
+        loop_sample_frames: usize,
+        win_w: u32,
+        win_h: u32,
+        width: i32,
+        height: i32,
+        total_frames: u32,
+        fps: u32,
+        frame_duration: Duration,
+        window: Option<Window>,
+        gpu_target: Option<Box<dyn GpuRenderTarget>>,
+        audio_playback: Option<AudioPlayback>,
+        next_tick: Instant,
+        fallback_frame_index: u32,
+    }
+
+    impl ApplicationHandler for SeeApp {
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            if self.window.is_some() {
+                return;
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                // EGL path needs an X11 display handle (pure Wayland wl_surface
+                // support would require wayland-egl). Backend forced via
+                // EventLoopBuilder::with_x11 below.
+                use raw_window_handle::HasDisplayHandle;
+                let x11_ok = event_loop
+                    .display_handle()
+                    .map_err(|e| anyhow!("display handle unavailable: {e}"))
+                    .and_then(|handle| match handle.as_raw() {
+                        RawDisplayHandle::Xlib(xlib) => {
+                            if xlib.display.is_none() {
+                                Err(anyhow!("Xlib display handle is null"))
+                            } else {
+                                Ok(())
+                            }
+                        }
+                        _ => Err(anyhow!(
+                            "opencat-see on Linux currently requires X11 (set WAYLAND_DISPLAY= to force X11)"
+                        )),
+                    });
+                if let Err(error) = x11_ok {
+                    eprintln!("failed to start preview: {error:#}");
+                    event_loop.exit();
+                    return;
+                }
+            }
+
+            let attributes = WindowAttributes::default()
+                .with_title("OpenCat See")
+                .with_inner_size(PhysicalSize::new(self.win_w, self.win_h))
+                .with_resizable(false);
+            let window = match event_loop.create_window(attributes) {
+                Ok(window) => window,
+                Err(error) => {
+                    eprintln!("failed to create window: {error}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+            // EGL does its own config selection on X11 and tolerates the window's
+            // default visual on Mesa/XWayland, so no x11 visual is needed.
+            let mut gpu_target =
+                match build_platform_render_target(&window, self.width, self.height) {
+                    Ok(target) => target,
+                    Err(error) => {
+                        eprintln!("failed to create render target: {error:#}");
+                        event_loop.exit();
+                        return;
+                    }
+                };
+            if let Err(error) = render_pipeline_frame_to_gpu_target(
+                &mut self.pipeline,
+                &mut self.media_ctx,
+                &mut self.executor,
+                &mut self.generated_cache,
+                gpu_target.as_mut() as &mut dyn GpuRenderTarget,
+                self.width,
+                self.height,
+                0,
+            ) {
+                eprintln!("failed to render warmup frame: {error:#}");
+                event_loop.exit();
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+
+            self.audio_playback = match AudioPlayback::new(
+                self.audio_samples.clone(),
+                self.loop_sample_frames,
+            ) {
+                Ok(playback) => playback,
+                Err(error) => {
+                    eprintln!("failed to start audio playback: {error:#}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+            self.next_tick = self
+                .audio_playback
+                .as_ref()
+                .map(|playback| playback.next_redraw_deadline(self.fps))
+                .unwrap_or_else(|| Instant::now() + self.frame_duration);
+            self.fallback_frame_index = 1 % self.total_frames;
+            self.window = Some(window);
+            self.gpu_target = Some(gpu_target);
+        }
+
+        fn window_event(
+            &mut self,
+            event_loop: &ActiveEventLoop,
+            _window_id: winit::window::WindowId,
+            event: WindowEvent,
+        ) {
+            match event {
+                WindowEvent::CloseRequested => event_loop.exit(),
+                WindowEvent::RedrawRequested => {
+                    let (Some(gpu_target), Some(_window)) =
+                        (self.gpu_target.as_deref_mut(), self.window.as_ref())
+                    else {
+                        return;
+                    };
+                    let frame_index = self
+                        .audio_playback
+                        .as_ref()
+                        .map(|playback| playback.frame_index(self.total_frames, self.fps))
+                        .unwrap_or(self.fallback_frame_index);
+                    if let Err(error) = render_pipeline_frame_to_gpu_target(
+                        &mut self.pipeline,
+                        &mut self.media_ctx,
+                        &mut self.executor,
+                        &mut self.generated_cache,
+                        gpu_target,
+                        self.width,
+                        self.height,
+                        frame_index,
+                    ) {
+                        eprintln!("render error: {error:#}");
+                        event_loop.exit();
+                        return;
+                    }
+                    if let Some(playback) = self.audio_playback.as_ref() {
+                        self.next_tick = playback.next_redraw_deadline(self.fps);
+                    } else {
+                        self.fallback_frame_index = (frame_index + 1) % self.total_frames;
+                        self.next_tick = Instant::now() + self.frame_duration;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+            if self.window.is_none() {
+                return;
+            }
+            event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
+            if let Some(window) = self.window.as_ref() {
+                if Instant::now() >= self.next_tick {
+                    window.request_redraw();
+                }
+            }
+        }
+    }
+
     pub fn run() -> Result<()> {
         let input_path = std::env::args()
             .nth(1)
@@ -972,8 +1156,8 @@ mod app {
 
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(info.fps);
-        let mut executor = EngineDrawExecutor::new();
-        let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
+        let executor = EngineDrawExecutor::new();
+        let generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
 
         let audio_track = build_audio_track_from_pipeline(&pipeline)
             .context("failed to premix audio track")?;
@@ -985,113 +1169,39 @@ mod app {
             use winit::event_loop::EventLoopBuilder;
             use winit::platform::x11::EventLoopBuilderExtX11;
             let mut builder = EventLoopBuilder::new();
-            // EGL path here needs an X11 window handle (pure Wayland wl_surface
-            // support would require wayland-egl). Force the winit X11 backend.
+            // Force the winit X11 backend (see resumed()).
             builder.with_x11();
-            builder.build()
+            builder
+                .build()
+                .map_err(|e| anyhow!("failed to create event loop: {e}"))?
         };
         #[cfg(not(target_os = "linux"))]
-        let event_loop = EventLoop::new();
+        let event_loop = EventLoop::new().map_err(|e| anyhow!("failed to create event loop: {e}"))?;
 
-        #[cfg(target_os = "linux")]
-        let window = {
-            // EGL does its own config selection on X11 and tolerates the window's
-            // default visual on Mesa/XWayland, so no `with_x11_visual` is needed.
-            match event_loop.raw_display_handle() {
-                RawDisplayHandle::Xlib(handle) if !handle.display.is_null() => {}
-                RawDisplayHandle::Xlib(_) => {
-                    return Err(anyhow!("Xlib display handle is null"));
-                }
-                _ => {
-                    return Err(anyhow!(
-                        "opencat-see on Linux currently requires X11 (set WAYLAND_DISPLAY= to force X11)"
-                    ));
-                }
-            }
-            WindowBuilder::new()
-                .with_title("OpenCat See")
-                .with_inner_size(PhysicalSize::new(info.width, info.height))
-                .with_resizable(false)
-                .build(&event_loop)
-                .context("failed to create window")?
+        let mut app = SeeApp {
+            pipeline,
+            media_ctx,
+            executor,
+            generated_cache,
+            audio_samples,
+            loop_sample_frames,
+            win_w: info.width,
+            win_h: info.height,
+            width,
+            height,
+            total_frames,
+            fps,
+            frame_duration: Duration::from_secs_f64(1.0 / fps as f64),
+            window: None,
+            gpu_target: None,
+            audio_playback: None,
+            next_tick: Instant::now(),
+            fallback_frame_index: 1 % total_frames,
         };
-        #[cfg(not(target_os = "linux"))]
-        let window = WindowBuilder::new()
-            .with_title("OpenCat See")
-            .with_inner_size(PhysicalSize::new(info.width, info.height))
-            .with_resizable(false)
-            .build(&event_loop)
-            .context("failed to create window")?;
 
-        let mut gpu_target = build_platform_render_target(&window, width, height)?;
-
-        if let Err(error) = render_pipeline_frame_to_gpu_target(
-            &mut pipeline,
-            &mut media_ctx,
-            &mut executor,
-            &mut generated_cache,
-            gpu_target.as_mut(),
-            width,
-            height,
-            0,
-        ) {
-            return Err(anyhow!("failed to render warmup frame: {error:#}"));
-        }
-        std::thread::sleep(Duration::from_millis(100));
-
-        let audio_playback = AudioPlayback::new(audio_samples, loop_sample_frames)?;
-        let frame_duration = Duration::from_secs_f64(1.0 / fps as f64);
-        let mut next_tick = audio_playback
-            .as_ref()
-            .map(|playback| playback.next_redraw_deadline(fps))
-            .unwrap_or_else(|| Instant::now() + frame_duration);
-        let mut fallback_frame_index = 1 % total_frames;
-
-        event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::WaitUntil(next_tick);
-
-            match event {
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    *control_flow = ControlFlow::Exit;
-                }
-                Event::MainEventsCleared => {
-                    if Instant::now() >= next_tick {
-                        window.request_redraw();
-                    }
-                }
-                Event::RedrawRequested(_) => {
-                    let frame_index = audio_playback
-                        .as_ref()
-                        .map(|playback| playback.frame_index(total_frames, fps))
-                        .unwrap_or(fallback_frame_index);
-                    if let Err(error) = render_pipeline_frame_to_gpu_target(
-            &mut pipeline,
-            &mut media_ctx,
-            &mut executor,
-            &mut generated_cache,
-            gpu_target.as_mut(),
-            width,
-            height,
-            frame_index,
-        ) {
-                        eprintln!("render error: {error:#}");
-                        *control_flow = ControlFlow::Exit;
-                        return;
-                    }
-
-                    if let Some(playback) = audio_playback.as_ref() {
-                        next_tick = playback.next_redraw_deadline(fps);
-                    } else {
-                        fallback_frame_index = (frame_index + 1) % total_frames;
-                        next_tick = Instant::now() + frame_duration;
-                    }
-                }
-                _ => {}
-            }
-        });
+        event_loop
+            .run_app(&mut app)
+            .map_err(|e| anyhow!("event loop error: {e}"))
     }
 
     fn composition_sample_frames(frames: u32, fps: u32, sample_rate: NonZeroU32) -> usize {

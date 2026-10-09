@@ -9,7 +9,8 @@ import { useCanvas, useCanvasKit, useGSAP, useRef } from 'opencat/runtime';
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 6 };
 
 export default function Scene() {
-  useGSAP((tl) => {
+  useGSAP((ctx) => {
+    const tl = ctx.timeline();
     // Phase 1: 描边绘制 · 0–4s
     tl.to('logo-path', {
       strokeDashoffset: 0,

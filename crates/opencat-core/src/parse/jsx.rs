@@ -13,9 +13,10 @@
 
 use anyhow::Result;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::parse::ParsedComposition;
+use crate::fonts::FontManifest;
 
 /// Entry-module specifier used as the module-system root.
 pub const ENTRY_SPEC: &str = "<entry>";
@@ -50,5 +51,84 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         .collect::<Result<Vec<_>>>()?
         .join("\n");
 
-    crate::parse::jsonl::parse_with_base_dir(&text, base_dir)
+    let font_manifest = font_manifest_from_extract(extract, &meta, base_dir)?;
+    let mut parsed =
+        crate::parse::jsonl::parse_with_base_dir_and_fonts(&text, base_dir, Some(&font_manifest))?;
+    parsed.font_manifest = font_manifest;
+    Ok(parsed)
+}
+
+/// `export const fonts = { default, faces: [{ id, family, path, role }] }`,
+/// read from the extract's top-level `fonts` export (with the legacy
+/// `meta.fonts` shape as fallback).
+///
+/// Mirrors `parse::markup`'s `<fonts>` block — same manifest, same
+/// path-against-base_dir resolution, so the host font loader treats both
+/// frontends identically.
+fn font_manifest_from_extract(extract: &Value, meta: &Value, base_dir: Option<&Path>) -> Result<FontManifest> {
+    use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
+
+    let mut manifest = FontManifest::default();
+    let fonts = match extract.get("fonts").or_else(|| meta.get("fonts")) {
+        Some(fonts) => fonts,
+        None => return Ok(manifest),
+    };
+    if let Some(default) = fonts.get("default").and_then(Value::as_str) {
+        if default.is_empty() {
+            anyhow::bail!("jsx fonts: `default` must be non-empty");
+        }
+        manifest.default_face_id = Some(default.to_string());
+    }
+    let faces = fonts
+        .get("faces")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("jsx fonts: `faces` must be an array"))?;
+    for face in faces {
+        let id = face
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("jsx fonts: face is missing `id`"))?
+            .to_string();
+        if manifest.face_by_id(&id).is_some() {
+            anyhow::bail!("jsx fonts: duplicate font id `{id}`");
+        }
+        let family = face
+            .get("family")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let role = match face.get("role").and_then(Value::as_str) {
+            None => None,
+            Some("sans") => Some(FontRole::Sans),
+            Some("mono") => Some(FontRole::Mono),
+            Some("emoji") => Some(FontRole::Emoji),
+            Some(other) => anyhow::bail!("jsx fonts: unknown role `{other}`"),
+        };
+        let source = match (face.get("path").and_then(Value::as_str), face.get("url").and_then(Value::as_str)) {
+            (Some(path), None) => {
+                let path = PathBuf::from(path);
+                FontSource::Path(if path.is_absolute() {
+                    path
+                } else {
+                    base_dir.unwrap_or_else(|| Path::new(".")).join(path)
+                })
+            }
+            (None, Some(url)) => FontSource::Url(url.to_string()),
+            (Some(_), Some(_)) => anyhow::bail!("jsx fonts `{id}`: only one of path / url"),
+            (None, None) => anyhow::bail!("jsx fonts `{id}`: needs path or url"),
+        };
+        manifest.faces.push(FontFaceDecl {
+            id,
+            family,
+            source,
+            role,
+        });
+    }
+    if let Some(default) = manifest.default_face_id.as_deref() {
+        if manifest.face_by_id(default).is_none() {
+            anyhow::bail!("jsx fonts: default `{default}` references an unknown face");
+        }
+    }
+    Ok(manifest)
 }

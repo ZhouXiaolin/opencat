@@ -113,14 +113,23 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Resu
 
     // JSX frontend: JS modules + JSX + the `use*` registry. Same shape as the
     // JSONL branch — a self-contained ParsedComposition straight from the host
-    // parse (tree already extracted, driver embedded as the script source).
+    // parse (tree already extracted, driver embedded as the script source) —
+    // plus document-font loading, which the JSONL branch never needed.
     if !input.trim().starts_with('<') {
         let base_dir = loader
             .base_dir()
             .canonicalize()
             .unwrap_or_else(|_| loader.base_dir().to_path_buf());
         let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
-        let host = open_parsed_host_owned(parsed, loader, scripts, engine_default_font_faces())?;
+        let font_bytes = loader.load_font_manifest(&parsed.font_manifest)?;
+        loader.register_font_handles(&parsed.font_manifest, &font_bytes)?;
+        let host = open_parsed_host_owned_with_fonts(
+            parsed,
+            loader,
+            scripts,
+            engine_default_font_faces(),
+            font_bytes,
+        )?;
         return Ok(host);
     }
 

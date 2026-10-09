@@ -6,10 +6,13 @@ use std::{
     ops::Range,
 };
 
-use cosmic_text::{Attrs, Buffer, Command, FontSystem, Metrics, Shaping, SwashCache, SwashContent};
+use cosmic_text::{
+    Attrs, Buffer, Command, Fallback, FontSystem, Metrics, PlatformFallback, Shaping, SwashCache,
+    SwashContent,
+};
 use hashbrown::HashMap;
 
-use crate::style::{ComputedTextStyle, TextAlign, TextTransform};
+use crate::style::{ComputedTextStyle, GenericFamily, TextAlign, TextTransform};
 use unicode_segmentation::UnicodeSegmentation;
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -140,6 +143,280 @@ fn font_db_for_script() -> fontdb::Database {
         .unwrap_or_else(empty_font_db)
 }
 
+// ── Fallback policy ────────────────────────────────────────────────────────
+
+/// Codepoints with `Emoji_Presentation=Yes` (Unicode 15.1 `emoji-data.txt`, the
+/// same property Chrome's ICU uses). These render as color emoji by default; a
+/// text-presentation glyph requires an explicit `U+FE0F`… the inverse of what a
+/// naive "emoji face first" fallback does to text-default symbols (`✳` U+2733,
+/// `→` U+2192, `▏` U+258F are NOT in this set). Chromium source of truth:
+/// unicode `Emoji` property data; extracted via `\p{Emoji_Presentation}`.
+const EMOJI_PRESENTATION_RANGES: &[(u32, u32)] = &[
+    (0x231A, 0x231B),
+    (0x23E9, 0x23EC),
+    (0x23F0, 0x23F0),
+    (0x23F3, 0x23F3),
+    (0x25FD, 0x25FE),
+    (0x2614, 0x2615),
+    (0x2648, 0x2653),
+    (0x267F, 0x267F),
+    (0x2693, 0x2693),
+    (0x26A1, 0x26A1),
+    (0x26AA, 0x26AB),
+    (0x26BD, 0x26BE),
+    (0x26C4, 0x26C5),
+    (0x26CE, 0x26CE),
+    (0x26D4, 0x26D4),
+    (0x26EA, 0x26EA),
+    (0x26F2, 0x26F3),
+    (0x26F5, 0x26F5),
+    (0x26FA, 0x26FA),
+    (0x26FD, 0x26FD),
+    (0x2705, 0x2705),
+    (0x270A, 0x270B),
+    (0x2728, 0x2728),
+    (0x274C, 0x274C),
+    (0x274E, 0x274E),
+    (0x2753, 0x2755),
+    (0x2757, 0x2757),
+    (0x2795, 0x2797),
+    (0x27B0, 0x27B0),
+    (0x27BF, 0x27BF),
+    (0x2B1B, 0x2B1C),
+    (0x2B50, 0x2B50),
+    (0x2B55, 0x2B55),
+    (0x1F004, 0x1F004),
+    (0x1F0CF, 0x1F0CF),
+    (0x1F18E, 0x1F18E),
+    (0x1F191, 0x1F19A),
+    (0x1F1E6, 0x1F1FF),
+    (0x1F201, 0x1F201),
+    (0x1F21A, 0x1F21A),
+    (0x1F22F, 0x1F22F),
+    (0x1F232, 0x1F236),
+    (0x1F238, 0x1F23A),
+    (0x1F250, 0x1F251),
+    (0x1F300, 0x1F320),
+    (0x1F32D, 0x1F335),
+    (0x1F337, 0x1F37C),
+    (0x1F37E, 0x1F393),
+    (0x1F3A0, 0x1F3CA),
+    (0x1F3CF, 0x1F3D3),
+    (0x1F3E0, 0x1F3F0),
+    (0x1F3F4, 0x1F3F4),
+    (0x1F3F8, 0x1F43E),
+    (0x1F440, 0x1F440),
+    (0x1F442, 0x1F4FC),
+    (0x1F4FF, 0x1F53D),
+    (0x1F54B, 0x1F54E),
+    (0x1F550, 0x1F567),
+    (0x1F57A, 0x1F57A),
+    (0x1F595, 0x1F596),
+    (0x1F5A4, 0x1F5A4),
+    (0x1F5FB, 0x1F64F),
+    (0x1F680, 0x1F6C5),
+    (0x1F6CC, 0x1F6CC),
+    (0x1F6D0, 0x1F6D2),
+    (0x1F6D5, 0x1F6D8),
+    (0x1F6DC, 0x1F6DF),
+    (0x1F6EB, 0x1F6EC),
+    (0x1F6F4, 0x1F6FC),
+    (0x1F7E0, 0x1F7EB),
+    (0x1F7F0, 0x1F7F0),
+    (0x1F90C, 0x1F93A),
+    (0x1F93C, 0x1F945),
+    (0x1F947, 0x1F9FF),
+    (0x1FA70, 0x1FA7C),
+    (0x1FA80, 0x1FA8A),
+    (0x1FA8E, 0x1FAC6),
+    (0x1FAC8, 0x1FAC8),
+    (0x1FACD, 0x1FADC),
+    (0x1FADF, 0x1FAEA),
+    (0x1FAEF, 0x1FAF8),
+];
+
+/// VARIATION SELECTOR-16 — appended to a text-presentation codepoint to force
+/// emoji presentation (`✳︎` → colored emoji), exactly as Chrome treats it.
+const VARIATION_SELECTOR_16: char = '\u{FE0F}';
+
+fn is_emoji_presentation(cp: char) -> bool {
+    let c = cp as u32;
+    EMOJI_PRESENTATION_RANGES
+        .binary_search_by(|(lo, hi)| {
+            if c < *lo {
+                std::cmp::Ordering::Greater
+            } else if c > *hi {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
+}
+
+/// Does this text contain clusters a browser renders as color emoji (default
+/// emoji presentation, or an explicit VS16)? Granularity is per text, matching
+/// the shaper's per-run fallback list; mixed presentation+text-emoji strings
+/// are a known approximation (both get the emoji-first list).
+fn text_prefers_emoji(text: &str) -> bool {
+    text.chars()
+        .any(|ch| is_emoji_presentation(ch) || ch == VARIATION_SELECTOR_16)
+}
+
+/// cosmic-text fallback lists ordered for browser parity.
+///
+/// Chrome resolves a missing glyph by walking the CSS font stack, then its
+/// generic tail (`monospace`/`sans-serif`/`serif`), with fontconfig's
+/// preferences: a `'Courier New', monospace` tail metric-aliases to Liberation
+/// Mono (the effective monospace), per-charset sorts put Liberation Sans ahead
+/// of DejaVu Sans for `→`, and glyphs the aliased faces lack (`▾`/`✳`/`↵`/`◆`)
+/// fall through to DejaVu Sans, fontconfig's default-family answer.
+/// cosmic-text's fallback iterator tests glyph coverage as it walks the name
+/// list, so encoding that preference as name order reproduces the browser.
+///
+/// The color-emoji face is hoisted to the front ONLY for texts that contain
+/// default-emoji-presentation clusters or an explicit VS16 — hoisting it
+/// unconditionally would capture text-presentation symbols (`✳`) as color
+/// bitmaps, which is not what a browser does.
+struct ShapingFallback {
+    generic: Option<GenericFamily>,
+    emoji_first: bool,
+}
+
+/// Common-list order segments; relative order inside a segment follows how
+/// Chromium resolves uncovered glyphs on Linux. Sans: the requested stack's
+/// generic tail hits fontconfig's sans preference (Noto ahead of
+/// Liberation/DejaVu). Mono: a `'X', 'Courier New', monospace` stack never
+/// reaches a real Courier — fontconfig metric-aliases it to Liberation Mono,
+/// which is the effective monospace; glyphs it lacks (▾ ◆ ↵ ✳) go through the
+/// per-character fallback, which fontconfig answers with the default family
+/// (DejaVu Sans — `fc-match sans-serif:charset=<cp>`) before the leftover
+/// mono faces. The six concrete lists below are spelled out literally: no
+/// allocation, and unit tests assert exact browser parity.
+const EMOJI_FALLBACK: &str = "Noto Color Emoji";
+const SANS_FIRST: &[&str] = &[
+    "Noto Sans",
+    "Liberation Sans",
+    "DejaVu Sans",
+    "FreeSans",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Noto Sans Mono",
+    "FreeMono",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+const SANS_FIRST_EMOJI: &[&str] = &[
+    EMOJI_FALLBACK,
+    "Noto Sans",
+    "Liberation Sans",
+    "DejaVu Sans",
+    "FreeSans",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Noto Sans Mono",
+    "FreeMono",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+const MONO_FIRST: &[&str] = &[
+    "Liberation Mono",
+    "DejaVu Sans",
+    "DejaVu Sans Mono",
+    "Noto Sans Mono",
+    "FreeMono",
+    "Liberation Sans",
+    "Noto Sans",
+    "FreeSans",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+const MONO_FIRST_EMOJI: &[&str] = &[
+    EMOJI_FALLBACK,
+    "Liberation Mono",
+    "DejaVu Sans",
+    "DejaVu Sans Mono",
+    "Noto Sans Mono",
+    "FreeMono",
+    "Liberation Sans",
+    "Noto Sans",
+    "FreeSans",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+const SERIF_FIRST: &[&str] = &[
+    "Noto Serif",
+    "DejaVu Serif",
+    "Liberation Serif",
+    "Nimbus Roman",
+    "FreeSerif",
+    "Noto Sans",
+    "Liberation Sans",
+    "DejaVu Sans",
+    "FreeSans",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Noto Sans Mono",
+    "FreeMono",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+const SERIF_FIRST_EMOJI: &[&str] = &[
+    EMOJI_FALLBACK,
+    "Noto Serif",
+    "DejaVu Serif",
+    "Liberation Serif",
+    "Nimbus Roman",
+    "FreeSerif",
+    "Noto Sans",
+    "Liberation Sans",
+    "DejaVu Sans",
+    "FreeSans",
+    "DejaVu Sans Mono",
+    "Liberation Mono",
+    "Noto Sans Mono",
+    "FreeMono",
+    "Noto Sans Symbols",
+    "Noto Sans Symbols2",
+];
+
+impl Fallback for ShapingFallback {
+    fn common_fallback(&self) -> &'static [&'static str] {
+        match (self.generic, self.emoji_first) {
+            (Some(GenericFamily::Monospace), true) => MONO_FIRST_EMOJI,
+            (Some(GenericFamily::Monospace), false) => MONO_FIRST,
+            (Some(GenericFamily::Serif), true) => SERIF_FIRST_EMOJI,
+            (Some(GenericFamily::Serif), false) => SERIF_FIRST,
+            (_, true) => SANS_FIRST_EMOJI,
+            (_, false) => SANS_FIRST,
+        }
+    }
+
+    fn forbidden_fallback(&self) -> &'static [&'static str] {
+        PlatformFallback.forbidden_fallback()
+    }
+
+    fn script_fallback(
+        &self,
+        script: unicode_script::Script,
+        locale: &str,
+    ) -> &'static [&'static str] {
+        PlatformFallback.script_fallback(script, locale)
+    }
+}
+
+fn shape_font_system(
+    db: &fontdb::Database,
+    generic: Option<GenericFamily>,
+    emoji_first: bool,
+) -> FontSystem {
+    FontSystem::new_with_locale_and_db_and_fallback(
+        "en-US".to_string(),
+        db.clone(),
+        ShapingFallback { generic, emoji_first },
+    )
+}
+
 // ── Thread-local swash cache (rasterize_glyphs) ─────────────────────────────
 
 thread_local! {
@@ -174,7 +451,8 @@ pub fn measure_text(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db.clone());
+    let mut font_system =
+        shape_font_system(&font_db, style.font_generic, text_prefers_emoji(text));
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(layout_width, None);
 
@@ -232,7 +510,11 @@ pub fn rasterize_glyphs(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db.clone());
+    let mut font_system = shape_font_system(
+        &font_db,
+        style.font_generic,
+        text_prefers_emoji(&rendered),
+    );
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(layout_width, None);
 
@@ -322,7 +604,9 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
     let line_height = font_size * 1.2;
     let metrics = Metrics::new(font_size, line_height);
     let font_db = font_db_for_script();
-    let mut font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), font_db);
+    // Canvas API text carries no style object: default sans class, but still
+    // keep emoji presentation parity for emoji-heavy canvas strings.
+    let mut font_system = shape_font_system(&font_db, None, text_prefers_emoji(text));
     let mut buffer = Buffer::new(&mut font_system, metrics);
     buffer.set_size(None, None);
     let attrs = Attrs::new().family(cosmic_text::Family::SansSerif);
@@ -560,10 +844,11 @@ impl FontProvider for DefaultFontProvider {
 #[cfg(test)]
 mod tests {
     use super::{
-        DefaultFontProvider, FontProvider, apply_text_transform, measure_text, rasterize_glyphs,
-        test_default_font_db,
+        DefaultFontProvider, FontProvider, ShapingFallback, apply_text_transform, measure_text,
+        rasterize_glyphs, test_default_font_db, text_prefers_emoji,
     };
-    use crate::style::{ComputedTextStyle, FontWeight, TextTransform};
+    use cosmic_text::Fallback as _;
+    use crate::style::{ComputedTextStyle, FontWeight, GenericFamily, TextTransform};
 
     #[test]
     fn diag_galaxie_space_advance() {
@@ -805,4 +1090,154 @@ mod tests {
             .any(|d| matches!(d, super::GlyphData::ColorImage { .. }));
         assert!(has_color, "emoji glyph should be rasterized as ColorImage");
     }
+
+    // ── Fallback policy: emoji presentation + generic-family ordering ─────────
+
+    #[test]
+    fn emoji_presentation_detection_matches_unicode_emoji_data() {
+        // Text-presentation symbols: NOT hoisted to the color emoji face.
+        for t in ["✳", "→", "▾", "↵", "▏", "☀", "©", "ℹ"] {
+            assert!(
+                !super::text_prefers_emoji(t),
+                "{t} must keep text presentation"
+            );
+        }
+        // Default-emoji-presentation codepoints and explicit VS16: hoisted.
+        for t in ["😀", "🚀", "☔", "✳\u{FE0F}", "©\u{FE0F}"] {
+            assert!(super::text_prefers_emoji(t), "{t} must prefer emoji");
+        }
+    }
+
+    #[test]
+    fn common_fallback_prefers_generic_class_faces() {
+        let mono = super::ShapingFallback {
+            generic: Some(GenericFamily::Monospace),
+            emoji_first: false,
+        }
+        .common_fallback();
+        assert_eq!(
+            mono.first().copied(),
+            Some("Liberation Mono"),
+            "a 'Courier New', monospace tail metric-aliases to Liberation Mono — the \
+             effective monospace a browser shapes covered symbols (→ −) with"
+        );
+        assert_eq!(
+            mono.get(1).copied(),
+            Some("DejaVu Sans"),
+            "glyphs the aliased mono lacks (▾ ◆ ↵ ✳) hit fontconfig's default family \
+             before the leftover mono faces"
+        );
+        let dvm = mono
+            .iter()
+            .position(|f| *f == "DejaVu Sans Mono")
+            .expect("DejaVu Sans Mono present");
+        let ns = mono
+            .iter()
+            .position(|f| *f == "Noto Sans")
+            .expect("sans segment present after mono segment");
+        assert!(
+            dvm < ns,
+            "remaining mono faces still precede sans last-resort: {mono:?}"
+        );
+
+        let sans = super::ShapingFallback {
+            generic: Some(GenericFamily::SansSerif),
+            emoji_first: false,
+        }
+        .common_fallback();
+        assert_eq!(sans.first().copied(), Some("Noto Sans"));
+        let (lib, dejavu) = (
+            sans.iter().position(|f| *f == "Liberation Sans").unwrap(),
+            sans.iter().position(|f| *f == "DejaVu Sans").unwrap(),
+        );
+        assert!(
+            lib < dejavu,
+            "Chrome shapes sans-stack '→' with Liberation Sans before DejaVu Sans"
+        );
+        assert!(
+            !sans.contains(&"Noto Color Emoji"),
+            "text-presentation-only text must not hoist the color emoji face"
+        );
+
+        let serif = super::ShapingFallback {
+            generic: Some(GenericFamily::Serif),
+            emoji_first: false,
+        }
+        .common_fallback();
+        assert_eq!(serif.first().copied(), Some("Noto Serif"));
+    }
+
+    #[test]
+    fn emoji_text_hoists_color_face_but_generic_order_holds() {
+        let sans_emoji = super::ShapingFallback {
+            generic: Some(GenericFamily::SansSerif),
+            emoji_first: true,
+        }
+        .common_fallback();
+        assert_eq!(sans_emoji.first().copied(), Some("Noto Color Emoji"));
+
+        let mono_emoji = super::ShapingFallback {
+            generic: Some(GenericFamily::Monospace),
+            emoji_first: true,
+        }
+        .common_fallback();
+        assert_eq!(mono_emoji.first().copied(), Some("Noto Color Emoji"));
+        assert_eq!(
+            mono_emoji.get(1).copied(),
+            Some("Liberation Mono"),
+            "generic preference applies right behind the emoji face"
+        );
+    }
+
+    #[test]
+    fn missing_glyph_run_falls_back_by_generic_class() {
+        // Behavior: a mono-classed run whose primary face lacks a symbol shapes
+        // it with Liberation Mono (the 'Courier New' metric alias — 0.6em
+        // advance), while the same run without the class keeps the sans-first
+        // order (Liberation Sans — 1.0em advance; Chrome CDP parity for sans
+        // '→'). Needs the system Liberation + DejaVu faces; skipped where they
+        // are not installed (portable CI).
+        let liberation_dir = "/usr/share/fonts/truetype/liberation";
+        let dejavu_dir = "/usr/share/fonts/truetype/dejavu";
+        for face in [
+            format!("{liberation_dir}/LiberationMono-Regular.ttf"),
+            format!("{liberation_dir}/LiberationSans-Regular.ttf"),
+            format!("{dejavu_dir}/DejaVuSans.ttf"),
+        ] {
+            if !std::path::Path::new(&face).exists() {
+                eprintln!("skipping: {face} not installed");
+                return;
+            }
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/pr-to-video-launch/assets/");
+        let mut faces = vec![std::fs::read(format!("{dir}SplineSansMono-400.ttf")).unwrap()];
+        faces.push(std::fs::read(format!("{liberation_dir}/LiberationMono-Regular.ttf")).unwrap());
+        faces.push(std::fs::read(format!("{liberation_dir}/LiberationSans-Regular.ttf")).unwrap());
+        faces.push(std::fs::read(format!("{dejavu_dir}/DejaVuSans.ttf")).unwrap());
+        let db = super::font_db_from_bytes(&faces, "Spline Sans Mono");
+
+        let mono_style = ComputedTextStyle {
+            text_px: 19.2,
+            font_family: Some("Spline Sans Mono".to_string()),
+            font_generic: Some(GenericFamily::Monospace),
+            ..ComputedTextStyle::default()
+        };
+        let plain_style = ComputedTextStyle {
+            text_px: 19.2,
+            font_family: Some("Spline Sans Mono".to_string()),
+            ..ComputedTextStyle::default()
+        };
+
+        // '→' advance: Liberation Mono 0.600em (11.52px @19.2px) on the mono
+        // path vs Liberation Sans 1.000em (19.2px) on the sans-first path.
+        let mono_width = measure_text("→", &mono_style, f32::INFINITY, false, &db).width;
+        let plain_width = measure_text("→", &plain_style, f32::INFINITY, false, &db).width;
+        assert!(
+            mono_width < plain_width,
+            "mono-generic fallback should pick the narrower aliased mono advance \
+             (mono_width={mono_width}, plain_width={plain_width})"
+        );
+    }
+
+
 }

@@ -342,6 +342,44 @@ mod tests {
         assert_eq!(*time_micros, 12_000_000);
     }
 
+    /// `data-color-matrix` must ride the frame media plan so hosts decode the
+    /// referenced asset with its real YUV→RGB encoding.
+    #[test]
+    fn render_frame_routes_color_matrix_override_into_media_plan() {
+        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
+  <div id="root" class="w-[320px] h-[180px]">
+    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-color-matrix="bt601" />
+  </div>
+</opencat>"#;
+
+        let mut pipeline = open_test_pipeline(xml);
+
+        let frame = pipeline.render_frame(0).expect("render frame 0");
+
+        assert_eq!(
+            frame.media.video_color_matrices.get("video:path:clip.mp4"),
+            Some(&crate::media::VideoColorMatrix::Bt601),
+            "the override must be keyed by the canonical asset id"
+        );
+    }
+
+    /// Assets without `data-color-matrix` stay absent from the override map —
+    /// automatic metadata-driven decoding is the default.
+    #[test]
+    fn render_frame_omits_color_matrix_when_unset() {
+        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
+  <div id="root" class="w-[320px] h-[180px]">
+    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" />
+  </div>
+</opencat>"#;
+
+        let mut pipeline = open_test_pipeline(xml);
+
+        let frame = pipeline.render_frame(0).expect("render frame 0");
+
+        assert!(frame.media.video_color_matrices.is_empty());
+    }
+
     #[test]
     fn render_frame_video_timing_inside_later_scene_uses_scene_local_data_start() {
         let xml = r#"<opencat width="320" height="180" fps="10" duration="4.1">

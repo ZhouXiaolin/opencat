@@ -141,6 +141,19 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
     }
 }
 
+/// Matrix rank of a transform component in GSAP's fixed build order
+/// (`translate · rotate · scale · skew`, mirroring the CSS `transform`
+/// function grammar). Writes are kept in this order so the rendered matrix is
+/// independent of the order the script happened to set the properties in.
+fn matrix_rank(t: &Transform) -> u8 {
+    match t {
+        Transform::TranslateX { .. } | Transform::TranslateY { .. } | Transform::Translate { .. } => 0,
+        Transform::RotateDeg { .. } => 1,
+        Transform::Scale { .. } | Transform::ScaleX { .. } | Transform::ScaleY { .. } => 2,
+        Transform::SkewXDeg { .. } | Transform::SkewYDeg { .. } | Transform::SkewDeg { .. } => 3,
+    }
+}
+
 /// Split a multi-component transform shorthand into its independent
 /// components. Only `translate`/`scale` have an exact split: translations add
 /// and uniform scale factors multiply, so `TranslateX+TranslateY` and
@@ -171,11 +184,15 @@ impl NodeStyleMutations {
     /// last-write-wins semantics: a later write to `x` replaces the earlier
     /// `x` rather than stacking on top of it. Transform components are
     /// independent slots (`x`,`y`,`scaleX`,`scaleY`,`rotation`,`skewX`,
-    /// `skewY`); writes to different slots coexist and keep insertion order.
+    /// `skewY`); writes to different slots coexist, normalized to GSAP's fixed
+    /// matrix order (`translate · rotate · scale · skew`).
     ///
-    /// Without this, `node.translateX(a); node.translateX(b)` accumulated to
-    /// `a+b` (measured on the OPEN card braces: two `.set('obl',{x})` in one
-    /// frame summed 67.5225 + 325.5715 and collapsed the brace onto the text).
+    /// Without the last-write-wins, `node.translateX(a); node.translateX(b)`
+    /// accumulated to `a+b` (measured on the OPEN card braces: two
+    /// `.set('obl',{x})` in one frame summed 67.5225 + 325.5715 and collapsed
+    /// the brace onto the text). Without the order normalization, a
+    /// `{scale, y}` write pair scaled the `y` translation (measured on the cta
+    /// opener: +37 px vs the reference frame).
     pub fn push_transform(&mut self, t: Transform) {
         let incoming_slots = transform_slots(&t);
         let collides = self
@@ -187,24 +204,34 @@ impl NodeStyleMutations {
             // Splitting a lone `scale` into scaleX·scaleY changes the rendered
             // float path, so only pay that cost when a real collision forces it.
             self.transforms.push(t);
-            return;
-        }
-        // Collision: decompose both sides into independent single-slot
-        // components so only the genuinely-overlapping slots are superseded —
-        // a later `x` replaces the earlier `x` but leaves `y` untouched.
-        let mut out = Vec::new();
-        for existing in self.transforms.drain(..) {
-            for component in split_components(&existing) {
-                if !transform_slots(&component)
-                    .iter()
-                    .any(|s| incoming_slots.contains(s))
-                {
-                    out.push(component);
+        } else {
+            // Collision: decompose both sides into independent single-slot
+            // components so only the genuinely-overlapping slots are superseded —
+            // a later `x` replaces the earlier `x` but leaves `y` untouched.
+            let mut out = Vec::new();
+            for existing in self.transforms.drain(..) {
+                for component in split_components(&existing) {
+                    if !transform_slots(&component)
+                        .iter()
+                        .any(|s| incoming_slots.contains(s))
+                    {
+                        out.push(component);
+                    }
                 }
             }
+            out.extend(split_components(&t));
+            self.transforms = out;
         }
-        out.extend(split_components(&t));
-        self.transforms = out;
+        // GSAP always builds its matrix in the fixed CSS component order
+        // `translate · rotate · scale · skew`, no matter the order the
+        // properties were written in — so `gsap.set(el, {scale: 1.18, y: 206})`
+        // translates *outside* the scale and the `y` offset is never magnified.
+        // The renderer replays this list as canvas ops where later entries are
+        // applied to points first, so an insertion-order `[Scale, Y]` list
+        // would scale the translation (measured on the pr-to-video-launch cta
+        // opener: +0.18×206 ≈ 37 px drift vs the reference frame). Stable sort
+        // keeps the per-slot last-write-wins order inside each group.
+        self.transforms.sort_by_key(|e| matrix_rank(e));
     }
 
     /// Set the transform origin from a GSAP `transformOrigin`/`svgOrigin`
@@ -894,4 +921,69 @@ pub fn parse_drrect_coords(coords: &[f32]) -> Option<DrRectCoords> {
         coords[0], coords[1], coords[2], coords[3], coords[4], coords[5], coords[6], coords[7],
         coords[8], coords[9],
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn transforms_of(mutations: &NodeStyleMutations) -> Vec<Transform> {
+        mutations.transforms.clone()
+    }
+
+    // GSAP builds its matrix in the fixed order translate·rotate·scale·skew
+    // regardless of property write order; `{scale, y}` object-key order used to
+    // replay as scale-around-origin *after* the translation, magnifying `y` by
+    // the scale factor (measured: +37 px on the cta opener frame).
+    #[test]
+    fn transform_components_normalize_to_gsap_matrix_order() {
+        let mut m = NodeStyleMutations::default();
+        m.push_transform(Transform::Scale { value: 1.18 });
+        m.push_transform(Transform::TranslateY { value: 206.0 });
+        let ts = transforms_of(&m);
+        assert!(
+            matches!(
+                ts.as_slice(),
+                [Transform::TranslateY { value: 206.0 }, Transform::Scale { value: 1.18 }]
+            ),
+            "translation must sit outside the scale regardless of write order, got {ts:?}"
+        );
+    }
+
+    // The reverse write order must land on the same matrix (same list).
+    #[test]
+    fn transform_matrix_order_is_write_order_independent() {
+        let mut a = NodeStyleMutations::default();
+        a.push_transform(Transform::Scale { value: 1.18 });
+        a.push_transform(Transform::TranslateY { value: 206.0 });
+        let mut b = NodeStyleMutations::default();
+        b.push_transform(Transform::TranslateY { value: 206.0 });
+        b.push_transform(Transform::Scale { value: 1.18 });
+        assert_eq!(transforms_of(&a), transforms_of(&b));
+    }
+
+    // Same-rank components keep their relative order (stable sort), and the
+    // per-slot last-write-wins collision semantics are untouched.
+    #[test]
+    fn transform_last_write_wins_survives_order_normalization() {
+        let mut m = NodeStyleMutations::default();
+        m.push_transform(Transform::TranslateX { value: 1.0 });
+        m.push_transform(Transform::RotateDeg { value: 45.0 });
+        m.push_transform(Transform::TranslateX { value: 2.0 });
+        m.push_transform(Transform::Scale { value: 0.62 });
+        m.push_transform(Transform::TranslateY { value: 10.0 });
+        let ts = transforms_of(&m);
+        assert!(
+            matches!(
+                ts.as_slice(),
+                [
+                    Transform::TranslateX { value: 2.0 },
+                    Transform::TranslateY { value: 10.0 },
+                    Transform::RotateDeg { value: 45.0 },
+                    Transform::Scale { value: 0.62 },
+                ]
+            ),
+            "translate group keeps last-write-wins and rotate precedes scale, got {ts:?}"
+        );
+    }
 }

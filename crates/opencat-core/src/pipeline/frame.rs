@@ -23,6 +23,19 @@ use crate::probe::catalog::PreparedResourceCatalog;
 use crate::render::RenderCtx;
 use crate::render::builder::DrawOpBuilder;
 use crate::render::media_plan::build_media_plan;
+
+/// The document's author-asserted video color-matrix overrides
+/// (`data-color-matrix`), keyed by canonical asset id — the media-plan input
+/// that routes host video decoding to an asset's real YUV→RGB encoding.
+fn video_color_matrices(
+    catalog: &PreparedResourceCatalog,
+) -> std::collections::BTreeMap<String, crate::media::VideoColorMatrix> {
+    catalog
+        .videos
+        .iter()
+        .filter_map(|(id, meta)| meta.color_matrix.map(|m| (id.key.clone(), m)))
+        .collect()
+}
 use crate::resolve::resolve::resolve_ui_tree_with_script_cache;
 use crate::script::ScriptHost;
 use crate::text::DefaultFontProvider;
@@ -232,7 +245,7 @@ pub fn render_frame_with_state(
         let frame = entry.frame.clone();
         // Scene snapshot reuses the DrawOpFrame; generated RGBA is still resolved
         // from the pipeline table so the host contract stays complete.
-        let media_plan = build_media_plan(&frame, generated_images);
+        let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
         return Ok((frame, media_plan));
     }
 
@@ -280,7 +293,7 @@ pub fn render_frame_with_state(
     })?;
 
     let frame = builder.finish();
-    let media_plan = build_media_plan(&frame, generated_images);
+    let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
     cache.last_scene_snapshot = Some(SceneSnapshotEntry {
         frame: frame.clone(),
         width: frame_ctx.width,

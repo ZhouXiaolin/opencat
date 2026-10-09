@@ -71,6 +71,7 @@ pub struct ComputedLayoutStyle {
     pub margin_bottom: LengthPercentageAuto,
     pub margin_left: LengthPercentageAuto,
     pub min_height: Option<LengthPercentageAuto>,
+    pub min_width: Option<LengthPercentageAuto>,
     pub is_flex: bool,
     pub is_grid: bool,
     pub grid_template_columns: Option<u16>,

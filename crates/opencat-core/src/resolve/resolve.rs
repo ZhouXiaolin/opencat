@@ -523,10 +523,17 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
         };
 
         let asset_id = cx.assets.register_video_dimensions(&locator, 0, 0, None);
+        // Author-asserted YUV→RGB matrix (data-color-matrix): record it on the
+        // asset so the frame media plan can route the host decoder's
+        // conversion to the asset's real encoding.
+        if let Some(matrix) = video.timing().color_matrix {
+            cx.assets.set_video_color_matrix(&asset_id, matrix);
+        }
         let info = cx.assets.video_info(&asset_id).unwrap_or(VideoInfoMeta {
             width: 0,
             height: 0,
             duration_micros: None,
+            color_matrix: None,
         });
         let asset_id = cx.assets.register_video_dimensions(
             &locator,
@@ -1135,6 +1142,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             width_full: style.width_full,
             height_full: style.height_full,
             min_height: style.min_height,
+            min_width: style.min_width,
             padding_top: style
                 .padding_top
                 .or(style.padding_y)

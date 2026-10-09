@@ -167,7 +167,8 @@ fn open_parsed_host_owned_with_fonts(
     // Host probes bytes directly (issue #40) and inserts metadata into HostInputs.
     let mut inputs = HostInputs::empty()
         .with_base_font_faces(font_bytes)
-        .with_sans_serif_family("Noto Sans SC");
+        .with_sans_serif_family("Noto Sans SC")
+        .with_font_fallback_dirs(crate::fonts::engine_font_fallback_dirs());
 
     // Image: read bytes → probe locally → insert metadata.
     for src in &requests.images {

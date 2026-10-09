@@ -220,6 +220,9 @@ pub(crate) fn save_composite_layer(
             amount = 1_u64
         );
         let bounds_rect4 = display_rect_to_rect4(bounds);
+        // The stored value carries the CSS `backdrop-filter: blur(R)` radius —
+        // same Gaussian sigma = R semantics as `filter: blur()` (see
+        // `css_filter_image_filter`); pass through to Skia unchanged.
         if let Some(sigma) = backdrop_blur.filter(|sigma| *sigma > 0.0) {
             let image_filter = match super::helpers::css_filter_image_filter(css_filter) {
                 Some(css_image_filter) => ImageFilterSpec::Compose(

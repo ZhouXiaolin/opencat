@@ -43,6 +43,7 @@ pub fn resolve_lottie_frame(
         width: meta.width,
         height: meta.height,
         duration_micros: crate::time::optional_secs_to_duration_micros(Some(meta.duration_secs())),
+        color_matrix: None,
     };
     let time_secs = request.resolve_time_secs(&info);
     let frame = meta.in_frame + time_secs as f32 * meta.fps;
@@ -73,6 +74,7 @@ mod tests {
                 media_start_secs: 0.0,
                 playback_rate: 1.0,
                 looping: false,
+                color_matrix: None,
             },
         };
         let frame = resolve_lottie_frame(&request, &meta).unwrap();

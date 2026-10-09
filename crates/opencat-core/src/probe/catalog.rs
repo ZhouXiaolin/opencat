@@ -50,6 +50,11 @@ pub struct VideoInfoMeta {
     pub width: u32,
     pub height: u32,
     pub duration_micros: Option<crate::time::DurationMicros>,
+    /// Author-asserted YUV→RGB matrix for this asset (`data-color-matrix`);
+    /// `None` = host decodes from stream metadata. Capture tools commonly
+    /// encode BT.601 while tagging BT.709, so an author override is the only
+    /// reliable way to match the conversion to the asset's real encoding.
+    pub color_matrix: Option<crate::media::VideoColorMatrix>,
 }
 
 impl VideoInfoMeta {
@@ -104,8 +109,18 @@ impl PreparedResourceCatalog {
             width,
             height,
             duration_micros,
+            color_matrix: None,
         });
         id
+    }
+
+    /// Record an author-asserted YUV→RGB matrix override for a video asset
+    /// (from the markup's `data-color-matrix`). Resolved during rendering so
+    /// the host decoder converts with the asset's real encoding.
+    pub fn set_video_color_matrix(&mut self, id: &AssetId, matrix: crate::media::VideoColorMatrix) {
+        if let Some(meta) = self.videos.get_mut(id) {
+            meta.color_matrix = Some(matrix);
+        }
     }
 
     /// Register an audio asset id by locator string. Used by hosts during
@@ -160,11 +175,7 @@ impl PreparedResourceCatalog {
 
     /// Look up video metadata by AssetId.
     pub fn video_info(&self, id: &AssetId) -> Option<VideoInfoMeta> {
-        self.videos.get(id).map(|m| VideoInfoMeta {
-            width: m.width,
-            height: m.height,
-            duration_micros: m.duration_micros,
-        })
+        self.videos.get(id).copied()
     }
 
     /// Resolve a Lottie source locator to its bundle AssetId.
@@ -216,4 +227,30 @@ pub enum CanonicalKind {
     Audio,
     Subtitle,
     Lottie,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::media::VideoColorMatrix;
+
+    /// `data-color-matrix` resolves into the catalog so the frame media plan
+    /// can route the host decoder to the asset's real encoding.
+    #[test]
+    fn set_video_color_matrix_round_trips_through_video_info() {
+        let mut catalog = PreparedResourceCatalog::default();
+        let id = catalog.register_video_dimensions("video:path:clip.mp4", 1920, 1080, Some(1.5));
+
+        assert_eq!(
+            catalog.video_info(&id).unwrap().color_matrix,
+            None,
+            "untagged assets decode automatically"
+        );
+
+        catalog.set_video_color_matrix(&id, VideoColorMatrix::Bt601);
+        let info = catalog.video_info(&id).expect("registered above");
+        assert_eq!(info.color_matrix, Some(VideoColorMatrix::Bt601));
+        assert_eq!(info.width, 1920);
+        assert_eq!(info.duration_secs(), Some(1.5));
+    }
 }

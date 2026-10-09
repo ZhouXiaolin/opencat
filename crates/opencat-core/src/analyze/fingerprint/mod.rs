@@ -1042,6 +1042,7 @@ mod tests {
                 media_start_secs: 1.234,
                 playback_rate: 1.0,
                 looping: false,
+                color_matrix: None,
             }),
             paint_epoch: 42,
             object_fit: ObjectFit::Fill,

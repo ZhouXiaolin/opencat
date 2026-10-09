@@ -263,6 +263,7 @@ impl Hash for LayoutStyleInput<'_> {
         style.margin_bottom.hash(state);
         style.margin_left.hash(state);
         style.min_height.hash(state);
+        style.min_width.hash(state);
         style.is_flex.hash(state);
         style.is_grid.hash(state);
         style.grid_template_columns.hash(state);

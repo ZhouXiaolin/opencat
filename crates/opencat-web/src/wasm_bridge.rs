@@ -358,11 +358,25 @@ fn media_plan_to_json(plan: &FrameMediaPlan) -> String {
             })
         })
         .collect();
+    let video_color_matrices: std::collections::BTreeMap<&str, &str> = plan
+        .video_color_matrices
+        .iter()
+        .map(|(id, m)| {
+            (
+                id.as_str(),
+                match m {
+                    opencat_core::media::VideoColorMatrix::Bt601 => "bt601",
+                    opencat_core::media::VideoColorMatrix::Bt709 => "bt709",
+                },
+            )
+        })
+        .collect();
     json!({
         "videoFrames": video_frames,
         "images": images,
         "lottieBundles": lottie_bundles,
         "generatedImages": generated_images,
+        "videoColorMatrices": video_color_matrices,
     })
     .to_string()
 }

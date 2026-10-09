@@ -57,6 +57,7 @@ pub fn probe_video(bytes: &[u8]) -> Result<VideoInfoMeta> {
         width,
         height,
         duration_micros,
+        color_matrix: None,
     })
 }
 

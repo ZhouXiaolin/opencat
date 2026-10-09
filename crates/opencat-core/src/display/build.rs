@@ -495,11 +495,20 @@ fn display_item_for_node(
                 }
                 _ => None,
             };
+            // A normal (non clip:text) background paints as the inline box
+            // behind the glyphs — pills/badges (`bg-[rgba(...)]` on `<text>`).
+            let node_background = match element.style.visual.background_clip {
+                crate::style::BackgroundClip::Text if !text_fill.is_none() => Vec::new(),
+                _ => element.style.visual.background.clone(),
+            };
             DisplayItem::Text(TextDisplayItem {
                 bounds,
                 text: text.text.clone(),
                 style: text.text_style.clone(),
                 text_fill,
+                background: node_background,
+                background_border_radius: element.style.visual.border_radius,
+                background_blend_mode: element.style.visual.blend_mode,
                 allow_wrap: text_element_allows_wrap(element),
                 truncate: element.style.layout.truncate,
                 drop_shadow: element.style.visual.drop_shadow.clone(),

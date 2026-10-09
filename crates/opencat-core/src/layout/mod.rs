@@ -238,7 +238,15 @@ fn measure_node(
             .width
             .or(match available_space.width {
                 AvailableSpace::Definite(width) => Some(width),
-                AvailableSpace::MinContent | AvailableSpace::MaxContent => None,
+                // CSS min-content sizing: the longest unbreakable run (word).
+                // taffy consumes this as the flex item's automatic minimum size
+                // (css-flexbox #min-size-auto); returning INFINITY here makes
+                // min-content == max-content and defeats flex-shrink entirely
+                // (shrunk text leaves also keep their single-line height).
+                AvailableSpace::MinContent => {
+                    Some(text_min_content_width(&text.text, &text.style, font_db))
+                }
+                AvailableSpace::MaxContent => None,
             })
             .unwrap_or(f32::INFINITY)
     } else {
@@ -252,6 +260,20 @@ fn measure_node(
         width: known_dimensions.width.unwrap_or(measured.width),
         height: known_dimensions.height.unwrap_or(measured.height),
     }
+}
+
+/// CSS min-content width of a text run: the budget handed to the shaper so it
+/// wraps at every soft wrap opportunity. The word widths here are the initial
+/// split; the shaper's Unicode line breaking (hyphen included) decides the
+/// final unbreakable fragments, matching Chrome's min-content contribution.
+fn text_min_content_width(
+    text: &str,
+    style: &crate::style::ComputedTextStyle,
+    font_db: &fontdb::Database,
+) -> f32 {
+    text.split_whitespace()
+        .map(|word| crate::text::measure_text(word, style, f32::INFINITY, false, font_db).width)
+        .fold(0.0_f32, f32::max)
 }
 
 fn build_taffy_subtree(
@@ -516,17 +538,6 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     .map(Dimension::length)
                     .unwrap_or(Dimension::auto()),
                 height: Dimension::auto(),
-            },
-            min_size: taffy::geometry::Size {
-                width: Dimension::auto(),
-                height: layout.min_height.map_or_else(Dimension::auto, |v| match v {
-                    crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
-                    crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
-                    crate::style::LengthPercentageAuto::Percent(pct) => {
-                        let resolved = if pct < 0.0 { 1.0 } else { pct };
-                        Dimension::percent(resolved)
-                    }
-                }),
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
@@ -805,6 +816,24 @@ fn base_style(element: &ElementNode) -> Style {
             .flex_basis
             .map(resolve_dimension_value)
             .unwrap_or(Dimension::auto()),
+        min_size: taffy::geometry::Size {
+            width: layout.min_width.map_or_else(Dimension::auto, |v| match v {
+                crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
+                crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+                crate::style::LengthPercentageAuto::Percent(pct) => {
+                    let resolved = if pct < 0.0 { 1.0 } else { pct };
+                    Dimension::percent(resolved)
+                }
+            }),
+            height: layout.min_height.map_or_else(Dimension::auto, |v| match v {
+                crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
+                crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+                crate::style::LengthPercentageAuto::Percent(pct) => {
+                    let resolved = if pct < 0.0 { 1.0 } else { pct };
+                    Dimension::percent(resolved)
+                }
+            }),
+        },
         flex_grow: layout.flex_grow,
         align_self: layout.align_self.map(map_align),
         justify_self: layout.justify_self.map(map_align_items_to_justify_self),
@@ -1005,6 +1034,237 @@ mod tests {
         assert!(
             measured.width > 80.0,
             "expected auto-width text to ignore narrow available width and remain single-line"
+        );
+    }
+
+    #[test]
+    fn min_content_measurement_reports_longest_word() {
+        let db = default_font_db();
+        let mut ctx = TextMeasureContext {
+            text: "gh api --paginate files".to_string(),
+            style: ComputedTextStyle {
+                wrap_text: true,
+                ..ComputedTextStyle::default()
+            },
+            allow_wrap: true,
+        };
+
+        let max_content = measure_node(
+            Size { width: None, height: None },
+            Size {
+                width: AvailableSpace::MaxContent,
+                height: AvailableSpace::MaxContent,
+            },
+            Some(&mut ctx),
+            &db,
+        );
+        let min_content = measure_node(
+            Size { width: None, height: None },
+            Size {
+                width: AvailableSpace::MinContent,
+                height: AvailableSpace::MinContent,
+            },
+            Some(&mut ctx),
+            &db,
+        );
+
+        assert!(
+            max_content.width > min_content.width,
+            "max-content {} must exceed min-content {}",
+            max_content.width,
+            min_content.width
+        );
+        // min-content 宽 = 最长词（"--paginate"），换行按词进行 → 行数 > 1 行。
+        assert!(
+            min_content.height > max_content.height,
+            "wrapping at min-content width must produce more lines than the single max-content line"
+        );
+
+        // cosmic-text 按 Unicode 断行（hyphen 后即 soft wrap opportunity），
+        // 所以 "--paginate" 的 min-content 片段是 "paginate" —— 与 Chrome 一致。
+        let mut longest = TextMeasureContext {
+            text: "paginate".to_string(),
+            style: ctx.style.clone(),
+            allow_wrap: false,
+        };
+        let word = measure_node(
+            Size { width: None, height: None },
+            Size {
+                width: AvailableSpace::MaxContent,
+                height: AvailableSpace::MaxContent,
+            },
+            Some(&mut longest),
+            &db,
+        );
+        assert!(
+            (min_content.width - word.width).abs() < 1.0,
+            "min-content width {} should equal the longest word width {}",
+            min_content.width,
+            word.width
+        );
+    }
+
+    #[test]
+    fn shrinking_flex_row_remeasures_wrapped_text_leaf_height() {
+        // diffcard 场景缩样：flex 容器窄于子项 max-content 总和，唯一可收缩
+        // 子项内的 whitespace-normal 文本必须按收缩后的分配宽度换行重算高度
+        // （此前 min-content = max-content 使收缩失效、文本保持单行高）。
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 600,
+            height: 400,
+            frames: 1,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+        let root = classed_div(
+            "root",
+            "w-full h-full flex items-center justify-center gap-[20px]",
+            vec![
+                classed_div("fixed", "w-[320px] h-[40px] flex-none", vec![]).into(),
+                classed_div(
+                    "card",
+                    "w-[400px]",
+                    vec![classed_div(
+                        "dl",
+                        "flex gap-[18px] px-[26px] py-[6px] text-[16px]",
+                        vec![
+                            classed_text("sym", "text-[16px]", "+").into(),
+                            classed_text(
+                                "body",
+                                "text-[16px] whitespace-normal",
+                                "gh api --paginate --jq files",
+                            )
+                            .into(),
+                        ],
+                    )
+                    .into()],
+                )
+                .into(),
+            ],
+        )
+        .into();
+        let resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
+            .expect("layout should succeed");
+
+        let card = &layout.root.children[1];
+        assert!(
+            card.rect.width < 400.0,
+            "card must lose width to the overflowing row, got {}",
+            card.rect.width
+        );
+        let body = &card.children[0].children[1];
+        assert!(
+            body.rect.height > 30.0,
+            "wrapped body text must take two lines (48px at 16px/1.5) after shrinking, got {}",
+            body.rect.height
+        );
+    }
+
+    #[test]
+    fn probe_cta_auto_pill_padding() {
+        // 复刻 cta.html metarow：.ml{flex;gap} > span.auto{bg;padding:.24cqw .75cqw;font-size:.96cqw}
+        // 实测 f860：ref pill w≈68（text 37 + 2×14.4 padding + 边界），引擎 pill w≈42。
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 1920,
+            height: 1080,
+            frames: 1,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+        let root = classed_div(
+            "root",
+            "relative w-[1920px] h-[1080px]",
+            vec![classed_div(
+                "auto440",
+                "flex items-center gap-[21.12px]",
+                vec![
+                    classed_text(
+                        "auto441",
+                        "text-[18.4px] font-[hk5] font-medium bg-[rgba(202,164,62,0.16)] text-[#CAA43E] px-[14.4px] py-[4.6px] rounded-[9.6px]",
+                        "Auto",
+                    )
+                    .into(),
+                    classed_text("auto442", "text-[22.1px] text-[#8C8B83]", "＋").into(),
+                ],
+            )
+            .into()],
+        )
+        .into();
+        let resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
+            .expect("layout should succeed");
+        let pill = &layout.root.children[0].children[0];
+        println!(
+            "probe auto441 pill: x={} y={} w={} h={}",
+            pill.rect.x, pill.rect.y, pill.rect.width, pill.rect.height
+        );
+    }
+
+    #[test]
+    fn min_width_class_expands_flex_child_past_content_size() {
+        // 参考场景：.ptime{min-width:9cqw} 的 flex-none 文本列（内容 ~128px）必须被
+        // min-width 撑到 172.8px，同排 flex-1 轨道相应缩短 —— min-width 缺失时
+        // ptime 收到内容宽、ptrack 拉长 44.8px（进度条填充/knob 失配的根因）。
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 800,
+            height: 200,
+            frames: 1,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+        let root = classed_div(
+            "root",
+            "w-full h-full flex items-center gap-[23px] px-[28.8px]",
+            vec![
+                classed_div("track", "flex-1 h-[6.53px]", vec![]).into(),
+                classed_text("ptime", "min-w-[172.8px] flex-none text-[19.2px]", "0:07 / 0:32")
+                    .into(),
+            ],
+        )
+        .into();
+        let resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
+            .expect("layout should succeed");
+
+        let ptime = &layout.root.children[1];
+        assert!(
+            (ptime.rect.width - 172.8).abs() < 0.5,
+            "min-width must expand the text leaf to 172.8px, got {}",
+            ptime.rect.width
+        );
+        let track = &layout.root.children[0];
+        // 800 − 2×28.8(padding) − 23(gap) − 172.8 = 546.6（px 网格舍入 ±1）
+        assert!(
+            (track.rect.width - 546.6).abs() < 1.0,
+            "flex-1 track must shrink to the remainder, got {}",
+            track.rect.width
         );
     }
 

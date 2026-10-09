@@ -158,6 +158,10 @@ pub enum JsonLine {
         #[serde(rename = "className")]
         class_name: Option<String>,
         d: String,
+        /// Optional shared SVG view box, `"minx,miny,w,h"` — same grammar as the
+        /// markup `view-box` attribute.
+        #[serde(rename = "viewBox")]
+        view_box: Option<String>,
         duration: Option<f64>,
     },
 }
@@ -450,6 +454,7 @@ pub fn parse_with_base_dir_and_fonts(
                 parent_id,
                 class_name,
                 d,
+                view_box,
                 duration,
             } => {
                 let style = parse_class_name_with_context(
@@ -457,12 +462,15 @@ pub fn parse_with_base_dir_and_fonts(
                     &id,
                     line_index + 1,
                 );
+                let view_box = view_box
+                    .map(|raw| crate::parse::markup::parse_view_box_attr(&raw))
+                    .transpose()?;
                 elements.push(ParsedElement {
                     id,
                     parent_id,
                     duration,
                     style,
-                    kind: ParsedElementKind::Path { data: d, view_box: None },
+                    kind: ParsedElementKind::Path { data: d, view_box },
                 });
             }
         }
@@ -703,6 +711,35 @@ mod tests {
 
         assert_eq!(parsed.width, 320);
         assert_eq!(parsed.root.style_ref().id, "root");
+    }
+
+    #[test]
+    fn parser_maps_path_view_box_when_present() {
+        let parsed = parse(
+            r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
+{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
+{"type":"path","id":"a","parentId":"root","className":"w-[115px] h-[115px]","d":"M0 0 L10 10","viewBox":"0 0 512 512"}
+{"type":"path","id":"b","parentId":"root","className":"w-[10px] h-[10px]","d":"M0 0 L10 10"}"#,
+        )
+        .expect("jsonl should parse");
+
+        let crate::parse::node::NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be a div");
+        };
+        let find = |id: &str| {
+            root.children_ref()
+                .iter()
+                .find(|n| n.style_ref().id == id)
+                .unwrap_or_else(|| panic!("path `{id}` should exist"))
+        };
+        let crate::parse::node::NodeKind::Path(a) = find("a").kind() else {
+            panic!("`a` should be a path");
+        };
+        assert_eq!(a.view_box(), Some([0.0, 0.0, 512.0, 512.0]));
+        let crate::parse::node::NodeKind::Path(b) = find("b").kind() else {
+            panic!("`b` should be a path");
+        };
+        assert_eq!(b.view_box(), None);
     }
 
     #[test]

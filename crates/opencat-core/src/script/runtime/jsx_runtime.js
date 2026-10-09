@@ -302,6 +302,11 @@
             }
             case 'path':
                 line.d = String(props.d);
+                // Shared sibling coordinate space (`view-box="minx,miny,w,h"`).
+                // Without it each path is fitted by its own bounds — a small
+                // accent shape would be stretched over the whole node box.
+                var vb = props['view-box'] !== undefined ? props['view-box'] : props.viewBox;
+                if (vb !== undefined && vb !== null && vb !== '') line.viewBox = String(vb);
                 break;
             case 'icon':
                 line.icon = String(props.icon || props.name);

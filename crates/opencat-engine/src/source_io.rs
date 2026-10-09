@@ -16,6 +16,7 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
 
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("xml") => opencat_core::parse::markup::parse_with_base_dir(&input, Some(base_dir)),
+        Some("jsx") | Some("js") => crate::jsx::parse_with_base_dir(&input, Some(base_dir)),
         // Core parse keeps external script locators logical; host loads text later.
         _ => core_parse_with_base_dir(&input, Some(base_dir)),
     }
@@ -27,8 +28,11 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
         // Do not rewrite script path lines into inline src. Core keeps logical
         // locators; hosts fill HostInputs::insert_script_text (issue #20).
         core_parse_with_base_dir(input, base_dir)
-    } else {
+    } else if trimmed.starts_with('<') {
         opencat_core::parse::markup::parse_with_base_dir(input, base_dir)
+    } else {
+        // JSX frontend: JS modules + JSX + the `use*` registry.
+        crate::jsx::parse_with_base_dir(input, base_dir)
     }
 }
 

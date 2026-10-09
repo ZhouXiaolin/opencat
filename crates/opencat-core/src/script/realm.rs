@@ -19,7 +19,9 @@ use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
-use crate::script::runtime::{ANIMATION_RUNTIME, CANVAS_API_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME};
+use crate::script::runtime::{
+    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+};
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
 };
@@ -130,6 +132,9 @@ impl<C: JsContext> ScriptRealm<C> {
         self.ctx.eval(CANVAS_API_RUNTIME)?;
         self.ctx.eval(THREE_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
+        // JSX frontend: h() + use* registry + module loader. Pure-XML
+        // compositions simply never call into it.
+        self.ctx.eval(JSX_RUNTIME)?;
         self.ctx.eval(
             "globalThis.__opencatFlushTimelines = function() {\
              if (globalThis.ctx && globalThis.ctx.__flushTimelines) \

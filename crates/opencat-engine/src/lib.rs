@@ -9,6 +9,7 @@ pub mod executor;
 pub mod fonts;
 pub mod inspect;
 pub mod js_context;
+pub mod jsx;
 pub mod media;
 pub mod pipeline;
 pub mod probe;

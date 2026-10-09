@@ -1,7 +1,7 @@
-//! # Effect Lambda DSL
+//! # Liangyi（两仪）— Effect Kernel DSL
 //!
-//! 效果（原手写 SKSL、原 Rust 手写逐像素逻辑如 k3 溶解）统一以 JS lambda
-//! 表达。lambda **只被编译、从不被执行**：Rust 侧解析其源码（oxc），白名单
+//! Liangyi 语言的参考实现。效果（原手写 SKSL、原 Rust 手写逐像素逻辑如 k3
+//! 溶解）统一以 JS lambda 内核表达。lambda **只被编译、从不被执行**：Rust 侧解析其源码（oxc），白名单
 //! 校验 + 类型推断后落到自有 IR（[`program`]），再派发后端：
 //!
 //! - [`Backend::Sksl`]：codegen SKSL（[`lower_sksl`]），走现有
@@ -12,11 +12,18 @@
 //!
 //! 派发由 stdlib 能力标记自动决定（用到 `h01`/`imul` 等整数精确语义 → CPU），
 //! spec 可显式覆盖。像素循环永不落在 JS，像素缓冲永不跨进 JS。
+//!
+//! 宿主接入：像素数据 / 渲染目标是后端无关抽象（[`pixel`] ——
+//! [`pixel::RenderTarget`] 由 Skia surface / CPU / 将来的 wgpu 各自实例化）；
+//! CPU 内核经 [`exec`] 落到宿主缓冲，SKSL 内核交付 codegen 源码由宿主
+//! 绘制期执行。JS 侧命名空间为 `ly`（`ly.kernel` / `ly.scan` / `ly.target`）。
 
 pub mod error;
+pub mod exec;
 pub mod interp;
 pub mod lower_sksl;
 pub mod parse;
+pub mod pixel;
 pub mod program;
 pub mod stdlib;
 
@@ -30,8 +37,8 @@ use hashbrown::HashMap;
 pub use error::{LambdaError, LambdaResult};
 pub use program::{Backend, Program};
 
-/// JS 侧 spec（`CK.Effect.fromLambda(fn, spec)` / `surface.runEffect` 的
-/// 第二参）反序列化后的形态。uniforms 保持声明序——顺序即 f32 打包顺序，
+/// JS 侧 spec（`ly.kernel(fn, spec)` / `ly.scan(fn, spec)` 的内核注解）
+/// 反序列化后的形态。uniforms 保持声明序——顺序即 f32 打包顺序，
 /// 必须与 JS 传参一致。
 #[derive(Debug, Clone, Default)]
 pub struct EffectSpec {
@@ -619,138 +626,7 @@ mod tests {
         assert!(err.to_string().contains("child"), "{err}");
     }
 
-    /// render target 通路端到端（bindings 层）：surface_apply_effect（seed，
-    /// surface child 采样）→ surface_scan_pass 双遍 → surface_bake 注册帧级
-    /// 生成图像。场语义与 oracle 全等；bake 幂等 id 由 key 决定。
-    #[test]
-    fn render_target_bindings_end_to_end() {
-        use crate::script::dispatch::dispatch_binding;
-        use crate::script::recorder::MutationStore;
-        use serde_json::Value;
-
-        let (w, h) = (4u32, 4u32);
-        let n = (w * h) as usize;
-        let mut store = MutationStore::default();
-        let call = |store: &mut MutationStore, name: &str, args: Vec<Value>| {
-            dispatch_binding(store, name, &args)
-                .unwrap_or_else(|e| panic!("{name}: {e}"))
-        };
-
-        // 源 surface：alpha 列纹（x==1 → 255，否则 0）
-        call(
-            &mut store,
-            "surface_create",
-            vec!["src".into(), Value::from(4.0), Value::from(4.0)],
-        );
-        let src_rgba: Vec<u8> = (0..n)
-            .flat_map(|i| {
-                let a = if i % 4 == 1 { 255u8 } else { 0 };
-                [0u8, 0, 0, a]
-            })
-            .collect();
-        crate::text::surface::surface_write_rgba("src", w, h, src_rgba).unwrap();
-
-        call(
-            &mut store,
-            "surface_create",
-            vec!["tgt".into(), Value::from(4.0), Value::from(4.0)],
-        );
-        call(
-            &mut store,
-            "surface_apply_effect",
-            vec![
-                "tgt".into(),
-                Value::from(FIELD_SEED),
-                Value::from("{}"),
-                Value::Array(vec![]),
-                Value::from(r#"[{"__opencatShader":"surface","id":"src"}]"#),
-            ],
-        );
-        for (dir, src) in [
-            ("forward", FIELD_FWD),
-            ("backward", FIELD_BWD),
-        ] {
-            call(
-                &mut store,
-                "surface_scan_pass",
-                vec![
-                    "tgt".into(),
-                    Value::from(src),
-                    Value::from("{}"),
-                    Value::Array(vec![]),
-                    Value::from(dir),
-                ],
-            );
-        }
-
-        // 场语义 oracle 全等
-        let mask: Vec<u8> = (0..n).map(|i| if i % 4 == 1 { 255 } else { 0 }).collect();
-        let mut dist = vec![3000i16; n];
-        for i in 0..n {
-            if mask[i] > 120 {
-                dist[i] = 0;
-            }
-        }
-        oracle_chamfer_3_4(&mut dist, w as usize, h as usize);
-        let mut want = vec![0u8; n * 4];
-        for i in 0..n {
-            let d = dist[i] as u16;
-            want[i * 4] = mask[i];
-            want[i * 4 + 1] = (d & 0xFF) as u8;
-            want[i * 4 + 2] = (d >> 8) as u8;
-            want[i * 4 + 3] = 255;
-        }
-        let got = crate::text::surface::surface_get_rgba("tgt", 0.0, 0.0, 4.0, 4.0).unwrap();
-        assert_eq!(got, want);
-
-        // bake：注册帧级生成图像（id 由 key 决定，像素 = 目标当前内容）
-        call(
-            &mut store,
-            "surface_bake",
-            vec!["tgt".into(), Value::from("e2e-key")],
-        );
-        let pending = store.take_pending_generated_images();
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].id, crate::ir::GeneratedImageId::from_key("e2e-key"));
-        assert_eq!((pending[0].width, pending[0].height), (w, h));
-        assert_eq!(pending[0].rgba.as_ref(), want.as_slice());
-    }
-
-    /// pixel 类 lambda（runEffect 通路）拒绝 scan 类 spec；scan 类拒绝
-    /// pixel spec（互斥由 binding 与 parse 双重把守）。
-    #[test]
-    fn surface_target_ops_reject_wrong_kind() {
-        use crate::script::dispatch::dispatch_binding;
-        use crate::script::recorder::MutationStore;
-        use serde_json::Value;
-
-        let mut store = MutationStore::default();
-        let err = dispatch_binding(
-            &mut store,
-            "surface_apply_effect",
-            &[
-                "t".into(),
-                Value::from(FIELD_FWD),
-                Value::from(r#"{"kind":"scan"}"#),
-                Value::Array(vec![]),
-                Value::from("[]"),
-            ],
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("runEffect"), "{err}");
-
-        let err = dispatch_binding(
-            &mut store,
-            "surface_scan_pass",
-            &[
-                "t".into(),
-                Value::from(FIELD_SEED),
-                Value::from(r#"{"kind":"pixel"}"#),
-                Value::Array(vec![]),
-                Value::from("forward"),
-            ],
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("scanPass"), "{err}");
-    }
+    // 注意：surface_* binding 通路的端到端测试依赖 core（dispatch / recorder /
+    // text::surface / ir），留在 `opencat-core` 的
+    // `script::lambda_integration_tests`，本 crate 只持有语言自身语义。
 }

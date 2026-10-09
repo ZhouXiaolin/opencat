@@ -10,7 +10,8 @@ use taffy::{
     AvailableSpace, TaffyTree,
     prelude::{
         AlignContent as TaffyAlignContent, Dimension, FromFr,
-        JustifyContent as TaffyJustifyContent, Style, TaffyAuto, TaffyGridLine,
+        JustifyContent as TaffyJustifyContent, LengthPercentageAuto as TaffyLPA, Style,
+        TaffyAuto, TaffyGridLine,
     },
     style::TrackSizingFunction,
     style_helpers::{flex, span},
@@ -142,8 +143,13 @@ impl LayoutSession {
                     width: AvailableSpace::Definite(frame_ctx.width as f32),
                     height: AvailableSpace::Definite(frame_ctx.height as f32),
                 },
-                |known_dimensions, available_space, _node_id, node_context, _style| {
-                    measure_node(known_dimensions, available_space, node_context, font_db)
+                |inputs: taffy::LayoutInput, _node_id, node_context, _style| {
+                    taffy::LayoutOutput::from_outer_size(measure_node(
+                        inputs.known_dimensions,
+                        inputs.available_space,
+                        node_context,
+                        font_db,
+                    ))
                 },
             )?;
 
@@ -229,37 +235,50 @@ fn measure_node(
     node_context: Option<&mut TextMeasureContext>,
     font_db: &fontdb::Database,
 ) -> taffy::geometry::Size<f32> {
-    let Some(text) = node_context else {
-        return taffy::geometry::Size::ZERO;
+    let measured = match node_context {
+        Some(text) => {
+            let max_width = if text.allow_wrap {
+                known_dimensions
+                    .width
+                    .or(match available_space.width {
+                        AvailableSpace::Definite(width) => Some(width),
+                        // CSS min-content sizing: the longest unbreakable run (word).
+                        // taffy consumes this as the flex item's automatic minimum size
+                        // (css-flexbox #min-size-auto); returning INFINITY here makes
+                        // min-content == max-content and defeats flex-shrink entirely
+                        // (shrunk text leaves also keep their single-line height).
+                        AvailableSpace::MinContent => {
+                            Some(text_min_content_width(&text.text, &text.style, font_db))
+                        }
+                        AvailableSpace::MaxContent => None,
+                    })
+                    .unwrap_or(f32::INFINITY)
+            } else {
+                f32::INFINITY
+            };
+            let measured = crate::text::measure_text(
+                &text.text,
+                &text.style,
+                max_width,
+                text.allow_wrap,
+                font_db,
+            );
+            taffy::geometry::Size {
+                width: known_dimensions.width.unwrap_or(measured.width),
+                height: known_dimensions.height.unwrap_or(measured.height),
+            }
+        }
+        // Context-less leaves (SvgPath/Lottie/Canvas) have no measurable content:
+        // their box size lives in the taffy style. taffy 0.14 measures leaves in
+        // ContentSize mode, where style sizes are ignored, so echo the known
+        // (style-derived) dimensions back instead of returning zero.
+        None => taffy::geometry::Size {
+            width: known_dimensions.width.unwrap_or(0.0),
+            height: known_dimensions.height.unwrap_or(0.0),
+        },
     };
 
-    let max_width = if text.allow_wrap {
-        known_dimensions
-            .width
-            .or(match available_space.width {
-                AvailableSpace::Definite(width) => Some(width),
-                // CSS min-content sizing: the longest unbreakable run (word).
-                // taffy consumes this as the flex item's automatic minimum size
-                // (css-flexbox #min-size-auto); returning INFINITY here makes
-                // min-content == max-content and defeats flex-shrink entirely
-                // (shrunk text leaves also keep their single-line height).
-                AvailableSpace::MinContent => {
-                    Some(text_min_content_width(&text.text, &text.style, font_db))
-                }
-                AvailableSpace::MaxContent => None,
-            })
-            .unwrap_or(f32::INFINITY)
-    } else {
-        f32::INFINITY
-    };
-
-    let measured =
-        crate::text::measure_text(&text.text, &text.style, max_width, text.allow_wrap, font_db);
-
-    taffy::geometry::Size {
-        width: known_dimensions.width.unwrap_or(measured.width),
-        height: known_dimensions.height.unwrap_or(measured.height),
-    }
+    measured
 }
 
 /// CSS min-content width of a text run: the budget handed to the shaper so it
@@ -535,9 +554,20 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             max_size: taffy::geometry::Size {
                 width: layout
                     .max_width
-                    .map(Dimension::length)
-                    .unwrap_or(Dimension::auto()),
-                height: Dimension::auto(),
+                    .map(TaffyLPA::length)
+                    .unwrap_or_else(TaffyLPA::auto),
+                height: TaffyLPA::auto(),
+            },
+            min_size: taffy::geometry::Size {
+                width: TaffyLPA::auto(),
+                height: layout.min_height.map_or_else(TaffyLPA::auto, |v| match v {
+                    crate::style::LengthPercentageAuto::Auto => TaffyLPA::auto(),
+                    crate::style::LengthPercentageAuto::Length(px) => TaffyLPA::length(px),
+                    crate::style::LengthPercentageAuto::Percent(pct) => {
+                        let resolved = if pct < 0.0 { 1.0 } else { pct };
+                        TaffyLPA::percent(resolved)
+                    }
+                }),
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
@@ -817,20 +847,20 @@ fn base_style(element: &ElementNode) -> Style {
             .map(resolve_dimension_value)
             .unwrap_or(Dimension::auto()),
         min_size: taffy::geometry::Size {
-            width: layout.min_width.map_or_else(Dimension::auto, |v| match v {
-                crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
-                crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+            width: layout.min_width.map_or_else(TaffyLPA::auto, |v| match v {
+                crate::style::LengthPercentageAuto::Auto => TaffyLPA::auto(),
+                crate::style::LengthPercentageAuto::Length(px) => TaffyLPA::length(px),
                 crate::style::LengthPercentageAuto::Percent(pct) => {
                     let resolved = if pct < 0.0 { 1.0 } else { pct };
-                    Dimension::percent(resolved)
+                    TaffyLPA::percent(resolved)
                 }
             }),
-            height: layout.min_height.map_or_else(Dimension::auto, |v| match v {
-                crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
-                crate::style::LengthPercentageAuto::Length(px) => Dimension::length(px),
+            height: layout.min_height.map_or_else(TaffyLPA::auto, |v| match v {
+                crate::style::LengthPercentageAuto::Auto => TaffyLPA::auto(),
+                crate::style::LengthPercentageAuto::Length(px) => TaffyLPA::length(px),
                 crate::style::LengthPercentageAuto::Percent(pct) => {
                     let resolved = if pct < 0.0 { 1.0 } else { pct };
-                    Dimension::percent(resolved)
+                    TaffyLPA::percent(resolved)
                 }
             }),
         },
@@ -915,23 +945,23 @@ fn map_position(value: Position) -> taffy::style::Position {
 
 fn map_justify(value: JustifyContent) -> TaffyJustifyContent {
     match value {
-        JustifyContent::Start => TaffyJustifyContent::FlexStart,
-        JustifyContent::Center => TaffyJustifyContent::Center,
-        JustifyContent::End => TaffyJustifyContent::FlexEnd,
-        JustifyContent::Between => TaffyJustifyContent::SpaceBetween,
-        JustifyContent::Around => TaffyJustifyContent::SpaceAround,
-        JustifyContent::Evenly => TaffyJustifyContent::SpaceEvenly,
-        JustifyContent::Stretch => TaffyJustifyContent::Stretch,
+        JustifyContent::Start => TaffyJustifyContent::FLEX_START,
+        JustifyContent::Center => TaffyJustifyContent::CENTER,
+        JustifyContent::End => TaffyJustifyContent::FLEX_END,
+        JustifyContent::Between => TaffyJustifyContent::SPACE_BETWEEN,
+        JustifyContent::Around => TaffyJustifyContent::SPACE_AROUND,
+        JustifyContent::Evenly => TaffyJustifyContent::SPACE_EVENLY,
+        JustifyContent::Stretch => TaffyJustifyContent::STRETCH,
     }
 }
 
 fn map_align(value: AlignItems) -> taffy::prelude::AlignItems {
     match value {
-        AlignItems::Start => taffy::prelude::AlignItems::FlexStart,
-        AlignItems::Center => taffy::prelude::AlignItems::Center,
-        AlignItems::End => taffy::prelude::AlignItems::FlexEnd,
-        AlignItems::Baseline => taffy::prelude::AlignItems::Baseline,
-        AlignItems::Stretch => taffy::prelude::AlignItems::Stretch,
+        AlignItems::Start => taffy::prelude::AlignItems::FLEX_START,
+        AlignItems::Center => taffy::prelude::AlignItems::CENTER,
+        AlignItems::End => taffy::prelude::AlignItems::FLEX_END,
+        AlignItems::Baseline => taffy::prelude::AlignItems::BASELINE,
+        AlignItems::Stretch => taffy::prelude::AlignItems::STRETCH,
     }
 }
 
@@ -945,13 +975,13 @@ fn map_align_items_to_justify_self(value: AlignItems) -> taffy::prelude::AlignIt
 
 fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
     match value {
-        JustifyContent::Start => TaffyAlignContent::FlexStart,
-        JustifyContent::Center => TaffyAlignContent::Center,
-        JustifyContent::End => TaffyAlignContent::FlexEnd,
-        JustifyContent::Between => TaffyAlignContent::SpaceBetween,
-        JustifyContent::Around => TaffyAlignContent::SpaceAround,
-        JustifyContent::Evenly => TaffyAlignContent::SpaceEvenly,
-        JustifyContent::Stretch => TaffyAlignContent::Stretch,
+        JustifyContent::Start => TaffyAlignContent::FLEX_START,
+        JustifyContent::Center => TaffyAlignContent::CENTER,
+        JustifyContent::End => TaffyAlignContent::FLEX_END,
+        JustifyContent::Between => TaffyAlignContent::SPACE_BETWEEN,
+        JustifyContent::Around => TaffyAlignContent::SPACE_AROUND,
+        JustifyContent::Evenly => TaffyAlignContent::SPACE_EVENLY,
+        JustifyContent::Stretch => TaffyAlignContent::STRETCH,
     }
 }
 

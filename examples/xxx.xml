@@ -143,7 +143,7 @@
     var htmlTexture = htmlCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
     var htmlLocalTime = Math.max(0, ctx.currentTime - 4.0);
     var htmlPulse = Math.max(0, Math.min(htmlLocalTime / 1.8, 1));
-    /* ══ lambda 折射玻璃（Effect lambda DSL，§Effect.fromLambda）══════════
+    /* ══ lambda 折射玻璃（Liangyi/两仪ly.pixel 内核）════════════════════
        原 25 行手写 SKSL 改写为 JS lambda：只写 op 与简单数据计算，被 Rust
        编译（绝不执行）。全浮点 op → 自动派发 SKSL 后端，仍走 RuntimeEffect
        管线（picture child 采样 HTML subtree）。
@@ -173,11 +173,11 @@
       return [rgb.x * k, rgb.y * k, rgb.z * k, a];
     };
     var REFRACT_SPEC = {
-      uniforms: [['t', 'float'], ['pulse', 'float']],
+      uniforms: { t: 'float', pulse: 'float' },
       backend: 'auto'
     };
-    var refractEffect = CK.Effect.fromLambda(REFRACT_LAMBDA, REFRACT_SPEC);
-    var shader = refractEffect.makeShaderWithChildren([htmlLocalTime, htmlPulse], [htmlTexture]);
+    var refractEffect = ly.pixel(REFRACT_LAMBDA, REFRACT_SPEC);
+    var shader = refractEffect.sample([htmlLocalTime, htmlPulse], [htmlTexture]);
     var shaderPaint = new CK.Paint();
     shaderPaint.setShader(shader);
     htmlCanvas.drawRect(CK.XYWHRect(0, 0, 404, 304), shaderPaint);

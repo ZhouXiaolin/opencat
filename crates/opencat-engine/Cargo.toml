@@ -8,6 +8,8 @@ path = "src/lib.rs"
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
+# Liangyi（两仪）效果内核语言（replay 用 lambda 编译做 SKSL codegen 校验）。
+opencat-liangyi = { path = "../opencat-liangyi" }
 # 3D 渲染后端（wgpu）：Scene3 快照 → straight-alpha RGBA，经 generated
 # image 进合成；web 侧走同一 WGSL 的 wasm 后端。
 opencat-three = { path = "../opencat-three" }
@@ -19,40 +21,40 @@ serde_json.workspace = true
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 num_cpus = "1.17.0"
-dirs = "6.0.0"
+dirs = "7.0.0"
 
 # Video-transport oracle: the harness hands back one base64 H.264 MP4 and
 # decodes it with ffmpeg, so base64 + a scratch path for the temp file.
-base64 = "0.22"
+base64 = "0.23"
 tempfile = "3"
 
 # Host-owned resource probing (issue #40)
-imagesize = "=0.14.0"
-nom-exif = "=3.4.2"
+imagesize = "=0.15.0"
+nom-exif = "=3.8.0"
 
 # 9.x tracks FFmpeg 9 headers (system libavcodec 63.x); 8.1.0 reads removed
 # AVCodec fields (pix_fmts/sample_fmts/ch_layouts) and fails to compile.
 ffmpeg-next = "9.0.0"
-rquickjs = { version = "0.11.0", features = ["futures"] }
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "socks"] }
-tokio = { version = "1.51.0", features = ["rt-multi-thread", "fs"] }
+rquickjs = { version = "0.14.0", features = ["futures"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "socks"] }
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 
 [dev-dependencies]
 opencat-core = { path = "../opencat-core", features = ["test-support"] }
 tempfile = "3"
 
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-skia-safe = { version = "0.93.1", features = ["binary-cache", "gl", "skottie"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+skia-safe = { version = "0.153.3", features = ["binary-cache", "gl", "skottie"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 foreign-types = "0.5.0"
-metal = "0.31.0"
+metal = "0.33.0"
 # No `skottie`: rust-skia ships no prebuilt binaries with Skottie for
 # x86_64-apple-darwin (only Linux), which would force a full Skia source
 # build. Native Lottie is disabled on macOS for now — see
 # `executor::EngineDrawExecutor::ensure_lottie_animations`.
-skia-safe = { version = "0.93.1", features = ["metal", "binary-cache"] }
-core-graphics-types = "0.1.3"
+skia-safe = { version = "0.153.3", features = ["metal", "binary-cache"] }
+core-graphics-types = "0.2.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61.2", features = [
@@ -61,3 +63,8 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Graphics_OpenGL",
     "Win32_System_LibraryLoader",
 ] }
+# No `skottie` — rust-skia publishes no prebuilt windows-msvc binaries with
+# Skottie (only linux/egl), which would force a full Skia source build.
+# Native Lottie is disabled on Windows too — see
+# `executor::EngineDrawExecutor::ensure_lottie_animations`.
+skia-safe = { version = "0.153.3", features = ["binary-cache", "gl"] }

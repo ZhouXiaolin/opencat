@@ -91,7 +91,7 @@ meaningful error of its own.
 | Dependency | Notes |
 |------------|--------|
 | Chrome + ChromeDriver | Same major version; auto-detected or set `CHROME_BIN` / `CHROMEDRIVER_BIN` |
-| FFmpeg | `ffmpeg` on `PATH` (decode reference video) |
+| FFmpeg | Shared build with **libx264** on `PATH` — e.g. `ffmpeg-8.1.2-full_build-shared` from gyan.dev. ffmpeg-sys-next links the FFmpeg DLLs dynamically by default (soname `avcodec-62` = FFmpeg 8.1.x); the FFmpeg it builds from source has no H.264 encoder, so MP4 export fails with "no compatible software H.264 encoder" without a system libx264 build. (decode reference video) |
 | Node / npm (or bun) | Build the web facade |
 | Dev app deps | `cd web && bun install` (or npm) — CanvasKit + `web-demuxer` for the oracle server |
 | Media server on **:8080** | Compositions such as `examples/profile-showcase.jsonl` load `http://127.0.0.1:8080/mp4/...` |

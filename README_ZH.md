@@ -161,35 +161,36 @@ await exportMp4({ /* ... */ });
 var ox = ctx.createSurface('k3dis-off', 1920, 1080);
 ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-// 2) 用 pixel 类 lambda 播种 mask + 距离场，以 surface child 采样那个 surface
+// 2) 用 pixel 内核播种 mask + 距离场，以渲染目标 child 采样那个 surface
 var field = ctx.createSurface('k3dis-field', 1460, 222);
-field.runEffect(
-  (uv, src) => {
-    const c = src.eval(uv + [232, 430]);
-    const m = byte(c.a * 255 + 0.5);
-    const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist 低/高字节
-    return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
-  }, null, null, [{ __opencatShader: 'surface', id: 'k3dis-off' }]);
+const seed = ly.pixel((uv, src) => {
+  const c = src.eval(uv + [232, 430]);
+  const m = byte(c.a * 255 + 0.5);
+  const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist 低/高字节
+  return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
+});
+field.run(seed, { child: ox });
 
 // 3) chamfer 扫描——scan 类 lambda 就地遍历；get(dx,dy) 读 in-progress 缓冲，
 //    遍历顺序由 executor 拥有（forward/backward）
-field.scanPass((get) => {
+field.sweep(ly.scan((get) => {
   const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
   const c = get(0, 0), d = at(c);
   const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
               min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
   return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
-}, 'forward');
+}, { dir: 'forward' }));
 
-// 4) 每帧：lambda 直接采样 field surface——无需每帧烘焙
-var DIS = CK.Effect.fromLambda((uv, field, u) => {
+// 4) 每帧：pixel 内核直接采样 field surface——无需每帧烘焙
+var DIS = ly.pixel((uv, field, u) => {
   const c = field.eval(uv);
   const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
   /* scramble 噪点 · dust · glow → straight RGBA */
-}, { uniforms: [['x0','float'], ['f','float'], ['ep','float'], ['pa','float4']] });
+}, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
+paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
 ```
 
-画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`surface.runEffect` 用 pixel 类 lambda 重绘，`surface.scanPass` 用 scan 类 lambda 就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo.xml` 场景 H；指南：`skill/references/canvaskit.md`。
+画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`target.run` 用 pixel 内核重绘，`target.sweep` 用 scan 内核就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo.xml` 场景 H；指南：`skill/references/canvaskit.md`。
 
 ### 更多能力
 

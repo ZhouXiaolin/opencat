@@ -9,14 +9,14 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
-fontdb = "0.23.0"
+fontdb = "0.24.0"
 faac-rs = { path = "../faac" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # Host-owned resource probing (issue #40)
-imagesize = "0.14"
-nom-exif = "3.4.2"
+imagesize = "0.15"
+nom-exif = "3.8.0"
 url = "2.5"
 once_cell = "1"
 tracing = { version = "0.1", optional = true }
@@ -32,7 +32,7 @@ web-sys = { version = "0.3", features = [
     "AudioNode", "AudioParam", "AudioDestinationNode", "GainNode", "AudioScheduledSourceNode",
     "Blob", "Url", "console",
 ] }
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 console_error_panic_hook = "0.1"
 
 [features]

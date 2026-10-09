@@ -34,8 +34,13 @@ path = "src/bin/opencat-see.rs"
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 rodio = "0.22.2"
 
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-skia-safe = { version = "0.93.1", features = ["binary-cache", "gl", "skottie"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+# EGL context/surface management for the desktop preview player.
+# `dynamic` loads libEGL.so.1 at runtime — no pkg-config build dep.
+# Skia's binary-cache build is EGL-only (its internal GL proc resolver
+# calls eglGetProcAddress), so EGL — not GLX — is the required backend here.
+khronos-egl = { version = "6", features = ["dynamic"] }
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 foreign-types = "0.5.0"
@@ -54,13 +59,11 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_LibraryLoader",
 ] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-# EGL context/surface management for the desktop preview player.
-# `dynamic` loads libEGL.so.1 at runtime — no pkg-config build dep.
-# Skia's binary-cache build is EGL-only (its internal GL proc resolver
-# calls eglGetProcAddress), so EGL — not GLX — is the required backend here.
-khronos-egl = { version = "6", features = ["dynamic"] }
-libc = "0.2"
+# No `skottie` — rust-skia publishes no prebuilt windows-msvc binaries with
+# Skottie (only linux/egl), which would force a full Skia source build.
+# Native Lottie is disabled on Windows too — see
+# `executor::EngineDrawExecutor::ensure_lottie_animations`.
+skia-safe = { version = "0.93.1", features = ["binary-cache", "gl"] }
 
 [[bin]]
 name = "opencat-web-compare"

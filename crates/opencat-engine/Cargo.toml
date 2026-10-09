@@ -41,7 +41,7 @@ tokio = { version = "1.51.0", features = ["rt-multi-thread", "fs"] }
 opencat-core = { path = "../opencat-core", features = ["test-support"] }
 tempfile = "3"
 
-[target.'cfg(not(target_os = "macos"))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 skia-safe = { version = "0.93.1", features = ["binary-cache", "gl", "skottie"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -61,3 +61,8 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Graphics_OpenGL",
     "Win32_System_LibraryLoader",
 ] }
+# No `skottie` — rust-skia publishes no prebuilt windows-msvc binaries with
+# Skottie (only linux/egl), which would force a full Skia source build.
+# Native Lottie is disabled on Windows too — see
+# `executor::EngineDrawExecutor::ensure_lottie_animations`.
+skia-safe = { version = "0.93.1", features = ["binary-cache", "gl"] }

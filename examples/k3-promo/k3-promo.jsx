@@ -686,6 +686,9 @@ function SceneA() {
         // ruler strips retire (index.html:1634); the ref ease is power1.in
         // (the former hand-written fade was linear).
         .to('afurn', { opacity: 0, duration: 0.18, ease: 'power1.in' }, 4.35)
+        // A exit hard-cuts azoom + apills to black at 4.5667 (index.html:1636,
+        // "hard 2-frame black dip at n137-138" before scene B).
+        .set(['azoom', 'apills'], { opacity: 0 }, 4.5667)
         // purple clone crossfade (index.html:1613-1614, power1.inOut)
         .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03)
         .to('apwrap', { opacity: 0, duration: 0.17, ease: 'power1.inOut' }, 3.83);

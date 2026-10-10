@@ -25,8 +25,14 @@ pub struct BuildOptions {
 }
 
 impl BuildOptions {
+    // JSONL (and therefore the JSX frontend, which lowers to JSONL lines)
+    // accepts canvas hidden picture subtrees, same as markup: the subtree is
+    // rasterized offscreen and only reachable through
+    // `canvas.getSubTree().makeShader(...)`. Legacy JSONL documents never
+    // carried canvas children (they were a hard parse error), so widening
+    // this mode cannot change any existing render.
     pub const JSONL: Self = Self {
-        canvas_children_mode: CanvasChildrenMode::Forbid,
+        canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
     };
 
     pub const MARKUP: Self = Self {

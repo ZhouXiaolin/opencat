@@ -1224,6 +1224,7 @@ fn generate_tailwind_jsonl_rules() -> String {
         ("border-[", "BorderWidth"),
         ("opacity-[", "OpacityClamped"),
         ("blur-[", "BlurSigma"),
+        ("backdrop-blur-[", "BackdropBlurSigma"),
         ("grow-[", "FlexGrow"),
         ("shrink-[", "FlexShrink"),
         ("pt-[", "PaddingTop"),

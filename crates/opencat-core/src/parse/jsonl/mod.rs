@@ -102,6 +102,20 @@ pub enum JsonLine {
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
+        /// Media timing, mirroring the markup `<video>` attributes so the
+        /// JSONL/JSX frontends can express the same playback contract.
+        /// Absent fields keep the historical defaults (start 0, full clip,
+        /// media offset 0, no loop) — existing documents are unaffected.
+        #[serde(rename = "data-start")]
+        data_start: Option<f64>,
+        #[serde(rename = "data-duration")]
+        data_duration: Option<f64>,
+        #[serde(rename = "data-media-start")]
+        data_media_start: Option<f64>,
+        #[serde(rename = "data-hide-after-end")]
+        hide_after_end: Option<bool>,
+        #[serde(rename = "loop")]
+        loop_flag: Option<bool>,
     },
     #[serde(rename = "icon")]
     Icon {
@@ -333,6 +347,11 @@ pub fn parse_with_base_dir_and_fonts(
                 path,
                 url,
                 duration,
+                data_start,
+                data_duration,
+                data_media_start,
+                hide_after_end,
+                loop_flag,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
@@ -343,15 +362,21 @@ pub fn parse_with_base_dir_and_fonts(
                     Some(u) => VideoSource::Url(u),
                     None => VideoSource::Path(path.unwrap_or_default()),
                 };
+                let timing = crate::media::VideoFrameTiming {
+                    timeline_start_secs: data_start.unwrap_or(0.0),
+                    timeline_duration_secs: data_duration,
+                    media_start_secs: data_media_start.unwrap_or(0.0),
+                    playback_rate: 1.0,
+                    looping: loop_flag.unwrap_or(false),
+                    color_matrix: None,
+                    hide_after_end: hide_after_end.unwrap_or(false),
+                };
                 elements.push(ParsedElement {
                     id,
                     parent_id,
                     duration,
                     style,
-                    kind: ParsedElementKind::Video {
-                        source,
-                        timing: Default::default(),
-                    },
+                    kind: ParsedElementKind::Video { source, timing },
                 });
             }
             JsonLine::Icon {

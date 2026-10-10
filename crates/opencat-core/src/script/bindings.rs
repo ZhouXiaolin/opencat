@@ -263,6 +263,7 @@ macro_rules! for_each_binding {
                 bounds: bounds_rect,
                 paint: None,
                 alpha: alpha.clamp(0.0, 1.0),
+                backdrop: false,
             });
             Ok::<_, anyhow::Error>(())
         }}

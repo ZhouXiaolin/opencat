@@ -1016,6 +1016,7 @@ enum F32Target {
     BorderWidth,
     OpacityClamped,
     BlurSigma,
+    BackdropBlurSigma,
     FlexGrow,
     FlexShrink,
 }
@@ -1195,9 +1196,13 @@ fn apply_shadow_value_rule(
     else {
         return false;
     };
+    // Tailwind encodes whitespace inside arbitrary values as `_` (same
+    // convention the `[transform-origin:…]` rule decodes); without this the
+    // 4th `…px_rgba(…)` token fails length parse and the whole shadow is lost.
+    let value = value.replace('_', " ");
 
     let mut parsed_any = false;
-    for segment in split_top_level_commas(value) {
+    for segment in split_top_level_commas(&value) {
         let segment = segment.trim();
         if segment.is_empty() {
             continue;
@@ -1348,7 +1353,7 @@ fn split_shadow_tokens(value: &str) -> Vec<&str> {
         match ch {
             '(' | '[' => depth += 1,
             ')' | ']' => depth = depth.saturating_sub(1),
-            '_' if depth == 0 => {
+            '_' | ' ' if depth == 0 => {
                 tokens.push(&value[start..idx]);
                 start = idx + 1;
             }
@@ -1770,6 +1775,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::BorderWidth => style.border_width = Some(value),
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),
         F32Target::BlurSigma => style.css_filter.push(CssFilterKind::Blur, value),
+        F32Target::BackdropBlurSigma => style.backdrop_blur_sigma = Some(value),
         F32Target::FlexGrow => style.flex_grow = Some(value),
         F32Target::FlexShrink => style.flex_shrink = Some(value),
     }
@@ -2145,6 +2151,17 @@ fn parse_length_percentage_auto_value(value: &str, negative: bool) -> Option<Len
     if let Some(value) = value.strip_prefix('[').and_then(parse_bracket_f32) {
         let sign = if negative { -1.0 } else { 1.0 };
         return Some(LengthPercentageAuto::length(sign * value));
+    }
+    // `top-[-25%]` / `left-[12.5%]` — bracketed percent lengths resolve against
+    // the owning box's dimension (taffy insets accept negative percents).
+    if let Some(pct) = value
+        .strip_prefix('[')
+        .and_then(|v| v.strip_suffix(']'))
+        .and_then(|inner| inner.strip_suffix('%'))
+        .and_then(|p| p.parse::<f32>().ok())
+    {
+        let sign = if negative { -1.0 } else { 1.0 };
+        return Some(LengthPercentageAuto::percent(sign * pct));
     }
     if let Some(value) = parse_bracket_f32(value) {
         let sign = if negative { -1.0 } else { 1.0 };
@@ -2811,3 +2828,42 @@ mod tests {
     }
 }
 
+
+#[cfg(test)]
+mod shadow_value_rule_tests {
+    use super::*;
+
+    /// Arbitrary shadow values arrive underscore-DECODED (apply_shadow_value_rule
+    /// replaces `_` with spaces before splitting), so the token splitter must treat
+    /// whitespace as a boundary as well — regression: `drop-shadow-[0_2px_4px_#000]`
+    /// and friends collapsed into one token and every shadow was silently dropped.
+    #[test]
+    fn shadow_value_rules_parse_decoded_box_drop_inset() {
+        let mut style = NodeStyle::default();
+        assert!(apply_shadow_value_rule(
+            "drop-shadow-[0_2.16px_3.78px_rgba(0,0,0,0.5)]",
+            "drop-shadow-[",
+            ShadowValueTarget::Drop,
+            &mut style,
+        ));
+        assert_eq!(style.drop_shadow.len(), 1);
+
+        let mut style = NodeStyle::default();
+        assert!(apply_shadow_value_rule(
+            "inset-shadow-[0_1px_0_rgba(255,255,255,0.22)]",
+            "inset-shadow-[",
+            ShadowValueTarget::Inset,
+            &mut style,
+        ));
+        assert_eq!(style.inset_shadow.len(), 1);
+
+        let mut style = NodeStyle::default();
+        assert!(apply_shadow_value_rule(
+            "shadow-[0_32px_90px_-30px_rgba(0,0,0,0.75)]",
+            "shadow-[",
+            ShadowValueTarget::Box,
+            &mut style,
+        ));
+        assert!(!style.box_shadow.is_empty());
+    }
+}

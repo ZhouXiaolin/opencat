@@ -326,8 +326,27 @@
                 line.maskScale = num(props.maskScale);
                 break;
             case 'image':
+                assignSource(line, props);
+                break;
             case 'video':
                 assignSource(line, props);
+                // Media timing, mirroring the markup <video> attributes. Numeric
+                // props go through num() so string attributes arrive as numbers.
+                if (props['data-start'] !== undefined && props['data-start'] !== null) {
+                    line['data-start'] = num(props['data-start']);
+                }
+                if (props['data-duration'] !== undefined && props['data-duration'] !== null) {
+                    line['data-duration'] = num(props['data-duration']);
+                }
+                if (props['data-media-start'] !== undefined && props['data-media-start'] !== null) {
+                    line['data-media-start'] = num(props['data-media-start']);
+                }
+                if (props['data-hide-after-end'] !== undefined && props['data-hide-after-end'] !== null) {
+                    line['data-hide-after-end'] = props['data-hide-after-end'] === true || props['data-hide-after-end'] === 'true';
+                }
+                if (props.loop !== undefined && props.loop !== null) {
+                    line.loop = props.loop === true || props.loop === 'true';
+                }
                 break;
             case 'caption':
                 line.path = String(props.src || props.path);

@@ -742,6 +742,12 @@ fn build_layout_tree(
     let mut children = Vec::new();
     let taffy_children = taffy.children(node_id)?;
 
+    // Note: in-flow (relative/static) inset offsets are already applied by
+    // taffy itself into `layout.location` (flexbox `main_relative_inset` /
+    // `cross_relative_inset`), and absolute insets by the absolute algorithm.
+    // Do NOT re-apply them here — that would double the offset. Locked by
+    // `relative_inset_offsets_subtree_from_normal_flow_position`.
+
     for ((_, element_child), taffy_child) in
         ordered_children(element).into_iter().zip(taffy_children)
     {
@@ -1197,6 +1203,66 @@ mod tests {
             body.rect.height > 30.0,
             "wrapped body text must take two lines (48px at 16px/1.5) after shrinking, got {}",
             body.rect.height
+        );
+    }
+
+    #[test]
+    fn relative_inset_offsets_subtree_from_normal_flow_position() {
+        // CSS `position: relative` insets shift the box — with its subtree —
+        // without affecting layout. taffy applies in-flow insets itself
+        // (flexbox `main_relative_inset`/`cross_relative_inset`), and Layout
+        // locations are parent-relative, so descendants (including absolute
+        // ones) ride along when the engine walks the rect chain. The engine
+        // must NOT re-apply the offset in `build_layout_tree` — that would
+        // double it.
+        let frame_ctx = FrameCtx {
+            frame: 0,
+            fps: 30,
+            width: 1920,
+            height: 1080,
+            frames: 1,
+        };
+        let mut assets = PreparedResourceCatalog::default();
+        let root = classed_div(
+            "root",
+            "relative w-[1920px] h-[1080px]",
+            vec![classed_div(
+                "shifted",
+                "relative -left-[8px] -top-[3px] w-[100px] h-[40px]",
+                vec![classed_div("inner", "absolute left-[5px] top-[5px] w-[10px] h-[10px]", vec![]).into()],
+            )
+            .into()],
+        )
+        .into();
+        let resolved = resolve_ui_tree(
+            &root,
+            &frame_ctx,
+            &mut assets,
+            None,
+            &mut MockScriptHost::default(),
+        )
+        .expect("tree should resolve");
+        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
+            .expect("layout should succeed");
+
+        let shifted = &layout.root.children[0];
+        let inner = &shifted.children[0];
+        assert_eq!(
+            shifted.rect.x, -8.0,
+            "relative -left-[8px] must shift the box left (taffy applies the inset)"
+        );
+        assert_eq!(
+            shifted.rect.y, -3.0,
+            "relative -top-[3px] must shift the box up (taffy applies the inset)"
+        );
+        assert_eq!(
+            inner.rect.x, 5.0,
+            "absolute child is positioned relative to the shifted box; the -8px parent \
+             offset is applied when the engine accumulates the rect chain for painting"
+        );
+        assert_eq!(
+            inner.rect.y, 5.0,
+            "absolute child rides along with the relative offset via parent-relative coords"
         );
     }
 
@@ -2179,7 +2245,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn svg_path_layout_uses_icon_intrinsic_size_only() {
         let frame_ctx = FrameCtx {

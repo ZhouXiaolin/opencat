@@ -6,7 +6,12 @@
 
     function resolveEasingTag(easing) {
         if (easing == null) {
-            return 'linear';
+            // GSAP 3's default ease is 'power1.out' (gsap.defaults({ease:
+            // 'power1.out'})). Real GSAP timelines that omit `ease` — e.g.
+            // pr-scroll.html `tl.to(review,{opacity:0,duration:.2},1.1)` —
+            // animate with that curve, so a missing ease here must resolve to
+            // the same tag, not linear.
+            return 'power1.out';
         }
         if (typeof easing === 'string') {
             if (runtime.SPRING_PRESETS[easing]) {

@@ -1037,6 +1037,7 @@ mod tests {
             width: 10,
             height: 10,
             video_timing: Some(crate::media::VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 0.0,
                 timeline_duration_secs: None,
                 media_start_secs: 1.234,

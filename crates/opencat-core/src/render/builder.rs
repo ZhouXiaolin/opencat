@@ -528,10 +528,12 @@ fn remap_op(
             bounds,
             paint,
             alpha,
+            backdrop,
         } => DrawOp::SaveLayer {
             bounds: *bounds,
             paint: paint.map(|p| PaintId(p.0 + paint_off)),
             alpha: *alpha,
+            backdrop: *backdrop,
         },
         DrawOp::RuntimeEffect {
             effect,
@@ -683,10 +685,12 @@ fn remap_op_snapshot(
             bounds,
             paint,
             alpha,
+            backdrop,
         } => DrawOp::SaveLayer {
             bounds: *bounds,
             paint: paint.as_ref().map(&remap_paint),
             alpha: *alpha,
+            backdrop: *backdrop,
         },
         DrawOp::Image { image, x, y, paint } => DrawOp::Image {
             image: image.clone(),

@@ -1122,6 +1122,22 @@ pub enum Transform {
         #[serde(rename = "y")]
         y: f32,
     },
+    /// GSAP `rotationX`/`rotationY` with `transformPerspective`, folded into
+    /// ONE variant: the CSS chain `perspective(P) rotateX(rx) rotateY(ry)`
+    /// applied to a z=0 plane is a single projective (3×3, non-affine)
+    /// transform, so the renderer can emit it as one `DrawOp::Concat`. `rx`/`ry`
+    /// are last-write-wins fields — a later `rotationX` write replaces only `rx`.
+    /// `perspective <= 0` means no perspective (orthographic projection, the
+    /// historical behaviour for anything that never writes these properties).
+    #[serde(rename = "rotate3")]
+    Rotate3 {
+        #[serde(rename = "rotationX")]
+        rotation_x: f32,
+        #[serde(rename = "rotationY")]
+        rotation_y: f32,
+        #[serde(rename = "perspective")]
+        perspective: f32,
+    },
 }
 
 impl std::hash::Hash for Transform {
@@ -1168,6 +1184,16 @@ impl std::hash::Hash for Transform {
                 9_u8.hash(state);
                 x.to_bits().hash(state);
                 y.to_bits().hash(state);
+            }
+            Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            } => {
+                10_u8.hash(state);
+                rotation_x.to_bits().hash(state);
+                rotation_y.to_bits().hash(state);
+                perspective.to_bits().hash(state);
             }
         }
     }

@@ -1524,19 +1524,21 @@ mod tests {
     }
 
     #[test]
-    fn jsonl_still_rejects_canvas_children_after_builder_move() {
-        let err = parse(
+    fn jsonl_allows_canvas_hidden_visual_children() {
+        // JSONL (and therefore the JSX frontend, which lowers to JSONL lines)
+        // accepts canvas hidden picture subtrees, same as markup
+        // (markup_allows_canvas_hidden_visual_children): visual children are
+        // rasterized offscreen and reachable only through
+        // canvas.getSubTree().makeShader(...).
+        let parsed = parse(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"stage","parentId":"root","type":"canvas","className":"w-full h-full"}
 {"id":"hidden","parentId":"stage","type":"text","className":"text-[12px]","text":"hidden"}"#,
         )
-        .expect_err("JSONL canvas children stay unsupported");
+        .expect("canvas hidden children should parse");
 
-        assert!(
-            err.to_string()
-                .contains("canvas node `stage` cannot have child nodes")
-        );
+        assert_eq!(parsed.root.style_ref().id, "root");
     }
 
     #[test]

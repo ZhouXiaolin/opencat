@@ -497,6 +497,7 @@ fn render_text_with_unit_overrides(
                 }),
                 paint: Some(alpha_id),
                 alpha: 1.0,
+                backdrop: false,
             });
         }
 
@@ -599,6 +600,7 @@ pub fn render_text_with_shadows(
             bounds: Some(display_rect_to_rect4(shadow_bounds)),
             paint: Some(paint_id),
             alpha: 1.0,
+            backdrop: false,
         });
         render_text_body(ctx, item)?;
         ctx.builder.push(DrawOp::Restore);
@@ -694,6 +696,7 @@ fn render_blurred_shadow_chain(
         bounds: Some(display_rect_to_rect4(shadow_bounds)),
         paint: Some(paint_id),
         alpha: 1.0,
+        backdrop: false,
     });
     let result = if level + 1 < blurred.len() {
         render_blurred_shadow_chain(ctx, item, blurred, suffix_max, level + 1)

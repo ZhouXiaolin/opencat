@@ -222,6 +222,7 @@ fn replay_op(
             bounds,
             paint,
             alpha,
+            backdrop,
         } => {
             let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
             match paint {
@@ -229,11 +230,30 @@ fn replay_op(
                     // The layer alpha must compose with the paint (it used to
                     // be dropped whenever a paint was present, which made
                     // filtered layers render fully opaque).
-                    let mut sk_paint = paint_from_spec(&draw.paints[pid.0 as usize]);
+                    let spec = &draw.paints[pid.0 as usize];
+                    let mut sk_paint = paint_from_spec(spec);
                     if *alpha < 1.0 {
                         apply_global_alpha(&mut sk_paint, *alpha);
                     }
-                    let rec = skia_safe::canvas::SaveLayerRec::default().paint(&sk_paint);
+                    // CSS `backdrop-filter` semantics (op flag `backdrop`):
+                    // the image filter applies to what is already on the
+                    // canvas, and must not ALSO filter the layer's own
+                    // content.
+                    let backdrop_imf = if *backdrop {
+                        spec.image_filter
+                            .as_ref()
+                            .and_then(super::paint::build_skia_image_filter)
+                    } else {
+                        None
+                    };
+                    if backdrop_imf.is_some() {
+                        sk_paint.set_image_filter(None);
+                    }
+                    let mut rec = skia_safe::canvas::SaveLayerRec::default();
+                    if let Some(ref imf) = backdrop_imf {
+                        rec = rec.backdrop(imf);
+                    }
+                    let rec = rec.paint(&sk_paint);
                     let rec = match sk_rect {
                         Some(ref r) => rec.bounds(r),
                         None => rec,
@@ -1342,11 +1362,13 @@ half4 main(float2 coord) {
             bounds: None,
             paint: Some(opencat_core::ir::draw_types::PaintId(1)),
             alpha: 1.0,
+            backdrop: false,
         });
         frame.ops.push(DrawOp::SaveLayer {
             bounds: None,
             paint: Some(opencat_core::ir::draw_types::PaintId(2)),
             alpha: 1.0,
+            backdrop: false,
         });
         frame.ops.push(DrawOp::Rect {
             rect: Rect4 { x: 28.0, y: 18.0, width: 8.0, height: 12.0 },

@@ -248,7 +248,7 @@ fn skia_matrix_from_row_major(m: &[f32; 9]) -> skia_safe::Matrix {
 
 // ── Image filter ──────────────────────────────────────────────────────
 
-fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
+pub(super) fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFilter> {
     match spec {
         ImageFilterSpec::Blur {
             sigma_x,

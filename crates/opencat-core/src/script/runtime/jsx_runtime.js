@@ -352,7 +352,14 @@
                 line.path = String(props.src || props.path);
                 break;
             case 'audio':
+                // jsonl Audio accepts path/url (parse/jsonl/mod.rs Audio) — the
+                // JSX frontend must resolve the source the same way video/image
+                // do, otherwise every JSX audio is silently sourceless.
+                assignSource(line, props);
                 line.attach = String(props.attach || parentId);
+                if (props.duration !== undefined && props.duration !== null) {
+                    line.duration = num(props.duration);
+                }
                 break;
             default:
                 break;

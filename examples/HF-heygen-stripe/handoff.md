@@ -12,7 +12,7 @@
 - 参考视频：`F:/hyperframes-launches/HF-heygen-stripe/renders/HF-heygen-stripe_2026-10-06_swgl.mp4`（1920x1080 @30，1161 帧）
 
 ## 产物
-- `examples/HF-heygen-stripe/assets/`（已提交，commit 163663a；`transcript.json` 暗示有口播字幕层）
+- `examples/HF-heygen-stripe/assets/`（已提交，commit cafdf4b；`transcript.json` 暗示有口播字幕层）
 
 ## 下一步
 1. 读参考 index.html + compositions/，列场景清单（每个 composition 的时长、图层、动画）

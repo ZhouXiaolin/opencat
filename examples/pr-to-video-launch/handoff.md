@@ -12,7 +12,7 @@
 - 参考视频：`F:/hyperframes-launches/pr-to-video-launch/renders/pr-to-video-launch_2026-10-06_swgl.mp4`（1920x1080 @30，900 帧）
 
 ## 证据与产物
-- jsx：`examples/pr-to-video-launch/pr-to-video-launch.jsx`（已提交，commit f40a43c）
+- jsx：`examples/pr-to-video-launch/pr-to-video-launch.jsx`（已提交，commit 2d08d06）
 - 渲染：`out/pr-to-video-launch.mp4`；对比证据：`out/k3diff-pr-to-video-launch/`（summary.json、pixel.csv、最差帧对照图 f*-ref/-test/-diff.png）
 - 本示例带出的引擎改动已随提交入库：`crates/opencat-core/src/layout/mod.rs`、`parse/jsonl/mod.rs`、`script/runtime/animation/core.js` 等
 

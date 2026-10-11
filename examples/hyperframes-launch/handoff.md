@@ -1,10 +1,10 @@
 # handoff — hyperframes-launch
 
-> 2026-10-10 对齐工作流收工时整理。目标：`examples/hyperframes-launch/hyperframes-launch.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。工作在 lane2（worktree align-lane2 分支）完成，**已合并回 dev 主检出**（merge commit f2b8b6e）。
+> 2026-10-10 对齐工作流收工时整理。目标：`examples/hyperframes-launch/hyperframes-launch.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。工作在 lane2（worktree align-lane2 分支）完成，**已合并回 dev 主检出**（merge commit 95de42f）。
 
 ## 状态：未达标（4 轮全部渲染失败，没有产生有效 diff——先修渲染再谈对齐）
 - 四轮移植员都在和渲染失败搏斗，4 轮预算耗尽在渲染关
-- 渲染证据：`F:/OpenCat-lane2/out/hyperframes-launch.mp4` 是**坏文件（moov atom 缺失，编码中途死）**；opencat-frames 退路的 PNG 序列 `F:/OpenCat-lane2/out/hyperframes-launch-frames/` 只出到 **561 / 1494 帧**——第 562 帧附近有让渲染死掉的东西
+- 渲染证据（worktree 已清理，需重渲复现）：当时的 mp4 是**坏文件（moov atom 缺失，编码中途死）**；opencat-frames 退路的 PNG 序列只出到 **561 / 1494 帧**——第 562 帧附近有让渲染死掉的东西
 - 素材里有 86MB 的 `bg.mp4` 和多个视频素材，优先怀疑：某帧触发的视频解码/合成崩溃、内存、或特定效果
 
 ## 素材
@@ -13,8 +13,8 @@
 - 素材已拷入 `examples/hyperframes-launch/assets/`（bg.mp4、beat4-clip.mp4、pill.mp4、figma-promo.mp4、Frame 1/3.mp4 等 + Impact/Consolas/SegoeUI/TimesNewRoman/ArialBlack 等系统字体）
 
 ## 证据与产物
-- jsx：`examples/hyperframes-launch/hyperframes-launch.jsx`（已随 00ea874 进 dev，附带 `jsx_runtime.js` +7 行小改动）
-- **out/ 不随 git 合并**：坏 mp4 与 561 帧 PNG 序列都在 `F:/OpenCat-lane2/out/`——排查时数一下最后一帧是 frame_0561.png，看第 562 帧在 jsx 时间轴上对应什么内容
+- jsx：`examples/hyperframes-launch/hyperframes-launch.jsx`（已随 e0736a2 进 dev，附带 `jsx_runtime.js` +7 行小改动）
+- 排查时重跑逐帧渲染，数最后一帧停在哪，看下一帧在 jsx 时间轴上对应什么内容
 
 ## 下一步
 1. 合并后 `cargo build --release` 重链，单独复现渲染：先跑 opencat-frames PNG 序列，确认是否还死在 562 帧附近

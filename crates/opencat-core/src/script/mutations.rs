@@ -123,6 +123,14 @@ fn parse_transform_origin(value: &str) -> Option<crate::style::TransformOrigin> 
     crate::style::TransformOrigin::parse(&normalized)
 }
 
+/// Which GSAP 3D field a `write_rotate3_field` call targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rotate3Field {
+    RotationX,
+    RotationY,
+    Perspective,
+}
+
 /// Slot index of each independent transform component on the CSS `transform`
 /// list. GSAP treats `x`/`y`/`scaleX`/`scaleY`/`rotation`/`skewX`/`skewY` as
 /// separate writable properties, so each occupies exactly one slot.
@@ -138,6 +146,7 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
         Transform::SkewXDeg { .. } => &[5],
         Transform::SkewYDeg { .. } => &[6],
         Transform::SkewDeg { .. } => &[5, 6],
+        Transform::Rotate3 { .. } => &[7, 8],
     }
 }
 
@@ -148,7 +157,7 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
 fn matrix_rank(t: &Transform) -> u8 {
     match t {
         Transform::TranslateX { .. } | Transform::TranslateY { .. } | Transform::Translate { .. } => 0,
-        Transform::RotateDeg { .. } => 1,
+        Transform::RotateDeg { .. } | Transform::Rotate3 { .. } => 1,
         Transform::Scale { .. } | Transform::ScaleX { .. } | Transform::ScaleY { .. } => 2,
         Transform::SkewXDeg { .. } | Transform::SkewYDeg { .. } | Transform::SkewDeg { .. } => 3,
     }
@@ -232,6 +241,43 @@ impl NodeStyleMutations {
         // opener: +0.18×206 ≈ 37 px drift vs the reference frame). Stable sort
         // keeps the per-slot last-write-wins order inside each group.
         self.transforms.sort_by_key(|e| matrix_rank(e));
+    }
+
+    /// Merge ONE field of the `Rotate3` transform (GSAP `rotationX`,
+    /// `rotationY` or `transformPerspective`). The three GSAP properties fold
+    /// into a single projective transform, so each write replaces only its own
+    /// field and keeps the siblings (per-property last-write-wins). Absent
+    /// fields default to 0 (`perspective <= 0` = orthographic).
+    pub fn write_rotate3_field(&mut self, field: Rotate3Field, value: f32) {
+        if let Some(existing) = self
+            .transforms
+            .iter_mut()
+            .find(|e| matches!(e, Transform::Rotate3 { .. }))
+        {
+            if let Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            } = existing
+            {
+                match field {
+                    Rotate3Field::RotationX => *rotation_x = value,
+                    Rotate3Field::RotationY => *rotation_y = value,
+                    Rotate3Field::Perspective => *perspective = value,
+                }
+            }
+        } else {
+            let (rotation_x, rotation_y, perspective) = match field {
+                Rotate3Field::RotationX => (value, 0.0, 0.0),
+                Rotate3Field::RotationY => (0.0, value, 0.0),
+                Rotate3Field::Perspective => (0.0, 0.0, value),
+            };
+            self.transforms
+                .push(Transform::Rotate3 { rotation_x, rotation_y, perspective });
+            // Same fixed CSS build order as `push_transform` — `Rotate3` sits
+            // with the rotations (rank 1).
+            self.transforms.sort_by_key(|e| matrix_rank(e));
+        }
     }
 
     /// Set the transform origin from a GSAP `transformOrigin`/`svgOrigin`
@@ -728,6 +774,11 @@ pub fn apply_node_to_recorder(
             Transform::SkewXDeg { value } => recorder.record_skew_x(id, value),
             Transform::SkewYDeg { value } => recorder.record_skew_y(id, value),
             Transform::SkewDeg { x, y } => recorder.record_skew(id, x, y),
+            Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            } => recorder.record_rotate3(id, rotation_x, rotation_y, perspective),
         }
     }
     if let Some(origin) = m.transform_origin {

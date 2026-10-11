@@ -263,6 +263,7 @@ macro_rules! for_each_binding {
                 bounds: bounds_rect,
                 paint: None,
                 alpha: alpha.clamp(0.0, 1.0),
+                backdrop: false,
             });
             Ok::<_, anyhow::Error>(())
         }}
@@ -847,6 +848,12 @@ macro_rules! for_each_binding {
         $binding! { pure easing_apply (tag: String, t: f32) -> f32 {
             let easing = parse_easing_from_tag(&tag);
             Ok(easing.apply(t))
+        }}
+        // Register a GSAP `CustomEase`-style sampled ease table (the JS side
+        // computes the samples, e.g. a physics-spring table) and return the
+        // table index; the tag `points:<name>` references it in tweens.
+        $binding! { pure ease_register_points (name: String, points: Vec<f32>) -> f64 {
+            Ok($crate::parse::easing::register_ease_table(&name, &points) as f64)
         }}
     };
 }

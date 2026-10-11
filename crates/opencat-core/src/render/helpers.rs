@@ -875,6 +875,25 @@ pub fn draw_box_shadow(
     };
     let paint_id = builder.intern_paint(paint);
 
+    // CSS css-backgrounds-3: an *outer* box-shadow is clipped to outside the
+    // border-box ("the shadow is not painted inside the border-box"). The blur
+    // fills the whole shadow shape, so without the clip the shadow's interior
+    // bleeds through semi-transparent element backgrounds (glass cards) and
+    // dims them. Draw the blurred shape into its own layer, erase the
+    // border-box with BlendMode::Clear, then composite the layer. For opaque
+    // element backgrounds the result is pixel-identical to before; for
+    // transparent ones it now matches the browser.
+    let blur_extent = (shadow.blur_sigma * 3.0).ceil();
+    let layer_bounds = shadow_bounds
+        .translate(shadow.offset_x, shadow.offset_y)
+        .outset(blur_extent, blur_extent, blur_extent, blur_extent);
+    builder.push(DrawOp::SaveLayer {
+        bounds: Some(rect_to_rect4(kurbo_rect(layer_bounds))),
+        paint: None,
+        alpha: 1.0,
+        backdrop: false,
+    });
+
     if radii.iter().any(|&r| r > 0.0) {
         push_draw_rrect(builder, rect, radii, paint_id);
     } else {
@@ -883,6 +902,29 @@ pub fn draw_box_shadow(
             paint: paint_id,
         });
     }
+
+    let clear_paint = builder.intern_paint(PaintSpec {
+        fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+        style: PaintStyle::Fill,
+        stroke: None,
+        anti_alias: true,
+        blend_mode: BlendMode::Clear,
+        image_filter: None,
+        color_filter: None,
+        mask_filter: None,
+        path_effect: None,
+    });
+    let box_rect = kurbo_rect(bounds);
+    let box_radii = effective_corner_radius(&box_rect, border_radius);
+    if box_radii.iter().any(|&r| r > 0.0) {
+        push_draw_rrect(builder, box_rect, box_radii, clear_paint);
+    } else {
+        builder.push(DrawOp::Rect {
+            rect: rect_to_rect4(box_rect),
+            paint: clear_paint,
+        });
+    }
+    builder.push(DrawOp::Restore);
 }
 
 pub fn draw_inset_shadow(
@@ -961,6 +1003,7 @@ pub fn draw_item_drop_shadow(
         bounds: Some(rect_to_rect4(shadow_bounds)),
         paint: Some(paint_id),
         alpha: 1.0,
+        backdrop: false,
     });
 
     let result = draw(ctx);
@@ -1607,6 +1650,7 @@ pub fn render_draw_script(
             bounds: Some(clip_rect),
             paint: None,
             alpha: 1.0,
+            backdrop: false,
         });
     } else {
         ctx.builder.push(DrawOp::Save);
@@ -1833,11 +1877,13 @@ fn execute_draw_op(
             bounds,
             paint,
             alpha,
+            ..
         } => {
             b.push(DrawOp::SaveLayer {
                 bounds: *bounds,
                 paint: *paint,
                 alpha: *alpha,
+                backdrop: false,
             });
         }
         // Not produced by the canvas script API (only by the renderer's own
@@ -2531,6 +2577,7 @@ pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Resul
             bounds: Some(rect4),
             paint: Some(paint_id),
             alpha: layer_alpha,
+            backdrop: false,
         });
 
         render_transition_overlay(ctx.builder, bounds, transition);
@@ -2784,6 +2831,7 @@ pub(crate) fn render_gl_transition(
                 bounds: Some(dst_rect4),
                 paint: None,
                 alpha: progress,
+                backdrop: false,
             });
             builder.push(DrawOp::ReplayRange { range: to_range });
             builder.push(DrawOp::Restore);

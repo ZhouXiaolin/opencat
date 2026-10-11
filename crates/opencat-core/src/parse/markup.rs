@@ -257,6 +257,7 @@ const LOTTIE_ATTRS: &[&str] = &[
     "data-duration",
     "data-media-start",
     "data-color-matrix",
+    "data-hide-after-end",
     "loop",
 ];
 const VIDEO_ATTRS: &[&str] = &[
@@ -269,6 +270,7 @@ const VIDEO_ATTRS: &[&str] = &[
     "data-duration",
     "data-media-start",
     "data-color-matrix",
+    "data-hide-after-end",
     "loop",
 ];
 const ICON_ATTRS: &[&str] = &["id", "class", "duration", "icon"];
@@ -1432,6 +1434,9 @@ fn parse_video_timing(node: roxmltree::Node<'_, '_>) -> anyhow::Result<VideoFram
         playback_rate: 1.0,
         looping: parse_optional_bool(node, "loop")?.unwrap_or(false),
         color_matrix: parse_optional_color_matrix(node, "data-color-matrix")?,
+        // HyperFrames removal semantics, opt-in: drop the subtree when the
+        // window closes instead of holding the last frame.
+        hide_after_end: parse_optional_bool(node, "data-hide-after-end")?.unwrap_or(false),
     })
 }
 
@@ -2196,6 +2201,7 @@ mod tests {
         assert_eq!(
             video.timing(),
             VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 3.0,
                 timeline_duration_secs: Some(18.0),
                 media_start_secs: 12.0,

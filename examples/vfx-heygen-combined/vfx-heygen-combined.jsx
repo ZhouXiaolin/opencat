@@ -20,13 +20,22 @@
 // Known approximations (documented, unavoidable on this engine):
 //   - The Three.js DRACO GLB iPhone is re-authored as a 2D body driven by the
 //     exact source camera projection (fov 34, S state incl. drift/cY/clY/phZ).
-//   - UnrealBloomPass on the chromatic split has no engine equivalent; the
-//     bloomStrength uniform is tracked but not applied.
+//   - UnrealBloomPass on the chromatic split has no composer equivalent and
+//     is NOT approximated: a 28-ring-tap kernel measured ~6 s/frame (87
+//     evals/px) and, with the sting march, blew the 30-min render budget.
+//     CHROM stays the 3-eval additive form of the shipped actC XML (avg_p8
+//     .1698 over its act); the split reads slightly dimmer than ref.
+//   - Render-budget early-outs (bit-exact, no pixel change): STING at
+//     effectMix==0 reduces to a 1-eval logo draw (STING_LOGOONLY); the sting
+//     canvas skips its draw at t=3.1 where its opacity tween lands on 0.
 //   - The intro ray-march grain is a sin-hash field: cross-backend bit
 //     differences are inherent (same kernel as the shipped actA XML).
 //   - bg.mp4 / bg-2.mp4 play from composition 0 via freeze-frame padded
 //     copies (JSX <video> has no data-start): bg-2-pad.mp4 (3.1 s prefix),
 //     bg-pad.mp4 (5.6 s prefix) — content frames land on their ref times.
+//   - Procedural seg() channels use the GSAP power convention (power1=Quad,
+//     power2=Cubic, power3=Quart), matching the engine's ease strings
+//     (easing.rs) so hand-written channels and timeline tweens agree.
 
 import { useGSAP } from 'opencat/runtime';
 
@@ -59,16 +68,19 @@ function seg(t, start, dur, ease, from, to) {
   if (t <= start) return from;
   return from + (to - from) * ease((t - start) / dur);
 }
-/* GSAP power eases (procedural state channels) */
-function p1in(t)  { return clamp01(t); }
-function p1out(t) { return clamp01(t); }
+/* GSAP power eases (procedural state channels). GSAP convention — power1 =
+   Quad, power2 = Cubic, power3 = Quart — the same mapping the engine uses for
+   the declarative ease strings (easing.rs:105-126), so the seg()-driven
+   channels and the timeline tweens agree. */
+function p1in(t)  { return Math.pow(clamp01(t), 2); }
+function p1out(t) { t = clamp01(t); return 1 - (1 - t) * (1 - t); }
 function p1io(t)  { t = clamp01(t); return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
-function p2out(t) { return 1 - Math.pow(1 - clamp01(t), 2); }
-function p2io(t)  { t = clamp01(t); return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
-function p2in(t)  { return Math.pow(clamp01(t), 2); }
-function p3out(t) { return 1 - Math.pow(1 - clamp01(t), 3); }
-function p3in(t)  { return Math.pow(clamp01(t), 3); }
-function p3io(t)  { t = clamp01(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+function p2out(t) { return 1 - Math.pow(1 - clamp01(t), 3); }
+function p2io(t)  { t = clamp01(t); return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+function p2in(t)  { return Math.pow(clamp01(t), 3); }
+function p3out(t) { return 1 - Math.pow(1 - clamp01(t), 4); }
+function p3in(t)  { return Math.pow(clamp01(t), 4); }
+function p3io(t)  { t = clamp01(t); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; }
 function expoOut(t) { t = clamp01(t); return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); }
 /* source breatheEase = cubic-bezier(.37,0,.63,1) — Newton solver, verbatim
    port of index.html cbz() */
@@ -133,8 +145,9 @@ var STING = (uv, image, colormask, u) => {
   const ly = (gy - 0.5) / scale + 0.5 + u.logoY / u.h;
   const mask = colormask.eval([lx * u.w, (1.0 - ly) * u.h]).a;
   const logo = image.eval([lx * u.w, (1.0 - ly) * u.h]);
-  const ax = (gx - 0.5) * (u.w / u.h);
-  const ay = gy - 0.5;
+  /* p = uv*2-1 (GLSL y-up), p.x *= aspect — source vfx-text-cursor.html:499 */
+  const ax = (gx * 2.0 - 1.0) * (u.w / u.h);
+  const ay = gy * 2.0 - 1.0;
   const progress = u.progress;
   const mpx = (progress * 2.0 - 1.0) * (u.w / u.h);
   const mpy = 0.0;
@@ -190,9 +203,11 @@ var STING = (uv, image, colormask, u) => {
   cr += white; cg += white; cb += white;
   /* static grain field (vfx-text-cursor.html:539-542). hash(vec3(uv.xyy +
      mouse.x*0.0007)) with mouse.x = progress*1920 (state.progress*WIDTH):
-     dot((uv.x,uv.y,uv.y+c),(489,589,58)) = uv.x*489 + uv.y*647 +
-     progress*1920*0.0007*58 — uv is GL y-up, so use gy = 1 - uv.y/u.h. */
-  const grain = fract(sin(gx * 489.0 + gy * 647.0 + progress * 77.952) * 492.0) * 2.0 - 1.0;
+     GLSL vec3+float adds to EVERY component, so
+     dot((uv.x+m, uv.y+m, uv.y+m), (489,589,58)) = uv.x*489 + uv.y*647 +
+     m*(489+589+58) = uv.x*489 + uv.y*647 + progress*1.344*1136 — uv is GL
+     y-up, so use gy = 1 - uv.y/u.h. */
+  const grain = fract(sin(gx * 489.0 + gy * 647.0 + progress * 1527.168) * 492.0) * 2.0 - 1.0;
   const ag = abs(grain);
   const dust = smoothstep(0.02, 0.38, acc) + smoothstep(0.03, 0.22, mask);
   const dustTerm = grain * 0.07 * (0.42 + dust) * mixv;
@@ -210,13 +225,37 @@ var STING_SPEC = {
   backend: 'sksl'
 };
 
+/* exact early-out of STING at effectMix==0 (frames 0..0.72s): every ray /
+   sweep / grain term carries *mixv = 0, white-core too, so the shader
+   reduces to mix(0, logo.rgb, smoothstep(.02,.75,logo.a)) — a single eval.
+   Bit-identical to STING with u.mix=0, ~12s/frame → ~0.3s (render-budget). */
+var STING_LOGOONLY = (uv, image, u) => {
+  const gx = uv.x / u.w;
+  const gy = 1.0 - uv.y / u.h;
+  const lx = (gx - 0.5) / u.scale + 0.5;
+  const ly = (gy - 0.5) / u.scale + 0.5 + u.logoY / u.h;
+  const logo = image.eval([lx * u.w, (1.0 - ly) * u.h]);
+  const lm = smoothstep(0.02, 0.75, logo.a);
+  return [logo.r * lm, logo.g * lm, logo.b * lm, 1.0];
+};
+var STING_LOGOONLY_SPEC = {
+  uniforms: { w: 'float', h: 'float', scale: 'float', logoY: 'float' },
+  backend: 'sksl'
+};
+
 /* chromatic RGB split — 1:1 actC port of index.html:1017-1090 (three
-   additive channel planes, source lum formula, exact perspective) plus an
-   UnrealBloomPass approximation (threshold .15, ring taps, index.html:1066):
-   sy is GL y-up (+1 = top row) matching THREE projection */
+   additive channel planes, source lum formula, exact perspective).
+   PERF: the ref's UnrealBloomPass (index.html:1066) is NOT re-implemented —
+   a ring-tap approximation cost 87 evals/px ≈ 6s/frame (105 frames ≈ 10.5min,
+   measured via frame mtimes) and blew the 30min render budget with the STING
+   march. This 3-eval kernel is exactly the shipped actC XML form that
+   measured avg_p8 .1698 over its 387-frame act (docs/handoffs §12.4: ref is
+   somewhat brighter inside the split glyphs). sy follows the
+   actC-XML-validated convention (uv.y/u.h*2-1, the flipY'd CanvasTexture
+   sample below closes the mapping). */
 var CHROM = (uv, image, u) => {
   const sx = uv.x / u.w * 2.0 - 1.0;
-  const sy = 1.0 - 2.0 * uv.y / u.h;
+  const sy = uv.y / u.h * 2.0 - 1.0;
   const Dx = u.fx + sx * u.rx + sy * u.ux;
   const Dy = u.fy + sx * u.ry + sy * u.uy;
   const Dz = u.fz + sx * u.rz + sy * u.uz;
@@ -254,102 +293,18 @@ var CHROM = (uv, image, u) => {
   const bcR = min(sR.r * lumR * a, 1.0);
   const bcG = min(sG.g * lumG * a, 1.0);
   const bcB = min(sB.b * lumB * a, 1.0);
-let acR = 0.0;
-  let acG = 0.0;
-  let acB = 0.0;
-  /* UnrealBloom approx (index.html:1066): 4 rings (r 8/24/56/128px,
-     4/8/8/8 taps) of the high-passed composite, weights 1/.75/.5625/.4219,
-     fitted gain 2.0. Tap = screen offset mapped to each plane local uv by
-     the per-plane px-to-world scales (kbx/kby uniforms). */
-  for (let k1 = 0.0; k1 < 4.0; k1++) {
-    const an1 = 1.5707964 * k1;
-    const ox1 = 8.0 * cos(an1);
-    const oy1 = 8.0 * sin(an1);
-    const qR1 = image.eval([clamp((lxR + ox1 * u.kbx0) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyR - oy1 * u.kby0) / u.ph, 0.0, 1.0) * u.h]);
-    const qG1 = image.eval([clamp((lxG + ox1 * u.kbx1) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyG - oy1 * u.kby1) / u.ph, 0.0, 1.0) * u.h]);
-    const qB1 = image.eval([clamp((lxB + ox1 * u.kbx2) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyB - oy1 * u.kby2) / u.ph, 0.0, 1.0) * u.h]);
-    const x1 = min(qR1.r * (qR1.r * 0.6 + max(qR1.g, qR1.b) * 0.4) * a, 1.0);
-    const y1 = min(qG1.g * (qG1.g * 0.6 + max(qG1.r, qG1.b) * 0.4) * a, 1.0);
-    const z1 = min(qB1.b * (qB1.b * 0.6 + max(qB1.r, qB1.g) * 0.4) * a, 1.0);
-    const L1 = 0.299 * x1 + 0.587 * y1 + 0.114 * z1;
-    let w1 = clamp((L1 - 0.15) / 0.01, 0.0, 1.0);
-    w1 = w1 * w1 * (3.0 - 2.0 * w1);
-    acR += x1 * w1; acG += y1 * w1; acB += z1 * w1;
-  }
-  for (let k2 = 0.0; k2 < 8.0; k2++) {
-    const an2 = 0.7853982 * k2;
-    const ox2 = 24.0 * cos(an2);
-    const oy2 = 24.0 * sin(an2);
-    const qR2 = image.eval([clamp((lxR + ox2 * u.kbx0) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyR - oy2 * u.kby0) / u.ph, 0.0, 1.0) * u.h]);
-    const qG2 = image.eval([clamp((lxG + ox2 * u.kbx1) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyG - oy2 * u.kby1) / u.ph, 0.0, 1.0) * u.h]);
-    const qB2 = image.eval([clamp((lxB + ox2 * u.kbx2) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyB - oy2 * u.kby2) / u.ph, 0.0, 1.0) * u.h]);
-    const x2 = min(qR2.r * (qR2.r * 0.6 + max(qR2.g, qR2.b) * 0.4) * a, 1.0);
-    const y2 = min(qG2.g * (qG2.g * 0.6 + max(qG2.r, qG2.b) * 0.4) * a, 1.0);
-    const z2 = min(qB2.b * (qB2.b * 0.6 + max(qB2.r, qB2.g) * 0.4) * a, 1.0);
-    const L2 = 0.299 * x2 + 0.587 * y2 + 0.114 * z2;
-    let w2 = clamp((L2 - 0.15) / 0.01, 0.0, 1.0);
-    w2 = w2 * w2 * (3.0 - 2.0 * w2);
-    acR += x2 * w2 * 0.75; acG += y2 * w2 * 0.75; acB += z2 * w2 * 0.75;
-  }
-  for (let k3 = 0.0; k3 < 8.0; k3++) {
-    const an3 = 0.7853982 * k3;
-    const ox3 = 56.0 * cos(an3);
-    const oy3 = 56.0 * sin(an3);
-    const qR3 = image.eval([clamp((lxR + ox3 * u.kbx0) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyR - oy3 * u.kby0) / u.ph, 0.0, 1.0) * u.h]);
-    const qG3 = image.eval([clamp((lxG + ox3 * u.kbx1) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyG - oy3 * u.kby1) / u.ph, 0.0, 1.0) * u.h]);
-    const qB3 = image.eval([clamp((lxB + ox3 * u.kbx2) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyB - oy3 * u.kby2) / u.ph, 0.0, 1.0) * u.h]);
-    const x3 = min(qR3.r * (qR3.r * 0.6 + max(qR3.g, qR3.b) * 0.4) * a, 1.0);
-    const y3 = min(qG3.g * (qG3.g * 0.6 + max(qG3.r, qG3.b) * 0.4) * a, 1.0);
-    const z3 = min(qB3.b * (qB3.b * 0.6 + max(qB3.r, qB3.g) * 0.4) * a, 1.0);
-    const L3 = 0.299 * x3 + 0.587 * y3 + 0.114 * z3;
-    let w3 = clamp((L3 - 0.15) / 0.01, 0.0, 1.0);
-    w3 = w3 * w3 * (3.0 - 2.0 * w3);
-    acR += x3 * w3 * 0.5625; acG += y3 * w3 * 0.5625; acB += z3 * w3 * 0.5625;
-  }
-  for (let k4 = 0.0; k4 < 8.0; k4++) {
-    const an4 = 0.7853982 * k4;
-    const ox4 = 128.0 * cos(an4);
-    const oy4 = 128.0 * sin(an4);
-    const qR4 = image.eval([clamp((lxR + ox4 * u.kbx0) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyR - oy4 * u.kby0) / u.ph, 0.0, 1.0) * u.h]);
-    const qG4 = image.eval([clamp((lxG + ox4 * u.kbx1) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyG - oy4 * u.kby1) / u.ph, 0.0, 1.0) * u.h]);
-    const qB4 = image.eval([clamp((lxB + ox4 * u.kbx2) / u.pw + 0.5, 0.0, 1.0) * u.w,
-                            clamp(0.5 - (lyB - oy4 * u.kby2) / u.ph, 0.0, 1.0) * u.h]);
-    const x4 = min(qR4.r * (qR4.r * 0.6 + max(qR4.g, qR4.b) * 0.4) * a, 1.0);
-    const y4 = min(qG4.g * (qG4.g * 0.6 + max(qG4.r, qG4.b) * 0.4) * a, 1.0);
-    const z4 = min(qB4.b * (qB4.b * 0.6 + max(qB4.r, qB4.g) * 0.4) * a, 1.0);
-    const L4 = 0.299 * x4 + 0.587 * y4 + 0.114 * z4;
-    let w4 = clamp((L4 - 0.15) / 0.01, 0.0, 1.0);
-    w4 = w4 * w4 * (3.0 - 2.0 * w4);
-    acR += x4 * w4 * 0.421875; acG += y4 * w4 * 0.421875; acB += z4 * w4 * 0.421875;
-  }
-  const bk = u.bloom * 2.0 / 2.734375;
-  return [clamp(bcR + acR * bk, 0.0, 1.0),
-          clamp(bcG + acG * bk, 0.0, 1.0),
-          clamp(bcB + acB * bk, 0.0, 1.0), 1.0];
+  return [bcR, bcG, bcB, 1.0];
 };
 var CHROM_SPEC = {
   uniforms: { w: 'float', h: 'float', pw: 'float', ph: 'float',
-              scale: 'float', alpha: 'float', bloom: 'float',
+              scale: 'float', alpha: 'float',
               cx: 'float', cy: 'float', cz: 'float',
               fx: 'float', fy: 'float', fz: 'float',
               rx: 'float', ry: 'float', rz: 'float',
               ux: 'float', uy: 'float', uz: 'float',
               px0: 'float', py0: 'float', pz0: 'float', cs0: 'float', sn0: 'float',
               px1: 'float', py1: 'float', pz1: 'float', cs1: 'float', sn1: 'float',
-              px2: 'float', py2: 'float', pz2: 'float', cs2: 'float', sn2: 'float',
-              kbx0: 'float', kby0: 'float', kbx1: 'float', kby1: 'float',
-              kbx2: 'float', kby2: 'float' },
+              px2: 'float', py2: 'float', pz2: 'float', cs2: 'float', sn2: 'float' },
   backend: 'sksl'
 };
 
@@ -515,6 +470,10 @@ function Theater() {
     var phone = ctx.getNode('phone');
     phone.left(minX); phone.top(minY); phone.width(W); phone.height(H);
     ctx.getNode('phone-spin').rotate(rot);
+    /* face switch: screen normal n_z = -cos(phRY); back visible when n_z < 0
+       (phRY=PI is front-facing). The crossing sits at the 90deg silhouette,
+       where the projected body is at its narrowest. */
+    ctx.getNode('pb-back').opacity(Math.cos(phRY) > 0 ? 1 : 0);
     var anch = ctx.getNode('phone-anch');
     anch.left(W / 2); anch.top(H / 2);
     anch.scaleX(Math.max(0.02, wpx / 396));
@@ -585,6 +544,17 @@ function Theater() {
               </div>
               <div id="pp-topfade" class="absolute left-0 top-0 w-[366px] h-[86px] bg-[linear-gradient(180deg,rgba(247,244,238,1)_0%,rgba(247,244,238,0.92)_55%,rgba(247,244,238,0)_100%)]"></div>
             </div>
+            {/* back face (Three.js GLB shows the real back panel while the spin
+               passes phRY 90..270deg; a 2D body must switch faces by hand) */}
+            <div id="pb-back" class="absolute inset-0 rounded-[58px] bg-[linear-gradient(170deg,#5a605c_0%,#454b48_45%,#363c39_100%)] border-[5px] border-[rgba(255,255,255,0.20)] opacity-0">
+              <div id="pbb-cam" class="absolute left-[10px] top-[12px] w-[170px] h-[173px] rounded-[40px] bg-[#141817]">
+                <div id="pbb-l1" class="absolute left-[12px] top-[13px] w-[57px] h-[57px] rounded-full bg-[#060908] border-[4px] border-[rgba(210,220,215,0.35)]"></div>
+                <div id="pbb-l2" class="absolute left-[94px] top-[18px] w-[57px] h-[57px] rounded-full bg-[#060908] border-[4px] border-[rgba(210,220,215,0.35)]"></div>
+                <div id="pbb-l3" class="absolute left-[16px] top-[92px] w-[57px] h-[57px] rounded-full bg-[#060908] border-[4px] border-[rgba(210,220,215,0.35)]"></div>
+                <div id="pbb-flash" class="absolute left-[104px] top-[104px] w-[22px] h-[22px] rounded-full bg-[#262c29]"></div>
+              </div>
+              <path id="pbb-logo" view-box="0 0 384 512" class="absolute left-[168px] top-[388px] w-[60px] h-[74px] fill-[#232823]" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
+            </div>
           </div>
         </div>
       </div>
@@ -641,6 +611,7 @@ function PromptScene() {
     T.to('prompt-meta', { opacity: 1, duration: 0.18, ease: 'power1.out' }, 10.48);
     T.to('prompt-topbar', { opacity: 0, filter: 'blur(16px)', scale: 0.86, duration: 0.2, ease: 'power3.inOut', transformOrigin: '50% 50%' }, 11.17);
     T.to('prompt-command', { opacity: 0, filter: 'blur(16px)', scale: 0.86, transformOrigin: '50% 50%', duration: 0.2, ease: 'power3.inOut' }, 11.17);
+    T.to('pc-attach', { opacity: 0, filter: 'blur(16px)', duration: 0.2, ease: 'power3.inOut' }, 11.17);
     T.to('prompt-meta', { opacity: 0, filter: 'blur(16px)', duration: 0.2, ease: 'power3.inOut' }, 11.17);
     /* composer washes out at 11.17 (index.html:1353): bg/border fade while the
        shadow holder fades. bg lands on the opaque page color — the composer
@@ -727,26 +698,22 @@ function ChromaticSplit() {
     chromNode.opacity(1);
 
     /* chromaticState channel (source defaults + master tweens, abs times) */
-    var CH0 = 13.5, ROT = 14.905, BSET = 15.73, EXIT = 16.03;
+    var CH0 = 13.5, ROT = 14.905, EXIT = 16.03;
     var zSplit = 0, xSplit = 0, redRotY = 0, greenRotY = 0, blueRotY = 0;
     var depthX = 0, depthZ = 0, planeScale = 1;
     var camX = 0, camY = 0, camZ = 5, lookX = 0, lookY = 0;
-    var bloomStrength = 0.5, sceneAlpha = 1;
+    var sceneAlpha = 1;
     zSplit = seg(st, CH0, 0.44, p2out, 0, 0.42);
     redRotY = seg(st, CH0, 0.44, p2out, 0, -0.08);
     blueRotY = seg(st, CH0, 0.44, p2out, 0, 0.08);
     camZ = seg(st, CH0, 0.44, p2out, 5, 5.55);
     camY = seg(st, CH0, 0.44, p2out, 0, 0.16);
-    bloomStrength = seg(st, CH0, 0.44, p2out, 0.5, 1.35);
     camX = seg(st, 13.92, 1.0, p2io, camX, 3.2);
     camY = seg(st, 13.92, 1.0, p2io, camY, 0.3);
     camZ = seg(st, 13.92, 1.0, p2io, camZ, 4.0);
     lookX = seg(st, 13.92, 1.0, p2io, lookX, -0.3);
     zSplit = seg(st, 14.005, 0.425, p2io, zSplit, 0.56);
     zSplit = seg(st, 14.455, 0.45, p2io, zSplit, 0.36);
-    bloomStrength = seg(st, 14.33, 0.6, p2io, bloomStrength, 1.05);
-    bloomStrength = seg(st, 15.055, 0.675, p2out, bloomStrength, 1.55);
-    bloomStrength = seg(st, BSET, EXIT - BSET, p1io, bloomStrength, 1.18);
     camX = seg(st, ROT, EXIT - ROT, p2io, camX, 4.7);
     camY = seg(st, ROT, EXIT - ROT, p2io, camY, 0.55);
     camZ = seg(st, ROT, EXIT - ROT, p2io, camZ, 2.55);
@@ -762,11 +729,9 @@ function ChromaticSplit() {
     xSplit = seg(st, EXIT, 0.31, p3in, xSplit, 0.48);
     zSplit = seg(st, EXIT, 0.31, p3in, zSplit, 0.48);
     planeScale = seg(st, EXIT, 0.31, p3in, planeScale, 0.3);
-    bloomStrength = seg(st, EXIT, 0.31, p3in, bloomStrength, 0.58);
     sceneAlpha = seg(st, EXIT, 0.31, p3in, sceneAlpha, 0.76);
     camZ = seg(st, EXIT, 0.31, p2in, camZ, 4.35);
     lookX = seg(st, EXIT, 0.31, p2in, lookX, -0.16);
-    bloomStrength = seg(st, EXIT + 0.31, 0.11, p1in, bloomStrength, 0);
     sceneAlpha = seg(st, EXIT + 0.31, 0.11, p1in, sceneAlpha, 0);
 
     var PW = 1920.0, PH = 1080.0, aspectC = PW / PH;
@@ -778,31 +743,16 @@ function ChromaticSplit() {
     var c0 = [Math.cos(redRotY), Math.sin(redRotY)];
     var c1 = [Math.cos(greenRotY), Math.sin(greenRotY)];
     var c2 = [Math.cos(blueRotY), Math.sin(blueRotY)];
-    /* bloom tap scale: screen px → plane-local world units at each plane
-       (distance + rotation foreshortening; smooth-halo approximation) */
-    var e0 = [camX - (depthX - xSplit), camY, camZ - (depthZ + zSplit)];
-    var e1 = [camX - depthX, camY, camZ - depthZ];
-    var e2 = [camX - (depthX + xSplit), camY, camZ - (depthZ - zSplit)];
-    var d0 = Math.sqrt(e0[0] * e0[0] + e0[1] * e0[1] + e0[2] * e0[2]);
-    var d1 = Math.sqrt(e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]);
-    var d2 = Math.sqrt(e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2]);
-    var wpp0 = 2.0 * tanH * d0 / PH;
-    var wpp1 = 2.0 * tanH * d1 / PH;
-    var wpp2 = 2.0 * tanH * d2 / PH;
-    var kbx0 = wpp0 / Math.max(Math.abs(c0[0]), 0.15);
-    var kbx1 = wpp1 / Math.max(Math.abs(c1[0]), 0.15);
-    var kbx2 = wpp2 / Math.max(Math.abs(c2[0]), 0.15);
     var chromEffect = ly.pixel(CHROM, CHROM_SPEC);
     var chromChild = chromCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
     var p = new CK.Paint();
     p.setShader(chromEffect.sample(
-      [PW, PH, planeW, planeH, planeScale, sceneAlpha, bloomStrength,
+      [PW, PH, planeW, planeH, planeScale, sceneAlpha,
        camX, camY, camZ,
        B.F[0], B.F[1], B.F[2], Rx, Ry, Rz, Ux, Uy, Uz,
        depthX - xSplit, 0.0, depthZ + zSplit, c0[0], c0[1],
        depthX,          0.0, depthZ,          c1[0], c1[1],
-       depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1],
-       kbx0, wpp0, kbx1, wpp1, kbx2, wpp2
+       depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1]
       ], [chromChild]));
     chromCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
   });
@@ -892,19 +842,27 @@ function IntroSting() {
     var T = ctx.timeline();
     var CK = ctx.CanvasKit;
     var TT = Math.max(0, ctx.time);
-    var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 3));
+    var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 4));
     var progress = TT <= 0.72 ? 0 : (TT >= 3.0 ? 1 : (TT - 0.72) / 2.28);
     var logoScale = TT < 2.9 ? 1 : (TT >= 3.1 ? 0.4 : 1 - 0.6 * Math.pow(2, 10 * ((TT - 2.9) / 0.2 - 1)));
-    var logoT = TT >= 1.0 ? 1 : 1 - Math.pow(1 - TT, 4);
+    var logoT = TT >= 1.0 ? 1 : 1 - Math.pow(1 - TT, 5);
     var logoY = 760 * (1 - logoT);
-    if (TT <= 3.12) {
+    /* gate < 3.1: opacity tweens to 0 exactly at 3.1 (2.9+0.2) — frame 93 is
+       invisible, skip its ~12s ray-march (render-budget) */
+    if (TT < 3.1) {
       var stingCanvas = ctx.getCanvasById('sting-canvas');
-      var stingEffect = ly.pixel(STING, STING_SPEC);
       var stingChild = stingCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
       var p = new CK.Paint();
-      p.setShader(stingEffect.sample(
-        [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
-        [stingChild, stingChild]));
+      if (effectMix <= 0) {
+        var loEffect = ly.pixel(STING_LOGOONLY, STING_LOGOONLY_SPEC);
+        p.setShader(loEffect.sample(
+          [1920.0, 1080.0, logoScale, logoY], [stingChild]));
+      } else {
+        var stingEffect = ly.pixel(STING, STING_SPEC);
+        p.setShader(stingEffect.sample(
+          [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
+          [stingChild, stingChild]));
+      }
       stingCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
     }
     T.set('sting-canvas', { opacity: 1 }, 0);
@@ -931,9 +889,13 @@ function IntroCard() {
     T.to('next-bg', { opacity: 0, duration: 0.36, ease: 'power1.in' }, 5.99);
 
     /* card entry */
-    T.set('next-card', { opacity: 0, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 0);
+    T.set('next-card', { opacity: 0, scale: 1.45, filter: 'blur(14px)', backdropBlur: 0, transformOrigin: '50% 50%' }, 0);
     T.set('next-card', { opacity: 1, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 3.1);
-    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9, ease: 'power2.out' }, 3.1);
+    /* ref frames: f93 (3.1) shows a sharp backdrop with only the blurred caret,
+       f95 (3.1667) already blurred — the swgl renderer brings the backdrop
+       blur up inside (3.1, 3.1667]; approximate with 3.13 */
+    T.set('next-card', { backdropBlur: 12 }, 3.13);
+    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9, ease: [0.266, 0.47, 0.58, 0.908] }, 3.1);
     T.to('next-card', { scale: 0.84, filter: 'blur(1.5px)', duration: 0.4, ease: 'linear' }, 4.0);
 
     /* phrase A: "HTML" types (typeStep .085, titleHold .25), caret rides the
@@ -984,8 +946,8 @@ function IntroCard() {
         <div id="glow-b" class="absolute left-[1260px] top-[-10px] w-[440px] h-[440px] rounded-full bg-[radial-gradient(closest-side,rgba(255,79,216,0.11),transparent)]"></div>
         <div id="phrase-a" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] flex flex-col items-center justify-center text-center text-[#ffffff] text-[292px] font-[inter900] font-black leading-[0.88] tracking-[0]">
           <div id="pa-line1" class="flex items-center justify-center">
-            <div id="html-word" class="relative text-left text-[#f6ff7a] font-[big] font-black tracking-[0.015em]">
-              <text id="html-type" class="font-[big] font-black tracking-[0.015em]">HTML</text>
+            <div id="html-word" class="relative text-left text-[#f6ff7a] font-[big] font-black tracking-[4.38px]">
+              <text id="html-type" class="font-[big] font-black tracking-[4.38px]">HTML</text>
               <text id="html-caret" class="absolute left-[0px] top-[0px] text-[#f6ff7a] font-[big] font-black text-[292px] leading-[0.88] opacity-0">|</text>
             </div>
             <text id="html-tail" class="opacity-0">{'\u2013'}in</text>

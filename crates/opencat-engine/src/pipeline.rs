@@ -17,7 +17,6 @@ use opencat_core::ir::RenderFrame;
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::ParsedComposition;
-use opencat_core::parse::{BuildOptions, CanvasChildrenMode, build_parsed_document, parse_parts_with_base_dir};
 use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::fonts::font_asset_id;
 use opencat_core::ir::asset_id::asset_id_for_lottie;
@@ -101,60 +100,26 @@ impl EnginePipelineHost {
 /// probe media metadata locally → hand typed metadata to core prepare.
 /// Core alone merges fonts, hydrates captions, and opens the pipeline.
 pub fn open(input: &str, mut loader: EngineLoader, scripts: RqJsContext) -> Result<EnginePipeline> {
-    if input.trim().starts_with('{') {
-        let base_dir = loader
-            .base_dir()
-            .canonicalize()
-            .unwrap_or_else(|_| loader.base_dir().to_path_buf());
-        let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
-        let host = open_parsed_host_owned(parsed, loader, scripts, engine_default_font_faces())?;
-        return Ok(host);
-    }
-
-    // JSX frontend: JS modules + JSX + the `use*` registry. Same shape as the
-    // JSONL branch — a self-contained ParsedComposition straight from the host
-    // parse (tree already extracted, driver embedded as the script source) —
-    // plus document-font loading, which the JSONL branch never needed.
-    if !input.trim().starts_with('<') {
-        let base_dir = loader
-            .base_dir()
-            .canonicalize()
-            .unwrap_or_else(|_| loader.base_dir().to_path_buf());
-        let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
-        let font_bytes = loader.load_font_manifest(&parsed.font_manifest)?;
-        loader.register_font_handles(&parsed.font_manifest, &font_bytes)?;
-        let host = open_parsed_host_owned_with_fonts(
-            parsed,
-            loader,
-            scripts,
-            engine_default_font_faces(),
-            font_bytes,
-        )?;
-        return Ok(host);
-    }
-
-    let base_dir = loader.base_dir();
-    let parts = parse_parts_with_base_dir(input, Some(base_dir))?;
-    // Host only fetches document font bytes + registers cache handles. Family
-    // index / fallback / fontdb merge happen in core prepare (#19).
-    let font_bytes = loader.load_font_manifest(&parts.font_manifest)?;
-    loader.register_font_handles(&parts.font_manifest, &font_bytes)?;
-
-    let parsed = build_parsed_document(
-        parts,
-        BuildOptions {
-            canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
-        },
-        None,
-    )?;
-
-    open_parsed_host_owned_with_fonts(
+    // Both remaining frontends (JSONL text, JSX) parse through source_io into a
+    // self-contained ParsedComposition (tree extracted, driver embedded as the
+    // script source). The host then fetches document font bytes + registers
+    // cache handles; family index / fallback / fontdb merge happen in core
+    // prepare (#19).
+    let base_dir = loader
+        .base_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| loader.base_dir().to_path_buf());
+    let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
+    let font_bytes = loader.load_font_manifest(&parsed.font_manifest)?;
+    loader.register_font_handles(&parsed.font_manifest, &font_bytes)?;
+    let host = open_parsed_host_owned_with_fonts(
         parsed,
         loader,
         scripts,
         engine_default_font_faces(),
         font_bytes,
-    )
+    )?;
+    Ok(host)
 }
 
 /// Open a [`ParsedComposition`] through the explicit lifecycle:
@@ -593,18 +558,14 @@ mod tests {
         let lottie_json = r#"{"w":40,"h":30,"fr":25,"ip":0,"op":10,"assets":[{"u":"images/dep.png","e":"images/"}]}"#;
         std::fs::write(fixture_dir.join("loader.json"), lottie_json).expect("lottie json");
 
-        let markup = r#"
-            <opencat width="64" height="64" fps="25" duration="0.4">
-              <div id="root" class="w-full h-full">
-                <lottie id="loader" path="loader.json" class="w-[40px] h-[30px]" />
-              </div>
-            </opencat>
-        "#;
+        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":25,"duration":0.4}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"lottie","id":"loader","parentId":"root","path":"loader.json","className":"w-[40px] h-[30px]"}"#;
 
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        let mut host = open(markup, loader, ctx).expect("open via lifecycle");
+        let mut host = open(jsonl, loader, ctx).expect("open via lifecycle");
 
         // Host registers under logical path key (probe) and canonical bundle id.
         assert!(
@@ -662,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn markup_document_font_is_merged_by_core_prepare() {
+    fn jsx_document_font_is_merged_by_core_prepare() {
         use opencat_core::pipeline::Pipeline;
 
         let nanos = SystemTime::now()
@@ -680,21 +641,24 @@ mod tests {
             .join("../../assets/NotoSansSC-Regular.otf");
         std::fs::copy(&face_src, fixture_dir.join("doc-sans.otf")).expect("copy font");
 
-        let markup = r#"
-            <opencat width="320" height="180" fps="30" duration="0.1">
-              <fonts default="doc">
-                <font id="doc" family="Noto Sans SC" path="doc-sans.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full">
-                <text id="t" class="font-sans text-white text-[24px]" data-text="你好" />
-              </div>
-            </opencat>
-        "#;
+        let jsx = r#"
+export const fonts = {
+  default: "doc",
+  faces: [{ id: "doc", family: "Noto Sans SC", path: "doc-sans.otf", role: "sans" }],
+};
+export default function App() {
+  return (
+    <div id="root" class="w-full h-full">
+      <text id="t" class="font-sans text-white text-[24px]">你好</text>
+    </div>
+  );
+}
+"#;
 
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        let mut host = open(markup, loader, ctx).expect("open with document font via core prepare");
+        let mut host = open(jsx, loader, ctx).expect("open with document font via core prepare");
 
         // font-sans must shape with document face; render must succeed.
         let frame = host.pipeline.render_frame(0).expect("render");

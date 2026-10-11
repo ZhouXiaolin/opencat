@@ -1280,16 +1280,13 @@ mod tests {
             frames: 1,
         };
         let mut assets = PreparedResourceCatalog::default();
-        let parsed = crate::parse::markup::parse(
-            r#"<opencat width="320" height="240" fps="30" duration="0.033333333333">
-  <canvas id="stage" class="w-[200px] h-[120px]">
-    <div id="card" class="absolute left-[12px] top-[18px] w-[80px] h-[40px] bg-white">
-      <text id="label" class="absolute left-[6px] top-[8px] text-[12px] text-black">Hi</text>
-    </div>
-  </canvas>
-</opencat>"#,
+        let parsed = crate::parse::jsonl::parse(
+            r#"{"type":"composition","width":320,"height":240,"fps":30,"duration":0.033333333333}
+{"type":"canvas","id":"stage","parentId":null,"className":"w-[200px] h-[120px]"}
+{"type":"div","id":"card","parentId":"stage","className":"absolute left-[12px] top-[18px] w-[80px] h-[40px] bg-white"}
+{"type":"text","id":"label","parentId":"card","className":"absolute left-[6px] top-[8px] text-[12px] text-black","text":"Hi"}"#,
         )
-        .expect("markup should parse");
+        .expect("jsonl should parse");
         let resolved = resolve_ui_tree(
             &parsed.root,
             &frame_ctx,
@@ -1345,49 +1342,6 @@ mod tests {
             panic!("expected nested text item");
         };
         assert_eq!(text.text, "Hi");
-    }
-
-    #[test]
-    #[ignore]
-    fn debug_canvas_ripple_card_hidden_layout() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 800,
-            height: 700,
-            frames: 180,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-        let xml = std::fs::read_to_string(format!(
-            "{}/../../json/canvas-ripple-card.xml",
-            env!("CARGO_MANIFEST_DIR")
-        ))
-        .expect("read xml");
-        let parsed = crate::parse::markup::parse(&xml).expect("markup should parse");
-        let resolved = resolve_ui_tree(
-            &parsed.root,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("tree should resolve");
-        let layout_tree =
-            crate::layout::compute_layout(&resolved, &frame_ctx).expect("layout should compute");
-        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
-            .expect("display tree should build");
-        let canvas = &tree.root.children[0];
-
-        for hidden in canvas.hidden_subtree.iter().take(12) {
-            println!(
-                "hidden root tx={} ty={} w={} h={} children={}",
-                hidden.node.transform.translation_x,
-                hidden.node.transform.translation_y,
-                hidden.node.transform.bounds.width,
-                hidden.node.transform.bounds.height,
-                hidden.node.children.len()
-            );
-        }
     }
 
     #[test]

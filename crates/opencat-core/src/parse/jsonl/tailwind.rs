@@ -1016,6 +1016,7 @@ enum F32Target {
     BorderWidth,
     OpacityClamped,
     BlurSigma,
+    BackdropBlurSigma,
     FlexGrow,
     FlexShrink,
 }
@@ -1770,6 +1771,7 @@ fn apply_f32_target(style: &mut NodeStyle, target: F32Target, value: f32) {
         F32Target::BorderWidth => style.border_width = Some(value),
         F32Target::OpacityClamped => style.opacity = Some(value.clamp(0.0, 1.0)),
         F32Target::BlurSigma => style.css_filter.push(CssFilterKind::Blur, value),
+        F32Target::BackdropBlurSigma => style.backdrop_blur_sigma = Some(value),
         F32Target::FlexGrow => style.flex_grow = Some(value),
         F32Target::FlexShrink => style.flex_shrink = Some(value),
     }

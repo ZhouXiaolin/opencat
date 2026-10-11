@@ -78,6 +78,7 @@ const SECTION_GENERATED_IMAGES = SECTION.GENERATED_IMAGES;
 
 const OP_SAVE = OP.SAVE;
 const OP_SAVE_LAYER = OP.SAVE_LAYER;
+const OP_SAVE_BACKDROP_LAYER = OP.SAVE_BACKDROP_LAYER;
 const OP_RESTORE = OP.RESTORE;
 const OP_RESTORE_TO_COUNT = OP.RESTORE_TO_COUNT;
 const OP_TRANSLATE = OP.TRANSLATE;
@@ -504,6 +505,27 @@ export function renderEncodedDrawFrame(
           if ((flags & 0b10) === 0 && alpha < 1) paint = dispose(new CK.Paint());
           if (paint && alpha < 1) paint.setAlphaf(alpha);
           targetCanvas.saveLayer(paint ?? undefined, (flags & 0b01) !== 0 ? ckRect(CK, bounds) : null);
+          break;
+        }
+        case OP_SAVE_BACKDROP_LAYER: {
+          // CSS `backdrop-filter`: same payload as SAVE_LAYER (alpha always
+          // 1.0); the paint's image filter applies to what is already drawn
+          // beneath the layer bounds, and the layer content stays unfiltered.
+          const flags = p.u8();
+          const bounds = readRect4(p);
+          const paintId = p.u32();
+          p.f32(); // alpha slot, always 1.0 — kept for payload-layout parity
+          const paint = (flags & 0b10) !== 0 ? buildPaint(CK, frame.paints[paintId], 1, dispose) : null;
+          let backdrop: ImageFilter | null = null;
+          if (paint) {
+            backdrop = paint.getImageFilter() ?? null;
+            paint.setImageFilter(null);
+          }
+          targetCanvas.saveLayer(
+            paint ?? undefined,
+            (flags & 0b01) !== 0 ? ckRect(CK, bounds) : null,
+            backdrop ?? undefined,
+          );
           break;
         }
         case OP_RESTORE:

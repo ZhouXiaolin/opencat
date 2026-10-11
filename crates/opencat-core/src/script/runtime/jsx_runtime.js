@@ -328,6 +328,20 @@
             case 'image':
             case 'video':
                 assignSource(line, props);
+                if (el.tag === 'video') {
+                    // Media window + YUV→RGB matrix override, mirroring the
+                    // markup `data-*` attributes on <video>. Undefined values
+                    // drop out at JSON.stringify, keeping legacy lines minimal.
+                    line.dataStart = num(props.dataStart);
+                    line.dataDuration = num(props.dataDuration);
+                    line.dataMediaStart = num(props.dataMediaStart);
+                    if (props.dataColorMatrix !== undefined && props.dataColorMatrix !== null) {
+                        line.dataColorMatrix = String(props.dataColorMatrix);
+                    }
+                    if (props.loop !== undefined && props.loop !== null) {
+                        line.loop = props.loop === true || props.loop === 'true';
+                    }
+                }
                 break;
             case 'caption':
                 line.path = String(props.src || props.path);

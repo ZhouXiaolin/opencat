@@ -140,6 +140,7 @@ fn opcode_constants(ts: &mut String) {
     for (name, value) in &[
         ("SAVE", opcode::SAVE),
         ("SAVE_LAYER", opcode::SAVE_LAYER),
+        ("SAVE_BACKDROP_LAYER", opcode::SAVE_BACKDROP_LAYER),
         ("RESTORE", opcode::RESTORE),
         ("RESTORE_TO_COUNT", opcode::RESTORE_TO_COUNT),
         ("TRANSLATE", opcode::TRANSLATE),

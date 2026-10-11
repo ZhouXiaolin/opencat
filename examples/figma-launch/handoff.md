@@ -1,6 +1,6 @@
 # handoff — figma-launch
 
-> 2026-10-10 对齐工作流收工时整理。目标：`examples/figma-launch/figma-launch.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。工作在 lane2（worktree align-lane2 分支）完成，**已合并回 dev 主检出**（merge commit f2b8b6e）。
+> 2026-10-10 对齐工作流收工时整理。目标：`examples/figma-launch/figma-launch.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。工作在 lane2（worktree align-lane2 分支）完成，**已合并回 dev 主检出**（merge commit 95de42f）。
 
 ## 状态：未达标（最好 11.270%）
 - 四轮：r1 渲染失败 → r2 渲染失败 → r3 11.584% → **r4 11.270%**（后两轮才开始有效对比）
@@ -11,9 +11,9 @@
 - 参考视频：`F:/hyperframes-launches/figma-launch/renders/figma-launch_2026-10-06_swgl.mp4`（1080x1080 @30，1922 帧，方版长片）
 
 ## 证据与产物
-- jsx：`examples/figma-launch/figma-launch.jsx`（已随 5eccaef 进 dev）
-- **注意 out/ 目录不随 git 合并**：本示例的渲染与对比证据在 worktree 里——`F:/OpenCat-lane2/out/figma-launch.mp4`、`F:/OpenCat-lane2/out/k3diff-figma-launch/`（summary.json、pixel.csv、最差帧对照图）、`F:/OpenCat-lane2/out/figma-launch-frames/`（PNG 序列 1922 帧全）
-- 本示例移植贡献了大量引擎能力（随 5eccaef 入库）：`style_props.js`（CSS 样式属性动画）、`script/mutations.rs`、`tailwind.rs`、`render/dispatch.rs`/`helpers.rs`（含 backdrop 能力）、`media/types.rs` 等——后续示例可直接受益
+- jsx：`examples/figma-launch/figma-launch.jsx`（已随 72d1ee9 进 dev）
+- 对比证据已归档到主检出：`out/lane2-k3diff/k3diff-figma-launch/`（summary.json、pixel.csv、最差帧对照图）；渲染 mp4 与 PNG 序列（1922 帧全）随 worktree 清理移除，按下方命令重渲
+- 本示例移植贡献了大量引擎能力（随 72d1ee9 入库）：`style_props.js`（CSS 样式属性动画）、`script/mutations.rs`、`tailwind.rs`、`render/dispatch.rs`/`helpers.rs`（含 backdrop 能力）、`media/types.rs` 等——后续示例可直接受益
 
 ## 下一步
 1. 合并后引擎有变动（video 计时字段 kebab/camel 双拼写、backdrop 双实现），先 `cargo build --release --bin opencat --bin opencat-frames` 再复渲，确认 11.27% 基线

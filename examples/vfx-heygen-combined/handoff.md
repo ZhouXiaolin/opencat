@@ -12,7 +12,7 @@
 - 参考视频：`F:/hyperframes-launches/vfx-heygen-combined/renders/vfx-heygen-combined_2026-10-05_swgl.mp4`（1920x1080 @30，788 帧）
 
 ## 证据与产物
-- jsx：`examples/vfx-heygen-combined/vfx-heygen-combined.jsx`（已提交，commit f163170）
+- jsx：`examples/vfx-heygen-combined/vfx-heygen-combined.jsx`（已提交，commit 40cf11b）
 - 渲染：`out/vfx-heygen-combined.mp4`（77MB）；对比证据：`out/k3diff-vfx-heygen-combined/`（summary.json、pixel.csv、最差帧对照图）
 - PNG 序列退路可用：`out/vfx-heygen-combined-frames/`
 

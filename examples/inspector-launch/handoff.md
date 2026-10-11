@@ -1,9 +1,9 @@
 # handoff — inspector-launch
 
-> 2026-10-10 对齐工作流收工时整理。目标：`examples/inspector-launch/inspector-launch.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。工作在 lane2（worktree align-lane2 分支）完成，**已合并回 dev 主检出**（merge commit f2b8b6e）。
+> 2026-10-10 对齐工作流收工时整理。目标：`examples/inspector-launch/inspector-launch.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。工作在 lane2（worktree align-lane2 分支）完成，**已合并回 dev 主检出**（merge commit 95de42f）。
 
 ## 状态：进行中（jsx 已写完一版，尚未渲染验证过；4 轮预算一轮未用）
-- `examples/inspector-launch/inspector-launch.jsx`（1475 行）已提交（WIP commit 随 a0c042c 合入 dev）
+- `examples/inspector-launch/inspector-launch.jsx`（1475 行）已提交（WIP commit 随 1459589 合入 dev）
 - 停工时移植员正在给引擎加 **GSAP CustomEase 采样缓动**支持，已落地部分：
   - `crates/opencat-core/src/parse/easing.rs`：`Easing::Samples(u32)` 变体 + 进程全局采样表注册表（`register_ease_table`）+ `points:<name>` 标签解析 + 分段线性采样语义
   - `crates/opencat-core/src/script/bindings.rs`：+6 行绑定

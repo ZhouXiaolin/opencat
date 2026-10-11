@@ -16,6 +16,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 use crate::parse::ParsedComposition;
+use crate::parse::jsonl::JsonLine;
 use crate::fonts::FontManifest;
 
 /// Entry-module specifier used as the module-system root.
@@ -27,8 +28,19 @@ fn meta_f64(meta: &Value, key: &str, default: f64) -> f64 {
 
 /// Build a [`ParsedComposition`] from an extraction result and the per-frame
 /// driver source produced by the host.
+///
+/// The extracted tree already has the JSONL line shape, so it is decoded
+/// straight into [`JsonLine`] values and handed to the shared assembly — no
+/// text serialization hop in between.
 pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
     let meta = extract.get("meta").cloned().unwrap_or(Value::Null);
+    let font_manifest = font_manifest_from_extract(extract, &meta, base_dir)?;
+
+    let tree_lines = extract
+        .get("lines")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("jsx extract: missing `lines` array"))?;
+
     let mut lines: Vec<Value> = vec![json!({
         "type": "composition",
         "width": meta_f64(&meta, "width", 1920.0) as i32,
@@ -36,26 +48,15 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         "fps": meta_f64(&meta, "fps", 30.0) as i32,
         "duration": meta_f64(&meta, "duration", 3.0),
     })];
-
-    let tree_lines = extract
-        .get("lines")
-        .and_then(Value::as_array)
-        .ok_or_else(|| anyhow::anyhow!("jsx extract: missing `lines` array"))?;
     lines.extend(tree_lines.iter().cloned());
-
     lines.push(json!({ "type": "script", "src": driver }));
 
-    let text = lines
-        .iter()
-        .map(|line| serde_json::to_string(line).map_err(anyhow::Error::from))
-        .collect::<Result<Vec<_>>>()?
-        .join("\n");
+    let jsonl_lines = lines
+        .into_iter()
+        .map(serde_json::from_value::<JsonLine>)
+        .collect::<std::result::Result<Vec<_>, serde_json::Error>>()?;
 
-    let font_manifest = font_manifest_from_extract(extract, &meta, base_dir)?;
-    let mut parsed =
-        crate::parse::jsonl::parse_with_base_dir_and_fonts(&text, base_dir, Some(&font_manifest))?;
-    parsed.font_manifest = font_manifest;
-    Ok(parsed)
+    crate::parse::jsonl::composition_from_lines(jsonl_lines, base_dir, Some(&font_manifest))
 }
 
 /// `export const fonts = { default, faces: [{ id, family, path, role }] }`,

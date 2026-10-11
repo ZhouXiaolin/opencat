@@ -195,11 +195,26 @@ pub fn parse_with_base_dir(
     parse_with_base_dir_and_fonts(input, base_dir, None)
 }
 
-/// Same, with a document font manifest: Tailwind `font-[faceId]` classes and
-/// the default face resolve against it before tree build — the same pass the
-/// markup path runs in `build_parsed_document`.
 pub fn parse_with_base_dir_and_fonts(
     input: &str,
+    base_dir: Option<&Path>,
+    manifest: Option<&crate::fonts::FontManifest>,
+) -> anyhow::Result<ParsedComposition> {
+    let lines = input
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(serde_json::from_str::<JsonLine>)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    composition_from_lines(lines, base_dir, manifest)
+}
+
+/// Shared assembly for the JSONL line shape: consumed verbatim by the JSONL
+/// text frontend and by the JSX frontend, whose extracted tree arrives as a
+/// `Vec<JsonLine>` without a text round-trip. `line_index` (1-based to the
+/// Tailwind diagnostics) counts the lines as given, so the JSX frontend keeps
+/// its composition line at index 0 exactly like a text document.
+pub(crate) fn composition_from_lines(
+    lines: Vec<JsonLine>,
     base_dir: Option<&Path>,
     manifest: Option<&crate::fonts::FontManifest>,
 ) -> anyhow::Result<ParsedComposition> {
@@ -214,14 +229,8 @@ pub fn parse_with_base_dir_and_fonts(
     let mut transitions = Vec::new();
     let mut timeline_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for (line_index, line) in input.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let parsed: JsonLine = serde_json::from_str(line)?;
-        match parsed {
+    for (line_index, line) in lines.into_iter().enumerate() {
+        match line {
             JsonLine::Composition {
                 width: w,
                 height: h,

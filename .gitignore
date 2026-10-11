@@ -12,3 +12,57 @@ __pycache__/
 .zcode/
 .commandcode/
 .cache/
+
+# 大体积素材不入库（Solaren：先不上传）——文件保留在本地磁盘，源头可从 F:/hyperframes-launches 重拷
+# 如需恢复跟踪，删除对应行后 git add -f
+examples/HF-heygen-stripe/assets/aroll-james.mp4
+examples/HF-heygen-stripe/assets/aroll-seg1.mp4
+examples/HF-heygen-stripe/assets/aroll-seg1b.mp4
+examples/HF-heygen-stripe/assets/aroll-seg2.mp4
+examples/HF-heygen-stripe/assets/aroll-v7-close.mp4
+examples/HF-heygen-stripe/assets/aroll-v7-open.mp4
+examples/HF-heygen-stripe/assets/avatar-gentleman.png
+examples/HF-heygen-stripe/assets/avatar-lady-backup.png
+examples/HF-heygen-stripe/assets/avatar-still-1.png
+examples/HF-heygen-stripe/assets/bg-dev-loop.mp4
+examples/HF-heygen-stripe/assets/bg-stripe.png
+examples/HF-heygen-stripe/assets/end-card.mp4
+examples/figma-launch/assets/bg-141-264.png
+examples/figma-launch/assets/bg-141-278.png
+examples/figma-launch/assets/bg-act1.mp4
+examples/figma-launch/assets/bg-act1011.mp4
+examples/figma-launch/assets/bg-act34.mp4
+examples/figma-launch/assets/bg-act5.mp4
+examples/figma-launch/assets/bg-act78.mp4
+examples/figma-launch/assets/bg-act9.mp4
+examples/figma-launch/assets/bg-pattern-slow.mp4
+examples/figma-launch/assets/bg-pattern.mp4
+examples/figma-launch/assets/first-output.mp4
+examples/figma-launch/assets/motion-output.mp4
+examples/figma-launch/assets/orb-bg.png
+examples/figma-launch/assets/seedance-flow-fast.mp4
+examples/figma-launch/assets/seedance-flow.mp4
+examples/frame-md-launch-storyboard/assets/scene-03-aroll-cutout-alpha.mov
+examples/frame-md-launch-storyboard/assets/scene-03-aroll-h264.mp4
+examples/frame-md-launch-storyboard/assets/ssframe.mp4
+examples/hyperframes-launch/assets/Frame 1.mp4
+examples/hyperframes-launch/assets/Frame 3.mp4
+examples/hyperframes-launch/assets/beat4-clip.mp4
+examples/hyperframes-launch/assets/bg.mp4
+examples/hyperframes-launch/assets/figma-promo.mp4
+examples/hyperframes-launch/assets/fonts/TimesNewRoman.ttf
+examples/hyperframes-launch/assets/option2.mp4
+examples/hyperframes-launch/assets/pill.mp4
+examples/hyperframes-launch/assets/spotify-bento.mp4
+examples/liquid-brand-refraction/assets/audio/heygen-liquid-pop-sfx.wav
+examples/liquid-brand-refraction/assets/heygen-prism-sting-8s.mp4
+examples/liquid-brand-refraction/assets/heygen-prism-sting.mp4
+examples/liquid-brand-refraction/assets/hyperframes-logo-animation.mp4
+examples/pr-to-video-launch/assets/hyperframes-logo-motion.mp4
+examples/pr-to-video-launch/assets/launch-music.mp3
+examples/pr-to-video-launch/assets/pet-typing-2x.mp4
+examples/vfx-heygen-combined/assets/bg-2-pad.mp4
+examples/vfx-heygen-combined/assets/bg-pad.mp4
+examples/vfx-heygen-combined/assets/pointing-finger-extended.png
+examples/figma-launch/assets/end-card.mp4
+examples/HF-heygen-stripe/assets/avatar-photo.png

@@ -49,7 +49,6 @@ pub struct ParsedDocumentParts {
     pub audio_elements: Vec<ParsedAudioElement>,
     pub scripts_by_parent: std::collections::HashMap<String, Vec<DeclaredScript>>,
     pub global_scripts: Vec<DeclaredScript>,
-    pub markup_root_script: Option<String>,
     pub font_manifest: FontManifest,
 }
 

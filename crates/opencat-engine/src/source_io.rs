@@ -15,10 +15,11 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
 
     match path.extension().and_then(|ext| ext.to_str()) {
-        Some("xml") => opencat_core::parse::markup::parse_with_base_dir(&input, Some(base_dir)),
-        Some("jsx") | Some("js") => crate::jsx::parse_with_base_dir(&input, Some(base_dir)),
-        // Core parse keeps external script locators logical; host loads text later.
-        _ => core_parse_with_base_dir(&input, Some(base_dir)),
+        Some("jsonl") => {
+            // Core parse keeps external script locators logical; host loads text later.
+            core_parse_with_base_dir(&input, Some(base_dir))
+        }
+        _ => crate::jsx::parse_with_base_dir(&input, Some(base_dir)),
     }
 }
 
@@ -28,8 +29,6 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
         // Do not rewrite script path lines into inline src. Core keeps logical
         // locators; hosts fill HostInputs::insert_script_text (issue #20).
         core_parse_with_base_dir(input, base_dir)
-    } else if trimmed.starts_with('<') {
-        opencat_core::parse::markup::parse_with_base_dir(input, base_dir)
     } else {
         // JSX frontend: JS modules + JSX + the `use*` registry.
         crate::jsx::parse_with_base_dir(input, base_dir)
@@ -206,16 +205,19 @@ mod tests {
     }
 
     #[test]
-    fn parse_xml_file() {
-        let fixture_dir = unique_test_dir("xml-parse");
+    fn parse_jsx_file_minimal() {
+        let fixture_dir = unique_test_dir("jsx-parse");
         fs::create_dir_all(&fixture_dir).expect("fixture dir");
-        let xml_path = fixture_dir.join("test.xml");
+        let jsx_path = fixture_dir.join("test.jsx");
         fs::write(
-            &xml_path,
-            r#"<opencat width="320" height="240" fps="30" duration="0.033333333333"><div id="root" /></opencat>"#,
+            &jsx_path,
+            r#"export const meta = { width: 320, height: 240, fps: 30, duration: 1 };
+export default function App() {
+  return <div id="root" class="w-[320px] h-[240px]" />;
+}"#,
         )
-        .expect("xml fixture");
-        let parsed = parse_file(&xml_path).expect("xml should parse");
+        .expect("jsx fixture");
+        let parsed = parse_file(&jsx_path).expect("jsx should parse");
         assert_eq!(parsed.width, 320);
         assert_eq!(parsed.height, 240);
         fs::remove_dir_all(&fixture_dir).ok();

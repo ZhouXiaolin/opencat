@@ -34,7 +34,7 @@ fn meta_f64(meta: &Value, key: &str, default: f64) -> f64 {
 /// text serialization hop in between.
 pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
     let meta = extract.get("meta").cloned().unwrap_or(Value::Null);
-    let font_manifest = font_manifest_from_extract(extract, &meta, base_dir)?;
+    let font_manifest = font_manifest_from_extract(extract, &meta)?;
 
     let tree_lines = extract
         .get("lines")
@@ -63,10 +63,9 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
 /// read from the extract's top-level `fonts` export (with the legacy
 /// `meta.fonts` shape as fallback).
 ///
-/// Mirrors `parse::markup`'s `<fonts>` block — same manifest, same
-/// path-against-base_dir resolution, so the host font loader treats both
-/// frontends identically.
-fn font_manifest_from_extract(extract: &Value, meta: &Value, base_dir: Option<&Path>) -> Result<FontManifest> {
+/// Paths resolve against `base_dir`, same manifest shape the font loader
+/// consumes for every frontend.
+fn font_manifest_from_extract(extract: &Value, meta: &Value) -> Result<FontManifest> {
     use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
 
     let mut manifest = FontManifest::default();
@@ -108,12 +107,12 @@ fn font_manifest_from_extract(extract: &Value, meta: &Value, base_dir: Option<&P
         };
         let source = match (face.get("path").and_then(Value::as_str), face.get("url").and_then(Value::as_str)) {
             (Some(path), None) => {
-                let path = PathBuf::from(path);
-                FontSource::Path(if path.is_absolute() {
-                    path
-                } else {
-                    base_dir.unwrap_or_else(|| Path::new(".")).join(path)
-                })
+                if path.is_empty() {
+                    anyhow::bail!("jsx fonts `{id}`: path must be non-empty");
+                }
+                // Logical locator only — host joins document base at fetch time
+                // (same contract as image/video/font AssetId stability).
+                FontSource::Path(PathBuf::from(path))
             }
             (None, Some(url)) => FontSource::Url(url.to_string()),
             (Some(_), Some(_)) => anyhow::bail!("jsx fonts `{id}`: only one of path / url"),

@@ -50,15 +50,9 @@ impl CompositionDraft {
         }
     }
 
-    /// Parse XML markup or JSONL into a draft. Format is auto-detected from the
-    /// first non-whitespace character (`{` ⇒ JSONL, otherwise markup).
+    /// Parse a JSONL document into a draft.
     pub fn parse(input: &str) -> Result<Self> {
-        let trimmed = input.trim_start();
-        let parsed = if trimmed.starts_with('{') {
-            crate::parse::jsonl::parse(input)?
-        } else {
-            crate::parse::markup::parse(input)?
-        };
+        let parsed = crate::parse::jsonl::parse(input)?;
         Ok(Self::from_parsed(parsed))
     }
 
@@ -940,27 +934,28 @@ mod tests {
             .expect("open pipeline")
     }
 
-    #[test]
-    fn xml_without_resources_opens_and_renders_via_lifecycle() {
-        let xml = r#"
-            <opencat width="320" height="240" fps="30" duration="0.1">
-              <div id="root" class="w-full h-full">
-                <div id="child" class="w-[100px] h-[50px] bg-red-500" />
-              </div>
-            </opencat>
-        "#;
-
-        let mut pipeline = open_lifecycle(xml);
-        assert_eq!(pipeline.info().width, 320);
-        assert_eq!(pipeline.info().height, 240);
-        assert_eq!(pipeline.info().fps, 30);
-
-        let frame = pipeline.render_frame(0).expect("render");
-        assert!(
-            !frame.draw.ops.is_empty(),
-            "lifecycle path should produce DrawOps"
-        );
+    /// JSX extract built in-process: fonts ride the extract's `fonts` export and
+    /// the tree rides `lines` — the same data path the engine host feeds core.
+    fn fonts_doc(fonts: serde_json::Value, lines: serde_json::Value) -> CompositionDraft {
+        let parsed = crate::parse::jsx::from_extract(
+            &serde_json::json!({
+                "meta": {"width": 64.0, "height": 64.0, "fps": 30.0, "duration": 0.1},
+                "lines": lines,
+                "fonts": fonts,
+            }),
+            "",
+            None,
+        )
+        .expect("jsx extract parses");
+        CompositionDraft::from_parsed(parsed)
     }
+
+    const SANS_FONTS: &str = r#"{"default":"sans","faces":[{"id":"sans","family":"Noto Sans SC","path":"fonts/NotoSansSC-Regular.otf","role":"sans"}]}"#;
+
+    fn sans_fonts_json() -> serde_json::Value {
+        serde_json::from_str(SANS_FONTS).unwrap()
+    }
+
 
     #[test]
     fn jsonl_without_resources_opens_and_renders_via_lifecycle() {
@@ -1166,15 +1161,11 @@ mod tests {
     #[test]
     fn markup_image_path_stays_logical_even_with_base_dir() {
         // parse_with_base_dir must not join base into the AST locator.
-        let xml = r#"
-            <opencat width="10" height="10" fps="30" duration="0.1">
-              <div id="root">
-                <image id="pic" path="photos/a.png" class="w-[8px] h-[8px]" />
-              </div>
-            </opencat>
-        "#;
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"image","id":"pic","parentId":"root","path":"photos/a.png","className":"w-[8px] h-[8px]"}"#;
         let base = std::path::Path::new("/host/doc/root");
-        let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
+        let parsed = crate::parse::jsonl::parse_with_base_dir(jsonl, Some(base)).unwrap();
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.asset_id.key, "photos/a.png");
@@ -1263,15 +1254,11 @@ mod tests {
             );
         }
 
-        // Markup: host metadata + authoritative microsecond media request.
-        let xml = r#"
-            <opencat width="320" height="180" fps="30" duration="4">
-              <div id="root" class="w-[320px] h-[180px]">
-                <video id="vid" path="clips/hero.mp4" class="w-[320px] h-[180px]" data-media-start="12" />
-              </div>
-            </opencat>
-            "#;
-        let draft = CompositionDraft::parse(xml).expect("parse markup");
+        // JSONL: host metadata + authoritative microsecond media request.
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":4}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","path":"clips/hero.mp4","className":"w-[320px] h-[180px]","dataMediaStart":12}"#;
+        let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
         let reqs = draft.requirements().requests();
         assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
         let id = reqs[0].asset_id.clone();
@@ -1369,15 +1356,11 @@ mod tests {
 
     #[test]
     fn markup_video_path_stays_logical_even_with_base_dir() {
-        let xml = r#"
-            <opencat width="10" height="10" fps="30" duration="0.1">
-              <div id="root">
-                <video id="vid" path="clips/a.mp4" class="w-[8px] h-[8px]" />
-              </div>
-            </opencat>
-        "#;
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"video","id":"vid","parentId":"root","path":"clips/a.mp4","className":"w-[8px] h-[8px]"}"#;
         let base = std::path::Path::new("/host/doc/root");
-        let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
+        let parsed = crate::parse::jsonl::parse_with_base_dir(jsonl, Some(base)).unwrap();
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.asset_id.key, "video:path:clips/a.mp4");
@@ -1388,14 +1371,10 @@ mod tests {
     #[test]
     fn draft_requirements_list_declared_lottie_with_canonical_id() {
         // Markup only: JSONL has no lottie line type yet.
-        let markup = r#"
-            <opencat width="10" height="10" fps="30" duration="0.1">
-              <div id="root">
-                <lottie id="loader" path="anim/loader.json" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(markup).unwrap();
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
         let reqs = draft.requirements().requests();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Lottie);
@@ -1404,14 +1383,10 @@ mod tests {
 
     #[test]
     fn prepare_errors_on_missing_lottie_metadata() {
-        let markup = r#"
-            <opencat width="10" height="10" fps="30" duration="0.1">
-              <div id="root">
-                <lottie id="loader" path="anim/loader.json" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(markup).unwrap();
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -1431,14 +1406,10 @@ mod tests {
     #[test]
     fn prepare_errors_on_invalid_lottie_layout_or_timing_metadata() {
         use crate::lottie::LottieMeta;
-        let markup = r#"
-            <opencat width="10" height="10" fps="30" duration="0.1">
-              <div id="root">
-                <lottie id="loader" path="anim/loader.json" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(markup).unwrap();
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
 
         let mut inputs = HostInputs::empty()
@@ -1534,13 +1505,9 @@ mod tests {
         use crate::ir::draw_op::DrawOp;
         use crate::lottie::LottieMeta;
 
-        let sources = [r#"
-            <opencat width="64" height="64" fps="30" duration="0.1">
-              <div id="root" class="w-full h-full">
-                <lottie id="loader" path="anim/loader.json" class="w-[32px] h-[32px]" />
-              </div>
-            </opencat>
-            "#];
+        let sources = [r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json","className":"w-[32px] h-[32px]"}"#];
         for input in sources {
             let draft = CompositionDraft::parse(input).expect("parse");
             let reqs = draft.requirements().requests();
@@ -1617,13 +1584,6 @@ mod tests {
             r#"{"type":"composition","width":32,"height":32,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"assets/hero.png","className":"w-[16px] h-[16px]"}"#,
-            r#"
-            <opencat width="32" height="32" fps="30" duration="0.1">
-              <div id="root" class="w-full h-full">
-                <image id="pic" path="assets/hero.png" class="w-[16px] h-[16px]" />
-              </div>
-            </opencat>
-            "#,
         ];
         for input in sources {
             let draft = CompositionDraft::parse(input).expect("parse");
@@ -1676,17 +1636,13 @@ mod tests {
 
     #[test]
     fn draft_requirements_list_document_fonts_with_stable_identity() {
-        let xml = r#"
-            <opencat width="64" height="64" fps="30" duration="0.1">
-              <fonts default="sans">
-                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full font-sans">
-                <text id="t" class="text-white" data-text="Hi" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse");
+        let draft = fonts_doc(
+            sans_fonts_json(),
+            serde_json::json!([
+                {"type": "div", "id": "root", "parentId": null, "className": "w-full h-full font-sans"},
+                {"type": "text", "id": "t", "parentId": "root", "className": "text-white", "text": "Hi"}
+            ]),
+        );
         let fonts: Vec<_> = draft
             .requirements()
             .requests()
@@ -1699,33 +1655,11 @@ mod tests {
             "font:path:fonts/NotoSansSC-Regular.otf"
         );
 
-        // base_dir must not leak into the stable identity (parity with images).
-        let base = std::path::Path::new("/host/doc/root");
-        let parsed = crate::parse::markup::parse_with_base_dir(xml, Some(base)).unwrap();
-        let draft = CompositionDraft::from_parsed(parsed);
-        let fonts: Vec<_> = draft
-            .requirements()
-            .requests()
-            .iter()
-            .filter(|r| r.kind == ResourceKind::Font)
-            .collect();
-        assert_eq!(
-            fonts[0].asset_id.key,
-            "font:path:fonts/NotoSansSC-Regular.otf"
-        );
     }
 
     #[test]
     fn prepare_errors_on_missing_document_font() {
-        let xml = r#"
-            <opencat width="64" height="64" fps="30" duration="0.1">
-              <fonts default="sans">
-                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full" />
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse");
+        let draft = fonts_doc(sans_fonts_json(), serde_json::json!([{"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"}]));
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -1747,15 +1681,7 @@ mod tests {
 
     #[test]
     fn prepare_errors_on_empty_document_font_bytes() {
-        let xml = r#"
-            <opencat width="64" height="64" fps="30" duration="0.1">
-              <fonts default="sans">
-                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full" />
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse");
+        let draft = fonts_doc(sans_fonts_json(), serde_json::json!([{"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"}]));
         let id = draft
             .requirements()
             .requests()
@@ -1785,17 +1711,13 @@ mod tests {
 
     #[test]
     fn prepare_merges_document_font_and_applies_font_sans() {
-        let xml = r#"
-            <opencat width="320" height="180" fps="30" duration="0.1">
-              <fonts default="sans">
-                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full">
-                <text id="t" class="font-sans text-white text-[24px]" data-text="你好" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse");
+        let draft = fonts_doc(
+            sans_fonts_json(),
+            serde_json::json!([
+                {"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"},
+                {"type": "text", "id": "t", "parentId": "root", "className": "font-sans text-white text-[24px]", "text": "你好"}
+            ]),
+        );
         let font_id = draft
             .requirements()
             .requests()
@@ -1844,15 +1766,10 @@ mod tests {
 
     #[test]
     fn prepare_document_font_takes_precedence_over_same_family_base() {
-        let xml = r#"
-            <opencat width="64" height="64" fps="30" duration="0.1">
-              <fonts default="doc">
-                <font id="doc" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full" />
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse");
+        let draft = fonts_doc(
+            serde_json::json!({"default": "doc", "faces": [{"id": "doc", "family": "Noto Sans SC", "path": "fonts/NotoSansSC-Regular.otf", "role": "sans"}]}),
+            serde_json::json!([{"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"}]),
+        );
         let font_id = draft
             .requirements()
             .requests()
@@ -1891,17 +1808,13 @@ mod tests {
 
     #[test]
     fn prepare_font_face_id_resolves_to_family() {
-        let xml = r#"
-            <opencat width="320" height="180" fps="30" duration="0.1">
-              <fonts>
-                <font id="display" family="Noto Sans SC" path="fonts/display.otf" />
-              </fonts>
-              <div id="root" class="w-full h-full">
-                <text id="t" class="font-[display] text-white text-[20px]" data-text="Aa" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse");
+        let draft = fonts_doc(
+            serde_json::json!({"faces": [{"id": "display", "family": "Noto Sans SC", "path": "fonts/display.otf"}]}),
+            serde_json::json!([
+                {"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"},
+                {"type": "text", "id": "t", "parentId": "root", "className": "font-[display] text-white text-[20px]", "text": "Aa"}
+            ]),
+        );
         let font_id = draft
             .requirements()
             .requests()
@@ -2012,14 +1925,10 @@ mod tests {
 
     #[test]
     fn xml_caption_hydrate_via_lifecycle() {
-        let xml = r#"
-            <opencat width="320" height="180" fps="30" duration="1">
-              <div id="root" class="w-full h-full">
-                <caption id="subs" path="sub.srt" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse xml");
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"caption","id":"subs","parentId":"root","path":"sub.srt"}"#;
+        let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
         let sub_id = draft
             .requirements()
             .requests()
@@ -2060,14 +1969,10 @@ mod tests {
 
     #[test]
     fn xml_caption_missing_text_fails_prepare() {
-        let xml = r#"
-            <opencat width="320" height="180" fps="30" duration="1">
-              <div id="root" class="w-full h-full">
-                <caption id="subs" path="sub.srt" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).expect("parse xml");
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
+{"type":"caption","id":"subs","parentId":"root","path":"sub.srt"}"#;
+        let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
         // No subtitle text supplied → MissingInput fail-fast.
         let err = draft
             .prepare(
@@ -2310,13 +2215,10 @@ mod tests {
     fn two_pipelines_own_independent_script_realms() {
         // AC: each pipeline creates an independent script realm; hosts pass a
         // fresh JsContext per open. NoopJsContext has no shared process global.
-        let xml = r#"
-            <opencat width="64" height="36" fps="30" duration="0.1">
-              <div id="root" class="w-full h-full" />
-            </opencat>
-        "#;
-        let a = open_lifecycle(xml);
-        let mut b = open_lifecycle(xml);
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}"#;
+        let a = open_lifecycle(jsonl);
+        let mut b = open_lifecycle(jsonl);
         // Distinct host contexts are wrapped into distinct ScriptRealm instances.
         let _ = a.scripts();
         let _ = b.scripts();
@@ -2328,20 +2230,17 @@ mod tests {
 
     #[test]
     fn inline_scripts_do_not_create_script_requirements() {
-        let xml = r#"
-            <opencat width="64" height="36" fps="30" duration="0.1">
-              <script>ctx.getNode("root").opacity(1);</script>
-              <div id="root" class="w-full h-full" />
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).unwrap();
+        let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
+{"type":"script","src":"ctx.getNode(\"root\").opacity(1);"}
+{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
         assert!(
             draft
                 .requirements()
                 .requests()
                 .iter()
                 .all(|r| r.kind != ResourceKind::Script),
-            "inline markup scripts are not host requirements"
+            "inline scripts are not host requirements"
         );
         let prepared = draft
             .prepare(
@@ -2478,14 +2377,10 @@ mod tests {
 
     #[test]
     fn prepare_returns_absent_input_for_missing_lottie_when_marked_absent() {
-        let markup = r#"
-            <opencat width="10" height="10" fps="30" duration="0.1">
-              <div id="root">
-                <lottie id="loader" path="anim/loader.json" />
-              </div>
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(markup).unwrap();
+        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
+{"type":"div","id":"root","parentId":null}
+{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
+        let draft = CompositionDraft::parse(jsonl).unwrap();
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2532,15 +2427,7 @@ mod tests {
 
     #[test]
     fn prepare_returns_absent_input_for_missing_font_when_marked_absent() {
-        let xml = r#"
-            <opencat width="64" height="64" fps="30" duration="0.1">
-              <fonts default="sans">
-                <font id="sans" family="Noto Sans SC" path="fonts/NotoSansSC-Regular.otf" role="sans" />
-              </fonts>
-              <div id="root" class="w-full h-full" />
-            </opencat>
-        "#;
-        let draft = CompositionDraft::parse(xml).unwrap();
+        let draft = fonts_doc(sans_fonts_json(), serde_json::json!([{"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"}]));
         let id = draft
             .requirements()
             .requests()

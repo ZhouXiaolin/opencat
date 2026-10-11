@@ -658,6 +658,22 @@ impl TextShadow {
     }
 }
 
+/// CSS `-webkit-text-stroke: <width> <color>`. Center-stroke drawn UNDER the
+/// fill (webkit paint order), so the fill keeps its full coverage.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextStroke {
+    pub width: f32,
+    pub color: ColorToken,
+}
+
+impl std::hash::Hash for TextStroke {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.width.to_bits().hash(state);
+        self.color.hash(state);
+    }
+}
+
 const fn shadow_color(alpha: f32) -> ColorToken {
     ColorToken::Custom(0, 0, 0, (alpha * 255.0) as u8)
 }
@@ -1663,6 +1679,9 @@ pub struct NodeStyle {
     // Text shadow（CSS text-shadow，文本专属，支持多个并列）
     pub text_shadows: Vec<TextShadow>,
 
+    // CSS `-webkit-text-stroke`（描边画在 fill 之下）
+    pub text_stroke: Option<TextStroke>,
+
     // Identity (for JS animation targeting and stable scene updates)
     pub id: String,
 
@@ -1690,6 +1709,8 @@ pub struct ComputedTextStyle {
     /// its container has a definite width (overflowing instead of wrapping).
     pub no_wrap: bool,
     pub line_through: bool,
+    /// CSS `-webkit-text-stroke` (inherited like other font properties).
+    pub text_stroke: Option<TextStroke>,
 }
 
 impl std::hash::Hash for ComputedTextStyle {
@@ -1707,6 +1728,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.wrap_text.hash(state);
         self.no_wrap.hash(state);
         self.line_through.hash(state);
+        self.text_stroke.hash(state);
     }
 }
 
@@ -1726,6 +1748,7 @@ impl Default for ComputedTextStyle {
             wrap_text: false,
             no_wrap: false,
             line_through: false,
+            text_stroke: None,
         }
     }
 }
@@ -1763,6 +1786,7 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         // CSS `white-space` is inherited.
         no_wrap: style.no_wrap || parent.no_wrap,
         line_through: style.line_through,
+        text_stroke: style.text_stroke.or(parent.text_stroke),
     }
 }
 

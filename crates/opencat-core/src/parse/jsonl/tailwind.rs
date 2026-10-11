@@ -379,6 +379,17 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         return true;
     }
 
+    // `[-webkit-text-stroke:<width>_<color>]` — 任意属性语法。描边居中、画在
+    // fill 之下（webkit paint order）。
+    if let Some(value) = class
+        .strip_prefix("[-webkit-text-stroke:")
+        .and_then(|v| v.strip_suffix(']'))
+        && let Some(stroke) = parse_text_stroke(value)
+    {
+        style.text_stroke = Some(stroke);
+        return true;
+    }
+
     // `[mix-blend-mode:<value>]` — 任意属性语法，映射到 PaintSpec 的混合模式。
     if let Some(value) = class
         .strip_prefix("[mix-blend-mode:")
@@ -397,6 +408,22 @@ fn parse_arbitrary_class(class: &str, style: &mut NodeStyle) -> bool {
         && let Some(origin) = crate::style::TransformOrigin::parse(&value.replace('_', " "))
     {
         style.transform_origin = Some(origin);
+        return true;
+    }
+
+    // Transform utilities — static baseline rotation/scale. The GSAP slots
+    // (`rotation`/`scale`/`scaleX`/`scaleY`) share the same transform slots, so
+    // a timeline write supersedes the class baseline per component.
+    if let Some(deg) = parse_rotate_class(class) {
+        style.transforms.push(crate::style::Transform::RotateDeg { value: deg });
+        return true;
+    }
+    if let Some((axis, factor)) = parse_scale_class(class) {
+        style.transforms.push(match axis {
+            ScaleAxis::Both => crate::style::Transform::Scale { value: factor },
+            ScaleAxis::X => crate::style::Transform::ScaleX { value: factor },
+            ScaleAxis::Y => crate::style::Transform::ScaleY { value: factor },
+        });
         return true;
     }
 
@@ -1209,7 +1236,20 @@ fn apply_shadow_value_rule(
         }
         match target {
             ShadowValueTarget::Box => {
-                if let Some(shadow) = parse_box_shadow_value(segment) {
+                // CSS allows a leading `inset` keyword per comma-separated
+                // layer (`shadow-[0_10px_0_red,inset_0_0_12px_blue]`); route
+                // those layers into the inset list instead of failing length
+                // parse on the stray keyword.
+                let (is_inset, segment) = match segment.strip_prefix("inset ") {
+                    Some(rest) => (true, rest.trim_start()),
+                    None => (false, segment),
+                };
+                if is_inset {
+                    if let Some(shadow) = parse_inset_shadow_value(segment) {
+                        style.inset_shadow.push(shadow);
+                        parsed_any = true;
+                    }
+                } else if let Some(shadow) = parse_box_shadow_value(segment) {
                     style.box_shadow.push(shadow);
                     parsed_any = true;
                 }
@@ -1320,9 +1360,22 @@ fn parse_text_shadows(value: &str) -> Option<Vec<crate::style::TextShadow>> {
     }
 }
 
-/// Parse a single text-shadow segment: `dx dy blur? color` (Tailwind `_`-encoded).
-fn parse_single_text_shadow(value: &str) -> Option<crate::style::TextShadow> {
+/// Parse a `-webkit-text-stroke` value: `<width>px <color>` (Tailwind `_`-encoded).
+fn parse_text_stroke(value: &str) -> Option<crate::style::TextStroke> {
     let tokens = split_shadow_tokens(value);
+    let (length_tokens, color) = split_shadow_tokens_and_color(tokens)?;
+    let color = color.unwrap_or(ColorToken::Black);
+    match length_tokens.as_slice() {
+        [width] => Some(crate::style::TextStroke {
+            width: parse_shadow_length(width)?,
+            color,
+        }),
+        _ => None,
+    }
+}
+
+/// Parse a single text-shadow segment: `dx dy blur? color` (Tailwind `_`-encoded).
+fn parse_single_text_shadow(value: &str) -> Option<crate::style::TextShadow> {    let tokens = split_shadow_tokens(value);
     let (length_tokens, color) = split_shadow_tokens_and_color(tokens)?;
     let color = color.unwrap_or(ColorToken::Custom(0, 0, 0, 255));
     match length_tokens.as_slice() {
@@ -1943,8 +1996,74 @@ fn parse_directional_border_width(class: &str, style: &mut NodeStyle) -> bool {
             setter(style, n);
             return true;
         }
+        // `border-l-[#ef00e4]` — directional border color. The engine keeps a
+        // single `border_color`; sides without a declared width paint nothing,
+        // so routing the color into the shared slot matches per-side semantics
+        // whenever the width was declared in the same class list.
+        if apply_bracket_hex_color_rule(rest, "[", ColorTarget::Border, style) {
+            return true;
+        }
     }
     false
+}
+
+/// `rotate-45` / `-rotate-45` / `rotate-[7deg]` / `rotate-[-2deg]`.
+/// Bare numeric utilities are degrees; bracket values carry an angle unit
+/// (`deg`/`grad`/`rad`/`turn`, bare bracket numbers fall back to degrees).
+/// Returns degrees; `None` when the class is not a rotate utility.
+fn parse_rotate_class(class: &str) -> Option<f32> {
+    let (leading_minus, rest) = match class.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, class),
+    };
+    let raw = rest.strip_prefix("rotate-")?;
+    let deg = if let Some(inner) = raw.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+        if let Some(v) = inner.strip_suffix("deg") {
+            v.parse::<f32>().ok()?
+        } else if let Some(v) = inner.strip_suffix("grad") {
+            v.parse::<f32>().ok()? * 0.9
+        } else if let Some(v) = inner.strip_suffix("rad") {
+            v.parse::<f32>().ok()?.to_degrees()
+        } else if let Some(v) = inner.strip_suffix("turn") {
+            v.parse::<f32>().ok()? * 360.0
+        } else {
+            inner.parse::<f32>().ok()?
+        }
+    } else {
+        raw.parse::<f32>().ok()?
+    };
+    Some(if leading_minus { -deg } else { deg })
+}
+
+#[derive(Clone, Copy)]
+enum ScaleAxis {
+    Both,
+    X,
+    Y,
+}
+
+/// `scale-125` / `scale-[1.22]` / `scale-x-105` / `scale-y-[0.8]`.
+/// Bare numeric utilities follow Tailwind's percentage scale (`125` → 1.25);
+/// bracket values are literal factors (a trailing `%` divides by 100).
+fn parse_scale_class(class: &str) -> Option<(ScaleAxis, f32)> {
+    let raw = class.strip_prefix("scale-")?;
+    let (axis, raw) = match raw.strip_prefix("x-") {
+        Some(rest) => (ScaleAxis::X, rest),
+        None => match raw.strip_prefix("y-") {
+            Some(rest) => (ScaleAxis::Y, rest),
+            None => (ScaleAxis::Both, raw),
+        },
+    };
+    let factor = if let Some(inner) = raw.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+        let percent = inner.strip_suffix('%').and_then(|v| v.parse::<f32>().ok());
+        match percent {
+            Some(p) => p / 100.0,
+            None => inner.parse::<f32>().ok()?,
+        }
+    } else {
+        raw.parse::<f32>().ok()? / 100.0
+    };
+    Some((axis, factor))
 }
 
 fn parse_grid_line_value(value: &str) -> Option<i16> {
@@ -2392,6 +2511,21 @@ mod tests {
     }
 
     #[test]
+    fn parses_webkit_text_stroke_arbitrary() {
+        let style = parse_class_name("[-webkit-text-stroke:8px_rgba(10,10,10,0.92)]");
+        let stroke = style.text_stroke.expect("text stroke should parse");
+        assert!((stroke.width - 8.0).abs() < f32::EPSILON);
+        assert_eq!(stroke.color, ColorToken::Custom(10, 10, 10, 235));
+        // hex color variant
+        let style = parse_class_name("[-webkit-text-stroke:3px_#0a0a0a]");
+        let stroke = style.text_stroke.expect("hex text stroke should parse");
+        assert!((stroke.width - 3.0).abs() < f32::EPSILON);
+        assert_eq!(stroke.color, ColorToken::Custom(10, 10, 10, 255));
+        // absence stays None
+        assert!(parse_class_name("text-[#ffffff]").text_stroke.is_none());
+    }
+
+    #[test]
     fn parses_multi_layer_box_shadow() {
         let style = parse_class_name("shadow-[0_0_20px_#00ff88,0_0_50px_#00ff8860]");
         assert_eq!(style.box_shadow.len(), 2);
@@ -2782,6 +2916,85 @@ mod tests {
         );
         assert_eq!(style.background_layers.len(), 1);
         assert_eq!(style.bg_color, Some(crate::style::ColorToken::Custom(1, 1, 1, 255)));
+    }
+
+    #[test]
+    fn parses_rotate_utilities() {
+        let deg = |c: &str| {
+            parse_class_name(c)
+                .transforms
+                .iter()
+                .find_map(|t| match t {
+                    crate::style::Transform::RotateDeg { value } => Some(*value),
+                    _ => None,
+                })
+        };
+        assert_eq!(deg("rotate-45"), Some(45.0));
+        assert_eq!(deg("-rotate-12"), Some(-12.0));
+        assert_eq!(deg("rotate-[7deg]"), Some(7.0));
+        // 括号内的负号即语义负值（leading minus 与括号内负号不叠乘）。
+        assert_eq!(deg("rotate-[-2deg]"), Some(-2.0));
+        assert_eq!(deg("rotate-[0.5turn]"), Some(180.0));
+        assert_eq!(deg("rotate-[200grad]"), Some(180.0));
+        assert_eq!(deg("rotate-[3.1415926rad]"), Some(180.0));
+        assert_eq!(deg("rotate-[45]"), Some(45.0));
+        // 非 rotate 的类不产生旋转。
+        assert_eq!(deg("hue-rotate-90"), None);
+    }
+
+    #[test]
+    fn parses_scale_utilities() {
+        let scales = |c: &str| parse_class_name(c).transforms.clone();
+        let uniform = scales("scale-[1.22]");
+        assert!(matches!(
+            uniform.as_slice(),
+            [crate::style::Transform::Scale { value }] if value.eq(&1.22)
+        ));
+        let pct = scales("scale-125");
+        assert!(matches!(
+            pct.as_slice(),
+            [crate::style::Transform::Scale { value }] if value.eq(&1.25)
+        ));
+        let sx = scales("scale-x-105");
+        assert!(matches!(
+            sx.as_slice(),
+            [crate::style::Transform::ScaleX { value }] if value.eq(&1.05)
+        ));
+        let sy = scales("scale-y-[0.8]");
+        assert!(matches!(
+            sy.as_slice(),
+            [crate::style::Transform::ScaleY { value }] if value.eq(&0.8)
+        ));
+    }
+
+    #[test]
+    fn parses_directional_border_color() {
+        // 参考用的 `border-l-[11px] border-l-[#ef00e4]`：宽度 + 方向色。
+        let style = parse_class_name("border-l-[11px] border-l-[#ef00e4]");
+        assert_eq!(style.border_left_width, Some(11.0));
+        assert_eq!(
+            style.border_color,
+            Some(crate::style::ColorToken::Custom(0xef, 0x00, 0xe4, 255))
+        );
+        // 方向宽度类不受颜色分支影响。
+        let style = parse_class_name("border-b-[1px]");
+        assert_eq!(style.border_bottom_width, Some(1.0));
+    }
+
+    #[test]
+    fn parses_leading_inset_keyword_in_shadow_layers() {
+        // CSS 允许每层带前导 `inset` 关键字（frame-md-launch-storyboard 的
+        // 玻璃高光：`shadow-[0_10px_0_red,inset_-15px_-19px_29px_blue,inset_14px_14px_25px_white]`）。
+        let style = parse_class_name(
+            "shadow-[0_10px_0_rgba(10,10,10,0.1),inset_-15px_-19px_29px_rgba(0,0,0,0.13),inset_14px_14px_25px_rgba(255,255,255,0.36)]",
+        );
+        assert_eq!(style.box_shadow.len(), 1);
+        assert_eq!(style.inset_shadow.len(), 2);
+        // 单层 inset spread 形式（`inset_0_0_0_1px_…`）同样成立。
+        let style = parse_class_name("shadow-[inset_0_0_0_1px_rgba(255,255,255,0.55)]");
+        assert!(style.box_shadow.is_empty());
+        assert_eq!(style.inset_shadow.len(), 1);
+        assert_eq!(style.inset_shadow[0].spread, 1.0);
     }
 
     #[test]

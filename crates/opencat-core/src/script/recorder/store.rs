@@ -9,8 +9,8 @@ use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, pars
 use crate::script::animate::morph_svg::MorphSvgEntry;
 use crate::script::animate::path_measure::PathMeasureEntry;
 use crate::script::mutations::{
-    CanvasMutations, NodeStyleMutations, StyleMutations, TextUnitGranularity, TextUnitOverride,
-    TextUnitOverrideBatch,
+    CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations, TextUnitGranularity,
+    TextUnitOverride, TextUnitOverrideBatch,
 };
 use crate::script::{
     align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
@@ -400,12 +400,17 @@ impl MutationStore {
             "opacity" => {
                 entry.opacity = value.as_f64().map(|v| v as f32);
             }
-            "translateX" => {
+            // GSAP names (`x`/`y`) accepted too: the imperative `getNode(id).x(v)`
+            // proxy forwards the raw property name, while the timeline property
+            // registry normalizes `x`→`translateX` before writing. Accept both so
+            // imperative and tween writes share one mapping (previously `x`/`y`
+            // fell through the match and were silently dropped).
+            "x" | "translateX" => {
                 if let Some(v) = value.as_f64() {
                     entry.push_transform(Transform::TranslateX { value: v as f32 });
                 }
             }
-            "translateY" => {
+            "y" | "translateY" => {
                 if let Some(v) = value.as_f64() {
                     entry.push_transform(Transform::TranslateY { value: v as f32 });
                 }
@@ -428,6 +433,23 @@ impl MutationStore {
             "rotate" | "rotation" => {
                 if let Some(v) = value.as_f64() {
                     entry.push_transform(Transform::RotateDeg { value: v as f32 });
+                }
+            }
+            // GSAP 3D: `rotationX`/`rotationY`/`transformPerspective` fold into
+            // one projective transform (see `Transform::Rotate3`).
+            "rotationX" | "rotateX" => {
+                if let Some(v) = value.as_f64() {
+                    entry.write_rotate3_field(crate::script::mutations::Rotate3Field::RotationX, v as f32);
+                }
+            }
+            "rotationY" | "rotateY" => {
+                if let Some(v) = value.as_f64() {
+                    entry.write_rotate3_field(crate::script::mutations::Rotate3Field::RotationY, v as f32);
+                }
+            }
+            "transformPerspective" => {
+                if let Some(v) = value.as_f64() {
+                    entry.write_rotate3_field(crate::script::mutations::Rotate3Field::Perspective, v as f32);
                 }
             }
             "skewX" => {
@@ -903,6 +925,11 @@ impl MutationRecorder for MutationStore {
     }
     fn record_rotate(&mut self, id: &str, deg: f32) {
         self.entry(id).push_transform(Transform::RotateDeg { value: deg });
+    }
+    fn record_rotate3(&mut self, id: &str, rotation_x: f32, rotation_y: f32, perspective: f32) {
+        self.entry(id).write_rotate3_field(Rotate3Field::RotationX, rotation_x);
+        self.entry(id).write_rotate3_field(Rotate3Field::RotationY, rotation_y);
+        self.entry(id).write_rotate3_field(Rotate3Field::Perspective, perspective);
     }
     fn record_skew_x(&mut self, id: &str, deg: f32) {
         self.entry(id).push_transform(Transform::SkewXDeg { value: deg });

@@ -326,28 +326,42 @@
                 line.maskScale = num(props.maskScale);
                 break;
             case 'image':
+                assignSource(line, props);
+                break;
             case 'video':
                 assignSource(line, props);
-                if (el.tag === 'video') {
-                    // Media window + YUV→RGB matrix override, mirroring the
-                    // markup `data-*` attributes on <video>. Undefined values
-                    // drop out at JSON.stringify, keeping legacy lines minimal.
-                    line.dataStart = num(props.dataStart);
-                    line.dataDuration = num(props.dataDuration);
-                    line.dataMediaStart = num(props.dataMediaStart);
-                    if (props.dataColorMatrix !== undefined && props.dataColorMatrix !== null) {
-                        line.dataColorMatrix = String(props.dataColorMatrix);
-                    }
-                    if (props.loop !== undefined && props.loop !== null) {
-                        line.loop = props.loop === true || props.loop === 'true';
-                    }
+                // Media window, timing and YUV→RGB matrix override, mirroring
+                // the markup `data-*` attributes on <video>. Both the kebab-case
+                // markup spelling and the camelCase JSX spelling are accepted on
+                // input; emitted lines always carry the kebab-case keys (the
+                // JSONL parser aliases the camelCase spellings). Numeric props
+                // go through num() so string attributes arrive as numbers.
+                var vStart = props['data-start'] !== undefined && props['data-start'] !== null ? props['data-start'] : props.dataStart;
+                if (vStart !== undefined && vStart !== null) line['data-start'] = num(vStart);
+                var vDur = props['data-duration'] !== undefined && props['data-duration'] !== null ? props['data-duration'] : props.dataDuration;
+                if (vDur !== undefined && vDur !== null) line['data-duration'] = num(vDur);
+                var vMedia = props['data-media-start'] !== undefined && props['data-media-start'] !== null ? props['data-media-start'] : props.dataMediaStart;
+                if (vMedia !== undefined && vMedia !== null) line['data-media-start'] = num(vMedia);
+                var vMatrix = props['data-color-matrix'] !== undefined && props['data-color-matrix'] !== null ? props['data-color-matrix'] : props.dataColorMatrix;
+                if (vMatrix !== undefined && vMatrix !== null) line['data-color-matrix'] = String(vMatrix);
+                var vHide = props['data-hide-after-end'] !== undefined && props['data-hide-after-end'] !== null ? props['data-hide-after-end'] : props.dataHideAfterEnd;
+                if (vHide !== undefined && vHide !== null) line['data-hide-after-end'] = vHide === true || vHide === 'true';
+                if (props.loop !== undefined && props.loop !== null) {
+                    line.loop = props.loop === true || props.loop === 'true';
                 }
                 break;
             case 'caption':
                 line.path = String(props.src || props.path);
                 break;
             case 'audio':
+                // jsonl Audio accepts path/url (parse/jsonl/mod.rs Audio) — the
+                // JSX frontend must resolve the source the same way video/image
+                // do, otherwise every JSX audio is silently sourceless.
+                assignSource(line, props);
                 line.attach = String(props.attach || parentId);
+                if (props.duration !== undefined && props.duration !== null) {
+                    line.duration = num(props.duration);
+                }
                 break;
             default:
                 break;

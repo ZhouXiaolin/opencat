@@ -69,6 +69,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 0.4,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 0.2,
                 timeline_duration_secs: None,
                 media_start_secs: 0.0,

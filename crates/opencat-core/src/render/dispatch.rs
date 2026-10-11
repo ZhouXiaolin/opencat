@@ -286,12 +286,14 @@ pub(crate) fn save_composite_layer(
                 bounds: Some(bounds_rect4),
                 paint: Some(paint_id),
                 alpha: opacity,
+                backdrop: false,
             });
         } else {
             builder.push(DrawOp::SaveLayer {
                 bounds: Some(bounds_rect4),
                 paint: None,
                 alpha: opacity,
+                backdrop: false,
             });
         }
     }
@@ -403,6 +405,16 @@ fn hash_transform(transform: &Transform, hasher: &mut impl Hasher) {
             9_u8.hash(hasher);
             x.to_bits().hash(hasher);
             y.to_bits().hash(hasher);
+        }
+        Transform::Rotate3 {
+            rotation_x,
+            rotation_y,
+            perspective,
+        } => {
+            10_u8.hash(hasher);
+            rotation_x.to_bits().hash(hasher);
+            rotation_y.to_bits().hash(hasher);
+            perspective.to_bits().hash(hasher);
         }
     }
 }
@@ -839,6 +851,7 @@ fn render_transition_composite(
                 bounds: Some(bounds_rect4),
                 paint: None,
                 alpha: progress,
+                backdrop: false,
             });
             ctx.builder.push(DrawOp::ReplayRange { range: to_range });
             ctx.builder.push(DrawOp::Restore);
@@ -945,6 +958,7 @@ fn render_transition_composite(
                 bounds: Some(bounds_rect4),
                 paint: None,
                 alpha: progress,
+                backdrop: false,
             });
             ctx.builder.push(DrawOp::ReplayRange { range: to_range });
             ctx.builder.push(DrawOp::Restore);
@@ -1136,6 +1150,46 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
                     y: -center_y,
                 });
             }
+            Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            } => {
+                // GSAP `rotationX`/`rotationY` + `transformPerspective`: GSAP does
+                // NOT emit the CSS chain `perspective(P) rotateX(rx) rotateY(ry)`
+                // — it composes its own matrix3d in which the point hits
+                // rotateX FIRST (M = P·Ry·Rx, the transpose-order of the CSS
+                // list). Verified against the reference render: with rx=6/ry=-7
+                // the two orders diverge by ~5px at ±400px from the pivot, and
+                // the reference raster matches Ry·Rx. On the z=0 plane that is
+                // ONE projective homography:
+                //   X' = ( cos_ry·x + sin_rx·sin_ry·y )  / w
+                //   Y' = ( cos_rx·y )                    / w
+                //   w  = 1 + (sin_ry·x − cos_ry·sin_rx·y) / P
+                // Emitted as a single column-major `DrawOp::Concat` about the
+                // node's transform-origin (the pivot keeps z=0, so the planar
+                // homography stays exact).
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
+                let sin_rx = rotation_x.to_radians().sin();
+                let cos_rx = rotation_x.to_radians().cos();
+                let sin_ry = rotation_y.to_radians().sin();
+                let cos_ry = rotation_y.to_radians().cos();
+                let inv_p = if perspective > 0.0 { 1.0 / perspective } else { 0.0 };
+                builder.push(DrawOp::Concat {
+                    matrix: [
+                        cos_ry, sin_rx * sin_ry, sin_ry * inv_p, // column 0 (a, d, g)
+                        0.0, cos_rx, -cos_ry * sin_rx * inv_p, // column 1 (b, e, h)
+                        0.0, 0.0, 1.0, // column 2 (c, f, i)
+                    ],
+                });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
+            }
         }
     }
 }
@@ -1308,6 +1362,7 @@ mod tests {
                 bounds: Some(display_rect_to_rect4(bounds)),
                 paint: None,
                 alpha: 0.5,
+                backdrop: false,
             }
         );
         assert_eq!(ops[6], DrawOp::BeginPath);
@@ -1346,6 +1401,7 @@ mod tests {
             bounds: Some(layer_bounds),
             paint: Some(paint_id),
             alpha,
+            ..
         } = ops[2]
         else {
             panic!("expected CSS filter SaveLayer, got {:?}", ops[2]);
@@ -1395,6 +1451,7 @@ mod tests {
                 bounds: Some(display_rect_to_rect4(bounds)),
                 paint: None,
                 alpha: 0.75,
+                backdrop: false,
             }
         );
         assert_eq!(ops[3], DrawOp::BeginPath);

@@ -1159,12 +1159,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // ===================================================================
         // SaveLayer — fixed 25-byte payload
         //   [u8 flags] [4xf32 bounds] [u32 paint_id] [f32 alpha]
-        //   flags: bit 0 = has_bounds, bit 1 = has_paint
+        //   flags: bit 0 = has_bounds, bit 1 = has_paint, bit 2 = backdrop
         // ===================================================================
         DrawOp::SaveLayer {
             bounds,
             paint,
             alpha,
+            backdrop,
         } => {
             write_op_header(buf, opcode::SAVE_LAYER);
             let mut flags: u8 = 0;
@@ -1173,6 +1174,9 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             }
             if paint.is_some() {
                 flags |= 0b10;
+            }
+            if *backdrop {
+                flags |= 0b100;
             }
             write_u8(buf, flags);
             if let Some(b) = bounds {
@@ -1794,6 +1798,7 @@ mod tests {
             }),
             paint: Some(PaintId(0)),
             alpha: 0.5,
+            backdrop: false,
         });
 
         // Transforms
@@ -2211,6 +2216,7 @@ mod tests {
             bounds: None,
             paint: None,
             alpha: 1.0,
+            backdrop: false,
         });
         let frame = builder.finish();
         let mut scratch = DrawFrameScratch::default();

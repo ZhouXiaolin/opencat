@@ -293,12 +293,19 @@
                 // (e.g. act1's flash at 12.16 in a 12.0s comp), shifting all
                 // keyframes by a frame or more.
                 var scale = 1;
+                // GSAP treats a playhead exactly at a tween's start as "started".
+                // `base + start` and `frame/fps` round to different doubles at
+                // frame-aligned positions (11.8+0.8 = 12.600000000000001 vs
+                // 378/30 = 12.5999999999999996), which postponed every
+                // frame-aligned cut by a full frame. 1ns is far below half a
+                // frame and only flips those float-ULP boundaries.
+                var EPS = 1e-9;
 
                 for (var i = 0; i < state.items.length; i++) {
                     var item = state.items[i];
                     if (item.kind === 'set') {
                         var setStart = (baseDelay + item.start) * scale;
-                        if (Number(ctx.currentTime || 0) >= setStart) {
+                        if (Number(ctx.currentTime || 0) + EPS >= setStart) {
                             applySet(item.targets, item.vars || {});
                             var setTracks = collectTweenTracks({}, item.vars || {}, {});
                             var setTargets = core.normalizeTargets(item.targets);
@@ -316,7 +323,7 @@
                         baseDelay + item.start
                     );
                     var timing = scaledTiming(baseTiming, scale);
-                    if (Number(ctx.currentTime || 0) < Number(timing.delay || 0)) {
+                    if (Number(ctx.currentTime || 0) + EPS < Number(timing.delay || 0)) {
                         if (item.kind === 'from' || item.kind === 'fromTo') {
                             applyInitialValues(item.targets, item.fromVars);
                         }

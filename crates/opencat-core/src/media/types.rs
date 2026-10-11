@@ -48,6 +48,12 @@ pub struct VideoFrameTiming {
     /// Author-asserted YUV→RGB matrix override for this asset (see
     /// [`VideoColorMatrix`]). `None` = automatic (stream metadata).
     pub color_matrix: Option<VideoColorMatrix>,
+    /// Opt-in HyperFrames removal semantics: when true the video subtree leaves
+    /// the tree once its timeline window closes. Default false keeps the
+    /// historical contract — `data-duration` clamps media time only and the
+    /// node keeps holding its last frame.
+    #[serde(default)]
+    pub hide_after_end: bool,
 }
 
 impl std::hash::Hash for VideoFrameTiming {
@@ -58,6 +64,7 @@ impl std::hash::Hash for VideoFrameTiming {
         self.playback_rate.to_bits().hash(state);
         self.looping.hash(state);
         self.color_matrix.hash(state);
+        self.hide_after_end.hash(state);
     }
 }
 
@@ -70,6 +77,7 @@ impl Default for VideoFrameTiming {
             playback_rate: 1.0,
             looping: false,
             color_matrix: None,
+            hide_after_end: false,
         }
     }
 }
@@ -120,8 +128,23 @@ impl VideoFrameRequest {
         }
     }
 
+    /// A video is on screen during its timeline window: from `timeline_start_secs`
+    /// until `timeline_start_secs + timeline_duration_secs` when a duration is
+    /// declared (HyperFrames `data-start`/`data-duration` semantics — the element
+    /// is removed from the tree once its window closes). Without a declared
+    /// duration the video stays visible from its start onward, matching the
+    /// historical hold-last-frame behaviour.
     pub fn is_visible(&self) -> bool {
-        self.composition_time_secs + 1e-9 >= self.timing.timeline_start_secs
+        let t = self.composition_time_secs + 1e-9;
+        if t < self.timing.timeline_start_secs {
+            return false;
+        }
+        match self.timing.timeline_duration_secs {
+            Some(duration_secs) if duration_secs > 0.0 && self.timing.hide_after_end => {
+                t < self.timing.timeline_start_secs + duration_secs
+            }
+            _ => true,
+        }
     }
 
     /// Diagnostic helper only — never put the result in FrameMediaPlan.
@@ -168,6 +191,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 2.0,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 0.0,
                 timeline_duration_secs: None,
                 media_start_secs: 1.5,
@@ -186,6 +210,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 6.0,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 0.0,
                 timeline_duration_secs: None,
                 media_start_secs: 1.0,
@@ -203,6 +228,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 8.0,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 3.0,
                 timeline_duration_secs: Some(3.0),
                 media_start_secs: 2.0,
@@ -220,6 +246,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 5.5,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 3.0,
                 timeline_duration_secs: Some(18.0),
                 media_start_secs: 12.0,
@@ -237,6 +264,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 5.5,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 0.0,
                 timeline_duration_secs: Some(10.0),
                 media_start_secs: 2.0,
@@ -254,6 +282,7 @@ mod tests {
         let request = VideoFrameRequest {
             composition_time_secs: 2.999,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 3.0,
                 timeline_duration_secs: Some(18.0),
                 media_start_secs: 12.0,
@@ -267,10 +296,73 @@ mod tests {
     }
 
     #[test]
+    fn video_frame_request_reports_invisible_after_timeline_window() {
+        // By default `data-duration` clamps media time only: the element keeps
+        // holding its last frame after the window closes (existing contract)…
+        let holding = VideoFrameRequest {
+            composition_time_secs: 21.0001,
+            timing: VideoFrameTiming {
+            hide_after_end: false,
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: Some(18.0),
+                media_start_secs: 12.0,
+                playback_rate: 1.0,
+                looping: false,
+                color_matrix: None,
+            },
+        };
+        assert!(holding.is_visible());
+
+        // …but with `data-hide-after-end` it leaves the tree at start+duration
+        // (half-open window: the first frame at/after start+duration is out).
+        let mut timing = VideoFrameTiming {
+            timeline_start_secs: 3.0,
+            timeline_duration_secs: Some(18.0),
+            media_start_secs: 12.0,
+            playback_rate: 1.0,
+            looping: false,
+            color_matrix: None,
+            hide_after_end: false,
+        };
+        timing.hide_after_end = true;
+        let leaving = VideoFrameRequest {
+            composition_time_secs: 20.9999,
+            timing,
+        };
+        assert!(leaving.is_visible());
+        let timing = VideoFrameTiming {
+            hide_after_end: true,
+            ..timing
+        };
+        let left = VideoFrameRequest {
+            composition_time_secs: 21.0,
+            timing,
+        };
+        assert!(!left.is_visible());
+
+        // …but without a duration it holds from its start onward (historical
+        // behaviour: keep showing the last frame).
+        let open_ended = VideoFrameRequest {
+            composition_time_secs: 999.0,
+            timing: VideoFrameTiming {
+            hide_after_end: false,
+                timeline_start_secs: 3.0,
+                timeline_duration_secs: None,
+                media_start_secs: 12.0,
+                playback_rate: 1.0,
+                looping: false,
+                color_matrix: None,
+            },
+        };
+        assert!(open_ended.is_visible());
+    }
+
+    #[test]
     fn video_frame_request_resolves_last_epoch_after_timeline_duration() {
         let request = VideoFrameRequest {
             composition_time_secs: 22.0,
             timing: VideoFrameTiming {
+            hide_after_end: false,
                 timeline_start_secs: 3.0,
                 timeline_duration_secs: Some(18.0),
                 media_start_secs: 12.0,

@@ -59,6 +59,80 @@ pub enum Easing {
     SineIn,
     SineOut,
     SineInOut,
+    /// GSAP `CustomEase`-style sampled curve — `u32` is an index into the
+    /// process-global table registry (`register_ease_table`). The tag form is
+    /// `points:<name>`; the JS side registers the sampled points once per
+    /// frame (idempotent by name) and references them by tag.
+    Samples(u32),
+}
+
+/// Process-global registry of sampled ease tables (`points:<name>` tags).
+/// Registration replaces by name, so re-registering the same table every
+/// frame (JS module state resets per frame) is idempotent.
+static EASE_TABLES: std::sync::OnceLock<std::sync::Mutex<EaseTableStore>> = std::sync::OnceLock::new();
+
+#[derive(Default)]
+struct EaseTableStore {
+    index: std::collections::HashMap<String, u32>,
+    tables: Vec<Vec<f32>>,
+}
+
+fn ease_tables() -> &'static std::sync::Mutex<EaseTableStore> {
+    EASE_TABLES.get_or_init(|| std::sync::Mutex::new(EaseTableStore::default()))
+}
+
+/// Register (or replace) a named sampled ease table; returns its table index.
+/// Fewer than 2 points degenerate to linear at sample time.
+pub fn register_ease_table(name: &str, points: &[f32]) -> u32 {
+    let mut store = ease_tables().lock().expect("ease table lock");
+    let cleaned: Vec<f32> = points
+        .iter()
+        .filter(|v| v.is_finite())
+        .copied()
+        .collect();
+    if let Some(slot) = store.index.get(name).copied() {
+        store.tables[slot as usize] = cleaned;
+        return slot;
+    }
+    let slot = store.tables.len() as u32;
+    store.tables.push(cleaned);
+    store.index.insert(name.to_string(), slot);
+    slot
+}
+
+/// Look up a table index by name, registering an empty (linear) slot on
+/// first sight so parse-side tags resolve before the JS registration lands.
+fn ease_table_index(name: &str) -> u32 {
+    let mut store = ease_tables().lock().expect("ease table lock");
+    if let Some(slot) = store.index.get(name).copied() {
+        return slot;
+    }
+    let slot = store.tables.len() as u32;
+    store.tables.push(Vec::new());
+    store.index.insert(name.to_string(), slot);
+    slot
+}
+
+/// GSAP `CustomEase` sampling semantics over a dense uniform table:
+/// piecewise-linear interpolation between consecutive samples, clamped at
+/// both ends. An empty or single-point table is linear.
+fn sample_ease_table(slot: u32, t: f32) -> f32 {
+    let store = ease_tables().lock().expect("ease table lock");
+    let Some(points) = store.tables.get(slot as usize) else {
+        return t;
+    };
+    let n = points.len();
+    if n == 0 {
+        return t;
+    }
+    if n == 1 {
+        return points[0];
+    }
+    let tc = t.clamp(0.0, 1.0);
+    let p = tc * (n - 1) as f32;
+    let i = (p as usize).min(n - 2);
+    let frac = p - i as f32;
+    points[i] + (points[i + 1] - points[i]) * frac
 }
 
 impl Easing {
@@ -177,6 +251,7 @@ impl Easing {
             Easing::SineIn => 1.0 - (t * std::f32::consts::PI / 2.0).cos(),
             Easing::SineOut => (t * std::f32::consts::PI / 2.0).sin(),
             Easing::SineInOut => -((std::f32::consts::PI * t).cos() - 1.0) / 2.0,
+            Easing::Samples(slot) => sample_ease_table(*slot, t),
         }
     }
 
@@ -552,6 +627,7 @@ pub fn easing_from_name(name: &str) -> Option<Easing> {
         "spring-slow" | "spring_slow" => Some(presets::SPRING_SLOW),
         "spring-wobbly" | "spring_wobbly" => Some(presets::SPRING_WOBBLY),
         s if s.starts_with("bezier:") => parse_bezier(&s[7..]),
+        s if s.starts_with("points:") => Some(Easing::Samples(ease_table_index(&s[7..]))),
         // GSAP-style power easings
         "power1.in" => Some(Easing::Power1In),
         "power1.out" => Some(Easing::Power1Out),

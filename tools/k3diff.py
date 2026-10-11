@@ -105,8 +105,9 @@ def main():
         if m.any():
             ys, xs = np.where(m)
             rec["bbox"] = [int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())]
-            # coarse per-cell error to localize
-            grid = dm.reshape(gh, ch, gw, cw).mean((1, 3))
+            # coarse per-cell error to localize (crop to the grid multiple:
+            # dimensions not divisible by the 16x9 grid would otherwise crash)
+            grid = dm[: gh * ch, : gw * cw].reshape(gh, ch, gw, cw).mean((1, 3))
             rec["grid_max_cell"] = [int(grid.argmax() % gw), int(grid.argmax() // gw)]
         else:
             rec["bbox"] = None

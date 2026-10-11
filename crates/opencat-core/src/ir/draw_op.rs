@@ -167,11 +167,14 @@ pub enum DrawOp {
     Save,
 
     /// Push a save point and create a transparent layer with optional bounds,
-    /// paint filter, and alpha.
+    /// paint filter, and alpha. When `backdrop` is set, the paint's image
+    /// filter applies to what is ALREADY on the canvas (CSS `backdrop-filter`
+    /// semantics) instead of to the layer's own content.
     SaveLayer {
         bounds: Option<Rect4>,
         paint: Option<PaintId>,
         alpha: f32,
+        backdrop: bool,
     },
 
     /// CSS `backdrop-filter` layer: `paint`'s image filter applies to the
@@ -440,11 +443,13 @@ impl std::hash::Hash for DrawOp {
                 bounds,
                 paint,
                 alpha,
+                backdrop,
             } => {
                 1_u8.hash(state);
                 bounds.hash(state);
                 paint.hash(state);
                 alpha.to_bits().hash(state);
+                backdrop.hash(state);
             }
             DrawOp::SaveBackdropLayer { bounds, paint } => {
                 49_u8.hash(state);

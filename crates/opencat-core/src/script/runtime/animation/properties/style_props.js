@@ -136,6 +136,34 @@
     animation.registerProperty('scaleX', makeStyleProperty('scaleX', 'scaleX', 1));
     animation.registerProperty('scaleY', makeStyleProperty('scaleY', 'scaleY', 1));
     animation.registerProperty('rotation', copyOwn(makeStyleProperty('rotate', 'rotation', 0), { aliases: ['rotate'] }));
+    // GSAP 3D: rotationX/rotationY tween like numbers; transformPerspective is a
+    // snapped (non-interpolated) sibling that GSAP applies in full on every
+    // write. All three fold into one projective transform on the Rust side
+    // (`Transform::Rotate3`), so the node channel exposes them as plain writes.
+    animation.registerProperty('rotationX', copyOwn(makeStyleProperty('rotationX', 'rotationX', 0), { aliases: ['rotateX'] }));
+    animation.registerProperty('rotationY', copyOwn(makeStyleProperty('rotationY', 'rotationY', 0), { aliases: ['rotateY'] }));
+    // GSAP applies transformPerspective in full on every write (never
+    // interpolated) and the node channel stores it as a plain number —
+    // NOT the string/array payload `transformOrigin` accepts.
+    animation.registerProperty('transformPerspective', {
+        defaultValue: null,
+        interpolate: function(from, to, progress) {
+            if (to == null) return from;
+            return to;
+        },
+        apply: function(target, value) {
+            if (value == null) return;
+            if (target.node) {
+                target.node.transformPerspective(Number(value));
+                return;
+            }
+            if (target.set) {
+                target.set({ transformPerspective: Number(value) });
+                return;
+            }
+            throw new Error('target does not accept style property `transformPerspective`');
+        },
+    });
     animation.registerProperty('skewX', makeStyleProperty('skewX', 'skewX', 0));
     animation.registerProperty('skewY', makeStyleProperty('skewY', 'skewY', 0));
     animation.registerProperty('transformOrigin', makeOriginProperty('transformOrigin', 'transformOrigin'));
@@ -157,6 +185,7 @@
     animation.registerProperty('letterSpacing', makeStyleProperty('letterSpacing', 'letterSpacing', 0));
     animation.registerProperty('lineHeight', makeStyleProperty('lineHeight', 'lineHeight', 0));
     animation.registerProperty('backdropBlur', copyOwn(makeStyleProperty('backdropBlur', 'backdropBlur', 0), { aliases: ['backdropBlurSigma'] }));
+
     animation.registerProperty('clipPath', {
         aliases: ['clip-path'],
         defaultValue: 'inset(0% 0% 0% 0%)',

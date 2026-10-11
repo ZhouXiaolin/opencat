@@ -103,17 +103,21 @@ pub enum JsonLine {
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
-        /// Media window + matrix override, mirroring the markup `data-*`
-        /// attributes on `<video>`. All optional; absent fields keep the
-        /// legacy behaviour (window opens at 0s, auto color matrix).
-        #[serde(rename = "dataStart")]
+        /// Media window, timing and color-matrix overrides, mirroring the
+        /// markup `data-*` attributes on `<video>`. Both the kebab-case
+        /// markup spelling and the camelCase JSX spelling are accepted.
+        /// All optional; absent fields keep the legacy behaviour (window
+        /// opens at 0s, auto color matrix, node holds its last frame).
+        #[serde(rename = "data-start", alias = "dataStart")]
         data_start: Option<f64>,
-        #[serde(rename = "dataDuration")]
+        #[serde(rename = "data-duration", alias = "dataDuration")]
         data_duration: Option<f64>,
-        #[serde(rename = "dataMediaStart")]
+        #[serde(rename = "data-media-start", alias = "dataMediaStart")]
         data_media_start: Option<f64>,
-        #[serde(rename = "dataColorMatrix")]
+        #[serde(rename = "data-color-matrix", alias = "dataColorMatrix")]
         data_color_matrix: Option<String>,
+        #[serde(rename = "data-hide-after-end")]
+        hide_after_end: Option<bool>,
         #[serde(rename = "loop")]
         looping: Option<bool>,
     },
@@ -352,6 +356,7 @@ pub fn parse_with_base_dir_and_fonts(
                 data_media_start,
                 data_color_matrix,
                 looping,
+                hide_after_end,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
@@ -377,6 +382,7 @@ pub fn parse_with_base_dir_and_fonts(
                     playback_rate: 1.0,
                     looping: looping.unwrap_or(false),
                     color_matrix,
+                    hide_after_end: hide_after_end.unwrap_or(false),
                 };
                 elements.push(ParsedElement {
                     id,

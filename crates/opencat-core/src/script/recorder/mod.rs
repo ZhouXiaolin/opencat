@@ -41,6 +41,9 @@ pub trait MutationRecorder {
     fn record_scale_x(&mut self, id: &str, v: f32);
     fn record_scale_y(&mut self, id: &str, v: f32);
     fn record_rotate(&mut self, id: &str, deg: f32);
+    /// GSAP `rotationX`/`rotationY`/`transformPerspective` folded into one
+    /// projective transform (see `Transform::Rotate3`).
+    fn record_rotate3(&mut self, id: &str, rotation_x: f32, rotation_y: f32, perspective: f32);
     fn record_skew_x(&mut self, id: &str, deg: f32);
     fn record_skew_y(&mut self, id: &str, deg: f32);
     fn record_skew(&mut self, id: &str, x_deg: f32, y_deg: f32);

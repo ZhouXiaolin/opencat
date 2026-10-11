@@ -265,12 +265,7 @@ mod tests {
     /// (same inputs lifecycle prepare would hand to it). Empty-byte
     /// Empty-byte catalog omits all assets — render-seam tests only, not decode.
     fn open_test_pipeline(input: &str) -> DefaultPipeline<NoopJsContext> {
-        let trimmed = input.trim();
-        let parsed = if trimmed.starts_with('{') {
-            crate::parse::jsonl::parse(input).expect("parse input")
-        } else {
-            crate::parse::markup::parse(input).expect("parse input")
-        };
+        let parsed = crate::parse::jsonl::parse(input).expect("parse input");
         let catalog = crate::probe::PreparedResourceCatalog::default();
         let font_db = crate::text::font_db_from_bytes(
             &crate::test_support::test_font_faces(),
@@ -324,13 +319,11 @@ mod tests {
 
     #[test]
     fn render_frame_video_ref_uses_media_start_time() {
-        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
-  <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
-  </div>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":4}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","className":"w-[320px] h-[180px]","path":"clip.mp4","data-start":3,"data-duration":18,"data-media-start":12}"#;
 
-        let mut pipeline = open_test_pipeline(xml);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let frame = pipeline.render_frame(90).expect("render frame 90");
 
@@ -346,13 +339,11 @@ mod tests {
     /// referenced asset with its real YUV→RGB encoding.
     #[test]
     fn render_frame_routes_color_matrix_override_into_media_plan() {
-        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
-  <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-color-matrix="bt601" />
-  </div>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":4}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","className":"w-[320px] h-[180px]","path":"clip.mp4","data-color-matrix":"bt601"}"#;
 
-        let mut pipeline = open_test_pipeline(xml);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let frame = pipeline.render_frame(0).expect("render frame 0");
 
@@ -367,13 +358,11 @@ mod tests {
     /// automatic metadata-driven decoding is the default.
     #[test]
     fn render_frame_omits_color_matrix_when_unset() {
-        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
-  <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" />
-  </div>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":4}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","className":"w-[320px] h-[180px]","path":"clip.mp4"}"#;
 
-        let mut pipeline = open_test_pipeline(xml);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let frame = pipeline.render_frame(0).expect("render frame 0");
 
@@ -382,17 +371,14 @@ mod tests {
 
     #[test]
     fn render_frame_video_timing_inside_later_scene_uses_scene_local_data_start() {
-        let xml = r#"<opencat width="320" height="180" fps="10" duration="4.1">
-  <tl id="main" class="w-[320px] h-[180px]">
-    <div id="scene-1" class="w-[320px] h-[180px]" duration="2" />
-    <transition from="scene-1" to="scene-2" effect="fade" duration="0.1" />
-    <div id="scene-2" class="w-[320px] h-[180px]" duration="2">
-      <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-start="0.5" data-duration="1.5" data-media-start="12" />
-    </div>
-  </tl>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":10,"duration":4.1}
+{"type":"tl","id":"main","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"div","id":"scene-1","parentId":"main","className":"w-[320px] h-[180px]","duration":2}
+{"type":"transition","parentId":"main","from":"scene-1","to":"scene-2","effect":"fade","duration":0.1}
+{"type":"div","id":"scene-2","parentId":"main","className":"w-[320px] h-[180px]","duration":2}
+{"type":"video","id":"vid","parentId":"scene-2","className":"w-[320px] h-[180px]","path":"clip.mp4","data-start":0.5,"data-duration":1.5,"data-media-start":12}"#;
 
-        let mut pipeline = open_test_pipeline(xml);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let before_frame = pipeline
             .render_frame(25)
@@ -453,15 +439,12 @@ mod tests {
                 .count()
         }
 
-        let xml = r#"<opencat width="320" height="180" fps="30" duration="6">
-  <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="relative w-[320px] h-[180px] bg-[#ff0000] border-[4px] border-[#00ff00] shadow-[0_8px_24px_rgba(0,0,0,0.50)]" path="clip.mp4" data-start="3" data-duration="1" data-media-start="12">
-      <div id="badge" class="absolute left-[8px] top-[8px] w-[40px] h-[24px] bg-[#0000ff]" />
-    </video>
-  </div>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":6}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","className":"relative w-[320px] h-[180px] bg-[#ff0000] border-[4px] border-[#00ff00] shadow-[0_8px_24px_rgba(0,0,0,0.50)]","path":"clip.mp4","data-start":3,"data-duration":1,"data-media-start":12}
+{"type":"div","id":"badge","parentId":"vid","className":"absolute left-[8px] top-[8px] w-[40px] h-[24px] bg-[#0000ff]"}"#;
 
-        let mut pipeline = open_test_pipeline(xml);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let before_frame = pipeline.render_frame(0).expect("render frame 0");
         assert!(
@@ -529,13 +512,11 @@ mod tests {
     /// affect the deterministic per-frame contract.
     #[test]
     fn render_frame_is_order_and_repeat_invariant() {
-        let xml = r#"<opencat width="320" height="180" fps="30" duration="4">
-  <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-start="3" data-duration="18" data-media-start="12" />
-  </div>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":4}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","className":"w-[320px] h-[180px]","path":"clip.mp4","data-start":3,"data-duration":18,"data-media-start":12}"#;
 
-        let mut pipeline = open_test_pipeline(xml);
+        let mut pipeline = open_test_pipeline(jsonl);
 
         let target = 90_u32; // well past data-start, so the video ref is active
 
@@ -609,13 +590,11 @@ mod tests {
     /// color-emoji glyphs (stable id + size + bytes).
     #[test]
     fn render_frame_generated_images_are_complete_and_deterministic() {
-        let xml = r#"<opencat width="96" height="80" fps="30" duration="0.2">
-  <div id="root" class="w-[96px] h-[80px] bg-white">
-    <text id="emoji" class="absolute left-[16px] top-[12px] w-[64px] h-[64px] text-[48px] text-black">😀</text>
-  </div>
-</opencat>"#;
+        let jsonl = r#"{"type":"composition","width":96,"height":80,"fps":30,"duration":0.2}
+{"type":"div","id":"root","parentId":null,"className":"w-[96px] h-[80px] bg-white"}
+{"type":"text","id":"emoji","parentId":"root","className":"absolute left-[16px] top-[12px] w-[64px] h-[64px] text-[48px] text-black","text":"😀"}"#;
 
-        let mut fresh = open_test_pipeline(xml);
+        let mut fresh = open_test_pipeline(jsonl);
         let baseline = fresh.render_frame(0).expect("fresh frame 0");
         assert!(
             !baseline.media.generated_images.is_empty(),
@@ -632,7 +611,7 @@ mod tests {
         }
 
         // Second independent pipeline (fresh) must match field-by-field.
-        let mut other = open_test_pipeline(xml);
+        let mut other = open_test_pipeline(jsonl);
         let other_frame = other.render_frame(0).expect("other fresh frame 0");
         assert_eq!(
             baseline.media.generated_images, other_frame.media.generated_images,
@@ -669,12 +648,10 @@ mod tests {
     fn render_frame_video_time_micros_boundary_and_repeat() {
         use crate::ir::draw_types::ImageRef;
 
-        let xml = r#"<opencat width="320" height="180" fps="30" duration="5">
-  <div id="root" class="w-[320px] h-[180px]">
-    <video id="vid" class="w-[320px] h-[180px]" path="clip.mp4" data-media-start="1.5" />
-  </div>
-</opencat>"#;
-        let mut pipeline = open_test_pipeline(xml);
+        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":5}
+{"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
+{"type":"video","id":"vid","parentId":"root","className":"w-[320px] h-[180px]","path":"clip.mp4","data-media-start":1.5}"#;
+        let mut pipeline = open_test_pipeline(jsonl);
 
         // Frame 0 → 1.5s → 1_500_000 µs
         let f0 = pipeline.render_frame(0).expect("f0");
@@ -967,11 +944,10 @@ mod tests {
     }
 
     #[test]
-    fn open_from_xml() {
-        let xml = r#"<opencat width="200" height="100" fps="30" duration="0.033333333333">
-  <div id="root" />
-</opencat>"#;
-        let pipeline = open_test_pipeline(xml);
+    fn open_from_jsonl() {
+        let jsonl = r#"{"type":"composition","width":200,"height":100,"fps":30,"duration":0.033333333333}
+{"type":"div","id":"root","parentId":null}"#;
+        let pipeline = open_test_pipeline(jsonl);
         assert_eq!(pipeline.info().width, 200);
         assert_eq!(pipeline.info().height, 100);
         assert_eq!(pipeline.info().fps, 30);

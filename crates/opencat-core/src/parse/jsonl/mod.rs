@@ -182,6 +182,17 @@ pub enum JsonLine {
         view_box: Option<String>,
         duration: Option<f64>,
     },
+    #[serde(rename = "lottie")]
+    Lottie {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className")]
+        class_name: Option<String>,
+        path: Option<String>,
+        url: Option<String>,
+        duration: Option<f64>,
+    },
 }
 
 pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
@@ -510,7 +521,8 @@ pub(crate) fn composition_from_lines(
                     line_index + 1,
                 );
                 let view_box = view_box
-                    .map(|raw| crate::parse::markup::parse_view_box_attr(&raw))
+                    .as_deref()
+                    .map(parse_view_box_attr)
                     .transpose()?;
                 elements.push(ParsedElement {
                     id,
@@ -518,6 +530,40 @@ pub(crate) fn composition_from_lines(
                     duration,
                     style,
                     kind: ParsedElementKind::Path { data: d, view_box },
+                });
+            }
+            JsonLine::Lottie {
+                id,
+                parent_id,
+                class_name,
+                path,
+                url,
+                duration,
+            } => {
+                let style = parse_class_name_with_context(
+                    class_name.as_deref().unwrap_or(""),
+                    &id,
+                    line_index + 1,
+                );
+                let source = match (path, url) {
+                    (Some(p), None) => crate::parse::primitives::LottieSource::Path(p),
+                    (None, Some(u)) => crate::parse::primitives::LottieSource::Url(u),
+                    (Some(_), Some(_)) => {
+                        anyhow::bail!("lottie `{id}`: only one of path / url");
+                    }
+                    (None, None) => {
+                        anyhow::bail!("lottie `{id}`: needs path or url");
+                    }
+                };
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Lottie {
+                        source,
+                        timing: VideoFrameTiming::default(),
+                    },
                 });
             }
         }
@@ -699,6 +745,34 @@ fn parse_image_source(
         count: query_count.unwrap_or(1).max(1),
         aspect_ratio,
     }))
+}
+
+/// Optional shared SVG view box, `"min-x,min-y,width,height"` (commas or
+/// whitespace as separators), carried by the `viewBox` line field.
+fn parse_view_box_attr(raw: &str) -> anyhow::Result<[f32; 4]> {
+    let parts: Vec<&str> = raw
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.len() != 4 {
+        anyhow::bail!(
+            "`viewBox` must be `min-x,min-y,width,height` (4 numbers, got {})",
+            parts.len()
+        );
+    }
+    let mut out = [0.0f32; 4];
+    for (slot, part) in out.iter_mut().zip(parts.iter()) {
+        *slot = part
+            .parse::<f32>()
+            .map_err(|e| anyhow::anyhow!("`viewBox`: invalid number `{part}`: {e}"))?;
+        if !slot.is_finite() {
+            anyhow::bail!("`viewBox` values must be finite");
+        }
+    }
+    if out[2] <= 0.0 || out[3] <= 0.0 {
+        anyhow::bail!("`viewBox` width and height must be positive");
+    }
+    Ok(out)
 }
 
 fn parse_audio_source(path: Option<String>, url: Option<String>) -> anyhow::Result<AudioSource> {

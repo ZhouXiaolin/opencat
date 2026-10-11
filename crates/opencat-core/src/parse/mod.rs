@@ -5,8 +5,6 @@ pub mod gl_transition;
 pub mod gradient;
 pub mod jsx;
 pub mod jsonl;
-pub mod lint;
-pub mod markup;
 pub mod node;
 pub mod preflight;
 pub mod primitives;
@@ -19,4 +17,3 @@ pub use document::{
     build_parsed_document,
 };
 pub use jsonl::parse;
-pub use markup::parse_parts_with_base_dir;

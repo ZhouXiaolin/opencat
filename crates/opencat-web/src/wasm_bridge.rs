@@ -809,15 +809,13 @@ mod tests {
         use opencat_core::lottie::LottieMeta;
         use opencat_core::script::js_context::JsContext;
 
-        let markup = r#"
-            <opencat width="32" height="32" fps="30" duration="0.1">
-              <div id="root" class="w-full h-full">
-                <lottie id="loader" path="anim/loader.json" class="w-[16px] h-[16px]" />
-              </div>
-            </opencat>
+        let jsonl = r#"
+{"type":"composition","width":32,"height":32,"fps":30,"duration":0.1}
+{"type":"div","id":"root","className":"w-full h-full"}
+{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json","className":"w-[16px] h-[16px]"}
         "#;
 
-        let draft = CompositionDraft::parse(markup).expect("parse draft");
+        let draft = CompositionDraft::parse(jsonl).expect("parse draft");
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Lottie);
         assert_eq!(req.asset_id.key, "lottie:path:anim/loader.json");

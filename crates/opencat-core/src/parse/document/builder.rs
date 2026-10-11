@@ -26,16 +26,12 @@ pub struct BuildOptions {
 
 impl BuildOptions {
     // JSONL (and therefore the JSX frontend, which lowers to JSONL lines)
-    // accepts canvas hidden picture subtrees, same as markup: the subtree is
-    // rasterized offscreen and only reachable through
+    // accepts canvas hidden picture subtrees: the subtree is rasterized
+    // offscreen and only reachable through
     // `canvas.getSubTree().makeShader(...)`. Legacy JSONL documents never
     // carried canvas children (they were a hard parse error), so widening
     // this mode cannot change any existing render.
     pub const JSONL: Self = Self {
-        canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
-    };
-
-    pub const MARKUP: Self = Self {
         canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
     };
 }
@@ -214,10 +210,6 @@ pub fn build_parsed_document(
             options,
         )?
     };
-
-    if let Some(script) = parts.markup_root_script {
-        root = root.script_source(&script)?;
-    }
 
     // JSONL global scripts (no parentId) attach to the visual root so they
     // share the pipeline realm and external paths become host requirements.

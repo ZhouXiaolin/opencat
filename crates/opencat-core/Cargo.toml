@@ -31,15 +31,12 @@ fontdb = "0.23.0"
 # (`text::surface`). Same major version cosmic-text 0.19 uses internally.
 swash = "0.2"
 # removed: imagesize, nom-exif — host-owned probing (issue #40)
-url = "2.5"
-bumpalo = "3.20.3"
 log = "0.4"
 # Raw-deflate codec for the optional compressed OCIR transport variant
 # (`ir::draw_encoding::compress_ir_envelope`). The browser decodes the matching
 # stream with `DecompressionStream('deflate-raw')`, so we emit raw deflate
 # (no zlib/gzip wrapper). Already in the tree transitively via `image`.
 miniz_oxide = "0.9"
-roxmltree = "0.21.1"
 oxc_allocator.workspace = true
 oxc_ast.workspace = true
 oxc_parser.workspace = true

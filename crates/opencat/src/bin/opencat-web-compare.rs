@@ -29,7 +29,7 @@
 //!     --interval-secs 0.5
 //!
 //!   # whole every-frame sweep against the reference render, one MP4:
-//!   opencat-web-compare examples/k3-promo.xml --out-dir out/k3 \
+//!   opencat-web-compare examples/k3-promo.jsx --out-dir out/k3 \
 //!     --interval-secs 0.033333 --reference <k3-promo.mp4> --web-video
 //!
 //! Env: CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL (same as oracle tests).
@@ -53,7 +53,7 @@ use opencat_engine::render::render_single_frame_from_jsonl_with_base;
     about = "Diff web frames (inspect ChromeDriver) against engine or reference video, k3diff metrics"
 )]
 struct Cli {
-    /// Markup / JSONL example (repo-relative or absolute).
+    /// Composition source (.jsx / .jsonl, repo-relative or absolute).
     input: PathBuf,
 
     /// Report directory (engine/web PNGs + summary).
@@ -128,16 +128,15 @@ struct SampleResult {
 fn composition_meta(source: &str) -> Result<(u32, u32, u32, u32)> {
     // Returns (width, height, fps, frames). Prefer lightweight header parse.
     let trimmed = source.trim_start();
-    if trimmed.starts_with('<') {
-        // Parse through the engine's own markup path (strips the `<script>`
-        // island, expands `<template>`s) rather than raw roxmltree — the
-        // inline script body is not XML and would otherwise fail to parse.
-        let parts = opencat_core::parse::parse_parts_with_base_dir(source, None)
-            .context("parse xml composition")?;
-        let fps = parts.fps.max(1) as u32;
+    if !trimmed.starts_with('{') {
+        // JSX (or any non-JSONL text): resolve through the engine's own parse
+        // (module extraction + font manifest) for the authoritative header.
+        let parsed = opencat_engine::source_io::parse_with_base_dir(source, None)
+            .context("parse composition")?;
+        let fps = parsed.fps.max(1) as u32;
         // Match the engine's frame count exactly (rational rounding, not ceil).
-        let frames = opencat_core::duration_secs_to_frames(parts.duration, fps).max(1);
-        return Ok((parts.width.max(1) as u32, parts.height.max(1) as u32, fps, frames));
+        let frames = opencat_core::duration_secs_to_frames(parsed.duration, fps).max(1);
+        return Ok((parsed.width.max(1) as u32, parsed.height.max(1) as u32, fps, frames));
     }
 
     for line in source.lines() {

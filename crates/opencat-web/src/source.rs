@@ -1,5 +1,4 @@
-use opencat_core::parse::build_parsed_document;
-use opencat_core::parse::document::{BuildOptions, CanvasChildrenMode, ParsedComposition};
+use opencat_core::parse::document::ParsedComposition;
 
 /// Parse composition source for WASM rendering.
 ///
@@ -16,12 +15,9 @@ pub fn parse_source(
         return opencat_core::parse::jsonl::parse_with_base_dir(input, None);
     }
 
-    let parts = opencat_core::parse::markup::parse_parts_with_base_dir(input, None)?;
-    build_parsed_document(
-        parts,
-        BuildOptions {
-            canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
-        },
-        None,
+    // JSX sources need a JS realm for module extraction, which the wasm host
+    // does not run — the host side extracts and hands over the composition.
+    anyhow::bail!(
+        "web parse_source: only JSONL text sources parse in-wasm; JSX sources are extracted host-side"
     )
 }

@@ -44,7 +44,7 @@ pub use self::parse::node::Node;
 pub use self::parse::preflight::{
     collect_resource_requests, collect_resource_requests_from_parsed,
 };
-pub use self::parse::{ParsedComposition, markup, parse};
+pub use self::parse::{ParsedComposition, parse};
 pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
 pub use self::probe::{AudioSource, ImageSource};
 pub use self::script::{

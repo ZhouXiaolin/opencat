@@ -54,10 +54,11 @@ fn font_manifest_from_source(
 ) -> anyhow::Result<opencat_core::fonts::FontManifest> {
     let trimmed = source.trim();
     if trimmed.starts_with('{') {
-        Ok(opencat_core::parse::jsonl::parse_with_base_dir(source, None)?.font_manifest)
-    } else {
-        Ok(opencat_core::parse::markup::parse_parts_with_base_dir(source, None)?.font_manifest)
+        return Ok(opencat_core::parse::jsonl::parse_with_base_dir(source, None)?.font_manifest);
     }
+    anyhow::bail!(
+        "web font manifest: only JSONL text sources parse in-wasm; JSX sources are extracted host-side"
+    )
 }
 
 /// 下载 composition source 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。

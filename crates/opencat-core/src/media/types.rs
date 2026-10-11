@@ -22,6 +22,21 @@ pub enum VideoColorMatrix {
     Bt709,
 }
 
+impl VideoColorMatrix {
+    /// Parse an author-facing matrix token (`"bt601"` | `"bt709"`). `None` for
+    /// `auto`/empty keeps the host's automatic metadata-driven selection.
+    /// Shared by every frontend that accepts `data-color-matrix` (markup attr,
+    /// JSONL `dataColorMatrix`), so unknown tokens fail the parse identically.
+    pub fn parse_token(value: &str) -> Option<Option<Self>> {
+        match value {
+            "auto" | "" => Some(None),
+            "bt601" => Some(Some(Self::Bt601)),
+            "bt709" => Some(Some(Self::Bt709)),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoFrameTiming {

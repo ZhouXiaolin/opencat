@@ -1,4 +1,4 @@
-use super::paint::paint_from_spec;
+use super::paint::{build_skia_image_filter, paint_from_spec};
 use super::path::path_from_encoded;
 use super::{DrawError, DrawStats};
 use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
@@ -242,6 +242,35 @@ fn replay_op(
                 }
                 None => {
                     canvas.save_layer_alpha(sk_rect, (*alpha * 255.0) as u32);
+                }
+            }
+            Ok(())
+        }
+        DrawOp::SaveBackdropLayer { bounds, paint } => {
+            // CSS `backdrop-filter`: the image filter processes what is
+            // already drawn beneath the layer bounds; the layer's own content
+            // composites unfiltered on top.
+            let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
+            match paint {
+                Some(pid) => {
+                    let spec = &draw.paints[pid.0 as usize];
+                    let backdrop = spec.image_filter.as_ref().and_then(build_skia_image_filter);
+                    let mut sk_paint = paint_from_spec(spec);
+                    // Detach the filter from the content paint — it belongs to
+                    // the backdrop slot, not the layer contents.
+                    sk_paint.set_image_filter(None);
+                    let mut rec = skia_safe::canvas::SaveLayerRec::default().paint(&sk_paint);
+                    if let Some(ref filter) = backdrop {
+                        rec = rec.backdrop(filter);
+                    }
+                    let rec = match sk_rect {
+                        Some(ref r) => rec.bounds(r),
+                        None => rec,
+                    };
+                    canvas.save_layer(&rec);
+                }
+                None => {
+                    canvas.save_layer_alpha(sk_rect, 255);
                 }
             }
             Ok(())

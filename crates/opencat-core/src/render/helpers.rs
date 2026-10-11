@@ -1388,10 +1388,12 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
             path_effect: None,
         };
         let paint_id = builder.intern_paint(blur_paint);
-        builder.push(DrawOp::SaveLayer {
+        // Backdrop semantics: blur what's beneath the node's bounds, then
+        // paint this node's background/border unfiltered on top.
+        builder.push(DrawOp::Save);
+        builder.push(DrawOp::SaveBackdropLayer {
             bounds: Some(rect_to_rect4(rect)),
             paint: Some(paint_id),
-            alpha: 1.0,
         });
     }
 
@@ -1836,6 +1838,14 @@ fn execute_draw_op(
                 bounds: *bounds,
                 paint: *paint,
                 alpha: *alpha,
+            });
+        }
+        // Not produced by the canvas script API (only by the renderer's own
+        // backdrop-filter emission), but pass it through faithfully.
+        DrawOp::SaveBackdropLayer { bounds, paint } => {
+            b.push(DrawOp::SaveBackdropLayer {
+                bounds: *bounds,
+                paint: *paint,
             });
         }
         DrawOp::Restore => {

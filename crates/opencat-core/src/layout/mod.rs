@@ -1009,6 +1009,73 @@ mod tests {
     };
     use taffy::{AvailableSpace, geometry::Size};
 
+    // Probe: does taffy 0.14 place an absolute child anchored by
+    // `bottom` inset correctly? Mirrors the BottomCap structure
+    // (absolute left-0 bottom-[88px] w-[1920px], auto height).
+    #[test]
+    fn taffy_absolute_bottom_anchor_probe() {
+        use taffy::prelude::*;
+        let mut tree: TaffyTree<()> = TaffyTree::new();
+        let root = tree
+            .new_leaf(Style {
+                size: Size {
+                    width: length(1920.0),
+                    height: length(1080.0),
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        let child = tree
+            .new_leaf(Style {
+                position: Position::Absolute,
+                inset: Rect {
+                    left: length(0.0),
+                    top: auto(),
+                    right: auto(),
+                    bottom: length(88.0),
+                },
+                size: Size {
+                    width: length(1920.0),
+                    height: auto(),
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        // Grandchild with a definite height: does the bottom-anchored
+        // absolute wrapper still resolve its content height?
+        let grandchild = tree
+            .new_leaf(Style {
+                size: Size {
+                    width: length(543.0),
+                    height: length(80.0),
+                },
+                ..Default::default()
+            })
+            .unwrap();
+        tree.set_children(child, &[grandchild]).unwrap();
+        tree.set_children(root, &[child]).unwrap();
+        tree.compute_layout(
+            root,
+            Size {
+                width: AvailableSpace::Definite(1920.0),
+                height: AvailableSpace::Definite(1080.0),
+            },
+        )
+        .unwrap();
+        let l = tree.layout(child).unwrap();
+        println!(
+            "absolute bottom-anchored child: x={} y={} w={} h={}",
+            l.location.x, l.location.y, l.size.width, l.size.height
+        );
+        assert!(l.location.y.is_finite());
+        assert!(l.size.height.is_finite());
+        assert!(l.size.height > 0.0, "auto-height must resolve > 0");
+        assert!(
+            (l.location.y + l.size.height - (1080.0 - 88.0)).abs() < 0.5,
+            "child bottom edge must sit 88px above container bottom"
+        );
+    }
+
     fn classed_div(
         id: &'static str,
         class_name: &'static str,

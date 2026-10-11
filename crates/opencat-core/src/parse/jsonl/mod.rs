@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::media::{VideoColorMatrix, VideoFrameTiming};
 use crate::parse::{
     composition::{AudioAttachment, CompositionAudioSource},
     document::{
@@ -102,6 +103,19 @@ pub enum JsonLine {
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
+        /// Media window + matrix override, mirroring the markup `data-*`
+        /// attributes on `<video>`. All optional; absent fields keep the
+        /// legacy behaviour (window opens at 0s, auto color matrix).
+        #[serde(rename = "dataStart")]
+        data_start: Option<f64>,
+        #[serde(rename = "dataDuration")]
+        data_duration: Option<f64>,
+        #[serde(rename = "dataMediaStart")]
+        data_media_start: Option<f64>,
+        #[serde(rename = "dataColorMatrix")]
+        data_color_matrix: Option<String>,
+        #[serde(rename = "loop")]
+        looping: Option<bool>,
     },
     #[serde(rename = "icon")]
     Icon {
@@ -333,6 +347,11 @@ pub fn parse_with_base_dir_and_fonts(
                 path,
                 url,
                 duration,
+                data_start,
+                data_duration,
+                data_media_start,
+                data_color_matrix,
+                looping,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
@@ -343,15 +362,28 @@ pub fn parse_with_base_dir_and_fonts(
                     Some(u) => VideoSource::Url(u),
                     None => VideoSource::Path(path.unwrap_or_default()),
                 };
+                let color_matrix = match data_color_matrix.as_deref() {
+                    None => None,
+                    Some(token) => VideoColorMatrix::parse_token(token).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "dataColorMatrix must be auto, bt601, or bt709 (got `{token}`)"
+                        )
+                    })?,
+                };
+                let timing = VideoFrameTiming {
+                    timeline_start_secs: data_start.unwrap_or(0.0),
+                    timeline_duration_secs: data_duration,
+                    media_start_secs: data_media_start.unwrap_or(0.0),
+                    playback_rate: 1.0,
+                    looping: looping.unwrap_or(false),
+                    color_matrix,
+                };
                 elements.push(ParsedElement {
                     id,
                     parent_id,
                     duration,
                     style,
-                    kind: ParsedElementKind::Video {
-                        source,
-                        timing: Default::default(),
-                    },
+                    kind: ParsedElementKind::Video { source, timing },
                 });
             }
             JsonLine::Icon {

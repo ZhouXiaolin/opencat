@@ -1446,12 +1446,9 @@ fn parse_optional_color_matrix(
 ) -> anyhow::Result<Option<VideoColorMatrix>> {
     match node.attribute(attr) {
         None => Ok(None),
-        Some("auto") | Some("") => Ok(None),
-        Some("bt601") => Ok(Some(VideoColorMatrix::Bt601)),
-        Some("bt709") => Ok(Some(VideoColorMatrix::Bt709)),
-        Some(value) => anyhow::bail!(
-            "`{attr}` must be auto, bt601, or bt709 (got `{value}`)"
-        ),
+        Some(value) => VideoColorMatrix::parse_token(value).ok_or_else(|| {
+            anyhow::anyhow!("`{attr}` must be auto, bt601, or bt709 (got `{value}`)")
+        }),
     }
 }
 

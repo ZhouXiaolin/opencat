@@ -174,6 +174,15 @@ pub enum DrawOp {
         alpha: f32,
     },
 
+    /// CSS `backdrop-filter` layer: `paint`'s image filter applies to the
+    /// already-drawn content **beneath** the layer (Skia `SaveLayerRec::
+    /// backdrop`), while the layer's own content composites unfiltered on top.
+    /// Bounds clip the backdrop sampling region, exactly like `SaveLayer`.
+    SaveBackdropLayer {
+        bounds: Option<Rect4>,
+        paint: Option<PaintId>,
+    },
+
     /// Pop the most recent save point, restoring transforms and paint state.
     Restore,
 
@@ -436,6 +445,11 @@ impl std::hash::Hash for DrawOp {
                 bounds.hash(state);
                 paint.hash(state);
                 alpha.to_bits().hash(state);
+            }
+            DrawOp::SaveBackdropLayer { bounds, paint } => {
+                49_u8.hash(state);
+                bounds.hash(state);
+                paint.hash(state);
             }
             DrawOp::Restore => 2_u8.hash(state),
             DrawOp::RestoreToCount { count } => {

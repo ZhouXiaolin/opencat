@@ -263,10 +263,11 @@ pub(crate) fn save_composite_layer(
             }));
             builder.push(DrawOp::ClipPath { anti_alias: false });
             has_backdrop_clip = true;
-            builder.push(DrawOp::SaveLayer {
+            // Backdrop semantics: the blur applies to what's beneath this
+            // node's bounds; the node's own subtree paints unfiltered inside.
+            builder.push(DrawOp::SaveBackdropLayer {
                 bounds: Some(bounds_rect4),
                 paint: Some(paint_id),
-                alpha: 1.0,
             });
         } else if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
             let paint = PaintSpec {

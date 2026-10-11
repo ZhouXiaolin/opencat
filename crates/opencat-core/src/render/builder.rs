@@ -410,6 +410,11 @@ fn collect_references(
                     paint_ids.insert(p.0);
                 }
             }
+            DrawOp::SaveBackdropLayer { paint, .. } => {
+                if let Some(p) = paint {
+                    paint_ids.insert(p.0);
+                }
+            }
             DrawOp::RuntimeEffect {
                 effect, children, ..
             } => {
@@ -532,6 +537,10 @@ fn remap_op(
             bounds: *bounds,
             paint: paint.map(|p| PaintId(p.0 + paint_off)),
             alpha: *alpha,
+        },
+        DrawOp::SaveBackdropLayer { bounds, paint } => DrawOp::SaveBackdropLayer {
+            bounds: *bounds,
+            paint: paint.map(|p| PaintId(p.0 + paint_off)),
         },
         DrawOp::RuntimeEffect {
             effect,
@@ -688,6 +697,10 @@ fn remap_op_snapshot(
             paint: paint.as_ref().map(&remap_paint),
             alpha: *alpha,
         },
+        DrawOp::SaveBackdropLayer { bounds, paint } => DrawOp::SaveBackdropLayer {
+            bounds: *bounds,
+            paint: paint.as_ref().map(&remap_paint),
+        },
         DrawOp::Image { image, x, y, paint } => DrawOp::Image {
             image: image.clone(),
             x: *x,
@@ -775,6 +788,92 @@ mod tests {
         let range = builder.end_range(marker);
         assert_eq!(range.start_op, 0);
         assert_eq!(range.op_len, 2);
+    }
+
+    #[test]
+    fn snapshot_import_remaps_backdrop_layer_paint() {
+        // Regression: `DrawOp::SaveBackdropLayer` must be collected by
+        // `collect_references` and remapped by `remap_op_snapshot` /
+        // `remap_op`. Otherwise a cached segment is captured without the
+        // backdrop paint (side table shrinks) while the op keeps the
+        // pre-compaction PaintId — replay then indexes out of bounds.
+        let mut src = DrawOpBuilder::default();
+        let p0 = src.intern_paint(PaintSpec {
+            fill: FillSpec::Solid([1.0, 0.0, 0.0, 1.0]),
+            ..Default::default()
+        });
+        let p2 = src.intern_paint(PaintSpec {
+            fill: FillSpec::Solid([0.0, 1.0, 0.0, 1.0]),
+            ..Default::default()
+        });
+        let backdrop = src.intern_paint(PaintSpec {
+            fill: FillSpec::Solid([0.0, 0.0, 1.0, 1.0]),
+            ..Default::default()
+        });
+        assert_eq!(p0, PaintId(0));
+        assert_eq!(p2, PaintId(1));
+        assert_eq!(backdrop, PaintId(2));
+
+        let marker = src.begin_range();
+        src.push(DrawOp::Rect {
+            rect: crate::ir::draw_op::Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            paint: p0,
+        });
+        src.push(DrawOp::SaveBackdropLayer {
+            bounds: None,
+            paint: Some(backdrop),
+        });
+        src.push(DrawOp::Rect {
+            rect: crate::ir::draw_op::Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            paint: p0,
+        });
+        let range = src.end_range(marker);
+
+        let segment = src.snapshot_range(range);
+        // The captured side table must contain every referenced paint,
+        // including the backdrop paint (blue, compacted after p0/red).
+        assert_eq!(segment.paints.len(), 2);
+        match segment.paints[0].fill {
+            FillSpec::Solid(c) => assert_eq!(c, [1.0, 0.0, 0.0, 1.0]),
+            _ => panic!("expected p0 first in the segment side table"),
+        }
+        match segment.paints[1].fill {
+            FillSpec::Solid(c) => assert_eq!(c, [0.0, 0.0, 1.0, 1.0]),
+            _ => panic!("expected the backdrop paint in the segment side table"),
+        }
+
+        // Import into a fresh builder that already owns one paint.
+        let mut dst = DrawOpBuilder::default();
+        let existing = dst.intern_paint(PaintSpec {
+            fill: FillSpec::Solid([0.5, 0.5, 0.5, 1.0]),
+            ..Default::default()
+        });
+        dst.import_segment(&segment);
+
+        let pid = dst
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::SaveBackdropLayer { paint, .. } => *paint,
+                _ => None,
+            })
+            .expect("imported segment must keep SaveBackdropLayer");
+        // Remapped past the destination's existing paints (compacted id 1).
+        assert_eq!(pid, PaintId(existing.0 + 2));
+        match dst.paints[pid.0 as usize].fill {
+            FillSpec::Solid(c) => assert_eq!(c, [0.0, 0.0, 1.0, 1.0]),
+            _ => panic!("remapped PaintId must index the imported backdrop paint"),
+        }
     }
 
     #[test]

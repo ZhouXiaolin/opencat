@@ -1,12 +1,14 @@
 use cosmic_text::Command;
 
-use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
+use crate::canvas::paint::{
+    BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle, StrokeCap, StrokeJoin, StrokeSpec,
+};
 use crate::display::list::{DisplayRect, TextDisplayItem};
 use crate::ir::GeneratedImageId;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
 use crate::script::TextUnitOverride;
-use crate::style::TextAlign;
+use crate::style::{TextAlign, TextStroke};
 use crate::text::{
     GlyphData, apply_text_transform, compute_line_x_shift, describe_text_unit_ranges,
     ranges_overlap, rasterize_glyphs,
@@ -167,6 +169,28 @@ fn glyph_paint(fill: FillSpec) -> PaintSpec {
     }
 }
 
+/// Center-stroke glyph paint for CSS `-webkit-text-stroke`. Webkit paints the
+/// stroke UNDER the fill (the caller emits stroke paints before fill paints),
+/// so the fill keeps full coverage and the visible outline is `width/2` wide.
+fn glyph_stroke_paint(stroke: &TextStroke) -> PaintSpec {
+    PaintSpec {
+        fill: FillSpec::Solid(super::helpers::color_token_to_rgba(&stroke.color)),
+        style: PaintStyle::Stroke,
+        stroke: Some(StrokeSpec {
+            width: stroke.width,
+            cap: StrokeCap::Round,
+            join: StrokeJoin::Round,
+            miter_limit: 4.0,
+        }),
+        anti_alias: true,
+        blend_mode: BlendMode::SrcOver,
+        image_filter: None,
+        color_filter: None,
+        mask_filter: None,
+        path_effect: None,
+    }
+}
+
 fn build_glyph_path(commands: &[Command], scale: f32) -> EncodedPath {
     let ops = commands
         .iter()
@@ -214,6 +238,12 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
 
     // One interned paint per fill layer (usually exactly one solid). Gradient
     // text (`background-clip: text`) yields several, painted bottom-up.
+    // `-webkit-text-stroke` paints sit UNDER the fills (webkit paint order).
+    let stroke_paint_id = item
+        .style
+        .text_stroke
+        .as_ref()
+        .map(|stroke| ctx.builder.intern_paint(glyph_stroke_paint(stroke)));
     let paint_ids = {
         let builder = &mut ctx.builder;
         text_fill_specs(item, &raster.lines)
@@ -248,6 +278,12 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                         let encoded =
                             build_glyph_path_placed(commands, unscale, draw_scale, abs_x, abs_y);
                         let path_id = builder.intern_path(encoded);
+                        if let Some(stroke_id) = stroke_paint_id {
+                            builder.push(DrawOp::DrawPath {
+                                path: path_id,
+                                paint: stroke_id,
+                            });
+                        }
                         for &paint_id in &paint_ids {
                             builder.push(DrawOp::DrawPath {
                                 path: path_id,
@@ -264,6 +300,12 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                         builder.push(DrawOp::Scale {
                             x: draw_scale,
                             y: draw_scale,
+                        });
+                    }
+                    if let Some(stroke_id) = stroke_paint_id {
+                        builder.push(DrawOp::DrawPath {
+                            path: path_id,
+                            paint: stroke_id,
                         });
                     }
                     for &paint_id in &paint_ids {
@@ -614,6 +656,9 @@ pub fn render_text_with_shadows(
             let mut shadow_item = item.clone();
             shadow_item.bounds = item.bounds.translate(shadow.offset_x, shadow.offset_y);
             shadow_item.style.color = shadow.color;
+            // The hard-shadow copy paints glyph shapes in the shadow color; the
+            // stroke would otherwise reappear in its own (wrong) color.
+            shadow_item.style.text_stroke = None;
             shadow_item.drop_shadow.clear();
             shadow_item.text_shadows.clear();
             if let Some(batch) = &mut shadow_item.text_unit_overrides {

@@ -58,7 +58,7 @@ pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 ///
 /// v4: pipeline_epoch in the header + SECTION_GENERATED_IMAGES (12) for the
 /// per-frame generated-image delta.
-pub const IR_VERSION: u32 = 6;
+pub const IR_VERSION: u32 = 7;
 
 /// Section identifiers in the OCIR directory.
 pub mod section {
@@ -132,6 +132,9 @@ pub mod opcode {
     pub const REPLAY_RANGE: u16 = 37;
     pub const DRAW_SUBTREE_PICTURE: u16 = 38;
     pub const LOTTIE_RECT: u16 = 39;
+    /// v7 extension of the v6 stream: CSS `backdrop-filter` layer. Same
+    /// 25-byte payload layout as `SAVE_LAYER` (alpha always written as 1.0).
+    pub const SAVE_BACKDROP_LAYER: u16 = 49;
 
     // PathOp sub-opcodes (embedded in PATH_OP payload)
     pub const PATH_MOVE_TO: u16 = 0;
@@ -160,13 +163,13 @@ pub mod opcode {
 
     /// Per-opcode payload length in bytes for the v6 dense op stream.
     ///
-    /// Index by opcode (0..=48). An op is encoded as `[opcode: u8][N payload
+    /// Index by opcode (0..=49). An op is encoded as `[opcode: u8][N payload
     /// bytes]` with no length field and no padding, so `N` must be a fixed
     /// constant for every opcode variant — which holds: every optional-looking
     /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
     /// unconditionally and signals absence via a flag byte, and `ImageRef`
     /// always writes tag(1) + id-slot(12).
-    pub const OPCODE_PAYLOAD_LEN: [u16; 49] = [
+    pub const OPCODE_PAYLOAD_LEN: [u16; 50] = [
         0,  // 0  SAVE
         25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
         0,  // 2  RESTORE
@@ -216,6 +219,7 @@ pub mod opcode {
         20, // 46 PATH_ADD_RRECT [5xf32]
         16, // 47 PATH_ADD_OVAL  [4xf32]
         24, // 48 PATH_ADD_ARC   [6xf32]
+        25, // 49 SAVE_BACKDROP_LAYER — same payload layout as SAVE_LAYER
     ];
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
@@ -1182,6 +1186,34 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             }
             write_u32(buf, paint.map(|p| p.0).unwrap_or(0));
             write_f32(buf, *alpha);
+        }
+
+        // ===================================================================
+        // SaveBackdropLayer — fixed 25-byte payload, same layout as
+        // SAVE_LAYER (alpha always 1.0): the paint's image filter applies to
+        // the backdrop beneath the layer instead of the layer content.
+        // ===================================================================
+        DrawOp::SaveBackdropLayer { bounds, paint } => {
+            write_op_header(buf, opcode::SAVE_BACKDROP_LAYER);
+            let mut flags: u8 = 0;
+            if bounds.is_some() {
+                flags |= 0b01;
+            }
+            if paint.is_some() {
+                flags |= 0b10;
+            }
+            write_u8(buf, flags);
+            if let Some(b) = bounds {
+                write_rect4(buf, *b);
+            } else {
+                // Write zeroed bounds
+                write_f32(buf, 0.0);
+                write_f32(buf, 0.0);
+                write_f32(buf, 0.0);
+                write_f32(buf, 0.0);
+            }
+            write_u32(buf, paint.map(|p| p.0).unwrap_or(0));
+            write_f32(buf, 1.0);
         }
 
         // ===================================================================

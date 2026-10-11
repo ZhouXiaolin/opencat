@@ -11,7 +11,7 @@
 export const IR_MAGIC: [number, number, number, number] = [0x4f, 0x43, 0x49, 0x52];
 
 /// Wire protocol version (must match [super::draw_encoding::IR_VERSION]).
-export const IR_VERSION: number = 6;
+export const IR_VERSION: number = 7;
 
 // ---------------------------------------------------------------------------
 // Compressed OCIR transport container (issue #46, part 1)
@@ -65,6 +65,7 @@ export type SectionId = (typeof SECTION)[keyof typeof SECTION];
 export const OP = {
     SAVE: 0,
     SAVE_LAYER: 1,
+    SAVE_BACKDROP_LAYER: 49,
     RESTORE: 2,
     RESTORE_TO_COUNT: 3,
     TRANSLATE: 4,
@@ -120,7 +121,7 @@ export type Opcode = (typeof OP)[keyof typeof OP];
 /// `[opcode: u8][OPCODE_PAYLOAD_LEN[opcode] payload bytes]` with no
 /// length field and no padding. Indexed by opcode (0..=MAX_OPCODE).
 /// Keep in sync with `opcode::OPCODE_PAYLOAD_LEN` in core.
-export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 36, 4, 4, 4, 4, 4, 12, 0, 4, 1, 0, 0, 0, 0, 1, 16, 4, 20, 36, 68, 20, 16, 29, 20, 16, 8, 25, 50, 32, 8, 12, 24, 8, 8, 16, 24, 0, 16, 20, 16, 24];
+export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 36, 4, 4, 4, 4, 4, 12, 0, 4, 1, 0, 0, 0, 0, 1, 16, 4, 20, 36, 68, 20, 16, 29, 20, 16, 8, 25, 50, 32, 8, 12, 24, 8, 8, 16, 24, 0, 16, 20, 16, 24, 25];
 
 // ---------------------------------------------------------------------------
 // PathOp sub-opcodes (embedded in PATH_OP payload)

@@ -2,7 +2,6 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-use ahash::AHasher;
 
 use crate::parse::primitives::{
     AudioSource, ImageSource, LottieSource, OpenverseQuery, SubtitleSource, VideoSource,
@@ -209,7 +208,14 @@ pub fn asset_id_for_lottie(src: &LottieSource) -> Option<AssetId> {
 }
 
 pub fn stable_hash(value: &str) -> u64 {
-    let mut hasher = AHasher::default();
+    // std's SipHash with fixed zero keys — NOT AHasher::default(). ahash's
+    // default constructor seeds randomly per process (DoS protection), so
+    // `AHasher::default()` produced a DIFFERENT hash for the same key on
+    // every run: the asset cache path never repeated and every render
+    // re-copied every asset (one 83 MB video accumulated 524 identical
+    // copies / ~43 GB in ~/.opencat/assets). Same key → same hash across
+    // processes is the contract the name already promises.
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
 }
@@ -217,6 +223,17 @@ pub fn stable_hash(value: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cache filename contract: same key → same hash ACROSS PROCESSES.
+    /// A previous implementation used `AHasher::default()`, whose random
+    /// per-process seed made every render mint a fresh cache path and
+    /// re-copy every asset (524 identical copies of one 83 MB video).
+    /// This pins one value; if it breaks, the hash is process-dependent again.
+    #[test]
+    fn stable_hash_is_reproducible_across_processes() {
+        assert_eq!(stable_hash("video:path:assets/bg.mp4"), 0xEB_06_E8_85_68_5B_A1_B8);
+        assert_eq!(stable_hash(""), stable_hash(""));
+    }
 
     #[test]
     fn asset_id_for_url_is_deterministic() {

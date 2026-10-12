@@ -4,7 +4,8 @@ pub mod easing;
 pub mod gl_transition;
 pub mod gradient;
 pub mod jsx;
-pub mod jsonl;
+pub mod elements;
+pub mod tailwind;
 pub mod node;
 pub mod preflight;
 pub mod primitives;
@@ -12,8 +13,4 @@ pub mod time;
 pub mod transition;
 
 pub use document::ParsedComposition;
-pub use document::{
-    BuildOptions, CanvasChildrenMode, ParsedDocumentParts, build_font_resources,
-    build_parsed_document,
-};
-pub use jsonl::parse;
+pub use document::build_font_resources;

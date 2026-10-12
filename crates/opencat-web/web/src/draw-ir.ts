@@ -157,7 +157,11 @@ type DecodedImageRef =
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
   | { type: 'linearGradient'; tileMode: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
-  | { type: 'radialGradient'; tileMode: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null };
+  | { type: 'radialGradient'; tileMode: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null }
+  // SVG feTurbulence fractal-noise (bg-[fe-turbulence(...)]). `tile` mirrors the
+  // engine: Some([w, h]) bakes one tileable tile repeated from `origin` (CSS
+  // background semantics); null renders nothing (the engine skips it too).
+  | { type: 'turbulence'; baseFrequency: [number, number]; numOctaves: number; seed: number; tile: [number, number] | null; origin: [number, number] };
 type GradientFillSpec = Exclude<FillSpec, { type: 'solid' }>;
 
 type PaintSpec = {
@@ -518,7 +522,10 @@ export function renderEncodedDrawFrame(
           const paint = (flags & 0b10) !== 0 ? buildPaint(CK, frame.paints[paintId], 1, dispose) : null;
           let backdrop: ImageFilter | null = null;
           if (paint) {
-            backdrop = paint.getImageFilter() ?? null;
+            // canvaskit 0.41's type defs omit the getImageFilter getter; the
+            // runtime API exists.
+            backdrop =
+              (paint as Paint & { getImageFilter(): ImageFilter | null }).getImageFilter() ?? null;
             paint.setImageFilter(null);
           }
           targetCanvas.saveLayer(
@@ -1018,8 +1025,9 @@ function parseFill(reader: BinaryReader): FillSpec {
   const kind = reader.u8();
   if (kind === 0) return { type: 'solid', color: reader.f32Array(4) as [number, number, number, number] };
   const shaderKind = reader.u8();
-  const tileMode = reader.u8();
   if (shaderKind === 0) {
+    // linearGradient: [tileMode u8][from f32x2][to f32x2][stops][colors][matrix?]
+    const tileMode = reader.u8();
     return {
       type: 'linearGradient',
       tileMode,
@@ -1030,6 +1038,20 @@ function parseFill(reader: BinaryReader): FillSpec {
       localMatrix: readOptionalMatrix(reader),
     };
   }
+  if (shaderKind === 2) {
+    // turbulence (draw_encoding.rs): [baseFreq f32x2][octaves u32][seed u32]
+    // [tile: u8 + f32x2 | u8=0][origin f32x2] — no tileMode byte.
+    return {
+      type: 'turbulence',
+      baseFrequency: reader.f32Array(2) as [number, number],
+      numOctaves: reader.u32(),
+      seed: reader.u32(),
+      tile: reader.u8() === 1 ? (reader.f32Array(2) as [number, number]) : null,
+      origin: reader.f32Array(2) as [number, number],
+    };
+  }
+  // radialGradient: [tileMode u8][center f32x2][radius f32][stops][colors][matrix?]
+  const tileMode = reader.u8();
   return {
     type: 'radialGradient',
     tileMode,
@@ -1272,14 +1294,21 @@ function applyFill(CK: CanvasKit, paint: Paint, fill: FillSpec, alpha: number, d
     paint.setShader(null);
     return;
   }
-  const shader = buildShader(CK, fill);
+  const shader = buildShader(CK, fill, dispose);
+  if (!shader) {
+    paint.setShader(null);
+    return;
+  }
   dispose(shader);
   paint.setShader(shader);
 }
 
-function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader {
+function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose: Dispose): Shader | null {
   // 仅 GradientFillSpec（paint fill）携带 localMatrix；ShaderSpec（runtime effect child）不携带。
   const localMatrix = 'localMatrix' in fill && fill.localMatrix ? fill.localMatrix : undefined;
+  if (fill.type === 'turbulence') {
+    return buildTurbulenceShader(CK, fill, dispose);
+  }
   if (fill.type === 'linearGradient') {
     return CK.Shader.MakeLinearGradient(
       'from' in fill ? fill.from : fill.start,
@@ -1298,6 +1327,50 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec): Shader
     mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
     localMatrix as any,
   );
+}
+
+// Mirror of the engine's feTurbulence bake (executor/paint.rs): MakeTurbulence
+// produces the same tileable Perlin field for a given tile size; bake one tile
+// into a raster surface and repeat it, anchored at the node origin. The engine
+// also runs a linear→sRGB table filter over the tile — CanvasKit has no table
+// filter, but that shift is RGB-only (the alpha channel, which drives visibility
+// on these ≈0.012-opacity layers, matches exactly) and sits far below the
+// k3diff gates, so it is intentionally skipped.
+function buildTurbulenceShader(CK: CanvasKit, fill: Extract<FillSpec, { type: 'turbulence' }>, dispose: Dispose): Shader | null {
+  if (!fill.tile) return null;
+  const tw = Math.round(fill.tile[0]);
+  const th = Math.round(fill.tile[1]);
+  if (tw <= 0 || th <= 0) return null;
+  const surface = CK.MakeSurface(tw, th);
+  if (!surface) return null;
+  let shader: Shader | null = null;
+  try {
+    const noise = dispose(CK.Shader.MakeTurbulence(
+      fill.baseFrequency[0],
+      fill.baseFrequency[1],
+      fill.numOctaves,
+      fill.seed,
+      tw,
+      th,
+    ));
+    const tilePaint = dispose(new CK.Paint());
+    tilePaint.setShader(noise);
+    surface.getCanvas().drawPaint(tilePaint);
+    const tile = surface.makeImageSnapshot();
+    if (tile) {
+      dispose(tile);
+      shader = tile.makeShaderOptions(
+        CK.TileMode.Repeat,
+        CK.TileMode.Repeat,
+        CK.FilterMode.Nearest,
+        CK.MipmapMode.None,
+        CK.Matrix.translated(fill.origin[0], fill.origin[1]) as any,
+      );
+    }
+  } finally {
+    surface.delete();
+  }
+  return shader;
 }
 
 function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec, dispose: Dispose): ImageFilter | null {
@@ -1560,7 +1633,7 @@ function buildRuntimeChildShader(
   resolveFrameImage: (image: DecodedImageRef) => Image | null,
   dispose: Dispose,
 ): Shader | null {
-  if (child.type === 'shader') return dispose(buildShader(CK, child.shader));
+  if (child.type === 'shader') return dispose(buildShader(CK, child.shader, dispose));
   if (child.type === 'image') {
     const img = resolveFrameImage(child.image);
     if (!img?.makeShaderOptions) return null;

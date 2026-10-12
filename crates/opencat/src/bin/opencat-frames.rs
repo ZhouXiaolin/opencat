@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use opencat_engine::render::{EncodingConfig, render_from_jsonl_with_base};
+use opencat_engine::render::{EncodingConfig, render_from_source_with_base};
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -16,6 +16,6 @@ fn main() -> anyhow::Result<()> {
     let base_dir = Path::new(&input).parent();
     std::fs::create_dir_all(&out_dir)?;
     opencat_core::profile::run_from_env(|| {
-        render_from_jsonl_with_base(&source, base_dir, &out_dir, &EncodingConfig::png())
+        render_from_source_with_base(&source, base_dir, &out_dir, &EncodingConfig::png())
     })
 }

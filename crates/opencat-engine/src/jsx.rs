@@ -21,6 +21,15 @@ use opencat_core::script::runtime::{CANVAS_API_RUNTIME, JSX_RUNTIME, JSX_TRANSFO
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
+    let (extract, driver) = extract_with_base_dir(input, base_dir)?;
+    opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
+}
+
+/// Evaluate the entry module once and extract the tree: returns the extract
+/// payload (`{meta, fonts, lines}`) plus the per-frame driver source. This is
+/// the host-side half of the JSX frontend contract — hosts without a JS realm
+/// (wasm) receive the pair over the bridge and run `from_extract` themselves.
+pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Value, String)> {
     let mut ctx = RqJsContext::new()?;
     ctx.eval(JSX_RUNTIME)?;
     ctx.eval(JSX_TRANSFORM)?;
@@ -63,7 +72,7 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
     ctx.eval(&driver)?;
     let extract = eval_json_string(&ctx, &format!("globalThis.__ocExtract({})", json!(ENTRY_SPEC)))?;
 
-    opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
+    Ok((extract, driver))
 }
 
 /// Evaluate `code`, expect a JSON-encodable value, and parse it back.

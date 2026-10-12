@@ -44,12 +44,11 @@ pub use self::parse::node::Node;
 pub use self::parse::preflight::{
     collect_resource_requests, collect_resource_requests_from_parsed,
 };
-pub use self::parse::{ParsedComposition, parse};
+pub use self::parse::ParsedComposition;
 pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
 pub use self::probe::{AudioSource, ImageSource};
 pub use self::script::{
     PrecomputedScriptHost, ScriptDriver, ScriptDriverId, ScriptHost, ScriptRealm,
-    asset_id_for_script_locator,
 };
 pub use self::text::{
     DefaultFontProvider, FontProvider, empty_font_db, extend_font_db, font_db_from_bytes,

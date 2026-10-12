@@ -80,7 +80,7 @@ fn render_pipeline_frame_to_rgba(
 }
 
 /// Premix the whole composition audio track.
-/// Shared by `render_from_jsonl` and `opencat-see`.
+/// Shared by `render_from_source` and `opencat-see`.
 ///
 /// Segment timing comes exclusively from the canonical core
 /// [`opencat_core::AudioPlan`] on `CompositionInfo::audio_plan` (issue #18 /
@@ -140,16 +140,16 @@ pub fn build_audio_track_from_pipeline(
     Ok(Some(AudioTrack::new(sample_rate, channels, mixed_samples)))
 }
 
-/// Primary render entry: parse JSONL/XML → EnginePipeline → encode frames.
-pub fn render_from_jsonl(
-    jsonl: &str,
+/// Primary render entry: parse JSX → EnginePipeline → encode frames.
+pub fn render_from_source(
+    source: &str,
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
 ) -> Result<()> {
-    render_from_jsonl_with_base(jsonl, None, output_path, config)
+    render_from_source_with_base(source, None, output_path, config)
 }
 
-pub fn render_from_jsonl_with_base(
+pub fn render_from_source_with_base(
     input: &str,
     base_dir: Option<&Path>,
     output_path: impl AsRef<Path>,
@@ -235,16 +235,16 @@ pub fn render_from_jsonl_with_base(
     Ok(())
 }
 
-/// Render a single frame from JSONL via EnginePipeline, returning raw RGBA bytes.
-pub fn render_single_frame_from_jsonl(
-    jsonl: &str,
+/// Render a single frame from a JSX source via EnginePipeline, returning raw RGBA bytes.
+pub fn render_single_frame_from_source(
+    source: &str,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    render_single_frame_from_jsonl_with_base(jsonl, None, frame_index)
+    render_single_frame_from_source_with_base(source, None, frame_index)
 }
 
 /// Render a single frame with explicit base directory for resolving relative asset paths.
-pub fn render_single_frame_from_jsonl_with_base(
+pub fn render_single_frame_from_source_with_base(
     input: &str,
     base_dir: Option<&Path>,
     frame_index: u32,
@@ -299,7 +299,7 @@ pub fn render_single_frame_png_with_base(
 ) -> Result<()> {
     let output_path = output_path.as_ref();
     let (rgba, width, height) =
-        render_single_frame_from_jsonl_with_base(input, base_dir, frame_index)?;
+        render_single_frame_from_source_with_base(input, base_dir, frame_index)?;
     write_rgba_png(output_path, width, height, rgba)
 }
 
@@ -719,30 +719,44 @@ mod tests {
 
     #[test]
     fn split_text_gsap_api_renders_text_property_layer() {
-        let jsonl_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        // The example stays in its original line shape; route it through the
+        // JSX extract entry (the product frontend — core has no text entry).
+        let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .unwrap()
             .parent()
             .unwrap()
             .join("examples/split_text_demo.jsonl");
-        let jsonl_text = std::fs::read_to_string(&jsonl_path).expect("read jsonl");
-        let base_dir = jsonl_path.parent().unwrap().to_path_buf();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let fixture_dir = std::path::PathBuf::from(format!(
-            "target/opencat-render-test-split-{}-{}",
-            std::process::id(),
-            nanos
-        ));
-        let cache = fixture_dir.join("cache");
-        std::fs::create_dir_all(&cache).expect("cache");
-        // Prefer the example's directory as loader base so relative assets resolve.
-        let loader = crate::resource::loader::EngineLoader::new(base_dir.clone(), cache)
-            .expect("loader");
+        let fixture_text = std::fs::read_to_string(&fixture_path).expect("read fixture");
+        let values: Vec<serde_json::Value> = fixture_text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(serde_json::from_str)
+            .collect::<Result<_, _>>()
+            .expect("fixture lines are JSON");
+        let head = &values[0];
+        let extract = serde_json::json!({
+            "meta": {
+                "width": head["width"], "height": head["height"],
+                "fps": head["fps"], "duration": head["duration"],
+            },
+            "lines": values[1..],
+        });
+        let parsed = opencat_core::parse::jsx::from_extract(&extract, "", None)
+            .expect("extract parses");
+        let loader = crate::resource::loader::EngineLoader::new(
+            fixture_path.parent().unwrap().to_path_buf(),
+            std::env::temp_dir().join("opencat-render-test-split-cache"),
+        )
+        .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js");
-        let mut pipeline = crate::pipeline::open(&jsonl_text, loader, ctx).expect("pipeline");
+        let mut pipeline = crate::pipeline::open_parsed_host_owned(
+            parsed,
+            loader,
+            ctx,
+            crate::fonts::engine_default_font_faces(),
+        )
+        .expect("pipeline");
         let info = pipeline.info().clone();
         let frames = duration_secs_to_frames(info.duration, info.fps);
         let mut media_ctx = MediaContext::new();
@@ -759,7 +773,6 @@ mod tests {
                     100,
                 )
         .expect("frame should render");
-        let _ = std::fs::remove_dir_all(&fixture_dir);
 
         assert!(
             has_bright_pixel_in_rect(&frame, info.width as usize, 120, 330, 420, 130),

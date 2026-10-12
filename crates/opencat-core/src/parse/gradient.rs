@@ -589,8 +589,8 @@ fn parse_color(token: &str) -> Option<ColorToken> {
     if token == "transparent" {
         return Some(ColorToken::Transparent);
     }
-    crate::parse::jsonl::tailwind::color_from_hex(token)
-        .or_else(|| crate::parse::jsonl::tailwind::parse_rgb_function_color(token))
+    crate::parse::tailwind::color_from_hex(token)
+        .or_else(|| crate::parse::tailwind::parse_rgb_function_color(token))
         .or_else(|| crate::style::color_token_from_class_suffix(token))
 }
 

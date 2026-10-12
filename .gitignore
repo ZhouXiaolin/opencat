@@ -66,3 +66,16 @@ examples/vfx-heygen-combined/assets/bg-pad.mp4
 examples/vfx-heygen-combined/assets/pointing-finger-extended.png
 examples/figma-launch/assets/end-card.mp4
 examples/HF-heygen-stripe/assets/avatar-photo.png
+
+# 大体积素材不入库（Solaren：先不上传）——文件保留在本地磁盘
+examples/hyperframes-launch/assets/showcase-ascii-lightning.mp4
+examples/hyperframes-launch/assets/showcase-hypecard.mp4
+examples/variables-launch/assets/hooks/hook-a.mp4
+examples/variables-launch/assets/hooks/hook-b.mp4
+examples/variables-launch/assets/hooks/hook-c.mp4
+examples/variables-launch/assets/hooks/hook-d.mp4
+examples/variables-launch/assets/hooks/hook-e.mp4
+examples/variables-launch/assets/hooks/hook-f.mp4
+examples/variables-launch/assets/hooks/hook-g.mp4
+examples/variables-launch/assets/hooks/hook-h.mp4
+examples/variables-launch/assets/hooks/hook-i.mp4

@@ -463,7 +463,9 @@ function Act1() {
 
 /* ═════════════ ACT 3 — 11 hard-cut video clips (abs 12.0–33.8) ═════════════ */
 
-function Act3() {
+// rootId is the act container's external id, owned by the caller (W2H drives
+// the hard-cut windows on it); the component never hard-codes it.
+function Act3({ rootId }) {
   useGSAP((ctx) => {
     var T = ctx.timeline();
     // Each clip owns [start, start+dur); the video media window itself is
@@ -481,7 +483,7 @@ function Act3() {
   });
 
   return (
-    <div id="act3" class="absolute inset-0 z-[2] overflow-hidden bg-[#0A0A0A] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[2] overflow-hidden bg-[#0A0A0A] opacity-0">
       {A3.map(function (row) {
         return (
           <video
@@ -510,7 +512,7 @@ var PT_XY = [
   [345.6, 540], [806.4, 410.4], [1190.4, 561.6], [1574.4, 432],
 ];
 
-function Act4() {
+function Act4({ rootId }) {
   useGSAP((ctx) => {
     var T = ctx.timeline();
 
@@ -570,7 +572,7 @@ function Act4() {
   });
 
   return (
-    <div id="act4" class="absolute inset-0 z-[3] overflow-hidden bg-[#06070B] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[3] overflow-hidden bg-[#06070B] opacity-0">
 
       {/* bg-deep */}
       <div id="bg-deep" class="absolute inset-0 bg-[radial-gradient(1600px_1000px_at_50%_65%,#0a0c18_0%,#06070B_55%,#030408_100%)]"></div>
@@ -624,6 +626,9 @@ function Act4() {
 /* ═════════════ entry ═════════════ */
 
 export default function W2H() {
+  // Caller-owned ids for the act containers; passed down as props and used
+  // here for the hard-cut windows — the components stay id-agnostic.
+  var ACT3 = 'act3', ACT4 = 'act4';
   useGSAP((ctx) => {
     // Act section windows — the reference master shows each act section only
     // inside its absolute window; boundaries are HARD CUTS (act1 12.0 → act3
@@ -631,8 +636,8 @@ export default function W2H() {
     // that: revealing the next container covers the previous one at the
     // boundary frame (act1's white-flash tail past 12.0 included).
     var T = ctx.timeline();
-    T.set('act3', { opacity: 1 }, 12.0);
-    T.set('act4', { opacity: 1 }, 33.8);
+    T.set(ACT3, { opacity: 1 }, 12.0);
+    T.set(ACT4, { opacity: 1 }, 33.8);
     // Act-3 bottom captions live in their own top-level overlay (outside the
     // act3 container): inside the container, alongside the 11 video siblings,
     // the engine mis-lays-out this caption subtree (offset ≈ +56/+63px and,
@@ -646,8 +651,8 @@ export default function W2H() {
   return (
     <div id="stage" class="relative w-[1920px] h-[1080px] overflow-hidden bg-[#0a0a0a]">
       <Act1 />
-      <Act3 />
-      <Act4 />
+      <Act3 rootId={ACT3} />
+      <Act4 rootId={ACT4} />
       <div id="a3-caps" class="absolute inset-0 z-[25]">
         {A3.map(function (row) {
           return <BottomCap id={row[2]} tid={row[2] + 't'} t={row[9]} light={row[6]} />;

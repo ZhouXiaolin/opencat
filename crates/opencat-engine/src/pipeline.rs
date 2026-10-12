@@ -227,14 +227,6 @@ fn open_parsed_host_owned_with_fonts(
         }
     }
 
-    // External scripts: host reads file text against loader base_dir and
-    // injects via HostInputs — core never rewrites the input string (#20).
-    crate::source_io::fill_script_texts_from_disk(
-        &mut inputs,
-        draft.requirements(),
-        Some(loader.base_dir()),
-    )?;
-
     // Document fonts: map face-id bytes (from load_font_manifest) onto the
     // stable font AssetId from requirements. Core merges; host does not.
     for req in draft.requirements().requests() {
@@ -437,6 +429,20 @@ mod tests {
         }
     }
 
+    /// Test fixture helper: line-shape JSON through the JSX extract entry (the
+    /// product frontend) — core has no JSONL text entry point.
+    fn draft_from_lines(
+        lines: serde_json::Value,
+    ) -> opencat_core::lifecycle::CompositionDraft {
+        let extract = serde_json::json!({
+            "meta": {"width": 10.0, "height": 10.0, "fps": 30.0, "duration": 0.1},
+            "lines": lines,
+        });
+        let parsed = opencat_core::parse::jsx::from_extract(&extract, "", None)
+            .expect("extract parses");
+        opencat_core::lifecycle::CompositionDraft::from_parsed(parsed)
+    }
+
     #[test]
     fn jsonl_caption_path_resolves_relative_to_loader_base_dir() {
         let nanos = SystemTime::now()
@@ -452,14 +458,19 @@ mod tests {
         )
         .expect("srt fixture");
 
-        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[320px] h-[180px]"}
-{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[0px] top-[0px] text-white","path":"sub.srt"}"#;
+        let jsx = r#"export const meta = { width: 320, height: 180, fps: 30, duration: 1 };
+export default function App() {
+  return (
+    <div id="root" class="relative w-[320px] h-[180px]">
+      <caption id="subs" class="absolute left-[0px] top-[0px] text-white" path="sub.srt" />
+    </div>
+  );
+}"#;
 
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        let host = open(jsonl, loader, ctx).expect("pipeline");
+        let host = open(jsx, loader, ctx).expect("pipeline");
 
         // Caption hydration is now part of the host-owned open chain: the SRT
         // file was fetched by the loader, parsed by core's pure hydrate_captions,
@@ -503,14 +514,19 @@ mod tests {
         ];
         std::fs::write(fixture_dir.join("hero.png"), PNG_1X1).expect("png");
 
-        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"pic","parentId":"root","type":"image","path":"hero.png","className":"w-[32px] h-[32px]"}"#;
+        let jsx = r#"export const meta = { width: 64, height: 64, fps: 30, duration: 0.1 };
+export default function App() {
+  return (
+    <div id="root" class="w-full h-full">
+      <image id="pic" path="hero.png" class="w-[32px] h-[32px]" />
+    </div>
+  );
+}"#;
 
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        let mut host = open(jsonl, loader, ctx).expect("open via lifecycle");
+        let mut host = open(jsx, loader, ctx).expect("open via lifecycle");
 
         // Host must key handles by the request AssetId (logical path), not a re-derived id.
         let handle = host.loader.handle(&opencat_core::AssetId::new(
@@ -558,14 +574,19 @@ mod tests {
         let lottie_json = r#"{"w":40,"h":30,"fr":25,"ip":0,"op":10,"assets":[{"u":"images/dep.png","e":"images/"}]}"#;
         std::fs::write(fixture_dir.join("loader.json"), lottie_json).expect("lottie json");
 
-        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":25,"duration":0.4}
-{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
-{"type":"lottie","id":"loader","parentId":"root","path":"loader.json","className":"w-[40px] h-[30px]"}"#;
+        let jsx = r#"export const meta = { width: 64, height: 64, fps: 25, duration: 0.4 };
+export default function App() {
+  return (
+    <div id="root" class="w-full h-full">
+      <lottie id="loader" path="loader.json" class="w-[40px] h-[30px]" />
+    </div>
+  );
+}"#;
 
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
             .expect("loader");
         let ctx = crate::js_context::RqJsContext::new().expect("js context");
-        let mut host = open(jsonl, loader, ctx).expect("open via lifecycle");
+        let mut host = open(jsx, loader, ctx).expect("open via lifecycle");
 
         // Host registers under logical path key (probe) and canonical bundle id.
         assert!(
@@ -680,11 +701,10 @@ export default function App() {
     fn absent_input_surfaces_as_pipeline_open_error_at_engine_level() {
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}
-{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null},
+            {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"},
+        ]));
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty();
         inputs.mark_absent(id, "engine-level not found").unwrap();
@@ -701,11 +721,10 @@ export default function App() {
     fn absent_input_reason_preserved_through_engine_boundary() {
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
 
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}
-{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null},
+            {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"},
+        ]));
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty();
         inputs.mark_absent(id, "engine-level reason").unwrap();
@@ -722,11 +741,10 @@ export default function App() {
     fn missing_input_still_distinct_from_absent_at_engine_level() {
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}
-{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null},
+            {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"},
+        ]));
         // No mark_absent, no image metadata — prepare must fail with MissingInput.
         let inputs = HostInputs::empty();
         let err = draft.prepare(inputs).expect_err("missing must fail");

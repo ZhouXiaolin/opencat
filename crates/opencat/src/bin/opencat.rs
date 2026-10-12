@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use opencat_engine::render::{
-    EncodingConfig, render_from_jsonl_with_base, render_single_frame_png_with_base,
+    EncodingConfig, render_from_source_with_base, render_single_frame_png_with_base,
 };
 
 #[derive(Parser)]
@@ -88,7 +88,7 @@ fn render(input: PathBuf, output: Option<String>, frame: Option<u32>) -> anyhow:
         println!("Rendering {} -> {}", input.display(), output);
         let config = EncodingConfig::mp4();
         opencat_core::profile::run_from_env(|| {
-            render_from_jsonl_with_base(&source, base_dir, &output, &config)
+            render_from_source_with_base(&source, base_dir, &output, &config)
         })?;
     }
 

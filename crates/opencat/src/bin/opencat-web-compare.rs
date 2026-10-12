@@ -24,15 +24,15 @@
 //!   OPFS + DOM-bound muxer worker; the oracle uses WebCodecs + MP4Box.js.
 //!
 //! Usage:
-//!   opencat-web-compare examples/profile-showcase.jsonl \
+//!   opencat-web-compare examples/k3-promo/k3-promo.jsx \
 //!     --out-dir out/compare-mp4-profile-showcase \
 //!     --interval-secs 0.5
 //!
 //!   # whole every-frame sweep against the reference render, one MP4:
-//!   opencat-web-compare examples/k3-promo.jsx --out-dir out/k3 \
+//!   opencat-web-compare examples/k3-promo/k3-promo.jsx --out-dir out/k3 \
 //!     --interval-secs 0.033333 --reference <k3-promo.mp4> --web-video
 //!
-//! Env: CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL (same as oracle tests).
+//! Env: CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,9 +43,9 @@ use clap::Parser;
 use opencat_engine::inspect::browser::{
     BrowserHarness, BrowserTestEnv, PIXEL_DIFF_THRESHOLDS, PixelDiff, WebAppServer,
     compute_pixel_diff_rgba, decode_mp4_bytes_frames_rgba, decode_reference_frames_rgba, repo_root,
-    web_source_for_oracle, write_artifacts,
+    web_envelope_for_oracle, write_artifacts,
 };
-use opencat_engine::render::render_single_frame_from_jsonl_with_base;
+use opencat_engine::render::render_single_frame_from_source_with_base;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -53,7 +53,7 @@ use opencat_engine::render::render_single_frame_from_jsonl_with_base;
     about = "Diff web frames (inspect ChromeDriver) against engine or reference video, k3diff metrics"
 )]
 struct Cli {
-    /// Composition source (.jsx / .jsonl, repo-relative or absolute).
+    /// Composition source (.jsx, repo-relative or absolute).
     input: PathBuf,
 
     /// Report directory (engine/web PNGs + summary).
@@ -126,53 +126,14 @@ struct SampleResult {
 }
 
 fn composition_meta(source: &str) -> Result<(u32, u32, u32, u32)> {
-    // Returns (width, height, fps, frames). Prefer lightweight header parse.
-    let trimmed = source.trim_start();
-    if !trimmed.starts_with('{') {
-        // JSX (or any non-JSONL text): resolve through the engine's own parse
-        // (module extraction + font manifest) for the authoritative header.
-        let parsed = opencat_engine::source_io::parse_with_base_dir(source, None)
-            .context("parse composition")?;
-        let fps = parsed.fps.max(1) as u32;
-        // Match the engine's frame count exactly (rational rounding, not ceil).
-        let frames = opencat_core::duration_secs_to_frames(parsed.duration, fps).max(1);
-        return Ok((parsed.width.max(1) as u32, parsed.height.max(1) as u32, fps, frames));
-    }
-
-    for line in source.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let value: serde_json::Value =
-            serde_json::from_str(line).context("parse jsonl composition header")?;
-        if value.get("type").and_then(|v| v.as_str()) == Some("composition") {
-            let width = value
-                .get("width")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1920) as u32;
-            let height = value
-                .get("height")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1080) as u32;
-            let fps = value
-                .get("fps")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(30)
-                .max(1) as u32;
-            let frames = if let Some(f) = value.get("frames").and_then(|v| v.as_u64()) {
-                f.max(1) as u32
-            } else {
-                let duration = value
-                    .get("duration")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(3.0);
-                (duration * f64::from(fps)).ceil().max(1.0) as u32
-            };
-            return Ok((width, height, fps, frames));
-        }
-    }
-    bail!("could not find composition header in input");
+    // Returns (width, height, fps, frames) — resolved through the engine's own
+    // parse (module extraction + font manifest) for the authoritative header.
+    let parsed =
+        opencat_engine::source_io::parse_with_base_dir(source, None).context("parse composition")?;
+    let fps = parsed.fps.max(1) as u32;
+    // Match the engine's frame count exactly (rational rounding, not ceil).
+    let frames = opencat_core::duration_secs_to_frames(parsed.duration, fps).max(1);
+    Ok((parsed.width.max(1) as u32, parsed.height.max(1) as u32, fps, frames))
 }
 
 fn sample_frames(fps: u32, total_frames: u32, interval_secs: f64, max_samples: Option<usize>) -> Vec<u32> {
@@ -410,7 +371,7 @@ async fn run_web_compare(
          maxd max:       {maxd_max}\n\
          failed:         {failed}/{n}\n\
          out_dir:        {out}\n\
-         note:           uses web/test-oracle.html (same as web_frame_oracle_tests);\n\
+         note:           uses web/test-oracle.html (host-extracted JSX envelope);\n\
                          not WebAV exportMp4. Prefer this for visual parity.\n",
         interval = cli.interval_secs,
         frames = frames,
@@ -534,7 +495,8 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
 
     let source = fs::read_to_string(&input).with_context(|| format!("read {}", input.display()))?;
     let input_rel = rel_input(&input, &repo);
-    let web_source = web_source_for_oracle(&input_rel, &source);
+    let web_source = web_envelope_for_oracle(&source, input.parent())
+        .with_context(|| format!("extract JSX for the web oracle ({})", input.display()))?;
     let (width, height, fps, total_frames) = composition_meta(&source)?;
     let mut frames = sample_frames(fps, total_frames, cli.interval_secs, cli.max_samples);
     let end_frame = cli.end_frame.unwrap_or(total_frames.saturating_sub(1));
@@ -598,7 +560,7 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
         let mut out = Vec::with_capacity(frames.len());
         for &frame in &frames {
             let (rgba, w, h) =
-                render_single_frame_from_jsonl_with_base(&source, input.parent(), frame)
+                render_single_frame_from_source_with_base(&source, input.parent(), frame)
                     .with_context(|| format!("engine render frame {frame}"))?;
             if w != width || h != height {
                 bail!("engine frame {frame} size {w}x{h} != composition {width}x{height}");

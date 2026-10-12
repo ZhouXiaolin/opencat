@@ -625,6 +625,20 @@ mod tests {
         out
     }
 
+    /// Test fixture helper: line-shape JSON through the JSX extract entry (the
+    /// product frontend) — core has no JSONL text entry point.
+    fn draft_from_lines(
+        lines: serde_json::Value,
+    ) -> opencat_core::lifecycle::CompositionDraft {
+        let extract = serde_json::json!({
+            "meta": {"width": 32.0, "height": 32.0, "fps": 30.0, "duration": 0.1},
+            "lines": lines,
+        });
+        let parsed = opencat_core::parse::jsx::from_extract(&extract, "", None)
+            .expect("extract parses");
+        opencat_core::lifecycle::CompositionDraft::from_parsed(parsed)
+    }
+
     #[test]
     fn envelope_header_has_no_pipeline_epoch() {
         let frame = empty_render_frame();
@@ -770,11 +784,10 @@ mod tests {
         use opencat_core::script::js_context::JsContext;
         use opencat_core::ir::draw_types::ImageRef;
 
-        let jsonl = r#"{"type":"composition","width":32,"height":32,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
-{"type":"image","id":"pic","parentId":"root","path":"hero.png","className":"w-[16px] h-[16px]"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).expect("parse draft");
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null,"className":"w-full h-full"},
+            {"type":"image","id":"pic","parentId":"root","path":"hero.png","className":"w-[16px] h-[16px]"},
+        ]));
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Image);
         assert_eq!(req.asset_id.key, "hero.png");
@@ -809,13 +822,10 @@ mod tests {
         use opencat_core::lottie::LottieMeta;
         use opencat_core::script::js_context::JsContext;
 
-        let jsonl = r#"
-{"type":"composition","width":32,"height":32,"fps":30,"duration":0.1}
-{"type":"div","id":"root","className":"w-full h-full"}
-{"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json","className":"w-[16px] h-[16px]"}
-        "#;
-
-        let draft = CompositionDraft::parse(jsonl).expect("parse draft");
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null,"className":"w-full h-full"},
+            {"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json","className":"w-[16px] h-[16px]"},
+        ]));
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.kind, ResourceKind::Lottie);
         assert_eq!(req.asset_id.key, "lottie:path:anim/loader.json");
@@ -866,11 +876,10 @@ mod tests {
     fn absent_input_surfaces_as_pipeline_open_error_at_web_level() {
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}
-{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null},
+            {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"},
+        ]));
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty();
         inputs.mark_absent(id, "web-level not found").unwrap();
@@ -887,11 +896,10 @@ mod tests {
     fn absent_input_reason_preserved_through_web_boundary() {
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError};
 
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}
-{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null},
+            {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"},
+        ]));
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty();
         inputs.mark_absent(id, "web-level reason").unwrap();
@@ -908,11 +916,10 @@ mod tests {
     fn missing_input_still_distinct_from_absent_at_web_level() {
         use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 
-        let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
-{"type":"div","id":"root","parentId":null}
-{"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(serde_json::json!([
+            {"type":"div","id":"root","parentId":null},
+            {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"},
+        ]));
         let inputs = HostInputs::empty();
         let err = draft.prepare(inputs).expect_err("missing must fail");
         assert!(

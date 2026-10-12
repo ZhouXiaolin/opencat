@@ -12,15 +12,8 @@ use crate::style::NodeStyle;
 mod builder;
 
 pub use builder::{
-    BuildOptions, build_font_resources, build_parsed_document, build_tree, build_tree_with_options,
-    build_tree_with_tl, build_tree_with_tl_options, join_scripts, script_driver_from_decls,
+    build_font_resources, build_tree, build_tree_with_tl, join_scripts, script_driver_from_decls,
 };
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CanvasChildrenMode {
-    Forbid,
-    HiddenPictureSubtree,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParsedIdKind {
@@ -36,20 +29,6 @@ pub enum DeclaredScript {
     Inline(String),
     /// Logical path or URL locator — not read by core.
     External { locator: String },
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct ParsedDocumentParts {
-    pub width: i32,
-    pub height: i32,
-    pub fps: i32,
-    pub duration: f64,
-    pub elements: Vec<ParsedElement>,
-    pub transitions: Vec<ParsedTransition>,
-    pub audio_elements: Vec<ParsedAudioElement>,
-    pub scripts_by_parent: std::collections::HashMap<String, Vec<DeclaredScript>>,
-    pub global_scripts: Vec<DeclaredScript>,
-    pub font_manifest: FontManifest,
 }
 
 pub fn validate_unique_ids(

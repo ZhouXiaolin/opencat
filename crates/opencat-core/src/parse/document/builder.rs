@@ -13,28 +13,9 @@ use crate::parse::{
 use crate::script::ScriptDriver;
 
 use crate::fonts::{FontFamilyIndex, merge_faces_into_db};
-use crate::parse::composition::{AudioAttachment, CompositionAudioSource};
 use crate::parse::document::{
-    CanvasChildrenMode, DeclaredScript, ParsedComposition, ParsedDocumentParts, ParsedElement,
-    ParsedElementKind, ParsedTransition,
+    DeclaredScript, ParsedElement, ParsedElementKind, ParsedTransition,
 };
-
-#[derive(Debug, Clone, Copy)]
-pub struct BuildOptions {
-    pub canvas_children_mode: CanvasChildrenMode,
-}
-
-impl BuildOptions {
-    // JSONL (and therefore the JSX frontend, which lowers to JSONL lines)
-    // accepts canvas hidden picture subtrees: the subtree is rasterized
-    // offscreen and only reachable through
-    // `canvas.getSubTree().makeShader(...)`. Legacy JSONL documents never
-    // carried canvas children (they were a hard parse error), so widening
-    // this mode cannot change any existing render.
-    pub const JSONL: Self = Self {
-        canvas_children_mode: CanvasChildrenMode::HiddenPictureSubtree,
-    };
-}
 
 pub fn join_scripts(scripts: Vec<String>) -> Option<String> {
     if scripts.is_empty() {
@@ -61,6 +42,13 @@ fn join_global_scripts(scripts: Vec<DeclaredScript>) -> Option<String> {
     join_scripts(inlines)
 }
 
+/// Build a [`ScriptDriver`] from one or more declarations.
+///
+/// - All-inline → single driver with joined source.
+/// - Any external → one driver (first external wins for asset id) with remaining
+///   pieces recorded; prepare injects external text then re-joins.
+///
+/// Build fontdb + family index from manifest bytes merged into `base_db`.
 /// Build a [`ScriptDriver`] from one or more declarations.
 ///
 /// - All-inline → single driver with joined source.
@@ -114,123 +102,6 @@ pub fn script_driver_from_decls(
     Ok(Some(ScriptDriver::from_pieces(pieces_inline, externals)))
 }
 
-fn attach_scripts_to_root(root: Node, globals: Vec<DeclaredScript>) -> anyhow::Result<Node> {
-    let mut decls = Vec::new();
-    if let Some(existing) = root.style_ref().script_driver.as_ref() {
-        // Reconstruct declarations from the existing driver so we do not drop it.
-        for frag in &existing.inline_fragments {
-            if !frag.is_empty() {
-                decls.push(DeclaredScript::Inline(frag.clone()));
-            }
-        }
-        if existing.externals.is_empty()
-            && !existing.source.is_empty()
-            && existing.inline_fragments.is_empty()
-        {
-            decls.push(DeclaredScript::Inline(existing.source.clone()));
-        }
-        for ext in &existing.externals {
-            decls.push(DeclaredScript::External {
-                locator: ext.locator.clone(),
-            });
-        }
-    }
-    decls.extend(globals);
-    if let Some(driver) = script_driver_from_decls(decls)? {
-        Ok(root.script_driver(driver))
-    } else {
-        Ok(root)
-    }
-}
-
-pub fn build_parsed_document(
-    mut parts: ParsedDocumentParts,
-    options: BuildOptions,
-    font_index: Option<&FontFamilyIndex>,
-) -> anyhow::Result<ParsedComposition> {
-    // Core always applies `font-sans` / `font-[id]` from the document manifest.
-    // Callers may still pass a loaded index (e.g. after face load), but a pure
-    // parse path without host font bytes must resolve the same family names.
-    if !parts.font_manifest.is_empty() {
-        let owned = font_index
-            .cloned()
-            .unwrap_or_else(|| parts.font_manifest.build_family_index());
-        parts
-            .font_manifest
-            .apply_font_refs_to_styles(&owned, &mut parts.elements);
-    }
-
-    let audio_sources: Vec<CompositionAudioSource> = parts
-        .audio_elements
-        .iter()
-        .map(|audio| {
-            let attach = audio.attach.clone();
-            let element = parts.elements.iter().find(|el| el.id == attach);
-            let attachment = match element {
-                Some(el) if matches!(el.kind, ParsedElementKind::Timeline) => {
-                    AudioAttachment::Timeline
-                }
-                Some(_) => AudioAttachment::Scene { scene_id: attach },
-                None => anyhow::bail!(
-                    "audio `{}` attach references non-existent element `{}`",
-                    audio.id,
-                    attach
-                ),
-            };
-            Ok(CompositionAudioSource {
-                id: audio.id.clone(),
-                source: audio.source.clone(),
-                attach: attachment,
-                duration_secs: audio.duration,
-            })
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
-    let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> = {
-        let mut map: HashMap<String, Vec<&ParsedTransition>> = HashMap::new();
-        for t in &parts.transitions {
-            map.entry(t.parent_id.clone()).or_default().push(t);
-        }
-        map
-    };
-
-    let mut root = if parts.transitions.is_empty() {
-        build_tree_with_options(
-            &parts.elements,
-            &parts.scripts_by_parent,
-            parts.fps as u32,
-            options,
-        )?
-    } else {
-        build_tree_with_tl_options(
-            &parts.elements,
-            &parts.scripts_by_parent,
-            &transitions_by_tl,
-            parts.fps as u32,
-            options,
-        )?
-    };
-
-    // JSONL global scripts (no parentId) attach to the visual root so they
-    // share the pipeline realm and external paths become host requirements.
-    // Merge with any driver already on the root (parentId == root scripts).
-    if !parts.global_scripts.is_empty() {
-        root = attach_scripts_to_root(root, parts.global_scripts.clone())?;
-    }
-
-    Ok(ParsedComposition {
-        width: parts.width,
-        height: parts.height,
-        fps: parts.fps,
-        duration: parts.duration,
-        root,
-        script: join_global_scripts(parts.global_scripts),
-        audio_sources,
-        font_manifest: parts.font_manifest,
-    })
-}
-
-/// Build fontdb + family index from manifest bytes merged into `base_db`.
 pub fn build_font_resources(
     base_db: fontdb::Database,
     manifest: &crate::fonts::FontManifest,
@@ -256,76 +127,37 @@ fn index_elements(
     (children_map, roots)
 }
 
-pub fn build_tree_with_options(
-    elements: &[ParsedElement],
-    scripts_by_parent: &HashMap<String, Vec<DeclaredScript>>,
-    _fps: u32,
-    options: BuildOptions,
-) -> anyhow::Result<Node> {
-    let (children_map, roots) = index_elements(elements);
-    if roots.len() > 1 {
-        return Err(anyhow::anyhow!("multiple root elements found"));
-    }
-
-    let root = roots
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    build_node_inner(
-        root,
-        &children_map,
-        scripts_by_parent,
-        &HashMap::new(),
-        options,
-    )
-}
-
-pub fn build_tree_with_tl_options(
-    elements: &[ParsedElement],
-    scripts_by_parent: &HashMap<String, Vec<DeclaredScript>>,
-    transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
-    _fps: u32,
-    options: BuildOptions,
-) -> anyhow::Result<Node> {
-    let (children_map, roots) = index_elements(elements);
-    if roots.len() > 1 {
-        return Err(anyhow::anyhow!("multiple root elements found"));
-    }
-
-    let root = roots
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
-    build_node_inner(
-        root,
-        &children_map,
-        scripts_by_parent,
-        transitions_by_tl,
-        options,
-    )
-}
-
 pub fn build_tree(
     elements: &[ParsedElement],
     scripts_by_parent: &HashMap<String, Vec<DeclaredScript>>,
-    fps: u32,
 ) -> anyhow::Result<Node> {
-    build_tree_with_options(elements, scripts_by_parent, fps, BuildOptions::JSONL)
+    let (children_map, roots) = index_elements(elements);
+    if roots.len() > 1 {
+        return Err(anyhow::anyhow!("multiple root elements found"));
+    }
+
+    let root = roots
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
+    build_node_inner(root, &children_map, scripts_by_parent, &HashMap::new())
 }
 
 pub fn build_tree_with_tl(
     elements: &[ParsedElement],
     scripts_by_parent: &HashMap<String, Vec<DeclaredScript>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
-    fps: u32,
 ) -> anyhow::Result<Node> {
-    build_tree_with_tl_options(
-        elements,
-        scripts_by_parent,
-        transitions_by_tl,
-        fps,
-        BuildOptions::JSONL,
-    )
+    let (children_map, roots) = index_elements(elements);
+    if roots.len() > 1 {
+        return Err(anyhow::anyhow!("multiple root elements found"));
+    }
+
+    let root = roots
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("no root element found"))?;
+    build_node_inner(root, &children_map, scripts_by_parent, transitions_by_tl)
 }
 
 fn build_node_inner(
@@ -333,7 +165,6 @@ fn build_node_inner(
     children_map: &HashMap<&str, Vec<&ParsedElement>>,
     scripts_by_parent: &HashMap<String, Vec<DeclaredScript>>,
     transitions_by_tl: &HashMap<String, Vec<&ParsedTransition>>,
-    options: BuildOptions,
 ) -> anyhow::Result<Node> {
     let mut style = el.style.clone();
     style.id = el.id.clone();
@@ -424,7 +255,6 @@ fn build_node_inner(
                     children_map,
                     scripts_by_parent,
                     transitions_by_tl,
-                    options,
                 )?;
                 tl_builder = tl_builder.sequence(duration, node);
 
@@ -453,7 +283,6 @@ fn build_node_inner(
                         children_map,
                         scripts_by_parent,
                         transitions_by_tl,
-                        options,
                     )?;
                     div_node = div_node.child(child_node);
                 }
@@ -473,26 +302,16 @@ fn build_node_inner(
                 .unwrap_or(&[]);
             let mut canvas_node = canvas();
             canvas_node.style = style;
-            match options.canvas_children_mode {
-                CanvasChildrenMode::Forbid if !children.is_empty() => {
-                    return Err(anyhow::anyhow!(
-                        "canvas node `{}` cannot have child nodes",
-                        el.id
-                    ));
-                }
-                CanvasChildrenMode::Forbid => {}
-                CanvasChildrenMode::HiddenPictureSubtree => {
-                    for child in children {
-                        let child_node = build_node_inner(
-                            child,
-                            children_map,
-                            scripts_by_parent,
-                            transitions_by_tl,
-                            options,
-                        )?;
-                        canvas_node = canvas_node.hidden_child(child_node);
-                    }
-                }
+            // Hidden picture subtree: children rasterize offscreen and are only
+            // reachable through `canvas.getSubTree().makeShader(...)`.
+            for child in children {
+                let child_node = build_node_inner(
+                    child,
+                    children_map,
+                    scripts_by_parent,
+                    transitions_by_tl,
+                )?;
+                canvas_node = canvas_node.hidden_child(child_node);
             }
             Ok(Node::new(canvas_node))
         }
@@ -560,7 +379,6 @@ fn build_node_inner(
                         children_map,
                         scripts_by_parent,
                         transitions_by_tl,
-                        options,
                     )?;
                     video_node = video_node.child(child_node);
                 }

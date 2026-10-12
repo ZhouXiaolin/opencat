@@ -49,16 +49,21 @@ pub(crate) fn blob_bytes_owned(id: &str) -> Option<Vec<u8>> {
     })
 }
 
-fn font_manifest_from_source(
-    source: &str,
-) -> anyhow::Result<opencat_core::fonts::FontManifest> {
-    let trimmed = source.trim();
-    if trimmed.starts_with('{') {
-        return Ok(opencat_core::parse::jsonl::parse_with_base_dir(source, None)?.font_manifest);
+fn font_manifest_from_source(source: &str) -> anyhow::Result<opencat_core::fonts::FontManifest> {
+    // Same envelope contract as parse_source: fonts ride inside the extract.
+    let trimmed = source.trim_start();
+    if !trimmed.starts_with('{') {
+        anyhow::bail!(
+            "web font manifest: JSX sources are extracted host-side; pass the {{extract, driver}} envelope"
+        )
     }
-    anyhow::bail!(
-        "web font manifest: only JSONL text sources parse in-wasm; JSX sources are extracted host-side"
-    )
+    let envelope: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| anyhow::anyhow!("web font manifest: invalid extract envelope: {e}"))?;
+    let extract = envelope
+        .get("extract")
+        .ok_or_else(|| anyhow::anyhow!("web font manifest: envelope missing `extract`"))?;
+    let meta = extract.get("meta").cloned().unwrap_or(serde_json::Value::Null);
+    opencat_core::parse::jsx::font_manifest_from_extract(extract, &meta)
 }
 
 /// 下载 composition source 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。
@@ -72,11 +77,18 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     // Fonts: same bytes in BlobStore (provider) + font_store (fontdb merge on load).
     if !font_manifest.is_empty() {
         for face in &font_manifest.faces {
-            match &face.source {
-                FontSource::Path(_) => {
-                    return Err(JsValue::from_str(
-                        "preload_assets: font path is not supported on web; use url",
-                    ));
+            let (id, raw) = match &face.source {
+                FontSource::Path(path) => {
+                    // Logical locator — web host interprets against document
+                    // base/VFS (same contract as lottie/subtitle paths).
+                    let id = AssetId::new(
+                        ResourceKind::Font,
+                        font_asset_id(&FontSource::Path(path.clone())),
+                    );
+                    let bytes = crate::resource::asset_reader::read_path(&path.to_string_lossy())
+                        .await
+                        .map_err(|e| JsValue::from_str(&format!("preload_assets font: {e}")))?;
+                    (id, bytes)
                 }
                 FontSource::Url(url) => {
                     let id = AssetId::new(
@@ -86,10 +98,11 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
                     let raw = crate::resource::resolver::fetch_url(url)
                         .await
                         .map_err(|e| JsValue::from_str(&format!("preload_assets font: {e}")))?;
-                    blobs.insert(id, std::sync::Arc::from(raw.clone()));
-                    crate::resource::font_store::insert(face.id.clone(), raw);
+                    (id, raw)
                 }
-            }
+            };
+            blobs.insert(id, std::sync::Arc::from(raw.clone()));
+            crate::resource::font_store::insert(face.id.clone(), raw);
         }
     }
 

@@ -9,7 +9,7 @@
    gradients -> canvas, backgroundPosition sweeps -> crossfading layers) are
    annotated inline with the reference line they replace. */
 
-import { useGSAP } from 'opencat/runtime';
+import { useGSAP, useFrame } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 49.8 };
 
@@ -2097,13 +2097,24 @@ function ccRender(ctx, t) {
   var CK = ctx.CanvasKit;
   var p = new CK.Paint();
   p.setStyle(CK.PaintStyle.Fill);
-  p.setShader(surf.bake('cc-frame'));
+  /* Generated images are a frame-scoped cache: the key must change with the
+     frame, or the same id would be re-baked with different pixels (collision).
+     ctx.frame is the composition frame index, so it is 1:1 with the content.
+     drawRect only accepts runtime/lambda paint shaders, so route the baked
+     surface through an identity ly.pixel kernel that samples it. */
+  var ccBake = surf.bake('cc-frame-' + ctx.frame);
+  var ccIdent = ly.pixel((uv, src) => {
+    var c = src.eval(uv);
+    if (c.a > 0.0) { return [c.r / c.a, c.g / c.a, c.b / c.a, c.a]; }
+    return [0.0, 0.0, 0.0, 0.0];
+  });
+  p.setShader(ccIdent.sample([], [ccBake]));
   var cv = ctx.getCanvasById('cc-canvas');
   if (cv) cv.drawRect([0, 0, 1920, 1080], p);
 }
 
 function CanvasClose() {
-  useGSAP((ctx) => {
+  useFrame((ctx) => {
     var T = ctx.time - CC_START;
     vis(ctx, 'cc-root', T >= 0 && T < CC_DUR);
     if (T < 0 || T >= CC_DUR) return;

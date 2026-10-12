@@ -1,0 +1,4 @@
+# getrandom >= 0.3 requires this compile-time cfg on wasm32-unknown-unknown
+# (the wasm_js feature alone is insufficient); applies to wasm-pack builds too.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

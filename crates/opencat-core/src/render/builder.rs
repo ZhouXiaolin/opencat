@@ -235,51 +235,50 @@ impl DrawOpBuilder {
         let end = start + range.op_len as usize;
         let ops_slice = &self.ops[start..end];
 
-        let mut paint_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        let mut path_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        let mut child_ranges: Vec<ChildRange> = Vec::new();
-        let mut resource_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        let mut effect_ids: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-
+        let mut refs = SegmentReferences::default();
         collect_references(
             ops_slice,
-            &mut paint_ids,
-            &mut path_ids,
-            &mut child_ranges,
-            &mut resource_ids,
-            &mut effect_ids,
+            &self.children,
+            (0, ops_slice.len()),
+            &mut refs,
+            &mut std::collections::BTreeSet::new(),
         );
 
-        // Build old→new index maps for compacted side-table entries
-        let paint_map: std::collections::BTreeMap<u32, u32> = paint_ids
+        // Build old->new index maps for compacted side-table entries
+        let paint_map: std::collections::BTreeMap<u32, u32> = refs
+            .paint_ids
             .iter()
             .enumerate()
             .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
             .collect();
-        let path_map: std::collections::BTreeMap<u32, u32> = path_ids
+        let path_map: std::collections::BTreeMap<u32, u32> = refs
+            .path_ids
             .iter()
             .enumerate()
             .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
             .collect();
-        let effect_map: std::collections::BTreeMap<u32, u32> = effect_ids
+        let effect_map: std::collections::BTreeMap<u32, u32> = refs
+            .effect_ids
             .iter()
             .enumerate()
             .map(|(new_idx, &old_id)| (old_id, new_idx as u32))
             .collect();
 
-        let paints: Vec<_> = paint_ids
+        let paints: Vec<_> = refs
+            .paint_ids
             .iter()
             .map(|&id| self.paints[id as usize].clone())
             .collect();
 
-        let paths: Vec<_> = path_ids
+        let paths: Vec<_> = refs
+            .path_ids
             .iter()
             .map(|&id| self.paths[id as usize].clone())
             .collect();
 
         let mut children = Vec::new();
         let mut flat_children: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        for cr in &child_ranges {
+        for cr in &refs.child_ranges {
             for i in cr.start..cr.start + cr.len {
                 flat_children.insert(i);
             }
@@ -295,20 +294,49 @@ impl DrawOpBuilder {
             }
         }
 
-        let resources: Vec<_> = resource_ids
+        let resources: Vec<_> = refs
+            .resource_ids
             .iter()
             .map(|&id| self.resources[id as usize].clone())
             .collect();
 
-        let effects: Vec<_> = effect_ids
+        let effects: Vec<_> = refs
+            .effect_ids
             .iter()
             .map(|&id| self.effects[id as usize].clone())
             .collect();
 
+        // Compact the byte table down to just the referenced uniform payloads.
+        // `RuntimeEffect.uniforms` is a `byte_ranges` rank, not a byte offset,
+        // so the ids must be re-ranked too -- `byte_id_map` carries old -> new.
+        let (bytes, byte_ranges, byte_id_map) = self.compact_byte_table(&refs.byte_ids);
+
+        // Same treatment for the f32 pool: one compacted run per referenced
+        // window, keyed by (start, len) because the pool has no id table.
+        let (f32_pool, f32_offset_map) = compact_tables(&refs.f32_ranges, |window, data| {
+            let start = data.len() as u32;
+            let slice = self
+                .f32_pool
+                .get(window.0 as usize..window.0 as usize + window.1 as usize)
+                .unwrap_or(&[]);
+            data.extend_from_slice(slice);
+            start
+        });
+
         // Remap all IDs in cloned ops to match compacted side-tables
         let ops: Vec<DrawOp> = ops_slice
             .iter()
-            .map(|op| remap_op_snapshot(op, &paint_map, &path_map, &effect_map, &child_map))
+            .map(|op| {
+                remap_op_snapshot(
+                    op,
+                    &paint_map,
+                    &path_map,
+                    &effect_map,
+                    &child_map,
+                    &byte_id_map,
+                    &f32_offset_map,
+                )
+            })
             .collect();
 
         CachedDrawSegment {
@@ -316,14 +344,53 @@ impl DrawOpBuilder {
             paints,
             paths,
             children,
-            strings: self.strings.clone(),
-            bytes: self.bytes.clone(),
-            byte_ranges: self.byte_ranges.clone(),
-            f32_pool: self.f32_pool.clone(),
+            // `strings` is only filled by `DrawOpBuilder::intern_string`, which
+            // no render path calls; `Image`/`LottieRect` carry their asset ids
+            // inline. Keep the segment table empty so caching cannot carry a
+            // frame-spanning string table (or, before compaction, the whole
+            // byte/pool tables) into the next frame's cache entry.
+            strings: Vec::new(),
+            bytes,
+            byte_ranges,
+            f32_pool,
             resources,
             effects,
             references_subtree: segment_references_subtree(ops_slice, &self.children),
         }
+    }
+
+    /// Compact the byte table down to `ids`, in id order. Returns the payloads,
+    /// their ranges, and the old-id -> new-rank map. `RuntimeEffect.uniforms`
+    /// holds a rank into `byte_ranges`, so every op id must be re-ranked.
+    fn compact_byte_table(
+        &self,
+        ids: &std::collections::BTreeSet<u32>,
+    ) -> (
+        Vec<u8>,
+        Vec<TableRange>,
+        std::collections::BTreeMap<u32, u32>,
+    ) {
+        let mut bytes = Vec::new();
+        let mut ranges = Vec::with_capacity(ids.len());
+        let mut id_map = std::collections::BTreeMap::new();
+        for &id in ids {
+            let old = self
+                .byte_ranges
+                .get(id as usize)
+                .copied()
+                .unwrap_or(TableRange { start: 0, len: 0 });
+            let payload = self
+                .bytes
+                .get(old.start as usize..old.start as usize + old.len as usize)
+                .unwrap_or(&[]);
+            ranges.push(TableRange {
+                start: bytes.len() as u32,
+                len: payload.len() as u32,
+            });
+            bytes.extend_from_slice(payload);
+            id_map.insert(id, ranges.len() as u32 - 1);
+        }
+        (bytes, ranges, id_map)
     }
 
     /// Consume the builder and produce a DrawOpFrame.
@@ -375,15 +442,45 @@ fn segment_references_subtree(ops: &[DrawOp], children: &[RuntimeEffectChildRef]
     })
 }
 
+/// Side-table references reached from a recorded op window.
+///
+/// A `CachedDrawSegment` is re-imported into a later frame's builder, so it
+/// must carry the side-table data its ops actually reference — never the
+/// whole builder table (see `snapshot_range`).
+#[derive(Default)]
+struct SegmentReferences {
+    paint_ids: std::collections::BTreeSet<u32>,
+    path_ids: std::collections::BTreeSet<u32>,
+    child_ranges: Vec<ChildRange>,
+    resource_ids: std::collections::BTreeSet<u32>,
+    effect_ids: std::collections::BTreeSet<u32>,
+    /// `BytesRangeId`s into the builder's byte table (`RuntimeEffect.uniforms`).
+    byte_ids: std::collections::BTreeSet<u32>,
+    /// `(start, len)` windows into the builder's f32 pool (`Points`,
+    /// `SetLineDash`).
+    f32_ranges: std::collections::BTreeSet<(u32, u32)>,
+}
+
+/// Collect every side-table reference reachable from `ops[start..end]`.
+///
+/// Nested op windows are resolved recursively, because a segment keeps its own
+/// copy of the ops it points at: `remap_op` shifts a nested `ReplayRange` by
+/// the import offset, and `import_segment` offsets a `Picture` child range the
+/// same way. The data those nested ops reference therefore has to travel with
+/// the segment too. `visited_windows` keeps a self-referential range from
+/// recursing forever.
 fn collect_references(
     ops: &[DrawOp],
-    paint_ids: &mut std::collections::BTreeSet<u32>,
-    path_ids: &mut std::collections::BTreeSet<u32>,
-    child_ranges: &mut Vec<ChildRange>,
-    _resource_ids: &mut std::collections::BTreeSet<u32>,
-    effect_ids: &mut std::collections::BTreeSet<u32>,
+    children: &[RuntimeEffectChildRef],
+    window: (usize, usize),
+    refs: &mut SegmentReferences,
+    visited_windows: &mut std::collections::BTreeSet<(u32, u32)>,
 ) {
-    for op in ops {
+    let (start, end) = window;
+    if end > ops.len() || !visited_windows.insert((start as u32, end as u32)) {
+        return;
+    }
+    for op in &ops[start..end] {
         match op {
             DrawOp::Rect { paint, .. }
             | DrawOp::RRect { paint, .. }
@@ -392,39 +489,93 @@ fn collect_references(
             | DrawOp::Circle { paint, .. }
             | DrawOp::Arc { paint, .. }
             | DrawOp::Line { paint, .. }
-            | DrawOp::Points { paint, .. }
             | DrawOp::Paint { paint } => {
-                paint_ids.insert(paint.0);
+                refs.paint_ids.insert(paint.0);
+            }
+            DrawOp::Points { paint, points, .. } => {
+                refs.paint_ids.insert(paint.0);
+                refs.f32_ranges.insert((points.start, points.len));
+            }
+            DrawOp::SetLineDash { intervals, .. } => {
+                refs.f32_ranges.insert((intervals.start, intervals.len));
             }
             DrawOp::DrawPath { path, paint } => {
-                path_ids.insert(path.0);
-                paint_ids.insert(paint.0);
+                refs.path_ids.insert(path.0);
+                refs.paint_ids.insert(paint.0);
             }
             DrawOp::Image { paint, .. } | DrawOp::ImageRect { paint, .. } => {
                 if let Some(p) = paint {
-                    paint_ids.insert(p.0);
+                    refs.paint_ids.insert(p.0);
                 }
             }
             DrawOp::SaveLayer { paint, .. } => {
                 if let Some(p) = paint {
-                    paint_ids.insert(p.0);
+                    refs.paint_ids.insert(p.0);
                 }
             }
             DrawOp::SaveBackdropLayer { paint, .. } => {
                 if let Some(p) = paint {
-                    paint_ids.insert(p.0);
+                    refs.paint_ids.insert(p.0);
                 }
             }
             DrawOp::RuntimeEffect {
-                effect, children, ..
+                effect,
+                uniforms,
+                children: child_range,
+                ..
             } => {
-                effect_ids.insert(effect.0);
-                child_ranges.push(*children);
+                refs.effect_ids.insert(effect.0);
+                refs.byte_ids.insert(uniforms.0);
+                refs.child_ranges.push(*child_range);
             }
-            DrawOp::ReplayRange { .. } => {}
+            DrawOp::ReplayRange { range } => {
+                let nested = (
+                    range.start_op as usize,
+                    range.start_op as usize + range.op_len as usize,
+                );
+                collect_references(ops, children, nested, refs, visited_windows);
+            }
+
             _ => {}
         }
+
+        // Picture children name a window of this frame's op table, so the ops
+        // (and the side-table data) they reference travel with the segment.
+        // A Recursive DFS over `visited_windows` keeps a self-referential
+        // window from looping forever.
+        if let DrawOp::RuntimeEffect {
+            children: child_range,
+            ..
+        } = op
+        {
+            let child_start = child_range.start as usize;
+            let child_end = child_start.saturating_add(child_range.len as usize);
+            for child in children.get(child_start..child_end).into_iter().flatten() {
+                if let RuntimeEffectChildRef::Picture(range) = child {
+                    let nested = (
+                        range.start_op as usize,
+                        range.start_op as usize + range.op_len as usize,
+                    );
+                    collect_references(ops, children, nested, refs, visited_windows);
+                }
+            }
+        }
     }
+}
+
+/// Append the side-table bytes/pool entries named by `ids` into a fresh table,
+/// returning it plus a map from each id to the offset it starts at.
+fn compact_tables<T: Ord + Copy, U: Clone>(
+    ids: &std::collections::BTreeSet<T>,
+    mut append: impl FnMut(T, &mut Vec<U>) -> u32,
+) -> (Vec<U>, std::collections::BTreeMap<T, u32>) {
+    let mut data = Vec::new();
+    let mut map = std::collections::BTreeMap::new();
+    for &id in ids {
+        let new_start = append(id, &mut data);
+        map.insert(id, new_start);
+    }
+    (data, map)
 }
 
 /// Remap id offsets when importing a cached segment.
@@ -594,6 +745,11 @@ fn remap_op_snapshot(
     path_map: &std::collections::BTreeMap<u32, u32>,
     effect_map: &std::collections::BTreeMap<u32, u32>,
     child_map: &std::collections::BTreeMap<u32, u32>,
+    // `RuntimeEffect.uniforms` is a rank into the byte table, so compaction
+    // must re-rank it (`byte_id_map`). The f32 pool has no id table: its ops
+    // name a (start, len) window, so only the start is rewritten.
+    byte_id_map: &std::collections::BTreeMap<u32, u32>,
+    f32_offset_map: &std::collections::BTreeMap<(u32, u32), u32>,
 ) -> DrawOp {
     let remap_paint = |p: &PaintId| PaintId(*paint_map.get(&p.0).unwrap_or(&0));
     let remap_path = |p: &PathId| PathId(*path_map.get(&p.0).unwrap_or(&0));
@@ -601,6 +757,14 @@ fn remap_op_snapshot(
     let remap_child = |c: &ChildRange| ChildRange {
         start: *child_map.get(&c.start).unwrap_or(&0),
         len: c.len,
+    };
+    let remap_byte = |b: &BytesRangeId| BytesRangeId(*byte_id_map.get(&b.0).unwrap_or(&0));
+    let remap_f32 = |r: &F32Range| F32Range {
+        start: f32_offset_map
+            .get(&(r.start, r.len))
+            .copied()
+            .unwrap_or(r.start),
+        len: r.len,
     };
 
     match op {
@@ -669,7 +833,7 @@ fn remap_op_snapshot(
             paint,
         } => DrawOp::Points {
             mode: *mode,
-            points: *points,
+            points: remap_f32(points),
             paint: remap_paint(paint),
         },
         DrawOp::DrawPath { path, paint } => DrawOp::DrawPath {
@@ -686,7 +850,7 @@ fn remap_op_snapshot(
             dst,
         } => DrawOp::RuntimeEffect {
             effect: remap_effect(effect),
-            uniforms: *uniforms,
+            uniforms: remap_byte(uniforms),
             children: remap_child(children),
             dst: *dst,
         },
@@ -722,7 +886,15 @@ fn remap_op_snapshot(
             dst: *dst,
             paint: paint.as_ref().map(remap_paint),
         },
+        DrawOp::SetLineDash { intervals, phase } => DrawOp::SetLineDash {
+            intervals: remap_f32(intervals),
+            phase: *phase,
+        },
         DrawOp::ReplayRange { range } => DrawOp::ReplayRange { range: *range },
+        // `ScriptRuntimeEffect` and inline `String` fields carry no side-table
+        // ids, so they move across unchanged. Dangling or unmapped ids fall
+        // back to 0 (see the closures above), which keeps a compacted segment
+        // self-consistent when a table id is absent.
         other => other.clone(),
     }
 }
@@ -1119,5 +1291,55 @@ mod tests {
             !segment.references_subtree,
             "plain draw ops must remain cacheable"
         );
+    }
+
+    #[test]
+    fn snapshot_range_compacts_side_tables() {
+        use crate::ir::draw_op::Rect4;
+
+        let mut src = DrawOpBuilder::default();
+        // Simulate a frame that already carries a huge, unrelated side table.
+        src.intern_bytes(&vec![7u8; 1 << 20]);
+        src.intern_f32_range(&[1.0f32; 1 << 18]);
+        // The only payload this segment references -- note: not id 0, so the
+        // rank remap must rewrite `uniforms` from 1 to 0.
+        let uniforms = src.intern_bytes(&[1u8, 2, 3, 4]);
+        let effect = src.intern_effect(0, "void main(){}");
+
+        let marker = src.begin_range();
+        src.push(DrawOp::RuntimeEffect {
+            effect,
+            uniforms,
+            children: ChildRange { start: 0, len: 0 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: 4.0,
+                height: 4.0,
+            },
+        });
+        let range = src.end_range(marker);
+        let segment = src.snapshot_range(range);
+
+        assert!(
+            segment.bytes.len() < 1 << 12,
+            "byte table must shrink to the referenced payload, got {}",
+            segment.bytes.len()
+        );
+        assert!(segment.byte_ranges.len() == 1);
+        assert!(segment.f32_pool.is_empty());
+
+        // Import must still address the right payload after re-ranking.
+        let mut dst = DrawOpBuilder::default();
+        dst.import_segment(&segment);
+        let frame = dst.finish();
+        match &frame.ops[0] {
+            DrawOp::RuntimeEffect { uniforms: u, .. } => {
+                let tr = frame.byte_ranges[u.0 as usize];
+                let payload = &frame.bytes[tr.start as usize..(tr.start + tr.len) as usize];
+                assert_eq!(payload, &[1u8, 2, 3, 4][..]);
+            }
+            other => panic!("expected RuntimeEffect, got {other:?}"),
+        }
     }
 }

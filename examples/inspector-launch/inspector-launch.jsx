@@ -111,15 +111,22 @@ function springPoints(stiffness, damping) {
   }
   return points;
 }
-globalThis.__ease_register_points('springHard', springPoints(180, 14));
-globalThis.__ease_register_points('springSoft', springPoints(120, 18));
-globalThis.__ease_register_points('springHeavy', springPoints(80, 22));
-var E_HARD = 'points:springHard', E_SOFT = 'points:springSoft', E_HEAVY = 'points:springHeavy';
-
-/* ── register numeric props so plain-object proxies are tweenable ───── */
-var animation = globalThis.__opencatAnimation.animation;
-if (!globalThis.__IL_PROPS) {
-  globalThis.__IL_PROPS = true;
+/* Native shims (__ease_register_points) and the animation runtime
+ * (__opencatAnimation) are injected by the script realm at install time, but
+ * module top-level code runs earlier (the extraction pass) where they are
+ * still undefined. Defer to a frame callback: __ocOnFrame runs before every
+ * useGSAP build inside the realm, so the tables/properties are in place
+ * before any tween parses 'points:spring*' or a bgState key. The typeof
+ * guards make the extraction pass a no-op instead of a crash. */
+function initInspectorRuntime() {
+  if (globalThis.__IL_INIT) return;
+  if (typeof globalThis.__ease_register_points !== 'function') return;
+  if (typeof globalThis.__opencatAnimation !== 'object' || !globalThis.__opencatAnimation) return;
+  globalThis.__IL_INIT = true;
+  globalThis.__ease_register_points('springHard', springPoints(180, 14));
+  globalThis.__ease_register_points('springSoft', springPoints(120, 18));
+  globalThis.__ease_register_points('springHeavy', springPoints(80, 22));
+  var animation = globalThis.__opencatAnimation.animation;
   ['flow', 'phase', 'density', 'radius', 'lift', 'centerX', 'centerY', 'palette',
    'wash', 'warp', 'shapeScale', 'ribbonScale', 'blend', 'ribbon', 'massShiftY',
    'htX', 'htY', 'htScale', 'htHue', 'htSat', 'htBlur'].forEach(function (k) {
@@ -130,6 +137,8 @@ if (!globalThis.__IL_PROPS) {
     });
   });
 }
+globalThis.__ocOnFrame(initInspectorRuntime);
+var E_HARD = 'points:springHard', E_SOFT = 'points:springSoft', E_HEAVY = 'points:springHeavy';
 
 /* ── SKSL: base layer — bg linear gradient + screen-blended wash ────── */
 var SKSL_BASE = [
@@ -580,11 +589,11 @@ var LOGO_PATHS = [
 ];
 function LogoSvg({ id }) {
   return (
-    <svg id={id} class="absolute left-[347px] top-[356px] w-[1225px] h-[368px]" view-box="0 0 263 79">
+    <div id={id} class="absolute left-[347px] top-[356px] w-[1225px] h-[368px]">
       {LOGO_PATHS.map((d, i) => (
         <path key={i} d={d} view-box="0 0 263 79" fill={i === 6 || i === 7 ? '#2ADFAC' : '#FFFFFF'} />
       ))}
-    </svg>
+    </div>
   );
 }
 function Logo() {
@@ -609,14 +618,14 @@ function Logo() {
   return (
     <div id="logo-wrap" class="absolute inset-0 z-[2] opacity-0">
       <div id="logo-cyan" class="absolute inset-0 opacity-0">
-        <svg id="logo-cyan-svg" class="absolute left-[350px] top-[356px] w-[1225px] h-[368px]" view-box="0 0 263 79">
+        <div id="logo-cyan-svg" class="absolute left-[350px] top-[356px] w-[1225px] h-[368px]">
           {LOGO_PATHS.map((d, i) => (<path key={i} d={d} view-box="0 0 263 79" fill="#19B7D5" />))}
-        </svg>
+        </div>
       </div>
       <div id="logo-amber" class="absolute inset-0 opacity-0">
-        <svg id="logo-amber-svg" class="absolute left-[344px] top-[356px] w-[1225px] h-[368px]" view-box="0 0 263 79">
+        <div id="logo-amber-svg" class="absolute left-[344px] top-[356px] w-[1225px] h-[368px]">
           {LOGO_PATHS.map((d, i) => (<path key={i} d={d} view-box="0 0 263 79" fill="#D97757" />))}
-        </svg>
+        </div>
       </div>
       <LogoSvg id="logo-img" />
     </div>
@@ -792,9 +801,9 @@ function Cursor() {
   return (
     <div id="cursor-wrap" class="absolute inset-0 z-[10] opacity-0">
       <div id="cursor" class="absolute left-0 top-0 opacity-0 drop-shadow-[0_2px_8px_rgba(0,0,0,0.6)]">
-        <svg id="cursor-svg" class="w-[32px] h-[38px]" view-box="0 0 28 34">
+        <div id="cursor-svg" class="w-[32px] h-[38px]">
           <path d="M2 1L2 25.5L8.5 19.5L14.5 31L18.5 29L12.5 17.5L21 17.5L2 1Z" view-box="0 0 28 34" fill="#FFFFFF" stroke="#000000" stroke-width="1.5" />
-        </svg>
+        </div>
       </div>
     </div>
   );
@@ -1015,9 +1024,9 @@ function FontList() {
 /* ════════════ shared marks / icons ════════════ */
 function ClaudeMark({ id, size, classExtra }) {
   return (
-    <svg id={id} class={size + ' ' + (classExtra || '')} view-box="0 0 32 32">
+    <div id={id} class={size + ' ' + (classExtra || '')}>
       <path d="M16 2 L17.4 12.6 L21.2 4.8 L18.7 13.3 L26.2 8.2 L19.5 14.8 L29.4 14 L19.6 16.6 L28 21.6 L18.8 17.8 L22.5 27.2 L16.8 18.4 L15.4 28.8 L14.7 18.2 L9.2 27.2 L13 17.8 L3.8 21.6 L12.3 16.6 L2.6 14 L12.4 14.8 L5.8 8.2 L13.3 13.3 L10.8 4.8 L14.6 12.6 Z" view-box="0 0 32 32" fill="#D97757" />
-    </svg>
+    </div>
   );
 }
 
@@ -1049,14 +1058,14 @@ function Scene00() {
           <div id="sc0-prompt" class="relative w-[1480px] min-h-[224px] p-[44px_48px_36px] border border-[rgba(255,248,233,0.18)] rounded-[44px] bg-[linear-gradient(180deg,rgba(22,28,22,0.98),rgba(9,15,12,0.98)),#10140f] shadow-[0_70px_200px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,248,233,0.08)]">
             <div class="min-h-[72px] pr-[160px] text-[46px] font-[if6] leading-[1.18] tracking-[-0.83px] whitespace-nowrap overflow-hidden text-[#fff8e9]">
               <text id="sc0-typed"></text>
-              <span id="sc0-caret" class="inline-block relative top-[7px] w-[7px] h-[44px] ml-[6px] bg-[#d97757]"></span>
+              <text id="sc0-caret" class="inline-block relative top-[7px] w-[7px] h-[44px] ml-[6px] bg-[#d97757]"></text>
             </div>
             <div id="sc0-actions" class="absolute right-[32px] bottom-[28px] flex items-center gap-[14px]">
               <div class="w-[60px] h-[60px] grid place-items-center text-[rgba(255,248,233,0.54)]">
-                <svg class="w-[26px] h-[26px]" view-box="0 0 24 24"><path d="M21 11.5l-8.5 8.5a5 5 0 1 1-7-7l8.5-8.5a3.5 3.5 0 1 1 5 5L11 17.5a2 2 0 1 1-3-3l7-7" view-box="0 0 24 24" fill="none" stroke="rgba(255,248,233,0.54)" stroke-width="1.6" /></svg>
+                <div class="w-[26px] h-[26px]"><path d="M21 11.5l-8.5 8.5a5 5 0 1 1-7-7l8.5-8.5a3.5 3.5 0 1 1 5 5L11 17.5a2 2 0 1 1-3-3l7-7" view-box="0 0 24 24" fill="none" stroke="rgba(255,248,233,0.54)" stroke-width="1.6" /></div>
               </div>
               <div id="sc0-send" class="w-[60px] h-[60px] grid place-items-center bg-[#d97757] rounded-[16px]">
-                <svg class="w-[22px] h-[22px]" view-box="0 0 24 24"><path d="M12 5v14M5 12l7-7 7 7" view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" /></svg>
+                <div class="w-[22px] h-[22px]"><path d="M12 5v14M5 12l7-7 7 7" view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" /></div>
               </div>
             </div>
           </div>
@@ -1084,12 +1093,12 @@ function Scene01() {
         <div class="relative w-full h-full flex items-center justify-center">
           <div id="sc1-h1" class="flex items-end gap-[26px] text-[116px] font-[if9] leading-none tracking-[-5.22px] text-[#fff8e9] whitespace-nowrap [text-shadow:2px_0_rgba(25,183,213,0.36),-2px_0_rgba(217,119,87,0.28),0_30px_90px_rgba(0,0,0,0.42)]">
             <text>Creating</text>
-            <span class="relative inline-block">
+            <text class="relative inline-block">
               <text>video</text>
-              <span id="sc1-w2-ov" class="absolute left-0 top-0">
+              <text id="sc1-w2-ov" class="absolute left-0 top-0">
                 <text class="text-transparent bg-clip-text bg-[linear-gradient(90deg,#62e58c_0%,#3cd3ef_33%,#ffc858_66%,#62e58c_100%)] bg-[length:220%_100%]">video</text>
-              </span>
-            </span>
+              </text>
+            </text>
             <text>should be easy.</text>
           </div>
         </div>
@@ -1239,7 +1248,7 @@ function Scene02() {
               </div>
             </div>
             <div class="absolute left-[50px] bottom-[72px] w-[1580px] h-[50px] flex items-center gap-[22px] px-[14px] text-[rgba(255,248,233,0.78)]">
-              <svg class="w-[28px] h-[28px]" view-box="0 0 28 28"><path d="M8 5 L23 14 L8 23 Z" view-box="0 0 28 28" fill="rgba(255,248,233,0.86)" /></svg>
+              <div class="w-[28px] h-[28px]"><path d="M8 5 L23 14 L8 23 Z" view-box="0 0 28 28" fill="rgba(255,248,233,0.86)" /></div>
               <text class="w-[56px] text-center text-[18px] font-[jb4] tracking-[0.72px]">0:00</text>
               <div class="flex-1 relative h-[4px] rounded-full bg-[rgba(255,248,233,0.18)]">
                 <div id="vt-progress" class="absolute left-0 top-0 h-full w-0 bg-[#fff8e9] rounded-full"></div>
@@ -1274,25 +1283,25 @@ function Scene03() {
         <div class="relative w-full h-full flex items-center justify-center">
           <div id="sc3-h1" class="flex items-center text-[136px] font-[ge7] leading-[0.92] tracking-[-1px] text-[#fff8e9] whitespace-nowrap [text-shadow:2px_0_rgba(25,183,213,0.36),-2px_0_rgba(217,119,87,0.28),0_30px_90px_rgba(0,0,0,0.42)]">
             <text>but close</text>
-            <span class="inline-block mx-[8px] w-[106px] h-[106px]">
-              <svg class="w-[106px] h-[106px]" view-box="0 0 100 100">
+            <text class="inline-block mx-[8px] w-[106px] h-[106px]">
+              <div class="w-[106px] h-[106px]">
                 <path id="ne-top" d="M 16 40 L 84 40" view-box="0 0 100 100" fill="none" stroke="#fff8e9" stroke-width="14" stroke-dasharray="100" stroke-dashoffset="100" />
                 <path id="ne-bottom" d="M 16 62 L 84 62" view-box="0 0 100 100" fill="none" stroke="#fff8e9" stroke-width="14" stroke-dasharray="100" stroke-dashoffset="100" />
                 <path id="ne-slash" d="M 28 82 L 72 18" view-box="0 0 100 100" fill="none" stroke="#fff8e9" stroke-width="14" stroke-dasharray="100" stroke-dashoffset="100" />
-              </svg>
-            </span>
+              </div>
+            </text>
             <text id="sl-0" class="inline-block">s</text>
             <text id="sl-1" class="inline-block">h</text>
             <text id="sl-2" class="inline-block">i</text>
             <text id="sl-3" class="inline-block">p</text>
-            <span id="ship-final" class="inline-block w-0 opacity-0 overflow-hidden">
-              <svg class="w-[150px] h-[110px]" view-box="0 0 100 74">
+            <text id="ship-final" class="inline-block w-0 opacity-0 overflow-hidden">
+              <div class="w-[150px] h-[110px]">
                 <path d="M6 46 L94 46 L80 68 L20 68 Z" view-box="0 0 100 74" fill="#3B6EA5" />
                 <path d="M46 4 L46 42 L18 42 Z" view-box="0 0 100 74" fill="#E8EDF2" />
                 <path d="M52 10 L52 42 L82 42 Z" view-box="0 0 100 74" fill="#C9D6E3" />
-                <rect x="45" y="2" width="4" height="44" fill="#8A6D4B" />
-              </svg>
-            </span>
+                <path d="M45 2 h4 v44 h-4 Z" fill="#8A6D4B" />
+              </div>
+            </text>
           </div>
         </div>
       </div>
@@ -1306,7 +1315,7 @@ function ClaudeTopbar({ pfx }) {
     <div class="h-[76px] px-[28px] flex items-center justify-between border-b border-[rgba(255,248,233,0.12)] bg-[rgba(7,12,9,0.72)]">
       <div class="flex items-center gap-[14px]">
         <div class="w-[38px] h-[38px] grid place-items-center">
-          <svg class="w-[22px] h-[22px]" view-box="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" view-box="0 0 24 24" fill="none" stroke="rgba(255,248,233,0.58)" stroke-width="1.8" /></svg>
+          <div class="w-[22px] h-[22px]"><path d="M3 6h18M3 12h18M3 18h18" view-box="0 0 24 24" fill="none" stroke="rgba(255,248,233,0.58)" stroke-width="1.8" /></div>
         </div>
         <div class="w-[36px] h-[36px] grid place-items-center">
           <ClaudeMark id={pfx + 'mark'} size="w-[30px] h-[30px]" />
@@ -1316,7 +1325,7 @@ function ClaudeTopbar({ pfx }) {
       <div class="flex items-center gap-[14px]">
         <div class="flex items-center gap-[8px] p-[9px_16px] border border-[rgba(255,248,233,0.14)] rounded-full bg-[rgba(255,248,233,0.07)]">
           <text class="text-[18px] font-[if5] text-[rgba(255,248,233,0.68)]">Claude Opus 4.7</text>
-          <svg class="w-[11px] h-[11px]" view-box="0 0 12 12"><path d="M3 5l3 3 3-3" view-box="0 0 12 12" fill="none" stroke="rgba(255,248,233,0.68)" stroke-width="1.6" /></svg>
+          <div class="w-[11px] h-[11px]"><path d="M3 5l3 3 3-3" view-box="0 0 12 12" fill="none" stroke="rgba(255,248,233,0.68)" stroke-width="1.6" /></div>
         </div>
         <div class="w-[38px] h-[38px] grid place-items-center rounded-full bg-[#d97757]">
           <text class="text-[17px] font-[if7] text-white">J</text>
@@ -1333,10 +1342,10 @@ function ClaudeComposer({ pfx, textId, initial }) {
       </div>
       <div class="absolute right-[18px] bottom-[14px] flex items-center gap-[12px]">
         <div class="w-[44px] h-[44px] grid place-items-center">
-          <svg class="w-[20px] h-[20px]" view-box="0 0 24 24"><path d="M21 11.5l-8.5 8.5a5 5 0 1 1-7-7l8.5-8.5a3.5 3.5 0 1 1 5 5L11 17.5a2 2 0 1 1-3-3l7-7" view-box="0 0 24 24" fill="none" stroke="rgba(255,248,233,0.54)" stroke-width="1.6" /></svg>
+          <div class="w-[20px] h-[20px]"><path d="M21 11.5l-8.5 8.5a5 5 0 1 1-7-7l8.5-8.5a3.5 3.5 0 1 1 5 5L11 17.5a2 2 0 1 1-3-3l7-7" view-box="0 0 24 24" fill="none" stroke="rgba(255,248,233,0.54)" stroke-width="1.6" /></div>
         </div>
         <div id={pfx + 'send'} class="w-[44px] h-[44px] grid place-items-center bg-[#d97757] rounded-[12px]">
-          <svg class="w-[18px] h-[18px]" view-box="0 0 24 24"><path d="M12 5v14M5 12l7-7 7 7" view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" /></svg>
+          <div class="w-[18px] h-[18px]"><path d="M12 5v14M5 12l7-7 7 7" view-box="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" /></div>
         </div>
       </div>
     </div>
@@ -1468,6 +1477,35 @@ function Scene05() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═════════════ entry — z-stacked composition (caller-owned root id) ═════════════ */
+
+export default function InspectorLaunch() {
+  return (
+    <div id="root" class="relative w-[1920px] h-[1080px] overflow-hidden bg-[#0B0E14] font-[if4]">
+      <Halftone />
+      <BgSystem />
+      <IntroBg />
+      <Scene00 />
+      <Scene01 />
+      <Scene01b />
+      <Scene01c />
+      <Scene02 />
+      <Scene03 />
+      <Scene04 />
+      <Scene05 />
+      <Logo />
+      <InspectorText />
+      <SelectionHighlight />
+      <MagGlass />
+      <InspectorPanel />
+      <ColorPicker />
+      <FontList />
+      <Cursor />
+      <GreenFlash />
     </div>
   );
 }

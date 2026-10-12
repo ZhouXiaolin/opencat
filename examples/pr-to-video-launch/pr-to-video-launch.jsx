@@ -230,7 +230,7 @@ function CardTitle({ titleId, caretId }) {
 }
 
 // ═════════════════ SCENE 1 — opener (0–5.2 s) ═════════════════
-function Opener() {
+function Opener({ rootId }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     // ref opener.html:108 dM1 = m1.offsetHeight(98) + GAP(30.72)
@@ -304,7 +304,7 @@ function Opener() {
     T.to('op-ripple', { scale: 1.9, opacity: 0, duration: 0.32, ease: 'power2.out' }, 4.42);
   });
   return (
-    <div id="s-opener" class="absolute inset-0 z-[1] font-[hk4]">
+    <div id={rootId} class="absolute inset-0 z-[1] font-[hk4]">
       {/* ref opener.html:92 starts the win shadow at alpha 0 and fades it in
           through the morph (:149). The engine has no boxShadow tween, so the
           shadow lives on a sibling layer (`op-sh`, painted below the win)
@@ -388,7 +388,7 @@ function Opener() {
 }
 
 // ═════════════════ SCENE 2 — pr-scroll (5.2–8.4 s) ═════════════════
-function PrScroll() {
+function PrScroll({ rootId }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     T.fromTo('prs-browser', { scale: 1.04, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.4, ease: 'power3.out' }, O2);
@@ -427,7 +427,7 @@ function PrScroll() {
     T.to('prs-cr3', { opacity: 0, duration: 0.25, ease: 'steps(1)', repeat: 1, yoyo: true }, O2 + 2.5 + 0.2);
   });
   return (
-    <div id="s-prscroll" class="absolute inset-0 z-[2] font-[hk4] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[2] font-[hk4] opacity-0">
       <div id="prs-browser" class="absolute left-[49.9px] top-[86.4px] w-[1017.6px] h-[907.2px] bg-[#fff] rounded-[23.04px] overflow-hidden shadow-[0_35px_96px_-38px_rgba(20,20,18,0.4)]">
         <div class="flex items-center gap-[10.56px] h-[61.44px] px-[26.88px] bg-[#e9e6df] border-b-[1px] border-[#d8d2c6]">
           <div class="w-[18.24px] h-[18.24px] rounded-full bg-[#FF5F57]"></div>
@@ -496,13 +496,13 @@ function PrScroll() {
 }
 
 // ═════════════════ SCENE 3 — hard-read (8.4–9.3 s) ═════════════════
-function HardRead() {
+function HardRead({ rootId }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     T.fromTo('hr-txt', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.28, ease: 'power3.out' }, O3);
   });
   return (
-    <div id="s-hard" class="absolute inset-0 z-[3] bg-[#1D1F1F] font-[gal] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[3] bg-[#1D1F1F] font-[gal] opacity-0">
       <div id="hr-txt" class="absolute left-0 right-0 top-[540px] -mt-[90px] text-center opacity-0">
         <text class="text-[182.4px] tracking-[-3.456px] text-[#EFEADD] leading-none">Hard to read</text>
       </div>
@@ -511,7 +511,7 @@ function HardRead() {
 }
 
 // ═════════════════ SCENE 4 — summarize (9.3–12.3 s) ═════════════════
-function Summarize() {
+function Summarize({ rootId }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     T.set('sm-composer', { scale: 1.85, transformOrigin: '50% 100%' }, 0);
@@ -530,7 +530,7 @@ function Summarize() {
   const h2 = 'text-[26.88px] font-[hk6] font-semibold text-[#E8A55A] font-[mono5] leading-[1.7] mt-[23.04px] mb-[11.52px]';
   const al = 'text-[29.76px] leading-[1.7] text-[#cfcabd] mb-[11.5px]';
   return (
-    <div id="s-summarize" class="absolute inset-0 z-[4] font-[hk4] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[4] font-[hk4] opacity-0">
       <div class="absolute inset-0 bg-[#1D1F1F] overflow-hidden">
         <div id="sm-feed" class="absolute left-[115.2px] right-[153.6px] top-[115.2px] bottom-[115.2px] overflow-hidden opacity-0">
           {/* per-band subpixel fit on f312: every text band reads dy=-1.5 (the
@@ -608,7 +608,7 @@ function Summarize() {
 }
 
 // ═════════════════ SCENE 5 — use-skill (12.3–16.1 s) ═════════════════
-function UseSkill() {
+function UseSkill({ rootId }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     // ref use-skill.html:66 — y0 = dCmd(36+26.88) + dOut(100+26.88) = 189.76
@@ -631,7 +631,7 @@ function UseSkill() {
     T.fromTo('us-l0', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.35, ease: 'power3.out' }, O5 + 3.0);
   });
   return (
-    <div id="s-useskill" class="absolute inset-0 z-[5] font-[hk4] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[5] font-[hk4] opacity-0">
       <div class="absolute left-[163.2px] top-[102.6px] w-[1599.36px] h-[874.8px] bg-[#1D1F1F] rounded-[25.92px] overflow-hidden shadow-[0_38px_115px_-38px_rgba(20,20,18,0.45)]">
         <div class="absolute left-[30.7px] top-[26.9px] flex items-center gap-[11.9px] z-[5]">
           <div class="w-[20.2px] h-[20.2px] rounded-full bg-[#FF5F57]"></div>
@@ -688,14 +688,14 @@ function UseSkill() {
 }
 
 // ═════════════════ SCENE 6 — feature-code (16.1–18.5 s, inner ×2.0) ═════════════════
-function FeatureCode() {
+function FeatureCode({ ids }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     cardTitle(T, ctx, 'fc-ttext', 'fc-tcaret', 'SHOW YOUR CODE', O6, 1.15, 2.0, 4.5);
     T.fromTo('fc-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.6 / 2, ease: 'power3.out' }, O6 + 0.15 / 2);
     T.to('fc-codeview', { opacity: 1, duration: 0.45 / 2, ease: 'power2.out' }, O6 + 1.0 / 2);
-    T.to('fc-pfill', { scaleX: 0.11, duration: 3.2 / 2, ease: 'none' }, O6 + 1.4 / 2);
-    T.to('fc-pknob', { left: (11 / 100) * 923.6, duration: 3.2 / 2, ease: 'none' }, O6 + 1.4 / 2);
+    T.to(ids.pfill, { scaleX: 0.11, duration: 3.2 / 2, ease: 'none' }, O6 + 1.4 / 2);
+    T.to(ids.pknob, { left: (11 / 100) * 923.6, duration: 3.2 / 2, ease: 'none' }, O6 + 1.4 / 2);
     // ref feature-code.html:125: t2 2→5 dur 3.2 @1.4 (inner ×2), Math.floor
     for (let tk = 3; tk <= 5; tk++) {
       T.set({ set: () => ctx.getNode('fc-ptime').text('0:0' + tk + ' / 0:32') }, { opacity: 1 }, O6 + (1.4 + 3.2 * (tk - 2) / 3) / 2.0);
@@ -705,11 +705,11 @@ function FeatureCode() {
     T.to('fc-band', { opacity: 1, duration: 0.4 / 2, ease: 'power2.out' }, O6 + 2.5 / 2);
   });
   return (
-    <div id="s-fcode" class="absolute inset-0 z-[6] bg-[#F0EFE9] font-[hk4] opacity-0">
+    <div id={ids.scene} class="absolute inset-0 z-[6] bg-[#F0EFE9] font-[hk4] opacity-0">
       <CardTitle titleId="fc-ttext" caretId="fc-tcaret" />
       <div class="absolute inset-0 z-[2] flex items-center justify-center">
-        <PlayerWindow pwinId="fc-pwin" sceneLabel="scene 1 / 6" fillId="fc-pfill" knobId="fc-pknob" ptimeId="fc-ptime" time0="0:02 / 0:32" stageBg="#1A1B1A">
-          <div id="auto220" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+        <PlayerWindow pwinId="fc-pwin" sceneLabel="scene 1 / 6" fillId={ids.pfill} knobId={ids.pknob} ptimeId="fc-ptime" time0="0:02 / 0:32" stageBg="#1A1B1A">
+          <div id={ids.stage} class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
           <div id="fc-codeview" class="absolute inset-0 bg-[#1A1B1A] font-[mono4] opacity-0">
             <div class="relative -top-[6.5px] flex items-center gap-[14px] bg-[#252320] px-[40px] py-[26px]">
               <div class="w-[20px] h-[20px] rounded-full bg-[#FF5F57]"></div>
@@ -736,13 +736,13 @@ function FeatureCode() {
 }
 
 // ═════════════════ SCENE 7 — feature-flow (18.5–21.0 s, inner ×2.56) ═════════════════
-function FeatureFlow() {
+function FeatureFlow({ ids }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     cardTitle(T, ctx, 'ff-ttext', 'ff-tcaret', 'SHOW YOUR FEATURE', O7, 1.15, 2.56, 6.0);
     T.fromTo('ff-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.6 / 2.56, ease: 'power3.out' }, O7 + 0.15 / 2.56);
-    T.to('ff-pfill', { scaleX: 0.42, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
-    T.to('ff-pknob', { left: (42 / 100) * 923.6, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
+    T.to(ids.pfill, { scaleX: 0.42, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
+    T.to(ids.pknob, { left: (42 / 100) * 923.6, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
     // ref feature-flow.html:174: t2 7→13 dur 3.6 @1.9 (inner ×2.56), Math.floor
     for (let fk = 8; fk <= 13; fk++) {
       T.set({ set: () => ctx.getNode('ff-ptime').text('0:' + fk + ' / 0:32') }, { opacity: 1 }, O7 + (1.9 + 3.6 * (fk - 7) / 6) / 2.56);
@@ -759,13 +759,13 @@ function FeatureFlow() {
     T.fromTo('ff-vring', { opacity: 0.5, scale: 1 }, { opacity: 0, scale: 1.8, duration: 1.0 / 2.56, ease: 'power2.out', repeat: 1 }, O7 + 4.1 / 2.56);
   });
   return (
-    <div id="s-fflow" class="absolute inset-0 z-[7] bg-[#F0EFE9] font-[hk4] opacity-0">
+    <div id={ids.scene} class="absolute inset-0 z-[7] bg-[#F0EFE9] font-[hk4] opacity-0">
       <CardTitle titleId="ff-ttext" caretId="ff-tcaret" />
       <div class="absolute inset-0 z-[2] flex items-center justify-center">
-        <PlayerWindow pwinId="ff-pwin" sceneLabel="scene 2 / 6" fillId="ff-pfill" knobId="ff-pknob" ptimeId="ff-ptime" time0="0:07 / 0:32" stageBg="#FAF9F5">
-          <div id="auto327" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+        <PlayerWindow pwinId="ff-pwin" sceneLabel="scene 2 / 6" fillId={ids.pfill} knobId={ids.pknob} ptimeId="ff-ptime" time0="0:07 / 0:32" stageBg="#FAF9F5">
+          <div id={ids.stageA} class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
           {/* ref .arrow: stroke-width 3 + round cap/join */}
-          <div id="auto328" class="absolute inset-0 bg-[#FAF9F5] font-[mono4] text-[#141413] flex items-center justify-center gap-[38px]">
+          <div id={ids.stageB} class="absolute inset-0 bg-[#FAF9F5] font-[mono4] text-[#141413] flex items-center justify-center gap-[38px]">
             <div id="ff-diff" class="w-[560px] bg-[#1A1B1A] rounded-[14px] overflow-hidden shadow-[0_8px_28px_-10px_rgba(20,20,19,0.4)] opacity-0">
               <div class="flex items-center gap-[9px] bg-[#252320] px-[22px] py-[16px]">
                 <div class="w-[14px] h-[14px] rounded-full bg-[#cc5f57]"></div>
@@ -801,15 +801,15 @@ function FeatureFlow() {
 }
 
 // ═════════════════ SCENE 8 — feature-discussion (21.0–23.0 s, inner ×2.05, conv ×4.1) ═════════════════
-function FeatureDiscussion() {
+function FeatureDiscussion({ ids }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     tw(T, ctx, 'fd-ttext', 'SHOW YOUR REVIEW', O8 + 0.2 / 2.05, 0.9 / 2.05);
     T.to('fd-tcaret', { opacity: 0, duration: 0.35, ease: 'steps(1)', repeat: 5, yoyo: true }, O8 + 0.2 / 2.05);
     T.to('fd-tcaret', { opacity: 0, duration: 0.25, ease: 'power2.in' }, O8 + 3.6 / 2.05);
     T.fromTo('fd-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.5 / 2.05, ease: 'power3.out' }, O8 + 0.1 / 2.05);
-    T.to('fd-pfill', { scaleX: 0.80, duration: 3.2 / 2.05, ease: 'none' }, O8 + 0.6 / 2.05);
-    T.to('fd-pknob', { left: (80 / 100) * 923.6, duration: 3.2 / 2.05, ease: 'none' }, O8 + 0.6 / 2.05);
+    T.to(ids.pfill, { scaleX: 0.80, duration: 3.2 / 2.05, ease: 'none' }, O8 + 0.6 / 2.05);
+    T.to(ids.pknob, { left: (80 / 100) * 923.6, duration: 3.2 / 2.05, ease: 'none' }, O8 + 0.6 / 2.05);
     // ref feature-discussion.html:173: t2 24→27 dur 3.2 @0.6 (inner ×2.05)
     for (let dk = 25; dk <= 27; dk++) {
       T.set({ set: () => ctx.getNode('fd-ptime').text('0:' + dk + ' / 0:32') }, { opacity: 1 }, O8 + (0.6 + 3.2 * (dk - 24) / 3) / 2.05);
@@ -857,11 +857,11 @@ function FeatureDiscussion() {
     </div>
   );
   return (
-    <div id="s-fdisc" class="absolute inset-0 z-[8] bg-[#F0EFE9] font-[hk4] opacity-0">
+    <div id={ids.scene} class="absolute inset-0 z-[8] bg-[#F0EFE9] font-[hk4] opacity-0">
       <CardTitle titleId="fd-ttext" caretId="fd-tcaret" />
       <div class="absolute inset-0 z-[2] flex items-center justify-center">
-        <PlayerWindow pwinId="fd-pwin" sceneLabel="scene 5 / 6" fillId="fd-pfill" knobId="fd-pknob" ptimeId="fd-ptime" time0="0:24 / 0:32" stageBg="#FAF9F5">
-          <div id="auto374" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+        <PlayerWindow pwinId="fd-pwin" sceneLabel="scene 5 / 6" fillId={ids.pfill} knobId={ids.pknob} ptimeId="fd-ptime" time0="0:24 / 0:32" stageBg="#FAF9F5">
+          <div id={ids.stage} class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
           <div class="absolute inset-0 bg-[#FAF9F5]">
             <div id="fd-card" class="absolute left-[60px] right-[60px] top-[70px] h-[760px] border-[1px] border-[rgba(20,20,19,0.12)] rounded-[18px] bg-[rgba(236,227,212,0.32)] overflow-hidden opacity-0">
               <div id="fd-chead" class="flex items-center justify-between h-[72px] px-[30px] border-b-[1px] border-[rgba(20,20,19,0.1)] opacity-0">
@@ -987,13 +987,13 @@ function CreditCol({ c, i }) {
   );
 }
 
-function FeatureCredits() {
+function FeatureCredits({ ids }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     cardTitle(T, ctx, 'cr-ttext', 'cr-tcaret', 'SHOW YOUR CONTRIBUTOR', O9, 1.0, 2.54, 6.1, 7);
     T.fromTo('cr-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.6 / 2.54, ease: 'power3.out' }, O9 + 0.15 / 2.54);
-    T.to('cr-pfill', { scaleX: 0.98, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
-    T.to('cr-pknob', { left: (98 / 100) * 923.6, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
+    T.to(ids.pfill, { scaleX: 0.98, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
+    T.to(ids.pknob, { left: (98 / 100) * 923.6, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
     // ref feature-credits.html:133: t2 30→32 dur 3.4 @1.9 (inner ×2.54)
     for (let rk = 31; rk <= 32; rk++) {
       T.set({ set: () => ctx.getNode('cr-ptime').text('0:' + rk + ' / 0:32') }, { opacity: 1 }, O9 + (1.9 + 3.4 * (rk - 30) / 2) / 2.54);
@@ -1001,7 +1001,7 @@ function FeatureCredits() {
     // FIX: seed the y offsets the ref gsap.set's before its .to tweens —
     // labels drop 8px, name/role lines rise 10px, sign rises 8px
     T.fromTo(['cr-g1', 'cr-g2', 'cr-g3'], { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.4 / 2.54, ease: 'power3.out', stagger: 0.12 / 2.54 }, O9 + 1.95 / 2.54);
-    T.to('cr-path', { scaleX: 1, duration: 1.2 / 2.54, ease: 'power2.inOut' }, O9 + 2.0 / 2.54);
+    T.to(ids.path, { scaleX: 1, duration: 1.2 / 2.54, ease: 'power2.inOut' }, O9 + 2.0 / 2.54);
     for (let ci = 1; ci <= 6; ci++) {
       const ct = O9 + (2.05 + (ci - 1) * 0.16) / 2.54;
       // FIX: fromTo pins the pre-entrance state; ring pulses out (ref ::after)
@@ -1019,16 +1019,16 @@ function FeatureCredits() {
     <text id={id} class={'absolute left-[' + left + 'px] top-[300px] text-[22px] font-[mono5] tracking-[3px] text-[' + color + '] opacity-0'}>{label}</text>
   );
   return (
-    <div id="s-fcredits" class="absolute inset-0 z-[9] bg-[#F0EFE9] font-[hk4] opacity-0">
+    <div id={ids.scene} class="absolute inset-0 z-[9] bg-[#F0EFE9] font-[hk4] opacity-0">
       <CardTitle titleId="cr-ttext" caretId="cr-tcaret" />
       <div class="absolute inset-0 z-[2] flex items-center justify-center">
-        <PlayerWindow pwinId="cr-pwin" sceneLabel="scene 6 / 6" fillId="cr-pfill" knobId="cr-pknob" ptimeId="cr-ptime" time0="0:30 / 0:32" stageBg="#FAF9F5">
-          <div id="auto421" class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
+        <PlayerWindow pwinId="cr-pwin" sceneLabel="scene 6 / 6" fillId={ids.pfill} knobId={ids.pknob} ptimeId="cr-ptime" time0="0:30 / 0:32" stageBg="#FAF9F5">
+          <div id={ids.stage} class="absolute left-0 top-0 w-[1920px] h-[1080px] origin-top-left">
           <div class="absolute inset-0 bg-[#FAF9F5] font-[mono4] text-[#141413]">
             {grp('cr-g1', 197.1, '#8C8B83', 'COMMITTED')}
             {grp('cr-g2', 785.2, '#8C8B83', 'REVIEWED')}
             {grp('cr-g3', 1479, '#CC785C', 'BUILT WITH')}
-            <div id="cr-path" class="absolute left-[270px] top-[438px] w-[1410px] h-0 border-t-[2px] border-dashed border-[rgba(204,120,92,0.4)] origin-left"></div>
+            <div id={ids.path} class="absolute left-[270px] top-[438px] w-[1410px] h-0 border-t-[2px] border-dashed border-[rgba(204,120,92,0.4)] origin-left"></div>
             {CREDITS.map((c, i) => <CreditCol key={i} c={c} i={i} />)}
             {/* FIX: ref signoff is one centered row (left:50% + -50% translate):
                 whole line = 476(seg1, engine-measured) + 28(rdy margin) + 233
@@ -1044,7 +1044,7 @@ function FeatureCredits() {
 }
 
 // ═════════════════ SCENE 10 — cta (25.6–30.0 s) ═════════════════
-function CtaOutro() {
+function CtaOutro({ rootId }) {
   useGSAP((ctx) => {
     const T = ctx.timeline();
     T.set('cta-top', { scale: 1.18, y: 206, transformOrigin: '50% 50%', opacity: 0 }, 0);
@@ -1090,7 +1090,7 @@ function CtaOutro() {
     T.to('cta-ret', { scale: 1, duration: 0.28, ease: 'power2.out' }, O10 + 3.42);
   });
   return (
-    <div id="s-cta" class="absolute inset-0 z-[10] bg-[#F0EFE9] font-[hk4] text-[#1D1F1F] opacity-0">
+    <div id={rootId} class="absolute inset-0 z-[10] bg-[#F0EFE9] font-[hk4] text-[#1D1F1F] opacity-0">
       <div id="cta-top" class="absolute inset-0 origin-center">
         <image id="cta-gh" path="assets/gh-mark-84.png" class="absolute left-[917.76px] top-[195.36px] w-[84.48px] h-[84.48px] opacity-0" />
         {/* ref cta.html:39,82 — headrow is left:50% + xPercent:-50, so the row
@@ -1156,54 +1156,62 @@ function CtaOutro() {
 
 // ═════════════════ ROOT — ten z-stacked scenes, cross-faded by the root tl ═════════════════
 export default function PrToVideoLaunch() {
+  // Caller-owned ids: the scene components mount them via props, the root tl
+  // orchestrates the cross-fade windows through this table.
+  var OPENER = 's-opener', PRSCROLL = 's-prscroll', HARD = 's-hard', SUMMARIZE = 's-summarize',
+      USESKILL = 's-useskill', CTA = 's-cta';
+  var FC = { scene: 's-fcode', stage: 'auto220', pfill: 'fc-pfill', pknob: 'fc-pknob' };
+  var FF = { scene: 's-fflow', stageA: 'auto327', stageB: 'auto328', pfill: 'ff-pfill', pknob: 'ff-pknob' };
+  var FD = { scene: 's-fdisc', stage: 'auto374', pfill: 'fd-pfill', pknob: 'fd-pknob' };
+  var CR = { scene: 's-fcredits', stage: 'auto421', path: 'cr-path', pfill: 'cr-pfill', pknob: 'cr-pknob' };
   useGSAP((ctx) => {
     const T = ctx.timeline();
-    T.set(['s-prscroll', 's-hard', 's-summarize', 's-useskill', 's-fcode', 's-fflow', 's-fdisc', 's-fcredits', 's-cta'], { opacity: 0 }, 0);
+    T.set([PRSCROLL, HARD, SUMMARIZE, USESKILL, FC.scene, FF.scene, FD.scene, CR.scene, CTA], { opacity: 0 }, 0);
     // Reference unmounts the outgoing scene instantly at its window end, so
     // the light #F0EFE9 root shows through during the incoming fade-in.
     const xfade = (a, b, t, d) => {
       T.set(a, { opacity: 0 }, t);
       T.fromTo(b, { opacity: 0 }, { opacity: 1, duration: d, ease: 'power1.inOut' }, t);
     };
-    T.to('s-opener', { scale: 1.6, opacity: 0, filter: 'blur(8px)', duration: 0.4, ease: 'power2.in', transformOrigin: '66% 59%' }, 4.8);
-    T.set('s-opener', { opacity: 0 }, 5.22);
-    T.set('s-prscroll', { opacity: 1 }, 5.2);
-    T.fromTo('s-prscroll', { opacity: 0 }, { opacity: 1, duration: 0.3, ease: 'power2.out' }, 5.15);
-    xfade('s-prscroll', 's-hard', 8.4, 0.28);
-    xfade('s-hard', 's-summarize', 9.3, 0.28);
-    xfade('s-summarize', 's-useskill', 12.3, 0.28);
-    xfade('s-useskill', 's-fcode', 16.1, 0.35);
-    xfade('s-fcode', 's-fflow', 18.5, 0.3);
-    xfade('s-fflow', 's-fdisc', 21.0, 0.3);
-    xfade('s-fdisc', 's-fcredits', 23.0, 0.3);
-    xfade('s-fcredits', 's-cta', 25.6, 0.35);
+    T.to(OPENER, { scale: 1.6, opacity: 0, filter: 'blur(8px)', duration: 0.4, ease: 'power2.in', transformOrigin: '66% 59%' }, 4.8);
+    T.set(OPENER, { opacity: 0 }, 5.22);
+    T.set(PRSCROLL, { opacity: 1 }, 5.2);
+    T.fromTo(PRSCROLL, { opacity: 0 }, { opacity: 1, duration: 0.3, ease: 'power2.out' }, 5.15);
+    xfade(PRSCROLL, HARD, 8.4, 0.28);
+    xfade(HARD, SUMMARIZE, 9.3, 0.28);
+    xfade(SUMMARIZE, USESKILL, 12.3, 0.28);
+    xfade(USESKILL, FC.scene, 16.1, 0.35);
+    xfade(FC.scene, FF.scene, 18.5, 0.3);
+    xfade(FF.scene, FD.scene, 21.0, 0.3);
+    xfade(FD.scene, CR.scene, 23.0, 0.3);
+    xfade(CR.scene, CTA, 25.6, 0.35);
     // pknob left: ref is % of ptrack; ptrack = 1228.8 − 2×28.8 − 28.8 − 2×23 −
     // 172.8 = 923.6px. Engine inset animation is px-only → % × 923.6.
-    T.set('fc-pfill', { scaleX: 0.05 }, 0); T.set('fc-pknob', { left: (5 / 100) * 923.6 }, 0);
-    T.set('ff-pfill', { scaleX: 0.22 }, 0); T.set('ff-pknob', { left: (22 / 100) * 923.6 }, 0);
-    T.set('fd-pfill', { scaleX: 0.66 }, 0); T.set('fd-pknob', { left: (66 / 100) * 923.6 }, 0);
-    T.set('cr-pfill', { scaleX: 0.86 }, 0); T.set('cr-pknob', { left: (86 / 100) * 923.6 }, 0);
+    T.set(FC.pfill, { scaleX: 0.05 }, 0); T.set(FC.pknob, { left: (5 / 100) * 923.6 }, 0);
+    T.set(FF.pfill, { scaleX: 0.22 }, 0); T.set(FF.pknob, { left: (22 / 100) * 923.6 }, 0);
+    T.set(FD.pfill, { scaleX: 0.66 }, 0); T.set(FD.pknob, { left: (66 / 100) * 923.6 }, 0);
+    T.set(CR.pfill, { scaleX: 0.86 }, 0); T.set(CR.pknob, { left: (86 / 100) * 923.6 }, 0);
     // FIX: seed the credits path draw-on (the xml .to had no scaleX seed)
-    T.set('cr-path', { scaleX: 0 }, 0);
+    T.set(CR.path, { scaleX: 0 }, 0);
     // inner 1920×1080 stages → 1171.2×658.56 stage = scale .61; flow row .84
-    T.set('auto220', { scale: 0.61 }, 0);
-    T.set('auto327', { scale: 0.61 }, 0);
-    T.set('auto328', { scale: 0.84 }, 0);
-    T.set('auto374', { scale: 0.61 }, 0);
-    T.set('auto421', { scale: 0.61 }, 0);
+    T.set(FC.stage, { scale: 0.61 }, 0);
+    T.set(FF.stageA, { scale: 0.61 }, 0);
+    T.set(FF.stageB, { scale: 0.84 }, 0);
+    T.set(FD.stage, { scale: 0.61 }, 0);
+    T.set(CR.stage, { scale: 0.61 }, 0);
   });
   return (
     <div id="root" class="relative w-[1920px] h-[1080px] bg-[#F0EFE9] overflow-hidden font-[hk4]">
-      <Opener />
-      <PrScroll />
-      <HardRead />
-      <Summarize />
-      <UseSkill />
-      <FeatureCode />
-      <FeatureFlow />
-      <FeatureDiscussion />
-      <FeatureCredits />
-      <CtaOutro />
+      <Opener rootId={OPENER} />
+      <PrScroll rootId={PRSCROLL} />
+      <HardRead rootId={HARD} />
+      <Summarize rootId={SUMMARIZE} />
+      <UseSkill rootId={USESKILL} />
+      <FeatureCode ids={FC} />
+      <FeatureFlow ids={FF} />
+      <FeatureDiscussion ids={FD} />
+      <FeatureCredits ids={CR} />
+      <CtaOutro rootId={CTA} />
     </div>
   );
 }

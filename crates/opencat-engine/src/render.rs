@@ -9,7 +9,34 @@ use crate::media::{AudioTrack, MediaContext, decode_audio_to_f32_stereo, encode_
 use opencat_core::frame_ctx::duration_secs_to_frames;
 use opencat_core::ir::GeneratedImageId;
 use skia_safe::Image;
-use std::collections::HashMap;
+
+use opencat_core::cache::lru::BoundedLruCache;
+
+/// LRU of decoded Skia images for core-generated bitmaps (`canvas
+/// putImageData` / `surface.bake`). The LRU evicts by ENTRY COUNT, not
+/// bytes — the previous code passed a byte budget as the entry count, so a
+/// per-frame bake key (`surface.bake('k' + frameIndex)`) kept every decoded
+/// 1920x1080 image alive and OOM-killed a 49s composition at ~500 MiB/s.
+/// The core `GeneratedImageTable` already watermarks per-frame keys at 3
+/// entries (max_age_frames = 2 + the current frame); this cache only needs
+/// to absorb repeated same-frame lookups, so a small entry count is the
+/// correct bound. The byte-budget env var is kept for compatibility: it now
+/// scales the entry count at 8 MB per 1920x1080 frame.
+pub type GeneratedImageCache = BoundedLruCache<GeneratedImageId, Image>;
+
+/// Entry-count bound matching the core table's 3-frame watermark, plus one
+/// slot for the encode thread's in-flight frame.
+pub const DEFAULT_GENERATED_IMAGE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+pub fn generated_image_cache_from_env() -> GeneratedImageCache {
+    let budget = std::env::var("OC_GENERATED_IMAGE_CACHE_BYTES")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .map(|bytes| (bytes / (1920 * 1080 * 4)).max(4))
+        .unwrap_or(4);
+    GeneratedImageCache::new(budget)
+}
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
@@ -29,7 +56,7 @@ fn render_pipeline_frame_to_rgba(
     pipeline: &mut crate::EnginePipeline,
     media_ctx: &mut MediaContext,
     executor: &mut crate::executor::EngineDrawExecutor,
-    generated_cache: &mut HashMap<GeneratedImageId, Image>,
+    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
     surface_w: u32,
     surface_h: u32,
     frame_index: u32,
@@ -175,7 +202,7 @@ pub fn render_from_source_with_base(
 
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
-    let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
+    let mut generated_cache = generated_image_cache_from_env();
 
     let audio_track = build_audio_track_from_pipeline(&pipeline)?;
 
@@ -277,7 +304,7 @@ pub fn render_single_frame_from_source_with_base(
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
     let mut executor = crate::executor::EngineDrawExecutor::new();
-    let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
+    let mut generated_cache = generated_image_cache_from_env();
     let rgba = render_pipeline_frame_to_rgba(
                     &mut pipeline,
                     &mut media_ctx,
@@ -348,6 +375,8 @@ impl EncodingConfig {
 #[cfg(test)]
 mod tests {
     use super::render_pipeline_frame_to_rgba;
+    use super::{DEFAULT_GENERATED_IMAGE_CACHE_BYTES, GeneratedImageCache};
+    use super::generated_image_cache_from_env;
     use crate::media::MediaContext;
     use opencat_core::parse::composition::Composition;
     use crate::EnginePipeline;
@@ -359,12 +388,13 @@ mod tests {
     use opencat_core::script::js_context::JsContext;
     use skia_safe::Image;
     use std::collections::HashMap;
+    use opencat_core::cache::lru::BoundedLruCache;
 
     struct TestPipeline {
         pipeline: EnginePipeline,
         media_ctx: MediaContext,
         executor: crate::executor::EngineDrawExecutor,
-        generated_cache: HashMap<GeneratedImageId, Image>,
+        generated_cache: BoundedLruCache<GeneratedImageId, Image>,
         width: u32,
         height: u32,
         _fixture_dir: std::path::PathBuf,
@@ -469,7 +499,7 @@ mod tests {
             pipeline,
             media_ctx,
             executor: crate::executor::EngineDrawExecutor::new(),
-            generated_cache: HashMap::new(),
+            generated_cache: GeneratedImageCache::new(DEFAULT_GENERATED_IMAGE_CACHE_BYTES),
             width,
             height,
             _fixture_dir: fixture_dir,
@@ -762,7 +792,7 @@ mod tests {
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(info.fps);
         let mut executor = crate::executor::EngineDrawExecutor::new();
-        let mut generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
+        let mut generated_cache = generated_image_cache_from_env();
         let frame = render_pipeline_frame_to_rgba(
                     &mut pipeline,
                     &mut media_ctx,

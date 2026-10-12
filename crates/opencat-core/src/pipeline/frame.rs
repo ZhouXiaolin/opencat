@@ -149,6 +149,12 @@ pub fn render_frame_with_state(
     )
     .entered();
 
+    // Retire entries no frame has refreshed. Declared at the top of the frame
+    // so every insert below is stamped with the composition frame index that
+    // asked for it — that is what makes out-of-order and repeated renders
+    // (preview scrubbing) expire correctly instead of by call count.
+    generated_images.advance_frame(frame_index as u64);
+
     let evaluation = evaluate_frame_layout(
         composition,
         frame_index,
@@ -246,6 +252,11 @@ pub fn render_frame_with_state(
         // Scene snapshot reuses the DrawOpFrame; generated RGBA is still resolved
         // from the pipeline table so the host contract stays complete.
         let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
+        // Re-stamp the snapshot's references so a later frame's watermark does
+        // not retire pixels this cached frame still draws.
+        for id in media_plan.generated_images.iter().map(|g| g.id) {
+            generated_images.touch(id);
+        }
         return Ok((frame, media_plan));
     }
 

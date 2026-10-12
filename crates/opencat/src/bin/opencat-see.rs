@@ -15,9 +15,9 @@ mod app {
 
     use opencat::{
         EngineDrawExecutor, EngineLoader, MediaContext, RqJsContext, build_audio_track_from_pipeline,
-        duration_secs_to_frames, execute_render_frame, open,
+        GeneratedImageCache, duration_secs_to_frames, execute_render_frame,
+        generated_image_cache_from_env, open,
     };
-    use opencat_core::ir::GeneratedImageId;
     use skia_safe::Image;
     use std::collections::HashMap;
     use opencat_core::script::js_context::JsContext;
@@ -878,7 +878,7 @@ mod app {
         pipeline: &mut opencat::EnginePipeline,
         media_ctx: &mut MediaContext,
         executor: &mut EngineDrawExecutor,
-        generated_cache: &mut HashMap<GeneratedImageId, Image>,
+        generated_cache: &mut GeneratedImageCache,
         gpu_target: &mut dyn GpuRenderTarget,
         width: i32,
         height: i32,
@@ -962,7 +962,7 @@ mod app {
         pipeline: opencat::EnginePipeline,
         media_ctx: MediaContext,
         executor: EngineDrawExecutor,
-        generated_cache: HashMap<GeneratedImageId, Image>,
+        generated_cache: GeneratedImageCache,
         audio_samples: Option<Arc<Vec<f32>>>,
         loop_sample_frames: usize,
         win_w: u32,
@@ -1157,7 +1157,7 @@ mod app {
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(info.fps);
         let executor = EngineDrawExecutor::new();
-        let generated_cache: HashMap<GeneratedImageId, Image> = HashMap::new();
+        let generated_cache = generated_image_cache_from_env();
 
         let audio_track = build_audio_track_from_pipeline(&pipeline)
             .context("failed to premix audio track")?;

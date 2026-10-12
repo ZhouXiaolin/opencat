@@ -18,6 +18,12 @@ use super::Pipeline;
 const DEFAULT_NODE_OWN_CAP: usize = 256;
 const DEFAULT_SEGMENT_CAP: usize = 256;
 const DEFAULT_ITEM_RANGE_CAP: usize = 128;
+/// Frames a generated image survives after no frame re-registers it. Stable
+/// keys (the emoji-glyph case) refresh every frame, so this only bounds the
+/// per-frame-key case (`surface.bake('k' + frameIndex)`): those entries are
+/// dead once the frame that asked for them is gone. Two frames of slack covers
+/// a host that resolves the previous frame's media plan one frame late.
+const DEFAULT_GENERATED_IMAGE_MAX_AGE: usize = 2;
 
 /// The core rendering pipeline.
 ///
@@ -82,7 +88,9 @@ impl<S: JsContext> DefaultPipeline<S> {
                     children: Vec::new(),
                 },
             },
-            generated_images: GeneratedImageTable::new(),
+            generated_images: GeneratedImageTable::with_max_age(
+                DEFAULT_GENERATED_IMAGE_MAX_AGE,
+            ),
         })
     }
 

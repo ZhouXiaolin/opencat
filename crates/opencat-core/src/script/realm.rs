@@ -147,6 +147,12 @@ impl<C: JsContext> ScriptRealm<C> {
         if let Some(base) = &self.document_base {
             self.ctx.set_ctx_field("__documentBase", json!(base))?;
         }
+        // Debug escape hatch: OC_DBG_NAN=1 arms the NaN guards in
+        // animation/core.js (createTween / __animate_value inputs). Unset on
+        // web (std::env::var is always Err there) and zero-cost when unset.
+        if matches!(std::env::var("OC_DBG_NAN"), Ok(v) if v == "1") {
+            self.ctx.eval("globalThis.__OC_DBG_NAN = true;")?;
+        }
         // User-created globalThis keys persist for the realm lifetime: there
         // is no frame-boundary cleanup. The realm lives and dies with one
         // pipeline, so session-level state is bounded by the composition, and

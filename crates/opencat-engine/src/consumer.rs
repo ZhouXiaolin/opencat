@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-
 use opencat_core::ir::draw_frame::DrawOpFrame;
+use opencat_core::cache::lru::BoundedLruCache;
+use std::collections::HashMap;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::ir::GeneratedImageId;
@@ -204,7 +204,7 @@ fn prepare_frame(
     plan: &FrameMediaPlan,
     loader: &crate::resource::loader::EngineLoader,
     video: &mut MediaContext,
-    generated_cache: &mut HashMap<GeneratedImageId, Image>,
+    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
 ) -> Result<EnginePreparedFrameMedia, ConsumerError> {
     let mut sk_images = Vec::new();
     let mut image_index = HashMap::new();
@@ -304,8 +304,13 @@ fn prepare_frame(
         if image_index.contains_key(&image_ref) {
             continue;
         }
-        let sk_image = if let Some(cached) = generated_cache.get(&entry.id) {
-            cached.clone()
+        // Bounded LRU mirrors the core table's frame watermark: a script that
+        // bakes a per-frame key (`surface.bake('k' + frameIndex)`) would
+        // otherwise grow this map one Skia image (GPU-uploadable, so ~1x the
+        // RGBA size) per frame for the whole composition.
+        let bytes = entry.width as usize * entry.height as usize * 4;
+        let sk_image = if let Some(cached) = generated_cache.get_cloned(&entry.id) {
+            cached
         } else {
             let info = ImageInfo::new(
                 (entry.width as i32, entry.height as i32),
@@ -322,7 +327,7 @@ fn prepare_frame(
                 id: entry.id,
                 detail: "images::raster_from_data returned None".into(),
             })?;
-            generated_cache.insert(entry.id, src.clone());
+            generated_cache.insert_with_weight(entry.id, src.clone(), bytes.max(1));
             src
         };
         let idx = sk_images.len();
@@ -343,9 +348,9 @@ fn prepare_frame(
     })
 }
 
-/// 会话级 SKSL 编译 memo（thread_local，按 hash 复用编译好的
-/// `RuntimeEffect`）：同一效果逐帧绘制时不再重复编译。宿主在会话结束/
-/// 换 composition 时可调 [`clear_runtime_effect_cache`] 归还内存。
+// 会话级 SKSL 编译 memo（thread_local，按 hash 复用编译好的
+// `RuntimeEffect`）：同一效果逐帧绘制时不再重复编译。宿主在会话结束/
+// 换 composition 时可调 `clear_runtime_effect_cache` 归还内存。
 thread_local! {
     static RUNTIME_EFFECT_CACHE: std::cell::RefCell<HashMap<u64, RuntimeEffect>> =
         std::cell::RefCell::new(HashMap::new());
@@ -399,7 +404,7 @@ pub fn execute_render_frame(
     executor: &mut EngineDrawExecutor,
     loader: &crate::resource::loader::EngineLoader,
     media_ctx: &mut MediaContext,
-    generated_cache: &mut HashMap<GeneratedImageId, Image>,
+    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
     canvas: &mut Canvas,
 ) -> Result<(), ConsumerError> {
     // Atomic validation: check all media handles exist BEFORE starting any

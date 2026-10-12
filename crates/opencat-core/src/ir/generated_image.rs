@@ -68,14 +68,44 @@ impl GeneratedImageEntry {
 /// Re-inserting the same id with differing content is a hard error: a stable id
 /// must map to exactly one image, otherwise fresh/reused pipelines could
 /// silently draw the wrong pixels.
+///
+/// ## Frame watermark
+///
+/// Entries outlive one frame: `frame = f(t)` re-evaluates the script every frame
+/// and re-emits the same keys, but a host may also resolve a plan a frame later
+/// (the engine caches Skia images by id and the encoder consumes frames
+/// asynchronously). An entry is therefore kept until [`Self::advance_frame`]
+/// retires it — that call declares "no future frame will ask for anything
+/// older". Without it the table is an unbounded leak for the one legitimate
+/// per-frame-key pattern (a script baking `surface.bake('k' + frameIndex)`),
+/// which grows the resident set by one full RGBA buffer per frame and OOM-kills
+/// a 49s composition at 1920x1080.
 #[derive(Clone, Debug, Default)]
 pub struct GeneratedImageTable {
     entries: HashMap<GeneratedImageId, GeneratedImageEntry>,
+    /// Composition frame index that last wrote the entry.
+    last_seen: HashMap<GeneratedImageId, u64>,
+    /// Frame index of the most recent [`Self::advance_frame`].
+    clock: u64,
+    /// Entries untouched for more than this many `advance_frame` calls drop.
+    max_age_frames: u32,
 }
 
 impl GeneratedImageTable {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Retain an entry for at most `max_age_frames` advances after it was last
+    /// written (see the frame-watermark note above). `usize::MAX` keeps
+    /// everything, which restores the pre-watermark behaviour.
+    pub fn with_max_age(max_age_frames: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            last_seen: HashMap::new(),
+            clock: 0,
+            max_age_frames: max_age_frames.min(u32::MAX as usize) as u32,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -91,9 +121,56 @@ impl GeneratedImageTable {
         self.entries.get(id)
     }
 
+    /// Mark that the pipeline moved on to composition frame `frame_index`, and
+    /// drop entries no frame has written for more than `max_age_frames` frames.
+    ///
+    /// The pipeline calls this once per rendered frame. Per-frame-key authors
+    /// get a bounded table instead of unbounded growth; stable-key authors are
+    /// unaffected because every frame reinserts (and so refreshes) the age.
+    ///
+    /// Age is measured against the frame that LAST wrote the entry, not against
+    /// the number of calls, so the pipeline's own out-of-order / repeat calls
+    /// (preview scrubbing, `render_frame(1)` then `render_frame(0)`) never
+    /// expire an entry the current frame still needs.
+    pub fn advance_frame(&mut self, frame_index: u64) {
+        self.clock = frame_index;
+        let max_age = self.max_age_frames as u64;
+        let dead: Vec<GeneratedImageId> = self
+            .last_seen
+            .iter()
+            .filter(|(_, seen)| frame_index.saturating_sub(**seen) > max_age)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in dead {
+            self.entries.remove(&id);
+            self.last_seen.remove(&id);
+        }
+    }
+
+    /// Mark `id` as used by the current frame without new pixels.
+    ///
+    /// Used by paths that reuse a previously recorded frame (the whole-frame
+    /// scene snapshot) — the pixels are still being drawn, so they must not
+    /// expire out from under a later frame's media plan.
+    pub fn touch(&mut self, id: GeneratedImageId) {
+        if self.entries.contains_key(&id) {
+            self.last_seen.insert(id, self.clock);
+        }
+    }
+
+    /// Drop every entry and reset all ages. Hosts call this when switching
+    /// compositions so a closed composition's bitmaps are returned at once.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.last_seen.clear();
+        self.clock = 0;
+    }
+
     /// Register a generated image under `id`.
     ///
     /// - Equal content already present → no-op (`Ok(())`).
+    ///   A no-op still refreshes the frame watermark, so an id every frame
+    ///   re-registers (the stable-key case) never expires.
     /// - Same id, different `(width, height, rgba)` → [`GeneratedImageCollision`].
     ///   This signals that two different bitmaps hashed to the same id, which
     ///   must never happen for a correct cache key and would otherwise produce
@@ -119,6 +196,9 @@ impl GeneratedImageTable {
             let dims_match = existing.dimensions_match(width, height);
             let content_match = dims_match && existing.rgba.as_ref() == rgba.as_ref();
             if content_match {
+                // Idempotent content, but NOT an idempotent age: a frame that
+                // asks for this image again used it, so it stays alive.
+                self.last_seen.insert(id, self.clock);
                 return Ok(());
             }
             bail!(GeneratedImageCollision {
@@ -140,6 +220,7 @@ impl GeneratedImageTable {
                 rgba,
             },
         );
+        self.last_seen.insert(id, self.clock);
         Ok(())
     }
 }
@@ -248,6 +329,103 @@ mod tests {
         );
         assert_eq!(collision.existing_width, 2);
         assert_eq!(collision.new_width, 4);
+    }
+
+    #[test]
+    fn per_frame_keys_are_retired_instead_of_accumulating() {
+        // The OOM regression: a script baking `surface.bake('k' + frameIndex)`
+        // emits a NEW id every frame. Without the watermark the table grows by
+        // one full RGBA buffer per frame (1920x1080 => 8 MB), so a 50s
+        // composition reaches ~1.2 GB and the process is OOM-killed.
+        let mut table = GeneratedImageTable::with_max_age(2);
+        for frame in 0..200u64 {
+            table.advance_frame(frame);
+            let key = format!("lambda_node_{frame:016x}");
+            let id = GeneratedImageId::from_key(&key);
+            table
+                .insert(id, 1920, 1080, rgba(1, 1920, 1080))
+                .expect("distinct keys never collide");
+            assert!(
+                table.len() <= 3,
+                "frame {frame}: table kept {} entries (watermark + this frame)",
+                table.len()
+            );
+        }
+    }
+
+    #[test]
+    fn stable_keys_survive_every_frame() {
+        // The emoji case: the same id is re-registered every frame, so the
+        // watermark must never retire it.
+        let mut table = GeneratedImageTable::with_max_age(2);
+        let id = GeneratedImageId::from_key("emoji-smile");
+        for frame in 0..500u64 {
+            table.advance_frame(frame);
+            table.insert(id, 32, 32, rgba(9, 32, 32)).expect("insert");
+        }
+        assert_eq!(table.len(), 1);
+        assert!(table.get(&id).is_some());
+    }
+
+    #[test]
+    fn entry_survives_the_frames_after_it_was_written() {
+        // A host may resolve frame N's media plan while frame N+1 or N+2 runs,
+        // so an entry must outlive `max_age_frames` frames past its write.
+        let mut table = GeneratedImageTable::with_max_age(2);
+        table.advance_frame(10);
+        table.insert(GeneratedImageId::from_key("cc-frame"), 64, 64, rgba(3, 64, 64))
+            .expect("insert");
+        table.advance_frame(11);
+        assert!(table.get(&GeneratedImageId::from_key("cc-frame")).is_some());
+        table.advance_frame(12);
+        assert!(table.get(&GeneratedImageId::from_key("cc-frame")).is_some());
+        table.advance_frame(13);
+        assert!(table.get(&GeneratedImageId::from_key("cc-frame")).is_none());
+    }
+
+    #[test]
+    fn out_of_order_and_repeated_frames_keep_live_entries() {
+        // Preview scrubbing renders frames out of order and repeats them. Age
+        // is measured from the frame that last wrote the entry, so jumping back
+        // must not expire an image the current frame still draws.
+        let mut table = GeneratedImageTable::with_max_age(2);
+        let id = GeneratedImageId::from_key("emoji");
+        for &frame in &[0u64, 1, 2, 3, 1, 0, 0, 5, 3] {
+            table.advance_frame(frame);
+            table.insert(id, 16, 16, rgba(7, 16, 16)).expect("insert");
+            assert!(
+                table.get(&id).is_some(),
+                "frame {frame} must resolve its own write"
+            );
+        }
+    }
+
+    #[test]
+    fn touch_keeps_a_reused_frame_s_pixels_alive() {
+        // The whole-frame scene snapshot redraws previously recorded generated
+        // images; without a touch they would expire mid-composition.
+        let mut table = GeneratedImageTable::with_max_age(2);
+        let id = GeneratedImageId::from_key("emoji");
+        table.advance_frame(0);
+        table.insert(id, 16, 16, rgba(7, 16, 16)).expect("insert");
+        for frame in 1..=4u64 {
+            table.advance_frame(frame);
+            table.touch(id);
+            assert!(table.get(&id).is_some(), "touched on frame {frame}");
+        }
+    }
+
+    #[test]
+    fn unlimited_age_restores_the_previous_behaviour() {
+        // `usize::MAX` keeps every entry: an explicit opt-out of the watermark.
+        let mut table = GeneratedImageTable::with_max_age(usize::MAX);
+        for frame in 0..64u64 {
+            table.advance_frame(frame);
+            table
+                .insert(GeneratedImageId(frame + 1), 8, 8, rgba(1, 8, 8))
+                .expect("insert");
+        }
+        assert_eq!(table.len(), 64);
     }
 
     #[test]

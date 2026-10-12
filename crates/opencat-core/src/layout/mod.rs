@@ -1000,7 +1000,7 @@ mod tests {
     use crate::{
         FrameCtx,
         layout::tree::LayoutRect,
-        parse::jsonl::tailwind::parse_class_name,
+        parse::tailwind::parse_class_name,
         parse::primitives::{canvas, div, lucide, path, text},
         probe::catalog::PreparedResourceCatalog,
         resolve::resolve::resolve_ui_tree,
@@ -1910,7 +1910,8 @@ mod tests {
             .expect("repo root");
         let jsonl = std::fs::read_to_string(repo.join("examples/alipay-finance-homepage.jsonl"))
             .expect("sample JSONL should be readable");
-        let parsed = crate::parse::jsonl::parse(&jsonl).expect("sample JSONL should parse");
+        let parsed = crate::parse::elements::parse_lines_for_tests(&jsonl, None)
+            .expect("sample JSONL should parse");
         let fps = parsed.fps as u32;
         let frame_ctx = FrameCtx {
             frame: 0,

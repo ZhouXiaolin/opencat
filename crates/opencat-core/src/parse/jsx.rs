@@ -3,10 +3,10 @@
 //!
 //! The host (engine) evaluates the entry module once in a throwaway realm and
 //! hands the extracted tree here ([`from_extract`]). This module only reshapes
-//! that tree into JSONL lines and delegates to [`crate::parse::jsonl`], so every
-//! downstream stage (prepare, pipeline, per-frame drivers) is untouched.
+//! that tree into element lines and delegates to [`crate::parse::elements`], so
+//! every downstream stage (prepare, pipeline, per-frame drivers) is untouched.
 //!
-//! The per-frame driver source is embedded as a JSONL `script` line: it
+//! The per-frame driver source is embedded as a `script` line: it
 //! re-evaluates the module graph each frame (fresh globals — the same
 //! `frame = f(t)` contract the XML `<script>` block has always had) and replays
 //! the `use*` hooks.
@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 use crate::parse::ParsedComposition;
-use crate::parse::jsonl::JsonLine;
+use crate::parse::elements::JsonLine;
 use crate::fonts::FontManifest;
 
 /// Entry-module specifier used as the module-system root.
@@ -49,14 +49,16 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         "duration": meta_f64(&meta, "duration", 3.0),
     })];
     lines.extend(tree_lines.iter().cloned());
-    lines.push(json!({ "type": "script", "src": driver }));
+    if !driver.is_empty() {
+        lines.push(json!({ "type": "script", "src": driver }));
+    }
 
     let jsonl_lines = lines
         .into_iter()
         .map(serde_json::from_value::<JsonLine>)
         .collect::<std::result::Result<Vec<_>, serde_json::Error>>()?;
 
-    crate::parse::jsonl::composition_from_lines(jsonl_lines, base_dir, Some(&font_manifest))
+    crate::parse::elements::composition_from_lines(jsonl_lines, base_dir, Some(&font_manifest))
 }
 
 /// `export const fonts = { default, faces: [{ id, family, path, role }] }`,
@@ -65,7 +67,7 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
 ///
 /// Paths resolve against `base_dir`, same manifest shape the font loader
 /// consumes for every frontend.
-fn font_manifest_from_extract(extract: &Value, meta: &Value) -> Result<FontManifest> {
+pub fn font_manifest_from_extract(extract: &Value, meta: &Value) -> Result<FontManifest> {
     use crate::fonts::{FontFaceDecl, FontManifest, FontRole, FontSource};
 
     let mut manifest = FontManifest::default();

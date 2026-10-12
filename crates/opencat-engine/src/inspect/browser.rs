@@ -1,9 +1,7 @@
 //! Headless Chrome + static server harness for web-vs-engine frame oracles.
 //!
-//! Shared by:
-//! - `inspect::tests::web_frame_oracle` (single / multi-frame SSIM regression)
-//! - `scripts/compare-mp4.sh` via the `opencat-web-compare` binary (sampled hex
-//!   or whole-range video)
+//! Shared by `scripts/compare-mp4.sh` via the `opencat-web-compare` binary
+//! (sampled hex or whole-range video).
 //!
 //! The browser path always goes through `web/test-oracle.html`. Two transports
 //! are exposed:
@@ -41,15 +39,16 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-pub fn web_source_for_oracle(path: &str, source: &str) -> String {
-    // Browser font fetch uses `/fonts/` (served from repo `assets/`), not
-    // filesystem-relative `path="../assets/..."`.
-    if path.ends_with(".xml") {
-        return source
-            .replace("path=\"../assets/", "url=\"/fonts/")
-            .replace("path='../assets/", "url='/fonts/");
-    }
-    source.to_string()
+/// The web bridge has no JS realm, so the oracle page receives the
+/// host-extracted JSX envelope (`{extract, driver}`); wasm-side `from_extract`
+/// rebuilds the composition from it. `base_dir` resolves relative `import`s
+/// during extraction.
+pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<String> {
+    let (extract, driver) = crate::jsx::extract_with_base_dir(source, base_dir)?;
+    Ok(serde_json::to_string(&json!({
+        "extract": extract,
+        "driver": driver,
+    }))?)
 }
 
 
@@ -475,7 +474,7 @@ impl BrowserHarness {
         wait_for_document_ready(&self.client, &self.webdriver_url, &self.session_id).await
     }
 
-    pub async fn render_frame(&self, jsonl: &str, frame: u32) -> Result<WebFrame> {
+    pub async fn render_frame(&self, envelope: &str, frame: u32) -> Result<WebFrame> {
         let result = webdriver_post(
             &self.client,
             &self.webdriver_url,
@@ -483,18 +482,18 @@ impl BrowserHarness {
             "execute/async",
             json!({
                 "script": r#"
-                    const jsonl = arguments[0];
+                    const envelope = arguments[0];
                     const frame = arguments[1];
                     const done = arguments[arguments.length - 1];
                     if (!window.__opencatOracle || typeof window.__opencatOracle.renderFrame !== 'function') {
                       done({ ok: false, error: 'window.__opencatOracle.renderFrame is not available' });
                       return;
                     }
-                    window.__opencatOracle.renderFrame(jsonl, frame)
+                    window.__opencatOracle.renderFrame(envelope, frame)
                       .then((result) => done({ ok: true, result }))
                       .catch((err) => done({ ok: false, error: String(err && (err.stack || err.message) || err) }));
                 "#,
-                "args": [jsonl, frame],
+                "args": [envelope, frame],
             }),
         )
         .await?;
@@ -523,7 +522,7 @@ impl BrowserHarness {
     /// WebDriver boundary, so this scales to a full sweep without chunking.
     pub async fn render_frames_to_mp4(
         &self,
-        jsonl: &str,
+        envelope: &str,
         start_frame: u32,
         end_frame: u32,
     ) -> Result<FramesMp4> {
@@ -534,7 +533,7 @@ impl BrowserHarness {
             "execute/async",
             json!({
                 "script": r#"
-                    const jsonl = arguments[0];
+                    const envelope = arguments[0];
                     const start = arguments[1];
                     const end = arguments[2];
                     const done = arguments[arguments.length - 1];
@@ -542,11 +541,11 @@ impl BrowserHarness {
                       done({ ok: false, error: 'window.__opencatOracle.renderFramesToMp4 is not available' });
                       return;
                     }
-                    window.__opencatOracle.renderFramesToMp4(jsonl, start, end)
+                    window.__opencatOracle.renderFramesToMp4(envelope, start, end)
                       .then((result) => done({ ok: true, result }))
                       .catch((err) => done({ ok: false, error: String(err && (err.stack || err.message) || err) }));
                 "#,
-                "args": [jsonl, start_frame, end_frame],
+                "args": [envelope, start_frame, end_frame],
             }),
         )
         .await?;

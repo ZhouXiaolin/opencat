@@ -13,7 +13,7 @@ use crate::parse::{
 };
 use crate::style::NodeStyle;
 
-pub mod tailwind;
+use crate::parse::tailwind;
 
 use crate::parse::document::{
     DeclaredScript, build_tree, build_tree_with_tl, join_scripts, script_driver_from_decls,
@@ -195,35 +195,27 @@ pub enum JsonLine {
     },
 }
 
-pub fn parse(input: &str) -> anyhow::Result<ParsedComposition> {
-    parse_with_base_dir(input, None)
-}
-
-pub fn parse_with_base_dir(
+/// Test-only line-text helper: core unit tests describe fixtures in the line
+/// shape without a product text frontend. Decodes text lines into
+/// [`JsonLine`] and runs the shared assembly.
+#[cfg(test)]
+pub(crate) fn parse_lines_for_tests(
     input: &str,
     base_dir: Option<&Path>,
-) -> anyhow::Result<ParsedComposition> {
-    parse_with_base_dir_and_fonts(input, base_dir, None)
-}
-
-pub fn parse_with_base_dir_and_fonts(
-    input: &str,
-    base_dir: Option<&Path>,
-    manifest: Option<&crate::fonts::FontManifest>,
 ) -> anyhow::Result<ParsedComposition> {
     let lines = input
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(serde_json::from_str::<JsonLine>)
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    composition_from_lines(lines, base_dir, manifest)
+    composition_from_lines(lines, base_dir, None)
 }
 
-/// Shared assembly for the JSONL line shape: consumed verbatim by the JSONL
-/// text frontend and by the JSX frontend, whose extracted tree arrives as a
-/// `Vec<JsonLine>` without a text round-trip. `line_index` (1-based to the
-/// Tailwind diagnostics) counts the lines as given, so the JSX frontend keeps
-/// its composition line at index 0 exactly like a text document.
+/// Shared assembly for the line shape ([`JsonLine`]): the JSX frontend's
+/// extracted tree arrives as a `Vec<JsonLine>` and lowers here directly.
+/// `line_index` (1-based to the Tailwind diagnostics) counts the lines as
+/// given, so the JSX frontend keeps its composition line at index 0 exactly
+/// like a text document would.
 pub(crate) fn composition_from_lines(
     lines: Vec<JsonLine>,
     base_dir: Option<&Path>,
@@ -602,14 +594,9 @@ pub(crate) fn composition_from_lines(
                 acc.entry(t.parent_id.clone()).or_default().push(t);
                 acc
             });
-        build_tree_with_tl(
-            &elements,
-            &scripts_by_parent,
-            &transitions_by_tl,
-            fps as u32,
-        )?
+        build_tree_with_tl(&elements, &scripts_by_parent, &transitions_by_tl)?
     } else {
-        build_tree(&elements, &scripts_by_parent, fps as u32)?
+        build_tree(&elements, &scripts_by_parent)?
     };
 
     if !global_scripts.is_empty() {
@@ -813,7 +800,11 @@ fn parse_class_name_with_context(class_name: &str, node_id: &str, line_number: u
 
 #[cfg(test)]
 mod tests {
-    use super::{parse, parse_class_name};
+    use super::super::tailwind::parse_class_name;
+
+    fn parse(input: &str) -> anyhow::Result<crate::parse::document::ParsedComposition> {
+        super::parse_lines_for_tests(input, None)
+    }
     use crate::{
         parse::{composition::AudioAttachment, node::NodeKind},
         style::{

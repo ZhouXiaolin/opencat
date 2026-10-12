@@ -50,12 +50,6 @@ impl CompositionDraft {
         }
     }
 
-    /// Parse a JSONL document into a draft.
-    pub fn parse(input: &str) -> Result<Self> {
-        let parsed = crate::parse::jsonl::parse(input)?;
-        Ok(Self::from_parsed(parsed))
-    }
-
     pub fn requirements(&self) -> &HostRequirements {
         &self.requirements
     }
@@ -882,6 +876,14 @@ fn walk_script_drivers(node: &crate::parse::node::Node, f: &mut dyn FnMut(&Scrip
 
 #[cfg(test)]
 mod tests {
+    /// Test fixture helper: line-shape text straight into the shared assembly.
+    /// The product frontend is the JSX extract — core has no text entry point.
+    fn draft_from_lines(input: &str) -> CompositionDraft {
+        let parsed = crate::parse::elements::parse_lines_for_tests(input, None)
+            .expect("fixture lines should parse");
+        CompositionDraft::from_parsed(parsed)
+    }
+
     use super::*;
     use crate::pipeline::Pipeline;
     use crate::probe::catalog::ImageMeta;
@@ -924,7 +926,7 @@ mod tests {
     }
 
     fn open_lifecycle(input: &str) -> DefaultPipeline<NoopJsContext> {
-        let draft = CompositionDraft::parse(input).expect("parse draft");
+        let draft = draft_from_lines(input);
         let inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
@@ -975,7 +977,7 @@ mod tests {
     fn draft_requirements_are_empty_for_no_resource_composition() {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         assert!(draft.requirements().is_empty());
         assert!(draft.requirements().requests().is_empty());
     }
@@ -985,7 +987,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let reqs = draft.requirements().requests();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Image);
@@ -997,7 +999,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -1018,7 +1020,7 @@ mod tests {
     fn prepare_errors_on_undeclared_host_input() {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
             .with_sans_serif_family("Noto Sans SC");
@@ -1065,7 +1067,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png","w":8,"h":8}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -1092,7 +1094,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -1129,7 +1131,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -1165,7 +1167,7 @@ mod tests {
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png","className":"w-[8px] h-[8px]"}"#;
         let base = std::path::Path::new("/host/doc/root");
-        let parsed = crate::parse::jsonl::parse_with_base_dir(jsonl, Some(base)).unwrap();
+        let parsed = crate::parse::elements::parse_lines_for_tests(jsonl, Some(base)).unwrap();
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.asset_id.key, "photos/a.png");
@@ -1176,7 +1178,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png","className":"w-[32px] h-[32px]"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         assert_eq!(id.key, "photos/a.png");
         let mut inputs = HostInputs::empty()
@@ -1226,7 +1228,7 @@ mod tests {
             let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
 {"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
 {"type":"video","id":"vid","parentId":"root","path":"clips/hero.mp4","className":"w-[320px] h-[180px]"}"#;
-            let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
+            let draft = draft_from_lines(jsonl);
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Video);
@@ -1258,7 +1260,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":4}
 {"type":"div","id":"root","parentId":null,"className":"w-[320px] h-[180px]"}
 {"type":"video","id":"vid","parentId":"root","path":"clips/hero.mp4","className":"w-[320px] h-[180px]","dataMediaStart":12}"#;
-        let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
+        let draft = draft_from_lines(jsonl);
         let reqs = draft.requirements().requests();
         assert_eq!(reqs[0].asset_id.key, "video:path:clips/hero.mp4");
         let id = reqs[0].asset_id.clone();
@@ -1303,7 +1305,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -1326,7 +1328,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -1360,7 +1362,7 @@ mod tests {
 {"type":"div","id":"root","parentId":null}
 {"type":"video","id":"vid","parentId":"root","path":"clips/a.mp4","className":"w-[8px] h-[8px]"}"#;
         let base = std::path::Path::new("/host/doc/root");
-        let parsed = crate::parse::jsonl::parse_with_base_dir(jsonl, Some(base)).unwrap();
+        let parsed = crate::parse::elements::parse_lines_for_tests(jsonl, Some(base)).unwrap();
         let draft = CompositionDraft::from_parsed(parsed);
         let req = &draft.requirements().requests()[0];
         assert_eq!(req.asset_id.key, "video:path:clips/a.mp4");
@@ -1374,7 +1376,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let reqs = draft.requirements().requests();
         assert_eq!(reqs.len(), 1);
         assert_eq!(reqs[0].kind, ResourceKind::Lottie);
@@ -1386,7 +1388,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -1409,7 +1411,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
 
         let mut inputs = HostInputs::empty()
@@ -1509,7 +1511,7 @@ mod tests {
 {"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
 {"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json","className":"w-[32px] h-[32px]"}"#];
         for input in sources {
-            let draft = CompositionDraft::parse(input).expect("parse");
+            let draft = draft_from_lines(input);
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Lottie);
@@ -1586,7 +1588,7 @@ mod tests {
 {"type":"image","id":"pic","parentId":"root","path":"assets/hero.png","className":"w-[16px] h-[16px]"}"#,
         ];
         for input in sources {
-            let draft = CompositionDraft::parse(input).expect("parse");
+            let draft = draft_from_lines(input);
             let reqs = draft.requirements().requests();
             assert_eq!(reqs.len(), 1);
             assert_eq!(reqs[0].kind, ResourceKind::Image);
@@ -1849,7 +1851,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
 {"id":"root","parentId":null,"type":"div","className":"relative w-[320px] h-[180px]"}
 {"id":"subs","parentId":"root","type":"caption","className":"absolute left-[0px] top-[0px] text-white","path":"sub.srt"}"#;
-        let draft = CompositionDraft::parse(jsonl).expect("parse");
+        let draft = draft_from_lines(jsonl);
         let sub_id = draft
             .requirements()
             .requests()
@@ -1892,7 +1894,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div"}
 {"id":"subs","parentId":"root","type":"caption","path":"missing.srt"}"#;
-        let draft = CompositionDraft::parse(jsonl).expect("parse");
+        let draft = draft_from_lines(jsonl);
         let sub_id = draft
             .requirements()
             .requests()
@@ -1928,7 +1930,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
 {"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
 {"type":"caption","id":"subs","parentId":"root","path":"sub.srt"}"#;
-        let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
+        let draft = draft_from_lines(jsonl);
         let sub_id = draft
             .requirements()
             .requests()
@@ -1972,7 +1974,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
 {"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
 {"type":"caption","id":"subs","parentId":"root","path":"sub.srt"}"#;
-        let draft = CompositionDraft::parse(jsonl).expect("parse jsonl");
+        let draft = draft_from_lines(jsonl);
         // No subtitle text supplied → MissingInput fail-fast.
         let err = draft
             .prepare(
@@ -2012,7 +2014,7 @@ mod tests {
 {"type":"audio","id":"a","attach":"scene-a","url":"https://example.com/a.mp3"}
 {"type":"audio","id":"b","attach":"scene-b","url":"https://example.com/b.mp3","duration":0.1}"#;
 
-        let draft = CompositionDraft::parse(jsonl).expect("parse");
+        let draft = draft_from_lines(jsonl);
         let reqs = draft.requirements().requests();
         let audio_reqs: Vec<_> = reqs
             .iter()
@@ -2088,7 +2090,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"audio","id":"bgm","attach":"root","url":"https://example.com/bgm.mp3"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft
             .requirements()
             .requests()
@@ -2118,7 +2120,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div","className":"flex"}
 {"type":"script","path":"anim/main.js"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let scripts: Vec<_> = draft
             .requirements()
             .requests()
@@ -2134,7 +2136,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div","className":"flex"}
 {"type":"script","path":"missing.js"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -2156,7 +2158,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div","className":"flex"}
 {"type":"script","parentId":"root","path":"node.js"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft
             .requirements()
             .requests()
@@ -2188,7 +2190,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div","className":"flex"}
 {"type":"script","path":"empty.js"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft
             .requirements()
             .requests()
@@ -2233,7 +2235,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
 {"type":"script","src":"ctx.getNode(\"root\").opacity(1);"}
 {"type":"div","id":"root","parentId":null,"className":"w-full h-full"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         assert!(
             draft
                 .requirements()
@@ -2307,7 +2309,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2332,7 +2334,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"video","id":"vid","parentId":"root","path":"clip.mp4"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2356,7 +2358,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"audio","id":"bgm","attach":"root","url":"https://example.com/bgm.mp3"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2380,7 +2382,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"lottie","id":"loader","parentId":"root","path":"anim/loader.json"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2404,7 +2406,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div"}
 {"id":"subs","parentId":"root","type":"caption","path":"missing.srt"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2460,7 +2462,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":64,"height":36,"fps":30,"duration":0.1}
 {"id":"root","parentId":null,"type":"div","className":"flex"}
 {"type":"script","path":"missing.js"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())
@@ -2486,7 +2488,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let err = draft
             .prepare(
                 HostInputs::empty()
@@ -2511,7 +2513,7 @@ mod tests {
         let jsonl = r#"{"type":"composition","width":10,"height":10,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}
 {"type":"image","id":"pic","parentId":"root","path":"photos/a.png"}"#;
-        let draft = CompositionDraft::parse(jsonl).unwrap();
+        let draft = draft_from_lines(jsonl);
         let id = draft.requirements().requests()[0].asset_id.clone();
         let mut inputs = HostInputs::empty()
             .with_base_font_faces(crate::test_support::test_font_faces())

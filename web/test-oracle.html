@@ -55,35 +55,17 @@
         return Math.max(1, Math.ceil(d * f));
       }
 
-      function parseCompositionInfo(jsonl) {
-        const trimmedSource = jsonl.trim();
-        if (trimmedSource.startsWith('<')) {
-          const root = new DOMParser().parseFromString(trimmedSource, 'application/xml').documentElement;
-          const width = Number(root.getAttribute('width'));
-          const height = Number(root.getAttribute('height'));
-          const fps = Number(root.getAttribute('fps'));
-          const duration = Number(root.getAttribute('duration'));
-          return {
-            width,
-            height,
-            fps,
-            frames: compositionFrameCount(fps, duration, Number(root.getAttribute('frames'))),
-          };
-        }
-        for (const line of jsonl.split(/\r?\n/)) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          const item = JSON.parse(trimmed);
-          if (item.type === 'composition') {
-            return {
-              width: item.width,
-              height: item.height,
-              fps: item.fps,
-              frames: compositionFrameCount(item.fps, item.duration, item.frames),
-            };
-          }
-        }
-        throw new Error('JSONL composition header not found');
+      function parseCompositionInfo(source) {
+        // The host hands over the extracted JSX envelope:
+        // {extract: {meta, fonts, lines}, driver}.
+        const envelope = JSON.parse(source);
+        const meta = (envelope.extract && envelope.extract.meta) || {};
+        return {
+          width: meta.width,
+          height: meta.height,
+          fps: meta.fps,
+          frames: compositionFrameCount(meta.fps, meta.duration, meta.frames),
+        };
       }
 
       function bytesToHex(bytes) {
@@ -125,10 +107,10 @@
       let cachedComp = null;
       let cachedCompFor = null;
 
-      function compositionInfo(jsonl) {
-        if (cachedCompFor !== jsonl) {
-          cachedComp = parseCompositionInfo(jsonl);
-          cachedCompFor = jsonl;
+      function compositionInfo(envelope) {
+        if (cachedCompFor !== envelope) {
+          cachedComp = parseCompositionInfo(envelope);
+          cachedCompFor = envelope;
         }
         return cachedComp;
       }
@@ -137,10 +119,10 @@
       // surface + CK so callers can read back (hex transport) or encode
       // (video transport) without re-deriving state. Pixel readback is left to
       // the caller — it is the expensive, transport-specific step.
-      async function drawFrame(jsonl, frame) {
+      async function drawFrame(envelope, frame) {
         await ready;
 
-        const comp = compositionInfo(jsonl);
+        const comp = compositionInfo(envelope);
         if (frame < 0 || frame >= comp.frames) {
           throw new Error(`frame ${frame} out of range 0..${comp.frames - 1}`);
         }
@@ -160,12 +142,12 @@
         // captions, opens the pipeline. Without prepareCatalogVideoSources,
         // injectVideoFramesForRender silently blanks every VideoFrame draw
         // (profile-showcase s2/s3).
-        if (openedFor !== jsonl) {
+        if (openedFor !== envelope) {
           clearBlobs();
           await clearVideoCache();
-          const catalogJson = await renderer.open_design(jsonl);
+          const catalogJson = await renderer.open_design(envelope);
           await prepareCatalogVideoSources(catalogJson);
-          openedFor = jsonl;
+          openedFor = envelope;
         }
 
         // Headless SwiftShader often cannot import VideoFrame textures via
@@ -190,8 +172,8 @@
       }
 
       // Hex transport (sampled oracle): one frame out as raw RGBA hex.
-      async function renderFrame(jsonl, frame) {
-        const { comp, surface, CK } = await drawFrame(jsonl, frame);
+      async function renderFrame(envelope, frame) {
+        const { comp, surface, CK } = await drawFrame(envelope, frame);
         const snapshot = surface.makeImageSnapshot();
         try {
           const pixels = snapshot.readPixels(0, 0, {
@@ -236,9 +218,9 @@
       // Codec loss is negligible on real content (measured: H.264 CRF 12 over
       // k3-promo engine frames → mae 0.006–0.17, p8 ≈ 0) versus the ~1.64
       // baseline and the 1.0–2.0 gate, so alignment stays meaningful.
-      async function renderFramesToMp4(jsonl, startFrame, endFrame) {
+      async function renderFramesToMp4(envelope, startFrame, endFrame) {
         await ready;
-        const comp = compositionInfo(jsonl);
+        const comp = compositionInfo(envelope);
         const fps = comp.fps || 30;
         if (typeof VideoEncoder === 'undefined') {
           throw new Error('WebCodecs VideoEncoder is unavailable in this browser');
@@ -283,7 +265,7 @@
         let processed = 0;
         for (let frame = startFrame; frame <= endFrame; frame++) {
           if (encodeError) throw encodeError;
-          await drawFrame(jsonl, frame);
+          await drawFrame(envelope, frame);
           const vf = new VideoFrame(canvas, {
             timestamp: Math.round((frame * 1_000_000) / fps),
             duration: Math.round(1_000_000 / fps),

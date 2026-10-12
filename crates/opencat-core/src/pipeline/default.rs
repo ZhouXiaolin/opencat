@@ -265,7 +265,8 @@ mod tests {
     /// (same inputs lifecycle prepare would hand to it). Empty-byte
     /// Empty-byte catalog omits all assets — render-seam tests only, not decode.
     fn open_test_pipeline(input: &str) -> DefaultPipeline<NoopJsContext> {
-        let parsed = crate::parse::jsonl::parse(input).expect("parse input");
+        let parsed =
+            crate::parse::elements::parse_lines_for_tests(input, None).expect("parse input");
         let catalog = crate::probe::PreparedResourceCatalog::default();
         let font_db = crate::text::font_db_from_bytes(
             &crate::test_support::test_font_faces(),

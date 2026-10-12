@@ -1133,7 +1133,7 @@ mod app {
     pub fn run() -> Result<()> {
         let input_path = std::env::args()
             .nth(1)
-            .ok_or_else(|| anyhow!("usage: opencat-see <input.jsx|.jsonl>"))?;
+            .ok_or_else(|| anyhow!("usage: opencat-see <input.jsx>"))?;
         let input_path = Path::new(&input_path);
         let source_text =
             std::fs::read_to_string(input_path).context("failed to read composition source")?;

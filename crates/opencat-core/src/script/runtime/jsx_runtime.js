@@ -328,6 +328,9 @@
             case 'image':
                 assignSource(line, props);
                 break;
+            case 'lottie':
+                assignSource(line, props);
+                break;
             case 'video':
                 assignSource(line, props);
                 // Media window, timing and YUV→RGB matrix override, mirroring

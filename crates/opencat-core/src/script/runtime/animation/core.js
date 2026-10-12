@@ -575,6 +575,14 @@
             throw new Error('duration is required for non-spring tweens');
         }
 
+        if (globalThis.__OC_DBG_NAN
+            && (!isFinite(Number(duration)) || !isFinite(Number(timing.delay || 0)))) {
+            throw new Error('DBG createTween NaN: target=' + (target && target.id)
+                + ' dur=' + duration + ' delay=' + timing.delay
+                + ' timing=' + JSON.stringify(timing)
+                + ' from=' + JSON.stringify(fromVars) + ' to=' + JSON.stringify(toVars));
+        }
+
         var handle = __animate_create(
             duration !== undefined ? Number(duration) : -1,
             Number(timing.delay || 0),
@@ -698,6 +706,12 @@
             } else if (descriptor.interpolate === 'color') {
                 value = __animate_color(handle, track.name, String(fromVal), String(toVal));
             } else if (descriptor.interpolate === 'number' || descriptor.interpolate == null) {
+                if (globalThis.__OC_DBG_NAN
+                    && (!isFinite(Number(fromVal)) || !isFinite(Number(toVal)))) {
+                    throw new Error('DBG animate_value NaN: track=' + track.name
+                        + ' from=' + fromVal + ' to=' + toVal
+                        + ' target=' + (target && target.id));
+                }
                 value = __animate_value(handle, track.name, Number(fromVal), Number(toVal));
             } else if (typeof descriptor.interpolate === 'function') {
                 value = descriptor.interpolate(fromVal, toVal, progress, {

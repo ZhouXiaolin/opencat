@@ -8,7 +8,6 @@ use opencat_core::ir::asset_id::{
 };
 use opencat_core::parse::primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource};
 use opencat_core::probe::catalog::{PreparedResourceCatalog, ResourceRequests};
-use opencat_core::probe::ImageMeta;
 
 use crate::resource::asset_reader;
 use crate::resource::blob_store::BlobStore;
@@ -64,6 +63,9 @@ fn probe_video(bytes: &[u8]) -> Result<opencat_core::probe::VideoInfoMeta> {
         width,
         height,
         duration_micros,
+        // No author override reaches the web probe layer; `None` decodes from
+        // stream metadata (same default as the engine probe).
+        color_matrix: None,
     })
 }
 

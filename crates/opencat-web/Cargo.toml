@@ -3,13 +3,20 @@ name = "opencat-web"
 version.workspace = true
 edition.workspace = true
 
+# wasm-pack otherwise also runs wasm-opt over third-party .wasm assets that
+# live in the out-dir (web-demuxer.wasm from npm), which fails.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
-fontdb = "0.24.0"
+# 0.23 pinned: cosmic-text 0.19.0 (latest) still requires fontdb 0.23, and a
+# `Database` crosses the parse_source boundary — all crates must agree.
+fontdb = "0.23.0"
 faac-rs = { path = "../faac" }
 anyhow.workspace = true
 serde.workspace = true
@@ -32,7 +39,10 @@ web-sys = { version = "0.3", features = [
     "AudioNode", "AudioParam", "AudioDestinationNode", "GainNode", "AudioScheduledSourceNode",
     "Blob", "Url", "console",
 ] }
-getrandom = { version = "0.4", features = ["wasm_js"] }
+# Not used directly: jobserver etc. pull getrandom 0.3 into the wasm graph and
+# its wasm_js feature must be enabled for the build to compile (the required
+# `--cfg getrandom_backend="wasm_js"` lives in .cargo/config.toml).
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 console_error_panic_hook = "0.1"
 
 [features]

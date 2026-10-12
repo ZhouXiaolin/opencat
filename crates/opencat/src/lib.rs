@@ -11,5 +11,6 @@ pub use opencat_engine::js_context::RqJsContext;
 pub use opencat_engine::media::{AudioTrack, MediaContext};
 pub use opencat_engine::pipeline::open;
 pub use opencat_engine::render::build_audio_track_from_pipeline;
+pub use opencat_engine::render::{GeneratedImageCache, generated_image_cache_from_env};
 pub use opencat_engine::resource::loader::EngineLoader;
 pub use opencat_engine::EnginePipeline;

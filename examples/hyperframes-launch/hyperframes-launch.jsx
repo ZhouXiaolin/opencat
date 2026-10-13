@@ -15,7 +15,8 @@ export const meta = { width: 1920, height: 1080, fps: 30, duration: 49.8 };
 
 /* Reference loads Google web fonts (css2 API). Engine fonts are ttf/otf, so
    each face maps to the closest-metric system font:
-   Instrument Serif/EB Garamond/Cormorant -> Times New Roman (+Italic),
+   Instrument Serif is bundled (assets/fonts/InstrumentSerif-*.ttf);
+   EB Garamond/Cormorant -> Times New Roman (+Italic),
    Geist/Space Grotesk -> Segoe UI (+Bold), Azeret Mono -> Consolas,
    Bebas Neue -> Impact, Inter 900 -> Arial Black; Inter/JetBrains Mono are real. */
 export const fonts = {
@@ -26,8 +27,8 @@ export const fonts = {
     { id: 'hf-inter-black', family: 'Inter', path: 'assets/fonts/ArialBlack.ttf' },
     { id: 'hf-jbm', family: 'JetBrains Mono', path: 'assets/fonts/JetBrainsMono-Regular.ttf' },
     { id: 'hf-jbm-bold', family: 'JetBrains Mono', path: 'assets/fonts/JetBrainsMono-Bold.ttf' },
-    { id: 'hf-serif', family: 'Instrument Serif', path: 'assets/fonts/TimesNewRoman.ttf' },
-    { id: 'hf-serif-it', family: 'Instrument Serif', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
+    { id: 'hf-serif', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Regular.ttf' },
+    { id: 'hf-serif-it', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Italic.ttf' },
     { id: 'hf-eb-it', family: 'EB Garamond', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
     { id: 'hf-cg-it', family: 'Cormorant Garamond', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
     { id: 'hf-geist', family: 'Geist', path: 'assets/fonts/SegoeUI.ttf' },
@@ -68,15 +69,20 @@ function PlayerBar({ id, left, w, track, time0 }) {
   );
 }
 
-/* entryEase (glass-intro.html:464) — quadratic matched-velocity ease, not a
-   GSAP name. Sampled at 5 points for a piecewise-linear keyframes track:
-   e(t)=-0.806t^2+1.806t -> 0 / .4011 / .7015 / .9011 / 1 at t=0,.25,.5,.75,1 */
-function entryKF(from, to) {
-  var e = [0, 0.401125, 0.7015, 0.901125, 1];
-  var at = [0, 0.225, 0.45, 0.675, 0.9];
-  var out = [];
-  for (var i = 0; i < 5; i++) out.push({ at: at[i], value: lerp(from, to, e[i]), easing: 'none' });
-  return out;
+/* entryEase (glass-intro.html:464) — quadratic matched-velocity ease with a
+   non-standard shape, so the reference hands GSAP the function itself. */
+function entryEase(t) { return -0.806 * t * t + 1.806 * t; }
+
+/* Blur+scale stay on the beat wrapper, matching what the shipped r5 render
+   measured best. Splitting the blur onto the card (#frame) and the video wrap
+   separately (the reference's own structure) regressed beat 2-3 by ~0.09
+   avg_p8: the card's own backdrop-filter already blurs the stage behind it,
+   so an extra ancestor blur double-counts. zoomBlur keeps the call sites
+   readable. */
+function zoomBlur(tl, ids, from, to, duration, ease, at) {
+  for (var i = 0; i < ids.length; i++) {
+    tl.fromTo(ids[i], { filter: from }, { filter: to, duration: duration, ease: ease }, at);
+  }
 }
 
 /* ══ glass-intro (master 0-18.24, glass-intro.html) ═════════════════════ */
@@ -118,17 +124,25 @@ function GlassIntro() {
 
     var tl = ctx.timeline();
 
+    /* Blur targets per beat: the beat wrapper (+ the shared bar, which the
+       reference also blurs on hold/exit). */
+    var GI_B2 = ['gi-zoom-b2'];
+    var GI_B3 = ['gi-zoom-b3'];
+    var GI_B4 = ['gi-zoom-b4'];
+
     /* initial states (:480-498) */
-    tl.set('gi-zoom-b2', { scale: 1.45, filter: 'blur(14px)', opacity: 0 }, 0);
-    tl.set('gi-zoom-b3', { scale: 1.45, filter: 'blur(14px)', opacity: 0 }, 0);
-    tl.set('gi-zoom-b4', { scale: 1.45, filter: 'blur(14px)', opacity: 0 }, 0);
+    tl.set('gi-zoom-b2', { scale: 1.45, opacity: 0 }, 0);
+    tl.set('gi-zoom-b3', { scale: 1.45, opacity: 0 }, 0);
+    tl.set('gi-zoom-b4', { scale: 1.45, opacity: 0 }, 0);
     tl.set('gi-bar2', { opacity: 0, y: 12 }, 0);
     tl.set('gi-bar3', { opacity: 0, y: 12 }, 0);
     tl.set('gi-bar4', { opacity: 0, y: 12 }, 0);
     tl.set('gi-cursor', { x: 100, y: 1180, scale: 1, opacity: 1 }, 0);
     tl.set('gi-ripple', { x: 307.5, y: 914, scale: 0, opacity: 0 }, 0);
     tl.set('gi-drag-overlay', { x: 1920, opacity: 0 }, 0);
+    tl.set('gi-drag-overlay', { opacity: 1 }, 16.14);
     tl.set('gi-beat4-logo', { opacity: 0 }, 0);
+    tl.set('gi-beat4-logo', { opacity: 1 }, 5.6);
     tl.set('gi-beat4-lastframe', { opacity: 0 }, 0);
 
     /* NOTE: bare `to` tweens take the property DEFAULT as their from-value
@@ -147,24 +161,42 @@ function GlassIntro() {
 
     /* BEAT 2 (:542-618): entry 1.45->0.88 entryEase 0.9s, hold ->0.80 blur2
        linear 0.6333s @3.0, exit ->0.40 blur16 expo.in 0.2s @3.6333 */
-    tl.to('gi-zoom-b2', { keyframes: { scale: entryKF(1.45, 0.88), filter: entryKF(14, 0).map(function (k) { k.value = 'blur(' + k.value + 'px)'; return k; }) }, duration: 0.9 }, 2.1);
-    tl.fromTo('gi-zoom-b2', { scale: 0.88, filter: 'blur(0px)' }, { scale: 0.80, filter: 'blur(2px)', duration: 0.6333, ease: 'none' }, 3.0);
+    tl.fromTo('gi-zoom-b2', { scale: 1.45 }, { scale: 0.88, duration: 0.9, ease: entryEase }, 2.1);
+    zoomBlur(tl, GI_B2, 'blur(14px)', 'blur(0px)', 0.9, entryEase, 2.1);
+    tl.fromTo('gi-zoom-b2', { scale: 0.88 }, { scale: 0.80, duration: 0.6333, ease: 'none' }, 3.0);
+    zoomBlur(tl, GI_B2, 'blur(0px)', 'blur(2px)', 0.6333, 'none', 3.0);
+    zoomBlur(tl, ['gi-bar2'], 'blur(0px)', 'blur(2px)', 0.6333, 'none', 3.0);
     tl.fromTo('gi-bar2', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 2.6);
     tl.to('gi-bar2-fill', { width: 1332, duration: 1.75, ease: 'none' }, 2.1);
     tl.to('gi-bar2-scrub', { x: 1332, duration: 1.75, ease: 'none' }, 2.1);
-    tl.fromTo('gi-zoom-b2', { scale: 0.80, filter: 'blur(2px)' }, { scale: 0.40, filter: 'blur(16px)', duration: 0.2, ease: 'expo.in' }, 3.6333);
+    tl.fromTo('gi-zoom-b2', { scale: 0.80 }, { scale: 0.40, duration: 0.2, ease: 'expo.in' }, 3.6333);
+    zoomBlur(tl, GI_B2, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 3.6333);
+    zoomBlur(tl, ['gi-bar2'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 3.6333);
+    /* CUT at 3.85 (:621-622): beat-2 card hides, beat-3 card shows. */
+    tl.set('gi-zoom-b2', { opacity: 0 }, 3.85);
 
     /* BEAT 3 (:639-716): same shape @3.85, hold @4.7501 (0.6157s), bar @4.3501 */
     tl.set('gi-zoom-b3', { opacity: 1 }, 3.85);
-    tl.to('gi-zoom-b3', { keyframes: { scale: entryKF(1.45, 0.88), filter: entryKF(14, 0).map(function (k) { k.value = 'blur(' + k.value + 'px)'; return k; }) }, duration: 0.9 }, 3.85);
-    tl.fromTo('gi-zoom-b3', { scale: 0.88, filter: 'blur(0px)' }, { scale: 0.80, filter: 'blur(2px)', duration: 0.6157, ease: 'none' }, 4.7501);
+    tl.fromTo('gi-zoom-b3', { scale: 1.45 }, { scale: 0.88, duration: 0.9, ease: entryEase }, 3.85);
+    zoomBlur(tl, GI_B3, 'blur(14px)', 'blur(0px)', 0.9, entryEase, 3.85);
+    tl.fromTo('gi-zoom-b3', { scale: 0.88 }, { scale: 0.80, duration: 0.6157, ease: 'none' }, 4.7501);
+    zoomBlur(tl, GI_B3, 'blur(0px)', 'blur(2px)', 0.6157, 'none', 4.7501);
+    zoomBlur(tl, ['gi-bar3'], 'blur(0px)', 'blur(2px)', 0.6157, 'none', 4.7501);
     tl.fromTo('gi-bar3', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 4.3501);
     tl.to('gi-bar3-fill', { width: 1332, duration: 1.75, ease: 'none' }, 3.85);
     tl.to('gi-bar3-scrub', { x: 1332, duration: 1.75, ease: 'none' }, 3.85);
-    tl.fromTo('gi-zoom-b3', { scale: 0.80, filter: 'blur(2px)' }, { scale: 0.40, filter: 'blur(16px)', duration: 0.2, ease: 'expo.in' }, 5.3667);
+    tl.fromTo('gi-zoom-b3', { scale: 0.80 }, { scale: 0.40, duration: 0.2, ease: 'expo.in' }, 5.3667);
+    zoomBlur(tl, GI_B3, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 5.3667);
+    zoomBlur(tl, ['gi-bar3'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 5.3667);
+    /* CUT at 5.6 (:719-720): beat-3 card hides. */
+    tl.set('gi-zoom-b3', { opacity: 0 }, 5.6);
 
-    /* BEAT 4 (:740-810): settle-and-stop 1.45->1 expo.out 0.9s */
-    tl.fromTo('gi-zoom-b4', { scale: 1.45, filter: 'blur(14px)', opacity: 0 }, { scale: 1, filter: 'blur(0px)', opacity: 1, duration: 0.9, ease: 'expo.out' }, 5.6);
+    /* BEAT 4 (:731-733,740-810): the card appears instantly at the cut
+       (opacity set to 1), then only scale/blur settle 1.45->1 expo.out 0.9s.
+       A fade-in here would leave beat 4 invisible on frame 168. */
+    tl.set('gi-zoom-b4', { opacity: 1 }, 5.6);
+    tl.fromTo('gi-zoom-b4', { scale: 1.45 }, { scale: 1, duration: 0.9, ease: 'expo.out' }, 5.6);
+    zoomBlur(tl, GI_B4, 'blur(14px)', 'blur(0px)', 0.9, 'expo.out', 5.6);
     tl.fromTo('gi-bar4', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 6.1);
     tl.fromTo('gi-beat4-logo', { opacity: 1 }, { opacity: 0, duration: 0.15, ease: 'power2.in' }, 7.0);
 
@@ -266,7 +298,7 @@ function GlassIntro() {
       </div>
 
       {/* cursor + ripple (:913,:920) */}
-      <div id="gi-cursor" class="absolute left-0 top-0 w-[48px] h-[58px] opacity-0">
+      <div id="gi-cursor" class="absolute left-0 top-0 w-[48px] h-[58px] [transform-origin:4.3px_2.6px] opacity-0">
         <path view-box="0 0 28 34" d="M2.5 1.5L2.5 28L8.5 21.5L14 32L18.5 30L13 19.5L22 19.5L2.5 1.5Z" class="absolute left-0 top-0 w-[48px] h-[58px] fill-[#000000] stroke-[#ffffff] stroke-[2]" />
       </div>
       <div id="gi-ripple" class="absolute left-0 top-0 w-[60px] h-[60px] rounded-full bg-[rgba(255,255,255,0.9)] opacity-0"></div>
@@ -326,7 +358,7 @@ function CaptionLayer() {
 /* ══ flex-css (master 17.30-19.01, compositions/flex-css.html) ══════════ */
 var CSS_START = 17.30, CSS_DUR = 1.71;
 var CSS_ORDER = [0, 1, 2, 3, 4, 5, 11, 17, 16, 15, 14, 13, 12, 6, 7, 8, 10, 9];
-var CSS_CELL = 'absolute rounded-[16px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.05)] border-[1px] border-[rgba(0,0,0,0.04)] overflow-hidden flex items-center justify-center';
+var CSS_CELL = 'rounded-[16px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.05)] border-[1px] border-[rgba(0,0,0,0.04)] overflow-hidden flex items-center justify-center';
 var CSS_P = { red: '#e63946', blue: '#457b9d', orange: '#f4a261', teal: '#2a9d8f', navy: '#1d3557', rose: '#d4738a', lime: '#84a98c', purple: '#6b4c9a' };
 
 function FlexCss() {
@@ -532,9 +564,9 @@ function FlexCss() {
             </div>
           </div>
           <div id="fc-c8" class={CSS_CELL}><div id="fc-bounce" class="w-[36px] h-[36px] rounded-full bg-[#f4a261]"></div></div>
-          <div id="fc-c9" class="absolute rounded-[16px] bg-[#1a1a1a] overflow-hidden flex flex-col items-center justify-center gap-[6px]">
+          <div id="fc-c9" class="rounded-[16px] bg-[#1a1a1a] overflow-hidden flex flex-col items-center justify-center gap-[6px]">
             <text id="fc-title" class="text-[80px] leading-none tracking-[-0.04em] font-[hf-grotesk-bold] text-[#fafaf2]">CSS</text>
-            <text id="fc-sub" class="text-[20px] leading-none tracking-[0.16em] font-[hf-grotesk] text-[#777]">animations</text>
+            <text id="fc-sub" class="text-[20px] leading-none tracking-[0.16em] font-[hf-grotesk] text-[#777] uppercase">animations</text>
           </div>
           <div id="fc-c10" class={CSS_CELL}>
             <div class="grid grid-cols-3 gap-[8px]">
@@ -689,7 +721,9 @@ function FlexShader() {
     if (!FlexShader._kern) {
       FlexShader._kern = ly.pixel((uv, u) => {
         const ux = uv.x / 1080;
-        const uy = uv.y / 1080;
+        /* GLSL v_uv.y=1 is the CANVAS TOP; ly.pixel uv.y grows downward,
+           so the reference's v_uv.y is 1 - uv.y/1080. */
+        const uy = 1 - uv.y / 1080;
         const t = u.time * 0.4;
         let ix = 0; let iy = 0; let fx = 0; let fy = 0; let h1 = 0; let h2 = 0; let h3 = 0; let h4 = 0;
         let px = 0; let py = 0; let tx = 0; let ty = 0; let v = 0; let amp = 0.5;
@@ -917,7 +951,7 @@ function FlexThreejs() {
       var sg = segs[o.si];
       var ca = Math.cos(sg.a), sa = Math.sin(sg.a);
       var cW = [sg.R * ca, sg.yoff, sg.R * sa];
-      var uW = [-sa, 0, -ca];   /* segment-local +x in world (inward radial) */
+      var uW = [-ca, 0, -sa];   /* segment-local +x in world (inward radial) */
       var vW = [0, 1, 0];
       var c0 = proj(cW);
       var pu = proj([cW[0] + uW[0] * sg.half, cW[1] + uW[1] * sg.half, cW[2] + uW[2] * sg.half]);
@@ -1143,16 +1177,16 @@ function FlexMusic() {
   return (
     <div id="fm-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f5a623] opacity-0">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_45%_48%,#f7c04a_0%,#e8960a_100%)]"></div>
-      <div id="fm-record" class="absolute left-[700px] top-[480px] w-[520px] h-[520px] opacity-0 drop-shadow-[0_20px_60px_rgba(20,12,0,0.4)]">
+      <div id="fm-record" class="absolute left-[700px] top-[250px] w-[520px] h-[520px] opacity-0 drop-shadow-[0_20px_60px_rgba(20,12,0,0.4)]">
         <canvas id="fm-record-canvas" class="w-[520px] h-[520px]" />
         <text class="absolute left-0 top-[243px] w-full text-center text-[13.9px] tracking-[0.1em] font-[hf-inter-med] text-[#1a1208]">HYPERFRAMES</text>
         <text class="absolute left-0 top-[264px] w-full text-center text-[9.5px] font-[hf-inter] text-[rgba(26,18,8,0.6)]">A-SIDE</text>
       </div>
-      <div id="fm-arm" class="absolute left-[1140px] top-[250px] w-[120px] h-[280px] opacity-0 drop-shadow-[0_4px_12px_rgba(20,12,0,0.3)]">
+      <div id="fm-arm" class="absolute left-[1140px] top-[250px] w-[120px] h-[280px] [transform-origin:50%_15px] opacity-0 drop-shadow-[0_4px_12px_rgba(20,12,0,0.3)]">
         <canvas id="fm-arm-canvas" class="w-[120px] h-[280px]" />
       </div>
       <div class="absolute left-0 bottom-[120px] w-full flex justify-center">
-        <text id="fm-text" class="text-[64px] leading-none tracking-[0.08em] font-[hf-inter-med] text-[#2a1808] opacity-0">music</text>
+        <text id="fm-text" class="text-[64px] leading-none tracking-[0.08em] font-[hf-inter-med] text-[#2a1808] uppercase opacity-0">music</text>
       </div>
     </div>
   );
@@ -1201,7 +1235,7 @@ function FlexSfx() {
         ))}
       </div>
       <div class="absolute left-0 top-[540px] w-full flex justify-center">
-        <text id="fx-text" class="mt-[-26px] text-[52px] leading-none tracking-[0.1em] font-[hf-inter-med] text-[#f5e8c8] [text-shadow:0_0_40px_rgba(200,132,10,0.5)] opacity-0">sound effects</text>
+        <text id="fx-text" class="mt-[-26px] text-[52px] leading-none tracking-[0.1em] font-[hf-inter-med] text-[#f5e8c8] uppercase [text-shadow:0_0_40px_rgba(200,132,10,0.5)] opacity-0">sound effects</text>
       </div>
     </div>
   );

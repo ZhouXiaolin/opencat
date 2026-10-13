@@ -87,6 +87,10 @@ pub struct EnginePreparedFrameMedia {
     pub images: Vec<Image>,
     pub image_index: HashMap<ImageRef, usize>,
     pub runtime_effects: Vec<PreparedRuntimeEffect>,
+    /// 与 `images` 平行的解码缩放比（解码宽 / 声明原图宽）。预缩小解码时
+    /// 重放按此把 `DrawOp::ImageRect` 的声明坐标系 src 映射到解码像素，并
+    /// 补偿 `DrawOp::Image` 的自然尺寸语义；缺省 1.0（native/lazy，无缩放）。
+    pub image_scales: Vec<f32>,
 }
 
 /// 一个已编译的 runtime effect，附带 liangyi 后端声明的执行计划。

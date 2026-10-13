@@ -838,6 +838,15 @@ impl MutationStore {
             .unwrap_or(0.0)
     }
 
+    /// Overwrite the eased progress of an entry. The JS runtime calls this
+    /// after applying a user-supplied `ease` function, so the color path (which
+    /// reads `entry.progress`) sees the same curve as the JS-side sampling.
+    pub fn animate_set_progress(&mut self, handle: i32, progress: f32) {
+        if let Some(entry) = self.animate_entries.get_mut(handle as usize) {
+            entry.progress = progress;
+        }
+    }
+
     pub fn animate_settled(&self, handle: i32) -> bool {
         self.animate_entries
             .get(handle as usize)

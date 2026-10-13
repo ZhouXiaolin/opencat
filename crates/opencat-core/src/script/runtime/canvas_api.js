@@ -1549,15 +1549,30 @@
         // (tx + a*x, ty + y); the x-scale also squeezes glyphs (scale_x).
         const matrix = { tx: 0, ty: 0, a: 1 };
         const stack = [];
+        // font+letterSpacing and fillStyle are parsed with a regex / string
+        // scan on every fillText. Cache the parsed forms, invalidated by the
+        // setters, so the hot path (canvas-close calls fillText ~13k times a
+        // frame) stays on the precomputed values.
+        let specCache = null;
+        let fillCssCache = null;
         function fontSpec() {
+            if (
+                specCache !== null &&
+                specCache.font === state.font &&
+                specCache.letterSpacing === state.letterSpacing
+            ) {
+                return specCache.spec;
+            }
             const f = parseCssFont(state.font);
             const ls = parseFloat(String(state.letterSpacing));
-            return {
+            const spec = {
                 weight: f.weight,
                 size: f.size,
                 family: f.family,
                 letterSpacing: Number.isFinite(ls) ? ls : 0
             };
+            specCache = { font: state.font, letterSpacing: state.letterSpacing, spec };
+            return spec;
         }
         return {
             __opencatSurface: true,
@@ -1600,6 +1615,7 @@
                     throw new Error('surface fillText: only the alphabetic baseline is supported');
                 }
                 const f = fontSpec();
+                const css = fillCssCache !== null ? fillCssCache : (fillCssCache = colorToCss(state.fillStyle));
                 __surface_fill_text(
                     id,
                     String(text),
@@ -1610,7 +1626,7 @@
                     f.size,
                     f.letterSpacing,
                     matrix.a,
-                    colorToCss(state.fillStyle)
+                    css
                 );
             },
             getImageData(x, y, w, h) {
@@ -1682,11 +1698,11 @@
                 return makeGeneratedShader(key);
             },
             get font() { return state.font; },
-            set font(v) { state.font = String(v); },
+            set font(v) { state.font = String(v); specCache = null; },
             get letterSpacing() { return state.letterSpacing; },
-            set letterSpacing(v) { state.letterSpacing = String(v); },
+            set letterSpacing(v) { state.letterSpacing = String(v); specCache = null; },
             get fillStyle() { return state.fillStyle; },
-            set fillStyle(v) { state.fillStyle = v; },
+            set fillStyle(v) { state.fillStyle = v; fillCssCache = null; },
             get textBaseline() { return state.textBaseline; },
             set textBaseline(v) { state.textBaseline = String(v); }
         };

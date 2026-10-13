@@ -202,6 +202,31 @@ fn picture_shader_for_subtree(
     Ok(Some(shader))
 }
 
+/// True when `src` maps onto `dst` pixel-for-pixel under the canvas' current
+/// total matrix: no scaling, no sub-pixel offset. Such a draw is a straight
+/// copy, so a reconstruction filter can only blur it.
+///
+/// `src` is `None` for `drawImageRect`'s whole-image form, which Skia treats as
+/// `(0, 0, image_w, image_h)`.
+fn is_identity_blit(canvas: &Canvas, src_size: (f32, f32), src: Option<&Rect>, dst: &Rect) -> bool {
+    let (sx0, sy0, sx1, sy1) = match src {
+        Some(r) => (r.left, r.top, r.right, r.bottom),
+        None => (0.0, 0.0, src_size.0, src_size.1),
+    };
+    let m = canvas.total_matrix();
+    let p0 = m.map_point(Point::new(dst.left, dst.top));
+    let p1 = m.map_point(Point::new(dst.right, dst.top));
+    let p2 = m.map_point(Point::new(dst.left, dst.bottom));
+    let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+    let integral = |v: f32| (v - v.round()).abs() < 0.01;
+    near(p1.x - p0.x, sx1 - sx0)
+        && near(p1.y - p0.y, 0.0)
+        && near(p2.x - p0.x, 0.0)
+        && near(p2.y - p0.y, sy1 - sy0)
+        && integral(p0.x)
+        && integral(p0.y)
+}
+
 fn replay_op(
     exec: &mut EngineDrawExecutor,
     canvas: &Canvas,
@@ -599,11 +624,29 @@ fn replay_op(
                     Ok("nearest") => SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
                     Ok("linear") => SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
                     _ => match image {
-                        ImageRef::VideoFrame { .. } => SamplingOptions {
-                            use_cubic: true,
-                            cubic: CubicResampler::mitchell(),
-                            ..SamplingOptions::default()
-                        },
+                        ImageRef::VideoFrame { .. } => {
+                            // Mitchell cubic is a *smoothing* reconstruction: on a
+                            // 1:1 integer-aligned blit it only removes detail (a
+                            // full-frame `object-cover` video at native size lost
+                            // ~30% of its grain, p8 0.69 against the decoded
+                            // source). Chrome's cubic reconstruction only applies
+                            // to genuinely scaled video, so keep cubic for scaling
+                            // and skip resampling when the draw is a straight copy.
+                            if is_identity_blit(
+                                canvas,
+                                (sk_image.width() as f32, sk_image.height() as f32),
+                                src_rect.as_ref(),
+                                &dst_rect,
+                            ) {
+                                SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)
+                            } else {
+                                SamplingOptions {
+                                    use_cubic: true,
+                                    cubic: CubicResampler::mitchell(),
+                                    ..SamplingOptions::default()
+                                }
+                            }
+                        }
                         ImageRef::Static { .. } | ImageRef::Generated { .. } => {
                             SamplingOptions::default()
                         }

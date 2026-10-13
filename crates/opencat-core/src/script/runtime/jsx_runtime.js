@@ -29,6 +29,13 @@
 
     var builtins = Object.create(null);
     var modules = Object.create(null);
+    // Compiled module factories, keyed by module key. `new Function(source)`
+    // compiles the whole module body, and the module graph is immutable for a
+    // pipeline's lifetime, so we compile once and reuse the factory across
+    // frames. `factorySource` detects a changed source (defensive: a host that
+    // re-pushes module sources) and forces a recompile.
+    var factories = Object.create(null);
+    var factorySource = Object.create(null);
     var hooks = [];
     var idCounter = 0;
     var textCounter = 0;
@@ -112,7 +119,13 @@
         var previous = currentModule;
         currentModule = key;
         try {
-            var fn = new Function('__ocRequire', 'module', 'exports', sources[key]);
+            var source = sources[key];
+            var fn = factories[key];
+            if (fn === undefined || factorySource[key] !== source) {
+                fn = new Function('__ocRequire', 'module', 'exports', source);
+                factories[key] = fn;
+                factorySource[key] = source;
+            }
             fn(requireModule, mod, mod.exports);
         } finally {
             currentModule = previous;

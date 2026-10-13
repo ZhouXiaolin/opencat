@@ -109,13 +109,38 @@ pub fn render_into(
     let row_len = w * 4;
     out.par_chunks_exact_mut(row_len).enumerate().for_each(|(y, row)| {
         let py = y as f64 + 0.5;
+        // locals 按行复用：每像素求值前原地清零，免逐像素堆分配
+        let mut locals = vec![Val::F(0.0); program.local_tys.len()];
         for (x, px_chunk) in row.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let px = x as f64 + 0.5;
-            let rgba = eval_pixel(program, px, py, ctx);
+            locals.iter_mut().for_each(|s| *s = Val::F(0.0));
+            let rgba = eval_pixel_in(program, px, py, ctx, &mut locals);
             let q = |v: f64| -> u8 { (v.clamp(0.0, 1.0) * 255.0).round() as u8 };
             *px_chunk = [q(rgba[0]), q(rgba[1]), q(rgba[2]), q(rgba[3])];
         }
     });
+}
+
+/// 单像素求值，返回 0..1 straight RGBA。
+pub fn eval_pixel(program: &Program, px: f64, py: f64, ctx: &InterpCtx) -> [f64; 4] {
+    let mut locals: Vec<Val> = vec![Val::F(0.0); program.local_tys.len()];
+    eval_pixel_in(program, px, py, ctx, &mut locals)
+}
+
+fn eval_pixel_in(
+    program: &Program,
+    px: f64,
+    py: f64,
+    ctx: &InterpCtx,
+    locals: &mut Vec<Val>,
+) -> [f64; 4] {
+    for stmt in &program.body {
+        match eval_stmt(stmt, locals, px, py, ctx) {
+            Flow::Continue => {}
+            Flow::Return(v) => return val_to_rgba(v),
+        }
+    }
+    [0.0, 0.0, 0.0, 0.0]
 }
 
 /// scan pass：对 `buf`（w×h×4，straight RGBA8）**就地**做一遍顺序扫描。
@@ -142,10 +167,13 @@ pub fn render_scan(
         buf[o + 2] = q(rgba[2]);
         buf[o + 3] = q(rgba[3]);
     };
+    // locals 整遍复用：每像素求值前原地清零，免逐像素堆分配
+    let mut locals = vec![Val::F(0.0); program.local_tys.len()];
     match direction {
         ScanDirection::Forward => {
             for y in 0..h {
                 for x in 0..w {
+                    locals.iter_mut().for_each(|s| *s = Val::F(0.0));
                     let ctx = InterpCtx {
                         uniforms,
                         rect: [0.0, 0.0, width as f64, height as f64],
@@ -158,7 +186,7 @@ pub fn render_scan(
                             y: y as f64,
                         }),
                     };
-                    let rgba = eval_scan_pixel(program, &ctx);
+                    let rgba = eval_scan_pixel(program, &ctx, &mut locals);
                     write_px(buf, x, y, rgba);
                 }
             }
@@ -166,6 +194,7 @@ pub fn render_scan(
         ScanDirection::Backward => {
             for y in (0..h).rev() {
                 for x in (0..w).rev() {
+                    locals.iter_mut().for_each(|s| *s = Val::F(0.0));
                     let ctx = InterpCtx {
                         uniforms,
                         rect: [0.0, 0.0, width as f64, height as f64],
@@ -178,7 +207,7 @@ pub fn render_scan(
                             y: y as f64,
                         }),
                     };
-                    let rgba = eval_scan_pixel(program, &ctx);
+                    let rgba = eval_scan_pixel(program, &ctx, &mut locals);
                     write_px(buf, x, y, rgba);
                 }
             }
@@ -187,23 +216,10 @@ pub fn render_scan(
 }
 
 /// scan 类的单像素求值（整型像素坐标，无 +0.5 中心偏移）。
-fn eval_scan_pixel(program: &Program, ctx: &InterpCtx) -> [f64; 4] {
+fn eval_scan_pixel(program: &Program, ctx: &InterpCtx, locals: &mut Vec<Val>) -> [f64; 4] {
     let view = ctx.scan.expect("render_scan requires scan view");
-    let mut locals: Vec<Val> = vec![Val::F(0.0); program.local_tys.len()];
     for stmt in &program.body {
-        match eval_stmt(stmt, &mut locals, view.x, view.y, ctx) {
-            Flow::Continue => {}
-            Flow::Return(v) => return val_to_rgba(v),
-        }
-    }
-    [0.0, 0.0, 0.0, 0.0]
-}
-
-/// 单像素求值，返回 0..1 straight RGBA。
-pub fn eval_pixel(program: &Program, px: f64, py: f64, ctx: &InterpCtx) -> [f64; 4] {
-    let mut locals: Vec<Val> = vec![Val::F(0.0); program.local_tys.len()];
-    for stmt in &program.body {
-        match eval_stmt(stmt, &mut locals, px, py, ctx) {
+        match eval_stmt(stmt, locals, view.x, view.y, ctx) {
             Flow::Continue => {}
             Flow::Return(v) => return val_to_rgba(v),
         }
@@ -354,19 +370,22 @@ fn eval_expr(
             }
         }
         Expr::Call { id, args, .. } => {
-            let mut vals = Vec::with_capacity(args.len());
-            for a in args {
-                vals.push(eval_expr(a, locals, px, py, ctx));
+            // 内建最多 3 参（signature 检查在 parse 层拒绝更宽调用），
+            // 栈上展开免逐像素堆分配。
+            let mut vals = [Val::F(0.0); 4];
+            for (v, a) in vals.iter_mut().zip(args) {
+                *v = eval_expr(a, locals, px, py, ctx);
             }
-            eval_builtin(*id, &vals)
+            eval_builtin(*id, &vals[..args.len().min(vals.len())])
         }
         Expr::Swizzle { base, comps, len, .. } => {
             let v = eval_expr(base, locals, px, py, ctx);
+            // 栈上拷贝：短向量补零、非向量全零，与原 to_vec().get() 语义逐位一致
             let c = match v {
-                Val::V2(c) => c.to_vec(),
-                Val::V3(c) => c.to_vec(),
-                Val::V4(c) => c.to_vec(),
-                _ => Vec::new(),
+                Val::V2(c) => [c[0], c[1], 0.0, 0.0],
+                Val::V3(c) => [c[0], c[1], c[2], 0.0],
+                Val::V4(c) => c,
+                _ => [0.0; 4],
             };
             if *len as usize == 1 {
                 Val::F(c.get(comps[0] as usize).copied().unwrap_or(0.0))

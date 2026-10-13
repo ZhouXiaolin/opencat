@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use skia_safe::{AlphaType, ColorType, Data, Image, ImageInfo, image::CachingHint};
+use skia_safe::{
+    AlphaType, ColorType, CubicResampler, Data, Image, ImageInfo, Paint, Rect, SamplingOptions,
+    image::CachingHint, surfaces,
+};
 
 use crate::media::decode::VideoDecodeCache;
 use crate::media::video_cache::VideoFrameCache;
@@ -64,6 +67,25 @@ impl From<&VideoInfo> for opencat_core::probe::catalog::VideoInfoMeta {
 /// for an animation that drifts continuously across sizes.
 pub(crate) const TARGET_SIZE_ALIGN: u32 = 16;
 
+/// Quantize a requested size onto the 16-pixel grid, clamped to `max` per axis.
+/// Returns `None` when the request is already at or above `max` (no shrink).
+fn quantize_bucket(tw: u32, th: u32, max_w: u32, max_h: u32) -> Option<(u32, u32)> {
+    if tw >= max_w && th >= max_h {
+        return None;
+    }
+    let bucket = |v: u32, max: u32| -> u32 {
+        let aligned = v.div_ceil(TARGET_SIZE_ALIGN) * TARGET_SIZE_ALIGN;
+        aligned.clamp(TARGET_SIZE_ALIGN, max)
+    };
+    let qw = bucket(tw, max_w);
+    let qh = bucket(th, max_h);
+    if qw >= max_w && qh >= max_h {
+        None
+    } else {
+        Some((qw, qh))
+    }
+}
+
 /// Normalize a caller-requested size against the actual source video.
 ///
 /// Returns `None` when the request would scale to source resolution or larger
@@ -74,20 +96,7 @@ pub(crate) fn quantize_target_size(
     info: &VideoInfo,
 ) -> Option<(u32, u32)> {
     let (tw, th) = requested?;
-    if tw >= info.width && th >= info.height {
-        return None;
-    }
-    let bucket = |v: u32, max: u32| -> u32 {
-        let aligned = v.div_ceil(TARGET_SIZE_ALIGN) * TARGET_SIZE_ALIGN;
-        aligned.clamp(TARGET_SIZE_ALIGN, max)
-    };
-    let qw = bucket(tw, info.width);
-    let qh = bucket(th, info.height);
-    if qw >= info.width && qh >= info.height {
-        None
-    } else {
-        Some((qw, qh))
-    }
+    quantize_bucket(tw, th, info.width, info.height)
 }
 
 pub struct VideoBitmap {
@@ -104,6 +113,14 @@ pub struct VideoBitmap {
 pub struct MediaContext {
     videos: VideoDecodeCache,
     images: HashMap<PathBuf, (Arc<Vec<u8>>, u32, u32)>,
+    /// Lazy encoded static images keyed by path. A lazy Skia image holds the
+    /// encoded bytes (file size), not decoded RGBA, so full-resolution pixels
+    /// are never resident unless something actually rasterizes them.
+    static_images: HashMap<PathBuf, Image>,
+    /// Rasterized shrinks of static images keyed by (path, bucket w, bucket h).
+    /// Entries are at most the composition's draw size per asset, so this stays
+    /// tiny compared to native-resolution decodes.
+    scaled_images: HashMap<(PathBuf, u32, u32), Image>,
     video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
     composition_fps: u32,
@@ -118,6 +135,8 @@ impl MediaContext {
         Self {
             videos: VideoDecodeCache::new(),
             images: HashMap::new(),
+            static_images: HashMap::new(),
+            scaled_images: HashMap::new(),
             video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
             composition_fps: 30,
@@ -224,13 +243,81 @@ impl MediaContext {
         path: &Path,
         time_secs: f64,
     ) -> Result<VideoBitmap> {
+        self.frame_rgba_at_time_sized(path, time_secs, None)
+            .map(|(bitmap, _)| bitmap)
+    }
+
+    /// Like [`Self::frame_rgba_at_time_by_path`] but decodes down to `target`
+    /// (16-pixel bucket, shrink-only). Returns the bitmap plus the horizontal
+    /// decode scale (`bitmap.width / source_width`) so callers can map source
+    /// rects onto the decoded pixels.
+    pub fn frame_rgba_at_time_sized(
+        &mut self,
+        path: &Path,
+        time_secs: f64,
+        target: Option<(u32, u32)>,
+    ) -> Result<(VideoBitmap, f32)> {
         let request = VideoFrameRequest {
             composition_time_secs: time_secs.max(0.0),
             timing: VideoFrameTiming::default(),
             quality: self.video_preview_quality,
-            target_size: None,
+            target_size: target,
         };
-        self.get_video_bitmap(path, request)
+        let bitmap = self.get_video_bitmap(path, request)?;
+        let source_width = self.video_info(path)?.width as f32;
+        let scale = bitmap.width as f32 / source_width;
+        Ok((bitmap, scale))
+    }
+
+    /// Static image for drawing, decoded down to `target` (shrink-only, 16-pixel
+    /// bucket). Returns the image plus the horizontal decode scale
+    /// (`image.width() / source_width`); `1.0` means native/lazy (no shrink).
+    ///
+    /// The lazy encoded image (file bytes only) is cached per path; shrunk
+    /// rasters are cached per bucket so full-resolution RGBA pixels are never
+    /// resident across frames.
+    pub fn static_image_scaled(
+        &mut self,
+        path: &Path,
+        target: Option<(u32, u32)>,
+    ) -> Result<(Image, f32)> {
+        let lazy = match self.static_images.get(path) {
+            Some(image) => image.clone(),
+            None => {
+                let encoded = fs::read(path)
+                    .with_context(|| format!("failed to read image bytes: {}", path.display()))?;
+                let image = Image::from_encoded(Data::new_copy(&encoded))
+                    .ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
+                self.static_images.insert(path.to_path_buf(), image.clone());
+                image
+            }
+        };
+        let (w0, h0) = (lazy.width() as u32, lazy.height() as u32);
+        let Some((bw, bh)) = target.and_then(|(tw, th)| quantize_bucket(tw, th, w0, h0)) else {
+            return Ok((lazy, 1.0));
+        };
+
+        let key = (path.to_path_buf(), bw, bh);
+        if let Some(cached) = self.scaled_images.get(&key) {
+            return Ok((cached.clone(), bw as f32 / w0 as f32));
+        }
+        let mut surface = surfaces::raster_n32_premul((bw as i32, bh as i32))
+            .ok_or_else(|| anyhow!("failed to allocate {}x{} surface for {}", bw, bh, path.display()))?;
+        let sampling = SamplingOptions {
+            use_cubic: true,
+            cubic: CubicResampler::mitchell(),
+            ..SamplingOptions::default()
+        };
+        surface.canvas().draw_image_rect_with_sampling_options(
+            lazy,
+            None,
+            Rect::new(0.0, 0.0, bw as f32, bh as f32),
+            sampling,
+            &Paint::default(),
+        );
+        let shrunk = surface.image_snapshot();
+        self.scaled_images.insert(key, shrunk.clone());
+        Ok((shrunk, bw as f32 / w0 as f32))
     }
 }
 

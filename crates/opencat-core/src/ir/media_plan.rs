@@ -50,4 +50,13 @@ pub struct FrameMediaPlan {
     /// trusting stream metadata (capture tools often tag BT.709 over BT.601
     /// encodes). Assets absent from this map decode automatically.
     pub video_color_matrices: std::collections::BTreeMap<String, crate::media::VideoColorMatrix>,
+    /// Effective on-device draw size per `ImageRect`-drawn reference (destination
+    /// size × accumulated ancestor `Scale`, ceiled, max-merged across all draw
+    /// sites). Hosts may decode down to this size — never up — without visible
+    /// change; assets absent from this map decode at native resolution.
+    ///
+    /// Only `DrawOp::ImageRect` contributes: `DrawOp::Image` has no destination
+    /// (whole-image semantics), generated glyphs ship exact-size RGBA, and
+    /// runtime-effect child textures are sampled at shader-controlled UVs.
+    pub image_draw_sizes: std::collections::HashMap<ImageRef, (u32, u32)>,
 }

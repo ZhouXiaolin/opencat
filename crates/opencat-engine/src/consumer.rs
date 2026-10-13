@@ -223,8 +223,12 @@ fn prepare_frame(
 ) -> Result<EnginePreparedFrameMedia, ConsumerError> {
     let mut sk_images = Vec::new();
     let mut image_index = HashMap::new();
+    let mut image_scales = Vec::new();
 
-    // External (static asset) image references.
+    // External (static asset) image references. When the plan carries a draw
+    // size, decode down to it (shrink-only): drawing smaller never needs
+    // full-resolution pixels, and decoding at draw size removes the
+    // full-resolution RGBA peak as well as the per-frame file read + decode.
     for image_ref in &plan.images {
         match image_ref {
             ImageRef::Static { asset_id } => {
@@ -240,20 +244,17 @@ fn prepare_frame(
                         detail: "no local path for handle".into(),
                     }
                 })?;
-                let bytes = std::fs::read(path).map_err(|e| {
-                    MediaError::ImageDecodeFailed {
-                        asset_id: asset_id.clone(),
-                        detail: e.to_string(),
-                    }
-                })?;
-                let sk_image = Image::from_encoded(Data::new_copy(&bytes)).ok_or_else(|| {
-                    MediaError::ImageDecodeFailed {
-                        asset_id: asset_id.clone(),
-                        detail: "Image::from_encoded returned None".into(),
-                    }
-                })?;
+                let target = plan.image_draw_sizes.get(image_ref).copied();
+                let (sk_image, scale) =
+                    video.static_image_scaled(path, target).map_err(|e| {
+                        MediaError::ImageDecodeFailed {
+                            asset_id: asset_id.clone(),
+                            detail: e.to_string(),
+                        }
+                    })?;
                 let idx = sk_images.len();
                 sk_images.push(sk_image);
+                image_scales.push(scale);
                 image_index.insert(image_ref.clone(), idx);
             }
             // Static bucket only carries external images; video refs live in
@@ -282,12 +283,13 @@ fn prepare_frame(
                 if let Some(&matrix) = plan.video_color_matrices.get(asset_id) {
                     video.set_video_color_matrix(path, matrix);
                 }
-                let frame =
-                    video.frame_rgba_at_time_by_path(path, *time_micros as f64 / 1_000_000.0)
-                        .map_err(|e| MediaError::VideoFrameDecodeFailed {
-                            asset_id: asset_id.clone(),
-                            detail: e.to_string(),
-                        })?;
+                let target = plan.image_draw_sizes.get(image_ref).copied();
+                let (frame, scale) = video
+                    .frame_rgba_at_time_sized(path, *time_micros as f64 / 1_000_000.0, target)
+                    .map_err(|e| MediaError::VideoFrameDecodeFailed {
+                        asset_id: asset_id.clone(),
+                        detail: e.to_string(),
+                    })?;
                 let info = ImageInfo::new(
                     (frame.width as i32, frame.height as i32),
                     ColorType::RGBA8888,
@@ -305,6 +307,7 @@ fn prepare_frame(
                 })?;
                 let idx = sk_images.len();
                 sk_images.push(sk_image);
+                image_scales.push(scale);
                 image_index.insert(image_ref.clone(), idx);
             }
             // Defensive: the video bucket only carries video refs.
@@ -347,6 +350,7 @@ fn prepare_frame(
         };
         let idx = sk_images.len();
         sk_images.push(sk_image);
+        image_scales.push(1.0);
         image_index.insert(image_ref, idx);
     }
 
@@ -365,6 +369,7 @@ fn prepare_frame(
         images: sk_images,
         image_index,
         runtime_effects,
+        image_scales,
     })
 }
 

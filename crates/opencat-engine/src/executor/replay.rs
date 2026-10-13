@@ -696,7 +696,31 @@ fn replay_op(
         } => {
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
-                if let Some(pid) = pid {
+                // 预缩小解码后 canvas.drawImage 的"自然尺寸"语义补偿：解码图
+                // 是声明尺寸的 1/scale 倍，补足 dst 再画，保持像素尺寸不变。
+                // 同一资产既走 ImageRect（贡献预缩目标）又走 drawImage 时，
+                // 两条路径都继续以声明尺寸呈现。
+                let decode_scale = media.image_scales.get(*idx).copied().unwrap_or(1.0);
+                if (decode_scale - 1.0).abs() > 1e-6 {
+                    let dst = Rect::new(
+                        *x,
+                        *y,
+                        *x + sk_image.width() as f32 / decode_scale,
+                        *y + sk_image.height() as f32 / decode_scale,
+                    );
+                    let mut paint = match pid {
+                        Some(pid) => paint_from_spec(&draw.paints[pid.0 as usize]),
+                        None => Paint::default(),
+                    };
+                    apply_global_alpha(&mut paint, exec.current_alpha);
+                    canvas.draw_image_rect_with_sampling_options(
+                        sk_image,
+                        None,
+                        dst,
+                        SamplingOptions::default(),
+                        &paint,
+                    );
+                } else if let Some(pid) = pid {
                     let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
                     apply_global_alpha(&mut paint, exec.current_alpha);
                     canvas.draw_image(sk_image, (*x, *y), Some(&paint));
@@ -714,7 +738,18 @@ fn replay_op(
         } => {
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
-                let src_rect = src.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
+                // 预缩小解码：src 以声明（原图）坐标给出，按解码缩放比映射到
+                // 解码像素坐标。scale=1（native/lazy）时不变；src 与图像尺寸
+                // 同比缩放，下方采样判定所依据的比值不受影响。
+                let decode_scale = media.image_scales.get(*idx).copied().unwrap_or(1.0);
+                let src_rect = src.map(|r| {
+                    Rect::new(
+                        r.x * decode_scale,
+                        r.y * decode_scale,
+                        (r.x + r.width) * decode_scale,
+                        (r.y + r.height) * decode_scale,
+                    )
+                });
                 let dst_rect = Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height);
                 let src_arg = src_rect
                     .as_ref()
@@ -1950,6 +1985,7 @@ half4 main(float2 coord) {
                 m
             },
             runtime_effects: vec![rt.into()],
+            image_scales: Vec::new(),
         };
         let mut exec = EngineDrawExecutor::new();
         exec.begin_frame();

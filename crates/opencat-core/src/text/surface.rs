@@ -20,6 +20,7 @@
 //! 跨帧：参考侧离屏栅格只在字体加载后重建一次，XML 端以 same-id 复用。
 
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
 use hashbrown::HashMap;
@@ -188,10 +189,16 @@ pub struct InkMetrics {
 ///
 /// 返回 `(FontRef 持有的数据闭包结果, face index)`——借用的数据生命周期由
 /// `with_face_data` 闭包约束，调用方在闭包内完成全部 swash 工作。
+///
+/// `FaceKey` 是字体数据缓冲的 (指针, face index)。它与 `fontdb::Database`
+/// 的实例无关：scoped DB 每帧克隆，但字体字节由同一个 Arc 持有，指针稳定。
+/// 字形光栅缓存用它做键，跨 DB 克隆仍命中同一 face。
+type FaceKey = (usize, u32);
+
 fn with_resolved_font<R>(
     family: &str,
     weight: u32,
-    f: impl FnOnce(&FontRef<'_>) -> Result<R>,
+    f: impl FnOnce(&FontRef<'_>, FaceKey) -> Result<R>,
 ) -> Result<R> {
     let db = font_db_for_script();
     let query = fontdb::Query {
@@ -208,7 +215,7 @@ fn with_resolved_font<R>(
         let Some(font) = FontRef::from_index(data, index as usize) else {
             bail!("surface: face `{face_id:?}` is not a readable font file");
         };
-        out = Some(f(&font));
+        out = Some(f(&font, (data.as_ptr() as usize, index)));
         Ok(())
     });
     out.unwrap_or_else(|| bail!("surface: font data missing for family `{family}`"))
@@ -239,6 +246,65 @@ fn layout_text(
     (placed, pen)
 }
 
+/// 单字形轮廓光栅（swash `Source::Outline`、`hint=false`、整数偏移）。
+///
+/// 同一 (face, size, glyph) 的光栅结果与调用位置无关，也跨帧不变。缓存它把
+/// `canvas.fillText` 的每次调用从「新建 ScaleContext + 重栅格化轮廓」降为一次
+/// 哈希查找；`ccRender` 这类逐字符画满 12864 格的用法是主要收益方。
+struct GlyphRaster {
+    left: i32,
+    top: i32,
+    width: u32,
+    height: u32,
+    data: Arc<[u8]>,
+}
+
+/// 缓存容量上限。条目是单个字形的 coverage 位图（通常 < 1 KiB），4096 条
+/// 覆盖任何现实字形集；溢出即整表清空（演示渲染的复用窗口远小于此）。
+const GLYPH_RASTER_CACHE_CAP: usize = 4096;
+
+thread_local! {
+    static GLYPH_RASTERS: RefCell<HashMap<(FaceKey, u64, GlyphId), Option<Arc<GlyphRaster>>>> =
+        RefCell::new(HashMap::new());
+}
+
+/// 取（或栅格化）一个字形。`None` = 空字形（无覆盖，与 `render` 失败同义）。
+fn glyph_raster(
+    face: FaceKey,
+    font: &FontRef<'_>,
+    size_px: f64,
+    gid: GlyphId,
+) -> Option<Arc<GlyphRaster>> {
+    let key = (face, size_px.to_bits(), gid);
+    if let Some(hit) = GLYPH_RASTERS.with(|c| c.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let mut context = ScaleContext::new();
+    let mut scaler = context.builder(*font).size(size_px as f32).hint(false).build();
+    let render = Render::new(&[Source::Outline]);
+    let raster = render.render(&mut scaler, gid).and_then(|image| {
+        let p = image.placement;
+        if p.width == 0 || p.height == 0 {
+            return None;
+        }
+        Some(Arc::new(GlyphRaster {
+            left: p.left,
+            top: p.top,
+            width: p.width,
+            height: p.height,
+            data: Arc::from(image.data.as_slice()),
+        }))
+    });
+    GLYPH_RASTERS.with(|c| {
+        let mut cache = c.borrow_mut();
+        if cache.len() >= GLYPH_RASTER_CACHE_CAP {
+            cache.clear();
+        }
+        cache.insert(key, raster.clone());
+    });
+    raster
+}
+
 /// `canvas.measureText`：真字体、kern-free、含 letterSpacing（末字符后也追加）。
 pub fn surface_measure_text(
     text: &str,
@@ -247,7 +313,7 @@ pub fn surface_measure_text(
     size_px: f64,
     letter_spacing: f64,
 ) -> Result<InkMetrics> {
-    with_resolved_font(family, weight, |font| {
+    with_resolved_font(family, weight, |font, face| {
         // 字体盒（fontBoundingBox）：swash 已按 USE_TYPO_METRICS 优先取 OS/2
         // typo 垂直度量，否则 hhea（Chrome/Skia 同口径）；descent 恒正。
         let fm = font.metrics(&[]);
@@ -266,28 +332,21 @@ pub fn surface_measure_text(
             });
         }
         let (placed, width) = layout_text(font, text, size_px, letter_spacing);
-        // ink box：对每个字形走一次 outline 栅格，取覆盖区极值
-        let mut context = ScaleContext::new();
-        let mut scaler = context.builder(*font).size(size_px as f32).hint(false).build();
-        let render = Render::new(&[Source::Outline]);
+        // ink box：对每个字形取 outline 覆盖区的极值（走共享字形光栅缓存）
         let mut ink_l = f64::INFINITY;
         let mut ink_r = f64::NEG_INFINITY;
         let mut ink_t = f64::INFINITY;
         let mut ink_b = f64::NEG_INFINITY;
         for (gid, pen_x) in &placed {
-            let Some(image) = render.render(&mut scaler, *gid) else {
+            let Some(raster) = glyph_raster(face, font, size_px, *gid) else {
                 continue;
             };
-            let p = image.placement;
-            if p.width == 0 || p.height == 0 {
-                continue;
-            }
-            let left = pen_x + p.left as f64;
+            let left = pen_x + raster.left as f64;
             // swash placement.top：基线向上为正 → y-down 空间的顶部 = 基线 − top
             ink_l = ink_l.min(left);
-            ink_r = ink_r.max(left + p.width as f64);
-            ink_t = ink_t.min(p.top as f64);
-            ink_b = ink_b.max(p.top as f64 - p.height as f64);
+            ink_r = ink_r.max(left + raster.width as f64);
+            ink_t = ink_t.min(raster.top as f64);
+            ink_b = ink_b.max(raster.top as f64 - raster.height as f64);
         }
         if !ink_l.is_finite() {
             // 空白文本：ink box 全零
@@ -337,28 +396,22 @@ pub fn surface_fill_text(
         bail!("surface `{id}`: fillText scale_x must be > 0");
     }
     with_surface(id, |surface| {
-        with_resolved_font(family, weight, |font| {
+        with_resolved_font(family, weight, |font, face| {
             let (placed, _width) = layout_text(font, text, size_px, letter_spacing);
-            let mut context = ScaleContext::new();
-            let mut scaler = context.builder(*font).size(size_px as f32).hint(false).build();
-            let render = Render::new(&[Source::Outline]);
             let sw = surface.width as i64;
             let sh = surface.height as i64;
             let [fr, fg, fb, fa] = fill;
             for (gid, pen_x) in &placed {
-                let Some(image) = render.render(&mut scaler, *gid) else {
+                let Some(raster) = glyph_raster(face, font, size_px, *gid) else {
                     continue;
                 };
-                let p = image.placement;
-                if p.width == 0 || p.height == 0 {
-                    continue;
-                }
-                let coverage: &[u8] = &image.data;
-                let left = x + scale_x * (*pen_x + p.left as f64);
+                let coverage: &[u8] = &raster.data;
+                let gw = raster.width as usize;
+                let left = x + scale_x * (*pen_x + raster.left as f64);
                 // swash top 基线向上为正 → 位图顶 = y − top，底 = 顶 + height
-                let top = y - p.top as f64;
-                let bw = (scale_x * p.width as f64).ceil() as i64;
-                let bh = p.height as i64;
+                let top = y - raster.top as f64;
+                let bw = (scale_x * raster.width as f64).ceil() as i64;
+                let bh = raster.height as i64;
                 let x0 = left.floor() as i64;
                 let y0 = top.floor() as i64;
                 for yy in y0.max(0)..(y0 + bh).min(sh) {
@@ -367,7 +420,7 @@ pub fn surface_fill_text(
                     for xx in x0.max(0)..(x0 + bw).min(sw) {
                         // 水平 squeeze 下按比例重采样（bitmaps 通常 1-2px 宽缩放）
                         let sx = ((xx - x0) as f64 / scale_x) as usize;
-                        let s = coverage[srow * p.width as usize + sx.min(p.width as usize - 1)];
+                        let s = coverage[srow * gw + sx.min(gw - 1)];
                         if s == 0 {
                             continue;
                         }
@@ -654,4 +707,5 @@ mod tests {
             }
         });
     }
+
 }

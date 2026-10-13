@@ -261,11 +261,35 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         }
         self.ensure_runtime()?;
 
-        self.apply_frame_ctx(frame_ctx, current_node_id)?;
+        {
+            let _span = tracing::span!(
+                target: "render.scene",
+                tracing::Level::TRACE,
+                "script_apply_frame_ctx"
+            )
+            .entered();
+            self.apply_frame_ctx(frame_ctx, current_node_id)?;
+        }
 
         let fn_name = Self::driver_fn_name(driver);
-        self.ctx.call_global_fn(&fn_name)?;
-        self.ctx.call_global_fn("__opencatFlushTimelines")?;
+        {
+            let _span = tracing::span!(
+                target: "render.scene",
+                tracing::Level::TRACE,
+                "script_driver_fn"
+            )
+            .entered();
+            self.ctx.call_global_fn(&fn_name)?;
+        }
+        {
+            let _span = tracing::span!(
+                target: "render.scene",
+                tracing::Level::TRACE,
+                "script_flush_timelines"
+            )
+            .entered();
+            self.ctx.call_global_fn("__opencatFlushTimelines")?;
+        }
 
         // three-like shim 每帧全量重提交的 3D 快照：在快照进 mutation 流之前
         // 光栅化为帧级 generated image，并给目标 canvas 录入对应的

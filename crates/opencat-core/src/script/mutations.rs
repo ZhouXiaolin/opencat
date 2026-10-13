@@ -613,6 +613,27 @@ impl StyleMutations {
             recorder.record_scene3(&canvas_id, scene);
         }
     }
+
+    /// Borrowing form for hosts whose mutations outlive one apply
+    /// (`PrecomputedScriptHost` re-applies the same snapshot every frame).
+    /// Styles apply by reference; canvas DrawOps and scene3 snapshots are
+    /// still cloned because the recorder takes owned values.
+    pub fn apply_to_recorder_ref(
+        &self,
+        recorder: &mut dyn crate::script::recorder::MutationRecorder,
+    ) {
+        for (node_id, node_mutations) in &self.mutations {
+            apply_node_to_recorder(recorder, node_id, node_mutations);
+        }
+        for (canvas_id, canvas_mutations) in &self.canvas_mutations {
+            for cmd in &canvas_mutations.commands {
+                recorder.record_draw_op(canvas_id, cmd.clone());
+            }
+        }
+        for (canvas_id, scene) in &self.scene3_mutations {
+            recorder.record_scene3(canvas_id, scene.clone());
+        }
+    }
 }
 
 pub fn apply_node_to_recorder(

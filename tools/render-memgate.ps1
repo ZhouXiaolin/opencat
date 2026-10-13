@@ -18,7 +18,8 @@ param(
     [double]$GateGB = 5.0,
     [int]$PollMs = 500,
     [string]$StdoutLog = "",
-    [string]$StderrLog = ""
+    [string]$StderrLog = "",
+    [string]$CurveLog = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +43,9 @@ while (-not $proc.HasExited) {
         $proc.Refresh()
         $cur = $proc.PrivateMemorySize64
         if ($cur -gt $peakBytes) { $peakBytes = $cur }
+        if ($CurveLog -ne "") {
+            Add-Content -Path $CurveLog -Value ("{0:F1},{1:F1}" -f $sw.Elapsed.TotalSeconds, ($cur / 1048576.0))
+        }
         if ($cur -gt $gateBytes) {
             $gateHit = $true
             Write-Host ("MEMGATE: private bytes {0:N0} exceeded gate {1:N0} - killing process (suspected leak)" -f $cur, $gateBytes)

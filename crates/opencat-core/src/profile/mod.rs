@@ -118,6 +118,13 @@ pub struct SceneBuildStats {
 #[derive(Clone, Debug, Default)]
 pub struct FrameProfile {
     pub script_ms: f64,
+    pub script_run_frame_ms: f64,
+    pub script_apply_frame_ctx_ms: f64,
+    pub script_driver_fn_ms: f64,
+    pub script_flush_timelines_ms: f64,
+    pub resolve_build_ms: f64,
+    pub collect_script_targets_ms: f64,
+    pub element_fingerprints_ms: f64,
     pub frame_state_ms: f64,
     pub resolve_ms: f64,
     pub layout_ms: f64,

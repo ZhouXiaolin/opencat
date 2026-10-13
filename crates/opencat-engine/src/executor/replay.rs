@@ -1,14 +1,14 @@
 use super::paint::{build_skia_image_filter, paint_from_spec};
 use super::path::path_from_encoded;
-use super::{DrawError, DrawStats};
+use super::{DrawError, DrawStats, PreparedRuntimeEffect};
 use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
 use opencat_core::ir::draw_types::{DrawOpRange, ImageRef, PathOp, RuntimeEffectChildRef, SubtreeId};
 use skia_safe::{
-    Canvas, CubicResampler, FilterMode, MipmapMode, Paint, PathBuilder, Picture, PictureRecorder,
-    Point, RRect, Rect, SamplingOptions, Shader, TileMode, Vector,
+    Canvas, CubicResampler, Data, FilterMode, Image, MipmapMode, Paint, PathBuilder, Picture,
+    PictureRecorder, Point, RRect, Rect, SamplingOptions, Shader, TileMode, Vector, surfaces,
 };
 
 fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
@@ -225,6 +225,94 @@ fn is_identity_blit(canvas: &Canvas, src_size: (f32, f32), src: Option<&Rect>, d
         && near(p2.y - p0.y, sy1 - sy0)
         && integral(p0.x)
         && integral(p0.y)
+}
+
+/// 分带并行光栅一个 runtime effect，并把各带拼回 `canvas`。
+///
+/// 调用前提（不满足时返回 `None`，由调用方整块绘制）：
+/// - liangyi 后端声明该内核可按整数像素行分带（[`PreparedRuntimeEffect::plan`]）；
+/// - canvas 当前总矩阵是整数平移（分带用的局部光栅面按像素行对齐）；
+/// - 无 child 采样（有 child 时坐标不是像素的纯函数，分带会改像素）。
+///
+/// 像素论证：内核输出只依赖自身 `xy`；带边界落在整数像素行上，两条相邻带
+/// 的矩形并集正好是 dst，且互不重叠。所以每条带独立光栅后按 SrcOver 依次
+/// 画回，结果与整块绘制逐位相同。
+fn draw_runtime_effect_banded(
+    canvas: &Canvas,
+    prepared: &PreparedRuntimeEffect,
+    uniform_bytes: &[u8],
+    dst: Rect,
+) -> Option<()> {
+    use opencat_liangyi::ExecutionPlan;
+
+    if prepared.plan != ExecutionPlan::Rows {
+        return None;
+    }
+    let width = dst.width().round();
+    let height = dst.height().round();
+    if width < 1.0 || height < 1.0 {
+        return None;
+    }
+    // 分带要求 dst 在设备空间是整数平移：矩阵只能是平移，且平移量为整像素。
+    // 否则带图像拼回时要重采样，结果不再与整块绘制逐位相同。
+    let m = canvas.total_matrix();
+    if m.skew_x() != 0.0 || m.skew_y() != 0.0 || m.scale_x() != 1.0 || m.scale_y() != 1.0 {
+        return None;
+    }
+    let integral = |v: f32| (v - v.round()).abs() < 1e-4;
+    if !integral(m.translate_x()) || !integral(m.translate_y()) {
+        return None;
+    }
+    // 带图像在拼回时才受 clip 约束，而整块路径在光栅时受约束。两者要一致，
+    // 就必须让 dst 完全落在当前设备 clip 内（此时 clip 对两条路径都不起作用）。
+    let dev = m.map_rect(dst).0;
+    if let Some(clip) = canvas.device_clip_bounds() {
+        let contains = dev.left >= clip.left as f32
+            && dev.top >= clip.top as f32
+            && dev.right <= clip.right as f32
+            && dev.bottom <= clip.bottom as f32;
+        if !contains {
+            return None;
+        }
+    }
+    let (w, h) = (width as u32, height as u32);
+
+    let uniform_data = Data::new_copy(uniform_bytes);
+    // 只捕获 Send+Sync 的键与源码：`RuntimeEffect` 句柄本身不能跨线程共享。
+    let hash = prepared.hash;
+    let sksl = prepared.sksl.as_str();
+    let parts = opencat_liangyi::bands::try_parallel(w, h, |band| -> Option<Image> {
+        // 每个线程自建 surface 与 RuntimeEffect（skia_safe 对象非 Send）。
+        let effect = crate::consumer::compile_runtime_effect_cached(hash, sksl).ok()?;
+        let shader = effect.make_shader(uniform_data.clone(), &[], None::<&skia_safe::Matrix>)?;
+        let mut surface = surfaces::raster_n32_premul((w as i32, band.height as i32))?;
+        let band_canvas = surface.canvas();
+        // 内核按 `xy - u_oc_rect.xy` 取本地坐标：把 rect 原点平移 -dst.xy，
+        // 再把带顶移回 0，于是本带第 0 行对应 rect 的第 band.y0 行。
+        band_canvas.translate((-dst.left, -dst.top - band.y0 as f32));
+        let mut paint = Paint::default();
+        paint.set_shader(Some(shader));
+        band_canvas.draw_rect(dst, &paint);
+        drop(band_canvas);
+        Some(surface.image_snapshot())
+    })?;
+
+    let paint = Paint::default();
+    // 全有或全无：任一条带失败就整块回退，绝不把半张结果画上 canvas
+    // （否则调用方的整块回退会在已画的带上再叠一层）。
+    let mut images = Vec::with_capacity(parts.len());
+    for (band, image) in parts {
+        images.push((band, image?));
+    }
+    for (band, image) in images {
+        canvas.draw_image_with_sampling_options(
+            &image,
+            Point::new(dst.left, dst.top + band.y0 as f32),
+            SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+            Some(&paint),
+        );
+    }
+    Some(())
 }
 
 fn replay_op(
@@ -685,7 +773,7 @@ fn replay_op(
         } => {
             let effect_idx = effect.0 as usize;
             if effect_idx < media.runtime_effects.len() {
-                let rt = &media.runtime_effects[effect_idx];
+                let prepared = &media.runtime_effects[effect_idx];
                 let uniform_idx = uniforms.0 as usize;
                 if uniform_idx >= draw.byte_ranges.len() {
                     return Err(DrawError(format!(
@@ -764,7 +852,22 @@ fn replay_op(
                     }
                 }
                 let uniform_data = skia_safe::Data::new_copy(uniform_bytes);
-                let shader = rt.make_shader(uniform_data, &inputs, None::<&skia_safe::Matrix>);
+                // 无 child 且 liangyi 声明可分带时，先尝试分带并行光栅。
+                if inputs.is_empty()
+                    && draw_runtime_effect_banded(
+                        canvas,
+                        prepared,
+                        uniform_bytes,
+                        Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height),
+                    )
+                    .is_some()
+                {
+                    return Ok(());
+                }
+                let shader =
+                    prepared
+                        .effect
+                        .make_shader(uniform_data, &inputs, None::<&skia_safe::Matrix>);
                 if let Some(s) = shader {
                     let mut paint = Paint::default();
                     paint.set_shader(Some(s));
@@ -927,6 +1030,130 @@ mod tests {
             frame[index + 2],
             frame[index + 3],
         ]
+    }
+
+    /// 分带并行光栅与整块光栅必须逐位相同 —— 这是 liangyi 声明
+    /// `ExecutionPlan::Rows` 的全部理由。用够大的 rect 触发分带（小 rect
+    /// 走整块），再用同一内核整块渲染一次做对照。
+    #[test]
+    fn banded_runtime_effect_matches_whole_raster_bit_for_bit() {
+        // 坐标依赖型内核：分带若不正确，带间会错位或边缘重复。
+        let source =
+            "(uv, u) => { const g = fract((uv.x * 0.05 + uv.y * 0.013) * 1.0); return [g, g * 0.5, 1 - g, 1]; }";
+        let compiled = opencat_liangyi::compile_effect(source, &Default::default())
+            .expect("lambda should compile to sksl");
+        assert_eq!(compiled.backend, opencat_liangyi::Backend::Sksl);
+        let sksl = compiled.sksl.expect("sksl backend carries code");
+        // 纯坐标内核必须被后端标记为可按行分带。
+        assert_eq!(
+            opencat_liangyi::sksl_execution_plan(&sksl),
+            opencat_liangyi::ExecutionPlan::Rows,
+        );
+
+        let (w, h) = (256u32, 256u32);
+        let rt = RuntimeEffect::make_for_shader(&sksl, None).expect("sksl compiles");
+        let mut frame = DrawOpFrame::default();
+        frame.effects.push(EffectRef {
+            hash: compiled.hash,
+            sksl: sksl.clone(),
+        });
+        let uniforms: Vec<f32> = vec![0.0, 0.0, w as f32, h as f32];
+        let mut uniform_bytes = Vec::new();
+        for v in &uniforms {
+            uniform_bytes.extend_from_slice(&v.to_ne_bytes());
+        }
+        frame.bytes.extend_from_slice(&uniform_bytes);
+        frame
+            .byte_ranges
+            .push(opencat_core::ir::draw_types::TableRange {
+                start: 0,
+                len: uniform_bytes.len() as u32,
+            });
+        frame.ops.push(DrawOp::RuntimeEffect {
+            effect: EffectId(0),
+            uniforms: BytesRangeId(0),
+            children: ChildRange { start: 0, len: 0 },
+            dst: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: w as f32,
+                height: h as f32,
+            },
+        });
+
+        let read = |surface: &mut skia_safe::Surface| -> Vec<u8> {
+            let image = surface.image_snapshot();
+            let info = ImageInfo::new(
+                (w as i32, h as i32),
+                ColorType::RGBA8888,
+                AlphaType::Premul,
+                None,
+            );
+            let mut rgba = vec![0u8; (w * h * 4) as usize];
+            assert!(image.read_pixels(
+                &info,
+                rgba.as_mut_slice(),
+                w as usize * 4,
+                (0, 0),
+                CachingHint::Allow,
+            ));
+            rgba
+        };
+
+        // 分带路径：plan=Rows 且 rect 足够大。
+        let media = EnginePreparedFrameMedia {
+            runtime_effects: vec![PreparedRuntimeEffect {
+                effect: rt.clone(),
+                plan: opencat_liangyi::ExecutionPlan::Rows,
+                hash: compiled.hash,
+                sksl: sksl.clone(),
+            }],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut banded_surface =
+            surfaces::raster_n32_premul((w as i32, h as i32)).expect("surface");
+        replay_op(
+            &mut exec,
+            banded_surface.canvas(),
+            &frame,
+            &media,
+            &frame.ops[0],
+        )
+        .expect("banded replay");
+        let banded = read(&mut banded_surface);
+
+        // 整块对照：同一内核声明为 Whole。
+        let whole_media = EnginePreparedFrameMedia {
+            runtime_effects: vec![PreparedRuntimeEffect {
+                effect: rt,
+                plan: opencat_liangyi::ExecutionPlan::Whole,
+                hash: compiled.hash,
+                sksl,
+            }],
+            ..Default::default()
+        };
+        let mut exec = EngineDrawExecutor::new();
+        exec.begin_frame();
+        let mut whole_surface =
+            surfaces::raster_n32_premul((w as i32, h as i32)).expect("surface");
+        replay_op(
+            &mut exec,
+            whole_surface.canvas(),
+            &frame,
+            &whole_media,
+            &frame.ops[0],
+        )
+        .expect("whole replay");
+        let whole = read(&mut whole_surface);
+
+        let diff = banded
+            .iter()
+            .zip(&whole)
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(diff, 0, "banded raster differs from whole raster in {diff} bytes");
     }
 
     #[test]
@@ -1178,7 +1405,7 @@ half4 main(float2 coord) {
         };
 
         let media = EnginePreparedFrameMedia {
-            runtime_effects: vec![rt],
+            runtime_effects: vec![rt.into()],
             ..Default::default()
         };
         let mut exec = EngineDrawExecutor::new();
@@ -1261,7 +1488,7 @@ half4 main(float2 coord) {
         };
 
         let media = EnginePreparedFrameMedia {
-            runtime_effects: vec![rt],
+            runtime_effects: vec![rt.into()],
             ..Default::default()
         };
         let mut exec = EngineDrawExecutor::new();
@@ -1349,7 +1576,7 @@ half4 main(float2 coord) {
         };
 
         let media = EnginePreparedFrameMedia {
-            runtime_effects: vec![rt],
+            runtime_effects: vec![rt.into()],
             ..Default::default()
         };
         let mut exec = EngineDrawExecutor::new();
@@ -1521,7 +1748,7 @@ half4 main(float2 coord) {
         });
 
         let media = EnginePreparedFrameMedia {
-            runtime_effects: vec![rt],
+            runtime_effects: vec![rt.into()],
             ..Default::default()
         };
         let mut exec = EngineDrawExecutor::new();
@@ -1607,7 +1834,7 @@ half4 main(float2 coord) {
             dst: Rect4 { x: 0.0, y: 0.0, width: 8.0, height: 8.0 },
         });
         let media = EnginePreparedFrameMedia {
-            runtime_effects: vec![rt],
+            runtime_effects: vec![rt.into()],
             ..Default::default()
         };
         let mut exec = EngineDrawExecutor::new();
@@ -1692,7 +1919,7 @@ half4 main(float2 coord) {
                 m.insert(ImageRef::Generated { id: gid }, 0usize);
                 m
             },
-            runtime_effects: vec![rt],
+            runtime_effects: vec![rt.into()],
         };
         let mut exec = EngineDrawExecutor::new();
         exec.begin_frame();

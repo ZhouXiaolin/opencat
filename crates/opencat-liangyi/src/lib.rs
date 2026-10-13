@@ -27,6 +27,9 @@ pub mod pixel;
 pub mod program;
 pub mod stdlib;
 
+/// 分带并行调度（后端私有决定，宿主只提供逐带光栅闭包）。
+pub mod bands;
+
 use std::cell::RefCell;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -36,6 +39,30 @@ use hashbrown::HashMap;
 
 pub use error::{LambdaError, LambdaResult};
 pub use program::{Backend, Program};
+
+/// 内核的执行计划：逐像素工作能否按整数像素行分带并行。
+///
+/// 这是**后端的判断**，不由内核作者书写。纯坐标函数（无 child 采样）的
+/// 内核可任意切带而像素不变，因此后端声明 [`ExecutionPlan::Rows`]；其余
+/// 内核声明 [`ExecutionPlan::Whole`]，宿主必须整块光栅。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionPlan {
+    /// 可按整数像素行分带并行光栅，拼回结果与整块逐位相同。
+    Rows,
+    /// 只能整块光栅。
+    Whole,
+}
+
+/// 读取 SKSL 产物里的执行计划标记（由 [`lower_sksl`] 写入）。
+///
+/// 标记是 SKSL 注释，Skia 编译时忽略；宿主据此决定是否分带。
+pub fn sksl_execution_plan(sksl: &str) -> ExecutionPlan {
+    if sksl.starts_with(lower_sksl::PLAN_ROWS_MARKER) {
+        ExecutionPlan::Rows
+    } else {
+        ExecutionPlan::Whole
+    }
+}
 
 /// JS 侧 spec（`ly.kernel(fn, spec)` / `ly.scan(fn, spec)` 的内核注解）
 /// 反序列化后的形态。uniforms 保持声明序——顺序即 f32 打包顺序，

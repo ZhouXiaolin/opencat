@@ -304,6 +304,9 @@ pub fn render_frame_with_state(
     })?;
 
     let frame = builder.finish();
+    if std::env::var_os("OC_DBG_STACK").is_some() {
+        debug_stack_balance(&frame.ops);
+    }
     let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
     cache.last_scene_snapshot = Some(SceneSnapshotEntry {
         frame: frame.clone(),
@@ -312,6 +315,52 @@ pub fn render_frame_with_state(
         root_fingerprint,
     });
     Ok((frame, media_plan))
+}
+
+/// Debug-only (`OC_DBG_STACK=1`): report the save/restore balance of a
+/// finished frame. A non-zero final depth means a composite/tree Paint leaked
+/// its canvas transform into following siblings.
+fn debug_stack_balance(ops: &[crate::ir::draw_op::DrawOp]) {
+    use crate::ir::draw_op::DrawOp;
+    let mut depth: i64 = 0;
+    let mut min_depth: i64 = 0;
+    let mut first_neg: Option<usize> = None;
+    for (i, op) in ops.iter().enumerate() {
+        match op {
+            DrawOp::Save | DrawOp::SaveLayer { .. } | DrawOp::SaveBackdropLayer { .. } => {
+                depth += 1;
+            }
+            DrawOp::Restore => {
+                depth -= 1;
+                if depth < min_depth {
+                    min_depth = depth;
+                    if first_neg.is_none() {
+                        first_neg = Some(i);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    eprintln!(
+        "[stack] ops={} final_depth={} min_depth={} first_negative_op={:?}",
+        ops.len(),
+        depth,
+        min_depth,
+        first_neg
+    );
+    if depth != 0 || min_depth < 0 {
+        report_first_negative(ops, first_neg);
+    }
+}
+
+fn report_first_negative(ops: &[crate::ir::draw_op::DrawOp], first_neg: Option<usize>) {
+    if let Some(i) = first_neg {
+        let lo = i.saturating_sub(6);
+        for (j, op) in ops[lo..=i].iter().enumerate() {
+            eprintln!("[stack]   op[{}] = {:?}", lo + j, op);
+        }
+    }
 }
 
 /// Decide whether the cached whole-frame DrawOp recording can be reused this

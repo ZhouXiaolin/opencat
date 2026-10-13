@@ -555,7 +555,12 @@
         fromVars = fromVars || {};
         toVars = toVars || {};
 
-        var easingTag = resolveEasingTag(timing.ease != null ? timing.ease : timing.easing);
+        var easeSource = timing.ease != null ? timing.ease : timing.easing;
+        // GSAP accepts a plain function as `ease` (`ease: (t) => ...`). The host
+        // easing engine only knows named curves, so such a tween runs linearly
+        // in Rust and the linear progress is re-mapped in JS below.
+        var easeFn = typeof easeSource === 'function' ? easeSource : null;
+        var easingTag = easeFn ? 'none' : resolveEasingTag(easeSource);
         var isSpring = easingTag.indexOf('spring:') === 0;
         var duration = timing.duration;
         // Object-form keyframes carry their own timeline (the sum of the
@@ -614,6 +619,13 @@
         }
 
         var progress = __animate_progress(handle);
+        if (easeFn) {
+            var easedProgress = Number(easeFn(progress));
+            if (!isNaN(easedProgress)) {
+                progress = easedProgress;
+                __animate_set_progress(handle, easedProgress);
+            }
+        }
         var result = {
             progress: progress,
             settled: __animate_settled(handle),
@@ -712,7 +724,11 @@
                         + ' from=' + fromVal + ' to=' + toVal
                         + ' target=' + (target && target.id));
                 }
-                value = __animate_value(handle, track.name, Number(fromVal), Number(toVal));
+                // With a user `ease` function the host progress is linear, so
+                // the eased value must be built here from the JS progress.
+                value = easeFn
+                    ? Number(fromVal) + (Number(toVal) - Number(fromVal)) * progress
+                    : __animate_value(handle, track.name, Number(fromVal), Number(toVal));
             } else if (typeof descriptor.interpolate === 'function') {
                 value = descriptor.interpolate(fromVal, toVal, progress, {
                     target: target,

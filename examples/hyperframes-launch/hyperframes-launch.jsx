@@ -9,7 +9,7 @@
    gradients -> canvas, backgroundPosition sweeps -> crossfading layers) are
    annotated inline with the reference line they replace. */
 
-import { useGSAP, useFrame } from 'opencat/runtime';
+import { useGSAP, useThree, useRef, useFrame } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 49.8 };
 
@@ -18,25 +18,27 @@ export const meta = { width: 1920, height: 1080, fps: 30, duration: 49.8 };
    Instrument Serif is bundled (assets/fonts/InstrumentSerif-*.ttf);
    EB Garamond/Cormorant -> Times New Roman (+Italic),
    Geist/Space Grotesk -> Segoe UI (+Bold), Azeret Mono -> Consolas,
-   Bebas Neue -> Impact, Inter 900 -> Arial Black; Inter/JetBrains Mono are real. */
+   Bebas Neue -> Impact, Inter 900 -> Arial Black; Inter/JetBrains Mono are real.
+   `family` MUST be the ttf's own family name (fontdb reads the file, so a
+   mismatched CSS name silently falls back to the default sans). */
 export const fonts = {
   default: 'hf-inter',
   faces: [
     { id: 'hf-inter', family: 'Inter', path: 'assets/fonts/Inter-Regular.ttf' },
     { id: 'hf-inter-med', family: 'Inter', path: 'assets/fonts/Inter-Medium.ttf' },
-    { id: 'hf-inter-black', family: 'Inter', path: 'assets/fonts/ArialBlack.ttf' },
+    { id: 'hf-inter-black', family: 'Arial Black', path: 'assets/fonts/ArialBlack.ttf' },
     { id: 'hf-jbm', family: 'JetBrains Mono', path: 'assets/fonts/JetBrainsMono-Regular.ttf' },
     { id: 'hf-jbm-bold', family: 'JetBrains Mono', path: 'assets/fonts/JetBrainsMono-Bold.ttf' },
     { id: 'hf-serif', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Regular.ttf' },
     { id: 'hf-serif-it', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Italic.ttf' },
-    { id: 'hf-eb-it', family: 'EB Garamond', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
-    { id: 'hf-cg-it', family: 'Cormorant Garamond', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
-    { id: 'hf-geist', family: 'Geist', path: 'assets/fonts/SegoeUI.ttf' },
-    { id: 'hf-geist-semi', family: 'Geist', path: 'assets/fonts/SegoeUI-Bold.ttf' },
-    { id: 'hf-grotesk', family: 'Space Grotesk', path: 'assets/fonts/SegoeUI.ttf' },
-    { id: 'hf-grotesk-bold', family: 'Space Grotesk', path: 'assets/fonts/SegoeUI-Bold.ttf' },
-    { id: 'hf-azeret', family: 'Azeret Mono', path: 'assets/fonts/Consolas.ttf' },
-    { id: 'hf-bebas', family: 'Bebas Neue', path: 'assets/fonts/Impact.ttf' },
+    { id: 'hf-eb-it', family: 'Times New Roman', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
+    { id: 'hf-cg-it', family: 'Times New Roman', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
+    { id: 'hf-geist', family: 'Segoe UI', path: 'assets/fonts/SegoeUI.ttf' },
+    { id: 'hf-geist-semi', family: 'Segoe UI', path: 'assets/fonts/SegoeUI-Bold.ttf' },
+    { id: 'hf-grotesk', family: 'Segoe UI', path: 'assets/fonts/SegoeUI.ttf' },
+    { id: 'hf-grotesk-bold', family: 'Segoe UI', path: 'assets/fonts/SegoeUI-Bold.ttf' },
+    { id: 'hf-azeret', family: 'Consolas', path: 'assets/fonts/Consolas.ttf' },
+    { id: 'hf-bebas', family: 'Impact', path: 'assets/fonts/Impact.ttf' },
   ],
 };
 
@@ -861,13 +863,13 @@ function FlexShader() {
 }
 
 /* ══ flex-threejs (master 22.01-23.22, compositions/flex-threejs.html) ══
-   CSS 3D torus -> canvas with manual perspective (d=900, stage centre
-   (960,453.6)). Segment bases: centre (R cos a,0,R sin a), u=-radial,
-   v=+y (the reference rotateY/translateZ(400)/rotateY(90) chain resolves
-   to exactly this). Faces drawn far->near; each face is an affine
-   approximation (centre + edge vectors -> translate/rotate/scale + rounded
-   135deg-gradient shader). form: rotY -30->310 sine.inOut, rotX 25->10
-   yoyo x2. Shadow + label stay DOM. */
+   3D torus via ctx.three (opencat-three / wgpu). The reference is pure CSS 3D
+   (no three.js library): .three-stage has perspective:900px +
+   perspective-origin:50% 50%, so CSS (x,y,z) -> (960 + x*900/(900-z),
+   540 + y*900/(900-z)). A three.js PerspectiveCamera at z=near+900 with
+   fov=2*atan(540/900) inverts that exactly. Segment bases: centre
+   (R cos a,0,R sin a), local +x = inward radial, +y = up. form: rotY
+   -30->310 sine.inOut, rotX 25->10 yoyo x2. Shadow + label stay DOM. */
 var FT_START = 22.01, FT_DUR = 1.21;
 var FT_COLORS = [
   ['#dbb0b0', '#c49090'], ['#c8b8a8', '#b0a090'], ['#a8c0a0', '#8ea888'], ['#c4b098', '#ae9a82'],
@@ -876,25 +878,9 @@ var FT_COLORS = [
   ['#d4a0a0', '#be8a8a'], ['#b8c8b0', '#98b088'], ['#d0c0b0', '#baa898'], ['#c0a8b8', '#a890a0'],
 ];
 
-/* rounded-rect mask + 135deg two-stop ramp, evaluated in segment-local px */
-function ftSegmentShader() {
-  if (!FlexThreejs._kern) {
-    FlexThreejs._kern = ly.pixel((uv, u) => {
-      const t = (uv.x + uv.y) / (u.half * 4);
-      let r = u.a1 + (u.a2 - u.a1) * t;
-      let g = u.b1 + (u.b2 - u.b1) * t;
-      let b = u.c1 + (u.c2 - u.c1) * t;
-      const qx = abs(uv.x - u.half) - (u.half - u.rad);
-      const qy = abs(uv.y - u.half) - (u.half - u.rad);
-      const dx = max(qx, 0); const dy = max(qy, 0);
-      const d = sqrt(dx * dx + dy * dy) + min(max(qx, qy), 0) - u.rad;
-      const al = d < 0 ? u.op : 0;
-      return [r / 255, g / 255, b / 255, al];
-    }, { uniforms: { a1: 'float', b1: 'float', c1: 'float', a2: 'float', b2: 'float', c2: 'float', half: 'float', rad: 'float', op: 'float' } });
-  }
-  return FlexThreejs._kern;
-}
 function FlexThreejs() {
+  const canvas = useRef();
+
   useGSAP((ctx) => {
     var T = ctx.time - FT_START;
     vis(ctx, 'ft-root', T >= 0 && T < FT_DUR);
@@ -902,80 +888,99 @@ function FlexThreejs() {
     var tl = ctx.timeline(), A = function (t) { return FT_START + t; };
     tl.fromTo('ft-shadow', { scaleX: 1, scaleY: 1 }, { scaleX: 1.3, scaleY: 0.7, duration: 0.4, ease: 'sine.inOut', yoyo: true, repeat: 2 }, A(0));
     tl.fromTo('ft-label', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, A(0.2));
+  });
 
-    var cv = ctx.getCanvasById('ft-canvas');
-    if (!cv) return;
-    cv.clear();
-    var ck = ctx.CanvasKit;
-    var kern = ftSegmentShader();
+  /* Real 3D via ctx.three (opencat-three / wgpu). The reference is pure CSS 3D
+     (no three.js library): .three-stage has perspective:900px with
+     perspective-origin:50% 50%, so a CSS point (x,y,z) projects to
+     (960 + x*900/(900-z), 540 + y*900/(900-z)). A three.js PerspectiveCamera
+     at z = near + 900 with fov = 2*atan(540/900) inverts that exactly
+     (screen_x = 960 + x, screen_y = 540 - y on the z=0 plane). The world Y
+     axis points up, so every CSS y offset is negated and the form's CSS
+     rotateX negates too; the form's rotateY is unchanged. Each torus segment
+     is a PlaneGeometry (segment-local +x = inward radial, +y = up) whose
+     ShaderMaterial draws the rounded-rect mask + 135deg two-stop ramp. */
+  useThree(canvas, (T3, node, t, ctx) => {
+    var T = t - FT_START;
+    if (T < 0 || T >= FT_DUR) return;
 
-    /* form rotation (GSAP yoyo x2 over 0.4s each) */
-    var ph = T / 0.4;
-    var k = Math.floor(ph);
-    var fr = ph - k;
-    var sio = 0.5 - 0.5 * Math.cos(Math.PI * fr);
-    var s = (k % 2 === 0) ? sio : 1 - sio;
-    var rotY = -30 + 340 * (0.5 - 0.5 * Math.cos(Math.PI * clamp(T / 1.2, 0, 1)));
-    var rotX = 25 + (10 - 25) * s;
-    var cy = Math.cos(rotY * Math.PI / 180), sy = Math.sin(rotY * Math.PI / 180);
-    var cx = Math.cos(rotX * Math.PI / 180), sx = Math.sin(rotX * Math.PI / 180);
-    /* Ry(rotY)·Rx(rotX) applied as: first X, then Y (GSAP order) */
-    function xform(p) {
-      var x1 = p[0], y1 = p[1] * cx - p[2] * sx, z1 = p[1] * sx + p[2] * cx;
-      return [x1 * cy + z1 * sy, y1, -x1 * sy + z1 * cy];
+    var scene = new T3.Scene();
+    var camera = new T3.PerspectiveCamera(61.9275, 1920 / 1080, 0.1, 5000);
+    camera.position.set(0, 0, 900.1);
+    camera.lookAt(0, 0, 0);
+    scene.add(new T3.AmbientLight(0xffffff, 1.0));
+    scene.add(new T3.HemisphereLight(0xffffff, 0xffffff, 0.5));
+
+    function face(col, half, rad, op) {
+      var c1 = hexRgb(col[0]), c2 = hexRgb(col[1]);
+      var mat = new T3.ShaderMaterial({
+        transparent: op < 1,
+        uniforms: {
+          c1: { value: [c1[0] / 255, c1[1] / 255, c1[2] / 255] },
+          c2: { value: [c2[0] / 255, c2[1] / 255, c2[2] / 255] },
+          half: { value: half },
+          rad: { value: rad },
+          op: { value: op },
+        },
+        vertexShader: [
+          'varying vec2 vUv;',
+          'void main() {',
+          '  vUv = uv;',
+          '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+          '}',
+        ].join('\n'),
+        fragmentShader: [
+          'precision highp float;',
+          'varying vec2 vUv;',
+          'uniform vec3 c1;',
+          'uniform vec3 c2;',
+          'uniform float half;',
+          'uniform float rad;',
+          'uniform float op;',
+          'void main() {',
+          '  vec2 p = vUv * (2.0 * half);',
+          '  vec3 col = mix(c1, c2, (p.x + p.y) / (4.0 * half));',
+          '  vec2 q = abs(p - vec2(half)) - (half - rad);',
+          '  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;',
+          '  gl_FragColor = vec4(col, d < 0.0 ? op : 0.0);',
+          '}',
+        ].join('\n'),
+      });
+      return new T3.Mesh(new T3.PlaneGeometry(2 * half, 2 * half), mat);
     }
-    function proj(p) {
-      var w = xform(p);
-      var k2 = 900 / (900 - w[2]);
-      return [960 + w[0] * k2, 453.6 + w[1] * k2, w[2]];
-    }
 
-    var segs = [];
-    var SEGS = 16;
+    var SEGS = 16, RING_R = 400;
+    var formX = new T3.Group();
     for (var i = 0; i < SEGS; i++) {
       var a = (i / SEGS) * Math.PI * 2;
-      segs.push({ a: a, R: 400, half: 87.5, rad: 40, yoff: 0, op: 1, col: FT_COLORS[i] });
+      var m = face(FT_COLORS[i], 87.5, 40, 1);
+      m.position.set(Math.cos(a) * RING_R, 0, Math.sin(a) * RING_R);
+      m.rotation.y = -a + Math.PI;
+      formX.add(m);
     }
     for (var j = 0; j < SEGS; j++) {
       var a2 = ((j + 0.5) / SEGS) * Math.PI * 2;
-      segs.push({ a: a2, R: 280, half: 62.5, rad: 30, yoff: 62, op: 0.85, col: FT_COLORS[(j + 4) % SEGS] });
+      var m2 = face(FT_COLORS[(j + 4) % SEGS], 62.5, 30, 0.85);
+      m2.position.set(Math.cos(a2) * RING_R * 0.7, -62, Math.sin(a2) * RING_R * 0.7);
+      m2.rotation.y = -a2 + Math.PI;
+      formX.add(m2);
     }
-    /* painter: far (most negative transformed z) first */
-    var order = segs.map(function (sg, si) {
-      var ca = Math.cos(sg.a), sa = Math.sin(sg.a);
-      var c = xform([sg.R * ca, sg.yoff, sg.R * sa]);
-      return { si: si, z: c[2] };
-    }).sort(function (p, q) { return p.z - q.z; });
+    var formY = new T3.Group();
+    formY.add(formX);
+    /* The CSS stage sits at top:42% -> screen y 453.6; world y is up, so the
+       form's pivot (the stage point) is at world y = 540 - 453.6 = 86.4. */
+    formY.position.set(0, 86.4, 0);
+    scene.add(formY);
 
-    order.forEach(function (o) {
-      var sg = segs[o.si];
-      var ca = Math.cos(sg.a), sa = Math.sin(sg.a);
-      var cW = [sg.R * ca, sg.yoff, sg.R * sa];
-      var uW = [-ca, 0, -sa];   /* segment-local +x in world (inward radial) */
-      var vW = [0, 1, 0];
-      var c0 = proj(cW);
-      var pu = proj([cW[0] + uW[0] * sg.half, cW[1] + uW[1] * sg.half, cW[2] + uW[2] * sg.half]);
-      var pv = proj([cW[0] + vW[0] * sg.half, cW[1] + vW[1] * sg.half, cW[2] + vW[2] * sg.half]);
-      var du = [pu[0] - c0[0], pu[1] - c0[1]];
-      var dv = [pv[0] - c0[0], pv[1] - c0[1]];
-      var su = Math.sqrt(du[0] * du[0] + du[1] * du[1]) / sg.half;
-      var sv = Math.sqrt(dv[0] * dv[0] + dv[1] * dv[1]) / sg.half;
-      var th = Math.atan2(du[1], du[0]);
-      var c1 = hexRgb(sg.col[0]), c2 = hexRgb(sg.col[1]);
-      var paint = new ck.Paint();
-      paint.setStyle(ck.PaintStyle.Fill);
-      paint.setAntiAlias(true);
-      paint.setShader(kern.sample({
-        a1: c1[0], b1: c1[1], c1: c1[2], a2: c2[0], b2: c2[1], c2: c2[2],
-        half: sg.half, rad: sg.rad, op: sg.op,
-      }, []));
-      cv.save();
-      cv.translate(c0[0], c0[1]);
-      cv.rotate(th * 180 / Math.PI);
-      cv.scale(su, sv);
-      cv.drawRect([0, 0, sg.half * 2, sg.half * 2], paint);
-      cv.restore();
-    });
+    /* GSAP form rotation: Ry(-30 -> 310) sine.inOut over 1.2s, Rx(25 -> 10)
+       sine.inOut yoyo x2 over 0.4s each. */
+    var ph = T / 0.4, k = Math.floor(ph), fr = ph - k;
+    var sio = 0.5 - 0.5 * Math.cos(Math.PI * fr);
+    var s = (k % 2 === 0) ? sio : 1 - sio;
+    formY.rotation.y = (-30 + 340 * (0.5 - 0.5 * Math.cos(Math.PI * clamp(T / 1.2, 0, 1)))) * Math.PI / 180;
+    formX.rotation.x = -(25 + (10 - 25) * s) * Math.PI / 180;
+
+    new T3.Renderer('ft-canvas', 1920, 1080).render(scene, camera);
   });
 
   return (
@@ -983,7 +988,7 @@ function FlexThreejs() {
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_35%,rgba(255,245,230,0.6)_0%,transparent_50%),radial-gradient(ellipse_at_50%_50%,#f0ebe3_0%,#e4ddd2_100%)]"></div>
       <div class="absolute left-[672px] top-[162px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(255,235,200,0.25)_0%,transparent_60%)]"></div>
       <div id="ft-shadow" class="absolute left-[780px] top-[680px] w-[360px] h-[50px] rounded-full bg-[radial-gradient(ellipse,rgba(80,60,40,0.18)_0%,transparent_70%)]"></div>
-      <canvas id="ft-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
+      <canvas id="ft-canvas" ref={canvas} class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
       <div class="absolute left-0 bottom-[140px] w-full flex justify-center">
         <text id="ft-label" class="text-[64px] leading-none tracking-[0.02em] italic font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
       </div>

@@ -227,6 +227,30 @@ fn is_identity_blit(canvas: &Canvas, src_size: (f32, f32), src: Option<&Rect>, d
         && integral(p0.y)
 }
 
+/// Net scale in device space: device pixels per source pixel, after the canvas'
+/// current total matrix. Layout sizes lie when an ancestor transform scales the
+/// canvas, so sampling decisions must use this value, not `dst`'s layout size.
+///
+/// `src` is `None` for `drawImageRect`'s whole-image form, which Skia treats as
+/// `(0, 0, image_w, image_h)`.
+fn device_scale(canvas: &Canvas, src_size: (f32, f32), src: Option<&Rect>, dst: &Rect) -> f32 {
+    let (sx0, sy0, sx1, sy1) = match src {
+        Some(r) => (r.left, r.top, r.right, r.bottom),
+        None => (0.0, 0.0, src_size.0, src_size.1),
+    };
+    let m = canvas.total_matrix();
+    let p0 = m.map_point(Point::new(dst.left, dst.top));
+    let p1 = m.map_point(Point::new(dst.right, dst.top));
+    let p2 = m.map_point(Point::new(dst.left, dst.bottom));
+    let dev_w = (p1.x - p0.x).hypot(p1.y - p0.y);
+    let dev_h = (p2.x - p0.x).hypot(p2.y - p0.y);
+    let sw = (sx1 - sx0).abs();
+    let sh = (sy1 - sy0).abs();
+    let sx = if sw > 0.0 { dev_w / sw } else { 1.0 };
+    let sy = if sh > 0.0 { dev_h / sh } else { 1.0 };
+    sx.max(sy)
+}
+
 /// 分带并行光栅一个 runtime effect，并把各带拼回 `canvas`。
 ///
 /// 调用前提（不满足时返回 `None`，由调用方整块绘制）：
@@ -720,13 +744,19 @@ fn replay_op(
                             // source). Chrome's cubic reconstruction only applies
                             // to genuinely scaled video, so keep cubic for scaling
                             // and skip resampling when the draw is a straight copy.
-                            if is_identity_blit(
-                                canvas,
-                                (sk_image.width() as f32, sk_image.height() as f32),
-                                src_rect.as_ref(),
-                                &dst_rect,
-                            ) {
+                            let src_size = (sk_image.width() as f32, sk_image.height() as f32);
+                            if is_identity_blit(canvas, src_size, src_rect.as_ref(), &dst_rect) {
                                 SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)
+                            } else if device_scale(canvas, src_size, src_rect.as_ref(), &dst_rect)
+                                <= 1.0 + 1e-3
+                            {
+                                // 设备空间没有放大（含缩小，以及亚像素平移的 1:1）：
+                                // 用线性。cubic 核宽固定，缩小采样时既慢又混叠；
+                                // 亚像素平移的 1:1 用线性即可平滑过渡。实测
+                                // hyperframes-launch 帧 300/400（设备空间 1:1、
+                                // 布局侧 1.42x wrapper）linear 的 p8 比 Mitchell
+                                // 低约 0.003，且快约 2.6 倍。
+                                SamplingOptions::new(FilterMode::Linear, MipmapMode::None)
                             } else {
                                 SamplingOptions {
                                     use_cubic: true,

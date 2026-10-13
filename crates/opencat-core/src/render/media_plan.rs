@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::ir::draw_frame::DrawOpFrame;
-use crate::ir::draw_op::DrawOp;
+use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId};
 use crate::ir::generated_image::{GeneratedImageId, GeneratedImageTable};
 use crate::ir::media_plan::{FrameGeneratedImage, FrameMediaPlan};
@@ -21,6 +22,11 @@ struct MediaCollector {
     seen_lottie: HashSet<String>,
     visited_ranges: HashSet<DrawOpRange>,
     visited_subtrees: HashSet<SubtreeId>,
+    /// Accumulated ancestor `Scale` factors, mirroring the executor's canvas
+    /// matrix along the walk. Never empty — the base entry is (1, 1).
+    scale_stack: Vec<(f32, f32)>,
+    /// Max-merged effective draw size per `ImageRect`-drawn reference.
+    draw_sizes: HashMap<ImageRef, (u32, u32)>,
 }
 
 impl MediaCollector {
@@ -35,6 +41,8 @@ impl MediaCollector {
             seen_lottie: HashSet::new(),
             visited_ranges: HashSet::new(),
             visited_subtrees: HashSet::new(),
+            scale_stack: vec![(1.0, 1.0)],
+            draw_sizes: HashMap::new(),
         }
     }
 
@@ -59,6 +67,65 @@ impl MediaCollector {
                     self.generated_ids.push(*id);
                 }
             }
+        }
+    }
+
+    /// Record the effective device-space draw size for an `ImageRect` draw:
+    /// destination size × accumulated ancestor scale, ceiled, max-merged so the
+    /// largest demand wins (hosts may only shrink, never enlarge, a decode).
+    fn note_draw_size(&mut self, image: &ImageRef, dst: &Rect4) {
+        if matches!(image, ImageRef::Generated { .. }) {
+            return;
+        }
+        let (sx, sy) = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
+        let w = (dst.width * sx).ceil().max(1.0) as u32;
+        let h = (dst.height * sy).ceil().max(1.0) as u32;
+        match self.draw_sizes.get_mut(image) {
+            Some(entry) => {
+                entry.0 = entry.0.max(w);
+                entry.1 = entry.1.max(h);
+            }
+            None => {
+                self.draw_sizes.insert(image.clone(), (w, h));
+            }
+        }
+    }
+
+    /// Mirror the executor's canvas matrix stack for the transform-affecting
+    /// ops. Translation/rotation don't change pixel density, so they're
+    /// ignored; `Concat` contributes its area scale (sqrt of the 2×2
+    /// determinant) to both axes as an approximation.
+    fn apply_transform_op(&mut self, op: &DrawOp) {
+        match op {
+            DrawOp::Save
+            | DrawOp::SaveLayer { .. }
+            | DrawOp::SaveBackdropLayer { .. } => {
+                let current = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
+                self.scale_stack.push(current);
+            }
+            DrawOp::Restore => {
+                if self.scale_stack.len() > 1 {
+                    self.scale_stack.pop();
+                }
+            }
+            DrawOp::RestoreToCount { count } => {
+                let target = (*count).max(1) as usize;
+                if self.scale_stack.len() > target {
+                    self.scale_stack.truncate(target);
+                }
+            }
+            DrawOp::Scale { x, y } => {
+                let (sx, sy) = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
+                let top = self.scale_stack.last_mut().expect("base scale always present");
+                *top = (sx * *x, sy * *y);
+            }
+            DrawOp::Concat { matrix } => {
+                let det = (matrix[0] * matrix[4] - matrix[1] * matrix[3]).abs().sqrt();
+                let (sx, sy) = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
+                let top = self.scale_stack.last_mut().expect("base scale always present");
+                *top = (sx * det, sy * det);
+            }
+            _ => {}
         }
     }
 
@@ -135,14 +202,19 @@ pub fn build_media_plan(
         // deduplicated by effect id (the table itself is already unique).
         runtime_effects: frame.effects.clone(),
         video_color_matrices,
+        image_draw_sizes: collector.draw_sizes,
     }
 }
 
 fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollector) {
     for op in ops {
         match op {
-            DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => {
+            DrawOp::Image { image, .. } => {
                 collector.push_image(image);
+            }
+            DrawOp::ImageRect { image, dst, .. } => {
+                collector.push_image(image);
+                collector.note_draw_size(image, dst);
             }
             DrawOp::LottieRect { bundle_id, .. } => {
                 collector.push_lottie(bundle_id);
@@ -156,7 +228,7 @@ fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollect
             DrawOp::ReplaySubtreePicture { subtree, .. } => {
                 collect_subtree(frame, *subtree, collector);
             }
-            _ => {}
+            _ => collector.apply_transform_op(op),
         }
     }
 }
@@ -237,6 +309,50 @@ mod tests {
         assert!(plan.lottie_bundles.is_empty());
         assert!(plan.runtime_effects.is_empty());
         assert!(plan.generated_images.is_empty());
+        assert!(plan.image_draw_sizes.is_empty());
+    }
+
+    #[test]
+    fn image_rect_collects_scaled_draw_sizes() {
+        let image = ImageRef::Static {
+            asset_id: "bg.png".into(),
+        };
+        let rect = |w: f32, h: f32| Rect4 {
+            x: 0.0,
+            y: 0.0,
+            width: w,
+            height: h,
+        };
+        let mut builder = DrawOpBuilder::default();
+        // Site 1: 200×100 at scale 2 → 400×200.
+        builder.push(DrawOp::Save);
+        builder.push(DrawOp::Scale { x: 2.0, y: 2.0 });
+        builder.push(DrawOp::ImageRect {
+            image: image.clone(),
+            src: None,
+            dst: rect(200.0, 100.0),
+            paint: None,
+        });
+        builder.push(DrawOp::Restore);
+        // Site 2: same asset at 320×180 unscaled — max-merge keeps 400×200.
+        builder.push(DrawOp::ImageRect {
+            image: image.clone(),
+            src: None,
+            dst: rect(320.0, 180.0),
+            paint: None,
+        });
+        // Whole-image draw contributes no size.
+        builder.push(DrawOp::Image {
+            image: image.clone(),
+            x: 0.0,
+            y: 0.0,
+            paint: None,
+        });
+        let frame = builder.finish();
+
+        let plan = build_media_plan(&frame, &empty_table(), &Default::default());
+
+        assert_eq!(plan.image_draw_sizes.get(&image), Some(&(400, 200)));
     }
 
     #[test]

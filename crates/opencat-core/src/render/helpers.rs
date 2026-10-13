@@ -36,6 +36,10 @@ use super::ctx::RenderCtx;
 
 use kurbo::BezPath;
 
+/// sqrt(2): the factor a corner-sized ellipse scales its side offsets by so the
+/// shape passes through that corner (see `resolve_radii`).
+const SQRT_2: f32 = std::f32::consts::SQRT_2;
+
 fn color_matrix_for_filter_op(kind: CssFilterKind, value: f32) -> Option<[f32; 20]> {
     match kind {
         CssFilterKind::Blur => None,
@@ -535,8 +539,17 @@ fn resolve_radii(box_: GradientBox, cx: f32, cy: f32, params: &RadialParams) -> 
             (r, r)
         }
         RadialShape::Ellipse => match params.extent {
-            RadialExtent::FarthestCorner | RadialExtent::FarthestSide => (dcx, dcy),
-            RadialExtent::ClosestCorner | RadialExtent::ClosestSide => (scx, scy),
+            // For a corner-sized ellipse, CSS keeps the ratio of the two radii
+            // equal to the ratio of the center-to-corner offsets, then scales
+            // the shape so it exactly touches that corner at (dcx, dcy) from
+            // the center. Scaling the offsets by sqrt(2) lands the corner on
+            // the ellipse: (dcx/(√2·dcx))² + (dcy/(√2·dcy))² = 1. Blink and
+            // WebKit resolve `farthest-corner`/`closest-corner` the same way;
+            // the `*-side` keywords use the raw side distances.
+            RadialExtent::FarthestCorner => (dcx * SQRT_2, dcy * SQRT_2),
+            RadialExtent::ClosestCorner => (scx * SQRT_2, scy * SQRT_2),
+            RadialExtent::FarthestSide => (dcx, dcy),
+            RadialExtent::ClosestSide => (scx, scy),
         },
     }
 }
@@ -1411,34 +1424,10 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     builder.push(DrawOp::Save);
     clip_bounds(builder, bounds, &style.border_radius);
 
-    if let Some(sigma) = style.backdrop_blur_sigma
-        && sigma > 0.0
-    {
-        let blur_paint = PaintSpec {
-            fill: FillSpec::Solid([1.0; 4]),
-            style: PaintStyle::Fill,
-            stroke: None,
-            anti_alias: true,
-            blend_mode: BlendMode::SrcOver,
-            image_filter: Some(ImageFilterSpec::Blur {
-                sigma_x: sigma,
-                sigma_y: sigma,
-                crop_rect: None,
-                decal: false,
-            }),
-            color_filter: None,
-            mask_filter: None,
-            path_effect: None,
-        };
-        let paint_id = builder.intern_paint(blur_paint);
-        // Backdrop semantics: blur what's beneath the node's bounds, then
-        // paint this node's background/border unfiltered on top.
-        builder.push(DrawOp::Save);
-        builder.push(DrawOp::SaveBackdropLayer {
-            bounds: Some(rect_to_rect4(rect)),
-            paint: Some(paint_id),
-        });
-    }
+    // `backdrop-blur` is emitted once, at the composite/apply level
+    // (`dispatch::save_composite_layer`, driven by `DisplayNode::backdrop_blur_sigma`).
+    // Re-emitting it here would blur the backdrop twice for every element that
+    // also paints a background, so this item-level pass deliberately does not.
 
     if !style.background.is_empty() {
         // 多层背景：按声明顺序从底到顶绘制（第一层在最底）。
@@ -1473,10 +1462,6 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
         style.border_style,
         None,
     );
-
-    if style.backdrop_blur_sigma.unwrap_or(0.0) > 0.0 {
-        builder.push(DrawOp::Restore);
-    }
 
     builder.push(DrawOp::Restore);
     Ok(())
@@ -3365,6 +3350,46 @@ mod radial_gradient_tests {
     }
 
     // ── Regression: unit-square radial mapping still covers the rect ──────
+    /// `radial-gradient(ellipse at …)` with no size keyword defaults to
+    /// `farthest-corner`. For an ellipse the radii keep the center-to-corner
+    /// ratio and scale by sqrt(2) so the shape touches that corner — the raw
+    /// side distances (no sqrt(2)) are the classic bug this pins down.
+    #[test]
+    fn ellipse_default_farthest_corner_scales_radii_by_sqrt2() {
+        let fill =
+            parse_layer("radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)");
+        let ShaderSpec::RadialGradient { local_matrix, .. } = shader_for(&fill, repro_rect())
+        else {
+            panic!("expected radial gradient");
+        };
+        // Center (50%, 45%) of 800x100 -> (400, 45); farthest corner (0, 100).
+        // dcx = 400, dcy = 55 -> rx = 400*sqrt(2), ry = 55*sqrt(2).
+        let m = local_matrix.expect("ellipse needs a local matrix");
+        let s = std::f32::consts::SQRT_2;
+        assert!(approx(m[0], 400.0 * s), "rx = {}", m[0]);
+        assert!(approx(m[2], 400.0));
+        assert!(approx(m[4], 55.0 * s), "ry = {}", m[4]);
+        assert!(approx(m[5], 45.0));
+    }
+
+    #[test]
+    fn ellipse_closest_corner_scales_radii_by_sqrt2() {
+        let fill = parse_layer(
+            "radial-gradient(ellipse_closest-corner_at_30%_40%,transparent_0%,#010101_100%)",
+        );
+        let ShaderSpec::RadialGradient { local_matrix, .. } = shader_for(&fill, repro_rect())
+        else {
+            panic!("expected radial gradient");
+        };
+        // Center (240, 40); closest corner (0, 0). scx = 240, scy = 40.
+        let m = local_matrix.expect("ellipse needs a local matrix");
+        let s = std::f32::consts::SQRT_2;
+        assert!(approx(m[0], 240.0 * s), "rx = {}", m[0]);
+        assert!(approx(m[2], 240.0));
+        assert!(approx(m[4], 40.0 * s), "ry = {}", m[4]);
+        assert!(approx(m[5], 40.0));
+    }
+
     #[test]
     fn default_center_radius_is_farthest_corner() {
         let fill = BackgroundFill::radial_from_via_to(

@@ -86,7 +86,32 @@ impl Default for EngineDrawExecutor {
 pub struct EnginePreparedFrameMedia {
     pub images: Vec<Image>,
     pub image_index: HashMap<ImageRef, usize>,
-    pub runtime_effects: Vec<RuntimeEffect>,
+    pub runtime_effects: Vec<PreparedRuntimeEffect>,
+}
+
+/// 一个已编译的 runtime effect，附带 liangyi 后端声明的执行计划。
+///
+/// `plan` 是后端的判断（内核输出是否只依赖像素自身坐标），不是内核作者的
+/// 注解：`Rows` 表示可按整数像素行分带并行光栅且结果逐位不变。分带时每个
+/// worker 线程需各自编译（`skia_safe::RuntimeEffect` 非 `Send`），因此保留
+/// `hash`（线程本地编译 memo 的键）与 `sksl`。
+pub struct PreparedRuntimeEffect {
+    pub effect: RuntimeEffect,
+    pub plan: opencat_liangyi::ExecutionPlan,
+    pub hash: u64,
+    pub sksl: String,
+}
+
+impl From<RuntimeEffect> for PreparedRuntimeEffect {
+    /// 整块执行（无分带计划）——测试与不使用 liangyi codegen 的路径用。
+    fn from(effect: RuntimeEffect) -> Self {
+        Self {
+            effect,
+            plan: opencat_liangyi::ExecutionPlan::Whole,
+            hash: 0,
+            sksl: String::new(),
+        }
+    }
 }
 
 impl EngineDrawExecutor {

@@ -14,9 +14,21 @@
 use super::error::{LambdaError, LambdaResult};
 use super::program::{Backend, BinOp, Expr, Param, Program, Stmt, Ty, UnOp};
 
+/// 执行计划标记：本内核可按整数像素行分带并行光栅。
+///
+/// 标记写在 SKSL 首行，由宿主读取（[`crate::sksl_execution_plan`]）。
+/// 计划的决定权在 liangyi 后端：内核没有 child 采样时，`main(float2 xy)`
+/// 的每个输出像素只依赖自己的坐标，宿主把 dst 切带后各带独立光栅再拼回，
+/// 像素与整块光栅逐位相同。带 child（图像/子树采样）时坐标不再是纯函数，
+/// 分带会改变像素，因此不写标记 —— 宿主退回整块光栅。
+pub const PLAN_ROWS_MARKER: &str = "// oc:exec rows\n";
+
 pub fn lower(program: &Program) -> LambdaResult<String> {
     debug_assert_eq!(program.backend(), Backend::Sksl);
     let mut out = String::with_capacity(1024);
+    if program.children.is_empty() {
+        out.push_str(PLAN_ROWS_MARKER);
+    }
     // 向量 uniform 拆成标量分量声明：Skia 的 uniform 布局有对齐规则
     // （vec2→8B、vec3/vec4→16B），连续 f32 打包会错位；全标量声明让
     // wire 上的 flat 数组天然对齐，JS 侧无需知道打包规则。

@@ -338,7 +338,12 @@ fn prepare_frame(
     let mut runtime_effects = Vec::with_capacity(plan.runtime_effects.len());
     for effect_ref in &plan.runtime_effects {
         let effect = compile_runtime_effect_cached(effect_ref.hash, &effect_ref.sksl)?;
-        runtime_effects.push(effect);
+        runtime_effects.push(crate::executor::PreparedRuntimeEffect {
+            effect,
+            plan: opencat_liangyi::sksl_execution_plan(&effect_ref.sksl),
+            hash: effect_ref.hash,
+            sksl: effect_ref.sksl.clone(),
+        });
     }
 
     Ok(EnginePreparedFrameMedia {
@@ -362,7 +367,10 @@ pub fn clear_runtime_effect_cache() {
     RUNTIME_EFFECT_CACHE.with(|c| c.borrow_mut().clear());
 }
 
-fn compile_runtime_effect_cached(hash: u64, sksl: &str) -> Result<RuntimeEffect, ConsumerError> {
+pub(crate) fn compile_runtime_effect_cached(
+    hash: u64,
+    sksl: &str,
+) -> Result<RuntimeEffect, ConsumerError> {
     RUNTIME_EFFECT_CACHE.with(|c| {
         if let Some(hit) = c.borrow().get(&hash) {
             // skia-safe 对象非 Clone；这里复用引用计数？RuntimeEffect 内部是

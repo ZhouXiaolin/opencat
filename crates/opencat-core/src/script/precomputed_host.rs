@@ -77,7 +77,7 @@ impl ScriptHost for PrecomputedScriptHost {
                 }
             });
 
-        for mutations in &mutations_to_apply {
+        for mutations in mutations_to_apply {
             mutations.apply_to_recorder(recorder);
         }
         Ok(())

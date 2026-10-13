@@ -193,6 +193,21 @@ fn validate_lottie_handles(
     Ok(())
 }
 
+/// Alpha type for a decoded video frame handed to Skia.
+///
+/// Sources without an alpha plane (e.g. `yuv420p`) decode with alpha == 255
+/// on every pixel, so their straight RGBA bytes are byte-identical to the
+/// premultiplied form. Tagging them `Premul` skips Skia's per-pixel
+/// premultiply on every draw. Sources that do carry alpha stay `Unpremul`
+/// until a real premultiply is required.
+fn video_frame_alpha_type(has_alpha: bool) -> AlphaType {
+    if has_alpha {
+        AlphaType::Unpremul
+    } else {
+        AlphaType::Premul
+    }
+}
+
 /// Decode media for a single frame via EngineLoader paths and host-cached
 /// generated images. Generated RGBA comes entirely from
 /// [`FrameMediaPlan::generated_images`] — no pipeline table access.
@@ -276,7 +291,7 @@ fn prepare_frame(
                 let info = ImageInfo::new(
                     (frame.width as i32, frame.height as i32),
                     ColorType::RGBA8888,
-                    AlphaType::Unpremul,
+                    video_frame_alpha_type(frame.has_alpha),
                     None,
                 );
                 let sk_image = images::raster_from_data(

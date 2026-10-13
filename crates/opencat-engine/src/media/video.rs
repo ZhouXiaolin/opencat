@@ -95,6 +95,10 @@ pub struct VideoBitmap {
     pub width: u32,
     pub height: u32,
     pub frame_cache_hit: bool,
+    /// Source stream has an alpha plane. When false every decoded pixel has
+    /// alpha == 255, so `data` (straight RGBA) is byte-identical to its
+    /// premultiplied form.
+    pub has_alpha: bool,
 }
 
 pub struct MediaContext {
@@ -177,11 +181,13 @@ impl MediaContext {
         request: VideoFrameRequest,
     ) -> Result<VideoBitmap> {
         let (data, width, height, frame_cache_hit) = self.get_video_frame(path, request)?;
+        let has_alpha = self.video_info(path)?.has_alpha;
         Ok(VideoBitmap {
             data,
             width,
             height,
             frame_cache_hit,
+            has_alpha,
         })
     }
 
@@ -286,6 +292,7 @@ mod tests {
             width: 1920,
             height: 1080,
             duration_secs: None,
+            has_alpha: false,
         };
         assert_eq!(quantize_target_size(None, &info), None);
         assert_eq!(quantize_target_size(Some((1920, 1080)), &info), None);
@@ -298,6 +305,7 @@ mod tests {
             width: 1920,
             height: 1080,
             duration_secs: None,
+            has_alpha: false,
         };
         // 320x180 -> already aligned
         assert_eq!(
@@ -319,6 +327,7 @@ mod tests {
             width: 100,
             height: 100,
             duration_secs: None,
+            has_alpha: false,
         };
         // Above source on one axis but below on the other -> still scale, clamped
         assert_eq!(

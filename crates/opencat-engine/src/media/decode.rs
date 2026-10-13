@@ -31,6 +31,10 @@ pub struct VideoInfo {
     pub width: u32,
     pub height: u32,
     pub duration_secs: Option<f64>,
+    /// Source pixel format carries an alpha plane. Sources without one decode
+    /// to RGBA with alpha == 255 on every pixel, so callers may treat the
+    /// straight RGBA bytes as premultiplied without changing any byte.
+    pub has_alpha: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -185,6 +189,7 @@ impl VideoDecoder {
             width: self.width,
             height: self.height,
             duration_secs: self.duration_secs,
+            has_alpha: pixel_format_has_alpha(self.source_format),
         }
     }
 
@@ -879,6 +884,20 @@ fn pack_rgba(frame: &ffmpeg::frame::Video, width: u32, height: u32) -> Vec<u8> {
         packed.extend_from_slice(&frame.data(0)[start..start + row_bytes]);
     }
     packed
+}
+
+/// Whether a source pixel format has an alpha plane. Formats without one
+/// (e.g. `yuv420p`) decode to RGBA with alpha == 255, so downstream code can
+/// read the straight bytes as premultiplied.
+fn pixel_format_has_alpha(format: Pixel) -> bool {
+    let Some(desc) = format.descriptor() else {
+        return false;
+    };
+    // SAFETY: `descriptor()` returned a non-null descriptor from
+    // `av_pix_fmt_desc_get`, which points at static FFmpeg format metadata.
+    unsafe {
+        (*desc.as_ptr()).flags & ffmpeg::sys::AV_PIX_FMT_FLAG_ALPHA as u64 != 0
+    }
 }
 
 #[cfg(test)]

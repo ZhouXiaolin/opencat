@@ -1526,10 +1526,6 @@
        font / letterSpacing / textBaseline='alphabetic' / measureText /
        fillText / getImageData. Rotated or y-scaled text is rejected. */
     const surfaceCache = {};
-    // measureText is a pure (text, font-spec) -> metrics function, so results
-    // are cached across frames (e.g. per-character width probes in scripts).
-    // Size-capped clear keeps dynamic per-frame text from growing unbounded.
-    const surfaceMeasureCache = new Map();
 
     function parseCssFont(font) {
         const m = /^\s*(\d+)\s+([0-9.]+)px\s+(.+?)\s*$/.exec(String(font));
@@ -1603,16 +1599,7 @@
             },
             measureText(text) {
                 const f = fontSpec();
-                const textStr = String(text);
-                const key = textStr + '\u0000' + f.family + '\u0000' + f.weight + '\u0000' + f.size + '\u0000' + f.letterSpacing;
-                let m = surfaceMeasureCache.get(key);
-                if (m === undefined) {
-                    m = __surface_measure_text(textStr, f.family, f.weight, f.size, f.letterSpacing);
-                    if (surfaceMeasureCache.size >= 1024) {
-                        surfaceMeasureCache.clear();
-                    }
-                    surfaceMeasureCache.set(key, m);
-                }
+                const m = __surface_measure_text(String(text), f.family, f.weight, f.size, f.letterSpacing);
                 return {
                     width: m.width,
                     actualBoundingBoxLeft: m.ink_left,

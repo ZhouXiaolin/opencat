@@ -597,17 +597,20 @@ impl StyleMutations {
             .and_then(|m| m.text_content.as_deref())
     }
 
-    pub fn apply_to_recorder(&self, recorder: &mut dyn crate::script::recorder::MutationRecorder) {
+    pub fn apply_to_recorder(self, recorder: &mut dyn crate::script::recorder::MutationRecorder) {
         for (node_id, node_mutations) in &self.mutations {
             apply_node_to_recorder(recorder, node_id, node_mutations);
         }
-        for (canvas_id, canvas_mutations) in &self.canvas_mutations {
-            for cmd in &canvas_mutations.commands {
-                recorder.record_draw_op(canvas_id, cmd.clone());
+        // Consuming form: canvas DrawOps and scene3 snapshots move straight
+        // into the recorder instead of being cloned out of a borrowed snapshot
+        // (callers take them from the store, so they are uniquely owned).
+        for (canvas_id, canvas_mutations) in self.canvas_mutations {
+            for cmd in canvas_mutations.commands {
+                recorder.record_draw_op(&canvas_id, cmd);
             }
         }
-        for (canvas_id, scene) in &self.scene3_mutations {
-            recorder.record_scene3(canvas_id, scene.clone());
+        for (canvas_id, scene) in self.scene3_mutations {
+            recorder.record_scene3(&canvas_id, scene);
         }
     }
 }

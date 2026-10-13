@@ -207,6 +207,19 @@ impl MutationStore {
         std::mem::take(&mut self.scene3s)
     }
 
+    /// 消耗性帧级 mutation 转移（`std::mem::take`，零拷贝）。仅取每帧重建
+    /// 的三个字段，清理面与 [`MutationStore::reset_for_frame`] 一致；
+    /// geometries、initial_styles、pending_generated_images 等 realm 级
+    /// 字段保持原位。调用方（realm `run_frame`、resolve `push_script_scope`）
+    /// 均为"录完即取、取后即弃"，take 与原快照语义等价且无深拷贝。
+    pub fn take_mutations(&mut self) -> StyleMutations {
+        StyleMutations {
+            mutations: std::mem::take(&mut self.styles),
+            canvas_mutations: std::mem::take(&mut self.canvases),
+            scene3_mutations: std::mem::take(&mut self.scene3s),
+        }
+    }
+
     /// 注册一块几何（GLB 解码产物）。同 id 重复注册 = 覆盖（确定性解码
     /// 下内容一致，等价 no-op）；不随帧清除（realm 级）。
     pub fn record_geometry(&mut self, id: &str, geometry: std::sync::Arc<crate::ir::scene3::Geometry3>) {

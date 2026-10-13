@@ -274,7 +274,11 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // 与 2D 绘制同机制）。快照本身保留（scene3_mutations 语义不变）。
         self.rasterize_scene3_snapshots()?;
 
-        let snap = self.ctx.with_store_mut(|s| s.snapshot_mutations());
+        // Consuming transfer: the store's frame-level mutations move out
+        // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
+        // the next run_frame anyway), so the per-frame deep clone of every
+        // canvas DrawOp disappears here and at the resolve-side snapshot.
+        let snap = self.ctx.with_store_mut(|s| s.take_mutations());
         snap.apply_to_recorder(recorder);
         Ok(())
     }

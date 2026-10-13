@@ -854,7 +854,10 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
         (!style.id.is_empty()).then_some(style.id.as_str()),
         &mut store,
     )?;
-    let mutations = store.snapshot_mutations();
+    // Consuming take instead of snapshot: this store is created per scope
+    // above and dropped right after, so mem::take is semantically identical
+    // and skips the full deep clone of every canvas DrawOp per frame.
+    let mutations = store.take_mutations();
     if mutations.is_empty() {
         return Ok(false);
     }

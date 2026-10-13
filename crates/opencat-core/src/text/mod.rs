@@ -129,9 +129,9 @@ thread_local! {
 }
 
 /// Run `f` while script bindings use this font database (e.g. `canvas.measureText`).
-pub fn scope_font_db<R>(db: &fontdb::Database, f: impl FnOnce() -> R) -> R {
+pub fn scope_font_db<R>(db: &Arc<fontdb::Database>, f: impl FnOnce() -> R) -> R {
     SCOPED_FONT_DB.with(|cell| {
-        let prev = cell.borrow_mut().replace(Arc::new(db.clone()));
+        let prev = cell.borrow_mut().replace(db.clone());
         let out = f();
         *cell.borrow_mut() = prev;
         out
@@ -408,16 +408,59 @@ impl Fallback for ShapingFallback {
     }
 }
 
-fn shape_font_system(
+/// Thread-local `FontSystem` cache.
+///
+/// Building a `FontSystem` deep-clones the whole `fontdb::Database` (~50µs on a
+/// fontconfig-sized db). The shape helpers ran that clone on every text node,
+/// every measure and every canvas `measureText` — hundreds of times per frame.
+/// The db is immutable once prepared, so a cached system stays valid; the cache
+/// keys on `(db address, generic, emoji_first)` and is dropped when the db
+/// changes (a new composition / font set).
+struct FontSystemCache {
+    db_ptr: usize,
+    entries: Vec<(Option<GenericFamily>, bool, FontSystem)>,
+}
+
+thread_local! {
+    static FONT_SYSTEM_CACHE: RefCell<Option<FontSystemCache>> = const { RefCell::new(None) };
+}
+
+/// Run `f` with a cached `FontSystem` for `(db, generic, emoji_first)`.
+fn with_shape_font_system<R>(
     db: &fontdb::Database,
     generic: Option<GenericFamily>,
     emoji_first: bool,
-) -> FontSystem {
-    FontSystem::new_with_locale_and_db_and_fallback(
-        "en-US".to_string(),
-        db.clone(),
-        ShapingFallback { generic, emoji_first },
-    )
+    f: impl FnOnce(&mut FontSystem) -> R,
+) -> R {
+    let ptr = db as *const fontdb::Database as usize;
+    FONT_SYSTEM_CACHE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let cache = slot.get_or_insert_with(|| FontSystemCache {
+            db_ptr: ptr,
+            entries: Vec::new(),
+        });
+        if cache.db_ptr != ptr {
+            cache.db_ptr = ptr;
+            cache.entries.clear();
+        }
+        let idx = match cache
+            .entries
+            .iter()
+            .position(|(g, e, _)| *g == generic && *e == emoji_first)
+        {
+            Some(i) => i,
+            None => {
+                let system = FontSystem::new_with_locale_and_db_and_fallback(
+                    "en-US".to_string(),
+                    db.clone(),
+                    ShapingFallback { generic, emoji_first },
+                );
+                cache.entries.push((generic, emoji_first, system));
+                cache.entries.len() - 1
+            }
+        };
+        f(&mut cache.entries[idx].2)
+    })
 }
 
 // ── Thread-local swash cache (rasterize_glyphs) ─────────────────────────────
@@ -454,22 +497,23 @@ pub fn measure_text(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    let mut font_system =
-        shape_font_system(&font_db, style.font_generic, text_prefers_emoji(text));
-    let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(layout_width, None);
-
-    let attrs = text_attrs(style);
     let transformed = apply_text_transform(text, style.text_transform);
-    buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
-    buffer.shape_until_scroll(&mut font_system, false);
+    let attrs = text_attrs(style);
+    let (mut measured_width, mut measured_height) =
+        with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(text), |font_system| {
+            let mut buffer = Buffer::new(font_system, metrics);
+            buffer.set_size(layout_width, None);
+            buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
+            buffer.shape_until_scroll(font_system, false);
 
-    let mut measured_width: f32 = 0.0;
-    let mut measured_height: f32 = 0.0;
-    for run in buffer.layout_runs() {
-        measured_width = measured_width.max(run.line_w);
-        measured_height = measured_height.max(run.line_top + run.line_height);
-    }
+            let mut measured_width: f32 = 0.0;
+            let mut measured_height: f32 = 0.0;
+            for run in buffer.layout_runs() {
+                measured_width = measured_width.max(run.line_w);
+                measured_height = measured_height.max(run.line_top + run.line_height);
+            }
+            (measured_width, measured_height)
+        });
     if measured_height < line_height {
         measured_height = line_height;
     }
@@ -513,80 +557,83 @@ pub fn rasterize_glyphs(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    let mut font_system = shape_font_system(
-        &font_db,
-        style.font_generic,
-        text_prefers_emoji(&rendered),
-    );
-    let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(layout_width, None);
-
     let attrs = text_attrs(style);
-    buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
-    buffer.shape_until_scroll(&mut font_system, false);
+    let (glyphs, lines) =
+        with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(&rendered), |font_system| {
+            let mut buffer = Buffer::new(font_system, metrics);
+            buffer.set_size(layout_width, None);
+            buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
+            buffer.shape_until_scroll(font_system, false);
 
-    let mut glyphs: HashMap<u64, GlyphData> = HashMap::default();
-    let mut lines: Vec<TextLine> = Vec::new();
+            let mut glyphs: HashMap<u64, GlyphData> = HashMap::default();
+            let mut lines: Vec<TextLine> = Vec::new();
 
-    with_swash_cache(|swash_cache| {
-        for run in buffer.layout_runs() {
-            let mut positions: Vec<GlyphPosition> = Vec::new();
+            with_swash_cache(|swash_cache| {
+                for run in buffer.layout_runs() {
+                    let mut positions: Vec<GlyphPosition> = Vec::new();
 
-            for glyph in run.glyphs {
-                let physical = glyph.physical((0.0, 0.0), 1.0);
-                let ck = glyph_cache_key(&physical.cache_key);
-                let ok = glyph_outline_key(&physical.cache_key);
+                    for glyph in run.glyphs {
+                        let physical = glyph.physical((0.0, 0.0), 1.0);
+                        let ck = glyph_cache_key(&physical.cache_key);
+                        let ok = glyph_outline_key(&physical.cache_key);
 
-                let x = physical.x as f32 + physical.cache_key.x_bin.as_float();
-                let y = run.line_y + physical.y as f32 + physical.cache_key.y_bin.as_float();
+                        let x = physical.x as f32 + physical.cache_key.x_bin.as_float();
+                        let y =
+                            run.line_y + physical.y as f32 + physical.cache_key.y_bin.as_float();
 
-                positions.push(GlyphPosition {
-                    cache_key: ck,
-                    outline_key: ok,
-                    x,
-                    y,
-                    byte_range: glyph.start..glyph.end,
-                });
+                        positions.push(GlyphPosition {
+                            cache_key: ck,
+                            outline_key: ok,
+                            x,
+                            y,
+                            byte_range: glyph.start..glyph.end,
+                        });
 
-                if glyphs.contains_key(&ck) {
-                    continue;
+                        if glyphs.contains_key(&ck) {
+                            continue;
+                        }
+
+                        let swash_image = swash_cache.get_image(font_system, physical.cache_key);
+                        if let Some(image) = swash_image
+                            && image.content == SwashContent::Color
+                        {
+                            glyphs.insert(
+                                ck,
+                                GlyphData::ColorImage {
+                                    rgba: image.data.clone(),
+                                    width: image.placement.width,
+                                    height: image.placement.height,
+                                    placement_left: image.placement.left,
+                                    placement_top: image.placement.top,
+                                },
+                            );
+                            continue;
+                        }
+
+                        if let Some(commands) =
+                            swash_cache.get_outline_commands(font_system, physical.cache_key)
+                        {
+                            let upem = font_system
+                                .get_font(
+                                    physical.cache_key.font_id,
+                                    physical.cache_key.font_weight,
+                                )
+                                .map(|f| f.as_swash().metrics(&[]).units_per_em as f32)
+                                .unwrap_or(1000.0);
+                            glyphs.insert(ck, GlyphData::Outline(commands.to_vec(), upem));
+                        }
+                    }
+
+                    lines.push(TextLine {
+                        y: run.line_y,
+                        width: run.line_w,
+                        positions,
+                    });
                 }
-
-                let swash_image = swash_cache.get_image(&mut font_system, physical.cache_key);
-                if let Some(image) = swash_image
-                    && image.content == SwashContent::Color
-                {
-                    glyphs.insert(
-                        ck,
-                        GlyphData::ColorImage {
-                            rgba: image.data.clone(),
-                            width: image.placement.width,
-                            height: image.placement.height,
-                            placement_left: image.placement.left,
-                            placement_top: image.placement.top,
-                        },
-                    );
-                    continue;
-                }
-
-                if let Some(commands) =
-                    swash_cache.get_outline_commands(&mut font_system, physical.cache_key)
-                {
-                    let upem = font_system
-                        .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
-                        .map(|f| f.as_swash().metrics(&[]).units_per_em as f32)
-                        .unwrap_or(1000.0);
-                    glyphs.insert(ck, GlyphData::Outline(commands.to_vec(), upem));
-                }
-            }
-
-            lines.push(TextLine {
-                y: run.line_y,
-                width: run.line_w,
-                positions,
             });
-        }
-    });
+
+            (glyphs, lines)
+        });
 
     TextRasterization { glyphs, lines }
 }
@@ -609,17 +656,18 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
     let font_db = font_db_for_script();
     // Canvas API text carries no style object: default sans class, but still
     // keep emoji presentation parity for emoji-heavy canvas strings.
-    let mut font_system = shape_font_system(&font_db, None, text_prefers_emoji(text));
-    let mut buffer = Buffer::new(&mut font_system, metrics);
-    buffer.set_size(None, None);
     let attrs = Attrs::new().family(cosmic_text::Family::SansSerif);
-    buffer.set_text(text, &attrs, Shaping::Advanced, None);
-    buffer.shape_until_scroll(&mut font_system, false);
-    let mut width: f32 = 0.0;
-    for run in buffer.layout_runs() {
-        width = width.max(run.line_w);
-    }
-    (width * scale_x).max(0.0)
+    with_shape_font_system(&font_db, None, text_prefers_emoji(text), |font_system| {
+        let mut buffer = Buffer::new(font_system, metrics);
+        buffer.set_size(None, None);
+        buffer.set_text(text, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(font_system, false);
+        let mut width: f32 = 0.0;
+        for run in buffer.layout_runs() {
+            width = width.max(run.line_w);
+        }
+        (width * scale_x).max(0.0)
+    })
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

@@ -463,7 +463,7 @@ mod tests {
     }
 
     fn measure(text: &str, weight: u32, size: f64, ls: f64) -> InkMetrics {
-        super::super::scope_font_db(&inter_font_db(), || {
+        super::super::scope_font_db(&std::sync::Arc::new(inter_font_db()), || {
             surface_measure_text(text, "Inter", weight, size, ls).unwrap()
         })
     }
@@ -516,7 +516,7 @@ mod tests {
     /// fillText + getImageData：白字写进透明 surface，alpha 覆盖出现。
     #[test]
     fn fill_text_produces_alpha_coverage_readable_back() {
-        super::super::scope_font_db(&inter_font_db(), || {
+        super::super::scope_font_db(&std::sync::Arc::new(inter_font_db()), || {
             surface_create("t-raster", 200, 200).unwrap();
             surface_fill_text("t-raster", "H", 50.0, 150.0, "Inter", 400, 100.0, 0.0, 1.0,
                 [1.0, 1.0, 1.0, 1.0])
@@ -543,7 +543,7 @@ mod tests {
     /// clearRect 只清子矩形。
     #[test]
     fn clear_rect_scopes_to_subrect() {
-        super::super::scope_font_db(&inter_font_db(), || {
+        super::super::scope_font_db(&std::sync::Arc::new(inter_font_db()), || {
             surface_create("t-clear", 40, 40).unwrap();
             surface_fill_text("t-clear", "H", 5.0, 35.0, "Inter", 400, 40.0, 0.0, 1.0,
                 [1.0, 1.0, 1.0, 1.0])
@@ -562,7 +562,7 @@ mod tests {
     /// 未知 family 必须显式报错（不静默回退）。
     #[test]
     fn unknown_family_errors() {
-        super::super::scope_font_db(&inter_font_db(), || {
+        super::super::scope_font_db(&std::sync::Arc::new(inter_font_db()), || {
             let err = surface_measure_text("A", "NoSuchFamily", 400, 20.0, 0.0).unwrap_err();
             assert!(err.to_string().contains("no font face"));
         });
@@ -581,7 +581,7 @@ mod tests {
 
     #[test]
     fn k3_type_calibration_parity_report() {
-        super::super::scope_font_db(&db3(), || {
+        super::super::scope_font_db(&std::sync::Arc::new(db3()), || {
             let m = |text: &str, weight: u32, size: f64, ls: f64| {
                 surface_measure_text(text, "Inter", weight, size, ls).unwrap()
             };

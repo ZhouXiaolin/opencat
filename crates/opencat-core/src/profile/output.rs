@@ -29,6 +29,19 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         percentile_95(summary, |frame| frame.transition_ms),
     ));
     out.push_str(&format!(
+        "  resolve avg breakdown/frame: script_run_frame {:.2}, resolve_build {:.2} (incl script), collect_targets {:.2}, fingerprints {:.2}\n",
+        average(summary, |frame| frame.script_run_frame_ms),
+        average(summary, |frame| frame.resolve_build_ms),
+        average(summary, |frame| frame.collect_script_targets_ms),
+        average(summary, |frame| frame.element_fingerprints_ms),
+    ));
+    out.push_str(&format!(
+        "  run_frame avg breakdown/frame: apply_ctx {:.2}, driver_fn {:.2}, flush {:.2}\n",
+        average(summary, |frame| frame.script_apply_frame_ctx_ms),
+        average(summary, |frame| frame.script_driver_fn_ms),
+        average(summary, |frame| frame.script_flush_timelines_ms),
+    ));
+    out.push_str(&format!(
         "  transition avg ms/active-frame: slide {:.2} ({} frames), light_leak {:.2} ({} frames)\n",
         average_when_counted(
             summary,

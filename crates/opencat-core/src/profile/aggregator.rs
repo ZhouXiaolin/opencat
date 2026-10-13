@@ -71,6 +71,34 @@ impl RenderProfileAggregator {
                 self.frame_mut(span.frame).resolve_ms += span.inclusive_ms;
                 return;
             }
+            ("render.scene", "script_run_frame") => {
+                self.frame_mut(span.frame).script_run_frame_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "script_apply_frame_ctx") => {
+                self.frame_mut(span.frame).script_apply_frame_ctx_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "script_driver_fn") => {
+                self.frame_mut(span.frame).script_driver_fn_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "script_flush_timelines") => {
+                self.frame_mut(span.frame).script_flush_timelines_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "resolve_build") => {
+                self.frame_mut(span.frame).resolve_build_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "collect_script_targets") => {
+                self.frame_mut(span.frame).collect_script_targets_ms += span.inclusive_ms;
+                return;
+            }
+            ("render.scene", "element_fingerprints") => {
+                self.frame_mut(span.frame).element_fingerprints_ms += span.inclusive_ms;
+                return;
+            }
             ("render.scene", "compute_layout") => {
                 self.frame_mut(span.frame).layout_ms += span.inclusive_ms;
                 return;

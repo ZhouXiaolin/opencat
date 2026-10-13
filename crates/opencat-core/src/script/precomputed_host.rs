@@ -64,21 +64,12 @@ impl ScriptHost for PrecomputedScriptHost {
         _current_node_id: Option<&str>,
         recorder: &mut dyn MutationRecorder,
     ) -> Result<()> {
-        let mutations_to_apply: Vec<StyleMutations> = self
-            .mutations
-            .get(&driver)
-            .cloned()
-            .map(|m| vec![m])
-            .unwrap_or_else(|| {
-                if self.mutations.is_empty() {
-                    vec![]
-                } else {
-                    self.mutations.values().cloned().collect()
-                }
-            });
-
-        for mutations in mutations_to_apply {
-            mutations.apply_to_recorder(recorder);
+        if let Some(mutations) = self.mutations.get(&driver) {
+            mutations.apply_to_recorder_ref(recorder);
+        } else if !self.mutations.is_empty() {
+            for mutations in self.mutations.values() {
+                mutations.apply_to_recorder_ref(recorder);
+            }
         }
         Ok(())
     }

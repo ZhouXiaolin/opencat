@@ -90,7 +90,14 @@ pub fn resolve_ui_tree_with_script_cache(
         mutation_stack.push(mutations.clone());
     }
     let mut registry = ScriptTargetRegistry::default();
+    let _collect_span = tracing::span!(
+        target: "render.scene",
+        tracing::Level::TRACE,
+        "collect_script_targets"
+    )
+    .entered();
     collect_visual_script_targets(node, &mut registry);
+    drop(_collect_span);
     script_runtime.set_target_registry(registry);
     script_runtime.clear_text_sources();
     let mut cx = ResolveContext {
@@ -103,8 +110,17 @@ pub fn resolve_ui_tree_with_script_cache(
         script_runtime,
         mutation_stack: &mut mutation_stack,
     };
+    // resolve_build includes script_run_frame (push_script_scope runs inside);
+    // subtract script_run_frame for the pure tree-construction cost.
+    let _build_span =
+        tracing::span!(target: "render.scene", tracing::Level::TRACE, "resolve_build").entered();
     let mut root = resolve_node_optional(node, &mut cx)?.unwrap_or_else(|| empty_root_div(&mut cx));
+    drop(_build_span);
+    let _fp_span =
+        tracing::span!(target: "render.scene", tracing::Level::TRACE, "element_fingerprints")
+            .entered();
     compute_element_input_fingerprints(&mut root);
+    drop(_fp_span);
     Ok(root)
 }
 
@@ -848,12 +864,15 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
 
     let id = cx.script_runtime.install(&driver.source)?;
     let mut store = crate::script::recorder::MutationStore::default();
+    let _run_frame_span =
+        tracing::span!(target: "render.scene", tracing::Level::TRACE, "script_run_frame").entered();
     cx.script_runtime.run_frame(
         id,
         cx.script_frame_ctx,
         (!style.id.is_empty()).then_some(style.id.as_str()),
         &mut store,
     )?;
+    drop(_run_frame_span);
     // Consuming take instead of snapshot: this store is created per scope
     // above and dropped right after, so mem::take is semantically identical
     // and skips the full deep clone of every canvas DrawOp per frame.

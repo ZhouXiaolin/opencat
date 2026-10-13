@@ -13,9 +13,15 @@
 # For a long detached run, wrap the guard itself too:
 #        nohup tools/render-guard.sh a.jsx out/a.mp4 > /dev/null 2>&1 &
 #
+# When launched non-interactively (stdin is not a tty -- an agent, a script, a
+# torn-down terminal) the guard re-execs itself under `setsid` so the caller's
+# process group cannot take the guard -- and the render it watches -- down with
+# it. Set OC_RENDER_GUARD_FOREGROUND=1 to force a blocking, attached run.
+#
 # Exit status: the render's own status, or 137 when the RSS cap killed it.
 # Artifacts: out/render-guard/<name>-<stamp>.log (render output)
 #            out/render-guard/<name>-<stamp>.rss.csv (per-second RSS in MiB)
+#            out/render-guard/<name>-<stamp>.status (final exit line)
 
 set -u
 emulate -L zsh
@@ -41,10 +47,26 @@ fi
 
 log_dir=${OC_RENDER_LOG_DIR:-$repo/out/render-guard}
 mkdir -p "$log_dir" || exit 1
-stamp=$(date +%Y%m%d-%H%M%S)
+stamp=${OC_RENDER_GUARD_STAMP:-$(date +%Y%m%d-%H%M%S)}
 stem=$(basename "$input"); stem=${stem%.jsx}
 log=$log_dir/$stem-$stamp.log
 rss_csv=$log_dir/$stem-$stamp.rss.csv
+status_file=$log_dir/$stem-$stamp.status
+
+# Detach into our own session unless interactive (or forced). Without this a
+# guard started from a non-tty caller dies with the caller's process group and
+# leaves the render running unguarded -- the exact OOM this gate prevents.
+if [[ -z ${OC_RENDER_GUARD_DETACHED:-} && ! -t 0 && ${OC_RENDER_GUARD_FOREGROUND:-0} != 1 ]]; then
+  export OC_RENDER_GUARD_DETACHED=1 OC_RENDER_GUARD_STAMP=$stamp
+  guard_log=$log_dir/$stem-$stamp.guard.log
+  setsid --fork "${0:A}" "$@" >"$guard_log" 2>&1 </dev/null &
+  print "detached guard pid=$!"
+  print "  render log -> $log"
+  print "  rss csv    -> $rss_csv"
+  print "  status     -> $status_file"
+  print "  guard log  -> $guard_log"
+  exit 0
+fi
 
 # nohup: the render ignores SIGHUP, so it outlives a closed terminal. The guard
 # stays its parent on purpose -- `wait` needs that to report the real status.
@@ -83,6 +105,7 @@ exit_code=$?
 (( killed )) && exit_code=137
 elapsed=$(( $(date +%s) - start ))
 print "exit=$exit_code elapsed=${elapsed}s peak_rss=$(( peak_kb / 1024 ))MiB"
+print "exit=$exit_code elapsed=${elapsed}s peak_rss=$(( peak_kb / 1024 ))MiB" > "$status_file"
 
 if (( killed )); then
   print -u2 "render killed by the RSS cap -- read $log and $rss_csv before re-running"

@@ -618,12 +618,16 @@ macro_rules! for_each_binding {
             );
         }}
 
-        // ── Cmd: store mutations (3 entries: animate, morph, along_path) ──
+        // ── Cmd: store mutations (4 entries: animate, morph, along_path) ──
         $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
             let clamp = clamp_flag != 0;
             let yoyo = yoyo_flag != 0;
             let cf = $store.current_frame();
             Ok($store.animate_create(cf, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay))
+        }}
+        $binding! { cmd $store animate_set_progress (handle: i32, progress: f32) -> bool {
+            $store.animate_set_progress(handle, progress);
+            Ok(true)
         }}
         $binding! { cmd $store morph_svg_create (from_svg: String, to_svg: String, grid_size: f32) -> i32 {
             Ok($store.morph_svg_create(&from_svg, &to_svg, grid_size as u32).unwrap_or(-1))

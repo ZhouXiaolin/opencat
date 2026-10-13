@@ -350,7 +350,9 @@ function CaptionLayer() {
     <div class="absolute left-0 top-0 w-[1920px] h-[1080px] z-[50]">
       {CAPS.map((c) => (
         <div id={c[0]} class="absolute left-0 bottom-[80px] w-full flex justify-center opacity-0">
-          <text class="px-[28px] py-[12px] rounded-[10px] bg-[rgba(10,8,5,0.55)] backdrop-blur-[8px] text-[40px] leading-none tracking-[-0.005em] font-[hf-inter-med] text-[rgba(240,235,220,0.92)] whitespace-nowrap">{c[3]}</text>
+          <div class="px-[28px] py-[12px] rounded-[10px] bg-[rgba(10,8,5,0.55)] backdrop-blur-[8px] whitespace-nowrap">
+            <text class="text-[40px] leading-[48px] tracking-[-0.005em] font-[500] font-[hf-inter-med] text-[rgba(240,235,220,0.92)]">{c[3]}</text>
+          </div>
         </div>
       ))}
     </div>

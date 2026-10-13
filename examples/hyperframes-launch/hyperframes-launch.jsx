@@ -1926,15 +1926,24 @@ function CCletterX(idx) {
 function CCsubLetterX(idx) {
   return CC_subX + idx * (5 * CC_SUB_SCALE + CC_SUB_SCALE) + Math.floor(5 * CC_SUB_SCALE / 2);
 }
-var CC_BOLTS = [
-  { strikeTime: 0.25, decayRate: 8, bolt: CCgenerateBolt(30, CCletterX(0), 3001, 3), mega: false, crawlSpeed: 70 },
-  { strikeTime: 0.55, decayRate: 8, bolt: CCgenerateBolt(160, CCletterX(10), 3002, 3), mega: false, crawlSpeed: 70 },
-  { strikeTime: 0.85, decayRate: 0, bolt: CCgenerateBolt(96, CCletterX(5), 3777, 8), mega: true, crawlSpeed: 300, holdTime: 3.0 },
-  { strikeTime: 1.9, decayRate: 0, bolt: CCgenerateBolt(96, CCsubLetterX(8), 4888, 14, CC_subY), mega: true, superMega: true, crawlSpeed: 500, holdTime: 2.0 }
-];
-for (var _ccb = 0; _ccb < CC_BOLTS.length; _ccb++) {
-  CC_BOLTS[_ccb].crawlMap = CCbuildCrawlMap(CC_BOLTS[_ccb].bolt.strikeCol, CC_BOLTS[_ccb].bolt.strikeRow, _ccb === 3 ? 8 : 3);
-}
+/* Bolts and their crawl maps depend only on the constant glyph geometry above
+   (never on `t`), but the JSX module body re-runs every frame to reset
+   globals. Rebuilding the four Dijkstra crawl maps per frame costs ~55 ms,
+   which dominated the whole render. Memoize the table on the realm (user
+   globals persist across frames) so it is built once. ccRender only reads
+   CC_BOLTS / crawlMap, so sharing the tables is pixel-exact. */
+var CC_BOLTS = globalThis.__ccBolts || (globalThis.__ccBolts = (function () {
+  var bolts = [
+    { strikeTime: 0.25, decayRate: 8, bolt: CCgenerateBolt(30, CCletterX(0), 3001, 3), mega: false, crawlSpeed: 70 },
+    { strikeTime: 0.55, decayRate: 8, bolt: CCgenerateBolt(160, CCletterX(10), 3002, 3), mega: false, crawlSpeed: 70 },
+    { strikeTime: 0.85, decayRate: 0, bolt: CCgenerateBolt(96, CCletterX(5), 3777, 8), mega: true, crawlSpeed: 300, holdTime: 3.0 },
+    { strikeTime: 1.9, decayRate: 0, bolt: CCgenerateBolt(96, CCsubLetterX(8), 4888, 14, CC_subY), mega: true, superMega: true, crawlSpeed: 500, holdTime: 2.0 }
+  ];
+  for (var i = 0; i < bolts.length; i++) {
+    bolts[i].crawlMap = CCbuildCrawlMap(bolts[i].bolt.strikeCol, bolts[i].bolt.strikeRow, i === 3 ? 8 : 3);
+  }
+  return bolts;
+})());
 
 /* illumination (canvas-close.html:283-376) */
 var CC_ILLUM = new Float32Array(CC_ROWS * CC_COLS);

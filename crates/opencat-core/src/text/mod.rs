@@ -4,6 +4,7 @@ use std::{
     cell::RefCell,
     hash::{Hash, Hasher},
     ops::Range,
+    sync::Arc,
 };
 
 use cosmic_text::{
@@ -124,23 +125,25 @@ pub fn test_default_font_db() -> fontdb::Database {
 // ── Per-render font db scope (script canvas text measure) ───────────────────
 
 thread_local! {
-    static SCOPED_FONT_DB: RefCell<Option<fontdb::Database>> = const { RefCell::new(None) };
+    static SCOPED_FONT_DB: RefCell<Option<Arc<fontdb::Database>>> = const { RefCell::new(None) };
 }
 
 /// Run `f` while script bindings use this font database (e.g. `canvas.measureText`).
 pub fn scope_font_db<R>(db: &fontdb::Database, f: impl FnOnce() -> R) -> R {
     SCOPED_FONT_DB.with(|cell| {
-        let prev = cell.borrow_mut().replace(db.clone());
+        let prev = cell.borrow_mut().replace(Arc::new(db.clone()));
         let out = f();
         *cell.borrow_mut() = prev;
         out
     })
 }
 
-fn font_db_for_script() -> fontdb::Database {
+/// `Arc` 共享的 scoped 字体库。clone 仅增加引用计数，脚本每次 `measureText` /
+/// `fillText` 不再深拷贝整库。
+fn font_db_for_script() -> Arc<fontdb::Database> {
     SCOPED_FONT_DB
         .with(|cell| cell.borrow().clone())
-        .unwrap_or_else(empty_font_db)
+        .unwrap_or_else(|| Arc::new(empty_font_db()))
 }
 
 // ── Fallback policy ────────────────────────────────────────────────────────

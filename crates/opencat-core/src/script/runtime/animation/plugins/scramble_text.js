@@ -111,7 +111,7 @@
             ? 0
             : (progress - revealDelay) / Math.max(0.0001, 1 - revealDelay);
         var revealed = Math.floor(toLen * Math.max(0, Math.min(1, revealProgress)));
-        var tick = Math.floor(Number(ctx.currentTime || 0) * speed);
+        var tick = Math.floor(Number((ctx.current && ctx.current.time) || 0) * speed);
         var targetId = sample.target && sample.target.id ? sample.target.id : '';
         var out = [];
 

@@ -123,7 +123,7 @@
     function pow3in(t)  { return Math.pow(clamp01(t), 3); }
     function expoOut(t) { t = clamp01(t); return t >= 1 ? 1 : 1 - Math.pow(2, -10 * t); }
     function power1out(t) { return clamp01(t); }
-    var st = Math.max(0, ctx.time);
+    var st = Math.max(0, ctx.global.time);
 
     var phY, phRY, cZ, phRZ = 0.006;
     // S.phY −3.45→0.02 expo.out @0.08 source → local −0.54, dur 0.95

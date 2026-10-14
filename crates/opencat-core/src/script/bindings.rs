@@ -622,7 +622,7 @@ macro_rules! for_each_binding {
         $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
             let clamp = clamp_flag != 0;
             let yoyo = yoyo_flag != 0;
-            let cf = $store.current_frame();
+            let cf = $store.script_frame();
             Ok($store.animate_create(cf, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay))
         }}
         $binding! { cmd $store animate_set_progress (handle: i32, progress: f32) -> bool {
@@ -636,9 +636,20 @@ macro_rules! for_each_binding {
             $store.along_path_create(&svg).ok_or_else(|| anyhow::anyhow!("invalid SVG path"))
         }}
 
+        // ── Cmd: scene clock override ───────────────────────────────────────
+        // The JSX frontend emits ONE root driver whose store frame is the
+        // composition frame. Inside a `<tl>` each scene has its own clock, so
+        // the JSX runtime sets the scene-local frame around every hook and every
+        // timeline flush. `-1` clears it (fall back to the composition frame).
+        // Tween progress (`animate_create` / `animate_value`) reads this frame.
+        $binding! { cmd $store set_script_frame (frame: i32) -> bool {
+            $store.set_frame_override(if frame < 0 { None } else { Some(frame as u32) });
+            Ok(true)
+        }}
+
         // ── Qry: store reads (10 entries: animate, morph, text, along_path) ─
         $binding! { qry $store animate_value (handle: i32, _key: String, from: f32, to: f32) -> f32 {
-            let cf = $store.current_frame();
+            let cf = $store.script_frame();
             Ok($store.animate_value(cf, handle, from, to))
         }}
         $binding! { qry $store animate_color (handle: i32, _key: String, from: String, to: String) -> String {
@@ -819,7 +830,7 @@ macro_rules! for_each_binding {
         // Pure geometry: minimum-area enclosing rectangle of a 2-D point set.
         // `points` is a flat [x0,y0, x1,y1, ...]; returns [angle_rad, w, h].
         // Used to recover a 3-D mesh's projected in-plane orientation from a
-        // handful of projected hull points (see examples/liquid-brand-refraction.xml).
+        // handful of projected hull points (see examples/liquid-brand-refraction/liquid-brand-refraction.jsx).
         $binding! { pure util_min_area_rect (points: Vec<f64>) -> Vec<f64> {
             if points.len() < 2 {
                 return Err(anyhow::anyhow!("util_min_area_rect: need >=1 point"));

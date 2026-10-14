@@ -1,7 +1,6 @@
 pub mod annotation;
 pub mod compositor;
 pub mod fingerprint;
-pub mod invalidation;
 
 use crate::analyze::{annotation::AnnotatedNodeHandle, fingerprint::SubtreeSnapshotFingerprint};
 
@@ -9,11 +8,6 @@ use crate::analyze::{annotation::AnnotatedNodeHandle, fingerprint::SubtreeSnapsh
 pub struct DisplayNodeAnalysis {
     pub paint_fingerprint: Option<u64>,
     pub snapshot_fingerprint: Option<SubtreeSnapshotFingerprint>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct DisplayNodeInvalidation {
-    pub apply_changed: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -54,33 +48,3 @@ impl DisplayAnalysisTable {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct DisplayInvalidationTable {
-    nodes: Vec<DisplayNodeInvalidation>,
-}
-
-impl DisplayInvalidationTable {
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            nodes: Vec::with_capacity(capacity),
-        }
-    }
-
-    pub fn with_len(len: usize) -> Self {
-        Self {
-            nodes: vec![DisplayNodeInvalidation::default(); len],
-        }
-    }
-
-    pub fn insert(&mut self, handle: AnnotatedNodeHandle, invalidation: DisplayNodeInvalidation) {
-        if handle.0 == self.nodes.len() {
-            self.nodes.push(invalidation);
-        } else {
-            self.nodes[handle.0] = invalidation;
-        }
-    }
-
-    pub fn get(&self, handle: AnnotatedNodeHandle) -> Option<DisplayNodeInvalidation> {
-        self.nodes.get(handle.0).copied()
-    }
-}

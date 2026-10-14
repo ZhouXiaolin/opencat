@@ -2,11 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::analyze::annotation::{AnalyzeFingerprintHistory, AnnotatedNodeHandle};
+use crate::analyze::annotation::AnnotatedNodeHandle;
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
-use crate::analyze::invalidation::CompositeHistory;
 use crate::display::build::DisplayBuildSession;
-use crate::ir::cache::RenderCache;
 use crate::ir::{CompositionInfo, GeneratedImageTable, RenderFrame};
 use crate::layout::LayoutSession;
 use crate::parse::composition::Composition;
@@ -15,9 +13,6 @@ use crate::script::js_context::JsContext;
 
 use super::Pipeline;
 
-const DEFAULT_NODE_OWN_CAP: usize = 256;
-const DEFAULT_SEGMENT_CAP: usize = 256;
-const DEFAULT_ITEM_RANGE_CAP: usize = 128;
 /// Frames a generated image survives after no frame re-registers it. Stable
 /// keys (the emoji-glyph case) refresh every frame, so this only bounds the
 /// per-frame-key case (`surface.bake('k' + frameIndex)`): those entries are
@@ -39,10 +34,7 @@ pub struct DefaultPipeline<S: JsContext> {
     scripts: crate::script::ScriptRealm<S>,
     layout_session: LayoutSession,
     display_build_session: DisplayBuildSession,
-    composite_history: CompositeHistory,
-    analyze_fingerprint_history: AnalyzeFingerprintHistory,
     font_db: Arc<fontdb::Database>,
-    cache: RenderCache,
     last_ordered_scene: OrderedSceneProgram,
     /// Core-rasterized images (color-emoji bitmap glyphs) for the lifetime of
     /// this pipeline. Stable ids make fresh vs reused pipelines produce
@@ -74,14 +66,7 @@ impl<S: JsContext> DefaultPipeline<S> {
             scripts: live_host,
             layout_session: LayoutSession::new(),
             display_build_session: DisplayBuildSession::new(),
-            composite_history: CompositeHistory::default(),
-            analyze_fingerprint_history: AnalyzeFingerprintHistory::default(),
             font_db,
-            cache: RenderCache::new(
-                DEFAULT_NODE_OWN_CAP,
-                DEFAULT_SEGMENT_CAP,
-                DEFAULT_ITEM_RANGE_CAP,
-            ),
             last_ordered_scene: OrderedSceneProgram {
                 root: OrderedSceneOp::LiveSubtree {
                     handle: AnnotatedNodeHandle(0),
@@ -213,11 +198,8 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
             frame_index,
             &mut self.layout_session,
             &mut self.display_build_session,
-            &mut self.composite_history,
-            &mut self.analyze_fingerprint_history,
             &self.font_db,
             &mut self.catalog,
-            &mut self.cache,
             &mut self.last_ordered_scene,
             &mut self.scripts,
             &mut self.generated_images,
@@ -767,66 +749,6 @@ mod tests {
             .values()
             .map(|frame| frame.layout_merkle_skipped_nodes)
             .sum::<usize>();
-        let analyze_skipped_nodes = summary
-            .frames
-            .values()
-            .map(|frame| frame.analyze_merkle_skipped_nodes)
-            .sum::<usize>();
-
-        let analyze_recorded_hit_nodes = summary
-            .frames
-            .values()
-            .map(|frame| frame.analyze_recorded_hit_nodes)
-            .sum::<usize>();
-        let analyze_composite_blocked_nodes = summary
-            .frames
-            .values()
-            .map(|frame| frame.analyze_composite_blocked_nodes)
-            .sum::<usize>();
-        let analyze_snapshot_eligibility_hit_nodes = summary
-            .frames
-            .values()
-            .map(|frame| frame.analyze_snapshot_eligibility_hit_nodes)
-            .sum::<usize>();
-        let node_own_segment_hits = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.node_own_segment_hits)
-            .sum::<usize>();
-        let node_own_segment_records = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.node_own_segment_records)
-            .sum::<usize>();
-        let scene_snapshot_cache_hits = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.scene_snapshot_cache_hits)
-            .sum::<usize>();
-        let scene_snapshot_cache_misses = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.scene_snapshot_cache_misses)
-            .sum::<usize>();
-        let subtree_snapshot_request_after_analyze_fresh = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_request_after_analyze_fresh)
-            .sum::<usize>();
-        let subtree_snapshot_request_after_analyze_reused = summary
-            .frames
-            .values()
-            .map(|frame| frame.backend.subtree_snapshot_request_after_analyze_reused)
-            .sum::<usize>();
-        let subtree_snapshot_request_after_analyze_composite_blocked = summary
-            .frames
-            .values()
-            .map(|frame| {
-                frame
-                    .backend
-                    .subtree_snapshot_request_after_analyze_composite_blocked
-            })
-            .sum::<usize>();
 
         assert!(
             full_hit_nodes > 0,
@@ -836,121 +758,8 @@ mod tests {
             layout_skipped_nodes >= full_hit_nodes,
             "layout Merkle skip should include full hits and layout-only clean subtrees"
         );
-        assert!(
-            analyze_skipped_nodes > 0,
-            "profile-showcase jsonl should exercise analyze Merkle fingerprint skips"
-        );
-        assert!(
-            analyze_recorded_hit_nodes > 0,
-            "analyze_recorded_hit_nodes should be > 0 in the showcase scene"
-        );
-        assert!(
-            node_own_segment_hits + node_own_segment_records > 0,
-            "node_own_segment_hits + node_own_segment_records should be > 0 in the showcase scene"
-        );
-        // Scene snapshot cache should fire at least once on idle stretches.
-        assert!(
-            scene_snapshot_cache_hits > 0,
-            "scene_snapshot_cache_hits should be > 0 in the showcase scene"
-        );
-        assert!(
-            scene_snapshot_cache_misses > 0,
-            "scene_snapshot_cache_misses should be > 0 in the showcase scene"
-        );
-        assert!(
-            subtree_snapshot_request_after_analyze_fresh > 0,
-            "subtree_snapshot_request_after_analyze_fresh should be > 0 in the showcase scene"
-        );
-        // `request_after_reused` requires render dispatch to read AnalyzeReuse marks.
-        // In the test environment (crate-private open, no assets), the showcase collapses
-        // to a near-static scene where scene_snapshot_hit short-circuits most frames,
-        // leaving subtree dispatch only on the first few "warm-up" misses where every
-        // subtree is fresh. Keep the read so the counter is exercised end-to-end.
-        let _ = subtree_snapshot_request_after_analyze_reused;
-
-        assert_eq!(
-            analyze_recorded_hit_nodes,
-            analyze_snapshot_eligibility_hit_nodes + analyze_composite_blocked_nodes,
-            "recorded_hit_nodes should equal snapshot_eligibility_hit_nodes + composite_blocked_nodes"
-        );
-
-        let _ = subtree_snapshot_request_after_analyze_composite_blocked;
     }
 
-    #[cfg(feature = "profile")]
-    #[test]
-    fn cache_hits_scene_snapshot_on_static_repeat() {
-        // Static composition with no animations: frame 1 should reuse the
-        // entire DrawOpFrame recorded on frame 0.
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":0.2}
-{"type":"div","id":"root","parentId":null,"bg":"#00ff00","w":100,"h":100}"##;
-
-        let config = crate::profile::ProfileConfig { enabled: true };
-        let (_, summary) = crate::profile::profile_render(&config, || {
-            let mut pipeline = open_test_pipeline(jsonl);
-
-            for frame_index in 0..2 {
-                let _ = pipeline.render_frame(frame_index)?;
-            }
-            Ok::<_, anyhow::Error>(())
-        })
-        .expect("profile render");
-
-        let summary = summary.expect("summary should exist");
-        assert_eq!(
-            summary.frames[&0].backend.scene_snapshot_cache_misses, 1,
-            "frame 0 should miss scene snapshot cache (structure rebuild)"
-        );
-        assert_eq!(
-            summary.frames[&0].backend.scene_snapshot_cache_hits, 0,
-            "frame 0 should not hit scene snapshot cache"
-        );
-        assert_eq!(
-            summary.frames[&1].backend.scene_snapshot_cache_hits, 1,
-            "frame 1 should hit scene snapshot cache (static repeat)"
-        );
-        assert_eq!(
-            summary.frames[&1].backend.scene_snapshot_cache_misses, 0,
-            "frame 1 should not miss when scene is identical"
-        );
-    }
-
-    #[cfg(feature = "profile")]
-    #[test]
-    fn cache_misses_during_native_transition_fade() {
-        // Two-scene composition with a native fade transition. Every frame
-        // inside the transition window has a different transition progress,
-        // so the root subtree fingerprint differs frame-to-frame and the
-        // scene snapshot cache must miss across all of them.
-        let jsonl = r##"{"type":"composition","width":100,"height":100,"fps":10,"duration":1}
-{"type":"div","id":"root","parentId":null}
-{"type":"tl","id":"tl","parentId":"root"}
-{"type":"div","id":"scene_a","parentId":"tl","bg":"#ff0000","w":100,"h":100,"duration":0.1}
-{"type":"transition","parentId":"tl","from":"scene_a","to":"scene_b","effect":"fade","duration":0.133333333333,"timing":"linear"}
-{"type":"div","id":"scene_b","parentId":"tl","bg":"#00ff00","w":100,"h":100,"duration":0.1}"##;
-
-        let config = crate::profile::ProfileConfig { enabled: true };
-        let (_, summary) = crate::profile::profile_render(&config, || {
-            let mut pipeline = open_test_pipeline(jsonl);
-
-            for frame_index in 0..pipeline.composition().frames {
-                let _ = pipeline.render_frame(frame_index)?;
-            }
-            Ok::<_, anyhow::Error>(())
-        })
-        .expect("profile render");
-
-        let summary = summary.expect("summary should exist");
-
-        // Once the transition completes the next scene stays stable, so a
-        // post-transition frame should be eligible to hit the cache.
-        assert!(
-            summary.frames[&8].backend.scene_snapshot_cache_hits
-                + summary.frames[&9].backend.scene_snapshot_cache_hits
-                >= 1,
-            "frames after the transition completes should be able to hit the cache"
-        );
-    }
 
     #[test]
     fn open_from_jsonl() {

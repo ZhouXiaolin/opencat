@@ -353,7 +353,7 @@ mod tests {
             let outer = span!(target: "render.backend", Level::TRACE, "display_tree_direct_draw");
             let _outer_guard = outer.enter();
 
-            let inner = span!(target: "render.backend", Level::TRACE, "node_own_segment_record");
+            let inner = span!(target: "render.backend", Level::TRACE, "glyph_rasterize");
             let _inner_guard = inner.enter();
             Ok::<_, anyhow::Error>(())
         })?;
@@ -373,7 +373,7 @@ mod tests {
             frame.backend_spans.contains_key(&BackendSpanKey {
                 depth: 1,
                 parent: Some("display_tree_direct_draw"),
-                name: "node_own_segment_record",
+                name: "glyph_rasterize",
             }),
             "nested backend span parent must be nearest backend ancestor, spans = {:?}",
             frame.backend_spans.keys().collect::<Vec<_>>()
@@ -425,15 +425,15 @@ mod tests {
             let backend_span = span!(
                 target: "render.backend",
                 Level::TRACE,
-                "node_own_segment_record"
+                "glyph_rasterize"
             );
             let _backend_guard = backend_span.enter();
             event!(
                 target: "render.cache",
                 Level::TRACE,
                 kind = "cache",
-                name = "node_own_segment",
-                result = "record",
+                name = "glyph_path",
+                result = "hit",
                 amount = 1_u64
             );
             Ok::<_, anyhow::Error>(())
@@ -441,8 +441,7 @@ mod tests {
 
         let summary = summary.expect("summary should exist");
         let frame = summary.frames.get(&7).expect("frame summary should exist");
-        assert!(frame.backend.node_own_segment_record_ms >= 0.0);
-        assert_eq!(frame.backend.node_own_segment_records, 1);
+        assert_eq!(frame.backend.glyph_path_cache_hits, 1);
         Ok(())
     }
 
@@ -468,8 +467,8 @@ mod tests {
                     target: "render.cache",
                     Level::TRACE,
                     kind = "cache",
-                    name = "node_own_segment",
-                    result = "record",
+                    name = "glyph_path",
+                    result = "hit",
                     amount = 1_u64
                 );
             }
@@ -487,8 +486,8 @@ mod tests {
             "frame 1 should be present, got {:?}",
             summary.frames.keys().collect::<Vec<_>>()
         );
-        assert_eq!(summary.frames[&0].backend.node_own_segment_records, 1);
-        assert_eq!(summary.frames[&1].backend.node_own_segment_records, 1);
+        assert_eq!(summary.frames[&0].backend.glyph_path_cache_hits, 1);
+        assert_eq!(summary.frames[&1].backend.glyph_path_cache_hits, 1);
         Ok(())
     }
 

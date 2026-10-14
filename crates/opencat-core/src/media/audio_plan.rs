@@ -160,15 +160,16 @@ fn find_scene_timing_in_node(node: &Node, scene_id: &str, ctx: &FrameCtx) -> Opt
             if tl.style_ref().id == scene_id {
                 return Some((0, tl.duration_in_frames(ctx)));
             }
-            let mut cursor_frame = 0u32;
-            for segment in tl.segments() {
-                let duration_in_frames = duration_secs_to_frames(segment.duration_secs(), ctx.fps);
+            // Boundaries are the ceiling of the running seconds cursor, so a
+            // scene's frame window matches where the renderer places it.
+            let bounds = tl.segment_frame_bounds(ctx);
+            for (index, segment) in tl.segments().iter().enumerate() {
                 if let TimelineSegment::Scene { scene, .. } = segment {
                     if scene.style_ref().id == scene_id {
-                        return Some((cursor_frame, duration_in_frames));
+                        let start = bounds[index];
+                        return Some((start, bounds[index + 1].saturating_sub(start)));
                     }
                 }
-                cursor_frame = cursor_frame.saturating_add(duration_in_frames);
             }
             None
         }

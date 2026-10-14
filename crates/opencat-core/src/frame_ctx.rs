@@ -58,7 +58,33 @@ impl ScriptFrameCtx {
         }
     }
 
+    /// Scene clock for a window that starts at whole frame `start_frame`.
     pub fn for_segment(frame_ctx: &FrameCtx, start_frame: u32, scene_frames: u32) -> Self {
+        Self::for_window(
+            frame_ctx,
+            start_frame,
+            frames_to_duration_secs(start_frame, frame_ctx.fps),
+            scene_frames,
+        )
+    }
+
+    /// Scene clock for a window whose start is only known as a frame index.
+    ///
+    /// `start_secs` is the window's exact start on the composition clock. It
+    /// differs from `start_frame / fps` because a segment boundary is quantized
+    /// to a frame while the author's placement (e.g. `data-start="17.30"`) is
+    /// not. Using the exact value keeps `current_time_secs` — the only clock a
+    /// scene script sees — free of that quantization error, which would
+    /// otherwise accumulate across a long timeline.
+    ///
+    /// `current_frame` stays the quantized whole-frame reading, clamped to the
+    /// window, for scripts that index by frame.
+    pub fn for_window(
+        frame_ctx: &FrameCtx,
+        start_frame: u32,
+        start_secs: f64,
+        scene_frames: u32,
+    ) -> Self {
         let max_local_frame = scene_frames.saturating_sub(1);
         let current_frame = frame_ctx
             .frame
@@ -72,7 +98,7 @@ impl ScriptFrameCtx {
             scene_frames,
             time_secs: frame_ctx.time_secs(),
             total_duration_secs: frame_ctx.duration_secs(),
-            current_time_secs: frames_to_duration_secs(current_frame, frame_ctx.fps),
+            current_time_secs: (frame_ctx.time_secs() - start_secs).max(0.0),
             scene_duration_secs: frames_to_duration_secs(scene_frames, frame_ctx.fps),
         }
     }

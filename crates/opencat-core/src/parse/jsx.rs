@@ -49,6 +49,7 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         "duration": meta_f64(&meta, "duration", 3.0),
     })];
     lines.extend(tree_lines.iter().cloned());
+    lines.extend(audio_lines_from_extract(extract)?);
     if !driver.is_empty() {
         lines.push(json!({ "type": "script", "src": driver }));
     }
@@ -59,6 +60,92 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         .collect::<std::result::Result<Vec<_>, serde_json::Error>>()?;
 
     crate::parse::elements::composition_from_lines(jsonl_lines, base_dir, Some(&font_manifest))
+}
+
+/// `export const audio = [{ id, path | url, duration? }]` — a global audio
+/// POOL, declared once next to `meta` / `fonts` like a font manifest. It has
+/// no `attach`: attachment is stated where the audio is USED, as an `audioId`
+/// prop on the visual node (scene or `<tl>`) that plays it. Audio has no visual
+/// box, so it never lives in the element tree itself.
+///
+/// Emitted lines mirror `JsonLine::Audio`, so the downstream attach
+/// validation and audio track assembly stay untouched — this only decides
+/// *what* each attachment points at.
+pub fn audio_lines_from_extract(extract: &Value) -> Result<Vec<Value>> {
+    let audio = match extract.get("audio") {
+        Some(audio) => audio,
+        None => return Ok(Vec::new()),
+    };
+    let items = audio
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("jsx audio: `audio` must be an array"))?;
+
+    let mut pool = Vec::with_capacity(items.len());
+    for (index, item) in items.iter().enumerate() {
+        let where_ = format!("jsx audio[{index}]");
+        let id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("{where_}: missing `id`"))?
+            .to_string();
+
+        let path = item.get("path").and_then(Value::as_str);
+        let url = item.get("url").and_then(Value::as_str);
+        let mut source = json!({});
+        match (path, url) {
+            (Some(path), None) => {
+                if path.is_empty() {
+                    anyhow::bail!("jsx audio `{id}`: path must be non-empty");
+                }
+                source["path"] = json!(path);
+            }
+            (None, Some(url)) => {
+                if url.is_empty() {
+                    anyhow::bail!("jsx audio `{id}`: url must be non-empty");
+                }
+                source["url"] = json!(url);
+            }
+            (Some(_), Some(_)) => anyhow::bail!("jsx audio `{id}`: only one of path / url"),
+            (None, None) => anyhow::bail!("jsx audio `{id}`: needs path or url"),
+        }
+
+        let duration = item.get("duration").and_then(Value::as_f64);
+        if let Some(d) = duration {
+            if !d.is_finite() || d <= 0.0 {
+                anyhow::bail!("jsx audio `{id}`: duration must be > 0");
+            }
+        }
+        pool.push((id, source, duration));
+    }
+
+    // Attachment sites: the visual nodes that named an `audioId`. A timeline id
+    // attaches the whole timeline; a scene id attaches that scene. Unknown ids
+    // are surfaced by the shared assembly (same error as the XML/jsonl path).
+    let sites = extract.get("audioSites").and_then(Value::as_array);
+    let mut lines = Vec::new();
+    for site in sites.into_iter().flatten() {
+        let audio_id = site
+            .get("audioId")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
+        let Some(audio_id) = audio_id else { continue };
+        let node_id = site.get("nodeId").and_then(Value::as_str).unwrap_or_default();
+        let Some((id, source, duration)) = pool.iter().find(|(id, _, _)| id == audio_id) else {
+            anyhow::bail!(
+                "audioId `{audio_id}` (on `{node_id}`) is not declared in `export const audio`"
+            );
+        };
+        let mut line = json!(source);
+        line["type"] = json!("audio");
+        line["id"] = json!(id);
+        line["attach"] = json!(node_id);
+        if let Some(d) = duration {
+            line["duration"] = json!(d);
+        }
+        lines.push(line);
+    }
+    Ok(lines)
 }
 
 /// `export const fonts = { default, faces: [{ id, family, path, role }] }`,

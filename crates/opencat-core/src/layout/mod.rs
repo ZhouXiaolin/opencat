@@ -110,10 +110,11 @@ impl LayoutSession {
             "layout_structure_update"
         )
         .entered();
-        let root_id = if self
-            .root
-            .as_ref()
-            .is_some_and(|cached| same_structure(cached, root, 0))
+        let root_id = if !crate::ablate::ablated(crate::ablate::Ablation::LayoutMerkle)
+            && self
+                .root
+                .as_ref()
+                .is_some_and(|cached| same_structure(cached, root, 0))
         {
             let cached = self.root.as_mut().expect("root checked above");
             update_cached_subtree(root, cached, 0, &mut self.taffy, &mut stats, false)?;
@@ -124,7 +125,8 @@ impl LayoutSession {
         #[cfg(feature = "profile")]
         drop(_update_span);
 
-        let layout_must_recompute = stats.structure_rebuild
+        let layout_must_recompute = crate::ablate::ablated(crate::ablate::Ablation::LayoutMerkle)
+            || stats.structure_rebuild
             || stats.layout_dirty_nodes > 0
             || self.cached_layout_tree.is_none()
             || self.last_layout_size != Some(viewport_size);

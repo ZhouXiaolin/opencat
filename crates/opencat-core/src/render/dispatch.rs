@@ -1,142 +1,28 @@
-use std::hash::{Hash, Hasher};
-
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
-#[cfg(feature = "profile")]
-use crate::analyze::annotation::AnalyzeReuseState;
 use crate::analyze::annotation::{
-    AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, DrawCompositeSemantics,
+    AnnotatedDisplayTree, AnnotatedNodeHandle, DrawCompositeSemantics,
 };
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
-use crate::analyze::fingerprint::{DisplayRecordedFingerprint, item_paint_fingerprint};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
-use crate::ir::cache::{self as draw_cache, CachedDrawRange, CachedNodeOwnIr, SegmentKey};
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
-use crate::layout::tree::LayoutOutputFingerprint;
 use crate::media::VideoFrameRequest;
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{BorderRadius, CssFilter, Transform};
 
-use super::{RenderCtx, RenderError, record_cache_pressure};
+use super::{RenderCtx, RenderError};
 
 // ── Display Item dispatch ──────────────────────────────────────────────
 
-fn should_cache_item_picture(item: &DisplayItem) -> bool {
-    matches!(
-        item,
-        DisplayItem::Bitmap(_)
-            | DisplayItem::Lottie(_)
-            | DisplayItem::DrawScript(_)
-            | DisplayItem::SvgPath(_)
-    )
+pub fn render_display_item(ctx: &mut RenderCtx, item: &DisplayItem) -> Result<(), RenderError> {
+    render_display_item_direct(ctx, item)
 }
 
-pub fn render_display_item(
-    ctx: &mut RenderCtx,
-    item: &DisplayItem,
-    layout_output_fingerprint: LayoutOutputFingerprint,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    if should_cache_item_picture(item) {
-        let cache_key = item_paint_fingerprint(item, layout_output_fingerprint);
-        return render_display_item_cached(ctx, item, cache_key, cache);
-    }
-    render_display_item_direct(ctx, item, cache)
-}
-
-fn render_display_item_cached(
-    ctx: &mut RenderCtx,
-    item: &DisplayItem,
-    cache_key: u64,
-    cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
-    #[cfg(feature = "profile")]
-    let _cached_span = span!(target: "render.backend", Level::TRACE, "draw_item_cached").entered();
-
-    let semantics = item.picture_semantics();
-
-    // Cache hit: import segment and replay with draw translation
-    if let Some(cached_range) = cache.item_ranges.get_cloned(&cache_key)
-        && let Some(segment) = cache.segments.get_cloned(&cached_range.segment_key)
-    {
-        #[cfg(feature = "profile")]
-        event!(
-            target: "render.cache",
-            Level::TRACE,
-            kind = "cache",
-            name = "item_picture",
-            result = "hit",
-            amount = 1_u64
-        );
-
-        ctx.builder.push(DrawOp::Save);
-        ctx.builder.push(DrawOp::Translate {
-            x: semantics.draw_translation_x,
-            y: semantics.draw_translation_y,
-        });
-        ctx.builder.import_segment(&segment);
-        ctx.builder.push(DrawOp::Restore);
-        return Ok(());
-    }
-
-    #[cfg(feature = "profile")]
-    event!(
-        target: "render.cache",
-        Level::TRACE,
-        kind = "cache",
-        name = "item_picture",
-        result = "miss",
-        amount = 1_u64
-    );
-
-    // Cache miss: render directly with draw_translation, snapshot, store
-    ctx.builder.push(DrawOp::Save);
-    ctx.builder.push(DrawOp::Translate {
-        x: semantics.draw_translation_x,
-        y: semantics.draw_translation_y,
-    });
-
-    let marker = ctx.builder.begin_range();
-    render_display_item_direct(ctx, item, cache)?;
-    let range = ctx.builder.end_range(marker);
-
-    ctx.builder.push(DrawOp::Restore);
-
-    // Snapshot and store in cache. Segments that reference a hidden subtree
-    // (canvas `getSubTree().makeShader(...)` children) cannot be replayed on a
-    // later frame — the engine resolves `SubtreePicture` ids against the
-    // per-frame `subtrees` table, which a `CachedDrawSegment` does not carry.
-    // Re-recording them every frame keeps the output correct at the cost of
-    // losing the cache speedup for those (rare) canvas items.
-    let segment = ctx.builder.snapshot_range(range);
-    if segment.references_subtree {
-        return Ok(());
-    }
-    let segment_key = SegmentKey::Item(cache_key);
-
-    cache.segments.insert(segment_key, segment);
-    cache.item_ranges.insert(
-        cache_key,
-        CachedDrawRange {
-            segment_range: range,
-            fingerprint: cache_key,
-            bounds: semantics.record_bounds,
-            segment_key,
-        },
-    );
-
-    Ok(())
-}
-
-fn render_display_item_direct(
-    ctx: &mut RenderCtx,
-    item: &DisplayItem,
-    _cache: &mut draw_cache::RenderCache,
-) -> Result<(), RenderError> {
+fn render_display_item_direct(ctx: &mut RenderCtx, item: &DisplayItem) -> Result<(), RenderError> {
     match item {
         DisplayItem::Rect(rect) => {
             #[cfg(feature = "profile")]
@@ -333,92 +219,6 @@ impl<'a> ApplyPlan<'a> {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-fn apply_segment_key(plan: &ApplyPlan<'_>) -> u64 {
-    let mut hasher = ahash::AHasher::default();
-    plan.transform.translation_x.to_bits().hash(&mut hasher);
-    plan.transform.translation_y.to_bits().hash(&mut hasher);
-    plan.transform.bounds.width.to_bits().hash(&mut hasher);
-    plan.transform.bounds.height.to_bits().hash(&mut hasher);
-    plan.transform.origin.x.to_bits().hash(&mut hasher);
-    plan.transform.origin.y.to_bits().hash(&mut hasher);
-    plan.transform.transforms.len().hash(&mut hasher);
-    for transform in &plan.transform.transforms {
-        hash_transform(transform, &mut hasher);
-    }
-    plan.opacity.to_bits().hash(&mut hasher);
-    plan.css_filter.hash(&mut hasher);
-    plan.backdrop_blur_sigma.map(f32::to_bits).hash(&mut hasher);
-    hash_display_rect(plan.layer_bounds, &mut hasher);
-    hasher.finish()
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn hash_display_rect(rect: DisplayRect, hasher: &mut impl Hasher) {
-    rect.x.to_bits().hash(hasher);
-    rect.y.to_bits().hash(hasher);
-    rect.width.to_bits().hash(hasher);
-    rect.height.to_bits().hash(hasher);
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn hash_transform(transform: &Transform, hasher: &mut impl Hasher) {
-    match *transform {
-        Transform::TranslateX { value } => {
-            0_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::TranslateY { value } => {
-            1_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::Translate { x, y } => {
-            2_u8.hash(hasher);
-            x.to_bits().hash(hasher);
-            y.to_bits().hash(hasher);
-        }
-        Transform::Scale { value } => {
-            3_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::ScaleX { value } => {
-            4_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::ScaleY { value } => {
-            5_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::RotateDeg { value } => {
-            6_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::SkewXDeg { value } => {
-            7_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::SkewYDeg { value } => {
-            8_u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        Transform::SkewDeg { x, y } => {
-            9_u8.hash(hasher);
-            x.to_bits().hash(hasher);
-            y.to_bits().hash(hasher);
-        }
-        Transform::Rotate3 {
-            rotation_x,
-            rotation_y,
-            perspective,
-        } => {
-            10_u8.hash(hasher);
-            rotation_x.to_bits().hash(hasher);
-            rotation_y.to_bits().hash(hasher);
-            perspective.to_bits().hash(hasher);
-        }
-    }
-}
-
 struct ApplyFrame {
     layer_state: BackdropLayerState,
 }
@@ -455,52 +255,6 @@ fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
     emit_apply_prefix(builder, plan)
 }
 
-fn begin_apply_frame_cached(
-    builder: &mut DrawOpBuilder,
-    plan: &ApplyPlan<'_>,
-    cache: &mut draw_cache::RenderCache,
-) -> ApplyFrame {
-    let key = apply_segment_key(plan);
-    if let Some(segment) = cache.apply_segments.get_cloned(&key) {
-        #[cfg(feature = "profile")]
-        event!(
-            target: "render.cache",
-            Level::TRACE,
-            kind = "cache",
-            name = "apply_segment",
-            result = "hit",
-            amount = 1_u64
-        );
-
-        builder.import_segment(&segment);
-        return ApplyFrame {
-            layer_state: backdrop_layer_state_for_plan(plan),
-        };
-    }
-
-    #[cfg(feature = "profile")]
-    event!(
-        target: "render.cache",
-        Level::TRACE,
-        kind = "cache",
-        name = "apply_segment",
-        result = "miss",
-        amount = 1_u64
-    );
-
-    let marker = builder.begin_range();
-    let frame = emit_apply_prefix(builder, plan);
-    let range = builder.end_range(marker);
-    let segment = builder.snapshot_range(range);
-    if cache.apply_segment_candidates.get_cloned(&key).is_some() {
-        let report = cache.apply_segments.insert(key, segment);
-        record_cache_pressure("apply", &report);
-    } else {
-        cache.apply_segment_candidates.insert(key, ());
-    }
-    frame
-}
-
 fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
     emit_apply_suffix(builder, frame);
 }
@@ -508,9 +262,8 @@ fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
 pub fn render_display_tree(
     ctx: &mut RenderCtx,
     tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
-    render_scene_op(ctx, &ctx.ordered_scene.root, tree, cache)
+    render_scene_op(ctx, &ctx.ordered_scene.root, tree)
 }
 
 fn item_visible_at_frame(ctx: &RenderCtx, item: &DisplayItem) -> bool {
@@ -532,14 +285,11 @@ fn render_scene_op(
     ctx: &mut RenderCtx,
     op: &OrderedSceneOp,
     tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     match op {
-        OrderedSceneOp::ReusedSubtree { handle } => {
-            render_reused_subtree(ctx, *handle, tree, cache)
-        }
+        OrderedSceneOp::ReusedSubtree { handle } => render_reused_subtree(ctx, *handle, tree),
         OrderedSceneOp::LiveSubtree { handle, children } => {
-            render_live_subtree(ctx, *handle, children, tree, cache)
+            render_live_subtree(ctx, *handle, children, tree)
         }
     }
 }
@@ -548,7 +298,6 @@ fn render_reused_subtree(
     ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
     tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
@@ -561,7 +310,7 @@ fn render_reused_subtree(
 
     let layer_bounds = tree.layer_bounds(handle);
     let apply_plan = ApplyPlan::from_draw_composite(draw, layer_bounds);
-    let apply_frame = begin_apply_frame_cached(ctx.builder, &apply_plan, cache);
+    let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
     let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
         RenderError::InvalidArgument(
             "ReusedSubtree node must have snapshot_fingerprint".to_string(),
@@ -569,150 +318,27 @@ fn render_reused_subtree(
     })?;
     let _snapshot_fingerprint = fingerprint;
 
-    {
-        #[cfg(feature = "profile")]
-        {
-            let result = match tree.analyze_reuse_state(handle) {
-                AnalyzeReuseState::Fresh => "fresh",
-                AnalyzeReuseState::ReusedFromHistory => "reused",
-                AnalyzeReuseState::CompositeBlocked => "composite_blocked",
-            };
-            event!(
-                target: "render.cache",
-                Level::TRACE,
-                kind = "cache",
-                name = "subtree_snapshot_request_after_analyze",
-                result = result,
-                amount = 1_u64
-            );
-        }
-    }
-
     let has_paint_clip = node.paint_clip.is_some();
     let has_clip = node.clip.is_some();
     let subtree = OrderedSceneProgram::build_subtree(tree, handle);
-    let own_key = node_own_segment_key(node);
-
-    // First, try the node-own cache (keyed by this node's own content only,
-    // independent of child fingerprints). This avoids unnecessary re-recording
-    // of the node's item when only descendants have changed.
-    {
-        let own_hit = cache.node_own_segments.get_cloned(&own_key);
-        if let Some(entry) = own_hit {
-            if let Some(segment) = cache.segments.get_cloned(&entry.segment_key) {
-                #[cfg(feature = "profile")]
-                event!(
-                    target: "render.cache",
-                    Level::TRACE,
-                    kind = "cache",
-                    name = "node_own_segment",
-                    result = "hit",
-                    amount = 1_u64
-                );
-
-                ctx.builder.import_segment(&segment);
-                let updated = CachedNodeOwnIr {
-                    consecutive_hits: entry.consecutive_hits + 1,
-                    ..entry
-                };
-                let report = cache.node_own_segments.insert(own_key, updated);
-                record_cache_pressure("node_own", &report);
-
-                for child in &subtree.children {
-                    render_scene_op(ctx, child, tree, cache)?;
-                }
-                if has_clip {
-                    ctx.builder.push(DrawOp::Restore);
-                }
-                if has_paint_clip {
-                    ctx.builder.push(DrawOp::Restore);
-                }
-                finish_apply_frame(ctx.builder, &apply_frame);
-                return Ok(());
-            }
-        }
-    }
-
-    #[cfg(feature = "profile")]
-    event!(
-        target: "render.cache",
-        Level::TRACE,
-        kind = "cache",
-        name = "node_own_segment",
-        result = "record",
-        amount = 1_u64
-    );
-
-    // Cache miss — record parent's own rendering as a segment
-    #[cfg(feature = "profile")]
-    let _record_span =
-        span!(target: "render.backend", Level::TRACE, "node_own_segment_record").entered();
 
     let recorded = node.recorded_semantics();
 
-    let parent_marker = ctx.builder.begin_range();
     if let Some(clip) = &recorded.paint_clip {
         ctx.builder.push(DrawOp::Save);
         let clip_rect4 = display_rect_to_rect4(clip.bounds);
         clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
     }
-    render_display_item(
-        ctx,
-        recorded.item,
-        recorded.layout_output_fingerprint,
-        cache,
-    )?;
+    render_display_item(ctx, recorded.item)?;
     if let Some(clip) = &recorded.clip {
         ctx.builder.push(DrawOp::Save);
         let clip_rect4 = display_rect_to_rect4(clip.bounds);
         clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
     }
-    let parent_range = ctx.builder.end_range(parent_marker);
 
-    #[cfg(feature = "profile")]
-    drop(_record_span);
-
-    let segment = ctx.builder.snapshot_range(parent_range);
-    // A node-own segment that references a hidden subtree must never be cached:
-    // importing it on a later frame would replay a `SubtreePicture` id that the
-    // current frame's builder never recorded (same root cause as the item-level
-    // guard above). Skip both caches and re-record this node every frame.
-    if !segment.references_subtree {
-        let segment_key = SegmentKey::NodeOwn(own_key);
-
-        cache.segments.insert(segment_key, segment);
-
-        // Also store in node-own cache for reuse when children change but this node doesn't.
-        {
-            let own_snapshot = CachedNodeOwnIr {
-                segment_key,
-                consecutive_hits: 0,
-                recorded_bounds: layer_bounds,
-            };
-            #[cfg(feature = "profile")]
-            let own_report = cache.node_own_segments.insert(own_key, own_snapshot);
-            #[cfg(not(feature = "profile"))]
-            let _own_report = cache.node_own_segments.insert(own_key, own_snapshot);
-            #[cfg(feature = "profile")]
-            {
-                if own_report.replaced {
-                    event!(
-                        target: "render.cache",
-                        Level::TRACE,
-                        kind = "cache",
-                        name = "node_own_segment",
-                        result = "replaced",
-                        amount = 1_u64
-                    );
-                }
-                record_cache_pressure("node_own", &own_report);
-            }
-        }
-    }
-
-    // Render children dynamically (not baked into parent segment)
+    // Render children dynamically.
     for child in &subtree.children {
-        render_scene_op(ctx, child, tree, cache)?;
+        render_scene_op(ctx, child, tree)?;
     }
     if has_clip {
         ctx.builder.push(DrawOp::Restore);
@@ -725,16 +351,11 @@ fn render_reused_subtree(
     Ok(())
 }
 
-fn node_own_segment_key(node: &AnnotatedDisplayNode) -> u64 {
-    DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).0
-}
-
 fn render_live_subtree(
     ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
     children: &[OrderedSceneOp],
     tree: &AnnotatedDisplayTree,
-    cache: &mut draw_cache::RenderCache,
 ) -> Result<(), RenderError> {
     let node = tree.node(handle);
     let draw = node.draw_composite_semantics();
@@ -746,7 +367,7 @@ fn render_live_subtree(
     }
 
     let apply_plan = ApplyPlan::from_draw_composite(draw, tree.layer_bounds(handle));
-    let apply_frame = begin_apply_frame_cached(ctx.builder, &apply_plan, cache);
+    let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
 
     // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item
@@ -766,11 +387,11 @@ fn render_live_subtree(
         }
 
         let from_marker = ctx.builder.begin_range();
-        render_scene_op(ctx, &children[0], tree, cache)?;
+        render_scene_op(ctx, &children[0], tree)?;
         let from_range = ctx.builder.end_range(from_marker);
 
         let to_marker = ctx.builder.begin_range();
-        render_scene_op(ctx, &children[1], tree, cache)?;
+        render_scene_op(ctx, &children[1], tree)?;
         let to_range = ctx.builder.end_range(to_marker);
 
         #[cfg(feature = "profile")]
@@ -806,7 +427,7 @@ fn render_live_subtree(
         let clip_bounds_rect4 = display_rect_to_rect4(clip.bounds);
         clip_bounds_with_radius(ctx.builder, clip_bounds_rect4, &clip.border_radius);
     }
-    render_display_item(ctx, &node.item, node.layout_output_fingerprint, cache)?;
+    render_display_item(ctx, &node.item)?;
 
     if let Some(clip) = &node.clip {
         ctx.builder.push(DrawOp::Save);
@@ -821,7 +442,7 @@ fn render_live_subtree(
     }
 
     for child in children {
-        render_scene_op(ctx, child, tree, cache)?;
+        render_scene_op(ctx, child, tree)?;
     }
 
     if node.clip.is_some() {
@@ -1205,7 +826,7 @@ mod tests {
         },
         layout::tree::LayoutOutputFingerprint,
         semantic::fingerprint::ElementInputFingerprints,
-        style::{BackgroundFill, ColorToken},
+        style::BackgroundFill,
     };
 
     fn rect_node(
@@ -1267,62 +888,6 @@ mod tests {
             transforms: Vec::new(),
             origin: Default::default(),
         }
-    }
-
-    #[test]
-    fn node_own_segment_key_tracks_parent_paint_not_children() {
-        let parent_without_child = rect_node(
-            vec![BackgroundFill::Solid {
-                color: ColorToken::Custom(10, 20, 30, 255),
-            }],
-            transform(0.0, 0.0),
-            Vec::new(),
-        );
-        let parent_with_changed_child = rect_node(
-            vec![BackgroundFill::Solid {
-                color: ColorToken::Custom(10, 20, 30, 255),
-            }],
-            transform(0.0, 0.0),
-            vec![AnnotatedNodeHandle(1)],
-        );
-        let parent_with_changed_paint = rect_node(
-            vec![BackgroundFill::Solid {
-                color: ColorToken::Custom(30, 20, 10, 255),
-            }],
-            transform(0.0, 0.0),
-            vec![AnnotatedNodeHandle(1)],
-        );
-
-        assert_eq!(
-            node_own_segment_key(&parent_without_child),
-            node_own_segment_key(&parent_with_changed_child),
-            "child changes must not invalidate the parent's own segment"
-        );
-        assert_ne!(
-            node_own_segment_key(&parent_without_child),
-            node_own_segment_key(&parent_with_changed_paint),
-            "parent recorded paint changes must invalidate the parent's own segment"
-        );
-    }
-
-    #[test]
-    fn node_own_segment_key_ignores_apply_transform() {
-        let stationary = rect_node(
-            Vec::new(),
-            transform(0.0, 0.0),
-            vec![AnnotatedNodeHandle(1)],
-        );
-        let moved = rect_node(
-            Vec::new(),
-            transform(24.0, 12.0),
-            vec![AnnotatedNodeHandle(1)],
-        );
-
-        assert_eq!(
-            node_own_segment_key(&stationary),
-            node_own_segment_key(&moved),
-            "apply transform is replayed around the segment and must not invalidate it"
-        );
     }
 
     #[test]
@@ -1461,59 +1026,6 @@ mod tests {
     }
 
     #[test]
-    fn apply_prefix_is_admitted_after_repeated_apply_segment_key() {
-        let mut cache = draw_cache::RenderCache::new(16, 16, 16);
-        let transform = transform(7.0, 9.0);
-        let bounds = DisplayRect {
-            x: 0.0,
-            y: 0.0,
-            width: 20.0,
-            height: 10.0,
-        };
-        let css_filter = CssFilter::default();
-        let plan = ApplyPlan {
-            transform: &transform,
-            opacity: 0.75,
-            css_filter: &css_filter,
-            backdrop_blur_sigma: None,
-            layer_bounds: bounds,
-        };
-        let segment_key = apply_segment_key(&plan);
-
-        let mut first_builder = DrawOpBuilder::default();
-        let first_frame = begin_apply_frame_cached(&mut first_builder, &plan, &mut cache);
-        first_builder.push(DrawOp::BeginPath);
-        finish_apply_frame(&mut first_builder, &first_frame);
-        let first_ops = first_builder.finish().ops;
-
-        assert!(
-            cache.apply_segments.get_cloned(&segment_key).is_none(),
-            "first prefix emission should only mark the apply segment as a candidate"
-        );
-
-        let mut second_builder = DrawOpBuilder::default();
-        let second_frame = begin_apply_frame_cached(&mut second_builder, &plan, &mut cache);
-        second_builder.push(DrawOp::BeginPath);
-        finish_apply_frame(&mut second_builder, &second_frame);
-        let second_ops = second_builder.finish().ops;
-
-        assert!(
-            cache.apply_segments.get_cloned(&segment_key).is_some(),
-            "second prefix emission should admit the repeated apply segment"
-        );
-        assert_eq!(first_ops, second_ops);
-
-        let mut third_builder = DrawOpBuilder::default();
-        let third_frame = begin_apply_frame_cached(&mut third_builder, &plan, &mut cache);
-        third_builder.push(DrawOp::BeginPath);
-        finish_apply_frame(&mut third_builder, &third_frame);
-        let third_ops = third_builder.finish().ops;
-
-        assert_eq!(first_ops, second_ops);
-        assert_eq!(first_ops, third_ops);
-    }
-
-    #[test]
     fn apply_plan_is_built_from_draw_composite_semantics() {
         let node = rect_node(Vec::new(), transform(3.0, 4.0), Vec::new());
         let layer_bounds = DisplayRect {
@@ -1535,55 +1047,4 @@ mod tests {
         assert_eq!(plan.transform.translation_y, 4.0);
     }
 
-    #[test]
-    fn apply_plan_segment_key_tracks_draw_time_apply_only() {
-        let mut transform_a = transform(1.0, 2.0);
-        transform_a.transforms = vec![Transform::Scale { value: 1.25 }];
-        let mut transform_b = transform(1.0, 2.0);
-        transform_b.transforms = vec![Transform::Scale { value: 1.25 }];
-        let bounds = DisplayRect {
-            x: 0.0,
-            y: 0.0,
-            width: 100.0,
-            height: 80.0,
-        };
-        transform_a.bounds = bounds;
-        transform_b.bounds = bounds;
-        let css_filter = CssFilter::default();
-        let plan_a = ApplyPlan {
-            transform: &transform_a,
-            opacity: 0.75,
-            css_filter: &css_filter,
-            backdrop_blur_sigma: None,
-            layer_bounds: bounds,
-        };
-        let plan_b = ApplyPlan {
-            transform: &transform_b,
-            opacity: 0.75,
-            css_filter: &css_filter,
-            backdrop_blur_sigma: None,
-            layer_bounds: bounds,
-        };
-
-        assert_eq!(
-            apply_segment_key(&plan_a),
-            apply_segment_key(&plan_b),
-            "same draw-time apply instructions should share an apply segment key"
-        );
-
-        let mut transform_c = transform_b.clone();
-        transform_c.translation_x = 4.0;
-        let plan_c = ApplyPlan {
-            transform: &transform_c,
-            opacity: 0.75,
-            css_filter: &css_filter,
-            backdrop_blur_sigma: None,
-            layer_bounds: bounds,
-        };
-        assert_ne!(
-            apply_segment_key(&plan_a),
-            apply_segment_key(&plan_c),
-            "translation changes should invalidate only the apply segment"
-        );
-    }
 }

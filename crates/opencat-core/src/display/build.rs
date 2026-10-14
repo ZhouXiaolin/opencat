@@ -172,7 +172,9 @@ fn update_or_build(
     stats: &mut DisplayBuildStats,
 ) -> Result<(DisplayNode, CachedDisplayNode)> {
     if let Some(entry) = cached.as_ref() {
-        if cached_matches(entry, element, layout) {
+        if !crate::ablate::ablated(crate::ablate::Ablation::DisplayMerkle)
+            && cached_matches(entry, element, layout)
+        {
             if entry.apply_input_subtree == element.fingerprints.apply_input_subtree {
                 stats.subtree_full_hit_subtrees += 1;
                 stats.subtree_full_hit_nodes += entry.node_count;

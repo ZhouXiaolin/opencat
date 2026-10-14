@@ -434,6 +434,14 @@ fn with_shape_font_system<R>(
 ) -> R {
     let ptr = db as *const fontdb::Database as usize;
     FONT_SYSTEM_CACHE.with(|cell| {
+        if crate::ablate::ablated(crate::ablate::Ablation::FontSystem) {
+            let mut system = FontSystem::new_with_locale_and_db_and_fallback(
+                "en-US".to_string(),
+                db.clone(),
+                ShapingFallback { generic, emoji_first },
+            );
+            return f(&mut system);
+        }
         let mut slot = cell.borrow_mut();
         let cache = slot.get_or_insert_with(|| FontSystemCache {
             db_ptr: ptr,
@@ -471,6 +479,10 @@ thread_local! {
 
 fn with_swash_cache<R>(f: impl FnOnce(&mut SwashCache) -> R) -> R {
     SWASH_CACHE.with(|cell| {
+        if crate::ablate::ablated(crate::ablate::Ablation::Swash) {
+            let mut cache = SwashCache::new();
+            return f(&mut cache);
+        }
         let mut opt = cell.borrow_mut();
         if opt.is_none() {
             *opt = Some(SwashCache::new());

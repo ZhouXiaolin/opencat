@@ -326,14 +326,16 @@ mod app {
         width: i32,
         height: i32,
     ) -> Result<Box<MetalSkiaRenderTarget>> {
-        let raw = window.raw_window_handle();
-        let (ns_window, ns_view) = match raw {
-            RawWindowHandle::AppKit(handle) => (handle.ns_window, handle.ns_view),
+        // raw-window-handle 0.6 dropped `ns_window` and made `ns_view` a
+        // `NonNull`, so the null check is gone with it.
+        let ns_view = match window
+            .window_handle()
+            .map_err(|e| anyhow!("window handle unavailable: {e}"))?
+            .as_raw()
+        {
+            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr(),
             _ => return Err(anyhow!("expected AppKit window handle on macOS")),
         };
-        if ns_window.is_null() || ns_view.is_null() {
-            return Err(anyhow!("AppKit window handles are null"));
-        }
 
         Ok(Box::new(MetalSkiaRenderTarget::new(
             ns_view,

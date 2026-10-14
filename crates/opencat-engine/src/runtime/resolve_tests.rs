@@ -130,8 +130,8 @@ fn timeline_scripts_receive_scene_local_frames() {
     let scene = div()
         .id("scene-b")
         .script_source(
-            r#"var local = Math.abs(ctx.current.time - 4 / 30) < 1e-9;
-var duration = Math.abs(ctx.current.duration - 10 / 30) < 1e-9;
+            r#"var local = Math.abs(ctx.current.time - 9 / 30) < 1e-9;
+var duration = Math.abs(ctx.current.duration - 15 / 30) < 1e-9;
 ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
         )
         .expect("script should compile")
@@ -163,9 +163,16 @@ ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
     )
     .expect("scene should resolve");
 
-    assert_eq!(
-        script_frame_ctx,
-        ScriptFrameCtx::for_segment(&frame_ctx, 15, 10)
+    // scene-b is on screen for the transition it shares with scene-a plus its
+    // own 10 frames: its window starts at frame 10 and runs 15 frames. Its
+    // seconds clock reads from the window's exact start, so it lands on
+    // 19/30 - 10/30 rather than on the quantized frame boundary.
+    assert_eq!(script_frame_ctx.current_frame, 9);
+    assert_eq!(script_frame_ctx.scene_frames, 15);
+    assert!(
+        (script_frame_ctx.current_time_secs - 9.0 / 30.0).abs() < 1e-9,
+        "scene clock should read 9/30s, got {}",
+        script_frame_ctx.current_time_secs
     );
     assert_eq!(resolved.children[0].style.visual.opacity, 0.6);
 }

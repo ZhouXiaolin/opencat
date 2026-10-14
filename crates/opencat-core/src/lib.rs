@@ -4,6 +4,7 @@
 pub use opencat_liangyi;
 
 
+pub mod ablate;
 pub(crate) mod analyze;
 pub mod cache;
 pub mod canvas;

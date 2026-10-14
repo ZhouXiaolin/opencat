@@ -276,7 +276,10 @@ fn glyph_raster(
     gid: GlyphId,
 ) -> Option<Arc<GlyphRaster>> {
     let key = (face, size_px.to_bits(), gid);
-    if let Some(hit) = GLYPH_RASTERS.with(|c| c.borrow().get(&key).cloned()) {
+    let cache_enabled = !crate::ablate::ablated(crate::ablate::Ablation::GlyphRasters);
+    if cache_enabled
+        && let Some(hit) = GLYPH_RASTERS.with(|c| c.borrow().get(&key).cloned())
+    {
         return hit;
     }
     let mut context = ScaleContext::new();
@@ -295,13 +298,15 @@ fn glyph_raster(
             data: Arc::from(image.data.as_slice()),
         }))
     });
-    GLYPH_RASTERS.with(|c| {
-        let mut cache = c.borrow_mut();
-        if cache.len() >= GLYPH_RASTER_CACHE_CAP {
-            cache.clear();
-        }
-        cache.insert(key, raster.clone());
-    });
+    if cache_enabled {
+        GLYPH_RASTERS.with(|c| {
+            let mut cache = c.borrow_mut();
+            if cache.len() >= GLYPH_RASTER_CACHE_CAP {
+                cache.clear();
+            }
+            cache.insert(key, raster.clone());
+        });
+    }
     raster
 }
 

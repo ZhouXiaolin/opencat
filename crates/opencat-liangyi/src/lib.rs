@@ -165,10 +165,23 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
+/// 消融开关（`OC_ABLATE` 含 `liangyi_compile`）。本 crate 不能依赖
+/// opencat-core（core 依赖本 crate），所以直接读环境变量。
+fn ablated() -> bool {
+    static ABLATED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ABLATED.get_or_init(|| {
+        std::env::var("OC_ABLATE")
+            .is_ok_and(|v| v.split(',').any(|t| t.trim() == "liangyi_compile"))
+    })
+}
+
 /// 编译（缓存命中免解析）。脚本每帧重跑，同一 lambda 源码整段渲染期只解析一次。
 pub fn compile(source: &str, spec: &EffectSpec) -> LambdaResult<Arc<Program>> {
     let key = spec.hash_key(source);
-    if let Some(entry) = COMPILE_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+    let cache_enabled = !ablated();
+    if cache_enabled
+        && let Some(entry) = COMPILE_CACHE.with(|c| c.borrow().get(&key).cloned())
+    {
         return match &*entry {
             Ok(program) => Ok(Arc::new(program.clone())),
             Err(e) => Err(e.clone()),
@@ -179,7 +192,9 @@ pub fn compile(source: &str, spec: &EffectSpec) -> LambdaResult<Arc<Program>> {
         Ok(program) => Ok((**program).clone()),
         Err(e) => Err(e.clone()),
     });
-    COMPILE_CACHE.with(|c| c.borrow_mut().insert(key, arc));
+    if cache_enabled {
+        COMPILE_CACHE.with(|c| c.borrow_mut().insert(key, arc));
+    }
     result
 }
 

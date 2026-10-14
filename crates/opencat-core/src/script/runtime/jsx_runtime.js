@@ -37,9 +37,114 @@
     var factories = Object.create(null);
     var factorySource = Object.create(null);
     var hooks = [];
+    // Scene clock stack. Inside a `<tl>`, each scene pushes its own clock
+    // (`{ time, duration, frame }`, scene-local) while its subtree is walked,
+    // so every `use*` registers against the scene it lives in. Outside a
+    // timeline the stack is empty and hooks fall back to `ctx.global`.
+    var sceneStack = [];
     var idCounter = 0;
     var textCounter = 0;
     var currentModule = null;
+
+    // ── scene clocks ────────────────────────────────────────────────
+    // Inside a `<tl>`, each scene owns a clock. It mirrors Rust's
+    // `ScriptFrameCtx::for_segment`: scene-local frame counts are quantized by
+    // duration and CLAMPED — 0 before the scene starts, frozen on its last
+    // frame once the playhead passes it. So a scene's hook always reads its own
+    // clock, whatever frame is being rendered.
+    function durationToFrames(dur, fps) {
+        if (!isFinite(dur) || dur <= 0) return 0;
+        return Math.max(1, Math.ceil(dur * fps - 1e-6));
+    }
+
+    function metaFps() {
+        var meta = globalThis.__ocMeta || {};
+        var fps = Number(meta.fps);
+        return isFinite(fps) && fps > 0 ? fps : 30;
+    }
+
+    function makeSceneClock(cell) {
+        function localFrame() {
+            var g = globalThis.ctx.global;
+            var maxLocal = cell.sceneFrames > 0 ? cell.sceneFrames - 1 : 0;
+            var cur = g.frame - cell.startFrame;
+            if (cur < 0) cur = 0;
+            if (cur > maxLocal) cur = maxLocal;
+            return cur;
+        }
+        return {
+            get time() { return localFrame() / cell.fps; },
+            get duration() { return cell.sceneFrames / cell.fps; },
+            get frame() { return localFrame(); },
+        };
+    }
+
+    // Tween progress is computed in Rust from the store's frame. Tell it which
+    // frame to use: the scene-local one when a clock is given, the composition
+    // frame otherwise. Every hook and every timeline flush brackets itself with
+    // this so a scene's tweens advance on the scene's clock, not the
+    // composition's. `__ocScriptFrame` mirrors the value in JS so a nested
+    // bracket (a hook's own `ctx.fromTo` flushing pending timelines) can save
+    // and restore it.
+    function setScriptFrame(clock) {
+        var frame = clock ? clock.frame : -1;
+        globalThis.__ocScriptFrame = frame;
+        if (globalThis.__set_script_frame) globalThis.__set_script_frame(frame);
+    }
+    globalThis.__ocSetScriptFrame = setScriptFrame;
+
+    // Call through component wrappers to the value a scene renders. Calling a
+    // component is what registers its hooks, so this MUST run with the scene's
+    // clock already pushed onto `sceneStack`.
+    function resolveSceneValue(el) {
+        var guard = 0;
+        while (guard++ < 64) {
+            if (el && el.__ocEl === true && typeof el.tag === 'function') {
+                el = el.tag(el.props);
+                continue;
+            }
+            break;
+        }
+        return el;
+    }
+
+    // The `duration` of the single element a `<tl>` child renders. A `<tl>`
+    // child is one timeline segment, so it MUST render exactly one element with
+    // a duration — a fragment or array wrapping several roots has no
+    // well-defined segment length, and silently reading the first root's
+    // duration would shift every later scene's start frame. Unwraps arrays and
+    // fragments WITHOUT calling a component, so a component is never invoked
+    // twice; components are already unwrapped by `resolveSceneValue`.
+    function sceneDuration(el) {
+        function multiRoot() {
+            throw new Error(
+                'use: a <tl> child must render exactly one element (a scene renders one root)'
+            );
+        }
+        var guard = 0;
+        while (guard++ < 64) {
+            if (Array.isArray(el)) {
+                if (el.length !== 1) multiRoot();
+                el = el[0];
+                continue;
+            }
+            if (el && el.__ocEl === true && el.tag === FRAGMENT) {
+                if (el.children.length !== 1) multiRoot();
+                el = el.children[0];
+                continue;
+            }
+            break;
+        }
+        if (!el || el.__ocEl !== true) multiRoot();
+        var duration = num(el.props && el.props.duration);
+        if (duration === undefined) {
+            throw new Error(
+                'use: <tl> sequence `' + String(el.props && el.props.id) +
+                '` is missing a duration'
+            );
+        }
+        return duration;
+    }
 
     // ── element factory ──────────────────────────────────────────────
     function flattenInto(value, out) {
@@ -138,14 +243,40 @@
     globalThis.__ocResetFrame = function () {
         modules = Object.create(null);
         hooks.length = 0;
+        sceneStack.length = 0;
         idCounter = 0;
         textCounter = 0;
     };
 
-    globalThis.__ocOnFrame = function (fn) { hooks.push(fn); };
+    // Register a per-frame hook. The scene clock in effect right now (the
+    // scene whose subtree is being walked) is captured with the hook, so the
+    // hook can be replayed later against its own scene rather than whichever
+    // scene the frame happens to render.
+    globalThis.__ocOnFrame = function (fn) {
+        hooks.push({
+            fn: fn,
+            clock: sceneStack.length ? sceneStack[sceneStack.length - 1] : null,
+        });
+    };
 
     globalThis.__ocRunFrameHooks = function () {
-        for (var i = 0; i < hooks.length; i++) hooks[i](globalThis.ctx);
+        var ctx = globalThis.ctx;
+        for (var i = 0; i < hooks.length; i++) {
+            var hook = hooks[i];
+            var saved = ctx.current;
+            var savedFrame = globalThis.__ocScriptFrame;
+            try {
+                ctx.current = hook.clock || ctx.global;
+                setScriptFrame(hook.clock);
+                hook.fn(ctx);
+            } finally {
+                ctx.current = saved;
+                globalThis.__ocScriptFrame = savedFrame;
+                if (globalThis.__set_script_frame) {
+                    globalThis.__set_script_frame(savedFrame != null ? savedFrame : -1);
+                }
+            }
+        }
     };
 
     // ── use* registry ───────────────────────────────────────────────
@@ -164,7 +295,7 @@
             var id = String(node.props.id);
             var canvas = globalThis.ctx.getCanvasById(id);
             augmentCanvas(canvas, id);
-            draw(canvas, globalThis.ctx.currentTime, globalThis.ctx);
+            draw(canvas, globalThis.ctx.current.time, globalThis.ctx);
         });
     }
 
@@ -218,7 +349,7 @@
                     (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
                 );
             }
-            build(globalThis.ctx.three, node, globalThis.ctx.currentTime, globalThis.ctx);
+            build(globalThis.ctx.three, node, globalThis.ctx.current.time, globalThis.ctx);
         });
     }
 
@@ -227,13 +358,13 @@
     // the driver, exactly like the XML <script> block.
     function useGSAP(build) {
         globalThis.__ocOnFrame(function () {
-            build(globalThis.ctx, globalThis.ctx.currentTime);
+            build(globalThis.ctx, globalThis.ctx.current.time);
         });
     }
 
     function useFrame(build) {
         globalThis.__ocOnFrame(function () {
-            build(globalThis.ctx, globalThis.ctx.currentTime);
+            build(globalThis.ctx, globalThis.ctx.current.time);
         });
     }
 
@@ -274,9 +405,53 @@
         else line.path = src;
     }
 
-    function emitElement(el, parentId, lines) {
+    // A `<tl>` owns the scene clocks. Walk its direct children in order,
+    // alternating scenes and transitions (the timeline grammar). A scene runs
+    // its component with the scene clock pushed, so its hooks bind to the scene;
+    // its `duration` is read from the returned value afterwards. Transitions
+    // advance the cursor without owning a clock.
+    function emitTimeline(el, parentId, lines, audioSites) {
+        var props = el.props || {};
+        var id = String(props.id);
+        var line = { type: 'tl', id: id };
+        if (parentId) line.parentId = parentId;
+        if (props.class || props.className) line.className = props.class || props.className;
+        var tlDuration = num(props.duration);
+        if (tlDuration !== undefined) line.duration = tlDuration;
+        if (props.audioId && audioSites) audioSites.push({ nodeId: id, audioId: String(props.audioId) });
+        if (lines) lines.push(line);
+
+        var fps = metaFps();
+        var cursorFrame = 0;
+        var children = el.children || [];
+        for (var i = 0; i < children.length; i++) {
+            var child = children[i];
+            var cell = { startFrame: cursorFrame, sceneFrames: 0, fps: fps };
+            // Push the scene clock while its subtree is walked. A component
+            // invoked here registers its hooks against this clock; the clock
+            // reads `ctx.global.frame` lazily, so `cell.sceneFrames` being
+            // filled in only after the call is fine.
+            sceneStack.push(makeSceneClock(cell));
+            var value;
+            try {
+                value = resolveSceneValue(child);
+                cell.sceneFrames = durationToFrames(sceneDuration(value), fps);
+                emitElement(value, id, lines, audioSites);
+            } finally {
+                sceneStack.pop();
+            }
+            // Every direct child consumes timeline time: scenes by their own
+            // duration, transitions by theirs. This matches Rust's segment
+            // layout, where a scene's `start_frame` is the sum of every earlier
+            // segment (scenes AND transitions).
+            cursorFrame += cell.sceneFrames;
+        }
+        return id;
+    }
+
+    function emitElement(el, parentId, lines, audioSites) {
         if (Array.isArray(el)) {
-            for (var a = 0; a < el.length; a++) emitElement(el[a], parentId, lines);
+            for (var a = 0; a < el.length; a++) emitElement(el[a], parentId, lines, audioSites);
             return parentId;
         }
         if (typeof el === 'string' || typeof el === 'number') {
@@ -289,16 +464,23 @@
         }
         if (typeof el.tag === 'function') {
             // Component element: invoke with its props and splice the result in.
-            return emitElement(el.tag(el.props), parentId, lines);
+            return emitElement(el.tag(el.props), parentId, lines, audioSites);
         }
         if (el.tag === FRAGMENT) {
-            for (var f = 0; f < el.children.length; f++) emitElement(el.children[f], parentId, lines);
+            for (var f = 0; f < el.children.length; f++) emitElement(el.children[f], parentId, lines, audioSites);
             return parentId;
+        }
+        if (el.tag === 'tl') {
+            return emitTimeline(el, parentId, lines, audioSites);
         }
         var props = el.props || {};
         var id = String(props.id);
         var line = { type: el.tag, id: id };
         if (parentId) line.parentId = parentId;
+        // `audioId` attaches a pooled `export const audio` source to wherever it
+        // is written: a `<tl>` plays it across the whole timeline, a scene plays
+        // it inside that scene. Recorded here, resolved on the Rust side.
+        if (props.audioId && audioSites) audioSites.push({ nodeId: id, audioId: String(props.audioId) });
         var className = props.class || props.className;
         if (className) line.className = className;
         var duration = num(props.duration);
@@ -383,15 +565,15 @@
                 break;
         }
         if (lines) lines.push(line);
-        for (var c = 0; c < el.children.length; c++) emitElement(el.children[c], id, lines);
+        for (var c = 0; c < el.children.length; c++) emitElement(el.children[c], id, lines, audioSites);
         return id;
     }
 
     // Walk a rendered tree. With `lines` null this is the per-frame walk: it
     // invokes every component function (so `use*` calls register their drivers)
     // without emitting anything.
-    globalThis.__ocWalkTree = function (root, lines) {
-        emitElement(root, null, lines || null);
+    globalThis.__ocWalkTree = function (root, lines, audioSites) {
+        emitElement(root, null, lines || null, audioSites || null);
     };
 
     globalThis.__ocExtract = function (entrySpec) {
@@ -403,7 +585,8 @@
             throw new Error('use: entry module has no default export');
         }
         var lines = [];
-        emitElement(root, null, lines);
-        return { meta: meta, fonts: entryExports.fonts, lines: lines };
+        var audioSites = [];
+        emitElement(root, null, lines, audioSites);
+        return { meta: meta, fonts: entryExports.fonts, audio: entryExports.audio, audioSites: audioSites, lines: lines };
     };
 })();

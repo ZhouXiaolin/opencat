@@ -259,7 +259,7 @@ fn realm_accepts_out_of_order_and_repeated_frames() {
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
     let driver = realm
-        .install("ctx.getNode('box').opacity(ctx.currentFrame / 10);")
+        .install("ctx.getNode('box').opacity(ctx.current.frame / 10);")
         .expect("install");
 
     let run = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| {
@@ -309,7 +309,7 @@ fn cross_frame_global_state_does_not_affect_determinism() {
     let driver = realm
         .install(
             "globalThis.counter = (globalThis.counter || 0) + 1;\
-             ctx.getNode('box').opacity(ctx.currentFrame / 10);",
+             ctx.getNode('box').opacity(ctx.current.frame / 10);",
         )
         .expect("install");
 
@@ -888,8 +888,8 @@ fn three_like_api_commits_scene3_snapshot_per_frame() {
         pivot.add(new T.Mesh(new T.BoxGeometry(1, 1, 1), mat));
         scene.add(hemi, light, pivot);
         const renderer = new T.Renderer('c3d', 320, 180);
-        pivot.rotation.y = ctx.frame * 0.1;
-        mat.noiseTime = ctx.frame * 0.05;
+        pivot.rotation.y = ctx.global.frame * 0.1;
+        mat.noiseTime = ctx.global.frame * 0.05;
         renderer.render(scene, camera);
     "#;
     let (mut realm, driver) = open_with_source(source);
@@ -1038,7 +1038,7 @@ fn three_like_api_commits_scene3_snapshot_per_frame() {
         other => panic!("expected inline geometry, got {other:?}"),
     }
 
-    // 下一帧重提交：快照随帧变化（rotation 随 ctx.frame）。
+    // 下一帧重提交：快照随帧变化（rotation 随 ctx.global.frame）。
     let next = run_driver(&mut realm, driver, 60, None);
     let next_scene = next.snapshot_mutations().scene3_mutations.remove("c3d").unwrap();
     assert!(
@@ -1238,7 +1238,7 @@ fn three_like_shader_material_adapts_glsl_and_commits() {
         mesh.position.set(0, 0, -3.5);
         scene.add(mesh);
         const renderer = new T.Renderer('c3d', 64, 64);
-        mat.uniforms.uFade.value = 1 - ctx.frame * 0.25;   // js:527 的对应物
+        mat.uniforms.uFade.value = 1 - ctx.global.frame * 0.25;   // js:527 的对应物
         renderer.render(scene, camera);
     "#;
     let (mut realm, driver) = open_with_source(source);

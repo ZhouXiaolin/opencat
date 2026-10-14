@@ -133,4 +133,8 @@ pub trait MutationRecorder {
     fn clear_text_sources(&mut self);
     fn get_text_source(&self, id: &str) -> Option<&ScriptTextSource>;
     fn current_frame(&self) -> u32;
+    /// Frame used to evaluate tween progress: the scene-local override when set
+    /// (JSX `<tl>` scenes), otherwise the composition frame.
+    fn script_frame(&self) -> u32;
+    fn set_frame_override(&mut self, frame: Option<u32>);
 }

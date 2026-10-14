@@ -306,7 +306,7 @@ mod tests {
         assert!(sksl.contains("half4 main(float2 xy)"), "{sksl}");
     }
 
-    /// skill/references/templates.md §7 示例（subtree 纹理 + lambda 波形位移）。
+    /// skills/opencat-creator/references/templates.md §7 示例（subtree 纹理 + lambda 波形位移）。
     #[test]
     fn templates_wave_lambda_lowers_to_sksl() {
         const WAVE: &str =
@@ -554,7 +554,7 @@ mod tests {
         mask
     }
 
-    /// 与 k3-promo.xml 场构建 lambda 完全一致的 JS lambda 源（打包：R=mask、
+    /// 与 k3-promo.jsx 场构建 lambda 完全一致的 JS lambda 源（打包：R=mask、
     /// G/B = 距离低/高字节）。
     const FIELD_SEED: &str = "(uv, src) => { const c = src.eval(uv); const m = byte(c.a * 255 + 0.5); const d = m > 120 ? 0 : 3000; return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1]; }";
     const FIELD_FWD: &str = "(get) => { const c = get(0, 0); const d = byte(c.g * 255 + 0.5) + byte(c.b * 255 + 0.5) * 256; const l = get(-1, 0); const t = get(0, -1); const tl = get(-1, -1); const tr = get(1, -1); const m = min(min(d, byte(l.g * 255 + 0.5) + byte(l.b * 255 + 0.5) * 256 + 3), min(byte(t.g * 255 + 0.5) + byte(t.b * 255 + 0.5) * 256 + 3, min(byte(tl.g * 255 + 0.5) + byte(tl.b * 255 + 0.5) * 256 + 4, byte(tr.g * 255 + 0.5) + byte(tr.b * 255 + 0.5) * 256 + 4))); return [c.r, m % 256 / 255, floor(m / 256) / 255, 1]; }";

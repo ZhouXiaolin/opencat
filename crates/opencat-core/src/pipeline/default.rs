@@ -371,8 +371,11 @@ mod tests {
 
         let mut pipeline = open_test_pipeline(jsonl);
 
+        // scene-2 is on screen for the transition it shares with scene-1 plus
+        // its own 2s, so its window starts at 2.0s (frame 20 at 10fps) and its
+        // `data-start` of 0.5s lands on frame 25.
         let before_frame = pipeline
-            .render_frame(25)
+            .render_frame(24)
             .expect("render frame before data-start");
         assert!(
             before_frame.media.video_frames.is_empty(),
@@ -380,7 +383,7 @@ mod tests {
         );
 
         let start_frame = pipeline
-            .render_frame(26)
+            .render_frame(25)
             .expect("render frame at data-start");
         let crate::ir::draw_types::ImageRef::VideoFrame {
             time_micros: start_time_micros,
@@ -391,7 +394,7 @@ mod tests {
         };
         assert_eq!(*start_time_micros, 12_000_000);
 
-        let later_frame = pipeline.render_frame(31).expect("render later frame");
+        let later_frame = pipeline.render_frame(30).expect("render later frame");
         let crate::ir::draw_types::ImageRef::VideoFrame {
             time_micros: later_time_micros,
             ..

@@ -149,6 +149,7 @@ fn hash_transition_kind<H: Hasher>(kind: &crate::parse::transition::TransitionKi
         }
         crate::parse::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
         crate::parse::transition::TransitionKind::Iris => 6_u8.hash(state),
+        crate::parse::transition::TransitionKind::Cut => 7_u8.hash(state),
     }
 }
 

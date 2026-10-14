@@ -584,6 +584,10 @@ fn render_transition_composite(
             ctx.builder.push(DrawOp::ReplayRange { range: to_range });
             ctx.builder.push(DrawOp::Restore);
         }
+        // No effect: the incoming scene covers the outgoing one outright.
+        TransitionKind::Cut => {
+            ctx.builder.push(DrawOp::ReplayRange { range: to_range });
+        }
     }
 }
 

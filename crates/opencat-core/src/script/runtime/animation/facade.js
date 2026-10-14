@@ -314,6 +314,7 @@
                 var clock = state.clock || ctx.current || ctx.global || { time: 0, duration: 0 };
                 var savedCurrent = ctx.current;
                 var savedFrame = globalThis.__ocScriptFrame;
+                var savedTime = globalThis.__ocScriptTimeSecs;
                 try {
                     ctx.current = clock;
                     // Tween progress is computed Rust-side from the store frame;
@@ -354,8 +355,12 @@
                 } finally {
                     ctx.current = savedCurrent;
                     globalThis.__ocScriptFrame = savedFrame;
+                    globalThis.__ocScriptTimeSecs = savedTime;
                     if (globalThis.__set_script_frame) {
                         globalThis.__set_script_frame(savedFrame != null ? savedFrame : -1);
+                    }
+                    if (globalThis.__set_script_time_secs) {
+                        globalThis.__set_script_time_secs(savedTime != null ? savedTime : -1);
                     }
                 }
                 state.items = [];

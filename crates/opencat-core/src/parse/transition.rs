@@ -14,6 +14,10 @@ pub enum TransitionKind {
     Wipe(WipeDirection),
     ClockWipe,
     Iris,
+    /// No effect: the incoming scene is drawn fully over the outgoing one for
+    /// the whole span. The overlap still counts as time, so this is how a hard
+    /// cut between two scenes that must overlap is expressed.
+    Cut,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -65,6 +69,7 @@ enum Presentation {
     Wipe(WipeDirection),
     ClockWipe,
     Iris,
+    Cut,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -111,6 +116,9 @@ pub struct SlideBuilder {
 
 #[derive(Clone, Copy)]
 pub struct FadeBuilder;
+
+#[derive(Clone, Copy)]
+pub struct CutBuilder;
 
 #[derive(Clone, Copy)]
 pub struct WipeBuilder {
@@ -223,6 +231,7 @@ impl Transition {
             Presentation::Wipe(dir) => TransitionKind::Wipe(*dir),
             Presentation::ClockWipe => TransitionKind::ClockWipe,
             Presentation::Iris => TransitionKind::Iris,
+            Presentation::Cut => TransitionKind::Cut,
         }
     }
 }
@@ -262,6 +271,16 @@ impl FadeBuilder {
     pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
         Transition {
             presentation: Presentation::Fade,
+            easing,
+            duration_secs: sanitize_duration_secs(duration_secs),
+        }
+    }
+}
+
+impl CutBuilder {
+    pub fn timing(self, easing: Easing, duration_secs: f64) -> Transition {
+        Transition {
+            presentation: Presentation::Cut,
             easing,
             duration_secs: sanitize_duration_secs(duration_secs),
         }
@@ -385,6 +404,12 @@ pub fn slide() -> SlideBuilder {
 
 pub fn fade() -> FadeBuilder {
     FadeBuilder
+}
+
+/// A transition that consumes time but applies no effect: the incoming scene
+/// is simply drawn over the outgoing one.
+pub fn cut() -> CutBuilder {
+    CutBuilder
 }
 
 pub fn wipe() -> WipeBuilder {

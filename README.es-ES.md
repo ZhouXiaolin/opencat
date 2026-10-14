@@ -3,7 +3,7 @@
 
 # OpenCat
 
-### Escribe videos en XML, renderiza con Rust, un comando a MP4.
+### Escribe videos en JSX, renderiza con Rust, un comando a MP4.
 
 <p align="center">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-edition_2024-ce422b?style=flat-square" />
@@ -23,30 +23,22 @@
 
 </div>
 
-XML define escenas, animaciones y diseños. Skia GPU renderiza, FFmpeg codifica a MP4: determinista, multiplataforma y consistente entre máquinas. Sin instantáneas de Chromium, sin Puppeteer, sin un pipeline de renderizado Web sobrecargado.
+JSX define escenas, animaciones y diseños. Skia GPU renderiza, FFmpeg codifica a MP4: determinista, multiplataforma y consistente entre máquinas. Sin instantáneas de Chromium, sin Puppeteer, sin un pipeline de renderizado Web sobrecargado.
 
-Un video es simplemente un archivo XML (esta es la escena A de [`examples/k3-promo.xml`](examples/k3-promo.xml), el spot de arriba):
+Un video es simplemente un archivo JSX (esta es la escena A de [`examples/k3-promo/k3-promo.jsx`](examples/k3-promo/k3-promo.jsx), el spot de arriba):
 
-```xml
-<opencat width="1920" height="1080" fps="30" duration="16.4667">
-  <fonts default="k3-sans">
-    <font id="k3-sans" family="Inter" path="assets/Inter-Regular.ttf" role="sans" />
-  </fonts>
-  <template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+```jsx
+import { useGSAP } from 'opencat/runtime';
 
-  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden">
-    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
-      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
-        <div id="afield" class="absolute inset-0"><stage-canvas id="afield-canvas" /></div>
-        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
-          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
-          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
-        </div>
-      </div>
-    </div>
-  </div>
-  <script>
-    var T = ctx.time;                       // segundos a lo largo de los 16.4667s
+export const meta = { width: 1920, height: 1080, fps: 30, duration: 16.4667 };
+
+function StageCanvas({ id }) {
+  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
+}
+
+function SceneA() {
+  useGSAP((ctx) => {
+    var T = ctx.global.time;                 // segundos a lo largo de los 16.4667s
     ctx.getNode('sceneA').opacity(T >= 0.75 && T < 4.62 ? 1 : 0);
     if (T >= 0.75 && T < 4.62) {
       ctx.timeline()
@@ -54,12 +46,27 @@ Un video es simplemente un archivo XML (esta es la escena A de [`examples/k3-pro
         .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
         .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
     }
-  </script>
-</opencat>
+  });
+  return (
+    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
+      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
+        <div id="afield" class="absolute inset-0"><StageCanvas id="afield-canvas" /></div>
+        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
+          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
+          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function K3Promo() {
+  return <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden"><SceneA /></div>;
+}
 ```
 
 ```bash
-cargo run --bin opencat -- examples/k3-promo.xml
+cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 ```
 
 MP4 listo. Sin navegador, sin capturas de pantalla, sin GUI necesaria.
@@ -75,7 +82,7 @@ MP4 listo. Sin navegador, sin capturas de pantalla, sin GUI necesaria.
 | **Animation** | Custom GSAP-compatible API (80%+ coverage) | Direct GSAP / anime.js |
 | **Browser render** | WASM + CanvasKit | Native |
 | **Deterministic** | ✅ Consistente entre máquinas | ❌ |
-| **AI-friendly** | XML/JSONL declarativo | JSX/HTML, más complejo |
+| **AI-friendly** | JSX declarativo | JSX/HTML, más complejo |
 
 Remotion reutiliza el ecosistema Web, pero la instantánea de Chrome tiene limitaciones inherentes: acceso a GPU restringido, alta sobrecarga de memoria, tasas de fotogramas limitadas y requiere Chromium en la implementación. OpenCat llama a GPU y FFmpeg de forma nativa, con un límite de rendimiento un orden de magnitud superior.
 
@@ -84,7 +91,7 @@ Remotion reutiliza el ecosistema Web, pero la instantánea de Chrome tiene limit
 ### Animación declarativa, API de nivel GSAP
 
 ```js
-// Línea de tiempo declarativa — escena A de examples/k3-promo.xml
+// Línea de tiempo declarativa — escena A de examples/k3-promo/k3-promo.jsx
 ctx.timeline()
   .set('azoom', { scale: 1.07 }, 0.933)
   .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
@@ -103,40 +110,47 @@ parts.forEach(function (p, i) {
 
 ### Líneas de tiempo multi-escena + transiciones
 
-```xml
+```jsx
 <tl id="main-tl">
-  <div id="scene1" duration="4">...</div>
+  <Scene1 />                                             {/* duration="4" en su raíz */}
   <transition from="scene1" to="scene2" effect="fade" duration="0.6" />
-  <div id="scene2" duration="4">...</div>
+  <Scene2 />                                             {/* duration="4" en su raíz */}
 </tl>
 ```
 
+Cada escena es un componente cuyo nodo raíz lleva el `duration`. Los hooks de una escena se enlazan al reloj de esa escena, así que `ctx.current.time` empieza en 0 cuando la escena se vuelve visible: sin llevar la cuenta manual de tiempos de inicio, y las transiciones no lo desplazan.
+
 Integrado: fade / slide / wipe / clock_wipe / iris / light_leak, con soporte para shaders GLSL personalizados.
 
-### Plantillas XML — componentes reutilizables con slots y variables
+### Componentes — bloques reutilizables
 
-Define componentes reutilizables con `<template>`, parametriza con `$variable` y compón con `<slot>`. `k3-promo` extrae seis bloques compartidos del árbol de nodos — se analizan una vez y se expanden a nodos planos antes de renderizar:
+Cualquier función JSX es un componente. `k3-promo` extrae seis bloques compartidos del árbol de nodos: los props sustituyen a los antiguos parámetros de plantilla:
 
-```xml
-<template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
-<template name="cdot"><div id="$id" class="absolute w-[$s] h-[$s] bg-[$c]"></div></template>
-<template name="agent-pill"><div id="$id" class="absolute opacity-0"><div id="$id-box" class="px-[14px] py-[10px] border-[1.5px] border-[#dcdcde]">…</div></div></template>
+```jsx
+function StageCanvas({ id }) {
+  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
+}
+function Cdot({ id, s, c }) {
+  return <div id={id} class={'absolute w-[' + s + '] h-[' + s + '] bg-[' + c + ']'} />;
+}
 
-<!-- los puntos de llamada solo pasan las diferencias -->
-<stage-canvas id="afield-canvas" />
-<cdot id="a-tl" s="13px" c="#d8d8da" />
-<agent-pill id="ap1" t="Agentic" />
+// los puntos de llamada solo pasan las diferencias
+<StageCanvas id="afield-canvas" />
+<Cdot id="a-tl" s="13px" c="#d8d8da" />
 ```
 
-Las plantillas se expanden en tiempo de análisis: costo en tiempo de ejecución cero, totalmente composables y admiten anidamiento. Un `<slot>` compone contenido desde el punto de llamada:
+Los componentes se componen anidando, y `props.children` compone contenido desde el punto de llamada:
 
-```xml
-<template name="card">
-  <div class="w-[400px] rounded-xl bg-$bg p-6"><h2 class="text-$titleColor">$title</h2><slot name="body" /></div>
-</template>
-<card bg="white" titleColor="gray-900" title="Hello">
-  <slot name="body"><p class="text-gray-500">Contenido de la tarjeta.</p></slot>
-</card>
+```jsx
+function Card({ bg, title, children }) {
+  return <div class={'w-[400px] rounded-xl p-6 ' + bg}>
+    <text class="text-[20px] font-bold">{title}</text>
+    {children}
+  </div>;
+}
+<Card bg="bg-white" title="Hello">
+  <text class="text-gray-500">Contenido de la tarjeta.</text>
+</Card>
 ```
 
 ### Renderizado WASM en el navegador
@@ -145,9 +159,9 @@ Las plantillas se expanden en tiempo de análisis: costo en tiempo de ejecución
 import { initWasm, preloadAssets, getRendererOrThrow, exportMp4 } from 'opencat-web';
 
 await initWasm();
-const catalog = await preloadAssets(xmlContent);
+const catalog = await preloadAssets(jsxContent);
 const renderer = getRendererOrThrow();
-renderer.build_frame(xmlContent, frameNumber, canvas, catalog);
+renderer.build_frame(jsxContent, frameNumber, canvas, catalog);
 await exportMp4({ /* ... */ });
 ```
 
@@ -155,7 +169,7 @@ WASM y CanvasKit puros, sin servidor necesario.
 
 ### HTML en Canvas — Muestreo de Textura de Subárbol
 
-El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código, lo baja automáticamente a SKSL o lo despacha al renderizador de CPU, y no codifica rígidamente ningún algoritmo de efecto). Las superficies offscreen (`ctx.createSurface`) sirven también como **render targets** para datos que se construyen una vez y se muestrean por fotograma. La escena H de `examples/k3-promo.xml` construye todo su campo de distancia de disolución en JS:
+El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código, lo baja automáticamente a SKSL o lo despacha al renderizador de CPU, y no codifica rígidamente ningún algoritmo de efecto). Las superficies offscreen (`ctx.createSurface`) sirven también como **render targets** para datos que se construyen una vez y se muestrean por fotograma. La escena H de `examples/k3-promo/k3-promo.jsx` construye todo su campo de distancia de disolución en JS:
 
 ```js
 // 1) rasteriza el lockup una sola vez en una superficie offscreen
@@ -192,7 +206,7 @@ var DIS = ly.pixel((uv, field, u) => {
 paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
 ```
 
-Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Los búferes de píxeles nunca cruzan el puente JS y el lado Rust solo tiene un **ejecutor genérico**: `target.run` reescribe con un kernel pixel, `target.sweep` recorre in situ con un kernel scan y `surface.bake(key)` registra los píxeles como imagen del fotograma para muestreo por shader. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando. Referencia: `examples/k3-promo.xml` escena H; guía: `skill/references/canvaskit.md`.
+Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Los búferes de píxeles nunca cruzan el puente JS y el lado Rust solo tiene un **ejecutor genérico**: `target.run` reescribe con un kernel pixel, `target.sweep` recorre in situ con un kernel scan y `surface.bake(key)` registra los píxeles como imagen del fotograma para muestreo por shader. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando. Referencia: `examples/k3-promo/k3-promo.jsx` escena H; guía: `skills/opencat-creator/references/canvaskit.md`.
 
 ### Más
 
@@ -206,28 +220,27 @@ Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shade
 
 ```bash
 # Renderizar MP4 (el spot de arriba)
-cargo run --bin opencat -- examples/k3-promo.xml
+cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 
 # Visor de vista previa de escritorio (macOS / Windows / Linux)
-cargo run --bin opencat-see -- path/to/input.xml
+cargo run --bin opencat-see -- path/to/input.jsx
 ```
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requiere un entorno `Cross-Origin-Isolated`.
 
 ### Alineación Engine / Web (métricas de píxel k3diff)
 
-Comparación píxel a píxel del Skia nativo vs WASM CanvasKit con ChromeDriver usando métricas de píxel duras (`mae`/`maxd`/`p8`, no SSIM). También puede comparar el render web directamente contra el video de referencia original con `--reference`. Pasos completos: **[Guía de Desarrollo](DEVELOPMENT.md#engine--web-pixel-alignment-k3diff-frame-oracle)**.
+Comparación píxel a píxel del Skia nativo vs WASM CanvasKit con ChromeDriver usando métricas de píxel duras (`mae`/`maxd`/`p8`, no SSIM), con `tools/k3diff.py`. También puede comparar el render web directamente contra el video de referencia original con `opencat-web-compare --reference`.
 
 ```bash
-# 1) multimedia usada por los ejemplos (profile-showcase carga http://127.0.0.1:8080/...)
+# 1) multimedia usada por las composiciones del oráculo (carga http://127.0.0.1:8080/...)
 #    sirva tu árbol de mp4/png/mp3 en :8080
 
 # 2) construir la fachada web (wasm + JS + web-demuxer.wasm → dist/)
 cd crates/opencat-web/web && npm run build && cd -
 
-# 3) oráculo multi-frame (0–413, paso 10) — necesita Chrome + chromedriver + ffmpeg
-cargo test chromedriver_profile_showcase_all_frames_matches_engine \
-  --package opencat-engine --lib -- --ignored --nocapture
+# 3) oráculo multi-frame — necesita Chrome + chromedriver + ffmpeg
+cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
 ```
 
 Los fallos generan `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`.
@@ -236,7 +249,7 @@ Los fallos generan `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff
 <summary><strong>Arquitectura</strong></summary>
 
 ```
-XML ──→ Taffy layout ──→ Skia render ──→ encode → MP4
+JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
               ↑
          QuickJS animation scripts
 ```
@@ -253,7 +266,7 @@ opencat
 │   ├── opencat-web/       # WASM: browser render + export
 │   └── opencat/           # CLI entry
 ├── web/                   # Web video editor
-└── examples/                  # Example XML files
+└── examples/                  # Example JSX files
 ```
 
 </details>
@@ -363,13 +376,13 @@ cargo build --release --bin opencat
 El binario se encuentra en `target/release/opencat`. Renderiza un video:
 
 ```bash
-cargo run --release --bin opencat -- examples/profile-showcase.xml
+cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
 ```
 
 **Visor de vista previa de escritorio (macOS / Windows / Linux):**
 
 ```bash
-cargo run --release --bin opencat-see -- path/to/input.xml
+cargo run --release --bin opencat-see -- path/to/input.jsx
 ```
 
 **Web (WASM):**
@@ -392,24 +405,20 @@ No se necesitan las variables de entorno `ffmpegDir` o `SKIA_BINARIES_URL` en un
 
 ## A quién va dirigido
 
-- **Tuberías de video con IA**: el modelo genera XML, el motor renderiza el video, costo de integración mínimo
+- **Tuberías de video con IA**: el modelo genera JSX, el motor renderiza el video, costo de integración mínimo
 - **Aplicaciones Web**: renderizado/edición de video en el navegador, sin necesidad de servidor
 - **Animación procedural**: renderizado acelerado por GPU determinista, consistente entre máquinas
-- **Producción por lotes**: video basado en plantillas, cambiar datos = cambiar XML
+- **Producción por lotes**: video basado en componentes, cambiar props = otro video
 
 ## Referencias
 
-- [Referencia de formato XML](skill/references/opencat.md)
-- [Sistema de Animación](skill/references/animations.md)
-- [Transiciones](skill/references/transitions.md)
-- [API de Canvas](skill/references/canvaskit.md)
-- [Plantillas](skill/references/templates.md)
-- [Principios de Diseño](skill/references/design-principles.md)
-- [Guía de Desarrollo](DEVELOPMENT.md) — Alineación de diseño Tailwind/Taffy y comparación k3diff engine/web
-- [Guía de Desarrollo (chino)](DEVELOPMENT_ZH.md)
-- [Arquitectura](ARCHITECTURE.md) — pipeline de renderizado completo desde XML/JSONL a píxeles
-- [Arquitectura (chino)](ARCHITECTURE_ZH.md)
-- [Guía de Migración](docs/MIGRATION.md) — ciclo de vida explícito, HostInputs, AudioPlan, RenderFrame, OCIR v5
+- [Referencia de formato JSX](skills/opencat-creator/references/jsx-format.md)
+- [Sistema de Animación](skills/opencat-creator/references/animations.md)
+- [Transiciones](skills/opencat-creator/references/transitions.md)
+- [API de Canvas](skills/opencat-creator/references/canvaskit.md)
+- [Escenas Three.js](skills/opencat-creator/references/three.md)
+- [Plantillas](skills/opencat-creator/references/templates.md)
+- [Principios de Diseño](skills/opencat-creator/references/design-principles.md)
 
 ## Comunidad
 

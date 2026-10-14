@@ -98,7 +98,7 @@ function Blob(p) {
 /* ════════════ SCENE 01 — typewriter hook (0 → 4s) ════════════ */
 function Scene1() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S1 && ctx.time < S1 + D1;
+    var on = ctx.global.time >= S1 && ctx.global.time < S1 + D1;
     vis(ctx, 's1-root', on);
     if (!on) return;
     var tl = ctx.timeline({ delay: S1 });
@@ -193,10 +193,10 @@ function HookWord(p) {
 
 function Scene2() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S2 && ctx.time < S2 + D2;
+    var on = ctx.global.time >= S2 && ctx.global.time < S2 + D2;
     vis(ctx, 's2-root', on);
     if (!on) return;
-    var t = ctx.time - S2;
+    var t = ctx.global.time - S2;
     var tl = ctx.timeline({ delay: S2 });
     var Z = { x: -1505, y: 162, scale: 3.5 };
     tl.set('#s2-cam', { x: Z.x, y: Z.y, scale: Z.scale, transformOrigin: '0px 0px', transformPerspective: 2400 });
@@ -392,10 +392,10 @@ function Scene2() {
 /* ════════════ SCENE 03 — missing layer (16.36 → 27.36s) ════════════ */
 function Scene3() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S3 && ctx.time < S3 + D3;
+    var on = ctx.global.time >= S3 && ctx.global.time < S3 + D3;
     vis(ctx, 's3-root', on);
     if (!on) return;
-    var t = ctx.time - S3;
+    var t = ctx.global.time - S3;
     var tl = ctx.timeline({ delay: S3 });
     tl.set('#s3-bb', { opacity: 0, scale: 0.94, blur: 18 });
     tl.set('#s3-bc', { opacity: 0, scale: 1.06, blur: 18 });
@@ -628,7 +628,7 @@ function Scene3() {
 /* ════════════ SCENE 04 — frame.md built (26.96 → 32.2s) ════════════ */
 function Scene4() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S4 && ctx.time < S4 + D4;
+    var on = ctx.global.time >= S4 && ctx.global.time < S4 + D4;
     vis(ctx, 's4-root', on);
     if (!on) return;
     var tl = ctx.timeline({ delay: S4 });
@@ -698,7 +698,7 @@ function S5Caption(p) {
 
 function Scene5() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S5 && ctx.time < S5 + D5;
+    var on = ctx.global.time >= S5 && ctx.global.time < S5 + D5;
     vis(ctx, 's5-root', on);
     if (!on) return;
     var tl = ctx.timeline({ delay: S5 });
@@ -777,7 +777,7 @@ function Scene5() {
 /* ════════════ SCENE 06 — text to frame (41.624 → 48.874s) ════════════ */
 function Scene6() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S6 && ctx.time < S6 + D6;
+    var on = ctx.global.time >= S6 && ctx.global.time < S6 + D6;
     vis(ctx, 's6-root', on);
     if (!on) return;
     var tl = ctx.timeline({ delay: S6 });
@@ -896,7 +896,7 @@ function Scene6() {
 /* ════════════ SCENE 07 — new format (48.234 → 52.384s) ════════════ */
 function Scene7() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S7 && ctx.time < S7 + D7;
+    var on = ctx.global.time >= S7 && ctx.global.time < S7 + D7;
     vis(ctx, 's7-root', on);
     if (!on) return;
     var tl = ctx.timeline({ delay: S7 });
@@ -994,7 +994,7 @@ var LOGO_ARROW2_D = 'M256.97 25.9638L232.58 38.7638C229.28 40.4938 225.98 38.533
 
 function Scene8() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= S8 && ctx.time < S8 + D8;
+    var on = ctx.global.time >= S8 && ctx.global.time < S8 + D8;
     vis(ctx, 's8-root', on);
     if (!on) return;
     var tl = ctx.timeline({ delay: S8 });
@@ -1119,7 +1119,7 @@ function Cap(p) {
 
 function Caps() {
   useGSAP(function (ctx) {
-    var on = ctx.time >= SC && ctx.time < SC + DC;
+    var on = ctx.global.time >= SC && ctx.global.time < SC + DC;
     vis(ctx, 'caps-root', on);
     if (!on) return;
     var tl = ctx.timeline();

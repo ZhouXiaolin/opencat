@@ -1,5 +1,5 @@
 // JSX frontend port of examples/k3-promo/k3-promo.xml — one continuous stage;
-// every layer is gated by its time window via opacity, driven by ctx.time.
+// every layer is gated by its time window via opacity, driven by ctx.global.time.
 // The XML <template>s become components (props replace $param), and the
 // <script> sections split into per-scene components: each scene keeps its
 // section body verbatim inside one useGSAP hook, so hook order (tree order)
@@ -630,7 +630,7 @@ function drawDissolve(ctx, cvx, t) {
 /* ghost order-book columns (track 1, window 4.583→7.35s) */
 function GhostCols() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     var K3STREAM = getK3Stream();
     var G_ON = (T >= 4.583 && T < 7.35);
     vis(ctx, 'ghostcols', G_ON);
@@ -666,7 +666,7 @@ function GhostCols() {
 /* SCENE A: node field (track 2, window 0.75→4.62s) */
 function SceneA() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     var A_ON = (T >= 0.75 && T < 4.62);
     vis(ctx, 'sceneA', A_ON);
     if (A_ON) {
@@ -1103,7 +1103,7 @@ function SceneA() {
 /* SCENE B: one model (track 3, window 4.563→5.853s) */
 function SceneB() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     var B_ON = (T >= 4.563 && T < 5.853);
     vis(ctx, 'sceneB', B_ON);
     if (B_ON) {
@@ -1174,7 +1174,7 @@ function SceneB() {
 /* SCENE C: decode (track 4, window 5.433→7.35s) */
 function SceneC() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     var C_ON = (T >= 5.433 && T < 7.35);
     vis(ctx, 'sceneC', C_ON);
     if (C_ON) {
@@ -1325,7 +1325,7 @@ function SceneC() {
    MEASURED: the vignette multiplies the flash output. */
 function Flash() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'flash', T >= 7.3333 && T < 7.391);
   });
   return <div id="flash" class="absolute inset-0 z-[5] bg-[#fbfbfd] opacity-0 [mix-blend-mode:difference]"></div>;
@@ -1334,7 +1334,7 @@ function Flash() {
 /* SCENE D+E: pin waves + boxes (track 2, window 7.35→11.293s) */
 function SceneDE() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     var DE_ON = (T >= 7.35 && T < 11.293);
     vis(ctx, 'sceneDE', DE_ON);
     if (DE_ON) {
@@ -1608,7 +1608,7 @@ function SceneDE() {
 /* SCENE F+G: brace card (track 3, window 11.233→13.7s) */
 function SceneFG() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     var FG_ON = (T >= 11.233 && T < 13.7);
     vis(ctx, 'sceneFG', FG_ON);
     if (FG_ON) {
@@ -1689,7 +1689,7 @@ function SceneFG() {
    x:-23 y:66 rides the node transform. */
 function SceneHI() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     if (typeof globalThis.__k3disBuilt === 'undefined') rebuildDissolveField(ctx);
     var HI_ON = (T >= 13.7);
     vis(ctx, 'sceneHI', HI_ON);
@@ -1831,7 +1831,7 @@ function SceneHI() {
 /* OPEN brace card (track 9, window 0→1.12s) — on top at start */
 function OpenCard() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     // Type-in two words, un-type via remnants, braces widen, fade.
     // Declarative tweens (absolute times); the `opencard` visibility window
     // stays a per-frame gate.

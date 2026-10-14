@@ -719,7 +719,7 @@ mod tests {
             .w_full()
             .h_full()
             .bg_black()
-            .script_source(r#"ctx.getNode("box").opacity(ctx.frame === 0 ? 1 : 0.5);"#)
+            .script_source(r#"ctx.getNode("box").opacity(ctx.global.frame === 0 ? 1 : 0.5);"#)
             .expect("script should compile")
             .child(
                 crate::div()
@@ -821,7 +821,7 @@ mod tests {
             .w_full()
             .h_full()
             .bg_white()
-            .script_source(r#"ctx.getNode("box").opacity(ctx.frame === 0 ? 1 : 0.5);"#)
+            .script_source(r#"ctx.getNode("box").opacity(ctx.global.frame === 0 ? 1 : 0.5);"#)
             .expect("script should compile")
             .child(
                 crate::div()
@@ -862,7 +862,7 @@ mod tests {
             .w_full()
             .h_full()
             .bg(crate::ColorToken::Black)
-            .script_source(r#"ctx.getNode("mover").translateY(ctx.frame);"#)
+            .script_source(r#"ctx.getNode("mover").translateY(ctx.global.frame);"#)
             .expect("script should compile")
             .child(
                 crate::div()
@@ -974,7 +974,7 @@ mod tests {
             .h_full()
             .bg_black()
             .script_source(
-                r#"ctx.getNode("dot").scale(ctx.frame === 0 ? 1 : 2);"#,
+                r#"ctx.getNode("dot").scale(ctx.global.frame === 0 ? 1 : 2);"#,
             )
             .expect("script should compile")
             .child(
@@ -1015,8 +1015,8 @@ mod tests {
             .bg_black()
             .script_source(
                 r#"
-                ctx.getNode("dot").scale(ctx.frame === 0 ? 1 : 2);
-                ctx.getNode("ticker-fill").bg(ctx.frame === 0 ? '#ef4444' : '#3b82f6');
+                ctx.getNode("dot").scale(ctx.global.frame === 0 ? 1 : 2);
+                ctx.getNode("ticker-fill").bg(ctx.global.frame === 0 ? '#ef4444' : '#3b82f6');
                 "#,
             )
             .expect("script should compile")

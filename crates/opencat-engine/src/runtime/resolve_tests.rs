@@ -130,8 +130,8 @@ fn timeline_scripts_receive_scene_local_frames() {
     let scene = div()
         .id("scene-b")
         .script_source(
-            r#"var local = Math.abs(ctx.currentTime - 4 / 30) < 1e-9;
-var duration = Math.abs(ctx.sceneDuration - 10 / 30) < 1e-9;
+            r#"var local = Math.abs(ctx.current.time - 4 / 30) < 1e-9;
+var duration = Math.abs(ctx.current.duration - 10 / 30) < 1e-9;
 ctx.getNode("title").opacity(local && duration ? 0.6 : 0.1);"#,
         )
         .expect("script should compile")

@@ -11,7 +11,7 @@ Ground truth: /home/solaren/Projects/hyperframes-launches/k3-promo/index.html
   BAR_EV shimmer         : lines 1663-1668 (for t=6.16; t<7.32; t+=0.1333 ->
                            rounds of [floor(rnd()*18), range(0.4,1)])
 
-Validation anchor: BAR_INIT baked into examples/k3-promo.xml (verified <=1px
+Validation anchor: BAR_INIT baked into examples/k3-promo/k3-promo.jsx (verified <=1px
 in round 1). barInit is consumed from the SAME global stream strictly AFTER
 the ghost columns, so a 6-decimal match proves the ghost draw count/order.
 

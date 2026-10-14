@@ -44,7 +44,7 @@ const sksl=[
 
 var effect=CK.RuntimeEffect.Make(sksl);
 if(effect){
-  var p=ctx.currentTime;
+  var p=ctx.current.time;
   var shader=effect.makeShaderWithChildren(
     [p, 10.0, 0.045, 7.2, 0.0105, 6.5],
     [subtreeShader]

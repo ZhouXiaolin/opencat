@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # Guarded `opencat render` for this checkout.
 #
 # A release render runs for 8+ minutes and allocates whole frames of RGBA, so a
@@ -14,24 +14,28 @@
 #        nohup tools/render-guard.sh a.jsx out/a.mp4 > /dev/null 2>&1 &
 #
 # When launched non-interactively (stdin is not a tty -- an agent, a script, a
-# torn-down terminal) the guard re-execs itself under `setsid` so the caller's
+# torn-down terminal) the guard re-execs itself detached, so the caller's
 # process group cannot take the guard -- and the render it watches -- down with
 # it. Set OC_RENDER_GUARD_FOREGROUND=1 to force a blocking, attached run.
+#
+# The re-exec uses `nohup` (SIGHUP-proof) rather than `setsid` (new session)
+# because Git Bash on Windows ships no setsid. This is weaker: the detached
+# guard keeps the caller's process group, so a caller that kills its whole
+# group still takes the guard down. Install util-linux if you need the
+# stronger guarantee and switch the re-exec to `setsid --fork`.
 #
 # Exit status: the render's own status, or 137 when the RSS cap killed it.
 # Artifacts: out/render-guard/<name>-<stamp>.log (render output)
 #            out/render-guard/<name>-<stamp>.rss.csv (per-second RSS in MiB)
 #            out/render-guard/<name>-<stamp>.status (final exit line)
-
 set -u
-emulate -L zsh
 
 if (( $# < 2 )); then
-  print -u2 "usage: tools/render-guard.sh <input.jsx> <output> [max_rss_gb]"
+  echo "usage: tools/render-guard.sh <input.jsx> <output> [max_rss_gb]" >&2
   exit 2
 fi
 
-repo=${0:A:h:h}
+repo=$(cd "$(dirname "$0")/.." && pwd)
 cd "$repo" || exit 1
 
 input=$1
@@ -41,7 +45,7 @@ cap_kb=$(( max_rss_gb * 1024 * 1024 ))
 
 bin=$repo/target/release/opencat
 if [[ ! -x $bin ]]; then
-  print -u2 "missing $bin -- run: cargo build --release --bin opencat"
+  echo "missing $bin -- run: cargo build --release --bin opencat" >&2
   exit 1
 fi
 
@@ -59,12 +63,13 @@ status_file=$log_dir/$stem-$stamp.status
 if [[ -z ${OC_RENDER_GUARD_DETACHED:-} && ! -t 0 && ${OC_RENDER_GUARD_FOREGROUND:-0} != 1 ]]; then
   export OC_RENDER_GUARD_DETACHED=1 OC_RENDER_GUARD_STAMP=$stamp
   guard_log=$log_dir/$stem-$stamp.guard.log
-  setsid --fork "${0:A}" "$@" >"$guard_log" 2>&1 </dev/null &
-  print "detached guard pid=$!"
-  print "  render log -> $log"
-  print "  rss csv    -> $rss_csv"
-  print "  status     -> $status_file"
-  print "  guard log  -> $guard_log"
+  nohup env OC_RENDER_GUARD_DETACHED=1 OC_RENDER_GUARD_STAMP=$stamp "$0" "$@" \
+    >"$guard_log" 2>&1 </dev/null &
+  echo "detached guard pid=$!"
+  echo "  render log -> $log"
+  echo "  rss csv    -> $rss_csv"
+  echo "  status     -> $status_file"
+  echo "  guard log  -> $guard_log"
   exit 0
 fi
 
@@ -73,10 +78,10 @@ fi
 nohup "$bin" render "$input" "$output" >"$log" 2>&1 &
 pid=$!
 
-print "render pid=$pid cap=${max_rss_gb}GiB"
-print "  log     -> $log"
-print "  rss csv -> $rss_csv"
-print "timestamp,rss_mb,elapsed_s" > "$rss_csv"
+echo "render pid=$pid cap=${max_rss_gb}GiB"
+echo "  log     -> $log"
+echo "  rss csv -> $rss_csv"
+echo "timestamp,rss_mb,elapsed_s" > "$rss_csv"
 
 start=$(date +%s)
 peak_kb=0
@@ -86,10 +91,10 @@ while kill -0 "$pid" 2>/dev/null; do
   if [[ -n $rss_kb ]]; then
     (( rss_kb > peak_kb )) && peak_kb=$rss_kb
     now=$(date +%s)
-    print "$(date +%H:%M:%S),$(( rss_kb / 1024 )),$(( now - start ))" >> "$rss_csv"
+    echo "$(date +%H:%M:%S),$(( rss_kb / 1024 )),$(( now - start ))" >> "$rss_csv"
     if (( rss_kb > cap_kb )); then
-      print -u2 "RSS $(( rss_kb / 1024 ))MiB > ${max_rss_gb}GiB cap -- killing pid $pid"
-      print "$(date +%H:%M:%S),KILL,$(( now - start ))" >> "$rss_csv"
+      echo "RSS $(( rss_kb / 1024 ))MiB > ${max_rss_gb}GiB cap -- killing pid $pid" >&2
+      echo "$(date +%H:%M:%S),KILL,$(( now - start ))" >> "$rss_csv"
       kill -TERM "$pid" 2>/dev/null
       sleep 5
       kill -KILL "$pid" 2>/dev/null
@@ -104,11 +109,11 @@ wait "$pid" 2>/dev/null
 exit_code=$?
 (( killed )) && exit_code=137
 elapsed=$(( $(date +%s) - start ))
-print "exit=$exit_code elapsed=${elapsed}s peak_rss=$(( peak_kb / 1024 ))MiB"
-print "exit=$exit_code elapsed=${elapsed}s peak_rss=$(( peak_kb / 1024 ))MiB" > "$status_file"
+echo "exit=$exit_code elapsed=${elapsed}s peak_rss=$(( peak_kb / 1024 ))MiB"
+echo "exit=$exit_code elapsed=${elapsed}s peak_rss=$(( peak_kb / 1024 ))MiB" > "$status_file"
 
 if (( killed )); then
-  print -u2 "render killed by the RSS cap -- read $log and $rss_csv before re-running"
+  echo "render killed by the RSS cap -- read $log and $rss_csv before re-running" >&2
   exit 137
 fi
 

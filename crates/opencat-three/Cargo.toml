@@ -11,7 +11,7 @@ glam = "0.34"
 # 编译桥（front::glsl 450 core + back::wgsl）。与 wgpu 30 同版本号——cargo
 # 特性归一后与 wgpu 内部的 naga 是同一份构建。只用 uniform buffer 的脚本
 # 材质保持 WebGL2 硬约束（见模块文档）。
-naga = { version = "30", features = ["glsl-in", "wgsl-out", "spv-out"] }
+naga = { version = "30", features = ["glsl-in", "wgsl-out"] }
 bytemuck = { version = "1", features = ["derive"] }
 anyhow.workspace = true
 # Renderer3d::new 是 async（wgpu 设备请求）；宿主注入路径（Scene3Raster）

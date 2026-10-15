@@ -1135,7 +1135,10 @@ fn three_like_api_background_clear_encodes_to_output_space() {
 fn three_like_gltf_geometry_registers_and_commits_asset_reference() {
     // 真 GLB（prism 11280 顶点）：GLTFGeometry → 宿主一次性解码注册 →
     // 快照只带 Asset{id}；YXZ Euler（参考 js:339）进世界矩阵。
-    let glb_path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/lbr/heygen-prism.glb");
+    let glb_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/liquid-brand-refraction/assets/heygen-prism.glb"
+    );
     let source = "const T = ctx.three;\n".to_string()
         + "const scene = new T.Scene();\n"
         + "const camera = new T.PerspectiveCamera(45, 16 / 9, 0.1, 100);\n"

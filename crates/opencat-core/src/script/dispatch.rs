@@ -1,6 +1,6 @@
 //! 把 binding 调度从端侧收敛到 core。
 //!
-//! 端侧（engine 用 rquickjs；web wasm32 用 js_sys + wasm-bindgen）只需通过
+//! 端侧（engine 用 V8；web wasm32 用 js_sys + wasm-bindgen）只需通过
 //! [`crate::script::js_context::JsContext::install_dispatcher`] 注册唯一的
 //! native 入口 `__opencatCallNative(name, ...args)`，dispatcher 内部调用
 //! [`dispatch_binding`] 完成具体 binding 派发。

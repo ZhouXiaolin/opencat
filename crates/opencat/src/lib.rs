@@ -7,7 +7,7 @@
 pub use opencat_core::frame_ctx::duration_secs_to_frames;
 pub use opencat_engine::consumer::execute_render_frame;
 pub use opencat_engine::executor::EngineDrawExecutor;
-pub use opencat_engine::js_context::RqJsContext;
+pub use opencat_engine::js_context::V8JsContext;
 pub use opencat_engine::media::{AudioTrack, MediaContext};
 pub use opencat_engine::pipeline::open;
 pub use opencat_engine::render::build_audio_track_from_pipeline;

@@ -1,5 +1,5 @@
 //! opencat-engine — 桌面渲染引擎。
-//! 承载 IO / ffmpeg / quickjs / skia / 系统字体。
+//! 承载 IO / ffmpeg / v8 / skia / 系统字体。
 //!
 //! Public surface is host-owned: open/render/inspect/execute against an
 //! explicit lifecycle pipeline. Core internals are not re-exported for tests.

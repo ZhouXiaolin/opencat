@@ -1,6 +1,6 @@
 //! 端侧 JS 运行环境的最小抽象。
 //!
-//! engine 用 rquickjs 实现；web wasm32 将用 js_sys + wasm-bindgen 实现。
+//! engine 用 V8 实现；web wasm32 将用 js_sys + wasm-bindgen 实现。
 //! core 的脚本调度（frame context / install / run / flush / mutation snapshot）
 //! 集中在 [`crate::script::ScriptRealm`]，只通过本 trait 操作 JS 环境。
 //!

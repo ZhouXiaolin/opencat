@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-use crate::js_context::RqJsContext;
+use crate::js_context::V8JsContext;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::jsx::ENTRY_SPEC;
 use opencat_core::script::js_context::JsContext;
@@ -30,7 +30,7 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
 /// the host-side half of the JSX frontend contract — hosts without a JS realm
 /// (wasm) receive the pair over the bridge and run `from_extract` themselves.
 pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Value, String)> {
-    let mut ctx = RqJsContext::new()?;
+    let mut ctx = V8JsContext::new()?;
     ctx.eval(JSX_RUNTIME)?;
     ctx.eval(JSX_TRANSFORM)?;
     // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
@@ -76,7 +76,7 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
 }
 
 /// Evaluate `code`, expect a JSON-encodable value, and parse it back.
-fn eval_json_string(ctx: &RqJsContext, code: &str) -> Result<Value> {
+fn eval_json_string(ctx: &V8JsContext, code: &str) -> Result<Value> {
     let wrapped = format!("JSON.stringify({code})");
     let raw = ctx.eval_json(&wrapped)?;
     let text = raw
@@ -85,7 +85,7 @@ fn eval_json_string(ctx: &RqJsContext, code: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
 }
 
-fn transform_source(ctx: &RqJsContext, source: &str) -> Result<(String, Vec<String>)> {
+fn transform_source(ctx: &V8JsContext, source: &str) -> Result<(String, Vec<String>)> {
     let call = format!(
         "globalThis.__ocTransformJsx({})",
         serde_json::to_string(source)?

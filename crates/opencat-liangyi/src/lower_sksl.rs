@@ -58,21 +58,85 @@ pub fn lower(program: &Program) -> LambdaResult<String> {
     out.push_str(
         "float oc_noise2(float2 p) {\n    float2 i = floor(p);\n    float2 f = fract(p);\n    float2 u = f * f * (3.0 - 2.0 * f);\n    float a = oc_hash2(i);\n    float b = oc_hash2(i + float2(1.0, 0.0));\n    float c = oc_hash2(i + float2(0.0, 1.0));\n    float d = oc_hash2(i + float2(1.0, 1.0));\n    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;\n}\n",
     );
+    // 用户函数按 index 升序发射。被调函数的下标恒小于调用者（先声明后使用），
+    // 所以 index 序就是 SKSL 的 define-before-use 序，无需前置声明。
+    for (i, f) in program.functions.iter().enumerate() {
+        let params: Vec<String> = f
+            .param_slots
+            .iter()
+            .zip(&f.params)
+            .map(|(slot, (_, ty))| format!("{} oc_l{slot}", ty.sksl_name()))
+            .collect();
+        out.push_str(&format!(
+            "{} oc_f{i}({}) {{\n",
+            f.ret.sksl_name(),
+            params.join(", ")
+        ));
+        for stmt in &f.body {
+            emit_stmt(program, stmt, 1, RetMode::Fn, &mut out)?;
+        }
+        // Skia 要求非 void 函数的每条路径都返回值。仅在必要时补发兜底 return，
+        // 避免在已返回的代码后产生不可达语句。解释器用同一默认值。
+        if !always_returns(&f.body) {
+            out.push_str(&format!(
+                "    return {};\n",
+                default_sksl_value(f.ret)
+            ));
+        }
+        out.push_str("}\n");
+    }
     out.push_str("half4 main(float2 xy) {\n");
     out.push_str("    float4 u_oc_rect = float4(u_oc_rect_0, u_oc_rect_1, u_oc_rect_2, u_oc_rect_3);\n");
     out.push_str("    float2 oc_uv = xy - u_oc_rect.xy;\n");
     for stmt in &program.body {
-        emit_stmt(program, stmt, 1, &mut out)?;
+        emit_stmt(program, stmt, 1, RetMode::Main, &mut out)?;
     }
     out.push_str("    return half4(0.0);\n}\n");
     Ok(out)
+}
+
+/// `Stmt::Return` 的发射模式。主函数体要预乘成 premul `half4`；用户函数按
+/// 声明类型原样返回。
+#[derive(Clone, Copy)]
+enum RetMode {
+    Main,
+    Fn,
+}
+
+/// 函数体是否所有路径都返回。`for` 循环体可能一次都不执行，故不保证返回。
+fn always_returns(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(stmt_returns)
+}
+
+fn stmt_returns(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return(_) => true,
+        Stmt::If { then, els, .. } => !els.is_empty() && always_returns(then) && always_returns(els),
+        _ => false,
+    }
+}
+
+fn default_sksl_value(ty: Ty) -> String {
+    match ty {
+        Ty::Float => "0.0".to_string(),
+        Ty::Bool => "false".to_string(),
+        Ty::Vec2 => "float2(0.0)".to_string(),
+        Ty::Vec3 => "float3(0.0)".to_string(),
+        Ty::Vec4 => "float4(0.0)".to_string(),
+    }
 }
 
 fn indent(n: usize) -> String {
     "    ".repeat(n)
 }
 
-fn emit_stmt(program: &Program, stmt: &Stmt, depth: usize, out: &mut String) -> LambdaResult<()> {
+fn emit_stmt(
+    program: &Program,
+    stmt: &Stmt,
+    depth: usize,
+    mode: RetMode,
+    out: &mut String,
+) -> LambdaResult<()> {
     match stmt {
         Stmt::Let { slot, value } => {
             let ty = program.local_ty(*slot);
@@ -95,14 +159,14 @@ fn emit_stmt(program: &Program, stmt: &Stmt, depth: usize, out: &mut String) -> 
         Stmt::If { cond, then, els } => {
             out.push_str(&format!("{}if ({}) {{\n", indent(depth), emit_expr(program, cond)?));
             for s in then {
-                emit_stmt(program, s, depth + 1, out)?;
+                emit_stmt(program, s, depth + 1, mode, out)?;
             }
             if els.is_empty() {
                 out.push_str(&format!("{}}}\n", indent(depth)));
             } else {
                 out.push_str(&format!("{}}} else {{\n", indent(depth)));
                 for s in els {
-                    emit_stmt(program, s, depth + 1, out)?;
+                    emit_stmt(program, s, depth + 1, mode, out)?;
                 }
                 out.push_str(&format!("{}}}\n", indent(depth)));
             }
@@ -116,34 +180,45 @@ fn emit_stmt(program: &Program, stmt: &Stmt, depth: usize, out: &mut String) -> 
                 emit_expr(program, end)?
             ));
             for s in body {
-                emit_stmt(program, s, depth + 1, out)?;
+                emit_stmt(program, s, depth + 1, mode, out)?;
             }
             out.push_str(&format!("{}}}\n", indent(depth)));
         }
-        Stmt::Return(expr) => {
-            // 返回 straight 色；SKSL 输出 premul，自动预乘。先落入临时变量，
-            // 避免对复合表达式直接 swizzle。
-            let value = emit_expr(program, expr)?;
-            let premul = match program.expr_ty(expr) {
-                Ty::Vec4 => "half4(oc_r.rgb * oc_r.a, oc_r.a)".to_string(),
-                Ty::Vec3 => "half4(oc_r, 1.0)".to_string(),
-                Ty::Float => "half4(oc_r, oc_r, oc_r, 1.0)".to_string(),
-                other => {
-                    return Err(LambdaError::msg(format!(
-                        "return 类型不受支持：{other:?}（仅 float/vec3/vec4）"
-                    )))
-                }
-            };
-            let sksl_ty = match program.expr_ty(expr) {
-                Ty::Float => "float",
-                _ => "float4",
-            };
-            out.push_str(&format!(
-                "{}{sksl_ty} oc_r = {value};\n{}return {premul};\n",
-                indent(depth),
-                indent(depth)
-            ));
-        }
+        Stmt::Return(expr) => match mode {
+            // 用户函数：按声明类型原样返回。
+            RetMode::Fn => {
+                out.push_str(&format!(
+                    "{}return {};\n",
+                    indent(depth),
+                    emit_expr(program, expr)?
+                ));
+            }
+            // 主函数体：返回 straight 色；SKSL 输出 premul，自动预乘。先落入
+            // 临时变量，避免对复合表达式直接 swizzle。
+            RetMode::Main => {
+                let value = emit_expr(program, expr)?;
+                let ty = program.expr_ty(expr);
+                let premul = match ty {
+                    Ty::Vec4 => "half4(oc_r.rgb * oc_r.a, oc_r.a)".to_string(),
+                    Ty::Vec3 => "half4(oc_r, 1.0)".to_string(),
+                    Ty::Float => "half4(oc_r, oc_r, oc_r, 1.0)".to_string(),
+                    other => {
+                        return Err(LambdaError::msg(format!(
+                            "return 类型不受支持：{other:?}（仅 float/vec3/vec4）"
+                        )))
+                    }
+                };
+                let sksl_ty = match ty {
+                    Ty::Float => "float",
+                    _ => "float4",
+                };
+                out.push_str(&format!(
+                    "{}{sksl_ty} oc_r = {value};\n{}return {premul};\n",
+                    indent(depth),
+                    indent(depth)
+                ));
+            }
+        },
     }
     Ok(())
 }
@@ -245,6 +320,10 @@ fn emit_expr(program: &Program, expr: &Expr) -> LambdaResult<String> {
         }
         Expr::Eval { child, pos } => {
             Ok(format!("u_oc_c{}.eval({})", child, emit_expr(program, pos)?))
+        }
+        Expr::FnCall { func, args, .. } => {
+            let emitted: Result<Vec<_>, _> = args.iter().map(|e| emit_expr(program, e)).collect();
+            Ok(format!("oc_f{}({})", func, emitted?.join(", ")))
         }
     }
 }

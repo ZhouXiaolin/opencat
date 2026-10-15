@@ -149,6 +149,7 @@ fn hash_transition_kind<H: Hasher>(kind: &crate::parse::transition::TransitionKi
         }
         crate::parse::transition::TransitionKind::ClockWipe => 5_u8.hash(state),
         crate::parse::transition::TransitionKind::Iris => 6_u8.hash(state),
+        crate::parse::transition::TransitionKind::Cut => 7_u8.hash(state),
     }
 }
 
@@ -159,6 +160,7 @@ impl Hash for TextStyleFp<'_> {
         let style = self.0;
         style.color.hash(state);
         style.font_weight.hash(state);
+        style.font_style.hash(state);
         style.text_align.hash(state);
         F32Hash(style.text_px).hash(state);
         F32Hash(style.letter_spacing).hash(state);

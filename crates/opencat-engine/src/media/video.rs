@@ -176,17 +176,20 @@ impl MediaContext {
         let target_time_secs = request.resolve_time_secs(&meta);
         let scale_target = quantize_target_size(request.target_size, &info);
         let (out_w, out_h) = scale_target.unwrap_or((info.width, info.height));
-        if let Some(cached) = self
-            .video_frame_cache
-            .get(path, target_time_secs, scale_target)
+        if !opencat_core::ablate::ablated(opencat_core::ablate::Ablation::VideoFrames)
+            && let Some(cached) = self
+                .video_frame_cache
+                .get(path, target_time_secs, scale_target)
         {
             return Ok((cached, out_w, out_h, true));
         }
         let data = self
             .videos
             .get_frame(path, target_time_secs, request.quality, scale_target)?;
-        self.video_frame_cache
-            .insert(path, target_time_secs, scale_target, data.clone());
+        if !opencat_core::ablate::ablated(opencat_core::ablate::Ablation::VideoFrames) {
+            self.video_frame_cache
+                .insert(path, target_time_secs, scale_target, data.clone());
+        }
         Ok((data, out_w, out_h, false))
     }
 

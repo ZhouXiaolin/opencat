@@ -2363,6 +2363,10 @@ fn render_transition_overlay(
         TransitionKind::Fade => {
             // Alpha blends into the SaveLayer created in render_timeline
         }
+        TransitionKind::Cut => {
+            // No effect: the incoming scene is already drawn over the outgoing
+            // one by the compositor.
+        }
         TransitionKind::Slide(dir) => {
             let (dx, dy) = slide_offset(dir, bounds, 1.0 - p);
             builder.push(DrawOp::Translate { x: dx, y: dy });

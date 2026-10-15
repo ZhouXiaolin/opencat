@@ -2,6 +2,8 @@
 
 `<canvas>` 提供 CanvasKit 风格的即时绘制表面，用 `useCanvas` 挂每帧绘制。
 
+**职责边界**：`useCanvas` 只做 CanvasKit 式绘制。tween 写 `useGSAP`，three.js 场景写 `useThree`。一个组件可以挂多个钩子；同一个 canvas 上既有绘制又有 tween 时，拆成两个钩子写。
+
 绘制命令本身是标准 CanvasKit 语义，命名空间就是 `canvas.CK`（= `ctx.CanvasKit`），`new CK.Paint()`、`CK.XYWHRect`、`canvas.drawRect` 这些都照常用。这份文件只写 OpenCat 特有的部分：钩子入口、`paint()` 简写、hidden subtree、`ly` 效果内核、render target、文本测量表面，以及这个 CanvasKit 子集的已知限制。
 
 ---
@@ -127,15 +129,47 @@ canvas.drawRect(CK.XYWHRect(0, 0, 1280, 720), paint);
 
 - 数值 / 布尔字面量、2-4 元数组字面量（构造向量）
 - 算术 `+ - * / %`、比较、`&& || !`、三目、`if/else`、`let/const`、赋值（仅 let）
+- 有界数值 `for` 循环：`for (let i = a; i < b; i++) { … }`（`i++` / `++i` / `i += 1`；`<` 或 `<=`）
+- 顶层用户函数：`const f = (p) => …`（见下）
 - stdlib：`abs sign floor ceil fract min max clamp pow sqrt exp exp2 log log2 sin cos tan asin acos atan atan2 mix smoothstep step length distance dot cross normalize`
 - 整数 / 位操作内建：`byte(x)`（JS `x|0` 截断，可走 SKSL）、`float(x)`、`noise2(p)`（二维确定性值噪声，可走 SKSL）
 - **仅 CPU 后端**：`u32` / `i32`、`imul`、`h01(a,b,c)`（确定性像素哈希 → [0,1)）。用到这几个就走 CPU 解释器
 - `Math.*` 纯函数
 - 向量 swizzle 读（`.x/.y/.z/.w/.rgba…`，不越界）
 
+### 用户函数
+
+lambda 顶层可声明函数，复用到多处：
+
+```js
+ly.pixel((uv, u) => {
+  const hash = (p) => fract(sin(dot(p, [127.1, 311.7])) * 43758.5453);
+  const fbm = (p) => {
+    let v = 0; let a = 0.5;
+    for (let o = 0; o < 5; o++) {
+      v = v + a * noise(p);
+      p = [0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y] * 2.02;
+      a = a * 0.5;
+    }
+    return v;
+  };
+  return [fbm(uv * 0.01), 0, 0, 1];
+}, { uniforms: { } });
+```
+
+规则：
+
+- **必须 `const`，必须顶层，必须先声明后使用**。`let` 绑定箭头、`function` 声明、`if` 块内声明都拒绝。
+- **单态**：每个形参的类型在编译期唯一确定，由调用点与函数体共同推断（`dot(p, [127.1, 311.7])` 把 `p` 钉成 float2）。推断不出来会报错并列出候选。
+- **无捕获**：函数体读不到 `uv` / `rect` / `u.*` / `child` / 外层局部。数据一律经形参进入。
+- **不可递归**，也**不可互调**：调用图必须无环（先声明后使用天然保证）。
+- 形参是可变槽，可重新赋值（上面 `fbm` 的 `p`）。
+- 返回 `float` / `float2` / `float3` / `float4` / `bool`，所有 `return` 类型须一致。
+- 函数名不得与 lambda 参数或 stdlib 内建同名。
+
 ### 拒绝（编译期报错）
 
-嵌套函数、闭包捕获、循环（`for` / `while`）、`try/catch`、裸代码块、对象字面量、字符串/模板串、位运算符（提示用 `imul`/`h01`/`byte`）、`**`（提示 `pow`）、`new`/`this`、`Math.random`、对 child/u/Math/builtin 的非白名单用法、`return` 后不可达语句。
+嵌套 / 块内函数声明、闭包捕获、`while` / `for-in` / `for-of` / `do-while`、`try/catch`、裸代码块、对象字面量、字符串/模板串、位运算符（提示用 `imul`/`h01`/`byte`）、`**`（提示 `pow`）、`new`/`this`、`Math.random`、对 child/u/Math/builtin 的非白名单用法、`return` 后不可达语句。
 
 **lambda 必须是源码内联的箭头函数。** 原生函数或被压缩的代码会被拒。
 

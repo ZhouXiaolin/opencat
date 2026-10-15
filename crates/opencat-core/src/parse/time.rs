@@ -34,11 +34,28 @@ impl TimelineNode {
         self.duration_secs
     }
 
+    /// Absolute frame index each segment starts on, plus one final entry for
+    /// the frame the timeline ends on. Entry `i` is the start of segment `i`;
+    /// entry `len` is the end of the last segment.
+    ///
+    /// A boundary is `ceil(running_secs * fps)` of the seconds cursor — NOT the
+    /// sum of per-segment `ceil(duration * fps)`. Those differ whenever a
+    /// duration lands between frames, and the difference compounds: each such
+    /// boundary drifts one frame later, so a long timeline ends up seconds
+    /// behind where the author placed it.
+    pub fn segment_frame_bounds(&self, ctx: &FrameCtx) -> Vec<u32> {
+        let mut bounds = Vec::with_capacity(self.segments.len() + 1);
+        let mut cursor_secs = 0.0;
+        for segment in &self.segments {
+            bounds.push(duration_secs_to_frames(cursor_secs, ctx.fps));
+            cursor_secs += segment.duration_secs();
+        }
+        bounds.push(duration_secs_to_frames(cursor_secs, ctx.fps));
+        bounds
+    }
+
     pub fn duration_in_frames(&self, ctx: &FrameCtx) -> u32 {
-        self.segments
-            .iter()
-            .map(|segment| duration_secs_to_frames(segment.duration_secs(), ctx.fps))
-            .sum()
+        self.segment_frame_bounds(ctx).last().copied().unwrap_or(0)
     }
 
     pub fn style_ref(&self) -> &NodeStyle {
@@ -141,7 +158,8 @@ pub fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
 }
 
 fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameState {
-    if timeline.segments().is_empty() {
+    let segments = timeline.segments();
+    if segments.is_empty() {
         return FrameState::Scene {
             scene: div().id("__empty_timeline_scene").into(),
             script_frame_ctx: ScriptFrameCtx::global(ctx),
@@ -155,103 +173,138 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
         ctx.frame.min(duration_in_frames - 1)
     };
 
-    let mut cursor_frame: u32 = 0;
-    for segment in timeline.segments() {
-        let segment_frames = duration_secs_to_frames(segment.duration_secs(), ctx.fps);
+    // Scenes and transitions tile the timeline end to end, in the order the
+    // author wrote them. A transition is the OVERLAP between its two scenes, so
+    // each scene is on screen for its own segment plus the transition segments
+    // on either side. Both neighbours of a transition stay live for its whole
+    // span, and each runs its own clock from its own window start — nothing is
+    // frozen at a boundary frame.
+    //
+    // Boundaries come from `segment_frame_bounds`: each is the ceiling of the
+    // running seconds cursor, so segment `i` occupies `[bounds[i], bounds[i+1])`
+    // and no boundary can drift from where the author placed it.
+    let bounds = timeline.segment_frame_bounds(ctx);
+    let seg_frames: Vec<u32> = (0..segments.len())
+        .map(|index| bounds[index + 1].saturating_sub(bounds[index]))
+        .collect();
+    let seg_start = &bounds[..segments.len()];
+
+    // Exact (unquantized) start of each segment on the composition clock.
+    let mut seg_start_secs = Vec::with_capacity(segments.len());
+    let mut cursor_secs = 0.0;
+    for segment in segments {
+        seg_start_secs.push(cursor_secs);
+        cursor_secs += segment.duration_secs();
+    }
+
+    // Visible window of the scene at `index`: its segment widened by the
+    // transition segments that touch it. Returns `(start_frame, start_secs,
+    // frames)`. The seconds start is kept exact so the scene clock does not
+    // inherit the frame quantization of the boundary.
+    let scene_window = |index: usize| -> (u32, f64, u32) {
+        let before = if index > 0 && matches!(segments[index - 1], TimelineSegment::Transition { .. })
+        {
+            (seg_frames[index - 1], segments[index - 1].duration_secs())
+        } else {
+            (0, 0.0)
+        };
+        let after = if index + 1 < segments.len()
+            && matches!(segments[index + 1], TimelineSegment::Transition { .. })
+        {
+            (seg_frames[index + 1], segments[index + 1].duration_secs())
+        } else {
+            (0, 0.0)
+        };
+        (
+            seg_start[index].saturating_sub(before.0),
+            (seg_start_secs[index] - before.1).max(0.0),
+            before.0 + seg_frames[index] + after.0,
+        )
+    };
+
+    for (index, segment) in segments.iter().enumerate() {
+        if frame >= seg_start[index] + seg_frames[index] {
+            continue;
+        }
         match segment {
-            TimelineSegment::Scene {
-                duration_secs: _,
-                scene,
-                ..
-            } => {
-                if frame < cursor_frame.saturating_add(segment_frames) {
-                    return FrameState::Scene {
-                        scene: scene.clone(),
-                        script_frame_ctx: ScriptFrameCtx::for_segment(
-                            ctx,
-                            cursor_frame,
-                            segment_frames,
-                        ),
-                    };
-                }
+            TimelineSegment::Scene { scene, .. } => {
+                let (window_start, window_start_secs, window_frames) = scene_window(index);
+                return FrameState::Scene {
+                    scene: scene.clone(),
+                    script_frame_ctx: ScriptFrameCtx::for_window(
+                        ctx,
+                        window_start,
+                        window_start_secs,
+                        window_frames,
+                    ),
+                };
             }
             TimelineSegment::Transition {
                 from,
                 to,
-                from_duration_secs,
-                to_duration_secs,
                 kind,
                 easing,
                 ..
             } => {
-                if frame < cursor_frame.saturating_add(segment_frames) {
-                    let from_duration_frames =
-                        duration_secs_to_frames(*from_duration_secs, ctx.fps);
-                    let to_duration_frames = duration_secs_to_frames(*to_duration_secs, ctx.fps);
-                    return FrameState::Transition {
-                        from: from.clone(),
-                        to: to.clone(),
-                        from_script_frame_ctx: frozen_script_frame_ctx(
-                            ctx,
-                            from_duration_frames.saturating_sub(1),
-                            from_duration_frames,
-                        ),
-                        to_script_frame_ctx: frozen_script_frame_ctx(ctx, 0, to_duration_frames),
-                        progress: transition_progress(
-                            frame.saturating_sub(cursor_frame),
-                            segment_frames,
-                            easing,
-                        ),
-                        kind: kind.clone(),
-                    };
-                }
+                let (from_start, from_start_secs, from_frames) = scene_window(index - 1);
+                let (to_start, to_start_secs, to_frames) = scene_window(index + 1);
+                return FrameState::Transition {
+                    from: from.clone(),
+                    to: to.clone(),
+                    from_script_frame_ctx: ScriptFrameCtx::for_window(
+                        ctx,
+                        from_start,
+                        from_start_secs,
+                        from_frames,
+                    ),
+                    to_script_frame_ctx: ScriptFrameCtx::for_window(
+                        ctx,
+                        to_start,
+                        to_start_secs,
+                        to_frames,
+                    ),
+                    progress: transition_progress(
+                        frame.saturating_sub(seg_start[index]),
+                        seg_frames[index],
+                        easing,
+                    ),
+                    kind: kind.clone(),
+                };
             }
         }
-        cursor_frame = cursor_frame.saturating_add(segment_frames);
     }
 
-    match timeline.segments().last() {
-        Some(TimelineSegment::Scene { scene, .. }) => FrameState::Scene {
-            scene: scene.clone(),
-            script_frame_ctx: ScriptFrameCtx::global(ctx),
-        },
-        Some(TimelineSegment::Transition {
-            to,
-            to_duration_secs,
-            ..
-        }) => FrameState::Scene {
-            scene: to.clone(),
-            script_frame_ctx: frozen_script_frame_ctx(
-                ctx,
-                0,
-                duration_secs_to_frames(*to_duration_secs, ctx.fps),
-            ),
-        },
+    // Past the last segment: hold its scene at the end of its own window.
+    match segments.last() {
+        Some(TimelineSegment::Scene { scene, .. }) => {
+            let (window_start, window_start_secs, window_frames) =
+                scene_window(segments.len() - 1);
+            FrameState::Scene {
+                scene: scene.clone(),
+                script_frame_ctx: ScriptFrameCtx::for_window(
+                    ctx,
+                    window_start,
+                    window_start_secs,
+                    window_frames,
+                ),
+            }
+        }
+        Some(TimelineSegment::Transition { to, .. }) => {
+            let (to_start, to_start_secs, to_frames) = scene_window(segments.len() - 1);
+            FrameState::Scene {
+                scene: to.clone(),
+                script_frame_ctx: ScriptFrameCtx::for_window(
+                    ctx,
+                    to_start,
+                    to_start_secs,
+                    to_frames,
+                ),
+            }
+        }
         None => FrameState::Scene {
             scene: div().id("__empty_timeline_scene").into(),
             script_frame_ctx: ScriptFrameCtx::global(ctx),
         },
-    }
-}
-
-fn frozen_script_frame_ctx(
-    ctx: &FrameCtx,
-    current_frame: u32,
-    scene_frames: u32,
-) -> ScriptFrameCtx {
-    ScriptFrameCtx {
-        frame: ctx.frame,
-        fps: ctx.fps,
-        total_frames: ctx.frames,
-        current_frame: current_frame.min(scene_frames.saturating_sub(1)),
-        scene_frames,
-        time_secs: ctx.time_secs(),
-        total_duration_secs: ctx.duration_secs(),
-        current_time_secs: frames_to_duration_secs(
-            current_frame.min(scene_frames.saturating_sub(1)),
-            ctx.fps,
-        ),
-        scene_duration_secs: frames_to_duration_secs(scene_frames, ctx.fps),
     }
 }
 
@@ -301,12 +354,14 @@ mod tests {
 
         assert_eq!(script_frame_ctx.frame, 18);
         assert_eq!(script_frame_ctx.total_frames, 120);
-        assert_eq!(script_frame_ctx.current_frame, 3);
-        assert_eq!(script_frame_ctx.scene_frames, 20);
+        // scene-b is on screen for the transition it shares with scene-a plus
+        // its own 20 frames: its window starts at frame 10 and runs 25 frames.
+        assert_eq!(script_frame_ctx.current_frame, 8);
+        assert_eq!(script_frame_ctx.scene_frames, 25);
     }
 
     #[test]
-    fn frame_state_freezes_scene_script_clocks_during_transition() {
+    fn frame_state_keeps_scene_clocks_live_during_transition() {
         let root = timeline()
             .sequence(10.0 / 30.0, div().id("scene-a").into())
             .transition(slide().timing(Easing::Linear, 6.0 / 30.0))
@@ -329,14 +384,18 @@ mod tests {
             panic!("expected transition frame");
         };
 
+        // Both scenes are live on the transition frame. `from` runs from frame
+        // 0 (its window widened by the following transition, 10 + 6 frames);
+        // `to` runs from frame 10 (its own window, 6 + 20 frames). Neither clock
+        // is pinned to a boundary frame.
         assert_eq!(from_script_frame_ctx.frame, 13);
         assert_eq!(from_script_frame_ctx.total_frames, 120);
-        assert_eq!(from_script_frame_ctx.current_frame, 9);
-        assert_eq!(from_script_frame_ctx.scene_frames, 10);
+        assert_eq!(from_script_frame_ctx.current_frame, 13);
+        assert_eq!(from_script_frame_ctx.scene_frames, 16);
         assert_eq!(to_script_frame_ctx.frame, 13);
         assert_eq!(to_script_frame_ctx.total_frames, 120);
-        assert_eq!(to_script_frame_ctx.current_frame, 0);
-        assert_eq!(to_script_frame_ctx.scene_frames, 20);
+        assert_eq!(to_script_frame_ctx.current_frame, 3);
+        assert_eq!(to_script_frame_ctx.scene_frames, 26);
     }
 
     #[test]

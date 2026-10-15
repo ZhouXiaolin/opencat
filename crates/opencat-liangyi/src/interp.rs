@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 
-use super::program::{Backend, BinOp, BuiltinId as B, Expr, Program, Stmt, UnOp, Val};
+use super::program::{Backend, BinOp, BuiltinId as B, Expr, Program, Stmt, Ty, UnOp, Val};
 
 /// child 采样的像素源（straight RGBA8）。
 #[derive(Clone)]
@@ -135,7 +135,7 @@ fn eval_pixel_in(
     locals: &mut Vec<Val>,
 ) -> [f64; 4] {
     for stmt in &program.body {
-        match eval_stmt(stmt, locals, px, py, ctx) {
+        match eval_stmt(program, stmt, locals, px, py, ctx) {
             Flow::Continue => {}
             Flow::Return(v) => return val_to_rgba(v),
         }
@@ -219,7 +219,7 @@ pub fn render_scan(
 fn eval_scan_pixel(program: &Program, ctx: &InterpCtx, locals: &mut Vec<Val>) -> [f64; 4] {
     let view = ctx.scan.expect("render_scan requires scan view");
     for stmt in &program.body {
-        match eval_stmt(stmt, locals, view.x, view.y, ctx) {
+        match eval_stmt(program, stmt, locals, view.x, view.y, ctx) {
             Flow::Continue => {}
             Flow::Return(v) => return val_to_rgba(v),
         }
@@ -242,6 +242,7 @@ enum Flow {
 }
 
 fn eval_stmt(
+    program: &Program,
     stmt: &Stmt,
     locals: &mut Vec<Val>,
     px: f64,
@@ -250,20 +251,20 @@ fn eval_stmt(
 ) -> Flow {
     match stmt {
         Stmt::Let { slot, value } => {
-            let v = eval_expr(value, locals, px, py, ctx);
+            let v = eval_expr(program, value, locals, px, py, ctx);
             locals[*slot as usize] = v;
             Flow::Continue
         }
         Stmt::Assign { slot, value } => {
-            let v = eval_expr(value, locals, px, py, ctx);
+            let v = eval_expr(program, value, locals, px, py, ctx);
             locals[*slot as usize] = v;
             Flow::Continue
         }
         Stmt::If { cond, then, els } => {
-            let c = eval_expr(cond, locals, px, py, ctx);
+            let c = eval_expr(program, cond, locals, px, py, ctx);
             let branch = if matches!(c, Val::B(true)) { then } else { els };
             for s in branch {
-                match eval_stmt(s, locals, px, py, ctx) {
+                match eval_stmt(program, s, locals, px, py, ctx) {
                     Flow::Continue => {}
                     Flow::Return(v) => return Flow::Return(v),
                 }
@@ -273,8 +274,8 @@ fn eval_stmt(
         Stmt::ForLoop { var, start, end, le, body } => {
             // start/end 各求值一次（JS for 语义：test 每轮求值，但端点纯函数，
             // 这里预计算上界即可）。硬上限防止病态输入。
-            let s = eval_expr(start, locals, px, py, ctx).as_f64();
-            let e = eval_expr(end, locals, px, py, ctx).as_f64();
+            let s = eval_expr(program, start, locals, px, py, ctx).as_f64();
+            let e = eval_expr(program, end, locals, px, py, ctx).as_f64();
             let mut i = s;
             let mut guard: u32 = 0;
             const MAX_ITERS: u32 = 1_000_000;
@@ -285,7 +286,7 @@ fn eval_stmt(
                 }
                 locals[*var as usize] = Val::F(i);
                 for stmt in body {
-                    match eval_stmt(stmt, locals, px, py, ctx) {
+                    match eval_stmt(program, stmt, locals, px, py, ctx) {
                         Flow::Continue => {}
                         Flow::Return(v) => return Flow::Return(v),
                     }
@@ -295,11 +296,12 @@ fn eval_stmt(
             }
             Flow::Continue
         }
-        Stmt::Return(expr) => Flow::Return(eval_expr(expr, locals, px, py, ctx)),
+        Stmt::Return(expr) => Flow::Return(eval_expr(program, expr, locals, px, py, ctx)),
     }
 }
 
 fn eval_expr(
+    program: &Program,
     expr: &Expr,
     locals: &mut Vec<Val>,
     px: f64,
@@ -321,21 +323,21 @@ fn eval_expr(
         Expr::Bin(op, l, r, _) => {
             // && / || 短路（JS 语义）
             if matches!(op, BinOp::And | BinOp::Or) {
-                let lv = eval_expr(l, locals, px, py, ctx);
+                let lv = eval_expr(program, l, locals, px, py, ctx);
                 let lb = matches!(lv, Val::B(true));
                 let result = match op {
                     BinOp::And => {
                         if !lb {
                             Val::B(false)
                         } else {
-                            Val::B(matches!(eval_expr(r, locals, px, py, ctx), Val::B(true)))
+                            Val::B(matches!(eval_expr(program, r, locals, px, py, ctx), Val::B(true)))
                         }
                     }
                     BinOp::Or => {
                         if lb {
                             Val::B(true)
                         } else {
-                            Val::B(matches!(eval_expr(r, locals, px, py, ctx), Val::B(true)))
+                            Val::B(matches!(eval_expr(program, r, locals, px, py, ctx), Val::B(true)))
                         }
                     }
                     _ => unreachable!(),
@@ -343,13 +345,13 @@ fn eval_expr(
                 return result;
             }
             let (lv, rv) = (
-                eval_expr(l, locals, px, py, ctx),
-                eval_expr(r, locals, px, py, ctx),
+                eval_expr(program, l, locals, px, py, ctx),
+                eval_expr(program, r, locals, px, py, ctx),
             );
             eval_bin(*op, lv, rv)
         }
         Expr::Un(op, arg, _) => {
-            let a = eval_expr(arg, locals, px, py, ctx);
+            let a = eval_expr(program, arg, locals, px, py, ctx);
             match op {
                 UnOp::Neg => match a {
                     Val::F(v) => Val::F(-v),
@@ -362,11 +364,11 @@ fn eval_expr(
             }
         }
         Expr::Cond(c, t, f, _) => {
-            let cv = eval_expr(c, locals, px, py, ctx);
+            let cv = eval_expr(program, c, locals, px, py, ctx);
             if matches!(cv, Val::B(true)) {
-                eval_expr(t, locals, px, py, ctx)
+                eval_expr(program, t, locals, px, py, ctx)
             } else {
-                eval_expr(f, locals, px, py, ctx)
+                eval_expr(program, f, locals, px, py, ctx)
             }
         }
         Expr::Call { id, args, .. } => {
@@ -374,12 +376,12 @@ fn eval_expr(
             // 栈上展开免逐像素堆分配。
             let mut vals = [Val::F(0.0); 4];
             for (v, a) in vals.iter_mut().zip(args) {
-                *v = eval_expr(a, locals, px, py, ctx);
+                *v = eval_expr(program, a, locals, px, py, ctx);
             }
             eval_builtin(*id, &vals[..args.len().min(vals.len())])
         }
         Expr::Swizzle { base, comps, len, .. } => {
-            let v = eval_expr(base, locals, px, py, ctx);
+            let v = eval_expr(program, base, locals, px, py, ctx);
             // 栈上拷贝：短向量补零、非向量全零，与原 to_vec().get() 语义逐位一致
             let c = match v {
                 Val::V2(c) => [c[0], c[1], 0.0, 0.0],
@@ -405,7 +407,7 @@ fn eval_expr(
         Expr::VecCons(items, _) => {
             let mut out = [0.0f64; 4];
             for (i, item) in items.iter().enumerate() {
-                out[i] = eval_expr(item, locals, px, py, ctx).as_f64();
+                out[i] = eval_expr(program, item, locals, px, py, ctx).as_f64();
             }
             match items.len() {
                 2 => Val::V2([out[0], out[1]]),
@@ -413,8 +415,24 @@ fn eval_expr(
                 _ => Val::V4(out),
             }
         }
+        // 用户函数调用。形参槽与主函数体、与其它函数互不相交（无递归、无捕获），
+        // 所以整棵调用树共用一个 `locals`，无需帧指针，也没有每次调用的分配。
+        // 实参可以边求值边写入被调槽位——两者不可能别名。
+        Expr::FnCall { func, args, .. } => {
+            let f = &program.functions[*func as usize];
+            for (arg, slot) in args.iter().zip(&f.param_slots) {
+                let v = eval_expr(program, arg, locals, px, py, ctx);
+                locals[*slot as usize] = v;
+            }
+            for stmt in &f.body {
+                if let Flow::Return(v) = eval_stmt(program, stmt, locals, px, py, ctx) {
+                    return v;
+                }
+            }
+            default_val(f.ret)
+        }
         Expr::Eval { child, pos } => {
-            let p = eval_expr(pos, locals, px, py, ctx);
+            let p = eval_expr(program, pos, locals, px, py, ctx);
             let (sx, sy) = match p {
                 Val::V2(c) => (c[0], c[1]),
                 v => (v.as_f64(), v.as_f64()),
@@ -431,8 +449,8 @@ fn eval_expr(
                 // parse 层保证 get 只出现在 scan 类里，解释路径必有视图
                 return Val::V4([0.0, 0.0, 0.0, 0.0]);
             };
-            let ddx = eval_expr(dx, locals, px, py, ctx).as_f64();
-            let ddy = eval_expr(dy, locals, px, py, ctx).as_f64();
+            let ddx = eval_expr(program, dx, locals, px, py, ctx).as_f64();
+            let ddy = eval_expr(program, dy, locals, px, py, ctx).as_f64();
             Val::V4(sample_rgba(
                 view.buf,
                 view.width,
@@ -441,6 +459,18 @@ fn eval_expr(
                 view.y + ddy,
             ))
         }
+    }
+}
+
+/// 函数体走到末尾而未 return 时的兜底值。必须与 SKSL 降级补发的
+/// `return <default>;` 一致，否则两后端在未覆盖路径上分叉。
+fn default_val(ty: Ty) -> Val {
+    match ty {
+        Ty::Float => Val::F(0.0),
+        Ty::Bool => Val::B(false),
+        Ty::Vec2 => Val::V2([0.0; 2]),
+        Ty::Vec3 => Val::V3([0.0; 3]),
+        Ty::Vec4 => Val::V4([0.0; 4]),
     }
 }
 

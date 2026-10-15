@@ -3,6 +3,91 @@
 > 2026-10-13 对齐更新。状态：**未达标，但首次有了有效 diff**。
 > 全片 `avg_p8 = 0.0733`（目标 <0.02）。参考自噪声地板见下。
 
+## 2026-10-15 对齐点：font-style 通道缺失 + thesis 词距
+
+全片 `mae_mean 3.096 → 2.766`，`avg_p8 0.0606 → 0.0591`。
+本轮修两处，都是**引擎缺陷**（不在 jsx 里绕），jsx 侧只改了一个 gap 值。
+
+### 1. 引擎不支持 `font-style`（italic 静默失效）
+
+**症状**：`thesis` 第二行参考是**斜体**衬线，我们渲染成正体。
+`flex-threejs` 的 "Three.js"、`flex-footage` 的 "footage"、
+`engine` 的 "Identical output, every time." 同病。
+
+**根因**：`italic` 在 `build.rs` 里注册成 `ExactClassAction::Noop`，
+注释写着「渲染器目前不区分这些表现」。而 `text_attrs`（`text/mod.rs:687`）
+只向 shaper 传 family/weight/letter_spacing，**没有 style 通道**：
+
+```rust
+Attrs::new().family(family).weight(...).letter_spacing(...)   // 旧
+```
+
+manifest 里 `hf-serif` 和 `hf-serif-it` 的 `family` 都是 `"Instrument Serif"`，
+两个 face 落进同一 family。cosmic-text 按默认 style 匹配，**永远选中 Regular**——
+Italic 字体文件加载了但取不到。`hf-eb-it` / `hf-cg-it` 同理。
+
+**修法**（`crates/opencat-core/`）：
+- `style.rs`：新增 `enum FontStyle { Normal, Italic }`；`NodeStyle.font_style`
+  与 `ComputedTextStyle.font_style`；继承 `style.font_style.unwrap_or(parent.font_style)`；
+  加进 `Hash`；builder 加 `.italic()` / `.not_italic()`。
+- `build.rs`：`italic` / `not-italic` 从 `Noop` 改成
+  `ExactClassAction::FontStyle(FontStyle::{Italic,Normal})`。
+- `parse/tailwind.rs`：新 action 臂 + 枚举变体。
+- `text/mod.rs::text_attrs`：`.style(match style.font_style { ... })`——**这是让
+  italic 真正生效的一行**。
+- 三处 fingerprint 哈希补 `font_style`（`semantic/fingerprint.rs` ×2、
+  `analyze/fingerprint/display_item.rs`），否则只差斜体的两个节点会撞缓存。
+
+**测试**（`text::tests`）：
+- `italic_style_selects_the_italic_face_of_the_family`——同 family 挂
+  Regular + Italic 两个 face，断言两种 style 的度量宽度不同。已验证它能捕获
+  回归（去掉 `.style(...)` 即失败）。
+- `italic_request_on_an_italic_only_family_stays_on_that_face`——家族只有
+  一个 Italic face（`hf-eb-it` / `serifd` 这种）时，Normal 与 Italic 必须
+  落到同一个 face，保证本改动不会移动这类文档。
+- `italic_classes_write_the_font_style_channel`——`italic` / `not-italic`
+  确实写入 `font_style`（旧的 `select_and_italic_classes_are_silently_accepted`
+  断言它们无副作用，已随本次改动拆开）。
+
+**家族无斜体 face 时怎么办？合成 oblique——这正是 Chrome 的行为。**
+参考视频是 Chrome 截的，所以拿 headless Chrome 当 oracle：对同一份
+`Inter-800`（无斜体 face）请求 `font-style: italic`，Chrome 合成一个
+**13.95°** 的 oblique；我们出 **14.25°**，墨迹盒位移也一致（左沿 Chrome +21px /
+我们 +22px，右沿 +4 / +3）。拿 Chrome 的合成斜体做掩码 mae：我们-斜体
+**0.042**，我们-正体 **0.174**——4 倍改善。cosmic-text 的合成阈值是
+「face 的 OS/2 没有 ITALIC 位」，与 Chrome 一致（本仓库所有真斜体 face 都带
+该位，Inter-800 不带）。
+
+### 2. thesis 词距：flex gap 少了一个空格
+
+参考的 `.word` 是 `display: inline-block; margin: 0 0.16em`，且 HTML 源码里
+span 之间**有换行**——inline-block 之间的空白渲染成一个空格（Instrument Serif
+132px 下 ≈21px）。所以参考每处词间隙 = `0.16em×2 + 空格` ≈ **63px**。
+
+我们的 JSX 把每个词做成 flex 子项，`gap-[42.24px]` 只有 `0.16em×2`，
+**少了那个空格**。实测：第二行参考宽 1554px，我们 1433px，窄 121px。
+
+**修法**：`gap-[42.24px]` → `gap-[62.2px]`（4 处，含两行各自的 gradient 副本层）。
+复测：line1 1476 vs 参考 1474，line2 1554 vs 1554。
+
+### 效果
+
+| 场景 | 修前 mae | 修后 mae |
+|---|---|---|
+| thesis | 6.221 | **2.048** |
+| flex-drop | 5.355 | 4.873 |
+| 全片 | 3.096 | **2.766** |
+
+`flex-threejs` / `flex-footage` **没变**：它们用的 Times New Roman 家族只声明了
+Italic 一个 face，本来就被选中。真正受 font-style 影响的是有 Regular+Italic
+两个 face 的 Instrument Serif。
+
+### 仍归因于视频解码、暂不追的部分
+
+`glass-intro` 的 `bg.mp4`（mae 9.71）/ `bg-2.mp4`（8.90）两段共 105 帧，
+差异是全画面均匀细噪，而画面内确定性 UI 差异近零 → 解码/采样差异，已确认忽略。
+`gi-beat4-video`（271 帧）mae 仅 2.26，属正常。
+
 ## 2026-10-13 本轮结论（r1-r6）
 
 ### 渲染门禁（必用）

@@ -51,7 +51,7 @@ skia-safe = { version = "0.153.3", features = ["binary-cache", "gl", "skottie"] 
 foreign-types = "0.5.0"
 metal = "0.33.0"
 # No `skottie` — see the matching note in opencat-engine/Cargo.toml.
-skia-safe = { version = "0.153.3", features = ["metal", "binary-cache"] }
+skia-safe = { version = "0.153.3", features = ["ganesh", "metal", "binary-cache"] }
 core-graphics-types = "0.2.0"
 cocoa = "0.27.0"
 objc = "0.2.7"

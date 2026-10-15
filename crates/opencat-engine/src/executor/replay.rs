@@ -1221,6 +1221,43 @@ mod tests {
         assert_eq!(diff, 0, "banded raster differs from whole raster in {diff} bytes");
     }
 
+    /// 用户函数发射出的 SKSL 必须真能被 Skia 接受。liangyi 自身不能依赖
+    /// skia-safe，所以只有这里能证明 codegen 产出的函数定义、`for` 循环、
+    /// 形参重赋值与调用语法合法。
+    #[test]
+    fn user_function_kernel_compiles_in_skia() {
+        let source = "(uv, u) => {\n\
+          const hash = (p) => fract(sin(dot(p, [127.1, 311.7])) * 43758.5453);\n\
+          const noise = (p) => {\n\
+            const i = floor(p);\n\
+            const f = fract(p);\n\
+            const w = f * f * (3.0 - 2.0 * f);\n\
+            return mix(mix(hash(i), hash(i + [1.0, 0.0]), w.x),\n\
+                       mix(hash(i + [0.0, 1.0]), hash(i + [1.0, 1.0]), w.x), w.y);\n\
+          };\n\
+          const fbm = (p) => {\n\
+            let v = 0.0;\n\
+            let a = 0.5;\n\
+            for (let o = 0; o < 5; o++) {\n\
+              v = v + a * noise(p);\n\
+              p = [0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y] * 2.02;\n\
+              a = a * 0.5;\n\
+            }\n\
+            return v;\n\
+          };\n\
+          const n = fbm(uv * 0.01);\n\
+          return [n, n * 0.5, 1.0 - n, 1.0];\n\
+        }";
+        let compiled =
+            opencat_liangyi::compile_effect(source, &Default::default()).expect("compile");
+        assert_eq!(compiled.backend, opencat_liangyi::Backend::Sksl);
+        let sksl = compiled.sksl.expect("sksl backend carries code");
+        assert!(sksl.contains("float oc_f2(float2 oc_l"), "{sksl}");
+        assert!(sksl.contains("for (float oc_l"), "{sksl}");
+        RuntimeEffect::make_for_shader(&sksl, None)
+            .expect("Skia must accept the emitted user functions");
+    }
+
     #[test]
     fn canvas_draw_script_bounds_clip_then_script_clip_keeps_content() {
         // Mirror `render_draw_script`: it first clips the canvas to the element

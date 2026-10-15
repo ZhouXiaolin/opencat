@@ -36,7 +36,7 @@ fn ocir_transport_ablation() {
     let cache_base = dirs::home_dir().unwrap();
     let cache_dir = cache_base.join(".opencat").join("assets");
     let loader = opencat_engine::resource::loader::EngineLoader::new(base, cache_dir).unwrap();
-    let ctx = opencat_engine::js_context::RqJsContext::new().unwrap();
+    let ctx = opencat_engine::js_context::V8JsContext::new().unwrap();
     let mut pipeline = opencat_engine::pipeline::open(&src, loader, ctx).unwrap();
     let info = pipeline.info().clone();
     let frame_count = ((info.duration * info.fps as f64) as u32).max(1);

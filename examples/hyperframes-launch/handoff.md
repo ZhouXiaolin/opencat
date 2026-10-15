@@ -3,6 +3,63 @@
 > 2026-10-13 对齐更新。状态：**未达标，但首次有了有效 diff**。
 > 全片 `avg_p8 = 0.0733`（目标 <0.02）。参考自噪声地板见下。
 
+## 2026-10-15 脚本后端 rquickjs → V8（分支 `feat/v8-script-backend`）
+
+**结论：脚本时间降 2.8×，输出逐像素不变。** 全片 1494 帧
+`avg_p8 = 0.0591`、`mae_mean = 2.766`，与 rquickjs 版**逐像素完全相同**
+（k3diff `mae 0.000 / maxd 0`）——这是一次纯性能替换，不移动任何一帧。
+
+| 指标 | rquickjs | V8 | 变化 |
+|---|---|---|---|
+| script ms/帧 | 26.44 | **8.86** | 2.98× |
+| script p95 ms | 211.25 | **66.53** | 3.18× |
+| 全片渲染耗时 | 150 s | **118 s** | 1.27× |
+| 峰值 RSS | 3992 MiB | 4310 MiB | +8% |
+
+### 为什么只快 1.27×，而不是 3×
+
+`profile` 的 `script` 只占单帧约 26%，采样确认同一分布：主线程样本里
+`JS_CallInternal` ≈ 27%，其余主要是 **Skia 光栅化**（bicubic 缩放、
+blur、gradient）。脚本已不再是瓶颈——继续提速要看渲染后端，不是 JS 引擎。
+单帧 profile：script 8.86 / layout 0.08 / display 0.27 / backend 0.26 ms。
+
+### 实现要点（`crates/opencat-engine/src/js_context.rs`）
+
+- **隔离单元不变**：仍是一个 pipeline 一个 isolate。但 isolate 持有的是
+  `SharedIsolate` 而非 `OwnedIsolate`——后者 drop 时断言自己是
+  `Isolate::GetCurrent()`，即要求**严格按创建逆序销毁**；多 pipeline 共存时
+  这个顺序不受控，实测单帧冒烟即 `Fatal error in v8::Isolate::Dispose()`。
+  `SharedIsolate` 经 `v8::Locker` 串行化访问、最后一个守卫消失时自行 dispose，
+  生命周期与创建顺序无关。测试
+  `realms_tear_down_out_of_creation_order` 锁住这个语义。
+- **JSON 编组走 V8 原生 `JSON.stringify` / `JSON.parse`**，不再手写 Value
+  遍历（原 rquickjs 后端的 `rq_to_json` / `json_to_rq` 已删）。
+- **原生函数是零捕获的 `fn` 项**（V8 回调要求 `Copy + Sized`），per-realm
+  状态经 isolate data slot 取回，因此 `install_dispatcher` 把 dispatcher 存进
+  `NativeState` 而不是闭包捕获。
+- **binary fast path 保持**：`__opencatPutImageData` 用
+  `ArrayBufferView::copy_contents` 拷 `Uint8Array`；
+  `__opencatSurfaceReadInto` 仍「填充而非返回」，直写调用方缓冲。
+- 依赖：`v8 = "152.2.0"`（features `use_custom_libcxx`），走预编译库，
+  本机 `cargo build` 约 2.5 分钟，**不需要** V8 源码构建。
+  `rquickjs` 已从 workspace 完全移除。
+
+### 复现
+
+```sh
+cargo build --release --features profile -p opencat
+OC_RENDER_GUARD_FOREGROUND=1 tools/render-guard.sh \
+  examples/hyperframes-launch/hyperframes-launch.jsx out/bench/v8.mp4
+python3 -I tools/k3diff.py <ref.mp4> out/bench/v8.mp4 --out out/bench/k3-v8
+```
+
+### 测试状态
+
+`opencat-core` 613 passed；`opencat-engine` 101 passed / 3 failed——
+3 个失败在 rquickjs 基线上**同样失败**，与本改动无关：
+两个 chromedriver 测试（本机 ChromeDriver 150 vs Chrome 155），
+一个缺 `assets/lbr/heygen-prism.glb`。clippy 警告数 150 → 150（无新增）。
+
 ## 2026-10-15 对齐点：font-style 通道缺失 + thesis 词距
 
 全片 `mae_mean 3.096 → 2.766`，`avg_p8 0.0606 → 0.0591`。

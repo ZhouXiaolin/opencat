@@ -327,7 +327,12 @@ fn prepare_frame(
         // otherwise grow this map one Skia image (GPU-uploadable, so ~1x the
         // RGBA size) per frame for the whole composition.
         let bytes = entry.width as usize * entry.height as usize * 4;
-        let sk_image = if let Some(cached) = generated_cache.get_cloned(&entry.id) {
+        let generated_enabled =
+            !opencat_core::ablate::ablated(opencat_core::ablate::Ablation::GeneratedImages);
+        let sk_image = if let Some(cached) = generated_enabled
+            .then(|| generated_cache.get_cloned(&entry.id))
+            .flatten()
+        {
             cached
         } else {
             let info = ImageInfo::new(
@@ -391,18 +396,24 @@ pub(crate) fn compile_runtime_effect_cached(
     hash: u64,
     sksl: &str,
 ) -> Result<RuntimeEffect, ConsumerError> {
+    let compile = || {
+        RuntimeEffect::make_for_shader(sksl, None).map_err(|e| {
+            MediaError::RuntimeEffectCompileFailed {
+                hash,
+                detail: e.to_string(),
+            }
+        })
+    };
+    if opencat_core::ablate::ablated(opencat_core::ablate::Ablation::RuntimeEffects) {
+        return Ok(compile()?);
+    }
     RUNTIME_EFFECT_CACHE.with(|c| {
         if let Some(hit) = c.borrow().get(&hash) {
             // skia-safe 对象非 Clone；这里复用引用计数？RuntimeEffect 内部是
             // refcounted handle —— 直接 clone 句柄即可。
             return Ok(hit.clone());
         }
-        let effect = RuntimeEffect::make_for_shader(sksl, None).map_err(|e| {
-            MediaError::RuntimeEffectCompileFailed {
-                hash,
-                detail: e.to_string(),
-            }
-        })?;
+        let effect = compile()?;
         c.borrow_mut().insert(hash, effect.clone());
         Ok(effect)
     })

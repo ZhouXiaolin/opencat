@@ -2,7 +2,6 @@ pub mod paint;
 pub mod path;
 mod replay;
 
-use opencat_core::ir::cache::CachedDrawRange;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
@@ -166,16 +165,6 @@ impl EngineDrawExecutor {
         _draw: &DrawOpFrame,
         _resolve_bytes: P,
     ) {
-    }
-
-    pub fn compile_range(
-        &mut self,
-        _cached: &CachedDrawRange,
-        _draw: &DrawOpFrame,
-    ) -> Result<(), DrawError> {
-        // TODO(optimization): compile range via PictureRecorder
-        // Requires EnginePreparedFrameMedia which needs full pipeline integration
-        Ok(())
     }
 
     pub fn evict_range(&mut self, fingerprint: u64) {

@@ -9,6 +9,15 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
     }
     let mut out = String::new();
     out.push_str("Render profile:\n");
+    let active = crate::ablate::active();
+    out.push_str(&format!(
+        "  ablate: {}\n",
+        if active.is_empty() {
+            "(none)".to_string()
+        } else {
+            active.join(",")
+        }
+    ));
     out.push_str(&format!("  frames: {}\n", frame_count));
     out.push_str(&format!(
         "  avg ms/frame: script {:.2}, frame_state {:.2}, resolve {:.2}, layout {:.2}, display {:.2}, backend {:.2}, transition {:.2}\n",
@@ -76,37 +85,21 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.structure_rebuilds),
     ));
     out.push_str(&format!(
-        "  display avg/frame: recorded_subtree_identical_subtrees {:.1}, recorded_subtree_identical_nodes {:.1}, merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, rebuilt_nodes {:.1}, apply_only_patched_nodes {:.1}\n",
-        average_usize(summary, |frame| frame.display_recorded_subtree_identical_subtrees),
-        average_usize(summary, |frame| frame.display_recorded_subtree_identical_nodes),
+        "  display avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, rebuilt_nodes {:.1}, apply_only_patched_nodes {:.1}\n",
         average_usize(summary, |frame| frame.display_merkle_skipped_subtrees),
         average_usize(summary, |frame| frame.display_merkle_skipped_nodes),
         average_usize(summary, |frame| frame.display_rebuilt_nodes),
         average_usize(summary, |frame| frame.display_apply_only_nodes),
     ));
     out.push_str(&format!(
-        "  analyze avg/frame: merkle_skipped_subtrees {:.1}, merkle_skipped_nodes {:.1}, recorded_hit_subtrees {:.1}, recorded_hit_nodes {:.1}, snapshot_eligibility_hit_subtrees {:.1}, snapshot_eligibility_hit_nodes {:.1}, composite_blocked_subtrees {:.1}, composite_blocked_nodes {:.1}, apply_changed_nodes {:.1}\n",
-        average_usize(summary, |frame| frame.analyze_merkle_skipped_subtrees),
-        average_usize(summary, |frame| frame.analyze_merkle_skipped_nodes),
-        average_usize(summary, |frame| frame.analyze_recorded_hit_subtrees),
-        average_usize(summary, |frame| frame.analyze_recorded_hit_nodes),
-        average_usize(summary, |frame| frame
-            .analyze_snapshot_eligibility_hit_subtrees),
-        average_usize(summary, |frame| frame.analyze_snapshot_eligibility_hit_nodes),
-        average_usize(summary, |frame| frame.analyze_composite_blocked_subtrees),
-        average_usize(summary, |frame| frame.analyze_composite_blocked_nodes),
-        average_usize(summary, |frame| frame.analyze_apply_changed_nodes),
-    ));
-    out.push_str(&format!(
-        "  backend avg ms/frame: node_own_record {:.2}, subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
-        average(summary, |frame| frame.backend.node_own_segment_record_ms),
+        "  backend avg ms/frame: subtree_image_rasterize {:.2}, subtree_image_draw {:.2}, light_leak_mask {:.2}, light_leak_composite {:.2}\n",
         average(summary, |frame| frame.backend.subtree_image_rasterize_ms),
         average(summary, |frame| frame.backend.subtree_image_draw_ms),
         average(summary, |frame| frame.backend.light_leak_mask_ms),
         average(summary, |frame| frame.backend.light_leak_composite_ms),
     ));
     out.push_str(&format!(
-        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, glyph_path_hit {:.2}, glyph_path_miss {:.2}, glyph_img_hit {:.2}, glyph_img_miss {:.2}, item_hit {:.2}, item_miss {:.2}, scene_snapshot_hit {:.2}, scene_snapshot_miss {:.2}, subtree_request_after_fresh {:.2}, subtree_request_after_reused {:.2}, subtree_request_after_composite_blocked {:.2}, node_own_hit {:.2}, node_own_record {:.2}, node_own_replaced {:.2}, apply_segment_hit {:.2}, apply_segment_miss {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
+        "  backend avg counts/frame: rect {:.1}, text {:.1}, bitmap {:.1}, draw_script {:.1}, save_layer {:.1}, glyph_path_hit {:.2}, glyph_path_miss {:.2}, glyph_img_hit {:.2}, glyph_img_miss {:.2}, subtree_image_hit {:.2}, subtree_image_miss {:.2}, subtree_image_promote {:.2}, img_hit {:.2}, img_miss {:.2}, video_hit {:.2}, video_miss {:.2}, video_decode {:.2}\n",
         average_usize(summary, |frame| frame.backend.draw_rect_count),
         average_usize(summary, |frame| frame.backend.draw_text_count),
         average_usize(summary, |frame| frame.backend.draw_bitmap_count),
@@ -116,24 +109,6 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.glyph_path_cache_misses),
         average_usize(summary, |frame| frame.backend.glyph_image_cache_hits),
         average_usize(summary, |frame| frame.backend.glyph_image_cache_misses),
-        average_usize(summary, |frame| frame.backend.item_picture_cache_hits),
-        average_usize(summary, |frame| frame.backend.item_picture_cache_misses),
-        average_usize(summary, |frame| frame.backend.scene_snapshot_cache_hits),
-        average_usize(summary, |frame| frame.backend.scene_snapshot_cache_misses),
-        average_usize(summary, |frame| frame
-            .backend
-            .subtree_snapshot_request_after_analyze_fresh),
-        average_usize(summary, |frame| frame
-            .backend
-            .subtree_snapshot_request_after_analyze_reused),
-        average_usize(summary, |frame| frame
-            .backend
-            .subtree_snapshot_request_after_analyze_composite_blocked),
-        average_usize(summary, |frame| frame.backend.node_own_segment_hits),
-        average_usize(summary, |frame| frame.backend.node_own_segment_records),
-        average_usize(summary, |frame| frame.backend.node_own_segment_replaced),
-        average_usize(summary, |frame| frame.backend.apply_segment_hits),
-        average_usize(summary, |frame| frame.backend.apply_segment_misses),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_hits),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_misses),
         average_usize(summary, |frame| frame.backend.subtree_image_promotions),
@@ -144,38 +119,7 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.video_frame_decodes),
     ));
     out.push_str(&format!(
-        "  scene snapshot miss avg/frame: scene_snapshot_miss_plan_blocked {:.2}, scene_snapshot_miss_empty {:.2}, scene_snapshot_miss_viewport_changed {:.2}, scene_snapshot_miss_root_fingerprint_changed {:.2}\n",
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_miss_plan_blocked),
-        average_usize(summary, |frame| frame.backend.scene_snapshot_miss_empty),
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_miss_viewport_changed),
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_miss_root_fingerprint_changed),
-    ));
-    out.push_str(&format!(
-        "  scene snapshot plan blocked avg/frame: scene_snapshot_plan_blocked_by_structure {:.2}, scene_snapshot_plan_blocked_by_layout {:.2}, scene_snapshot_plan_blocked_by_raster {:.2}, scene_snapshot_plan_blocked_by_apply_change {:.2}\n",
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_plan_blocked_by_structure),
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_plan_blocked_by_layout),
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_plan_blocked_by_raster),
-        average_usize(summary, |frame| frame
-            .backend
-            .scene_snapshot_plan_blocked_by_apply_change),
-    ));
-    out.push_str(&format!(
-        "  cache pressure avg/frame: item_evict {:.2}, item_repeat {:.2}, item_util {:.2}, subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}, node_own_evict {:.2}, node_own_repeat {:.2}, node_own_util {:.2}, apply_evict {:.2}, apply_repeat {:.2}, apply_util {:.2}\n",
-        average_usize(summary, |frame| frame.backend.item_picture_cache_evictions),
-        average_usize(summary, |frame| frame.backend.item_picture_cache_record_repeats),
-        average_usize(summary, |frame| frame.backend.item_picture_cache_capacity_utilization),
+        "  cache pressure avg/frame: subtree_image_evict {:.2}, subtree_image_repeat {:.2}, subtree_image_util {:.2}, glyph_path_evict {:.2}, glyph_path_repeat {:.2}, glyph_path_util {:.2}, image_evict {:.2}, image_repeat {:.2}, image_util {:.2}\n",
         average_usize(summary, |frame| frame.backend.subtree_image_cache_evictions),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.subtree_image_cache_capacity_utilization),
@@ -185,12 +129,6 @@ pub(crate) fn render_profile_text(summary: &RenderProfileSummary) -> String {
         average_usize(summary, |frame| frame.backend.image_cache_evictions),
         average_usize(summary, |frame| frame.backend.image_cache_record_repeats),
         average_usize(summary, |frame| frame.backend.image_cache_capacity_utilization),
-        average_usize(summary, |frame| frame.backend.node_own_cache_evictions),
-        average_usize(summary, |frame| frame.backend.node_own_cache_record_repeats),
-        average_usize(summary, |frame| frame.backend.node_own_cache_capacity_utilization),
-        average_usize(summary, |frame| frame.backend.apply_cache_evictions),
-        average_usize(summary, |frame| frame.backend.apply_cache_record_repeats),
-        average_usize(summary, |frame| frame.backend.apply_cache_capacity_utilization),
     ));
     append_backend_span_summary(&mut out, summary);
     out
@@ -334,38 +272,6 @@ mod tests {
         frame.input_merkle_full_hit_nodes = 13;
         frame.layout_merkle_skipped_subtrees = 7;
         frame.layout_merkle_skipped_nodes = 21;
-        frame.analyze_merkle_skipped_subtrees = 3;
-        frame.analyze_merkle_skipped_nodes = 11;
-        frame.analyze_recorded_hit_subtrees = 4;
-        frame.analyze_recorded_hit_nodes = 12;
-        frame.analyze_snapshot_eligibility_hit_subtrees = 3;
-        frame.analyze_snapshot_eligibility_hit_nodes = 11;
-        frame.analyze_composite_blocked_subtrees = 1;
-        frame.analyze_composite_blocked_nodes = 1;
-        frame.backend.scene_snapshot_miss_plan_blocked = 2;
-        frame.backend.scene_snapshot_miss_empty = 3;
-        frame.backend.scene_snapshot_miss_viewport_changed = 4;
-        frame.backend.scene_snapshot_miss_root_fingerprint_changed = 5;
-        frame.backend.scene_snapshot_plan_blocked_by_structure = 6;
-        frame.backend.scene_snapshot_plan_blocked_by_layout = 7;
-        frame.backend.scene_snapshot_plan_blocked_by_raster = 8;
-        frame.backend.scene_snapshot_plan_blocked_by_apply_change = 9;
-        frame.backend.subtree_snapshot_request_after_analyze_fresh = 10;
-        frame.backend.subtree_snapshot_request_after_analyze_reused = 7;
-        frame
-            .backend
-            .subtree_snapshot_request_after_analyze_composite_blocked = 3;
-        frame.backend.node_own_segment_hits = 2;
-        frame.backend.node_own_segment_records = 3;
-        frame.backend.node_own_segment_replaced = 1;
-        frame.backend.apply_segment_hits = 8;
-        frame.backend.apply_segment_misses = 2;
-        frame.backend.apply_cache_evictions = 7;
-        frame.backend.apply_cache_record_repeats = 8;
-        frame.backend.apply_cache_capacity_utilization = 9;
-        frame.backend.node_own_cache_evictions = 4;
-        frame.backend.node_own_cache_record_repeats = 5;
-        frame.backend.node_own_cache_capacity_utilization = 6;
         frame.backend_spans.insert(
             BackendSpanKey {
                 depth: 0,
@@ -386,36 +292,6 @@ mod tests {
         assert!(text.contains("input_full_hit_nodes"));
         assert!(text.contains("layout_skipped_nodes"));
         assert!(text.contains("display avg/frame"));
-        assert!(text.contains("recorded_subtree_identical_subtrees"));
-        assert!(text.contains("recorded_subtree_identical_nodes"));
-        assert!(text.contains("analyze avg/frame"));
-        assert!(text.contains("merkle_skipped_nodes"));
-        assert!(text.contains("recorded_hit_nodes"));
-        assert!(text.contains("snapshot_eligibility_hit_nodes"));
-        assert!(text.contains("composite_blocked_nodes"));
-        assert!(text.contains("node_own_record"));
-        assert!(text.contains("subtree_request_after_fresh"));
-        assert!(text.contains("subtree_request_after_reused"));
-        assert!(text.contains("subtree_request_after_composite_blocked"));
-        assert!(text.contains("node_own_hit"));
-        assert!(text.contains("node_own_record"));
-        assert!(text.contains("node_own_replaced"));
-        assert!(text.contains("apply_segment_hit"));
-        assert!(text.contains("apply_segment_miss"));
-        assert!(text.contains("scene_snapshot_miss_plan_blocked"));
-        assert!(text.contains("scene_snapshot_miss_empty"));
-        assert!(text.contains("scene_snapshot_miss_viewport_changed"));
-        assert!(text.contains("scene_snapshot_miss_root_fingerprint_changed"));
-        assert!(text.contains("scene_snapshot_plan_blocked_by_structure"));
-        assert!(text.contains("scene_snapshot_plan_blocked_by_layout"));
-        assert!(text.contains("scene_snapshot_plan_blocked_by_raster"));
-        assert!(text.contains("scene_snapshot_plan_blocked_by_apply_change"));
-        assert!(text.contains("node_own_evict"));
-        assert!(text.contains("node_own_repeat"));
-        assert!(text.contains("node_own_util"));
-        assert!(text.contains("apply_evict"));
-        assert!(text.contains("apply_repeat"));
-        assert!(text.contains("apply_util"));
         assert!(text.contains("backend avg spans/frame"));
     }
 }

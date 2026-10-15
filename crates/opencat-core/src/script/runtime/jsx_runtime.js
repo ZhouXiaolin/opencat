@@ -66,30 +66,48 @@
     function makeSceneClock(cell) {
         function localFrame() {
             var g = globalThis.ctx.global;
-            var maxLocal = cell.sceneFrames > 0 ? cell.sceneFrames - 1 : 0;
             var cur = g.frame - cell.startFrame;
             if (cur < 0) cur = 0;
-            if (cur > maxLocal) cur = maxLocal;
             return cur;
         }
         return {
-            get time() { return localFrame() / cell.fps; },
+            // Seconds come from the scene's exact start, not from the frame
+            // index: a boundary is quantized to a frame while the author's
+            // placement is not, and that error would otherwise accumulate down
+            // the timeline. Mirrors Rust's `ScriptFrameCtx::for_window`.
+            get time() { return Math.max(0, globalThis.ctx.global.time - cell.startSecs); },
             get duration() { return cell.sceneFrames / cell.fps; },
             get frame() { return localFrame(); },
+            // A scene is on screen for its whole window — its own segment plus
+            // the transitions it shares with its neighbours (a transition IS the
+            // overlap between two scenes). Outside that window it is not
+            // rendered, so its hooks must not run.
+            get active() {
+                if (cell.sceneFrames <= 0) return false;
+                var cur = globalThis.ctx.global.frame - cell.startFrame;
+                return cur >= 0 && cur < cell.sceneFrames;
+            },
         };
     }
 
-    // Tween progress is computed in Rust from the store's frame. Tell it which
-    // frame to use: the scene-local one when a clock is given, the composition
-    // frame otherwise. Every hook and every timeline flush brackets itself with
-    // this so a scene's tweens advance on the scene's clock, not the
-    // composition's. `__ocScriptFrame` mirrors the value in JS so a nested
-    // bracket (a hook's own `ctx.fromTo` flushing pending timelines) can save
-    // and restore it.
+    // Tween progress is computed in Rust. Tell it which clock to use: the
+    // scene-local one when a clock is given, the composition clock otherwise.
+    // Every hook and every timeline flush brackets itself with this so a scene's
+    // tweens advance on the scene's clock, not the composition's.
+    //
+    // Time is sent in SECONDS, not frames. Tween progress advances by elapsed
+    // time, and a scene window can start between frames (a `<tl>` boundary is
+    // quantized to a frame; the author's placement is not). Rounding the scene
+    // start to a frame would run every tween in that scene that much early.
+    // `__ocScriptFrame` still mirrors the whole-frame reading for scripts that
+    // index by frame, and for the save/restore bracket around nested flushes.
     function setScriptFrame(clock) {
         var frame = clock ? clock.frame : -1;
+        var secs = clock ? clock.time : -1;
         globalThis.__ocScriptFrame = frame;
+        globalThis.__ocScriptTimeSecs = secs;
         if (globalThis.__set_script_frame) globalThis.__set_script_frame(frame);
+        if (globalThis.__set_script_time_secs) globalThis.__set_script_time_secs(secs);
     }
     globalThis.__ocSetScriptFrame = setScriptFrame;
 
@@ -263,8 +281,14 @@
         var ctx = globalThis.ctx;
         for (var i = 0; i < hooks.length; i++) {
             var hook = hooks[i];
+            // A hook bound to a scene only runs while that scene is on screen.
+            // Off screen the scene is not rendered, so its work is pure waste —
+            // this is what keeps a long timeline from re-running every scene's
+            // driver on every frame.
+            if (hook.clock && hook.clock.active === false) continue;
             var saved = ctx.current;
             var savedFrame = globalThis.__ocScriptFrame;
+            var savedTime = globalThis.__ocScriptTimeSecs;
             try {
                 ctx.current = hook.clock || ctx.global;
                 setScriptFrame(hook.clock);
@@ -272,8 +296,12 @@
             } finally {
                 ctx.current = saved;
                 globalThis.__ocScriptFrame = savedFrame;
+                globalThis.__ocScriptTimeSecs = savedTime;
                 if (globalThis.__set_script_frame) {
                     globalThis.__set_script_frame(savedFrame != null ? savedFrame : -1);
+                }
+                if (globalThis.__set_script_time_secs) {
+                    globalThis.__set_script_time_secs(savedTime != null ? savedTime : -1);
                 }
             }
         }
@@ -422,31 +450,132 @@
         if (lines) lines.push(line);
 
         var fps = metaFps();
-        var cursorFrame = 0;
+        var extracting = globalThis.__ocMode === 'extract';
         var children = el.children || [];
+
+        // Pass 1: lay out the segments. A scene's length is its `duration` prop
+        // when declared on the `<tl>` child — no need to run the component to
+        // measure it, which is what lets an off-screen scene be skipped later.
+        // A scene that does NOT declare one must be run here to measure its
+        // root's duration; such a scene is always rendered (it can never be
+        // proven off screen), so it is resolved once and its value cached.
+        // Transitions always declare their own duration.
+        //
+        // Boundaries come from a SECONDS cursor, and a segment's frame length is
+        // the difference of two ceiled boundaries. Summing per-segment ceils
+        // instead would drift one frame later at every fractional boundary, so a
+        // long timeline would end up seconds off from where the author put it.
+        // This mirrors Rust's `TimelineNode::segment_frame_bounds`.
+        var cells = [];
+        var cursorSecs = 0;
         for (var i = 0; i < children.length; i++) {
             var child = children[i];
-            var cell = { startFrame: cursorFrame, sceneFrames: 0, fps: fps };
-            // Push the scene clock while its subtree is walked. A component
-            // invoked here registers its hooks against this clock; the clock
-            // reads `ctx.global.frame` lazily, so `cell.sceneFrames` being
-            // filled in only after the call is fine.
-            sceneStack.push(makeSceneClock(cell));
-            var value;
-            try {
-                value = resolveSceneValue(child);
-                cell.sceneFrames = durationToFrames(sceneDuration(value), fps);
-                emitElement(value, id, lines, audioSites);
-            } finally {
-                sceneStack.pop();
+            if (child && child.__ocEl === true && child.tag === 'transition') {
+                var tStart = cursorSecs;
+                var tDuration = num(child.props.duration) || 0;
+                cursorSecs += tDuration;
+                cells.push({
+                    transition: true,
+                    startFrame: durationToFrames(tStart, fps),
+                    durationSecs: tDuration,
+                    frames: durationToFrames(cursorSecs, fps) - durationToFrames(tStart, fps),
+                    el: child,
+                });
+                continue;
             }
-            // Every direct child consumes timeline time: scenes by their own
-            // duration, transitions by theirs. This matches Rust's segment
-            // layout, where a scene's `start_frame` is the sum of every earlier
-            // segment (scenes AND transitions).
-            cursorFrame += cell.sceneFrames;
+            var declared = child && child.__ocEl === true ? num(child.props.duration) : undefined;
+            var cell = {
+                startFrame: durationToFrames(cursorSecs, fps),
+                startSecs: cursorSecs,
+                sceneFrames: 0,
+                fps: fps,
+            };
+            var entry = { transition: false, cell: cell, el: child, declared: declared, value: null };
+            if (declared !== undefined) {
+                cursorSecs += declared;
+            } else {
+                sceneStack.push(makeSceneClock(cell));
+                try {
+                    entry.value = resolveSceneValue(child);
+                    cursorSecs += sceneDuration(entry.value);
+                } finally {
+                    sceneStack.pop();
+                }
+            }
+            cell.sceneFrames = durationToFrames(cursorSecs, fps) - cell.startFrame;
+            if (entry.value !== null) stampSceneDuration(entry.value, declared);
+            cells.push(entry);
         }
+
+        // Pass 2: widen each scene's window by the transition segments that
+        // touch it. A transition IS the overlap between its two scenes, so both
+        // neighbours stay live for its whole span and each runs its clock from
+        // its own window start. The clocks read `ctx.global.frame` lazily, so
+        // filling their windows in after the walk is fine — no hook has run yet.
+        for (var j = 0; j < cells.length; j++) {
+            if (cells[j].transition) continue;
+            var before = j > 0 && cells[j - 1].transition ? cells[j - 1].frames : 0;
+            var after =
+                j + 1 < cells.length && cells[j + 1].transition ? cells[j + 1].frames : 0;
+            var beforeSecs = j > 0 && cells[j - 1].transition ? cells[j - 1].durationSecs : 0;
+            var sceneCell = cells[j].cell;
+            sceneCell.startFrame = Math.max(0, sceneCell.startFrame - before);
+            sceneCell.startSecs = Math.max(0, sceneCell.startSecs - beforeSecs);
+            sceneCell.sceneFrames = before + sceneCell.sceneFrames + after;
+        }
+
+        // Pass 3: walk the children in order. A scene is only resolved while it
+        // is on screen — its component runs, which is what registers its hooks.
+        // Off screen it is skipped outright (extract must emit the whole tree,
+        // so it resolves everything). This is what keeps a long timeline from
+        // paying for every scene on every frame.
+        var frame = globalThis.ctx && globalThis.ctx.global ? globalThis.ctx.global.frame : 0;
+        for (var k = 0; k < cells.length; k++) {
+            var e = cells[k];
+            if (e.transition) {
+                if (lines) emitElement(e.el, id, lines, audioSites);
+                continue;
+            }
+            if (e.value === null) {
+                if (!extracting && e.cell.sceneFrames > 0) {
+                    var local = frame - e.cell.startFrame;
+                    if (local < 0 || local >= e.cell.sceneFrames) continue;
+                }
+                sceneStack.push(makeSceneClock(e.cell));
+                try {
+                    e.value = resolveSceneValue(e.el);
+                } finally {
+                    sceneStack.pop();
+                }
+                stampSceneDuration(e.value, e.declared);
+            }
+            if (lines) emitElement(e.value, id, lines, audioSites);
+        }
+
         return id;
+    }
+
+    // Stamp the declared scene duration onto the root the scene renders, so the
+    // JSONL line carries it (Rust reads the segment length off the line, not
+    // off the `<tl>` child's props). Unwraps arrays and fragments without
+    // re-running the component.
+    function stampSceneDuration(value, duration) {
+        var guard = 0;
+        while (guard++ < 64) {
+            if (Array.isArray(value)) {
+                if (value.length !== 1) return;
+                value = value[0];
+                continue;
+            }
+            if (value && value.__ocEl === true && value.tag === FRAGMENT) {
+                if (value.children.length !== 1) return;
+                value = value.children[0];
+                continue;
+            }
+            break;
+        }
+        if (!value || value.__ocEl !== true) return;
+        if (value.props && value.props.duration === undefined) value.props.duration = duration;
     }
 
     function emitElement(el, parentId, lines, audioSites) {

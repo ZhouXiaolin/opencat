@@ -54,6 +54,12 @@ pub struct MutationStore {
     /// (matching XML node scripts, whose realm already runs with a
     /// `for_segment` frame). `None` = use `current_frame` as-is.
     frame_override: Option<u32>,
+    /// Scene-local time override in seconds. Tween progress advances by elapsed
+    /// time, and a scene window may start between frames (a `<tl>` boundary is
+    /// quantized to a frame, the author's placement is not). Without this the
+    /// fractional part of the scene start would be dropped, and every tween in
+    /// that scene would run that much early. `None` = derive from the frame.
+    time_override_secs: Option<f64>,
     fps: u32,
 }
 
@@ -758,7 +764,7 @@ impl MutationStore {
 
     pub fn animate_create(
         &mut self,
-        current_frame: u32,
+        current_time: f32,
         duration: f32,
         delay: f32,
         clamp: bool,
@@ -778,7 +784,6 @@ impl MutationStore {
         };
         let delay_secs = delay.max(0.0);
         let repeat_delay_secs = repeat_delay.max(0.0);
-        let current_time = current_frame as f32 / fps;
         let progress = crate::parse::easing::compute_progress_secs(
             current_time,
             duration_secs,
@@ -800,6 +805,7 @@ impl MutationStore {
         } else {
             u32::MAX
         };
+        let current_frame = (current_time * fps) as u32;
         let settled = repeat >= 0 && current_frame >= delay_frames.saturating_add(total_frames);
         let settle_frame = delay_frames.saturating_add(total_frames);
         let handle = self.animate_entries.len() as i32;
@@ -818,9 +824,8 @@ impl MutationStore {
         handle
     }
 
-    pub fn animate_value(&self, current_frame: u32, handle: i32, from: f32, to: f32) -> f32 {
+    pub fn animate_value(&self, current_time: f32, handle: i32, from: f32, to: f32) -> f32 {
         if let Some(entry) = self.animate_entries.get(handle as usize) {
-            let current_time = current_frame as f32 / self.fps.max(1) as f32;
             crate::parse::easing::animate_value_secs(
                 current_time,
                 entry.duration_secs,
@@ -1229,6 +1234,7 @@ impl MutationRecorder for MutationStore {
         self.path_entries.clear();
         self.current_frame = current_frame;
         self.frame_override = None;
+        self.time_override_secs = None;
         self.fps = fps.max(1);
     }
 
@@ -1265,6 +1271,14 @@ impl MutationRecorder for MutationStore {
     }
     fn set_frame_override(&mut self, frame: Option<u32>) {
         self.frame_override = frame;
+    }
+    /// Scene-local time the tween evaluator should use, in seconds.
+    fn script_time_secs(&self) -> f64 {
+        self.time_override_secs
+            .unwrap_or_else(|| self.script_frame() as f64 / self.fps.max(1) as f64)
+    }
+    fn set_time_override_secs(&mut self, secs: Option<f64>) {
+        self.time_override_secs = secs;
     }
 }
 

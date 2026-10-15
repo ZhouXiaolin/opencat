@@ -1,6 +1,5 @@
 use crate::analyze::annotation::{AnnotatedDisplayTree, AnnotatedNodeHandle};
 use crate::display::list::DisplayItem;
-use crate::layout::LayoutPassStats;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct OrderedSceneProgram {
@@ -108,8 +107,7 @@ mod ordered_scene_tests {
     use super::{OrderedSceneOp, OrderedSceneProgram};
     use crate::{
         analyze::{
-            DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
-            DisplayNodeInvalidation,
+            DisplayAnalysisTable, DisplayNodeAnalysis,
             annotation::{
                 AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
             },
@@ -193,17 +191,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: {
-                let mut table = DisplayInvalidationTable::with_len(1);
-                table.insert(
-                    root,
-                    DisplayNodeInvalidation {
-                        apply_changed: true,
-                    },
-                );
-                table
-            },
-            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -243,8 +230,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: DisplayInvalidationTable::with_len(2),
-            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -316,8 +301,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: DisplayInvalidationTable::with_len(3),
-            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -418,8 +401,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: DisplayInvalidationTable::with_len(4),
-            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -499,8 +480,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: DisplayInvalidationTable::with_len(3),
-            analyze_reuse: vec![],
         };
 
         let subtree = OrderedSceneProgram::build_subtree(&tree, root);
@@ -571,8 +550,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: DisplayInvalidationTable::with_len(3),
-            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -666,8 +643,6 @@ mod ordered_scene_tests {
                 );
                 table
             },
-            invalidation: DisplayInvalidationTable::with_len(3),
-            analyze_reuse: vec![],
         };
 
         let program = OrderedSceneProgram::build(&tree);
@@ -689,97 +664,6 @@ mod ordered_scene_tests {
         );
     }
 }
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SceneRenderPlan {
-    pub allows_scene_snapshot_cache: bool,
-    pub scene_snapshot_blocked_by_structure: bool,
-    pub scene_snapshot_blocked_by_layout: bool,
-    pub scene_snapshot_blocked_by_raster: bool,
-    pub scene_snapshot_blocked_by_apply_change: bool,
-}
-
-impl SceneRenderPlan {
-    pub fn from_layout_pass(layout_pass: &LayoutPassStats, apply_changed_nodes: usize) -> Self {
-        let scene_snapshot_blocked_by_structure = layout_pass.structure_rebuild;
-        let scene_snapshot_blocked_by_layout = layout_pass.layout_dirty_nodes > 0;
-        let scene_snapshot_blocked_by_raster = layout_pass.raster_dirty_nodes > 0;
-        let scene_snapshot_blocked_by_apply_change = apply_changed_nodes > 0;
-        let allows_scene_snapshot_cache = !(scene_snapshot_blocked_by_structure
-            || scene_snapshot_blocked_by_layout
-            || scene_snapshot_blocked_by_raster
-            || scene_snapshot_blocked_by_apply_change);
-
-        Self {
-            allows_scene_snapshot_cache,
-            scene_snapshot_blocked_by_structure,
-            scene_snapshot_blocked_by_layout,
-            scene_snapshot_blocked_by_raster,
-            scene_snapshot_blocked_by_apply_change,
-        }
-    }
-}
-
-pub fn plan_for_scene(
-    layout_pass: &LayoutPassStats,
-    apply_changed_nodes: usize,
-) -> SceneRenderPlan {
-    SceneRenderPlan::from_layout_pass(layout_pass, apply_changed_nodes)
-}
-
-#[cfg(test)]
-mod plan_tests {
-    use super::SceneRenderPlan;
-    use crate::layout::LayoutPassStats;
-
-    #[test]
-    fn apply_changed_scene_disables_scene_snapshot_cache() {
-        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), 2);
-        assert_eq!(
-            plan,
-            SceneRenderPlan {
-                allows_scene_snapshot_cache: false,
-                scene_snapshot_blocked_by_structure: false,
-                scene_snapshot_blocked_by_layout: false,
-                scene_snapshot_blocked_by_raster: false,
-                scene_snapshot_blocked_by_apply_change: true,
-            }
-        );
-    }
-
-    #[test]
-    fn clean_scene_reuses_scene_snapshot_cache() {
-        let plan = SceneRenderPlan::from_layout_pass(&LayoutPassStats::default(), 0);
-        assert_eq!(
-            plan,
-            SceneRenderPlan {
-                allows_scene_snapshot_cache: true,
-                scene_snapshot_blocked_by_structure: false,
-                scene_snapshot_blocked_by_layout: false,
-                scene_snapshot_blocked_by_raster: false,
-                scene_snapshot_blocked_by_apply_change: false,
-            }
-        );
-    }
-
-    #[test]
-    fn layout_pass_records_scene_snapshot_block_reasons() {
-        let layout_pass = LayoutPassStats {
-            structure_rebuild: true,
-            layout_dirty_nodes: 2,
-            raster_dirty_nodes: 3,
-            ..Default::default()
-        };
-
-        let plan = SceneRenderPlan::from_layout_pass(&layout_pass, 4);
-
-        assert!(!plan.allows_scene_snapshot_cache);
-        assert!(plan.scene_snapshot_blocked_by_structure);
-        assert!(plan.scene_snapshot_blocked_by_layout);
-        assert!(plan.scene_snapshot_blocked_by_raster);
-        assert!(plan.scene_snapshot_blocked_by_apply_change);
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum StableNodeReuse {
     /// 足够便宜的叶子，直接重画比 record picture 更划算。
@@ -829,8 +713,7 @@ mod reuse_tests {
     use super::{StableNodeReuse, analyze_stable_node_reuse};
     use crate::{
         analyze::{
-            DisplayAnalysisTable, DisplayInvalidationTable, DisplayNodeAnalysis,
-            DisplayNodeInvalidation,
+            DisplayAnalysisTable, DisplayNodeAnalysis,
             annotation::{
                 AnnotatedDisplayNode, AnnotatedDisplayTree, AnnotatedNodeHandle, RenderNodeKey,
             },
@@ -887,19 +770,6 @@ mod reuse_tests {
             keys: (0..len).map(|i| RenderNodeKey(i as u64 + 1)).collect(),
             layer_bounds: vec![rect_bounds(); len],
             analysis,
-            invalidation: {
-                let mut table = DisplayInvalidationTable::with_len(len);
-                for i in 0..len {
-                    table.insert(
-                        AnnotatedNodeHandle(i),
-                        DisplayNodeInvalidation {
-                            apply_changed: false,
-                        },
-                    );
-                }
-                table
-            },
-            analyze_reuse: vec![],
         }
     }
 

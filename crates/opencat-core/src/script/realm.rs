@@ -371,26 +371,35 @@ impl<C: JsContext> ScriptRealm<C> {
         };
         for (id, scene) in &scenes {
             let (width, height) = (scene.target[0], scene.target[1]);
-            let rgba = raster.render(scene, &geometries, width, height)?;
+            let rasterized = raster.render(scene, &geometries, width, height)?;
             // 确定性 key：canvas id + 目标尺寸 + 像素内容。同内容同帧幂等，
             // 异内容碰撞是 hard error（GeneratedImageTable 契约）。
+            // GPU 路径无 CPU 像素：以不透明句柄参与哈希（同一 render target
+            // 逐帧复用句柄即视为同内容，与 CPU 路径的字节比较同义）。
             let mut hf = ahash::AHasher::default();
             use std::hash::{Hash, Hasher};
             id.hash(&mut hf);
             width.hash(&mut hf);
             height.hash(&mut hf);
-            rgba.hash(&mut hf);
+            rasterized.rgba.hash(&mut hf);
+            rasterized.gpu.hash(&mut hf);
             let key = format!("scene3:{id}:{:016x}", hf.finish());
+            let gpu_id = crate::ir::GeneratedImageId::from_key(&key);
             self.ctx.with_store_mut(|s| {
-                s.record_frame_generated_image(
-                    id,
-                    crate::ir::GeneratedImageId::from_key(&key),
-                    0.0,
-                    0.0,
-                    width,
-                    height,
-                    rgba,
-                );
+                match rasterized.gpu {
+                    Some(handle) => s.record_frame_generated_image_gpu(
+                        id, gpu_id, 0.0, 0.0, width, height, handle,
+                    ),
+                    None => s.record_frame_generated_image(
+                        id,
+                        gpu_id,
+                        0.0,
+                        0.0,
+                        width,
+                        height,
+                        rasterized.rgba,
+                    ),
+                }
                 // 快照保留：mutation 流仍携带 scene3（对齐 engine 既有测试
                 // 的逐帧重提交语义；渲染只消费上面的 DrawOp）。
                 s.record_scene3(id, scene.clone());

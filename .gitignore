@@ -12,6 +12,11 @@ __pycache__/
 .zcode/
 .commandcode/
 .cache/
+# 本地草稿：k3diff/对比输出（~200M）、agent 任务记录、临时探针文件
+/build/
+/.pi/
+/json/
+/cctest.c
 
 # 大体积素材不入库（Solaren：先不上传）——文件保留在本地磁盘，源头可从 F:/hyperframes-launches 重拷
 # 如需恢复跟踪，删除对应行后 git add -f

@@ -95,7 +95,24 @@ pub trait Scene3Raster: Send + Sync {
         geometries: &GeometryRegistry,
         width: u32,
         height: u32,
-    ) -> Result<std::sync::Arc<[u8]>>;
+    ) -> Result<Rasterized3d>;
+}
+
+/// One rasterized 3D scene.
+///
+/// Either `rgba` carries CPU pixels (the CPU path, and every wasm host), or
+/// `gpu` carries an opaque host handle to a GPU-resident render target (the
+/// GPU path — no CPU round trip). `rgba` is empty when `gpu` is set.
+pub struct Rasterized3d {
+    pub rgba: std::sync::Arc<[u8]>,
+    pub gpu: Option<crate::ir::generated_image::GpuImageHandle>,
+}
+
+impl Rasterized3d {
+    /// CPU pixels only (the default path).
+    pub fn cpu(rgba: std::sync::Arc<[u8]>) -> Self {
+        Self { rgba, gpu: None }
+    }
 }
 
 /// 几何注册表：id → 几何。realm 级（不随帧清除），由

@@ -15,7 +15,13 @@ pub struct FrameGeneratedImage {
     pub width: u32,
     pub height: u32,
     /// RGBA_8888, unpremultiplied. Length is `width * height * 4`.
+    ///
+    /// Empty when [`Self::gpu`] is set.
     pub rgba: Arc<[u8]>,
+    /// GPU-resident pixels (opaque host handle). When set, hosts resolve the
+    /// texture instead of uploading `rgba`. See
+    /// [`GpuImageHandle`](crate::ir::generated_image::GpuImageHandle).
+    pub gpu: Option<crate::ir::generated_image::GpuImageHandle>,
 }
 
 /// Per-frame media preparation plan describing what a host must prepare for the

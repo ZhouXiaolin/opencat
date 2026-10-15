@@ -45,6 +45,9 @@ pub struct EnginePipelineHost {
     pub pipeline: CorePipeline,
     /// Engine-owned resource owner: cached asset handles, fetcher, providers.
     pub loader: EngineLoader,
+    /// 3D 光栅化器的渲染器（与注入 core 的 `Scene3Raster` 是同一实例）。
+    /// GPU 合成器靠它查 3D 输出纹理的 GL id；CPU 路径不用。
+    pub scene3_renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
 }
 
 impl EnginePipelineHost {
@@ -260,7 +263,12 @@ fn open_parsed_host_owned_with_fonts(
     // 包装 [`TexturedRaster3d`]：把快照里的纹理**来源**（视频帧/位图路径）
     // 用 MediaContext 解码成位图表再交给 wgpu——core 与 opencat-three 都
     // 不碰媒体解码，像素不过 JSON 桥。
-    pipeline.set_scene3_raster(std::sync::Arc::new(TexturedRaster3d::default()));
+    let scene3_renderer = std::sync::Arc::new(opencat_three::LazyRenderer3d::new());
+    pipeline.set_scene3_raster(std::sync::Arc::new(TexturedRaster3d {
+        inner: scene3_renderer.clone(),
+        gpu_mode: crate::gpu_pipeline::enabled(),
+        ..Default::default()
+    }));
     // 文档 base 目录：脚本内相对资产路径（GLTFGeometry 等）对它 join——
     // three.js GLTFLoader 相对 URL 语义的 opencat 对应物。
     pipeline.set_document_base(&loader.base_dir().to_string_lossy());
@@ -268,7 +276,11 @@ fn open_parsed_host_owned_with_fonts(
     let composition = pipeline.composition().clone();
     loader.register_canvas_asset_aliases(&composition);
 
-    Ok(EnginePipelineHost { pipeline, loader })
+    Ok(EnginePipelineHost {
+        pipeline,
+        loader,
+        scene3_renderer,
+    })
 }
 
 fn prepare_err(err: PrepareError) -> anyhow::Error {
@@ -285,8 +297,13 @@ fn prepare_err(err: PrepareError) -> anyhow::Error {
 /// 逐帧顺序渲染下 worker 内的解码缓存与 2D 路径同温（顺序解码，不回 seek）。
 #[derive(Default)]
 struct TexturedRaster3d {
-    inner: opencat_three::LazyRenderer3d,
+    /// 3D 渲染器。宿主与光栅器共享同一实例：GPU 管线要靠它查纹理表，
+    /// 把 3D 渲染目标的 GL texture id 交给 Skia。
+    inner: std::sync::Arc<opencat_three::LazyRenderer3d>,
     resolve_tx: std::sync::OnceLock<std::sync::mpsc::Sender<TextureResolveJob>>,
+    /// GPU 管线开关（`OC_GPU_PIPELINE=1`）：3D 输出留在显存，交给 Skia
+    /// 零拷贝导入，跳过 wgpu→CPU 的整帧回读。
+    gpu_mode: bool,
 }
 
 /// 一帧的纹理解析请求（进 worker：来源列表；出 worker：按同序的位图表）。
@@ -348,7 +365,7 @@ impl opencat_core::ir::scene3::Scene3Raster for TexturedRaster3d {
         geometries: &opencat_core::ir::scene3::GeometryRegistry,
         width: u32,
         height: u32,
-    ) -> anyhow::Result<std::sync::Arc<[u8]>> {
+    ) -> anyhow::Result<opencat_core::ir::scene3::Rasterized3d> {
         // 遍历规则即槽位序：textures 在前（马赛克槽表）、map 在后。
         let mut sources: Vec<opencat_core::ir::scene3::Texture3> = Vec::new();
         for mesh in &scene.meshes {
@@ -398,8 +415,21 @@ impl opencat_core::ir::scene3::Scene3Raster for TexturedRaster3d {
                 .set_environment(&env_bitmap)
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
         }
-        self.inner
-            .render_with_textures(scene, geometries, &table, width, height)
+        // GPU 模式：渲染到显存并登记句柄，Skia 侧零拷贝导入（见
+        // [`crate::gpu_pipeline`]）。CPU 模式：读回像素走原有路径。
+        if self.gpu_mode {
+            let handle = self
+                .inner
+                .render_to_gpu(scene, geometries, &table, width, height)?;
+            return Ok(opencat_core::ir::scene3::Rasterized3d {
+                rgba: std::sync::Arc::from(Vec::new()),
+                gpu: Some(opencat_core::ir::generated_image::GpuImageHandle(handle)),
+            });
+        }
+        Ok(opencat_core::ir::scene3::Rasterized3d::cpu(
+            self.inner
+                .render_with_textures(scene, geometries, &table, width, height)?,
+        ))
     }
 }
 

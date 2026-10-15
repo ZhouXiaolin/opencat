@@ -23,8 +23,10 @@ impl opencat_core::ir::scene3::Scene3Raster for StubScene3Raster {
         _geometries: &opencat_core::ir::scene3::GeometryRegistry,
         width: u32,
         height: u32,
-    ) -> anyhow::Result<std::sync::Arc<[u8]>> {
-        Ok(std::sync::Arc::from(vec![0u8; (width as usize) * (height as usize) * 4]))
+    ) -> anyhow::Result<opencat_core::ir::scene3::Rasterized3d> {
+        Ok(opencat_core::ir::scene3::Rasterized3d::cpu(
+            std::sync::Arc::from(vec![0u8; (width as usize) * (height as usize) * 4]),
+        ))
     }
 }
 

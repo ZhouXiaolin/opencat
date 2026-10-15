@@ -175,6 +175,7 @@ pub fn build_media_plan(
             width: entry.width,
             height: entry.height,
             rgba: Arc::clone(&entry.rgba),
+            gpu: entry.gpu,
         });
     }
 

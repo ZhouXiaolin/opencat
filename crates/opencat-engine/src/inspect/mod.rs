@@ -27,14 +27,14 @@ pub use opencat_core::pipeline::FrameElementRect;
 /// [`crate::pipeline::EnginePipelineHost::inspect_frame`] instead.
 fn open_inspect_pipeline(
     parsed: ParsedComposition,
-) -> Result<DefaultPipeline<crate::js_context::RqJsContext>> {
+) -> Result<DefaultPipeline<crate::js_context::V8JsContext>> {
     let draft = CompositionDraft::from_parsed(parsed);
     let inputs = HostInputs::empty()
         .with_base_font_faces(crate::fonts::engine_default_font_faces())
         .with_sans_serif_family("Noto Sans SC")
         .with_font_fallback_dirs(crate::fonts::engine_font_fallback_dirs());
     let prepared = draft.prepare(inputs).map_err(|e| anyhow::anyhow!("{e}"))?;
-    let scripts = crate::js_context::RqJsContext::new()?;
+    let scripts = crate::js_context::V8JsContext::new()?;
     prepared.open_pipeline(scripts)
 }
 

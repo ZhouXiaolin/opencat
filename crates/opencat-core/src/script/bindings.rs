@@ -622,8 +622,8 @@ macro_rules! for_each_binding {
         $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
             let clamp = clamp_flag != 0;
             let yoyo = yoyo_flag != 0;
-            let cf = $store.script_frame();
-            Ok($store.animate_create(cf, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay))
+            let ct = $store.script_time_secs() as f32;
+            Ok($store.animate_create(ct, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay))
         }}
         $binding! { cmd $store animate_set_progress (handle: i32, progress: f32) -> bool {
             $store.animate_set_progress(handle, progress);
@@ -647,10 +647,18 @@ macro_rules! for_each_binding {
             Ok(true)
         }}
 
+        // Scene-local time in SECONDS for the tween evaluator. A scene window can
+        // start between frames, and tween progress advances by elapsed time, so
+        // the fractional part must survive. Negative clears it.
+        $binding! { cmd $store set_script_time_secs (secs: f64) -> bool {
+            $store.set_time_override_secs(if secs < 0.0 { None } else { Some(secs) });
+            Ok(true)
+        }}
+
         // ── Qry: store reads (10 entries: animate, morph, text, along_path) ─
         $binding! { qry $store animate_value (handle: i32, _key: String, from: f32, to: f32) -> f32 {
-            let cf = $store.script_frame();
-            Ok($store.animate_value(cf, handle, from, to))
+            let ct = $store.script_time_secs() as f32;
+            Ok($store.animate_value(ct, handle, from, to))
         }}
         $binding! { qry $store animate_color (handle: i32, _key: String, from: String, to: String) -> String {
             Ok($store.animate_color(handle, &from, &to))

@@ -9,7 +9,7 @@
    gradients -> canvas, backgroundPosition sweeps -> crossfading layers) are
    annotated inline with the reference line they replace. */
 
-import { useGSAP, useThree, useRef, useFrame } from 'opencat/runtime';
+import { useGSAP, useThree, useRef, useCanvas } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 49.8 };
 
@@ -45,8 +45,6 @@ export const fonts = {
 /* ══ shared per-frame helpers ═══════════════════════════════════════════ */
 function vis(ctx, id, on) { ctx.getNode(id).opacity(on ? 1 : 0); }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
-function lerp(a, b, t) { return a + (b - a) * t; }
-
 /* Zoom containers: the reference scales each beat's card/wrap/player about
    the canvas centre (glass-intro.html:100,122-124,159 transform-origins all
    resolve to (960,540)). A full-stage wrapper keeps that origin while inner
@@ -90,7 +88,7 @@ function zoomBlur(tl, ids, from, to, duration, ease, at) {
 /* ══ glass-intro (master 0-18.24, glass-intro.html) ═════════════════════ */
 function GlassIntro() {
   useGSAP((ctx) => {
-    var T = ctx.global.time;
+    var T = ctx.current.time;
 
     /* per-frame gates (the reference's .clip windows, index-local == master):
        text-intro 0-2.1 (:443-445), cursor 6.4-17.3 (:913), drag-overlay
@@ -366,11 +364,12 @@ var CSS_CELL = 'rounded-[16px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.05)] bor
 var CSS_P = { red: '#e63946', blue: '#457b9d', orange: '#f4a261', teal: '#2a9d8f', navy: '#1d3557', rose: '#d4738a', lime: '#84a98c', purple: '#6b4c9a' };
 
 function FlexCss() {
+  const spin1 = useRef(), spin2 = useRef(), orb1 = useRef(), orb2 = useRef();
+  const grad1 = useRef(), grad2 = useRef();
+
   useGSAP((ctx) => {
-    var T = ctx.global.time - CSS_START;
-    vis(ctx, 'fc-root', T >= 0 && T < CSS_DUR);
-    if (T < 0 || T >= CSS_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return CSS_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
 
     tl.fromTo('fc-wrap', { scale: 0.9, opacity: 0, filter: 'blur(4px)' }, { scale: 1, opacity: 1, filter: 'blur(0px)', duration: 0.5, ease: 'power2.out' }, A(0));
     for (var i = 0; i < CSS_ORDER.length; i++) {
@@ -470,70 +469,22 @@ function FlexCss() {
     var frontOn = Math.cos(rot * Math.PI / 180) >= 0;
     ff.opacity(frontOn ? 1 : 0); fb.opacity(frontOn ? 0 : 1);
 
-    /* spinner cells (canvas): two offset ring arcs, 720/-540 deg per beat */
-    var spinDefs = [
-      { cv: 'fc-cv-spin1', sp: 1, c1: CSS_P.red, c2: CSS_P.blue },
-      { cv: 'fc-cv-spin2', sp: 0.8, c1: CSS_P.teal, c2: CSS_P.orange },
-    ];
-    spinDefs.forEach(function (sd) {
-      var cv = ctx.getCanvasById(sd.cv);
-      if (!cv) return;
-      cv.clear();
-      var ck = ctx.CanvasKit;
-      var paint = new ck.Paint();
-      paint.setStyle(ck.PaintStyle.Stroke);
-      paint.setStrokeWidth(3);
-      paint.setAntiAlias(true);
-      var c1rgb = hexRgb(sd.c1);
-      paint.setColor(ck.Color(c1rgb[0], c1rgb[1], c1rgb[2], 1));
-      var rot1 = 720 * sd.sp * (T / CSS_DUR);
-      var rot2 = -540 * sd.sp * (T / CSS_DUR);
-      cv.save();
-      cv.rotate(rot1, 40, 40);
-      cv.drawArc([3, 3, 77, 77], -90, 180, false, paint);
-      cv.restore();
-      var c2rgb = hexRgb(sd.c2);
-      paint.setColor(ck.Color(c2rgb[0], c2rgb[1], c2rgb[2], 1));
-      cv.save();
-      cv.rotate(rot2, 40, 40);
-      cv.drawArc([17, 17, 63, 63], -135, 90, false, paint);
-      cv.drawArc([17, 17, 63, 63], 45, 90, false, paint);
-      cv.restore();
-    });
-
-    /* orbit cells (canvas): 3 dots on R=36, proxy angle -> per-frame maths */
-    var orbDefs = [
-      { cv: 'fc-cv-orb1', dir: 1, cols: [CSS_P.red, CSS_P.blue, CSS_P.orange] },
-      { cv: 'fc-cv-orb2', dir: -1, cols: [CSS_P.teal, CSS_P.purple, CSS_P.lime] },
-    ];
-    orbDefs.forEach(function (od) {
-      var cv = ctx.getCanvasById(od.cv);
-      if (!cv) return;
-      cv.clear();
-      var ck = ctx.CanvasKit;
-      var paint = new ck.Paint();
-      paint.setStyle(ck.PaintStyle.Fill);
-      paint.setAntiAlias(true);
-      var ang = od.dir * Math.PI * 2 * (T / CSS_DUR);
-      for (var di = 0; di < 3; di++) {
-        var a = ang + di * (2 * Math.PI / 3);
-        var rgb = hexRgb(od.cols[di]);
-        paint.setColor(ck.Color(rgb[0], rgb[1], rgb[2], 1));
-        cv.drawCircle(50 + Math.cos(a) * 36, 50 + Math.sin(a) * 36, 8, paint);
-      }
-    });
-
-    /* gradient cells (canvas): conic-gradient via ly.pixel (skia atan2 ramp) */
-    drawConic(ctx, 'fc-cv-grad1', [[230, 57, 70], [244, 162, 97], [42, 157, 143], [69, 123, 157]]);
-    drawConic(ctx, 'fc-cv-grad2', [[107, 76, 154], [212, 115, 138], [132, 169, 140], [29, 53, 87]]);
   });
 
+  /* CanvasKit 绘制走 useCanvas；useGSAP 只留 tween */
+  useCanvas(spin1, (c, t) => drawSpin(c, t, 1, CSS_P.red, CSS_P.blue));
+  useCanvas(spin2, (c, t) => drawSpin(c, t, 0.8, CSS_P.teal, CSS_P.orange));
+  useCanvas(orb1, (c, t) => drawOrbit(c, t, 1, [CSS_P.red, CSS_P.blue, CSS_P.orange]));
+  useCanvas(orb2, (c, t) => drawOrbit(c, t, -1, [CSS_P.teal, CSS_P.purple, CSS_P.lime]));
+  useCanvas(grad1, (c) => drawConic(c, [[230, 57, 70], [244, 162, 97], [42, 157, 143], [69, 123, 157]]));
+  useCanvas(grad2, (c) => drawConic(c, [[107, 76, 154], [212, 115, 138], [132, 169, 140], [29, 53, 87]]));
+
   return (
-    <div id="fc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fafaf2] opacity-0">
+    <div id="fc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fafaf2]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#fafaf2_0%,#f0efe6_100%)]"></div>
       <div id="fc-wrap" class="absolute inset-0">
         <div class="absolute left-[12px] top-[12px] w-[1896px] h-[1056px] grid grid-cols-6 grid-rows-3 gap-[12px]">
-          <div id="fc-c0" class={CSS_CELL}><canvas id="fc-cv-spin1" class="w-[80px] h-[80px]" /></div>
+          <div id="fc-c0" class={CSS_CELL}><canvas ref={spin1} id="fc-cv-spin1" class="w-[80px] h-[80px]" /></div>
           <div id="fc-c1" class={CSS_CELL}>
             <div class="relative w-[80px] h-[80px]">
               <div id="fc-pulse-dot" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full bg-[#2a9d8f]"></div>
@@ -551,8 +502,8 @@ function FlexCss() {
             </div>
           </div>
           <div id="fc-c3" class={CSS_CELL}><div id="fc-morph" class="w-[80px] h-[80px] rounded-[8px] bg-[#e63946]"></div></div>
-          <div id="fc-c4" class={CSS_CELL}><canvas id="fc-cv-orb1" class="w-[100px] h-[100px]" /></div>
-          <div id="fc-c5" class={CSS_CELL}><canvas id="fc-cv-grad1" class="w-[110px] h-[110px]" /></div>
+          <div id="fc-c4" class={CSS_CELL}><canvas ref={orb1} id="fc-cv-orb1" class="w-[100px] h-[100px]" /></div>
+          <div id="fc-c5" class={CSS_CELL}><canvas ref={grad1} id="fc-cv-grad1" class="w-[110px] h-[110px]" /></div>
 
           <div id="fc-c6" class={CSS_CELL}>
             <div class="flex flex-col gap-[10px] w-[160px]">
@@ -579,10 +530,10 @@ function FlexCss() {
               ))}
             </div>
           </div>
-          <div id="fc-c11" class={CSS_CELL}><canvas id="fc-cv-spin2" class="w-[80px] h-[80px]" /></div>
+          <div id="fc-c11" class={CSS_CELL}><canvas ref={spin2} id="fc-cv-spin2" class="w-[80px] h-[80px]" /></div>
 
-          <div id="fc-c12" class={CSS_CELL}><canvas id="fc-cv-grad2" class="w-[110px] h-[110px]" /></div>
-          <div id="fc-c13" class={CSS_CELL}><canvas id="fc-cv-orb2" class="w-[100px] h-[100px]" /></div>
+          <div id="fc-c12" class={CSS_CELL}><canvas ref={grad2} id="fc-cv-grad2" class="w-[110px] h-[110px]" /></div>
+          <div id="fc-c13" class={CSS_CELL}><canvas ref={orb2} id="fc-cv-orb2" class="w-[100px] h-[100px]" /></div>
           <div id="fc-c14" class={CSS_CELL}>
             <div class="flex items-end gap-[6px] h-[90px]">
               <div id="fc-bars2-0" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[50px]"></div>
@@ -618,32 +569,73 @@ function hexRgb(hx) {
   return [parseInt(hx.slice(1, 3), 16), parseInt(hx.slice(3, 5), 16), parseInt(hx.slice(5, 7), 16)];
 }
 
-/* conic-gradient ramp as a ly.pixel lambda (flex-css.html:344-345). Stops
-   are uniform over the circle, starting at 12 o'clock, clockwise. */
-function drawConic(ctx, canvasId, stops) {
-  var cv = ctx.getCanvasById(canvasId);
-  if (!cv) return;
-  var c0 = stops[0], c1 = stops[1], c2 = stops[2], c3 = stops[3];
-  var kern = ly.pixel((uv, u) => {
-    const dx = uv.x - 55;
-    const dy = uv.y - 55;
-    const d = sqrt(dx * dx + dy * dy);
-    let a = atan2(dx, -dy);
-    if (a < 0) a = a + 6.283185307179586;
-    const t = a / 6.283185307179586;
-    let col = u.c0;
-    if (t < 0.25) col = u.c0 + (u.c1 - u.c0) * (t * 4);
-    else if (t < 0.5) col = u.c1 + (u.c2 - u.c1) * (t * 4 - 1);
-    else if (t < 0.75) col = u.c2 + (u.c3 - u.c2) * (t * 4 - 2);
-    else col = u.c3 + (u.c0 - u.c3) * (t * 4 - 3);
-    const al = d > 54.5 ? 0 : 1;
-    return [col.x / 255, col.y / 255, col.z / 255, al];
-  }, { uniforms: { c0: 'float3', c1: 'float3', c2: 'float3', c3: 'float3' } });
-  var paint = new ctx.CanvasKit.Paint();
-  paint.setStyle(ctx.CanvasKit.PaintStyle.Fill);
+/* spinner cell: two offset ring arcs, 720/-540 deg per beat. `c` is the
+   ref-resolved canvas handle from useCanvas. */
+function drawSpin(c, t, sp, c1, c2) {
+  var ck = c.CK;
+  c.clear();
+  var paint = new ck.Paint();
+  paint.setStyle(ck.PaintStyle.Stroke);
+  paint.setStrokeWidth(3);
   paint.setAntiAlias(true);
-  paint.setShader(kern.sample({ c0: c0, c1: c1, c2: c2, c3: c3 }, []));
-  cv.drawRect([0, 0, 110, 110], paint);
+  var c1rgb = hexRgb(c1);
+  paint.setColor(ck.Color(c1rgb[0], c1rgb[1], c1rgb[2], 1));
+  c.save();
+  c.rotate(720 * sp * (t / CSS_DUR), 40, 40);
+  c.drawArc([3, 3, 77, 77], -90, 180, false, paint);
+  c.restore();
+  var c2rgb = hexRgb(c2);
+  paint.setColor(ck.Color(c2rgb[0], c2rgb[1], c2rgb[2], 1));
+  c.save();
+  c.rotate(-540 * sp * (t / CSS_DUR), 40, 40);
+  c.drawArc([17, 17, 63, 63], -135, 90, false, paint);
+  c.drawArc([17, 17, 63, 63], 45, 90, false, paint);
+  c.restore();
+}
+
+/* orbit cell: 3 dots on R=36, proxy angle -> per-frame maths. */
+function drawOrbit(c, t, dir, cols) {
+  var ck = c.CK;
+  c.clear();
+  var paint = new ck.Paint();
+  paint.setStyle(ck.PaintStyle.Fill);
+  paint.setAntiAlias(true);
+  var ang = dir * Math.PI * 2 * (t / CSS_DUR);
+  for (var di = 0; di < 3; di++) {
+    var a = ang + di * (2 * Math.PI / 3);
+    var rgb = hexRgb(cols[di]);
+    paint.setColor(ck.Color(rgb[0], rgb[1], rgb[2], 1));
+    c.drawCircle(50 + Math.cos(a) * 36, 50 + Math.sin(a) * 36, 8, paint);
+  }
+}
+
+/* conic-gradient ramp as a ly.pixel lambda (flex-css.html:344-345). Stops
+   are uniform over the circle, starting at 12 o'clock, clockwise. The kernel
+   is uniform-driven, so one module-level instance serves both cells. */
+function drawConic(c, stops) {
+  if (!drawConic._kern) {
+    drawConic._kern = ly.pixel((uv, u) => {
+      const dx = uv.x - 55;
+      const dy = uv.y - 55;
+      const d = sqrt(dx * dx + dy * dy);
+      let a = atan2(dx, -dy);
+      if (a < 0) a = a + 6.283185307179586;
+      const t = a / 6.283185307179586;
+      let col = u.c0;
+      if (t < 0.25) col = u.c0 + (u.c1 - u.c0) * (t * 4);
+      else if (t < 0.5) col = u.c1 + (u.c2 - u.c1) * (t * 4 - 1);
+      else if (t < 0.75) col = u.c2 + (u.c3 - u.c2) * (t * 4 - 2);
+      else col = u.c3 + (u.c0 - u.c3) * (t * 4 - 3);
+      const al = d > 54.5 ? 0 : 1;
+      return [col.x / 255, col.y / 255, col.z / 255, al];
+    }, { uniforms: { c0: 'float3', c1: 'float3', c2: 'float3', c3: 'float3' } });
+  }
+  var ck = c.CK;
+  var paint = new ck.Paint();
+  paint.setStyle(ck.PaintStyle.Fill);
+  paint.setAntiAlias(true);
+  paint.setShader(drawConic._kern.sample({ c0: stops[0], c1: stops[1], c2: stops[2], c3: stops[3] }, []));
+  c.drawRect([0, 0, 110, 110], paint);
 }
 
 /* ══ flex-gsap (master 19.01-19.68, compositions/flex-gsap.html) ════════
@@ -654,10 +646,8 @@ var GS_START = 19.01, GS_DUR = 0.67, GS_ROWS = 15, GS_COLS = 25;
 
 function FlexGsap() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - GS_START;
-    vis(ctx, 'fg-root', T >= 0 && T < GS_DUR);
-    if (T < 0 || T >= GS_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return GS_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     var centerR = (GS_ROWS - 1) / 2, centerC = (GS_COLS - 1) / 2;
     var maxDist = Math.sqrt(centerR * centerR + centerC * centerC);
 
@@ -691,7 +681,7 @@ function FlexGsap() {
   var cols = [];
   for (var c3 = 0; c3 < GS_COLS; c3++) cols.push(c3);
   return (
-    <div id="fg-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0e100f] opacity-0">
+    <div id="fg-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0e100f]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#161816_0%,#0e100f_100%)]"></div>
       <div id="fg-grid" class="absolute left-[960px] top-[540px] ml-[-700px] mt-[-420px] flex flex-col">
         {rows.map((r) => (
@@ -707,21 +697,26 @@ function FlexGsap() {
 }
 
 /* ══ flex-shader (master 20.81-22.01, compositions/flex-shader.html) ════
-   WebGL domain-warp fbm shader -> ly.pixel lambda. The DSL has no function
-   definitions or loops, so noise/fbm are fully inlined (scalar form; R is
-   GLSL's column-major mat2(0.8,0.6,-0.6,0.8)). u_time ramps 0.5->1.44 over
-   the 0.94s beat, then the frame holds (master slot is 1.20s). */
+   WebGL domain-warp fbm shader -> ly.pixel lambda, 1:1 with the reference's
+   four functions (hash/noise/fbm/palette). The DSL supports top-level
+   `const f = (p) => ...` user functions and bounded `for` loops, so the
+   octave loop is no longer unrolled by hand. R is GLSL's column-major
+   mat2(0.8,0.6,-0.6,0.8). u_time ramps 0.5->1.44 over the 0.94s beat, then
+   the frame holds (master slot is 1.20s). */
 var FS_START = 20.81, FS_DUR = 1.20, FS_ANIM = 0.94;
 
 function FlexShader() {
-  useGSAP((ctx) => {
-    var T = ctx.global.time - FS_START;
-    vis(ctx, 'fs-root', T >= 0 && T < FS_DUR);
-    if (T < 0 || T >= FS_DUR) return;
-    var tl = ctx.timeline();
-    tl.fromTo('fs-label', { opacity: 0 }, { opacity: 0.35, duration: 0.3, ease: 'power2.out' }, FS_START + 0.15);
+  const canvas = useRef();
 
-    /* module-level kernel: source compiled once by Rust, sampled per frame */
+  useGSAP((ctx) => {
+    var tl = ctx.timeline();
+    tl.fromTo('fs-label', { opacity: 0 }, { opacity: 0.35, duration: 0.3, ease: 'power2.out' }, 0.15);
+  });
+
+  /* module-level kernel: source compiled once by Rust, sampled per frame.
+     The canvas draw goes through useCanvas (ref-resolved, augmented handle),
+     not useGSAP + getCanvasById. */
+  useCanvas(canvas, (c, t, ctx) => {
     if (!FlexShader._kern) {
       FlexShader._kern = ly.pixel((uv, u) => {
         const ux = uv.x / 1080;
@@ -729,113 +724,39 @@ function FlexShader() {
            so the reference's v_uv.y is 1 - uv.y/1080. */
         const uy = 1 - uv.y / 1080;
         const t = u.time * 0.4;
-        let ix = 0; let iy = 0; let fx = 0; let fy = 0; let h1 = 0; let h2 = 0; let h3 = 0; let h4 = 0;
-        let px = 0; let py = 0; let tx = 0; let ty = 0; let v = 0; let amp = 0.5;
-        /* q.x = fbm(uv*3 + t*0.3) */
-        px = ux * 3 + t * 0.3; py = uy * 3 + t * 0.3; v = 0; amp = 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy);
-        const qx = v;
-        /* q.y = fbm(uv*3 + (5.2,1.3) + t*0.2) */
-        px = ux * 3 + 5.2 + t * 0.2; py = uy * 3 + 1.3 + t * 0.2; v = 0; amp = 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy);
-        const qy = v;
-        /* r.x = fbm(uv*3 + q*4 + (1.7,9.2) + t*0.15) */
-        px = ux * 3 + qx * 4 + 1.7 + t * 0.15; py = uy * 3 + qy * 4 + 9.2 + t * 0.15; v = 0; amp = 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy);
-        const rx = v;
-        /* r.y = fbm(uv*3 + q*4 + (8.3,2.8) + t*0.1) */
-        px = ux * 3 + qx * 4 + 8.3 + t * 0.1; py = uy * 3 + qy * 4 + 2.8 + t * 0.1; v = 0; amp = 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy);
-        const ry = v;
-        /* n = fbm(uv*3 + r*2) */
-        px = ux * 3 + rx * 2; py = uy * 3 + ry * 2; v = 0; amp = 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy); tx = (0.8 * px - 0.6 * py) * 2.02; ty = (0.6 * px + 0.8 * py) * 2.02; px = tx; py = ty; amp = amp * 0.5;
-        ix = floor(px); iy = floor(py); fx = px - ix; fy = py - iy; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
-        h1 = fract(sin(ix * 127.1 + iy * 311.7) * 43758.5453); h2 = fract(sin((ix + 1) * 127.1 + iy * 311.7) * 43758.5453); h3 = fract(sin(ix * 127.1 + (iy + 1) * 311.7) * 43758.5453); h4 = fract(sin((ix + 1) * 127.1 + (iy + 1) * 311.7) * 43758.5453);
-        v = v + amp * (h1 + (h2 - h1) * fx + (h3 + (h4 - h3) * fx - h1 - (h2 - h1) * fx) * fy);
-        const n = v;
+        const hash = (p) => fract(sin(dot(p, [127.1, 311.7])) * 43758.5453);
+        const noise = (p) => {
+          const i = floor(p);
+          const f = fract(p);
+          const w = f * f * (3 - 2 * f);
+          return mix(mix(hash(i), hash(i + [1, 0]), w.x),
+                     mix(hash(i + [0, 1]), hash(i + [1, 1]), w.x), w.y);
+        };
+        /* reference fbm is fixed at 5 octaves */
+        const fbm = (p) => {
+          let v = 0;
+          let a = 0.5;
+          for (let o = 0; o < 5; o++) {
+            v = v + a * noise(p);
+            p = [0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y] * 2.02;
+            a = a * 0.5;
+          }
+          return v;
+        };
+        const palette = (s) => [0.5 + 0.5 * cos(6.28318 * s),
+                                0.5 + 0.5 * cos(6.28318 * (s + 0.33)),
+                                0.5 + 0.5 * cos(6.28318 * (s + 0.67))];
+        const qx = fbm([ux * 3 + t * 0.3, uy * 3 + t * 0.3]);
+        const qy = fbm([ux * 3 + 5.2 + t * 0.2, uy * 3 + 1.3 + t * 0.2]);
+        const rx = fbm([ux * 3 + qx * 4 + 1.7 + t * 0.15, uy * 3 + qy * 4 + 9.2 + t * 0.15]);
+        const ry = fbm([ux * 3 + qx * 4 + 8.3 + t * 0.1, uy * 3 + qy * 4 + 2.8 + t * 0.1]);
+        const n = fbm([ux * 3 + rx * 2, uy * 3 + ry * 2]);
         /* palette(n*2 + t*0.2), mixed 0.4 with palette(|q|*3 + t*0.1) */
-        const tt = n * 2 + t * 0.2;
-        const pr = 0.5 + 0.5 * cos(6.28318 * tt);
-        const pg = 0.5 + 0.5 * cos(6.28318 * (tt + 0.33));
-        const pb = 0.5 + 0.5 * cos(6.28318 * (tt + 0.67));
-        const lt = sqrt(qx * qx + qy * qy) * 3 + t * 0.1;
-        const sr = 0.5 + 0.5 * cos(6.28318 * lt);
-        const sg = 0.5 + 0.5 * cos(6.28318 * (lt + 0.33));
-        const sb = 0.5 + 0.5 * cos(6.28318 * (lt + 0.67));
-        let cr = pr + (sr - pr) * 0.4;
-        let cg = pg + (sg - pg) * 0.4;
-        let cb = pb + (sb - pb) * 0.4;
+        const col = palette(n * 2 + t * 0.2);
+        const q2 = palette(sqrt(qx * qx + qy * qy) * 3 + t * 0.1);
+        let cr = col.x + (q2.x - col.x) * 0.4;
+        let cg = col.y + (q2.y - col.y) * 0.4;
+        let cb = col.z + (q2.z - col.z) * 0.4;
         const m = 0.7 + 0.3 * n;
         cr = cr + (0.92 - cr) * 0.08; cg = cg + (0.58 - cg) * 0.08; cb = cb + (0.35 - cb) * 0.08;
         const vdx = uv.x / 1920 - 0.5; const vdy = uv.y / 1080 - 0.5;
@@ -844,21 +765,18 @@ function FlexShader() {
       }, { uniforms: { time: 'float' } });
     }
 
-    var cv = ctx.getCanvasById('fs-canvas');
-    if (cv) {
-      cv.clear();
-      var ck = ctx.CanvasKit;
-      var paint = new ck.Paint();
-      paint.setStyle(ck.PaintStyle.Fill);
-      paint.setAntiAlias(true);
-      paint.setShader(FlexShader._kern.sample({ time: 0.5 + clamp(T / FS_ANIM, 0, 1) * 0.94 }, []));
-      cv.drawRect([0, 0, 1920, 1080], paint);
-    }
+    c.clear();
+    var ck = ctx.CanvasKit;
+    var paint = new ck.Paint();
+    paint.setStyle(ck.PaintStyle.Fill);
+    paint.setAntiAlias(true);
+    paint.setShader(FlexShader._kern.sample({ time: 0.5 + clamp(t / FS_ANIM, 0, 1) * 0.94 }, []));
+    c.drawRect([0, 0, 1920, 1080], paint);
   });
 
   return (
-    <div id="fs-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0a0a12] opacity-0">
-      <canvas id="fs-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
+    <div id="fs-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0a0a12]">
+      <canvas ref={canvas} id="fs-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
       <text id="fs-label" class="absolute right-[80px] bottom-[60px] text-[28px] tracking-[0.08em] font-[hf-azeret] text-[rgba(255,255,255,0.35)] opacity-0">Shaders</text>
     </div>
   );
@@ -884,10 +802,8 @@ function FlexThreejs() {
   const canvas = useRef();
 
   useGSAP((ctx) => {
-    var T = ctx.global.time - FT_START;
-    vis(ctx, 'ft-root', T >= 0 && T < FT_DUR);
-    if (T < 0 || T >= FT_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FT_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('ft-shadow', { scaleX: 1, scaleY: 1 }, { scaleX: 1.3, scaleY: 0.7, duration: 0.4, ease: 'sine.inOut', yoyo: true, repeat: 2 }, A(0));
     tl.fromTo('ft-label', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, A(0.2));
   });
@@ -903,8 +819,7 @@ function FlexThreejs() {
      is a PlaneGeometry (segment-local +x = inward radial, +y = up) whose
      ShaderMaterial draws the rounded-rect mask + 135deg two-stop ramp. */
   useThree(canvas, (T3, node, t, ctx) => {
-    var T = t - FT_START;
-    if (T < 0 || T >= FT_DUR) return;
+    var T = t;
 
     var scene = new T3.Scene();
     var camera = new T3.PerspectiveCamera(61.9275, 1920 / 1080, 0.1, 5000);
@@ -986,7 +901,7 @@ function FlexThreejs() {
   });
 
   return (
-    <div id="ft-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f0ebe3] opacity-0">
+    <div id="ft-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f0ebe3]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_35%,rgba(255,245,230,0.6)_0%,transparent_50%),radial-gradient(ellipse_at_50%_50%,#f0ebe3_0%,#e4ddd2_100%)]"></div>
       <div class="absolute left-[672px] top-[162px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(255,235,200,0.25)_0%,transparent_60%)]"></div>
       <div id="ft-shadow" class="absolute left-[780px] top-[680px] w-[360px] h-[50px] rounded-full bg-[radial-gradient(ellipse,rgba(80,60,40,0.18)_0%,transparent_70%)]"></div>
@@ -1013,10 +928,8 @@ var TH_GRAD = 'bg-[linear-gradient(90deg,#14110a_0%,#14110a_15%,#5a3215_25%,#c84
 
 function Thesis() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - TH_START;
-    vis(ctx, 'th-root', T >= 0 && T < TH_DUR);
-    if (T < 0 || T >= TH_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return TH_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
 
     tl.fromTo('th-wrap', { filter: 'blur(22px)' }, { filter: 'blur(0px)', duration: 0.33, ease: 'power2.out' }, A(0));
     tl.fromTo('th-wrap', { opacity: 1 }, { opacity: 0, duration: 0.3, ease: 'power2.in' }, A(4.52));
@@ -1042,30 +955,30 @@ function Thesis() {
   var L1CLS = 'text-[132px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]';
   var L2CLS = 'text-[132px] leading-[1.08] tracking-[-0.02em] italic font-[hf-serif-it] text-[#2a1f0a]';
   return (
-    <div id="th-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fbf4e3] opacity-0">
+    <div id="th-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fbf4e3]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)]"></div>
       <div id="th-wrap" class="absolute inset-0">
         <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_45%,rgba(110,70,15,0.08)_100%)]"></div>
         <div id="th-scene" class="absolute left-[100px] top-[388.4px] w-[1720px]">
           <div class="relative px-[21.12px]">
-            <div class="flex justify-center gap-[42.24px]">
+            <div class="flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
                 <text id={'th-w' + i} class={L1CLS + ' opacity-0'}>{w}</text>
               ))}
             </div>
-            <div class="absolute inset-0 flex justify-center gap-[42.24px]">
+            <div class="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
                 <text id={'th-g' + i} class={L1CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
               ))}
             </div>
           </div>
           <div id="th-l2wrap" class="relative mt-[18px] px-[21.12px]">
-            <div class="flex justify-center gap-[42.24px]">
+            <div class="flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
                 <text id={'th-w' + (5 + j)} class={L2CLS + ' opacity-0'}>{w}</text>
               ))}
             </div>
-            <div class="absolute inset-0 flex justify-center gap-[42.24px]">
+            <div class="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
                 <text id={'th-g' + (5 + j)} class={L2CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
               ))}
@@ -1082,16 +995,14 @@ var FD_START = 27.04, FD_DUR = 0.36;
 
 function FlexDrop() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - FD_START;
-    vis(ctx, 'fd-root', T >= 0 && T < FD_DUR);
-    if (T < 0 || T >= FD_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FD_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('fd-text', { y: -300, opacity: 0 }, { y: 0, opacity: 1, duration: 0.25, ease: 'back.out(1.2)' }, A(0));
     tl.fromTo('fd-line', { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 0.12, ease: 'power3.out' }, A(0.15));
     tl.fromTo('fd-line', { scaleX: 1, opacity: 1 }, { scaleX: 1.3, opacity: 0, duration: 0.1, ease: 'power2.out' }, A(0.27));
   });
   return (
-    <div id="fd-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0d1b2a] opacity-0">
+    <div id="fd-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0d1b2a]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_60%,#152238_0%,#0d1b2a_100%)]"></div>
       <div class="absolute left-0 top-[450px] w-full flex justify-center">
         <text id="fd-text" class="text-[180px] leading-none tracking-[0.04em] font-[hf-bebas] text-white opacity-0 whitespace-nowrap">drop in</text>
@@ -1111,86 +1022,85 @@ function FlexDrop() {
 var FM_START = 27.40, FM_DUR = 0.58;
 
 function FlexMusic() {
+  const record = useRef(), arm = useRef();
+
   useGSAP((ctx) => {
-    var T = ctx.global.time - FM_START;
-    vis(ctx, 'fm-root', T >= 0 && T < FM_DUR);
-    if (T < 0 || T >= FM_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FM_START + t; };
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('fm-record', { scale: 0.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'back.out(1.4)' }, A(0));
     tl.fromTo('fm-record', { rotation: -90 }, { rotation: 15, duration: FM_DUR, ease: 'none' }, A(0));
     tl.set('fm-arm', { opacity: 1 }, A(0.08));
     tl.fromTo('fm-arm', { rotation: 35 }, { rotation: 18, duration: 0.25, ease: 'power2.out' }, A(0.1));
     tl.fromTo('fm-text', { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.15, ease: 'power2.out' }, A(0.12));
+  });
 
-    /* vinyl disc (svg 600 -> 520px canvas, k=0.8667) */
-    var cv = ctx.getCanvasById('fm-record-canvas');
-    if (cv) {
-      cv.clear();
-      var ck = ctx.CanvasKit;
-      var p = new ck.Paint();
-      p.setStyle(ck.PaintStyle.Fill);
-      p.setAntiAlias(true);
-      p.setColor(ck.Color(26, 18, 8, 1));
-      cv.drawCircle(260, 260, 280 * 0.8667, p);
-      p.setStyle(ck.PaintStyle.Stroke);
-      var grooves = [[260, 0.3, 1], [240, 0.25, 0.8], [220, 0.3, 1], [200, 0.2, 0.8], [180, 0.3, 1], [160, 0.25, 0.8], [140, 0.3, 1]];
-      grooves.forEach(function (g) {
-        p.setStrokeWidth(g[2] * 0.8667);
-        p.setColor(ck.Color(80, 60, 20, g[1]));
-        cv.drawCircle(260, 260, g[0] * 0.8667, p);
-      });
-      p.setStyle(ck.PaintStyle.Fill);
-      p.setColor(ck.Color(255, 220, 140, 0.06));
-      cv.save();
-      cv.translate(208, 208);
-      cv.rotate(-30);
-      cv.drawOval([-104, -69.3, 104, 69.3], p);
-      cv.restore();
-      p.setColor(ck.Color(200, 132, 10, 1));
-      cv.drawCircle(260, 260, 90 * 0.8667, p);
-      p.setStyle(ck.PaintStyle.Stroke);
-      p.setStrokeWidth(0.87);
-      p.setColor(ck.Color(255, 255, 255, 0.12));
-      cv.drawCircle(260, 260, 88 * 0.8667, p);
-      p.setStyle(ck.PaintStyle.Fill);
-      p.setColor(ck.Color(26, 18, 8, 1));
-      cv.drawCircle(260, 260, 8 * 0.8667, p);
-    }
-    /* tone arm (svg 200x400 -> 120x280 canvas, meet: k=0.6, y+20) */
-    var ac = ctx.getCanvasById('fm-arm-canvas');
-    if (ac) {
-      ac.clear();
-      var ck2 = ctx.CanvasKit;
-      var q = new ck2.Paint();
-      q.setStyle(ck2.PaintStyle.Fill);
-      q.setAntiAlias(true);
-      function X(v) { return v * 0.6; }
-      function Y(v) { return v * 0.6 + 20; }
-      q.setColor(ck2.Color(42, 31, 16, 1));
-      ac.drawCircle(X(100), Y(30), X(18), q);
-      q.setColor(ck2.Color(61, 46, 24, 1));
-      ac.drawCircle(X(100), Y(30), X(12), q);
-      q.setColor(ck2.Color(42, 31, 16, 1));
-      ac.drawRRect(ck2.RRectXY([X(97), Y(30), X(103), Y(310)], 1.8, 1.8), q);
-      q.setColor(ck2.Color(61, 46, 24, 1));
-      ac.drawRRect(ck2.RRectXY([X(88), Y(300), X(112), Y(340)], 2.4, 2.4), q);
-      q.setColor(ck2.Color(26, 18, 8, 1));
-      ac.drawRRect(ck2.RRectXY([X(94), Y(336), X(106), Y(352)], 1.2, 1.2), q);
-      q.setColor(ck2.Color(200, 132, 10, 1));
-      ac.drawCircle(X(100), Y(356), X(2), q);
-    }
+  /* vinyl disc (svg 600 -> 520px canvas, k=0.8667). Static art: the spin is a
+     DOM tween on #fm-record, so the canvas only needs its resting pixels. */
+  useCanvas(record, (c) => {
+    var ck = c.CK;
+    c.clear();
+    var p = new ck.Paint();
+    p.setStyle(ck.PaintStyle.Fill);
+    p.setAntiAlias(true);
+    p.setColor(ck.Color(26, 18, 8, 1));
+    c.drawCircle(260, 260, 280 * 0.8667, p);
+    p.setStyle(ck.PaintStyle.Stroke);
+    var grooves = [[260, 0.3, 1], [240, 0.25, 0.8], [220, 0.3, 1], [200, 0.2, 0.8], [180, 0.3, 1], [160, 0.25, 0.8], [140, 0.3, 1]];
+    grooves.forEach(function (g) {
+      p.setStrokeWidth(g[2] * 0.8667);
+      p.setColor(ck.Color(80, 60, 20, g[1]));
+      c.drawCircle(260, 260, g[0] * 0.8667, p);
+    });
+    p.setStyle(ck.PaintStyle.Fill);
+    p.setColor(ck.Color(255, 220, 140, 0.06));
+    c.save();
+    c.translate(208, 208);
+    c.rotate(-30);
+    c.drawOval([-104, -69.3, 104, 69.3], p);
+    c.restore();
+    p.setColor(ck.Color(200, 132, 10, 1));
+    c.drawCircle(260, 260, 90 * 0.8667, p);
+    p.setStyle(ck.PaintStyle.Stroke);
+    p.setStrokeWidth(0.87);
+    p.setColor(ck.Color(255, 255, 255, 0.12));
+    c.drawCircle(260, 260, 88 * 0.8667, p);
+    p.setStyle(ck.PaintStyle.Fill);
+    p.setColor(ck.Color(26, 18, 8, 1));
+    c.drawCircle(260, 260, 8 * 0.8667, p);
+  });
+
+  /* tone arm (svg 200x400 -> 120x280 canvas, meet: k=0.6, y+20) */
+  useCanvas(arm, (c) => {
+    var ck = c.CK;
+    c.clear();
+    var q = new ck.Paint();
+    q.setStyle(ck.PaintStyle.Fill);
+    q.setAntiAlias(true);
+    function X(v) { return v * 0.6; }
+    function Y(v) { return v * 0.6 + 20; }
+    q.setColor(ck.Color(42, 31, 16, 1));
+    c.drawCircle(X(100), Y(30), X(18), q);
+    q.setColor(ck.Color(61, 46, 24, 1));
+    c.drawCircle(X(100), Y(30), X(12), q);
+    q.setColor(ck.Color(42, 31, 16, 1));
+    c.drawRRect(ck.RRectXY([X(97), Y(30), X(103), Y(310)], 1.8, 1.8), q);
+    q.setColor(ck.Color(61, 46, 24, 1));
+    c.drawRRect(ck.RRectXY([X(88), Y(300), X(112), Y(340)], 2.4, 2.4), q);
+    q.setColor(ck.Color(26, 18, 8, 1));
+    c.drawRRect(ck.RRectXY([X(94), Y(336), X(106), Y(352)], 1.2, 1.2), q);
+    q.setColor(ck.Color(200, 132, 10, 1));
+    c.drawCircle(X(100), Y(356), X(2), q);
   });
 
   return (
-    <div id="fm-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f5a623] opacity-0">
+    <div id="fm-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f5a623]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_45%_48%,#f7c04a_0%,#e8960a_100%)]"></div>
       <div id="fm-record" class="absolute left-[700px] top-[250px] w-[520px] h-[520px] opacity-0 drop-shadow-[0_20px_60px_rgba(20,12,0,0.4)]">
-        <canvas id="fm-record-canvas" class="w-[520px] h-[520px]" />
+        <canvas ref={record} id="fm-record-canvas" class="w-[520px] h-[520px]" />
         <text class="absolute left-0 top-[243px] w-full text-center text-[13.9px] tracking-[0.1em] font-[hf-inter-med] text-[#1a1208]">HYPERFRAMES</text>
         <text class="absolute left-0 top-[264px] w-full text-center text-[9.5px] font-[hf-inter] text-[rgba(26,18,8,0.6)]">A-SIDE</text>
       </div>
       <div id="fm-arm" class="absolute left-[1140px] top-[250px] w-[120px] h-[280px] [transform-origin:50%_15px] opacity-0 drop-shadow-[0_4px_12px_rgba(20,12,0,0.3)]">
-        <canvas id="fm-arm-canvas" class="w-[120px] h-[280px]" />
+        <canvas ref={arm} id="fm-arm-canvas" class="w-[120px] h-[280px]" />
       </div>
       <div class="absolute left-0 bottom-[120px] w-full flex justify-center">
         <text id="fm-text" class="text-[64px] leading-none tracking-[0.08em] font-[hf-inter-med] text-[#2a1808] uppercase opacity-0">music</text>
@@ -1208,10 +1118,8 @@ for (var _fxi = 0; _fxi < 48; _fxi++) {
 
 function FlexSfx() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - FX_START;
-    vis(ctx, 'fx-root', T >= 0 && T < FX_DUR);
-    if (T < 0 || T >= FX_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FX_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('fx-glow', { scale: 0.3, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.2, ease: 'power2.out' }, A(0));
     tl.fromTo('fx-glow', { scale: 1, opacity: 1 }, { scale: 1.4, opacity: 0.6, duration: 0.5, ease: 'sine.inOut' }, A(0.2));
     for (var i = 0; i < 48; i++) {
@@ -1233,7 +1141,7 @@ function FlexSfx() {
   var bars = [];
   for (var b = 0; b < 48; b++) bars.push(b);
   return (
-    <div id="fx-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#1a1208] opacity-0">
+    <div id="fx-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#1a1208]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#2a1f10_0%,#0e0a04_100%)]"></div>
       <div id="fx-glow" class="absolute left-[560px] top-[140px] w-[800px] h-[800px] bg-[radial-gradient(circle,rgba(200,132,10,0.25)_0%,transparent_70%)] opacity-0"></div>
       <div class="absolute left-[960px] top-[540px] w-0 h-0">
@@ -1258,10 +1166,8 @@ var FF_VIDEOS = [
 
 function FlexFootage() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - FF_START;
-    vis(ctx, 'ff-root', T >= 0 && T < FF_DUR);
-    if (T < 0 || T >= FF_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FF_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('ff-text', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power2.out' }, A(0));
     tl.fromTo('ff-strip-top', { x: 0 }, { x: -100, duration: FF_DUR, ease: 'none' }, A(0));
     tl.fromTo('ff-strip-bottom', { x: -50 }, { x: -150, duration: FF_DUR, ease: 'none' }, A(0));
@@ -1269,12 +1175,12 @@ function FlexFootage() {
   });
   var STRIP = 'bg-[repeating-linear-gradient(90deg,transparent_0px,transparent_40px,#0d0d0d_40px,#0d0d0d_44px,transparent_44px,transparent_60px,rgba(255,255,255,0.06)_60px,rgba(255,255,255,0.06)_80px,transparent_80px,transparent_100px)]';
   return (
-    <div id="ff-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#1a1a1a] opacity-0">
+    <div id="ff-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#1a1a1a]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#262626_0%,#1a1a1a_100%)]"></div>
       <div id="ff-track" class="absolute left-[-100px] top-[120px] flex gap-[40px]">
         {FF_VIDEOS.map((v) => (
           <div class="w-[680px] h-[840px] rounded-[16px] overflow-hidden shrink-0 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
-            <video id={v[0]} path={v[1]} data-start={FF_START} data-duration={FF_DUR} data-media-start="0" class="w-full h-full object-cover" />
+            <video id={v[0]} path={v[1]} data-start={0} data-duration={FF_DUR} data-media-start="0" class="w-full h-full object-cover" />
           </div>
         ))}
       </div>
@@ -1298,13 +1204,11 @@ var FI_START = 29.74, FI_DUR = 0.15;
 
 function FlexIt() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - FI_START;
-    vis(ctx, 'fi-root', T >= 0 && T < FI_DUR);
-    if (T < 0 || T >= FI_DUR) return;
-    ctx.timeline().fromTo('fi-text', { scale: 1.06 }, { scale: 1, duration: 0.12, ease: 'power2.out' }, FI_START);
+    var T = ctx.current.time;
+    ctx.timeline().fromTo('fi-text', { scale: 1.06 }, { scale: 1, duration: 0.12, ease: 'power2.out' }, 0);
   });
   return (
-    <div id="fi-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-black opacity-0">
+    <div id="fi-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-black">
       <div class="absolute left-0 top-[540px] w-full flex justify-center">
         <text id="fi-text" class="mt-[-160px] text-[320px] leading-none tracking-[-0.04em] font-[hf-inter-black] text-white">it</text>
       </div>
@@ -1319,15 +1223,13 @@ var FA_START = 29.89, FA_DUR = 0.33;
 
 function FlexAll() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - FA_START;
-    vis(ctx, 'fa-root', T >= 0 && T < FA_DUR);
-    if (T < 0 || T >= FA_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FA_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('fa-slide', { x: 0, y: 0 }, { x: -6960, y: -4440, duration: 0.3, ease: 'none' }, A(0));
     tl.fromTo('fa-text', { scale: 1.08 }, { scale: 1, duration: 0.15, ease: 'power2.out' }, A(0));
   });
   return (
-    <div id="fa-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] opacity-0">
+    <div id="fa-root" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
       <div class="absolute left-[-200px] top-[-200px] w-[2320px] h-[1480px] overflow-hidden">
         <div id="fa-slide" class="absolute left-0 top-0 w-[9280px] h-[5920px] bg-[linear-gradient(135deg,#e63946_0%,#88ce02_14%,#4ecdc4_28%,#d4586a_42%,#d4a0a0_56%,#f5a623_70%,#ffe14d_84%,#457b9d_100%)]"></div>
       </div>
@@ -1346,10 +1248,8 @@ var FC_WAVE_H = [8, 18, 12, 22, 10, 20, 14, 24, 8, 16, 22, 10, 18, 14, 20, 12, 2
 
 function FlexCompose() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - FC_START;
-    vis(ctx, 'fc2-root', T >= 0 && T < FC_DUR);
-    if (T < 0 || T >= FC_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return FC_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('fc2-video', { scale: 0.9, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'power2.out' }, A(0));
     tl.fromTo('fc2-lower', { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.25, ease: 'power2.out' }, A(0.3));
     tl.fromTo('fc2-caption', { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.25, ease: 'power2.out' }, A(0.6));
@@ -1363,12 +1263,12 @@ function FlexCompose() {
   });
 
   return (
-    <div id="fc2-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f8f4ed] opacity-0">
+    <div id="fc2-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f8f4ed]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,#faf7f0_0%,#f0ebe2_100%)]"></div>
       <div id="fc2-iris" class="absolute inset-0">
         <div id="fc2-stage" class="absolute left-[540px] top-[240px] w-[840px] h-[540px]">
           <div id="fc2-video" class="absolute inset-0 rounded-[16px] overflow-hidden shadow-[0_20px_50px_rgba(40,30,10,0.18),0_4px_12px_rgba(40,30,10,0.1)] opacity-0">
-            <video id="fc2-aroll" path="assets/pill.mp4" data-start={FC_START} data-duration={FC_DUR} data-media-start="0" class="w-full h-full object-cover" />
+            <video id="fc2-aroll" path="assets/pill.mp4" data-start={0} data-duration={FC_DUR} data-media-start="0" class="w-full h-full object-cover" />
           </div>
           <div id="fc2-frame" class="absolute left-[-6px] top-[-6px] w-[852px] h-[552px] border-[3px] border-[#c84f1c] rounded-[22px] opacity-0"></div>
           <div id="fc2-lower" class="absolute left-[30px] bottom-[40px] px-[18px] py-[12px] bg-[rgba(248,244,237,0.94)] rounded-[6px] border-l-[4px] border-[#c84f1c] opacity-0">
@@ -1403,10 +1303,8 @@ var EN_START = 32.44, EN_DUR = 9.04;
 
 function Engine() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - EN_START;
-    vis(ctx, 'en-root', T >= 0 && T < EN_DUR);
-    if (T < 0 || T >= EN_DUR) return;
-    var tl = ctx.timeline(), A = function (t) { return EN_START + t; };
+    var T = ctx.current.time;
+    var tl = ctx.timeline(), A = function (t) { return t; };
 
     tl.fromTo('en-wrap', { y: 150, filter: 'blur(30px)' }, { y: 0, filter: 'blur(0px)', duration: 1.0, ease: 'power2.out' }, A(0));
     ['en-r1o', 'en-r2o', 'en-r3o'].forEach(function (id) {
@@ -1466,7 +1364,7 @@ function Engine() {
   var TITLE = 'text-[96px] leading-none tracking-[-0.02em] font-[hf-serif] text-[#3D405B]';
   var SUB = 'text-[28px] leading-none tracking-[0.06em] font-[hf-jbm] text-[#E07A5F]';
   return (
-    <div id="en-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#F4F1DE] opacity-0 overflow-hidden">
+    <div id="en-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#F4F1DE] overflow-hidden">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(255,252,240,0.6)_0%,transparent_50%),linear-gradient(180deg,#F4F1DE_0%,#ece8d2_100%)]"></div>
       <div id="en-wrap" class="absolute inset-0">
         <div id="en-canvas" class="absolute left-0 top-0 w-[1920px] h-[6000px]">
@@ -1578,9 +1476,7 @@ var CT_CODE_LINES = [
 
 function Cta() {
   useGSAP((ctx) => {
-    var T = ctx.global.time - CT_START;
-    vis(ctx, 'cta-root', T >= 0 && T < CT_DUR);
-    if (T < 0 || T >= CT_DUR) return;
+    var T = ctx.current.time;
 
     /* typed 1 — one char per 0.9/20s from 0.3 (index.html cta.html:458-464) */
     var n1 = T < 0.3 ? 0 : Math.min(CT_CMD1.length, Math.floor((T - 0.3) / (0.9 / CT_CMD1.length)) + 1);
@@ -1613,7 +1509,7 @@ function Cta() {
     ctx.getNode('cta-status-build').opacity(building ? 1 : 0);
     ctx.getNode('cta-status-ready').opacity(building ? 0 : 1);
 
-    var tl = ctx.timeline(), A = function (t) { return CT_START + t; };
+    var tl = ctx.timeline(), A = function (t) { return t; };
     tl.fromTo('cta-wrap', { y: 150, filter: 'blur(30px)' }, { y: 0, filter: 'blur(0px)', duration: 1.0, ease: 'power2.out' }, A(0));
     tl.fromTo('sl-1', { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.15, ease: 'power2.out' }, A(1.3));
     tl.fromTo('sl-2', { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.12, ease: 'power2.out' }, A(1.42));
@@ -1636,7 +1532,7 @@ function Cta() {
   });
 
   return (
-    <div id="cta-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f7f3eb] opacity-0">
+    <div id="cta-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f7f3eb]">
       <div class="absolute inset-0 bg-[linear-gradient(160deg,#f7f3eb_0%,#efe9dd_100%)]"></div>
       <div id="cta-wrap" class="absolute left-[120px] top-[60px] w-[1680px] h-[960px] rounded-[20px] bg-white shadow-[0_24px_80px_rgba(60,50,30,0.12),0_4px_16px_rgba(60,50,30,0.06)] overflow-hidden flex flex-col">
         {/* toolbar */}
@@ -2036,7 +1932,7 @@ function CCpaintBolt(boltData, bb, mega, superMega) {
 
 /* render one frame into the surface, then bake onto the stage canvas
    (canvas-close.html:381-510; fillText baseline = top + 13px ascent) */
-function ccRender(ctx, t) {
+function ccRender(cv, ctx, t) {
   var surf = ctx.createSurface('cc-surface', 1920, 1080);
   surf.font = '400 14px "JetBrains Mono", monospace';
   surf.clearRect(0, 0, 1920, 1080);
@@ -2159,20 +2055,17 @@ function ccRender(ctx, t) {
     return [0.0, 0.0, 0.0, 0.0];
   });
   p.setShader(ccIdent.sample([], [ccBake]));
-  var cv = ctx.getCanvasById('cc-canvas');
-  if (cv) cv.drawRect([0, 0, 1920, 1080], p);
+  cv.drawRect([0, 0, 1920, 1080], p);
 }
 
 function CanvasClose() {
-  useFrame((ctx) => {
-    var T = ctx.global.time - CC_START;
-    vis(ctx, 'cc-root', T >= 0 && T < CC_DUR);
-    if (T < 0 || T >= CC_DUR) return;
-    ccRender(ctx, Math.min(T, 3.93));
-  });
+  const canvas = useRef();
+
+  useCanvas(canvas, (c, t, ctx) => ccRender(c, ctx, Math.min(t, 3.93)));
+
   return (
-    <div id="cc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000] opacity-0">
-      <canvas id="cc-canvas" class="w-[1920px] h-[1080px]" />
+    <div id="cc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000]">
+      <canvas ref={canvas} id="cc-canvas" class="w-[1920px] h-[1080px]" />
     </div>
   );
 }
@@ -2185,26 +2078,49 @@ function CanvasClose() {
 function HyperframesLaunch() {
   return (
     <div id="hf-root" class="relative w-[1920px] h-[1080px] bg-[#0a0a0a] overflow-hidden">
-      <GlassIntro />
-      <FlexCss />
-      <FlexGsap />
-      <FlexShader />
-      <FlexThreejs />
-      <Thesis />
-      <FlexDrop />
-      <FlexMusic />
-      <FlexSfx />
-      <FlexFootage />
-      <FlexIt />
-      <FlexAll />
-      <FlexCompose />
-      <Engine />
-      <Cta />
-      <CanvasClose />
+      {/* The master stage is a `<tl>`: 16 sub-compositions on a 49.77s timeline.
+          Each scene declares its own segment length; `ctx.current` inside a
+          scene is its local clock, starting at 0 where the scene becomes
+          visible. glass-intro and flex-css share a 0.94s fade, which is why
+          they overlap in the reference. The rest hard-cut. The 1.13s gap
+          between flex-gsap and flex-shader is the reference's own empty beat —
+          a blank spacer segment holds it. */}
+      <tl id="hf-tl" class="absolute inset-0">
+        <GlassIntro duration={17.30} />
+        {/* The reference hard-cuts at 17.30 — glass-intro's tree is removed and
+            flex-css is drawn over it. The overlap still counts as time, so the
+            transition declares the span with no effect. */}
+        <transition from="gi-root" to="fc-root" effect="cut" duration={0.94} />
+        {/* flex-css shows for 1.71s: the 0.94s fade it shares with glass-intro
+            plus its own 0.77s segment. */}
+        <FlexCss duration={0.77} />
+        <FlexGsap duration={0.67} />
+        <Spacer duration={1.13} />
+        <FlexShader duration={1.20} />
+        <FlexThreejs duration={1.21} />
+        <Thesis duration={3.82} />
+        <FlexDrop duration={0.36} />
+        <FlexMusic duration={0.58} />
+        <FlexSfx duration={0.93} />
+        <FlexFootage duration={0.83} />
+        <FlexIt duration={0.15} />
+        <FlexAll duration={0.33} />
+        <FlexCompose duration={2.22} />
+        <Engine duration={9.04} />
+        <Cta duration={4.54} />
+        <CanvasClose duration={3.75} />
+      </tl>
       <CaptionLayer />
       <audio id="hf-vo" path="assets/voiceover.mp3" attach="hf-root" />
     </div>
   );
+}
+
+/* An empty beat. Holds timeline time without rendering anything — the
+   reference leaves 1.13s of bare background between flex-gsap and
+   flex-shader. */
+function Spacer() {
+  return <div id="spacer" class="absolute left-0 top-0 w-[1920px] h-[1080px]"></div>;
 }
 
 export default HyperframesLaunch;

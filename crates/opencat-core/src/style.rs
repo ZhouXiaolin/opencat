@@ -335,6 +335,19 @@ impl FontWeight {
     pub const BOLD: Self = Self(700);
 }
 
+/// CSS `font-style`. Only the two upright/slanted values the engine can satisfy
+/// are modelled: `oblique` resolves to italic (CSS itself falls back that way
+/// when no oblique face exists).
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum FontStyle {
+    #[default]
+    Normal,
+    Italic,
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -1653,6 +1666,7 @@ pub struct NodeStyle {
     /// Tailwind `font-sans` → document default face from `<fonts default="...">`.
     pub use_document_default_font: bool,
     pub font_weight: Option<FontWeight>,
+    pub font_style: Option<FontStyle>,
     pub letter_spacing: Option<f32>,
     pub letter_spacing_em: Option<f32>,
     pub text_align: Option<TextAlign>,
@@ -1699,6 +1713,9 @@ pub struct ComputedTextStyle {
     /// Generic-family class of the resolved stack tail; reorders shaping fallback.
     pub font_generic: Option<GenericFamily>,
     pub font_weight: FontWeight,
+    /// CSS `font-style`: picks the family's italic face when the manifest
+    /// supplies one. Inherited like the other font properties.
+    pub font_style: FontStyle,
     pub letter_spacing: f32,
     pub text_align: TextAlign,
     pub line_height: f32,
@@ -1720,6 +1737,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.font_family.hash(state);
         self.font_generic.hash(state);
         self.font_weight.hash(state);
+        self.font_style.hash(state);
         self.letter_spacing.to_bits().hash(state);
         self.text_align.hash(state);
         self.line_height.to_bits().hash(state);
@@ -1740,6 +1758,7 @@ impl Default for ComputedTextStyle {
             font_family: None,
             font_generic: None,
             font_weight: FontWeight::NORMAL,
+            font_style: FontStyle::Normal,
             letter_spacing: 0.0,
             text_align: TextAlign::Left,
             line_height: 1.5,
@@ -1777,6 +1796,7 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         // CSS font-family is inherited; so is the stack's generic class.
         font_generic: style.font_generic.or(parent.font_generic),
         font_weight: style.font_weight.unwrap_or(parent.font_weight),
+        font_style: style.font_style.unwrap_or(parent.font_style),
         letter_spacing,
         text_align: style.text_align.unwrap_or(parent.text_align),
         line_height,
@@ -2508,6 +2528,20 @@ macro_rules! impl_node_style_api {
 
             pub fn font_bold(self) -> Self {
                 self.font_weight($crate::style::FontWeight::BOLD)
+            }
+
+            // === Font Style ===
+            pub fn font_style(mut self, style: $crate::style::FontStyle) -> Self {
+                self.style.font_style = Some(style);
+                self
+            }
+
+            pub fn italic(self) -> Self {
+                self.font_style($crate::style::FontStyle::Italic)
+            }
+
+            pub fn not_italic(self) -> Self {
+                self.font_style($crate::style::FontStyle::Normal)
             }
 
             pub fn text_transform(mut self, transform: $crate::style::TextTransform) -> Self {

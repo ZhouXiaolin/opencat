@@ -96,6 +96,9 @@ export const fonts = {
 - 相对 `path` 基于 `.jsx` 所在目录解析
 - 应用：class 写 `font-[inter]` / `font-[inter800]` / `font-[mono]`
 - `id` 全局唯一
+- **斜体**：同一 `family` 挂正体与斜体两个 face，class 写 `italic` 选斜体
+  （`not-italic` 显式回正体）。家族没有斜体 face 时，引擎合成一个 14° 的
+  oblique——与浏览器 `font-style: italic` 的行为一致。
 
 ---
 
@@ -239,18 +242,19 @@ function Scene05() {
   useGSAP((ctx) => {
     var t = ctx.current.time;        // Scene05 局部秒，从 0 开始
     var d = ctx.current.duration;    // Scene05 的 duration
-    if (t < 0 || t >= d) return;     // 不可见时跳过
     ctx.fromTo('s5-title', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.6, ease: 'power3.out' });
   });
   return <div id="scene-05" class="absolute inset-0" duration="6.0">…</div>;
 }
 ```
 
-`ctx.current.time` 在 scene 开始前是 0，结束后冻结在最后一帧。`ctx.timeline()` 里的 position 用 scene 局部秒。
+`ctx.current.time` 从 scene 的窗口起点开始计秒。`ctx.timeline()` 里的 position 用 scene 局部秒。
+
+**不要写可见性判断。** `<tl>` 只渲染当前时间点需要的场景树。场景超出窗口时，它的树被自动剔除，钩子不运行。所以 `if (t < 0 || t >= d) return;` 和 `ctx.getNode(id).opacity(on ? 1 : 0)` 都是多余的。场景根元素也不要写 `opacity-0`。
 
 **没有 `<tl>` 时，两个命名空间相等。** 单 scene 合成里 `ctx.current.time === ctx.global.time`。
 
-`ctx.global` 用来做跨 scene 对齐（例如让两个 scene 的动作落在同一条节拍上）。判断"当前渲染的是不是我"，用 `ctx.current.time` 是否落在 `[0, duration)` 内。
+`ctx.global` 用来做跨 scene 对齐（例如让两个 scene 的动作落在同一条节拍上）。
 
 ### 纯函数要求
 

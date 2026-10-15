@@ -979,13 +979,14 @@ fn generate_tailwind_jsonl_rules() -> String {
             "ExactClassAction::TransformOrigin(crate::style::TransformOrigin { x: 0.0, y: 0.0 })",
         ),
         ("pointer-events-none", "ExactClassAction::Noop"),
-        // 选区 / 字体样式：渲染器目前不区分这些表现，但作为合法 Tailwind 输入需要静默接受。
+        // 选区：渲染器不区分这些表现，但作为合法 Tailwind 输入需要静默接受。
         ("select-none", "ExactClassAction::Noop"),
         ("select-auto", "ExactClassAction::Noop"),
         ("select-text", "ExactClassAction::Noop"),
         ("select-all", "ExactClassAction::Noop"),
-        ("italic", "ExactClassAction::Noop"),
-        ("not-italic", "ExactClassAction::Noop"),
+        // 字体样式：选家族的斜体 face（manifest 需提供 italic 文件）。
+        ("italic", "ExactClassAction::FontStyle(FontStyle::Italic)"),
+        ("not-italic", "ExactClassAction::FontStyle(FontStyle::Normal)"),
         ("inset-0", "ExactClassAction::InsetZero"),
         (
             "bg-gradient-to-r",

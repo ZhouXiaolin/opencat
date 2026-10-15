@@ -151,6 +151,8 @@ pub enum Expr {
     Swizzle { base: Box<Expr>, comps: [u8; 4], len: u8, ty: Ty },
     /// 数组字面量构造向量，2-4 个标量分量。
     VecCons(Vec<Expr>, Ty),
+    /// 调用用户函数 `functions[func]`；实参按声明序求值。
+    FnCall { func: u32, args: Vec<Expr>, ty: Ty },
     /// `child.eval(pos)`，恒为 Vec4（0..1 straight 色）。
     Eval { child: usize, pos: Box<Expr> },
     /// `get(dx, dy)`（仅 scan 类）：读目标 in-progress 字节，恒为 Vec4
@@ -169,6 +171,25 @@ pub enum Stmt {
     /// 上限防止病态输入卡死。
     ForLoop { var: u32, start: Expr, end: Expr, le: bool, body: Vec<Stmt> },
     Return(Expr),
+}
+
+/// 用户函数（lambda 体内 `const f = (p) => …`）。单态、无捕获、不可递归；
+/// 调用图由「先声明后使用」保证是无环 DAG。
+///
+/// 参数就是普通局部槽：每个函数占用一段与主函数体、与其它函数**互不相交**的
+/// 全局槽区间。因为无递归、无捕获，被调函数永远看不到调用者的局部，所以整棵
+/// 调用树共用一个 `Vec<Val>`，解释器无需帧指针，也没有每次调用的分配。
+/// 若将来支持递归，这里必须改成真正的帧栈。
+#[derive(Debug, Clone)]
+pub struct FnDef {
+    /// 源码名（仅报错用；SKSL 里一律发 `oc_f{index}`）。
+    pub name: String,
+    /// 参数名与类型，声明序（名字仅报错用）。
+    pub params: Vec<(String, Ty)>,
+    /// 参数占用的全局槽，与 `params` 一一对应。
+    pub param_slots: Vec<u32>,
+    pub ret: Ty,
+    pub body: Vec<Stmt>,
 }
 
 /// 后端派发。`Auto` 依 stdlib 能力标记决定：用到 `CpuOnly` op（`h01`/`imul`，
@@ -190,6 +211,9 @@ pub struct Program {
     pub children: Vec<String>,
     pub local_tys: Vec<Ty>,
     pub body: Vec<Stmt>,
+    /// 用户函数表，声明序。被调函数的下标恒小于调用者，故 index 序即
+    /// SKSL 的 define-before-use 序。
+    pub functions: Vec<FnDef>,
     pub return_ty: Ty,
     pub uses_cpu_only: bool,
     pub backend_override: Option<Backend>,
@@ -248,6 +272,7 @@ impl Program {
             Expr::Call { ty, .. } => *ty,
             Expr::Swizzle { ty, .. } => *ty,
             Expr::VecCons(_, ty) => *ty,
+            Expr::FnCall { ty, .. } => *ty,
             Expr::Eval { .. } => Ty::Vec4,
             Expr::ScanGet { .. } => Ty::Vec4,
         }

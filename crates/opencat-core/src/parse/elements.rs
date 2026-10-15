@@ -1621,18 +1621,23 @@ mod tests {
     }
 
     #[test]
-    fn parser_rejects_tl_missing_transition_between_adjacent_children() {
-        let err = parse(
+    fn parser_accepts_tl_hard_cut_between_adjacent_children() {
+        let parsed = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.666666666667}
 {"id":"root","parentId":null,"type":"div","className":"relative","duration":0.666666666667}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
 {"id":"scene-a","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}
 {"id":"scene-b","parentId":"main-tl","type":"div","className":"","duration":0.333333333333}"#,
         )
-        .err()
-        .expect("tl without transitions should fail");
+        .expect("adjacent scenes without a transition should parse");
 
-        assert!(err.to_string().contains("missing transition"));
+        let NodeKind::Div(root) = parsed.root.kind() else {
+            panic!("root should be div");
+        };
+        let NodeKind::Timeline(timeline) = root.children_ref()[0].kind() else {
+            panic!("expected a timeline node");
+        };
+        assert_eq!(timeline.segments().len(), 2);
     }
 
     #[test]

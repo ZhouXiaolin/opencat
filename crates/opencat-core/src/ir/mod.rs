@@ -1,5 +1,4 @@
 pub mod asset_id;
-pub mod cache;
 pub mod composition_info;
 pub mod draw_encoding;
 pub mod draw_frame;

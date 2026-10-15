@@ -7,7 +7,7 @@ use crate::parse::{
         ImageSource, VideoSource, canvas, caption, div, image, lucide, path, text, video, video_url,
     },
     transition::{
-        Transition, clock_wipe, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
+        Transition, clock_wipe, cut, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
     },
 };
 use crate::script::ScriptDriver;
@@ -233,18 +233,8 @@ fn build_node_inner(
                 }
             }
 
-            for pair in child_ids.windows(2) {
-                let from_id = pair[0];
-                let to_id = pair[1];
-                if !transitions_by_pair.contains_key(&(from_id, to_id)) {
-                    return Err(anyhow::anyhow!(
-                        "timeline `{}` is missing transition between adjacent scenes `{}` -> `{}`",
-                        el.id,
-                        from_id,
-                        to_id
-                    ));
-                }
-            }
+            // Adjacent scenes need not declare a transition: without one the
+            // two scenes cut straight from one to the next.
 
             for (index, child_el) in children.iter().enumerate() {
                 let duration = child_el.duration.ok_or_else(|| {
@@ -400,6 +390,9 @@ fn build_transition(transition: &ParsedTransition) -> anyhow::Result<Transition>
 
     match effect.as_str() {
         "fade" => Ok(fade().timing(easing, duration)),
+        // Consumes the overlap but applies no effect: the incoming scene covers
+        // the outgoing one outright, i.e. a hard cut at the seam.
+        "cut" | "none" => Ok(cut().timing(easing, duration)),
         "clock_wipe" => Ok(clock_wipe().timing(easing, duration)),
         "iris" => Ok(iris().timing(easing, duration)),
         "slide" => match transition

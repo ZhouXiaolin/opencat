@@ -921,12 +921,23 @@ round — its R7 number is from the previous session.)
   sit where opencat shows none. Likely the `.star` decorations at the wrap
   corners (opacity-0 in opencat, on in ref at these frames), but every
   placement attempt was net-negative (§14), so not landed.
-- **Phrase italic "video."** (`.pw-3 { font-style: italic }`). opencat's
-  `italic` class is a silent no-op (no Inter italic face). Tested a synthetic
-  sk**e**w via `T.set('pw3', { skewX: -N }, 0)` — recovers the slant but is
-  net-negative (f305 video-band p8 0.1114→0.1210, whole mae 4.93→5.06);
-  reverted. The residual is the glyph shape (a true italic face differs from
-  a skewed roman), so no transform port helps.
+- **Phrase italic "video."** — **RESOLVED 2026-10-15 (engine fix, not markup).**
+  Was: opencat's `italic` class was a silent no-op (no Inter italic face), so the
+  word rendered upright. The earlier "net-negative" verdict above was for an
+  element-level `skewX` transform — a different, worse approximation (it shears
+  the whole box about its centre, not the glyphs about the baseline).
+  Root cause: `build.rs` registered `italic` as `ExactClassAction::Noop` and
+  `text_attrs` had no style channel, so cosmic-text always picked the family's
+  Regular face. Fixed by adding a `FontStyle` channel end to end (§19).
+  **Oracle check** (the reference is a Chrome capture, so Chrome is the ground
+  truth): headless Chrome asked for `font-style: italic` on this same
+  `Inter-800` family synthesizes a **13.95° oblique**; ours is **14.25°**, with
+  the same ink-box displacement (left edge +21px Chrome / +22px ours, right edge
+  +4 / +3). Masked mae against Chrome's synthetic italic: ours-italic **0.042**
+  vs ours-upright **0.174** — a 4× improvement. The reference's
+  `Inter-Variable.woff2` has no `ital` axis, so Chrome synthesizes there too;
+  the mechanism matches. Change is confined to the `video.` glyphs
+  (714,641→1198,768; 18,713 px), nothing else on the frame moves.
 - **act1/act4 static plateaus are Skia/AA + reference-bg-offset floors.** The
   phrase plateau f297–312 (mass 0.44) and the caption/panel bands (f60–239,
   mass ~0.023/frame) have structurally-identical layout (glyph extents match
@@ -964,9 +975,10 @@ changes are XML-only. `cargo build --release --bin opencat` green.
    frame over f60–239) + the phrase plateau + the YEAHH pink-shadow floor; the
    YEAHH geometry lever (inner rotation) is now spent. act4 is the wordmark
    glyph-edge decode + caption band; act3 is codec + source lag.
-3. Do not re-chase: the `.star` decorations, the italic synthetic skew, the
-   caption backdrop-blur, the scatter transient, the bg offset, or the act3
-   boundaries — all measured net-negative or floors.
+3. Do not re-chase: the `.star` decorations, the caption backdrop-blur, the
+   scatter transient, the bg offset, or the act3 boundaries — all measured
+   net-negative or floors. (The italic "video." is no longer on this list: it
+   was an engine `font-style` gap, fixed 2026-10-15 — see §17 bullet above.)
 
 
 ## 18. Round 9 results

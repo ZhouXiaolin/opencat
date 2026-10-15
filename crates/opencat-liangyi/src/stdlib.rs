@@ -208,13 +208,21 @@ pub fn check_signature(
             }
             unify_num(args, name_of(id), err)
         }
-        // dot/distance 始终返回标量
+        // dot/distance 始终返回标量，且两个参数必须是**同长向量**（GLSL 语义，
+        // 不做标量广播——`dot` 是内积，广播没有意义）。这条约束也是用户函数
+        // 形参类型能被推断出来的关键：`dot(p, [127.1, 311.7])` 把 `p` 钉成 float2。
         BuiltinId::Distance | BuiltinId::Dot => {
             if args.len() != 2 {
                 err(format!("{}: 期望 2 个参数，得到 {}", name_of(id), args.len()));
                 return None;
             }
-            unify_num(args, name_of(id), err).map(|_| Float)
+            match (args[0].vec_len(), args[1].vec_len()) {
+                (Some(a), Some(b)) if a == b => Some(Float),
+                _ => {
+                    err(format!("{}: 两个参数必须是同维向量", name_of(id)));
+                    None
+                }
+            }
         }
         BuiltinId::Mix => {
             if args.len() != 3 {

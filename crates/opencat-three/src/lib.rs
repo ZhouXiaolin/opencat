@@ -26,6 +26,9 @@ pub use opencat_core::ir::scene3::{
 use wgpu::util::DeviceExt;
 
 mod dfg_lut;
+/// 裸 GL 原语（Windows/WGL）：wgpu/Skia 都不提供的 FBO 管理。
+#[cfg(target_os = "windows")]
+pub mod gl_share;
 use dfg_lut::{DFG_LUT_DATA, DFG_LUT_SIZE};
 pub mod pmrem;
 
@@ -1097,10 +1100,32 @@ pub struct Renderer3d {
     shader_programs: Vec<((String, String), ShaderProgram)>,
 }
 
+/// 平台首选图形后端。
+///
+/// Windows 上 NVIDIA 驱动的 Vulkan 路径（`nvoglv64.dll`）在 3D 场景 teardown 时
+/// ACCESS_VIOLATION——`cube` 示例输出正确后仍崩、`opencat render` 的 mp4 收尾时
+/// 崩（moov 缺失的坏文件）。GL 与 DX12 后端同帧逐位一致（maxdiff 1/255）且稳定，
+/// 故除 macOS 外一律走 GL。macOS 原生走 Metal。
+///
+/// 这是**默认值**而非硬绑定：`WGPU_BACKEND` 仍可覆盖（`with_env()` 优先级更高），
+/// 保留 lavapipe 软渲染等兑底路径。
+fn preferred_backends() -> wgpu::Backends {
+    #[cfg(target_os = "macos")]
+    {
+        wgpu::Backends::METAL
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        wgpu::Backends::GL
+    }
+}
+
 impl Renderer3d {
     pub async fn new() -> Result<Self> {
-        // 无窗口离屏渲染；from_env 尊重 WGPU_BACKEND（如 lavapipe 软渲染兑底）。
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        // 无窗口离屏渲染。先设平台首选后端，再 with_env 让 WGPU_BACKEND 覆盖。
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+        desc.backends = preferred_backends();
+        let instance = wgpu::Instance::new(desc.with_env());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1583,13 +1608,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             _ => {}
         }
 
+    if std::env::var("OC_DUMP_WGSL").is_ok() {
+            let dir = std::path::Path::new("out/wgsl-dump");
+            let _ = std::fs::create_dir_all(dir);
+            let n = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let _ = std::fs::write(dir.join(format!("vs-{n}.wgsl")), vs_wgsl.as_bytes());
+            let _ = std::fs::write(dir.join(format!("fs-{n}.wgsl")), fs_wgsl.as_bytes());
+        }
         let vs = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("opencat-three-shader-vs"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Owned(vs_wgsl)),
+            source: wgpu::ShaderSource::Wgsl(Cow::Owned(vs_wgsl.clone())),
         });
         let fs = self.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("opencat-three-shader-fs"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Owned(fs_wgsl)),
+            source: wgpu::ShaderSource::Wgsl(Cow::Owned(fs_wgsl.clone())),
         });
         let builtins_bgl = uniform_layout(&self.device, "opencat-three-shader-builtins");
         let user_bgl = user.is_some()
@@ -1695,6 +1730,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         width: u32,
         height: u32,
     ) -> Result<Vec<u8>> {
+        let tex = self.render_to_texture(scene, geometries, textures, width, height)?;
+        self.read_back(&tex, width, height)
+    }
+
+    /// 渲染一帧并**保留**输出纹理在 GPU 上（不读回 CPU）。
+    ///
+    /// GPU 管线用：结果纹理随后交给 Skia 以零拷贝方式导入（见
+    /// [`Self::output_texture_id`]），省掉 wgpu→CPU→Skia 的整帧往返。
+    /// 调用方负责在不再需要时释放该纹理（drop 即可）。
+    pub fn render_to_texture(
+        &mut self,
+        scene: &Scene3,
+        geometries: &scene3::GeometryRegistry,
+        textures: &TextureTable3,
+        width: u32,
+        height: u32,
+    ) -> Result<wgpu::Texture> {
         if width == 0 || height == 0 {
             bail!("渲染尺寸必须非零，得到 {width}x{height}");
         }
@@ -2428,6 +2480,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             }
         }
 
+        self.queue.submit([encoder.finish()]);
+        Ok(tex)
+    }
+
+    /// 把输出纹理读回 CPU（straight-alpha RGBA8，紧凑行序）。
+    ///
+    /// 与 [`Self::render_to_texture`] 配对：CPU 路径用 `render` 一步到位；
+    /// GPU 路径用 `render_to_texture` + Skia 导入，只有需要落盘时才调本方法。
+    pub fn read_back(&self, tex: &wgpu::Texture, width: u32, height: u32) -> Result<Vec<u8>> {
         // 读回：行距按 256 对齐，拷回后压缩成紧凑行。
         let bpr = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
             * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
@@ -2438,6 +2499,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        let mut encoder =
+            self.device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("opencat-three-readback"),
+                });
         encoder.copy_texture_to_buffer(
             tex.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -2477,6 +2543,96 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         drop(mapped);
         rbuf.unmap();
         Ok(out)
+    }
+
+    /// 输出纹理的 GL texture id（GPU 管线的零拷贝导入句柄）。
+    ///
+    /// 仅 GL 后端有效；非 GL 后端返回 `None`。`tex` 必须是本渲染器
+    /// [`Self::render_to_texture`] 的产物，且在其存活期内使用。
+    #[cfg(target_os = "windows")]
+    pub fn output_texture_id(tex: &wgpu::Texture) -> Option<u32> {
+        use wgpu::hal::api::Gles;
+        unsafe {
+            let hal_tex = tex.as_hal::<Gles>()?;
+            match &hal_tex.inner {
+                wgpu::hal::gles::TextureInner::Texture { raw, .. } => Some(raw.0.get()),
+                _ => None,
+            }
+        }
+    }
+
+    /// 在 wgpu 的 GL context 已 make current 的前提下运行 `f`。
+    ///
+    /// Skia 共享同一 `HGLRC`：建 DirectContext、导入纹理、绘制都必须发生在
+    /// 该 context current 的线程上。本方法经 wgpu 自己的 `AdapterContext`
+    /// 锁进入（与 wgpu 内部操作同一把互斥锁），drop 时 unmake_current。
+    ///
+    /// **`f` 内不得再调用本渲染器的任何方法**——会二次加锁，1 秒后 panic。
+    /// 仅 GL 后端有效；非 GL 返回 `None` 且不调用 `f`。
+    #[cfg(target_os = "windows")]
+    pub fn with_gl_context<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
+        use wgpu::hal::api::Gles;
+        unsafe {
+            let hal_dev = self.device.as_hal::<Gles>()?;
+            let _lock = hal_dev.context().lock();
+            Some(f())
+        }
+    }
+
+    /// 建一张可用作 Skia 合成目标的纹理（GL 后端），返回
+    /// `(texture, gl_texture_id)`。
+    ///
+    /// 在**锁外**调用（创建纹理是 wgpu 操作）。合成的 FBO 由
+    /// [`gl_share::create_framebuffer`] 在锁内建。
+    #[cfg(target_os = "windows")]
+    pub fn create_composite_target(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Option<(wgpu::Texture, u32)> {
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("opencat-three-composite-target"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let id = Self::output_texture_id(&tex)?;
+        Some((tex, id))
+    }
+
+    /// 设备引用（合成器建资源用；**不得在持锁期间调用**）。
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    /// 当前后端是否为 GL（GPU 纹理共享仅 GL 路径支持）。
+    pub fn is_gles(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            unsafe { self.device.as_hal::<wgpu::hal::api::Gles>().is_some() }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    }
+
+    /// 从一张 wgpu 纹理读回 CPU（合成完成后落盘给编码器用）。
+    pub fn read_back_texture(
+        &self,
+        tex: &wgpu::Texture,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>> {
+        self.read_back(tex, width, height)
     }
 
     fn ensure_depth(&mut self, width: u32, height: u32) {
@@ -3166,6 +3322,15 @@ fn object_uniform(material: &Material3, matrix: &[f32; 16], map_slot: Option<u32
 /// 加锁只为满足 `Scene3Raster: Send + Sync`。
 pub struct LazyRenderer3d {
     inner: OnceLock<Result<Mutex<Renderer3d>, String>>,
+    /// GPU 模式下输出纹理的存活表（句柄 → 纹理）。
+    ///
+    /// GPU 路径把渲染目标留在显存里交给 Skia 零拷贝导入，纹理必须活到
+    /// Skia 采样完成——`Renderer3d` 的 `Mutex` 释放后无人持有它。宿主每帧
+    /// 消费后调 [`Self::release_gpu_texture`] 回收；表随 renderer 生命周期
+    /// 增长，未回收项在 drop 时统一释放。
+    gpu_textures: Mutex<std::collections::HashMap<u64, wgpu::Texture>>,
+    /// 下一个 GPU 句柄值（单调递增，进程内唯一）。
+    next_gpu_handle: std::sync::atomic::AtomicU64,
 }
 
 impl Default for LazyRenderer3d {
@@ -3178,7 +3343,130 @@ impl LazyRenderer3d {
     pub fn new() -> Self {
         Self {
             inner: OnceLock::new(),
+            gpu_textures: Mutex::new(std::collections::HashMap::new()),
+            next_gpu_handle: std::sync::atomic::AtomicU64::new(1),
         }
+    }
+
+    /// 立刻初始化 wgpu 渲染器（幂等）。
+    ///
+    /// GPU 合成器需要在**渲染任何帧之前**建好合成目标纹理，因此不能等
+    /// 首个 3D 场景来懒初始化。无 3D 的合成也能安全调用。
+    pub fn ensure_initialized(&self) -> Result<()> {
+        let init = self.inner.get_or_init(|| {
+            pollster::block_on(Renderer3d::new())
+                .map(Mutex::new)
+                .map_err(|e| format!("{e:#}"))
+        });
+        match init {
+            Ok(_) => Ok(()),
+            Err(msg) => bail!("3D 光栅化器初始化失败: {msg}"),
+        }
+    }
+
+    /// GPU 模式下渲染到显存并登记句柄（不读回 CPU）。
+    ///
+    /// 返回的句柄是 [`scene3::Rasterized3d::gpu`] 的值，宿主用它向
+    /// Skia 导入纹理。宿主消费完必须调 [`Self::release_gpu_texture`]。
+    pub fn render_to_gpu(
+        &self,
+        scene: &Scene3,
+        geometries: &scene3::GeometryRegistry,
+        textures: &TextureTable3,
+        width: u32,
+        height: u32,
+    ) -> Result<u64> {
+        let init = self.inner.get_or_init(|| {
+            pollster::block_on(Renderer3d::new())
+                .map(Mutex::new)
+                .map_err(|e| format!("{e:#}"))
+        });
+        let tex = match init {
+            Ok(renderer) => {
+                let mut r = renderer.lock().expect("opencat-three renderer mutex poisoned");
+                r.render_to_texture(scene, geometries, textures, width, height)
+                    .map_err(|e| anyhow::anyhow!("{e:#}"))?
+            }
+            Err(msg) => bail!("3D 光栅化器初始化失败: {msg}"),
+        };
+        let handle = self
+            .next_gpu_handle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_textures
+            .lock()
+            .expect("gpu_textures mutex poisoned")
+            .insert(handle, tex);
+        Ok(handle)
+    }
+
+    /// 取一个 GPU 纹理的 GL texture id（纹理仍留在表中，供 Skia 采样期间存活）。
+    #[cfg(target_os = "windows")]
+    pub fn gpu_texture_id(&self, handle: u64) -> Option<u32> {
+        let guard = self.gpu_textures.lock().expect("gpu_textures mutex poisoned");
+        let tex = guard.get(&handle)?;
+        Renderer3d::output_texture_id(tex)
+    }
+
+    /// 释放一个 GPU 纹理（宿主已用完）。
+    pub fn release_gpu_texture(&self, handle: u64) {
+        let _ = self
+            .gpu_textures
+            .lock()
+            .expect("gpu_textures mutex poisoned")
+            .remove(&handle);
+    }
+
+    /// 建一张合成目标纹理并返回 `(纹理, GL texture id)`。
+    ///
+    /// 纹理所有权归调用方——这样宿主不必依赖 wgpu 类型即可持有它，
+    /// 又能在 GL 锁外完成创建（wgpu 操作）。仅 GL 后端有效。
+    #[cfg(target_os = "windows")]
+    pub fn make_composite_target(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Option<opencat_core::ir::generated_image::GpuImageHandle> {
+        self.with_renderer(|r| r.create_composite_target(width, height))
+            .flatten()
+            .map(|(tex, _id)| {
+                let handle = self
+                    .next_gpu_handle
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.gpu_textures
+                    .lock()
+                    .expect("gpu_textures mutex poisoned")
+                    .insert(handle, tex);
+                opencat_core::ir::generated_image::GpuImageHandle(handle)
+            })
+    }
+
+    /// 在 wgpu 的 GL context 已 make current 的前提下运行 `f`。
+    ///
+    /// 仅 GL 后端有效。**`f` 内只做 Skia 操作**——任何 wgpu 调用都会二次
+    /// 加锁，1 秒后 panic（实测确认）。
+    #[cfg(target_os = "windows")]
+    pub fn with_gl_context<R>(&self, f: impl FnOnce(&Renderer3d) -> R) -> Option<R> {
+        let init = self.inner.get()?;
+        let Ok(renderer) = init else { return None };
+        let r = renderer.lock().expect("opencat-three renderer mutex poisoned");
+        r.with_gl_context(|| f(&r))
+    }
+
+    /// 只取渲染器外层锁（**不加 GL context 锁**），用于建 wgpu 资源。
+    ///
+    /// wgpu 的每次调用都会自己加/放 GL context 锁，所以这里只串行化对
+    /// `Renderer3d` 的访问。**`f` 内不得做 Skia 操作**（context 未 make
+    /// current）。
+    pub fn with_renderer<R>(&self, f: impl FnOnce(&Renderer3d) -> R) -> Option<R> {
+        let init = self.inner.get()?;
+        let Ok(renderer) = init else { return None };
+        let r = renderer.lock().expect("opencat-three renderer mutex poisoned");
+        Some(f(&r))
+    }
+
+    /// GL 后端是否可用（合成器据此决定能否走 GPU 路径）。
+    pub fn is_gles(&self) -> bool {
+        self.with_renderer(|r| r.is_gles()).unwrap_or(false)
     }
 }
 
@@ -3189,8 +3477,14 @@ impl scene3::Scene3Raster for LazyRenderer3d {
         geometries: &scene3::GeometryRegistry,
         width: u32,
         height: u32,
-    ) -> Result<std::sync::Arc<[u8]>> {
-        self.render_with_textures(scene, geometries, &TextureTable3::new(), width, height)
+    ) -> Result<scene3::Rasterized3d> {
+        Ok(scene3::Rasterized3d::cpu(self.render_with_textures(
+            scene,
+            geometries,
+            &TextureTable3::new(),
+            width,
+            height,
+        )?))
     }
 }
 

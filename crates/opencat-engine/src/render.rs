@@ -47,7 +47,7 @@ pub struct EncodingConfig {
     pub format: OutputFormat,
 }
 
-/// Render one pipeline frame to RGBA.
+/// Render one pipeline frame to RGBA (CPU raster path).
 ///
 /// `surface_w/h` is the surface + `read_pixels` size (MP4 may pass even-aligned
 /// dims). Creates a fresh surface per call (acceptable cost for the offline path).
@@ -104,6 +104,162 @@ fn render_pipeline_frame_to_rgba(
         return Err(anyhow!("failed to read pixels from skia surface"));
     }
     Ok(rgba)
+}
+
+/// GPU 合成路径的会话状态（Windows / GL 后端）。
+///
+/// 持有 Skia GPU 合成器与它背后的 wgpu 渲染器。**锁纪律**：合成器的每个
+/// 方法都必须在 `renderer.with_gl_context` 的锁内调用（见
+/// [`crate::gpu_compositor`] 的模块文档）。
+#[cfg(target_os = "windows")]
+pub struct GpuRenderSession {
+    compositor: crate::gpu_compositor::GpuCompositor,
+    renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
+}
+
+#[cfg(target_os = "windows")]
+impl GpuRenderSession {
+    /// 建一个 `width × height` 的 GPU 合成会话。
+    pub fn new(
+        renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self> {
+        // 锁外：先确保 wgpu 设备就绪（合成目标不能等首个 3D 场景懒初始化）。
+        renderer.ensure_initialized()?;
+        if !renderer.is_gles() {
+            anyhow::bail!("GPU 管线需要 GL 后端（当前 WGPU_BACKEND 不是 gl）");
+        }
+        // 锁外：建 wgpu 合成目标纹理。
+        let handle = renderer
+            .make_composite_target(width, height)
+            .ok_or_else(|| anyhow!("创建合成目标失败（GL 后端不可用）"))?;
+        let tex_id = renderer
+            .gpu_texture_id(handle.0)
+            .ok_or_else(|| anyhow!("取合成目标 GL id 失败"))?;
+
+        // 锁内：建 FBO + Skia DirectContext + surface。
+        let compositor = renderer
+            .with_gl_context(|_r| crate::gpu_compositor::GpuCompositor::new(handle.0, tex_id, width, height))
+            .ok_or_else(|| anyhow!("GL context 不可用"))??;
+
+        Ok(Self {
+            compositor,
+            renderer,
+        })
+    }
+
+    /// 渲染一帧到 GPU 合成目标并读回 RGBA。
+    pub fn render_frame(
+        &mut self,
+        pipeline: &mut crate::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut crate::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        frame_index: u32,
+    ) -> Result<Vec<u8>> {
+        let render = pipeline.render_frame(frame_index)?;
+        let mut frame = render.draw;
+        let media_plan = render.media;
+
+        // 收集本帧引用的 GPU 句柄：合成后统一释放。
+        let gpu_handles: Vec<u64> = media_plan
+            .generated_images
+            .iter()
+            .filter_map(|g| g.gpu.map(|h| h.0))
+            .collect();
+
+        let renderer = self.renderer.clone();
+        let compositor = &mut self.compositor;
+
+        // 本帧有 3D 场景 → wgpu 刚跑过 GL pass，Skia 缓存的状态已失效。
+        if !gpu_handles.is_empty() {
+            renderer
+                .with_gl_context(|_r| compositor.reset_backend_state())
+                .ok_or_else(|| anyhow!("GL context 不可用"))?;
+        }
+
+        // 锁内：只做 Skia 操作（导入 3D 纹理 + 重放 DrawOp + 读回）。
+        let rgba = renderer
+            .with_gl_context(|_r| -> Result<Vec<u8>> {
+                let (canvas, skia) = compositor.split();
+                let mut resolver = crate::gpu_compositor::CompositorResolver {
+                    skia,
+                    renderer: &renderer,
+                };
+                crate::consumer::execute_render_frame_with_gpu(
+                    &mut frame,
+                    &media_plan,
+                    executor,
+                    pipeline.loader(),
+                    media_ctx,
+                    generated_cache,
+                    Some(&mut resolver),
+                    canvas,
+                )
+                .map_err(|e| anyhow!("{e}"))?;
+                compositor.finish_frame()
+            })
+            .ok_or_else(|| anyhow!("GL context 不可用"))??;
+
+        // 锁外：释放本帧的 3D 输出纹理。
+        for h in gpu_handles {
+            renderer.release_gpu_texture(h);
+        }
+        Ok(rgba)
+    }
+}
+
+/// 逐帧渲染器：CPU 光栅，或（Windows + GL 后端）GPU 合成。
+///
+/// 选择只发生在会话建立时，两种路径逐帧产出同样的 RGBA 尺寸与 alpha 约定
+/// （premul），所以编码分支无需分叉。
+enum FrameRenderer {
+    Cpu,
+    #[cfg(target_os = "windows")]
+    Gpu(Box<GpuRenderSession>),
+}
+
+impl FrameRenderer {
+    fn new(pipeline: &crate::EnginePipeline, width: u32, height: u32) -> Result<Self> {
+        #[cfg(target_os = "windows")]
+        if crate::gpu_pipeline::requested() {
+            return Ok(Self::Gpu(Box::new(GpuRenderSession::new(
+                pipeline.scene3_renderer.clone(),
+                width,
+                height,
+            )?)));
+        }
+        let _ = (pipeline, width, height);
+        Ok(Self::Cpu)
+    }
+
+    fn render(
+        &mut self,
+        pipeline: &mut crate::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut crate::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        frame_index: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>> {
+        match self {
+            Self::Cpu => render_pipeline_frame_to_rgba(
+                pipeline,
+                media_ctx,
+                executor,
+                generated_cache,
+                width,
+                height,
+                frame_index,
+            ),
+            #[cfg(target_os = "windows")]
+            Self::Gpu(session) => {
+                session.render_frame(pipeline, media_ctx, executor, generated_cache, frame_index)
+            }
+        }
+    }
 }
 
 /// Premix the whole composition audio track.
@@ -209,15 +365,16 @@ pub fn render_from_source_with_base(
     match &config.format {
         OutputFormat::Png => {
             let mut executor = crate::executor::EngineDrawExecutor::new();
+            let mut renderer = FrameRenderer::new(&pipeline, info.width, info.height)?;
             for i in 0..frame_count {
-                let rgba = render_pipeline_frame_to_rgba(
+                let rgba = renderer.render(
                     &mut pipeline,
                     &mut media_ctx,
                     &mut executor,
                     &mut generated_cache,
+                    i,
                     info.width,
                     info.height,
-                    i,
                 )?;
                 let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
                     .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
@@ -235,6 +392,7 @@ pub fn render_from_source_with_base(
             };
 
             let mut executor = crate::executor::EngineDrawExecutor::new();
+            let mut renderer = FrameRenderer::new(&pipeline, aligned_info.0, aligned_info.1)?;
             encode_rgba_frames(
                 output_path,
                 aligned_info.0,
@@ -245,15 +403,15 @@ pub fn render_from_source_with_base(
                 audio_track.as_ref(),
                 |_, _| {},
                 |frame_index| {
-                    render_pipeline_frame_to_rgba(
-                    &mut pipeline,
-                    &mut media_ctx,
-                    &mut executor,
-                    &mut generated_cache,
-                    aligned_info.0,
-                    aligned_info.1,
-                    frame_index,
-                )
+                    renderer.render(
+                        &mut pipeline,
+                        &mut media_ctx,
+                        &mut executor,
+                        &mut generated_cache,
+                        frame_index,
+                        aligned_info.0,
+                        aligned_info.1,
+                    )
                 },
             )?;
         }
@@ -305,15 +463,16 @@ pub fn render_single_frame_from_source_with_base(
     media_ctx.set_composition_fps(info.fps);
     let mut executor = crate::executor::EngineDrawExecutor::new();
     let mut generated_cache = generated_image_cache_from_env();
-    let rgba = render_pipeline_frame_to_rgba(
-                    &mut pipeline,
-                    &mut media_ctx,
-                    &mut executor,
-                    &mut generated_cache,
-                    info.width,
-                    info.height,
-                    frame_index,
-                )?;
+    let mut renderer = FrameRenderer::new(&pipeline, info.width, info.height)?;
+    let rgba = renderer.render(
+        &mut pipeline,
+        &mut media_ctx,
+        &mut executor,
+        &mut generated_cache,
+        frame_index,
+        info.width,
+        info.height,
+    )?;
 
     Ok((rgba, info.width, info.height))
 }

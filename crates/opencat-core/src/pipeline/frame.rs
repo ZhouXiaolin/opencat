@@ -157,7 +157,13 @@ pub fn render_frame_with_state(
     // / script `surface.bake` path). Land them in the pipeline table BEFORE
     // the media plan is built so hosts receive the payloads for this frame.
     for image in script.take_frame_generated_images() {
-        generated_images.insert(image.id, image.width, image.height, image.rgba)?;
+        // GPU-resident entries carry no CPU pixels (see `FrameGeneratedImage`).
+        match image.gpu {
+            Some(gpu) => {
+                generated_images.insert_gpu(image.id, image.width, image.height, gpu)?
+            }
+            None => generated_images.insert(image.id, image.width, image.height, image.rgba)?,
+        }
     }
     let frame_ctx = evaluation.frame_ctx;
     let element_root = evaluation.element_root;

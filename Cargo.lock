@@ -3047,6 +3047,7 @@ dependencies = [
  "naga",
  "opencat-core",
  "pollster",
+ "skia-safe",
  "wgpu",
 ]
 

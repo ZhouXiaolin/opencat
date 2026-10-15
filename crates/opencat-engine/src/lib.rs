@@ -7,6 +7,9 @@
 pub mod consumer;
 pub mod executor;
 pub mod fonts;
+#[cfg(target_os = "windows")]
+pub mod gpu_compositor;
+pub mod gpu_pipeline;
 pub mod inspect;
 pub mod js_context;
 pub mod jsx;

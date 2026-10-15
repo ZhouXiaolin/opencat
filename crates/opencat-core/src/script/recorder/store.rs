@@ -159,6 +159,40 @@ impl MutationStore {
                 width,
                 height,
                 rgba,
+                gpu: None,
+            });
+        self.record_draw_op(
+            node_id,
+            crate::ir::draw_op::DrawOp::Image {
+                image: crate::ir::draw_types::ImageRef::Generated { id },
+                x,
+                y,
+                paint: None,
+            },
+        );
+    }
+
+    /// Record a script-generated image whose pixels live on the GPU (the
+    /// `ctx.three` render-target path). Same contract as
+    /// [`Self::record_frame_generated_image`], except the pixels are carried
+    /// as an opaque host handle instead of a CPU buffer.
+    pub fn record_frame_generated_image_gpu(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+        gpu: crate::ir::generated_image::GpuImageHandle,
+    ) {
+        self.pending_generated_images
+            .push(crate::ir::FrameGeneratedImage {
+                id,
+                width,
+                height,
+                rgba: std::sync::Arc::from(Vec::new()),
+                gpu: Some(gpu),
             });
         self.record_draw_op(
             node_id,
@@ -195,6 +229,7 @@ impl MutationStore {
                 width,
                 height,
                 rgba,
+                gpu: None,
             });
     }
 

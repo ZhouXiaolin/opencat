@@ -389,7 +389,7 @@ function MainBg() {
    timeline on the outer node like the source's #theater tweens. */
 function Theater() {
   useGSAP((ctx) => {
-    var st = Math.max(0, ctx.time);
+    var st = Math.max(0, ctx.global.time);
     var ps = st - 5.58; // source script time
     var T = ctx.timeline();
     T.set('phone', { y: 340, opacity: 0, filter: 'blur(18px)' }, 0);
@@ -688,7 +688,7 @@ function PromptScene() {
 function ChromaticSplit() {
   useGSAP((ctx) => {
     var CK = ctx.CanvasKit;
-    var st = Math.max(0, ctx.time);
+    var st = Math.max(0, ctx.global.time);
     var chromCanvas = ctx.getCanvasById('chromatic-canvas');
     var chromNode = ctx.getNode('chromatic-canvas');
     /* source #chromatic-split (bg #000, z7) is shown at CHROMATIC_START and
@@ -791,7 +791,7 @@ function Cta() {
 function Portal() {
   useGSAP((ctx) => {
     var CK = ctx.CanvasKit;
-    var st = Math.max(0, ctx.time);
+    var st = Math.max(0, ctx.global.time);
     var T = ctx.timeline();
     T.set('portal-logo-frame', { opacity: 0 }, 0);
     T.set('portal-canvas', { opacity: 0 }, 0);
@@ -841,7 +841,7 @@ function IntroSting() {
   useGSAP((ctx) => {
     var T = ctx.timeline();
     var CK = ctx.CanvasKit;
-    var TT = Math.max(0, ctx.time);
+    var TT = Math.max(0, ctx.global.time);
     var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 4));
     var progress = TT <= 0.72 ? 0 : (TT >= 3.0 ? 1 : (TT - 0.72) / 2.28);
     var logoScale = TT < 2.9 ? 1 : (TT >= 3.1 ? 0.4 : 1 - 0.6 * Math.pow(2, 10 * ((TT - 2.9) / 0.2 - 1)));

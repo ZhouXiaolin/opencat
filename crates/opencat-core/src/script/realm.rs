@@ -95,7 +95,7 @@ impl<C: JsContext> ScriptRealm<C> {
         // correctness.
         self.ctx.eval(
             "globalThis.ctx = globalThis.ctx || {\
-             frame:0, fps:0, time:0, duration:0, totalDuration:0, currentTime:0, sceneDuration:0, totalFrames:0, currentFrame:0, sceneFrames:0, \
+             global:{time:0, duration:0, frame:0}, current:{time:0, duration:0, frame:0}, \
              __currentCanvasTarget:'',\
              __targetRegistry:{visual:Object.create(null),canvas:Object.create(null),nonVisual:Object.create(null)}\
          };\
@@ -105,15 +105,17 @@ impl<C: JsContext> ScriptRealm<C> {
         self.ctx.eval(&binding_shim_js())?;
 
         // Override Math.random with a seeded deterministic version sourced
-        // from the frame number (set via apply_frame_ctx before user code
-        // runs). This ensures cross-frame determinism — same frame index
-        // always produces the same random sequence.
+        // from the scene-local frame number (set via apply_frame_ctx before
+        // user code runs). This ensures cross-frame determinism — same frame
+        // index always produces the same random sequence — and, because the
+        // seed is scene-local, a scene's sequence does not change when the
+        // scene moves on the timeline.
         // Must be done AFTER the binding shim is installed so
         // __util_random_seeded is available.
         self.ctx.eval(
             "var __opencatOriginalRandom = Math.random;\
              Math.random = function() {\
-               var seed = typeof ctx !== 'undefined' && ctx ? Number(ctx.frame || 0) : 0;\
+               var seed = (typeof ctx !== 'undefined' && ctx && ctx.current) ? Number(ctx.current.frame || 0) : 0;\
                return __util_random_seeded(seed + __opencatRandomCallIndex++);\
              };\
              globalThis.__opencatRandomCallIndex = 0;",
@@ -121,7 +123,7 @@ impl<C: JsContext> ScriptRealm<C> {
 
         // Disable real clock: Date.now always returns 0 so scripts cannot
         // depend on wall-clock time. The only time a script should read is
-        // ctx.currentTime / ctx.frame, both sourced from FrameCtx.
+        // ctx.global / ctx.current, both sourced from FrameCtx.
         self.ctx.eval(
             "var _Date = Date;\
              Date = function() { return new _Date(0); };\
@@ -183,24 +185,27 @@ impl<C: JsContext> ScriptRealm<C> {
             }
         });
 
-        self.ctx
-            .set_ctx_field("frame", json!(frame_ctx.frame as i64))?;
-        self.ctx.set_ctx_field("fps", json!(frame_ctx.fps as i64))?;
-        self.ctx.set_ctx_field("time", json!(frame_ctx.time_secs))?;
-        self.ctx
-            .set_ctx_field("duration", json!(frame_ctx.total_duration_secs))?;
-        self.ctx
-            .set_ctx_field("totalDuration", json!(frame_ctx.total_duration_secs))?;
-        self.ctx
-            .set_ctx_field("currentTime", json!(frame_ctx.current_time_secs))?;
-        self.ctx
-            .set_ctx_field("sceneDuration", json!(frame_ctx.scene_duration_secs))?;
-        self.ctx
-            .set_ctx_field("totalFrames", json!(frame_ctx.total_frames as i64))?;
-        self.ctx
-            .set_ctx_field("currentFrame", json!(frame_ctx.current_frame as i64))?;
-        self.ctx
-            .set_ctx_field("sceneFrames", json!(frame_ctx.scene_frames as i64))?;
+        // Two clocks, two namespaces. `ctx.global` is the whole composition;
+        // `ctx.current` is the scene this script belongs to. Outside a timeline
+        // the two are equal. JSX hooks overwrite `ctx.current` per hook (see
+        // jsx_runtime.js) so a hook always reads its own scene's clock even on
+        // a frame that renders a different scene.
+        self.ctx.set_ctx_field(
+            "global",
+            json!({
+                "time": frame_ctx.time_secs,
+                "duration": frame_ctx.total_duration_secs,
+                "frame": frame_ctx.frame as i64,
+            }),
+        )?;
+        self.ctx.set_ctx_field(
+            "current",
+            json!({
+                "time": frame_ctx.current_time_secs,
+                "duration": frame_ctx.scene_duration_secs,
+                "frame": frame_ctx.current_frame as i64,
+            }),
+        )?;
         self.ctx.set_ctx_field(
             "__currentCanvasTarget",
             json!(current_node_id.unwrap_or("")),

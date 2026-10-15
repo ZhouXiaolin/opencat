@@ -116,6 +116,12 @@
             previousEnd: null,
             writes: [],
             items: [],
+            // The scene clock this timeline belongs to, captured when the
+            // timeline is created (i.e. while its owning hook is running).
+            // Items are flushed later — possibly after other scenes' hooks have
+            // run — so the flush must replay against THIS clock, not whatever
+            // `ctx.current` happens to hold then.
+            clock: ctx.current || ctx.global,
         };
         var scheduled = false;
 
@@ -300,38 +306,57 @@
                 // frame-aligned cut by a full frame. 1ns is far below half a
                 // frame and only flips those float-ULP boundaries.
                 var EPS = 1e-9;
-
-                for (var i = 0; i < state.items.length; i++) {
-                    var item = state.items[i];
-                    if (item.kind === 'set') {
-                        var setStart = (baseDelay + item.start) * scale;
-                        if (Number(ctx.currentTime || 0) + EPS >= setStart) {
-                            applySet(item.targets, item.vars || {});
-                            var setTracks = collectTweenTracks({}, item.vars || {}, {});
-                            var setTargets = core.normalizeTargets(item.targets);
-                            for (var si = 0; si < setTargets.length; si++) {
-                                for (var st = 0; st < setTracks.length; st++) {
-                                    markWrite(setTargets[si], setTracks[st].name);
+                // Replay against THIS timeline's scene clock. Items flush after
+                // every hook has run, so `ctx.current` may by now hold another
+                // scene's clock (or none). Swap it in for the flush and restore
+                // afterwards, so core.applyTween and the plugins read the right
+                // scene duration / time.
+                var clock = state.clock || ctx.current || ctx.global || { time: 0, duration: 0 };
+                var savedCurrent = ctx.current;
+                var savedFrame = globalThis.__ocScriptFrame;
+                try {
+                    ctx.current = clock;
+                    // Tween progress is computed Rust-side from the store frame;
+                    // point it at this timeline's scene clock for the flush.
+                    if (globalThis.__ocSetScriptFrame) globalThis.__ocSetScriptFrame(clock);
+                    for (var i = 0; i < state.items.length; i++) {
+                        var item = state.items[i];
+                        if (item.kind === 'set') {
+                            var setStart = (baseDelay + item.start) * scale;
+                            if (Number(clock.time || 0) + EPS >= setStart) {
+                                applySet(item.targets, item.vars || {});
+                                var setTracks = collectTweenTracks({}, item.vars || {}, {});
+                                var setTargets = core.normalizeTargets(item.targets);
+                                for (var si = 0; si < setTargets.length; si++) {
+                                    for (var st = 0; st < setTracks.length; st++) {
+                                        markWrite(setTargets[si], setTracks[st].name);
+                                    }
                                 }
                             }
+                            continue;
                         }
-                        continue;
-                    }
 
-                    var baseTiming = core.splitTiming(
-                        copyOwn(defaults, item.varsForTiming),
-                        baseDelay + item.start
-                    );
-                    var timing = scaledTiming(baseTiming, scale);
-                    if (Number(ctx.currentTime || 0) + EPS < Number(timing.delay || 0)) {
-                        if (item.kind === 'from' || item.kind === 'fromTo') {
-                            applyInitialValues(item.targets, item.fromVars);
+                        var baseTiming = core.splitTiming(
+                            copyOwn(defaults, item.varsForTiming),
+                            baseDelay + item.start
+                        );
+                        var timing = scaledTiming(baseTiming, scale);
+                        if (Number(clock.time || 0) + EPS < Number(timing.delay || 0)) {
+                            if (item.kind === 'from' || item.kind === 'fromTo') {
+                                applyInitialValues(item.targets, item.fromVars);
+                            }
+                            continue;
                         }
-                        continue;
+                        var mergedToVars = copyOwn(defaults, item.toVars);
+                        var result = core.applyTween(item.targets, item.fromVars, mergedToVars, timing);
+                        markTweenWrites(item.targets, item.fromVars, mergedToVars, timing);
                     }
-                    var mergedToVars = copyOwn(defaults, item.toVars);
-                    var result = core.applyTween(item.targets, item.fromVars, mergedToVars, timing);
-                    markTweenWrites(item.targets, item.fromVars, mergedToVars, timing);
+                } finally {
+                    ctx.current = savedCurrent;
+                    globalThis.__ocScriptFrame = savedFrame;
+                    if (globalThis.__set_script_frame) {
+                        globalThis.__set_script_frame(savedFrame != null ? savedFrame : -1);
+                    }
                 }
                 state.items = [];
             },

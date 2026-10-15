@@ -2,7 +2,7 @@
 
 # OpenCat
 
-### 用 XML 写视频，Rust 渲染，一行命令出 MP4。
+### 用 JSX 写视频，Rust 渲染，一行命令出 MP4。
 
 <p align="center">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-edition_2024-ce422b?style=flat-square" />
@@ -22,30 +22,22 @@
 
 </div>
 
-XML 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出 MP4 —— 跨机器、跨平台、确定性一致。告别 Chromium 快照、Puppeteer 和笨重的 Web 渲染管线。
+JSX 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出 MP4 —— 跨机器、跨平台、确定性一致。告别 Chromium 快照、Puppeteer 和笨重的 Web 渲染管线。
 
-写一个视频，就是写一个 XML 文件（下面是 [`examples/k3-promo.xml`](examples/k3-promo.xml) 的场景 A，即上方示例）：
+写一个视频，就是写一个 JSX 文件（下面是 [`examples/k3-promo/k3-promo.jsx`](examples/k3-promo/k3-promo.jsx) 的场景 A，即上方示例）：
 
-```xml
-<opencat width="1920" height="1080" fps="30" duration="16.4667">
-  <fonts default="k3-sans">
-    <font id="k3-sans" family="Inter" path="assets/Inter-Regular.ttf" role="sans" />
-  </fonts>
-  <template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
+```jsx
+import { useGSAP } from 'opencat/runtime';
 
-  <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden">
-    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
-      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
-        <div id="afield" class="absolute inset-0"><stage-canvas id="afield-canvas" /></div>
-        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
-          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
-          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
-        </div>
-      </div>
-    </div>
-  </div>
-  <script>
-    var T = ctx.time;                       // 秒，覆盖整个 16.4667s
+export const meta = { width: 1920, height: 1080, fps: 30, duration: 16.4667 };
+
+function StageCanvas({ id }) {
+  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
+}
+
+function SceneA() {
+  useGSAP((ctx) => {
+    var T = ctx.global.time;                 // 秒，覆盖整个 16.4667s
     ctx.getNode('sceneA').opacity(T >= 0.75 && T < 4.62 ? 1 : 0);
     if (T >= 0.75 && T < 4.62) {
       ctx.timeline()
@@ -53,12 +45,27 @@ XML 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出
         .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
         .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
     }
-  </script>
-</opencat>
+  });
+  return (
+    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
+      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
+        <div id="afield" class="absolute inset-0"><StageCanvas id="afield-canvas" /></div>
+        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
+          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
+          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function K3Promo() {
+  return <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden"><SceneA /></div>;
+}
 ```
 
 ```bash
-cargo run --bin opencat -- examples/k3-promo.xml
+cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 ```
 
 MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界面。
@@ -74,7 +81,7 @@ MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界�
 | **动画** | 自研 GSAP 兼容 API（覆盖 80%+） | 直接使用 GSAP / anime.js |
 | **浏览器渲染** | WASM + CanvasKit | 原生 |
 | **确定性输出** | ✅ 跨机器一致 | ❌ |
-| **AI 友好** | XML/JSONL 声明式 | JSX/HTML，较复杂 |
+| **AI 友好** | JSX 声明式 | JSX/HTML，较复杂 |
 
 Remotion 复用了 Web 生态，但 Chrome snapshot 的先天缺陷无法绕过 —— GPU 受限、内存开销大、帧率上不去、部署必须带 Chromium。OpenCat 原生调用 GPU 和 FFmpeg，性能上限不在一个量级。
 
@@ -83,7 +90,7 @@ Remotion 复用了 Web 生态，但 Chrome snapshot 的先天缺陷无法绕过 
 ### 声明式动画，GSAP 级表达
 
 ```js
-// 声明式 timeline —— examples/k3-promo.xml 场景 A
+// 声明式 timeline —— examples/k3-promo/k3-promo.jsx 场景 A
 ctx.timeline()
   .set('azoom', { scale: 1.07 }, 0.933)
   .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
@@ -102,40 +109,47 @@ parts.forEach(function (p, i) {
 
 ### 多场景 + 转场
 
-```xml
+```jsx
 <tl id="main-tl">
-  <div id="scene1" duration="4">...</div>
+  <Scene1 />                                             {/* duration="4" 写在它的根节点上 */}
   <transition from="scene1" to="scene2" effect="fade" duration="0.6" />
-  <div id="scene2" duration="4">...</div>
+  <Scene2 />                                             {/* duration="4" 写在它的根节点上 */}
 </tl>
 ```
 
+每个场景是一个组件，`duration` 写在它的根节点上。场景内的钩子自动绑到该场景的时钟，所以场景可见时 `ctx.current.time` 从 0 开始 —— 不用手抄起点，转场也不会让它偏移。
+
 内置 fade / slide / wipe / clock_wipe / iris / light_leak，支持自定义 GLSL 着色器。
 
-### XML 模板 —— 带插槽和变量的可复用组件
+### 组件 —— 可复用的构件
 
-用 `<template>` 定义组件，用 `$variable` 参数化，用 `<slot>` 组合内容。`k3-promo` 把六个公共构件从节点树中提出来——解析一次，渲染前展开为普通节点：
+任何 JSX 函数都是组件。`k3-promo` 把六个公共构件从节点树中提出来 —— 用 props 取代旧的模板参数：
 
-```xml
-<template name="stage-canvas"><canvas id="$id" class="absolute inset-0 w-[1920px] h-[1080px]"></canvas></template>
-<template name="cdot"><div id="$id" class="absolute w-[$s] h-[$s] bg-[$c]"></div></template>
-<template name="agent-pill"><div id="$id" class="absolute opacity-0"><div id="$id-box" class="px-[14px] py-[10px] border-[1.5px] border-[#dcdcde]">…</div></div></template>
+```jsx
+function StageCanvas({ id }) {
+  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
+}
+function Cdot({ id, s, c }) {
+  return <div id={id} class={'absolute w-[' + s + '] h-[' + s + '] bg-[' + c + ']'} />;
+}
 
-<!-- 调用点只传差异参数 -->
-<stage-canvas id="afield-canvas" />
-<cdot id="a-tl" s="13px" c="#d8d8da" />
-<agent-pill id="ap1" t="Agentic" />
+// 调用点只传差异参数
+<StageCanvas id="afield-canvas" />
+<Cdot id="a-tl" s="13px" c="#d8d8da" />
 ```
 
-模板在解析时展开 —— 零运行时开销、完全可组合、支持嵌套。`<slot>` 从调用点注入内容：
+组件通过嵌套组合，`props.children` 从调用点注入内容：
 
-```xml
-<template name="card">
-  <div class="w-[400px] rounded-xl bg-$bg p-6"><h2 class="text-$titleColor">$title</h2><slot name="body" /></div>
-</template>
-<card bg="white" titleColor="gray-900" title="Hello">
-  <slot name="body"><p class="text-gray-500">卡片内容。</p></slot>
-</card>
+```jsx
+function Card({ bg, title, children }) {
+  return <div class={'w-[400px] rounded-xl p-6 ' + bg}>
+    <text class="text-[20px] font-bold">{title}</text>
+    {children}
+  </div>;
+}
+<Card bg="bg-white" title="Hello">
+  <text class="text-gray-500">卡片内容。</text>
+</Card>
 ```
 
 ### 浏览器内 WASM 渲染
@@ -144,9 +158,9 @@ parts.forEach(function (p, i) {
 import { initWasm, preloadAssets, getRendererOrThrow, exportMp4 } from 'opencat-web';
 
 await initWasm();
-const catalog = await preloadAssets(xmlContent);
+const catalog = await preloadAssets(jsxContent);
 const renderer = getRendererOrThrow();
-renderer.build_frame(xmlContent, frameNumber, canvas, catalog);
+renderer.build_frame(jsxContent, frameNumber, canvas, catalog);
 await exportMp4({ /* ... */ });
 ```
 
@@ -154,7 +168,7 @@ await exportMp4({ /* ... */ });
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）。离屏 surface（`ctx.createSurface`）同时是**render target**，承载"构建一次、逐帧采样"的数据。`examples/k3-promo.xml` 场景 H 的溶解距离场完全在 JS 里构建：
+`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）。离屏 surface（`ctx.createSurface`）同时是**render target**，承载"构建一次、逐帧采样"的数据。`examples/k3-promo/k3-promo.jsx` 场景 H 的溶解距离场完全在 JS 里构建：
 
 ```js
 // 1) 文字锁排一次性栅格化进离屏 surface
@@ -190,7 +204,7 @@ var DIS = ly.pixel((uv, field, u) => {
 paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
 ```
 
-画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`target.run` 用 pixel 内核重绘，`target.sweep` 用 scan 内核就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo.xml` 场景 H；指南：`skill/references/canvaskit.md`。
+画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`target.run` 用 pixel 内核重绘，`target.sweep` 用 scan 内核就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo/k3-promo.jsx` 场景 H；指南：`skills/opencat-creator/references/canvaskit.md`。
 
 ### 更多能力
 
@@ -204,28 +218,27 @@ paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [f
 
 ```bash
 # 渲染 MP4（上方示例）
-cargo run --bin opencat -- examples/k3-promo.xml
+cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 
 # 桌面播放器实时预览（macOS / Windows）
-cargo run --bin opencat-see -- path/to/input.xml
+cargo run --bin opencat-see -- path/to/input.jsx
 ```
 
 > Web (WASM)：`cd crates/opencat-web/web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
 
 ### Engine / Web 像素对齐（k3diff 像素指标）
 
-用 ChromeDriver + 硬像素指标（`mae`/`maxd`/`p8`，非 SSIM）对比原生 Skia 与 WASM CanvasKit 逐帧输出。也可用 `--reference` 把 web 渲染直接和原始参考视频比对。完整步骤见 **[开发指南](DEVELOPMENT_ZH.md#engine--web-像素对齐k3diff-frame-oracle)**。
+用 ChromeDriver + 硬像素指标（`mae`/`maxd`/`p8`，非 SSIM）对比原生 Skia 与 WASM CanvasKit 逐帧输出，工具是 `tools/k3diff.py`。也可用 `opencat-web-compare --reference` 把 web 渲染直接和原始参考视频比对。
 
 ```bash
-# 1) examples 依赖的媒体（profile-showcase 会请求 http://127.0.0.1:8080/...）
+# 1) oracle 组合依赖的媒体（会请求 http://127.0.0.1:8080/...）
 #    将 mp4/png/mp3 目录用静态服务挂到 :8080
 
 # 2) 构建 web facade（wasm + JS + web-demuxer.wasm → dist/）
 cd crates/opencat-web/web && npm run build && cd -
 
-# 3) 多帧 oracle（0–413，步进 10）— 需要 Chrome + chromedriver + ffmpeg
-cargo test chromedriver_profile_showcase_all_frames_matches_engine \
-  --package opencat-engine --lib -- --ignored --nocapture
+# 3) 多帧 oracle — 需要 Chrome + chromedriver + ffmpeg
+cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
 ```
 
 失败帧产物：`target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`。
@@ -234,7 +247,7 @@ cargo test chromedriver_profile_showcase_all_frames_matches_engine \
 <summary><strong>Architecture</strong></summary>
 
 ```
-XML ──→ Taffy 布局 ──→ Skia 渲染 ──→ 编码 → MP4
+JSX ──→ Taffy 布局 ──→ Skia 渲染 ──→ 编码 → MP4
               ↑
          QuickJS 动画脚本
 ```
@@ -251,7 +264,7 @@ opencat
 │   ├── opencat-web/       # WASM：浏览器端渲染 + 导出
 │   └── opencat/           # CLI 入口
 ├── web/                   # Web 视频编辑器
-└── examples/                  # 示例 XML 文件
+└── examples/                  # 示例 JSX 文件
 ```
 
 </details>
@@ -361,13 +374,13 @@ cargo build --release --bin opencat
 二进制文件在 `target/release/opencat`。渲染视频：
 
 ```bash
-cargo run --release --bin opencat -- examples/profile-showcase.xml
+cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
 ```
 
 **桌面预览播放器（macOS / Windows）：**
 
 ```bash
-cargo run --release --bin opencat-see -- path/to/input.xml
+cargo run --release --bin opencat-see -- path/to/input.jsx
 ```
 
 **Web（WASM）：**
@@ -390,22 +403,20 @@ cargo run --bin opencat -- --version
 
 ## Who is it for
 
-- **AI 视频管线**：模型输出 XML，引擎渲染视频，接入成本最低
+- **AI 视频管线**：模型输出 JSX，引擎渲染视频，接入成本最低
 - **Web 应用**：浏览器内集成视频渲染 / 编辑，无需服务器
 - **程序化动画**：确定性 GPU 加速渲染，跨机器输出一致
-- **批量生产**：模板化视频，换数据 = 换 XML
+- **批量生产**：组件化视频，换 props = 换一个视频
 
 ## Reference
 
-- [XML 格式参考](skill/references/opencat.md)
-- [动画系统](skill/references/animations.md)
-- [转场效果](skill/references/transitions.md)
-- [Canvas API](skill/references/canvaskit.md)
-- [模板系统](skill/references/templates.md)
-- [设计原则](skill/references/design-principles.md)
-- [开发指南](DEVELOPMENT_ZH.md)
-- [架构文档](ARCHITECTURE_ZH.md)
-- [迁移指南](docs/MIGRATION.md) — 显式 lifecycle、HostInputs、AudioPlan、RenderFrame、OCIR v5
+- [JSX 格式参考](skills/opencat-creator/references/jsx-format.md)
+- [动画系统](skills/opencat-creator/references/animations.md)
+- [转场效果](skills/opencat-creator/references/transitions.md)
+- [Canvas API](skills/opencat-creator/references/canvaskit.md)
+- [Three.js 三维场景](skills/opencat-creator/references/three.md)
+- [模板系统](skills/opencat-creator/references/templates.md)
+- [设计原则](skills/opencat-creator/references/design-principles.md)
 
 ## Community
 

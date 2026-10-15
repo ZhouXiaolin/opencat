@@ -141,7 +141,7 @@
     var CK = ctx.CanvasKit;
     var htmlCanvas = ctx.getCanvasById('slide-2-html-canvas');
     var htmlTexture = htmlCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
-    var htmlLocalTime = Math.max(0, ctx.currentTime - 4.0);
+    var htmlLocalTime = Math.max(0, ctx.current.time - 4.0);
     var htmlPulse = Math.max(0, Math.min(htmlLocalTime / 1.8, 1));
     /* ══ lambda 折射玻璃（Liangyi/两仪ly.pixel 内核）════════════════════
        原 25 行手写 SKSL 改写为 JS lambda：只写 op 与简单数据计算，被 Rust

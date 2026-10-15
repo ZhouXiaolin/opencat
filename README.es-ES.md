@@ -251,7 +251,7 @@ Los fallos generan `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff
 ```
 JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
               ↑
-         QuickJS animation scripts
+         V8 animation scripts
 ```
 
 **Doble pipeline:** Rust (GPU) + FFmpeg → MP4 | WASM + CanvasKit (WebGL) → Canvas / MP4
@@ -262,7 +262,7 @@ JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
 opencat
 ├── crates/
 │   ├── opencat-core/      # Layout (Taffy), text (cosmic-text), fonts
-│   ├── opencat-engine/    # Skia render, FFmpeg encode, QuickJS script
+│   ├── opencat-engine/    # Skia render, FFmpeg encode, V8 script
 │   ├── opencat-web/       # WASM: browser render + export
 │   └── opencat/           # CLI entry
 ├── web/                   # Web video editor
@@ -354,6 +354,24 @@ opencat
   ```bash
   sudo apt install libfontconfig-dev
   ```
+
+### Windows: dos flags de enlazador obligatorios
+
+Los binarios precompilados de Skia y V8 se construyen con **runtimes de C incompatibles**, así que un `cargo build` normal en Windows falla al enlazar. Ambas correcciones van en `~/.cargo/config.toml` (o `.cargo/config.toml` dentro del repositorio):
+
+```toml
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "link-arg=/STACK:16777216",
+  "-C", "link-arg=/FORCE:MULTIPLE",
+]
+```
+
+**`/STACK:16777216`** — el script de construcción de `ffmpeg-sys-next` ejecuta bindgen sobre todo el conjunto de cabeceras de FFmpeg, cuya recursión supera el tamaño de pila por defecto de 1 MiB del hilo principal en Windows (`SizeOfStackReserve` en la cabecera PE). Sin este flag el script de construcción muere con `STATUS_STACK_OVERFLOW` (código de salida `0xc00000fd`).
+
+**`/FORCE:MULTIPLE`** — `rusty_v8.lib` lleva una directiva `/DEFAULTLIB:libcmt.lib` (CRT estática); `skia.lib` lleva `/DEFAULTLIB:msvcrt.lib` + `msvcprt.lib` (CRT dinámica). Ambas directivas están fijadas dentro de los binarios precompilados y no se pueden cambiar con features de Cargo ni variables de entorno. Cada biblioteca define su propio `std::terminate`, así que el enlazador falla con `LNK2005` / `LNK1169`. Este flag le indica al enlazador que elija una implementación en lugar de dar error.
+
+> **Riesgo conocido:** las dos implementaciones de STL se mezclan en un mismo ejecutable. El renderizado normal y el `try`/`catch` de JS están verificados y funcionan, pero el comportamiento de las excepciones de C++ que cruzan entre Skia y V8 es indefinido. Si sufres cierres inexplicables, sospecha primero de este flag. La solución limpia es compilar V8 desde el código fuente con CRT dinámica (`EXTRA_GN_ARGS="is_component_build=true"`), lo que tarda horas y aún no está integrado.
 
 ### Skia
 

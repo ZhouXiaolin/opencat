@@ -249,7 +249,7 @@ Failures write `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.pn
 ```
 JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
               ↑
-         QuickJS animation scripts
+         V8 animation scripts
 ```
 
 **Dual pipeline：** Rust (GPU) + FFmpeg → MP4 | WASM + CanvasKit (WebGL) → Canvas / MP4
@@ -260,7 +260,7 @@ JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
 opencat
 ├── crates/
 │   ├── opencat-core/      # Layout (Taffy), text (cosmic-text), fonts
-│   ├── opencat-engine/    # Skia render, FFmpeg encode, QuickJS script
+│   ├── opencat-engine/    # Skia render, FFmpeg encode, V8 script
 │   ├── opencat-web/       # WASM: browser render + export
 │   └── opencat/           # CLI entry
 ├── web/                   # Web video editor
@@ -352,6 +352,38 @@ opencat
   ```bash
   sudo apt install libfontconfig-dev
   ```
+
+### Windows: two required linker flags
+
+The pre-built Skia and V8 binaries are built with **incompatible C runtimes**, so a plain
+`cargo build` on Windows fails to link. Both fixes go in `~/.cargo/config.toml`
+(or `.cargo/config.toml` in the repo):
+
+```toml
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "link-arg=/STACK:16777216",
+  "-C", "link-arg=/FORCE:MULTIPLE",
+]
+```
+
+**`/STACK:16777216`** — `ffmpeg-sys-next`'s build script runs bindgen over the full FFmpeg
+header set, which recurses deeper than the 1 MiB Windows default main-thread stack
+(`SizeOfStackReserve` in the PE header). Without this the build script dies with
+`STATUS_STACK_OVERFLOW` (exit `0xc00000fd`).
+
+**`/FORCE:MULTIPLE`** — `rusty_v8.lib` carries a `/DEFAULTLIB:libcmt.lib` directive
+(static CRT); `skia.lib` carries `/DEFAULTLIB:msvcrt.lib` + `msvcprt.lib` (dynamic CRT).
+Both directives are baked into the prebuilt binaries and cannot be changed by Cargo
+features or environment variables. Each library defines its own `std::terminate`, so the
+link fails with `LNK2005` / `LNK1169`. This flag tells the linker to pick one
+implementation instead of erroring.
+
+> **Known risk:** the two STL implementations are mixed in one executable. Ordinary
+> rendering and JS `try`/`catch` are verified working, but the behaviour of C++ exceptions
+> crossing between the Skia and V8 sides is undefined. If you hit inexplicable crashes,
+> suspect this flag first. The clean fix is building V8 from source with a dynamic CRT
+> (`EXTRA_GN_ARGS="is_component_build=true"`), which takes hours and is not wired up yet.
 
 ### Skia
 

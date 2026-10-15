@@ -20,6 +20,7 @@
 
 pub mod error;
 pub mod exec;
+mod infer;
 pub mod interp;
 pub mod lower_sksl;
 pub mod parse;
@@ -419,7 +420,10 @@ mod tests {
     fn whitelist_rejections_carry_position() {
         let cases: [(&str, &str); 8] = [
             ("(uv, u) => { let i = 0; while (i < 4) { i = i + 1; } return [0,0,0,0]; }", "循环"),
-            ("(uv, u) => { const f = () => 1; return [0,0,0,0]; }", "嵌套函数"),
+            (
+                "(uv, u) => { const f = () => 1; if (uv.x > 0.0) { const g = () => 2; } return [0,0,0,0]; }",
+                "嵌套函数",
+            ),
             ("(uv, u) => { return [1 & 2, 0, 0, 0]; }", "位运算"),
             ("(uv, u) => { return ['a', 0, 0, 0]; }", "字符串"),
             ("(uv, u) => { return [u.zz, 0, 0, 0]; }", "未知 uniform"),
@@ -470,6 +474,223 @@ mod tests {
         let ctx = interp::InterpCtx { uniforms: &[], rect: [0.0; 4], children: &[], scan: None };
         let px = interp::eval_pixel(&c.program, 0.5, 0.5, &ctx);
         assert_eq!(px, [6.0, 0.0, 0.0, 1.0]);
+    }
+
+    // ── 用户函数（`const f = (p) => …`）─────────────────────────────────
+
+    /// FlexShader 的忠实复刻：hash / noise / fbm / palette 四个函数。
+    /// 这是本特性的目标形态——参考 shader 的纯函数结构 1:1 落到 DSL。
+    const FLEXSHADER_FNS: &str = r#"(uv, u) => {
+  const ux = uv.x / 1080.0;
+  const uy = 1.0 - uv.y / 1080.0;
+  const t = u.time * 0.4;
+  const hash = (p) => fract(sin(dot(p, [127.1, 311.7])) * 43758.5453);
+  const noise = (p) => {
+    const i = floor(p);
+    const f = fract(p);
+    const w = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + [1.0, 0.0]), w.x),
+               mix(hash(i + [0.0, 1.0]), hash(i + [1.0, 1.0]), w.x), w.y);
+  };
+  const fbm = (p) => {
+    let v = 0.0;
+    let a = 0.5;
+    for (let o = 0; o < 5; o++) {
+      v = v + a * noise(p);
+      p = [0.8 * p.x - 0.6 * p.y, 0.6 * p.x + 0.8 * p.y] * 2.02;
+      a = a * 0.5;
+    }
+    return v;
+  };
+  const palette = (s) => [0.5 + 0.5 * cos(6.28318 * s),
+                          0.5 + 0.5 * cos(6.28318 * (s + 0.33)),
+                          0.5 + 0.5 * cos(6.28318 * (s + 0.67))];
+  const qx = fbm([ux * 3.0 + t * 0.3, uy * 3.0 + t * 0.3]);
+  const n = fbm([ux * 3.0 + qx * 4.0, uy * 3.0 + qx * 4.0]);
+  const col = palette(n * 2.0 + t * 0.2);
+  return [col.x, col.y, col.z, 1.0];
+}"#;
+
+    /// 标量函数、向量函数、循环函数各一；与手写内联版**逐位**一致。
+    const FN_KERNEL: &str = r#"(uv, u) => {
+  const hyp = (p) => sqrt(p.x * p.x + p.y * p.y);
+  const scale = (x) => x * 3.0;
+  const add = (a, b) => a + b;
+  const sum_to = (n) => { let s = 0.0; for (let i = 0; i < n; i++) { s = s + i; } return s; };
+  const d = hyp(uv);
+  const q = add(scale(d), sum_to(4.0));
+  return [q, d, q * 0.5, 1.0];
+}"#;
+
+    /// 同一数学，内联展开（`sum_to(4)` = 0+1+2+3 = 6）。
+    const FN_KERNEL_INLINED: &str = r#"(uv, u) => {
+  const d = sqrt(uv.x * uv.x + uv.y * uv.y);
+  const q = d * 3.0 + 6.0;
+  return [q, d, q * 0.5, 1.0];
+}"#;
+
+    /// 函数版与内联版逐位一致（强制 CPU，避开浮点后端差异）。
+    #[test]
+    fn user_function_agrees_with_inlined() {
+        let mut s = EffectSpec::default();
+        s.backend_override = Some(Backend::Cpu);
+        let a = compile_effect(FN_KERNEL, &s).unwrap();
+        let b = compile_effect(FN_KERNEL_INLINED, &s).unwrap();
+        assert_eq!(a.backend, Backend::Cpu);
+        assert_eq!(a.program.functions.len(), 4);
+        let ctx = interp::InterpCtx {
+            uniforms: &[],
+            rect: [0.0; 4],
+            children: &[],
+            scan: None,
+        };
+        let mut checked = 0;
+        for i in 0..12 {
+            for j in 0..12 {
+                let (px, py) = (i as f64 * 91.0 + 0.5, j as f64 * 79.0 + 0.5);
+                let va = interp::eval_pixel(&a.program, px, py, &ctx);
+                let vb = interp::eval_pixel(&b.program, px, py, &ctx);
+                assert_eq!(va, vb, "({px},{py})");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 64);
+    }
+
+    /// FlexShader 四函数在 CPU 解释器上跑得通，输出有限且在 [0,1]。
+    #[test]
+    fn flexshader_functions_evaluate_on_cpu() {
+        let mut s = spec(&[("time", "float")]);
+        s.backend_override = Some(Backend::Cpu);
+        let c = compile_effect(FLEXSHADER_FNS, &s).unwrap();
+        assert_eq!(c.program.functions.len(), 4);
+        let ctx = interp::InterpCtx {
+            uniforms: &[program::Val::F(1.44)],
+            rect: [0.0; 4],
+            children: &[],
+            scan: None,
+        };
+        let rgba = interp::render(&c.program, 8, 8, &ctx);
+        assert_eq!(rgba.len(), 8 * 8 * 4);
+        for (i, &b) in rgba.iter().enumerate() {
+            assert!(b == 255 || b <= 255, "像素字节 {i} 越界：{b}");
+        }
+    }
+
+    /// 函数体真的发射成 SKSL 函数，且定义序在 `main` 之前。
+    #[test]
+    fn user_function_lowers_to_sksl() {
+        let c = compile_effect(FLEXSHADER_FNS, &spec(&[("time", "float")])).unwrap();
+        assert_eq!(c.backend, Backend::Sksl);
+        let sksl = c.sksl.clone().unwrap();
+        assert!(sksl.contains("float oc_f0(float2 oc_l"), "{sksl}");
+        assert!(sksl.contains("float oc_f2(float2 oc_l"), "{sksl}");
+        let f0 = sksl.find("float oc_f0(").unwrap();
+        let main = sksl.find("half4 main(").unwrap();
+        assert!(f0 < main, "函数必须定义在 main 之前\n{sksl}");
+        // 被调函数（noise=1）在调用者（fbm=2）之前
+        assert!(sksl.find("oc_f1(").unwrap() < sksl.find("float oc_f2(").unwrap());
+        // 用户函数名不泄漏进 SKSL
+        assert!(!sksl.contains("hash("), "{sksl}");
+        assert!(!sksl.contains("noise("), "{sksl}");
+        // 无 child 采样 → 仍可整块分带
+        assert_eq!(sksl_execution_plan(&sksl), ExecutionPlan::Rows);
+    }
+
+    /// hyperframes-launch 示例里的 FlexShader 内核必须真能编译。直接从 .jsx
+    /// 抽取源码，所以示例与 DSL 一漂移这里就红。
+    #[test]
+    fn hyperframes_flexshader_kernel_compiles() {
+        const JSX: &str =
+            include_str!("../../../examples/hyperframes-launch/hyperframes-launch.jsx");
+        let head = "FlexShader._kern = ly.pixel((uv, u) => {";
+        let tail = "}, { uniforms: { time: 'float' } });";
+        let start = JSX.find(head).expect("示例里应有 FlexShader 内核") + head.len();
+        let end = JSX[start..].find(tail).expect("内核应有 uniforms 收尾") + start;
+        let source = format!("(uv, u) => {{{}}}", &JSX[start..end]);
+        let c = compile_effect(&source, &spec(&[("time", "float")]))
+            .expect("示例内核必须编译通过");
+        assert_eq!(c.backend, Backend::Sksl);
+        assert_eq!(c.program.functions.len(), 4, "应为 hash/noise/fbm/palette");
+        let sksl = c.sksl.unwrap();
+        assert!(sksl.contains("float oc_f2(float2 oc_l"), "{sksl}");
+        assert!(sksl.contains("for (float oc_l"), "{sksl}");
+        assert_eq!(sksl_execution_plan(&sksl), ExecutionPlan::Rows);
+    }
+
+    /// 用户函数的拒绝表。每条都要求带源码位置。
+    #[test]
+    fn user_function_rejections_carry_position() {
+        // 多数用例在函数体末尾加一句 `f(0.0)`：实参是 Float 字面量，把形参钉成
+        // float，避免先撞上「无法推断参数」而测不到真正想测的那条。
+        let cases: [(&str, &str); 13] = [
+            // 签名无法唯一确定
+            (
+                "(uv, u) => { const f = (p) => 1.0; return [0,0,0,1]; }",
+                "无法推断函数 `f` 的参数",
+            ),
+            (
+                "(uv, u) => { const f = (p) => { }; const y = f(0.0); return [y,0,0,1]; }",
+                "无法推断函数 `f` 的返回类型",
+            ),
+            // 先声明后使用
+            (
+                "(uv, u) => { const a = f(1.0); const f = (x) => x * 2.0; return [a,0,0,1]; }",
+                "在调用点之后",
+            ),
+            // 递归 / 互递归
+            (
+                "(uv, u) => { const f = (x) => f(x); return [0,0,0,1]; }",
+                "递归",
+            ),
+            (
+                "(uv, u) => { const a = (x) => b(x); const b = (x) => a(x); return [0,0,0,1]; }",
+                "递归",
+            ),
+            // 元数不符
+            (
+                "(uv, u) => { const f = (x) => x * 2.0; return [f(1.0, 2.0),0,0,1]; }",
+                "期望 1 个参数",
+            ),
+            // 捕获 lambda 参数 / uniform / 函数名当值
+            (
+                "(uv, u) => { const f = (p) => { return p + uv.x; }; const y = f(0.0); return [y,0,0,1]; }",
+                "不能捕获",
+            ),
+            (
+                "(uv, u) => { const f = (p) => { return p + u.t; }; const y = f(0.0); return [y,0,0,1]; }",
+                "不能捕获",
+            ),
+            (
+                "(uv, u) => { const f = (x) => x * 2.0; const a = f(1.0); const g = f; return [a,0,0,1]; }",
+                "不能作为值使用",
+            ),
+            // 声明形态
+            (
+                "(uv, u) => { let f = (x) => x * 2.0; return [0,0,0,1]; }",
+                "必须用 `const`",
+            ),
+            (
+                "(uv, u) => { const floor = (x) => x * 2.0; return [0,0,0,1]; }",
+                "与内建函数冲突",
+            ),
+            (
+                "(uv, u) => { const f = (x) => x * 2.0; const f = (y) => y * 2.0; return [0,0,0,1]; }",
+                "重复声明",
+            ),
+            (
+                "(uv, u) => { const f = (x) => x * 2.0, g = 1.0; return [0,0,0,1]; }",
+                "独占一条",
+            ),
+        ];
+        for (src, hint) in cases {
+            let mut s = EffectSpec::default();
+            s.uniforms.push(("t".to_string(), program::Ty::Float));
+            let err = compile_effect(src, &s).unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains(hint), "{src} → {msg}");
+            assert!(err.line_col().is_some(), "{src} 缺位置：{msg}");
+        }
     }
 
     #[test]

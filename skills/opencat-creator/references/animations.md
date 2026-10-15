@@ -22,6 +22,8 @@ useGSAP((ctx) => {
 
 钩子在每帧被调用一次。因此动画要写成对时间的纯函数：不要在钩子顶层用变量记录上一帧状态，不要用 `setTimeout` / `setInterval` / 事件监听驱动关键动画。
 
+**边界**：`useGSAP` 只写 tween。CanvasKit 绘制放 `useCanvas`，three.js 场景放 `useThree`。不要在 `useGSAP` 里调 `getCanvasById` 加绘制——一个组件可以挂多个钩子，按职责分开写。
+
 `targets` 支持单个 id、id 数组、`ctx.splitText(...)` 返回的 part 数组。
 
 ### 选择规则

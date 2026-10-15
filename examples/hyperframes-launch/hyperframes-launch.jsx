@@ -961,24 +961,24 @@ function Thesis() {
         <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_45%,rgba(110,70,15,0.08)_100%)]"></div>
         <div id="th-scene" class="absolute left-[100px] top-[388.4px] w-[1720px]">
           <div class="relative px-[21.12px]">
-            <div class="flex justify-center gap-[42.24px]">
+            <div class="flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
                 <text id={'th-w' + i} class={L1CLS + ' opacity-0'}>{w}</text>
               ))}
             </div>
-            <div class="absolute inset-0 flex justify-center gap-[42.24px]">
+            <div class="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
                 <text id={'th-g' + i} class={L1CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
               ))}
             </div>
           </div>
           <div id="th-l2wrap" class="relative mt-[18px] px-[21.12px]">
-            <div class="flex justify-center gap-[42.24px]">
+            <div class="flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
                 <text id={'th-w' + (5 + j)} class={L2CLS + ' opacity-0'}>{w}</text>
               ))}
             </div>
-            <div class="absolute inset-0 flex justify-center gap-[42.24px]">
+            <div class="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
                 <text id={'th-g' + (5 + j)} class={L2CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
               ))}

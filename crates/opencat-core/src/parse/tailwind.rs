@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use crate::canvas::paint::BlendMode;
 use crate::style::{
     AlignItems, BoxShadow, BoxShadowStyle, ColorToken, CssFilterKind, DropShadow, DropShadowStyle,
-    FlexDirection, FlexWrap, FontWeight, GenericFamily, GradientDirection, GridAutoFlow,
+    FlexDirection, FlexWrap, FontStyle, FontWeight, GenericFamily, GradientDirection, GridAutoFlow,
     GridAutoRows, GridPlacement, InsetShadow, InsetShadowStyle, JustifyContent,
     LengthPercentageAuto, NodeStyle, ObjectFit, Position, TextAlign, TextTransform,
     color_token_from_class_suffix,
@@ -249,6 +249,7 @@ fn apply_exact_class_action(style: &mut NodeStyle, action: ExactClassAction) {
         }
         ExactClassAction::ObjectFit(value) => style.object_fit = Some(value),
         ExactClassAction::FontWeight(value) => style.font_weight = Some(value),
+        ExactClassAction::FontStyle(value) => style.font_style = Some(value),
         ExactClassAction::BoxShadow(value) => style.box_shadow.push(BoxShadow::from_style(value)),
         ExactClassAction::InsetShadow(value) => {
             style.inset_shadow.push(InsetShadow::from_style(value))
@@ -1092,6 +1093,7 @@ enum ExactClassAction {
     JustifySelf(AlignItems),
     ObjectFit(ObjectFit),
     FontWeight(FontWeight),
+    FontStyle(FontStyle),
     BoxShadow(BoxShadowStyle),
     InsetShadow(InsetShadowStyle),
     DropShadow(DropShadowStyle),
@@ -2370,7 +2372,7 @@ fn parse_aspect_ratio(value: &str) -> Option<f32> {
 mod tests {
     use super::{blend_mode_from_css_name, parse_class_name};
     use crate::canvas::paint::BlendMode;
-    use crate::style::ColorToken;
+    use crate::style::{ColorToken, FontStyle};
 
 
     #[test]
@@ -2784,11 +2786,24 @@ mod tests {
 
     #[test]
     fn select_and_italic_classes_are_silently_accepted() {
-        // 这些类不影响布局/绘制，但需要被解析器接受以避免噪声告警。
-        let style = parse_class_name("select-none italic not-italic");
-        // 没有副作用即视为通过；下面的断言确保没有意外写入字段。
+        // `select-*` 不影响布局/绘制，但需要被解析器接受以避免噪声告警。
+        let style = parse_class_name("select-none");
         assert!(style.text_color.is_none());
         assert!(style.bg_color.is_none());
+    }
+
+    #[test]
+    fn italic_classes_write_the_font_style_channel() {
+        // `italic` / `not-italic` 不再是 no-op：它们写 `font_style`，由 shaper
+        // 选家族的斜体 face，或在无斜体 face 时合成 oblique（对齐 Chrome）。
+        assert_eq!(
+            parse_class_name("italic").font_style,
+            Some(FontStyle::Italic)
+        );
+        assert_eq!(
+            parse_class_name("not-italic").font_style,
+            Some(FontStyle::Normal)
+        );
     }
 
     #[test]

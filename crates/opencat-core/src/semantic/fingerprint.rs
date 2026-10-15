@@ -332,6 +332,7 @@ impl Hash for TextLayoutInput<'_> {
         let style = self.0;
         F32Hash(style.text_px).hash(state);
         style.font_weight.hash(state);
+        style.font_style.hash(state);
         F32Hash(style.letter_spacing).hash(state);
         F32Hash(style.line_height).hash(state);
         style.line_height_px.map(F32Hash).hash(state);
@@ -349,6 +350,7 @@ impl Hash for TextPaintInput<'_> {
         style.color.hash(state);
         F32Hash(style.text_px).hash(state);
         style.font_weight.hash(state);
+        style.font_style.hash(state);
         F32Hash(style.letter_spacing).hash(state);
         style.text_align.hash(state);
         F32Hash(style.line_height).hash(state);

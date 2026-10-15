@@ -96,6 +96,9 @@ export const fonts = {
 - 相对 `path` 基于 `.jsx` 所在目录解析
 - 应用：class 写 `font-[inter]` / `font-[inter800]` / `font-[mono]`
 - `id` 全局唯一
+- **斜体**：同一 `family` 挂正体与斜体两个 face，class 写 `italic` 选斜体
+  （`not-italic` 显式回正体）。家族没有斜体 face 时，引擎合成一个 14° 的
+  oblique——与浏览器 `font-style: italic` 的行为一致。
 
 ---
 

@@ -92,6 +92,7 @@ GSAP、CanvasKit、three.js 是通用知识。参考文件只写 OpenCat 特有�
 ## 硬规则
 
 - **元素是静态的。** 元素只描述静止状态，不带动效。动效只来自 `useGSAP` 或每帧脚本。先在 class 里把最终构图摆好，再用 `useGSAP` 把它从起点动到这个状态。
+- **钩子各管一件事。** `useGSAP` 只做 GSAP 式 tween；`useCanvas` 只做 CanvasKit 式绘制；`useThree` 只做 three.js 式三维。三者不混写。在 `useGSAP` 里调 `getCanvasById` 加绘制，或在 `useCanvas` 里建 timeline，都算错。
 - 只输出一个完整可渲染的 `.jsx` 文件。不默认启动预览、渲染或截图。
 - 只有一个默认导出组件作为可视根。所有时间行为走 `use*` 钩子。
 - 动画必须可 seek：写成对时间的纯函数。不用 wall-clock、异步回调、非种子随机。

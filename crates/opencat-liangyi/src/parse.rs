@@ -5,11 +5,13 @@
 //! - 参数（pixel 类首参 = `uv`；scan 类首参 = `get`；`rect`；`u`；其余按序
 //!   为 child，仅 pixel 类）
 //! - 数值/布尔/数组字面量；算术/比较/逻辑/三目；`if/else`；`let/const`
+//! - 有界数值 `for (let i = a; i < b; i++)` 循环
+//! - 顶层用户函数 `const f = (p) => …`：单态、无捕获、先声明后使用
 //! - stdlib 裸名调用与 `Math.*` 映射；向量 swizzle 读；`child.eval(pos)`；
 //!   scan 类的 `get(dx, dy)`
 //! - 语句级赋值（仅 let 变量）
 //!
-//! 拒绝：嵌套函数、循环、裸块、try/catch、对象/字符串/模板串、位运算、
+//! 拒绝：嵌套/块内函数声明、裸块、try/catch、对象/字符串/模板串、位运算、
 //! `new`、`this`、`Math.random` 等破坏确定性的来源。
 
 use std::collections::HashMap;
@@ -20,7 +22,8 @@ use oxc_parser::Parser;
 use oxc_span::{GetSpan, SourceType};
 
 use super::error::{LambdaError, LambdaResult};
-use super::program::{BinOp, Expr, Param, Program, Stmt, Ty, UnOp};
+use super::infer::{FnBody, FnDecl, FnSig, infer_signatures};
+use super::program::{BinOp, Expr, FnDef, Param, Program, Stmt, Ty, UnOp};
 use super::stdlib::{self, BuiltinId as B};
 use super::EffectSpec;
 
@@ -34,6 +37,23 @@ struct Ctx<'s> {
     local_mutable: Vec<bool>,
     return_ty: Option<Ty>,
     uses_cpu_only: bool,
+
+    /// 当前函数体的局部槽起点（主函数体为 0）。所有名字查找都限定在
+    /// `[scope_base, local_names.len())`——函数之间、函数与主函数体的局部
+    /// 互不可见，所以同一个名字可以在不同函数里重复出现。
+    scope_base: usize,
+    /// 当前函数已构建的函数下标（主函数体为 `None`）。
+    cur_fn: Option<usize>,
+    /// 当前函数的返回类型（主函数体为 `None`，那时由 `return_ty` 推断）。
+    fn_ret: Option<Ty>,
+    /// 函数名 -> 下标（预扫即填满）。
+    fn_names: HashMap<String, usize>,
+    /// 函数名 -> 签名（推断产出）。
+    sigs: Vec<FnSig>,
+    /// 已构建完成的函数（用于「先声明后使用」检查）。
+    fn_done: Vec<bool>,
+    /// 构建中的函数表。
+    functions: Vec<FnDef>,
 }
 
 type ExprT = (Expr, Ty);
@@ -49,16 +69,42 @@ impl Ctx<'_> {
         name: &str,
         ty: Ty,
         mutable: bool,
-        node: &impl GetSpan,
+        span: (u32, u32),
     ) -> LambdaResult<u32> {
-        if self.local_names.iter().any(|n| n == name) {
-            return Err(self.err(format!("变量 `{name}` 重复声明"), node));
+        if self.scope().any(|n| n == name) {
+            return Err(LambdaError::at(
+                format!("变量 `{name}` 重复声明"),
+                span,
+                self.source,
+            ));
         }
         let slot = self.local_names.len() as u32;
         self.local_names.push(name.to_string());
         self.local_tys.push(ty);
         self.local_mutable.push(mutable);
         Ok(slot)
+    }
+
+    /// 当前作用域可见的局部名（`[scope_base, len)`）。
+    fn scope(&self) -> impl Iterator<Item = &String> {
+        self.local_names[self.scope_base..].iter()
+    }
+
+    /// 当前作用域内按名查槽。
+    fn scope_slot(&self, name: &str) -> Option<u32> {
+        self.local_names[self.scope_base..]
+            .iter()
+            .position(|n| n == name)
+            .map(|i| (self.scope_base + i) as u32)
+    }
+
+    /// 报错用的函数名（反查 `fn_names`；表很小）。
+    fn fn_label(&self, index: usize) -> String {
+        self.fn_names
+            .iter()
+            .find(|(_, i)| **i == index)
+            .map(|(n, _)| n.clone())
+            .unwrap_or_else(|| format!("#{index}"))
     }
 }
 
@@ -174,6 +220,13 @@ pub fn parse_lambda(source: &str, spec: &EffectSpec) -> LambdaResult<Program> {
         local_mutable: Vec::new(),
         return_ty: None,
         uses_cpu_only: false,
+        scope_base: 0,
+        cur_fn: None,
+        fn_ret: None,
+        fn_names: HashMap::new(),
+        sigs: Vec::new(),
+        fn_done: Vec::new(),
+        functions: Vec::new(),
     };
     let mut params: Vec<(String, Param)> = Vec::new();
     for (i, name) in param_names.iter().enumerate() {
@@ -205,7 +258,29 @@ pub fn parse_lambda(source: &str, spec: &EffectSpec) -> LambdaResult<Program> {
         ctx.params.insert(name.clone(), param);
     }
 
-    let stmts = parse_statements(&mut ctx, fn_statements)?;
+    // 顶层预扫函数声明，再推断签名——两者都必须在构建主函数体之前完成，
+    // 因为主函数体可以在任意位置调用它们（只需函数在**调用点之前**声明）。
+    let decls = prescan_functions(&ctx, fn_statements)?;
+    let param_tys: HashMap<String, Ty> = ctx
+        .params
+        .iter()
+        .filter_map(|(name, p)| match p {
+            Param::Uv | Param::Rect | Param::Get => Some((name.clone(), param_ty(p))),
+            // `u` 是成员访问器，`child` 只能 `.eval()`；两者都不作为值出现。
+            Param::Uniforms | Param::Child { .. } => None,
+        })
+        .collect();
+    ctx.sigs = infer_signatures(&decls, fn_statements, source, &spec.uniforms, &param_tys)?;
+    ctx.fn_names = decls
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.name.clone(), i))
+        .collect();
+    ctx.fn_done = vec![false; decls.len()];
+    ctx.functions = Vec::with_capacity(decls.len());
+
+    // 主函数体：遇函数声明即构建它（占用一段独立槽区间），随后回到主函数体。
+    let stmts = parse_main_body(&mut ctx, fn_statements, &decls)?;
 
     let return_ty = ctx.return_ty.ok_or_else(|| {
         LambdaError::at("lambda 缺少 return", (0, source.len() as u32), source)
@@ -222,11 +297,226 @@ pub fn parse_lambda(source: &str, spec: &EffectSpec) -> LambdaResult<Program> {
         children: ctx.children,
         local_tys: ctx.local_tys,
         body: stmts,
+        functions: ctx.functions,
         return_ty,
         uses_cpu_only: ctx.uses_cpu_only,
         backend_override: None,
         kind: spec.kind,
     })
+}
+
+/// 顶层预扫：收集 `const NAME = (params) => …`，拒绝其它函数形态。
+///
+/// 只认 `const` + 箭头函数：`let`/`var` 绑定箭头会被后续重赋值，破坏单态
+/// 与「先声明后使用」的静态保证；`function` 声明会被提升，同样破坏该保证。
+fn prescan_functions<'a>(
+    ctx: &Ctx,
+    stmts: &'a [Statement<'a>],
+) -> LambdaResult<Vec<FnDecl<'a>>> {
+    let mut decls: Vec<FnDecl<'a>> = Vec::new();
+    for stmt in stmts {
+        let Statement::VariableDeclaration(decl) = stmt else {
+            continue;
+        };
+        // 一条语句里混声明（`const f = …, g = 1;`）会让「哪条是函数声明」变得
+        // 含混，构建阶段也难分清哪些声明符该发语句。要求函数独占一条声明。
+        let has_fn = decl.declarations.iter().any(|d| {
+            matches!(
+                d.init.as_ref(),
+                Some(Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+            )
+        });
+        if has_fn && decl.declarations.len() > 1 {
+            return Err(ctx.err(
+                "用户函数必须独占一条 `const f = (…) => …;` 声明",
+                stmt,
+            ));
+        }
+        for d in &decl.declarations {
+            let Some(init) = &d.init else { continue };
+            let is_arrow = matches!(init, Expression::ArrowFunctionExpression(_));
+            let is_fn_expr = matches!(init, Expression::FunctionExpression(_));
+            if !is_arrow && !is_fn_expr {
+                continue;
+            }
+            if !matches!(decl.kind, oxc_ast::ast::VariableDeclarationKind::Const) {
+                return Err(ctx.err(
+                    "用户函数必须用 `const` 声明（`let` 可被重赋值，破坏单态与调用顺序保证）",
+                    d,
+                ));
+            }
+            if is_fn_expr {
+                return Err(ctx.err(
+                    "请用箭头函数 `const f = (p) => …` 声明用户函数",
+                    init,
+                ));
+            }
+            let BindingPattern::BindingIdentifier(id) = &d.id else {
+                return Err(ctx.err("函数名必须是普通标识符", &d.id));
+            };
+            let name = id.name.to_string();
+            if ctx.params.contains_key(&name) {
+                return Err(ctx.err(
+                    format!("函数名 `{name}` 与 lambda 参数冲突"),
+                    &d.id,
+                ));
+            }
+            if stdlib::lookup(&name).is_some() || stdlib::math_member_id(&name).is_some() {
+                return Err(ctx.err(
+                    format!("函数名 `{name}` 与内建函数冲突，请改名"),
+                    &d.id,
+                ));
+            }
+            if decls.iter().any(|f| f.name == name) {
+                return Err(ctx.err(format!("函数 `{name}` 重复声明"), &d.id));
+            }
+            let Expression::ArrowFunctionExpression(arrow) = init else {
+                unreachable!("已判 is_arrow");
+            };
+            let params = arrow
+                .params
+                .items
+                .iter()
+                .map(|item| pattern_name(&item.pattern, ctx.source))
+                .collect::<LambdaResult<Vec<_>>>()?;
+            let param_spans = arrow
+                .params
+                .items
+                .iter()
+                .map(|item| {
+                    let s = item.pattern.span();
+                    (s.start, s.end)
+                })
+                .collect();
+            let body = match arrow.body.as_function_body() {
+                Some(b) => FnBody::Block(&b.statements),
+                None => FnBody::Expr(
+                    arrow
+                        .body
+                        .as_expression()
+                        .expect("非代码块体即简洁表达式体"),
+                ),
+            };
+            let span = id.span();
+            decls.push(FnDecl {
+                name,
+                name_span: (span.start, span.end),
+                params,
+                param_spans,
+                body,
+            });
+        }
+    }
+    Ok(decls)
+}
+
+/// 构建主函数体。遇函数声明（`decls[i]`）就构建该函数——它会占用一段独立槽
+/// 区间，构建完再把作用域还给主函数体。函数体内部的嵌套声明由
+/// [`parse_fn_body`] 拒绝，不会递归进来。
+fn parse_main_body<'a>(
+    ctx: &mut Ctx,
+    stmts: &'a [Statement<'a>],
+    decls: &'a [FnDecl<'a>],
+) -> LambdaResult<Vec<Stmt>> {
+    let mut out = Vec::new();
+    for stmt in stmts {
+        if matches!(out.last(), Some(Stmt::Return(_))) {
+            return Err(ctx.err("return 之后的语句不可达", stmt));
+        }
+        if let Statement::VariableDeclaration(decl) = stmt {
+            let mut fn_decl: Option<usize> = None;
+            for d in &decl.declarations {
+                if let Some(init) = &d.init
+                    && matches!(
+                        init,
+                        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+                    )
+                {
+                    let BindingPattern::BindingIdentifier(id) = &d.id else {
+                        continue;
+                    };
+                    fn_decl = decls.iter().position(|f| f.name == id.name.as_str());
+                }
+            }
+            if let Some(i) = fn_decl {
+                build_function(ctx, i, &decls[i])?;
+                continue;
+            }
+        }
+        out.extend(parse_statement(ctx, stmt)?);
+    }
+    Ok(out)
+}
+
+/// 构建一个用户函数，推入 `ctx.functions`。
+fn build_function<'a>(ctx: &mut Ctx, index: usize, decl: &'a FnDecl<'a>) -> LambdaResult<()> {
+    let sig = ctx.sigs[index].clone();
+    let saved_base = ctx.scope_base;
+    let saved_ret = ctx.return_ty;
+    ctx.scope_base = ctx.local_names.len();
+    ctx.cur_fn = Some(index);
+    ctx.fn_ret = Some(sig.ret);
+    ctx.return_ty = None;
+
+    // 形参 = 可变局部槽。参考的 `fbm` 会对参数 `p` 重新赋值，所以参数不能是 const。
+    let mut param_slots = Vec::with_capacity(decl.params.len());
+    for (pi, (pname, pty)) in decl.params.iter().zip(&sig.params).enumerate() {
+        let slot = ctx.local_slot(pname, *pty, true, decl.param_spans[pi])?;
+        param_slots.push(slot);
+    }
+
+    let body = parse_fn_body(ctx, decl)?;
+
+    ctx.scope_base = saved_base;
+    ctx.return_ty = saved_ret;
+    ctx.cur_fn = None;
+    ctx.fn_ret = None;
+    ctx.fn_done[index] = true;
+    ctx.functions.push(FnDef {
+        name: decl.name.clone(),
+        params: decl.params.iter().cloned().zip(sig.params.iter().copied()).collect(),
+        param_slots,
+        ret: sig.ret,
+        body,
+    });
+    Ok(())
+}
+
+fn parse_fn_body<'a>(ctx: &mut Ctx, decl: &'a FnDecl<'a>) -> LambdaResult<Vec<Stmt>> {
+    let stmts: &[Statement] = match &decl.body {
+        FnBody::Block(s) => s,
+        FnBody::Expr(e) => return Ok(vec![Stmt::Return(parse_expr(ctx, e)?.0)]),
+    };
+    let mut out = Vec::new();
+    for stmt in stmts {
+        if matches!(out.last(), Some(Stmt::Return(_))) {
+            return Err(ctx.err("return 之后的语句不可达", stmt));
+        }
+        if let Statement::VariableDeclaration(decl) = stmt {
+            for d in &decl.declarations {
+                if let Some(init) = &d.init
+                    && matches!(
+                        init,
+                        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+                    )
+                {
+                    return Err(ctx.err("不支持嵌套函数声明（用户函数必须声明在 lambda 顶层）", init));
+                }
+            }
+        }
+        out.extend(parse_statement(ctx, stmt)?);
+    }
+    Ok(out)
+}
+
+/// 非 uniform 参数的类型（作为值时）。
+fn param_ty(p: &Param) -> Ty {
+    match p {
+        Param::Uv => Ty::Vec2,
+        Param::Rect => Ty::Vec4,
+        Param::Get => Ty::Vec4,
+        Param::Uniforms | Param::Child { .. } => Ty::Float,
+    }
 }
 
 fn pattern_name(pattern: &BindingPattern, source: &str) -> LambdaResult<String> {
@@ -269,10 +559,20 @@ fn parse_statement(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
                         ))
                     }
                 };
+                if matches!(
+                    init,
+                    Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+                ) {
+                    return Err(ctx.err(
+                        "不支持嵌套函数声明（用户函数必须声明在 lambda 顶层）",
+                        init,
+                    ));
+                }
                 let (expr, ty) = parse_expr(ctx, init)?;
                 let mutable =
                     !matches!(decl.kind, oxc_ast::ast::VariableDeclarationKind::Const);
-                let slot = ctx.local_slot(&name, ty, mutable, &declarator.id)?;
+                let s = declarator.id.span();
+                let slot = ctx.local_slot(&name, ty, mutable, (s.start, s.end))?;
                 out.push(Stmt::Let { slot, value: expr });
             }
             Ok(out)
@@ -288,12 +588,7 @@ fn parse_statement(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
                     _ => return Err(ctx.err("仅支持 `=` `+=` `-=` `*=` `/=` 赋值", stmt)),
                 };
                 let name = assignment_target_name(ctx, &assign.left)?;
-                let Some(slot) = ctx
-                    .local_names
-                    .iter()
-                    .position(|n| n == name.as_str())
-                    .map(|i| i as u32)
-                else {
+                let Some(slot) = ctx.scope_slot(&name) else {
                     return Err(ctx.err(format!("对未声明变量 `{name}` 赋值"), stmt));
                 };
                 if !ctx.local_mutable[slot as usize] {
@@ -345,27 +640,42 @@ fn parse_statement(ctx: &mut Ctx, stmt: &Statement) -> LambdaResult<Vec<Stmt>> {
         Statement::ForStatement(for_stmt) => parse_for_loop(ctx, for_stmt),
         Statement::ReturnStatement(ret) => {
             let Some(arg) = &ret.argument else {
-                return Err(ctx.err("return 必须带值（float/vec3/vec4）", stmt));
+                return Err(ctx.err("return 必须带值", stmt));
             };
             let (expr, ty) = parse_expr(ctx, arg)?;
-            match ty {
-                Ty::Float | Ty::Vec3 | Ty::Vec4 => {}
-                other => {
-                    return Err(ctx.err(
-                        format!("return 类型必须是 float/vec3/vec4，得到 {other:?}"),
-                        stmt,
-                    ))
+            match ctx.fn_ret {
+                // 用户函数：返回类型由推断给定，这里只校验一致。
+                Some(want) => {
+                    if ty != want {
+                        return Err(ctx.err(
+                            format!("return 类型与推断出的函数返回类型不符：期望 {want:?}，得到 {ty:?}"),
+                            stmt,
+                        ));
+                    }
                 }
-            }
-            if let Some(prev) = ctx.return_ty {
-                if prev != ty {
-                    return Err(ctx.err(
-                        format!("return 类型不一致：先前 {prev:?}，此处 {ty:?}"),
-                        stmt,
-                    ));
+                // 主函数体：pixel 类的 SKSL `main` 只接受 float3/float4 与
+                // float（隐式转 float4 灰度）。用户函数的 Vec2/Bool 返回不在此列。
+                None => {
+                    match ty {
+                        Ty::Float | Ty::Vec3 | Ty::Vec4 => {}
+                        other => {
+                            return Err(ctx.err(
+                                format!("return 类型必须是 float/vec3/vec4，得到 {other:?}"),
+                                stmt,
+                            ))
+                        }
+                    }
+                    if let Some(prev) = ctx.return_ty {
+                        if prev != ty {
+                            return Err(ctx.err(
+                                format!("return 类型不一致：先前 {prev:?}，此处 {ty:?}"),
+                                stmt,
+                            ));
+                        }
+                    } else {
+                        ctx.return_ty = Some(ty);
+                    }
                 }
-            } else {
-                ctx.return_ty = Some(ty);
             }
             Ok(vec![Stmt::Return(expr)])
         }
@@ -420,7 +730,8 @@ fn parse_for_loop(ctx: &mut Ctx, for_stmt: &oxc_ast::ast::ForStatement) -> Lambd
     if sty != Ty::Float {
         return Err(ctx.err("for 循环初值必须是数值", start_node));
     }
-    let var = ctx.local_slot(id.name.as_str(), Ty::Float, true, &declarator.id)?;
+    let s = declarator.id.span();
+    let var = ctx.local_slot(id.name.as_str(), Ty::Float, true, (s.start, s.end))?;
 
     // test：`i < end` 或 `i <= end`
     let Some(test) = &for_stmt.test else {
@@ -478,7 +789,10 @@ fn parse_for_loop(ctx: &mut Ctx, for_stmt: &oxc_ast::ast::ForStatement) -> Lambd
 
 fn statement_reject_reason(stmt: &Statement) -> String {
     match stmt {
-        Statement::FunctionDeclaration(_) => "不支持函数声明（效果 lambda 是单个函数体）".into(),
+        Statement::FunctionDeclaration(_) => {
+            "不支持 `function` 声明：用户函数请写成顶层 `const f = (p) => …`（先声明后使用）"
+                .into()
+        }
         Statement::ForInStatement(_)
         | Statement::ForOfStatement(_)
         | Statement::WhileStatement(_)
@@ -516,6 +830,18 @@ fn parse_expr(ctx: &mut Ctx, expr: &Expression) -> LambdaResult<ExprT> {
         Expression::BooleanLiteral(lit) => Ok((Expr::LitB(lit.value), Ty::Bool)),
         Expression::Identifier(id) => {
             let name = id.name.as_str();
+            // 函数体不得捕获 lambda 参数。`uv`/`rect` 是参数，会走下面的
+            // `Some(Param::Uv/Rect)` 臂直接返回，所以必须在分派前拦一次——
+            // 否则 `uv` 会静默漏进函数体，SKSL 里引用 `main` 的局部 `oc_uv`，
+            // Skia 编译失败。
+            if ctx.cur_fn.is_some()
+                && matches!(ctx.params.get(name), Some(Param::Uv | Param::Rect))
+            {
+                return Err(ctx.err(
+                    format!("函数体不能捕获 lambda 参数 `{name}`：数据必须经形参传入"),
+                    expr,
+                ));
+            }
             match ctx.params.get(name) {
                 Some(Param::Uv) => Ok((Expr::Uv, Ty::Vec2)),
                 Some(Param::Rect) => Ok((Expr::Rect, Ty::Vec4)),
@@ -532,13 +858,22 @@ fn parse_expr(ctx: &mut Ctx, expr: &Expression) -> LambdaResult<ExprT> {
                     expr,
                 )),
                 None => {
-                    if let Some(slot) = ctx
-                        .local_names
-                        .iter()
-                        .position(|n| n == name)
-                        .map(|i| i as u32)
-                    {
+                    if let Some(slot) = ctx.scope_slot(name) {
                         return Ok((Expr::Local(slot), ctx.local_tys[slot as usize]));
+                    }
+                    // 用户函数名不是值（主函数体与函数体一致）。
+                    if ctx.fn_names.contains_key(name) {
+                        return Err(ctx.err(
+                            format!("函数 `{name}` 不能作为值使用，只能直接调用"),
+                            expr,
+                        ));
+                    }
+                    if ctx.cur_fn.is_some() && ctx.params.contains_key(name) {
+                        // 函数体读不到 lambda 参数与主函数体的局部——数据只能经形参进入。
+                        return Err(ctx.err(
+                            format!("函数体不能捕获 lambda 参数 `{name}`：数据必须经形参传入"),
+                            expr,
+                        ));
                     }
                     if name == "Math" {
                         return Err(ctx.err("`Math` 不能单独使用", expr));
@@ -643,6 +978,12 @@ fn parse_expr(ctx: &mut Ctx, expr: &Expression) -> LambdaResult<ExprT> {
             if let Expression::Identifier(obj) = &member.object
                 && obj.name == "u"
             {
+                if ctx.cur_fn.is_some() {
+                    return Err(ctx.err(
+                        "函数体不能捕获 uniform `u.*`：数据必须经形参传入",
+                        expr,
+                    ));
+                }
                 let Some(pos) =
                     ctx.spec.uniforms.iter().position(|(n, _)| n == prop)
                 else {
@@ -711,9 +1052,9 @@ fn parse_expr(ctx: &mut Ctx, expr: &Expression) -> LambdaResult<ExprT> {
             "不支持对象字面量（uniform 请通过 `u.<名字>` 访问）",
             expr,
         )),
-        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
-            Err(ctx.err("不支持嵌套函数", expr))
-        }
+        Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => Err(
+            ctx.err("不支持嵌套函数：用户函数必须声明在 lambda 顶层（`const f = (p) => …`）", expr),
+        ),
         other => Err(ctx.err("不支持的表达式形式", other)),
     }
 }
@@ -722,7 +1063,7 @@ fn is_numeric(ty: Ty) -> bool {
     ty.is_scalar_num() || ty.vec_len().is_some()
 }
 
-fn vec_ty(n: usize) -> Ty {
+pub(crate) fn vec_ty(n: usize) -> Ty {
     match n {
         2 => Ty::Vec2,
         3 => Ty::Vec3,
@@ -730,47 +1071,56 @@ fn vec_ty(n: usize) -> Ty {
     }
 }
 
-fn bin_ty(ctx: &Ctx, op: BinOp, lty: Ty, rty: Ty, node: &impl GetSpan) -> LambdaResult<Ty> {
+/// 二元运算的类型规则，不含源码位置。`infer.rs` 的掩码推断直接调用它，所以
+/// 规则只有这一份——两份规则漂移是这类特性的主要长期风险。
+pub(crate) fn bin_ty_pure(op: BinOp, lty: Ty, rty: Ty) -> Option<Ty> {
     match op {
         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
             if !is_numeric(lty) || !is_numeric(rty) {
-                return Err(ctx.err(format!("算术运算类型不匹配：{lty:?} 与 {rty:?}"), node));
+                return None;
             }
             match (lty.vec_len(), rty.vec_len()) {
-                (None, None) => Ok(Ty::Float),
-                (None, Some(n)) => Ok(vec_ty(n)),
-                (Some(n), None) => Ok(vec_ty(n)),
-                (Some(a), Some(b)) if a == b => Ok(vec_ty(a)),
-                (Some(a), Some(b)) => {
-                    Err(ctx.err(format!("向量维度不一致：{a} vs {b}"), node))
-                }
+                (None, None) => Some(Ty::Float),
+                (None, Some(n)) => Some(vec_ty(n)),
+                (Some(n), None) => Some(vec_ty(n)),
+                (Some(a), Some(b)) if a == b => Some(vec_ty(a)),
+                _ => None,
             }
         }
         BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le => {
-            if lty == Ty::Float && rty == Ty::Float {
-                Ok(Ty::Bool)
-            } else {
-                Err(ctx.err("比较运算只支持标量数值", node))
-            }
+            (lty == Ty::Float && rty == Ty::Float).then_some(Ty::Bool)
         }
         BinOp::Eq | BinOp::Ne => {
-            if lty == rty && (lty == Ty::Float || lty == Ty::Bool) {
-                Ok(Ty::Bool)
-            } else {
-                Err(ctx.err("==/!= 只支持同型标量", node))
-            }
+            (lty == rty && (lty == Ty::Float || lty == Ty::Bool)).then_some(Ty::Bool)
         }
         BinOp::And | BinOp::Or => {
-            if lty == Ty::Bool && rty == Ty::Bool {
-                Ok(Ty::Bool)
-            } else {
-                Err(ctx.err("&&/|| 需要布尔", node))
-            }
+            (lty == Ty::Bool && rty == Ty::Bool).then_some(Ty::Bool)
         }
     }
 }
 
-fn swizzle_comps(prop: &str, n: usize) -> Option<[u8; 4]> {
+fn bin_ty(ctx: &Ctx, op: BinOp, lty: Ty, rty: Ty, node: &impl GetSpan) -> LambdaResult<Ty> {
+    if let Some(ty) = bin_ty_pure(op, lty, rty) {
+        return Ok(ty);
+    }
+    Err(ctx.err(
+        format!("{}：{lty:?} 与 {rty:?}", bin_op_reason(op)),
+        node,
+    ))
+}
+
+fn bin_op_reason(op: BinOp) -> &'static str {
+    match op {
+        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+            "算术运算类型不匹配（数值，且向量维度须一致）"
+        }
+        BinOp::Gt | BinOp::Lt | BinOp::Ge | BinOp::Le => "比较运算只支持标量数值",
+        BinOp::Eq | BinOp::Ne => "==/!= 只支持同型标量",
+        BinOp::And | BinOp::Or => "&&/|| 需要布尔",
+    }
+}
+
+pub(crate) fn swizzle_comps(prop: &str, n: usize) -> Option<[u8; 4]> {
     let mut comps = [0u8; 4];
     for (i, ch) in prop.chars().enumerate() {
         let idx: u8 = match ch {
@@ -792,6 +1142,15 @@ fn parse_call(ctx: &mut Ctx, call: &oxc_ast::ast::CallExpression) -> LambdaResul
     // child.eval(pos)
     if let Expression::StaticMemberExpression(member) = &call.callee {
         if member.property.name == "eval" {
+            if ctx.cur_fn.is_some()
+                && let Expression::Identifier(id) = &member.object
+                && ctx.params.contains_key(id.name.as_str())
+            {
+                return Err(ctx.err(
+                    format!("函数体不能捕获 child `{}`：数据必须经形参传入", id.name),
+                    call,
+                ));
+            }
             if let Expression::Identifier(id) = &member.object
                 && let Some(Param::Child { index }) = ctx.params.get(id.name.as_str())
             {
@@ -830,6 +1189,18 @@ fn parse_call(ctx: &mut Ctx, call: &oxc_ast::ast::CallExpression) -> LambdaResul
     // 裸名调用
     if let Expression::Identifier(id) = &call.callee {
         let name = id.name.as_str();
+        // 用户函数优先于 stdlib（预扫已拒绝与内建同名，这里只是顺序保证）。
+        if let Some(&fi) = ctx.fn_names.get(name) {
+            return parse_fn_call(ctx, fi, &call.arguments, call);
+        }
+        if ctx.cur_fn.is_some()
+            && let Some(Param::Get) = ctx.params.get(name)
+        {
+            return Err(ctx.err(
+                "函数体不能捕获 `get`：数据必须经形参传入",
+                call,
+            ));
+        }
         if let Some(Param::Get) = ctx.params.get(name) {
             // get(dx, dy)：scan 类的 in-progress 采样
             if call.arguments.len() != 2 {
@@ -867,6 +1238,67 @@ fn parse_call(ctx: &mut Ctx, call: &oxc_ast::ast::CallExpression) -> LambdaResul
         return parse_builtin_call(ctx, bid, &call.arguments, call);
     }
     Err(ctx.err("不支持的调用形式", call))
+}
+
+/// 用户函数调用。实参按声明序求值，类型逐个与推断出的形参类型核对。
+fn parse_fn_call(
+    ctx: &mut Ctx,
+    index: usize,
+    args: &[Argument],
+    call: &impl GetSpan,
+) -> LambdaResult<ExprT> {
+    let sig = ctx.sigs[index].clone();
+    let fname = ctx.fn_label(index);
+
+    // 「先声明后使用」：调用点必须在被调函数的声明之后。互调必然违反此序，
+    // 所以它同时排除了互递归（递归由 infer 层的调用图找环报错）。
+    if !ctx.fn_done[index] {
+        if ctx.cur_fn == Some(index) {
+            return Err(ctx.err(
+                format!("函数 `{fname}` 不能调用自身（不支持递归）"),
+                call,
+            ));
+        }
+        return Err(ctx.err(
+            format!(
+                "函数 `{fname}` 在调用点之后才声明：用户函数必须先声明后使用"
+            ),
+            call,
+        ));
+    }
+
+    if args.len() != sig.params.len() {
+        return Err(ctx.err(
+            format!(
+                "函数 `{fname}` 期望 {} 个参数，得到 {}",
+                sig.params.len(),
+                args.len()
+            ),
+            call,
+        ));
+    }
+    let mut parsed = Vec::with_capacity(args.len());
+    for (i, arg) in args.iter().enumerate() {
+        let Some(expr) = arg.as_expression() else {
+            return Err(ctx.err("参数不允许 spread", arg));
+        };
+        let (e, ty) = parse_expr(ctx, expr)?;
+        let want = sig.params[i];
+        if ty != want {
+            return Err(ctx.err(
+                format!(
+                    "函数 `{fname}` 的第 {} 个参数期望 {want:?}，得到 {ty:?}",
+                    i + 1
+                ),
+                expr,
+            ));
+        }
+        parsed.push(e);
+    }
+    Ok((
+        Expr::FnCall { func: index as u32, args: parsed, ty: sig.ret },
+        sig.ret,
+    ))
 }
 
 fn parse_builtin_call(

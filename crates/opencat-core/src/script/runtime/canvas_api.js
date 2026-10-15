@@ -586,7 +586,9 @@
        重建计算，自动派发 SKSL（RuntimeEffect）或纯 CPU 逐像素后端。
        约束：lambda 必须是源码内联的箭头函数（不可是原生函数/被压缩）；
        白名单语法 —— 数值/布尔/数组字面量、算术/比较/逻辑/三目、if/else、
-       let/const、std 内建与 Math.*、u.<name>、child.eval(pos)、swizzle 读。
+       let/const、有界 `for (let i=a; i<b; i++)` 循环、顶层用户函数
+       `const f = (p) => …`（单态、无捕获、先声明后使用）、std 内建与
+       Math.*、u.<name>、child.eval(pos)、swizzle 读。
        spec: { uniforms: {t:'float', ...} | [['t','float'], ...],
                backend: 'auto'|'sksl'|'cpu' }；scan 内核另有 dir:
        'forward'|'backward'（声明期固定，遍历顺序归 executor 所有）。

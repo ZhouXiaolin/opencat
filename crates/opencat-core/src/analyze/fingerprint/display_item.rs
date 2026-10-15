@@ -160,6 +160,7 @@ impl Hash for TextStyleFp<'_> {
         let style = self.0;
         style.color.hash(state);
         style.font_weight.hash(state);
+        style.font_style.hash(state);
         style.text_align.hash(state);
         F32Hash(style.text_px).hash(state);
         F32Hash(style.letter_spacing).hash(state);

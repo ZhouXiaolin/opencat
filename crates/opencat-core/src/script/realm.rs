@@ -267,6 +267,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.ensure_runtime()?;
 
         {
+            #[cfg(feature = "profile")]
             let _span = tracing::span!(
                 target: "render.scene",
                 tracing::Level::TRACE,
@@ -278,6 +279,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
 
         let fn_name = Self::driver_fn_name(driver);
         {
+            #[cfg(feature = "profile")]
             let _span = tracing::span!(
                 target: "render.scene",
                 tracing::Level::TRACE,
@@ -287,6 +289,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             self.ctx.call_global_fn(&fn_name)?;
         }
         {
+            #[cfg(feature = "profile")]
             let _span = tracing::span!(
                 target: "render.scene",
                 tracing::Level::TRACE,

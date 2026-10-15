@@ -307,7 +307,7 @@ function vis(ctx, id, on) { var n = ctx.getNode(id); if (n) n.opacity(on ? 1 : 0
 /* ════════════ global halftone background ════════════ */
 function Halftone() {
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit, T = ctx.time;
+    var CK = ctx.CanvasKit, T = ctx.global.time;
     /* replay every queued timeline write so bgState/htView are final */
     ctx.__flushTimelines();
     var node = ctx.getNode('global-halftone');
@@ -555,7 +555,7 @@ function IntroBg() {
 /* ════════════ green flash ════════════ */
 function GreenFlash() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'green-flash', T < 1.33);
     ctx.timeline()
       .set('green-flash', { opacity: 1 }, 0)
@@ -598,7 +598,7 @@ function LogoSvg({ id }) {
 }
 function Logo() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'logo-wrap', T >= 0.42 && T < 5.42);
     /* RGB-split beat (ref drop-shadow chromatic aberration 0.67→1.05s) is
        emulated with two tinted copies fading in/out */
@@ -639,7 +639,7 @@ var LT_FACES = ['lt-a', 'lt-b', 'lt-c', 'lt-d', 'lt-e'];
 var LT_CLASSES = ['font-[if9]', 'font-[ge7]', 'font-[jb4]', 'font-[ge4]', 'font-[jb4]'];
 function InspectorText() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'it-wrap', T >= 1.42 && T < 11.33);
     var tl = ctx.timeline();
     tl.set('inspector-text', { opacity: 1, x: 435, y: 40, filter: 'blur(0px)' }, 2.08);
@@ -733,7 +733,7 @@ var MAG_KF = (function () {
 
 function MagGlass() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'mag-wrap', T >= 2.75 && T < 4.35);
     var initX = SWEEP_START / 100 * 1920, initY = SWEEP_TOP / 100 * 1080;
     ctx.timeline()
@@ -759,7 +759,7 @@ function MagGlass() {
 /* ════════════ selection highlight ════════════ */
 function SelectionHighlight() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'sel-wrap', T >= 5.18 && T < 11.0);
     ctx.timeline()
       .set('selection-highlight', { x: 0.583 * 1920, y: 0.443 * 1080, width: 0, height: 0, opacity: 0 }, 5.85)
@@ -777,7 +777,7 @@ function SelectionHighlight() {
 /* ════════════ cursor ════════════ */
 function Cursor() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'cursor-wrap', T >= 5.18 && T < 11.32);
     ctx.timeline()
       .set('cursor', { x: 0.08 * 1920, y: 0.88 * 1080, opacity: 0 }, 5.18)
@@ -823,7 +823,7 @@ function PanelField({ children, fl, id }) {
 }
 function InspectorPanel() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'panel-wrap', T >= 6.52 && T < 11.25);
     ctx.timeline()
       .set('inspector-panel', { right: -460 }, 0)
@@ -924,7 +924,7 @@ function InspectorPanel() {
 /* ════════════ color picker ════════════ */
 function ColorPicker() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'picker-wrap', T >= 7.32 && T < 8.38);
     ctx.timeline()
       .set('color-picker', { scale: 0.9, opacity: 0 }, 0)
@@ -965,7 +965,7 @@ function ColorPicker() {
 var FONT_GREEN = 'rgba(69,216,110,0.08)', FONT_DEFAULT_BG = 'rgba(0,0,0,0)';
 function FontList() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     vis(ctx, 'fontlist-wrap', T >= 8.38 && T < 9.48);
     ctx.timeline()
       .set('font-list', { scale: 0.95, opacity: 0 }, 0)
@@ -1033,7 +1033,7 @@ function ClaudeMark({ id, size, classExtra }) {
 /* ════════════ scene 00: typed dark prompt ════════════ */
 function Scene00() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 10.74 && T < 12.46;
     vis(ctx, 'scene-00', ON);
     if (ON) {
@@ -1078,7 +1078,7 @@ function Scene00() {
 /* ════════════ scene 01: opener with gradient "video" ════════════ */
 function Scene01() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 12.47 && T < 14.67;
     vis(ctx, 'scene-01', ON);
     if (ON) {
@@ -1111,7 +1111,7 @@ function Scene01() {
 var AG_ROBOT = null; /* robot keyframe helpers filled in hook via globalThis */
 function Scene01b() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 14.68 && T < 16.48;
     vis(ctx, 'scene-01b', ON);
     if (ON) {
@@ -1192,7 +1192,7 @@ function Scene01b() {
 /* ════════════ scene 01c: But / for / now ════════════ */
 function Scene01c() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 16.48 && T < 18.07;
     vis(ctx, 'scene-01c', ON);
     if (ON) {
@@ -1220,7 +1220,7 @@ function Scene01c() {
 /* ════════════ scene 02: glass video player ════════════ */
 function Scene02() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 18.07 && T < 20.07;
     vis(ctx, 'scene-02', ON);
     if (ON) {
@@ -1266,7 +1266,7 @@ function Scene02() {
 /* ════════════ scene 03: but close ≠ ship → ship ════════════ */
 function Scene03() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 20.07 && T < 21.77;
     vis(ctx, 'scene-03', ON);
     if (ON) {
@@ -1355,7 +1355,7 @@ function ClaudeComposer({ pfx, textId, initial }) {
 /* ════════════ scene 04: faithful Claude shell ════════════ */
 function Scene04() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= 21.77 && T < 24.17;
     vis(ctx, 'scene-04', ON);
     if (ON) {
@@ -1420,7 +1420,7 @@ var S5_ITEMS = (function () {
 })();
 function Scene05() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= S5_START && T < 27.17;
     vis(ctx, 'scene-05', ON);
     if (ON) {

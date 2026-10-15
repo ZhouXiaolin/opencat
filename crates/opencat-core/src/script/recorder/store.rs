@@ -47,6 +47,13 @@ pub struct MutationStore {
     /// pipeline `GeneratedImageTable`. Ids must be deterministic per content.
     pending_generated_images: Vec<crate::ir::FrameGeneratedImage>,
     current_frame: u32,
+    /// Scene-local frame override. The JSX frontend emits ONE root driver whose
+    /// store frame is the composition frame, but each `<tl>` scene has its own
+    /// clock. The JSX runtime sets this around every hook and every timeline
+    /// flush so tween progress is evaluated against the scene's local frame
+    /// (matching XML node scripts, whose realm already runs with a
+    /// `for_segment` frame). `None` = use `current_frame` as-is.
+    frame_override: Option<u32>,
     fps: u32,
 }
 
@@ -1221,6 +1228,7 @@ impl MutationRecorder for MutationStore {
         self.morph_entries.clear();
         self.path_entries.clear();
         self.current_frame = current_frame;
+        self.frame_override = None;
         self.fps = fps.max(1);
     }
 
@@ -1251,6 +1259,12 @@ impl MutationRecorder for MutationStore {
     }
     fn current_frame(&self) -> u32 {
         self.current_frame
+    }
+    fn script_frame(&self) -> u32 {
+        self.frame_override.unwrap_or(self.current_frame)
+    }
+    fn set_frame_override(&mut self, frame: Option<u32>) {
+        self.frame_override = frame;
     }
 }
 
@@ -1396,6 +1410,19 @@ mod tests {
         store.reset_for_frame(7, 30);
         let snap = store.snapshot_mutations();
         assert!(snap.mutations.is_empty());
+    }
+
+    #[test]
+    fn script_frame_prefers_override_and_resets_each_frame() {
+        let mut store = MutationStore::default();
+        store.reset_for_frame(90, 30);
+        assert_eq!(store.script_frame(), 90);
+        store.set_frame_override(Some(5));
+        assert_eq!(store.script_frame(), 5);
+        // A new frame drops the override: a scene-local frame must not leak
+        // into the next frame's evaluation.
+        store.reset_for_frame(91, 30);
+        assert_eq!(store.script_frame(), 91);
     }
 
     #[test]

@@ -3,8 +3,9 @@
 > Current gate: **k3diff hard-pixel metrics**, not SSIM. The earlier SSIM runs
 > (#25 / #48) were superseded when the oracle moved to `compute_pixel_diff_rgba`
 > (`mae` / `maxd` / changed-pixel fractions), matching [`tools/k3diff.py`](../tools/k3diff.py).
-> Methodology, commands and prerequisites: [`DEVELOPMENT.md`](../DEVELOPMENT.md)
-> (Engine / Web pixel alignment).
+> Methodology: engine vs web renders are compared frame-by-frame with
+> [`tools/k3diff.py`](../tools/k3diff.py); the native metric is verified
+> byte-for-byte against it.
 
 ## Gates
 
@@ -36,7 +37,7 @@ original render (hyperframes-launch `k3-promo.mp4`, via
 | WASM/web vs reference | 1.67 |
 
 The web path sits within ~0.03 `mae` of the native floor — the wasm transport
-itself adds no meaningful error. Command and details: `DEVELOPMENT.md`.
+itself adds no meaningful error. Command: `opencat-web-compare --reference`.
 
 ## Evidence
 

@@ -76,7 +76,7 @@
        10.15, RGB_EXIT_START 10.45, PORTAL_START 11.44, HEYGEN_START 5.58),
        never from measured pixels. */
     var CK = ctx.CanvasKit;
-    var st = Math.max(0, ctx.time);
+    var st = Math.max(0, ctx.global.time);
     /* source state-channel defaults (index.html:914-941) */
     var zSplit = 0, xSplit = 0, redRotY = 0, greenRotY = 0, blueRotY = 0;
     var depthX = 0, depthZ = 0, planeScale = 1;

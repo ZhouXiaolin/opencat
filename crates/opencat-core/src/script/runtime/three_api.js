@@ -26,7 +26,7 @@
  * scene.add(mesh);
      * const renderer = new T.Renderer('my-canvas-id', 1920, 1080);
  * // 每帧：
- * mesh.rotation.y = ctx.time * 1.2;
+ * mesh.rotation.y = ctx.current.time * 1.2;
  * renderer.render(scene, camera);
  * ```
  *
@@ -727,7 +727,7 @@
     // 宿主光栅化时按 (path, time) 解码上传。
     function texturePayload(tex) {
         if (tex instanceof VideoTexture) {
-            return { VideoFrame: { path: tex.__path, time: num((typeof ctx !== 'undefined' && ctx.time) || 0) } };
+            return { VideoFrame: { path: tex.__path, time: num((typeof ctx !== 'undefined' && ctx.global && ctx.global.time) || 0) } };
         }
         if (tex instanceof BitmapTexture) {
             return { Bitmap: { path: tex.__path } };

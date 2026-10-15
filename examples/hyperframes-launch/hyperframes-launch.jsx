@@ -3,7 +3,7 @@
    Structure mirrors the reference: per-composition components, each with one
    useGSAP hook (hook order = tree order = master timeline order). Elements the
    reference gates with `.clip data-start/duration` are opacity-gated per frame
-   via vis(); GSAP timelines use absolute-second positioning on ctx.time.
+   via vis(); GSAP timelines use absolute-second positioning on ctx.global.time.
    Engine substitutions (web fonts -> faces, CSS 3D -> projected canvas,
    WebGL shader -> ly.pixel lambda, Canvas2D ASCII -> canvas 2d, conic
    gradients -> canvas, backgroundPosition sweeps -> crossfading layers) are
@@ -90,7 +90,7 @@ function zoomBlur(tl, ids, from, to, duration, ease, at) {
 /* ══ glass-intro (master 0-18.24, glass-intro.html) ═════════════════════ */
 function GlassIntro() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
 
     /* per-frame gates (the reference's .clip windows, index-local == master):
        text-intro 0-2.1 (:443-445), cursor 6.4-17.3 (:913), drag-overlay
@@ -343,7 +343,7 @@ var CAPS = [
 
 function CaptionLayer() {
   useGSAP((ctx) => {
-    var T = ctx.time;
+    var T = ctx.global.time;
     for (var i = 0; i < CAPS.length; i++) vis(ctx, CAPS[i][0], T >= CAPS[i][1] && T < CAPS[i][2]);
   });
   return (
@@ -367,7 +367,7 @@ var CSS_P = { red: '#e63946', blue: '#457b9d', orange: '#f4a261', teal: '#2a9d8f
 
 function FlexCss() {
   useGSAP((ctx) => {
-    var T = ctx.time - CSS_START;
+    var T = ctx.global.time - CSS_START;
     vis(ctx, 'fc-root', T >= 0 && T < CSS_DUR);
     if (T < 0 || T >= CSS_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return CSS_START + t; };
@@ -654,7 +654,7 @@ var GS_START = 19.01, GS_DUR = 0.67, GS_ROWS = 15, GS_COLS = 25;
 
 function FlexGsap() {
   useGSAP((ctx) => {
-    var T = ctx.time - GS_START;
+    var T = ctx.global.time - GS_START;
     vis(ctx, 'fg-root', T >= 0 && T < GS_DUR);
     if (T < 0 || T >= GS_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return GS_START + t; };
@@ -715,7 +715,7 @@ var FS_START = 20.81, FS_DUR = 1.20, FS_ANIM = 0.94;
 
 function FlexShader() {
   useGSAP((ctx) => {
-    var T = ctx.time - FS_START;
+    var T = ctx.global.time - FS_START;
     vis(ctx, 'fs-root', T >= 0 && T < FS_DUR);
     if (T < 0 || T >= FS_DUR) return;
     var tl = ctx.timeline();
@@ -884,7 +884,7 @@ function FlexThreejs() {
   const canvas = useRef();
 
   useGSAP((ctx) => {
-    var T = ctx.time - FT_START;
+    var T = ctx.global.time - FT_START;
     vis(ctx, 'ft-root', T >= 0 && T < FT_DUR);
     if (T < 0 || T >= FT_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FT_START + t; };
@@ -1013,7 +1013,7 @@ var TH_GRAD = 'bg-[linear-gradient(90deg,#14110a_0%,#14110a_15%,#5a3215_25%,#c84
 
 function Thesis() {
   useGSAP((ctx) => {
-    var T = ctx.time - TH_START;
+    var T = ctx.global.time - TH_START;
     vis(ctx, 'th-root', T >= 0 && T < TH_DUR);
     if (T < 0 || T >= TH_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return TH_START + t; };
@@ -1082,7 +1082,7 @@ var FD_START = 27.04, FD_DUR = 0.36;
 
 function FlexDrop() {
   useGSAP((ctx) => {
-    var T = ctx.time - FD_START;
+    var T = ctx.global.time - FD_START;
     vis(ctx, 'fd-root', T >= 0 && T < FD_DUR);
     if (T < 0 || T >= FD_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FD_START + t; };
@@ -1112,7 +1112,7 @@ var FM_START = 27.40, FM_DUR = 0.58;
 
 function FlexMusic() {
   useGSAP((ctx) => {
-    var T = ctx.time - FM_START;
+    var T = ctx.global.time - FM_START;
     vis(ctx, 'fm-root', T >= 0 && T < FM_DUR);
     if (T < 0 || T >= FM_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FM_START + t; };
@@ -1208,7 +1208,7 @@ for (var _fxi = 0; _fxi < 48; _fxi++) {
 
 function FlexSfx() {
   useGSAP((ctx) => {
-    var T = ctx.time - FX_START;
+    var T = ctx.global.time - FX_START;
     vis(ctx, 'fx-root', T >= 0 && T < FX_DUR);
     if (T < 0 || T >= FX_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FX_START + t; };
@@ -1258,7 +1258,7 @@ var FF_VIDEOS = [
 
 function FlexFootage() {
   useGSAP((ctx) => {
-    var T = ctx.time - FF_START;
+    var T = ctx.global.time - FF_START;
     vis(ctx, 'ff-root', T >= 0 && T < FF_DUR);
     if (T < 0 || T >= FF_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FF_START + t; };
@@ -1298,7 +1298,7 @@ var FI_START = 29.74, FI_DUR = 0.15;
 
 function FlexIt() {
   useGSAP((ctx) => {
-    var T = ctx.time - FI_START;
+    var T = ctx.global.time - FI_START;
     vis(ctx, 'fi-root', T >= 0 && T < FI_DUR);
     if (T < 0 || T >= FI_DUR) return;
     ctx.timeline().fromTo('fi-text', { scale: 1.06 }, { scale: 1, duration: 0.12, ease: 'power2.out' }, FI_START);
@@ -1319,7 +1319,7 @@ var FA_START = 29.89, FA_DUR = 0.33;
 
 function FlexAll() {
   useGSAP((ctx) => {
-    var T = ctx.time - FA_START;
+    var T = ctx.global.time - FA_START;
     vis(ctx, 'fa-root', T >= 0 && T < FA_DUR);
     if (T < 0 || T >= FA_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FA_START + t; };
@@ -1346,7 +1346,7 @@ var FC_WAVE_H = [8, 18, 12, 22, 10, 20, 14, 24, 8, 16, 22, 10, 18, 14, 20, 12, 2
 
 function FlexCompose() {
   useGSAP((ctx) => {
-    var T = ctx.time - FC_START;
+    var T = ctx.global.time - FC_START;
     vis(ctx, 'fc2-root', T >= 0 && T < FC_DUR);
     if (T < 0 || T >= FC_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return FC_START + t; };
@@ -1403,7 +1403,7 @@ var EN_START = 32.44, EN_DUR = 9.04;
 
 function Engine() {
   useGSAP((ctx) => {
-    var T = ctx.time - EN_START;
+    var T = ctx.global.time - EN_START;
     vis(ctx, 'en-root', T >= 0 && T < EN_DUR);
     if (T < 0 || T >= EN_DUR) return;
     var tl = ctx.timeline(), A = function (t) { return EN_START + t; };
@@ -1578,7 +1578,7 @@ var CT_CODE_LINES = [
 
 function Cta() {
   useGSAP((ctx) => {
-    var T = ctx.time - CT_START;
+    var T = ctx.global.time - CT_START;
     vis(ctx, 'cta-root', T >= 0 && T < CT_DUR);
     if (T < 0 || T >= CT_DUR) return;
 
@@ -1721,7 +1721,7 @@ function Cta() {
 /* ══ canvas-close (master 46.02-49.77, compositions/canvas-close.html) ══
    ASCII-terminal lightning reveal. The reference is a <canvas> with 2D
    fillText per character cell (10x16px grid), driven by a GSAP proxy
-   tween 0→3.93 linear → here per-frame ctx.time drives the same
+   tween 0→3.93 linear → here per-frame ctx.global.time drives the same
    renderAtTime. Text goes through ctx.createSurface (2D subset, fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
@@ -2149,10 +2149,10 @@ function ccRender(ctx, t) {
   p.setStyle(CK.PaintStyle.Fill);
   /* Generated images are a frame-scoped cache: the key must change with the
      frame, or the same id would be re-baked with different pixels (collision).
-     ctx.frame is the composition frame index, so it is 1:1 with the content.
+     ctx.global.frame is the composition frame index, so it is 1:1 with the content.
      drawRect only accepts runtime/lambda paint shaders, so route the baked
      surface through an identity ly.pixel kernel that samples it. */
-  var ccBake = surf.bake('cc-frame-' + ctx.frame);
+  var ccBake = surf.bake('cc-frame-' + ctx.global.frame);
   var ccIdent = ly.pixel((uv, src) => {
     var c = src.eval(uv);
     if (c.a > 0.0) { return [c.r / c.a, c.g / c.a, c.b / c.a, c.a]; }
@@ -2165,7 +2165,7 @@ function ccRender(ctx, t) {
 
 function CanvasClose() {
   useFrame((ctx) => {
-    var T = ctx.time - CC_START;
+    var T = ctx.global.time - CC_START;
     vis(ctx, 'cc-root', T >= 0 && T < CC_DUR);
     if (T < 0 || T >= CC_DUR) return;
     ccRender(ctx, Math.min(T, 3.93));

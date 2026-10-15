@@ -170,7 +170,7 @@
     /* V1 state follows the source timeline: logoY 760→0 (power4.out, 1.0 s),
        effectMix 0→1 (power3.out, 0.34 s at 0.72), progress 0→1 (none, 2.28 s
        at 0.72), logoScale→0.4 (expo.in, 0.2 s at 2.9). */
-    var TT = Math.max(0, ctx.time);
+    var TT = Math.max(0, ctx.global.time);
     var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 3));
     var progress = TT <= 0.72 ? 0 : (TT >= 3.0 ? 1 : (TT - 0.72) / 2.28);
     var logoScale = TT < 2.9 ? 1 : (TT >= 3.1 ? 0.4 : 1 - 0.6 * (TT - 2.9) / 0.2);

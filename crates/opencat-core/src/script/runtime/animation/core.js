@@ -768,7 +768,7 @@
 
         // Auto-fit stagger into remaining scene time. All timing values are seconds.
         if (delays && !(timing && timing.__skipSceneFit)) {
-            var sceneDuration = Number(ctx.sceneDuration || ctx.duration || ctx.totalDuration || 0);
+            var sceneDuration = Number((ctx.current && ctx.current.duration) || (ctx.global && ctx.global.duration) || 0);
             var baseDelay = Number((timing && timing.delay) || 0);
             var duration = Number((timing && timing.duration) || 0);
             var available = sceneDuration - baseDelay - duration;

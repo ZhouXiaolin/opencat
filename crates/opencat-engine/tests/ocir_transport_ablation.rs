@@ -26,8 +26,8 @@ fn ms(d: Duration) -> f64 {
 #[test]
 #[ignore = "renders k3-promo through the engine; run with --ignored --nocapture"]
 fn ocir_transport_ablation() {
-    let path =
-        std::env::var("OCIR_ABLATION_INPUT").unwrap_or_else(|_| "examples/k3-promo.xml".to_string());
+    let path = std::env::var("OCIR_ABLATION_INPUT")
+        .unwrap_or_else(|_| "examples/k3-promo/k3-promo.jsx".to_string());
     let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let full = repo.join(&path);
     let src = std::fs::read_to_string(&full).expect("read input");

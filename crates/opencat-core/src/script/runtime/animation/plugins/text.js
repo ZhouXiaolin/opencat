@@ -15,7 +15,7 @@
         var blink = vars && vars.cursorBlink != null ? vars.cursorBlink : timing && timing.cursorBlink;
         if (blink === false) return true;
         var period = Number(blink || 0.4);
-        return Math.floor(Number(ctx.currentTime || 0) / Math.max(0.001, period)) % 2 === 0;
+        return Math.floor(Number((ctx.current && ctx.current.time) || 0) / Math.max(0.001, period)) % 2 === 0;
     }
 
     function sampleText(fromText, toText, progress, mode, vars, timing) {

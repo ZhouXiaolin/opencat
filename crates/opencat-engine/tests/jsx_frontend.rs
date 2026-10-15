@@ -2,7 +2,7 @@
 //!
 //! The acceptance bar for the JSX experiment is "the ported example produces
 //! the same composition" — `examples/dribbble-logo-animated.jsx` is the
-//! pixel-verified port of `examples/dribbble-logo-animated.xml` (verified via
+//! pixel-verified port of `examples/dribbble-logo-animated.jsx` (verified via
 //! `opencat render <file> out.png <frame>` frame-by-frame). These tests lock
 //! the structural contract that makes that port work.
 

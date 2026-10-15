@@ -3,7 +3,7 @@
 // Shape: one 1080x1080 stage; the six per-act brand-pattern bg videos plus the
 // two output-card videos sit at their reference z-order, and each act is a
 // component whose GSAP hook keeps the reference timeline verbatim, shifted to
-// global time (local T = ctx.time - ACT start). Media windows ride the video
+// global time (local T = ctx.global.time - ACT start). Media windows ride the video
 // node's data-start/data-duration/data-media-start fields (this lane added
 // those to the JSONL video line — markup parity with hyperframes). The
 // engine's Transform::Rotate3 carries the act-1/2 dimensional pops
@@ -231,7 +231,7 @@ function words(adv, s) {
 /* ════════════ ACT 1 · cold open + hero tweets (0 → 11.8, z1) ════════════ */
 function Act1() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A1.s && T < A2.s;
     vis(ctx, 'sec-act1', ON);
     if (!ON) return;
@@ -431,7 +431,7 @@ function specIndex(k) { return k.charAt(0) === 'f' ? Number(k.charAt(1)) - 1 : N
 
 function Act2() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A2.s && T < A3.s;
     vis(ctx, 'sec-act2', ON);
     if (!ON) return;
@@ -556,7 +556,7 @@ function Act2() {
 /* ════════════ ACT 3 · "Until now" (14.7 → 15.8, z3) ════════════ */
 function Act3() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A3.s && T < A4.s;
     vis(ctx, 'sec-act3', ON);
     if (!ON) return;
@@ -578,7 +578,7 @@ function Act3() {
 /* ════════════ ACT 4 · Introducing /figma (15.8 → 18.0, z4) ════════════ */
 function Act4() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A4.s && T < A5.s;
     vis(ctx, 'sec-act4', ON);
     if (!ON) return;
@@ -829,7 +829,7 @@ function SentMessage({ pfx, cls }) {
 
 function Act5() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A5.s && T < A6.s;
     vis(ctx, 'sec-act5', ON);
     if (!ON) return;
@@ -951,7 +951,7 @@ function Act5() {
 /* ════════════ ACT 6 · Figma — select frames, copy link (35.95 → 41.15, z8) ════════════ */
 function Act6() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A6.s && T < A7.s;
     vis(ctx, 'sec-act6', ON);
     if (!ON) return;
@@ -1110,7 +1110,7 @@ function Act6() {
 /* ════════════ ACT 7 · Never been easier (41.15 → 44.15, z9) ════════════ */
 function Act7() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A7.s && T < A8.s;
     vis(ctx, 'sec-act7', ON);
     if (!ON) return;
@@ -1156,7 +1156,7 @@ function Act7() {
    windows: green-left / light band / green-right. */
 function Act8() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A8.s && T < A9.s;
     vis(ctx, 'sec-act8', ON);
     if (!ON) return;
@@ -1216,7 +1216,7 @@ function Act8() {
 /* ════════════ ACT 10 · Try it yourself (55.85 → 59.15, z13) ════════════ */
 function Act10() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A10.s && T < A11.s;
     vis(ctx, 'sec-act10', ON);
     if (!ON) return;
@@ -1243,7 +1243,7 @@ var A9_REPLY = 'Done — grabbed the Motion animation from your outro frame. App
 
 function Act9() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A9.s && T < A10.s;
     vis(ctx, 'sec-act9', ON);
     if (!ON) return;
@@ -1418,7 +1418,7 @@ function LockPath(props) {
 
 function Act11() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     var ON = T >= A11.s;
     vis(ctx, 'sec-act11', ON);
     if (!ON) return;
@@ -1558,7 +1558,7 @@ function Act11() {
 /* ════════════ MASTER · media seams (video windows + card zooms) ════════════ */
 export default function FigmaLaunch() {
   useGSAP(function (ctx) {
-    var T = ctx.time;
+    var T = ctx.global.time;
     for (var id in VID_WIN) vis(ctx, id, T >= VID_WIN[id][0] && T < VID_WIN[id][1]);
     var tl = ctx.timeline();
     tl.set('output-vid', { transformOrigin: '50% 50%' }, 0);

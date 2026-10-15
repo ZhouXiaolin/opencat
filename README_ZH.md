@@ -249,7 +249,7 @@ cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
 ```
 JSX ──→ Taffy 布局 ──→ Skia 渲染 ──→ 编码 → MP4
               ↑
-         QuickJS 动画脚本
+         V8 动画脚本
 ```
 
 **双管道：** Rust (GPU) + FFmpeg → MP4 | WASM + CanvasKit (WebGL) → Canvas / MP4
@@ -260,7 +260,7 @@ JSX ──→ Taffy 布局 ──→ Skia 渲染 ──→ 编码 → MP4
 opencat
 ├── crates/
 │   ├── opencat-core/      # 布局 (Taffy)、文字 (cosmic-text)、字体
-│   ├── opencat-engine/    # Skia 渲染、FFmpeg 编码、QuickJS 脚本
+│   ├── opencat-engine/    # Skia 渲染、FFmpeg 编码、V8 脚本
 │   ├── opencat-web/       # WASM：浏览器端渲染 + 导出
 │   └── opencat/           # CLI 入口
 ├── web/                   # Web 视频编辑器
@@ -350,6 +350,24 @@ opencat
   ```bash
   sudo apt install libfontconfig-dev
   ```
+
+### Windows：两个必需的链接器标志
+
+预编译的 Skia 与 V8 二进制使用了**互不兼容的 C 运行库**，因此在 Windows 上直接 `cargo build` 会链接失败。两个修正都写进 `~/.cargo/config.toml`（或仓库内的 `.cargo/config.toml`）：
+
+```toml
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+  "-C", "link-arg=/STACK:16777216",
+  "-C", "link-arg=/FORCE:MULTIPLE",
+]
+```
+
+**`/STACK:16777216`** —— `ffmpeg-sys-next` 的构建脚本用 bindgen 解析 FFmpeg 全套头文件，递归深度超过 Windows 主线程默认的 1 MiB 栈（PE 头里的 `SizeOfStackReserve`）。不加这个，构建脚本会以 `STATUS_STACK_OVERFLOW`（退出码 `0xc00000fd`）崩溃。
+
+**`/FORCE:MULTIPLE`** —— `rusty_v8.lib` 自带 `/DEFAULTLIB:libcmt.lib` 指令（静态 CRT）；`skia.lib` 自带 `/DEFAULTLIB:msvcrt.lib` + `msvcprt.lib`（动态 CRT）。两条指令都写死在预编译二进制里，Cargo 特性与环境变量都改不掉。两个库各自定义了 `std::terminate`，链接因此报 `LNK2005` / `LNK1169`。这个标志让链接器任选一份实现，而不是报错退出。
+
+> **已知风险：** 同一个可执行文件里混用了两套 STL 实现。常规渲染与 JS `try`/`catch` 已验证可用，但 C++ 异常在 Skia 与 V8 两侧之间传递的行为未定义。若遇到无法解释的崩溃，先怀疑这个标志。干净的解法是用动态 CRT 从源码构建 V8（`EXTRA_GN_ARGS="is_component_build=true"`），耗时数小时，目前尚未接入。
 
 ### Skia
 

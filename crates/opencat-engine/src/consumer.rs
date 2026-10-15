@@ -10,6 +10,17 @@ use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEff
 use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
 use crate::media::MediaContext;
 
+/// GPU 图像句柄的解析器（GPU 管线用）。
+///
+/// 把 `FrameMediaPlan` 里带 [`opencat_core::ir::generated_image::GpuImageHandle`]
+/// 的条目导入为 Skia image（零拷贝：纹理已在显存里）。CPU 管线传 `None`，
+/// 此时任何 GPU 句柄都是硬错误（说明两路径被混用）。
+///
+/// 实现方是 [`crate::gpu_compositor::GpuCompositor`]（在 GL 锁内调用）。
+pub trait GpuImageResolver {
+    fn import(&mut self, handle: u64, width: u32, height: u32) -> anyhow::Result<Image>;
+}
+
 // ---------------------------------------------------------------------------
 // MediaError — typed error for frame media preparation failures
 // ---------------------------------------------------------------------------
@@ -220,6 +231,7 @@ fn prepare_frame(
     loader: &crate::resource::loader::EngineLoader,
     video: &mut MediaContext,
     generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+    mut gpu: Option<&mut dyn GpuImageResolver>,
 ) -> Result<EnginePreparedFrameMedia, ConsumerError> {
     let mut sk_images = Vec::new();
     let mut image_index = HashMap::new();
@@ -315,11 +327,35 @@ fn prepare_frame(
         }
     }
 
-    // Core-generated images (color-emoji bitmap glyphs). Full RGBA is on the
-    // FrameMediaPlan entry; the engine caches Skia images by GeneratedImageId.
+    // Core-generated images. Either CPU RGBA (color-emoji bitmap glyphs,
+    // `canvas putImageData`) or a GPU handle (`ctx.three` render target in the
+    // GPU pipeline). The engine caches CPU Skia images by GeneratedImageId.
     for entry in &plan.generated_images {
         let image_ref = ImageRef::Generated { id: entry.id };
         if image_index.contains_key(&image_ref) {
+            continue;
+        }
+        // GPU-resident pixels: import the wgpu texture zero-copy. No CPU
+        // upload, no cache — the texture lives only for this frame.
+        if let Some(handle) = entry.gpu {
+            let resolver = gpu.as_deref_mut().ok_or_else(|| {
+                MediaError::GeneratedImageDecodeFailed {
+                    id: entry.id,
+                    detail: "plan carries a GPU image handle but the CPU pipeline \
+                             is active (enable OC_GPU_PIPELINE or drop the handle)"
+                        .into(),
+                }
+            })?;
+            let sk_image = resolver.import(handle.0, entry.width, entry.height).map_err(|e| {
+                MediaError::GeneratedImageDecodeFailed {
+                    id: entry.id,
+                    detail: format!("GPU texture import failed: {e}"),
+                }
+            })?;
+            let idx = sk_images.len();
+            sk_images.push(sk_image);
+            image_scales.push(1.0);
+            image_index.insert(image_ref, idx);
             continue;
         }
         // Bounded LRU mirrors the core table's frame watermark: a script that
@@ -446,6 +482,32 @@ pub fn execute_render_frame(
     generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
     canvas: &mut Canvas,
 ) -> Result<(), ConsumerError> {
+    execute_render_frame_with_gpu(
+        draw,
+        plan,
+        executor,
+        loader,
+        media_ctx,
+        generated_cache,
+        None,
+        canvas,
+    )
+}
+
+/// [`execute_render_frame`] 的 GPU 变体：多一个 GPU 句柄解析器。
+///
+/// 解析器在 **GL 锁内**调用（Skia 导入纹理需要 current 的 GL context）。
+#[allow(clippy::too_many_arguments)]
+pub fn execute_render_frame_with_gpu(
+    draw: &mut DrawOpFrame,
+    plan: &FrameMediaPlan,
+    executor: &mut EngineDrawExecutor,
+    loader: &crate::resource::loader::EngineLoader,
+    media_ctx: &mut MediaContext,
+    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+    gpu: Option<&mut dyn GpuImageResolver>,
+    canvas: &mut Canvas,
+) -> Result<(), ConsumerError> {
     // Atomic validation: check all media handles exist BEFORE starting any
     // decode. This ensures no partial work is observable if any media is
     // missing — the frame stays uncommitted.
@@ -454,7 +516,7 @@ pub fn execute_render_frame(
     validate_lottie_handles(plan, loader)?;
 
     // Now decode (all failures are hard errors, no silent skips).
-    let prepared = prepare_frame(plan, loader, media_ctx, generated_cache)?;
+    let prepared = prepare_frame(plan, loader, media_ctx, generated_cache, gpu)?;
     executor.ensure_lottie_animations(draw, |bundle_id| {
         let asset_id = AssetId::new(ResourceKind::Lottie, bundle_id.to_string());
         loader

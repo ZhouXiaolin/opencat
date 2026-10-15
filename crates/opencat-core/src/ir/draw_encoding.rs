@@ -2397,12 +2397,14 @@ mod tests {
                     width: 3,
                     height: 2,
                     rgba: Arc::from(vec![0xAB; 3 * 2 * 4]),
+                    gpu: None,
                 },
                 FrameGeneratedImage {
                     id: GeneratedImageId(42),
                     width: 1,
                     height: 1,
                     rgba: Arc::from(vec![0x11; 4]),
+                    gpu: None,
                 },
             ],
         );
@@ -2591,6 +2593,7 @@ mod tests {
                 width: 2,
                 height: 1,
                 rgba: Arc::from([0x10u8, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80]),
+                gpu: None,
             }],
         )
     }

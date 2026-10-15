@@ -45,13 +45,34 @@ impl GeneratedImageId {
     }
 }
 
+/// Opaque host-side handle to a generated image that lives on the GPU.
+///
+/// Core never interprets this value — it only carries it from the rasterizer
+/// that produced the image to the host that will consume it. The GPU pipeline
+/// uses it to hand a 3D render target's texture to Skia without a CPU round
+/// trip ([`Scene3Raster::render`](crate::ir::scene3::Scene3Raster::render)
+/// returns it alongside the — possibly empty — CPU pixels).
+///
+/// The id is host-scoped: only the host that produced it may resolve it. The
+/// wasm path never sets it, so a `None` here always means "use `rgba`".
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GpuImageHandle(pub u64);
+
 /// Owned RGBA bitmap for one generated image.
 #[derive(Clone, Debug)]
 pub struct GeneratedImageEntry {
     pub width: u32,
     pub height: u32,
     /// RGBA_8888, unpremultiplied. Length must be `width * height * 4`.
+    ///
+    /// Empty when [`Self::gpu`] is set (the pixels never left the GPU).
     pub rgba: Arc<[u8]>,
+    /// GPU-resident pixels, when the host rasterized this image on the GPU.
+    ///
+    /// When set, `rgba` is empty and consumers must resolve the handle through
+    /// the host instead of reading pixels. Core's length validation is skipped
+    /// in that case — the host owns the invariant.
+    pub gpu: Option<GpuImageHandle>,
 }
 
 impl GeneratedImageEntry {
@@ -166,7 +187,7 @@ impl GeneratedImageTable {
         self.clock = 0;
     }
 
-    /// Register a generated image under `id`.
+    /// Register a generated image under `id` (CPU pixels).
     ///
     /// - Equal content already present → no-op (`Ok(())`).
     ///   A no-op still refreshes the frame watermark, so an id every frame
@@ -182,19 +203,54 @@ impl GeneratedImageTable {
         height: u32,
         rgba: Arc<[u8]>,
     ) -> Result<()> {
-        let expected_len = width as usize * height as usize * 4;
-        if rgba.len() != expected_len {
-            bail!(
-                "generated image {id:?}: rgba length {} does not match {}x{} (expected {})",
-                rgba.len(),
-                width,
-                height,
-                expected_len
-            );
+        self.insert_impl(id, width, height, rgba, None)
+    }
+
+    /// Register a generated image whose pixels live on the GPU.
+    ///
+    /// `gpu` is an opaque host handle (see [`GpuImageHandle`]); core only
+    /// carries it. `rgba` may be empty — core skips the length check because
+    /// the host owns that invariant in this mode.
+    pub fn insert_gpu(
+        &mut self,
+        id: GeneratedImageId,
+        width: u32,
+        height: u32,
+        gpu: GpuImageHandle,
+    ) -> Result<()> {
+        self.insert_impl(id, width, height, Arc::from(Vec::new()), Some(gpu))
+    }
+
+    fn insert_impl(
+        &mut self,
+        id: GeneratedImageId,
+        width: u32,
+        height: u32,
+        rgba: Arc<[u8]>,
+        gpu: Option<GpuImageHandle>,
+    ) -> Result<()> {
+        // GPU-resident pixels carry no CPU copy to validate.
+        if gpu.is_none() {
+            let expected_len = width as usize * height as usize * 4;
+            if rgba.len() != expected_len {
+                bail!(
+                    "generated image {id:?}: rgba length {} does not match {}x{} (expected {})",
+                    rgba.len(),
+                    width,
+                    height,
+                    expected_len
+                );
+            }
         }
         if let Some(existing) = self.entries.get(&id) {
             let dims_match = existing.dimensions_match(width, height);
-            let content_match = dims_match && existing.rgba.as_ref() == rgba.as_ref();
+            // Same GPU handle (or same CPU bytes) is the idempotent case.
+            let content_match = dims_match
+                && match (existing.gpu, gpu) {
+                    (Some(a), Some(b)) => a == b,
+                    (None, None) => existing.rgba.as_ref() == rgba.as_ref(),
+                    _ => false,
+                };
             if content_match {
                 // Idempotent content, but NOT an idempotent age: a frame that
                 // asks for this image again used it, so it stays alive.
@@ -218,6 +274,7 @@ impl GeneratedImageTable {
                 width,
                 height,
                 rgba,
+                gpu,
             },
         );
         self.last_seen.insert(id, self.clock);

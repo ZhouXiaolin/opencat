@@ -14,7 +14,7 @@ mod app {
     use std::sync::Arc;
 
     use opencat::{
-        EngineDrawExecutor, EngineLoader, MediaContext, RqJsContext, build_audio_track_from_pipeline,
+        EngineDrawExecutor, EngineLoader, MediaContext, V8JsContext, build_audio_track_from_pipeline,
         GeneratedImageCache, duration_secs_to_frames, execute_render_frame,
         generated_image_cache_from_env, open,
     };
@@ -1147,7 +1147,7 @@ mod app {
             dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let cache_dir = cache_base.join(".opencat").join("assets");
         let loader = EngineLoader::new(base_dir, cache_dir).context("failed to create loader")?;
-        let ctx = RqJsContext::new().context("failed to create js context")?;
+        let ctx = V8JsContext::new().context("failed to create js context")?;
         let mut pipeline =
             open(&source_text, loader, ctx).context("failed to open pipeline")?;
         let info = pipeline.info().clone();

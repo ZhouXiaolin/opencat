@@ -36,7 +36,10 @@ nom-exif = "=3.8.0"
 # 9.x tracks FFmpeg 9 headers (system libavcodec 63.x); 8.1.0 reads removed
 # AVCodec fields (pix_fmts/sample_fmts/ch_layouts) and fails to compile.
 ffmpeg-next = "9.0.0"
-rquickjs = { version = "0.14.0", features = ["futures"] }
+# V8 is the engine's script backend (was rquickjs). The crate links a
+# prebuilt V8 (no source build on this machine) and pulls in the
+# `use_custom_libcxx` libc++ ABI match for the prebuilt binary.
+v8 = { version = "152.2.0", features = ["use_custom_libcxx"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "socks"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 

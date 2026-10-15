@@ -1,7 +1,7 @@
 //! Mutation recorder trait + default `MutationStore` implementation.
 //!
 //! This is the unified interface for accumulating per-frame style/canvas
-//! mutations from a script driver. Both the engine (quickjs bindings) and
+//! mutations from a script driver. Both the engine (V8 bindings) and
 //! the web target (wasm-bindgen wrappers) implement / consume this trait.
 
 mod store;

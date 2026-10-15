@@ -10,7 +10,7 @@ use opencat_core::script::{
     ScriptTextSourceKind,
 };
 
-use crate::js_context::RqJsContext;
+use crate::js_context::V8JsContext;
 
 /// Scene3Raster 测试桩：不产出真实像素，只验证注入契约（run_frame 会把
 /// 3D 快照转成帧级 generated image + `DrawOp::Image`）。
@@ -30,14 +30,14 @@ impl opencat_core::ir::scene3::Scene3Raster for StubScene3Raster {
     }
 }
 
-fn open_with_source(source: &str) -> (ScriptRealm<RqJsContext>, ScriptDriverId) {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("script realm should open");
+fn open_with_source(source: &str) -> (ScriptRealm<V8JsContext>, ScriptDriverId) {
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("script realm should open");
     let driver = realm.install(source).expect("install driver");
     (realm, driver)
 }
 
 fn run_driver(
-    realm: &mut ScriptRealm<RqJsContext>,
+    realm: &mut ScriptRealm<V8JsContext>,
     driver: ScriptDriverId,
     frame: u32,
     current_node_id: Option<&str>,
@@ -124,7 +124,7 @@ fn scramble_text_plugin_scrambles_then_resolves_to_target_text() {
         },
     );
 
-    let text_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| {
+    let text_at = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| {
         run_driver(realm, driver, frame, None)
             .snapshot_mutations()
             .mutations
@@ -174,7 +174,7 @@ fn scramble_text_plugin_supports_string_shorthand_and_registers_plugin() {
 #[test]
 fn one_realm_shares_js_state_across_drivers() {
     // Same pipeline realm: global/scene/node drivers share JS state.
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let d1 = realm
         .install("globalThis.__sharedCounter = (globalThis.__sharedCounter || 0) + 1;")
         .expect("install d1");
@@ -226,8 +226,8 @@ fn one_realm_shares_js_state_across_drivers() {
 
 #[test]
 fn separate_realms_do_not_share_js_globals() {
-    let mut a = ScriptRealm::<RqJsContext>::open().expect("realm a");
-    let mut b = ScriptRealm::<RqJsContext>::open().expect("realm b");
+    let mut a = ScriptRealm::<V8JsContext>::open().expect("realm a");
+    let mut b = ScriptRealm::<V8JsContext>::open().expect("realm b");
 
     let da = a
         .install("globalThis.__pipelineSecret = 'from-a';")
@@ -256,7 +256,7 @@ fn separate_realms_do_not_share_js_globals() {
 
 #[test]
 fn realm_accepts_out_of_order_and_repeated_frames() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
@@ -264,7 +264,7 @@ fn realm_accepts_out_of_order_and_repeated_frames() {
         .install("ctx.getNode('box').opacity(ctx.current.frame / 10);")
         .expect("install");
 
-    let run = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| {
+    let run = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| {
         let frame_ctx = FrameCtx {
             frame,
             fps: 30,
@@ -300,7 +300,7 @@ fn realm_accepts_out_of_order_and_repeated_frames() {
 /// same frame_index regardless of render order (fresh, out-of-order, repeat).
 #[test]
 fn cross_frame_global_state_does_not_affect_determinism() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
@@ -315,7 +315,7 @@ fn cross_frame_global_state_does_not_affect_determinism() {
         )
         .expect("install");
 
-    let run = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| {
+    let run = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| {
         let frame_ctx = FrameCtx {
             frame,
             fps: 30,
@@ -362,7 +362,7 @@ fn cross_frame_global_state_does_not_affect_determinism() {
 fn same_frame_cross_driver_communication_via_globals_still_works() {
     // Regression: the existing test `one_realm_shares_js_state_across_drivers`
     // verifies this, but let's make it explicit for determinism semantics.
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
@@ -422,7 +422,7 @@ fn same_frame_cross_driver_communication_via_globals_still_works() {
 /// same frame_index regardless of previous render history.
 #[test]
 fn animation_value_determinism_across_frames() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
@@ -442,7 +442,7 @@ fn animation_value_determinism_across_frames() {
             .collect(),
     );
 
-    let run_and_read = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> f32 {
+    let run_and_read = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| -> f32 {
         let frame_ctx = FrameCtx {
             frame,
             fps: 10,
@@ -491,7 +491,7 @@ fn animation_value_determinism_across_frames() {
 fn realm_installs_multiple_drivers_into_shared_state() {
     // Contract-phase replacement of the historical ScriptRuntimeCache test:
     // many drivers must share one realm so pipeline-local JS state works.
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let d1 = realm
         .install("globalThis.__cacheShared = 7;")
         .expect("d1");
@@ -523,7 +523,7 @@ fn realm_installs_multiple_drivers_into_shared_state() {
 /// function. Same frame index must produce the same random sequence.
 #[test]
 fn math_random_is_deterministic_across_frames() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let driver = realm
         .install(
             "var r0 = Math.random();\
@@ -535,7 +535,7 @@ fn math_random_is_deterministic_across_frames() {
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
 
-    let run = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> f32 {
+    let run = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| -> f32 {
         let frame_ctx = FrameCtx {
             frame,
             fps: 30,
@@ -572,7 +572,7 @@ fn math_random_is_deterministic_across_frames() {
 /// wall-clock time.
 #[test]
 fn date_now_is_stubbed_to_zero() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
@@ -608,7 +608,7 @@ fn date_now_is_stubbed_to_zero() {
 #[test]
 fn install_same_source_twice_cache_hit_miss_field_identical() {
     let source = "ctx.getNode('box').opacity(0.5);";
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm.set_target_registry(registry);
@@ -628,7 +628,7 @@ fn install_same_source_twice_cache_hit_miss_field_identical() {
     };
     let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
 
-    let run = |realm: &mut ScriptRealm<RqJsContext>, id: ScriptDriverId| {
+    let run = |realm: &mut ScriptRealm<V8JsContext>, id: ScriptDriverId| {
         let mut rec = MutationStore::default();
         realm
             .run_frame(id, &script_frame_ctx, Some("box"), &mut rec)
@@ -659,8 +659,8 @@ fn install_same_source_twice_cache_hit_miss_field_identical() {
 fn separate_realms_same_source_produce_field_identical_output() {
     let source = "ctx.getNode('box').opacity(0.5);";
 
-    let mut realm_a = ScriptRealm::<RqJsContext>::open().expect("realm a");
-    let mut realm_b = ScriptRealm::<RqJsContext>::open().expect("realm b");
+    let mut realm_a = ScriptRealm::<V8JsContext>::open().expect("realm a");
+    let mut realm_b = ScriptRealm::<V8JsContext>::open().expect("realm b");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".into());
     realm_a.set_target_registry(registry.clone());
@@ -683,7 +683,7 @@ fn separate_realms_same_source_produce_field_identical_output() {
     };
     let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
 
-    let run = |realm: &mut ScriptRealm<RqJsContext>, id: ScriptDriverId| {
+    let run = |realm: &mut ScriptRealm<V8JsContext>, id: ScriptDriverId| {
         let mut rec = MutationStore::default();
         realm
             .run_frame(id, &script_frame_ctx, Some("box"), &mut rec)
@@ -708,7 +708,7 @@ fn separate_realms_same_source_produce_field_identical_output() {
 /// the tween duration (no top-level `duration` needed).
 #[test]
 fn object_form_keyframes_interpolate_with_per_entry_durations() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("badge".into());
     realm.set_target_registry(registry);
@@ -727,7 +727,7 @@ fn object_form_keyframes_interpolate_with_per_entry_durations() {
         )
         .expect("install");
 
-    let run_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> (f32, f32) {
+    let run_at = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| -> (f32, f32) {
         // 20 fps → frame N is t = N/20 s; the tween spans 1 s (0..=20).
         let frame_ctx = FrameCtx {
             frame,
@@ -781,7 +781,7 @@ fn object_form_keyframes_interpolate_with_per_entry_durations() {
 /// scaled about the box centre until this was fixed.
 #[test]
 fn tween_transform_origin_applies_for_whole_tween_not_just_last_frame() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("scene".into());
     realm.set_target_registry(registry);
@@ -790,7 +790,7 @@ fn tween_transform_origin_applies_for_whole_tween_not_just_last_frame() {
         .install("ctx.to('scene', { scale: 1.6, duration: 1, ease: 'none', transformOrigin: '66% 59%' }, 0);")
         .expect("install");
 
-    let origin_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> Option<(f32, f32)> {
+    let origin_at = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| -> Option<(f32, f32)> {
         let frame_ctx = FrameCtx {
             frame,
             fps: 20,
@@ -828,7 +828,7 @@ fn tween_transform_origin_applies_for_whole_tween_not_just_last_frame() {
 /// value to `current + 6`, not from 0 to the literal `"+6"`.
 #[test]
 fn relative_value_strings_offset_from_current_value() {
-    let mut realm = ScriptRealm::<RqJsContext>::open().expect("realm");
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("dot".into());
     realm.set_target_registry(registry);
@@ -840,7 +840,7 @@ fn relative_value_strings_offset_from_current_value() {
         )
         .expect("install");
 
-    let run_at = |realm: &mut ScriptRealm<RqJsContext>, frame: u32| -> f32 {
+    let run_at = |realm: &mut ScriptRealm<V8JsContext>, frame: u32| -> f32 {
         let frame_ctx = FrameCtx {
             frame,
             fps: 20,
@@ -1336,4 +1336,35 @@ fn three_like_shader_material_adapts_glsl_and_commits() {
         }
         other => panic!("expected inline geometry, got {other:?}"),
     }
+}
+
+/// Realm teardown must not depend on creation order.
+///
+/// The V8 backend holds each isolate as a `SharedIsolate` precisely because
+/// `OwnedIsolate` asserts it is the current isolate when dropped, which forces
+/// strictly LIFO destruction. Pipelines are dropped in whatever order their
+/// owners go away, so this drops the *first* realm first and the later one
+/// second — the order that would abort an `OwnedIsolate`-backed realm.
+#[test]
+fn realms_tear_down_out_of_creation_order() {
+    let source = "ctx.getNode('box').opacity(0.25);";
+
+    let mut first = ScriptRealm::<V8JsContext>::open().expect("realm first");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    first.set_target_registry(registry.clone());
+    let driver = first.install(source).expect("install in first");
+
+    let mut second = ScriptRealm::<V8JsContext>::open().expect("realm second");
+    second.set_target_registry(registry);
+    second.install(source).expect("install in second");
+
+    // Both realms still work while both are alive.
+    let store = run_driver(&mut first, driver, 0, Some("box"));
+    assert!(
+        (store.snapshot_mutations().mutations["box"].opacity.unwrap() - 0.25).abs() < 1e-6
+    );
+
+    drop(first);
+    drop(second);
 }

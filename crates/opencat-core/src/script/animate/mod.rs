@@ -1,6 +1,6 @@
 //! Animation utilities — pure functions used by the script runtime.
 //!
-//! These are pure Rust algorithms (no skia / quickjs / wasm deps).
+//! These are pure Rust algorithms (no skia / v8 / wasm deps).
 //! Entry storage lives in `MutationStore` (in `script::recorder::store`).
 
 pub mod color;

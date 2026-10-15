@@ -698,6 +698,10 @@ fn text_attrs(style: &ComputedTextStyle) -> Attrs<'_> {
     Attrs::new()
         .family(family)
         .weight(cosmic_text::Weight(style.font_weight.0))
+        .style(match style.font_style {
+            crate::style::FontStyle::Normal => cosmic_text::Style::Normal,
+            crate::style::FontStyle::Italic => cosmic_text::Style::Italic,
+        })
         .letter_spacing(letter_spacing_em)
 }
 
@@ -911,7 +915,10 @@ mod tests {
         rasterize_glyphs, test_default_font_db, text_prefers_emoji,
     };
     use cosmic_text::Fallback as _;
+    use crate::fonts::{FontFaceDecl, FontManifest, FontSource, load_faces_into_db};
     use crate::style::{ComputedTextStyle, FontWeight, GenericFamily, TextTransform};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
     #[test]
     fn diag_galaxie_space_advance() {
@@ -1302,5 +1309,99 @@ mod tests {
         );
     }
 
+    #[test]
+    fn italic_style_selects_the_italic_face_of_the_family() {
+        // Two faces, one family: only `font_style` can tell them apart. Without
+        // it the shaper always takes the first face (Regular), and every
+        // `italic font-[...]` class in a document silently renders upright.
+        let mut map = HashMap::new();
+        map.insert(
+            "serif".to_string(),
+            include_bytes!("../../../../assets/Inter-Regular.ttf").to_vec(),
+        );
+        map.insert(
+            "serif-it".to_string(),
+            include_bytes!(
+                "../../../../examples/hyperframes-launch/assets/fonts/InstrumentSerif-Italic.ttf"
+            )
+            .to_vec(),
+        );
+        let manifest = FontManifest {
+            default_face_id: Some("serif".to_string()),
+            faces: vec![
+                FontFaceDecl {
+                    id: "serif".to_string(),
+                    family: Some("Test Serif".to_string()),
+                    source: FontSource::Path(PathBuf::from("Inter-Regular.ttf")),
+                    role: None,
+                },
+                FontFaceDecl {
+                    id: "serif-it".to_string(),
+                    family: Some("Test Serif".to_string()),
+                    source: FontSource::Path(PathBuf::from("Italic.ttf")),
+                    role: None,
+                },
+            ],
+        };
+        let (db, _) = load_faces_into_db(fontdb::Database::new(), &manifest, &map).expect("load");
 
+        let upright = ComputedTextStyle {
+            text_px: 100.0,
+            font_family: Some("Test Serif".to_string()),
+            ..ComputedTextStyle::default()
+        };
+        let italic = ComputedTextStyle {
+            font_style: crate::style::FontStyle::Italic,
+            ..upright.clone()
+        };
+
+        // A slanted face advances differently; identical widths would mean the
+        // style flag never reached the shaper.
+        let w_upright = measure_text("can be a frame", &upright, f32::INFINITY, false, &db).width;
+        let w_italic = measure_text("can be a frame", &italic, f32::INFINITY, false, &db).width;
+        assert_ne!(
+            w_upright, w_italic,
+            "italic must resolve to a different face than normal"
+        );
+    }
+
+    #[test]
+    fn italic_request_on_an_italic_only_family_stays_on_that_face() {
+        // The mirror case: a family whose single face is the italic one (e.g.
+        // `hf-eb-it`, `serifd`). Both `normal` and `italic` must land on it, so
+        // the new font_style channel cannot shift such a document.
+        let mut map = HashMap::new();
+        map.insert(
+            "only-it".to_string(),
+            include_bytes!(
+                "../../../../examples/hyperframes-launch/assets/fonts/InstrumentSerif-Italic.ttf"
+            )
+            .to_vec(),
+        );
+        let manifest = FontManifest {
+            default_face_id: Some("only-it".to_string()),
+            faces: vec![FontFaceDecl {
+                id: "only-it".to_string(),
+                family: Some("Only Italic".to_string()),
+                source: FontSource::Path(PathBuf::from("OnlyItalic.ttf")),
+                role: None,
+            }],
+        };
+        let (db, _) = load_faces_into_db(fontdb::Database::new(), &manifest, &map).expect("load");
+
+        let upright = ComputedTextStyle {
+            text_px: 100.0,
+            font_family: Some("Only Italic".to_string()),
+            ..ComputedTextStyle::default()
+        };
+        let italic = ComputedTextStyle {
+            font_style: crate::style::FontStyle::Italic,
+            ..upright.clone()
+        };
+        assert_eq!(
+            measure_text("Three.js", &upright, f32::INFINITY, false, &db).width,
+            measure_text("Three.js", &italic, f32::INFINITY, false, &db).width,
+            "an italic-only family must serve both styles with the same face"
+        );
+    }
 }

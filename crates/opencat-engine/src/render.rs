@@ -338,7 +338,7 @@ pub fn render_from_source_with_base(
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
 ) -> Result<()> {
-    use crate::js_context::RqJsContext;
+    use crate::js_context::V8JsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -351,7 +351,7 @@ pub fn render_from_source_with_base(
         base_dir.unwrap_or(&cache_base).to_path_buf(),
         cache_dir,
     )?;
-    let ctx = RqJsContext::new()?;
+    let ctx = V8JsContext::new()?;
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -434,7 +434,7 @@ pub fn render_single_frame_from_source_with_base(
     base_dir: Option<&Path>,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    use crate::js_context::RqJsContext;
+    use crate::js_context::V8JsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -446,7 +446,7 @@ pub fn render_single_frame_from_source_with_base(
         base_dir.unwrap_or(&cache_base).to_path_buf(),
         cache_dir,
     )?;
-    let ctx = RqJsContext::new()?;
+    let ctx = V8JsContext::new()?;
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -641,7 +641,7 @@ mod tests {
         .expect("seed sub.srt");
         let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache)
             .expect("loader");
-        let ctx = crate::js_context::RqJsContext::new().expect("js context");
+        let ctx = crate::js_context::V8JsContext::new().expect("js context");
         // Open through the host-owned chain (fetch/cache → probe metadata →
         // hydrate captions → open_pipeline), the same path the
         // engine uses in production. No open_parsed / loader_mut here.
@@ -938,7 +938,7 @@ mod tests {
             std::env::temp_dir().join("opencat-render-test-split-cache"),
         )
         .expect("loader");
-        let ctx = crate::js_context::RqJsContext::new().expect("js");
+        let ctx = crate::js_context::V8JsContext::new().expect("js");
         let mut pipeline = crate::pipeline::open_parsed_host_owned(
             parsed,
             loader,

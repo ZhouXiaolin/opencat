@@ -25,4 +25,13 @@ image = "0.25"
 # 正式合成器在 opencat-engine（它已同时依赖 skia-safe 与 opencat-three）。
 [target.'cfg(target_os = "windows")'.dev-dependencies]
 skia-safe = { version = "0.153.3", features = ["binary-cache", "gl"] }
+# `external_gl_share` PoC：自建隐藏窗口 + WGL 上下文（模拟 opencat-see 的
+# 窗口上下文），验证 wgpu 能加入宿主的 GL 上下文。
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_OpenGL",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+] }
 

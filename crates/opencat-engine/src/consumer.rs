@@ -16,9 +16,10 @@ use crate::media::MediaContext;
 /// 的条目导入为 Skia image（零拷贝：纹理已在显存里）。CPU 管线传 `None`，
 /// 此时任何 GPU 句柄都是硬错误（说明两路径被混用）。
 ///
-/// 实现方是 [`crate::gpu_compositor::GpuCompositor`]（在 GL 锁内调用）。
+/// 实现方是 [`crate::gpu_compositor::CompositorResolver`]（在 GL 锁内调用）。
 pub trait GpuImageResolver {
-    fn import(&mut self, handle: u64, width: u32, height: u32) -> anyhow::Result<Image>;
+    /// `texture` 是句柄携带的裸 GL 纹理名。
+    fn import(&mut self, texture: u32, width: u32, height: u32) -> anyhow::Result<Image>;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,11 +343,11 @@ fn prepare_frame(
                 MediaError::GeneratedImageDecodeFailed {
                     id: entry.id,
                     detail: "plan carries a GPU image handle but the CPU pipeline \
-                             is active (enable OC_GPU_PIPELINE or drop the handle)"
+                             is active (set OC_GPU_PIPELINE=0, or drop the handle)"
                         .into(),
                 }
             })?;
-            let sk_image = resolver.import(handle.0, entry.width, entry.height).map_err(|e| {
+            let sk_image = resolver.import(handle.texture, entry.width, entry.height).map_err(|e| {
                 MediaError::GeneratedImageDecodeFailed {
                     id: entry.id,
                     detail: format!("GPU texture import failed: {e}"),
@@ -405,6 +406,7 @@ fn prepare_frame(
             sksl: effect_ref.sksl.clone(),
         });
     }
+
 
     Ok(EnginePreparedFrameMedia {
         images: sk_images,
@@ -515,8 +517,15 @@ pub fn execute_render_frame_with_gpu(
     validate_video_handles(plan, loader)?;
     validate_lottie_handles(plan, loader)?;
 
+    // `FrameMediaPlan` 的契约把预取窗口留给宿主（见 core 的 `media_plan` 文档），
+    // 这里就是宿主那一侧：把本帧的播放头位置告诉实时解码线程。必须**在解码之前**
+    // 发——线程要先知道播放头在哪，才可能在 `prepare_frame` 等帧之前就把它解好。
+    // 离线渲染没挂线程，这里是空操作。
+    prefetch_frame_media(plan, loader, media_ctx);
+
     // Now decode (all failures are hard errors, no silent skips).
     let prepared = prepare_frame(plan, loader, media_ctx, generated_cache, gpu)?;
+
     executor.ensure_lottie_animations(draw, |bundle_id| {
         let asset_id = AssetId::new(ResourceKind::Lottie, bundle_id.to_string());
         loader
@@ -526,6 +535,37 @@ pub fn execute_render_frame_with_gpu(
     });
     executor.execute(draw, &prepared, canvas)?;
     Ok(())
+}
+
+/// 把本帧计划里的视频引用转成预取提示。
+///
+/// 提示里的时刻是**素材时刻**（`time_micros`），与解码线程填充窗口用的键一致。
+/// 绘制大小和色彩矩阵一并带上：线程要在另一个 `MediaContext` 上解码，它拿不到
+/// 本帧的这两项。
+fn prefetch_frame_media(
+    plan: &FrameMediaPlan,
+    loader: &crate::resource::loader::EngineLoader,
+    media_ctx: &MediaContext,
+) {
+    for image_ref in &plan.video_frames {
+        let ImageRef::VideoFrame {
+            asset_id,
+            time_micros,
+        } = image_ref
+        else {
+            continue;
+        };
+        let aid = AssetId::new(ResourceKind::Video, asset_id.clone());
+        let Some(path) = loader.handle(&aid).and_then(|h| h.local_path()) else {
+            continue;
+        };
+        media_ctx.prefetch_video(
+            path,
+            *time_micros as f64 / 1_000_000.0,
+            plan.image_draw_sizes.get(image_ref).copied(),
+            plan.video_color_matrices.get(asset_id).copied(),
+        );
+    }
 }
 
 #[cfg(test)]

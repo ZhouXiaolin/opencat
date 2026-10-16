@@ -45,7 +45,7 @@ impl GeneratedImageId {
     }
 }
 
-/// Opaque host-side handle to a generated image that lives on the GPU.
+/// Host-side handle to a generated image that lives on the GPU.
 ///
 /// Core never interprets this value — it only carries it from the rasterizer
 /// that produced the image to the host that will consume it. The GPU pipeline
@@ -53,10 +53,22 @@ impl GeneratedImageId {
 /// trip ([`Scene3Raster::render`](crate::ir::scene3::Scene3Raster::render)
 /// returns it alongside the — possibly empty — CPU pixels).
 ///
-/// The id is host-scoped: only the host that produced it may resolve it. The
-/// wasm path never sets it, so a `None` here always means "use `rgba`".
+/// The handle carries the **raw GL texture name**, so the consumer imports the
+/// texture directly and never has to reach back into the producer's texture
+/// table (that would make the compositor depend on the rasterizer crate). The
+/// producer keeps ownership; [`Self::token`] is how the consumer returns it.
+///
+/// The wasm path never sets it, so a `None` here always means "use `rgba`".
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct GpuImageHandle(pub u64);
+pub struct GpuImageHandle {
+    /// Raw GL texture name (`GL_TEXTURE_2D`). 0 when the producer is not on a
+    /// GL backend.
+    pub texture: u32,
+    /// Producer-side table key, used to release the texture once the consumer
+    /// is done. A monotonic token, **not** the GL name: drivers recycle names,
+    /// so the name alone is not a stable identity.
+    pub token: u64,
+}
 
 /// Owned RGBA bitmap for one generated image.
 #[derive(Clone, Debug)]

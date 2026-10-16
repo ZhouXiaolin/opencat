@@ -24,6 +24,10 @@ pub mod source_io;
 
 pub use crate::consumer::{ConsumerError, MediaError, execute_render_frame};
 pub use crate::resource::loader::{EngineAssetHandle, EngineLoader};
+// 3D 渲染器的类型出口：预览器（`opencat-see`）要把 wgpu 建到自己的窗口
+// GL 上下文上（`Renderer3d::new_external`），再经 `LazyRenderer3d::preset`
+// 注入管线。`opencat` crate 不直接依赖 opencat-three，所以在此转出。
+pub use opencat_three::{LazyRenderer3d, Renderer3d};
 
 /// Engine host that owns a lifecycle-opened core pipeline plus resource loader.
 /// Render/audio code reads cached bytes off `host.loader`, never through the

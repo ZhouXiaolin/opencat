@@ -12,12 +12,14 @@
 pub mod audio;
 pub mod decode;
 pub mod encode;
+pub mod realtime;
 pub mod seek;
 pub mod video;
 pub mod video_cache;
 
 pub use decode::{AudioTrack, VideoDecodeCache, VideoInfo, decode_audio_to_f32_stereo};
 pub use encode::{Mp4Config, encode_rgba_frames};
+pub use realtime::VideoRealtimeDecoder;
 pub use video::{
     MediaContext, VideoBitmap, VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,
 };

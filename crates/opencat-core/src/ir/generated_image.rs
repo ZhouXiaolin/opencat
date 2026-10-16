@@ -53,20 +53,17 @@ impl GeneratedImageId {
 /// trip ([`Scene3Raster::render`](crate::ir::scene3::Scene3Raster::render)
 /// returns it alongside the — possibly empty — CPU pixels).
 ///
-/// The handle carries the **raw GL texture name**, so the consumer imports the
-/// texture directly and never has to reach back into the producer's texture
-/// table (that would make the compositor depend on the rasterizer crate). The
-/// producer keeps ownership; [`Self::token`] is how the consumer returns it.
+/// Core does not know which native API produced the texture, and it does not
+/// carry the texture itself. [`Self::token`] is a key into the host's shared
+/// texture registry (`opencat_gpu_native::TextureRegistry`): the producer
+/// publishes the texture there, the consumer resolves it, and the consumer
+/// releases it once done.
 ///
 /// The wasm path never sets it, so a `None` here always means "use `rgba`".
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct GpuImageHandle {
-    /// Raw GL texture name (`GL_TEXTURE_2D`). 0 when the producer is not on a
-    /// GL backend.
-    pub texture: u32,
-    /// Producer-side table key, used to release the texture once the consumer
-    /// is done. A monotonic token, **not** the GL name: drivers recycle names,
-    /// so the name alone is not a stable identity.
+    /// Key into the host's shared texture registry. 0 means "no texture" —
+    /// the producer is not on a GPU-shared backend.
     pub token: u64,
 }
 

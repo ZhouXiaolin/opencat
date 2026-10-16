@@ -5,7 +5,6 @@ fn main() {
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod app {
-    use std::ffi::c_void;
     use std::num::{NonZeroU16, NonZeroU32};
     use std::time::{Duration, Instant};
 
@@ -14,61 +13,23 @@ mod app {
     use std::sync::Arc;
 
     use opencat::{
-        EngineDrawExecutor, EngineLoader, MediaContext, V8JsContext, build_audio_track_from_pipeline,
-        GeneratedImageCache, Renderer3d, duration_secs_to_frames, execute_render_frame,
-        generated_image_cache_from_env, open,
+        EngineDrawExecutor, EngineLoader, GeneratedImageCache, MediaContext, V8JsContext,
+        build_audio_track_from_pipeline, duration_secs_to_frames, generated_image_cache_from_env,
+        open,
     };
-    use skia_safe::Image;
-    use std::collections::HashMap;
     use opencat_core::script::js_context::JsContext;
-    use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+    use opencat_engine::present::{PreviewFrame, PreviewPresenter, WindowHandle};
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    #[cfg(target_os = "linux")]
+    use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
     use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
     use winit::application::ApplicationHandler;
     use winit::dpi::PhysicalSize;
     use winit::event::WindowEvent;
-    use winit::event_loop::{ActiveEventLoop, ControlFlow};
     #[cfg(not(target_os = "linux"))]
     use winit::event_loop::EventLoop;
+    use winit::event_loop::{ActiveEventLoop, ControlFlow};
     use winit::window::{Window, WindowAttributes};
-
-    #[cfg(target_os = "macos")]
-    use cocoa::appkit::NSView;
-    #[cfg(target_os = "macos")]
-    use cocoa::base::{YES, id};
-    #[cfg(target_os = "macos")]
-    use core_graphics_types::geometry::CGSize;
-    #[cfg(target_os = "macos")]
-    use foreign_types::{ForeignType, ForeignTypeRef};
-    #[cfg(target_os = "macos")]
-    use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
-    #[cfg(target_os = "macos")]
-    use skia_safe::{
-        ColorType,
-        gpu::{self, SurfaceOrigin, backend_render_targets, mtl},
-    };
-
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    use skia_safe::{
-        ColorType,
-        gpu::{self, SurfaceOrigin, backend_render_targets, gl},
-    };
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    use std::ffi::CString;
-    #[cfg(target_os = "windows")]
-    use windows_sys::Win32::{
-        Foundation::{FreeLibrary, HMODULE, HWND},
-        Graphics::{
-            Gdi::{GetDC, HDC, ReleaseDC},
-            OpenGL::{
-                ChoosePixelFormat, HGLRC, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE,
-                PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR, SetPixelFormat,
-                SwapBuffers, wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
-            },
-        },
-        System::LibraryLoader::{GetProcAddress, LoadLibraryA},
-    };
-    #[cfg(target_os = "linux")]
-    use khronos_egl as egl;
 
     const AUDIO_SAMPLE_RATE: u32 = 48_000;
     const AUDIO_CHANNELS: u16 = 2;
@@ -184,889 +145,61 @@ mod app {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    struct MetalSkiaRenderTarget {
-        layer: MetalLayer,
-        command_queue: CommandQueue,
-        skia: gpu::DirectContext,
-        current_drawable: Option<MetalDrawable>,
-        current_surface: Option<skia_safe::Surface>,
-    }
-
-    #[cfg(target_os = "macos")]
-    impl MetalSkiaRenderTarget {
-        fn new(ns_view: *mut c_void, width: i32, height: i32, scale_factor: f64) -> Result<Self> {
-            let device =
-                Device::system_default().ok_or_else(|| anyhow!("no Metal device found"))?;
-            let command_queue = device.new_command_queue();
-
-            let layer = MetalLayer::new();
-            layer.set_device(&device);
-            layer.set_pixel_format(MTLPixelFormat::BGRA8Unorm);
-            layer.set_presents_with_transaction(false);
-            layer.set_display_sync_enabled(true);
-            layer.set_framebuffer_only(false);
-            layer.set_contents_scale(scale_factor);
-            layer.set_drawable_size(CGSize::new(width as f64, height as f64));
-
-            unsafe {
-                let view: id = ns_view as id;
-                view.setWantsLayer(YES);
-                view.setLayer(std::mem::transmute(layer.as_ref()));
-            }
-
-            let backend = unsafe {
-                mtl::BackendContext::new(
-                    device.as_ptr() as mtl::Handle,
-                    command_queue.as_ptr() as mtl::Handle,
-                )
-            };
-            let skia = gpu::direct_contexts::make_metal(&backend, None)
-                .ok_or_else(|| anyhow!("failed to create Skia Metal direct context"))?;
-
-            Ok(Self {
-                layer,
-                command_queue,
-                skia,
-                current_drawable: None,
-                current_surface: None,
-            })
-        }
-
-        fn resize(&mut self, width: i32, height: i32, scale_factor: f64) {
-            self.layer.set_contents_scale(scale_factor);
-            self.layer
-                .set_drawable_size(CGSize::new(width as f64, height as f64));
-        }
-
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
-            if width <= 0 || height <= 0 {
-                return Err(anyhow!("invalid render target size {width}x{height}"));
-            }
-
-            self.resize(width, height, self.layer.contents_scale());
-
-            let drawable_ref = self
-                .layer
-                .next_drawable()
-                .ok_or_else(|| anyhow!("CAMetalLayer failed to produce drawable"))?;
-            let drawable = drawable_ref.to_owned();
-
-            let drawable_size = self.layer.drawable_size();
-            let (drawable_width, drawable_height) =
-                (drawable_size.width as i32, drawable_size.height as i32);
-
-            if drawable_width <= 0 || drawable_height <= 0 {
-                return Err(anyhow!(
-                    "invalid drawable size {}x{}",
-                    drawable_width,
-                    drawable_height
-                ));
-            }
-
-            let texture_info =
-                unsafe { mtl::TextureInfo::new(drawable.texture().as_ptr() as mtl::Handle) };
-
-            let backend_render_target =
-                backend_render_targets::make_mtl((drawable_width, drawable_height), &texture_info);
-
-            let surface = gpu::surfaces::wrap_backend_render_target(
-                &mut self.skia,
-                &backend_render_target,
-                SurfaceOrigin::TopLeft,
-                ColorType::BGRA8888,
-                None,
-                None,
-            )
-            .ok_or_else(|| anyhow!("failed to wrap metal backend render target"))?;
-
-            self.current_drawable = Some(drawable);
-            self.current_surface = Some(surface);
-            Ok(self as *mut Self as *mut c_void)
-        }
-
-        fn end_frame(&mut self) -> Result<()> {
-            let surface = self
-                .current_surface
-                .take()
-                .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
-            self.skia.flush_and_submit();
-            drop(surface);
-            Ok(())
-        }
-
-        fn present_frame(&mut self) -> Result<()> {
-            let drawable = self
-                .current_drawable
-                .take()
-                .ok_or_else(|| anyhow!("present_frame called before end_frame"))?;
-            let command_buffer = self.command_queue.new_command_buffer();
-            command_buffer.present_drawable(&drawable);
-            command_buffer.commit();
-            Ok(())
-        }
-
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
-            let surface = self
-                .current_surface
-                .as_mut()
-                .ok_or_else(|| anyhow!("skia canvas requested before drawable surface was ready"))?;
-            // SAFETY: skia_safe::Canvas has interior mutability; surface owns the canvas.
-            #[allow(invalid_reference_casting)]
-            Ok(unsafe {
-                &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
-            })
-        }
-
-    }
-
-    #[cfg(target_os = "macos")]
-    fn build_platform_render_target(
-        window: &Window,
-        width: i32,
-        height: i32,
-    ) -> Result<Box<MetalSkiaRenderTarget>> {
-        // raw-window-handle 0.6 dropped `ns_window` and made `ns_view` a
-        // `NonNull`, so the null check is gone with it.
-        let ns_view = match window
+    /// 从 winit 窗口解出平台句柄。这是本程序唯一需要认识平台的地方——
+    /// 图形上下文、Skia 后端、每帧 surface 全在 `opencat_engine::present` 里。
+    fn window_handle(window: &Window) -> Result<WindowHandle> {
+        let raw = window
             .window_handle()
             .map_err(|e| anyhow!("window handle unavailable: {e}"))?
-            .as_raw()
+            .as_raw();
+
+        #[cfg(target_os = "windows")]
         {
-            RawWindowHandle::AppKit(handle) => handle.ns_view.as_ptr(),
-            _ => return Err(anyhow!("expected AppKit window handle on macOS")),
-        };
-
-        Ok(Box::new(MetalSkiaRenderTarget::new(
-            ns_view,
-            width,
-            height,
-            window.scale_factor(),
-        )?))
-    }
-
-    #[cfg(target_os = "windows")]
-    struct WglSkiaRenderTarget {
-        hwnd: HWND,
-        hdc: HDC,
-        glrc: HGLRC,
-        opengl32: HMODULE,
-        skia: gpu::DirectContext,
-        current_surface: Option<skia_safe::Surface>,
-        /// `current_surface` 包裹的帧缓冲尺寸；窗口不可缩放，所以通常只建一次。
-        surface_size: (i32, i32),
-    }
-
-    #[cfg(target_os = "windows")]
-    impl WglSkiaRenderTarget {
-        fn new(hwnd: HWND, _width: i32, _height: i32) -> Result<Self> {
-            if hwnd.is_null() {
-                return Err(anyhow!("Win32 window handle is null"));
+            match raw {
+                RawWindowHandle::Win32(handle) => Ok(WindowHandle {
+                    hwnd: handle.hwnd.get() as *mut std::ffi::c_void,
+                }),
+                _ => Err(anyhow!("expected Win32 window handle on Windows")),
             }
+        }
 
-            let hdc = unsafe { GetDC(hwnd) };
-            if hdc.is_null() {
-                return Err(anyhow!("GetDC returned null for Win32 window"));
+        #[cfg(target_os = "macos")]
+        {
+            match raw {
+                RawWindowHandle::AppKit(handle) => Ok(WindowHandle {
+                    ns_view: handle.ns_view.as_ptr(),
+                    scale_factor: window.scale_factor(),
+                }),
+                _ => Err(anyhow!("expected AppKit window handle on macOS")),
             }
+        }
 
-            let pixel_format_descriptor = PIXELFORMATDESCRIPTOR {
-                nSize: std::mem::size_of::<PIXELFORMATDESCRIPTOR>() as u16,
-                nVersion: 1,
-                dwFlags: PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER,
-                iPixelType: PFD_TYPE_RGBA,
-                cColorBits: 32,
-                cAlphaBits: 8,
-                cDepthBits: 24,
-                cStencilBits: 8,
-                iLayerType: PFD_MAIN_PLANE as u8,
-                ..Default::default()
+        #[cfg(target_os = "linux")]
+        {
+            let display = match window
+                .display_handle()
+                .map_err(|e| anyhow!("display handle unavailable: {e}"))?
+                .as_raw()
+            {
+                RawDisplayHandle::Xlib(handle) => handle
+                    .display
+                    .ok_or_else(|| anyhow!("Xlib display handle is null"))?
+                    .as_ptr(),
+                _ => {
+                    return Err(anyhow!(
+                        "opencat-see on Linux currently requires X11 (force the winit X11 backend)"
+                    ));
+                }
             };
-
-            let pixel_format = unsafe { ChoosePixelFormat(hdc, &pixel_format_descriptor) };
-            if pixel_format == 0 {
-                unsafe {
-                    let _ = ReleaseDC(hwnd, hdc);
-                }
-                return Err(anyhow!("ChoosePixelFormat failed for Win32 OpenGL window"));
-            }
-
-            if unsafe { SetPixelFormat(hdc, pixel_format, &pixel_format_descriptor) } == 0 {
-                unsafe {
-                    let _ = ReleaseDC(hwnd, hdc);
-                }
-                return Err(anyhow!("SetPixelFormat failed for Win32 OpenGL window"));
-            }
-
-            let glrc = unsafe { wglCreateContext(hdc) };
-            if glrc.is_null() {
-                unsafe {
-                    let _ = ReleaseDC(hwnd, hdc);
-                }
-                return Err(anyhow!("wglCreateContext failed for Win32 window"));
-            }
-
-            if unsafe { wglMakeCurrent(hdc, glrc) } == 0 {
-                unsafe {
-                    let _ = wglDeleteContext(glrc);
-                    let _ = ReleaseDC(hwnd, hdc);
-                }
-                return Err(anyhow!(
-                    "wglMakeCurrent failed while creating Win32 context"
-                ));
-            }
-
-            let opengl32 = unsafe { LoadLibraryA(b"opengl32.dll\0".as_ptr()) };
-            if opengl32.is_null() {
-                unsafe {
-                    let _ = wglMakeCurrent(hdc, std::ptr::null_mut());
-                    let _ = wglDeleteContext(glrc);
-                    let _ = ReleaseDC(hwnd, hdc);
-                }
-                return Err(anyhow!("LoadLibraryA(opengl32.dll) failed"));
-            }
-
-            let interface =
-                gl::Interface::new_load_with(|name| load_gl_proc_address(opengl32, name))
-                    .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface"))?;
-            let skia = gpu::direct_contexts::make_gl(interface, None)
-                .ok_or_else(|| anyhow!("failed to create Skia OpenGL direct context"))?;
-
-            Ok(Self {
-                hwnd,
-                hdc,
-                glrc,
-                opengl32,
-                skia,
-                current_surface: None,
-                surface_size: (0, 0),
-            })
-        }
-
-        fn make_current(&self) -> Result<()> {
-            if unsafe { wglMakeCurrent(self.hdc, self.glrc) } == 0 {
-                return Err(anyhow!("wglMakeCurrent failed for Win32 render target"));
-            }
-            Ok(())
-        }
-
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
-            if width <= 0 || height <= 0 {
-                return Err(anyhow!("invalid render target size {width}x{height}"));
-            }
-
-            self.make_current()?;
-
-            if self.current_surface.is_none() || self.surface_size != (width, height) {
-                let backend_render_target = backend_render_targets::make_gl(
-                    (width, height),
-                    0,
-                    8,
-                    gl::FramebufferInfo {
-                        fboid: 0,
-                        format: gl::Format::RGBA8.into(),
-                        ..Default::default()
-                    },
-                );
-
-                let surface = gpu::surfaces::wrap_backend_render_target(
-                    &mut self.skia,
-                    &backend_render_target,
-                    SurfaceOrigin::BottomLeft,
-                    ColorType::RGBA8888,
-                    None,
-                    None,
-                )
-                .ok_or_else(|| anyhow!("failed to wrap Win32 OpenGL framebuffer for Skia"))?;
-
-                self.current_surface = Some(surface);
-                self.surface_size = (width, height);
-            }
-            Ok(self as *mut Self as *mut c_void)
-        }
-
-        fn end_frame(&mut self) -> Result<()> {
-            let surface = self
-                .current_surface
-                .as_mut()
-                .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
-            self.skia.flush_and_submit_surface(surface, None);
-            Ok(())
-        }
-
-        fn present_frame(&mut self) -> Result<()> {
-            self.make_current()?;
-            if unsafe { SwapBuffers(self.hdc) } == 0 {
-                return Err(anyhow!("SwapBuffers failed for Win32 window"));
-            }
-            Ok(())
-        }
-
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
-            let surface = self.current_surface.as_mut().ok_or_else(|| {
-                anyhow!("skia canvas requested before Win32 framebuffer surface was ready")
-            })?;
-            #[allow(invalid_reference_casting)]
-            Ok(unsafe {
-                &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
-            })
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    impl Drop for WglSkiaRenderTarget {
-        fn drop(&mut self) {
-            self.current_surface.take();
-            self.skia.release_resources_and_abandon();
-
-            unsafe {
-                let _ = wglMakeCurrent(self.hdc, std::ptr::null_mut());
-                if !self.glrc.is_null() {
-                    let _ = wglDeleteContext(self.glrc);
-                }
-                if !self.hdc.is_null() {
-                    let _ = ReleaseDC(self.hwnd, self.hdc);
-                }
-                if !self.opengl32.is_null() {
-                    let _ = FreeLibrary(self.opengl32);
-                }
-            }
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    fn build_platform_render_target(
-        window: &Window,
-        width: i32,
-        height: i32,
-    ) -> Result<Box<WglSkiaRenderTarget>> {
-        let hwnd = match window
-            .window_handle()
-            .map_err(|e| anyhow!("window handle unavailable: {e}"))?
-            .as_raw()
-        {
-            RawWindowHandle::Win32(handle) => handle.hwnd.get() as HWND,
-            _ => return Err(anyhow!("expected Win32 window handle on Windows")),
-        };
-        if hwnd.is_null() {
-            return Err(anyhow!("Win32 window handle is null"));
-        }
-
-        Ok(Box::new(WglSkiaRenderTarget::new(hwnd, width, height)?))
-    }
-
-    #[cfg(target_os = "windows")]
-    fn load_gl_proc_address(opengl32: HMODULE, name: &str) -> *const c_void {
-        let Ok(name) = CString::new(name) else {
-            return std::ptr::null();
-        };
-
-        let wgl_proc = unsafe { wglGetProcAddress(name.as_ptr() as *const u8) };
-        if let Some(proc) = wgl_proc {
-            let raw = proc as *const () as usize;
-            if !matches!(raw, 0 | 1 | 2 | 3 | usize::MAX) {
-                return proc as *const () as *const c_void;
-            }
-        }
-
-        unsafe { GetProcAddress(opengl32, name.as_ptr() as *const u8) }
-            .map(|proc| proc as *const () as *const c_void)
-            .unwrap_or(std::ptr::null())
-    }
-
-    #[cfg(target_os = "linux")]
-    struct EglSkiaRenderTarget {
-        egl: egl::DynamicInstance<egl::EGL1_5>,
-        display: egl::Display,
-        // Kept for diagnostics; not read after construction.
-        _config: egl::Config,
-        context: egl::Context,
-        surface: egl::Surface,
-        /// libGL handle for core GL 1.x symbol fallback. EGL's `eglGetProcAddress`
-        /// does not reliably expose core entry points (glGetString, glGetIntegerv,
-        /// ...) on Mesa; Skia needs them while assembling the GL interface, so
-        /// resolve them from libGL itself.
-        libgl: *mut c_void,
-        skia: gpu::DirectContext,
-        current_surface: Option<skia_safe::Surface>,
-    }
-
-    // SAFETY: EGL handles are only touched on the winit event-loop thread.
-    #[cfg(target_os = "linux")]
-    unsafe impl Send for EglSkiaRenderTarget {}
-
-    #[cfg(target_os = "linux")]
-    impl EglSkiaRenderTarget {
-        fn new(display_handle: *mut c_void, window: u64) -> Result<Self> {
-            if display_handle.is_null() {
-                return Err(anyhow!("X11 display handle is null"));
-            }
-            if window == 0 {
-                return Err(anyhow!("X11 window id is zero"));
-            }
-
-            // Skia's binary-cache build links EGL internally (its GL proc resolver
-            // calls `eglGetProcAddress`), so EGL — not GLX — is the required
-            // backend on Linux. `load_required()` fails if libEGL.so.1 is missing
-            // or predates EGL 1.5.
-            let egl = unsafe { egl::DynamicInstance::<egl::EGL1_5>::load_required() }
-                .map_err(|e| anyhow!("failed to load libEGL.so.1: {e}"))?;
-
-            // EGL defaults to OpenGL ES; bind desktop GL so `make_gl` succeeds.
-            egl.bind_api(egl::OPENGL_API)
-                .map_err(|e| anyhow!("eglBindAPI(OPENGL) failed: {e}"))?;
-
-            let display = unsafe { egl.get_display(display_handle as egl::NativeDisplayType) }
-                .ok_or_else(|| anyhow!("eglGetDisplay returned EGL_NO_DISPLAY"))?;
-            let (_major, _minor) = egl
-                .initialize(display)
-                .map_err(|e| anyhow!("eglInitialize failed: {e}"))?;
-
-            // RGBA8 window surface, OpenGL-desktop renderable.
-            let config_attrs: [egl::Int; 13] = [
-                egl::SURFACE_TYPE,
-                egl::WINDOW_BIT,
-                egl::RENDERABLE_TYPE,
-                egl::OPENGL_BIT,
-                egl::RED_SIZE,
-                8,
-                egl::GREEN_SIZE,
-                8,
-                egl::BLUE_SIZE,
-                8,
-                egl::ALPHA_SIZE,
-                8,
-                egl::NONE,
-            ];
-            let config = egl
-                .choose_first_config(display, &config_attrs)
-                .map_err(|e| anyhow!("eglChooseConfig failed: {e}"))?
-                .ok_or_else(|| anyhow!("no matching EGL config (need RGBA8 + OPENGL_BIT)"))?;
-
-            // OpenGL 3.3 core profile — the lowest desktop core context the
-            // binary-cache Skia targets.
-            let context_attrs: [egl::Int; 7] = [
-                egl::CONTEXT_MAJOR_VERSION,
-                3,
-                egl::CONTEXT_MINOR_VERSION,
-                3,
-                egl::CONTEXT_OPENGL_PROFILE_MASK,
-                egl::CONTEXT_OPENGL_CORE_PROFILE_BIT,
-                egl::NONE,
-            ];
-            let context = egl
-                .create_context(display, config, None, &context_attrs)
-                .map_err(|e| anyhow!("eglCreateContext failed: {e}"))?;
-
-            let surface = unsafe {
-                egl.create_window_surface(
-                    display,
-                    config,
-                    window as egl::NativeWindowType,
-                    None,
-                )
-                .map_err(|e| anyhow!("eglCreateWindowSurface failed: {e}"))?
-            };
-
-            egl.make_current(display, Some(surface), Some(surface), Some(context))
-                .map_err(|e| anyhow!("eglMakeCurrent failed: {e}"))?;
-
-            // Resolve core GL 1.x/2.x entry points from libGL itself. Assign to
-            // the outer binding — a `let` here would shadow it and leave
-            // `self.libgl` null, which makes Skia dereference bad pointers and
-            // segfault inside GrGLExtensions::init.
-            let mut libgl = unsafe {
-                libc::dlopen(
-                    b"libGL.so.1\0".as_ptr() as *const _,
-                    libc::RTLD_LAZY | libc::RTLD_GLOBAL,
-                )
-            };
-            if libgl.is_null() {
-                libgl = unsafe {
-                    libc::dlopen(
-                        b"libGL.so\0".as_ptr() as *const _,
-                        libc::RTLD_LAZY | libc::RTLD_GLOBAL,
-                    )
-                };
-            }
-            if libgl.is_null() {
-                let _ = egl.make_current(display, None, None, None);
-                let _ = egl.destroy_context(display, context);
-                let _ = egl.destroy_surface(display, surface);
-                let _ = egl.terminate(display);
-                return Err(anyhow!("dlopen(libGL.so.1 / libGL.so) failed"));
-            }
-
-            let interface = gl::Interface::new_load_with(|name| {
-                load_egl_proc_address(&egl, libgl, name)
-            })
-            .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface (EGL)"))?;
-            let skia = gpu::direct_contexts::make_gl(interface, None)
-                .ok_or_else(|| anyhow!("failed to create Skia OpenGL direct context (EGL)"))?;
-
-            Ok(Self {
-                egl,
-                display,
-                _config: config,
-                context,
-                surface,
-                libgl,
-                skia,
-                current_surface: None,
-            })
-        }
-
-        fn make_current(&self) -> Result<()> {
-            self.egl
-                .make_current(
-                    self.display,
-                    Some(self.surface),
-                    Some(self.surface),
-                    Some(self.context),
-                )
-                .map_err(|e| anyhow!("eglMakeCurrent failed for Linux render target: {e}"))
-        }
-
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
-            if width <= 0 || height <= 0 {
-                return Err(anyhow!("invalid render target size {width}x{height}"));
-            }
-
-            self.make_current()?;
-
-            let backend_render_target = backend_render_targets::make_gl(
-                (width, height),
-                0,
-                8,
-                gl::FramebufferInfo {
-                    fboid: 0,
-                    format: gl::Format::RGBA8.into(),
-                    ..Default::default()
-                },
-            );
-
-            let surface = gpu::surfaces::wrap_backend_render_target(
-                &mut self.skia,
-                &backend_render_target,
-                SurfaceOrigin::BottomLeft,
-                ColorType::RGBA8888,
-                None,
-                None,
-            )
-            .ok_or_else(|| anyhow!("failed to wrap Linux OpenGL framebuffer for Skia"))?;
-
-            self.current_surface = Some(surface);
-            Ok(self as *mut Self as *mut c_void)
-        }
-
-        fn end_frame(&mut self) -> Result<()> {
-            let mut surface = self
-                .current_surface
-                .take()
-                .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
-            self.skia.flush_and_submit_surface(&mut surface, None);
-            drop(surface);
-            Ok(())
-        }
-
-        fn present_frame(&mut self) -> Result<()> {
-            self.make_current()?;
-            self.egl
-                .swap_buffers(self.display, self.surface)
-                .map_err(|e| anyhow!("eglSwapBuffers failed: {e}"))?;
-            Ok(())
-        }
-
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
-            let surface = self.current_surface.as_mut().ok_or_else(|| {
-                anyhow!("skia canvas requested before Linux framebuffer surface was ready")
-            })?;
-            #[allow(invalid_reference_casting)]
-            Ok(unsafe {
-                &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
-            })
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    impl Drop for EglSkiaRenderTarget {
-        fn drop(&mut self) {
-            self.current_surface.take();
-            self.skia.release_resources_and_abandon();
-            // Unbind the context before tearing it down.
-            let _ = self
-                .egl
-                .make_current(self.display, None, None, None);
-            let _ = self.egl.destroy_context(self.display, self.context);
-            let _ = self.egl.destroy_surface(self.display, self.surface);
-            let _ = self.egl.terminate(self.display);
-            if !self.libgl.is_null() {
-                unsafe {
-                    let _ = libc::dlclose(self.libgl);
-                }
-                self.libgl = std::ptr::null_mut();
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    fn build_platform_render_target(
-        window: &Window,
-        _width: i32,
-        _height: i32,
-    ) -> Result<Box<EglSkiaRenderTarget>> {
-        let display_handle = match window
-            .display_handle()
-            .map_err(|e| anyhow!("display handle unavailable: {e}"))?
-            .as_raw()
-        {
-            RawDisplayHandle::Xlib(handle) => {
-                let Some(display) = handle.display else {
-                    return Err(anyhow!("Xlib display handle is null"));
-                };
-                display.as_ptr()
-            }
-            _ => {
-                return Err(anyhow!(
-                    "opencat-see on Linux currently requires X11 (force the winit X11 backend)"
-                ));
-            }
-        };
-        let xwindow = match window
-            .window_handle()
-            .map_err(|e| anyhow!("window handle unavailable: {e}"))?
-            .as_raw()
-        {
-            RawWindowHandle::Xlib(handle) => handle.window,
-            _ => {
-                return Err(anyhow!(
+            match raw {
+                RawWindowHandle::Xlib(handle) => Ok(WindowHandle {
+                    x11_display: display,
+                    x11_window: handle.window as u64,
+                }),
+                _ => Err(anyhow!(
                     "expected Xlib window handle on Linux; Wayland is not supported yet"
-                ));
+                )),
             }
-        };
-        Ok(Box::new(EglSkiaRenderTarget::new(display_handle, xwindow)?))
-    }
-
-    #[cfg(target_os = "linux")]
-    fn load_egl_proc_address(
-        egl: &egl::DynamicInstance<egl::EGL1_5>,
-        libgl: *mut c_void,
-        name: &str,
-    ) -> *const c_void {
-        let Ok(cname) = CString::new(name) else {
-            return std::ptr::null();
-        };
-
-        // Core GL entry points (glGetString, glGetIntegerv, ...) must be resolved
-        // from libGL first. Mesa's `eglGetProcAddress` historically returns a
-        // non-null but un-callable pointer for them; Skia then dereferences the
-        // junk pointer and segfaults inside `GrGLExtensions::init` while it probes
-        // GL_NUM_EXTENSIONS. Only extension / GL-version-specific entry points
-        // (glGetStringi, ...) legitimately come from `eglGetProcAddress`.
-        if !libgl.is_null() {
-            let sym = unsafe { libc::dlsym(libgl, cname.as_ptr()) };
-            if !sym.is_null() {
-                return sym as *const c_void;
-            }
-        }
-
-        if let Some(proc) = egl.get_proc_address(name) {
-            let raw = proc as *const () as usize;
-            // Treat Mesa's small error sentinels for missing procs as null.
-            if !matches!(raw, 0 | 1 | 2 | 3 | usize::MAX) {
-                return proc as *const () as *const c_void;
-            }
-        }
-
-        std::ptr::null()
-    }
-
-
-    fn render_pipeline_frame_to_gpu_target(
-        pipeline: &mut opencat::EnginePipeline,
-        media_ctx: &mut MediaContext,
-        executor: &mut EngineDrawExecutor,
-        generated_cache: &mut GeneratedImageCache,
-        gpu_target: &mut dyn GpuRenderTarget,
-        width: i32,
-        height: i32,
-        frame_index: u32,
-        render_scale: f32,
-    ) -> Result<()> {
-        gpu_target.begin_frame(width, height)?;
-        let render = pipeline.render_frame(frame_index)?;
-        let mut frame = render.draw;
-        let media_plan = render.media;
-
-        // 本帧引用的 GPU 句柄 token：合成后归还。
-        let gpu_tokens: Vec<u64> = media_plan
-            .generated_images
-            .iter()
-            .filter_map(|g| g.gpu.map(|h| h.token))
-            .collect();
-
-        // 有 3D 时 wgpu 刚跑过 GL pass，Skia 缓存的状态已失效。
-        if !gpu_tokens.is_empty() {
-            gpu_target.reset_backend_state();
-        }
-
-        let renderer = pipeline.scene3_renderer.clone();
-        let loader = pipeline.loader();
-        let result = gpu_target.with_canvas_and_resolver(&mut |canvas, resolver| {
-            // 画布坐标系仍是合成单位（DrawOp 的坐标不变），只把设备矩阵缩放。
-            // 用 `reset_matrix` 而不是 `save`/`scale`：DrawOp 里的
-            // `RestoreToCount` 带绝对计数，多一层 save 会被它弹掉。
-            canvas.reset_matrix();
-            if render_scale != 1.0 {
-                canvas.scale((render_scale, render_scale));
-            }
-            opencat_engine::consumer::execute_render_frame_with_gpu(
-                &mut frame,
-                &media_plan,
-                executor,
-                loader,
-                media_ctx,
-                generated_cache,
-                resolver,
-                canvas,
-            )
-            .map_err(|e| anyhow!("{e}"))
-        });
-        for token in gpu_tokens {
-            renderer.release_gpu_texture(token);
-        }
-        result?;
-
-        gpu_target.end_frame()?;
-        gpu_target.present_frame()?;
-        Ok(())
-    }
-
-    trait GpuRenderTarget {
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void>;
-        fn end_frame(&mut self) -> Result<()>;
-        fn present_frame(&mut self) -> Result<()>;
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas>;
-
-        /// 建一个与本节点图形上下文**共享**的 3D 渲染器。
-        ///
-        /// 返回 `Some` 时 wgpu 加入本上下文，3D 输出纹理的 GL 名可被本节点
-        /// 的 Skia 直接采样（零拷贝）。`None` 表示本后端不支持——调用方走
-        /// CPU 读回。
-        fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
-            Ok(None)
-        }
-
-        /// 丢弃 Skia 缓存的图形状态。
-        ///
-        /// wgpu 的 3D pass 会改动 GL 状态，而 Skia 的 `DirectContext` 缓存了
-        /// 上次留下的状态。共享上下文时必须让 Skia 失效缓存，否则它会按过期
-        /// 状态发包。非共享后端为空操作。
-        fn reset_backend_state(&mut self) {}
-
-        /// 在同一帧内借出绘制 canvas 与 GPU 图像解析器。
-        ///
-        /// 二者必须同时可用（合成时要导入 3D 纹理），所以用一个回调而非
-        /// 两个返回值——否则 `&mut self` 会被借两次。默认实现只给 canvas；
-        /// 共享上下文的后端覆写它。
-        fn with_canvas_and_resolver(
-            &mut self,
-            f: &mut dyn FnMut(
-                &mut skia_safe::Canvas,
-                Option<&mut dyn opencat_engine::consumer::GpuImageResolver>,
-            ) -> Result<()>,
-        ) -> Result<()> {
-            f(self.canvas_mut()?, None)
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    impl GpuRenderTarget for MetalSkiaRenderTarget {
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
-            MetalSkiaRenderTarget::begin_frame(self, width, height)
-        }
-        fn end_frame(&mut self) -> Result<()> {
-            MetalSkiaRenderTarget::end_frame(self)
-        }
-        fn present_frame(&mut self) -> Result<()> {
-            MetalSkiaRenderTarget::present_frame(self)
-        }
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
-            MetalSkiaRenderTarget::canvas_mut(self)
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    impl GpuRenderTarget for WglSkiaRenderTarget {
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
-            WglSkiaRenderTarget::begin_frame(self, width, height)
-        }
-        fn end_frame(&mut self) -> Result<()> {
-            WglSkiaRenderTarget::end_frame(self)
-        }
-        fn present_frame(&mut self) -> Result<()> {
-            WglSkiaRenderTarget::present_frame(self)
-        }
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
-            WglSkiaRenderTarget::canvas_mut(self)
-        }
-
-        fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
-            // wgpu 加入本窗口的 HGLRC：3D 输出纹理的 GL 名此后对本节点的
-            // Skia 有效（见 `Renderer3d::new_external`）。make_current 回调
-            // 是必需的——hal 的 GL 实例初始化会解绑宿主的上下文。
-            let hdc = self.hdc;
-            let glrc = self.glrc;
-            let opengl32 = self.opengl32;
-            let make_current = move || {
-                if unsafe { wglMakeCurrent(hdc, glrc) } == 0 {
-                    anyhow::bail!("wglMakeCurrent failed while joining the external GL context");
-                }
-                Ok(())
-            };
-            Ok(Some(Renderer3d::new_external(
-                move |name| load_gl_proc_address(opengl32, name),
-                make_current,
-            )?))
-        }
-
-        fn reset_backend_state(&mut self) {
-            self.skia.reset(None);
-        }
-
-        fn with_canvas_and_resolver(
-            &mut self,
-            f: &mut dyn FnMut(
-                &mut skia_safe::Canvas,
-                Option<&mut dyn opencat_engine::consumer::GpuImageResolver>,
-            ) -> Result<()>,
-        ) -> Result<()> {
-            // canvas 与 skia 是不同字段，可并存借用（同 `GpuCompositor::split`）。
-            let surface = self.current_surface.as_mut().ok_or_else(|| {
-                anyhow!("skia canvas requested before Win32 framebuffer surface was ready")
-            })?;
-            #[allow(invalid_reference_casting)]
-            let canvas: &mut skia_safe::Canvas =
-                unsafe { &mut *(surface.canvas() as *const _ as *mut skia_safe::Canvas) };
-            let mut resolver = opencat_engine::gpu_compositor::CompositorResolver {
-                skia: &mut self.skia,
-            };
-            f(canvas, Some(&mut resolver))
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    impl GpuRenderTarget for EglSkiaRenderTarget {
-        fn begin_frame(&mut self, width: i32, height: i32) -> Result<*mut c_void> {
-            EglSkiaRenderTarget::begin_frame(self, width, height)
-        }
-        fn end_frame(&mut self) -> Result<()> {
-            EglSkiaRenderTarget::end_frame(self)
-        }
-        fn present_frame(&mut self) -> Result<()> {
-            EglSkiaRenderTarget::present_frame(self)
-        }
-        fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
-            EglSkiaRenderTarget::canvas_mut(self)
         }
     }
 
@@ -1087,10 +220,29 @@ mod app {
         fps: u32,
         frame_duration: Duration,
         window: Option<Window>,
-        gpu_target: Option<Box<dyn GpuRenderTarget>>,
+        presenter: Option<PreviewPresenter>,
         audio_playback: Option<AudioPlayback>,
         next_tick: Instant,
         fallback_frame_index: u32,
+    }
+
+    impl SeeApp {
+        fn preview_frame(
+            &mut self,
+            presenter: &mut PreviewPresenter,
+            frame_index: u32,
+        ) -> Result<()> {
+            presenter.render_frame(PreviewFrame {
+                pipeline: &mut self.pipeline,
+                media_ctx: &mut self.media_ctx,
+                executor: &mut self.executor,
+                generated_cache: &mut self.generated_cache,
+                width: self.width,
+                height: self.height,
+                frame_index,
+                render_scale: self.render_scale,
+            })
+        }
     }
 
     impl ApplicationHandler for SeeApp {
@@ -1104,7 +256,6 @@ mod app {
                 // EGL path needs an X11 display handle (pure Wayland wl_surface
                 // support would require wayland-egl). Backend forced via
                 // EventLoopBuilder::with_x11 below.
-                use raw_window_handle::HasDisplayHandle;
                 let x11_ok = event_loop
                     .display_handle()
                     .map_err(|e| anyhow!("display handle unavailable: {e}"))
@@ -1139,47 +290,21 @@ mod app {
                     return;
                 }
             };
-            // EGL does its own config selection on X11 and tolerates the window's
-            // default visual on Mesa/XWayland, so no x11 visual is needed.
-            let mut gpu_target =
-                match build_platform_render_target(&window, self.width, self.height) {
-                    Ok(target) => target,
-                    Err(error) => {
-                        eprintln!("failed to create render target: {error:#}");
-                        event_loop.exit();
-                        return;
-                    }
-                };
-            // 让 wgpu 加入本窗口的图形上下文，再把渲染器注入管线——这样 3D
-            // 输出纹理的 GL 名对本节点的 Skia 有效，合成时零拷贝导入。必须在
+            // 呈现器把 wgpu 加入本窗口的图形上下文，再把 3D 渲染器注入管线——
+            // 这样 3D 输出纹理对本节点的 Skia 有效，合成时零拷贝导入。必须在
             // 首帧渲染前完成（`preset` 只设一次）。后端不支持时保持懒初始化
             //（走 CPU 读回）。
-            match gpu_target.build_scene3_renderer() {
-                Ok(Some(renderer)) => {
-                    if let Err(error) = self.pipeline.scene3_renderer.preset(renderer) {
-                        eprintln!("failed to install shared 3D renderer: {error:#}");
-                        event_loop.exit();
-                        return;
-                    }
-                }
-                Ok(None) => {}
+            let mut presenter = match window_handle(&window).and_then(|handle| {
+                PreviewPresenter::for_window(handle, &self.pipeline, self.width, self.height)
+            }) {
+                Ok(presenter) => presenter,
                 Err(error) => {
-                    eprintln!("failed to build shared 3D renderer: {error:#}");
+                    eprintln!("failed to create render target: {error:#}");
                     event_loop.exit();
                     return;
                 }
-            }
-            if let Err(error) = render_pipeline_frame_to_gpu_target(
-                &mut self.pipeline,
-                &mut self.media_ctx,
-                &mut self.executor,
-                &mut self.generated_cache,
-                gpu_target.as_mut() as &mut dyn GpuRenderTarget,
-                self.width,
-                self.height,
-                0,
-                self.render_scale,
-            ) {
+            };
+            if let Err(error) = self.preview_frame(&mut presenter, 0) {
                 eprintln!("failed to render warmup frame: {error:#}");
                 event_loop.exit();
                 return;
@@ -1204,7 +329,7 @@ mod app {
                 .unwrap_or_else(|| Instant::now() + self.frame_duration);
             self.fallback_frame_index = 1 % self.total_frames;
             self.window = Some(window);
-            self.gpu_target = Some(gpu_target);
+            self.presenter = Some(presenter);
         }
 
         fn window_event(
@@ -1216,9 +341,9 @@ mod app {
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::RedrawRequested => {
-                    let (Some(gpu_target), Some(_window)) =
-                        (self.gpu_target.as_deref_mut(), self.window.as_ref())
-                    else {
+                    // 借出呈现器（`&mut self` 的 `preview_frame` 需要独占 self），
+                    // 画完再放回。
+                    let Some(mut presenter) = self.presenter.take() else {
                         return;
                     };
                     let frame_index = self
@@ -1226,17 +351,9 @@ mod app {
                         .as_ref()
                         .map(|playback| playback.frame_index(self.total_frames, self.fps))
                         .unwrap_or(self.fallback_frame_index);
-                    if let Err(error) = render_pipeline_frame_to_gpu_target(
-                        &mut self.pipeline,
-                        &mut self.media_ctx,
-                        &mut self.executor,
-                        &mut self.generated_cache,
-                        gpu_target,
-                        self.width,
-                        self.height,
-                        frame_index,
-                        self.render_scale,
-                    ) {
+                    let result = self.preview_frame(&mut presenter, frame_index);
+                    self.presenter = Some(presenter);
+                    if let Err(error) = result {
                         eprintln!("render error: {error:#}");
                         event_loop.exit();
                         return;
@@ -1361,7 +478,7 @@ mod app {
             fps,
             frame_duration: Duration::from_secs_f64(1.0 / fps as f64),
             window: None,
-            gpu_target: None,
+            presenter: None,
             audio_playback: None,
             next_tick: Instant::now(),
             fallback_frame_index: 1 % total_frames,

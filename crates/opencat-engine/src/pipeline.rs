@@ -46,8 +46,11 @@ pub struct EnginePipelineHost {
     /// Engine-owned resource owner: cached asset handles, fetcher, providers.
     pub loader: EngineLoader,
     /// 3D 光栅化器的渲染器（与注入 core 的 `Scene3Raster` 是同一实例）。
-    /// GPU 合成器靠它查 3D 输出纹理的 GL id；CPU 路径不用。
+    /// GPU 合成器靠它取 3D 输出纹理；CPU 路径不用。
     pub scene3_renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
+    /// 共享纹理登记处：3D 输出纹理与合成目标纹理的存活都归它管。
+    /// 生产方（`scene3_renderer`）与消费方（GPU 合成器、预览器）共用同一个。
+    pub textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
 }
 
 impl EnginePipelineHost {
@@ -274,11 +277,16 @@ fn open_parsed_host_owned_with_fonts(
     // 包装 [`TexturedRaster3d`]：把快照里的纹理**来源**（视频帧/位图路径）
     // 用 MediaContext 解码成位图表再交给 wgpu——core 与 opencat-three 都
     // 不碰媒体解码，像素不过 JSON 桥。
-    let scene3_renderer = std::sync::Arc::new(opencat_three::LazyRenderer3d::new());
+    // 共享纹理登记处：3D 输出纹理与合成目标纹理都登记在这里，宿主凭句柄
+    // 取用、归还。谁保活、谁归还全在这一处定（见 opencat-gpu-native）。
+    let textures = std::sync::Arc::new(opencat_gpu_native::TextureRegistry::new());
+    let scene3_renderer = std::sync::Arc::new(opencat_three::LazyRenderer3d::new(
+        textures.clone(),
+    ));
     pipeline.set_scene3_raster(std::sync::Arc::new(TexturedRaster3d {
         inner: scene3_renderer.clone(),
+        resolve_tx: std::sync::OnceLock::new(),
         gpu_mode,
-        ..Default::default()
     }));
     // 文档 base 目录：脚本内相对资产路径（GLTFGeometry 等）对它 join——
     // three.js GLTFLoader 相对 URL 语义的 opencat 对应物。
@@ -291,6 +299,7 @@ fn open_parsed_host_owned_with_fonts(
         pipeline,
         loader,
         scene3_renderer,
+        textures,
     })
 }
 
@@ -306,11 +315,11 @@ fn prepare_err(err: PrepareError) -> anyhow::Error {
 /// `Send`，不能跨线程移动——它在 worker 线程内构造并终身驻留，channel 只
 /// 携带 `Texture3`（来源，Send）进、`TextureBitmap3`（像素，Send）出。
 /// 逐帧顺序渲染下 worker 内的解码缓存与 2D 路径同温（顺序解码，不回 seek）。
-#[derive(Default)]
 struct TexturedRaster3d {
-    /// 3D 渲染器。宿主与光栅器共享同一实例：GPU 管线要靠它查纹理表，
-    /// 把 3D 渲染目标的 GL texture id 交给 Skia。
+    /// 3D 渲染器。宿主与光栅器共享同一实例：GPU 管线要靠它把 3D 渲染
+    /// 目标登记到共享纹理表，消费方凭凭据取用。
     inner: std::sync::Arc<opencat_three::LazyRenderer3d>,
+    /// 纹理解析 worker 的发送端（懒建，首个带纹理的场景才起线程）。
     resolve_tx: std::sync::OnceLock<std::sync::mpsc::Sender<TextureResolveJob>>,
     /// GPU 管线开关（默认开，`OC_GPU_PIPELINE=0` 关）：3D 输出留在显存，
     /// 交给 Skia 零拷贝导入，跳过 wgpu→CPU 的整帧回读。

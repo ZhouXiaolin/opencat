@@ -18,8 +18,14 @@ use crate::media::MediaContext;
 ///
 /// 实现方是 [`crate::gpu_compositor::CompositorResolver`]（在 GL 锁内调用）。
 pub trait GpuImageResolver {
-    /// `texture` 是句柄携带的裸 GL 纹理名。
-    fn import(&mut self, texture: u32, width: u32, height: u32) -> anyhow::Result<Image>;
+    /// `id` 是句柄携带的共享纹理凭据（见
+    /// [`opencat_core::ir::generated_image::GpuImageHandle::token`]）。
+    fn import(
+        &mut self,
+        id: opencat_gpu_native::TextureId,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<Image>;
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +353,8 @@ fn prepare_frame(
                         .into(),
                 }
             })?;
-            let sk_image = resolver.import(handle.texture, entry.width, entry.height).map_err(|e| {
+            let id = opencat_gpu_native::TextureId::from_raw(handle.token);
+            let sk_image = resolver.import(id, entry.width, entry.height).map_err(|e| {
                 MediaError::GeneratedImageDecodeFailed {
                     id: entry.id,
                     detail: format!("GPU texture import failed: {e}"),

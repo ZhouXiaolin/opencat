@@ -91,6 +91,7 @@ pub(crate) fn save_composite_layer(
     css_filter: &CssFilter,
     backdrop_blur: Option<f32>,
     bounds: DisplayRect,
+    backdrop_bounds: DisplayRect,
 ) -> BackdropLayerState {
     let uses_css_filter = !css_filter.is_identity();
     let uses_layer = opacity < 1.0 || backdrop_blur.is_some() || uses_css_filter;
@@ -151,8 +152,12 @@ pub(crate) fn save_composite_layer(
             has_backdrop_clip = true;
             // Backdrop semantics: the blur applies to what's beneath this
             // node's bounds; the node's own subtree paints unfiltered inside.
+            // `bounds` carries the *element* rect — CSS backdrop-filter is
+            // clipped to the border box, not to the shadow-padded layer
+            // bounds the box-shadow needs.
+            let backdrop_rect4 = display_rect_to_rect4(backdrop_bounds);
             builder.push(DrawOp::SaveBackdropLayer {
-                bounds: Some(bounds_rect4),
+                bounds: Some(backdrop_rect4),
                 paint: Some(paint_id),
             });
         } else if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
@@ -241,6 +246,7 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
         plan.css_filter,
         plan.backdrop_blur_sigma,
         plan.layer_bounds,
+        plan.transform.bounds,
     );
     ApplyFrame { layer_state }
 }

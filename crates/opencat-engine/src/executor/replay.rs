@@ -27,10 +27,65 @@ pub fn replay_frame(
         cache_hits: 0,
     };
 
+    // CSS `backdrop-filter` 两遍法：这版 Skia 的 `SaveLayerRec::backdrop`
+    // 嵌套在祖先层内会静默失效（BackdropProbes 单测），预录每个 backdrop 层
+    // 之前的 op，层内 `draw_picture` + filter 打底，绕开嵌套限制。
+    exec.backdrop_pictures = build_backdrop_pictures(exec, draw, media)?;
+    exec.backdrop_next = 0;
+    exec.backdrop_building = false;
     for op in &draw.ops {
         replay_op(exec, canvas, draw, media, op)?;
     }
+    exec.backdrop_pictures.clear();
     Ok(stats)
+}
+
+fn build_backdrop_pictures(
+    exec: &mut EngineDrawExecutor,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+) -> Result<Vec<Picture>, DrawError> {
+    let count = draw
+        .ops
+        .iter()
+        .filter(|op| matches!(op, DrawOp::SaveBackdropLayer { .. }))
+        .count();
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    // 预录期间计数器停用：前缀里若再遇到更早的 backdrop 层，走原始 Skia
+    // 路径（嵌套 backdrop 本就失效，不影响「层前内容」的近似）。
+    exec.backdrop_building = true;
+    let mut pictures = Vec::with_capacity(count);
+    for (i, op) in draw.ops.iter().enumerate() {
+        if !matches!(op, DrawOp::SaveBackdropLayer { .. }) {
+            continue;
+        }
+        let mut recorder = PictureRecorder::new();
+        // cull 只参与 bounds 估计，op 可画出界：给一个覆盖任意合成的巨矩形。
+        let rec_canvas =
+            recorder.begin_recording(Rect::new(-1.0e6, -1.0e6, 1.0e6, 1.0e6), false);
+        replay_range(
+            exec,
+            rec_canvas,
+            draw,
+            media,
+            DrawOpRange {
+                start_op: 0,
+                op_len: i as u32,
+            },
+        )?;
+        drop(rec_canvas);
+        pictures.push(
+            recorder
+                .finish_recording_as_picture(None)
+                .ok_or_else(|| {
+                    DrawError("backdrop 前缀录制失败（recorder 处于无效状态）".to_string())
+                })?,
+        );
+    }
+    exec.backdrop_building = false;
+    Ok(pictures)
 }
 
 fn replay_range(
@@ -408,27 +463,61 @@ fn replay_op(
             // already drawn beneath the layer bounds; the layer's own content
             // composites unfiltered on top.
             let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
-            match paint {
-                Some(pid) => {
-                    let spec = &draw.paints[pid.0 as usize];
-                    let backdrop = spec.image_filter.as_ref().and_then(build_skia_image_filter);
-                    let mut sk_paint = paint_from_spec(spec);
-                    // Detach the filter from the content paint — it belongs to
-                    // the backdrop slot, not the layer contents.
-                    sk_paint.set_image_filter(None);
-                    let mut rec = skia_safe::canvas::SaveLayerRec::default().paint(&sk_paint);
-                    if let Some(ref filter) = backdrop {
-                        rec = rec.backdrop(filter);
-                    }
-                    let rec = match sk_rect {
-                        Some(ref r) => rec.bounds(r),
-                        None => rec,
-                    };
-                    canvas.save_layer(&rec);
+            let Some(pid) = paint else {
+                canvas.save_layer_alpha(sk_rect, 255);
+                return Ok(());
+            };
+            let spec = &draw.paints[pid.0 as usize];
+            let backdrop = spec.image_filter.as_ref().and_then(build_skia_image_filter);
+            let mut sk_paint = paint_from_spec(spec);
+            // Detach the filter from the content paint — it belongs to
+            // the backdrop slot, not the layer contents.
+            sk_paint.set_image_filter(None);
+
+            // Two-pass: this Skia silently drops `SaveLayerRec::backdrop`
+            // when the layer nests inside another layer (BackdropProbes).
+            // Draw the pre-recorded prefix as the layer base instead —
+            // `draw_picture` with an image filter rasterizes the whole
+            // picture offscreen, filters it, then composites, which matches
+            // "blur what is already beneath" exactly.
+            let slot = exec.backdrop_next;
+            let use_snapshot =
+                !exec.backdrop_building && backdrop.is_some() && slot < exec.backdrop_pictures.len();
+            if !exec.backdrop_building {
+                exec.backdrop_next += 1;
+            }
+            if use_snapshot {
+                let picture = &exec.backdrop_pictures[slot];
+                // 层不设 bounds：box-shadow 需要越界绘制。backdrop 的显示
+                // 范围由 `bounds`（元素 border box）单独裁剪——CSS 语义里
+                // 毛玻璃只出现在元素自身区域内。
+                let rec = skia_safe::canvas::SaveLayerRec::default().paint(&sk_paint);
+                canvas.save_layer(&rec);
+                canvas.save();
+                if let Some(ref r) = sk_rect {
+                    canvas.clip_rect(
+                        Rect::new(r.left, r.top, r.right, r.bottom),
+                        skia_safe::ClipOp::Intersect,
+                        false,
+                    );
                 }
-                None => {
-                    canvas.save_layer_alpha(sk_rect, 255);
+                // picture 记录了录制时的矩阵（从 identity 开始的前缀），回放
+                // 必须回到同一坐标系，否则前缀内容被当前 CTM 二次变换。
+                canvas.set_matrix(&skia_safe::M44::default());
+                let mut base = Paint::default();
+                base.set_image_filter(backdrop);
+                canvas.draw_picture(picture, None, Some(&base));
+                canvas.restore();
+            } else {
+                let mut rec = skia_safe::canvas::SaveLayerRec::default().paint(&sk_paint);
+                if let Some(ref filter) = backdrop {
+                    rec = rec.backdrop(filter);
                 }
+                rec = match sk_rect {
+                    Some(ref r) => rec.bounds(r),
+                    None => rec,
+                };
+                canvas.save_layer(&rec);
             }
             Ok(())
         }
@@ -945,12 +1034,21 @@ fn replay_op(
             Ok(())
         }
 
-        DrawOp::ReplayRange { range } => replay_range(exec, canvas, draw, media, *range),
+        DrawOp::ReplayRange { range } => {
+            // 子树有自己的 op 空间：backdrop 槽位指针存取，防止子树内的
+            // （当前不会下发的）backdrop 层错位消费顶层 plan。
+            let saved = exec.backdrop_next;
+            let r = replay_range(exec, canvas, draw, media, *range);
+            exec.backdrop_next = saved;
+            r
+        }
 
         DrawOp::ReplaySubtreePicture { subtree, x, y } => {
             canvas.save();
             canvas.translate(Vector::new(*x, *y));
+            let saved = exec.backdrop_next;
             let result = replay_subtree(exec, canvas, draw, media, *subtree);
+            exec.backdrop_next = saved;
             canvas.restore();
             result
         }

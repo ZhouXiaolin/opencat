@@ -1374,9 +1374,10 @@ fn draw_per_side_borders(
     }
 }
 
-/// Paint a node's background layers onto its box (fills bottom-up, honouring
-/// the corner radius). Shared by `render_rect` and the inline-box background
-/// painted behind text glyphs (`TextDisplayItem::background`).
+/// Paint a node's background layers onto its box (CSS order: the first layer
+/// is closest to the viewer, so paint it last), honouring the corner radius.
+/// Shared by `render_rect` and the inline-box background painted behind text
+/// glyphs (`TextDisplayItem::background`).
 pub(crate) fn paint_background_box(
     builder: &mut DrawOpBuilder,
     bounds: DisplayRect,
@@ -1390,7 +1391,7 @@ pub(crate) fn paint_background_box(
     let rect = kurbo_rect(bounds);
     let radii = effective_corner_radius(&rect, border_radius);
     let has_radius = radii.iter().any(|&r| r > 0.0);
-    for background in background {
+    for background in background.iter().rev() {
         let paint_spec = background_fill_to_paint_spec(background, rect, blend_mode);
         let paint_id = builder.intern_paint(paint_spec);
         if has_radius {
@@ -1430,8 +1431,8 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     // also paints a background, so this item-level pass deliberately does not.
 
     if !style.background.is_empty() {
-        // 多层背景：按声明顺序从底到顶绘制（第一层在最底）。
-        for background in &style.background {
+        // CSS 多层背景：第一层最靠近观察者（最上），从最后一层画到第一层。
+        for background in style.background.iter().rev() {
             let paint_spec = background_fill_to_paint_spec(background, rect, style.blend_mode);
             let paint_id = builder.intern_paint(paint_spec);
             if has_radius {
@@ -1804,6 +1805,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         &node.css_filter,
         node.backdrop_blur_sigma,
         bounds,
+        node.transform.bounds,
     );
 
     match &node.item {

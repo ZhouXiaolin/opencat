@@ -1,27 +1,63 @@
-//! 裸 GL 原语（Windows/WGL）：wgpu 与 Skia 都不提供的 FBO 与 PBO 管理。
+//! 裸 GL 原语（Windows/WGL、Linux/EGL）：wgpu 与 Skia 都不提供的 FBO 与
+//! PBO 管理。
 //!
 //! 全片 GPU 化时 Skia 合成到一个自建 FBO 上（附着一张 wgpu 建的 GL
 //! 纹理）：wgpu 只提供纹理、不提供 FBO，Skia 的 `wrap_backend_render_target`
 //! 需要一个已存在的 FBO id，所以这几个入口只能直接调 GL。PBO 双缓冲读回
 //! （[`ReadbackPixels`]）同理——Skia 没有暴露异步读回。
 //!
-//! 入口经 `wglGetProcAddress` 解析（FBO 属 GL 3.0+ / `ARB_framebuffer_object`，
-//! 不在 opengl32.dll 的 1.1 导出表里）；`glReadPixels` 是 GL 1.0，直接由
-//! opengl32.dll 导出，**不走** `wglGetProcAddress`。调用线程必须有 current
+//! 入口解析分平台：Windows 经 `wglGetProcAddress`（GL 1.0 的
+//! glReadPixels/glReadBuffer 由 opengl32.dll 直接导出，**不走**
+//! `wglGetProcAddress`）；Linux 走 [`crate::egl::load_proc`]（libGL dlsym
+//! 优先，EGL `eglGetProcAddress` 补扩展）。调用线程必须有 current
 //! 的 GL context——调用方经 `opencat_three::Renderer3d::with_context` 保证。
 
-use std::ffi::CString;
 use std::os::raw::c_void;
 
 use anyhow::{Result, anyhow};
 
 use crate::NativeTexture;
 
-#[link(name = "opengl32")]
-unsafe extern "system" {
-    fn wglGetProcAddress(name: *const u8) -> *const c_void;
-    /// GL 1.0，由 opengl32.dll 直接导出，**不走** `wglGetProcAddress`。
-    fn glReadPixels(
+#[cfg(target_os = "windows")]
+mod entry {
+    use std::ffi::CString;
+    use std::os::raw::c_void;
+
+    #[link(name = "opengl32")]
+    unsafe extern "system" {
+        pub fn wglGetProcAddress(name: *const u8) -> *const c_void;
+        /// GL 1.0，由 opengl32.dll 直接导出，**不走** `wglGetProcAddress`。
+        pub fn glReadPixels(
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            format: u32,
+            ty: u32,
+            pixels: *mut c_void,
+        );
+        /// GL 1.0，同上。FBO 的读缓冲是 FBO 自身状态，Skia 读过之后可能被留在
+        /// 非 `COLOR_ATTACHMENT0` 的值上，必须每次显式设回来。
+        pub fn glReadBuffer(mode: u32);
+    }
+
+    /// 解析一个 GL 入口点。
+    ///
+    /// `wglGetProcAddress` 对已知函数可能返回 1/2/3/`usize::MAX` 这类哨兵值
+    /// （规范允许），必须过滤，否则会当成合法指针调用。
+    pub fn gl_proc(name: &str) -> *const c_void {
+        let Ok(c) = CString::new(name) else {
+            return std::ptr::null();
+        };
+        let p = unsafe { wglGetProcAddress(c.as_ptr() as *const u8) };
+        if matches!(p as usize, 0 | 1 | 2 | 3 | usize::MAX) {
+            std::ptr::null()
+        } else {
+            p
+        }
+    }
+
+    pub unsafe fn read_pixels(
         x: i32,
         y: i32,
         width: i32,
@@ -29,11 +65,54 @@ unsafe extern "system" {
         format: u32,
         ty: u32,
         pixels: *mut c_void,
-    );
-    /// GL 1.0，同上。FBO 的读缓冲是 FBO 自身状态，Skia 读过之后可能被留在
-    /// 非 `COLOR_ATTACHMENT0` 的值上，必须每次显式设回来。
-    fn glReadBuffer(mode: u32);
+    ) {
+        unsafe { glReadPixels(x, y, width, height, format, ty, pixels) }
+    }
+
+    pub unsafe fn read_buffer(mode: u32) {
+        unsafe { glReadBuffer(mode) }
+    }
 }
+
+#[cfg(target_os = "linux")]
+mod entry {
+    use std::os::raw::c_void;
+
+    use crate::egl::load_proc;
+
+    type GlReadPixels = unsafe extern "system" fn(i32, i32, i32, i32, u32, u32, *mut c_void);
+    type GlReadBuffer = unsafe extern "system" fn(u32);
+
+    /// Linux 上没有 opengl32 式的静态链接 GL：全部入口运行时解析。
+    /// glReadPixels/glReadBuffer 是 GL 1.0，libGL 的导出表里有。
+    pub fn gl_proc(name: &str) -> *const c_void {
+        load_proc(name)
+    }
+
+    pub unsafe fn read_pixels(
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        format: u32,
+        ty: u32,
+        pixels: *mut c_void,
+    ) {
+        let p = gl_proc("glReadPixels");
+        assert!(!p.is_null(), "glReadPixels 不可用（libGL 缺失？）");
+        let f: GlReadPixels = unsafe { std::mem::transmute(p) };
+        unsafe { f(x, y, width, height, format, ty, pixels) }
+    }
+
+    pub unsafe fn read_buffer(mode: u32) {
+        let p = gl_proc("glReadBuffer");
+        assert!(!p.is_null(), "glReadBuffer 不可用（libGL 缺失？）");
+        let f: GlReadBuffer = unsafe { std::mem::transmute(p) };
+        unsafe { f(mode) }
+    }
+}
+
+use entry::{gl_proc, read_buffer, read_pixels};
 
 /// Skia 的 `gpu::gl::TextureInfo` 要填的目标与内部格式（GL 枚举）。
 ///
@@ -51,22 +130,6 @@ const GL_STREAM_READ: u32 = 0x88E1;
 const GL_MAP_READ_BIT: u32 = 0x0001;
 const GL_RGBA: u32 = 0x1908;
 const GL_UNSIGNED_BYTE: u32 = 0x1401;
-
-/// 解析一个 GL 入口点。
-///
-/// `wglGetProcAddress` 对已知函数可能返回 1/2/3/`usize::MAX` 这类哨兵值
-/// （规范允许），必须过滤，否则会当成合法指针调用。
-fn gl_proc(name: &str) -> *const c_void {
-    let Ok(c) = CString::new(name) else {
-        return std::ptr::null();
-    };
-    let p = unsafe { wglGetProcAddress(c.as_ptr() as *const u8) };
-    if matches!(p as usize, 0 | 1 | 2 | 3 | usize::MAX) {
-        std::ptr::null()
-    } else {
-        p
-    }
-}
 
 /// 建一个以 `tex` 为颜色附件的 FBO，返回 FBO id。
 ///
@@ -284,9 +347,9 @@ impl ReadbackPixels {
             bind(GL_PIXEL_PACK_BUFFER, self.slots[slot]);
             bind_fbo(GL_FRAMEBUFFER, self.fbo);
             // 读缓冲是 FBO 的状态，Skia 未必留在 `COLOR_ATTACHMENT0` 上。
-            glReadBuffer(GL_COLOR_ATTACHMENT0);
+            read_buffer(GL_COLOR_ATTACHMENT0);
             // 目标指针为 null 即「写进当前绑定的 PBO」，立即返回。
-            glReadPixels(
+            read_pixels(
                 0,
                 0,
                 self.width as i32,

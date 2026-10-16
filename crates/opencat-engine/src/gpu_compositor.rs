@@ -1,4 +1,4 @@
-//! Skia GPU 合成器（Windows / GL 后端）。
+//! Skia GPU 合成器（Windows=WGL / Linux=EGL 的 GL 后端）。
 //!
 //! 全片 GPU 化时，Skia 不再光栅到 CPU surface，而是在一块自建 GL FBO 上
 //! 合成；`ctx.three` 的 3D 输出以 GL texture id 零拷贝导入（见
@@ -61,8 +61,20 @@ impl GpuCompositor {
         width: u32,
         height: u32,
     ) -> Result<Self> {
-        let interface =
-            gpu::interfaces::make_win().ok_or_else(|| anyhow!("Skia make_win interface 失败"))?;
+        let interface = {
+            #[cfg(target_os = "windows")]
+            {
+                gpu::interfaces::make_win()
+                    .ok_or_else(|| anyhow!("Skia make_win interface 失败"))?
+            }
+            #[cfg(target_os = "linux")]
+            {
+                // 与 wgpu 的 EGL context 同一驱动栈；核心入口经 libGL dlsym，
+                // 扩展经 eglGetProcAddress（见 opencat_gpu_native::egl::load_proc）。
+                gpu::gl::Interface::new_load_with(opencat_gpu_native::egl::load_proc)
+                    .ok_or_else(|| anyhow!("Skia GL 接口构建失败（EGL/libGL 入口缺失？）"))?
+            }
+        };
         let mut skia = gpu::direct_contexts::make_gl(interface, None)
             .ok_or_else(|| anyhow!("Skia make_gl 失败"))?;
 
@@ -87,6 +99,7 @@ impl GpuCompositor {
             None,
         )
         .ok_or_else(|| anyhow!("wrap_backend_render_target 失败"))?;
+
 
         Ok(Self {
             skia,

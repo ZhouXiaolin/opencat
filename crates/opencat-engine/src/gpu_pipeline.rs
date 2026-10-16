@@ -30,9 +30,9 @@ pub fn requested() -> bool {
 
 /// 实际生效的 GPU 管线开关。
 ///
-/// 纹理共享的合成器目前只有 Windows GL 后端实现（见
-/// [`crate::gpu_compositor`]）。其他平台即使开着也走 CPU——
+/// 纹理共享的合成器目前有 Windows（WGL）与 Linux（EGL）两个 GL 后端实现
+/// （见 [`crate::gpu_compositor`]）。其他平台即使开着也走 CPU——
 /// 否则 3D 会产出 GPU 句柄，而 CPU 合成器无法消费。
 pub fn enabled() -> bool {
-    cfg!(target_os = "windows") && requested()
+    cfg!(any(target_os = "windows", target_os = "linux")) && requested()
 }

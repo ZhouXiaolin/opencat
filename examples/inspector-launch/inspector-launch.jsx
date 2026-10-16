@@ -1,5 +1,5 @@
 /* inspector-launch — HyperFrames "Inspector Launch V1" port (44.97s @ 30fps).
- * Reference: F:/hyperframes-launches/inspector-launch/index.html
+ * Reference: /Users/solaren/Projects/hyperframes-launches/inspector-launch/index.html
  *
  * Architecture:
  *  - #global-halftone: reference paints a 1600x1220 canvas upscaled to

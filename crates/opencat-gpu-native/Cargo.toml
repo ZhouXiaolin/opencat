@@ -13,3 +13,10 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Graphics_OpenGL",
     "Win32_System_LibraryLoader",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# EGL 上下文/表面管理（`dynamic` 运行时加载 libEGL.so.1，无需 pkg-config
+# 构建依赖）。Skia 的 binary-cache 构建是 EGL-only（GL 函数解析走
+# eglGetProcAddress），所以 Linux 用 EGL 而不是 GLX。
+khronos-egl = { version = "6", features = ["dynamic"] }
+libc = "0.2"

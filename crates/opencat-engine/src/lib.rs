@@ -7,7 +7,7 @@
 pub mod consumer;
 pub mod executor;
 pub mod fonts;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod gpu_compositor;
 pub mod gpu_pipeline;
 pub mod inspect;

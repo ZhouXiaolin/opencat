@@ -107,12 +107,12 @@ fn render_pipeline_frame_to_rgba(
     Ok(rgba)
 }
 
-/// GPU 合成路径的会话状态（Windows / GL 后端）。
+/// GPU 合成路径的会话状态（Windows=WGL / Linux=EGL 的 GL 后端）。
 ///
 /// 持有 Skia GPU 合成器与它背后的 wgpu 渲染器。**锁纪律**：合成器的每个
 /// 方法都必须在 `renderer.with_context` 的锁内调用（见
 /// [`crate::gpu_compositor`] 的模块文档）。
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub struct GpuRenderSession {
     compositor: crate::gpu_compositor::GpuCompositor,
     renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
@@ -120,7 +120,7 @@ pub struct GpuRenderSession {
     textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 impl GpuRenderSession {
     /// 建一个 `width × height` 的 GPU 合成会话。
     pub fn new(
@@ -273,19 +273,19 @@ impl GpuRenderSession {
     }
 }
 
-/// 逐帧渲染器：CPU 光栅，或（Windows + GL 后端）GPU 合成。
+/// 逐帧渲染器：CPU 光栅，或（GL 后端）GPU 合成。
 ///
 /// 选择只发生在会话建立时，两种路径逐帧产出同样的 RGBA 尺寸与 alpha 约定
 /// （premul），所以编码分支无需分叉。
 enum FrameRenderer {
     Cpu,
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     Gpu(Box<GpuRenderSession>),
 }
 
 impl FrameRenderer {
     fn new(pipeline: &crate::EnginePipeline, width: u32, height: u32) -> Result<Self> {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if crate::gpu_pipeline::requested() {
             return Ok(Self::Gpu(Box::new(GpuRenderSession::new(
                 pipeline.scene3_renderer.clone(),
@@ -318,7 +318,7 @@ impl FrameRenderer {
                 frame_index,
             )
             .map(Some),
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             Self::Gpu(session) => {
                 session.render_frame(pipeline, media_ctx, executor, generated_cache, frame_index)
             }
@@ -350,7 +350,7 @@ impl FrameRenderer {
                 height,
                 frame_index,
             ),
-            #[cfg(target_os = "windows")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             Self::Gpu(session) => session.render_frame_blocking(
                 pipeline,
                 media_ctx,

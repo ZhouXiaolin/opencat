@@ -16,7 +16,8 @@
 //! 宿主接入：像素数据 / 渲染目标是后端无关抽象（[`pixel`] ——
 //! [`pixel::RenderTarget`] 由 Skia surface / CPU / 将来的 wgpu 各自实例化）；
 //! CPU 内核经 [`exec`] 落到宿主缓冲，SKSL 内核交付 codegen 源码由宿主
-//! 绘制期执行。JS 侧命名空间为 `ly`（`ly.kernel` / `ly.scan` / `ly.target`）。
+//! 绘制期执行。JS 侧命名空间为 `ly`（`ly.pixel` / `ly.scan` / `ly.draw` /
+//! `ly.surface`）。
 
 pub mod error;
 pub mod exec;
@@ -65,7 +66,7 @@ pub fn sksl_execution_plan(sksl: &str) -> ExecutionPlan {
     }
 }
 
-/// JS 侧 spec（`ly.kernel(fn, spec)` / `ly.scan(fn, spec)` 的内核注解）
+/// JS 侧 spec（`ly.pixel(fn, spec)` / `ly.scan(fn, spec)` 的内核注解）
 /// 反序列化后的形态。uniforms 保持声明序——顺序即 f32 打包顺序，
 /// 必须与 JS 传参一致。
 #[derive(Debug, Clone, Default)]

@@ -20,11 +20,115 @@ use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
-    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, G2_API_RUNTIME, G2_BUNDLE, JSX_RUNTIME,
+    NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
 };
+
+// JS platform globals V8 does not ship, needed by the G2 bundle at
+// load time (TextEncoder) and by G2's font loading at render time.
+const JS_PLATFORM_SHIM: &str = r#"
+(function () {
+    if (typeof globalThis.TextEncoder === 'undefined') {
+        globalThis.TextEncoder = function TextEncoder() {};
+        globalThis.TextEncoder.prototype.encode = function (input) {
+            var out = [];
+            var text = String(input == null ? '' : input);
+            for (var i = 0; i < text.length; i++) {
+                var code = text.charCodeAt(i);
+                if (code < 0x80) out.push(code);
+                else if (code < 0x800) out.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+                else out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
+            }
+            return new Uint8Array(out);
+        };
+    }
+    if (typeof globalThis.TextDecoder === 'undefined') {
+        globalThis.TextDecoder = function TextDecoder() {};
+        globalThis.TextDecoder.prototype.decode = function (bytes) {
+            if (!bytes) return '';
+            var out = '';
+            for (var i = 0; i < bytes.length;) {
+                var b = bytes[i++];
+                if (b < 0x80) out += String.fromCharCode(b);
+                else if (b < 0xe0) out += String.fromCharCode(((b & 0x1f) << 6) | (bytes[i++] & 0x3f));
+                else out += String.fromCharCode(((b & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f));
+            }
+            return out;
+        };
+    }
+    if (typeof globalThis.Blob === 'undefined') {
+        globalThis.Blob = function Blob(parts) {
+            this.parts = parts || [];
+            this.size = this.parts.reduce(function (sum, part) {
+                return sum + (part && part.length ? part.length : 0);
+            }, 0);
+            this.type = '';
+        };
+    }
+    // A synchronous frame queue. g's `Canvas` takes `requestAnimationFrame`
+    // from `raf.bind(root)` at bundle-eval time (see its raf-polyfill), so the
+    // implementation has to be on the global *before* the bundle runs: the
+    // bundle caches the reference and re-assigns it to itself. This is the
+    // same queue the G2 host runtime drains, so a queued callback runs at the
+    // next frame boundary and never on a host timer.
+    // The bundle's raf-polyfill resolves its `root` through `self.self === self`
+    // (then `global`) at bundle-eval time and CACHES the reference. The DOM
+    // shims install later, inside the first frame, so without these aliases
+    // `root` lands on `{}` and the polyfill's setTimeout variant is what g's
+    // Canvas captures — which never fires in this realm.
+    if (typeof globalThis.self !== 'object' || globalThis.self === null) globalThis.self = globalThis;
+    if (typeof globalThis.global !== 'object' || globalThis.global === null) globalThis.global = globalThis;
+    if (typeof globalThis.__ocG2RafQueue !== 'object' || globalThis.__ocG2RafQueue === null) {
+        globalThis.__ocG2RafQueue = [];
+    }
+    if (typeof globalThis.__ocG2RafNextId !== 'number') {
+        globalThis.__ocG2RafNextId = 1;
+    }
+    globalThis.requestAnimationFrame = function (callback) {
+        globalThis.__ocG2RafQueued = (globalThis.__ocG2RafQueued || 0) + 1;
+        globalThis.__ocG2RafQueueLenAtRegister = globalThis.__ocG2RafQueue.length;
+        globalThis.__ocG2RafQueue.push(callback);
+        return globalThis.__ocG2RafNextId++;
+    };
+    globalThis.cancelAnimationFrame = function (id) {
+        var queue = globalThis.__ocG2RafQueue;
+        for (var i = 0; i < queue.length; i++) {
+            if (queue[i].__ocG2RafId === id) { queue.splice(i, 1); return true; }
+        }
+        return false;
+    };
+    if (typeof globalThis.navigator !== 'object' || globalThis.navigator === null) {
+        globalThis.navigator = {};
+    }
+    // g-plugin-dragndrop branches on this at init; the offline frame has no
+    // pointer input, so the mouse path is the one that fits.
+    if (typeof globalThis.navigator.msPointerEnabled !== 'boolean') {
+        globalThis.navigator.msPointerEnabled = false;
+    globalThis.console = globalThis.console || {
+        log: function () { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.log ' + Array.prototype.join.call(arguments, ' ')); },
+        warn: function () { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.warn ' + Array.prototype.join.call(arguments, ' ')); },
+        error: function () { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.error ' + Array.prototype.join.call(arguments, ' ')); },
+    };
+    }
+    if (typeof globalThis.navigator.userAgent !== 'string') {
+        globalThis.navigator.userAgent = 'opencat';
+    }
+    if (typeof globalThis.URL !== 'object' || globalThis.URL === null) globalThis.URL = {};
+    if (typeof globalThis.URL.createObjectURL !== 'function') {
+        globalThis.URL.createObjectURL = function () { return 'blob:opencat'; };
+        globalThis.URL.revokeObjectURL = function () {};
+    }
+})();
+"#;
+
+/// Upper bound on promise-continuation drains after a driver frame. One frame
+/// of a chart rebuild resolves a handful of chained promises (fonts, the first
+/// draw, the animation clock); this only has to cover that, and stops the
+/// realm from spinning if a user script loops on promises.
+const MICROTASK_DRAIN_PASSES: usize = 32;
 
 /// Pipeline-owned script realm: one JS context, many drivers, shared state.
 pub struct ScriptRealm<C: JsContext> {
@@ -80,6 +184,14 @@ impl<C: JsContext> ScriptRealm<C> {
         Self::new(C::new()?)
     }
 
+    /// Evaluate an expression in this realm's context and return it as JSON.
+    ///
+    /// Test and diagnostic surface; the trait's default returns `Null` for
+    /// backends without a probe path.
+    pub fn eval_json_for_test(&self, code: &str) -> serde_json::Value {
+        self.ctx.eval_json(code).unwrap_or(serde_json::Value::Null)
+    }
+
     pub fn ctx(&self) -> &C {
         &self.ctx
     }
@@ -133,6 +245,12 @@ impl<C: JsContext> ScriptRealm<C> {
         self.ctx.eval(NODE_STYLE_RUNTIME)?;
         self.ctx.eval(CANVAS_API_RUNTIME)?;
         self.ctx.eval(THREE_API_RUNTIME)?;
+        // G2 charts. The bundle is a browser IIFE: it needs the JS-platform
+        // globals first and it must see the CanvasKit facade
+        // `CANVAS_API_RUNTIME` installs — both are satisfied here.
+        self.ctx.eval(JS_PLATFORM_SHIM)?;
+        self.ctx.eval(G2_BUNDLE)?;
+        self.ctx.eval(G2_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
         // JSX frontend: h() + use* registry + module loader. Pure-XML
         // compositions simply never call into it.
@@ -287,6 +405,38 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             )
             .entered();
             self.ctx.call_global_fn(&fn_name)?;
+        }
+        // A promise continuation only queues; it does not draw yet. The G2
+        // render loop starts its draw pass after a `Promise.all` resolves, so
+        // one checkpoint after the driver is not enough — drain until the
+        // queue stops making progress, bounded so a runaway loop cannot hang
+        // the frame.
+        {
+            #[cfg(feature = "profile")]
+            let _span = tracing::span!(
+                target: "render.scene",
+                tracing::Level::TRACE,
+                "script_drain_microtasks"
+            )
+            .entered();
+            for _ in 0..MICROTASK_DRAIN_PASSES {
+                self.ctx.run_microtasks();
+                // A continuation that reached a frame boundary queues a render
+                // pass; run it, then keep draining: G2's own render resolves
+                // only after two nested frame callbacks, so the pass that
+                // registers the next one has to happen here rather than on the
+                // next composition frame.
+                self.ctx.eval("__ocG2Flush();")?;
+                let queued = self
+                    .ctx
+                    .eval_json("globalThis.__ocG2RafQueue.length")
+                    .ok()
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if queued == 0 {
+                    break;
+                }
+            }
         }
         {
             #[cfg(feature = "profile")]

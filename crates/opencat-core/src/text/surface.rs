@@ -4,7 +4,7 @@
 //! 行）依赖三个 DOM canvas 2D 能力：真字体 `fillText`、`measureText`
 //! （ink box）、`getImageData` 像素读回。本模块在 core 内以 fontdb + swash
 //! 直接实现这三者，不依赖 Skia（core 无渲染后端）。surface 同时是脚本的
-//! render target（`runEffect` / `scanPass` / `bake` 的目标缓冲）。
+//! render target（`target.apply` / `target.sweep` 的目标缓冲）。
 //!
 //! 语义锚定（canvas 2D / Chrome）：
 //! - advance = hmtx 横向步进之和，**无 kerning**（handoff §14.3-4：canvas
@@ -34,6 +34,10 @@ struct Surface {
     width: u32,
     height: u32,
     rgba: Vec<u8>,
+    /// 内容世代：每次写入（clear / fillText / run / sweep / 整图写回）自增。
+    /// 供 SKSL 路径把 surface 自动烘成帧级生成图像时推导确定性 key ——
+    /// 世代相同 ⟺ 内容相同，所以同 key 异像素的碰撞不可能发生。
+    generation: u64,
 }
 
 thread_local! {
@@ -60,6 +64,7 @@ pub fn surface_create(id: &str, width: u32, height: u32) -> Result<()> {
                 width,
                 height,
                 rgba: vec![0u8; len],
+                generation: 0,
             },
         );
     });
@@ -70,7 +75,7 @@ fn with_surface<R>(id: &str, f: impl FnOnce(&mut Surface) -> Result<R>) -> Resul
     SURFACES.with(|s| {
         let mut map = s.borrow_mut();
         let Some(surface) = map.get_mut(id) else {
-            bail!("surface `{id}`: not created (ctx.createSurface first)");
+            bail!("surface `{id}`: not created (ly.surface first)");
         };
         f(surface)
     })
@@ -79,6 +84,12 @@ fn with_surface<R>(id: &str, f: impl FnOnce(&mut Surface) -> Result<R>) -> Resul
 /// 查询一张 surface 的 (width, height)。
 pub fn surface_dimensions(id: &str) -> Result<(u32, u32)> {
     with_surface(id, |surface| Ok((surface.width, surface.height)))
+}
+
+/// 查询一张 surface 的内容世代（每次写入自增）。SKSL 路径把 surface 自动
+/// 烘成帧级生成图像时，用它拼确定性 key：世代相同即内容相同。
+pub fn surface_generation(id: &str) -> Result<u64> {
+    with_surface(id, |surface| Ok(surface.generation))
 }
 
 /// 清空一个子矩形为透明黑（canvas clearRect 语义；四边形参数向内裁剪）。
@@ -96,6 +107,7 @@ pub fn surface_clear(id: &str, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
                 surface.rgba[o..o + 4].fill(0);
             }
         }
+        surface.generation = surface.generation.wrapping_add(1);
         Ok(())
     })
 }
@@ -135,7 +147,7 @@ pub fn surface_rgba_arc(id: &str) -> Result<std::sync::Arc<[u8]>> {
 }
 
 /// 整图写回（尺寸必须与既有 surface 完全一致）——render target 的
-/// runEffect 写入口。
+/// `apply` 写入口。
 pub fn surface_write_rgba(id: &str, width: u32, height: u32, rgba: Vec<u8>) -> Result<()> {
     with_surface(id, |surface| {
         if surface.width != width || surface.height != height {
@@ -153,16 +165,21 @@ pub fn surface_write_rgba(id: &str, width: u32, height: u32, rgba: Vec<u8>) -> R
             );
         }
         surface.rgba = rgba;
+        surface.generation = surface.generation.wrapping_add(1);
         Ok(())
     })
 }
 
-/// 就地访问整图缓冲（render target 的 scanPass 写入口）。
+/// 就地访问整图缓冲（render target 的 `sweep` 写入口）。
 pub fn surface_with_rgba_mut<R>(
     id: &str,
     f: impl FnOnce(u32, u32, &mut [u8]) -> Result<R>,
 ) -> Result<R> {
-    with_surface(id, |surface| f(surface.width, surface.height, &mut surface.rgba))
+    with_surface(id, |surface| {
+        let r = f(surface.width, surface.height, &mut surface.rgba)?;
+        surface.generation = surface.generation.wrapping_add(1);
+        Ok(r)
+    })
 }
 
 /// `measureText` 的 ink-box 结果（CSS 单位 px，基线y向下）。
@@ -451,6 +468,7 @@ pub fn surface_fill_text(
                     }
                 }
             }
+            surface.generation = surface.generation.wrapping_add(1);
             Ok(())
         })
     })

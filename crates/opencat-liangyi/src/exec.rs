@@ -9,7 +9,7 @@
 //! - **SKSL 后端**：执行发生在绘制期，由宿主着色器管线拥有；liangyi 交付
 //!   codegen 源码（`CompiledEffect::sksl`）与 uniform 声明序。
 //!
-//! JS 侧对应 `ly.kernel` / `ly.scan` / `ly.target(id).run / .scan`。
+//! JS 侧对应 `ly.pixel` / `ly.scan`，以及 `ly.surface(w,h).apply / .sweep`。
 
 use super::interp::{self, ScanDirection};
 use super::pixel::RenderTarget;

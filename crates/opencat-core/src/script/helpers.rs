@@ -36,7 +36,7 @@ pub fn parse_drrect(
         .ok_or_else(|| script_error(op, "expected 10 coordinate values".to_string()))
 }
 
-#[derive(serde::Deserialize, Debug)]
+#[derive(serde::Deserialize, Debug, Clone)]
 #[serde(tag = "__opencatShader")]
 pub enum ScriptChildSpec {
     #[serde(rename = "image")]
@@ -59,7 +59,7 @@ pub enum ScriptChildSpec {
         #[serde(rename = "tileY", default = "default_tile_mode")]
         _tile_y: TileModeName,
     },
-    /// Frame-scoped generated image (script `surface.bake` / putImageData
+    /// Frame-scoped generated image (surface auto-bake / putImageData
     /// path). Pixels were registered for THIS frame via the pending
     /// generated-image table.
     #[serde(rename = "generated")]
@@ -98,7 +98,9 @@ fn default_tile_mode() -> TileModeName {
 
 impl ScriptChildSpec {
     /// SKSL / wire 侧的 child 形态。`Surface` 不能跨线（surfaces 是核心
-    /// 进程内的 session 缓冲）——需要先 `surface.bake(key)` 成 generated。
+    /// 进程内的 session 缓冲）——需先烘成帧级生成图像。JS 侧的 `ly.draw`
+    /// 会自动做这件事（[`auto_bake_surfaces`]）；本方法只接受已跨线的形态，
+    /// 直接给 surface 会报错。
     pub fn to_script_child(&self) -> anyhow::Result<crate::ir::draw_types::ScriptRuntimeEffectChild> {
         let child = match self {
             ScriptChildSpec::Image { asset_id, .. } => {
@@ -122,12 +124,52 @@ impl ScriptChildSpec {
             }
             ScriptChildSpec::Surface { id, .. } => {
                 return Err(anyhow::anyhow!(
-                    "surface child `{id}` 不能用于 SKSL/绘制路径：请先 surface.bake(key) 烘为 generated child（CPU lambda 可直接采样 surface）"
+                    "surface child `{id}` 不能跨线（surfaces 是核心进程内的 session 缓冲）；绘制路径会自动烘焙，直接走 SKSL 的调用方须先调 auto_bake_surfaces"
                 ));
             }
         };
         Ok(child)
     }
+}
+
+/// SKSL 绘制路径的 surface source 自动烘焙：把 `children` 里的每个
+/// [`ScriptChildSpec::Surface`] 注册为帧级生成图像，并返回换成
+/// [`ScriptChildSpec::Generated`] 的等价列表。
+///
+/// 这是「ly 隐藏 canvas 细节」的关键一步：内核作者写 `sources: [field]`，
+/// 不必知道 SKSL 后端要的是帧级生成图像、更不必手写 `bake(key)` 与帧号。
+///
+/// key 由 (surface id, 内容世代, 尺寸) 推出——世代每次写入自增，所以同一
+/// 帧内重复烘焙内容相同的 surface 会幂等命中，内容变了则得到新 key，
+/// 同 key 异像素的碰撞不可能发生（[`GeneratedImageTable::insert`] 的硬错误
+/// 契约因此永远满足）。
+pub fn auto_bake_surfaces(
+    store: &mut crate::script::recorder::MutationStore,
+    children: &[ScriptChildSpec],
+) -> anyhow::Result<Vec<ScriptChildSpec>> {
+    let mut out = Vec::with_capacity(children.len());
+    for c in children {
+        let ScriptChildSpec::Surface { id, .. } = c else {
+            out.push(c.clone());
+            continue;
+        };
+        let (w, h) = crate::text::surface::surface_dimensions(id)?;
+        let generation = crate::text::surface::surface_generation(id)?;
+        let rgba = crate::text::surface::surface_rgba_arc(id)?;
+        let key = format!("ly-surface:{id}:{generation}:{w}x{h}");
+        store.register_frame_generated_image(
+            crate::ir::GeneratedImageId::from_key(&key),
+            w,
+            h,
+            rgba,
+        );
+        out.push(ScriptChildSpec::Generated {
+            key,
+            _tile_x: TileModeName::Clamp,
+            _tile_y: TileModeName::Clamp,
+        });
+    }
+    Ok(out)
 }
 
 pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow::Error> {

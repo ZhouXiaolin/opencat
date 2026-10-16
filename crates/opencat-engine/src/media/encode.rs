@@ -138,7 +138,7 @@ pub fn encode_rgba_frames(
     config: &Mp4Config,
     audio_track: Option<&AudioTrack>,
     on_video_frame_encoded: impl FnMut(u32, u32) + Send + 'static,
-    mut frame_provider: impl FnMut(u32) -> Result<Vec<u8>>,
+    mut frame_provider: impl FnMut(u32) -> Result<Option<Vec<u8>>>,
 ) -> Result<()> {
     ffmpeg::init()?;
 
@@ -225,20 +225,32 @@ pub fn encode_rgba_frames(
 
     // Producer loop: identical per-frame render calls, in the same order, as
     // the previous serial loop.
+    //
+    // The provider may return `None` when it reads back through a deferred
+    // (PBO) path: its `render` call for frame N issues the transfer and hands
+    // over frame N-1's pixels, so the first call yields nothing. We then render
+    // one extra frame and drain the pending one, keeping the emitted sequence
+    // exactly `frame_count` frames in order.
     let mut provider_error = None;
-    for frame_index in 0..frame_count {
-        match frame_provider(frame_index) {
-            Ok(rgba) => {
-                // Blocks while the encoder is FRAME_QUEUE_DEPTH frames behind;
-                // fails only when the encode thread already exited on error.
-                if frame_tx.send(rgba).is_err() {
-                    break;
-                }
-            }
+    let mut emitted = 0u32;
+    let mut next_index = 0u32;
+    while emitted < frame_count {
+        let rgba = match frame_provider(next_index) {
+            Ok(Some(rgba)) => Some(rgba),
+            Ok(None) => None,
             Err(err) => {
                 provider_error = Some(err);
                 break;
             }
+        };
+        next_index += 1;
+        if let Some(rgba) = rgba {
+            // Blocks while the encoder is FRAME_QUEUE_DEPTH frames behind;
+            // fails only when the encode thread already exited on error.
+            if frame_tx.send(rgba).is_err() {
+                break;
+            }
+            emitted += 1;
         }
     }
     drop(frame_tx);

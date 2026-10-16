@@ -153,6 +153,10 @@ impl GpuRenderSession {
     }
 
     /// 渲染一帧到 GPU 合成目标并读回 RGBA。
+    ///
+    /// 读回走 PBO 双缓冲（[`GpuCompositor::finish_frame`]），所以返回的是
+    /// **上一帧**的像素；首帧返回 `None`，末帧由 `encode_rgba_frames` 多渲染
+    /// 一帧排空。要立刻拿到本帧，用 [`Self::render_frame_blocking`]。
     pub fn render_frame(
         &mut self,
         pipeline: &mut crate::EnginePipeline,
@@ -160,7 +164,50 @@ impl GpuRenderSession {
         executor: &mut crate::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
+    ) -> Result<Option<Vec<u8>>> {
+        self.render_frame_inner(
+            pipeline,
+            media_ctx,
+            executor,
+            generated_cache,
+            frame_index,
+            true,
+        )
+    }
+
+    /// 渲染一帧并**同步**读回本帧像素（无延迟）。
+    ///
+    /// 单帧 / PNG 序列这类一次一帧的调用方用它：PBO 的一帧延迟会打乱它们
+    /// 的输出。代价是读回留在关键路径上，逐帧循环请改用
+    /// [`Self::render_frame`]。
+    pub fn render_frame_blocking(
+        &mut self,
+        pipeline: &mut crate::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut crate::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        frame_index: u32,
     ) -> Result<Vec<u8>> {
+        self.render_frame_inner(
+            pipeline,
+            media_ctx,
+            executor,
+            generated_cache,
+            frame_index,
+            false,
+        )
+        .map(|frame| frame.expect("同步读回必定产出本帧"))
+    }
+
+    fn render_frame_inner(
+        &mut self,
+        pipeline: &mut crate::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut crate::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        frame_index: u32,
+        deferred: bool,
+    ) -> Result<Option<Vec<u8>>> {
         let render = pipeline.render_frame(frame_index)?;
         let mut frame = render.draw;
         let media_plan = render.media;
@@ -184,7 +231,7 @@ impl GpuRenderSession {
 
         // 锁内：只做 Skia 操作（导入 3D 纹理 + 重放 DrawOp + 读回）。
         let rgba = renderer
-            .with_gl_context(|_r| -> Result<Vec<u8>> {
+            .with_gl_context(|_r| -> Result<Option<Vec<u8>>> {
                 let (canvas, skia) = compositor.split();
                 let mut resolver = crate::gpu_compositor::CompositorResolver { skia };
                 crate::consumer::execute_render_frame_with_gpu(
@@ -198,7 +245,11 @@ impl GpuRenderSession {
                     canvas,
                 )
                 .map_err(|e| anyhow!("{e}"))?;
-                compositor.finish_frame()
+                if deferred {
+                    compositor.finish_frame()
+                } else {
+                    compositor.finish_frame_blocking().map(Some)
+                }
             })
             .ok_or_else(|| anyhow!("GL context 不可用"))??;
 
@@ -243,6 +294,39 @@ impl FrameRenderer {
         frame_index: u32,
         width: u32,
         height: u32,
+    ) -> Result<Option<Vec<u8>>> {
+        match self {
+            Self::Cpu => render_pipeline_frame_to_rgba(
+                pipeline,
+                media_ctx,
+                executor,
+                generated_cache,
+                width,
+                height,
+                frame_index,
+            )
+            .map(Some),
+            #[cfg(target_os = "windows")]
+            Self::Gpu(session) => {
+                session.render_frame(pipeline, media_ctx, executor, generated_cache, frame_index)
+            }
+        }
+    }
+
+    /// 渲染一帧并**同步**取回本帧像素（无延迟）。
+    ///
+    /// 单帧 / PNG 序列这类一次一帧的调用方用它——PBO 的一帧延迟会打乱它们
+    /// 的输出。逐帧循环请改用 [`Self::render`]。
+    #[allow(clippy::too_many_arguments)]
+    fn render_frame_blocking(
+        &mut self,
+        pipeline: &mut crate::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut crate::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        frame_index: u32,
+        width: u32,
+        height: u32,
     ) -> Result<Vec<u8>> {
         match self {
             Self::Cpu => render_pipeline_frame_to_rgba(
@@ -255,9 +339,13 @@ impl FrameRenderer {
                 frame_index,
             ),
             #[cfg(target_os = "windows")]
-            Self::Gpu(session) => {
-                session.render_frame(pipeline, media_ctx, executor, generated_cache, frame_index)
-            }
+            Self::Gpu(session) => session.render_frame_blocking(
+                pipeline,
+                media_ctx,
+                executor,
+                generated_cache,
+                frame_index,
+            ),
         }
     }
 }
@@ -367,7 +455,7 @@ pub fn render_from_source_with_base(
             let mut executor = crate::executor::EngineDrawExecutor::new();
             let mut renderer = FrameRenderer::new(&pipeline, info.width, info.height)?;
             for i in 0..frame_count {
-                let rgba = renderer.render(
+                let rgba = renderer.render_frame_blocking(
                     &mut pipeline,
                     &mut media_ctx,
                     &mut executor,
@@ -403,12 +491,19 @@ pub fn render_from_source_with_base(
                 audio_track.as_ref(),
                 |_, _| {},
                 |frame_index| {
+                    // GPU 路径经 PBO 双缓冲读回，交出的是一帧前的像素：先取
+                    // 上一帧，再为当前帧发起传输。首帧因此返回 `None`，由
+                    // `encode_rgba_frames` 多渲染一帧补齐。
+                    //
+                    // 多出来的那一帧索引越界：核心会把 `frame_index` 钳到末帧，
+                    // 重复渲染一次末帧，只用于把在途的末帧读回排空。
+                    let clamped = frame_index.min(frame_count - 1);
                     renderer.render(
                         &mut pipeline,
                         &mut media_ctx,
                         &mut executor,
                         &mut generated_cache,
-                        frame_index,
+                        clamped,
                         aligned_info.0,
                         aligned_info.1,
                     )
@@ -464,7 +559,7 @@ pub fn render_single_frame_from_source_with_base(
     let mut executor = crate::executor::EngineDrawExecutor::new();
     let mut generated_cache = generated_image_cache_from_env();
     let mut renderer = FrameRenderer::new(&pipeline, info.width, info.height)?;
-    let rgba = renderer.render(
+    let rgba = renderer.render_frame_blocking(
         &mut pipeline,
         &mut media_ctx,
         &mut executor,

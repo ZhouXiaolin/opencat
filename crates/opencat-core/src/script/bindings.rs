@@ -502,10 +502,13 @@ macro_rules! for_each_binding {
             let children = $crate::script::helpers::parse_script_children(&children_json)?;
             match compiled.backend {
                 $crate::opencat_liangyi::Backend::Sksl => {
-                    // 仅 SKSL/wire 侧需要 child 引用（surface 不能上 wire，
-                    // 在此报错引导先 bake；CPU 后端直接采样核心内像素）
+                    // SKSL/wire 侧只认跨线 child（image / picture / generated）。
+                    // surface source 在此自动烘成帧级生成图像 —— 内核作者写
+                    // `sources: [field]`，不必知道 SKSL 要的是 generated、更
+                    // 不必手写 bake(key) 与帧号。CPU 后端直接采样核心内像素。
+                    let baked = $crate::script::helpers::auto_bake_surfaces($store, &children)?;
                     let child_refs: Vec<$crate::ir::draw_types::ScriptRuntimeEffectChild> =
-                        children
+                        baked
                             .iter()
                             .map(|c| c.to_script_child())
                             .collect::<Result<_, _>>()?;
@@ -815,21 +818,6 @@ macro_rules! for_each_binding {
                 );
                 Ok(())
             })?;
-            Ok(true)
-        }}
-        // bake：把 surface 当前像素注册为帧级生成图像（只注册像素不录 draw
-        // op），返回后 JS 以 {__opencatShader:'generated', key} 采样。供
-        // SKSL/绘制路径消费（CPU lambda 可直接用 surface child 免烘焙）。
-        // 幂等契约同 putImageData：同 key 异像素 = hard error。
-        $binding! { cmd $store surface_bake (id: String, key: String) -> bool {
-            let (w, h) = $crate::text::surface::surface_dimensions(&id)?;
-            let rgba = $crate::text::surface::surface_rgba_arc(&id)?;
-            $store.register_frame_generated_image(
-                $crate::ir::GeneratedImageId::from_key(&key),
-                w,
-                h,
-                rgba,
-            );
             Ok(true)
         }}
         $binding! { pure util_random_seeded (seed: f32) -> f32 {

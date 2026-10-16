@@ -3,6 +3,67 @@
 > 2026-10-13 对齐更新。状态：**未达标，但首次有了有效 diff**。
 > 全片 `avg_p8 = 0.0733`（目标 <0.02）。参考自噪声地板见下。
 
+## 2026-10-16 嵌套 `<tl>`：glass-intro 拆成 4 个场景
+
+**结论：`avg_p8 0.0591 → 0.0569`，且与拆分前逐像素等价**（全片 1494 帧，
+两版最大 p8 偏差 0.00056，无任何帧差 > 0.01）。`vis()` 门从 7 处降到 1 处。
+
+### 为什么要拆
+
+参考的 `compositions/glass-intro.html` 本身不是子 composition 列表，而是**一层
+平铺的 stage**：4 个 beat 首尾相接，外加 4 个 `.clip` 覆盖层。
+
+| beat | master 窗口 | 长度 | 参考层 |
+|---|---|---|---|
+| text-intro | 0.00 – 2.10 | 2.10 | `.clip` `data-start=0` `duration=2.1` |
+| figma 卡 | 2.10 – 3.85 | 1.75 | `#frame` 的 GSAP opacity |
+| spotify 卡 | 3.85 – 5.60 | 1.75 | `#frame-2` 的 GSAP opacity |
+| beat4 | 5.60 – 18.24 | 12.64 | `#frame-3` 的 GSAP opacity |
+
+cursor(6.4)、ripple(6.8)、drag-overlay(16.14)、text-ask(16.74) 四个覆盖层窗口
+**全都 ≥ 5.60**，因此全部落在 beat4 内。整个 glass-intro 恰好是 4 个场景、
+0 个 transition——参考在 2.10 / 3.85 / 5.60 硬切，而相邻场景不声明
+`<transition>` 就是硬切。
+
+拆分前这 4 个 beat 每帧都被解析、布局，再用 `vis()` 设成 opacity 0；现在只有
+窗口命中 playhead 的那个 beat 会被解析（场景裁剪）。**保留的唯一 `vis()` 是
+beat-5 打字机的逐字揭示**——那是场景内的揭示，不是场景窗口。
+
+### 两处引擎缺口（都已补，在 `crates/`）
+
+1. **`JsonLine::Tl` 没有 `duration` 字段**（`parse/elements.rs`）。JS 层早就
+   发出了这个字段（`jsx_runtime.js` 的 `emitTimeline`），但 serde 静默丢弃
+   （`JsonLine` 不是 `deny_unknown_fields`），构造处又写死 `duration: None`。
+   于是 `<tl>` 直接嵌 `<tl>` 报
+   `timeline sequence 'inner-tl' is missing a duration`。
+   修法：给 `Tl` 变体加 `duration`，透传而非写死。
+
+2. **嵌套 `<tl>` 读全局合成时钟**（`resolve.rs` + `jsx_runtime.js`）。
+   `resolve_timeline` 传的是 `cx.frame_ctx`（全局），所以内层场景的时钟是
+   合成相对而非外层场景相对。修法：给时间轴一个**原点**——顶层为 0，嵌套
+   在场景里的就取外层场景的起点。Rust 侧新增 `TimelineOrigin` /
+   `frame_state_for_root_at`，`ScriptFrameCtx` 记录 `scene_start_frame` /
+   `scene_start_secs`（不能用 `frame - current_frame` 反推：`current_frame`
+   在窗口末端被 clamp）。JS 侧 `emitTimeline` 从 `sceneStack` 栈顶取原点。
+
+   第三个坑在 `emitTimeline` pass 3：原先 `if (lines) emitElement(...)`，
+   而逐帧走查的 `lines` 是 `null`——嵌套 `<tl>` 的子树**从未被走查**，
+   内层组件的钩子根本没注册。改成 emit 无条件执行（`lines` 为 null 时
+   `emitElement` 不产出行，只有注册副作用），且场景时钟压栈范围覆盖到
+   emit 结束。
+
+### 复现
+
+```sh
+cargo build --release --bin opencat --bin opencat-frames
+target/release/opencat-frames examples/hyperframes-launch/hyperframes-launch.jsx out/hf-nested
+ffmpeg -v error -y -framerate 30 -i out/hf-nested/frame_%04d.png -crf 0 -pix_fmt yuv420p out/hf-nested.mp4
+python3 -I tools/k3diff.py <ref>.mp4 out/hf-nested.mp4 --out out/k3-nested
+```
+
+回归对照（旧扁平 jsx + 新引擎 = 0.0569，与嵌套版一致）；已达标示例不退化：
+k3-promo 0.0121、liquid-brand-refraction 0.0236、website-to-hyperframes 0.0102。
+
 ## 2026-10-15 脚本后端 rquickjs → V8（分支 `feat/v8-script-backend`）
 
 **结论：脚本时间降 2.8×，输出逐像素不变。** 全片 1494 帧
@@ -211,8 +272,8 @@ Italic 一个 face，本来就被选中。真正受 font-style 影响的是有 R
 - 素材里有 86MB 的 `bg.mp4` 和多个视频素材，优先怀疑：某帧触发的视频解码/合成崩溃、内存、或特定效果
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/hyperframes-launch/index.html`
-- 参考视频：`F:/hyperframes-launches/hyperframes-launch/renders/hyperframes-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1494 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/hyperframes-launch/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/hyperframes-launch/renders/hyperframes-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1494 帧）
 - 素材已拷入 `examples/hyperframes-launch/assets/`（bg.mp4、beat4-clip.mp4、pill.mp4、figma-promo.mp4、Frame 1/3.mp4 等 + Impact/Consolas/SegoeUI/TimesNewRoman/ArialBlack 等系统字体）
 
 ## 证据与产物
@@ -224,9 +285,9 @@ Italic 一个 face，本来就被选中。真正受 font-style 影响的是有 R
 2. 定位死因：对照 jsx 时间轴看 562 帧（≈18.7s）在渲染什么；若是视频素材问题，用 ffmpeg 单独解该素材验证；若是引擎崩溃（panic/挂起），修 crates——这是引擎缺陷外露的机会
 3. 渲染通了之后才算第 1 轮，进入正常 4 轮 k3diff 循环
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/hyperframes-launch/hyperframes-launch.jsx out/hyperframes-launch.mp4`
-- 逐帧退路（本示例排障首选）：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/hyperframes-launch.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/hyperframes-launch/hyperframes-launch.jsx out/hyperframes-launch.mp4`
+- 逐帧退路（本示例排障首选）：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/hyperframes-launch.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/hyperframes-launch.mp4 --out out/k3diff-hyperframes-launch --dump <最差帧号>`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
 

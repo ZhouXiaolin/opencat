@@ -359,10 +359,10 @@ fn prepare_frame(
             image_index.insert(image_ref, idx);
             continue;
         }
-        // Bounded LRU mirrors the core table's frame watermark: a script that
-        // bakes a per-frame key (`surface.bake('k' + frameIndex)`) would
-        // otherwise grow this map one Skia image (GPU-uploadable, so ~1x the
-        // RGBA size) per frame for the whole composition.
+        // Bounded LRU mirrors the core table's frame watermark: a surface the
+        // script rewrites every frame would otherwise grow this map one Skia
+        // image (GPU-uploadable, so ~1x the RGBA size) per frame for the whole
+        // composition.
         let bytes = entry.width as usize * entry.height as usize * 4;
         let generated_enabled =
             !opencat_core::ablate::ablated(opencat_core::ablate::Ablation::GeneratedImages);

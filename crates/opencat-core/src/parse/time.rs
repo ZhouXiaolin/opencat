@@ -144,8 +144,39 @@ pub enum FrameState {
 }
 
 pub fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
+    frame_state_for_root_at(root, ctx, TimelineOrigin::default())
+}
+
+/// Where a timeline starts on the composition clock.
+///
+/// A top-level timeline starts at zero. A timeline nested inside a scene starts
+/// where that scene does: its own segments are then selected by local time, and
+/// each of its scenes runs a clock from its own segment start. That is what
+/// makes `ctx.current.time` a component's own lifetime however deeply it is
+/// nested, instead of the composition's elapsed time.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TimelineOrigin {
+    pub frame: u32,
+    pub secs: f64,
+}
+
+impl TimelineOrigin {
+    /// The origin of a timeline that fills the scene `script_frame_ctx` describes.
+    pub fn of_scene(script_frame_ctx: &ScriptFrameCtx) -> Self {
+        Self {
+            frame: script_frame_ctx.scene_start_frame,
+            secs: script_frame_ctx.scene_start_secs,
+        }
+    }
+}
+
+pub fn frame_state_for_root_at(
+    root: &Node,
+    ctx: &FrameCtx,
+    origin: TimelineOrigin,
+) -> FrameState {
     match root.kind() {
-        NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx),
+        NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx, origin),
         NodeKind::Div(_) => FrameState::Scene {
             scene: root.clone(),
             script_frame_ctx: ScriptFrameCtx::global(ctx),
@@ -157,7 +188,11 @@ pub fn frame_state_for_root(root: &Node, ctx: &FrameCtx) -> FrameState {
     }
 }
 
-fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameState {
+fn frame_state_for_timeline(
+    timeline: &TimelineNode,
+    ctx: &FrameCtx,
+    origin: TimelineOrigin,
+) -> FrameState {
     let segments = timeline.segments();
     if segments.is_empty() {
         return FrameState::Scene {
@@ -166,11 +201,14 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
         };
     }
 
+    // Frame index inside this timeline. A nested timeline is offset by the
+    // enclosing scene's start, so its segments are picked by local time.
+    let local_frame = ctx.frame.saturating_sub(origin.frame);
     let duration_in_frames = timeline.duration_in_frames(ctx);
     let frame = if duration_in_frames == 0 {
         0
     } else {
-        ctx.frame.min(duration_in_frames - 1)
+        local_frame.min(duration_in_frames - 1)
     };
 
     // Scenes and transitions tile the timeline end to end, in the order the
@@ -199,8 +237,10 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
 
     // Visible window of the scene at `index`: its segment widened by the
     // transition segments that touch it. Returns `(start_frame, start_secs,
-    // frames)`. The seconds start is kept exact so the scene clock does not
-    // inherit the frame quantization of the boundary.
+    // frames)` on the COMPOSITION clock — a nested timeline shifts its windows
+    // by its origin, so the scene clock it hands a script is still a real
+    // composition timestamp. The seconds start is kept exact so the scene clock
+    // does not inherit the frame quantization of the boundary.
     let scene_window = |index: usize| -> (u32, f64, u32) {
         let before = if index > 0 && matches!(segments[index - 1], TimelineSegment::Transition { .. })
         {
@@ -216,8 +256,8 @@ fn frame_state_for_timeline(timeline: &TimelineNode, ctx: &FrameCtx) -> FrameSta
             (0, 0.0)
         };
         (
-            seg_start[index].saturating_sub(before.0),
-            (seg_start_secs[index] - before.1).max(0.0),
+            origin.frame + seg_start[index].saturating_sub(before.0),
+            (origin.secs + seg_start_secs[index] - before.1).max(0.0),
             before.0 + seg_frames[index] + after.0,
         )
     };
@@ -324,7 +364,7 @@ mod tests {
         frame_ctx::FrameCtx,
         parse::{
             easing::Easing,
-            node::NodeKind,
+            node::{Node, NodeKind},
             primitives::{caption, div},
             transition::{slide, timeline},
         },
@@ -426,6 +466,138 @@ mod tests {
             panic!("scene should remain a div");
         };
         assert_eq!(scene_div.children_ref().len(), 2);
+    }
+
+    #[test]
+    fn nested_timeline_places_its_segments_from_the_enclosing_scene() {
+        // Outer timeline: scene "wrap" runs from frame 30 (1s) for 60 frames.
+        // Inside it, a nested timeline whose own scenes are 15 and 45 frames.
+        let inner: Node = timeline()
+            .sequence(15.0 / 30.0, div().id("inner-a").into())
+            .sequence(45.0 / 30.0, div().id("inner-b").into())
+            .into();
+        let outer = timeline()
+            .sequence(30.0 / 30.0, div().id("head").into())
+            .sequence(60.0 / 30.0, div().id("wrap").child(inner).into())
+            .into();
+
+        let frame_ctx = FrameCtx {
+            frame: 40,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 120,
+        };
+
+        // Frame 40 is 10 frames into "wrap" (which starts at frame 30).
+        let FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } = super::frame_state_for_root(&outer, &frame_ctx)
+        else {
+            panic!("expected the wrap scene");
+        };
+        assert_eq!(scene.style_ref().id, "wrap");
+        assert_eq!(script_frame_ctx.current_frame, 10);
+        assert_eq!(script_frame_ctx.scene_start_frame, 30);
+
+        // The nested timeline reads its origin off that scene clock: at local
+        // frame 10 it is still inside "inner-a" (0-15), not "inner-b".
+        let origin = super::TimelineOrigin::of_scene(&script_frame_ctx);
+        assert_eq!(origin.frame, 30);
+        assert_eq!(origin.secs, 1.0);
+
+        // The resolver reaches the nested timeline by walking into the scene
+        // div, so resolve the div first and then the timeline it owns.
+        let NodeKind::Div(wrap) = scene.kind() else {
+            panic!("wrap should be a div");
+        };
+        let inner_tl = wrap.children_ref().first().expect("inner timeline");
+
+        let FrameState::Scene { scene, .. } =
+            super::frame_state_for_root_at(inner_tl, &frame_ctx, origin)
+        else {
+            panic!("expected a nested scene");
+        };
+        assert_eq!(scene.style_ref().id, "inner-a");
+    }
+
+    #[test]
+    fn nested_timeline_scene_clock_is_relative_to_its_own_segment() {
+        let inner: Node = timeline()
+            .sequence(15.0 / 30.0, div().id("inner-a").into())
+            .sequence(45.0 / 30.0, div().id("inner-b").into())
+            .into();
+        let outer = timeline()
+            .sequence(30.0 / 30.0, div().id("head").into())
+            .sequence(60.0 / 30.0, div().id("wrap").child(inner).into())
+            .into();
+
+        // Frame 50 is 20 frames into "wrap", i.e. 5 frames into "inner-b"
+        // (which starts 15 frames into the nested timeline).
+        let frame_ctx = FrameCtx {
+            frame: 50,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 120,
+        };
+
+        let FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } = super::frame_state_for_root(&outer, &frame_ctx)
+        else {
+            panic!("expected the wrap scene");
+        };
+        let origin = super::TimelineOrigin::of_scene(&script_frame_ctx);
+
+        let NodeKind::Div(wrap) = scene.kind() else {
+            panic!("wrap should be a div");
+        };
+        let inner_tl = wrap.children_ref().first().expect("inner timeline");
+
+        let FrameState::Scene {
+            scene,
+            script_frame_ctx: inner_ctx,
+        } = super::frame_state_for_root_at(inner_tl, &frame_ctx, origin)
+        else {
+            panic!("expected a nested scene");
+        };
+
+        assert_eq!(scene.style_ref().id, "inner-b");
+        // The nested scene's clock is its own lifetime: it starts at frame 45
+        // on the composition clock (30 + 15), so frame 50 reads 5 frames in.
+        assert_eq!(inner_ctx.current_frame, 5);
+        assert_eq!(inner_ctx.scene_start_frame, 45);
+        assert_eq!(inner_ctx.scene_start_secs, 1.5);
+    }
+
+    #[test]
+    fn top_level_timeline_ignores_the_default_origin() {
+        let root = timeline()
+            .sequence(15.0 / 30.0, div().id("scene-a").into())
+            .sequence(45.0 / 30.0, div().id("scene-b").into())
+            .into();
+        let frame_ctx = FrameCtx {
+            frame: 20,
+            fps: 30,
+            width: 320,
+            height: 180,
+            frames: 120,
+        };
+
+        // The two-argument entry point is the top-level one: origin zero.
+        let FrameState::Scene {
+            scene,
+            script_frame_ctx,
+        } = super::frame_state_for_root(&root, &frame_ctx)
+        else {
+            panic!("expected a scene");
+        };
+        assert_eq!(scene.style_ref().id, "scene-b");
+        assert_eq!(script_frame_ctx.scene_start_frame, 15);
+        assert_eq!(script_frame_ctx.current_frame, 5);
     }
 
     #[test]

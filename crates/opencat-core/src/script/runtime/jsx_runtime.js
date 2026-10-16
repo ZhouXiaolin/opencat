@@ -71,6 +71,13 @@
             return cur;
         }
         return {
+            // Where this scene starts on the composition clock. A `<tl>` nested
+            // inside this scene places its own segments relative to here, so its
+            // scenes run clocks from their own segment starts — `ctx.current.time`
+            // is the component's own lifetime at any depth. Mirrors Rust's
+            // `ScriptFrameCtx::scene_start_frame` / `scene_start_secs`.
+            startFrame: cell.startFrame,
+            startSecs: cell.startSecs,
             // Seconds come from the scene's exact start, not from the frame
             // index: a boundary is quantized to a frame while the author's
             // placement is not, and that error would otherwise accumulate down
@@ -453,6 +460,17 @@
         var extracting = globalThis.__ocMode === 'extract';
         var children = el.children || [];
 
+        // A timeline places its segments on its OWN clock. Top level starts at
+        // composition zero; nested inside a scene it starts where that scene
+        // does, so the scenes it owns run their clocks from their own segment
+        // starts — `ctx.current.time` is the component's own lifetime at any
+        // depth. The enclosing scene's clock is exactly that origin, and it is
+        // already on top of `sceneStack` while this subtree is walked. Mirrors
+        // Rust's `TimelineOrigin`.
+        var enclosing = sceneStack.length ? sceneStack[sceneStack.length - 1] : null;
+        var originFrame = enclosing ? enclosing.startFrame : 0;
+        var originSecs = enclosing ? enclosing.startSecs : 0;
+
         // Pass 1: lay out the segments. A scene's length is its `duration` prop
         // when declared on the `<tl>` child — no need to run the component to
         // measure it, which is what lets an off-screen scene be skipped later.
@@ -476,7 +494,7 @@
                 cursorSecs += tDuration;
                 cells.push({
                     transition: true,
-                    startFrame: durationToFrames(tStart, fps),
+                    startFrame: originFrame + durationToFrames(tStart, fps),
                     durationSecs: tDuration,
                     frames: durationToFrames(cursorSecs, fps) - durationToFrames(tStart, fps),
                     el: child,
@@ -485,8 +503,8 @@
             }
             var declared = child && child.__ocEl === true ? num(child.props.duration) : undefined;
             var cell = {
-                startFrame: durationToFrames(cursorSecs, fps),
-                startSecs: cursorSecs,
+                startFrame: originFrame + durationToFrames(cursorSecs, fps),
+                startSecs: originSecs + cursorSecs,
                 sceneFrames: 0,
                 fps: fps,
             };
@@ -502,7 +520,9 @@
                     sceneStack.pop();
                 }
             }
-            cell.sceneFrames = durationToFrames(cursorSecs, fps) - cell.startFrame;
+            // Length is the difference of two ceiled LOCAL boundaries, so the
+            // origin cancels out.
+            cell.sceneFrames = durationToFrames(cursorSecs, fps) + originFrame - cell.startFrame;
             if (entry.value !== null) stampSceneDuration(entry.value, declared);
             cells.push(entry);
         }
@@ -512,6 +532,8 @@
         // neighbours stay live for its whole span and each runs its clock from
         // its own window start. The clocks read `ctx.global.frame` lazily, so
         // filling their windows in after the walk is fine — no hook has run yet.
+        // Widening stops at the timeline's own origin: a nested timeline's first
+        // scene must not reach back before the enclosing scene began.
         for (var j = 0; j < cells.length; j++) {
             if (cells[j].transition) continue;
             var before = j > 0 && cells[j - 1].transition ? cells[j - 1].frames : 0;
@@ -519,8 +541,8 @@
                 j + 1 < cells.length && cells[j + 1].transition ? cells[j + 1].frames : 0;
             var beforeSecs = j > 0 && cells[j - 1].transition ? cells[j - 1].durationSecs : 0;
             var sceneCell = cells[j].cell;
-            sceneCell.startFrame = Math.max(0, sceneCell.startFrame - before);
-            sceneCell.startSecs = Math.max(0, sceneCell.startSecs - beforeSecs);
+            sceneCell.startFrame = Math.max(originFrame, sceneCell.startFrame - before);
+            sceneCell.startSecs = Math.max(originSecs, sceneCell.startSecs - beforeSecs);
             sceneCell.sceneFrames = before + sceneCell.sceneFrames + after;
         }
 
@@ -541,15 +563,28 @@
                     var local = frame - e.cell.startFrame;
                     if (local < 0 || local >= e.cell.sceneFrames) continue;
                 }
-                sceneStack.push(makeSceneClock(e.cell));
-                try {
-                    e.value = resolveSceneValue(e.el);
-                } finally {
-                    sceneStack.pop();
-                }
-                stampSceneDuration(e.value, e.declared);
             }
-            if (lines) emitElement(e.value, id, lines, audioSites);
+            // The scene clock stays pushed through the EMIT, not just the
+            // resolve. Emitting walks the scene's subtree, which is where a
+            // nested `<tl>` reads the origin it places its own segments on, and
+            // where any component still inside the subtree registers its hooks.
+            // Popping before the emit would bind both to the outer timeline.
+            //
+            // The emit runs even when `lines` is null: that is the per-frame
+            // walk, and it is what registers the drivers of components nested
+            // inside a scene. `emitElement` only pushes a line when `lines` is
+            // non-null, so a null walk is side-effect-free apart from those
+            // registrations.
+            sceneStack.push(makeSceneClock(e.cell));
+            try {
+                if (e.value === null) {
+                    e.value = resolveSceneValue(e.el);
+                    stampSceneDuration(e.value, e.declared);
+                }
+                emitElement(e.value, id, lines, audioSites);
+            } finally {
+                sceneStack.pop();
+            }
         }
 
         return id;

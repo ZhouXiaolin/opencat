@@ -1,5 +1,5 @@
 // pr-to-video-launch — JSX port of the hyperframes 30 s launch film
-// (reference: F:/hyperframes-launches/pr-to-video-launch, sibling .xml is the
+// (reference: /Users/solaren/Projects/hyperframes-launches/pr-to-video-launch, sibling .xml is the
 // line-by-line ancestor of this file; deviations are marked FIX below).
 import { useGSAP } from 'opencat/runtime';
 

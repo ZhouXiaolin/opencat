@@ -13,10 +13,11 @@ use skia_safe::Image;
 use opencat_core::cache::lru::BoundedLruCache;
 
 /// LRU of decoded Skia images for core-generated bitmaps (`canvas
-/// putImageData` / `surface.bake`). The LRU evicts by ENTRY COUNT, not
+/// putImageData` / surface auto-bake). The LRU evicts by ENTRY COUNT, not
 /// bytes — the previous code passed a byte budget as the entry count, so a
-/// per-frame bake key (`surface.bake('k' + frameIndex)`) kept every decoded
-/// 1920x1080 image alive and OOM-killed a 49s composition at ~500 MiB/s.
+/// per-frame bake key (a surface the script rewrites every frame) kept every
+/// decoded 1920x1080 image alive and OOM-killed a 49s composition at
+/// ~500 MiB/s.
 /// The core `GeneratedImageTable` already watermarks per-frame keys at 3
 /// entries (max_age_frames = 2 + the current frame); this cache only needs
 /// to absorb repeated same-frame lookups, so a small entry count is the

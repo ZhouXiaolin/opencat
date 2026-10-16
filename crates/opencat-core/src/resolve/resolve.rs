@@ -12,7 +12,7 @@ use crate::{
             Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Text, Video, VideoSource,
         },
         time::TimelineNode,
-        time::{FrameState, frame_state_for_root},
+        time::{FrameState, TimelineOrigin, frame_state_for_root_at},
     },
     probe::catalog::{PreparedResourceCatalog, VideoInfoMeta},
     resolve::{
@@ -184,7 +184,16 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
         let inherited_style = InheritedStyle::for_child(&computed);
-        let frame_state = frame_state_for_root(&Node::from(timeline.clone()), cx.frame_ctx);
+        // A timeline's segments are placed on its OWN clock. A top-level
+        // timeline starts at composition zero; one nested inside a scene starts
+        // where that scene does, so the scenes it owns run their clocks from
+        // their own segment starts — `ctx.current.time` stays the component's
+        // own lifetime at any depth. The enclosing scene's clock is exactly
+        // that origin, so read it off `script_frame_ctx` rather than threading
+        // a separate value through the resolver.
+        let origin = TimelineOrigin::of_scene(cx.script_frame_ctx);
+        let frame_state =
+            frame_state_for_root_at(&Node::from(timeline.clone()), cx.frame_ctx, origin);
         let transition = match &frame_state {
             FrameState::Transition { progress, kind, .. } => Some(ElementTimelineTransition {
                 progress: *progress,
@@ -994,7 +1003,11 @@ fn seed_text_sources_for_visible_subtree(
             }
         }
         NodeKind::Timeline(timeline) => {
-            let frame_state = frame_state_for_root(&Node::from(timeline.clone()), frame_ctx);
+            // Same origin rule as `resolve_timeline`: a nested timeline is
+            // placed on the enclosing scene's clock, not the composition's.
+            let origin = TimelineOrigin::of_scene(script_frame_ctx);
+            let frame_state =
+                frame_state_for_root_at(&Node::from(timeline.clone()), frame_ctx, origin);
             match frame_state {
                 FrameState::Scene {
                     scene,

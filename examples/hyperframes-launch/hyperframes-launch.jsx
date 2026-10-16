@@ -1,9 +1,11 @@
-/* JSX frontend port of F:/hyperframes-launches/hyperframes-launch/index.html
+/* JSX frontend port of /Users/solaren/Projects/hyperframes-launches/hyperframes-launch/index.html
    (16 sub-compositions on a 49.77s master) — one continuous 1920x1080 stage.
    Structure mirrors the reference: per-composition components, each with one
-   useGSAP hook (hook order = tree order = master timeline order). Elements the
-   reference gates with `.clip data-start/duration` are opacity-gated per frame
-   via vis(); GSAP timelines use absolute-second positioning on ctx.global.time.
+   useGSAP hook (hook order = tree order = master timeline order). Every scene
+   sits in a `<tl>`, so a scene's times are its OWN: `ctx.current.time` starts
+   at 0 where the scene becomes visible and the scene tree is culled outside
+   its window. Element reveals the scene window does not cover (the glass-intro
+   typewriter, the caption chips) stay per-frame `vis()` gates.
    Engine substitutions (web fonts -> faces, CSS 3D -> projected canvas,
    WebGL shader -> ly.pixel lambda, Canvas2D ASCII -> canvas 2d, conic
    gradients -> canvas, backgroundPosition sweeps -> crossfading layers) are
@@ -85,71 +87,37 @@ function zoomBlur(tl, ids, from, to, duration, ease, at) {
   }
 }
 
-/* ══ glass-intro (master 0-18.24, glass-intro.html) ═════════════════════ */
-function GlassIntro() {
+/* ══ glass-intro (master 0-18.24, glass-intro.html) ═════════════════════
+
+   The reference is one flat 18.24s stage: 4 beats that tile end to end, plus
+   4 `.clip` overlay layers.
+
+     beat         master window     length   reference layer
+     text-intro   0.00 -  2.10       2.10   .clip data-start=0     duration=2.1
+     figma card   2.10 -  3.85       1.75   GSAP opacity on #frame
+     spotify      3.85 -  5.60       1.75   GSAP opacity on #frame-2
+     beat4        5.60 - 18.24      12.64   GSAP opacity on #frame-3
+     cursor       6.40 - 17.30              .clip data-start=6.4   duration=10.9
+     ripple       6.80 - 15.70              .clip data-start=6.8   duration=8.9
+     drag-overlay 16.14 - 18.24             .clip data-start=16.14 duration=2.1
+     text-ask     16.74 - 18.24             .clip data-start=16.74 duration=1.5
+
+   Every overlay window starts at or after 5.60, so all four live INSIDE beat4.
+   The whole composition is therefore exactly 4 scenes and no transitions — the
+   reference hard-cuts at 2.10 / 3.85 / 5.60, and adjacent scenes without a
+   `<transition>` cut straight from one to the next.
+
+   What this buys: a beat is no longer parsed, laid out and then hidden with a
+   per-frame `vis()` gate. Only the beat whose window holds the playhead is
+   resolved at all. The `vis()` calls that remain are the beat-5 typewriter,
+   which is an intra-scene reveal, not a scene window.
+
+   NOTE on `data-start`: inside a scene a video's `data-start` is SCENE-RELATIVE
+   (the resolver adds the scene's own start to it), so every video reads 0 — and
+   the times below are beat-local, not master-absolute. */
+function Beat1() {
   useGSAP((ctx) => {
-    var T = ctx.current.time;
-
-    /* per-frame gates (the reference's .clip windows, index-local == master):
-       text-intro 0-2.1 (:443-445), cursor 6.4-17.3 (:913), drag-overlay
-       16.14-18.24 (:923), text-ask 16.74-18.24 (:926), poster until 7.1. */
-    vis(ctx, 'gi-text-intro', T < 2.1);
-    vis(ctx, 'gi-cursor', T >= 6.4 && T < 17.3);
-    vis(ctx, 'gi-drag-overlay', T >= 16.14 && T < 18.24);
-    vis(ctx, 'gi-text-ask', T >= 16.74 && T < 18.24);
-    vis(ctx, 'gi-beat4-poster', T < 7.1);
-    vis(ctx, 'gi-bg-anat', T >= 5.6);
-    vis(ctx, 'gi-ripple', T >= 6.8 && T < 16.44);
-
-    /* time readouts — reference drives these with onUpdate proxies
-       (glass-intro.html:583-598,680-696): sec = floor(progress). */
-    if (T >= 2.1 && T < 3.85) ctx.getNode('gi-bar2-time').text('0:0' + Math.min(2, Math.floor(T - 2.1)) + ' / 0:02');
-    if (T >= 3.85 && T < 5.6) ctx.getNode('gi-bar3-time').text('0:0' + Math.min(2, Math.floor(T - 3.85)) + ' / 0:02');
-
-    /* beat-5 typewriter (:964-993): "Ask your agent to add", 21 chars,
-       JetBrains Mono 72px -> advance 0.6em = 43.2px/char, line box centred
-       at y=500.4 (79.2px). Cursor leads the next char by 15px. */
-    var T0 = 16.64, CD = 0.028, CW = 43.2;
-    var typed = clamp(Math.floor((T - T0) / CD) + 1, 0, 21);
-    for (var ci = 0; ci < 21; ci++) vis(ctx, 'gi-ask-ch' + ci, T >= T0 + ci * CD);
-    var cOn;
-    if (T < 16.54 || (T >= 16.59 && T < 16.64)) cOn = false;
-    else {
-      var TEND = T0 + 21 * CD; /* 17.228 */
-      cOn = T >= TEND ? ((T - TEND) % 0.8) < 0.4 : true;
-    }
-    var ac = ctx.getNode('gi-ask-cursor');
-    ac.opacity(cOn ? 1 : 0);
-    ac.left(typed * CW + 15);
-
     var tl = ctx.timeline();
-
-    /* Blur targets per beat: the beat wrapper (+ the shared bar, which the
-       reference also blurs on hold/exit). */
-    var GI_B2 = ['gi-zoom-b2'];
-    var GI_B3 = ['gi-zoom-b3'];
-    var GI_B4 = ['gi-zoom-b4'];
-
-    /* initial states (:480-498) */
-    tl.set('gi-zoom-b2', { scale: 1.45, opacity: 0 }, 0);
-    tl.set('gi-zoom-b3', { scale: 1.45, opacity: 0 }, 0);
-    tl.set('gi-zoom-b4', { scale: 1.45, opacity: 0 }, 0);
-    tl.set('gi-bar2', { opacity: 0, y: 12 }, 0);
-    tl.set('gi-bar3', { opacity: 0, y: 12 }, 0);
-    tl.set('gi-bar4', { opacity: 0, y: 12 }, 0);
-    tl.set('gi-cursor', { x: 100, y: 1180, scale: 1, opacity: 1 }, 0);
-    tl.set('gi-ripple', { x: 307.5, y: 914, scale: 0, opacity: 0 }, 0);
-    tl.set('gi-drag-overlay', { x: 1920, opacity: 0 }, 0);
-    tl.set('gi-drag-overlay', { opacity: 1 }, 16.14);
-    tl.set('gi-beat4-logo', { opacity: 0 }, 0);
-    tl.set('gi-beat4-logo', { opacity: 1 }, 5.6);
-    tl.set('gi-beat4-lastframe', { opacity: 0 }, 0);
-
-    /* NOTE: bare `to` tweens take the property DEFAULT as their from-value
-       (core.js getDescriptorDefault), never the current value — so every
-       motion tween here is a fromTo with the reference's prior state spelled
-       out. `set` is only used for state with no overlapping tween. */
-
     /* BEAT 1 (:505-526): per-word slide-from-right, expo.out 0.33s */
     var WS = [0.09, 0.42, 0.55, 0.85, 1.09, 1.40, 1.64];
     var WSL = [360, 180, 120, 80, 50, 30, 20];
@@ -157,93 +125,13 @@ function GlassIntro() {
       tl.fromTo('gi-w' + w, { x: WSL[w], y: 14, opacity: 0 }, { x: 0, y: 0, opacity: 1, duration: 0.33, ease: 'expo.out' }, WS[w]);
     }
     tl.fromTo('gi-intro-text', { scale: 1, filter: 'blur(0px)' }, { scale: 0.6, filter: 'blur(16px)', duration: 0.2, ease: 'expo.in' }, 1.9);
-    tl.set('gi-zoom-b2', { opacity: 1 }, 2.1);
-
-    /* BEAT 2 (:542-618): entry 1.45->0.88 entryEase 0.9s, hold ->0.80 blur2
-       linear 0.6333s @3.0, exit ->0.40 blur16 expo.in 0.2s @3.6333 */
-    tl.fromTo('gi-zoom-b2', { scale: 1.45 }, { scale: 0.88, duration: 0.9, ease: entryEase }, 2.1);
-    zoomBlur(tl, GI_B2, 'blur(14px)', 'blur(0px)', 0.9, entryEase, 2.1);
-    tl.fromTo('gi-zoom-b2', { scale: 0.88 }, { scale: 0.80, duration: 0.6333, ease: 'none' }, 3.0);
-    zoomBlur(tl, GI_B2, 'blur(0px)', 'blur(2px)', 0.6333, 'none', 3.0);
-    zoomBlur(tl, ['gi-bar2'], 'blur(0px)', 'blur(2px)', 0.6333, 'none', 3.0);
-    tl.fromTo('gi-bar2', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 2.6);
-    tl.to('gi-bar2-fill', { width: 1332, duration: 1.75, ease: 'none' }, 2.1);
-    tl.to('gi-bar2-scrub', { x: 1332, duration: 1.75, ease: 'none' }, 2.1);
-    tl.fromTo('gi-zoom-b2', { scale: 0.80 }, { scale: 0.40, duration: 0.2, ease: 'expo.in' }, 3.6333);
-    zoomBlur(tl, GI_B2, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 3.6333);
-    zoomBlur(tl, ['gi-bar2'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 3.6333);
-    /* CUT at 3.85 (:621-622): beat-2 card hides, beat-3 card shows. */
-    tl.set('gi-zoom-b2', { opacity: 0 }, 3.85);
-
-    /* BEAT 3 (:639-716): same shape @3.85, hold @4.7501 (0.6157s), bar @4.3501 */
-    tl.set('gi-zoom-b3', { opacity: 1 }, 3.85);
-    tl.fromTo('gi-zoom-b3', { scale: 1.45 }, { scale: 0.88, duration: 0.9, ease: entryEase }, 3.85);
-    zoomBlur(tl, GI_B3, 'blur(14px)', 'blur(0px)', 0.9, entryEase, 3.85);
-    tl.fromTo('gi-zoom-b3', { scale: 0.88 }, { scale: 0.80, duration: 0.6157, ease: 'none' }, 4.7501);
-    zoomBlur(tl, GI_B3, 'blur(0px)', 'blur(2px)', 0.6157, 'none', 4.7501);
-    zoomBlur(tl, ['gi-bar3'], 'blur(0px)', 'blur(2px)', 0.6157, 'none', 4.7501);
-    tl.fromTo('gi-bar3', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 4.3501);
-    tl.to('gi-bar3-fill', { width: 1332, duration: 1.75, ease: 'none' }, 3.85);
-    tl.to('gi-bar3-scrub', { x: 1332, duration: 1.75, ease: 'none' }, 3.85);
-    tl.fromTo('gi-zoom-b3', { scale: 0.80 }, { scale: 0.40, duration: 0.2, ease: 'expo.in' }, 5.3667);
-    zoomBlur(tl, GI_B3, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 5.3667);
-    zoomBlur(tl, ['gi-bar3'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 5.3667);
-    /* CUT at 5.6 (:719-720): beat-3 card hides. */
-    tl.set('gi-zoom-b3', { opacity: 0 }, 5.6);
-
-    /* BEAT 4 (:731-733,740-810): the card appears instantly at the cut
-       (opacity set to 1), then only scale/blur settle 1.45->1 expo.out 0.9s.
-       A fade-in here would leave beat 4 invisible on frame 168. */
-    tl.set('gi-zoom-b4', { opacity: 1 }, 5.6);
-    tl.fromTo('gi-zoom-b4', { scale: 1.45 }, { scale: 1, duration: 0.9, ease: 'expo.out' }, 5.6);
-    zoomBlur(tl, GI_B4, 'blur(14px)', 'blur(0px)', 0.9, 'expo.out', 5.6);
-    tl.fromTo('gi-bar4', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 6.1);
-    tl.fromTo('gi-beat4-logo', { opacity: 1 }, { opacity: 0, duration: 0.15, ease: 'power2.in' }, 7.0);
-
-    /* interaction (:772-789): cursor slides to the play icon (337.5,944) */
-    tl.fromTo('gi-cursor', { x: 100, y: 1180 }, { x: 337.5, y: 944, duration: 0.7, ease: 'power3.out' }, 6.1);
-    tl.fromTo('gi-cursor', { scale: 1 }, { scale: 0.82, duration: 0.07, ease: 'power4.in' }, 6.8);
-    tl.fromTo('gi-bar4-icon', { scale: 1 }, { scale: 0.96, duration: 0.07, ease: 'power4.in' }, 6.8);
-    tl.fromTo('gi-ripple', { scale: 0, opacity: 0.9 }, { scale: 2.5, opacity: 0, duration: 0.2, ease: 'power2.out' }, 6.8);
-    tl.fromTo('gi-cursor', { scale: 0.82 }, { scale: 1, duration: 0.2999, ease: 'back.out(3)' }, 6.8701);
-    tl.fromTo('gi-bar4-icon', { scale: 0.96 }, { scale: 1.02, duration: 0.1999, ease: 'elastic.out(1, 0.4)' }, 6.8701);
-    tl.fromTo('gi-bar4-icon', { scale: 1.02 }, { scale: 1, duration: 0.2, ease: 'power2.out' }, 7.07);
-    tl.fromTo('gi-cursor', { opacity: 1 }, { opacity: 0, duration: 0.05, ease: 'none' }, 7.15);
-
-    /* full-frame scale-up (:798-810): wrapper 1.4248 + y62 (origin maths
-       identical — wrapper origin IS the canvas centre), radius 40->0 */
-    tl.fromTo('gi-zoom-b4', { scale: 1, y: 0 }, { scale: 1.4248, y: 62, duration: 0.4, ease: 'power3.out' }, 7.2);
-    tl.fromTo('gi-beat4-wrap', { borderRadius: 40 }, { borderRadius: 0, duration: 0.4, ease: 'power3.out' }, 7.2);
-    tl.set('gi-bar4', { opacity: 0 }, 7.2);
-    tl.set('gi-beat4-lastframe', { opacity: 1 }, 16.04);
-
-    /* BEAT 5 transition (:819-844, 936-942) */
-    tl.set('gi-cursor', { x: 100, y: 1180, scale: 1, opacity: 1, rotation: 90 }, 15.74);
-    tl.fromTo('gi-cursor', { x: 100, y: 1180 }, { x: 1920, y: 540, duration: 0.4, ease: 'power3.out' }, 15.74);
-    tl.fromTo('gi-cursor', { scale: 1 }, { scale: 0.82, duration: 0.07, ease: 'power4.in' }, 16.14);
-    tl.fromTo('gi-ripple', { scale: 0, opacity: 0.9 }, { scale: 2.5, opacity: 0, duration: 0.2, ease: 'power2.out' }, 16.14);
-    tl.fromTo('gi-cursor', { scale: 0.82 }, { scale: 1, duration: 0.1, ease: 'back.out(2)' }, 16.147);
-    tl.fromTo('gi-cursor', { x: 1920, y: 540 }, { x: -50, y: 540, duration: 0.6, ease: 'power2.inOut' }, 16.14);
-    tl.fromTo('gi-cursor', { opacity: 1 }, { opacity: 0, duration: 0.05, ease: 'none' }, 16.69);
-    tl.fromTo('gi-drag-overlay', { x: 1920 }, { x: 0, duration: 0.6, ease: 'power2.inOut' }, 16.14);
-
-    /* z-collapse exit of overlay + ask (:861-866) */
-    tl.fromTo('gi-drag-overlay', { scale: 1, filter: 'blur(0px)' }, { scale: 0.6, filter: 'blur(16px)', duration: 0.3, ease: 'expo.in' }, 17.94);
-    tl.fromTo('gi-text-ask', { scale: 1, filter: 'blur(0px)' }, { scale: 0.6, filter: 'blur(16px)', duration: 0.3, ease: 'expo.in' }, 17.94);
-
-    /* root zoom-through as flex-css emerges (:997-1004) */
-    tl.fromTo('gi-root', { scale: 1, opacity: 1, filter: 'blur(0px)' }, { scale: 1.15, opacity: 0, filter: 'blur(4px)', duration: 0.6, ease: 'power2.in' }, 17.3);
   });
-
-  var ASK = 'Ask your agent to add';
   return (
-    <div id="gi-root" class="absolute inset-0 w-[1920px] h-[1080px]">
-      {/* BEAT 1 (:441-449): warm cream intro + clip-masked word reveal */}
-      <div id="gi-text-intro" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)]">
-        <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_45%,rgba(110,70,15,0.08)_100%)]"></div>
-        <div id="gi-intro-mask" class="absolute left-0 top-0 w-[1920px] h-[1080px] overflow-hidden">
-          <div class="absolute left-0 top-0 w-[1720px] h-full overflow-hidden">
-            <div id="gi-intro-text" class="absolute left-0 top-0 w-[1920px] h-full flex items-center justify-center px-[40px]">
+    <div id="gi-text-intro" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)]">
+      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_45%,rgba(110,70,15,0.08)_100%)]"></div>
+      <div id="gi-intro-mask" class="absolute left-0 top-0 w-[1920px] h-[1080px] overflow-hidden">
+        <div class="absolute left-0 top-0 w-[1720px] h-full overflow-hidden">
+          <div id="gi-intro-text" class="absolute left-0 top-0 w-[1920px] h-full flex items-center justify-center px-[40px]">
             <text id="gi-w0" class="text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">Imagine</text>
             <text id="gi-w1" class="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">you</text>
             <text id="gi-w2" class="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">could</text>
@@ -251,44 +139,186 @@ function GlassIntro() {
             <text id="gi-w4" class="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">videos</text>
             <text id="gi-w5" class="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">like</text>
             <text id="gi-w6" class="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">this</text>
-            </div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* backgrounds (:883-889) — absolute-start videos, anatomy cream bg */}
-      <video id="gi-bg-video" path="assets/bg.mp4" data-start="2.1" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
-      <video id="gi-bg-video2" path="assets/bg-2.mp4" data-start="3.85" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
-      <div id="gi-bg-anat" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fbf4e3] opacity-0">
+/* BEAT 2 (:430,530-622): entry 1.45->0.88 entryEase 0.9s, hold ->0.80 blur2
+   linear 0.6333s, exit ->0.40 blur16 expo.in 0.2s. Master 2.10-3.85. */
+function Beat2() {
+  useGSAP((ctx) => {
+    var T = ctx.current.time;
+    var tl = ctx.timeline();
+    var B = ['gi-zoom-b2'];
+
+    tl.set('gi-zoom-b2', { scale: 1.45 }, 0);
+    tl.set('gi-bar2', { opacity: 0, y: 12 }, 0);
+
+    tl.fromTo('gi-zoom-b2', { scale: 1.45 }, { scale: 0.88, duration: 0.9, ease: entryEase }, 0);
+    zoomBlur(tl, B, 'blur(14px)', 'blur(0px)', 0.9, entryEase, 0);
+    tl.fromTo('gi-zoom-b2', { scale: 0.88 }, { scale: 0.80, duration: 0.6333, ease: 'none' }, 0.9);
+    zoomBlur(tl, B, 'blur(0px)', 'blur(2px)', 0.6333, 'none', 0.9);
+    zoomBlur(tl, ['gi-bar2'], 'blur(0px)', 'blur(2px)', 0.6333, 'none', 0.9);
+    tl.fromTo('gi-bar2', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 0.5);
+    tl.to('gi-bar2-fill', { width: 1332, duration: 1.75, ease: 'none' }, 0);
+    tl.to('gi-bar2-scrub', { x: 1332, duration: 1.75, ease: 'none' }, 0);
+    tl.fromTo('gi-zoom-b2', { scale: 0.80 }, { scale: 0.40, duration: 0.2, ease: 'expo.in' }, 1.5333);
+    zoomBlur(tl, B, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 1.5333);
+    zoomBlur(tl, ['gi-bar2'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 1.5333);
+
+    /* time readout — reference drives it with an onUpdate proxy
+       (:583-598): sec = floor(progress). */
+    if (T >= 0 && T < 1.75) ctx.getNode('gi-bar2-time').text('0:0' + Math.min(2, Math.floor(T)) + ' / 0:02');
+  });
+  return (
+    <div id="gi-beat2" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
+      <video id="gi-bg-video" path="assets/bg.mp4" data-start="0" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
+      <div id="gi-zoom-b2" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
+        <div id="gi-frame" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
+        <div id="gi-figma-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
+          <video id="gi-figma-video" path="assets/figma-promo.mp4" data-start="0" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
+        </div>
+        <PlayerBar id="gi-bar2" left={210} w={1500} track={1332} time0="0:00 / 0:02" />
+      </div>
+    </div>
+  );
+}
+
+/* BEAT 3 (:432,632-716): same shape @master 3.85, hold 0.6157s, bar @0.5001. */
+function Beat3() {
+  useGSAP((ctx) => {
+    var T = ctx.current.time;
+    var tl = ctx.timeline();
+    var B = ['gi-zoom-b3'];
+
+    tl.set('gi-zoom-b3', { scale: 1.45 }, 0);
+    tl.set('gi-bar3', { opacity: 0, y: 12 }, 0);
+
+    tl.fromTo('gi-zoom-b3', { scale: 1.45 }, { scale: 0.88, duration: 0.9, ease: entryEase }, 0);
+    zoomBlur(tl, B, 'blur(14px)', 'blur(0px)', 0.9, entryEase, 0);
+    tl.fromTo('gi-zoom-b3', { scale: 0.88 }, { scale: 0.80, duration: 0.6157, ease: 'none' }, 0.9001);
+    zoomBlur(tl, B, 'blur(0px)', 'blur(2px)', 0.6157, 'none', 0.9001);
+    zoomBlur(tl, ['gi-bar3'], 'blur(0px)', 'blur(2px)', 0.6157, 'none', 0.9001);
+    tl.fromTo('gi-bar3', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 0.5001);
+    tl.to('gi-bar3-fill', { width: 1332, duration: 1.75, ease: 'none' }, 0);
+    tl.to('gi-bar3-scrub', { x: 1332, duration: 1.75, ease: 'none' }, 0);
+    tl.fromTo('gi-zoom-b3', { scale: 0.80 }, { scale: 0.40, duration: 0.2, ease: 'expo.in' }, 1.5167);
+    zoomBlur(tl, B, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 1.5167);
+    zoomBlur(tl, ['gi-bar3'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 1.5167);
+
+    if (T >= 0 && T < 1.75) ctx.getNode('gi-bar3-time').text('0:0' + Math.min(2, Math.floor(T)) + ' / 0:02');
+  });
+  return (
+    <div id="gi-beat3" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
+      <video id="gi-bg-video2" path="assets/bg-2.mp4" data-start="0" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
+      <div id="gi-zoom-b3" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
+        <div id="gi-frame2" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
+        <div id="gi-spotify-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
+          <video id="gi-spotify-video" path="assets/spotify-bento.mp4" data-start="0" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
+        </div>
+        <PlayerBar id="gi-bar3" left={210} w={1500} track={1332} time0="0:00 / 0:02" />
+      </div>
+    </div>
+  );
+}
+
+/* BEAT 4 (:434,731-877,913-942): master 5.60-18.24. Poster -> clip ->
+   lastframe -> logo, the cursor-click full-frame scale-up, the drag wipe and
+   the typewriter. All four reference overlay layers open inside this window,
+   so they are siblings of the zoom wrapper — NOT inside it: the wrapper scales
+   1.45->1 and 1->1.4248, and the reference moves the cursor in canvas space. */
+function Beat4() {
+  useGSAP((ctx) => {
+    var T = ctx.current.time;
+    var tl = ctx.timeline();
+    var B = ['gi-zoom-b4'];
+
+    /* ── master 5.60-7.10: card entry, logo, cursor slide, click ripple ── */
+    tl.set('gi-zoom-b4', { scale: 1.45 }, 0);
+    tl.set('gi-bar4', { opacity: 0, y: 12 }, 0);
+    tl.set('gi-cursor', { x: 100, y: 1180, scale: 1, opacity: 0 }, 0);
+    tl.set('gi-cursor', { opacity: 1 }, 0.8);
+    tl.set('gi-ripple', { x: 307.5, y: 914, scale: 0, opacity: 0 }, 0);
+    tl.set('gi-drag-overlay', { x: 1920, opacity: 0 }, 0);
+    tl.set('gi-text-ask', { opacity: 0 }, 0);
+    tl.set('gi-beat4-logo', { opacity: 1 }, 0);
+
+    tl.fromTo('gi-zoom-b4', { scale: 1.45 }, { scale: 1, duration: 0.9, ease: 'expo.out' }, 0);
+    zoomBlur(tl, B, 'blur(14px)', 'blur(0px)', 0.9, 'expo.out', 0);
+    tl.fromTo('gi-bar4', { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 0.5);
+    tl.set('gi-beat4-poster', { opacity: 0 }, 1.5);
+    tl.fromTo('gi-beat4-logo', { opacity: 1 }, { opacity: 0, duration: 0.15, ease: 'power2.in' }, 1.4);
+
+    tl.fromTo('gi-cursor', { x: 100, y: 1180 }, { x: 337.5, y: 944, duration: 0.7, ease: 'power3.out' }, 0.5);
+    tl.fromTo('gi-cursor', { scale: 1 }, { scale: 0.82, duration: 0.07, ease: 'power4.in' }, 1.2);
+    tl.fromTo('gi-bar4-icon', { scale: 1 }, { scale: 0.96, duration: 0.07, ease: 'power4.in' }, 1.2);
+    tl.fromTo('gi-ripple', { scale: 0, opacity: 0.9 }, { scale: 2.5, opacity: 0, duration: 0.2, ease: 'power2.out' }, 1.2);
+    tl.fromTo('gi-cursor', { scale: 0.82 }, { scale: 1, duration: 0.2999, ease: 'back.out(3)' }, 1.2701);
+    tl.fromTo('gi-bar4-icon', { scale: 0.96 }, { scale: 1.02, duration: 0.1999, ease: 'elastic.out(1, 0.4)' }, 1.2701);
+    tl.fromTo('gi-bar4-icon', { scale: 1.02 }, { scale: 1, duration: 0.2, ease: 'power2.out' }, 1.47);
+    tl.fromTo('gi-cursor', { opacity: 1 }, { opacity: 0, duration: 0.05, ease: 'none' }, 1.55);
+
+    /* ── master 7.20: full-frame scale-up (wrapper origin IS the centre) ── */
+    tl.fromTo('gi-zoom-b4', { scale: 1, y: 0 }, { scale: 1.4248, y: 62, duration: 0.4, ease: 'power3.out' }, 1.6);
+    tl.fromTo('gi-beat4-wrap', { borderRadius: 40 }, { borderRadius: 0, duration: 0.4, ease: 'power3.out' }, 1.6);
+    tl.set('gi-bar4', { opacity: 0 }, 1.6);
+    tl.set('gi-beat4-lastframe', { opacity: 1 }, 10.44);
+
+    /* ── master 15.74-17.30: cursor returns, click, drag wipe, typewriter ── */
+    tl.set('gi-cursor', { x: 100, y: 1180, scale: 1, opacity: 1, rotation: 90 }, 10.14);
+    tl.fromTo('gi-cursor', { x: 100, y: 1180 }, { x: 1920, y: 540, duration: 0.4, ease: 'power3.out' }, 10.14);
+    tl.fromTo('gi-cursor', { scale: 1 }, { scale: 0.82, duration: 0.07, ease: 'power4.in' }, 10.54);
+    tl.fromTo('gi-ripple', { scale: 0, opacity: 0.9 }, { scale: 2.5, opacity: 0, duration: 0.2, ease: 'power2.out' }, 10.54);
+    tl.fromTo('gi-cursor', { scale: 0.82 }, { scale: 1, duration: 0.1, ease: 'back.out(2)' }, 10.547);
+    tl.fromTo('gi-cursor', { x: 1920, y: 540 }, { x: -50, y: 540, duration: 0.6, ease: 'power2.inOut' }, 10.54);
+    tl.fromTo('gi-cursor', { opacity: 1 }, { opacity: 0, duration: 0.05, ease: 'none' }, 11.09);
+    tl.set('gi-drag-overlay', { opacity: 1 }, 10.54);
+    tl.fromTo('gi-drag-overlay', { x: 1920 }, { x: 0, duration: 0.6, ease: 'power2.inOut' }, 10.54);
+    tl.set('gi-text-ask', { opacity: 1 }, 11.14);
+
+    /* z-collapse exit of overlay + ask (:861-866) */
+    tl.fromTo('gi-drag-overlay', { scale: 1, filter: 'blur(0px)' }, { scale: 0.6, filter: 'blur(16px)', duration: 0.3, ease: 'expo.in' }, 12.34);
+    tl.fromTo('gi-text-ask', { scale: 1, filter: 'blur(0px)' }, { scale: 0.6, filter: 'blur(16px)', duration: 0.3, ease: 'expo.in' }, 12.34);
+
+    /* root zoom-through as flex-css emerges (:997-1004) */
+    tl.fromTo('gi-root', { scale: 1, opacity: 1, filter: 'blur(0px)' }, { scale: 1.15, opacity: 0, filter: 'blur(4px)', duration: 0.6, ease: 'power2.in' }, 11.7);
+
+    /* ── beat-5 typewriter (:964-993): "Ask your agent to add", 21 chars,
+       JetBrains Mono 72px -> advance 0.6em = 43.2px/char, line box centred
+       at y=500.4 (79.2px). Cursor leads the next char by 15px. An intra-scene
+       reveal, so it stays a per-frame gate — the window does not cover it. ── */
+    var T0 = 11.04, CD = 0.028, CW = 43.2;
+    var typed = clamp(Math.floor((T - T0) / CD) + 1, 0, 21);
+    for (var ci = 0; ci < 21; ci++) vis(ctx, 'gi-ask-ch' + ci, T >= T0 + ci * CD);
+    var cOn;
+    if (T < 10.94 || (T >= 10.99 && T < 11.04)) cOn = false;
+    else {
+      var TEND = T0 + 21 * CD; /* 11.628 */
+      cOn = T >= TEND ? ((T - TEND) % 0.8) < 0.4 : true;
+    }
+    var ac = ctx.getNode('gi-ask-cursor');
+    ac.opacity(cOn ? 1 : 0);
+    ac.left(typed * CW + 15);
+  });
+
+  var ASK = 'Ask your agent to add';
+  return (
+    <div id="gi-beat4" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
+      {/* anatomy cream bg (:883-889) */}
+      <div id="gi-bg-anat" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fbf4e3]">
         <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)]"></div>
         <div class="absolute left-[-20px] top-[-20px] w-[1960px] h-[1120px] bg-[linear-gradient(to_right,rgba(90,60,10,0.07)_1px,transparent_1px),linear-gradient(to_bottom,rgba(90,60,10,0.07)_1px,transparent_1px)] bg-[length:40px_40px]"></div>
         <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_40%,rgba(110,70,15,0.09)_100%)]"></div>
       </div>
 
-      {/* BEAT 2 zoom container + figma card/wrap/bar (:430,:892-894) */}
-      <div id="gi-zoom-b2" class="absolute left-0 top-0 w-[1920px] h-[1080px] opacity-0">
-        <div id="gi-frame" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
-        <div id="gi-figma-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
-          <video id="gi-figma-video" path="assets/figma-promo.mp4" data-start="2.1" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
-        </div>
-        <PlayerBar id="gi-bar2" left={210} w={1500} track={1332} time0="0:00 / 0:02" />
-      </div>
-
-      {/* BEAT 3 (:432,:895-897) */}
-      <div id="gi-zoom-b3" class="absolute left-0 top-0 w-[1920px] h-[1080px] opacity-0">
-        <div id="gi-frame2" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
-        <div id="gi-spotify-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
-          <video id="gi-spotify-video" path="assets/spotify-bento.mp4" data-start="3.85" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
-        </div>
-        <PlayerBar id="gi-bar3" left={210} w={1500} track={1332} time0="0:00 / 0:02" />
-      </div>
-
-      {/* BEAT 4 (:434,:899-905): poster -> clip -> lastframe -> logo stack */}
-      <div id="gi-zoom-b4" class="absolute left-0 top-0 w-[1920px] h-[1080px] opacity-0">
+      <div id="gi-zoom-b4" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
         <div id="gi-frame3" class="absolute left-[236.5px] top-[67.5px] w-[1447px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
         <div id="gi-beat4-wrap" class="absolute left-[286.5px] top-[117.5px] w-[1347px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
           <image id="gi-beat4-poster" path="assets/beat4-poster.jpg" class="absolute left-0 top-0 w-full h-full object-cover" />
-          <video id="gi-beat4-video" path="assets/beat4-clip.mp4" data-start="7.1" data-duration="11.14" data-media-start="0" class="w-full h-full object-cover" />
+          <video id="gi-beat4-video" path="assets/beat4-clip.mp4" data-start="1.5" data-duration="11.14" data-media-start="0" class="w-full h-full object-cover" />
           <image id="gi-beat4-lastframe" path="assets/beat4-lastframe.jpg" class="absolute left-0 top-0 w-full h-full object-cover opacity-0" />
           {/* hf-logo.svg (viewBox 600x400) at width 80% -> hf-logo-light.png
              (263x79) at the same box: left (1347-1077.6)/2, h = 1077.6*79/263 */}
@@ -297,13 +327,11 @@ function GlassIntro() {
         <PlayerBar id="gi-bar4" left={326.5} w={1267} track={1099} time0="0:00 / 0:08" />
       </div>
 
-      {/* cursor + ripple (:913,:920) */}
+      {/* overlay layers (:913,:920,:923,:926) — canvas space, outside the zoom */}
       <div id="gi-cursor" class="absolute left-0 top-0 w-[48px] h-[58px] [transform-origin:4.3px_2.6px] opacity-0">
         <path view-box="0 0 28 34" d="M2.5 1.5L2.5 28L8.5 21.5L14 32L18.5 30L13 19.5L22 19.5L2.5 1.5Z" class="absolute left-0 top-0 w-[48px] h-[58px] fill-[#000000] stroke-[#ffffff] stroke-[2]" />
       </div>
       <div id="gi-ripple" class="absolute left-0 top-0 w-[60px] h-[60px] rounded-full bg-[rgba(255,255,255,0.9)] opacity-0"></div>
-
-      {/* BEAT 5 drag overlay (:923) + ask text (:926) */}
       <div id="gi-drag-overlay" class="absolute left-0 top-0 w-[1920px] h-[1080px] opacity-0">
         <div class="w-full h-full bg-[#faf5ea]"></div>
       </div>
@@ -311,12 +339,25 @@ function GlassIntro() {
         <div class="absolute left-0 top-0 w-[1920px] h-[1080px] flex items-center justify-center">
           <div class="relative h-[79.2px]">
             {ASK.split('').map((ch, i) => (
-              <text id={'gi-ask-ch' + i} class={'absolute top-0 left-[' + (i * 43.2) + 'px] text-[72px] leading-[79.2px] tracking-[-0.01em] font-[hf-jbm] text-[#14110a] opacity-0'}>{ch === ' ' ? '\u00A0' : ch}</text>
+              <text id={'gi-ask-ch' + i} class={'absolute top-0 left-[' + (i * 43.2) + 'px] text-[72px] leading-[79.2px] tracking-[-0.01em] font-[hf-jbm] text-[#14110a] opacity-0'}>{ch === ' ' ? ' ' : ch}</text>
             ))}
             <div id="gi-ask-cursor" class="absolute top-[5.4px] w-[4px] h-[61.2px] bg-[#14110a] opacity-0"></div>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function GlassIntro() {
+  return (
+    <div id="gi-root" class="absolute inset-0 w-[1920px] h-[1080px]">
+      <tl id="gi-tl" class="absolute inset-0">
+        <Beat1 duration={2.1} />
+        <Beat2 duration={1.75} />
+        <Beat3 duration={1.75} />
+        <Beat4 duration={12.64} />
+      </tl>
     </div>
   );
 }
@@ -630,12 +671,10 @@ function drawConic(c, stops) {
       return [col.x / 255, col.y / 255, col.z / 255, al];
     }, { uniforms: { c0: 'float3', c1: 'float3', c2: 'float3', c3: 'float3' } });
   }
-  var ck = c.CK;
-  var paint = new ck.Paint();
-  paint.setStyle(ck.PaintStyle.Fill);
-  paint.setAntiAlias(true);
-  paint.setShader(drawConic._kern.sample({ c0: stops[0], c1: stops[1], c2: stops[2], c3: stops[3] }, []));
-  c.drawRect([0, 0, 110, 110], paint);
+  ly.draw(c, drawConic._kern, {
+    rect: [0, 0, 110, 110],
+    uniforms: { c0: stops[0], c1: stops[1], c2: stops[2], c3: stops[3] },
+  });
 }
 
 /* ══ flex-gsap (master 19.01-19.68, compositions/flex-gsap.html) ════════
@@ -766,12 +805,10 @@ function FlexShader() {
     }
 
     c.clear();
-    var ck = ctx.CanvasKit;
-    var paint = new ck.Paint();
-    paint.setStyle(ck.PaintStyle.Fill);
-    paint.setAntiAlias(true);
-    paint.setShader(FlexShader._kern.sample({ time: 0.5 + clamp(t / FS_ANIM, 0, 1) * 0.94 }, []));
-    c.drawRect([0, 0, 1920, 1080], paint);
+    ly.draw(c, FlexShader._kern, {
+      rect: [0, 0, 1920, 1080],
+      uniforms: { time: 0.5 + clamp(t / FS_ANIM, 0, 1) * 0.94 },
+    });
   });
 
   return (
@@ -1617,12 +1654,12 @@ function Cta() {
 /* ══ canvas-close (master 46.02-49.77, compositions/canvas-close.html) ══
    ASCII-terminal lightning reveal. The reference is a <canvas> with 2D
    fillText per character cell (10x16px grid), driven by a GSAP proxy
-   tween 0→3.93 linear → here per-frame ctx.global.time drives the same
-   renderAtTime. Text goes through ctx.createSurface (2D subset, fontdb
+   tween 0→3.93 linear → here the scene clock `t` (useCanvas passes
+   ctx.current.time) drives the same renderAtTime. Text goes through ly.surface (2D subset, fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
-   offset at 14px), then bakes to a generated shader drawn on the stage
-   canvas. Master slot is 3.75s so the last 0.18s of the 3.93s timeline
+   offset at 14px), then ly.draw samples it on the stage canvas. Master
+   slot is 3.75s so the last 0.18s of the 3.93s timeline
    is truncated by the master, exactly like the reference cut. */
 var CC_START = 46.02, CC_DUR = 3.75;
 var CC_CELL_W = 10, CC_CELL_H = 16;
@@ -1930,10 +1967,10 @@ function CCpaintBolt(boltData, bb, mega, superMega) {
   CCpaintImpact(boltData.strikeCol, boltData.strikeRow, bb * (superMega ? 1.8 : 1.2), impactRadius);
 }
 
-/* render one frame into the surface, then bake onto the stage canvas
+/* render one frame into the surface, then draw it onto the stage canvas
    (canvas-close.html:381-510; fillText baseline = top + 13px ascent) */
 function ccRender(cv, ctx, t) {
-  var surf = ctx.createSurface('cc-surface', 1920, 1080);
+  var surf = ly.surface(1920, 1080);
   surf.font = '400 14px "JetBrains Mono", monospace';
   surf.clearRect(0, 0, 1920, 1080);
 
@@ -2040,22 +2077,15 @@ function ccRender(cv, ctx, t) {
     }
   }
 
-  var CK = ctx.CanvasKit;
-  var p = new CK.Paint();
-  p.setStyle(CK.PaintStyle.Fill);
-  /* Generated images are a frame-scoped cache: the key must change with the
-     frame, or the same id would be re-baked with different pixels (collision).
-     ctx.global.frame is the composition frame index, so it is 1:1 with the content.
-     drawRect only accepts runtime/lambda paint shaders, so route the baked
-     surface through an identity ly.pixel kernel that samples it. */
-  var ccBake = surf.bake('cc-frame-' + ctx.global.frame);
+  /* The surface is sampled straight by an identity kernel: ly.draw takes the
+     surface as a source and bakes it on demand, so the script no longer
+     manages a frame-scoped generated-image key. */
   var ccIdent = ly.pixel((uv, src) => {
     var c = src.eval(uv);
     if (c.a > 0.0) { return [c.r / c.a, c.g / c.a, c.b / c.a, c.a]; }
     return [0.0, 0.0, 0.0, 0.0];
   });
-  p.setShader(ccIdent.sample([], [ccBake]));
-  cv.drawRect([0, 0, 1920, 1080], p);
+  ly.draw(cv, ccIdent, { rect: [0, 0, 1920, 1080], sources: [surf] });
 }
 
 function CanvasClose() {
@@ -2074,7 +2104,7 @@ function CanvasClose() {
    voiceover.mp3 @0, 14 caption chips. Master cuts several template
    timelines short (flex-gsap, thesis, engine exits) — each component's
    window matches the master data-start/duration table, so the truncation
-   falls out of the per-scene vis() gating. ═════════════════════════════ */
+   falls out of the scene window. ═════════════════════════════ */
 function HyperframesLaunch() {
   return (
     <div id="hf-root" class="relative w-[1920px] h-[1080px] bg-[#0a0a0a] overflow-hidden">

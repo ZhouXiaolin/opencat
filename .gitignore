@@ -18,7 +18,14 @@ __pycache__/
 /json/
 /cctest.c
 
-# 大体积素材不入库（Solaren：先不上传）——文件保留在本地磁盘，源头可从 F:/hyperframes-launches 重拷
+# 大体积素材不入库（Solaren：先不上传）——文件保留在本地磁盘，源头可从参考仓库重拷。
+# 参考仓库（组合源码 + swgl 参考视频）：/Users/solaren/Projects/hyperframes-launches
+#   · 同名同路径的直接拷：cp <ref>/<示例>/<相对路径> examples/<示例>/<相对路径>
+#   · variables-launch 的 hook-*.mp4 在参考仓库是 assets/ 平铺，此处归到 assets/hooks/
+#   · 派生件需重做（配方见 examples/<示例>/handoff.md）：
+#       bg-pad.mp4 / bg-2-pad.mp4  ← 首帧冻结前缀（tpad start_mode=clone）
+#       pet-typing-2x.mp4          ← 两段媒体区间顺序拼接
+#       scene-03-aroll-cutout-alpha.mov ← VP9 alpha webm 转 ProRes 4444
 # 如需恢复跟踪，删除对应行后 git add -f
 examples/HF-heygen-stripe/assets/aroll-james.mp4
 examples/HF-heygen-stripe/assets/aroll-seg1.mp4

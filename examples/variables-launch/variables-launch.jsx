@@ -8,7 +8,7 @@
 // (tree order) matches the reference scene order.
 //
 // Where the reference measures the DOM (`getBoundingClientRect`) we use the
-// engine's measure surface (`ctx.createSurface` + `measureText`), the same
+// engine's measure surface (`ly.surface(1,1)` + `measureText`), the same
 // technique k3-promo.jsx uses for its type calibration -- measurement never
 // touches pixels.
 //
@@ -35,7 +35,7 @@ export const fonts = {
 // One measure stack shared by every scene's text metrics (get-or-create by
 // name, so re-entering per consumer is free). Same technique as k3-promo.jsx.
 function makeMeasure(ctx) {
-  var MSR = ctx.createSurface('vl-msr', 1, 1);
+  var MSR = ly.surface(1, 1);
   function natW(family, weight, fs, ls, s) {
     MSR.font = weight + ' ' + fs + 'px ' + family;
     MSR.letterSpacing = ls + 'px';

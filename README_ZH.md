@@ -168,22 +168,22 @@ await exportMp4({ /* ... */ });
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）。离屏 surface（`ctx.createSurface`）同时是**render target**，承载"构建一次、逐帧采样"的数据。`examples/k3-promo/k3-promo.jsx` 场景 H 的溶解距离场完全在 JS 里构建：
+`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）。离屏目标（`ly.surface`）承载"构建一次、逐帧采样"的数据。**`ly` 路径不暴露任何 CanvasKit** —— 没有 `Paint`、没有 `drawRect`、没有 `TileMode`；Skia 还是 CPU 由引擎按内核能力自行选择。`examples/k3-promo/k3-promo.jsx` 场景 H 的溶解距离场完全在 JS 里构建：
 
 ```js
-// 1) 文字锁排一次性栅格化进离屏 surface
-var ox = ctx.createSurface('k3dis-off', 1920, 1080);
+// 1) 文字锁排一次性栅格化进离屏目标
+var ox = ly.surface(1920, 1080);
 ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-// 2) 用 pixel 内核播种 mask + 距离场，以渲染目标 child 采样那个 surface
-var field = ctx.createSurface('k3dis-field', 1460, 222);
+// 2) 用 pixel 内核播种 mask + 距离场，以那个目标作 source 采样
+var field = ly.surface(1460, 222);
 const seed = ly.pixel((uv, src) => {
   const c = src.eval(uv + [232, 430]);
   const m = byte(c.a * 255 + 0.5);
   const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist 低/高字节
   return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
 });
-field.run(seed, { child: ox });
+field.apply(seed, { sources: [ox] });
 
 // 3) chamfer 扫描——scan 类 lambda 就地遍历；get(dx,dy) 读 in-progress 缓冲，
 //    遍历顺序由 executor 拥有（forward/backward）
@@ -195,16 +195,20 @@ field.sweep(ly.scan((get) => {
   return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
 }, { dir: 'forward' }));
 
-// 4) 每帧：pixel 内核直接采样 field surface——无需每帧烘焙
+// 4) 每帧：画一个直接采样 field 目标的 pixel 内核
 var DIS = ly.pixel((uv, field, u) => {
   const c = field.eval(uv);
   const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
   /* scramble 噪点 · dust · glow → straight RGBA */
 }, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
-paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
+ly.draw(canvas, DIS, {
+  rect: [232, 230, 1460, 222],
+  uniforms: { x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] },
+  sources: [field],
+});
 ```
 
-画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`target.run` 用 pixel 内核重绘，`target.sweep` 用 scan 内核就地扫描，`surface.bake(key)` 把像素注册为帧级图像供着色器采样。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo/k3-promo.jsx` 场景 H；指南：`skills/opencat-creator/references/canvaskit.md`。
+画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`target.apply` 用 pixel 内核重绘，`target.sweep` 用 scan 内核就地扫描，`ly.draw` 按需把目标烘给绘制路径。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo/k3-promo.jsx` 场景 H；指南：`skills/opencat-creator/references/canvaskit.md`。
 
 ### 更多能力
 

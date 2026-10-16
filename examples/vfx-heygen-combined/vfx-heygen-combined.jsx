@@ -124,7 +124,7 @@ function camBasis(eye, look) {
 /* prefix advance widths for caret tracks (engine measure == engine layout) */
 function measurePrefixes(ctx, key, font, ls, str) {
   if (globalThis[key]) return globalThis[key];
-  var MSR = ctx.createSurface('vhc-msr', 1, 1);
+  var MSR = ly.surface(1, 1);
   MSR.font = font;
   MSR.letterSpacing = ls;
   var out = [];
@@ -744,17 +744,18 @@ function ChromaticSplit() {
     var c1 = [Math.cos(greenRotY), Math.sin(greenRotY)];
     var c2 = [Math.cos(blueRotY), Math.sin(blueRotY)];
     var chromEffect = ly.pixel(CHROM, CHROM_SPEC);
-    var chromChild = chromCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
-    var p = new CK.Paint();
-    p.setShader(chromEffect.sample(
-      [PW, PH, planeW, planeH, planeScale, sceneAlpha,
-       camX, camY, camZ,
-       B.F[0], B.F[1], B.F[2], Rx, Ry, Rz, Ux, Uy, Uz,
-       depthX - xSplit, 0.0, depthZ + zSplit, c0[0], c0[1],
-       depthX,          0.0, depthZ,          c1[0], c1[1],
-       depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1]
-      ], [chromChild]));
-    chromCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
+    ly.draw(chromCanvas, chromEffect, {
+      rect: [0, 0, 1920, 1080],
+      uniforms: [
+        PW, PH, planeW, planeH, planeScale, sceneAlpha,
+        camX, camY, camZ,
+        B.F[0], B.F[1], B.F[2], Rx, Ry, Rz, Ux, Uy, Uz,
+        depthX - xSplit, 0.0, depthZ + zSplit, c0[0], c0[1],
+        depthX,          0.0, depthZ,          c1[0], c1[1],
+        depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1]
+      ],
+      sources: [chromCanvas],
+    });
   });
   return (
     <canvas id="chromatic-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000000] opacity-0">
@@ -814,11 +815,11 @@ function Portal() {
 
     var portalCanvas = ctx.getCanvasById('portal-canvas');
     var portalEffect = ly.pixel(PORTAL, PORTAL_SPEC);
-    var portalChild = portalCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
-    var p = new CK.Paint();
-    p.setShader(portalEffect.sample(
-      [1920.0, 1080.0, radius, energy, st - PS, ew, chroma, distort], [portalChild]));
-    portalCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
+    ly.draw(portalCanvas, portalEffect, {
+      rect: [0, 0, 1920, 1080],
+      uniforms: [1920.0, 1080.0, radius, energy, st - PS, ew, chroma, distort],
+      sources: [portalCanvas],
+    });
   });
   return (
     <>
@@ -851,19 +852,21 @@ function IntroSting() {
        invisible, skip its ~12s ray-march (render-budget) */
     if (TT < 3.1) {
       var stingCanvas = ctx.getCanvasById('sting-canvas');
-      var stingChild = stingCanvas.getSubTree().makeShader(CK.TileMode.Clamp, CK.TileMode.Clamp);
-      var p = new CK.Paint();
       if (effectMix <= 0) {
         var loEffect = ly.pixel(STING_LOGOONLY, STING_LOGOONLY_SPEC);
-        p.setShader(loEffect.sample(
-          [1920.0, 1080.0, logoScale, logoY], [stingChild]));
+        ly.draw(stingCanvas, loEffect, {
+          rect: [0, 0, 1920, 1080],
+          uniforms: [1920.0, 1080.0, logoScale, logoY],
+          sources: [stingCanvas],
+        });
       } else {
         var stingEffect = ly.pixel(STING, STING_SPEC);
-        p.setShader(stingEffect.sample(
-          [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
-          [stingChild, stingChild]));
+        ly.draw(stingCanvas, stingEffect, {
+          rect: [0, 0, 1920, 1080],
+          uniforms: [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
+          sources: [stingCanvas, stingCanvas],
+        });
       }
-      stingCanvas.drawRect(CK.XYWHRect(0, 0, 1920, 1080), p);
     }
     T.set('sting-canvas', { opacity: 1 }, 0);
     T.to('sting-canvas', { filter: 'blur(16px)', duration: 0.2, ease: 'expo.in' }, 2.9);

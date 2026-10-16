@@ -41,8 +41,8 @@ pub struct MutationStore {
     animate_entries: Vec<AnimateEntry>,
     morph_entries: Vec<MorphSvgEntry>,
     path_entries: Vec<PathMeasureEntry>,
-    /// Script-recorded generated images (canvas putImageData / script
-    /// `surface.bake` path). NOT cleared by reset_for_frame: recorded during
+    /// Script-recorded generated images (canvas putImageData / surface
+    /// auto-bake path). NOT cleared by reset_for_frame: recorded during
     /// script runs, drained once per frame by the render pipeline into the
     /// pipeline `GeneratedImageTable`. Ids must be deterministic per content.
     pending_generated_images: Vec<crate::ir::FrameGeneratedImage>,

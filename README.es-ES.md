@@ -169,23 +169,23 @@ WASM y CanvasKit puros, sin servidor necesario.
 
 ### HTML en Canvas — Muestreo de Textura de Subárbol
 
-El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código, lo baja automáticamente a SKSL o lo despacha al renderizador de CPU, y no codifica rígidamente ningún algoritmo de efecto). Las superficies offscreen (`ctx.createSurface`) sirven también como **render targets** para datos que se construyen una vez y se muestrean por fotograma. La escena H de `examples/k3-promo/k3-promo.jsx` construye todo su campo de distancia de disolución en JS:
+El contenido de un subárbol de un nodo `<canvas>` puede texturizarse en vivo y alimentarse a un efecto por píxel. Los efectos se escriben como **lambdas de JS** (compiladas, nunca ejecutadas — Rust analiza el código, lo baja automáticamente a SKSL o lo despacha al renderizador de CPU, y no codifica rígidamente ningún algoritmo de efecto). Los objetivos offscreen (`ly.surface`) guardan datos que se construyen una vez y se muestrean por fotograma. **La ruta `ly` no expone ningún CanvasKit** — sin `Paint`, sin `drawRect`, sin `TileMode`; el motor elige Skia o CPU según la capacidad del kernel. La escena H de `examples/k3-promo/k3-promo.jsx` construye todo su campo de distancia de disolución en JS:
 
 ```js
-// 1) rasteriza el lockup una sola vez en una superficie offscreen
-var ox = ctx.createSurface('k3dis-off', 1920, 1080);
+// 1) rasteriza el lockup una sola vez en un objetivo offscreen
+var ox = ly.surface(1920, 1080);
 ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-// 2) siembra una máscara + campo de distancia — lambda de clase pixel que muestrea
-//    esa superficie como child
-var field = ctx.createSurface('k3dis-field', 1460, 222);
+// 2) siembra una máscara + campo de distancia — kernel pixel que muestrea
+//    ese objetivo como source
+var field = ly.surface(1460, 222);
 const seed = ly.pixel((uv, src) => {
   const c = src.eval(uv + [232, 430]);
   const m = byte(c.a * 255 + 0.5);
   const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
   return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
 });
-field.run(seed, { child: ox });
+field.apply(seed, { sources: [ox] });
 
 // 3) barridos chamfer — lambda de clase scan, in situ; get(dx,dy) lee el búfer en
 //    progreso y el ejecutor posee el orden de recorrido (forward/backward)
@@ -197,16 +197,20 @@ field.sweep(ly.scan((get) => {
   return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
 }, { dir: 'forward' }));
 
-// 4) cada fotograma: una lambda muestrea la superficie del campo directamente — sin bake
+// 4) cada fotograma: dibuja un kernel pixel que muestrea el campo directamente
 var DIS = ly.pixel((uv, field, u) => {
   const c = field.eval(uv);
   const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
   /* ruido scramble · dust · glow → RGBA straight */
 }, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
-paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
+ly.draw(canvas, DIS, {
+  rect: [232, 230, 1460, 222],
+  uniforms: { x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] },
+  sources: [field],
+});
 ```
 
-Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Los búferes de píxeles nunca cruzan el puente JS y el lado Rust solo tiene un **ejecutor genérico**: `target.run` reescribe con un kernel pixel, `target.sweep` recorre in situ con un kernel scan y `surface.bake(key)` registra los píxeles como imagen del fotograma para muestreo por shader. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando. Referencia: `examples/k3-promo/k3-promo.jsx` escena H; guía: `skills/opencat-creator/references/canvaskit.md`.
+Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shader → salida. Los búferes de píxeles nunca cruzan el puente JS y el lado Rust solo tiene un **ejecutor genérico**: `target.apply` reescribe con un kernel pixel, `target.sweep` recorre in situ con un kernel scan y `ly.draw` hornea el objetivo bajo demanda para la ruta de dibujo. Si necesitas control directo de SKSL, los shaders escritos a mano con `CK.RuntimeEffect.Make(sksl)` siguen funcionando. Referencia: `examples/k3-promo/k3-promo.jsx` escena H; guía: `skills/opencat-creator/references/canvaskit.md`.
 
 ### Más
 

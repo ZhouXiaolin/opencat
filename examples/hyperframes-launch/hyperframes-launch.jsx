@@ -630,12 +630,10 @@ function drawConic(c, stops) {
       return [col.x / 255, col.y / 255, col.z / 255, al];
     }, { uniforms: { c0: 'float3', c1: 'float3', c2: 'float3', c3: 'float3' } });
   }
-  var ck = c.CK;
-  var paint = new ck.Paint();
-  paint.setStyle(ck.PaintStyle.Fill);
-  paint.setAntiAlias(true);
-  paint.setShader(drawConic._kern.sample({ c0: stops[0], c1: stops[1], c2: stops[2], c3: stops[3] }, []));
-  c.drawRect([0, 0, 110, 110], paint);
+  ly.draw(c, drawConic._kern, {
+    rect: [0, 0, 110, 110],
+    uniforms: { c0: stops[0], c1: stops[1], c2: stops[2], c3: stops[3] },
+  });
 }
 
 /* ══ flex-gsap (master 19.01-19.68, compositions/flex-gsap.html) ════════
@@ -766,12 +764,10 @@ function FlexShader() {
     }
 
     c.clear();
-    var ck = ctx.CanvasKit;
-    var paint = new ck.Paint();
-    paint.setStyle(ck.PaintStyle.Fill);
-    paint.setAntiAlias(true);
-    paint.setShader(FlexShader._kern.sample({ time: 0.5 + clamp(t / FS_ANIM, 0, 1) * 0.94 }, []));
-    c.drawRect([0, 0, 1920, 1080], paint);
+    ly.draw(c, FlexShader._kern, {
+      rect: [0, 0, 1920, 1080],
+      uniforms: { time: 0.5 + clamp(t / FS_ANIM, 0, 1) * 0.94 },
+    });
   });
 
   return (
@@ -1617,12 +1613,12 @@ function Cta() {
 /* ══ canvas-close (master 46.02-49.77, compositions/canvas-close.html) ══
    ASCII-terminal lightning reveal. The reference is a <canvas> with 2D
    fillText per character cell (10x16px grid), driven by a GSAP proxy
-   tween 0→3.93 linear → here per-frame ctx.global.time drives the same
-   renderAtTime. Text goes through ctx.createSurface (2D subset, fontdb
+   tween 0→3.93 linear → here the scene clock `t` (useCanvas passes
+   ctx.current.time) drives the same renderAtTime. Text goes through ly.surface (2D subset, fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
-   offset at 14px), then bakes to a generated shader drawn on the stage
-   canvas. Master slot is 3.75s so the last 0.18s of the 3.93s timeline
+   offset at 14px), then ly.draw samples it on the stage canvas. Master
+   slot is 3.75s so the last 0.18s of the 3.93s timeline
    is truncated by the master, exactly like the reference cut. */
 var CC_START = 46.02, CC_DUR = 3.75;
 var CC_CELL_W = 10, CC_CELL_H = 16;
@@ -1930,10 +1926,10 @@ function CCpaintBolt(boltData, bb, mega, superMega) {
   CCpaintImpact(boltData.strikeCol, boltData.strikeRow, bb * (superMega ? 1.8 : 1.2), impactRadius);
 }
 
-/* render one frame into the surface, then bake onto the stage canvas
+/* render one frame into the surface, then draw it onto the stage canvas
    (canvas-close.html:381-510; fillText baseline = top + 13px ascent) */
 function ccRender(cv, ctx, t) {
-  var surf = ctx.createSurface('cc-surface', 1920, 1080);
+  var surf = ly.surface(1920, 1080);
   surf.font = '400 14px "JetBrains Mono", monospace';
   surf.clearRect(0, 0, 1920, 1080);
 
@@ -2040,22 +2036,15 @@ function ccRender(cv, ctx, t) {
     }
   }
 
-  var CK = ctx.CanvasKit;
-  var p = new CK.Paint();
-  p.setStyle(CK.PaintStyle.Fill);
-  /* Generated images are a frame-scoped cache: the key must change with the
-     frame, or the same id would be re-baked with different pixels (collision).
-     ctx.global.frame is the composition frame index, so it is 1:1 with the content.
-     drawRect only accepts runtime/lambda paint shaders, so route the baked
-     surface through an identity ly.pixel kernel that samples it. */
-  var ccBake = surf.bake('cc-frame-' + ctx.global.frame);
+  /* The surface is sampled straight by an identity kernel: ly.draw takes the
+     surface as a source and bakes it on demand, so the script no longer
+     manages a frame-scoped generated-image key. */
   var ccIdent = ly.pixel((uv, src) => {
     var c = src.eval(uv);
     if (c.a > 0.0) { return [c.r / c.a, c.g / c.a, c.b / c.a, c.a]; }
     return [0.0, 0.0, 0.0, 0.0];
   });
-  p.setShader(ccIdent.sample([], [ccBake]));
-  cv.drawRect([0, 0, 1920, 1080], p);
+  ly.draw(cv, ccIdent, { rect: [0, 0, 1920, 1080], sources: [surf] });
 }
 
 function CanvasClose() {
@@ -2074,7 +2063,7 @@ function CanvasClose() {
    voiceover.mp3 @0, 14 caption chips. Master cuts several template
    timelines short (flex-gsap, thesis, engine exits) — each component's
    window matches the master data-start/duration table, so the truncation
-   falls out of the per-scene vis() gating. ═════════════════════════════ */
+   falls out of the scene window. ═════════════════════════════ */
 function HyperframesLaunch() {
   return (
     <div id="hf-root" class="relative w-[1920px] h-[1080px] bg-[#0a0a0a] overflow-hidden">

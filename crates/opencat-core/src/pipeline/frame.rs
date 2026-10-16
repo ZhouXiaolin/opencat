@@ -154,7 +154,7 @@ pub fn render_frame_with_state(
         script,
     )?;
     // Scripts may have generated RGBA images this frame (canvas putImageData
-    // / script `surface.bake` path). Land them in the pipeline table BEFORE
+    // / surface auto-bake path). Land them in the pipeline table BEFORE
     // the media plan is built so hosts receive the payloads for this frame.
     for image in script.take_frame_generated_images() {
         generated_images.insert(image.id, image.width, image.height, image.rgba)?;

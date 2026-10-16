@@ -168,22 +168,22 @@ Pure WASM + CanvasKit, no server required.
 
 ### HTML in Canvas — Subtree Texture Sampling
 
-A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source, lowers it to SKSL or dispatches it to the CPU renderer, and hardcodes no effect algorithm). Offscreen surfaces (`ctx.createSurface`) double as **render targets** for build-once, sample-per-frame data. `examples/k3-promo/k3-promo.jsx` scene H builds its dissolve distance field entirely in JS:
+A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source, lowers it to SKSL or dispatches it to the CPU renderer, and hardcodes no effect algorithm). Offscreen targets (`ly.surface`) hold build-once, sample-per-frame data. **The `ly` path exposes no CanvasKit** — no `Paint`, no `drawRect`, no `TileMode`; the engine picks Skia or CPU by kernel capability. `examples/k3-promo/k3-promo.jsx` scene H builds its dissolve distance field entirely in JS:
 
 ```js
 // 1) raster the lockup once into an offscreen surface
-var ox = ctx.createSurface('k3dis-off', 1920, 1080);
+var ox = ly.surface(1920, 1080);
 ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
 
-// 2) seed a mask + distance field — a pixel kernel sampling that surface as a child
-var field = ctx.createSurface('k3dis-field', 1460, 222);
+// 2) seed a mask + distance field — a pixel kernel sampling that surface as a source
+var field = ly.surface(1460, 222);
 const seed = ly.pixel((uv, src) => {
   const c = src.eval(uv + [232, 430]);
   const m = byte(c.a * 255 + 0.5);
   const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
   return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
 });
-field.run(seed, { child: ox });
+field.apply(seed, { sources: [ox] });
 
 // 3) chamfer sweeps — a scan kernel, in place; get(dx,dy) reads the in-progress
 //    buffer and the traversal direction rides on the kernel declaration
@@ -195,16 +195,20 @@ field.sweep(ly.scan((get) => {
   return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
 }, { dir: 'forward' }));
 
-// 4) each frame: a pixel kernel samples the field surface directly — no per-frame bake
+// 4) each frame: draw a pixel kernel that samples the field surface directly
 var DIS = ly.pixel((uv, field, u) => {
   const c = field.eval(uv);
   const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
   /* scramble noise · dust · glow → straight RGBA */
 }, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
-paint.setShader(DIS.sample({ x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] }, [field]));
+ly.draw(canvas, DIS, {
+  rect: [232, 230, 1460, 222],
+  uniforms: { x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] },
+  sources: [field],
+});
 ```
 
-Any HTML subtree — layout, images, text, video → texture → shader → output. Pixel buffers never cross the JS bridge and the Rust side holds only a **generic executor**: `target.run` rewrites pixels with a pixel kernel, `target.sweep` sweeps in place with a scan kernel, and `surface.bake(key)` registers the pixels as a frame image for shader sampling. The effect-kernel language is **Liangyi** (`ly.*` — `crates/opencat-liangyi`): JS-hosted, compiled never executed, dispatched to SKSL or a CPU interpreter by capability. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work. Reference: `examples/k3-promo/k3-promo.jsx` scene H; guide: `skills/opencat-creator/references/canvaskit.md`.
+Any HTML subtree — layout, images, text, video → texture → shader → output. Pixel buffers never cross the JS bridge and the Rust side holds only a **generic executor**: `target.apply` rewrites pixels with a pixel kernel, `target.sweep` sweeps in place with a scan kernel, and `ly.draw` bakes a surface on demand for the draw path. The effect-kernel language is **Liangyi** (`ly.*` — `crates/opencat-liangyi`): JS-hosted, compiled never executed, dispatched to SKSL or a CPU interpreter by capability. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work. Reference: `examples/k3-promo/k3-promo.jsx` scene H; guide: `skills/opencat-creator/references/canvaskit.md`.
 
 ### More
 

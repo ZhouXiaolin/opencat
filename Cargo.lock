@@ -3008,24 +3008,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "cocoa",
- "core-graphics-types 0.2.0",
  "dirs",
- "foreign-types",
- "khronos-egl",
- "libc",
- "metal",
- "objc",
  "opencat-core",
  "opencat-engine",
  "raw-window-handle",
  "rodio",
  "serde_json",
- "skia-safe",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "windows-sys 0.61.2",
  "winit",
 ]
 
@@ -3065,6 +3056,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cocoa",
  "core-graphics-types 0.2.0",
  "dirs",
  "ffmpeg-next",
@@ -3072,10 +3064,13 @@ dependencies = [
  "foreign-types",
  "image",
  "imagesize",
+ "khronos-egl",
+ "libc",
  "metal",
  "nom-exif",
  "num_cpus",
  "opencat-core",
+ "opencat-gpu-native",
  "opencat-liangyi",
  "opencat-three",
  "reqwest",
@@ -3087,6 +3082,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "v8",
+]
+
+[[package]]
+name = "opencat-gpu-native"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "windows-sys 0.61.2",
 ]
 
@@ -3114,6 +3116,7 @@ dependencies = [
  "image",
  "naga",
  "opencat-core",
+ "opencat-gpu-native",
  "pollster",
  "skia-safe",
  "wgpu",

@@ -8,12 +8,14 @@
 //! 入口经 `wglGetProcAddress` 解析（FBO 属 GL 3.0+ / `ARB_framebuffer_object`，
 //! 不在 opengl32.dll 的 1.1 导出表里）；`glReadPixels` 是 GL 1.0，直接由
 //! opengl32.dll 导出，**不走** `wglGetProcAddress`。调用线程必须有 current
-//! 的 GL context——调用方经 [`LazyRenderer3d::with_gl_context`] 保证。
-//!
-//! [`LazyRenderer3d::with_gl_context`]: crate::LazyRenderer3d::with_gl_context
+//! 的 GL context——调用方经 `opencat_three::Renderer3d::with_context` 保证。
 
 use std::ffi::CString;
 use std::os::raw::c_void;
+
+use anyhow::{Result, anyhow};
+
+use crate::NativeTexture;
 
 #[link(name = "opengl32")]
 unsafe extern "system" {
@@ -33,9 +35,16 @@ unsafe extern "system" {
     fn glReadBuffer(mode: u32);
 }
 
+/// Skia 的 `gpu::gl::TextureInfo` 要填的目标与内部格式（GL 枚举）。
+///
+/// 这两个值不是本 crate 用的，是给调用方填 Skia 结构体用的——放在这里，
+/// 调用方就不必自己写 GL 魔数。
+pub const TEXTURE_2D: u32 = 0x0DE1;
+pub const RGBA8: u32 = 0x8058;
+
 const GL_FRAMEBUFFER: u32 = 0x8D40;
 const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
-const GL_TEXTURE_2D: u32 = 0x0DE1;
+const GL_TEXTURE_2D: u32 = TEXTURE_2D;
 const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
 const GL_PIXEL_PACK_BUFFER: u32 = 0x88EB;
 const GL_STREAM_READ: u32 = 0x88E1;
@@ -59,11 +68,14 @@ fn gl_proc(name: &str) -> *const c_void {
     }
 }
 
-/// 建一个以 `texture_id` 为颜色附件的 FBO，返回 FBO id。
+/// 建一个以 `tex` 为颜色附件的 FBO，返回 FBO id。
 ///
 /// 缺 GL 入口或 FBO 不完整时返回 `None`。成功时 FBO 已解绑（绑回 0），
 /// 不干扰调用方后续的 GL 状态。
-pub fn create_framebuffer(texture_id: u32) -> Option<u32> {
+///
+/// 返回的 id 对调用方**不透明**：它只被塞进 Skia 的 `FramebufferInfo`。
+/// 调用方不得对它做 GL 调用，也不得做算术。
+pub fn create_framebuffer(tex: NativeTexture) -> Option<u32> {
     type Gen = unsafe extern "system" fn(i32, *mut u32);
     type Bind = unsafe extern "system" fn(u32, u32);
     type Attach = unsafe extern "system" fn(u32, u32, u32, u32, i32);
@@ -91,7 +103,7 @@ pub fn create_framebuffer(texture_id: u32) -> Option<u32> {
             GL_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0,
             GL_TEXTURE_2D,
-            texture_id,
+            tex.raw() as u32,
             0,
         );
         let status = check(GL_FRAMEBUFFER);
@@ -112,6 +124,66 @@ pub fn delete_framebuffer(fbo: u32) {
     }
     let del: Del = unsafe { std::mem::transmute(p) };
     unsafe { del(1, &fbo) };
+}
+
+/// 一块离屏合成目标：原生纹理 + FBO + 双缓冲读回器。
+///
+/// 建 [`Self::new`] 时要求 GL context current——FBO 与 PBO 都是 context 资源。
+/// drop 时删 FBO 与 PBO；**纹理不归它管**，那是 [`crate::TextureRegistry`]
+/// 的活。
+pub struct Target {
+    fbo: u32,
+    width: u32,
+    height: u32,
+    /// PBO 双缓冲读回。`None` 表示 GL 入口缺失，调用方退回同步读回。
+    readback: Option<ReadbackPixels>,
+}
+
+impl Target {
+    /// 用 `tex` 作颜色附件建目标。
+    pub fn new(tex: NativeTexture, width: u32, height: u32) -> Result<Self> {
+        let fbo = create_framebuffer(tex)
+            .ok_or_else(|| anyhow!("创建 FBO 失败（GL 入口缺失或 FBO 不完整）"))?;
+        Ok(Self {
+            fbo,
+            width,
+            height,
+            readback: ReadbackPixels::new(fbo, width, height),
+        })
+    }
+
+    /// FBO id，交给 Skia 的 `FramebufferInfo`。对调用方**不透明**。
+    pub fn fbo(&self) -> u32 {
+        self.fbo
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// 是否有 PBO 双缓冲读回。`false` 时调用方走同步读回。
+    pub fn has_readback(&self) -> bool {
+        self.readback.is_some()
+    }
+
+    /// 取回**上一帧**的像素，并为当前帧发起一次读回。首帧返回 `None`。
+    pub fn readback(&mut self) -> Option<Vec<u8>> {
+        self.readback
+            .as_mut()
+            .and_then(ReadbackPixels::read_frame)
+    }
+}
+
+impl Drop for Target {
+    fn drop(&mut self) {
+        if self.fbo != 0 {
+            delete_framebuffer(self.fbo);
+        }
+    }
 }
 
 /// 把 FBO 的颜色附件读回 CPU 的双缓冲读回器。

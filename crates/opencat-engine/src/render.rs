@@ -110,12 +110,14 @@ fn render_pipeline_frame_to_rgba(
 /// GPU 合成路径的会话状态（Windows / GL 后端）。
 ///
 /// 持有 Skia GPU 合成器与它背后的 wgpu 渲染器。**锁纪律**：合成器的每个
-/// 方法都必须在 `renderer.with_gl_context` 的锁内调用（见
+/// 方法都必须在 `renderer.with_context` 的锁内调用（见
 /// [`crate::gpu_compositor`] 的模块文档）。
 #[cfg(target_os = "windows")]
 pub struct GpuRenderSession {
     compositor: crate::gpu_compositor::GpuCompositor,
     renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
+    /// 共享纹理登记处（3D 输出纹理的取用与归还）。
+    textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
 }
 
 #[cfg(target_os = "windows")]
@@ -131,24 +133,30 @@ impl GpuRenderSession {
         if !renderer.is_gles() {
             anyhow::bail!("GPU 管线需要 GL 后端（当前 WGPU_BACKEND 不是 gl）");
         }
-        // 锁外：建 wgpu 合成目标纹理（句柄自带裸 GL 名）。
+        // 锁外：建 wgpu 合成目标纹理并登记到共享表。
+        let textures = renderer.registry().clone();
         let handle = renderer
             .make_composite_target(width, height)
             .ok_or_else(|| anyhow!("创建合成目标失败（GL 后端不可用）"))?;
-        if handle.texture == 0 {
-            anyhow::bail!("合成目标没有 GL 纹理名");
+        let target_token = opencat_gpu_native::TextureId::from_raw(handle.token);
+        let native = textures
+            .resolve(target_token)
+            .ok_or_else(|| anyhow!("合成目标未登记到共享纹理表"))?;
+        if native.is_none() {
+            anyhow::bail!("合成目标没有原生纹理句柄");
         }
 
         // 锁内：建 FBO + Skia DirectContext + surface。
         let compositor = renderer
-            .with_gl_context(|_r| {
-                crate::gpu_compositor::GpuCompositor::new(handle.token, handle.texture, width, height)
+            .with_context(|| {
+                crate::gpu_compositor::GpuCompositor::new(target_token, native, width, height)
             })
             .ok_or_else(|| anyhow!("GL context 不可用"))??;
 
         Ok(Self {
             compositor,
             renderer,
+            textures,
         })
     }
 
@@ -212,28 +220,32 @@ impl GpuRenderSession {
         let mut frame = render.draw;
         let media_plan = render.media;
 
-        // 收集本帧引用的 GPU 句柄 token：合成后统一释放。
-        let gpu_handles: Vec<u64> = media_plan
+        // 收集本帧引用的 GPU 纹理凭据：合成后统一归还。
+        let gpu_handles: Vec<opencat_gpu_native::TextureId> = media_plan
             .generated_images
             .iter()
-            .filter_map(|g| g.gpu.map(|h| h.token))
+            .filter_map(|g| g.gpu.map(|h| opencat_gpu_native::TextureId::from_raw(h.token)))
             .collect();
 
         let renderer = self.renderer.clone();
+        let textures = &self.textures;
         let compositor = &mut self.compositor;
 
         // 本帧有 3D 场景 → wgpu 刚跑过 GL pass，Skia 缓存的状态已失效。
         if !gpu_handles.is_empty() {
             renderer
-                .with_gl_context(|_r| compositor.reset_backend_state())
+                .with_context(|| compositor.reset_backend_state())
                 .ok_or_else(|| anyhow!("GL context 不可用"))?;
         }
 
         // 锁内：只做 Skia 操作（导入 3D 纹理 + 重放 DrawOp + 读回）。
         let rgba = renderer
-            .with_gl_context(|_r| -> Result<Option<Vec<u8>>> {
+            .with_context(|| -> Result<Option<Vec<u8>>> {
                 let (canvas, skia) = compositor.split();
-                let mut resolver = crate::gpu_compositor::CompositorResolver { skia };
+                let mut resolver = crate::gpu_compositor::CompositorResolver {
+                    skia,
+                    textures,
+                };
                 crate::consumer::execute_render_frame_with_gpu(
                     &mut frame,
                     &media_plan,
@@ -253,9 +265,9 @@ impl GpuRenderSession {
             })
             .ok_or_else(|| anyhow!("GL context 不可用"))??;
 
-        // 锁外：释放本帧的 3D 输出纹理。
-        for h in gpu_handles {
-            renderer.release_gpu_texture(h);
+        // 锁外：归还本帧的 3D 输出纹理（丢掉保活凭据，纹理随即销毁）。
+        for id in gpu_handles {
+            textures.release(id);
         }
         Ok(rgba)
     }

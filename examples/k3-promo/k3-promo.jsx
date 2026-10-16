@@ -78,10 +78,10 @@ var FAM = '"Inter", "Helvetica Neue", Arial, sans-serif';  // index.html:438
 
 /* inkMetrics + natW/swapW over the real-font measure surface (1x1 —
    measurement never touches pixels). One measure stack shared by the type
-   calibration, pill widths and the dissolve field (createSurface is
-   get-or-create by name, so re-entering per consumer is free). */
+   calibration, pill widths and the dissolve field (ly.surface is
+   get-or-create by size, so re-entering per consumer is free). */
 function makeMeasure(ctx) {
-  var MSR = ctx.createSurface('k3dis-msr', 1, 1);
+  var MSR = ly.surface(1, 1);
   function inkM(weight, probe) {
     MSR.font = weight + ' 100px ' + FAM;
     MSR.letterSpacing = '0px';
@@ -341,15 +341,14 @@ function getK3Field() {
    cross the JS bridge, no per-pixel loops in JS — JS writes the ALGORITHM
    as lambdas, Rust's generic executors run them):
      1. fillText the card lockup ONCE into an offscreen surface
-        (ctx.createSurface → real Inter faces via swash);
+        (ly.surface → real Inter faces via swash);
      2. build the mask + 3-4 chamfer distance field with our own lambdas
-        into the 'k3dis-field' render target: a seed pixel lambda
-        (target.run, samples 'k3dis-off' as a render-target child)
-        writes R=mask / G,B=dist lo,hi bytes, then two scan kernels
-        (target.sweep forward/backward) do the chamfer sweeps;
-     3. each frame a lambda-effect drawRect evaluates the scramble
-        noise / dust / glow, sampling the field surface directly (no
-        per-frame bake on the wire).
+        into the field surface: a seed pixel lambda (target.apply,
+        samples the lockup surface as a source) writes R=mask /
+        G,B=dist lo,hi bytes, then two scan kernels (target.sweep
+        forward/backward) do the chamfer sweeps;
+     3. each frame ly.draw evaluates the scramble noise / dust / glow,
+        sampling the field surface directly (no per-frame bake in JS).
    The build-once flag lives on a non-configurable global — realm
    frame-boundary cleanup deletes only configurable keys. */
 
@@ -360,7 +359,7 @@ var FGB_TOP = 480, FGB_H = 119;                            // index.html:1175
 
 function rebuildDissolveField(ctx) {
   var m = makeMeasure(ctx);
-  var ox = ctx.createSurface('k3dis-off', 1920, 1080);
+  var ox = ly.surface(1920, 1080);
   ox.clearRect(0, 0, 1920, 1080);
   ox.fillStyle = '#fff';
   var capM = m.inkM(400, 'H');
@@ -400,10 +399,10 @@ function rebuildDissolveField(ctx) {
      B=dist hi byte, A=255 (dist in px*3, sentinel 3000). Seed byte()
      truncation ≡ the engine's u8 casts; % and floor are exact in f64,
      so the packed bytes round-trip losslessly through the 0..1 channels. */
-  var field = ctx.createSurface('k3dis-field', DIS_R.W, DIS_R.H);
-  field.run(
+  var field = ly.surface(DIS_R.W, DIS_R.H);
+  field.apply(
     ly.pixel(
-    /* seed: sample 'k3dis-off' (render-target child, offset X0/Y0 baked
+    /* seed: sample the offscreen lockup (surface source, offset X0/Y0 baked
        into the source) → mask = alpha, dist = alpha>120 ? 0 : 3000, pack. */
     (uv, src) => {
       const c = src.eval(uv + [232, 430]);
@@ -411,7 +410,7 @@ function rebuildDissolveField(ctx) {
       const d = m > 120 ? 0 : 3000;
       return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
     },
-    ), { child: ox }
+    ), { sources: [ox] }
   );
   field.sweep(ly.scan(
     /* forward 3-4 chamfer sweep (index.html:1278-1291): read left /
@@ -590,12 +589,11 @@ var DIS_SPEC = {
   backend: 'auto'
 };
 
-/* per-frame：lambda drawRect 通用路径。field 是 session 级 render
-   target（rebuildDissolveField 构建一次），以渲染目标句柄直采，
-   不再每帧烘焙上 wire。put 位置 (232, 230) 与尺寸 1460x222 同
+/* per-frame：ly.draw 把内核画到画布。field 是 session 级离屏目标
+   （rebuildDissolveField 构建一次），作为 source 直采 —— ly 内部按需
+   烘焙，脚本不碰帧号。put 位置 (232, 230) 与尺寸 1460x222 同
    applyDissolve 旧路。 */
 function drawDissolve(ctx, cvx, t) {
-  var CK = ctx.CanvasKit;
   var DIS_EFFECT = ly.pixel(DIS_LAMBDA, DIS_SPEC);
   if (t < 13.699 || t > 15.2) return false;
   var f = Math.floor(t * 30 + 1e-4);
@@ -613,15 +611,17 @@ function drawDissolve(ctx, cvx, t) {
     sxL = 240 + (f - 436) * 18;
     sxR = 1686 - (f - 436) * 18;
   }
-  var field = ctx.createSurface('k3dis-field', DIS_R.W, DIS_R.H);
-  var p = new CK.Paint();
-  p.setShader(DIS_EFFECT.sample({
-    x0: DIS_R.X0, y0: DIS_R.Y0, f: f, ep: ep, fr: fr,
-    dust_base: dustBase, s_env: sEnv, sx_l: sxL, sx_r: sxR,
-    pa: [row[0], row[1], row[2], row[3]],
-    pb2: [row[4], row[5]]
-  }, [field]));
-  cvx.drawRect(CK.XYWHRect(DIS_R.X0, DIS_R.Y0 - 200, DIS_R.W, DIS_R.H), p);
+  var field = ly.surface(DIS_R.W, DIS_R.H);
+  ly.draw(cvx, DIS_EFFECT, {
+    rect: [DIS_R.X0, DIS_R.Y0 - 200, DIS_R.W, DIS_R.H],
+    uniforms: {
+      x0: DIS_R.X0, y0: DIS_R.Y0, f: f, ep: ep, fr: fr,
+      dust_base: dustBase, s_env: sEnv, sx_l: sxL, sx_r: sxR,
+      pa: [row[0], row[1], row[2], row[3]],
+      pb2: [row[4], row[5]]
+    },
+    sources: [field]
+  });
   return true;
 }
 

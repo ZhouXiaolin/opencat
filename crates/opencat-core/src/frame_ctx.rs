@@ -41,6 +41,14 @@ pub struct ScriptFrameCtx {
     pub total_duration_secs: f64,
     pub current_time_secs: f64,
     pub scene_duration_secs: f64,
+    /// Where this scene's window starts on the composition clock.
+    ///
+    /// `current_frame` cannot stand in for this: it is clamped to the window,
+    /// so at the tail of a window the subtraction `frame - current_frame` no
+    /// longer yields the start. A timeline nested inside this scene places its
+    /// own segments relative to this origin, so the value must stay exact.
+    pub scene_start_frame: u32,
+    pub scene_start_secs: f64,
 }
 
 impl ScriptFrameCtx {
@@ -55,6 +63,8 @@ impl ScriptFrameCtx {
             total_duration_secs: frame_ctx.duration_secs(),
             current_time_secs: frame_ctx.time_secs(),
             scene_duration_secs: frame_ctx.duration_secs(),
+            scene_start_frame: 0,
+            scene_start_secs: 0.0,
         }
     }
 
@@ -100,6 +110,8 @@ impl ScriptFrameCtx {
             total_duration_secs: frame_ctx.duration_secs(),
             current_time_secs: (frame_ctx.time_secs() - start_secs).max(0.0),
             scene_duration_secs: frames_to_duration_secs(scene_frames, frame_ctx.fps),
+            scene_start_frame: start_frame,
+            scene_start_secs: start_secs,
         }
     }
 }

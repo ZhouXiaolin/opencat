@@ -191,7 +191,6 @@ function Field() {
 
 ```jsx
 useCanvas(c, (canvas) => {
-  const CK = canvas.CK;
   canvas.clear();
 
   const kernel = ly.pixel(
@@ -203,9 +202,10 @@ useCanvas(c, (canvas) => {
     { uniforms: { period: 'float' } }
   );
 
-  const p = new CK.Paint();
-  p.setShader(kernel.sample({ period: 6.0 }));
-  canvas.drawRect(CK.XYWHRect(0, 0, 1280, 720), p);
+  ly.draw(canvas, kernel, {
+    rect: [0, 0, 1280, 720],
+    uniforms: { period: 6.0 },
+  });
 });
 ```
 

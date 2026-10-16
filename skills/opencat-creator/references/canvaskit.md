@@ -91,7 +91,9 @@ canvas.drawPicture(canvas.getSubTree(), 0, 0);
 
 ## `ly`：效果内核 DSL
 
-`ctx.ly`（或全局 `ly`）用 JS 箭头函数写逐像素 / 顺序扫描效果。`ly` 是 OpenCat 自己的库，所以这里写清怎么写。
+`ly`（全局，也是 `ctx.ly`）用 JS 箭头函数写逐像素 / 顺序扫描效果。`ly` 是 OpenCat 自己的库，所以这里写清怎么写。
+
+**`ly` 路径里没有 CanvasKit。** 不用 `Paint`、不用 `setShader`、不用 `drawRect`、不用 `getSubTree().makeShader`、不用 `TileMode`。内核画到画布用 `ly.draw`，跑进离屏目标用 `ly.surface(w,h).apply/.sweep`。后端（Skia RuntimeEffect 或 CPU 解释器）由引擎按内核能力自行选择，脚本不关心。
 
 ```js
 const kernel = ly.pixel(
@@ -102,9 +104,12 @@ const kernel = ly.pixel(
   { uniforms: { w: 'float' } }
 );
 
-const paint = new CK.Paint();
-paint.setShader(kernel.sample({ w: 1280.0 }));
-canvas.drawRect(CK.XYWHRect(0, 0, 1280, 720), paint);
+// 画到画布：rect 缺省 = 整画布
+ly.draw(canvas, kernel, {
+  rect: [0, 0, 1280, 720],          // [x, y, w, h]，可省
+  uniforms: { w: 1280.0 },
+  sources: [otherSurfaceOrCanvas],  // child，可省
+});
 ```
 
 ### 参数约定
@@ -115,13 +120,25 @@ canvas.drawRect(CK.XYWHRect(0, 0, 1280, 720), paint);
 | 第一参（scan 类） | `get(dx, dy)`：读本目标 in-progress 像素（clamp-to-edge），返回 float4 |
 | 名为 `rect` | dst 的 `[x, y, w, h]`（画布坐标），float4 |
 | 名为 `u` | uniforms 访问器 `u.<name>` |
-| 其余参数 | child shader（依声明序）：`child.eval(float2)` → float4 |
+| 其余参数 | child source（依 `opts.sources` 序）：`child.eval(float2)` → float4 |
+
+### 执行动词
+
+| 调用 | 语义 |
+| --- | --- |
+| `ly.draw(dst, kernel, opts)` | 把内核画到 canvas；`dst` 是 `useCanvas` 回调的 `c`。`opts: { rect?, uniforms?, sources? }` |
+| `ly.surface(w, h)` | 离屏目标，**按尺寸 get-or-create** —— 同一句跨帧拿同一张，无 id |
+| `target.apply(kernel, opts)` | pixel 内核逐像素重绘本目标；`opts: { uniforms?, sources? }` |
+| `target.sweep(kernel, opts)` | scan 内核就地顺序扫描一遍；方向在 `spec.dir` |
+| `ly.source(x)` | 把 canvas 句柄 / image 句柄 / surface 包成像素源，供 `opts.sources` |
+
+`opts.sources` 直接收 canvas 句柄、`ly.surface(...)` 或 `ly.source(...)`，顺序 = child 声明序。surface 作 source 时引擎自动烘焙，脚本不碰帧号。
 
 ### spec
 
 `{ uniforms: { name: 'type', ... }, backend: 'auto' }`。uniforms 按名声明，键序 = 打包序；`type` ∈ `float` / `float2` / `float3` / `float4`。`kind` 由函数决定：`ly.pixel` 逐像素纯函数，`ly.scan` 顺序扫描（另带 `dir: 'forward' | 'backward'`）。
 
-`sample()` 传参支持对象形式（按名）或平铺数组（按声明序）。
+`uniforms` 传参支持对象形式（按名）或平铺数组（按声明序）。
 
 用了 `h01` / `imul` / `u32` / `i32` 这类整数精确语义的内核会走 CPU 后端（scan 类总是 CPU 单线程）；其余走 SKSL。`spec.backend` 可强制，但强制 `'sksl'` 时用了 CpuOnly op 会报错。
 
@@ -179,30 +196,29 @@ lambda 返回 **straight** 色（codegen 自动预乘）。手写 SKSL 的 `main
 
 ---
 
-## Render target
+## 离屏目标
 
-`ctx.createSurface(id, w, h)` 创建离屏 render target，句柄可直接作 child 传入：
+`ly.surface(w, h)` 建一张离屏目标，**按尺寸 get-or-create** —— 同一句跨帧拿到同一张，无 id、无跨帧挂载点：
 
 | 方法 | 语义 |
 | --- | --- |
-| `target.run(kernel, opts)` | `ly.pixel` 内核逐像素**重绘**本 surface；`opts: { child \| children, uniforms }`；children 可采样 generated、image 或**其它渲染目标** |
+| `target.apply(kernel, opts)` | `ly.pixel` 内核逐像素**重绘**本 surface；`opts: { uniforms?, sources? }`；sources 可采样其它 surface、image 或 canvas 子树 |
 | `target.sweep(kernel, opts)` | `ly.scan` 内核（首参 `get`）**就地**顺序扫描一遍；方向声明在内核 `spec.dir`，单线程 |
-| `surface.bake(key)` | 当前像素注册为帧级 generated 图像（同 key 异像素 = 硬错误），返回 shader 供 SKSL / 绘制路径采样 |
 
-渲染目标句柄作 child 直接采样其它 surface（session 级，不上 wire、无需每帧 bake）。SKSL 绘制路径遇 surface child 会报错——先 `bake(key)`。
+目标句柄直接作 `ly.draw` 的 `sources` 采样（session 级，不上 wire）。绘制路径需要跨线时引擎**自动烘焙**，脚本不碰帧号、不写 `bake`。
 
 ### 典型形态：mask + 双遍 chamfer 距离场
 
 ```js
-// 1) seed：从另一渲染目标采样 alpha → 打包进本 surface
-field.run(ly.pixel(
+// 1) seed：从另一离屏目标采样 alpha → 打包进本 surface
+field.apply(ly.pixel(
   (uv, src) => {
     const c = src.eval(uv + [232, 430]);
     const m = byte(c.a * 255 + 0.5);
     const d = m > 120 ? 0 : 3000;
     return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];   // R=mask, G/B=dist lo/hi
   }
-), { child: offscreen });
+), { sources: [offscreen] });
 
 // 2) 双遍 chamfer：get(dx,dy) 读 in-progress 缓冲，min 后写回
 field.sweep(ly.scan(
@@ -218,21 +234,24 @@ field.sweep(ly.scan(
   }, { dir: 'forward' }));
 field.sweep(ly.scan(/* 镜像：get(1,0)/get(0,1)/get(1,1)/get(-1,1) */, { dir: 'backward' }));
 
-// 3) 逐帧绘制：CPU 内核以渲染目标 child 直采 field
-paint.setShader(kernel.sample({ t: ctx.current.time }, [field]));
-canvas.drawRect(CK.XYWHRect(x, y, w, h), paint);
+// 3) 逐帧绘制：内核以离屏目标直采 field
+ly.draw(canvas, kernel, {
+  rect: [x, y, w, h],
+  uniforms: { t: ctx.current.time },
+  sources: [field],
+});
 ```
 
-scan 类约定：首参 `get`，无 `uv`、无 child。
+scan 类约定：首参 `get`，无 `uv`、无 source。
 
 ---
 
-## 文本测量表面
+## 离屏画布与文本测量
 
-`ctx.createSurface(id, w, h)` 也提供真实字体测量能力，用于字号校准、宽度对齐。测量不碰像素。
+`ly.surface(w, h)` 同时是一张真字体 2D 画布（栅格化）与测量面。测量不碰像素，所以 `ly.surface(1, 1)` 即可。
 
 ```js
-const m = ctx.createSurface('m', 1, 1);
+const m = ly.surface(1, 1);
 m.font = '500 100px Inter';
 m.letterSpacing = '0px';
 m.textBaseline = 'alphabetic';
@@ -240,6 +259,8 @@ const mm = m.measureText('Handgloves');
 // mm.width / actualBoundingBoxLeft / Right / Ascent / Descent
 // mm.fontBoundingBoxAscent / Descent
 ```
+
+栅格化同 API：`clearRect` / `fillStyle` / `font` / `letterSpacing` / `fillText` / `save` / `restore` / `translate` / `scale(sx, 1)` / `getImageData`。
 
 返回的是标准 Canvas `TextMetrics` 字段名（`actualBoundingBox*` 是字形墨迹范围，`fontBoundingBox*` 是字体行盒）。
 
@@ -257,4 +278,5 @@ const mm = m.measureText('Handgloves');
 - 不要依赖 canvas 实例属性跨帧累积状态。
 - 不要把手写 SKSL 当默认路径，先想 `ly.pixel` / `ly.scan`。
 - 不要在用 `byte()` / `h01()` 的 CPU lambda 上强制 `backend: 'sksl'`。
+- 不要给 `ly` 内核路径引入 CanvasKit（`Paint` / `setShader` / `drawRect` / `getSubTree().makeShader` / `TileMode`）——用 `ly.draw` 与 `opts.sources`。
 - 不要省略 `canvas.clear()`。

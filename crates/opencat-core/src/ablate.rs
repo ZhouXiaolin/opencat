@@ -21,7 +21,7 @@ pub enum Ablation {
     RuntimeEffects,
     /// 离屏 surface 的 coverage 字形光栅表。
     GlyphRasters,
-    /// 宿主 generated-image LRU（`canvas putImageData` / `surface.bake`）。
+    /// 宿主 generated-image LRU（`canvas putImageData` / surface 自动烘焙）。
     GeneratedImages,
     /// 两仪 lambda 编译缓存。
     LiangyiCompile,

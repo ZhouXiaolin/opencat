@@ -33,7 +33,7 @@ pub struct GeneratedImageId(pub u64);
 
 impl GeneratedImageId {
     /// Deterministic id from a frame-scoped cache key (canvas `putImageData`
-    /// / script `surface.bake` path). Same key ⇒ same id on fresh and reused
+    /// / surface auto-bake path). Same key ⇒ same id on fresh and reused
     /// pipelines (the [`GeneratedImageTable`] idempotency contract above).
     /// Single shared implementation — every key→id call site must route
     /// through this so engine/core can never drift apart.
@@ -110,9 +110,9 @@ impl GeneratedImageEntry {
 /// asynchronously). An entry is therefore kept until [`Self::advance_frame`]
 /// retires it — that call declares "no future frame will ask for anything
 /// older". Without it the table is an unbounded leak for the one legitimate
-/// per-frame-key pattern (a script baking `surface.bake('k' + frameIndex)`),
-/// which grows the resident set by one full RGBA buffer per frame and OOM-kills
-/// a 49s composition at 1920x1080.
+/// per-frame-key pattern (auto-bake minting a fresh key for a surface the
+/// script rewrites every frame), which grows the resident set by one full RGBA
+/// buffer per frame and OOM-kills a 49s composition at 1920x1080.
 #[derive(Clone, Debug, Default)]
 pub struct GeneratedImageTable {
     entries: HashMap<GeneratedImageId, GeneratedImageEntry>,
@@ -402,10 +402,10 @@ mod tests {
 
     #[test]
     fn per_frame_keys_are_retired_instead_of_accumulating() {
-        // The OOM regression: a script baking `surface.bake('k' + frameIndex)`
-        // emits a NEW id every frame. Without the watermark the table grows by
-        // one full RGBA buffer per frame (1920x1080 => 8 MB), so a 50s
-        // composition reaches ~1.2 GB and the process is OOM-killed.
+        // The OOM regression: a surface the script rewrites every frame
+        // auto-bakes a NEW id every frame. Without the watermark the table
+        // grows by one full RGBA buffer per frame (1920x1080 => 8 MB), so a
+        // 50s composition reaches ~1.2 GB and the process is OOM-killed.
         let mut table = GeneratedImageTable::with_max_age(2);
         for frame in 0..200u64 {
             table.advance_frame(frame);

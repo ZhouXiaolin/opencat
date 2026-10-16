@@ -65,8 +65,9 @@ fn oracle_chamfer_3_4(dist: &mut [i16], w: usize, h: usize) {
 }
 
 /// render target 通路端到端（bindings 层）：surface_apply_effect（seed，
-/// surface child 采样）→ surface_scan_pass 双遍 → surface_bake 注册帧级
-/// 生成图像。场语义与 oracle 全等；bake 幂等 id 由 key 决定。
+/// surface child 采样）→ surface_scan_pass 双遍 → auto_bake_surfaces 把
+/// surface 注册为帧级生成图像。场语义与 oracle 全等；自动烘焙的 id 由
+/// (id, 内容世代, 尺寸) 推出，所以内容变了 key 必变、同 key 必同像素。
 #[test]
 fn render_target_bindings_end_to_end() {
     let (w, h) = (4u32, 4u32);
@@ -140,16 +141,48 @@ fn render_target_bindings_end_to_end() {
     let got = surface::surface_get_rgba("tgt", 0.0, 0.0, 4.0, 4.0).unwrap();
     assert_eq!(got, want);
 
-    // bake：注册帧级生成图像（id 由 key 决定，像素 = 目标当前内容）
-    call(&mut store, "surface_bake", vec!["tgt".into(), Value::from("e2e-key")]);
+    // 自动烘焙：SKSL 绘制路径遇 surface source 时把它注册为帧级生成图像
+    // （像素 = 目标当前内容），并把 child 换成 generated。
+    let specs = crate::script::helpers::parse_script_children(
+        r#"[{"__opencatShader":"surface","id":"tgt"}]"#,
+    )
+    .unwrap();
+    let baked = crate::script::helpers::auto_bake_surfaces(&mut store, &specs).unwrap();
+    assert!(matches!(
+        baked.as_slice(),
+        [crate::script::helpers::ScriptChildSpec::Generated { .. }]
+    ));
     let pending = store.take_pending_generated_images();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, GeneratedImageId::from_key("e2e-key"));
     assert_eq!((pending[0].width, pending[0].height), (w, h));
     assert_eq!(pending[0].rgba.as_ref(), want.as_slice());
+
+    // 内容世代不变 → key 不变（幂等）；写入一次 → key 变（不碰撞）。
+    let key_of = |baked: &[crate::script::helpers::ScriptChildSpec]| match &baked[0] {
+        crate::script::helpers::ScriptChildSpec::Generated { key, .. } => key.clone(),
+        _ => unreachable!(),
+    };
+    let first_key = key_of(&baked);
+    let again = crate::script::helpers::auto_bake_surfaces(&mut store, &specs).unwrap();
+    assert_eq!(key_of(&again), first_key, "同内容必须复用 key");
+    store.take_pending_generated_images();
+
+    call(
+        &mut store,
+        "surface_clear",
+        vec![
+            "tgt".into(),
+            Value::from(0.0),
+            Value::from(0.0),
+            Value::from(4.0),
+            Value::from(4.0),
+        ],
+    );
+    let after_write = crate::script::helpers::auto_bake_surfaces(&mut store, &specs).unwrap();
+    assert_ne!(key_of(&after_write), first_key, "内容变了 key 必须变");
 }
 
-/// pixel 类 lambda（runEffect 通路）拒绝 scan 类 spec；scan 类拒绝
+/// pixel 类 lambda（`apply` 通路）拒绝 scan 类 spec；scan 类拒绝
 /// pixel spec（互斥由 binding 与 parse 双重把守）。
 #[test]
 fn surface_target_ops_reject_wrong_kind() {

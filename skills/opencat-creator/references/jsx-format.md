@@ -277,7 +277,7 @@ globalThis.__cache || (globalThis.__cache = build());
 
 `useGSAP` / `useFrame` / `useCanvas` / `useThree` 传给回调的第二个参数 `t`，就是 `ctx.current.time`。
 
-API：`ctx.from` / `to` / `fromTo` / `set` / `timeline`、`ctx.getNode(id)`（见 `animations.md`）；`ctx.CanvasKit`、`ctx.getCanvasById(id)`、`ctx.getImage(id)`、`ctx.createSurface(id, w, h)`、`ctx.ly`、`ctx.three`。
+API：`ctx.from` / `to` / `fromTo` / `set` / `timeline`、`ctx.getNode(id)`（见 `animations.md`）；`ctx.CanvasKit`、`ctx.getCanvasById(id)`、`ctx.getImage(id)`、`ctx.ly`、`ctx.three`。
 
 ---
 

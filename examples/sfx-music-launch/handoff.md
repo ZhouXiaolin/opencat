@@ -5,8 +5,8 @@
 ## 状态：未开始（从零移植，4 轮预算未动）
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/sfx-music-launch/index.html`
-- 参考视频：`F:/hyperframes-launches/sfx-music-launch/renders/sfx-music-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1014 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/sfx-music-launch/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/sfx-music-launch/renders/sfx-music-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1014 帧）
 - 名字暗示音频/音乐驱动：音频轨不在 k3diff 像素对比范围内，但若画面有**音频驱动的可视化**（波形/节拍缩放），要从参考组合里找到驱动数据（数组/节拍表），用 useGSAP 按绝对秒还原，不要猜
 
 ## 下一步
@@ -14,9 +14,9 @@
 2. 写第 1 版 jsx：meta 导出 1920x1080 @30、时长 = 1014/30 秒
 3. 渲染 → k3diff → 进入 4 轮循环
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/sfx-music-launch/sfx-music-launch.jsx out/sfx-music-launch.mp4`
-- 编码失败退回逐帧：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/sfx-music-launch.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/sfx-music-launch/sfx-music-launch.jsx out/sfx-music-launch.mp4`
+- 编码失败退回逐帧：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/sfx-music-launch.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/sfx-music-launch.mp4 --out out/k3diff-sfx-music-launch --dump <最差帧号>`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
 

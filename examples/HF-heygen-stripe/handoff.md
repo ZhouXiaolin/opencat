@@ -8,8 +8,8 @@
 - 注意：这是多 composition 项目，入口仍是 index.html，compositions/ 清单要看参考仓库
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/HF-heygen-stripe/index.html`
-- 参考视频：`F:/hyperframes-launches/HF-heygen-stripe/renders/HF-heygen-stripe_2026-10-06_swgl.mp4`（1920x1080 @30，1161 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/HF-heygen-stripe/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/HF-heygen-stripe/renders/HF-heygen-stripe_2026-10-06_swgl.mp4`（1920x1080 @30，1161 帧）
 
 ## 产物
 - `examples/HF-heygen-stripe/assets/`（已提交，commit cafdf4b；`transcript.json` 暗示有口播字幕层）
@@ -19,9 +19,9 @@
 2. 写第 1 版 jsx：meta/fonts 导出对齐参考规格（1920x1080 @30，总时长 = 1161/30 秒），字体用 assets/fonts
 3. 渲染 → k3diff → 进入 4 轮循环
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/HF-heygen-stripe/HF-heygen-stripe.jsx out/HF-heygen-stripe.mp4`
-- 编码失败退回逐帧：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/HF-heygen-stripe.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/HF-heygen-stripe/HF-heygen-stripe.jsx out/HF-heygen-stripe.mp4`
+- 编码失败退回逐帧：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/HF-heygen-stripe.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/HF-heygen-stripe.mp4 --out out/k3diff-HF-heygen-stripe --dump <最差帧号>`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
 

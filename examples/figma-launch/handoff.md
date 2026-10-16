@@ -7,8 +7,8 @@
 - 最差帧集中在 **432–436**（top5：436, 433, 434, 432, 435）——同一段动画连续最差，是单点根因不是弥散差异
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/figma-launch/index.html`
-- 参考视频：`F:/hyperframes-launches/figma-launch/renders/figma-launch_2026-10-06_swgl.mp4`（1080x1080 @30，1922 帧，方版长片）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/figma-launch/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/figma-launch/renders/figma-launch_2026-10-06_swgl.mp4`（1080x1080 @30，1922 帧，方版长片）
 
 ## 证据与产物
 - jsx：`examples/figma-launch/figma-launch.jsx`（已随 72d1ee9 进 dev）
@@ -20,9 +20,9 @@
 2. `--dump 436,433,432` Read 对照图，定位 432–436 段的根因
 3. r1/r2 的渲染失败已不再复现（后两轮成功），若复渲再遇编码失败，退回 opencat-frames PNG 序列封装
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/figma-launch/figma-launch.jsx out/figma-launch.mp4`
-- 编码失败退回逐帧：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/figma-launch.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/figma-launch/figma-launch.jsx out/figma-launch.mp4`
+- 编码失败退回逐帧：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/figma-launch.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/figma-launch.mp4 --out out/k3diff-figma-launch --dump 436,433,432`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
 

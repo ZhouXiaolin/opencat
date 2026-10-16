@@ -253,6 +253,56 @@ macro_rules! for_each_binding {
                 paint: None,
             });
         }}
+        // ── Node: G2 chart (AntV) — text paragraphs and rendered text images
+        //    The G2 runtime shim (`g2/g2_api.js`) routes G2's draw calls through
+        //    the regular `__canvas_*` bindings above. Text is the one exception:
+        //    g-canvaskit draws through CanvasKit Paragraphs, and OpenCat's real
+        //    text rasterizer is the offscreen surface (`ctx.ly.surface`).
+        //    So a paragraph is measured + drawn on a surface and composited as
+        //    a frame-scoped generated image — same pixel path as every other
+        //    text in the composition.
+        $binding! { cmd $store canvas_draw_paragraph (node_id: String, text: String, size: f32, family: String, weight: u32, color: String, x: f32, y: f32, width: f32, height: f32) -> bool {
+            if text.trim().is_empty() {
+                return Ok(false);
+            }
+            let color = $crate::script::helpers::parse_color(&color, "drawParagraph")?;
+            $crate::text::surface::surface_create_or_resize(&node_id, width as u32, height as u32)?;
+            $crate::text::surface::surface_clear(&node_id, 0.0, 0.0, width as f64, height as f64)?;
+            $crate::text::surface::surface_fill_text(
+                &node_id,
+                &text,
+                0.0,
+                size as f64,
+                &family,
+                weight as u32,
+                size as f64,
+                0.0,
+                1.0,
+                [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0],
+            )?;
+            // Content-addressed key: the surface generation advances on every
+            // write, so a new key per changed label. Re-inserting the same id
+            // with different pixels (the GeneratedImageTable hard error) is
+            // therefore impossible.
+            let generation = $crate::text::surface::surface_generation(&node_id)?;
+            let key = format!("g2-paragraph:{node_id}:{generation}");
+            let image_id = $crate::ir::GeneratedImageId::from_key(&key);
+            let rgba = $crate::text::surface::surface_rgba_arc(&node_id)?;
+            $store.record_frame_generated_image(
+                &node_id,
+                image_id,
+                x,
+                y,
+                width as u32,
+                height as u32,
+                rgba,
+            );
+            Ok(true)
+        }}
+        $binding! { pure canvas_measure_paragraph (text: String, size: f32, family: String, weight: u32) -> f32 {
+            let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight as u32, size as f64, 0.0)?;
+            Ok(metrics.width as f32)
+        }}
         $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {
                 Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),

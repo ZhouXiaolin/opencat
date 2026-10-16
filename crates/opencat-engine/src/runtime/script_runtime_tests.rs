@@ -1368,3 +1368,116 @@ fn realms_tear_down_out_of_creation_order() {
     drop(first);
     drop(second);
 }
+
+/// G2 column chart on a canvas node: bars fill, axes stroke, axis labels text.
+///
+/// The G2 bundle renders through CanvasKit, which the host facade maps onto the
+/// node's DrawOp stream — so a passing chart shows up as *shape ops* on the
+/// target canvas, not as a rendered bitmap. This is the end-to-end proof that
+/// `__ocG2Frame` drives a real AntV G2 mark tree into the recorder.
+#[test]
+fn g2_chart_spike_column() {
+    let source = r#"
+        globalThis.__ocMeta = { width: 480, height: 300 };
+        globalThis.__ocG2Frame('chart', globalThis.ctx.current.time, function (Chart, container) {
+            if (!globalThis.__ocG2Built) {
+                globalThis.__ocG2Built = true;
+                const chart = new Chart({ container: container, width: 480, height: 300 });
+                chart.options({
+                    type: 'interval',
+                    data: [
+                        { genre: 'Sports', sold: 275 },
+                        { genre: 'Strategy', sold: 115 },
+                        { genre: 'Action', sold: 120 },
+                    ],
+                    encode: { x: 'genre', y: 'sold' },
+                    animate: false,
+                    axis: { x: { title: false }, y: { title: false } },
+                });
+                const renderDone = chart.render();
+                globalThis.__ocG2RenderDone = 'pending';
+                if (renderDone && renderDone.then) renderDone.then(
+                    () => { globalThis.__ocG2RenderDone = 'done'; },
+                    (e) => { globalThis.__ocG2RenderDone = 'error ' + (e && e.message); }
+                );
+            }
+        });
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("chart".to_string());
+    registry.canvas_ids.insert("chart".to_string());
+    realm.set_target_registry(registry);
+    realm
+        .ctx()
+        .eval("globalThis.__ocMeta = { width: 480, height: 300 };")
+        .expect("chart meta");
+
+    // Script text bindings resolve families through the thread-scoped font db,
+    // which the composition pipeline installs; this test opens a realm
+    // directly, so the engine's default faces are scoped the same way.
+    let font_db = crate::fonts::engine_default_font_db();
+    let store = opencat_core::text::scope_font_db(&font_db, || {
+        // Frame 0 builds the chart; frames 1+ re-enter and re-render it, which
+        // is what a real composition does every frame.
+        for frame in 0..8 {
+            let s = run_driver(&mut realm, driver, frame, Some("chart"));
+            let n = s
+                .snapshot_mutations()
+                .canvas_mutations
+                .get("chart")
+                .map(|c| c.commands.len())
+                .unwrap_or(0);
+        }
+        let s = run_driver(&mut realm, driver, 8, Some("chart"));
+        let n = s
+            .snapshot_mutations()
+            .canvas_mutations
+            .get("chart")
+            .map(|c| c.commands.len())
+            .unwrap_or(0);
+        s
+    });
+
+    let snap = store.snapshot_mutations();
+    let canvas = snap
+        .canvas_mutations
+        .get("chart")
+        .expect("chart node should record canvas mutations");
+
+    let bars = count_ops(&canvas.commands, |op| {
+        matches!(
+            op,
+            opencat_core::ir::draw_op::DrawOp::FillPath
+                | opencat_core::ir::draw_op::DrawOp::SetFillStyle { .. }
+        )
+    });
+    let strokes = count_ops(&canvas.commands, |op| {
+        matches!(
+            op,
+            opencat_core::ir::draw_op::DrawOp::StrokePath
+                | opencat_core::ir::draw_op::DrawOp::SetStrokeStyle { .. }
+        )
+    });
+    let text = count_ops(&canvas.commands, |op| {
+        matches!(op, opencat_core::ir::draw_op::DrawOp::Image { .. })
+    });
+
+    assert!(bars > 0, "G2 marks produced no filled shapes: {bars}");
+    assert!(strokes > 0, "G2 axes produced no strokes: {strokes}");
+    assert!(text > 0, "G2 axis labels produced no text images: {text}");
+
+    let render_done = realm.eval_json_for_test("globalThis.__ocG2RenderDone || 'none'");
+    assert_eq!(
+        render_done,
+        serde_json::json!("done"),
+        "G2 render promise never settled"
+    );
+}
+
+fn count_ops(
+    commands: &[opencat_core::ir::draw_op::DrawOp],
+    predicate: impl Fn(&opencat_core::ir::draw_op::DrawOp) -> bool,
+) -> usize {
+    commands.iter().filter(|op| predicate(op)).count()
+}

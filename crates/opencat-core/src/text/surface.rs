@@ -86,6 +86,16 @@ pub fn surface_dimensions(id: &str) -> Result<(u32, u32)> {
     with_surface(id, |surface| Ok((surface.width, surface.height)))
 }
 
+/// Get-or-resize: reuse the buffer when the size already matches so a chart
+/// node's paragraph surface survives across frames, and reallocate only when
+/// the label geometry changed.
+pub fn surface_create_or_resize(id: &str, width: u32, height: u32) -> Result<()> {
+    match surface_dimensions(id) {
+        Ok((w, h)) if w == width && h == height => Ok(()),
+        _ => surface_create(id, width, height),
+    }
+}
+
 /// 查询一张 surface 的内容世代（每次写入自增）。SKSL 路径把 surface 自动
 /// 烘成帧级生成图像时，用它拼确定性 key：世代相同即内容相同。
 pub fn surface_generation(id: &str) -> Result<u64> {
@@ -218,8 +228,19 @@ fn with_resolved_font<R>(
     f: impl FnOnce(&FontRef<'_>, FaceKey) -> Result<R>,
 ) -> Result<R> {
     let db = font_db_for_script();
+    // fontdb resolves CSS generic families (`sans-serif`, `monospace`, …) as a
+    // `Family::Serif`/`SansSerif`/`Monospace` query variant, while G2 and other
+    // third-party specs pass the CSS keyword verbatim as a family *name* — which
+    // `Family::Name` never matches. Map the keyword to the generic variant so
+    // the query lands on the registered generic family.
+    let family_kind = match crate::style::GenericFamily::parse_css(family) {
+        Some(crate::style::GenericFamily::Serif) => fontdb::Family::Serif,
+        Some(crate::style::GenericFamily::SansSerif) => fontdb::Family::SansSerif,
+        Some(crate::style::GenericFamily::Monospace) => fontdb::Family::Monospace,
+        None => fontdb::Family::Name(family),
+    };
     let query = fontdb::Query {
-        families: &[fontdb::Family::Name(family)],
+        families: &[family_kind],
         weight: fontdb::Weight(weight as u16),
         style: fontdb::Style::Normal,
         stretch: fontdb::Stretch::Normal,

@@ -42,6 +42,8 @@ pub struct GpuCompositor {
     fbo: u32,
     /// 包裹目标纹理的 Skia surface（每帧复用）。
     surface: Surface,
+    /// PBO 双缓冲读回。`None` 表示 GL 入口缺失，退回同步 `read_pixels`。
+    readback: Option<opencat_three::gl_share::ReadbackPixels>,
     width: u32,
     height: u32,
 }
@@ -86,6 +88,7 @@ impl GpuCompositor {
             target_token,
             fbo,
             surface,
+            readback: opencat_three::gl_share::ReadbackPixels::new(fbo, width, height),
             width,
             height,
         })
@@ -127,8 +130,47 @@ impl GpuCompositor {
         (canvas, &mut self.skia)
     }
 
-    /// 提交并同步 GPU，随后读回 CPU（每帧一次，交给编码器）。
-    pub fn finish_frame(&mut self) -> Result<Vec<u8>> {
+    /// 提交 GPU，并取回**上一帧**的像素。
+    ///
+    /// 本帧的像素只是**发起**读回到 PBO 就返回（约 0.1ms），GPU→CPU 的传输
+    /// 交给 DMA 引擎，与下一帧的渲染重叠。所以这里交出的是上一帧的画面——
+    /// 调用方必须容忍一帧延迟（末帧由 `encode_rgba_frames` 多渲染一帧排空）。
+    ///
+    /// 首帧没有在途读回可取，返回 `None`。
+    pub fn finish_frame(&mut self) -> Result<Option<Vec<u8>>> {
+        self.skia
+            .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::Yes));
+        if let Some(readback) = self.readback.as_mut() {
+            // 取回上一帧 + 发起本帧。PBO 路径只把传输移出关键路径，帧序不变。
+            let out = readback.read_frame();
+            // 裸 GL 读回解绑了 FBO，Skia 的状态缓存却仍以为它绑着——下一帧
+            // 会把 DrawOp 发到空目标上（实测表现为 Skia 读回全零、画面冻结
+            // 在旧帧）。读回后必须让 Skia 丢弃缓存，重新查询绑定。
+            self.skia.reset(None);
+            return Ok(out);
+        }
+        // 无 PBO 入口：退回同步读回，帧延迟为 0（首帧即返回本帧）。
+        let mut out = vec![0u8; self.width as usize * self.height as usize * 4];
+        let info = ImageInfo::new(
+            (self.width as i32, self.height as i32),
+            ColorType::RGBA8888,
+            AlphaType::Premul,
+            None,
+        );
+        if !self
+            .surface
+            .read_pixels(&info, &mut out, self.width as usize * 4, (0, 0))
+        {
+            return Err(anyhow!("GPU surface read_pixels 失败"));
+        }
+        Ok(Some(out))
+    }
+
+    /// 提交 GPU 并**同步**读回本帧像素（无延迟）。
+    ///
+    /// 单帧 / PNG 序列这类一次一帧的调用方用它——PBO 的一帧延迟会打乱它们
+    /// 的输出。逐帧循环请改用 [`Self::finish_frame`]。
+    pub fn finish_frame_blocking(&mut self) -> Result<Vec<u8>> {
         self.skia
             .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::Yes));
         let info = ImageInfo::new(

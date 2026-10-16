@@ -213,9 +213,18 @@ fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollect
             DrawOp::Image { image, .. } => {
                 collector.push_image(image);
             }
-            DrawOp::ImageRect { image, dst, .. } => {
+            DrawOp::ImageRect {
+                image, src, dst, ..
+            } => {
                 collector.push_image(image);
-                collector.note_draw_size(image, dst);
+                // Cover 的视频帧跳过预缩：target 会把整帧**非等比**拉伸到
+                // dst，而解码侧只回单一水平 scale，cover 取样区按它折算
+                // 必然错位放大（flex-footage 三卡整体放大的根因）。原生
+                // 解码让 Skia 直接从整帧采样，与 Chrome 的 video cover 一
+                // 致。静态图的预缩是等比的，无此问题，保留优化。
+                if !(src.is_some() && matches!(image, ImageRef::VideoFrame { .. })) {
+                    collector.note_draw_size(image, dst);
+                }
             }
             DrawOp::LottieRect { bundle_id, .. } => {
                 collector.push_lottie(bundle_id);

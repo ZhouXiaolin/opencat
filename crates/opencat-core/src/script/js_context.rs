@@ -54,4 +54,20 @@ pub trait JsContext: Sized {
 
     /// 借出内部 MutationStore 让 core 流程读写。
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R;
+
+    /// Drain the JS realm's microtask queue.
+    ///
+    /// A frame callback only records native ops while it runs, but promise
+    /// continuations (the G2 render loop starts its draw pass after a
+    /// `Promise.all` resolves) are queued, not run. Enters the realm after
+    /// running a driver frame and let continuations commit before the frame's
+    /// ops are handed to the renderer.
+    fn run_microtasks(&self) {}
+
+    /// Evaluate an expression and return it as JSON. Used for cheap probes of
+    /// realm state (a flush counter) without allocating recorder plumbing.
+    fn eval_json(&self, code: &str) -> anyhow::Result<serde_json::Value> {
+        let _ = code;
+        Ok(serde_json::Value::Null)
+    }
 }

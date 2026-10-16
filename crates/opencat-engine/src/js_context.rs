@@ -446,4 +446,13 @@ impl JsContext for V8JsContext {
         let mut guard = self.natives.store.lock().expect("script store lock poisoned");
         f(&mut guard)
     }
+
+    fn run_microtasks(&self) {
+        let mut guard = self.isolate.lock();
+        guard.perform_microtask_checkpoint();
+    }
+
+    fn eval_json(&self, code: &str) -> anyhow::Result<JsonValue> {
+        V8JsContext::eval_json(self, code)
+    }
 }

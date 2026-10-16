@@ -399,6 +399,14 @@
             this._strokeJoin = normalizeStrokeJoin(join);
         }
 
+        // Skia joins the stroke with a miter up to `miterLimit * halfWidth`,
+        // then falls back to bevel. The recorder models stroke joins but not a
+        // miter limit, so the value is admitted (G2 sets it on every stroke
+        // paint) and the drawn join stays what the resolve pass picks.
+        setStrokeMiter(miter) {
+            this._strokeMiter = toFiniteNumber(miter, 4);
+        }
+
         setStrokeWidth(width) {
             this._strokeWidth = Math.max(0, toFiniteNumber(width, 1));
         }

@@ -53,8 +53,10 @@ pub(crate) fn text_fill_specs(
     };
     let bg_box = text_background_box(item, lines);
     let rect = display_rect_to_kurbo(bg_box);
+    // CSS 多层背景：第一层最靠近观察者（最上），先铺底层、文字实色最后压顶。
     let mut fills: Vec<FillSpec> = layers
         .iter()
+        .rev()
         .map(|layer| super::helpers::background_fill_to_fill_spec(layer, rect))
         .collect();
     let color = super::helpers::color_token_to_rgba(&item.style.color);

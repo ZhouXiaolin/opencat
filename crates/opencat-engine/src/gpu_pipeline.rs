@@ -1,6 +1,7 @@
 //! GPU 合成管线的开关与共享 GL context 支撑。
 //!
-//! 默认关闭（CPU 光栅路径逐字节不变）。`OC_GPU_PIPELINE=1` 打开后：
+//! 默认开启。设 `OC_GPU_PIPELINE=0`（或 `false` / `off`）退回 CPU 光栅路径。
+//! 开启后：
 //!
 //! - 3D（`ctx.three`）渲染到显存，渲染目标的 GL texture id 经
 //!   [`opencat_core::ir::generated_image::GpuImageHandle`] 交给 Skia 零拷贝
@@ -18,18 +19,19 @@
 
 /// GPU 管线是否启用（用户开关）。
 ///
-/// 仅认 `OC_GPU_PIPELINE=1`（或 `true`）；其余值（含未设置）一律走 CPU。
+/// 默认开启。只有显式设 `OC_GPU_PIPELINE=0` / `false` / `off` 才走 CPU——
+/// `1` / `true`（旧写法）与任何其他值都保持开启。
 pub fn requested() -> bool {
-    matches!(
+    !matches!(
         std::env::var("OC_GPU_PIPELINE").as_deref(),
-        Ok("1") | Ok("true")
+        Ok("0") | Ok("false") | Ok("off")
     )
 }
 
 /// 实际生效的 GPU 管线开关。
 ///
 /// 纹理共享的合成器目前只有 Windows GL 后端实现（见
-/// [`crate::gpu_compositor`]）。其他平台即使设了环境变量也走 CPU——
+/// [`crate::gpu_compositor`]）。其他平台即使开着也走 CPU——
 /// 否则 3D 会产出 GPU 句柄，而 CPU 合成器无法消费。
 pub fn enabled() -> bool {
     cfg!(target_os = "windows") && requested()

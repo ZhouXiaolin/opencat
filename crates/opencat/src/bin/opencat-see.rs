@@ -15,7 +15,7 @@ mod app {
 
     use opencat::{
         EngineDrawExecutor, EngineLoader, MediaContext, V8JsContext, build_audio_track_from_pipeline,
-        GeneratedImageCache, duration_secs_to_frames, execute_render_frame,
+        GeneratedImageCache, Renderer3d, duration_secs_to_frames, execute_render_frame,
         generated_image_cache_from_env, open,
     };
     use skia_safe::Image;
@@ -353,6 +353,8 @@ mod app {
         opengl32: HMODULE,
         skia: gpu::DirectContext,
         current_surface: Option<skia_safe::Surface>,
+        /// `current_surface` 包裹的帧缓冲尺寸；窗口不可缩放，所以通常只建一次。
+        surface_size: (i32, i32),
     }
 
     #[cfg(target_os = "windows")]
@@ -436,6 +438,7 @@ mod app {
                 opengl32,
                 skia,
                 current_surface: None,
+                surface_size: (0, 0),
             })
         }
 
@@ -453,38 +456,40 @@ mod app {
 
             self.make_current()?;
 
-            let backend_render_target = backend_render_targets::make_gl(
-                (width, height),
-                0,
-                8,
-                gl::FramebufferInfo {
-                    fboid: 0,
-                    format: gl::Format::RGBA8.into(),
-                    ..Default::default()
-                },
-            );
+            if self.current_surface.is_none() || self.surface_size != (width, height) {
+                let backend_render_target = backend_render_targets::make_gl(
+                    (width, height),
+                    0,
+                    8,
+                    gl::FramebufferInfo {
+                        fboid: 0,
+                        format: gl::Format::RGBA8.into(),
+                        ..Default::default()
+                    },
+                );
 
-            let surface = gpu::surfaces::wrap_backend_render_target(
-                &mut self.skia,
-                &backend_render_target,
-                SurfaceOrigin::BottomLeft,
-                ColorType::RGBA8888,
-                None,
-                None,
-            )
-            .ok_or_else(|| anyhow!("failed to wrap Win32 OpenGL framebuffer for Skia"))?;
+                let surface = gpu::surfaces::wrap_backend_render_target(
+                    &mut self.skia,
+                    &backend_render_target,
+                    SurfaceOrigin::BottomLeft,
+                    ColorType::RGBA8888,
+                    None,
+                    None,
+                )
+                .ok_or_else(|| anyhow!("failed to wrap Win32 OpenGL framebuffer for Skia"))?;
 
-            self.current_surface = Some(surface);
+                self.current_surface = Some(surface);
+                self.surface_size = (width, height);
+            }
             Ok(self as *mut Self as *mut c_void)
         }
 
         fn end_frame(&mut self) -> Result<()> {
-            let mut surface = self
+            let surface = self
                 .current_surface
-                .take()
+                .as_mut()
                 .ok_or_else(|| anyhow!("end_frame called before begin_frame"))?;
-            self.skia.flush_and_submit_surface(&mut surface, None);
-            drop(surface);
+            self.skia.flush_and_submit_surface(surface, None);
             Ok(())
         }
 
@@ -885,21 +890,52 @@ mod app {
         width: i32,
         height: i32,
         frame_index: u32,
+        render_scale: f32,
     ) -> Result<()> {
         gpu_target.begin_frame(width, height)?;
-        let canvas = gpu_target.canvas_mut()?;
         let render = pipeline.render_frame(frame_index)?;
         let mut frame = render.draw;
         let media_plan = render.media;
-        execute_render_frame(
-            &mut frame,
-            &media_plan,
-            executor,
-            pipeline.loader(),
-            media_ctx,
-            generated_cache,
-            canvas,
-        )?;
+
+        // 本帧引用的 GPU 句柄 token：合成后归还。
+        let gpu_tokens: Vec<u64> = media_plan
+            .generated_images
+            .iter()
+            .filter_map(|g| g.gpu.map(|h| h.token))
+            .collect();
+
+        // 有 3D 时 wgpu 刚跑过 GL pass，Skia 缓存的状态已失效。
+        if !gpu_tokens.is_empty() {
+            gpu_target.reset_backend_state();
+        }
+
+        let renderer = pipeline.scene3_renderer.clone();
+        let loader = pipeline.loader();
+        let result = gpu_target.with_canvas_and_resolver(&mut |canvas, resolver| {
+            // 画布坐标系仍是合成单位（DrawOp 的坐标不变），只把设备矩阵缩放。
+            // 用 `reset_matrix` 而不是 `save`/`scale`：DrawOp 里的
+            // `RestoreToCount` 带绝对计数，多一层 save 会被它弹掉。
+            canvas.reset_matrix();
+            if render_scale != 1.0 {
+                canvas.scale((render_scale, render_scale));
+            }
+            opencat_engine::consumer::execute_render_frame_with_gpu(
+                &mut frame,
+                &media_plan,
+                executor,
+                loader,
+                media_ctx,
+                generated_cache,
+                resolver,
+                canvas,
+            )
+            .map_err(|e| anyhow!("{e}"))
+        });
+        for token in gpu_tokens {
+            renderer.release_gpu_texture(token);
+        }
+        result?;
+
         gpu_target.end_frame()?;
         gpu_target.present_frame()?;
         Ok(())
@@ -910,6 +946,37 @@ mod app {
         fn end_frame(&mut self) -> Result<()>;
         fn present_frame(&mut self) -> Result<()>;
         fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas>;
+
+        /// 建一个与本节点图形上下文**共享**的 3D 渲染器。
+        ///
+        /// 返回 `Some` 时 wgpu 加入本上下文，3D 输出纹理的 GL 名可被本节点
+        /// 的 Skia 直接采样（零拷贝）。`None` 表示本后端不支持——调用方走
+        /// CPU 读回。
+        fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
+            Ok(None)
+        }
+
+        /// 丢弃 Skia 缓存的图形状态。
+        ///
+        /// wgpu 的 3D pass 会改动 GL 状态，而 Skia 的 `DirectContext` 缓存了
+        /// 上次留下的状态。共享上下文时必须让 Skia 失效缓存，否则它会按过期
+        /// 状态发包。非共享后端为空操作。
+        fn reset_backend_state(&mut self) {}
+
+        /// 在同一帧内借出绘制 canvas 与 GPU 图像解析器。
+        ///
+        /// 二者必须同时可用（合成时要导入 3D 纹理），所以用一个回调而非
+        /// 两个返回值——否则 `&mut self` 会被借两次。默认实现只给 canvas；
+        /// 共享上下文的后端覆写它。
+        fn with_canvas_and_resolver(
+            &mut self,
+            f: &mut dyn FnMut(
+                &mut skia_safe::Canvas,
+                Option<&mut dyn opencat_engine::consumer::GpuImageResolver>,
+            ) -> Result<()>,
+        ) -> Result<()> {
+            f(self.canvas_mut()?, None)
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -942,6 +1009,49 @@ mod app {
         fn canvas_mut(&mut self) -> Result<&mut skia_safe::Canvas> {
             WglSkiaRenderTarget::canvas_mut(self)
         }
+
+        fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
+            // wgpu 加入本窗口的 HGLRC：3D 输出纹理的 GL 名此后对本节点的
+            // Skia 有效（见 `Renderer3d::new_external`）。make_current 回调
+            // 是必需的——hal 的 GL 实例初始化会解绑宿主的上下文。
+            let hdc = self.hdc;
+            let glrc = self.glrc;
+            let opengl32 = self.opengl32;
+            let make_current = move || {
+                if unsafe { wglMakeCurrent(hdc, glrc) } == 0 {
+                    anyhow::bail!("wglMakeCurrent failed while joining the external GL context");
+                }
+                Ok(())
+            };
+            Ok(Some(Renderer3d::new_external(
+                move |name| load_gl_proc_address(opengl32, name),
+                make_current,
+            )?))
+        }
+
+        fn reset_backend_state(&mut self) {
+            self.skia.reset(None);
+        }
+
+        fn with_canvas_and_resolver(
+            &mut self,
+            f: &mut dyn FnMut(
+                &mut skia_safe::Canvas,
+                Option<&mut dyn opencat_engine::consumer::GpuImageResolver>,
+            ) -> Result<()>,
+        ) -> Result<()> {
+            // canvas 与 skia 是不同字段，可并存借用（同 `GpuCompositor::split`）。
+            let surface = self.current_surface.as_mut().ok_or_else(|| {
+                anyhow!("skia canvas requested before Win32 framebuffer surface was ready")
+            })?;
+            #[allow(invalid_reference_casting)]
+            let canvas: &mut skia_safe::Canvas =
+                unsafe { &mut *(surface.canvas() as *const _ as *mut skia_safe::Canvas) };
+            let mut resolver = opencat_engine::gpu_compositor::CompositorResolver {
+                skia: &mut self.skia,
+            };
+            f(canvas, Some(&mut resolver))
+        }
     }
 
     #[cfg(target_os = "linux")]
@@ -971,6 +1081,8 @@ mod app {
         win_h: u32,
         width: i32,
         height: i32,
+        /// 合成画布的缩放（见 `run()`）；1.0 表示按合成原分辨率预览。
+        render_scale: f32,
         total_frames: u32,
         fps: u32,
         frame_duration: Duration,
@@ -1038,6 +1150,25 @@ mod app {
                         return;
                     }
                 };
+            // 让 wgpu 加入本窗口的图形上下文，再把渲染器注入管线——这样 3D
+            // 输出纹理的 GL 名对本节点的 Skia 有效，合成时零拷贝导入。必须在
+            // 首帧渲染前完成（`preset` 只设一次）。后端不支持时保持懒初始化
+            //（走 CPU 读回）。
+            match gpu_target.build_scene3_renderer() {
+                Ok(Some(renderer)) => {
+                    if let Err(error) = self.pipeline.scene3_renderer.preset(renderer) {
+                        eprintln!("failed to install shared 3D renderer: {error:#}");
+                        event_loop.exit();
+                        return;
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    eprintln!("failed to build shared 3D renderer: {error:#}");
+                    event_loop.exit();
+                    return;
+                }
+            }
             if let Err(error) = render_pipeline_frame_to_gpu_target(
                 &mut self.pipeline,
                 &mut self.media_ctx,
@@ -1047,6 +1178,7 @@ mod app {
                 self.width,
                 self.height,
                 0,
+                self.render_scale,
             ) {
                 eprintln!("failed to render warmup frame: {error:#}");
                 event_loop.exit();
@@ -1103,6 +1235,7 @@ mod app {
                         self.width,
                         self.height,
                         frame_index,
+                        self.render_scale,
                     ) {
                         eprintln!("render error: {error:#}");
                         event_loop.exit();
@@ -1153,11 +1286,43 @@ mod app {
         let info = pipeline.info().clone();
         let total_frames = duration_secs_to_frames(info.duration, info.fps).max(1);
         let fps = info.fps.max(1);
-        let width = info.width as i32;
-        let height = info.height as i32;
+        // 预览缩放，取值 (0, 1]，由 `OC_SEE_SCALE` 指定。默认 1.0（原分辨率）：
+        // 实测合成只占每帧 ~3.5ms，瓶颈在视频解码，降分辨率收益很小。
+        let scale = std::env::var("OC_SEE_SCALE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|s| *s > 0.0 && *s <= 1.0)
+            .unwrap_or(1.0);
+        let width = ((info.width as f32) * scale).round().max(1.0) as i32;
+        let height = ((info.height as f32) * scale).round().max(1.0) as i32;
 
         let mut media_ctx = MediaContext::new();
         media_ctx.set_composition_fps(info.fps);
+        // 播放时视频解码是瓶颈（一帧 1080p 软解可达数十毫秒），所以把解码挪到
+        // 后台线程，按 web 预览器那套「播放头前后各留一段帧」的窗口持续预取。
+        media_ctx.enable_realtime_decode();
+        // 预热所有视频素材：第一次解一个 1080p 素材要 ~300ms（探测占大头），落在
+        // 播放中间就是一帧卡顿，还会连锁触发跳帧。这里用开播前的时间做掉。两边都要
+        // 预热——解码线程和本线程各有自己的解码器和元数据缓存。
+        let video_assets: Vec<_> = pipeline
+            .pipeline()
+            .catalog()
+            .videos
+            .keys()
+            .cloned()
+            .collect();
+        for asset_id in &video_assets {
+            let Some(path) = pipeline
+                .loader()
+                .handle(asset_id)
+                .and_then(|h| h.local_path())
+                .map(Path::to_path_buf)
+            else {
+                continue;
+            };
+            media_ctx.warmup_video(&path);
+            let _ = media_ctx.video_info(&path);
+        }
         let executor = EngineDrawExecutor::new();
         let generated_cache = generated_image_cache_from_env();
 
@@ -1187,10 +1352,11 @@ mod app {
             generated_cache,
             audio_samples,
             loop_sample_frames,
-            win_w: info.width,
-            win_h: info.height,
+            win_w: width as u32,
+            win_h: height as u32,
             width,
             height,
+            render_scale: scale,
             total_frames,
             fps,
             frame_duration: Duration::from_secs_f64(1.0 / fps as f64),

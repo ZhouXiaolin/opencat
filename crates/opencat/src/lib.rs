@@ -14,3 +14,6 @@ pub use opencat_engine::render::build_audio_track_from_pipeline;
 pub use opencat_engine::render::{GeneratedImageCache, generated_image_cache_from_env};
 pub use opencat_engine::resource::loader::EngineLoader;
 pub use opencat_engine::EnginePipeline;
+// 预览器要把 wgpu 建到自己的窗口 GL 上下文上（`Renderer3d::new_external`），
+// 再经 `LazyRenderer3d::preset` 注入管线——两者都从 engine 转出。
+pub use opencat_engine::{LazyRenderer3d, Renderer3d};

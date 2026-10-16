@@ -36,8 +36,8 @@ use skia_safe::{AlphaType, ColorType, ImageInfo, Surface, gpu};
 pub struct GpuCompositor {
     /// Skia 的 GL direct context（建在 wgpu 的 HGLRC 上）。
     skia: gpu::DirectContext,
-    /// 合成目标在纹理表里的句柄（持有着目标纹理的存活）。
-    target_handle: u64,
+    /// 合成目标在纹理表里的 token（归还凭据，见 `GpuImageHandle::token`）。
+    target_token: u64,
     /// 绑到目标纹理的 FBO id（裸 GL 建，drop 时删）。
     fbo: u32,
     /// 包裹目标纹理的 Skia surface（每帧复用）。
@@ -49,11 +49,10 @@ pub struct GpuCompositor {
 impl GpuCompositor {
     /// 建一个 `width × height` 的合成器。
     ///
-    /// `target_handle` 与 `tex_id` 由调用方在**锁外**经
-    /// [`opencat_three::LazyRenderer3d::make_composite_target`] +
-    /// [`opencat_three::LazyRenderer3d::gpu_texture_id`] 取得——本函数只做
-    /// 锁内的 Skia / 裸 GL 工作。
-    pub fn new(target_handle: u64, tex_id: u32, width: u32, height: u32) -> Result<Self> {
+    /// `target_token` 与 `tex_id` 由调用方在**锁外**经
+    /// [`opencat_three::LazyRenderer3d::make_composite_target`] 取得——
+    /// 本函数只做锁内的 Skia / 裸 GL 工作。
+    pub fn new(target_token: u64, tex_id: u32, width: u32, height: u32) -> Result<Self> {
         let interface =
             gpu::interfaces::make_win().ok_or_else(|| anyhow!("Skia make_win interface 失败"))?;
         let mut skia = gpu::direct_contexts::make_gl(interface, None)
@@ -84,7 +83,7 @@ impl GpuCompositor {
 
         Ok(Self {
             skia,
-            target_handle,
+            target_token,
             fbo,
             surface,
             width,
@@ -92,9 +91,9 @@ impl GpuCompositor {
         })
     }
 
-    /// 合成目标纹理的句柄（调用方据此在帧末释放）。
-    pub fn target_handle(&self) -> u64 {
-        self.target_handle
+    /// 合成目标纹理的 token（调用方据此在帧末释放）。
+    pub fn target_token(&self) -> u64 {
+        self.target_token
     }
 
     pub fn width(&self) -> u32 {
@@ -159,23 +158,24 @@ impl Drop for GpuCompositor {
     }
 }
 
-/// [`crate::consumer::GpuImageResolver`] 实现：把 wgpu 纹理的 GL id 导入为
+/// [`crate::consumer::GpuImageResolver`] 实现：把 GPU 句柄里的裸 GL 名导入为
 /// Skia image。
 ///
-/// 借用 `renderer` 只是为了查纹理表（`gpu_texture_id` 不碰 GL context，
-/// 不会二次加锁）；纹理由 renderer 的表持有，本帧合成完成后再释放。
+/// 只借用 Skia 的 `DirectContext`——句柄自带 GL 名，所以本类型不认识
+/// opencat-three（也不查它的纹理表）。纹理的存活由生产方保证：本帧合成
+/// 完成后宿主才调 `release_gpu_texture`。
 pub struct CompositorResolver<'a> {
     pub skia: &'a mut gpu::DirectContext,
-    pub renderer: &'a opencat_three::LazyRenderer3d,
 }
 
 impl crate::consumer::GpuImageResolver for CompositorResolver<'_> {
-    fn import(&mut self, handle: u64, width: u32, height: u32) -> anyhow::Result<skia_safe::Image> {
-        let tex_id = self
-            .renderer
-            .gpu_texture_id(handle)
-            .ok_or_else(|| anyhow!("GPU 句柄 {handle} 不在纹理表中"))?;
-        import_texture_id(self.skia, tex_id, width, height)
+    fn import(
+        &mut self,
+        texture: u32,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<skia_safe::Image> {
+        import_texture_id(self.skia, texture, width, height)
     }
 }
 

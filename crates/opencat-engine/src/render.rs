@@ -130,17 +130,19 @@ impl GpuRenderSession {
         if !renderer.is_gles() {
             anyhow::bail!("GPU 管线需要 GL 后端（当前 WGPU_BACKEND 不是 gl）");
         }
-        // 锁外：建 wgpu 合成目标纹理。
+        // 锁外：建 wgpu 合成目标纹理（句柄自带裸 GL 名）。
         let handle = renderer
             .make_composite_target(width, height)
             .ok_or_else(|| anyhow!("创建合成目标失败（GL 后端不可用）"))?;
-        let tex_id = renderer
-            .gpu_texture_id(handle.0)
-            .ok_or_else(|| anyhow!("取合成目标 GL id 失败"))?;
+        if handle.texture == 0 {
+            anyhow::bail!("合成目标没有 GL 纹理名");
+        }
 
         // 锁内：建 FBO + Skia DirectContext + surface。
         let compositor = renderer
-            .with_gl_context(|_r| crate::gpu_compositor::GpuCompositor::new(handle.0, tex_id, width, height))
+            .with_gl_context(|_r| {
+                crate::gpu_compositor::GpuCompositor::new(handle.token, handle.texture, width, height)
+            })
             .ok_or_else(|| anyhow!("GL context 不可用"))??;
 
         Ok(Self {
@@ -162,11 +164,11 @@ impl GpuRenderSession {
         let mut frame = render.draw;
         let media_plan = render.media;
 
-        // 收集本帧引用的 GPU 句柄：合成后统一释放。
+        // 收集本帧引用的 GPU 句柄 token：合成后统一释放。
         let gpu_handles: Vec<u64> = media_plan
             .generated_images
             .iter()
-            .filter_map(|g| g.gpu.map(|h| h.0))
+            .filter_map(|g| g.gpu.map(|h| h.token))
             .collect();
 
         let renderer = self.renderer.clone();
@@ -183,10 +185,7 @@ impl GpuRenderSession {
         let rgba = renderer
             .with_gl_context(|_r| -> Result<Vec<u8>> {
                 let (canvas, skia) = compositor.split();
-                let mut resolver = crate::gpu_compositor::CompositorResolver {
-                    skia,
-                    renderer: &renderer,
-                };
+                let mut resolver = crate::gpu_compositor::CompositorResolver { skia };
                 crate::consumer::execute_render_frame_with_gpu(
                     &mut frame,
                     &media_plan,

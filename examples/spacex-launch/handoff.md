@@ -5,17 +5,17 @@
 ## 状态：未开始（从零移植，4 轮预算未动）
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/spacex-launch/index.html`
-- 参考视频：`F:/hyperframes-launches/spacex-launch/renders/spacex-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1185 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/spacex-launch/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/spacex-launch/renders/spacex-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1185 帧）
 
 ## 下一步
 1. 读参考 index.html，列场景清单（图层/时刻/动画）
 2. 写第 1 版 jsx：meta 导出 1920x1080 @30、时长 = 1185/30 秒；字体/视频素材从参考仓库拷进本示例 assets/
 3. 渲染 → k3diff → 进入 4 轮循环
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/spacex-launch/spacex-launch.jsx out/spacex-launch.mp4`
-- 编码失败退回逐帧：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/spacex-launch.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/spacex-launch/spacex-launch.jsx out/spacex-launch.mp4`
+- 编码失败退回逐帧：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/spacex-launch.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/spacex-launch.mp4 --out out/k3diff-spacex-launch --dump <最差帧号>`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
 

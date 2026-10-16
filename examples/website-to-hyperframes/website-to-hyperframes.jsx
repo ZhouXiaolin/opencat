@@ -1,5 +1,5 @@
 // JSX frontend port of examples/website-to-hyperframes/website-to-hyperframes.xml.
-// Reference: F:/hyperframes-launches/website-to-hyperframes — index.html master
+// Reference: /Users/solaren/Projects/hyperframes-launches/website-to-hyperframes — index.html master
 // timeline (act windows + 11 video clips + captions) with the Act 1 / Act 4
 // composition bodies from compositions/act-1-cold-open.html and
 // compositions/act-4-end-card.html. One stage; the three act containers stack

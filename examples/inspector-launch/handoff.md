@@ -10,8 +10,8 @@
   - **需核查**：JS 侧的接线是否完整——`register_ease_table` 是否已暴露成 jsx/animation facade 可调用的入口、jsx_runtime 是否会在帧首注册采样点。若只有 Rust 侧，采样表永远是空的（退化为线性）
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/inspector-launch/index.html`
-- 参考视频：`F:/hyperframes-launches/inspector-launch/renders/inspector-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1350 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/inspector-launch/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/inspector-launch/renders/inspector-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1350 帧）
 - `examples/inspector-launch/assets/` 已建（素材随 WIP 提交入库）
 
 ## 下一步
@@ -19,9 +19,9 @@
 2. `cargo build --release --bin opencat --bin opencat-frames`（合并后首次全量重链），渲染 inspector-launch.jsx 完成真正的第 1 轮
 3. k3diff 进 4 轮循环；渲染失败先看是不是 CustomEase 解析（`points:` 标签）路径崩溃
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/inspector-launch/inspector-launch.jsx out/inspector-launch.mp4`
-- 编码失败退回逐帧：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/inspector-launch.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/inspector-launch/inspector-launch.jsx out/inspector-launch.mp4`
+- 编码失败退回逐帧：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/inspector-launch.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/inspector-launch.mp4 --out out/k3diff-inspector-launch --dump <最差帧号>`
 
 ## 移植规则（Solaren 定，勿违反）

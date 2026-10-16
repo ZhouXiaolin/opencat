@@ -17,8 +17,8 @@
 2. 读子项目 index.html 列场景清单，写第 1 版 jsx（meta 导出对齐 ffprobe 规格）
 3. 渲染 → k3diff → 4 轮循环
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/<子项目>/<子项目>.jsx out/<子项目>.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/<子项目>/<子项目>.jsx out/<子项目>.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/<子项目>.mp4 --out out/k3diff-<子项目> --dump <最差帧号>`
 
 ## 移植规则（Solaren 定，勿违反）

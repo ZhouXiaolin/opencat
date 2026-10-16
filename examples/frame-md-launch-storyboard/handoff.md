@@ -8,8 +8,8 @@
 - 最差帧对照图已归档：`out/lane2-k3diff/k3diff-frame-md-launch-storyboard/`
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/frame-md-launch-storyboard/index.html`
-- 参考视频：`F:/hyperframes-launches/frame-md-launch-storyboard/renders/frame-md-launch-storyboard_2026-10-06_swgl.mp4`（1920x1080 @30，1808 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/frame-md-launch-storyboard/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/frame-md-launch-storyboard/renders/frame-md-launch-storyboard_2026-10-06_swgl.mp4`（1920x1080 @30，1808 帧）
 - 素材已拷入 `examples/frame-md-launch-storyboard/assets/`：Inter 全家桶 + JetBrainsMono + Nunito + JustAnotherHand 字体、A-roll 视频两版（`scene-03-aroll-cutout-alpha.mov` 带透明通道 + `scene-03-aroll-h264.mp4`）、`ssframe.mp4`
 
 ## 证据与产物
@@ -22,11 +22,21 @@
 2. `--dump 1779,587` 分别定位两簇根因：587–588 在 A-roll 场景附近（优先查视频节点时间轴/透明通道合成），1778–1780 在片尾（查收尾动画/定版帧）
 3. 按每轮砍半的势头，2–3 轮内可能进 2%
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/frame-md-launch-storyboard/frame-md-launch-storyboard.jsx out/frame-md-launch-storyboard.mp4`
-- 编码失败退回逐帧：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/frame-md-launch-storyboard.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/frame-md-launch-storyboard/frame-md-launch-storyboard.jsx out/frame-md-launch-storyboard.mp4`
+- 编码失败退回逐帧：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/frame-md-launch-storyboard.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/frame-md-launch-storyboard.mp4 --out out/k3diff-frame-md-launch-storyboard --dump 1779,587`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
+
+## 素材复原
+大体积素材不入库（见 `.gitignore`）。参考仓库 `/Users/solaren/Projects/hyperframes-launches/frame-md-launch-storyboard`：
+- 直接拷：`assets/scene-03-aroll-h264.mp4`、`assets/ssframe.mp4`
+- 派生件 `scene-03-aroll-cutout-alpha.mov`（参考用 VP9 alpha webm；引擎经 ffmpeg 解码，转 ProRes 4444 保留 alpha 平面）：
+  ```bash
+  ffmpeg -c:v libvpx-vp9 -i <ref>/assets/scene-03-aroll-cutout.webm \
+    -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le -an \
+    assets/scene-03-aroll-cutout-alpha.mov
+  ```
 
 ## 移植规则（Solaren 定，勿违反）
 - 与参考 HTML+Tailwind+GSAP 结构一一对应：静态层 OpenCat 节点 + tailwindcss；动画 useGSAP（`ctx.timeline()`/to/fromTo/set，绝对秒定位）；文字动画用 GSAP 插件（scramble-text/splitText）；3D 用 useThree；自由绘制 useCanvas/useCanvasKit

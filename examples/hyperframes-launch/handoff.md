@@ -211,8 +211,8 @@ Italic 一个 face，本来就被选中。真正受 font-style 影响的是有 R
 - 素材里有 86MB 的 `bg.mp4` 和多个视频素材，优先怀疑：某帧触发的视频解码/合成崩溃、内存、或特定效果
 
 ## 素材
-- 参考组合：`F:/hyperframes-launches/hyperframes-launch/index.html`
-- 参考视频：`F:/hyperframes-launches/hyperframes-launch/renders/hyperframes-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1494 帧）
+- 参考组合：`/Users/solaren/Projects/hyperframes-launches/hyperframes-launch/index.html`
+- 参考视频：`/Users/solaren/Projects/hyperframes-launches/hyperframes-launch/renders/hyperframes-launch_2026-10-06_swgl.mp4`（1920x1080 @30，1494 帧）
 - 素材已拷入 `examples/hyperframes-launch/assets/`（bg.mp4、beat4-clip.mp4、pill.mp4、figma-promo.mp4、Frame 1/3.mp4 等 + Impact/Consolas/SegoeUI/TimesNewRoman/ArialBlack 等系统字体）
 
 ## 证据与产物
@@ -224,9 +224,9 @@ Italic 一个 face，本来就被选中。真正受 font-style 影响的是有 R
 2. 定位死因：对照 jsx 时间轴看 562 帧（≈18.7s）在渲染什么；若是视频素材问题，用 ffmpeg 单独解该素材验证；若是引擎崩溃（panic/挂起），修 crates——这是引擎缺陷外露的机会
 3. 渲染通了之后才算第 1 轮，进入正常 4 轮 k3diff 循环
 
-## 渲染与对比（在 F:/OpenCat 下，PATH 需含 C:/ffmpeg/bin）
-- 直接渲染：`python -c "import os,subprocess,sys; os.environ['PATH']=r'C:/ffmpeg/bin'+os.pathsep+os.environ.get('PATH',''); sys.exit(subprocess.call(['target/release/opencat.exe']+sys.argv[1:]))" examples/hyperframes-launch/hyperframes-launch.jsx out/hyperframes-launch.mp4`
-- 逐帧退路（本示例排障首选）：同上换 `target/release/opencat-frames.exe` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/hyperframes-launch.mp4`
+## 渲染与对比（在仓库根目录下）
+- 直接渲染：`cargo run --release --bin opencat -- examples/hyperframes-launch/hyperframes-launch.jsx out/hyperframes-launch.mp4`
+- 逐帧退路（本示例排障首选）：同上换 `--bin opencat-frames` → PNG 序列，再 `ffmpeg -framerate 30 -i frame_%04d.png -crf 0 -pix_fmt yuv420p out/hyperframes-launch.mp4`
 - 对比：`python tools/k3diff.py <参考视频> out/hyperframes-launch.mp4 --out out/k3diff-hyperframes-launch --dump <最差帧号>`
 - 引擎改动后先 `cargo build --release --bin opencat --bin opencat-frames`
 

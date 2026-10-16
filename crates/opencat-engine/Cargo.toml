@@ -51,12 +51,7 @@ opencat-core = { path = "../opencat-core", features = ["test-support"] }
 tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# 预览呈现器（present/linux.rs）的 EGL 上下文/表面管理。
-# `dynamic` 在运行时加载 libEGL.so.1 —— 不需要 pkg-config 构建依赖。
-# Skia 的 binary-cache 构建是 EGL-only（它的 GL 函数解析走
-# eglGetProcAddress），所以这里必须用 EGL，而不是 GLX。
-khronos-egl = { version = "6", features = ["dynamic"] }
-libc = "0.2"
+# EGL 上下文/表面管理在 opencat-gpu-native（本 crate 只消费其不透明句柄）。
 skia-safe = { version = "0.153.3", features = ["binary-cache", "gl", "skottie"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

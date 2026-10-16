@@ -5,8 +5,10 @@
 //!
 //! 它是两侧之间的**资源中间层**，管三件事：
 //!
-//! - **上下文**（[`win32::WglContext`]）：宿主从自己的窗口建出来，交给
-//!   wgpu 加入。两端共享同一个 context，才谈得上纹理零拷贝。
+//! - **上下文**（[`win32::WglContext`] / [`egl::EglContext`]）：宿主从自己的
+//!   窗口建出来，交给 wgpu 加入。两端共享同一个 context，才谈得上纹理
+//!   零拷贝。离线渲染没有窗口，上下文由 wgpu 自建，不经过这里——但 GL
+//!   入口解析（[`egl::load_proc`]）两侧共用。
 //! - **纹理登记**（[`TextureRegistry`]）：生产方交出「原生句柄 + 保活
 //!   凭据」，消费方凭 [`TextureId`] 取用、归还。谁保活、谁归还在这一处定。
 //! - **渲染目标**（[`gl::Target`]）：离屏目标的原生纹理、FBO 与双缓冲读回。
@@ -17,18 +19,28 @@
 //! 能力探测一律走返回值：入口缺失时 [`gl::create_framebuffer`] 与
 //! [`gl::ReadbackPixels::new`] 返回 `None`，调用方据此回退。
 
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod gl;
+#[cfg(target_os = "linux")]
+pub mod egl;
 mod registry;
 #[cfg(target_os = "windows")]
 pub mod win32;
 
 pub use registry::{TextureId, TextureRegistry};
 
+// skia-bindings 的 Linux 构建把 `GrGLMakeEGLInterface.o` 带进了 rlib；它一旦
+// 被拉入链接就需要 libGL/libEGL 的符号。最终二进制统一在这里声明链接。
+#[cfg(target_os = "linux")]
+#[link(name = "GL")]
+#[link(name = "EGL")]
+unsafe extern "C" {}
+
 /// 后端原生纹理句柄。
 ///
-/// Windows 上是 `GL_TEXTURE_2D` 名，macOS 上是 `MTLTexture` 指针。本类型
-/// 只传不解释——解释它的代码在 [`gl`] 与未来的 `metal` 里。
+/// Windows 上是 `GL_TEXTURE_2D` 名，Linux 上同是 GL 纹理名，macOS 上是
+/// `MTLTexture` 指针。本类型只传不解释——解释它的代码在 [`gl`] 与未来的
+/// `metal` 里。
 ///
 /// 数值 0 表示「没有原生纹理」：非 GL 后端，或纹理尚未就绪。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

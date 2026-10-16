@@ -1097,6 +1097,13 @@ pub struct Renderer3d {
     /// 脚本着色器程序缓存：((vertex, fragment) 源) → 程序。按源字符串
     /// 精确匹配（GLSL 确定性编译 ⇒ 同源同程序）。
     shader_programs: Vec<((String, String), ShaderProgram)>,
+    /// Linux 离线路径（[`Self::new`]）持有的 EGL 4.6 离屏上下文。
+    ///
+    /// external 模式下 wgpu 不管理 currency（`AdapterContext.egl = None`），
+    /// 全靠这个上下文在建渲染器时 make current、此后一直不动。必须比所有
+    /// wgpu 资源活得久——放最后一个字段（Rust 按声明序析构）。
+    #[cfg(target_os = "linux")]
+    offscreen_egl: Option<opencat_gpu_native::egl::EglContext>,
 }
 
 /// 平台首选图形后端。
@@ -1121,9 +1128,45 @@ fn preferred_backends() -> wgpu::Backends {
 
 impl Renderer3d {
     /// 自建隐藏窗口 + 独立 GL 上下文（离线渲染路径）。
+    ///
+    /// Linux 上自建的是 **EGL 4.6 core 离屏上下文**（pbuffer，见
+    /// [`Self::new_offscreen_egl`]）而非 wgpu 的 GL 3.3——后者实测画不出
+    /// 图元；与预览的宿主上下文同一条外部适配器代码。`WGPU_BACKEND` 显式
+    /// 指向非 GL 后端（vulkan 等）时保持 wgpu 自建路径。EGL 不可用（无
+    /// 显示等）才回退 wgpu 自建，回退非静默。
     pub async fn new() -> Result<Self> {
+        #[cfg(target_os = "linux")]
+        {
+            match std::env::var("WGPU_BACKEND").as_deref() {
+                Ok("vulkan") | Ok("metal") | Ok("dx12") | Ok("dx11") | Ok("webgpu") => {}
+                _ => match Self::new_offscreen_egl() {
+                    Ok(r) => return Ok(r),
+                    Err(e) => {
+                        eprintln!(
+                            "[opencat-three] EGL 4.6 离屏上下文不可用（{e:#}），回退 wgpu 自建 GL 上下文"
+                        );
+                    }
+                },
+            }
+        }
         let (device, queue) = Self::request_device().await?;
         Self::from_device(device, queue)
+    }
+
+    /// Linux 离线专用：自建 EGL 4.6 core 离屏上下文 + 外部适配器。
+    ///
+    /// 上下文由返回的渲染器持有（[`Self::offscreen_egl`]），构造即 make
+    /// current 且此后不动——external 模式的 wgpu 调用、Skia 合成、资源析构
+    /// 都默认 currency 已在。**渲染必须全程在构造线程上**。
+    #[cfg(target_os = "linux")]
+    fn new_offscreen_egl() -> Result<Self> {
+        let ctx = opencat_gpu_native::egl::EglContext::offscreen()?;
+        let mut renderer = Self::new_external(
+            |name| opencat_gpu_native::egl::load_proc(name),
+            || ctx.make_current(),
+        )?;
+        renderer.offscreen_egl = Some(ctx);
+        Ok(renderer)
     }
 
     /// 用**宿主自己的** GL 上下文建渲染器（预览器路径）。
@@ -1139,8 +1182,8 @@ impl Renderer3d {
     ///   `AdapterContext::lock()` 不再负责 `make_current`
     ///   （见 [`wgpu-hal` 的 `Adapter::new_external` 文档](wgpu::hal::gles::Adapter::new_external)）。
     ///
-    /// 仅 Windows GL 后端可用。
-    #[cfg(target_os = "windows")]
+    /// GL 后端（Windows=WGL / Linux=EGL）可用。
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn new_external(
         loader: impl FnMut(&str) -> *const std::ffi::c_void,
         make_current: impl FnOnce() -> Result<()>,
@@ -1182,7 +1225,14 @@ impl Renderer3d {
         // 无窗口离屏渲染。先设平台首选后端，再 with_env 让 WGPU_BACKEND 覆盖。
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         desc.backends = preferred_backends();
-        let instance = wgpu::Instance::new(desc.with_env());
+        let mut desc = desc.with_env();
+        // wgpu 自建的 GL 上下文写死 GL 3.3，而默认开启的间接调用校验要编译
+        // compute 管线（GL 4.3+ 才有）——3.3 上失败且整个设备判死。预览路径
+        // 的宿主上下文是 4.6（见 gpu-native egl.rs），能过；这里只能摘旗。
+        // 校验只在 debug 下有意义，摘掉不影响渲染输出。
+        desc.flags
+            .remove(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL);
+        let instance = wgpu::Instance::new(desc);
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1513,6 +1563,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             mipgen_bgl,
             mipgen_pipeline,
             shader_programs: Vec::new(),
+            // 离屏 EGL 上下文只有 Linux 的 [`Self::new`] 路径持有；其余
+            // 构造方（external 注入）不拥有上下文。
+            #[cfg(target_os = "linux")]
+            offscreen_egl: None,
         })
     }
 
@@ -2609,7 +2663,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     ///
     /// 仅 GL 后端有效；非 GL 后端返回 `None`。`tex` 必须是本渲染器
     /// [`Self::render_to_texture`] 的产物，且在其存活期内使用。
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn output_native_texture(tex: &wgpu::Texture) -> Option<NativeTexture> {
         use wgpu::hal::api::Gles;
         unsafe {
@@ -2625,13 +2679,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     /// 在 wgpu 的 GL context 已 make current 的前提下运行 `f`。
     ///
-    /// Skia 共享同一 `HGLRC`：建 DirectContext、导入纹理、绘制都必须发生在
+    /// Skia 共享同一 GL context：建 DirectContext、导入纹理、绘制都必须发生在
     /// 该 context current 的线程上。本方法经 wgpu 自己的 `AdapterContext`
     /// 锁进入（与 wgpu 内部操作同一把互斥锁），drop 时 unmake_current。
     ///
     /// **`f` 内不得再调用本渲染器的任何方法**——会二次加锁，1 秒后 panic。
     /// 仅 GL 后端有效；非 GL 返回 `None` 且不调用 `f`。
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn with_gl_context<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
         use wgpu::hal::api::Gles;
         unsafe {
@@ -2645,7 +2699,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     ///
     /// 在**锁外**调用（创建纹理是 wgpu 操作）。合成的 FBO 与读回由
     /// `opencat_gpu_native::gl::Target` 在锁内建。
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn create_composite_target(&self, width: u32, height: u32) -> Option<wgpu::Texture> {
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("opencat-three-composite-target"),
@@ -2671,11 +2725,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     /// 当前后端是否为 GL（GPU 纹理共享仅 GL 路径支持）。
     pub fn is_gles(&self) -> bool {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         {
             unsafe { self.device.as_hal::<wgpu::hal::api::Gles>().is_some() }
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             false
         }
@@ -3460,9 +3514,9 @@ impl LazyRenderer3d {
     /// GL 后端：登记原生纹理名，消费方可零拷贝导入。
     /// 其他后端：登记空句柄，消费方按 `rgba` 走。
     fn publish(&self, tex: wgpu::Texture) -> opencat_core::ir::generated_image::GpuImageHandle {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         let native = Renderer3d::output_native_texture(&tex).unwrap_or(NativeTexture::NONE);
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         let native = NativeTexture::NONE;
 
         let id = self.registry.publish(native, Box::new(tex));
@@ -3473,7 +3527,7 @@ impl LazyRenderer3d {
     ///
     /// 在**锁外**调用（创建纹理是 wgpu 操作）。纹理所有权归共享登记处。
     /// 仅 GL 后端有效。
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn make_composite_target(
         &self,
         width: u32,
@@ -3488,7 +3542,7 @@ impl LazyRenderer3d {
     ///
     /// 仅 GL 后端有效。**`f` 内只做 Skia 操作**——任何 wgpu 调用都会二次
     /// 加锁，1 秒后 panic（实测确认）。
-    #[cfg(target_os = "windows")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn with_context<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
         let init = self.inner.get()?;
         let Ok(renderer) = init else { return None };

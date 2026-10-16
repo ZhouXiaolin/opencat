@@ -50,6 +50,15 @@ pub struct EngineDrawExecutor {
     /// `skottie` feature is off (e.g. macOS and Windows) — see [`Self::ensure_lottie_animations`].
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) lottie_cache: HashMap<String, LottieAnimation>,
+    /// CSS `backdrop-filter` 两遍法：每个 `SaveBackdropLayer` 之前的 op 重放
+    /// 录成的 picture（按出现顺序）。这版 Skia 的 `SaveLayerRec::backdrop`
+    /// 嵌套在祖先层内会静默失效，改为层内 `draw_picture` + filter 打底。
+    /// 仅在 `replay_frame` 内非空。
+    pub(crate) backdrop_pictures: Vec<skia_safe::Picture>,
+    /// 下一个待消费的 `backdrop_pictures` 槽位。
+    pub(crate) backdrop_next: usize,
+    /// 预录前缀期间为真：此时 `SaveBackdropLayer` 走原始 Skia 路径且不消费槽位。
+    pub(crate) backdrop_building: bool,
 }
 
 impl EngineDrawExecutor {
@@ -61,6 +70,9 @@ impl EngineDrawExecutor {
             current_alpha: 1.0,
             compiled_pictures: HashMap::new(),
             lottie_cache: HashMap::new(),
+            backdrop_pictures: Vec::new(),
+            backdrop_next: 0,
+            backdrop_building: false,
         }
     }
 

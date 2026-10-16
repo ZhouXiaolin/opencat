@@ -297,3 +297,12 @@ Italic 一个 face，本来就被选中。真正受 font-style 影响的是有 R
 - SKSL 绘制优先 liangyi 内核（ly.pixel/ly.scan）
 - 引擎缺陷先补 opencat 本身（crates/），不要在 jsx 里绕；行为只能增强，已达标示例（k3-promo、liquid-brand-refraction、website-to-hyperframes）不能退化
 - 黄金范例：`examples/k3-promo/k3-promo.jsx`；JSX 坑：JSXText 前导空格写 `{" ..."}`、path 必须带 view-box、prop 不能叫 h
+
+## GlassIntro 抖动修复（2026-10-17，backdrop-blur 两遍法）
+- 症状：gi-frame/gi-frame2/gi-frame3 的 `backdrop-blur-[14px]` 毛玻璃失效——玻璃边框透出 bg 噪点逐帧闪烁（=抖动），无边框流体感。
+- 根因（单测 `crates/opencat-engine/src/executor/paint.rs` `backdrop_probe` 复现）：这版 Skia 的 `SaveLayerRec::backdrop` **嵌套在任何祖先层内（depth≥1）即静默失效**，仅根 device 直接开层生效。真实管线 gi-frame 的 backdrop 层嵌在 gi-zoom-b2 的 css blur 层内（beat 全程有 blur 动画，嵌套不可避免）。
+- 修复（两遍法，`crates/opencat-engine/src/executor/replay.rs`）：`replay_frame` 预扫描 `SaveBackdropLayer`，用 `PictureRecorder` 录制该层之前的 op 前缀（identity 坐标系）；执行臂开**普通层**（不设 bounds，容 box-shadow 越界），在当前 CTM 下按 `bounds`（=元素 border box）clip 后 `set_matrix(identity)` 回放 picture，paint 带 blur filter——Skia 自动整体离屏光栅化+过滤，GPU/CPU 通用。
+- **坑 1**：picture 记录录制时的矩阵，`draw_picture` 又乘当前 CTM——必须先 `set_matrix(M44::default())` 再回放，否则前缀内容被二次变换（曾表现为模糊区错位到元素 rect）。
+- **坑 2**：backdrop 显示范围必须是**元素 rect** 而非含阴影外扩的层 bounds（CSS backdrop-filter 裁到 border box）。`SaveBackdropLayer.bounds` 语义已改为元素 rect（dispatch 传 `transform.bounds`），编码格式不变。
+- 验证：f105 环带高频 56→0（四边残留全消）、边框流体平滑、阴影保留；k3diff 全片 0.0501→0.0498（pre/post 同口径对照，用临时开关对比后已删）；k3-promo 回归 0.01316（基线 0.0131，无退化）。
+- GlassIntro 段剩余差异（帧 107-115 最差 0.64）=beat2 exit 段 zoom/blur 剧变的临界帧相位差+bg 噪点视频相位，与 backdrop 无关。

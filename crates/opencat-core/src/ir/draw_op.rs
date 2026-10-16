@@ -178,9 +178,11 @@ pub enum DrawOp {
     },
 
     /// CSS `backdrop-filter` layer: `paint`'s image filter applies to the
-    /// already-drawn content **beneath** the layer (Skia `SaveLayerRec::
-    /// backdrop`), while the layer's own content composites unfiltered on top.
-    /// Bounds clip the backdrop sampling region, exactly like `SaveLayer`.
+    /// already-drawn content **beneath** the layer (or, in the two-pass
+    /// fallback, to a pre-recorded prefix replay), while the layer's own
+    /// content composites unfiltered on top. `bounds` is the *element* rect
+    /// (border box) — the blurred backdrop is only visible inside it, unlike
+    /// the shadow-padded layer bounds that box-shadow needs.
     SaveBackdropLayer {
         bounds: Option<Rect4>,
         paint: Option<PaintId>,

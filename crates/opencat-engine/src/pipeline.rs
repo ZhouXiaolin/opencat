@@ -121,6 +121,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Resu
         scripts,
         engine_default_font_faces(),
         font_bytes,
+        crate::gpu_pipeline::enabled(),
     )?;
     Ok(host)
 }
@@ -138,7 +139,16 @@ pub(crate) fn open_parsed_host_owned(
     scripts: V8JsContext,
     font_bytes: Vec<Vec<u8>>,
 ) -> Result<EnginePipelineHost> {
-    open_parsed_host_owned_with_fonts(parsed, loader, scripts, font_bytes, Default::default())
+    // 调用方都是 CPU 消费器（render.rs 的测试直接调
+    // `render_pipeline_frame_to_rgba`），所以 GPU 管线恒关。
+    open_parsed_host_owned_with_fonts(
+        parsed,
+        loader,
+        scripts,
+        font_bytes,
+        Default::default(),
+        false,
+    )
 }
 
 fn open_parsed_host_owned_with_fonts(
@@ -147,6 +157,7 @@ fn open_parsed_host_owned_with_fonts(
     scripts: V8JsContext,
     font_bytes: Vec<Vec<u8>>,
     font_bytes_by_face_id: std::collections::HashMap<String, Vec<u8>>,
+    gpu_mode: bool,
 ) -> Result<EnginePipelineHost> {
     let draft = CompositionDraft::from_parsed(parsed);
     let requests = collect_resource_requests_from_parsed(draft.parsed());
@@ -266,7 +277,7 @@ fn open_parsed_host_owned_with_fonts(
     let scene3_renderer = std::sync::Arc::new(opencat_three::LazyRenderer3d::new());
     pipeline.set_scene3_raster(std::sync::Arc::new(TexturedRaster3d {
         inner: scene3_renderer.clone(),
-        gpu_mode: crate::gpu_pipeline::enabled(),
+        gpu_mode,
         ..Default::default()
     }));
     // 文档 base 目录：脚本内相对资产路径（GLTFGeometry 等）对它 join——
@@ -301,8 +312,8 @@ struct TexturedRaster3d {
     /// 把 3D 渲染目标的 GL texture id 交给 Skia。
     inner: std::sync::Arc<opencat_three::LazyRenderer3d>,
     resolve_tx: std::sync::OnceLock<std::sync::mpsc::Sender<TextureResolveJob>>,
-    /// GPU 管线开关（`OC_GPU_PIPELINE=1`）：3D 输出留在显存，交给 Skia
-    /// 零拷贝导入，跳过 wgpu→CPU 的整帧回读。
+    /// GPU 管线开关（默认开，`OC_GPU_PIPELINE=0` 关）：3D 输出留在显存，
+    /// 交给 Skia 零拷贝导入，跳过 wgpu→CPU 的整帧回读。
     gpu_mode: bool,
 }
 
@@ -423,7 +434,7 @@ impl opencat_core::ir::scene3::Scene3Raster for TexturedRaster3d {
                 .render_to_gpu(scene, geometries, &table, width, height)?;
             return Ok(opencat_core::ir::scene3::Rasterized3d {
                 rgba: std::sync::Arc::from(Vec::new()),
-                gpu: Some(opencat_core::ir::generated_image::GpuImageHandle(handle)),
+                gpu: Some(handle),
             });
         }
         Ok(opencat_core::ir::scene3::Rasterized3d::cpu(

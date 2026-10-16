@@ -374,8 +374,9 @@ impl<C: JsContext> ScriptRealm<C> {
             let rasterized = raster.render(scene, &geometries, width, height)?;
             // 确定性 key：canvas id + 目标尺寸 + 像素内容。同内容同帧幂等，
             // 异内容碰撞是 hard error（GeneratedImageTable 契约）。
-            // GPU 路径无 CPU 像素：以不透明句柄参与哈希（同一 render target
-            // 逐帧复用句柄即视为同内容，与 CPU 路径的字节比较同义）。
+            // GPU 路径无 CPU 像素：以句柄参与哈希。句柄的 token 每帧唯一
+            //（GL 名会被驱动回收，不能当身份用），所以每帧各得一个 key——
+            // 与 CPU 路径逐帧比较字节的语义一致。
             let mut hf = ahash::AHasher::default();
             use std::hash::{Hash, Hasher};
             id.hash(&mut hf);

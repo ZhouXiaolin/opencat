@@ -6,10 +6,11 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use skia_safe::{
     AlphaType, ColorType, CubicResampler, Data, Image, ImageInfo, Paint, Rect, SamplingOptions,
-    image::CachingHint, surfaces,
+    image::CachingHint, images, surfaces,
 };
 
 use crate::media::decode::VideoDecodeCache;
+use crate::media::realtime::VideoRealtimeDecoder;
 use crate::media::video_cache::VideoFrameCache;
 use crate::runtime::cache::CacheCaps;
 use opencat_core::probe::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
@@ -124,6 +125,9 @@ pub struct MediaContext {
     video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
     composition_fps: u32,
+    /// 实时解码线程。挂上后 [`Self::get_video_frame`] 先查它的帧窗口，命中就
+    /// 完全不等解码。离线渲染不挂它。
+    realtime: Option<Arc<VideoRealtimeDecoder>>,
 }
 
 impl MediaContext {
@@ -140,6 +144,40 @@ impl MediaContext {
             video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
             composition_fps: 30,
+            realtime: None,
+        }
+    }
+
+    /// 打开实时视频解码线程（预览器用）。
+    ///
+    /// 必须在 [`Self::set_composition_fps`] 之后调用：解码线程向前推进的步长
+    /// 取自合成帧率。离线渲染不调用它，`get_video_frame` 会直接同步解码。
+    pub fn enable_realtime_decode(&mut self) {
+        let decoder = VideoRealtimeDecoder::spawn(self.composition_fps, self.video_preview_quality);
+        self.realtime = Some(Arc::new(decoder));
+    }
+
+    /// 预热一个视频素材：打开、探测、解一帧丢掉，让解码线程在开播前就位。
+    ///
+    /// 第一次解一个 1080p 素材要 ~300ms，落在播放中间就是一帧的卡顿，还会连锁
+    /// 触发跳帧。没有挂线程时是空操作。
+    pub fn warmup_video(&self, path: &Path) {
+        if let Some(decoder) = &self.realtime {
+            decoder.warmup(path);
+        }
+    }
+
+    /// 告诉实时解码线程播放头现在在哪。线程随后把该素材的窗口补到播放头前方，
+    /// 下一帧取帧就命中窗口。没有挂线程时是空操作。
+    pub fn prefetch_video(
+        &self,
+        path: &Path,
+        time_secs: f64,
+        target_size: Option<(u32, u32)>,
+        color_matrix: Option<opencat_core::media::VideoColorMatrix>,
+    ) {
+        if let Some(decoder) = &self.realtime {
+            decoder.prefetch(path, time_secs, target_size, color_matrix);
         }
     }
 
@@ -176,6 +214,21 @@ impl MediaContext {
         let target_time_secs = request.resolve_time_secs(&meta);
         let scale_target = quantize_target_size(request.target_size, &info);
         let (out_w, out_h) = scale_target.unwrap_or((info.width, info.height));
+        // 实时窗口优先：它由后台线程按同一个请求时刻填充。窗口里还没有就等它送来
+        // ——主线程自己再解一遍会让两个解码器读同一个文件，互相拖慢。等超时了才
+        // 落到下面的同步路径。
+        //
+        // 直接返回窗口帧自己的尺寸：解码尺寸和本次请求的绘制尺寸可能不同（解码线程
+        // 是按**上一次**提示的尺寸解的），但调用方用 `width / 源宽` 算解码缩放比，
+        // 绘制路径按这个比例映射 src，所以尺寸不一致不会画错。按请求尺寸重采样反而
+        // 要每帧多搬一遍整幅 RGBA。
+        if let Some(frame) = self
+            .realtime
+            .as_ref()
+            .and_then(|decoder| decoder.wait_for(path, target_time_secs))
+        {
+            return Ok((frame.data, frame.width, frame.height, true));
+        }
         if !opencat_core::ablate::ablated(opencat_core::ablate::Ablation::VideoFrames)
             && let Some(cached) = self
                 .video_frame_cache

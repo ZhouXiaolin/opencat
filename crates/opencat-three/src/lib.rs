@@ -1121,7 +1121,65 @@ fn preferred_backends() -> wgpu::Backends {
 }
 
 impl Renderer3d {
+    /// 自建隐藏窗口 + 独立 GL 上下文（离线渲染路径）。
     pub async fn new() -> Result<Self> {
+        let (device, queue) = Self::request_device().await?;
+        Self::from_device(device, queue)
+    }
+
+    /// 用**宿主自己的** GL 上下文建渲染器（预览器路径）。
+    ///
+    /// 与 [`Self::new`] 的区别：wgpu 不再自建隐藏窗口上下文，而是加入调用方的
+    /// GL 上下文。这样两者共享同一 `HGLRC`，wgpu 渲染出的纹理名在调用方的
+    /// Skia 里可直接采样——零拷贝，无需读回 CPU。
+    ///
+    /// # 前提（调用方保证）
+    ///
+    /// - 调用前 GL 上下文须 current（`make_current` 回调负责在需要时重绑）；
+    /// - 此后每次与 wgpu 交互时它仍须 current——外部上下文模式下
+    ///   `AdapterContext::lock()` 不再负责 `make_current`
+    ///   （见 [`wgpu-hal` 的 `Adapter::new_external` 文档](wgpu::hal::gles::Adapter::new_external)）。
+    ///
+    /// 仅 Windows GL 后端可用。
+    #[cfg(target_os = "windows")]
+    pub fn new_external(
+        loader: impl FnMut(&str) -> *const std::ffi::c_void,
+        make_current: impl FnOnce() -> Result<()>,
+    ) -> Result<Self> {
+        use wgpu::hal::api::Gles;
+
+        // hal 的 GL 实例初始化会在结尾 `unmake_current`（它自建隐藏窗口
+        // 上下文时把宿主的解绑了），所以必须在其后重绑，`new_external`
+        // 才能查到宿主的扩展与函数。
+        let hal_instance = unsafe {
+            let desc = wgpu::hal::InstanceDescriptor {
+                name: "opencat-three-external",
+                flags: wgpu::InstanceFlags::empty(),
+                memory_budget_thresholds: Default::default(),
+                backend_options: Default::default(),
+                telemetry: None,
+                display: None,
+            };
+            <wgpu::hal::gles::Instance as wgpu::hal::Instance>::init(&desc)
+                .map_err(|e| anyhow::anyhow!("hal instance 初始化失败: {e}"))?
+        };
+        make_current()?;
+        let hal_adapter = unsafe {
+            wgpu::hal::gles::Adapter::new_external(loader, wgpu::GlBackendOptions::default())
+        }
+        .ok_or_else(|| anyhow::anyhow!("外部 GL 上下文不可用（context 未 current？）"))?;
+        let instance = unsafe { wgpu::Instance::from_hal::<Gles>(hal_instance) };
+        let adapter = unsafe { instance.create_adapter_from_hal::<Gles>(hal_adapter) };
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("opencat-three-external"),
+            ..Default::default()
+        }))
+        .map_err(|e| anyhow::anyhow!("wgpu 设备创建失败: {e}"))?;
+        Self::from_device(device, queue)
+    }
+
+    /// 自建上下文路径的设备请求（离屏渲染）。
+    async fn request_device() -> Result<(wgpu::Device, wgpu::Queue)> {
         // 无窗口离屏渲染。先设平台首选后端，再 with_env 让 WGPU_BACKEND 覆盖。
         let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
         desc.backends = preferred_backends();
@@ -1133,14 +1191,17 @@ impl Renderer3d {
             })
             .await
             .map_err(|e| anyhow::anyhow!("wgpu 适配器不可用（GPU/驱动缺失？）: {e}"))?;
-        let (device, queue) = adapter
+        adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("opencat-three"),
                 ..Default::default()
             })
             .await
-            .map_err(|e| anyhow::anyhow!("wgpu 设备创建失败: {e}"))?;
+            .map_err(|e| anyhow::anyhow!("wgpu 设备创建失败: {e}"))
+    }
 
+    /// 用既有设备建出渲染器（两条路径共用的尾部）。
+    fn from_device(device: wgpu::Device, queue: wgpu::Queue) -> Result<Self> {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("opencat-three"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(WGSL)),
@@ -3364,6 +3425,17 @@ impl LazyRenderer3d {
         }
     }
 
+    /// 预置一个**已建好**的渲染器，取代懒初始化时自建的那个。
+    ///
+    /// 预览器（`opencat-see`）用它在窗口 GL 上下文就绪后注入
+    /// [`Renderer3d::new_external`] 的产物——这样 wgpu 与窗口 Skia 共享
+    /// 同一 `HGLRC`，纹理零拷贝。必须在首次渲染前调用（`OnceLock` 只设一次）。
+    pub fn preset(&self, renderer: Renderer3d) -> Result<()> {
+        self.inner
+            .set(Ok(Mutex::new(renderer)))
+            .map_err(|_| anyhow::anyhow!("3D 光栅化器已初始化，无法预置"))
+    }
+
     /// GPU 模式下渲染到显存并登记句柄（不读回 CPU）。
     ///
     /// 返回的句柄是 [`scene3::Rasterized3d::gpu`] 的值，宿主用它向
@@ -3375,7 +3447,7 @@ impl LazyRenderer3d {
         textures: &TextureTable3,
         width: u32,
         height: u32,
-    ) -> Result<u64> {
+    ) -> Result<opencat_core::ir::generated_image::GpuImageHandle> {
         let init = self.inner.get_or_init(|| {
             pollster::block_on(Renderer3d::new())
                 .map(Mutex::new)
@@ -3389,37 +3461,61 @@ impl LazyRenderer3d {
             }
             Err(msg) => bail!("3D 光栅化器初始化失败: {msg}"),
         };
-        let handle = self
+        Ok(self.register_gpu_texture(tex))
+    }
+
+    /// 把一张输出纹理登记进存活表，返回宿主句柄（含裸 GL 名）。
+    ///
+    /// 纹理必须活到消费方采样完成——`Renderer3d` 的 `Mutex` 释放后无人
+    /// 持有它，所以表由本结构持有。消费方用完调
+    /// [`Self::release_gpu_texture`] 归还。
+    #[cfg(target_os = "windows")]
+    fn register_gpu_texture(
+        &self,
+        tex: wgpu::Texture,
+    ) -> opencat_core::ir::generated_image::GpuImageHandle {
+        let texture = Renderer3d::output_texture_id(&tex).unwrap_or(0);
+        let token = self
             .next_gpu_handle
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.gpu_textures
             .lock()
             .expect("gpu_textures mutex poisoned")
-            .insert(handle, tex);
-        Ok(handle)
+            .insert(token, tex);
+        opencat_core::ir::generated_image::GpuImageHandle { texture, token }
     }
 
-    /// 取一个 GPU 纹理的 GL texture id（纹理仍留在表中，供 Skia 采样期间存活）。
-    #[cfg(target_os = "windows")]
-    pub fn gpu_texture_id(&self, handle: u64) -> Option<u32> {
-        let guard = self.gpu_textures.lock().expect("gpu_textures mutex poisoned");
-        let tex = guard.get(&handle)?;
-        Renderer3d::output_texture_id(tex)
+    /// 非 GL 后端（macOS Metal 等）：没有可共享的 GL 名，句柄的
+    /// `texture` 为 0，消费方按 `rgba` 走。
+    #[cfg(not(target_os = "windows"))]
+    fn register_gpu_texture(
+        &self,
+        tex: wgpu::Texture,
+    ) -> opencat_core::ir::generated_image::GpuImageHandle {
+        let token = self
+            .next_gpu_handle
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.gpu_textures
+            .lock()
+            .expect("gpu_textures mutex poisoned")
+            .insert(token, tex);
+        opencat_core::ir::generated_image::GpuImageHandle { texture: 0, token }
     }
 
     /// 释放一个 GPU 纹理（宿主已用完）。
-    pub fn release_gpu_texture(&self, handle: u64) {
+    pub fn release_gpu_texture(&self, token: u64) {
         let _ = self
             .gpu_textures
             .lock()
             .expect("gpu_textures mutex poisoned")
-            .remove(&handle);
+            .remove(&token);
     }
 
-    /// 建一张合成目标纹理并返回 `(纹理, GL texture id)`。
+    /// 建一张合成目标纹理并返回宿主句柄（含裸 GL 名）。
     ///
-    /// 纹理所有权归调用方——这样宿主不必依赖 wgpu 类型即可持有它，
-    /// 又能在 GL 锁外完成创建（wgpu 操作）。仅 GL 后端有效。
+    /// 纹理所有权留在本结构的存活表里（句柄的 `token` 是归还凭据），这样
+    /// 宿主不必依赖 wgpu 类型即可持有它，又能在 GL 锁外完成创建（wgpu 操作）。
+    /// 仅 GL 后端有效。
     #[cfg(target_os = "windows")]
     pub fn make_composite_target(
         &self,
@@ -3428,16 +3524,7 @@ impl LazyRenderer3d {
     ) -> Option<opencat_core::ir::generated_image::GpuImageHandle> {
         self.with_renderer(|r| r.create_composite_target(width, height))
             .flatten()
-            .map(|(tex, _id)| {
-                let handle = self
-                    .next_gpu_handle
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                self.gpu_textures
-                    .lock()
-                    .expect("gpu_textures mutex poisoned")
-                    .insert(handle, tex);
-                opencat_core::ir::generated_image::GpuImageHandle(handle)
-            })
+            .map(|(tex, _id)| self.register_gpu_texture(tex))
     }
 
     /// 在 wgpu 的 GL context 已 make current 的前提下运行 `f`。

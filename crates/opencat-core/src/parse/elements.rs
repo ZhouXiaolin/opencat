@@ -157,6 +157,11 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// A `<tl>` is a scene like any other element, so it declares its own
+        /// length. Required when the timeline is a direct child of another
+        /// timeline — the enclosing sequence reads each child's duration to
+        /// place it. Inert when the timeline is a plain child of a div.
+        duration: Option<f64>,
     },
     #[serde(rename = "caption")]
     Caption {
@@ -457,6 +462,7 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                duration,
             } => {
                 let style = parse_class_name_with_context(
                     class_name.as_deref().unwrap_or(""),
@@ -467,7 +473,7 @@ pub(crate) fn composition_from_lines(
                 elements.push(ParsedElement {
                     id,
                     parent_id,
-                    duration: None,
+                    duration,
                     style,
                     kind: ParsedElementKind::Timeline,
                 });

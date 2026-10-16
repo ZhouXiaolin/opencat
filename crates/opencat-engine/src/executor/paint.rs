@@ -360,3 +360,150 @@ fn build_path_effect(spec: &PathEffectSpec) -> Option<PathEffect> {
         PathEffectSpec::Dash { intervals, phase } => PathEffect::dash(intervals, *phase),
     }
 }
+
+// ── TEMP: Skia backdrop-blur 行为探针（CPU 光栅面）───────────────────────
+#[cfg(test)]
+mod backdrop_probe {
+    use super::*;
+    use skia_safe::{canvas::SaveLayerRec, image_filters, surfaces, BlendMode, Canvas, Color, Paint, Rect, Surface};
+
+    fn noise(c: &Canvas) {
+        let mut s: u64 = 12345;
+        let mut nxt = || { s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (s >> 33) as i32 };
+        let mut p = Paint::default();
+        for _ in 0..6000 {
+            let v = (nxt() % 256) as u8;
+            p.set_color(Color::from_argb(255, v, v, v));
+            let x = nxt().rem_euclid(400) as f32;
+            let y = nxt().rem_euclid(300) as f32;
+            c.draw_rect(Rect::from_xywh(x, y, 2.0, 2.0), &p);
+        }
+    }
+
+    fn center_stddev(surface: &mut Surface) -> f64 {
+        let info = surface.image_info();
+        let mut buf = vec![0u8; info.min_row_bytes() * surface.height() as usize];
+        surface.read_pixels(&info, &mut buf, info.min_row_bytes(), (0, 0));
+        let w = surface.width() as usize;
+        let mut vals = vec![];
+        for y in 100..200usize {
+            for x in 150..250usize {
+                vals.push(buf[(y * w + x) * 4] as f64);
+            }
+        }
+        let m = vals.iter().sum::<f64>() / vals.len() as f64;
+        (vals.iter().map(|v| (v - m) * (v - m)).sum::<f64>() / vals.len() as f64).sqrt()
+    }
+
+    #[test]
+    fn backdrop_blur_reads_parent_layer() {
+        // EXP-F2: 噪点画在 backdrop 层的直接父层内（真实管线拓扑：bg 视频与
+        // gi-frame 之间无层边界），看嵌套时 backdrop 是否读得到。
+        for depth in [0usize, 1, 2] {
+            let mut surface = surfaces::raster_n32_premul((400, 300)).unwrap();
+            {
+                let c = surface.canvas();
+                c.clear(Color::WHITE);
+                for _ in 0..depth {
+                    c.save_layer(&SaveLayerRec::default());
+                }
+                noise(c); // 与 backdrop 同层（parent device）
+                let blur = image_filters::blur((14.0, 14.0), SkTileMode::Clamp, None, None).unwrap();
+                let rec = SaveLayerRec::default().backdrop(&blur);
+                c.save_layer(&rec);
+                let mut p = Paint::default();
+                p.set_color(Color::from_argb(19, 255, 255, 255));
+                c.draw_rect(Rect::from_xywh(0.0, 0.0, 400.0, 300.0), &p);
+                c.restore();
+                for _ in 0..depth {
+                    c.restore();
+                }
+            }
+            let after = center_stddev(&mut surface);
+            println!("EXP-F2 depth={depth} 环区stddev={after:.2}");
+        }
+    }
+
+    #[test]
+    fn backdrop_blur_survives_nesting() {
+        // EXP-F: 深层嵌套 saveLayer 下 backdrop 是否失效
+        for depth in [0usize, 1, 2, 3, 6, 12] {
+            let mut surface = surfaces::raster_n32_premul((400, 300)).unwrap();
+            {
+                let c = surface.canvas();
+                c.clear(Color::WHITE);
+                noise(c);
+                for i in 0..depth {
+                    c.save_layer(&SaveLayerRec::default());
+                    // 每层画个不透明小块，模拟真实层内容
+                    let mut p = Paint::default();
+                    p.set_color(Color::from_argb(255, 240, 240, 240));
+                    c.draw_rect(Rect::from_xywh(i as f32, i as f32, 1.0, 1.0), &p);
+                }
+                // backdrop 层
+                let blur = image_filters::blur((14.0, 14.0), SkTileMode::Clamp, None, None).unwrap();
+                let rec = SaveLayerRec::default().backdrop(&blur);
+                c.save_layer(&rec);
+                let mut p = Paint::default();
+                p.set_color(Color::from_argb(19, 255, 255, 255));
+                c.draw_rect(Rect::from_xywh(0.0, 0.0, 400.0, 300.0), &p);
+                c.restore();
+                for _ in 0..depth {
+                    c.restore();
+                }
+            }
+            let after = center_stddev(&mut surface);
+            println!("EXP-F depth={depth} 环区方差stddev={after:.2}");
+        }
+    }
+
+    #[test]
+    fn backdrop_blur_reduces_noise_on_raster() {
+        let mut surface = surfaces::raster_n32_premul((400, 300)).unwrap();
+        {
+            let c = surface.canvas();
+            c.clear(Color::WHITE);
+            noise(c);
+        }
+        let before = center_stddev(&mut surface);
+        {
+            let c = surface.canvas();
+            // 复刻真实管线：CTM = translate+scale（zoom wrapper），底下是 drawImage 的
+            // 噪点图，ClipPath 矩形，saveLayer(paint+backdrop, 本地系 bounds)。
+            let img_info = skia_safe::ImageInfo::new((400, 300), skia_safe::ColorType::RGBA8888, skia_safe::AlphaType::Premul, None);
+            let mut px = vec![255u8; 400 * 300 * 4];
+            let mut s: u64 = 999u64;
+            for v in px.iter_mut() { s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); *v = (s >> 33) as u8; }
+            let data = unsafe { skia_safe::Data::new_bytes(&px) };
+            let img = skia_safe::images::raster_from_data(&img_info, data, 400 * 4).expect("img");
+            c.save();
+            c.scale((0.8168, 0.8168));
+            c.translate((30.0, 20.0));
+            let origin = skia_safe::Point { x: 0.0, y: 0.0 };
+            c.draw_image(&img, origin, None);
+            let local = Rect::new(-5.0, -4.0, 405.0, 304.0); // 本地系 bounds（含外扩）
+            c.save();
+            let rpath = skia_safe::Path::rect(local, None);
+            c.clip_path(&rpath, skia_safe::ClipOp::Intersect, false);
+            let blur = image_filters::blur((14.0, 14.0), SkTileMode::Clamp, None, None)
+                .expect("blur filter builds");
+            let mut lp = Paint::default();
+            lp.set_color(Color::from_argb(255, 255, 255, 255));
+            lp.set_anti_alias(true);
+            let rec = SaveLayerRec::default()
+                .paint(&lp)
+                .backdrop(&blur)
+                .bounds(&local);
+            c.save_layer(&rec);
+            let mut p = Paint::default();
+            p.set_color(Color::from_argb(19, 255, 255, 255));
+            p.set_blend_mode(BlendMode::SrcOver);
+            c.draw_rect(Rect::from_xywh(0.0, 0.0, 400.0, 300.0), &p);
+            c.restore();
+            c.restore();
+        }
+        let after = center_stddev(&mut surface);
+        println!("backdrop probe: stddev before={before:.2} after={after:.2}");
+        assert!(after < before * 0.5, "backdrop blur 应显著抹平噪点 before={before:.2} after={after:.2}");
+    }
+}

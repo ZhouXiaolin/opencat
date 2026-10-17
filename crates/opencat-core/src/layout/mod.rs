@@ -21,7 +21,10 @@ use crate::{
     FrameCtx,
     layout::tree::{LayoutNode, LayoutOutputFingerprint, LayoutRect, LayoutTree},
     parse::primitives::{AlignItems, JustifyContent, Position},
-    resolve::tree::{ElementKind, ElementNode},
+    resolve::{
+        style::text_element_allows_wrap,
+        tree::{ElementKind, ElementNode},
+    },
     style::{ComputedTextStyle, LengthPercentageAuto},
 };
 
@@ -475,26 +478,6 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
         }),
         _ => None,
     }
-}
-
-fn text_element_allows_wrap(element: &ElementNode) -> bool {
-    if element.style.layout.truncate {
-        return false;
-    }
-
-    if element.style.text.no_wrap {
-        return false;
-    }
-
-    let has_definite_width = element.style.layout.width.is_some()
-        || element.style.layout.width_percent.is_some()
-        || element.style.layout.width_full;
-
-    if element.style.layout.position == Position::Absolute && !has_definite_width {
-        return false;
-    }
-
-    element.style.text.wrap_text || has_definite_width
 }
 
 fn taffy_style_for_element(element: &ElementNode) -> Style {
@@ -1340,54 +1323,6 @@ mod tests {
         assert_eq!(
             inner.rect.y, 5.0,
             "absolute child rides along with the relative offset via parent-relative coords"
-        );
-    }
-
-    #[test]
-    fn probe_cta_auto_pill_padding() {
-        // 复刻 cta.html metarow：.ml{flex;gap} > span.auto{bg;padding:.24cqw .75cqw;font-size:.96cqw}
-        // 实测 f860：ref pill w≈68（text 37 + 2×14.4 padding + 边界），引擎 pill w≈42。
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 1920,
-            height: 1080,
-            frames: 1,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-        let root = classed_div(
-            "root",
-            "relative w-[1920px] h-[1080px]",
-            vec![classed_div(
-                "auto440",
-                "flex items-center gap-[21.12px]",
-                vec![
-                    classed_text(
-                        "auto441",
-                        "text-[18.4px] font-[hk5] font-medium bg-[rgba(202,164,62,0.16)] text-[#CAA43E] px-[14.4px] py-[4.6px] rounded-[9.6px]",
-                        "Auto",
-                    )
-                    .into(),
-                    classed_text("auto442", "text-[22.1px] text-[#8C8B83]", "＋").into(),
-                ],
-            )
-            .into()],
-        )
-        .into();
-        let resolved = resolve_ui_tree(
-            &root,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("tree should resolve");
-        let layout = compute_layout_with_font_db_fn(&resolved, &frame_ctx, &default_font_db())
-            .expect("layout should succeed");
-        let pill = &layout.root.children[0].children[0];
-        println!(
-            "probe auto441 pill: x={} y={} w={} h={}",
-            pill.rect.x, pill.rect.y, pill.rect.width, pill.rect.height
         );
     }
 

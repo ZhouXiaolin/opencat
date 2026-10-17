@@ -1,0 +1,164 @@
+struct PagePeelGeom {
+  curlUV: vec2f,
+  theta: f32,
+  distPastCrease: f32,
+  distIntoPeel: f32,
+  flatReach: f32,
+  peelReach: f32,
+  foldBlend: f32,
+  showCurl: f32,
+}
+
+fn pagePeelGeom(uv: vec2f, aspect: f32, cornerX: f32, cornerY: f32, oppX: f32, oppY: f32, amount: f32, radius: f32) -> PagePeelGeom {
+  let pA = vec2f((uv.x * aspect), uv.y);
+  let cornerA = vec2f((cornerX * aspect), cornerY);
+  let oppA = vec2f((oppX * aspect), oppY);
+  let axisVec = (oppA - cornerA);
+  let L = length(axisVec);
+  let axis = (axisVec * (1f / L));
+  let t = dot((pA - cornerA), axis);
+  let peel = (amount * L);
+  let cFold = peel;
+  let R = max((radius * L), 1e-4f);
+  let thetaMax = (peel / R);
+  let X = ((t - cFold) / R);
+  let Xc = clamp(X, 0f, 1f);
+  let theta = asin(Xc);
+  let inBand = (step(0f, X) * step(X, 1f));
+  let paper = step(theta, thetaMax);
+  let cCurl = (peel - (R * theta));
+  let sourceA = (pA + (axis * (cCurl - t)));
+  let curlUV = vec2f((sourceA.x / aspect), sourceA.y);
+  let curlInBounds = (((step(0f, curlUV.x) * step(curlUV.x, 1f)) * step(0f, curlUV.y)) * step(curlUV.y, 1f));
+  let liftFrac = (1f - cos(clamp(thetaMax, 0f, 1.5707963267948966f)));
+  let lipHeight = (R * liftFrac);
+  let flatReach = max((R + (lipHeight * 0.5f)), 1e-4f);
+  let distPastCrease = (t - cFold);
+  let peelReach = max((lipHeight * 2.5f), 1e-4f);
+  let distIntoPeel = (cFold - t);
+  let foldBlend = smoothstep((cFold - 0.0015f), (cFold + 0.0015f), t);
+  let showCurl = ((inBand * paper) * curlInBounds);
+  return PagePeelGeom(curlUV, theta, distPastCrease, distIntoPeel, flatReach, peelReach, foldBlend, showCurl);
+}
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct padded_1 {
+  amount: f32,
+  radius: f32,
+  shading: f32,
+  highlight: f32,
+  highlightSoftness: f32,
+  shadow: f32,
+  _opacity: f32,
+  _pad0: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn pagePeelCompose(curlSample: vec4f, flatSample: vec4f, curlBright: f32, spec: f32, flatShade: f32, peelAlpha: f32, foldBlend: f32, showCurl: f32) -> vec4f {
+  let litRgb = ((curlSample.xyz * curlBright) + (spec * curlSample.w));
+  let curlColor = vec4f(litRgb, curlSample.w);
+  let flatColor = vec4f((flatSample.xyz * flatShade), flatSample.w);
+  let peeledColor = vec4f(0f, 0f, 0f, peelAlpha);
+  let base = mix(peeledColor, flatColor, vec4f(foldBlend));
+  return select(base, curlColor, (showCurl > 0.5f));
+}
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+fn curlShade(theta: f32, shading: f32) -> f32 {
+  let facing = cos(theta);
+  return (1f - (shading * facing));
+}
+
+fn curlSheen(theta: f32, intensity: f32, softness: f32) -> f32 {
+  let thetaN = (theta / 1.5707963267948966f);
+  let specSigma = mix(0.05f, 0.4f, softness);
+  let specDelta = ((thetaN - 0.65f) / specSigma);
+  return (exp(((specDelta * specDelta) * -0.5f)) * intensity);
+}
+
+fn shadowFalloff(dist: f32, reach: f32, exponent: f32) -> f32 {
+  return (pow((1f - smoothstep(0f, reach, dist)), exponent) * step(0f, dist));
+}
+
+fn liftShadowStrength(amount: f32) -> f32 {
+  return (smoothstep(0f, 0.04f, amount) * pow((1f - amount), 0.7f));
+}
+
+fn overhangShade(dist: f32, reach: f32, amount: f32, shadow: f32) -> f32 {
+  let fall = (shadowFalloff(dist, reach, 2f) * liftShadowStrength(amount));
+  return (1f - ((shadow * fall) * 0.5f));
+}
+
+fn revealShadow(dist: f32, reach: f32, amount: f32, shadow: f32) -> f32 {
+  let fall = ((shadowFalloff(dist, reach, 1.5f) * liftShadowStrength(amount)) * shadow);
+  return (fall * 0.6f);
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  let peel_0 = pagePeelGeom(uv, uniforms._sys.aspect, 1.0, 1.0, 0.0, 0.0, uniforms.n_n0.amount, uniforms.n_n0.radius);
+  var composed_1 = unpremultiplyAlpha(pagePeelCompose(textureSample(rtt_0, linearClamp, peel_0.curlUV), textureSample(rtt_0, linearClamp, uv), curlShade(peel_0.theta, uniforms.n_n0.shading), curlSheen(peel_0.theta, uniforms.n_n0.highlight, uniforms.n_n0.highlightSoftness), overhangShade(peel_0.distPastCrease, peel_0.flatReach, uniforms.n_n0.amount, uniforms.n_n0.shadow), revealShadow(peel_0.distIntoPeel, peel_0.peelReach, uniforms.n_n0.amount, uniforms.n_n0.shadow), peel_0.foldBlend, peel_0.showCurl));
+  return vec4f(linearToSrgb(tone_linear(composed_1.rgb)) * composed_1.a, composed_1.a);
+}

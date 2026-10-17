@@ -1,0 +1,24 @@
+{
+  "rtt": [
+    {
+      "index": 0,
+      "key": "rtt_0",
+      "reads": []
+    },
+    {
+      "index": 1,
+      "key": "rtt_1",
+      "reads": [
+        "rtt_0"
+      ]
+    }
+  ],
+  "finalReads": [
+    "rtt_0",
+    "rtt_1"
+  ],
+  "rttFormat": "rgba16float",
+  "computeSteps": 0,
+  "computeNodeIds": [],
+  "externalReads": []
+}

@@ -1,0 +1,124 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "colorA": [
+   0.8409168124198914,
+   0.25174465775489807,
+   0.8956022262573242,
+   1
+  ],
+  "colorB": [
+   0.4457629919052124,
+   0.029134375974535942,
+   0.184149369597435,
+   1
+  ],
+  "colorsArray": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "positionsArray": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "convertedColorsArray": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "stopCount": 0,
+  "emitFrom": [
+   0.5,
+   0
+  ],
+  "direction": 0,
+  "speed": 20,
+  "spread": 60,
+  "emitRadius": 0.08,
+  "intensity": 1,
+  "dissipation": 0.2,
+  "detail": 25,
+  "gravity": 0.5,
+  "colorDecay": 0.4,
+  "mouseInfluence": 0.1,
+  "mouseRadius": 0.1,
+  "colorSpace": 0,
+  "_opacity": 1
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

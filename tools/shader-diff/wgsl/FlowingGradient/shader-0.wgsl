@@ -1,0 +1,217 @@
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorC: vec4f,
+  colorD: vec4f,
+  colorSpace: f32,
+  speed: f32,
+  distortion: f32,
+  seed: f32,
+  _opacity: f32,
+  _animTime: f32,
+  convA: vec3f,
+  convB: vec3f,
+  convC: vec3f,
+  convD: vec3f,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn mxFade(t: f32) -> f32 {
+  return (((t * t) * t) * ((t * ((t * 6f) - 15f)) + 10f));
+}
+
+fn mxRotl32(x: u32, k: i32) -> u32 {
+  return ((x << u32(k)) | (x >> u32((32i - k))));
+}
+
+fn mxBjfinal(a0: u32, b0: u32, c0: u32) -> u32 {
+  var a = a0;
+  var b = b0;
+  var c = c0;
+  c = (c ^ b);
+  c = (c - mxRotl32(b, 14i));
+  a = (a ^ c);
+  a = (a - mxRotl32(c, 11i));
+  b = (b ^ a);
+  b = (b - mxRotl32(a, 25i));
+  c = (c ^ b);
+  c = (c - mxRotl32(b, 16i));
+  a = (a ^ c);
+  a = (a - mxRotl32(c, 4i));
+  b = (b ^ a);
+  b = (b - mxRotl32(a, 14i));
+  c = (c ^ b);
+  c = (c - mxRotl32(b, 24i));
+  return c;
+}
+
+fn mxHashInt2(x: i32, y: i32, z: i32) -> u32 {
+  const len = 3u;
+  let seed = ((3735928559u + (len << 2u)) + 13u);
+  let a = (seed + u32(x));
+  let b = (seed + u32(y));
+  let c = (seed + u32(z));
+  return mxBjfinal(a, b, c);
+}
+
+fn mxGradientFloat3(hash: u32, x: f32, y: f32, z: f32) -> f32 {
+  let h = (hash & 15u);
+  let u = select(y, x, (h < 8u));
+  let inner = select(z, x, ((h == 12u) || (h == 14u)));
+  let v = select(inner, y, (h < 4u));
+  let uu = select(u, -(u), ((h & 1u) != 0u));
+  let vv = select(v, -(v), ((h & 2u) != 0u));
+  return (uu + vv);
+}
+
+fn mxTrilerp(v0: f32, v1: f32, v2: f32, v3: f32, v4: f32, v5: f32, v6: f32, v7: f32, s: f32, t: f32, r: f32) -> f32 {
+  let s1 = (1f - s);
+  let t1 = (1f - t);
+  let r1 = (1f - r);
+  return ((r1 * ((t1 * ((v0 * s1) + (v1 * s))) + (t * ((v2 * s1) + (v3 * s))))) + (r * ((t1 * ((v4 * s1) + (v5 * s))) + (t * ((v6 * s1) + (v7 * s))))));
+}
+
+fn mxGradientScale3d(v: f32) -> f32 {
+  return (0.982f * v);
+}
+
+fn mxPerlinNoiseFloat3(p: vec3f) -> f32 {
+  let X = i32(floor(p.x));
+  let Y = i32(floor(p.y));
+  let Z = i32(floor(p.z));
+  let fx = (p.x - f32(X));
+  let fy = (p.y - f32(Y));
+  let fz = (p.z - f32(Z));
+  let u = mxFade(fx);
+  let v = mxFade(fy);
+  let w = mxFade(fz);
+  let result = mxTrilerp(mxGradientFloat3(mxHashInt2(X, Y, Z), fx, fy, fz), mxGradientFloat3(mxHashInt2((X + 1i), Y, Z), (fx - 1f), fy, fz), mxGradientFloat3(mxHashInt2(X, (Y + 1i), Z), fx, (fy - 1f), fz), mxGradientFloat3(mxHashInt2((X + 1i), (Y + 1i), Z), (fx - 1f), (fy - 1f), fz), mxGradientFloat3(mxHashInt2(X, Y, (Z + 1i)), fx, fy, (fz - 1f)), mxGradientFloat3(mxHashInt2((X + 1i), Y, (Z + 1i)), (fx - 1f), fy, (fz - 1f)), mxGradientFloat3(mxHashInt2(X, (Y + 1i), (Z + 1i)), fx, (fy - 1f), (fz - 1f)), mxGradientFloat3(mxHashInt2((X + 1i), (Y + 1i), (Z + 1i)), (fx - 1f), (fy - 1f), (fz - 1f)), u, v, w);
+  return mxGradientScale3d(result);
+}
+
+fn mxNoiseFloat3(p: vec3f) -> f32 {
+  return mxPerlinNoiseFloat3(p);
+}
+
+fn chainedWarpStep(pos: vec2f, scale: f32, z: f32, offA: vec2f, offB: vec2f, k: f32, strength: f32) -> vec4f {
+  let wp = vec3f((pos.x * scale), (pos.y * scale), z);
+  let nx = mxNoiseFloat3((wp + vec3f(offA.x, offA.y, 0f)));
+  let ny = mxNoiseFloat3((wp + vec3f(offB.x, offB.y, 0f)));
+  return vec4f((pos.x + ((nx * k) * strength)), (pos.y + ((ny * k) * strength)), nx, ny);
+}
+
+fn awMix(a: vec3f, b: vec3f, wA: f32, wB: f32, sw: f32) -> vec3f {
+  return (((a * wA) + (b * wB)) / sw);
+}
+
+struct MixStep {
+  conv: vec3f,
+  alpha: f32,
+}
+
+fn mixInSpace(convA: vec3f, alphaA: f32, convB: vec3f, alphaB: f32, t: f32) -> MixStep {
+  let weightA = (alphaA * (1f - t));
+  let weightB = (alphaB * t);
+  let totalWeight = (weightA + weightB);
+  let safeWeight = max(totalWeight, 1e-3f);
+  return MixStep(awMix(convA, convB, weightA, weightB, safeWeight), totalWeight);
+}
+
+fn oklchToOklab(lch: vec3f) -> vec3f {
+  let L = lch.x;
+  let C = lch.y;
+  let h = lch.z;
+  return vec3f(L, (C * cos(h)), (C * sin(h)));
+}
+
+fn oklabToRgb(lab: vec3f) -> vec3f {
+  let L = lab.x;
+  let a = lab.y;
+  let b = lab.z;
+  let l_ = ((L + (a * 0.3963377774f)) + (b * 0.2158037573f));
+  let m_ = ((L - (a * 0.1055613458f)) - (b * 0.0638541728f));
+  let s_ = ((L - (a * 0.0894841775f)) - (b * 1.291485548f));
+  let l = pow(l_, 3f);
+  let m = pow(m_, 3f);
+  let s = pow(s_, 3f);
+  return vec3f((((l * 4.0767416621f) - (m * 3.3077115913f)) + (s * 0.2309699292f)), (((l * -1.2684380046f) + (m * 2.6097574011f)) - (s * 0.3413193965f)), (((l * -0.0041960863f) - (m * 0.7034186147f)) + (s * 1.707614701f)));
+}
+
+fn sRGBToP3(srgb: vec3f) -> vec3f {
+  let r = (((srgb.x * 0.8224621f) + (srgb.y * 0.177538f)) + (srgb.z * 0f));
+  let g = (((srgb.x * 0.0331941f) + (srgb.y * 0.9668058f)) + (srgb.z * 0f));
+  let b = (((srgb.x * 0.0170826f) + (srgb.y * 0.0723974f)) + (srgb.z * 0.9105199f));
+  return vec3f(r, g, b);
+}
+
+fn mixPreconvertedColors(convA: vec3f, convB: vec3f, alphaA: f32, alphaB: f32, t: f32) -> vec4f {
+  let weightA = (alphaA * (1f - t));
+  let weightB = (alphaB * t);
+  let totalWeight = (weightA + weightB);
+  let safeWeight = max(totalWeight, 1e-3f);
+  let mixed = awMix(convA, convB, weightA, weightB, safeWeight);
+  return vec4f(sRGBToP3(oklabToRgb(oklchToOklab(mixed))), totalWeight);
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  let flowCentred_9 = (uv - 0.5);
+  let aspect_10 = (uniforms._sys.viewportSize.x / max(uniforms._sys.viewportSize.y, 0.000001));
+  let flowTime_12 = (uniforms.n_n0._animTime * 0.075);
+  let flowSeed_13 = (uniforms.n_n0.seed * 0.17);
+  let flowStrength_14 = uniforms.n_n0.distortion;
+  let flowAngle_11 = ((mxNoiseFloat3(vec3f(((flowCentred_9.x * 0.8) + (flowTime_12 * 0.4)), ((flowCentred_9.y * 0.8) - (flowTime_12 * 0.25)), flowSeed_13)) * 12.566370614359172) * flowStrength_14);
+  let flowSpun_8 = vec2f((((vec2f(flowCentred_9.x, (flowCentred_9.y / aspect_10))).x * cos(flowAngle_11)) - ((vec2f(flowCentred_9.x, (flowCentred_9.y / aspect_10))).y * sin(flowAngle_11))), (((vec2f(flowCentred_9.x, (flowCentred_9.y / aspect_10))).x * sin(flowAngle_11)) + ((vec2f(flowCentred_9.x, (flowCentred_9.y / aspect_10))).y * cos(flowAngle_11))));
+  let flowRot_7 = vec2f(flowSpun_8.x, (flowSpun_8.y * aspect_10));
+  let flowShearX_6 = (flowRot_7.x + ((sin(((flowRot_7.y * 5.0) + (flowTime_12 * 2.0))) / 50.0) * flowStrength_14));
+  let flowWarp1_5 = chainedWarpStep(vec2f(flowShearX_6, (flowRot_7.y + ((sin(((flowShearX_6 * 7.5) + (flowTime_12 * 2.0))) / 25.0) * flowStrength_14))), 2.0, ((flowTime_12 * 0.5) + flowSeed_13), vec2f(5.2, 1.3), vec2f(1.7, 9.2), 0.25, flowStrength_14);
+  let flowHardness_4 = pow(((flowWarp1_5.z * 0.5) + 0.5), 1.5);
+  let flowEdge_3 = mix(0.5, 0.008, flowHardness_4);
+  let flowTz_16 = ((flowTime_12 * 0.3) + flowSeed_13);
+  let flowWarp2_15 = chainedWarpStep(flowWarp1_5.xy, 1.5, flowTz_16, vec2f(8.3, 2.8), vec2f(3.1, 7.4), 0.2, flowStrength_14);
+  let flowT1_2 = smoothstep((flowEdge_3 * -1.0), flowEdge_3, mxNoiseFloat3(vec3f((flowWarp2_15.x * 1.8), (flowWarp2_15.y * 1.8), flowTz_16)));
+  let flowRow1_1 = mixInSpace(uniforms.n_n0.convA, uniforms.n_n0.colorA.a, uniforms.n_n0.convB, uniforms.n_n0.colorB.a, flowT1_2);
+  let flowRow2_17 = mixInSpace(uniforms.n_n0.convC, uniforms.n_n0.colorC.a, uniforms.n_n0.convD, uniforms.n_n0.colorD.a, flowT1_2);
+  let flowT2_18 = smoothstep((flowEdge_3 * -1.0), flowEdge_3, flowWarp1_5.w);
+  let flowBase_0 = mixPreconvertedColors(flowRow1_1.conv, flowRow2_17.conv, flowRow1_1.alpha, flowRow2_17.alpha, flowT2_18);
+  var composed_19 = vec4f(clamp((flowBase_0.rgb * (((((flowWarp2_15.z * 0.5) + 0.5) * 0.12) + 0.94) * (1.0 + ((max((1.0 - abs(((flowT1_2 * 2.0) - 1.0))), (1.0 - abs(((flowT2_18 * 2.0) - 1.0)))) * flowHardness_4) * 0.35)))), vec3f(0.0), vec3f(1.0)), flowBase_0.a);
+  return vec4f(linearToSrgb(tone_linear(composed_19.rgb)) * composed_19.a, composed_19.a);
+}

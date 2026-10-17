@@ -1,0 +1,60 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "startPosition": [
+   0.20000000298023224,
+   0.5
+  ],
+  "endPosition": [
+   0.800000011920929,
+   0.5
+  ],
+  "startThickness": 0.2,
+  "endThickness": 0.2,
+  "startSoftness": 0.5,
+  "endSoftness": 0.5,
+  "insideColor": [
+   0.8224619626998901,
+   0.033194199204444885,
+   0.017082631587982178,
+   1
+  ],
+  "outsideColor": [
+   -5.551115123125783e-17,
+   3.469446951953614e-18,
+   0.9105199575424194,
+   1
+  ],
+  "colorSpace": 0,
+  "_opacity": 1,
+  "convA": [
+   0,
+   0,
+   0
+  ],
+  "convB": [
+   0,
+   0,
+   0
+  ]
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

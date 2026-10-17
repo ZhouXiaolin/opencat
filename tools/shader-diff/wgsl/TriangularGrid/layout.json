@@ -1,0 +1,36 @@
+{
+  "name": "TriangularGrid",
+  "role": "generator",
+  "spec": {
+    "type": "TriangularGrid",
+    "props": {
+      "colorA": "#1a1a1a",
+      "colorB": "#ffffff",
+      "cells": 8,
+      "thickness": 1,
+      "rotation": 0,
+      "softness": 0,
+      "variation": 0,
+      "speed": 0,
+      "speedVariance": 0.3,
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

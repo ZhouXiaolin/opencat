@@ -1,0 +1,307 @@
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  threshold: f32,
+  cellSize: f32,
+  maxDepth: f32,
+  lineWidth: f32,
+  cornerRadius: f32,
+  strokeColor: vec4f,
+  fillColor: vec4f,
+  labelColor: vec4f,
+  labelBackgroundColor: vec4f,
+  labelRadius: f32,
+  labelInset: f32,
+  fontWeight: f32,
+  fontSize: f32,
+  letterSpacing: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_3 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: struct_1,
+  n_n0c0: struct_2,
+  _sys: struct_3,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  let ot_0_res = uniforms._sys.logicalViewportSize;
+  let ot_0_scaleFactor = ot_0_res.y / 1080.0;
+  let ot_0_fragPx = vec2f((uv).x * ot_0_res.x, (uv).y * ot_0_res.y);
+  let ot_0_aa = max(max(fwidth(ot_0_fragPx.x), fwidth(ot_0_fragPx.y)), 0.0001);
+  let ot_0_cellPx = max(uniforms.n_n0.cellSize * ot_0_scaleFactor, 4.0);
+  let ot_0_minSize = 3.0 * ot_0_scaleFactor;
+  let ot_0_lineHalf = max(uniforms.n_n0.lineWidth * ot_0_scaleFactor * 0.5, 0.5);
+  let ot_0_cornerRadiusPx = uniforms.n_n0.cornerRadius * ot_0_scaleFactor;
+  let ot_0_boxInset = ot_0_lineHalf + ot_0_scaleFactor * 1.5;
+  let ot_0_thr = uniforms.n_n0.threshold;
+  var ot_0_origin = floor(ot_0_fragPx / ot_0_cellPx) * ot_0_cellPx;
+  var ot_0_size = ot_0_cellPx;
+  let ot_0_w0_cellIx = ot_0_origin / ot_0_size;
+  let ot_0_w0_doSplit = fract(sin(dot(ot_0_w0_cellIx, vec2f(127.1, 311.7)) + 0.0) * 43758.5453) > 0.5;
+  let ot_0_w0_half = ot_0_size * 0.5;
+  let ot_0_w0_qx = step(ot_0_origin.x + ot_0_w0_half, ot_0_fragPx.x);
+  let ot_0_w0_qy = step(ot_0_origin.y + ot_0_w0_half, ot_0_fragPx.y);
+  let ot_0_w0_childOrigin = vec2f(ot_0_origin.x + ot_0_w0_qx * ot_0_w0_half, ot_0_origin.y + ot_0_w0_qy * ot_0_w0_half);
+  ot_0_origin = select(ot_0_origin, ot_0_w0_childOrigin, ot_0_w0_doSplit);
+  ot_0_size = select(ot_0_size, ot_0_w0_half, ot_0_w0_doSplit);
+  let ot_0_w1_cellIx = ot_0_origin / ot_0_size;
+  let ot_0_w1_doSplit = fract(sin(dot(ot_0_w1_cellIx, vec2f(127.1, 311.7)) + 53.13) * 43758.5453) > 0.5;
+  let ot_0_w1_half = ot_0_size * 0.5;
+  let ot_0_w1_qx = step(ot_0_origin.x + ot_0_w1_half, ot_0_fragPx.x);
+  let ot_0_w1_qy = step(ot_0_origin.y + ot_0_w1_half, ot_0_fragPx.y);
+  let ot_0_w1_childOrigin = vec2f(ot_0_origin.x + ot_0_w1_qx * ot_0_w1_half, ot_0_origin.y + ot_0_w1_qy * ot_0_w1_half);
+  ot_0_origin = select(ot_0_origin, ot_0_w1_childOrigin, ot_0_w1_doSplit);
+  ot_0_size = select(ot_0_size, ot_0_w1_half, ot_0_w1_doSplit);
+  var ot_0_leaf_cnt = 0.0;
+  var ot_0_leaf_minX = 1000000000.0; var ot_0_leaf_maxX = -1000000000.0; var ot_0_leaf_minY = 1000000000.0; var ot_0_leaf_maxY = -1000000000.0;
+  let ot_0_leaf_px0x = ot_0_origin.x + ot_0_size * 0.125;
+  let ot_0_leaf_px0y = ot_0_origin.y + ot_0_size * 0.125;
+  let ot_0_leaf_s0 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px0x, ot_0_leaf_px0y) / ot_0_res, 0.0);
+  let ot_0_leaf_u0 = unpremultiplyAlpha(ot_0_leaf_s0);
+  let ot_0_leaf_c0 = dot(ot_0_leaf_u0.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s0.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c0);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px0x), ot_0_leaf_c0);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px0x), ot_0_leaf_c0);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px0y), ot_0_leaf_c0);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px0y), ot_0_leaf_c0);
+  let ot_0_leaf_px1x = ot_0_origin.x + ot_0_size * 0.375;
+  let ot_0_leaf_px1y = ot_0_origin.y + ot_0_size * 0.125;
+  let ot_0_leaf_s1 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px1x, ot_0_leaf_px1y) / ot_0_res, 0.0);
+  let ot_0_leaf_u1 = unpremultiplyAlpha(ot_0_leaf_s1);
+  let ot_0_leaf_c1 = dot(ot_0_leaf_u1.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s1.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c1);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px1x), ot_0_leaf_c1);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px1x), ot_0_leaf_c1);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px1y), ot_0_leaf_c1);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px1y), ot_0_leaf_c1);
+  let ot_0_leaf_px2x = ot_0_origin.x + ot_0_size * 0.625;
+  let ot_0_leaf_px2y = ot_0_origin.y + ot_0_size * 0.125;
+  let ot_0_leaf_s2 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px2x, ot_0_leaf_px2y) / ot_0_res, 0.0);
+  let ot_0_leaf_u2 = unpremultiplyAlpha(ot_0_leaf_s2);
+  let ot_0_leaf_c2 = dot(ot_0_leaf_u2.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s2.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c2);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px2x), ot_0_leaf_c2);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px2x), ot_0_leaf_c2);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px2y), ot_0_leaf_c2);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px2y), ot_0_leaf_c2);
+  let ot_0_leaf_px3x = ot_0_origin.x + ot_0_size * 0.875;
+  let ot_0_leaf_px3y = ot_0_origin.y + ot_0_size * 0.125;
+  let ot_0_leaf_s3 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px3x, ot_0_leaf_px3y) / ot_0_res, 0.0);
+  let ot_0_leaf_u3 = unpremultiplyAlpha(ot_0_leaf_s3);
+  let ot_0_leaf_c3 = dot(ot_0_leaf_u3.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s3.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c3);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px3x), ot_0_leaf_c3);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px3x), ot_0_leaf_c3);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px3y), ot_0_leaf_c3);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px3y), ot_0_leaf_c3);
+  let ot_0_leaf_px4x = ot_0_origin.x + ot_0_size * 0.125;
+  let ot_0_leaf_px4y = ot_0_origin.y + ot_0_size * 0.375;
+  let ot_0_leaf_s4 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px4x, ot_0_leaf_px4y) / ot_0_res, 0.0);
+  let ot_0_leaf_u4 = unpremultiplyAlpha(ot_0_leaf_s4);
+  let ot_0_leaf_c4 = dot(ot_0_leaf_u4.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s4.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c4);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px4x), ot_0_leaf_c4);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px4x), ot_0_leaf_c4);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px4y), ot_0_leaf_c4);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px4y), ot_0_leaf_c4);
+  let ot_0_leaf_px5x = ot_0_origin.x + ot_0_size * 0.375;
+  let ot_0_leaf_px5y = ot_0_origin.y + ot_0_size * 0.375;
+  let ot_0_leaf_s5 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px5x, ot_0_leaf_px5y) / ot_0_res, 0.0);
+  let ot_0_leaf_u5 = unpremultiplyAlpha(ot_0_leaf_s5);
+  let ot_0_leaf_c5 = dot(ot_0_leaf_u5.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s5.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c5);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px5x), ot_0_leaf_c5);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px5x), ot_0_leaf_c5);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px5y), ot_0_leaf_c5);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px5y), ot_0_leaf_c5);
+  let ot_0_leaf_px6x = ot_0_origin.x + ot_0_size * 0.625;
+  let ot_0_leaf_px6y = ot_0_origin.y + ot_0_size * 0.375;
+  let ot_0_leaf_s6 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px6x, ot_0_leaf_px6y) / ot_0_res, 0.0);
+  let ot_0_leaf_u6 = unpremultiplyAlpha(ot_0_leaf_s6);
+  let ot_0_leaf_c6 = dot(ot_0_leaf_u6.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s6.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c6);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px6x), ot_0_leaf_c6);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px6x), ot_0_leaf_c6);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px6y), ot_0_leaf_c6);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px6y), ot_0_leaf_c6);
+  let ot_0_leaf_px7x = ot_0_origin.x + ot_0_size * 0.875;
+  let ot_0_leaf_px7y = ot_0_origin.y + ot_0_size * 0.375;
+  let ot_0_leaf_s7 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px7x, ot_0_leaf_px7y) / ot_0_res, 0.0);
+  let ot_0_leaf_u7 = unpremultiplyAlpha(ot_0_leaf_s7);
+  let ot_0_leaf_c7 = dot(ot_0_leaf_u7.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s7.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c7);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px7x), ot_0_leaf_c7);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px7x), ot_0_leaf_c7);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px7y), ot_0_leaf_c7);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px7y), ot_0_leaf_c7);
+  let ot_0_leaf_px8x = ot_0_origin.x + ot_0_size * 0.125;
+  let ot_0_leaf_px8y = ot_0_origin.y + ot_0_size * 0.625;
+  let ot_0_leaf_s8 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px8x, ot_0_leaf_px8y) / ot_0_res, 0.0);
+  let ot_0_leaf_u8 = unpremultiplyAlpha(ot_0_leaf_s8);
+  let ot_0_leaf_c8 = dot(ot_0_leaf_u8.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s8.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c8);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px8x), ot_0_leaf_c8);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px8x), ot_0_leaf_c8);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px8y), ot_0_leaf_c8);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px8y), ot_0_leaf_c8);
+  let ot_0_leaf_px9x = ot_0_origin.x + ot_0_size * 0.375;
+  let ot_0_leaf_px9y = ot_0_origin.y + ot_0_size * 0.625;
+  let ot_0_leaf_s9 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px9x, ot_0_leaf_px9y) / ot_0_res, 0.0);
+  let ot_0_leaf_u9 = unpremultiplyAlpha(ot_0_leaf_s9);
+  let ot_0_leaf_c9 = dot(ot_0_leaf_u9.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s9.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c9);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px9x), ot_0_leaf_c9);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px9x), ot_0_leaf_c9);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px9y), ot_0_leaf_c9);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px9y), ot_0_leaf_c9);
+  let ot_0_leaf_px10x = ot_0_origin.x + ot_0_size * 0.625;
+  let ot_0_leaf_px10y = ot_0_origin.y + ot_0_size * 0.625;
+  let ot_0_leaf_s10 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px10x, ot_0_leaf_px10y) / ot_0_res, 0.0);
+  let ot_0_leaf_u10 = unpremultiplyAlpha(ot_0_leaf_s10);
+  let ot_0_leaf_c10 = dot(ot_0_leaf_u10.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s10.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c10);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px10x), ot_0_leaf_c10);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px10x), ot_0_leaf_c10);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px10y), ot_0_leaf_c10);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px10y), ot_0_leaf_c10);
+  let ot_0_leaf_px11x = ot_0_origin.x + ot_0_size * 0.875;
+  let ot_0_leaf_px11y = ot_0_origin.y + ot_0_size * 0.625;
+  let ot_0_leaf_s11 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px11x, ot_0_leaf_px11y) / ot_0_res, 0.0);
+  let ot_0_leaf_u11 = unpremultiplyAlpha(ot_0_leaf_s11);
+  let ot_0_leaf_c11 = dot(ot_0_leaf_u11.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s11.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c11);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px11x), ot_0_leaf_c11);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px11x), ot_0_leaf_c11);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px11y), ot_0_leaf_c11);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px11y), ot_0_leaf_c11);
+  let ot_0_leaf_px12x = ot_0_origin.x + ot_0_size * 0.125;
+  let ot_0_leaf_px12y = ot_0_origin.y + ot_0_size * 0.875;
+  let ot_0_leaf_s12 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px12x, ot_0_leaf_px12y) / ot_0_res, 0.0);
+  let ot_0_leaf_u12 = unpremultiplyAlpha(ot_0_leaf_s12);
+  let ot_0_leaf_c12 = dot(ot_0_leaf_u12.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s12.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c12);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px12x), ot_0_leaf_c12);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px12x), ot_0_leaf_c12);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px12y), ot_0_leaf_c12);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px12y), ot_0_leaf_c12);
+  let ot_0_leaf_px13x = ot_0_origin.x + ot_0_size * 0.375;
+  let ot_0_leaf_px13y = ot_0_origin.y + ot_0_size * 0.875;
+  let ot_0_leaf_s13 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px13x, ot_0_leaf_px13y) / ot_0_res, 0.0);
+  let ot_0_leaf_u13 = unpremultiplyAlpha(ot_0_leaf_s13);
+  let ot_0_leaf_c13 = dot(ot_0_leaf_u13.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s13.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c13);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px13x), ot_0_leaf_c13);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px13x), ot_0_leaf_c13);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px13y), ot_0_leaf_c13);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px13y), ot_0_leaf_c13);
+  let ot_0_leaf_px14x = ot_0_origin.x + ot_0_size * 0.625;
+  let ot_0_leaf_px14y = ot_0_origin.y + ot_0_size * 0.875;
+  let ot_0_leaf_s14 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px14x, ot_0_leaf_px14y) / ot_0_res, 0.0);
+  let ot_0_leaf_u14 = unpremultiplyAlpha(ot_0_leaf_s14);
+  let ot_0_leaf_c14 = dot(ot_0_leaf_u14.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s14.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c14);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px14x), ot_0_leaf_c14);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px14x), ot_0_leaf_c14);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px14y), ot_0_leaf_c14);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px14y), ot_0_leaf_c14);
+  let ot_0_leaf_px15x = ot_0_origin.x + ot_0_size * 0.875;
+  let ot_0_leaf_px15y = ot_0_origin.y + ot_0_size * 0.875;
+  let ot_0_leaf_s15 = textureSampleLevel(rtt_0, linearClamp, vec2f(ot_0_leaf_px15x, ot_0_leaf_px15y) / ot_0_res, 0.0);
+  let ot_0_leaf_u15 = unpremultiplyAlpha(ot_0_leaf_s15);
+  let ot_0_leaf_c15 = dot(ot_0_leaf_u15.rgb, vec3f(0.299, 0.587, 0.114)) > ot_0_thr && ot_0_leaf_s15.a > 0.02;
+  ot_0_leaf_cnt = ot_0_leaf_cnt + select(0.0, 1.0, ot_0_leaf_c15);
+  ot_0_leaf_minX = select(ot_0_leaf_minX, min(ot_0_leaf_minX, ot_0_leaf_px15x), ot_0_leaf_c15);
+  ot_0_leaf_maxX = select(ot_0_leaf_maxX, max(ot_0_leaf_maxX, ot_0_leaf_px15x), ot_0_leaf_c15);
+  ot_0_leaf_minY = select(ot_0_leaf_minY, min(ot_0_leaf_minY, ot_0_leaf_px15y), ot_0_leaf_c15);
+  ot_0_leaf_maxY = select(ot_0_leaf_maxY, max(ot_0_leaf_maxY, ot_0_leaf_px15y), ot_0_leaf_c15);
+  let ot_0_leaf_coverage = ot_0_leaf_cnt / 16.0;
+  let ot_0_halfStep = ot_0_size / 4.0 * 0.5;
+  let ot_0_innerMinX = ot_0_origin.x + ot_0_boxInset;
+  let ot_0_innerMaxX = max(ot_0_origin.x + ot_0_size - ot_0_boxInset, ot_0_innerMinX);
+  let ot_0_innerMinY = ot_0_origin.y + ot_0_boxInset;
+  let ot_0_innerMaxY = max(ot_0_origin.y + ot_0_size - ot_0_boxInset, ot_0_innerMinY);
+  let ot_0_bMinX = clamp(ot_0_leaf_minX - ot_0_halfStep, ot_0_innerMinX, ot_0_innerMaxX);
+  let ot_0_bMaxX = clamp(ot_0_leaf_maxX + ot_0_halfStep, ot_0_innerMinX, ot_0_innerMaxX);
+  let ot_0_bMinY = clamp(ot_0_leaf_minY - ot_0_halfStep, ot_0_innerMinY, ot_0_innerMaxY);
+  let ot_0_bMaxY = clamp(ot_0_leaf_maxY + ot_0_halfStep, ot_0_innerMinY, ot_0_innerMaxY);
+  let ot_0_boxW = ot_0_bMaxX - ot_0_bMinX;
+  let ot_0_boxH = ot_0_bMaxY - ot_0_bMinY;
+  let ot_0_detected = ot_0_leaf_coverage > 0.02 && ot_0_boxW > ot_0_minSize && ot_0_boxH > ot_0_minSize;
+  let ot_0_detF = select(0.0, 1.0, ot_0_detected);
+  var ot_0_dst = textureSampleLevel(rtt_0, linearClamp, (uv), 0.0);
+  let ot_0_center = vec2f((ot_0_bMinX + ot_0_bMaxX) * 0.5, (ot_0_bMinY + ot_0_bMaxY) * 0.5);
+  let ot_0_halfB = vec2f(ot_0_boxW * 0.5, ot_0_boxH * 0.5);
+  let ot_0_cR = max(min(min(0.0, ot_0_halfB.x), ot_0_halfB.y), 0.0);
+  let ot_0_pp = ot_0_fragPx - ot_0_center;
+  let ot_0_q = abs(ot_0_pp) - ot_0_halfB + ot_0_cR;
+  let ot_0_sd = length(max(ot_0_q, vec2f(0.0))) + min(max(ot_0_q.x, ot_0_q.y), 0.0) - ot_0_cR;
+  let ot_0_fillA = (1.0 - smoothstep(0.0, ot_0_aa, ot_0_sd)) * uniforms.n_n0.fillColor.a * ot_0_detF;
+  var ot_0_strokeA = 1.0 - smoothstep(0.0, ot_0_aa, abs(ot_0_sd) - ot_0_lineHalf);
+  let ot_0_bl = min(ot_0_halfB.x, ot_0_halfB.y) * 0.35;
+  let ot_0_inCorner = abs(ot_0_pp.x) > ot_0_halfB.x - ot_0_bl && abs(ot_0_pp.y) > ot_0_halfB.y - ot_0_bl;
+  ot_0_strokeA = ot_0_strokeA * select(0.0, 1.0, ot_0_inCorner);
+  ot_0_strokeA = ot_0_strokeA * uniforms.n_n0.strokeColor.a * ot_0_detF;
+  { let av = clamp(ot_0_fillA, 0.0, 1.0); ot_0_dst = vec4f((uniforms.n_n0.fillColor.rgb) * av + ot_0_dst.rgb * (1.0 - av), av + ot_0_dst.a * (1.0 - av)); }
+  { let av = clamp(ot_0_strokeA, 0.0, 1.0); ot_0_dst = vec4f((uniforms.n_n0.strokeColor.rgb) * av + ot_0_dst.rgb * (1.0 - av), av + ot_0_dst.a * (1.0 - av)); }
+  var composed_1 = vec4f(ot_0_dst.rgb / max(ot_0_dst.a, 0.0001), ot_0_dst.a);
+  return vec4f(linearToSrgb(tone_linear(composed_1.rgb)) * composed_1.a, composed_1.a);
+}

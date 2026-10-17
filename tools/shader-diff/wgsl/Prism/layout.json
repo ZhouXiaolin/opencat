@@ -1,0 +1,43 @@
+{
+  "name": "Prism",
+  "role": "generator",
+  "spec": {
+    "type": "Prism",
+    "props": {
+      "position": {
+        "x": 0.18,
+        "y": 0.18
+      },
+      "beamWidth": 0.04,
+      "intensity": 1.6,
+      "beamColor": "#ffffff",
+      "startFalloff": 0.15,
+      "endFalloff": 0.6,
+      "splitPosition": {
+        "x": 0.5,
+        "y": 0.42
+      },
+      "spread": 0.7,
+      "softness": 0.12,
+      "saturation": 0.95,
+      "speed": 0.1
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

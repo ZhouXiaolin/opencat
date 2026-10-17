@@ -1,0 +1,125 @@
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn vignetteShade(color: vec3f, uv: vec2f, aspect: f32, vignetteRadius: f32, vignetteIntensity: f32) -> vec3f {
+  let centeredUV = (uv - vec2f(0.5));
+  let aspectCorrectedUV = vec2f((centeredUV.x * aspect), centeredUV.y);
+  let vignetteDistance = length(aspectCorrectedUV);
+  let innerEdge = (1f - (vignetteRadius * 0.9f));
+  let outerEdge = (innerEdge + 0.5f);
+  let vignetteValue = (1f - smoothstep(innerEdge, outerEdge, vignetteDistance));
+  let vignette = mix(1f, vignetteValue, vignetteIntensity);
+  return (color * vignette);
+}
+
+fn phosphorShade(color: vec3f, uv: vec2f, pixelSize: f32) -> vec3f {
+  let phosphorScale = (pixelSize * 0.5f);
+  let pixelPhase = fract((uv * phosphorScale));
+  let redMask = ((sin((pixelPhase.x * 6.28318f)) * 0.1f) + 0.95f);
+  let greenMask = ((sin(((pixelPhase.x * 6.28318f) + 2.09f)) * 0.1f) + 0.95f);
+  let blueMask = ((sin(((pixelPhase.x * 6.28318f) + 4.18f)) * 0.1f) + 0.95f);
+  return vec3f((color.x * redMask), (color.y * greenMask), (color.z * blueMask));
+}
+
+fn scanlineShade(color: vec3f, uvY: f32, scanlineFrequency: f32, scanlineIntensity: f32) -> vec3f {
+  let scanlinePosition = (uvY * scanlineFrequency);
+  let scanlineWave = sin((scanlinePosition * 6.28318f));
+  let scanlineEffect = (1f - (scanlineIntensity * ((scanlineWave * 0.5f) + 0.5f)));
+  return (color * scanlineEffect);
+}
+
+fn adjustShade(color: vec3f, contrast: f32, brightness: f32) -> vec3f {
+  return ((((color - vec3f(0.5)) * contrast) + vec3f(0.5)) * brightness);
+}
+
+fn rgbSplitCombine(redSample: vec4f, greenSample: vec4f, blueSample: vec4f) -> vec3f {
+  return vec3f(redSample.x, greenSample.y, blueSample.z);
+}
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+fn crtSampleUV(uv: vec2f, colorShift: f32, dir: f32) -> vec2f {
+  let scaledColorShift = (colorShift * 2e-3f);
+  return vec2f((uv.x + (scaledColorShift * dir)), uv.y);
+}
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct padded_1 {
+  pixelSize: f32,
+  colorShift: f32,
+  scanlineIntensity: f32,
+  scanlineFrequency: f32,
+  brightness: f32,
+  contrast: f32,
+  vignetteIntensity: f32,
+  vignetteRadius: f32,
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  var composed_0 = unpremultiplyAlpha(vec4f(vignetteShade(phosphorShade(scanlineShade(adjustShade(rgbSplitCombine(textureSample(rtt_0, linearClamp, crtSampleUV(uv, uniforms.n_n0.colorShift, 1.0)), textureSample(rtt_0, linearClamp, uv), textureSample(rtt_0, linearClamp, crtSampleUV(uv, uniforms.n_n0.colorShift, -1.0))), uniforms.n_n0.contrast, uniforms.n_n0.brightness), uv.y, uniforms.n_n0.scanlineFrequency, uniforms.n_n0.scanlineIntensity), uv, uniforms.n_n0.pixelSize), uv, uniforms._sys.aspect, uniforms.n_n0.vignetteRadius, uniforms.n_n0.vignetteIntensity), 1.0));
+  return vec4f(linearToSrgb(tone_linear(composed_0.rgb)) * composed_0.a, composed_0.a);
+}

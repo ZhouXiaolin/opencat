@@ -1,0 +1,44 @@
+{
+  "name": "PolarCoordinates",
+  "role": "filter",
+  "spec": {
+    "type": "PolarCoordinates",
+    "props": {
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "wrap": 1,
+      "radius": 1,
+      "intensity": 1,
+      "edges": "transparent"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

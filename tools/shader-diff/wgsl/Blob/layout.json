@@ -1,0 +1,45 @@
+{
+  "name": "Blob",
+  "role": "generator",
+  "spec": {
+    "type": "Blob",
+    "props": {
+      "origin": "center",
+      "colorA": "#ff6b35",
+      "colorB": "#e91e63",
+      "stops": null,
+      "size": 0.5,
+      "deformation": 0.5,
+      "softness": 0.5,
+      "highlightIntensity": 0.5,
+      "highlightX": 0.3,
+      "highlightY": -0.3,
+      "highlightZ": 0.4,
+      "highlightColor": "#ffe11a",
+      "speed": 0.5,
+      "seed": 1,
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

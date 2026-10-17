@@ -1,0 +1,42 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "color": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "amplitude": 0.15,
+  "frequency": 1,
+  "speed": 1,
+  "angle": 0,
+  "position": [
+   0.5,
+   0.5
+  ],
+  "thickness": 0.2,
+  "softness": 0.4,
+  "_opacity": 1,
+  "_animTime": 2.999999999999999
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

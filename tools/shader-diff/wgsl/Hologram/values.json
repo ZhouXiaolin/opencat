@@ -1,0 +1,66 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "scale": 1,
+  "rotation": 0,
+  "color": [
+   0.19460265338420868,
+   0.5621236562728882,
+   0.9542473554611206,
+   1
+  ],
+  "brightness": 2.5,
+  "edgeSoftness": 0.04,
+  "fill": 0.45,
+  "edgeGlow": 1,
+  "depthLines": 0.5,
+  "depthScale": 26,
+  "scanlines": 0.55,
+  "scanlineScale": 130,
+  "scanlineSpeed": 1,
+  "sweep": 0.1,
+  "flicker": 0.3,
+  "distortion": 0.1,
+  "grain": 0.7,
+  "speed": 1,
+  "_opacity": 1,
+  "_animTime": 2.999999999999999,
+  "_vfOriginX": 0,
+  "_vfOriginY": 0,
+  "_vfSpanX": 1,
+  "_vfSpanY": 1,
+  "_vfActiveRes": 1,
+  "_vfRBound": 0.6,
+  "_saRadius": 0.35,
+  "_saSides": 6,
+  "_saRounding": 0,
+  "_saInnerRatio": 0.4,
+  "_saRotation": 0,
+  "_saHeight": 0.25,
+  "_saOffset": 0.2,
+  "_saAperture": 270
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

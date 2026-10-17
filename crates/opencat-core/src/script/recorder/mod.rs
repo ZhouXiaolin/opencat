@@ -109,6 +109,14 @@ pub trait MutationRecorder {
 
     fn record_draw_op(&mut self, id: &str, cmd: DrawOp);
 
+    /// G2 chart cache: replay a cached build (false = miss, run a real build).
+    fn chart_cache_fetch(&mut self, node_id: &str) -> bool { false }
+    /// Snapshot the build that just ran; second call at a different frame
+    /// time decides static (`Some(false)`) vs dynamic (`Some(true)`).
+    fn chart_cache_commit(&mut self, node_id: &str) -> Option<bool> { let _ = node_id; None }
+    /// Drop a node's cached chart.
+    fn chart_cache_drop(&mut self, node_id: &str) { let _ = node_id; }
+
     /// three-like shim 每帧整树提交一次（同 id 覆盖，最后一次赢）。
     fn record_scene3(&mut self, id: &str, scene: crate::ir::scene3::Scene3);
 

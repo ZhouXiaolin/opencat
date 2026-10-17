@@ -315,6 +315,12 @@
             this._pathEffect = null;
             this._antiAlias = true;
             this._shader = null;
+            // False until any setter runs. g-canvaskit builds stroke paints
+            // before checking `lineWidth > 0`, so a skipped block leaves a
+            // never-configured paint that then draws as an opaque default-black
+            // fill (the G2 bar-rendered-black bug). Callers that care — the G2
+            // surface proxy — check this flag and drop the draw.
+            this._configured = false;
         }
 
         copy() {
@@ -335,6 +341,7 @@
                 : null;
             copy._antiAlias = this._antiAlias;
             copy._shader = this._shader;
+            copy._configured = this._configured;
             return copy;
         }
 
@@ -357,18 +364,22 @@
         }
 
         setAlphaf(alpha) {
+            this._configured = true;
             this._color[3] = clamp(alpha, 0, 1);
         }
 
         setAntiAlias(aa) {
+            this._configured = true;
             this._antiAlias = !!aa;
         }
 
         setColor(color) {
+            this._configured = true;
             this._color = normalizeColor(color);
         }
 
         setColorComponents(r, g, b, a = 1) {
+            this._configured = true;
             this._color = [
                 clamp(r, 0, 1),
                 clamp(g, 0, 1),
@@ -378,6 +389,7 @@
         }
 
         setColorInt(color) {
+            this._configured = true;
             const value = Number(color) >>> 0;
             this._color = [
                 ((value >>> 16) & 0xff) / 255,
@@ -388,6 +400,7 @@
         }
 
         setStrokeCap(cap) {
+            this._configured = true;
             this._strokeCap = normalizeStrokeCap(cap);
         }
 
@@ -396,6 +409,7 @@
         }
 
         setStrokeJoin(join) {
+            this._configured = true;
             this._strokeJoin = normalizeStrokeJoin(join);
         }
 
@@ -404,18 +418,22 @@
         // miter limit, so the value is admitted (G2 sets it on every stroke
         // paint) and the drawn join stays what the resolve pass picks.
         setStrokeMiter(miter) {
+            this._configured = true;
             this._strokeMiter = toFiniteNumber(miter, 4);
         }
 
         setStrokeWidth(width) {
+            this._configured = true;
             this._strokeWidth = Math.max(0, toFiniteNumber(width, 1));
         }
 
         setStyle(style) {
+            this._configured = true;
             this._style = normalizePaintStyle(style);
         }
 
         setPathEffect(effect) {
+            this._configured = true;
             if (effect == null) {
                 this._pathEffect = null;
                 return this;
@@ -435,6 +453,7 @@
         }
 
         setShader(shader) {
+            this._configured = true;
             if (shader == null) {
                 this._shader = null;
                 return this;

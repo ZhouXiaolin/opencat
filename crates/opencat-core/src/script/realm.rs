@@ -408,9 +408,14 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         }
         // A promise continuation only queues; it does not draw yet. The G2
         // render loop starts its draw pass after a `Promise.all` resolves, so
-        // one checkpoint after the driver is not enough — drain until the
-        // queue stops making progress, bounded so a runaway loop cannot hang
-        // the frame.
+        // one checkpoint after the driver is not enough. The queue itself is
+        // NOT a usable exit signal: g's canvas re-registers its draw loop at
+        // the end of every rAF tick, so it never drains empty, and polling
+        // `queued == 0` here ran all 32 passes every frame — each pass
+        // executing another identical G2 redraw at the same frozen clock.
+        // `__ocG2Flush` bounds itself internally (FLUSH_PASSES); a fixed small
+        // number of host passes covers the promise resolution plus the two
+        // nested rAF steps g-canvaskit's ready protocol needs.
         {
             #[cfg(feature = "profile")]
             let _span = tracing::span!(
@@ -419,23 +424,9 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 "script_drain_microtasks"
             )
             .entered();
-            for _ in 0..MICROTASK_DRAIN_PASSES {
+            for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
-                // A continuation that reached a frame boundary queues a render
-                // pass; run it, then keep draining: G2's own render resolves
-                // only after two nested frame callbacks, so the pass that
-                // registers the next one has to happen here rather than on the
-                // next composition frame.
                 self.ctx.eval("__ocG2Flush();")?;
-                let queued = self
-                    .ctx
-                    .eval_json("globalThis.__ocG2RafQueue.length")
-                    .ok()
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                if queued == 0 {
-                    break;
-                }
             }
         }
         {

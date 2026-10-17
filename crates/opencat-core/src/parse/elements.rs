@@ -42,7 +42,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -54,7 +54,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -67,7 +67,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -79,7 +79,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -98,11 +98,8 @@ pub enum JsonLine {
         id: String,
         attach: String,
         #[allow(dead_code)]
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
-        /// Inline `style` attribute, already serialized to CSS declaration
-        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
-        style: Option<String>,
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
@@ -112,7 +109,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -143,7 +140,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -175,7 +172,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -191,7 +188,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -204,7 +201,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -221,7 +218,7 @@ pub enum JsonLine {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
-        #[serde(rename = "className")]
+        #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
@@ -405,7 +402,6 @@ pub(crate) fn composition_from_lines(
                 id,
                 attach,
                 class_name: _,
-                style: _,
                 path,
                 url,
                 duration,

@@ -499,14 +499,13 @@ fn text_element_allows_wrap(element: &ElementNode) -> bool {
 
 fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
-    // 标准直通腿：CSS 路径产出的 taffy 样式整体克隆，仅叠加 paint 腿的
-    // border 宽度。固有尺寸（Bitmap/Lottie/SvgPath、文本测量）由 measure
-    // 回调在 size 为 auto 时提供——与浏览器 `width: auto` 语义一致，
-    // 不在此覆盖。
+    // 标准直通腿：CSS 路径产出的 taffy 样式整体克隆。border 宽度也已在
+    // `css::to_taffy` 落好（含 thin/medium/thick），不再用 paint 腿的
+    // f32 镜像覆盖——那会把关键字宽度压成 0。固有尺寸（Bitmap/Lottie/
+    // SvgPath、文本测量）由 measure 回调在 size 为 auto 时提供，与浏览器
+    // `width: auto` 语义一致，不在此覆盖。
     if let Some(css) = &element.style.css_layout {
-        let mut style = css.0.clone();
-        style.border = base_border(element);
-        return style;
+        return css.0.clone();
     }
     match &element.kind {
         ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => Style {

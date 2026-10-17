@@ -165,6 +165,74 @@ export default function Scene() {
 }
 
 #[test]
+fn html_markup_rules_apply() {
+    // 闭合标签必须匹配、void 元素不吞兄弟、实体解码、`<img>` 别名。
+    let dir = std::env::temp_dir().join(format!("opencat-jsx-html-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+
+    let parse = |source: &str| parse_with_base_dir(source, Some(&dir));
+
+    let err = parse(
+        r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
+export default function A() { return <div id="root"><text>a</span></div>; }"#,
+    )
+    .expect_err("mismatched closing tag must fail");
+    assert!(
+        err.to_string().contains("does not match"),
+        "unexpected error: {err}"
+    );
+
+    let err = parse(
+        r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
+export default function A() { return <div id="root"><text>a</text>; }"#,
+    )
+    .expect_err("unterminated element must fail");
+    assert!(
+        err.to_string().contains("unterminated"),
+        "unexpected error: {err}"
+    );
+
+    let source = r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
+export default function A() {
+  return <div id="root">
+    <text id="t">a &amp; b &lt;c&gt;</text>
+    <img id="i" src="a.png" />
+    <div id="after" />
+  </div>;
+}"#;
+    let parsed = parse(source).expect("html-style markup parses");
+    fn find<'a>(node: &'a Node, id: &str) -> Option<&'a Node> {
+        if node.style_ref().id == id {
+            return Some(node);
+        }
+        match node.kind() {
+            NodeKind::Div(div) => div.children_ref().iter().find_map(|c| find(c, id)),
+            _ => None,
+        }
+    }
+    let root = &parsed.root;
+    let NodeKind::Text(t) = find(root, "t").expect("text node").kind() else {
+        panic!("t must be a text node");
+    };
+    assert_eq!(t.content(), "a & b <c>", "实体应解码");
+    let image = find(root, "i").expect("<img> 应映射为 image 节点");
+    assert!(matches!(image.kind(), NodeKind::Image(_)), "kind: {:?}", image.kind());
+    assert!(find(root, "after").is_some(), "void 元素不应吞掉兄弟节点");
+
+    let err = parse(
+        r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
+export default function A() { return <section id="root" />; }"#,
+    )
+    .expect_err("unsupported tag must fail");
+    assert!(
+        err.to_string().contains("unsupported element <section>"),
+        "unexpected error: {err}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn nexus_port_manifests_document_fonts() {
     // `export const fonts` is a top-level export, separate from `meta` — this
     // locks that it reaches the manifest (the XML `<fonts>` block equivalent).

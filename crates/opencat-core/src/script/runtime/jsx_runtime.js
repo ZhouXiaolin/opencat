@@ -680,6 +680,15 @@
         if (value.props && value.props.duration === undefined) value.props.duration = duration;
     }
 
+    // Element tags the Rust side understands (mirrors `JsonLine`). Anything
+    // else is an author mistake, reported here instead of as a serde
+    // "unknown variant" later.
+    var SUPPORTED_TAGS = {
+        div: true, text: true, canvas: true, image: true, audio: true,
+        video: true, icon: true, transition: true, tl: true, caption: true,
+        path: true, lottie: true,
+    };
+
     function emitElement(el, parentId, lines, audioSites) {
         if (Array.isArray(el)) {
             for (var a = 0; a < el.length; a++) emitElement(el[a], parentId, lines, audioSites);
@@ -706,7 +715,9 @@
         }
         var props = el.props || {};
         var id = String(props.id);
-        var line = { type: el.tag, id: id };
+        // HTML spelling `<img>` reaches the same element as `<image>`.
+        var tag = el.tag === 'img' ? 'image' : el.tag;
+        var line = { type: tag, id: id };
         if (parentId) line.parentId = parentId;
         // `audioId` attaches a pooled `export const audio` source to wherever it
         // is written: a `<tl>` plays it across the whole timeline, a scene plays
@@ -718,7 +729,7 @@
         if (inlineStyle) line.style = inlineStyle;
         var duration = num(props.duration);
         if (duration !== undefined) line.duration = duration;
-        switch (el.tag) {
+        switch (tag) {
             case 'text': {
                 var text = '';
                 for (var t = 0; t < el.children.length; t++) {
@@ -805,6 +816,12 @@
                 }
                 break;
             default:
+                if (SUPPORTED_TAGS[tag] !== true) {
+                    throw new Error(
+                        'use: unsupported element <' + tag + '>; supported: ' +
+                        Object.keys(SUPPORTED_TAGS).join(', ')
+                    );
+                }
                 break;
         }
         if (lines) lines.push(line);

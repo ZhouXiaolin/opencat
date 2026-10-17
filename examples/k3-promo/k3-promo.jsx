@@ -32,10 +32,14 @@ function Tick({ id, ht, mb }) {
   return <div id={id} class={'w-[2px] h-[' + ht + 'px] bg-[#cfcfd2]' + (mb ? ' ' + mb : '')} />;
 }
 
+// `top` 与渐变由 props 决定，写进 class 的话 tailwind CLI 静态扫描不到；
+// 用内联 style，和原版 index.html 的 `b.style.background` 一致。
 function Cbar({ n, top, g }) {
   return (
-    <div id={'bar-' + n} class={'absolute left-0 top-[' + top + 'px] w-[0px] h-[38px] bg-[linear-gradient(90deg,' + g + ')]'}>
-      <div id={'pale-' + n} class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]"></div>
+    <div id={'bar-' + n} class="absolute left-0 w-[0px] h-[38px]"
+         style={'top:' + top + ';background-image:linear-gradient(90deg,' + g + ')'}>
+      <div id={'pale-' + n} class="absolute left-0 top-0 w-full h-[38px] opacity-0"
+           style="background-image:linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))"></div>
     </div>
   );
 }

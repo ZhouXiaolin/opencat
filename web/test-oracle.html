@@ -172,7 +172,7 @@
         await injectVideoFramesForRender({
           mediaPlan: result.mediaPlan,
           quality: 'exact',
-          frameOutput: 'rgba',
+          frameOutput: 'source',
         });
 
         // 3D IR section: real three.js rasterizes each Scene3 commit into its
@@ -217,26 +217,15 @@
         }
       }
 
-      function u8ToBase64(u8) {
-        let out = '';
-        const CHUNK = 0x8000; // stay under the argument-count limit of apply()
-        for (let i = 0; i < u8.length; i += CHUNK) {
-          out += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
-        }
-        return btoa(out);
-      }
-
-      // Whole-range transport: render [startFrame, endFrame] and return ONE
-      // H.264 MP4 as base64.
+      // Whole-range transport: render [startFrame, endFrame], encode one
+      // H.264 MP4 in-page, and POST the raw bitstream to the local oracle
+      // server (`POST /oracle-video`, handled by `inspect/browser.rs`).
       //
-      // Why this exists: the per-frame `rgbaHex` path ships a 33 MB hex string
-      // per 1920×1080 frame through WebDriver; the page JS heap grows without
-      // bound (measured after forced GC) and the tab OOMs after a few hundred
-      // frames — forcing full sweeps to be chunked. Here the frames are
-      // encoded in-page with WebCodecs, muxed in-page with MP4Box.js, and only
-      // the compressed bitstream (a few MB total) crosses the boundary. The
-      // compressed samples are the memory that must exist anyway (the muxer's
-      // moov is written at the end), so nothing is retained per frame.
+      // Why: the per-frame `rgbaHex` path ships a 33 MB hex string per
+      // 1920×1080 frame through WebDriver, and even the earlier base64 MP4
+      // return trip (bitstream ×1.33 plus the WebDriver JSON copy) cost a
+      // large heap spike per sweep. The page-side fetch crosses the local
+      // loopback directly; the WebDriver result carries metadata only.
       //
       // Codec loss is negligible on real content (measured: H.264 CRF 12 over
       // k3-promo engine frames → mae 0.006–0.17, p8 ≈ 0) versus the ~1.64
@@ -272,10 +261,13 @@
           // Diagnostic: draw every frame without encoder/muxer — isolates
           // render-side memory growth from the encode path.
           const probeRows = [];
+          const renderOnlyTimings = [];
           let lastFrame = startFrame;
           try {
             for (let frame = startFrame; frame <= endFrame; frame++) {
+              const t0 = performance.now();
               await drawFrame(envelope, frame);
+              renderOnlyTimings.push(Math.round(performance.now() - t0));
               lastFrame = frame;
               if ((frame - startFrame) % 25 === 0) {
                 probeRows.push({ at: frame, ...sampleMem() });
@@ -286,6 +278,14 @@
               `render-only aborted at frame ${lastFrame}: ${err}; mem=${JSON.stringify(probeRows)}`,
             );
           }
+          const n = renderOnlyTimings.length;
+          probeRows.push({
+            at: 'render-timing',
+            frames: n,
+            renderAvgMs: Math.round(renderOnlyTimings.reduce((s, v) => s + v, 0) / n),
+            renderMaxMs: Math.max(...renderOnlyTimings),
+            detail: renderOnlyTimings,
+          });
           return {
             width: comp.width,
             height: comp.height,
@@ -293,17 +293,20 @@
             firstFrame: startFrame,
             framesEncoded: endFrame - startFrame + 1,
             bytes: 0,
-            videoBase64: '',
             probe: probeRows,
           };
         }
 
         const codec = comp.height <= 1088 ? 'avc1.640028' : 'avc1.640033';
+        // 0.10 bits/pixel/frame (≈6 Mbps at 1080p30, clamped to 8 Mbps):
+        // the earlier 0.4 factor produced ~25 Mbps and dominated the soft
+        // encoder's CPU cost. Gate is mae ≤ 1.0; measured codec loss at this
+        // rate stays ~0.1-0.2 mae on dynamic content.
         const config = {
           codec,
           width: comp.width,
           height: comp.height,
-          bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.4)),
+          bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.10)),
           framerate: fps,
           latencyMode: 'quality',
         };
@@ -346,10 +349,14 @@
           if (memProbe.length > 80) memProbe.shift();
         };
         let lastFrame = startFrame;
+        const frameTimings = [];
         try {
           for (let frame = startFrame; frame <= endFrame; frame++) {
             if (encodeError) throw encodeError;
+            const tRender0 = performance.now();
             await drawFrame(envelope, frame);
+            const renderMs = Math.round(performance.now() - tRender0);
+            const tVf0 = performance.now();
             const vf = new VideoFrame(canvas, {
               timestamp: Math.round((frame * 1_000_000) / fps),
               duration: Math.round(1_000_000 / fps),
@@ -357,6 +364,8 @@
             // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
             encoder.encode(vf, { keyFrame: (frame - startFrame) % fps === 0 });
             vf.close();
+            const vfMs = Math.round(performance.now() - tVf0);
+            frameTimings.push({ frame, renderMs, vfMs, queue: encoder.encodeQueueSize });
             processed += 1;
             lastFrame = frame;
             // Backpressure: never let the encoder queue (and its retained
@@ -364,8 +373,7 @@
             while (encoder.encodeQueueSize > 8) {
               await new Promise((r) => setTimeout(r, 0));
             }
-            if (processed % 10 === 0) await new Promise((r) => setTimeout(r, 0));
-            if (processed % 25 === 0) probe(frame);
+            if (processed % 50 === 0) probe(frame);
           }
         } catch (err) {
           throw new Error(
@@ -373,8 +381,18 @@
           );
         }
         probe('mux-enter');
+        try {
+          const n = frameTimings.length;
+          const sum = (k) => frameTimings.reduce((s, r) => s + r[k], 0);
+          const max = (k) => frameTimings.reduce((m, r) => Math.max(m, r[k]), 0);
+          console.log(`[timing] frames=${n} render avg=${Math.round(sum('renderMs') / n)} max=${max('renderMs')} vf+encode avg=${Math.round(sum('vfMs') / n)} max=${max('vfMs')} queue final=${encoder.encodeQueueSize}`);
+          console.log(`[timing] detail=${JSON.stringify(frameTimings)}`);
+        } catch (e) { console.log(`[timing] summarize failed ${e}`); }
 
+        const flushT0 = performance.now();
+        const queueAtFlush = encoder.encodeQueueSize;
         await encoder.flush();
+        console.log(`[timing] flush queue=${queueAtFlush} took=${Math.round(performance.now() - flushT0)}ms`);
         encoder.close();
         if (encodeError) throw encodeError;
         if (chunks.length === 0) throw new Error('WebCodecs produced no chunks');
@@ -405,14 +423,10 @@
         probe('mux-post');
         const mp4 = new Uint8Array(file.getBuffer());
 
-        probe('base64-pre');
-        let videoBase64;
-        try {
-          videoBase64 = u8ToBase64(mp4);
-        } catch (err) {
-          throw new Error(
-            `u8ToBase64 failed (${mp4.length} bytes): ${err}; mem=${JSON.stringify(memProbe)}`,
-          );
+        probe('post-pre');
+        const postRes = await fetch('/oracle-video', { method: 'POST', body: mp4 });
+        if (!postRes.ok) {
+          throw new Error(`oracle-video POST failed: HTTP ${postRes.status} (${mp4.length} bytes)`);
         }
 
         return {
@@ -422,7 +436,7 @@
           firstFrame: startFrame,
           framesEncoded: processed,
           bytes: mp4.length,
-          videoBase64,
+          frameTimings,
         };
       }
 

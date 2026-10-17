@@ -258,10 +258,16 @@ async fn run_web_compare(
                 cli.interval_secs
             );
         }
+        let browser_t0 = std::time::Instant::now();
         let mp4 = browser
             .render_frames_to_mp4(web_source, start, end)
             .await
             .with_context(|| format!("web video render frames {start}..={end}"))?;
+        eprintln!(
+            "  [stage] browser render+encode+post {} frames: {:.1}s",
+            mp4.frames_encoded,
+            browser_t0.elapsed().as_secs_f64()
+        );
         if std::env::var("OPENCAT_ORACLE_RENDER_ONLY").is_ok() {
             return Ok(ExitCode::SUCCESS);
         }
@@ -300,8 +306,14 @@ async fn run_web_compare(
             .with_context(|| format!("write web video {}", video_path.display()))?;
         eprintln!("  web video saved: {}", video_path.display());
 
+        let decode_t0 = std::time::Instant::now();
         let decoded = decode_mp4_bytes_frames_rgba(&mp4.mp4, width, height, frames, mp4.first_frame)
             .context("decode web video MP4")?;
+        eprintln!(
+            "  [stage] ffmpeg decode {} sample frames: {:.1}s",
+            decoded.len(),
+            decode_t0.elapsed().as_secs_f64()
+        );
         for (frame, engine_rgba) in engine_frames {
             let Some(web_rgba) = decoded.get(frame) else {
                 bail!("web video MP4 is missing frame {frame}");
@@ -567,6 +579,7 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
         out
     } else {
         let mut out = Vec::with_capacity(frames.len());
+        let engine_t0 = std::time::Instant::now();
         for &frame in &frames {
             let (rgba, w, h) =
                 render_single_frame_from_source_with_base(&source, input.parent(), frame)
@@ -576,6 +589,11 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
             }
             out.push((frame, rgba));
         }
+        eprintln!(
+            "  [stage] engine render {} frames: {:.1}s",
+            out.len(),
+            engine_t0.elapsed().as_secs_f64()
+        );
         out
     };
 

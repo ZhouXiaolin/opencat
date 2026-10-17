@@ -92,20 +92,17 @@ impl<S: JsContext> DefaultPipeline<S> {
         &self.scripts
     }
 
-    /// Inject the host's 3D rasterizer (engine = opencat-three, web = wasm
-    /// backend). Scripts that commit 3D scenes fail closed without one, so
-    /// hosts that can never rasterize simply skip this and keep the error.
-    pub fn set_scene3_raster(
-        &mut self,
-        raster: std::sync::Arc<dyn crate::ir::scene3::Scene3Raster>,
-    ) {
-        self.scripts.set_scene3_raster(raster);
-    }
-
     /// Inject the document base directory (XML's parent): join base for
     /// script-side relative asset paths (`GLTFGeometry` et al).
     pub fn set_document_base(&mut self, base: &str) {
         self.scripts.set_document_base(base);
+    }
+
+    /// Expose the realm-level 3D geometry registry (`Geometry3::Asset { id }`
+    /// resolution source for `RenderFrame.scene3`). The registry persists for
+    /// the pipeline lifetime, so web hosts can fetch geometries by id lazily.
+    pub fn scene3_geometry_registry(&mut self) -> crate::ir::scene3::GeometryRegistry {
+        self.scripts.geometry_registry()
     }
 
     /// Inspect layout for a frame using the same resolve/layout sessions as
@@ -194,7 +191,7 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
     }
 
     fn render_frame(&mut self, frame_index: u32) -> Result<RenderFrame> {
-        let (draw, media) = super::frame::render_frame_with_state(
+        let (draw, media, scene3) = super::frame::render_frame_with_state(
             &self.composition,
             frame_index,
             &mut self.layout_session,
@@ -205,7 +202,7 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
             &mut self.scripts,
             &mut self.generated_images,
         )?;
-        Ok(RenderFrame { draw, media })
+        Ok(RenderFrame { draw, media, scene3 })
     }
 }
 

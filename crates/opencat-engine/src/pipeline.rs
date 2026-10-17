@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
+use opencat_core::ir::scene3::Scene3Raster;
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::ParsedComposition;
@@ -45,9 +46,12 @@ pub struct EnginePipelineHost {
     pub pipeline: CorePipeline,
     /// Engine-owned resource owner: cached asset handles, fetcher, providers.
     pub loader: EngineLoader,
-    /// 3D 光栅化器的渲染器（与注入 core 的 `Scene3Raster` 是同一实例）。
-    /// GPU 合成器靠它取 3D 输出纹理；CPU 路径不用。
+    /// 3D 渲染器（[`Self::scene3_raster`] 的底层实例）。GPU 合成器靠它取
+    /// 3D 输出纹理；CPU 路径不用。
     pub scene3_renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
+    /// 3D 光栅化器：core 导出的 Scene3 段在 render_frame 之后由它渲染，
+    /// 结果回填 media plan 占位条目（见 [`Self::render_scene3_section`]）。
+    pub scene3_raster: std::sync::Arc<TexturedRaster3d>,
     /// 共享纹理登记处：3D 输出纹理与合成目标纹理的存活都归它管。
     /// 生产方（`scene3_renderer`）与消费方（GPU 合成器、预览器）共用同一个。
     pub textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
@@ -88,6 +92,37 @@ impl EnginePipelineHost {
     pub fn render_frame(&mut self, idx: u32) -> Result<RenderFrame> {
         use opencat_core::pipeline::Pipeline;
         self.pipeline.render_frame(idx)
+    }
+
+    /// 渲染本帧的 Scene3 段并回填 `media_plan` 的占位图条目。
+    ///
+    /// core 为每个 3D 场景录一条空 RGBA 的 generated-image 占位（同时把
+    /// `DrawOp::Image{ImageRef::Generated}` 录进目标 canvas 保 z 序），这里
+    /// 逐 commit 光栅化快照，把像素/GPU 句柄填回同 id 条目——下游
+    /// `prepare_frame` 与 draw 执行器对 3D 无感知，签名零改动。
+    pub fn render_scene3_section(
+        &self,
+        media_plan: &mut opencat_core::ir::media_plan::FrameMediaPlan,
+        section: &opencat_core::ir::draw_frame::Scene3Section,
+    ) -> Result<()> {
+        for commit in &section.commits {
+            let entry = media_plan
+                .generated_images
+                .iter_mut()
+                .find(|e| e.id == commit.image_id)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("scene3 占位 {} 不在本帧 media plan 中", commit.image_id.0)
+                })?;
+            let rasterized = self.scene3_raster.render(
+                &commit.scene,
+                &section.geometries,
+                entry.width,
+                entry.height,
+            )?;
+            entry.rgba = rasterized.rgba;
+            entry.gpu = rasterized.gpu;
+        }
+        Ok(())
     }
 
     /// Layout inspection from the same resolve/layout sessions as render.
@@ -271,23 +306,24 @@ fn open_parsed_host_owned_with_fonts(
 
     let prepared = draft.prepare(inputs).map_err(prepare_err)?;
     let mut pipeline = prepared.open_pipeline(scripts)?;
-    // 3D 光栅化器（opencat-three，wgpu，懒初始化）：engine 是唯一必须能
-    // 光栅化 Scene3 的宿主；无 3D 场景的合成不付任何 GPU 成本，GPU 不可用
-    // 时只在真正提交 3D 场景的脚本处报错（见 LazyRenderer3d）。engine 侧
-    // 包装 [`TexturedRaster3d`]：把快照里的纹理**来源**（视频帧/位图路径）
-    // 用 MediaContext 解码成位图表再交给 wgpu——core 与 opencat-three 都
-    // 不碰媒体解码，像素不过 JSON 桥。
+    // 3D 渲染器（opencat-three，wgpu，懒初始化）：core 每帧把 Scene3 段
+    // 原样导出进 RenderFrame.scene3，engine 在 render_frame 之后用
+    // [`TexturedRaster3d`] 光栅化并回填 media plan 占位条目——纹理**来源**
+    // （视频帧/位图路径）用 MediaContext 解码成位图表再交给 wgpu，core 与
+    // opencat-three 都不碰媒体解码，像素不过 JSON 桥。无 3D 场景的合成不
+    // 付任何 GPU 成本，GPU 不可用时只在真正提交 3D 场景的帧上报错（见
+    // LazyRenderer3d）。
     // 共享纹理登记处：3D 输出纹理与合成目标纹理都登记在这里，宿主凭句柄
     // 取用、归还。谁保活、谁归还全在这一处定（见 opencat-gpu-native）。
     let textures = std::sync::Arc::new(opencat_gpu_native::TextureRegistry::new());
     let scene3_renderer = std::sync::Arc::new(opencat_three::LazyRenderer3d::new(
         textures.clone(),
     ));
-    pipeline.set_scene3_raster(std::sync::Arc::new(TexturedRaster3d {
+    let scene3_raster = std::sync::Arc::new(TexturedRaster3d {
         inner: scene3_renderer.clone(),
         resolve_tx: std::sync::OnceLock::new(),
         gpu_mode,
-    }));
+    });
     // 文档 base 目录：脚本内相对资产路径（GLTFGeometry 等）对它 join——
     // three.js GLTFLoader 相对 URL 语义的 opencat 对应物。
     pipeline.set_document_base(&loader.base_dir().to_string_lossy());
@@ -299,6 +335,7 @@ fn open_parsed_host_owned_with_fonts(
         pipeline,
         loader,
         scene3_renderer,
+        scene3_raster,
         textures,
     })
 }

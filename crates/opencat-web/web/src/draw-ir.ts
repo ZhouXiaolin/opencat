@@ -294,7 +294,37 @@ const effectCache = new Map<bigint, RuntimeEffect>();
 // Full RGBA arrives every frame in section 12. The CanvasKit Image is built
 // lazily from the RGBA on first use and reused across frames.
 const generatedImageCache = new Map<string, Image>();
+// Shared offscreen for the backdrop-filter two-pass prefix snapshots (see the
+// call site): one surface for the page's lifetime, cleared per use.
+let backdropScratchSurface: Surface | null = null;
+// Churning ids (animated Scene3 placeholders mint a new content-addressed id
+// every frame) must not retain one image per rendered frame. FIFO cap: far
+// above any single frame's distinct generated-image count, so a live image is
+// never evicted mid-frame, while stable ids (glyphs, static scenes) stay hot.
+const GENERATED_IMAGE_CACHE_CAP = 32;
+
+function cacheGeneratedImage(key: string, image: Image): void {
+  generatedImageCache.set(key, image);
+  if (generatedImageCache.size > GENERATED_IMAGE_CACHE_CAP) {
+    const oldest = generatedImageCache.keys().next().value;
+    if (oldest !== undefined) {
+      generatedImageCache.get(oldest)?.delete();
+      generatedImageCache.delete(oldest);
+    }
+  }
+}
 const generatedImageRgba = new Map<string, { width: number; height: number; rgba: Uint8Array }>();
+
+/**
+ * Register RGBA for a generated-image id from outside the OCIR envelope —
+ * the scene3 web executor (three-facade.ts) rasterizes the Scene3 section
+ * with real three.js and lands its pixels here. resolveImage('generated')
+ * builds the CanvasKit Image lazily from this slot at the placeholder's
+ * z-position (core never ships scene3 placeholders in section 12).
+ */
+export function provideGeneratedImageRgba(id: bigint | string, width: number, height: number, rgba: Uint8Array): void {
+  generatedImageRgba.set(`${id}`, { width, height, rgba });
+}
 
 // ---------------------------------------------------------------------------
 // Media validation — typed errors for atomic fail-fast before CanvasKit replay
@@ -473,7 +503,14 @@ export function renderEncodedDrawFrame(
     resolveImage(CK, image, options.surface, transientImageCache)
   );
 
-  const executeOpsOnCanvas = (targetCanvas: Canvas, opBytes: Uint8Array, opEntries: OpEntry[], start: number, len: number) => {
+  // CSS `backdrop-filter` two-pass (mirrors executor/replay.rs): this Skia
+  // silently drops `saveLayer`'s backdrop filter whenever the layer nests
+  // inside another layer. Pre-rasterize each backdrop layer's op prefix and
+  // draw it as the layer base through the blur filter instead.
+  const backdropSnapshots: Image[] = [];
+  let backdropSlot = 0;
+
+  const executeOpsOnCanvas = (targetCanvas: Canvas, opBytes: Uint8Array, opEntries: OpEntry[], start: number, len: number, backdropBuilding = false) => {
     const state = initialRenderState();
     let currentPathBuilder: PathBuilder | undefined;
 
@@ -493,6 +530,34 @@ export function renderEncodedDrawFrame(
       const end = Math.min(opEntries.length, rangeStart + rangeLen);
       for (let i = rangeStart; i < end; i++) executeOp(opEntries[i]);
     };
+
+    if (!backdropBuilding) {
+      // Pre-rasterize the prefix before each backdrop layer into an offscreen
+      // image (replay.rs records a Picture and draw_picture's it through the
+      // filter; a raster snapshot + drawImage-with-filter is the CanvasKit
+      // equivalent). Margin covers the blur spill so Clamp never stretches.
+      // The scratch surface is reused across prefixes AND frames: a fresh
+      // MakeSurface per element per frame grows CanvasKit's linear heap by
+      // ~10.7 MB per frame — Surface/Image delete does not return those
+      // pages — until the module traps at its ceiling (~2 GB, observed as a
+      // wasm "memory access out of bounds" abort at frame 237 of
+      // hyperframes-launch). Each clear() copy-on-write-isolates the previous
+      // frame's snapshot; per-frame snapshot deletes stay as the backstop.
+      backdropScratchSurface ??= CK.MakeSurface(2112, 1272);
+      const scratch = backdropScratchSurface;
+      if (scratch) {
+        const sc = scratch.getCanvas();
+        for (let i = 0; i < opEntries.length; i++) {
+          if (opEntries[i].opcode !== OP_SAVE_BACKDROP_LAYER) continue;
+          sc.clear(CK.TRANSPARENT);
+          sc.save();
+          sc.translate(96, 96);
+          executeOpsOnCanvas(sc, opBytes, opEntries, 0, i, true);
+          sc.restore();
+          backdropSnapshots.push(dispose(scratch.makeImageSnapshot()));
+        }
+      }
+    }
 
     const executeOp = (entry: OpEntry) => {
       const p = new Payload(opBytes, entry.payloadOffset, entry.payloadLen);
@@ -522,17 +587,45 @@ export function renderEncodedDrawFrame(
           const paint = (flags & 0b10) !== 0 ? buildPaint(CK, frame.paints[paintId], 1, dispose) : null;
           let backdrop: ImageFilter | null = null;
           if (paint) {
-            // canvaskit 0.41's type defs omit the getImageFilter getter; the
-            // runtime API exists.
-            backdrop =
-              (paint as Paint & { getImageFilter(): ImageFilter | null }).getImageFilter() ?? null;
-            paint.setImageFilter(null);
+            const spec = frame.paints[paintId];
+            // canvaskit 0.41 has no Paint.getImageFilter getter at runtime
+            // (its type defs omit it too) — rebuild the filter from the spec
+            // instead of reading it back off the paint.
+            if (spec?.imageFilter) {
+              backdrop = buildImageFilter(CK, spec.imageFilter, dispose);
+              paint.setImageFilter(null);
+            }
           }
-          targetCanvas.saveLayer(
-            paint ?? undefined,
-            (flags & 0b01) !== 0 ? ckRect(CK, bounds) : null,
-            backdrop ?? undefined,
-          );
+          const slot = backdropSlot++;
+          if (
+            backdropBuilding || !backdrop || slot >= backdropSnapshots.length
+            || (flags & 0b01) === 0
+          ) {
+            // Prefix rasterization, no filter, or a nesting level where the
+            // backdrop never rendered anyway (replay.rs's fallback path).
+            targetCanvas.saveLayer(
+              paint ?? undefined,
+              (flags & 0b01) !== 0 ? ckRect(CK, bounds) : null,
+              backdrop ?? undefined,
+            );
+            break;
+          }
+          // Two-pass: open the layer unbounded (box-shadows draw past it),
+          // clip the blurred base to the element rect, then stamp the
+          // pre-rasterized prefix through the backdrop filter — replay.rs's
+          // draw_picture-with-filter path. The snapshot was taken in the
+          // identity basis with a 96px margin, so draw it offset by that.
+          targetCanvas.saveLayer(paint ?? undefined, null);
+          targetCanvas.save();
+          if ((flags & 0b01) !== 0) targetCanvas.clipRect(ckRect(CK, bounds), CK.ClipOp.Intersect, false);
+          // No Canvas.setMatrix in 0.41 — concat the inverse to get back to
+          // the identity basis the snapshot was rasterized at.
+          const inv = CK.M44.invert(targetCanvas.getTotalMatrix());
+          if (inv) targetCanvas.concat(inv);
+          const stamp = dispose(new CK.Paint());
+          stamp.setImageFilter(backdrop);
+          targetCanvas.drawImage(backdropSnapshots[slot], -96, -96, stamp);
+          targetCanvas.restore();
           break;
         }
         case OP_RESTORE:
@@ -1317,6 +1410,10 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
       fill.stops,
       mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
       localMatrix as any,
+      // CSS Images 4: stops interpolate in premultiplied space — the engine
+      // passes INTERPOLATE_COLORS_IN_PREMUL; CanvasKit defaults to unpremul,
+      // which lerps a `transparent` endpoint toward black.
+      1,
     );
   }
   return CK.Shader.MakeRadialGradient(
@@ -1326,6 +1423,7 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
     fill.stops,
     mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
     localMatrix as any,
+    1,
   );
 }
 
@@ -1529,7 +1627,7 @@ function resolveImage(
       rgba.width * 4,
     );
     if (ckImage) {
-      generatedImageCache.set(key, ckImage);
+      cacheGeneratedImage(key, ckImage);
       generatedImageRgba.delete(key);
     }
     return ckImage;

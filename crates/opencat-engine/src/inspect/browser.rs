@@ -45,9 +45,22 @@ use serde_json::{Value, json};
 /// during extraction.
 pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<String> {
     let (extract, driver) = crate::jsx::extract_with_base_dir(source, base_dir)?;
+    // Repo-relative baseDir (`examples/<example>`): the static server maps
+    // `/assets/<baseDir>/...` back under the repo root, so an absolute
+    // host path would leak into the URL.
+    let base_dir = base_dir.map(|p| {
+        repo_root()
+            .ok()
+            .and_then(|root| p.strip_prefix(&root).ok().map(|rel| rel.to_path_buf()))
+            .unwrap_or_else(|| p.to_path_buf())
+    });
     Ok(serde_json::to_string(&json!({
         "extract": extract,
         "driver": driver,
+        // Composition-relative resource paths (`assets/...`) resolve against
+        // this prefix; the oracle asset reader turns them into `/assets/`
+        // URLs that the static server maps back under `repo/<baseDir>/...`.
+        "baseDir": base_dir.map(|p| p.to_string_lossy().into_owned()),
     }))?)
 }
 
@@ -188,17 +201,27 @@ impl StaticRoutes {
         }
 
         // Lottie bundle deps and other relative asset URLs resolve against the
-        // repo `assets/` dir (the dev app serves these under `/assets`).
+        // repo `assets/` dir (the dev app serves these under `/assets`). The
+        // oracle page prefixes composition-relative paths with the envelope
+        // `baseDir`, so `rest` may also be repo-relative
+        // (`examples/<example>/assets/...`).
         if let Some(rest) = request_path.strip_prefix("/assets/") {
+            let rest = percent_decode(rest);
             if rest.is_empty() || rest.contains("..") {
                 return None;
             }
-            let asset = self.repo.join("assets").join(rest);
-            return Some(if asset.exists() {
-                asset
-            } else {
-                self.repo.join("examples").join(rest)
-            });
+            for candidate in [
+                self.repo.join("assets").join(&rest),
+                self.repo.join("examples").join(&rest),
+                self.repo.join(&rest),
+            ] {
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+            // Nothing matched; hand back the repo assets pool so the caller
+            // serves a clean 404 instead of dropping the connection.
+            return Some(self.repo.join("assets").join(rest));
         }
 
         None
@@ -239,7 +262,16 @@ fn handle_static_request(mut stream: TcpStream, routes: &StaticRoutes) -> Result
         return Ok(());
     };
 
-    let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+    // A resolved-but-unreadable path must answer 404: closing the socket
+    // without a response makes the browser fetch reject with a bare
+    // "Failed to fetch", which hides which asset was missing.
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            write_response(&mut stream, "404 Not Found", "text/plain", b"not found")?;
+            return Ok(());
+        }
+    };
     let content_type = content_type_for(&path);
     if method == "HEAD" {
         write_headers(&mut stream, "200 OK", content_type, bytes.len())?;
@@ -269,6 +301,30 @@ fn proxy_asset_request(stream: &mut TcpStream, method: &str, upstream_path: &str
     )?;
     std::io::copy(&mut upstream, stream)?;
     Ok(())
+}
+
+/// Percent-decode a request path (`Frame%201.mp4` → `Frame 1.mp4`). The
+/// browser percent-encodes spaces and other non-ASCII bytes before sending;
+/// asset filenames do contain spaces.
+fn percent_decode(path: &str) -> String {
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(
+                std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or_default(),
+                16,
+            ) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 fn write_response(
@@ -449,7 +505,10 @@ impl BrowserHarness {
             json!({
                 "implicit": 0,
                 "pageLoad": 120000,
-                "script": 120000,
+                // In-page whole-movie MP4 encodes run in ONE async script;
+                // heavy content (SkSL shader segments) can take seconds per
+                // frame, far past the 120s W3C default.
+                "script": 3_600_000,
             }),
         )
         .await?;
@@ -526,6 +585,10 @@ impl BrowserHarness {
         start_frame: u32,
         end_frame: u32,
     ) -> Result<FramesMp4> {
+        // Diagnostic channel: with OPENCAT_ORACLE_RENDER_ONLY set, every frame
+        // is drawn but nothing is encoded or muxed — splits render-side memory
+        // growth from the encode path when a continuous sweep aborts.
+        let render_only = std::env::var("OPENCAT_ORACLE_RENDER_ONLY").is_ok();
         let result = webdriver_post(
             &self.client,
             &self.webdriver_url,
@@ -536,16 +599,17 @@ impl BrowserHarness {
                     const envelope = arguments[0];
                     const start = arguments[1];
                     const end = arguments[2];
+                    const renderOnly = arguments[3] === true;
                     const done = arguments[arguments.length - 1];
                     if (!window.__opencatOracle || typeof window.__opencatOracle.renderFramesToMp4 !== 'function') {
                       done({ ok: false, error: 'window.__opencatOracle.renderFramesToMp4 is not available' });
                       return;
                     }
-                    window.__opencatOracle.renderFramesToMp4(envelope, start, end)
+                    window.__opencatOracle.renderFramesToMp4(envelope, start, end, renderOnly)
                       .then((result) => done({ ok: true, result }))
                       .catch((err) => done({ ok: false, error: String(err && (err.stack || err.message) || err) }));
                 "#,
-                "args": [envelope, start_frame, end_frame],
+                "args": [envelope, start_frame, end_frame, render_only],
             }),
         )
         .await?;
@@ -560,11 +624,28 @@ impl BrowserHarness {
             );
         }
 
-        parse_frames_mp4(
-            result
-                .get("result")
-                .ok_or_else(|| anyhow!("browser video oracle response missing result"))?,
-        )
+        let parsed = result
+            .get("result")
+            .ok_or_else(|| anyhow!("browser oracle video response missing result"))?;
+        if render_only {
+            let frames_encoded = parse_u32(parsed, "framesEncoded").unwrap_or(0);
+            eprintln!(
+                "  render-only sweep finished: {frames_encoded} frames; probe={}",
+                parsed
+                    .get("probe")
+                    .map(Value::to_string)
+                    .unwrap_or_else(|| "[]".into())
+            );
+            return Ok(FramesMp4 {
+                width: 0,
+                height: 0,
+                fps: 30,
+                first_frame: start_frame,
+                frames_encoded,
+                mp4: Vec::new(),
+            });
+        }
+        parse_frames_mp4(parsed)
     }
 
     pub async fn shutdown(mut self) -> Result<()> {
@@ -839,6 +920,7 @@ pub fn decode_mp4_bytes_frames_rgba(
     width: u32,
     height: u32,
     frames: &[u32],
+    first_frame: u32,
 ) -> Result<std::collections::HashMap<u32, Vec<u8>>> {
     let mut tmp = tempfile::Builder::new()
         .prefix("opencat-oracle-")
@@ -849,7 +931,7 @@ pub fn decode_mp4_bytes_frames_rgba(
     tmp.as_file_mut()
         .sync_all()
         .context("flush oracle MP4 temp file")?;
-    decode_reference_frames_rgba(tmp.path(), width, height, frames)
+    decode_reference_frames_rgba(tmp.path(), width, height, frames, first_frame)
 }
 
 #[allow(dead_code)] // retained for per-pixel diagnostics; the oracle uses SSIM
@@ -995,6 +1077,7 @@ pub fn decode_reference_frames_rgba(
     width: u32,
     height: u32,
     frames: &[u32],
+    first_frame: u32,
 ) -> Result<std::collections::HashMap<u32, Vec<u8>>> {
     use std::collections::{BTreeSet, HashMap};
 
@@ -1027,15 +1110,20 @@ pub fn decode_reference_frames_rgba(
     let frame_len = width as usize * height as usize * 4;
     let mut buf = vec![0u8; frame_len];
     let mut out = HashMap::new();
+    // Stream order ≠ composition frame number: a web-video MP4 rendered from
+    // a mid-range START_FRAME stores its first frame at stream index 0 but is
+    // tagged `first_frame`, so offsets every decoded frame into absolute
+    // composition frame numbers before matching `wanted`.
     let mut idx: u32 = 0;
     loop {
         if stdout.read_exact(&mut buf).is_err() {
             break;
         }
-        if wanted.remove(&idx) {
-            out.insert(idx, buf.clone());
+        let frame_no = first_frame.saturating_add(idx);
+        if wanted.remove(&frame_no) {
+            out.insert(frame_no, buf.clone());
         }
-        if idx >= max_frame {
+        if frame_no >= max_frame {
             break;
         }
         idx += 1;

@@ -13,7 +13,7 @@ pub mod transport;
 
 pub use asset_id::*;
 pub use composition_info::CompositionInfo;
-pub use draw_frame::{DrawOpFrame, RenderFrame};
+pub use draw_frame::{DrawOpFrame, RenderFrame, Scene3Commit, Scene3Section};
 pub use generated_image::{
     GeneratedImageCollision, GeneratedImageEntry, GeneratedImageId, GeneratedImageTable,
 };

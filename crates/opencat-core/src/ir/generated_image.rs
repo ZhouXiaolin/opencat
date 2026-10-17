@@ -212,7 +212,7 @@ impl GeneratedImageTable {
         height: u32,
         rgba: Arc<[u8]>,
     ) -> Result<()> {
-        self.insert_impl(id, width, height, rgba, None)
+        self.insert_impl(id, width, height, rgba, None, true)
     }
 
     /// Register a generated image whose pixels live on the GPU.
@@ -227,7 +227,17 @@ impl GeneratedImageTable {
         height: u32,
         gpu: GpuImageHandle,
     ) -> Result<()> {
-        self.insert_impl(id, width, height, Arc::from(Vec::new()), Some(gpu))
+        self.insert_impl(id, width, height, Arc::from(Vec::new()), Some(gpu), false)
+    }
+
+    /// Register a scene3 placeholder: by contract it carries **no pixels** —
+    /// the executing host rasterizes [`crate::ir::draw_frame::Scene3Section`]
+    /// and patches this frame's media-plan entry before drawing. Dedup and
+    /// idempotency semantics are identical to [`Self::insert`] (empty == empty
+    /// is the idempotent case, so a static scene keeps its content-addressed
+    /// id alive across frames).
+    pub fn insert_placeholder(&mut self, id: GeneratedImageId, width: u32, height: u32) -> Result<()> {
+        self.insert_impl(id, width, height, Arc::from(Vec::new()), None, false)
     }
 
     fn insert_impl(
@@ -237,9 +247,10 @@ impl GeneratedImageTable {
         height: u32,
         rgba: Arc<[u8]>,
         gpu: Option<GpuImageHandle>,
+        validate_len: bool,
     ) -> Result<()> {
-        // GPU-resident pixels carry no CPU copy to validate.
-        if gpu.is_none() {
+        // GPU-resident and placeholder pixels carry no CPU copy to validate.
+        if validate_len {
             let expected_len = width as usize * height as usize * 4;
             if rgba.len() != expected_len {
                 bail!(

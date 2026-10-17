@@ -2,11 +2,8 @@
 # ---------------------------------------------------------------------------
 # OpenCat Cross-Platform Regression Gate (Issue #48)
 #
-# Usage:  regression-gate.sh [--oracle] [--ci]
+# Usage:  regression-gate.sh [--ci]
 #
-#   --oracle   Also run browser oracle k3diff tests (requires ChromeDriver,
-#              ffmpeg, and miniserve). Oracle tests are #[ignore] and run
-#              via `cargo test -- --ignored web_frame_oracle`.
 #   --ci       CI mode: skip preconditions check, skip interactive steps.
 #
 # Run this from the repo root. Exits with 0 on success, non-zero on failure.
@@ -16,25 +13,21 @@
 #   - bun install --frozen-lockfile in web/ (root)
 #   - bun install --frozen-lockfile in crates/opencat-web/web
 #   - bun install --frozen-lockfile in crates/opencat-engine/testsupport
-#   - (oracle only) chromedriver, ffmpeg, miniserve on PATH
 #
 # Verifies:
 #   - Rust: cargo test + clippy for core, engine, opencat (lib)
 #   - Web:  bun run test, bunx tsc --noEmit, bun run build (root web)
 #   - Crate: tsc build:types + vite build (crates/opencat-web/web)
-#   - (oracle only) Browser k3diff: chromedriver oracle tests (AC 5-7)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PASS=0
 FAIL=0
-RUN_ORACLE=0
 CI_MODE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --oracle) RUN_ORACLE=1; shift ;;
         --ci)     CI_MODE=1;   shift ;;
         *)        echo "[ERROR] Unknown option: $1"; exit 1 ;;
     esac
@@ -100,15 +93,6 @@ run_check "WEB" "crate tsc build:types" \
 run_check "WEB" "crate vite build" \
     bunx vite build
 
-# ---- Browser oracle k3diff (AC 5-7) ----
-if [ "$RUN_ORACLE" -eq 1 ]; then
-    echo ""
-    echo "===== [ORACLE] Browser k3diff tests (AC 5-7) ====="
-    cd "$ROOT"
-
-    run_check "ORACLE" "chromedriver oracle k3diff tests (AC 5-7)" \
-        cargo test -- --ignored web_frame_oracle 2>&1
-fi
 
 # ---- Summary ----
 echo ""

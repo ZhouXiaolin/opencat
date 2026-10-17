@@ -262,6 +262,9 @@ async fn run_web_compare(
             .render_frames_to_mp4(web_source, start, end)
             .await
             .with_context(|| format!("web video render frames {start}..={end}"))?;
+        if std::env::var("OPENCAT_ORACLE_RENDER_ONLY").is_ok() {
+            return Ok(ExitCode::SUCCESS);
+        }
         if mp4.width != width || mp4.height != height {
             bail!(
                 "web video size {}x{} != composition {width}x{height}",
@@ -290,8 +293,14 @@ async fn run_web_compare(
             end,
             mp4.fps
         );
+        let video_path = cli
+            .out_dir
+            .join(format!("web-video-{start:04}-{end:04}.mp4"));
+        std::fs::write(&video_path, &mp4.mp4)
+            .with_context(|| format!("write web video {}", video_path.display()))?;
+        eprintln!("  web video saved: {}", video_path.display());
 
-        let decoded = decode_mp4_bytes_frames_rgba(&mp4.mp4, width, height, frames)
+        let decoded = decode_mp4_bytes_frames_rgba(&mp4.mp4, width, height, frames, mp4.first_frame)
             .context("decode web video MP4")?;
         for (frame, engine_rgba) in engine_frames {
             let Some(web_rgba) = decoded.get(frame) else {
@@ -541,7 +550,7 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
         if !reference.is_file() {
             bail!("reference video not found: {}", reference.display());
         }
-        let decoded = decode_reference_frames_rgba(reference, width, height, &frames)
+        let decoded = decode_reference_frames_rgba(reference, width, height, &frames, 0)
             .with_context(|| format!("decode reference {}", reference.display()))?;
         let mut out = Vec::with_capacity(frames.len());
         for &frame in &frames {

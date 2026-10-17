@@ -118,6 +118,14 @@ fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
             else {
                 continue;
             };
+            if kind == CssFilterKind::DropShadow {
+                if let Some(shadow) = op.get("shadow").and_then(|s| {
+                    serde_json::from_value::<crate::style::DropShadow>(s.clone()).ok()
+                }) {
+                    filter.push_drop_shadow(shadow);
+                }
+                continue;
+            }
             let Some(value) = op.get("value").and_then(|value| value.as_f64()) else {
                 continue;
             };
@@ -132,6 +140,12 @@ fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
         let Some(kind) = CssFilterKind::from_property(name) else {
             continue;
         };
+        if kind == CssFilterKind::DropShadow {
+            if let Ok(shadow) = serde_json::from_value::<crate::style::DropShadow>(value.clone()) {
+                filter.push_drop_shadow(shadow);
+            }
+            continue;
+        }
         let Some(value) = value.as_f64() else {
             continue;
         };
@@ -140,13 +154,17 @@ fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
     Some(filter)
 }
 
-fn css_filter_to_value(filter: &CssFilter) -> serde_json::Value {
+pub(crate) fn css_filter_to_value(filter: &CssFilter) -> serde_json::Value {
     json!({
         "ops": filter.ops.iter().map(|op| {
-            json!({
+            let mut entry = json!({
                 "kind": op.kind.property_name(),
                 "value": op.value,
-            })
+            });
+            if let Some(shadow) = op.shadow {
+                entry["shadow"] = serde_json::to_value(shadow).unwrap_or_default();
+            }
+            entry
         }).collect::<Vec<_>>(),
     })
 }
@@ -500,7 +518,14 @@ impl MutationStore {
         add_f32!("gap", gap);
         add_f32!("flexGrow", flex_grow);
         for op in &style.css_filter.ops {
-            props.insert(op.kind.property_name().into(), json!(op.value));
+            if let Some(shadow) = op.shadow {
+                props.insert(
+                    op.kind.property_name().into(),
+                    serde_json::to_value(shadow).unwrap_or_default(),
+                );
+            } else {
+                props.insert(op.kind.property_name().into(), json!(op.value));
+            }
         }
         if !style.css_filter.is_empty() {
             props.insert("filter".into(), css_filter_to_value(&style.css_filter));

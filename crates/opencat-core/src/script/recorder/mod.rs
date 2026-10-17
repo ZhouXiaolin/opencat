@@ -6,6 +6,7 @@
 
 mod store;
 
+pub(crate) use store::css_filter_to_value;
 pub use store::{AnimateEntry, MutationStore};
 
 use crate::ir::draw_op::DrawOp;

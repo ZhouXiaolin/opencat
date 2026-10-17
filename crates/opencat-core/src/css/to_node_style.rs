@@ -16,6 +16,7 @@ use lightningcss::properties::background::{BackgroundClip, BackgroundSize};
 use lightningcss::properties::border::{Border, BorderSideWidth, LineStyle};
 use lightningcss::properties::border_radius::BorderRadius as CssBorderRadius;
 use lightningcss::properties::box_shadow::BoxShadow as CssBoxShadow;
+use lightningcss::properties::custom::{CustomProperty, CustomPropertyName};
 use lightningcss::properties::display::{Display, DisplayInside};
 use lightningcss::properties::effects::{BlendMode as CssBlendMode, Filter, FilterList};
 use lightningcss::properties::flex::{FlexDirection as CssFlexDirection, FlexWrap as CssFlexWrap};
@@ -23,7 +24,6 @@ use lightningcss::properties::font::{
     AbsoluteFontWeight, FontFamily as CssFontFamily, FontSize, FontStyle as CssFontStyle,
     FontWeight as CssFontWeight, GenericFontFamily, LineHeight as CssLineHeight,
 };
-use lightningcss::properties::custom::{CustomProperty, CustomPropertyName};
 use lightningcss::properties::overflow::{OverflowKeyword, TextOverflow};
 use lightningcss::properties::position::Position as CssPosition;
 use lightningcss::properties::size::{MaxSize, Size};
@@ -779,7 +779,20 @@ fn filter_list_to_css_filter(list: &FilterList<'static>, ctx: &EvalContext) -> C
                 Filter::HueRotate(angle) => {
                     CssFilterOp::new(CssFilterKind::HueRotate, angle.to_degrees())
                 }
-                Filter::DropShadow(_) | Filter::Opacity(_) | Filter::Url(_) => continue,
+                // CSS `filter: drop-shadow(dx dy blur color)`：blur 是模糊
+                // 半径，σ = radius/2（与 box-shadow 同一规则）。Skia 的
+                // `drop_shadow` 收 σ，故此处折半。
+                Filter::DropShadow(shadow) => {
+                    let color =
+                        color_token(&shadow.color).unwrap_or(ColorToken::Custom(0, 0, 0, 255));
+                    CssFilterOp::new_drop_shadow(crate::style::DropShadow {
+                        offset_x: len_to_px(&shadow.x_offset, ctx),
+                        offset_y: len_to_px(&shadow.y_offset, ctx),
+                        blur_sigma: len_to_px(&shadow.blur, ctx) / 2.0,
+                        color,
+                    })
+                }
+                Filter::Opacity(_) | Filter::Url(_) => continue,
             };
             ops.push(op);
         }

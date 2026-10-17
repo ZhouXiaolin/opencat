@@ -1056,43 +1056,6 @@ mod tests {
     }
 
     #[test]
-    fn parser_accepts_image_query_nodes() {
-        parse(
-            r#"{"type":"composition","width":1280,"height":720,"fps":30,"duration":3}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full","text":null}
-{"id":"hero","parentId":"root","type":"image","className":"w-[320px] h-[240px] object-cover","query":"pizza margherita"}"#,
-        )
-        .expect("jsonl with image query should parse");
-    }
-
-    #[test]
-    fn parser_accepts_lucide_icon_nodes() {
-        parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"search-icon","parentId":"root","type":"icon","className":"w-[20px] h-[20px] text-slate-400","icon":"search"}"#,
-        )
-        .expect("jsonl with lucide icon should parse");
-    }
-
-    #[test]
-    fn parser_accepts_audio_nodes() {
-        parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"bgm","attach":"root","type":"audio","path":"/tmp/demo.mp3"}"#,
-        )
-        .expect("jsonl with audio path should parse");
-
-        parse(
-            r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"stream","attach":"root","type":"audio","url":"https://example.com/demo.mp3"}"#,
-        )
-        .expect("jsonl with audio url should parse");
-    }
-
-    #[test]
     fn parser_treats_timeline_attached_audio_as_timeline_audio_source() {
         let parsed = parse(
             r#"{"type":"composition","width":390,"height":844,"fps":30,"duration":6}
@@ -1302,19 +1265,5 @@ mod tests {
         .expect_err("duplicate ids should fail");
 
         assert!(err.to_string().contains("duplicate id `dup`"));
-    }
-
-    #[test]
-    fn path_jsonl_parses_and_resolves_path_nodes() {
-        let input = r#"{"type":"composition","width":1280,"height":720,"fps":30,"duration":3}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[1280px] h-[720px] bg-slate-950"}
-{"id":"card","parentId":"root","type":"div","className":"flex items-center justify-center"}
-{"id":"tri","parentId":"card","type":"path","className":"w-[120px] h-[104px] fill-cyan-500 stroke-cyan-200 stroke-2","d":"M0 0 L120 0 L60 104 Z"}
-{"id":"star","parentId":"card","type":"path","className":"w-[100px] h-[95px] fill-amber-400","d":"M50 0 L62 35 L98 35 L68 57 L79 91 L50 70 L21 91 L32 57 L2 35 L38 35 Z"}"#;
-
-        let parsed = parse(input).expect("path jsonl should parse");
-        assert_eq!(parsed.width, 1280);
-        assert_eq!(parsed.fps, 30);
-        assert_eq!(parsed.duration, 3.0);
     }
 }

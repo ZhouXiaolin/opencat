@@ -28,6 +28,8 @@ pub struct DisplayNode {
     pub opacity: f32,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    /// CSS `backdrop-filter` 的非 blur 算子（blur 走 `backdrop_blur_sigma`）。
+    pub backdrop_filter: CssFilter,
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,

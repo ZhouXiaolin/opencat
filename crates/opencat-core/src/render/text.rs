@@ -360,11 +360,7 @@ fn render_text_with_unit_overrides(
     );
 
     let base_rgba = super::helpers::color_token_to_rgba(&item.style.color);
-    let text_align = if item.allow_wrap {
-        item.style.text_align
-    } else {
-        TextAlign::Left
-    };
+    let text_align = item.style.text_align;
     let units = describe_text_unit_ranges(&rendered, batch.granularity);
 
     for (index, unit_range) in units.into_iter().enumerate() {

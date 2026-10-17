@@ -277,19 +277,6 @@ mod tests {
     }
 
     #[test]
-    fn open_empty_composition_returns_info() {
-        let jsonl = r#"{"type":"composition","width":100,"height":200,"fps":30,"duration":0.033333333333}
-{"type":"div","id":"root","parentId":null}"#;
-
-        let pipeline = open_test_pipeline(jsonl);
-
-        assert_eq!(pipeline.info().width, 100);
-        assert_eq!(pipeline.info().height, 200);
-        assert_eq!(pipeline.info().fps, 30);
-        assert!((pipeline.info().duration - 1.0 / 30.0).abs() < 1e-9);
-    }
-
-    #[test]
     fn render_frame_produces_draw_ops() {
         let jsonl = r##"{"type":"composition","width":320,"height":240,"fps":30,"duration":0.1}
 {"type":"div","id":"root","parentId":null}

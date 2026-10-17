@@ -89,13 +89,18 @@ pub(crate) fn save_composite_layer(
     builder: &mut DrawOpBuilder,
     opacity: f32,
     css_filter: &CssFilter,
+    backdrop_filter: &CssFilter,
     backdrop_blur: Option<f32>,
     bounds: DisplayRect,
     backdrop_bounds: DisplayRect,
     backdrop_radius: BorderRadius,
 ) -> BackdropLayerState {
+    // `backdrop-filter` 生效条件：blur sigma 或非 blur 算子任一存在。
+    let backdrop_sigma = backdrop_blur.filter(|sigma| *sigma > 0.0);
+    let uses_backdrop_filter = !backdrop_filter.is_identity();
     let uses_css_filter = !css_filter.is_identity();
-    let uses_layer = opacity < 1.0 || backdrop_blur.is_some() || uses_css_filter;
+    let uses_layer =
+        opacity < 1.0 || backdrop_sigma.is_some() || uses_backdrop_filter || uses_css_filter;
     let mut has_backdrop_clip = false;
     if uses_layer {
         #[cfg(feature = "profile")]
@@ -111,23 +116,28 @@ pub(crate) fn save_composite_layer(
         // The stored value carries the CSS `backdrop-filter: blur(R)` radius —
         // same Gaussian sigma = R semantics as `filter: blur()` (see
         // `css_filter_image_filter`); pass through to Skia unchanged.
-        if let Some(sigma) = backdrop_blur.filter(|sigma| *sigma > 0.0) {
-            let image_filter = match super::helpers::css_filter_image_filter(css_filter) {
-                Some(css_image_filter) => ImageFilterSpec::Compose(
-                    Box::new(css_image_filter),
-                    Box::new(ImageFilterSpec::Blur {
-                        sigma_x: sigma,
-                        sigma_y: sigma,
-                        crop_rect: None,
-                        decal: false,
-                    }),
-                ),
-                None => ImageFilterSpec::Blur {
-                    sigma_x: sigma,
-                    sigma_y: sigma,
-                    crop_rect: None,
-                    decal: false,
-                },
+        if backdrop_sigma.is_some() || uses_backdrop_filter {
+            // CSS applies `backdrop-filter` functions in declaration order;
+            // Skia's `Compose(outer, inner)` runs `inner` first, so blur is
+            // the inner filter and the non-blur ops (folded in declaration
+            // order by `css_filter_image_filter`) wrap around it. The
+            // element's own `filter` must not touch the backdrop, so only
+            // `backdrop_filter` feeds this chain.
+            let blur_filter = backdrop_sigma.map(|sigma| ImageFilterSpec::Blur {
+                sigma_x: sigma,
+                sigma_y: sigma,
+                crop_rect: None,
+                decal: false,
+            });
+            let color_filter_chain = super::helpers::css_filter_image_filter(backdrop_filter);
+            let image_filter = match (blur_filter, color_filter_chain) {
+                (Some(blur), Some(chain)) => {
+                    ImageFilterSpec::Compose(Box::new(chain), Box::new(blur))
+                }
+                (Some(blur), None) => blur,
+                (None, Some(chain)) => chain,
+                // 入口条件已排除两者皆空。
+                (None, None) => unreachable!("backdrop layer without any backdrop filter"),
             };
             let paint = PaintSpec {
                 fill: FillSpec::Solid([1.0, 1.0, 1.0, opacity]),
@@ -215,6 +225,7 @@ struct ApplyPlan<'a> {
     transform: &'a DisplayTransform,
     opacity: f32,
     css_filter: &'a CssFilter,
+    backdrop_filter: &'a CssFilter,
     backdrop_blur_sigma: Option<f32>,
     backdrop_border_radius: BorderRadius,
     layer_bounds: DisplayRect,
@@ -226,6 +237,7 @@ impl<'a> ApplyPlan<'a> {
             transform: draw.transform,
             opacity: draw.opacity,
             css_filter: draw.css_filter,
+            backdrop_filter: draw.backdrop_filter,
             backdrop_blur_sigma: draw.backdrop_blur_sigma,
             backdrop_border_radius: draw.backdrop_border_radius,
             layer_bounds,
@@ -238,11 +250,14 @@ struct ApplyFrame {
 }
 
 fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
+    let uses_backdrop_filter = !plan.backdrop_filter.is_identity();
     BackdropLayerState {
         uses_layer: plan.opacity < 1.0
             || plan.backdrop_blur_sigma.is_some()
+            || uses_backdrop_filter
             || !plan.css_filter.is_identity(),
-        has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0),
+        has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0)
+            || uses_backdrop_filter,
     }
 }
 
@@ -253,6 +268,7 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
         builder,
         plan.opacity,
         plan.css_filter,
+        plan.backdrop_filter,
         plan.backdrop_blur_sigma,
         plan.layer_bounds,
         plan.transform.bounds,
@@ -868,6 +884,7 @@ mod tests {
             opacity: 1.0,
             css_filter: Default::default(),
             backdrop_blur_sigma: None,
+            backdrop_filter: Default::default(),
             paint_clip: None,
             clip: None,
             item: DisplayItem::Rect(RectDisplayItem {
@@ -923,11 +940,13 @@ mod tests {
         };
         transform.bounds = bounds;
         let css_filter = CssFilter::default();
+        let backdrop_filter = CssFilter::default();
 
         let plan = ApplyPlan {
             transform: &transform,
             opacity: 0.5,
             css_filter: &css_filter,
+            backdrop_filter: &backdrop_filter,
             backdrop_blur_sigma: None,
             backdrop_border_radius: Default::default(),
             layer_bounds: bounds,
@@ -969,11 +988,13 @@ mod tests {
         };
         let mut css_filter = crate::style::CssFilter::default();
         css_filter.set_property("brightness", 0.5);
+        let backdrop_filter = crate::style::CssFilter::default();
         let plan = ApplyPlan {
             transform: &transform,
             opacity: 1.0,
             backdrop_blur_sigma: None,
             css_filter: &css_filter,
+            backdrop_filter: &backdrop_filter,
             backdrop_border_radius: Default::default(),
             layer_bounds: bounds,
         };
@@ -1017,10 +1038,12 @@ mod tests {
             height: 10.0,
         };
         let css_filter = CssFilter::default();
+        let backdrop_filter = CssFilter::default();
         let plan = ApplyPlan {
             transform: &transform,
             opacity: 0.75,
             css_filter: &css_filter,
+            backdrop_filter: &backdrop_filter,
             backdrop_blur_sigma: None,
             backdrop_border_radius: Default::default(),
             layer_bounds: bounds,

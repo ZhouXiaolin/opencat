@@ -240,6 +240,7 @@ impl Hash for ApplyInputLocal<'_> {
         F32Hash(visual.transform_origin.y).hash(state);
         visual.css_filter.hash(state);
         visual.backdrop_blur_sigma.map(F32Hash).hash(state);
+        visual.backdrop_filter.hash(state);
     }
 }
 

@@ -1,0 +1,12 @@
+{
+  "name": "opencat",
+  "private": true,
+  "description": "JSX class → 标准 CSS 的 tailwindcss 构建管线（bun + @tailwindcss/cli）",
+  "scripts": {
+    "build:css": "bash scripts/build-css.sh"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "tailwindcss": "^4"
+  }
+}

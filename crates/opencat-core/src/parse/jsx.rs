@@ -59,7 +59,28 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         .map(serde_json::from_value::<JsonLine>)
         .collect::<std::result::Result<Vec<_>, serde_json::Error>>()?;
 
-    crate::parse::elements::composition_from_lines(jsonl_lines, base_dir, Some(&font_manifest))
+    // `export const css = \`...\``（bun tailwindcss 编译产物或手写样式表）：
+    // 提供时整个 class 解析走标准 CSS 引擎，否则维持 tailwind 匹配器。
+    let css_engine = match extract.get("css").and_then(Value::as_str) {
+        Some(css_text) => Some(crate::css::CssEngine::from_css_text(
+            css_text,
+            crate::css::EvalContext {
+                viewport: (
+                    meta_f64(&meta, "width", 1920.0) as f32,
+                    meta_f64(&meta, "height", 1080.0) as f32,
+                ),
+                rem_base: 16.0,
+            },
+        )?),
+        None => None,
+    };
+
+    crate::parse::elements::composition_from_lines(
+        jsonl_lines,
+        base_dir,
+        Some(&font_manifest),
+        css_engine.as_ref(),
+    )
 }
 
 /// `export const audio = [{ id, path | url, duration? }]` — a global audio

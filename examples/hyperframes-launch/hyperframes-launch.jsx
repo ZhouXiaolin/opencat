@@ -58,11 +58,11 @@ function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
    (track 1099px, glass-intro.html:722-728). */
 function PlayerBar({ id, left, w, track, time0 }) {
   return (
-    <div id={id} class={'absolute top-[930px] left-[' + left + '] w-[' + w + '] h-[28px] flex items-center gap-[18px] opacity-0'}>
+    <div id={id} class={'absolute top-[930px] left-[' + left + 'px] w-[' + w + 'px] h-[28px] flex items-center gap-[18px] opacity-0'}>
       <div id={id + '-icon'} class="relative w-[22px] h-[22px] shrink-0">
         <path view-box="0 0 22 22" d="M5 3.5 L18 11 L5 18.5 Z" class="absolute left-0 top-0 w-[22px] h-[22px] fill-[rgba(255,255,255,0.92)]" />
       </div>
-      <div id={id + '-track'} class={'relative h-[3px] rounded-[2px] bg-[rgba(255,255,255,0.28)] w-[' + track + ']'}>
+      <div id={id + '-track'} class={'relative h-[3px] rounded-[2px] bg-[rgba(255,255,255,0.28)] w-[' + track + 'px]'}>
         <div id={id + '-fill'} class="absolute left-0 top-0 w-0 h-full rounded-[2px] bg-white"></div>
         <div id={id + '-scrub'} class="absolute left-0 top-[-4.5px] w-[12px] h-[12px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]"></div>
       </div>
@@ -1421,7 +1421,7 @@ function Engine() {
             <text class={TITLE}>Agent</text>
             <text class={SUB}>writes HTML</text>
           </div>
-          <path id="en-flow1" view-box="0 0 4 700" d="M2 0L2 700" class="absolute left-[958px] top-[920px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] stroke-dasharray-[700] stroke-dashoffset-[700]" />
+          <path id="en-flow1" view-box="0 0 4 700" d="M2 0L2 700" class="absolute left-[958px] top-[920px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
           <div id="en-pip1" class="absolute left-[950px] top-[1610px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
 
           {/* STEP 2 — Renderer */}
@@ -1441,7 +1441,7 @@ function Engine() {
             <text class={TITLE}>Renderer</text>
             <text class={SUB}>captures every frame</text>
           </div>
-          <path id="en-flow2" view-box="0 0 4 700" d="M2 0L2 700" class="absolute left-[958px] top-[2380px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] stroke-dasharray-[700] stroke-dashoffset-[700]" />
+          <path id="en-flow2" view-box="0 0 4 700" d="M2 0L2 700" class="absolute left-[958px] top-[2380px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
           <div id="en-pip2" class="absolute left-[950px] top-[3070px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
 
           {/* STEP 3 — MP4 */}

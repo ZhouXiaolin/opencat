@@ -153,6 +153,8 @@ pub struct ComputedVisualStyle {
     pub border_style: Option<crate::style::BorderStyle>,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    /// CSS `backdrop-filter` 的非 blur 算子（blur 走 `backdrop_blur_sigma`）。
+    pub backdrop_filter: CssFilter,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
     pub clip_path: Option<ClipPath>,

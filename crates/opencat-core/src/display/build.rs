@@ -394,6 +394,7 @@ fn assemble_display_node(
         opacity: element.style.visual.opacity,
         css_filter: element.style.visual.css_filter.clone(),
         backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
+        backdrop_filter: element.style.visual.backdrop_filter.clone(),
         paint_clip,
         clip,
         item,
@@ -913,81 +914,6 @@ mod tests {
                 bottom_left: 12.0,
             }
         );
-    }
-
-    #[test]
-    fn build_display_tree_preserves_sorted_children() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 100,
-            height: 100,
-            frames: 1,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-        let parsed = crate::parse::elements::parse_lines_for_tests(
-            r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
-{"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"late","parentId":"root","type":"text","className":"text-[12px] z-10","text":"late"}
-{"id":"early","parentId":"root","type":"text","className":"text-[12px]","text":"early"}"#,
-            None,
-        )
-        .expect("jsonl should parse");
-        let resolved = resolve_ui_tree(
-            &parsed.root,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("tree should resolve");
-        let layout_tree = LayoutTree {
-            root: simple_layout(
-                "root",
-                LayoutRect {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 100.0,
-                    height: 100.0,
-                },
-                vec![
-                    simple_layout(
-                        "late",
-                        LayoutRect {
-                            x: 1.0,
-                            y: 0.0,
-                            width: 10.0,
-                            height: 10.0,
-                        },
-                        Vec::new(),
-                    ),
-                    simple_layout(
-                        "early",
-                        LayoutRect {
-                            x: 2.0,
-                            y: 0.0,
-                            width: 10.0,
-                            height: 10.0,
-                        },
-                        Vec::new(),
-                    ),
-                ],
-            ),
-        };
-
-        let tree = build_display_tree(&resolved, &layout_tree, &frame_ctx)
-            .expect("display tree should build");
-        let texts = tree
-            .root
-            .children
-            .iter()
-            .map(|node| match &node.item {
-                DisplayItem::Text(text) => text.text.as_str(),
-                _ => panic!("expected text item"),
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(texts, vec!["early", "late"]);
     }
 
     #[test]

@@ -36,6 +36,7 @@ pub struct AnnotatedDisplayNode {
     pub opacity: f32,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    pub backdrop_filter: CssFilter,
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
@@ -58,6 +59,8 @@ pub struct DrawCompositeSemantics<'a> {
     pub opacity: f32,
     pub css_filter: &'a CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    /// Non-blur ops of CSS `backdrop-filter` (blur rides `backdrop_blur_sigma`).
+    pub backdrop_filter: &'a CssFilter,
     /// The node's own border-box radius — CSS clips a backdrop-filter to the
     /// rounded border box, so the filtered backdrop needs it at draw time.
     pub backdrop_border_radius: BorderRadius,
@@ -126,6 +129,7 @@ impl AnnotatedDisplayNode {
             opacity: self.opacity,
             css_filter: &self.css_filter,
             backdrop_blur_sigma: self.backdrop_blur_sigma,
+            backdrop_filter: &self.backdrop_filter,
             backdrop_border_radius,
         }
     }
@@ -180,6 +184,7 @@ fn annotate_display_node(
         opacity: node.opacity,
         css_filter: node.css_filter.clone(),
         backdrop_blur_sigma: node.backdrop_blur_sigma,
+        backdrop_filter: node.backdrop_filter.clone(),
         paint_clip: node.paint_clip.clone(),
         clip: node.clip.clone(),
         item: node.item.clone(),

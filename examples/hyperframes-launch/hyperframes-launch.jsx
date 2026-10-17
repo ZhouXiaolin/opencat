@@ -34,13 +34,13 @@ export const fonts = {
     { id: 'hf-serif', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Regular.ttf' },
     { id: 'hf-serif-it', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Italic.ttf' },
     { id: 'hf-eb-it', family: 'Times New Roman', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
-    { id: 'hf-cg-it', family: 'Times New Roman', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
+    { id: 'hf-cg-it', family: 'Cormorant Garamond', path: 'assets/fonts/CormorantGaramond-MediumItalic.ttf' },
     { id: 'hf-geist', family: 'Segoe UI', path: 'assets/fonts/SegoeUI.ttf' },
     { id: 'hf-geist-semi', family: 'Segoe UI', path: 'assets/fonts/SegoeUI-Bold.ttf' },
     { id: 'hf-grotesk', family: 'Segoe UI', path: 'assets/fonts/SegoeUI.ttf' },
     { id: 'hf-grotesk-bold', family: 'Segoe UI', path: 'assets/fonts/SegoeUI-Bold.ttf' },
     { id: 'hf-azeret', family: 'Consolas', path: 'assets/fonts/Consolas.ttf' },
-    { id: 'hf-bebas', family: 'Impact', path: 'assets/fonts/Impact.ttf' },
+    { id: 'hf-bebas', family: 'Bebas Neue', path: 'assets/fonts/BebasNeue-Regular.ttf' },
   ],
 };
 
@@ -64,7 +64,7 @@ function PlayerBar({ id, left, w, track, time0 }) {
       </div>
       <div id={id + '-track'} class="relative h-[3px] rounded-[2px] bg-[rgba(255,255,255,0.28)]" style={'width:' + track + 'px'}>
         <div id={id + '-fill'} class="absolute left-0 top-0 w-0 h-full rounded-[2px] bg-white"></div>
-        <div id={id + '-scrub'} class="absolute left-0 top-[-4.5px] w-[12px] h-[12px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]"></div>
+        <div id={id + '-scrub'} class="absolute left-[-6px] top-[-4.5px] w-[12px] h-[12px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]"></div>
       </div>
       <text id={id + '-time'} class="w-[110px] text-right text-[20px] leading-none tracking-[0.02em] opacity-[0.85] font-[hf-inter-med] text-[rgba(255,255,255,0.92)]">{time0}</text>
     </div>
@@ -177,7 +177,7 @@ function Beat2() {
     <div id="gi-beat2" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
       <video id="gi-bg-video" path="assets/bg.mp4" data-start="0" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
       <div id="gi-zoom-b2" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
-        <div id="gi-frame" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
+        <div id="gi-frame" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] backdrop-saturate-[1.12] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
         <div id="gi-figma-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
           <video id="gi-figma-video" path="assets/figma-promo.mp4" data-start="0" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
         </div>
@@ -215,7 +215,7 @@ function Beat3() {
     <div id="gi-beat3" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
       <video id="gi-bg-video2" path="assets/bg-2.mp4" data-start="0" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
       <div id="gi-zoom-b3" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
-        <div id="gi-frame2" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
+        <div id="gi-frame2" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] backdrop-saturate-[1.12] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
         <div id="gi-spotify-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
           <video id="gi-spotify-video" path="assets/spotify-bento.mp4" data-start="0" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
         </div>
@@ -261,8 +261,9 @@ function Beat4() {
     tl.fromTo('gi-bar4-icon', { scale: 1.02 }, { scale: 1, duration: 0.2, ease: 'power2.out' }, 1.47);
     tl.fromTo('gi-cursor', { opacity: 1 }, { opacity: 0, duration: 0.05, ease: 'none' }, 1.55);
 
-    /* ── master 7.20: full-frame scale-up (wrapper origin IS the centre) ── */
-    tl.fromTo('gi-zoom-b4', { scale: 1, y: 0 }, { scale: 1.4248, y: 62, duration: 0.4, ease: 'power3.out' }, 1.6);
+    /* ── master :797-812 — only #beat4-wrap scales up; #frame-3 stays put
+       (the wrap covers it once it fills the canvas). ── */
+    tl.fromTo('gi-beat4-wrap', { scale: 1, y: 0 }, { scale: 1.4248, y: 62, duration: 0.4, ease: 'power3.out' }, 1.6);
     tl.fromTo('gi-beat4-wrap', { borderRadius: 40 }, { borderRadius: 0, duration: 0.4, ease: 'power3.out' }, 1.6);
     tl.set('gi-bar4', { opacity: 0 }, 1.6);
     tl.set('gi-beat4-lastframe', { opacity: 1 }, 10.44);
@@ -315,8 +316,8 @@ function Beat4() {
       </div>
 
       <div id="gi-zoom-b4" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
-        <div id="gi-frame3" class="absolute left-[236.5px] top-[67.5px] w-[1447px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
-        <div id="gi-beat4-wrap" class="absolute left-[286.5px] top-[117.5px] w-[1347px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
+        <div id="gi-frame3" class="absolute left-[236.5px] top-[67.5px] w-[1447px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] backdrop-saturate-[1.12] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
+        <div id="gi-beat4-wrap" class="absolute left-[286.5px] top-[117.5px] w-[1347px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)] [transform-origin:50%_55.74%]">
           <image id="gi-beat4-poster" path="assets/beat4-poster.jpg" class="absolute left-0 top-0 w-full h-full object-cover" />
           <video id="gi-beat4-video" path="assets/beat4-clip.mp4" data-start="1.5" data-duration="11.14" data-media-start="0" class="w-full h-full object-cover" />
           <image id="gi-beat4-lastframe" path="assets/beat4-lastframe.jpg" class="absolute left-0 top-0 w-full h-full object-cover opacity-0" />
@@ -921,9 +922,14 @@ function FlexThreejs() {
     }
     var formY = new T3.Group();
     formY.add(formX);
-    /* The CSS stage sits at top:42% -> screen y 453.6; world y is up, so the
-       form's pivot (the stage point) is at world y = 540 - 453.6 = 86.4. */
-    formY.position.set(0, 86.4, 0);
+    /* The CSS stage (top:42%, width/height:0, perspective-origin:50% 50%)
+       fixes the vanishing point at screen (960, 453.6) — 86.4px above the
+       canvas centre. A world-space lift is NOT equivalent: the perspective
+       divide scales it by 900/(900−z), which rubber-sheets the form by
+       ±38px across its depth range. Keep the form on the camera axis and
+       shift the whole rendered image up instead (see the canvas offset in
+       the markup) — a principal-point shift, which is constant per pixel. */
+    formY.position.set(0, 0, 0);
     scene.add(formY);
 
     /* GSAP form rotation: Ry(-30 -> 310) sine.inOut over 1.2s, Rx(25 -> 10)
@@ -942,7 +948,7 @@ function FlexThreejs() {
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_35%,rgba(255,245,230,0.6)_0%,transparent_50%),radial-gradient(ellipse_at_50%_50%,#f0ebe3_0%,#e4ddd2_100%)]"></div>
       <div class="absolute left-[672px] top-[162px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(255,235,200,0.25)_0%,transparent_60%)]"></div>
       <div id="ft-shadow" class="absolute left-[780px] top-[680px] w-[360px] h-[50px] rounded-full bg-[radial-gradient(ellipse,rgba(80,60,40,0.18)_0%,transparent_70%)]"></div>
-      <canvas id="ft-canvas" ref={canvas} class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
+      <canvas id="ft-canvas" ref={canvas} class="absolute left-0 top-0 w-[1920px] h-[1080px]" style="top:-86.4px" />
       <div class="absolute left-0 bottom-[140px] w-full flex justify-center">
         <text id="ft-label" class="text-[64px] leading-none tracking-[0.02em] italic font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
       </div>
@@ -1378,17 +1384,17 @@ function Engine() {
           <div class="w-[288px] h-[14px] rounded-[7px] bg-[#E07A5F] mb-[28px]"></div>
           <div class="flex items-center gap-[16px] mb-[20px]">
             <div class="w-[32px] h-[32px] rounded-[6px] bg-[#81B29A] shrink-0"></div>
-            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[411px]"></div>
+            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[432px]"></div>
           </div>
           <div class="flex items-center gap-[16px] mb-[20px]">
             <div class="w-[32px] h-[32px] rounded-full bg-[#F2CC8F] shrink-0"></div>
-            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[301.6px]"></div>
+            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[316.8px]"></div>
           </div>
           <div class="flex items-center gap-[16px] mb-[20px]">
             <div class="relative w-[32px] h-[28px] shrink-0">
               <path view-box="0 0 32 28" d="M16 0L32 28L0 28Z" class="absolute left-0 top-0 w-[32px] h-[28px] fill-[#E07A5F]" />
             </div>
-            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[356.4px]"></div>
+            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[374.4px]"></div>
           </div>
           <div class="mt-[20px] h-[24px] rounded-[4px] bg-[repeating-linear-gradient(90deg,rgba(255,255,255,0.08)_0px,rgba(255,255,255,0.08)_6px,transparent_6px,transparent_10px)]"></div>
         </div>
@@ -1570,7 +1576,7 @@ function Cta() {
 
   return (
     <div id="cta-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f7f3eb]">
-      <div class="absolute inset-0 bg-[linear-gradient(160deg,#f7f3eb_0%,#efe9dd_100%)]"></div>
+      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_40%,rgba(255,252,240,0.7)_0%,transparent_50%),linear-gradient(160deg,#f7f3eb_0%,#efe9dd_100%)]"></div>
       <div id="cta-wrap" class="absolute left-[120px] top-[60px] w-[1680px] h-[960px] rounded-[20px] bg-white shadow-[0_24px_80px_rgba(60,50,30,0.12),0_4px_16px_rgba(60,50,30,0.06)] overflow-hidden flex flex-col">
         {/* toolbar */}
         <div class="h-[52px] shrink-0 bg-[#faf8f4] border-b border-[#e8e2d6] flex items-center gap-[8px] px-[20px]">
@@ -1581,7 +1587,10 @@ function Cta() {
         </div>
         <div class="flex-1 flex overflow-hidden">
           {/* left terminal */}
-          <div class="w-[600px] shrink-0 border-r border-[#e8e2d6] pt-[40px] pb-[40px] pl-[36px] pr-[36px] flex flex-col overflow-hidden">
+          {/* 原版 cta.html 无 box-sizing 声明，`.cta-left { width:600px; padding:40px 36px }`
+              按 content-box 解析成 672px 外宽。tailwind preflight 把 * 设成
+              border-box，这里必须显式还原，否则左栏窄 72px。 */}
+          <div class="w-[600px] shrink-0 border-r border-[#e8e2d6] pt-[40px] pb-[40px] pl-[36px] pr-[36px] flex flex-col overflow-hidden" style="box-sizing:content-box">
             <div class="flex items-center gap-[10px] h-[40px] shrink-0">
               <div class="relative w-[10px] h-[18px] mr-[8px] shrink-0">
                 <path view-box="0 0 10 18" d="M1 1l8 8-8 8" class="absolute left-0 top-0 w-[10px] h-[18px] fill-none stroke-[#81B29A] stroke-[2.5]" />
@@ -1591,14 +1600,14 @@ function Cta() {
             </div>
             <div class="flex flex-col gap-[4px] pt-[12px] pb-[16px] pl-[28px]">
               <text id="sl-1" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">Creating project structure...</text>
-              <text id="sl-2" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">{"  index.html"}</text>
-              <text id="sl-3" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">{"  meta.json"}</text>
-              <text id="sl-4" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">{"  compositions/"}</text>
+              <text id="sl-2" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">index.html</text>
+              <text id="sl-3" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">meta.json</text>
+              <text id="sl-4" class="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">compositions/</text>
               <div id="sl-5" class="flex items-center text-[15px] leading-[1.6]">
                 <div class="relative w-[11px] h-[11px] mr-[6px] shrink-0">
                   <path view-box="0 0 12 12" d="M1.5 6.5l3 3 6-7" class="absolute left-0 top-0 w-[11px] h-[11px] fill-none stroke-[#81B29A] stroke-[2]" />
                 </div>
-                <text class="font-[hf-jbm] text-[#8a7e6a]">Project initialized</text>
+                <text class="font-[hf-jbm] text-[#8a7e6a]">{" Project initialized"}</text>
               </div>
             </div>
             <div id="cta-line-2" class="mt-[8px] flex items-center gap-[10px] h-[40px] shrink-0">
@@ -1968,7 +1977,10 @@ function CCpaintBolt(boltData, bb, mega, superMega) {
 }
 
 /* render one frame into the surface, then draw it onto the stage canvas
-   (canvas-close.html:381-510; fillText baseline = top + 13px ascent) */
+   (canvas-close.html:381-510). The reference uses `monospace` at 14px with
+   textBaseline "top"; the surface API only has the alphabetic baseline, so
+   the offset is the ascent of the resolved face (JetBrains Mono at 14px
+   sits 11px above the top edge — 13px was the pre-alignment guess). */
 function ccRender(cv, ctx, t) {
   var surf = ly.surface(1920, 1080);
   surf.font = '400 14px "JetBrains Mono", monospace';
@@ -2073,7 +2085,7 @@ function ccRender(cv, ctx, t) {
         surf.fillStyle = fill;
         lastFill = fill;
       }
-      surf.fillText(CC_GLYPHS[rl], col * CC_CELL_W, row * CC_CELL_H + 13);
+      surf.fillText(CC_GLYPHS[rl], col * CC_CELL_W, row * CC_CELL_H + 11);
     }
   }
 

@@ -1254,9 +1254,6 @@ impl TransformOrigin {
     /// `center` is ambiguous and only resolves positionally), or a length. The second
     /// component, if present, is the vertical anchor. Returns `None` when any token is
     /// unrecognized so the caller can keep default/previous values.
-    ///
-    /// Tailwind encodes whitespace in arbitrary values as `_`, so callers pass the
-    /// already-underscore-decoded string (e.g. `top center`, `50% 50%`).
     pub fn parse(value: &str) -> Option<Self> {
         let tokens: Vec<&str> = value.split_whitespace().collect();
         match tokens.as_slice() {
@@ -1671,6 +1668,9 @@ pub struct NodeStyle {
     pub border_style: Option<BorderStyle>,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    /// CSS `backdrop-filter` 中非 blur 的算子（saturate/brightness/…）。
+    /// blur 不放这里：两遍法需要 `backdrop_blur_sigma` 单独承载，放进来会被应用两次。
+    pub backdrop_filter: CssFilter,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
     pub clip_path: Option<ClipPath>,

@@ -5,8 +5,8 @@
 //! 特化的部分（width/width_percent 二分、text_px 等）按现状适配，待
 //! NodeStyle 归一为标准 CSS 值模型后本模块同步简化。
 //!
-//! sigma 约定与 parse/tailwind.rs 保持一致：box/text-shadow 的 CSS blur
-//! radius 折半，backdrop-filter 的 blur 值直用。
+//! sigma 约定与 `examples/*/tailwind.css` 的语义对齐（浏览器标准）：box/
+//! text-shadow 的 CSS blur radius 折半，backdrop-filter 的 blur 值直用。
 
 use lightningcss::properties::align::{
     AlignContent, AlignItems as CssAlignItems, AlignSelf as CssAlignSelf, ContentDistribution,
@@ -47,7 +47,8 @@ use lightningcss::values::position::{
 
 use crate::canvas::paint::BlendMode;
 use crate::style::{
-    BackgroundFill, BorderRadius, BoxShadow as CatBoxShadow, ColorToken, CssFilter, CssFilterKind,
+    ArbitraryGradient, BackgroundFill, BorderRadius, BoxShadow as CatBoxShadow, ColorToken,
+    CssFilter, CssFilterKind,
     CssFilterOp, FlexDirection, FlexWrap, GenericFamily, GradientDirection, GradientStop,
     InsetShadow, JustifyContent, LengthPercentageAuto, StopUnit, TextAlign,
     TextShadow as CatTextShadow, TextTransform, Transform as CatTransform, TransformOrigin,
@@ -329,9 +330,37 @@ pub fn apply_property(
         Property::BackdropFilter(list, _) => {
             if let FilterList::Filters(filters) = list {
                 for filter in filters {
-                    if let Filter::Blur(radius) = filter {
-                        // 与 tailwind.rs 的 BackdropBlurSigma 约定一致：px 直用。
-                        style.backdrop_blur_sigma = Some(len_to_px(radius, ctx));
+                    match filter {
+                        // 浏览器语义：backdrop-filter 的 blur px 直用。
+                        // blur 单独走 `backdrop_blur_sigma`（两遍法要用 sigma），
+                        // 不进 `backdrop_filter`，否则会被应用两次。
+                        Filter::Blur(radius) => {
+                            style.backdrop_blur_sigma = Some(len_to_px(radius, ctx));
+                        }
+                        // 其余算子按声明顺序折叠进 `backdrop_filter`，由
+                        // `css_filter_image_filter` 在合成层上还原。
+                        Filter::Brightness(n) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::Brightness, number_or_percentage(n)),
+                        Filter::Contrast(n) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::Contrast, number_or_percentage(n)),
+                        Filter::Saturate(n) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::Saturate, number_or_percentage(n)),
+                        Filter::Grayscale(n) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::Grayscale, number_or_percentage(n)),
+                        Filter::Invert(n) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::Invert, number_or_percentage(n)),
+                        Filter::Sepia(n) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::Sepia, number_or_percentage(n)),
+                        Filter::HueRotate(angle) => style
+                            .backdrop_filter
+                            .push(CssFilterKind::HueRotate, angle.to_degrees()),
+                        Filter::DropShadow(_) | Filter::Opacity(_) | Filter::Url(_) => {}
                     }
                 }
             }
@@ -680,7 +709,7 @@ fn apply_border_radius(style: &mut crate::style::NodeStyle, v: &CssBorderRadius,
 fn apply_box_shadow(style: &mut crate::style::NodeStyle, s: &CssBoxShadow, ctx: &EvalContext) {
     let color = color_token(&s.color).unwrap_or(ColorToken::Custom(0, 0, 0, 102));
     // tailwind v4 的 box-shadow var 链给未用分量填 `0 0 #0000` 占位；
-    // alpha 0 无绘制语义，跳过以对齐 tailwind.rs 匹配器的输出。
+    // alpha 0 无绘制语义，跳过（与浏览器对透明阴影的渲染一致）。
     if matches!(color, ColorToken::Custom(_, _, _, 0)) {
         return;
     }
@@ -860,6 +889,28 @@ fn generic_to_cat(generic: &GenericFontFamily) -> Option<GenericFamily> {
         GenericFontFamily::Monospace => GenericFamily::Monospace,
         _ => return None,
     })
+}
+
+/// CSS 里 `background-size` 与 `background-image` 是独立声明，声明顺序不固定
+/// （tailwind 产出的 `bg-[...] bg-[length:...]` 类之间没有顺序保证）。因此
+/// 尺寸不能在 `BackgroundSize` 分支里就地写进渐变，而是在整份声明应用完后
+/// 统一回填：缺 size 的渐变层补上盒子的 tile 尺寸。
+pub fn apply_background_size_to_layers(style: &mut crate::style::NodeStyle) {
+    let Some([w, h]) = style.bg_size else {
+        return;
+    };
+    for layer in &mut style.background_layers {
+        if let BackgroundFill::ArbitraryGradient { gradient } = layer {
+            let size = match gradient {
+                ArbitraryGradient::LinearGradient { size, .. }
+                | ArbitraryGradient::RadialGradient { size, .. }
+                | ArbitraryGradient::Turbulence { size, .. } => size,
+            };
+            if size.is_none() {
+                *size = Some([w, h]);
+            }
+        }
+    }
 }
 
 fn image_to_fill(image: &Image) -> Option<BackgroundFill> {

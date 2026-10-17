@@ -59,8 +59,8 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         .map(serde_json::from_value::<JsonLine>)
         .collect::<std::result::Result<Vec<_>, serde_json::Error>>()?;
 
-    // `export const css = \`...\``（bun tailwindcss 编译产物或手写样式表）：
-    // 提供时整个 class 解析走标准 CSS 引擎，否则维持 tailwind 匹配器。
+    // `export const css = \`...\``（tailwindcss CLI 编译产物或手写样式表）：
+    // class 解析一律走标准 CSS 引擎；没有 css 时用空样式表，等价于无样式。
     let css_engine = match extract.get("css").and_then(Value::as_str) {
         Some(css_text) => Some(crate::css::CssEngine::from_css_text(
             css_text,

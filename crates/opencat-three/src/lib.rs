@@ -1,17 +1,18 @@
-//! opencat-three — 3D 渲染后端（wgpu），engine 与 web（wasm）共用。
+//! opencat-three — engine 侧 3D 渲染后端（wgpu）。
 //!
-//! 对称于 Skia（engine 侧 2D）与 CanvasKit（web 侧 2D），本 crate 是 3D 的
-//! 唯一渲染器：吃 [`scene3::Scene3`]（纯数据快照，定义在 core），吐
-//! straight-alpha RGBA8（`Rgba8Unorm`，未预乘，长度 `w*h*4`）——与
-//! [`opencat_core::ir::generated_image::GeneratedImageEntry`] 的契约一致，
-//! 经 `FrameMediaPlan.generated_images` + `ImageRef::Generated` 进合成。
+//! 对称于 Skia（engine 侧 2D），本 crate 光栅化 [`scene3::Scene3`]（纯数据
+//! 快照，定义在 core），吐 straight-alpha RGBA8（`Rgba8Unorm`，未预乘，长度
+//! `w*h*4`）——与 [`opencat_core::ir::generated_image::GeneratedImageEntry`]
+//! 的契约一致，经占位 `DrawOp::Image{ImageRef::Generated}` 进合成。
 //!
-//! 硬约束：web 走 wgpu 的 WebGPU/WebGL2 后端，**WebGL2 没有 compute 与
-//! SSBO** —— 着色器只允许 uniform buffer，不要引入 storage buffer / compute。
+//! web 侧的 3D 执行器是浏览器里的真 three.js（`three-facade.ts`，钉 r181）：
+//! Scene3 IR 以 three.js 为语义标准，真 three.js 是其原生执行器（GLSL 源
+//! 逐字直喂，绕开 wgpu 的 naga 翻译）。wgpu wasm 化是未来可选项——本 crate
+//! 不依赖任何不可移植 construct，随时可插回；届时恢复约束：**WebGL2 没有
+//! compute 与 SSBO，着色器只允许 uniform buffer**。
 //!
 //! 确定性：同一 [`Scene3`] 在同一后端上逐字节一致（无时间、无 IO、无回调）；
-//! engine 与 web 之间是容差级一致（不同 WGSL 编译器），对齐走 k3diff 的
-//! mae/maxd/p8 指标。
+//! wgpu 与真 three.js 之间是容差级一致，对齐走 k3diff 的 mae/maxd/p8 指标。
 
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex, OnceLock};

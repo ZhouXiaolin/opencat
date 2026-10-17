@@ -1718,6 +1718,7 @@ mod tests {
                 generated_images,
                 ..Default::default()
             },
+            scene3: None,
         }
     }
 

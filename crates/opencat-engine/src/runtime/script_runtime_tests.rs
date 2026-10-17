@@ -12,24 +12,6 @@ use opencat_core::script::{
 
 use crate::js_context::V8JsContext;
 
-/// Scene3Raster 测试桩：不产出真实像素，只验证注入契约（run_frame 会把
-/// 3D 快照转成帧级 generated image + `DrawOp::Image`）。
-struct StubScene3Raster;
-
-impl opencat_core::ir::scene3::Scene3Raster for StubScene3Raster {
-    fn render(
-        &self,
-        _scene: &opencat_core::ir::scene3::Scene3,
-        _geometries: &opencat_core::ir::scene3::GeometryRegistry,
-        width: u32,
-        height: u32,
-    ) -> anyhow::Result<opencat_core::ir::scene3::Rasterized3d> {
-        Ok(opencat_core::ir::scene3::Rasterized3d::cpu(
-            std::sync::Arc::from(vec![0u8; (width as usize) * (height as usize) * 4]),
-        ))
-    }
-}
-
 fn open_with_source(source: &str) -> (ScriptRealm<V8JsContext>, ScriptDriverId) {
     let mut realm = ScriptRealm::<V8JsContext>::open().expect("script realm should open");
     let driver = realm.install(source).expect("install driver");
@@ -898,7 +880,6 @@ fn three_like_api_commits_scene3_snapshot_per_frame() {
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("c3d".to_string());
     realm.set_target_registry(registry);
-    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
 
     let recorder = run_driver(&mut realm, driver, 30, None);
     let snap = recorder.snapshot_mutations();
@@ -910,7 +891,7 @@ fn three_like_api_commits_scene3_snapshot_per_frame() {
     // 渲染目标尺寸随快照提交（Renderer(id, w, h) → Scene3.target）。
     assert_eq!(scene3.target, [320, 180]);
 
-    // 光栅化接通：快照同时变成一帧 generated image + 目标 canvas 上的
+    // 占位接通：快照同时录一条占位 generated image + 目标 canvas 上的
     // `DrawOp::Image { ImageRef::Generated }`（z 序 = canvas 命令流）。
     let commands = &snap
         .canvas_mutations
@@ -930,14 +911,22 @@ fn three_like_api_commits_scene3_snapshot_per_frame() {
         }
         other => panic!("expected DrawOp::Image(Generated), got {other:?}"),
     };
-    // 像素落在帧级 generated-image 队列，等 pipeline 取走进表。
+    // 占位条目落在帧级 generated-image 队列，等 pipeline 取走进表；rgba
+    // 为空——3D 不再在 realm 内光栅化，像素由宿主按 Scene3 段回填。
     let drained = realm
         .ctx()
         .with_store_mut(|s| s.take_pending_generated_images());
     assert_eq!(drained.len(), 1, "one pending generated image");
     assert_eq!(drained[0].id, generated_id);
     assert_eq!((drained[0].width, drained[0].height), (320, 180));
-    assert_eq!(drained[0].rgba.len(), 320 * 180 * 4);
+    assert!(drained[0].rgba.is_empty(), "placeholder ships empty rgba");
+
+    // Scene3 段随 RenderFrame 导出：占位 id 对齐，场景即快照本体。
+    let section = ScriptHost::take_scene3_commits(&mut realm)
+        .expect("scene3 section exported with the frame");
+    assert_eq!(section.commits.len(), 1);
+    assert_eq!(section.commits[0].image_id, generated_id);
+    assert_eq!(section.commits[0].scene, *scene3);
 
     // 背景 0x101014：Color.setHex → 线性 working space（ColorManagement.js:205
     // SRGBToLinear）；shim 默认 outputColorSpace=Linear → 清屏原样写线性分量。
@@ -1074,7 +1063,6 @@ fn three_like_api_physical_attenuation_distance_sentinel() {
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("c3d".to_string());
     realm.set_target_registry(registry);
-    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
     let recorder = run_driver(&mut realm, driver, 1, None);
     let scene3 = recorder
         .snapshot_mutations()
@@ -1117,7 +1105,6 @@ fn three_like_api_background_clear_encodes_to_output_space() {
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("c3d".to_string());
     realm.set_target_registry(registry);
-    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
 
     let recorder = run_driver(&mut realm, driver, 1, None);
     let scene3 = recorder
@@ -1160,7 +1147,6 @@ fn three_like_gltf_geometry_registers_and_commits_asset_reference() {
     registry.visual_ids.insert("c3d".to_string());
     registry.canvas_ids.insert("c3d".to_string());
     realm.set_target_registry(registry);
-    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
 
     let recorder = run_driver(&mut realm, driver, 1, None);
     let snap = recorder.snapshot_mutations();
@@ -1251,7 +1237,6 @@ fn three_like_shader_material_adapts_glsl_and_commits() {
     registry.visual_ids.insert("c3d".to_string());
     registry.canvas_ids.insert("c3d".to_string());
     realm.set_target_registry(registry);
-    realm.set_scene3_raster(std::sync::Arc::new(StubScene3Raster));
 
     let recorder = run_driver(&mut realm, driver, 2, None);
     let snap = recorder.snapshot_mutations();

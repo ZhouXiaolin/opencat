@@ -172,6 +172,31 @@ impl MutationStore {
         );
     }
 
+    /// Record a scene3 placeholder: the draw op (z-order contract) plus a
+    /// table entry carrying **no pixels** — the executing host rasterizes the
+    /// frame's `RenderFrame.scene3` section (engine → opencat-three, web →
+    /// real three.js) and patches the plan entry before draw execution. Same
+    /// id contract as [`Self::record_frame_generated_image`].
+    pub fn record_frame_generated_image_deferred(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+    ) {
+        self.record_frame_generated_image(
+            node_id,
+            id,
+            x,
+            y,
+            width,
+            height,
+            std::sync::Arc::from(Vec::new()),
+        );
+    }
+
     /// Record a script-generated image whose pixels live on the GPU (the
     /// `ctx.three` render-target path). Same contract as
     /// [`Self::record_frame_generated_image`], except the pixels are carried

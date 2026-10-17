@@ -125,7 +125,11 @@ pub fn render_frame_with_state(
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     generated_images: &mut crate::ir::GeneratedImageTable,
-) -> Result<(DrawOpFrame, FrameMediaPlan)> {
+) -> Result<(
+    DrawOpFrame,
+    FrameMediaPlan,
+    Option<crate::ir::draw_frame::Scene3Section>,
+)> {
     #[cfg(feature = "profile")]
     let _frame_span = span!(
         target: "render.pipeline",
@@ -157,14 +161,24 @@ pub fn render_frame_with_state(
     // / surface auto-bake path). Land them in the pipeline table BEFORE
     // the media plan is built so hosts receive the payloads for this frame.
     for image in script.take_frame_generated_images() {
-        // GPU-resident entries carry no CPU pixels (see `FrameGeneratedImage`).
-        match image.gpu {
-            Some(gpu) => {
+        // GPU-resident entries carry no CPU pixels (see `FrameGeneratedImage`);
+        // scene3 placeholders ship none either — the executing host backfills
+        // both from this frame's render payload before drawing.
+        match (image.gpu, image.rgba.is_empty()) {
+            (Some(gpu), _) => {
                 generated_images.insert_gpu(image.id, image.width, image.height, gpu)?
             }
-            None => generated_images.insert(image.id, image.width, image.height, image.rgba)?,
+            (None, true) => {
+                generated_images.insert_placeholder(image.id, image.width, image.height)?
+            }
+            (None, false) => {
+                generated_images.insert(image.id, image.width, image.height, image.rgba)?
+            }
         }
     }
+    // 3D scene IR section (`ctx.three` commits + placeholder DrawOps already
+    // in the draw stream). Rides `RenderFrame.scene3` to the executing host.
+    let scene3 = script.take_scene3_commits();
     let frame_ctx = evaluation.frame_ctx;
     let element_root = evaluation.element_root;
     let layout_tree = evaluation.layout_tree;
@@ -211,7 +225,7 @@ pub fn render_frame_with_state(
         debug_stack_balance(&frame.ops);
     }
     let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
-    Ok((frame, media_plan))
+    Ok((frame, media_plan, scene3))
 }
 
 /// Debug-only (`OC_DBG_STACK=1`): report the save/restore balance of a

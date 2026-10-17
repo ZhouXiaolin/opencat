@@ -1,10 +1,13 @@
 //! Scene3 — 3D 场景快照（更高层的渲染 IR，与 2D DrawOp IR 并行）。
 //!
 //! 坐标系沿用 three.js 约定：右手系，Y 向上，相机看向 target。
-//! 脚本运行时每帧产出一份纯数据快照；engine 用 wgpu（`opencat-three`）
-//! 光栅化，web 编译同一条 WGSL（WebGPU/WebGL2 后端）。像素输出为
-//! straight-alpha RGBA8，经 [`FrameMediaPlan::generated_images`] +
-//! [`ImageRef::Generated`]（ocir tag 2）进入合成 —— 2D 指令集不新增概念。
+//! 脚本运行时每帧产出一份纯数据快照，跨渲染边界分发（与 DrawOp 同地位）：
+//! native engine 把段交给 `opencat-three`（wgpu）光栅化；web 把同一段交给
+//! 浏览器里的真 three.js（`three-facade.ts`，钉 r181 —— 本 IR 以 three.js
+//! 为语义标准，真 three.js 是其原生执行器；wgpu wasm 化降级为未来可选项，
+//! `Scene3Raster` 契约保留）。像素输出为 straight-alpha RGBA8，经占位
+//! `DrawOp::Image{ImageRef::Generated}`（内容寻址 id `scene3:...`）进入
+//! 合成 —— 2D 指令集不新增概念。
 //!
 //! 这份结构就是「3D 的 IR」：未来若需要二进制编码，编码这份形状，
 //! 而不是反过来改形状迁就编码。

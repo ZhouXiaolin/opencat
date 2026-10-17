@@ -11,7 +11,9 @@
       "default": "./dist/opencat.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build:wasm": "cd .. && wasm-pack build --target web --out-dir web/pkg",
@@ -25,8 +27,12 @@
     "web-demuxer": "^4.0.0"
   },
   "devDependencies": {
+    "@types/three": "^0.181.0",
     "canvaskit-wasm": "^0.41.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
+  },
+  "dependencies": {
+    "three": "^0.181.0"
   }
 }

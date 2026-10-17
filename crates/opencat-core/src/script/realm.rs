@@ -34,10 +34,9 @@ pub struct ScriptRealm<C: JsContext> {
     installed: HashMap<u64, ()>,
     text_sources: HashMap<String, ScriptTextSource>,
     target_registry: Option<ScriptTargetRegistry>,
-    /// 宿主注入的 3D 光栅化器（engine = opencat-three/wgpu，web = 同一
-    /// WGSL 的 wasm 后端）。`None` 时提交 3D 快照的脚本会在 run_frame
-    /// 报错——3D 进不了合成必须显式失败，不能静默吐黑帧。
-    scene3_raster: Option<std::sync::Arc<dyn crate::ir::scene3::Scene3Raster>>,
+    /// 本帧已导出的 3D 场景 IR 段（`export_scene3_commits` 产出，
+    /// pipeline 经 `take_scene3_commits` 取走装入 `RenderFrame.scene3`）。
+    pending_scene3: Option<crate::ir::draw_frame::Scene3Section>,
     /// 文档 base 目录（宿主 = XML 所在目录）：`GLTFGeometry` 等相对路径的
     /// join 基准——three.js `GLTFLoader` 相对 URL 对 import.meta.url 解析
     /// （参考 js:40 `new URL(prismUrl, import.meta.url)`）的 opencat 对应物。
@@ -52,17 +51,9 @@ impl<C: JsContext> ScriptRealm<C> {
             installed: HashMap::new(),
             text_sources: HashMap::new(),
             target_registry: None,
-            scene3_raster: None,
+            pending_scene3: None,
             document_base: None,
         })
-    }
-
-    /// 注入 3D 光栅化器（宿主在 open pipeline 之后、首帧渲染之前调用一次）。
-    pub fn set_scene3_raster(
-        &mut self,
-        raster: std::sync::Arc<dyn crate::ir::scene3::Scene3Raster>,
-    ) {
-        self.scene3_raster = Some(raster);
     }
 
     /// 注入文档 base 目录（XML 所在目录）：脚本内相对资产路径
@@ -73,6 +64,13 @@ impl<C: JsContext> ScriptRealm<C> {
         if self.runtime_installed {
             let _ = self.ctx.set_ctx_field("__documentBase", json!(base));
         }
+    }
+
+    /// Realm 级 3D 几何注册表快照（Arc 克隆）：`RenderFrame.scene3` 里
+    /// `Geometry3::Asset { id }` 的解析来源。注册表随 pipeline 常驻
+    /// （不逐帧清空），web 宿主可按 id 懒取。
+    pub fn geometry_registry(&mut self) -> crate::ir::scene3::GeometryRegistry {
+        self.ctx.with_store_mut(|s| s.geometry_registry())
     }
 
     /// Build a realm from a freshly constructed backend context.
@@ -299,12 +297,12 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             self.ctx.call_global_fn("__opencatFlushTimelines")?;
         }
 
-        // three-like shim 每帧全量重提交的 3D 快照：在快照进 mutation 流之前
-        // 光栅化为帧级 generated image，并给目标 canvas 录入对应的
-        // `DrawOp::Image { ImageRef::Generated }`——像素经
-        // `FrameMediaPlan::generated_images` 进合成（z 序 = canvas 命令流位置，
-        // 与 2D 绘制同机制）。快照本身保留（scene3_mutations 语义不变）。
-        self.rasterize_scene3_snapshots()?;
+        // three-like shim 每帧全量重提交的 3D 快照：导出为帧级 scene3 IR 段
+        // （纯声明，随 `RenderFrame.scene3` 跨边界），并在目标 canvas 录入占位
+        // `DrawOp::Image { ImageRef::Generated }`——z 序 = canvas 命令流位置，
+        // 像素/句柄由执行宿主（engine = opencat-three，web = 真 three.js）
+        // 回填进 `FrameMediaPlan::generated_images` 的同名占位条目。
+        self.pending_scene3 = self.export_scene3_commits()?;
 
         // Consuming transfer: the store's frame-level mutations move out
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
@@ -321,6 +319,10 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
 
     fn take_frame_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
         self.ctx.with_store_mut(|s| s.take_pending_generated_images())
+    }
+
+    fn take_scene3_commits(&mut self) -> Option<crate::ir::draw_frame::Scene3Section> {
+        self.pending_scene3.take()
     }
 
     fn set_style_defaults(
@@ -353,60 +355,49 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
 }
 
 impl<C: JsContext> ScriptRealm<C> {
-    /// Rasterize every scene3 snapshot committed this frame into a frame
-    /// generated image + one `DrawOp::Image` on the target canvas.
-    fn rasterize_scene3_snapshots(&mut self) -> Result<()> {
+    /// Export every scene3 snapshot committed this frame as the frame's 3D IR
+    /// section, and record one placeholder `DrawOp::Image` on the target
+    /// canvas (z-order = canvas command-stream position). Pixels are NOT
+    /// produced here: the executing host rasterizes `RenderFrame.scene3`
+    /// (engine → opencat-three, web → real three.js) and patches the matching
+    /// `FrameMediaPlan::generated_images` placeholder entries.
+    ///
+    /// Placeholder ids are IR-content-addressed (`scene3:{target}:{hash}` of
+    /// the canonical snapshot JSON): a static scene keeps its id across frames
+    /// (table idempotency), an animated one gets a fresh id per content.
+    fn export_scene3_commits(&mut self) -> Result<Option<crate::ir::draw_frame::Scene3Section>> {
         let scenes = self.ctx.with_store_mut(|s| s.take_scene3s());
         if scenes.is_empty() {
-            return Ok(());
+            return Ok(None);
         }
         // 几何注册表轻量快照（Arc 克隆）：`Asset { id }` 的解析来源。
         let geometries = self.ctx.with_store_mut(|s| s.geometry_registry());
-        let Some(raster) = self.scene3_raster.clone() else {
-            let ids: Vec<&str> = scenes.keys().map(String::as_str).collect();
-            return Err(anyhow!(
-                "script committed a 3D scene to {ids:?} but no Scene3Raster is \
-                 configured; hosts must inject one (opencat-three) before rendering"
-            ));
-        };
+        let mut commits = Vec::with_capacity(scenes.len());
         for (id, scene) in &scenes {
             let (width, height) = (scene.target[0], scene.target[1]);
-            let rasterized = raster.render(scene, &geometries, width, height)?;
-            // 确定性 key：canvas id + 目标尺寸 + 像素内容。同内容同帧幂等，
-            // 异内容碰撞是 hard error（GeneratedImageTable 契约）。
-            // GPU 路径无 CPU 像素：以句柄参与哈希。句柄的 token 每帧唯一
-            //（GL 名会被驱动回收，不能当身份用），所以每帧各得一个 key——
-            // 与 CPU 路径逐帧比较字节的语义一致。
+            let canonical = serde_json::to_vec(scene)?;
             let mut hf = ahash::AHasher::default();
             use std::hash::{Hash, Hasher};
             id.hash(&mut hf);
-            width.hash(&mut hf);
-            height.hash(&mut hf);
-            rasterized.rgba.hash(&mut hf);
-            rasterized.gpu.hash(&mut hf);
+            canonical.hash(&mut hf);
             let key = format!("scene3:{id}:{:016x}", hf.finish());
-            let gpu_id = crate::ir::GeneratedImageId::from_key(&key);
+            let image_id = crate::ir::GeneratedImageId::from_key(&key);
             self.ctx.with_store_mut(|s| {
-                match rasterized.gpu {
-                    Some(handle) => s.record_frame_generated_image_gpu(
-                        id, gpu_id, 0.0, 0.0, width, height, handle,
-                    ),
-                    None => s.record_frame_generated_image(
-                        id,
-                        gpu_id,
-                        0.0,
-                        0.0,
-                        width,
-                        height,
-                        rasterized.rgba,
-                    ),
-                }
+                s.record_frame_generated_image_deferred(id, image_id, 0.0, 0.0, width, height);
                 // 快照保留：mutation 流仍携带 scene3（对齐 engine 既有测试
-                // 的逐帧重提交语义；渲染只消费上面的 DrawOp）。
+                // 的逐帧重提交语义；渲染只消费占位 DrawOp + IR 段）。
                 s.record_scene3(id, scene.clone());
             });
+            commits.push(crate::ir::draw_frame::Scene3Commit {
+                image_id,
+                target_id: id.clone(),
+                scene: scene.clone(),
+            });
         }
-        Ok(())
+        Ok(Some(crate::ir::draw_frame::Scene3Section {
+            commits,
+            geometries,
+        }))
     }
 }
 

@@ -1,0 +1,7 @@
+{
+  "name": "opencat-g2-align",
+  "private": true,
+  "dependencies": {
+    "pngjs": "^7.0.0"
+  }
+}

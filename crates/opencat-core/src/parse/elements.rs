@@ -213,7 +213,7 @@ pub(crate) fn parse_lines_for_tests(
         .filter(|line| !line.trim().is_empty())
         .map(serde_json::from_str::<JsonLine>)
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    composition_from_lines(lines, base_dir, None)
+    composition_from_lines(lines, base_dir, None, None)
 }
 
 /// Shared assembly for the line shape ([`JsonLine`]): the JSX frontend's
@@ -225,6 +225,7 @@ pub(crate) fn composition_from_lines(
     lines: Vec<JsonLine>,
     base_dir: Option<&Path>,
     manifest: Option<&crate::fonts::FontManifest>,
+    css: Option<&crate::css::CssEngine>,
 ) -> anyhow::Result<ParsedComposition> {
     let mut width = 1920;
     let mut height = 1080;
@@ -268,9 +269,11 @@ pub(crate) fn composition_from_lines(
                 class_name,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "div",
                     line_index + 1,
                 );
                 elements.push(ParsedElement {
@@ -288,9 +291,11 @@ pub(crate) fn composition_from_lines(
                 text,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "text",
                     line_index + 1,
                 );
                 elements.push(ParsedElement {
@@ -307,9 +312,11 @@ pub(crate) fn composition_from_lines(
                 class_name,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "canvas",
                     line_index + 1,
                 );
                 elements.push(ParsedElement {
@@ -331,9 +338,11 @@ pub(crate) fn composition_from_lines(
                 aspect_ratio,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "image",
                     line_index + 1,
                 );
                 let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
@@ -375,9 +384,11 @@ pub(crate) fn composition_from_lines(
                 looping,
                 hide_after_end,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "video",
                     line_index + 1,
                 );
                 let source = match url {
@@ -416,9 +427,11 @@ pub(crate) fn composition_from_lines(
                 icon,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "icon",
                     line_index + 1,
                 );
                 elements.push(ParsedElement {
@@ -464,9 +477,11 @@ pub(crate) fn composition_from_lines(
                 class_name,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "div",
                     line_index + 1,
                 );
                 timeline_ids.insert(id.clone());
@@ -485,9 +500,11 @@ pub(crate) fn composition_from_lines(
                 path,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "span",
                     line_index + 1,
                 );
                 let resolved_path = if let Some(base_dir) = base_dir {
@@ -513,9 +530,11 @@ pub(crate) fn composition_from_lines(
                 view_box,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "path",
                     line_index + 1,
                 );
                 let view_box = view_box
@@ -538,9 +557,11 @@ pub(crate) fn composition_from_lines(
                 url,
                 duration,
             } => {
-                let style = parse_class_name_with_context(
+                let style = resolve_style(
+                    css,
                     class_name.as_deref().unwrap_or(""),
                     &id,
+                    "div",
                     line_index + 1,
                 );
                 let source = match (path, url) {
@@ -800,8 +821,639 @@ fn parse_class_name(class_name: &str) -> NodeStyle {
     tailwind::parse_class_name(class_name)
 }
 
-fn parse_class_name_with_context(class_name: &str, node_id: &str, line_number: usize) -> NodeStyle {
-    tailwind::parse_class_name_with_context(class_name, node_id, line_number)
+/// class → NodeStyle 的统一入口：传入 CSS 引擎走标准层叠，否则维持
+/// tailwind 类名匹配器（双轨期）。
+fn resolve_style(
+    css: Option<&crate::css::CssEngine>,
+    class_name: &str,
+    node_id: &str,
+    tag: &str,
+    line_number: usize,
+) -> NodeStyle {
+    match css {
+        Some(engine) => {
+            let mut style = engine.compute_node_style(class_name, node_id, tag);
+            // 运行时拼接类（`left-[' + x + 'px]`）在 tailwind 静态扫描下
+            // 不产出规则，类级回退旧匹配器补齐；CSS 已设值的字段优先。
+            let missing = engine.unmatched_classes(class_name);
+            if !missing.is_empty() {
+                let fallback =
+                    tailwind::parse_class_name_with_context(&missing.join(" "), node_id, line_number);
+                merge_fallback(&mut style, fallback);
+            }
+            style
+        }
+        None => tailwind::parse_class_name_with_context(class_name, node_id, line_number),
+    }
+}
+
+/// 把 tailwind.rs 兜底解析出的字段补进 CSS 引擎结果：CSS 已设值的字段
+/// 优先（标准语义），仅补空位。布局字段同步补丁 `css_layout`——布局
+/// 消费端优先读它，漏补会让兜底类静默失效。grid 模板类均为静态
+/// 字面量（CSS 路径必命中），无运行时拼接形态，不在此补。
+fn merge_fallback(target: &mut NodeStyle, fb: NodeStyle) {
+    use taffy::prelude::{
+        Dimension, LengthPercentage as TaffyLP, LengthPercentageAuto as TaffyLPA,
+    };
+    let need_layout = fb_is_layout(&fb);
+    let mut t = if need_layout {
+        Some(&mut target.css_layout.get_or_insert_with(crate::style::CssLayout::default).0)
+    } else {
+        None
+    };
+    if target.position.is_none() {
+        target.position = fb.position;
+        if let Some(v) = target.position {
+            if let Some(t) = t.as_deref_mut() {
+        t.position = match v {
+            crate::style::Position::Absolute => taffy::prelude::Position::Absolute,
+            crate::style::Position::Relative => taffy::prelude::Position::Relative,
+        };
+            }
+        }
+    }
+    if target.inset_left.is_none() {
+        target.inset_left = fb.inset_left;
+        if let Some(v) = target.inset_left {
+            if let Some(t) = t.as_deref_mut() {
+        t.inset.left = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.inset_top.is_none() {
+        target.inset_top = fb.inset_top;
+        if let Some(v) = target.inset_top {
+            if let Some(t) = t.as_deref_mut() {
+        t.inset.top = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.inset_right.is_none() {
+        target.inset_right = fb.inset_right;
+        if let Some(v) = target.inset_right {
+            if let Some(t) = t.as_deref_mut() {
+        t.inset.right = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.inset_bottom.is_none() {
+        target.inset_bottom = fb.inset_bottom;
+        if let Some(v) = target.inset_bottom {
+            if let Some(t) = t.as_deref_mut() {
+        t.inset.bottom = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.width.is_none() {
+        target.width = fb.width;
+        if let Some(v) = target.width {
+            if let Some(t) = t.as_deref_mut() {
+        t.size.width = Dimension::length(v);
+            }
+        }
+    }
+    if target.width_percent.is_none() {
+        target.width_percent = fb.width_percent;
+        if let Some(v) = target.width_percent {
+            if let Some(t) = t.as_deref_mut() {
+        t.size.width = Dimension::percent(v);
+            }
+        }
+    }
+    if target.height_percent.is_none() {
+        target.height_percent = fb.height_percent;
+        if let Some(v) = target.height_percent {
+            if let Some(t) = t.as_deref_mut() {
+        t.size.height = Dimension::percent(v);
+            }
+        }
+    }
+    if target.height.is_none() {
+        target.height = fb.height;
+        if let Some(v) = target.height {
+            if let Some(t) = t.as_deref_mut() {
+        t.size.height = Dimension::length(v);
+            }
+        }
+    }
+    if target.max_width.is_none() {
+        target.max_width = fb.max_width;
+        if let Some(v) = target.max_width {
+            if let Some(t) = t.as_deref_mut() {
+        t.max_size.width = TaffyLPA::length(v);
+            }
+        }
+    }
+    target.width_full = target.width_full || fb.width_full;
+    target.height_full = target.height_full || fb.height_full;
+    if target.padding.is_none() {
+        target.padding = fb.padding;
+    }
+    if target.padding_x.is_none() {
+        target.padding_x = fb.padding_x;
+    }
+    if target.padding_y.is_none() {
+        target.padding_y = fb.padding_y;
+    }
+    if target.padding_top.is_none() {
+        target.padding_top = fb.padding_top;
+        if let Some(v) = target.padding_top {
+            if let Some(t) = t.as_deref_mut() {
+        t.padding.top = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.padding_right.is_none() {
+        target.padding_right = fb.padding_right;
+        if let Some(v) = target.padding_right {
+            if let Some(t) = t.as_deref_mut() {
+        t.padding.right = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.padding_bottom.is_none() {
+        target.padding_bottom = fb.padding_bottom;
+        if let Some(v) = target.padding_bottom {
+            if let Some(t) = t.as_deref_mut() {
+        t.padding.bottom = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.padding_left.is_none() {
+        target.padding_left = fb.padding_left;
+        if let Some(v) = target.padding_left {
+            if let Some(t) = t.as_deref_mut() {
+        t.padding.left = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.margin.is_none() {
+        target.margin = fb.margin;
+    }
+    if target.margin_x.is_none() {
+        target.margin_x = fb.margin_x;
+    }
+    if target.margin_y.is_none() {
+        target.margin_y = fb.margin_y;
+    }
+    if target.margin_top.is_none() {
+        target.margin_top = fb.margin_top;
+        if let Some(v) = target.margin_top {
+            if let Some(t) = t.as_deref_mut() {
+        t.margin.top = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.margin_right.is_none() {
+        target.margin_right = fb.margin_right;
+        if let Some(v) = target.margin_right {
+            if let Some(t) = t.as_deref_mut() {
+        t.margin.right = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.margin_bottom.is_none() {
+        target.margin_bottom = fb.margin_bottom;
+        if let Some(v) = target.margin_bottom {
+            if let Some(t) = t.as_deref_mut() {
+        t.margin.bottom = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.margin_left.is_none() {
+        target.margin_left = fb.margin_left;
+        if let Some(v) = target.margin_left {
+            if let Some(t) = t.as_deref_mut() {
+        t.margin.left = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.flex_direction.is_none() {
+        target.flex_direction = fb.flex_direction;
+        if let Some(v) = target.flex_direction {
+            if let Some(t) = t.as_deref_mut() {
+        t.flex_direction = match v {
+            crate::style::FlexDirection::Row => taffy::prelude::FlexDirection::Row,
+            crate::style::FlexDirection::Col => taffy::prelude::FlexDirection::Column,
+            crate::style::FlexDirection::RowReverse => taffy::prelude::FlexDirection::RowReverse,
+            crate::style::FlexDirection::ColReverse => taffy::prelude::FlexDirection::ColumnReverse,
+        };
+            }
+        }
+    }
+    if target.justify_content.is_none() {
+        target.justify_content = fb.justify_content;
+        if let Some(v) = target.justify_content {
+            if let Some(t) = t.as_deref_mut() {
+        t.justify_content = justify_to_taffy(v);
+            }
+        }
+    }
+    if target.align_items.is_none() {
+        target.align_items = fb.align_items;
+        if let Some(v) = target.align_items {
+            if let Some(t) = t.as_deref_mut() {
+        t.align_items = Some(align_to_taffy(v));
+            }
+        }
+    }
+    if fb.is_flex && !target.is_flex {
+        target.is_flex = true;
+        if let Some(t) = t.as_deref_mut() {
+            t.display = taffy::prelude::Display::Flex;
+        }
+    }
+    if fb.is_grid && !target.is_grid {
+        target.is_grid = true;
+        if let Some(t) = t.as_deref_mut() {
+            t.display = taffy::prelude::Display::Grid;
+        }
+    }
+    if target.grid_template_columns.is_none() {
+        target.grid_template_columns = fb.grid_template_columns;
+    }
+    if target.grid_template_rows.is_none() {
+        target.grid_template_rows = fb.grid_template_rows;
+    }
+    if target.grid_auto_flow.is_none() {
+        target.grid_auto_flow = fb.grid_auto_flow;
+    }
+    if target.grid_auto_rows.is_none() {
+        target.grid_auto_rows = fb.grid_auto_rows;
+    }
+    if target.col_start.is_none() {
+        target.col_start = fb.col_start;
+    }
+    if target.col_end.is_none() {
+        target.col_end = fb.col_end;
+    }
+    if target.row_start.is_none() {
+        target.row_start = fb.row_start;
+    }
+    if target.row_end.is_none() {
+        target.row_end = fb.row_end;
+    }
+    target.auto_size = target.auto_size || fb.auto_size;
+    if target.gap.is_none() {
+        target.gap = fb.gap;
+        if let Some(v) = target.gap {
+            if let Some(t) = t.as_deref_mut() {
+        t.gap.width = TaffyLP::length(v);
+        t.gap.height = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.gap_x.is_none() {
+        target.gap_x = fb.gap_x;
+        if let Some(v) = target.gap_x {
+            if let Some(t) = t.as_deref_mut() {
+        t.gap.width = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.gap_y.is_none() {
+        target.gap_y = fb.gap_y;
+        if let Some(v) = target.gap_y {
+            if let Some(t) = t.as_deref_mut() {
+        t.gap.height = TaffyLP::length(v);
+            }
+        }
+    }
+    if target.order.is_none() {
+        target.order = fb.order;
+    }
+    if target.aspect_ratio.is_none() {
+        target.aspect_ratio = fb.aspect_ratio;
+    }
+    if target.min_height.is_none() {
+        target.min_height = fb.min_height;
+        if let Some(v) = target.min_height {
+            if let Some(t) = t.as_deref_mut() {
+        t.min_size.height = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.min_width.is_none() {
+        target.min_width = fb.min_width;
+        if let Some(v) = target.min_width {
+            if let Some(t) = t.as_deref_mut() {
+        t.min_size.width = lpa_to_taffy(v);
+            }
+        }
+    }
+    if target.flex_wrap.is_none() {
+        target.flex_wrap = fb.flex_wrap;
+        if let Some(v) = target.flex_wrap {
+            if let Some(t) = t.as_deref_mut() {
+        t.flex_wrap = match v {
+            crate::style::FlexWrap::NoWrap => taffy::prelude::FlexWrap::NoWrap,
+            crate::style::FlexWrap::Wrap => taffy::prelude::FlexWrap::Wrap,
+            crate::style::FlexWrap::WrapReverse => taffy::prelude::FlexWrap::WrapReverse,
+        };
+            }
+        }
+    }
+    if target.align_content.is_none() {
+        target.align_content = fb.align_content;
+        if let Some(v) = target.align_content {
+            if let Some(t) = t.as_deref_mut() {
+        t.align_content = justify_to_taffy(v);
+            }
+        }
+    }
+    if target.align_self.is_none() {
+        target.align_self = fb.align_self;
+        if let Some(v) = target.align_self {
+            if let Some(t) = t.as_deref_mut() {
+        t.align_self = Some(align_to_taffy(v));
+            }
+        }
+    }
+    if target.justify_items.is_none() {
+        target.justify_items = fb.justify_items;
+        if let Some(v) = target.justify_items {
+            if let Some(t) = t.as_deref_mut() {
+        t.justify_items = Some(align_to_taffy(v));
+            }
+        }
+    }
+    if target.justify_self.is_none() {
+        target.justify_self = fb.justify_self;
+        if let Some(v) = target.justify_self {
+            if let Some(t) = t.as_deref_mut() {
+        t.justify_self = Some(align_to_taffy(v));
+            }
+        }
+    }
+    if target.flex_basis.is_none() {
+        target.flex_basis = fb.flex_basis;
+        if let Some(v) = target.flex_basis {
+            if let Some(t) = t.as_deref_mut() {
+        t.flex_basis = match v {
+            crate::style::LengthPercentageAuto::Auto => Dimension::auto(),
+            crate::style::LengthPercentageAuto::Length(l) => Dimension::length(l),
+            crate::style::LengthPercentageAuto::Percent(p) => Dimension::percent(p),
+        };
+            }
+        }
+    }
+    if target.flex_grow.is_none() {
+        target.flex_grow = fb.flex_grow;
+        if let Some(v) = target.flex_grow {
+            if let Some(t) = t.as_deref_mut() {
+        t.flex_grow = v;
+            }
+        }
+    }
+    if target.flex_shrink.is_none() {
+        target.flex_shrink = fb.flex_shrink;
+        if let Some(v) = target.flex_shrink {
+            if let Some(t) = t.as_deref_mut() {
+        t.flex_shrink = v;
+            }
+        }
+    }
+    if target.z_index.is_none() {
+        target.z_index = fb.z_index;
+    }
+    if target.opacity.is_none() {
+        target.opacity = fb.opacity;
+    }
+    if target.blend_mode.is_none() {
+        target.blend_mode = fb.blend_mode;
+    }
+    if target.bg_color.is_none() {
+        target.bg_color = fb.bg_color;
+    }
+    if target.bg_gradient_from.is_none() {
+        target.bg_gradient_from = fb.bg_gradient_from;
+    }
+    if target.bg_gradient_via.is_none() {
+        target.bg_gradient_via = fb.bg_gradient_via;
+    }
+    if target.bg_gradient_to.is_none() {
+        target.bg_gradient_to = fb.bg_gradient_to;
+    }
+    if target.bg_gradient_direction.is_none() {
+        target.bg_gradient_direction = fb.bg_gradient_direction;
+    }
+    if target.bg_gradient_radial_center.is_none() {
+        target.bg_gradient_radial_center = fb.bg_gradient_radial_center;
+    }
+    if target.background_layers.is_empty() {
+        target.background_layers = fb.background_layers;
+    }
+    if target.bg_size.is_none() {
+        target.bg_size = fb.bg_size;
+    }
+    if target.border_radius.is_none() {
+        target.border_radius = fb.border_radius;
+    }
+    if target.border_width.is_none() {
+        target.border_width = fb.border_width;
+    }
+    if target.border_top_width.is_none() {
+        target.border_top_width = fb.border_top_width;
+    }
+    if target.border_right_width.is_none() {
+        target.border_right_width = fb.border_right_width;
+    }
+    if target.border_bottom_width.is_none() {
+        target.border_bottom_width = fb.border_bottom_width;
+    }
+    if target.border_left_width.is_none() {
+        target.border_left_width = fb.border_left_width;
+    }
+    if target.border_color.is_none() {
+        target.border_color = fb.border_color;
+    }
+    if target.border_style.is_none() {
+        target.border_style = fb.border_style;
+    }
+    if target.css_filter == crate::style::CssFilter::default() {
+        target.css_filter = fb.css_filter;
+    }
+    if target.backdrop_blur_sigma.is_none() {
+        target.backdrop_blur_sigma = fb.backdrop_blur_sigma;
+    }
+    if target.object_fit.is_none() {
+        target.object_fit = fb.object_fit;
+    }
+    target.overflow_hidden = target.overflow_hidden || fb.overflow_hidden;
+    if target.clip_path.is_none() {
+        target.clip_path = fb.clip_path;
+    }
+    if target.background_clip == crate::style::BackgroundClip::default() {
+        target.background_clip = fb.background_clip;
+    }
+    target.truncate = target.truncate || fb.truncate;
+    if target.transforms.is_empty() {
+        target.transforms = fb.transforms;
+    }
+    if target.transform_origin.is_none() {
+        target.transform_origin = fb.transform_origin;
+    }
+    if target.fill_color.is_none() {
+        target.fill_color = fb.fill_color;
+    }
+    if target.stroke_color.is_none() {
+        target.stroke_color = fb.stroke_color;
+    }
+    if target.stroke_width.is_none() {
+        target.stroke_width = fb.stroke_width;
+    }
+    if target.stroke_dasharray.is_none() {
+        target.stroke_dasharray = fb.stroke_dasharray;
+    }
+    if target.stroke_dashoffset.is_none() {
+        target.stroke_dashoffset = fb.stroke_dashoffset;
+    }
+    if target.svg_path.is_none() {
+        target.svg_path = fb.svg_path;
+    }
+    if target.text_color.is_none() {
+        target.text_color = fb.text_color;
+    }
+    if target.text_px.is_none() {
+        target.text_px = fb.text_px;
+    }
+    if target.font_family.is_none() {
+        target.font_family = fb.font_family;
+    }
+    if target.font_face_id.is_none() {
+        target.font_face_id = fb.font_face_id;
+    }
+    if target.font_generic.is_none() {
+        target.font_generic = fb.font_generic;
+    }
+    target.use_document_default_font = target.use_document_default_font || fb.use_document_default_font;
+    if target.font_weight.is_none() {
+        target.font_weight = fb.font_weight;
+    }
+    if target.font_style.is_none() {
+        target.font_style = fb.font_style;
+    }
+    if target.letter_spacing.is_none() {
+        target.letter_spacing = fb.letter_spacing;
+    }
+    if target.letter_spacing_em.is_none() {
+        target.letter_spacing_em = fb.letter_spacing_em;
+    }
+    if target.text_align.is_none() {
+        target.text_align = fb.text_align;
+    }
+    if target.line_height.is_none() {
+        target.line_height = fb.line_height;
+    }
+    if target.line_height_px.is_none() {
+        target.line_height_px = fb.line_height_px;
+    }
+    if target.text_transform.is_none() {
+        target.text_transform = fb.text_transform;
+    }
+    target.line_through = target.line_through || fb.line_through;
+    target.no_wrap = target.no_wrap || fb.no_wrap;
+    target.wrap_text = target.wrap_text || fb.wrap_text;
+    if target.box_shadow.is_empty() {
+        target.box_shadow = fb.box_shadow;
+    }
+    if target.box_shadow_color.is_none() {
+        target.box_shadow_color = fb.box_shadow_color;
+    }
+    if target.inset_shadow.is_empty() {
+        target.inset_shadow = fb.inset_shadow;
+    }
+    if target.inset_shadow_color.is_none() {
+        target.inset_shadow_color = fb.inset_shadow_color;
+    }
+    if target.drop_shadow.is_empty() {
+        target.drop_shadow = fb.drop_shadow;
+    }
+    if target.drop_shadow_color.is_none() {
+        target.drop_shadow_color = fb.drop_shadow_color;
+    }
+    if target.text_shadows.is_empty() {
+        target.text_shadows = fb.text_shadows;
+    }
+    if target.text_stroke.is_none() {
+        target.text_stroke = fb.text_stroke;
+    }
+    if target.script_driver.is_none() {
+        target.script_driver = fb.script_driver;
+    }
+}
+
+/// fallback 是否携带任何布局字段（决定要不要建 css_layout）。
+fn fb_is_layout(fb: &NodeStyle) -> bool {
+    fb.is_flex || fb.is_grid
+        || fb.align_content.is_some()
+        || fb.align_items.is_some()
+        || fb.align_self.is_some()
+        || fb.flex_basis.is_some()
+        || fb.flex_direction.is_some()
+        || fb.flex_grow.is_some()
+        || fb.flex_shrink.is_some()
+        || fb.flex_wrap.is_some()
+        || fb.gap.is_some()
+        || fb.gap_x.is_some()
+        || fb.gap_y.is_some()
+        || fb.height.is_some()
+        || fb.height_full
+        || fb.height_percent.is_some()
+        || fb.inset_bottom.is_some()
+        || fb.inset_left.is_some()
+        || fb.inset_right.is_some()
+        || fb.inset_top.is_some()
+        || fb.justify_content.is_some()
+        || fb.justify_items.is_some()
+        || fb.justify_self.is_some()
+        || fb.margin_bottom.is_some()
+        || fb.margin_left.is_some()
+        || fb.margin_right.is_some()
+        || fb.margin_top.is_some()
+        || fb.max_width.is_some()
+        || fb.min_height.is_some()
+        || fb.min_width.is_some()
+        || fb.padding_bottom.is_some()
+        || fb.padding_left.is_some()
+        || fb.padding_right.is_some()
+        || fb.padding_top.is_some()
+        || fb.position.is_some()
+        || fb.width.is_some()
+        || fb.width_full
+        || fb.width_percent.is_some()
+}
+
+fn lpa_to_taffy(v: crate::style::LengthPercentageAuto) -> taffy::prelude::LengthPercentageAuto {
+    match v {
+        crate::style::LengthPercentageAuto::Auto => taffy::prelude::LengthPercentageAuto::auto(),
+        crate::style::LengthPercentageAuto::Length(l) => taffy::prelude::LengthPercentageAuto::length(l),
+        crate::style::LengthPercentageAuto::Percent(p) => taffy::prelude::LengthPercentageAuto::percent(p),
+    }
+}
+
+fn justify_to_taffy(v: crate::style::JustifyContent) -> Option<taffy::prelude::AlignContent> {
+    use taffy::prelude::AlignContent as T;
+    Some(match v {
+        crate::style::JustifyContent::Start => T::START,
+        crate::style::JustifyContent::Center => T::CENTER,
+        crate::style::JustifyContent::End => T::END,
+        crate::style::JustifyContent::Between => T::SPACE_BETWEEN,
+        crate::style::JustifyContent::Around => T::SPACE_AROUND,
+        crate::style::JustifyContent::Evenly => T::SPACE_EVENLY,
+        crate::style::JustifyContent::Stretch => T::STRETCH,
+    })
+}
+
+fn align_to_taffy(v: crate::style::AlignItems) -> taffy::prelude::AlignItems {
+    use taffy::prelude::AlignItems as T;
+    match v {
+        crate::style::AlignItems::Start => T::START,
+        crate::style::AlignItems::Center => T::CENTER,
+        crate::style::AlignItems::End => T::END,
+        crate::style::AlignItems::Baseline => T::BASELINE,
+        crate::style::AlignItems::Stretch => T::STRETCH,
+    }
 }
 
 #[cfg(test)]

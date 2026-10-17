@@ -1534,9 +1534,48 @@ fn format_css_filter_value(kind: CssFilterKind, value: f32) -> String {
     format!("{number}{unit}")
 }
 
+/// [`taffy::Style`] 的线程安全包装。
+///
+/// taffy 0.14 的 `CompactLength` 内部是 tagged pointer（`*const ()`），taffy
+/// 自己没有为它实现 `Send`/`Sync`。该指针只在启用 `calc` feature 时才可能
+/// 指向真实堆内存（calc 表达式节点）；opencat-core 关闭了 calc feature——
+/// 无法构造出 calc 值，指针位恒为纯值编码——且 CSS 求值层保证布局腿不产生
+/// calc 残值。因此跨线程共享是安全的。
+pub struct CssLayout(pub taffy::Style);
+unsafe impl Send for CssLayout {}
+unsafe impl Sync for CssLayout {}
+
+impl Clone for CssLayout {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl std::fmt::Debug for CssLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl Default for CssLayout {
+    fn default() -> Self {
+        // taffy 默认在 flexbox feature 下 display 是 Flex；CSS 语义要求
+        // block 初始值，与 css::to_taffy::initial_style 保持一致。
+        Self(taffy::Style {
+            display: taffy::prelude::Display::Block,
+            ..taffy::Style::default()
+        })
+    }
+}
+
 /// Style context container - carries all possible style info for inheritance
 #[derive(Debug, Clone, Default)]
 pub struct NodeStyle {
+    /// CSS 布局腿直通产物：标准 CSS 路径把 lightningcss 属性直接映射成
+    /// taffy 样式（`css::to_taffy`），布局消费端优先用它，绕开下方
+    /// tailwind 时代的特化形状。旧类名路径不产生此字段，仍是 `None`。
+    pub css_layout: Option<CssLayout>,
+
     // Positioning
     pub position: Option<Position>,
     pub inset_left: Option<LengthPercentageAuto>,

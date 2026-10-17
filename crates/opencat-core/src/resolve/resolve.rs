@@ -1303,6 +1303,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         },
         text,
         id: style.id.clone(),
+        css_layout: style.css_layout.clone(),
     }
 }
 

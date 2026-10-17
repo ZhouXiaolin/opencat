@@ -372,6 +372,17 @@
     // exact same facade a `useCanvas` callback receives, so G2's draws land on
     // the node's DrawOp stream. `flush()` is a no-op (ops are already in the
     // stream and are replayed by the renderer).
+    // A paint no setter has ever touched carries the class defaults (fill
+    // style, opaque black); g-canvaskit produces those when its
+    // `lineWidth > 0` guard skips the whole configure block for a zero-width
+    // stroke. Drawing them reproduces as a black shape — drop the draw.
+    function skipUnconfigured(paint) {
+        if (paint && paint._configured === false) {
+            hostLog('warn', 'g2: dropped a never-configured paint draw');
+            return true;
+        }
+        return false;
+    }
     function makeG2Surface(canvasConfig) {
         var id = currentNodeId;
         var saveIndex = 0;
@@ -399,15 +410,24 @@
                     clipRect: function (rect, op, aa) { canvas.clipRect(rect, op, aa); },
                     clipRRect: function (rrect, op, aa) { canvas.clipRRect(rrect, op, aa); },
                     clipPath: function (path, op, aa) { canvas.clipPath(path, op, aa); },
-                    drawRect: function (rect, paint) { canvas.drawRect(rect, paint); },
-                    drawRRect: function (rrect, paint) { canvas.drawRRect(rrect, paint); },
-                    drawDRRect: function (o, i, p) { canvas.drawDRRect(o, i, p); },
-                    drawOval: function (rect, paint) { canvas.drawOval(rect, paint); },
-                    drawCircle: function (cx, cy, r, paint) { canvas.drawCircle(cx, cy, r, paint); },
-                    drawArc: function (rect, start, sweep, center, paint) { canvas.drawArc(rect, start, sweep, center, paint); },
-                    drawLine: function (x0, y0, x1, y1, paint) { canvas.drawLine(x0, y0, x1, y1, paint); },
-                    drawPoints: function (mode, points, paint) { canvas.drawPoints(mode, points, paint); },
+                    // g-canvaskit builds a stroke paint before its
+                    // `if (lineWidth > 0)` block, so a zero-width stroke leaves
+                    // a paint with NO setter ever called. Drawing through that
+                    // paint as-is turns it into an opaque default-black FILL
+                    // (the "G2 bars render black" bug) — the real CanvasKit
+                    // draw would at least be styled, but the semantics g2-rs
+                    // established for the same bundle is: a never-configured
+                    // paint draws nothing. Skip those draws here.
+                    drawRect: function (rect, paint) { if (!skipUnconfigured(paint)) canvas.drawRect(rect, paint); },
+                    drawRRect: function (rrect, paint) { if (!skipUnconfigured(paint)) canvas.drawRRect(rrect, paint); },
+                    drawDRRect: function (o, i, p) { if (!skipUnconfigured(p)) canvas.drawDRRect(o, i, p); },
+                    drawOval: function (rect, paint) { if (!skipUnconfigured(paint)) canvas.drawOval(rect, paint); },
+                    drawCircle: function (cx, cy, r, paint) { if (!skipUnconfigured(paint)) canvas.drawCircle(cx, cy, r, paint); },
+                    drawArc: function (rect, start, sweep, center, paint) { if (!skipUnconfigured(paint)) canvas.drawArc(rect, start, sweep, center, paint); },
+                    drawLine: function (x0, y0, x1, y1, paint) { if (!skipUnconfigured(paint)) canvas.drawLine(x0, y0, x1, y1, paint); },
+                    drawPoints: function (mode, points, paint) { if (!skipUnconfigured(paint)) canvas.drawPoints(mode, points, paint); },
                     drawPath: function (path, paint) {
+                        if (skipUnconfigured(paint)) return;
                         globalThis.__ocG2MarkDraws = (globalThis.__ocG2MarkDraws || 0) + 1;
                         canvas.drawPath(path, paint);
                     },

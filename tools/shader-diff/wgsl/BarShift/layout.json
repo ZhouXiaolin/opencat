@@ -1,0 +1,42 @@
+{
+  "name": "BarShift",
+  "role": "filter",
+  "spec": {
+    "type": "BarShift",
+    "props": {
+      "count": 6,
+      "angle": 0,
+      "intensity": 0.15,
+      "seed": 0,
+      "speed": 0,
+      "edges": "mirror"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

@@ -1,0 +1,171 @@
+fn floatBitsToUint2(v: vec2f) -> vec2u { return bitcast<vec2u>(v); }
+
+fn hash12(p: vec2f) -> f32 {
+  let u = floatBitsToUint2((p * vec2f(141421360, 2718281728)));
+  return (f32(((u.x ^ u.y) * 3141592653u)) / 4294967296f);
+}
+
+fn hash2D(p: vec2f) -> f32 {
+  return hash12(p);
+}
+
+fn smoothNoise2D(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = ((f * f) * (vec2f(3) - (f * 2f)));
+  let a = hash2D(i);
+  let b = hash2D((i + vec2f(1, 0)));
+  let c = hash2D((i + vec2f(0, 1)));
+  let dd = hash2D((i + vec2f(1)));
+  return mix(mix(a, b, u.x), mix(c, dd, u.x), u.y);
+}
+
+fn burstGate(t: f32) -> f32 {
+  return smoothstep(0.45f, 0.8f, smoothNoise2D(vec2f((t * 0.4f), 0f)));
+}
+
+fn rowJitter(uvY: f32, t: f32, scanlineNoise: f32, burst: f32) -> vec2f {
+  let rowInt = floor((uvY * 487f));
+  let h0 = ((hash12(vec2f(rowInt, t)) - 0.5f) * 2f);
+  let h1 = ((hash12(vec2f(rowInt, (t + 69.42f))) - 0.5f) * 2f);
+  let fineGate = (0.25f + (burst * 0.75f));
+  let chromaRowOffset = (((h0 * scanlineNoise) * 8e-3f) * fineGate);
+  let lumaRowOffset = (((h1 * scanlineNoise) * 4e-3f) * fineGate);
+  return vec2f(lumaRowOffset, chromaRowOffset);
+}
+
+fn headSwitch(uvY: f32, t: f32, wobble: f32, burst: f32) -> vec2f {
+  let switchPhase = (1f - smoothstep(0f, 0.06f, uvY));
+  let switchNoise = (smoothNoise2D(vec2f((uvY * 60f), (t * 14f))) - 0.5f);
+  let switchX = (((switchPhase * switchNoise) * wobble) * 0.09f);
+  let switchY = (((switchPhase * wobble) * burst) * 0.02f);
+  return vec2f(switchX, switchY);
+}
+
+fn tapeWave(uvY: f32, t: f32, wobble: f32) -> f32 {
+  let wave1 = (smoothNoise2D(vec2f((uvY * 3f), (t * 0.8f))) - 0.5f);
+  let wave2 = (smoothNoise2D(vec2f((uvY * 30f), (t * 6f))) - 0.5f);
+  return (((wave1 * 8e-3f) + (wave2 * 2e-3f)) * wobble);
+}
+
+fn creaseShift(uvY: f32, t: f32, wobble: f32) -> f32 {
+  let creasePhase = smoothstep(0.92f, 0.99f, sin(((uvY * 8f) - (t * 3.77f))));
+  let creaseNoise = smoothstep(0.3f, 1f, smoothNoise2D(vec2f((uvY * 4.77f), t)));
+  return (((creasePhase * creaseNoise) * wobble) * -0.018f);
+}
+
+fn vhsSampleUVs(uv: vec2f, time: f32, speed: f32, wobble: f32, scanlineNoise: f32) -> vec4f {
+  let t = (time * speed);
+  let burst = burstGate(t);
+  let jitter = rowJitter(uv.y, t, scanlineNoise, burst);
+  let sw = headSwitch(uv.y, t, wobble, burst);
+  let globalX = ((tapeWave(uv.y, t, wobble) + creaseShift(uv.y, t, wobble)) + sw.x);
+  let sy = (uv.y + sw.y);
+  return vec4f(((uv.x + globalX) + jitter.x), sy, ((uv.x + globalX) + jitter.y), sy);
+}
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct padded_1 {
+  wobble: f32,
+  scanlineNoise: f32,
+  smear: f32,
+  speed: f32,
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn beatShade(color: vec4f, acBeat: f32) -> vec4f {
+  let clamped = clamp((color.xyz * acBeat), vec3f(), vec3f(1));
+  return vec4f(clamped.x, clamped.y, clamped.z, color.w);
+}
+
+fn yiqRecombine(luma: vec4f, c1: vec4f, c2: vec4f, c3: vec4f, c4: vec4f, c5: vec4f) -> vec3f {
+  let sharpY = dot(luma.xyz, vec3f(0.29899999499320984, 0.5870000123977661, 0.11400000005960464));
+  let iAxis = vec3f(0.5960000157356262, -0.27399998903274536, -0.32199999690055847);
+  let qAxis = vec3f(0.210999995470047, -0.5230000019073486, 0.31200000643730164);
+  let accI = (((((dot(c1.xyz, iAxis) * 0.06666666666666667f) + (dot(c2.xyz, iAxis) * 0.13333333333333333f)) + (dot(c3.xyz, iAxis) * 0.2f)) + (dot(c4.xyz, iAxis) * 0.26666666666666666f)) + (dot(c5.xyz, iAxis) * 0.3333333333333333f));
+  let accQ = (((((dot(c1.xyz, qAxis) * 0.06666666666666667f) + (dot(c2.xyz, qAxis) * 0.13333333333333333f)) + (dot(c3.xyz, qAxis) * 0.2f)) + (dot(c4.xyz, qAxis) * 0.26666666666666666f)) + (dot(c5.xyz, qAxis) * 0.3333333333333333f));
+  return vec3f(((sharpY + (accI * 0.956f)) + (accQ * 0.621f)), ((sharpY - (accI * 0.272f)) - (accQ * 0.647f)), ((sharpY - (accI * 1.106f)) + (accQ * 1.703f)));
+}
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+fn vhsChromaTapUV(chromaUV: vec2f, smearScale: f32, i: f32) -> vec2f {
+  return vec2f((chromaUV.x + ((i * -1f) * smearScale)), chromaUV.y);
+}
+
+fn vhsAcBeat(uv: vec2f, time: f32, speed: f32, wobble: f32) -> f32 {
+  let t = (time * speed);
+  return (1f + ((cos((((t % 6.2831853f) * 2f) + (uv.y * 0.5f))) * 0.015f) * wobble));
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  let tapeUVs_0 = vhsSampleUVs(uv, uniforms._sys.time, uniforms.n_n0.speed, uniforms.n_n0.wobble, uniforms.n_n0.scanlineNoise);
+  var composed_1 = unpremultiplyAlpha(beatShade(vec4f(yiqRecombine(textureSample(rtt_0, linearClamp, tapeUVs_0.xy), textureSample(rtt_0, linearClamp, vhsChromaTapUV(tapeUVs_0.zw, (uniforms.n_n0.smear * 0.0075), 1.0)), textureSample(rtt_0, linearClamp, vhsChromaTapUV(tapeUVs_0.zw, (uniforms.n_n0.smear * 0.0075), 2.0)), textureSample(rtt_0, linearClamp, vhsChromaTapUV(tapeUVs_0.zw, (uniforms.n_n0.smear * 0.0075), 3.0)), textureSample(rtt_0, linearClamp, vhsChromaTapUV(tapeUVs_0.zw, (uniforms.n_n0.smear * 0.0075), 4.0)), textureSample(rtt_0, linearClamp, vhsChromaTapUV(tapeUVs_0.zw, (uniforms.n_n0.smear * 0.0075), 5.0))), (textureSample(rtt_0, linearClamp, tapeUVs_0.xy)).a), vhsAcBeat(uv, uniforms._sys.time, uniforms.n_n0.speed, uniforms.n_n0.wobble)));
+  return vec4f(linearToSrgb(tone_linear(composed_1.rgb)) * composed_1.a, composed_1.a);
+}

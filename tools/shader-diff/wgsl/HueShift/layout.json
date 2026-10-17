@@ -1,0 +1,37 @@
+{
+  "name": "HueShift",
+  "role": "filter",
+  "spec": {
+    "type": "HueShift",
+    "props": {
+      "shift": 0
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

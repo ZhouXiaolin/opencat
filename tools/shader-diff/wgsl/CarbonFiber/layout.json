@@ -1,0 +1,51 @@
+{
+  "name": "CarbonFiber",
+  "role": "generator+compute",
+  "spec": {
+    "type": "CarbonFiber",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "lightColor": "#b9bdc6",
+      "darkColor": "#0b0c0e",
+      "weaveStyle": "twill",
+      "weaveScale": 30,
+      "weaveAngle": 0,
+      "relief": 0.5,
+      "fiberSheen": 1.2,
+      "roughness": 0.5,
+      "clearcoat": 1.2,
+      "environment": 2,
+      "envRotation": 0,
+      "lightAngle": 215,
+      "bevelWidth": 0.05,
+      "bevelShape": 0,
+      "edgeSoftness": 0.05,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

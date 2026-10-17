@@ -1,0 +1,212 @@
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct padded_1 {
+  size: f32,
+  intensity: f32,
+  threshold: f32,
+  expand: f32,
+  rayLength: f32,
+  colorize: f32,
+  speed: f32,
+  seed: f32,
+  _opacity: f32,
+  _animTime: f32,
+  _pad0: f32,
+  _pad1: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn floatBitsToUint2(v: vec2f) -> vec2u { return bitcast<vec2u>(v); }
+
+fn hash32(p: vec2f) -> vec3f {
+  let u = floatBitsToUint2((p * vec2f(141421360, 2718281728)));
+  let h = (u.x ^ u.y);
+  let prod = (vec3u(h, h, h) * vec3u(1732050807, 2645751311, 3316624790));
+  return (vec3f(f32(prod.x), f32(prod.y), f32(prod.z)) / 4294967296f);
+}
+
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn lightfields_anisotropicGaussianSpot(du: f32, dv: f32, sharpness: f32) -> f32 {
+  return exp((((du * du) + (dv * dv)) * -(sharpness)));
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  let sparkleChild_0 = textureSample(rtt_0, linearClamp, uv);
+  let sparklePx_7 = (uv * uniforms._sys.logicalViewportSize);
+  let sparkleCell0_8 = (uniforms.n_n0.size * 1.0);
+  let scatterBase_6 = floor(((sparklePx_7 / sparkleCell0_8) - 0.5));
+  let scatterCell_5 = (scatterBase_6 + vec2f(0.0, 0.0));
+  let scatterRandom_9 = hash32((scatterCell_5 + vec2f(((uniforms.n_n0.seed + 0.0) * 97.13), ((uniforms.n_n0.seed + 0.0) * 31.71))));
+  let scatterPoint_4 = (((scatterCell_5 + 0.5) + ((scatterRandom_9.xy - 0.5) * 0.6)) * sparkleCell0_8);
+  let nearC_3 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_4 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_2 = nearC_3.rgb;
+  let scatterOffset_10 = (sparklePx_7 - scatterPoint_4);
+  let glintX_11 = abs(scatterOffset_10.x);
+  let glintY_12 = abs(scatterOffset_10.y);
+  let sparkleRays0_13 = (0.45 / max(uniforms.n_n0.rayLength, 0.01));
+  let sparkleT_18 = uniforms.n_n0._animTime;
+  let flash_17 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_9.z * 1.2))) + (scatterRandom_9.x * 6.283185307179586))), 0.0);
+  let flash_16 = (flash_17 * flash_17);
+  let flash_15 = (flash_16 * flash_16);
+  let flash_14 = (flash_15 * flash_15);
+  let nearL_19 = (dot(nearC_3.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_3.a);
+  let scatterCell_23 = (scatterBase_6 + vec2f(1.0, 0.0));
+  let scatterRandom_24 = hash32((scatterCell_23 + vec2f(((uniforms.n_n0.seed + 0.0) * 97.13), ((uniforms.n_n0.seed + 0.0) * 31.71))));
+  let scatterPoint_22 = (((scatterCell_23 + 0.5) + ((scatterRandom_24.xy - 0.5) * 0.6)) * sparkleCell0_8);
+  let nearC_21 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_22 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_20 = nearC_21.rgb;
+  let scatterOffset_25 = (sparklePx_7 - scatterPoint_22);
+  let glintX_26 = abs(scatterOffset_25.x);
+  let glintY_27 = abs(scatterOffset_25.y);
+  let flash_31 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_24.z * 1.2))) + (scatterRandom_24.x * 6.283185307179586))), 0.0);
+  let flash_30 = (flash_31 * flash_31);
+  let flash_29 = (flash_30 * flash_30);
+  let flash_28 = (flash_29 * flash_29);
+  let nearL_32 = (dot(nearC_21.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_21.a);
+  let scatterCell_36 = (scatterBase_6 + vec2f(0.0, 1.0));
+  let scatterRandom_37 = hash32((scatterCell_36 + vec2f(((uniforms.n_n0.seed + 0.0) * 97.13), ((uniforms.n_n0.seed + 0.0) * 31.71))));
+  let scatterPoint_35 = (((scatterCell_36 + 0.5) + ((scatterRandom_37.xy - 0.5) * 0.6)) * sparkleCell0_8);
+  let nearC_34 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_35 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_33 = nearC_34.rgb;
+  let scatterOffset_38 = (sparklePx_7 - scatterPoint_35);
+  let glintX_39 = abs(scatterOffset_38.x);
+  let glintY_40 = abs(scatterOffset_38.y);
+  let flash_44 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_37.z * 1.2))) + (scatterRandom_37.x * 6.283185307179586))), 0.0);
+  let flash_43 = (flash_44 * flash_44);
+  let flash_42 = (flash_43 * flash_43);
+  let flash_41 = (flash_42 * flash_42);
+  let nearL_45 = (dot(nearC_34.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_34.a);
+  let scatterCell_49 = (scatterBase_6 + vec2f(1.0, 1.0));
+  let scatterRandom_50 = hash32((scatterCell_49 + vec2f(((uniforms.n_n0.seed + 0.0) * 97.13), ((uniforms.n_n0.seed + 0.0) * 31.71))));
+  let scatterPoint_48 = (((scatterCell_49 + 0.5) + ((scatterRandom_50.xy - 0.5) * 0.6)) * sparkleCell0_8);
+  let nearC_47 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_48 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_46 = nearC_47.rgb;
+  let scatterOffset_51 = (sparklePx_7 - scatterPoint_48);
+  let glintX_52 = abs(scatterOffset_51.x);
+  let glintY_53 = abs(scatterOffset_51.y);
+  let flash_57 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_50.z * 1.2))) + (scatterRandom_50.x * 6.283185307179586))), 0.0);
+  let flash_56 = (flash_57 * flash_57);
+  let flash_55 = (flash_56 * flash_56);
+  let flash_54 = (flash_55 * flash_55);
+  let nearL_58 = (dot(nearC_47.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_47.a);
+  let sparkleCell1_64 = (uniforms.n_n0.size * 0.6666666666666666);
+  let scatterBase_63 = floor(((sparklePx_7 / sparkleCell1_64) - 0.5));
+  let scatterCell_62 = (scatterBase_63 + vec2f(0.0, 0.0));
+  let scatterRandom_65 = hash32((scatterCell_62 + vec2f(((uniforms.n_n0.seed + 0.31) * 97.13), ((uniforms.n_n0.seed + 0.31) * 31.71))));
+  let scatterPoint_61 = (((scatterCell_62 + 0.5) + ((scatterRandom_65.xy - 0.5) * 0.6)) * sparkleCell1_64);
+  let nearC_60 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_61 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_59 = nearC_60.rgb;
+  let scatterOffset_66 = (sparklePx_7 - scatterPoint_61);
+  let glintX_67 = abs(scatterOffset_66.x);
+  let glintY_68 = abs(scatterOffset_66.y);
+  let sparkleRays1_69 = (0.45 / max(uniforms.n_n0.rayLength, 0.01));
+  let flash_73 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_65.z * 1.2))) + (scatterRandom_65.x * 6.283185307179586))), 0.0);
+  let flash_72 = (flash_73 * flash_73);
+  let flash_71 = (flash_72 * flash_72);
+  let flash_70 = (flash_71 * flash_71);
+  let nearL_74 = (dot(nearC_60.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_60.a);
+  let scatterCell_78 = (scatterBase_63 + vec2f(1.0, 0.0));
+  let scatterRandom_79 = hash32((scatterCell_78 + vec2f(((uniforms.n_n0.seed + 0.31) * 97.13), ((uniforms.n_n0.seed + 0.31) * 31.71))));
+  let scatterPoint_77 = (((scatterCell_78 + 0.5) + ((scatterRandom_79.xy - 0.5) * 0.6)) * sparkleCell1_64);
+  let nearC_76 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_77 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_75 = nearC_76.rgb;
+  let scatterOffset_80 = (sparklePx_7 - scatterPoint_77);
+  let glintX_81 = abs(scatterOffset_80.x);
+  let glintY_82 = abs(scatterOffset_80.y);
+  let flash_86 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_79.z * 1.2))) + (scatterRandom_79.x * 6.283185307179586))), 0.0);
+  let flash_85 = (flash_86 * flash_86);
+  let flash_84 = (flash_85 * flash_85);
+  let flash_83 = (flash_84 * flash_84);
+  let nearL_87 = (dot(nearC_76.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_76.a);
+  let scatterCell_91 = (scatterBase_63 + vec2f(0.0, 1.0));
+  let scatterRandom_92 = hash32((scatterCell_91 + vec2f(((uniforms.n_n0.seed + 0.31) * 97.13), ((uniforms.n_n0.seed + 0.31) * 31.71))));
+  let scatterPoint_90 = (((scatterCell_91 + 0.5) + ((scatterRandom_92.xy - 0.5) * 0.6)) * sparkleCell1_64);
+  let nearC_89 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_90 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_88 = nearC_89.rgb;
+  let scatterOffset_93 = (sparklePx_7 - scatterPoint_90);
+  let glintX_94 = abs(scatterOffset_93.x);
+  let glintY_95 = abs(scatterOffset_93.y);
+  let flash_99 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_92.z * 1.2))) + (scatterRandom_92.x * 6.283185307179586))), 0.0);
+  let flash_98 = (flash_99 * flash_99);
+  let flash_97 = (flash_98 * flash_98);
+  let flash_96 = (flash_97 * flash_97);
+  let nearL_100 = (dot(nearC_89.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_89.a);
+  let scatterCell_104 = (scatterBase_63 + vec2f(1.0, 1.0));
+  let scatterRandom_105 = hash32((scatterCell_104 + vec2f(((uniforms.n_n0.seed + 0.31) * 97.13), ((uniforms.n_n0.seed + 0.31) * 31.71))));
+  let scatterPoint_103 = (((scatterCell_104 + 0.5) + ((scatterRandom_105.xy - 0.5) * 0.6)) * sparkleCell1_64);
+  let nearC_102 = unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (scatterPoint_103 / uniforms._sys.logicalViewportSize)));
+  let sparkleRgb_101 = nearC_102.rgb;
+  let scatterOffset_106 = (sparklePx_7 - scatterPoint_103);
+  let glintX_107 = abs(scatterOffset_106.x);
+  let glintY_108 = abs(scatterOffset_106.y);
+  let flash_112 = max(sin(((sparkleT_18 * (0.8 + (scatterRandom_105.z * 1.2))) + (scatterRandom_105.x * 6.283185307179586))), 0.0);
+  let flash_111 = (flash_112 * flash_112);
+  let flash_110 = (flash_111 * flash_111);
+  let flash_109 = (flash_110 * flash_110);
+  let nearL_113 = (dot(nearC_102.rgb, vec3f(0.2126, 0.7152, 0.0722)) * nearC_102.a);
+  let sparkleGlow_1 = (((((mix(vec3f(1.0), ((sparkleRgb_2 / max(dot(sparkleRgb_2, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_10.x, scatterOffset_10.y, 0.9) + ((exp((-(((glintX_11 * 1.6) + (glintY_12 * sparkleRays0_13))))) + exp((-(((glintY_12 * 1.6) + (glintX_11 * sparkleRays0_13)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell0_8 * 0.5) * 0.6), (sparkleCell0_8 * 0.5), max(glintX_11, glintY_12)))) * flash_14) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_19))) * ((0.35 + (0.65 * step(0.45, scatterRandom_9.z))) * uniforms.n_n0.intensity))) + (mix(vec3f(1.0), ((sparkleRgb_20 / max(dot(sparkleRgb_20, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_25.x, scatterOffset_25.y, 0.9) + ((exp((-(((glintX_26 * 1.6) + (glintY_27 * sparkleRays0_13))))) + exp((-(((glintY_27 * 1.6) + (glintX_26 * sparkleRays0_13)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell0_8 * 0.5) * 0.6), (sparkleCell0_8 * 0.5), max(glintX_26, glintY_27)))) * flash_28) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_32))) * ((0.35 + (0.65 * step(0.45, scatterRandom_24.z))) * uniforms.n_n0.intensity)))) + (mix(vec3f(1.0), ((sparkleRgb_33 / max(dot(sparkleRgb_33, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_38.x, scatterOffset_38.y, 0.9) + ((exp((-(((glintX_39 * 1.6) + (glintY_40 * sparkleRays0_13))))) + exp((-(((glintY_40 * 1.6) + (glintX_39 * sparkleRays0_13)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell0_8 * 0.5) * 0.6), (sparkleCell0_8 * 0.5), max(glintX_39, glintY_40)))) * flash_41) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_45))) * ((0.35 + (0.65 * step(0.45, scatterRandom_37.z))) * uniforms.n_n0.intensity)))) + (mix(vec3f(1.0), ((sparkleRgb_46 / max(dot(sparkleRgb_46, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_51.x, scatterOffset_51.y, 0.9) + ((exp((-(((glintX_52 * 1.6) + (glintY_53 * sparkleRays0_13))))) + exp((-(((glintY_53 * 1.6) + (glintX_52 * sparkleRays0_13)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell0_8 * 0.5) * 0.6), (sparkleCell0_8 * 0.5), max(glintX_52, glintY_53)))) * flash_54) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_58))) * ((0.35 + (0.65 * step(0.45, scatterRandom_50.z))) * uniforms.n_n0.intensity)))) + ((((mix(vec3f(1.0), ((sparkleRgb_59 / max(dot(sparkleRgb_59, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_66.x, scatterOffset_66.y, 0.9) + ((exp((-(((glintX_67 * 1.6) + (glintY_68 * sparkleRays1_69))))) + exp((-(((glintY_68 * 1.6) + (glintX_67 * sparkleRays1_69)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell1_64 * 0.5) * 0.6), (sparkleCell1_64 * 0.5), max(glintX_67, glintY_68)))) * flash_70) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_74))) * ((0.35 + (0.65 * step(0.45, scatterRandom_65.z))) * uniforms.n_n0.intensity))) + (mix(vec3f(1.0), ((sparkleRgb_75 / max(dot(sparkleRgb_75, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_80.x, scatterOffset_80.y, 0.9) + ((exp((-(((glintX_81 * 1.6) + (glintY_82 * sparkleRays1_69))))) + exp((-(((glintY_82 * 1.6) + (glintX_81 * sparkleRays1_69)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell1_64 * 0.5) * 0.6), (sparkleCell1_64 * 0.5), max(glintX_81, glintY_82)))) * flash_83) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_87))) * ((0.35 + (0.65 * step(0.45, scatterRandom_79.z))) * uniforms.n_n0.intensity)))) + (mix(vec3f(1.0), ((sparkleRgb_88 / max(dot(sparkleRgb_88, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_93.x, scatterOffset_93.y, 0.9) + ((exp((-(((glintX_94 * 1.6) + (glintY_95 * sparkleRays1_69))))) + exp((-(((glintY_95 * 1.6) + (glintX_94 * sparkleRays1_69)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell1_64 * 0.5) * 0.6), (sparkleCell1_64 * 0.5), max(glintX_94, glintY_95)))) * flash_96) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_100))) * ((0.35 + (0.65 * step(0.45, scatterRandom_92.z))) * uniforms.n_n0.intensity)))) + (mix(vec3f(1.0), ((sparkleRgb_101 / max(dot(sparkleRgb_101, vec3f(0.2126, 0.7152, 0.0722)), 0.001)) * 0.6), uniforms.n_n0.colorize) * (((((lightfields_anisotropicGaussianSpot(scatterOffset_106.x, scatterOffset_106.y, 0.9) + ((exp((-(((glintX_107 * 1.6) + (glintY_108 * sparkleRays1_69))))) + exp((-(((glintY_108 * 1.6) + (glintX_107 * sparkleRays1_69)))))) * 0.25)) * (1.0 - smoothstep(((sparkleCell1_64 * 0.5) * 0.6), (sparkleCell1_64 * 0.5), max(glintX_107, glintY_108)))) * flash_109) * smoothstep(uniforms.n_n0.threshold, (uniforms.n_n0.threshold + 0.12), sqrt(nearL_113))) * ((0.35 + (0.65 * step(0.45, scatterRandom_105.z))) * uniforms.n_n0.intensity)))));
+  var composed_114 = unpremultiplyAlpha(vec4f((sparkleChild_0.rgb + sparkleGlow_1), min((sparkleChild_0.a + max(max(sparkleGlow_1.r, sparkleGlow_1.g), sparkleGlow_1.b)), 1.0)));
+  return vec4f(linearToSrgb(tone_linear(composed_114.rgb)) * composed_114.a, composed_114.a);
+}

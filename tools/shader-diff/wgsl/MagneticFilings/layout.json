@@ -1,0 +1,37 @@
+{
+  "name": "MagneticFilings",
+  "role": "generator+compute",
+  "spec": {
+    "type": "MagneticFilings",
+    "props": {
+      "colorA": "#be1ef9",
+      "colorB": "#6326ff",
+      "colorSpace": "oklab",
+      "shape": "dot",
+      "count": 8000,
+      "size": 1,
+      "restOrientation": "random",
+      "fieldType": "dipole",
+      "strength": 1.7,
+      "reach": 0.6,
+      "response": 0.5
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

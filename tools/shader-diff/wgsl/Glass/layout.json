@@ -1,0 +1,63 @@
+{
+  "name": "Glass",
+  "role": "filter",
+  "spec": {
+    "type": "Glass",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "cutout": false,
+      "refraction": 1,
+      "edgeSoftness": 0.1,
+      "blur": 0,
+      "thickness": 0.2,
+      "aberration": 0.5,
+      "innerZoom": 1,
+      "lightAngle": 300,
+      "highlight": 0.05,
+      "highlightColor": "#ffffff",
+      "highlightSoftness": 0.5,
+      "fresnel": 0.1,
+      "fresnelSoftness": 0.1,
+      "fresnelColor": "#ffffff",
+      "tintColor": "#ffffff",
+      "tintIntensity": 0,
+      "tintPreserveLuminosity": true,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

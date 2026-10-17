@@ -1,0 +1,33 @@
+{
+  "name": "DotGrid",
+  "role": "generator",
+  "spec": {
+    "type": "DotGrid",
+    "props": {
+      "color": "#ffffff",
+      "density": 30,
+      "dotSize": 0.3,
+      "offset": 0,
+      "speed": 0,
+      "speedVariance": 0.3,
+      "twinkle": 0
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

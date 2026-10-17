@@ -1,0 +1,54 @@
+{
+  "name": "SmokeFill",
+  "role": "generator+compute",
+  "spec": {
+    "type": "SmokeFill",
+    "props": {
+      "colorA": "#8cf3ff",
+      "colorB": "#04a0d6",
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "emitFrom": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "direction": 0,
+      "speed": 10,
+      "spread": 60,
+      "emitRadius": 0.03,
+      "intensity": 1,
+      "dissipation": 0.3,
+      "detail": 25,
+      "gravity": 0.5,
+      "colorDecay": 0.4,
+      "mouseInfluence": 0.1,
+      "mouseRadius": 0.1,
+      "colorSpace": "linear",
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

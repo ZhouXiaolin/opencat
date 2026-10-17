@@ -1,0 +1,31 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "color": [
+   0.08766472339630127,
+   0.012303520925343037,
+   0.5402186512947083,
+   1
+  ],
+  "_opacity": 1
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

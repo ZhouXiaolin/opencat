@@ -1,0 +1,50 @@
+{
+  "name": "BrushedMetal",
+  "role": "generator+compute",
+  "spec": {
+    "type": "BrushedMetal",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "lightColor": "#e9ebef",
+      "darkColor": "#26282d",
+      "brushAngle": 0,
+      "anisotropy": 0.4,
+      "grain": 0.4,
+      "grainScale": 2,
+      "roughness": 0.5,
+      "environment": 1.4,
+      "envRotation": 0,
+      "lightAngle": 215,
+      "speed": 0.4,
+      "bevelWidth": 0.05,
+      "bevelShape": 0,
+      "edgeSoftness": 0.05,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

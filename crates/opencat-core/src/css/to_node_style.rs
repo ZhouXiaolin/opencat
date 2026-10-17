@@ -871,57 +871,169 @@ fn image_to_fill(image: &Image) -> Option<BackgroundFill> {
 
 fn gradient_to_fill(g: &Gradient) -> Option<BackgroundFill> {
     match g {
-        Gradient::Linear(lg) => {
-            let (angle, direction) = match &lg.direction {
-                LineDirection::Angle(a) => (Some(a.to_degrees()), None),
-                LineDirection::Horizontal(h) => (
-                    None,
-                    Some(match h {
-                        HorizontalPositionKeyword::Right => GradientDirection::ToRight,
-                        _ => GradientDirection::ToLeft,
-                    }),
-                ),
-                LineDirection::Vertical(v) => (
-                    None,
-                    Some(match v {
-                        VerticalPositionKeyword::Bottom => GradientDirection::ToBottom,
-                        _ => GradientDirection::ToTop,
-                    }),
-                ),
-                LineDirection::Corner { horizontal, vertical } => (
-                    None,
-                    Some(match (horizontal, vertical) {
-                        (HorizontalPositionKeyword::Right, VerticalPositionKeyword::Bottom) => {
-                            GradientDirection::ToBottomRight
-                        }
-                        (HorizontalPositionKeyword::Right, _) => GradientDirection::ToRight,
-                        (_, VerticalPositionKeyword::Bottom) => GradientDirection::ToBottom,
-                        _ => GradientDirection::ToTop,
-                    }),
-                ),
-            };
-            Some(BackgroundFill::ArbitraryGradient {
-                gradient: crate::style::ArbitraryGradient::LinearGradient {
-                    angle_deg: angle,
-                    direction,
-                    stops: gradient_items_to_stops(&lg.items)?,
-                    size: None,
-                    repeat: false,
-                },
-            })
-        }
-        Gradient::Radial(rg) => Some(BackgroundFill::ArbitraryGradient {
-            gradient: crate::style::ArbitraryGradient::RadialGradient {
-                center: [0.5, 0.5],
-                stops: gradient_items_to_stops(&rg.items)?,
-                size: None,
-                repeat: false,
-                shape: crate::style::RadialShape::default(),
-                radii: None,
-                extent: crate::style::RadialExtent::default(),
-            },
-        }),
+        Gradient::Linear(lg) => linear_to_fill(lg, false),
+        Gradient::RepeatingLinear(lg) => linear_to_fill(lg, true),
+        Gradient::Radial(rg) => radial_to_fill(rg, false),
+        Gradient::RepeatingRadial(rg) => radial_to_fill(rg, true),
         _ => None,
+    }
+}
+
+fn linear_to_fill(
+    lg: &lightningcss::values::gradient::LinearGradient,
+    repeat: bool,
+) -> Option<BackgroundFill> {
+    let (angle, direction) = match &lg.direction {
+        LineDirection::Angle(a) => (Some(a.to_degrees()), None),
+        LineDirection::Horizontal(h) => (
+            None,
+            Some(match h {
+                HorizontalPositionKeyword::Right => GradientDirection::ToRight,
+                _ => GradientDirection::ToLeft,
+            }),
+        ),
+        LineDirection::Vertical(v) => (
+            None,
+            Some(match v {
+                VerticalPositionKeyword::Bottom => GradientDirection::ToBottom,
+                _ => GradientDirection::ToTop,
+            }),
+        ),
+        LineDirection::Corner { horizontal, vertical } => (
+            None,
+            Some(match (horizontal, vertical) {
+                (HorizontalPositionKeyword::Right, VerticalPositionKeyword::Bottom) => {
+                    GradientDirection::ToBottomRight
+                }
+                (HorizontalPositionKeyword::Right, _) => GradientDirection::ToRight,
+                (_, VerticalPositionKeyword::Bottom) => GradientDirection::ToBottom,
+                _ => GradientDirection::ToTop,
+            }),
+        ),
+    };
+    Some(BackgroundFill::ArbitraryGradient {
+        gradient: crate::style::ArbitraryGradient::LinearGradient {
+            angle_deg: angle,
+            direction,
+            stops: gradient_items_to_stops(&lg.items)?,
+            size: None,
+            repeat,
+        },
+    })
+}
+
+fn radial_to_fill(
+    rg: &lightningcss::values::gradient::RadialGradient,
+    repeat: bool,
+) -> Option<BackgroundFill> {
+    use lightningcss::values::gradient::{Circle, Ellipse, EndingShape};
+    use lightningcss::values::position::{PositionComponent, VerticalPositionKeyword};
+
+    let (shape, radii, extent) = match &rg.shape {
+        EndingShape::Circle(c) => (
+            crate::style::RadialShape::Circle,
+            match c {
+                Circle::Radius(r) => Some([
+                    length_to_gradient_length(r),
+                    length_to_gradient_length(r),
+                ]),
+                Circle::Extent(_) => None,
+            },
+            match c {
+                Circle::Extent(e) => extent_from_css(e),
+                Circle::Radius(_) => crate::style::RadialExtent::FarthestCorner,
+            },
+        ),
+        EndingShape::Ellipse(e) => (
+            crate::style::RadialShape::Ellipse,
+            match e {
+                Ellipse::Size { x, y } => Some([
+                    length_percentage_to_gradient_length(x),
+                    length_percentage_to_gradient_length(y),
+                ]),
+                Ellipse::Extent(_) => None,
+            },
+            match e {
+                Ellipse::Extent(e) => extent_from_css(e),
+                Ellipse::Size { .. } => crate::style::RadialExtent::FarthestCorner,
+            },
+        ),
+    };
+
+    // `center` 位置是单位盒内的比例；像素位置暂按比例近似（径向中心实际
+    // 只用到百分比形态）。
+    let center_x = match &rg.position.x {
+        PositionComponent::Center => 0.5,
+        PositionComponent::Length(LengthPercentage::Percentage(p)) => p.0,
+        PositionComponent::Length(LengthPercentage::Dimension(d)) => {
+            length_value_to_px(d, &EvalContext::default())
+        }
+        PositionComponent::Side { side, .. } => {
+            if matches!(side, lightningcss::values::position::HorizontalPositionKeyword::Right) {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => 0.5,
+    };
+    let center_y = match &rg.position.y {
+        PositionComponent::Center => 0.5,
+        PositionComponent::Length(LengthPercentage::Percentage(p)) => p.0,
+        PositionComponent::Length(LengthPercentage::Dimension(d)) => {
+            length_value_to_px(d, &EvalContext::default())
+        }
+        PositionComponent::Side { side, .. } => {
+            if matches!(side, VerticalPositionKeyword::Bottom) {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => 0.5,
+    };
+
+    Some(BackgroundFill::ArbitraryGradient {
+        gradient: crate::style::ArbitraryGradient::RadialGradient {
+            center: [center_x, center_y],
+            stops: gradient_items_to_stops(&rg.items)?,
+            size: None,
+            repeat,
+            shape,
+            radii,
+            extent,
+        },
+    })
+}
+
+fn extent_from_css(e: &lightningcss::values::gradient::ShapeExtent) -> crate::style::RadialExtent {
+    use lightningcss::values::gradient::ShapeExtent;
+    match e {
+        ShapeExtent::ClosestSide => crate::style::RadialExtent::ClosestSide,
+        ShapeExtent::FarthestSide => crate::style::RadialExtent::FarthestSide,
+        ShapeExtent::ClosestCorner => crate::style::RadialExtent::ClosestCorner,
+        ShapeExtent::FarthestCorner => crate::style::RadialExtent::FarthestCorner,
+    }
+}
+
+fn length_to_gradient_length(l: &Length) -> crate::style::GradientLength {
+    match l {
+        Length::Value(v) => crate::style::GradientLength::Px {
+            value: length_value_to_px(v, &EvalContext::default()),
+        },
+        Length::Calc(_) => crate::style::GradientLength::Px { value: 0.0 },
+    }
+}
+
+fn length_percentage_to_gradient_length(
+    lp: &LengthPercentage,
+) -> crate::style::GradientLength {
+    match lp {
+        LengthPercentage::Percentage(p) => crate::style::GradientLength::Percent { value: p.0 * 100.0 },
+        LengthPercentage::Dimension(d) => crate::style::GradientLength::Px {
+            value: length_value_to_px(d, &EvalContext::default()),
+        },
+        LengthPercentage::Calc(_) => crate::style::GradientLength::Percent { value: 0.0 },
     }
 }
 

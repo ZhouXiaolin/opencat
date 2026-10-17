@@ -6,6 +6,31 @@ use crate::style::{
     TransformOrigin,
 };
 
+/// 文本是否允许换行。布局测量与显示树构建共用同一条判定。
+///
+/// `truncate`/`white-space: nowrap` 强制单行；绝对定位且宽度不确定的元素
+/// 按 shrink-to-fit 由内容决定宽度，不换行；其余情况由继承来的
+/// `wrap_text` 或确定宽度决定。
+pub fn text_element_allows_wrap(element: &crate::resolve::tree::ElementNode) -> bool {
+    if element.style.layout.truncate {
+        return false;
+    }
+
+    if element.style.text.no_wrap {
+        return false;
+    }
+
+    let has_definite_width = element.style.layout.width.is_some()
+        || element.style.layout.width_percent.is_some()
+        || element.style.layout.width_full;
+
+    if element.style.layout.position == Position::Absolute && !has_definite_width {
+        return false;
+    }
+
+    element.style.text.wrap_text || has_definite_width
+}
+
 #[derive(Clone, Debug)]
 pub struct ComputedStyle {
     pub layout: ComputedLayoutStyle,

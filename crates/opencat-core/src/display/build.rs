@@ -16,7 +16,10 @@ use crate::{
     frame_ctx::FrameCtx,
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
-    resolve::tree::{ElementId, ElementKind, ElementNode},
+    resolve::{
+        style::text_element_allows_wrap,
+        tree::{ElementId, ElementKind, ElementNode},
+    },
     style::{ClipPath, LengthPercentage, Position},
 };
 
@@ -590,26 +593,6 @@ fn display_item_for_node(
             view_box: svg.view_box,
         }),
     }
-}
-
-fn text_element_allows_wrap(element: &ElementNode) -> bool {
-    if element.style.layout.truncate {
-        return false;
-    }
-
-    if element.style.text.no_wrap {
-        return false;
-    }
-
-    let has_definite_width = element.style.layout.width.is_some()
-        || element.style.layout.width_percent.is_some()
-        || element.style.layout.width_full;
-
-    if element.style.layout.position == Position::Absolute && !has_definite_width {
-        return false;
-    }
-
-    element.style.text.wrap_text || has_definite_width
 }
 
 fn conservative_text_visual_expansion(

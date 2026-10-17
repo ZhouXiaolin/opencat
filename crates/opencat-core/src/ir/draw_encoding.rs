@@ -2704,7 +2704,11 @@ mod tests {
         );
     }
 
+    /// 写 `web/src/fixtures/ocir/` 下的 round-trip 夹具。默认 `#[ignore]`：
+    /// 普通 `cargo test` 不应改动源码树。
+    ///   cargo test -p opencat-core write_ts_roundtrip_fixture_bytes -- --ignored
     #[test]
+    #[ignore]
     fn write_ts_roundtrip_fixture_bytes() {
         // Writes the fixed binary fixture that vitest loads for AC5 core→TS
         // round-trip. Always rewrites so the committed file stays in lockstep

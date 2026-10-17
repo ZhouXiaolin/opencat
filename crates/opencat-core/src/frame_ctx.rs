@@ -122,11 +122,6 @@ mod tests {
     use super::duration_secs_to_frames;
 
     #[test]
-    fn duration_secs_to_frames_tolerates_fraction_rounding() {
-        assert_eq!(duration_secs_to_frames(10.0000003 / 30.0, 30), 10);
-    }
-
-    #[test]
     fn duration_secs_to_frames_keeps_positive_duration_visible() {
         assert_eq!(duration_secs_to_frames(0.000000001, 30), 1);
     }

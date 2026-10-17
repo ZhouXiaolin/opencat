@@ -23,6 +23,21 @@ use crate::style::{
     TextAlign, Transform, TransformOrigin, color_token_from_script_string,
 };
 
+/// Cached output of one G2 chart build (see `MutationStore::chart_cache`).
+#[derive(Clone, Debug)]
+pub struct ChartCacheEntry {
+    /// The canvas node's DrawOp stream as recorded by the build.
+    pub commands: Vec<crate::ir::draw_op::DrawOp>,
+    /// Paragraph images the build registered (id + pixels + placement), so a
+    /// cache replay can re-register them without re-rasterizing text.
+    pub images: Vec<crate::ir::FrameGeneratedImage>,
+    /// Fingerprint of `commands` at commit time — the probe comparison key.
+    pub fingerprint: u64,
+    /// Set when two builds at different probe times produced different ops —
+    /// the build reads the clock, and the chart must be rebuilt every frame.
+    pub dynamic: bool,
+}
+
 #[derive(Default)]
 pub struct MutationStore {
     styles: HashMap<String, NodeStyleMutations>,
@@ -46,6 +61,14 @@ pub struct MutationStore {
     /// script runs, drained once per frame by the render pipeline into the
     /// pipeline `GeneratedImageTable`. Ids must be deterministic per content.
     pending_generated_images: Vec<crate::ir::FrameGeneratedImage>,
+    /// Realm-level G2 chart cache: node id → the DrawOp stream and paragraph
+    /// images one chart build produced. NOT cleared by reset_for_frame — a
+    /// chart whose output does not depend on time replays these ops on later
+    /// frames instead of rebuilding the whole G2 mark tree.
+    chart_cache: HashMap<String, ChartCacheEntry>,
+    /// Node ids waiting for their second probe commit. A cache entry only
+    /// becomes servable after two builds at different clock times agree.
+    chart_probe_armed: std::collections::HashSet<String>,
     current_frame: u32,
     /// Scene-local frame override. The JSX frontend emits ONE root driver whose
     /// store frame is the composition frame, but each `<tl>` scene has its own
@@ -209,6 +232,120 @@ impl MutationStore {
     /// the pipeline, which inserts them into the `GeneratedImageTable`).
     pub fn take_pending_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
         std::mem::take(&mut self.pending_generated_images)
+    }
+
+    // ── G2 chart cache ──────────────────────────────────────────────
+    //
+    // A chart's DrawOp stream is a pure function of its spec, not of the
+    // frame time: the G2 shim freezes every animation at its virtual-clock
+    // origin (progress is always 0 at the instant of build). So the stream
+    // recorded on the first frame can be replayed verbatim on later frames,
+    // skipping the whole G2 rebuild (layout, tween engine, three rAF drain
+    // passes, paragraph rasterization). A build whose output DOES read the
+    // clock declares that with `chart_cache_probe`, and the shim re-checks.
+
+    /// Replay a cached chart build for `node_id`: re-record the cached DrawOps
+    /// into the node's canvas entry and re-register the paragraph images into
+    /// this frame's pending table (Arc clones, no re-rasterization). Returns
+    /// `false` on a miss — the caller must run a real G2 build. An entry only
+    /// serves after its two-probe comparison passed and it is not dynamic.
+    pub fn chart_cache_fetch(&mut self, node_id: &str) -> bool {
+        if self.chart_probe_armed.contains(node_id) {
+            return false;
+        }
+        let Some(entry) = self.chart_cache.get(node_id) else {
+            return false;
+        };
+        if entry.dynamic || entry.commands.is_empty() {
+            return false;
+        }
+        let commands = entry.commands.clone();
+        let images = entry.images.clone();
+        for image in &images {
+            self.pending_generated_images.push(image.clone());
+        }
+        self.canvases
+            .entry(node_id.to_string())
+            .or_default()
+            .commands
+            .extend(commands);
+        true
+    }
+
+    /// Snapshot the build that just ran for `node_id`. Called after a REAL
+    /// build (the frame's own ops stay in the canvas entry — they are cloned
+    /// into the cache, not moved). First call arms the node; the second call
+    /// compares fingerprints: identical ops at two different frame times ⇒
+    /// the chart is static and servable; different ⇒ dynamic, never served.
+    /// Returns the previous verdict (`Some(dynamic)`) or `None` while arming.
+    pub fn chart_cache_commit(&mut self, node_id: &str) -> Option<bool> {
+        let commands: Vec<crate::ir::draw_op::DrawOp> = self
+            .canvases
+            .get(node_id)
+            .map(|canvas| canvas.commands.clone())
+            .unwrap_or_default();
+        let image_ids: std::collections::HashSet<crate::ir::GeneratedImageId> = commands
+            .iter()
+            .filter_map(|op| match op {
+                crate::ir::draw_op::DrawOp::Image {
+                    image: crate::ir::draw_types::ImageRef::Generated { id },
+                    ..
+                } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        let images: Vec<crate::ir::FrameGeneratedImage> = self
+            .pending_generated_images
+            .iter()
+            .filter(|img| image_ids.contains(&img.id))
+            .cloned()
+            .collect();
+
+        use std::hash::{Hash, Hasher};
+        let mut hasher = ahash::AHasher::default();
+        for op in &commands {
+            op.hash(&mut hasher);
+        }
+        let fingerprint = hasher.finish();
+
+        if !self.chart_probe_armed.contains(node_id) {
+            self.chart_probe_armed.insert(node_id.to_string());
+            self.chart_cache.insert(
+                node_id.to_string(),
+                ChartCacheEntry {
+                    commands,
+                    images,
+                    fingerprint,
+                    dynamic: false,
+                },
+            );
+            return None;
+        }
+
+        let dynamic = self
+            .chart_cache
+            .get(node_id)
+            .map(|prev| prev.fingerprint != fingerprint)
+            .unwrap_or(true);
+        self.chart_probe_armed.remove(node_id);
+        // On a static verdict the just-built frame's data is identical to the
+        // stored copy, so overwriting is a no-op; on dynamic we store the
+        // latest purely for diagnostics — fetch never serves a dynamic entry.
+        self.chart_cache.insert(
+            node_id.to_string(),
+            ChartCacheEntry {
+                commands,
+                images,
+                fingerprint,
+                dynamic,
+            },
+        );
+        Some(dynamic)
+    }
+
+    /// Drop a node's cached chart (spec changed, or the author opted out).
+    pub fn chart_cache_drop(&mut self, node_id: &str) {
+        self.chart_cache.remove(node_id);
     }
 
     /// Register a frame-scoped generated image WITHOUT recording a draw op —
@@ -1224,6 +1361,16 @@ impl MutationRecorder for MutationStore {
 
     fn record_draw_op(&mut self, id: &str, cmd: crate::ir::draw_op::DrawOp) {
         self.canvas_entry(id).commands.push(cmd);
+    }
+
+    fn chart_cache_fetch(&mut self, node_id: &str) -> bool {
+        MutationStore::chart_cache_fetch(self, node_id)
+    }
+    fn chart_cache_commit(&mut self, node_id: &str) -> Option<bool> {
+        MutationStore::chart_cache_commit(self, node_id)
+    }
+    fn chart_cache_drop(&mut self, node_id: &str) {
+        MutationStore::chart_cache_drop(self, node_id)
     }
 
     fn record_scene3(&mut self, id: &str, scene: crate::ir::scene3::Scene3) {

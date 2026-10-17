@@ -632,13 +632,32 @@
 
     // ── public entry: one chart render on one canvas node ────────────
     // `__ocG2Frame(nodeId, t, build)`:
+    //   0. replay the cached build when the chart's output is time-invariant
+    //      (see the cache protocol below);
     //   1. install the DOM/clock shims and the extended CanvasKit;
     //   2. set the virtual clock to the frame's time;
     //   3. call `build(Chart, node)` with a Chart class whose default renderer
     //      is ours;
     //   4. drain one rAF pass so G2's deferred render commits its ops.
-    // The container width/height come from the composition meta, because a
-    // <canvas> node is laid out by the frame, not by the DOM.
+    //
+    // ── static-build cache ──────────────────────────────────────────
+    // A G2 chart's recorded DrawOp stream is a pure function of its spec: the
+    // shim freezes every animation at its virtual-clock origin (progress is 0
+    // at the instant of build), so the same spec renders the same ops at any
+    // `t`. The build protocol probes that invariant instead of trusting it:
+    //
+    //   frame N    build for real → `__g2_cache_commit` arms the node
+    //   frame N+1  build for real → commit compares fingerprints: same ops at
+    //              two different frame times ⇒ static; different ⇒ dynamic
+    //   frame N+2+ `__g2_cache_fetch` replays the recorded ops in the Rust
+    //              store (paragraph images re-register as Arc clones) and the
+    //              whole G2 rebuild — layout, tween engine, three rAF drain
+    //              passes, paragraph rasterization — is skipped.
+    //
+    // The probe costs nothing extra: both sampled builds are the frame's own
+    // real builds, and the chart renders correctly throughout. A dynamic
+    // chart (the build reads the clock) pays the fingerprint comparison once
+    // and then renders exactly as before.
     globalThis.__ocG2Frame = function (nodeId, t, build) {
         var meta = globalThis.__ocMeta || {};
         var width = numberOr(meta.width, 1920);
@@ -649,6 +668,14 @@
         installDomShims(nodeId, width, height);
         extendCanvasKit();
         globalThis.__ocG2SetTime(t);
+
+        // Cache hit: the store replays the recorded ops and re-registers the
+        // paragraph images; nothing else to do this frame. OC_NO_G2_CACHE=1
+        // disables the whole cache (diagnostics / A-B timing).
+        var cacheEnabled = globalThis.OC_NO_G2_CACHE !== '1' && globalThis.OC_NO_G2_CACHE !== 1;
+        if (cacheEnabled && typeof __g2_cache_fetch === 'function' && __g2_cache_fetch(nodeId)) {
+            return;
+        }
 
         var ChartClass = globalThis.__ocG2Chart;
         if (!ChartClass) throw new Error('g2: bundle is not installed (__ocG2Chart missing)');
@@ -692,6 +719,12 @@
 
         build(Chart, container);
         flushRaf();
+        // Arm / probe the cache with the build that just ran. The verdict
+        // (second commit at a different frame time) decides whether later
+        // frames replay instead of rebuilding.
+        if (typeof __g2_cache_commit === 'function') {
+            __g2_cache_commit(nodeId);
+        }
     };
 
     // G2's Chart class: the bundle is an IIFE that assigns its exports to

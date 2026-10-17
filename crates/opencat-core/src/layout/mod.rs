@@ -1001,7 +1001,6 @@ mod tests {
     use crate::{
         FrameCtx,
         layout::tree::LayoutRect,
-        parse::tailwind::parse_class_name,
         parse::primitives::{canvas, div, lucide, path, text},
         probe::catalog::PreparedResourceCatalog,
         resolve::resolve::resolve_ui_tree,
@@ -1077,13 +1076,24 @@ mod tests {
         );
     }
 
+    /// 测试辅助：class 串 → NodeStyle，走标准 CSS 引擎（tailwind 写法经
+    /// tailwindcss CLI 编译后即此形态）。样式表为空时 class 不产生规则。
+    fn style_for(class_name: &str) -> crate::style::NodeStyle {
+        let engine = crate::css::CssEngine::from_css_text(
+            crate::test_support::layout_test_css(),
+            crate::css::EvalContext::default(),
+        )
+        .expect("tailwind css compiles");
+        engine.compute_node_style(class_name, "", "div")
+    }
+
     fn classed_div(
         id: &'static str,
         class_name: &'static str,
         children: Vec<crate::Node>,
     ) -> crate::parse::primitives::Div {
         let mut node = div();
-        node.style = parse_class_name(class_name);
+        node.style = style_for(class_name);
         node.style.id = id.to_string();
         node.children = children;
         node
@@ -1095,7 +1105,7 @@ mod tests {
         content: &'static str,
     ) -> crate::parse::primitives::Text {
         let mut node = text(content);
-        node.style = parse_class_name(class_name);
+        node.style = style_for(class_name);
         node.style.id = id.to_string();
         node
     }
@@ -1106,7 +1116,7 @@ mod tests {
         hidden_children: Vec<crate::Node>,
     ) -> crate::parse::primitives::Canvas {
         let mut node = canvas();
-        node.style = parse_class_name(class_name);
+        node.style = style_for(class_name);
         node.style.id = id.to_string();
         for child in hidden_children {
             node = node.hidden_child(child);

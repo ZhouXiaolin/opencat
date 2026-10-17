@@ -1,16 +1,14 @@
 //! 标准 CSS 样式引擎：解析真 CSS（tailwindcss CLI 编译产物、手写样式表），
 //! 层叠后落到 [`NodeStyle`]。
 //!
-//! 与 `parse::tailwind`（手写类名匹配器）互为旁路：给 `composition_from_lines`
-//! 传入 [`CssEngine`] 时整个 class 解析走这里，否则维持原路径。设计目标最终
-//! 是前者退役——标准编译器负责类名→声明，本模块只负责浏览器语义中
-//! 「声明→计算值」这一段：选择器匹配、层叠、自定义属性求值（var/calc/
-//! color-mix），然后把强类型 [`Property`] 映射到 NodeStyle。
+//! 类名 → 声明由标准编译器（tailwindcss CLI）负责；本模块只负责浏览器语义
+//! 中「声明→计算值」这一段：选择器匹配、层叠、自定义属性求值（var/calc/
+//! color-mix），然后把强类型 [`Property`] 映射到 NodeStyle 与 taffy。
 //!
 //! 求值策略：var() 替换与 calc()/color-mix() 化简全部在 TokenList 层完成，
 //! 产出的字面值经 `Property::parse_string` 重新交还 lightningcss 解析成类型，
 //! 映射层（`to_node_style`）只面对强类型。无法化简的声明（如 px/% 混合
-//! calc）按 tailwind.rs 的既有惯例告警后丢弃。
+//! calc）告警后丢弃——与浏览器的错误恢复语义一致。
 
 mod cascade;
 mod eval;
@@ -146,7 +144,7 @@ impl CssEngine {
 
     /// `class_name` 里样式表完全没有引用的类。运行时拼接类
     /// （`left-[' + x + 'px]`）在 tailwind 静态扫描下不产出规则，
-    /// 调用方拿这份名单走旧匹配器兜底。
+    /// 调用方用这份名单做诊断。
     pub fn unmatched_classes<'a>(&self, class_name: &'a str) -> Vec<&'a str> {
         class_name
             .split_whitespace()

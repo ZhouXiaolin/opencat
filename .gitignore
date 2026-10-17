@@ -8,6 +8,7 @@ out/
 .codegraph
 .qoder
 .worktrees
+.claude/
 __pycache__/
 .zcode/
 .commandcode/

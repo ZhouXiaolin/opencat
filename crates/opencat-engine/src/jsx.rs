@@ -23,7 +23,7 @@ use opencat_core::script::runtime::{CANVAS_API_RUNTIME, JSX_RUNTIME, JSX_TRANSFO
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
     let (mut extract, driver) = extract_with_base_dir(input, base_dir)?;
     // 约定：<jsx-dir>/tailwind.css（scripts/build-css.sh 产物）存在时，
-    // class 解析切到标准 CSS 引擎；不存在则维持 tailwind 类名匹配器。
+    // class 解析走标准 CSS 引擎；不存在时 class 不产生任何声明。
     if let Some(dir) = base_dir {
         let css_path = dir.join("tailwind.css");
         if css_path.is_file() {

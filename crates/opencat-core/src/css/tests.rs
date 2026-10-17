@@ -130,6 +130,60 @@ fn unmatched_classes_reports_runtime_composed_classes() {
 }
 
 #[test]
+fn standalone_rotate_and_scale_properties_apply() {
+    // tailwind v4 的 `rotate-[x]` / `scale-[x]` 产出独立属性，不是
+    // `transform` 简写的一部分。
+    let eng = engine(".r{rotate:-45deg}.s{scale:1.5}.s2{scale:2 3}");
+    let r = eng.compute_node_style("r", "a", "div");
+    assert!(matches!(
+        r.transforms.as_slice(),
+        [crate::style::Transform::RotateDeg { value }] if (value + 45.0).abs() < 1e-3
+    ));
+
+    let s = eng.compute_node_style("s", "b", "div");
+    assert!(matches!(
+        s.transforms.as_slice(),
+        [crate::style::Transform::Scale { value }] if (value - 1.5).abs() < 1e-6
+    ));
+
+    let s2 = eng.compute_node_style("s2", "c", "div");
+    assert!(
+        matches!(
+            s2.transforms.as_slice(),
+            [
+                crate::style::Transform::ScaleX { value: 2.0 },
+                crate::style::Transform::ScaleY { value: 3.0 }
+            ]
+        ),
+        "非等比缩放应拆成两个单轴，实际 {:?}",
+        s2.transforms
+    );
+}
+
+#[test]
+fn flex_shorthand_expands_to_longhands() {
+    // tailwind `flex-1` 编译成 `flex: 1`（简写）。只接长写会让子项不伸展。
+    let eng = engine(".one{flex:1}.none{flex:none}.basis{flex:0 1 40px}");
+    let one = eng.compute_node_style("one", "a", "div");
+    assert_eq!(one.flex_grow, Some(1.0));
+    assert_eq!(one.flex_shrink, Some(1.0));
+    let layout = one.css_layout.expect("布局腿应有值").0;
+    assert_eq!(layout.flex_grow, 1.0, "taffy 腿应同步");
+
+    let none = eng.compute_node_style("none", "b", "div");
+    assert_eq!(none.flex_grow, Some(0.0));
+    assert_eq!(none.flex_shrink, Some(0.0));
+
+    let basis = eng.compute_node_style("basis", "c", "div");
+    assert_eq!(basis.flex_grow, Some(0.0));
+    assert_eq!(basis.flex_shrink, Some(1.0));
+    assert!(matches!(
+        basis.flex_basis,
+        Some(LengthPercentageAuto::Length(v)) if (v - 40.0).abs() < 1e-3
+    ));
+}
+
+#[test]
 fn inline_style_overrides_class_rules() {
     // 内联 style 在层叠里高于选择器规则：同一属性内联胜，其余类规则保留。
     let eng = engine(".x{width:100px;height:50px;color:#ff0000}");
@@ -227,6 +281,26 @@ fn letter_spacing_em_tracks_element_font_size() {
     let style = eng.compute_node_style("x", "n1", "text");
     assert_eq!(style.letter_spacing, Some(-2.5));
     assert_eq!(style.letter_spacing_em, None);
+}
+
+#[test]
+fn font_sans_stack_delegates_to_document_default_font() {
+    // tailwind `font-sans` → `font-family: var(--font-sans)`，展开后以
+    // `ui-sans-serif` 开头。这表示「系统默认族」，由文档字体清单接管。
+    let eng = engine(
+        ":root{--font-sans: ui-sans-serif, system-ui, sans-serif}\n.font-sans{font-family:var(--font-sans)}",
+    );
+    let style = eng.compute_node_style("font-sans", "n", "text");
+    assert!(style.use_document_default_font, "应交给文档默认族");
+    assert_eq!(style.font_family, None, "不应把栈首字面名当族名");
+    assert_eq!(style.font_face_id, None);
+
+    // `font-[display]` → `font-family: display`：与 manifest face id 同形，
+    // 落 face 通道等待解析成真实 family。
+    let eng = engine(".font-display{font-family: display}");
+    let style = eng.compute_node_style("font-display", "n", "text");
+    assert!(!style.use_document_default_font);
+    assert_eq!(style.font_face_id.as_deref(), Some("display"));
 }
 
 #[test]

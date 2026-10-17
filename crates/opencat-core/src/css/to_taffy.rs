@@ -62,6 +62,30 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
         Property::Right(v) => style.inset.right = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
         Property::Bottom(v) => style.inset.bottom = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
         Property::Left(v) => style.inset.left = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
+        // border 宽度参与布局（border-box 下挤压内容区）。CSS 路径下
+        // `css_layout` 是布局的第一优先输入，漏接会让边框不占位。
+        Property::BorderWidth(v) => {
+            let w = side_px(&v.top, ctx);
+            style.border = taffy::geometry::Rect {
+                left: w,
+                right: w,
+                top: w,
+                bottom: w,
+            };
+        }
+        Property::BorderTopWidth(v) => style.border.top = side_px(v, ctx),
+        Property::BorderRightWidth(v) => style.border.right = side_px(v, ctx),
+        Property::BorderBottomWidth(v) => style.border.bottom = side_px(v, ctx),
+        Property::BorderLeftWidth(v) => style.border.left = side_px(v, ctx),
+        Property::Border(v) => {
+            let w = side_px(&v.width, ctx);
+            style.border = taffy::geometry::Rect {
+                left: w,
+                right: w,
+                top: w,
+                bottom: w,
+            };
+        }
         Property::Inset(v) => {
             // `inset: 0` 简写（tailwind inset-0 / inset-x-* 的产物）。
             style.inset.top = lpa(&v.top, ctx).unwrap_or_else(TaffyLPA::auto);
@@ -132,6 +156,13 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
         Property::FlexBasis(v, _) => style.flex_basis = dim(v, ctx),
         Property::FlexGrow(v, _) => style.flex_grow = *v,
         Property::FlexShrink(v, _) => style.flex_shrink = *v,
+        // `flex` 简写（tailwind `flex-1` / `flex-none` 的产物）。长写属性
+        // 各自有分支，简写必须展开，否则整条声明被丢弃、flex 子项不伸展。
+        Property::Flex(flex, _) => {
+            style.flex_grow = flex.grow;
+            style.flex_shrink = flex.shrink;
+            style.flex_basis = dim(&flex.basis, ctx);
+        }
         Property::JustifyContent(v, _) => {
             style.justify_content = map_justify_content(v);
         }
@@ -443,6 +474,21 @@ fn lpa(v: &LengthPercentageOrAuto, ctx: &EvalContext) -> Option<TaffyLPA> {
         LengthPercentageOrAuto::LengthPercentage(inner) => {
             lp(inner, ctx).map(TaffyLPA::from)
         }
+    }
+}
+
+
+/// 边框宽度 → taffy 长度；非长度值（thin/medium/thick）按 CSS 计算值取中。
+fn side_px(v: &lightningcss::properties::border::BorderSideWidth, ctx: &EvalContext) -> taffy::style::LengthPercentage {
+    use lightningcss::properties::border::BorderSideWidth;
+    match v {
+        BorderSideWidth::Length(l) => taffy::style::LengthPercentage::length(match l {
+            lightningcss::values::length::Length::Value(v) => length_px(v, ctx).unwrap_or(0.0),
+            _ => 0.0,
+        }),
+        BorderSideWidth::Thin => taffy::style::LengthPercentage::length(1.0),
+        BorderSideWidth::Medium => taffy::style::LengthPercentage::length(3.0),
+        BorderSideWidth::Thick => taffy::style::LengthPercentage::length(5.0),
     }
 }
 

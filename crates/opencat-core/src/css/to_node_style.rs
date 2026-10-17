@@ -29,7 +29,7 @@ use lightningcss::properties::position::Position as CssPosition;
 use lightningcss::properties::size::{MaxSize, Size};
 use lightningcss::properties::svg::SVGPaint;
 use lightningcss::properties::text::{
-    Spacing, TextAlign as CssTextAlign, TextTransformCase, WhiteSpace,
+    Spacing, TextAlign as CssTextAlign, TextDecorationLine, TextTransformCase, WhiteSpace,
 };
 use lightningcss::properties::transform::{Transform as CssTransform, TransformList};
 use lightningcss::properties::{Property, PropertyId};
@@ -160,6 +160,12 @@ pub fn apply_property(
         Property::FlexGrow(v, _) => style.flex_grow = Some(*v),
         Property::FlexShrink(v, _) => style.flex_shrink = Some(*v),
         Property::FlexBasis(v, _) => style.flex_basis = lpoa_to_cat(v, ctx),
+        // `flex` 简写展开（tailwind `flex-1` / `flex-none`）。
+        Property::Flex(flex, _) => {
+            style.flex_grow = Some(flex.grow);
+            style.flex_shrink = Some(flex.shrink);
+            style.flex_basis = lpoa_to_cat(&flex.basis, ctx);
+        }
         Property::JustifyContent(v, _) => style.justify_content = justify_to_cat(v),
         Property::AlignContent(v, _) => style.align_content = align_content_to_cat(v),
         Property::AlignItems(v, _) => style.align_items = align_items_to_cat(v),
@@ -300,6 +306,16 @@ pub fn apply_property(
         Property::BorderBottomWidth(v) => border_side(&mut style.border_bottom_width, v, ctx),
         Property::BorderLeftWidth(v) => border_side(&mut style.border_left_width, v, ctx),
         Property::BorderStyle(v) => style.border_style = line_style_to_cat(&v.top),
+        // 分边单属性：tailwind 的 `border-t` / `border-b-[#232326]` 产出这些
+        // 形态。样式是全局的（内部模型只有一条），颜色/宽度按边落位。
+        Property::BorderTopColor(v) => style.border_color = color_token(v),
+        Property::BorderRightColor(v) => style.border_color = color_token(v),
+        Property::BorderBottomColor(v) => style.border_color = color_token(v),
+        Property::BorderLeftColor(v) => style.border_color = color_token(v),
+        Property::BorderTopStyle(v) => style.border_style = line_style_to_cat(v),
+        Property::BorderRightStyle(v) => style.border_style = line_style_to_cat(v),
+        Property::BorderBottomStyle(v) => style.border_style = line_style_to_cat(v),
+        Property::BorderLeftStyle(v) => style.border_style = line_style_to_cat(v),
         Property::Border(v) => apply_border(style, v, ctx),
         Property::BorderRadius(v, _) => apply_border_radius(style, v, ctx),
         Property::BoxShadow(shadows, _) => {
@@ -321,6 +337,33 @@ pub fn apply_property(
             }
         }
         Property::Transform(list, _) => apply_transform(style, list, ctx),
+        // 独立变换属性（CSS Transforms 2）。tailwind v4 的 `rotate-[x]` /
+        // `scale-[x]` 直接产出它们，不是 `transform` 简写的一部分。
+        Property::Rotate(rotate) => {
+            use lightningcss::properties::transform::Rotate;
+            if let Rotate::XYZ { x, y, z, angle } = rotate
+                && (*x, *y) == (0.0, 0.0)
+                && *z == 1.0
+            {
+                style
+                    .transforms
+                    .push(CatTransform::RotateDeg { value: angle.to_degrees() });
+            }
+        }
+        Property::Scale(scale) => {
+            use lightningcss::properties::transform::Scale;
+            if let Scale::XYZ { x, y, .. } = scale {
+                let (sx, sy) = (number_or_percentage(x), number_or_percentage(y));
+                // 内部 `Scale` 只有一个值：等比例时直接用它，非等比拆成
+                // 两个单轴缩放（渲染顺序 x→y 与 CSS 的 `scale(sx, sy)` 等价）。
+                if (sx - sy).abs() < 1e-6 {
+                    style.transforms.push(CatTransform::Scale { value: sx });
+                } else {
+                    style.transforms.push(CatTransform::ScaleX { value: sx });
+                    style.transforms.push(CatTransform::ScaleY { value: sy });
+                }
+            }
+        }
         Property::TransformOrigin(pos, _) => style.transform_origin = position_to_origin(pos, ctx),
 
         // ---- 文本 ----
@@ -355,31 +398,33 @@ pub fn apply_property(
             });
         }
         Property::FontFamily(list) => {
-            for family in list {
-                match family {
-                    CssFontFamily::FamilyName(name) => {
-                        if style.font_family.is_none() {
-                            // 字段私有，走 ToCss 序列化还原名字面。
-                            if let Ok(s) = name.to_css_string(PrinterOptions::default()) {
-                                let cleaned = s.trim_matches(|c| c == '"' || c == '\'');
-                                // 名字与 manifest face id 同形时（font-[id] 的标准
-                                // 形态），同时落 face 通道；apply_font_refs_to_styles
-                                // 会把可解析的 id 换成真实 family，解析不了的原样
-                                // 保留为字面 family。
-                                style.font_face_id = Some(cleaned.to_string());
-                                style.font_family = Some(cleaned.to_string());
-                            }
-                        }
-                    }
-                    CssFontFamily::Generic(generic) => {
-                        if let Some(g) = generic_to_cat(generic) {
-                            style.font_generic = Some(g);
-                        }
-                    }
+            // 栈首是通用族（`ui-sans-serif`/`system-ui`/`sans-serif`）表示
+            // 「系统默认族」——tailwind `font-sans` 展开后正是这种形态。
+            // 这类栈交给文档字体清单里 role=sans 的 face 接管。
+            if matches!(list.first(), Some(CssFontFamily::Generic(_))) {
+                if is_generic_sans_stack(list) {
+                    style.use_document_default_font = true;
                 }
-                if style.font_family.is_some() && style.font_generic.is_some() {
-                    break;
+            } else if let Some(CssFontFamily::FamilyName(name)) = list.first() {
+                // 显式族名（`font-[display]` 的产物是 `font-family: display`）
+                // 与 manifest face id 同形时落 face 通道；
+                // apply_font_refs_to_styles 会把可解析的 id 换成真实 family，
+                // 解析不了的原样保留为字面 family。
+                if let Ok(s) = name.to_css_string(PrinterOptions::default()) {
+                    let cleaned = s.trim_matches(|c| c == '"' || c == '\'');
+                    style.font_face_id = Some(cleaned.to_string());
+                    style.font_family = Some(cleaned.to_string());
                 }
+            }
+            // 通用族尾（`font-[mono4,monospace]` 的 `monospace`）只在本节点
+            // 明确指定了字体栈时生效，不覆盖文档默认族。
+            if !style.use_document_default_font
+                && let Some(g) = list.iter().find_map(|f| match f {
+                    CssFontFamily::Generic(g) => generic_to_cat(g),
+                    _ => None,
+                })
+            {
+                style.font_generic = Some(g);
             }
         }
         Property::LineHeight(v) => match v {
@@ -412,8 +457,9 @@ pub fn apply_property(
                 | CssTextAlign::JustifyAll => return,
             });
         }
-        Property::TextDecorationLine(_, _) => {
-            log::warn!("css: text-decoration-line 暂不支持（underline 无渲染载体），已跳过");
+        Property::TextDecorationLine(lines, _) => {
+            // `line-through` 有渲染载体；underline/overline 暂无，忽略即可。
+            style.line_through = lines.contains(TextDecorationLine::LineThrough);
         }
         Property::TextShadow(shadows) => {
             style.text_shadows = shadows
@@ -793,6 +839,17 @@ fn position_to_origin(pos: &CssPositionValue, ctx: &EvalContext) -> Option<Trans
     Some(TransformOrigin {
         x: comp(&pos.x, h, ctx)?,
         y: comp(&pos.y, v, ctx)?,
+    })
+}
+
+/// 字体栈是否以通用 `sans-serif` 结尾（tailwind `font-sans` 的产物形态）。
+/// 是则交给文档默认族，与 `font-sans` 的既有语义一致。
+fn is_generic_sans_stack(list: &[CssFontFamily]) -> bool {
+    list.iter().any(|f| {
+        matches!(
+            f,
+            CssFontFamily::Generic(GenericFontFamily::SansSerif)
+        )
     })
 }
 

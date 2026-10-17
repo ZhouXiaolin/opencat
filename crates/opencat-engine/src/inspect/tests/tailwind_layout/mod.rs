@@ -34,8 +34,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
 
+use opencat_core::css::{CssEngine, EvalContext};
 use opencat_core::parse::composition::Composition;
-use opencat_core::parse::tailwind::parse_class_name;
 use opencat_core::parse::primitives::{div, text};
 
 use crate::inspect::{FrameElementRect, collect_frame_layout_rects};
@@ -91,7 +91,7 @@ fn run_browser_layout_suite(fixtures: Vec<LayoutFixture>) -> Result<()> {
             let browser_rects = browser
                 .measure_layout(&html_path, fixture.viewport_width, fixture.viewport_height)
                 .await?;
-            let taffy_rects = measure_taffy_layout(&fixture)?;
+            let taffy_rects = measure_taffy_layout(&fixture, &css)?;
 
             if let Err(error) = assert_layouts_close(
                 fixture.name,
@@ -583,8 +583,19 @@ struct ViewportMetrics {
     inner_height: i32,
 }
 
-fn measure_taffy_layout(fixture: &LayoutFixture) -> Result<BTreeMap<String, BrowserRect>> {
-    let root = Arc::new(fixture.root.to_node());
+fn measure_taffy_layout(
+    fixture: &LayoutFixture,
+    css: &str,
+) -> Result<BTreeMap<String, BrowserRect>> {
+    // 与浏览器端同一份 tailwind 编译产物：类名 → 声明由标准 CSS 引擎完成。
+    let engine = CssEngine::from_css_text(
+        css,
+        EvalContext {
+            viewport: (fixture.viewport_width as f32, fixture.viewport_height as f32),
+            rem_base: 16.0,
+        },
+    )?;
+    let root = Arc::new(fixture.root.to_node(&engine));
     let composition = Composition::new(fixture.name)
         .size(fixture.viewport_width, fixture.viewport_height)
         .fps(30)
@@ -837,20 +848,28 @@ impl FixtureNode {
         }
     }
 
-    fn to_node(&self) -> crate::Node {
+    /// class → 样式走标准 CSS 引擎，与浏览器端同一份 tailwind 编译产物。
+    fn to_node(&self, engine: &CssEngine) -> crate::Node {
+        let tag = match &self.kind {
+            FixtureNodeKind::Div => "div",
+            FixtureNodeKind::Text(_) => "text",
+        };
+        let mut style = engine.compute_node_style(self.class_name, self.id, tag);
+        style.id = self.id.to_string();
         match &self.kind {
             FixtureNodeKind::Div => {
                 let mut node = div();
-                let mut style = parse_class_name(self.class_name);
-                style.id = self.id.to_string();
                 node.set_style(style);
-                node.set_children(self.children.iter().map(FixtureNode::to_node).collect());
+                node.set_children(
+                    self.children
+                        .iter()
+                        .map(|child| child.to_node(engine))
+                        .collect(),
+                );
                 node.into()
             }
             FixtureNodeKind::Text(content) => {
                 let mut node = text(*content);
-                let mut style = parse_class_name(self.class_name);
-                style.id = self.id.to_string();
                 node.set_style(style);
                 node.into()
             }

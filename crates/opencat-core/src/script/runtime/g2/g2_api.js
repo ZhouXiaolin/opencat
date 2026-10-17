@@ -653,6 +653,19 @@
                 }
                 super(next);
                 this.__ocNodeId = nodeId;
+                // Alignment harnesses install a staticize hook (walkSpec on
+                // the spec: animate:false, no interaction/tooltip) so both
+                // sides render one deterministic frame. Applied by wrapping
+                // render(), exactly like g2-probe does — the spec only exists
+                // after the example calls options().
+                if (typeof globalThis.__ocG2Staticize === 'function') {
+                    var staticize = globalThis.__ocG2Staticize;
+                    var baseRender = this.render.bind(this);
+                    this.render = function () {
+                        staticize(this);
+                        return baseRender.apply(this, arguments);
+                    };
+                }
             }
             interaction() { return this; }
         };

@@ -1319,6 +1319,9 @@ pub enum CssFilterKind {
     Invert,
     Saturate,
     Sepia,
+    /// `drop-shadow(dx dy blur color)` — 参数不是单值，载体是
+    /// [`CssFilterOp::shadow`]；`value` 恒为 0。
+    DropShadow,
 }
 
 impl CssFilterKind {
@@ -1332,6 +1335,7 @@ impl CssFilterKind {
             "invert" => Some(Self::Invert),
             "saturate" => Some(Self::Saturate),
             "sepia" => Some(Self::Sepia),
+            "drop-shadow" | "dropShadow" => Some(Self::DropShadow),
             _ => None,
         }
     }
@@ -1346,6 +1350,7 @@ impl CssFilterKind {
             Self::Invert => "invert",
             Self::Saturate => "saturate",
             Self::Sepia => "sepia",
+            Self::DropShadow => "drop-shadow",
         }
     }
 
@@ -1359,13 +1364,19 @@ impl CssFilterKind {
             Self::Invert => "invert",
             Self::Saturate => "saturate",
             Self::Sepia => "sepia",
+            Self::DropShadow => "dropShadow",
         }
     }
 
     fn identity_value(self) -> f32 {
         match self {
             Self::Brightness | Self::Contrast | Self::Saturate => 1.0,
-            Self::Blur | Self::Grayscale | Self::HueRotate | Self::Invert | Self::Sepia => 0.0,
+            Self::Blur
+            | Self::Grayscale
+            | Self::HueRotate
+            | Self::Invert
+            | Self::Sepia
+            | Self::DropShadow => 0.0,
         }
     }
 
@@ -1374,6 +1385,7 @@ impl CssFilterKind {
             Self::Blur | Self::Brightness | Self::Contrast | Self::Saturate => value.max(0.0),
             Self::Grayscale | Self::Invert | Self::Sepia => value.clamp(0.0, 1.0),
             Self::HueRotate => value,
+            Self::DropShadow => 0.0,
         }
     }
 }
@@ -1382,6 +1394,9 @@ impl CssFilterKind {
 pub struct CssFilterOp {
     pub kind: CssFilterKind,
     pub value: f32,
+    /// `kind == DropShadow` 的参数。其它 kind 恒为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<DropShadow>,
 }
 
 impl CssFilterOp {
@@ -1389,12 +1404,26 @@ impl CssFilterOp {
         Self {
             kind,
             value: kind.clamp_value(value),
+            shadow: None,
+        }
+    }
+
+    pub fn new_drop_shadow(shadow: DropShadow) -> Self {
+        Self {
+            kind: CssFilterKind::DropShadow,
+            value: 0.0,
+            shadow: Some(shadow),
         }
     }
 
     pub fn is_identity(self) -> bool {
         match self.kind {
             CssFilterKind::Blur => self.value <= 0.0,
+            // 全透明阴影不绘制（与浏览器一致）；参数为 0 也只剩原内容。
+            CssFilterKind::DropShadow => self.shadow.is_none_or(|s| {
+                s.color.rgba().3 == 0
+                    || (s.offset_x == 0.0 && s.offset_y == 0.0 && s.blur_sigma <= 0.0)
+            }),
             _ => (self.value - self.kind.identity_value()).abs() <= f32::EPSILON,
         }
     }
@@ -1404,6 +1433,7 @@ impl std::hash::Hash for CssFilterOp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.kind.hash(state);
         self.value.to_bits().hash(state);
+        self.shadow.hash(state);
     }
 }
 
@@ -1433,11 +1463,16 @@ impl CssFilter {
         let Some(kind) = CssFilterKind::from_property(property) else {
             return false;
         };
+        // `drop-shadow` 是复合值，单值 setter 无法表达；浏览器同样把
+        // 单独的 `style.dropShadow = 0.4` 当无效值忽略。
+        if kind == CssFilterKind::DropShadow {
+            return false;
+        }
         let value = kind.clamp_value(value);
         if let Some(op) = self.ops.iter_mut().rev().find(|op| op.kind == kind) {
             op.value = value;
         } else {
-            self.ops.push(CssFilterOp { kind, value });
+            self.ops.push(CssFilterOp::new(kind, value));
         }
         true
     }
@@ -1451,15 +1486,33 @@ impl CssFilter {
             .map(|op| op.value)
     }
 
+    pub fn drop_shadow(&self) -> Option<DropShadow> {
+        self.ops
+            .iter()
+            .rev()
+            .find(|op| op.kind == CssFilterKind::DropShadow)
+            .and_then(|op| op.shadow)
+    }
+
+    pub fn push_drop_shadow(&mut self, shadow: DropShadow) {
+        self.ops.push(CssFilterOp::new_drop_shadow(shadow));
+    }
+
     pub fn to_css_string(&self) -> String {
         self.ops
             .iter()
-            .map(|op| {
-                format!(
+            .map(|op| match (op.kind, op.shadow) {
+                (CssFilterKind::DropShadow, Some(s)) => format!(
+                    "drop-shadow({} {} {})",
+                    px(s.offset_x),
+                    px(s.offset_y),
+                    px(s.blur_sigma)
+                ),
+                _ => format!(
                     "{}({})",
                     op.kind.css_name(),
                     format_css_filter_value(op.kind, op.value)
-                )
+                ),
             })
             .collect::<Vec<_>>()
             .join(" ")
@@ -1475,10 +1528,14 @@ impl CssFilter {
                 break;
             };
             let raw_value = after_open[..close].trim();
-            if let Some(kind) = CssFilterKind::from_property(name)
-                && let Some(parsed) = parse_css_filter_number(raw_value, kind)
-            {
-                filter.push(kind, parsed);
+            if let Some(kind) = CssFilterKind::from_property(name) {
+                if kind == CssFilterKind::DropShadow {
+                    if let Some(shadow) = parse_drop_shadow_args(raw_value) {
+                        filter.push_drop_shadow(shadow);
+                    }
+                } else if let Some(parsed) = parse_css_filter_number(raw_value, kind) {
+                    filter.push(kind, parsed);
+                }
             }
             rest = after_open[close + 1..].trim_start();
         }
@@ -1489,6 +1546,97 @@ impl CssFilter {
 impl std::hash::Hash for CssFilter {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ops.hash(state);
+    }
+}
+
+/// `drop-shadow(<dx> <dy> [blur] [color])` 参数串 → [`DropShadow`]。
+/// 长度可为负（offset）或正（blur），颜色可出现在任意位置（CSS 规范）。
+fn parse_drop_shadow_args(raw: &str) -> Option<DropShadow> {
+    let mut lengths = Vec::new();
+    let mut color = ColorToken::Custom(0, 0, 0, 255);
+    for token in raw.split_whitespace() {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let trimmed = token.trim_end_matches("px");
+        if let Ok(v) = trimmed.parse::<f32>() {
+            lengths.push(v);
+            continue;
+        }
+        color = parse_color_literal(token)?;
+    }
+    let (offset_x, offset_y) = match lengths.as_slice() {
+        [x, y, ..] => (*x, *y),
+        _ => return None,
+    };
+    let blur_radius = lengths.get(2).copied().unwrap_or(0.0);
+    Some(DropShadow {
+        offset_x,
+        offset_y,
+        // CSS `drop-shadow()` 的第三长度是模糊半径；Gaussian σ = radius/2
+        //（与 box-shadow 同一条规则，CSS filter-effects-1 §drop-shadow）。
+        blur_sigma: blur_radius.max(0.0) / 2.0,
+        color,
+    })
+}
+
+/// 有限颜色字面量集（hex / rgb() / rgba() / 具名常用色）。
+fn parse_color_literal(token: &str) -> Option<ColorToken> {
+    let token = token.trim();
+    let lower = token.to_ascii_lowercase();
+    if lower == "transparent" {
+        return Some(ColorToken::Custom(0, 0, 0, 0));
+    }
+    if let Some(hex) = lower.strip_prefix('#') {
+        let ch = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+        return Some(match hex.len() {
+            3 => ColorToken::Custom(
+                u8::from_str_radix(&hex[0..1], 16).ok()? * 17,
+                u8::from_str_radix(&hex[1..2], 16).ok()? * 17,
+                u8::from_str_radix(&hex[2..3], 16).ok()? * 17,
+                255,
+            ),
+            4 => ColorToken::Custom(
+                u8::from_str_radix(&hex[0..1], 16).ok()? * 17,
+                u8::from_str_radix(&hex[1..2], 16).ok()? * 17,
+                u8::from_str_radix(&hex[2..3], 16).ok()? * 17,
+                u8::from_str_radix(&hex[3..4], 16).ok()? * 17,
+            ),
+            6 => ColorToken::Custom(ch(0)?, ch(2)?, ch(4)?, 255),
+            8 => ColorToken::Custom(ch(0)?, ch(2)?, ch(4)?, ch(6)?),
+            _ => return None,
+        });
+    }
+    let (name, args) = lower.split_once('(')?;
+    if name != "rgb" && name != "rgba" {
+        return None;
+    }
+    let args = args.strip_suffix(')')?;
+    let parts = args.split([',', '/', ' ']).filter(|p| !p.is_empty());
+    let mut channels = Vec::new();
+    for part in parts {
+        let part = part.trim();
+        if let Some(pct) = part.strip_suffix('%') {
+            channels.push((pct.trim().parse::<f32>().ok()? / 100.0 * 255.0).round() as u8);
+        } else if part.contains('.') {
+            channels.push((part.parse::<f32>().ok()? * 255.0).round() as u8);
+        } else {
+            channels.push(part.parse::<u8>().ok()?);
+        }
+    }
+    match channels.as_slice() {
+        [r, g, b] => Some(ColorToken::Custom(*r, *g, *b, 255)),
+        [r, g, b, a] => Some(ColorToken::Custom(*r, *g, *b, *a)),
+        _ => None,
+    }
+}
+
+fn px(v: f32) -> String {
+    if v.fract().abs() <= f32::EPSILON {
+        format!("{}px", v as i32)
+    } else {
+        format!("{v}px")
     }
 }
 

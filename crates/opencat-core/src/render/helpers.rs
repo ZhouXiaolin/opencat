@@ -42,7 +42,7 @@ const SQRT_2: f32 = std::f32::consts::SQRT_2;
 
 fn color_matrix_for_filter_op(kind: CssFilterKind, value: f32) -> Option<[f32; 20]> {
     match kind {
-        CssFilterKind::Blur => None,
+        CssFilterKind::Blur | CssFilterKind::DropShadow => None,
         CssFilterKind::Brightness => Some([
             value, 0.0, 0.0, 0.0, 0.0, 0.0, value, 0.0, 0.0, 0.0, 0.0, 0.0, value, 0.0, 0.0, 0.0,
             0.0, 0.0, 1.0, 0.0,
@@ -192,6 +192,22 @@ pub(crate) fn css_filter_image_filter(filter: &CssFilter) -> Option<ImageFilterS
                 // falloff must not be filled with the edge colour (Clamp).
                 decal: true,
             },
+            // CSS `filter: drop-shadow(dx dy blur color)` keeps the element's
+            // own pixels and adds a shadow of its alpha mask. `keep_content:
+            // true` selects Skia's `drop_shadow` (shadow + input) instead of
+            // `drop_shadow_only`.
+            CssFilterKind::DropShadow => {
+                let shadow = op.shadow?;
+                let color = color_token_to_rgba(&shadow.color);
+                ImageFilterSpec::DropShadow {
+                    dx: shadow.offset_x,
+                    dy: shadow.offset_y,
+                    sigma_x: shadow.blur_sigma,
+                    sigma_y: shadow.blur_sigma,
+                    color,
+                    keep_content: true,
+                }
+            }
             kind => {
                 let matrix = color_matrix_for_filter_op(kind, op.value)?;
                 ImageFilterSpec::ColorFilter(Box::new(

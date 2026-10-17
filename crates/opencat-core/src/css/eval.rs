@@ -111,7 +111,17 @@ fn eval_token_list(
             TokenOrValue::Function(func) => match func.name.0.as_ref() {
                 "calc" => out.push(eval_calc(&func.arguments, ctx)?),
                 "color-mix" => out.push(TokenOrValue::Token(eval_color_mix(&func.arguments)?)),
-                _ => out.push(TokenOrValue::Function(func)),
+                _ => {
+                    // 变量展开出来的函数（tailwind 的
+                    // `--tw-drop-shadow-size:drop-shadow(0 20px 60px var(...))`）
+                    // 参数里同样带颜色 token；不递归归一化，序列化阶段会
+                    // 撞上 `TokenOrValue::Color` 而整条声明被丢弃。
+                    let arguments = eval_token_list(&func.arguments, vars, ctx, depth + 1)?;
+                    out.push(TokenOrValue::Function(Function {
+                        name: func.name,
+                        arguments,
+                    }));
+                }
             },
             TokenOrValue::Color(color) => {
                 out.push(TokenOrValue::Token(rgba_token(css_color_to_f32(&color)?)));
@@ -129,7 +139,9 @@ fn lookup_var(
     depth: u8,
 ) -> Option<TokenList<'static>> {
     let key = var.name.ident.0.trim_start_matches("--");
-    if let Some(value) = vars.get(key) {
+    if let Some(value) = vars.get(key)
+        && !is_guaranteed_invalid(value)
+    {
         return substitute_vars(value, vars, ctx, depth + 1);
     }
     match &var.fallback {
@@ -137,6 +149,18 @@ fn lookup_var(
         // 未定义且无 fallback：按 CSS 语义该声明失效（不是报错）。
         None => None,
     }
+}
+
+/// CSS 自定义属性的 `initial` 值是 *guaranteed-invalid*：`var()` 引用它时
+/// 必须走 fallback，而不是把 `initial` 当字面值用。tailwind v4 的
+/// `@layer properties` 正是用它给 `--tw-drop-shadow-color` 等属性设默认，
+/// 若照字面替换，`drop-shadow(0 20px 60px var(--tw-drop-shadow-color,#140c0066))`
+/// 会得到非法值并整条丢弃。
+fn is_guaranteed_invalid(tokens: &TokenList<'static>) -> bool {
+    matches!(
+        tokens.0.as_slice(),
+        [TokenOrValue::Token(Token::Ident(name))] if name.eq_ignore_ascii_case("initial")
+    )
 }
 
 /// color-mix(in <space>, C1 [P1]? , C2 [P2]?) → hex 字面。

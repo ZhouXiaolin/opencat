@@ -212,7 +212,7 @@ Any HTML subtree — layout, images, text, video → texture → shader → outp
 
 ### More
 
-- **Tailwind-style layout**：`class="flex items-center justify-center gap-4"`
+- **Standard CSS layout**：`class="flex items-center justify-center gap-4"` compiles to plain CSS via tailwindcss and runs through the built-in CSS engine (selector matching, cascade, var/calc/color-mix); the `style` attribute accepts full declarations
 - **Audio mixing**：multi-track, scene-attached, auto-mix to output
 - **Subtitle engine**：SRT parsing, cross-scene persistent display
 - **Lucide icons**：2000+ icons out of the box

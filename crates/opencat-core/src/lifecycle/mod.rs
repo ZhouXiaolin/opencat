@@ -944,6 +944,8 @@ mod tests {
                 "meta": {"width": 64.0, "height": 64.0, "fps": 30.0, "duration": 0.1},
                 "lines": lines,
                 "fonts": fonts,
+                // 测试用类名的标准 CSS 产物（tailwindcss CLI 预编译）。
+                "css": crate::test_support::layout_test_css(),
             }),
             "",
             None,

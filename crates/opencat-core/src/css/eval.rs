@@ -7,7 +7,7 @@
 //!    类型声明。
 //!
 //! 无法化简的值（px/% 混合 calc、env()、CurrentColor 等）返回 None，
-//! 上层丢弃该声明并告警——与 tailwind.rs 对未知类的既有行为一致。
+//! 上层丢弃该声明并告警——与浏览器的错误恢复语义一致。
 
 use std::collections::HashMap;
 
@@ -490,6 +490,16 @@ fn serialize_into(items: &[TokenOrValue<'static>], out: &mut String) -> Option<(
 fn serialize_token(token: &Token<'static>, out: &mut String) -> Option<()> {
     match token {
         Token::Ident(s) => out.push_str(s),
+        // 带引号的字体名（`"Apple Color Emoji"`）必须保留引号，
+        // 否则重新解析时会被拆成多个标识符。
+        Token::String(s) => {
+            if s.contains('"') || s.contains('\\') {
+                return None;
+            }
+            out.push('"');
+            out.push_str(s);
+            out.push('"');
+        }
         Token::IDHash(s) => {
             out.push('#');
             out.push_str(s);

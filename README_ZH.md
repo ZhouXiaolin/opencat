@@ -212,7 +212,7 @@ ly.draw(canvas, DIS, {
 
 ### 更多能力
 
-- **Tailwind 式布局**：`class="flex items-center justify-center gap-4"`
+- **标准 CSS 布局**：`class="flex items-center justify-center gap-4"` 由 tailwindcss 编译成纯 CSS 后交给内置 CSS 引擎（选择器匹配、层叠、var/calc/color-mix）；`style` 属性支持完整声明
 - **音频混音**：多轨道，场景级挂载，自动混音输出
 - **字幕引擎**：SRT 解析，跨场景持久化显示
 - **Lucide 图标库**：2000+ 开箱即用

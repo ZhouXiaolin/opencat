@@ -182,9 +182,13 @@ pub enum DrawOp {
     /// fallback, to a pre-recorded prefix replay), while the layer's own
     /// content composites unfiltered on top. `bounds` is the *element* rect
     /// (border box) — the blurred backdrop is only visible inside it, unlike
-    /// the shadow-padded layer bounds that box-shadow needs.
+    /// the shadow-padded layer bounds that box-shadow needs. `radius` carries
+    /// the element's border-box corner radii (top-left, top-right,
+    /// bottom-right, bottom-left; zeros = square corners): CSS clips the
+    /// filtered backdrop to the *rounded* border box.
     SaveBackdropLayer {
         bounds: Option<Rect4>,
+        radius: [f32; 4],
         paint: Option<PaintId>,
     },
 
@@ -453,9 +457,12 @@ impl std::hash::Hash for DrawOp {
                 alpha.to_bits().hash(state);
                 backdrop.hash(state);
             }
-            DrawOp::SaveBackdropLayer { bounds, paint } => {
+            DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
                 49_u8.hash(state);
                 bounds.hash(state);
+                for r in radius {
+                    r.to_bits().hash(state);
+                }
                 paint.hash(state);
             }
             DrawOp::Restore => 2_u8.hash(state),

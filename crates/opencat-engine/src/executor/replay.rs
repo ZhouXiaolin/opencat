@@ -458,7 +458,7 @@ fn replay_op(
             }
             Ok(())
         }
-        DrawOp::SaveBackdropLayer { bounds, paint } => {
+        DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
             // CSS `backdrop-filter`: the image filter processes what is
             // already drawn beneath the layer bounds; the layer's own content
             // composites unfiltered on top.
@@ -495,11 +495,23 @@ fn replay_op(
                 canvas.save_layer(&rec);
                 canvas.save();
                 if let Some(ref r) = sk_rect {
-                    canvas.clip_rect(
-                        Rect::new(r.left, r.top, r.right, r.bottom),
-                        skia_safe::ClipOp::Intersect,
-                        false,
-                    );
+                    // CSS 裁剪 backdrop-filter 到圆角 border box：任一角有
+                    // 半径就用 RRect，否则退回方角 clip。
+                    let rect = Rect::new(r.left, r.top, r.right, r.bottom);
+                    if radius.iter().any(|rad| *rad > 0.0) {
+                        let rrect = RRect::new_rect_radii(
+                            rect,
+                            &[
+                                Point::new(radius[0], radius[0]),
+                                Point::new(radius[1], radius[1]),
+                                Point::new(radius[2], radius[2]),
+                                Point::new(radius[3], radius[3]),
+                            ],
+                        );
+                        canvas.clip_rrect(rrect, skia_safe::ClipOp::Intersect, true);
+                    } else {
+                        canvas.clip_rect(rect, skia_safe::ClipOp::Intersect, false);
+                    }
                 }
                 // picture 记录了录制时的矩阵（从 identity 开始的前缀），回放
                 // 必须回到同一坐标系，否则前缀内容被当前 CTM 二次变换。

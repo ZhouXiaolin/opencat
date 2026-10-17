@@ -92,6 +92,7 @@ pub(crate) fn save_composite_layer(
     backdrop_blur: Option<f32>,
     bounds: DisplayRect,
     backdrop_bounds: DisplayRect,
+    backdrop_radius: BorderRadius,
 ) -> BackdropLayerState {
     let uses_css_filter = !css_filter.is_identity();
     let uses_layer = opacity < 1.0 || backdrop_blur.is_some() || uses_css_filter;
@@ -158,6 +159,12 @@ pub(crate) fn save_composite_layer(
             let backdrop_rect4 = display_rect_to_rect4(backdrop_bounds);
             builder.push(DrawOp::SaveBackdropLayer {
                 bounds: Some(backdrop_rect4),
+                radius: [
+                    backdrop_radius.top_left,
+                    backdrop_radius.top_right,
+                    backdrop_radius.bottom_right,
+                    backdrop_radius.bottom_left,
+                ],
                 paint: Some(paint_id),
             });
         } else if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
@@ -209,6 +216,7 @@ struct ApplyPlan<'a> {
     opacity: f32,
     css_filter: &'a CssFilter,
     backdrop_blur_sigma: Option<f32>,
+    backdrop_border_radius: BorderRadius,
     layer_bounds: DisplayRect,
 }
 
@@ -219,6 +227,7 @@ impl<'a> ApplyPlan<'a> {
             opacity: draw.opacity,
             css_filter: draw.css_filter,
             backdrop_blur_sigma: draw.backdrop_blur_sigma,
+            backdrop_border_radius: draw.backdrop_border_radius,
             layer_bounds,
         }
     }
@@ -247,6 +256,7 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
         plan.backdrop_blur_sigma,
         plan.layer_bounds,
         plan.transform.bounds,
+        plan.backdrop_border_radius,
     );
     ApplyFrame { layer_state }
 }
@@ -919,6 +929,7 @@ mod tests {
             opacity: 0.5,
             css_filter: &css_filter,
             backdrop_blur_sigma: None,
+            backdrop_border_radius: Default::default(),
             layer_bounds: bounds,
         };
         let frame = begin_apply_frame(&mut builder, &plan);
@@ -963,6 +974,7 @@ mod tests {
             opacity: 1.0,
             backdrop_blur_sigma: None,
             css_filter: &css_filter,
+            backdrop_border_radius: Default::default(),
             layer_bounds: bounds,
         };
 
@@ -1010,6 +1022,7 @@ mod tests {
             opacity: 0.75,
             css_filter: &css_filter,
             backdrop_blur_sigma: None,
+            backdrop_border_radius: Default::default(),
             layer_bounds: bounds,
         };
 

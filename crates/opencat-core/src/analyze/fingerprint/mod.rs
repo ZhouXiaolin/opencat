@@ -193,6 +193,7 @@ fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
     F32Hash(node.opacity).hash(hasher);
     node.css_filter.hash(hasher);
     node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+    node.backdrop_filter.hash(hasher);
     node.transform.transforms.hash(hasher);
 }
 
@@ -225,6 +226,7 @@ mod tests {
         opacity: f32,
         css_filter: CssFilter,
         backdrop_blur_sigma: Option<f32>,
+        backdrop_filter: CssFilter,
         paint_clip: Option<DisplayClip>,
         clip: Option<DisplayClip>,
         children: Vec<TestAnnotatedNode>,
@@ -240,6 +242,7 @@ mod tests {
                 opacity: 1.0,
                 css_filter: CssFilter::default(),
                 backdrop_blur_sigma: None,
+                backdrop_filter: CssFilter::default(),
                 paint_clip: None,
                 clip: None,
                 children: Vec::new(),
@@ -256,6 +259,7 @@ mod tests {
         opacity: f32,
         css_filter: CssFilter,
         backdrop_blur_sigma: Option<f32>,
+        backdrop_filter: CssFilter,
         paint_clip: Option<DisplayClip>,
         clip: Option<DisplayClip>,
         item: DisplayItem,
@@ -289,6 +293,7 @@ mod tests {
             opacity: config.opacity,
             css_filter: config.css_filter,
             backdrop_blur_sigma: config.backdrop_blur_sigma,
+            backdrop_filter: config.backdrop_filter,
             paint_clip: config.paint_clip,
             clip: config.clip,
             item: DisplayItem::Rect(RectDisplayItem {
@@ -325,6 +330,7 @@ mod tests {
                 opacity: self.opacity,
                 css_filter: self.css_filter,
                 backdrop_blur_sigma: self.backdrop_blur_sigma,
+                backdrop_filter: self.backdrop_filter,
                 paint_clip: self.paint_clip,
                 clip: self.clip,
                 item: self.item,
@@ -380,6 +386,7 @@ mod tests {
             opacity: node.opacity,
             css_filter: node.css_filter,
             backdrop_blur_sigma: node.backdrop_blur_sigma,
+            backdrop_filter: node.backdrop_filter,
             paint_clip: node.paint_clip,
             clip: node.clip,
             item: node.item,

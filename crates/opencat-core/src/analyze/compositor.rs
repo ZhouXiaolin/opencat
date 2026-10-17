@@ -145,6 +145,7 @@ mod ordered_scene_tests {
             opacity: 1.0,
             css_filter: Default::default(),
             backdrop_blur_sigma: None,
+            backdrop_filter: Default::default(),
             paint_clip: None,
             clip: None,
             item: DisplayItem::Rect(RectDisplayItem {
@@ -261,6 +262,7 @@ mod ordered_scene_tests {
                     opacity: 1.0,
                     css_filter: Default::default(),
                     backdrop_blur_sigma: None,
+                    backdrop_filter: Default::default(),
                     paint_clip: None,
                     clip: None,
                     item: DisplayItem::DrawScript(DrawScriptDisplayItem {
@@ -349,6 +351,7 @@ mod ordered_scene_tests {
                     opacity: 1.0,
                     css_filter: Default::default(),
                     backdrop_blur_sigma: None,
+                    backdrop_filter: Default::default(),
                     paint_clip: None,
                     clip: None,
                     item: DisplayItem::DrawScript(DrawScriptDisplayItem {
@@ -584,6 +587,7 @@ mod ordered_scene_tests {
                     opacity: 1.0,
                     css_filter: Default::default(),
                     backdrop_blur_sigma: None,
+                    backdrop_filter: Default::default(),
                     paint_clip: None,
                     clip: None,
                     item: DisplayItem::Timeline(TimelineDisplayItem {
@@ -750,6 +754,7 @@ mod reuse_tests {
             opacity: 1.0,
             css_filter: Default::default(),
             backdrop_blur_sigma: None,
+            backdrop_filter: Default::default(),
             paint_clip: None,
             clip: None,
             item,

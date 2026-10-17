@@ -1807,6 +1807,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         ctx.builder,
         node.opacity,
         &node.css_filter,
+        &node.backdrop_filter,
         node.backdrop_blur_sigma,
         bounds,
         node.transform.bounds,
@@ -3209,13 +3210,18 @@ mod radial_gradient_tests {
         }
     }
 
-    /// Parse a single layer of an arbitrary `bg-[...]` gradient value.
-    fn parse_layer(value: &str) -> BackgroundFill {
-        crate::parse::gradient::parse_background_gradient(value)
-            .unwrap_or_else(|| panic!("should parse `{value}`"))
-            .into_iter()
-            .next()
-            .expect("at least one layer")
+    /// Build a single gradient layer through the standard CSS engine, mirroring
+    /// the production path (CSS text → lightningcss → `background_layers`).
+    fn gradient_fill(background_image: &str) -> BackgroundFill {
+        let engine = crate::css::CssEngine::from_css_text(
+            &format!(".g {{ background-image: {background_image}; }}"),
+            crate::css::EvalContext::default(),
+        )
+        .expect("css should parse");
+        let style = engine.compute_node_style("g", "", "div");
+        let mut layers = style.background_layers;
+        assert_eq!(layers.len(), 1, "expected one gradient layer");
+        layers.remove(0)
     }
 
     fn approx(a: f32, b: f32) -> bool {
@@ -3229,7 +3235,7 @@ mod radial_gradient_tests {
     // ── Case a: linear-gradient(90deg, red 0%, blue 100%) ────────────────
     #[test]
     fn linear_horizontal_maps_unit_square_onto_rect() {
-        let fill = parse_layer("linear-gradient(90deg,#ff0000_0%,#0000ff_100%)");
+        let fill = gradient_fill("linear-gradient(90deg,#ff0000 0%,#0000ff 100%)");
         let ShaderSpec::LinearGradient {
             from,
             to,
@@ -3256,7 +3262,7 @@ mod radial_gradient_tests {
     // ── Case b: red -> transparent across the width ──────────────────────
     #[test]
     fn linear_horizontal_transparent_stop_keeps_alpha_fade() {
-        let fill = parse_layer("linear-gradient(90deg,#ff0000_0%,transparent_100%)");
+        let fill = gradient_fill("linear-gradient(90deg,#ff0000 0%,transparent 100%)");
         let ShaderSpec::LinearGradient {
             from,
             to,
@@ -3279,7 +3285,7 @@ mod radial_gradient_tests {
     // ── Case c: radial-gradient(circle, red, blue) covering the box ──────
     #[test]
     fn arbitrary_circle_uses_farthest_corner_radius() {
-        let fill = parse_layer("radial-gradient(circle,#ff0000_0%,#0000ff_100%)");
+        let fill = gradient_fill("radial-gradient(circle,#ff0000 0%,#0000ff 100%)");
         let ShaderSpec::RadialGradient {
             center,
             radius,
@@ -3307,8 +3313,8 @@ mod radial_gradient_tests {
     // ── Case d: repeating 1px scanline every 10px ────────────────────────
     #[test]
     fn repeating_linear_scanline_uses_px_period() {
-        let fill = parse_layer(
-            "repeating-linear-gradient(0deg,rgba(0,0,0,0.5)_0_1px,transparent_1px_10px)",
+        let fill = gradient_fill(
+            "repeating-linear-gradient(0deg,rgba(0,0,0,0.5) 0 1px,transparent 1px 10px)",
         );
         let ShaderSpec::LinearGradient {
             from,
@@ -3335,8 +3341,8 @@ mod radial_gradient_tests {
     // ── Case e: ellipse with % radii must not collapse to a circle ───────
     #[test]
     fn arbitrary_ellipse_percent_radii_are_non_uniform() {
-        let fill = parse_layer(
-            "radial-gradient(ellipse_64%_70%_at_50%_50%,transparent_52%,#010101_100%)",
+        let fill = gradient_fill(
+            "radial-gradient(ellipse 64% 70% at 50% 50%,transparent 52%,#010101 100%)",
         );
         let ShaderSpec::RadialGradient {
             center,
@@ -3369,7 +3375,7 @@ mod radial_gradient_tests {
     #[test]
     fn ellipse_default_farthest_corner_scales_radii_by_sqrt2() {
         let fill =
-            parse_layer("radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)");
+            gradient_fill("radial-gradient(ellipse at 50% 45%,#fcf6e7 0%,#f6edd4 100%)");
         let ShaderSpec::RadialGradient { local_matrix, .. } = shader_for(&fill, repro_rect())
         else {
             panic!("expected radial gradient");
@@ -3386,8 +3392,8 @@ mod radial_gradient_tests {
 
     #[test]
     fn ellipse_closest_corner_scales_radii_by_sqrt2() {
-        let fill = parse_layer(
-            "radial-gradient(ellipse_closest-corner_at_30%_40%,transparent_0%,#010101_100%)",
+        let fill = gradient_fill(
+            "radial-gradient(ellipse closest-corner at 30% 40%,transparent 0%,#010101 100%)",
         );
         let ShaderSpec::RadialGradient { local_matrix, .. } = shader_for(&fill, repro_rect())
         else {

@@ -316,3 +316,31 @@ fn filter_blur_sigma_is_used_directly() {
         .expect("blur op");
     assert_eq!(blur.value, 12.0);
 }
+
+#[test]
+fn backdrop_filter_blur_and_chained_ops() {
+    // blur 走 `backdrop_blur_sigma`（两遍法要 sigma），其余算子按声明顺序
+    // 折进 `backdrop_filter`；blur 不得重复进 `backdrop_filter`，否则会被
+    // 应用两次。
+    let eng = engine(".x{backdrop-filter:blur(14px) saturate(1.12)}");
+    let style = eng.compute_node_style("x", "n1", "div");
+    assert_eq!(style.backdrop_blur_sigma, Some(14.0));
+    assert_eq!(style.backdrop_filter.ops.len(), 1, "blur 不进 backdrop_filter");
+    let saturate = style.backdrop_filter.ops.first().expect("saturate op");
+    assert_eq!(saturate.kind, crate::style::CssFilterKind::Saturate);
+    assert!((saturate.value - 1.12).abs() < 1e-6);
+
+    // 无 blur 的链也要生效：只 saturate 时 sigma 为空、算子齐全。
+    let eng = engine(".y{backdrop-filter:saturate(1.5) brightness(0.9)}");
+    let style = eng.compute_node_style("y", "n2", "div");
+    assert_eq!(style.backdrop_blur_sigma, None);
+    let kinds: Vec<_> = style.backdrop_filter.ops.iter().map(|op| op.kind).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            crate::style::CssFilterKind::Saturate,
+            crate::style::CssFilterKind::Brightness,
+        ],
+        "按声明顺序保留算子"
+    );
+}

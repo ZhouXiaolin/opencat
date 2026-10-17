@@ -276,6 +276,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.visual.drop_shadow.clear();
     style.visual.css_filter = Default::default();
     style.visual.backdrop_blur_sigma = None;
+    style.visual.backdrop_filter = Default::default();
     style.visual.border_radius = crate::style::BorderRadius::default();
     style.visual.clip_contents = false;
     style.visual.clip_path = None;
@@ -1278,6 +1279,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             border_style: style.border_style,
             css_filter: style.css_filter.clone(),
             backdrop_blur_sigma: style.backdrop_blur_sigma,
+            backdrop_filter: style.backdrop_filter.clone(),
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             clip_path: style.clip_path,

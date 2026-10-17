@@ -1799,6 +1799,10 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
     super::dispatch::apply_transform(ctx.builder, &node.transform);
 
     let bounds = node.item.visual_bounds();
+    let backdrop_radius = match &node.item {
+        DisplayItem::Rect(rect) => rect.paint.border_radius,
+        _ => Default::default(),
+    };
     let layer_state = super::dispatch::save_composite_layer(
         ctx.builder,
         node.opacity,
@@ -1806,6 +1810,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         node.backdrop_blur_sigma,
         bounds,
         node.transform.bounds,
+        backdrop_radius,
     );
 
     match &node.item {
@@ -1875,9 +1880,10 @@ fn execute_draw_op(
         }
         // Not produced by the canvas script API (only by the renderer's own
         // backdrop-filter emission), but pass it through faithfully.
-        DrawOp::SaveBackdropLayer { bounds, paint } => {
+        DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
             b.push(DrawOp::SaveBackdropLayer {
                 bounds: *bounds,
+                radius: *radius,
                 paint: *paint,
             });
         }

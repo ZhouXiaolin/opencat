@@ -9,6 +9,7 @@ use crate::{
     layout::tree::LayoutOutputFingerprint,
     semantic::fingerprint::ElementInputFingerprints,
     style::CssFilter,
+    style::BorderRadius,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -57,6 +58,9 @@ pub struct DrawCompositeSemantics<'a> {
     pub opacity: f32,
     pub css_filter: &'a CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
+    /// The node's own border-box radius — CSS clips a backdrop-filter to the
+    /// rounded border box, so the filtered backdrop needs it at draw time.
+    pub backdrop_border_radius: BorderRadius,
 }
 
 impl AnnotatedDisplayTree {
@@ -113,11 +117,16 @@ impl AnnotatedDisplayNode {
     }
 
     pub fn draw_composite_semantics(&self) -> DrawCompositeSemantics<'_> {
+        let backdrop_border_radius = match &self.item {
+            DisplayItem::Rect(rect) => rect.paint.border_radius,
+            _ => BorderRadius::default(),
+        };
         DrawCompositeSemantics {
             transform: &self.transform,
             opacity: self.opacity,
             css_filter: &self.css_filter,
             backdrop_blur_sigma: self.backdrop_blur_sigma,
+            backdrop_border_radius,
         }
     }
 }

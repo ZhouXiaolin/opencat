@@ -584,6 +584,8 @@ export function renderEncodedDrawFrame(
           const bounds = readRect4(p);
           const paintId = p.u32();
           p.f32(); // alpha slot, always 1.0 — kept for payload-layout parity
+          // 4×f32 border-box corner radii (tl, tr, br, bl; 0 = square)
+          const radii = [p.f32(), p.f32(), p.f32(), p.f32()];
           const paint = (flags & 0b10) !== 0 ? buildPaint(CK, frame.paints[paintId], 1, dispose) : null;
           let backdrop: ImageFilter | null = null;
           if (paint) {
@@ -617,7 +619,19 @@ export function renderEncodedDrawFrame(
           // identity basis with a 96px margin, so draw it offset by that.
           targetCanvas.saveLayer(paint ?? undefined, null);
           targetCanvas.save();
-          if ((flags & 0b01) !== 0) targetCanvas.clipRect(ckRect(CK, bounds), CK.ClipOp.Intersect, false);
+          if ((flags & 0b01) !== 0) {
+            const r = ckRect(CK, bounds);
+            if (radii.some((rad) => rad > 0)) {
+              // CanvasKit RRect: [l,t,r,b, tlX,tlY, trX,trY, brX,brY, blX,blY]
+              targetCanvas.clipRRect(
+                [r[0], r[1], r[2], r[3], radii[0], radii[0], radii[1], radii[1], radii[2], radii[2], radii[3], radii[3]],
+                CK.ClipOp.Intersect,
+                true,
+              );
+            } else {
+              targetCanvas.clipRect(r, CK.ClipOp.Intersect, false);
+            }
+          }
           // No Canvas.setMatrix in 0.41 — concat the inverse to get back to
           // the identity basis the snapshot was rasterized at.
           const inv = CK.M44.invert(targetCanvas.getTotalMatrix());

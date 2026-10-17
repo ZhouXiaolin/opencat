@@ -58,7 +58,10 @@ pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 ///
 /// v4: pipeline_epoch in the header + SECTION_GENERATED_IMAGES (12) for the
 /// per-frame generated-image delta.
-pub const IR_VERSION: u32 = 7;
+///
+/// v8: SAVE_BACKDROP_LAYER payload grows by 4×f32 border-box corner radii
+/// (CSS clips the filtered backdrop to the rounded border box).
+pub const IR_VERSION: u32 = 8;
 
 /// Section identifiers in the OCIR directory.
 pub mod section {
@@ -219,7 +222,7 @@ pub mod opcode {
         20, // 46 PATH_ADD_RRECT [5xf32]
         16, // 47 PATH_ADD_OVAL  [4xf32]
         24, // 48 PATH_ADD_ARC   [6xf32]
-        25, // 49 SAVE_BACKDROP_LAYER — same payload layout as SAVE_LAYER
+        41, // 49 SAVE_BACKDROP_LAYER — SAVE_LAYER layout + 4×f32 corner radii
     ];
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
@@ -1193,11 +1196,12 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         }
 
         // ===================================================================
-        // SaveBackdropLayer — fixed 25-byte payload, same layout as
-        // SAVE_LAYER (alpha always 1.0): the paint's image filter applies to
-        // the backdrop beneath the layer instead of the layer content.
+        // SaveBackdropLayer — fixed 41-byte payload: the SAVE_LAYER layout
+        // (alpha always 1.0) followed by the element's border-box corner
+        // radii (tl, tr, br, bl) — CSS clips the filtered backdrop to the
+        // rounded border box.
         // ===================================================================
-        DrawOp::SaveBackdropLayer { bounds, paint } => {
+        DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
             write_op_header(buf, opcode::SAVE_BACKDROP_LAYER);
             let mut flags: u8 = 0;
             if bounds.is_some() {
@@ -1218,6 +1222,9 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             }
             write_u32(buf, paint.map(|p| p.0).unwrap_or(0));
             write_f32(buf, 1.0);
+            for r in radius {
+                write_f32(buf, *r);
+            }
         }
 
         // ===================================================================

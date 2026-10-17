@@ -42,7 +42,12 @@ const OUTPUT_WAIT_TIMEOUT_MS = 2500;
 const DECODE_QUEUE_HIGH_WATER = 12;
 const CACHE_HIT_TOLERANCE_US = 50_000;
 const CACHE_BEHIND_TARGET_US = 250_000;
-const MAX_CACHED_FRAMES_PER_ASSET = 90;
+// Keyframe-seek path cache cap per asset. Only random-access scrubbing lands
+// here now — exact export reuses the realtime session's bounded sliding
+// window. Keep this small: it once parked 90 native VideoFrames (SHM the
+// JS-heap probes can't see) per asset and OOM-killed the whole-movie export
+// at 1080p.
+const MAX_CACHED_FRAMES_PER_ASSET = 8;
 const DECODE_SLICE_LOOKAHEAD_CHUNKS = 16;
 const DECODE_YIELD_CHUNK_INTERVAL = 32;
 const REALTIME_CACHE_BEHIND_FRAMES = 3;
@@ -266,9 +271,46 @@ async function handleGetFrame(req: GetFrameRequest): Promise<void> {
   }
 
   const targetUs = requestTargetUs(st, req.timeSecs);
-  if (req.quality === 'realtime') {
+  if (req.quality !== 'scrubbing') {
+    // A backwards target forces the realtime session to rebuild and re-decode
+    // a whole GOP; with sibling assets decoding concurrently the rebuilt
+    // session can miss its prime deadline and skip decoder outputs (observed:
+    // PTS 766667 → 1200000 with nothing between). The keyframe-seek path is
+    // slow (~0.5 s) but reliable, and backwards reuse is rare.
+    const session = st.realtime;
+    const backwards = !!session && !session.closed
+      && targetUs < session.targetUs - CACHE_HIT_TOLERANCE_US;
+    if (backwards) {
+      const previous = st.inflight ?? Promise.resolve();
+      const work = previous.catch(() => undefined).then(async () => {
+        closeRealtimeSession(st);
+        return getFrameAtTime(st, targetUs, req.quality);
+      });
+      st.inflight = work;
+      try {
+        const frame = await work;
+        if (frame) {
+          postResponse({ type: 'getFrame', id: req.id, frame }, [frame]);
+        } else {
+          postResponse({ type: 'getFrame', id: req.id, frame: null });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        postError(req.id, message);
+      } finally {
+        if (st.inflight === work) st.inflight = null;
+      }
+      return;
+    }
+
+    // Exact export marches forward through time, so the kept-alive realtime
+    // session is the right decode engine for it too: its bounded 24-frame
+    // window prefetches the upcoming frames (pump cost ~decoder throughput)
+    // where the keyframe-seek path re-decoded a whole x264 GOP (~0.5 s) every
+    // time its small cache ran dry. strict keeps frame matching exact — the
+    // render loop waits for the pump rather than accepting a stale frame.
     try {
-      const frame = await getRealtimeFrameAtTime(st, targetUs);
+      const frame = await getRealtimeFrameAtTime(st, targetUs, true);
       if (frame) {
         postResponse({ type: 'getFrame', id: req.id, frame }, [frame]);
       } else {
@@ -312,7 +354,7 @@ async function handlePrefetchFrame(req: PrefetchFrameRequest): Promise<void> {
 
   const targetUs = requestTargetUs(st, req.timeSecs);
   try {
-    if (req.quality === 'realtime') {
+    if (req.quality !== 'scrubbing') {
       ensureRealtimeSession(st, targetUs);
       trimRealtimeCache(st, targetUs);
       startRealtimePump(st, true);
@@ -344,9 +386,22 @@ function requestTargetUs(st: AssetState, timeSecs: number): number {
     : requestedUs;
 }
 
+// A target inside the stream tail band can never be produced exactly:
+// maxPtsUs is DTS-based and overshoots the last decodable PTS by up to the
+// B-frame reorder depth, so e.g. a plan asking for the frozen last frame
+// (target == maxPtsUs) has no exact frame to hit. Serve the nearest cached
+// frame (tail freeze) instead of burning a prime timeout on a wait that
+// always fails.
+function cloneTailCachedFrame(st: AssetState, targetUs: number): VideoFrame | null {
+  const frameDur = st.realtime?.frameDurationUs ?? estimateFrameDurationUs(st);
+  if (targetUs <= st.maxPtsUs - frameDur) return null;
+  return cloneCachedFrame(st, targetUs, frameDur + CACHE_HIT_TOLERANCE_US);
+}
+
 async function getRealtimeFrameAtTime(
   st: AssetState,
   targetUs: number,
+  strict = false,
 ): Promise<VideoFrame | null> {
   const cached = cloneCachedFrame(st, targetUs);
   if (cached) {
@@ -354,6 +409,13 @@ async function getRealtimeFrameAtTime(
     trimRealtimeCache(st, targetUs);
     startRealtimePump(st);
     return cached;
+  }
+  const tail = cloneTailCachedFrame(st, targetUs);
+  if (tail) {
+    ensureRealtimeSession(st, targetUs);
+    trimRealtimeCache(st, targetUs);
+    startRealtimePump(st);
+    return tail;
   }
 
   const hadSession = !!st.realtime;
@@ -364,9 +426,20 @@ async function getRealtimeFrameAtTime(
   trimRealtimeCache(st, targetUs);
   startRealtimePump(st, true);
 
-  if (reset || !hadSession || session.outputCount === 0) {
+  // strict (exact export): the renderer can outrun the decoder (5 ms/frame
+  // render vs ~33 ms/frame soft decode), so once the lookahead window runs
+  // dry every miss must wait for the pump instead of falling back to a stale
+  // neighbour frame — a 1-2 frame time offset is visible garbage.
+  if (strict || reset || !hadSession || session.outputCount === 0) {
     const primed = await waitForRealtimeFrame(st, targetUs, REALTIME_PRIME_TIMEOUT_MS);
     if (primed) return primed;
+    // null from a strict wait means the frame is unreproducible in this
+    // session (feed is forward-only) — restart from a keyframe, which is
+    // slower but always lands the exact frame.
+    if (strict) {
+      closeRealtimeSession(st);
+      return getFrameAtTime(st, targetUs, 'exact');
+    }
   }
 
   const fallbackToleranceUs = Math.max(
@@ -384,6 +457,9 @@ function shouldResetRealtimeSession(st: AssetState, targetUs: number): boolean {
     session.frameDurationUs * REALTIME_CACHE_HIGH_WATER_FRAMES,
   );
   if (targetUs < session.keyTimeUs - CACHE_HIT_TOLERANCE_US) return true;
+  // The pump only ever feeds forward (nextChunkIdx is monotonic), so a
+  // backwards target can never be decoded by this session — restart it.
+  if (targetUs < session.targetUs - CACHE_HIT_TOLERANCE_US) return true;
   return Math.abs(targetUs - session.targetUs) > resetDistanceUs;
 }
 
@@ -394,7 +470,10 @@ function ensureRealtimeSession(
   const needsReset = shouldResetRealtimeSession(st, targetUs);
   if (needsReset) {
     closeRealtimeSession(st);
-    closeCachedFrames(st);
+    // Keep st.frameCache: cached VideoFrames outlive the decoder session,
+    // and dropping them here re-decodes the whole slice after every
+    // keyframe-seek fallback (each exact miss would cost a full re-decode).
+    // trimRealtimeCache(targetUs) still bounds the cache window.
   }
 
   if (st.realtime && !st.realtime.closed) {
@@ -501,14 +580,35 @@ async function pumpRealtimeWindow(
 ): Promise<void> {
   while (!session.closed && st.realtime === session) {
     trimRealtimeCache(st, session.targetUs);
-    if (session.errorMessage || session.nextChunkIdx >= st.chunks.length) break;
+    if (session.errorMessage) {
+      break;
+    }
+    if (session.nextChunkIdx >= st.chunks.length) {
+      break;
+    }
 
     const aheadFrames = realtimeAheadFrameCount(st, session.targetUs);
     if (aheadFrames >= REALTIME_CACHE_HIGH_WATER_FRAMES) break;
 
+    // Feed cap: stop at targetUs+margin+lookahead instead of chasing the
+    // end of stream. Unbounded feeding with concurrent sibling decoders
+    // overloads the soft decoder — it stalls around frame ~23 and then
+    // resumes dozens of frames late (prime timeouts, skipped outputs).
+    const keyIdx = keyChunkIndexAtTime(st.chunks, session.keyTimeUs);
+    const feedCapIdx = keyIdx >= 0
+      ? decodeSliceEndIndex(
+        st.chunks,
+        keyIdx,
+        session.targetUs,
+        seekFeedMarginUs('exact'),
+        DECODE_SLICE_LOOKAHEAD_CHUNKS,
+      )
+      : st.chunks.length - 1;
+
     let fed = 0;
     while (
       session.nextChunkIdx < st.chunks.length &&
+      session.nextChunkIdx <= feedCapIdx &&
       session.decoder.decodeQueueSize < DECODE_QUEUE_HIGH_WATER &&
       realtimeAheadFrameCount(st, session.targetUs) < REALTIME_CACHE_HIGH_WATER_FRAMES
     ) {
@@ -521,7 +621,9 @@ async function pumpRealtimeWindow(
 
     await yieldToDecoder();
 
-    if (fed === 0 && session.decoder.decodeQueueSize === 0) break;
+    if (fed === 0 && session.decoder.decodeQueueSize === 0) {
+      break;
+    }
   }
 }
 
@@ -537,7 +639,32 @@ async function waitForRealtimeFrame(
     startRealtimePump(st, true);
     await yieldToDecoder();
   }
+  if (realtimeFedPastTarget(st, targetUs)) {
+    // The pump feeds forward only: once the decoder has consumed the whole
+    // target window without producing this frame (soft-decoder drops a
+    // reorder group under load, or the cache window trimmed it), this
+    // session can never serve it. Signal the caller to restart from a
+    // keyframe instead of returning a stale neighbour frame.
+    return null;
+  }
   return cloneCachedFrame(st, targetUs, Math.max(CACHE_HIT_TOLERANCE_US, estimateFrameDurationUs(st)));
+}
+
+function realtimeFedPastTarget(st: AssetState, targetUs: number): boolean {
+  const session = st.realtime;
+  if (!session || session.closed) return false;
+  if (session.decoder.decodeQueueSize > 0) return false;
+  const keyIdx = keyChunkIndexAtTime(st.chunks, session.keyTimeUs);
+  const feedCapIdx = keyIdx >= 0
+    ? decodeSliceEndIndex(
+      st.chunks,
+      keyIdx,
+      targetUs,
+      seekFeedMarginUs('exact'),
+      DECODE_SLICE_LOOKAHEAD_CHUNKS,
+    )
+    : st.chunks.length - 1;
+  return session.nextChunkIdx > feedCapIdx;
 }
 
 function realtimeAheadFrameCount(st: AssetState, targetUs: number): number {
@@ -586,7 +713,7 @@ async function getFrameAtTime(
   targetUs: number,
   quality: VideoPreviewQuality,
 ): Promise<VideoFrame | null> {
-  const cached = cloneCachedFrame(st, targetUs);
+  const cached = cloneCachedFrame(st, targetUs) ?? cloneTailCachedFrame(st, targetUs);
   if (cached) return cached;
 
   let keyTimeUs = nearestKeyframeBefore(st.keyframeTimesUs, targetUs);

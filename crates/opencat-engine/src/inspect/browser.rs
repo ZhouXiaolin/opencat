@@ -235,13 +235,22 @@ fn handle_static_request(mut stream: TcpStream, routes: &StaticRoutes) -> Result
         return Ok(());
     }
 
-    let request = String::from_utf8_lossy(&buffer[..len]);
+    // Split headers from any body bytes already read. Header text is decoded
+    // as UTF-8; body bytes (the oracle MP4 POST) must stay raw.
+    let header_end = buffer[..len]
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map_or(len, |p| p + 4);
+    let request = String::from_utf8_lossy(&buffer[..header_end]);
     let Some(first_line) = request.lines().next() else {
         return Ok(());
     };
     let mut parts = first_line.split_whitespace();
     let method = parts.next().unwrap_or_default();
     let raw_path = parts.next().unwrap_or_default();
+    if method == "POST" && raw_path.split('?').next() == Some("/oracle-video") {
+        return handle_oracle_video_post(&mut stream, &request, &buffer[header_end..len]);
+    }
     if method != "GET" && method != "HEAD" {
         write_response(
             &mut stream,
@@ -279,6 +288,47 @@ fn handle_static_request(mut stream: TcpStream, routes: &StaticRoutes) -> Result
         write_headers(&mut stream, "200 OK", content_type, bytes.len())?;
         stream.write_all(&bytes)?;
     }
+    Ok(())
+}
+
+/// Sink for the oracle page's `POST /oracle-video`: the in-page-encoded MP4
+/// bitstream. Written to a fixed temp path that [`parse_frames_mp4`] reads
+/// back, so the multi-MB payload never crosses the WebDriver JSON boundary.
+fn oracle_video_path() -> PathBuf {
+    std::env::temp_dir().join("opencat-oracle-video.mp4")
+}
+
+fn handle_oracle_video_post(
+    stream: &mut TcpStream,
+    head: &str,
+    body_prefix: &[u8],
+) -> Result<()> {
+    // fetch keeps the connection alive after the body, so read exactly
+    // Content-Length bytes and then answer — reading to EOF would block.
+    let content_length = head
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        })
+        .ok_or_else(|| anyhow!("oracle-video POST missing content-length"))?;
+    let mut mp4 = body_prefix.to_vec();
+    let mut chunk = [0_u8; 65_536];
+    while mp4.len() < content_length {
+        let n = stream.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        mp4.extend_from_slice(&chunk[..n]);
+    }
+    if mp4.len() < content_length {
+        write_response(stream, "400 Bad Request", "text/plain", b"truncated body")?;
+        return Ok(());
+    }
+    fs::write(oracle_video_path(), &mp4)?;
+    write_response(stream, "200 OK", "text/plain", b"ok")?;
     Ok(())
 }
 
@@ -645,6 +695,9 @@ impl BrowserHarness {
                 mp4: Vec::new(),
             });
         }
+        if let Some(ft) = parsed.get("frameTimings") {
+            eprintln!("  frameTimings={ft}");
+        }
         parse_frames_mp4(parsed)
     }
 
@@ -890,16 +943,21 @@ fn parse_frames_mp4(value: &Value) -> Result<FramesMp4> {
     let fps = parse_u32(value, "fps")?;
     let first_frame = parse_u32(value, "firstFrame")?;
     let frames_encoded = parse_u32(value, "framesEncoded")?;
-    let b64 = value
-        .get("videoBase64")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("browser video oracle result missing videoBase64 string"))?;
-    use base64::Engine as _;
-    let mp4 = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .context("decode browser video oracle base64 payload")?;
+    // The bitstream arrives via the page's `POST /oracle-video` (handled by
+    // [`handle_oracle_video_post`]); the WebDriver result carries metadata
+    // only. `bytes` is the page-side MP4 length — a mismatch means the POST
+    // was truncated and the file must not be trusted.
+    let mp4 = fs::read(oracle_video_path())
+        .context("read oracle video posted by the page (POST /oracle-video)")?;
     if mp4.is_empty() {
-        bail!("browser video oracle returned an empty MP4");
+        bail!("browser video oracle posted an empty MP4");
+    }
+    let expected = parse_u32(value, "bytes")?;
+    if mp4.len() as u64 != u64::from(expected) {
+        bail!(
+            "oracle video size mismatch: posted {} bytes, page reported {expected}",
+            mp4.len()
+        );
     }
     Ok(FramesMp4 {
         width,

@@ -45,6 +45,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         duration: Option<f64>,
     },
     #[serde(rename = "text")]
@@ -54,6 +57,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         text: String,
         duration: Option<f64>,
     },
@@ -64,6 +70,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         duration: Option<f64>,
     },
     #[serde(rename = "image")]
@@ -73,6 +82,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         path: Option<String>,
         url: Option<String>,
         query: Option<String>,
@@ -89,6 +101,9 @@ pub enum JsonLine {
         #[allow(dead_code)]
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
@@ -100,6 +115,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
@@ -128,6 +146,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         icon: String,
         duration: Option<f64>,
     },
@@ -157,6 +178,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         /// A `<tl>` is a scene like any other element, so it declares its own
         /// length. Required when the timeline is a direct child of another
         /// timeline — the enclosing sequence reads each child's duration to
@@ -170,6 +194,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         path: String,
         duration: Option<f64>,
     },
@@ -180,6 +207,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         d: String,
         /// Optional shared SVG view box, `"minx,miny,w,h"` — same grammar as the
         /// markup `view-box` attribute.
@@ -194,6 +224,9 @@ pub enum JsonLine {
         parent_id: Option<String>,
         #[serde(rename = "className")]
         class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
@@ -267,11 +300,13 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 duration,
             } => {
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "div",
                     line_index + 1,
@@ -288,12 +323,14 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 text,
                 duration,
             } => {
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "text",
                     line_index + 1,
@@ -310,11 +347,13 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 duration,
             } => {
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "canvas",
                     line_index + 1,
@@ -331,6 +370,7 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 path,
                 url,
                 query,
@@ -341,6 +381,7 @@ pub(crate) fn composition_from_lines(
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "image",
                     line_index + 1,
@@ -358,6 +399,7 @@ pub(crate) fn composition_from_lines(
                 id,
                 attach,
                 class_name: _,
+                style: _,
                 path,
                 url,
                 duration,
@@ -374,6 +416,7 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 path,
                 url,
                 duration,
@@ -387,6 +430,7 @@ pub(crate) fn composition_from_lines(
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "video",
                     line_index + 1,
@@ -424,12 +468,14 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 icon,
                 duration,
             } => {
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "icon",
                     line_index + 1,
@@ -475,11 +521,13 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 duration,
             } => {
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "div",
                     line_index + 1,
@@ -497,12 +545,14 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 path,
                 duration,
             } => {
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "span",
                     line_index + 1,
@@ -526,6 +576,7 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 d,
                 view_box,
                 duration,
@@ -533,6 +584,7 @@ pub(crate) fn composition_from_lines(
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "path",
                     line_index + 1,
@@ -553,6 +605,7 @@ pub(crate) fn composition_from_lines(
                 id,
                 parent_id,
                 class_name,
+                style: inline_style,
                 path,
                 url,
                 duration,
@@ -560,6 +613,7 @@ pub(crate) fn composition_from_lines(
                 let style = resolve_style(
                     css,
                     class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
                     &id,
                     "div",
                     line_index + 1,
@@ -821,11 +875,16 @@ fn parse_class_name(class_name: &str) -> NodeStyle {
     tailwind::parse_class_name(class_name)
 }
 
-/// class → NodeStyle 的统一入口：传入 CSS 引擎走标准层叠，否则维持
-/// tailwind 类名匹配器（双轨期）。
+/// class + inline style → NodeStyle 的统一入口：传入 CSS 引擎走标准层叠，
+/// 否则维持 tailwind 类名匹配器（双轨期）。
+///
+/// 内联 `style` 是标准 CSS 的一部分，层叠优先级高于任何选择器规则。CSS
+/// 引擎在场时它作为最后一段声明参与同一条计算链；引擎缺席（旧匹配器
+/// 路径）时它仍按声明块解析，因此内联样式在两条路径上都能生效。
 fn resolve_style(
     css: Option<&crate::css::CssEngine>,
     class_name: &str,
+    inline_style: Option<&str>,
     node_id: &str,
     tag: &str,
     line_number: usize,
@@ -841,9 +900,23 @@ fn resolve_style(
                     tailwind::parse_class_name_with_context(&missing.join(" "), node_id, line_number);
                 merge_fallback(&mut style, fallback);
             }
+            if let Some(text) = inline_style {
+                engine.apply_inline_style(&mut style, text, node_id, tag);
+            }
             style
         }
-        None => tailwind::parse_class_name_with_context(class_name, node_id, line_number),
+        None => {
+            let mut style = tailwind::parse_class_name_with_context(class_name, node_id, line_number);
+            if let Some(text) = inline_style {
+                // 没有样式表也要内联生效：建一个空表，根变量为空，层叠只剩
+                // 内联声明本身。构建代价与样式表规模无关（规则为空）。
+                match crate::css::CssEngine::from_css_text("", crate::css::EvalContext::default()) {
+                    Ok(engine) => engine.apply_inline_style(&mut style, text, node_id, tag),
+                    Err(err) => log::warn!("css: 内联 style 引擎不可用：{err}"),
+                }
+            }
+            style
+        }
     }
 }
 

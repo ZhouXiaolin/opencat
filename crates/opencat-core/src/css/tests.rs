@@ -9,7 +9,7 @@ fn engine(css: &str) -> CssEngine {
 
 #[test]
 fn utility_class_and_cascade_order() {
-    let mut eng = engine(
+    let eng = engine(
         ".a { width: 100px; }\n.b { width: 200px; }\n.c { width: 300px; }\n",
     );
     let style = eng.compute_node_style("c a b", "n1", "div");
@@ -19,7 +19,7 @@ fn utility_class_and_cascade_order() {
 
 #[test]
 fn specificity_beats_source_order() {
-    let mut eng = engine(
+    let eng = engine(
         ".x { width: 10px; }\n#hero { width: 20px; }\n",
     );
     let style = eng.compute_node_style("x", "hero", "div");
@@ -28,7 +28,7 @@ fn specificity_beats_source_order() {
 
 #[test]
 fn layer_ordering_utilities_beat_theme() {
-    let mut eng = engine(
+    let eng = engine(
         "@layer theme { .card { width: 10px; } }\n@layer utilities { .card { width: 40px; } }\n@layer theme, utilities;\n",
     );
     let style = eng.compute_node_style("card", "n", "div");
@@ -37,7 +37,7 @@ fn layer_ordering_utilities_beat_theme() {
 
 #[test]
 fn var_and_calc_from_root() {
-    let mut eng = engine(
+    let eng = engine(
         ":root { --spacing: 0.25rem; --brand: #ff0000; }\n.p { padding: calc(var(--spacing) * 4); background-color: var(--brand); }\n",
     );
     let style = eng.compute_node_style("p", "n", "div");
@@ -47,7 +47,7 @@ fn var_and_calc_from_root() {
 
 #[test]
 fn color_mix_oklab() {
-    let mut eng = engine(
+    let eng = engine(
         ":root { --c: oklch(63.7% 0.237 25.331); }\n.t { background-color: color-mix(in oklab, var(--c) 50%, transparent); }\n",
     );
     let style = eng.compute_node_style("t", "n", "div");
@@ -60,7 +60,7 @@ fn color_mix_oklab() {
 
 #[test]
 fn flex_layout_properties() {
-    let mut eng = engine(".col { display: flex; flex-direction: column; gap: 12px; }\n");
+    let eng = engine(".col { display: flex; flex-direction: column; gap: 12px; }\n");
     let style = eng.compute_node_style("col", "n", "div");
     assert!(style.is_flex);
     assert_eq!(style.flex_direction, Some(FlexDirection::Col));
@@ -69,7 +69,7 @@ fn flex_layout_properties() {
 
 #[test]
 fn margin_percent_and_auto() {
-    let mut eng = engine(".m { margin: 10px auto; }\n");
+    let eng = engine(".m { margin: 10px auto; }\n");
     let style = eng.compute_node_style("m", "n", "div");
     assert_eq!(style.margin_top, Some(LengthPercentageAuto::Length(10.0)));
     assert_eq!(style.margin_left, Some(LengthPercentageAuto::Auto));
@@ -77,7 +77,7 @@ fn margin_percent_and_auto() {
 
 #[test]
 fn nested_supports_picks_oklab_branch() {
-    let mut eng = engine(
+    let eng = engine(
         "@layer utilities {\n  .bg-x {\n    background-color: #ff0000;\n    @supports (color: color-mix(in lab, red, red)) {\n      background-color: color-mix(in srgb, #ff0000 50%, transparent);\n    }\n  }\n}\n",
     );
     let style = eng.compute_node_style("bg-x", "n", "div");
@@ -89,7 +89,7 @@ fn nested_supports_picks_oklab_branch() {
 
 #[test]
 fn shadow_blur_sigma_halves() {
-    let mut eng = engine(".s { box-shadow: 0 10px 12px rgba(0,0,0,0.5); }\n");
+    let eng = engine(".s { box-shadow: 0 10px 12px rgba(0,0,0,0.5); }\n");
     let style = eng.compute_node_style("s", "n", "div");
     assert_eq!(style.box_shadow.len(), 1);
     assert!((style.box_shadow[0].blur_sigma - 6.0).abs() < 0.01);
@@ -98,7 +98,7 @@ fn shadow_blur_sigma_halves() {
 
 #[test]
 fn escaped_arbitrary_property_class() {
-    let mut eng = engine(
+    let eng = engine(
         ".\\[stroke-dasharray\\:1800px\\] { stroke-dasharray: 1800; stroke-dashoffset: 1800px; }\n",
     );
     let style = eng.compute_node_style(
@@ -130,14 +130,64 @@ fn unmatched_classes_reports_runtime_composed_classes() {
 }
 
 #[test]
+fn inline_style_overrides_class_rules() {
+    // 内联 style 在层叠里高于选择器规则：同一属性内联胜，其余类规则保留。
+    let eng = engine(".x{width:100px;height:50px;color:#ff0000}");
+    let mut style = eng.compute_node_style("x", "n1", "div");
+    eng.apply_inline_style(&mut style, "width: 200px; opacity: 0.5", "n1", "div");
+    assert_eq!(style.width, Some(200.0), "内联 width 应覆盖类规则");
+    assert_eq!(style.height, Some(50.0), "未内联的属性保留类规则");
+    assert_eq!(style.opacity, Some(0.5));
+}
+
+#[test]
+fn inline_style_supports_shorthand_and_custom_properties() {
+    let eng = engine(".x{width:10px}");
+    let mut style = eng.compute_node_style("x", "n1", "div");
+    eng.apply_inline_style(
+        &mut style,
+        "padding: 4px 8px; --accent: #00ff00; background-color: var(--accent)",
+        "n1",
+        "div",
+    );
+    assert_eq!(style.padding_top, Some(4.0));
+    assert_eq!(style.padding_left, Some(8.0));
+    assert_eq!(style.bg_color, Some(ColorToken::Custom(0, 255, 0, 255)));
+}
+
+#[test]
+fn inline_style_drops_invalid_declarations_only() {
+    let eng = engine("");
+    let mut style = eng.compute_node_style("", "n1", "div");
+    eng.apply_inline_style(&mut style, "width: nonsense; height: 30px", "n1", "div");
+    assert_eq!(style.width, None, "非法声明被丢弃");
+    assert_eq!(style.height, Some(30.0), "其余声明仍生效");
+}
+
+#[test]
+fn inline_style_calc_normalizes_angle_units() {
+    let eng = engine("");
+    let mut style = eng.compute_node_style("", "n1", "div");
+    eng.apply_inline_style(&mut style, "transform: rotate(calc(0.25turn + 45deg))", "n1", "div");
+    assert!(
+        matches!(
+            style.transforms.as_slice(),
+            [crate::style::Transform::RotateDeg { value }] if (value - 135.0).abs() < 1e-3
+        ),
+        "calc 应把 turn/deg 归一到 135deg，实际 {:?}",
+        style.transforms
+    );
+}
+
+#[test]
 fn object_fit_maps_through_custom_property_fallback() {
     // lightningcss alpha.72 属性表没有 object-fit，声明解析为 Custom；
     // 引擎需把它喂到 paint 腿并识别关键字。
-    let mut eng = engine(".x{object-fit:cover}");
+    let eng = engine(".x{object-fit:cover}");
     let style = eng.compute_node_style("x", "n1", "image");
     assert_eq!(style.object_fit, Some(crate::style::ObjectFit::Cover));
 
-    let mut eng = engine(".x{object-fit:contain}");
+    let eng = engine(".x{object-fit:contain}");
     let style = eng.compute_node_style("x", "n1", "image");
     assert_eq!(style.object_fit, Some(crate::style::ObjectFit::Contain));
 }
@@ -150,7 +200,7 @@ fn cascade_dedupes_shadow_var_chain_and_drops_placeholders() {
     // tailwind v4 的 shadow-/inset-shadow- 类各自声明同一条 var 链：
     // box-shadow: var(--tw-inset-shadow), <未用占位 var>, var(--tw-shadow)。
     // 层叠需按属性去重（只留胜者），alpha 0 的 `0 0 #0000` 占位不入列表。
-    let mut eng = engine(
+    let eng = engine(
         "@property --tw-inset-shadow{syntax:\"*\";inherits:false;initial-value:0 0 #0000}\n\
          @property --tw-shadow{syntax:\"*\";inherits:false;initial-value:0 0 #0000}\n\
          .a{--tw-inset-shadow:inset 0 1px 0 #ffffff38;box-shadow:var(--tw-inset-shadow), var(--tw-shadow)}\n\
@@ -168,12 +218,12 @@ fn cascade_dedupes_shadow_var_chain_and_drops_placeholders() {
 fn letter_spacing_em_tracks_element_font_size() {
     // em 相对本元素字号（tracking-[-0.02em] 在 108px 下是 -2.16px），
     // 走 letter_spacing_em 由 resolve_text_style 折算；px 直存。
-    let mut eng = engine(".x{letter-spacing:-0.02em}");
+    let eng = engine(".x{letter-spacing:-0.02em}");
     let style = eng.compute_node_style("x", "n1", "text");
     assert_eq!(style.letter_spacing_em, Some(-0.02));
     assert_eq!(style.letter_spacing, None);
 
-    let mut eng = engine(".x{letter-spacing:-2.5px}");
+    let eng = engine(".x{letter-spacing:-2.5px}");
     let style = eng.compute_node_style("x", "n1", "text");
     assert_eq!(style.letter_spacing, Some(-2.5));
     assert_eq!(style.letter_spacing_em, None);
@@ -182,7 +232,7 @@ fn letter_spacing_em_tracks_element_font_size() {
 #[test]
 fn filter_blur_sigma_is_used_directly() {
     // CSS filter: blur(x) 的 x 就是标准差，不折半（k3 bloom 层约定）。
-    let mut eng = engine(".x{filter:blur(12px)}");
+    let eng = engine(".x{filter:blur(12px)}");
     let style = eng.compute_node_style("x", "n1", "div");
     let blur = style
         .css_filter

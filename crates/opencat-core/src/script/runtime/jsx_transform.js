@@ -150,12 +150,60 @@
         return this.src.slice(start, this.i);
     };
 
-    TransformState.prototype.skipClosingTag = function () {
-        // this.i points at '<' of '</...>'
+    // this.i points at '<' of '</name>'. The closing name must match the
+    // opening one (HTML's tree-construction error, surfaced at parse time).
+    TransformState.prototype.readClosingTag = function (openName) {
         this.i += 2;
+        var start = this.i;
         while (this.i < this.n && this.src[this.i] !== '>') this.i++;
-        if (this.i < this.n) this.i++;
+        if (this.i >= this.n) throw new Error('use: unterminated closing tag </' + openName + '>');
+        var closeName = this.src.slice(start, this.i).trim();
+        this.i++;
+        // Fragments close with `</>`.
+        var expected = openName === '__ocFragment' ? '' : openName;
+        if (closeName !== expected) {
+            throw new Error(
+                'use: closing tag </' + closeName + '> does not match <' + openName + '>'
+            );
+        }
     };
+
+    // HTML void elements: no children and no closing tag. `<img>` is the
+    // HTML spelling of `<image>`; both stay void here.
+    var VOID_TAGS = {
+        image: true, img: true, path: true, icon: true, lottie: true,
+        audio: true, video: true, caption: true,
+    };
+
+    // Tag aliases so HTML spellings reach the same Rust element.
+    var TAG_ALIASES = { img: 'image' };
+
+    var ENTITIES = {
+        amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+    };
+
+    // Decode HTML character references in text and attribute values.
+    function decodeEntities(text) {
+        if (text.indexOf('&') < 0) return text;
+        return text.replace(/&(#x?[0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]*);/g, function (all, body) {
+            if (body.charAt(0) === '#') {
+                var code = body.charAt(1) === 'x' || body.charAt(1) === 'X'
+                    ? parseInt(body.slice(2), 16)
+                    : parseInt(body.slice(1), 10);
+                return isFinite(code) ? String.fromCodePoint(code) : all;
+            }
+            return Object.prototype.hasOwnProperty.call(ENTITIES, body) ? ENTITIES[body] : all;
+        });
+    }
+
+    // React whitespace rules for a JSX text run: a run without a newline
+    // keeps its spaces verbatim (`Hello {name}` keeps the separating space);
+    // a run spanning lines collapses each newline-containing whitespace gap
+    // to one space and drops leading/trailing line breaks.
+    function normalizeJsxText(text) {
+        if (!/[\n\r]/.test(text)) return text;
+        return text.replace(/[ \t]*[\n\r][ \t\n\r]*/g, ' ').trim();
+    }
 
     // Scans ordinary JS code, lowering any JSX found in expression position.
     // When inBraces is true, stops (consuming the '}') at the matching close.
@@ -248,7 +296,11 @@
                 this.skipWs();
                 var valueCh = this.src[this.i];
                 if (valueCh === '"' || valueCh === "'") {
-                    props.push(quote(attrName) + ': ' + this.readStringLiteral());
+                    // Attribute values are HTML text: decode references, keep
+                    // quotes/backslashes escaped for the generated literal.
+                    var raw = this.readStringLiteral();
+                    var decoded = decodeEntities(raw.slice(1, -1));
+                    props.push(quote(attrName) + ': ' + quote(decoded));
                 } else if (valueCh === '{') {
                     props.push(quote(attrName) + ': ' + this.readBraced());
                 } else {
@@ -259,11 +311,17 @@
             }
         }
 
+        // HTML void elements never take children; `<image>` without the
+        // self-closing slash is legal markup and must not swallow siblings.
+        if (VOID_TAGS[name] === true) selfClosing = true;
+
         var children = [];
+        var closed = selfClosing;
         if (!selfClosing) {
             while (this.i < this.n) {
                 if (this.src[this.i] === '<' && this.src[this.i + 1] === '/') {
-                    this.skipClosingTag();
+                    this.readClosingTag(name);
+                    closed = true;
                     break;
                 }
                 if (this.src[this.i] === '<') { children.push(this.parseElement()); continue; }
@@ -274,9 +332,10 @@
                 }
                 var textStart = this.i;
                 while (this.i < this.n && this.src[this.i] !== '<' && this.src[this.i] !== '{') this.i++;
-                var text = this.src.slice(textStart, this.i);
-                if (text.trim() !== '') children.push(quote(text.trim()));
+                var text = normalizeJsxText(decodeEntities(this.src.slice(textStart, this.i)));
+                if (text.trim() !== '') children.push(quote(text));
             }
+            if (!closed) throw new Error('use: unterminated JSX element <' + name + '>');
         }
 
         var tag;
@@ -287,7 +346,7 @@
             // function itself, like React's classic runtime.
             tag = name;
         } else {
-            tag = quote(name);
+            tag = quote(TAG_ALIASES[name] || name);
         }
         var args = [tag, '{' + props.join(', ') + '}'].concat(children);
         return 'h(' + args.join(', ') + ')';

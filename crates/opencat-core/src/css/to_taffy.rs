@@ -65,12 +65,11 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
         // border 宽度参与布局（border-box 下挤压内容区）。CSS 路径下
         // `css_layout` 是布局的第一优先输入，漏接会让边框不占位。
         Property::BorderWidth(v) => {
-            let w = side_px(&v.top, ctx);
             style.border = taffy::geometry::Rect {
-                left: w,
-                right: w,
-                top: w,
-                bottom: w,
+                left: side_px(&v.left, ctx),
+                right: side_px(&v.right, ctx),
+                top: side_px(&v.top, ctx),
+                bottom: side_px(&v.bottom, ctx),
             };
         }
         Property::BorderTopWidth(v) => style.border.top = side_px(v, ctx),

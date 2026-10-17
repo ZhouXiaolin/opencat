@@ -29,12 +29,12 @@ function StageCanvas({ id }) {
 // prop 用 `ht` 而非 `h`：JSX transform 在组件体内生成 h(...)，prop 名 h 会
 // 遮蔽元素创建函数。
 function Tick({ id, ht, mb }) {
-  return <div id={id} class={'w-[2px] h-[' + ht + '] bg-[#cfcfd2]' + (mb ? ' ' + mb : '')} />;
+  return <div id={id} class={'w-[2px] h-[' + ht + 'px] bg-[#cfcfd2]' + (mb ? ' ' + mb : '')} />;
 }
 
 function Cbar({ n, top, g }) {
   return (
-    <div id={'bar-' + n} class={'absolute left-0 top-[' + top + '] w-[0px] h-[38px] bg-[linear-gradient(90deg,' + g + ')]'}>
+    <div id={'bar-' + n} class={'absolute left-0 top-[' + top + 'px] w-[0px] h-[38px] bg-[linear-gradient(90deg,' + g + ')]'}>
       <div id={'pale-' + n} class="absolute left-0 top-0 w-full h-[38px] opacity-0 bg-[linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))]"></div>
     </div>
   );
@@ -51,11 +51,11 @@ function AgentPill({ id, t }) {
 }
 
 function Cdot({ id, s, c, class: extra }) {
-  return <div id={id} class={'absolute w-[' + s + '] h-[' + s + '] bg-[' + c + ']' + (extra ? ' ' + extra : '')} />;
+  return <div id={id} class={'absolute w-[' + s + 'px] h-[' + s + 'px] bg-[' + c + ']' + (extra ? ' ' + extra : '')} />;
 }
 
 function Bigword({ id, left, t }) {
-  return <text id={id} class={'absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[' + left + '] top-[458.3299px] opacity-0'}>{t}</text>;
+  return <text id={id} class={'absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[' + left + 'px] top-[458.3299px] opacity-0'}>{t}</text>;
 }
 
 /* ════════ 共享每帧工具（XML script 顶层；模块体每帧重估，纯函数/纯数据） ════════ */

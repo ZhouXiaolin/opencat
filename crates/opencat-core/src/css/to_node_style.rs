@@ -29,8 +29,7 @@ use lightningcss::properties::position::Position as CssPosition;
 use lightningcss::properties::size::{MaxSize, Size};
 use lightningcss::properties::svg::SVGPaint;
 use lightningcss::properties::text::{
-    Spacing, TextAlign as CssTextAlign, TextTransform as CssTextTransform, TextTransformCase,
-    WhiteSpace,
+    Spacing, TextAlign as CssTextAlign, TextTransformCase, WhiteSpace,
 };
 use lightningcss::properties::transform::{Transform as CssTransform, TransformList};
 use lightningcss::properties::{Property, PropertyId};
@@ -273,7 +272,7 @@ pub fn apply_property(
         Property::BackgroundColor(c) => style.bg_color = color_token(c),
         Property::BackgroundImage(images) => {
             for image in images {
-                if let Some(fill) = image_to_fill(image, ctx) {
+                if let Some(fill) = image_to_fill(image) {
                     style.background_layers.push(fill);
                 }
             }
@@ -567,7 +566,6 @@ fn content_position_to_cat(v: &ContentPosition) -> Option<JustifyContent> {
         ContentPosition::Start | ContentPosition::FlexStart => JustifyContent::Start,
         ContentPosition::Center => JustifyContent::Center,
         ContentPosition::End | ContentPosition::FlexEnd => JustifyContent::End,
-        _ => return None,
     })
 }
 
@@ -807,7 +805,7 @@ fn generic_to_cat(generic: &GenericFontFamily) -> Option<GenericFamily> {
     })
 }
 
-fn image_to_fill(image: &Image, ctx: &EvalContext) -> Option<BackgroundFill> {
+fn image_to_fill(image: &Image) -> Option<BackgroundFill> {
     match image {
         Image::Gradient(g) => gradient_to_fill(g),
         _ => None,

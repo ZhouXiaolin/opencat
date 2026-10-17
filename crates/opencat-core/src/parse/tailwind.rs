@@ -92,10 +92,8 @@ fn report_unsupported_tailwind_class(class: &str, node_id: &str, line_number: us
     }
 }
 
-/// Whether a single whitespace-delimited Tailwind class is recognized by the parser.
-/// Shared with the lint CLI so unknown classes can be reported without re-implementing
-/// the recognizer.
-pub(crate) fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
+/// 单个（已按空白切分的）工具类是否被匹配器识别；未识别时调用方负责告警。
+fn parse_single_class(class: &str, style: &mut NodeStyle) -> bool {
     if let Some(action) = exact_class_action(class) {
         apply_exact_class_action(style, action);
         true

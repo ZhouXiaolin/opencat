@@ -108,6 +108,63 @@ export function Box(props) {
 }
 
 #[test]
+fn inline_style_attribute_reaches_node_style() {
+    // `style` is the standard HTML attribute. Both spellings must work:
+    // a declaration string, and the React object form (camelCase keys,
+    // unitless numbers). Inline declarations win over class rules.
+    let dir = std::env::temp_dir().join(format!("opencat-jsx-style-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    std::fs::write(
+        dir.join("main.jsx"),
+        r#"
+export const meta = { width: 100, height: 100, fps: 30, duration: 1 };
+
+export default function Scene() {
+  return (
+    <div id="root">
+      <div id="str" style="width: 120px; opacity: 0.25" />
+      <div id="obj" style={{ height: 40, backgroundColor: '#ff0000' }} />
+      <div id="override" class="w-[10px]" style="width: 70px" />
+    </div>
+  );
+}
+"#,
+    )
+    .expect("write main");
+
+    let source = std::fs::read_to_string(dir.join("main.jsx")).expect("read main");
+    let parsed = parse_with_base_dir(&source, Some(&dir)).expect("jsx parse");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    fn find<'a>(node: &'a Node, id: &str) -> Option<&'a Node> {
+        if node.style_ref().id == id {
+            return Some(node);
+        }
+        match node.kind() {
+            NodeKind::Div(div) => div.children_ref().iter().find_map(|c| find(c, id)),
+            NodeKind::Canvas(canvas) => canvas.hidden_children_ref().iter().find_map(|c| find(c, id)),
+            _ => None,
+        }
+    }
+
+    let root = &parsed.root;
+    let str_style = find(root, "str").expect("str node");
+    assert_eq!(str_style.style_ref().width, Some(120.0));
+    assert_eq!(str_style.style_ref().opacity, Some(0.25));
+
+    let obj_style = find(root, "obj").expect("obj node");
+    assert_eq!(obj_style.style_ref().height, Some(40.0), "对象形态数字带 px");
+    assert_eq!(
+        obj_style.style_ref().bg_color,
+        Some(opencat_core::style::ColorToken::Custom(255, 0, 0, 255)),
+        "camelCase 键转 kebab 后应命中"
+    );
+
+    let override_style = find(root, "override").expect("override node");
+    assert_eq!(override_style.style_ref().width, Some(70.0), "内联应覆盖类规则");
+}
+
+#[test]
 fn nexus_port_manifests_document_fonts() {
     // `export const fonts` is a top-level export, separate from `meta` — this
     // locks that it reaches the manifest (the XML `<fonts>` block equivalent).

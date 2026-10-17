@@ -469,6 +469,42 @@
         else line.path = src;
     }
 
+    // `style` attribute → declaration text, the same shape as the HTML
+    // attribute. Both forms the React contract allows are accepted: a string
+    // (`style="color: red"`) is emitted verbatim, an object
+    // (`style={{ color: 'red', '--gap': 4 }}`) is serialized with
+    // camelCase→kebab-case and unitless-number rules. The Rust side hands the
+    // text to lightningcss, so inline declarations get the full CSS grammar
+    // (shorthands, !important, custom properties).
+    function styleDeclarations(value) {
+        if (value === undefined || value === null || value === '') return undefined;
+        if (typeof value === 'string') return value;
+        if (typeof value !== 'object') {
+            throw new Error('style: expected a string or an object, got ' + typeof value);
+        }
+        var out = [];
+        for (var key in value) {
+            if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+            var v = value[key];
+            if (v === undefined || v === null || v === false) continue;
+            var name = String(key);
+            if (name.indexOf('--') !== 0) {
+                name = name.replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); });
+            }
+            var text;
+            if (typeof v === 'number') {
+                // React appends `px` to a unitless length. These properties are
+                // unitless by definition, so the number stays as-is.
+                var unitless = /^(opacity|z-?index|flex|flex-grow|flex-shrink|order|font-weight|line-height|aspect-ratio|scale|zoom|tab-size|column-count|orphans|widows|fill-opacity|stroke-opacity|stroke-width|stroke-dashoffset|stroke-dasharray|animation-iteration-count)$/;
+                text = unitless.test(name) || v === 0 ? String(v) : v + 'px';
+            } else {
+                text = String(v);
+            }
+            out.push(name + ': ' + text);
+        }
+        return out.length ? out.join('; ') : undefined;
+    }
+
     // A `<tl>` owns the scene clocks. Walk its direct children in order,
     // alternating scenes and transitions (the timeline grammar). A scene runs
     // its component with the scene clock pushed, so its hooks bind to the scene;
@@ -480,6 +516,8 @@
         var line = { type: 'tl', id: id };
         if (parentId) line.parentId = parentId;
         if (props.class || props.className) line.className = props.class || props.className;
+        var tlStyle = styleDeclarations(props.style);
+        if (tlStyle) line.style = tlStyle;
         var tlDuration = num(props.duration);
         if (tlDuration !== undefined) line.duration = tlDuration;
         if (props.audioId && audioSites) audioSites.push({ nodeId: id, audioId: String(props.audioId) });
@@ -676,6 +714,8 @@
         if (props.audioId && audioSites) audioSites.push({ nodeId: id, audioId: String(props.audioId) });
         var className = props.class || props.className;
         if (className) line.className = className;
+        var inlineStyle = styleDeclarations(props.style);
+        if (inlineStyle) line.style = inlineStyle;
         var duration = num(props.duration);
         if (duration !== undefined) line.duration = duration;
         switch (el.tag) {
@@ -715,6 +755,16 @@
                 break;
             case 'image':
                 assignSource(line, props);
+                // Unsplash-style procedural source: `query`/`queryCount`
+                // replace a file path, `aspectRatio` pins the crop. Emitted
+                // as the camelCase JSONL keys the Rust side reads.
+                if (props.query !== undefined && props.query !== null) line.query = String(props.query);
+                if (props.queryCount !== undefined && props.queryCount !== null) {
+                    line.queryCount = num(props.queryCount);
+                }
+                if (props.aspectRatio !== undefined && props.aspectRatio !== null) {
+                    line.aspectRatio = String(props.aspectRatio);
+                }
                 break;
             case 'lottie':
                 assignSource(line, props);

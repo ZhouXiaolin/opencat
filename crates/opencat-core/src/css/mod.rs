@@ -44,6 +44,40 @@ impl Default for EvalContext {
     }
 }
 
+/// 单条声明落到两条腿（paint 的 [`NodeStyle`] 与布局的 taffy [`Style`]）。
+/// class 规则与内联 `style` 共用这一段，语义天然一致。
+fn apply_declaration(
+    style: &mut NodeStyle,
+    taffy_style: &mut taffy::Style,
+    property: &Property<'static>,
+    vars: &mut HashMap<String, lightningcss::properties::custom::TokenList<'static>>,
+    ctx: &EvalContext,
+) {
+    match property {
+        Property::Custom(custom) => match &custom.name {
+            // 变量键统一去掉 `--` 前缀，与 lookup_var 的取用约定一致。
+            lightningcss::properties::custom::CustomPropertyName::Custom(name) => {
+                let key = name.0.trim_start_matches("--").to_string();
+                vars.insert(key, custom.value.clone());
+            }
+            // lightningcss 属性表缺项（object-fit 等）也是 Custom：
+            // 喂给 paint 腿做关键字识别，布局腿无语义、跳过。
+            lightningcss::properties::custom::CustomPropertyName::Unknown(_) => {
+                to_node_style::apply_property(style, property, ctx);
+            }
+        },
+        other => {
+            let resolved = eval::resolve_to_typed(other, vars, ctx);
+            for typed in resolved {
+                // 布局腿直通 taffy；paint 腿继续喂 NodeStyle 既有字段。
+                // 两条腿消费同一份强类型，值天然一致。
+                to_taffy::apply_property(taffy_style, &typed, ctx);
+                to_node_style::apply_property(style, &typed, ctx);
+            }
+        }
+    }
+}
+
 /// 从一段 CSS 文本构建的样式引擎。
 pub struct CssEngine {
     sheet: CssStylesheet,
@@ -73,32 +107,41 @@ impl CssEngine {
             self.sheet.root_vars.clone();
 
         for decl in matched {
-            match &decl.property {
-                Property::Custom(custom) => match &custom.name {
-                    // 变量键统一去掉 `--` 前缀，与 lookup_var 的取用约定一致。
-                    lightningcss::properties::custom::CustomPropertyName::Custom(name) => {
-                        let key = name.0.trim_start_matches("--").to_string();
-                        vars.insert(key, custom.value.clone());
-                    }
-                    // lightningcss 属性表缺项（object-fit 等）也是 Custom：
-                    // 喂给 paint 腿做关键字识别，布局腿无语义、跳过。
-                    lightningcss::properties::custom::CustomPropertyName::Unknown(_) => {
-                        to_node_style::apply_property(&mut style, &decl.property, &self.ctx);
-                    }
-                },
-                other => {
-                    let resolved = eval::resolve_to_typed(other, &vars, &self.ctx);
-                    for typed in resolved {
-                        // 布局腿直通 taffy；paint 腿继续喂 NodeStyle 既有字段。
-                        // 两条腿消费同一份强类型，值天然一致。
-                        to_taffy::apply_property(&mut taffy_style, &typed, &self.ctx);
-                        to_node_style::apply_property(&mut style, &typed, &self.ctx);
-                    }
-                }
-            }
+            apply_declaration(&mut style, &mut taffy_style, &decl.property, &mut vars, &self.ctx);
         }
         style.css_layout = Some(crate::style::CssLayout(taffy_style));
         style
+    }
+
+    /// 把内联 `style` 属性叠加到已算出的样式上。
+    ///
+    /// 内联声明在层叠里高于任何选择器规则，因此它在 class 结果之后应用。
+    /// 解析失败的单条声明被丢弃（CSS 的错误恢复语义），不影响其余声明。
+    pub fn apply_inline_style(&self, style: &mut NodeStyle, css: &str, _node_id: &str, _tag: &str) {
+        // 与样式表同一策略：声明块借用输入文本，泄漏一份换 'static。
+        // 内联样式是节点级小文本，量级可忽略。
+        let owned: &'static str = Box::leak(css.to_string().into_boxed_str());
+        let block = match lightningcss::declaration::DeclarationBlock::parse_string(
+            owned,
+            lightningcss::stylesheet::ParserOptions::default(),
+        ) {
+            Ok(block) => block,
+            Err(err) => {
+                log::warn!("css: 内联 style 解析失败，已忽略：{err:?}");
+                return;
+            }
+        };
+        let mut taffy_style = style
+            .css_layout
+            .take()
+            .map(|layout| layout.0)
+            .unwrap_or_else(to_taffy::initial_style);
+        let mut vars: HashMap<String, lightningcss::properties::custom::TokenList<'static>> =
+            self.sheet.root_vars.clone();
+        for decl in block.declarations.iter().chain(block.important_declarations.iter()) {
+            apply_declaration(style, &mut taffy_style, decl, &mut vars, &self.ctx);
+        }
+        style.css_layout = Some(crate::style::CssLayout(taffy_style));
     }
 
     /// `class_name` 里样式表完全没有引用的类。运行时拼接类

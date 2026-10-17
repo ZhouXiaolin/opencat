@@ -13,6 +13,7 @@
 //! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API
 //! 8. `CANVAS_API_RUNTIME` — `ctx.canvas(id).fillRect(...)` CanvasKit subset
 //! 9. `THREE_API_RUNTIME` — `ctx.three` three.js 风格 3D 场景图 + `Renderer.render()`
+//! 10. `G2_BUNDLE` + `G2_API_RUNTIME` — `useChart(ref, build)` AntV G2 图表，
 //!
 //! All files are IIFE-wrapped and assume the existence of native
 //! `__record_*`, `__canvas_*`, `__animate_*`, `__text_source_*`
@@ -21,6 +22,12 @@
 pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 pub const THREE_API_RUNTIME: &str = include_str!("three_api.js");
+// AntV G2 chart runtime. `G2_BUNDLE` is the built @antv/g2 +
+// @antv/g-canvaskit IIFE (built by the same esbuild chain as g2-rs);
+// `G2_API_RUNTIME` is the host side that binds G2 to an OpenCat <canvas>
+// through the existing `__canvas_*` bindings.
+pub const G2_BUNDLE: &str = include_str!("g2/g2.bundle.js");
+pub const G2_API_RUNTIME: &str = include_str!("g2/g2_api.js");
 
 // JSX frontend (`parse::jsx`): element factory + `use*` registry + module
 // loader, and the JSX->h() source transform. Installed in every script realm

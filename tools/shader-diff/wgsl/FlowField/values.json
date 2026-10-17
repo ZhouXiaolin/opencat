@@ -10,7 +10,8 @@
   "seed": 0,
   "edges": 2,
   "_opacity": 1,
-  "_animTime": 0
+  "_animTime": 0,
+  "_animTime_evolution": 0
  },
  "n_n0c0": {
   "colorA": [

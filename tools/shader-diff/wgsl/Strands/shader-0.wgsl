@@ -157,6 +157,7 @@ struct struct_1 {
   end: vec2f,
   _opacity: f32,
   _animTime: f32,
+  _animTime_color: f32,
 }
 
 struct struct_2 {

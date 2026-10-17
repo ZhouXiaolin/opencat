@@ -109,7 +109,7 @@ struct padded {
   _pad2: f32,
 }
 
-struct struct_1 {
+struct padded_1 {
   strength: f32,
   detail: f32,
   speed: f32,
@@ -118,9 +118,13 @@ struct struct_1 {
   edges: f32,
   _opacity: f32,
   _animTime: f32,
+  _animTime_evolution: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
 }
 
-struct struct_2 {
+struct struct_1 {
   colorA: vec4f,
   colorB: vec4f,
   colorsArray: array<vec4f, 8>,
@@ -135,7 +139,7 @@ struct struct_2 {
   _opacity: f32,
 }
 
-struct struct_3 {
+struct struct_2 {
   time: f32,
   viewportSize: vec2f,
   logicalViewportSize: vec2f,
@@ -146,9 +150,9 @@ struct struct_3 {
 
 struct combined {
   n_root: padded,
-  n_n0: struct_1,
-  n_n0c0: struct_2,
-  _sys: struct_3,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
 }
 
 @group(0) @binding(0) var<uniform> uniforms: combined;

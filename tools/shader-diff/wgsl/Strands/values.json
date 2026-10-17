@@ -95,7 +95,8 @@
    0.5
   ],
   "_opacity": 1,
-  "_animTime": 1.4999999999999996
+  "_animTime": 1.4999999999999996,
+  "_animTime_color": 0
  },
  "_sys": {
   "time": 0,

@@ -61,6 +61,9 @@ function buildRegistry(specs: {id: string; def: GpuShaderDefinition; parentId: s
         const propFields = Object.entries(map).map(([name, u]: any) => ({name, initial: u.value, transform: u.transform, cpu: u.cpu, schema: u.schema}))
         const synthetic = [{name: '_opacity', schema: d.f32, initial: 1}]
         if (s.def.animatedTime) synthetic.push({name: '_animTime', schema: d.f32, initial: 0})
+        if (s.def.extraAnimatedTimes) {
+            for (const key of Object.keys(s.def.extraAnimatedTimes)) synthetic.push({name: `_animTime_${key}`, schema: d.f32, initial: 0})
+        }
         if (s.def.extraFields) {
             for (const [name, f] of Object.entries(s.def.extraFields)) synthetic.push({name, schema: f.schema, initial: f.initial})
         }

@@ -9,8 +9,8 @@
 //! 单位（em 等需要排版上下文）按既有惯例退回 auto/初始值。
 
 use lightningcss::properties::align::{
-    AlignContent, AlignItems, AlignSelf, ContentDistribution, ContentPosition, GapValue,
-    JustifyContent, JustifyItems, JustifySelf, SelfPosition,
+    AlignContent, AlignItems, AlignSelf, ContentDistribution, GapValue, JustifyContent,
+    JustifyItems, JustifySelf, SelfPosition,
 };
 use lightningcss::properties::align::ContentPosition as ContentPositionKeyword;
 use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword};
@@ -278,7 +278,6 @@ fn map_align_items(v: &AlignItems) -> Option<TaffyAlignItems> {
         AlignItems::Normal | AlignItems::Stretch => AlignItemsKeyword::Stretch,
         AlignItems::BaselinePosition(_) => AlignItemsKeyword::Baseline,
         AlignItems::SelfPosition { value, .. } => return self_keyword(value).map(|k| TaffyAlignItems { keyword: k, safety: AlignmentSafety::Unsafe }),
-        _ => return None,
     };
     Some(TaffyAlignItems { keyword, safety: AlignmentSafety::Unsafe })
 }
@@ -289,7 +288,6 @@ fn map_align_self(v: &AlignSelf) -> Option<TaffyAlignItems> {
         AlignSelf::Normal | AlignSelf::Stretch => Some(TaffyAlignItems::STRETCH),
         AlignSelf::BaselinePosition(_) => Some(TaffyAlignItems::BASELINE),
         AlignSelf::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems { keyword: k, safety: AlignmentSafety::Unsafe }),
-        _ => None,
     }
 }
 

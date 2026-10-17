@@ -273,6 +273,9 @@ fn eval_calc(tokens: &TokenList<'static>, ctx: &EvalContext) -> Option<TokenOrVa
             TokenOrValue::Token(Token::Number { value, .. }) => Some(CV::Num(*value)),
             TokenOrValue::Token(Token::Percentage { unit_value, .. }) => Some(CV::Pct(*unit_value)),
             TokenOrValue::Token(Token::Dimension { value, unit, .. }) => {
+                if let Some(deg) = dimension_to_deg(*value, unit) {
+                    return Some(CV::Deg(deg));
+                }
                 let px = dimension_to_px(*value, unit, ctx)?;
                 Some(CV::Px(px))
             }
@@ -375,6 +378,18 @@ fn eval_calc(tokens: &TokenList<'static>, ctx: &EvalContext) -> Option<TokenOrVa
             int_value: None,
             unit: "deg".into(),
         }),
+    })
+}
+
+/// 角度单位归一到 `deg`：`calc(0.5turn + 45deg)` 这类写法在 tailwind 的
+/// 任意值里常见（渐变方向、transform 旋转）。
+fn dimension_to_deg(value: f32, unit: &str) -> Option<f32> {
+    Some(match unit.to_ascii_lowercase().as_str() {
+        "deg" => value,
+        "grad" => value * 0.9,
+        "rad" => value.to_degrees(),
+        "turn" => value * 360.0,
+        _ => return None,
     })
 }
 

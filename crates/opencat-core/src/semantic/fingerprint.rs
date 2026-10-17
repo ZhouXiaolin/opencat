@@ -110,6 +110,11 @@ struct LayoutInputLocal<'a>(&'a ElementNode);
 impl Hash for LayoutInputLocal<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         LayoutStyleInput(&self.0.style.layout).hash(state);
+        // CSS 直通腿是布局消费端的第一优先输入；taffy Style 无 Hash，
+        // Debug 文本足够稳定（同一份代码产出的字段集合固定）。
+        if let Some(css) = &self.0.style.css_layout {
+            format!("{:?}", css.0).hash(state);
+        }
         self.0.style.visual.border_width.map(F32Hash).hash(state);
         self.0
             .style

@@ -21,7 +21,17 @@ use opencat_core::script::runtime::{CANVAS_API_RUNTIME, JSX_RUNTIME, JSX_TRANSFO
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
-    let (extract, driver) = extract_with_base_dir(input, base_dir)?;
+    let (mut extract, driver) = extract_with_base_dir(input, base_dir)?;
+    // 约定：<jsx-dir>/tailwind.css（scripts/build-css.sh 产物）存在时，
+    // class 解析切到标准 CSS 引擎；不存在则维持 tailwind 类名匹配器。
+    if let Some(dir) = base_dir {
+        let css_path = dir.join("tailwind.css");
+        if css_path.is_file() {
+            let css_text = std::fs::read_to_string(&css_path)
+                .with_context(|| format!("jsx: 读取 {}", css_path.display()))?;
+            extract["css"] = json!(css_text);
+        }
+    }
     opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
 }
 

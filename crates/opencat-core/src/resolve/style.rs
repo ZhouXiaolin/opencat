@@ -1,7 +1,7 @@
 use crate::canvas::paint::BlendMode;
 use crate::style::{
-    AlignItems, BackgroundFill, BoxShadow, ClipPath, ComputedTextStyle, CssFilter, DropShadow,
-    FlexDirection, FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow,
+    AlignItems, BackgroundFill, BoxShadow, ClipPath, ComputedTextStyle, CssFilter, CssLayout,
+    DropShadow, FlexDirection, FlexWrap, GridAutoFlow, GridAutoRows, GridPlacement, InsetShadow,
     JustifyContent, LengthPercentageAuto, ObjectFit, Position, TextShadow, Transform,
     TransformOrigin,
 };
@@ -12,6 +12,9 @@ pub struct ComputedStyle {
     pub visual: ComputedVisualStyle,
     pub text: ComputedTextStyle,
     pub id: String,
+    /// CSS 布局腿直通产物（`css::to_taffy`），布局消费端的第一优先输入；
+    /// 旧类名路径为 `None`。
+    pub css_layout: Option<CssLayout>,
 }
 
 /// Only properties in this struct are allowed to flow from parent to child.

@@ -3323,6 +3323,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dirs",
+ "image",
  "opencat-core",
  "opencat-engine",
  "raw-window-handle",

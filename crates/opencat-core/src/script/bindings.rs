@@ -299,9 +299,18 @@ macro_rules! for_each_binding {
             );
             Ok(true)
         }}
-        $binding! { pure canvas_measure_paragraph (text: String, size: f32, family: String, weight: u32) -> f32 {
+        $binding! { pure canvas_measure_paragraph (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
             let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight as u32, size as f64, 0.0)?;
-            Ok(metrics.width as f32)
+            // g-canvaskit shifts text by `paragraph.getHeight()` to honour
+            // textBaseline, so the callers need the real line box, not just the
+            // advance. Height = ascent + descent of the font box, which is what
+            // CanvasKit's own paragraph layout returns.
+            Ok(serde_json::json!({
+                "width": metrics.width as f32,
+                "height": (metrics.font_ascent + metrics.font_descent) as f32,
+                "ascent": metrics.font_ascent as f32,
+                "descent": metrics.font_descent as f32,
+            }))
         }}
         $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {

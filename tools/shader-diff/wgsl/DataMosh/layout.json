@@ -1,0 +1,43 @@
+{
+  "name": "DataMosh",
+  "role": "filter",
+  "spec": {
+    "type": "DataMosh",
+    "props": {
+      "intensity": 0.7,
+      "blockSize": 48,
+      "drift": 0.35,
+      "churn": 0.4,
+      "blend": 1,
+      "speed": 1,
+      "seed": 0
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

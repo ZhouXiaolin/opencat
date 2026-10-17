@@ -1,0 +1,46 @@
+{
+  "name": "ReactionDiffusion",
+  "role": "generator+compute",
+  "spec": {
+    "type": "ReactionDiffusion",
+    "props": {
+      "preset": "coral",
+      "feed": 0.0545,
+      "kill": 0.062,
+      "diffusionRatio": 0.5,
+      "featureSize": 3,
+      "speed": 6,
+      "brushSize": 0.04,
+      "brushStrength": 0.6,
+      "colorA": "transparent",
+      "colorC": "#38bdf8",
+      "colorB": "#e2f5ff",
+      "contrast": 0.5,
+      "threshold": 0.28,
+      "colorSpace": "oklch",
+      "relief": 0.4,
+      "lightAngle": 135,
+      "childInfluence": 0.6,
+      "childContrast": 0.5,
+      "childThreshold": 0.5,
+      "childInvert": false
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

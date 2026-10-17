@@ -1,0 +1,46 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0,
+   1
+  ],
+  "density": 0.3,
+  "intensity": 0.8,
+  "spotty": 1,
+  "speed": 0.5,
+  "rayColor": [
+   0.08510302752256393,
+   0.2212403565645218,
+   0.8957284688949585,
+   1
+  ],
+  "backgroundColor": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "_opacity": 1,
+  "_animTime": 1.4999999999999996
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

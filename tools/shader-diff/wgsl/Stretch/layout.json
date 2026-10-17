@@ -1,0 +1,44 @@
+{
+  "name": "Stretch",
+  "role": "filter",
+  "spec": {
+    "type": "Stretch",
+    "props": {
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "strength": 1,
+      "angle": 0,
+      "falloff": 0,
+      "edges": "stretch"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

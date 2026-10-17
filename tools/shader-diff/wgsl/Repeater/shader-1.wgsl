@@ -1,0 +1,182 @@
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct padded_1 {
+  mode: f32,
+  cropLeft: f32,
+  cropRight: f32,
+  cropTop: f32,
+  cropBottom: f32,
+  columns: f32,
+  rows: f32,
+  gapX: f32,
+  gapY: f32,
+  stagger: f32,
+  flip: f32,
+  count: f32,
+  radius: f32,
+  startAngle: f32,
+  sweep: f32,
+  faceCenter: f32,
+  direction: f32,
+  spacing: f32,
+  instanceScale: f32,
+  instanceRotation: f32,
+  instanceOpacity: f32,
+  hueShift: f32,
+  phase: f32,
+  zOrder: f32,
+  jitterPosition: f32,
+  jitterRotation: f32,
+  jitterScale: f32,
+  jitterOpacity: f32,
+  seed: f32,
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  let rep_0_uv = uv;
+  let rep_0_aspect = uniforms._sys.aspect;
+  let rep_0_pix = vec2f(rep_0_uv.x * rep_0_aspect, rep_0_uv.y);
+  let rep_0_cropL = uniforms.n_n0.cropLeft;
+  let rep_0_cropR = uniforms.n_n0.cropRight;
+  let rep_0_cropT = uniforms.n_n0.cropTop;
+  let rep_0_cropB = uniforms.n_n0.cropBottom;
+  let rep_0_srcCx = (0.5) + (rep_0_cropL - rep_0_cropR) * (0.5);
+  let rep_0_srcCy = (0.5) + (rep_0_cropT - rep_0_cropB) * (0.5);
+  let rep_0_srcHw = max((0.5) * (1.0 - rep_0_cropL - rep_0_cropR), 0.000001);
+  let rep_0_srcHh = max((0.5) * (1.0 - rep_0_cropT - rep_0_cropB), 0.000001);
+  let rep_0_srcHwSq = rep_0_srcHw * rep_0_aspect;
+  let rep_0_srcHhSq = rep_0_srcHh;
+  let rep_0_fieldCenterSq = vec2f((0.5) * rep_0_aspect, 0.5);
+  let rep_0_fieldHwSq = max((0.5) * rep_0_aspect, 0.000001);
+  let rep_0_fieldHh = max(0.5, 0.000001);
+  let rep_0_phase = uniforms.n_n0.phase;
+  let rep_0_seed = uniforms.n_n0.seed;
+  let rep_0_totalN = min(max((uniforms.n_n0.columns * uniforms.n_n0.rows), 1.0), 64.0);
+  var rep_0_accum = vec4f(0.0, 0.0, 0.0, 0.0);
+  var rep_0_cellFitInv = 1.0;
+  for (var rep_0_i = 0u; rep_0_i < u32(rep_0_totalN); rep_0_i++) {
+    let rep_0_fi = f32(rep_0_i);
+    let rep_0_j = rep_0_fi;
+    var rep_0_pos = vec2f(0.0, 0.0);
+    var rep_0_layoutRot = 0.0;
+    var rep_0_flipX = 1.0;
+    var rep_0_flipY = 1.0;
+    let rep_0_cols = uniforms.n_n0.columns;
+    let rep_0_rows = uniforms.n_n0.rows;
+    let rep_0_col = rep_0_j - rep_0_cols * floor(rep_0_j / rep_0_cols);
+    let rep_0_row = floor(rep_0_j / rep_0_cols);
+    let rep_0_gapXSq = uniforms.n_n0.gapX * rep_0_aspect;
+    let rep_0_gapY = uniforms.n_n0.gapY;
+    let rep_0_fieldW = rep_0_fieldHwSq * 2.0;
+    let rep_0_fieldH = rep_0_fieldHh * 2.0;
+    let rep_0_pitchX = (rep_0_fieldW - rep_0_gapXSq * (rep_0_cols - 1.0)) / rep_0_cols;
+    let rep_0_pitchY = (rep_0_fieldH - rep_0_gapY * (rep_0_rows - 1.0)) / rep_0_rows;
+    let rep_0_periodX = rep_0_pitchX + rep_0_gapXSq;
+    let rep_0_periodY = rep_0_pitchY + rep_0_gapY;
+    rep_0_cellFitInv = max(rep_0_srcHwSq * 2.0 / max(rep_0_pitchX, 0.00001), rep_0_srcHhSq * 2.0 / max(rep_0_pitchY, 0.00001));
+    let rep_0_rowMod2 = rep_0_row - 2.0 * floor(rep_0_row / 2.0);
+    let rep_0_staggerOff = rep_0_rowMod2 * uniforms.n_n0.stagger * rep_0_periodX;
+    let rep_0_cxArg = rep_0_col * rep_0_periodX + rep_0_staggerOff + rep_0_phase * rep_0_periodX;
+    let rep_0_cxMod = rep_0_periodX * rep_0_cols;
+    let rep_0_cellX = rep_0_cxArg - rep_0_cxMod * floor(rep_0_cxArg / rep_0_cxMod);
+    let rep_0_cyArg = rep_0_row * rep_0_periodY + rep_0_phase * rep_0_periodY;
+    let rep_0_cyMod = rep_0_periodY * rep_0_rows;
+    let rep_0_cellY = rep_0_cyArg - rep_0_cyMod * floor(rep_0_cyArg / rep_0_cyMod);
+    rep_0_pos = vec2f(rep_0_fieldCenterSq.x - rep_0_fieldW * 0.5 + rep_0_pitchX * 0.5 + rep_0_cellX, rep_0_fieldCenterSq.y - rep_0_fieldH * 0.5 + rep_0_pitchY * 0.5 + rep_0_cellY);
+    let rep_0_hashBase = rep_0_j + rep_0_seed * 7.0;
+    let rep_0_h1 = fract(sin((rep_0_hashBase + 0.123) * 78.233) * 43758.5453);
+    let rep_0_h2 = fract(sin((rep_0_hashBase + 5.456) * 78.233) * 43758.5453);
+    let rep_0_h3 = fract(sin((rep_0_hashBase + 9.789) * 78.233) * 43758.5453);
+    let rep_0_h4 = fract(sin((rep_0_hashBase + 13.21) * 78.233) * 43758.5453);
+    let rep_0_h5 = fract(sin((rep_0_hashBase + 17.65) * 78.233) * 43758.5453);
+    let rep_0_scale = max(pow(uniforms.n_n0.instanceScale, rep_0_j) * (1.0 + uniforms.n_n0.jitterScale * (rep_0_h3 - 0.5)), 0.0001);
+    let rep_0_rot = rep_0_layoutRot + uniforms.n_n0.instanceRotation * rep_0_j + uniforms.n_n0.jitterRotation * (rep_0_h4 - 0.5) * 6.283185307179586;
+    let rep_0_instOpacity = pow(uniforms.n_n0.instanceOpacity, rep_0_j) * (1.0 - uniforms.n_n0.jitterOpacity * rep_0_h5);
+    rep_0_pos = rep_0_pos + vec2f((rep_0_h1 - 0.5) * rep_0_fieldHwSq, (rep_0_h2 - 0.5) * rep_0_fieldHh) * uniforms.n_n0.jitterPosition;
+    let rep_0_negRot = -rep_0_rot;
+    let rep_0_cosA = cos(rep_0_negRot);
+    let rep_0_sinA = sin(rep_0_negRot);
+    let rep_0_d0 = rep_0_pix - rep_0_pos;
+    let rep_0_dr = vec2f(rep_0_d0.x * rep_0_cosA - rep_0_d0.y * rep_0_sinA, rep_0_d0.x * rep_0_sinA + rep_0_d0.y * rep_0_cosA);
+    let rep_0_dl = rep_0_dr / rep_0_scale;
+    let rep_0_localU = rep_0_dl.x * rep_0_flipX * rep_0_cellFitInv / (rep_0_srcHwSq * 2.0) + 0.5;
+    let rep_0_localV = rep_0_dl.y * rep_0_flipY * rep_0_cellFitInv / (rep_0_srcHhSq * 2.0) + 0.5;
+    if (rep_0_localU >= 0.0 && rep_0_localU <= 1.0 && rep_0_localV >= 0.0 && rep_0_localV <= 1.0) {
+      let rep_0_sampleUV = vec2f(rep_0_srcCx - rep_0_srcHw + rep_0_localU * rep_0_srcHw * 2.0, rep_0_srcCy - rep_0_srcHh + rep_0_localV * rep_0_srcHh * 2.0);
+      let rep_0_src = textureSampleLevel(rtt_0, linearClamp, rep_0_sampleUV, 0.0);
+      var rep_0_rgb = rep_0_src.rgb;
+      let rep_0_a = rep_0_src.a * rep_0_instOpacity;
+      let rep_0_premul = rep_0_rgb * rep_0_a;
+      rep_0_accum = vec4f(rep_0_premul + rep_0_accum.rgb * (1.0 - rep_0_a), rep_0_a + rep_0_accum.a * (1.0 - rep_0_a));
+    }
+  }
+  var composed_1 = unpremultiplyAlpha(rep_0_accum);
+  return vec4f(linearToSrgb(tone_linear(composed_1.rgb)) * composed_1.a, composed_1.a);
+}

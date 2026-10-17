@@ -1,0 +1,45 @@
+{
+  "name": "Smoke",
+  "role": "generator+compute",
+  "spec": {
+    "type": "Smoke",
+    "props": {
+      "colorA": "#fc83f9",
+      "colorB": "#c21c79",
+      "stops": null,
+      "emitFrom": {
+        "x": 0.5,
+        "y": 1
+      },
+      "direction": 0,
+      "speed": 20,
+      "spread": 60,
+      "emitRadius": 0.08,
+      "intensity": 1,
+      "dissipation": 0.2,
+      "detail": 25,
+      "gravity": 0.5,
+      "colorDecay": 0.4,
+      "mouseInfluence": 0.1,
+      "mouseRadius": 0.1,
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

@@ -1,0 +1,43 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "colorA": [
+   0.4258051812648773,
+   0.029644349589943886,
+   0.872277557849884,
+   1
+  ],
+  "colorB": [
+   0.1060611829161644,
+   0.02288067899644375,
+   0.9140545725822449,
+   1
+  ],
+  "colorSpace": 2,
+  "count": 8000,
+  "size": 1,
+  "strength": 1.7,
+  "reach": 0.6,
+  "response": 0.5,
+  "_opacity": 1
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

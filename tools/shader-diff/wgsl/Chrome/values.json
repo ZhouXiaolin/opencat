@@ -1,0 +1,76 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "scale": 1,
+  "rotation": 0,
+  "tint": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "warmColor": [
+   0.8929011225700378,
+   0.41677945852279663,
+   0.11337962746620178,
+   1
+  ],
+  "coolColor": [
+   0.25220242142677307,
+   0.38101208209991455,
+   0.7522823810577393,
+   1
+  ],
+  "bevelWidth": 0.028,
+  "bevelShape": 0.55,
+  "curvature": 0.5,
+  "waviness": 0.15,
+  "environment": 1,
+  "envRotation": 0,
+  "softness": 0.3,
+  "spectral": 0.9,
+  "dispersion": 0.3,
+  "shadows": 0.7,
+  "speed": 0.5,
+  "edgeSoftness": 0.05,
+  "_opacity": 1,
+  "_animTime": 1.4999999999999996,
+  "_vfOriginX": 0,
+  "_vfOriginY": 0,
+  "_vfSpanX": 1,
+  "_vfSpanY": 1,
+  "_vfActiveRes": 1,
+  "_vfRBound": 0.6,
+  "_saRadius": 0.35,
+  "_saSides": 6,
+  "_saRounding": 0,
+  "_saInnerRatio": 0.4,
+  "_saRotation": 0,
+  "_saHeight": 0.25,
+  "_saOffset": 0.2,
+  "_saAperture": 270
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

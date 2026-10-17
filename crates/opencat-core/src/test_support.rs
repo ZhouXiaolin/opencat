@@ -189,3 +189,9 @@ impl crate::script::ScriptHost for MockScriptHost {
     }
     fn set_target_registry(&mut self, _: crate::script::ScriptTargetRegistry) {}
 }
+
+/// 布局测试用的标准 CSS 样式表：布局测试用到的类经 tailwindcss CLI 预编译
+/// 后的产物（`src/layout/test_tailwind.css`）。运行期不依赖 node/bun。
+pub fn layout_test_css() -> &'static str {
+    include_str!("layout/test_tailwind.css")
+}

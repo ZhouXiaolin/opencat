@@ -90,7 +90,7 @@ pub fn match_rules(
 
 /// 单 compound 匹配（构建期已过滤组合器与伪元素分支）。
 /// 单个类名是否被样式表的任何选择器引用（含复合选择器中的一个类位）。
-/// 运行时拼接类在 tailwind 静态扫描下不会产出规则，用这个判定兜底名单。
+/// 运行时拼接类在 tailwind 静态扫描下不会产出规则，用这个判定诊断名单。
 pub fn class_has_rules(sheet: &CssStylesheet, class: &str) -> bool {
     sheet.rules.iter().any(|rule| {
         rule.selectors.iter().any(|sel| {

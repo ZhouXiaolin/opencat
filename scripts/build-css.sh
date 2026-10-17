@@ -3,8 +3,8 @@
 #
 # 用法: scripts/build-css.sh <jsx-dir>
 # 产物: <jsx-dir>/tailwind.css —— 引擎按此约定路径发现并注入 CSS 引擎
-#       （见 crates/opencat-engine/src/jsx.rs）。文件不存在时引擎走旧
-#       tailwind.rs 类名匹配器，构建管线是可选增强，不破坏现有工程。
+#       （见 crates/opencat-engine/src/jsx.rs）。文件不存在时 class 不产生
+#       任何声明；先跑本脚本，再渲染。
 #
 # 输入 CSS 由脚本临时生成：`@import "tailwindcss"` + `@source` 指向该目录，
 # tailwind v4 据此扫描 className 并产出 var()/calc()/color-mix() 形态的

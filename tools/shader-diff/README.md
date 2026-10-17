@@ -113,15 +113,24 @@ extra.json 的 extraField（key `n<id>\0<field>`）。同步副本更新后必�
 
 FAIL 14 个，按根因分三档：
 
-- **sin/大参数 hash ULP 档（9）**：`fract(sin(x*43758...))` 类 hash 在 naga/wgpu 与
+- **sin/大参数 hash ULP 档（10）**：`fract(sin(x*43758...))` 类 hash 在 naga/wgpu 与
   Dawn 编译下 ULP 不同，被 `fract`×大常数放大成完全不同噪声相位，架构固有差异，
   逐像素不可修复：WorleyNoise Voronoi Scratches Aurora Truchet FallingLines
-  BarShift ConcentricSpin ObjectTracker。
+  BarShift ConcentricSpin ObjectTracker Satin。
 - **旋转/采样边界 1-ULP 档（3）**：sin/cos(小角度) 1 ULP → 旋转坐标在条带边界
   相位差（1px 边带）：Stripes(mae 0.049) Engraving(2.48) Halftone(0.89)。
-- **待深挖（2）**：MeshGradient(83.4) DiffuseBlur(1.54，疑模糊核 rtt 迭代精度)。
-  MeshGradient 的 anchors 通路已验证正确（哨兵实验生效、CPU 理论 t 场合理），
-  剩余差异在 scatterField+mxPerlin+warp 组合。
+- **hash 散射亚像素档（1）**：DiffuseBlur(1.54)。hash22 散射 offset 的粗结构两侧
+  一致（反推场相关性 0.76），残差为零均值高频（std≈10），来自散射采样路径的
+  亚像素微差（Dawn vs wgpu 光栅插值/采样定点化）；intensity=0 时两侧 mae 0.019
+  （pass0 渐变逐像素一致），已排除数据链路与 hash 相位。
+
+### uniform 数组 stride 坑（本轮关键修复，治好 MeshGradient 83.4→0.003）
+
+`write_member` 此前按 4B 紧凑步进写数组，而 WGSL uniform 布局里 `array<vec3f,8>`
+元素 stride=16、`array<vec2f,N>` stride=8（成员对齐）。首个 `vec3f` 数组 uniform
+（MeshGradient 的 convertedColorsArray 调色板）整块错位 → GPU 读到分量碎片，
+输出红绿黑噪声图。修复后 MeshGradient mae 0.0035/0.035/0.12（p8 全 0）。
+`array<vec4f,N>` stride=16 恰好等于紧凑步进，故 meshAnchors 类不受影响。
 
 ### extraField CPU 回写链路（本轮关键修复）
 

@@ -76,6 +76,73 @@ fn reflect(wgsl: &str) -> Result<ir::Module> {
     Ok(module)
 }
 
+/// naga 对全字面量内建调用（如 `mix(0.05, 0.45, 0.85)`）的 AbstractFloat 常量折叠有解析局限
+/// （Dawn/Tint 接受，naga 报 "Subexpression(s) are not constant"）。给内建实参的裸数字字面量
+/// 补 f 后缀，语义不变（f32 字面量）。
+fn sanitize_wgsl(src: String) -> String {
+    // 覆盖库当前产出的形态：mix/clamp/smoothstep 的全字面量实参（逗号+空格分隔）。
+    let mut out = src;
+    for builtin in ["mix", "clamp", "smoothstep"] {
+        let mut patched = String::with_capacity(out.len());
+        let pat = format!("{builtin}(");
+        let mut rest = out.as_str();
+        while let Some(i) = rest.find(&pat) {
+            let boundary_ok = i == 0
+                || !rest[..i]
+                    .chars()
+                    .next_back()
+                    .map(|c| c.is_ascii_alphanumeric() || c == '_')
+                    .unwrap_or(false);
+            let (before, after) = rest.split_at(i);
+            patched.push_str(before);
+            if boundary_ok {
+                // 括号配平截取完整调用
+                let body = &after[pat.len() - 1..];
+                let mut depth = 0i32;
+                let mut end = None;
+                for (j, c) in body.char_indices() {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = Some(j + 1);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if let Some(end) = end {
+                    let call = &body[..end];
+                    let args = &call[1..call.len() - 1];
+                    let bare = |s: &str| !s.is_empty() && s.parse::<f64>().is_ok();
+                    let parts: Vec<&str> = args.split(", ").collect();
+                    if parts.len() >= 2 && parts.iter().any(|p| bare(p.trim())) {
+                        let fixed: Vec<String> = parts
+                            .iter()
+                            .map(|p| {
+                                let t = p.trim();
+                                if bare(t) { format!("{t}f") } else { p.to_string() }
+                            })
+                            .collect();
+                        patched.push_str(&pat);
+                        patched.push_str(&fixed.join(", "));
+                        patched.push(')');
+                        rest = &body[end..];
+                        continue;
+                    }
+                }
+            }
+            patched.push_str(&after[..pat.len() - 1 + 1.min(after.len())]);
+            rest = &after[pat.len() - 1 + 1.min(after.len())..];
+        }
+        patched.push_str(rest);
+        out = patched;
+    }
+    out
+}
+
 fn kind_of(k: ir::ScalarKind) -> Kind {
     match k {
         ir::ScalarKind::Float => Kind::Float,
@@ -183,8 +250,15 @@ fn write_member(buf: &mut [u8], offset: u32, info: &MemberInfo, val: &FieldVal, 
     if flat.len() != need {
         bail!("{what}: value len {} != layout len {need}", flat.len());
     }
+    // WGSL uniform 布局里数组元素按对齐 stride 排布（vec3f 元素 stride=16，vec2f stride=8），
+    // 标量数组 stride=4；写入按 元素×stride + 分量×4 定位，不能线性 4B 紧凑。
+    let (stride, comps) = match (info.array_len, info.components) {
+        (Some(len), c) if len > 1 && c == 3 => (16, 3),
+        (Some(len), c) if len > 1 && c == 2 => (8, 2),
+        _ => (4, 1),
+    };
     for (i, v) in flat.iter().enumerate() {
-        let o = offset as usize + i * 4;
+        let o = offset as usize + (i / comps) * stride + (i % comps) * 4;
         match info.kind {
             Kind::Float => buf[o..o + 4].copy_from_slice(&(*v as f32).to_le_bytes()),
             Kind::Int => buf[o..o + 4].copy_from_slice(&(*v as i32).to_le_bytes()),
@@ -307,7 +381,7 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
     let passes: Passes = serde_json::from_str(&std::fs::read_to_string(dir.join("passes.json"))?)?;
     let values: Values = serde_json::from_str(&std::fs::read_to_string(dir.join("values.json"))?)?;
 
-    let first_src = std::fs::read_to_string(dir.join("shader-0.wgsl"))?;
+    let first_src = sanitize_wgsl(std::fs::read_to_string(dir.join("shader-0.wgsl"))?);
     let first_module = reflect(&first_src)?;
     let structs = reflect_structs(&first_module)?;
     let combined_member_structs = reflect_combined_members(&first_module)?;
@@ -346,7 +420,10 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
 
     let write_group = |ubuf: &mut Vec<u8>, prefix: &str, fields: &BTreeMap<String, FieldVal>| -> Result<()> {
         for (fname, val) in fields {
-            let key = format!("{prefix}.{fname}");
+            // 导出端字段名经 uniformStore sanitizeFieldId（WGSL 保留字加 `_` 后缀，如 from→from_）；
+            // 展平表 key 是 sanitize 后的名字。转义集太大，按需探测：原 key 不存在时试 `名_`。
+            let plain = format!("{prefix}.{fname}");
+            let key = if combined_flat.contains_key(&plain) { plain } else { format!("{prefix}.{fname}_") };
             let (off, info) = combined_flat
                 .get(&key)
                 .with_context(|| format!("{key} not in combined flat layout"))?;
@@ -466,7 +543,7 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
     // rtt passes
     let mut rtt_plans: Vec<PassPlan> = Vec::new();
     for rp in &passes.rtt {
-        let src = std::fs::read_to_string(dir.join(format!("shader-{}.wgsl", rp.index)))?;
+        let src = sanitize_wgsl(std::fs::read_to_string(dir.join(format!("shader-{}.wgsl", rp.index)))?);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(src.into()),
@@ -482,7 +559,7 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
     // final pass
     let final_entry_src = {
         let n = passes.rtt.len();
-        std::fs::read_to_string(dir.join(format!("shader-{n}.wgsl")))?
+        sanitize_wgsl(std::fs::read_to_string(dir.join(format!("shader-{n}.wgsl")))?)
     };
     let final_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
@@ -542,7 +619,7 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
     let rtt_naga: Vec<ir::Module> = passes
         .rtt
         .iter()
-        .map(|rp| reflect(&std::fs::read_to_string(dir.join(format!("shader-{}.wgsl", rp.index)))?))
+        .map(|rp| reflect(&sanitize_wgsl(std::fs::read_to_string(dir.join(format!("shader-{}.wgsl", rp.index)))?)))
         .collect::<Result<Vec<_>>>()?;
     let final_naga = reflect(&final_entry_src)?;
 
@@ -569,7 +646,7 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
         .iter()
         .enumerate()
         .map(|(i, rp)| {
-            let src = std::fs::read_to_string(dir.join(format!("shader-{}.wgsl", rp.index)))?;
+            let src = sanitize_wgsl(std::fs::read_to_string(dir.join(format!("shader-{}.wgsl", rp.index)))?);
             Ok(make_samp_bg_from(&reflect_group2_named(&src)?, &rtt_plans[i].pipeline))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -608,7 +685,25 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
     let has_anim_time = n0.contains_key("_animTime");
     let t_off = combined_flat.get("_sys.time").map(|(o, _)| *o as u64);
     let at_off = combined_flat.get("n_n0._animTime").map(|(o, _)| *o as u64);
-    println!("t_off={t_off:?} at_off={at_off:?} has_anim={has_anim_time} speed={speed}");
+    // extra clocks（extraAnimatedTimes → 合成字段 _animTime_<key>）：speed prop 名按库约定
+    // 是 `<key>Speed`（FlowField evolutionSpeed / Strands colorSpeed），从 values.json 读。
+    let mut extra_clocks: Vec<(u64, f32)> = Vec::new();
+    for k in n0.keys() {
+        if let Some(key) = k.strip_prefix("_animTime_") {
+            if let Some((off, _)) = combined_flat.get(&format!("n_n0.{k}")) {
+                let sp = values
+                    .get("n_n0")
+                    .and_then(|m| m.get(&format!("{key}Speed")))
+                    .and_then(|v| match v {
+                        FieldVal::Num(n) => Some(*n as f32),
+                        _ => None,
+                    })
+                    .unwrap_or(0.0);
+                extra_clocks.push((*off as u64, sp));
+            }
+        }
+    }
+    println!("t_off={t_off:?} at_off={at_off:?} has_anim={has_anim_time} speed={speed} extra_clocks={}", extra_clocks.len());
     if std::env::var("OURS_DUMP").is_ok() {
         let o = |k: &str| combined_flat.get(k).map(|(o, _)| *o).unwrap_or(999);
         let f32at = |k: &str| {
@@ -625,6 +720,7 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
 
     let mut anim_time = 0.0f32;
     let mut time_acc = 0.0f32;
+    let mut extra_times: Vec<f32> = vec![0.0; extra_clocks.len()];
     // 时间偏移实验：OURS_T0 秒（可负）加到 animTime 上，用于对齐oracle 相位。
     let t0: f32 = std::env::var("OURS_T0").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0);
     anim_time = t0;
@@ -648,6 +744,10 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
         if let (Some(o), true) = (at_off, has_anim_time) {
             queue.write_buffer(&uniform_buf, o, &anim_time.to_le_bytes());
         }
+        for (i, (off, sp)) in extra_clocks.iter().enumerate() {
+            extra_times[i] += (1.0 / FPS) as f32 * sp;
+            queue.write_buffer(&uniform_buf, *off, &extra_times[i].to_le_bytes());
+        }
         if let Some(fields) = extra_frames.get(&(f as u32)) {
             // 整块写 ubuf 前先把当前帧 time/_animTime 同步进去（这两个平时直接写 GPU buffer，
             // ubuf 里还是 initial 值，整块写会把 GPU 上的时间覆盖回 0）。
@@ -656,6 +756,9 @@ fn render_component(device: &wgpu::Device, queue: &wgpu::Queue, wgsl_dir: &Path,
             }
             if let (Some(o), true) = (at_off, has_anim_time) {
                 ubuf[o as usize..o as usize + 4].copy_from_slice(&anim_time.to_le_bytes());
+            }
+            for (i, (off, _sp)) in extra_clocks.iter().enumerate() {
+                ubuf[*off as usize..*off as usize + 4].copy_from_slice(&extra_times[i].to_le_bytes());
             }
             for (k, v) in fields {
                 let (nid, fname) = k.split_once('\u{0}').context("extra key missing NUL")?;

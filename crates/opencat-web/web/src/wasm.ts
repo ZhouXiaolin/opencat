@@ -24,10 +24,28 @@ export type AssetReader = (path: string) => AssetReaderResult | Promise<AssetRea
 
 export interface WebRendererInstance {
   open_design(compositionSource: string): Promise<string>;
-  /** One-shot: renders frame and returns { ir: Uint8Array, mediaPlan: string, frame: number } */
-  build_frame_ir(frame: number): { ir: Uint8Array; mediaPlan: string; frame: number };
+  /** One-shot: renders frame and returns { ir, mediaPlan, frame, scene3? } */
+  build_frame_ir(frame: number): {
+    ir: Uint8Array;
+    mediaPlan: string;
+    frame: number;
+    /** Scene3 section JSON (array of commits) — present when the frame commits 3D scenes. */
+    scene3?: string;
+  };
   /** Renders frame and returns only its media plan JSON (for readahead/prefetch). */
   get_frame_plan(frame: number): string;
+  /**
+   * Fetch a registered 3D geometry as typed arrays (xyz/xy/xyzw per vertex).
+   * Registry is realm-level and never clears — fetch each id once, then cache.
+   */
+  get_scene3_geometry(id: string): {
+    positions: Float32Array;
+    normals: Float32Array;
+    uvs: Float32Array;
+    indices: Uint32Array;
+    colors: Float32Array;
+    colors1: Float32Array;
+  };
   load_default_fonts(sans_sc: Uint8Array, color_emoji: Uint8Array): void;
   load_font_data(bytes: Uint8Array): void;
   decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
@@ -61,7 +79,13 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
   if (wasmModule) return;
   const base = wasmBaseUrl || configuredWasmBaseUrl || '';
   const mod = await import(/* @vite-ignore */ `${base}opencat_web.js`);
-  await mod.default();
+  // init resolves to the wasm instance exports, whose `memory` is the linear
+  // memory gauge for oracle probes: growth across build_frame_ir calls is
+  // invisible to performance.memory (JS heap only), and it is exactly where a
+  // wasm "memory access out of bounds" abort originates.
+  const exports = (await mod.default()) as { memory?: WebAssembly.Memory };
+  (globalThis as { __opencatWasmMemory?: WebAssembly.Memory }).__opencatWasmMemory =
+    exports.memory;
   wasmModule = mod as unknown as WasmModule;
   renderer = new wasmModule.WebRenderer();
   const { bindResourceProviderApi } = await import('./resource-provider');
@@ -130,11 +154,23 @@ export function blobCount(): number {
 
 export function setAssetReader(reader: AssetReader): void {
   if (!wasmModule) throw new Error('WASM not initialized');
+  assetReader = reader;
   wasmModule.set_asset_reader(reader);
+}
+
+/// TS-side copy of the registered reader — the wasm module also holds one for
+/// Rust-side fetches; the scene3 web executor (three facade) reads assets
+/// (bitmap textures / equirect environments) through this one.
+let assetReader: AssetReader | null = null;
+
+/** Internal: the currently registered asset reader (null before setAssetReader). */
+export function getAssetReader(): AssetReader | null {
+  return assetReader;
 }
 
 export function clearAssetReader(): void {
   if (!wasmModule) return;
+  assetReader = null;
   wasmModule.clear_asset_reader();
 }
 

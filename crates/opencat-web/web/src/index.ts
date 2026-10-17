@@ -30,10 +30,13 @@ export {
   MediaValidationError,
   isEncodedDrawEnvelope,
   decodeDrawEnvelope,
+  __generatedImageTestSeam,
 } from './draw-ir';
 export type {
   EncodedDrawFrame,
 } from './draw-ir';
+
+export { Scene3WebExecutor, scene3Executor } from './three-facade';
 
 export {
   clearVideoCache,

@@ -37,6 +37,7 @@
         prepareCatalogVideoSources,
         registerVideoGlobals,
         renderEncodedDrawFrame,
+        scene3Executor,
         setAssetReader,
         setWasmBaseUrl,
         setWorkerBaseUrl,
@@ -55,11 +56,17 @@
         return Math.max(1, Math.ceil(d * f));
       }
 
+      // Composition base dir from the envelope (`baseDir`): composition-
+      // relative asset paths (`assets/...`) fetch as `/assets/<baseDir>/<path>`,
+      // which the harness static server maps under the example directory.
+      let compositionBaseDir = '';
+
       function parseCompositionInfo(source) {
         // The host hands over the extracted JSX envelope:
-        // {extract: {meta, fonts, lines}, driver}.
+        // {extract: {meta, fonts, lines}, driver, baseDir}.
         const envelope = JSON.parse(source);
         const meta = (envelope.extract && envelope.extract.meta) || {};
+        compositionBaseDir = String(envelope.baseDir || '').replace(/\/+$/, '');
         return {
           width: meta.width,
           height: meta.height,
@@ -83,10 +90,18 @@
         setWorkerBaseUrl('/wasm/');
         await initWasm();
         setAssetReader(async (path) => {
-          const name = String(path).split('/').pop();
-          const response = await fetch(`/assets/${name}`);
-          if (!response.ok) throw new Error(`asset reader: HTTP ${response.status} for ${path}`);
-          return await response.arrayBuffer();
+          // Composition-relative logical path (`assets/...`). Try the
+          // composition base first (authoritative), then the bare path against
+          // the repo assets pool, then the legacy basename fallback.
+          const p = String(path).replace(/^\.\//, '');
+          const urls = [];
+          if (compositionBaseDir) urls.push(`/assets/${compositionBaseDir}/${p}`);
+          urls.push(`/assets/${p}`, `/assets/${p.split('/').pop()}`);
+          for (const url of urls) {
+            const response = await fetch(url);
+            if (response.ok) return await response.arrayBuffer();
+          }
+          throw new Error(`asset reader: not found for ${path} (tried ${urls.join(', ')})`);
         });
         const CK = await globalThis.CanvasKitInit({
           locateFile: (file) => `/canvaskit/${file}`,
@@ -160,6 +175,14 @@
           frameOutput: 'rgba',
         });
 
+        // 3D IR section: real three.js rasterizes each Scene3 commit into its
+        // placeholder's generated-image slot before the OCIR replay runs.
+        if (result.scene3) {
+          const commits = JSON.parse(result.scene3);
+          await scene3Executor.prepare(commits);
+          scene3Executor.renderFrame(commits);
+        }
+
         const CK = globalThis.__canvasKit;
         const surface = getReusableSurface(CK, canvas, undefined, {
           alphaType: CK.AlphaType.Premul,
@@ -218,7 +241,23 @@
       // Codec loss is negligible on real content (measured: H.264 CRF 12 over
       // k3-promo engine frames → mae 0.006–0.17, p8 ≈ 0) versus the ~1.64
       // baseline and the 1.0–2.0 gate, so alignment stays meaningful.
-      async function renderFramesToMp4(envelope, startFrame, endFrame) {
+      // One snapshot of every memory gauge the oracle can see: JS heap,
+      // opencat wasm linear memory, CanvasKit wasm linear memory.
+      function sampleMem() {
+        const ck = globalThis.__canvasKit;
+        const ckBytes =
+          ck?.wasmExports?.memory?.buffer?.byteLength ??
+          ck?.HEAPU8?.buffer?.byteLength ?? 0;
+        return {
+          jsHeapMB: Math.round((performance.memory?.usedJSHeapSize ?? 0) / 1e6),
+          wasmMB: Math.round(
+            (globalThis.__opencatWasmMemory?.buffer?.byteLength ?? 0) / 1e6,
+          ),
+          ckMB: Math.round(ckBytes / 1e6),
+        };
+      }
+
+      async function renderFramesToMp4(envelope, startFrame, endFrame, renderOnly = false) {
         await ready;
         const comp = compositionInfo(envelope);
         const fps = comp.fps || 30;
@@ -227,6 +266,36 @@
         }
         if (typeof MP4Box === 'undefined') {
           throw new Error('MP4Box.js muxer is unavailable (missing /mp4box.js)');
+        }
+
+        if (renderOnly) {
+          // Diagnostic: draw every frame without encoder/muxer — isolates
+          // render-side memory growth from the encode path.
+          const probeRows = [];
+          let lastFrame = startFrame;
+          try {
+            for (let frame = startFrame; frame <= endFrame; frame++) {
+              await drawFrame(envelope, frame);
+              lastFrame = frame;
+              if ((frame - startFrame) % 25 === 0) {
+                probeRows.push({ at: frame, ...sampleMem() });
+              }
+            }
+          } catch (err) {
+            throw new Error(
+              `render-only aborted at frame ${lastFrame}: ${err}; mem=${JSON.stringify(probeRows)}`,
+            );
+          }
+          return {
+            width: comp.width,
+            height: comp.height,
+            fps,
+            firstFrame: startFrame,
+            framesEncoded: endFrame - startFrame + 1,
+            bytes: 0,
+            videoBase64: '',
+            probe: probeRows,
+          };
         }
 
         const codec = comp.height <= 1088 ? 'avc1.640028' : 'avc1.640033';
@@ -263,24 +332,47 @@
         encoder.configure(config);
 
         let processed = 0;
-        for (let frame = startFrame; frame <= endFrame; frame++) {
-          if (encodeError) throw encodeError;
-          await drawFrame(envelope, frame);
-          const vf = new VideoFrame(canvas, {
-            timestamp: Math.round((frame * 1_000_000) / fps),
-            duration: Math.round(1_000_000 / fps),
+        // Memory trajectory: a continuous whole-movie encode lives or dies on
+        // per-frame retention; the sampled path localizes any abort. The last
+        // 80 samples ride along on the error if the loop dies mid-run.
+        const memProbe = [];
+        const probe = (label) => {
+          memProbe.push({
+            at: label,
+            ...sampleMem(),
+            chunksMB: Math.round(chunks.reduce((s, c) => s + c.data.length, 0) / 1e6),
+            queue: encoder.encodeQueueSize,
           });
-          // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
-          encoder.encode(vf, { keyFrame: (frame - startFrame) % fps === 0 });
-          vf.close();
-          processed += 1;
-          // Backpressure: never let the encoder queue (and its retained
-          // VideoFrames) grow without bound.
-          while (encoder.encodeQueueSize > 8) {
-            await new Promise((r) => setTimeout(r, 0));
+          if (memProbe.length > 80) memProbe.shift();
+        };
+        let lastFrame = startFrame;
+        try {
+          for (let frame = startFrame; frame <= endFrame; frame++) {
+            if (encodeError) throw encodeError;
+            await drawFrame(envelope, frame);
+            const vf = new VideoFrame(canvas, {
+              timestamp: Math.round((frame * 1_000_000) / fps),
+              duration: Math.round(1_000_000 / fps),
+            });
+            // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
+            encoder.encode(vf, { keyFrame: (frame - startFrame) % fps === 0 });
+            vf.close();
+            processed += 1;
+            lastFrame = frame;
+            // Backpressure: never let the encoder queue (and its retained
+            // VideoFrames) grow without bound.
+            while (encoder.encodeQueueSize > 8) {
+              await new Promise((r) => setTimeout(r, 0));
+            }
+            if (processed % 10 === 0) await new Promise((r) => setTimeout(r, 0));
+            if (processed % 25 === 0) probe(frame);
           }
-          if (processed % 10 === 0) await new Promise((r) => setTimeout(r, 0));
+        } catch (err) {
+          throw new Error(
+            `renderFramesToMp4 aborted at frame ${lastFrame}: ${err}; mem=${JSON.stringify(memProbe)}`,
+          );
         }
+        probe('mux-enter');
 
         await encoder.flush();
         encoder.close();
@@ -307,7 +399,21 @@
           });
           dts += 1;
         }
+        // Free the compressed samples before the buffer/base64 copies spike;
+        // MP4Box addSample already copied the bytes into the track.
+        chunks.length = 0;
+        probe('mux-post');
         const mp4 = new Uint8Array(file.getBuffer());
+
+        probe('base64-pre');
+        let videoBase64;
+        try {
+          videoBase64 = u8ToBase64(mp4);
+        } catch (err) {
+          throw new Error(
+            `u8ToBase64 failed (${mp4.length} bytes): ${err}; mem=${JSON.stringify(memProbe)}`,
+          );
+        }
 
         return {
           width: comp.width,
@@ -316,7 +422,7 @@
           firstFrame: startFrame,
           framesEncoded: processed,
           bytes: mp4.length,
-          videoBase64: u8ToBase64(mp4),
+          videoBase64,
         };
       }
 

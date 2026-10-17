@@ -896,7 +896,7 @@ function FlexThreejs() {
           '  vec3 col = mix(c1, c2, (p.x + p.y) / (4.0 * half));',
           '  vec2 q = abs(p - vec2(half)) - (half - rad);',
           '  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;',
-          '  gl_FragColor = vec4(col, d < 0.0 ? op : 0.0);',
+          '  gl_FragColor = d < 0.0 ? vec4(col, op) : vec4(0.0);',
           '}',
         ].join('\n'),
       });

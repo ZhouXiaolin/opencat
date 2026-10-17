@@ -315,6 +315,28 @@ macro_rules! for_each_binding {
                 "descent": metrics.font_descent as f32,
             }))
         }}
+
+        // ── Node: G2 chart cache ──────────────────────────────────────────
+        //    A chart's DrawOp stream is time-invariant (the G2 shim freezes
+        //    animations at the virtual-clock origin), so the stream recorded on
+        //    one frame replays verbatim on every later frame. `g2_cache_fetch`
+        //    replays a cached build (false = miss → run a real G2 build);
+        //    `g2_cache_commit` snapshots the build that just ran — the second
+        //    commit at a different frame time decides static vs dynamic;
+        //    `g2_cache_drop` invalidates.
+
+        $binding! { cmd $store g2_cache_fetch (node_id: String) -> bool {
+            Ok($store.chart_cache_fetch(&node_id))
+        }}
+
+        $binding! { cmd $store g2_cache_commit (node_id: String) -> Option<bool> {
+            Ok($store.chart_cache_commit(&node_id))
+        }}
+
+        $binding! { node $rec $id g2_cache_drop ($id: &str) {
+            $rec . chart_cache_drop($id);
+        }}
+
         $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {
                 Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),

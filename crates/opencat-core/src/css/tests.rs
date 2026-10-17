@@ -344,3 +344,24 @@ fn backdrop_filter_blur_and_chained_ops() {
         "按声明顺序保留算子"
     );
 }
+#[test]
+fn drop_shadow_through_var_chain() {
+    // tailwind v4 的 drop-shadow 工具类全部经 var 链传递：
+    // `--tw-drop-shadow-size` → `--tw-drop-shadow` → `filter`。
+    // `--tw-drop-shadow-color` 的默认值是 `initial`（guaranteed-invalid），
+    // 必须走 fallback。整条链要能解析出 DropShadow。
+    let eng = engine(concat!(
+        ".x{--c:initial;",
+        "--s:drop-shadow(0 20px 60px var(--c,#140c0066));",
+        "--d:var(--s);",
+        "filter:var(--b,) var(--d,)}",
+    ));
+    let style = eng.compute_node_style("x", "n", "div");
+    let ops = &style.css_filter.ops;
+    assert_eq!(ops.len(), 1, "只有一条 drop-shadow：{:?}", ops);
+    let shadow = ops[0].shadow.expect("drop-shadow 携带参数");
+    assert_eq!(ops[0].kind, crate::style::CssFilterKind::DropShadow);
+    assert_eq!(shadow.offset_y, 20.0);
+    assert_eq!(shadow.blur_sigma, 30.0, "σ = blur/2");
+    assert_eq!(shadow.color.rgba().3, 0x66, "fallback 颜色生效");
+}

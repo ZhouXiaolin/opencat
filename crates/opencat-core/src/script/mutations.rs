@@ -941,14 +941,7 @@ pub fn apply_node_to_recorder(
         recorder.write_style_value(
             id,
             "filter",
-            serde_json::json!({
-                "ops": m.css_filter.ops.iter().map(|op| {
-                    serde_json::json!({
-                        "kind": op.kind.property_name(),
-                        "value": op.value,
-                    })
-                }).collect::<Vec<_>>(),
-            }),
+            crate::script::recorder::css_filter_to_value(&m.css_filter),
         );
     }
     if let Some(clip_path) = m.clip_path {

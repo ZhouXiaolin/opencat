@@ -205,6 +205,14 @@ fn annotate_display_node(
             .translate(child.transform.translation_x, child.transform.translation_y);
         node_layer_bounds = node_layer_bounds.union(child_bounds);
     }
+    // CSS filter 的绘制区域是 filter region：`drop-shadow()` 的阴影落在
+    // 元素框之外，合成层的 bounds 必须扩到能容纳它，否则阴影被裁掉。
+    for op in &annotated.css_filter.ops {
+        if let Some(shadow) = op.shadow {
+            let (left, top, right, bottom) = shadow.outsets();
+            node_layer_bounds = node_layer_bounds.outset(left, top, right, bottom);
+        }
+    }
 
     keys.push(render_key);
     nodes.push(annotated);

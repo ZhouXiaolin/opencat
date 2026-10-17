@@ -58,11 +58,11 @@ function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
    (track 1099px, glass-intro.html:722-728). */
 function PlayerBar({ id, left, w, track, time0 }) {
   return (
-    <div id={id} class={'absolute top-[930px] left-[' + left + 'px] w-[' + w + 'px] h-[28px] flex items-center gap-[18px] opacity-0'}>
+    <div id={id} class="absolute top-[930px] h-[28px] flex items-center gap-[18px] opacity-0" style={'left:' + left + 'px;width:' + w + 'px'}>
       <div id={id + '-icon'} class="relative w-[22px] h-[22px] shrink-0">
         <path view-box="0 0 22 22" d="M5 3.5 L18 11 L5 18.5 Z" class="absolute left-0 top-0 w-[22px] h-[22px] fill-[rgba(255,255,255,0.92)]" />
       </div>
-      <div id={id + '-track'} class={'relative h-[3px] rounded-[2px] bg-[rgba(255,255,255,0.28)] w-[' + track + 'px]'}>
+      <div id={id + '-track'} class="relative h-[3px] rounded-[2px] bg-[rgba(255,255,255,0.28)]" style={'width:' + track + 'px'}>
         <div id={id + '-fill'} class="absolute left-0 top-0 w-0 h-full rounded-[2px] bg-white"></div>
         <div id={id + '-scrub'} class="absolute left-0 top-[-4.5px] w-[12px] h-[12px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]"></div>
       </div>
@@ -339,7 +339,7 @@ function Beat4() {
         <div class="absolute left-0 top-0 w-[1920px] h-[1080px] flex items-center justify-center">
           <div class="relative h-[79.2px]">
             {ASK.split('').map((ch, i) => (
-              <text id={'gi-ask-ch' + i} class={'absolute top-0 left-[' + (i * 43.2) + 'px] text-[72px] leading-[79.2px] tracking-[-0.01em] font-[hf-jbm] text-[#14110a] opacity-0'}>{ch === ' ' ? ' ' : ch}</text>
+              <text id={"gi-ask-ch" + i} class="absolute top-0 text-[72px] leading-[79.2px] tracking-[-0.01em] font-[hf-jbm] text-[#14110a] opacity-0" style={"left:" + (i * 43.2) + "px"}>{ch === ' ' ? ' ' : ch}</text>
             ))}
             <div id="gi-ask-cursor" class="absolute top-[5.4px] w-[4px] h-[61.2px] bg-[#14110a] opacity-0"></div>
           </div>

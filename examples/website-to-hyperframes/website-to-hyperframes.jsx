@@ -150,7 +150,7 @@ function MouseCursor({ id, left, top, w, ht, z }) {
     <path
       id={id} view-box="0 0 28 40"
       d="M5 5 L5 30 L12 24 L16 32 L19 30 L15 22 L23 22 Z"
-      class={'absolute left-[' + left + '] top-[' + top + '] w-[' + w + '] h-[' + ht + '] opacity-0 z-[' + z + '] fill-[#0b0b0f] stroke-[#f7f8f8] stroke-[1.5]'}
+      class={'absolute left-[' + left + 'px] top-[' + top + 'px] w-[' + w + 'px] h-[' + ht + 'px] opacity-0 z-[' + z + '] fill-[#0b0b0f] stroke-[#f7f8f8] stroke-[1.5]'}
     />
   );
 }

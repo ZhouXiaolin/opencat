@@ -368,6 +368,115 @@ impl NodeStyleMutations {
         if let Some(v) = self.flex_grow {
             style.flex_grow = Some(v);
         }
+        // CSS 直通腿同步：节点来自标准 CSS 引擎时（css_layout 存在），布局
+        // 属性同时补丁 taffy 样式——taffy 消费端优先读它，漏写会让动画的
+        // 布局属性静默失效。值域是 px/f32，与旧字段一一对应。
+        if let Some(css) = &mut style.css_layout {
+            use taffy::geometry::Rect as TaffyRect;
+            use taffy::prelude::{
+                Dimension, LengthPercentage as TaffyLP, LengthPercentageAuto as TaffyLPA,
+            };
+            use taffy::style::AlignItems as TaffyAlignItems;
+            let t = &mut css.0;
+            if let Some(v) = self.position {
+                t.position = match v {
+                    crate::style::Position::Absolute => taffy::prelude::Position::Absolute,
+                    crate::style::Position::Relative => taffy::prelude::Position::Relative,
+                };
+            }
+            if let Some(v) = self.inset_left {
+                t.inset.left = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.inset_top {
+                t.inset.top = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.inset_right {
+                t.inset.right = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.inset_bottom {
+                t.inset.bottom = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.width {
+                t.size.width = Dimension::length(v);
+            }
+            if let Some(v) = self.height {
+                t.size.height = Dimension::length(v);
+            }
+            if let Some(v) = self.padding {
+                t.padding = TaffyRect {
+                    top: TaffyLP::length(v),
+                    right: TaffyLP::length(v),
+                    bottom: TaffyLP::length(v),
+                    left: TaffyLP::length(v),
+                };
+            }
+            if let Some(v) = self.padding_x {
+                t.padding.left = TaffyLP::length(v);
+                t.padding.right = TaffyLP::length(v);
+            }
+            if let Some(v) = self.padding_y {
+                t.padding.top = TaffyLP::length(v);
+                t.padding.bottom = TaffyLP::length(v);
+            }
+            if let Some(v) = self.margin {
+                t.margin = TaffyRect {
+                    top: TaffyLPA::length(v),
+                    right: TaffyLPA::length(v),
+                    bottom: TaffyLPA::length(v),
+                    left: TaffyLPA::length(v),
+                };
+            }
+            if let Some(v) = self.margin_x {
+                t.margin.left = TaffyLPA::length(v);
+                t.margin.right = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.margin_y {
+                t.margin.top = TaffyLPA::length(v);
+                t.margin.bottom = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.flex_direction {
+                t.flex_direction = match v {
+                    crate::style::FlexDirection::Row => taffy::prelude::FlexDirection::Row,
+                    crate::style::FlexDirection::Col => taffy::prelude::FlexDirection::Column,
+                    crate::style::FlexDirection::RowReverse => {
+                        taffy::prelude::FlexDirection::RowReverse
+                    }
+                    crate::style::FlexDirection::ColReverse => {
+                        taffy::prelude::FlexDirection::ColumnReverse
+                    }
+                };
+            }
+            if let Some(v) = self.justify_content {
+                use taffy::prelude::JustifyContent as TaffyJustifyContent;
+                t.justify_content = Some(match v {
+                    crate::style::JustifyContent::Start => TaffyJustifyContent::START,
+                    crate::style::JustifyContent::Center => TaffyJustifyContent::CENTER,
+                    crate::style::JustifyContent::End => TaffyJustifyContent::END,
+                    crate::style::JustifyContent::Between => TaffyJustifyContent::SPACE_BETWEEN,
+                    crate::style::JustifyContent::Around => TaffyJustifyContent::SPACE_AROUND,
+                    crate::style::JustifyContent::Evenly => TaffyJustifyContent::SPACE_EVENLY,
+                    crate::style::JustifyContent::Stretch => TaffyJustifyContent::STRETCH,
+                });
+            }
+            if let Some(v) = self.align_items {
+                t.align_items = Some(match v {
+                    crate::style::AlignItems::Start => TaffyAlignItems::START,
+                    crate::style::AlignItems::Center => TaffyAlignItems::CENTER,
+                    crate::style::AlignItems::End => TaffyAlignItems::END,
+                    crate::style::AlignItems::Baseline => TaffyAlignItems::BASELINE,
+                    crate::style::AlignItems::Stretch => TaffyAlignItems::STRETCH,
+                });
+            }
+            if let Some(v) = self.gap {
+                t.gap = taffy::geometry::Size {
+                    width: TaffyLP::length(v),
+                    height: TaffyLP::length(v),
+                };
+            }
+            if let Some(v) = self.flex_grow {
+                t.flex_grow = v;
+            }
+        }
         if let Some(v) = self.opacity {
             style.opacity = Some(v.clamp(0.0, 1.0));
         }

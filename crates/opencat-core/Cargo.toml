@@ -15,7 +15,18 @@ opencat-liangyi = { path = "../opencat-liangyi" }
 # GLB/glTF 解析一律走现成 crate（容器/accessor/后续材质层级），不再手写。
 # default-features = false 关掉 import（会拖 image 解码栈）；utils 提供遍历工具。
 gltf = { version = "1.4", default-features = false, features = ["utils"] }
-taffy = "0.14.0"
+# calc feature 会让 CompactLength 内部变成裸指针 tagged pointer（Style 非
+# Send/Sync）。我们的 CSS 求值层已把 calc() 全部化简成字面值，用不到它。
+taffy = { version = "0.14.0", default-features = false, features = [
+    "std",
+    "taffy_tree",
+    "flexbox",
+    "flexbox_balance",
+    "grid",
+    "block_layout",
+    "float_layout",
+    "content_size",
+] }
 serde.workspace = true
 serde_json.workspace = true
 ahash = "0.8"
@@ -43,6 +54,11 @@ oxc_ast.workspace = true
 oxc_parser.workspace = true
 oxc_span.workspace = true
 rayon.workspace = true
+# 标准 CSS 解析器：css::style_engine 用它吃下 tailwindcss CLI 编译产物与手写
+# CSS。lightningcss 保留 var() 引用（退化为 UnparsedProperty + TokenList），
+# 求值（var/calc/color-mix）由本 crate 的 css::eval 负责。into_owned 把
+# 借用输入文本的 StyleSheet<'i> 转成 'static，CssEngine 才能持有它。
+lightningcss = { version = "1.0.0-alpha.72", features = ["into_owned"] }
 
 [dependencies.tracing]
 version = "0.1"

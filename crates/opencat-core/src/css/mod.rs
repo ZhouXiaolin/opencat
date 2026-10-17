@@ -1,0 +1,122 @@
+//! 标准 CSS 样式引擎：解析真 CSS（tailwindcss CLI 编译产物、手写样式表），
+//! 层叠后落到 [`NodeStyle`]。
+//!
+//! 与 `parse::tailwind`（手写类名匹配器）互为旁路：给 `composition_from_lines`
+//! 传入 [`CssEngine`] 时整个 class 解析走这里，否则维持原路径。设计目标最终
+//! 是前者退役——标准编译器负责类名→声明，本模块只负责浏览器语义中
+//! 「声明→计算值」这一段：选择器匹配、层叠、自定义属性求值（var/calc/
+//! color-mix），然后把强类型 [`Property`] 映射到 NodeStyle。
+//!
+//! 求值策略：var() 替换与 calc()/color-mix() 化简全部在 TokenList 层完成，
+//! 产出的字面值经 `Property::parse_string` 重新交还 lightningcss 解析成类型，
+//! 映射层（`to_node_style`）只面对强类型。无法化简的声明（如 px/% 混合
+//! calc）按 tailwind.rs 的既有惯例告警后丢弃。
+
+mod cascade;
+mod eval;
+mod stylesheet;
+mod to_node_style;
+mod to_taffy;
+
+pub use stylesheet::CssStylesheet;
+
+use std::collections::HashMap;
+
+use crate::style::NodeStyle;
+use lightningcss::properties::Property;
+
+/// 求值上下文：长度单位换算的基准。
+#[derive(Debug, Clone, Copy)]
+pub struct EvalContext {
+    /// 合成画布尺寸，`vw`/`vh`/`vmin`/`vmax` 的基准。
+    pub viewport: (f32, f32),
+    /// `1rem` 对应的像素值。视频合成没有 DOM 根字号，固定 16px
+    /// （与浏览器默认一致，tailwind 的 `--spacing: 0.25rem` 依赖它）。
+    pub rem_base: f32,
+}
+
+impl Default for EvalContext {
+    fn default() -> Self {
+        Self {
+            viewport: (1920.0, 1080.0),
+            rem_base: 16.0,
+        }
+    }
+}
+
+/// 从一段 CSS 文本构建的样式引擎。
+pub struct CssEngine {
+    sheet: CssStylesheet,
+    ctx: EvalContext,
+}
+
+impl CssEngine {
+    pub fn from_css_text(css: &str, ctx: EvalContext) -> anyhow::Result<Self> {
+        Ok(Self {
+            sheet: CssStylesheet::parse(css)?,
+            ctx,
+        })
+    }
+
+    /// 把一个节点的 class 列表层叠成 [`NodeStyle`]。
+    ///
+    /// `tag` 是节点对应的 HTML 标签名（div/text→span 等），供元素选择器
+    /// 匹配；`element_id` 供 `#id` 选择器匹配。两个都可以为空串。
+    pub fn compute_node_style(&self, class_name: &str, element_id: &str, tag: &str) -> NodeStyle {
+        let matched = cascade::match_rules(&self.sheet, class_name, element_id, tag);
+        let mut style = NodeStyle {
+            id: element_id.to_string(),
+            ..NodeStyle::default()
+        };
+        let mut taffy_style = to_taffy::initial_style();
+        let mut vars: HashMap<String, lightningcss::properties::custom::TokenList<'static>> =
+            self.sheet.root_vars.clone();
+
+        for decl in matched {
+            match &decl.property {
+                Property::Custom(custom) => match &custom.name {
+                    // 变量键统一去掉 `--` 前缀，与 lookup_var 的取用约定一致。
+                    lightningcss::properties::custom::CustomPropertyName::Custom(name) => {
+                        let key = name.0.trim_start_matches("--").to_string();
+                        vars.insert(key, custom.value.clone());
+                    }
+                    // lightningcss 属性表缺项（object-fit 等）也是 Custom：
+                    // 喂给 paint 腿做关键字识别，布局腿无语义、跳过。
+                    lightningcss::properties::custom::CustomPropertyName::Unknown(_) => {
+                        to_node_style::apply_property(&mut style, &decl.property, &self.ctx);
+                    }
+                },
+                other => {
+                    let resolved = eval::resolve_to_typed(other, &vars, &self.ctx);
+                    for typed in resolved {
+                        // 布局腿直通 taffy；paint 腿继续喂 NodeStyle 既有字段。
+                        // 两条腿消费同一份强类型，值天然一致。
+                        to_taffy::apply_property(&mut taffy_style, &typed, &self.ctx);
+                        to_node_style::apply_property(&mut style, &typed, &self.ctx);
+                    }
+                }
+            }
+        }
+        style.css_layout = Some(crate::style::CssLayout(taffy_style));
+        style
+    }
+
+    /// `class_name` 里样式表完全没有引用的类。运行时拼接类
+    /// （`left-[' + x + 'px]`）在 tailwind 静态扫描下不产出规则，
+    /// 调用方拿这份名单走旧匹配器兜底。
+    pub fn unmatched_classes<'a>(&self, class_name: &'a str) -> Vec<&'a str> {
+        class_name
+            .split_whitespace()
+            .filter(|c| !cascade::class_has_rules(&self.sheet, c))
+            .collect()
+    }
+
+    /// 供诊断：命中某 class 的规则数（测试与回归对比用）。
+    #[cfg(test)]
+    pub fn matched_rule_count(&self, class_name: &str) -> usize {
+        cascade::match_rules(&self.sheet, class_name, "", "div").len()
+    }
+}
+
+#[cfg(test)]
+mod tests;

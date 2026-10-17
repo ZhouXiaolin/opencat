@@ -91,3 +91,6 @@ examples/variables-launch/assets/hooks/hook-f.mp4
 examples/variables-launch/assets/hooks/hook-g.mp4
 examples/variables-launch/assets/hooks/hook-h.mp4
 examples/variables-launch/assets/hooks/hook-i.mp4
+
+# bun tailwindcss 管线的本地依赖
+node_modules/

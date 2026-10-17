@@ -8,6 +8,7 @@ pub mod ablate;
 pub(crate) mod analyze;
 pub mod cache;
 pub mod canvas;
+pub mod css;
 pub(crate) mod display;
 pub mod fonts;
 pub mod frame_ctx;

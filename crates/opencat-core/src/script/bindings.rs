@@ -266,10 +266,16 @@ macro_rules! for_each_binding {
                 return Ok(false);
             }
             let color = $crate::script::helpers::parse_color(&color, "drawParagraph")?;
-            $crate::text::surface::surface_create_or_resize(&node_id, width as u32, height as u32)?;
-            $crate::text::surface::surface_clear(&node_id, 0.0, 0.0, width as f64, height as f64)?;
+            // One canvas node carries many labels (axis ticks, legends, …), and
+            // each is its own bitmap at its own position. Give every label a
+            // distinct surface: a shared per-node buffer would have the last
+            // write clobber the earlier ones, and the content-addressed image
+            // key would then collide on differing sizes.
+            let surface_id = format!("g2-para:{node_id}:{text}:{size}:{weight}:{x}:{y}");
+            $crate::text::surface::surface_create_or_resize(&surface_id, width as u32, height as u32)?;
+            $crate::text::surface::surface_clear(&surface_id, 0.0, 0.0, width as f64, height as f64)?;
             $crate::text::surface::surface_fill_text(
-                &node_id,
+                &surface_id,
                 &text,
                 0.0,
                 size as f64,
@@ -280,14 +286,11 @@ macro_rules! for_each_binding {
                 1.0,
                 [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0],
             )?;
-            // Content-addressed key: the surface generation advances on every
-            // write, so a new key per changed label. Re-inserting the same id
-            // with different pixels (the GeneratedImageTable hard error) is
-            // therefore impossible.
-            let generation = $crate::text::surface::surface_generation(&node_id)?;
-            let key = format!("g2-paragraph:{node_id}:{generation}");
+            // The label's own identity is the key: same text+size+position
+            // across frames reuses one image, a different label gets another.
+            let key = format!("g2-paragraph:{surface_id}");
             let image_id = $crate::ir::GeneratedImageId::from_key(&key);
-            let rgba = $crate::text::surface::surface_rgba_arc(&node_id)?;
+            let rgba = $crate::text::surface::surface_rgba_arc(&surface_id)?;
             $store.record_frame_generated_image(
                 &node_id,
                 image_id,

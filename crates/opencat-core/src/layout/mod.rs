@@ -499,6 +499,15 @@ fn text_element_allows_wrap(element: &ElementNode) -> bool {
 
 fn taffy_style_for_element(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
+    // 标准直通腿：CSS 路径产出的 taffy 样式整体克隆，仅叠加 paint 腿的
+    // border 宽度。固有尺寸（Bitmap/Lottie/SvgPath、文本测量）由 measure
+    // 回调在 size 为 auto 时提供——与浏览器 `width: auto` 语义一致，
+    // 不在此覆盖。
+    if let Some(css) = &element.style.css_layout {
+        let mut style = css.0.clone();
+        style.border = base_border(element);
+        return style;
+    }
     match &element.kind {
         ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => Style {
             display: if layout.is_grid {
@@ -813,29 +822,24 @@ impl Hash for F32Bits {
     }
 }
 
+fn base_border(element: &ElementNode) -> taffy::geometry::Rect<taffy::style::LengthPercentage> {
+    let visual = &element.style.visual;
+    let uniform_border = visual.border_width.unwrap_or(0.0);
+    let border_top = visual.border_top_width.unwrap_or(uniform_border);
+    let border_right = visual.border_right_width.unwrap_or(uniform_border);
+    let border_bottom = visual.border_bottom_width.unwrap_or(uniform_border);
+    let border_left = visual.border_left_width.unwrap_or(uniform_border);
+    taffy::geometry::Rect {
+        left: taffy::style::LengthPercentage::length(border_left),
+        top: taffy::style::LengthPercentage::length(border_top),
+        right: taffy::style::LengthPercentage::length(border_right),
+        bottom: taffy::style::LengthPercentage::length(border_bottom),
+    }
+}
+
 fn base_style(element: &ElementNode) -> Style {
     let layout = &element.style.layout;
-    let uniform_border = element.style.visual.border_width.unwrap_or(0.0);
-    let border_top = element
-        .style
-        .visual
-        .border_top_width
-        .unwrap_or(uniform_border);
-    let border_right = element
-        .style
-        .visual
-        .border_right_width
-        .unwrap_or(uniform_border);
-    let border_bottom = element
-        .style
-        .visual
-        .border_bottom_width
-        .unwrap_or(uniform_border);
-    let border_left = element
-        .style
-        .visual
-        .border_left_width
-        .unwrap_or(uniform_border);
+    let border = base_border(element);
     let mut style = Style {
         position: map_position(layout.position),
         inset: taffy::geometry::Rect {
@@ -876,12 +880,7 @@ fn base_style(element: &ElementNode) -> Style {
         align_self: layout.align_self.map(map_align),
         justify_self: layout.justify_self.map(map_align_items_to_justify_self),
         aspect_ratio: layout.aspect_ratio,
-        border: taffy::geometry::Rect {
-            left: taffy::style::LengthPercentage::length(border_left),
-            top: taffy::style::LengthPercentage::length(border_top),
-            right: taffy::style::LengthPercentage::length(border_right),
-            bottom: taffy::style::LengthPercentage::length(border_bottom),
-        },
+        border,
         ..Default::default()
     };
     if let Some(flex_shrink) = layout.flex_shrink {

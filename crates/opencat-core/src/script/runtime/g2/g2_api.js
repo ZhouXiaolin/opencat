@@ -135,15 +135,19 @@
     };
     FakeParagraph.prototype.getLineMetrics = function () {
         var m = this._metrics();
+        // CanvasKit's line box is ascent (above the baseline, positive) plus
+        // descent (below it). g-canvaskit aligns textBaseline by shifting the
+        // paragraph by its height, and its baseline sits at `ascent` from the
+        // top — anything else moves every label vertically.
         return [{
             startIndex: 0,
             endIndex: this.text.length,
-            ascent: m.height * 0.8,
-            descent: m.height * 0.2,
+            ascent: m.ascent,
+            descent: m.descent,
             left: 0,
             width: m.width,
             height: m.height,
-            baseline: m.height * 0.8,
+            baseline: m.ascent,
         }];
     };
     FakeParagraph.prototype.getRectsForRange = function () {
@@ -158,11 +162,16 @@
             : 'sans-serif';
         var size = numberOr(style.fontSize, 12);
         var weight = numberOr(style.fontStyle && style.fontStyle.weight, 400);
-        // Measured through the same real-font path that draws the glyphs.
-        var measured = __canvas_measure_paragraph(this.text, size, family, weight);
+        // Measured through the same real-font path that draws the glyphs: it
+        // returns the advance plus the font box it belongs to.
+        var measured = __canvas_measure_paragraph(this.text, size, family, weight) || {};
+        var ascent = numberOr(measured.ascent, size * 0.8);
+        var descent = numberOr(measured.descent, size * 0.2);
         this.__metrics = {
-            width: numberOr(measured, 0),
-            height: size * (numberOr(style.heightMultiplier, 1) || 1),
+            width: numberOr(measured.width, 0),
+            height: ascent + descent,
+            ascent: ascent,
+            descent: descent,
         };
         return this.__metrics;
     };

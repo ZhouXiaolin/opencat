@@ -16,6 +16,7 @@
  * `use*` family (v1):
  *   useCanvas(ref, draw)   — per-frame CanvasKit 2D drawing on a <canvas ref>
  *   useThree(ref, build)   — per-frame three.js-like 3D scene on a <canvas ref>
+ *   useChart(ref, build)   — per-frame AntV G2 chart on a <canvas ref>
  *   useGSAP(build)         — per-frame timeline block (GSAP-like)
  *   useFrame(build)        — escape hatch: arbitrary per-frame `(ctx, t)` work
  *   useCanvasKit()         — the CanvasKit namespace, for module-level paints
@@ -388,6 +389,33 @@
         });
     }
 
+    // useChart(ref, build): the ref must point at a <canvas>; `build(Chart,
+    // node, t, ctx)` constructs the chart for THIS frame. Like useCanvas and
+    // useThree, the chart is rebuilt every frame — G2's animation timeline runs
+    // on the virtual clock the G2 host advances to `t` (`frame = f(t)`), and
+    // every draw lands on the node's DrawOp stream.
+    function useChart(ref, build) {
+        if (!ref || typeof ref !== 'object' || !('current' in ref)) {
+            throw new Error('useChart: first argument must be a ref from useRef()');
+        }
+        globalThis.__ocOnFrame(function () {
+            var node = ref.current;
+            if (!node || node.__ocEl !== true || node.tag !== 'canvas') {
+                throw new Error(
+                    'useChart: ref must point at a <canvas> element (got ' +
+                    (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
+                );
+            }
+            var id = String(node.props.id);
+            if (typeof globalThis.__ocG2Frame !== 'function') {
+                throw new Error('useChart: the G2 runtime is not installed');
+            }
+            globalThis.__ocG2Frame(id, globalThis.ctx.current.time, function (Chart, chartNode) {
+                build(Chart, chartNode, globalThis.ctx.current.time, globalThis.ctx);
+            });
+        });
+    }
+
     // useGSAP(build): build(ctx, t) — author picks ctx.to/fromTo (facade) or
     // ctx.timeline(). Entries are re-recorded every frame and flushed after
     // the driver, exactly like the XML <script> block.
@@ -417,6 +445,7 @@
         Fragment: FRAGMENT,
         useCanvas: useCanvas,
         useThree: useThree,
+        useChart: useChart,
         useGSAP: useGSAP,
         useFrame: useFrame,
         useCanvasKit: useCanvasKit,

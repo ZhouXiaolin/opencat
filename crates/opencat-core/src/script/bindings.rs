@@ -253,6 +253,90 @@ macro_rules! for_each_binding {
                 paint: None,
             });
         }}
+        // ── Node: G2 chart (AntV) — text paragraphs and rendered text images
+        //    The G2 runtime shim (`g2/g2_api.js`) routes G2's draw calls through
+        //    the regular `__canvas_*` bindings above. Text is the one exception:
+        //    g-canvaskit draws through CanvasKit Paragraphs, and OpenCat's real
+        //    text rasterizer is the offscreen surface (`ctx.ly.surface`).
+        //    So a paragraph is measured + drawn on a surface and composited as
+        //    a frame-scoped generated image — same pixel path as every other
+        //    text in the composition.
+        $binding! { cmd $store canvas_draw_paragraph (node_id: String, text: String, size: f32, family: String, weight: u32, color: String, x: f32, y: f32, width: f32, height: f32) -> bool {
+            if text.trim().is_empty() {
+                return Ok(false);
+            }
+            let color = $crate::script::helpers::parse_color(&color, "drawParagraph")?;
+            // One canvas node carries many labels (axis ticks, legends, …), and
+            // each is its own bitmap at its own position. Give every label a
+            // distinct surface: a shared per-node buffer would have the last
+            // write clobber the earlier ones, and the content-addressed image
+            // key would then collide on differing sizes.
+            let surface_id = format!("g2-para:{node_id}:{text}:{size}:{weight}:{x}:{y}");
+            $crate::text::surface::surface_create_or_resize(&surface_id, width as u32, height as u32)?;
+            $crate::text::surface::surface_clear(&surface_id, 0.0, 0.0, width as f64, height as f64)?;
+            $crate::text::surface::surface_fill_text(
+                &surface_id,
+                &text,
+                0.0,
+                size as f64,
+                &family,
+                weight as u32,
+                size as f64,
+                0.0,
+                1.0,
+                [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0],
+            )?;
+            // The label's own identity is the key: same text+size+position
+            // across frames reuses one image, a different label gets another.
+            let key = format!("g2-paragraph:{surface_id}");
+            let image_id = $crate::ir::GeneratedImageId::from_key(&key);
+            let rgba = $crate::text::surface::surface_rgba_arc(&surface_id)?;
+            $store.record_frame_generated_image(
+                &node_id,
+                image_id,
+                x,
+                y,
+                width as u32,
+                height as u32,
+                rgba,
+            );
+            Ok(true)
+        }}
+        $binding! { pure canvas_measure_paragraph (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
+            let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight as u32, size as f64, 0.0)?;
+            // g-canvaskit shifts text by `paragraph.getHeight()` to honour
+            // textBaseline, so the callers need the real line box, not just the
+            // advance. Height = ascent + descent of the font box, which is what
+            // CanvasKit's own paragraph layout returns.
+            Ok(serde_json::json!({
+                "width": metrics.width as f32,
+                "height": (metrics.font_ascent + metrics.font_descent) as f32,
+                "ascent": metrics.font_ascent as f32,
+                "descent": metrics.font_descent as f32,
+            }))
+        }}
+
+        // ── Node: G2 chart cache ──────────────────────────────────────────
+        //    A chart's DrawOp stream is time-invariant (the G2 shim freezes
+        //    animations at the virtual-clock origin), so the stream recorded on
+        //    one frame replays verbatim on every later frame. `g2_cache_fetch`
+        //    replays a cached build (false = miss → run a real G2 build);
+        //    `g2_cache_commit` snapshots the build that just ran — the second
+        //    commit at a different frame time decides static vs dynamic;
+        //    `g2_cache_drop` invalidates.
+
+        $binding! { cmd $store g2_cache_fetch (node_id: String) -> bool {
+            Ok($store.chart_cache_fetch(&node_id))
+        }}
+
+        $binding! { cmd $store g2_cache_commit (node_id: String) -> Option<bool> {
+            Ok($store.chart_cache_commit(&node_id))
+        }}
+
+        $binding! { node $rec $id g2_cache_drop ($id: &str) {
+            $rec . chart_cache_drop($id);
+        }}
+
         $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {
                 Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),

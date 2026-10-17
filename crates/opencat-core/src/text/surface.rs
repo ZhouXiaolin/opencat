@@ -378,8 +378,10 @@ pub fn surface_measure_text(
         // ink box：对每个字形取 outline 覆盖区的极值（走共享字形光栅缓存）
         let mut ink_l = f64::INFINITY;
         let mut ink_r = f64::NEG_INFINITY;
-        let mut ink_t = f64::INFINITY;
-        let mut ink_b = f64::NEG_INFINITY;
+        // Seeds match the accumulator direction: the top starts at the lowest
+        // possible ceiling and the bottom at the highest possible floor.
+        let mut ink_t = f64::NEG_INFINITY;
+        let mut ink_b = f64::INFINITY;
         for (gid, pen_x) in &placed {
             let Some(raster) = glyph_raster(face, font, size_px, *gid) else {
                 continue;
@@ -388,8 +390,14 @@ pub fn surface_measure_text(
             // swash placement.top：基线向上为正 → y-down 空间的顶部 = 基线 − top
             ink_l = ink_l.min(left);
             ink_r = ink_r.max(left + raster.width as f64);
-            ink_t = ink_t.min(raster.top as f64);
-            ink_b = ink_b.max(raster.top as f64 - raster.height as f64);
+            // swash placement.top counts UP from the baseline, so the topmost
+            // edge of the whole run is the MAX top and the bottom edge (top
+            // minus the bitmap height, i.e. a negative number for glyphs that
+            // dip below the baseline) is the MIN. Taking the extremes the other
+            // way round reports an x-height box for a capitalised string and
+            // drops descender ink — both off against Chrome's ink boxes.
+            ink_t = ink_t.max(raster.top as f64);
+            ink_b = ink_b.min(raster.top as f64 - raster.height as f64);
         }
         if !ink_l.is_finite() {
             // 空白文本：ink box 全零
@@ -609,6 +617,104 @@ mod tests {
         super::super::scope_font_db(&std::sync::Arc::new(inter_font_db()), || {
             let err = surface_measure_text("A", "NoSuchFamily", 400, 20.0, 0.0).unwrap_err();
             assert!(err.to_string().contains("no font face"));
+        });
+    }
+
+    /// Phase 0.1 gate: the same case matrix the browser parity harness
+    /// measures, asserted against the recorded Chrome values in
+    /// `tools/g2-align/fixtures/chrome-text-metrics.json`.
+    ///
+    /// The fixture is regenerated only when a shaping change is intentional
+    /// (`bun tools/g2-align/build-text-page.mjs` then msedge `--dump-dom`);
+    /// until then this test fails on any drift in `surface_measure_text`,
+    /// which is what every G2 label's advance and ink box depends on.
+    ///
+    /// Tolerances:
+    /// - advance 2.0px — Chrome applies GPOS pair kerning to canvas text and
+    ///   this implementation sums hmtx advances only, so a label drifts by the
+    ///   sum of its pair kernings. Measured over this matrix the drift is
+    ///   0 for the median case, 0.47px at p95, and at most 1.90px ("Feb" @48px,
+    ///   three kerned pairs); the per-glyph pairs and their kerning are
+    ///   recorded in `chrome-kerning.json`. Per-character advances match
+    ///   Chrome exactly, so the drift stays bounded by the label length.
+    ///   shortcut: kerning is not applied; if pixel-diff work shows it
+    ///   blocking the 2% gate, add shaping.
+    /// - ink edges 1.0px — Chrome rounds its ink box to integers.
+    #[test]
+    fn text_metrics_match_chrome_fixture() {
+        const ADVANCE_TOL: f64 = 2.0;
+        const INK_TOL: f64 = 1.0;
+        let fixture: serde_json::Value =
+            serde_json::from_slice(include_bytes!(
+                "../../../../tools/g2-align/fixtures/chrome-text-metrics.json"
+            ))
+            .expect("chrome text metrics fixture");
+        let db = {
+            let mut db = fontdb::Database::new();
+            for w in [
+                include_bytes!("../../../../assets/Inter-300.ttf").as_slice(),
+                include_bytes!("../../../../assets/Inter-400.ttf").as_slice(),
+                include_bytes!("../../../../assets/Inter-500.ttf").as_slice(),
+                include_bytes!("../../../../assets/Inter-600.ttf").as_slice(),
+                include_bytes!("../../../../assets/Inter-700.ttf").as_slice(),
+            ] {
+                db.load_font_data(w.to_vec());
+            }
+            db
+        };
+        let mut drift: Vec<String> = Vec::new();
+        super::super::scope_font_db(&std::sync::Arc::new(db), || {
+            for row in fixture["rows"].as_array().unwrap() {
+                let (text, weight) = (row["text"].as_str().unwrap(), row["weight"].as_u64().unwrap());
+                let size = row["size"].as_f64().unwrap();
+                let ls = row["ls"].as_f64().unwrap();
+                let m = surface_measure_text(text, "Inter", weight as u32, size, ls).unwrap();
+                let chrome_width = row["width"].as_f64().unwrap();
+                if (m.width - chrome_width).abs() > ADVANCE_TOL {
+                    drift.push(format!(
+                        "width `{text}` w{weight} @{size}px ls{ls}: engine {} vs chrome {}",
+                        m.width, chrome_width
+                    ));
+                }
+                for (field, value) in [
+                    ("ink_ascent", m.ink_ascent),
+                    ("ink_descent", m.ink_descent),
+                ] {
+                    let chrome = row[field].as_f64().unwrap();
+                    if (value - chrome).abs() > INK_TOL {
+                        drift.push(format!(
+                            "{field} `{text}` w{weight} @{size}px ls{ls}: engine {} vs chrome {}",
+                            value, chrome
+                        ));
+                    }
+                }
+            }
+        });
+        assert!(
+            drift.is_empty(),
+            "{} of {} rows drifted from Chrome:\n{}",
+            drift.len(),
+            fixture["rows"].as_array().unwrap().len(),
+            drift.join("\n")
+        );
+    }
+
+    /// Ink box extremes: `S` has cap-height ink above the x-height of `p`/`a`,
+    /// and `p` dips below the baseline. The run's box is the union, so the
+    /// ascent takes the tallest glyph and the descent the deepest one — the
+    /// same union Chrome's `actualBoundingBox{Ascent,Descent}` reports.
+    #[test]
+    fn ink_box_is_the_union_of_glyph_extents() {
+        let mut db = fontdb::Database::new();
+        db.load_font_data(include_bytes!("../../../../assets/Inter-400.ttf").to_vec());
+        super::super::scope_font_db(&std::sync::Arc::new(db), || {
+            let m = surface_measure_text("Sp", "Inter", 400, 16.0, 0.0).unwrap();
+            // S ascends to the cap height, p descends 4 below the baseline.
+            assert_eq!(m.ink_ascent, 12.0, "ascent must be the tallest glyph");
+            assert_eq!(m.ink_descent, 4.0, "descent must be the deepest glyph");
+            let a = surface_measure_text("a", "Inter", 400, 16.0, 0.0).unwrap();
+            assert_eq!(a.ink_ascent, 9.0, "x-height ascent");
+            assert_eq!(a.ink_descent, 1.0, "a one-pixel baseline overshoot");
         });
     }
 

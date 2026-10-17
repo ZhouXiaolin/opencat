@@ -3146,7 +3146,6 @@ name = "opencat-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64",
  "cocoa",
  "core-graphics-types 0.2.0",
  "dirs",

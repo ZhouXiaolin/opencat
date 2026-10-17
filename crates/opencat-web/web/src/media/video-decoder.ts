@@ -136,8 +136,10 @@ export async function getDecodedFrameRgba(
     if (!ctx) return null;
     ctx.drawImage(frame, 0, 0);
     const img = ctx.getImageData(0, 0, w, h);
+    // img.data owns its buffer already — view it directly instead of slicing
+    // out a second 8MB copy per frame.
     return {
-      rgba: new Uint8Array(img.data.buffer.slice(0)),
+      rgba: new Uint8Array(img.data.buffer, 0, img.data.byteLength),
       width: w,
       height: h,
     };

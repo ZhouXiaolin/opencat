@@ -1481,3 +1481,140 @@ fn count_ops(
 ) -> usize {
     commands.iter().filter(|op| predicate(op)).count()
 }
+
+/// A dynamic chart — the build closure reads the clock and moves a bar per
+/// frame — must never be served from the cache: frames 2+ keep producing
+/// fresh, different op streams instead of frozen replays.
+#[test]
+fn g2_dynamic_chart_never_replays_cache() {
+    let source = r#"
+        globalThis.__ocMeta = { width: 480, height: 300 };
+        globalThis.__ocG2Frame('chart', globalThis.ctx.current.time, function (Chart, container) {
+            const t = globalThis.ctx.current.time;
+            const chart = new Chart({ container: container, width: 480, height: 300 });
+            chart.options({
+                type: 'interval',
+                data: [
+                    { genre: 'Sports', sold: 275 + Math.round(t * 100) },
+                    { genre: 'Strategy', sold: 115 },
+                    { genre: 'Action', sold: 120 },
+                ],
+                encode: { x: 'genre', y: 'sold' },
+                animate: false,
+                axis: { x: { title: false }, y: { title: false } },
+            });
+            chart.render();
+        });
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("chart".to_string());
+    registry.canvas_ids.insert("chart".to_string());
+    realm.set_target_registry(registry);
+
+    let font_db = crate::fonts::engine_default_font_db();
+    let mut streams: Vec<Vec<opencat_core::ir::draw_op::DrawOp>> = Vec::new();
+    opencat_core::text::scope_font_db(&font_db, || {
+        for frame in 0..4u32 {
+            let s = run_driver(&mut realm, driver, frame, Some("chart"));
+            let snap = s.snapshot_mutations();
+            streams.push(
+                snap.canvas_mutations
+                    .get("chart")
+                    .map(|c| c.commands.clone())
+                    .unwrap_or_default(),
+            );
+        }
+    });
+    assert_ne!(
+        streams[0], streams[1],
+        "dynamic chart must produce different ops per frame"
+    );
+    // If the cache (wrongly) served, frames 2+ would be byte-identical to an
+    // earlier frame instead of tracking the data.
+    assert_ne!(
+        streams[2], streams[3],
+        "frames 2+ must not be frozen cache replays"
+    );
+}
+
+/// G2 static-build cache: frame 0 builds and arms, frame 1 probes (same ops at
+/// a different frame time ⇒ static), frame 2+ replays the cached DrawOps. The
+/// replayed stream must match the freshly built one op-for-op, and the
+/// paragraph images must be re-registered every frame so the compositor sees
+/// the axis labels.
+#[test]
+fn g2_static_cache_replays_identical_ops() {
+    let source = r#"
+        globalThis.__ocMeta = { width: 480, height: 300 };
+        globalThis.__ocG2Frame('chart', globalThis.ctx.current.time, function (Chart, container) {
+            const chart = new Chart({ container: container, width: 480, height: 300 });
+            chart.options({
+                type: 'interval',
+                data: [
+                    { genre: 'Sports', sold: 275 },
+                    { genre: 'Strategy', sold: 115 },
+                    { genre: 'Action', sold: 120 },
+                ],
+                encode: { x: 'genre', y: 'sold' },
+                animate: false,
+                axis: { x: { title: false }, y: { title: false } },
+            });
+            chart.render();
+        });
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("chart".to_string());
+    registry.canvas_ids.insert("chart".to_string());
+    realm.set_target_registry(registry);
+
+    let font_db = crate::fonts::engine_default_font_db();
+    let mut built_ops = 0usize;
+    let mut replayed_ops = 0usize;
+    let mut replayed_images = 0usize;
+    let mut replayed_text = 0usize;
+    opencat_core::text::scope_font_db(&font_db, || {
+        for frame in 0..6u32 {
+            let mut s = run_driver(&mut realm, driver, frame, Some("chart"));
+            let images = realm.take_frame_generated_images().len();
+            let snap = s.snapshot_mutations();
+            let commands = snap
+                .canvas_mutations
+                .get("chart")
+                .map(|c| c.commands.len())
+                .unwrap_or(0);
+            match frame {
+                // Frames 0-1 build for real (arm + probe).
+                0 => built_ops = commands,
+                1 => assert_eq!(
+                    commands, built_ops,
+                    "probe frame built a different op count"
+                ),
+                // Frame 2+: the cache must serve; the op stream must be
+                // identical to the built one, with text images re-registered.
+                _ => {
+                    replayed_ops = commands;
+                    replayed_images = images;
+                    replayed_text = count_ops(
+                        &snap
+                            .canvas_mutations
+                            .get("chart")
+                            .map(|c| &c.commands)
+                            .unwrap(),
+                        |op| matches!(op, opencat_core::ir::draw_op::DrawOp::Image { .. }),
+                    );
+                    assert_eq!(
+                        replayed_ops, built_ops,
+                        "replayed stream diverged from the built stream on frame {frame}"
+                    );
+                    assert!(replayed_text > 0, "replay lost the text images");
+                    assert_eq!(
+                        replayed_images, replayed_text,
+                        "replay must re-register every paragraph image"
+                    );
+                }
+            }
+        }
+    });
+}

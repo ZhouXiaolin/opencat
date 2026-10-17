@@ -273,6 +273,11 @@ impl<C: JsContext> ScriptRealm<C> {
         if matches!(std::env::var("OC_DBG_NAN"), Ok(v) if v == "1") {
             self.ctx.eval("globalThis.__OC_DBG_NAN = true;")?;
         }
+        // A-B timing / diagnostics escape hatch for the G2 static-build cache
+        // (g2_api.js reads it before each chart frame).
+        if matches!(std::env::var("OC_NO_G2_CACHE"), Ok(v) if v == "1") {
+            self.ctx.eval("globalThis.OC_NO_G2_CACHE = '1';")?;
+        }
         // User-created globalThis keys persist for the realm lifetime: there
         // is no frame-boundary cleanup. The realm lives and dies with one
         // pipeline, so session-level state is bounded by the composition, and

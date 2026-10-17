@@ -12,7 +12,6 @@
 #   - cargo, bun on PATH
 #   - bun install --frozen-lockfile in web/ (root)
 #   - bun install --frozen-lockfile in crates/opencat-web/web
-#   - bun install --frozen-lockfile in crates/opencat-engine/testsupport
 #
 # Verifies:
 #   - Rust: cargo test + clippy for core, engine, opencat (lib)

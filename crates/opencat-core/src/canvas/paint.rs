@@ -128,6 +128,170 @@ pub enum ImageFilterSpec {
     },
     ColorFilter(Box<ColorFilterSpec>),
     Compose(Box<ImageFilterSpec>, Box<ImageFilterSpec>),
+    /// SVG `<filter>` 全链（P4）：primitive 扁平表 + result 索引，engine 侧
+    /// 按 in/in2 引用递归展开成 skia filter 树（共享子链重复展开，语义
+    /// 等价——各输入独立从层内容起算）。
+    Chain(Box<FilterChainSpec>),
+}
+
+/// SVG filter 的一个 primitive（feXxx）。
+///
+/// PartialEq 走派生（f32 均为解析自 SVG 文本的有限值，无 NaN/-0.0 分歧）。
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilterChainSpec {
+    pub primitives: Vec<FilterPrimSpec>,
+    /// 最终输出 primitive 的下标。
+    pub output: u16,
+    /// filter region（`<filter x/y/width/height>`，usvg 归一后的 user space）。
+    /// resvg 把 source 光栅化进 region 大小的 pixmap——SourceGraphic 先裁到
+    /// region（region 外透明），blur/卷积的边界衰减由此而来。
+    pub source_crop: Option<Rect>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FilterPrimSpec {
+    /// `x/y/width/height`（primitive subregion，usvg 归一后的 user space）。
+    pub crop: Option<Rect>,
+    /// `color-interpolation-filters="sRGB"`。false = linearRGB（SVG 默认），
+    /// engine 在空间切换处插 gamma color filter（resvg 同语义）。
+    pub srgb: bool,
+    pub kind: FilterPrimKind,
+}
+
+/// primitive 的输入引用（`in`/`in2`）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FilterInput {
+    SourceGraphic,
+    SourceAlpha,
+    /// primitives 表的下标（只允许向后引用）。
+    Prim(u16),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum FilterPrimKind {
+    Blend {
+        mode: BlendMode,
+        in1: FilterInput,
+        in2: FilterInput,
+    },
+    ColorMatrix {
+        row_major: [f32; 20],
+        input: FilterInput,
+    },
+    /// feComponentTransfer：四通道函数统一展开成 256 查表
+    /// （engine 走 color_filters::table_argb）。
+    ComponentTransfer {
+        fns: [TransferFn; 4],
+        input: FilterInput,
+    },
+    /// op：0 over / 1 in / 2 out / 3 atop / 4 xor / 5 lighter / 6 arithmetic。
+    Composite {
+        op: u8,
+        k: [f32; 4],
+        in1: FilterInput,
+        in2: FilterInput,
+    },
+    /// feConvolveMatrix：edge 0 none / 1 duplicate / 2 wrap。
+    ConvolveMatrix {
+        order: (u32, u32),
+        kernel: Vec<f32>,
+        divisor: f32,
+        bias: f32,
+        target: (i32, i32),
+        kernel_unit_length: (f32, f32),
+        edge: u8,
+        preserve_alpha: bool,
+        input: FilterInput,
+    },
+    DiffuseLighting {
+        surface_scale: f32,
+        diffuse_constant: f32,
+        lighting_color: [f32; 4],
+        light: LightSpec,
+        input: FilterInput,
+    },
+    DisplacementMap {
+        x_channel: u8,
+        y_channel: u8,
+        scale: f32,
+        input: FilterInput,
+        in2: FilterInput,
+    },
+    DropShadow {
+        dx: f32,
+        dy: f32,
+        sigma_x: f32,
+        sigma_y: f32,
+        color: [f32; 4],
+        input: FilterInput,
+    },
+    Flood {
+        color: [f32; 4],
+    },
+    GaussianBlur {
+        sigma_x: f32,
+        sigma_y: f32,
+        input: FilterInput,
+    },
+    Merge {
+        inputs: Vec<FilterInput>,
+    },
+    Morphology {
+        erode: bool,
+        radius_x: f32,
+        radius_y: f32,
+        input: FilterInput,
+    },
+    Offset {
+        dx: f32,
+        dy: f32,
+        input: FilterInput,
+    },
+    SpecularLighting {
+        surface_scale: f32,
+        specular_constant: f32,
+        specular_exponent: f32,
+        lighting_color: [f32; 4],
+        light: LightSpec,
+        input: FilterInput,
+    },
+    Tile {
+        input: FilterInput,
+    },
+    /// feTurbulence：fractal=true 是 fractalNoise，false 是 turbulence。
+    Turbulence {
+        fractal: bool,
+        base_frequency: [f32; 2],
+        num_octaves: u32,
+        seed: f32,
+        stitch: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LightSpec {
+    Distant { azimuth: f32, elevation: f32 },
+    Point { x: f32, y: f32, z: f32 },
+    Spot {
+        x: f32,
+        y: f32,
+        z: f32,
+        points_at_x: f32,
+        points_at_y: f32,
+        points_at_z: f32,
+        specular_exponent: f32,
+        limiting_cone_angle: f32,
+    },
+}
+
+/// feComponentTransfer 的通道函数（feFuncR/G/B/A 的 type）。
+#[derive(Clone, Debug, PartialEq)]
+pub enum TransferFn {
+    Identity,
+    Table(Vec<f32>),
+    Discrete(Vec<f32>),
+    Linear { slope: f32, intercept: f32 },
+    Gamma { amplitude: f32, exponent: f32, offset: f32 },
 }
 
 #[derive(Clone, Debug)]
@@ -382,6 +546,7 @@ impl PartialEq for ImageFilterSpec {
             (ImageFilterSpec::Compose(a1, a2), ImageFilterSpec::Compose(b1, b2)) => {
                 a1 == b1 && a2 == b2
             }
+            (ImageFilterSpec::Chain(a), ImageFilterSpec::Chain(b)) => a == b,
             _ => false,
         }
     }
@@ -430,6 +595,9 @@ impl Hash for ImageFilterSpec {
                 a.hash(state);
                 b.hash(state);
             }
+            // 链较长且 intern 重复率低，长度占位即可（eq→hash 契约仍成立，
+            // 不同链同桶只多一次线性探测）。
+            ImageFilterSpec::Chain(c) => c.primitives.len().hash(state),
         }
     }
 }

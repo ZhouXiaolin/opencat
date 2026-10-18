@@ -6,6 +6,15 @@
 渲染失败是预期"是误判：共享 tailwind.css 被未编码 `.` 的非法选择器污染（`bias-0.5`
 类名），所有渲染统一死于 CSS 解析错误。真实基线：text 377/386=97.7%、paint-servers
 139/155=89.7%、painting 276/308=89.6%、masking 42/94=44.7%、filters 90/408=22.1%。
+**P2 完成（2026-10-18）**：paint-servers 155/155=100%、painting 303/308=98.4%
+（≥90% 双达标）。两项根因级修复：①渐变停靠点插值空间按语义分流——CSS Images 4
+（JSX）premul、SVG/resvg unpremul（`ShaderSpec::interpolate_premul`，wire+TS 同步）；
+②radialGradient 焦点圆 fx/fy/fr 落地（`focal: Option<[f32;3]>` → skia
+two_point_conical，与 tiny-skia RadialGradient 同语义），paint-servers 一类清零。
+另 `<pattern>` 描边落地（`StrokePattern`，opcode 52，stroke 内联）。遗留 5 例：
+feImage 归 P4；mix-blend-mode saturation/color 是 skia 与 tiny-skia 的 HSL 混合
+低比特差异（P3 blend 层一起做）；marker/text 渐变 2 例在通过线边缘（0.005025/
+0.0072）。
 执行载体：goal（长会话），非 workflow，决策见 §8。
 
 ## 1. 目标与非目标
@@ -73,6 +82,21 @@ P1 清零 9 例时新增的三条：
    opcode 50，pattern_transform 存 asAffine 序 [sx ky kx sy tx ty] 对接
    tiny 0.12 `from_row`），tile 像素尺寸与 patt_ts 逐式对齐 resvg
    `render_pattern_pixmap`。
+
+P2 收官时新增的三条：
+
+5. **渐变停靠点插值空间是语义差异，不是精度差异**：skia 默认 unpremul
+   插值（=SVG/resvg 语义），CSS Images 4 要求 premul（transparent→color
+   的 RGB 从 color·t² 变 color·t）。`ShaderSpec::interpolate_premul`
+   逐 shader 声明（JSX 渐变 true / svg 渐变 false），wire 与 TS
+   （CanvasKit flags 位）同步。
+6. **radialGradient 焦点圆 = 两点锥形**：`(fx,fy,fr)→(cx,cy,r)` 直映
+   skia `two_point_conical`（tiny-skia RadialGradient 同构，resvg 同式）；
+   焦点缺省值（fx=cx、fy=cy、fr=0）时仍走单点 radial。
+7. **`<pattern>` 描边 = `StrokePattern`（opcode 52）**：FillPattern 布局
+   后内联 width/cap/join/miter 四个定长字段（不进 paint 表），tiny 侧
+   `fill_pattern_tiny` 按 `stroke: Option<&StrokeSpec>` 分叉 pad 与
+   fill/stroke 路径。
 
 ## 3. usvg::Tree → DrawOp 映射
 

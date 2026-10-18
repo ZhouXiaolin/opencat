@@ -116,6 +116,7 @@ const OP_RUNTIME_EFFECT = OP.RUNTIME_EFFECT;
 const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
 const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
 const OP_FILL_PATTERN = OP.FILL_PATTERN;
+const OP_STROKE_PATTERN = OP.STROKE_PATTERN;
 const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
 // v6: each PathOp command is promoted to its own top-level opcode (the old
 // OP_PATH / PATH_OP sub-opcode form is gone). One op = one path command.
@@ -160,8 +161,8 @@ type DecodedImageRef =
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
-  | { type: 'linearGradient'; tileMode: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
-  | { type: 'radialGradient'; tileMode: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null }
+  | { type: 'linearGradient'; tileMode: number; interpolatePremul: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
+  | { type: 'radialGradient'; tileMode: number; interpolatePremul: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null; focal: [number, number, number] | null }
   // SVG feTurbulence fractal-noise (bg-[fe-turbulence(...)]). `tile` mirrors the
   // engine: Some([w, h]) bakes one tileable tile repeated from `origin` (CSS
   // background semantics); null renders nothing (the engine skips it too).
@@ -834,6 +835,58 @@ export function renderEncodedDrawFrame(
           tilePicture.delete();
           break;
         }
+        case OP_STROKE_PATTERN: {
+          // svg `<pattern>` stroke: same tile layout + inline stroke params
+          // ([f32 width][u8 cap][u8 join][f32 miter]); the repeated tile is
+          // stroked along the path instead of filling it.
+          const pathId = p.u32();
+          const subtree = p.u32();
+          const tile = readRect4(p);
+          const pt = [p.f32(), p.f32(), p.f32(), p.f32(), p.f32(), p.f32()];
+          const opacity = p.f32();
+          const strokeW = p.f32();
+          const strokeCap = p.u8();
+          const strokeJoin = p.u8();
+          const strokeMiter = p.f32();
+          const ctm = targetCanvas.getTotalMatrix();
+          const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
+          const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
+          const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
+          const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
+          if (!(sx > 0) || !(sy > 0) || tile.width <= 0 || tile.height <= 0 || opacity <= 0) break;
+          const tileW = Math.max(1, Math.round(tile.width * sx));
+          const tileH = Math.max(1, Math.round(tile.height * sy));
+          const recorder = new CK.PictureRecorder();
+          const tileCanvas = recorder.beginRecording(CK.XYWHRect(0, 0, tileW, tileH));
+          tileCanvas.scale(sx, sy);
+          executeSubtreeOnCanvas(tileCanvas, subtree);
+          const tilePicture = recorder.finishRecordingAsPicture();
+          recorder.delete();
+          const localMatrix = CK.Matrix.multiply(
+            CK.Matrix.multiply(ptM, CK.Matrix.translated(tile.x, tile.y)),
+            CK.Matrix.scaled(1 / sx, 1 / sy),
+          );
+          const shader = tilePicture.makeShader?.(
+            CK.TileMode.Repeat,
+            CK.TileMode.Repeat,
+            CK.FilterMode.Linear,
+            /* tileRect */ undefined,
+            /* localMatrix */ localMatrix,
+          );
+          if (shader) {
+            const paint = dispose(new CK.Paint());
+            paint.setAlphaf(opacity);
+            paint.setShader(dispose(shader));
+            paint.setStyle(CK.PaintStyle.Stroke);
+            paint.setStrokeWidth(strokeW);
+            paint.setStrokeCap([CK.StrokeCap.Butt, CK.StrokeCap.Round, CK.StrokeCap.Square][strokeCap] ?? CK.StrokeCap.Butt);
+            paint.setStrokeJoin([CK.StrokeJoin.Miter, CK.StrokeJoin.Round, CK.StrokeJoin.Bevel][strokeJoin] ?? CK.StrokeJoin.Miter);
+            paint.setStrokeMiter(strokeMiter);
+            targetCanvas.drawPath(buildPathById(CK, frame, pathId, framePathCache, dispose), paint);
+          }
+          tilePicture.delete();
+          break;
+        }
         case OP_IMAGE: {
           const image = readImageRef(p, frame);
           const x = p.f32();
@@ -1181,11 +1234,13 @@ function parseFill(reader: BinaryReader): FillSpec {
   if (kind === 0) return { type: 'solid', color: reader.f32Array(4) as [number, number, number, number] };
   const shaderKind = reader.u8();
   if (shaderKind === 0) {
-    // linearGradient: [tileMode u8][from f32x2][to f32x2][stops][colors][matrix?]
+    // linearGradient: [tileMode u8][interpolatePremul u8][from f32x2][to f32x2][stops][colors][matrix?]
     const tileMode = reader.u8();
+    const interpolatePremul = reader.u8();
     return {
       type: 'linearGradient',
       tileMode,
+      interpolatePremul,
       from: reader.f32Array(2) as [number, number],
       to: reader.f32Array(2) as [number, number],
       stops: readF32Vec(reader),
@@ -1205,16 +1260,19 @@ function parseFill(reader: BinaryReader): FillSpec {
       origin: reader.f32Array(2) as [number, number],
     };
   }
-  // radialGradient: [tileMode u8][center f32x2][radius f32][stops][colors][matrix?]
+  // radialGradient: [tileMode u8][interpolatePremul u8][center f32x2][radius f32][stops][colors][matrix?][focal: u8 + f32x3 | u8=0]
   const tileMode = reader.u8();
+  const interpolatePremul = reader.u8();
   return {
     type: 'radialGradient',
     tileMode,
+    interpolatePremul,
     center: reader.f32Array(2) as [number, number],
     radius: reader.f32(),
     stops: readF32Vec(reader),
     colors: readColorVec(reader),
     localMatrix: readOptionalMatrix(reader),
+    focal: reader.u8() === 1 ? (reader.f32Array(3) as [number, number, number]) : null,
   };
 }
 
@@ -1475,6 +1533,11 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
   if (fill.type === 'turbulence') {
     return buildTurbulenceShader(CK, fill, dispose);
   }
+  // CSS Images 4 (JSX gradients) interpolates stops in premultiplied space
+  // (flags bit 1); SVG/resvg semantics are unpremul — the encoded
+  // interpolatePremul byte picks per-shader. ShaderSpec children without the
+  // field default to premul.
+  const gradFlags = 'interpolatePremul' in fill ? fill.interpolatePremul : 1;
   if (fill.type === 'linearGradient') {
     return CK.Shader.MakeLinearGradient(
       'from' in fill ? fill.from : fill.start,
@@ -1483,10 +1546,23 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
       fill.stops,
       mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
       localMatrix as any,
-      // CSS Images 4: stops interpolate in premultiplied space — the engine
-      // passes INTERPOLATE_COLORS_IN_PREMUL; CanvasKit defaults to unpremul,
-      // which lerps a `transparent` endpoint toward black.
-      1,
+      gradFlags,
+    );
+  }
+  if ('focal' in fill && fill.focal) {
+    // SVG focal radial: two-point conical (focus circle → main circle), same
+    // semantics as tiny-skia RadialGradient (what resvg uses).
+    const [fx, fy, fr] = fill.focal;
+    return CK.Shader.MakeTwoPointConicalGradient(
+      [fx, fy],
+      fr,
+      fill.center,
+      fill.radius,
+      fill.colors.map((c) => CK.Color4f(c[0], c[1], c[2], c[3])),
+      fill.stops,
+      mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
+      localMatrix as any,
+      gradFlags,
     );
   }
   return CK.Shader.MakeRadialGradient(
@@ -1496,7 +1572,7 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
     fill.stops,
     mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
     localMatrix as any,
-    1,
+    gradFlags,
   );
 }
 

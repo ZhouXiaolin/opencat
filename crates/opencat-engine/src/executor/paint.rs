@@ -157,11 +157,10 @@ fn convert_blur_style(s: BlurStyle) -> SkBlurStyle {
 // ── Shader ────────────────────────────────────────────────────────────
 
 fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
-    // CSS Images 4 requires gradient stops to interpolate in premultiplied
-    // space; Skia defaults to unpremultiplied interpolation, which couples
-    // RGB with alpha (a `transparent → color` ramp renders RGB as color·t²
-    // instead of color·t). Force premul interpolation to match browsers.
-    let grad_flags = Some(gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL);
+    // 插值空间由 spec 声明：CSS Images 4（JSX 渐变）要求 premultiplied；
+    // SVG/resvg 是 unpremultiplied（Skia 默认，stop-opacity 渐变两端 α
+    // 不等时中间色不同）。Skia 默认 unpremul 插值会把 transparent → color
+    // 的 RGB 耦合成 color·t²，CSS 侧必须显式开 premul。
     match spec {
         ShaderSpec::LinearGradient {
             from,
@@ -170,9 +169,15 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
             colors,
             tile_mode,
             local_matrix,
+            interpolate_premul,
         } => {
             let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
             let matrix = local_matrix.as_ref().map(skia_matrix_from_row_major);
+            let grad_flags = if *interpolate_premul {
+                Some(gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL)
+            } else {
+                None
+            };
             gradient_shader::linear(
                 ((from[0], from[1]), (to[0], to[1])),
                 skia_colors.as_slice(),
@@ -189,9 +194,31 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
             colors,
             tile_mode,
             local_matrix,
+            interpolate_premul,
+            focal,
         } => {
             let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
             let matrix = local_matrix.as_ref().map(skia_matrix_from_row_major);
+            let grad_flags = if *interpolate_premul {
+                Some(gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL)
+            } else {
+                None
+            };
+            // SVG 焦点：两点锥形（焦点圆 → 主圆），与 tiny-skia
+            // RadialGradient 同语义（resvg 同构）。
+            if let Some([fx, fy, fr]) = focal {
+                return gradient_shader::two_point_conical(
+                    (*fx, *fy),
+                    *fr,
+                    (center[0], center[1]),
+                    *radius,
+                    skia_colors.as_slice(),
+                    Some(stops.as_slice()),
+                    convert_tile_mode(*tile_mode),
+                    grad_flags,
+                    matrix.as_ref(),
+                );
+            }
             gradient_shader::radial(
                 (center[0], center[1]),
                 *radius,

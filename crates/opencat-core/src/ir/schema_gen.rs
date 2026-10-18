@@ -180,6 +180,7 @@ fn opcode_constants(ts: &mut String) {
         ("DRAW_SUBTREE_PICTURE", opcode::DRAW_SUBTREE_PICTURE),
         ("LOTTIE_RECT", opcode::LOTTIE_RECT),
         ("FILL_PATTERN", opcode::FILL_PATTERN),
+        ("STROKE_PATTERN", opcode::STROKE_PATTERN),
         ("PATH_MOVE_TO", opcode::PATH_MOVE_TO_OP),
         ("PATH_LINE_TO", opcode::PATH_LINE_TO_OP),
         ("PATH_QUAD_TO", opcode::PATH_QUAD_TO_OP),

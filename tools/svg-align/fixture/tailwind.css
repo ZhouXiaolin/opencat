@@ -1,1 +1,2 @@
-.probe-red { width: 100px; height: 100px; background-color: #ff0000; }
+.probe-box { width: 100px; height: 100px; }
+.probe-svg { position: absolute; left: 0; top: 0; width: 100px; height: 100px; }

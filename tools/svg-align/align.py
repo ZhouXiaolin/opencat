@@ -34,12 +34,21 @@ RENDER_TIMEOUT = 90
 CASE_TEMPLATE = """export const meta = {{ width: {w}, height: {h}, fps: 30, duration: 0.04 }};
 export default function SvgCase() {{
   return (
-    <div id="root" class="c-{flat}">
+    <div id="root" class="c-{cls}">
       <svg src="{src}" width="{w}" height="{h}" class="s" />
     </div>
   );
 }}
 """
+
+
+def css_class(flat):
+    # Corpus stems carry `=`/`#` (e.g. preserveAspectRatio=xMidYMid-meet), which
+    # CSS identifiers cannot hold. Escape them as hex byte codes; the `_5f`
+    # pass on `_` keeps the mapping bijective so stems stay distinguishable.
+    return (flat.replace("_", "_5f")
+                .replace("=", "_3d")
+                .replace("#", "_23"))
 
 
 def case_css(cases):
@@ -52,10 +61,11 @@ def case_css(cases):
         if not meta:
             continue
         w, h = meta
+        cls = css_class(c["flat"])
         rules.append(
-            f".c-{c['flat']} {{ position: relative; width: {w}px; height: {h}px; "
+            f".c-{cls} {{ position: relative; width: {w}px; height: {h}px; "
             f"overflow: hidden; }}\n"
-            f".c-{c['flat']} .s {{ position: absolute; left: 0; top: 0; }}"
+            f".c-{cls} .s {{ position: absolute; left: 0; top: 0; }}"
         )
     return "\n".join(rules) + "\n"
 
@@ -109,6 +119,9 @@ def spawn_env():
     env = os.environ.copy()
     if _FFMPEG_DIR_FOUND:
         env["PATH"] = f"{_FFMPEG_DIR_FOUND};{env.get('PATH', '')}"
+    # diff 参考 resvg = tiny-skia 光栅化；svg 路径走同一光栅化器，形状
+    # 边缘逐像素同源（详见 engine executor/path_tiny.rs 模块注）。
+    env.setdefault("OC_PATH_RASTERIZER", "tiny")
     return env
 
 
@@ -177,7 +190,7 @@ def stage_gen(cases, force):
         CASES_META[c["flat"]] = (w, h)
         if not (jsx.exists() and not force):
             jsx.write_text(CASE_TEMPLATE.format(
-                w=w, h=h, src=c["svg"].as_posix(), flat=c["flat"]))
+                w=w, h=h, src=c["svg"].as_posix(), cls=css_class(c["flat"])))
         n += 1
     (OUT / "cases" / "tailwind.css").write_text(case_css(cases))
     log(f"[gen] {n} case jsx files + shared tailwind.css ready")

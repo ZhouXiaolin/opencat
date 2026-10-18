@@ -1,6 +1,8 @@
 # SVG 支持对齐计划（feat/svg）
 
-状态：P0 完成（2026-10-18）。执行载体：goal（长会话），非 workflow，决策见 §8。
+状态：P0 完成（2026-10-18）。P1 完成（2026-10-18，shapes 133/133=100%、structure
+252/261=96.6%，≥95% 达标；剩余 9 fail：pattern 2 例归 P2，7 例 p8≤0.026 底噪）。
+执行载体：goal（长会话），非 workflow，决策见 §8。
 
 ## 1. 目标与非目标
 
@@ -38,6 +40,22 @@ SVG 文件 --usvg 解析--> usvg::Tree --新后端(重写 resvg renderer)--> Dra
 | `crates/resvg/src/clip.rs` `mask.rs` | 裁剪/遮罩 | ClipPath / blend（§3 规则） |
 | `crates/resvg/src/image.rs` | 图片解码与摆放 | ImageRect（引擎已有解码器） |
 | `crates/resvg/src/filter/` | 滤镜图 | ImageFilterSpec + SKSL |
+
+P1 定稿的两条架构决策：
+
+1. **core 是纯协议层，不解码不采样图片**。`<image>` 光栅图走新协议变体
+   `ImageRef::Encoded { data: BytesRangeId }`：编码字节原样进 frame bytes 表
+   （wire 自包含，TS 侧 tag 3 已解），engine 侧 `MediaContext::encoded_image`
+   复用 Static 通道的 skia `Image::from_encoded`；采样与 resvg 同构
+   （1:1 blit→Nearest，缩放→Mitchell；core 不做预缩放）。SVG 嵌套树仍走
+   DrawOp 内联。
+2. **形状边缘走 tiny-skia 光栅化**（`OC_PATH_RASTERIZER=tiny`，engine
+   `executor/path_tiny.rs`）。Skia 解析式 AA 几何精确，但 resvg=tiny-skia
+   扫描线 AA（hairline 特判 + 4 子扫描线，细斜线边缘覆盖率与几何差 ±20%），
+   每个边缘像素差 9~75/255——这是 P1 曾有 54 例 fail 的唯一根因。svg 路径
+   离屏 tiny-skia 渲染后按原 blend 合成回 skia canvas（同 crate 同版本
+   0.12，逐像素同源）；默认关闭，JSX/Chrome 对齐不受影响。渐变/pattern
+   路径 P1 仍走 Skia（P2 接 tiny shader）。
 
 ## 3. usvg::Tree → DrawOp 映射
 

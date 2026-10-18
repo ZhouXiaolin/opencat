@@ -122,6 +122,10 @@ pub struct MediaContext {
     /// Entries are at most the composition's draw size per asset, so this stays
     /// tiny compared to native-resolution decodes.
     scaled_images: HashMap<(PathBuf, u32, u32), Image>,
+    /// Lazy decodes of frame-embedded encoded images (`ImageRef::Encoded`,
+    /// svg `<image>` bytes interned by core). Keyed by the frame's byte-table
+    /// id; a tree usually re-emits the same id every frame.
+    encoded_images: HashMap<opencat_core::ir::draw_types::BytesRangeId, Image>,
     video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
     composition_fps: u32,
@@ -141,6 +145,7 @@ impl MediaContext {
             images: HashMap::new(),
             static_images: HashMap::new(),
             scaled_images: HashMap::new(),
+            encoded_images: HashMap::new(),
             video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
             composition_fps: 30,
@@ -374,6 +379,24 @@ impl MediaContext {
         let shrunk = surface.image_snapshot();
         self.scaled_images.insert(key, shrunk.clone());
         Ok((shrunk, bw as f32 / w0 as f32))
+    }
+
+    /// Decode a frame-embedded encoded image (`ImageRef::Encoded`) at natural
+    /// size. No pre-shrink: svg `<image>` draws resample once from natural
+    /// pixels to device pixels through the CTM (resvg's bicubic-through-CTM),
+    /// so any intermediate raster would add a second resample.
+    pub fn encoded_image(
+        &mut self,
+        key: opencat_core::ir::draw_types::BytesRangeId,
+        encoded: &[u8],
+    ) -> Result<Image> {
+        if let Some(image) = self.encoded_images.get(&key) {
+            return Ok(image.clone());
+        }
+        let image = Image::from_encoded(Data::new_copy(encoded))
+            .ok_or_else(|| anyhow!("failed to decode embedded image ({} bytes)", encoded.len()))?;
+        self.encoded_images.insert(key, image.clone());
+        Ok(image)
     }
 }
 

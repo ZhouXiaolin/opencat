@@ -80,6 +80,7 @@ pub(crate) mod ctx;
 pub(crate) mod dispatch;
 pub(crate) mod helpers;
 pub(crate) mod media_plan;
+pub(crate) mod svg;
 pub(crate) mod text;
 
 pub(crate) use builder::DrawOpBuilder;

@@ -1879,6 +1879,23 @@ fn execute_draw_op(
                 backdrop: false,
             });
         }
+        // svg `<pattern>` fill — emitted by the svg backend, forwarded
+        // verbatim (subtree id stays valid: same builder table).
+        DrawOp::FillPattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+        } => {
+            b.push(DrawOp::FillPattern {
+                path: *path,
+                subtree: *subtree,
+                tile: *tile,
+                pattern_transform: *pattern_transform,
+                opacity: *opacity,
+            });
+        }
         // Not produced by the canvas script API (only by the renderer's own
         // backdrop-filter emission), but pass it through faithfully.
         DrawOp::SaveBackdropLayer { bounds, radius, paint } => {

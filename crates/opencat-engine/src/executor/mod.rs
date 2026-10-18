@@ -6,6 +6,8 @@ mod replay;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
+
+use opencat_core::ir::draw_types::PathOp;
 #[cfg(target_os = "linux")]
 use skia_safe::skottie::Animation;
 use std::collections::HashMap;
@@ -43,6 +45,9 @@ impl std::error::Error for DrawError {}
 /// and replays DrawOpFrame onto a skia_safe::Canvas.
 pub struct EngineDrawExecutor {
     pub(crate) current_path: Option<PathBuilder>,
+    /// `current_path` 的 PathOp 镜像：tiny clip 光栅化需要原始 ops
+    /// （skia PathBuilder 无法回读出 ts::Path）。
+    pub(crate) current_path_ops: Vec<PathOp>,
     pub(crate) current_fill_paint: Paint,
     pub(crate) current_stroke_paint: Paint,
     pub(crate) current_alpha: f32,
@@ -66,6 +71,7 @@ impl EngineDrawExecutor {
     pub fn new() -> Self {
         Self {
             current_path: None,
+            current_path_ops: Vec::new(),
             current_fill_paint: Paint::default(),
             current_stroke_paint: Paint::default(),
             current_alpha: 1.0,
@@ -79,6 +85,7 @@ impl EngineDrawExecutor {
 
     pub fn begin_frame(&mut self) {
         self.current_path = None;
+        self.current_path_ops = Vec::new();
         self.current_fill_paint = Paint::default();
         let mut sp = Paint::default();
         sp.set_style(skia_safe::paint::Style::Stroke);
@@ -103,6 +110,9 @@ pub struct EnginePreparedFrameMedia {
     /// 重放按此把 `DrawOp::ImageRect` 的声明坐标系 src 映射到解码像素，并
     /// 补偿 `DrawOp::Image` 的自然尺寸语义；缺省 1.0（native/lazy，无缩放）。
     pub image_scales: Vec<f32>,
+    /// svg `<image>` 的解码像素（premul RGBA），tiny Pattern 重采样的输入
+    /// （resvg render_raster 同源路径）；键即 `ImageRef::Encoded`。
+    pub encoded_pixmaps: HashMap<ImageRef, std::sync::Arc<tiny_skia::Pixmap>>,
 }
 
 /// 一个已编译的 runtime effect，附带 liangyi 后端声明的执行计划。

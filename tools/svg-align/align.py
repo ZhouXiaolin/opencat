@@ -43,12 +43,11 @@ export default function SvgCase() {{
 
 
 def css_class(flat):
-    # Corpus stems carry `=`/`#` (e.g. preserveAspectRatio=xMidYMid-meet), which
-    # CSS identifiers cannot hold. Escape them as hex byte codes; the `_5f`
-    # pass on `_` keeps the mapping bijective so stems stay distinguishable.
-    return (flat.replace("_", "_5f")
-                .replace("=", "_3d")
-                .replace("#", "_23"))
+    # Corpus stems carry `=`/`#`/`.` (e.g. bias-0.5, preserveAspectRatio=...),
+    # which CSS identifiers cannot hold. Escape every non [A-Za-z0-9-] byte as
+    # _XX; `_` -> `_5f` keeps the mapping bijective so stems stay distinct.
+    return "".join(ch if (ch.isalnum() and ch.isascii()) or ch == "-"
+                   else f"_{ord(ch):02x}" for ch in flat)
 
 
 def case_css(cases):
@@ -267,7 +266,14 @@ def stage_diff(cases):
         rows.append(row)
 
     with open(OUT / "pixel.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ["id"])
+        # 字段并集：pass 行与 fail 行的指标列不一致（fail 才有 p0..p128/bbox），
+        # 用第一行当表头会在首个 pass 行打头时炸 DictWriter。
+        fields: list = []
+        for r in rows:
+            for k in r.keys():
+                if k not in fields:
+                    fields.append(k)
+        w = csv.DictWriter(f, fieldnames=fields or ["id"])
         w.writeheader()
         w.writerows(rows)
 

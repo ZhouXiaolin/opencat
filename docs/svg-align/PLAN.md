@@ -15,6 +15,21 @@ two_point_conical，与 tiny-skia RadialGradient 同语义），paint-servers �
 feImage 归 P4；mix-blend-mode saturation/color 是 skia 与 tiny-skia 的 HSL 混合
 低比特差异（P3 blend 层一起做）；marker/text 渐变 2 例在通过线边缘（0.005025/
 0.0072）。
+**P3 完成（2026-10-19）**：masking 85/94=90.4% 达标（mask 子类全清；剩 9 例全在
+clipPath 组，属独立 clip 机制，另行推进）。架构落点（Solaren 定调：mask 不许把数据
+拷出 CPU 手算，必须走渲染 API）：MaskClip 把 mask 子树重放到全帧 skia 离屏，
+luminance/alpha 折算成 coverage（rgb=0、a=cov 的 premul Image）入 `mask_stack`；
+所在层 **Restore 前以 `BlendMode::DstIn` 把 coverage 画回层**——三个根因级结论：
+①skia blend 量化是 round 型，与 resvg `apply_mask` 的 `(v+255)>>8` 同向，而 clip
+coverage 是截断型（0.5/255 边界差 1 经 unpremul 放大成全幅差），所以 mask 必须
+blend 不能 clip；②skia `to_affine()`（asAffine 序 [scaleX,skewY,skewX,scaleY,
+transX,transY]）与 tiny `Transform::from_row(sx,ky,kx,sy,tx,ty)` 同序——按位置
+直传，按变量名重排即转置（identity 也烂成 y'=x）；③mask 子树重放期间屏蔽
+`layer_marks`（`mask_replay` 深度标志），否则子树自己的 Save/Restore 会弹掉主流程
+的层基准。层配对用 `layer_marks`（SaveLayer 时记 `mask_stack.len()`，Restore 时
+drain 到该长度；emit 侧 SaveLayer:Restore 历史配平是 1:2，多余 Restore 不弹）。
+simple-case 残差 p8=0.084% 为 skia vs tiny-skia 渐变 premul 1-bit 差经 luminance
+折算+unpremul 放大，容差内不追。
 执行载体：goal（长会话），非 workflow，决策见 §8。
 
 ## 1. 目标与非目标

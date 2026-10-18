@@ -167,6 +167,8 @@ pub mod opcode {
     pub const FILL_PATTERN: u16 = 50;
     /// svg `<pattern>` stroke: same tile layout + inline stroke params.
     pub const STROKE_PATTERN: u16 = 52;
+    /// svg `<mask>`: content subtree → per-pixel coverage clip.
+    pub const MASK_CLIP: u16 = 53;
 
     /// Per-opcode payload length in bytes for the v6 dense op stream.
     ///
@@ -176,7 +178,7 @@ pub mod opcode {
     /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
     /// unconditionally and signals absence via a flag byte, and `ImageRef`
     /// always writes tag(1) + id-slot(12).
-    pub const OPCODE_PAYLOAD_LEN: [u16; 53] = [
+    pub const OPCODE_PAYLOAD_LEN: [u16; 54] = [
         0,  // 0  SAVE
         25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
         0,  // 2  RESTORE
@@ -199,7 +201,7 @@ pub mod opcode {
         0,  // 19 PATH_OP        (v5 only; unused in v6)
         0,  // 20 FILL_PATH
         0,  // 21 STROKE_PATH
-        1,  // 22 CLIP_PATH
+        2,  // 22 CLIP_PATH [u8 anti_alias][u8 fill_type]
         16, // 23 CLEAR
         4,  // 24 PAINT
         20, // 25 RECT
@@ -230,6 +232,7 @@ pub mod opcode {
         52, // 50 FILL_PATTERN [u32 path][u32 subtree][4xf32 tile][6xf32 pt][f32 opacity]
         0,  // 51 (unused)
         62, // 52 STROKE_PATTERN — FILL_PATTERN layout + [f32 width][u8 cap][u8 join][f32 miter]
+        21, // 53 MASK_CLIP [u32 subtree][u8 kind][4xf32 region]
     ];
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
@@ -1358,9 +1361,10 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
 
         DrawOp::StrokePath => write_op_header(buf, opcode::STROKE_PATH),
 
-        DrawOp::ClipPath { anti_alias } => {
+        DrawOp::ClipPath { anti_alias, fill_type } => {
             write_op_header(buf, opcode::CLIP_PATH);
             write_u8(buf, if *anti_alias { 1 } else { 0 });
+            write_u8(buf, *fill_type as u8);
         }
 
         // ===================================================================
@@ -1651,6 +1655,19 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u8(buf, stroke.cap as u8);
             write_u8(buf, stroke.join as u8);
             write_f32(buf, stroke.miter_limit);
+        }
+
+        DrawOp::MaskClip {
+            subtree,
+            kind,
+            region,
+        } => {
+            write_op_header(buf, opcode::MASK_CLIP);
+            write_u32(buf, subtree.0);
+            write_u8(buf, *kind);
+            for v in [region.x, region.y, region.width, region.height] {
+                write_f32(buf, v);
+            }
         }
 
         DrawOp::DrawSubtreePicture { .. } => {
@@ -1982,7 +1999,7 @@ mod tests {
         }));
         builder.push(DrawOp::FillPath);
         builder.push(DrawOp::StrokePath);
-        builder.push(DrawOp::ClipPath { anti_alias: true });
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: FillType::default() });
 
         // Drawing primitives
         builder.push(DrawOp::Clear {

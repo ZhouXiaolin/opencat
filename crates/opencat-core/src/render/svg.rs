@@ -90,7 +90,7 @@ pub fn emit_svg(
         width: dst.width,
         height: dst.height,
     }));
-    builder.push(DrawOp::ClipPath { anti_alias: true });
+    builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     concat(builder, &mut state, {
         Transform::from_scale(dst.width / tw, dst.height / th)
             .pre_translate(dst.x, dst.y)
@@ -209,8 +209,7 @@ fn render_group(
         emit_clip(builder, state, clip);
     }
     if let Some(mask) = group.mask() {
-        // P1 折算：矢量形状 mask 近似为 clip；luminance/图片 mask 是 P3。
-        emit_clip_shapes(builder, state, mask.root());
+        emit_mask(builder, state, mask);
     }
     render_nodes(builder, state, group);
     // 两个栈帧各弹一次：SaveLayer 隐含 save，组自身的 Save 也要配平——
@@ -225,6 +224,46 @@ fn render_group(
 // clip（形状遮罩 → ClipPath）
 // ---------------------------------------------------------------------------
 
+/// `<mask>` 的 emit：内容子树（user space，与使用处同系）+ kind + region
+/// 随 `MaskClip` 下发；嵌套 mask（mask.mask()）展开为串联的多个 MaskClip
+/// （resvg mask.rs：region 剪内容 → 内层 mask → type 混合，串联求交等价）。
+fn emit_mask(builder: &mut DrawOpBuilder, state: &mut EmitState, mask: &usvg::Mask) {
+    // mask 有内容才有遮罩意义；空 root 是"整元素遮没"（resvg 同），
+    // 用空 clip 表达。空剪在 clip 坐标系之外也成立。
+    if mask.root().children().is_empty() {
+        emit_empty_clip(builder);
+        return;
+    }
+    let subtree = builder
+        .record_subtree(|b| {
+            // mask 内容是 user space 坐标：子树从恒等开始，执行端离屏时
+            // 会套当时的组 CTM（与 DrawPath 同一坐标系约定）。
+            let mut sub_state = EmitState {
+                ts: Transform::default(),
+            };
+            render_nodes(b, &mut sub_state, mask.root());
+            Ok::<(), ()>(())
+        })
+        .expect("subtree recording cannot fail");
+    let rect = mask.rect();
+    builder.push(DrawOp::MaskClip {
+        subtree,
+        kind: match mask.kind() {
+            usvg::MaskType::Luminance => 0,
+            usvg::MaskType::Alpha => 1,
+        },
+        region: Rect4 {
+            x: rect.x(),
+            y: rect.y(),
+            width: rect.width(),
+            height: rect.height(),
+        },
+    });
+    if let Some(inner) = mask.mask() {
+        emit_mask(builder, state, inner);
+    }
+}
+
 /// 把 clipPath 的形状逐个 `ClipPath`（求交）。子形状保留各自 fill-rule；
 /// clip 内 stroke 无效、paint 颜色无关（resvg clip.rs 同语义）。
 ///
@@ -234,7 +273,10 @@ fn render_group(
 fn emit_clip(builder: &mut DrawOpBuilder, state: &mut EmitState, clip: &usvg::ClipPath) {
     let t = clip.transform();
     concat(builder, state, t);
-    emit_clip_shapes(builder, state, clip.root());
+    if emit_clip_shapes(builder, state, clip.root()) == 0 {
+        // clipPath 无有效子形状（invisible/空）：剪掉一切（resvg 同语义）。
+        emit_empty_clip(builder);
+    }
     match t.invert() {
         Some(inv) => concat(builder, state, inv),
         None => return, // 退化矩阵：clip 区域已不可信，别再叠加内层
@@ -245,7 +287,14 @@ fn emit_clip(builder: &mut DrawOpBuilder, state: &mut EmitState, clip: &usvg::Cl
 }
 
 /// clip 内容只消费形状：走执行端 current_path（BeginPath+Path+ClipPath）。
-fn emit_clip_shapes(builder: &mut DrawOpBuilder, state: &mut EmitState, root: &usvg::Group) {
+/// 返回发出的形状数：0 表示 clipPath 无有效子形状（invisible/空），
+/// 语义是剪掉一切（resvg 同：空 clip 覆盖图为全透明），调用方须补空剪。
+fn emit_clip_shapes(
+    builder: &mut DrawOpBuilder,
+    state: &mut EmitState,
+    root: &usvg::Group,
+) -> usize {
+    let mut emitted = 0usize;
     for node in root.children() {
         match node {
             usvg::Node::Path(path) => {
@@ -256,24 +305,46 @@ fn emit_clip_shapes(builder: &mut DrawOpBuilder, state: &mut EmitState, root: &u
                 if ops.is_empty() {
                     continue;
                 }
+                emitted += 1;
                 builder.push(DrawOp::BeginPath);
                 for op in ops {
                     builder.push(DrawOp::Path(op));
                 }
-                builder.push(DrawOp::ClipPath { anti_alias: true });
+                // usvg 已把 clip-rule 折进子形状的 fill.rule（resvg 同源）。
+                builder.push(DrawOp::ClipPath {
+                    anti_alias: true,
+                    fill_type: fill_type(path.fill().map(|f| f.rule())),
+                });
             }
             usvg::Node::Group(group) => {
                 let outer = state.ts;
                 concat(builder, state, group.transform());
-                emit_clip_shapes(builder, state, group);
+                emitted += emit_clip_shapes(builder, state, group);
                 state.ts = outer;
             }
             usvg::Node::Text(text) => {
-                emit_clip_shapes(builder, state, text.flattened());
+                emitted += emit_clip_shapes(builder, state, text.flattened());
             }
             usvg::Node::Image(_) => {}
         }
     }
+    emitted
+}
+
+/// 全剪 clip：0×0 矩形（任何区域与它求交为空）。tiny 覆盖图路径与 skia
+/// 空路径 clip 都符合「剪掉一切」语义。
+fn emit_empty_clip(builder: &mut DrawOpBuilder) {
+    builder.push(DrawOp::BeginPath);
+    builder.push(DrawOp::Path(PathOp::AddRect {
+        x: 0.0,
+        y: 0.0,
+        width: 0.0,
+        height: 0.0,
+    }));
+    builder.push(DrawOp::ClipPath {
+        anti_alias: false,
+        fill_type: Default::default(),
+    });
 }
 
 // ---------------------------------------------------------------------------

@@ -407,6 +407,12 @@ fn replay_op(
             Ok(())
         }
         DrawOp::Restore => {
+            // svg `<mask>`：层内容完成后、弹层前，把该层期间入栈的 coverage
+            // 以 DstIn blend 罩回（resvg apply_mask 语义；round 量化同向，
+            // 全程 canvas API 无像素拷贝）。多余的 Restore 不弹记录。
+            if exec.mask_replay == 0 {
+                super::path_tiny::mask_apply_dst_in(canvas, exec);
+            }
             canvas.restore();
             Ok(())
         }
@@ -416,6 +422,9 @@ fn replay_op(
             alpha,
             backdrop,
         } => {
+            if exec.mask_replay == 0 {
+                exec.layer_marks.push(exec.mask_stack.len());
+            }
             let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
             match paint {
                 Some(pid) => {
@@ -653,12 +662,29 @@ fn replay_op(
             }
             Ok(())
         }
-        DrawOp::ClipPath { anti_alias } => {
+        DrawOp::ClipPath { anti_alias, fill_type } => {
             if let Some(mut pb) = exec.current_path.take() {
                 let path = pb.detach();
                 // SVG 对齐：clip 覆盖率与 resvg 同一扫描线光栅化（细边
                 // AA 逐像素同源）；未接管回退 skia 解析式 AA。
-                if !super::path_tiny::clip_path_tiny(canvas, &exec.current_path_ops) {
+                let tiny_ft = match fill_type {
+                    opencat_core::ir::draw_types::FillType::Winding => {
+                        tiny_skia::FillRule::Winding
+                    }
+                    opencat_core::ir::draw_types::FillType::EvenOdd => {
+                        tiny_skia::FillRule::EvenOdd
+                    }
+                };
+                if !super::path_tiny::clip_path_tiny(canvas, &exec.current_path_ops, tiny_ft) {
+                    let mut path = path;
+                    path.set_fill_type(match fill_type {
+                        opencat_core::ir::draw_types::FillType::Winding => {
+                            skia_safe::PathFillType::Winding
+                        }
+                        opencat_core::ir::draw_types::FillType::EvenOdd => {
+                            skia_safe::PathFillType::EvenOdd
+                        }
+                    });
                     canvas.clip_path(&path, skia_safe::ClipOp::Intersect, *anti_alias);
                 }
                 exec.current_path_ops.clear();
@@ -851,6 +877,19 @@ fn replay_op(
                 *opacity,
                 Some(stroke),
             )?;
+            let _ = taken;
+            Ok(())
+        }
+        DrawOp::MaskClip {
+            subtree,
+            kind,
+            region,
+        } => {
+            // svg `<mask>`：内容子树离屏 → luminance/alpha coverage 全帧
+            // Image 入栈；所在层 Restore 前以 DstIn blend 罩回。未接管按
+            // 无遮罩跳过（tiny 关闭时 svg 本就非对齐路径）。
+            let taken =
+                super::path_tiny::mask_push_tiny(canvas, exec, draw, media, *subtree, *kind, region)?;
             let _ = taken;
             Ok(())
         }
@@ -1478,7 +1517,7 @@ mod tests {
             width: 8.0,
             height: 8.0,
         }));
-        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
         // 2) the script's own triangle clip (left half)
         frame.ops.push(DrawOp::Save);
         frame.ops.push(DrawOp::BeginPath);
@@ -1486,7 +1525,7 @@ mod tests {
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
         frame.ops.push(DrawOp::Path(PathOp::Close));
-        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
         frame.ops.push(DrawOp::Rect {
             rect: Rect4 {
                 x: 0.0,
@@ -1561,14 +1600,14 @@ mod tests {
                     width: 8.0,
                     height: 8.0,
                 }));
-                frame.ops.push(DrawOp::ClipPath { anti_alias: false });
+                frame.ops.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
             }
             frame.ops.push(DrawOp::BeginPath);
             frame.ops.push(DrawOp::Path(PathOp::MoveTo { x: 0.0, y: 0.0 }));
             frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
             frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
             frame.ops.push(DrawOp::Path(PathOp::Close));
-            frame.ops.push(DrawOp::ClipPath { anti_alias: tri_aa });
+            frame.ops.push(DrawOp::ClipPath { anti_alias: tri_aa, fill_type: Default::default() });
             frame.ops.push(DrawOp::Rect {
                 rect: Rect4 { x: 0.0, y: 0.0, width: 8.0, height: 8.0 },
                 paint: opencat_core::ir::draw_types::PaintId(0),
@@ -1609,7 +1648,7 @@ mod tests {
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 0.0, y: 8.0 }));
         frame.ops.push(DrawOp::Path(PathOp::Close));
-        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
         // Fill the whole canvas red; only the left half may receive paint.
         frame.ops.push(DrawOp::Rect {
             rect: Rect4 {

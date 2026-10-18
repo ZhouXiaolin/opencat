@@ -181,6 +181,7 @@ fn opcode_constants(ts: &mut String) {
         ("LOTTIE_RECT", opcode::LOTTIE_RECT),
         ("FILL_PATTERN", opcode::FILL_PATTERN),
         ("STROKE_PATTERN", opcode::STROKE_PATTERN),
+        ("MASK_CLIP", opcode::MASK_CLIP),
         ("PATH_MOVE_TO", opcode::PATH_MOVE_TO_OP),
         ("PATH_LINE_TO", opcode::PATH_LINE_TO_OP),
         ("PATH_QUAD_TO", opcode::PATH_QUAD_TO_OP),

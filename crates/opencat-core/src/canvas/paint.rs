@@ -147,6 +147,9 @@ pub enum ShaderSpec {
         colors: Vec<[f32; 4]>,
         tile_mode: TileMode,
         local_matrix: Option<[f32; 9]>,
+        /// 停靠点插值空间。CSS Images 4（JSX 渐变）要求 premul；SVG/resvg
+        /// 是 unpremul（stop-opacity 渐变两端 α 不等时中间色不同）。
+        interpolate_premul: bool,
     },
     RadialGradient {
         center: [f32; 2],
@@ -155,6 +158,12 @@ pub enum ShaderSpec {
         colors: Vec<[f32; 4]>,
         tile_mode: TileMode,
         local_matrix: Option<[f32; 9]>,
+        /// 同 [`ShaderSpec::LinearGradient::interpolate_premul`]。
+        interpolate_premul: bool,
+        /// SVG 焦点 `(fx, fy, fr)`（usvg 已归一化到 user space）。`None`
+        /// 表示无焦点偏移，引擎走普通单点 radial；`Some` 走两点锥形
+        /// （焦点圆 → 主圆，与 tiny-skia `RadialGradient` 同语义）。
+        focal: Option<[f32; 3]>,
     },
     /// SVG `feTurbulence` fractal-noise 场。`tile` 为 `Some([w, h])` 时引擎先
     /// 烘一块瓦片再以 Repeat 平铺（CSS background 语义），瓦片锚定在 `origin`
@@ -436,6 +445,7 @@ impl PartialEq for ShaderSpec {
                     colors: ac,
                     tile_mode: atm,
                     local_matrix: alm,
+                    interpolate_premul: aip,
                 },
                 ShaderSpec::LinearGradient {
                     from: bf,
@@ -444,6 +454,7 @@ impl PartialEq for ShaderSpec {
                     colors: bc,
                     tile_mode: btm,
                     local_matrix: blm,
+                    interpolate_premul: bip,
                 },
             ) => {
                 af[0].to_bits() == bf[0].to_bits()
@@ -462,6 +473,7 @@ impl PartialEq for ShaderSpec {
                             .all(|(a, b)| a.to_bits() == b.to_bits())
                     })
                     && atm == btm
+                    && aip == bip
                     && matrix_eq(alm, blm)
             }
             (
@@ -472,6 +484,8 @@ impl PartialEq for ShaderSpec {
                     colors: acol,
                     tile_mode: atm,
                     local_matrix: alm,
+                    interpolate_premul: aip,
+                    focal: afo,
                 },
                 ShaderSpec::RadialGradient {
                     center: bc,
@@ -480,6 +494,8 @@ impl PartialEq for ShaderSpec {
                     colors: bcol,
                     tile_mode: btm,
                     local_matrix: blm,
+                    interpolate_premul: bip,
+                    focal: bfo,
                 },
             ) => {
                 ac[0].to_bits() == bc[0].to_bits()
@@ -497,6 +513,8 @@ impl PartialEq for ShaderSpec {
                             .all(|(a, b)| a.to_bits() == b.to_bits())
                     })
                     && atm == btm
+                    && aip == bip
+                    && focal_eq(afo, bfo)
                     && matrix_eq(alm, blm)
             }
             (
@@ -545,6 +563,7 @@ impl Hash for ShaderSpec {
                 colors,
                 tile_mode,
                 local_matrix,
+                interpolate_premul,
             } => {
                 from[0].to_bits().hash(state);
                 from[1].to_bits().hash(state);
@@ -555,6 +574,7 @@ impl Hash for ShaderSpec {
                     .iter()
                     .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
+                interpolate_premul.hash(state);
                 matrix_hash(local_matrix, state);
             }
             ShaderSpec::RadialGradient {
@@ -564,6 +584,8 @@ impl Hash for ShaderSpec {
                 colors,
                 tile_mode,
                 local_matrix,
+                interpolate_premul,
+                focal,
             } => {
                 center[0].to_bits().hash(state);
                 center[1].to_bits().hash(state);
@@ -573,6 +595,11 @@ impl Hash for ShaderSpec {
                     .iter()
                     .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
                 tile_mode.hash(state);
+                interpolate_premul.hash(state);
+                focal.is_some().hash(state);
+                if let Some(f) = focal {
+                    f.iter().for_each(|v| v.to_bits().hash(state));
+                }
                 matrix_hash(local_matrix, state);
             }
             ShaderSpec::Turbulence {
@@ -598,8 +625,18 @@ impl Hash for ShaderSpec {
     }
 }
 
-fn matrix_eq(a: &Option<[f32; 9]>, b: &Option<[f32; 9]>) -> bool {
+fn focal_eq(a: &Option<[f32; 3]>, b: &Option<[f32; 3]>) -> bool {
     match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a
+            .iter()
+            .zip(b.iter())
+            .all(|(x, y)| x.to_bits() == y.to_bits()),
+        _ => false,
+    }
+}
+
+fn matrix_eq(a: &Option<[f32; 9]>, b: &Option<[f32; 9]>) -> bool {    match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => a
             .iter()

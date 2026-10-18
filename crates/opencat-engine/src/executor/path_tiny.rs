@@ -16,7 +16,7 @@ use skia_safe::{
 use tiny_skia as ts;
 
 use opencat_core::canvas::paint::{
-    BlendMode, FillSpec, PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin,
+    BlendMode, FillSpec, PaintSpec, PaintStyle, PathEffectSpec, StrokeCap, StrokeJoin, StrokeSpec,
 };
 use opencat_core::ir::draw_types::{EncodedPath, FillType, PathOp};
 
@@ -383,11 +383,11 @@ pub fn clip_path_tiny(canvas: &Canvas, ops: &[PathOp]) -> bool {
     true
 }
 
-/// svg `<pattern>` 填充的 tiny 路径：resvg `render_pattern_pixmap` 的同式
-/// 实现——tile 像素尺寸 = tile rect × (ctm ∘ patternTransform) 的缩放分量，
-/// 内容子树（picture recording）在 skia 离屏上按 scale(sx,sy) 重放成 tile，
-/// 再以 tiny Pattern（Repeat+Bicubic）平铺 fill。tile 渲染失败返回 Err；
-/// 返回 Ok(false) 表示未接管（调用方回退）。
+/// svg `<pattern>` 填充/描边的 tiny 路径：resvg `render_pattern_pixmap` 的
+/// 同式实现——tile 像素尺寸 = tile rect × (ctm ∘ patternTransform) 的缩放
+/// 分量，内容子树（picture recording）在 skia 离屏上按 scale(sx,sy) 重放成
+/// tile，再以 tiny Pattern（Repeat+Bicubic）平铺 fill/stroke。tile 渲染失败
+/// 返回 Err；返回 Ok(false) 表示未接管（调用方回退）。
 #[allow(clippy::too_many_arguments)]
 pub fn fill_pattern_tiny(
     canvas: &Canvas,
@@ -399,6 +399,7 @@ pub fn fill_pattern_tiny(
     tile: &opencat_core::ir::draw_op::Rect4,
     pattern_transform: &[f32; 6],
     opacity: f32,
+    stroke: Option<&StrokeSpec>,
 ) -> Result<bool, super::DrawError> {
     if !enabled() || opacity <= 0.0 {
         return Ok(false);
@@ -483,10 +484,15 @@ pub fn fill_pattern_tiny(
         bx1 = bx1.max(p.x);
         by1 = by1.max(p.y);
     }
-    let mut x0 = (bx0 - 1.5).floor() as i32;
-    let mut y0 = (by0 - 1.5).floor() as i32;
-    let mut x1 = (bx1 + 1.5).ceil() as i32;
-    let mut y1 = (by1 + 1.5).ceil() as i32;
+    let max_scale = sx0.abs().max(sy0.abs()).max(kx0.abs()).max(ky0.abs());
+    let pad = match stroke {
+        Some(s) => (s.width / 2.0) * max_scale * if s.join == StrokeJoin::Miter { s.miter_limit } else { 1.5 } + 1.5,
+        None => 1.5,
+    };
+    let mut x0 = (bx0 - pad).floor() as i32;
+    let mut y0 = (by0 - pad).floor() as i32;
+    let mut x1 = (bx1 + pad).ceil() as i32;
+    let mut y1 = (by1 + pad).ceil() as i32;
     if let Some(clip) = canvas.device_clip_bounds() {
         x0 = x0.max(clip.left());
         y0 = y0.max(clip.top());
@@ -511,11 +517,30 @@ pub fn fill_pattern_tiny(
         opacity,
         patt_ts,
     );
-    let rule = match encoded.fill_type {
-        FillType::Winding => ts::FillRule::Winding,
-        FillType::EvenOdd => ts::FillRule::EvenOdd,
-    };
-    off.fill_path(&path, &paint, rule, local_ts, None);
+    if let Some(s) = stroke {
+        let st = ts::Stroke {
+            width: s.width,
+            miter_limit: s.miter_limit,
+            line_cap: match s.cap {
+                StrokeCap::Butt => ts::LineCap::Butt,
+                StrokeCap::Round => ts::LineCap::Round,
+                StrokeCap::Square => ts::LineCap::Square,
+            },
+            line_join: match s.join {
+                StrokeJoin::Miter => ts::LineJoin::Miter,
+                StrokeJoin::Round => ts::LineJoin::Round,
+                StrokeJoin::Bevel => ts::LineJoin::Bevel,
+            },
+            dash: None,
+        };
+        off.stroke_path(&path, &paint, &st, local_ts, None);
+    } else {
+        let rule = match encoded.fill_type {
+            FillType::Winding => ts::FillRule::Winding,
+            FillType::EvenOdd => ts::FillRule::EvenOdd,
+        };
+        off.fill_path(&path, &paint, rule, local_ts, None);
+    }
 
     let info = ImageInfo::new((w, h), ColorType::RGBA8888, AlphaType::Premul, None);
     let Some(image) = images::raster_from_data(&info, Data::new_copy(off.data()), w as usize * 4)

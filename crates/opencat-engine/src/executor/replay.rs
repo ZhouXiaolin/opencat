@@ -824,6 +824,32 @@ fn replay_op(
                 tile,
                 pattern_transform,
                 *opacity,
+                None,
+            )?;
+            let _ = taken;
+            Ok(())
+        }
+        DrawOp::StrokePattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            stroke,
+        } => {
+            // svg `<pattern>` 描边：同 FillPattern，平铺结果沿描边样式。
+            let encoded = &draw.paths[path.0 as usize];
+            let taken = super::path_tiny::fill_pattern_tiny(
+                canvas,
+                exec,
+                draw,
+                media,
+                encoded,
+                *subtree,
+                tile,
+                pattern_transform,
+                *opacity,
+                Some(stroke),
             )?;
             let _ = taken;
             Ok(())
@@ -2197,6 +2223,7 @@ half4 main(float2 coord) {
             },
             runtime_effects: vec![rt.into()],
             image_scales: Vec::new(),
+            encoded_pixmaps: std::collections::HashMap::new(),
         };
         let mut exec = EngineDrawExecutor::new();
         exec.begin_frame();

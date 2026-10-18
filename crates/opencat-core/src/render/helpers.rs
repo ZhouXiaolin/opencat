@@ -488,6 +488,7 @@ fn build_linear_gradient(
         colors,
         tile_mode,
         local_matrix: None,
+        interpolate_premul: true,
     }
 }
 
@@ -610,6 +611,8 @@ fn build_radial_gradient(
         colors,
         tile_mode,
         local_matrix: Some(m),
+        interpolate_premul: true,
+        focal: None,
     }
 }
 
@@ -1894,6 +1897,24 @@ fn execute_draw_op(
                 tile: *tile,
                 pattern_transform: *pattern_transform,
                 opacity: *opacity,
+            });
+        }
+        // svg `<pattern>` stroke — same forwarding contract.
+        DrawOp::StrokePattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            stroke,
+        } => {
+            b.push(DrawOp::StrokePattern {
+                path: *path,
+                subtree: *subtree,
+                tile: *tile,
+                pattern_transform: *pattern_transform,
+                opacity: *opacity,
+                stroke: stroke.clone(),
             });
         }
         // Not produced by the canvas script API (only by the renderer's own
@@ -3278,6 +3299,7 @@ mod radial_gradient_tests {
             colors,
             tile_mode,
             local_matrix,
+            ..
         } = shader_for(&fill, repro_rect())
         else {
             panic!("expected linear gradient");
@@ -3358,6 +3380,7 @@ mod radial_gradient_tests {
             colors,
             tile_mode,
             local_matrix,
+            ..
         } = shader_for(&fill, repro_rect())
         else {
             panic!("expected linear gradient");

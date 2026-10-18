@@ -3,7 +3,7 @@ use super::draw_types::{
     ScriptRuntimeEffectChild, SubtreeId,
 };
 #[allow(unused_imports)]
-use crate::canvas::paint::BlendMode;
+use crate::canvas::paint::{BlendMode, StrokeSpec};
 
 // ---------------------------------------------------------------------------
 // Line rendering enums
@@ -439,6 +439,18 @@ pub enum DrawOp {
         opacity: f32,
     },
 
+    /// svg `<pattern>` 描边：同 [`DrawOp::FillPattern`]，但平铺结果沿
+    /// `stroke` 描边（resvg 的 stroke pattern 同语义）。stroke 内联（不进
+    /// paint 表），只有 width/cap/join/miter 四个定长字段。
+    StrokePattern {
+        path: PathId,
+        subtree: SubtreeId,
+        tile: Rect4,
+        pattern_transform: [f32; 6],
+        opacity: f32,
+        stroke: StrokeSpec,
+    },
+
     /// Script-originated runtime effect (pre-intern intermediate form).
     /// Translated to `DrawOp::RuntimeEffect` during `execute_draw_op`.
     /// Engine replay treats this as a no-op; the binary encoder must never see it.
@@ -716,6 +728,29 @@ impl std::hash::Hash for DrawOp {
                     v.to_bits().hash(state);
                 }
                 opacity.to_bits().hash(state);
+            }
+            DrawOp::StrokePattern {
+                path,
+                subtree,
+                tile,
+                pattern_transform,
+                opacity,
+                stroke,
+            } => {
+                41_u8.hash(state);
+                path.hash(state);
+                subtree.hash(state);
+                for v in [tile.x, tile.y, tile.width, tile.height] {
+                    v.to_bits().hash(state);
+                }
+                for v in pattern_transform {
+                    v.to_bits().hash(state);
+                }
+                opacity.to_bits().hash(state);
+                stroke.width.to_bits().hash(state);
+                stroke.cap.hash(state);
+                stroke.join.hash(state);
+                stroke.miter_limit.to_bits().hash(state);
             }
             DrawOp::ScriptRuntimeEffect {
                 sksl,

@@ -15,9 +15,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tiny_skia_path::{PathSegment, Transform};
 use usvg::ImageKind;
 
+use crate::canvas::Rect;
+
 use crate::canvas::paint::{
-    BlendMode, FillSpec, PaintSpec, PaintStyle, PathEffectSpec, ShaderSpec, StrokeCap, StrokeJoin,
-    StrokeSpec, TileMode,
+    BlendMode, FillSpec, FilterChainSpec, FilterInput, FilterPrimKind, FilterPrimSpec,
+    ImageFilterSpec, LightSpec, PaintSpec, PaintStyle, PathEffectSpec, ShaderSpec, StrokeCap,
+    StrokeJoin, StrokeSpec, TileMode, TransferFn,
 };
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
@@ -219,6 +222,14 @@ fn render_group(
         ..PaintSpec::default()
     };
     paint.blend_mode = convert_blend_mode(group.blend_mode());
+    // SVG `<filter>`：链随层 paint 下发（层内容 = SourceGraphic）。
+    // 多个 filter 依次级联（前一个输出是后一个输入），首版取第一个，
+    // 多 filter 级联的语料单独推进。feImage 链返回 None（未挂，无回归）。
+    if let Some(f) = group.filters().first() {
+        if let Some(chain) = emit_filter_chain(f) {
+            paint.image_filter = Some(ImageFilterSpec::Chain(Box::new(chain)));
+        }
+    }
     let paint_id = builder.intern_paint(paint);
     builder.push(DrawOp::SaveLayer {
         bounds: None,
@@ -780,6 +791,295 @@ fn ts_matrix(t: &Transform) -> Option<[f32; 9]> {
         return None;
     }
     Some([t.sx, t.kx, t.tx, t.ky, t.sy, t.ty, 0.0, 0.0, 1.0])
+}
+
+// ---------------------------------------------------------------------------
+// filter（P4：`<filter>` primitive 链 → FilterChainSpec）
+// ---------------------------------------------------------------------------
+
+/// `<filter>` → 扁平 primitive 表。`result` 名映射成下标随 `FilterInput::Prim`
+/// 引用；usvg 解析器已把缺省 `in` 与悬空引用归一化为前驱 result，树里到达的
+/// `Reference` 全部可解析（查不到时按规范兜底 SourceGraphic）。feImage 需要
+/// 子树光栅化合成，首版整个 filter 降级返回 None（同未挂，无回归）。
+fn emit_filter_chain(filter: &usvg::filter::Filter) -> Option<FilterChainSpec> {
+    let prims = filter.primitives();
+    if prims.is_empty() {
+        return None;
+    }
+    let mut results: HashMap<&str, u16> = HashMap::with_capacity(prims.len());
+    for (i, p) in prims.iter().enumerate() {
+        results.insert(p.result(), i as u16);
+    }
+    let resolve = |input: &usvg::filter::Input, idx: usize| -> FilterInput {
+        match input {
+            usvg::filter::Input::SourceGraphic => FilterInput::SourceGraphic,
+            usvg::filter::Input::SourceAlpha => FilterInput::SourceAlpha,
+            usvg::filter::Input::Reference(name) => results
+                .get(name.as_str())
+                .copied()
+                .map(FilterInput::Prim)
+                // 规范回退：无前驱用 SourceGraphic，否则前一个 primitive。
+                .unwrap_or(if idx == 0 {
+                    FilterInput::SourceGraphic
+                } else {
+                    FilterInput::Prim((idx - 1) as u16)
+                }),
+        }
+    };
+    let mut primitives = Vec::with_capacity(prims.len());
+    for (i, p) in prims.iter().enumerate() {
+        // feImage：语料 56 例，需子树离屏合成，首版整体降级。
+        if matches!(p.kind(), usvg::filter::Kind::Image(_)) {
+            return None;
+        }
+        let r = p.rect();
+        let kind = match p.kind() {
+            usvg::filter::Kind::Blend(fe) => FilterPrimKind::Blend {
+                mode: convert_blend_mode(fe.mode()),
+                in1: resolve(fe.input1(), i),
+                in2: resolve(fe.input2(), i),
+            },
+            usvg::filter::Kind::ColorMatrix(fe) => FilterPrimKind::ColorMatrix {
+                row_major: color_matrix_values(fe.kind()),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::ComponentTransfer(fe) => {
+                let conv = |f: &usvg::filter::TransferFunction| match f {
+                    usvg::filter::TransferFunction::Identity => TransferFn::Identity,
+                    usvg::filter::TransferFunction::Table(v) => TransferFn::Table(v.clone()),
+                    usvg::filter::TransferFunction::Discrete(v) => TransferFn::Discrete(v.clone()),
+                    usvg::filter::TransferFunction::Linear { slope, intercept } => {
+                        TransferFn::Linear { slope: *slope, intercept: *intercept }
+                    }
+                    usvg::filter::TransferFunction::Gamma { amplitude, exponent, offset } => {
+                        TransferFn::Gamma {
+                            amplitude: *amplitude,
+                            exponent: *exponent,
+                            offset: *offset,
+                        }
+                    }
+                };
+                FilterPrimKind::ComponentTransfer {
+                    fns: [
+                        conv(fe.func_r()),
+                        conv(fe.func_g()),
+                        conv(fe.func_b()),
+                        conv(fe.func_a()),
+                    ],
+                    input: resolve(fe.input(), i),
+                }
+            }
+            usvg::filter::Kind::Composite(fe) => {
+                let (op, k) = match fe.operator() {
+                    usvg::filter::CompositeOperator::Over => (0u8, [0.0; 4]),
+                    usvg::filter::CompositeOperator::In => (1, [0.0; 4]),
+                    usvg::filter::CompositeOperator::Out => (2, [0.0; 4]),
+                    usvg::filter::CompositeOperator::Atop => (3, [0.0; 4]),
+                    usvg::filter::CompositeOperator::Xor => (4, [0.0; 4]),
+                    usvg::filter::CompositeOperator::Lighter => (5, [0.0; 4]),
+                    usvg::filter::CompositeOperator::Arithmetic { k1, k2, k3, k4 } => {
+                        (6, [k1, k2, k3, k4])
+                    }
+                };
+                FilterPrimKind::Composite {
+                    op,
+                    k,
+                    in1: resolve(fe.input1(), i),
+                    in2: resolve(fe.input2(), i),
+                }
+            }
+            usvg::filter::Kind::ConvolveMatrix(fe) => {
+                let m = fe.matrix();
+                // usvg 不暴露 kernelUnitLength（resvg 忽略之），恒 1。
+                FilterPrimKind::ConvolveMatrix {
+                    order: (m.columns(), m.rows()),
+                    kernel: m.data().to_vec(),
+                    divisor: fe.divisor().get(),
+                    bias: fe.bias(),
+                    target: (m.target_x() as i32, m.target_y() as i32),
+                    kernel_unit_length: (1.0, 1.0),
+                    edge: match fe.edge_mode() {
+                        usvg::filter::EdgeMode::None => 0,
+                        usvg::filter::EdgeMode::Duplicate => 1,
+                        usvg::filter::EdgeMode::Wrap => 2,
+                    },
+                    preserve_alpha: fe.preserve_alpha(),
+                    input: resolve(fe.input(), i),
+                }
+            }
+            usvg::filter::Kind::DiffuseLighting(fe) => FilterPrimKind::DiffuseLighting {
+                surface_scale: fe.surface_scale(),
+                diffuse_constant: fe.diffuse_constant(),
+                lighting_color: rgba(fe.lighting_color(), usvg::Opacity::ONE),
+                light: light_spec(fe.light_source()),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::DisplacementMap(fe) => FilterPrimKind::DisplacementMap {
+                x_channel: color_channel(fe.x_channel_selector()),
+                y_channel: color_channel(fe.y_channel_selector()),
+                scale: fe.scale(),
+                input: resolve(fe.input1(), i),
+                in2: resolve(fe.input2(), i),
+            },
+            usvg::filter::Kind::DropShadow(fe) => FilterPrimKind::DropShadow {
+                dx: fe.dx(),
+                dy: fe.dy(),
+                sigma_x: fe.std_dev_x().get(),
+                sigma_y: fe.std_dev_y().get(),
+                color: rgba(fe.color(), fe.opacity()),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::Flood(fe) => FilterPrimKind::Flood {
+                color: rgba(fe.color(), fe.opacity()),
+            },
+            usvg::filter::Kind::GaussianBlur(fe) => FilterPrimKind::GaussianBlur {
+                sigma_x: fe.std_dev_x().get(),
+                sigma_y: fe.std_dev_y().get(),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::Merge(fe) => FilterPrimKind::Merge {
+                inputs: fe.inputs().iter().map(|i| resolve(i, 0)).collect(),
+            },
+            usvg::filter::Kind::Morphology(fe) => FilterPrimKind::Morphology {
+                erode: matches!(fe.operator(), usvg::filter::MorphologyOperator::Erode),
+                radius_x: fe.radius_x().get(),
+                radius_y: fe.radius_y().get(),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::Offset(fe) => FilterPrimKind::Offset {
+                dx: fe.dx(),
+                dy: fe.dy(),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::SpecularLighting(fe) => FilterPrimKind::SpecularLighting {
+                surface_scale: fe.surface_scale(),
+                specular_constant: fe.specular_constant(),
+                specular_exponent: fe.specular_exponent(),
+                lighting_color: rgba(fe.lighting_color(), usvg::Opacity::ONE),
+                light: light_spec(fe.light_source()),
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::Tile(fe) => FilterPrimKind::Tile {
+                input: resolve(fe.input(), i),
+            },
+            usvg::filter::Kind::Turbulence(fe) => FilterPrimKind::Turbulence {
+                fractal: matches!(fe.kind(), usvg::filter::TurbulenceKind::FractalNoise),
+                base_frequency: [fe.base_frequency_x().get(), fe.base_frequency_y().get()],
+                num_octaves: fe.num_octaves(),
+                seed: fe.seed() as f32,
+                stitch: fe.stitch_tiles(),
+            },
+            usvg::filter::Kind::Image(_) => unreachable!("已在上方降级返回"),
+        };
+        primitives.push(FilterPrimSpec {
+            crop: Some(Rect::new(
+                r.x() as f64,
+                r.y() as f64,
+                (r.x() + r.width()) as f64,
+                (r.y() + r.height()) as f64,
+            )),
+            srgb: matches!(p.color_interpolation(), usvg::filter::ColorInterpolation::SRGB),
+            kind,
+        });
+    }
+    Some(FilterChainSpec {
+        output: (primitives.len() - 1) as u16,
+        primitives,
+        source_crop: {
+            let fr = filter.rect();
+            Some(Rect::new(
+                fr.x() as f64,
+                fr.y() as f64,
+                (fr.x() + fr.width()) as f64,
+                (fr.y() + fr.height()) as f64,
+            ))
+        },
+    })
+}
+
+/// feColorMatrix 四种 `type` 统一展开成 20 值行主序矩阵（Saturate/HueRotate/
+/// LuminanceToAlpha 用 SVG 规范公式预展开，engine 只吃 Matrix 一种）。
+fn color_matrix_values(kind: &usvg::filter::ColorMatrixKind) -> [f32; 20] {
+    match kind {
+        usvg::filter::ColorMatrixKind::Matrix(v) => {
+            let mut m = [0.0f32; 20];
+            m.copy_from_slice(v);
+            m
+        }
+        usvg::filter::ColorMatrixKind::Saturate(s) => {
+            let s = s.get();
+            // | 0.213+0.787s  0.715-0.715s  0.072-0.072s 0 0 |
+            // | 0.213-0.213s  0.715+0.285s  0.072-0.072s 0 0 |
+            // | 0.213-0.213s  0.715-0.715s  0.072+0.928s 0 0 |
+            [
+                0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s, 0.0, 0.0,
+                0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s, 0.0, 0.0,
+                0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1.0, 0.0,
+            ]
+        }
+        usvg::filter::ColorMatrixKind::HueRotate(deg) => {
+            let rad = deg.to_radians();
+            let (c, s) = (rad.cos(), rad.sin());
+            // 规范 hueRotate 矩阵。
+            [
+                0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715,
+                0.072 - c * 0.072 + s * 0.928, 0.0, 0.0,
+                0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140,
+                0.072 - c * 0.072 - s * 0.283, 0.0, 0.0,
+                0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715,
+                0.072 + c * 0.928 + s * 0.072, 0.0, 0.0,
+                0.0, 0.0, 0.0, 1.0, 0.0,
+            ]
+        }
+        usvg::filter::ColorMatrixKind::LuminanceToAlpha => [
+            0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0,
+            0.2125, 0.7154, 0.0721, 0.0, 0.0,
+        ],
+    }
+}
+
+fn light_spec(src: usvg::filter::LightSource) -> LightSpec {
+    match src {
+        usvg::filter::LightSource::DistantLight(l) => LightSpec::Distant {
+            azimuth: l.azimuth,
+            elevation: l.elevation,
+        },
+        usvg::filter::LightSource::PointLight(l) => {
+            LightSpec::Point { x: l.x, y: l.y, z: l.z }
+        }
+        usvg::filter::LightSource::SpotLight(l) => LightSpec::Spot {
+            x: l.x,
+            y: l.y,
+            z: l.z,
+            points_at_x: l.points_at_x,
+            points_at_y: l.points_at_y,
+            points_at_z: l.points_at_z,
+            specular_exponent: l.specular_exponent.get(),
+            limiting_cone_angle: l.limiting_cone_angle.unwrap_or(0.0),
+        },
+    }
+}
+
+fn color_channel(c: usvg::filter::ColorChannel) -> u8 {
+    match c {
+        usvg::filter::ColorChannel::R => 0,
+        usvg::filter::ColorChannel::G => 1,
+        usvg::filter::ColorChannel::B => 2,
+        usvg::filter::ColorChannel::A => 3,
+    }
+}
+
+/// usvg Color + Opacity → 非预乘 [r,g,b,a]（0..1）。
+fn rgba(c: usvg::Color, opacity: usvg::Opacity) -> [f32; 4] {
+    [
+        c.red as f32 / 255.0,
+        c.green as f32 / 255.0,
+        c.blue as f32 / 255.0,
+        opacity.get(),
+    ]
 }
 
 // ---------------------------------------------------------------------------

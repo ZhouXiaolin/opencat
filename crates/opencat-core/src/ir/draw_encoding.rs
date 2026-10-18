@@ -26,8 +26,9 @@ use super::draw_op::*;
 use super::draw_types::*;
 use super::media_plan::FrameGeneratedImage;
 use crate::canvas::paint::{
-    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
-    PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
+    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, FilterChainSpec, FilterInput, FilterPrimKind,
+    ImageFilterSpec, LightSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec,
+    ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode, TransferFn,
 };
 use crate::ir::RenderFrame;
 
@@ -394,6 +395,12 @@ fn write_u8(buf: &mut Vec<u8>, v: u8) {
     buf.push(v);
 }
 
+/// Write an i32 into a u8 buffer in little-endian.
+#[inline]
+fn write_i32(buf: &mut Vec<u8>, v: i32) {
+    buf.extend_from_slice(&v.to_le_bytes());
+}
+
 /// Write a v6 op header: a single `[opcode: u8]`. The payload that follows is
 /// exactly `OPCODE_PAYLOAD_LEN[opcode]` bytes (see [`opcode`]); there is no
 /// length field and ops are not padded, so a decoder advances by
@@ -751,6 +758,293 @@ fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<()
             write_u8(out, 3);
             encode_image_filter(out, outer)?;
             encode_image_filter(out, inner)?;
+        }
+        ImageFilterSpec::Chain(chain) => {
+            write_u8(out, 4);
+            encode_filter_chain(out, chain)?;
+        }
+    }
+    Ok(())
+}
+
+/// FilterChainSpec wire 格式（P4，engine 端在消费点展开成 skia filter 树）：
+/// `u8 has_source_crop + [4xf32]`、`u16 output`、`u32 n`、随后 n 个
+/// primitive（crop 前缀 + srgb + kind tag + 字段）。Input 统一 `u8 tag`
+/// （0 SourceGraphic / 1 SourceAlpha / 2 Prim+u16）。
+fn encode_filter_chain(out: &mut Vec<u8>, chain: &FilterChainSpec) -> Result<(), EncodeError> {
+    match chain.source_crop {
+        Some(r) => {
+            write_u8(out, 1);
+            write_f32(out, r.x0 as f32);
+            write_f32(out, r.y0 as f32);
+            write_f32(out, r.x1 as f32);
+            write_f32(out, r.y1 as f32);
+        }
+        None => write_u8(out, 0),
+    }
+    write_u16(out, chain.output);
+    write_u32(out, chain.primitives.len() as u32);
+    for p in &chain.primitives {
+        match p.crop {
+            Some(r) => {
+                write_u8(out, 1);
+                write_f32(out, r.x0 as f32);
+                write_f32(out, r.y0 as f32);
+                write_f32(out, r.x1 as f32);
+                write_f32(out, r.y1 as f32);
+            }
+            None => write_u8(out, 0),
+        }
+        write_u8(out, p.srgb as u8);
+        encode_filter_prim_kind(out, &p.kind)?;
+    }
+    Ok(())
+}
+
+fn encode_filter_input(out: &mut Vec<u8>, input: &FilterInput) {
+    match input {
+        FilterInput::SourceGraphic => write_u8(out, 0),
+        FilterInput::SourceAlpha => write_u8(out, 1),
+        FilterInput::Prim(i) => {
+            write_u8(out, 2);
+            write_u16(out, *i);
+        }
+    }
+}
+
+fn encode_transfer_fn(out: &mut Vec<u8>, f: &TransferFn) {
+    match f {
+        TransferFn::Identity => write_u8(out, 0),
+        TransferFn::Table(v) => {
+            write_u8(out, 1);
+            write_f32_vec(out, v);
+        }
+        TransferFn::Discrete(v) => {
+            write_u8(out, 2);
+            write_f32_vec(out, v);
+        }
+        TransferFn::Linear { slope, intercept } => {
+            write_u8(out, 3);
+            write_f32(out, *slope);
+            write_f32(out, *intercept);
+        }
+        TransferFn::Gamma {
+            amplitude,
+            exponent,
+            offset,
+        } => {
+            write_u8(out, 4);
+            write_f32(out, *amplitude);
+            write_f32(out, *exponent);
+            write_f32(out, *offset);
+        }
+    }
+}
+
+fn encode_light_spec(out: &mut Vec<u8>, light: &LightSpec) {
+    match light {
+        LightSpec::Distant { azimuth, elevation } => {
+            write_u8(out, 0);
+            write_f32(out, *azimuth);
+            write_f32(out, *elevation);
+        }
+        LightSpec::Point { x, y, z } => {
+            write_u8(out, 1);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *z);
+        }
+        LightSpec::Spot {
+            x,
+            y,
+            z,
+            points_at_x,
+            points_at_y,
+            points_at_z,
+            specular_exponent,
+            limiting_cone_angle,
+        } => {
+            write_u8(out, 2);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *z);
+            write_f32(out, *points_at_x);
+            write_f32(out, *points_at_y);
+            write_f32(out, *points_at_z);
+            write_f32(out, *specular_exponent);
+            write_f32(out, *limiting_cone_angle);
+        }
+    }
+}
+
+fn encode_filter_prim_kind(out: &mut Vec<u8>, kind: &FilterPrimKind) -> Result<(), EncodeError> {
+    match kind {
+        FilterPrimKind::Blend { mode, in1, in2 } => {
+            write_u8(out, 0);
+            write_u8(out, encode_blend_mode(*mode));
+            encode_filter_input(out, in1);
+            encode_filter_input(out, in2);
+        }
+        FilterPrimKind::ColorMatrix { row_major, input } => {
+            write_u8(out, 1);
+            write_f32_array(out, row_major);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::ComponentTransfer { fns, input } => {
+            write_u8(out, 2);
+            for f in fns {
+                encode_transfer_fn(out, f);
+            }
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Composite { op, k, in1, in2 } => {
+            write_u8(out, 3);
+            write_u8(out, *op);
+            write_f32_array(out, k);
+            encode_filter_input(out, in1);
+            encode_filter_input(out, in2);
+        }
+        FilterPrimKind::ConvolveMatrix {
+            order,
+            kernel,
+            divisor,
+            bias,
+            target,
+            kernel_unit_length,
+            edge,
+            preserve_alpha,
+            input,
+        } => {
+            write_u8(out, 4);
+            write_u32(out, order.0);
+            write_u32(out, order.1);
+            write_f32_vec(out, kernel);
+            write_f32(out, *divisor);
+            write_f32(out, *bias);
+            write_i32(out, target.0);
+            write_i32(out, target.1);
+            write_f32(out, kernel_unit_length.0);
+            write_f32(out, kernel_unit_length.1);
+            write_u8(out, *edge);
+            write_u8(out, *preserve_alpha as u8);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::DiffuseLighting {
+            surface_scale,
+            diffuse_constant,
+            lighting_color,
+            light,
+            input,
+        } => {
+            write_u8(out, 5);
+            write_f32(out, *surface_scale);
+            write_f32(out, *diffuse_constant);
+            write_f32_array(out, lighting_color);
+            encode_light_spec(out, light);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::DisplacementMap {
+            x_channel,
+            y_channel,
+            scale,
+            input,
+            in2,
+        } => {
+            write_u8(out, 6);
+            write_u8(out, *x_channel);
+            write_u8(out, *y_channel);
+            write_f32(out, *scale);
+            encode_filter_input(out, input);
+            encode_filter_input(out, in2);
+        }
+        FilterPrimKind::DropShadow {
+            dx,
+            dy,
+            sigma_x,
+            sigma_y,
+            color,
+            input,
+        } => {
+            write_u8(out, 7);
+            write_f32(out, *dx);
+            write_f32(out, *dy);
+            write_f32(out, *sigma_x);
+            write_f32(out, *sigma_y);
+            write_f32_array(out, color);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Flood { color } => {
+            write_u8(out, 8);
+            write_f32_array(out, color);
+        }
+        FilterPrimKind::GaussianBlur {
+            sigma_x,
+            sigma_y,
+            input,
+        } => {
+            write_u8(out, 9);
+            write_f32(out, *sigma_x);
+            write_f32(out, *sigma_y);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Merge { inputs } => {
+            write_u8(out, 10);
+            write_u32(out, inputs.len() as u32);
+            for input in inputs {
+                encode_filter_input(out, input);
+            }
+        }
+        FilterPrimKind::Morphology {
+            erode,
+            radius_x,
+            radius_y,
+            input,
+        } => {
+            write_u8(out, 11);
+            write_u8(out, *erode as u8);
+            write_f32(out, *radius_x);
+            write_f32(out, *radius_y);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Offset { dx, dy, input } => {
+            write_u8(out, 12);
+            write_f32(out, *dx);
+            write_f32(out, *dy);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::SpecularLighting {
+            surface_scale,
+            specular_constant,
+            specular_exponent,
+            lighting_color,
+            light,
+            input,
+        } => {
+            write_u8(out, 13);
+            write_f32(out, *surface_scale);
+            write_f32(out, *specular_constant);
+            write_f32(out, *specular_exponent);
+            write_f32_array(out, lighting_color);
+            encode_light_spec(out, light);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Tile { input } => {
+            write_u8(out, 14);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Turbulence {
+            fractal,
+            base_frequency,
+            num_octaves,
+            seed,
+            stitch,
+        } => {
+            write_u8(out, 15);
+            write_u8(out, *fractal as u8);
+            write_f32_array(out, base_frequency);
+            write_u32(out, *num_octaves);
+            write_f32(out, *seed);
+            write_u8(out, *stitch as u8);
         }
     }
     Ok(())

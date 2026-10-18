@@ -269,6 +269,11 @@ pub fn import_texture(
         &backend_tex,
         SurfaceOrigin::TopLeft,
         ColorType::RGBA8888,
+        // 实测（flex-threejs 帧 672）：Unpremul 时内圈 opacity 0.85 叶片
+        // 对参考偏差 ≤2/255，Premul 反而整体 +27——内容含 rgb=a·color 的
+        // 预乘痕迹（透明清屏 + src-alpha 混合），但 Skia 端按 Unpremul
+        // 直读直绘恰好落在参考值上；语义待与 read_back CPU 路径统一后
+        // 再定，先保持现状。
         AlphaType::Unpremul,
         None,
     )

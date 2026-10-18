@@ -3095,10 +3095,20 @@ fn compile_glsl(stage: naga::ShaderStage, source: &str) -> Result<(naga::Module,
 
 /// 共用的渲染管线构造（主管线与脚本着色器管线同一顶点布局/目标/深度态；
 /// 入口名可变——主 WGSL 是 vs/fs，naga 产物是 main）。`blend`：None =
+/// three.js NormalBlending 混合态（WebGLState.setMaterial，
+/// premultipliedAlpha:false）= blendFuncSeparate(SRC_ALPHA,
+/// ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)。wgpu 30 的
+/// BlendState::ALPHA_BLENDING 恰好同构：color = (SrcAlpha,
+/// OneMinusSrcAlpha)，alpha 通道 = BlendComponent::OVER =
+/// (One, OneMinusSrcAlpha)——alpha 的 src 因子是 ONE 不是 SrcAlpha，
+/// 清屏透明的目标上产物为预乘内容（rgb = a·color），半覆盖边缘叠在
+/// 已写像素上 alpha 保持 1，不会腐蚀。
+/// 共用的渲染管线构造（主管线与脚本着色器管线同一顶点布局/目标/深度态；
+/// 入口名可变——主 WGSL 是 vs/fs，naga 产物是 main）。`blend`：None =
 /// 替换写（three.js 不透明列表 NormalBlending+transparent:false →
-/// NoBlending，WebGLState.setMaterial）；ALPHA = NormalBlending
-/// src-alpha（src*srcAlpha + dst*(1-srcAlpha)，透射/透明列表，同
-/// setMaterial + Material.premultipliedAlpha 默认 false）。
+/// NoBlending，WebGLState.setMaterial）；Some = NormalBlending
+/// src-alpha（透射/透明列表，同 setMaterial + Material.premultipliedAlpha
+/// 默认 false）。
 /// `sample_count`/`target_format`：主 pass 走 (1, Rgba8Unorm)，透射 RT
 /// pass 走 (TRANSMISSION_SAMPLE_COUNT, Rgba16Float)——附件采样数必须与
 /// 管线 multisample.count 一致（wgpu 验证）。

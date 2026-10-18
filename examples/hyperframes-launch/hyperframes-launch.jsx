@@ -34,7 +34,7 @@ export const fonts = {
     { id: 'hf-serif', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Regular.ttf' },
     { id: 'hf-serif-it', family: 'Instrument Serif', path: 'assets/fonts/InstrumentSerif-Italic.ttf' },
     { id: 'hf-eb-it', family: 'Times New Roman', path: 'assets/fonts/TimesNewRoman-Italic.ttf' },
-    { id: 'hf-cg-it', family: 'Cormorant Garamond', path: 'assets/fonts/CormorantGaramond-MediumItalic.ttf' },
+    { id: 'hf-cg-it', family: 'Cormorant Garamond Medium', path: 'assets/fonts/CormorantGaramond-MediumItalic.ttf' },
     { id: 'hf-geist', family: 'Segoe UI', path: 'assets/fonts/SegoeUI.ttf' },
     { id: 'hf-geist-semi', family: 'Segoe UI', path: 'assets/fonts/SegoeUI-Bold.ttf' },
     { id: 'hf-grotesk', family: 'Segoe UI', path: 'assets/fonts/SegoeUI.ttf' },
@@ -869,7 +869,12 @@ function FlexThreejs() {
     function face(col, half, rad, op) {
       var c1 = hexRgb(col[0]), c2 = hexRgb(col[1]);
       var mat = new T3.ShaderMaterial({
-        transparent: op < 1,
+        // Every blade carries an antialiased clip edge, so all of them need the
+        // src-alpha list: the opaque list replaces the destination and would
+        // make a front blade's partial edge reveal the background instead of
+        // the blade behind it. The transparent list is sorted far-to-near,
+        // which is the painter's order CSS 3D uses for these planes.
+        transparent: true,
         uniforms: {
           c1: { value: [c1[0] / 255, c1[1] / 255, c1[2] / 255] },
           c2: { value: [c2[0] / 255, c2[1] / 255, c2[2] / 255] },
@@ -894,10 +899,24 @@ function FlexThreejs() {
           'uniform float op;',
           'void main() {',
           '  vec2 p = vUv * (2.0 * half);',
-          '  vec3 col = mix(c1, c2, (p.x + p.y) / (4.0 * half));',
+          // CSS `linear-gradient(135deg, c1, c2)`: for a square box the 135deg
+          // gradient line normalizes to t = (x + y) / (W + H) with y measured
+          // DOWNWARD from the box top. `vUv.y` grows upward, so the top-edge
+          // y has to be flipped or the ramp runs along the opposite diagonal.
+          '  float gy = 2.0 * half - p.y;',
+          '  vec3 col = mix(c1, c2, (p.x + gy) / (4.0 * half));',
           '  vec2 q = abs(p - vec2(half)) - (half - rad);',
           '  float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - rad;',
-          '  gl_FragColor = d < 0.0 ? vec4(col, op) : vec4(0.0);',
+          // CSS clips a border-radius box: pixels outside the rounded rect do
+          // not exist, and the clip edge is antialiased. Writing vec4(0) there
+          // instead would keep the quad's square footprint in the depth buffer
+          // and punch a background-coloured hole wherever one blade's corner
+          // overlies another, so out-of-shape pixels are discarded outright and
+          // the one-pixel band on the edge fades by distance-derivative
+          // coverage.
+          '  float cov = clamp(0.5 - d / max(fwidth(d), 1e-5), 0.0, 1.0);',
+          '  if (cov <= 0.0) discard;',
+          '  gl_FragColor = vec4(col, op * cov);',
           '}',
         ].join('\n'),
       });
@@ -906,17 +925,22 @@ function FlexThreejs() {
 
     var SEGS = 16, RING_R = 400;
     var formX = new T3.Group();
+    /* CSS 的 .torus-seg 无 left/top，margin −87 把 175px 盒子推到
+       (−87,−87)，transform-origin（盒子中心）落在 form 本地 (0.5,0.5)——
+       CSS y 向下，three y 向上即 (0.5,−0.5)。内圈 translateY(62) 叠加
+       margin −62 的同一半像素 → y = −62.5。少这半像素，整环对参考呈
+       系统性亚像素错位。 */
     for (var i = 0; i < SEGS; i++) {
       var a = (i / SEGS) * Math.PI * 2;
       var m = face(FT_COLORS[i], 87.5, 40, 1);
-      m.position.set(Math.cos(a) * RING_R, 0, Math.sin(a) * RING_R);
+      m.position.set(Math.cos(a) * RING_R + 0.5, -0.5, Math.sin(a) * RING_R);
       m.rotation.y = -a + Math.PI;
       formX.add(m);
     }
     for (var j = 0; j < SEGS; j++) {
       var a2 = ((j + 0.5) / SEGS) * Math.PI * 2;
       var m2 = face(FT_COLORS[(j + 4) % SEGS], 62.5, 30, 0.85);
-      m2.position.set(Math.cos(a2) * RING_R * 0.7, -62, Math.sin(a2) * RING_R * 0.7);
+      m2.position.set(Math.cos(a2) * RING_R * 0.7 + 0.5, -62.5, Math.sin(a2) * RING_R * 0.7);
       m2.rotation.y = -a2 + Math.PI;
       formX.add(m2);
     }
@@ -950,7 +974,7 @@ function FlexThreejs() {
       <div id="ft-shadow" class="absolute left-[780px] top-[680px] w-[360px] h-[50px] rounded-full bg-[radial-gradient(ellipse,rgba(80,60,40,0.18)_0%,transparent_70%)]"></div>
       <canvas id="ft-canvas" ref={canvas} class="absolute left-0 top-0 w-[1920px] h-[1080px]" style="top:-86.4px" />
       <div class="absolute left-0 bottom-[140px] w-full flex justify-center">
-        <text id="ft-label" class="text-[64px] leading-none tracking-[0.02em] italic font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
+        <text id="ft-label" class="text-[64px] leading-none tracking-[0.02em] italic font-medium font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
       </div>
     </div>
   );

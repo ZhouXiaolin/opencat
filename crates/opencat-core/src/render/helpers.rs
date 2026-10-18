@@ -6,7 +6,7 @@ use crate::canvas::paint::{
 };
 use crate::display::list::{
     BitmapDisplayItem, DisplayItem, DisplayRect, DrawScriptDisplayItem, RectDisplayItem,
-    SvgPathDisplayItem, TimelineDisplayItem, TimelineTransitionDisplay,
+    SvgDisplayItem, SvgPathDisplayItem, TimelineDisplayItem, TimelineTransitionDisplay,
 };
 use crate::display::tree::{DisplayNode, HiddenChildDisplayNode};
 use crate::ir::GeneratedImageTable;
@@ -1818,6 +1818,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         DisplayItem::Text(text) => super::text::render_text_with_shadows(ctx, text)?,
         DisplayItem::DrawScript(script) => super::helpers::render_draw_script(ctx, script)?,
         DisplayItem::SvgPath(svg) => super::helpers::render_svg_path(ctx, svg)?,
+        DisplayItem::Svg(item) => super::helpers::render_svg(ctx, item)?,
         DisplayItem::Bitmap(bitmap) => super::helpers::render_bitmap_with_shadows(ctx, bitmap)?,
         DisplayItem::Lottie(lottie) => super::helpers::render_lottie_with_shadows(ctx, lottie)?,
         DisplayItem::Timeline(timeline) => super::helpers::render_timeline(ctx, timeline)?,
@@ -2255,6 +2256,29 @@ fn svg_path_to_ops(svg: &str) -> Option<Vec<PathOp>> {
         }
     }
     Some(ops)
+}
+
+/// `<svg src>`：加载（缓存）树并展开为 DrawOp 段（PLAN §4）。
+pub fn render_svg(ctx: &mut RenderCtx, item: &SvgDisplayItem) -> Result<(), RenderError> {
+    let Some(tree) = crate::render::svg::load_tree(&item.src) else {
+        return Err(RenderError::MissingResource(format!(
+            "svg file not found or invalid: {}",
+            item.src.display()
+        )));
+    };
+    let b = kurbo_rect(item.bounds);
+    crate::render::svg::emit_svg(
+        ctx.builder,
+        &item.src,
+        &tree,
+        Rect4 {
+            x: b.x0 as f32,
+            y: b.y0 as f32,
+            width: b.width() as f32,
+            height: b.height() as f32,
+        },
+    );
+    Ok(())
 }
 
 pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result<(), RenderError> {

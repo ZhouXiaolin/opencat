@@ -355,6 +355,19 @@ fn build_node_inner(
             path_node.style = style;
             Ok(Node::new(path_node))
         }
+        ParsedElementKind::Svg {
+            src,
+            width,
+            height,
+            preserve_aspect_ratio,
+        } => {
+            let mut svg_node = crate::parse::primitives::svg(src);
+            svg_node.width = *width;
+            svg_node.height = *height;
+            svg_node.preserve_aspect_ratio = preserve_aspect_ratio.clone();
+            svg_node.style = style;
+            Ok(Node::new(svg_node))
+        }
         ParsedElementKind::Video { source, timing } => {
             let mut video_node = match source {
                 VideoSource::Path(p) => video(p),

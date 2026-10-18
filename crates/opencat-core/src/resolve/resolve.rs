@@ -9,7 +9,8 @@ use crate::{
     parse::{
         node::NodeKind,
         primitives::{
-            Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Text, Video, VideoSource,
+            Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Svg, Text, Video,
+            VideoSource,
         },
         time::TimelineNode,
         time::{FrameState, TimelineOrigin, frame_state_for_root_at},
@@ -20,7 +21,8 @@ use crate::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind,
-            ElementLottie, ElementNode, ElementSvgPath, ElementText, ElementTimeline,
+            ElementLottie, ElementNode, ElementSvg, ElementSvgPath, ElementText,
+            ElementTimeline,
             ElementTimelineTransition,
         },
     },
@@ -140,6 +142,7 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         NodeKind::Text(text) => resolve_text(text, cx),
         NodeKind::Lucide(lucide) => resolve_lucide_svg_path(lucide, cx),
         NodeKind::Path(path) => resolve_path(path, cx),
+        NodeKind::Svg(svg) => resolve_svg(svg, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx),
         NodeKind::Caption(caption) => resolve_caption(caption, cx)?
             .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
@@ -798,6 +801,40 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     result
 }
 
+fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    let pushed = push_script_scope_for_visible_subtree(svg, svg.style_ref(), cx)?;
+    let result = (|| {
+        let mut style = svg.style_ref().clone();
+        ensure!(
+            !style.id.is_empty(),
+            "node id is required for svg nodes before rendering"
+        );
+        apply_mutation_stack(&mut style, cx.mutation_stack);
+        let computed = compute_style(&style, cx.inherited_style);
+        let intrinsic_size =
+            crate::render::svg::load_tree(svg.src()).map(|t| crate::render::svg::tree_size(&t));
+
+        Ok(ElementNode {
+            id: cx.ids.alloc(),
+            kind: ElementKind::Svg(ElementSvg {
+                src: svg.src().clone(),
+                width: svg.width(),
+                height: svg.height(),
+                preserve_aspect_ratio: svg.preserve_aspect_ratio().map(String::from),
+                intrinsic_size,
+            }),
+            style: computed,
+            children: Vec::new(),
+            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            fingerprints: Default::default(),
+        })
+    })();
+    if pushed {
+        cx.mutation_stack.pop();
+    }
+    result
+}
+
 pub(crate) fn normalize_lucide_icon_name(name: &str) -> &str {
     match name {
         // Lucide keeps `home` as deprecated metadata alias for the current `house` icon.
@@ -1065,7 +1102,7 @@ fn seed_text_sources_for_visible_subtree(
                 );
             }
         }
-        NodeKind::Image(_) | NodeKind::Lottie(_) | NodeKind::Lucide(_) | NodeKind::Path(_) => {}
+        NodeKind::Image(_) | NodeKind::Lottie(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
     }
 }
 
@@ -1402,6 +1439,7 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         | NodeKind::Lottie(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
+        | NodeKind::Svg(_)
         | NodeKind::Caption(_) => {}
     }
 }

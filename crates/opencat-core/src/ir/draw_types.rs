@@ -73,6 +73,12 @@ pub enum ImageRef {
     Generated {
         id: super::generated_image::GeneratedImageId,
     },
+    /// Encoded (PNG/JPEG/...) bytes interned in the frame's byte table. Core
+    /// is a pure protocol layer: it forwards the bytes untouched and the
+    /// engine owns decoding (and any resampling), same split as `Static`.
+    Encoded {
+        data: BytesRangeId,
+    },
 }
 
 /// Persistent runtime effect metadata.

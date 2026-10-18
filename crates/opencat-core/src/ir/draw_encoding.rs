@@ -351,7 +351,7 @@ pub fn intern_image_strings(draw: &mut super::draw_frame::DrawOpFrame) {
             ImageRef::Static { asset_id } | ImageRef::VideoFrame { asset_id, .. } => {
                 push_unique(strings, asset_id);
             }
-            ImageRef::Generated { .. } => {}
+            ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
         }
     }
 }
@@ -944,6 +944,12 @@ fn encode_image_ref(
             write_u64(out, id.0);
             write_u32(out, 0);
         }
+        ImageRef::Encoded { data } => {
+            write_u8(out, 3);
+            write_u32(out, data.0);
+            write_u32(out, 0);
+            write_u32(out, 0);
+        }
     }
     Ok(())
 }
@@ -1478,6 +1484,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                     write_u64(buf, id.0); // generated id
                     write_u32(buf, 0); // reserved (pad id-slot to 12 bytes)
                 }
+                ImageRef::Encoded { data } => {
+                    // tag 3: bytes-range id into the frame byte table; the
+                    // consumer owns decoding.
+                    write_u8(buf, 3);
+                    write_u32(buf, data.0);
+                    write_u64(buf, 0); // pad id-slot to 12 bytes
+                }
             }
             write_f32(buf, *x);
             write_f32(buf, *y);
@@ -1514,6 +1527,11 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                     write_u8(buf, 2); // tag: Generated
                     write_u64(buf, id.0);
                     write_u32(buf, 0); // reserved
+                }
+                ImageRef::Encoded { data } => {
+                    write_u8(buf, 3); // tag: Encoded
+                    write_u32(buf, data.0);
+                    write_u64(buf, 0); // pad id-slot to 12 bytes
                 }
             }
             write_u8(buf, if src.is_some() { 1 } else { 0 });

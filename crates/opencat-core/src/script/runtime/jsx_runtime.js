@@ -686,7 +686,7 @@
     var SUPPORTED_TAGS = {
         div: true, text: true, canvas: true, image: true, audio: true,
         video: true, icon: true, transition: true, tl: true, caption: true,
-        path: true, lottie: true,
+        path: true, lottie: true, svg: true,
     };
 
     function emitElement(el, parentId, lines, audioSites) {
@@ -777,8 +777,15 @@
                     line.aspectRatio = String(props.aspectRatio);
                 }
                 break;
-            case 'lottie':
-                assignSource(line, props);
+            case 'svg':
+                // External SVG file (PLAN §4). `src` stays verbatim — the
+                // Rust side resolves it against the jsx base_dir itself, so
+                // absolute corpus paths are not rewritten to `url`.
+                if (props.src !== undefined && props.src !== null) line.src = String(props.src);
+                if (props.width !== undefined && props.width !== null) line.width = num(props.width);
+                if (props.height !== undefined && props.height !== null) line.height = num(props.height);
+                var par = props['preserveAspectRatio'];
+                if (par !== undefined && par !== null && par !== '') line.preserveAspectRatio = String(par);
                 break;
             case 'video':
                 assignSource(line, props);

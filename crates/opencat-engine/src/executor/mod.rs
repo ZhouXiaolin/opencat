@@ -65,6 +65,19 @@ pub struct EngineDrawExecutor {
     pub(crate) backdrop_next: usize,
     /// 预录前缀期间为真：此时 `SaveBackdropLayer` 走原始 Skia 路径且不消费槽位。
     pub(crate) backdrop_building: bool,
+    /// svg `<mask>` 的 coverage 栈（全帧 skia Image，rgb=0、a=coverage）。
+    /// MaskClip 时折算入栈；所在层 Restore 前以 DstIn blend 画回层上——
+    /// 全程 canvas API 无像素拷贝。skia blend 的定点乘是 round 型，与
+    /// resvg `apply_mask` 的 `(v+255)>>8` 同式（clip coverage 的截断量化
+    /// 在 0.5/255 边界差 1，经 unpremul 放大成全幅差，不可用）。
+    pub(crate) mask_stack: Vec<skia_safe::Image>,
+    /// 各 `SaveLayer` 入栈时的 mask_stack 长度基准；Restore 时 drain 到该
+    /// 长度。只记 SaveLayer 不记 Save，多余的 Restore 不弹记录——emit 侧
+    /// SaveLayer/Restore 历史配平不严格（1:2），按记录配对会整体错位。
+    pub(crate) layer_marks: Vec<usize>,
+    /// mask 子树重放深度：重放期间子树自己的 SaveLayer/Restore 不得触碰
+    /// layer_marks（否则子树的配平 Restore 会弹掉主流程的层基准）。
+    pub(crate) mask_replay: u32,
 }
 
 impl EngineDrawExecutor {
@@ -80,6 +93,9 @@ impl EngineDrawExecutor {
             backdrop_pictures: Vec::new(),
             backdrop_next: 0,
             backdrop_building: false,
+            mask_stack: Vec::new(),
+            layer_marks: Vec::new(),
+            mask_replay: 0,
         }
     }
 
@@ -91,6 +107,9 @@ impl EngineDrawExecutor {
         sp.set_style(skia_safe::paint::Style::Stroke);
         self.current_stroke_paint = sp;
         self.current_alpha = 1.0;
+        self.mask_stack.clear();
+        self.layer_marks.clear();
+        self.mask_replay = 0;
     }
 }
 

@@ -990,7 +990,7 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
     let radii = effective_corner_radius(&rect, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
         push_rrect_path(builder, rect_to_rect4(rect), radii_to_radii4(radii));
-        builder.push(DrawOp::ClipPath { anti_alias: true });
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     } else {
         let r4 = rect_to_rect4(rect);
         builder.push(DrawOp::BeginPath);
@@ -1000,7 +1000,7 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
             width: r4.width,
             height: r4.height,
         }));
-        builder.push(DrawOp::ClipPath { anti_alias: true });
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     }
 }
 
@@ -1650,7 +1650,7 @@ pub fn render_draw_script(
             width: item.bounds.width,
             height: item.bounds.height,
         }));
-        ctx.builder.push(DrawOp::ClipPath { anti_alias: true });
+        ctx.builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     }
 
     for command in &item.commands {
@@ -1917,6 +1917,18 @@ fn execute_draw_op(
                 stroke: stroke.clone(),
             });
         }
+        // svg `<mask>` — same forwarding contract.
+        DrawOp::MaskClip {
+            subtree,
+            kind,
+            region,
+        } => {
+            b.push(DrawOp::MaskClip {
+                subtree: *subtree,
+                kind: *kind,
+                region: *region,
+            });
+        }
         // Not produced by the canvas script API (only by the renderer's own
         // backdrop-filter emission), but pass it through faithfully.
         DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
@@ -2017,9 +2029,10 @@ fn execute_draw_op(
         DrawOp::StrokePath => {
             b.push(DrawOp::StrokePath);
         }
-        DrawOp::ClipPath { anti_alias } => {
+        DrawOp::ClipPath { anti_alias, fill_type } => {
             b.push(DrawOp::ClipPath {
                 anti_alias: *anti_alias,
+                fill_type: *fill_type,
             });
         }
 
@@ -2450,7 +2463,7 @@ fn render_transition_overlay(
                 width: clip_rect4.width,
                 height: clip_rect4.height,
             }));
-            builder.push(DrawOp::ClipPath { anti_alias: false });
+            builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
         }
         TransitionKind::ClockWipe => {
             let sweep = (1.0 - p) * 360.0;
@@ -2475,7 +2488,7 @@ fn render_transition_overlay(
                     width: bounded_rect4.width,
                     height: bounded_rect4.height,
                 }));
-                builder.push(DrawOp::ClipPath { anti_alias: false });
+                builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
                 builder.push(DrawOp::Arc {
                     rect: bounded_rect4,
                     start: -90.0,
@@ -2630,7 +2643,7 @@ pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Resul
             width: rect4.width,
             height: rect4.height,
         }));
-        ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
+        ctx.builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
 
         ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(rect4),

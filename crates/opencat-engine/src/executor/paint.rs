@@ -80,7 +80,7 @@ fn float4_to_color(c: [f32; 4]) -> Color {
 
 // ── Blend mode ────────────────────────────────────────────────────────
 
-fn convert_blend_mode(m: BlendMode) -> SkBlendMode {
+pub(crate) fn convert_blend_mode(m: BlendMode) -> SkBlendMode {
     match m {
         BlendMode::Clear => SkBlendMode::Clear,
         BlendMode::Src => SkBlendMode::Src,

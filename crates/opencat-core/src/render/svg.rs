@@ -160,6 +160,22 @@ fn render_node(
     }
 }
 
+/// clipPath 的有效子形状数（resvg clip.rs draw_children 的同类集合：
+/// Path/Text/Group；Image 等忽略）。Text 按展开后的 glyph 数计——多字形
+/// 是 union 语义，必须走 mask 化路径（逐个 ClipPath 求交会剪成空集）。
+fn clip_shape_count(group: &usvg::Group) -> usize {
+    group
+        .children()
+        .iter()
+        .map(|n| match n {
+            usvg::Node::Image(_) => 0,
+            usvg::Node::Group(g) => clip_shape_count(g),
+            usvg::Node::Text(t) => clip_shape_count(t.flattened()),
+            usvg::Node::Path(_) => 1,
+        })
+        .sum()
+}
+
 fn render_group(
     builder: &mut DrawOpBuilder,
     state: &mut EmitState,
@@ -169,6 +185,11 @@ fn render_group(
     if std::env::var("OC_SVG_DEBUG").is_ok() {
         eprintln!("[svg] group ts={:?} isolate={} children={}", (group.transform().sx, group.transform().kx, group.transform().ky, group.transform().sy, group.transform().tx, group.transform().ty), group.should_isolate(), group.children().len());
     }
+    // 多子形状的 clipPath 转 mask（见 emit_clip）需要层载体（DstIn 挂在
+    // SaveLayer 上），非隔离组此时也要走隔离路径。
+    let mask_clip = group
+        .clip_path()
+        .is_some_and(|c| clip_shape_count(c.root()) > 1);
     // Save 先于组矩阵落盘：执行端 Restore 回滚到进组前的 CTM。若 Save 晚于
     // Concat，Restore 只能恢复到组矩阵生效后，矩阵会泄漏给后续兄弟
     // （use x=60 的兄弟叠加成 y=120→180 出界的实例教训）。隔离组的
@@ -176,7 +197,7 @@ fn render_group(
     builder.push(DrawOp::Save);
     concat(builder, state, group.transform());
 
-    if !group.should_isolate() {
+    if !group.should_isolate() && !mask_clip {
         // 非隔离组：clip 是唯一需要落盘的状态（几何裁剪，与 resvg 的
         // 隔离层路径相比少一次离屏，结果一致）。
         if let Some(clip) = group.clip_path() {
@@ -273,7 +294,15 @@ fn emit_mask(builder: &mut DrawOpBuilder, state: &mut EmitState, mask: &usvg::Ma
 fn emit_clip(builder: &mut DrawOpBuilder, state: &mut EmitState, clip: &usvg::ClipPath) {
     let t = clip.transform();
     concat(builder, state, t);
-    if emit_clip_shapes(builder, state, clip.root()) == 0 {
+    // 多子形状：SVG 语义是子形状 union（clip-rule 只管单个形状内部的
+    // 自交），ClipPath op 串联是求交，表达不了——转 MaskClip(kind=alpha)。
+    // resvg clip.rs 正是子形状以 Clear 擦同一张 coverage 后 apply_mask，
+    // 与 mask 的 DstIn 管线同源位对齐。子形状 fill 默认黑（alpha=1），
+    // alpha 直取即 coverage。单子形状仍走 ClipPath op（shapes/structure
+    // 已对齐的边缘量化不受影响）。
+    if clip_shape_count(clip.root()) > 1 {
+        emit_clip_as_mask(builder, clip);
+    } else if emit_clip_shapes(builder, state, clip.root()) == 0 {
         // clipPath 无有效子形状（invisible/空）：剪掉一切（resvg 同语义）。
         emit_empty_clip(builder);
     }
@@ -284,6 +313,28 @@ fn emit_clip(builder: &mut DrawOpBuilder, state: &mut EmitState, clip: &usvg::Cl
     if let Some(inner) = clip.clip_path() {
         emit_clip(builder, state, inner);
     }
+}
+
+/// 多子形状 clipPath → MaskClip：内容子树（user space）+ alpha 折算 +
+/// region（子树 bbox 外扩 AA 裙边；coverage 实际形状由子树渲染决定）。
+fn emit_clip_as_mask(builder: &mut DrawOpBuilder, clip: &usvg::ClipPath) {
+    let subtree = builder
+        .record_subtree(|b| {
+            let mut sub_state = EmitState {
+                ts: Transform::default(),
+            };
+            render_nodes(b, &mut sub_state, clip.root());
+            Ok::<(), ()>(())
+        })
+        .expect("subtree recording cannot fail");
+    // 空 bbox = 全剪（mask_push_tiny 的退化 region → 全 0 coverage）。
+    let r = clip.root().bounding_box();
+    let (x, y, w, h) = (r.x() - 1.0, r.y() - 1.0, r.width() + 2.0, r.height() + 2.0);
+    builder.push(DrawOp::MaskClip {
+        subtree,
+        kind: 1,
+        region: Rect4 { x, y, width: w, height: h },
+    });
 }
 
 /// clip 内容只消费形状：走执行端 current_path（BeginPath+Path+ClipPath）。
@@ -318,8 +369,21 @@ fn emit_clip_shapes(
             }
             usvg::Node::Group(group) => {
                 let outer = state.ts;
-                concat(builder, state, group.transform());
+                let gt = group.transform();
+                concat(builder, state, gt);
+                // 带组属性的 clip 子形状（如 clip-path）被 usvg 包成组
+                // （converter.rs convert_group）：先发内层 clip 再递归形状
+                // ——ClipPath 全是 Intersect，与 resvg 的「子内容离屏套
+                // 内层 clip 再合回」等价。
+                if let Some(inner) = group.clip_path() {
+                    emit_clip(builder, state, inner);
+                }
                 emitted += emit_clip_shapes(builder, state, group);
+                // 逆矩阵必须落盘：ClipPath 是设备空间记录，组变换泄漏进
+                // CTM 会缩放/旋转后续子形状的 clip（with-transform 实例）。
+                if let Some(inv) = gt.invert() {
+                    concat(builder, state, inv);
+                }
                 state.ts = outer;
             }
             usvg::Node::Text(text) => {

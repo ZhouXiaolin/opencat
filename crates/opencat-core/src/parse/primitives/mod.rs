@@ -7,10 +7,12 @@ mod lottie;
 mod lucide;
 mod path;
 mod subtitle;
+mod svg;
 mod text;
 mod video;
 
 pub use crate::style::{AlignItems, JustifyContent, Position};
+pub use svg::{Svg, svg};
 pub use audio::AudioSource;
 pub use canvas::{Canvas, CanvasAsset, canvas};
 pub use caption::{CaptionNode, SrtEntry, caption, parse_srt};

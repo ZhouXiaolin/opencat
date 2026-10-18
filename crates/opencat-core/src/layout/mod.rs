@@ -458,6 +458,7 @@ fn cached_node_kind(element: &ElementNode) -> CachedNodeKind {
         ElementKind::Lottie(_) => CachedNodeKind::Bitmap,
         ElementKind::Canvas(_) => CachedNodeKind::Canvas,
         ElementKind::SvgPath(_) => CachedNodeKind::SvgPath,
+        ElementKind::Svg(_) => CachedNodeKind::Bitmap,
     }
 }
 
@@ -488,7 +489,30 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
     // SvgPath、文本测量）由 measure 回调在 size 为 auto 时提供，与浏览器
     // `width: auto` 语义一致，不在此覆盖。
     if let Some(css) = &element.style.css_layout {
-        return css.0.clone();
+        // <svg> 的 auto 尺寸回填元素 width/height 属性或 svg intrinsic
+        // （浏览器 width:auto 语义）；CSS 显式尺寸优先，不覆盖。
+        let mut style = css.0.clone();
+        if let ElementKind::Svg(svg) = &element.kind {
+            let fallback_w = svg
+                .width
+                .map(Dimension::length)
+                .or_else(|| svg.intrinsic_size.map(|(w, _)| Dimension::length(w)));
+            let fallback_h = svg
+                .height
+                .map(Dimension::length)
+                .or_else(|| svg.intrinsic_size.map(|(_, h)| Dimension::length(h)));
+            if style.size.width.is_auto() {
+                if let Some(w) = fallback_w {
+                    style.size.width = w;
+                }
+            }
+            if style.size.height.is_auto() {
+                if let Some(h) = fallback_h {
+                    style.size.height = h;
+                }
+            }
+        }
+        return style;
     }
     match &element.kind {
         ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => Style {
@@ -672,6 +696,36 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
             let default_size = svg
                 .intrinsic_size
                 .map(|(w, h)| (Dimension::length(w), Dimension::length(h)))
+                .unwrap_or((Dimension::auto(), Dimension::auto()));
+            Style {
+                size: taffy::geometry::Size {
+                    width: resolve_dimension(
+                        layout.width,
+                        layout.width_percent,
+                        layout.width_full,
+                        default_size.0,
+                    ),
+                    height: resolve_dimension(
+                        layout.height,
+                        None,
+                        layout.height_full,
+                        default_size.1,
+                    ),
+                },
+                ..base_style(element)
+            }
+        }
+        ElementKind::Svg(svg) => {
+            // 元素 width/height 属性覆盖 intrinsic；CSS 尺寸在 layout.*
+            // 里已优先（resolve_dimension 第一参），与 image 同序。
+            let default_size = svg
+                .intrinsic_size
+                .map(|(w, h)| (Dimension::length(w), Dimension::length(h)))
+                .or_else(|| {
+                    svg.width
+                        .zip(svg.height)
+                        .map(|(w, h)| (Dimension::length(w), Dimension::length(h)))
+                })
                 .unwrap_or((Dimension::auto(), Dimension::auto()));
             Style {
                 size: taffy::geometry::Size {

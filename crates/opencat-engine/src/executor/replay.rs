@@ -783,8 +783,14 @@ fn replay_op(
             Ok(())
         }
         DrawOp::DrawPath { path, paint: pid } => {
-            let sk_path = path_from_encoded(&draw.paths[path.0 as usize]);
-            let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
+            let encoded = &draw.paths[path.0 as usize];
+            let spec = &draw.paints[pid.0 as usize];
+            // SVG 对齐：tiny-skia 光栅化与 resvg 同源（见 path_tiny 模块注）。
+            if super::path_tiny::draw_path_tiny(canvas, encoded, spec, exec.current_alpha) {
+                return Ok(());
+            }
+            let sk_path = path_from_encoded(encoded);
+            let mut paint = paint_from_spec(spec);
             apply_global_alpha(&mut paint, exec.current_alpha);
             canvas.draw_path(&sk_path, &paint);
             Ok(())
@@ -893,6 +899,22 @@ fn replay_op(
                                 // 布局侧 1.42x wrapper）linear 的 p8 比 Mitchell
                                 // 低约 0.003，且快约 2.6 倍。
                                 SamplingOptions::new(FilterMode::Linear, MipmapMode::None)
+                            } else {
+                                SamplingOptions {
+                                    use_cubic: true,
+                                    cubic: CubicResampler::mitchell(),
+                                    ..SamplingOptions::default()
+                                }
+                            }
+                        }
+                        ImageRef::Encoded { .. } => {
+                            // svg `<image>` 的参考是 resvg：FilterQuality::Bicubic
+                            // （rendering_mode=OptimizeQuality），放大缩小都走
+                            // Mitchell 同核、不落 mipmap。1:1 blit 时 bicubic
+                            // 退化为精确拷贝，与 VideoFrame 同款走 Nearest。
+                            let src_size = (sk_image.width() as f32, sk_image.height() as f32);
+                            if is_identity_blit(canvas, src_size, src_rect.as_ref(), &dst_rect) {
+                                SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)
                             } else {
                                 SamplingOptions {
                                     use_cubic: true,

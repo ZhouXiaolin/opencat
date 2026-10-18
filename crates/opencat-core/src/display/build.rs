@@ -8,7 +8,8 @@ use crate::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, LottieDisplayItem, RectDisplayItem,
-            RectPaintStyle, SvgPathDisplayItem, SvgPathPaintStyle, TextDisplayItem,
+            RectPaintStyle, SvgDisplayItem, SvgPathDisplayItem, SvgPathPaintStyle,
+            TextDisplayItem,
             TimelineDisplayItem, TimelineTransitionDisplay,
         },
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
@@ -591,6 +592,11 @@ fn display_item_for_node(
                 stroke_dashoffset: element.style.visual.stroke_dashoffset,
             },
             view_box: svg.view_box,
+        }),
+        ElementKind::Svg(svg) => DisplayItem::Svg(SvgDisplayItem {
+            bounds,
+            src: svg.src.clone(),
+            preserve_aspect_ratio: svg.preserve_aspect_ratio.clone(),
         }),
     }
 }

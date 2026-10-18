@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use crate::ir::draw_frame::DrawOpFrame;
 use crate::ir::draw_op::{DrawOp, Rect4};
-use crate::ir::draw_types::{DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId};
+use crate::ir::draw_types::{BytesRangeId, DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId};
 use crate::ir::generated_image::{GeneratedImageId, GeneratedImageTable};
-use crate::ir::media_plan::{FrameGeneratedImage, FrameMediaPlan};
+use crate::ir::media_plan::{FrameEncodedImage, FrameGeneratedImage, FrameMediaPlan};
 
 /// Mutable accumulator for building a `FrameMediaPlan`. Each bucket keeps its
 /// own dedup set so that static images, video frames, generated images, and
@@ -16,9 +16,15 @@ struct MediaCollector {
     video_frames: Vec<ImageRef>,
     /// Deduped generated ids in first-seen order; RGBA is resolved after the walk.
     generated_ids: Vec<GeneratedImageId>,
+    /// Deduped encoded-image byte ranges in first-seen order; bytes and the
+    /// producer-declared natural size are resolved after the walk.
+    encoded_ids: Vec<BytesRangeId>,
+    /// Natural size declared at emission time for each encoded-image range.
+    encoded_sizes: HashMap<BytesRangeId, (u32, u32)>,
     lottie_bundles: Vec<String>,
     seen_images: HashSet<ImageRef>,
     seen_generated: HashSet<GeneratedImageId>,
+    seen_encoded: HashSet<BytesRangeId>,
     seen_lottie: HashSet<String>,
     visited_ranges: HashSet<DrawOpRange>,
     visited_subtrees: HashSet<SubtreeId>,
@@ -35,9 +41,12 @@ impl MediaCollector {
             images: Vec::new(),
             video_frames: Vec::new(),
             generated_ids: Vec::new(),
+            encoded_ids: Vec::new(),
+            encoded_sizes: HashMap::new(),
             lottie_bundles: Vec::new(),
             seen_images: HashSet::new(),
             seen_generated: HashSet::new(),
+            seen_encoded: HashSet::new(),
             seen_lottie: HashSet::new(),
             visited_ranges: HashSet::new(),
             visited_subtrees: HashSet::new(),
@@ -65,6 +74,11 @@ impl MediaCollector {
             ImageRef::Generated { id } => {
                 if self.seen_generated.insert(*id) {
                     self.generated_ids.push(*id);
+                }
+            }
+            ImageRef::Encoded { data } => {
+                if self.seen_encoded.insert(*data) {
+                    self.encoded_ids.push(*data);
                 }
             }
         }
@@ -179,6 +193,27 @@ pub fn build_media_plan(
         });
     }
 
+    let mut encoded_images = Vec::with_capacity(collector.encoded_ids.len());
+    for data in collector.encoded_ids {
+        let Some(range) = frame.byte_ranges.get(data.0 as usize) else {
+            panic!(
+                "DrawOp references BytesRangeId {data:?} missing from the frame byte table; \
+                 core must intern bytes before emitting ImageRef::Encoded"
+            )
+        };
+        let Some(bytes) = frame.bytes.get(range.start as usize..(range.start + range.len) as usize)
+        else {
+            panic!("BytesRangeId {data:?} range out of bounds in the frame byte table")
+        };
+        let (width, height) = collector.encoded_sizes.get(&data).copied().unwrap_or((0, 0));
+        encoded_images.push(FrameEncodedImage {
+            data,
+            width,
+            height,
+            bytes: Arc::from(bytes),
+        });
+    }
+
     // Only surface overrides for assets this frame actually references, so
     // the per-frame plan stays a pure function of the frame's draw ops plus
     // the document's static asset declarations.
@@ -198,6 +233,7 @@ pub fn build_media_plan(
         images: collector.images,
         video_frames: collector.video_frames,
         generated_images,
+        encoded_images,
         lottie_bundles: collector.lottie_bundles,
         // Runtime effects are interned in a side table; expose all of them
         // deduplicated by effect id (the table itself is already unique).
@@ -217,6 +253,16 @@ fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollect
                 image, src, dst, ..
             } => {
                 collector.push_image(image);
+                // Encoded images declare their natural size via the ImageRect
+                // dst (emitters write (0,0,natural_w,natural_h) in local
+                // space); the host still learns the device draw size through
+                // `image_draw_sizes`.
+                if let ImageRef::Encoded { data } = image {
+                    collector
+                        .encoded_sizes
+                        .entry(*data)
+                        .or_insert((dst.width as u32, dst.height as u32));
+                }
                 // Cover 的视频帧跳过预缩：target 会把整帧**非等比**拉伸到
                 // dst，而解码侧只回单一水平 scale，cover 取样区按它折算
                 // 必然错位放大（flex-footage 三卡整体放大的根因）。原生

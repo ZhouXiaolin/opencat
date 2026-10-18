@@ -1,5 +1,6 @@
 pub mod paint;
 pub mod path;
+pub mod path_tiny;
 mod replay;
 
 use opencat_core::ir::draw_frame::DrawOpFrame;

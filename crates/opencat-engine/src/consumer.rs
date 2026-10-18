@@ -167,7 +167,7 @@ fn validate_image_handles(
                 }
             }
             // Static bucket only carries external images.
-            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } => {}
+            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
         }
     }
     Ok(())
@@ -188,7 +188,7 @@ fn validate_video_handles(
                     });
                 }
             }
-            ImageRef::Static { .. } | ImageRef::Generated { .. } => {}
+            ImageRef::Static { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
         }
     }
     Ok(())
@@ -277,9 +277,28 @@ fn prepare_frame(
                 image_index.insert(image_ref.clone(), idx);
             }
             // Static bucket only carries external images; video refs live in
-            // `plan.video_frames` and generated refs in `plan.generated_images`.
-            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } => {}
+            // `plan.video_frames`, generated refs in `plan.generated_images`,
+            // encoded refs in `plan.encoded_images`.
+            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
         }
+    }
+
+    // Frame-embedded encoded images (svg `<image>` bytes interned by core).
+    // Core forwards the bytes untouched; decoding is engine work. Drawn at
+    // natural decode size through the CTM — no draw-size pre-shrink, svg
+    // alignment wants resvg's single bicubic resample.
+    for entry in &plan.encoded_images {
+        let image_ref = ImageRef::Encoded { data: entry.data };
+        let sk_image = video.encoded_image(entry.data, &entry.bytes).map_err(|e| {
+            MediaError::ImageDecodeFailed {
+                asset_id: format!("<encoded #{}>", entry.data.0),
+                detail: e.to_string(),
+            }
+        })?;
+        let idx = sk_images.len();
+        sk_images.push(sk_image);
+        image_scales.push(1.0);
+        image_index.insert(image_ref, idx);
     }
 
     // Video frame references: resolved from the authoritative `time_micros`,
@@ -330,7 +349,7 @@ fn prepare_frame(
                 image_index.insert(image_ref.clone(), idx);
             }
             // Defensive: the video bucket only carries video refs.
-            ImageRef::Static { .. } | ImageRef::Generated { .. } => {}
+            ImageRef::Static { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
         }
     }
 

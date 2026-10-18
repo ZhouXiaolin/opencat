@@ -122,6 +122,7 @@ pub enum DisplayItem {
     Lottie(LottieDisplayItem),
     DrawScript(DrawScriptDisplayItem),
     SvgPath(SvgPathDisplayItem),
+    Svg(SvgDisplayItem),
 }
 
 #[derive(Clone, Debug)]
@@ -259,6 +260,15 @@ pub struct SvgPathDisplayItem {
     pub view_box: [f32; 4],
 }
 
+/// `<svg src>` 显示项：文件路径在渲染时经 `render::svg::load_tree` 缓存展开
+/// （PLAN §4）。
+#[derive(Clone, Debug)]
+pub struct SvgDisplayItem {
+    pub bounds: DisplayRect,
+    pub src: std::path::PathBuf,
+    pub preserve_aspect_ratio: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct PictureSemantics {
     pub record_bounds: DisplayRect,
@@ -310,6 +320,7 @@ impl DisplayItem {
             Self::Lottie(lottie) => lottie.bounds,
             Self::DrawScript(script) => script.bounds,
             Self::SvgPath(svg) => svg.bounds,
+            Self::Svg(item) => item.bounds,
         }
     }
 
@@ -330,7 +341,7 @@ impl DisplayItem {
             Self::Timeline(timeline) => &timeline.paint.box_shadow,
             Self::Bitmap(bitmap) => &bitmap.paint.box_shadow,
             Self::Lottie(lottie) => &lottie.paint.box_shadow,
-            Self::Text(_) | Self::DrawScript(_) | Self::SvgPath(_) => &[],
+            Self::Text(_) | Self::DrawScript(_) | Self::SvgPath(_) | Self::Svg(_) => &[],
         };
         for shadow in box_shadows {
             let (left, top, right, bottom) = shadow.outsets();
@@ -345,6 +356,7 @@ impl DisplayItem {
             Self::Lottie(lottie) => &lottie.paint.drop_shadow,
             Self::DrawScript(script) => &script.drop_shadow,
             Self::SvgPath(svg) => &svg.paint.drop_shadow,
+            Self::Svg(_) => &[],
         };
         for shadow in drop_shadows {
             let (left, top, right, bottom) = shadow.outsets();

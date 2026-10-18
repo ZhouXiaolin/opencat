@@ -74,6 +74,12 @@ pub enum ParsedElementKind {
         data: String,
         view_box: Option<[f32; 4]>,
     },
+    Svg {
+        src: PathBuf,
+        width: Option<f32>,
+        height: Option<f32>,
+        preserve_aspect_ratio: Option<String>,
+    },
     Video {
         source: VideoSource,
         timing: VideoFrameTiming,

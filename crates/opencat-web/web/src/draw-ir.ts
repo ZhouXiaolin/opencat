@@ -152,7 +152,10 @@ type Range = { start: number; len: number };
 type DecodedImageRef =
   | { type: 'static'; assetId: string }
   | { type: 'video'; assetId: string; timeMicros: bigint }
-  | { type: 'generated'; id: bigint };
+  | { type: 'generated'; id: bigint }
+  // svg <image>: encoded bytes live in the frame byte table; the host
+  // decodes (core stays a pure protocol layer).
+  | { type: 'encoded'; byteId: number };
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
@@ -1326,6 +1329,12 @@ function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
     payload.u32(); // reserved
     return { type: 'generated', id };
   }
+  // Encoded bytes: tag(1) + byte_id_u32(4) + pad to the 12-byte id-slot.
+  if (tag === 3) {
+    const byteId = payload.u32();
+    payload.u64(); // reserved
+    return { type: 'encoded', byteId };
+  }
   const assetId = frame.strings[payload.u32()] ?? '';
   const timeMicros = payload.u64();
   return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
@@ -1337,6 +1346,11 @@ function readImageRefFromReader(reader: BinaryReader, strings: string[]): Decode
     const id = reader.u64();
     reader.u32(); // reserved
     return { type: 'generated', id };
+  }
+  if (tag === 3) {
+    const byteId = reader.u32();
+    reader.u64(); // reserved
+    return { type: 'encoded', byteId };
   }
   const assetId = strings[reader.u32()] ?? '';
   const timeMicros = reader.u64();

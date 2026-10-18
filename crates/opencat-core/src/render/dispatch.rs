@@ -66,6 +66,11 @@ fn render_display_item_direct(ctx: &mut RenderCtx, item: &DisplayItem) -> Result
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg").entered();
             super::helpers::render_svg_path(ctx, svg)
         }
+        DisplayItem::Svg(item) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg_file").entered();
+            super::helpers::render_svg(ctx, item)
+        }
     }
 }
 

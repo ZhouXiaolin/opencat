@@ -185,7 +185,10 @@ type ImageFilterSpec =
   | { type: 'blur'; sigmaX: number; sigmaY: number; decal: boolean }
   | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[]; keepContent: boolean }
   | { type: 'colorFilter'; filter: ColorFilterSpec }
-  | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec };
+  | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec }
+  // SVG `<filter>` primitive 链（P4）。web 侧透传字节流（字段不解构成
+  // CanvasKit filter），保证 reader 对齐即可。
+  | { type: 'chain'; output: number; primitives: unknown[] };
 
 type ColorFilterSpec =
   | { type: 'matrix'; matrix: number[] }
@@ -1315,7 +1318,110 @@ function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
     };
   }
   if (kind === 2) return { type: 'colorFilter', filter: parseColorFilter(reader) };
-  return { type: 'compose', outer: parseImageFilter(reader), inner: parseImageFilter(reader) };
+  if (kind === 3) return { type: 'compose', outer: parseImageFilter(reader), inner: parseImageFilter(reader) };
+  // kind === 4：chain。字段序与 Rust `encode_filter_chain` 严格对称，
+  // 逐 primitive 读完（web 渲染暂不消费这些字段）。
+  const hasSourceCrop = reader.u8() !== 0;
+  if (hasSourceCrop) reader.f32Array(4);
+  const output = reader.u16();
+  const count = reader.u32();
+  const primitives: unknown[] = [];
+  for (let i = 0; i < count; i++) {
+    const hasCrop = reader.u8() !== 0;
+    const crop = hasCrop ? reader.f32Array(4) : null;
+    const srgb = reader.u8() !== 0;
+    primitives.push({ crop, srgb, kind: parseFilterPrimKind(reader) });
+  }
+  return { type: 'chain', output, primitives };
+}
+
+function parseFilterInput(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  if (tag === 2) return { type: 'prim', index: reader.u16() };
+  return { type: tag === 1 ? 'sourceAlpha' : 'sourceGraphic' };
+}
+
+function parseTransferFn(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  if (tag === 0) return { type: 'identity' };
+  if (tag === 1 || tag === 2) return { type: tag === 1 ? 'table' : 'discrete', values: readF32Vec(reader) };
+  if (tag === 3) return { type: 'linear', slope: reader.f32(), intercept: reader.f32() };
+  return { type: 'gamma', amplitude: reader.f32(), exponent: reader.f32(), offset: reader.f32() };
+}
+
+function parseLightSpec(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  if (tag === 0) return { type: 'distant', azimuth: reader.f32(), elevation: reader.f32() };
+  if (tag === 1) return { type: 'point', x: reader.f32(), y: reader.f32(), z: reader.f32() };
+  return {
+    type: 'spot',
+    x: reader.f32(), y: reader.f32(), z: reader.f32(),
+    pointsAtX: reader.f32(), pointsAtY: reader.f32(), pointsAtZ: reader.f32(),
+    specularExponent: reader.f32(), limitingConeAngle: reader.f32(),
+  };
+}
+
+function parseFilterPrimKind(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  switch (tag) {
+    case 0: return { type: 'blend', mode: reader.u8(), in1: parseFilterInput(reader), in2: parseFilterInput(reader) };
+    case 1: return { type: 'colorMatrix', rowMajor: reader.f32Array(20), input: parseFilterInput(reader) };
+    case 2: return {
+      type: 'componentTransfer',
+      fns: [parseTransferFn(reader), parseTransferFn(reader), parseTransferFn(reader), parseTransferFn(reader)],
+      input: parseFilterInput(reader),
+    };
+    case 3: return { type: 'composite', op: reader.u8(), k: reader.f32Array(4), in1: parseFilterInput(reader), in2: parseFilterInput(reader) };
+    case 4: {
+      const order = [reader.u32(), reader.u32()];
+      const kernel = readF32Vec(reader);
+      const divisor = reader.f32();
+      const bias = reader.f32();
+      const target = [reader.u32() | 0, reader.u32() | 0];
+      const kernelUnitLength = [reader.f32(), reader.f32()];
+      const edge = reader.u8();
+      const preserveAlpha = reader.u8() !== 0;
+      return { type: 'convolveMatrix', order, kernel, divisor, bias, target, kernelUnitLength, edge, preserveAlpha, input: parseFilterInput(reader) };
+    }
+    case 5: {
+      const surfaceScale = reader.f32();
+      const diffuseConstant = reader.f32();
+      const lightingColor = reader.f32Array(4);
+      const light = parseLightSpec(reader);
+      return { type: 'diffuseLighting', surfaceScale, diffuseConstant, lightingColor, light, input: parseFilterInput(reader) };
+    }
+    case 6: return { type: 'displacementMap', xChannel: reader.u8(), yChannel: reader.u8(), scale: reader.f32(), input: parseFilterInput(reader), in2: parseFilterInput(reader) };
+    case 7: {
+      const dx = reader.f32(); const dy = reader.f32(); const sigmaX = reader.f32(); const sigmaY = reader.f32();
+      const color = reader.f32Array(4);
+      return { type: 'dropShadow', dx, dy, sigmaX, sigmaY, color, input: parseFilterInput(reader) };
+    }
+    case 8: return { type: 'flood', color: reader.f32Array(4) };
+    case 9: return { type: 'gaussianBlur', sigmaX: reader.f32(), sigmaY: reader.f32(), input: parseFilterInput(reader) };
+    case 10: {
+      const inputs = Array.from({ length: reader.u32() }, () => parseFilterInput(reader));
+      return { type: 'merge', inputs };
+    }
+    case 11: return { type: 'morphology', erode: reader.u8() !== 0, radiusX: reader.f32(), radiusY: reader.f32(), input: parseFilterInput(reader) };
+    case 12: return { type: 'offset', dx: reader.f32(), dy: reader.f32(), input: parseFilterInput(reader) };
+    case 13: {
+      const surfaceScale = reader.f32();
+      const specularConstant = reader.f32();
+      const specularExponent = reader.f32();
+      const lightingColor = reader.f32Array(4);
+      const light = parseLightSpec(reader);
+      return { type: 'specularLighting', surfaceScale, specularConstant, specularExponent, lightingColor, light, input: parseFilterInput(reader) };
+    }
+    case 14: return { type: 'tile', input: parseFilterInput(reader) };
+    default: return {
+      type: 'turbulence',
+      fractal: reader.u8() !== 0,
+      baseFrequency: reader.f32Array(2),
+      numOctaves: reader.u32(),
+      seed: reader.f32(),
+      stitch: reader.u8() !== 0,
+    };
+  }
 }
 
 function parseColorFilter(reader: BinaryReader): ColorFilterSpec {

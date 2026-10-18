@@ -1,12 +1,13 @@
 use opencat_core::canvas::paint::{
-    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
-    PaintStyle, PathEffectSpec, ShaderSpec, StrokeCap, StrokeJoin, TileMode,
+    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, FilterChainSpec, FilterInput, FilterPrimKind,
+    ImageFilterSpec, LightSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec, ShaderSpec,
+    StrokeCap, StrokeJoin, TileMode, TransferFn,
 };
 use skia_safe::{
-    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorFilter, FilterMode, ImageFilter,
-    Matrix, MaskFilter, MipmapMode, Paint, PaintStyle as SkPaintStyle, PathEffect, SamplingOptions,
-    Shader, TileMode as SkTileMode, color_filters, gradient_shader, image_filters, surfaces,
-    scalar, shaders,
+    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel, ColorFilter,
+    FilterMode, ImageFilter, Matrix, MaskFilter, MipmapMode, Paint, PaintStyle as SkPaintStyle,
+    PathEffect, SamplingOptions, Shader, TileMode as SkTileMode, color_filters, gradient_shader,
+    image_filters, scalar, shaders, surfaces,
 };
 
 pub fn paint_from_spec(spec: &PaintSpec) -> Paint {
@@ -75,6 +76,16 @@ fn float4_to_color(c: [f32; 4]) -> Color {
         (c[0].clamp(0.0, 1.0) * 255.0) as u8,
         (c[1].clamp(0.0, 1.0) * 255.0) as u8,
         (c[2].clamp(0.0, 1.0) * 255.0) as u8,
+    )
+}
+
+/// 非预乘 [r,g,b,a]（0..1）→ Color4f（drop shadow 颜色不过 8bit 量化）。
+fn float4_to_color4f(c: [f32; 4]) -> skia_safe::Color4f {
+    skia_safe::Color4f::new(
+        c[0].clamp(0.0, 1.0),
+        c[1].clamp(0.0, 1.0),
+        c[2].clamp(0.0, 1.0),
+        c[3].clamp(0.0, 1.0),
     )
 }
 
@@ -352,7 +363,413 @@ pub(crate) fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFil
             let inn = build_skia_image_filter(inner)?;
             image_filters::compose(out, inn)
         }
+        ImageFilterSpec::Chain(chain) => build_filter_chain(chain),
     }
+}
+
+// ── SVG filter chain（P4）────────────────────────────────────────────
+
+/// SourceAlpha：输出 (0,0,0,a)（黑体 + alpha，resvg 同语义）。
+const SOURCE_ALPHA_MATRIX: [f32; 20] = [
+    0.0, 0.0, 0.0, 0.0, 0.0, //
+    0.0, 0.0, 0.0, 0.0, 0.0, //
+    0.0, 0.0, 0.0, 0.0, 0.0, //
+    0.0, 0.0, 0.0, 1.0, 0.0,
+];
+
+/// FilterChainSpec → skia filter 树：从 output primitive 递归展开。`Prim`
+/// 引用按各消费点重复展开（DAG 共享子链独立求值，语义等价）。
+/// SourceGraphic = None（skia 空 input 即层快照）。链输出恒 sRGB（层合成域）。
+fn build_filter_chain(chain: &FilterChainSpec) -> Option<ImageFilter> {
+    build_filter_prim(chain, chain.output as usize, true)
+}
+
+/// 段式色彩空间（与 resvg 的 per-primitive `into_color_space` 同构）：
+/// `want_srgb` 是消费方要求的空间；只有相邻 primitive 空间不同才插 gamma
+/// color filter，连续同空间原语零往返。crop 挂链段最外层，避免双重裁剪。
+/// SourceGraphic/SourceAlpha 先裁到 filter region（resvg 的 source 光栅化
+/// 天然只含 region 内容，region 外透明——blur/卷积的边界衰减依赖它）。
+fn build_filter_input(
+    chain: &FilterChainSpec,
+    input: &FilterInput,
+    want_srgb: bool,
+) -> Option<ImageFilter> {
+    let source_crop = || -> Option<ImageFilter> {
+        chain.source_crop.map(|r| {
+            image_filters::crop(
+                skia_safe::Rect::new(r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32),
+                SkTileMode::Decal,
+                None::<ImageFilter>,
+            )
+        })?
+    };
+    match input {
+        FilterInput::SourceGraphic => {
+            let f = source_crop();
+            if want_srgb {
+                f
+            } else {
+                image_filters::color_filter(
+                    color_filters::srgb_to_linear_gamma(),
+                    f,
+                    None::<image_filters::CropRect>,
+                )
+            }
+        }
+        FilterInput::SourceAlpha => {
+            // SourceAlpha 只保留 α，色彩空间无关，按 sRGB 计。
+            let f = image_filters::color_filter(
+                color_filters::matrix_row_major(&SOURCE_ALPHA_MATRIX, None),
+                source_crop(),
+                None::<image_filters::CropRect>,
+            )
+            .unwrap();
+            if want_srgb {
+                Some(f)
+            } else {
+                image_filters::color_filter(
+                    color_filters::srgb_to_linear_gamma(),
+                    f,
+                    None::<image_filters::CropRect>,
+                )
+            }
+        }
+        FilterInput::Prim(i) => build_filter_prim(chain, *i as usize, want_srgb),
+    }
+}
+
+fn chain_crop_rect(p: &opencat_core::canvas::paint::FilterPrimSpec) -> Option<image_filters::CropRect> {
+    p.crop.map(|r| {
+        image_filters::CropRect::from(skia_safe::Rect::new(
+            r.x0 as f32,
+            r.y0 as f32,
+            r.x1 as f32,
+            r.y1 as f32,
+        ))
+    })
+}
+
+fn build_filter_prim(
+    chain: &FilterChainSpec,
+    idx: usize,
+    out_srgb: bool,
+) -> Option<ImageFilter> {
+    let p = chain.primitives.get(idx)?;
+    let crop = chain_crop_rect(p);
+    let input_of = |i: &FilterInput| -> Option<ImageFilter> {
+        build_filter_input(chain, i, p.srgb)
+    };
+    // 各臂输出的原生域：消费 source 的 prim = primitive 的 cs；
+    // Flood 的 shader 输出恒 sRGB 数值，输出转换按此选方向，避免对
+    // 已是 sRGB 的值再 γ⁻¹（feBlend+feFlood 簇全图变亮的根因）。
+    let mut native_srgb = p.srgb;
+    let inner: Option<ImageFilter> = match &p.kind {
+        FilterPrimKind::Blend { mode, in1, in2 } => image_filters::blend(
+            convert_blend_mode(*mode),
+            input_of(in2),
+            input_of(in1),
+            crop,
+        ),
+        FilterPrimKind::ColorMatrix { row_major, input } => image_filters::color_filter(
+            color_filters::matrix_row_major(row_major, None),
+            input_of(input),
+            crop,
+        ),
+        FilterPrimKind::ComponentTransfer { fns, input } => {
+            // 恒等通道传 None 跳过量化和域变换。
+            let conv = |f: &TransferFn| -> Option<[u8; 256]> {
+                match f {
+                    TransferFn::Identity => None,
+                    other => Some(transfer_table(other)),
+                }
+            };
+            let cf = color_filters::table_argb(
+                conv(&fns[3]).as_ref(),
+                conv(&fns[0]).as_ref(),
+                conv(&fns[1]).as_ref(),
+                conv(&fns[2]).as_ref(),
+            )?;
+            image_filters::color_filter(cf, input_of(input), crop)
+        }
+        FilterPrimKind::Composite { op, k, in1, in2 } => {
+            let bg = input_of(in2);
+            let fg = input_of(in1);
+            match op {
+                0 => image_filters::blend(SkBlendMode::SrcOver, bg, fg, crop),
+                1 => image_filters::blend(SkBlendMode::SrcIn, bg, fg, crop),
+                2 => image_filters::blend(SkBlendMode::SrcOut, bg, fg, crop),
+                3 => image_filters::blend(SkBlendMode::SrcATop, bg, fg, crop),
+                4 => image_filters::blend(SkBlendMode::Xor, bg, fg, crop),
+                5 => image_filters::blend(SkBlendMode::Plus, bg, fg, crop),
+                6 => image_filters::arithmetic(k[0], k[1], k[2], k[3], true, bg, fg, crop),
+                _ => return None,
+            }
+        }
+        FilterPrimKind::ConvolveMatrix {
+            order,
+            kernel,
+            divisor,
+            bias,
+            target,
+            kernel_unit_length: _,
+            edge,
+            preserve_alpha,
+            input,
+        } => {
+            // edge 0 none / 1 duplicate / 2 wrap；unit length 由 usvg 忽略。
+            let tile = match edge {
+                1 => SkTileMode::Clamp,
+                2 => SkTileMode::Repeat,
+                _ => SkTileMode::Decal,
+            };
+            image_filters::matrix_convolution(
+                (order.0 as i32, order.1 as i32),
+                kernel,
+                1.0 / divisor,
+                *bias,
+                (target.0, target.1),
+                tile,
+                !*preserve_alpha,
+                input_of(input),
+                crop,
+            )
+        }
+        FilterPrimKind::DiffuseLighting {
+            surface_scale,
+            diffuse_constant,
+            lighting_color,
+            light,
+            input,
+        } => {
+            let c = float4_to_color(*lighting_color);
+            let inp = input_of(input);
+            match light {
+                LightSpec::Distant { azimuth, elevation } => image_filters::distant_lit_diffuse(
+                    light_direction(*azimuth, *elevation),
+                    c,
+                    *surface_scale,
+                    *diffuse_constant,
+                    inp,
+                    crop,
+                ),
+                LightSpec::Point { x, y, z } => image_filters::point_lit_diffuse(
+                    (*x, *y, *z),
+                    c,
+                    *surface_scale,
+                    *diffuse_constant,
+                    inp,
+                    crop,
+                ),
+                LightSpec::Spot { x, y, z, points_at_x, points_at_y, points_at_z, specular_exponent, limiting_cone_angle } => {
+                    image_filters::spot_lit_diffuse(
+                        (*x, *y, *z),
+                        (*points_at_x, *points_at_y, *points_at_z),
+                        *specular_exponent,
+                        limiting_cone_angle.to_radians(),
+                        c,
+                        *surface_scale,
+                        *diffuse_constant,
+                        inp,
+                        crop,
+                    )
+                }
+            }
+        }
+        FilterPrimKind::DisplacementMap {
+            x_channel,
+            y_channel,
+            scale,
+            input,
+            in2,
+        } => image_filters::displacement_map(
+            (channel_selector(*x_channel), channel_selector(*y_channel)),
+            *scale,
+            input_of(in2),
+            input_of(input),
+            crop,
+        ),
+        FilterPrimKind::DropShadow {
+            dx,
+            dy,
+            sigma_x,
+            sigma_y,
+            color,
+            input,
+        } => image_filters::drop_shadow(
+            (*dx, *dy),
+            (*sigma_x, *sigma_y),
+            float4_to_color4f(*color),
+            None::<skia_safe::ColorSpace>,
+            input_of(input),
+            crop,
+        ),
+        FilterPrimKind::Flood { color } => {
+            native_srgb = true;
+            image_filters::shader(shaders::color(float4_to_color(*color)), crop)
+        }
+        FilterPrimKind::GaussianBlur {
+            sigma_x,
+            sigma_y,
+            input,
+        } => image_filters::blur(
+            (*sigma_x, *sigma_y),
+            SkTileMode::Decal,
+            input_of(input),
+            crop,
+        ),
+        FilterPrimKind::Merge { inputs } => image_filters::merge(
+            inputs.iter().map(|i| build_filter_input(chain, i, p.srgb)),
+            crop,
+        ),
+        FilterPrimKind::Morphology {
+            erode,
+            radius_x,
+            radius_y,
+            input,
+        } => {
+            let f = if *erode {
+                image_filters::erode((*radius_x, *radius_y), input_of(input), crop)
+            } else {
+                image_filters::dilate((*radius_x, *radius_y), input_of(input), crop)
+            };
+            f
+        }
+        FilterPrimKind::Offset { dx, dy, input } => {
+            image_filters::offset((*dx, *dy), input_of(input), crop)
+        }
+        FilterPrimKind::SpecularLighting {
+            surface_scale,
+            specular_constant,
+            specular_exponent,
+            lighting_color,
+            light,
+            input,
+        } => {
+            let c = float4_to_color(*lighting_color);
+            let inp = input_of(input);
+            match light {
+                LightSpec::Distant { azimuth, elevation } => image_filters::distant_lit_specular(
+                    light_direction(*azimuth, *elevation),
+                    c,
+                    *surface_scale,
+                    *specular_constant,
+                    *specular_exponent,
+                    inp,
+                    crop,
+                ),
+                LightSpec::Point { x, y, z } => image_filters::point_lit_specular(
+                    (*x, *y, *z),
+                    c,
+                    *surface_scale,
+                    *specular_constant,
+                    *specular_exponent,
+                    inp,
+                    crop,
+                ),
+                LightSpec::Spot { x, y, z, points_at_x, points_at_y, points_at_z, specular_exponent: spot_exponent, limiting_cone_angle } => {
+                    image_filters::spot_lit_specular(
+                        (*x, *y, *z),
+                        (*points_at_x, *points_at_y, *points_at_z),
+                        *spot_exponent,
+                        limiting_cone_angle.to_radians(),
+                        c,
+                        *surface_scale,
+                        *specular_constant,
+                        *specular_exponent,
+                        inp,
+                        crop,
+                    )
+                }
+            }
+        }
+        // feTile 首版直通（语料占比小，tile 源/目标区域语义待对齐）。
+        FilterPrimKind::Tile { input } => build_filter_input(chain, input, p.srgb).or(None),
+        FilterPrimKind::Turbulence {
+            fractal,
+            base_frequency,
+            num_octaves,
+            seed,
+            stitch: _,
+        } => {
+            // stitchTiles 首版忽略（skia 需要 tile_size 取整频率，语料占比小）。
+            let sh = if *fractal {
+                shaders::fractal_noise(
+                    (base_frequency[0], base_frequency[1]),
+                    *num_octaves as usize,
+                    *seed,
+                    None,
+                )
+            } else {
+                shaders::turbulence(
+                    (base_frequency[0], base_frequency[1]),
+                    *num_octaves as usize,
+                    *seed,
+                    None,
+                )
+            }?;
+            image_filters::shader(sh, crop)
+        }
+    };
+    let inner = inner?;
+    // 输出域到消费方要求域的转换（同域零开销；转换层也挂同 crop，
+    // 与 prim 的 crop 重复裁同矩形恒等）。
+    if native_srgb == out_srgb {
+        Some(inner)
+    } else if out_srgb {
+        image_filters::color_filter(color_filters::linear_to_srgb_gamma(), inner, crop)
+    } else {
+        image_filters::color_filter(color_filters::srgb_to_linear_gamma(), inner, crop)
+    }
+}
+
+/// SVG azimuth/elevation（度）→ 光方向向量（skia/resvg 同构）。
+fn light_direction(azimuth: f32, elevation: f32) -> (scalar, scalar, scalar) {
+    let (az, el) = (azimuth.to_radians(), elevation.to_radians());
+    (az.cos() * el.cos(), az.sin() * el.cos(), el.sin())
+}
+
+fn channel_selector(c: u8) -> ColorChannel {
+    match c {
+        0 => ColorChannel::R,
+        1 => ColorChannel::G,
+        2 => ColorChannel::B,
+        _ => ColorChannel::A,
+    }
+}
+
+/// TransferFn → 256 项 unpremul 查表（engine 侧展开，SVG 规范插值）。
+fn transfer_table(f: &TransferFn) -> [u8; 256] {
+    let mut t = [0u8; 256];
+    for (i, out) in t.iter_mut().enumerate() {
+        let x = i as f32 / 255.0;
+        let v = match f {
+            TransferFn::Identity => x,
+            TransferFn::Table(v) => {
+                if v.len() < 2 {
+                    v.first().copied().unwrap_or(x)
+                } else {
+                    let k = (x * (v.len() - 1) as f32).floor() as usize;
+                    let k = k.min(v.len() - 2);
+                    let frac = x * (v.len() - 1) as f32 - k as f32;
+                    v[k] + (v[k + 1] - v[k]) * frac
+                }
+            }
+            TransferFn::Discrete(v) => {
+                if v.is_empty() {
+                    x
+                } else {
+                    let k = (x * v.len() as f32).floor() as usize;
+                    v[k.min(v.len() - 1)]
+                }
+            }
+            TransferFn::Linear { slope, intercept } => slope * x + intercept,
+            TransferFn::Gamma { amplitude, exponent, offset } => {
+                amplitude * x.powf(*exponent) + offset
+            }
+        };
+        *out = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    }
+    t
 }
 
 // ── Color filter ──────────────────────────────────────────────────────

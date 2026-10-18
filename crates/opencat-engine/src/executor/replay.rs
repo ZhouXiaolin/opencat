@@ -168,7 +168,7 @@ fn range_bounds(draw: &DrawOpFrame, range: DrawOpRange) -> Option<Rect> {
         .reduce(rect_union)
 }
 
-fn replay_subtree(
+pub(crate) fn replay_subtree(
     exec: &mut EngineDrawExecutor,
     canvas: &Canvas,
     draw: &DrawOpFrame,
@@ -621,9 +621,11 @@ fn replay_op(
 
         DrawOp::BeginPath => {
             exec.current_path = Some(PathBuilder::new());
+            exec.current_path_ops.clear();
             Ok(())
         }
         DrawOp::Path(path_op) => {
+            exec.current_path_ops.push(path_op.clone());
             if let Some(ref mut pb) = exec.current_path {
                 apply_path_op(pb, path_op);
             }
@@ -635,6 +637,7 @@ fn replay_op(
                 let mut paint = exec.current_fill_paint.clone();
                 apply_global_alpha(&mut paint, exec.current_alpha);
                 canvas.draw_path(&path, &paint);
+                exec.current_path_ops.clear();
                 exec.current_path = Some(PathBuilder::new());
             }
             Ok(())
@@ -645,6 +648,7 @@ fn replay_op(
                 let mut paint = exec.current_stroke_paint.clone();
                 apply_global_alpha(&mut paint, exec.current_alpha);
                 canvas.draw_path(&path, &paint);
+                exec.current_path_ops.clear();
                 exec.current_path = Some(PathBuilder::new());
             }
             Ok(())
@@ -652,7 +656,12 @@ fn replay_op(
         DrawOp::ClipPath { anti_alias } => {
             if let Some(mut pb) = exec.current_path.take() {
                 let path = pb.detach();
-                canvas.clip_path(&path, skia_safe::ClipOp::Intersect, *anti_alias);
+                // SVG 对齐：clip 覆盖率与 resvg 同一扫描线光栅化（细边
+                // AA 逐像素同源）；未接管回退 skia 解析式 AA。
+                if !super::path_tiny::clip_path_tiny(canvas, &exec.current_path_ops) {
+                    canvas.clip_path(&path, skia_safe::ClipOp::Intersect, *anti_alias);
+                }
+                exec.current_path_ops.clear();
                 exec.current_path = Some(PathBuilder::new());
             }
             Ok(())
@@ -795,6 +804,30 @@ fn replay_op(
             canvas.draw_path(&sk_path, &paint);
             Ok(())
         }
+        DrawOp::FillPattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+        } => {
+            // svg `<pattern>`：tile picture recording → tiny Pattern 平铺
+            // （resvg render_pattern_pixmap 同源）。未接管按无填充跳过。
+            let encoded = &draw.paths[path.0 as usize];
+            let taken = super::path_tiny::fill_pattern_tiny(
+                canvas,
+                exec,
+                draw,
+                media,
+                encoded,
+                *subtree,
+                tile,
+                pattern_transform,
+                *opacity,
+            )?;
+            let _ = taken;
+            Ok(())
+        }
         DrawOp::Image {
             image,
             x,
@@ -843,6 +876,15 @@ fn replay_op(
             dst,
             paint: pid,
         } => {
+            // svg `<image>`：tiny Pattern 重采样与 resvg render_raster 同源
+            // （带 paint/src 的不来自 svg 后端，回退 Skia）。
+            if src.is_none() && pid.is_none() {
+                if let Some(pm) = media.encoded_pixmaps.get(image) {
+                    if super::path_tiny::draw_image_tiny(canvas, pm, dst, exec.current_alpha) {
+                        return Ok(());
+                    }
+                }
+            }
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
                 // 预缩小解码：src 以声明（原图）坐标给出，按解码缩放比映射到

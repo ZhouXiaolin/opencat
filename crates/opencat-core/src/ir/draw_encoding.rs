@@ -163,16 +163,18 @@ pub mod opcode {
     pub const PATH_ADD_RRECT_OP: u16 = 46;
     pub const PATH_ADD_OVAL_OP: u16 = 47;
     pub const PATH_ADD_ARC_OP: u16 = 48;
+    /// svg `<pattern>` fill: tile picture recording + tile metadata.
+    pub const FILL_PATTERN: u16 = 50;
 
     /// Per-opcode payload length in bytes for the v6 dense op stream.
     ///
-    /// Index by opcode (0..=49). An op is encoded as `[opcode: u8][N payload
+    /// Index by opcode (0..=50). An op is encoded as `[opcode: u8][N payload
     /// bytes]` with no length field and no padding, so `N` must be a fixed
     /// constant for every opcode variant — which holds: every optional-looking
     /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
     /// unconditionally and signals absence via a flag byte, and `ImageRef`
     /// always writes tag(1) + id-slot(12).
-    pub const OPCODE_PAYLOAD_LEN: [u16; 50] = [
+    pub const OPCODE_PAYLOAD_LEN: [u16; 51] = [
         0,  // 0  SAVE
         25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
         0,  // 2  RESTORE
@@ -223,6 +225,7 @@ pub mod opcode {
         16, // 47 PATH_ADD_OVAL  [4xf32]
         24, // 48 PATH_ADD_ARC   [6xf32]
         41, // 49 SAVE_BACKDROP_LAYER — SAVE_LAYER layout + 4×f32 corner radii
+        52, // 50 FILL_PATTERN [u32 path][u32 subtree][4xf32 tile][6xf32 pt][f32 opacity]
     ];
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
@@ -1589,6 +1592,25 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u32(buf, subtree.0);
             write_f32(buf, *x);
             write_f32(buf, *y);
+        }
+
+        DrawOp::FillPattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+        } => {
+            write_op_header(buf, opcode::FILL_PATTERN);
+            write_u32(buf, path.0);
+            write_u32(buf, subtree.0);
+            for v in [tile.x, tile.y, tile.width, tile.height] {
+                write_f32(buf, v);
+            }
+            for v in pattern_transform {
+                write_f32(buf, *v);
+            }
+            write_f32(buf, *opacity);
         }
 
         DrawOp::DrawSubtreePicture { .. } => {

@@ -213,6 +213,10 @@ fn render_group(
         emit_clip_shapes(builder, state, mask.root());
     }
     render_nodes(builder, state, group);
+    // 两个栈帧各弹一次：SaveLayer 隐含 save，组自身的 Save 也要配平——
+    // 少发一个会让组矩阵与 clip 泄漏给后续兄弟（nested-svg stroke 框被
+    // 平移 (50,50) 的实例教训）。
+    builder.push(DrawOp::Restore);
     builder.push(DrawOp::Restore);
     state.ts = outer_ts;
 }
@@ -294,11 +298,16 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
     let aa = path.rendering_mode().use_shape_antialiasing();
     let fill = fill_paint(path, aa);
     let stroke = stroke_paint(path, aa);
-    if fill.is_none() && stroke.is_none() {
+    // `<pattern>` 填充不走 PaintSpec（paint 是 intern 表，塞不下子树引用），
+    // 用专用 FillPattern op：tile 内容录成 picture recording。
+    let pattern_fill = path
+        .fill()
+        .filter(|f| matches!(f.paint(), usvg::Paint::Pattern(_)));
+    if fill.is_none() && stroke.is_none() && pattern_fill.is_none() {
         return;
     }
     // 水平/垂直线段无法填充（resvg 同规则跳过）。
-    let can_fill = fill.is_some()
+    let can_fill = (fill.is_some() || pattern_fill.is_some())
         && path.data().bounds().width() > 0.0
         && path.data().bounds().height() > 0.0;
     let ops = path_ops(path.data());
@@ -322,7 +331,11 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
     match path.paint_order() {
         usvg::PaintOrder::FillAndStroke => {
             if can_fill {
-                emit(builder, fill.as_ref().unwrap());
+                if let Some(f) = pattern_fill {
+                    emit_pattern(builder, path, f, fill_type);
+                } else {
+                    emit(builder, fill.as_ref().unwrap());
+                }
             }
             if let Some(ref s) = stroke {
                 emit(builder, s);
@@ -333,10 +346,60 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
                 emit(builder, s);
             }
             if can_fill {
-                emit(builder, fill.as_ref().unwrap());
+                if let Some(f) = pattern_fill {
+                    emit_pattern(builder, path, f, fill_type);
+                } else {
+                    emit(builder, fill.as_ref().unwrap());
+                }
             }
         }
     }
+}
+
+/// `<pattern>` 填充的 emit：tile 内容录成 picture recording（subtree），
+/// 元数据（user space 归一后的 tile rect / patternTransform（含
+/// transform-origin）/ opacity）随 op 下发。usvg 已把 units /
+/// contentUnits / viewBox 全部折算进 rect 与 root（user space），引擎侧
+/// 只需补运行时的 CTM 缩放（resvg render_pattern_pixmap 同式）。
+fn emit_pattern(
+    builder: &mut DrawOpBuilder,
+    path: &usvg::Path,
+    fill: &usvg::Fill,
+    fill_type: FillType,
+) {
+    let usvg::Paint::Pattern(patt) = fill.paint() else {
+        return;
+    };
+    let subtree = builder
+        .record_subtree(|b| {
+            // tile 内容从 pattern 内容空间原点开始画（引擎离屏时再叠
+            // scale(sx,sy)），子树 emit 不继承外层 CTM。
+            let mut sub_state = EmitState {
+                ts: Transform::default(),
+            };
+            render_nodes(b, &mut sub_state, patt.root());
+            Ok::<(), ()>(())
+        })
+        .expect("subtree recording cannot fail");
+    let t = patt.transform();
+    let rect = patt.rect();
+    let path_id = builder.intern_path(EncodedPath {
+        fill_type,
+        ops: path_ops(path.data()),
+    });
+    builder.push(DrawOp::FillPattern {
+        path: path_id,
+        subtree,
+        tile: Rect4 {
+            x: rect.x(),
+            y: rect.y(),
+            width: rect.width(),
+            height: rect.height(),
+        },
+        // asAffine 序（tiny 0.12 from_row 对接序）：[sx ky kx sy tx ty]。
+        pattern_transform: [t.sx, t.ky, t.kx, t.sy, t.tx, t.ty],
+        opacity: fill.opacity().get(),
+    });
 }
 
 /// tiny-skia path 段 → PathOp。所有段都是绝对坐标（usvg 归一）。

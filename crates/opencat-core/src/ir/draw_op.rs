@@ -426,6 +426,19 @@ pub enum DrawOp {
         y: f32,
     },
 
+    /// svg `<pattern>` 填充：tile 内容是一次 picture recording（subtree），
+    /// 引擎按 resvg `render_pattern_pixmap` 的语义离屏重放成 tile 像素，
+    /// 再以 tiny Pattern（Repeat+Bicubic）平铺填充 `path`。
+    /// `pattern_transform` 是 asAffine 序 [sx ky kx sy tx ty]（tiny 0.12
+    /// from_row 的对接序；skia to_affine 同序）。
+    FillPattern {
+        path: PathId,
+        subtree: SubtreeId,
+        tile: Rect4,
+        pattern_transform: [f32; 6],
+        opacity: f32,
+    },
+
     /// Script-originated runtime effect (pre-intern intermediate form).
     /// Translated to `DrawOp::RuntimeEffect` during `execute_draw_op`.
     /// Engine replay treats this as a no-op; the binary encoder must never see it.
@@ -685,6 +698,24 @@ impl std::hash::Hash for DrawOp {
                 subtree.hash(state);
                 x.to_bits().hash(state);
                 y.to_bits().hash(state);
+            }
+            DrawOp::FillPattern {
+                path,
+                subtree,
+                tile,
+                pattern_transform,
+                opacity,
+            } => {
+                40_u8.hash(state);
+                path.hash(state);
+                subtree.hash(state);
+                for v in [tile.x, tile.y, tile.width, tile.height] {
+                    v.to_bits().hash(state);
+                }
+                for v in pattern_transform {
+                    v.to_bits().hash(state);
+                }
+                opacity.to_bits().hash(state);
             }
             DrawOp::ScriptRuntimeEffect {
                 sksl,

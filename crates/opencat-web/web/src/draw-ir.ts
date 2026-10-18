@@ -115,6 +115,7 @@ const OP_IMAGE_RECT = OP.IMAGE_RECT;
 const OP_RUNTIME_EFFECT = OP.RUNTIME_EFFECT;
 const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
 const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
+const OP_FILL_PATTERN = OP.FILL_PATTERN;
 const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
 // v6: each PathOp command is promoted to its own top-level opcode (the old
 // OP_PATH / PATH_OP sub-opcode form is gone). One op = one path command.
@@ -787,6 +788,50 @@ export function renderEncodedDrawFrame(
           // that snapshotted it) are freed after the surface flush.
           const path = buildPathById(CK, frame, p.u32(), framePathCache, dispose);
           targetCanvas.drawPath(path, buildPaintById(CK, frame, p.u32(), dispose));
+          break;
+        }
+        case OP_FILL_PATTERN: {
+          // svg `<pattern>`: tile picture recording repeated via a picture
+          // shader. The tile pixel scale mirrors the engine: (ctm x pattern
+          // transform)'s scale part drives the recording resolution; the
+          // shader local matrix maps user space onto the tile.
+          const pathId = p.u32();
+          const subtree = p.u32();
+          const tile = readRect4(p);
+          const pt = [p.f32(), p.f32(), p.f32(), p.f32(), p.f32(), p.f32()];
+          const opacity = p.f32();
+          const ctm = targetCanvas.getTotalMatrix();
+          const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
+          const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
+          const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
+          const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
+          if (!(sx > 0) || !(sy > 0) || tile.width <= 0 || tile.height <= 0 || opacity <= 0) break;
+          const tileW = Math.max(1, Math.round(tile.width * sx));
+          const tileH = Math.max(1, Math.round(tile.height * sy));
+          const recorder = new CK.PictureRecorder();
+          const tileCanvas = recorder.beginRecording(CK.XYWHRect(0, 0, tileW, tileH));
+          tileCanvas.scale(sx, sy);
+          executeSubtreeOnCanvas(tileCanvas, subtree);
+          const tilePicture = recorder.finishRecordingAsPicture();
+          recorder.delete();
+          const localMatrix = CK.Matrix.multiply(
+            CK.Matrix.multiply(ptM, CK.Matrix.translated(tile.x, tile.y)),
+            CK.Matrix.scaled(1 / sx, 1 / sy),
+          );
+          const shader = tilePicture.makeShader?.(
+            CK.TileMode.Repeat,
+            CK.TileMode.Repeat,
+            CK.FilterMode.Linear,
+            /* tileRect */ undefined,
+            /* localMatrix */ localMatrix,
+          );
+          if (shader) {
+            const paint = dispose(new CK.Paint());
+            paint.setAlphaf(opacity);
+            paint.setShader(dispose(shader));
+            targetCanvas.drawPath(buildPathById(CK, frame, pathId, framePathCache, dispose), paint);
+          }
+          tilePicture.delete();
           break;
         }
         case OP_IMAGE: {

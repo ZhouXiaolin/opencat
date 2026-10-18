@@ -1,5 +1,5 @@
 use super::draw_types::{
-    BytesRangeId, ChildRange, DrawOpRange, EffectId, ImageRef, PaintId, PathId, PathOp,
+    BytesRangeId, ChildRange, DrawOpRange, EffectId, FillType, ImageRef, PaintId, PathId, PathOp,
     ScriptRuntimeEffectChild, SubtreeId,
 };
 #[allow(unused_imports)]
@@ -298,6 +298,8 @@ pub enum DrawOp {
     /// Clip to the current path, with optional anti-aliasing.
     ClipPath {
         anti_alias: bool,
+        /// 路径填充规则（SVG clip-rule；canvas script 恒为 Winding）。
+        fill_type: FillType,
     },
 
     // =======================================================================
@@ -451,6 +453,18 @@ pub enum DrawOp {
         stroke: StrokeSpec,
     },
 
+    /// svg `<mask>`：内容子树（user space 坐标，与使用处同系）离屏渲染成
+    /// 逐像素遮罩——luminance（demul 后 0.2126R+0.7152G+0.0722B 再乘
+    /// alpha，sRGB 直算，tiny-skia 同式 ceil）或 alpha——作为连续 coverage
+    /// clip 作用于其后绘制。`region` 是 usvg 归一后的 mask 矩形（region 外
+    /// 遮罩为 0）。`kind`：0=luminance、1=alpha。嵌套 mask（mask.mask()）
+    /// 由 emit 侧展开为串联的多个 MaskClip。
+    MaskClip {
+        subtree: SubtreeId,
+        kind: u8,
+        region: Rect4,
+    },
+
     /// Script-originated runtime effect (pre-intern intermediate form).
     /// Translated to `DrawOp::RuntimeEffect` during `execute_draw_op`.
     /// Engine replay treats this as a no-op; the binary encoder must never see it.
@@ -561,7 +575,7 @@ impl std::hash::Hash for DrawOp {
             }
             DrawOp::FillPath => 20_u8.hash(state),
             DrawOp::StrokePath => 21_u8.hash(state),
-            DrawOp::ClipPath { anti_alias } => {
+            DrawOp::ClipPath { anti_alias, fill_type } => {
                 22_u8.hash(state);
                 anti_alias.hash(state);
             }
@@ -751,6 +765,18 @@ impl std::hash::Hash for DrawOp {
                 stroke.cap.hash(state);
                 stroke.join.hash(state);
                 stroke.miter_limit.to_bits().hash(state);
+            }
+            DrawOp::MaskClip {
+                subtree,
+                kind,
+                region,
+            } => {
+                42_u8.hash(state);
+                subtree.hash(state);
+                kind.hash(state);
+                for v in [region.x, region.y, region.width, region.height] {
+                    v.to_bits().hash(state);
+                }
             }
             DrawOp::ScriptRuntimeEffect {
                 sksl,

@@ -730,8 +730,12 @@ export function renderEncodedDrawFrame(
           break;
         }
         case OP_CLIP_PATH: {
+          // wire: [u8 anti_alias][u8 fill_type]（与 Rust 侧 draw_encoding 同序）。
+          const antiAlias = p.u8() !== 0;
+          const fillType = p.u8();
           const path = snapshotPath();
-          targetCanvas.clipPath(path, CK.ClipOp.Intersect, p.u8() !== 0);
+          path.setFillType?.(mapFillType(CK, fillType));
+          targetCanvas.clipPath(path, CK.ClipOp.Intersect, antiAlias);
           dispose(path);
           break;
         }

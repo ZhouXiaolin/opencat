@@ -290,6 +290,9 @@ fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollect
             DrawOp::StrokePattern { subtree, .. } => {
                 collect_subtree(frame, *subtree, collector);
             }
+            DrawOp::MaskClip { subtree, .. } => {
+                collect_subtree(frame, *subtree, collector);
+            }
             _ => collector.apply_transform_op(op),
         }
     }

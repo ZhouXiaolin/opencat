@@ -20,6 +20,8 @@ use opencat_core::canvas::paint::{
 };
 use opencat_core::ir::draw_types::{EncodedPath, FillType, PathOp};
 
+use super::paint::convert_blend_mode;
+
 pub fn enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("OC_PATH_RASTERIZER").as_deref() == Ok("tiny"))
@@ -78,12 +80,14 @@ pub fn draw_path_tiny(
         return false;
     }
 
-    // 设备空间 CTM（DrawOp 流的坐标系 = canvas 局部空间）。
+    // 设备空间 CTM（DrawOp 流的坐标系 = canvas 局部空间）。skia asAffine
+    // 顺序 = [scaleX, skewY, skewX, scaleY, transX, transY]，与 tiny
+    // from_row(sx, ky, kx, sy, tx, ty) 同序——按位置直传，勿按名重排。
     let m = canvas.local_to_device_as_3x3();
-    let Some([sx, kx, tx, ky, sy, ty]) = m.to_affine() else {
+    let Some(a) = m.to_affine() else {
         return false;
     };
-    let ctm = ts::Transform::from_row(sx, kx, tx, ky, sy, ty);
+    let ctm = ts::Transform::from_row(a[0], a[1], a[2], a[3], a[4], a[5]);
 
     // 离屏范围 = 路径包围盒过 CTM，外扩 stroke 半宽（含 miter 尖角）与
     // AA 裙边；再与设备裁剪盒求交，跳过空区。
@@ -102,7 +106,7 @@ pub fn draw_path_tiny(
         bx1 = bx1.max(p.x);
         by1 = by1.max(p.y);
     }
-    let max_scale = sx.abs().max(sy.abs()).max(kx.abs()).max(ky.abs());
+    let max_scale = a[0].abs().max(a[1].abs()).max(a[2].abs()).max(a[3].abs());
     let pad = match spec.style {
         PaintStyle::Stroke => {
             let s = spec.stroke.as_ref().unwrap();
@@ -128,8 +132,8 @@ pub fn draw_path_tiny(
     let (w, h) = ((x1 - x0).max(0), (y1 - y0).max(0));
     if std::env::var("OC_PATH_DEBUG").is_ok() {
         eprintln!(
-            "[tiny] style={:?} local_bounds=({},{})-({},{}) ctm=({sx},{kx},{tx},{ky},{sy},{ty}) dev=({bx0:.1},{by0:.1})-({bx1:.1},{by1:.1}) pix=({x0},{y0})+({w}x{h}) clip={:?}",
-            spec.style, b.left(), b.top(), b.right(), b.bottom(),
+            "[tiny] style={:?} local_bounds=({},{})-({},{}) ctm=({:?}) dev=({bx0:.1},{by0:.1})-({bx1:.1},{by1:.1}) pix=({x0},{y0})+({w}x{h}) clip={:?}",
+            spec.style, b.left(), b.top(), b.right(), b.bottom(), a,
             canvas.device_clip_bounds(),
         );
     }
@@ -185,6 +189,8 @@ pub fn draw_path_tiny(
     }
 
     // tiny-skia 内存即 premul RGBA8888，与 skia 同布局，零转换上传。
+    // svg `<mask>` 不在这里乘：tiny 接管的 draw 直接画进所属 SaveLayer，
+    // 层 Restore 前统一以 DstIn blend 罩 coverage（见 mask_apply_dst_in）。
     let info = ImageInfo::new((w, h), ColorType::RGBA8888, AlphaType::Premul, None);
     let Some(image) = images::raster_from_data(&info, Data::new_copy(pixmap.data()), w as usize * 4)
     else {
@@ -222,10 +228,10 @@ pub fn draw_image_tiny(
         return false;
     }
     let m = canvas.local_to_device_as_3x3();
-    let Some([sx, kx, tx, ky, sy, ty]) = m.to_affine() else {
+    let Some(a) = m.to_affine() else {
         return false;
     };
-    let ctm = ts::Transform::from_row(sx, kx, tx, ky, sy, ty);
+    let ctm = ts::Transform::from_row(a[0], a[1], a[2], a[3], a[4], a[5]);
 
     // Pad 模式边缘 clamp、paint 无 AA（resvg 同）：内容不出 rect，离屏只留
     // 1px 裙边防整数化误差。
@@ -303,7 +309,7 @@ pub fn draw_image_tiny(
 /// 扫描线光栅化器 fill 的（clip.rs → fill_path），边缘覆盖率逐像素同源；
 /// skia 解析式 AA 的 clip 边缘与之差半格。失败返回 false，调用方回退
 /// skia clip_path。只吃 svg 后端产生的 ops；空 clip 即不裁任何东西。
-pub fn clip_path_tiny(canvas: &Canvas, ops: &[PathOp]) -> bool {
+pub fn clip_path_tiny(canvas: &Canvas, ops: &[PathOp], rule: ts::FillRule) -> bool {
     if !enabled() || ops.is_empty() {
         return false;
     }
@@ -311,10 +317,10 @@ pub fn clip_path_tiny(canvas: &Canvas, ops: &[PathOp]) -> bool {
         return false;
     };
     let m = canvas.local_to_device_as_3x3();
-    let Some([sx, kx, tx, ky, sy, ty]) = m.to_affine() else {
+    let Some(a) = m.to_affine() else {
         return false;
     };
-    let ctm = ts::Transform::from_row(sx, kx, tx, ky, sy, ty);
+    let ctm = ts::Transform::from_row(a[0], a[1], a[2], a[3], a[4], a[5]);
 
     let b = path.bounds();
     let mut corners = [
@@ -354,7 +360,7 @@ pub fn clip_path_tiny(canvas: &Canvas, ops: &[PathOp]) -> bool {
     let mut paint = ts::Paint::default();
     paint.anti_alias = true;
     paint.set_color_rgba8(255, 255, 255, 255);
-    off.fill_path(&path, &paint, ts::FillRule::Winding, local_ts, None);
+    off.fill_path(&path, &paint, rule, local_ts, None);
 
     let info = ImageInfo::new((w, h), ColorType::RGBA8888, AlphaType::Premul, None);
     let Some(image) =
@@ -408,10 +414,10 @@ pub fn fill_pattern_tiny(
         return Ok(false);
     };
     let m = canvas.local_to_device_as_3x3();
-    let Some([sx0, kx0, tx0, ky0, sy0, ty0]) = m.to_affine() else {
+    let Some(a0) = m.to_affine() else {
         return Ok(false);
     };
-    let ctm = ts::Transform::from_row(sx0, kx0, tx0, ky0, sy0, ty0);
+    let ctm = ts::Transform::from_row(a0[0], a0[1], a0[2], a0[3], a0[4], a0[5]);
     let pt = ts::Transform::from_row(
         pattern_transform[0],
         pattern_transform[1],
@@ -484,7 +490,7 @@ pub fn fill_pattern_tiny(
         bx1 = bx1.max(p.x);
         by1 = by1.max(p.y);
     }
-    let max_scale = sx0.abs().max(sy0.abs()).max(kx0.abs()).max(ky0.abs());
+    let max_scale = a0[0].abs().max(a0[1].abs()).max(a0[2].abs()).max(a0[3].abs());
     let pad = match stroke {
         Some(s) => (s.width / 2.0) * max_scale * if s.join == StrokeJoin::Miter { s.miter_limit } else { 1.5 } + 1.5,
         None => 1.5,
@@ -561,36 +567,187 @@ pub fn fill_pattern_tiny(
     Ok(true)
 }
 
-fn convert_blend_mode(m: BlendMode) -> skia_safe::BlendMode {
-    match m {
-        BlendMode::Clear => skia_safe::BlendMode::Clear,
-        BlendMode::Src => skia_safe::BlendMode::Src,
-        BlendMode::Dst => skia_safe::BlendMode::Dst,
-        BlendMode::SrcOver => skia_safe::BlendMode::SrcOver,
-        BlendMode::DstOver => skia_safe::BlendMode::DstOver,
-        BlendMode::SrcIn => skia_safe::BlendMode::SrcIn,
-        BlendMode::DstIn => skia_safe::BlendMode::DstIn,
-        BlendMode::SrcOut => skia_safe::BlendMode::SrcOut,
-        BlendMode::DstOut => skia_safe::BlendMode::DstOut,
-        BlendMode::SrcATop => skia_safe::BlendMode::SrcATop,
-        BlendMode::DstATop => skia_safe::BlendMode::DstATop,
-        BlendMode::Xor => skia_safe::BlendMode::Xor,
-        BlendMode::Plus => skia_safe::BlendMode::Plus,
-        BlendMode::Modulate => skia_safe::BlendMode::Modulate,
-        BlendMode::Screen => skia_safe::BlendMode::Screen,
-        BlendMode::Overlay => skia_safe::BlendMode::Overlay,
-        BlendMode::Darken => skia_safe::BlendMode::Darken,
-        BlendMode::Lighten => skia_safe::BlendMode::Lighten,
-        BlendMode::ColorDodge => skia_safe::BlendMode::ColorDodge,
-        BlendMode::ColorBurn => skia_safe::BlendMode::ColorBurn,
-        BlendMode::HardLight => skia_safe::BlendMode::HardLight,
-        BlendMode::SoftLight => skia_safe::BlendMode::SoftLight,
-        BlendMode::Difference => skia_safe::BlendMode::Difference,
-        BlendMode::Exclusion => skia_safe::BlendMode::Exclusion,
-        BlendMode::Multiply => skia_safe::BlendMode::Multiply,
-        BlendMode::Hue => skia_safe::BlendMode::Hue,
-        BlendMode::Saturation => skia_safe::BlendMode::Saturation,
-        BlendMode::Color => skia_safe::BlendMode::Color,
-        BlendMode::Luminosity => skia_safe::BlendMode::Luminosity,
+/// svg `<mask>` 的 tiny 路径：内容子树（user space）在 skia 离屏上按当时
+/// CTM 重放成遮罩图，CPU 端按 tiny-skia `Mask::from_pixmap` 同式折算
+/// （luminance：demul → 0.2126R+0.7152G+0.0722B → ×alpha → ceil；alpha：
+/// 直取 alpha），region 外为 0；折算结果装进全帧 Image 入栈，所在层
+/// Restore 前以 DstIn blend 画回（mask_apply_dst_in）。resvg 的 mask 渲染
+/// 到独立 pixmap 后 apply_mask，与本文同构。
+#[allow(clippy::too_many_arguments)]
+pub fn mask_push_tiny(
+    canvas: &Canvas,
+    exec: &mut super::EngineDrawExecutor,
+    draw: &super::DrawOpFrame,
+    media: &super::EnginePreparedFrameMedia,
+    subtree: opencat_core::ir::draw_types::SubtreeId,
+    kind: u8,
+    region: &opencat_core::ir::draw_op::Rect4,
+) -> Result<bool, super::DrawError> {
+    if !enabled() {
+        return Ok(false);
     }
+    let m = canvas.local_to_device_as_3x3();
+    // skia `to_affine`/asAffine 顺序 = [scaleX, skewY, skewX, scaleY, transX,
+    // transY]，与 tiny `Transform::from_row(sx, ky, kx, sy, tx, ty)` 同序
+    // （tiny 0.12 注释明言「ky-kx, not kx-ky」）——按位置直传即可，勿按
+    // 变量名重排（重排即转置，identity 也会烂成 y'=x）。
+    let Some(a) = m.to_affine() else {
+        return Ok(false);
+    };
+    let ctm = ts::Transform::from_row(a[0], a[1], a[2], a[3], a[4], a[5]);
+
+    // coverage 建成全帧尺寸：region 外自然为 0（resvg 的 mask pixmap 就是
+    // 画布大小，region 由 alpha_mask 乘出）。Restore 前按层基准 DstIn 罩回。
+    let size = canvas.image_info().dimensions();
+    let (fw, fh) = (size.width, size.height);
+    if fw <= 0 || fh <= 0 {
+        return Ok(false);
+    }
+    let mut cov = vec![0_u8; (fw * fh) as usize];
+
+    // 退化 region（面积 0）：mask 全域不可见 = 全剪，全 0 coverage 即可。
+    let mut corners = [
+        ts::Point::from_xy(region.x, region.y),
+        ts::Point::from_xy(region.x + region.width, region.y),
+        ts::Point::from_xy(region.x, region.y + region.height),
+        ts::Point::from_xy(region.x + region.width, region.y + region.height),
+    ];
+    ctm.map_points(&mut corners);
+    let (mut bx0, mut by0, mut bx1, mut by1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for p in &corners {
+        bx0 = bx0.min(p.x);
+        by0 = by0.min(p.y);
+        bx1 = bx1.max(p.x);
+        by1 = by1.max(p.y);
+    }
+    let empty_region = (bx1 - bx0) <= 0.0 || (by1 - by0) <= 0.0;
+
+    if !empty_region {
+        // mask 内容重放到全帧离屏（套当时的组 CTM；直接复用 skia Matrix，
+        // 不经 tiny 往返）。
+        let info = ImageInfo::new((fw, fh), ColorType::RGBA8888, AlphaType::Premul, None);
+        let Some(mut surface) = skia_safe::surfaces::raster(&info, None, None) else {
+            return Ok(false);
+        };
+        {
+            let mask_canvas = surface.canvas();
+            mask_canvas.concat(&m);
+            let saved_alpha = exec.current_alpha;
+            exec.current_alpha = 1.0;
+            exec.mask_replay += 1;
+            let replay =
+                crate::executor::replay::replay_subtree(exec, mask_canvas, draw, media, subtree);
+            exec.mask_replay -= 1;
+            exec.current_alpha = saved_alpha;
+            replay?;
+        }
+        let mut pix = vec![0_u8; info.compute_min_byte_size()];
+        if !surface.read_pixels(&info, &mut pix, info.min_row_bytes(), (0, 0)) {
+            return Ok(false);
+        }
+
+        // region 的 AA coverage（resvg alpha_mask = fill_path(rect, AA, ctm)）：
+        // tiny 同 crate 同公式，逐像素乘上。
+        let region_cov = region_coverage(&ctm, region, fw, fh);
+
+        // 逐像素折算遮罩（tiny-skia mask.rs 同式）。
+        for ((i, p), &rc) in pix.chunks_exact_mut(4).enumerate().zip(region_cov.iter()) {
+            let (r, g, b, a) = (p[0] as f32, p[1] as f32, p[2] as f32, p[3] as f32);
+            let mask_v = if kind == 1 {
+                a
+            } else {
+                let af = a / 255.0;
+                let (mut rn, mut gn, mut bn) = (r / 255.0, g / 255.0, b / 255.0);
+                if a != 0.0 {
+                    rn /= af;
+                    gn /= af;
+                    bn /= af;
+                }
+                let luma = rn * 0.2126 + gn * 0.7152 + bn * 0.0722;
+                (luma * af * 255.0).clamp(0.0, 255.0).ceil()
+            };
+            // resvg：mask_pixmap.apply_mask(&alpha_mask) 用 tiny div255。
+            let v = if rc == 255 {
+                mask_v as u8
+            } else {
+                div255_round(mask_v as u32, rc as u32)
+            };
+            if v != 0 {
+                cov[i] = v;
+            }
+        }
+    }
+
+    // coverage 装进全帧 premul Image（rgb=0、a=coverage），供所在层
+    // Restore 前 DstIn 罩回；region 外天然 0。
+    let mut buf = vec![0_u8; (fw * fh) as usize * 4];
+    for (px, &c) in buf.chunks_exact_mut(4).zip(cov.iter()) {
+        px[3] = c;
+    }
+    let minfo = ImageInfo::new((fw, fh), ColorType::RGBA8888, AlphaType::Premul, None);
+    let Some(img) = images::raster_from_data(&minfo, Data::new_copy(&buf), fw as usize * 4) else {
+        return Ok(false);
+    };
+    exec.mask_stack.push(img);
+    Ok(true)
 }
+
+/// 层 Restore 前，把该层期间入栈的 mask coverage 以 DstIn blend 画回层上。
+/// 全程 canvas API 无像素拷贝；skia blend 的定点乘是 round 型
+/// （`(a*b+128)>>8` 系），与 resvg `apply_mask` 的 `(v+255)>>8` 同向，
+/// 而 clip coverage 是截断型（0.5/255 边界差 1），故必须走 blend。
+/// 嵌套 mask：多张 coverage 依次 DstIn = 亮度相乘，语义正确。
+pub fn mask_apply_dst_in(canvas: &Canvas, exec: &mut super::EngineDrawExecutor) {
+    let Some(mark) = exec.layer_marks.pop() else {
+        return;
+    };
+    if exec.mask_stack.len() <= mark {
+        return;
+    }
+    let size = canvas.image_info().dimensions();
+    let mut paint = Paint::default();
+    paint.set_blend_mode(skia_safe::BlendMode::DstIn);
+    paint.set_anti_alias(false);
+    canvas.save();
+    canvas.reset_matrix();
+    for img in exec.mask_stack.drain(mark..) {
+        canvas.draw_image_with_sampling_options(
+            &img,
+            (0.0, 0.0),
+            SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+            Some(&paint),
+        );
+    }
+    canvas.restore();
+}
+
+/// region rect 过 CTM 后用 tiny fill_path（AA）光栅化出 0-255 coverage。
+fn region_coverage(
+    ctm: &ts::Transform,
+    region: &opencat_core::ir::draw_op::Rect4,
+    w: i32,
+    h: i32,
+) -> Vec<u8> {
+    let mut cov = vec![0_u8; (w * h) as usize];
+    let Some(rect) = ts::Rect::from_xywh(region.x, region.y, region.width, region.height) else {
+        return cov;
+    };
+    let path = ts::PathBuilder::from_rect(rect);
+    let Some(mut off) = ts::Pixmap::new(w as u32, h as u32) else {
+        return cov;
+    };
+    let mut paint = ts::Paint::default();
+    paint.set_color_rgba8(255, 255, 255, 255);
+    paint.anti_alias = true;
+    off.fill_path(&path, &paint, ts::FillRule::Winding, *ctm, None);
+    for (dst, src) in cov.iter_mut().zip(off.pixels().iter()) {
+        *dst = src.alpha();
+    }
+    cov
+}
+
+/// tiny-skia 的 `div255(v) = (v + 255) >> 8`（round 型定点除）。
+fn div255_round(a: u32, b: u32) -> u8 {
+    ((a * b + 255) >> 8).min(255) as u8
+}
+

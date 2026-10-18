@@ -1,7 +1,11 @@
 # SVG 支持对齐计划（feat/svg）
 
 状态：P0 完成（2026-10-18）。P1 完成（2026-10-18，shapes 133/133=100%、structure
-252/261=96.6%，≥95% 达标；剩余 9 fail：pattern 2 例归 P2，7 例 p8≤0.026 底噪）。
+262/262=100%，含 9 例遗留 fail 的清零与 harness 类名编码缺陷的修复）。同日全量
+`--force` 首次真实渲染 1746 例：1319/1746=75.5% pass、render-error 0——此前"P2+
+渲染失败是预期"是误判：共享 tailwind.css 被未编码 `.` 的非法选择器污染（`bias-0.5`
+类名），所有渲染统一死于 CSS 解析错误。真实基线：text 377/386=97.7%、paint-servers
+139/155=89.7%、painting 276/308=89.6%、masking 42/94=44.7%、filters 90/408=22.1%。
 执行载体：goal（长会话），非 workflow，决策见 §8。
 
 ## 1. 目标与非目标
@@ -56,6 +60,19 @@ P1 定稿的两条架构决策：
    离屏 tiny-skia 渲染后按原 blend 合成回 skia canvas（同 crate 同版本
    0.12，逐像素同源）；默认关闭，JSX/Chrome 对齐不受影响。渐变/pattern
    路径 P1 仍走 Skia（P2 接 tiny shader）。
+
+P1 清零 9 例时新增的三条：
+
+3. **隔离组 Save+SaveLayer 必须配平两个 Restore**（SaveLayer 隐含一次
+   save）。泄漏会平移/裁剪后续兄弟子树（nested-svg stroke 框被平移的教训）。
+4. **tiny 后端的 image/clip/pattern 覆盖图**：光栅图解码换 `image` crate
+   （与 resvg 同源，顺带补上 skia codec 缺失的 webp），premultiply 后
+   `Pattern(Pad, Bicubic)` 平铺；clip 走离屏 AA coverage 图 + `to_shader`
+   （localMatrix 抵消图原点偏移）+ `clip_shader`；pattern tile 内容按
+   "pattern 就是 picture recording" 录成 subtree（`DrawOp::FillPattern`，
+   opcode 50，pattern_transform 存 asAffine 序 [sx ky kx sy tx ty] 对接
+   tiny 0.12 `from_row`），tile 像素尺寸与 patt_ts 逐式对齐 resvg
+   `render_pattern_pixmap`。
 
 ## 3. usvg::Tree → DrawOp 映射
 
@@ -114,7 +131,9 @@ python tools/svg-align/align.py --probe
 - 案例样式走 sidecar 约定：`<jsx目录>/tailwind.css`（标准 CSS 引擎，tailwind 原生
   解析已退役）。全部案例共享 `out/svg-align/cases/tailwind.css`，由 gen 阶段整体
   重写。注意引擎 CSS 子集：用 `background-color`，`background` 简写不生效；
-  位置/尺寸/overflow 等简单属性可用。
+  位置/尺寸/overflow 等简单属性可用。类名由 `css_class()` 生成：非
+  `[A-Za-z0-9-]` 字节一律转义 `_XX`（`_`→`_5f` 保证双射）——曾有语料 `bias-0.5`
+  的 `.` 未转义，污染共享 css 使全部渲染死于同一 CSS 解析错误。
 - diff：双边 PNG 先合成到黑底（resvg 输出透明底），k3diff 语义：mae/maxd/
   p0..p128（max 通道差超阈值像素占比）/bbox@16。**通过线：p8 ≤ 0.5% 且渲染无错**，
   初值，按阶段实况校准。

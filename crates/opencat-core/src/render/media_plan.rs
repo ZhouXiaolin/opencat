@@ -284,6 +284,9 @@ fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollect
             DrawOp::ReplaySubtreePicture { subtree, .. } => {
                 collect_subtree(frame, *subtree, collector);
             }
+            DrawOp::FillPattern { subtree, .. } => {
+                collect_subtree(frame, *subtree, collector);
+            }
             _ => collector.apply_transform_op(op),
         }
     }

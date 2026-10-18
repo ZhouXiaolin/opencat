@@ -126,6 +126,10 @@ pub struct MediaContext {
     /// svg `<image>` bytes interned by core). Keyed by the frame's byte-table
     /// id; a tree usually re-emits the same id every frame.
     encoded_images: HashMap<opencat_core::ir::draw_types::BytesRangeId, Image>,
+    /// 同一解码的 premul RGBA（resvg 字节布局），tiny Pattern 重采样输入；
+    /// 仅 `OC_PATH_RASTERIZER=tiny` 时填充。
+    encoded_tiny:
+        HashMap<opencat_core::ir::draw_types::BytesRangeId, std::sync::Arc<tiny_skia::Pixmap>>,
     video_frame_cache: VideoFrameCache,
     video_preview_quality: VideoPreviewQuality,
     composition_fps: u32,
@@ -146,6 +150,7 @@ impl MediaContext {
             static_images: HashMap::new(),
             scaled_images: HashMap::new(),
             encoded_images: HashMap::new(),
+            encoded_tiny: HashMap::new(),
             video_frame_cache: VideoFrameCache::new(caps.video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
             composition_fps: 30,
@@ -385,6 +390,11 @@ impl MediaContext {
     /// size. No pre-shrink: svg `<image>` draws resample once from natural
     /// pixels to device pixels through the CTM (resvg's bicubic-through-CTM),
     /// so any intermediate raster would add a second resample.
+    ///
+    /// Decoder is `image`, the same crate resvg's `decode_raster` uses (the
+    /// skia codec lacks webp and would resample JPEGs differently). Pixels
+    /// are premultiplied into resvg's byte layout and shared by the skia
+    /// fallback image and the tiny Pattern pixmap.
     pub fn encoded_image(
         &mut self,
         key: opencat_core::ir::draw_types::BytesRangeId,
@@ -393,10 +403,45 @@ impl MediaContext {
         if let Some(image) = self.encoded_images.get(&key) {
             return Ok(image.clone());
         }
-        let image = Image::from_encoded(Data::new_copy(encoded))
-            .ok_or_else(|| anyhow!("failed to decode embedded image ({} bytes)", encoded.len()))?;
+        let img = image::load_from_memory(encoded).map_err(|e| {
+            anyhow!("failed to decode embedded image ({} bytes): {e}", encoded.len())
+        })?;
+        let rgba = img.to_rgba8();
+        let (w, h) = rgba.dimensions();
+        let mut pix = vec![0_u8; (w as usize) * (h as usize) * 4];
+        for (p, d) in rgba.pixels().zip(pix.chunks_exact_mut(4)) {
+            // resvg decode_raster 的 premul 布局（+0.5 取整）。
+            let a = p.0[3] as f64 / 255.0;
+            d[0] = (p.0[0] as f64 * a + 0.5) as u8;
+            d[1] = (p.0[1] as f64 * a + 0.5) as u8;
+            d[2] = (p.0[2] as f64 * a + 0.5) as u8;
+            d[3] = p.0[3];
+        }
+        if crate::executor::path_tiny::enabled() {
+            if let Some(size) = tiny_skia::IntSize::from_wh(w, h) {
+                if let Some(tp) = tiny_skia::Pixmap::from_vec(pix.clone(), size) {
+                    self.encoded_tiny.insert(key, std::sync::Arc::new(tp));
+                }
+            }
+        }
+        let info = ImageInfo::new(
+            (w as i32, h as i32),
+            ColorType::RGBA8888,
+            AlphaType::Premul,
+            None,
+        );
+        let image = images::raster_from_data(&info, Data::new_copy(&pix), w as usize * 4)
+            .ok_or_else(|| anyhow!("failed to rasterize embedded image {}x{}", w, h))?;
         self.encoded_images.insert(key, image.clone());
         Ok(image)
+    }
+
+    /// [`Self::encoded_image`] 解码出的 tiny pixmap（未启用 tiny 时 None）。
+    pub fn encoded_tiny_pixmap(
+        &self,
+        key: opencat_core::ir::draw_types::BytesRangeId,
+    ) -> Option<std::sync::Arc<tiny_skia::Pixmap>> {
+        self.encoded_tiny.get(&key).cloned()
     }
 }
 

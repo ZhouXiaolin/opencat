@@ -299,11 +299,15 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
     let fill = fill_paint(path, aa);
     let stroke = stroke_paint(path, aa);
     // `<pattern>` 填充不走 PaintSpec（paint 是 intern 表，塞不下子树引用），
-    // 用专用 FillPattern op：tile 内容录成 picture recording。
+    // 用专用 FillPattern/StrokePattern op：tile 内容录成 picture recording。
     let pattern_fill = path
         .fill()
         .filter(|f| matches!(f.paint(), usvg::Paint::Pattern(_)));
-    if fill.is_none() && stroke.is_none() && pattern_fill.is_none() {
+    let pattern_stroke = path
+        .stroke()
+        .filter(|s| s.width().get() > 0.0)
+        .filter(|s| matches!(s.paint(), usvg::Paint::Pattern(_)));
+    if fill.is_none() && stroke.is_none() && pattern_fill.is_none() && pattern_stroke.is_none() {
         return;
     }
     // 水平/垂直线段无法填充（resvg 同规则跳过）。
@@ -327,27 +331,39 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
             paint: paint_id,
         });
     };
+    // stroke pattern 的描边样式（width/cap/join/miter），与 stroke_paint
+    // 同规则；opacity 取 stroke 不透明度（与 resvg stroke pattern 同源）。
+    let pattern_stroke_spec = pattern_stroke.map(|s| StrokeSpec {
+        width: s.width().get(),
+        cap: convert_cap(s.linecap()),
+        join: convert_join(s.linejoin()),
+        miter_limit: s.miterlimit().get(),
+    });
 
     match path.paint_order() {
         usvg::PaintOrder::FillAndStroke => {
             if can_fill {
                 if let Some(f) = pattern_fill {
-                    emit_pattern(builder, path, f, fill_type);
+                    emit_pattern(builder, path, f.paint(), f.opacity(), fill_type, None);
                 } else {
                     emit(builder, fill.as_ref().unwrap());
                 }
             }
-            if let Some(ref s) = stroke {
+            if let Some(ps) = pattern_stroke {
+                emit_pattern(builder, path, ps.paint(), ps.opacity(), fill_type, pattern_stroke_spec);
+            } else if let Some(ref s) = stroke {
                 emit(builder, s);
             }
         }
         usvg::PaintOrder::StrokeAndFill => {
-            if let Some(ref s) = stroke {
+            if let Some(ps) = pattern_stroke {
+                emit_pattern(builder, path, ps.paint(), ps.opacity(), fill_type, pattern_stroke_spec);
+            } else if let Some(ref s) = stroke {
                 emit(builder, s);
             }
             if can_fill {
                 if let Some(f) = pattern_fill {
-                    emit_pattern(builder, path, f, fill_type);
+                    emit_pattern(builder, path, f.paint(), f.opacity(), fill_type, None);
                 } else {
                     emit(builder, fill.as_ref().unwrap());
                 }
@@ -356,18 +372,21 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
     }
 }
 
-/// `<pattern>` 填充的 emit：tile 内容录成 picture recording（subtree），
+/// `<pattern>` 填充/描边的 emit：tile 内容录成 picture recording（subtree），
 /// 元数据（user space 归一后的 tile rect / patternTransform（含
 /// transform-origin）/ opacity）随 op 下发。usvg 已把 units /
 /// contentUnits / viewBox 全部折算进 rect 与 root（user space），引擎侧
 /// 只需补运行时的 CTM 缩放（resvg render_pattern_pixmap 同式）。
+/// `stroke` 为 `Some` 时发 StrokePattern（描边样式随 op 内联）。
 fn emit_pattern(
     builder: &mut DrawOpBuilder,
     path: &usvg::Path,
-    fill: &usvg::Fill,
+    paint: &usvg::Paint,
+    opacity: usvg::Opacity,
     fill_type: FillType,
+    stroke: Option<StrokeSpec>,
 ) {
-    let usvg::Paint::Pattern(patt) = fill.paint() else {
+    let usvg::Paint::Pattern(patt) = paint else {
         return;
     };
     let subtree = builder
@@ -387,20 +406,34 @@ fn emit_pattern(
         fill_type,
         ops: path_ops(path.data()),
     });
-    builder.push(DrawOp::FillPattern {
-        path: path_id,
-        subtree,
-        tile: Rect4 {
-            x: rect.x(),
-            y: rect.y(),
-            width: rect.width(),
-            height: rect.height(),
-        },
-        // asAffine 序（tiny 0.12 from_row 对接序）：[sx ky kx sy tx ty]。
-        pattern_transform: [t.sx, t.ky, t.kx, t.sy, t.tx, t.ty],
-        opacity: fill.opacity().get(),
-    });
-}
+    // asAffine 序（tiny 0.12 from_row 对接序）：[sx ky kx sy tx ty]。
+    let pattern_transform = [t.sx, t.ky, t.kx, t.sy, t.tx, t.ty];
+    let tile = Rect4 {
+        x: rect.x(),
+        y: rect.y(),
+        width: rect.width(),
+        height: rect.height(),
+    };
+    let opacity = opacity.get();
+    if let Some(stroke) = stroke {
+            builder.push(DrawOp::StrokePattern {
+                path: path_id,
+                subtree,
+                tile,
+                pattern_transform,
+                opacity,
+                stroke,
+            });
+        } else {
+            builder.push(DrawOp::FillPattern {
+                path: path_id,
+                subtree,
+                tile,
+                pattern_transform,
+                opacity,
+            });
+        }
+    }
 
 /// tiny-skia path 段 → PathOp。所有段都是绝对坐标（usvg 归一）。
 fn path_ops(data: &tiny_skia_path::Path) -> Vec<PathOp> {
@@ -502,11 +535,18 @@ fn paint_to_fill(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<FillSpec
                 colors,
                 tile_mode: convert_spread(lg.spread_method()),
                 local_matrix: ts_matrix(&lg.transform()),
+                // SVG/resvg 插值在 unpremul 空间（与浏览器 CSS 渐变相反）。
+                interpolate_premul: false,
             }))
         }
         usvg::Paint::RadialGradient(rg) => {
             let (stops, colors) = gradient_stops(rg.stops(), opacity)?;
-            // 焦点（fx/fy/fr）本引擎 ShaderSpec 暂缺，退化为主圆（P2）。
+            // 焦点圆 (fx, fy, fr)：usvg 已把缺省 fx/fy 归一化为 cx/cy、
+            // fr 归一化为 0，与 cx/cy/r 同值时按普通 radial 处理。
+            let focal = [rg.fx(), rg.fy(), rg.fr().get()];
+            let is_trivial = focal[0] == rg.cx()
+                && focal[1] == rg.cy()
+                && focal[2] == 0.0;
             Some(FillSpec::Shader(ShaderSpec::RadialGradient {
                 center: [rg.cx(), rg.cy()],
                 radius: rg.r().get(),
@@ -514,6 +554,8 @@ fn paint_to_fill(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<FillSpec
                 colors,
                 tile_mode: convert_spread(rg.spread_method()),
                 local_matrix: ts_matrix(&rg.transform()),
+                interpolate_premul: false,
+                focal: if is_trivial { None } else { Some(focal) },
             }))
         }
         usvg::Paint::Pattern(_) => None,

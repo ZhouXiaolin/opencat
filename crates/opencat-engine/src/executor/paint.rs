@@ -4,11 +4,11 @@ use opencat_core::canvas::paint::{
     StrokeCap, StrokeJoin, TileMode, TransferFn,
 };
 use skia_safe::{
-    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel,
-    ColorFilter, FilterMode, Image, ImageFilter, Matrix, MaskFilter, MipmapMode, Paint,
-    PaintStyle as SkPaintStyle, PathEffect, PictureRecorder, SamplingOptions, Shader,
-    TileMode as SkTileMode, color_filters, gradient_shader, image_filters, scalar, shaders,
-    surfaces,
+    AlphaType, BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel,
+    ColorFilter, ColorType, Data, FilterMode, Image, ImageFilter, ImageInfo, Matrix, MaskFilter,
+    MipmapMode, Paint, PaintStyle as SkPaintStyle, PathEffect, PictureRecorder, SamplingOptions,
+    Shader, TileMode as SkTileMode, color_filters, gradient_shader, image_filters, scalar,
+    shaders, surfaces,
 };
 use skia_safe::image::BitDepth;
 
@@ -490,15 +490,39 @@ fn tile_input_region(
     }
 }
 
-fn chain_crop_rect(p: &opencat_core::canvas::paint::FilterPrimSpec) -> Option<image_filters::CropRect> {
-    p.crop.map(|r| {
-        image_filters::CropRect::from(skia_safe::Rect::new(
-            r.x0 as f32,
-            r.y0 as f32,
-            r.x1 as f32,
-            r.y1 as f32,
-        ))
-    })
+/// prim subregion 收进 region 内（resvg 的 region pixmap 边界语义）。
+/// 空交返回 None。
+fn clamped_crop(
+    chain: &FilterChainSpec,
+    p: &opencat_core::canvas::paint::FilterPrimSpec,
+) -> Option<opencat_core::canvas::Rect> {
+    let mut c = p.crop?;
+    if let Some(rc) = chain.source_crop {
+        c.x0 = c.x0.max(rc.x0);
+        c.y0 = c.y0.max(rc.y0);
+        c.x1 = c.x1.min(rc.x1);
+        c.y1 = c.y1.min(rc.y1);
+    }
+    if c.x1 <= c.x0 || c.y1 <= c.y0 {
+        return None;
+    }
+    Some(c)
+}
+
+fn chain_crop_rect(
+    chain: &FilterChainSpec,
+    p: &opencat_core::canvas::paint::FilterPrimSpec,
+) -> Option<image_filters::CropRect> {
+    // resvg 的 prim 结果永远活在 region pixmap 里：subregion 超出 region 的
+    // 部分被 Clear 掉（输出层 = region）。skia 树无 pixmap 边界，显式把
+    // crop 收进 region 内。
+    let c = clamped_crop(chain, p);
+    // clip 后内容为空（subregion 与 region 不相交）→ 输出全透明
+    // （resvg 的空内容也走正常链，元素不被裸画）。
+    let rect = c
+        .map(|c| skia_safe::Rect::new(c.x0 as f32, c.y0 as f32, c.x1 as f32, c.y1 as f32))
+        .unwrap_or_else(|| skia_safe::Rect::new(0.0, 0.0, 0.0, 0.0));
+    Some(image_filters::CropRect::from(rect))
 }
 
 fn build_filter_prim(
@@ -507,7 +531,7 @@ fn build_filter_prim(
     out_srgb: bool,
 ) -> Option<ImageFilter> {
     let p = chain.primitives.get(idx)?;
-    let crop = chain_crop_rect(p);
+    let crop = chain_crop_rect(chain, p);
     let input_of = |i: &FilterInput| -> Option<ImageFilter> {
         build_filter_input(chain, i, p.srgb)
     };
@@ -823,24 +847,47 @@ fn build_filter_prim(
             base_frequency,
             num_octaves,
             seed,
-            stitch: _,
+            stitch,
         } => {
-            // stitchTiles 首版忽略（skia 需要 tile_size 取整频率，语料占比小）。
+            // skia 与 resvg（SVG spec）同算法同 RNG，唯二差异：①skia 的噪声
+            // 坐标 = seed_shader 的像素中心（x+0.5）再加 0.5 = (x+1)·bf，
+            // spec/resvg 是 x·bf——LM=translate(1.0)（采样坐标 = LM⁻¹×设备
+            // = 设备-1.0）补偿；②resvg 的 stitch wrap 判定因 tile_x 取当前
+            // 像素而恒假（floor(x·bf) ≥ x·bf+w0 永假），实际只有频率调整
+            // 生效——engine 侧按 spec 预调频率、tile_size 传 None 关掉 skia
+            // 的 wrap。
+            let region = chain.source_crop?;
+            let (mut fx, mut fy) = (base_frequency[0] as f64, base_frequency[1] as f64);
+            if *stitch {
+                if fx != 0.0 {
+                    let w = region.width();
+                    let lo = (w * fx).floor() / w;
+                    let hi = (w * fx).ceil() / w;
+                    fx = if fx / lo < hi / fx { lo } else { hi };
+                }
+                if fy != 0.0 {
+                    let h = region.height();
+                    let lo = (h * fy).floor() / h;
+                    let hi = (h * fy).ceil() / h;
+                    fy = if fy / lo < hi / fy { lo } else { hi };
+                }
+            }
             let sh = if *fractal {
                 shaders::fractal_noise(
-                    (base_frequency[0], base_frequency[1]),
+                    (fx as scalar, fy as scalar),
                     *num_octaves as usize,
                     *seed,
                     None,
                 )
             } else {
                 shaders::turbulence(
-                    (base_frequency[0], base_frequency[1]),
+                    (fx as scalar, fy as scalar),
                     *num_octaves as usize,
                     *seed,
                     None,
                 )
             }?;
+            let sh = sh.with_local_matrix(&Matrix::translate((1.0, 1.0)));
             image_filters::shader(sh, crop)
         }
     };

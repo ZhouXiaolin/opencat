@@ -759,9 +759,12 @@ fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<()
             encode_image_filter(out, outer)?;
             encode_image_filter(out, inner)?;
         }
-        ImageFilterSpec::Chain(chain) => {
+        ImageFilterSpec::Chain(chains) => {
             write_u8(out, 4);
-            encode_filter_chain(out, chain)?;
+            write_u32(out, chains.len() as u32);
+            for chain in chains {
+                encode_filter_chain(out, chain)?;
+            }
         }
     }
     Ok(())
@@ -1031,6 +1034,10 @@ fn encode_filter_prim_kind(out: &mut Vec<u8>, kind: &FilterPrimKind) -> Result<(
         FilterPrimKind::Tile { input } => {
             write_u8(out, 14);
             encode_filter_input(out, input);
+        }
+        FilterPrimKind::Image { subtree } => {
+            write_u8(out, 16);
+            write_u32(out, *subtree);
         }
         FilterPrimKind::Turbulence {
             fractal,

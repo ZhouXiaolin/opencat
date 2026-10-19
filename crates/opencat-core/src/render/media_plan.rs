@@ -245,6 +245,12 @@ pub fn build_media_plan(
 
 fn collect_ops(frame: &DrawOpFrame, ops: &[DrawOp], collector: &mut MediaCollector) {
     for op in ops {
+        // SVG feImage：引用子树 id 藏在 paint 的 filter 链里（不在任何
+        // DrawOp 字段上），必须单独递归，否则子树内的 encoded/image 引用
+        // 不进 plan、执行端无解码可用。
+        if let Some(pid) = op_paint(op) {
+            collect_paint_filter(frame, pid, collector);
+        }
         match op {
             DrawOp::Image { image, .. } => {
                 collector.push_image(image);
@@ -344,6 +350,51 @@ fn collect_subtree(frame: &DrawOpFrame, subtree: SubtreeId, collector: &mut Medi
         return;
     };
     collect_ops(frame, ops, collector);
+}
+
+/// op 上直接挂的 paint id（feImage 的 subtree 引用扫描用）。
+fn op_paint(op: &DrawOp) -> Option<crate::ir::draw_types::PaintId> {
+    match op {
+        DrawOp::SaveLayer { paint, .. } | DrawOp::SaveBackdropLayer { paint, .. } => *paint,
+        DrawOp::Paint { paint, .. }
+        | DrawOp::Rect { paint, .. }
+        | DrawOp::RRect { paint, .. }
+        | DrawOp::DRRect { paint, .. }
+        | DrawOp::Oval { paint, .. }
+        | DrawOp::Circle { paint, .. }
+        | DrawOp::Arc { paint, .. }
+        | DrawOp::Line { paint, .. }
+        | DrawOp::Points { paint, .. }
+        | DrawOp::DrawPath { paint, .. }
+        | DrawOp::ImageRect { paint: Some(paint), .. } => Some(*paint),
+        _ => None,
+    }
+}
+
+/// paint 的 filter 链里 feImage 引用的子树（内含 image/lottie 等媒体引用）。
+fn collect_paint_filter(
+    frame: &DrawOpFrame,
+    pid: crate::ir::draw_types::PaintId,
+    collector: &mut MediaCollector,
+) {
+    use crate::canvas::paint::{FilterPrimKind, ImageFilterSpec};
+    let Some(spec) = frame
+        .paints
+        .get(pid.0 as usize)
+        .and_then(|p| p.image_filter.as_ref())
+    else {
+        return;
+    };
+    let ImageFilterSpec::Chain(chains) = spec else {
+        return;
+    };
+    for chain in chains {
+        for p in &chain.primitives {
+            if let FilterPrimKind::Image { subtree } = &p.kind {
+                collect_subtree(frame, SubtreeId(*subtree), collector);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

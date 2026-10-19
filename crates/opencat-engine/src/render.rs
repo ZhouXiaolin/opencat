@@ -610,12 +610,26 @@ pub fn render_single_frame_png(
     render_single_frame_png_with_base(input, None, output_path, frame_index)
 }
 
-fn write_rgba_png(output_path: &Path, width: u32, height: u32, rgba: Vec<u8>) -> Result<()> {
+fn write_rgba_png(output_path: &Path, width: u32, height: u32, mut rgba: Vec<u8>) -> Result<()> {
     if let Some(parent) = output_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
         std::fs::create_dir_all(parent)?;
+    }
+
+    // PNG stores unpremultiplied RGBA, but the renderer reads premul pixels
+    // (raster_n32_premul read_pixels); convert back so semi-transparent pixels
+    // match sources like resvg.
+    for px in rgba.chunks_exact_mut(4) {
+        let a = px[3] as u32;
+        if a == 0 {
+            px[..3].fill(0);
+        } else if a != 255 {
+            for ch in &mut px[..3] {
+                *ch = ((*ch as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
     }
 
     let image = image::RgbaImage::from_raw(width, height, rgba)

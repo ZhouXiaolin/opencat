@@ -34,6 +34,7 @@ pub enum ElementKind {
     Lottie(ElementLottie),
     Canvas(ElementCanvas),
     SvgPath(ElementSvgPath),
+    Svg(ElementSvg),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -85,6 +86,17 @@ pub struct ElementCanvas {
 pub struct ElementSvgPath {
     pub path_data: Vec<String>,
     pub view_box: [f32; 4],
+    pub intrinsic_size: Option<(f32, f32)>,
+}
+
+/// `<svg src>` 解析产物：文件路径 + 布局覆盖 + intrinsic 尺寸（渲染时
+/// 按路径取缓存树）。
+#[derive(Clone, Debug)]
+pub struct ElementSvg {
+    pub src: std::path::PathBuf,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub preserve_aspect_ratio: Option<String>,
     pub intrinsic_size: Option<(f32, f32)>,
 }
 

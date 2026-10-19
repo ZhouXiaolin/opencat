@@ -48,6 +48,16 @@ impl DrawOpBuilder {
         self.ops.push(op);
     }
 
+    /// Debug dump of the op stream (OC_SVG_DEBUG diagnostics only).
+    pub fn ops_debug(&self) -> &[DrawOp] {
+        &self.ops
+    }
+
+    /// Debug dump of the interned paints (OC_SVG_DEBUG diagnostics only).
+    pub fn paints_debug(&self) -> &[PaintSpec] {
+        &self.paints
+    }
+
     /// Intern a PaintSpec, returning a deduplicated PaintId.
     pub fn intern_paint(&mut self, spec: PaintSpec) -> PaintId {
         if let Some(&id) = self.paint_dedup.get(&spec) {

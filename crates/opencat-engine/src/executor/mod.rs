@@ -1,10 +1,13 @@
 pub mod paint;
 pub mod path;
+pub mod path_tiny;
 mod replay;
 
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
 use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
+
+use opencat_core::ir::draw_types::PathOp;
 #[cfg(target_os = "linux")]
 use skia_safe::skottie::Animation;
 use std::collections::HashMap;
@@ -42,6 +45,9 @@ impl std::error::Error for DrawError {}
 /// and replays DrawOpFrame onto a skia_safe::Canvas.
 pub struct EngineDrawExecutor {
     pub(crate) current_path: Option<PathBuilder>,
+    /// `current_path` 的 PathOp 镜像：tiny clip 光栅化需要原始 ops
+    /// （skia PathBuilder 无法回读出 ts::Path）。
+    pub(crate) current_path_ops: Vec<PathOp>,
     pub(crate) current_fill_paint: Paint,
     pub(crate) current_stroke_paint: Paint,
     pub(crate) current_alpha: f32,
@@ -59,12 +65,26 @@ pub struct EngineDrawExecutor {
     pub(crate) backdrop_next: usize,
     /// 预录前缀期间为真：此时 `SaveBackdropLayer` 走原始 Skia 路径且不消费槽位。
     pub(crate) backdrop_building: bool,
+    /// svg `<mask>` 的 coverage 栈（全帧 skia Image，rgb=0、a=coverage）。
+    /// MaskClip 时折算入栈；所在层 Restore 前以 DstIn blend 画回层上——
+    /// 全程 canvas API 无像素拷贝。skia blend 的定点乘是 round 型，与
+    /// resvg `apply_mask` 的 `(v+255)>>8` 同式（clip coverage 的截断量化
+    /// 在 0.5/255 边界差 1，经 unpremul 放大成全幅差，不可用）。
+    pub(crate) mask_stack: Vec<skia_safe::Image>,
+    /// 各 `SaveLayer` 入栈时的 mask_stack 长度基准；Restore 时 drain 到该
+    /// 长度。只记 SaveLayer 不记 Save，多余的 Restore 不弹记录——emit 侧
+    /// SaveLayer/Restore 历史配平不严格（1:2），按记录配对会整体错位。
+    pub(crate) layer_marks: Vec<usize>,
+    /// mask 子树重放深度：重放期间子树自己的 SaveLayer/Restore 不得触碰
+    /// layer_marks（否则子树的配平 Restore 会弹掉主流程的层基准）。
+    pub(crate) mask_replay: u32,
 }
 
 impl EngineDrawExecutor {
     pub fn new() -> Self {
         Self {
             current_path: None,
+            current_path_ops: Vec::new(),
             current_fill_paint: Paint::default(),
             current_stroke_paint: Paint::default(),
             current_alpha: 1.0,
@@ -73,16 +93,23 @@ impl EngineDrawExecutor {
             backdrop_pictures: Vec::new(),
             backdrop_next: 0,
             backdrop_building: false,
+            mask_stack: Vec::new(),
+            layer_marks: Vec::new(),
+            mask_replay: 0,
         }
     }
 
     pub fn begin_frame(&mut self) {
         self.current_path = None;
+        self.current_path_ops = Vec::new();
         self.current_fill_paint = Paint::default();
         let mut sp = Paint::default();
         sp.set_style(skia_safe::paint::Style::Stroke);
         self.current_stroke_paint = sp;
         self.current_alpha = 1.0;
+        self.mask_stack.clear();
+        self.layer_marks.clear();
+        self.mask_replay = 0;
     }
 }
 
@@ -102,6 +129,9 @@ pub struct EnginePreparedFrameMedia {
     /// 重放按此把 `DrawOp::ImageRect` 的声明坐标系 src 映射到解码像素，并
     /// 补偿 `DrawOp::Image` 的自然尺寸语义；缺省 1.0（native/lazy，无缩放）。
     pub image_scales: Vec<f32>,
+    /// svg `<image>` 的解码像素（premul RGBA），tiny Pattern 重采样的输入
+    /// （resvg render_raster 同源路径）；键即 `ImageRef::Encoded`。
+    pub encoded_pixmaps: HashMap<ImageRef, std::sync::Arc<tiny_skia::Pixmap>>,
 }
 
 /// 一个已编译的 runtime effect，附带 liangyi 后端声明的执行计划。

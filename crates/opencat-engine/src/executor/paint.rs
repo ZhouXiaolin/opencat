@@ -4,11 +4,13 @@ use opencat_core::canvas::paint::{
     StrokeCap, StrokeJoin, TileMode, TransferFn,
 };
 use skia_safe::{
-    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel, ColorFilter,
-    FilterMode, Image, ImageFilter, Matrix, MaskFilter, MipmapMode, Paint, PaintStyle as SkPaintStyle,
-    PathEffect, SamplingOptions, Shader, TileMode as SkTileMode, color_filters, gradient_shader,
-    image_filters, scalar, shaders, surfaces,
+    BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel,
+    ColorFilter, FilterMode, Image, ImageFilter, Matrix, MaskFilter, MipmapMode, Paint,
+    PaintStyle as SkPaintStyle, PathEffect, PictureRecorder, SamplingOptions, Shader,
+    TileMode as SkTileMode, color_filters, gradient_shader, image_filters, scalar, shaders,
+    surfaces,
 };
+use skia_safe::image::BitDepth;
 
 /// feImage 的子树光栅图缓存：执行端在展开 filter 前预渲染填充，feImage
 /// 分支取用。SaveLayer 处理是单线程递归的，thread_local 即可；成对
@@ -470,6 +472,24 @@ fn build_filter_input(
     }
 }
 
+/// feTile 的瓦片源窗口（resvg 语义）：input prim 的有效 region。feOffset
+/// 继承 input 的 region（平移不扩域），故递归穿透；Source 系 = filter region。
+fn tile_input_region(
+    chain: &FilterChainSpec,
+    input: &FilterInput,
+) -> Option<opencat_core::canvas::Rect> {
+    match input {
+        FilterInput::Prim(i) => {
+            let ip = chain.primitives.get(*i as usize)?;
+            match &ip.kind {
+                FilterPrimKind::Offset { input, .. } => tile_input_region(chain, input),
+                _ => ip.crop,
+            }
+        }
+        _ => chain.source_crop,
+    }
+}
+
 fn chain_crop_rect(p: &opencat_core::canvas::paint::FilterPrimSpec) -> Option<image_filters::CropRect> {
     p.crop.map(|r| {
         image_filters::CropRect::from(skia_safe::Rect::new(
@@ -718,8 +738,56 @@ fn build_filter_prim(
                 }
             }
         }
-        // feTile 首版直通（语料占比小，tile 源/目标区域语义待对齐）。
-        FilterPrimKind::Tile { input } => build_filter_input(chain, input, p.srgb).or(None),
+        // feTile：瓦片 = input 结果在「input subregion 窗口」内的残片，以该
+        // 窗口为周期 Repeat 充满 prim subregion（resvg apply_tile 就是
+        // Pattern Repeat；feOffset 平移出窗口的部分被裁掉）。input 链绘制
+        // 录成 Picture → lazy Image（skia 求值本 filter 时才光栅化），shader
+        // localMatrix 把图像左上角锚回窗口原点——Repeat 网格即锚定源 rect。
+        FilterPrimKind::Tile { input } => {
+            let src = tile_input_region(chain, input)?;
+            // resvg：prim subregion 与 filter region 不相交时整链求值失败、
+            // 元素不渲染；这里等价为输出全透明。
+            let region = chain.source_crop?;
+            let touches = src.x0 < region.x1
+                && region.x0 < src.x1
+                && src.y0 < region.y1
+                && region.y0 < src.y1;
+            if !touches {
+                return Some(image_filters::crop(
+                    skia_safe::Rect::new(0.0, 0.0, 0.0, 0.0),
+                    SkTileMode::Decal,
+                    None::<ImageFilter>,
+                )?);
+            }
+            let w = ((src.x1 - src.x0).ceil() as i32).max(1);
+            let h = ((src.y1 - src.y0).ceil() as i32).max(1);
+            let mut recorder = PictureRecorder::new();
+            {
+                // filter 树坐标 = user space，画布不能 translate（会偏移链内
+                // crop rect）；平移交给 from_picture 的 matrix。
+                let cull = skia_safe::Rect::new(src.x0 as f32, src.y0 as f32, src.x1 as f32, src.y1 as f32);
+                let c = recorder.begin_recording(cull, false);
+                let mut paint = Paint::default();
+                paint.set_image_filter(input_of(input));
+                c.draw_paint(&paint);
+            }
+            let picture = recorder.finish_recording_as_picture(None)?;
+            let img = Image::from_picture(
+                picture,
+                (w, h),
+                Some(&Matrix::translate((-(src.x0 as f32), -(src.y0 as f32)))),
+                None::<&Paint>,
+                BitDepth::U8,
+                Some(skia_safe::ColorSpace::new_srgb()),
+            )?;
+            let matrix = Matrix::translate((src.x0 as f32, src.y0 as f32));
+            let shader = img.to_shader(
+                (SkTileMode::Repeat, SkTileMode::Repeat),
+                SamplingOptions::new(FilterMode::Nearest, MipmapMode::None),
+                Some(&matrix),
+            )?;
+            image_filters::shader(shader, crop)
+        }
         FilterPrimKind::Image { subtree } => {
             // feImage：执行端已把子树光栅化进 region 大小的图（内容坐标
             // user space 平移 -region.xy），这里 1:1 放回 region 原点，再裁到
@@ -1017,3 +1085,4 @@ mod backdrop_probe {
         assert!(after < before * 0.5, "backdrop blur 应显著抹平噪点 before={before:.2} after={after:.2}");
     }
 }
+

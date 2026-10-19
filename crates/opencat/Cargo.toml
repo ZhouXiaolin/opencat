@@ -15,7 +15,6 @@ opencat-engine = { path = "../opencat-engine" }
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }
 dirs = "7.0.0"
-image = "0.25.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 winit = "0.30.13"
@@ -35,10 +34,6 @@ path = "src/bin/opencat-see.rs"
 [[bin]]
 name = "opencat-frames"
 path = "src/bin/opencat-frames.rs"
-
-[[bin]]
-name = "opencat-diff"
-path = "src/bin/opencat-diff.rs"
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 rodio = "0.22.2"

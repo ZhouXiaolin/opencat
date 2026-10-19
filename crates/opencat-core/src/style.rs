@@ -3,7 +3,86 @@ use std::{hash::Hash, sync::Arc};
 use crate::canvas::paint::BlendMode;
 use crate::script::ScriptDriver;
 
-include!(concat!(env!("OUT_DIR"), "/tailwind_color_items.rs"));
+/// 主题色令牌。Tailwind 类名解析退役后只保留语义色：具体颜色一律走
+/// CSS 管线的 [`ColorToken::Custom`]（rgba 字面量），不再内嵌调色板表。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "camelCase", into = "ColorRgba")]
+pub enum ColorToken {
+    Primary,
+    Transparent,
+    Custom(u8, u8, u8, u8),
+}
+
+/// Wire-format RGBA color used when serializing [`ColorToken`] to JSON
+/// (so JS/CanvasKit can consume it directly without enum-variant decoding).
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+pub struct ColorRgba {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+impl From<ColorToken> for ColorRgba {
+    fn from(token: ColorToken) -> Self {
+        let (r, g, b, a) = token.rgba();
+        Self { r, g, b, a }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ColorToken {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+        struct ColorTokenVisitor;
+        impl<'de> de::Visitor<'de> for ColorTokenVisitor {
+            type Value = ColorToken;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a color name string or RGBA object")
+            }
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<ColorToken, E> {
+                color_token_from_script_name(v)
+                    .ok_or_else(|| de::Error::unknown_variant(v, &[]))
+            }
+            fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<ColorToken, E> {
+                color_token_from_script_name(v)
+                    .ok_or_else(|| de::Error::unknown_variant(v, &[]))
+            }
+            fn visit_map<A>(self, map: A) -> Result<ColorToken, A::Error>
+            where
+                A: de::MapAccess<'de>,
+            {
+                let rgba = <ColorRgba as serde::Deserialize>::deserialize(
+                    de::value::MapAccessDeserializer::new(map),
+                )?;
+                Ok(ColorToken::Custom(rgba.r, rgba.g, rgba.b, rgba.a))
+            }
+        }
+        deserializer.deserialize_any(ColorTokenVisitor)
+    }
+}
+
+impl ColorToken {
+    pub fn rgba(self) -> (u8, u8, u8, u8) {
+        match self {
+            // 历史语义：primary 即 blue-500
+            ColorToken::Primary => (0x2b, 0x7f, 0xff, 0xff),
+            ColorToken::Transparent => (0, 0, 0, 0),
+            ColorToken::Custom(r, g, b, a) => (r, g, b, a),
+        }
+    }
+}
+
+/// 脚本/桥接侧的颜色名解析：只认语义名，具体颜色请写 hex / rgb() / hsl()。
+pub fn color_token_from_script_name(name: &str) -> Option<ColorToken> {
+    match name {
+        "primary" => Some(ColorToken::Primary),
+        "transparent" => Some(ColorToken::Transparent),
+        _ => None,
+    }
+}
 
 /// Position mode - Tailwind: relative, absolute
 #[derive(
@@ -1940,7 +2019,7 @@ impl std::hash::Hash for ComputedTextStyle {
 impl Default for ComputedTextStyle {
     fn default() -> Self {
         Self {
-            color: ColorToken::Black,
+            color: ColorToken::Custom(0, 0, 0, 255),
             text_px: 16.0,
             font_family: None,
             font_generic: None,
@@ -2885,11 +2964,6 @@ macro_rules! impl_node_style_api {
 
 pub(crate) use impl_node_style_api;
 
-include!(concat!(
-    env!("OUT_DIR"),
-    "/tailwind_color_inherent_impls.rs"
-));
-
 /// Parse a color from a script-facing string (named color, hex, hsla, etc.)
 /// into a `ColorToken`. Used by both engine and web script bridges.
 pub fn color_token_from_script_string(name: &str) -> Option<ColorToken> {
@@ -2904,51 +2978,26 @@ pub fn color_token_from_script_string(name: &str) -> Option<ColorToken> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ColorToken, color_token_from_class_suffix, color_token_from_script_name};
+    use super::{ColorToken, color_token_from_script_name};
 
     #[test]
-    fn generated_tailwind_palette_supports_numbered_classes() {
-        assert_eq!(
-            color_token_from_class_suffix("slate-950"),
-            Some(ColorToken::Slate950)
-        );
-        assert_eq!(
-            color_token_from_class_suffix("emerald-300"),
-            Some(ColorToken::Emerald300)
-        );
-    }
-
-    #[test]
-    fn generated_tailwind_palette_keeps_family_aliases_and_script_names() {
-        assert_eq!(
-            color_token_from_class_suffix("blue"),
-            Some(ColorToken::Blue)
-        );
-        assert_eq!(
-            color_token_from_script_name("blue500"),
-            Some(ColorToken::Blue500)
-        );
-        assert_eq!(
-            color_token_from_script_name("slate_700"),
-            Some(ColorToken::Slate700)
-        );
+    fn script_color_names_keep_semantic_aliases_only() {
         assert_eq!(
             color_token_from_script_name("primary"),
             Some(ColorToken::Primary)
         );
         assert_eq!(
-            color_token_from_class_suffix("transparent"),
-            Some(ColorToken::Transparent)
-        );
-        assert_eq!(
             color_token_from_script_name("transparent"),
             Some(ColorToken::Transparent)
         );
+        // tailwind 调色板名（"blue500" / "slate_700"）已随类名解析一并退役
+        assert_eq!(color_token_from_script_name("blue500"), None);
+        assert_eq!(color_token_from_script_name("slate_700"), None);
     }
 
     #[test]
     fn color_token_serializes_as_rgba_for_wire() {
-        let json = serde_json::to_string(&ColorToken::Red500).unwrap();
+        let json = serde_json::to_string(&ColorToken::Custom(10, 20, 30, 40)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(parsed.get("r").is_some(), "expected `r` field, got {json}");
         assert!(parsed.get("g").is_some(), "expected `g` field");
@@ -2957,12 +3006,14 @@ mod tests {
     }
 
     #[test]
-    fn color_token_deserializes_from_camelcase_variant_name() {
-        let token: ColorToken = serde_json::from_str("\"red500\"").unwrap();
-        assert_eq!(token, ColorToken::Red500);
+    fn color_token_deserializes_from_semantic_name() {
+        let token: ColorToken = serde_json::from_str("\"primary\"").unwrap();
+        assert_eq!(token, ColorToken::Primary);
 
         let token: ColorToken = serde_json::from_str("\"transparent\"").unwrap();
         assert_eq!(token, ColorToken::Transparent);
+
+        assert!(serde_json::from_str::<ColorToken>("\"red500\"").is_err());
     }
 
     #[test]

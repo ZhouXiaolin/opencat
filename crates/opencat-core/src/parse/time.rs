@@ -64,7 +64,7 @@ impl TimelineNode {
 
     /// Walk every scene / transition endpoint and replace it via `f`.
     ///
-    /// Used by host-driven caption hydration, which must recurse into the
+    /// Used by host-driven script injection, which must recurse into the
     /// scene nodes a timeline owns. Timing/metadata are preserved; only the
     /// owned [`Node`]s are rewritten. `f` may return `Err` to abort the walk.
     pub(crate) fn map_scene_nodes(
@@ -365,7 +365,7 @@ mod tests {
         parse::{
             easing::Easing,
             node::{Node, NodeKind},
-            primitives::{caption, div},
+            primitives::{div},
             transition::{slide, timeline},
         },
     };
@@ -439,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn frame_state_handles_div_root_with_timeline_and_caption_siblings() {
+    fn frame_state_handles_div_root_with_timeline_and_text_siblings() {
         let root = div()
             .id("root")
             .child(
@@ -448,7 +448,7 @@ mod tests {
                     .transition(slide().timing(Easing::Linear, 5.0 / 30.0))
                     .sequence(10.0 / 30.0, div().id("scene-b").into()),
             )
-            .child(caption().id("subs").path("sub.srt").entries(vec![]));
+            .child(crate::parse::primitives::text("subs").id("subs"));
 
         let frame_ctx = FrameCtx {
             frame: 12,

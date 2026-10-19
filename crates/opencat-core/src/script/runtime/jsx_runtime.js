@@ -685,7 +685,7 @@
     // "unknown variant" later.
     var SUPPORTED_TAGS = {
         div: true, text: true, canvas: true, image: true, audio: true,
-        video: true, icon: true, transition: true, tl: true, caption: true,
+        video: true, icon: true, transition: true, tl: true,
         path: true, lottie: true, svg: true,
     };
 
@@ -808,9 +808,6 @@
                 if (props.loop !== undefined && props.loop !== null) {
                     line.loop = props.loop === true || props.loop === 'true';
                 }
-                break;
-            case 'caption':
-                line.path = String(props.src || props.path);
                 break;
             case 'audio':
                 // jsonl Audio accepts path/url (parse/jsonl/mod.rs Audio) — the

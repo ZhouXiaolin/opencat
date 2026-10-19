@@ -183,19 +183,6 @@ pub enum JsonLine {
         /// place it. Inert when the timeline is a plain child of a div.
         duration: Option<f64>,
     },
-    #[serde(rename = "caption")]
-    Caption {
-        id: String,
-        #[serde(rename = "parentId")]
-        parent_id: Option<String>,
-        #[serde(rename = "className", alias = "class")]
-        class_name: Option<String>,
-        /// Inline `style` attribute, already serialized to CSS declaration
-        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
-        style: Option<String>,
-        path: String,
-        duration: Option<f64>,
-    },
     #[serde(rename = "path")]
     Path {
         id: String,
@@ -558,37 +545,6 @@ pub(crate) fn composition_from_lines(
                     duration,
                     style,
                     kind: ParsedElementKind::Timeline,
-                });
-            }
-            JsonLine::Caption {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                path,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "span",
-                    line_index + 1,
-                );
-                let resolved_path = if let Some(base_dir) = base_dir {
-                    base_dir.join(&path)
-                } else {
-                    PathBuf::from(path)
-                };
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Caption {
-                        path: resolved_path,
-                    },
                 });
             }
             JsonLine::Path {
@@ -1181,8 +1137,7 @@ mod tests {
         let err = parse(
             r#"{"type":"composition","width":640,"height":360,"fps":30,"duration":0.833333333333}
 {"id":"scene-a","parentId":null,"type":"div","className":"","duration":0.333333333333}
-{"id":"subs","parentId":null,"type":"caption","className":"absolute","path":"sub.srt"}
-{"type":"layer","children":["scene-a","subs"]}"#,
+{"type":"layer","children":["scene-a"]}"#,
         )
         .err()
         .expect("legacy layer input should fail");

@@ -5,7 +5,7 @@
 
 use opencat_core::frame_ctx::ScriptFrameCtx;
 use opencat_core::parse::easing::Easing;
-use opencat_core::parse::primitives::{SrtEntry, caption, div, text};
+use opencat_core::parse::primitives::{div, text};
 use opencat_core::parse::time::{FrameState, frame_state_for_root};
 use opencat_core::parse::transition::{slide, timeline};
 use opencat_core::resolve::resolve::{resolve_ui_tree, resolve_ui_tree_with_script_cache};
@@ -318,58 +318,4 @@ fn parent_script_can_split_descendant_text_before_child_resolution() {
         .as_ref()
         .expect("text unit overrides should exist");
     assert_eq!(batch.overrides[0].opacity, Some(0.2));
-}
-
-#[test]
-fn resolve_caption_uses_scene_local_time_inside_timeline() {
-    let caption_node = caption().id("subs").path("sub.srt").entries(vec![
-        SrtEntry {
-            index: 1,
-            start_frame: 0,
-            end_frame: 5,
-            text: "Local A".into(),
-        },
-        SrtEntry {
-            index: 2,
-            start_frame: 5,
-            end_frame: 10,
-            text: "Local B".into(),
-        },
-    ]);
-    let root = timeline()
-        .sequence(
-            10.0 / 30.0,
-            div().id("scene-a").child(text("A").id("t")).into(),
-        )
-        .sequence(10.0 / 30.0, div().id("scene-b").child(caption_node).into())
-        .into();
-    let frame_ctx = FrameCtx {
-        frame: 17,
-        fps: 30,
-        width: 320,
-        height: 180,
-        frames: 20,
-    };
-    let mut assets = PreparedResourceCatalog::default();
-    let mut runtime = ScriptRealm::<V8JsContext>::open().expect("script realm");
-
-    let FrameState::Scene {
-        scene,
-        script_frame_ctx,
-    } = frame_state_for_root(&root, &frame_ctx)
-    else {
-        panic!("expected scene frame");
-    };
-
-    let tree = resolve_ui_tree_with_script_cache(
-        &scene,
-        &frame_ctx,
-        &script_frame_ctx,
-        &mut assets,
-        None,
-        &mut runtime,
-    )
-    .expect("caption tree should resolve");
-
-    assert!(format!("{tree:?}").contains("Local B"));
 }

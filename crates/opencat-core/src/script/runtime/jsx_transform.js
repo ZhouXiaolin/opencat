@@ -172,7 +172,7 @@
     // HTML spelling of `<image>`; both stay void here.
     var VOID_TAGS = {
         image: true, img: true, path: true, icon: true, lottie: true,
-        audio: true, video: true, caption: true,
+        audio: true, video: true,
     };
 
     // Tag aliases so HTML spellings reach the same Rust element.

@@ -9,8 +9,7 @@ use crate::{
     parse::{
         node::NodeKind,
         primitives::{
-            Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Svg, Text, Video,
-            VideoSource,
+            Canvas, Div, Image, Lottie, Lucide, Path, Svg, Text, Video, VideoSource,
         },
         time::TimelineNode,
         time::{FrameState, TimelineOrigin, frame_state_for_root_at},
@@ -144,8 +143,6 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         NodeKind::Path(path) => resolve_path(path, cx),
         NodeKind::Svg(svg) => resolve_svg(svg, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx),
-        NodeKind::Caption(caption) => resolve_caption(caption, cx)?
-            .ok_or_else(|| anyhow::anyhow!("caption node has no active text for frame")),
     }
 }
 
@@ -297,10 +294,7 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
 }
 
 fn resolve_node_optional(node: &Node, cx: &mut ResolveContext<'_>) -> Result<Option<ElementNode>> {
-    match node.kind() {
-        NodeKind::Caption(caption) => resolve_caption(caption, cx),
-        _ => resolve_node(node, cx).map(Some),
-    }
+    resolve_node(node, cx).map(Some)
 }
 
 fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
@@ -403,53 +397,6 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
             fingerprints: Default::default(),
         })
-    })();
-    if pushed {
-        cx.mutation_stack.pop();
-    }
-    result
-}
-
-fn resolve_caption(
-    caption: &CaptionNode,
-    cx: &mut ResolveContext<'_>,
-) -> Result<Option<ElementNode>> {
-    let pushed = push_script_scope_for_visible_subtree(caption, caption.style_ref(), cx)?;
-    let result = (|| {
-        let mut style = caption.style_ref().clone();
-        ensure!(
-            !style.id.is_empty(),
-            "node id is required for caption nodes before rendering"
-        );
-        apply_mutation_stack(&mut style, cx.mutation_stack);
-
-        let content = text_content_from_stack(cx.mutation_stack, &style.id).or_else(|| {
-            caption
-                .active_text(cx.script_frame_ctx.current_frame)
-                .map(|s| s.to_string())
-        });
-
-        let content = match content {
-            Some(content) => content,
-            None => return Ok(None),
-        };
-
-        let computed = compute_style(&style, cx.inherited_style);
-
-        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id);
-
-        Ok(Some(ElementNode {
-            id: cx.ids.alloc(),
-            kind: ElementKind::Text(ElementText {
-                text: content,
-                text_style: computed.text.clone(),
-                text_unit_overrides,
-            }),
-            style: computed,
-            children: Vec::new(),
-            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
-            fingerprints: Default::default(),
-        }))
     })();
     if pushed {
         cx.mutation_stack.pop();
@@ -1020,26 +967,6 @@ fn seed_text_sources_for_visible_subtree(
                 },
             );
         }
-        NodeKind::Caption(caption) => {
-            let id = &caption.style_ref().id;
-            if id.is_empty() {
-                return;
-            }
-            let content = text_content_from_stack(mutation_stack, id).or_else(|| {
-                caption
-                    .active_text(script_frame_ctx.current_frame)
-                    .map(str::to_string)
-            });
-            if let Some(content) = content {
-                script_runtime.register_text_source(
-                    id,
-                    crate::script::ScriptTextSource {
-                        text: content,
-                        kind: crate::script::ScriptTextSourceKind::Caption,
-                    },
-                );
-            }
-        }
         NodeKind::Timeline(timeline) => {
             // Same origin rule as `resolve_timeline`: a nested timeline is
             // placed on the enclosing scene's clock, not the composition's.
@@ -1441,8 +1368,7 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         | NodeKind::Lottie(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
-        | NodeKind::Svg(_)
-        | NodeKind::Caption(_) => {}
+        | NodeKind::Svg(_) => {}
     }
 }
 
@@ -1452,7 +1378,7 @@ mod tests {
     use crate::{
         FrameCtx,
         ir::{draw_op::DrawOp, draw_types::ImageRef},
-        parse::primitives::{SrtEntry, canvas, caption, div, lucide, path, text, video},
+        parse::primitives::{canvas, div, lucide, path, text, video},
         probe::catalog::PreparedResourceCatalog,
         resolve::tree::ElementKind,
         script::{
@@ -1869,82 +1795,6 @@ mod tests {
             merged.overrides[0].color,
             Some(crate::style::ColorToken::Cyan400)
         );
-    }
-
-    #[test]
-    fn resolve_caption_falls_back_to_global_time_when_no_nearer_time_context_exists() {
-        let root = div()
-            .id("root")
-            .child(caption().id("subs").path("sub.srt").entries(vec![
-                SrtEntry {
-                    index: 1,
-                    start_frame: 0,
-                    end_frame: 5,
-                    text: "Global A".into(),
-                },
-                SrtEntry {
-                    index: 2,
-                    start_frame: 5,
-                    end_frame: 10,
-                    text: "Global B".into(),
-                },
-            ]));
-        let frame_ctx = FrameCtx {
-            frame: 7,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 10,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-
-        let tree = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect("root caption should resolve from global time");
-
-        assert!(format!("{tree:?}").contains("Global B"));
-    }
-
-    #[test]
-    fn resolve_caption_omits_inactive_entry() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 90,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-
-        let entries = vec![SrtEntry {
-            index: 1,
-            start_frame: 30,
-            end_frame: 60,
-            text: "Hello".to_string(),
-        }];
-        let caption_node = caption().id("subs").path("test.srt").entries(entries);
-        let root = div().id("root").child(caption_node);
-
-        let resolved = resolve(&root.clone().into(), &frame_ctx, &mut assets)
-            .expect("div with inactive caption should resolve");
-
-        assert_eq!(
-            resolved.children.len(),
-            0,
-            "inactive caption should be omitted"
-        );
-
-        let frame_ctx_active = FrameCtx {
-            frame: 45,
-            ..frame_ctx
-        };
-        let resolved_active = resolve(&root.into(), &frame_ctx_active, &mut assets)
-            .expect("layer with active caption should resolve");
-
-        assert_eq!(resolved_active.children.len(), 1);
-        let ElementKind::Text(elem) = &resolved_active.children[0].kind else {
-            panic!("active caption should resolve to text");
-        };
-        assert_eq!(elem.text, "Hello");
     }
 
     #[test]

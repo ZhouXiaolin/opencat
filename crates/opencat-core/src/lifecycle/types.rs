@@ -34,8 +34,7 @@ pub struct ResourceRequest {
     pub kind: ResourceKind,
 }
 
-/// Host-supplied inputs for prepare: resource metadata, optional subtitle text,
-/// base font database, document font bytes, and external script texts. Building
+/// Host-supplied inputs for prepare: resource metadata, base font database, document font bytes, and external script texts. Building
 /// inputs is fallible for duplicates; prepare is fallible for missing/absent/undeclared
 /// entries.
 ///
@@ -68,7 +67,6 @@ pub struct HostInputs {
     /// Defaults to "sans-serif" which fontdb resolves to its own fallback.
     pub(super) sans_serif_family: String,
     pub(super) catalog: PreparedResourceCatalog,
-    pub(super) subtitle_texts: HashMap<AssetId, String>,
     /// Declared document font face bytes, keyed by stable font AssetId.
     pub(super) document_fonts: HashMap<AssetId, Vec<u8>>,
     /// Declared external script source texts, keyed by stable script AssetId.
@@ -81,8 +79,8 @@ pub struct HostInputs {
     pub(super) confirmed_absent: HashMap<AssetId, String>,
 }
 
-/// Prepared composition: validated host metadata applied, captions hydrated,
-/// ready to open a pipeline. Distinct from [`CompositionDraft`].
+/// Prepared composition: validated host metadata applied, ready to open a
+/// pipeline. Distinct from [`CompositionDraft`].
 #[derive(Debug, Clone)]
 pub struct PreparedComposition {
     pub(super) parsed: ParsedComposition,
@@ -103,8 +101,6 @@ pub struct PreparedComposition {
 /// - [`DuplicateInput`] is raised when building [`HostInputs`] via `insert_*`
 ///   (the only public way to supply resource metadata), so prepare never sees a
 ///   second entry for the same id.
-/// - Declared subtitles may omit text; that is not a missing-input error (empty
-///   captions), matching `hydrate_captions`.
 /// - Declared document fonts must be supplied as non-empty loadable bytes;
 ///   missing or empty fonts fail prepare (fail-fast).
 /// - Declared external scripts must be supplied as non-empty text; missing
@@ -134,7 +130,7 @@ pub enum PrepareError {
         kind: ResourceKind,
         reason: String,
     },
-    /// Unexpected internal failure (e.g. caption parse). Rare on the pure path.
+    /// Unexpected internal failure. Rare on the pure path.
     Internal { message: String },
 }
 

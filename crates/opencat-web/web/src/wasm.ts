@@ -106,7 +106,7 @@ export async function preloadAssets(compositionSource: string): Promise<string> 
 
 // ── Host-owned persistent pipeline (issue #8) ──
 // `openDesign` fetches all declared resources, builds the prepared catalog,
-// hydrates captions, injects the font database, and opens the persistent core
+// injects the font database and opens the persistent core
 // pipeline. Subsequent `build_frame_ir(frame)` calls render against it.
 
 export async function openDesign(compositionSource: string): Promise<string> {

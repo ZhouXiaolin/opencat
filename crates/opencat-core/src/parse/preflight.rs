@@ -103,9 +103,6 @@ fn collect_sources_static(node: &Node, req: &mut ResourceRequests) {
             }
         }
         NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
-        NodeKind::Caption(caption) => {
-            req.subtitles.insert(caption.source().clone());
-        }
     }
 }
 
@@ -173,9 +170,6 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }
         NodeKind::Text(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
-        NodeKind::Caption(caption) => {
-            req.subtitles.insert(caption.source().clone());
-        }
     }
 }
 

@@ -183,6 +183,7 @@ impl EngineLoader {
                 | NodeKind::Text(_)
                 | NodeKind::Lucide(_)
                 | NodeKind::Path(_)
+                | NodeKind::Svg(_)
                 | NodeKind::Lottie(_)
                 | NodeKind::Caption(_) => {}
             }

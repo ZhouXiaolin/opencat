@@ -73,6 +73,12 @@ pub enum ImageRef {
     Generated {
         id: super::generated_image::GeneratedImageId,
     },
+    /// Encoded (PNG/JPEG/...) bytes interned in the frame's byte table. Core
+    /// is a pure protocol layer: it forwards the bytes untouched and the
+    /// engine owns decoding (and any resampling), same split as `Static`.
+    Encoded {
+        data: BytesRangeId,
+    },
 }
 
 /// Persistent runtime effect metadata.
@@ -248,8 +254,9 @@ impl std::hash::Hash for PathOp {
 /// Path fill type for EncodedPath.
 /// Intentionally separate from crate::canvas::FillType to keep the draw IR
 /// module independent of platform-specific canvas types.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FillType {
+    #[default]
     Winding,
     EvenOdd,
 }

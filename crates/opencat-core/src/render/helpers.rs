@@ -6,7 +6,7 @@ use crate::canvas::paint::{
 };
 use crate::display::list::{
     BitmapDisplayItem, DisplayItem, DisplayRect, DrawScriptDisplayItem, RectDisplayItem,
-    SvgPathDisplayItem, TimelineDisplayItem, TimelineTransitionDisplay,
+    SvgDisplayItem, SvgPathDisplayItem, TimelineDisplayItem, TimelineTransitionDisplay,
 };
 use crate::display::tree::{DisplayNode, HiddenChildDisplayNode};
 use crate::ir::GeneratedImageTable;
@@ -504,6 +504,7 @@ fn build_linear_gradient(
         colors,
         tile_mode,
         local_matrix: None,
+        interpolate_premul: true,
     }
 }
 
@@ -626,6 +627,8 @@ fn build_radial_gradient(
         colors,
         tile_mode,
         local_matrix: Some(m),
+        interpolate_premul: true,
+        focal: None,
     }
 }
 
@@ -1003,7 +1006,7 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
     let radii = effective_corner_radius(&rect, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
         push_rrect_path(builder, rect_to_rect4(rect), radii_to_radii4(radii));
-        builder.push(DrawOp::ClipPath { anti_alias: true });
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     } else {
         let r4 = rect_to_rect4(rect);
         builder.push(DrawOp::BeginPath);
@@ -1013,7 +1016,7 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
             width: r4.width,
             height: r4.height,
         }));
-        builder.push(DrawOp::ClipPath { anti_alias: true });
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     }
 }
 
@@ -1663,7 +1666,7 @@ pub fn render_draw_script(
             width: item.bounds.width,
             height: item.bounds.height,
         }));
-        ctx.builder.push(DrawOp::ClipPath { anti_alias: true });
+        ctx.builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
     }
 
     for command in &item.commands {
@@ -1835,6 +1838,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         DisplayItem::Text(text) => super::text::render_text_with_shadows(ctx, text)?,
         DisplayItem::DrawScript(script) => super::helpers::render_draw_script(ctx, script)?,
         DisplayItem::SvgPath(svg) => super::helpers::render_svg_path(ctx, svg)?,
+        DisplayItem::Svg(item) => super::helpers::render_svg(ctx, item)?,
         DisplayItem::Bitmap(bitmap) => super::helpers::render_bitmap_with_shadows(ctx, bitmap)?,
         DisplayItem::Lottie(lottie) => super::helpers::render_lottie_with_shadows(ctx, lottie)?,
         DisplayItem::Timeline(timeline) => super::helpers::render_timeline(ctx, timeline)?,
@@ -1893,6 +1897,53 @@ fn execute_draw_op(
                 paint: *paint,
                 alpha: *alpha,
                 backdrop: false,
+            });
+        }
+        // svg `<pattern>` fill — emitted by the svg backend, forwarded
+        // verbatim (subtree id stays valid: same builder table).
+        DrawOp::FillPattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+        } => {
+            b.push(DrawOp::FillPattern {
+                path: *path,
+                subtree: *subtree,
+                tile: *tile,
+                pattern_transform: *pattern_transform,
+                opacity: *opacity,
+            });
+        }
+        // svg `<pattern>` stroke — same forwarding contract.
+        DrawOp::StrokePattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            stroke,
+        } => {
+            b.push(DrawOp::StrokePattern {
+                path: *path,
+                subtree: *subtree,
+                tile: *tile,
+                pattern_transform: *pattern_transform,
+                opacity: *opacity,
+                stroke: stroke.clone(),
+            });
+        }
+        // svg `<mask>` — same forwarding contract.
+        DrawOp::MaskClip {
+            subtree,
+            kind,
+            region,
+        } => {
+            b.push(DrawOp::MaskClip {
+                subtree: *subtree,
+                kind: *kind,
+                region: *region,
             });
         }
         // Not produced by the canvas script API (only by the renderer's own
@@ -1995,9 +2046,10 @@ fn execute_draw_op(
         DrawOp::StrokePath => {
             b.push(DrawOp::StrokePath);
         }
-        DrawOp::ClipPath { anti_alias } => {
+        DrawOp::ClipPath { anti_alias, fill_type } => {
             b.push(DrawOp::ClipPath {
                 anti_alias: *anti_alias,
+                fill_type: *fill_type,
             });
         }
 
@@ -2274,6 +2326,29 @@ fn svg_path_to_ops(svg: &str) -> Option<Vec<PathOp>> {
     Some(ops)
 }
 
+/// `<svg src>`：加载（缓存）树并展开为 DrawOp 段（PLAN §4）。
+pub fn render_svg(ctx: &mut RenderCtx, item: &SvgDisplayItem) -> Result<(), RenderError> {
+    let Some(tree) = crate::render::svg::load_tree(&item.src) else {
+        return Err(RenderError::MissingResource(format!(
+            "svg file not found or invalid: {}",
+            item.src.display()
+        )));
+    };
+    let b = kurbo_rect(item.bounds);
+    crate::render::svg::emit_svg(
+        ctx.builder,
+        &item.src,
+        &tree,
+        Rect4 {
+            x: b.x0 as f32,
+            y: b.y0 as f32,
+            width: b.width() as f32,
+            height: b.height() as f32,
+        },
+    );
+    Ok(())
+}
+
 pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result<(), RenderError> {
     let dst = kurbo_rect(item.bounds);
 
@@ -2405,7 +2480,7 @@ fn render_transition_overlay(
                 width: clip_rect4.width,
                 height: clip_rect4.height,
             }));
-            builder.push(DrawOp::ClipPath { anti_alias: false });
+            builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
         }
         TransitionKind::ClockWipe => {
             let sweep = (1.0 - p) * 360.0;
@@ -2430,7 +2505,7 @@ fn render_transition_overlay(
                     width: bounded_rect4.width,
                     height: bounded_rect4.height,
                 }));
-                builder.push(DrawOp::ClipPath { anti_alias: false });
+                builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
                 builder.push(DrawOp::Arc {
                     rect: bounded_rect4,
                     start: -90.0,
@@ -2585,7 +2660,7 @@ pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Resul
             width: rect4.width,
             height: rect4.height,
         }));
-        ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
+        ctx.builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
 
         ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(rect4),
@@ -3259,6 +3334,7 @@ mod radial_gradient_tests {
             colors,
             tile_mode,
             local_matrix,
+            ..
         } = shader_for(&fill, repro_rect())
         else {
             panic!("expected linear gradient");
@@ -3339,6 +3415,7 @@ mod radial_gradient_tests {
             colors,
             tile_mode,
             local_matrix,
+            ..
         } = shader_for(&fill, repro_rect())
         else {
             panic!("expected linear gradient");

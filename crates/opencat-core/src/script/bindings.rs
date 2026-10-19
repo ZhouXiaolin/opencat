@@ -97,7 +97,7 @@ macro_rules! for_each_binding {
         $binding! { node $rec $id canvas_clip_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, anti_alias: bool) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
-            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias });
+            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias, fill_type: Default::default() });
         }}
         $binding! { node $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
@@ -234,12 +234,12 @@ macro_rules! for_each_binding {
             $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         $binding! { node $rec $id canvas_clip_path ($id: &str, anti_alias: bool) {
-            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias });
+            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias, fill_type: Default::default() });
         }}
         $binding! { node $rec $id canvas_clip_rrect ($id: &str, x: f32, y: f32, width: f32, height: f32, radius: f32, anti_alias: bool) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRRect { x, y, width, height, radius }));
-            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias });
+            $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias, fill_type: Default::default() });
         }}
         $binding! { node $rec $id canvas_skew ($id: &str, sx: f32, sy: f32) {
             $rec . record_draw_op($id, DrawOp::Skew { sx, sy });

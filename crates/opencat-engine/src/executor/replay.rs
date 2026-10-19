@@ -7,9 +7,95 @@ use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
 use opencat_core::ir::draw_types::{DrawOpRange, ImageRef, PathOp, RuntimeEffectChildRef, SubtreeId};
 use skia_safe::{
-    Canvas, CubicResampler, Data, FilterMode, Image, MipmapMode, Paint, PathBuilder, Picture,
-    PictureRecorder, Point, RRect, Rect, SamplingOptions, Shader, TileMode, Vector, surfaces,
+    AlphaType, Canvas, ColorType, CubicResampler, Data, FilterMode, Image, ImageInfo, MipmapMode,
+    Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, SamplingOptions, Shader,
+    TileMode, Vector, surfaces,
 };
+
+/// feImage 检测：filter 链里有 feImage primitive（需子树预渲染）。
+fn filter_chain_has_image(spec: &opencat_core::canvas::paint::ImageFilterSpec) -> bool {
+    use opencat_core::canvas::paint::{FilterPrimKind, ImageFilterSpec};
+    match spec {
+        ImageFilterSpec::Chain(chains) => chains.iter().any(|c| {
+            c.primitives
+                .iter()
+                .any(|p| matches!(p.kind, FilterPrimKind::Image { .. }))
+        }),
+        _ => false,
+    }
+}
+
+/// feImage 的子树离屏光栅化：引用内容按文档 user space 像素化进
+/// region 大小的图（平移 -region.xy，不套组 CTM——filter 树坐标即
+/// user space，后续 1:1 放回 region 原点）。同 mask 子树 replay：期间
+/// 屏蔽组 mask 的 DstIn 副作用、组 alpha 归一。
+fn render_filter_images(
+    exec: &mut EngineDrawExecutor,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+    spec: &opencat_core::canvas::paint::ImageFilterSpec,
+) -> std::collections::HashMap<u32, Image> {
+    use opencat_core::canvas::paint::{FilterPrimKind, ImageFilterSpec};
+    let mut jobs: Vec<(u32, Rect, Rect)> = Vec::new();
+    if let ImageFilterSpec::Chain(chains) = spec {
+        for chain in chains {
+            let Some(region) = chain.source_crop else {
+                continue;
+            };
+            let sk_region = Rect::new(
+                region.x0 as f32,
+                region.y0 as f32,
+                region.x1 as f32,
+                region.y1 as f32,
+            );
+            for p in &chain.primitives {
+                if let FilterPrimKind::Image { subtree } = &p.kind {
+                    if !jobs.iter().any(|(s, _, _)| s == subtree) {
+                        // subregion 缺省时退化为 region 本身（平移 0）。
+                        let sub = p.crop.unwrap_or(region);
+                        jobs.push((
+                            *subtree,
+                            sk_region,
+                            Rect::new(sub.x0 as f32, sub.y0 as f32, sub.x1 as f32, sub.y1 as f32),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut out = std::collections::HashMap::new();
+    for (subtree, region, sub) in jobs {
+        let w = region.width().ceil() as i32;
+        let h = region.height().ceil() as i32;
+        if w <= 0 || h <= 0 {
+            continue;
+        }
+        let info = ImageInfo::new((w, h), ColorType::RGBA8888, AlphaType::Premul, None);
+        let Some(mut surface) = surfaces::raster(&info, None, None) else {
+            continue;
+        };
+        {
+            let c = surface.canvas();
+            // 内容画到 subregion 起点（resvg apply_image 的放置：内容点 p →
+            // sub.xy + scale·p；无旋转组下 scale 与 CTM 相消为 1）。旋转组的
+            // scale 分量近似实测更差（resvg 的放置在设备空间，user space 里
+            // 单乘 scale 不等价），先不模拟。
+            c.translate((sub.left - region.left, sub.top - region.top));
+            let saved_alpha = exec.current_alpha;
+            exec.current_alpha = 1.0;
+            exec.mask_replay += 1;
+            let r = replay_subtree(exec, c, draw, media, SubtreeId(subtree));
+            exec.mask_replay -= 1;
+            exec.current_alpha = saved_alpha;
+            if r.is_err() {
+                continue;
+            }
+        }
+        out.insert(subtree, surface.image_snapshot());
+    }
+    out
+}
 
 fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
     let a = (paint.color().a() as f32 / 255.0) * alpha;
@@ -168,7 +254,7 @@ fn range_bounds(draw: &DrawOpFrame, range: DrawOpRange) -> Option<Rect> {
         .reduce(rect_union)
 }
 
-fn replay_subtree(
+pub(crate) fn replay_subtree(
     exec: &mut EngineDrawExecutor,
     canvas: &Canvas,
     draw: &DrawOpFrame,
@@ -407,6 +493,12 @@ fn replay_op(
             Ok(())
         }
         DrawOp::Restore => {
+            // svg `<mask>`：层内容完成后、弹层前，把该层期间入栈的 coverage
+            // 以 DstIn blend 罩回（resvg apply_mask 语义；round 量化同向，
+            // 全程 canvas API 无像素拷贝）。多余的 Restore 不弹记录。
+            if exec.mask_replay == 0 {
+                super::path_tiny::mask_apply_dst_in(canvas, exec);
+            }
             canvas.restore();
             Ok(())
         }
@@ -416,14 +508,34 @@ fn replay_op(
             alpha,
             backdrop,
         } => {
+            if exec.mask_replay == 0 {
+                exec.layer_marks.push(exec.mask_stack.len());
+            }
             let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
             match paint {
                 Some(pid) => {
                     // The layer alpha must compose with the paint (it used to
                     // be dropped whenever a paint was present, which made
                     // filtered layers render fully opaque).
-                    let spec = &draw.paints[pid.0 as usize];
-                    let mut sk_paint = paint_from_spec(spec);
+            let spec = &draw.paints[pid.0 as usize];
+            let mut sk_paint = paint_from_spec(spec);
+            // feImage：引用子树先离屏光栅化成图（paint_from_spec 内部构建
+            // filter 时图还没就位，这里显式重建并覆盖）。
+            if spec.image_filter.as_ref().is_some_and(filter_chain_has_image) {
+                let images = render_filter_images(
+                    exec,
+                    draw,
+                    media,
+                    spec.image_filter.as_ref().unwrap(),
+                );
+                super::paint::set_filter_images(images);
+                let imf = spec
+                    .image_filter
+                    .as_ref()
+                    .and_then(build_skia_image_filter);
+                sk_paint.set_image_filter(imf);
+                super::paint::clear_filter_images();
+            }
                     if *alpha < 1.0 {
                         apply_global_alpha(&mut sk_paint, *alpha);
                     }
@@ -621,9 +733,11 @@ fn replay_op(
 
         DrawOp::BeginPath => {
             exec.current_path = Some(PathBuilder::new());
+            exec.current_path_ops.clear();
             Ok(())
         }
         DrawOp::Path(path_op) => {
+            exec.current_path_ops.push(path_op.clone());
             if let Some(ref mut pb) = exec.current_path {
                 apply_path_op(pb, path_op);
             }
@@ -635,6 +749,7 @@ fn replay_op(
                 let mut paint = exec.current_fill_paint.clone();
                 apply_global_alpha(&mut paint, exec.current_alpha);
                 canvas.draw_path(&path, &paint);
+                exec.current_path_ops.clear();
                 exec.current_path = Some(PathBuilder::new());
             }
             Ok(())
@@ -645,14 +760,37 @@ fn replay_op(
                 let mut paint = exec.current_stroke_paint.clone();
                 apply_global_alpha(&mut paint, exec.current_alpha);
                 canvas.draw_path(&path, &paint);
+                exec.current_path_ops.clear();
                 exec.current_path = Some(PathBuilder::new());
             }
             Ok(())
         }
-        DrawOp::ClipPath { anti_alias } => {
+        DrawOp::ClipPath { anti_alias, fill_type } => {
             if let Some(mut pb) = exec.current_path.take() {
                 let path = pb.detach();
-                canvas.clip_path(&path, skia_safe::ClipOp::Intersect, *anti_alias);
+                // SVG 对齐：clip 覆盖率与 resvg 同一扫描线光栅化（细边
+                // AA 逐像素同源）；未接管回退 skia 解析式 AA。
+                let tiny_ft = match fill_type {
+                    opencat_core::ir::draw_types::FillType::Winding => {
+                        tiny_skia::FillRule::Winding
+                    }
+                    opencat_core::ir::draw_types::FillType::EvenOdd => {
+                        tiny_skia::FillRule::EvenOdd
+                    }
+                };
+                if !super::path_tiny::clip_path_tiny(canvas, &exec.current_path_ops, tiny_ft) {
+                    let mut path = path;
+                    path.set_fill_type(match fill_type {
+                        opencat_core::ir::draw_types::FillType::Winding => {
+                            skia_safe::PathFillType::Winding
+                        }
+                        opencat_core::ir::draw_types::FillType::EvenOdd => {
+                            skia_safe::PathFillType::EvenOdd
+                        }
+                    });
+                    canvas.clip_path(&path, skia_safe::ClipOp::Intersect, *anti_alias);
+                }
+                exec.current_path_ops.clear();
                 exec.current_path = Some(PathBuilder::new());
             }
             Ok(())
@@ -783,10 +921,79 @@ fn replay_op(
             Ok(())
         }
         DrawOp::DrawPath { path, paint: pid } => {
-            let sk_path = path_from_encoded(&draw.paths[path.0 as usize]);
-            let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
+            let encoded = &draw.paths[path.0 as usize];
+            let spec = &draw.paints[pid.0 as usize];
+            // SVG 对齐：tiny-skia 光栅化与 resvg 同源（见 path_tiny 模块注）。
+            if super::path_tiny::draw_path_tiny(canvas, encoded, spec, exec.current_alpha) {
+                return Ok(());
+            }
+            let sk_path = path_from_encoded(encoded);
+            let mut paint = paint_from_spec(spec);
             apply_global_alpha(&mut paint, exec.current_alpha);
             canvas.draw_path(&sk_path, &paint);
+            Ok(())
+        }
+        DrawOp::FillPattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+        } => {
+            // svg `<pattern>`：tile picture recording → tiny Pattern 平铺
+            // （resvg render_pattern_pixmap 同源）。未接管按无填充跳过。
+            let encoded = &draw.paths[path.0 as usize];
+            let taken = super::path_tiny::fill_pattern_tiny(
+                canvas,
+                exec,
+                draw,
+                media,
+                encoded,
+                *subtree,
+                tile,
+                pattern_transform,
+                *opacity,
+                None,
+            )?;
+            let _ = taken;
+            Ok(())
+        }
+        DrawOp::StrokePattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            stroke,
+        } => {
+            // svg `<pattern>` 描边：同 FillPattern，平铺结果沿描边样式。
+            let encoded = &draw.paths[path.0 as usize];
+            let taken = super::path_tiny::fill_pattern_tiny(
+                canvas,
+                exec,
+                draw,
+                media,
+                encoded,
+                *subtree,
+                tile,
+                pattern_transform,
+                *opacity,
+                Some(stroke),
+            )?;
+            let _ = taken;
+            Ok(())
+        }
+        DrawOp::MaskClip {
+            subtree,
+            kind,
+            region,
+        } => {
+            // svg `<mask>`：内容子树离屏 → luminance/alpha coverage 全帧
+            // Image 入栈；所在层 Restore 前以 DstIn blend 罩回。未接管按
+            // 无遮罩跳过（tiny 关闭时 svg 本就非对齐路径）。
+            let taken =
+                super::path_tiny::mask_push_tiny(canvas, exec, draw, media, *subtree, *kind, region)?;
+            let _ = taken;
             Ok(())
         }
         DrawOp::Image {
@@ -837,6 +1044,15 @@ fn replay_op(
             dst,
             paint: pid,
         } => {
+            // svg `<image>`：tiny Pattern 重采样与 resvg render_raster 同源
+            // （带 paint/src 的不来自 svg 后端，回退 Skia）。
+            if src.is_none() && pid.is_none() {
+                if let Some(pm) = media.encoded_pixmaps.get(image) {
+                    if super::path_tiny::draw_image_tiny(canvas, pm, dst, exec.current_alpha) {
+                        return Ok(());
+                    }
+                }
+            }
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
                 // 预缩小解码：src 以声明（原图）坐标给出，按解码缩放比映射到
@@ -893,6 +1109,22 @@ fn replay_op(
                                 // 布局侧 1.42x wrapper）linear 的 p8 比 Mitchell
                                 // 低约 0.003，且快约 2.6 倍。
                                 SamplingOptions::new(FilterMode::Linear, MipmapMode::None)
+                            } else {
+                                SamplingOptions {
+                                    use_cubic: true,
+                                    cubic: CubicResampler::mitchell(),
+                                    ..SamplingOptions::default()
+                                }
+                            }
+                        }
+                        ImageRef::Encoded { .. } => {
+                            // svg `<image>` 的参考是 resvg：FilterQuality::Bicubic
+                            // （rendering_mode=OptimizeQuality），放大缩小都走
+                            // Mitchell 同核、不落 mipmap。1:1 blit 时 bicubic
+                            // 退化为精确拷贝，与 VideoFrame 同款走 Nearest。
+                            let src_size = (sk_image.width() as f32, sk_image.height() as f32);
+                            if is_identity_blit(canvas, src_size, src_rect.as_ref(), &dst_rect) {
+                                SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)
                             } else {
                                 SamplingOptions {
                                     use_cubic: true,
@@ -1388,7 +1620,7 @@ mod tests {
             width: 8.0,
             height: 8.0,
         }));
-        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
         // 2) the script's own triangle clip (left half)
         frame.ops.push(DrawOp::Save);
         frame.ops.push(DrawOp::BeginPath);
@@ -1396,7 +1628,7 @@ mod tests {
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
         frame.ops.push(DrawOp::Path(PathOp::Close));
-        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
         frame.ops.push(DrawOp::Rect {
             rect: Rect4 {
                 x: 0.0,
@@ -1471,14 +1703,14 @@ mod tests {
                     width: 8.0,
                     height: 8.0,
                 }));
-                frame.ops.push(DrawOp::ClipPath { anti_alias: false });
+                frame.ops.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
             }
             frame.ops.push(DrawOp::BeginPath);
             frame.ops.push(DrawOp::Path(PathOp::MoveTo { x: 0.0, y: 0.0 }));
             frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 0.0 }));
             frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
             frame.ops.push(DrawOp::Path(PathOp::Close));
-            frame.ops.push(DrawOp::ClipPath { anti_alias: tri_aa });
+            frame.ops.push(DrawOp::ClipPath { anti_alias: tri_aa, fill_type: Default::default() });
             frame.ops.push(DrawOp::Rect {
                 rect: Rect4 { x: 0.0, y: 0.0, width: 8.0, height: 8.0 },
                 paint: opencat_core::ir::draw_types::PaintId(0),
@@ -1519,7 +1751,7 @@ mod tests {
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 4.0, y: 8.0 }));
         frame.ops.push(DrawOp::Path(PathOp::LineTo { x: 0.0, y: 8.0 }));
         frame.ops.push(DrawOp::Path(PathOp::Close));
-        frame.ops.push(DrawOp::ClipPath { anti_alias: true });
+        frame.ops.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
         // Fill the whole canvas red; only the left half may receive paint.
         frame.ops.push(DrawOp::Rect {
             rect: Rect4 {
@@ -2133,6 +2365,7 @@ half4 main(float2 coord) {
             },
             runtime_effects: vec![rt.into()],
             image_scales: Vec::new(),
+            encoded_pixmaps: std::collections::HashMap::new(),
         };
         let mut exec = EngineDrawExecutor::new();
         exec.begin_frame();

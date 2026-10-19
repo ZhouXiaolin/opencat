@@ -401,21 +401,45 @@
 
     var EXPORT_DEFAULT = /(^|\n)([ \t]*)export\s+default\s+/g;
     var EXPORT_NAMED = /(^|\n)([ \t]*)export\s+(?=(const|let|var|function|class)\b)/g;
+    // esbuild bundle 产物的导出列表形式：`export { meta, App as default };`。
+    var EXPORT_LIST = /(^|\n)[ \t]*export\s*\{([^}]*)\}[ \t]*;?[ \t]*(?=\n|$)/g;
 
     function lowerExports(code) {
         var names = [];
+        var trailer = '';
+        // 导出列表先降级（与命名导出/默认导出形式互不重叠）。
+        code = code.replace(EXPORT_LIST, function (all, lead, specs) {
+            var parts = specs.split(',');
+            for (var p = 0; p < parts.length; p++) {
+                var part = parts[p].trim();
+                if (part === '') continue;
+                var asMatch = /^([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/.exec(part);
+                if (!asMatch) continue;
+                var exported = asMatch[2] || asMatch[1];
+                trailer += 'module.exports.' + exported + ' = ' + asMatch[1] + ';\n';
+                if (names.indexOf(exported) < 0) names.push(exported);
+            }
+            return lead;
+        });
         var namedRe = /(^|\n)[ \t]*export\s+(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g;
         var m;
-        while ((m = namedRe.exec(code)) !== null) names.push(m[2]);
+        while ((m = namedRe.exec(code)) !== null) {
+            if (names.indexOf(m[2]) < 0) names.push(m[2]);
+        }
         var out = code.replace(EXPORT_DEFAULT, function (all, lead, indent) {
+            if (names.indexOf('default') < 0) names.push('default');
             return lead + indent + 'module.exports.default = ';
         });
         out = out.replace(EXPORT_NAMED, function (all, lead, indent) {
             return lead + indent;
         });
-        var trailer = '';
         for (var i = 0; i < names.length; i++) {
-            trailer += 'module.exports.' + names[i] + ' = ' + names[i] + ';\n';
+            var name = names[i];
+            // export default 是内联降级（module.exports.default = <expr> 原地
+            // 替换），不再走 trailer；导出列表里的 `as default` 已在上面写好。
+            if (name === 'default') continue;
+            if (trailer.indexOf('module.exports.' + name + ' =') >= 0) continue;
+            trailer += 'module.exports.' + name + ' = ' + name + ';\n';
         }
         return { code: prelude_join(out, trailer), exports: names };
     }

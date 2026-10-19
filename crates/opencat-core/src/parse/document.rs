@@ -67,15 +67,13 @@ pub enum ParsedElementKind {
         source: crate::parse::primitives::LottieSource,
         timing: VideoFrameTiming,
     },
-    Icon {
-        name: String,
-    },
     Path {
         data: String,
         view_box: Option<[f32; 4]>,
     },
     Svg {
         src: PathBuf,
+        inline: Option<String>,
         width: Option<f32>,
         height: Option<f32>,
         preserve_aspect_ratio: Option<String>,

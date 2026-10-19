@@ -770,7 +770,6 @@ fn walk_inject_scripts(
         NodeKind::Image(_)
         | NodeKind::Text(_)
         | NodeKind::Lottie(_)
-        | NodeKind::Lucide(_)
         | NodeKind::Path(_)
         | NodeKind::Svg(_) => {}
     }
@@ -817,7 +816,6 @@ fn walk_script_drivers(node: &crate::parse::node::Node, f: &mut dyn FnMut(&Scrip
         NodeKind::Image(_)
         | NodeKind::Text(_)
         | NodeKind::Lottie(_)
-        | NodeKind::Lucide(_)
         | NodeKind::Path(_)
         | NodeKind::Svg(_) => {}
     }

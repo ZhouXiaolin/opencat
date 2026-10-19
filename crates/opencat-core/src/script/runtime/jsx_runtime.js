@@ -685,7 +685,7 @@
     // "unknown variant" later.
     var SUPPORTED_TAGS = {
         div: true, text: true, canvas: true, image: true, audio: true,
-        video: true, icon: true, transition: true, tl: true,
+        video: true, transition: true, tl: true,
         path: true, lottie: true, svg: true,
     };
 
@@ -747,9 +747,6 @@
                 var vb = props['view-box'] !== undefined ? props['view-box'] : props.viewBox;
                 if (vb !== undefined && vb !== null && vb !== '') line.viewBox = String(vb);
                 break;
-            case 'icon':
-                line.icon = String(props.icon || props.name);
-                break;
             case 'transition':
                 line.from = String(props.from);
                 line.to = String(props.to);
@@ -781,7 +778,11 @@
                 // External SVG file (PLAN §4). `src` stays verbatim — the
                 // Rust side resolves it against the jsx base_dir itself, so
                 // absolute corpus paths are not rewritten to `url`.
+                // `inline` carries ready-made svg markup (bundled react icon
+                // components serialize their subtree into it); it wins over
+                // `src` and skips file resolution on the Rust side.
                 if (props.src !== undefined && props.src !== null) line.src = String(props.src);
+                if (props.inline !== undefined && props.inline !== null) line.inline = String(props.inline);
                 if (props.width !== undefined && props.width !== null) line.width = num(props.width);
                 if (props.height !== undefined && props.height !== null) line.height = num(props.height);
                 var par = props['preserveAspectRatio'];

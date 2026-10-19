@@ -4,12 +4,20 @@
 //   1. build / dev 时把 entry 所在目录的 className 编译成 tailwind.css sidecar
 //      （引擎按 <jsx目录>/tailwind.css 约定路径读取，见 crates/opencat-engine/src/jsx.rs）。
 //      语义与 scripts/build-css.sh 完全一致，只是换成跨平台 Node 实现。
-//   2. vite build 结束后自动调用 opencat render 产出视频。
-//   3. dev 模式下 watch jsx/app.css 变化重编 sidecar（配合 opencat-see 预览）。
+//   2. render 前用 esbuild 把入口打包成标准 bundle（解析 npm 依赖——lucide-react
+//      等真包在这里被折叠进产物；react 系 import alias 到 react-shim.mjs）。
+//      bundle 落在 entry 同目录（<stem>.bundle.jsx），引擎的 base_dir（资产/
+//      字体/sidecar 相对入口目录解析）约定原样成立。
+//   3. vite build 结束后自动调用 opencat render 产出视频（渲染的是 bundle）。
+//   4. dev 模式下 watch jsx/app.css 变化重编 sidecar（配合 opencat-see 预览）。
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, delimiter, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/// 垫片与插件同目录分发（模板/示例各自 cp 一份）。
+const SHIM_PATH = join(dirname(fileURLToPath(import.meta.url)), 'react-shim.mjs');
 
 export default function opencat(options = {}) {
     const entry = options.entry ?? 'src/index.jsx';
@@ -21,6 +29,8 @@ export default function opencat(options = {}) {
     let entryDir;
     let outputAbs;
     let tailwindCli;
+    let esbuild;
+    let bundleAbs;
     // 串行化编译：dev 下连续保存只排队不并发 spawn。
     let chain = Promise.resolve();
 
@@ -60,11 +70,40 @@ export default function opencat(options = {}) {
         return chain;
     };
 
+    // 标准工程流：npm 组件树 → esbuild bundle → 引擎渲染 bundle。
+    // react/react/jsx-runtime alias 到垫片（svg 子树在垫片里序列化成
+    // inline markup）；opencat/runtime 保持 external，引擎内建解析。
+    const bundle = () => {
+        if (!esbuild) {
+            const require = createRequire(join(root, 'package.json'));
+            esbuild = require('esbuild');
+        }
+        const stem = basename(entryAbs).replace(/\.jsx$/, '');
+        bundleAbs = join(entryDir, `${stem}.bundle.jsx`);
+        esbuild.buildSync({
+            entryPoints: [entryAbs],
+            outfile: bundleAbs,
+            bundle: true,
+            format: 'esm',
+            jsx: 'automatic',
+            jsxImportSource: 'react',
+            alias: {
+                react: SHIM_PATH,
+                'react/jsx-runtime': SHIM_PATH,
+            },
+            external: ['opencat/runtime'],
+            charset: 'utf8',
+            logLevel: 'warning',
+        });
+        console.log(`[opencat] bundled ${entry} -> ${bundleAbs}`);
+    };
+
     const render = () => {
+        bundle();
         const bin = findOpencatBin();
         mkdirSync(dirname(outputAbs), { recursive: true });
         console.log(`[opencat] render ${entry} -> ${output}`);
-        const result = spawnSync(bin, ['render', entryAbs, outputAbs], { stdio: 'inherit' });
+        const result = spawnSync(bin, ['render', bundleAbs, outputAbs], { stdio: 'inherit' });
         if (result.status !== 0) {
             throw new Error(`[opencat] 渲染失败（exit ${result.status}）`);
         }
@@ -103,6 +142,7 @@ export default function opencat(options = {}) {
         },
     };
 }
+
 
 /// 从项目 node_modules 解析 @tailwindcss/cli 的 bin 入口（dist/index.mjs）。
 function resolveTailwindCli(root) {

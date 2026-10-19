@@ -215,7 +215,7 @@ Any HTML subtree — layout, images, text, video → texture → shader → outp
 - **Standard CSS layout**：`class="flex items-center justify-center gap-4"` compiles to plain CSS via tailwindcss and runs through the built-in CSS engine (selector matching, cascade, var/calc/color-mix); the `style` attribute accepts full declarations
 - **Audio mixing**：multi-track, scene-attached, auto-mix to output
 - **Subtitle engine**：SRT parsing, cross-scene persistent display
-- **Lucide icons**：2000+ icons out of the box
+- **SVG**: file (`src`) and inline markup (`inline`) channels, scaled to the node box
 - **Deterministic rendering**：`value = f(time)`, consistent across machines
 
 ## Quick start
@@ -244,7 +244,7 @@ npm run build      # compiles src/tailwind.css sidecar + runs opencat render →
 npm run dev        # watches src/**/*.jsx + src/app.css, recompiles the sidecar (pair with opencat-see)
 ```
 
-The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that reproduces `scripts/build-css.sh` semantics cross-platform (no bash/bun required) and shells out to `opencat render` after the build. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory.
+The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that (1) bundles the entry with esbuild — real npm packages such as `lucide-react` resolve here, and `react`/`react/jsx-runtime` are aliased to a shim that serializes `<svg>` subtrees into the engine's `<svg inline>` channel — (2) compiles the tailwind sidecar cross-platform (same semantics as `scripts/build-css.sh`, no bash required), and (3) shells out to `opencat render` on the bundle. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory (the bundle is emitted next to the entry, so this holds).
 
 ### Engine / Web alignment (k3diff pixel metrics)
 

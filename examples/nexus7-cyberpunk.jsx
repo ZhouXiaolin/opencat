@@ -19,6 +19,33 @@ export const fonts = {
   ],
 };
 
+/* ── 图标：lucide path data → `<svg inline>` markup。
+   stroke 色与粗细烧进 markup：CSS class 不级联进 usvg。 ── */
+const ICONS = {
+  brain: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M12 18V5"/>'
+    + '<path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/>'
+    + '<path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/>'
+    + '<path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/>'
+    + '<path d="M18 18a4 4 0 0 0 2-7.464"/>'
+    + '<path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/>'
+    + '<path d="M6 18a4 4 0 0 1-2-7.464"/>'
+    + '<path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/>'
+    + '</svg>',
+  zap: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#ff00ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>'
+    + '</svg>',
+  gitBranch: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M15 6a9 9 0 0 0-9 9V3"/>'
+    + '<circle cx="18" cy="6" r="3"/>'
+    + '<circle cx="6" cy="18" r="3"/>'
+    + '</svg>',
+  arrowRight: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#0a0a0f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M5 12h14"/>'
+    + '<path d="m12 5 7 7-7 7"/>'
+    + '</svg>',
+};
+
 /* ── 复用：赛博背景层（原 cyber-bg 模板 → 组件） ── */
 function CyberBg({ id }) {
   return (
@@ -269,7 +296,7 @@ export default function Nexus7() {
           <Corners id="s3-c1-corners" color="#00ff88" />
           <text id="s3-c1-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">01 / 03</text>
           <div id="s3-c1-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#00ff88] flex items-center justify-center shadow-[0_0_16px_#00ff8860]">
-            <icon id="s3-c1-ic" icon="brain" class="w-[44px] h-[44px] stroke-[#00ff88] stroke-[1.5]" />
+            <svg id="s3-c1-ic" inline={ICONS.brain} class="w-[44px] h-[44px]" />
           </div>
           <text id="s3-c1-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">多模态理解</text>
           <text id="s3-c1-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">文本 · 图像 · 语音 · 视频 统一编码</text>
@@ -286,7 +313,7 @@ export default function Nexus7() {
           <Corners id="s3-c2-corners" color="#ff00ff" />
           <text id="s3-c2-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">02 / 03</text>
           <div id="s3-c2-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#ff00ff] flex items-center justify-center shadow-[0_0_16px_#ff00ff60]">
-            <icon id="s3-c2-ic" icon="zap" class="w-[44px] h-[44px] stroke-[#ff00ff] stroke-[1.5]" />
+            <svg id="s3-c2-ic" inline={ICONS.zap} class="w-[44px] h-[44px]" />
           </div>
           <text id="s3-c2-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">实时推理</text>
           <text id="s3-c2-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">稀疏激活 · 动态路由 · 流式输出</text>
@@ -303,7 +330,7 @@ export default function Nexus7() {
           <Corners id="s3-c3-corners" color="#00d4ff" />
           <text id="s3-c3-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">03 / 03</text>
           <div id="s3-c3-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#00d4ff] flex items-center justify-center shadow-[0_0_16px_#00d4ff60]">
-            <icon id="s3-c3-ic" icon="git-branch" class="w-[44px] h-[44px] stroke-[#00d4ff] stroke-[1.5]" />
+            <svg id="s3-c3-ic" inline={ICONS.gitBranch} class="w-[44px] h-[44px]" />
           </div>
           <text id="s3-c3-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">自主决策</text>
           <text id="s3-c3-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">多步规划 · 工具调用 · 自我校验</text>
@@ -426,7 +453,7 @@ export default function Nexus7() {
         <div id="s6-cta" class="absolute left-[124px] top-[820px] px-[56px] py-[26px] bg-[#00ff88] flex items-center gap-[20px] shadow-[0_0_20px_#00ff88,0_0_50px_#00ff8860]">
           <Corners id="s6-cta" color="#0a0a0f" />
           <text id="s6-cta-t" class="font-[orbitron] font-black text-[40px] text-[#0a0a0f] uppercase tracking-[3px]">ACTIVATE</text>
-          <icon id="s6-cta-ic" icon="arrow-right" class="w-[36px] h-[36px] stroke-[#0a0a0f] stroke-[2.5]" />
+          <svg id="s6-cta-ic" inline={ICONS.arrowRight} class="w-[36px] h-[36px]" />
         </div>
 
         <div id="s6-url-wrap" class="absolute left-[124px] top-[970px] flex items-center gap-[10px]">

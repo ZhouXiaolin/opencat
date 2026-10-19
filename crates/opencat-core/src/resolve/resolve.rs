@@ -9,7 +9,7 @@ use crate::{
     parse::{
         node::NodeKind,
         primitives::{
-            Canvas, Div, Image, Lottie, Lucide, Path, Svg, Text, Video, VideoSource,
+            Canvas, Div, Image, Lottie, Path, Svg, Text, Video, VideoSource,
         },
         time::TimelineNode,
         time::{FrameState, TimelineOrigin, frame_state_for_root_at},
@@ -139,7 +139,6 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         NodeKind::Div(div) => resolve_div(div, cx),
         NodeKind::Canvas(canvas) => resolve_canvas(canvas, cx),
         NodeKind::Text(text) => resolve_text(text, cx),
-        NodeKind::Lucide(lucide) => resolve_lucide_svg_path(lucide, cx),
         NodeKind::Path(path) => resolve_path(path, cx),
         NodeKind::Svg(svg) => resolve_svg(svg, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx),
@@ -646,58 +645,6 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
     result
 }
 
-fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
-    let pushed = push_script_scope_for_visible_subtree(lucide, lucide.style_ref(), cx)?;
-    let result = (|| {
-        let mut style = lucide.style_ref().clone();
-        ensure!(
-            !style.id.is_empty(),
-            "node id is required for lucide nodes before rendering"
-        );
-        apply_mutation_stack(&mut style, cx.mutation_stack);
-        let icon = normalize_lucide_icon_name(lucide.icon());
-        ensure_valid_lucide_icon(icon)?;
-
-        // Lucide default stroke width 2.0, default stroke color Black
-        if style.stroke_width.is_none() {
-            style.stroke_width = Some(2.0);
-        }
-        if style.stroke_color.is_none() {
-            style.stroke_color = Some(crate::style::ColorToken::Custom(0, 0, 0, 255));
-        }
-
-        let computed = compute_style(&style, cx.inherited_style);
-
-        let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
-            let pd = vec![svg_path.clone()];
-            let vb = path_bounds::compute_view_box(&pd).unwrap_or([0.0, 0.0, 24.0, 24.0]);
-            (pd, vb)
-        } else {
-            let paths = crate::resolve::lucide_icons::lucide_icon_paths(icon)
-                .expect("already validated by ensure_valid_lucide_icon");
-            let pd: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
-            let vb = [0.0, 0.0, 24.0, 24.0];
-            (pd, vb)
-        };
-
-        Ok(ElementNode {
-            id: cx.ids.alloc(),
-            kind: ElementKind::SvgPath(ElementSvgPath {
-                path_data,
-                view_box,
-                intrinsic_size: Some((24.0, 24.0)),
-            }),
-            style: computed.clone(),
-            children: Vec::new(),
-            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
-            fingerprints: Default::default(),
-        })
-    })();
-    if pushed {
-        cx.mutation_stack.pop();
-    }
-    result
-}
 
 fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(path, path.style_ref(), cx)?;
@@ -759,13 +706,20 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
         );
         apply_mutation_stack(&mut style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style);
-        let intrinsic_size =
-            crate::render::svg::load_tree(svg.src()).map(|t| crate::render::svg::tree_size(&t));
+        let inline = svg.inline().map(String::from);
+        let intrinsic_size = match &inline {
+            Some(markup) => crate::render::svg::load_tree_markup(markup)
+                .map(|t| crate::render::svg::tree_size(&t)),
+            None => {
+                crate::render::svg::load_tree(svg.src()).map(|t| crate::render::svg::tree_size(&t))
+            }
+        };
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Svg(ElementSvg {
                 src: svg.src().clone(),
+                inline,
                 width: svg.width(),
                 height: svg.height(),
                 preserve_aspect_ratio: svg.preserve_aspect_ratio().map(String::from),
@@ -781,80 +735,6 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
         cx.mutation_stack.pop();
     }
     result
-}
-
-pub(crate) fn normalize_lucide_icon_name(name: &str) -> &str {
-    match name {
-        // Lucide keeps `home` as deprecated metadata alias for the current `house` icon.
-        "home" => "house",
-        // Travel mock data often uses the more literal suitcase label.
-        "suitcase" => "briefcase",
-        _ => name,
-    }
-}
-
-fn ensure_valid_lucide_icon(name: &str) -> Result<()> {
-    validate_lucide_icon_name(name)
-        .map_err(|detail| anyhow::anyhow!("unknown lucide icon `{name}`: {detail}"))
-}
-
-/// Validate a lucide icon name (after normalization) and return a human-readable
-/// "did you mean …" hint when unknown. Shared by render-time validation and the lint CLI.
-pub(crate) fn validate_lucide_icon_name(name: &str) -> std::result::Result<(), String> {
-    let normalized = normalize_lucide_icon_name(name);
-    if crate::resolve::lucide_icons::lucide_icon_paths(normalized).is_some() {
-        return Ok(());
-    }
-
-    let suggestions = suggested_lucide_icons(normalized);
-    let detail = if suggestions.is_empty() {
-        "no similar icons found".to_string()
-    } else {
-        format!("did you mean {}?", suggestions.join(", "))
-    };
-
-    Err(detail)
-}
-
-fn suggested_lucide_icons(name: &str) -> Vec<&'static str> {
-    let mut scored: Vec<(usize, &'static str)> = crate::resolve::lucide_icons::lucide_icon_names()
-        .iter()
-        .map(|candidate| (levenshtein_distance(name, candidate), *candidate))
-        .collect();
-    scored.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(right.1)));
-    scored
-        .into_iter()
-        .take(5)
-        .map(|(_, candidate)| candidate)
-        .collect()
-}
-
-fn levenshtein_distance(left: &str, right: &str) -> usize {
-    let left_chars: Vec<char> = left.chars().collect();
-    let right_chars: Vec<char> = right.chars().collect();
-
-    if left_chars.is_empty() {
-        return right_chars.len();
-    }
-    if right_chars.is_empty() {
-        return left_chars.len();
-    }
-
-    let mut prev: Vec<usize> = (0..=right_chars.len()).collect();
-    let mut curr = vec![0; right_chars.len() + 1];
-
-    for (left_index, left_char) in left_chars.iter().enumerate() {
-        curr[0] = left_index + 1;
-        for (right_index, right_char) in right_chars.iter().enumerate() {
-            let cost = usize::from(left_char != right_char);
-            curr[right_index + 1] = (curr[right_index] + 1)
-                .min(prev[right_index + 1] + 1)
-                .min(prev[right_index] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-
-    prev[right_chars.len()]
 }
 
 fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<bool> {
@@ -1030,7 +910,7 @@ fn seed_text_sources_for_visible_subtree(
                 );
             }
         }
-        NodeKind::Image(_) | NodeKind::Lottie(_) | NodeKind::Lucide(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
+        NodeKind::Image(_) | NodeKind::Lottie(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
     }
 }
 
@@ -1366,7 +1246,6 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         NodeKind::Text(_)
         | NodeKind::Image(_)
         | NodeKind::Lottie(_)
-        | NodeKind::Lucide(_)
         | NodeKind::Path(_)
         | NodeKind::Svg(_) => {}
     }
@@ -1378,7 +1257,7 @@ mod tests {
     use crate::{
         FrameCtx,
         ir::{draw_op::DrawOp, draw_types::ImageRef},
-        parse::primitives::{canvas, div, lucide, path, text, video},
+        parse::primitives::{canvas, div, path, text, video},
         probe::catalog::PreparedResourceCatalog,
         resolve::tree::ElementKind,
         script::{
@@ -1431,7 +1310,7 @@ mod tests {
             .font_bold()
             .line_height(1.8)
             .child(text("A").id("label"))
-            .child(lucide("play").id("icon").size(24.0, 24.0));
+            .child(div().id("icon"));
 
         let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("tree should resolve");
 
@@ -1520,7 +1399,7 @@ mod tests {
             .border_w(3.0)
             .border_color(crate::style::ColorToken::Custom(43, 127, 255, 255))
             .child(text("A").id("label"))
-            .child(lucide("play").id("icon").size(24.0, 24.0));
+            .child(text("B").id("icon"));
 
         let resolved = resolve(&root.into(), &frame_ctx, &mut assets).expect("tree should resolve");
 
@@ -1598,83 +1477,6 @@ mod tests {
         assert_eq!(resolved.style.visual.opacity, 0.4);
         assert_eq!(resolved.children[0].style.visual.opacity, 1.0);
         assert!(resolved.children[0].style.visual.transforms.is_empty());
-    }
-
-    #[test]
-    fn resolve_ui_tree_rejects_unknown_lucide_icons() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-
-        let root = div()
-            .id("root")
-            .child(lucide("pla").id("icon").size(24.0, 24.0));
-
-        let err = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect_err("unknown icon should fail during resolution");
-
-        let message = err.to_string();
-        assert!(message.contains("unknown lucide icon `pla`"));
-        assert!(message.contains("play"));
-    }
-
-    #[test]
-    fn resolve_ui_tree_accepts_home_lucide_alias() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-
-        let root = div()
-            .id("root")
-            .child(lucide("home").id("icon").size(24.0, 24.0));
-
-        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect("deprecated alias should resolve");
-
-        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
-            panic!("child should resolve to svg path element");
-        };
-        let expected_paths =
-            crate::resolve::lucide_icons::lucide_icon_paths("house").expect("house icon");
-        assert_eq!(svg.path_data, expected_paths);
-        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
-    }
-
-    #[test]
-    fn resolve_ui_tree_accepts_suitcase_lucide_alias() {
-        let frame_ctx = FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 1,
-        };
-        let mut assets = PreparedResourceCatalog::default();
-
-        let root = div()
-            .id("root")
-            .child(lucide("suitcase").id("icon").size(24.0, 24.0));
-
-        let resolved = resolve(&root.into(), &frame_ctx, &mut assets)
-            .expect("deprecated alias should resolve");
-
-        let ElementKind::SvgPath(svg) = &resolved.children[0].kind else {
-            panic!("child should resolve to svg path element");
-        };
-        let expected_paths =
-            crate::resolve::lucide_icons::lucide_icon_paths("briefcase").expect("briefcase icon");
-        assert_eq!(svg.path_data, expected_paths);
-        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
     }
 
     #[test]

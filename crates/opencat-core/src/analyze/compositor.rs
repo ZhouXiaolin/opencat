@@ -672,7 +672,7 @@ mod ordered_scene_tests {
 pub enum StableNodeReuse {
     /// 足够便宜的叶子，直接重画比 record picture 更划算。
     DirectLeaf,
-    /// 稳定的 Bitmap / Lucide 叶子，由 `ItemPictureCache` 跨帧复用。
+    /// 稳定的 Bitmap / SVG path 叶子，由 `ItemPictureCache` 跨帧复用。
     ItemPictureLeaf,
     /// 稳定的 Text 叶子，由 `TextSnapshotCache` 跨帧复用。
     TextSnapshotLeaf,

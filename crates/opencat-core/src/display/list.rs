@@ -260,12 +260,13 @@ pub struct SvgPathDisplayItem {
     pub view_box: [f32; 4],
 }
 
-/// `<svg src>` 显示项：文件路径在渲染时经 `render::svg::load_tree` 缓存展开
-/// （PLAN §4）。
+/// `<svg src>` / `<svg inline>` 显示项：文件路径或内联 markup 在渲染时经
+/// `render::svg` 的缓存入口展开（PLAN §4）。
 #[derive(Clone, Debug)]
 pub struct SvgDisplayItem {
     pub bounds: DisplayRect,
     pub src: std::path::PathBuf,
+    pub inline: Option<String>,
     pub preserve_aspect_ratio: Option<String>,
 }
 

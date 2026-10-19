@@ -5,10 +5,30 @@ use opencat_core::canvas::paint::{
 };
 use skia_safe::{
     BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel, ColorFilter,
-    FilterMode, ImageFilter, Matrix, MaskFilter, MipmapMode, Paint, PaintStyle as SkPaintStyle,
+    FilterMode, Image, ImageFilter, Matrix, MaskFilter, MipmapMode, Paint, PaintStyle as SkPaintStyle,
     PathEffect, SamplingOptions, Shader, TileMode as SkTileMode, color_filters, gradient_shader,
     image_filters, scalar, shaders, surfaces,
 };
+
+/// feImage 的子树光栅图缓存：执行端在展开 filter 前预渲染填充，feImage
+/// 分支取用。SaveLayer 处理是单线程递归的，thread_local 即可；成对
+/// set/clear，泄漏面为零。
+thread_local! {
+    static FILTER_IMAGES: std::cell::RefCell<Option<std::collections::HashMap<u32, Image>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn set_filter_images(images: std::collections::HashMap<u32, Image>) {
+    FILTER_IMAGES.with(|c| *c.borrow_mut() = Some(images));
+}
+
+pub(crate) fn clear_filter_images() {
+    FILTER_IMAGES.with(|c| *c.borrow_mut() = None);
+}
+
+fn filter_image(subtree: u32) -> Option<Image> {
+    FILTER_IMAGES.with(|c| c.borrow().as_ref()?.get(&subtree).cloned())
+}
 
 pub fn paint_from_spec(spec: &PaintSpec) -> Paint {
     let mut paint = Paint::default();
@@ -363,7 +383,7 @@ pub(crate) fn build_skia_image_filter(spec: &ImageFilterSpec) -> Option<ImageFil
             let inn = build_skia_image_filter(inner)?;
             image_filters::compose(out, inn)
         }
-        ImageFilterSpec::Chain(chain) => build_filter_chain(chain),
+        ImageFilterSpec::Chain(chains) => build_filter_chains(chains),
     }
 }
 
@@ -382,6 +402,18 @@ const SOURCE_ALPHA_MATRIX: [f32; 20] = [
 /// SourceGraphic = None（skia 空 input 即层快照）。链输出恒 sRGB（层合成域）。
 fn build_filter_chain(chain: &FilterChainSpec) -> Option<ImageFilter> {
     build_filter_prim(chain, chain.output as usize, true)
+}
+
+/// 多 filter 级联：`url(#a) url(#b)` 从左到右求值，compose(outer, inner) =
+/// outer(inner(input))，故从右往左包 compose。每链 SourceGraphic 各自裁到
+/// 自己的 source_crop（resvg 逐 filter 区域化求值同语义）。
+fn build_filter_chains(chains: &[FilterChainSpec]) -> Option<ImageFilter> {
+    let mut iter = chains.iter().rev();
+    let mut acc = build_filter_chain(iter.next()?)?;
+    for chain in iter {
+        acc = image_filters::compose(acc, build_filter_chain(chain)?)?;
+    }
+    Some(acc)
 }
 
 /// 段式色彩空间（与 resvg 的 per-primitive `into_color_space` 同构）：
@@ -522,11 +554,13 @@ fn build_filter_prim(
                 2 => SkTileMode::Repeat,
                 _ => SkTileMode::Decal,
             };
+            // SVG bias∈[0,1] 按通道加 bias×255（skia bias 直接加在 0–255 域，
+            // Chromium 同此换算）；gain=1/divisor。
             image_filters::matrix_convolution(
                 (order.0 as i32, order.1 as i32),
                 kernel,
                 1.0 / divisor,
-                *bias,
+                *bias * 255.0,
                 (target.0, target.1),
                 tile,
                 !*preserve_alpha,
@@ -561,11 +595,12 @@ fn build_filter_prim(
                     crop,
                 ),
                 LightSpec::Spot { x, y, z, points_at_x, points_at_y, points_at_z, specular_exponent, limiting_cone_angle } => {
+                    // SVG limitingConeAngle 单位为度；skia 内部自行 DegreesToRadians。
                     image_filters::spot_lit_diffuse(
                         (*x, *y, *z),
                         (*points_at_x, *points_at_y, *points_at_z),
                         *specular_exponent,
-                        limiting_cone_angle.to_radians(),
+                        *limiting_cone_angle,
                         c,
                         *surface_scale,
                         *diffuse_constant,
@@ -667,11 +702,12 @@ fn build_filter_prim(
                     crop,
                 ),
                 LightSpec::Spot { x, y, z, points_at_x, points_at_y, points_at_z, specular_exponent: spot_exponent, limiting_cone_angle } => {
+                    // 同 spot_lit_diffuse：cutoff 单位为度。
                     image_filters::spot_lit_specular(
                         (*x, *y, *z),
                         (*points_at_x, *points_at_y, *points_at_z),
                         *spot_exponent,
-                        limiting_cone_angle.to_radians(),
+                        *limiting_cone_angle,
                         c,
                         *surface_scale,
                         *specular_constant,
@@ -684,6 +720,36 @@ fn build_filter_prim(
         }
         // feTile 首版直通（语料占比小，tile 源/目标区域语义待对齐）。
         FilterPrimKind::Tile { input } => build_filter_input(chain, input, p.srgb).or(None),
+        FilterPrimKind::Image { subtree } => {
+            // feImage：执行端已把子树光栅化进 region 大小的图（内容坐标
+            // user space 平移 -region.xy），这里 1:1 放回 region 原点，再裁到
+            // prim subregion（resvg 的 prim 后处理）。输出 = 原生 sRGB 像素。
+            let region = chain.source_crop?;
+            let img = filter_image(*subtree)?;
+            native_srgb = true;
+            let dst = skia_safe::Rect::from_xywh(
+                region.x0 as f32,
+                region.y0 as f32,
+                (region.x1 - region.x0) as f32,
+                (region.y1 - region.y0) as f32,
+            );
+            let f = image_filters::image(
+                img,
+                None::<&skia_safe::Rect>,
+                Some(&dst),
+                Some(SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)),
+            )?;
+            // 裁到 prim subregion（resvg 的 prim 后处理；crop 与 dst 同矩形时
+            // 恒等，小 subregion 时截断溢出）。
+            match p.crop {
+                Some(r) => image_filters::crop(
+                    skia_safe::Rect::new(r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32),
+                    SkTileMode::Decal,
+                    f,
+                ),
+                None => Some(f),
+            }
+        }
         FilterPrimKind::Turbulence {
             fractal,
             base_frequency,

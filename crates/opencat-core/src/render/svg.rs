@@ -213,8 +213,11 @@ fn render_group(
     }
 
     // 隔离组：SaveLayer{alpha, blend} → clip → mask → 内容 → Restore。
-    // resvg 的层序是 内容→filter→clip→mask 后合成；本引擎 filter 挂层
-    // paint（P4），形状 mask 折算为 clip（PLAN §3），因此 clip 先于内容。
+    // resvg 的层序是 内容→filter→clip→mask 后合成。无 filter 时 clip/mask
+    // 在层内作用于内容（等价）。有 filter 时 clip/mask 必须作用于 filter
+    // **输出**：filter 挂内层、clip/mask 留外层——clip 是活动状态会裁内层
+    // 合成结果，mask 的 DstIn 在外层 Restore 时罩 filter 输出；组 blend/
+    // 透明度也留外层（resvg 在最后应用）。
     // 载体 paint 的颜色 alpha 必须是 1：执行端把它当层合成 alpha 用，
     // 组透明度走独立的 `alpha` 字段（SaveLayer 语义见 replay.rs）。
     let mut paint = PaintSpec {
@@ -231,28 +234,62 @@ fn render_group(
         .iter()
         .map(|f| emit_filter_chain(&mut *builder, f))
         .collect();
+    let mut fpaint = PaintSpec {
+        fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+        ..PaintSpec::default()
+    };
+    let mut has_filter = false;
     if let Some(chains) = chains.filter(|c| !c.is_empty()) {
-        paint.image_filter = Some(ImageFilterSpec::Chain(chains));
+        fpaint.image_filter = Some(ImageFilterSpec::Chain(chains));
+        has_filter = true;
     }
-    let paint_id = builder.intern_paint(paint);
-    builder.push(DrawOp::SaveLayer {
-        bounds: None,
-        paint: Some(paint_id),
-        alpha: group.opacity().get(),
-        backdrop: false,
-    });
-    if let Some(clip) = group.clip_path() {
-        emit_clip(builder, state, clip);
+    if has_filter {
+        let outer_id = builder.intern_paint(paint);
+        builder.push(DrawOp::SaveLayer {
+            bounds: None,
+            paint: Some(outer_id),
+            alpha: group.opacity().get(),
+            backdrop: false,
+        });
+        if let Some(clip) = group.clip_path() {
+            emit_clip(builder, state, clip);
+        }
+        if let Some(mask) = group.mask() {
+            emit_mask(builder, state, mask);
+        }
+        let filter_id = builder.intern_paint(fpaint);
+        builder.push(DrawOp::SaveLayer {
+            bounds: None,
+            paint: Some(filter_id),
+            alpha: 1.0,
+            backdrop: false,
+        });
+        render_nodes(builder, state, group);
+        // 三个栈帧各弹一次：内外两层 + 组自身的 Save。
+        builder.push(DrawOp::Restore);
+        builder.push(DrawOp::Restore);
+        builder.push(DrawOp::Restore);
+    } else {
+        let paint_id = builder.intern_paint(paint);
+        builder.push(DrawOp::SaveLayer {
+            bounds: None,
+            paint: Some(paint_id),
+            alpha: group.opacity().get(),
+            backdrop: false,
+        });
+        if let Some(clip) = group.clip_path() {
+            emit_clip(builder, state, clip);
+        }
+        if let Some(mask) = group.mask() {
+            emit_mask(builder, state, mask);
+        }
+        render_nodes(builder, state, group);
+        // 两个栈帧各弹一次：SaveLayer 隐含 save，组自身的 Save 也要配平——
+        // 少发一个会让组矩阵与 clip 泄漏给后续兄弟（nested-svg stroke 框被
+        // 平移 (50,50) 的实例教训）。
+        builder.push(DrawOp::Restore);
+        builder.push(DrawOp::Restore);
     }
-    if let Some(mask) = group.mask() {
-        emit_mask(builder, state, mask);
-    }
-    render_nodes(builder, state, group);
-    // 两个栈帧各弹一次：SaveLayer 隐含 save，组自身的 Save 也要配平——
-    // 少发一个会让组矩阵与 clip 泄漏给后续兄弟（nested-svg stroke 框被
-    // 平移 (50,50) 的实例教训）。
-    builder.push(DrawOp::Restore);
-    builder.push(DrawOp::Restore);
     state.ts = outer_ts;
 }
 

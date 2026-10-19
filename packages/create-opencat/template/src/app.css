@@ -1,0 +1,2 @@
+/* 手写 CSS：与 tailwind utilities 同层叠，会被 @import 进 tailwind 编译输入。
+   注意引擎 CSS 子集不支持 background 简写，需要时用 background-color 等长属性。 */

@@ -1,2 +1,4 @@
 node_modules/
 dist/
+# esbuild bundle 产物（opencat-plugin 每次构建生成）
+*.bundle.jsx

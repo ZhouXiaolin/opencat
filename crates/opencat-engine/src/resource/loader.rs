@@ -181,7 +181,6 @@ impl EngineLoader {
                 }
                 NodeKind::Image(_)
                 | NodeKind::Text(_)
-                | NodeKind::Lucide(_)
                 | NodeKind::Path(_)
                 | NodeKind::Svg(_)
                 | NodeKind::Lottie(_) => {}

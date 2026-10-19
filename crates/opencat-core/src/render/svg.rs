@@ -34,6 +34,22 @@ use crate::render::builder::DrawOpBuilder;
 /// 帧），Mutex 争用可以忽略。
 static TREE_CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<usvg::Tree>>>> = OnceLock::new();
 
+/// 内联 markup（`<svg inline>`）的树缓存：键是 markup 内容的哈希——同一
+/// 图标每帧重建字符串，哈希稳定即命中，免逐帧重解析。
+static INLINE_TREE_CACHE: OnceLock<Mutex<HashMap<u64, Arc<usvg::Tree>>>> = OnceLock::new();
+
+fn parse_tree(text: &str, resources_dir: Option<PathBuf>) -> Option<usvg::Tree> {
+    let mut opt = usvg::Options::default();
+    opt.resources_dir = resources_dir;
+    // resvg CLI 默认加载系统字体；text→glyph path 的对齐质量归 P5。
+    opt.fontdb = Arc::new({
+        let mut db = usvg::fontdb::Database::new();
+        db.load_system_fonts();
+        db
+    });
+    usvg::Tree::from_str(text, &opt).ok()
+}
+
 /// 解析并缓存一棵树。`src` 是 svg 文件路径；相对引用（`<image href>`）相对
 /// 它自身目录解析（PLAN §4），由 `resources_dir` 保证。
 pub fn load_tree(src: &Path) -> Option<Arc<usvg::Tree>> {
@@ -42,17 +58,26 @@ pub fn load_tree(src: &Path) -> Option<Arc<usvg::Tree>> {
         return Some(tree.clone());
     }
     let text = std::fs::read_to_string(src).ok()?;
-    let mut opt = usvg::Options::default();
-    opt.resources_dir = src.parent().map(|d| d.to_path_buf());
-    // resvg CLI 默认加载系统字体；text→glyph path 的对齐质量归 P5。
-    opt.fontdb = Arc::new({
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        db
-    });
-    let tree = usvg::Tree::from_str(&text, &opt).ok()?;
-    let tree = Arc::new(tree);
+    let tree = Arc::new(parse_tree(&text, src.parent().map(|d| d.to_path_buf()))?);
     cache.lock().ok()?.insert(src.to_path_buf(), tree.clone());
+    Some(tree)
+}
+
+/// 解析内联 svg markup 并按内容哈希缓存。内联串没有文件语义：无
+/// resources_dir（外部引用无处可解，lucide/react 图标也不需要）。
+pub fn load_tree_markup(markup: &str) -> Option<Arc<usvg::Tree>> {
+    use std::hash::{Hash, Hasher};
+    let key = {
+        let mut h = std::hash::DefaultHasher::new();
+        markup.hash(&mut h);
+        h.finish()
+    };
+    let cache = INLINE_TREE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(tree) = cache.lock().ok()?.get(&key) {
+        return Some(tree.clone());
+    }
+    let tree = Arc::new(parse_tree(markup, None)?);
+    cache.lock().ok()?.insert(key, tree.clone());
     Some(tree)
 }
 
@@ -71,12 +96,7 @@ pub fn tree_size(tree: &usvg::Tree) -> (f32, f32) {
 ///
 /// usvg 已把根 viewBox→viewport 的映射（含 preserveAspectRatio）编码进根
 /// group 的 `abs_transform`，所以这里只做 tree.size()→dst 的盒子缩放。
-pub fn emit_svg(
-    builder: &mut DrawOpBuilder,
-    src: &Path,
-    tree: &usvg::Tree,
-    dst: Rect4,
-) {
+pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4) {
     let (tw, th) = tree_size(tree);
     if tw <= 0.0 || th <= 0.0 || dst.width <= 0.0 || dst.height <= 0.0 {
         return;

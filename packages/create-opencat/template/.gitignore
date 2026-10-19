@@ -2,3 +2,5 @@ node_modules/
 dist/
 # tailwind 编译产物 sidecar（引擎按 <入口目录>/tailwind.css 约定读取）
 src/tailwind.css
+# esbuild bundle 产物（opencat-plugin 每次构建生成）
+src/*.bundle.jsx

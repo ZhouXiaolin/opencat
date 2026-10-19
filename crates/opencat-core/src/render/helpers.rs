@@ -2326,18 +2326,21 @@ fn svg_path_to_ops(svg: &str) -> Option<Vec<PathOp>> {
     Some(ops)
 }
 
-/// `<svg src>`：加载（缓存）树并展开为 DrawOp 段（PLAN §4）。
+/// `<svg src>` / `<svg inline>`：加载（缓存）树并展开为 DrawOp 段（PLAN §4）。
 pub fn render_svg(ctx: &mut RenderCtx, item: &SvgDisplayItem) -> Result<(), RenderError> {
-    let Some(tree) = crate::render::svg::load_tree(&item.src) else {
-        return Err(RenderError::MissingResource(format!(
-            "svg file not found or invalid: {}",
-            item.src.display()
-        )));
+    let tree = match &item.inline {
+        Some(markup) => crate::render::svg::load_tree_markup(markup),
+        None => crate::render::svg::load_tree(&item.src),
+    };
+    let Some(tree) = tree else {
+        return Err(RenderError::MissingResource(match &item.inline {
+            Some(_) => "inline svg markup is invalid".to_string(),
+            None => format!("svg file not found or invalid: {}", item.src.display()),
+        }));
     };
     let b = kurbo_rect(item.bounds);
     crate::render::svg::emit_svg(
         ctx.builder,
-        &item.src,
         &tree,
         Rect4 {
             x: b.x0 as f32,

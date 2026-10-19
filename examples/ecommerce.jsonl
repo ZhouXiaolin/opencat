@@ -2,15 +2,12 @@
 {"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px]"}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
 {"id":"login","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gradient-to-b from-indigo-500 to-purple-600 justify-center items-center gap-5 p-8","duration":3}
-{"id":"logo-icon","parentId":"login","type":"icon","className":"w-[64px] h-[64px] stroke-white stroke-[1.5]","icon":"shopping-bag"}
 {"id":"app-name","parentId":"login","type":"text","className":"text-[32px] font-bold text-white","text":"OpenShop"}
 {"id":"welcome","parentId":"login","type":"text","className":"text-[14px] text-white/80","text":"Welcome Back!"}
 {"id":"input-card","parentId":"login","type":"div","className":"w-full flex flex-col gap-3 mt-8"}
 {"id":"email-field","parentId":"input-card","type":"div","className":"w-full h-[50px] bg-white/15 rounded-xl flex flex-row items-center px-4 gap-3"}
-{"id":"email-icon","parentId":"email-field","type":"icon","className":"w-[20px] h-[20px] stroke-white/60","icon":"mail"}
 {"id":"email-text","parentId":"email-field","type":"text","className":"text-[14px] text-white/70","text":"Email address"}
 {"id":"password-field","parentId":"input-card","type":"div","className":"w-full h-[50px] bg-white/15 rounded-xl flex flex-row items-center px-4 gap-3"}
-{"id":"password-icon","parentId":"password-field","type":"icon","className":"w-[20px] h-[20px] stroke-white/60","icon":"lock"}
 {"id":"password-text","parentId":"password-field","type":"text","className":"text-[14px] text-white/70","text":"Password"}
 {"id":"signin-btn","parentId":"login","type":"div","className":"w-full h-[50px] bg-white rounded-xl flex flex-row justify-center items-center mt-2 shadow-lg"}
 {"id":"signin-text","parentId":"signin-btn","type":"text","className":"text-[16px] font-bold text-indigo-600","text":"Sign In"}
@@ -31,7 +28,6 @@
 {"id":"home","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-gray-50","duration":4}
 {"id":"home-header","parentId":"home","type":"div","className":"flex flex-col bg-white px-4 pt-14 pb-4 shadow-sm"}
 {"id":"search-bar","parentId":"home-header","type":"div","className":"w-full h-[46px] bg-gray-100 rounded-2xl flex flex-row items-center px-4 gap-2.5"}
-{"id":"search-icon","parentId":"search-bar","type":"icon","className":"w-[18px] h-[18px] stroke-gray-400","icon":"search"}
 {"id":"search-placeholder","parentId":"search-bar","type":"text","className":"text-[14px] text-gray-400","text":"Search products..."}
 {"id":"categories","parentId":"home","type":"div","className":"flex flex-row gap-2 px-4 py-3"}
 {"id":"cat-all","parentId":"categories","type":"div","className":"h-[34px] bg-indigo-600 rounded-full flex flex-row justify-center items-center px-4"}
@@ -75,26 +71,19 @@
 {"id":"prod-6-price","parentId":"prod-6-price-wrap","type":"text","className":"text-[15px] font-bold text-indigo-600","text":"$249.99"}
 {"id":"bottom-nav","parentId":"home","type":"div","className":"flex flex-row bg-white border-t border-gray-100 px-6 py-2 mt-auto items-center justify-between"}
 {"id":"nav-home","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
-{"id":"nav-home-icon","parentId":"nav-home","type":"icon","className":"w-[22px] h-[22px] stroke-indigo-600","icon":"home"}
 {"id":"nav-home-label","parentId":"nav-home","type":"text","className":"text-[10px] font-medium text-indigo-600","text":"Home"}
 {"id":"nav-wishlist","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
-{"id":"nav-wishlist-icon","parentId":"nav-wishlist","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"heart"}
 {"id":"nav-wishlist-label","parentId":"nav-wishlist","type":"text","className":"text-[10px] text-gray-400","text":"Wishlist"}
 {"id":"nav-cart","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
-{"id":"nav-cart-icon","parentId":"nav-cart","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"shopping-cart"}
 {"id":"nav-cart-label","parentId":"nav-cart","type":"text","className":"text-[10px] text-gray-400","text":"Cart"}
 {"id":"nav-profile","parentId":"bottom-nav","type":"div","className":"flex flex-col items-center gap-0.5"}
-{"id":"nav-profile-icon","parentId":"nav-profile","type":"icon","className":"w-[22px] h-[22px] stroke-gray-400","icon":"user"}
 {"id":"nav-profile-label","parentId":"nav-profile","type":"text","className":"text-[10px] text-gray-400","text":"Profile"}
 {"type":"script","parentId":"home","src":"ctx.fromTo('search-bar',{opacity:0,y:-10},{opacity:1,y:0,duration:0.5,ease:'ease-out'});ctx.fromTo('categories',{opacity:0},{opacity:1,duration:0.333333,delay:0.266667});ctx.fromTo(['prod-1','prod-2','prod-3','prod-4','prod-5','prod-6'],{opacity:0,y:20},{opacity:1,y:0,duration:0.666667,stagger:0.133333,ease:'spring.gentle'});ctx.fromTo('bottom-nav',{opacity:0,y:20},{opacity:1,y:0,duration:0.5,delay:1.166667})"}
 {"type":"transition","parentId":"main-tl","from":"home","to":"product","effect":"slide","duration":0.5,"direction":"from_right","timing":"ease-out"}
 {"id":"product","parentId":"main-tl","type":"div","className":"flex flex-col w-[390px] h-[844px] bg-white","duration":4}
 {"id":"product-header","parentId":"product","type":"div","className":"flex flex-row items-center justify-between px-4 pt-14 pb-3"}
-{"id":"back-btn","parentId":"product-header","type":"icon","className":"w-[24px] h-[24px] stroke-gray-700","icon":"arrow-left"}
 {"id":"header-title","parentId":"product-header","type":"text","className":"text-[16px] font-semibold text-gray-800","text":"Detail"}
 {"id":"header-actions","parentId":"product-header","type":"div","className":"flex flex-row gap-4"}
-{"id":"wishlist-icon","parentId":"header-actions","type":"icon","className":"w-[24px] h-[24px] stroke-gray-400","icon":"heart"}
-{"id":"cart-icon","parentId":"header-actions","type":"icon","className":"w-[24px] h-[24px] stroke-gray-400","icon":"shopping-cart"}
 {"id":"prod-image-area","parentId":"product","type":"div","className":"w-full h-[360px] bg-gray-100"}
 {"id":"prod-main-img","parentId":"prod-image-area","type":"image","className":"w-full h-full object-cover","query":"luxury watch leather","queryCount":1}
 {"id":"prod-info","parentId":"product","type":"div","className":"flex flex-col flex-1 px-6 pt-5 pb-6 justify-between"}
@@ -103,7 +92,6 @@
 {"id":"prod-rating","parentId":"prod-top-info","type":"text","className":"text-[13px] text-gray-500","text":"\u2605\u2605\u2605\u2605\u2606  (128 reviews)"}
 {"id":"prod-price","parentId":"prod-top-info","type":"text","className":"text-[28px] font-bold text-gray-900 mt-1","text":"$299.00"}
 {"id":"shipping-badge","parentId":"prod-top-info","type":"div","className":"flex flex-row items-center gap-1.5 mt-2"}
-{"id":"truck-icon","parentId":"shipping-badge","type":"icon","className":"w-[16px] h-[16px] stroke-emerald-600","icon":"truck"}
 {"id":"shipping-text","parentId":"shipping-badge","type":"text","className":"text-[13px] font-medium text-emerald-700","text":"Free Shipping"}
 {"id":"color-section","parentId":"prod-top-info","type":"div","className":"flex flex-col gap-2 mt-4"}
 {"id":"color-label","parentId":"color-section","type":"text","className":"text-[13px] font-semibold text-gray-800","text":"Color: Brown"}

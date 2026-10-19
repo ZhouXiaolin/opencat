@@ -135,19 +135,6 @@ pub enum JsonLine {
         #[serde(rename = "loop")]
         looping: Option<bool>,
     },
-    #[serde(rename = "icon")]
-    Icon {
-        id: String,
-        #[serde(rename = "parentId")]
-        parent_id: Option<String>,
-        #[serde(rename = "className", alias = "class")]
-        class_name: Option<String>,
-        /// Inline `style` attribute, already serialized to CSS declaration
-        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
-        style: Option<String>,
-        icon: String,
-        duration: Option<f64>,
-    },
     #[serde(rename = "transition")]
     Transition {
         #[serde(rename = "parentId")]
@@ -210,7 +197,12 @@ pub enum JsonLine {
         /// Inline `style` attribute, already serialized to CSS declaration
         /// text by the JSX runtime. Wins over class rules, per CSS cascade.
         style: Option<String>,
+        #[serde(default)]
         src: String,
+        /// Inline svg markup (e.g. a bundled lucide-react icon). Wins over
+        /// `src`; no file resolution happens for it.
+        #[serde(default)]
+        inline: Option<String>,
         width: Option<f32>,
         height: Option<f32>,
         #[serde(rename = "preserveAspectRatio")]
@@ -470,30 +462,6 @@ pub(crate) fn composition_from_lines(
                     kind: ParsedElementKind::Video { source, timing },
                 });
             }
-            JsonLine::Icon {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                icon,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "icon",
-                    line_index + 1,
-                );
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Icon { name: icon },
-                });
-            }
             JsonLine::Transition {
                 parent_id,
                 from,
@@ -582,6 +550,7 @@ pub(crate) fn composition_from_lines(
                 class_name,
                 style: inline_style,
                 src,
+                inline,
                 width,
                 height,
                 preserve_aspect_ratio,
@@ -595,7 +564,11 @@ pub(crate) fn composition_from_lines(
                     "div",
                     line_index + 1,
                 );
-                let resolved_src = if let Some(base_dir) = base_dir {
+                // 内联 markup 不落盘、无文件语义：src 仅在文件模式参与
+                // base_dir 解析。
+                let resolved_src = if inline.is_some() {
+                    PathBuf::new()
+                } else if let Some(base_dir) = base_dir {
                     base_dir.join(&src)
                 } else {
                     PathBuf::from(src)
@@ -607,6 +580,7 @@ pub(crate) fn composition_from_lines(
                     style,
                     kind: ParsedElementKind::Svg {
                         src: resolved_src,
+                        inline,
                         width,
                         height,
                         preserve_aspect_ratio,

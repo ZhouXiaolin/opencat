@@ -869,7 +869,7 @@ mod tests {
             .id("root")
             .w(100.0)
             .h(100.0)
-            .bg_red()
+            .bg(crate::style::ColorToken::Custom(251, 44, 54, 255))
             .into();
 
         let open_fresh = || -> DefaultPipeline<NoopJsContext> {
@@ -1112,7 +1112,7 @@ mod tests {
                             .id("scene-a")
                             .w_full()
                             .h_full()
-                            .bg(ColorToken::Black)
+                            .bg(ColorToken::Custom(0, 0, 0, 255))
                             .into(),
                     )
                     .transition(fade().timing(Easing::Linear, 0.05))
@@ -1122,7 +1122,7 @@ mod tests {
                             .id("scene-b")
                             .w_full()
                             .h_full()
-                            .bg(ColorToken::White)
+                            .bg(ColorToken::Custom(255, 255, 255, 255))
                             .into(),
                     ),
             )

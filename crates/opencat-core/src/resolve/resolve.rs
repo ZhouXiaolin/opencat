@@ -663,7 +663,7 @@ fn resolve_lucide_svg_path(lucide: &Lucide, cx: &mut ResolveContext<'_>) -> Resu
             style.stroke_width = Some(2.0);
         }
         if style.stroke_color.is_none() {
-            style.stroke_color = Some(crate::style::ColorToken::Black);
+            style.stroke_color = Some(crate::style::ColorToken::Custom(0, 0, 0, 255));
         }
 
         let computed = compute_style(&style, cx.inherited_style);
@@ -1427,7 +1427,7 @@ mod tests {
 
         let root = div()
             .id("root")
-            .text_blue()
+            .text_color(crate::style::ColorToken::Custom(43, 127, 255, 255))
             .font_bold()
             .line_height(1.8)
             .child(text("A").id("label"))
@@ -1437,7 +1437,7 @@ mod tests {
 
         assert_eq!(
             resolved.children[0].style.text.color,
-            crate::style::ColorToken::Blue
+            crate::style::ColorToken::Custom(43, 127, 255, 255)
         );
         assert_eq!(
             resolved.children[0].style.text.font_weight,
@@ -1446,7 +1446,7 @@ mod tests {
         assert_eq!(resolved.children[0].style.text.line_height, 1.8);
         assert_eq!(
             resolved.children[1].style.text.color,
-            crate::style::ColorToken::Blue
+            crate::style::ColorToken::Custom(43, 127, 255, 255)
         );
     }
 
@@ -1516,9 +1516,9 @@ mod tests {
 
         let root = div()
             .id("root")
-            .bg_red()
+            .bg(crate::style::ColorToken::Custom(251, 44, 54, 255))
             .border_w(3.0)
-            .border_blue()
+            .border_color(crate::style::ColorToken::Custom(43, 127, 255, 255))
             .child(text("A").id("label"))
             .child(lucide("play").id("icon").size(24.0, 24.0));
 
@@ -1544,17 +1544,17 @@ mod tests {
         let first = div()
             .id("root")
             .w(200.0)
-            .bg_red()
+            .bg(crate::style::ColorToken::Custom(251, 44, 54, 255))
             .child(text("A").id("label"));
         let second = div()
             .id("root")
             .w(200.0)
-            .bg_blue()
+            .bg(crate::style::ColorToken::Custom(43, 127, 255, 255))
             .child(text("A").id("label"));
         let third = div()
             .id("root")
             .w(240.0)
-            .bg_red()
+            .bg(crate::style::ColorToken::Custom(251, 44, 54, 255))
             .child(text("A").id("label"));
 
         let first = resolve(&first.into(), &frame_ctx, &mut assets).expect("tree should resolve");
@@ -1757,7 +1757,7 @@ mod tests {
                 granularity: TextUnitGranularity::Grapheme,
                 overrides: vec![TextUnitOverride {
                     translate_y: Some(-12.0),
-                    color: Some(crate::style::ColorToken::Cyan400),
+                    color: Some(crate::style::ColorToken::Custom(0, 211, 242, 255)),
                     ..Default::default()
                 }],
             }),
@@ -1793,7 +1793,7 @@ mod tests {
         assert_eq!(merged.overrides[0].opacity, Some(0.5));
         assert_eq!(
             merged.overrides[0].color,
-            Some(crate::style::ColorToken::Cyan400)
+            Some(crate::style::ColorToken::Custom(0, 211, 242, 255))
         );
     }
 

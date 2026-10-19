@@ -1031,9 +1031,9 @@ mod tests {
             lucide("play")
                 .id("icon")
                 .size(24.0, 24.0)
-                .stroke_color(ColorToken::Blue)
+                .stroke_color(ColorToken::Custom(43, 127, 255, 255))
                 .stroke_width(3.5)
-                .fill_color(ColorToken::Sky200),
+                .fill_color(ColorToken::Custom(184, 230, 254, 255)),
         );
         let resolved = resolve_ui_tree(
             &root.into(),
@@ -1070,12 +1070,12 @@ mod tests {
         let DisplayItem::SvgPath(svg) = &tree.root.children[0].item else {
             panic!("expected svg path item");
         };
-        assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
+        assert_eq!(svg.paint.stroke_color, Some(ColorToken::Custom(43, 127, 255, 255)));
         assert_eq!(svg.paint.stroke_width, Some(3.5));
         assert_eq!(
             svg.paint.fill,
             Some(crate::style::BackgroundFill::Solid {
-                color: ColorToken::Sky200,
+                color: ColorToken::Custom(184, 230, 254, 255),
             })
         );
         assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
@@ -1138,8 +1138,8 @@ mod tests {
             crate::parse::primitives::path("M0 0 L 100 0 L 50 100 Z")
                 .id("triangle")
                 .size(100.0, 100.0)
-                .fill_color(ColorToken::Red500)
-                .stroke_color(ColorToken::Blue)
+                .fill_color(ColorToken::Custom(251, 44, 54, 255))
+                .stroke_color(ColorToken::Custom(43, 127, 255, 255))
                 .stroke_width(2.0),
         );
         let resolved = resolve_ui_tree(
@@ -1183,11 +1183,11 @@ mod tests {
         assert_eq!(svg.path_data, vec!["M0 0 L 100 0 L 50 100 Z"]);
         assert_eq!(svg.view_box, [0.0, 0.0, 100.0, 100.0]);
         assert_eq!(svg.paint.stroke_width, Some(2.0));
-        assert_eq!(svg.paint.stroke_color, Some(ColorToken::Blue));
+        assert_eq!(svg.paint.stroke_color, Some(ColorToken::Custom(43, 127, 255, 255)));
         assert_eq!(
             svg.paint.fill,
             Some(crate::style::BackgroundFill::Solid {
-                color: ColorToken::Red500,
+                color: ColorToken::Custom(251, 44, 54, 255),
             })
         );
     }

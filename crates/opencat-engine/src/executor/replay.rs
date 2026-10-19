@@ -7,9 +7,95 @@ use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
 use opencat_core::ir::draw_types::{DrawOpRange, ImageRef, PathOp, RuntimeEffectChildRef, SubtreeId};
 use skia_safe::{
-    Canvas, CubicResampler, Data, FilterMode, Image, MipmapMode, Paint, PathBuilder, Picture,
-    PictureRecorder, Point, RRect, Rect, SamplingOptions, Shader, TileMode, Vector, surfaces,
+    AlphaType, Canvas, ColorType, CubicResampler, Data, FilterMode, Image, ImageInfo, MipmapMode,
+    Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, SamplingOptions, Shader,
+    TileMode, Vector, surfaces,
 };
+
+/// feImage 检测：filter 链里有 feImage primitive（需子树预渲染）。
+fn filter_chain_has_image(spec: &opencat_core::canvas::paint::ImageFilterSpec) -> bool {
+    use opencat_core::canvas::paint::{FilterPrimKind, ImageFilterSpec};
+    match spec {
+        ImageFilterSpec::Chain(chains) => chains.iter().any(|c| {
+            c.primitives
+                .iter()
+                .any(|p| matches!(p.kind, FilterPrimKind::Image { .. }))
+        }),
+        _ => false,
+    }
+}
+
+/// feImage 的子树离屏光栅化：引用内容按文档 user space 像素化进
+/// region 大小的图（平移 -region.xy，不套组 CTM——filter 树坐标即
+/// user space，后续 1:1 放回 region 原点）。同 mask 子树 replay：期间
+/// 屏蔽组 mask 的 DstIn 副作用、组 alpha 归一。
+fn render_filter_images(
+    exec: &mut EngineDrawExecutor,
+    draw: &DrawOpFrame,
+    media: &EnginePreparedFrameMedia,
+    spec: &opencat_core::canvas::paint::ImageFilterSpec,
+) -> std::collections::HashMap<u32, Image> {
+    use opencat_core::canvas::paint::{FilterPrimKind, ImageFilterSpec};
+    let mut jobs: Vec<(u32, Rect, Rect)> = Vec::new();
+    if let ImageFilterSpec::Chain(chains) = spec {
+        for chain in chains {
+            let Some(region) = chain.source_crop else {
+                continue;
+            };
+            let sk_region = Rect::new(
+                region.x0 as f32,
+                region.y0 as f32,
+                region.x1 as f32,
+                region.y1 as f32,
+            );
+            for p in &chain.primitives {
+                if let FilterPrimKind::Image { subtree } = &p.kind {
+                    if !jobs.iter().any(|(s, _, _)| s == subtree) {
+                        // subregion 缺省时退化为 region 本身（平移 0）。
+                        let sub = p.crop.unwrap_or(region);
+                        jobs.push((
+                            *subtree,
+                            sk_region,
+                            Rect::new(sub.x0 as f32, sub.y0 as f32, sub.x1 as f32, sub.y1 as f32),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut out = std::collections::HashMap::new();
+    for (subtree, region, sub) in jobs {
+        let w = region.width().ceil() as i32;
+        let h = region.height().ceil() as i32;
+        if w <= 0 || h <= 0 {
+            continue;
+        }
+        let info = ImageInfo::new((w, h), ColorType::RGBA8888, AlphaType::Premul, None);
+        let Some(mut surface) = surfaces::raster(&info, None, None) else {
+            continue;
+        };
+        {
+            let c = surface.canvas();
+            // 内容画到 subregion 起点（resvg apply_image 的放置：内容点 p →
+            // sub.xy + scale·p；无旋转组下 scale 与 CTM 相消为 1）。旋转组的
+            // scale 分量近似实测更差（resvg 的放置在设备空间，user space 里
+            // 单乘 scale 不等价），先不模拟。
+            c.translate((sub.left - region.left, sub.top - region.top));
+            let saved_alpha = exec.current_alpha;
+            exec.current_alpha = 1.0;
+            exec.mask_replay += 1;
+            let r = replay_subtree(exec, c, draw, media, SubtreeId(subtree));
+            exec.mask_replay -= 1;
+            exec.current_alpha = saved_alpha;
+            if r.is_err() {
+                continue;
+            }
+        }
+        out.insert(subtree, surface.image_snapshot());
+    }
+    out
+}
 
 fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
     let a = (paint.color().a() as f32 / 255.0) * alpha;
@@ -431,8 +517,25 @@ fn replay_op(
                     // The layer alpha must compose with the paint (it used to
                     // be dropped whenever a paint was present, which made
                     // filtered layers render fully opaque).
-                    let spec = &draw.paints[pid.0 as usize];
-                    let mut sk_paint = paint_from_spec(spec);
+            let spec = &draw.paints[pid.0 as usize];
+            let mut sk_paint = paint_from_spec(spec);
+            // feImage：引用子树先离屏光栅化成图（paint_from_spec 内部构建
+            // filter 时图还没就位，这里显式重建并覆盖）。
+            if spec.image_filter.as_ref().is_some_and(filter_chain_has_image) {
+                let images = render_filter_images(
+                    exec,
+                    draw,
+                    media,
+                    spec.image_filter.as_ref().unwrap(),
+                );
+                super::paint::set_filter_images(images);
+                let imf = spec
+                    .image_filter
+                    .as_ref()
+                    .and_then(build_skia_image_filter);
+                sk_paint.set_image_filter(imf);
+                super::paint::clear_filter_images();
+            }
                     if *alpha < 1.0 {
                         apply_global_alpha(&mut sk_paint, *alpha);
                     }

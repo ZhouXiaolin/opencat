@@ -1319,20 +1319,26 @@ function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
   }
   if (kind === 2) return { type: 'colorFilter', filter: parseColorFilter(reader) };
   if (kind === 3) return { type: 'compose', outer: parseImageFilter(reader), inner: parseImageFilter(reader) };
-  // kind === 4：chain。字段序与 Rust `encode_filter_chain` 严格对称，
-  // 逐 primitive 读完（web 渲染暂不消费这些字段）。
-  const hasSourceCrop = reader.u8() !== 0;
-  if (hasSourceCrop) reader.f32Array(4);
-  const output = reader.u16();
-  const count = reader.u32();
-  const primitives: unknown[] = [];
-  for (let i = 0; i < count; i++) {
-    const hasCrop = reader.u8() !== 0;
-    const crop = hasCrop ? reader.f32Array(4) : null;
-    const srgb = reader.u8() !== 0;
-    primitives.push({ crop, srgb, kind: parseFilterPrimKind(reader) });
+  // kind === 4：chain 列表（`url(#a) url(#b)` 级联）。字段序与 Rust
+  // `encode_image_filter` / `encode_filter_chain` 严格对称，逐 primitive
+  // 读完（web 渲染暂不消费这些字段）。
+  const chainCount = reader.u32();
+  const chains: unknown[] = [];
+  for (let c = 0; c < chainCount; c++) {
+    const hasSourceCrop = reader.u8() !== 0;
+    if (hasSourceCrop) reader.f32Array(4);
+    const output = reader.u16();
+    const count = reader.u32();
+    const primitives: unknown[] = [];
+    for (let i = 0; i < count; i++) {
+      const hasCrop = reader.u8() !== 0;
+      const crop = hasCrop ? reader.f32Array(4) : null;
+      const srgb = reader.u8() !== 0;
+      primitives.push({ crop, srgb, kind: parseFilterPrimKind(reader) });
+    }
+    chains.push({ output, primitives });
   }
-  return { type: 'chain', output, primitives };
+  return { type: 'chain', chains };
 }
 
 function parseFilterInput(reader: BinaryReader): unknown {
@@ -1413,6 +1419,7 @@ function parseFilterPrimKind(reader: BinaryReader): unknown {
       return { type: 'specularLighting', surfaceScale, specularConstant, specularExponent, lightingColor, light, input: parseFilterInput(reader) };
     }
     case 14: return { type: 'tile', input: parseFilterInput(reader) };
+    case 16: return { type: 'image', subtree: reader.u32() };
     default: return {
       type: 'turbulence',
       fractal: reader.u8() !== 0,

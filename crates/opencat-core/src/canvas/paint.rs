@@ -130,8 +130,9 @@ pub enum ImageFilterSpec {
     Compose(Box<ImageFilterSpec>, Box<ImageFilterSpec>),
     /// SVG `<filter>` 全链（P4）：primitive 扁平表 + result 索引，engine 侧
     /// 按 in/in2 引用递归展开成 skia filter 树（共享子链重复展开，语义
-    /// 等价——各输入独立从层内容起算）。
-    Chain(Box<FilterChainSpec>),
+    /// 等价——各输入独立从层内容起算）。多元素为 `filter="url(#a) url(#b)"`
+    /// 级联：按序求值，前链输出作为后链的 SourceGraphic。
+    Chain(Vec<FilterChainSpec>),
 }
 
 /// SVG filter 的一个 primitive（feXxx）。
@@ -257,6 +258,13 @@ pub enum FilterPrimKind {
     },
     Tile {
         input: FilterInput,
+    },
+    /// feImage：引用子树独立光栅化后作为 prim 输出。`subtree` 由 emit 侧以
+    /// 恒等 TS 录制（内容坐标 = 文档 user space）；engine 端把子树渲染进
+    /// region 大小的图（平移 -region.xy），再原样放回 region 位置。resvg
+    /// 的放置矩阵 scale 分量在无旋转组下与 CTM 相消，等价 1:1 平移放置。
+    Image {
+        subtree: u32,
     },
     /// feTurbulence：fractal=true 是 fractalNoise，false 是 turbulence。
     Turbulence {
@@ -597,7 +605,7 @@ impl Hash for ImageFilterSpec {
             }
             // 链较长且 intern 重复率低，长度占位即可（eq→hash 契约仍成立，
             // 不同链同桶只多一次线性探测）。
-            ImageFilterSpec::Chain(c) => c.primitives.len().hash(state),
+            ImageFilterSpec::Chain(c) => c.len().hash(state),
         }
     }
 }

@@ -223,12 +223,16 @@ fn render_group(
     };
     paint.blend_mode = convert_blend_mode(group.blend_mode());
     // SVG `<filter>`：链随层 paint 下发（层内容 = SourceGraphic）。
-    // 多个 filter 依次级联（前一个输出是后一个输入），首版取第一个，
-    // 多 filter 级联的语料单独推进。feImage 链返回 None（未挂，无回归）。
-    if let Some(f) = group.filters().first() {
-        if let Some(chain) = emit_filter_chain(f) {
-            paint.image_filter = Some(ImageFilterSpec::Chain(Box::new(chain)));
-        }
+    // 多 filter 级联（`url(#a) url(#b)`）：前链输出即后链 SourceGraphic，
+    // 后链的 source_crop 裁剪发生在后链入口，与 resvg 逐 filter 区域化
+    // 求值一致。任一链挂不上（feImage 子树空等）则整组不挂 filter（同单链）。
+    let chains: Option<Vec<_>> = group
+        .filters()
+        .iter()
+        .map(|f| emit_filter_chain(&mut *builder, f))
+        .collect();
+    if let Some(chains) = chains.filter(|c| !c.is_empty()) {
+        paint.image_filter = Some(ImageFilterSpec::Chain(chains));
     }
     let paint_id = builder.intern_paint(paint);
     builder.push(DrawOp::SaveLayer {
@@ -801,7 +805,7 @@ fn ts_matrix(t: &Transform) -> Option<[f32; 9]> {
 /// 引用；usvg 解析器已把缺省 `in` 与悬空引用归一化为前驱 result，树里到达的
 /// `Reference` 全部可解析（查不到时按规范兜底 SourceGraphic）。feImage 需要
 /// 子树光栅化合成，首版整个 filter 降级返回 None（同未挂，无回归）。
-fn emit_filter_chain(filter: &usvg::filter::Filter) -> Option<FilterChainSpec> {
+fn emit_filter_chain(builder: &mut DrawOpBuilder, filter: &usvg::filter::Filter) -> Option<FilterChainSpec> {
     let prims = filter.primitives();
     if prims.is_empty() {
         return None;
@@ -828,10 +832,6 @@ fn emit_filter_chain(filter: &usvg::filter::Filter) -> Option<FilterChainSpec> {
     };
     let mut primitives = Vec::with_capacity(prims.len());
     for (i, p) in prims.iter().enumerate() {
-        // feImage：语料 56 例，需子树离屏合成，首版整体降级。
-        if matches!(p.kind(), usvg::filter::Kind::Image(_)) {
-            return None;
-        }
         let r = p.rect();
         let kind = match p.kind() {
             usvg::filter::Kind::Blend(fe) => FilterPrimKind::Blend {
@@ -969,7 +969,23 @@ fn emit_filter_chain(filter: &usvg::filter::Filter) -> Option<FilterChainSpec> {
                 seed: fe.seed() as f32,
                 stitch: fe.stitch_tiles(),
             },
-            usvg::filter::Kind::Image(_) => unreachable!("已在上方降级返回"),
+            usvg::filter::Kind::Image(fe) => {
+                // feImage：引用子树独立成根（usvg 已把内/外链统一转换），按
+                // 恒等 TS 录制（内容坐标 = 文档 user space，同 mask 子树约定；
+                // 执行端离屏时不再套组 CTM，而是平移 -region.xy 像素化）。
+                let subtree = builder
+                    .record_subtree(|b| {
+                        let mut sub_state = EmitState {
+                            ts: Transform::default(),
+                        };
+                        render_nodes(b, &mut sub_state, fe.root());
+                        Ok::<(), ()>(())
+                    })
+                    .expect("subtree recording cannot fail");
+                FilterPrimKind::Image {
+                    subtree: subtree.0,
+                }
+            }
         };
         primitives.push(FilterPrimSpec {
             crop: Some(Rect::new(
@@ -1058,7 +1074,8 @@ fn light_spec(src: usvg::filter::LightSource) -> LightSpec {
             points_at_y: l.points_at_y,
             points_at_z: l.points_at_z,
             specular_exponent: l.specular_exponent.get(),
-            limiting_cone_angle: l.limiting_cone_angle.unwrap_or(0.0),
+            // resvg 对 None 的语义是不截断；180°（cos=-1）在 skia 侧等价。
+            limiting_cone_angle: l.limiting_cone_angle.unwrap_or(180.0),
         },
     }
 }

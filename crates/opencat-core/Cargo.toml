@@ -54,6 +54,16 @@ oxc_ast.workspace = true
 oxc_parser.workspace = true
 oxc_span.workspace = true
 rayon.workspace = true
+# SVG 对齐工程（docs/svg-align/PLAN.md）：保留 usvg 做解析（本地 resvg 检出，
+# 锚点 054ccf39），绘制侧自研（Tree→DrawOp）。只开解析所需 feature；
+# system-fonts 让 text→glyph path 有字形可用（对齐质量归 P5 专项）。
+usvg = { path = "F:/resvg/crates/usvg", default-features = false, features = [
+    "svgz",
+    "text",
+    "system-fonts",
+] }
+# usvg 路径数据类型（PathSegment/Transform），与 usvg 锁同一 0.12。
+tiny-skia-path = "0.12.0"
 # 标准 CSS 解析器：css::style_engine 用它吃下 tailwindcss CLI 编译产物与手写
 # CSS。lightningcss 保留 var() 引用（退化为 UnparsedProperty + TokenList），
 # 求值（var/calc/color-mix）由本 crate 的 css::eval 负责。into_owned 把

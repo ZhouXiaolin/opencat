@@ -91,7 +91,8 @@ fn walk_hydrate(
         | NodeKind::Text(_)
         | NodeKind::Lottie(_)
         | NodeKind::Lucide(_)
-        | NodeKind::Path(_) => {}
+        | NodeKind::Path(_)
+        | NodeKind::Svg(_) => {}
     }
 
     Ok(crate::parse::node::Node::new(kind))

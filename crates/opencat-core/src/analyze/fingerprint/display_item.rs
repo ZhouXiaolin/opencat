@@ -114,6 +114,15 @@ impl Hash for DisplayItemFp<'_> {
                 svg.view_box.map(F32Hash).hash(state);
                 SvgPathPaintFp(&svg.paint).hash(state);
             }
+            DisplayItem::Svg(item) => {
+                6_u8.hash(state);
+                item.src.hash(state);
+                item.bounds.x.to_bits().hash(state);
+                item.bounds.y.to_bits().hash(state);
+                item.bounds.width.to_bits().hash(state);
+                item.bounds.height.to_bits().hash(state);
+                item.preserve_aspect_ratio.hash(state);
+            }
         }
     }
 }

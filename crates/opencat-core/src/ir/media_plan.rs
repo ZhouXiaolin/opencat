@@ -24,6 +24,18 @@ pub struct FrameGeneratedImage {
     pub gpu: Option<crate::ir::generated_image::GpuImageHandle>,
 }
 
+/// Host-facing payload for one encoded image (`ImageRef::Encoded`): the raw
+/// encoded bytes plus the natural pixel size declared by the producer (usvg
+/// for `<image>`, so hosts never decode just to learn the draw size).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrameEncodedImage {
+    pub data: crate::ir::draw_types::BytesRangeId,
+    pub width: u32,
+    pub height: u32,
+    /// Encoded image bytes (PNG/JPEG/GIF/WebP as produced by the source).
+    pub bytes: Arc<[u8]>,
+}
+
 /// Per-frame media preparation plan describing what a host must prepare for the
 /// current frame, derived deterministically from the `DrawOpFrame` plus the
 /// pipeline's generated-image table. Each bucket is deduplicated so a given
@@ -50,6 +62,10 @@ pub struct FrameMediaPlan {
     /// Core-generated images (color-emoji bitmap glyphs) referenced by
     /// `ImageRef::Generated`, deduplicated by id, each with full RGBA.
     pub generated_images: Vec<FrameGeneratedImage>,
+    /// Encoded images referenced by `ImageRef::Encoded`, deduplicated by
+    /// bytes-range id, each with the raw encoded bytes. Decoding (and any
+    /// resampling) is host/engine territory.
+    pub encoded_images: Vec<FrameEncodedImage>,
     /// Author-asserted YUV→RGB conversion matrices (`data-color-matrix`) for
     /// the video assets this frame references, keyed by canonical asset id.
     /// Hosts must decode the named assets with the declared matrix instead of

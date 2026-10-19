@@ -185,6 +185,7 @@ fn fallback_kind_for_element(element: &ElementNode) -> &'static str {
         ElementKind::Bitmap(_) => "bitmap",
         ElementKind::Canvas(_) => "canvas",
         ElementKind::SvgPath(_) => "svg-path",
+        ElementKind::Svg(_) => "svg",
         ElementKind::Lottie(_) => "lottie",
     }
 }
@@ -241,6 +242,12 @@ fn collect_source_metadata(node: &Node, out: &mut HashMap<String, SourceNodeMeta
         }
         NodeKind::Path(path) => {
             upsert_style_meta(path.style_ref(), "path", out);
+        }
+        NodeKind::Svg(svg) => {
+            let entry = upsert_style_meta(svg.style_ref(), "svg", out);
+            if let Some(entry) = entry {
+                entry.media_source = Some(svg.src().display().to_string());
+            }
         }
         NodeKind::Video(video) => {
             let entry = upsert_style_meta(video.style_ref(), "video", out);

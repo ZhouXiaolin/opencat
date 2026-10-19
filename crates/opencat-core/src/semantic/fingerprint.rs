@@ -160,6 +160,12 @@ impl Hash for LayoutInputLocal<'_> {
                     .map(|(w, h)| (F32Hash(w), F32Hash(h)))
                     .hash(state);
             }
+            ElementKind::Svg(svg) => {
+                svg.intrinsic_size
+                    .map(|(w, h)| (F32Hash(w), F32Hash(h)))
+                    .hash(state);
+                svg.src.hash(state);
+            }
         }
     }
 }
@@ -217,6 +223,9 @@ impl Hash for PaintInputLocal<'_> {
                 for value in svg.view_box {
                     F32Hash(value).hash(state);
                 }
+            }
+            ElementKind::Svg(svg) => {
+                svg.preserve_aspect_ratio.hash(state);
             }
         }
 
@@ -375,6 +384,7 @@ fn element_kind_tag(kind: &ElementKind) -> u8 {
         ElementKind::Bitmap(_) => 3,
         ElementKind::Canvas(_) => 4,
         ElementKind::SvgPath(_) => 5,
+        ElementKind::Svg(_) => 7,
         ElementKind::Lottie(_) => 6,
     }
 }

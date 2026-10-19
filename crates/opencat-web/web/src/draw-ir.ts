@@ -115,6 +115,8 @@ const OP_IMAGE_RECT = OP.IMAGE_RECT;
 const OP_RUNTIME_EFFECT = OP.RUNTIME_EFFECT;
 const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
 const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
+const OP_FILL_PATTERN = OP.FILL_PATTERN;
+const OP_STROKE_PATTERN = OP.STROKE_PATTERN;
 const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
 // v6: each PathOp command is promoted to its own top-level opcode (the old
 // OP_PATH / PATH_OP sub-opcode form is gone). One op = one path command.
@@ -152,12 +154,15 @@ type Range = { start: number; len: number };
 type DecodedImageRef =
   | { type: 'static'; assetId: string }
   | { type: 'video'; assetId: string; timeMicros: bigint }
-  | { type: 'generated'; id: bigint };
+  | { type: 'generated'; id: bigint }
+  // svg <image>: encoded bytes live in the frame byte table; the host
+  // decodes (core stays a pure protocol layer).
+  | { type: 'encoded'; byteId: number };
 
 type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
-  | { type: 'linearGradient'; tileMode: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
-  | { type: 'radialGradient'; tileMode: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null }
+  | { type: 'linearGradient'; tileMode: number; interpolatePremul: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
+  | { type: 'radialGradient'; tileMode: number; interpolatePremul: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null; focal: [number, number, number] | null }
   // SVG feTurbulence fractal-noise (bg-[fe-turbulence(...)]). `tile` mirrors the
   // engine: Some([w, h]) bakes one tileable tile repeated from `origin` (CSS
   // background semantics); null renders nothing (the engine skips it too).
@@ -180,7 +185,10 @@ type ImageFilterSpec =
   | { type: 'blur'; sigmaX: number; sigmaY: number; decal: boolean }
   | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[]; keepContent: boolean }
   | { type: 'colorFilter'; filter: ColorFilterSpec }
-  | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec };
+  | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec }
+  // SVG `<filter>` primitive 链（P4）。web 侧透传字节流（字段不解构成
+  // CanvasKit filter），保证 reader 对齐即可。
+  | { type: 'chain'; output: number; primitives: unknown[] };
 
 type ColorFilterSpec =
   | { type: 'matrix'; matrix: number[] }
@@ -725,8 +733,12 @@ export function renderEncodedDrawFrame(
           break;
         }
         case OP_CLIP_PATH: {
+          // wire: [u8 anti_alias][u8 fill_type]（与 Rust 侧 draw_encoding 同序）。
+          const antiAlias = p.u8() !== 0;
+          const fillType = p.u8();
           const path = snapshotPath();
-          targetCanvas.clipPath(path, CK.ClipOp.Intersect, p.u8() !== 0);
+          path.setFillType?.(mapFillType(CK, fillType));
+          targetCanvas.clipPath(path, CK.ClipOp.Intersect, antiAlias);
           dispose(path);
           break;
         }
@@ -784,6 +796,102 @@ export function renderEncodedDrawFrame(
           // that snapshotted it) are freed after the surface flush.
           const path = buildPathById(CK, frame, p.u32(), framePathCache, dispose);
           targetCanvas.drawPath(path, buildPaintById(CK, frame, p.u32(), dispose));
+          break;
+        }
+        case OP_FILL_PATTERN: {
+          // svg `<pattern>`: tile picture recording repeated via a picture
+          // shader. The tile pixel scale mirrors the engine: (ctm x pattern
+          // transform)'s scale part drives the recording resolution; the
+          // shader local matrix maps user space onto the tile.
+          const pathId = p.u32();
+          const subtree = p.u32();
+          const tile = readRect4(p);
+          const pt = [p.f32(), p.f32(), p.f32(), p.f32(), p.f32(), p.f32()];
+          const opacity = p.f32();
+          const ctm = targetCanvas.getTotalMatrix();
+          const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
+          const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
+          const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
+          const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
+          if (!(sx > 0) || !(sy > 0) || tile.width <= 0 || tile.height <= 0 || opacity <= 0) break;
+          const tileW = Math.max(1, Math.round(tile.width * sx));
+          const tileH = Math.max(1, Math.round(tile.height * sy));
+          const recorder = new CK.PictureRecorder();
+          const tileCanvas = recorder.beginRecording(CK.XYWHRect(0, 0, tileW, tileH));
+          tileCanvas.scale(sx, sy);
+          executeSubtreeOnCanvas(tileCanvas, subtree);
+          const tilePicture = recorder.finishRecordingAsPicture();
+          recorder.delete();
+          const localMatrix = CK.Matrix.multiply(
+            CK.Matrix.multiply(ptM, CK.Matrix.translated(tile.x, tile.y)),
+            CK.Matrix.scaled(1 / sx, 1 / sy),
+          );
+          const shader = tilePicture.makeShader?.(
+            CK.TileMode.Repeat,
+            CK.TileMode.Repeat,
+            CK.FilterMode.Linear,
+            /* tileRect */ undefined,
+            /* localMatrix */ localMatrix,
+          );
+          if (shader) {
+            const paint = dispose(new CK.Paint());
+            paint.setAlphaf(opacity);
+            paint.setShader(dispose(shader));
+            targetCanvas.drawPath(buildPathById(CK, frame, pathId, framePathCache, dispose), paint);
+          }
+          tilePicture.delete();
+          break;
+        }
+        case OP_STROKE_PATTERN: {
+          // svg `<pattern>` stroke: same tile layout + inline stroke params
+          // ([f32 width][u8 cap][u8 join][f32 miter]); the repeated tile is
+          // stroked along the path instead of filling it.
+          const pathId = p.u32();
+          const subtree = p.u32();
+          const tile = readRect4(p);
+          const pt = [p.f32(), p.f32(), p.f32(), p.f32(), p.f32(), p.f32()];
+          const opacity = p.f32();
+          const strokeW = p.f32();
+          const strokeCap = p.u8();
+          const strokeJoin = p.u8();
+          const strokeMiter = p.f32();
+          const ctm = targetCanvas.getTotalMatrix();
+          const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
+          const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
+          const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
+          const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
+          if (!(sx > 0) || !(sy > 0) || tile.width <= 0 || tile.height <= 0 || opacity <= 0) break;
+          const tileW = Math.max(1, Math.round(tile.width * sx));
+          const tileH = Math.max(1, Math.round(tile.height * sy));
+          const recorder = new CK.PictureRecorder();
+          const tileCanvas = recorder.beginRecording(CK.XYWHRect(0, 0, tileW, tileH));
+          tileCanvas.scale(sx, sy);
+          executeSubtreeOnCanvas(tileCanvas, subtree);
+          const tilePicture = recorder.finishRecordingAsPicture();
+          recorder.delete();
+          const localMatrix = CK.Matrix.multiply(
+            CK.Matrix.multiply(ptM, CK.Matrix.translated(tile.x, tile.y)),
+            CK.Matrix.scaled(1 / sx, 1 / sy),
+          );
+          const shader = tilePicture.makeShader?.(
+            CK.TileMode.Repeat,
+            CK.TileMode.Repeat,
+            CK.FilterMode.Linear,
+            /* tileRect */ undefined,
+            /* localMatrix */ localMatrix,
+          );
+          if (shader) {
+            const paint = dispose(new CK.Paint());
+            paint.setAlphaf(opacity);
+            paint.setShader(dispose(shader));
+            paint.setStyle(CK.PaintStyle.Stroke);
+            paint.setStrokeWidth(strokeW);
+            paint.setStrokeCap([CK.StrokeCap.Butt, CK.StrokeCap.Round, CK.StrokeCap.Square][strokeCap] ?? CK.StrokeCap.Butt);
+            paint.setStrokeJoin([CK.StrokeJoin.Miter, CK.StrokeJoin.Round, CK.StrokeJoin.Bevel][strokeJoin] ?? CK.StrokeJoin.Miter);
+            paint.setStrokeMiter(strokeMiter);
+            targetCanvas.drawPath(buildPathById(CK, frame, pathId, framePathCache, dispose), paint);
+          }
+          tilePicture.delete();
           break;
         }
         case OP_IMAGE: {
@@ -1133,11 +1241,13 @@ function parseFill(reader: BinaryReader): FillSpec {
   if (kind === 0) return { type: 'solid', color: reader.f32Array(4) as [number, number, number, number] };
   const shaderKind = reader.u8();
   if (shaderKind === 0) {
-    // linearGradient: [tileMode u8][from f32x2][to f32x2][stops][colors][matrix?]
+    // linearGradient: [tileMode u8][interpolatePremul u8][from f32x2][to f32x2][stops][colors][matrix?]
     const tileMode = reader.u8();
+    const interpolatePremul = reader.u8();
     return {
       type: 'linearGradient',
       tileMode,
+      interpolatePremul,
       from: reader.f32Array(2) as [number, number],
       to: reader.f32Array(2) as [number, number],
       stops: readF32Vec(reader),
@@ -1157,16 +1267,19 @@ function parseFill(reader: BinaryReader): FillSpec {
       origin: reader.f32Array(2) as [number, number],
     };
   }
-  // radialGradient: [tileMode u8][center f32x2][radius f32][stops][colors][matrix?]
+  // radialGradient: [tileMode u8][interpolatePremul u8][center f32x2][radius f32][stops][colors][matrix?][focal: u8 + f32x3 | u8=0]
   const tileMode = reader.u8();
+  const interpolatePremul = reader.u8();
   return {
     type: 'radialGradient',
     tileMode,
+    interpolatePremul,
     center: reader.f32Array(2) as [number, number],
     radius: reader.f32(),
     stops: readF32Vec(reader),
     colors: readColorVec(reader),
     localMatrix: readOptionalMatrix(reader),
+    focal: reader.u8() === 1 ? (reader.f32Array(3) as [number, number, number]) : null,
   };
 }
 
@@ -1205,7 +1318,117 @@ function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
     };
   }
   if (kind === 2) return { type: 'colorFilter', filter: parseColorFilter(reader) };
-  return { type: 'compose', outer: parseImageFilter(reader), inner: parseImageFilter(reader) };
+  if (kind === 3) return { type: 'compose', outer: parseImageFilter(reader), inner: parseImageFilter(reader) };
+  // kind === 4：chain 列表（`url(#a) url(#b)` 级联）。字段序与 Rust
+  // `encode_image_filter` / `encode_filter_chain` 严格对称，逐 primitive
+  // 读完（web 渲染暂不消费这些字段）。
+  const chainCount = reader.u32();
+  const chains: unknown[] = [];
+  for (let c = 0; c < chainCount; c++) {
+    const hasSourceCrop = reader.u8() !== 0;
+    if (hasSourceCrop) reader.f32Array(4);
+    const output = reader.u16();
+    const count = reader.u32();
+    const primitives: unknown[] = [];
+    for (let i = 0; i < count; i++) {
+      const hasCrop = reader.u8() !== 0;
+      const crop = hasCrop ? reader.f32Array(4) : null;
+      const srgb = reader.u8() !== 0;
+      primitives.push({ crop, srgb, kind: parseFilterPrimKind(reader) });
+    }
+    chains.push({ output, primitives });
+  }
+  return { type: 'chain', chains };
+}
+
+function parseFilterInput(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  if (tag === 2) return { type: 'prim', index: reader.u16() };
+  return { type: tag === 1 ? 'sourceAlpha' : 'sourceGraphic' };
+}
+
+function parseTransferFn(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  if (tag === 0) return { type: 'identity' };
+  if (tag === 1 || tag === 2) return { type: tag === 1 ? 'table' : 'discrete', values: readF32Vec(reader) };
+  if (tag === 3) return { type: 'linear', slope: reader.f32(), intercept: reader.f32() };
+  return { type: 'gamma', amplitude: reader.f32(), exponent: reader.f32(), offset: reader.f32() };
+}
+
+function parseLightSpec(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  if (tag === 0) return { type: 'distant', azimuth: reader.f32(), elevation: reader.f32() };
+  if (tag === 1) return { type: 'point', x: reader.f32(), y: reader.f32(), z: reader.f32() };
+  return {
+    type: 'spot',
+    x: reader.f32(), y: reader.f32(), z: reader.f32(),
+    pointsAtX: reader.f32(), pointsAtY: reader.f32(), pointsAtZ: reader.f32(),
+    specularExponent: reader.f32(), limitingConeAngle: reader.f32(),
+  };
+}
+
+function parseFilterPrimKind(reader: BinaryReader): unknown {
+  const tag = reader.u8();
+  switch (tag) {
+    case 0: return { type: 'blend', mode: reader.u8(), in1: parseFilterInput(reader), in2: parseFilterInput(reader) };
+    case 1: return { type: 'colorMatrix', rowMajor: reader.f32Array(20), input: parseFilterInput(reader) };
+    case 2: return {
+      type: 'componentTransfer',
+      fns: [parseTransferFn(reader), parseTransferFn(reader), parseTransferFn(reader), parseTransferFn(reader)],
+      input: parseFilterInput(reader),
+    };
+    case 3: return { type: 'composite', op: reader.u8(), k: reader.f32Array(4), in1: parseFilterInput(reader), in2: parseFilterInput(reader) };
+    case 4: {
+      const order = [reader.u32(), reader.u32()];
+      const kernel = readF32Vec(reader);
+      const divisor = reader.f32();
+      const bias = reader.f32();
+      const target = [reader.u32() | 0, reader.u32() | 0];
+      const kernelUnitLength = [reader.f32(), reader.f32()];
+      const edge = reader.u8();
+      const preserveAlpha = reader.u8() !== 0;
+      return { type: 'convolveMatrix', order, kernel, divisor, bias, target, kernelUnitLength, edge, preserveAlpha, input: parseFilterInput(reader) };
+    }
+    case 5: {
+      const surfaceScale = reader.f32();
+      const diffuseConstant = reader.f32();
+      const lightingColor = reader.f32Array(4);
+      const light = parseLightSpec(reader);
+      return { type: 'diffuseLighting', surfaceScale, diffuseConstant, lightingColor, light, input: parseFilterInput(reader) };
+    }
+    case 6: return { type: 'displacementMap', xChannel: reader.u8(), yChannel: reader.u8(), scale: reader.f32(), input: parseFilterInput(reader), in2: parseFilterInput(reader) };
+    case 7: {
+      const dx = reader.f32(); const dy = reader.f32(); const sigmaX = reader.f32(); const sigmaY = reader.f32();
+      const color = reader.f32Array(4);
+      return { type: 'dropShadow', dx, dy, sigmaX, sigmaY, color, input: parseFilterInput(reader) };
+    }
+    case 8: return { type: 'flood', color: reader.f32Array(4) };
+    case 9: return { type: 'gaussianBlur', sigmaX: reader.f32(), sigmaY: reader.f32(), input: parseFilterInput(reader) };
+    case 10: {
+      const inputs = Array.from({ length: reader.u32() }, () => parseFilterInput(reader));
+      return { type: 'merge', inputs };
+    }
+    case 11: return { type: 'morphology', erode: reader.u8() !== 0, radiusX: reader.f32(), radiusY: reader.f32(), input: parseFilterInput(reader) };
+    case 12: return { type: 'offset', dx: reader.f32(), dy: reader.f32(), input: parseFilterInput(reader) };
+    case 13: {
+      const surfaceScale = reader.f32();
+      const specularConstant = reader.f32();
+      const specularExponent = reader.f32();
+      const lightingColor = reader.f32Array(4);
+      const light = parseLightSpec(reader);
+      return { type: 'specularLighting', surfaceScale, specularConstant, specularExponent, lightingColor, light, input: parseFilterInput(reader) };
+    }
+    case 14: return { type: 'tile', input: parseFilterInput(reader) };
+    case 16: return { type: 'image', subtree: reader.u32() };
+    default: return {
+      type: 'turbulence',
+      fractal: reader.u8() !== 0,
+      baseFrequency: reader.f32Array(2),
+      numOctaves: reader.u32(),
+      seed: reader.f32(),
+      stitch: reader.u8() !== 0,
+    };
+  }
 }
 
 function parseColorFilter(reader: BinaryReader): ColorFilterSpec {
@@ -1326,6 +1549,12 @@ function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
     payload.u32(); // reserved
     return { type: 'generated', id };
   }
+  // Encoded bytes: tag(1) + byte_id_u32(4) + pad to the 12-byte id-slot.
+  if (tag === 3) {
+    const byteId = payload.u32();
+    payload.u64(); // reserved
+    return { type: 'encoded', byteId };
+  }
   const assetId = frame.strings[payload.u32()] ?? '';
   const timeMicros = payload.u64();
   return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
@@ -1337,6 +1566,11 @@ function readImageRefFromReader(reader: BinaryReader, strings: string[]): Decode
     const id = reader.u64();
     reader.u32(); // reserved
     return { type: 'generated', id };
+  }
+  if (tag === 3) {
+    const byteId = reader.u32();
+    reader.u64(); // reserved
+    return { type: 'encoded', byteId };
   }
   const assetId = strings[reader.u32()] ?? '';
   const timeMicros = reader.u64();
@@ -1416,6 +1650,11 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
   if (fill.type === 'turbulence') {
     return buildTurbulenceShader(CK, fill, dispose);
   }
+  // CSS Images 4 (JSX gradients) interpolates stops in premultiplied space
+  // (flags bit 1); SVG/resvg semantics are unpremul — the encoded
+  // interpolatePremul byte picks per-shader. ShaderSpec children without the
+  // field default to premul.
+  const gradFlags = 'interpolatePremul' in fill ? fill.interpolatePremul : 1;
   if (fill.type === 'linearGradient') {
     return CK.Shader.MakeLinearGradient(
       'from' in fill ? fill.from : fill.start,
@@ -1424,10 +1663,23 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
       fill.stops,
       mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
       localMatrix as any,
-      // CSS Images 4: stops interpolate in premultiplied space — the engine
-      // passes INTERPOLATE_COLORS_IN_PREMUL; CanvasKit defaults to unpremul,
-      // which lerps a `transparent` endpoint toward black.
-      1,
+      gradFlags,
+    );
+  }
+  if ('focal' in fill && fill.focal) {
+    // SVG focal radial: two-point conical (focus circle → main circle), same
+    // semantics as tiny-skia RadialGradient (what resvg uses).
+    const [fx, fy, fr] = fill.focal;
+    return CK.Shader.MakeTwoPointConicalGradient(
+      [fx, fy],
+      fr,
+      fill.center,
+      fill.radius,
+      fill.colors.map((c) => CK.Color4f(c[0], c[1], c[2], c[3])),
+      fill.stops,
+      mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
+      localMatrix as any,
+      gradFlags,
     );
   }
   return CK.Shader.MakeRadialGradient(
@@ -1437,7 +1689,7 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
     fill.stops,
     mapTileMode(CK, 'tileMode' in fill ? fill.tileMode : 0),
     localMatrix as any,
-    1,
+    gradFlags,
   );
 }
 

@@ -66,6 +66,11 @@ fn render_display_item_direct(ctx: &mut RenderCtx, item: &DisplayItem) -> Result
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg").entered();
             super::helpers::render_svg_path(ctx, svg)
         }
+        DisplayItem::Svg(item) => {
+            #[cfg(feature = "profile")]
+            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg_file").entered();
+            super::helpers::render_svg(ctx, item)
+        }
     }
 }
 
@@ -159,7 +164,7 @@ pub(crate) fn save_composite_layer(
                 width: bounds_rect4.width,
                 height: bounds_rect4.height,
             }));
-            builder.push(DrawOp::ClipPath { anti_alias: false });
+            builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
             has_backdrop_clip = true;
             // Backdrop semantics: the blur applies to what's beneath this
             // node's bounds; the node's own subtree paints unfiltered inside.
@@ -580,7 +585,7 @@ fn render_transition_composite(
                 width: clip.width,
                 height: clip.height,
             }));
-            ctx.builder.push(DrawOp::ClipPath { anti_alias: false });
+            ctx.builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
             ctx.builder.push(DrawOp::ReplayRange { range: to_range });
             ctx.builder.push(DrawOp::Restore);
         }
@@ -696,7 +701,7 @@ pub(crate) fn clip_bounds_with_radius(
             height: rect.height,
         }));
     }
-    builder.push(DrawOp::ClipPath { anti_alias: true });
+    builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
 }
 
 #[cfg(feature = "profile")]

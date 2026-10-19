@@ -213,6 +213,23 @@ pub enum JsonLine {
         view_box: Option<String>,
         duration: Option<f64>,
     },
+    #[serde(rename = "svg")]
+    Svg {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className", alias = "class")]
+        class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
+        src: String,
+        width: Option<f32>,
+        height: Option<f32>,
+        #[serde(rename = "preserveAspectRatio")]
+        preserve_aspect_ratio: Option<String>,
+        duration: Option<f64>,
+    },
     #[serde(rename = "lottie")]
     Lottie {
         id: String,
@@ -601,6 +618,43 @@ pub(crate) fn composition_from_lines(
                     duration,
                     style,
                     kind: ParsedElementKind::Path { data: d, view_box },
+                });
+            }
+            JsonLine::Svg {
+                id,
+                parent_id,
+                class_name,
+                style: inline_style,
+                src,
+                width,
+                height,
+                preserve_aspect_ratio,
+                duration,
+            } => {
+                let style = resolve_style(
+                    css,
+                    class_name.as_deref().unwrap_or(""),
+                    inline_style.as_deref(),
+                    &id,
+                    "div",
+                    line_index + 1,
+                );
+                let resolved_src = if let Some(base_dir) = base_dir {
+                    base_dir.join(&src)
+                } else {
+                    PathBuf::from(src)
+                };
+                elements.push(ParsedElement {
+                    id,
+                    parent_id,
+                    duration,
+                    style,
+                    kind: ParsedElementKind::Svg {
+                        src: resolved_src,
+                        width,
+                        height,
+                        preserve_aspect_ratio,
+                    },
                 });
             }
             JsonLine::Lottie {

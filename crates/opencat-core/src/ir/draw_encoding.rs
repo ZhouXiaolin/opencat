@@ -26,8 +26,9 @@ use super::draw_op::*;
 use super::draw_types::*;
 use super::media_plan::FrameGeneratedImage;
 use crate::canvas::paint::{
-    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec,
-    PaintStyle, PathEffectSpec, ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode,
+    BlendMode, BlurStyle, ColorFilterSpec, FillSpec, FilterChainSpec, FilterInput, FilterPrimKind,
+    ImageFilterSpec, LightSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec,
+    ShaderSpec as PaintShaderSpec, StrokeCap, StrokeJoin, TileMode, TransferFn,
 };
 use crate::ir::RenderFrame;
 
@@ -163,16 +164,22 @@ pub mod opcode {
     pub const PATH_ADD_RRECT_OP: u16 = 46;
     pub const PATH_ADD_OVAL_OP: u16 = 47;
     pub const PATH_ADD_ARC_OP: u16 = 48;
+    /// svg `<pattern>` fill: tile picture recording + tile metadata.
+    pub const FILL_PATTERN: u16 = 50;
+    /// svg `<pattern>` stroke: same tile layout + inline stroke params.
+    pub const STROKE_PATTERN: u16 = 52;
+    /// svg `<mask>`: content subtree → per-pixel coverage clip.
+    pub const MASK_CLIP: u16 = 53;
 
     /// Per-opcode payload length in bytes for the v6 dense op stream.
     ///
-    /// Index by opcode (0..=49). An op is encoded as `[opcode: u8][N payload
+    /// Index by opcode (0..=52). An op is encoded as `[opcode: u8][N payload
     /// bytes]` with no length field and no padding, so `N` must be a fixed
     /// constant for every opcode variant — which holds: every optional-looking
     /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
     /// unconditionally and signals absence via a flag byte, and `ImageRef`
     /// always writes tag(1) + id-slot(12).
-    pub const OPCODE_PAYLOAD_LEN: [u16; 50] = [
+    pub const OPCODE_PAYLOAD_LEN: [u16; 54] = [
         0,  // 0  SAVE
         25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
         0,  // 2  RESTORE
@@ -195,7 +202,7 @@ pub mod opcode {
         0,  // 19 PATH_OP        (v5 only; unused in v6)
         0,  // 20 FILL_PATH
         0,  // 21 STROKE_PATH
-        1,  // 22 CLIP_PATH
+        2,  // 22 CLIP_PATH [u8 anti_alias][u8 fill_type]
         16, // 23 CLEAR
         4,  // 24 PAINT
         20, // 25 RECT
@@ -223,6 +230,10 @@ pub mod opcode {
         16, // 47 PATH_ADD_OVAL  [4xf32]
         24, // 48 PATH_ADD_ARC   [6xf32]
         41, // 49 SAVE_BACKDROP_LAYER — SAVE_LAYER layout + 4×f32 corner radii
+        52, // 50 FILL_PATTERN [u32 path][u32 subtree][4xf32 tile][6xf32 pt][f32 opacity]
+        0,  // 51 (unused)
+        62, // 52 STROKE_PATTERN — FILL_PATTERN layout + [f32 width][u8 cap][u8 join][f32 miter]
+        21, // 53 MASK_CLIP [u32 subtree][u8 kind][4xf32 region]
     ];
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
@@ -351,7 +362,7 @@ pub fn intern_image_strings(draw: &mut super::draw_frame::DrawOpFrame) {
             ImageRef::Static { asset_id } | ImageRef::VideoFrame { asset_id, .. } => {
                 push_unique(strings, asset_id);
             }
-            ImageRef::Generated { .. } => {}
+            ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
         }
     }
 }
@@ -382,6 +393,12 @@ fn write_u64(buf: &mut Vec<u8>, v: u64) {
 #[inline]
 fn write_u8(buf: &mut Vec<u8>, v: u8) {
     buf.push(v);
+}
+
+/// Write an i32 into a u8 buffer in little-endian.
+#[inline]
+fn write_i32(buf: &mut Vec<u8>, v: i32) {
+    buf.extend_from_slice(&v.to_le_bytes());
 }
 
 /// Write a v6 op header: a single `[opcode: u8]`. The payload that follows is
@@ -622,9 +639,11 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             colors,
             tile_mode,
             local_matrix,
+            interpolate_premul,
         } => {
             write_u8(out, 0);
             write_u8(out, encode_tile_mode(*tile_mode));
+            write_u8(out, *interpolate_premul as u8);
             write_f32_array(out, from);
             write_f32_array(out, to);
             write_f32_vec(out, stops);
@@ -638,14 +657,24 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             colors,
             tile_mode,
             local_matrix,
+            interpolate_premul,
+            focal,
         } => {
             write_u8(out, 1);
             write_u8(out, encode_tile_mode(*tile_mode));
+            write_u8(out, *interpolate_premul as u8);
             write_f32_array(out, center);
             write_f32(out, *radius);
             write_f32_vec(out, stops);
             write_color_vec(out, colors);
             encode_optional_matrix(out, local_matrix);
+            match focal {
+                Some(f) => {
+                    write_u8(out, 1);
+                    write_f32_array(out, f);
+                }
+                None => write_u8(out, 0),
+            }
         }
         PaintShaderSpec::Turbulence {
             base_frequency,
@@ -729,6 +758,300 @@ fn encode_image_filter(out: &mut Vec<u8>, filter: &ImageFilterSpec) -> Result<()
             write_u8(out, 3);
             encode_image_filter(out, outer)?;
             encode_image_filter(out, inner)?;
+        }
+        ImageFilterSpec::Chain(chains) => {
+            write_u8(out, 4);
+            write_u32(out, chains.len() as u32);
+            for chain in chains {
+                encode_filter_chain(out, chain)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// FilterChainSpec wire 格式（P4，engine 端在消费点展开成 skia filter 树）：
+/// `u8 has_source_crop + [4xf32]`、`u16 output`、`u32 n`、随后 n 个
+/// primitive（crop 前缀 + srgb + kind tag + 字段）。Input 统一 `u8 tag`
+/// （0 SourceGraphic / 1 SourceAlpha / 2 Prim+u16）。
+fn encode_filter_chain(out: &mut Vec<u8>, chain: &FilterChainSpec) -> Result<(), EncodeError> {
+    match chain.source_crop {
+        Some(r) => {
+            write_u8(out, 1);
+            write_f32(out, r.x0 as f32);
+            write_f32(out, r.y0 as f32);
+            write_f32(out, r.x1 as f32);
+            write_f32(out, r.y1 as f32);
+        }
+        None => write_u8(out, 0),
+    }
+    write_u16(out, chain.output);
+    write_u32(out, chain.primitives.len() as u32);
+    for p in &chain.primitives {
+        match p.crop {
+            Some(r) => {
+                write_u8(out, 1);
+                write_f32(out, r.x0 as f32);
+                write_f32(out, r.y0 as f32);
+                write_f32(out, r.x1 as f32);
+                write_f32(out, r.y1 as f32);
+            }
+            None => write_u8(out, 0),
+        }
+        write_u8(out, p.srgb as u8);
+        encode_filter_prim_kind(out, &p.kind)?;
+    }
+    Ok(())
+}
+
+fn encode_filter_input(out: &mut Vec<u8>, input: &FilterInput) {
+    match input {
+        FilterInput::SourceGraphic => write_u8(out, 0),
+        FilterInput::SourceAlpha => write_u8(out, 1),
+        FilterInput::Prim(i) => {
+            write_u8(out, 2);
+            write_u16(out, *i);
+        }
+    }
+}
+
+fn encode_transfer_fn(out: &mut Vec<u8>, f: &TransferFn) {
+    match f {
+        TransferFn::Identity => write_u8(out, 0),
+        TransferFn::Table(v) => {
+            write_u8(out, 1);
+            write_f32_vec(out, v);
+        }
+        TransferFn::Discrete(v) => {
+            write_u8(out, 2);
+            write_f32_vec(out, v);
+        }
+        TransferFn::Linear { slope, intercept } => {
+            write_u8(out, 3);
+            write_f32(out, *slope);
+            write_f32(out, *intercept);
+        }
+        TransferFn::Gamma {
+            amplitude,
+            exponent,
+            offset,
+        } => {
+            write_u8(out, 4);
+            write_f32(out, *amplitude);
+            write_f32(out, *exponent);
+            write_f32(out, *offset);
+        }
+    }
+}
+
+fn encode_light_spec(out: &mut Vec<u8>, light: &LightSpec) {
+    match light {
+        LightSpec::Distant { azimuth, elevation } => {
+            write_u8(out, 0);
+            write_f32(out, *azimuth);
+            write_f32(out, *elevation);
+        }
+        LightSpec::Point { x, y, z } => {
+            write_u8(out, 1);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *z);
+        }
+        LightSpec::Spot {
+            x,
+            y,
+            z,
+            points_at_x,
+            points_at_y,
+            points_at_z,
+            specular_exponent,
+            limiting_cone_angle,
+        } => {
+            write_u8(out, 2);
+            write_f32(out, *x);
+            write_f32(out, *y);
+            write_f32(out, *z);
+            write_f32(out, *points_at_x);
+            write_f32(out, *points_at_y);
+            write_f32(out, *points_at_z);
+            write_f32(out, *specular_exponent);
+            write_f32(out, *limiting_cone_angle);
+        }
+    }
+}
+
+fn encode_filter_prim_kind(out: &mut Vec<u8>, kind: &FilterPrimKind) -> Result<(), EncodeError> {
+    match kind {
+        FilterPrimKind::Blend { mode, in1, in2 } => {
+            write_u8(out, 0);
+            write_u8(out, encode_blend_mode(*mode));
+            encode_filter_input(out, in1);
+            encode_filter_input(out, in2);
+        }
+        FilterPrimKind::ColorMatrix { row_major, input } => {
+            write_u8(out, 1);
+            write_f32_array(out, row_major);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::ComponentTransfer { fns, input } => {
+            write_u8(out, 2);
+            for f in fns {
+                encode_transfer_fn(out, f);
+            }
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Composite { op, k, in1, in2 } => {
+            write_u8(out, 3);
+            write_u8(out, *op);
+            write_f32_array(out, k);
+            encode_filter_input(out, in1);
+            encode_filter_input(out, in2);
+        }
+        FilterPrimKind::ConvolveMatrix {
+            order,
+            kernel,
+            divisor,
+            bias,
+            target,
+            kernel_unit_length,
+            edge,
+            preserve_alpha,
+            input,
+        } => {
+            write_u8(out, 4);
+            write_u32(out, order.0);
+            write_u32(out, order.1);
+            write_f32_vec(out, kernel);
+            write_f32(out, *divisor);
+            write_f32(out, *bias);
+            write_i32(out, target.0);
+            write_i32(out, target.1);
+            write_f32(out, kernel_unit_length.0);
+            write_f32(out, kernel_unit_length.1);
+            write_u8(out, *edge);
+            write_u8(out, *preserve_alpha as u8);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::DiffuseLighting {
+            surface_scale,
+            diffuse_constant,
+            lighting_color,
+            light,
+            input,
+        } => {
+            write_u8(out, 5);
+            write_f32(out, *surface_scale);
+            write_f32(out, *diffuse_constant);
+            write_f32_array(out, lighting_color);
+            encode_light_spec(out, light);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::DisplacementMap {
+            x_channel,
+            y_channel,
+            scale,
+            input,
+            in2,
+        } => {
+            write_u8(out, 6);
+            write_u8(out, *x_channel);
+            write_u8(out, *y_channel);
+            write_f32(out, *scale);
+            encode_filter_input(out, input);
+            encode_filter_input(out, in2);
+        }
+        FilterPrimKind::DropShadow {
+            dx,
+            dy,
+            sigma_x,
+            sigma_y,
+            color,
+            input,
+        } => {
+            write_u8(out, 7);
+            write_f32(out, *dx);
+            write_f32(out, *dy);
+            write_f32(out, *sigma_x);
+            write_f32(out, *sigma_y);
+            write_f32_array(out, color);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Flood { color } => {
+            write_u8(out, 8);
+            write_f32_array(out, color);
+        }
+        FilterPrimKind::GaussianBlur {
+            sigma_x,
+            sigma_y,
+            input,
+        } => {
+            write_u8(out, 9);
+            write_f32(out, *sigma_x);
+            write_f32(out, *sigma_y);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Merge { inputs } => {
+            write_u8(out, 10);
+            write_u32(out, inputs.len() as u32);
+            for input in inputs {
+                encode_filter_input(out, input);
+            }
+        }
+        FilterPrimKind::Morphology {
+            erode,
+            radius_x,
+            radius_y,
+            input,
+        } => {
+            write_u8(out, 11);
+            write_u8(out, *erode as u8);
+            write_f32(out, *radius_x);
+            write_f32(out, *radius_y);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Offset { dx, dy, input } => {
+            write_u8(out, 12);
+            write_f32(out, *dx);
+            write_f32(out, *dy);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::SpecularLighting {
+            surface_scale,
+            specular_constant,
+            specular_exponent,
+            lighting_color,
+            light,
+            input,
+        } => {
+            write_u8(out, 13);
+            write_f32(out, *surface_scale);
+            write_f32(out, *specular_constant);
+            write_f32(out, *specular_exponent);
+            write_f32_array(out, lighting_color);
+            encode_light_spec(out, light);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Tile { input } => {
+            write_u8(out, 14);
+            encode_filter_input(out, input);
+        }
+        FilterPrimKind::Image { subtree } => {
+            write_u8(out, 16);
+            write_u32(out, *subtree);
+        }
+        FilterPrimKind::Turbulence {
+            fractal,
+            base_frequency,
+            num_octaves,
+            seed,
+            stitch,
+        } => {
+            write_u8(out, 15);
+            write_u8(out, *fractal as u8);
+            write_f32_array(out, base_frequency);
+            write_u32(out, *num_octaves);
+            write_f32(out, *seed);
+            write_u8(out, *stitch as u8);
         }
     }
     Ok(())
@@ -942,6 +1265,12 @@ fn encode_image_ref(
         ImageRef::Generated { id } => {
             write_u8(out, 2);
             write_u64(out, id.0);
+            write_u32(out, 0);
+        }
+        ImageRef::Encoded { data } => {
+            write_u8(out, 3);
+            write_u32(out, data.0);
+            write_u32(out, 0);
             write_u32(out, 0);
         }
     }
@@ -1333,9 +1662,10 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
 
         DrawOp::StrokePath => write_op_header(buf, opcode::STROKE_PATH),
 
-        DrawOp::ClipPath { anti_alias } => {
+        DrawOp::ClipPath { anti_alias, fill_type } => {
             write_op_header(buf, opcode::CLIP_PATH);
             write_u8(buf, if *anti_alias { 1 } else { 0 });
+            write_u8(buf, *fill_type as u8);
         }
 
         // ===================================================================
@@ -1478,6 +1808,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                     write_u64(buf, id.0); // generated id
                     write_u32(buf, 0); // reserved (pad id-slot to 12 bytes)
                 }
+                ImageRef::Encoded { data } => {
+                    // tag 3: bytes-range id into the frame byte table; the
+                    // consumer owns decoding.
+                    write_u8(buf, 3);
+                    write_u32(buf, data.0);
+                    write_u64(buf, 0); // pad id-slot to 12 bytes
+                }
             }
             write_f32(buf, *x);
             write_f32(buf, *y);
@@ -1514,6 +1851,11 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                     write_u8(buf, 2); // tag: Generated
                     write_u64(buf, id.0);
                     write_u32(buf, 0); // reserved
+                }
+                ImageRef::Encoded { data } => {
+                    write_u8(buf, 3); // tag: Encoded
+                    write_u32(buf, data.0);
+                    write_u64(buf, 0); // pad id-slot to 12 bytes
                 }
             }
             write_u8(buf, if src.is_some() { 1 } else { 0 });
@@ -1571,6 +1913,62 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u32(buf, subtree.0);
             write_f32(buf, *x);
             write_f32(buf, *y);
+        }
+
+        DrawOp::FillPattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+        } => {
+            write_op_header(buf, opcode::FILL_PATTERN);
+            write_u32(buf, path.0);
+            write_u32(buf, subtree.0);
+            for v in [tile.x, tile.y, tile.width, tile.height] {
+                write_f32(buf, v);
+            }
+            for v in pattern_transform {
+                write_f32(buf, *v);
+            }
+            write_f32(buf, *opacity);
+        }
+
+        DrawOp::StrokePattern {
+            path,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            stroke,
+        } => {
+            write_op_header(buf, opcode::STROKE_PATTERN);
+            write_u32(buf, path.0);
+            write_u32(buf, subtree.0);
+            for v in [tile.x, tile.y, tile.width, tile.height] {
+                write_f32(buf, v);
+            }
+            for v in pattern_transform {
+                write_f32(buf, *v);
+            }
+            write_f32(buf, *opacity);
+            write_f32(buf, stroke.width);
+            write_u8(buf, stroke.cap as u8);
+            write_u8(buf, stroke.join as u8);
+            write_f32(buf, stroke.miter_limit);
+        }
+
+        DrawOp::MaskClip {
+            subtree,
+            kind,
+            region,
+        } => {
+            write_op_header(buf, opcode::MASK_CLIP);
+            write_u32(buf, subtree.0);
+            write_u8(buf, *kind);
+            for v in [region.x, region.y, region.width, region.height] {
+                write_f32(buf, v);
+            }
         }
 
         DrawOp::DrawSubtreePicture { .. } => {
@@ -1902,7 +2300,7 @@ mod tests {
         }));
         builder.push(DrawOp::FillPath);
         builder.push(DrawOp::StrokePath);
-        builder.push(DrawOp::ClipPath { anti_alias: true });
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: FillType::default() });
 
         // Drawing primitives
         builder.push(DrawOp::Clear {

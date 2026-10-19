@@ -20,7 +20,6 @@ use wasm_bindgen::prelude::*;
 
 use opencat_core::ir::CompositionInfo;
 use opencat_core::ir::RenderFrame;
-use opencat_core::ir::asset_id::{asset_id_for_subtitle};
 use opencat_core::ir::draw_frame::DrawFrameScratch;
 use opencat_core::ir::draw_types::ImageRef;
 use opencat_core::ir::media_plan::FrameMediaPlan;
@@ -74,8 +73,7 @@ impl WebRenderer {
     /// This is the host-owned open flow mirroring the engine's
     /// `open_parsed_host_owned` (#7): web fetches all declared resources,
     /// builds a prepared `HostInputs` via core's explicit lifecycle
-    /// chain, hydrates captions, injects the font database, then opens the
-    /// pipeline. Subsequent [`build_frame_ir`] calls render against this
+    /// chain, injects the font database, and opens the pipeline. Subsequent [`build_frame_ir`] calls render against this
     /// pipeline until the next `open_design`.
     ///
     /// The async fetch runs in the free [`open_design_pipeline`] helper; this
@@ -378,22 +376,6 @@ impl WebRenderer {
     }
 }
 
-/// Read the SRT text for each declared subtitle from the thread-local
-/// `BlobStore`, keyed by canonical subtitle `AssetId`. Mirrors the engine's
-/// `EngineLoader::srt_text_by_subtitle_id`.
-fn srt_text_by_subtitle_id(req: &ResourceRequests) -> HashMap<String, String> {
-    let mut srt = HashMap::new();
-    for src in &req.subtitles {
-        let id = asset_id_for_subtitle(src);
-        if let Some(bytes) = crate::resource::wasm_api::blob_bytes_owned(&id.key)
-            && let Ok(text) = std::str::from_utf8(&bytes)
-        {
-            srt.insert(id.key, text.to_string());
-        }
-    }
-    srt
-}
-
 /// Serialize core [`opencat_core::AudioPlan`] for web preview/export.
 /// Owned by core's [`collect_audio_plan`]; hosts only consume this JSON
 /// and must not re-derive segment offsets (issue #47).
@@ -557,7 +539,6 @@ async fn open_design_pipeline(
     //    No re-probing needed — the host already extracted metadata during fetch.
     let probed = crate::resource::wasm_api::take_catalog()
         .ok_or_else(|| JsValue::from_str("open_design: no catalog from preload_assets"))?;
-    let srt = srt_text_by_subtitle_id(&requests);
 
     // 5. Build HostInputs from raw font faces + family (core builds fontdb).
     let mut inputs = HostInputs::empty()
@@ -583,11 +564,6 @@ async fn open_design_pipeline(
             ResourceKind::Lottie => {
                 if let Some(meta) = probed.lotties.get(&req.asset_id).cloned() {
                     inputs.insert_lottie(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
-                }
-            }
-            ResourceKind::Subtitle => {
-                if let Some(text) = srt.get(&req.asset_id.key) {
-                    inputs.insert_subtitle_text(req.asset_id.clone(), text).map_err(prepare_js_err)?;
                 }
             }
             ResourceKind::Font | ResourceKind::Script => {}
@@ -653,7 +629,7 @@ async fn open_design_pipeline(
             .map_err(prepare_js_err)?;
     }
 
-    // 6. prepare (sync pure) → open_pipeline. Font merge + subtitle hydration
+    // 6. prepare (sync pure) → open_pipeline. Font merge
     //    happen inside prepare.
     let prepared = draft.prepare(inputs).map_err(prepare_js_err)?;
     let ctx = <WebJsContext as JsContext>::new()

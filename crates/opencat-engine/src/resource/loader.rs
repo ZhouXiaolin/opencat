@@ -11,10 +11,10 @@ use anyhow::{Context, Result, anyhow};
 
 use opencat_core::ir::asset_id::{
     AssetId, ResourceKind, asset_id_for_audio, asset_id_for_image,
-    asset_id_for_lottie, asset_id_for_subtitle, asset_id_for_url,
+    asset_id_for_lottie, asset_id_for_url,
     asset_id_for_video,
 };
-use opencat_core::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource, VideoSource};
+use opencat_core::parse::primitives::{AudioSource, ImageSource, LottieSource, VideoSource};
 use opencat_core::probe::catalog::ResourceRequests;
 use opencat_core::fonts::{FontManifest, font_asset_id};
 
@@ -184,8 +184,7 @@ impl EngineLoader {
                 | NodeKind::Lucide(_)
                 | NodeKind::Path(_)
                 | NodeKind::Svg(_)
-                | NodeKind::Lottie(_)
-                | NodeKind::Caption(_) => {}
+                | NodeKind::Lottie(_) => {}
             }
         }
 
@@ -208,17 +207,6 @@ impl EngineLoader {
         }
     }
 
-    /// Collect decoded SRT text for a single subtitle `AssetId`, for
-    /// core's pure `hydrate_captions`. Returns `None` when no bytes are cached.
-    ///
-    /// After `load_all` has fetched/cached the subtitle file, the host reads bytes,
-    /// decodes them as UTF-8, and hands the text to `insert_subtitle_text`. Core
-    /// never opens a subtitle file.
-    pub fn srt_text_for_subtitle_id(&self, id: &AssetId) -> Option<String> {
-        self.handle(id)
-            .and_then(|h| h.read_bytes().ok())
-            .and_then(|bytes| String::from_utf8(bytes.into_owned()).ok())
-    }
 }
 
 impl EngineLoader {
@@ -280,19 +268,6 @@ impl EngineLoader {
                         copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
                     }
                     AudioSource::Unset => continue,
-                }
-                new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
-            }
-
-            for src in &req.subtitles {
-                let id = subtitle_asset_id(src);
-                match src {
-                    SubtitleSource::Url(u) => {
-                        let _ = self.fetcher.fetch_bytes(&id, u).await?;
-                    }
-                    SubtitleSource::Path(p) => {
-                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
-                    }
                 }
                 new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
             }
@@ -405,10 +380,6 @@ fn video_asset_id(s: &VideoSource) -> AssetId {
 
 fn audio_asset_id(s: &AudioSource) -> AssetId {
     asset_id_for_audio(s).unwrap_or_else(|| AssetId::new(ResourceKind::Audio, String::new()))
-}
-
-fn subtitle_asset_id(s: &SubtitleSource) -> AssetId {
-    asset_id_for_subtitle(s)
 }
 
 /// Lottie probe byte key. Returns `Image` kind intentionally — the probe

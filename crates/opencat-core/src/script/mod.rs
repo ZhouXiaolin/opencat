@@ -183,7 +183,6 @@ pub struct ScriptTextSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptTextSourceKind {
     TextNode,
-    Caption,
 }
 
 pub fn position_from_name(name: &str) -> Option<Position> {

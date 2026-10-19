@@ -43,7 +43,7 @@ pub(crate) use opencat_core::parse::easing::Easing;
 #[cfg(test)]
 pub(crate) use opencat_core::parse::node::Node;
 #[cfg(test)]
-pub(crate) use opencat_core::parse::primitives::{SrtEntry, canvas, caption, div, image, text};
+pub(crate) use opencat_core::parse::primitives::{canvas, div, image, text};
 #[cfg(test)]
 pub(crate) use opencat_core::parse::transition::{fade, timeline};
 #[cfg(test)]

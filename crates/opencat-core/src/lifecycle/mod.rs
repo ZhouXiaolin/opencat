@@ -24,7 +24,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::ir::asset_id::{
-    AssetId, asset_id_for_audio, asset_id_for_image, asset_id_for_lottie, asset_id_for_subtitle,
+    AssetId, asset_id_for_audio, asset_id_for_image, asset_id_for_lottie,
     asset_id_for_video,
 };
 // `ResourceKind` is brought into scope by the `pub use` above (single source in
@@ -35,7 +35,6 @@ use crate::parse::preflight::collect_resource_requests_from_parsed;
 use crate::parse::primitives::LottieSource;
 use crate::pipeline::DefaultPipeline;
 use crate::probe::catalog::PreparedResourceCatalog;
-use crate::probe::prepare::hydrate_captions;
 use crate::script::ScriptDriver;
 use crate::script::js_context::JsContext;
 
@@ -115,17 +114,6 @@ impl HostRequirements {
             });
         }
 
-        for src in &raw.subtitles {
-            let id = asset_id_for_subtitle(src);
-            if !seen.insert(id.clone()) {
-                continue;
-            }
-            requests.push(ResourceRequest {
-                asset_id: id,
-                kind: ResourceKind::Subtitle,
-            });
-        }
-
         for req in &raw.lotties {
             let Some(id) = asset_id_for_lottie(&req.source) else {
                 continue;
@@ -171,7 +159,7 @@ impl HostRequirements {
 }
 
 impl HostInputs {
-    /// Empty host inputs: no resource metadata, no subtitle text, empty font db.
+    /// Empty host inputs: no resource metadata, empty font db.
     /// Suitable only for compositions with no declared external resources (and
     /// no document fonts that need shaping beyond the empty database).
     pub fn empty() -> Self {
@@ -180,7 +168,6 @@ impl HostInputs {
             font_fallback_dirs: Vec::new(),
             sans_serif_family: String::new(),
             catalog: PreparedResourceCatalog::default(),
-            subtitle_texts: HashMap::new(),
             document_fonts: HashMap::new(),
             script_texts: HashMap::new(),
             supplied: HashSet::new(),
@@ -256,20 +243,6 @@ impl HostInputs {
     ) -> Result<(), PrepareError> {
         self.record_supply(&id)?;
         self.catalog.lotties.insert(id, meta);
-        Ok(())
-    }
-
-    /// Provide raw subtitle text for a declared subtitle asset. Duplicate ids error.
-    /// Core parses SRT during prepare; hosts must not interpret captions themselves.
-    pub fn insert_subtitle_text(
-        &mut self,
-        id: AssetId,
-        text: impl Into<String>,
-    ) -> Result<(), PrepareError> {
-        self.record_supply(&id)?;
-        // Register the canonical id so undeclared checks and catalog presence align.
-        self.catalog.subtitles.entry(id.clone()).or_default();
-        self.subtitle_texts.insert(id, text.into());
         Ok(())
     }
 
@@ -362,7 +335,7 @@ impl PreparedComposition {
 }
 
 /// Pure prepare: validate host inputs against draft requirements, merge
-/// document fonts over the host base font database, hydrate captions, and
+/// document fonts over the host base font database, and
 /// produce a prepared composition ready for pipeline open.
 pub fn prepare(
     draft: CompositionDraft,
@@ -377,16 +350,13 @@ pub fn prepare(
 
     let font_db = prepare_font_db(&parsed, &inputs)?;
 
-    // Ensure every declared audio/subtitle id is present in the catalog maps
-    // even when the host only registered presence (audio) or text (subtitle).
+    // Ensure every declared audio id is present in the catalog map even when
+    // the host only registered presence.
     let mut catalog = inputs.catalog;
     for req in requirements.requests() {
         match req.kind {
             ResourceKind::Audio => {
                 catalog.audios.insert(req.asset_id.clone());
-            }
-            ResourceKind::Subtitle => {
-                catalog.subtitles.entry(req.asset_id.clone()).or_default();
             }
             ResourceKind::Image
             | ResourceKind::Video
@@ -395,13 +365,6 @@ pub fn prepare(
             | ResourceKind::Script => {}
         }
     }
-
-    let fps = parsed.fps.max(1) as u32;
-    parsed.root = hydrate_captions(parsed.root, fps, &inputs.subtitle_texts)
-        .map_err(|err| PrepareError::Internal {
-            message: err.to_string(),
-        })?
-        .0;
 
     // Inject host-supplied external script texts into ScriptDrivers (issue #20).
     // Keyed by AssetId string; pure tree walk, no FS/network.
@@ -520,7 +483,6 @@ fn validate_inputs(
                 .videos
                 .keys()
                 .chain(inputs.catalog.audios.iter())
-                .chain(inputs.catalog.subtitles.keys())
                 .chain(inputs.catalog.lotties.keys())
                 .chain(inputs.document_fonts.keys())
                 .chain(inputs.script_texts.keys()),
@@ -533,9 +495,8 @@ fn validate_inputs(
         }
     }
 
-    // Missing + layout-critical validation. Subtitle text is soft: missing SRT
-    // leaves empty caption entries (same contract as hydrate_captions / #12).
-    // Document fonts are hard: missing/empty bytes fail prepare.
+    // Missing + layout-critical validation. Document fonts are hard:
+    // missing/empty bytes fail prepare.
     for req in requirements.requests() {
         match req.kind {
             ResourceKind::Image => {
@@ -544,7 +505,6 @@ fn validate_inputs(
                     if inputs.catalog.videos.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.lotties.contains_key(&req.asset_id)
-                        || inputs.catalog.subtitles.contains_key(&req.asset_id)
                         || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
@@ -572,7 +532,6 @@ fn validate_inputs(
                     if inputs.catalog.images.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.lotties.contains_key(&req.asset_id)
-                        || inputs.catalog.subtitles.contains_key(&req.asset_id)
                         || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
@@ -612,7 +571,6 @@ fn validate_inputs(
                     if inputs.catalog.images.contains_key(&req.asset_id)
                         || inputs.catalog.videos.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
-                        || inputs.catalog.subtitles.contains_key(&req.asset_id)
                         || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
@@ -660,15 +618,6 @@ fn validate_inputs(
                             meta.in_frame, meta.out_frame
                         ),
                     });
-                }
-            }
-            ResourceKind::Subtitle => {
-                // Subtitle must be present in subtitle_texts or catalog.subtitles.
-                // Empty string is valid (explicit empty captions).
-                if !inputs.subtitle_texts.contains_key(&req.asset_id)
-                    && !inputs.catalog.subtitles.contains_key(&req.asset_id)
-                {
-                    return Err(absent_or_missing(&req.asset_id, req.kind, inputs));
                 }
             }
             ResourceKind::Font => match inputs.document_fonts.get(&req.asset_id) {
@@ -823,8 +772,7 @@ fn walk_inject_scripts(
         | NodeKind::Lottie(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
-        | NodeKind::Svg(_)
-        | NodeKind::Caption(_) => {}
+        | NodeKind::Svg(_) => {}
     }
 
     Ok(crate::parse::node::Node::new(kind))
@@ -871,8 +819,7 @@ fn walk_script_drivers(node: &crate::parse::node::Node, f: &mut dyn FnMut(&Scrip
         | NodeKind::Lottie(_)
         | NodeKind::Lucide(_)
         | NodeKind::Path(_)
-        | NodeKind::Svg(_)
-        | NodeKind::Caption(_) => {}
+        | NodeKind::Svg(_) => {}
     }
 }
 
@@ -1638,7 +1585,7 @@ mod tests {
         }
     }
 
-    // --- fonts & subtitles (#19) -------------------------------------------------
+    // --- fonts (#19) -------------------------------------------------------------
 
     #[test]
     fn draft_requirements_list_document_fonts_with_stable_identity() {
@@ -1847,155 +1794,6 @@ mod tests {
         assert_eq!(
             find_text_family(&prepared.parsed().root).as_deref(),
             Some("Noto Sans SC")
-        );
-    }
-
-    #[test]
-    fn prepare_hydrates_subtitle_active_text() {
-        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
-{"id":"root","parentId":null,"type":"div","className":"relative w-[320px] h-[180px]"}
-{"id":"subs","parentId":"root","type":"caption","className":"absolute left-[0px] top-[0px] text-white","path":"sub.srt"}"#;
-        let draft = draft_from_lines(jsonl);
-        let sub_id = draft
-            .requirements()
-            .requests()
-            .iter()
-            .find(|r| r.kind == ResourceKind::Subtitle)
-            .expect("subtitle req")
-            .asset_id
-            .clone();
-
-        let srt = "1\n00:00:00,000 --> 00:00:00,500\nHello Core\n";
-        let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
-        inputs
-            .insert_subtitle_text(sub_id, srt)
-            .expect("insert srt");
-
-        let prepared = draft.prepare(inputs).expect("prepare");
-        use crate::parse::node::NodeKind;
-        use crate::parse::primitives::CaptionNode;
-        fn find_caption<'a>(
-            node: &'a crate::parse::node::Node,
-            id: &str,
-        ) -> Option<&'a CaptionNode> {
-            match node.kind() {
-                NodeKind::Caption(c) if c.style_ref().id == id => Some(c),
-                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption(c, id)),
-                _ => None,
-            }
-        }
-        let caption = find_caption(&prepared.parsed().root, "subs").expect("caption");
-        assert_eq!(caption.entries_ref().len(), 1);
-        assert_eq!(caption.active_text(0), Some("Hello Core"));
-        // Past the cue end: no active text.
-        assert_eq!(caption.active_text(30), None);
-    }
-
-    #[test]
-    fn prepare_missing_subtitle_text_keeps_empty_entries() {
-        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
-{"id":"root","parentId":null,"type":"div"}
-{"id":"subs","parentId":"root","type":"caption","path":"missing.srt"}"#;
-        let draft = draft_from_lines(jsonl);
-        let sub_id = draft
-            .requirements()
-            .requests()
-            .iter()
-            .find(|r| r.kind == ResourceKind::Subtitle)
-            .expect("subtitle req")
-            .asset_id
-            .clone();
-        // Empty text is valid (explicit empty caption entries).
-        let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
-        inputs
-            .insert_subtitle_text(sub_id, "")
-            .expect("insert empty srt");
-        let prepared = draft.prepare(inputs).expect("empty SRT is valid");
-        use crate::parse::node::NodeKind;
-        fn find_caption_entries(node: &crate::parse::node::Node) -> Option<usize> {
-            match node.kind() {
-                NodeKind::Caption(c) => Some(c.entries_ref().len()),
-                NodeKind::Div(d) => d
-                    .children_ref()
-                    .iter()
-                    .find_map(|c| find_caption_entries(c)),
-                _ => None,
-            }
-        }
-        assert_eq!(find_caption_entries(&prepared.parsed().root), Some(0));
-    }
-
-    #[test]
-    fn xml_caption_hydrate_via_lifecycle() {
-        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
-{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
-{"type":"caption","id":"subs","parentId":"root","path":"sub.srt"}"#;
-        let draft = draft_from_lines(jsonl);
-        let sub_id = draft
-            .requirements()
-            .requests()
-            .iter()
-            .find(|r| r.kind == ResourceKind::Subtitle)
-            .expect("subtitle req")
-            .asset_id
-            .clone();
-        assert!(
-            sub_id.key.contains("sub.srt"),
-            "subtitle asset id should reference the path: {sub_id:?}"
-        );
-
-        let srt = "1\n00:00:00,000 --> 00:00:00,500\nXML Caption\n";
-        let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
-        inputs
-            .insert_subtitle_text(sub_id, srt)
-            .expect("insert srt");
-        let prepared = draft.prepare(inputs).expect("prepare");
-        use crate::parse::node::NodeKind;
-        use crate::parse::primitives::CaptionNode;
-        fn find_caption<'a>(
-            node: &'a crate::parse::node::Node,
-            id: &str,
-        ) -> Option<&'a CaptionNode> {
-            match node.kind() {
-                NodeKind::Caption(c) if c.style_ref().id == id => Some(c),
-                NodeKind::Div(d) => d.children_ref().iter().find_map(|c| find_caption(c, id)),
-                _ => None,
-            }
-        }
-        let caption = find_caption(&prepared.parsed().root, "subs").expect("caption node");
-        assert_eq!(caption.entries_ref().len(), 1);
-        assert_eq!(caption.active_text(0), Some("XML Caption"));
-    }
-
-    #[test]
-    fn xml_caption_missing_text_fails_prepare() {
-        let jsonl = r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":1}
-{"type":"div","id":"root","parentId":null,"className":"w-full h-full"}
-{"type":"caption","id":"subs","parentId":"root","path":"sub.srt"}"#;
-        let draft = draft_from_lines(jsonl);
-        // No subtitle text supplied → MissingInput fail-fast.
-        let err = draft
-            .prepare(
-                HostInputs::empty()
-                    .with_base_font_faces(crate::test_support::test_font_faces())
-                    .with_sans_serif_family("Noto Sans SC"),
-            )
-            .expect_err("missing subtitle text must fail");
-        assert!(
-            matches!(
-                err,
-                PrepareError::MissingInput {
-                    kind: ResourceKind::Subtitle,
-                    ..
-                }
-            ),
-            "got {err:?}"
         );
     }
 
@@ -2402,32 +2200,6 @@ mod tests {
                 }
             ),
             "expected AbsentInput for marked-absent lottie; got {err:?}"
-        );
-    }
-
-    #[test]
-    fn prepare_returns_absent_input_for_missing_subtitle_when_marked_absent() {
-        let jsonl = r#"{"type":"composition","width":64,"height":64,"fps":30,"duration":0.1}
-{"id":"root","parentId":null,"type":"div"}
-{"id":"subs","parentId":"root","type":"caption","path":"missing.srt"}"#;
-        let draft = draft_from_lines(jsonl);
-        let id = draft.requirements().requests()[0].asset_id.clone();
-        let mut inputs = HostInputs::empty()
-            .with_base_font_faces(crate::test_support::test_font_faces())
-            .with_sans_serif_family("Noto Sans SC");
-        inputs.mark_absent(id, "SRT file not uploaded").unwrap();
-        let err = draft
-            .prepare(inputs)
-            .expect_err("absent subtitle must fail");
-        assert!(
-            matches!(
-                err,
-                PrepareError::AbsentInput {
-                    kind: ResourceKind::Subtitle,
-                    ..
-                }
-            ),
-            "expected AbsentInput for marked-absent subtitle; got {err:?}"
         );
     }
 

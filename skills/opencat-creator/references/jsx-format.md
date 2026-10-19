@@ -104,7 +104,7 @@ export const fonts = {
 
 ## 元素
 
-`<div>` `<text>` `<image>` `<video>` `<lottie>` `<icon>` `<path>` `<canvas>` `<caption>` `<tl>` `<transition>`
+`<div>` `<text>` `<image>` `<video>` `<lottie>` `<icon>` `<path>` `<canvas>` `<tl>` `<transition>`
 
 Fragment `<>` 可用，把多个元素平铺进父级。
 
@@ -135,7 +135,6 @@ function Corner({ id, tint }) {
 <image id="search" query="mountain landscape" queryCount={3} aspectRatio="16:9" />
 <video id="clip" url="https://example.com/video.mp4" loop dataStart={2} dataDuration={4} />
 <lottie id="loader" path="animation.json" />
-<caption id="cc" path="subs.srt" />
 ```
 
 - 源三选一：`path` / `url` / `query`（`query` 配 `queryCount`、`aspectRatio`）；`<lottie>` 只接受 `path` / `url`
@@ -296,7 +295,7 @@ API：`ctx.from` / `to` / `fromTo` / `set` / `timeline`、`ctx.getNode(id)`（�
 
 - `<div>` 里直接写文本 → 文本**不渲染**，也不报警告。必须用 `<text>` 包裹
 - `<text>` 里的子元素 → 子元素**不渲染**，也不报警告
-- `<image>` / `<lottie>` / `<icon>` / `<path>` / `<caption>` 里的子元素 → 静默丢弃
+- `<image>` / `<lottie>` / `<icon>` / `<path>` 里的子元素 → 静默丢弃
 - `absolute` 不带坐标 → 不报错，位置按自动布局算，通常不是你要的
 
 **不会失败，但结果可能和你写的数字不一致**：

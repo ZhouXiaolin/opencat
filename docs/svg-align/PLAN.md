@@ -139,7 +139,7 @@ mask 规则为既定决策：**形状遮罩 → ClipPath；图片遮罩 → blen
 
 新增（P1）：
 - JS 运行时 shim：`emitElement` 白名单当前为 `div, text, canvas, image, audio,
-  video, icon, transition, tl, caption, path, lottie`——`svg` 需加入此处与
+  video, icon, transition, tl, path, lottie`——`svg` 需加入此处与
   `parse/elements.rs`、`resolve/tree.rs`、display、dispatch 五处。
 - `parse/elements.rs`：`type: "svg"`，props `src`（相对 jsx base_dir 或绝对路径）、
   可选 `width/height` 覆盖 intrinsic、`preserveAspectRatio` 透传。

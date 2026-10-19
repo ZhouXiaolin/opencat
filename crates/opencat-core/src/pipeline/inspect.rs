@@ -276,17 +276,6 @@ fn collect_source_metadata(node: &Node, out: &mut HashMap<String, SourceNodeMeta
                 }
             }
         }
-        NodeKind::Caption(caption) => {
-            let entry = upsert_style_meta(caption.style_ref(), "caption", out);
-            if let Some(entry) = entry {
-                entry.media_source = match caption.source() {
-                    crate::parse::primitives::SubtitleSource::Path(p) => {
-                        Some(p.to_string_lossy().to_string())
-                    }
-                    crate::parse::primitives::SubtitleSource::Url(u) => Some(u.clone()),
-                };
-            }
-        }
         NodeKind::Lottie(lottie) => {
             let entry = upsert_style_meta(lottie.style_ref(), "lottie", out);
             if let Some(entry) = entry {

@@ -153,8 +153,8 @@
         const renderer = getRendererOrThrow();
 
         // Open (or reopen, when the composition source changes) the
-        // host-owned pipeline: fetches resources, builds the catalog, hydrates
-        // captions, opens the pipeline. Without prepareCatalogVideoSources,
+        // host-owned pipeline: fetches resources, builds the catalog, opens
+        // the pipeline. Without prepareCatalogVideoSources,
         // injectVideoFramesForRender silently blanks every VideoFrame draw
         // (profile-showcase s2/s3).
         if (openedFor !== envelope) {

@@ -139,7 +139,7 @@ impl EnginePipelineHost {
 /// The engine completes the full host preparation chain before opening core:
 /// collect declarative [`ResourceRequests`] → fetch/cache media bytes →
 /// probe media metadata locally → hand typed metadata to core prepare.
-/// Core alone merges fonts, hydrates captions, and opens the pipeline.
+/// Core alone merges fonts and opens the pipeline.
 pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Result<EnginePipeline> {
     // Both remaining frontends (JSONL text, JSX) parse through source_io into a
     // self-contained ParsedComposition (tree extracted, driver embedded as the
@@ -266,16 +266,6 @@ fn open_parsed_host_owned_with_fonts(
     for src in &requests.audios {
         if let Some(id) = opencat_core::ir::asset_id::asset_id_for_audio(src) {
             inputs.insert_audio(id).map_err(prepare_err)?;
-        }
-    }
-
-    // Subtitle text: read bytes → insert as UTF-8 text.
-    for src in &requests.subtitles {
-        let id = opencat_core::ir::asset_id::asset_id_for_subtitle(src);
-        if let Some(text) = loader.srt_text_for_subtitle_id(&id) {
-            inputs
-                .insert_subtitle_text(id, text)
-                .map_err(prepare_err)?;
         }
     }
 
@@ -494,27 +484,9 @@ impl opencat_core::ir::scene3::Scene3Raster for TexturedRaster3d {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use opencat_core::{
-        frame_ctx::FrameCtx,
-        parse::{
-            node::{Node, NodeKind},
-            primitives::CaptionNode,
-        },
-        script::js_context::JsContext,
-    };
+    use opencat_core::{frame_ctx::FrameCtx, script::js_context::JsContext};
 
     use super::open;
-
-    fn find_caption<'a>(node: &'a Node, id: &str) -> Option<&'a CaptionNode> {
-        match node.kind() {
-            NodeKind::Caption(caption) if caption.style_ref().id == id => Some(caption),
-            NodeKind::Div(div) => div
-                .children_ref()
-                .iter()
-                .find_map(|child| find_caption(child, id)),
-            _ => None,
-        }
-    }
 
     /// Test fixture helper: line-shape JSON through the JSX extract entry (the
     /// product frontend) — core has no JSONL text entry point.
@@ -528,53 +500,6 @@ mod tests {
         let parsed = opencat_core::parse::jsx::from_extract(&extract, "", None)
             .expect("extract parses");
         opencat_core::lifecycle::CompositionDraft::from_parsed(parsed)
-    }
-
-    #[test]
-    fn jsonl_caption_path_resolves_relative_to_loader_base_dir() {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let fixture_dir = std::path::PathBuf::from(format!("target/opencat-jsonl-caption-{nanos}"));
-        let cache_dir = fixture_dir.join("cache");
-        std::fs::create_dir_all(&cache_dir).expect("cache dir");
-        std::fs::write(
-            fixture_dir.join("sub.srt"),
-            "1\n00:00:00,000 --> 00:00:00,500\nHello CLI\n",
-        )
-        .expect("srt fixture");
-
-        let jsx = r#"export const meta = { width: 320, height: 180, fps: 30, duration: 1 };
-export default function App() {
-  return (
-    <div id="root" class="relative w-[320px] h-[180px]">
-      <caption id="subs" class="absolute left-[0px] top-[0px] text-white" path="sub.srt" />
-    </div>
-  );
-}"#;
-
-        let loader = crate::resource::loader::EngineLoader::new(fixture_dir.clone(), cache_dir)
-            .expect("loader");
-        let ctx = crate::js_context::V8JsContext::new().expect("js context");
-        let host = open(jsx, loader, ctx).expect("pipeline");
-
-        // Caption hydration is now part of the host-owned open chain: the SRT
-        // file was fetched by the loader, parsed by core's pure hydrate_captions,
-        // and the entries written into the caption node before core opened.
-        let root = host.composition().root_node(&FrameCtx {
-            frame: 0,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 30,
-        });
-        let caption = find_caption(&root, "subs").expect("caption node");
-
-        assert_eq!(caption.entries_ref().len(), 1);
-        assert_eq!(caption.active_text(0), Some("Hello CLI"));
-
-        std::fs::remove_dir_all(&fixture_dir).ok();
     }
 
     #[test]

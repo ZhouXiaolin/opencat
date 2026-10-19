@@ -84,9 +84,6 @@ pub enum ParsedElementKind {
         source: VideoSource,
         timing: VideoFrameTiming,
     },
-    Caption {
-        path: PathBuf,
-    },
 }
 
 #[derive(Debug, Clone)]

@@ -10,9 +10,9 @@ use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 use anyhow::Context;
-use opencat_core::ir::asset_id::{asset_id_for_subtitle, asset_id_for_url, kind_from_canonical_str};
+use opencat_core::ir::asset_id::{asset_id_for_url, kind_from_canonical_str};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
-use opencat_core::parse::primitives::{LottieSource, SubtitleSource};
+use opencat_core::parse::primitives::LottieSource;
 use opencat_core::ir::asset_id::{AssetId, ResourceKind};
 use opencat_core::fonts::{FontSource, font_asset_id};
 use opencat_core::probe::catalog::PreparedResourceCatalog;
@@ -80,7 +80,7 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
             let (id, raw) = match &face.source {
                 FontSource::Path(path) => {
                     // Logical locator — web host interprets against document
-                    // base/VFS (same contract as lottie/subtitle paths).
+                    // base/VFS (same contract as lottie paths).
                     let id = AssetId::new(
                         ResourceKind::Font,
                         font_asset_id(&FontSource::Path(path.clone())),
@@ -115,18 +115,6 @@ pub async fn preload_assets(source: &str) -> Result<String, JsValue> {
     crate::resource::resolver::preload_requests(&requests, &mut blobs, &mut catalog)
         .await
         .map_err(|e| JsValue::from_str(&format!("preload_assets: {e}")))?;
-
-    for source in &requests.subtitles {
-        let id = asset_id_for_subtitle(source);
-        let bytes = match source {
-            SubtitleSource::Url(url) => crate::resource::fetch::fetch_bytes(url).await,
-            SubtitleSource::Path(path) => {
-                crate::resource::asset_reader::read_path(&path.to_string_lossy()).await
-            }
-        }
-        .map_err(|e| JsValue::from_str(&format!("preload_assets subtitle: {e}")))?;
-        blobs.insert(id, std::sync::Arc::from(bytes));
-    }
 
     for request in &requests.lotties {
         use opencat_core::ir::asset_id::asset_id_for_lottie;

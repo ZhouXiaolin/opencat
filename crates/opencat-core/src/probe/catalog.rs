@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 pub use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::lottie::LottieMeta;
 pub use crate::parse::primitives::VideoSource;
-use crate::parse::primitives::{AudioSource, ImageSource, LottieSource, SubtitleSource};
+use crate::parse::primitives::{AudioSource, ImageSource, LottieSource};
 
 /// One unique Lottie source locator — bundle identity is source-based.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -16,7 +16,6 @@ pub struct ResourceRequests {
     pub images: HashSet<ImageSource>,
     pub videos: HashSet<VideoSource>,
     pub audios: HashSet<AudioSource>,
-    pub subtitles: HashSet<SubtitleSource>,
     pub lotties: HashSet<LottieRequest>,
 }
 
@@ -27,7 +26,6 @@ pub struct PreparedResourceCatalog {
     pub images: HashMap<AssetId, ImageMeta>,
     pub videos: HashMap<AssetId, VideoInfoMeta>,
     pub audios: HashSet<AssetId>,
-    pub subtitles: HashMap<AssetId, Vec<SrtEntry>>,
     pub lotties: HashMap<AssetId, LottieMeta>,
     /// Pipeline-internal alias -> canonical `AssetId` bindings. Aliases are
     /// resolved to canonical IDs before any `DrawOp`/`FrameMediaPlan` leaves
@@ -63,9 +61,6 @@ impl VideoInfoMeta {
             .map(|d| crate::time::timestamp_micros_to_secs(d.0))
     }
 }
-
-// Re-export SrtEntry from parse primitives for catalog consumers.
-pub use crate::parse::primitives::SrtEntry;
 
 impl PreparedResourceCatalog {
     /// Resolve an image source to its canonical AssetId.
@@ -151,10 +146,6 @@ impl PreparedResourceCatalog {
             CanonicalKind::Audio => {
                 self.audios.insert(alias.clone());
             }
-            CanonicalKind::Subtitle => {
-                let entries = self.subtitles.get(target).cloned().expect("checked above");
-                self.subtitles.insert(alias.clone(), entries);
-            }
             CanonicalKind::Lottie => {
                 let meta = self.lotties.get(target).cloned().expect("checked above");
                 self.lotties.insert(alias.clone(), meta);
@@ -209,8 +200,6 @@ impl PreparedResourceCatalog {
             Some(CanonicalKind::Video)
         } else if self.audios.contains(id) {
             Some(CanonicalKind::Audio)
-        } else if self.subtitles.contains_key(id) {
-            Some(CanonicalKind::Subtitle)
         } else if self.lotties.contains_key(id) {
             Some(CanonicalKind::Lottie)
         } else {
@@ -225,7 +214,6 @@ pub enum CanonicalKind {
     Image,
     Video,
     Audio,
-    Subtitle,
     Lottie,
 }
 

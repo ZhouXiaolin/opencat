@@ -4,7 +4,7 @@ use std::path::Path;
 
 
 use crate::parse::primitives::{
-    AudioSource, ImageSource, LottieSource, OpenverseQuery, SubtitleSource, VideoSource,
+    AudioSource, ImageSource, LottieSource, OpenverseQuery, VideoSource,
 };
 
 /// Kind of external resource an [`AssetId`] names. One `AssetId` namespace per
@@ -16,7 +16,6 @@ pub enum ResourceKind {
     Image,
     Video,
     Audio,
-    Subtitle,
     Lottie,
     /// Document font face from `<fonts>` / `FontManifest`. Stable identity is
     /// [`crate::fonts::font_asset_id`]; host supplies raw bytes only.
@@ -90,8 +89,6 @@ pub fn kind_from_canonical_str(key: &str) -> ResourceKind {
         ResourceKind::Video
     } else if key.starts_with("audio:") {
         ResourceKind::Audio
-    } else if key.starts_with("subtitle:") {
-        ResourceKind::Subtitle
     } else if key.starts_with("lottie:") {
         ResourceKind::Lottie
     } else if key.starts_with("font:") {
@@ -173,17 +170,6 @@ pub fn asset_id_for_audio(src: &AudioSource) -> Option<AssetId> {
             format!("audio:path:{}", path_str(p)),
         )),
         AudioSource::Url(u) => Some(asset_id_for_audio_url(u)),
-    }
-}
-
-/// Canonical `AssetId` for a subtitle source.
-pub fn asset_id_for_subtitle(src: &SubtitleSource) -> AssetId {
-    match src {
-        SubtitleSource::Path(p) => AssetId::new(
-            ResourceKind::Subtitle,
-            format!("subtitle:path:{}", path_str(p)),
-        ),
-        SubtitleSource::Url(u) => AssetId::new(ResourceKind::Subtitle, format!("subtitle:url:{u}")),
     }
 }
 
@@ -344,18 +330,6 @@ mod tests {
     }
 
     #[test]
-    fn asset_id_for_subtitle_covers_path_and_url() {
-        assert_eq!(
-            asset_id_for_subtitle(&SubtitleSource::Path("/a/sub.srt".into())).as_str(),
-            "subtitle:path:/a/sub.srt",
-        );
-        assert_eq!(
-            asset_id_for_subtitle(&SubtitleSource::Url("https://e.com/sub.srt".into())).as_str(),
-            "subtitle:url:https://e.com/sub.srt",
-        );
-    }
-
-    #[test]
     fn asset_id_for_lottie_is_source_based_and_unset_yields_none() {
         assert_eq!(asset_id_for_lottie(&LottieSource::Unset), None);
         assert_eq!(
@@ -372,31 +346,29 @@ mod tests {
 
     /// AC2: AssetIds of different kinds never collide, even with an identical
     /// key. A single typed resource map is therefore collision-free across
-    /// image, video, audio, subtitle, lottie, font and script resources.
+    /// image, video, audio, lottie, font and script resources.
     #[test]
     fn asset_ids_of_different_kinds_do_not_collide() {
         let same_key = "shared";
         let image = AssetId::new(ResourceKind::Image, same_key);
         let video = AssetId::new(ResourceKind::Video, same_key);
         let audio = AssetId::new(ResourceKind::Audio, same_key);
-        let subtitle = AssetId::new(ResourceKind::Subtitle, same_key);
         let lottie = AssetId::new(ResourceKind::Lottie, same_key);
         let font = AssetId::new(ResourceKind::Font, same_key);
         let script = AssetId::new(ResourceKind::Script, same_key);
 
         assert_ne!(image, video);
         assert_ne!(image, audio);
-        assert_ne!(image, subtitle);
         assert_ne!(image, lottie);
         assert_ne!(image, font);
         assert_ne!(image, script);
 
         // Distinct kind + same key occupy distinct slots in one typed map.
         let mut map = std::collections::HashMap::new();
-        for id in [&image, &video, &audio, &subtitle, &lottie, &font, &script] {
+        for id in [&image, &video, &audio, &lottie, &font, &script] {
             map.insert(id.clone(), id.kind);
         }
-        assert_eq!(map.len(), 7);
+        assert_eq!(map.len(), 6);
 
         // Same kind + same key IS the same id (stable identity).
         assert_eq!(image, AssetId::new(ResourceKind::Image, same_key));

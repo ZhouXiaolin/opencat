@@ -87,8 +87,6 @@ impl Canvas {
         &self.hidden_children
     }
 
-    /// Replace the hidden-children subtree (used by host-driven caption
-    /// hydration, which recurses into every node kind that can hold a caption).
     pub(crate) fn set_hidden_children(&mut self, children: Vec<Node>) {
         self.hidden_children = children;
     }

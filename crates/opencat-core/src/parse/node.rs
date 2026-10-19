@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     frame_ctx::FrameCtx,
     parse::{
-        primitives::{Canvas, CaptionNode, Div, Image, Lottie, Lucide, Path, Svg, Text, Video},
+        primitives::{Canvas, Div, Image, Lottie, Lucide, Path, Svg, Text, Video},
         time::TimelineNode,
     },
     script::ScriptDriver,
@@ -63,7 +63,6 @@ pub enum NodeKind {
     Svg(Svg),
     Video(Video),
     Timeline(TimelineNode),
-    Caption(CaptionNode),
 }
 
 impl std::fmt::Debug for NodeKind {
@@ -79,7 +78,6 @@ impl std::fmt::Debug for NodeKind {
             Self::Svg(_) => write!(f, "Svg(..)"),
             Self::Video(_) => write!(f, "Video(..)"),
             Self::Timeline(_) => write!(f, "Timeline(..)"),
-            Self::Caption(_) => write!(f, "Caption(..)"),
         }
     }
 }
@@ -97,7 +95,6 @@ impl NodeKind {
             Self::Svg(node) => node.style_ref(),
             Self::Video(node) => node.style_ref(),
             Self::Timeline(node) => node.style_ref(),
-            Self::Caption(node) => node.style_ref(),
         }
     }
 
@@ -112,8 +109,7 @@ impl NodeKind {
             | Self::Lucide(_)
             | Self::Path(_)
             | Self::Svg(_)
-            | Self::Video(_)
-            | Self::Caption(_) => None,
+            | Self::Video(_) => None,
         }
     }
 
@@ -129,7 +125,6 @@ impl NodeKind {
             Self::Svg(node) => &mut node.style,
             Self::Video(node) => &mut node.style,
             Self::Timeline(node) => &mut node.style,
-            Self::Caption(node) => &mut node.style,
         }
     }
 }
@@ -194,12 +189,6 @@ impl From<TimelineNode> for NodeKind {
     }
 }
 
-impl From<CaptionNode> for NodeKind {
-    fn from(value: CaptionNode) -> Self {
-        Self::Caption(value)
-    }
-}
-
 impl From<Div> for Node {
     fn from(value: Div) -> Self {
         Self::new(value)
@@ -250,12 +239,6 @@ impl From<Video> for Node {
 
 impl From<TimelineNode> for Node {
     fn from(value: TimelineNode) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<CaptionNode> for Node {
-    fn from(value: CaptionNode) -> Self {
         Self::new(value)
     }
 }

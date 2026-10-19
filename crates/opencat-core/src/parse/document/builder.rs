@@ -4,7 +4,7 @@ use crate::parse::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
     primitives::{
-        ImageSource, VideoSource, canvas, caption, div, image, lucide, path, text, video, video_url,
+        ImageSource, VideoSource, canvas, div, image, lucide, path, text, video, video_url,
     },
     transition::{
         Transition, clock_wipe, cut, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
@@ -387,11 +387,6 @@ fn build_node_inner(
                 }
             }
             Ok(Node::new(video_node))
-        }
-        ParsedElementKind::Caption { path } => {
-            let mut caption_node = caption().path(path);
-            caption_node.style = style;
-            Ok(Node::new(caption_node))
         }
     }
 }

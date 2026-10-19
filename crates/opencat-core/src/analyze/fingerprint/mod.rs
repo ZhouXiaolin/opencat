@@ -558,7 +558,7 @@ mod tests {
         let a = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig::default()));
         let b = finalize_annotated_tree(annotated_rect_node(AnnotatedRectConfig {
             background: vec![crate::style::BackgroundFill::Solid {
-                color: crate::style::ColorToken::Red,
+                color: crate::style::ColorToken::Custom(251, 44, 54, 255),
             }],
             ..Default::default()
         }));

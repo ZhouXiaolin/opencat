@@ -3505,9 +3505,9 @@ mod radial_gradient_tests {
     fn default_center_radius_is_farthest_corner() {
         let fill = BackgroundFill::radial_from_via_to(
             [0.5, 0.5],
-            ColorToken::Red500,
+            ColorToken::Custom(251, 44, 54, 255),
             None,
-            ColorToken::Blue500,
+            ColorToken::Custom(43, 127, 255, 255),
         );
         let ShaderSpec::RadialGradient {
             center,
@@ -3536,9 +3536,9 @@ mod radial_gradient_tests {
         // Center (0.2, 0.2) in an 800x100 box -> (160, 20).
         let fill = BackgroundFill::radial_from_via_to(
             [0.2, 0.2],
-            ColorToken::Red500,
+            ColorToken::Custom(251, 44, 54, 255),
             None,
-            ColorToken::Blue500,
+            ColorToken::Custom(43, 127, 255, 255),
         );
         let ShaderSpec::RadialGradient { local_matrix, .. } = shader_for(&fill, repro_rect())
         else {
@@ -3557,9 +3557,9 @@ mod radial_gradient_tests {
     fn via_stop_emits_three_color_stops() {
         let fill = BackgroundFill::radial_from_via_to(
             [0.5, 0.5],
-            ColorToken::Red500,
-            Some(ColorToken::Green500),
-            ColorToken::Blue500,
+            ColorToken::Custom(251, 44, 54, 255),
+            Some(ColorToken::Custom(0, 201, 80, 255)),
+            ColorToken::Custom(43, 127, 255, 255),
         );
         let ShaderSpec::RadialGradient { stops, colors, .. } = shader_for(&fill, repro_rect())
         else {

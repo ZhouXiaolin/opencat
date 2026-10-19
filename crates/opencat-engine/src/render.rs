@@ -848,7 +848,7 @@ mod tests {
             font_weight: opencat_core::style::FontWeight::BOLD,
             ..Default::default()
         };
-        let scene = crate::div().id("root").w_full().h_full().bg_white().child(
+        let scene = crate::div().id("root").w_full().h_full().bg(crate::ColorToken::Custom(255, 255, 255, 255)).child(
             crate::text(amount)
                 .id("amount")
                 .absolute()
@@ -858,7 +858,7 @@ mod tests {
                 .h(42.0)
                 .text_px(22.0)
                 .font_weight(opencat_core::style::FontWeight::BOLD)
-                .text_color(crate::ColorToken::Black),
+                .text_color(crate::ColorToken::Custom(0, 0, 0, 255)),
         );
 
         let mut pipeline = make_test_pipeline_from_scene(scene, 260, 70, 30, frames_at_30fps(1));
@@ -906,7 +906,7 @@ mod tests {
     #[test]
     fn color_emoji_glyphs_render_via_generated_image_table() {
         let emoji = "😀";
-        let scene = crate::div().id("root").w_full().h_full().bg_white().child(
+        let scene = crate::div().id("root").w_full().h_full().bg(crate::ColorToken::Custom(255, 255, 255, 255)).child(
             crate::text(emoji)
                 .id("face")
                 .absolute()
@@ -915,7 +915,7 @@ mod tests {
                 .w(64.0)
                 .h(64.0)
                 .text_px(48.0)
-                .text_color(crate::ColorToken::Black),
+                .text_color(crate::ColorToken::Custom(0, 0, 0, 255)),
         );
 
         let mut pipeline =
@@ -996,7 +996,7 @@ mod tests {
             .id("root")
             .w_full()
             .h_full()
-            .bg_black()
+            .bg(crate::ColorToken::Custom(0, 0, 0, 255))
             .script_source(r#"ctx.getNode("box").opacity(ctx.global.frame === 0 ? 1 : 0.5);"#)
             .expect("script should compile")
             .child(
@@ -1007,7 +1007,7 @@ mod tests {
                     .top(0.0)
                     .w(10.0)
                     .h(10.0)
-                    .bg_white(),
+                    .bg(crate::ColorToken::Custom(255, 255, 255, 255)),
             );
 
         let mut pipeline = make_test_pipeline_from_scene(scene, 20, 20, 30, frames_at_30fps(2));
@@ -1103,7 +1103,7 @@ mod tests {
             .id("root")
             .w_full()
             .h_full()
-            .bg_white()
+            .bg(crate::ColorToken::Custom(255, 255, 255, 255))
             .script_source(r#"ctx.getNode("box").opacity(ctx.global.frame === 0 ? 1 : 0.5);"#)
             .expect("script should compile")
             .child(
@@ -1115,7 +1115,7 @@ mod tests {
                     .w(20.0)
                     .h(8.0)
                     .rounded_full()
-                    .bg(crate::ColorToken::Red500)
+                    .bg(crate::ColorToken::Custom(251, 44, 54, 255))
                     .shadow_lg(),
             );
 
@@ -1144,7 +1144,7 @@ mod tests {
             .id("root")
             .w_full()
             .h_full()
-            .bg(crate::ColorToken::Black)
+            .bg(crate::ColorToken::Custom(0, 0, 0, 255))
             .script_source(r#"ctx.getNode("mover").translateY(ctx.global.frame);"#)
             .expect("script should compile")
             .child(
@@ -1162,7 +1162,7 @@ mod tests {
                             .id("card-fill")
                             .w_full()
                             .h_full()
-                            .bg(crate::ColorToken::White),
+                            .bg(crate::ColorToken::Custom(255, 255, 255, 255)),
                     ),
             )
             .child(
@@ -1173,7 +1173,7 @@ mod tests {
                     .top(0.0)
                     .w(2.0)
                     .h(2.0)
-                    .bg(crate::ColorToken::Red500),
+                    .bg(crate::ColorToken::Custom(251, 44, 54, 255)),
             );
 
         let mut pipeline = make_test_pipeline_from_scene(scene, 24, 24, 30, frames_at_30fps(2));
@@ -1255,7 +1255,7 @@ mod tests {
             .id("root")
             .w_full()
             .h_full()
-            .bg_black()
+            .bg(crate::ColorToken::Custom(0, 0, 0, 255))
             .script_source(
                 r#"ctx.getNode("dot").scale(ctx.global.frame === 0 ? 1 : 2);"#,
             )
@@ -1269,7 +1269,7 @@ mod tests {
                     .w(8.0)
                     .h(8.0)
                     .rounded_full()
-                    .bg_white()
+                    .bg(crate::ColorToken::Custom(255, 255, 255, 255))
                     .scale(1.0),
             );
 
@@ -1295,7 +1295,7 @@ mod tests {
             .id("root")
             .w_full()
             .h_full()
-            .bg_black()
+            .bg(crate::ColorToken::Custom(0, 0, 0, 255))
             .script_source(
                 r#"
                 ctx.getNode("dot").scale(ctx.global.frame === 0 ? 1 : 2);
@@ -1317,7 +1317,7 @@ mod tests {
                             .w_full()
                             .h_full()
                             .rounded_full()
-                            .bg_white()
+                            .bg(crate::ColorToken::Custom(255, 255, 255, 255))
                             .scale(1.0),
                     ),
             )
@@ -1329,7 +1329,7 @@ mod tests {
                     .top(0.0)
                     .w(1.0)
                     .h(1.0)
-                    .bg(crate::ColorToken::Red500),
+                    .bg(crate::ColorToken::Custom(251, 44, 54, 255)),
             );
 
         let mut pipeline = make_test_pipeline_from_scene(scene, 24, 24, 30, frames_at_30fps(2));
@@ -1359,7 +1359,7 @@ mod tests {
             timeline()
                 .sequence(
                     frames_at_30fps(10),
-                    crate::div().id("scene-a").w_full().h_full().bg_red().into(),
+                    crate::div().id("scene-a").w_full().h_full().bg(crate::ColorToken::Custom(251, 44, 54, 255)).into(),
                 )
                 .transition(transition)
                 .sequence(
@@ -1368,7 +1368,7 @@ mod tests {
                         .id("scene-b")
                         .w_full()
                         .h_full()
-                        .bg_blue()
+                        .bg(crate::ColorToken::Custom(43, 127, 255, 255))
                         .into(),
                 ),
         )
@@ -1387,7 +1387,7 @@ mod tests {
                 .id("root")
                 .w_full()
                 .h_full()
-                .bg_black()
+                .bg(crate::ColorToken::Custom(0, 0, 0, 255))
                 .child(Node::new(tl_kind))
                 .into()
         } else {
@@ -1474,7 +1474,7 @@ mod tests {
             .id("stage")
             .size(32.0, 32.0)
             .hidden_child(Node::new(
-                crate::div().id("hidden").w_full().h_full().bg_red(),
+                crate::div().id("hidden").w_full().h_full().bg(crate::ColorToken::Custom(251, 44, 54, 255)),
             ))
             .script_source(
                 r#"
@@ -1502,7 +1502,7 @@ mod tests {
                     .id("inner")
                     .size(32.0, 32.0)
                     .hidden_child(Node::new(
-                        crate::div().id("inner-child").w_full().h_full().bg_green(),
+                        crate::div().id("inner-child").w_full().h_full().bg(crate::ColorToken::Custom(0, 201, 80, 255)),
                     )),
             ))
             .script_source(

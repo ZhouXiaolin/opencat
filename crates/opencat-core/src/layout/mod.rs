@@ -1988,7 +1988,7 @@ mod tests {
         let second = div()
             .id("root")
             .opacity(0.4)
-            .child(text("A").id("label").text_red())
+            .child(text("A").id("label").text_color(ColorToken::Custom(251, 44, 54, 255)))
             .into();
 
         let first_resolved = resolve_ui_tree(
@@ -2386,8 +2386,8 @@ mod tests {
                 path("M0 0 L100 0 L50 100 Z")
                     .id("shape")
                     .size(100.0, 100.0)
-                    .fill_color(ColorToken::Red500)
-                    .stroke_color(ColorToken::Blue)
+                    .fill_color(ColorToken::Custom(251, 44, 54, 255))
+                    .stroke_color(ColorToken::Custom(43, 127, 255, 255))
                     .stroke_width(1.0),
             )
             .into();
@@ -2397,8 +2397,8 @@ mod tests {
                 path("M0 0 L100 0 L50 100 Z")
                     .id("shape")
                     .size(100.0, 100.0)
-                    .fill_color(ColorToken::Emerald500)
-                    .stroke_color(ColorToken::Rose500)
+                    .fill_color(ColorToken::Custom(0, 188, 125, 255))
+                    .stroke_color(ColorToken::Custom(255, 32, 86, 255))
                     .stroke_width(3.0),
             )
             .into();

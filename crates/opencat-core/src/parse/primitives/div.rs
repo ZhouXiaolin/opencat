@@ -44,7 +44,7 @@ impl Div {
 pub fn div() -> Div {
     Div {
         style: NodeStyle {
-            bg_color: Some(ColorToken::White),
+            bg_color: Some(ColorToken::Custom(255, 255, 255, 255)),
             is_flex: true,
             ..Default::default()
         },

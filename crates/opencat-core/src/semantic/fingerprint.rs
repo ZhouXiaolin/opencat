@@ -448,13 +448,13 @@ mod tests {
         let first = resolve(
             div()
                 .id("root")
-                .child(text("A").id("label").text_red())
+                .child(text("A").id("label").text_color(crate::style::ColorToken::Custom(251, 44, 54, 255)))
                 .into(),
         );
         let second = resolve(
             div()
                 .id("root")
-                .child(text("A").id("label").text_blue())
+                .child(text("A").id("label").text_color(crate::style::ColorToken::Custom(43, 127, 255, 255)))
                 .into(),
         );
 
@@ -506,13 +506,13 @@ mod tests {
         let first = resolve(
             canvas()
                 .id("canvas")
-                .hidden_child(text("A").id("hidden").text_red().into())
+                .hidden_child(text("A").id("hidden").text_color(crate::style::ColorToken::Custom(251, 44, 54, 255)).into())
                 .into(),
         );
         let second = resolve(
             canvas()
                 .id("canvas")
-                .hidden_child(text("A").id("hidden").text_blue().into())
+                .hidden_child(text("A").id("hidden").text_color(crate::style::ColorToken::Custom(43, 127, 255, 255)).into())
                 .into(),
         );
 

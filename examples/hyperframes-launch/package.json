@@ -1,0 +1,14 @@
+{
+  "name": "hyperframes-launch",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^6.3.0"
+  }
+}

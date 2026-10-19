@@ -1,0 +1,9 @@
+{
+  "name": "create-opencat",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Scaffold an OpenCat video project: vite + tailwindcss → opencat render",
+  "bin": {
+    "create-opencat": "./bin.mjs"
+  }
+}

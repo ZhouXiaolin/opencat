@@ -230,6 +230,22 @@ cargo run --bin opencat-see -- path/to/input.jsx
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requires `Cross-Origin-Isolated` environment.
 
+### Vite project template
+
+For standalone projects, scaffold a vite-based workspace where tailwind compilation and rendering are one command:
+
+```bash
+# Scaffold (from the OpenCat checkout; zero deps)
+node packages/create-opencat/bin.mjs my-video
+
+cd my-video
+bun install        # or npm install
+npm run build      # compiles src/tailwind.css sidecar + runs opencat render → dist/video.mp4
+npm run dev        # watches src/**/*.jsx + src/app.css, recompiles the sidecar (pair with opencat-see)
+```
+
+The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that reproduces `scripts/build-css.sh` semantics cross-platform (no bash/bun required) and shells out to `opencat render` after the build. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory.
+
 ### Engine / Web alignment (k3diff pixel metrics)
 
 Pixel-compare native Skia vs WASM CanvasKit with ChromeDriver using hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM), via `tools/k3diff.py`. Can also compare the web render directly against the original reference video with `opencat-web-compare --reference`.

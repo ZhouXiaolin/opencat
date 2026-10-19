@@ -31,7 +31,6 @@ pub struct FrameElementRect {
     pub kind: String,
     pub text_content: Option<String>,
     pub media_source: Option<String>,
-    pub icon_name: Option<String>,
     pub script_source: Option<String>,
     pub canvas_command_count: Option<u32>,
 }
@@ -41,14 +40,13 @@ struct SourceNodeMeta {
     kind: Option<String>,
     text_content: Option<String>,
     media_source: Option<String>,
-    icon_name: Option<String>,
     script_source: Option<String>,
 }
 
 /// Collect layout rects from the resolved element tree and its layout tree.
 ///
 /// `source_root` is the composition root for the same frame (for diagnostic
-/// metadata such as lucide icon names and script source). Rect geometry and
+/// metadata such as media sources and script source). Rect geometry and
 /// draw order come only from `element_root` / `layout_tree`.
 ///
 /// Crate-private: hosts call [`super::DefaultPipeline::inspect_frame`].
@@ -113,7 +111,6 @@ fn collect_rects_in_draw_order(
     let media_source = source_meta
         .and_then(|meta| meta.media_source.clone())
         .or_else(|| media_source_from_element(element));
-    let icon_name = source_meta.and_then(|meta| meta.icon_name.clone());
     let script_source = source_meta.and_then(|meta| meta.script_source.clone());
     let canvas_command_count = match &element.kind {
         ElementKind::Canvas(canvas) => Some(canvas.commands.len() as u32),
@@ -135,7 +132,6 @@ fn collect_rects_in_draw_order(
             kind,
             text_content,
             media_source,
-            icon_name,
             script_source,
             canvas_command_count,
         });
@@ -234,19 +230,16 @@ fn collect_source_metadata(node: &Node, out: &mut HashMap<String, SourceNodeMeta
                 entry.media_source = Some(format_image_source(image.source()));
             }
         }
-        NodeKind::Lucide(icon) => {
-            let entry = upsert_style_meta(icon.style_ref(), "lucide", out);
-            if let Some(entry) = entry {
-                entry.icon_name = Some(icon.icon().to_string());
-            }
-        }
         NodeKind::Path(path) => {
             upsert_style_meta(path.style_ref(), "path", out);
         }
         NodeKind::Svg(svg) => {
             let entry = upsert_style_meta(svg.style_ref(), "svg", out);
             if let Some(entry) = entry {
-                entry.media_source = Some(svg.src().display().to_string());
+                entry.media_source = Some(match svg.inline() {
+                    Some(markup) => format!("<inline svg, {} bytes>", markup.len()),
+                    None => svg.src().display().to_string(),
+                });
             }
         }
         NodeKind::Video(video) => {

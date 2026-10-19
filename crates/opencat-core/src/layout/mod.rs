@@ -1037,7 +1037,7 @@ mod tests {
     use crate::{
         FrameCtx,
         layout::tree::LayoutRect,
-        parse::primitives::{canvas, div, lucide, path, text},
+        parse::primitives::{canvas, div, path, text},
         probe::catalog::PreparedResourceCatalog,
         resolve::resolve::resolve_ui_tree,
         style::{ColorToken, ComputedTextStyle},
@@ -2313,7 +2313,7 @@ mod tests {
     }
 
     #[test]
-    fn svg_path_layout_uses_icon_intrinsic_size_only() {
+    fn svg_path_layout_has_no_intrinsic_size_without_explicit_style() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -2323,12 +2323,6 @@ mod tests {
         };
         let mut assets = PreparedResourceCatalog::default();
 
-        let icon_root = classed_div(
-            "root",
-            "w-full h-full flex items-start",
-            vec![lucide("play").id("icon").into()],
-        )
-        .into();
         let path_root = classed_div(
             "root",
             "w-full h-full flex items-start",
@@ -2336,14 +2330,6 @@ mod tests {
         )
         .into();
 
-        let icon_resolved = resolve_ui_tree(
-            &icon_root,
-            &frame_ctx,
-            &mut assets,
-            None,
-            &mut MockScriptHost::default(),
-        )
-        .expect("icon tree should resolve");
         let path_resolved = resolve_ui_tree(
             &path_root,
             &frame_ctx,
@@ -2354,16 +2340,10 @@ mod tests {
         .expect("path tree should resolve");
 
         let mut session = LayoutSession::new();
-        let (icon_layout, _) = session
-            .compute_layout(&icon_resolved, &frame_ctx)
-            .expect("icon layout should succeed");
-        let mut session = LayoutSession::new();
         let (path_layout, _) = session
             .compute_layout(&path_resolved, &frame_ctx)
             .expect("path layout should succeed");
 
-        assert_eq!(icon_layout.root.children[0].rect.width, 24.0);
-        assert_eq!(icon_layout.root.children[0].rect.height, 24.0);
         assert_eq!(path_layout.root.children[0].rect.width, 0.0);
         assert_eq!(path_layout.root.children[0].rect.height, 0.0);
     }
@@ -2432,7 +2412,7 @@ mod tests {
     }
 
     #[test]
-    fn layout_session_marks_lucide_path_change_as_raster_dirty() {
+    fn layout_session_marks_svg_path_data_change_as_raster_dirty() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -2445,11 +2425,15 @@ mod tests {
 
         let first = div()
             .id("root")
-            .child(lucide("play").id("icon").size(24.0, 24.0))
+            .child(path("M5 3.5 L18 11 L5 18.5 Z").id("icon").size(24.0, 24.0))
             .into();
         let second = div()
             .id("root")
-            .child(lucide("pause").id("icon").size(24.0, 24.0))
+            .child(
+                path("M13 2 L6 13 L11 13 L9 22 L18 10 L13 10 Z")
+                    .id("icon")
+                    .size(24.0, 24.0),
+            )
             .into();
 
         let first_resolved = resolve_ui_tree(

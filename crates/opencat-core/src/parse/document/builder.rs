@@ -4,7 +4,7 @@ use crate::parse::{
     easing::{Easing, SpringConfig, easing_from_name},
     node::Node,
     primitives::{
-        ImageSource, VideoSource, canvas, div, image, lucide, path, text, video, video_url,
+        ImageSource, VideoSource, canvas, div, image, path, text, video, video_url,
     },
     transition::{
         Transition, clock_wipe, cut, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
@@ -342,11 +342,6 @@ fn build_node_inner(
             lottie_node.style = style;
             Ok(Node::new(lottie_node))
         }
-        ParsedElementKind::Icon { name } => {
-            let mut icon_node = lucide(name.clone());
-            icon_node.style = style;
-            Ok(Node::new(icon_node))
-        }
         ParsedElementKind::Path { data, view_box } => {
             let mut path_node = path(data);
             if let Some(vb) = view_box {
@@ -357,11 +352,13 @@ fn build_node_inner(
         }
         ParsedElementKind::Svg {
             src,
+            inline,
             width,
             height,
             preserve_aspect_ratio,
         } => {
             let mut svg_node = crate::parse::primitives::svg(src);
+            svg_node.inline = inline.clone();
             svg_node.width = *width;
             svg_node.height = *height;
             svg_node.preserve_aspect_ratio = preserve_aspect_ratio.clone();

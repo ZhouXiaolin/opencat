@@ -1,10 +1,10 @@
 # OpenCat Video Project
 
-JSX 写合成，tailwind 写样式，一条命令出视频。
+JSX 写合成，tailwind 写样式，npm 组件照常装，一条命令出视频。
 
 ```sh
 bun install       # 或 npm install
-npm run build    # 编译 src/tailwind.css sidecar + opencat render → dist/video.mp4
+npm run build    # esbuild bundle + tailwind sidecar + opencat render → dist/video.mp4
 npm run dev      # watch src/**/*.jsx 与 src/app.css，自动重编 sidecar（配合 opencat-see 预览）
 ```
 
@@ -16,6 +16,29 @@ npm run dev      # watch src/**/*.jsx 与 src/app.css，自动重编 sidecar（�
 - 或把 `target/release` 加入 `PATH`
 
 引擎构建：在 OpenCat 仓库执行 `cargo build --release --bin opencat`。
+
+## 标准工程流：npm 组件
+
+构建分两步，全部由 `opencat-plugin.mjs` 自动完成：
+
+1. **esbuild bundle**：入口连同 npm 依赖打成 `src/<入口名>.bundle.jsx`（构建
+   产物，已 gitignore）。`lucide-react` 等真包在这里被解析折叠。
+2. **opencat render 渲染 bundle**：bundle 与入口同目录，`base_dir`（资产/
+   字体/sidecar 相对入口目录解析）约定不变。
+
+React 系 import（`react` / `react/jsx-runtime`）被 alias 到 `react-shim.mjs`
+垫片：组件树按 React 语义创建；`<svg>` 子树在垫片里序列化成 markup，走引擎
+`<svg inline>` 通道（usvg 解析）。图标因此像真正的 HTML 工程那样工作：
+
+```jsx
+import { Home } from 'lucide-react';
+
+<Home size={120} color="#ff3b30" class="absolute left-[60px] top-[60px]" />
+```
+
+`color` 沿 SVG 语义解析 `currentColor`（继承属性）；width/height/class 挂在
+svg 根元素上参与布局与 CSS，svg 内部不进布局。可用 hooks 见 `opencat/runtime`
+导出（`useRef` 等也可从 `react` 导入）。
 
 ## 工程约定
 
@@ -31,7 +54,8 @@ npm run dev      # watch src/**/*.jsx 与 src/app.css，自动重编 sidecar（�
   静态扫描，请改内联 `style`；引擎 CSS 子集不支持 `background` 简写，用
   `background-color` / `background-image`。
 
-多文件：入口里 `import` 相对路径模块（`./scenes/intro.jsx`）即可，引擎按模块图逐帧重放。
+多文件：入口里 `import` 相对路径模块（`./scenes/intro.jsx`）即可，esbuild 会
+一并打进 bundle，引擎按模块图逐帧重放。
 
 ## 格式参考
 

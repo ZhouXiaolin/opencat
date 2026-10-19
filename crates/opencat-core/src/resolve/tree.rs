@@ -89,11 +89,12 @@ pub struct ElementSvgPath {
     pub intrinsic_size: Option<(f32, f32)>,
 }
 
-/// `<svg src>` 解析产物：文件路径 + 布局覆盖 + intrinsic 尺寸（渲染时
-/// 按路径取缓存树）。
+/// `<svg src>` / `<svg inline>` 解析产物：文件路径或内联 markup + 布局
+/// 覆盖 + intrinsic 尺寸（渲染时按路径/内容哈希取缓存树）。
 #[derive(Clone, Debug)]
 pub struct ElementSvg {
     pub src: std::path::PathBuf,
+    pub inline: Option<String>,
     pub width: Option<f32>,
     pub height: Option<f32>,
     pub preserve_aspect_ratio: Option<String>,

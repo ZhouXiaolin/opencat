@@ -104,7 +104,7 @@ export const fonts = {
 
 ## 元素
 
-`<div>` `<text>` `<image>` `<video>` `<lottie>` `<icon>` `<path>` `<canvas>` `<tl>` `<transition>`
+`<div>` `<text>` `<image>` `<video>` `<lottie>` `<svg>` `<path>` `<canvas>` `<tl>` `<transition>`
 
 Fragment `<>` 可用，把多个元素平铺进父级。
 
@@ -139,6 +139,17 @@ function Corner({ id, tint }) {
 
 - 源三选一：`path` / `url` / `query`（`query` 配 `queryCount`、`aspectRatio`）；`<lottie>` 只接受 `path` / `url`
 - `<video>` 时间控制：`dataStart` / `dataDuration` / `dataMediaStart` / `loop` / `dataColorMatrix` / `dataHideAfterEnd`
+
+### SVG
+
+```jsx
+<svg id="logo" src="logo.svg" class="w-[64px] h-[64px]" />
+<svg id="ic" inline={'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>'} class="w-[24px] h-[24px]" />
+```
+
+- `src` 加载 svg 文件；`inline` 直接吃 markup 字符串（内联图标库的通道，npm 组件打包出的 svg 也走它）
+- 节点的 w/h 盒子就是视口：树按 viewBox 缩放铺进盒子
+- 颜色、粗细等要烧在 markup 的属性里——CSS class 不级联进 svg 内部
 
 ### 音频
 
@@ -295,7 +306,7 @@ API：`ctx.from` / `to` / `fromTo` / `set` / `timeline`、`ctx.getNode(id)`（�
 
 - `<div>` 里直接写文本 → 文本**不渲染**，也不报警告。必须用 `<text>` 包裹
 - `<text>` 里的子元素 → 子元素**不渲染**，也不报警告
-- `<image>` / `<lottie>` / `<icon>` / `<path>` 里的子元素 → 静默丢弃
+- `<image>` / `<lottie>` / `<svg>` / `<path>` 里的子元素 → 静默丢弃
 - `absolute` 不带坐标 → 不报错，位置按自动布局算，通常不是你要的
 
 **不会失败，但结果可能和你写的数字不一致**：

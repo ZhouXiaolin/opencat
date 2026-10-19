@@ -217,7 +217,7 @@ Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shade
 - **CSS estándar**: `class="flex items-center justify-center gap-4"` se compila a CSS puro con tailwindcss y se ejecuta en el motor CSS integrado (selectores, cascada, var/calc/color-mix); el atributo `style` acepta declaraciones completas
 - **Mezcla de audio**: multi-pista, adjunto a la escena, mezcla automática a la salida
 - **Motor de subtítulos**: análisis de SRT, visualización persistente entre escenas
-- **Iconos Lucide**: +2000 iconos listos para usar
+- **SVG**: canales de archivo (`src`) y marcado en línea (`inline`), escalado a la caja del nodo
 - **Renderizado determinista**: `value = f(time)`, consistente entre máquinas
 
 ## Inicio rápido

@@ -597,6 +597,7 @@ fn display_item_for_node(
         ElementKind::Svg(svg) => DisplayItem::Svg(SvgDisplayItem {
             bounds,
             src: svg.src.clone(),
+            inline: svg.inline.clone(),
             preserve_aspect_ratio: svg.preserve_aspect_ratio.clone(),
         }),
     }
@@ -635,7 +636,7 @@ mod tests {
         FrameCtx,
         analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints},
         parse,
-        parse::primitives::{div, lucide},
+        parse::primitives::{div, path},
         probe::catalog::PreparedResourceCatalog,
         resolve::{resolve::resolve_ui_tree, tree::ElementNode},
         style::{ColorToken, ObjectFit},
@@ -1018,7 +1019,7 @@ mod tests {
     }
 
     #[test]
-    fn display_tree_builds_lucide_visuals_from_element_style() {
+    fn display_tree_builds_svg_path_visuals_from_element_style() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -1028,7 +1029,7 @@ mod tests {
         };
         let mut assets = PreparedResourceCatalog::default();
         let root = div().id("root").child(
-            lucide("play")
+            path("M0 0 L24 0 L24 24 L0 24 Z")
                 .id("icon")
                 .size(24.0, 24.0)
                 .stroke_color(ColorToken::Custom(43, 127, 255, 255))
@@ -1268,7 +1269,7 @@ mod tests {
     }
 
     #[test]
-    fn lucide_node_resolves_to_svg_path_with_default_stroke() {
+    fn path_node_resolves_to_svg_path_with_bounds_view_box() {
         let frame_ctx = FrameCtx {
             frame: 0,
             fps: 30,
@@ -1277,7 +1278,7 @@ mod tests {
             frames: 1,
         };
         let mut assets = PreparedResourceCatalog::default();
-        let root = div().id("root").child(lucide("play").id("icon"));
+        let root = div().id("root").child(path("M5 3.5 L18 11 L5 18.5 Z").id("icon"));
         let resolved = resolve_ui_tree(
             &root.into(),
             &frame_ctx,
@@ -1292,8 +1293,8 @@ mod tests {
             panic!("expected SvgPath element, got {:?}", child.kind);
         };
         assert!(!svg.path_data.is_empty());
-        assert_eq!(svg.view_box, [0.0, 0.0, 24.0, 24.0]);
-        assert_eq!(svg.intrinsic_size, Some((24.0, 24.0)));
+        assert_eq!(svg.view_box, [5.0, 3.5, 13.0, 15.0]);
+        assert_eq!(svg.intrinsic_size, None);
     }
 
     // ── DisplayBuildSession cache tests ───────────────────────────────

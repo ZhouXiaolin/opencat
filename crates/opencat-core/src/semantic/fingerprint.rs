@@ -165,6 +165,7 @@ impl Hash for LayoutInputLocal<'_> {
                     .map(|(w, h)| (F32Hash(w), F32Hash(h)))
                     .hash(state);
                 svg.src.hash(state);
+                svg.inline.hash(state);
             }
         }
     }
@@ -226,6 +227,7 @@ impl Hash for PaintInputLocal<'_> {
             }
             ElementKind::Svg(svg) => {
                 svg.preserve_aspect_ratio.hash(state);
+                svg.inline.hash(state);
             }
         }
 

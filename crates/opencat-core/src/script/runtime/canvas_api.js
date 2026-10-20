@@ -1781,8 +1781,7 @@
          （fillText / measureText / getImageData / …）与 .apply/.sweep。
        - ly.source(x)：把 canvas 句柄 / image 句柄 / surface 包成像素源，
          供 opts.sources 采样。 */
-    const ly = {
-        pixel(fn, spec) {
+    const ly = {        pixel(fn, spec) {
             return new Kernel(fn, spec, 'pixel', 'ly.pixel');
         },
         scan(fn, spec) {
@@ -1862,4 +1861,62 @@
     };
     globalThis.ly = ly;
     ctx.ly = ly;
+
+    // ── ctx.canvas: canvaskit-shaped namespace ──────────────────────
+    // Same object as ctx.CanvasKit (one implementation, two spellings — the
+    // verified examples keep `ctx.CanvasKit`) plus `MakeSurface(el)`, the
+    // canvaskit-wasm Surface form real CanvasKit code reaches for. The flat
+    // names on ctx and the full draw surface of ctx.getCanvasById are the
+    // engine's native path; MakeSurface only resolves the node id.
+    //
+    // `el` accepts either handle form: a useRef() JSX descriptor (id in
+    // props.id) or a DOM handle from ctx.getNode/document.getElementById.
+    // flush()/dispose() are no-ops — canvas commands are recorded into the
+    // frame's DrawOp stream and committed at the frame boundary; there is no
+    // live GPU surface to synchronize. Pixel-buffer style sizes error (the
+    // offscreen pixel target is ly.surface(w, h)); makeImageSnapshot /
+    // ParagraphBuilder / FontMgr have no engine path and error with a pointer.
+    function unsupportedCanvasApi(name, instead) {
+        return function () {
+            throw new Error(
+                'CanvasKit.' + name + ' is not available — ' + instead
+            );
+        };
+    }
+
+    ctx.canvas = Object.assign({}, CanvasKit, {
+        MakeSurface: function (el, options) {
+            if (el && el.__ocEl === true) {
+                var declared = el.props && el.props.id;
+                if (declared === undefined || declared === null) {
+                    throw new Error('MakeSurface: the <canvas> element needs an id="..." so the surface can target it');
+                }
+                el = String(declared);
+            } else if (el && typeof el.id === 'string' && el.id) {
+                el = el.id;
+            } else if (typeof el !== 'string' || !el) {
+                throw new Error('MakeSurface: expected a <canvas> element (a useRef() handle or document.getElementById)');
+            }
+            var surface = ctx.getCanvasById(el);
+            surface.getCanvas = function () { return surface; };
+            surface.flush = function () { return surface; };
+            surface.dispose = function () {};
+            return surface;
+        },
+        makeImageSnapshot: unsupportedCanvasApi(
+            'makeImageSnapshot',
+            'read pixels back with ly.surface(w, h) + getImageData, or draw with putImageData'
+        ),
+        ParagraphBuilder: {
+            MakeShape: unsupportedCanvasApi('ParagraphBuilder.MakeShape', 'draw text with the surface fillText / ctx text APIs'),
+            MakeFontBuffer: unsupportedCanvasApi('ParagraphBuilder.MakeFontBuffer', 'draw text with the surface fillText / ctx text APIs'),
+        },
+        FontMgr: {
+            FromData: unsupportedCanvasApi('FontMgr.FromData', 'the scoped fontdb resolves font families by name'),
+            RefDefault: unsupportedCanvasApi('FontMgr.RefDefault', 'the scoped fontdb resolves font families by name'),
+        },
+        Surface: {
+            MakeImageSurface: unsupportedCanvasApi('Surface.MakeImageSurface', 'use ly.surface(w, h) for an offscreen pixel target'),
+        },
+    });
 })();

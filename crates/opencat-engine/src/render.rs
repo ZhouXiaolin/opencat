@@ -1043,8 +1043,8 @@ mod tests {
             .collect::<Result<_, _>>()
             .expect("fixture lines are JSON");
         let head = &values[0];
-        // 类名 → 声明由标准 CSS 引擎完成；`examples/tailwind.css` 是示例目录
-        // 的 tailwind 编译产物，与 JSX 前端读取同目录 `tailwind.css` 的约定一致。
+        // 类名 → 声明由标准 CSS 引擎完成；`examples/tailwind.css` 是冻结的
+        // 测试夹具，在这里充当打包器嵌进 bundle 的 `export const css`。
         let css_path = fixture_path.parent().unwrap().join("tailwind.css");
         let css = std::fs::read_to_string(&css_path).expect("read example tailwind css");
         let extract = serde_json::json!({

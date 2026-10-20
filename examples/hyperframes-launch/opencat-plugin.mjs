@@ -1,17 +1,18 @@
 // OpenCat vite 插件（内联于模板，随项目分发）。
 //
 // 职责：
-//   1. build / dev 时把 entry 所在目录的 className 编译成 tailwind.css sidecar
-//      （引擎按 <jsx目录>/tailwind.css 约定路径读取，见 crates/opencat-engine/src/jsx.rs）。
-//      语义与 scripts/build-css.sh 完全一致，只是换成跨平台 Node 实现。
-//   2. render 前用 esbuild 把入口打包成标准 bundle（解析 npm 依赖——lucide-react
-//      等真包在这里被折叠进产物；react 系 import alias 到 react-shim.mjs）。
-//      bundle 落在 entry 同目录（<stem>.bundle.jsx），引擎的 base_dir（资产/
-//      字体/sidecar 相对入口目录解析）约定原样成立。
+//   1. 构建期把 entry 所在目录的 className 编译成标准 CSS（tailwind 原语必须
+//      在构建期编译掉，引擎只吃标准 CSS），产物留在内存，不落盘。
+//   2. 用 esbuild 把入口打包成标准 bundle（解析 npm 依赖——lucide-react
+//      等真包在这里被折叠进产物；react 系 import alias 到 react-shim.mjs），
+//      并把编译后的 CSS 以 `export const css` 嵌进 bundle——bundle 单文件
+//      自包含，是渲染的唯一样式来源。bundle 落在 entry 同目录
+//      （<stem>.bundle.jsx），引擎的 base_dir（资产/字体相对入口目录解析）
+//      约定原样成立。
 //   3. vite build 结束后自动调用 opencat render 产出视频（渲染的是 bundle）。
-//   4. dev 模式下 watch jsx/app.css 变化重编 sidecar（配合 opencat-see 预览）。
+//      预览同理：build 产出 bundle 后 `opencat-see <bundle>.jsx`。
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +32,8 @@ export default function opencat(options = {}) {
     let tailwindCli;
     let esbuild;
     let bundleAbs;
-    // 串行化编译：dev 下连续保存只排队不并发 spawn。
-    let chain = Promise.resolve();
+    // tailwind 编译产物（内存）：唯一去向是 bundle 里的 `export const css`。
+    let cssText = null;
 
     const compileTailwind = () => {
         if (!existsSync(entryAbs)) {
@@ -45,14 +46,20 @@ export default function opencat(options = {}) {
         }
         writeFileSync(input, lines.join('\n') + '\n');
         return new Promise((resolveJob, rejectJob) => {
-            spawn(process.execPath, [tailwindCli, '-i', '.tailwind-input.css', '-o', 'tailwind.css', '--minify'], {
+            const child = spawn(process.execPath, [tailwindCli, '-i', '.tailwind-input.css', '-o', '-', '--minify'], {
                 cwd: entryDir,
-                stdio: 'inherit',
-            })
+                stdio: ['ignore', 'pipe', 'inherit'],
+            });
+            let out = '';
+            child.stdout.on('data', (chunk) => {
+                out += chunk;
+            });
+            child
                 .on('exit', (code) => {
                     rmSync(input, { force: true });
                     if (code === 0) {
-                        console.log(`[opencat] wrote ${join(entryDir, 'tailwind.css')}`);
+                        cssText = out;
+                        console.log(`[opencat] tailwind compiled (${out.length} bytes)`);
                         resolveJob();
                     } else {
                         rejectJob(new Error(`[opencat] tailwindcss 编译失败（exit ${code}）`));
@@ -63,11 +70,6 @@ export default function opencat(options = {}) {
                     rejectJob(err);
                 });
         });
-    };
-
-    const scheduleCompile = () => {
-        chain = chain.then(compileTailwind, compileTailwind);
-        return chain;
     };
 
     // 标准工程流：npm 组件树 → esbuild bundle → 引擎渲染 bundle。
@@ -95,7 +97,17 @@ export default function opencat(options = {}) {
             charset: 'utf8',
             logLevel: 'warning',
         });
+        embedCss();
         console.log(`[opencat] bundled ${entry} -> ${bundleAbs}`);
+    };
+
+    // 编译后的样式表嵌进 bundle（`export const css`）：bundle 单文件自包含。
+    const embedCss = () => {
+        if (!cssText) return;
+        const literal = JSON.stringify(cssText)
+            .replace(/\u2028/g, '\\u2028')
+            .replace(/\u2029/g, '\\u2029');
+        appendFileSync(bundleAbs, `\nexport const css = ${literal};\n`);
     };
 
     const render = () => {
@@ -121,24 +133,13 @@ export default function opencat(options = {}) {
             tailwindCli = resolveTailwindCli(root);
         },
         buildStart() {
+            // 先编译 CSS，closeBundle 才 bundle+render，时序天然成立。
             if (command === 'build') {
-                return scheduleCompile();
+                return compileTailwind();
             }
         },
         closeBundle() {
             render();
-        },
-        configureServer(server) {
-            scheduleCompile();
-            const watched = (path) => path.endsWith('.jsx') || basename(path) === 'app.css';
-            const onChange = (path) => {
-                if (watched(path)) {
-                    console.log(`[opencat] change: ${path}，重新编译 tailwind.css`);
-                    scheduleCompile();
-                }
-            };
-            server.watcher.on('change', onChange);
-            server.watcher.on('add', onChange);
         },
     };
 }

@@ -852,6 +852,8 @@
         var lines = [];
         var audioSites = [];
         emitElement(root, null, lines, audioSites);
-        return { meta: meta, fonts: entryExports.fonts, audio: entryExports.audio, audioSites: audioSites, lines: lines };
+        // `export const css`：打包器把编译好的样式表嵌进 bundle，是样式的
+        // 唯一来源；没有则 class 不产生样式。
+        return { meta: meta, fonts: entryExports.fonts, audio: entryExports.audio, audioSites: audioSites, lines: lines, css: entryExports.css };
     };
 })();

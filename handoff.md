@@ -81,6 +81,16 @@ target，`pt=[physics2D>x]` 得 `x=50.00`，与 opencat 逐值相同——引擎
 
 标题/副标题的文字边缘有 AA 差异，属既有纪律内的正常差异（k3-promo 同样存在）。
 
+## goal.md 剩余（目标：清空）
+
+本轮清掉 §6 阶段 1 与阶段 2。剩余：
+
+- 阶段 3 宿主最小子集（下条即是）
+- 阶段 4 逐插件打通：DOM 依赖的 7 个插件（ScrambleText/Text/MotionPath/DrawSVG/
+  MorphSVG/SplitText/Flip）在示例里还没有场景
+- 阶段 5 退役 + 迁移
+- §7 全局验收：11 个迁移示例的 k3diff、"仓库内无退役面残留" 的 grep 检查
+
 ## 下一轮建议顺序
 
 1. **阶段 3 宿主最小子集**：`createElement/appendChild` 通道、样式继承链

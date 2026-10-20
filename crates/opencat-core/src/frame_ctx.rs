@@ -41,6 +41,10 @@ pub struct ScriptFrameCtx {
     pub total_duration_secs: f64,
     pub current_time_secs: f64,
     pub scene_duration_secs: f64,
+    /// Composition viewport, mirrored into `ctx.global.width/height` so
+    /// author-facing `window.innerWidth/innerHeight` reads the meta size.
+    pub width: i32,
+    pub height: i32,
     /// Where this scene's window starts on the composition clock.
     ///
     /// `current_frame` cannot stand in for this: it is clamped to the window,
@@ -63,6 +67,8 @@ impl ScriptFrameCtx {
             total_duration_secs: frame_ctx.duration_secs(),
             current_time_secs: frame_ctx.time_secs(),
             scene_duration_secs: frame_ctx.duration_secs(),
+            width: frame_ctx.width,
+            height: frame_ctx.height,
             scene_start_frame: 0,
             scene_start_secs: 0.0,
         }
@@ -110,6 +116,8 @@ impl ScriptFrameCtx {
             total_duration_secs: frame_ctx.duration_secs(),
             current_time_secs: (frame_ctx.time_secs() - start_secs).max(0.0),
             scene_duration_secs: frames_to_duration_secs(scene_frames, frame_ctx.fps),
+            width: frame_ctx.width,
+            height: frame_ctx.height,
             scene_start_frame: start_frame,
             scene_start_secs: start_secs,
         }

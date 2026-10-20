@@ -178,17 +178,24 @@ export default function A() { return <div id="root"><text>a</span></div>; }"#,
     )
     .expect_err("mismatched closing tag must fail");
     assert!(
-        err.to_string().contains("does not match"),
+        err.to_string().contains("Expected corresponding JSX closing tag"),
         "unexpected error: {err}"
     );
 
+    // 标准 JSX 语法：`}` 在 JSXText 里必须转义（`{'}'}` / `&rbrace;`）——
+    // 缺闭合标签的树尾随 `}` 时，oxc 先报这条规范错误。
     let err = parse(
         r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
-export default function A() { return <div id="root"><text>a</text>; }"#,
+export default function A() {
+  return (
+    <div id="root">
+      <text>a</text>
+  );
+}"#,
     )
-    .expect_err("unterminated element must fail");
+    .expect_err("stray `}` in JSX text must fail");
     assert!(
-        err.to_string().contains("unterminated"),
+        err.to_string().contains("Unexpected token"),
         "unexpected error: {err}"
     );
 

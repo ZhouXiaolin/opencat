@@ -10,8 +10,8 @@
  *      state each frame, re-evaluates the module graph (fresh globals), then
  *      replays the hooks. Hooks must be pure in `t`.
  *   4. `__ocExtract()` — one-shot pass that evaluates the entry module and
- *      walks the returned element tree into JSONL lines (the host turns those
- *      into a ParsedComposition). Runs BEFORE any per-frame driver.
+ *      materializes the returned element tree into a DOM tree (the host hands
+ *      it to parse::dom). Runs BEFORE any per-frame driver.
  *
  * `use*` family (v1):
  *   useCanvas(ref, draw)   — per-frame CanvasKit 2D drawing on a <canvas ref>
@@ -452,7 +452,7 @@
         useComposition: useComposition,
     };
 
-    // ── extraction: element tree -> JSONL lines ──────────────────────
+    // ── extraction: element tree -> DOM tree ─────────────────────────
     // JSX string attributes ("3.6") must arrive at the Rust side as numbers.
     function num(value) {
         if (value === undefined || value === null || value === '') return undefined;
@@ -510,18 +510,16 @@
     // its component with the scene clock pushed, so its hooks bind to the scene;
     // its `duration` is read from the returned value afterwards. Transitions
     // advance the cursor without owning a clock.
-    function emitTimeline(el, parentId, lines, audioSites) {
+    function emitTimeline(el, audioSites) {
         var props = el.props || {};
         var id = String(props.id);
-        var line = { type: 'tl', id: id };
-        if (parentId) line.parentId = parentId;
-        if (props.class || props.className) line.className = props.class || props.className;
+        var node = { type: 'tl', id: id };
+        if (props.class || props.className) node.className = props.class || props.className;
         var tlStyle = styleDeclarations(props.style);
-        if (tlStyle) line.style = tlStyle;
+        if (tlStyle) node.style = tlStyle;
         var tlDuration = num(props.duration);
-        if (tlDuration !== undefined) line.duration = tlDuration;
+        if (tlDuration !== undefined) node.duration = tlDuration;
         if (props.audioId && audioSites) audioSites.push({ nodeId: id, audioId: String(props.audioId) });
-        if (lines) lines.push(line);
 
         var fps = metaFps();
         var extracting = globalThis.__ocMode === 'extract';
@@ -619,10 +617,11 @@
         // so it resolves everything). This is what keeps a long timeline from
         // paying for every scene on every frame.
         var frame = globalThis.ctx && globalThis.ctx.global ? globalThis.ctx.global.frame : 0;
+        var kids = [];
         for (var k = 0; k < cells.length; k++) {
             var e = cells[k];
             if (e.transition) {
-                if (lines) emitElement(e.el, id, lines, audioSites);
+                if (extracting) pushNodes(kids, emitElement(e.el, audioSites));
                 continue;
             }
             if (e.value === null) {
@@ -637,24 +636,23 @@
             // where any component still inside the subtree registers its hooks.
             // Popping before the emit would bind both to the outer timeline.
             //
-            // The emit runs even when `lines` is null: that is the per-frame
-            // walk, and it is what registers the drivers of components nested
-            // inside a scene. `emitElement` only pushes a line when `lines` is
-            // non-null, so a null walk is side-effect-free apart from those
-            // registrations.
+            // The emit runs on the per-frame walk too (nodes then discarded):
+            // that walk is what registers the drivers of components nested
+            // inside a scene.
             sceneStack.push(makeSceneClock(e.cell));
             try {
                 if (e.value === null) {
                     e.value = resolveSceneValue(e.el);
                     stampSceneDuration(e.value, e.declared);
                 }
-                emitElement(e.value, id, lines, audioSites);
+                pushNodes(kids, emitElement(e.value, audioSites));
             } finally {
                 sceneStack.pop();
             }
         }
+        if (kids.length) node.children = kids;
 
-        return id;
+        return node;
     }
 
     // Stamp the declared scene duration onto the root the scene renders, so the
@@ -680,55 +678,71 @@
         if (value.props && value.props.duration === undefined) value.props.duration = duration;
     }
 
-    // Element tags the Rust side understands (mirrors `JsonLine`). Anything
+    // Element tags the Rust side understands (mirrors `DomElement`). Anything
     // else is an author mistake, reported here instead of as a serde
     // "unknown variant" later.
+
+    // Splice an emitElement result into a parent's children: single node,
+    // array (fragment / multi-root component), or nothing.
+    function pushNodes(out, value) {
+        if (value === null || value === undefined) return;
+        if (Array.isArray(value)) {
+            for (var i = 0; i < value.length; i++) pushNodes(out, value[i]);
+            return;
+        }
+        out.push(value);
+    }
     var SUPPORTED_TAGS = {
         div: true, text: true, canvas: true, image: true, audio: true,
         video: true, transition: true, tl: true,
         path: true, lottie: true, svg: true,
     };
 
-    function emitElement(el, parentId, lines, audioSites) {
+    // 容器标签：孩子的发射结果挂进 node.children；其余标签的孩子仅走一遍
+    // （组件函数里的 use* 要登记驱动），节点丢弃 —— 与 Rust 装配一致：只有
+    // div/canvas/video/tl 消费子树。
+    var CONTAINER_TAGS = { div: true, canvas: true, video: true, tl: true };
+
+    function emitElement(el, audioSites) {
         if (Array.isArray(el)) {
-            for (var a = 0; a < el.length; a++) emitElement(el[a], parentId, lines, audioSites);
-            return parentId;
+            var out = [];
+            for (var a = 0; a < el.length; a++) pushNodes(out, emitElement(el[a], audioSites));
+            return out;
         }
         if (typeof el === 'string' || typeof el === 'number') {
             var textId = 'oc-text-' + (++textCounter);
-            if (lines) lines.push({ type: 'text', id: textId, parentId: parentId, text: String(el) });
-            return textId;
+            return { type: 'text', id: textId, text: String(el) };
         }
         if (!el || el.__ocEl !== true) {
             throw new Error('use: JSX tree contains a non-element value (' + typeof el + ')');
         }
         if (typeof el.tag === 'function') {
             // Component element: invoke with its props and splice the result in.
-            return emitElement(el.tag(el.props), parentId, lines, audioSites);
+            return emitElement(el.tag(el.props), audioSites);
         }
         if (el.tag === FRAGMENT) {
-            for (var f = 0; f < el.children.length; f++) emitElement(el.children[f], parentId, lines, audioSites);
-            return parentId;
+            var out = [];
+            for (var f = 0; f < el.children.length; f++) pushNodes(out, emitElement(el.children[f], audioSites));
+            return out;
         }
         if (el.tag === 'tl') {
-            return emitTimeline(el, parentId, lines, audioSites);
+            return emitTimeline(el, audioSites);
         }
         var props = el.props || {};
         var id = String(props.id);
         // HTML spelling `<img>` reaches the same element as `<image>`.
         var tag = el.tag === 'img' ? 'image' : el.tag;
-        var line = { type: tag, id: id };
-        if (parentId) line.parentId = parentId;
+        var node = { type: tag, id: id };
         // `audioId` attaches a pooled `export const audio` source to wherever it
         // is written: a `<tl>` plays it across the whole timeline, a scene plays
         // it inside that scene. Recorded here, resolved on the Rust side.
         if (props.audioId && audioSites) audioSites.push({ nodeId: id, audioId: String(props.audioId) });
         var className = props.class || props.className;
-        if (className) line.className = className;
+        if (className) node.className = className;
         var inlineStyle = styleDeclarations(props.style);
-        if (inlineStyle) line.style = inlineStyle;
+        if (inlineStyle) node.style = inlineStyle;
         var duration = num(props.duration);
-        if (duration !== undefined) line.duration = duration;
+        if (duration !== undefined) node.duration = duration;
         switch (tag) {
             case 'text': {
                 var text = '';
@@ -736,42 +750,41 @@
                     var child = el.children[t];
                     if (typeof child === 'string' || typeof child === 'number') text += String(child);
                 }
-                line.text = text;
+                node.text = text;
                 break;
             }
             case 'path':
-                line.d = String(props.d);
+                node.d = String(props.d);
                 // Shared sibling coordinate space (`view-box="minx,miny,w,h"`).
                 // Without it each path is fitted by its own bounds — a small
                 // accent shape would be stretched over the whole node box.
                 var vb = props['view-box'] !== undefined ? props['view-box'] : props.viewBox;
-                if (vb !== undefined && vb !== null && vb !== '') line.viewBox = String(vb);
+                if (vb !== undefined && vb !== null && vb !== '') node.viewBox = String(vb);
                 break;
             case 'transition':
-                line.from = String(props.from);
-                line.to = String(props.to);
-                line.effect = String(props.effect);
-                line.duration = num(props.duration);
-                if (props.direction) line.direction = String(props.direction);
-                if (props.timing) line.timing = String(props.timing);
-                line.damping = num(props.damping);
-                line.stiffness = num(props.stiffness);
-                line.mass = num(props.mass);
-                line.seed = num(props.seed);
-                line.hueShift = num(props.hueShift);
-                line.maskScale = num(props.maskScale);
+                node.from = String(props.from);
+                node.to = String(props.to);
+                node.effect = String(props.effect);
+                node.duration = num(props.duration);
+                if (props.direction) node.direction = String(props.direction);
+                if (props.timing) node.timing = String(props.timing);
+                node.damping = num(props.damping);
+                node.stiffness = num(props.stiffness);
+                node.mass = num(props.mass);
+                node.seed = num(props.seed);
+                node.hueShift = num(props.hueShift);
+                node.maskScale = num(props.maskScale);
                 break;
             case 'image':
-                assignSource(line, props);
+                assignSource(node, props);
                 // Unsplash-style procedural source: `query`/`queryCount`
-                // replace a file path, `aspectRatio` pins the crop. Emitted
-                // as the camelCase JSONL keys the Rust side reads.
-                if (props.query !== undefined && props.query !== null) line.query = String(props.query);
+                // replace a file path, `aspectRatio` pins the crop.
+                if (props.query !== undefined && props.query !== null) node.query = String(props.query);
                 if (props.queryCount !== undefined && props.queryCount !== null) {
-                    line.queryCount = num(props.queryCount);
+                    node.queryCount = num(props.queryCount);
                 }
                 if (props.aspectRatio !== undefined && props.aspectRatio !== null) {
-                    line.aspectRatio = String(props.aspectRatio);
+                    node.aspectRatio = String(props.aspectRatio);
                 }
                 break;
             case 'svg':
@@ -781,43 +794,43 @@
                 // `inline` carries ready-made svg markup (bundled react icon
                 // components serialize their subtree into it); it wins over
                 // `src` and skips file resolution on the Rust side.
-                if (props.src !== undefined && props.src !== null) line.src = String(props.src);
-                if (props.inline !== undefined && props.inline !== null) line.inline = String(props.inline);
-                if (props.width !== undefined && props.width !== null) line.width = num(props.width);
-                if (props.height !== undefined && props.height !== null) line.height = num(props.height);
+                if (props.src !== undefined && props.src !== null) node.src = String(props.src);
+                if (props.inline !== undefined && props.inline !== null) node.inline = String(props.inline);
+                if (props.width !== undefined && props.width !== null) node.width = num(props.width);
+                if (props.height !== undefined && props.height !== null) node.height = num(props.height);
                 var par = props['preserveAspectRatio'];
-                if (par !== undefined && par !== null && par !== '') line.preserveAspectRatio = String(par);
+                if (par !== undefined && par !== null && par !== '') node.preserveAspectRatio = String(par);
                 break;
             case 'video':
-                assignSource(line, props);
+                assignSource(node, props);
                 // Media window, timing and YUV→RGB matrix override, mirroring
                 // the markup `data-*` attributes on <video>. Both the kebab-case
                 // markup spelling and the camelCase JSX spelling are accepted on
-                // input; emitted lines always carry the kebab-case keys (the
-                // JSONL parser aliases the camelCase spellings). Numeric props
-                // go through num() so string attributes arrive as numbers.
+                // input; emitted nodes always carry the kebab-case keys. Numeric
+                // props go through num() so string attributes arrive as numbers.
                 var vStart = props['data-start'] !== undefined && props['data-start'] !== null ? props['data-start'] : props.dataStart;
-                if (vStart !== undefined && vStart !== null) line['data-start'] = num(vStart);
+                if (vStart !== undefined && vStart !== null) node['data-start'] = num(vStart);
                 var vDur = props['data-duration'] !== undefined && props['data-duration'] !== null ? props['data-duration'] : props.dataDuration;
-                if (vDur !== undefined && vDur !== null) line['data-duration'] = num(vDur);
+                if (vDur !== undefined && vDur !== null) node['data-duration'] = num(vDur);
                 var vMedia = props['data-media-start'] !== undefined && props['data-media-start'] !== null ? props['data-media-start'] : props.dataMediaStart;
-                if (vMedia !== undefined && vMedia !== null) line['data-media-start'] = num(vMedia);
+                if (vMedia !== undefined && vMedia !== null) node['data-media-start'] = num(vMedia);
                 var vMatrix = props['data-color-matrix'] !== undefined && props['data-color-matrix'] !== null ? props['data-color-matrix'] : props.dataColorMatrix;
-                if (vMatrix !== undefined && vMatrix !== null) line['data-color-matrix'] = String(vMatrix);
+                if (vMatrix !== undefined && vMatrix !== null) node['data-color-matrix'] = String(vMatrix);
                 var vHide = props['data-hide-after-end'] !== undefined && props['data-hide-after-end'] !== null ? props['data-hide-after-end'] : props.dataHideAfterEnd;
-                if (vHide !== undefined && vHide !== null) line['data-hide-after-end'] = vHide === true || vHide === 'true';
+                if (vHide !== undefined && vHide !== null) node['data-hide-after-end'] = vHide === true || vHide === 'true';
                 if (props.loop !== undefined && props.loop !== null) {
-                    line.loop = props.loop === true || props.loop === 'true';
+                    node.loop = props.loop === true || props.loop === 'true';
                 }
                 break;
+            case 'lottie':
+                assignSource(node, props);
+                break;
             case 'audio':
-                // jsonl Audio accepts path/url (parse/jsonl/mod.rs Audio) — the
-                // JSX frontend must resolve the source the same way video/image
-                // do, otherwise every JSX audio is silently sourceless.
-                assignSource(line, props);
-                line.attach = String(props.attach || parentId);
-                if (props.duration !== undefined && props.duration !== null) {
-                    line.duration = num(props.duration);
+                // 树内 <audio> 不占视觉位：作为节点挂进容器，Rust 装配期收进
+                // 音频池（attach 缺省指向挂载父元素）。
+                assignSource(node, props);
+                if (props.attach !== undefined && props.attach !== null && props.attach !== '') {
+                    node.attach = String(props.attach);
                 }
                 break;
             default:
@@ -829,16 +842,19 @@
                 }
                 break;
         }
-        if (lines) lines.push(line);
-        for (var c = 0; c < el.children.length; c++) emitElement(el.children[c], id, lines, audioSites);
-        return id;
+        var kids = [];
+        for (var c = 0; c < el.children.length; c++) {
+            pushNodes(kids, emitElement(el.children[c], audioSites));
+        }
+        if (kids.length && CONTAINER_TAGS[tag] === true) node.children = kids;
+        return node;
     }
 
-    // Walk a rendered tree. With `lines` null this is the per-frame walk: it
-    // invokes every component function (so `use*` calls register their drivers)
-    // without emitting anything.
-    globalThis.__ocWalkTree = function (root, lines, audioSites) {
-        emitElement(root, null, lines || null, audioSites || null);
+    // Walk a rendered tree for side effects only: it invokes every component
+    // function (so `use*` calls register their drivers); the produced nodes
+    // are discarded. Per-frame replay walks this way.
+    globalThis.__ocWalkTree = function (root) {
+        emitElement(root, null);
     };
 
     globalThis.__ocExtract = function (entrySpec) {
@@ -849,11 +865,11 @@
         if (root === undefined || root === null) {
             throw new Error('use: entry module has no default export');
         }
-        var lines = [];
         var audioSites = [];
-        emitElement(root, null, lines, audioSites);
+        var tree = [];
+        pushNodes(tree, emitElement(root, audioSites));
         // `export const css`：打包器把编译好的样式表嵌进 bundle，是样式的
         // 唯一来源；没有则 class 不产生样式。
-        return { meta: meta, fonts: entryExports.fonts, audio: entryExports.audio, audioSites: audioSites, lines: lines, css: entryExports.css };
+        return { meta: meta, fonts: entryExports.fonts, audio: entryExports.audio, audioSites: audioSites, tree: tree, css: entryExports.css };
     };
 })();

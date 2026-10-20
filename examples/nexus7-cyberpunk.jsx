@@ -236,10 +236,10 @@ export default function Nexus7() {
         <text id="s1-meta2" class="absolute right-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">SECURE LINK · ENCRYPTED</text>
 
         <div id="s1-term" class="absolute left-[120px] top-[320px] flex flex-col gap-[20px] font-[jmono]">
-          <text id="s1-log1" class="text-[34px] tracking-[2px] text-[#00ff88]">> INITIALIZING NEURAL CORE...</text>
-          <text id="s1-log2" class="text-[34px] tracking-[2px] text-[#00ff88]">> LOADING SYNAPSE MATRIX...</text>
-          <text id="s1-log3" class="text-[34px] tracking-[2px] text-[#00ff88]">> 7.3B PARAMETERS ONLINE</text>
-          <text id="s1-log4" class="text-[34px] tracking-[2px] text-[#00d4ff]">> NEXUS-7 READY_</text>
+          <text id="s1-log1" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; INITIALIZING NEURAL CORE...</text>
+          <text id="s1-log2" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; LOADING SYNAPSE MATRIX...</text>
+          <text id="s1-log3" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; 7.3B PARAMETERS ONLINE</text>
+          <text id="s1-log4" class="text-[34px] tracking-[2px] text-[#00d4ff]">&gt; NEXUS-7 READY_</text>
         </div>
 
         <div id="s1-prog-track" class="absolute left-[120px] top-[840px] w-[1000px] h-[14px] border-[1px] border-[#2a2a3a] bg-[#12121a]">
@@ -457,7 +457,7 @@ export default function Nexus7() {
         </div>
 
         <div id="s6-url-wrap" class="absolute left-[124px] top-[970px] flex items-center gap-[10px]">
-          <text id="s6-url" class="font-[jmono] text-[28px] tracking-[2px] text-[#6b7280]">> nexus.ai // activate</text>
+          <text id="s6-url" class="font-[jmono] text-[28px] tracking-[2px] text-[#6b7280]">&gt; nexus.ai // activate</text>
           <div id="s6-cursor" class="w-[16px] h-[30px] bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
         </div>
 

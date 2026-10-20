@@ -7,7 +7,8 @@ bun install       # 或 npm install
 npm run build    # esbuild bundle（嵌入编译后 CSS）+ opencat render → dist/video.mp4
 ```
 
-预览：build 产出 `src/index.bundle.jsx`（样式已嵌入），`opencat-see src/index.bundle.jsx`。
+预览：build 产出 `dist/index.bundle.jsx`（样式已嵌入），
+`opencat-see dist/index.bundle.jsx --base-dir src`。
 
 ## 前置条件
 
@@ -22,11 +23,12 @@ npm run build    # esbuild bundle（嵌入编译后 CSS）+ opencat render → d
 
 构建分两步，全部由 `opencat-plugin.mjs` 自动完成：
 
-1. **esbuild bundle**：入口连同 npm 依赖打成 `src/<入口名>.bundle.jsx`（构建
+1. **esbuild bundle**：入口连同 npm 依赖打成 `dist/<入口名>.bundle.jsx`（构建
    产物，已 gitignore）。`lucide-react` 等真包在这里被解析折叠。
 2. **opencat render 渲染 bundle**：编译后的样式表以 `export const css` 嵌在
-   bundle 里，渲染只依赖 bundle 单文件；bundle 与入口同目录，`base_dir`
-   （资产/字体相对入口目录解析）约定不变。
+   bundle 里，渲染只依赖 bundle 单文件。bundle 与视频同放 `output` 所在目录
+   （默认 `dist/`），插件渲染时显式传 `--base-dir <入口目录>`，所以资产/字体
+   相对路径仍按入口目录解析。
 
 React 系 import（`react` / `react/jsx-runtime`）被 alias 到 `react-shim.mjs`
 垫片：组件树按 React 语义创建；`<svg>` 子树在垫片里序列化成 markup，走引擎

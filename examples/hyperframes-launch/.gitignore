@@ -1,4 +1,3 @@
 node_modules/
+# 构建产物：esbuild bundle + 渲染视频（opencat-plugin 每次构建生成）
 dist/
-# esbuild bundle 产物（opencat-plugin 每次构建生成）
-*.bundle.jsx

@@ -1,5 +1,6 @@
 pub mod color;
 pub mod composition;
+pub mod dom;
 pub mod document;
 pub mod easing;
 pub mod gl_transition;

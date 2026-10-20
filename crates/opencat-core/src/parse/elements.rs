@@ -1,23 +1,11 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::media::{VideoColorMatrix, VideoFrameTiming};
-use crate::parse::{
-    composition::{AudioAttachment, CompositionAudioSource},
-    document::{
-        ParsedAudioElement, ParsedComposition, ParsedElement, ParsedElementKind, ParsedTransition,
-    },
-    primitives::{AudioSource, ImageSource, OpenverseQuery, VideoSource},
-};
+use crate::parse::document::{DeclaredScript, ParsedComposition};
+use crate::parse::dom::{DomAudio, DomDocument, DomElement, composition_from_dom, parse_audio_source};
 use crate::style::NodeStyle;
-
-
-use crate::parse::document::{
-    DeclaredScript, build_tree, build_tree_with_tl, join_scripts, script_driver_from_decls,
-    validate_unique_ids,
-};
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -245,464 +233,22 @@ pub(crate) fn parse_lines_for_tests(
         crate::css::EvalContext::default(),
     )
     .expect("test css compiles");
-    composition_from_lines(lines, base_dir, None, Some(&engine))
+    composition_from_lines(lines, Vec::new(), base_dir, None, Some(&engine))
 }
 
-/// Shared assembly for the line shape ([`JsonLine`]): the JSX frontend's
-/// extracted tree arrives as a `Vec<JsonLine>` and lowers here directly.
-/// `line_index` (1-based to the Tailwind diagnostics) counts the lines as
-/// given, so the JSX frontend keeps its composition line at index 0 exactly
-/// like a text document would.
+/// 文本格式装配：JSONL 行形（[`JsonLine`]，文本序列化格式）按 `parentId`
+/// 分组成 [`DomDocument`]，再走共享 DOM 装配。`audio` 是文档级音频池
+/// （JSX `export const audio` 解析产物）；测试夹具与遗留文本入口从这里进。
 pub(crate) fn composition_from_lines(
     lines: Vec<JsonLine>,
+    audio: Vec<DomAudio>,
     base_dir: Option<&Path>,
     manifest: Option<&crate::fonts::FontManifest>,
     css: Option<&crate::css::CssEngine>,
 ) -> anyhow::Result<ParsedComposition> {
-    let mut width = 1920;
-    let mut height = 1080;
-    let mut fps = 30;
-    let mut duration = 3.0;
-    let mut global_scripts: Vec<DeclaredScript> = Vec::new();
-    let mut audio_elements = Vec::new();
-    let mut scripts_by_parent: HashMap<String, Vec<DeclaredScript>> = HashMap::new();
-    let mut elements: Vec<ParsedElement> = Vec::new();
-    let mut transitions = Vec::new();
-    let mut timeline_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    for (line_index, line) in lines.into_iter().enumerate() {
-        match line {
-            JsonLine::Composition {
-                width: w,
-                height: h,
-                fps: f,
-                duration: d,
-            } => {
-                width = w;
-                height = h;
-                fps = f;
-                duration = d;
-            }
-            JsonLine::Script {
-                parent_id,
-                src,
-                path,
-            } => {
-                let decl = resolve_script_declaration(src, path)?;
-                if let Some(parent_id) = parent_id {
-                    scripts_by_parent.entry(parent_id).or_default().push(decl);
-                } else {
-                    global_scripts.push(decl);
-                }
-            }
-            JsonLine::Div {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "div",
-                    line_index + 1,
-                );
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Div,
-                });
-            }
-            JsonLine::Text {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                text,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "text",
-                    line_index + 1,
-                );
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Text { content: text },
-                });
-            }
-            JsonLine::Canvas {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "canvas",
-                    line_index + 1,
-                );
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Canvas,
-                });
-            }
-            JsonLine::Image {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                path,
-                url,
-                query,
-                query_count,
-                aspect_ratio,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "image",
-                    line_index + 1,
-                );
-                let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Image { source },
-                });
-            }
-            JsonLine::Audio {
-                id,
-                attach,
-                class_name: _,
-                path,
-                url,
-                duration,
-            } => {
-                let source = parse_audio_source(path, url)?;
-                audio_elements.push(ParsedAudioElement {
-                    id,
-                    attach,
-                    duration,
-                    source,
-                });
-            }
-            JsonLine::Video {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                path,
-                url,
-                duration,
-                data_start,
-                data_duration,
-                data_media_start,
-                data_color_matrix,
-                looping,
-                hide_after_end,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "video",
-                    line_index + 1,
-                );
-                let source = match url {
-                    Some(u) => VideoSource::Url(u),
-                    None => VideoSource::Path(path.unwrap_or_default()),
-                };
-                let color_matrix = match data_color_matrix.as_deref() {
-                    None => None,
-                    Some(token) => VideoColorMatrix::parse_token(token).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "dataColorMatrix must be auto, bt601, or bt709 (got `{token}`)"
-                        )
-                    })?,
-                };
-                let timing = VideoFrameTiming {
-                    timeline_start_secs: data_start.unwrap_or(0.0),
-                    timeline_duration_secs: data_duration,
-                    media_start_secs: data_media_start.unwrap_or(0.0),
-                    playback_rate: 1.0,
-                    looping: looping.unwrap_or(false),
-                    color_matrix,
-                    hide_after_end: hide_after_end.unwrap_or(false),
-                };
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Video { source, timing },
-                });
-            }
-            JsonLine::Transition {
-                parent_id,
-                from,
-                to,
-                effect,
-                duration,
-                direction,
-                timing,
-                damping,
-                stiffness,
-                mass,
-                seed,
-                hue_shift,
-                mask_scale,
-            } => transitions.push(ParsedTransition {
-                parent_id,
-                from,
-                to,
-                effect,
-                duration,
-                direction,
-                timing,
-                damping,
-                stiffness,
-                mass,
-                seed,
-                hue_shift,
-                mask_scale,
-            }),
-            JsonLine::Tl {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "div",
-                    line_index + 1,
-                );
-                timeline_ids.insert(id.clone());
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Timeline,
-                });
-            }
-            JsonLine::Path {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                d,
-                view_box,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "path",
-                    line_index + 1,
-                );
-                let view_box = view_box
-                    .as_deref()
-                    .map(parse_view_box_attr)
-                    .transpose()?;
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Path { data: d, view_box },
-                });
-            }
-            JsonLine::Svg {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                src,
-                inline,
-                width,
-                height,
-                preserve_aspect_ratio,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "div",
-                    line_index + 1,
-                );
-                // 内联 markup 不落盘、无文件语义：src 仅在文件模式参与
-                // base_dir 解析。
-                let resolved_src = if inline.is_some() {
-                    PathBuf::new()
-                } else if let Some(base_dir) = base_dir {
-                    base_dir.join(&src)
-                } else {
-                    PathBuf::from(src)
-                };
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Svg {
-                        src: resolved_src,
-                        inline,
-                        width,
-                        height,
-                        preserve_aspect_ratio,
-                    },
-                });
-            }
-            JsonLine::Lottie {
-                id,
-                parent_id,
-                class_name,
-                style: inline_style,
-                path,
-                url,
-                duration,
-            } => {
-                let style = resolve_style(
-                    css,
-                    class_name.as_deref().unwrap_or(""),
-                    inline_style.as_deref(),
-                    &id,
-                    "div",
-                    line_index + 1,
-                );
-                let source = match (path, url) {
-                    (Some(p), None) => crate::parse::primitives::LottieSource::Path(p),
-                    (None, Some(u)) => crate::parse::primitives::LottieSource::Url(u),
-                    (Some(_), Some(_)) => {
-                        anyhow::bail!("lottie `{id}`: only one of path / url");
-                    }
-                    (None, None) => {
-                        anyhow::bail!("lottie `{id}`: needs path or url");
-                    }
-                };
-                elements.push(ParsedElement {
-                    id,
-                    parent_id,
-                    duration,
-                    style,
-                    kind: ParsedElementKind::Lottie {
-                        source,
-                        timing: VideoFrameTiming::default(),
-                    },
-                });
-            }
-        }
-    }
-
-    validate_unique_ids(&elements, &audio_elements)?;
-
-    if let Some(manifest) = manifest.filter(|m| !m.is_empty()) {
-        let index = manifest.build_family_index();
-        manifest.apply_font_refs_to_styles(&index, &mut elements);
-    }
-
-    let has_explicit_tl = !timeline_ids.is_empty();
-    if !has_explicit_tl && !transitions.is_empty() {
-        anyhow::bail!("transition records require an explicit tl parent");
-    }
-    for transition in &transitions {
-        if !timeline_ids.contains(transition.parent_id.as_str()) {
-            anyhow::bail!(
-                "transition parentId `{}` must reference a tl node",
-                transition.parent_id
-            );
-        }
-    }
-    let elements_by_id = elements
-        .iter()
-        .map(|element| (element.id.as_str(), element))
-        .collect::<HashMap<_, _>>();
-    let audio_sources = audio_elements
-        .into_iter()
-        .map(|audio| resolve_audio_source(audio, &elements_by_id))
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let mut root = if has_explicit_tl {
-        let transitions_by_tl: HashMap<String, Vec<&ParsedTransition>> =
-            transitions.iter().fold(HashMap::new(), |mut acc, t| {
-                acc.entry(t.parent_id.clone()).or_default().push(t);
-                acc
-            });
-        build_tree_with_tl(&elements, &scripts_by_parent, &transitions_by_tl)?
-    } else {
-        build_tree(&elements, &scripts_by_parent)?
-    };
-
-    if !global_scripts.is_empty() {
-        // Merge with any scripts already attached to root (parentId == root).
-        let mut decls = Vec::new();
-        if let Some(existing) = root.style_ref().script_driver.as_ref() {
-            for frag in &existing.inline_fragments {
-                if !frag.is_empty() {
-                    decls.push(DeclaredScript::Inline(frag.clone()));
-                }
-            }
-            if existing.externals.is_empty()
-                && !existing.source.is_empty()
-                && existing.inline_fragments.is_empty()
-            {
-                decls.push(DeclaredScript::Inline(existing.source.clone()));
-            }
-            for ext in &existing.externals {
-                decls.push(DeclaredScript::External {
-                    locator: ext.locator.clone(),
-                });
-            }
-        }
-        decls.extend(global_scripts.clone());
-        if let Some(driver) = script_driver_from_decls(decls)? {
-            root = root.script_driver(driver);
-        }
-    }
-
-    Ok(ParsedComposition {
-        font_manifest: manifest.cloned().unwrap_or_default(),
-        width,
-        height,
-        fps,
-        duration,
-        root,
-        script: join_inline_global_scripts(global_scripts),
-        audio_sources,
-    })
+    let mut doc = lines_to_dom(lines)?;
+    doc.audio.extend(audio);
+    composition_from_dom(doc, base_dir, manifest, css)
 }
 
 /// Keep external scripts as logical locators. Host supplies text via lifecycle
@@ -719,141 +265,456 @@ fn resolve_script_declaration(
     }
 }
 
-fn join_inline_global_scripts(scripts: Vec<DeclaredScript>) -> Option<String> {
-    let mut inlines = Vec::new();
-    for s in scripts {
-        if let DeclaredScript::Inline(t) = s {
-            inlines.push(t);
+fn lines_to_dom(lines: Vec<JsonLine>) -> anyhow::Result<DomDocument> {
+    let mut doc = DomDocument::default();
+    let mut by_parent: HashMap<String, Vec<DomElement>> = HashMap::new();
+    let mut transitions_by_parent: HashMap<String, Vec<DomElement>> = HashMap::new();
+    let mut roots: Vec<DomElement> = Vec::new();
+
+    for line in lines {
+        match line {
+            JsonLine::Composition {
+                width,
+                height,
+                fps,
+                duration,
+            } => {
+                doc.width = width;
+                doc.height = height;
+                doc.fps = fps;
+                doc.duration = duration;
+            }
+            JsonLine::Script {
+                parent_id,
+                src,
+                path,
+            } => {
+                let decl = resolve_script_declaration(src, path)?;
+                if let Some(parent_id) = parent_id {
+                    doc.scripts_by_parent.entry(parent_id).or_default().push(decl);
+                } else {
+                    doc.global_scripts.push(decl);
+                }
+            }
+            JsonLine::Audio {
+                id,
+                attach,
+                class_name: _,
+                path,
+                url,
+                duration,
+            } => {
+                doc.audio.push(DomAudio {
+                    id,
+                    attach,
+                    source: parse_audio_source(path, url)?,
+                    duration,
+                });
+            }
+            JsonLine::Transition {
+                parent_id,
+                from,
+                to,
+                effect,
+                duration,
+                direction,
+                timing,
+                damping,
+                stiffness,
+                mass,
+                seed,
+                hue_shift,
+                mask_scale,
+            } => {
+                transitions_by_parent
+                    .entry(parent_id)
+                    .or_default()
+                    .push(DomElement::Transition {
+                        from,
+                        to,
+                        effect,
+                        duration: Some(duration),
+                        direction,
+                        timing,
+                        damping,
+                        stiffness,
+                        mass,
+                        seed,
+                        hue_shift,
+                        mask_scale,
+                    });
+            }
+            other => {
+                let (parent_id, el) = line_to_element(other);
+                push_element(&mut by_parent, &mut roots, parent_id, el);
+            }
         }
     }
-    join_scripts(inlines)
+
+    let mut assembled = Vec::with_capacity(roots.len());
+    for root in roots {
+        assembled.push(attach_children(root, &mut by_parent, &mut transitions_by_parent)?);
+    }
+    // 残留 transition = parent 从未作为元素出现（或非 tl），先于根判定报错。
+    if let Some((parent_id, _)) = transitions_by_parent.iter().next() {
+        anyhow::bail!("transition parentId `{parent_id}` must reference a tl node");
+    }
+    for root in assembled {
+        doc_root(&mut doc, root)?;
+    }
+    Ok(doc)
 }
 
-fn resolve_audio_source(
-    audio: ParsedAudioElement,
-    elements_by_id: &HashMap<&str, &ParsedElement>,
-) -> anyhow::Result<CompositionAudioSource> {
-    let attach = audio.attach;
-    let element = elements_by_id.get(attach.as_str()).copied();
-    let attachment = match element {
-        Some(el) if matches!(el.kind, ParsedElementKind::Timeline) => AudioAttachment::Timeline,
-        Some(_) => AudioAttachment::Scene { scene_id: attach },
-        None => anyhow::bail!(
-            "audio `{}` attach references non-existent element `{}`",
-            audio.id,
-            attach
+fn push_element(
+    by_parent: &mut HashMap<String, Vec<DomElement>>,
+    roots: &mut Vec<DomElement>,
+    parent_id: Option<String>,
+    el: DomElement,
+) {
+    match parent_id {
+        Some(parent_id) => by_parent.entry(parent_id).or_default().push(el),
+        None => roots.push(el),
+    }
+}
+
+fn doc_root(doc: &mut DomDocument, root: DomElement) -> anyhow::Result<()> {
+    match doc.root {
+        None => {
+            doc.root = Some(root);
+            Ok(())
+        }
+        Some(_) => anyhow::bail!("multiple root elements found"),
+    }
+}
+
+fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
+    match line {
+        JsonLine::Div {
+            id,
+            parent_id,
+            class_name,
+            style,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Div {
+                id,
+                class: class_name,
+                style,
+                duration,
+                children: Vec::new(),
+            },
         ),
-    };
-    Ok(CompositionAudioSource {
-        id: audio.id,
-        source: audio.source,
-        attach: attachment,
-        duration_secs: audio.duration,
-    })
+        JsonLine::Text {
+            id,
+            parent_id,
+            class_name,
+            style,
+            text,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Text {
+                id,
+                class: class_name,
+                style,
+                text,
+                duration,
+            },
+        ),
+        JsonLine::Canvas {
+            id,
+            parent_id,
+            class_name,
+            style,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Canvas {
+                id,
+                class: class_name,
+                style,
+                duration,
+                children: Vec::new(),
+            },
+        ),
+        JsonLine::Image {
+            id,
+            parent_id,
+            class_name,
+            style,
+            path,
+            url,
+            query,
+            query_count,
+            aspect_ratio,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Image {
+                id,
+                class: class_name,
+                style,
+                path,
+                url,
+                query,
+                query_count,
+                aspect_ratio,
+                duration,
+            },
+        ),
+        JsonLine::Video {
+            id,
+            parent_id,
+            class_name,
+            style,
+            path,
+            url,
+            duration,
+            data_start,
+            data_duration,
+            data_media_start,
+            data_color_matrix,
+            looping,
+            hide_after_end,
+        } => (
+            parent_id,
+            DomElement::Video {
+                id,
+                class: class_name,
+                style,
+                path,
+                url,
+                duration,
+                data_start,
+                data_duration,
+                data_media_start,
+                data_color_matrix,
+                hide_after_end,
+                looping,
+                children: Vec::new(),
+            },
+        ),
+        JsonLine::Tl {
+            id,
+            parent_id,
+            class_name,
+            style,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Tl {
+                id,
+                class: class_name,
+                style,
+                duration,
+                children: Vec::new(),
+            },
+        ),
+        JsonLine::Path {
+            id,
+            parent_id,
+            class_name,
+            style,
+            d,
+            view_box,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Path {
+                id,
+                class: class_name,
+                style,
+                d,
+                view_box,
+                duration,
+            },
+        ),
+        JsonLine::Svg {
+            id,
+            parent_id,
+            class_name,
+            style,
+            src,
+            inline,
+            width,
+            height,
+            preserve_aspect_ratio,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Svg {
+                id,
+                class: class_name,
+                style,
+                src,
+                inline,
+                width,
+                height,
+                preserve_aspect_ratio,
+                duration,
+            },
+        ),
+        JsonLine::Lottie {
+            id,
+            parent_id,
+            class_name,
+            style,
+            path,
+            url,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Lottie {
+                id,
+                class: class_name,
+                style,
+                path,
+                url,
+                duration,
+            },
+        ),
+        JsonLine::Audio { id, attach, .. } => (
+            // 树内不渲染音频：兜底成独立元素，装配期给出明确报错。
+            None,
+            DomElement::Audio {
+                id,
+                attach,
+                path: None,
+                url: None,
+                duration: None,
+            },
+        ),
+        other => (None, other_to_transition(other)),
+    }
 }
 
-fn parse_image_source(
-    path: Option<String>,
-    url: Option<String>,
-    query: Option<String>,
-    query_count: Option<usize>,
-    aspect_ratio: Option<String>,
-) -> anyhow::Result<ImageSource> {
-    let sources = [
-        path.as_ref().map(|_| "path"),
-        url.as_ref().map(|_| "url"),
-        query.as_ref().map(|_| "query"),
-    ]
-    .into_iter()
-    .flatten()
-    .count();
-
-    if sources == 0 {
-        return Err(anyhow::anyhow!(
-            "image node requires one of: path, url, query"
-        ));
-    }
-
-    if sources > 1 {
-        return Err(anyhow::anyhow!(
-            "image node accepts only one source: path, url, or query"
-        ));
-    }
-
-    if let Some(path) = path {
-        return Ok(ImageSource::Path(path));
-    }
-
-    if let Some(url) = url {
-        return Ok(ImageSource::Url(url));
-    }
-
-    let Some(query) = query else {
-        return Err(anyhow::anyhow!(
-            "image node requires one of: path, url, query"
-        ));
+fn other_to_transition(line: JsonLine) -> DomElement {
+    let JsonLine::Transition {
+        parent_id: _,
+        from,
+        to,
+        effect,
+        duration,
+        direction,
+        timing,
+        damping,
+        stiffness,
+        mass,
+        seed,
+        hue_shift,
+        mask_scale,
+    } = line
+    else {
+        unreachable!("line_to_element 已分流其余变体")
     };
-
-    Ok(ImageSource::Query(OpenverseQuery {
-        query,
-        count: query_count.unwrap_or(1).max(1),
-        aspect_ratio,
-    }))
+    DomElement::Transition {
+        from,
+        to,
+        effect,
+        duration: Some(duration),
+        direction,
+        timing,
+        damping,
+        stiffness,
+        mass,
+        seed,
+        hue_shift,
+        mask_scale,
+    }
 }
 
-/// Optional shared SVG view box, `"min-x,min-y,width,height"` (commas or
-/// whitespace as separators), carried by the `viewBox` line field.
-fn parse_view_box_attr(raw: &str) -> anyhow::Result<[f32; 4]> {
-    let parts: Vec<&str> = raw
-        .split(|c: char| c == ',' || c.is_whitespace())
-        .filter(|p| !p.is_empty())
-        .collect();
-    if parts.len() != 4 {
-        anyhow::bail!(
-            "`viewBox` must be `min-x,min-y,width,height` (4 numbers, got {})",
-            parts.len()
-        );
-    }
-    let mut out = [0.0f32; 4];
-    for (slot, part) in out.iter_mut().zip(parts.iter()) {
-        *slot = part
-            .parse::<f32>()
-            .map_err(|e| anyhow::anyhow!("`viewBox`: invalid number `{part}`: {e}"))?;
-        if !slot.is_finite() {
-            anyhow::bail!("`viewBox` values must be finite");
+/// 把 `by_parent` 里的孩子 DFS 挂到元素上。非容器元素的孩子沿用旧行为：
+/// 忽略（旧扁平表装配只被 div/canvas/video/tl 消费）。
+fn attach_children(
+    el: DomElement,
+    by_parent: &mut HashMap<String, Vec<DomElement>>,
+    transitions_by_parent: &mut HashMap<String, Vec<DomElement>>,
+) -> anyhow::Result<DomElement> {
+    let id = el.id().to_string();
+    let mut children = by_parent.remove(&id).unwrap_or_default();
+    let transitions = transitions_by_parent.remove(&id).unwrap_or_default();
+    if !transitions.is_empty() {
+        if !el.is_tl() {
+            anyhow::bail!("transition parentId `{id}` must reference a tl node");
         }
+        children.extend(transitions);
     }
-    if out[2] <= 0.0 || out[3] <= 0.0 {
-        anyhow::bail!("`viewBox` width and height must be positive");
-    }
-    Ok(out)
-}
-
-fn parse_audio_source(path: Option<String>, url: Option<String>) -> anyhow::Result<AudioSource> {
-    let sources = [path.as_ref().map(|_| "path"), url.as_ref().map(|_| "url")]
+    let children = children
         .into_iter()
-        .flatten()
-        .count();
-
-    if sources == 0 {
-        return Err(anyhow::anyhow!("audio node requires one of: path, url"));
-    }
-
-    if sources > 1 {
-        return Err(anyhow::anyhow!(
-            "audio node accepts only one source: path or url"
-        ));
-    }
-
-    if let Some(path) = path {
-        return Ok(AudioSource::Path(PathBuf::from(path)));
-    }
-
-    let Some(url) = url else {
-        return Err(anyhow::anyhow!("audio node requires one of: path, url"));
-    };
-
-    Ok(AudioSource::Url(url))
+        .map(|child| attach_children(child, by_parent, transitions_by_parent))
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    Ok(match el {
+        DomElement::Div {
+            id,
+            class,
+            style,
+            duration,
+            ..
+        } => DomElement::Div {
+            id,
+            class,
+            style,
+            duration,
+            children,
+        },
+        DomElement::Canvas {
+            id,
+            class,
+            style,
+            duration,
+            ..
+        } => DomElement::Canvas {
+            id,
+            class,
+            style,
+            duration,
+            children,
+        },
+        DomElement::Video {
+            id,
+            class,
+            style,
+            path,
+            url,
+            duration,
+            data_start,
+            data_duration,
+            data_media_start,
+            data_color_matrix,
+            hide_after_end,
+            looping,
+            ..
+        } => DomElement::Video {
+            id,
+            class,
+            style,
+            path,
+            url,
+            duration,
+            data_start,
+            data_duration,
+            data_media_start,
+            data_color_matrix,
+            hide_after_end,
+            looping,
+            children,
+        },
+        DomElement::Tl {
+            id,
+            class,
+            style,
+            duration,
+            ..
+        } => DomElement::Tl {
+            id,
+            class,
+            style,
+            duration,
+            children,
+        },
+        other => other,
+    })
 }
 
 /// class + inline style → NodeStyle 的统一入口。
@@ -864,7 +725,7 @@ fn parse_audio_source(path: Option<String>, url: Option<String>) -> anyhow::Resu
 ///
 /// 没有样式表时仍要解析内联声明：建一个空表，根变量为空，层叠只剩内联
 /// 声明本身。样式表规模与构建代价无关（规则为空）。
-fn resolve_style(
+pub(crate) fn resolve_style(
     css: Option<&crate::css::CssEngine>,
     class_name: &str,
     inline_style: Option<&str>,

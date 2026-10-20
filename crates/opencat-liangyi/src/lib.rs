@@ -602,8 +602,7 @@ mod tests {
     /// 抽取源码，所以示例与 DSL 一漂移这里就红。
     #[test]
     fn hyperframes_flexshader_kernel_compiles() {
-        const JSX: &str =
-            include_str!("../../../examples/hyperframes-launch/hyperframes-launch.jsx");
+        const JSX: &str = include_str!("../../../examples/hyperframes-launch/scenes/flex-shader.jsx");
         let head = "FlexShader._kern = ly.pixel((uv, u) => {";
         let tail = "}, { uniforms: { time: 'float' } });";
         let start = JSX.find(head).expect("示例里应有 FlexShader 内核") + head.len();

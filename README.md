@@ -243,9 +243,9 @@ bun install        # or npm install
 npm run build      # bundles the entry with the compiled CSS embedded → dist/video.mp4
 ```
 
-Preview: `opencat-see src/index.bundle.jsx` (the bundle carries the embedded stylesheet).
+Preview: `opencat-see dist/index.bundle.jsx --base-dir src` (the bundle carries the embedded stylesheet).
 
-The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that (1) bundles the entry with esbuild — real npm packages such as `lucide-react` resolve here, and `react`/`react/jsx-runtime` are aliased to a shim that serializes `<svg>` subtrees into the engine's `<svg inline>` channel — (2) compiles tailwind classes into standard CSS in memory and embeds it in the bundle as `export const css`, so the bundle is single-file self-contained, and (3) shells out to `opencat render` on the bundle. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory (the bundle is emitted next to the entry, so this holds).
+The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that (1) bundles the entry with esbuild — real npm packages such as `lucide-react` resolve here, and `react`/`react/jsx-runtime` are aliased to a shim that serializes `<svg>` subtrees into the engine's `<svg inline>` channel — (2) compiles tailwind classes into standard CSS in memory and embeds it in the bundle as `export const css`, so the bundle is single-file self-contained, and (3) shells out to `opencat render` on the bundle. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Build artifacts (bundle + video) land in `dist/`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory, and the plugin passes `--base-dir <entry dir>` when rendering the bundle from `dist/`.
 
 ### Engine / Web alignment (k3diff pixel metrics)
 

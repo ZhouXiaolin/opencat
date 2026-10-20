@@ -907,14 +907,24 @@
         emitElement(root, null);
     };
 
+    // Entry convention: `export function main()` (the multi-file layout puts
+    // the composition root in main) takes precedence; `export default` stays
+    // the single-file spelling. Both may name a component OR an element.
+    function resolveEntryRoot(entryExports) {
+        var root = typeof entryExports.main === 'function'
+            ? entryExports.main(entryExports.defaultProps || {})
+            : entryExports.default;
+        if (typeof root === 'function') root = root(entryExports.defaultProps || {});
+        if (root === undefined || root === null) {
+            throw new Error('use: entry module has no main() or default export');
+        }
+        return root;
+    }
+
     globalThis.__ocExtract = function (entrySpec) {
         var entryExports = requireModule(entrySpec || ENTRY);
         var meta = entryExports.meta || globalThis.__ocMeta || {};
-        var root = entryExports.default;
-        if (typeof root === 'function') root = root(entryExports.defaultProps || {});
-        if (root === undefined || root === null) {
-            throw new Error('use: entry module has no default export');
-        }
+        var root = resolveEntryRoot(entryExports);
         var audioSites = [];
         var tree = [];
         pushNodes(tree, emitElement(root, audioSites));

@@ -305,6 +305,18 @@
                 ctx.current = hook.clock || ctx.global;
                 setScriptFrame(hook.clock);
                 hook.fn(ctx);
+                // animate = g(t): tweens/timelines created during the hook
+                // body are declarative descriptions. Evaluate them at this
+                // hook's clock time — the write-out IS the seek. Idempotent
+                // if the author also sought manually.
+                var pendingTweens = ctx.__ocGsapPending;
+                if (pendingTweens) {
+                    ctx.__ocGsapPending = null;
+                    var seekTime = Number((ctx.current && ctx.current.time) || 0);
+                    for (var s = 0; s < pendingTweens.length; s++) {
+                        pendingTweens[s].time(seekTime);
+                    }
+                }
             } finally {
                 globalThis.__ocHookCtx = savedHookCtx;
                 ctx.current = saved;
@@ -494,13 +506,168 @@
     // Module shape: `import { gsap } from 'gsap'` lowers to
     // __ocRequire("gsap").gsap and `import gsap from 'gsap'` to .default —
     // so the builtin is the package's module record, not the namespace.
-    var gatedGsap = hookGated(globalThis.ctx.gsap, 'gsap');
-    builtins['gsap'] = { default: gatedGsap, gsap: gatedGsap };
+    //
+    // `gsap` resolves to the REAL npm package (gsap.bundle.js parked on
+    // globalThis.__ocGsapModule). The model stays frame=f(t): the author
+    // writes declarative animation — `gsap.timeline().to(...)`,
+    // `gsap.from(...)` — and NEVER drives it. Creation registers the tween on
+    // the current hook; the hook runner seeks every registered tween to
+    // ctx.current.time after the hook body returns (animate = g(t)). The
+    // paused flag is forced here so nothing depends on the package's ticker.
+    // Without the bundle, fall back to the ctx.gsap facade; the facade itself
+    // stays available as ctx.*.
+    var gsapPackage = globalThis.__ocGsapModule && globalThis.__ocGsapModule.exports;
+    if (gsapPackage) {
+        // animate = g(t) plumbing: register every created tween on the
+        // running hook and force `paused` so the package's ticker (wall
+        // clock) is never in play. Mutating the real gsap object is safe —
+        // its internals reach these entry points through closures, not
+        // through the object.
+        var realGsap = gsapPackage.gsap || gsapPackage.default;
+        var rawTimeline = realGsap.timeline;
+        var rawTo = realGsap.to;
+        var rawFrom = realGsap.from;
+        var rawFromTo = realGsap.fromTo;
+        var rawSet = realGsap.set;
+        // Targets are node ids — the one id namespace of the composition, same
+        // as the ctx.* facade (`gsap.from('box', ...)`). Not CSS selectors:
+        // the tree is declarative and there is no live DOM to query.
+        function resolveTargets(t) {
+            if (typeof t === 'string') return ocTarget(t.charAt(0) === '#' ? t.slice(1) : t);
+            if (Array.isArray(t)) {
+                for (var i = 0; i < t.length; i++) {
+                    if (typeof t[i] === 'string') {
+                        return t.map(function (x) {
+                            return typeof x === 'string'
+                                ? ocTarget(x.charAt(0) === '#' ? x.slice(1) : x)
+                                : x;
+                        });
+                    }
+                }
+            }
+            return t;
+        }
+        function registerTween(result) {
+            var hook = globalThis.__ocHookCtx;
+            if (hook) {
+                if (!hook.__ocGsapPending) hook.__ocGsapPending = [];
+                hook.__ocGsapPending.push(result);
+            }
+            return result;
+        }
+        function withPaused(vars) {
+            var merged = {};
+            if (vars) {
+                for (var k in vars) merged[k] = vars[k];
+            }
+            merged.paused = true;
+            return merged;
+        }
+        realGsap.timeline = function (vars) {
+            return registerTween(rawTimeline.call(this, withPaused(vars)));
+        };
+        // Only the top-level timeline factory is detached from the package's
+        // ticker (paused). Child tweens created via tl.from(...) or gsap.to(...)
+        // must NOT be paused themselves — a paused child is skipped by its
+        // parent timeline in gsap, which would flatten every duration to 0.
+        // A child of a paused timeline never renders on its own, so nothing
+        // wall-clock-driven is in play.
+        realGsap.to = function (target, vars, position) {
+            return registerTween(rawTo.call(this, resolveTargets(target), vars, position));
+        };
+        realGsap.from = function (target, vars, position) {
+            return registerTween(rawFrom.call(this, resolveTargets(target), vars, position));
+        };
+        realGsap.fromTo = function (target, fromVars, toVars, position) {
+            return registerTween(rawFromTo.call(this, resolveTargets(target), fromVars, toVars, position));
+        };
+        realGsap.set = function (target, vars, position) {
+            return registerTween(rawSet.call(this, resolveTargets(target), vars, position));
+        };
+        // Timeline instance methods are the main authoring surface
+        // (`gsap.timeline().from('box', ...)`) — same normalization there.
+        // The package exports the class as TimelineLite/TimelineMax only.
+        var TimelineCtor = gsapPackage.TimelineLite || gsapPackage.TimelineMax || gsapPackage.Timeline;
+        if (TimelineCtor && TimelineCtor.prototype) {
+            var proto = TimelineCtor.prototype;
+            var wrapVarsMethod = function (name, raw) {
+                proto[name] = function (target, vars, position) {
+                    return raw.call(this, resolveTargets(target), vars, position);
+                };
+            };
+            wrapVarsMethod('to', proto.to);
+            wrapVarsMethod('from', proto.from);
+            wrapVarsMethod('set', proto.set);
+            var rawFromToProto = proto.fromTo;
+            proto.fromTo = function (target, fromVars, toVars, position) {
+                return rawFromToProto.call(this, resolveTargets(target), fromVars, toVars, position);
+            };
+        }
+    }
+    var gatedGsap = hookGated(
+        (gsapPackage && (gsapPackage.gsap || gsapPackage.default)) || globalThis.ctx.gsap,
+        'gsap'
+    );
+    builtins['gsap'] = gsapPackage
+        ? Object.assign(Object.create(null), gsapPackage, { default: gatedGsap, gsap: gatedGsap })
+        : { default: gatedGsap, gsap: gatedGsap };
     builtins['three'] = globalThis.ctx.threejs;
     builtins['canvaskit-wasm'] = {
         default: globalThis.ctx.canvas,
         CanvasKit: globalThis.ctx.canvas,
     };
+
+    // ── ctx.ocTarget: real-gsap capture target ──────────────────────
+    // Real gsap on a plain object takes the numeric channel: it writes
+    // tweened properties as bare numbers (no CSSPlugin, no transform
+    // strings). ocTarget(id) returns a Proxy whose resolvable numeric writes
+    // forward into node mutations via the same descriptor.apply surface the
+    // facade drives; unresolved properties just sit on the record. Reads fall
+    // through to the node's current value (descriptor default), so `.to`
+    // start-value semantics hold. Usage inside a hook:
+    //   var el = ctx.ocTarget('title');
+    //   var tl = gsap.timeline({ paused: true });
+    //   tl.from(el, { opacity: 0, y: 48, duration: 0.8 }, 0.2);
+    //   tl.time(ctx.global.time);
+    function ocTarget(nodeId) {
+        var runtime = globalThis.__opencatAnimation;
+        var core = runtime.core;
+        var target = core.createTarget(String(nodeId));
+        var tracks = {};
+        var values = {};
+        function trackFor(prop) {
+            if (tracks[prop] !== undefined) return tracks[prop];
+            var descriptor = runtime.animation.resolveProperty(prop);
+            if (!descriptor) {
+                tracks[prop] = null;
+                return null;
+            }
+            tracks[prop] = {
+                descriptor: descriptor,
+                name: runtime.animation.canonicalName(prop),
+            };
+            return tracks[prop];
+        }
+        return new Proxy(values, {
+            get(t, prop) {
+                if (typeof prop !== 'string') return t[prop];
+                if (prop in t) return t[prop];
+                var track = trackFor(prop);
+                if (!track) return undefined;
+                return core.getDescriptorDefault(track.descriptor, target, track.name, 0);
+            },
+            set(t, prop, value) {
+                if (typeof prop !== 'string') return false;
+                t[prop] = value;
+                if (typeof value !== 'number' || !isFinite(value)) return true;
+                var track = trackFor(prop);
+                if (!track) return true;
+                track.descriptor.apply(target, value);
+                return true;
+            },
+        });
+    }
+    ctx.ocTarget = ocTarget;
 
     // ── extraction: element tree -> DOM tree ─────────────────────────
     // JSX string attributes ("3.6") must arrive at the Rust side as numbers.

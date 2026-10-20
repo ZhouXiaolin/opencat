@@ -4,9 +4,10 @@ JSX 写合成，tailwind 写样式，npm 组件照常装，一条命令出视频
 
 ```sh
 bun install       # 或 npm install
-npm run build    # esbuild bundle + tailwind sidecar + opencat render → dist/video.mp4
-npm run dev      # watch src/**/*.jsx 与 src/app.css，自动重编 sidecar（配合 opencat-see 预览）
+npm run build    # esbuild bundle（嵌入编译后 CSS）+ opencat render → dist/video.mp4
 ```
+
+预览：build 产出 `src/index.bundle.jsx`（样式已嵌入），`opencat-see src/index.bundle.jsx`。
 
 ## 前置条件
 
@@ -23,8 +24,9 @@ npm run dev      # watch src/**/*.jsx 与 src/app.css，自动重编 sidecar（�
 
 1. **esbuild bundle**：入口连同 npm 依赖打成 `src/<入口名>.bundle.jsx`（构建
    产物，已 gitignore）。`lucide-react` 等真包在这里被解析折叠。
-2. **opencat render 渲染 bundle**：bundle 与入口同目录，`base_dir`（资产/
-   字体/sidecar 相对入口目录解析）约定不变。
+2. **opencat render 渲染 bundle**：编译后的样式表以 `export const css` 嵌在
+   bundle 里，渲染只依赖 bundle 单文件；bundle 与入口同目录，`base_dir`
+   （资产/字体相对入口目录解析）约定不变。
 
 React 系 import（`react` / `react/jsx-runtime`）被 alias 到 `react-shim.mjs`
 垫片：组件树按 React 语义创建；`<svg>` 子树在垫片里序列化成 markup，走引擎
@@ -45,8 +47,8 @@ svg 根元素上参与布局与 CSS，svg 内部不进布局。可用 hooks 见 
 - **入口**：`src/index.jsx`（`vite.config.mjs` 里可改 `entry` / `output`）。
   引擎以入口文件所在目录为 `base_dir` 解析相对路径，所以字体、图片、音频等
   资产都放在 `src/` 下面（如 `src/assets/fonts/...`）。
-- **样式**：`class` 一律写 tailwind 风格，`npm run build` 时由插件编译成
-  `src/tailwind.css` sidecar（引擎按此约定路径读取；该文件是构建产物，已 gitignore）。
+- **样式**：`class` 一律写 tailwind 风格，`npm run build` 时由插件编译成标准
+  CSS 并嵌进 bundle——bundle 单文件自包含，是渲染的唯一样式来源。
   手写 CSS 放 `src/app.css`，会与 utilities 同层叠。
 - **动效**：元素是静态的，动效全部写在 `useGSAP` 钩子里；`meta` 导出声明
   尺寸/帧率/时长，命令行不可覆盖。

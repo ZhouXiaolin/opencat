@@ -29,7 +29,7 @@ console.log(`✓ 已创建 ${target}
 下一步：
   cd ${name}
   bun install      # 或 npm install
-  npm run build    # 编译 tailwind.css + 调 opencat render，产出 dist/video.mp4
+  npm run build    # esbuild bundle（CSS 已嵌入）+ opencat render，产出 dist/video.mp4
 
 渲染前确保 opencat 可执行文件可用：设置 OPENCAT_BIN，
 或把 target/release（含 opencat.exe / opencat）加入 PATH。`);

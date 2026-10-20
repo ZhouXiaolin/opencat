@@ -6,7 +6,7 @@
 //! `opencat render <file> out.png <frame>` frame-by-frame). These tests lock
 //! the structural contract that makes that port work.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use opencat_core::parse::node::{Node, NodeKind};
 use opencat_engine::jsx::parse_with_base_dir;

@@ -5,8 +5,8 @@
 //! 特化的部分（width/width_percent 二分、text_px 等）按现状适配，待
 //! NodeStyle 归一为标准 CSS 值模型后本模块同步简化。
 //!
-//! sigma 约定与 `examples/*/tailwind.css` 的语义对齐（浏览器标准）：box/
-//! text-shadow 的 CSS blur radius 折半，backdrop-filter 的 blur 值直用。
+//! sigma 约定与浏览器标准对齐：box/text-shadow 的 CSS blur radius 折半，
+//! backdrop-filter 的 blur 值直用。
 
 use lightningcss::properties::align::{
     AlignContent, AlignItems as CssAlignItems, AlignSelf as CssAlignSelf, ContentDistribution,

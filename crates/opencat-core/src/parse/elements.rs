@@ -858,8 +858,8 @@ fn parse_audio_source(path: Option<String>, url: Option<String>) -> anyhow::Resu
 
 /// class + inline style → NodeStyle 的统一入口。
 ///
-/// class 由标准 CSS 引擎层叠（tailwind 写法的类经 tailwindcss CLI 编译成
-/// 标准 CSS，见 `scripts/build-css.sh`）。内联 `style` 是标准 CSS 的一部分，
+/// class 由标准 CSS 引擎层叠（tailwind 写法的类由构建期插件编译成标准 CSS，
+/// 以 `export const css` 嵌进 bundle）。内联 `style` 是标准 CSS 的一部分，
 /// 层叠优先级高于任何选择器规则，因此作为最后一段声明应用。
 ///
 /// 没有样式表时仍要解析内联声明：建一个空表，根变量为空，层叠只剩内联

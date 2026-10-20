@@ -28,8 +28,11 @@ use crate::script::{
 };
 
 // JS platform globals V8 does not ship, needed by the G2 bundle at
-// load time (TextEncoder) and by G2's font loading at render time.
-const JS_PLATFORM_SHIM: &str = r#"
+// load time (TextEncoder) and by G2's font loading at render time. Public
+// because the JSX extract realm (a throwaway realm built before the pipeline
+// realm) needs the same `requestAnimationFrame` queue: the gsap bundle calls
+// `_wake()` at eval time, which schedules one tick.
+pub const JS_PLATFORM_SHIM: &str = r#"
 (function () {
     if (typeof globalThis.TextEncoder === 'undefined') {
         globalThis.TextEncoder = function TextEncoder() {};

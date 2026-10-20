@@ -50,8 +50,12 @@ log = "0.4"
 miniz_oxide = "0.9"
 oxc_allocator.workspace = true
 oxc_ast.workspace = true
+oxc_codegen.workspace = true
+oxc_diagnostics.workspace = true
 oxc_parser.workspace = true
+oxc_semantic.workspace = true
 oxc_span.workspace = true
+oxc_transformer.workspace = true
 rayon.workspace = true
 # SVG 对齐工程（docs/svg-align/PLAN.md）：保留 usvg 做解析（本地 resvg 检出，
 # 锚点 054ccf39），绘制侧自研（Tree→DrawOp）。只开解析所需 feature；

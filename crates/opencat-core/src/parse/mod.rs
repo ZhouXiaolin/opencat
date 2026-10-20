@@ -4,6 +4,7 @@ pub mod document;
 pub mod easing;
 pub mod gl_transition;
 pub mod jsx;
+pub mod jsx_transform;
 pub mod elements;
 pub mod node;
 pub mod preflight;

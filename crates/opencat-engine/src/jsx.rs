@@ -16,8 +16,9 @@ use serde_json::{Value, json};
 use crate::js_context::V8JsContext;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::jsx::ENTRY_SPEC;
+use opencat_core::parse::jsx_transform;
 use opencat_core::script::js_context::JsContext;
-use opencat_core::script::runtime::{CANVAS_API_RUNTIME, JSX_RUNTIME, JSX_TRANSFORM};
+use opencat_core::script::runtime::{CANVAS_API_RUNTIME, JSX_RUNTIME};
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
@@ -34,13 +35,12 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
 pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Value, String)> {
     let mut ctx = V8JsContext::new()?;
     ctx.eval(JSX_RUNTIME)?;
-    ctx.eval(JSX_TRANSFORM)?;
     // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
     // the shim is pure JS until a draw call happens, so it is safe here.
     ctx.eval(CANVAS_API_RUNTIME)?;
 
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
-    let (entry_code, entry_requires) = transform_source(&ctx, input)?;
+    let (entry_code, entry_requires) = transform_source(input)?;
     modules.insert(ENTRY_SPEC.to_string(), entry_code);
 
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
@@ -59,7 +59,7 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
         let path = module_path(base_dir, &from, &key);
         let source = std::fs::read_to_string(&path)
             .with_context(|| format!("jsx: failed to read module `{spec}` ({})", path.display()))?;
-        let (code, requires) = transform_source(&ctx, &source)?;
+        let (code, requires) = transform_source(&source)?;
         modules.insert(key.clone(), code);
         for next in requires {
             queue.push_back((key.clone(), next));
@@ -87,28 +87,11 @@ fn eval_json_string(ctx: &V8JsContext, code: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
 }
 
-fn transform_source(ctx: &V8JsContext, source: &str) -> Result<(String, Vec<String>)> {
-    let call = format!(
-        "globalThis.__ocTransformJsx({})",
-        serde_json::to_string(source)?
-    );
-    let out = eval_json_string(&ctx, &call)?;
-    let code = out
-        .get("code")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow::anyhow!("jsx transform: missing `code`"))?
-        .to_string();
-    let requires = out
-        .get("requires")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    Ok((code, requires))
+/// ESM/JSX → 引擎模块脚本（oxc 前端，`parse::jsx_transform`）。旧的手写 JS
+/// 扫描器（`__ocTransformJsx`）已退役。
+fn transform_source(source: &str) -> Result<(String, Vec<String>)> {
+    let out = jsx_transform::transform(source)?;
+    Ok((out.code, out.requires))
 }
 
 /// Normalize a relative specifier to a module key with forward slashes.

@@ -281,6 +281,7 @@ globalThis.__cache || (globalThis.__cache = build());
 | `ctx.global.time` | 合成当前时刻（秒） |
 | `ctx.global.duration` | 合成总时长（秒） |
 | `ctx.global.frame` | 合成当前帧号 |
+| `ctx.global.width` / `ctx.global.height` | 合成视口尺寸（`meta` 的宽高） |
 | `ctx.current.time` | 所属 scene 内的时刻（秒）；无 `<tl>` 时等于 `ctx.global.time` |
 | `ctx.current.duration` | 所属 scene 的时长（秒）；无 `<tl>` 时等于 `ctx.global.duration` |
 | `ctx.current.frame` | 所属 scene 内的帧号；无 `<tl>` 时等于 `ctx.global.frame` |
@@ -288,6 +289,34 @@ globalThis.__cache || (globalThis.__cache = build());
 `useGSAP` / `useFrame` / `useCanvas` / `useThree` 传给回调的第二个参数 `t`，就是 `ctx.current.time`。
 
 API：`ctx.from` / `to` / `fromTo` / `set` / `timeline`、`ctx.getNode(id)`（见 `animations.md`）；`ctx.CanvasKit`、`ctx.getCanvasById(id)`、`ctx.getImage(id)`、`ctx.ly`、`ctx.three`。
+
+### 类 DOM 全局（`document` / `window` / 节点 DOM 面）
+
+写法对齐浏览器，方便真包代码直接跑；但树是**声明式静态**的，只有读和样式写是真实现，其余能力报错并指路。
+
+`document` / `window`：
+
+| API | 行为 |
+| --- | --- |
+| `document.getElementById(id)` | 返回节点句柄，与 `ctx.getNode(id)` 同一个对象。惰性：元素未创建也能拿句柄（钩子按序回放） |
+| `document.querySelector('#id')` / `querySelectorAll` | 只支持 `#id` 形态；class/组合器选择器报错（没有可变布局树） |
+| `document.createElement` / `createTextNode` / `addEventListener` / `appendChild` 等 | 报错：树是声明式的，结构写在 JSX 里，动效走 gsap |
+| `window.innerWidth` / `innerHeight` | `meta` 的宽高；`devicePixelRatio` 恒为 1 |
+| `setTimeout` / `setInterval` / `requestAnimationFrame` | `setTimeout`/`setInterval` 报错（确定性渲染器：时间只来自合成时钟）。`requestAnimationFrame` 由 G2 的帧队列接管，回调在下一帧边界跑一次 |
+
+节点句柄（`ctx.getNode(id)` 或 `document.getElementById(id)` 返回的对象）：
+
+| 成员 | 行为 |
+| --- | --- |
+| `id` | 节点 id |
+| `style.width` 等 | 读/写。写走 `write_style_value`（GSAP 键名，camelCase；kebab-case 读取自动归一）；CSS 自定义属性（`--gap`）原样透传 |
+| `textContent` | 读/写文本内容 |
+| `classList.contains(name)` | 读；`add`/`remove`/`toggle` 报错（class 列表是静态的） |
+| `offsetWidth` / `offsetHeight` | 显式盒宽高（class + inline 解析产物），未声明返回 0 |
+| `getBoundingClientRect()` | `{left, top, right, bottom, x, y, width, height}`，来自显式 left/top/width/height |
+| `getContext('2d')` | 2D 适配器：API 形态是浏览器 2D context，底座是 CanvasKit(Skia) 命令流。支持 fillRect/strokeRect/路径（moveTo/lineTo/arc/bezier）/fill/stroke/fillText/measureText；不支持的区域（区域 clearRect、逆时针 arc、非 left 对齐文本）报错。同节点重复调用返回同一 context |
+| `getContext('webgl')` | 报错并指路 `ctx.three`（useThree） |
+| `node.opacity(0.5)` 等链式方法 | 原有 mutation API，保持不变 |
 
 ---
 

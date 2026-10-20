@@ -790,6 +790,22 @@ macro_rules! for_each_binding {
             Ok($store.read_style_value(&id, &property))
         }}
 
+        // DOM geometry read: explicit box values for `getBoundingClientRect` /
+        // `offsetWidth`. Composed from the same read path as `read_style_value`
+        // (frame mutations first, parse-time initial styles as the base), so a
+        // script that wrote width/left this frame sees its own write.
+        $binding! { qry $store read_box (id: String) -> serde_json::Value {
+            fn read_f32(store: &MutationStore, id: &str, key: &str) -> f32 {
+                store.read_style_value(id, key).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(0.0)
+            }
+            Ok(serde_json::json!({
+                "left": read_f32($store, &id, "left"),
+                "top": read_f32($store, &id, "top"),
+                "width": read_f32($store, &id, "width"),
+                "height": read_f32($store, &id, "height"),
+            }))
+        }}
+
         $binding! { node $rec $id write_style_value ($id: &str, property: String, value: serde_json::Value) {
             $rec . write_style_value($id, &property, value);
         }}

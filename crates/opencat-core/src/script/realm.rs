@@ -20,8 +20,8 @@ use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
-    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, G2_API_RUNTIME, G2_BUNDLE, JSX_RUNTIME,
-    NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, G2_API_RUNTIME,
+    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -249,6 +249,14 @@ impl<C: JsContext> ScriptRealm<C> {
         self.ctx.eval(JS_PLATFORM_SHIM)?;
         self.ctx.eval(G2_BUNDLE)?;
         self.ctx.eval(G2_API_RUNTIME)?;
+        // DOM globals: `document`/`window` + timer guards. After the G2 shim
+        // (its rAF polyfill owns `requestAnimationFrame`; the guard only
+        // fills the gap) and after NODE_STYLE_RUNTIME (getElementById hands
+        // out the same node handles).
+        self.ctx.eval(DOM_API_RUNTIME)?;
+        // 2D-context adapter (`node.getContext('2d')`): after NODE_STYLE_RUNTIME,
+        // whose `getContext` branch forwards here.
+        self.ctx.eval(CONTEXT2D_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
         // JSX frontend: h() + use* registry + module loader. Pure-XML
         // compositions simply never call into it.
@@ -317,6 +325,8 @@ impl<C: JsContext> ScriptRealm<C> {
                 "time": frame_ctx.time_secs,
                 "duration": frame_ctx.total_duration_secs,
                 "frame": frame_ctx.frame as i64,
+                "width": frame_ctx.width,
+                "height": frame_ctx.height,
             }),
         )?;
         self.ctx.set_ctx_field(

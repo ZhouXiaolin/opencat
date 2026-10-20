@@ -1603,3 +1603,311 @@ fn g2_static_cache_replays_identical_ops() {
         }
     });
 }
+// ── B2: author-facing DOM layer ────────────────────────────────────────────
+// `document.getElementById` hands out the same handle as `ctx.getNode`; the
+// DOM property facade (style proxy / textContent / geometry reads) reads and
+// writes through the same store the mutation API uses.
+
+fn dom_test_realm() -> ScriptRealm<V8JsContext> {
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    registry.visual_ids.insert("label".into());
+    registry.visual_ids.insert("panel".into());
+    realm.set_target_registry(registry);
+    // Parse-time initial styles: width/height/inset as a class rule would
+    // seed them (this is the `set_initial_style_from_node` payload).
+    realm.set_style_defaults(
+        &[
+            (
+                "box".to_string(),
+                [
+                    ("width".into(), serde_json::json!(120.0)),
+                    ("height".into(), serde_json::json!(60.0)),
+                    ("left".into(), serde_json::json!(10.0)),
+                    ("top".into(), serde_json::json!(20.0)),
+                    ("className".into(), serde_json::json!("rounded shadow")),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            (
+                "label".to_string(),
+                [("text".into(), serde_json::json!("hello"))].into_iter().collect(),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    realm
+}
+
+fn run_dom_frame(
+    realm: &mut ScriptRealm<V8JsContext>,
+    driver: ScriptDriverId,
+    frame: u32,
+    current_node_id: Option<&str>,
+) -> MutationStore {
+    let frame_ctx = FrameCtx { frame, fps: 30, width: 320, height: 180, frames: 30 };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut rec = MutationStore::default();
+    realm
+        .run_frame(driver, &script_frame_ctx, current_node_id, &mut rec)
+        .expect("run");
+    rec
+}
+
+#[test]
+fn dom_document_get_element_by_id_shares_node_handle() {
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install("document.getElementById('box').opacity(0.25);")
+        .expect("install");
+    let rec = run_dom_frame(&mut realm, driver, 0, Some("box"));
+    let opacity = rec
+        .snapshot_mutations()
+        .mutations
+        .get("box")
+        .and_then(|m| m.opacity)
+        .expect("document.getElementById should reach the same mutation store");
+    assert_eq!(opacity, 0.25);
+}
+
+#[test]
+fn dom_document_unknown_id_errors_with_pointer() {
+    let mut realm = dom_test_realm();
+    // install wraps the source in a function (lazy); force a frame to run it.
+    let driver = realm
+        .install("document.getElementById('nope');")
+        .expect("install wraps the source lazily");
+    let frame_ctx = FrameCtx { frame: 0, fps: 30, width: 320, height: 180, frames: 30 };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut rec = MutationStore::default();
+    let err = realm
+        .run_frame(driver, &script_frame_ctx, None, &mut rec)
+        .expect_err("unknown id should fail when the driver runs");
+    let text = format!("{err:#}");
+    assert!(
+        text.contains("unknown id 'nope'"),
+        "error should name the id, got: {text}"
+    );
+}
+
+#[test]
+fn dom_get_bounding_rect_reads_seeded_box() {
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install(
+            r"
+            var r = document.getElementById('box').getBoundingClientRect();
+            globalThis.__rect = { left: r.left, top: r.top, width: r.width, right: r.right };
+        ",
+        )
+        .expect("install");
+    run_dom_frame(&mut realm, driver, 0, None);
+    let rect = realm.eval_json_for_test("globalThis.__rect");
+    assert_eq!(rect["left"], serde_json::json!(10));
+    assert_eq!(rect["top"], serde_json::json!(20));
+    assert_eq!(rect["width"], serde_json::json!(120));
+    assert_eq!(rect["right"], serde_json::json!(130));
+}
+
+#[test]
+fn dom_style_proxy_writes_and_reads_through_store() {
+    let mut realm = dom_test_realm();
+    // Write via the DOM proxy, read back through the same proxy.
+    let driver = realm
+        .install(
+            r"
+            var el = document.getElementById('box');
+            el.style.opacity = 0.5;
+            el.style.backgroundColor = '#ff0000';
+            el.style.borderRadius = 8;
+            globalThis.__readBack = {
+                opacity: el.style.opacity,
+                bg: el.style.backgroundColor,
+                kebab: el.style['border-radius'],
+            };
+        ",
+        )
+        .expect("install");
+    run_dom_frame(&mut realm, driver, 0, None);
+    let read = realm.eval_json_for_test("globalThis.__readBack");
+    assert_eq!(read["opacity"], serde_json::json!(0.5));
+    // Colors read back in the store's #RRGGBBAA serialization.
+    assert_eq!(read["bg"], serde_json::json!("#ff0000ff"));
+    // kebab-case read normalizes to the same store key the camelCase write used.
+    assert_eq!(read["kebab"], serde_json::json!(8));
+
+    // And the mutation stream carries it (the pipeline consumes this).
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install("document.getElementById('box').style.opacity = 0.75;")
+        .expect("install");
+    let rec = run_dom_frame(&mut realm, driver, 1, Some("box"));
+    let opacity = rec
+        .snapshot_mutations()
+        .mutations
+        .get("box")
+        .and_then(|m| m.opacity)
+        .expect("style proxy write should record a mutation");
+    assert_eq!(opacity, 0.75);
+}
+
+#[test]
+fn dom_text_content_read_write_and_class_list() {
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install(
+            r"
+            var el = document.getElementById('box');
+            var label = document.getElementById('label');
+            globalThis.__dom = {
+                classListContains: el.classList.contains('rounded'),
+                classListMissing: el.classList.contains('nope'),
+                textRead: label.textContent,
+            };
+            label.textContent = 'replaced';
+            globalThis.__dom.textAfter = label.textContent;
+        ",
+        )
+        .expect("install");
+    run_dom_frame(&mut realm, driver, 0, None);
+    let dom = realm.eval_json_for_test("globalThis.__dom");
+    assert_eq!(dom["classListContains"], serde_json::json!(true));
+    assert_eq!(dom["classListMissing"], serde_json::json!(false));
+    assert_eq!(dom["textRead"], serde_json::json!("hello"));
+    assert_eq!(dom["textAfter"], serde_json::json!("replaced"));
+
+    // textContent write lands in the mutation stream as text_content.
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install("document.getElementById('label').textContent = 'frame text';")
+        .expect("install");
+    let rec = run_dom_frame(&mut realm, driver, 1, Some("label"));
+    let text = rec
+        .snapshot_mutations()
+        .mutations
+        .get("label")
+        .and_then(|m| m.text_content.clone())
+        .expect("textContent write should record text_content");
+    assert_eq!(text, "frame text");
+}
+
+#[test]
+fn dom_window_reads_composition_size_and_timers_error() {
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install(
+            r"
+            globalThis.__win = { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio };
+            globalThis.__g = { w: ctx.global.width, h: ctx.global.height };
+        ",
+        )
+        .expect("install");
+    run_dom_frame(&mut realm, driver, 2, None);
+    assert_eq!(
+        realm.eval_json_for_test("globalThis.__win"),
+        serde_json::json!({ "w": 320, "h": 180, "dpr": 1 })
+    );
+    assert_eq!(
+        realm.eval_json_for_test("globalThis.__g"),
+        serde_json::json!({ "w": 320, "h": 180 })
+    );
+
+    // Timers and tree mutation are hard errors with a pointer to the model.
+    // install wraps the source in a function (lazy), so each one runs via a
+    // frame; the expectation is a run error whose text points at the model.
+    // `requestAnimationFrame` is NOT in this list: the G2 rAF queue polyfill
+    // (JS_PLATFORM_SHIM, loaded first) owns the name, and its queue drains at
+    // the frame boundary (`__ocG2Flush`) — a queued callback runs once on the
+    // composition clock, which stays deterministic. The dom_api guard only
+    // fills the gap when that polyfill is absent.
+    for source in [
+        "setTimeout(function() {}, 1);",
+        "document.getElementById('box').appendChild({});",
+        "document.createElement('div');",
+        "document.querySelector('.some-class');",
+    ] {
+        let driver = realm.install(source).unwrap_or_else(|e| {
+            panic!("`{source}` should install: {e:#}")
+        });
+        let frame_ctx = FrameCtx { frame: 3, fps: 30, width: 320, height: 180, frames: 30 };
+        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+        let mut rec = MutationStore::default();
+        let result = realm.run_frame(driver, &script_frame_ctx, None, &mut rec);
+        let err = result.expect_err(&format!("`{source}` should fail when run"));
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("useFrame")
+                || text.contains("declarative")
+                || text.contains("composition clock")
+                || text.contains("only '#id'"),
+            "`{source}` should point at the supported alternative, got: {text}"
+        );
+    }
+}
+
+#[test]
+fn dom_get_context_2d_records_canvas_ops_and_webgl_errors() {
+    let mut realm = dom_test_realm();
+    let driver = realm
+        .install(
+            r"
+            var ctx2d = document.getElementById('panel').getContext('2d');
+            ctx2d.fillStyle = '#00ff00';
+            ctx2d.fillRect(10, 20, 30, 40);
+            ctx2d.strokeStyle = '#0000ff';
+            ctx2d.lineWidth = 2;
+            ctx2d.strokeRect(0, 0, 50, 50);
+            ctx2d.beginPath();
+            ctx2d.moveTo(0, 0);
+            ctx2d.lineTo(10, 10);
+            ctx2d.stroke();
+            var again = document.getElementById('panel').getContext('2d');
+            if (again !== ctx2d) throw new Error('getContext must return the same context per node');
+        ",
+        )
+        .expect("install");
+    let rec = run_dom_frame(&mut realm, driver, 1, Some("panel"));
+    let snap = rec.snapshot_mutations();
+    let commands = &snap
+        .canvas_mutations
+        .get("panel")
+        .expect("2d context should target the panel canvas")
+        .commands;
+    // fillRect lowers to the CK path stream (SetFillStyle + AddRect + FillPath),
+    // strokeRect / stroke() to a stroked path — the same ops the CanvasKit
+    // facade records.
+    let has_fill_rect = commands
+        .iter()
+        .any(|op| matches!(op, opencat_core::ir::draw_op::DrawOp::FillPath));
+    let has_rect_path = commands.iter().any(|op| {
+        matches!(
+            op,
+            opencat_core::ir::draw_op::DrawOp::Path(opencat_core::ir::draw_types::PathOp::AddRect { .. })
+        )
+    });
+    let has_stroke_path = commands
+        .iter()
+        .any(|op| matches!(op, opencat_core::ir::draw_op::DrawOp::StrokePath));
+    assert!(has_fill_rect, "fillRect should record a FillPath op");
+    assert!(has_rect_path, "fillRect should record an AddRect path op");
+    assert!(has_stroke_path, "strokeRect / stroke() should record a StrokePath op");
+
+    // WebGL points at ctx.three (install is lazy; force the frame).
+    let driver = realm
+        .install("document.getElementById('panel').getContext('webgl');")
+        .expect("install wraps lazily");
+    let frame_ctx = FrameCtx { frame: 2, fps: 30, width: 320, height: 180, frames: 30 };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut rec = MutationStore::default();
+    let err = realm
+        .run_frame(driver, &script_frame_ctx, Some("panel"), &mut rec)
+        .expect_err("webgl should error");
+    let text = format!("{err:#}");
+    assert!(
+        text.contains("ctx.three") && text.contains("useThree"),
+        "webgl error should point at ctx.three / useThree, got: {text}"
+    );
+}

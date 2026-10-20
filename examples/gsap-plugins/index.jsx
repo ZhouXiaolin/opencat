@@ -84,13 +84,13 @@ export default function PluginsShowcase() {
         );
 
         // ── 2. 物理插件 ──────────────────────────────────────────────
+        // 物理插件自己驱动属性：再写一个同名的普通 tween（{x: 1400}）会生成
+        // 第二条 PropTween 把它覆盖成线性插值。所以 vars 里只给物理参数，
+        // 终点交给插件算——与 Chrome 里官方包的行为逐值一致。
         tl.fromTo(
             'phys2d',
-            { x: 0, y: 0, rotation: 0 },
+            { x: 0, y: 0 },
             {
-                x: 1400,
-                y: 400,
-                rotation: 720,
                 duration: 3,
                 ease: 'none',
                 physics2D: { velocity: 700, angle: -50, gravity: 900 },
@@ -99,9 +99,8 @@ export default function PluginsShowcase() {
         );
         tl.fromTo(
             'physprops',
-            { x: 0, opacity: 1, scale: 1 },
+            { x: 0, opacity: 1 },
             {
-                x: 1400,
                 duration: 3,
                 ease: 'none',
                 physicsProps: { x: { velocity: 620, acceleration: 260 } },

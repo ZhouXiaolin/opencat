@@ -109,11 +109,12 @@ for (var j = 0; j < ROWS.length; j++) {
     : ROWS[j].ease;
   tl.fromTo('#' + ROWS[j].id, { x: 0 }, { x: 1560, duration: 3, ease: ease }, 0);
 }
-tl.fromTo('#phys2d', { x: 0, y: 0, rotation: 0 },
-  { x: 1400, y: 400, rotation: 720, duration: 3, ease: 'none',
+// 物理插件自己驱动属性：vars 里不再给同名终点（会被覆盖成线性插值）。
+tl.fromTo('#phys2d', { x: 0, y: 0 },
+  { duration: 3, ease: 'none',
     physics2D: { velocity: 700, angle: -50, gravity: 900 } }, 4.2);
-tl.fromTo('#physprops', { x: 0, opacity: 1, scale: 1 },
-  { x: 1400, duration: 3, ease: 'none',
+tl.fromTo('#physprops', { x: 0, opacity: 1 },
+  { duration: 3, ease: 'none',
     physicsProps: { x: { velocity: 620, acceleration: 260 } } }, 4.2);
 window.__seek = function (t) { tl.time(t); };
 window.__ready = true;

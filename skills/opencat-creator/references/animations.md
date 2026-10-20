@@ -106,6 +106,41 @@ Timeline 链式方法返回 timeline 本身，不要依赖子项直接返回采�
 
 ---
 
+## 官方插件
+
+`import { gsap } from 'gsap'` 加上插件自己的子路径（`import { CustomEase } from 'gsap/CustomEase'`）。
+插件由 core 的 bundle 在启动时注册，不需要 `gsap.registerPlugin()`。
+
+### 物理插件：vars 里不要给同名终点
+
+`physics2D` / `physicsProps` 自己驱动属性。再写一个同名终点会生成第二条 PropTween，
+把物理结果覆盖成线性插值：
+
+```js
+// 错：x 的普通 tween 排在物理插件之后，覆盖它的输出
+gsap.to('ball', { x: 1400, physics2D: { velocity: 700, angle: -50 }, duration: 3 });
+
+// 对：终点由插件算，vars 只放物理参数
+gsap.to('ball', { physics2D: { velocity: 700, angle: -50 }, duration: 3, ease: 'none' });
+```
+
+这是官方语义，不是引擎差异——真实浏览器里用普通对象作 target 同样如此。
+
+### RoughEase：用对象形式固定随机表
+
+`rough(...)` 的**字符串形式**把参数按位置传给 `config()`，只有第一个（`points`）生效，
+`randomize` 仍是默认 `true`，缓动表由 `Math.random` 生成——每次运行都不一样。
+要可复现就用对象形式：
+
+```js
+gsap.to('box', {
+  x: 1560, duration: 3,
+  ease: 'rough({strength:3, points:2, taper:"none", randomize:false})',
+});
+```
+
+---
+
 ## 内置插件
 
 直接写字段，不需要 `registerPlugin()`。

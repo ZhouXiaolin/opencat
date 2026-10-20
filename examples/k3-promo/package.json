@@ -1,0 +1,14 @@
+{
+  "name": "k3-promo",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "gsap": "^3.13.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^6.3.0"
+  }
+}

@@ -32,6 +32,7 @@ PASS_P8 = 0.005  # pass line: <=0.5% pixels with max-channel delta > 8
 RENDER_TIMEOUT = 90
 
 CASE_TEMPLATE = """export const meta = {{ width: {w}, height: {h}, fps: 30, duration: 0.04 }};
+export const css = {css};
 export default function SvgCase() {{
   return (
     <div id="root" class="c-{cls}">
@@ -50,26 +51,16 @@ def css_class(flat):
                    else f"_{ord(ch):02x}" for ch in flat)
 
 
-def case_css(cases):
-    # One shared <cases-dir>/tailwind.css (the engine's css sidecar convention).
-    # Stick to the engine's CSS subset: simple properties, background-color,
-    # no shorthand.
-    rules = []
-    for c in cases:
-        meta = CASES_META.get(c["flat"])
-        if not meta:
-            continue
-        w, h = meta
-        cls = css_class(c["flat"])
-        rules.append(
-            f".c-{cls} {{ position: relative; width: {w}px; height: {h}px; "
-            f"overflow: hidden; }}\n"
-            f".c-{cls} .s {{ position: absolute; left: 0; top: 0; }}"
-        )
-    return "\n".join(rules) + "\n"
-
-
-CASES_META = {}  # flat -> (w, h), filled by stage_gen
+def case_css(flat, w, h):
+    # Per-case stylesheet, embedded in the case jsx as `export const css` —
+    # the render path's only style source. Stick to the engine's CSS subset:
+    # simple properties, no shorthand.
+    cls = css_class(flat)
+    return (
+        f".c-{cls} {{ position: relative; width: {w}px; height: {h}px; "
+        f"overflow: hidden; }}\n"
+        f".c-{cls} .s {{ position: absolute; left: 0; top: 0; }}"
+    )
 
 
 def log(msg):
@@ -186,13 +177,12 @@ def stage_gen(cases, force):
             continue
         jsx = OUT / "cases" / f"{c['flat']}.jsx"
         w, h = Image.open(png).size
-        CASES_META[c["flat"]] = (w, h)
         if not (jsx.exists() and not force):
+            css = json.dumps(case_css(c["flat"], w, h))
             jsx.write_text(CASE_TEMPLATE.format(
-                w=w, h=h, src=c["svg"].as_posix(), cls=css_class(c["flat"])))
+                w=w, h=h, src=c["svg"].as_posix(), cls=css_class(c["flat"]), css=css))
         n += 1
-    (OUT / "cases" / "tailwind.css").write_text(case_css(cases))
-    log(f"[gen] {n} case jsx files + shared tailwind.css ready")
+    log(f"[gen] {n} case jsx files ready (styles embedded per case)")
 
 
 def stage_test(cases, force):

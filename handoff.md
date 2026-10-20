@@ -65,8 +65,7 @@ target，`pt=[physics2D>x]` 得 `x=50.00`，与 opencat 逐值相同——引擎
 就是如此（Chrome 普通对象同样得 50，只有真实 DOM 走 CSSPlugin harness 才不同）。
 示例与参考页都已改成只给物理参数、不给同名终点。
 
-**这条要写进 `skills/opencat-creator/references/animations.md`**：物理插件的 vars
-只放物理参数，终点由插件算。
+已写进 `skills/opencat-creator/references/animations.md` 新增的「官方插件」一节。
 
 ### 2. RoughEase 字符串形式的坑（已绕开，需写进文档）
 
@@ -75,6 +74,8 @@ target，`pt=[physics2D>x]` 得 `x=50.00`，与 opencat 逐值相同——引擎
 `Math.random` 生成 → 两侧序列不同 → 永远对不齐）。确定性写法是对象形式：
 `rough({strength:3, points:2, taper:"none", randomize:false})`。示例与参考页都已改用
 对象形式。
+
+同样已写进 `animations.md` 的「官方插件」一节。
 
 ### 3. 文字抗锯齿（纪律内）
 

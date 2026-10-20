@@ -214,7 +214,7 @@
         var sources = globalThis.__ocModuleSources || {};
         if (Object.prototype.hasOwnProperty.call(sources, spec)) return spec;
         if (spec.charAt(0) !== '.') {
-            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "gsap", "three", "canvaskit-wasm" resolve in-engine; any other npm package must be bundled by the vite plugin)');
+            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "gsap" (+ gsap/<Plugin> subpaths), "three", "canvaskit-wasm" resolve in-engine; any other npm package must be bundled by the vite plugin)');
         }
         var base = currentModule || '';
         var slash = base.lastIndexOf('/');
@@ -611,6 +611,44 @@
     builtins['gsap'] = gsapPackage
         ? Object.assign(Object.create(null), gsapPackage, { default: gatedGsap, gsap: gatedGsap })
         : { default: gatedGsap, gsap: gatedGsap };
+    // `import { CustomEase } from 'gsap/CustomEase'` — the npm package's own
+    // per-plugin subpaths. Each record carries the plugin as both the named
+    // and the default export, so the documented import line works verbatim;
+    // entry.js already registered every plugin on the core.
+    if (gsapPackage) {
+        var gsapSubpaths = [
+            'CSSPlugin',
+            'CustomEase',
+            'CustomWiggle',
+            'CustomBounce',
+            'SplitText',
+            'MorphSVGPlugin',
+            'DrawSVGPlugin',
+            'MotionPathPlugin',
+            'ScrambleTextPlugin',
+            'TextPlugin',
+            'Flip',
+            'Physics2DPlugin',
+            'PhysicsPropsPlugin',
+        ];
+        for (var gi = 0; gi < gsapSubpaths.length; gi++) {
+            var gname = gsapSubpaths[gi];
+            var gvalue = gsapPackage[gname];
+            if (gvalue === undefined) continue;
+            var grecord = Object.create(null);
+            grecord['default'] = gvalue;
+            grecord[gname] = gvalue;
+            builtins['gsap/' + gname] = grecord;
+        }
+        // EasePack exports three eases as one module, not a single plugin.
+        var easeBag = Object.create(null);
+        easeBag['default'] = { SlowMo: gsapPackage.SlowMo, ExpoScaleEase: gsapPackage.ExpoScaleEase, RoughEase: gsapPackage.RoughEase };
+        easeBag['SlowMo'] = gsapPackage.SlowMo;
+        easeBag['ExpoScaleEase'] = gsapPackage.ExpoScaleEase;
+        easeBag['RoughEase'] = gsapPackage.RoughEase;
+        easeBag['EasePack'] = easeBag['default'];
+        builtins['gsap/EasePack'] = easeBag;
+    }
     builtins['three'] = globalThis.ctx.threejs;
     builtins['canvaskit-wasm'] = {
         default: globalThis.ctx.canvas,

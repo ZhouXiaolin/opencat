@@ -39,6 +39,18 @@ fn run_driver(
     recorder
 }
 
+/// Run one frame expecting a JS error; returns the formatted message (install
+/// wraps the source lazily, so the error surfaces at run time).
+fn run_driver_expect_err(realm: &mut ScriptRealm<V8JsContext>, driver: ScriptDriverId) -> String {
+    let frame_ctx = FrameCtx { frame: 0, fps: 30, width: 320, height: 180, frames: 30 };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut recorder = MutationStore::default();
+    let err = realm
+        .run_frame(driver, &script_frame_ctx, None, &mut recorder)
+        .expect_err("script should fail");
+    format!("{err:#}")
+}
+
 #[test]
 fn filter_animation_plugin_writes_node_filter_values_through_value_api() {
     let source = r#"
@@ -1909,5 +1921,325 @@ fn dom_get_context_2d_records_canvas_ops_and_webgl_errors() {
     assert!(
         text.contains("ctx.three") && text.contains("useThree"),
         "webgl error should point at ctx.three / useThree, got: {text}"
+    );
+}
+
+// ── C-1: ctx.gsap namespace ───────────────────────────────────────────────
+// The gsap-shaped object forwards to the SAME function objects as the flat
+// ctx names (ctx.to etc. keep working unchanged); playback control errors —
+// a frame=f(t) renderer has no live tween to seek.
+
+#[test]
+fn gsap_namespace_shares_flat_facade_functions_and_drives_tweens() {
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    realm.set_target_registry(registry);
+    realm.set_style_defaults(
+        &[("box".to_string(), [("opacity".into(), serde_json::json!(0.0))].into_iter().collect())]
+            .into_iter()
+            .collect(),
+    );
+    // ctx.gsap.to IS ctx.to — identity, not a wrapper.
+    let driver = realm
+        .install(
+            r"
+            if (ctx.gsap.to !== ctx.to) throw new Error('gsap.to must be the same function as ctx.to');
+            if (ctx.gsap.timeline !== ctx.timeline) throw new Error('gsap.timeline must be the same function');
+            if (ctx.gsap.set !== ctx.set) throw new Error('gsap.set must be the same function');
+            ctx.gsap.to('box', { opacity: 1, duration: 1, ease: 'linear' });
+        ",
+        )
+        .expect("install");
+    // fps 30 → frame 15 of a 1s (30-frame) tween is its midpoint.
+    let rec = run_dom_frame(&mut realm, driver, 15, None);
+    let opacity = rec
+        .snapshot_mutations()
+        .mutations
+        .get("box")
+        .and_then(|m| m.opacity)
+        .expect("gsap.to should drive the same tween engine");
+    assert!((opacity - 0.5).abs() < 0.05, "frame 15 of 30 at fps 30: {opacity}");
+}
+
+#[test]
+fn gsap_timeline_via_namespace_and_unsupported_methods_error() {
+    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".into());
+    registry.visual_ids.insert("box2".into());
+    realm.set_target_registry(registry);
+    let driver = realm
+        .install(
+            r"
+            var tl = ctx.gsap.timeline();
+            tl.to('box', { opacity: 1, duration: 0.5 });
+            tl.to('box2', { x: 100, duration: 0.5 }, '<0.25');
+            globalThis.__tlOk = true;
+        ",
+        )
+        .expect("install timeline");
+    run_dom_frame(&mut realm, driver, 0, None);
+    let ok = realm.eval_json_for_test("globalThis.__tlOk");
+    assert_eq!(ok, serde_json::json!(true), "timeline through ctx.gsap must work");
+
+    // Playback control has no meaning here (install is lazy; force the frame).
+    for method in ["play", "pause", "seek", "timeScale", "killTweensOf"] {
+        let driver = realm
+            .install(format!("ctx.gsap.{}('box');", method).as_str())
+            .expect("install wraps lazily");
+        let frame_ctx = FrameCtx { frame: 1, fps: 30, width: 320, height: 180, frames: 30 };
+        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+        let mut rec = MutationStore::default();
+        let err = realm
+            .run_frame(driver, &script_frame_ctx, None, &mut rec)
+            .expect_err(&format!("{method} should error"));
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("frame=f(t)") || text.contains("deterministic"),
+            "{method} error should explain the deterministic renderer, got: {text}"
+        );
+    }
+    // ticker is an object — touching a member is what errors.
+    let driver = realm
+        .install("ctx.gsap.ticker.add(function() {});")
+        .expect("install ticker");
+    let frame_ctx = FrameCtx { frame: 2, fps: 30, width: 320, height: 180, frames: 30 };
+    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
+    let mut rec = MutationStore::default();
+    let err = realm
+        .run_frame(driver, &script_frame_ctx, None, &mut rec)
+        .expect_err("ticker.add should error");
+    let text = format!("{err:#}");
+    assert!(
+        text.contains("frame=f(t)") || text.contains("deterministic"),
+        "ticker error should explain the deterministic renderer, got: {text}"
+    );
+}
+
+// ── C-2: ctx.threejs namespace + WebGLRenderer({canvas}) adapter ──────────
+// WebGLRenderer resolves the canvas id from either handle form (useRef JSX
+// descriptor / DOM handle), sizes from the parse-time box, and commits the
+// same Scene3 snapshot as new Renderer(id, w, h).
+
+#[test]
+fn threejs_namespace_webgl_renderer_resolves_canvas_and_size() {
+    // (1) useRef-style JSX descriptor: id lives in props.id; size from the
+    // seeded box (as a class width/height would seed it).
+    let source = r#"
+        const T = ctx.threejs;
+        const ref = { current: { __ocEl: true, tag: 'canvas', props: { id: 'c3d' } } };
+        const renderer = new T.WebGLRenderer({ canvas: ref.current });
+        const scene = new T.Scene();
+        const camera = new T.PerspectiveCamera(45, 16 / 9, 0.1, 100);
+        camera.position.set(0, 0, 3);
+        scene.add(new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial({ color: 0xff0000 })));
+        renderer.render(scene, camera);
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    realm.set_style_defaults(
+        &[(
+            "c3d".to_string(),
+            [
+                ("width".into(), serde_json::json!(320.0)),
+                ("height".into(), serde_json::json!(180.0)),
+            ]
+            .into_iter()
+            .collect(),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let recorder = run_driver(&mut realm, driver, 0, None);
+    let scene3 = recorder
+        .snapshot_mutations()
+        .scene3_mutations
+        .get("c3d")
+        .expect("WebGLRenderer({canvas}) should commit a Scene3 snapshot")
+        .clone();
+    assert_eq!(scene3.target, [320, 180], "size should come from the parse-time box");
+
+    // (2) DOM handle (document.getElementById form): id is a property;
+    // setSize(w, h) overrides the box.
+    let source = r#"
+        const T = ctx.threejs;
+        const el = { id: 'c3d', style: {} };
+        const renderer = new T.WebGLRenderer({ canvas: el, antialias: true });
+        renderer.setSize(64, 48);
+        const scene = new T.Scene();
+        const camera = new T.PerspectiveCamera(45, 4 / 3, 0.1, 100);
+        camera.position.set(0, 0, 3);
+        scene.add(new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial({ color: 0x00ff00 })));
+        renderer.render(scene, camera);
+        if (renderer.outputColorSpace !== ctx.three.LinearSRGBColorSpace) {
+            throw new Error('outputColorSpace default must match Renderer');
+        }
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    let recorder = run_driver(&mut realm, driver, 0, None);
+    let scene3 = recorder
+        .snapshot_mutations()
+        .scene3_mutations
+        .get("c3d")
+        .expect("DOM-handle WebGLRenderer should commit")
+        .clone();
+    assert_eq!(scene3.target, [64, 48], "setSize should override the box");
+
+    // (3) no canvas → clear error; Clock/Quaternion/Raycaster error.
+    let (mut realm, driver) = open_with_source("new ctx.threejs.WebGLRenderer({});");
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("c3d".to_string());
+    realm.set_target_registry(registry);
+    let err = run_driver_expect_err(&mut realm, driver);
+    assert!(
+        err.contains("options.canvas"),
+        "missing canvas error should name the option, got: {err}"
+    );
+    for expr in ["new ctx.threejs.Clock()", "new ctx.threejs.Quaternion()", "new ctx.threejs.Raycaster()"] {
+        let (mut realm, driver) = open_with_source(expr);
+        let err = run_driver_expect_err(&mut realm, driver);
+        assert!(
+            err.contains("frame=f(t)"),
+            "{expr} should error with the deterministic-renderer pointer, got: {err}"
+        );
+    }
+}
+
+// ── C-3: ctx.canvas namespace + MakeSurface(el) ───────────────────────────
+// MakeSurface resolves the node id from either handle form and hands back the
+// same command-stream canvas as ctx.getCanvasById; flush/dispose are no-ops.
+
+#[test]
+fn canvas_namespace_make_surface_resolves_element_and_draws() {
+    // (1) useRef-style JSX descriptor → draws land on the node's canvas.
+    let source = r#"
+        const CK = ctx.canvas;
+        const ref = { current: { __ocEl: true, tag: 'canvas', props: { id: 'panel' } } };
+        const surface = CK.MakeSurface(ref.current);
+        surface.getCanvas().drawCircle(50, 50, 20, new CK.Paint());
+        surface.flush();
+        surface.dispose();
+        if (CK.MakeSurface(ref.current) !== surface) throw new Error('same node must return the same surface');
+        if (ctx.canvas.Color !== ctx.CanvasKit.Color) throw new Error('ctx.canvas must be the same toolkit as ctx.CanvasKit');
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("panel".to_string());
+    realm.set_target_registry(registry);
+    let recorder = run_driver(&mut realm, driver, 0, None);
+    let snap = recorder.snapshot_mutations();
+    let commands = &snap
+        .canvas_mutations
+        .get("panel")
+        .expect("MakeSurface should target the panel canvas")
+        .commands;
+    assert!(
+        commands.iter().any(|op| matches!(op, opencat_core::ir::draw_op::DrawOp::FillPath)),
+        "drawCircle should record a FillPath op, got: {commands:?}"
+    );
+
+    // (2) DOM-handle form and pixel-buffer offscreen rejection.
+    let source = r#"
+        const el = { id: 'panel' };
+        const surface = ctx.canvas.MakeSurface(el);
+        surface.clear(ctx.canvas.WHITE);
+        ctx.canvas.makeImageSnapshot();
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("panel".to_string());
+    realm.set_target_registry(registry);
+    let err = run_driver_expect_err(&mut realm, driver);
+    assert!(
+        err.contains("makeImageSnapshot") && err.contains("ly.surface"),
+        "makeImageSnapshot error should point at ly.surface, got: {err}"
+    );
+
+    // (3) missing canvas id errors with the option pointer.
+    let (mut realm, driver) = open_with_source("ctx.canvas.MakeSurface({});");
+    let err = run_driver_expect_err(&mut realm, driver);
+    assert!(
+        err.contains("MakeSurface") && err.contains("expected a <canvas>"),
+        "bad arg error should name MakeSurface, got: {err}"
+    );
+}
+
+// ── C-4: real-package builtins (pure forwards) + hook gate ────────────────
+// `import { gsap } from 'gsap'` resolves through builtins['gsap'] → ctx.gsap;
+// tween calls are gated to per-frame hooks (__ocHookCtx), where the scene
+// clock is bound.
+
+#[test]
+fn real_package_imports_forward_to_ctx_namespaces() {
+    // (1) gsap: hook-gated — usable inside useGSAP/useFrame, errors outside.
+    // The driver body (outside a hook) must NOT be able to tween.
+    let (mut realm, driver) = open_with_source(
+        r#"
+        const { gsap } = globalThis.__ocRequire('gsap');
+        if (typeof gsap.to !== 'function') throw new Error('gsap.to must come through the builtin');
+        try {
+            gsap.to('box', { opacity: 1 });
+            throw new Error('gsap.to outside a hook must be rejected');
+        } catch (e) {
+            if (!String(e).includes('useGSAP')) throw e;
+        }
+        globalThis.__gateWorks = true;
+    "#,
+    );
+    run_driver(&mut realm, driver, 0, None);
+    assert_eq!(
+        realm.eval_json_for_test("globalThis.__gateWorks"),
+        serde_json::json!(true),
+        "gate should reject out-of-hook tween calls"
+    );
+
+    // (2) inside a per-frame hook the same import drives tweens. The driver
+    // replays the hook registry exactly like the JSX driver body does
+    // (`__ocRunFrameHooks()`), so the flush lands inside run_frame's
+    // consuming transfer.
+    let source = r#"
+        const gsap = globalThis.__ocRequire('gsap').gsap;
+        globalThis.__ocOnFrame(function () {
+            if (typeof gsap.to !== 'function') throw new Error('in-hook gsap.to missing');
+            const tl = gsap.timeline();
+            tl.to('box', { opacity: 1, duration: 0.5 }, 0);
+            tl.to('box2', { x: 40, duration: 0.5 }, 0.25);
+        });
+        globalThis.__ocRunFrameHooks();
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    let mut registry = ScriptTargetRegistry::default();
+    registry.visual_ids.insert("box".to_string());
+    registry.visual_ids.insert("box2".to_string());
+    realm.set_target_registry(registry);
+    let snap = run_driver(&mut realm, driver, 15, None).snapshot_mutations();
+    assert!(
+        snap.mutations.contains_key("box") && snap.mutations.contains_key("box2"),
+        "in-hook gsap timeline should drive both targets: {:?}",
+        snap.mutations.keys().collect::<Vec<_>>()
+    );
+
+    // (3) three / canvaskit-wasm: ungated object forwards (identity with the
+    // ctx namespaces — no gate on these, constructors are pure local state).
+    let source = r#"
+        const THREE = globalThis.__ocRequire('three');
+        const CK = globalThis.__ocRequire('canvaskit-wasm').CanvasKit;
+        if (THREE.Scene !== ctx.threejs.Scene) throw new Error('three must forward to ctx.threejs');
+        if (typeof THREE.WebGLRenderer !== 'function') throw new Error('WebGLRenderer must come through the builtin');
+        if (CK.MakeSurface !== ctx.canvas.MakeSurface) throw new Error('canvaskit-wasm must forward to ctx.canvas');
+        globalThis.__fwdOk = true;
+    "#;
+    let (mut realm, driver) = open_with_source(source);
+    run_driver(&mut realm, driver, 0, None);
+    assert_eq!(
+        realm.eval_json_for_test("globalThis.__fwdOk"),
+        serde_json::json!(true),
+        "three / canvaskit-wasm forwards should resolve"
     );
 }

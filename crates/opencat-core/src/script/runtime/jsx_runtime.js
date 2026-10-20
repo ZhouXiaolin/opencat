@@ -214,7 +214,7 @@
         var sources = globalThis.__ocModuleSources || {};
         if (Object.prototype.hasOwnProperty.call(sources, spec)) return spec;
         if (spec.charAt(0) !== '.') {
-            throw new Error('use: unknown module "' + spec + '" (only relative paths and "opencat/runtime" are built in)');
+            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "gsap", "three", "canvaskit-wasm" resolve in-engine; any other npm package must be bundled by the vite plugin)');
         }
         var base = currentModule || '';
         var slash = base.lastIndexOf('/');
@@ -297,11 +297,16 @@
             var saved = ctx.current;
             var savedFrame = globalThis.__ocScriptFrame;
             var savedTime = globalThis.__ocScriptTimeSecs;
+            // The hook gate for the real-package builtins (`gsap` etc.):
+            // tween calls are only meaningful inside a per-frame hook.
+            var savedHookCtx = globalThis.__ocHookCtx;
+            globalThis.__ocHookCtx = ctx;
             try {
                 ctx.current = hook.clock || ctx.global;
                 setScriptFrame(hook.clock);
                 hook.fn(ctx);
             } finally {
+                globalThis.__ocHookCtx = savedHookCtx;
                 ctx.current = saved;
                 globalThis.__ocScriptFrame = savedFrame;
                 globalThis.__ocScriptTimeSecs = savedTime;
@@ -450,6 +455,51 @@
         useFrame: useFrame,
         useCanvasKit: useCanvasKit,
         useComposition: useComposition,
+    };
+
+    // ── real-package builtins: pure forwards to the ctx namespaces ──
+    // `import { gsap } from 'gsap'` (oxc lowers to __ocRequire("gsap").gsap)
+    // and friends resolve here — no npm code is bundled; the engine's own
+    // ctx.gsap / ctx.threejs / ctx.canvas ARE the package surface. gsap is
+    // hook-gated: tween calls only mean something inside a per-frame hook,
+    // where the scene clock is bound. Object constructors (three / canvaskit)
+    // forward ungated — they are pure local state.
+    function hookGated(target, apiName) {
+        var wrapped = new WeakMap();
+        function wrapValue(v) {
+            if (typeof v === 'function') {
+                return function () {
+                    if (!globalThis.__ocHookCtx) {
+                        throw new Error(
+                            apiName + ': call it inside useGSAP() / useFrame() — the per-frame hook is where the scene clock is bound'
+                        );
+                    }
+                    return v.apply(this, arguments);
+                };
+            }
+            if (v && typeof v === 'object') {
+                if (!wrapped.has(v)) wrapped.set(v, hookGated(v, apiName));
+                return wrapped.get(v);
+            }
+            return v;
+        }
+        return new Proxy(target, {
+            get(t, prop) {
+                if (typeof prop !== 'string') return t[prop];
+                return wrapValue(t[prop]);
+            },
+        });
+    }
+
+    // Module shape: `import { gsap } from 'gsap'` lowers to
+    // __ocRequire("gsap").gsap and `import gsap from 'gsap'` to .default —
+    // so the builtin is the package's module record, not the namespace.
+    var gatedGsap = hookGated(globalThis.ctx.gsap, 'gsap');
+    builtins['gsap'] = { default: gatedGsap, gsap: gatedGsap };
+    builtins['three'] = globalThis.ctx.threejs;
+    builtins['canvaskit-wasm'] = {
+        default: globalThis.ctx.canvas,
+        CanvasKit: globalThis.ctx.canvas,
     };
 
     // ── extraction: element tree -> DOM tree ─────────────────────────

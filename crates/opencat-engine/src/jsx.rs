@@ -157,13 +157,15 @@ fn build_driver(modules: &BTreeMap<String, String>) -> String {
              globalThis.__ocResetFrame();\n\
              var __ocEntry = globalThis.__ocRequire({entry});\n\
              globalThis.__ocMeta = (__ocEntry && __ocEntry.meta) || {{}};\n\
-             var __ocRoot = __ocEntry.default;\n\
-             if (typeof __ocRoot === 'function') {{\n\
-                 __ocRoot = __ocRoot(__ocEntry.defaultProps || {{}});\n\
-                 // Walk the tree so `use*` calls inside components register\n\
-                 // their per-frame drivers.\n\
-                 globalThis.__ocWalkTree(__ocRoot, null);\n\
-             }}\n\
+             // Entry convention: `export function main()` first, `export default`\n\
+             // as the single-file spelling (see __ocExtract / resolveEntryRoot).\n\
+             var __ocRoot = typeof __ocEntry.main === 'function' ? __ocEntry.main(__ocEntry.defaultProps || {{}}) : __ocEntry.default;\n\
+             if (typeof __ocRoot === 'function') __ocRoot = __ocRoot(__ocEntry.defaultProps || {{}});\n\
+             // Walk the tree so `use*` calls inside components register their\n\
+             // per-frame drivers. The walk is UNCONDITIONAL: `main()` may return\n\
+             // either a component or an already-rendered element, and an element\n\
+             // still holds components further down that own hooks.\n\
+             globalThis.__ocWalkTree(__ocRoot, null);\n\
              if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();\n\
          }})();",
         sources = serde_json::to_string(modules).unwrap_or_else(|_| "{}".to_string()),

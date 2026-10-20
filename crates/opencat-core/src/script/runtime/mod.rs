@@ -30,11 +30,10 @@ pub const G2_BUNDLE: &str = include_str!("g2/g2.bundle.js");
 pub const G2_API_RUNTIME: &str = include_str!("g2/g2_api.js");
 
 // JSX frontend (`parse::jsx`): element factory + `use*` registry + module
-// loader, and the JSX->h() source transform. Installed in every script realm
-// (the per-frame driver produced by `parse::jsx` depends on them); the
-// transform is also used by the host one-shot extraction pass.
+// loader, installed in every script realm (the per-frame driver produced by
+// `parse::jsx` depends on them). The JSX->h() transform lives in Rust
+// (`parse::jsx_transform`, oxc); the old JS scanner is retired.
 pub const JSX_RUNTIME: &str = include_str!("jsx_runtime.js");
-pub const JSX_TRANSFORM: &str = include_str!("jsx_transform.js");
 
 pub const ANIMATION_BOOTSTRAP: &str = include_str!("animation/bootstrap.js");
 pub const ANIMATION_CORE: &str = include_str!("animation/core.js");

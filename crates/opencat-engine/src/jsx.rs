@@ -18,9 +18,10 @@ use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::jsx::ENTRY_SPEC;
 use opencat_core::parse::jsx_transform;
 use opencat_core::script::js_context::JsContext;
+use opencat_core::script::realm::JS_PLATFORM_SHIM;
 use opencat_core::script::runtime::{
-    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, JSX_RUNTIME,
-    NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, GSAP_BUNDLE,
+    JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
 };
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
@@ -45,6 +46,10 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
     // the shim is pure JS until a draw call happens, so it is safe here.
     ctx.eval(CANVAS_API_RUNTIME)?;
+    // rAF queue: the gsap bundle wakes its ticker once at eval time, which
+    // schedules a tick — without this the load throws. Same shim (and same
+    // queue) the pipeline realm installs before its own bundles.
+    ctx.eval(JS_PLATFORM_SHIM)?;
     // Module top-level code may call `document.getElementById` / read
     // `window.innerWidth` before the first frame exists. `ctx.global` starts
     // zeroed, so geometry reads return 0 — correct for extract; the values
@@ -55,6 +60,10 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     ctx.eval(NODE_STYLE_RUNTIME)?;
     ctx.eval(THREE_API_RUNTIME)?;
     ctx.eval(ANIMATION_RUNTIME)?;
+    // Real gsap package: module top-level code imports `gsap` and its
+    // `gsap/<Plugin>` subpaths (plugin registration is idempotent), and the
+    // JSX runtime below reads `__ocGsapModule` to build those builtins.
+    ctx.eval(GSAP_BUNDLE)?;
     // Last: the JSX runtime itself — its package builtins forward to the
     // namespaces the runtimes above install.
     ctx.eval(JSX_RUNTIME)?;

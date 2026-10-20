@@ -74,7 +74,8 @@ export default function opencat(options = {}) {
 
     // 标准工程流：npm 组件树 → esbuild bundle → 引擎渲染 bundle。
     // react/react/jsx-runtime alias 到垫片（svg 子树在垫片里序列化成
-    // inline markup）；opencat/runtime 保持 external，引擎内建解析。
+    // inline markup）；opencat/runtime 与三个真包（gsap/three/canvaskit-wasm）
+    // 保持 external——引擎内建解析（builtins 纯转发到 ctx 命名空间）。
     const bundle = () => {
         if (!esbuild) {
             const require = createRequire(join(root, 'package.json'));
@@ -93,7 +94,7 @@ export default function opencat(options = {}) {
                 react: SHIM_PATH,
                 'react/jsx-runtime': SHIM_PATH,
             },
-            external: ['opencat/runtime'],
+            external: ['opencat/runtime', 'gsap', 'three', 'canvaskit-wasm'],
             charset: 'utf8',
             logLevel: 'warning',
         });

@@ -944,4 +944,73 @@
         Vector3,
         Euler,
     };
+
+    // ── ctx.threejs: three.js-shaped namespace ──────────────────────
+    // Same class set as ctx.three plus the `WebGLRenderer({ canvas })` form
+    // real three.js code uses (so `import * as THREE from 'three'` can
+    // forward here). The flat ctx.three names above stay untouched — the
+    // verified examples keep their spelling.
+    //
+    // WebGLRenderer accepts either handle form for `options.canvas`: a
+    // `useRef()` handle (the JSX element descriptor — id lives in props.id)
+    // or a DOM handle from ctx.getNode/document.getElementById (id is the
+    // `id` property). Size comes from the parse-time box (class/inline
+    // width/height); `setSize(w, h)` overrides. Playback-side three classes
+    // (Clock/Quaternion/Raycaster) have no role in a frame=f(t) renderer —
+    // they error instead of silently degrading.
+    function resolveCanvasNodeId(el) {
+        if (el && el.__ocEl === true) {
+            var declared = el.props && el.props.id;
+            if (declared !== undefined && declared !== null) return String(declared);
+            throw new Error('WebGLRenderer: the <canvas> element needs an id="..." so the renderer can target it');
+        }
+        if (el && typeof el.id === 'string' && el.id) return el.id;
+        throw new Error('WebGLRenderer: options.canvas must be a <canvas> element (a useRef() handle or document.getElementById)');
+    }
+
+    class WebGLRenderer extends Renderer {
+        constructor(options) {
+            options = options || {};
+            var id = resolveCanvasNodeId(options.canvas);
+            var box = (typeof __read_box === 'function' && __read_box(id)) || {};
+            var w = Math.max(1, Math.round(num(box.width, 0)));
+            var h = Math.max(1, Math.round(num(box.height, 0)));
+            super(id, w || 0, h || 0);
+            // antialias/pixelRatio and friends are engine-side policy here;
+            // accepted for source compatibility, no effect on the rasterizer.
+        }
+        setSize(width, height) {
+            this.__width = Math.max(1, Math.round(num(width, 0)));
+            this.__height = Math.max(1, Math.round(num(height, 0)));
+            return this;
+        }
+        render(scene, camera) {
+            if (!this.__width || !this.__height) {
+                throw new Error(
+                    'WebGLRenderer: no canvas size — declare width/height on the <canvas> (class or style) or call renderer.setSize(w, h)'
+                );
+            }
+            return super.render(scene, camera);
+        }
+        dispose() {
+            // Snapshots are re-committed every frame; nothing persists to free.
+        }
+    }
+
+    function unsupportedThreeClass(name) {
+        var fn = function () {
+            throw new Error(
+                'three.' + name + ' is not available in a deterministic frame=f(t) renderer — per-frame state belongs in your component, not in a live helper'
+            );
+        };
+        return fn;
+    }
+
+    ctx.threejs = Object.assign({}, ctx.three, {
+        WebGLRenderer: WebGLRenderer,
+        Clock: unsupportedThreeClass('Clock'),
+        Quaternion: unsupportedThreeClass('Quaternion'),
+        Raycaster: unsupportedThreeClass('Raycaster'),
+        AnimationMixer: unsupportedThreeClass('AnimationMixer'),
+    });
 })();

@@ -397,4 +397,47 @@
         };
         return api;
     };
+
+    // ── ctx.gsap: gsap-shaped namespace ─────────────────────────────
+    // The same facade functions the flat ctx names expose, organized the way
+    // the `gsap` npm package presents them (so `import { gsap } from 'gsap'`
+    // can forward here). Core tween members ARE the same function objects as
+    // the flat names — one implementation, two spellings, zero drift.
+    // Playback control (play/pause/seek/ticker/timeScale) has no meaning in a
+    // frame = f(t) renderer: every frame recomputes state from the clock, so
+    // there is no live tween to seek — these error instead of silently
+    // no-opping. killTweensOf errors for the same reason (no active pool).
+    function unsupported(method, instead) {
+        return function() {
+            throw new Error(
+                'gsap.' + method + ' is not available in a deterministic frame=f(t) renderer' +
+                (instead ? ' — ' + instead : '')
+            );
+        };
+    }
+
+    ctx.gsap = {
+        to: ctx.to,
+        from: ctx.from,
+        fromTo: ctx.fromTo,
+        set: ctx.set,
+        timeline: ctx.timeline,
+        registerPlugin: function(plugin) {
+            runtime.animation.registerPlugin(plugin);
+        },
+        killTweensOf: unsupported(
+            'killTweensOf',
+            'tweens are recomputed from the scene clock every frame; there is nothing to kill'
+        ),
+        utils: ctx.utils,
+        // Playback control: errors pointing at the declarative model.
+        play: unsupported('play', 'declare the tween in useGSAP()/useFrame() and let the clock drive it'),
+        pause: unsupported('pause', 'declare the tween in useGSAP()/useFrame() and let the clock drive it'),
+        seek: unsupported('seek', 'render the target frame instead — time comes from ctx.current.time'),
+        timeScale: unsupported('timeScale', 'scale durations in the tween vars instead'),
+        ticker: {
+            add: unsupported('ticker.add', 'use useFrame() — the frame callback replaces the ticker'),
+            remove: unsupported('ticker.remove', 'use useFrame() — the frame callback replaces the ticker'),
+        },
+    };
 })();

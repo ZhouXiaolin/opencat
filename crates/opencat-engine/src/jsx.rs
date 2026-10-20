@@ -18,7 +18,10 @@ use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::jsx::ENTRY_SPEC;
 use opencat_core::parse::jsx_transform;
 use opencat_core::script::js_context::JsContext;
-use opencat_core::script::runtime::{CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, JSX_RUNTIME};
+use opencat_core::script::runtime::{
+    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, JSX_RUNTIME,
+    NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+};
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
@@ -34,7 +37,11 @@ pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<Parse
 /// (wasm) receive the pair over the bridge and run `from_extract` themselves.
 pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Value, String)> {
     let mut ctx = V8JsContext::new()?;
-    ctx.eval(JSX_RUNTIME)?;
+    // Realm bootstrap + the runtime slice the extract pass needs. The load
+    // order mirrors `ScriptRealm::ensure_runtime` (style/canvas/three before
+    // the JSX runtime) so the real-package builtins can forward to
+    // `ctx.gsap` / `ctx.threejs` / `ctx.canvas` — author modules may
+    // `require` them at top level during extract.
     // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
     // the shim is pure JS until a draw call happens, so it is safe here.
     ctx.eval(CANVAS_API_RUNTIME)?;
@@ -45,6 +52,12 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     ctx.eval(DOM_API_RUNTIME)?;
     // `node.getContext('2d')` at module top level (paint setup outside a hook).
     ctx.eval(CONTEXT2D_RUNTIME)?;
+    ctx.eval(NODE_STYLE_RUNTIME)?;
+    ctx.eval(THREE_API_RUNTIME)?;
+    ctx.eval(ANIMATION_RUNTIME)?;
+    // Last: the JSX runtime itself — its package builtins forward to the
+    // namespaces the runtimes above install.
+    ctx.eval(JSX_RUNTIME)?;
 
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
     let (entry_code, entry_requires) = transform_source(input)?;

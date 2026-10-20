@@ -5,12 +5,15 @@ esbuild bundle（编译后的 CSS 嵌进 bundle）+ `opencat render`。
 
 ```sh
 bun install      # 或 npm install
-npm run build    # esbuild bundle + 渲染 → dist/video.mp4（49.8s @ 30fps，1494 帧）
+npm run build    # → dist/index.bundle.jsx + dist/video.mp4（49.8s @ 30fps，1494 帧）
 ```
 
-预览：build 产出 `hyperframes-launch.bundle.jsx`（样式已嵌入），
-`opencat-see hyperframes-launch.bundle.jsx`。
+构建产物全部在 `dist/`（已 gitignore），源码目录不放编译结果。
 
-- 入口：`hyperframes-launch.jsx`（保留在目录根部，`vite.config.mjs` 的 `entry` 指向它，
-  仓库内既有脚本/文档引用的路径不变）
-- 对齐历程与已知误差源见 `handoff.md`；模板本身见 `packages/create-opencat/`
+- 入口：`index.jsx`（`export function main()` 约定，`vite.config.mjs` 的 `entry`
+  指向它）。子场景在 `scenes/`，共享工具在 `shared.jsx`，esbuild 按模块图打包。
+- 预览：`opencat-see dist/index.bundle.jsx --base-dir .`
+  （bundle 不在入口目录，用 `--base-dir` 把资产/字体相对路径指回工程根目录）
+- 单帧：`opencat render dist/index.bundle.jsx out.png 625 --base-dir .`
+
+对齐历程与已知误差源见仓库 `docs/`；模板本身见 `packages/create-opencat/`。

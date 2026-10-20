@@ -6,7 +6,7 @@ import opencat from './opencat-plugin.mjs';
 export default defineConfig({
   plugins: [
     opencat({
-      entry: 'hyperframes-launch.jsx',
+      entry: 'index.jsx',
       output: 'dist/video.mp4',
     }),
   ],

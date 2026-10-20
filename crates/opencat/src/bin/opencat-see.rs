@@ -383,16 +383,30 @@ mod app {
     }
 
     pub fn run() -> Result<()> {
-        let input_path = std::env::args()
-            .nth(1)
-            .ok_or_else(|| anyhow!("usage: opencat-see <input.jsx>"))?;
+        // `--base-dir <DIR>`：输入是 dist/ 里的构建产物时，资产/字体相对路径
+        // 仍按工程目录解析。缺省 = 输入文件所在目录。
+        let mut args = std::env::args().skip(1);
+        let mut input_arg: Option<String> = None;
+        let mut base_dir_arg: Option<String> = None;
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--base-dir" => base_dir_arg = args.next(),
+                _ if input_arg.is_none() => input_arg = Some(arg),
+                other => return Err(anyhow!("unexpected argument `{other}`")),
+            }
+        }
+        let input_path =
+            input_arg.ok_or_else(|| anyhow!("usage: opencat-see <input.jsx> [--base-dir <DIR>]"))?;
         let input_path = Path::new(&input_path);
         let source_text =
             std::fs::read_to_string(input_path).context("failed to read composition source")?;
-        let base_dir = input_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf();
+        let base_dir = match base_dir_arg {
+            Some(dir) => Path::new(&dir).to_path_buf(),
+            None => input_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
+        };
         let cache_base =
             dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let cache_dir = cache_base.join(".opencat").join("assets");

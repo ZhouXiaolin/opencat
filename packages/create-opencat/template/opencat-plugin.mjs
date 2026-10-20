@@ -6,11 +6,12 @@
 //   2. 用 esbuild 把入口打包成标准 bundle（解析 npm 依赖——lucide-react
 //      等真包在这里被折叠进产物；react 系 import alias 到 react-shim.mjs），
 //      并把编译后的 CSS 以 `export const css` 嵌进 bundle——bundle 单文件
-//      自包含，是渲染的唯一样式来源。bundle 落在 entry 同目录
-//      （<stem>.bundle.jsx），引擎的 base_dir（资产/字体相对入口目录解析）
-//      约定原样成立。
+//      自包含，是渲染的唯一样式来源。bundle 与视频同放 `output` 所在目录
+//      （默认 dist/，构建产物不混进源码目录）。
 //   3. vite build 结束后自动调用 opencat render 产出视频（渲染的是 bundle）。
-//      预览同理：build 产出 bundle 后 `opencat-see <bundle>.jsx`。
+//      bundle 不在入口目录，所以渲染显式传 `--base-dir <入口目录>`：资产/字体
+//      相对路径仍按入口目录解析。预览同理：build 产出 bundle 后
+//      `opencat-see dist/<stem>.bundle.jsx --base-dir .`。
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -29,6 +30,7 @@ export default function opencat(options = {}) {
     let entryAbs;
     let entryDir;
     let outputAbs;
+    let distDir;
     let tailwindCli;
     let esbuild;
     let bundleAbs;
@@ -75,15 +77,18 @@ export default function opencat(options = {}) {
     // 标准工程流：npm 组件树 → esbuild bundle → 引擎渲染 bundle。
     // react/react/jsx-runtime alias 到垫片（svg 子树在垫片里序列化成
     // inline markup）；opencat/runtime 与三个真包（gsap/three/canvaskit-wasm）
-    // 保持 external——引擎内建解析（builtins 纯转发到 ctx 命名空间），
-    // bundle 里只留 import 语句。
+    // 保持 external——引擎内建解析（builtins 纯转发到 ctx 命名空间）。
     const bundle = () => {
         if (!esbuild) {
             const require = createRequire(join(root, 'package.json'));
             esbuild = require('esbuild');
         }
         const stem = basename(entryAbs).replace(/\.jsx$/, '');
-        bundleAbs = join(entryDir, `${stem}.bundle.jsx`);
+        // 产物一律进 dist/（与视频同目录，一起被 gitignore）。bundle 不在入口
+        // 同目录，所以渲染时必须显式把 base_dir 指回入口目录——资产/字体相对
+        // 路径仍按入口目录解析。
+        bundleAbs = join(distDir, `${stem}.bundle.jsx`);
+        mkdirSync(distDir, { recursive: true });
         esbuild.buildSync({
             entryPoints: [entryAbs],
             outfile: bundleAbs,
@@ -117,7 +122,11 @@ export default function opencat(options = {}) {
         const bin = findOpencatBin();
         mkdirSync(dirname(outputAbs), { recursive: true });
         console.log(`[opencat] render ${entry} -> ${output}`);
-        const result = spawnSync(bin, ['render', bundleAbs, outputAbs], { stdio: 'inherit' });
+        const result = spawnSync(
+            bin,
+            ['render', bundleAbs, outputAbs, '--base-dir', entryDir],
+            { stdio: 'inherit' }
+        );
         if (result.status !== 0) {
             throw new Error(`[opencat] 渲染失败（exit ${result.status}）`);
         }
@@ -132,6 +141,7 @@ export default function opencat(options = {}) {
             entryAbs = resolve(root, entry);
             entryDir = dirname(entryAbs);
             outputAbs = resolve(root, output);
+            distDir = dirname(outputAbs);
             tailwindCli = resolveTailwindCli(root);
         },
         buildStart() {

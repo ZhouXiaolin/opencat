@@ -24,6 +24,11 @@ enum Command {
         output: Option<String>,
         /// Frame index — only honored when `output` ends with `.png`.
         frame: Option<u32>,
+        /// Directory for relative asset paths (`assets/fonts/...`). Defaults to
+        /// the input file's directory. Set it when the input is a build artifact
+        /// living outside the project (e.g. `dist/index.bundle.jsx`).
+        #[arg(long, value_name = "DIR")]
+        base_dir: Option<PathBuf>,
     },
 }
 
@@ -35,7 +40,8 @@ fn main() -> anyhow::Result<()> {
             input,
             output,
             frame,
-        } => render(input, output, frame),
+            base_dir,
+        } => render(input, output, frame, base_dir),
     }
 }
 
@@ -54,9 +60,14 @@ fn default_render_subcommand(mut args: Vec<OsString>) -> Vec<OsString> {
     args
 }
 
-fn render(input: PathBuf, output: Option<String>, frame: Option<u32>) -> anyhow::Result<()> {
+fn render(
+    input: PathBuf,
+    output: Option<String>,
+    frame: Option<u32>,
+    base_dir: Option<PathBuf>,
+) -> anyhow::Result<()> {
     let source = std::fs::read_to_string(&input)?;
-    let base_dir = input.parent();
+    let base_dir = base_dir.as_deref().or_else(|| input.parent());
 
     let output = output.unwrap_or_else(|| {
         let stem = input

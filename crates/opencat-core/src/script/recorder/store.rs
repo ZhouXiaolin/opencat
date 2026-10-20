@@ -517,6 +517,19 @@ impl MutationStore {
         add_f32!("height", height);
         add_f32!("gap", gap);
         add_f32!("flexGrow", flex_grow);
+        // Inset quads — `read_style_value` exposes them as left/top/right/bottom,
+        // so the initial seeding has to carry the same keys or a fresh
+        // `getBoundingClientRect` would read 0 for class-declared insets.
+        for (key, value) in [
+            ("left", style.inset_left),
+            ("top", style.inset_top),
+            ("right", style.inset_right),
+            ("bottom", style.inset_bottom),
+        ] {
+            if let Some(crate::style::LengthPercentageAuto::Length(v)) = value {
+                props.insert(key.into(), json!(v));
+            }
+        }
         for op in &style.css_filter.ops {
             if let Some(shadow) = op.shadow {
                 props.insert(

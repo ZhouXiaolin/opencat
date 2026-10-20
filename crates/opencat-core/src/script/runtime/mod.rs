@@ -10,10 +10,11 @@
 //! 4. Core utility (utils) — `ctx.utils.*` helpers
 //! 5. Plugin files (text, scramble_text, split_text, motion_path, morph_svg) — extension plugins
 //! 6. `ANIMATION_FACADE` — `ctx.from/to/fromTo/set()`, `ctx.timeline()`, `flushTimelines`
-//! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API
+//! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API + DOM property facade
 //! 8. `CANVAS_API_RUNTIME` — `ctx.canvas(id).fillRect(...)` CanvasKit subset
 //! 9. `THREE_API_RUNTIME` — `ctx.three` three.js 风格 3D 场景图 + `Renderer.render()`
 //! 10. `G2_BUNDLE` + `G2_API_RUNTIME` — `useChart(ref, build)` AntV G2 图表，
+//! 11. `DOM_API_RUNTIME` — `document`/`window` 全局与越界 API 报错
 //!
 //! All files are IIFE-wrapped and assume the existence of native
 //! `__record_*`, `__canvas_*`, `__animate_*`, `__text_source_*`
@@ -22,6 +23,15 @@
 pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 pub const THREE_API_RUNTIME: &str = include_str!("three_api.js");
+// DOM globals (`document`/`window`/timer guards). Loaded after
+// `NODE_STYLE_RUNTIME` (getElementById hands out the same node handles) and
+// after `JS_PLATFORM_SHIM` in the realm bootstrap (the G2 rAF polyfill must
+// claim `requestAnimationFrame` first; the guard here only fills the gap).
+pub const DOM_API_RUNTIME: &str = include_str!("dom_api.js");
+// 2D-context adapter for `node.getContext('2d')` (see context2d.js header).
+// Loaded after `NODE_STYLE_RUNTIME` — the node facade's `getContext` branch
+// calls `ctx.getContext` defined here.
+pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
 // AntV G2 chart runtime. `G2_BUNDLE` is the built @antv/g2 +
 // @antv/g-canvaskit IIFE (built by the same esbuild chain as g2-rs);
 // `G2_API_RUNTIME` is the host side that binds G2 to an OpenCat <canvas>

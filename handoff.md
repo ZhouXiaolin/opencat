@@ -48,24 +48,25 @@ ScrambleText/Text、Flip/Physics2D/PhysicsProps）。构建脚本
 |---|---|
 | k3-promo 回归 | **像素零变化**，`out/index.bundle.mp4` 与改前 `out/fixed-gsap.mp4` MD5 相同；对真 swgl 参考 avg_p8 = **1.7394%**（与 goal.md 记录一致） |
 | 插件加载 | 15/15 全部注册；`gsap.plugins` 含 css/morphSVG/drawSVG/motionPath/scrambleText/text/physics2D/physicsProps |
-| eases 数值 | 6/7 与 Chrome 逐帧中心位置差 **≤0.03px**：linear、CustomEase、CustomWiggle、CustomBounce、SlowMo、ExpoScaleEase |
-| RoughEase | 修好后 **0.00px**（见下） |
-| 整片 k3diff | avg_p8 = **1.31%**（最差帧 2.06%） |
-| physics 插件 | **未对齐**，见下方缺口 |
+| 全部场景数值 | 与 Chrome 逐帧色块中心位置差 **≤0.36px**（f0/15/30/45/60/90/150/165 采样） |
+| eases 7/7 | linear、CustomEase、CustomWiggle、CustomBounce、SlowMo、ExpoScaleEase、RoughEase 全部对齐 |
+| physics 2/2 | Physics2D、PhysicsProps 全部对齐 |
+| 整片 k3diff | avg_p8 = **1.08%**（剩余差异是标题文字抗锯齿） |
 
 ## 已知缺口（下一轮）
 
-### 1. 物理插件走不通 ocTarget（阻塞）
+### 1. 物理插件的写法约束（已澄清，需写进文档）
 
-Chrome 侧同一 tween 的 `_pt` 链是**空的**，`x` 由 CSSPlugin 的 harness 路径写进
-`_gsap` 缓存（target 是真实 DOM，`targetTest` 命中 `target.style && target.nodeType`）。
-opencat 的 `ctx.ocTarget` 是普通对象 Proxy，CSSPlugin 的 `targetTest` 不命中，于是
-Physics2D 插件和普通 `x` 各自生成一条独立 PropTween，头插顺序让 `x` 覆盖物理结果。
+一度以为 ocTarget 缺 CSSPlugin harness 是缺口，实测证伪：Chrome 里用**普通对象**作
+target，`pt=[physics2D>x]` 得 `x=50.00`，与 opencat 逐值相同——引擎行为是对的。
 
-实测：opencat 链 `physics2D > x`，`time(0.5)` 后 `x=50`（线性插值）；Chrome 同参数得
-`x=224.98`。**这不是阶段 1 的 bundle 问题，是 target 通道问题** —— ocTarget 缺
-`style`/`nodeType` 这层宿主外形。修法方向：给 ocTarget 补 CSSPlugin harness 需要的
-最小外形，或让 physics 类插件走 ocTarget 的专属通道。下一轮先定这条路线。
+真正的原因是**示例写法违反官方语义**：物理插件自己驱动属性，`vars` 里再给同名终点
+（`{x: 1400, physics2D: {...}}`）会生成第二条 PropTween 把它覆盖成线性插值。官方行为
+就是如此（Chrome 普通对象同样得 50，只有真实 DOM 走 CSSPlugin harness 才不同）。
+示例与参考页都已改成只给物理参数、不给同名终点。
+
+**这条要写进 `skills/opencat-creator/references/animations.md`**：物理插件的 vars
+只放物理参数，终点由插件算。
 
 ### 2. RoughEase 字符串形式的坑（已绕开，需写进文档）
 
@@ -81,13 +82,11 @@ Physics2D 插件和普通 `x` 各自生成一条独立 PropTween，头插顺序�
 
 ## 下一轮建议顺序
 
-1. **定物理插件的 target 通道**（缺口 1）：这是 §4 里唯一卡住的纯数学插件，先解决
-   才能证明「全部非交互插件原样跑」。
-2. **阶段 3 宿主最小子集**：`createElement/appendChild` 通道、样式继承链
+1. **阶段 3 宿主最小子集**：`createElement/appendChild` 通道、样式继承链
    `getComputedStyle`、cosmic-text IFC 行盒、`setAttribute('d')` 写穿 svg_path、
    `getTotalLength` 接 `path_measure.rs`、`getBoundingClientRect`。这是
    ScrambleText/Text/MotionPath/DrawSVG/MorphSVG/SplitText/Flip 七個插件的前置。
-3. **阶段 5 退役**：删 `ctx.timeline/to/from/fromTo/set`、五个原生插件、
+2. **阶段 5 退役**：删 `ctx.timeline/to/from/fromTo/set`、五个原生插件、
    `bezier:`/`points:` 标签 + `Easing::Samples`；11 个 ctx.* 示例迁真包写法。
 
 ## 命令速查

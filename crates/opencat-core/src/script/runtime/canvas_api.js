@@ -1862,6 +1862,17 @@
     globalThis.ly = ly;
     ctx.ly = ly;
 
+    // ── ctx.surface: the standard offscreen 2D text surface ─────────
+    // Same facade ly.surface hands out (real-font fillText / measureText /
+    // getImageData over the scoped fontdb), exposed under its own name so
+    // compositions don't have to reach into the liangyi namespace. The
+    // surface itself was never a liangyi kernel — only the name was.
+    ctx.surface = function (w, h) {
+        const ww = Math.max(1, Math.round(toFiniteNumber(w)));
+        const hh = Math.max(1, Math.round(toFiniteNumber(h)));
+        return surfaceById('surface-' + ww + 'x' + hh, ww, hh);
+    };
+
     // ── ctx.canvas: canvaskit-shaped namespace ──────────────────────
     // Same object as ctx.CanvasKit (one implementation, two spellings — the
     // verified examples keep `ctx.CanvasKit`) plus `MakeSurface(el)`, the

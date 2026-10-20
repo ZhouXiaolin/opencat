@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use std::collections::HashSet;
 
+use crate::style::NodeStyle;
+
 /// Where to load a font binary from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FontSource {
@@ -80,35 +82,28 @@ impl FontManifest {
         self.family_for_id(index, id)
     }
 
-    /// Apply `font-sans` / `font-[id]` on parsed element styles before tree build.
+    /// Apply `font-sans` / `font-[id]` on a resolved node style (DOM build time).
     ///
     /// A face whose `<font role>` declares a generic class (`mono`/`sans`) seeds
     /// `font_generic` unless the class already carried an explicit generic tail —
     /// the use-site stack wins, exactly as in CSS.
-    pub fn apply_font_refs_to_styles(
-        &self,
-        index: &FontFamilyIndex,
-        elements: &mut [crate::parse::document::ParsedElement],
-    ) {
-        for el in elements.iter_mut() {
-            let style = &mut el.style;
-            if style.use_document_default_font {
-                if let Some(family) = self.default_family(index) {
-                    style.font_family = Some(family.to_string());
-                }
+    pub fn apply_font_refs_to_style(&self, index: &FontFamilyIndex, style: &mut NodeStyle) {
+        if style.use_document_default_font {
+            if let Some(family) = self.default_family(index) {
+                style.font_family = Some(family.to_string());
             }
-            if let Some(id) = style.font_face_id.take() {
-                if let Some(family) = self.family_for_id(index, &id) {
-                    style.font_family = Some(family.to_string());
-                    if style.font_generic.is_none() {
-                        style.font_generic = self
-                            .face_by_id(&id)
-                            .and_then(|face| face.role)
-                            .and_then(FontRole::generic_family);
-                    }
-                } else {
-                    style.font_face_id = Some(id);
+        }
+        if let Some(id) = style.font_face_id.take() {
+            if let Some(family) = self.family_for_id(index, &id) {
+                style.font_family = Some(family.to_string());
+                if style.font_generic.is_none() {
+                    style.font_generic = self
+                        .face_by_id(&id)
+                        .and_then(|face| face.role)
+                        .and_then(FontRole::generic_family);
                 }
+            } else {
+                style.font_face_id = Some(id);
             }
         }
     }
@@ -352,19 +347,12 @@ mod tests {
     }
     #[test]
     fn face_role_seeds_generic_family_and_explicit_tail_wins() {
-        use crate::parse::document::{ParsedElement, ParsedElementKind};
         use crate::style::{GenericFamily, NodeStyle};
 
-        fn element_with_face(id: &str) -> ParsedElement {
-            let mut el = ParsedElement {
-                id: "t".to_string(),
-                parent_id: None,
-                duration: None,
-                style: NodeStyle::default(),
-                kind: ParsedElementKind::Div,
-            };
-            el.style.font_face_id = Some(id.to_string());
-            el
+        fn style_with_face(id: &str) -> NodeStyle {
+            let mut style = NodeStyle::default();
+            style.font_face_id = Some(id.to_string());
+            style
         }
 
         let manifest = FontManifest {
@@ -387,16 +375,16 @@ mod tests {
         let index = manifest.build_family_index();
 
         // role="mono" seeds the generic class.
-        let mut elements = vec![element_with_face("mono4")];
-        manifest.apply_font_refs_to_styles(&index, &mut elements);
-        assert_eq!(elements[0].style.font_family.as_deref(), Some("Spline Sans Mono"));
-        assert_eq!(elements[0].style.font_generic, Some(GenericFamily::Monospace));
+        let mut style = style_with_face("mono4");
+        manifest.apply_font_refs_to_style(&index, &mut style);
+        assert_eq!(style.font_family.as_deref(), Some("Spline Sans Mono"));
+        assert_eq!(style.font_generic, Some(GenericFamily::Monospace));
 
         // An explicit generic tail on the class wins over the role.
-        let mut elements = vec![element_with_face("mono4")];
-        elements[0].style.font_generic = Some(GenericFamily::Serif);
-        manifest.apply_font_refs_to_styles(&index, &mut elements);
-        assert_eq!(elements[0].style.font_generic, Some(GenericFamily::Serif));
+        let mut style = style_with_face("mono4");
+        style.font_generic = Some(GenericFamily::Serif);
+        manifest.apply_font_refs_to_style(&index, &mut style);
+        assert_eq!(style.font_generic, Some(GenericFamily::Serif));
 
         // A face without a role leaves the class untouched.
         let bare = FontManifest {
@@ -409,8 +397,8 @@ mod tests {
             }],
         };
         let bare_index = bare.build_family_index();
-        let mut elements = vec![element_with_face("black")];
-        bare.apply_font_refs_to_styles(&bare_index, &mut elements);
-        assert_eq!(elements[0].style.font_generic, None);
+        let mut style = style_with_face("black");
+        bare.apply_font_refs_to_style(&bare_index, &mut style);
+        assert_eq!(style.font_generic, None);
     }
 }

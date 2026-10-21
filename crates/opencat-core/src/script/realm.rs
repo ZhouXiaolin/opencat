@@ -273,12 +273,6 @@ impl<C: JsContext> ScriptRealm<C> {
         if let Some(base) = &self.document_base {
             self.ctx.set_ctx_field("__documentBase", json!(base))?;
         }
-        // Debug escape hatch: OC_DBG_NAN=1 arms the NaN guards in
-        // animation/core.js (createTween / __animate_value inputs). Unset on
-        // web (std::env::var is always Err there) and zero-cost when unset.
-        if matches!(std::env::var("OC_DBG_NAN"), Ok(v) if v == "1") {
-            self.ctx.eval("globalThis.__OC_DBG_NAN = true;")?;
-        }
         // A-B timing / diagnostics escape hatch for the G2 static-build cache
         // (g2_api.js reads it before each chart frame).
         if matches!(std::env::var("OC_NO_G2_CACHE"), Ok(v) if v == "1") {

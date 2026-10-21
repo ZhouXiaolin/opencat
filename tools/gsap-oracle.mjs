@@ -67,7 +67,13 @@ const PLUGIN_SCRIPTS = [
     'MotionPathPlugin.min.js',
     'ScrambleTextPlugin.min.js',
     'TextPlugin.min.js',
+    'SplitText.min.js',
 ];
+
+// SplitText 场景的三段原文与 type，与 index.jsx 逐字一致。
+const SPLIT_CHARS = 'SplitText';
+const SPLIT_WORDS = 'one word at a time';
+const SPLIT_LINES = 'three lines of split text stacked in a column';
 
 function pageHtml() {
     const rows = JSON.stringify(ROWS);
@@ -119,6 +125,9 @@ ${scripts}
   <div id="motionpath-dot" style="position:absolute;left:0;top:0;width:26px;height:26px;border-radius:13px;background:#fbbf24"></div>
   <div id="scramble-text" style="position:absolute;left:60px;top:700px;font-size:40px;font-family:'oracle-sans';line-height:1.5;color:#e2e8f0">DECODED PAYLOAD</div>
   <div id="text-target" style="position:absolute;left:60px;top:780px;font-size:32px;font-family:'oracle-sans';line-height:1.5;color:#94a3b8">start</div>
+  <div id="split-chars" style="position:absolute;left:700px;top:690px;font-size:56px;font-family:'oracle-sans';line-height:1.5;color:#f8fafc">${SPLIT_CHARS}</div>
+  <div id="split-words" style="position:absolute;left:700px;top:770px;font-size:32px;font-family:'oracle-sans';line-height:1.5;color:#a5b4fc">${SPLIT_WORDS}</div>
+  <div id="split-lines" style="position:absolute;left:700px;top:830px;width:380px;font-size:28px;font-family:'oracle-sans';line-height:1.5;color:#67e8f9">${SPLIT_LINES}</div>
 </div>
 <script>
 var ROWS = ${rows};
@@ -137,7 +146,7 @@ CustomWiggle.create('wiggle', { wiggles: 8, type: 'anticipate' });
 CustomBounce.create('bounce', { strength: 0.7, squash: 0.4 });
 gsap.registerPlugin(CustomEase, CustomWiggle, CustomBounce, SlowMo, ExpoScaleEase, RoughEase,
   Physics2DPlugin, PhysicsPropsPlugin, DrawSVGPlugin, MorphSVGPlugin, MotionPathPlugin,
-  ScrambleTextPlugin, TextPlugin);
+  ScrambleTextPlugin, TextPlugin, SplitText);
 // 暂停时间轴，只由 __seek 驱动：同一帧号永远给出同一张图。
 var tl = gsap.timeline({ paused: true });
 for (var j = 0; j < ROWS.length; j++) {
@@ -164,6 +173,17 @@ tl.to('#motionpath-dot', { duration: 2.4, ease: 'none',
 tl.to('#scramble-text', { duration: 2.4, ease: 'none',
   scrambleText: { text: 'DECODED PAYLOAD', chars: 'X', speed: 1, revealDelay: 0.2 } }, 7.2);
 tl.to('#text-target', { duration: 2.4, ease: 'none', text: { value: 'typed by TextPlugin' } }, 7.2);
+// 4. SplitText：官方构造器，拆出来的 wrapper 直接交给 timeline。
+// 与 index.jsx 逐字一致（同一组 type、同一组时长/stagger）。
+var splitChars = new SplitText(document.getElementById('split-chars'), { type: 'chars' });
+var splitWords = new SplitText(document.getElementById('split-words'), { type: 'words' });
+var splitLines = new SplitText(document.getElementById('split-lines'), { type: 'chars,words,lines' });
+tl.fromTo(splitChars.chars, { y: 40, opacity: 0 },
+  { y: 0, opacity: 1, duration: 0.6, ease: 'power2.out', stagger: 0.06 }, 9.6);
+tl.fromTo(splitWords.words, { opacity: 0 },
+  { opacity: 1, duration: 0.5, ease: 'none', stagger: 0.14 }, 9.9);
+tl.fromTo(splitLines.lines, { x: 220, opacity: 0 },
+  { x: 0, opacity: 1, duration: 0.55, ease: 'power3.out', stagger: 0.16 }, 10.2);
 window.__seek = function (t) { tl.time(t); };
 window.__ready = true;
 </script>

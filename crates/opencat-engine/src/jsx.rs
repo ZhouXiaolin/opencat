@@ -120,8 +120,12 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
                 // scripts/build-example-gsap.mjs) pre-bundles the npm package
                 // next to the main bundle. Subpaths (`gsap/SplitText`) are
                 // views over that one module in the JS runtime, so only the
-                // bare specifier is materialized here.
-                if spec == "gsap" && !modules.contains_key("gsap") {
+                // bare specifier is materialized here — but a module that
+                // imports ONLY a subpath never queues the bare specifier, so
+                // the subpath queues it on its behalf.
+                let needs_gsap = spec == "gsap"
+                    || (spec.starts_with("gsap/") && spec.len() > "gsap/".len());
+                if needs_gsap && !modules.contains_key("gsap") {
                     let path = gsap_sidecar_path(base_dir);
                     let source = std::fs::read_to_string(&path).with_context(|| {
                         format!(

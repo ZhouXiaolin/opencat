@@ -256,6 +256,37 @@
         return t === null || t === undefined ? 'DIV' : String(t).toUpperCase();
     }
 
+    // A script-built wrapper (SplitText's char/word/line element) has no
+    // declared position or size — its box comes from the text it holds. The
+    // range is resolved against the nearest declared text ancestor, so the box
+    // is the same shaping run the renderer uses, aggregated per byte range.
+    //
+    // This must answer truthfully. gsap's `_getMatrix` treats an element with
+    // an identity matrix, no `offsetParent` and a zero-width rect as
+    // not-laid-out, and re-parents it to `documentElement` to force layout —
+    // which reorders the split children.
+    function boxOf(id) {
+        var range = __dom_text_range(id);
+        var b = range
+            ? (__text_element_boxes(String(range[2]), [[range[0], range[1]]]) || [])[0]
+            : null;
+        if (!b) return { left: 0, top: 0, width: 0, height: 0 };
+        var left = Number(b.left) || 0;
+        var top = Number(b.top) || 0;
+        var width = Number(b.width) || 0;
+        var height = Number(b.height) || 0;
+        return { left: left, top: top, width: width, height: height };
+    }
+
+    function rectOf(id) {
+        var b = boxOf(id);
+        return {
+            left: b.left, top: b.top, width: b.width, height: b.height,
+            right: b.left + b.width, bottom: b.top + b.height,
+            x: b.left, y: b.top,
+        };
+    }
+
     /// Children/tree members every overlay-backed node shares.
     function treeMembers(id, target) {
         function define(name, getter, setter) {
@@ -322,10 +353,21 @@
             }
             return false;
         };
-        target.getBoundingClientRect = function () {
-            return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 };
+        target.getBoundingClientRect = function () { return rectOf(id); };
+        target.getBBox = function () {
+            var b = boxOf(id);
+            return { x: b.left, y: b.top, width: b.width, height: b.height };
         };
-        target.getBBox = function () { return { x: 0, y: 0, width: 0, height: 0 }; };
+        // Every node in a declarative composition is laid out — its box exists
+        // without anything being attached to a document. A falsy `offsetParent`
+        // tells gsap the opposite and sends it down its re-parent-to-force-
+        // layout path (see `boxOf`).
+        Object.defineProperty(target, 'offsetWidth', { get: function () { return boxOf(id).width; }, configurable: true });
+        Object.defineProperty(target, 'offsetHeight', { get: function () { return boxOf(id).height; }, configurable: true });
+        Object.defineProperty(target, 'offsetParent', {
+            get: function () { return parentHandle(id) || (globalThis.document && globalThis.document.body) || null; },
+            configurable: true,
+        });
         return target;
     }
 

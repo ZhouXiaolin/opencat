@@ -39,6 +39,10 @@ pub struct ScriptTargetRegistry {
     /// Per-node static facts, keyed by node id. Sorted iteration is not
     /// required — consumers look facts up by id.
     pub facts: std::collections::HashMap<String, ScriptNodeFacts>,
+    /// Declared tree in document order — the base view the script-side
+    /// [`TreeOverlay`](crate::script::tree::TreeOverlay) builds child lists
+    /// from before any script mutation.
+    pub declared_nodes: Vec<crate::script::tree::DeclaredNode>,
 }
 
 impl ScriptTargetRegistry {

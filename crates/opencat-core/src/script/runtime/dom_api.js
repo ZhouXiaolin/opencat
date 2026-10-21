@@ -3,10 +3,12 @@
 //
 // The tree is declarative: `document.getElementById` returns the SAME handle
 // `ctx.getNode` hands out (lazily — an id works before its element is
-// created, matching how per-frame drivers replay hooks in order). Tree
-// mutation (`appendChild` & friends), timers, and `requestAnimationFrame` are
-// hard errors that point at the supported alternative, so real-package code
-// fails loudly here instead of silently diverging.
+// created, matching how per-frame drivers replay hooks in order). Node
+// creation and tree mutation go through the script-side overlay
+// (`tree_api.js`), so official plugins can split text and move children.
+// Timers and `requestAnimationFrame` stay hard errors that point at the
+// supported alternative, so real-package code fails loudly instead of
+// silently diverging.
 (function () {
     'use strict';
 
@@ -58,33 +60,22 @@
         };
     }
 
-    // ── Detached scratch elements ───────────────────────────────────
-    // `document.createElement('div')` is how plugins parse the HTML strings
-    // they are handed: TextPlugin sets `_tempDiv.innerHTML = value.value` and
-    // then splits the result. Nothing here joins the composition — a scratch
-    // element is a plain object holding text — so the HTML never has to be
-    // modelled; only the round trip has to work.
-    function scratchTextNode(text) {
-        return {
-            nodeType: 3,
-            nodeName: '#text',
-            nodeValue: text,
-            textContent: text,
-            data: text,
-        };
-    }
-
-    // A CSSStyleDeclaration stand-in. The plugins probe it by name —
-    // `'transform' in style`, `style.WebkitTransform` — to feature-detect
-    // supported properties, and a real declaration answers for every name the
-    // browser knows. So this bag answers `true` for any identifier and stores
-    // whatever is assigned; nothing reads it back for layout.
-    function scratchStyle() {
+    // ── Document root ───────────────────────────────────────────────
+    // Plugins walk UP from an element to the document root (`_setDoc` does
+    // `doc.parentNode` until null, then calls `createElementNS` on whatever it
+    // reached), so the root is an object that owns element creation. Node
+    // creation itself goes to the script-side overlay (`tree_api.js`) — the
+    // root only has to be a place to create FROM and a `body` to append to.
+    // The root's own style declaration. Nothing is laid out through it, but
+    // gsap feature-detects on `document.body` — `_setDoc` does
+    // `'transform' in body.style` — so it answers for every name the browser
+    // knows and stores whatever is assigned.
+    function rootStyle() {
         var values = Object.create(null);
         return new Proxy(values, {
             get(target, prop) {
                 if (typeof prop !== 'string') return target[prop];
-                if (prop === 'cssText') return target.cssText || '';
+                if (prop === 'cssText') return values.cssText || '';
                 if (prop === 'setProperty') {
                     return function (name, value) { values[name] = String(value); };
                 }
@@ -107,66 +98,21 @@
         });
     }
 
-    function scratchElement(tag) {
-        var name = String(tag || 'div').toUpperCase();
-        var node = {
-            nodeType: 1,
-            nodeName: name,
-            tagName: name,
-            style: scratchStyle(),
-            attributes: Object.create(null),
-            childNodes: [],
-            // Detached: nothing is attached to anything, so the walk up to a
-            // document root terminates immediately. `ownerDocument` is absent
-            // on purpose — plugins fall back to treating the element itself as
-            // the doc, and `rootElement()` supplies the members they need.
+    function rootElement() {
+        var root = {
+            nodeType: 9,
+            nodeName: '#document',
             parentNode: null,
-            appendChild(child) {
-                child.parentNode = node;
-                node.childNodes.push(child);
-                return child;
-            },
-            removeChild(child) {
-                var i = node.childNodes.indexOf(child);
-                if (i >= 0) node.childNodes.splice(i, 1);
-                child.parentNode = null;
-                return child;
-            },
-            setAttribute(attr, value) {
-                node.attributes[String(attr)] = String(value);
-            },
-            getAttribute(attr) {
-                var v = node.attributes[String(attr)];
-                return v === undefined ? null : v;
-            },
-            getBoundingClientRect() {
-                return { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0, x: 0, y: 0 };
-            },
-            getBBox() {
-                return { x: 0, y: 0, width: 0, height: 0 };
-            },
+            style: rootStyle(),
+            createElement(tag) { return globalThis.__ocTree.createElement(tag); },
+            createElementNS(_ns, tag) { return globalThis.__ocTree.createElement(tag); },
+            createTextNode(text) { return globalThis.__ocTree.createTextNode(String(text)); },
+            appendChild(child) { return child; },
+            removeChild(child) { return child; },
         };
-        Object.defineProperty(node, 'textContent', {
-            get: function () {
-                var out = '';
-                for (var i = 0; i < node.childNodes.length; i++) out += node.childNodes[i].textContent;
-                return out;
-            },
-            set: function (value) {
-                node.childNodes = [scratchTextNode(String(value))];
-            },
-        });
-        // Markup is stored as one text node: the plugins that use a scratch
-        // element read it straight back as text, never as a tree.
-        Object.defineProperty(node, 'innerHTML', {
-            get: function () { return node.textContent; },
-            set: function (value) { node.childNodes = [scratchTextNode(String(value))]; },
-        });
-        Object.defineProperty(node, 'firstChild', {
-            get: function () { return node.childNodes.length ? node.childNodes[0] : null; },
-        });
-        Object.defineProperty(node, 'nextSibling', { get: function () { return null; } });
-        return node;
+        root.body = root;
+        root.documentElement = root;
+        return root;
     }
 
     // `getComputedStyle(el)` for a composition node is that node's style
@@ -180,25 +126,42 @@
         return null;
     }
 
-    function getComputedStyle(node) {
-        var id = elementIdFor(node);
-        if (id) return globalThis.ctx.getNode(id).style;
-        if (node && node.style) return node.style;
-        return scratchStyle();
+    // Computed-style defaults a declarative composition has no cascade for.
+    // Plugins branch on these: SplitText reads `display` (inline elements get
+    // `inline-block` so transforms apply) and `textAlign`/`whiteSpace`; MorphSVG
+    // reads `fill`/`fillRule` to decide whether a fill-safe morph is needed.
+    var COMPUTED_DEFAULTS = {
+        display: 'block',
+        textAlign: 'left',
+        whiteSpace: 'normal',
+        position: 'static',
+        fill: 'rgb(0, 0, 0)',
+        fillRule: 'nonzero',
+        stroke: 'none',
+        visibility: 'visible',
+        overflow: 'visible',
+        transformOrigin: '50% 50%',
+    };
+
+    function withComputedDefaults(style) {
+        return new Proxy(style, {
+            get(target, prop) {
+                if (typeof prop !== 'string') return target[prop];
+                var v = target[prop];
+                if (v !== null && v !== undefined && v !== '') return v;
+                if (Object.prototype.hasOwnProperty.call(COMPUTED_DEFAULTS, prop)) {
+                    return COMPUTED_DEFAULTS[prop];
+                }
+                return v;
+            },
+        });
     }
 
-    // One scratch root for the whole realm: plugins walk UP from an element to
-    // the document root (`_setDoc` does `doc.parentNode` until null, then calls
-    // `createElementNS` on whatever it reached), so the root has to be an
-    // object that owns element creation.
-    function rootElement() {
-        var root = scratchElement('html');
-        root.createElement = function (tag) { return scratchElement(tag); };
-        root.createElementNS = function (_ns, tag) { return scratchElement(tag); };
-        root.createTextNode = function (text) { return scratchTextNode(String(text)); };
-        root.body = root;
-        root.documentElement = root;
-        return root;
+    function getComputedStyle(node) {
+        var id = elementIdFor(node);
+        if (id) return withComputedDefaults(globalThis.ctx.getNode(id).style);
+        if (node && node.style) return withComputedDefaults(node.style);
+        return withComputedDefaults({});
     }
 
     var ROOT = rootElement();
@@ -214,19 +177,29 @@
             return [nodeFor(selectorToId('document.querySelectorAll', selector), 'document.querySelectorAll')];
         },
         createElement(tag) {
-            return scratchElement(tag);
+            return globalThis.__ocTree.createElement(tag);
         },
         // Plugins reach for `createElementNS` first (`_createElement` in
         // CSSPlugin) and only fall back to `createElement`. There is no
         // namespace in a declarative composition, so both make a scratch
         // element.
         createElementNS(_ns, tag) {
-            return scratchElement(tag);
+            return globalThis.__ocTree.createElement(tag);
         },
         createTextNode(text) {
-            return scratchTextNode(String(text));
+            return globalThis.__ocTree.createTextNode(String(text));
         },
         addEventListener: declarativeOnly('document.addEventListener'),
+        // SplitText's `autoSplit` re-splits on `loadingdone`. The composition
+        // ships its fonts with the bundle, so no load event ever fires; the
+        // subscription just has to exist and be removable.
+        fonts: {
+            addEventListener: function () {},
+            removeEventListener: function () {},
+            ready: Promise.resolve(),
+            check: function () { return true; },
+            load: function () { return Promise.resolve([]); },
+        },
         body: ROOT,
         documentElement: ROOT,
     };
@@ -248,6 +221,7 @@
             getElementById: true,
             querySelector: true,
             querySelectorAll: true,
+            fonts: true,
         };
         for (var key in document) {
             if (!OVERWRITE[key] && globalThis.document[key] !== undefined && globalThis.document[key] !== null) {
@@ -274,6 +248,18 @@
     // through to `createElement` — which is what the scratch element is for.
     globalThis.window.document = document;
     globalThis.window.navigator = globalThis.window.navigator || { userAgent: 'opencat' };
+
+    // SplitText's `autoSplit` observes its elements so a resize re-splits. A
+    // composition's box is fixed by the composition, never by a viewport, so
+    // the observation can never fire; the constructor has to exist and be
+    // disconnectable.
+    if (typeof globalThis.ResizeObserver !== 'function') {
+        globalThis.ResizeObserver = function ResizeObserver() {
+            this.observe = function () {};
+            this.unobserve = function () {};
+            this.disconnect = function () {};
+        };
+    }
 
     // ── Timers / frame callbacks: hard errors with a pointer to the model ──
     // g's bundle installs its own rAF queue polyfill BEFORE this runtime

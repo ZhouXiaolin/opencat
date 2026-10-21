@@ -1027,9 +1027,9 @@ mod tests {
 
     #[test]
     fn split_text_unit_override_reaches_the_rendered_frame() {
-        // text_units.js 的 ctx.splitText 写 text-unit override；渲染层必须
-        // 消费 override（被隐藏的字符不出现）。官方 SplitText 需要 DOM 物化
-        // 通道进不来，这条覆盖先锁在 text-unit 层。
+        // 官方 SplitText 拆出的是真节点树（char wrapper），样式写在 wrapper
+        // 上。渲染面不认识节点树，resolve 桥按字节区间折成 per-grapheme 覆盖。
+        // 这条测试直接建同样的 wrapper（不依赖 gsap 包），锁住"覆盖进帧"。
         let scene = crate::div()
             .id("root")
             .w_full()
@@ -1037,9 +1037,15 @@ mod tests {
             .bg(crate::ColorToken::Custom(255, 255, 255, 255))
             .script_source(
                 r#"
-                var gone = ctx.splitText("gone", { type: "chars" });
-                for (var i = 0; i < gone.length; i++) gone[i].set({ opacity: 0 });
-                ctx.splitText("keep", { type: "chars" });
+                var gone = ctx.getNode("gone");
+                var src = gone.textContent;
+                gone.textContent = "";
+                for (var i = 0; i < src.length; i++) {
+                    var ch = document.createElement("span");
+                    ch.textContent = src.charAt(i);
+                    ch.style.opacity = "0";
+                    gone.appendChild(ch);
+                }
             "#,
             )
             .expect("script should compile")
@@ -1076,7 +1082,7 @@ mod tests {
         assert_eq!(
             dark_pixel_count_in_rect(&frame, 200, 10, 60, 120, 42),
             0,
-            "every char hidden via splitText override should vanish from the frame"
+            "every char hidden via a char-wrapper override should vanish from the frame"
         );
     }
 

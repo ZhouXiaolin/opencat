@@ -1,13 +1,12 @@
 use serde_json::json;
 use std::collections::HashMap;
 
-use super::{MutationRecorder, TextUnitValues};
+use super::MutationRecorder;
 use crate::frame_ctx::duration_secs_to_frames;
 use crate::script::ScriptTextSource;
 use crate::script::tree::TreeOverlay;
 use crate::script::mutations::{
-    CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations, TextUnitGranularity,
-    TextUnitOverride, TextUnitOverrideBatch,
+    CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations,
 };
 use crate::script::{
     align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
@@ -1457,57 +1456,6 @@ impl MutationRecorder for MutationStore {
                 kind: crate::script::ScriptTextSourceKind::TextNode,
             },
         );
-    }
-
-    fn record_text_unit_override(
-        &mut self,
-        id: &str,
-        granularity: TextUnitGranularity,
-        index: usize,
-        values: TextUnitValues,
-    ) {
-        let mutations = self.entry(id);
-        match &mut mutations.text_unit_overrides {
-            Some(batch) => {
-                if batch.granularity != granularity {
-                    return;
-                }
-                if index >= batch.overrides.len() {
-                    batch
-                        .overrides
-                        .resize_with(index + 1, TextUnitOverride::default);
-                }
-            }
-            None => {
-                let mut batch = TextUnitOverrideBatch {
-                    granularity,
-                    overrides: Vec::new(),
-                };
-                batch
-                    .overrides
-                    .resize_with(index + 1, TextUnitOverride::default);
-                mutations.text_unit_overrides = Some(batch);
-            }
-        }
-        let entry = &mut mutations.text_unit_overrides.as_mut().unwrap().overrides[index];
-        if let Some(v) = values.opacity {
-            entry.opacity = Some(v);
-        }
-        if let Some(v) = values.translate_x {
-            entry.translate_x = Some(v);
-        }
-        if let Some(v) = values.translate_y {
-            entry.translate_y = Some(v);
-        }
-        if let Some(v) = values.scale {
-            entry.scale = Some(v);
-        }
-        if let Some(v) = values.rotation_deg {
-            entry.rotation_deg = Some(v);
-        }
-        if let Some(c) = values.color {
-            entry.color = Some(c);
-        }
     }
 
     fn record_svg_path(&mut self, id: &str, data: String) {

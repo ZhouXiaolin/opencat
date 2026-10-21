@@ -836,6 +836,16 @@ macro_rules! for_each_binding {
             Ok(overlay.set_class_name(&id, &class_name))
         }}
 
+        $binding! { cmd $store dom_text_range (id: String) -> Option<(u32, u32, String)> {
+            // SplitText 的 wrapper 是空壳：它的盒子来自它承载的那段原文。
+            // 沿父链上溯到声明文本节点，累加前置兄弟的文本长度得到区间。
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("text range: this recorder has no script tree"))?;
+            Ok(overlay
+                .text_range_of(&id)
+                .map(|(start, end, owner)| (start as u32, end as u32, owner)))
+        }}
+
         // ── Qry: store reads (text) ─
         $binding! { qry $store text_units_describe (id: String, granularity_str: String) -> Vec<(u32, String, u32, u32)> {
             let text = $store.get_text_source(&id).map(|src| src.text.clone())
@@ -852,6 +862,39 @@ macro_rules! for_each_binding {
         }}
         $binding! { qry $store text_source_get (id: String) -> Option<String> {
             Ok($store.get_text_source(&id).map(|s| s.text.clone()))
+        }}
+
+        // ── Qry: element boxes (SplitText line detection / transform-origin) ──
+        // 一个元素的盒子 = 该元素文本按字节 range 聚合出的字形盒。ranges 为
+        // 空时按字素切（调用方要整元素盒）。盒子是墨迹边界，与浏览器对
+        // 文本元素报的紧致 inline 盒同义。
+        $binding! { qry $store text_element_boxes (id: String, ranges: Vec<(u32, u32)>) -> Vec<serde_json::Value> {
+            let text = $store.get_text_source(&id).map(|s| s.text.clone()).unwrap_or_default();
+            let style = $store.text_style(&id).cloned().unwrap_or_default();
+            let read_f32 = |key: &str| -> f32 {
+                $store.read_style_value(&id, key).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(0.0)
+            };
+            let origin = (read_f32("left"), read_f32("top"));
+            let width = read_f32("width");
+            let ranges: Vec<std::ops::Range<usize>> = if ranges.is_empty() {
+                vec![0..text.len()]
+            } else {
+                ranges.into_iter()
+                    .map(|(start, end)| (start as usize).min(text.len())..(end as usize).min(text.len()))
+                    .collect()
+            };
+            let db = crate::text::script_font_db();
+            let boxes = crate::text::script_text_boxes(
+                &text, &style, origin, width, width > 0.0, &db, &ranges,
+            );
+            Ok(boxes.into_iter()
+                .map(|b| serde_json::json!({
+                    "left": b.left,
+                    "top": b.top,
+                    "width": b.width,
+                    "height": b.height,
+                }))
+                .collect())
         }}
 
         $binding! { qry $store read_style_value (id: String, property: String) -> Option<serde_json::Value> {

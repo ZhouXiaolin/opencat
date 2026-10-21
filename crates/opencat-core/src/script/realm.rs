@@ -304,10 +304,12 @@ impl<C: JsContext> ScriptRealm<C> {
         // 模块级草稿元素）。
         if let Some(registry) = &self.target_registry {
             let declared = registry.declared_nodes.clone();
+            let text_styles = registry.text_styles.clone();
             self.ctx.with_store_mut(|s| {
                 if let Some(overlay) = s.tree_overlay_mut() {
                     overlay.begin_frame(&declared);
                 }
+                s.set_text_styles(&text_styles);
             });
         }
 
@@ -506,6 +508,10 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.ctx.with_store_mut(|s| {
             s.set_initial_style_from_node(id, style);
         });
+    }
+
+    fn text_leaf_ranges(&mut self, id: &str) -> Vec<(Vec<String>, usize, usize)> {
+        self.ctx.with_store_mut(|s| s.text_leaf_ranges(id))
     }
 }
 

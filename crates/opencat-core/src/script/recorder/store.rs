@@ -50,6 +50,10 @@ pub struct MutationStore {
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
     text_sources: HashMap<String, ScriptTextSource>,
+    /// 声明树里每个节点的文本样式（脚本变更未施加），realm 级。
+    /// `getBoundingClientRect` 要给 SplitText 报盒子，盒子来自整形，整形要
+    /// 样式 —— 样式只在这一侧可得。
+    text_styles: HashMap<String, crate::style::ComputedTextStyle>,
     /// 脚本侧 DOM 覆盖层：动态节点（realm 级身份）+ 帧级子级视图。
     /// 节点表不随帧清空（插件的模块级草稿元素要跨帧存活），结构每帧
     /// 由 `begin_frame` 从声明树重建。
@@ -1598,6 +1602,15 @@ impl MutationRecorder for MutationStore {
     }
     fn tree_overlay_mut(&mut self) -> Option<&mut TreeOverlay> {
         Some(&mut self.tree)
+    }
+    fn set_text_styles(&mut self, styles: &HashMap<String, crate::style::ComputedTextStyle>) {
+        self.text_styles = styles.clone();
+    }
+    fn text_style(&self, id: &str) -> Option<&crate::style::ComputedTextStyle> {
+        self.text_styles.get(id)
+    }
+    fn text_leaf_ranges(&mut self, id: &str) -> Vec<(Vec<String>, usize, usize)> {
+        self.tree.leaf_ranges(id)
     }
     fn current_frame(&self) -> u32 {
         self.current_frame

@@ -705,17 +705,7 @@ macro_rules! for_each_binding {
             );
         }}
 
-        // ── Cmd: store mutations (4 entries: animate, morph, along_path) ──
-        $binding! { cmd $store animate_create (duration: f32, delay: f32, clamp_flag: i32, easing_tag: String, repeat: i32, yoyo_flag: i32, repeat_delay: f32) -> i32 {
-            let clamp = clamp_flag != 0;
-            let yoyo = yoyo_flag != 0;
-            let ct = $store.script_time_secs() as f32;
-            Ok($store.animate_create(ct, duration, delay, clamp, &easing_tag, repeat, yoyo, repeat_delay))
-        }}
-        $binding! { cmd $store animate_set_progress (handle: i32, progress: f32) -> bool {
-            $store.animate_set_progress(handle, progress);
-            Ok(true)
-        }}
+        // ── Cmd: store mutations (2 entries: morph, along_path) ──
         $binding! { cmd $store morph_svg_create (from_svg: String, to_svg: String, grid_size: f32) -> i32 {
             Ok($store.morph_svg_create(&from_svg, &to_svg, grid_size as u32).unwrap_or(-1))
         }}
@@ -742,23 +732,7 @@ macro_rules! for_each_binding {
             Ok(true)
         }}
 
-        // ── Qry: store reads (10 entries: animate, morph, text, along_path) ─
-        $binding! { qry $store animate_value (handle: i32, _key: String, from: f32, to: f32) -> f32 {
-            let ct = $store.script_time_secs() as f32;
-            Ok($store.animate_value(ct, handle, from, to))
-        }}
-        $binding! { qry $store animate_color (handle: i32, _key: String, from: String, to: String) -> String {
-            Ok($store.animate_color(handle, &from, &to))
-        }}
-        $binding! { qry $store animate_progress (handle: i32) -> f32 {
-            Ok($store.animate_progress(handle))
-        }}
-        $binding! { qry $store animate_settled (handle: i32) -> bool {
-            Ok($store.animate_settled(handle))
-        }}
-        $binding! { qry $store animate_settle_frame (handle: i32) -> u32 {
-            Ok($store.animate_settle_frame(handle))
-        }}
+        // ── Qry: store reads (morph, text, along_path) ─
         $binding! { qry $store morph_svg_sample (handle: i32, t: f32, tolerance: f32) -> String {
             Ok($store.morph_svg_sample(handle, t, tolerance))
         }}
@@ -968,16 +942,6 @@ macro_rules! for_each_binding {
             Ok($crate::script::animate::path_measure::PathMeasureEntry::from_svg(&data)
                 .map(|entry| entry.total_length)
                 .unwrap_or(0.0))
-        }}
-        $binding! { pure easing_apply (tag: String, t: f32) -> f32 {
-            let easing = parse_easing_from_tag(&tag);
-            Ok(easing.apply(t))
-        }}
-        // Register a GSAP `CustomEase`-style sampled ease table (the JS side
-        // computes the samples, e.g. a physics-spring table) and return the
-        // table index; the tag `points:<name>` references it in tweens.
-        $binding! { pure ease_register_points (name: String, points: Vec<f32>) -> f64 {
-            Ok($crate::parse::easing::register_ease_table(&name, &points) as f64)
         }}
     };
 }

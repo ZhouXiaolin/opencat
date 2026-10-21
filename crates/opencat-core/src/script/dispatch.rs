@@ -13,7 +13,7 @@ use serde_json::Value;
 use crate::for_each_binding;
 use crate::ir::draw_op::{ColorF32, DRRectSpec, DrawOp, Radii4, Rect4};
 use crate::ir::draw_types::{ImageRef, PaintId, PathOp};
-use crate::script::animate::state::{parse_easing_from_tag, random_from_seed};
+use crate::script::animate::state::random_from_seed;
 use crate::script::mutations::TextUnitGranularity;
 use crate::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
 use crate::script::text_units::{describe_text_units, grapheme_strings};

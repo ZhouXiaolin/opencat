@@ -3,9 +3,7 @@ use std::collections::HashMap;
 
 use super::{MutationRecorder, TextUnitValues};
 use crate::frame_ctx::duration_secs_to_frames;
-use crate::parse::easing::Easing;
 use crate::script::ScriptTextSource;
-use crate::script::animate::color::{hsla_to_rgba_string, lerp_hsla_clamped, parse_color};
 use crate::script::animate::morph_svg::MorphSvgEntry;
 use crate::script::animate::path_measure::PathMeasureEntry;
 use crate::script::mutations::{
@@ -53,7 +51,6 @@ pub struct MutationStore {
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
     text_sources: HashMap<String, ScriptTextSource>,
-    animate_entries: Vec<AnimateEntry>,
     morph_entries: Vec<MorphSvgEntry>,
     path_entries: Vec<PathMeasureEntry>,
     /// Script-recorded generated images (canvas putImageData / surface
@@ -84,23 +81,6 @@ pub struct MutationStore {
     /// that scene would run that much early. `None` = derive from the frame.
     time_override_secs: Option<f64>,
     fps: u32,
-}
-
-pub struct AnimateEntry {
-    pub progress: f32,
-    pub settled: bool,
-    pub settle_frame: u32,
-    /// Tween duration/delay in **seconds**, kept fractional (not rounded to whole
-    /// frames). GSAP advances tweens by elapsed *time*, so quantising to the frame
-    /// grid introduces up to a half-frame error — significant on short tweens
-    /// (0.07–0.12 s). Progress is evaluated from `current_time_secs` instead.
-    pub duration_secs: f32,
-    pub delay_secs: f32,
-    pub repeat_delay_secs: f32,
-    pub clamp: bool,
-    pub easing: Easing,
-    pub repeat: i32,
-    pub yoyo: bool,
 }
 
 fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
@@ -1272,132 +1252,6 @@ impl MutationStore {
         }
     }
 
-    // ── Animate ──
-
-    pub fn animate_create(
-        &mut self,
-        current_time: f32,
-        duration: f32,
-        delay: f32,
-        clamp: bool,
-        easing_tag: &str,
-        repeat: i32,
-        yoyo: bool,
-        repeat_delay: f32,
-    ) -> i32 {
-        let easing = crate::script::animate::state::parse_easing_from_tag(easing_tag);
-        let fps = self.fps.max(1) as f32;
-        // Keep seconds fractional (see `AnimateEntry`): GSAP advances by elapsed
-        // time, so progress must not be snapped to the frame grid.
-        let duration_secs = if duration < 0.0 {
-            easing.default_duration(fps).unwrap_or(1) as f32 / fps
-        } else {
-            duration
-        };
-        let delay_secs = delay.max(0.0);
-        let repeat_delay_secs = repeat_delay.max(0.0);
-        let progress = crate::parse::easing::compute_progress_secs(
-            current_time,
-            duration_secs,
-            delay_secs,
-            &easing,
-            clamp,
-            repeat,
-            yoyo,
-            repeat_delay_secs,
-        );
-        // Settle frame is only a *lower bound* hint for callers (whole frames):
-        // use the frame width for rounding duration/delay up.
-        let duration_frames = self.seconds_to_frames(duration_secs);
-        let delay_frames = self.seconds_to_frames(delay_secs);
-        let total_frames = if repeat >= 0 {
-            duration_frames
-                .saturating_mul(repeat as u32 + 1)
-                .saturating_add(self.seconds_to_frames(repeat_delay_secs).saturating_mul(repeat as u32))
-        } else {
-            u32::MAX
-        };
-        let current_frame = (current_time * fps) as u32;
-        let settled = repeat >= 0 && current_frame >= delay_frames.saturating_add(total_frames);
-        let settle_frame = delay_frames.saturating_add(total_frames);
-        let handle = self.animate_entries.len() as i32;
-        self.animate_entries.push(AnimateEntry {
-            progress,
-            settled,
-            settle_frame,
-            duration_secs,
-            delay_secs,
-            repeat_delay_secs,
-            clamp,
-            easing,
-            repeat,
-            yoyo,
-        });
-        handle
-    }
-
-    pub fn animate_value(&self, current_time: f32, handle: i32, from: f32, to: f32) -> f32 {
-        if let Some(entry) = self.animate_entries.get(handle as usize) {
-            crate::parse::easing::animate_value_secs(
-                current_time,
-                entry.duration_secs,
-                entry.delay_secs,
-                from,
-                to,
-                &entry.easing,
-                entry.clamp,
-                entry.repeat,
-                entry.yoyo,
-                entry.repeat_delay_secs,
-            )
-        } else {
-            from
-        }
-    }
-
-    pub fn animate_color(&self, handle: i32, from: &str, to: &str) -> String {
-        let Some(entry) = self.animate_entries.get(handle as usize) else {
-            return from.to_string();
-        };
-        match (parse_color(from), parse_color(to)) {
-            (Some(f), Some(t)) => {
-                let result = lerp_hsla_clamped(&f, &t, entry.progress);
-                hsla_to_rgba_string(&result)
-            }
-            _ => from.to_string(),
-        }
-    }
-
-    pub fn animate_progress(&self, handle: i32) -> f32 {
-        self.animate_entries
-            .get(handle as usize)
-            .map(|e| e.progress)
-            .unwrap_or(0.0)
-    }
-
-    /// Overwrite the eased progress of an entry. The JS runtime calls this
-    /// after applying a user-supplied `ease` function, so the color path (which
-    /// reads `entry.progress`) sees the same curve as the JS-side sampling.
-    pub fn animate_set_progress(&mut self, handle: i32, progress: f32) {
-        if let Some(entry) = self.animate_entries.get_mut(handle as usize) {
-            entry.progress = progress;
-        }
-    }
-
-    pub fn animate_settled(&self, handle: i32) -> bool {
-        self.animate_entries
-            .get(handle as usize)
-            .map(|e| e.settled)
-            .unwrap_or(false)
-    }
-
-    pub fn animate_settle_frame(&self, handle: i32) -> u32 {
-        self.animate_entries
-            .get(handle as usize)
-            .map(|e| e.settle_frame)
-            .unwrap_or(0)
-    }
-
     // ── Morph SVG ──
 
     pub fn morph_svg_create(&mut self, from_svg: &str, to_svg: &str, grid: u32) -> Option<i32> {
@@ -1754,7 +1608,6 @@ impl MutationRecorder for MutationStore {
         self.styles.clear();
         self.canvases.clear();
         self.scene3s.clear();
-        self.animate_entries.clear();
         self.morph_entries.clear();
         self.path_entries.clear();
         self.current_frame = current_frame;

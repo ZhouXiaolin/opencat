@@ -39,12 +39,6 @@ pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
 pub const G2_BUNDLE: &str = include_str!("g2/g2.bundle.js");
 pub const G2_API_RUNTIME: &str = include_str!("g2/g2_api.js");
 
-/// Real gsap package (npm `gsap`, core + CSSPlugin), bundled no-window build.
-/// The package self-detects the missing DOM and never engages rAF/ticker;
-/// timelines are seek-driven (`paused` + `tl.time`). Evaluated before
-/// `JSX_RUNTIME`, whose module registry exposes it as the `gsap` builtin.
-pub const GSAP_BUNDLE: &str = include_str!("gsap/gsap.bundle.js");
-
 // JSX frontend (`parse::jsx`): element factory + `use*` registry + module
 // loader, installed in every script realm (the per-frame driver produced by
 // `parse::jsx` depends on them). The JSX->h() transform lives in Rust

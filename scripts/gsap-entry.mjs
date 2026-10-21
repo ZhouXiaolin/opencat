@@ -1,6 +1,7 @@
 // gsap 真包入口：core + CSSPlugin + goal.md §4 全部非交互插件。
-// 由 scripts/build-gsap-bundle.mjs 用 esbuild 打成 IIFE，产物是
-// gsap.bundle.js（include_str! 进 core）。
+// 由 opencat-plugin.mjs（vite 工程流）或 scripts/build-example-gsap.mjs
+// （裸 .jsx sidecar）用 esbuild 打成 CJS，产物是 <example>/dist/gsap.bundle.mjs
+// ——项目资产，渲染期由引擎按约定注入模块表（core 不再内嵌 gsap 源码）。
 //
 // 导出面 = npm `gsap` 主入口的完整记录（jsx_runtime.js 的包装层从
 // gsapPackage.TimelineLite 取 timeline 构造器来拦截 to/from/fromTo/set，

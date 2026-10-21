@@ -1484,13 +1484,12 @@ fn dom_window_reads_composition_size_and_timers_error() {
     // the frame boundary (`__ocG2Flush`) — a queued callback runs once on the
     // composition clock, which stays deterministic. The dom_api guard only
     // fills the gap when that polyfill is absent.
-    // `document.createElement` is NOT in this list either: it hands out a
-    // scratch element for plugins that parse HTML strings (TextPlugin), and
-    // nothing joins the composition through it. Append still errors — that is
-    // the call that would mutate the tree.
+    // `document.createElement` is NOT in this list either: it hands out a real
+    // overlay node, and appending it to a declared element is how official
+    // plugins (SplitText) build their wrappers — the renderer reads the child
+    // view from the overlay, so the tree mutation is the supported path.
     for source in [
         "setTimeout(function() {}, 1);",
-        "document.getElementById('box').appendChild({});",
         "document.querySelector('.some-class');",
     ] {
         let driver = realm.install(source).unwrap_or_else(|e| {

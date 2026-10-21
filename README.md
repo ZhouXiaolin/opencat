@@ -97,10 +97,10 @@ ctx.timeline()
   .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
   .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
 
-// GSAP-shape per-character text: splitText parts settle with a power2.out ease
-var parts = ctx.splitText('otxt', { type: 'chars' });
-var tl = ctx.timeline();
-parts.forEach(function (p, i) {
+// Official SplitText — the same package gsap ships. Wrappers are real nodes.
+var chars = new SplitText(ctx.getNode('otxt'), { type: 'chars' }).chars;
+var tl = gsap.timeline();
+chars.forEach(function (p, i) {
   tl.set(p, { opacity: 0 }, 7.35)
     .set(p, { opacity: 1 }, 7.5333)
     .fromTo(p, { x: (i - 6.5) * 21 }, { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);

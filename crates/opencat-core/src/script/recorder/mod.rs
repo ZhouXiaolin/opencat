@@ -11,22 +11,11 @@ pub use store::MutationStore;
 
 use crate::ir::draw_op::DrawOp;
 use crate::script::ScriptTextSource;
-use crate::script::mutations::{StyleMutations, TextUnitGranularity};
+use crate::script::mutations::StyleMutations;
 use crate::style::{
     AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
     InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, Transform, TransformOrigin,
 };
-
-/// Per-text-unit override values.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct TextUnitValues {
-    pub opacity: Option<f32>,
-    pub translate_x: Option<f32>,
-    pub translate_y: Option<f32>,
-    pub scale: Option<f32>,
-    pub rotation_deg: Option<f32>,
-    pub color: Option<ColorToken>,
-}
 
 /// Recorder receives mutation calls from the JS bridge layer.
 ///
@@ -99,13 +88,6 @@ pub trait MutationRecorder {
     fn record_transform(&mut self, id: &str, t: Transform);
     fn record_transform_origin(&mut self, id: &str, origin: TransformOrigin);
     fn record_text_content(&mut self, id: &str, text: String);
-    fn record_text_unit_override(
-        &mut self,
-        id: &str,
-        granularity: TextUnitGranularity,
-        index: usize,
-        values: TextUnitValues,
-    );
     fn record_svg_path(&mut self, id: &str, data: String);
 
     fn record_draw_op(&mut self, id: &str, cmd: DrawOp);

@@ -52,12 +52,11 @@ pub const JSX_RUNTIME: &str = include_str!("jsx_runtime.js");
 
 // Animation runtime: the ocTarget bridge support only — the property registry
 // (bootstrap) + property descriptors (properties/) + the bridge's three helper
-// functions (core.js) + the text-unit service (text_units.js). The tween
-// engine and the ctx.* facade/plugins are retired; author animation runs on
-// the official gsap supplied by the project (dist/gsap.bundle.mjs).
+// functions (core.js). The tween engine and the ctx.* facade/plugins are
+// retired; author animation runs on the official gsap supplied by the project
+// (dist/gsap.bundle.mjs).
 pub const ANIMATION_BOOTSTRAP: &str = include_str!("animation/bootstrap.js");
 pub const ANIMATION_CORE: &str = include_str!("animation/core.js");
-pub const TEXT_UNITS_RUNTIME: &str = include_str!("text_units.js");
 
 // Core property files — built-in animatable properties, not plugins.
 // These register properties directly via `animation.registerProperty()`.
@@ -79,6 +78,4 @@ pub const ANIMATION_RUNTIME: &str = concat!(
     include_str!("animation/properties/filter.js"),
     "\n",
     include_str!("animation/properties/utils.js"),
-    "\n",
-    include_str!("text_units.js"),
 );

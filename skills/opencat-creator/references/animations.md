@@ -24,7 +24,7 @@ useGSAP((ctx) => {
 
 **边界**：`useGSAP` 只写 tween。CanvasKit 绘制放 `useCanvas`，three.js 场景放 `useThree`。不要在 `useGSAP` 里调 `getCanvasById` 加绘制——一个组件可以挂多个钩子，按职责分开写。
 
-`targets` 支持单个 id、id 数组、`ctx.splitText(...)` 返回的 part 数组。
+`targets` 支持单个 id、id 数组、SplitText 返回的 wrapper 数组。
 
 ### 选择规则
 
@@ -173,13 +173,20 @@ DOM-only 字段（`newClass` / `oldClass`）无效。
 
 ### SplitText — 拆成 part
 
-```js
-var chars = ctx.splitText('title', { type: 'chars' });
+用官方包。`new SplitText(el, { type })` 真的拆节点树，返回的 `.chars` / `.words` / `.lines` 是 wrapper 元素。
 
-ctx.from(chars, { opacity: 0, y: 32, scale: 0.9, duration: 0.55, stagger: 0.035, ease: 'power2.out' });
+```js
+import { SplitText } from 'gsap/SplitText';
+
+var chars = new SplitText(ctx.getNode('title'), { type: 'chars' }).chars;
+
+gsap.fromTo(chars, { opacity: 0, y: 32, scale: 0.9 },
+  { opacity: 1, y: 0, scale: 1, duration: 0.55, stagger: 0.035, ease: 'power2.out' });
 ```
 
-`type: 'chars'` / `'words'`。`lines` 未实现。
+`type` 可组合：`'chars'` / `'words'` / `'chars,words,lines'`。`lines` 按每个顶层子元素的盒检测换行。
+
+钩子每帧重跑，构造器也每帧先 `revert()` 再重拆，所以 tween 拿到的永远是本帧的 wrapper。用 `fromTo` 写死两端；`from` 的终点要读上一帧写回的值，跨帧重建时不稳定。
 
 part 支持的属性：`opacity`、`x` / `y`、`scale`、`rotate`、`color` / `textColor`。
 
@@ -259,9 +266,9 @@ ctx.to('glow', { opacity: 0.8, scale: 1.08, duration: 1.2, repeat: -1, yoyo: tru
 **逐字入场**
 
 ```js
-ctx.from(ctx.splitText('title', { type: 'chars' }), {
-  opacity: 0, y: 28, duration: 0.5, stagger: 0.035, ease: 'power2.out',
-});
+var chars = new SplitText(ctx.getNode('title'), { type: 'chars' }).chars;
+gsap.fromTo(chars, { opacity: 0, y: 28 },
+  { opacity: 1, y: 0, duration: 0.5, stagger: 0.035, ease: 'power2.out' });
 ```
 
 ---

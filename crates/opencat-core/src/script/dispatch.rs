@@ -14,9 +14,7 @@ use crate::for_each_binding;
 use crate::ir::draw_op::{ColorF32, DRRectSpec, DrawOp, Radii4, Rect4};
 use crate::ir::draw_types::{ImageRef, PaintId, PathOp};
 use crate::script::animate::state::random_from_seed;
-use crate::script::mutations::TextUnitGranularity;
-use crate::script::recorder::{MutationRecorder, MutationStore, TextUnitValues};
-use crate::script::text_units::{describe_text_units, grapheme_strings};
+use crate::script::recorder::{MutationRecorder, MutationStore};
 use crate::script::{
     font_edging_from_name, line_cap_from_name, line_join_from_name, object_fit_from_name,
 };

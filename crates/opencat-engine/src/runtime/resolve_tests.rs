@@ -193,8 +193,15 @@ fn parent_script_can_split_descendant_text_before_child_resolution() {
         .id("root")
         .script_source(
             r#"
-            var parts = ctx.splitText("title", { type: "chars" });
-            parts[0].set({ opacity: 0.2 });
+            var title = ctx.getNode("title");
+            var src = title.textContent;
+            title.textContent = "";
+            for (var i = 0; i < src.length; i++) {
+                var ch = document.createElement("span");
+                ch.textContent = src.charAt(i);
+                if (i === 0) ch.style.opacity = "0.2";
+                title.appendChild(ch);
+            }
         "#,
         )
         .expect("script should compile")

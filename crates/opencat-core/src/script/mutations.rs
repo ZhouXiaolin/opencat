@@ -88,7 +88,6 @@ pub struct NodeStyleMutations {
     pub drop_shadow: Option<DropShadow>,
     pub drop_shadow_color: Option<ColorToken>,
     pub text_content: Option<String>,
-    pub text_unit_overrides: Option<TextUnitOverrideBatch>,
     pub svg_path: Option<String>,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
@@ -918,20 +917,6 @@ pub fn apply_node_to_recorder(
     }
     if let Some(ref text) = m.text_content {
         recorder.record_text_content(id, text.clone());
-    }
-    if let Some(ref overrides_batch) = m.text_unit_overrides {
-        let granularity = overrides_batch.granularity;
-        for (index, override_val) in overrides_batch.overrides.iter().enumerate() {
-            let values = crate::script::recorder::TextUnitValues {
-                opacity: override_val.opacity,
-                translate_x: override_val.translate_x,
-                translate_y: override_val.translate_y,
-                scale: override_val.scale,
-                rotation_deg: override_val.rotation_deg,
-                color: override_val.color,
-            };
-            recorder.record_text_unit_override(id, granularity, index, values);
-        }
     }
     if let Some(ref data) = m.svg_path {
         recorder.record_svg_path(id, data.clone());

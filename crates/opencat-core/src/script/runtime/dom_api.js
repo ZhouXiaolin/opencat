@@ -130,11 +130,15 @@
     // Plugins branch on these: SplitText reads `display` (inline elements get
     // `inline-block` so transforms apply) and `textAlign`/`whiteSpace`; MorphSVG
     // reads `fill`/`fillRule` to decide whether a fill-safe morph is needed.
+    // `opacity` matters for `.from()`: gsap takes the tween's END value from the
+    // computed style, and an empty string parses as 0 — which would make
+    // `from({opacity: 0})` fade to nothing instead of to the element's own 1.
     var COMPUTED_DEFAULTS = {
         display: 'block',
         textAlign: 'left',
         whiteSpace: 'normal',
         position: 'static',
+        opacity: '1',
         fill: 'rgb(0, 0, 0)',
         fillRule: 'nonzero',
         stroke: 'none',

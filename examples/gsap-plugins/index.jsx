@@ -57,6 +57,16 @@ var ROWS = [
     { id: 'ease-rough', name: 'RoughEase', ease: 'rough(2,3,0.4)', color: '#ec4899' },
 ];
 
+// SplitText 场景的原文。三段各自 type 不同，共用同一条时间轴：
+//   chars —— 逐字从下方升起并淡入
+//   words —— 逐词淡入
+//   lines —— 靠宽度自动换行，逐行从右侧滑入
+// 三段都给了确定宽度：`lines` 的行检测读每个顶层子级的盒子，只有换行过
+// 才有多个 top 值；确定宽度是 opencat 侧允许换行的条件。
+var SPLIT_CHARS = 'SplitText';
+var SPLIT_WORDS = 'one word at a time';
+var SPLIT_LINES = 'three lines of split text stacked in a column';
+
 function EaseRow(props) {
     return (
         <div
@@ -75,7 +85,7 @@ function EaseRow(props) {
 }
 
 export default function PluginsShowcase() {
-    useGSAP(() => {
+    useGSAP((ctx) => {
         // ── 1. eases 全家 ────────────────────────────────────────────
         // 官方写法：CustomEase 用一条 SVG 路径描述缓动曲线。
         CustomEase.create('spring', 'M0,0 C0.126,0.382 0.282,0.674 0.44,0.822 0.632,1.002 0.818,1.001 1,1');
@@ -183,6 +193,33 @@ export default function PluginsShowcase() {
             7.2
         );
         tl.to('text-target', { duration: 2.4, ease: 'none', text: { value: 'typed by TextPlugin' } }, 7.2);
+
+        // ── 4. SplitText ─────────────────────────────────────────────
+        // 官方构造器形态：`new SplitText(el, {type})` 会真的拆节点树
+        // （char/word/line wrapper 都是 createElement 出来的元素），返回的
+        // `.chars/.words/.lines` 就是这些 wrapper，交给 timeline 正常 tween。
+        //
+        // 每帧重建是它的固有语义：hook 每帧重跑，构造器先 revert 上一次的
+        // 拆分再重新拆，所以下面的 tween 拿到的永远是本帧的节点。
+        var splitChars = new SplitText(ctx.getNode('split-chars'), { type: 'chars' });
+        var splitWords = new SplitText(ctx.getNode('split-words'), { type: 'words' });
+        var splitLines = new SplitText(ctx.getNode('split-lines'), { type: 'chars,words,lines' });
+
+        // chars：逐字从下方 40px 升起。位移写在 char wrapper 上，渲染面按
+        // 字节区间把它折成每个字素的位移。
+        //
+        // 三段都用 fromTo 而不是 from：hook 每帧重跑、timeline 每帧重建，
+        // 而 from 的终点要读目标的当前值。上一帧 immediateRender 写下的值
+        // 会留在 store 里成为下一帧的终点，动画就塌成静止。fromTo 两端
+        // 都显式给出，与帧数无关——示例集里其它场景也是这个写法。
+        tl.fromTo(splitChars.chars, { y: 40, opacity: 0 },
+            { y: 0, opacity: 1, duration: 0.6, ease: 'power2.out', stagger: 0.06 }, 9.6);
+        // words：逐词淡入。
+        tl.fromTo(splitWords.words, { opacity: 0 },
+            { opacity: 1, duration: 0.5, ease: 'none', stagger: 0.14 }, 9.9);
+        // lines：逐行从右侧滑入。
+        tl.fromTo(splitLines.lines, { x: 220, opacity: 0 },
+            { x: 0, opacity: 1, duration: 0.55, ease: 'power3.out', stagger: 0.16 }, 10.2);
     });
 
     return (
@@ -334,6 +371,44 @@ export default function PluginsShowcase() {
                 }}
             >
                 {'start'}
+            </text>
+            {/* SplitText 三段：同一块区域三行，各用不同 type 拆分。 */}
+            <text
+                id="split-chars"
+                style={{
+                    position: 'absolute',
+                    left: 700,
+                    top: 690,
+                    'font-size': 56,
+                    color: '#f8fafc',
+                }}
+            >
+                {SPLIT_CHARS}
+            </text>
+            <text
+                id="split-words"
+                style={{
+                    position: 'absolute',
+                    left: 700,
+                    top: 770,
+                    'font-size': 32,
+                    color: '#a5b4fc',
+                }}
+            >
+                {SPLIT_WORDS}
+            </text>
+            <text
+                id="split-lines"
+                style={{
+                    position: 'absolute',
+                    left: 700,
+                    top: 830,
+                    width: 380,
+                    'font-size': 28,
+                    color: '#67e8f9',
+                }}
+            >
+                {SPLIT_LINES}
             </text>
         </div>
     );

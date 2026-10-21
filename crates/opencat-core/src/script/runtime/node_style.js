@@ -216,12 +216,13 @@
     function readText(id) {
         var v = __read_style_value(id, 'text');
         if (v !== null && v !== undefined) return String(v);
-        // Nothing has written this node's text yet, so fall back to the text
-        // the composition declares for it. Reading `''` instead would report an
-        // empty element: ScrambleText sizes its char budget from the length of
-        // the text it finds, so an empty read makes it scramble a zero-length
-        // string and reveal nothing.
-        var initial = __text_source_get(id);
+        // Nothing has written this node's text yet, so fall back to the tree:
+        // `textContent` of a declared node is its composed text, and of a split
+        // element it is the concatenation of the wrappers. Reading `''` instead
+        // would report an empty element — ScrambleText sizes its char budget
+        // from the length of the text it finds, so an empty read makes it
+        // scramble a zero-length string and reveal nothing.
+        var initial = __dom_text(id);
         return initial === null || initial === undefined ? '' : String(initial);
     }
 
@@ -243,6 +244,8 @@
             getAttributeNS: function (_ns, name) { return readAttribute(id, name); },
             setAttribute: function (name, value) { writeAttribute(id, name, value); },
             setAttributeNS: function (_ns, name, value) { writeAttribute(id, name, value); },
+            removeAttribute: function (name) { writeAttribute(id, name, ''); },
+            removeAttributeNS: function (_ns, name) { writeAttribute(id, name, ''); },
             hasAttribute: function (name) { return readAttribute(id, name) !== null; },
 
             // `getBBox` is SVG user space — the path's own bounds, not the
@@ -381,6 +384,7 @@
                 __dom_replace_with(id, args);
             },
             remove: function () { __dom_remove(id); },
+            normalize: function () { __dom_normalize(id); },
             after: function () {
                 // Insert the argument(s) right after this node in its parent.
                 var parent = __dom_parent(id);

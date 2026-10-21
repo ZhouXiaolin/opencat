@@ -31,7 +31,7 @@ pub struct ScriptNodeFacts {
     pub path_data: String,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct ScriptTargetRegistry {
     pub visual_ids: HashSet<String>,
     pub canvas_ids: HashSet<String>,
@@ -43,6 +43,11 @@ pub struct ScriptTargetRegistry {
     /// [`TreeOverlay`](crate::script::tree::TreeOverlay) builds child lists
     /// from before any script mutation.
     pub declared_nodes: Vec<crate::script::tree::DeclaredNode>,
+    /// Resolved text style per node, from the declarative tree (script
+    /// mutations not applied). SplitText reads element boxes, and a box needs
+    /// shaping — which needs the style. `ComputedTextStyle` has no `PartialEq`,
+    /// so it lives here rather than inside `ScriptNodeFacts`.
+    pub text_styles: std::collections::HashMap<String, crate::style::ComputedTextStyle>,
 }
 
 impl ScriptTargetRegistry {
@@ -86,6 +91,12 @@ pub trait ScriptHost {
     }
     /// Set base style for a single node from its resolved NodeStyle.
     fn set_initial_style_from_node(&mut self, _id: &str, _style: &crate::style::NodeStyle) {}
+    /// Declared text node → its dynamic leaf byte ranges with the wrapper
+    /// chain above each leaf. The resolve bridge turns wrapper styles into
+    /// per-unit overrides; a host without a script tree returns nothing.
+    fn text_leaf_ranges(&mut self, _id: &str) -> Vec<(Vec<String>, usize, usize)> {
+        Vec::new()
+    }
     /// Drain script-recorded generated images (canvas `putImageData` /
     /// surface auto-bake path). Called once per rendered frame by the
     /// render pipeline; drained entries are inserted into the pipeline

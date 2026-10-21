@@ -147,6 +147,18 @@ pub trait MutationRecorder {
     /// report that they are unavailable.
     fn tree_overlay(&self) -> Option<&crate::script::tree::TreeOverlay> { None }
     fn tree_overlay_mut(&mut self) -> Option<&mut crate::script::tree::TreeOverlay> { None }
+
+    /// Resolved text style per declared node, from the declarative tree.
+    /// `getBoundingClientRect` shapes text to answer a box, and shaping needs
+    /// the style; recorders that do not shape keep the default no-op.
+    fn set_text_styles(&mut self, _styles: &std::collections::HashMap<String, crate::style::ComputedTextStyle>) {}
+    fn text_style(&self, _id: &str) -> Option<&crate::style::ComputedTextStyle> { None }
+
+    /// 声明文本节点下所有动态叶子的字节区间（含祖先链）。渲染桥据此把
+    /// wrapper 上的样式变更换算成该元素的 `TextUnitOverrideBatch`。
+    fn text_leaf_ranges(&mut self, _id: &str) -> Vec<(Vec<String>, usize, usize)> {
+        Vec::new()
+    }
     fn current_frame(&self) -> u32;
     /// Frame used to evaluate tween progress: the scene-local override when set
     /// (JSX `<tl>` scenes), otherwise the composition frame.

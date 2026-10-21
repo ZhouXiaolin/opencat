@@ -382,7 +382,8 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         let content = text_content_from_stack(cx.mutation_stack, &style.id)
             .unwrap_or_else(|| text.content().to_string());
 
-        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id);
+        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id)
+            .or_else(|| script_split_overrides(cx, &style.id, &content));
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -967,6 +968,85 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
         .find_map(|m| m.text_content_for(id).map(str::to_string))
 }
 
+/// 官方 SplitText 的拆分结果 → 渲染面的 per-unit 覆盖。
+///
+/// SplitText 建的是真节点树（char/word/line wrapper），gsap 把样式写在
+/// wrapper 元素上。渲染面不认识节点树，只认识"整串文本 + 每个字素一条
+/// 覆盖"，所以这里做最小等价换算：把每个动态叶子的字节区间映射回字素
+/// 索引，沿祖先链合并 wrapper 上的样式变更。
+///
+/// 分组数学与 `ctx.splitText` 完全一致（`TextUnitGranularity::Grapheme`
+/// 走同一条 `describe_text_unit_ranges`），所以 k3-promo/vfx 的像素不变。
+fn script_split_overrides(
+    cx: &mut ResolveContext<'_>,
+    id: &str,
+    content: &str,
+) -> Option<TextUnitOverrideBatch> {
+    use crate::script::{TextUnitGranularity, TextUnitOverride};
+    let leaves = cx.script_runtime.text_leaf_ranges(id);
+    if leaves.is_empty() {
+        return None;
+    }
+    let graphemes = crate::text::describe_grapheme_ranges(content);
+    let index_of = |byte: usize| -> Option<usize> {
+        graphemes
+            .iter()
+            .position(|range| range.start <= byte && byte < range.end)
+    };
+
+    let mut overrides: Vec<Option<TextUnitOverride>> = vec![None; graphemes.len()];
+    for (chain, start, end) in leaves {
+        let Some(first) = index_of(start) else {
+            continue;
+        };
+        let last = index_of(end.saturating_sub(1)).unwrap_or(first);
+        // 叶子本身通常没有样式（它是文本节点或空壳），真正被 tween 的是
+        // wrapper。按叶子 → 最外层顺序合并，后者覆盖前者，与 DOM 上
+        // 嵌套元素各自 transform 的叠加顺序一致（内层先应用）。
+        for wrapper in chain.iter() {
+            let Some(m) = cx
+                .mutation_stack
+                .iter()
+                .rev()
+                .find_map(|layer| layer.get(wrapper))
+            else {
+                continue;
+            };
+            for slot in overrides.iter_mut().take(last + 1).skip(first) {
+                let target = slot.get_or_insert_with(TextUnitOverride::default);
+                if let Some(v) = m.opacity {
+                    target.opacity = Some(v);
+                }
+                if let Some(v) = m.read_transform_value("translateX") {
+                    target.translate_x = Some(v);
+                }
+                if let Some(v) = m.read_transform_value("translateY") {
+                    target.translate_y = Some(v);
+                }
+                if let Some(v) = m.read_transform_value("scale") {
+                    target.scale = Some(v);
+                }
+                if let Some(v) = m.read_transform_value("rotation") {
+                    target.rotation_deg = Some(v);
+                }
+                if let Some(color) = m.text_color {
+                    target.color = Some(color);
+                }
+            }
+        }
+    }
+    if overrides.iter().all(Option::is_none) {
+        return None;
+    }
+    Some(TextUnitOverrideBatch {
+        granularity: TextUnitGranularity::Grapheme,
+        overrides: overrides
+            .into_iter()
+            .map(Option::unwrap_or_default)
+            .collect(),
+    })
+}
+
 fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextUnitOverrideBatch> {
     use crate::script::TextUnitOverride;
     let mut merged: Option<TextUnitOverrideBatch> = None;
@@ -1246,6 +1326,14 @@ fn collect_visual_script_targets_at(
             tag: node_tag_name(node),
             text,
         });
+        // 盒子查询要整形，整形要样式。这里只取节点自己声明的文本属性
+        // （字号/字体/字距/行高），不追继承 —— SplitText 用它判行与算
+        // transform-origin，声明值已足够；继承来的值会随祖先变化，
+        // 而这一层没有祖先上下文。
+        registry.text_styles.insert(
+            id.to_string(),
+            crate::style::resolve_text_style(&Default::default(), node.style_ref()),
+        );
     }
     let child_parent = (!id.is_empty()).then_some(id);
     match node.kind() {

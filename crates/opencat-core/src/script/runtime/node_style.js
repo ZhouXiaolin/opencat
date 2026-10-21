@@ -87,6 +87,31 @@
         };
     }
 
+    // A script-built wrapper (SplitText's char/word/line element) has no
+    // declared position or size — its box comes from the text it holds. The
+    // range is resolved against the nearest declared text ancestor, so the
+    // shape is the SAME shaping run the renderer does, aggregated per byte
+    // range. Declared nodes keep their declared box.
+    function wrapperBox(id) {
+        var range = __dom_text_range(id);
+        if (!range) return box(id);
+        var b = (__text_element_boxes(String(range[2]), [[range[0], range[1]]]) || [])[0];
+        if (!b) return box(id);
+        var left = Number(b.left) || 0;
+        var top = Number(b.top) || 0;
+        var width = Number(b.width) || 0;
+        var height = Number(b.height) || 0;
+        return {
+            left: left, top: top, width: width, height: height,
+            right: left + width, bottom: top + height,
+            x: left, y: top,
+        };
+    }
+
+    function elementBox(id) {
+        return __dom_is_dynamic(id) ? wrapperBox(id) : box(id);
+    }
+
     function facts(id) {
         var registry = ctx.__targetRegistry || {};
         return (registry.facts && registry.facts[id]) || null;
@@ -233,7 +258,7 @@
                 return d ? __path_total_length(d) : 0;
             },
             getComputedStyle: function () { return style; },
-            getBoundingClientRect: function () { return box(id); },
+            getBoundingClientRect: function () { return elementBox(id); },
             // DrawSVG scales a `vector-effect: non-scaling-stroke` path's length
             // by this matrix. The composition's user space IS the screen, so the
             // identity matrix is the truthful answer (scale 1, no rotation).

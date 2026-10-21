@@ -656,6 +656,178 @@ pub mod surface;
 
 // ── Script text measurement ────────────────────────────────────────────────
 
+/// One element's box in the script-facing coordinate space: the union of the
+/// glyph boxes whose byte ranges overlap the queried range.
+///
+/// SplitText needs boxes in exactly two places — line detection (one box per
+/// top-level child) and CSSPlugin's transform-origin (the wrapper's size). The
+/// renderer already computes glyph positions for the same text, so a box is
+/// that same shaping run, aggregated per byte range. Nothing here is layout:
+/// the box is glyph ink bounds, which is what `getBoundingClientRect` reports
+/// for a text element in a browser too (a tight inline box).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ScriptTextBox {
+    pub left: f32,
+    pub top: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// Aggregate glyph boxes per byte range of `text`.
+///
+/// `origin` is where the shaped block's top-left sits on screen (the element's
+/// laid-out position); `max_width`/`allow_wrap` mirror the renderer's shaping
+/// inputs so line breaks land in the same places.
+pub fn script_text_boxes(
+    text: &str,
+    style: &crate::style::ComputedTextStyle,
+    origin: (f32, f32),
+    max_width: f32,
+    allow_wrap: bool,
+    font_db: &fontdb::Database,
+    ranges: &[std::ops::Range<usize>],
+) -> Vec<ScriptTextBox> {
+    if text.is_empty() || ranges.is_empty() {
+        return vec![ScriptTextBox::default(); ranges.len()];
+    }
+    let raster = rasterize_glyphs(text, style, max_width, allow_wrap, false, font_db);
+    let line_height = style.resolved_line_height_px();
+    let mut boxes = vec![ScriptTextBox::default(); ranges.len()];
+
+    for line in &raster.lines {
+        let line_x_shift = compute_line_x_shift(line.width, max_width, style.text_align);
+        for pos in &line.positions {
+            let Some(glyph) = raster.glyphs.get(&pos.cache_key) else {
+                continue;
+            };
+            let abs_x = origin.0 + line_x_shift + pos.x;
+            let abs_y = origin.1 + pos.y;
+            let (gx, gy, gw, gh) = match glyph {
+                GlyphData::Outline(commands, upem) => {
+                    let unscale = *upem / style.text_px;
+                    let draw_scale = style.text_px / *upem;
+                    let (bx, by, bw, bh) = glyph_outline_bounds(commands, unscale);
+                    (
+                        abs_x + bx * draw_scale,
+                        abs_y + by * draw_scale,
+                        bw * draw_scale,
+                        bh * draw_scale,
+                    )
+                }
+                GlyphData::ColorImage {
+                    width,
+                    height,
+                    placement_left,
+                    placement_top,
+                    ..
+                } => (
+                    abs_x + *placement_left as f32,
+                    abs_y - *placement_top as f32,
+                    *width as f32,
+                    *height as f32,
+                ),
+            };
+            for (index, range) in ranges.iter().enumerate() {
+                if !ranges_overlap(pos.byte_range.clone(), range.clone()) {
+                    continue;
+                }
+                let slot = &mut boxes[index];
+                if slot.width == 0.0 && slot.height == 0.0 && slot.left == 0.0 && slot.top == 0.0 {
+                    *slot = ScriptTextBox {
+                        left: gx,
+                        top: gy,
+                        width: gw,
+                        height: gh,
+                    };
+                } else {
+                    let right = slot.left + slot.width;
+                    let bottom = slot.top + slot.height;
+                    let left = slot.left.min(gx);
+                    let top = slot.top.min(gy);
+                    slot.left = left;
+                    slot.top = top;
+                    slot.width = right.max(gx + gw) - left;
+                    slot.height = bottom.max(gy + gh) - top;
+                }
+            }
+        }
+    }
+    // A range with no ink (a space, a newline) still occupies a line box: the
+    // browser reports the caret box. SplitText skips ranges whose box equals
+    // `_emptyBounds`, and line detection needs the advance, so give such a
+    // range the line's height at its start offset.
+    for (index, slot) in boxes.iter_mut().enumerate() {
+        if slot.width != 0.0 || slot.height != 0.0 {
+            continue;
+        }
+        let start = ranges[index].start.min(text.len());
+        let mut x = origin.0;
+        let mut y = origin.1;
+        for line in &raster.lines {
+            let line_x_shift = compute_line_x_shift(line.width, max_width, style.text_align);
+            let mut advance = 0.0f32;
+            for pos in &line.positions {
+                if pos.byte_range.start >= start {
+                    break;
+                }
+                advance = pos.x;
+            }
+            if line.positions.iter().any(|p| p.byte_range.start >= start) || line.positions.is_empty() {
+                x = origin.0 + line_x_shift + advance;
+                y = origin.1 + line.y;
+                break;
+            }
+        }
+        *slot = ScriptTextBox {
+            left: x,
+            top: y,
+            width: 0.0,
+            height: line_height,
+        };
+    }
+    boxes
+}
+
+/// Ink bounds of a glyph outline in em-scaled units, y flipped to screen space.
+fn glyph_outline_bounds(commands: &[cosmic_text::Command], scale: f32) -> (f32, f32, f32, f32) {
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut track = |x: f32, y: f32| {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    };
+    for cmd in commands {
+        match cmd {
+            cosmic_text::Command::MoveTo(p) | cosmic_text::Command::LineTo(p) => {
+                track(p.x * scale, -p.y * scale)
+            }
+            cosmic_text::Command::QuadTo(c, p) => {
+                track(c.x * scale, -c.y * scale);
+                track(p.x * scale, -p.y * scale);
+            }
+            cosmic_text::Command::CurveTo(c1, c2, p) => {
+                track(c1.x * scale, -c1.y * scale);
+                track(c2.x * scale, -c2.y * scale);
+                track(p.x * scale, -p.y * scale);
+            }
+            cosmic_text::Command::Close => {}
+        }
+    }
+    if min_x.is_infinite() {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    (min_x, min_y, max_x - min_x, max_y - min_y)
+}
+
+/// The font database a script binding should shape with.
+pub fn script_font_db() -> Arc<fontdb::Database> {
+    font_db_for_script()
+}
+
 /// Measure single-line text width for the script engine canvas API.
 /// Uses the font database from [`scope_font_db`] when inside a render pass.
 /// Returns 0.0 for empty strings.

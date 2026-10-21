@@ -130,6 +130,15 @@ impl TreeOverlay {
         self.nodes.contains_key(id)
     }
 
+    /// 本帧子级视图被改过的静态节点 id。
+    pub fn static_ids_with_overrides(&self) -> Vec<String> {
+        self.overrides
+            .keys()
+            .filter(|id| self.static_ids.contains(*id))
+            .cloned()
+            .collect()
+    }
+
     /// 节点 tag：动态节点查自身，静态节点查声明。
     pub fn tag_of(&self, id: &str) -> Option<&str> {
         if let Some(node) = self.nodes.get(id) {
@@ -252,6 +261,81 @@ impl TreeOverlay {
                 (child, node_type)
             })
             .collect()
+    }
+
+    /// 动态节点在原文中的字节区间：`(start, end, 声明文本祖先 id)`。
+    ///
+    /// SplitText 的 wrapper 是空壳，它的盒子得从它承载的那段原文算出来。
+    /// 沿父链上溯到最近的声明文本节点，把它前面的兄弟的文本长度累加就是
+    /// start。找不到声明祖先时返回 `None`（调用方退回声明盒子）。
+    pub fn text_range_of(&mut self, id: &str) -> Option<(usize, usize, String)> {
+        let mut start = 0usize;
+        let mut cursor = id.to_string();
+        let mut guard = 0;
+        loop {
+            guard += 1;
+            if guard > 4096 {
+                return None;
+            }
+            let parent = self.parent_of(&cursor)?;
+            let view = self.view_mut(&parent).clone();
+            let index = view.iter().position(|child| *child == cursor)?;
+            for sibling in &view[..index] {
+                start += self.text_of(sibling).len();
+            }
+            if self.is_static(&parent) {
+                let own = self.text_of(&cursor).len();
+                return Some((start, start + own, parent));
+            }
+            cursor = parent;
+        }
+    }
+
+    /// 声明文本节点下所有动态叶子的区间：`(祖先链, start, end)`。
+    ///
+    /// 祖先链从叶子往上是 `[叶子, …, 最外层动态 wrapper]`，不含静态节点
+    /// 本身。渲染桥按这条链合并样式变更 —— gsap 写的是 wrapper 元素，
+    /// 而区间落在叶子上，两者之间还隔着 SplitText 的词/行壳。
+    pub fn leaf_ranges(&mut self, id: &str) -> Vec<(Vec<String>, usize, usize)> {
+        let mut out = Vec::new();
+        let view = self.view_mut(id).clone();
+        let mut offset = 0usize;
+        for child in view {
+            let len = self.text_of(&child).len();
+            self.collect_leaves(&child, &mut Vec::new(), offset, &mut out);
+            offset += len;
+        }
+        out
+    }
+
+    fn collect_leaves(
+        &mut self,
+        id: &str,
+        chain: &mut Vec<String>,
+        start: usize,
+        out: &mut Vec<(Vec<String>, usize, usize)>,
+    ) {
+        let dynamic = self.is_dynamic(id);
+        if dynamic {
+            chain.push(id.to_string());
+        }
+        let view = self.view_mut(id).clone();
+        if view.is_empty() {
+            let len = self.text_of(id).len();
+            if len > 0 {
+                out.push((chain.clone(), start, start + len));
+            }
+        } else {
+            let mut offset = start;
+            for child in view {
+                let len = self.text_of(&child).len();
+                self.collect_leaves(&child, chain, offset, out);
+                offset += len;
+            }
+        }
+        if dynamic {
+            chain.pop();
+        }
     }
 
     pub fn parent_of(&self, id: &str) -> Option<String> {

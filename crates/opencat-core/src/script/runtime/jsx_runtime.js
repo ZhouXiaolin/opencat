@@ -469,13 +469,13 @@
         useComposition: useComposition,
     };
 
-    // ── real-package builtins: pure forwards to the ctx namespaces ──
+    // ── package builtins ────────────────────────────────────────────
     // `import { gsap } from 'gsap'` (oxc lowers to __ocRequire("gsap").gsap)
-    // and friends resolve here — no npm code is bundled; the engine's own
-    // ctx.gsap / ctx.threejs / ctx.canvas ARE the package surface. gsap is
-    // hook-gated: tween calls only mean something inside a per-frame hook,
-    // where the scene clock is bound. Object constructors (three / canvaskit)
-    // forward ungated — they are pure local state.
+    // resolves to the REAL npm package embedded in core. three / canvaskit
+    // forward to the ctx namespaces, which really are their whole surface.
+    // gsap is hook-gated: tween calls only mean something inside a per-frame
+    // hook, where the scene clock is bound. Object constructors (three /
+    // canvaskit) forward ungated — they are pure local state.
     function hookGated(target, apiName) {
         var wrapped = new WeakMap();
         function wrapValue(v) {
@@ -514,8 +514,8 @@
     // the current hook; the hook runner seeks every registered tween to
     // ctx.current.time after the hook body returns (animate = g(t)). The
     // paused flag is forced here so nothing depends on the package's ticker.
-    // Without the bundle, fall back to the ctx.gsap facade; the facade itself
-    // stays available as ctx.*.
+    // The package is embedded in core, so it is always present. A missing one
+    // is a broken build, not a mode to support; there is no fallback surface.
     var gsapPackage = globalThis.__ocGsapModule && globalThis.__ocGsapModule.exports;
     if (gsapPackage) {
         // animate = g(t) plumbing: register every created tween on the
@@ -615,13 +615,15 @@
             };
         }
     }
-    var gatedGsap = hookGated(
-        (gsapPackage && (gsapPackage.gsap || gsapPackage.default)) || globalThis.ctx.gsap,
-        'gsap'
-    );
-    builtins['gsap'] = gsapPackage
-        ? Object.assign(Object.create(null), gsapPackage, { default: gatedGsap, gsap: gatedGsap })
-        : { default: gatedGsap, gsap: gatedGsap };
+    // Every realm that installs this runtime evals GSAP_BUNDLE first, so the
+    // package is always there. A missing one is a broken build, and failing
+    // loudly here beats a silent fallback to some other gsap-shaped object.
+    if (!gsapPackage) throw new Error('gsap bundle missing — the core build is broken');
+    var gatedGsap = hookGated(gsapPackage.gsap || gsapPackage.default, 'gsap');
+    builtins['gsap'] = Object.assign(Object.create(null), gsapPackage, {
+        default: gatedGsap,
+        gsap: gatedGsap,
+    });
     // `import { CustomEase } from 'gsap/CustomEase'` — the npm package's own
     // per-plugin subpaths. Each record carries the plugin as both the named
     // and the default export, so the documented import line works verbatim;

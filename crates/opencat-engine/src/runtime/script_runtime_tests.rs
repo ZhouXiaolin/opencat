@@ -1835,10 +1835,13 @@ fn dom_window_reads_composition_size_and_timers_error() {
     // the frame boundary (`__ocG2Flush`) — a queued callback runs once on the
     // composition clock, which stays deterministic. The dom_api guard only
     // fills the gap when that polyfill is absent.
+    // `document.createElement` is NOT in this list either: it hands out a
+    // scratch element for plugins that parse HTML strings (TextPlugin), and
+    // nothing joins the composition through it. Append still errors — that is
+    // the call that would mutate the tree.
     for source in [
         "setTimeout(function() {}, 1);",
         "document.getElementById('box').appendChild({});",
-        "document.createElement('div');",
         "document.querySelector('.some-class');",
     ] {
         let driver = realm.install(source).unwrap_or_else(|e| {
@@ -1921,99 +1924,6 @@ fn dom_get_context_2d_records_canvas_ops_and_webgl_errors() {
     assert!(
         text.contains("ctx.three") && text.contains("useThree"),
         "webgl error should point at ctx.three / useThree, got: {text}"
-    );
-}
-
-// ── C-1: ctx.gsap namespace ───────────────────────────────────────────────
-// The gsap-shaped object forwards to the SAME function objects as the flat
-// ctx names (ctx.to etc. keep working unchanged); playback control errors —
-// a frame=f(t) renderer has no live tween to seek.
-
-#[test]
-fn gsap_namespace_shares_flat_facade_functions_and_drives_tweens() {
-    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
-    let mut registry = ScriptTargetRegistry::default();
-    registry.visual_ids.insert("box".into());
-    realm.set_target_registry(registry);
-    realm.set_style_defaults(
-        &[("box".to_string(), [("opacity".into(), serde_json::json!(0.0))].into_iter().collect())]
-            .into_iter()
-            .collect(),
-    );
-    // ctx.gsap.to IS ctx.to — identity, not a wrapper.
-    let driver = realm
-        .install(
-            r"
-            if (ctx.gsap.to !== ctx.to) throw new Error('gsap.to must be the same function as ctx.to');
-            if (ctx.gsap.timeline !== ctx.timeline) throw new Error('gsap.timeline must be the same function');
-            if (ctx.gsap.set !== ctx.set) throw new Error('gsap.set must be the same function');
-            ctx.gsap.to('box', { opacity: 1, duration: 1, ease: 'linear' });
-        ",
-        )
-        .expect("install");
-    // fps 30 → frame 15 of a 1s (30-frame) tween is its midpoint.
-    let rec = run_dom_frame(&mut realm, driver, 15, None);
-    let opacity = rec
-        .snapshot_mutations()
-        .mutations
-        .get("box")
-        .and_then(|m| m.opacity)
-        .expect("gsap.to should drive the same tween engine");
-    assert!((opacity - 0.5).abs() < 0.05, "frame 15 of 30 at fps 30: {opacity}");
-}
-
-#[test]
-fn gsap_timeline_via_namespace_and_unsupported_methods_error() {
-    let mut realm = ScriptRealm::<V8JsContext>::open().expect("realm");
-    let mut registry = ScriptTargetRegistry::default();
-    registry.visual_ids.insert("box".into());
-    registry.visual_ids.insert("box2".into());
-    realm.set_target_registry(registry);
-    let driver = realm
-        .install(
-            r"
-            var tl = ctx.gsap.timeline();
-            tl.to('box', { opacity: 1, duration: 0.5 });
-            tl.to('box2', { x: 100, duration: 0.5 }, '<0.25');
-            globalThis.__tlOk = true;
-        ",
-        )
-        .expect("install timeline");
-    run_dom_frame(&mut realm, driver, 0, None);
-    let ok = realm.eval_json_for_test("globalThis.__tlOk");
-    assert_eq!(ok, serde_json::json!(true), "timeline through ctx.gsap must work");
-
-    // Playback control has no meaning here (install is lazy; force the frame).
-    for method in ["play", "pause", "seek", "timeScale", "killTweensOf"] {
-        let driver = realm
-            .install(format!("ctx.gsap.{}('box');", method).as_str())
-            .expect("install wraps lazily");
-        let frame_ctx = FrameCtx { frame: 1, fps: 30, width: 320, height: 180, frames: 30 };
-        let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-        let mut rec = MutationStore::default();
-        let err = realm
-            .run_frame(driver, &script_frame_ctx, None, &mut rec)
-            .expect_err(&format!("{method} should error"));
-        let text = format!("{err:#}");
-        assert!(
-            text.contains("frame=f(t)") || text.contains("deterministic"),
-            "{method} error should explain the deterministic renderer, got: {text}"
-        );
-    }
-    // ticker is an object — touching a member is what errors.
-    let driver = realm
-        .install("ctx.gsap.ticker.add(function() {});")
-        .expect("install ticker");
-    let frame_ctx = FrameCtx { frame: 2, fps: 30, width: 320, height: 180, frames: 30 };
-    let script_frame_ctx = ScriptFrameCtx::global(&frame_ctx);
-    let mut rec = MutationStore::default();
-    let err = realm
-        .run_frame(driver, &script_frame_ctx, None, &mut rec)
-        .expect_err("ticker.add should error");
-    let text = format!("{err:#}");
-    assert!(
-        text.contains("frame=f(t)") || text.contains("deterministic"),
-        "ticker error should explain the deterministic renderer, got: {text}"
     );
 }
 

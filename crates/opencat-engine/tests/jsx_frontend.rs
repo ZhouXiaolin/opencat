@@ -44,6 +44,36 @@ fn parse_ids(source: &str, base_dir: &Path) -> (Vec<String>, String) {
     (ids, driver)
 }
 
+/// The engine resolves `gsap` from the project sidecar (`<base_dir>/dist/
+/// gsap.bundle.mjs`); the repo does not commit build artifacts. Extract never
+/// runs the animation hooks, so the protocol stub (same shape as the one in
+/// script_runtime_tests) is a sufficient supply for these structural checks.
+fn ensure_gsap_sidecar(base_dir: &Path) {
+    let dir = base_dir.join("dist");
+    let path = dir.join("gsap.bundle.mjs");
+    if path.is_file() {
+        return;
+    }
+    std::fs::create_dir_all(&dir).expect("dist dir");
+    let stub = r#"
+    var __ocStubGsap = {
+        timeline: function (vars) {
+            if (!vars || vars.paused !== true) throw new Error('timeline must be created paused');
+            var tweens = [];
+            var tl = {
+                to: function (target) { tweens.push(String(target)); return tl; },
+                time: function () { return 0; },
+            };
+            return tl;
+        },
+        to: function () {},
+    };
+    __ocStubGsap.default = __ocStubGsap;
+    module.exports = { gsap: __ocStubGsap, default: __ocStubGsap, TimelineLite: function () {} };
+    "#;
+    std::fs::write(&path, stub).expect("write stub gsap sidecar");
+}
+
 #[test]
 fn dribbble_port_extracts_tree_and_frame_driver() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -51,6 +81,7 @@ fn dribbble_port_extracts_tree_and_frame_driver() {
         .canonicalize()
         .expect("example file");
     let source = std::fs::read_to_string(&path).expect("read example");
+    ensure_gsap_sidecar(path.parent().unwrap());
     let parsed = parse_with_base_dir(&source, path.parent()).expect("jsx parse");
 
     assert_eq!((parsed.width, parsed.height, parsed.fps), (1920, 1080, 30));
@@ -248,6 +279,7 @@ fn nexus_port_manifests_document_fonts() {
         .canonicalize()
         .expect("example file");
     let source = std::fs::read_to_string(&path).expect("read example");
+    ensure_gsap_sidecar(path.parent().unwrap());
     let parsed = parse_with_base_dir(&source, path.parent()).expect("jsx parse");
 
     let manifest = &parsed.font_manifest;

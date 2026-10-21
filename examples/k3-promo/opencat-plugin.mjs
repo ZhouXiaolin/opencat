@@ -20,6 +20,9 @@ import { fileURLToPath } from 'node:url';
 
 /// 垫片与插件同目录分发（模板/示例各自 cp 一份）。
 const SHIM_PATH = join(dirname(fileURLToPath(import.meta.url)), 'react-shim.mjs');
+/// gsap 收录面入口，同上分发。项目装了 gsap 时预打包成 dist/gsap.bundle.mjs
+/// ——引擎不再内嵌 gsap，渲染期按约定读该 sidecar 注入模块表。
+const GSAP_ENTRY = join(dirname(fileURLToPath(import.meta.url)), 'gsap-entry.mjs');
 
 export default function opencat(options = {}) {
     const entry = options.entry ?? 'src/index.jsx';
@@ -77,7 +80,7 @@ export default function opencat(options = {}) {
     // 标准工程流：npm 组件树 → esbuild bundle → 引擎渲染 bundle。
     // react/react/jsx-runtime alias 到垫片（svg 子树在垫片里序列化成
     // inline markup）；opencat/runtime 与三个真包（gsap/three/canvaskit-wasm）
-    // 保持 external——引擎内建解析（builtins 纯转发到 ctx 命名空间）。
+    // 保持 external——引擎内建或项目 sidecar 解析（gsap 见 bundleGsap）。
     const bundle = () => {
         if (!esbuild) {
             const require = createRequire(join(root, 'package.json'));
@@ -117,8 +120,36 @@ export default function opencat(options = {}) {
         appendFileSync(bundleAbs, `\nexport const css = ${literal};\n`);
     };
 
+    // 项目侧 gsap bundle：`gsap` 在主 bundle 里保持 external，渲染期由引擎
+    // 从 dist/gsap.bundle.mjs 注入。gsap 从项目自身依赖解析（nodePaths），
+    // 版本跟项目；没装 gsap 的项目跳过。CJS 产物：引擎模块表按 CJS 语义
+    // new Function 执行，无 import/export 需要降级。
+    const bundleGsap = () => {
+        const nm = join(root, 'node_modules');
+        if (!existsSync(join(nm, 'gsap'))) return;
+        if (!esbuild) {
+            const require = createRequire(join(root, 'package.json'));
+            esbuild = require('esbuild');
+        }
+        const outfile = join(distDir, 'gsap.bundle.mjs');
+        mkdirSync(distDir, { recursive: true });
+        esbuild.buildSync({
+            entryPoints: [GSAP_ENTRY],
+            outfile,
+            bundle: true,
+            format: 'cjs',
+            platform: 'browser',
+            target: 'es2020',
+            charset: 'utf8',
+            logLevel: 'warning',
+            nodePaths: [nm],
+        });
+        console.log(`[opencat] bundled gsap -> ${outfile}`);
+    };
+
     const render = () => {
         bundle();
+        bundleGsap();
         const bin = findOpencatBin();
         mkdirSync(dirname(outputAbs), { recursive: true });
         console.log(`[opencat] render ${entry} -> ${output}`);

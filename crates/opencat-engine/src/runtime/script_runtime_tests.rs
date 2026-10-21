@@ -2081,15 +2081,50 @@ fn canvas_namespace_make_surface_resolves_element_and_draws() {
 }
 
 // ── C-4: real-package builtins (pure forwards) + hook gate ────────────────
-// `import { gsap } from 'gsap'` resolves through builtins['gsap'] → ctx.gsap;
-// tween calls are gated to per-frame hooks (__ocHookCtx), where the scene
-// clock is bound.
+// `import { gsap } from 'gsap'` is project-supplied: the host materializes
+// dist/gsap.bundle.mjs into __ocModuleSources['gsap'], and the runtime's
+// install pass adds target normalization, the paused protocol and the hook
+// gate on top of the raw package. These tests drive that exact protocol with
+// a stub package; gsap's animation semantics are covered by the rendered
+// acceptance (k3diff), not here.
+
+/// Protocol stub handed to __ocModuleSources['gsap']: enough surface for the
+/// install pass (timeline/to + a seekable playhead that writes real node
+/// mutations), nothing more.
+const GSAP_STUB: &str = r#"
+    var __ocStubGsap = {
+        timeline: function (vars) {
+            if (!vars || vars.paused !== true) throw new Error('timeline must be created paused');
+            var tweens = [];
+            var tl = {
+                to: function (target) { tweens.push(String(target)); return tl; },
+                time: function (t) {
+                    for (var i = 0; i < tweens.length; i++) {
+                        globalThis.ctx.__domTarget(tweens[i]).style.opacity = String(0.5 + t);
+                    }
+                },
+            };
+            return tl;
+        },
+        to: function () {},
+    };
+    __ocStubGsap.default = __ocStubGsap;
+    module.exports = { gsap: __ocStubGsap, default: __ocStubGsap, TimelineLite: function () {} };
+"#;
+
+fn with_gsap_stub(source: &str) -> String {
+    format!(
+        "globalThis.__ocModuleSources = {{ gsap: {} }};\n{}",
+        serde_json::to_string(GSAP_STUB).unwrap(),
+        source
+    )
+}
 
 #[test]
 fn real_package_imports_forward_to_ctx_namespaces() {
     // (1) gsap: hook-gated — usable inside useGSAP/useFrame, errors outside.
     // The driver body (outside a hook) must NOT be able to tween.
-    let (mut realm, driver) = open_with_source(
+    let (mut realm, driver) = open_with_source(&with_gsap_stub(
         r#"
         const { gsap } = globalThis.__ocRequire('gsap');
         if (typeof gsap.to !== 'function') throw new Error('gsap.to must come through the builtin');
@@ -2101,7 +2136,7 @@ fn real_package_imports_forward_to_ctx_namespaces() {
         }
         globalThis.__gateWorks = true;
     "#,
-    );
+    ));
     run_driver(&mut realm, driver, 0, None);
     assert_eq!(
         realm.eval_json_for_test("globalThis.__gateWorks"),
@@ -2123,7 +2158,7 @@ fn real_package_imports_forward_to_ctx_namespaces() {
         });
         globalThis.__ocRunFrameHooks();
     "#;
-    let (mut realm, driver) = open_with_source(source);
+    let (mut realm, driver) = open_with_source(&with_gsap_stub(source));
     let mut registry = ScriptTargetRegistry::default();
     registry.visual_ids.insert("box".to_string());
     registry.visual_ids.insert("box2".to_string());

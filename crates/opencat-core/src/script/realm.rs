@@ -21,7 +21,7 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, G2_API_RUNTIME,
-    G2_BUNDLE, GSAP_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -262,11 +262,10 @@ impl<C: JsContext> ScriptRealm<C> {
         // whose `getContext` branch forwards here.
         self.ctx.eval(CONTEXT2D_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
-        // Real gsap package: must precede JSX_RUNTIME, whose module registry
-        // exposes `globalThis.__ocGsapModule.exports` as the `gsap` builtin.
-        self.ctx.eval(GSAP_BUNDLE)?;
         // JSX frontend: h() + use* registry + module loader. Pure-XML
-        // compositions simply never call into it.
+        // compositions simply never call into it. The `gsap` package is NOT
+        // installed here: it is project-supplied (dist/gsap.bundle.mjs) and
+        // the per-composition driver injects it into __ocModuleSources.
         self.ctx.eval(JSX_RUNTIME)?;
         self.ctx.eval(
             "globalThis.__opencatFlushTimelines = function() {\

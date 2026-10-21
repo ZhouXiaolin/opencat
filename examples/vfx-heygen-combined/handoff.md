@@ -2,24 +2,51 @@
 
 > 2026-10-10 对齐工作流收工时整理。目标：`examples/vfx-heygen-combined/vfx-heygen-combined.jsx` 渲染结果与参考视频 k3diff **avg_p8 < 2%**，每示例最多 4 轮「改 jsx → 渲染 → 对比」。
 
-## 状态：未达标（最好 29.897%，离门禁很远）
-- 四轮平均差异仍在 30% 量级：存在**结构性差异**（整层缺失 / 时机错位 / 遮挡层级不对），不是精修问题
-- 最差帧集中在 **68–95**（top5：95, 92, 93, 69, 68）——看这段是什么场景
-- 本轮 4 轮把 jsx 重写过一遍（248 行，-143/+105），方向未突破；旧探索期的引擎修复（markup canvas 子树支持）反而把 pr-to 带进了 2% 门槛附近，说明 vfx 的差异源还没找对
+## 状态：未达标（2026-10-21 最好 24.24%，门禁 avg_p8 < 2%）
+分段（8x8 池化 p8，参考 = swgl 视频直解码，含编码噪声）：
 
-## 素材
-- 参考组合：`/Users/solaren/Projects/hyperframes-launches/vfx-heygen-combined/index.html`
-- 参考视频：`/Users/solaren/Projects/hyperframes-launches/vfx-heygen-combined/renders/vfx-heygen-combined_2026-10-05_swgl.mp4`（1920x1080 @30，788 帧）
+```
+  0- 49 28.0%   50- 99 55.1%   100-149 44.5%   150-199 52.5%
+200-249 27.1%  250-299 44.9%   300-349  5.6%   350-399  1.4%
+400-449 26.2%  450-499 19.8%   500-549  7.0%   550-599 10.9%
+600-649 18.3%  650-699 18.2%   700-749 17.3%   750-799  6.8%
+```
+
+### 已修（本轮，avg_p8 28.94% → 24.24%）
+- **裸 `.jsx` 无样式**：tailwind 原生解析退役后，没有 `export const css` 的示例整片透明。
+  引擎改为读入口同目录的 `tailwind.css` sidecar（bundle 自带 css 优先），
+  `bun tools/build-example-css.mjs examples/vfx-heygen-combined` 预编译。
+  这一条是历史 29.897% 的真正原因，不是特效实现问题。
+- **`transformOrigin: '174px 0'`**：gsap 写 px 原点被静默丢弃（store 只存盒子分数）。
+  store 写入前按盒子尺寸折成百分比（`origin_px_to_fractions`）。
+- **8 处 `ctx.timeline()` → 真 `gsap.timeline()`**（阶段 4 遗留）。
+- **`#next-bg` 补 `saturate(1.1) contrast(1.03)`**、**`#next-card` 的 `backdrop-filter`
+  改走 class**（CSSPlugin 不认识 `backdropBlur`，原来那条 tween 从未落库）。
+- **`.availability-supported` 改左对齐 block**：源里 `.availability > span{display:block}`
+  特异性压过 `.availability-supported{display:flex}`，原来横向偏 105px；现在逐字形对齐到 ±2px。
+
+### 已知残差（按收益排序）
+1. **100–199 玻璃卡内部右侧**：参考该区域均亮 142，视频同位置只有 26。任何 sigma 的模糊、
+   任意视频帧、缩放/镜像采样都对不上；`screen` 合成能解释亮度但会把卡片顶部（顶条
+   `mae 11/255`，与纯模糊完全吻合）弄坏。判断为参考侧 `backdrop-filter` 的提亮/泛光artifact，
+   我们的实现是规范语义（模糊+卡片渐变），没有再往这个方向对齐。
+2. **250–299 / 400–499 手机段**：参考手机是 `models/iphone.glb` 的 THREE 渲染（镜头模组、
+   侧边倒角、透视都是模型自带），jsx 用 div 近似，结构差在摄像头模组和机身倒角。
+3. **400–499 色散段**：三平面 `AdditiveBlending` + UnrealBloom 已有对应 SKSL（CHROM），
+   但红/绿/蓝平面的合成结果偏"三份彩色"，参考偏"白字+细边"。zSplit/camZ 反算一致，
+   差异集中在 bloom 权重与平面 alpha 的乘积语义。
 
 ## 证据与产物
-- jsx：`examples/vfx-heygen-combined/vfx-heygen-combined.jsx`（已提交，commit 40cf11b）
-- 渲染：`out/vfx-heygen-combined.mp4`（77MB）；对比证据：`out/k3diff-vfx-heygen-combined/`（summary.json、pixel.csv、最差帧对照图）
-- PNG 序列退路可用：`out/vfx-heygen-combined-frames/`
+- jsx：`examples/vfx-heygen-combined/vfx-heygen-combined.jsx`
+- 逐帧 PNG：`out/vfx-fix3-frames/`（789 帧）；分段表脚本：`out/blurdiff.py`
+- 参考帧抽取：`ffmpeg -i <swgl.mp4> -vf "select='eq(n,170)'" -fps_mode passthrough ref.png`
+- 注意：单帧对比请用 PNG/无损，编码一次就有 `ma_e ≈ 2.97` 的编码器差异。
 
 ## 下一步
-1. `--dump 95,92,68` Read 对照图：先判断差异是「整段动画缺失/提前/滞后」还是「效果实现不同」（这是 canvas/vfx 重头示例，优先怀疑 useCanvas 层与参考的自定义着色器行为不一致）
-2. 对照参考 index.html 逐场景列清单（每个特效层的出现时刻/持续/参数），和 jsx 的 timeline 逐项核对
-3. 特效内核用 liangyi（ly.pixel/ly.scan）实现，别在 jsx 里手撸逐帧
+1. 接 1 号残差前先确认：要不要为参考的 backdrop 提亮做非规范 emulation（会偏离 CSS 语义，
+   且只对这一支有收益）
+2. 手机段若要继续，需要 GLTF 渲染能力（useThree + glb），不是 jsx 层能补的
+3. 色散段先核对 `#chromatic-still-frame span` 的字号/位置，再调 bloom
 
 ## 渲染与对比（在仓库根目录下）
 - 直接渲染：`cargo run --release --bin opencat -- examples/vfx-heygen-combined/vfx-heygen-combined.jsx out/vfx-heygen-combined.mp4`
@@ -37,7 +64,7 @@
   ```
 
 ## 移植规则（Solaren 定，勿违反）
-- 与参考 HTML+Tailwind+GSAP 结构一一对应：静态层 OpenCat 节点 + tailwindcss；动画 useGSAP（`ctx.timeline()`/to/fromTo/set，绝对秒定位）；文字动画用 GSAP 插件（scramble-text/splitText）；3D 用 useThree；自由绘制 useCanvas/useCanvasKit
+- 与参考 HTML+Tailwind+GSAP 结构一一对应：静态层 OpenCat 节点 + tailwindcss；动画 useGSAP（真包 `gsap.timeline()`/to/fromTo/set，绝对秒定位；`ctx.timeline` 已退役）；文字动画用 GSAP 插件（scramble-text/splitText）；3D 用 useThree；自由绘制 useCanvas/useCanvasKit
 - 禁止烘焙序列帧模仿动画；转场用 timeline 节点
 - SKSL 绘制优先 liangyi 内核（ly.pixel/ly.scan）
 - 引擎缺陷先补 opencat 本身（crates/），不要在 jsx 里绕；行为只能增强，已达标示例（k3-promo、liquid-brand-refraction、website-to-hyperframes）不能退化

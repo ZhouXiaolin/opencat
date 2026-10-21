@@ -22,6 +22,17 @@
         }
     }
 
+    // A retired facade member: errors instead of silently doing nothing, and
+    // the message names the replacement.
+    function retired(method) {
+        return function () {
+            throw new Error(
+                'ctx.gsap.' + method + ' is retired — use the real package: ' +
+                    "import { gsap } from 'gsap'"
+            );
+        };
+    }
+
     function parsePosition(pos, state) {
         if (pos == null) return state.cursor;
         if (typeof pos === 'number') return pos;
@@ -398,46 +409,27 @@
         return api;
     };
 
-    // ── ctx.gsap: gsap-shaped namespace ─────────────────────────────
-    // The same facade functions the flat ctx names expose, organized the way
-    // the `gsap` npm package presents them (so `import { gsap } from 'gsap'`
-    // can forward here). Core tween members ARE the same function objects as
-    // the flat names — one implementation, two spellings, zero drift.
-    // Playback control (play/pause/seek/ticker/timeScale) has no meaning in a
-    // frame = f(t) renderer: every frame recomputes state from the clock, so
-    // there is no live tween to seek — these error instead of silently
-    // no-opping. killTweensOf errors for the same reason (no active pool).
-    function unsupported(method, instead) {
-        return function() {
-            throw new Error(
-                'gsap.' + method + ' is not available in a deterministic frame=f(t) renderer' +
-                (instead ? ' — ' + instead : '')
-            );
-        };
-    }
-
+    // ── ctx.gsap: retired ───────────────────────────────────────────
+    // The author surface is the real npm package (`import { gsap } from
+    // 'gsap'`), which the bundle embeds unconditionally. A second gsap-shaped
+    // namespace here would only invite code that runs on the home-grown
+    // engine while looking like official gsap, so it is gone. `ctx.gsap` stays
+    // defined-but-empty rather than absent: a stale example fails on
+    // `ctx.gsap.to is not a function` instead of `cannot read properties of
+    // undefined`, which names the actual mistake.
     ctx.gsap = {
-        to: ctx.to,
-        from: ctx.from,
-        fromTo: ctx.fromTo,
-        set: ctx.set,
-        timeline: ctx.timeline,
-        registerPlugin: function(plugin) {
-            runtime.animation.registerPlugin(plugin);
-        },
-        killTweensOf: unsupported(
-            'killTweensOf',
-            'tweens are recomputed from the scene clock every frame; there is nothing to kill'
-        ),
-        utils: ctx.utils,
-        // Playback control: errors pointing at the declarative model.
-        play: unsupported('play', 'declare the tween in useGSAP()/useFrame() and let the clock drive it'),
-        pause: unsupported('pause', 'declare the tween in useGSAP()/useFrame() and let the clock drive it'),
-        seek: unsupported('seek', 'render the target frame instead — time comes from ctx.current.time'),
-        timeScale: unsupported('timeScale', 'scale durations in the tween vars instead'),
-        ticker: {
-            add: unsupported('ticker.add', 'use useFrame() — the frame callback replaces the ticker'),
-            remove: unsupported('ticker.remove', 'use useFrame() — the frame callback replaces the ticker'),
-        },
+        to: retired('to'),
+        from: retired('from'),
+        fromTo: retired('fromTo'),
+        set: retired('set'),
+        timeline: retired('timeline'),
+        registerPlugin: retired('registerPlugin'),
+        utils: {},
+        play: retired('play'),
+        pause: retired('pause'),
+        seek: retired('seek'),
+        timeScale: retired('timeScale'),
+        ticker: { add: retired('ticker.add'), remove: retired('ticker.remove') },
+        killTweensOf: retired('killTweensOf'),
     };
 })();

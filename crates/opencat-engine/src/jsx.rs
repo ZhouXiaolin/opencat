@@ -41,8 +41,9 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // Realm bootstrap + the runtime slice the extract pass needs. The load
     // order mirrors `ScriptRealm::ensure_runtime` (style/canvas/three before
     // the JSX runtime) so the real-package builtins can forward to
-    // `ctx.gsap` / `ctx.threejs` / `ctx.canvas` — author modules may
-    // `require` them at top level during extract.
+    // `ctx.threejs` / `ctx.canvas` — author modules may `require` them at top
+    // level during extract. `gsap` is not a forward: the bundle below *is*
+    // the package.
     // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
     // the shim is pure JS until a draw call happens, so it is safe here.
     ctx.eval(CANVAS_API_RUNTIME)?;

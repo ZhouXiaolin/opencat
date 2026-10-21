@@ -3,10 +3,10 @@
     var core = runtime.core;
     var hasOwn = runtime.hasOwn;
 
-    runtime.animation.registerPlugin({
-        name: 'split-text',
-        install: function() {
-            ctx.splitText = function(target, opts) {
+    // Text-unit service, not a gsap plugin: hangs ctx.splitText directly.
+    // (Official SplitText needs the DOM materialization channel the engine
+    // does not have; this covers the k3-promo/vfx char/word split callers.)
+    ctx.splitText = function(target, opts) {
                 var id = core.normalizeSelector(target);
                 if (typeof id !== 'string' || !id) {
                     throw new Error('ctx.splitText requires a node id');
@@ -71,6 +71,4 @@
 
                 return parts;
             };
-        },
-    });
 })();

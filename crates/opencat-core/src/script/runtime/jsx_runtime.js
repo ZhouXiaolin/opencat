@@ -522,12 +522,17 @@
             }
             return v;
         }
-        return new Proxy(target, {
-            get(t, prop) {
-                if (typeof prop !== 'string') return t[prop];
-                return wrapValue(t[prop]);
-            },
-        });
+    // registerPlugin/registerEase are pure configuration (no scene clock in
+    // the call) — authors register plugins at module top level, verbatim per
+    // the gsap docs, so they pass through ungated.
+    var UNGATED_GSAP = { registerPlugin: true, registerEase: true };
+    return new Proxy(target, {
+        get(t, prop) {
+            if (typeof prop !== 'string') return t[prop];
+            if (UNGATED_GSAP[prop]) return t[prop];
+            return wrapValue(t[prop]);
+        },
+    });
     }
 
     // Module shape: `import { gsap } from 'gsap'` lowers to
@@ -573,7 +578,7 @@
         // "not an element" branch. The handle writes through to the same
         // mutation store the numeric channel uses.
         function nodeHandle(id) {
-            return globalThis.ctx.__domTarget(String(id));
+            return globalThis.ctx.__domTarget(String(id), { allowUnknown: true });
         }
         function resolveTargets(t) {
             if (typeof t === 'string') return nodeHandle(t.charAt(0) === '#' ? t.slice(1) : t);

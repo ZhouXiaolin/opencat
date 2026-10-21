@@ -267,12 +267,6 @@ impl<C: JsContext> ScriptRealm<C> {
         // installed here: it is project-supplied (dist/gsap.bundle.mjs) and
         // the per-composition driver injects it into __ocModuleSources.
         self.ctx.eval(JSX_RUNTIME)?;
-        self.ctx.eval(
-            "globalThis.__opencatFlushTimelines = function() {\
-             if (globalThis.ctx && globalThis.ctx.__flushTimelines) \
-             globalThis.ctx.__flushTimelines();\
-         };",
-        )?;
         if let Some(registry) = &self.target_registry {
             apply_target_registry(&self.ctx, registry)?;
         }
@@ -448,17 +442,6 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 self.ctx.eval("__ocG2Flush();")?;
             }
         }
-        {
-            #[cfg(feature = "profile")]
-            let _span = tracing::span!(
-                target: "render.scene",
-                tracing::Level::TRACE,
-                "script_flush_timelines"
-            )
-            .entered();
-            self.ctx.call_global_fn("__opencatFlushTimelines")?;
-        }
-
         // three-like shim 每帧全量重提交的 3D 快照：导出为帧级 scene3 IR 段
         // （纯声明，随 `RenderFrame.scene3` 跨边界），并在目标 canvas 录入占位
         // `DrawOp::Image { ImageRef::Generated }`——z 序 = canvas 命令流位置，

@@ -14,6 +14,8 @@
 // that. A real element answers `undefined` and gsap falls back to its
 // attribute/style path.
 (function() {
+    var SPACE_RE = /\s+/;
+
     function applyMutation(id, prop, ...args) {
         __write_style_value(id, prop, args.length > 1 ? args : args[0]);
     }
@@ -112,6 +114,7 @@
             return d === '' ? null : d;
         }
         if (name === 'id') return id;
+        if (name === 'class' || name === 'className') return readClassName(id);
         if (name === 'width') return box(id).width;
         if (name === 'height') return box(id).height;
         if (name === 'x' || name === 'left') return box(id).left;
@@ -128,19 +131,57 @@
             return;
         }
         if (name === 'class' || name === 'className') {
-            __write_style_value(id, 'className', String(value));
+            writeClassName(id, value);
             return;
         }
         __write_style_value(id, styleKey(name), value);
     }
 
-    function childIds(id) {
-        var registry = ctx.__targetRegistry || {};
+    // Children come from the script-side overlay: a declared node's declared
+    // children plus anything a script inserted (SplitText wrappers). Reading it
+    // is what makes `childNodes` reflect this frame's structure.
+    function childNodesOf(id) {
+        var pairs = __dom_children(id) || [];
         var out = [];
-        for (var childId in registry.facts) {
-            if (registry.facts[childId].parent === id) out.push(childId);
+        for (var i = 0; i < pairs.length; i++) {
+            out.push(globalThis.__ocTree.handleFor(String(pairs[i][0])));
         }
         return out;
+    }
+
+    // `className` is a node fact, not an animatable style: a declared node's
+    // Tailwind class comes from the seeded initial styles, a write lands in the
+    // overlay so it survives the frame but never reaches the renderer's style
+    // channel.
+    function readClassName(id) {
+        var v = __dom_class_name(id);
+        if (v !== null && v !== undefined && v !== '') return String(v);
+        var seeded = __read_style_value(id, 'className');
+        return seeded === null || seeded === undefined ? '' : String(seeded);
+    }
+
+    function writeClassName(id, value) {
+        __dom_set_class_name(id, String(value));
+    }
+
+    // Markup is not modelled — only text is. `innerHTML` therefore serializes
+    // the subtree's text with the five entity escapes a browser applies, and
+    // the write side unescapes them back. `_revertOriginal` in SplitText
+    // depends on exactly this round trip.
+    var HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' };
+
+    function escapeHtml(text) {
+        return String(text).replace(/[&<>"]/g, function (c) { return HTML_ESCAPES[c]; });
+    }
+
+    function unescapeHtml(text) {
+        return String(text)
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&nbsp;/g, '\u00a0')
+            .replace(/&amp;/g, '&');
     }
 
     function writeText(id, value) {
@@ -159,27 +200,19 @@
         return initial === null || initial === undefined ? '' : String(initial);
     }
 
-    // Static tree mutation is the one DOM capability a declarative composition
-    // cannot honour; fail loudly instead of letting the write vanish.
-    function treeMutation(api) {
-        return function () {
-            throw new Error(
-                api + ': the element tree is declarative and static; build the structure in JSX and animate with gsap'
-            );
-        };
-    }
-
     // ── Element surface shared by both handles ───────────────────────
     // `own` collects the properties plugins stash on an element (gsap keeps
     // its per-target cache on `target._gsap`), so those writes survive.
     function elementMembers(id, own, getNode) {
         var style = makeStyleProxy(id);
-        return {
+        var members = {
             nodeType: 1,
             get tagName() { return tagFor(id).toUpperCase(); },
             get nodeName() { return tagFor(id).toUpperCase(); },
             get id() { return id; },
             get style() { return style; },
+            get className() { return readClassName(id); },
+            set className(value) { writeClassName(id, value); },
 
             getAttribute: function (name) { return readAttribute(id, name); },
             getAttributeNS: function (_ns, name) { return readAttribute(id, name); },
@@ -201,24 +234,65 @@
             },
             getComputedStyle: function () { return style; },
             getBoundingClientRect: function () { return box(id); },
+            // DrawSVG scales a `vector-effect: non-scaling-stroke` path's length
+            // by this matrix. The composition's user space IS the screen, so the
+            // identity matrix is the truthful answer (scale 1, no rotation).
+            getScreenCTM: function () {
+                return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+            },
             getContext: function (type) { return ctx.getContext(id, type); },
 
+            // Text reads prefer the style store's `text` channel, then the
+            // composition's declared text.
             get textContent() { return readText(id); },
-            set textContent(value) { writeText(id, value); },
-            get innerHTML() { return readText(id); },
-            set innerHTML(value) { writeText(id, value); },
+            set textContent(value) {
+                // An element with children replaces them with one text node
+                // (DOM semantics); a leaf keeps using the style `text` channel so
+                // the renderer's existing text path stays authoritative.
+                var kids = __dom_children(id) || [];
+                if (kids.length) {
+                    __dom_set_text(id, String(value));
+                } else {
+                    writeText(id, value);
+                }
+            },
+            // SplitText snapshots `element.innerHTML` before splitting and
+            // writes it back in `revert()`. Only the TEXT is modelled here, so
+            // the snapshot is the escaped text content and the restore is its
+            // unescaping — which round trips exactly for a text-only element
+            // (`<text>`, or a div holding one string). Markup structure is not
+            // parsed: nested tags come back as their text.
+            get innerHTML() { return escapeHtml(__dom_text(id) || ''); },
+            set innerHTML(value) {
+                var kids = __dom_children(id) || [];
+                if (kids.length) {
+                    __dom_set_text(id, unescapeHtml(String(value)));
+                } else {
+                    writeText(id, unescapeHtml(String(value)));
+                }
+            },
             get nodeValue() { return readText(id); },
             set nodeValue(value) { writeText(id, value); },
 
             get parentNode() {
-                var f = facts(id);
-                return f && f.parent ? getNode(f.parent) : null;
+                var parent = __dom_parent(id);
+                if (parent === null || parent === undefined) return null;
+                return globalThis.__ocTree.handleFor(String(parent));
             },
             get parentElement() { return this.parentNode; },
-            get children() { return childIds(id).map(getNode); },
-            get childNodes() { return this.children; },
-            get firstChild() { var kids = this.children; return kids.length ? kids[0] : null; },
+            get children() { return childNodesOf(id); },
+            get childNodes() { return childNodesOf(id); },
+            get firstChild() { var kids = childNodesOf(id); return kids.length ? kids[0] : null; },
             get firstElementChild() { return this.firstChild; },
+            get lastChild() { var kids = childNodesOf(id); return kids.length ? kids[kids.length - 1] : null; },
+            get previousSibling() {
+                var s = __dom_siblings(id) || [];
+                return s[0] === null || s[0] === undefined ? null : globalThis.__ocTree.handleFor(String(s[0]));
+            },
+            get nextSibling() {
+                var s = __dom_siblings(id) || [];
+                return s[1] === null || s[1] === undefined ? null : globalThis.__ocTree.handleFor(String(s[1]));
+            },
 
             get offsetWidth() { return box(id).width; },
             get offsetHeight() { return box(id).height; },
@@ -234,24 +308,79 @@
             },
 
             get classList() {
+                function read() { return readClassName(id); }
+                function write(list) { writeClassName(id, list.filter(Boolean).join(' ')); }
                 return {
                     contains: function (name) {
-                        return (' ' + readAttribute(id, 'className') + ' ').indexOf(' ' + String(name) + ' ') >= 0;
+                        return (' ' + read() + ' ').indexOf(' ' + String(name) + ' ') >= 0;
                     },
-                    add: treeMutation('classList.add'),
-                    remove: treeMutation('classList.remove'),
-                    toggle: treeMutation('classList.toggle'),
+                    add: function (name) {
+                        var list = read().split(SPACE_RE).filter(Boolean);
+                        if (list.indexOf(String(name)) < 0) list.push(String(name));
+                        write(list);
+                    },
+                    remove: function (name) {
+                        write(read().split(SPACE_RE).filter(function (c) { return c && c !== String(name); }));
+                    },
+                    toggle: function (name) {
+                        var list = read().split(SPACE_RE).filter(Boolean);
+                        var i = list.indexOf(String(name));
+                        if (i < 0) list.push(String(name)); else list.splice(i, 1);
+                        write(list);
+                    },
                 };
             },
 
-            appendChild: treeMutation('node.appendChild'),
-            removeChild: treeMutation('node.removeChild'),
-            insertBefore: treeMutation('node.insertBefore'),
-            replaceChild: treeMutation('node.replaceChild'),
-            remove: treeMutation('node.remove'),
-            after: treeMutation('node.after'),
-            before: treeMutation('node.before'),
+            // Tree mutation goes to the overlay: a declared node's own style
+            // stays declarative, but its child list is a view scripts may change.
+            appendChild: function (child) {
+                __dom_append_child(id, globalThis.__ocTree.nodeId(child));
+                return child;
+            },
+            insertBefore: function (child, reference) {
+                var refId = reference === null || reference === undefined
+                    ? null : globalThis.__ocTree.nodeId(reference);
+                __dom_insert_before(id, globalThis.__ocTree.nodeId(child), refId || null);
+                return child;
+            },
+            removeChild: function (child) {
+                __dom_remove_child(id, globalThis.__ocTree.nodeId(child));
+                return child;
+            },
+            replaceChild: function (newChild, oldChild) {
+                __dom_replace_child(id, globalThis.__ocTree.nodeId(newChild), globalThis.__ocTree.nodeId(oldChild));
+                return oldChild;
+            },
+            replaceWith: function () {
+                var args = Array.prototype.slice.call(arguments).map(globalThis.__ocTree.nodeId);
+                __dom_replace_with(id, args);
+            },
+            remove: function () { __dom_remove(id); },
+            after: function () {
+                // Insert the argument(s) right after this node in its parent.
+                var parent = __dom_parent(id);
+                if (parent === null || parent === undefined) return;
+                var siblings = __dom_siblings(id) || [];
+                var next = siblings[1];
+                var args = Array.prototype.slice.call(arguments);
+                for (var i = 0; i < args.length; i++) {
+                    __dom_insert_before(String(parent), globalThis.__ocTree.nodeId(args[i]),
+                        next === null || next === undefined ? null : String(next));
+                }
+            },
+            before: function () {
+                var parent = __dom_parent(id);
+                if (parent === null || parent === undefined) return;
+                var args = Array.prototype.slice.call(arguments);
+                for (var i = 0; i < args.length; i++) {
+                    __dom_insert_before(String(parent), globalThis.__ocTree.nodeId(args[i]), id);
+                }
+            },
         };
+        // The overlay id travels with the handle so tree bindings accept a
+        // declared handle as a child argument (SplitText moves child nodes).
+        Object.defineProperty(members, '__ocNodeId', { value: id, enumerable: false });
+        return members;
     }
 
     // ── 1. gsap target: a plain element, unknown properties undefined ──

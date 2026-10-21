@@ -1232,6 +1232,20 @@ fn collect_visual_script_targets_at(
             },
         };
         registry.facts.insert(id.to_string(), facts);
+        // 文档序快照：脚本侧覆盖层据此组装默认子级视图（`<text>` 的文本
+        // 物化为一个文本节点）。DFS 前序即文档序。
+        let order = registry.declared_nodes.len();
+        let text = match node.kind() {
+            NodeKind::Text(text) => text.content().to_string(),
+            _ => String::new(),
+        };
+        registry.declared_nodes.push(crate::script::tree::DeclaredNode {
+            id: id.to_string(),
+            parent: parent.unwrap_or("").to_string(),
+            order,
+            tag: node_tag_name(node),
+            text,
+        });
     }
     let child_parent = (!id.is_empty()).then_some(id);
     match node.kind() {

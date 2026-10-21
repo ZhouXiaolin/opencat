@@ -141,6 +141,12 @@ pub trait MutationRecorder {
     fn register_text_source(&mut self, id: &str, source: ScriptTextSource);
     fn clear_text_sources(&mut self);
     fn get_text_source(&self, id: &str) -> Option<&ScriptTextSource>;
+
+    /// Script-side DOM overlay (dynamic nodes + per-frame child views).
+    /// Recorders that do not model a tree return `None` and the tree bindings
+    /// report that they are unavailable.
+    fn tree_overlay(&self) -> Option<&crate::script::tree::TreeOverlay> { None }
+    fn tree_overlay_mut(&mut self) -> Option<&mut crate::script::tree::TreeOverlay> { None }
     fn current_frame(&self) -> u32;
     /// Frame used to evaluate tween progress: the scene-local override when set
     /// (JSX `<tl>` scenes), otherwise the composition frame.

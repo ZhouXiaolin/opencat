@@ -21,7 +21,7 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, G2_API_RUNTIME,
-    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME, TREE_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -258,6 +258,10 @@ impl<C: JsContext> ScriptRealm<C> {
         // fills the gap) and after NODE_STYLE_RUNTIME (getElementById hands
         // out the same node handles).
         self.ctx.eval(DOM_API_RUNTIME)?;
+        // Script-side DOM overlay handles: after NODE_STYLE_RUNTIME (declared
+        // handles delegate to `ctx.__domTarget`) and after DOM_API_RUNTIME
+        // (`document.createElement` returns them).
+        self.ctx.eval(TREE_API_RUNTIME)?;
         // 2D-context adapter (`node.getContext('2d')`): after NODE_STYLE_RUNTIME,
         // whose `getContext` branch forwards here.
         self.ctx.eval(CONTEXT2D_RUNTIME)?;
@@ -294,6 +298,18 @@ impl<C: JsContext> ScriptRealm<C> {
     ) -> Result<()> {
         self.ctx
             .with_store_mut(|s| s.reset_for_frame(frame_ctx.current_frame, frame_ctx.fps));
+
+        // 脚本侧 DOM 覆盖层：结构是帧级的，节点身份是 realm 级的。这里按
+        // 本帧声明树重建默认子级视图（动态节点表保持不动——插件会复用
+        // 模块级草稿元素）。
+        if let Some(registry) = &self.target_registry {
+            let declared = registry.declared_nodes.clone();
+            self.ctx.with_store_mut(|s| {
+                if let Some(overlay) = s.tree_overlay_mut() {
+                    overlay.begin_frame(&declared);
+                }
+            });
+        }
 
         // Reset the Math.random call index so each frame starts with the same
         // random sequence at the same frame number.

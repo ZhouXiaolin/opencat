@@ -21,6 +21,11 @@
 //! global functions provided by the host environment.
 
 pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
+// Script-side DOM overlay: created nodes + child views of declared nodes.
+// Loaded after NODE_STYLE_RUNTIME (a declared handle delegates to
+// `ctx.__domTarget` for its own style surface) and after DOM_API_RUNTIME
+// (`document.createElement` returns these handles).
+pub const TREE_API_RUNTIME: &str = include_str!("tree_api.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 pub const THREE_API_RUNTIME: &str = include_str!("three_api.js");
 // DOM globals (`document`/`window`/timer guards). Loaded after

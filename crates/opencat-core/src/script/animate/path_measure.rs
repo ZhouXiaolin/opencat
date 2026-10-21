@@ -1,4 +1,4 @@
-//! Path measuring (length + position+tangent at parameterized t) without skia.
+//! Path length measurement without skia (`getTotalLength` / `path_total_length`).
 use kurbo::{BezPath, ParamCurve, ParamCurveArclen, PathSeg, Point};
 
 const ARCLEN_ACCURACY: f64 = 0.25;
@@ -7,35 +7,6 @@ pub struct PathMeasureContour {
     pub segments: Vec<PathSeg>,
     pub cumulative: Vec<f64>,
     pub length: f32,
-}
-
-impl PathMeasureContour {
-    pub(super) fn sample_at_length(&self, length: f64) -> (f32, f32, f32) {
-        let idx = match self.cumulative.binary_search_by(|cum| {
-            cum.partial_cmp(&length)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        }) {
-            Ok(i) => i,
-            Err(i) => i.min(self.cumulative.len().saturating_sub(1)),
-        };
-        let prev = if idx == 0 {
-            0.0
-        } else {
-            self.cumulative[idx - 1]
-        };
-        let local = length - prev;
-        let seg = &self.segments[idx];
-        let seg_len = seg.arclen(ARCLEN_ACCURACY);
-        let local_t = if seg_len > f64::EPSILON {
-            seg.inv_arclen(local, ARCLEN_ACCURACY)
-        } else {
-            0.0
-        };
-        let p = seg.eval(local_t);
-        let d = derivative(seg, local_t);
-        let angle = d.y.atan2(d.x).to_degrees() as f32;
-        (p.x as f32, p.y as f32, angle)
-    }
 }
 
 pub struct PathMeasureEntry {
@@ -121,36 +92,6 @@ impl PathMeasureEntry {
             total_length: total,
         })
     }
-
-    pub fn sample(&self, t: f32) -> (f32, f32, f32) {
-        if self.contours.is_empty() || self.total_length <= 0.0 {
-            return (0.0, 0.0, 0.0);
-        }
-        let target = t.clamp(0.0, 1.0) as f64 * self.total_length as f64;
-        let mut accumulated = 0.0f64;
-        for contour in &self.contours {
-            let len = contour.length as f64;
-            if accumulated + len >= target {
-                let local = (target - accumulated).clamp(0.0, len);
-                return contour.sample_at_length(local);
-            }
-            accumulated += len;
-        }
-        (0.0, 0.0, 0.0)
-    }
-}
-
-fn derivative(seg: &PathSeg, t: f64) -> kurbo::Vec2 {
-    match seg {
-        PathSeg::Line(l) => l.p1 - l.p0,
-        PathSeg::Quad(q) => (q.p1 - q.p0) * (2.0 * (1.0 - t)) + (q.p2 - q.p1) * (2.0 * t),
-        PathSeg::Cubic(c) => {
-            let one_t = 1.0 - t;
-            (c.p1 - c.p0) * (3.0 * one_t * one_t)
-                + (c.p2 - c.p1) * (6.0 * one_t * t)
-                + (c.p3 - c.p2) * (3.0 * t * t)
-        }
-    }
 }
 
 #[cfg(test)]
@@ -161,19 +102,11 @@ mod tests {
         let entry = PathMeasureEntry::from_svg("M100 360 C400 80 880 640 1180 360")
             .expect("parses single cubic");
         assert!(entry.total_length > 1000.0, "len = {}", entry.total_length);
-        let (x0, y0, _) = entry.sample(0.0);
-        assert!((x0 - 100.0).abs() < 1.0);
-        assert!((y0 - 360.0).abs() < 1.0);
-        let (x1, y1, _) = entry.sample(1.0);
-        assert!((x1 - 1180.0).abs() < 1.0);
-        assert!((y1 - 360.0).abs() < 1.0);
     }
     #[test]
-    fn multi_contour_endpoints_are_correct() {
+    fn multi_contour_lengths_add_up() {
         let entry =
             PathMeasureEntry::from_svg("M0 0 L100 0 M100 100 L200 100").expect("two contours");
-        let (x1, y1, _) = entry.sample(1.0);
-        assert!((x1 - 200.0).abs() < 1.0);
-        assert!((y1 - 100.0).abs() < 1.0);
+        assert!((entry.total_length - 200.0).abs() < 1.0, "len = {}", entry.total_length);
     }
 }

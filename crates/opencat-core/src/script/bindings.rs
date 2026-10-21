@@ -705,14 +705,6 @@ macro_rules! for_each_binding {
             );
         }}
 
-        // ── Cmd: store mutations (2 entries: morph, along_path) ──
-        $binding! { cmd $store morph_svg_create (from_svg: String, to_svg: String, grid_size: f32) -> i32 {
-            Ok($store.morph_svg_create(&from_svg, &to_svg, grid_size as u32).unwrap_or(-1))
-        }}
-        $binding! { cmd $store along_path_create (svg: String) -> i32 {
-            $store.along_path_create(&svg).ok_or_else(|| anyhow::anyhow!("invalid SVG path"))
-        }}
-
         // ── Cmd: scene clock override ───────────────────────────────────────
         // The JSX frontend emits ONE root driver whose store frame is the
         // composition frame. Inside a `<tl>` each scene has its own clock, so
@@ -732,17 +724,7 @@ macro_rules! for_each_binding {
             Ok(true)
         }}
 
-        // ── Qry: store reads (morph, text, along_path) ─
-        $binding! { qry $store morph_svg_sample (handle: i32, t: f32, tolerance: f32) -> String {
-            Ok($store.morph_svg_sample(handle, t, tolerance))
-        }}
-        $binding! { qry $store along_path_length (handle: i32) -> f32 {
-            Ok($store.along_path_length(handle))
-        }}
-        $binding! { qry $store along_path_at (handle: i32, t: f32) -> Vec<f32> {
-            let (x, y, angle) = $store.along_path_at(handle, t);
-            Ok(vec![x, y, angle])
-        }}
+        // ── Qry: store reads (text) ─
         $binding! { qry $store text_units_describe (id: String, granularity_str: String) -> Vec<(u32, String, u32, u32)> {
             let text = $store.get_text_source(&id).map(|src| src.text.clone())
                 .ok_or_else(|| anyhow::anyhow!("no text source found for node"))?;

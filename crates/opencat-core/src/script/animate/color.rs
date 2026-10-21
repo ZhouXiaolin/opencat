@@ -1,4 +1,4 @@
-//! HSLA color parsing + lerp + back-conversion. Used by `__animate_color`.
+//! HSLA color parsing + HSL→RGB conversion (palette name resolution).
 
 #[derive(Clone, Copy, Debug)]
 pub struct HSLA {
@@ -155,31 +155,6 @@ fn rgb_to_hsl(r: u8, g: u8, b: u8, a: f32) -> HSLA {
     }
 }
 
-pub fn lerp_hsla(from: &HSLA, to: &HSLA, t: f32) -> HSLA {
-    let mut hue_diff = to.h - from.h;
-    if hue_diff > 180.0 {
-        hue_diff -= 360.0;
-    }
-    if hue_diff < -180.0 {
-        hue_diff += 360.0;
-    }
-    HSLA {
-        h: (from.h + hue_diff * t + 360.0) % 360.0,
-        s: from.s + (to.s - from.s) * t,
-        l: from.l + (to.l - from.l) * t,
-        a: from.a + (to.a - from.a) * t,
-    }
-}
-
-pub fn lerp_hsla_clamped(from: &HSLA, to: &HSLA, t: f32) -> HSLA {
-    lerp_hsla(from, to, t.clamp(0.0, 1.0))
-}
-
-pub fn hsla_to_rgba_string(hsla: &HSLA) -> String {
-    let (r, g, b) = hsl_to_rgb(hsla.h, hsla.s, hsla.l);
-    format!("rgba({},{},{},{:.2})", r, g, b, hsla.a)
-}
-
 pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     if s.abs() < 1e-6 {
         let v = (l * 255.0).round() as u8;
@@ -223,23 +198,5 @@ mod tests {
         let c = parse_color("#f00").expect("parses");
         let (r, g, b) = hsl_to_rgb(c.h, c.s, c.l);
         assert_eq!((r, g, b), (255, 0, 0));
-    }
-    #[test]
-    fn lerp_clamps_above_one() {
-        let from = HSLA {
-            h: 0.0,
-            s: 1.0,
-            l: 0.5,
-            a: 1.0,
-        };
-        let to = HSLA {
-            h: 240.0,
-            s: 1.0,
-            l: 0.5,
-            a: 1.0,
-        };
-        let result = lerp_hsla_clamped(&from, &to, 1.5);
-        let expected = lerp_hsla(&from, &to, 1.0);
-        assert!((result.l - expected.l).abs() < 1e-6);
     }
 }

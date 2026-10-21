@@ -63,6 +63,8 @@
 4. **逐插件打通**：纯数学先（eases 全家、Physics2D/PhysicsProps），DOM 依赖后（ScrambleText/Text/MotionPath/DrawSVG/MorphSVG/SplitText/Flip）；语义以官方行为为 oracle。
 5. **退役 + 迁移**：删 §5 全部；11 个示例迁真包写法；全量 k3diff 回归；文档更新支持面清单（含 D3 出清声明）。
 
+**进度**（2026-10-21）：阶段 1、2、3 完成。阶段 4 已通 eases 7 个、物理 2 个、DOM 依赖 5 个（DrawSVG/MorphSVG/MotionPath/ScrambleText/Text），全片 360 帧无损比对 ma_e 0.327 / avg_p8 0.764%。剩余 SplitText、Flip——两者都是构造器形态，要建真节点树，前置是 `createElement/appendChild` 写通道。
+
 ## 7. 全局验收
 
 - 统一 example：Chrome 参考帧 vs opencat 渲染帧，k3diff avg_p8 达标（对齐既有纪律）。
@@ -73,6 +75,9 @@
 ## 8. 红线与已知坑
 
 - **纯度判据不变**：core 可生成 payload 字节但永不解释/绘制。宿主 API 是 realm 服务，不违反判据；`createElement` 通道只动 recorder store，不动绘制。
+- **比对必须无损**：两侧各走一次有损 x264，同一张 PNG 编解码一次的偏差就有 ma_e ≈ 3，比插件差异大一个数量级。用 PNG 序列或 `-qp 0` + yuv444p。当前达标值：全片 ma_e 0.327 / avg_p8 0.764%（2026-10-21）。
+- **两侧必须同字体同行高**：Chrome 的 `sans-serif` 落系统 UI 字体、`line-height: normal` 取字体自身度量（Inter ≈ 1.21），opencat 是内置 Noto Sans SC + 行高 1.5。不钉住就是在比字体替换与行盒算法。
+- **随机插件要确定性写法**：ScrambleText 的字符表、RoughEase 的缓动表都由 `Math.random` 生成，两侧序列不同必然对不齐。用单字符集 `chars: 'X'` / `randomize:false`。
 - **大坑**：子 tween 注入 `paused` 会被父 timeline 跳过、duration 塌 0——只有 timeline 工厂注入 paused。
 - 调试：hook 里 `throw new Error('DBG...')` 冒错误信息（realm console.log 不出 stdout）。
 - release 二进制改代码后必须重建；golden_c 基线已过期，对比应对当前产物。

@@ -39,6 +39,7 @@
 
 import { useGSAP } from 'opencat/runtime';
 import { gsap } from 'gsap';
+import { SplitText } from 'gsap/SplitText';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 26.2667 };
 
@@ -589,14 +590,19 @@ function PromptScene() {
     T.set('prompt-app', { x: 560, y: -120, scale: 3.15, transformOrigin: '50% 92%' }, 0);
 
     /* typing "npx hyperframes add iphone-canvas" @4.13 dur 0.9 snap —
-       splitText reveal + caret on the measured prefix advance */
+       SplitText reveal + caret on the measured prefix advance. SplitText
+       wraps non-space characters only, so the char list is walked against
+       the source string: the reveal time is keyed to the offset in CMD. */
     var CMD = 'npx hyperframes add iphone-canvas';
     var widths = measurePrefixes(ctx, '__vhc_cmdW', '400 34px "Inter"', '0px', CMD);
-    var chars = ctx.splitText('prompt-command', { type: 'chars' });
-    var i;
-    for (i = 0; i < chars.length; i++) {
-      T.set(chars[i], { opacity: 0 }, 0);
-      T.set(chars[i], { opacity: 1 }, 9.71 + (i / CMD.length) * 0.9);
+    var charEls = new SplitText(ctx.getNode('prompt-command'), { type: 'chars' }).chars;
+    var i, ci = 0;
+    for (i = 0; i < CMD.length; i++) {
+      if (CMD.charAt(i) === ' ') continue;
+      var el = charEls[ci++];
+      if (!el) break;
+      T.set(el, { opacity: 0 }, 0);
+      T.set(el, { opacity: 1 }, 9.71 + (i / CMD.length) * 0.9);
     }
     T.set('prompt-caret', { opacity: 0, left: 34, top: 31 }, 0);
     T.set('prompt-caret', { opacity: 1 }, 9.71);
@@ -908,7 +914,7 @@ function IntroCard() {
     var slideStart = typeEnd + titleHold;                          // 3.655
     var slideEnd = slideStart + 0.05;                              // 3.705
     var widths = measurePrefixes(ctx, '__vhc_htmlW', '900 292px "Big Shoulders Display"', '4.38px', HTML_TEXT);
-    var parts = ctx.splitText('html-type', { type: 'chars' });
+    var parts = new SplitText(ctx.getNode('html-type'), { type: 'chars' }).chars;
     T.set('html-type', { opacity: 1 }, 0);
     T.set('html-word', { x: 300, y: -6, scale: 1.8, transformOrigin: '50% 50%' }, 0);
     T.set('html-caret', { opacity: 0, left: 0 }, 0);

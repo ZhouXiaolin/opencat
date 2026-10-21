@@ -1,4 +1,5 @@
 import { gsap } from 'gsap';
+import { SplitText } from 'gsap/SplitText';
 import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
 import { Cdot, StageCanvas, Tick, clamp, drawPlusses, drawQmarks, mulberry32, vis } from './shared.jsx';
 
@@ -33,21 +34,29 @@ export default function SceneDE() {
         dTl.set(id, { opacity: 0, scaleY: 0 }, 7.35)
            .to(id, { opacity: 0.9, scaleY: 1, duration: 0.3, ease: 'power2.out' }, 10.653 + i * 0.09);
       });
-      // otxt per-char entry — declarative via splitText + timeline; otxt is
+      // otxt per-char entry — official SplitText + timeline; otxt is
       // flex-centred in the card and CAL_SCALEX.otxt squeezes the node. Ref:
       // "Every" shows @7.5333, " modality" @7.5663; every glyph starts at
       // x=(i-6.5)*21 and settles to 0 by 7.9963 (dur 0.43, power2.out).
       vis(ctx, 'otxt', true); /* node visible for the whole D/E window; visibility is per-glyph */
       (function () {
-        var parts = ctx.splitText('otxt', { type: 'chars' });
+        // SplitText wraps only non-space characters, so the char array is
+        // shorter than the string. Walk the string and take the next char
+        // wrapper per non-space index: `oi` stays the offset in the original
+        // text, which is what the x formula is calibrated against.
+        var SRC = 'Every modality';
+        var chars = new SplitText(ctx.getNode('otxt'), { type: 'chars' }).chars;
+        var ci = 0;
         var gTl = gsap.timeline();
-        for (var oi = 0; oi < parts.length; oi++) {
-          if (parts[oi].text === ' ') continue; /* inter-word space: a real unit, no ink */
+        for (var oi = 0; oi < SRC.length; oi++) {
+          if (SRC.charAt(oi) === ' ') continue; /* inter-word space: no char wrapper */
+          var part = chars[ci++];
+          if (!part) break;
           var ocOn = oi < 5 ? 7.5333 : 7.5663; /* ow1 "Every" / ow2 " modality" */
-          gTl.set(parts[oi], { opacity: 0 }, 7.35)
-             .set(parts[oi], { opacity: 1 }, ocOn)
-             .fromTo(parts[oi], { x: (oi - 6.5) * 21 },
-                                  { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
+          gTl.set(part, { opacity: 0 }, 7.35)
+             .set(part, { opacity: 1 }, ocOn)
+             .fromTo(part, { x: (oi - 6.5) * 21 },
+                           { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
         }
       })();
     }

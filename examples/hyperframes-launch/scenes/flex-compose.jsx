@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ flex-compose (master 30.22-32.44, compositions/flex-compose.html) ══
    Stage 840x540 centred at (960,510) (y -30 baked into top). The iris
@@ -6,9 +7,9 @@ var FC_START = 30.22, FC_DUR = 2.22;
 var FC_WAVE_H = [8, 18, 12, 22, 10, 20, 14, 24, 8, 16, 22, 10, 18, 14, 20, 12, 24, 8, 16, 22, 10, 18, 14, 20, 8];
 
 export default function FlexCompose() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('fc2-video', { scale: 0.9, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'power2.out' }, A(0));
     tl.fromTo('fc2-lower', { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.25, ease: 'power2.out' }, A(0.3));
     tl.fromTo('fc2-caption', { opacity: 0, y: 8 }, { opacity: 1, y: 0, duration: 0.25, ease: 'power2.out' }, A(0.6));

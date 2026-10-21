@@ -15,6 +15,7 @@
 // Reference: /home/solaren/Projects/hyperframes-launches/variables-launch/
 //   index.html + compositions/scene-0{1..9}.html + renders/*_swgl.mp4
 
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 43.6 };
@@ -89,9 +90,9 @@ function Scene01() {
   // Same prefix passed to <DialStage> below — every id this scope touches is
   // declared inside its own returned tree.
   var P = '';
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var m = makeMeasure(ctx);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     /* -- reference scene-01.html prologue: measure every word, derive the
          slot width and the per-word slide distances. The reference uses
@@ -181,8 +182,8 @@ function Scene01() {
    glass card scales up behind it with hook-c.mp4 inside; cut-the-curve exit
    (leftward + 8px blur). */
 function Scene02() {
-  useGSAP((ctx) => {
-    var T = ctx.timeline();
+  useGSAP(() => {
+    var T = gsap.timeline();
     // 0.19: centre word fades out, the two outer words slide apart
     T.to('s2-center', { opacity: 0, scale: 0.8, duration: 0.32, ease: 'power2.in' }, 0.19);
     T.to('s2-perfect', { x: -400, opacity: 0, duration: 0.45, ease: 'power3.in' }, 0.19);
@@ -216,9 +217,9 @@ const LINE_A = ['What', 'if', 'you', 'could', 'test', 'variations'];
 const LINE_B = ['without', 'starting', 'from', 'scratch?'];
 
 function Scene03() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var m = makeMeasure(ctx);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     // Reference measures each word's rect to compute the fall distance
     // (1080 - top + 20) and the drop-from distance (bottom + 20). We compute
@@ -324,9 +325,9 @@ function CodeOverlay({ id, label, rows, color }) {
 }
 
 function Scene04() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var m = makeMeasure(ctx);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     // Reference measures the three rects to get the slide distance; the flex
     // row geometry gives the same numbers: left card starts one card+gap to
@@ -424,9 +425,9 @@ const CODE_TYPE_START = 2.15;
 const CODE_CHAR_RATE = 0.02;
 
 function Scene05() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var m = makeMeasure(ctx);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     // Beat 1a / 1b: cut-the-curve entry from the right, matching scene-04's
     // leftward exit.
@@ -511,8 +512,8 @@ function GridCard({ id, path }) {
 }
 
 function Scene06() {
-  useGSAP((ctx) => {
-    var T = ctx.timeline();
+  useGSAP(() => {
+    var T = gsap.timeline();
     var slideY = GRID_ROW_H + GRID_GAP;
 
     // Zoom-through entry from scene-05
@@ -576,9 +577,9 @@ const S7_WORDS = [
 ];
 
 function Scene07() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var m = makeMeasure(ctx);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     // Flex row with 24px gaps: word widths from the mono-less Inter 800 104px.
     var ws = [];
@@ -686,8 +687,8 @@ function RenderRow({ index }) {
 }
 
 function Scene08() {
-  useGSAP((ctx) => {
-    var T = ctx.timeline();
+  useGSAP(() => {
+    var T = gsap.timeline();
 
     // Zoom to 1.3x + upward cut-the-curve entry
     T.fromTo('scene-08', { scale: 1.3, y: 200, filter: 'blur(8px)', opacity: 0 },
@@ -744,9 +745,9 @@ function Scene08() {
    rasterised to a PNG (the engine's <path> has no gradient fill support), at
    the reference's 1440px width. */
 function Scene09() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var m = makeMeasure(ctx);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     var m1 = m.natW(INTER, 800, 94, -2.82, 'Scale your best work.');
     var m2 = m.natW(INTER, 800, 94, -2.82, 'Not your workload.');

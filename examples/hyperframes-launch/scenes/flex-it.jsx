@@ -1,11 +1,12 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ flex-it (master 29.74-29.89, compositions/flex-it.html) ════════════ */
 var FI_START = 29.74, FI_DUR = 0.15;
 
 export default function FlexIt() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    ctx.timeline().fromTo('fi-text', { scale: 1.06 }, { scale: 1, duration: 0.12, ease: 'power2.out' }, 0);
+    gsap.timeline().fromTo('fi-text', { scale: 1.06 }, { scale: 1, duration: 0.12, ease: 'power2.out' }, 0);
   });
   return (
     <div id="fi-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-black">

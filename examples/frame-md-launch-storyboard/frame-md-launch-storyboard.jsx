@@ -1,6 +1,6 @@
 // JSX port of hyperframes-launches/frame-md-launch-storyboard — 8 scenes +
 // quiet captions on one 1920x1080 stage, every scene gated to its index.html
-// window (opacity) and driven by a per-frame ctx.timeline() with absolute
+// window (opacity) and driven by a per-frame gsap.timeline() with absolute
 // seconds (scene-local reference time + scene start).
 //
 // Font mapping (verified against reference frames f10.5/f28.5/f42.8/f49.6/f56.5):
@@ -12,6 +12,7 @@
 // Scene-03's wipe / handoff-chip are gsap.set()-only in the reference (never
 // animated in) so they stay invisible and are omitted.
 
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 60.254 };
@@ -97,11 +98,11 @@ function Blob(p) {
 
 /* ════════════ SCENE 01 — typewriter hook (0 → 4s) ════════════ */
 function Scene1() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S1 && ctx.global.time < S1 + D1;
     vis(ctx, 's1-root', on);
     if (!on) return;
-    var tl = ctx.timeline({ delay: S1 });
+    var tl = gsap.timeline({ delay: S1 });
     // ch = 0.6em @ 122px JetBrains Mono = 73.2px
     tl.set('#s1-fw', { width: 0 });
     tl.set('#s1-dw', { width: 0 });
@@ -192,12 +193,12 @@ function HookWord(p) {
 }
 
 function Scene2() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S2 && ctx.global.time < S2 + D2;
     vis(ctx, 's2-root', on);
     if (!on) return;
     var t = ctx.global.time - S2;
-    var tl = ctx.timeline({ delay: S2 });
+    var tl = gsap.timeline({ delay: S2 });
     var Z = { x: -1505, y: 162, scale: 3.5 };
     tl.set('#s2-cam', { x: Z.x, y: Z.y, scale: Z.scale, transformOrigin: '0px 0px', transformPerspective: 2400 });
     tl.set('#s2-panel', { opacity: 1, scale: 1, y: 310, rotationY: 0, transformOrigin: '50% 50%', transformPerspective: 2400 });
@@ -391,12 +392,12 @@ function Scene2() {
 
 /* ════════════ SCENE 03 — missing layer (16.36 → 27.36s) ════════════ */
 function Scene3() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S3 && ctx.global.time < S3 + D3;
     vis(ctx, 's3-root', on);
     if (!on) return;
     var t = ctx.global.time - S3;
-    var tl = ctx.timeline({ delay: S3 });
+    var tl = gsap.timeline({ delay: S3 });
     tl.set('#s3-bb', { opacity: 0, scale: 0.94, blur: 18 });
     tl.set('#s3-bc', { opacity: 0, scale: 1.06, blur: 18 });
     tl.set('#s3-bd', { opacity: 0, scale: 0.94, blur: 18 });
@@ -627,11 +628,11 @@ function Scene3() {
 
 /* ════════════ SCENE 04 — frame.md built (26.96 → 32.2s) ════════════ */
 function Scene4() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S4 && ctx.global.time < S4 + D4;
     vis(ctx, 's4-root', on);
     if (!on) return;
-    var tl = ctx.timeline({ delay: S4 });
+    var tl = gsap.timeline({ delay: S4 });
     // elliptical dome approximated with a 223.2px quad radius (18% of 1240)
     tl.set('#s4-shell', { y: 1110, scaleX: 1.08, borderRadius: 223.2, transformOrigin: '50% 100%' });
     tl.set('#s4-stack', { opacity: 0, scale: 0.78, y: 108, blur: 20 });
@@ -697,11 +698,11 @@ function S5Caption(p) {
 }
 
 function Scene5() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S5 && ctx.global.time < S5 + D5;
     vis(ctx, 's5-root', on);
     if (!on) return;
-    var tl = ctx.timeline({ delay: S5 });
+    var tl = gsap.timeline({ delay: S5 });
     tl.set('#s5-cover', { y: 1110, scaleX: 1.08, borderRadius: 223.2, transformOrigin: '50% 100%' });
     tl.set('#s5-frame', { opacity: 0, y: 80, scale: 0.94, blur: 18 });
     tl.set('#s5-plight', { opacity: 0, y: 28, scale: 0.98 });
@@ -776,11 +777,11 @@ function Scene5() {
 
 /* ════════════ SCENE 06 — text to frame (41.624 → 48.874s) ════════════ */
 function Scene6() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S6 && ctx.global.time < S6 + D6;
     vis(ctx, 's6-root', on);
     if (!on) return;
-    var tl = ctx.timeline({ delay: S6 });
+    var tl = gsap.timeline({ delay: S6 });
     ['#s6-title', '#s6-origin', '#s6-body', '#s6-pace'].forEach(function (id) {
       tl.set(id, { opacity: 0, y: 38, blur: 10 });
     });
@@ -895,11 +896,11 @@ function Scene6() {
 
 /* ════════════ SCENE 07 — new format (48.234 → 52.384s) ════════════ */
 function Scene7() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S7 && ctx.global.time < S7 + D7;
     vis(ctx, 's7-root', on);
     if (!on) return;
-    var tl = ctx.timeline({ delay: S7 });
+    var tl = gsap.timeline({ delay: S7 });
     tl.set('#s7-wash', { opacity: 0, scale: 1.08 });
     tl.set('#s7-slab', { opacity: 0, x: -180, y: 34, rotation: -8, blur: 12 });
     tl.set('#s7-l1', { opacity: 0, scaleX: 0, transformOrigin: '0px 50%' });
@@ -993,11 +994,11 @@ var LOGO_ARROW1_D = 'M195.219 26.1937L213.529 38.9937C216.009 40.7237 220.239 38
 var LOGO_ARROW2_D = 'M256.97 25.9638L232.58 38.7638C229.28 40.4938 225.98 38.5338 226.75 35.3038L234.16 4.10376C234.93 0.873757 239.16 -1.08624 241.64 0.643757L259.95 13.4438C264.12 16.3538 262.52 23.0538 256.97 25.9638Z';
 
 function Scene8() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= S8 && ctx.global.time < S8 + D8;
     vis(ctx, 's8-root', on);
     if (!on) return;
-    var tl = ctx.timeline({ delay: S8 });
+    var tl = gsap.timeline({ delay: S8 });
     tl.set('#s8-softbg', { opacity: 0, scale: 1.08 });
     tl.set('#s8-dcard', { opacity: 0, x: -170, y: 38, rotation: -4, blur: 14 });
     tl.set('#s8-fcard', { opacity: 0, x: 170, y: 38, rotation: 4, blur: 14 });
@@ -1118,11 +1119,11 @@ function Cap(p) {
 }
 
 function Caps() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var on = ctx.global.time >= SC && ctx.global.time < SC + DC;
     vis(ctx, 'caps-root', on);
     if (!on) return;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     ['#cap0', '#cap1', '#cap2', '#cap3', '#cap4', '#cap5'].forEach(function (id) {
       tl.set(id, { opacity: 0, y: 18, blur: 6, scale: 0.98 });
     });

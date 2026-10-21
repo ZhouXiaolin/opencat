@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ flex-sfx (master 27.98-28.91, compositions/flex-sfx.html) ══════════ */
 var FX_START = 27.98, FX_DUR = 0.93;
@@ -7,9 +8,9 @@ for (var _fxi = 0; _fxi < 48; _fxi++) {
 }
 
 export default function FlexSfx() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('fx-glow', { scale: 0.3, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.2, ease: 'power2.out' }, A(0));
     tl.fromTo('fx-glow', { scale: 1, opacity: 1 }, { scale: 1.4, opacity: 0.6, duration: 0.5, ease: 'sine.inOut' }, A(0.2));
     for (var i = 0; i < 48; i++) {

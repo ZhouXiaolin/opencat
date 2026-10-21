@@ -1,11 +1,12 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 import { PlayerBar, entryEase, zoomBlur } from '../../shared.jsx';
 
 /* BEAT 3 (:432,632-716): same shape @master 3.85, hold 0.6157s, bar @0.5001. */
 export default function Beat3() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     var B = ['gi-zoom-b3'];
 
     tl.set('gi-zoom-b3', { scale: 1.45 }, 0);

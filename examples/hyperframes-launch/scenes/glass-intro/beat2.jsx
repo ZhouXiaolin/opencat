@@ -1,12 +1,13 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 import { PlayerBar, entryEase, zoomBlur } from '../../shared.jsx';
 
 /* BEAT 2 (:430,530-622): entry 1.45->0.88 entryEase 0.9s, hold ->0.80 blur2
    linear 0.6333s, exit ->0.40 blur16 expo.in 0.2s. Master 2.10-3.85. */
 export default function Beat2() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     var B = ['gi-zoom-b2'];
 
     tl.set('gi-zoom-b2', { scale: 1.45 }, 0);

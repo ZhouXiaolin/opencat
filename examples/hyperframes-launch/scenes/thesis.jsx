@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ thesis (master 23.22-27.04 slot 3.82s; template runs 4.52s so the exit
    tween is clipped exactly as the master does, thesis.html) ═══════════════
@@ -13,9 +14,9 @@ var TH_L2 = ['can', 'be', 'a', 'frame', 'in', 'your', 'video.'];
 var TH_GRAD = 'bg-[linear-gradient(90deg,#14110a_0%,#14110a_15%,#5a3215_25%,#c84f1c_40%,#e2b53f_55%,#2a8a7c_70%,#14110a_85%,#14110a_100%)] bg-clip-text text-transparent bg-[length:300%_100%]';
 
 export default function Thesis() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
 
     tl.fromTo('th-wrap', { filter: 'blur(22px)' }, { filter: 'blur(0px)', duration: 0.33, ease: 'power2.out' }, A(0));
     tl.fromTo('th-wrap', { opacity: 1 }, { opacity: 0, duration: 0.3, ease: 'power2.in' }, A(4.52));

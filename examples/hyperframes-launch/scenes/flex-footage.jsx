@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ flex-footage (master 28.91-29.74, compositions/flex-footage.html) ══ */
 var FF_START = 28.91, FF_DUR = 0.83;
@@ -8,9 +9,9 @@ var FF_VIDEOS = [
 ];
 
 export default function FlexFootage() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('ff-text', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power2.out' }, A(0));
     tl.fromTo('ff-strip-top', { x: 0 }, { x: -100, duration: FF_DUR, ease: 'none' }, A(0));
     tl.fromTo('ff-strip-bottom', { x: -50 }, { x: -150, duration: FF_DUR, ease: 'none' }, A(0));

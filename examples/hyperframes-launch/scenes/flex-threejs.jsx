@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP, useThree, useRef } from 'opencat/runtime';
 import { clamp, hexRgb } from '../shared.jsx';
 
@@ -20,9 +21,9 @@ var FT_COLORS = [
 export default function FlexThreejs() {
   const canvas = useRef();
 
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('ft-shadow', { scaleX: 1, scaleY: 1 }, { scaleX: 1.3, scaleY: 0.7, duration: 0.4, ease: 'sine.inOut', yoyo: true, repeat: 2 }, A(0));
     tl.fromTo('ft-label', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, A(0.2));
   });

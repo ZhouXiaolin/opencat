@@ -956,6 +956,19 @@ macro_rules! for_each_binding {
         $binding! { pure text_graphemes (text: String) -> Vec<String> {
             Ok(grapheme_strings(&text).into_iter().collect())
         }}
+        // SVG geometry for the DOM host (`getBBox` / `getTotalLength`). Both
+        // measure the path data the composition declared; the same kurbo
+        // parsers the render path uses, so a plugin's numbers and the drawn
+        // shape can never disagree.
+        $binding! { pure path_bbox (data: String) -> Vec<f32> {
+            let [x, y, w, h] = $crate::resolve::path_bounds::compute_view_box(&[data])?;
+            Ok(vec![x, y, w, h])
+        }}
+        $binding! { pure path_total_length (data: String) -> f32 {
+            Ok($crate::script::animate::path_measure::PathMeasureEntry::from_svg(&data)
+                .map(|entry| entry.total_length)
+                .unwrap_or(0.0))
+        }}
         $binding! { pure easing_apply (tag: String, t: f32) -> f32 {
             let easing = parse_easing_from_tag(&tag);
             Ok(easing.apply(t))

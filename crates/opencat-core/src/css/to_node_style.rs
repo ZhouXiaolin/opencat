@@ -535,9 +535,15 @@ pub fn apply_property(
         Property::StrokeWidth(v) => style.stroke_width = lp_to_px(v, ctx),
         Property::StrokeDasharray(v) => {
             if let lightningcss::properties::svg::StrokeDasharray::Values(pattern) = v {
-                // 引擎载体是单值 f32：取首段（等距虚线场景）。
-                if let Some(first) = pattern.first() {
-                    style.stroke_dasharray = lp_to_px(first, ctx);
+                // 引擎载体是「实线段 + 空白段」两值，即 SVG 的 dash/gap 语义。
+                // 单值写法按 CSS 规则复制成 [v, v]（等距虚线）。
+                if let Some(dash) = pattern.first().and_then(|first| lp_to_px(first, ctx)) {
+                    let gap = pattern
+                        .get(1)
+                        .and_then(|v| lp_to_px(v, ctx))
+                        .filter(|gap| *gap > 0.0);
+                    style.stroke_dasharray =
+                        Some(crate::style::StrokeDash::from_pair(dash, gap));
                 }
             }
         }

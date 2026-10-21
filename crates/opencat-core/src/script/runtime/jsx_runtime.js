@@ -532,14 +532,25 @@
         // Targets are node ids — the one id namespace of the composition, same
         // as the ctx.* facade (`gsap.from('box', ...)`). Not CSS selectors:
         // the tree is declarative and there is no live DOM to query.
+        //
+        // A target resolves to the node's DOM handle, not the numeric
+        // ocTarget proxy: the plugin suite decides what to do from the target
+        // itself (`CSSPlugin.targetTest` is `target.style && target.nodeType`,
+        // MorphSVG reads `target.nodeName`, DrawSVG reads `tagName`), so a
+        // plain object would silently route every plugin down its
+        // "not an element" branch. The handle writes through to the same
+        // mutation store the numeric channel uses.
+        function nodeHandle(id) {
+            return globalThis.ctx.__domTarget(String(id));
+        }
         function resolveTargets(t) {
-            if (typeof t === 'string') return ocTarget(t.charAt(0) === '#' ? t.slice(1) : t);
+            if (typeof t === 'string') return nodeHandle(t.charAt(0) === '#' ? t.slice(1) : t);
             if (Array.isArray(t)) {
                 for (var i = 0; i < t.length; i++) {
                     if (typeof t[i] === 'string') {
                         return t.map(function (x) {
                             return typeof x === 'string'
-                                ? ocTarget(x.charAt(0) === '#' ? x.slice(1) : x)
+                                ? nodeHandle(x.charAt(0) === '#' ? x.slice(1) : x)
                                 : x;
                         });
                     }

@@ -329,7 +329,7 @@ impl Hash for PaintStyleInput<'_> {
         style.border_color.hash(state);
         style.stroke_color.hash(state);
         style.stroke_width.map(F32Hash).hash(state);
-        style.stroke_dasharray.map(F32Hash).hash(state);
+        style.stroke_dasharray.hash(state);
         style.stroke_dashoffset.map(F32Hash).hash(state);
         style.border_style.hash(state);
         style.object_fit.hash(state);

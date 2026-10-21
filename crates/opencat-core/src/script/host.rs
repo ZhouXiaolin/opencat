@@ -17,11 +17,28 @@ pub fn driver_id_from_source(source: &str) -> ScriptDriverId {
     ScriptDriverId(h.finish())
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// Static per-node facts the DOM host needs but the composition declares
+/// outside the style store: what kind of element it is, its parent (so
+/// `parentNode`/`children` work), and the shape data SVG plugins read through
+/// `getAttribute('d')` / `getTotalLength()`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ScriptNodeFacts {
+    /// Lowercase HTML-ish tag name (`div`, `text`, `path`, `svg`, …).
+    pub tag: String,
+    /// Parent node id, empty for the root.
+    pub parent: String,
+    /// `<path d="…">` data, empty for non-path nodes.
+    pub path_data: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScriptTargetRegistry {
     pub visual_ids: HashSet<String>,
     pub canvas_ids: HashSet<String>,
     pub non_visual_ids: HashSet<String>,
+    /// Per-node static facts, keyed by node id. Sorted iteration is not
+    /// required — consumers look facts up by id.
+    pub facts: std::collections::HashMap<String, ScriptNodeFacts>,
 }
 
 impl ScriptTargetRegistry {
@@ -35,6 +52,10 @@ impl ScriptTargetRegistry {
 
     pub fn contains_non_visual(&self, id: &str) -> bool {
         self.non_visual_ids.contains(id)
+    }
+
+    pub fn facts(&self, id: &str) -> Option<&ScriptNodeFacts> {
+        self.facts.get(id)
     }
 }
 

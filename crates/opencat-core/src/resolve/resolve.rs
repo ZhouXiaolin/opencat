@@ -1207,38 +1207,58 @@ fn resolve_background(style: &NodeStyle) -> Vec<crate::style::BackgroundFill> {
 }
 
 fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistry) {
+    collect_visual_script_targets_at(node, registry, None);
+}
+
+/// `parent` is threaded through the walk so each node's facts record where it
+/// sits in the tree — the DOM host turns that into `parentNode` / `children`.
+fn collect_visual_script_targets_at(
+    node: &Node,
+    registry: &mut ScriptTargetRegistry,
+    parent: Option<&str>,
+) {
     let id = node.style_ref().id.as_str();
     if !id.is_empty() {
         registry.visual_ids.insert(id.to_string());
         if matches!(node.kind(), NodeKind::Canvas(_)) {
             registry.canvas_ids.insert(id.to_string());
         }
+        let facts = crate::script::host::ScriptNodeFacts {
+            tag: node_tag_name(node),
+            parent: parent.unwrap_or("").to_string(),
+            path_data: match node.kind() {
+                NodeKind::Path(path) => path.data().to_string(),
+                _ => String::new(),
+            },
+        };
+        registry.facts.insert(id.to_string(), facts);
     }
+    let child_parent = (!id.is_empty()).then_some(id);
     match node.kind() {
         NodeKind::Div(div) => {
             for child in div.children_ref() {
-                collect_visual_script_targets(child, registry);
+                collect_visual_script_targets_at(child, registry, child_parent);
             }
         }
         NodeKind::Canvas(canvas) => {
             for child in canvas.hidden_children_ref() {
-                collect_visual_script_targets(child, registry);
+                collect_visual_script_targets_at(child, registry, child_parent);
             }
         }
         NodeKind::Video(video) => {
             for child in video.children_ref() {
-                collect_visual_script_targets(child, registry);
+                collect_visual_script_targets_at(child, registry, child_parent);
             }
         }
         NodeKind::Timeline(timeline) => {
             for segment in timeline.segments() {
                 match segment {
                     crate::parse::time::TimelineSegment::Scene { scene, .. } => {
-                        collect_visual_script_targets(scene, registry);
+                        collect_visual_script_targets_at(scene, registry, child_parent);
                     }
                     crate::parse::time::TimelineSegment::Transition { from, to, .. } => {
-                        collect_visual_script_targets(from, registry);
-                        collect_visual_script_targets(to, registry);
+                        collect_visual_script_targets_at(from, registry, child_parent);
+                        collect_visual_script_targets_at(to, registry, child_parent);
                     }
                 }
             }
@@ -1249,6 +1269,24 @@ fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistr
         | NodeKind::Path(_)
         | NodeKind::Svg(_) => {}
     }
+}
+
+/// The DOM tag the host exposes for a node. SVG plugins branch on it
+/// (`tagName.toLowerCase()`), so it has to be the HTML/SVG spelling the
+/// author wrote, not the internal kind name.
+fn node_tag_name(node: &Node) -> String {
+    match node.kind() {
+        NodeKind::Div(_) => "div",
+        NodeKind::Canvas(_) => "canvas",
+        NodeKind::Text(_) => "text",
+        NodeKind::Image(_) => "image",
+        NodeKind::Lottie(_) => "lottie",
+        NodeKind::Path(_) => "path",
+        NodeKind::Svg(_) => "svg",
+        NodeKind::Video(_) => "video",
+        NodeKind::Timeline(_) => "tl",
+    }
+    .to_string()
 }
 
 #[cfg(test)]

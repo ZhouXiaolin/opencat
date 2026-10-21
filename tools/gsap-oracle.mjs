@@ -24,6 +24,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = join(ROOT, 'out', 'gsap-oracle');
 const GSAP_DIST = join(ROOT, 'examples/k3-promo/node_modules/gsap/dist');
+// 两侧必须落在同一个字体文件上。Chrome 的 `sans-serif` 解析成这台机器的
+// 系统 UI 字体，opencat 解析成内置 Noto Sans SC——字形不同，比的就不再是
+// 插件语义而是字体替换。参考页用 @font-face 把 Inter 绑成 `oracle-sans`，
+// index.jsx 用同一个文件声明 family `Inter`，字形就一致。
+const FONT_DIR = join(ROOT, 'assets');
+const FONT_FILES = {
+    'oracle-sans': 'Inter-Regular.ttf',
+    'oracle-sans-medium': 'Inter-Medium.ttf',
+};
 const DURATION = 12;
 const FPS_DEFAULT = 30;
 
@@ -53,6 +62,11 @@ const PLUGIN_SCRIPTS = [
     'EasePack.min.js',
     'Physics2DPlugin.min.js',
     'PhysicsPropsPlugin.min.js',
+    'DrawSVGPlugin.min.js',
+    'MorphSVGPlugin.min.js',
+    'MotionPathPlugin.min.js',
+    'ScrambleTextPlugin.min.js',
+    'TextPlugin.min.js',
 ];
 
 function pageHtml() {
@@ -68,10 +82,23 @@ function pageHtml() {
 <script src="${pathToFileURL(join(GSAP_DIST, 'gsap.min.js')).href}"></script>
 ${scripts}
 <style>
+  @font-face {
+    font-family: 'oracle-sans';
+    src: url('${pathToFileURL(join(FONT_DIR, FONT_FILES['oracle-sans'])).href}');
+  }
+  @font-face {
+    font-family: 'oracle-sans-medium';
+    src: url('${pathToFileURL(join(FONT_DIR, FONT_FILES['oracle-sans-medium'])).href}');
+  }
   html, body { margin: 0; padding: 0; background: #0b1017; overflow: hidden; }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #0b1017; }
   .row { position: absolute; left: 60px; width: 70px; height: 70px; border-radius: 10px; }
-  .label { position: absolute; left: 60px; font: 20px sans-serif; color: #5c6b7f; }
+  /* opencat 的默认行高是 1.5（Tailwind preflight 的基调）。这里显式钉成同一个值：
+     裸 HTML 的 normal 是字体自己的度量（Inter 约 1.21），半行距不同，基线就
+     整体下移 0.15×字号。钉住之后两侧行盒一致，测的是插件语义。 */
+  .label, #scramble-text, #text-target { line-height: 1.5; }
+  /* font 简写会把 line-height 重置成 normal，所以字号与字体分开写。 */
+  .label { position: absolute; left: 60px; font-size: 20px; font-family: 'oracle-sans'; color: #5c6b7f; }
 </style>
 </head>
 <body>
@@ -81,6 +108,17 @@ ${scripts}
   <div class="label" style="top:880px">Physics2D · PhysicsProps</div>
   <div id="phys2d" class="row" style="top:930px;left:60px;background:#38bdf8"></div>
   <div id="physprops" class="row" style="top:930px;left:200px;background:#f472b6"></div>
+  <div class="label" style="top:1000px;font-size:18px">DrawSVG · MorphSVG · MotionPath · ScrambleText · Text</div>
+  <svg style="position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:visible"
+       viewBox="0 0 1920 1080">
+    <path id="drawsvg-path" d="M 1040 340 C 1140 160 1280 160 1380 340 C 1480 520 1620 520 1720 340"
+          fill="none" stroke="#22d3ee" stroke-width="6"></path>
+    <path id="morph-path" d="M 1040 740 C 1140 560 1280 560 1380 740 C 1480 920 1620 920 1720 740"
+          fill="none" stroke="#a78bfa" stroke-width="6"></path>
+  </svg>
+  <div id="motionpath-dot" style="position:absolute;left:0;top:0;width:26px;height:26px;border-radius:13px;background:#fbbf24"></div>
+  <div id="scramble-text" style="position:absolute;left:60px;top:700px;font-size:40px;font-family:'oracle-sans';line-height:1.5;color:#e2e8f0">DECODED PAYLOAD</div>
+  <div id="text-target" style="position:absolute;left:60px;top:780px;font-size:32px;font-family:'oracle-sans';line-height:1.5;color:#94a3b8">start</div>
 </div>
 <script>
 var ROWS = ${rows};
@@ -98,7 +136,8 @@ CustomEase.create('spring', 'M0,0 C0.126,0.382 0.282,0.674 0.44,0.822 0.632,1.00
 CustomWiggle.create('wiggle', { wiggles: 8, type: 'anticipate' });
 CustomBounce.create('bounce', { strength: 0.7, squash: 0.4 });
 gsap.registerPlugin(CustomEase, CustomWiggle, CustomBounce, SlowMo, ExpoScaleEase, RoughEase,
-  Physics2DPlugin, PhysicsPropsPlugin);
+  Physics2DPlugin, PhysicsPropsPlugin, DrawSVGPlugin, MorphSVGPlugin, MotionPathPlugin,
+  ScrambleTextPlugin, TextPlugin);
 // 暂停时间轴，只由 __seek 驱动：同一帧号永远给出同一张图。
 var tl = gsap.timeline({ paused: true });
 for (var j = 0; j < ROWS.length; j++) {
@@ -116,6 +155,15 @@ tl.fromTo('#phys2d', { x: 0, y: 0 },
 tl.fromTo('#physprops', { x: 0, opacity: 1 },
   { duration: 3, ease: 'none',
     physicsProps: { x: { velocity: 620, acceleration: 260 } } }, 4.2);
+// 3. DOM 依赖插件，与 index.jsx 逐字一致。
+tl.fromTo('#drawsvg-path', { drawSVG: '0%' }, { drawSVG: '100%', duration: 2.4, ease: 'none' }, 7.2);
+tl.to('#morph-path', { morphSVG: 'M 1040 740 C 1040 500 1380 500 1380 740 C 1380 980 1720 980 1720 740',
+  duration: 2.4, ease: 'none' }, 7.2);
+tl.to('#motionpath-dot', { duration: 2.4, ease: 'none',
+  motionPath: { path: 'M 100 900 C 400 700 700 1000 1000 800 C 1200 660 1400 900 1600 760' } }, 7.2);
+tl.to('#scramble-text', { duration: 2.4, ease: 'none',
+  scrambleText: { text: 'DECODED PAYLOAD', chars: 'X', speed: 1, revealDelay: 0.2 } }, 7.2);
+tl.to('#text-target', { duration: 2.4, ease: 'none', text: { value: 'typed by TextPlugin' } }, 7.2);
 window.__seek = function (t) { tl.time(t); };
 window.__ready = true;
 </script>
@@ -200,6 +248,10 @@ async function main() {
         `--user-data-dir=${profile}`,
         '--window-size=1920,1080',
         '--force-device-scale-factor=1',
+        // 关掉亚像素抗锯齿：LCD 文本渲染给字形边缘加彩色条纹，而 opencat
+        // 用灰度抗锯齿（cosmic-text/swash）。两侧字宽、字位一致，只有边缘
+        // 染色不同，但差值按每个字放大。关掉后 Chrome 也走灰度。
+        '--disable-lcd-text',
         'about:blank',
     ], { stdio: ['ignore', 'ignore', 'pipe'] });
 
@@ -263,7 +315,11 @@ async function main() {
     await browser.send('Target.closeTarget', { targetId });
     child.kill();
     console.log(`\n[oracle] ${frames.length} 帧 -> ${OUT_DIR}`);
-    console.log(`[oracle] 合成参考视频：ffmpeg -framerate ${fps} -i ${join(OUT_DIR, 'f%04d.png')} -crf 18 -pix_fmt yuv420p out/gsap-oracle.mp4`);
+    // 对比必须无损：两侧各走一次 x264 有损编码时，编码噪声本身就有
+    // mae ≈ 3（同一张 PNG 编解码一次就会偏这么多），比插件差异大一个
+    // 数量级——k3diff 量到的就变成编码器差异。所以用 `-qp 0` + yuv444p
+    // 出无损视频，或者直接用 PNG 序列逐帧比。
+    console.log(`[oracle] 无损参考视频：ffmpeg -framerate ${fps} -i ${join(OUT_DIR, 'f%04d.png')} -c:v libx264 -qp 0 -pix_fmt yuv444p out/gsap-oracle-ll.mp4`);
 }
 
 main().catch((e) => {

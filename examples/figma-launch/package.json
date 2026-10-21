@@ -1,0 +1,8 @@
+{
+  "name": "figma-launch",
+  "private": true,
+  "version": "0.0.0",
+  "devDependencies": {
+    "gsap": "^3.13.0"
+  }
+}

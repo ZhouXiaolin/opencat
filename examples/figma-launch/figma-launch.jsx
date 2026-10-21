@@ -18,7 +18,16 @@
 // pixel-only and every visual element is ported.
 
 import { gsap } from 'gsap';
+import { CustomEase } from 'gsap/CustomEase';
 import { useGSAP } from 'opencat/runtime';
+
+/* Act-11 flight curves (reference cubic-beziers) as official CustomEases,
+ * registered once at module load; names resolve from the resident gsap
+ * module on every per-frame timeline rebuild. */
+gsap.registerPlugin(CustomEase);
+CustomEase.create('markFlightX', 'M0,0 C0.6,-0.28 0.85,0.62 1,1');
+CustomEase.create('markFlightY', 'M0,0 C0.2,0.6 0.4,1.1 1,1');
+CustomEase.create('markShrink', 'M0,0 C0.7,0.05 0.85,1 1,1');
 
 export const meta = { width: 1080, height: 1080, fps: 30, duration: 64.0666 };
 
@@ -1469,10 +1478,10 @@ function Act11() {
     tl.to('a11-cursor', { x: 640, y: 780, duration: 0.5, ease: 'power2.inOut' }, A11.s + 0.92);
     // F = press release: liquid fill + flight ignite together
     tl.fromTo('a11-fill', { clipPath: 'inset(100% 0% 0% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', duration: FD, ease: 'none' }, A11.s + F);
-    tl.to('act11-mark', { x: 329.4, duration: FD, ease: 'bezier:0.6,-0.28,0.85,0.62' }, A11.s + F);
-    tl.to('act11-mark', { y: -131.0, duration: FD, ease: 'bezier:0.2,0.6,0.4,1.1' }, A11.s + F);
+    tl.to('act11-mark', { x: 329.4, duration: FD, ease: 'markFlightX' }, A11.s + F);
+    tl.to('act11-mark', { y: -131.0, duration: FD, ease: 'markFlightY' }, A11.s + F);
     tl.to('act11-mark', { scale: 1.05, duration: 0.16, ease: 'back.out(2)' }, A11.s + F);
-    tl.to('act11-mark', { scale: 0.5194, duration: FD - 0.16, ease: 'bezier:0.7,0.05,0.85,1' }, A11.s + F + 0.16);
+    tl.to('act11-mark', { scale: 0.5194, duration: FD - 0.16, ease: 'markShrink' }, A11.s + F + 0.16);
     tl.to('act11-mark', { rotation: 6, duration: FD / 2, ease: 'sine.inOut' }, A11.s + F);
     tl.to('act11-mark', { rotation: 0, duration: FD / 2, ease: 'sine.inOut' }, A11.s + F + FD / 2);
     // IMPACT RECOIL — trailing wing compresses, snaps out, rides back

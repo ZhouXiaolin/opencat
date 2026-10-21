@@ -45,9 +45,14 @@ pub const G2_API_RUNTIME: &str = include_str!("g2/g2_api.js");
 // (`parse::jsx_transform`, oxc); the old JS scanner is retired.
 pub const JSX_RUNTIME: &str = include_str!("jsx_runtime.js");
 
+// Animation runtime: the ocTarget bridge support only — the property registry
+// (bootstrap) + property descriptors (properties/) + the bridge's three helper
+// functions (core.js) + the text-unit service (text_units.js). The tween
+// engine and the ctx.* facade/plugins are retired; author animation runs on
+// the official gsap supplied by the project (dist/gsap.bundle.mjs).
 pub const ANIMATION_BOOTSTRAP: &str = include_str!("animation/bootstrap.js");
 pub const ANIMATION_CORE: &str = include_str!("animation/core.js");
-pub const ANIMATION_FACADE: &str = include_str!("animation/facade.js");
+pub const TEXT_UNITS_RUNTIME: &str = include_str!("text_units.js");
 
 // Core property files — built-in animatable properties, not plugins.
 // These register properties directly via `animation.registerProperty()`.
@@ -55,41 +60,6 @@ pub const CORE_STYLE_PROPS: &str = include_str!("animation/properties/style_prop
 pub const CORE_COLOR: &str = include_str!("animation/properties/color.js");
 pub const CORE_FILTER: &str = include_str!("animation/properties/filter.js");
 pub const CORE_UTILS: &str = include_str!("animation/properties/utils.js");
-
-// Plugin files — extension plugins registered via `animation.registerPlugin()`.
-pub const PLUGIN_TEXT: &str = include_str!("animation/plugins/text.js");
-pub const PLUGIN_SCRAMBLE_TEXT: &str = include_str!("animation/plugins/scramble_text.js");
-pub const PLUGIN_SPLIT_TEXT: &str = include_str!("animation/plugins/split_text.js");
-pub const PLUGIN_MOTION_PATH: &str = include_str!("animation/plugins/motion_path.js");
-pub const PLUGIN_MORPH_SVG: &str = include_str!("animation/plugins/morph_svg.js");
-
-/// Core property + utility sources in the canonical load order.
-pub const CORE_RUNTIMES: &[&str] = &[CORE_STYLE_PROPS, CORE_COLOR, CORE_FILTER, CORE_UTILS];
-
-/// Plugin runtime sources in the canonical load order.
-pub const PLUGIN_RUNTIMES: &[&str] = &[
-    PLUGIN_TEXT,
-    PLUGIN_SCRAMBLE_TEXT,
-    PLUGIN_SPLIT_TEXT,
-    PLUGIN_MOTION_PATH,
-    PLUGIN_MORPH_SVG,
-];
-
-/// Complete animation runtime: bootstrap → core → core properties → plugins → facade
-pub const ANIMATION_RUNTIME_PARTS: &[&str] = &[
-    ANIMATION_BOOTSTRAP,
-    ANIMATION_CORE,
-    CORE_STYLE_PROPS,
-    CORE_COLOR,
-    CORE_FILTER,
-    CORE_UTILS,
-    PLUGIN_TEXT,
-    PLUGIN_SCRAMBLE_TEXT,
-    PLUGIN_SPLIT_TEXT,
-    PLUGIN_MOTION_PATH,
-    PLUGIN_MORPH_SVG,
-    ANIMATION_FACADE,
-];
 
 /// Pre-concatenated animation runtime, ready for `eval()`.
 pub const ANIMATION_RUNTIME: &str = concat!(
@@ -105,15 +75,5 @@ pub const ANIMATION_RUNTIME: &str = concat!(
     "\n",
     include_str!("animation/properties/utils.js"),
     "\n",
-    include_str!("animation/plugins/text.js"),
-    "\n",
-    include_str!("animation/plugins/scramble_text.js"),
-    "\n",
-    include_str!("animation/plugins/split_text.js"),
-    "\n",
-    include_str!("animation/plugins/motion_path.js"),
-    "\n",
-    include_str!("animation/plugins/morph_svg.js"),
-    "\n",
-    include_str!("animation/facade.js"),
+    include_str!("text_units.js"),
 );

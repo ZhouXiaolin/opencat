@@ -38,6 +38,7 @@
 //     (easing.rs) so hand-written channels and timeline tweens agree.
 
 import { useGSAP } from 'opencat/runtime';
+import { gsap } from 'gsap';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 26.2667 };
 
@@ -372,7 +373,7 @@ var PORTAL_SPEC = {
    composition 0, content frame 0 lands at 5.6) */
 function MainBg() {
   useGSAP((ctx) => {
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set('bg-video', { opacity: 0 }, 0);
     T.to('bg-video', { opacity: 1, duration: 0.42, ease: 'power1.out' }, 5.58);
   });
@@ -391,7 +392,7 @@ function Theater() {
   useGSAP((ctx) => {
     var st = Math.max(0, ctx.global.time);
     var ps = st - 5.58; // source script time
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set('phone', { y: 340, opacity: 0, filter: 'blur(18px)' }, 0);
     T.to('phone', { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.74, ease: 'expo.out' }, 5.62);
     T.to('phone', { x: -1220, filter: 'blur(22px)', duration: 0.53, ease: 'expo.out' }, 9.62);
@@ -566,7 +567,7 @@ function Theater() {
    offscreen bottom-right, sweeps to the screen, exits up */
 function Finger() {
   useGSAP((ctx) => {
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set('finger', { left: 1260, top: 1220, rotation: -75, transformOrigin: '174px 0' }, 0);
     T.to('finger', { left: 805, top: 532, duration: 0.82, ease: 'power3.out' }, 6.5);
     T.to('finger', { top: -1900, duration: 0.68, ease: 'power3.inOut' }, 7.43);
@@ -581,7 +582,7 @@ function Finger() {
 /* V3: #prompt-scene — composer UI, typing, send click, game-change copy */
 function PromptScene() {
   useGSAP((ctx) => {
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set('prompt-scene', { opacity: 0, x: 620, filter: 'blur(18px)' }, 0);
     T.to('prompt-scene', { x: 0, filter: 'blur(0px)', duration: 0.27, ease: 'power2.out' }, 9.66);
     T.to('prompt-scene', { opacity: 1, duration: 0.48, ease: 'power2.out' }, 9.66);
@@ -772,7 +773,7 @@ function ChromaticSplit() {
 /* V5: #upgrade-cta */
 function Cta() {
   useGSAP((ctx) => {
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set('upgrade-cta', { y: 240, opacity: 0, filter: 'blur(12px)' }, 0);
     T.to('upgrade-cta', { y: 0, filter: 'blur(0px)', duration: 0.38, ease: 'expo.out' }, 16.34);
     T.to('upgrade-cta', { opacity: 1, duration: 0.2, ease: 'power1.out' }, 16.34);
@@ -793,7 +794,7 @@ function Portal() {
   useGSAP((ctx) => {
     var CK = ctx.CanvasKit;
     var st = Math.max(0, ctx.global.time);
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set('portal-logo-frame', { opacity: 0 }, 0);
     T.set('portal-canvas', { opacity: 0 }, 0);
     T.set('portal-logo-frame', { opacity: 1 }, 17.02);
@@ -840,7 +841,7 @@ function Portal() {
 /* V7: intro sting (nested vfx-text-cursor.html 0..3.12; NOT shifted) */
 function IntroSting() {
   useGSAP((ctx) => {
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     var CK = ctx.CanvasKit;
     var TT = Math.max(0, ctx.global.time);
     var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 4));
@@ -884,21 +885,18 @@ function IntroSting() {
 /* V8: intro refraction bg + glass card with the typed phrase + lockup */
 function IntroCard() {
   useGSAP((ctx) => {
-    var T = ctx.timeline();
+    var T = gsap.timeline();
 
     /* bg-2.mp4 (source data-start 3.1; padded copy plays from 0) */
     T.set('next-bg', { opacity: 0 }, 0);
     T.set('next-bg', { opacity: 1 }, 3.1);
     T.to('next-bg', { opacity: 0, duration: 0.36, ease: 'power1.in' }, 5.99);
 
-    /* card entry */
-    T.set('next-card', { opacity: 0, scale: 1.45, filter: 'blur(14px)', backdropBlur: 0, transformOrigin: '50% 50%' }, 0);
+    /* card entry. `backdrop-filter` stays a class, not a tween: CSSPlugin does
+       not know `backdropBlur`, so a tween on it never reaches the store. */
+    T.set('next-card', { opacity: 0, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 0);
     T.set('next-card', { opacity: 1, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 3.1);
-    /* ref frames: f93 (3.1) shows a sharp backdrop with only the blurred caret,
-       f95 (3.1667) already blurred — the swgl renderer brings the backdrop
-       blur up inside (3.1, 3.1667]; approximate with 3.13 */
-    T.set('next-card', { backdropBlur: 12 }, 3.13);
-    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9, ease: [0.266, 0.47, 0.58, 0.908] }, 3.1);
+    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9, ease: 'cubic-bezier(0.266, 0.47, 0.58, 0.908)' }, 3.1);
     T.to('next-card', { scale: 0.84, filter: 'blur(1.5px)', duration: 0.4, ease: 'linear' }, 4.0);
 
     /* phrase A: "HTML" types (typeStep .085, titleHold .25), caret rides the
@@ -943,8 +941,8 @@ function IntroCard() {
   return (
     <>
       <video id="next-bg" path="assets/bg-2-pad.mp4" duration={8.1}
-        class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0" />
-      <div id="next-card" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.17)] bg-[linear-gradient(160deg,rgba(255,255,255,0.11)_0%,rgba(255,255,255,0.045)_42%,rgba(255,255,255,0.018)_70%,rgba(255,255,255,0.075)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.42)] opacity-0 overflow-hidden">
+        class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover opacity-0 saturate-[1.1] contrast-[1.03]" />
+      <div id="next-card" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.17)] bg-[linear-gradient(160deg,rgba(255,255,255,0.11)_0%,rgba(255,255,255,0.045)_42%,rgba(255,255,255,0.018)_70%,rgba(255,255,255,0.075)_100%)] backdrop-blur-[14px] backdrop-saturate-[1.12] shadow-[0_30px_90px_rgba(0,0,0,0.42)] opacity-0 overflow-hidden">
         <div id="glow-a" class="absolute left-[-40px] top-[520px] w-[560px] h-[560px] rounded-full bg-[radial-gradient(closest-side,rgba(73,242,255,0.14),transparent)]"></div>
         <div id="glow-b" class="absolute left-[1260px] top-[-10px] w-[440px] h-[440px] rounded-full bg-[radial-gradient(closest-side,rgba(255,79,216,0.11),transparent)]"></div>
         <div id="phrase-a" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] flex flex-col items-center justify-center text-center text-[#ffffff] text-[292px] font-[inter900] font-black leading-[0.88] tracking-[0]">
@@ -960,7 +958,10 @@ function IntroCard() {
         <div id="phrase-b" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] text-[#ffffff] opacity-0">
           <text id="avail-now" class="absolute left-[0px] top-[76px] text-[161px] font-[inter800] font-extrabold leading-[0.88]">Now</text>
           <text id="avail-natively" class="absolute left-[92px] top-[212px] text-[#f6ff7a] font-[serifd] text-[304px] italic font-normal leading-[0.78]">natively</text>
-          <div id="avail-supported-wrap" class="absolute left-[560px] top-[526px] w-[940px] flex items-baseline justify-end">
+          {/* source `.availability > span{display:block}` outranks
+              `.availability-supported{display:flex}`, so the lockup is a
+              left-aligned block, not a flex row. */}
+          <div id="avail-supported-wrap" class="absolute right-[0px] top-[526px] w-[940px]">
             <text id="avail-supported" class="text-[161px] font-[inter800] font-extrabold leading-[0.88] whitespace-nowrap">supported.</text>
           </div>
         </div>

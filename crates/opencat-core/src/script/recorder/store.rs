@@ -4,8 +4,6 @@ use std::collections::HashMap;
 use super::{MutationRecorder, TextUnitValues};
 use crate::frame_ctx::duration_secs_to_frames;
 use crate::script::ScriptTextSource;
-use crate::script::animate::morph_svg::MorphSvgEntry;
-use crate::script::animate::path_measure::PathMeasureEntry;
 use crate::script::mutations::{
     CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations, TextUnitGranularity,
     TextUnitOverride, TextUnitOverrideBatch,
@@ -51,8 +49,6 @@ pub struct MutationStore {
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
     text_sources: HashMap<String, ScriptTextSource>,
-    morph_entries: Vec<MorphSvgEntry>,
-    path_entries: Vec<PathMeasureEntry>,
     /// Script-recorded generated images (canvas putImageData / surface
     /// auto-bake path). NOT cleared by reset_for_frame: recorded during
     /// script runs, drained once per frame by the render pipeline into the
@@ -1252,53 +1248,6 @@ impl MutationStore {
         }
     }
 
-    // ── Morph SVG ──
-
-    pub fn morph_svg_create(&mut self, from_svg: &str, to_svg: &str, grid: u32) -> Option<i32> {
-        let entry = MorphSvgEntry::new(from_svg, to_svg, grid)?;
-        let handle = self.morph_entries.len() as i32;
-        self.morph_entries.push(entry);
-        Some(handle)
-    }
-
-    pub fn morph_svg_sample(&self, handle: i32, t: f32, tolerance: f32) -> String {
-        self.morph_entries
-            .get(handle as usize)
-            .map(|e| e.sample(t, tolerance))
-            .unwrap_or_default()
-    }
-
-    pub fn morph_svg_dispose(&mut self, _handle: i32) {
-        // Morph entries are in a Vec; we mark invalid by blanking, or just
-        // leave them since reset_for_frame clears everything next frame.
-    }
-
-    // ── Along Path ──
-
-    pub fn along_path_create(&mut self, svg: &str) -> Option<i32> {
-        let entry = PathMeasureEntry::from_svg(svg)?;
-        let handle = self.path_entries.len() as i32;
-        self.path_entries.push(entry);
-        Some(handle)
-    }
-
-    pub fn along_path_length(&self, handle: i32) -> f32 {
-        self.path_entries
-            .get(handle as usize)
-            .map(|e| e.total_length)
-            .unwrap_or(0.0)
-    }
-
-    pub fn along_path_at(&self, handle: i32, t: f32) -> (f32, f32, f32) {
-        self.path_entries
-            .get(handle as usize)
-            .map(|e| e.sample(t))
-            .unwrap_or((0.0, 0.0, 0.0))
-    }
-
-    pub fn along_path_dispose(&mut self, _handle: i32) {
-        // Path entries are in a Vec; reset_for_frame clears everything next frame.
-    }
 }
 
 impl MutationRecorder for MutationStore {
@@ -1608,8 +1557,6 @@ impl MutationRecorder for MutationStore {
         self.styles.clear();
         self.canvases.clear();
         self.scene3s.clear();
-        self.morph_entries.clear();
-        self.path_entries.clear();
         self.current_frame = current_frame;
         self.frame_override = None;
         self.time_override_secs = None;

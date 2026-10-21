@@ -26,10 +26,34 @@ use opencat_core::script::runtime::{
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
-    let (extract, driver) = extract_with_base_dir(input, base_dir)?;
-    // 样式表唯一来源：打包器嵌进 bundle 的 `export const css`。没有则 class
+    let (mut extract, driver) = extract_with_base_dir(input, base_dir)?;
+    // 样式表来源有两条：打包器嵌进 bundle 的 `export const css`（标准工程流），
+    // 以及裸 `.jsx` 的 sidecar 约定——入口同目录的 `tailwind.css`（docs/svg-align
+    // /PLAN.md）。sidecar 只补位，bundle 自带的 css 永远优先；两者都没有时 class
     // 不产生任何声明。
+    if extract.get("css").map_or(true, Value::is_null) {
+        if let Some(css) = read_sidecar_css(base_dir) {
+            extract["css"] = Value::String(css);
+        }
+    }
     opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
+}
+
+/// `tailwind.css` next to the entry file, if present. Reads by convention only:
+/// the stylesheet is compiled ahead of time (tools/build-example-css.mjs), so
+/// rendering never needs a Node/bun toolchain.
+fn read_sidecar_css(base_dir: Option<&Path>) -> Option<String> {
+    let path = base_dir?.join("tailwind.css");
+    if !path.is_file() {
+        return None;
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(css) => Some(css),
+        Err(err) => {
+            eprintln!("jsx: ignoring unreadable sidecar {}: {err}", path.display());
+            None
+        }
+    }
 }
 
 /// Evaluate the entry module once and extract the tree: returns the extract

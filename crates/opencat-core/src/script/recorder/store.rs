@@ -743,6 +743,62 @@ impl MutationStore {
         }
     }
 
+    /// Resolve the pixel components of a gsap `transformOrigin` string into box
+    /// fractions (`'174px 0'` on an 820×1716 image → `'21.219513% 0%'`).
+    ///
+    /// A browser resolves px origins against the used box; the write channel
+    /// has no layout, so it uses the declared box (`w-[820px] h-[1716px]`),
+    /// which is the used box for every fixed-size node. An axis without a
+    /// declared size keeps its token verbatim — `TransformOrigin::parse` then
+    /// either accepts it (percent/keyword/zero) or leaves the previous origin,
+    /// as before.
+    fn origin_px_to_fractions(&self, id: &str, value: &str) -> String {
+        let Some(props) = self.initial_styles.get(id) else {
+            return value.to_string();
+        };
+        let dim = |key: &str| {
+            props
+                .get(key)
+                .and_then(serde_json::Value::as_f64)
+                .filter(|v| *v > 0.0)
+        };
+        let (width, height) = (dim("width"), dim("height"));
+        if width.is_none() && height.is_none() {
+            return value.to_string();
+        }
+        // CSS accepts either `[x] [y]` or the y-first keyword order; a lone
+        // token positions x (see `TransformOrigin::parse`).
+        let tokens: Vec<&str> = value.split_whitespace().collect();
+        let y_first = matches!(tokens.first().copied(), Some("top" | "bottom"));
+        tokens
+            .iter()
+            .enumerate()
+            .map(|(i, token)| {
+                let Some(bare) = token.strip_suffix("px") else {
+                    return (*token).to_string();
+                };
+                let Ok(px) = bare.trim().parse::<f64>() else {
+                    return (*token).to_string();
+                };
+                let is_y = match tokens.len() {
+                    1 => false,
+                    _ => {
+                        if y_first {
+                            i == 0
+                        } else {
+                            i == 1
+                        }
+                    }
+                };
+                match if is_y { height } else { width } {
+                    Some(size) => format!("{}%", px / size * 100.0),
+                    None => (*token).to_string(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// Read the current value: mutation first, then base-style, then None.
     /// Returns JSON: f32 as Number, color as String, path as String.
     pub fn read_style_value(&self, id: &str, property: &str) -> Option<serde_json::Value> {
@@ -848,6 +904,15 @@ impl MutationStore {
     /// Unified write: set any animatable property from (id, property_name, JSON value).
     /// Centralizes all property→field mapping in one place.
     pub fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value) {
+        // `transformOrigin: '174px 0'` is how gsap (and the browser CSSOM) names
+        // a pixel anchor. The store keeps origins as box fractions, so the px
+        // has to be resolved against the box BEFORE the entry borrow starts.
+        let origin_px = match (property, value.as_str()) {
+            ("transformOrigin" | "svgOrigin", Some(text)) => {
+                Some(self.origin_px_to_fractions(id, text))
+            }
+            _ => None,
+        };
         let entry = self.styles.entry(id.to_string()).or_default();
         match property {
             // ── f32 ──
@@ -921,7 +986,7 @@ impl MutationStore {
             // svgOrigin coordinates and box-relative px coincide, so both map to
             // the same box fraction.
             "transformOrigin" | "svgOrigin" => {
-                if let Some(s) = value.as_str() {
+                if let Some(s) = origin_px.as_deref() {
                     entry.set_transform_origin(s);
                 } else if let Some(arr) = value.as_array() {
                     if let (Some(x), Some(y)) = (

@@ -20,8 +20,8 @@ use opencat_core::parse::jsx_transform;
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::realm::JS_PLATFORM_SHIM;
 use opencat_core::script::runtime::{
-    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, GSAP_BUNDLE,
-    JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
+    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, JSX_RUNTIME,
+    NODE_STYLE_RUNTIME, THREE_API_RUNTIME,
 };
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
@@ -56,6 +56,16 @@ fn read_sidecar_css(base_dir: Option<&Path>) -> Option<String> {
     }
 }
 
+/// The project-supplied gsap bundle: `dist/gsap.bundle.mjs` under the entry
+/// directory — the same `dist/` the vite plugin writes the main bundle to, and
+/// where scripts/build-example-gsap.mjs puts the bare-jsx sidecar. Built
+/// ahead of time from the project's own node_modules, so rendering never
+/// needs a Node/bun toolchain and the engine carries no gsap source.
+fn gsap_sidecar_path(base_dir: Option<&Path>) -> PathBuf {
+    let base = base_dir.unwrap_or_else(|| Path::new("."));
+    base.join("dist").join("gsap.bundle.mjs")
+}
+
 /// Evaluate the entry module once and extract the tree: returns the extract
 /// payload (`{meta, fonts, lines}`) plus the per-frame driver source. This is
 /// the host-side half of the JSX frontend contract — hosts without a JS realm
@@ -66,8 +76,8 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // order mirrors `ScriptRealm::ensure_runtime` (style/canvas/three before
     // the JSX runtime) so the real-package builtins can forward to
     // `ctx.threejs` / `ctx.canvas` — author modules may `require` them at top
-    // level during extract. `gsap` is not a forward: the bundle below *is*
-    // the package.
+    // level during extract. `gsap` is project-supplied: the sidecar bundle is
+    // materialized into `__ocModuleSources` in the walk below.
     // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
     // the shim is pure JS until a draw call happens, so it is safe here.
     ctx.eval(CANVAS_API_RUNTIME)?;
@@ -85,12 +95,9 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     ctx.eval(NODE_STYLE_RUNTIME)?;
     ctx.eval(THREE_API_RUNTIME)?;
     ctx.eval(ANIMATION_RUNTIME)?;
-    // Real gsap package: module top-level code imports `gsap` and its
-    // `gsap/<Plugin>` subpaths (plugin registration is idempotent), and the
-    // JSX runtime below reads `__ocGsapModule` to build those builtins.
-    ctx.eval(GSAP_BUNDLE)?;
     // Last: the JSX runtime itself — its package builtins forward to the
-    // namespaces the runtimes above install.
+    // namespaces the runtimes above install. `gsap` is not installed here:
+    // it is project-supplied and materialized below from the sidecar bundle.
     ctx.eval(JSX_RUNTIME)?;
 
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
@@ -105,7 +112,27 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     while let Some((from, spec)) = queue.pop_front() {
         let key = match normalize_relative(&spec) {
             Some(key) => key,
-            None => continue, // builtin (`opencat/runtime`) or non-relative spec
+            None => {
+                // `gsap` is project-supplied: the vite plugin (or
+                // scripts/build-example-gsap.mjs) pre-bundles the npm package
+                // next to the main bundle. Subpaths (`gsap/SplitText`) are
+                // views over that one module in the JS runtime, so only the
+                // bare specifier is materialized here.
+                if spec == "gsap" && !modules.contains_key("gsap") {
+                    let path = gsap_sidecar_path(base_dir);
+                    let source = std::fs::read_to_string(&path).with_context(|| {
+                        format!(
+                            "jsx: `gsap` resolves to the project bundle `{}`, which does not exist — \
+                             build it with the vite plugin (`bun run build`) or \
+                             `bun scripts/build-example-gsap.mjs <example-dir>`",
+                            path.display()
+                        )
+                    })?;
+                    let (code, _requires) = transform_source(&source)?;
+                    modules.insert("gsap".to_string(), code);
+                }
+                continue; // builtin (`opencat/runtime`) or non-relative spec
+            }
         };
         if modules.contains_key(&key) {
             continue;

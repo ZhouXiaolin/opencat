@@ -214,7 +214,7 @@
         var sources = globalThis.__ocModuleSources || {};
         if (Object.prototype.hasOwnProperty.call(sources, spec)) return spec;
         if (spec.charAt(0) !== '.') {
-            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "gsap" (+ gsap/<Plugin> subpaths), "three", "canvaskit-wasm" resolve in-engine; any other npm package must be bundled by the vite plugin)');
+            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "three", "canvaskit-wasm" resolve in-engine, and "gsap" (+ gsap/<Plugin> subpaths) is injected by the host from the project\'s dist/gsap.bundle.mjs; any other npm package must be bundled by the vite plugin)');
         }
         var base = currentModule || '';
         var slash = base.lastIndexOf('/');
@@ -238,6 +238,16 @@
     }
 
     function requireModule(spec) {
+        // `gsap/<Plugin>` subpaths are views over the one project-supplied
+        // `gsap` module, not separate modules: requiring the main module
+        // first installs the subpath builtins, then the view is served from
+        // there. This keeps a single module evaluation per realm.
+        if (spec !== 'gsap' && spec.indexOf('gsap/') === 0) {
+            requireModule('gsap');
+            var subpath = builtins[spec];
+            if (!subpath) throw new Error('use: gsap has no subpath "' + spec + '" (not in the project gsap.bundle.mjs export list)');
+            return subpath;
+        }
         var key = resolveSpec(spec);
         if (Object.prototype.hasOwnProperty.call(builtins, key)) return builtins[key];
         if (Object.prototype.hasOwnProperty.call(modules, key)) return modules[key].exports;
@@ -258,6 +268,15 @@
                 factorySource[key] = source;
             }
             fn(requireModule, mod, mod.exports);
+            // The project-supplied package needs one install pass (target
+            // normalization, paused protocol, hook gating, subpath views)
+            // before any of its exports are handed to user code. The gated
+            // record replaces the raw module exports as the require result —
+            // the first caller must not get an ungated surface.
+            if (key === 'gsap') {
+                installGsapBuiltins(mod.exports);
+                return builtins['gsap'];
+            }
         } finally {
             currentModule = previous;
         }
@@ -267,7 +286,13 @@
     globalThis.__ocRequire = requireModule;
 
     globalThis.__ocResetFrame = function () {
+        // The gsap package module survives frame resets: it is a library, not
+        // per-frame state, and re-evaluating ~370KB of package code per frame
+        // would only leak one rAF tick into the queue each frame. Tweens and
+        // timelines are still created fresh every frame by the hooks.
+        var gsapModule = modules['gsap'];
         modules = Object.create(null);
+        if (gsapModule) modules['gsap'] = gsapModule;
         hooks.length = 0;
         sceneStack.length = 0;
         idCounter = 0;
@@ -471,11 +496,13 @@
 
     // ── package builtins ────────────────────────────────────────────
     // `import { gsap } from 'gsap'` (oxc lowers to __ocRequire("gsap").gsap)
-    // resolves to the REAL npm package embedded in core. three / canvaskit
-    // forward to the ctx namespaces, which really are their whole surface.
-    // gsap is hook-gated: tween calls only mean something inside a per-frame
-    // hook, where the scene clock is bound. Object constructors (three /
-    // canvaskit) forward ungated — they are pure local state.
+    // resolves to the REAL npm package, bundled by the example project into
+    // dist/gsap.bundle.mjs and injected into __ocModuleSources by the host.
+    // three / canvaskit forward to the ctx namespaces, which really are their
+    // whole surface. gsap is hook-gated: tween calls only mean something
+    // inside a per-frame hook, where the scene clock is bound. Object
+    // constructors (three / canvaskit) forward ungated — they are pure local
+    // state.
     function hookGated(target, apiName) {
         var wrapped = new WeakMap();
         function wrapValue(v) {
@@ -507,17 +534,22 @@
     // __ocRequire("gsap").gsap and `import gsap from 'gsap'` to .default —
     // so the builtin is the package's module record, not the namespace.
     //
-    // `gsap` resolves to the REAL npm package (gsap.bundle.js parked on
-    // globalThis.__ocGsapModule). The model stays frame=f(t): the author
-    // writes declarative animation — `gsap.timeline().to(...)`,
-    // `gsap.from(...)` — and NEVER drives it. Creation registers the tween on
-    // the current hook; the hook runner seeks every registered tween to
-    // ctx.current.time after the hook body returns (animate = g(t)). The
-    // paused flag is forced here so nothing depends on the package's ticker.
-    // The package is embedded in core, so it is always present. A missing one
-    // is a broken build, not a mode to support; there is no fallback surface.
-    var gsapPackage = globalThis.__ocGsapModule && globalThis.__ocGsapModule.exports;
-    if (gsapPackage) {
+    // `gsap` resolves to the REAL npm package (the project's
+    // dist/gsap.bundle.mjs, injected by the host). The model stays
+    // frame=f(t): the author writes declarative animation —
+    // `gsap.timeline().to(...)`, `gsap.from(...)` — and NEVER drives it.
+    // Creation registers the tween on the current hook; the hook runner seeks
+    // every registered tween to ctx.current.time after the hook body returns
+    // (animate = g(t)). The paused flag is forced here so nothing depends on
+    // the package's ticker.
+    //
+    // The package is project-supplied, so it is NOT present at realm
+    // bootstrap: requireModule('gsap') evaluates the sidecar module and then
+    // calls installGsapBuiltins once. A missing sidecar is a project error
+    // (the host reports it when it cannot read the file); there is no
+    // fallback surface.
+    function installGsapBuiltins(gsapPackage) {
+        if (builtins['gsap']) return;
         // animate = g(t) plumbing: register every created tween on the
         // running hook and force `paused` so the package's ticker (wall
         // clock) is never in play. Mutating the real gsap object is safe —
@@ -614,21 +646,15 @@
                 return rawFromToProto.call(this, resolveTargets(target), fromVars, toVars, position);
             };
         }
-    }
-    // Every realm that installs this runtime evals GSAP_BUNDLE first, so the
-    // package is always there. A missing one is a broken build, and failing
-    // loudly here beats a silent fallback to some other gsap-shaped object.
-    if (!gsapPackage) throw new Error('gsap bundle missing — the core build is broken');
-    var gatedGsap = hookGated(gsapPackage.gsap || gsapPackage.default, 'gsap');
-    builtins['gsap'] = Object.assign(Object.create(null), gsapPackage, {
-        default: gatedGsap,
-        gsap: gatedGsap,
-    });
-    // `import { CustomEase } from 'gsap/CustomEase'` — the npm package's own
-    // per-plugin subpaths. Each record carries the plugin as both the named
-    // and the default export, so the documented import line works verbatim;
-    // entry.js already registered every plugin on the core.
-    if (gsapPackage) {
+        var gatedGsap = hookGated(gsapPackage.gsap || gsapPackage.default, 'gsap');
+        builtins['gsap'] = Object.assign(Object.create(null), gsapPackage, {
+            default: gatedGsap,
+            gsap: gatedGsap,
+        });
+        // `import { CustomEase } from 'gsap/CustomEase'` — the npm package's own
+        // per-plugin subpaths. Each record carries the plugin as both the named
+        // and the default export, so the documented import line works verbatim;
+        // the sidecar entry already registered every plugin on the core.
         var gsapSubpaths = [
             'CSSPlugin',
             'CustomEase',

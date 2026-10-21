@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ engine (master 32.44-41.48 slot 9.04s; template 10.68s — exit tween
    clipped like the master, engine.html) ══════════════════════════════════
@@ -7,9 +8,9 @@ import { useGSAP } from 'opencat/runtime';
 var EN_START = 32.44, EN_DUR = 9.04;
 
 export default function Engine() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
 
     tl.fromTo('en-wrap', { y: 150, filter: 'blur(30px)' }, { y: 0, filter: 'blur(0px)', duration: 1.0, ease: 'power2.out' }, A(0));
     ['en-r1o', 'en-r2o', 'en-r3o'].forEach(function (id) {

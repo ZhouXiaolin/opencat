@@ -1,9 +1,10 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 import { zoomBlur } from '../../shared.jsx';
 
 export default function Beat1() {
-  useGSAP((ctx) => {
-    var tl = ctx.timeline();
+  useGSAP(() => {
+    var tl = gsap.timeline();
     /* BEAT 1 (:505-526): per-word slide-from-right, expo.out 0.33s */
     var WS = [0.09, 0.42, 0.55, 0.85, 1.09, 1.40, 1.64];
     var WSL = [360, 180, 120, 80, 50, 30, 20];

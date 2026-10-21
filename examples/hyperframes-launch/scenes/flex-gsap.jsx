@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ flex-gsap (master 19.01-19.68, compositions/flex-gsap.html) ════════
    15x25 dot matrix. Phase 1: per-column sweep with elastic snap-back.
@@ -6,9 +7,9 @@ import { useGSAP } from 'opencat/runtime';
 var GS_START = 19.01, GS_DUR = 0.67, GS_ROWS = 15, GS_COLS = 25;
 
 export default function FlexGsap() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     var centerR = (GS_ROWS - 1) / 2, centerC = (GS_COLS - 1) / 2;
     var maxDist = Math.sqrt(centerR * centerR + centerC * centerC);
 

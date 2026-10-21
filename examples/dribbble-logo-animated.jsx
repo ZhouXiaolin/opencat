@@ -4,13 +4,14 @@
 // calls are the XML `<script>` block. Everything time-varying lives in `use*`
 // callbacks, which the pipeline replays per frame — frame = f(t).
 
+import { gsap } from 'gsap';
 import { useCanvas, useCanvasKit, useGSAP, useRef } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 6 };
 
 export default function Scene() {
-  useGSAP((ctx) => {
-    const tl = ctx.timeline();
+  useGSAP(() => {
+    const tl = gsap.timeline();
     // Phase 1: 描边绘制 · 0–4s
     tl.to('logo-path', {
       strokeDashoffset: 0,

@@ -26,6 +26,7 @@
 // existing XML port ships without it. Rendering parity notes folded into
 // comments at their sites.
 
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 41.8 };
@@ -76,8 +77,11 @@ var A3_MCAP = [
 ];
 
 /* cap-pop keyframes, once per caption: 0% {0, y18, s0.82} → 70% {1, y-2,
-   s1.04} @0.182 → 100% {1, y0, s1.00} @0.26, cubic-bezier per segment. */
-var CAP_EASE = [0.34, 1.56, 0.64, 1];
+   s1.04} @0.182 → 100% {1, y0, s1.00} @0.26, cubic-bezier per segment.
+   The control points go in as a `cubic-bezier()` string: gsap has no
+   array-to-bezier shorthand — an array falls through to CustomEase and
+   throws `data.match is not a function`. The string is the official spelling. */
+var CAP_EASE = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
 function popCaption(T, id, at, dur) {
   T.set(id, { opacity: 0, y: 18, scale: 0.82 }, at);
   T.to(id, { opacity: 1, y: -2, scale: 1.04, duration: 0.182, ease: CAP_EASE }, at);
@@ -158,8 +162,8 @@ function MouseCursor({ id, left, top, w, ht, z }) {
 /* ═════════════ ACT 1 — cold open (abs 0.0–12.0) ═════════════ */
 
 function Act1() {
-  useGSAP((ctx) => {
-    var T = ctx.timeline();
+  useGSAP(() => {
+    var T = gsap.timeline();
 
     // Phase 1: CTA caret blink + steps() typing (act-1 html:751-763)
     T.to('cta-caret', { opacity: 0, duration: 0.15 }, 0.20);
@@ -466,8 +470,8 @@ function Act1() {
 // rootId is the act container's external id, owned by the caller (W2H drives
 // the hard-cut windows on it); the component never hard-codes it.
 function Act3({ rootId }) {
-  useGSAP((ctx) => {
-    var T = ctx.timeline();
+  useGSAP(() => {
+    var T = gsap.timeline();
     // Each clip owns [start, start+dur); the video media window itself is
     // bounded by dataStart/dataDuration on the node. The reference hard-cuts
     // (no cross-fade) and the top-left `.a3-cap` has NO entrance animation —
@@ -513,8 +517,8 @@ var PT_XY = [
 ];
 
 function Act4({ rootId }) {
-  useGSAP((ctx) => {
-    var T = ctx.timeline();
+  useGSAP(() => {
+    var T = gsap.timeline();
 
     // 33.8 - 35.3 abs (local 0.0 - 1.5): Aurora + spotlight bloom in
     T.to('aurora', { opacity: 0.85, duration: 1.2, ease: 'power2.out' }, 33.8);
@@ -629,13 +633,13 @@ export default function W2H() {
   // Caller-owned ids for the act containers; passed down as props and used
   // here for the hard-cut windows — the components stay id-agnostic.
   var ACT3 = 'act3', ACT4 = 'act4';
-  useGSAP((ctx) => {
+  useGSAP(() => {
     // Act section windows — the reference master shows each act section only
     // inside its absolute window; boundaries are HARD CUTS (act1 12.0 → act3
     // 12.0, act3 33.8 → act4 33.8). The stacked opaque containers replicate
     // that: revealing the next container covers the previous one at the
     // boundary frame (act1's white-flash tail past 12.0 included).
-    var T = ctx.timeline();
+    var T = gsap.timeline();
     T.set(ACT3, { opacity: 1 }, 12.0);
     T.set(ACT4, { opacity: 1 }, 33.8);
     // Act-3 bottom captions live in their own top-level overlay (outside the

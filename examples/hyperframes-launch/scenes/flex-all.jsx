@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ flex-all (master 29.89-30.22, compositions/flex-all.html) ══════════
    backgroundPosition 0%->100% on a 400% bg == sliding a 4x layer under an
@@ -5,9 +6,9 @@ import { useGSAP } from 'opencat/runtime';
 var FA_START = 29.89, FA_DUR = 0.33;
 
 export default function FlexAll() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('fa-slide', { x: 0, y: 0 }, { x: -6960, y: -4440, duration: 0.3, ease: 'none' }, A(0));
     tl.fromTo('fa-text', { scale: 1.08 }, { scale: 1, duration: 0.15, ease: 'power2.out' }, A(0));
   });

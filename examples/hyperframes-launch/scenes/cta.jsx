@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 /* ══ cta (master 41.48-46.02, compositions/cta.html) ═══════════════════
    Workspace window: left terminal types two commands; right preview panel
@@ -30,7 +31,7 @@ var CT_CODE_LINES = [
 ];
 
 export default function Cta() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
 
     /* typed 1 — one char per 0.9/20s from 0.3 (index.html cta.html:458-464) */
@@ -64,7 +65,7 @@ export default function Cta() {
     ctx.getNode('cta-status-build').opacity(building ? 1 : 0);
     ctx.getNode('cta-status-ready').opacity(building ? 0 : 1);
 
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('cta-wrap', { y: 150, filter: 'blur(30px)' }, { y: 0, filter: 'blur(0px)', duration: 1.0, ease: 'power2.out' }, A(0));
     tl.fromTo('sl-1', { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.15, ease: 'power2.out' }, A(1.3));
     tl.fromTo('sl-2', { opacity: 0, y: 6 }, { opacity: 1, y: 0, duration: 0.12, ease: 'power2.out' }, A(1.42));

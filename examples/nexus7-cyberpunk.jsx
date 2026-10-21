@@ -1,9 +1,10 @@
 // JSX frontend port of examples/nexus7-cyberpunk.jsx — see the XML original for
 // the full scene notes. What changes: `<template>` becomes a component
 // (props replace $id/$color), and the `<script>` block splits by capability
-// (useGSAP for the ctx.to/fromTo facade part, useCanvas for the
+// (useGSAP for the gsap.to/fromTo facade part, useCanvas for the
 // neural-fabric canvas).
 
+import { gsap } from 'gsap';
 import { useCanvas, useGSAP, useRef } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 30 };
@@ -131,95 +132,95 @@ function NeuralFabric() {
 }
 
 export default function Nexus7() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
 
         // ===== Scene 1 · BOOT (start 0.0s) — 终端日志 scramble + 进度条 =====
-        ctx.fromTo('s1-glow', {opacity: 0, scale: 0.6}, {opacity: 1, scale: 1, duration: 1.2, delay: 0.1, ease: 'power2.out'});
-        ctx.fromTo('s1-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 0.2, ease: 'power2.out'});
-        ctx.fromTo('s1-meta', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.5, delay: 0.1, ease: 'power3.out'});
-        ctx.fromTo('s1-meta2', {opacity: 0, x: 20}, {opacity: 1, x: 0, duration: 0.5, delay: 0.15, ease: 'power3.out'});
-        ctx.to('s1-log1', {scrambleText: {text: '> INITIALIZING NEURAL CORE...', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 0.4, ease: 'linear'});
-        ctx.to('s1-log2', {scrambleText: {text: '> LOADING SYNAPSE MATRIX...', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 0.85, ease: 'linear'});
-        ctx.to('s1-log3', {scrambleText: {text: '> 7.3B PARAMETERS ONLINE', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 1.3, ease: 'linear'});
-        ctx.to('s1-log4', {scrambleText: {text: '> NEXUS-7 READY_', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.8, delay: 1.75, ease: 'linear'});
-        ctx.fromTo('s1-prog-track', {opacity: 0, y: 20}, {opacity: 1, y: 0, duration: 0.5, delay: 0.4, ease: 'power2.out'});
-        ctx.fromTo('s1-prog-fill', {width: 0}, {width: 1000, duration: 2.8, delay: 0.4, ease: 'power2.inOut'});
-        ctx.fromTo('s1-pct', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 0.5, ease: 'power2.out'});
-        ctx.to('s1-pct', {text: '100%', duration: 2.8, delay: 0.4, ease: 'linear'});
-        ctx.fromTo('s1-cursor', {opacity: 0}, {opacity: 1, duration: 0.3, delay: 1.9, ease: 'power2.out'});
-        ctx.to('s1-cursor', {opacity: 0, duration: 0.18, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 2.2});
-        ctx.fromTo('s1-foot', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 2.0, ease: 'power2.out'});
-        ctx.to('s1-glow', {scale: 1.08, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.4});
+        gsap.fromTo('s1-glow', {opacity: 0, scale: 0.6}, {opacity: 1, scale: 1, duration: 1.2, delay: 0.1, ease: 'power2.out'});
+        gsap.fromTo('s1-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 0.2, ease: 'power2.out'});
+        gsap.fromTo('s1-meta', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.5, delay: 0.1, ease: 'power3.out'});
+        gsap.fromTo('s1-meta2', {opacity: 0, x: 20}, {opacity: 1, x: 0, duration: 0.5, delay: 0.15, ease: 'power3.out'});
+        gsap.to('s1-log1', {scrambleText: {text: '> INITIALIZING NEURAL CORE...', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 0.4, ease: 'linear'});
+        gsap.to('s1-log2', {scrambleText: {text: '> LOADING SYNAPSE MATRIX...', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 0.85, ease: 'linear'});
+        gsap.to('s1-log3', {scrambleText: {text: '> 7.3B PARAMETERS ONLINE', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.9, delay: 1.3, ease: 'linear'});
+        gsap.to('s1-log4', {scrambleText: {text: '> NEXUS-7 READY_', chars: 'upperCase', speed: 16, revealDelay: 0.1}, duration: 0.8, delay: 1.75, ease: 'linear'});
+        gsap.fromTo('s1-prog-track', {opacity: 0, y: 20}, {opacity: 1, y: 0, duration: 0.5, delay: 0.4, ease: 'power2.out'});
+        gsap.fromTo('s1-prog-fill', {width: 0}, {width: 1000, duration: 2.8, delay: 0.4, ease: 'power2.inOut'});
+        gsap.fromTo('s1-pct', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 0.5, ease: 'power2.out'});
+        gsap.to('s1-pct', {text: '100%', duration: 2.8, delay: 0.4, ease: 'linear'});
+        gsap.fromTo('s1-cursor', {opacity: 0}, {opacity: 1, duration: 0.3, delay: 1.9, ease: 'power2.out'});
+        gsap.to('s1-cursor', {opacity: 0, duration: 0.18, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 2.2});
+        gsap.fromTo('s1-foot', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 2.0, ease: 'power2.out'});
+        gsap.to('s1-glow', {scale: 1.08, duration: 2.4, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 1.4});
 
         // ===== Scene 2 · HERO SLAM (start 4.0s) — 主张砸入 + 色差抖动 =====
-        ctx.fromTo('s2-ghost', {opacity: 0, x: -40}, {opacity: 0.07, x: 0, duration: 1.0, delay: 4.1, ease: 'power2.out'});
-        ctx.fromTo('s2-glow1', {opacity: 0}, {opacity: 1, duration: 1.2, delay: 4.0, ease: 'power2.out'});
-        ctx.fromTo('s2-glow2', {opacity: 0}, {opacity: 1, duration: 1.2, delay: 4.1, ease: 'power2.out'});
-        ctx.fromTo('s2-kicker', {opacity: 0, x: -24}, {opacity: 1, x: 0, duration: 0.4, delay: 4.2, ease: 'power3.out'});
-        ctx.fromTo('s2-hero', {opacity: 0, scale: 1.18, skewX: 8, y: -20}, {opacity: 1, scale: 1, skewX: 0, y: 0, duration: 0.7, delay: 4.35, ease: 'back.out'});
-        ctx.fromTo('s2-zh', {opacity: 0, y: 24}, {opacity: 1, y: 0, duration: 0.5, delay: 4.75, ease: 'power3.out'});
-        ctx.fromTo('s2-sub', {opacity: 0, y: 18}, {opacity: 1, y: 0, duration: 0.5, delay: 4.9, ease: 'power3.out'});
-        ctx.fromTo('s2-ver', {opacity: 0, x: 24}, {opacity: 1, x: 0, duration: 0.5, delay: 4.5, ease: 'power3.out'});
-        ctx.fromTo('s2-meta', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 5.0, ease: 'power2.out'});
-        ctx.fromTo('s2-meta2', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 5.1, ease: 'power2.out'});
+        gsap.fromTo('s2-ghost', {opacity: 0, x: -40}, {opacity: 0.07, x: 0, duration: 1.0, delay: 4.1, ease: 'power2.out'});
+        gsap.fromTo('s2-glow1', {opacity: 0}, {opacity: 1, duration: 1.2, delay: 4.0, ease: 'power2.out'});
+        gsap.fromTo('s2-glow2', {opacity: 0}, {opacity: 1, duration: 1.2, delay: 4.1, ease: 'power2.out'});
+        gsap.fromTo('s2-kicker', {opacity: 0, x: -24}, {opacity: 1, x: 0, duration: 0.4, delay: 4.2, ease: 'power3.out'});
+        gsap.fromTo('s2-hero', {opacity: 0, scale: 1.18, skewX: 8, y: -20}, {opacity: 1, scale: 1, skewX: 0, y: 0, duration: 0.7, delay: 4.35, ease: 'back.out'});
+        gsap.fromTo('s2-zh', {opacity: 0, y: 24}, {opacity: 1, y: 0, duration: 0.5, delay: 4.75, ease: 'power3.out'});
+        gsap.fromTo('s2-sub', {opacity: 0, y: 18}, {opacity: 1, y: 0, duration: 0.5, delay: 4.9, ease: 'power3.out'});
+        gsap.fromTo('s2-ver', {opacity: 0, x: 24}, {opacity: 1, x: 0, duration: 0.5, delay: 4.5, ease: 'power3.out'});
+        gsap.fromTo('s2-meta', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 5.0, ease: 'power2.out'});
+        gsap.fromTo('s2-meta2', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 5.1, ease: 'power2.out'});
         // hero 入场后故障抖动（机械 steps）
-        ctx.to('s2-hero', {skewX: 4, x: -4, duration: 0.07, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 5.25});
-        ctx.to('s2-ghost', {x: 30, duration: 6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 5.0});
+        gsap.to('s2-hero', {skewX: 4, x: -4, duration: 0.07, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 5.25});
+        gsap.to('s2-ghost', {x: 30, duration: 6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 5.0});
 
         // ===== Scene 3 · CAPABILITY MATRIX (start 8.7s) — 三卡校准上线 =====
-        ctx.fromTo('s3-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 8.8, ease: 'power2.out'});
-        ctx.fromTo('s3-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 8.75, ease: 'power3.out'});
-        ctx.fromTo('s3-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 8.85, ease: 'power3.out'});
-        ctx.fromTo('s3-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 9.0, ease: 'power2.out'});
-        ctx.fromTo(['s3-c1', 's3-c2', 's3-c3'], {opacity: 0, y: 60, skewX: 6}, {opacity: 1, y: 0, skewX: 0, duration: 0.55, stagger: 0.12, delay: 9.05, ease: 'back.out'});
-        ctx.fromTo(['s3-c1-icon', 's3-c2-icon', 's3-c3-icon'], {opacity: 0, scale: 0.3}, {opacity: 1, scale: 1, duration: 0.45, stagger: 0.12, delay: 9.4, ease: 'back.out'});
-        ctx.fromTo(['s3-c1-stat', 's3-c2-stat', 's3-c3-stat'], {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.5, stagger: 0.12, delay: 9.65, ease: 'power3.out'});
-        ctx.fromTo('s3-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 9.8, ease: 'power2.out'});
+        gsap.fromTo('s3-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 8.8, ease: 'power2.out'});
+        gsap.fromTo('s3-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 8.75, ease: 'power3.out'});
+        gsap.fromTo('s3-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 8.85, ease: 'power3.out'});
+        gsap.fromTo('s3-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 9.0, ease: 'power2.out'});
+        gsap.fromTo(['s3-c1', 's3-c2', 's3-c3'], {opacity: 0, y: 60, skewX: 6}, {opacity: 1, y: 0, skewX: 0, duration: 0.55, stagger: 0.12, delay: 9.05, ease: 'back.out'});
+        gsap.fromTo(['s3-c1-icon', 's3-c2-icon', 's3-c3-icon'], {opacity: 0, scale: 0.3}, {opacity: 1, scale: 1, duration: 0.45, stagger: 0.12, delay: 9.4, ease: 'back.out'});
+        gsap.fromTo(['s3-c1-stat', 's3-c2-stat', 's3-c3-stat'], {opacity: 0, y: 14}, {opacity: 1, y: 0, duration: 0.5, stagger: 0.12, delay: 9.65, ease: 'power3.out'});
+        gsap.fromTo('s3-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 9.8, ease: 'power2.out'});
         // ACTIVE 状态点闪烁
-        ctx.to(['s3-c1-dot', 's3-c2-dot', 's3-c3-dot'], {opacity: 0.2, duration: 0.5, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 9.7, stagger: 0.15});
-        ctx.to('s3-ghost', {y: 16, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 9.0});
+        gsap.to(['s3-c1-dot', 's3-c2-dot', 's3-c3-dot'], {opacity: 0.2, duration: 0.5, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 9.7, stagger: 0.15});
+        gsap.to('s3-ghost', {y: 16, duration: 7, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 9.0});
 
         // ===== Scene 4 · DATA PEAK (start 13.5s) — 数字 scramble + 条形生长 =====
-        ctx.fromTo('s4-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 13.6, ease: 'power2.out'});
-        ctx.fromTo('s4-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 13.55, ease: 'power3.out'});
-        ctx.fromTo('s4-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 13.65, ease: 'power3.out'});
-        ctx.fromTo('s4-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 13.8, ease: 'power2.out'});
-        ctx.fromTo(['s4-st1', 's4-st2', 's4-st3'], {opacity: 0, y: 40}, {opacity: 1, y: 0, duration: 0.5, stagger: 0.15, delay: 13.9, ease: 'power3.out'});
-        ctx.to('s4-st1-num', {scrambleText: {text: '7.3B', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.2, ease: 'linear'});
-        ctx.to('s4-st2-num', {scrambleText: {text: '0.8ms', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.35, ease: 'linear'});
-        ctx.to('s4-st3-num', {scrambleText: {text: '99.4%', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.5, ease: 'linear'});
-        ctx.fromTo('s4-st1-bar', {width: 0}, {width: 460, duration: 1.4, delay: 14.2, ease: 'power2.inOut'});
-        ctx.fromTo('s4-st2-bar', {width: 0}, {width: 320, duration: 1.4, delay: 14.35, ease: 'power2.inOut'});
-        ctx.fromTo('s4-st3-bar', {width: 0}, {width: 480, duration: 1.4, delay: 14.5, ease: 'power2.inOut'});
-        ctx.fromTo(['s4-st1-label', 's4-st2-label', 's4-st3-label'], {opacity: 0, y: 12}, {opacity: 1, y: 0, duration: 0.4, stagger: 0.1, delay: 14.9, ease: 'power2.out'});
-        ctx.fromTo('s4-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 15.1, ease: 'power2.out'});
-        ctx.to('s4-ghost', {x: -22, duration: 6.5, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 14.0});
+        gsap.fromTo('s4-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 13.6, ease: 'power2.out'});
+        gsap.fromTo('s4-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 13.55, ease: 'power3.out'});
+        gsap.fromTo('s4-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 13.65, ease: 'power3.out'});
+        gsap.fromTo('s4-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 13.8, ease: 'power2.out'});
+        gsap.fromTo(['s4-st1', 's4-st2', 's4-st3'], {opacity: 0, y: 40}, {opacity: 1, y: 0, duration: 0.5, stagger: 0.15, delay: 13.9, ease: 'power3.out'});
+        gsap.to('s4-st1-num', {scrambleText: {text: '7.3B', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.2, ease: 'linear'});
+        gsap.to('s4-st2-num', {scrambleText: {text: '0.8ms', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.35, ease: 'linear'});
+        gsap.to('s4-st3-num', {scrambleText: {text: '99.4%', chars: 'numbers', speed: 22, revealDelay: 0.1}, duration: 1.4, delay: 14.5, ease: 'linear'});
+        gsap.fromTo('s4-st1-bar', {width: 0}, {width: 460, duration: 1.4, delay: 14.2, ease: 'power2.inOut'});
+        gsap.fromTo('s4-st2-bar', {width: 0}, {width: 320, duration: 1.4, delay: 14.35, ease: 'power2.inOut'});
+        gsap.fromTo('s4-st3-bar', {width: 0}, {width: 480, duration: 1.4, delay: 14.5, ease: 'power2.inOut'});
+        gsap.fromTo(['s4-st1-label', 's4-st2-label', 's4-st3-label'], {opacity: 0, y: 12}, {opacity: 1, y: 0, duration: 0.4, stagger: 0.1, delay: 14.9, ease: 'power2.out'});
+        gsap.fromTo('s4-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 15.1, ease: 'power2.out'});
+        gsap.to('s4-ghost', {x: -22, duration: 6.5, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 14.0});
 
         // ===== Scene 5 · NEURAL FABRIC (start 18.3s) — HUD + 神经织网 canvas =====
-        ctx.fromTo('s5-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 18.4, ease: 'power3.out'});
-        ctx.fromTo('s5-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 18.5, ease: 'power3.out'});
-        ctx.fromTo('s5-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 18.65, ease: 'power2.out'});
-        ctx.fromTo('s5-hud', {opacity: 0, x: 40}, {opacity: 1, x: 0, duration: 0.6, delay: 18.9, ease: 'power3.out'});
-        ctx.to(['s5-hud-v1', 's5-hud-v2', 's5-hud-v3'], {opacity: 0.45, duration: 0.8, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 19.3, stagger: 0.2});
-        ctx.to(['s5-sp1', 's5-sp2', 's5-sp3', 's5-sp4', 's5-sp5', 's5-sp6', 's5-sp7', 's5-sp8'], {scaleY: 0.4, duration: 0.6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 19.2, stagger: 0.06});
-        ctx.fromTo('s5-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 19.0, ease: 'power2.out'});
-        ctx.fromTo('s5-coord', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 19.1, ease: 'power2.out'});
+        gsap.fromTo('s5-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 18.4, ease: 'power3.out'});
+        gsap.fromTo('s5-title', {opacity: 0, y: 28}, {opacity: 1, y: 0, duration: 0.5, delay: 18.5, ease: 'power3.out'});
+        gsap.fromTo('s5-title-en', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 18.65, ease: 'power2.out'});
+        gsap.fromTo('s5-hud', {opacity: 0, x: 40}, {opacity: 1, x: 0, duration: 0.6, delay: 18.9, ease: 'power3.out'});
+        gsap.to(['s5-hud-v1', 's5-hud-v2', 's5-hud-v3'], {opacity: 0.45, duration: 0.8, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 19.3, stagger: 0.2});
+        gsap.to(['s5-sp1', 's5-sp2', 's5-sp3', 's5-sp4', 's5-sp5', 's5-sp6', 's5-sp7', 's5-sp8'], {scaleY: 0.4, duration: 0.6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 19.2, stagger: 0.06});
+        gsap.fromTo('s5-meta', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 19.0, ease: 'power2.out'});
+        gsap.fromTo('s5-coord', {opacity: 0}, {opacity: 1, duration: 0.4, delay: 19.1, ease: 'power2.out'});
 
         // ===== Scene 6 · CTA SETTLE (start 23.8s) — 收束 + 呼吸 =====
-        ctx.fromTo('s6-glow', {opacity: 0, scale: 0.7}, {opacity: 1, scale: 1, duration: 1.2, delay: 23.9, ease: 'power2.out'});
-        ctx.fromTo('s6-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 23.9, ease: 'power2.out'});
-        ctx.fromTo('s6-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 24.0, ease: 'power3.out'});
-        ctx.fromTo('s6-hero', {opacity: 0, scale: 1.12, y: -16}, {opacity: 1, scale: 1, y: 0, duration: 0.7, delay: 24.15, ease: 'back.out'});
-        ctx.fromTo('s6-zh', {opacity: 0, y: 22}, {opacity: 1, y: 0, duration: 0.5, delay: 24.6, ease: 'power3.out'});
-        ctx.fromTo('s6-cta', {opacity: 0, y: 26, scale: 0.85}, {opacity: 1, y: 0, scale: 1, duration: 0.55, delay: 24.85, ease: 'back.out'});
-        ctx.fromTo('s6-url', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 25.1, ease: 'power2.out'});
-        ctx.fromTo('s6-cursor', {opacity: 0}, {opacity: 1, duration: 0.3, delay: 25.2, ease: 'power2.out'});
-        ctx.fromTo(['s6-meta', 's6-meta2'], {opacity: 0}, {opacity: 1, duration: 0.5, delay: 25.2, ease: 'power2.out'});
+        gsap.fromTo('s6-glow', {opacity: 0, scale: 0.7}, {opacity: 1, scale: 1, duration: 1.2, delay: 23.9, ease: 'power2.out'});
+        gsap.fromTo('s6-ghost', {opacity: 0}, {opacity: 0.06, duration: 1.0, delay: 23.9, ease: 'power2.out'});
+        gsap.fromTo('s6-kicker', {opacity: 0, x: -20}, {opacity: 1, x: 0, duration: 0.4, delay: 24.0, ease: 'power3.out'});
+        gsap.fromTo('s6-hero', {opacity: 0, scale: 1.12, y: -16}, {opacity: 1, scale: 1, y: 0, duration: 0.7, delay: 24.15, ease: 'back.out'});
+        gsap.fromTo('s6-zh', {opacity: 0, y: 22}, {opacity: 1, y: 0, duration: 0.5, delay: 24.6, ease: 'power3.out'});
+        gsap.fromTo('s6-cta', {opacity: 0, y: 26, scale: 0.85}, {opacity: 1, y: 0, scale: 1, duration: 0.55, delay: 24.85, ease: 'back.out'});
+        gsap.fromTo('s6-url', {opacity: 0}, {opacity: 1, duration: 0.5, delay: 25.1, ease: 'power2.out'});
+        gsap.fromTo('s6-cursor', {opacity: 0}, {opacity: 1, duration: 0.3, delay: 25.2, ease: 'power2.out'});
+        gsap.fromTo(['s6-meta', 's6-meta2'], {opacity: 0}, {opacity: 1, duration: 0.5, delay: 25.2, ease: 'power2.out'});
         // CTA 呼吸 + 光标闪烁 + 标题偶发故障
-        ctx.to('s6-cta', {scale: 1.04, duration: 1.0, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 25.6});
-        ctx.to('s6-cursor', {opacity: 0, duration: 0.2, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 25.5});
-        ctx.to('s6-hero', {skewX: 3, x: -3, duration: 0.08, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 25.2});
-        ctx.to('s6-glow', {scale: 1.06, duration: 2.6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 25.2});
+        gsap.to('s6-cta', {scale: 1.04, duration: 1.0, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 25.6});
+        gsap.to('s6-cursor', {opacity: 0, duration: 0.2, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 25.5});
+        gsap.to('s6-hero', {skewX: 3, x: -3, duration: 0.08, repeat: -1, yoyo: true, ease: 'steps(1)', delay: 25.2});
+        gsap.to('s6-glow', {scale: 1.06, duration: 2.6, repeat: -1, yoyo: true, ease: 'sine.inOut', delay: 25.2});
   });
 
   return (

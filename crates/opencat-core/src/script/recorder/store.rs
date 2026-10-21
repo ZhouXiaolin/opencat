@@ -169,6 +169,177 @@ pub(crate) fn css_filter_to_value(filter: &CssFilter) -> serde_json::Value {
     })
 }
 
+/// Serialize the engine's transform list as the CSS matrix string CSSPlugin
+/// reads back (`getComputedStyle(el).transform` → `"matrix(a, b, c, d, e, f)"`).
+/// The plugin parses that to recover the element's current x/y/rotation/scale
+/// so a `.to()` without explicit `from` starts where the node already is.
+fn css_transform_string(transforms: &[Transform]) -> String {
+    // 2×3 affine, row-major [a, b, c, d, e, f] — the CSS `matrix()` order.
+    let mut m = [1.0f32, 0.0, 0.0, 1.0, 0.0, 0.0];
+    let mul = |m: [f32; 6], n: [f32; 6]| -> [f32; 6] {
+        [
+            m[0] * n[0] + m[2] * n[1],
+            m[1] * n[0] + m[3] * n[1],
+            m[0] * n[2] + m[2] * n[3],
+            m[1] * n[2] + m[3] * n[3],
+            m[0] * n[4] + m[2] * n[5] + m[4],
+            m[1] * n[4] + m[3] * n[5] + m[5],
+        ]
+    };
+    for t in transforms {
+        m = match *t {
+            Transform::TranslateX { value } => mul(m, [1.0, 0.0, 0.0, 1.0, value, 0.0]),
+            Transform::TranslateY { value } => mul(m, [1.0, 0.0, 0.0, 1.0, 0.0, value]),
+            Transform::Translate { x, y } => mul(m, [1.0, 0.0, 0.0, 1.0, x, y]),
+            Transform::Scale { value } => mul(m, [value, 0.0, 0.0, value, 0.0, 0.0]),
+            Transform::ScaleX { value } => mul(m, [value, 0.0, 0.0, 1.0, 0.0, 0.0]),
+            Transform::ScaleY { value } => mul(m, [1.0, 0.0, 0.0, value, 0.0, 0.0]),
+            Transform::RotateDeg { value } => {
+                let (sin, cos) = value.to_radians().sin_cos();
+                mul(m, [cos, sin, -sin, cos, 0.0, 0.0])
+            }
+            Transform::SkewXDeg { value } => {
+                mul(m, [1.0, 0.0, value.to_radians().tan(), 1.0, 0.0, 0.0])
+            }
+            Transform::SkewYDeg { value } => {
+                mul(m, [1.0, value.to_radians().tan(), 0.0, 1.0, 0.0, 0.0])
+            }
+            Transform::SkewDeg { x, y } => mul(
+                m,
+                [
+                    1.0,
+                    y.to_radians().tan(),
+                    x.to_radians().tan(),
+                    1.0,
+                    0.0,
+                    0.0,
+                ],
+            ),
+            // 3D transforms have no 2D matrix form; the 2D part of the
+            // projection is what a 2D reader can act on, so nothing to add.
+            Transform::Rotate3 { .. } => m,
+        };
+    }
+    format!(
+        "matrix({}, {}, {}, {}, {}, {})",
+        m[0], m[1], m[2], m[3], m[4], m[5]
+    )
+}
+
+/// Parse a CSS `transform` function list into engine transforms.
+///
+/// GSAP's CSSPlugin is the only writer: it emits exactly `perspective()`,
+/// `translate()/translate3d()`, `rotate()/rotateX()/rotateY()`, `skew()` and
+/// `scale()` in a fixed order. Anything else (matrix(), rotateZ()…) is not
+/// produced by the plugin suite and is ignored.
+fn parse_css_transform(text: &str) -> Vec<Transform> {
+    let mut out = Vec::new();
+    let mut rest = text.trim();
+    while let Some(open) = rest.find('(') {
+        let name = rest[..open].trim().to_ascii_lowercase();
+        let Some(close) = rest[open..].find(')') else {
+            break;
+        };
+        let args: Vec<f32> = rest[open + 1..open + close]
+            .split(',')
+            .filter_map(|part| part.trim().trim_end_matches("px").trim_end_matches("deg").parse::<f32>().ok())
+            .collect();
+        let first = args.first().copied().unwrap_or(0.0);
+        match name.as_str() {
+            "translate" => out.push(Transform::Translate {
+                x: first,
+                y: args.get(1).copied().unwrap_or(0.0),
+            }),
+            "translate3d" => {
+                out.push(Transform::TranslateX { value: first });
+                out.push(Transform::TranslateY {
+                    value: args.get(1).copied().unwrap_or(0.0),
+                });
+            }
+            "translatex" => out.push(Transform::TranslateX { value: first }),
+            "translatey" => out.push(Transform::TranslateY { value: first }),
+            "rotate" => out.push(Transform::RotateDeg { value: first }),
+            "skew" => out.push(Transform::SkewDeg {
+                x: first,
+                y: args.get(1).copied().unwrap_or(0.0),
+            }),
+            "skewx" => out.push(Transform::SkewXDeg { value: first }),
+            "skewy" => out.push(Transform::SkewYDeg { value: first }),
+            // CSSPlugin's renderTransform emits `scale(sx)` for a uniform
+            // scale and `scale(sx, sy)` for a non-uniform one — `scaleY: 0`
+            // arrives as `scale(1, 0)`. Keeping only the first argument loses
+            // the second axis, so the node never collapses.
+            "scale" => match args.get(1).copied() {
+                Some(y) => {
+                    out.push(Transform::ScaleX { value: first });
+                    out.push(Transform::ScaleY { value: y });
+                }
+                None => out.push(Transform::Scale { value: first }),
+            },
+            "scalex" => out.push(Transform::ScaleX { value: first }),
+            "scaley" => out.push(Transform::ScaleY { value: first }),
+            // perspective()/rotateX()/rotateY() fold into one Rotate3; the
+            // writes land through the same path as the named properties.
+            _ => {}
+        }
+        rest = &rest[open + close + 1..];
+    }
+    out
+}
+
+/// 脚本写值 → 数值。
+///
+/// 同一个属性有两条写入通道：自研数值通道给 JSON 数字（`{ opacity: 1 }`），
+/// 原生 CSSPlugin 给 **CSS 文本**（`style.opacity = "1"`、
+/// `style.width = "660px"`）。两条通道落到同一个字段，所以统一在这里转。
+/// 单位只认 `px`；`%` / `auto` / `none` 没有声明式参照系可算，返回 None
+/// 好过按错误基准渲染。
+fn num_from_value(value: &serde_json::Value) -> Option<f32> {
+    match value {
+        serde_json::Value::Number(n) => n.as_f64().map(|v| v as f32),
+        serde_json::Value::String(text) => text
+            .trim()
+            .strip_suffix("px")
+            .unwrap_or(text.trim())
+            .trim()
+            .parse::<f32>()
+            .ok(),
+        _ => None,
+    }
+}
+
+/// `stroke-dasharray` 的脚本侧取值 → `StrokeDash`。
+///
+/// 脚本写的是 **CSS 文本**（DrawSVG 每帧写 `"1200px,1400px"`，起点写
+/// `"0px, 999999px"`，结束时写 `"none"`），所以字符串按 CSS 语义解析：
+/// `none` 表示无虚线，单段复制成等距虚线，两段即 dash/gap。数字与数组
+/// 是便利写法，与字符串同义。
+fn stroke_dash_from_value(value: &serde_json::Value) -> Option<crate::style::StrokeDash> {
+    use crate::style::StrokeDash;
+    match value {
+        serde_json::Value::String(text) => {
+            let text = text.trim();
+            if text.is_empty() || text.eq_ignore_ascii_case("none") {
+                return None;
+            }
+            let lens: Vec<f32> = text
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .filter(|part| !part.is_empty())
+                .filter_map(|part| part.trim().trim_end_matches("px").parse::<f32>().ok())
+                .collect();
+            let dash = *lens.first()?;
+            Some(StrokeDash::from_pair(dash, lens.get(1).copied()))
+        }
+        serde_json::Value::Number(n) => n.as_f64().map(|v| StrokeDash::from_len(v as f32)),
+        serde_json::Value::Array(items) => {
+            let dash = items.first().and_then(|v| v.as_f64())? as f32;
+            let gap = items.get(1).and_then(|v| v.as_f64()).map(|v| v as f32);
+            Some(StrokeDash::from_pair(dash, gap))
+        }
+        _ => None,
+    }
+}
+
 fn clip_path_from_value(value: &serde_json::Value) -> Option<Option<ClipPath>> {
     let raw = value.as_str()?;
     if raw.trim().eq_ignore_ascii_case("none") {
@@ -506,7 +677,6 @@ impl MutationStore {
 
         // f32
         add_f32!("opacity", opacity);
-        add_f32!("strokeDasharray", stroke_dasharray);
         add_f32!("strokeDashoffset", stroke_dashoffset);
         add_f32!("strokeWidth", stroke_width);
         add_f32!("borderWidth", border_width);
@@ -517,6 +687,14 @@ impl MutationStore {
         add_f32!("height", height);
         add_f32!("gap", gap);
         add_f32!("flexGrow", flex_grow);
+        // Same text form `read_style_value` returns, so a script reading the
+        // CSS-declared dasharray sees the value the style sheet declared.
+        if let Some(dash) = style.stroke_dasharray {
+            props.insert(
+                "strokeDasharray".into(),
+                json!(format!("{}px,{}px", dash.dash, dash.gap)),
+            );
+        }
         // Inset quads — `read_style_value` exposes them as left/top/right/bottom,
         // so the initial seeding has to carry the same keys or a fresh
         // `getBoundingClientRect` would read 0 for class-declared insets.
@@ -573,7 +751,11 @@ impl MutationStore {
             let v: Option<serde_json::Value> = match property {
                 // f32
                 "opacity" => mutations.opacity.map(|f| json!(f)),
-                "strokeDasharray" => mutations.stroke_dasharray.map(|f| json!(f)),
+                // CSS 文本形式：DrawSVG 用 `getComputedStyle(...).strokeDasharray`
+                // 反推当前已画出的长度（"1200px,1400px" 里逗号前是实线段）。
+                "strokeDasharray" => mutations
+                    .stroke_dasharray
+                    .map(|d| json!(format!("{}px,{}px", d.dash, d.gap))),
                 "strokeDashoffset" => mutations.stroke_dashoffset.map(|f| json!(f)),
                 "strokeWidth" => mutations.stroke_width.map(|f| json!(f)),
                 "borderRadius" => mutations.border_radius.map(|f| json!(f)),
@@ -600,6 +782,9 @@ impl MutationStore {
                     .transform_origin
                     .map(|o| json!([o.x, o.y]))
                     .or_else(|| Some(json!([0.5, 0.5]))),
+                // CSS text form, the shape CSSPlugin parses on init.
+                "transform" => Some(json!(css_transform_string(&mutations.transforms))),
+                "cssText" => None,
                 "filter" => (!mutations.css_filter.is_empty())
                     .then(|| css_filter_to_value(&mutations.css_filter)),
                 "clipPath" | "clip-path" => mutations
@@ -659,7 +844,7 @@ impl MutationStore {
         match property {
             // ── f32 ──
             "opacity" => {
-                entry.opacity = value.as_f64().map(|v| v as f32);
+                entry.opacity = num_from_value(&value);
             }
             // GSAP names (`x`/`y`) accepted too: the imperative `getNode(id).x(v)`
             // proxy forwards the raw property name, while the timeline property
@@ -667,59 +852,59 @@ impl MutationStore {
             // imperative and tween writes share one mapping (previously `x`/`y`
             // fell through the match and were silently dropped).
             "x" | "translateX" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::TranslateX { value: v as f32 });
                 }
             }
             "y" | "translateY" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::TranslateY { value: v as f32 });
                 }
             }
             "scale" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::Scale { value: v as f32 });
                 }
             }
             "scaleX" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::ScaleX { value: v as f32 });
                 }
             }
             "scaleY" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::ScaleY { value: v as f32 });
                 }
             }
             "rotate" | "rotation" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::RotateDeg { value: v as f32 });
                 }
             }
             // GSAP 3D: `rotationX`/`rotationY`/`transformPerspective` fold into
             // one projective transform (see `Transform::Rotate3`).
             "rotationX" | "rotateX" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.write_rotate3_field(crate::script::mutations::Rotate3Field::RotationX, v as f32);
                 }
             }
             "rotationY" | "rotateY" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.write_rotate3_field(crate::script::mutations::Rotate3Field::RotationY, v as f32);
                 }
             }
             "transformPerspective" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.write_rotate3_field(crate::script::mutations::Rotate3Field::Perspective, v as f32);
                 }
             }
             "skewX" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::SkewXDeg { value: v as f32 });
                 }
             }
             "skewY" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.push_transform(Transform::SkewYDeg { value: v as f32 });
                 }
             }
@@ -742,86 +927,105 @@ impl MutationStore {
                     }
                 }
             }
+            // CSS `style.transform` — the write CSSPlugin actually makes
+            // (`translate(100px, 50px) rotate(30deg) scale(1.2)`). A declarative
+            // composition has no CSS cascade, so the string is parsed straight
+            // into the engine's transform list; anything the engine cannot
+            // express is dropped rather than silently mangled.
+            //
+            // This REPLACES the list, it does not append: `transform` is one
+            // CSS property, so a write drops whatever the previous string
+            // said. Appending instead keeps a stale `scale(2.6)` alive after
+            // CSSPlugin writes `translate(0px, 0px)` on the way back to rest,
+            // which renders a card that should be back to normal size at 2.6×.
+            "transform" => {
+                if let Some(s) = value.as_str() {
+                    entry.transforms = parse_css_transform(s);
+                }
+            }
             "left" => {
-                entry.inset_left = value.as_f64().map(|v| v as f32);
+                entry.inset_left = num_from_value(&value);
             }
             "top" => {
-                entry.inset_top = value.as_f64().map(|v| v as f32);
+                entry.inset_top = num_from_value(&value);
             }
             "right" => {
-                entry.inset_right = value.as_f64().map(|v| v as f32);
+                entry.inset_right = num_from_value(&value);
             }
             "bottom" => {
-                entry.inset_bottom = value.as_f64().map(|v| v as f32);
+                entry.inset_bottom = num_from_value(&value);
             }
             "width" => {
-                entry.width = value.as_f64().map(|v| v as f32);
+                entry.width = num_from_value(&value);
             }
             "height" => {
-                entry.height = value.as_f64().map(|v| v as f32);
+                entry.height = num_from_value(&value);
             }
             "padding" => {
-                entry.padding = value.as_f64().map(|v| v as f32);
+                entry.padding = num_from_value(&value);
             }
             "paddingX" => {
-                entry.padding_x = value.as_f64().map(|v| v as f32);
+                entry.padding_x = num_from_value(&value);
             }
             "paddingY" => {
-                entry.padding_y = value.as_f64().map(|v| v as f32);
+                entry.padding_y = num_from_value(&value);
             }
             "margin" => {
-                entry.margin = value.as_f64().map(|v| v as f32);
+                entry.margin = num_from_value(&value);
             }
             "marginX" => {
-                entry.margin_x = value.as_f64().map(|v| v as f32);
+                entry.margin_x = num_from_value(&value);
             }
             "marginY" => {
-                entry.margin_y = value.as_f64().map(|v| v as f32);
+                entry.margin_y = num_from_value(&value);
             }
             "gap" => {
-                entry.gap = value.as_f64().map(|v| v as f32);
+                entry.gap = num_from_value(&value);
             }
             "flexGrow" => {
-                entry.flex_grow = value.as_f64().map(|v| v as f32);
+                entry.flex_grow = num_from_value(&value);
             }
             "borderRadius" => {
-                entry.border_radius = value.as_f64().map(|v| v as f32);
+                entry.border_radius = num_from_value(&value);
             }
             "borderWidth" => {
-                entry.border_width = value.as_f64().map(|v| v as f32);
+                entry.border_width = num_from_value(&value);
             }
             "borderTopWidth" => {
-                entry.border_top_width = value.as_f64().map(|v| v as f32);
+                entry.border_top_width = num_from_value(&value);
             }
             "borderRightWidth" => {
-                entry.border_right_width = value.as_f64().map(|v| v as f32);
+                entry.border_right_width = num_from_value(&value);
             }
             "borderBottomWidth" => {
-                entry.border_bottom_width = value.as_f64().map(|v| v as f32);
+                entry.border_bottom_width = num_from_value(&value);
             }
             "borderLeftWidth" => {
-                entry.border_left_width = value.as_f64().map(|v| v as f32);
+                entry.border_left_width = num_from_value(&value);
             }
             "strokeWidth" => {
-                entry.stroke_width = value.as_f64().map(|v| v as f32).map(|v| v.max(0.0));
+                entry.stroke_width = num_from_value(&value).map(|v| v.max(0.0));
             }
             "strokeDasharray" => {
-                entry.stroke_dasharray = value.as_f64().map(|v| v as f32).map(|v| v.max(0.0));
+                // 三种写法都要收：脚本写 CSS 文本（DrawSVG 写
+                // "1200px,1400px" 或 "none"，ScrambleText 之外的插件也常这样）、
+                // 直接写两段数组、以及老的裸数字。
+                entry.stroke_dasharray = stroke_dash_from_value(&value);
             }
             "strokeDashoffset" => {
-                entry.stroke_dashoffset = value.as_f64().map(|v| v as f32);
+                entry.stroke_dashoffset = num_from_value(&value);
             }
             "textSize" => {
-                entry.text_px = value.as_f64().map(|v| v as f32);
+                entry.text_px = num_from_value(&value);
             }
             "letterSpacing" => {
-                entry.letter_spacing = value.as_f64().map(|v| v as f32);
+                entry.letter_spacing = num_from_value(&value);
             }
             "lineHeight" => {
-                entry.line_height = value.as_f64().map(|v| v as f32);
+                entry.line_height = num_from_value(&value);
             }
             "fontWeight" => {
-                entry.font_weight = value.as_f64().map(|v| FontWeight(v as u16));
+                entry.font_weight = num_from_value(&value).map(|v| FontWeight(v as u16));
             }
             "filter" => {
                 if let Some(filter) = css_filter_from_value(&value) {
@@ -835,12 +1039,12 @@ impl MutationStore {
             }
             "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"
             | "invert" | "saturate" | "sepia" => {
-                if let Some(v) = value.as_f64() {
+                if let Some(v) = num_from_value(&value) {
                     entry.css_filter.set_property(property, v as f32);
                 }
             }
             "backdropBlur" | "backdropBlurSigma" => {
-                entry.backdrop_blur_sigma = value.as_f64().map(|v| v as f32);
+                entry.backdrop_blur_sigma = num_from_value(&value);
             }
 
             // ── colors ──
@@ -1273,8 +1477,11 @@ impl MutationRecorder for MutationStore {
     fn record_stroke_width(&mut self, id: &str, v: f32) {
         self.entry(id).stroke_width = Some(v.max(0.0));
     }
-    fn record_stroke_dasharray(&mut self, id: &str, v: f32) {
-        self.entry(id).stroke_dasharray = Some(v.max(0.0));
+    fn record_stroke_dasharray(&mut self, id: &str, v: crate::style::StrokeDash) {
+        self.entry(id).stroke_dasharray = Some(crate::style::StrokeDash {
+            dash: v.dash.max(0.0),
+            gap: v.gap.max(0.0),
+        });
     }
     fn record_stroke_dashoffset(&mut self, id: &str, v: f32) {
         self.entry(id).stroke_dashoffset = Some(v);

@@ -69,7 +69,7 @@ pub trait MutationRecorder {
     fn record_border_bottom_width(&mut self, id: &str, v: f32);
     fn record_border_left_width(&mut self, id: &str, v: f32);
     fn record_stroke_width(&mut self, id: &str, v: f32);
-    fn record_stroke_dasharray(&mut self, id: &str, v: f32);
+    fn record_stroke_dasharray(&mut self, id: &str, v: crate::style::StrokeDash);
     fn record_stroke_dashoffset(&mut self, id: &str, v: f32);
     fn record_text_size(&mut self, id: &str, v: f32);
     fn record_letter_spacing(&mut self, id: &str, v: f32);

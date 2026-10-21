@@ -2389,12 +2389,15 @@ pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result
             mask_filter: None,
             path_effect: None,
         };
-        if let Some(dash_len) = item.paint.stroke_dasharray
-            && dash_len > 0.0
+        // Dash 是「实线段 + 空白段」两值（CSS 语义）：单值写法两边相等，
+        // 画成等距虚线；两段式是 DrawSVG 的「描边逐渐出现」——实线段是已
+        // 画出的长度。dash=0 时什么都不画，正是描边动画的起点。
+        if let Some(dash) = item.paint.stroke_dasharray
+            && dash.gap > 0.0
         {
             let offset = item.paint.stroke_dashoffset.unwrap_or(0.0);
             spec.path_effect = Some(PathEffectSpec::Dash {
-                intervals: vec![dash_len, dash_len],
+                intervals: vec![dash.dash.max(0.0), dash.gap],
                 phase: offset,
             });
         }

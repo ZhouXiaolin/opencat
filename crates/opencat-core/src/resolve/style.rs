@@ -148,7 +148,7 @@ pub struct ComputedVisualStyle {
     pub border_color: Option<crate::style::ColorToken>,
     pub stroke_color: Option<crate::style::ColorToken>,
     pub stroke_width: Option<f32>,
-    pub stroke_dasharray: Option<f32>,
+    pub stroke_dasharray: Option<crate::style::StrokeDash>,
     pub stroke_dashoffset: Option<f32>,
     pub border_style: Option<crate::style::BorderStyle>,
     pub css_filter: CssFilter,

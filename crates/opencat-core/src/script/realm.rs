@@ -111,10 +111,11 @@ pub const JS_PLATFORM_SHIM: &str = r#"
     if (typeof globalThis.navigator.msPointerEnabled !== 'boolean') {
         globalThis.navigator.msPointerEnabled = false;
     globalThis.console = globalThis.console || {
-        log: function () { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.log ' + Array.prototype.join.call(arguments, ' ')); },
-        warn: function () { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.warn ' + Array.prototype.join.call(arguments, ' ')); },
-        error: function () { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.error ' + Array.prototype.join.call(arguments, ' ')); },
+        log: function () { var k = globalThis.__ocLogSink; if (k) { k('log ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.log ' + Array.prototype.join.call(arguments, ' ')); } },
+        warn: function () { var k = globalThis.__ocLogSink; if (k) { k('warn ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.warn ' + Array.prototype.join.call(arguments, ' ')); } },
+        error: function () { var k = globalThis.__ocLogSink; if (k) { k('error ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.error ' + Array.prototype.join.call(arguments, ' ')); } },
     };
+    globalThis.__ocInstallLogSink = function (fn) { globalThis.__ocLogSink = fn; };
     }
     if (typeof globalThis.navigator.userAgent !== 'string') {
         globalThis.navigator.userAgent = 'opencat';
@@ -579,12 +580,31 @@ pub fn apply_target_registry<C: JsContext>(ctx: &C, registry: &ScriptTargetRegis
         .iter()
         .map(|k| (k.clone(), serde_json::Value::Bool(true)))
         .collect();
+    // Static per-node facts: tag, parent id, path data. The DOM host needs
+    // these because the style store only carries animatable values — an SVG
+    // plugin asking `target.tagName` or `getAttribute('d')` has nowhere else
+    // to look.
+    let facts: serde_json::Map<String, serde_json::Value> = registry
+        .facts
+        .iter()
+        .map(|(id, facts)| {
+            (
+                id.clone(),
+                json!({
+                    "tag": facts.tag,
+                    "parent": facts.parent,
+                    "d": facts.path_data,
+                }),
+            )
+        })
+        .collect();
     ctx.set_ctx_field(
         "__targetRegistry",
         json!({
             "visual": visual,
             "canvas": canvas,
             "nonVisual": non_visual,
+            "facts": facts,
         }),
     )
 }

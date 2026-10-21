@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use super::{MutationRecorder, TextUnitValues};
 use crate::frame_ctx::duration_secs_to_frames;
 use crate::script::ScriptTextSource;
+use crate::script::tree::TreeOverlay;
 use crate::script::mutations::{
     CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations, TextUnitGranularity,
     TextUnitOverride, TextUnitOverrideBatch,
@@ -49,6 +50,10 @@ pub struct MutationStore {
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
     text_sources: HashMap<String, ScriptTextSource>,
+    /// 脚本侧 DOM 覆盖层：动态节点（realm 级身份）+ 帧级子级视图。
+    /// 节点表不随帧清空（插件的模块级草稿元素要跨帧存活），结构每帧
+    /// 由 `begin_frame` 从声明树重建。
+    tree: TreeOverlay,
     /// Script-recorded generated images (canvas putImageData / surface
     /// auto-bake path). NOT cleared by reset_for_frame: recorded during
     /// script runs, drained once per frame by the render pipeline into the
@@ -1587,6 +1592,12 @@ impl MutationRecorder for MutationStore {
     }
     fn get_text_source(&self, id: &str) -> Option<&ScriptTextSource> {
         self.text_sources.get(id)
+    }
+    fn tree_overlay(&self) -> Option<&TreeOverlay> {
+        Some(&self.tree)
+    }
+    fn tree_overlay_mut(&mut self) -> Option<&mut TreeOverlay> {
+        Some(&mut self.tree)
     }
     fn current_frame(&self) -> u32 {
         self.current_frame

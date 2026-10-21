@@ -724,6 +724,118 @@ macro_rules! for_each_binding {
             Ok(true)
         }}
 
+        // ── Cmd: script-side DOM tree (overlay) ────────────────────────────
+        // 官方插件建节点、搬子级（SplitText 的 char/word/line wrapper）。
+        // 组合的树是声明式的，脚本改动记进覆盖层；渲染面按覆盖层读这一帧
+        // 的子级视图。节点身份是 realm 级（插件会复用模块级草稿元素），
+        // 结构是帧级（脚本每帧重跑）。返回的 id 走常规 style 写通道，所以
+        // gsap 对 wrapper 的 tween 与对声明节点的 tween 是同一条路。
+        $binding! { cmd $store dom_create_element (tag: String) -> String {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("createElement: this recorder has no script tree"))?;
+            Ok(overlay.create_element(&tag))
+        }}
+        $binding! { cmd $store dom_create_text_node (text: String) -> String {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("createTextNode: this recorder has no script tree"))?;
+            Ok(overlay.create_text_node(&text))
+        }}
+        $binding! { cmd $store dom_append_child (parent: String, child: String) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("appendChild: this recorder has no script tree"))?;
+            Ok(overlay.append_child(&parent, &child))
+        }}
+        $binding! { cmd $store dom_insert_before (parent: String, child: String, reference: Option<String>) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("insertBefore: this recorder has no script tree"))?;
+            Ok(overlay.insert_before(&parent, &child, reference.as_deref()))
+        }}
+        $binding! { cmd $store dom_remove_child (parent: String, child: String) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("removeChild: this recorder has no script tree"))?;
+            Ok(overlay.remove_child(&parent, &child))
+        }}
+        $binding! { cmd $store dom_remove (id: String) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("remove: this recorder has no script tree"))?;
+            Ok(overlay.remove(&id))
+        }}
+        $binding! { cmd $store dom_replace_child (parent: String, new_child: String, old_child: String) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("replaceChild: this recorder has no script tree"))?;
+            Ok(overlay.replace_child(&parent, &new_child, &old_child))
+        }}
+        $binding! { cmd $store dom_replace_with (old_child: String, new_children: Vec<String>) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("replaceWith: this recorder has no script tree"))?;
+            Ok(overlay.replace_with(&old_child, &new_children))
+        }}
+        $binding! { cmd $store dom_clone_node (id: String, deep: bool) -> Option<String> {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("cloneNode: this recorder has no script tree"))?;
+            Ok(overlay.clone_node(&id, deep))
+        }}
+        $binding! { cmd $store dom_set_text (id: String, text: String) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("textContent: this recorder has no script tree"))?;
+            Ok(overlay.set_text(&id, &text))
+        }}
+        $binding! { cmd $store dom_normalize (id: String) -> bool {
+            // 相邻文本节点合并。渲染面按 byte range 分组，不读节点切分，
+            // 所以合并只影响 JS 侧的 childNodes 视图。
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("normalize: this recorder has no script tree"))?;
+            Ok(overlay.normalize(&id))
+        }}
+
+        // ── Cmd: script-side DOM tree reads ────────────────────────────────
+        // 读视图要惰性物化文本节点（`<text>` 的文本是合成子节点），所以
+        // 读也走可变路径 —— cmd 而不是 qry。
+        $binding! { cmd $store dom_children (id: String) -> Vec<(String, u8)> {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("childNodes: this recorder has no script tree"))?;
+            Ok(overlay.children(&id))
+        }}
+        $binding! { cmd $store dom_text (id: String) -> String {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("textContent: this recorder has no script tree"))?;
+            Ok(overlay.text_of(&id))
+        }}
+        $binding! { cmd $store dom_siblings (id: String) -> Vec<Option<String>> {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("siblings: this recorder has no script tree"))?;
+            let (prev, next) = overlay.siblings(&id);
+            Ok(vec![prev, next])
+        }}
+        $binding! { qry $store dom_parent (id: String) -> Option<String> {
+            Ok($store.tree_overlay().and_then(|overlay| overlay.parent_of(&id)))
+        }}
+        $binding! { qry $store dom_node_type (id: String) -> u8 {
+            Ok($store.tree_overlay()
+                .map(|overlay| overlay.node_type_of(&id).dom_node_type())
+                .unwrap_or(1))
+        }}
+        $binding! { qry $store dom_is_dynamic (id: String) -> bool {
+            Ok($store.tree_overlay().is_some_and(|overlay| overlay.is_dynamic(&id)))
+        }}
+        $binding! { qry $store dom_tag (id: String) -> Option<String> {
+            Ok($store.tree_overlay()
+                .and_then(|overlay| overlay.tag_of(&id))
+                .map(str::to_string))
+        }}
+        $binding! { qry $store dom_class_name (id: String) -> String {
+            Ok($store.tree_overlay()
+                .map(|overlay| overlay.class_name_of(&id))
+                .unwrap_or_default())
+        }}
+        $binding! { cmd $store dom_set_class_name (id: String, class_name: String) -> bool {
+            // `className` 是节点事实而不是可动画样式：SplitText 给 mask 元素
+            // 派生 `-mask` 类名并读回，写进样式表通道会被静默丢弃。
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("className: this recorder has no script tree"))?;
+            Ok(overlay.set_class_name(&id, &class_name))
+        }}
+
         // ── Qry: store reads (text) ─
         $binding! { qry $store text_units_describe (id: String, granularity_str: String) -> Vec<(u32, String, u32, u32)> {
             let text = $store.get_text_source(&id).map(|src| src.text.clone())

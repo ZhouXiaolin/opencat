@@ -7,7 +7,7 @@
 mod store;
 
 pub(crate) use store::css_filter_to_value;
-pub use store::{AnimateEntry, MutationStore};
+pub use store::MutationStore;
 
 use crate::ir::draw_op::DrawOp;
 use crate::script::ScriptTextSource;

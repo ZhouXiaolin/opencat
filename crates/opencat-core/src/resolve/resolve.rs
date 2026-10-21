@@ -382,8 +382,7 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         let content = text_content_from_stack(cx.mutation_stack, &style.id)
             .unwrap_or_else(|| text.content().to_string());
 
-        let text_unit_overrides = merge_text_unit_overrides(cx.mutation_stack, &style.id)
-            .or_else(|| script_split_overrides(cx, &style.id, &content));
+        let text_unit_overrides = script_split_overrides(cx, &style.id, &content);
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -975,8 +974,8 @@ fn text_content_from_stack(stack: &[StyleMutations], id: &str) -> Option<String>
 /// 覆盖"，所以这里做最小等价换算：把每个动态叶子的字节区间映射回字素
 /// 索引，沿祖先链合并 wrapper 上的样式变更。
 ///
-/// 分组数学与 `ctx.splitText` 完全一致（`TextUnitGranularity::Grapheme`
-/// 走同一条 `describe_text_unit_ranges`），所以 k3-promo/vfx 的像素不变。
+/// 分组按字素切（`describe_grapheme_ranges`），与渲染面
+/// `render_text_with_unit_overrides` 读 batch 的粒度一致。
 fn script_split_overrides(
     cx: &mut ResolveContext<'_>,
     id: &str,
@@ -1045,52 +1044,6 @@ fn script_split_overrides(
             .map(Option::unwrap_or_default)
             .collect(),
     })
-}
-
-fn merge_text_unit_overrides(stack: &[StyleMutations], id: &str) -> Option<TextUnitOverrideBatch> {
-    use crate::script::TextUnitOverride;
-    let mut merged: Option<TextUnitOverrideBatch> = None;
-    for layer in stack {
-        let Some(batch) = layer.get(id).and_then(|m| m.text_unit_overrides.as_ref()) else {
-            continue;
-        };
-
-        match &mut merged {
-            None => merged = Some(batch.clone()),
-            Some(current) => {
-                if current.granularity != batch.granularity {
-                    return None;
-                }
-                if batch.overrides.len() > current.overrides.len() {
-                    current
-                        .overrides
-                        .resize_with(batch.overrides.len(), TextUnitOverride::default);
-                }
-                for (index, incoming) in batch.overrides.iter().enumerate() {
-                    let slot = &mut current.overrides[index];
-                    if incoming.opacity.is_some() {
-                        slot.opacity = incoming.opacity;
-                    }
-                    if incoming.translate_x.is_some() {
-                        slot.translate_x = incoming.translate_x;
-                    }
-                    if incoming.translate_y.is_some() {
-                        slot.translate_y = incoming.translate_y;
-                    }
-                    if incoming.scale.is_some() {
-                        slot.scale = incoming.scale;
-                    }
-                    if incoming.rotation_deg.is_some() {
-                        slot.rotation_deg = incoming.rotation_deg;
-                    }
-                    if incoming.color.is_some() {
-                        slot.color = incoming.color;
-                    }
-                }
-            }
-        }
-    }
-    merged
 }
 
 fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> ComputedStyle {
@@ -1393,7 +1346,7 @@ fn node_tag_name(node: &Node) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_text_unit_overrides, resolve_ui_tree};
+    use super::resolve_ui_tree;
     use crate::{
         FrameCtx,
         ir::{draw_op::DrawOp, draw_types::ImageRef},
@@ -1689,53 +1642,6 @@ mod tests {
         assert!(
             err.to_string().contains("invalid SVG path"),
             "unexpected error: {err}"
-        );
-    }
-
-    #[test]
-    fn text_unit_overrides_merge_per_field_across_stack_layers() {
-        let lower = NodeStyleMutations {
-            text_unit_overrides: Some(TextUnitOverrideBatch {
-                granularity: TextUnitGranularity::Grapheme,
-                overrides: vec![TextUnitOverride {
-                    translate_y: Some(-12.0),
-                    color: Some(crate::style::ColorToken::Custom(0, 211, 242, 255)),
-                    ..Default::default()
-                }],
-            }),
-            ..Default::default()
-        };
-
-        let upper = NodeStyleMutations {
-            text_unit_overrides: Some(TextUnitOverrideBatch {
-                granularity: TextUnitGranularity::Grapheme,
-                overrides: vec![TextUnitOverride {
-                    opacity: Some(0.5),
-                    ..Default::default()
-                }],
-            }),
-            ..Default::default()
-        };
-
-        let stack = vec![
-            StyleMutations {
-                mutations: [("t".to_string(), lower)].into_iter().collect(),
-                canvas_mutations: Default::default(),
-                scene3_mutations: Default::default(),
-            },
-            StyleMutations {
-                mutations: [("t".to_string(), upper)].into_iter().collect(),
-                canvas_mutations: Default::default(),
-                scene3_mutations: Default::default(),
-            },
-        ];
-
-        let merged = merge_text_unit_overrides(&stack, "t").expect("merged batch");
-        assert_eq!(merged.overrides[0].translate_y, Some(-12.0));
-        assert_eq!(merged.overrides[0].opacity, Some(0.5));
-        assert_eq!(
-            merged.overrides[0].color,
-            Some(crate::style::ColorToken::Custom(0, 211, 242, 255))
         );
     }
 

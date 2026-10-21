@@ -26,7 +26,6 @@ pub mod precomputed_host;
 pub mod realm;
 pub mod recorder;
 pub mod runtime;
-pub mod text_units;
 pub mod tree;
 
 pub use host::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, driver_id_from_source};

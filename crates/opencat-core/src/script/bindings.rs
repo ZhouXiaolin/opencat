@@ -675,36 +675,6 @@ macro_rules! for_each_binding {
             }
         }}
 
-        // ── Node: text unit overrides (complex Object destructuring) ──────
-        $binding! { node $rec $id record_text_unit_override ($id: &str, granularity: String, index: u32, values: serde_json::Map<String, serde_json::Value>) {
-            let index = index as usize;
-            let gran = match granularity.as_str() {
-                "graphemes" => TextUnitGranularity::Grapheme,
-                "words" => TextUnitGranularity::Word,
-                _ => return Err(anyhow::anyhow!("unsupported granularity")),
-            };
-            let opacity = values.get("opacity").and_then(|v| v.as_f64());
-            let translate_x = values.get("translateX").and_then(|v| v.as_f64());
-            let translate_y = values.get("translateY").and_then(|v| v.as_f64());
-            let scale = values.get("scale").and_then(|v| v.as_f64());
-            let rotation_deg = values.get("rotation").and_then(|v| v.as_f64());
-            let color = values.get("textColor").and_then(|v| v.as_str()).map(String::from)
-                .or_else(|| values.get("color").and_then(|v| v.as_str()).map(String::from));
-            $rec.record_text_unit_override(
-                $id,
-                gran,
-                index,
-                TextUnitValues {
-                    opacity: opacity.map(|v| v as f32),
-                    translate_x: translate_x.map(|v| v as f32),
-                    translate_y: translate_y.map(|v| v as f32),
-                    scale: scale.map(|v| v as f32),
-                    rotation_deg: rotation_deg.map(|v| v as f32),
-                    color: color.and_then(|value| color_token_from_script_string(&value)),
-                },
-            );
-        }}
-
         // ── Cmd: scene clock override ───────────────────────────────────────
         // The JSX frontend emits ONE root driver whose store frame is the
         // composition frame. Inside a `<tl>` each scene has its own clock, so
@@ -844,24 +814,6 @@ macro_rules! for_each_binding {
             Ok(overlay
                 .text_range_of(&id)
                 .map(|(start, end, owner)| (start as u32, end as u32, owner)))
-        }}
-
-        // ── Qry: store reads (text) ─
-        $binding! { qry $store text_units_describe (id: String, granularity_str: String) -> Vec<(u32, String, u32, u32)> {
-            let text = $store.get_text_source(&id).map(|src| src.text.clone())
-                .ok_or_else(|| anyhow::anyhow!("no text source found for node"))?;
-            let granularity = match granularity_str.as_str() {
-                "graphemes" => TextUnitGranularity::Grapheme,
-                "words" => TextUnitGranularity::Word,
-                _ => return Err(anyhow::anyhow!("unknown granularity; expected 'graphemes' or 'words'")),
-            };
-            Ok(describe_text_units(&text, granularity)
-                .into_iter()
-                .map(|u| (u.index as u32, u.text, u.start as u32, u.end as u32))
-                .collect())
-        }}
-        $binding! { qry $store text_source_get (id: String) -> Option<String> {
-            Ok($store.get_text_source(&id).map(|s| s.text.clone()))
         }}
 
         // ── Qry: element boxes (SplitText line detection / transform-origin) ──
@@ -1063,9 +1015,6 @@ macro_rules! for_each_binding {
             let (f, r, u) = $crate::geom::camera_basis(
                 [eye[0], eye[1], eye[2]], [target[0], target[1], target[2]]);
             Ok(vec![f[0], f[1], f[2], r[0], r[1], r[2], u[0], u[1], u[2]])
-        }}
-        $binding! { pure text_graphemes (text: String) -> Vec<String> {
-            Ok(grapheme_strings(&text).into_iter().collect())
         }}
         // SVG geometry for the DOM host (`getBBox` / `getTotalLength`). Both
         // measure the path data the composition declared; the same kurbo

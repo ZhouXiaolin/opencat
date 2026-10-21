@@ -1,7 +1,6 @@
 // ocTarget 桥的支撑面（补间引擎已退役——作者动画一律走官方 gsap）。
-// 这三个函数只服务 jsx_runtime.js 的 ctx.ocTarget 描述符转发与
-// runtime/text_units.js 的文字拆分，不是 gsap 方言：goal.md §5 明确
-// 「生命周期与桥接服务不退役」。
+// 这三个函数只服务 jsx_runtime.js 的 ctx.ocTarget 描述符转发，不是
+// gsap 方言：goal.md §5 明确「生命周期与桥接服务不退役」。
 (function() {
     var runtime = globalThis.__opencatAnimation;
     var hasOwn = runtime.hasOwn;

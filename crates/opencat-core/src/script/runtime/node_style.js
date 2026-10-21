@@ -149,7 +149,14 @@
 
     function readText(id) {
         var v = __read_style_value(id, 'text');
-        return v === null || v === undefined ? '' : String(v);
+        if (v !== null && v !== undefined) return String(v);
+        // Nothing has written this node's text yet, so fall back to the text
+        // the composition declares for it. Reading `''` instead would report an
+        // empty element: ScrambleText sizes its char budget from the length of
+        // the text it finds, so an empty read makes it scramble a zero-length
+        // string and reveal nothing.
+        var initial = __text_source_get(id);
+        return initial === null || initial === undefined ? '' : String(initial);
     }
 
     // Static tree mutation is the one DOM capability a declarative composition

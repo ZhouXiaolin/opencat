@@ -9,8 +9,15 @@
 //   1. eases      CustomEase / CustomWiggle / CustomBounce / SlowMo /
 //                 ExpoScaleEase / RoughEase —— 纯数学，不碰 DOM
 //   2. physics    Physics2D / PhysicsProps —— 纯数学
-//   3. 之后是 DOM 依赖插件（ScrambleText/Text/MotionPath/DrawSVG/
-//      MorphSVG/SplitText/Flip），等宿主面补齐后逐个接上。
+//   3. DOM 依赖   ScrambleText / Text / MotionPath / DrawSVG / MorphSVG ——
+//                 目标必须像真元素（tagName/style/getBBox/textContent）
+//
+// 待补：SplitText（构造器形态，拆分要建真节点树，等宿主补齐
+// createElement/appendChild 通道）与 Flip（也是构造器 + 布局盒读回）。
+//
+// 验收走 Chrome 参考帧比对。比对必须无损（PNG 序列，或 `-qp 0` 全无损
+// 编码）：两侧各走一次有损 x264 时，同一张图编解码一次的偏差就有
+// mae ≈ 3，比插件差异大一个数量级，量到的就成了编码器差异。
 import { useGSAP } from 'opencat/runtime';
 import { gsap } from 'gsap';
 import { CustomEase } from 'gsap/CustomEase';
@@ -19,8 +26,25 @@ import { CustomBounce } from 'gsap/CustomBounce';
 import { SlowMo, ExpoScaleEase, RoughEase } from 'gsap/EasePack';
 import { Physics2DPlugin } from 'gsap/Physics2DPlugin';
 import { PhysicsPropsPlugin } from 'gsap/PhysicsPropsPlugin';
+import { SplitText } from 'gsap/SplitText';
+import { MorphSVGPlugin } from 'gsap/MorphSVGPlugin';
+import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
+import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
+import { ScrambleTextPlugin } from 'gsap/ScrambleTextPlugin';
+import { TextPlugin } from 'gsap/TextPlugin';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 12 };
+
+// 两侧必须落在同一个字体文件上，否则比的不是插件语义，是字体替换。
+// Chrome 参考页（tools/gsap-oracle.mjs）用 @font-face 把同一个文件绑成
+// `oracle-sans`；这里声明成 `Inter`，两个 family 名指向同一份字节。
+export const fonts = {
+    default: 'sans',
+    faces: [
+        { id: 'sans', family: 'Inter', path: '../../assets/Inter-Regular.ttf', role: 'sans' },
+        { id: 'sans-medium', family: 'Inter', path: '../../assets/Inter-Medium.ttf' },
+    ],
+};
 
 // 每个 ease 一行：同一条 0→1420 的横向位移，唯一变量是 ease。
 var ROWS = [
@@ -107,6 +131,58 @@ export default function PluginsShowcase() {
             },
             4.2
         );
+
+        // ── 3. DOM 依赖插件 ──────────────────────────────────────────
+        // 每个都是一次「插件读目标」的调用：str/isSVG/tagName/getBBox/
+        // getAttribute('d')/getTotalLength 全落在宿主面上。
+
+        // DrawSVG：沿路径描出。插件把已画长度写成 stroke-dasharray 的
+        // 实线段（"1200px,1400px"），剩下的是空白段。
+        tl.fromTo('drawsvg-path', { drawSVG: '0%' }, { drawSVG: '100%', duration: 2.4, ease: 'none' }, 7.2);
+
+        // MorphSVG：起点路径 → 终点路径。插件读目标的 getAttribute('d')
+        // 作为起点，终点写进 vars。
+        tl.to(
+            'morph-path',
+            {
+                morphSVG: 'M 1040 740 C 1040 500 1380 500 1380 740 C 1380 980 1720 980 1720 740',
+                duration: 2.4,
+                ease: 'none',
+            },
+            7.2
+        );
+
+        // MotionPath：把方块沿着一条路径推。路径坐标是绝对像素，方块自己
+        // 的 left/top 就是起点，所以不需要 align。
+        tl.to(
+            'motionpath-dot',
+            {
+                duration: 2.4,
+                ease: 'none',
+                motionPath: {
+                    path: 'M 100 900 C 400 700 700 1000 1000 800 C 1200 660 1400 900 1600 760',
+                },
+            },
+            7.2
+        );
+
+        // ScrambleText / Text 写目标的文本通道。
+        //
+        // `chars` 给单字符集，不是 `'upperCase'`：插件的字符表是
+        // `Math.random` 洗出来的（CharSet 用随机索引从字符集里取字），
+        // 两侧同一个 `'upperCase'` 会得到不同的乱码，像素永远对不齐。
+        // 单字符集让未揭示位全部显示同一个字，揭示进度仍然逐帧可见，
+        // 而两侧输出逐字节相同——和 RoughEase 用 `randomize:false` 同理。
+        tl.to(
+            'scramble-text',
+            {
+                duration: 2.4,
+                ease: 'none',
+                scrambleText: { text: 'DECODED PAYLOAD', chars: 'X', speed: 1, revealDelay: 0.2 },
+            },
+            7.2
+        );
+        tl.to('text-target', { duration: 2.4, ease: 'none', text: { value: 'typed by TextPlugin' } }, 7.2);
     });
 
     return (
@@ -184,6 +260,81 @@ export default function PluginsShowcase() {
                     'background-color': '#f472b6',
                 }}
             />
+            <div
+                id="dom-label"
+                style={{ position: 'absolute', left: 60, top: 1000, 'font-size': 18, color: '#5c6b7f' }}
+            >
+                DrawSVG · MorphSVG · MotionPath · ScrambleText · Text
+            </div>
+            <path
+                id="drawsvg-path"
+                d="M 1040 340 C 1140 160 1280 160 1380 340 C 1480 520 1620 520 1720 340"
+                view-box="0 0 1920 1080"
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: 1920,
+                    height: 1080,
+                    fill: 'none',
+                    stroke: '#22d3ee',
+                    'stroke-width': 6,
+                }}
+            />
+            <path
+                id="morph-path"
+                d="M 1040 740 C 1140 560 1280 560 1380 740 C 1480 920 1620 920 1720 740"
+                view-box="0 0 1920 1080"
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: 1920,
+                    height: 1080,
+                    fill: 'none',
+                    stroke: '#a78bfa',
+                    'stroke-width': 6,
+                }}
+            />
+            <div
+                id="motionpath-dot"
+                style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: 26,
+                    height: 26,
+                    'border-radius': 13,
+                    'background-color': '#fbbf24',
+                }}
+            />
+            <text
+                id="scramble-text"
+                style={{
+                    position: 'absolute',
+                    left: 60,
+                    top: 700,
+                    'font-size': 40,
+                    color: '#e2e8f0',
+                }}
+            >
+                {/* 花括号包住：裸写的 JSX 文本会带上换行与缩进，
+                    ScrambleText 的 lengthDif 按初始文本长度算，多一个
+                    空格就少揭示一位。 */}
+                {'DECODED PAYLOAD'}
+            </text>
+            <text
+                id="text-target"
+                style={{
+                    position: 'absolute',
+                    left: 60,
+                    top: 780,
+                    'font-size': 32,
+                    color: '#94a3b8',
+                }}
+            >
+                {'start'}
+            </text>
         </div>
     );
 }

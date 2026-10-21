@@ -59,7 +59,7 @@ pub struct NodeStyleMutations {
     pub fill_color: Option<ColorToken>,
     pub stroke_color: Option<ColorToken>,
     pub stroke_width: Option<f32>,
-    pub stroke_dasharray: Option<f32>,
+    pub stroke_dasharray: Option<crate::style::StrokeDash>,
     pub stroke_dashoffset: Option<f32>,
     pub border_radius: Option<f32>,
     pub border_width: Option<f32>,
@@ -818,8 +818,7 @@ pub fn apply_node_to_recorder(
     }
     if let Some(v) = m.stroke_dasharray {
         recorder.record_stroke_dasharray(id, v);
-    }
-    if let Some(v) = m.stroke_dashoffset {
+    }    if let Some(v) = m.stroke_dashoffset {
         recorder.record_stroke_dashoffset(id, v);
     }
     if let Some(v) = m.text_px {

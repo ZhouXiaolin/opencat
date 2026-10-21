@@ -506,6 +506,41 @@ pub enum BorderStyle {
     Dotted,
 }
 
+/// CSS `stroke-dasharray` 的一段。SVG 允许任意长的间隔序列，但引擎只需要
+/// 「实线段 + 空白段」这一个形状——`stroke-dasharray: 1200px,1400px` 是
+/// DrawSVG 画「描边逐渐出现」的写法：实线段 = 已画出的长度，空白段 = 剩余
+/// 长度。单值 `stroke-dasharray: 8` 按 CSS 语义复制成 `[8, 8]`。
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrokeDash {
+    pub dash: f32,
+    pub gap: f32,
+}
+
+impl StrokeDash {
+    /// 单值写法：CSS 把一段列表补齐成 `[v, v]`，绘制出来是等距虚线。
+    pub fn from_len(v: f32) -> Self {
+        Self { dash: v, gap: v }
+    }
+
+    /// 从 CSS / 脚本的 `[dash, gap?]` 列表构造。单值补齐成等距虚线。
+    pub fn from_pair(dash: f32, gap: Option<f32>) -> Self {
+        Self {
+            dash,
+            gap: gap.unwrap_or(dash),
+        }
+    }
+}
+
+impl Eq for StrokeDash {}
+
+impl std::hash::Hash for StrokeDash {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.dash.to_bits().hash(state);
+        self.gap.to_bits().hash(state);
+    }
+}
+
 /// CSS `background-clip`. `Text` is the one case the renderer acts on: the
 /// element's background paints through the glyph outlines instead of behind
 /// them (the `bg-clip-text` + `text-transparent` gradient-wordmark idiom).
@@ -1913,7 +1948,7 @@ pub struct NodeStyle {
     pub fill_color: Option<ColorToken>,
     pub stroke_color: Option<ColorToken>,
     pub stroke_width: Option<f32>,
-    pub stroke_dasharray: Option<f32>,
+    pub stroke_dasharray: Option<StrokeDash>,
     pub stroke_dashoffset: Option<f32>,
     pub svg_path: Option<String>,
 

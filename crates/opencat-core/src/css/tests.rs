@@ -106,8 +106,27 @@ fn escaped_arbitrary_property_class() {
         "p",
         "path",
     );
-    assert_eq!(style.stroke_dasharray, Some(1800.0), "dasharray 应命中");
+    assert_eq!(
+        style.stroke_dasharray,
+        Some(crate::style::StrokeDash::from_len(1800.0)),
+        "dasharray 应命中（单值复制成等距虚线）"
+    );
     assert_eq!(style.stroke_dashoffset, Some(1800.0), "dashoffset 应命中");
+}
+
+#[test]
+fn stroke_dasharray_keeps_dash_and_gap() {
+    // DrawSVG 写的是两段式：实线段长度 + 剩余长度。只留首段会画成等距
+    // 虚线，永远描不出「一条连续的线逐渐出现」。
+    let eng = engine(".drawn { stroke-dasharray: 1200px 1400px; }\n");
+    let style = eng.compute_node_style("drawn", "p", "path");
+    assert_eq!(
+        style.stroke_dasharray,
+        Some(crate::style::StrokeDash {
+            dash: 1200.0,
+            gap: 1400.0
+        })
+    );
 }
 
 #[test]

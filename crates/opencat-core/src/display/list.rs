@@ -248,7 +248,7 @@ pub struct SvgPathPaintStyle {
     pub stroke_width: Option<f32>,
     pub stroke_color: Option<ColorToken>,
     pub drop_shadow: Vec<DropShadow>,
-    pub stroke_dasharray: Option<f32>,
+    pub stroke_dasharray: Option<crate::style::StrokeDash>,
     pub stroke_dashoffset: Option<f32>,
 }
 

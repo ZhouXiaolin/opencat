@@ -17,6 +17,7 @@
 // audio plan has no per-clip absolute start, so they are dropped — k3diff is
 // pixel-only and every visual element is ported.
 
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1080, height: 1080, fps: 30, duration: 64.0666 };
@@ -230,7 +231,7 @@ function words(adv, s) {
 
 /* ════════════ ACT 1 · cold open + hero tweets (0 → 11.8, z1) ════════════ */
 function Act1() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A1.s && T < A2.s;
     vis(ctx, 'sec-act1', ON);
@@ -286,7 +287,7 @@ function Act1() {
     ctx.getNode('act1-c2foot').top(G.mt2);
     ctx.getNode('act1-c3foot').top(G.mt3);
 
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     // ── 0.0 cold pose (black void, chrome hidden) ──
     tl.set('act1-card1', { x: G.dx1, y: G.dy1, scale: 1.5, transformOrigin: '0px 0px' }, A1.s);
     // ── 0.15–1.05 line slides in R→L inside its mask ──
@@ -430,7 +431,7 @@ var A2_WIDE = { f1: true, f2: true, f3: true, e1: true, e2: true, e4: true, e5: 
 function specIndex(k) { return k.charAt(0) === 'f' ? Number(k.charAt(1)) - 1 : Number(A2_ECHO[k].charAt(1)) - 1; }
 
 function Act2() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A2.s && T < A3.s;
     vis(ctx, 'sec-act2', ON);
@@ -498,7 +499,7 @@ function Act2() {
       ['e5', 'stem', 3.95, 2.47, 2.57],
       ['e6', 'stem', 4.40, 2.57, 2.90],
     ];
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     for (var i = 0; i < cuts.length; i++) {
       var c = cuts[i];
       var key2 = c[0];
@@ -555,12 +556,12 @@ function Act2() {
 
 /* ════════════ ACT 3 · "Until now" (14.7 → 15.8, z3) ════════════ */
 function Act3() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A3.s && T < A4.s;
     vis(ctx, 'sec-act3', ON);
     if (!ON) return;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     tl.to('act3-ground', { opacity: 0, duration: 0.45, ease: 'power2.out' }, A3.s + 0.1);
     tl.fromTo('act3-shade', { opacity: 0 }, { opacity: 1, duration: 0.45, ease: 'power2.out' }, A3.s + 0.1);
     tl.fromTo('act3-line', { x: 1150 }, { x: 0, duration: 0.5, ease: 'power4.out' }, A3.s);
@@ -577,12 +578,12 @@ function Act3() {
 
 /* ════════════ ACT 4 · Introducing /figma (15.8 → 18.0, z4) ════════════ */
 function Act4() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A4.s && T < A5.s;
     vis(ctx, 'sec-act4', ON);
     if (!ON) return;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     tl.fromTo('act4-intro', { x: 1150 }, { x: 0, duration: 0.5, ease: 'power4.out' }, A4.s);
     tl.to('act4-intro', { y: -350, scale: 0.42, duration: 0.6, ease: 'power3.inOut' }, A4.s + 0.8);
     tl.fromTo('act4-skill', { y: -320, opacity: 0, scale: 0.92 }, { y: -95, opacity: 1, scale: 1, duration: 0.55, ease: 'power3.out' }, A4.s + 1.05);
@@ -828,7 +829,7 @@ function SentMessage({ pfx, cls }) {
 }
 
 function Act5() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A5.s && T < A6.s;
     vis(ctx, 'sec-act5', ON);
@@ -865,7 +866,7 @@ function Act5() {
     var comp = ctx.getNode('act5-composer');
     comp.width(cw); comp.left(W / 2 - cw / 2); comp.bottom(360 - 311.4 * pe); comp.scale(sc);
 
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     // entry: composer elements cut in from the right
     tl.fromTo('act5-tl-inputbar', { x: 280, opacity: 0 }, { x: 0, opacity: 1, duration: 0.55, ease: 'power3.out' }, A5.s + 0.02);
     tl.fromTo('act5-chips', { x: 340, opacity: 0 }, { x: 0, opacity: 1, duration: 0.55, ease: 'power3.out' }, A5.s + 0.10);
@@ -950,12 +951,12 @@ function Act5() {
 
 /* ════════════ ACT 6 · Figma — select frames, copy link (35.95 → 41.15, z8) ════════════ */
 function Act6() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A6.s && T < A7.s;
     vis(ctx, 'sec-act6', ON);
     if (!ON) return;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     // INVERSE ZOOM arrival (Z−): the UI lands from large, decelerating
     tl.fromTo('act6-stage', { scale: 1.28 }, { scale: 1, duration: 0.6, ease: 'expo.out' }, A6.s);
     // cursor enters bottom-right
@@ -1109,7 +1110,7 @@ function Act6() {
 
 /* ════════════ ACT 7 · Never been easier (41.15 → 44.15, z9) ════════════ */
 function Act7() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A7.s && T < A8.s;
     vis(ctx, 'sec-act7', ON);
@@ -1119,7 +1120,7 @@ function Act7() {
       return { sp: adv(ABCD, '700', 88, -1.32, ' ') };
     })());
     ctx.getNode('act7-sp3').width(G7.sp);
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     // upward mask reveal
     tl.fromTo('act7-in1', { y: 110.3872 }, { y: 0, duration: 0.55, ease: 'power4.out' }, A7.s);
     tl.fromTo('act7-in2', { y: 110.3872 }, { y: 0, duration: 0.6, ease: 'power4.out' }, A7.s + 0.1);
@@ -1155,7 +1156,7 @@ function Act7() {
    reference) — modeled as three stacked motion texts with per-frame clip
    windows: green-left / light band / green-right. */
 function Act8() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A8.s && T < A9.s;
     vis(ctx, 'sec-act8', ON);
@@ -1187,7 +1188,7 @@ function Act8() {
     ctx.getNode('act8-m2').clipPath('inset(0px 0px 0px ' + Rb + 'px)');
     ctx.getNode('act8-m1').clipPath('inset(0px ' + (Wm - Rb) + 'px 0px ' + Lb + 'px)');
 
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     tl.fromTo('act8-l1', { x: 1150 }, { x: 0, duration: 0.5, ease: 'power4.out' }, A8.s);
     tl.fromTo('act8-l2', { x: 1250 }, { x: 0, duration: 0.55, ease: 'power4.out' }, A8.s + 0.3);
     tl.to('act8-l1', { x: -1250, duration: 0.32, ease: 'power4.in' }, A8.s + 1.68);
@@ -1215,12 +1216,12 @@ function Act8() {
 
 /* ════════════ ACT 10 · Try it yourself (55.85 → 59.15, z13) ════════════ */
 function Act10() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A10.s && T < A11.s;
     vis(ctx, 'sec-act10', ON);
     if (!ON) return;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     tl.fromTo('act10-l1', { x: 1150 }, { x: 0, duration: 0.5, ease: 'power4.out' }, A10.s);
     tl.fromTo('act10-l2', { x: 1250 }, { x: 0, duration: 0.55, ease: 'power4.out' }, A10.s + 0.12);
     tl.to('act10-l1', { x: -1250, duration: 0.32, ease: 'power4.in' }, A10.s + 2.98);
@@ -1242,7 +1243,7 @@ var A9_SEG2 = ' and add it to the end of the video';
 var A9_REPLY = 'Done — grabbed the Motion animation from your outro frame. Appending it to the end…';
 
 function Act9() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A9.s && T < A10.s;
     vis(ctx, 'sec-act9', ON);
@@ -1288,7 +1289,7 @@ function Act9() {
       } else node.text(''), node.opacity(0);
     }
 
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     // window enters on the leftward current, mid-flight
     tl.fromTo('act9-win', { x: 1250 }, { x: 0, duration: 0.55, ease: 'power4.out' }, A9.s);
     tl.fromTo('act9-shade', { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'power2.out' }, A9.s);
@@ -1417,7 +1418,7 @@ function LockPath(props) {
 }
 
 function Act11() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     var ON = T >= A11.s;
     vis(ctx, 'sec-act11', ON);
@@ -1436,7 +1437,7 @@ function Act11() {
     var i;
     var F = 0.85, FD = 0.9;
 
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     // initial states
     for (i = 0; i < allWings.length; i++) tl.set(allWings[i], { x: 34 * XPX, opacity: 0 }, A11.s);
     tl.set('a11-fill', { clipPath: 'inset(100% 0% 0% 0%)' }, A11.s);
@@ -1557,10 +1558,10 @@ function Act11() {
 
 /* ════════════ MASTER · media seams (video windows + card zooms) ════════════ */
 export default function FigmaLaunch() {
-  useGSAP(function (ctx) {
+  useGSAP(function () {
     var T = ctx.global.time;
     for (var id in VID_WIN) vis(ctx, id, T >= VID_WIN[id][0] && T < VID_WIN[id][1]);
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     tl.set('output-vid', { transformOrigin: '50% 50%' }, 0);
     tl.fromTo('output-vid', { scale: 0.75, opacity: 0.15 }, { scale: 1, opacity: 1, duration: 0.5, ease: 'expo.out' }, 25.95);
     tl.set('tail-vid', { transformOrigin: '50% 50%' }, 0);

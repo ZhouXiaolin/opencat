@@ -1,6 +1,7 @@
 // pr-to-video-launch — JSX port of the hyperframes 30 s launch film
 // (reference: /Users/solaren/Projects/hyperframes-launches/pr-to-video-launch, sibling .xml is the
 // line-by-line ancestor of this file; deviations are marked FIX below).
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 30.0 };
@@ -231,8 +232,8 @@ function CardTitle({ titleId, caretId }) {
 
 // ═════════════════ SCENE 1 — opener (0–5.2 s) ═════════════════
 function Opener({ rootId }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     // ref opener.html:108 dM1 = m1.offsetHeight(98) + GAP(30.72)
     T.set('op-stack', { y: 128.72 }, 0);
     T.set('op-sh', { left: 0, top: 0, width: 1920, height: 1080, borderRadius: 0, opacity: 0 }, 0);
@@ -389,8 +390,8 @@ function Opener({ rootId }) {
 
 // ═════════════════ SCENE 2 — pr-scroll (5.2–8.4 s) ═════════════════
 function PrScroll({ rootId }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     T.fromTo('prs-browser', { scale: 1.04, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.4, ease: 'power3.out' }, O2);
     T.set('prs-inner', { filter: 'blur(0px)' }, O2);
     reveal(T, 'prs-head', O2 + 0.5);
@@ -497,8 +498,8 @@ function PrScroll({ rootId }) {
 
 // ═════════════════ SCENE 3 — hard-read (8.4–9.3 s) ═════════════════
 function HardRead({ rootId }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     T.fromTo('hr-txt', { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.28, ease: 'power3.out' }, O3);
   });
   return (
@@ -512,8 +513,8 @@ function HardRead({ rootId }) {
 
 // ═════════════════ SCENE 4 — summarize (9.3–12.3 s) ═════════════════
 function Summarize({ rootId }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     T.set('sm-composer', { scale: 1.85, transformOrigin: '50% 100%' }, 0);
     T.to('sm-orb', { rotation: 360, duration: 1, ease: 'none', repeat: 2 }, O4);
     tw(T, ctx, 'sm-typed', 'summarize this PR', O4, 0.8);
@@ -609,8 +610,8 @@ function Summarize({ rootId }) {
 
 // ═════════════════ SCENE 5 — use-skill (12.3–16.1 s) ═════════════════
 function UseSkill({ rootId }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     // ref use-skill.html:66 — y0 = dCmd(36+26.88) + dOut(100+26.88) = 189.76
     T.set('us-stack', { y: 189.76 }, 0);
     T.to('us-orb', { rotation: 360, duration: 1, ease: 'none', repeat: 3 }, O5);
@@ -689,8 +690,8 @@ function UseSkill({ rootId }) {
 
 // ═════════════════ SCENE 6 — feature-code (16.1–18.5 s, inner ×2.0) ═════════════════
 function FeatureCode({ ids }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     cardTitle(T, ctx, 'fc-ttext', 'fc-tcaret', 'SHOW YOUR CODE', O6, 1.15, 2.0, 4.5);
     T.fromTo('fc-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.6 / 2, ease: 'power3.out' }, O6 + 0.15 / 2);
     T.to('fc-codeview', { opacity: 1, duration: 0.45 / 2, ease: 'power2.out' }, O6 + 1.0 / 2);
@@ -737,8 +738,8 @@ function FeatureCode({ ids }) {
 
 // ═════════════════ SCENE 7 — feature-flow (18.5–21.0 s, inner ×2.56) ═════════════════
 function FeatureFlow({ ids }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     cardTitle(T, ctx, 'ff-ttext', 'ff-tcaret', 'SHOW YOUR FEATURE', O7, 1.15, 2.56, 6.0);
     T.fromTo('ff-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.6 / 2.56, ease: 'power3.out' }, O7 + 0.15 / 2.56);
     T.to(ids.pfill, { scaleX: 0.42, duration: 3.6 / 2.56, ease: 'none' }, O7 + 1.9 / 2.56);
@@ -802,8 +803,8 @@ function FeatureFlow({ ids }) {
 
 // ═════════════════ SCENE 8 — feature-discussion (21.0–23.0 s, inner ×2.05, conv ×4.1) ═════════════════
 function FeatureDiscussion({ ids }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     tw(T, ctx, 'fd-ttext', 'SHOW YOUR REVIEW', O8 + 0.2 / 2.05, 0.9 / 2.05);
     T.to('fd-tcaret', { opacity: 0, duration: 0.35, ease: 'steps(1)', repeat: 5, yoyo: true }, O8 + 0.2 / 2.05);
     T.to('fd-tcaret', { opacity: 0, duration: 0.25, ease: 'power2.in' }, O8 + 3.6 / 2.05);
@@ -988,8 +989,8 @@ function CreditCol({ c, i }) {
 }
 
 function FeatureCredits({ ids }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     cardTitle(T, ctx, 'cr-ttext', 'cr-tcaret', 'SHOW YOUR CONTRIBUTOR', O9, 1.0, 2.54, 6.1, 7);
     T.fromTo('cr-pwin', { opacity: 0, scale: 0.62, y: 10 }, { opacity: 1, scale: 1, y: 0, duration: 0.6 / 2.54, ease: 'power3.out' }, O9 + 0.15 / 2.54);
     T.to(ids.pfill, { scaleX: 0.98, duration: 3.4 / 2.54, ease: 'none' }, O9 + 1.9 / 2.54);
@@ -1045,8 +1046,8 @@ function FeatureCredits({ ids }) {
 
 // ═════════════════ SCENE 10 — cta (25.6–30.0 s) ═════════════════
 function CtaOutro({ rootId }) {
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     T.set('cta-top', { scale: 1.18, y: 206, transformOrigin: '50% 50%', opacity: 0 }, 0);
     T.to('cta-orb', { rotation: 360, duration: 1, ease: 'none', repeat: 4 }, O10);
     T.fromTo('cta-gh', { opacity: 0, scale: 0.96 }, { opacity: 1, scale: 1, duration: 0.6, ease: 'power2.out' }, O10);
@@ -1164,8 +1165,8 @@ export default function PrToVideoLaunch() {
   var FF = { scene: 's-fflow', stageA: 'auto327', stageB: 'auto328', pfill: 'ff-pfill', pknob: 'ff-pknob' };
   var FD = { scene: 's-fdisc', stage: 'auto374', pfill: 'fd-pfill', pknob: 'fd-pknob' };
   var CR = { scene: 's-fcredits', stage: 'auto421', path: 'cr-path', pfill: 'cr-pfill', pknob: 'cr-pknob' };
-  useGSAP((ctx) => {
-    const T = ctx.timeline();
+  useGSAP(() => {
+    const T = gsap.timeline();
     T.set([PRSCROLL, HARD, SUMMARIZE, USESKILL, FC.scene, FF.scene, FD.scene, CR.scene, CTA], { opacity: 0 }, 0);
     // Reference unmounts the outgoing scene instantly at its window end, so
     // the light #F0EFE9 root shows through during the incoming fade-in.

@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP, useCanvas, useRef } from 'opencat/runtime';
 /* ══ flex-music (master 27.40-27.98, compositions/flex-music.html) ══════
    The vinyl/tone-arm SVGs become canvas draws (jsx svg supports <path>
@@ -9,8 +10,8 @@ var FM_START = 27.40, FM_DUR = 0.58;
 export default function FlexMusic() {
   const record = useRef(), arm = useRef();
 
-  useGSAP((ctx) => {
-    var tl = ctx.timeline(), A = function (t) { return t; };
+  useGSAP(() => {
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('fm-record', { scale: 0.4, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.3, ease: 'back.out(1.4)' }, A(0));
     tl.fromTo('fm-record', { rotation: -90 }, { rotation: 15, duration: FM_DUR, ease: 'none' }, A(0));
     tl.set('fm-arm', { opacity: 1 }, A(0.08));

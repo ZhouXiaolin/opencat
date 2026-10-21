@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP, useCanvas, useRef } from 'opencat/runtime';
 import { clamp, hexRgb } from '../shared.jsx';
 /* ══ flex-css (master 17.30-19.01, compositions/flex-css.html) ══════════ */
@@ -10,9 +11,9 @@ export default function FlexCss() {
   const spin1 = useRef(), spin2 = useRef(), orb1 = useRef(), orb2 = useRef();
   const grad1 = useRef(), grad2 = useRef();
 
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
 
     tl.fromTo('fc-wrap', { scale: 0.9, opacity: 0, filter: 'blur(4px)' }, { scale: 1, opacity: 1, filter: 'blur(0px)', duration: 0.5, ease: 'power2.out' }, A(0));
     for (var i = 0; i < CSS_ORDER.length; i++) {

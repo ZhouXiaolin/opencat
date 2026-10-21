@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 import { PlayerBar, vis, clamp, zoomBlur } from '../../shared.jsx';
 
@@ -7,9 +8,9 @@ import { PlayerBar, vis, clamp, zoomBlur } from '../../shared.jsx';
    so they are siblings of the zoom wrapper — NOT inside it: the wrapper scales
    1.45->1 and 1->1.4248, and the reference moves the cursor in canvas space. */
 export default function Beat4() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     var B = ['gi-zoom-b4'];
 
     /* ── master 5.60-7.10: card entry, logo, cursor slide, click ripple ── */

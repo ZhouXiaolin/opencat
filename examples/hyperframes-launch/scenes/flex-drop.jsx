@@ -1,8 +1,9 @@
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 export default function FlexDrop() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.current.time;
-    var tl = ctx.timeline(), A = function (t) { return t; };
+    var tl = gsap.timeline(), A = function (t) { return t; };
     tl.fromTo('fd-text', { y: -300, opacity: 0 }, { y: 0, opacity: 1, duration: 0.25, ease: 'back.out(1.2)' }, A(0));
     tl.fromTo('fd-line', { scaleX: 0, opacity: 1 }, { scaleX: 1, duration: 0.12, ease: 'power3.out' }, A(0.15));
     tl.fromTo('fd-line', { scaleX: 1, opacity: 1 }, { scaleX: 1.3, opacity: 0, duration: 0.1, ease: 'power2.out' }, A(0.27));

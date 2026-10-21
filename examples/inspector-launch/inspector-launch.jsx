@@ -14,6 +14,7 @@
  *  - bgState is a plain object; its numeric keys are registered as animation
  *    properties so timelines can tween it like the reference proxy.
  */
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 44.97 };
@@ -306,7 +307,7 @@ function vis(ctx, id, on) { var n = ctx.getNode(id); if (n) n.opacity(on ? 1 : 0
 
 /* ════════════ global halftone background ════════════ */
 function Halftone() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var CK = ctx.CanvasKit, T = ctx.global.time;
     /* replay every queued timeline write so bgState/htView are final */
     ctx.__flushTimelines();
@@ -505,8 +506,8 @@ function addBgDrift(tl, scene, index) {
 }
 
 function BgSystem() {
-  useGSAP((ctx) => {
-    var tl = ctx.timeline();
+  useGSAP(() => {
+    var tl = gsap.timeline();
     SCENES.forEach((scene, index) => {
       setStageEntry(tl, scene, index);
       var cut = CUTS[index];
@@ -522,8 +523,8 @@ function BgSystem() {
 
 /* ════════════ intro: background beats (reference intro block order) ═══ */
 function IntroBg() {
-  useGSAP((ctx) => {
-    ctx.timeline()
+  useGSAP(() => {
+    gsap.timeline()
       .to(bgState, { density: 1.02, wash: 0.14, palette: 0.46, duration: 1.33, ease: 'sine.inOut' }, 0)
       .to(bgState, { blend: 0.42, radius: 1.1, shapeScale: 0.38, density: 1.05, lift: 0.07, duration: 0.60, ease: E_SOFT }, 0.58)
       .to(bgState, { blend: 0, radius: 1.0, shapeScale: 0.24, density: 1.02, lift: 0.03, duration: 0.87, ease: E_HEAVY }, 1.18)
@@ -554,10 +555,10 @@ function IntroBg() {
 
 /* ════════════ green flash ════════════ */
 function GreenFlash() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'green-flash', T < 1.33);
-    ctx.timeline()
+    gsap.timeline()
       .set('green-flash', { opacity: 1 }, 0)
       .to('green-flash', { opacity: 0, duration: 1.0, ease: E_SOFT }, 0);
   });
@@ -597,12 +598,12 @@ function LogoSvg({ id }) {
   );
 }
 function Logo() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'logo-wrap', T >= 0.42 && T < 5.42);
     /* RGB-split beat (ref drop-shadow chromatic aberration 0.67→1.05s) is
        emulated with two tinted copies fading in/out */
-    ctx.timeline()
+    gsap.timeline()
       .set('logo-img', { scale: 0.05, opacity: 0, filter: 'blur(16px)' }, 0)
       .set('logo-cyan', { opacity: 0 }, 0)
       .set('logo-amber', { opacity: 0 }, 0)
@@ -638,10 +639,10 @@ var LETTER_IDS = ['l-I', 'l-n', 'l-s', 'l-p', 'l-e', 'l-c', 'l-t', 'l-o', 'l-r']
 var LT_FACES = ['lt-a', 'lt-b', 'lt-c', 'lt-d', 'lt-e'];
 var LT_CLASSES = ['font-[if9]', 'font-[ge7]', 'font-[jb4]', 'font-[ge4]', 'font-[jb4]'];
 function InspectorText() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'it-wrap', T >= 1.42 && T < 11.33);
-    var tl = ctx.timeline();
+    var tl = gsap.timeline();
     tl.set('inspector-text', { opacity: 1, x: 435, y: 40, filter: 'blur(0px)' }, 2.08);
     LETTERS.forEach((letter, i) => {
       tl.fromTo(LETTER_IDS[i], { opacity: 0, x: 40, filter: 'blur(4px)' }, { opacity: 1, x: 0, filter: 'blur(0px)', duration: 0.83, ease: E_HEAVY }, 2.17 + i * 0.067);
@@ -732,11 +733,11 @@ var MAG_KF = (function () {
 })();
 
 function MagGlass() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'mag-wrap', T >= 2.75 && T < 4.35);
     var initX = SWEEP_START / 100 * 1920, initY = SWEEP_TOP / 100 * 1080;
-    ctx.timeline()
+    gsap.timeline()
       .set('mag-glass', { x: initX - MAG_R, y: initY - MAG_R, scale: 0, opacity: 1 }, 2.75)
       .set('mag-text-clone', { x: MAG_R - (initX - TEXT_X) * MAG_SCALE, y: MAG_R - (initY - TEXT_Y) * MAG_SCALE }, 2.75)
       .to('mag-glass', { scale: 1, duration: 0.40, ease: E_SOFT }, 2.75)
@@ -758,10 +759,10 @@ function MagGlass() {
 
 /* ════════════ selection highlight ════════════ */
 function SelectionHighlight() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'sel-wrap', T >= 5.18 && T < 11.0);
-    ctx.timeline()
+    gsap.timeline()
       .set('selection-highlight', { x: 0.583 * 1920, y: 0.443 * 1080, width: 0, height: 0, opacity: 0 }, 5.85)
       .to('selection-highlight', { opacity: 1, width: 0.045 * 1920, height: 0.18 * 1080, duration: 0.42, ease: E_SOFT }, 5.90)
       .to('selection-highlight', { x: 0.583 * 1920 - 90, duration: 0.66, ease: E_SOFT }, 6.52)
@@ -776,10 +777,10 @@ function SelectionHighlight() {
 
 /* ════════════ cursor ════════════ */
 function Cursor() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'cursor-wrap', T >= 5.18 && T < 11.32);
-    ctx.timeline()
+    gsap.timeline()
       .set('cursor', { x: 0.08 * 1920, y: 0.88 * 1080, opacity: 0 }, 5.18)
       .to('cursor', { opacity: 1, duration: 0.08, ease: 'none' }, 5.18)
       .to('cursor', { x: 0.35 * 1920, y: 0.55 * 1080, duration: 0.25, ease: E_SOFT }, 5.22)
@@ -822,10 +823,10 @@ function PanelField({ children, fl, id }) {
   );
 }
 function InspectorPanel() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'panel-wrap', T >= 6.52 && T < 11.25);
-    ctx.timeline()
+    gsap.timeline()
       .set('inspector-panel', { right: -460 }, 0)
       .to('inspector-panel', { right: 0, duration: 0.80, ease: E_SOFT }, 6.52)
       .to('inspector-panel', { right: -460, duration: 0.50, ease: E_SOFT }, 10.74)
@@ -923,10 +924,10 @@ function InspectorPanel() {
 
 /* ════════════ color picker ════════════ */
 function ColorPicker() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'picker-wrap', T >= 7.32 && T < 8.38);
-    ctx.timeline()
+    gsap.timeline()
       .set('color-picker', { scale: 0.9, opacity: 0 }, 0)
       .to('color-picker', { opacity: 1, scale: 1, duration: 0.34, ease: E_SOFT }, 7.45)
       .to('picker-circle', { x: 51.5, y: 21.2, duration: 0.20, ease: E_SOFT }, 7.58)
@@ -964,10 +965,10 @@ function ColorPicker() {
 /* ════════════ font list ════════════ */
 var FONT_GREEN = 'rgba(69,216,110,0.08)', FONT_DEFAULT_BG = 'rgba(0,0,0,0)';
 function FontList() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     vis(ctx, 'fontlist-wrap', T >= 8.38 && T < 9.48);
-    ctx.timeline()
+    gsap.timeline()
       .set('font-list', { scale: 0.95, opacity: 0 }, 0)
       .to('font-list', { opacity: 1, scale: 1, duration: 0.26, ease: E_SOFT }, 8.45)
       .set('fo-inter', { backgroundColor: FONT_GREEN, color: '#45d86e' }, 8.45)
@@ -1032,12 +1033,12 @@ function ClaudeMark({ id, size, classExtra }) {
 
 /* ════════════ scene 00: typed dark prompt ════════════ */
 function Scene00() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 10.74 && T < 12.46;
     vis(ctx, 'scene-00', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .fromTo('sc0-prompt', { x: 1700, opacity: 1, filter: 'blur(6px)' }, { x: 0, filter: 'blur(0px)', duration: 0.85, ease: 'expo.out' }, 10.78)
         .fromTo('sc0-actions', { opacity: 0 }, { opacity: 1, duration: 0.28, ease: 'power3.out' }, 10.94)
         .fromTo('sc0-send', { scale: 0.78 }, { scale: 1, duration: 0.2, ease: 'back.out(2.2)' }, 12.06);
@@ -1077,12 +1078,12 @@ function Scene00() {
 
 /* ════════════ scene 01: opener with gradient "video" ════════════ */
 function Scene01() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 12.47 && T < 14.67;
     vis(ctx, 'scene-01', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .fromTo('sc1-w2-ov', { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.75, ease: 'power2.out' }, 13.07)
         .fromTo('sc1-h1', { x: 0 }, { x: 170, duration: 1.1, ease: 'power2.out' }, 13.37);
     }
@@ -1110,12 +1111,12 @@ function Scene01() {
 /* ════════════ scene 01b: Agent→robot flip (lottie as divs) ════════════ */
 var AG_ROBOT = null; /* robot keyframe helpers filled in hook via globalThis */
 function Scene01b() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 14.68 && T < 16.48;
     vis(ctx, 'scene-01b', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .set('ag-flip', { transformPerspective: 1600 }, 0)
         .fromTo('ag-inner', { rotationY: 0 }, { rotationY: 180, duration: 0.55, ease: 'power2.inOut' }, 15.32);
       /* drive faces + robot parts per frame (ref lottie @60fps, 241 frames,
@@ -1191,12 +1192,12 @@ function Scene01b() {
 
 /* ════════════ scene 01c: But / for / now ════════════ */
 function Scene01c() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 16.48 && T < 18.07;
     vis(ctx, 'scene-01c', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .fromTo('bfn-but', { y: -42, opacity: 0, filter: 'blur(10px)' }, { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.5, ease: 'expo.out' }, 16.53)
         .fromTo('bfn-for', { y: 28, opacity: 0, filter: 'blur(8px)' }, { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.46, ease: 'expo.out' }, 16.69)
         .fromTo('bfn-now', { scale: 0.86, opacity: 0.001, filter: 'blur(22px)', y: 40 }, { scale: 1, opacity: 1, filter: 'blur(0px)', y: 0, duration: 0.6, ease: 'expo.out' }, 16.85);
@@ -1219,12 +1220,12 @@ function Scene01c() {
 
 /* ════════════ scene 02: glass video player ════════════ */
 function Scene02() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 18.07 && T < 20.07;
     vis(ctx, 'scene-02', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .fromTo('glass-frame', { opacity: 0, filter: 'blur(10px)' }, { opacity: 1, filter: 'blur(0px)', duration: 0.42, ease: 'power3.out' }, 18.09)
         .fromTo(['vs-w1', 'vs-w2', 'vs-w3', 'vs-w4', 'vs-w5'], { x: 320, opacity: 0 }, { x: 0, opacity: 1, duration: 0.5, ease: 'power3.out', stagger: 0.16 }, 18.29)
         .set('vs-w5', { transformOrigin: '0% 100%' }, 0)
@@ -1265,12 +1266,12 @@ function Scene02() {
 
 /* ════════════ scene 03: but close ≠ ship → ship ════════════ */
 function Scene03() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 20.07 && T < 21.77;
     vis(ctx, 'scene-03', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .fromTo('sc3-h1', { scale: 0.82, opacity: 0.1, filter: 'blur(20px)' }, { scale: 1, opacity: 1, filter: 'blur(0px)', duration: 0.32, ease: 'expo.out' }, 20.45)
         .fromTo(['ne-top', 'ne-bottom', 'ne-slash'], { strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 0.20, ease: 'power3.inOut', stagger: 0.06 }, 20.69)
         .to(['sl-0', 'sl-1', 'sl-2', 'sl-3'], { scale: 0, opacity: 0, width: 0, rotation: -28, duration: 0.22, stagger: 0.04, ease: 'power3.in' }, 21.05)
@@ -1354,12 +1355,12 @@ function ClaudeComposer({ pfx, textId, initial }) {
 
 /* ════════════ scene 04: faithful Claude shell ════════════ */
 function Scene04() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= 21.77 && T < 24.17;
     vis(ctx, 'scene-04', ON);
     if (ON) {
-      ctx.timeline()
+      gsap.timeline()
         .fromTo('cl-app', { y: 70, opacity: 0.001, filter: 'blur(10px)' }, { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.5, ease: 'expo.out' }, 21.79)
         .fromTo('cl-comp-text', { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.5, ease: 'steps(18)' }, 22.01)
         .fromTo('cl-send', { scale: 0.72 }, { scale: 1, duration: 0.18, ease: 'back.out(2)' }, 22.43)
@@ -1419,12 +1420,12 @@ var S5_ITEMS = (function () {
   return items;
 })();
 function Scene05() {
-  useGSAP((ctx) => {
+  useGSAP(() => {
     var T = ctx.global.time;
     var ON = T >= S5_START && T < 27.17;
     vis(ctx, 'scene-05', ON);
     if (ON) {
-      var tl = ctx.timeline();
+      var tl = gsap.timeline();
       tl.set('s5-scroll', { y: 0, filter: 'blur(0px)' }, S5_START);
       S5_PROMPTS.forEach((p, i) => {
         tl.set('fx-' + i, { opacity: 0, y: 30 }, S5_START);

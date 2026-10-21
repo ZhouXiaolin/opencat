@@ -778,10 +778,18 @@ impl MutationStore {
                 | "rotation" | "rotate" | "skewX" | "skewY" => {
                     mutations.read_transform_value(property).map(|f| json!(f))
                 }
-                "transformOrigin" | "svgOrigin" => mutations
-                    .transform_origin
-                    .map(|o| json!([o.x, o.y]))
-                    .or_else(|| Some(json!([0.5, 0.5]))),
+                // CSS text, the shape a browser's computed style reports.
+                // CSSPlugin hands this straight to `_applySVGOrigin`, which
+                // does `origin.split(" ")` — an array or a number here throws
+                // `origin.split is not a function` on every SVG tween.
+                // The stored origin is a fraction of the box, so it goes back
+                // out as a percentage (a browser never reports `0.5px`).
+                "transformOrigin" | "svgOrigin" => {
+                    let o = mutations
+                        .transform_origin
+                        .unwrap_or(crate::style::TransformOrigin { x: 0.5, y: 0.5 });
+                    Some(json!(format!("{}% {}%", o.x * 100.0, o.y * 100.0)))
+                }
                 // CSS text form, the shape CSSPlugin parses on init.
                 "transform" => Some(json!(css_transform_string(&mutations.transforms))),
                 "cssText" => None,
@@ -1840,12 +1848,12 @@ mod tests {
         store.write_style_value("node-a", "transformOrigin", json!("0% 0%"));
         store.write_style_value("node-a", "transformOrigin", json!("100% 50%"));
         let o = store.read_style_value("node-a", "transformOrigin").unwrap();
-        assert_eq!(o, json!([1.0, 0.5]));
+        assert_eq!(o, json!("100% 50%"));
         // A touched node that never set an origin falls back to the CSS centre.
         store.record_opacity("node-z", 0.5);
         assert_eq!(
             store.read_style_value("node-z", "transformOrigin").unwrap(),
-            json!([0.5, 0.5])
+            json!("50% 50%")
         );
     }
 

@@ -1,3 +1,4 @@
+import { gsap } from 'gsap';
 import { useGSAP, useCanvas, useRef } from 'opencat/runtime';
 import { clamp } from '../shared.jsx';
 
@@ -13,8 +14,8 @@ var FS_START = 20.81, FS_DUR = 1.20, FS_ANIM = 0.94;
 export default function FlexShader() {
   const canvas = useRef();
 
-  useGSAP((ctx) => {
-    var tl = ctx.timeline();
+  useGSAP(() => {
+    var tl = gsap.timeline();
     tl.fromTo('fs-label', { opacity: 0 }, { opacity: 0.35, duration: 0.3, ease: 'power2.out' }, 0.15);
   });
 

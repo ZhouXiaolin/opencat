@@ -1,104 +1,111 @@
 # handoff — 全官方 GSAP 路线
 
-> 2026-10-21 第 1 轮收工。目标见 [goal.md](./goal.md)：官方 gsap 与全部非交互插件原样跑在
+> 2026-10-21 第 3 轮收工。目标见 [goal.md](./goal.md)：官方 gsap 与全部非交互插件原样跑在
 > core 上，自研 `ctx.*` gsap 面整个退役。
+
+## 当前进度
+
+| 阶段 | 状态 |
+|---|---|
+| 1. Bundle 重建 | 完成（15/15 插件原样收录，官方源码零改动） |
+| 2. 统一 example + Chrome 截帧管线 | 完成 |
+| 3. 宿主最小子集 | 完成 |
+| 4. 逐插件打通 | **14/15**：eases 7、物理 2、DOM 依赖 5；剩 SplitText、Flip |
+| 5. 退役 + 迁移 | 未开始 |
+
+统一 example 全片 360 帧无损比对：**ma_e 0.327 / avg_p8 0.764%**。
 
 ## 本轮完成
 
-### 阶段 1（bundle 重建）已交付
+### 五个 DOM 插件在统一 example 里跑通
 
-`crates/opencat-core/src/script/runtime/gsap/entry.js` 是新入口，收录 core + CSSPlugin +
-goal.md §4 的全部 15 个非交互插件（eases 全家、SplitText/MorphSVG/DrawSVG/MotionPath/
-ScrambleText/Text、Flip/Physics2D/PhysicsProps）。构建脚本
-`scripts/build-gsap-bundle.mjs`（`bun scripts/build-gsap-bundle.mjs`）产出
-`gsap.bundle.js`（371KB，原 171KB）。**官方源码一行没改。**
+DrawSVG、MorphSVG、MotionPath、ScrambleText、Text。每个都靠宿主面取到真元素数据：
+`getAttribute('d')`、`getBBox()`、`getTotalLength()`、`textContent`、`element.style.*`。
 
-入口额外导出 `TimelineLite/TimelineMax/TweenLite` 与全部 eases：包装层
-（`jsx_runtime.js:590`）靠 `gsapPackage.TimelineLite` 取 timeline 构造器来拦截
-`to/from/fromTo/set` 做 target 归一。少了这个导出，数组 target 的字符串不会被归一，
-会把裸字符串当 CSS 选择器送进 `querySelectorAll` —— 本轮踩过，报错是
-`(scope || _doc).querySelectorAll is not a function`。
+逐个用写值探针确认过插件真的在驱动目标（不是「看起来对」）：
 
-### 宿主面补齐（阶段 3 的前置）
-
-1. **`gsap/<Plugin>` 子路径 builtins**（`jsx_runtime.js:614-651`）：
-   `import { CustomEase } from 'gsap/CustomEase'` 这类官方写法现在能原样解析。
-   EasePack 特例：三个 ease 是一个模块，不是单个插件。
-2. **extract realm 加载 gsap**（`crates/opencat-engine/src/jsx.rs`）：JSX 提取期用的是
-   一次性 realm，之前没 eval GSAP_BUNDLE，模块顶层 `import ... from 'gsap/CustomEase'`
-   直接报 unknown module。
-3. **`JS_PLATFORM_SHIM` 提为 pub**（`realm.rs:32`）并接进 extract realm：gsap 包在 eval
-   时会 `_wake()` 排一个 tick，没有 rAF 队列就抛
-   `requestAnimationFrame is not available in a deterministic renderer`。
-
-### 统一 example + Chrome oracle（阶段 2）已跑通
-
-- `examples/gsap-plugins/index.jsx`：多场景 timeline 示例（D6），当前接了 eases + physics
-  两组；DOM 依赖插件等宿主面补齐后加场景。
-- `tools/gsap-oracle.mjs`：Chrome CDP 截帧管线（Bun 自带 WebSocket，零新依赖）。
-  参考页用官方 gsap UMD，时间轴 `paused`，只由页面里的 `__seek(t)` 驱动 —— 同一帧号
-  永远给出同一张图，不受 rAF / 机器速度影响。
-  `bun tools/gsap-oracle.mjs --all --fps 30` → `out/gsap-oracle/f0000.png…`
-- `tools/gsap-oracle-measure.py`：同帧色块中心位置对比。把「同一时刻每个 ease 把方块
-  推到哪」变成可读的数，比像素 diff 更能定位动画数值问题。
-
-## 验收结果
-
-| 项 | 结果 |
+| 插件 | 探针看到的写入 |
 |---|---|
-| k3-promo 回归 | **像素零变化**，`out/index.bundle.mp4` 与改前 `out/fixed-gsap.mp4` MD5 相同；对真 swgl 参考 avg_p8 = **1.7394%**（与 goal.md 记录一致） |
-| 插件加载 | 15/15 全部注册；`gsap.plugins` 含 css/morphSVG/drawSVG/motionPath/scrambleText/text/physics2D/physicsProps |
-| 全部场景数值 | 与 Chrome 逐帧色块中心位置差 **≤0.36px**（f0/15/30/45/60/90/150/165 采样） |
-| eases 7/7 | linear、CustomEase、CustomWiggle、CustomBounce、SlowMo、ExpoScaleEase、RoughEase 全部对齐 |
-| physics 2/2 | Physics2D、PhysicsProps 全部对齐 |
-| 整片 k3diff | avg_p8 = **1.08%**（剩余差异是标题文字抗锯齿） |
+| DrawSVG | `strokeDasharray = "303.23px,606.56px"` |
+| MorphSVG | `d = "M60 300 C112.77 91.66 347.22 91.66 400 300 …"`（插值中） |
+| MotionPath | `transform = "translate3d(502.02px, -41.52px, 0px)"` |
+| ScrambleText | `text = "DECODEXXXXXXXXX"` |
+| Text | `text` 写入生效 |
 
-## 已知缺口（下一轮）
+### 宿主面补的真缺口：`textContent` 读不到初值
 
-### 1. 物理插件的写法约束（已澄清，需写进文档）
+`readText` 只查当前帧的写入，没写过就返回 `''`。ScrambleText 按**目标文本长度**
+分配字符预算，读到空串就一个字符都不揭示——画面上只有 8 个字符，Chrome 有 15 个。
 
-一度以为 ocTarget 缺 CSSPlugin harness 是缺口，实测证伪：Chrome 里用**普通对象**作
-target，`pt=[physics2D>x]` 得 `x=50.00`，与 opencat 逐值相同——引擎行为是对的。
+修法：读过 store 之后回落 `__text_source_get(id)`，也就是 JSX 里声明的文本。
 
-真正的原因是**示例写法违反官方语义**：物理插件自己驱动属性，`vars` 里再给同名终点
-（`{x: 1400, physics2D: {...}}`）会生成第二条 PropTween 把它覆盖成线性插值。官方行为
-就是如此（Chrome 普通对象同样得 50，只有真实 DOM 走 CSSPlugin harness 才不同）。
-示例与参考页都已改成只给物理参数、不给同名终点。
+### 验收管线改无损（本轮最关键的发现）
 
-已写进 `skills/opencat-creator/references/animations.md` 新增的「官方插件」一节。
+之前用 `-crf 18` 两侧各编一次再跑 k3diff。实测：**同一张 PNG 编解码一次的偏差
+就有 ma_e ≈ 2.97**，比插件差异大一个数量级——k3diff 量到的主要是编码器差异，
+不是渲染差异。
 
-### 2. RoughEase 字符串形式的坑（已绕开，需写进文档）
+改为 PNG 序列逐帧比，或 `-qp 0 -pix_fmt yuv444p` 全无损编码。同一帧的读数因此
+从 mae 1.69 降到 0.33。`tools/gsap-oracle.mjs` 收尾提示已改成无损命令。
 
-`rough(2,3,0.4,randomize:false)` 这种**字符串形式**会把参数按位置传给
-`config()`，只有第一个（`points`）生效，`randomize` 仍是默认 `true`（缓动表由
-`Math.random` 生成 → 两侧序列不同 → 永远对不齐）。确定性写法是对象形式：
-`rough({strength:3, points:2, taper:"none", randomize:false})`。示例与参考页都已改用
-对象形式。
+### 两侧统一字体与行高
 
-同样已写进 `animations.md` 的「官方插件」一节。
+Chrome 的 `sans-serif` 落到系统 UI 字体、`line-height: normal` 取字体自身度量
+（Inter ≈ 1.21）；opencat 是内置 Noto Sans SC + 行高 1.5。钉住之前，字宽差 5px、
+基线差 5px（34px 字号），这部分差异与插件毫无关系。
 
-### 3. 文字抗锯齿（纪律内）
+- `examples/gsap-plugins/index.jsx` 新增 `export const fonts`（Inter，两个 weight）
+- oracle 页用 `@font-face` 把**同一份字节**绑成 `oracle-sans`
+- 两侧都写死 `line-height: 1.5`
+- 注意 `font:` 简写会把 line-height 重置成 `normal`，字号与字体族必须分开写
 
-标题/副标题的文字边缘有 AA 差异，属既有纪律内的正常差异（k3-promo 同样存在）。
+对齐后：字宽 783/784px、基线误差 ≤1px。
 
-## goal.md 剩余（目标：清空）
+### ScrambleText 用单字符集
 
-本轮清掉 §6 阶段 1 与阶段 2。剩余：
+插件的字符表由 `Math.random` 洗出（`CharSet` 用随机索引取字），两侧同一份
+`chars: 'upperCase'` 也必然得到不同乱码。改用 `chars: 'X'`：揭示进度仍逐帧可见，
+而两侧逐字节相同。与 RoughEase 用 `randomize:false` 是同一条纪律。
 
-- 阶段 3 宿主最小子集（下条即是）
-- 阶段 4 逐插件打通：DOM 依赖的 7 个插件（ScrambleText/Text/MotionPath/DrawSVG/
-  MorphSVG/SplitText/Flip）在示例里还没有场景
-- 阶段 5 退役 + 迁移
-- §7 全局验收：11 个迁移示例的 k3diff、"仓库内无退役面残留" 的 grep 检查
+## 剩余差异的构成
 
-## 下一轮建议顺序
+按区域分解（360 帧平均，>16 的像素占比）：
 
-1. **阶段 3 宿主最小子集**：`createElement/appendChild` 通道、样式继承链
-   `getComputedStyle`、cosmic-text IFC 行盒、`setAttribute('d')` 写穿 svg_path、
-   `getTotalLength` 接 `path_measure.rs`、`getBoundingClientRect`。这是
-   ScrambleText/Text/MotionPath/DrawSVG/MorphSVG/SplitText/Flip 七個插件的前置。
-2. **阶段 5 退役**：删 `ctx.timeline/to/from/fromTo/set`、五个原生插件、
-   `bezier:`/`points:` 标签 + `Easing::Samples`；11 个 ctx.* 示例迁真包写法。
+| 区域 | p16 | 原因 |
+|---|---|---|
+| 标题 / 副标题 | 17.9% / 12.2% | 字形边缘浓度（两侧抗锯齿权重不同） |
+| ScrambleText | 5.8% | 同上 |
+| 其它文字 | 2–7% | 同上 |
+| **非文字区** | **0.30%** | 曲线抗锯齿、圆角矩形的 AA |
+
+即：几何与动画数值已对齐，残差集中在文字栅格化。k3-promo 对真参考是 0.736%，
+本轮 0.764%，同量级。
+
+## 下一轮
+
+### 1. SplitText 与 Flip（阶段 4 收尾）
+
+两者都是**构造器形态**，不是 tween 插件：
+
+```js
+var split = new SplitText('#title', { type: 'chars,words' });
+gsap.to(split.chars, { y: -20, stagger: 0.02 });
+```
+
+拆分要建真节点树（`createElement` + `appendChild` + `insertBefore`），而当前
+`dom_api.js` 里 `appendChild` 等会明确抛错。前置是把 `createElement/appendChild`
+通道做实：recorder store 插节点 + 每帧 walk 拾取（goal.md §6 阶段 3 里列的那条，
+本轮只做了 scratch element，没做真建树）。
+
+Flip 还要 `getBoundingClientRect` 在布局变化前后给出不同值——同样依赖真建树。
+
+### 2. 阶段 5 退役
+
+- 删 `ctx.timeline/to/from/fromTo/set`（`animation/facade.js:88-399`）
+- 删五个原生插件 `animation/plugins/{split_text,morph_svg,motion_path,scramble_text,text}.js`
+- 删 `bezier:`/`points:` ease 标签 + Rust `Easing::Samples`（`parse/easing.rs`）
+- 11 个 ctx.* 示例迁真包写法，逐个过 k3diff
+- grep 检查无退役面残留
 
 ## 命令速查
 
@@ -106,33 +113,43 @@ target，`pt=[physics2D>x]` 得 `x=50.00`，与 opencat 逐值相同——引擎
 # 重建 bundle（改 entry.js 后必跑）
 bun scripts/build-gsap-bundle.mjs
 
-# 渲染示例
-cargo build --bin opencat --release --features profile
+# 渲染
+cargo build --release --bin opencat
 ./target/release/opencat.exe examples/gsap-plugins/index.jsx out/gsap-plugins.mp4
+# 单帧 PNG
+./target/release/opencat.exe render examples/gsap-plugins/index.jsx out/f250.png 250
 
-# Chrome 参考帧（全帧 or 指定帧）
-bun tools/gsap-oracle.mjs --all --fps 30
-bun tools/gsap-oracle.mjs --frames 0,30,60
+# PNG 序列（无损比对用）
+cargo build --release --bin opencat-frames
+./target/release/opencat-frames.exe examples/gsap-plugins/index.jsx out/gsap-plugins-frames
 
-# 合成参考视频 + 对比
-/c/ffmpeg-9.0.2/ffmpeg-9.0.2-full_build-shared/bin/ffmpeg.exe -y -framerate 30 \
-  -i out/gsap-oracle/f%04d.png -c:v libx264 -pix_fmt yuv420p -crf 18 out/gsap-oracle.mp4
-python3 tools/k3diff.py out/gsap-oracle.mp4 out/gsap-plugins.mp4 --out out/gsap-oracle-diff
+# Chrome 参考帧
+bun tools/gsap-oracle.mjs --all --fps 30      # -> out/gsap-oracle/f0000.png…
+bun tools/gsap-oracle.mjs --frames 250
+
+# 无损比对（必须无损，否则量到的是编码器差异）
+FF=/c/ffmpeg-9.0.2/ffmpeg-9.0.2-full_build-shared/bin/ffmpeg.exe
+$FF -y -framerate 30 -i out/gsap-oracle/f%04d.png -c:v libx264 -qp 0 -pix_fmt yuv444p out/gsap-oracle-ll.mp4
+$FF -y -framerate 30 -i out/gsap-plugins-frames/frame_%04d.png -c:v libx264 -qp 0 -pix_fmt yuv444p out/gsap-plugins-ll.mp4
+python3 tools/k3diff.py out/gsap-oracle-ll.mp4 out/gsap-plugins-ll.mp4 --out out/gsap-plugin-diff-ll
 
 # 同一帧色块中心位置对比
-./target/release/opencat.exe render examples/gsap-plugins/index.jsx /tmp/f30.png 30
-python3 tools/gsap-oracle-measure.py /tmp/f30.png out/gsap-oracle/f0030.png
+python3 tools/gsap-oracle-measure.py out/f250.png out/gsap-oracle/f0250.png
 ```
 
-## 坑记录（本轮踩到的）
+## 坑记录
 
 - **k3-promo 必须用 `--base-dir`**：bundle 在 `dist/`，资产/字体相对路径按入口目录解析。
-  `vite build` 的自动渲染步骤需要 `OPENCAT_BIN` 指向 target/release/opencat.exe，本机
-  PATH 里没有，所以手动跑 `opencat render dist/index.bundle.jsx --base-dir examples/k3-promo`。
-- **本机没有 node**，只有 bun 1.4.2。仓库根没有 package.json，esbuild 从
-  `examples/k3-promo/node_modules` 取（构建脚本里用 `pathToFileURL` 直取）。
-- **JSX 元素白名单**只有 div/text/canvas/image/audio/video/transition/tl/path/lottie/svg。
-  没有 `<group>`，容器用 `div`（`SUPPORTED_TAGS`，`jsx_runtime.js:950`）。
-- **`gsap.fromTo(t, from, to)` 没有 position 参数**：独立的 fromTo 不是 timeline 子项，
-  第 4 个参数会被忽略。要定位就放进 timeline。
-- **realm 里 `console.log` 不出 stdout**：调试用 `throw new Error('PROBE ...')` 冒出来。
+- **本机没有 node**，只有 bun 1.4.2。esbuild 从 `examples/k3-promo/node_modules` 取。
+- **JSX 元素白名单**：div/text/canvas/image/audio/video/transition/tl/path/lottie/svg，
+  没有 `<group>`，容器用 `div`。
+- **裸写的 JSX 文本带缩进**：`<text>\n  HELLO\n</text>` 会给子节点带上换行与空格。
+  用 `{'HELLO'}` 包住。
+- **`gsap.fromTo(t, from, to)` 没有 position 参数**：要定位就放进 timeline。
+- **realm 里 `console.log` 不出 stdout**：调试用 `throw new Error('PROBE ...')`。
+- **`ffmpeg` 新版没有 `-vsync`**：用 `-fps_mode passthrough`。
+- **Python 读不到 `/tmp`**：Windows 临时目录是 `C:/Users/zhoux/AppData/Local/Temp/`。
+- **oracle 页里模板字符串内的反引号**：注释里写 `` `normal` `` 会截断 JS 模板字符串，
+  直接报 `Expected ";"`。
+- **示例字体相对路径**按入口文件目录算：`examples/gsap-plugins/` 到 `assets/` 要写
+  `../../assets/...`。

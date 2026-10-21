@@ -1,18 +1,8 @@
+// 动画属性注册表：ocTarget 桥（ctx.getNode(id).prop(v) 的 descriptor 转
+// 发）的唯一支撑。补间引擎与 ctx.* 方言面已退役——作者动画一律走官方
+// gsap（项目侧 dist/gsap.bundle.mjs 供货）。
 (function() {
     var runtime = {};
-
-    runtime.SPRING_PRESETS = {
-        'spring.default':  'spring:100,10,1',
-        'spring.gentle':   'spring:60,8,0.8',
-        'spring.stiff':    'spring:200,15,1',
-        'spring.slow':     'spring:80,12,1.5',
-        'spring.wobbly':   'spring:180,6,1',
-        'spring-default':  'spring:100,10,1',
-        'spring-gentle':   'spring:60,8,0.8',
-        'spring-stiff':    'spring:200,15,1',
-        'spring-slow':     'spring:80,12,1.5',
-        'spring-wobbly':   'spring:180,6,1',
-    };
 
     runtime.hasOwn = function(obj, key) {
         return Object.prototype.hasOwnProperty.call(obj, key);
@@ -34,41 +24,6 @@
     runtime.animation = {
         properties: {},
         aliases: {},
-        plugins: [],
-        specialOptions: {},
-        timingKeys: {
-            duration: true,
-            delay: true,
-            ease: true,
-            easing: true,
-            clamp: true,
-            repeat: true,
-            yoyo: true,
-            repeatDelay: true,
-            stagger: true,
-            __skipSceneFit: true,
-            keyframes: true,
-            at: true,
-        },
-        ignoredKeys: {
-            // GSAP/DOM control fields that have no direct OpenCat render output.
-            // Keeping them reserved makes imported timeline/set calls tolerant.
-            visibility: true,
-            overwrite: true,
-            immediateRender: true,
-        },
-
-        registerSpecialOption: function(name) {
-            this.specialOptions[name] = true;
-        },
-
-        isTimingKey: function(name) {
-            return !!this.timingKeys[name];
-        },
-
-        isReservedKey: function(name) {
-            return this.isTimingKey(name) || !!this.specialOptions[name] || !!this.ignoredKeys[name];
-        },
 
         registerProperty: function(name, descriptor, pluginName) {
             if (!name || typeof name !== 'string') {
@@ -98,46 +53,6 @@
 
         canonicalName: function(name) {
             return this.properties[name] ? name : this.aliases[name];
-        },
-
-        registerPlugin: function(plugin) {
-            if (!plugin || typeof plugin !== 'object') {
-                throw new Error('animation plugin must be an object');
-            }
-            var name = plugin.name || '<anonymous>';
-            if (plugin.specialOptions) {
-                for (var s = 0; s < plugin.specialOptions.length; s++) {
-                    this.registerSpecialOption(plugin.specialOptions[s]);
-                }
-            }
-            var properties = plugin.properties || {};
-            for (var propName in properties) {
-                if (runtime.hasOwn(properties, propName)) {
-                    this.registerProperty(propName, properties[propName], name);
-                }
-            }
-            this.plugins.push(plugin);
-            if (typeof plugin.install === 'function') {
-                plugin.install(this, runtime.core);
-            }
-            return plugin;
-        },
-    };
-
-    ctx.registerPlugin = function(plugin) {
-        runtime.animation.registerPlugin(plugin);
-        return ctx;
-    };
-
-    ctx.animation = {
-        registerPlugin: function(plugin) {
-            runtime.animation.registerPlugin(plugin);
-            return ctx.animation;
-        },
-        plugins: function() {
-            return runtime.animation.plugins.map(function(plugin) {
-                return plugin.name || '<anonymous>';
-            });
         },
     };
 

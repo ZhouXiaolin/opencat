@@ -1026,74 +1026,57 @@ mod tests {
     }
 
     #[test]
-    fn split_text_gsap_api_renders_text_property_layer() {
-        // The example stays in its original line shape; route it through the
-        // JSX extract entry (the product frontend — core has no text entry).
-        let fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("examples/split_text_demo.jsonl");
-        let fixture_text = std::fs::read_to_string(&fixture_path).expect("read fixture");
-        let values: Vec<serde_json::Value> = fixture_text
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .map(serde_json::from_str)
-            .collect::<Result<_, _>>()
-            .expect("fixture lines are JSON");
-        let head = &values[0];
-        // 类名 → 声明由标准 CSS 引擎完成；`examples/tailwind.css` 是冻结的
-        // 测试夹具，在这里充当打包器嵌进 bundle 的 `export const css`。
-        let css_path = fixture_path.parent().unwrap().join("tailwind.css");
-        let css = std::fs::read_to_string(&css_path).expect("read example tailwind css");
-        let extract = serde_json::json!({
-            "meta": {
-                "width": head["width"], "height": head["height"],
-                "fps": head["fps"], "duration": head["duration"],
-            },
-            "lines": values[1..],
-            "css": css,
-        });
-        let parsed = opencat_core::parse::jsx::from_extract(&extract, "", None)
-            .expect("extract parses");
-        let loader = crate::resource::loader::EngineLoader::new(
-            fixture_path.parent().unwrap().to_path_buf(),
-            std::env::temp_dir().join("opencat-render-test-split-cache"),
-        )
-        .expect("loader");
-        let ctx = crate::js_context::V8JsContext::new().expect("js");
-        let mut pipeline = crate::pipeline::open_parsed_host_owned(
-            parsed,
-            loader,
-            ctx,
-            crate::fonts::engine_default_font_faces(),
-        )
-        .expect("pipeline");
-        let info = pipeline.info().clone();
-        let frames = duration_secs_to_frames(info.duration, info.fps);
-        let mut media_ctx = MediaContext::new();
-        media_ctx.set_composition_fps(info.fps);
-        let mut executor = crate::executor::EngineDrawExecutor::new();
-        let mut generated_cache = generated_image_cache_from_env();
-        let frame = render_pipeline_frame_to_rgba(
-                    &mut pipeline,
-                    &mut media_ctx,
-                    &mut executor,
-                    &mut generated_cache,
-                    info.width,
-                    info.height,
-                    100,
-                )
-        .expect("frame should render");
+    fn split_text_unit_override_reaches_the_rendered_frame() {
+        // text_units.js 的 ctx.splitText 写 text-unit override；渲染层必须
+        // 消费 override（被隐藏的字符不出现）。官方 SplitText 需要 DOM 物化
+        // 通道进不来，这条覆盖先锁在 text-unit 层。
+        let scene = crate::div()
+            .id("root")
+            .w_full()
+            .h_full()
+            .bg(crate::ColorToken::Custom(255, 255, 255, 255))
+            .script_source(
+                r#"
+                var gone = ctx.splitText("gone", { type: "chars" });
+                for (var i = 0; i < gone.length; i++) gone[i].set({ opacity: 0 });
+                ctx.splitText("keep", { type: "chars" });
+            "#,
+            )
+            .expect("script should compile")
+            .child(
+                crate::text("KEEP")
+                    .id("keep")
+                    .absolute()
+                    .left(10.0)
+                    .top(10.0)
+                    .w(120.0)
+                    .h(42.0)
+                    .text_px(30.0)
+                    .text_color(crate::ColorToken::Custom(0, 0, 0, 255)),
+            )
+            .child(
+                crate::text("GONE")
+                    .id("gone")
+                    .absolute()
+                    .left(10.0)
+                    .top(60.0)
+                    .w(120.0)
+                    .h(42.0)
+                    .text_px(30.0)
+                    .text_color(crate::ColorToken::Custom(0, 0, 0, 255)),
+            );
+
+        let mut pipeline = make_test_pipeline_from_scene(scene, 200, 140, 30, frames_at_30fps(1));
+        let frame = pipeline.render(0).expect("frame should render");
 
         assert!(
-            has_bright_pixel_in_rect(&frame, info.width as usize, 120, 330, 420, 130),
-            "chars text should be visible after splitText property-layer animation settles"
+            dark_pixel_count_in_rect(&frame, 200, 10, 10, 120, 42) > 10,
+            "unsplit text should stay visible"
         );
-        assert!(
-            has_bright_pixel_in_rect(&frame, info.width as usize, 760, 330, 420, 130),
-            "words text should be visible after splitText property-layer animation settles"
+        assert_eq!(
+            dark_pixel_count_in_rect(&frame, 200, 10, 60, 120, 42),
+            0,
+            "every char hidden via splitText override should vanish from the frame"
         );
     }
 

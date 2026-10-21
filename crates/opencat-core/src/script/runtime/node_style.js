@@ -256,8 +256,24 @@
 
     // ── 1. gsap target: a plain element, unknown properties undefined ──
     const targetCache = {};
-    ctx.__domTarget = function(id) {
-        id = assertVisualTarget(id, '__domTarget');
+    ctx.__domTarget = function(id, opts) {
+        // gsap target resolution mirrors the real gsap semantics: a selector
+        // that matches nothing yields an idle tween. Timelines here are
+        // rebuilt every frame against that frame's tree, so a target outside
+        // the current frame's tree (a later scene's stage, conditionally
+        // rendered) passes `allowUnknown` and gets a placeholder handle —
+        // writes land in the store harmlessly until the node exists.
+        var key = String(id);
+        var registry = ctx.__targetRegistry || {};
+        if (!(registry.visual && registry.visual[key])) {
+            if (registry.nonVisual && registry.nonVisual[key]) {
+                throw new Error("__domTarget: non-visual id '" + key + "' cannot be targeted");
+            }
+            if (!opts || !opts.allowUnknown) {
+                throw new Error("__domTarget: unknown id '" + key + "'");
+            }
+        }
+        id = key;
         if (!targetCache[id]) {
             var own = Object.create(null);
             var members = elementMembers(id, own, ctx.__domTarget);

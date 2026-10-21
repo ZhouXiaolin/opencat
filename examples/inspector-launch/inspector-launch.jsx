@@ -9,12 +9,13 @@
  *    native Skia ovals from JS — the field math (mulberry32/hash2/fbm) is
  *    copied verbatim from the reference, so dot values are bit-exact.
  *  - All GSAP timings/easings are ported 1:1. The three CustomEase springs
- *    are precomputed physics tables registered through the engine's
- *    `points:<name>` sampled-ease support (crates parse/easing.rs Samples).
- *  - bgState is a plain object; its numeric keys are registered as animation
- *    properties so timelines can tween it like the reference proxy.
+ *    are precomputed physics tables registered through the official
+ *    CustomEase plugin at module load (names live in the resident gsap
+ *    module, so per-frame timeline rebuilds resolve them).
+ *  - bgState is a plain object; gsap tweens its numeric keys directly.
  */
 import { gsap } from 'gsap';
+import { CustomEase } from 'gsap/CustomEase';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 44.97 };
@@ -112,34 +113,24 @@ function springPoints(stiffness, damping) {
   }
   return points;
 }
-/* Native shims (__ease_register_points) and the animation runtime
- * (__opencatAnimation) are injected by the script realm at install time, but
- * module top-level code runs earlier (the extraction pass) where they are
- * still undefined. Defer to a frame callback: __ocOnFrame runs before every
- * useGSAP build inside the realm, so the tables/properties are in place
- * before any tween parses 'points:spring*' or a bgState key. The typeof
- * guards make the extraction pass a no-op instead of a crash. */
-function initInspectorRuntime() {
-  if (globalThis.__IL_INIT) return;
-  if (typeof globalThis.__ease_register_points !== 'function') return;
-  if (typeof globalThis.__opencatAnimation !== 'object' || !globalThis.__opencatAnimation) return;
-  globalThis.__IL_INIT = true;
-  globalThis.__ease_register_points('springHard', springPoints(180, 14));
-  globalThis.__ease_register_points('springSoft', springPoints(120, 18));
-  globalThis.__ease_register_points('springHeavy', springPoints(80, 22));
-  var animation = globalThis.__opencatAnimation.animation;
-  ['flow', 'phase', 'density', 'radius', 'lift', 'centerX', 'centerY', 'palette',
-   'wash', 'warp', 'shapeScale', 'ribbonScale', 'blend', 'ribbon', 'massShiftY',
-   'htX', 'htY', 'htScale', 'htHue', 'htSat', 'htBlur'].forEach(function (k) {
-    animation.registerProperty(k, {
-      interpolate: 'number',
-      defaultValue: 0,
-      apply: function (target, value) { target[k] = value; }
-    });
-  });
+/* CustomEase takes an SVG path string (3.15 setData matches strings only),
+ * so the uniform-in-time spring samples are emitted as one cubic segment
+ * per step with horizontal mid-point handles. */
+function springEase(stiffness, damping) {
+  var ys = springPoints(stiffness, damping), d = 'M0,0', i, x0, x1, mx;
+  for (i = 1; i < ys.length; i += 1) {
+    x0 = (i - 1) / (ys.length - 1);
+    x1 = i / (ys.length - 1);
+    mx = ((x0 + x1) / 2).toFixed(5);
+    d += 'C' + mx + ',' + ys[i - 1].toFixed(5) + ' ' + mx + ',' + ys[i].toFixed(5) + ' ' + x1.toFixed(5) + ',' + ys[i].toFixed(5);
+  }
+  return d;
 }
-globalThis.__ocOnFrame(initInspectorRuntime);
-var E_HARD = 'points:springHard', E_SOFT = 'points:springSoft', E_HEAVY = 'points:springHeavy';
+gsap.registerPlugin(CustomEase);
+CustomEase.create('springHard', springEase(180, 14));
+CustomEase.create('springSoft', springEase(120, 18));
+CustomEase.create('springHeavy', springEase(80, 22));
+var E_HARD = 'springHard', E_SOFT = 'springSoft', E_HEAVY = 'springHeavy';
 
 /* ── SKSL: base layer — bg linear gradient + screen-blended wash ────── */
 var SKSL_BASE = [
@@ -172,6 +163,7 @@ var SKSL_BASE = [
 'half4 main(float2 frag) {',
 '  float2 p = frag / 2.7;',
 '  float gt = clamp(dot(p, float2(1600.0, 1220.0)) / dot(float2(1600.0, 1220.0), float2(1600.0, 1220.0)), 0.0, 1.0);',
+'  float3 bg;',
 '  if (gt < 0.52) { bg = mix(float3(0.078431, 0.125490, 0.090196), float3(0.050980, 0.082353, 0.062745), gt / 0.52); }',
 '  else { bg = mix(float3(0.050980, 0.082353, 0.062745), float3(0.023529, 0.043137, 0.035294), (gt - 0.52) / 0.48); }',
 '  float3 cb = bg;',
@@ -309,8 +301,6 @@ function vis(ctx, id, on) { var n = ctx.getNode(id); if (n) n.opacity(on ? 1 : 0
 function Halftone() {
   useGSAP(() => {
     var CK = ctx.CanvasKit, T = ctx.global.time;
-    /* replay every queued timeline write so bgState/htView are final */
-    ctx.__flushTimelines();
     var node = ctx.getNode('global-halftone');
     if (node) {
       node.translateX(htView.x);

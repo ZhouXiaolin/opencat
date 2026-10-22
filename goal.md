@@ -1,97 +1,121 @@
-# Goal：全官方 GSAP 路线——core 宿主化、插件原样跑、ctx.* 退役
+# Goal:三态架构收敛——壳子标准化,库纵切闭环
 
-> 2026-10-21 三轮 grilling 定案，全部为用户拍板决策。
-> 一句话：官方 gsap 与它的全部非交互插件，不改一行源码，原样跑在 core 上；自研 gsap 面（ctx.*）整个退役。
+> 2026-10-22 重写。架构裁决线见 [ARCHITECTURE.md](./ARCHITECTURE.md)(两原则/壳子原则/三态接入模板/退役判据),本文只写目标、路线、批次落地件、验收纪律。
+> 上一版(全官方 GSAP 路线,2026-10-21 grilling 定案)已收口,完成记录压缩在 §2。
 
 ## 1. 目标
 
-1. 补齐 core 宿主面，让官方 gsap 插件源码**原样运行**：`createElement`、`appendChild`、`getComputedStyle`、`getAttribute/setAttribute`、`getTotalLength`、`getBoundingClientRect`。
-2. 插件收录范围 = **全部非交互插件**；交互类明确出清。
-3. **ctx.* gsap 面一次性退役**，作者面只剩真 gsap 写法（`import { gsap } from 'gsap'`）。
-4. 文字无论 text 还是 span，**一律 cosmic-text**；移除原生 SplitText/MorphSVG 设计。
+examples/template 写**标准代码**:官方 npm 包(gsap / three / canvaskit-wasm / lucide-react)+ React 组件记法 + 领域 hooks(hooks 是记法不是语义)。所有平台特异性——时序装配、op 转换、文字排版、3D、绘制——沉到 core/engine/web。
 
-## 2. 事实基线（侦察已核实）
+三库按同一模板纵切闭环:**示例迁官方 import → core 承接面 → engine/web 两端逐位回归**。
 
-- 嵌入 bundle = gsap **3.15.0 core+CSSPlugin only**（171KB，`crates/opencat-core/src/script/runtime/gsap/gsap.bundle.js`，include_str! 于 `mod.rs:46`，eval 于 `realm.rs:263`）。
-- 完整含全部插件的 npm 3.15.0 在 `examples/k3-promo/node_modules/gsap`，物理可取；3.13 起全插件免费，无授权障碍。
-- **语料事实**：21 个源工程插件需求仅 CustomEase（6 个工程且全带降级写法）；SplitText/MorphSVG/DrawSVG 等 15 个插件零代码命中。分裂感大于实际需求，趁需求小时定干净架构。
-- realm 现状缺口：`createElement` 直接报错（`dom_api.js:71-73`）、无 `getComputedStyle`、无 `getAttribute/setAttribute`、无 `getTotalLength`、`appendChild` 等抛错（`node_style.js:94-100`）、`getBoundingClientRect` 仅显式盒。
-- 真包通道已跑通：包装层 target 归一（`jsx_runtime.js:535-549`）、`__ocGsapPending` 注册、hook runner 帧末统一 `.time(ctx.current.time)`（`jsx_runtime.js:312-319`）、hook-gated。
-- 双轨现状：真包只顶替补间引擎半边；五个原生插件（split_text/morph_svg/motion_path/scramble_text/text）仍在 ctx.* facade 服役。
+| 目标 | 职责 |
+|------|------|
+| examples | 完整官方 API 代码(壳子) |
+| core | 解析为协议:gsap=tween 求值;canvaskit=DrawOp 序列;three=Scene3 快照 |
+| engine | 自研实现绘制:tiny-skia / cosmic-text / opencat-three(Rust) |
+| web | 官方源码重放:真 canvaskit.wasm(draw-ir.ts)/ 真 three(three-facade.ts) |
 
-## 3. 已定决策
+验收总口径:**example 里那行代码变回官方写法,渲染逐位不变**。web 重放端是 engine 实现的对拍 oracle。
 
-| # | 决策 | 内容 |
-|---|------|------|
-| D1 | 根路线 | 全官方源码。不做 API 兼容的原生插件，不补浏览器全家桶之外的东西。 |
-| D2 | 插件范围 | 全部非交互（见 §4 枚举）。 |
-| D3 | 交互出清 | ScrollTrigger/Draggable/Observer/InertiaPlugin/ScrollSmoother 声明在 frame=f(t) 离线渲染中不支持。 |
-| D4 | ctx.* 退役 | 一次性删除 + 11 个 ctx.* 风格示例同批迁真包写法，逐个过 k3diff 回归。 |
-| D5 | 文字路线 | text/span 一律 cosmic-text；SplitText lines 挂 cosmic-text IFC 行盒，不在 JS 里补字体度量。 |
-| D6 | 交付方式 | 一个统一 example（timeline 语义、多场景）把插件一起做完。 |
-| D7 | 验收 oracle | 同一份场景代码在真实 Chrome 用官方 gsap 截帧作参考图 + k3diff 量化对齐。 |
-| D8 | HTML 依赖 | 最小文本子集先行，全量 HTML（UA 表/组合器/级联）并行推进；子集是全量的组成部分，无弃工。 |
+## 2. 已完成(基线,不再展开)
 
-## 4. 插件清单
+- **gsap 五批退役收口**(2026-10-22,详见 git log):
+  - 方言退役批次 1(f2d716c1)= ctx.* facade + 4 方言插件出清;批次 2(4c935bd7)= Rust tween 链 9 绑定出清
+  - SplitText/MorphSVG/DrawSVG 完整化五批:A 20b99a94(morph_svg/along_path 出清)、B 79749708(TreeOverlay+脚本侧 DOM 覆盖层)、C1/C2 e1d5e734(text_element_boxes+SplitText 渲染桥)、C3 b2112800(三示例迁官方 SplitText)、C4 47e085c5(ctx.splitText 退役)、D 99ddced9(属性袋 data-original+fill:none+查询返回元素面句柄,k3 回归 0.135%)
+  - 插件收录收齐:15 项(npm 3.15.0 全部 22 个独立插件归类完毕,无第三个桶);交互类/桥/工具永久排除
+- **宪法 + 方言反查上线**:ARCHITECTURE.md;`scripts/check-dialect.sh` 接入 regression-gate(STRICT 全绿;PENDING 39 处=§3 工作量清单)
+- **保留面过堂**:parse/color.rs 已删(cargo test 497 全绿)
+- **状态修正**:liangyi 尚未退役(工作空间成员,12 处 ly.pixel 服役)——已决策、前置迁移未闭环,列 §3 批次⑤
+- **批次② canvaskit 纵切收口**(2026-10-22):13 个示例文件迁官方 `CanvasKitInit` import(k3×7 / dribbble / nexus7 / inspector / vfx 三处死变量 / hyperframes×4),useCanvas/useCanvasKit/ctx.CanvasKit 全退役;core 假面合并=canvas_api.js 一处官方签名面(Embind 数字枚举+官方形态 RRectXY+Rust 绑定字符串翻译层+MakeCanvasSurface/CanvasKitInit 桩+drawParagraph 签名留位),g2_api.js 改 g2CanvasKit() 派生面(G2 特有 Paragraph/FakeFont/MakeDash 不污染全局);frame hooks 移到微任务 drain 后(then 回调先 resolve,hook 首帧即有 CK);方言反查四处转 STRICT。**验收数据**:k3/hyperframes/inspector/vfx 新旧代码自回归 mae=0 maxd=0 逐位;k3 对齐 F:\hyperframes-launches swgl 参考 avg_p8 1.29%(<2%);hyperframes 对齐 4.35%=存量移植差距(自回归归零,无黑帧);dribbble/nexus7 修复后首渲成功——此前被批次 D 误提交的 stub `examples/dist/gsap.bundle.mjs` 挡死(tl.fromTo 不存在),已用 esbuild 标准管线换真 bundle;gate 10/10 全绿(cargo test+clippy×3+web test/tsc/build+crate tsc/vite+方言反查;本环境补装 clippy、web 依赖,测试 vi.mock 工厂改命名空间 spy 兼容 bun)
 
-**收录（全部非交互，eases 全家 + 效果插件 + 布局/物理）：**
-- eases：CustomEase、CustomWiggle、CustomBounce、RoughEase、SlowMo、ExpoScaleEase
-- 效果：SplitText、MorphSVG、DrawSVG、MotionPath、ScrambleText、Text
-- 布局/物理：Flip、Physics2D、PhysicsProps
+## 3. 路线图(按库纵切,串行)
 
-**排除（硬理由，非交互性无关）：**
-- 外部库桥：EaselPlugin、PixiPlugin（宿主库在 realm 不存在）
-- 开发工具：GSDevTools、MotionPathHelper
-- CSSRulePlugin（realm 无样式表对象）
-- 交互类（D3 出清）
+### 批次② canvaskit 纵切(✅ 2026-10-22 收口,记录压进 §2)
 
-## 5. 退役清单
+**目标态**:examples 写 `import CanvasKitInit from 'canvaskit-wasm'; CanvasKitInit({...}).then(CK => CK.MakeCanvasSurface('id'))` ——逐字官方写法,id 字符串直传(官方签名本就接受 id 或元素)。
 
-- `ctx.timeline/to/from/fromTo/set`（`animation/facade.js:88-399`）
-- 五个原生插件：`animation/plugins/{split_text,morph_svg,motion_path,scramble_text,text}.js`
-- `bezier:`/`points:` ease 标签 + Rust 侧 `Easing::Samples`（`parse/easing.rs`）
-- 自研补间引擎余部（`animation/core.js`、`bootstrap.js` 相应注册面）
-- 附带红利：inspector-launch 弹簧采样表回归官方 `CustomEase.create()`（源工程原样写法）
+落地件:
+1. **示例迁移**:ctx.CanvasKit×3 文件(inspector-launch / nexus7-cyberpunk / vfx-heygen-combined)+ useCanvasKit×14 处(k3-promo 8 场景 / dribbble-logo-animated)迁官方 import;useCanvasKit 退役;useCanvas 按语料拆解(元素获取走 id 直传,assets 声明走 JSX 元素属性)。
+2. **core 假面合并**:canvas_api.js recorder 面 + g2_api.js 枚举假面(extendCanvasKit)→ 一处官方签名面。CanvasKitInit 桩立即 resolve(不加载真 .wasm——官方 JS 层只是 API 糖+装载器,绘制语义在 DrawOp+两端重放器);Surface/Path/Paint/Shader/ColorFilter/PathEffect/MaskFilter/Image/Canvas 全家签名收录。
+3. **DrawOp 对齐语料**:drawRect/clipPath/drawCircle/drawLine/save/restore/drawRRect/drawArc/drawPath/drawImage——每个 op 确认 engine(Rust)与 web(draw-ir.ts)两端重放器都有实现;新 op 进协议前两端必须齐,否则 fail-loud。
+4. **文字线(约束非排期)**:drawParagraph 签名留位、实现挂起(零语料);任何文字路径一律数据化转 cosmic-text——排版在 core 出 glyph runs,重放端只光栅化不重排;Skia text(SkParagraph/SkFont/SkTypeface/SkFontMgr)不出场。builder.layout() 测量值由 binding 回 Rust cosmic-text 提供。
+5. canvas 像素进合成沿用 G2 surface 管线(canvas target→surface→picture,已验证)。
+6. 反查黑名单:ctx.CanvasKit / useCanvasKit 转 STRICT。
 
-**不退役**：useGSAP hook 本体、`ctx.current.time`、`ctx.getNode`、ocTarget 桥、StyleMutations 写入面——这些是生命周期与桥接服务，不是 gsap 方言。
+**验收**:k3 系列逐位回归不回退 + dribbble/nexus7/inspector/vfx 渲染对齐 + gate 全绿。
 
-## 6. 实施阶段（串行）
+### 批次③ three 纵切
 
-1. **Bundle 重建**：esbuild 从 `examples/k3-promo/node_modules/gsap` 重打 bundle 收录 §4 全部插件；realm eval 序、builtins 导出面、`gsap.registerPlugin` 桥接通。验收：k3-promo 回归（PSNR 49.65 不回退）。
-2. **统一 example 脚手架 + 截帧管线**：多场景 example（timeline 语义，每插件一场景 + 组合场景）；Chrome（真实浏览器 + 官方 gsap）逐帧截图 → k3diff 参考图。
-3. **宿主最小子集**：`createElement/appendChild` 通道（recorder store 插节点 + 每帧 walk 拾取）、样式继承链 `getComputedStyle`、cosmic-text IFC 行盒、`setAttribute('d')` 写穿 svg_path、`getTotalLength` 接 `path_measure.rs`、显式盒 + 行盒 `getBoundingClientRect`。
-4. **逐插件打通**：纯数学先（eases 全家、Physics2D/PhysicsProps），DOM 依赖后（ScrambleText/Text/MotionPath/DrawSVG/MorphSVG/SplitText/Flip）；语义以官方行为为 oracle。
-5. **退役 + 迁移**：删 §5 全部；11 个示例迁真包写法；全量 k3diff 回归；文档更新支持面清单（含 D3 出清声明）。
+**目标态**:examples 写 `import * as THREE from 'three'` + `new THREE.WebGLRenderer({canvas})` ——逐字官方写法。
 
-**进度**（2026-10-21）：阶段 1、2、3 完成。阶段 4 已通 eases 7 个、物理 2 个、DOM 依赖 5 个（DrawSVG/MorphSVG/MotionPath/ScrambleText/Text），全片 360 帧无损比对 ma_e 0.327 / avg_p8 0.764%。剩余 SplitText、Flip——两者都是构造器形态，要建真节点树，前置是 `createElement/appendChild` 写通道。
+落地件:
+1. **three-entry.mjs**(项目侧 sidecar,gsap-entry 同模板;three 纯 JS 可 bundle):官方包整体执行——场景图/矩阵/四元数/ColorManagement 全由官方跑(updateMatrixWorld 纯 JS 确定);唯一替换点 `WebGLRenderer` 整类(构造解析 canvas → Scene3 提交器,不碰真 getContext);Clock/AnimationMixer/Raycaster fail-loud;GLTFLoader/TextureLoader.loadAsync = 立即-resolve stub(宿主同步解码,首帧可见)。
+2. **模块表接线**:'three' 从 ctx.threejs 自研面切到 sidecar;builtin 按目标供货(engine=承接面,web=真包)。
+3. **示例迁移**:useThree×2(hyperframes-launch/flex-threejs、liquid-brand-refraction)迁官方 import;GLTFGeometry → GLTFLoader stub 写法;document.getElementById 垫片(g2 installDomShims 先例)。
+4. **three_api.js 退役**(判据:零消费方+官方唯一路+逐位回归):自研矩阵数学全部出清;语料 17 类(Scene 22/ShaderMaterial 11/Mesh 7/PerspectiveCamera 6/Plane 5/Line 5/Group 5/Sphere 3/VideoTexture 2/物理材质 4/GLTF 2/灯光 3/CanvasTexture 1)逐类对齐 Scene3 协议;大几何走 scene3_geometry_register(快照只带 Asset{id});未映射材质提取时报错,不静默降级。
+5. **web 对齐**:Scene3WebExecutor 按同语料逐项对齐(对拍 oracle);协议扩面判据=Rust 重放器能承接。
+6. 反查黑名单:ctx.three / useThree 转 STRICT。
 
-## 7. 全局验收
+**验收**:flex-threejs / liquid-brand-refraction 两端逐位(engine vs web vs Chrome 参考)+ k3 回归。
 
-- 统一 example：Chrome 参考帧 vs opencat 渲染帧，k3diff avg_p8 达标（对齐既有纪律）。
-- k3-promo 真包通道回归不回退。
-- 11 个迁移示例逐个 k3diff 回归通过。
-- 仓库内 grep 无 `ctx.timeline/ctx.fromTo/split_text.js` 等退役面残留引用。
+### 批次④ gsap 三缺口
 
-## 8. 红线与已知坑
+1. **CSS 字符串写入通道**(cssText/setProperty)——CSSPlugin 面;落点=DOM 覆盖层写通道泛化(write_style_value trait 面已有)。
+2. **translate3d 分支**。
+3. **Flip**:帧内 mutation-aware 按需重排——getBoundingClientRect 类查询把当前 mutation 栈喂给布局引擎增量重排(merkle 布局缓存已有增量基础);官方语义直通,不做声明式特化。语料=liquid-brand-refraction + gsap-plugins。
 
-- **纯度判据不变**：core 可生成 payload 字节但永不解释/绘制。宿主 API 是 realm 服务，不违反判据；`createElement` 通道只动 recorder store，不动绘制。
-- **比对必须无损**：两侧各走一次有损 x264，同一张 PNG 编解码一次的偏差就有 ma_e ≈ 3，比插件差异大一个数量级。用 PNG 序列或 `-qp 0` + yuv444p。当前达标值：全片 ma_e 0.327 / avg_p8 0.764%（2026-10-21）。
-- **两侧必须同字体同行高**：Chrome 的 `sans-serif` 落系统 UI 字体、`line-height: normal` 取字体自身度量（Inter ≈ 1.21），opencat 是内置 Noto Sans SC + 行高 1.5。不钉住就是在比字体替换与行盒算法。
-- **随机插件要确定性写法**：ScrambleText 的字符表、RoughEase 的缓动表都由 `Math.random` 生成，两侧序列不同必然对不齐。用单字符集 `chars: 'X'` / `randomize:false`。
-- **大坑**：子 tween 注入 `paused` 会被父 timeline 跳过、duration 塌 0——只有 timeline 工厂注入 paused。
-- 调试：hook 里 `throw new Error('DBG...')` 冒错误信息（realm console.log 不出 stdout）。
-- release 二进制改代码后必须重建；golden_c 基线已过期，对比应对当前产物。
-- 不写单测，验收走渲染 k3diff（用户指令）。
-- 工作流串行（Solaren 要求）。
+**验收**:上述示例逐位回归。
 
-## 9. 关键落点速查
+### 批次⑤ liangyi 退役(已决策,2026-10-20 拍板并再次确认)
+
+1. **前置**:putImageData + 资源像素读回落地(host 把解码后资源 RGBA 字节交 realm;**红线=禁读回引擎已合成的表面**)。
+2. **示例移植**:hyperframes-launch(ly.pixel→JS 逐像素循环,V8 JIT 性能已排除风险)、vfx-heygen-combined(4 处)、k3-mono(溶解);oracle=tools/k3dissolve.py 逐帧像素对拍。
+3. **出清**:opencat-liangyi 出工作空间;反查黑名单 ly.* 转 STRICT。
+4. 效果此后只有原 JS 语义一条路。
+
+### 批次⑥ 文档与桩
+
+- `jsx-format.md` 补宿主面清单 + 桩语义总表(ResizeObserver observe 永不触发、document.fonts 永不发 loadingdone、getScreenCTM 恒 identity、定时器报错指路——确定性特性,不是欠账)。
+
+## 4. 验收纪律
+
+- **gate**:`scripts/regression-gate.sh` = cargo test + clippy + web test/tsc/build + 方言反查。
+- **渲染回归**:k3diff;入口必须 `dist/index.bundle.jsx`(直渲 index.jsx 缺内嵌 CSS 塌成黑帧不报错);`opencat` 与 `opencat-frames` 是两个 bin,验收须 `--bins`;vfx 基线目录首帧差异大,不能跨目录比。
+- **oracle 双参照**:Chrome 官方库截帧 + web 重放端。
+- **无损比对**:PNG 序列或 `-qp 0` + yuv444p——同一张 PNG 编解码一次的偏差就有 ma_e≈3。当前基线:全片 ma_e 0.327 / avg_p8 0.764%(2026-10-21)。
+
+## 5. 红线与已知坑(持续有效)
+
+- **core 纯度判据不变**:core 生成 payload 字节,永不解释/绘制;排版例外见宪法 §2。
+- **子 tween 注入 paused 会被父 timeline 跳过、duration 塌 0**——只有 timeline 工厂注入 paused。
+- **两侧必须同字体同行高**:Chrome `sans-serif` 落系统 UI 字体、`line-height: normal` 取字体度量(Inter≈1.21);opencat 是内置 Noto Sans SC + 行高 1.5。不钉住就是在比字体替换与行盒算法。
+- **随机必须确定性写法**:ScrambleText `chars:'X'` / `randomize:false`;RoughEase 缓动表由 Math.random 生成——两侧序列不同必然对不齐。
+- **禁读回引擎已合成的表面**(资源像素读回只读 host 解码的字节,见批次⑤)。
+- release 二进制改代码后必须重建;golden_c 基线已过期,对比对当前产物。
+- **不写单测,验收走渲染 k3diff**(用户指令)。
+- **工作流串行**(Solaren 要求)。
+- realm console.log 不出 stdout,调试用 `throw new Error('DBG...')`。
+- Windows:shell 不读 profile 需显式 source;FFMPEG_DIR 已过期(实际 `C:\ffmpeg-9.0.2\ffmpeg-9.0.2-full_build-shared\bin`,用前验证 swscale-10.dll);渲染用 `--release`;harness spawn 无 ffmpeg PATH 要注入。
+- **k3-promo 必须 `--base-dir`**:bundle 在 `dist/`,资产/字体相对路径按入口目录解析;字体相对路径按入口文件目录算。
+- **本机没有 node,只有 bun 1.4.2**;esbuild 从 `examples/k3-promo/node_modules` 取依赖。
+- **JSX 元素白名单**:div/text/canvas/image/audio/video/transition/tl/path/lottie/svg——没有 `<group>`,容器用 `div`。
+- **裸写 JSX 文本带缩进**:`<text>\n  HELLO\n</text>` 会给子节点带换行空格,用 `{'HELLO'}` 包住。
+- **`gsap.fromTo(t, from, to)` 没有 position 参数**:要定位放进 timeline。
+- **ffmpeg 新版没有 `-vsync`**:用 `-fps_mode passthrough`。
+- **Python 读不到 `/tmp`**:Windows 临时目录是 `C:/Users/zhoux/AppData/Local/Temp/`。
+
+## 6. 关键落点速查
 
 | 事项 | 位置 |
 |---|---|
-| bundle 嵌入 | `crates/opencat-core/src/script/runtime/gsap/gsap.bundle.js`；`mod.rs:46`；`realm.rs:263` |
-| 包装层 | `jsx_runtime.js:519-669`（检测/target 归一/注册/帧末 seek/ocTarget） |
-| 宿主 DOM | `dom_api.js:61-76`、`node_style.js:59-121` |
-| svg_path 写穿 | `script/recorder/store.rs:936` |
-| path 度量绑定 | `script/bindings.rs:719-768`（`path_measure.rs`） |
-| 完整 npm 包 | `examples/k3-promo/node_modules/gsap`（3.15.0） |
-| 既有插件文档（待退役） | `skills/opencat-creator/references/animations.md:109-171` |
+| vite 插件 / external 面 | `packages/create-opencat/template/opencat-plugin.mjs`(external: opencat/runtime、gsap、three、canvaskit-wasm) |
+| gsap sidecar 入口 / 供货 | `packages/create-opencat/template/gsap-entry.mjs`;插件 esbuild bundleGsap → `dist/gsap.bundle.mjs` |
+| gsap 装配层 | `crates/opencat-core/src/script/runtime/jsx_runtime.js:556`(installGsapBuiltins:paused 协议/target 归一/hookGated/子路径视图) |
+| 宿主 DOM 面 | `crates/opencat-core/src/script/runtime/dom_api.js`(getComputedStyle);`script/tree.rs`(TreeOverlay) |
+| mutation 记录面 | `crates/opencat-core/src/script/recorder/mod.rs`(MutationRecorder trait;record_text_content/svg_path/scene3) |
+| canvaskit 官方签名面 | `crates/opencat-core/src/script/runtime/canvas_api.js`(CanvasKitInit 桩+MakeCanvasSurface;批次②已合并枚举面);G2 派生面 `g2/g2_api.js` g2CanvasKit() |
+| Scene3 协议 | `crates/opencat-core/src/ir/scene3.rs`;提交 `script/recorder/store.rs`(record_scene3/geometry registry) |
+| three 自研面(待退役) | `crates/opencat-core/src/script/runtime/three_api.js`——批次③ |
+| web 重放端 | `crates/opencat-web/web/src/draw-ir.ts`(真 canvaskit.wasm)、`three-facade.ts`(真 three) |
+| 方言反查 | `scripts/check-dialect.sh`(STRICT/PENDING 两层,接 regression-gate.sh) |

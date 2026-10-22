@@ -152,7 +152,7 @@ function Scene01() {
     var firstFlip = dialIn + 0.35 + 0.5;
 
     // Dial flips. rotateX is not in the engine's 2D transform set, so the word
-    // stack on the slot is drawn per frame by the useCanvas below and driven
+    // stack on the slot is drawn per frame by the canvas hook below and driven
     // from this timeline's clock via plain opacity flips.
     var flipDur = 0.35, holdDur = 0.35, gap = 128;
     T.set(P + 'dw-' + DIAL_WORDS[0], { opacity: 1 }, firstFlip - holdDur);

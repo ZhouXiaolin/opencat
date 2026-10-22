@@ -1,11 +1,13 @@
 import { gsap } from 'gsap';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { StageCanvas, getK3Stream, vis } from './shared.jsx';
 
 
 /* ghost order-book columns (track 1, window 4.583→7.35s) */
 export default function GhostCols() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 4.583 && T < 7.35) {
@@ -15,12 +17,13 @@ export default function GhostCols() {
     }
   });
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     var G_ON = (T >= 4.583 && T < 7.35);
     vis(ctx, 'ghostcols', G_ON);
     if (G_ON) {
       var K3STREAM = getK3Stream();
-      var gcv = ctx.getCanvasById('ghostcols-canvas');
+      var gcv = CK.MakeCanvasSurface('ghostcols-canvas').getCanvas();
       if (gcv) {
         gcv.clear();
         var gPaint = new CK.Paint(); gPaint.setStyle(CK.PaintStyle.Fill);

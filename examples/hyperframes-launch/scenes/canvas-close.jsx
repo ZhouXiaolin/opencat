@@ -1,15 +1,19 @@
-import { useCanvas, useRef } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame } from 'opencat/runtime';
 /* ══ canvas-close (master 46.02-49.77, compositions/canvas-close.html) ══
    ASCII-terminal lightning reveal. The reference is a <canvas> with 2D
    fillText per character cell (10x16px grid), driven by a GSAP proxy
-   tween 0→3.93 linear → here the scene clock `t` (useCanvas passes
+   tween 0→3.93 linear → here the scene clock `t` (useFrame passes
    ctx.current.time) drives the same renderAtTime. Text goes through ly.surface (2D subset, fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
    offset at 14px), then ly.draw samples it on the stage canvas. Master
    slot is 3.75s so the last 0.18s of the 3.93s timeline
    is truncated by the master, exactly like the reference cut. */
+let CC_CK = null;
+
 var CC_START = 46.02, CC_DUR = 3.75;
+CanvasKitInit({}).then((ck) => { CC_CK = ck; });
 var CC_CELL_W = 10, CC_CELL_H = 16;
 var CC_COLS = Math.floor(1920 / CC_CELL_W); /* 192 */
 var CC_ROWS = Math.floor(1080 / CC_CELL_H); /* 67 */
@@ -440,13 +444,15 @@ function ccRender(cv, ctx, t) {
 }
 
 export default function CanvasClose() {
-  const canvas = useRef();
 
-  useCanvas(canvas, (c, t, ctx) => ccRender(c, ctx, Math.min(t, 3.93)));
+  useFrame((ctx, t) => {
+    if (!CC_CK) return;
+    ccRender(CC_CK.MakeCanvasSurface('cc-canvas').getCanvas(), ctx, Math.min(t, 3.93));
+  });
 
   return (
     <div id="cc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000]">
-      <canvas ref={canvas} id="cc-canvas" class="w-[1920px] h-[1080px]" />
+      <canvas id="cc-canvas" class="w-[1920px] h-[1080px]" />
     </div>
   );
 }

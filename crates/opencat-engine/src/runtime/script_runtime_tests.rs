@@ -1669,22 +1669,26 @@ fn threejs_namespace_webgl_renderer_resolves_canvas_and_size() {
     }
 }
 
-// ── C-3: ctx.canvas namespace + MakeSurface(el) ───────────────────────────
-// MakeSurface resolves the node id from either handle form and hands back the
-// same command-stream canvas as ctx.getCanvasById; flush/dispose are no-ops.
+// ── C-3: official canvas entry — CanvasKitInit + MakeCanvasSurface ────────
+// The loader stub resolves immediately with the facade; MakeCanvasSurface
+// accepts an id string, a useRef-style handle, or a DOM handle, and hands back
+// the same command-stream canvas as getCanvasById; flush/dispose are no-ops.
 
 #[test]
 fn canvas_namespace_make_surface_resolves_element_and_draws() {
-    // (1) useRef-style JSX descriptor → draws land on the node's canvas.
+    // (1) `CanvasKitInit({}).then(CK => ...)`: the official shape. The promise
+    // resolves in run_frame's microtask drain, so the draw lands on the very
+    // first frame.
     let source = r#"
-        const CK = ctx.canvas;
-        const ref = { current: { __ocEl: true, tag: 'canvas', props: { id: 'panel' } } };
-        const surface = CK.MakeSurface(ref.current);
-        surface.getCanvas().drawCircle(50, 50, 20, new CK.Paint());
-        surface.flush();
-        surface.dispose();
-        if (CK.MakeSurface(ref.current) !== surface) throw new Error('same node must return the same surface');
-        if (ctx.canvas.Color !== ctx.CanvasKit.Color) throw new Error('ctx.canvas must be the same toolkit as ctx.CanvasKit');
+        CanvasKitInit({}).then(function (CK) {
+            if (CK.PaintStyle.Fill !== 0 || CK.PaintStyle.Stroke !== 1) throw new Error('PaintStyle must carry the official enum numbers');
+            const ref = { current: { __ocEl: true, tag: 'canvas', props: { id: 'panel' } } };
+            const surface = CK.MakeCanvasSurface(ref.current);
+            surface.getCanvas().drawCircle(50, 50, 20, new CK.Paint());
+            surface.flush();
+            surface.dispose();
+            globalThis.__thenRan = true;
+        });
     "#;
     let (mut realm, driver) = open_with_source(source);
     let mut registry = ScriptTargetRegistry::default();
@@ -1695,19 +1699,27 @@ fn canvas_namespace_make_surface_resolves_element_and_draws() {
     let commands = &snap
         .canvas_mutations
         .get("panel")
-        .expect("MakeSurface should target the panel canvas")
+        .expect("MakeCanvasSurface should target the panel canvas")
         .commands;
     assert!(
         commands.iter().any(|op| matches!(op, opencat_core::ir::draw_op::DrawOp::FillPath)),
         "drawCircle should record a FillPath op, got: {commands:?}"
     );
+    assert_eq!(
+        realm.eval_json_for_test("globalThis.__thenRan"),
+        serde_json::json!(true),
+        "the CanvasKitInit continuation must run inside the frame"
+    );
 
-    // (2) DOM-handle form and pixel-buffer offscreen rejection.
+    // (2) DOM-handle form and pixel-buffer offscreen rejection. These call the
+    // facade directly: a throw inside a promise continuation is an unhandled
+    // rejection, not a host error — the sync path is what run_driver can see.
     let source = r#"
+        const CK = globalThis.CanvasKit;
         const el = { id: 'panel' };
-        const surface = ctx.canvas.MakeSurface(el);
-        surface.clear(ctx.canvas.WHITE);
-        ctx.canvas.makeImageSnapshot();
+        const surface = CK.MakeCanvasSurface(el);
+        surface.getCanvas().clear(CK.WHITE);
+        surface.makeImageSnapshot();
     "#;
     let (mut realm, driver) = open_with_source(source);
     let mut registry = ScriptTargetRegistry::default();
@@ -1720,11 +1732,12 @@ fn canvas_namespace_make_surface_resolves_element_and_draws() {
     );
 
     // (3) missing canvas id errors with the option pointer.
-    let (mut realm, driver) = open_with_source("ctx.canvas.MakeSurface({});");
+    let (mut realm, driver) =
+        open_with_source("globalThis.CanvasKit.MakeCanvasSurface({});");
     let err = run_driver_expect_err(&mut realm, driver);
     assert!(
-        err.contains("MakeSurface") && err.contains("expected a <canvas>"),
-        "bad arg error should name MakeSurface, got: {err}"
+        err.contains("MakeCanvasSurface") && err.contains("expected an id string"),
+        "bad arg error should name MakeCanvasSurface, got: {err}"
     );
 }
 
@@ -1792,10 +1805,10 @@ fn real_package_imports_forward_to_ctx_namespaces() {
         "gate should reject out-of-hook tween calls"
     );
 
-    // (2) inside a per-frame hook the same import drives tweens. The driver
-    // replays the hook registry exactly like the JSX driver body does
-    // (`__ocRunFrameHooks()`), so the flush lands inside run_frame's
-    // consuming transfer.
+    // (2) inside a per-frame hook the same import drives tweens. run_frame
+    // replays the hook registry after the microtask drain, so the timeline's
+    // writes land in the same frame's consuming transfer — no manual
+    // `__ocRunFrameHooks()` in the driver anymore.
     let source = r#"
         const gsap = globalThis.__ocRequire('gsap').gsap;
         globalThis.__ocOnFrame(function () {
@@ -1804,7 +1817,6 @@ fn real_package_imports_forward_to_ctx_namespaces() {
             tl.to('box', { opacity: 1, duration: 0.5 }, 0);
             tl.to('box2', { x: 40, duration: 0.5 }, 0.25);
         });
-        globalThis.__ocRunFrameHooks();
     "#;
     let (mut realm, driver) = open_with_source(&with_gsap_stub(source));
     let mut registry = ScriptTargetRegistry::default();
@@ -1818,15 +1830,19 @@ fn real_package_imports_forward_to_ctx_namespaces() {
         snap.mutations.keys().collect::<Vec<_>>()
     );
 
-    // (3) three / canvaskit-wasm: ungated object forwards (identity with the
-    // ctx namespaces — no gate on these, constructors are pure local state).
+    // (3) three / canvaskit-wasm: ungated forwards (no hook gate on these —
+    // constructors are pure local state). canvaskit-wasm resolves to the
+    // official loader stub: a callable that resolves the facade.
     let source = r#"
         const THREE = globalThis.__ocRequire('three');
-        const CK = globalThis.__ocRequire('canvaskit-wasm').CanvasKit;
+        const CanvasKitInit = globalThis.__ocRequire('canvaskit-wasm').default;
         if (THREE.Scene !== ctx.threejs.Scene) throw new Error('three must forward to ctx.threejs');
         if (typeof THREE.WebGLRenderer !== 'function') throw new Error('WebGLRenderer must come through the builtin');
-        if (CK.MakeSurface !== ctx.canvas.MakeSurface) throw new Error('canvaskit-wasm must forward to ctx.canvas');
-        globalThis.__fwdOk = true;
+        if (typeof CanvasKitInit !== 'function') throw new Error('canvaskit-wasm default must be the CanvasKitInit loader');
+        CanvasKitInit({}).then(function (CK) {
+            if (typeof CK.MakeCanvasSurface !== 'function') throw new Error('facade must expose MakeCanvasSurface');
+            globalThis.__fwdOk = true;
+        });
     "#;
     let (mut realm, driver) = open_with_source(source);
     run_driver(&mut realm, driver, 0, None);

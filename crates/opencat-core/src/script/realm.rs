@@ -431,6 +431,11 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             .entered();
             self.ctx.call_global_fn(&fn_name)?;
         }
+        // The official async entries resolve their promises in the microtask
+        // drain: `CanvasKitInit(...).then(CK => ...)` stores the facade, and
+        // the frame hooks draw with it. Draining BEFORE the hooks puts the
+        // surface in place on the very first frame.
+        self.ctx.run_microtasks();
         // A promise continuation only queues; it does not draw yet. The G2
         // render loop starts its draw pass after a `Promise.all` resolves, so
         // one checkpoint after the driver is not enough. The queue itself is
@@ -449,6 +454,9 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 "script_drain_microtasks"
             )
             .entered();
+            self.ctx.eval(
+                "if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();",
+            )?;
             for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
                 self.ctx.eval("__ocG2Flush();")?;

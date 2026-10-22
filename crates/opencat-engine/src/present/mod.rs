@@ -63,13 +63,16 @@ impl PreviewPresenter {
     /// 加入成功后，3D 输出纹理对本节点的 Skia 可直接采样（零拷贝）；后端
     /// 不支持时保持懒初始化，3D 走 CPU 读回。必须在首帧渲染前调用
     /// （`preset` 只设一次）。
-    pub fn for_window(
+    ///
+    /// # Safety
+    /// `window.hwnd` 必须是宿主线程上有效的顶层窗口句柄。
+    pub unsafe fn for_window(
         window: WindowHandle,
         pipeline: &EnginePipeline,
         width: i32,
         height: i32,
     ) -> Result<Self> {
-        let mut inner = platform::Presenter::new(window, width, height)?;
+        let mut inner = unsafe { platform::Presenter::new(window, width, height) }?;
         if let Some(renderer) = inner.build_scene3_renderer()? {
             pipeline.scene3_renderer.preset(renderer)?;
         }

@@ -39,6 +39,7 @@
 
 import { useGSAP } from 'opencat/runtime';
 import { gsap } from 'gsap';
+import CanvasKitInit from 'canvaskit-wasm';
 import { SplitText } from 'gsap/SplitText';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 26.2667 };
@@ -693,10 +694,12 @@ function PromptScene() {
 /* V4: #chromatic-split — full-frame ray-marched RGB channel planes over the
    rasterised still (black + radial gradients + glowing 136px headline) */
 function ChromaticSplit() {
+  let CS_CK = null;
+  CanvasKitInit({}).then((ck) => { CS_CK = ck; });
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit;
+    if (!CS_CK) return;
     var st = Math.max(0, ctx.global.time);
-    var chromCanvas = ctx.getCanvasById('chromatic-canvas');
+    var chromCanvas = CS_CK.MakeCanvasSurface('chromatic-canvas').getCanvas();
     var chromNode = ctx.getNode('chromatic-canvas');
     /* source #chromatic-split (bg #000, z7) is shown at CHROMATIC_START and
        never hidden — PORTAL_START (17.02) is when the white portal-logo-frame
@@ -797,8 +800,9 @@ function Cta() {
    front texture outside the growing disc (transparent inside, revealing the
    white brand card below) */
 function Portal() {
+  let PT_CK = null;
+  CanvasKitInit({}).then((ck) => { PT_CK = ck; });
   useGSAP((ctx) => {
-    var CK = ctx.CanvasKit;
     var st = Math.max(0, ctx.global.time);
     var T = gsap.timeline();
     T.set('portal-logo-frame', { opacity: 0 }, 0);
@@ -820,7 +824,8 @@ function Portal() {
     chroma = seg(st, 25.43, 0.55, p2out, chroma, 0.0);
     distort = seg(st, 25.43, 0.55, p2out, distort, 0.0);
 
-    var portalCanvas = ctx.getCanvasById('portal-canvas');
+    if (!PT_CK) return;
+    var portalCanvas = PT_CK.MakeCanvasSurface('portal-canvas').getCanvas();
     var portalEffect = ly.pixel(PORTAL, PORTAL_SPEC);
     ly.draw(portalCanvas, portalEffect, {
       rect: [0, 0, 1920, 1080],
@@ -846,9 +851,10 @@ function Portal() {
 
 /* V7: intro sting (nested vfx-text-cursor.html 0..3.12; NOT shifted) */
 function IntroSting() {
+  let IS_CK = null;
+  CanvasKitInit({}).then((ck) => { IS_CK = ck; });
   useGSAP((ctx) => {
     var T = gsap.timeline();
-    var CK = ctx.CanvasKit;
     var TT = Math.max(0, ctx.global.time);
     var effectMix = TT <= 0.72 ? 0 : (TT >= 1.06 ? 1 : 1 - Math.pow(1 - (TT - 0.72) / 0.34, 4));
     var progress = TT <= 0.72 ? 0 : (TT >= 3.0 ? 1 : (TT - 0.72) / 2.28);
@@ -858,7 +864,8 @@ function IntroSting() {
     /* gate < 3.1: opacity tweens to 0 exactly at 3.1 (2.9+0.2) — frame 93 is
        invisible, skip its ~12s ray-march (render-budget) */
     if (TT < 3.1) {
-      var stingCanvas = ctx.getCanvasById('sting-canvas');
+      if (!IS_CK) return;
+      var stingCanvas = IS_CK.MakeCanvasSurface('sting-canvas').getCanvas();
       if (effectMix <= 0) {
         var loEffect = ly.pixel(STING_LOGOONLY, STING_LOGOONLY_SPEC);
         ly.draw(stingCanvas, loEffect, {

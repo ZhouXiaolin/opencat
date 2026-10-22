@@ -247,7 +247,7 @@
             this._scaleX = toFiniteNumber(scaleX, 1);
             this._skewX = toFiniteNumber(skewX, 0);
             this._subpixel = true;
-            this._edging = 'antiAlias';
+            this._edging = CanvasKit.FontEdging.AntiAlias;
         }
 
         copy() {
@@ -270,7 +270,7 @@
                 this._scaleX,
                 this._skewX,
                 this._subpixel,
-                this._edging
+                fontEdgingName(this._edging)
             );
         }
 
@@ -308,10 +308,10 @@
     class Paint {
         constructor() {
             this._color = [0, 0, 0, 1];
-            this._style = 'fill';
+            this._style = CanvasKit.PaintStyle.Fill;
             this._strokeWidth = 1;
-            this._strokeCap = 'butt';
-            this._strokeJoin = 'miter';
+            this._strokeCap = CanvasKit.StrokeCap.Butt;
+            this._strokeJoin = CanvasKit.StrokeJoin.Miter;
             this._pathEffect = null;
             this._antiAlias = true;
             this._shader = null;
@@ -466,6 +466,18 @@
             }
             this._shader = shader;
             return this;
+        }
+
+        setMaskFilter(filter) {
+            throw new Error('Paint.setMaskFilter is not available — blur effects go through RuntimeEffect / ly.pixel kernels');
+        }
+
+        setImageFilter(filter) {
+            throw new Error('Paint.setImageFilter is not available — filter effects go through RuntimeEffect / ly.pixel kernels');
+        }
+
+        setColorFilter(filter) {
+            throw new Error('Paint.setColorFilter is not available — bake the color transform into the paint color or a kernel');
         }
     }
 
@@ -800,6 +812,10 @@
 
     function normalizeTileMode(value) {
         if (value == null) return 'clamp';
+        if (value === CanvasKit.TileMode.Clamp) return 'clamp';
+        if (value === CanvasKit.TileMode.Repeat) return 'repeat';
+        if (value === CanvasKit.TileMode.Mirror) return 'mirror';
+        if (value === CanvasKit.TileMode.Decal) return 'decal';
         const v = String(value).toLowerCase();
         if (v === 'clamp' || v === 'repeat' || v === 'mirror' || v === 'decal') return v;
         throw new Error(`unsupported TileMode: ${value}`);
@@ -859,13 +875,17 @@
             ];
         },
         RRectXY(rect, rx, ry) {
+            // Official shape: [l, t, r, b, (rx, ry) x 4 corners].
             const normalized = normalizeRect(rect);
-            return {
-                __opencatRRect: true,
-                rect: [normalized.left, normalized.top, normalized.right, normalized.bottom],
-                rx: toFiniteNumber(rx),
-                ry: toFiniteNumber(ry)
-            };
+            const rxv = toFiniteNumber(rx);
+            const ryv = toFiniteNumber(ry);
+            return [
+                normalized.left,
+                normalized.top,
+                normalized.right,
+                normalized.bottom,
+                rxv, ryv, rxv, ryv, rxv, ryv, rxv, ryv
+            ];
         },
         Paint,
         Font,
@@ -888,48 +908,129 @@
                 };
             }
         },
+        /* Enum values are the Skia C++ constants (canvaskit-wasm exposes them
+           as embind numbers), so `CK.PaintStyle.Fill === 0` etc. holds. */
         PaintStyle: {
-            Fill: 'fill',
-            Stroke: 'stroke'
+            Fill: 0,
+            Stroke: 1
         },
         StrokeCap: {
-            Butt: 'butt',
-            Round: 'round',
-            Square: 'square'
+            Butt: 0,
+            Round: 1,
+            Square: 2
         },
         StrokeJoin: {
-            Miter: 'miter',
-            Round: 'round',
-            Bevel: 'bevel'
+            Miter: 0,
+            Round: 1,
+            Bevel: 2
         },
         BlendMode: {
-            SrcOver: 'srcOver'
+            Clear: 0,
+            Src: 1,
+            Dst: 2,
+            SrcOver: 3,
+            DstOver: 4,
+            SrcIn: 5,
+            SrcOut: 6,
+            DstIn: 7,
+            DstOut: 8,
+            SrcATop: 9,
+            DstATop: 10,
+            Xor: 11,
+            Plus: 12,
+            Modulate: 13,
+            Multiply: 14,
+            Screen: 15,
+            Overlay: 16,
+            Darken: 17,
+            Lighten: 18,
+            ColorDodge: 19,
+            ColorBurn: 20,
+            HardLight: 21,
+            SoftLight: 22,
+            Difference: 23,
+            Exclusion: 24,
+            Hue: 25,
+            Saturation: 26,
+            Color: 27,
+            Luminosity: 28
         },
         FontEdging: {
-            Alias: 'alias',
-            AntiAlias: 'antiAlias',
-            SubpixelAntiAlias: 'subpixelAntiAlias'
+            Alias: 0,
+            AntiAlias: 1,
+            SubpixelAntiAlias: 2
+        },
+        FontHinting: {
+            None: 0,
+            Slight: 1,
+            Normal: 2,
+            Full: 3
         },
         ClipOp: {
-            Difference: 'difference',
-            Intersect: 'intersect'
+            Difference: 0,
+            Intersect: 1
         },
         PointMode: {
-            Points: 'points',
-            Lines: 'lines',
-            Polygon: 'polygon'
+            Points: 0,
+            Lines: 1,
+            Polygon: 2
         },
         TileMode: {
-            Clamp: 'clamp',
-            Repeat: 'repeat',
-            Mirror: 'mirror',
-            Decal: 'decal'
+            Clamp: 0,
+            Repeat: 1,
+            Mirror: 2,
+            Decal: 3
         },
         RuntimeEffect: {
             Make(sksl) {
                 if (typeof sksl !== 'string' || sksl.length === 0) return null;
                 return new RuntimeEffect(sksl);
             }
+        },
+        /* Signature-only surface (zero corpus): the official gradient shaders
+           error with the supported alternative instead of silently diverging. */
+        Shader: {
+            MakeLinearGradient(start, end, colors, positions, mode, localMatrix) {
+                throw new Error('Shader.MakeLinearGradient is not available — gradient fills are backed by RuntimeEffect / ly.pixel kernels');
+            },
+            MakeRadialGradient(center, radius, colors, positions, mode, localMatrix) {
+                throw new Error('Shader.MakeRadialGradient is not available — gradient fills are backed by RuntimeEffect / ly.pixel kernels');
+            },
+            MakeBlend(mode, dst, src) {
+                throw new Error('Shader.MakeBlend is not available — gradient fills are backed by RuntimeEffect / ly.pixel kernels');
+            },
+        },
+        /* Signature-only factories (zero corpus): the record objects exist so
+           the call resolves; Paint.setMaskFilter / setImageFilter fail loud. */
+        MaskFilter: {
+            MakeBlur(style, sigma, respectCTM) {
+                return { __opencatMaskFilter: true, style: style, sigma: sigma, respectCTM: respectCTM };
+            },
+        },
+        ImageFilter: {
+            MakeBlur(sigmaX, sigmaY, mode) {
+                return { __opencatImageFilter: true, sigmaX: sigmaX, sigmaY: sigmaY, mode: mode };
+            },
+        },
+        /* Signature-only (zero corpus): paragraph text is data-only in OpenCat —
+           core lays out glyph runs (cosmic-text); draw text through the 2D
+           surface or declare it in JSX. */
+        ParagraphStyle: function ParagraphStyle(style) {
+            throw new Error('ParagraphStyle is not available — draw text with the 2D surface fillText / JSX text');
+        },
+        ParagraphBuilder: {
+            Make(style, fontMgr) {
+                throw new Error('ParagraphBuilder.Make is not available — draw text with the 2D surface fillText / JSX text');
+            },
+        },
+        /* Official signatures: `canvas` is an id string, a useRef() element
+           handle, or a DOM handle with .id. Returns a recording Surface —
+           draw calls land on the canvas node's DrawOp stream. */
+        MakeCanvasSurface(canvas) {
+            return makeRecordingSurface(canvas);
+        },
+        MakeWebGLCanvasSurface(canvas) {
+            return makeRecordingSurface(canvas);
         },
         BLACK: [0, 0, 0, 1],
         WHITE: [1, 1, 1, 1]
@@ -940,12 +1041,39 @@
         __canvas_set_fill_style(id, colorToCss(paint._color));
     }
 
+    // The official enum values are numbers (Skia constants); the `__canvas_*`
+    // bindings take the historical string names, so calls translate here.
+    const STROKE_CAP_NAMES = ['butt', 'round', 'square'];
+    const STROKE_JOIN_NAMES = ['miter', 'round', 'bevel'];
+    const FONT_EDGING_NAMES = ['alias', 'antiAlias', 'subpixelAntiAlias'];
+
+    function strokeCapName(value) {
+        if (typeof value === 'string') return value;
+        const name = STROKE_CAP_NAMES[value];
+        if (!name) throw new Error(`unsupported StrokeCap: ${value}`);
+        return name;
+    }
+
+    function strokeJoinName(value) {
+        if (typeof value === 'string') return value;
+        const name = STROKE_JOIN_NAMES[value];
+        if (!name) throw new Error(`unsupported StrokeJoin: ${value}`);
+        return name;
+    }
+
+    function fontEdgingName(value) {
+        if (typeof value === 'string') return value;
+        const name = FONT_EDGING_NAMES[value];
+        if (!name) throw new Error(`unsupported FontEdging: ${value}`);
+        return name;
+    }
+
     function applyStrokePaint(id, paint) {
         __canvas_set_anti_alias(id, paint._antiAlias);
         __canvas_set_stroke_style(id, colorToCss(paint._color));
         __canvas_set_line_width(id, paint._strokeWidth);
-        __canvas_set_line_cap(id, paint._strokeCap);
-        __canvas_set_line_join(id, paint._strokeJoin);
+        __canvas_set_line_cap(id, strokeCapName(paint._strokeCap));
+        __canvas_set_line_join(id, strokeJoinName(paint._strokeJoin));
         if (paint._pathEffect && paint._pathEffect.kind === 'dash') {
             __canvas_set_line_dash(id, paint._pathEffect.intervals, paint._pathEffect.phase);
         } else {
@@ -1229,7 +1357,7 @@
                         resolvedPaint._style === CanvasKit.PaintStyle.Stroke,
                         resolvedFont._subpixel
                     ],
-                    resolvedFont._edging
+                    fontEdgingName(resolvedFont._edging)
                 );
                 return this;
             },
@@ -1413,7 +1541,10 @@
                 const modeStr = mode === CanvasKit.PointMode.Points ? 'points'
                     : mode === CanvasKit.PointMode.Lines ? 'lines'
                     : mode === CanvasKit.PointMode.Polygon ? 'polygon'
-                    : mode;
+                    : (typeof mode === 'string' ? mode : null);
+                if (modeStr === null) {
+                    throw new Error(`unsupported PointMode: ${mode}`);
+                }
                 __canvas_draw_points(id, modeStr, flat);
                 return this;
             },
@@ -1519,11 +1650,17 @@
                 );
                 return this;
             },
+
+            /* Signature placeholder (zero corpus, see ARCHITECTURE.md §2):
+               paragraph text is laid out in core (cosmic-text) and drawn as
+               data; there is no SkParagraph on the canvas path. */
+            drawParagraph(paragraph, x, y) {
+                throw new Error('drawParagraph is not available — draw text with the 2D surface fillText / JSX text');
+            },
         };
     }
 
     globalThis.CanvasKit = CanvasKit;
-    ctx.CanvasKit = CanvasKit;
     ctx.getImage = function(assetId) {
         const handle = {
             __opencatImage: true,
@@ -1551,7 +1688,7 @@
     }
 
     ctx.getCanvas = function() {
-        throw new Error("ctx.getCanvas is not available; use ctx.getCanvasById(id)");
+        throw new Error("ctx.getCanvas is not available; use CanvasKitInit().then(CK => CK.MakeCanvasSurface(id))");
     };
 
     ctx.getCanvasById = function(id) {
@@ -1873,61 +2010,68 @@
         return surfaceById('surface-' + ww + 'x' + hh, ww, hh);
     };
 
-    // ── ctx.canvas: canvaskit-shaped namespace ──────────────────────
-    // Same object as ctx.CanvasKit (one implementation, two spellings — the
-    // verified examples keep `ctx.CanvasKit`) plus `MakeSurface(el)`, the
-    // canvaskit-wasm Surface form real CanvasKit code reaches for. The flat
-    // names on ctx and the full draw surface of ctx.getCanvasById are the
-    // engine's native path; MakeSurface only resolves the node id.
-    //
-    // `el` accepts either handle form: a useRef() JSX descriptor (id in
-    // props.id) or a DOM handle from ctx.getNode/document.getElementById.
-    // flush()/dispose() are no-ops — canvas commands are recorded into the
-    // frame's DrawOp stream and committed at the frame boundary; there is no
-    // live GPU surface to synchronize. Pixel-buffer style sizes error (the
-    // offscreen pixel target is ly.surface(w, h)); makeImageSnapshot /
-    // ParagraphBuilder / FontMgr have no engine path and error with a pointer.
-    function unsupportedCanvasApi(name, instead) {
-        return function () {
-            throw new Error(
-                'CanvasKit.' + name + ' is not available — ' + instead
-            );
+    // ── Official surface entry: CK.MakeCanvasSurface(id) ─────────────
+    // `canvas` accepts an id string, a useRef() element handle, or a DOM
+    // handle carrying .id — the official MakeCanvasSurface signature takes a
+    // canvas or an id. The returned Surface records: getCanvas() is the
+    // CanvasKit Canvas facade whose draw calls land on the canvas node's
+    // DrawOp stream; flush()/dispose() are no-ops (no live GPU surface).
+    // Pixel-buffer style sizes error (the offscreen pixel target is
+    // ly.surface(w, h)); makeImageSnapshot / requestAnimationFrame have no
+    // engine path and error with a pointer.
+    function resolveCanvasTargetId(canvas) {
+        if (typeof canvas === 'string' && canvas) {
+            return canvas;
+        }
+        if (canvas && canvas.__ocEl === true) {
+            const declared = canvas.props && canvas.props.id;
+            if (declared === undefined || declared === null) {
+                throw new Error('MakeCanvasSurface: the <canvas> element needs an id="..." so the surface can target it');
+            }
+            return String(declared);
+        }
+        if (canvas && typeof canvas.id === 'string' && canvas.id) {
+            return canvas.id;
+        }
+        throw new Error('MakeCanvasSurface: expected an id string or a <canvas> element handle');
+    }
+
+    function surfaceMetaNumber(name) {
+        const meta = globalThis.__ocMeta || {};
+        return Math.max(0, toFiniteNumber(meta[name], 0));
+    }
+
+    function makeRecordingSurface(canvas) {
+        const id = resolveCanvasTargetId(canvas);
+        const record = ctx.getCanvasById(id);
+        return {
+            getCanvas() {
+                return record;
+            },
+            flush() {},
+            dispose() {},
+            width() {
+                return surfaceMetaNumber('width');
+            },
+            height() {
+                return surfaceMetaNumber('height');
+            },
+            makeImageSnapshot() {
+                throw new Error('Surface.makeImageSnapshot is not available — read pixels back with ly.surface(w, h) + getImageData, or draw with putImageData');
+            },
+            requestAnimationFrame() {
+                throw new Error('Surface.requestAnimationFrame is not available — frames are f(t); register per-frame drawing with useFrame/useGSAP');
+            },
         };
     }
 
-    ctx.canvas = Object.assign({}, CanvasKit, {
-        MakeSurface: function (el, options) {
-            if (el && el.__ocEl === true) {
-                var declared = el.props && el.props.id;
-                if (declared === undefined || declared === null) {
-                    throw new Error('MakeSurface: the <canvas> element needs an id="..." so the surface can target it');
-                }
-                el = String(declared);
-            } else if (el && typeof el.id === 'string' && el.id) {
-                el = el.id;
-            } else if (typeof el !== 'string' || !el) {
-                throw new Error('MakeSurface: expected a <canvas> element (a useRef() handle or document.getElementById)');
-            }
-            var surface = ctx.getCanvasById(el);
-            surface.getCanvas = function () { return surface; };
-            surface.flush = function () { return surface; };
-            surface.dispose = function () {};
-            return surface;
-        },
-        makeImageSnapshot: unsupportedCanvasApi(
-            'makeImageSnapshot',
-            'read pixels back with ly.surface(w, h) + getImageData, or draw with putImageData'
-        ),
-        ParagraphBuilder: {
-            MakeShape: unsupportedCanvasApi('ParagraphBuilder.MakeShape', 'draw text with the surface fillText / ctx text APIs'),
-            MakeFontBuffer: unsupportedCanvasApi('ParagraphBuilder.MakeFontBuffer', 'draw text with the surface fillText / ctx text APIs'),
-        },
-        FontMgr: {
-            FromData: unsupportedCanvasApi('FontMgr.FromData', 'the scoped fontdb resolves font families by name'),
-            RefDefault: unsupportedCanvasApi('FontMgr.RefDefault', 'the scoped fontdb resolves font families by name'),
-        },
-        Surface: {
-            MakeImageSurface: unsupportedCanvasApi('Surface.MakeImageSurface', 'use ly.surface(w, h) for an offscreen pixel target'),
-        },
-    });
+    // ── Official wasm-loader stub ────────────────────────────────────
+    // `import CanvasKitInit from 'canvaskit-wasm'` resolves here. The official
+    // JS layer is API sugar + a WASM loader; drawing semantics live in DrawOp
+    // plus the two replay backends (engine / web), so the stub resolves
+    // immediately with the facade — deterministic, first-frame visible.
+    function CanvasKitInit(options) {
+        return Promise.resolve(globalThis.CanvasKit);
+    }
+    globalThis.CanvasKitInit = CanvasKitInit;
 })();

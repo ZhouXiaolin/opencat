@@ -1,0 +1,156 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "threshold": 0.25,
+  "cellSize": 400,
+  "maxDepth": 2,
+  "lineWidth": 1.5,
+  "cornerRadius": 0,
+  "strokeColor": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "fillColor": [
+   0.11803551018238068,
+   0.18824872374534607,
+   0.2734016478061676,
+   0.10196078568696976
+  ],
+  "labelColor": [
+   0,
+   0,
+   0,
+   1
+  ],
+  "labelBackgroundColor": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "labelRadius": 0,
+  "labelInset": 1,
+  "fontWeight": 500,
+  "fontSize": 0.015,
+  "letterSpacing": 0,
+  "_opacity": 1
+ },
+ "n_n0c0": {
+  "colorA": [
+   0.03011113591492176,
+   0.027433505281805992,
+   0.20238560438156128,
+   1
+  ],
+  "colorB": [
+   0.8116917014122009,
+   0.3608744144439697,
+   0.04339894279837608,
+   1
+  ],
+  "colorsArray": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "positionsArray": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "convertedColorsArray": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0
+  ],
+  "stopCount": 0,
+  "start": [
+   0,
+   0.5
+  ],
+  "end": [
+   1,
+   0.5
+  ],
+  "angle": 35,
+  "edges": 0,
+  "colorSpace": 0,
+  "_opacity": 1
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

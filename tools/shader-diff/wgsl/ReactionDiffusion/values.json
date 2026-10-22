@@ -1,0 +1,59 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "feed": 0.0545,
+  "kill": 0.062,
+  "diffusionRatio": 0.5,
+  "featureSize": 3,
+  "speed": 6,
+  "brushSize": 0.04,
+  "brushStrength": 0.6,
+  "colorA": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "colorC": [
+   0.12287106364965439,
+   0.4933021068572998,
+   0.8922093510627747,
+   1
+  ],
+  "colorB": [
+   0.7876121997833252,
+   0.908034086227417,
+   0.9896177053451538,
+   1
+  ],
+  "contrast": 0.5,
+  "threshold": 0.28,
+  "colorSpace": 1,
+  "relief": 0.4,
+  "lightAngle": 135,
+  "childInfluence": 0.6,
+  "childContrast": 0.5,
+  "childThreshold": 0.5,
+  "childInvert": -1,
+  "_opacity": 1
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

@@ -1,0 +1,193 @@
+fn mxFade(t: f32) -> f32 {
+  return (((t * t) * t) * ((t * ((t * 6f) - 15f)) + 10f));
+}
+
+fn mxRotl32(x: u32, k: i32) -> u32 {
+  return ((x << u32(k)) | (x >> u32((32i - k))));
+}
+
+fn mxBjfinal(a0: u32, b0: u32, c0: u32) -> u32 {
+  var a = a0;
+  var b = b0;
+  var c = c0;
+  c = (c ^ b);
+  c = (c - mxRotl32(b, 14i));
+  a = (a ^ c);
+  a = (a - mxRotl32(c, 11i));
+  b = (b ^ a);
+  b = (b - mxRotl32(a, 25i));
+  c = (c ^ b);
+  c = (c - mxRotl32(b, 16i));
+  a = (a ^ c);
+  a = (a - mxRotl32(c, 4i));
+  b = (b ^ a);
+  b = (b - mxRotl32(a, 14i));
+  c = (c ^ b);
+  c = (c - mxRotl32(b, 24i));
+  return c;
+}
+
+fn mxHashInt1(x: i32, y: i32) -> u32 {
+  const len = 2u;
+  let seed = ((3735928559u + (len << 2u)) + 13u);
+  let a = (seed + u32(x));
+  let b = (seed + u32(y));
+  return mxBjfinal(a, b, seed);
+}
+
+fn mxGradientFloat2(hash: u32, x: f32, y: f32) -> f32 {
+  let h = (hash & 7u);
+  let u = select(y, x, (h < 4u));
+  let v = (2f * select(x, y, (h < 4u)));
+  let uu = select(u, -(u), ((h & 1u) != 0u));
+  let vv = select(v, -(v), ((h & 2u) != 0u));
+  return (uu + vv);
+}
+
+fn mxBilerp(v0: f32, v1: f32, v2: f32, v3: f32, s: f32, t: f32) -> f32 {
+  let s1 = (1f - s);
+  return (((1f - t) * ((v0 * s1) + (v1 * s))) + (t * ((v2 * s1) + (v3 * s))));
+}
+
+fn mxGradientScale2d(v: f32) -> f32 {
+  return (0.6616f * v);
+}
+
+fn mxPerlinNoiseFloat2(p: vec2f) -> f32 {
+  let X = i32(floor(p.x));
+  let Y = i32(floor(p.y));
+  let fx = (p.x - f32(X));
+  let fy = (p.y - f32(Y));
+  let u = mxFade(fx);
+  let v = mxFade(fy);
+  let result = mxBilerp(mxGradientFloat2(mxHashInt1(X, Y), fx, fy), mxGradientFloat2(mxHashInt1((X + 1i), Y), (fx - 1f), fy), mxGradientFloat2(mxHashInt1(X, (Y + 1i)), fx, (fy - 1f)), mxGradientFloat2(mxHashInt1((X + 1i), (Y + 1i)), (fx - 1f), (fy - 1f)), u, v);
+  return mxGradientScale2d(result);
+}
+
+fn mxNoiseFloat2(p: vec2f) -> f32 {
+  return mxPerlinNoiseFloat2(p);
+}
+
+fn hatchPlate(p: vec2f, angleDeg: f32, frequency: f32, reliefPhase: f32, level: f32, aa: f32) -> f32 {
+  let angleRad = (angleDeg * 0.017453292519943295f);
+  let c = cos(angleRad);
+  let s = sin(angleRad);
+  let w = ((p.x * (s * -1f)) + (p.y * c));
+  let phase = (((w * frequency) * 6.283185307179586f) + reliefPhase);
+  let v = cos(phase);
+  let thr = mix(-1.15f, 1.15f, clamp(level, 0f, 1f));
+  return smoothstep((thr - aa), (thr + aa), v);
+}
+
+fn lineworkComposite_1(childColor: vec4f, uv: vec2f, aspect: f32, paper: vec4f, ink: vec4f, center: vec2f, p0: vec4f, p1: vec4f) -> vec4f {
+  let angleDeg = p0.x;
+  let frequency = p0.y;
+  let relief = p0.z;
+  let waviness = p0.w;
+  let contrast = p1.x;
+  let viewportY = p1.y;
+  let lum = dot(vec3f(childColor.x, childColor.y, childColor.z), vec3f(0.29899999499320984, 0.5870000123977661, 0.11400000005960464));
+  let level = clamp((0.5f + ((lum - 0.5f) * contrast)), 0f, 1f);
+  let pa = vec2f((uv.x * aspect), uv.y);
+  let nx = mxNoiseFloat2((pa * 3.1f));
+  let ny = mxNoiseFloat2(((pa * 3.1f) + vec2f(7.309999942779541, 3.7699999809265137)));
+  let p = (pa + (vec2f(nx, ny) * (waviness * 0.06f)));
+  let aa = clamp(((frequency * 6.283185307179586f) / max(viewportY, 1f)), 0.02f, 1f);
+  let reliefPhase = ((relief * level) * 9.42f);
+  var cover = 0f;
+  {
+    let ink1 = hatchPlate(p, angleDeg, frequency, reliefPhase, level, aa);
+    let level2 = clamp((level / 0.55f), 0f, 1f);
+    let ink2 = hatchPlate(p, (angleDeg + 72f), (frequency * 0.92f), (reliefPhase * 0.7f), level2, aa);
+    let level3 = clamp((level / 0.28f), 0f, 1f);
+    let ink3 = hatchPlate(p, (angleDeg - 38f), (frequency * 1.13f), (reliefPhase * 0.5f), level3, aa);
+    cover = max(ink1, max(ink2, ink3));
+  }
+  let rgb = mix(vec3f(paper.x, paper.y, paper.z), vec3f(ink.x, ink.y, ink.z), vec3f(cover));
+  let alpha = (childColor.w * mix(paper.w, ink.w, cover));
+  return vec4f(rgb.x, rgb.y, rgb.z, alpha);
+}
+
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  style: f32,
+  frequency: f32,
+  angle: f32,
+  center: vec2f,
+  relief: f32,
+  waviness: f32,
+  contrast: f32,
+  inkColor: vec4f,
+  paperColor: vec4f,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_3 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: struct_1,
+  n_n0c0: struct_2,
+  _sys: struct_3,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  var composed_0 = lineworkComposite_1(unpremultiplyAlpha(textureSample(rtt_0, linearClamp, uv)), uv, uniforms._sys.aspect, uniforms.n_n0.paperColor, uniforms.n_n0.inkColor, uniforms.n_n0.center, vec4f(uniforms.n_n0.angle, uniforms.n_n0.frequency, uniforms.n_n0.relief, uniforms.n_n0.waviness), vec4f(uniforms.n_n0.contrast, uniforms._sys.viewportSize.y, 0.0, 0.0));
+  return vec4f(linearToSrgb(tone_linear(composed_0.rgb)) * composed_0.a, composed_0.a);
+}

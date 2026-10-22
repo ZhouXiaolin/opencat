@@ -1,0 +1,65 @@
+{
+  "name": "Repeater",
+  "role": "filter",
+  "spec": {
+    "type": "Repeater",
+    "props": {
+      "mode": "grid",
+      "cropLeft": 0,
+      "cropRight": 0,
+      "cropTop": 0,
+      "cropBottom": 0,
+      "columns": 3,
+      "rows": 3,
+      "gapX": 0.05,
+      "gapY": 0.05,
+      "stagger": 0,
+      "flip": "none",
+      "count": 8,
+      "radius": 0.3,
+      "startAngle": 0,
+      "sweep": 360,
+      "faceCenter": false,
+      "direction": 0,
+      "spacing": 0.2,
+      "instanceScale": 1,
+      "instanceRotation": 0,
+      "instanceOpacity": 1,
+      "hueShift": 0,
+      "phase": 0,
+      "zOrder": "forward",
+      "jitterPosition": 0,
+      "jitterRotation": 0,
+      "jitterScale": 0,
+      "jitterOpacity": 0,
+      "seed": 0
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

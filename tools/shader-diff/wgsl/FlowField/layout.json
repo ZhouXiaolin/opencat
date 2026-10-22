@@ -1,0 +1,42 @@
+{
+  "name": "FlowField",
+  "role": "filter",
+  "spec": {
+    "type": "FlowField",
+    "props": {
+      "strength": 0.15,
+      "detail": 2,
+      "speed": 0,
+      "evolutionSpeed": 0,
+      "seed": 0,
+      "edges": "mirror"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

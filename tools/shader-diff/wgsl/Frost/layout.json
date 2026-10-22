@@ -1,0 +1,51 @@
+{
+  "name": "Frost",
+  "role": "generator+compute",
+  "spec": {
+    "type": "Frost",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "iceColor": "#0597fc",
+      "ambient": 0,
+      "edgeSoftness": 0.05,
+      "density": 5,
+      "absorption": 1,
+      "scatter": 0.5,
+      "frostAmount": 0.8,
+      "frostDepth": 0.4,
+      "frostScale": 1,
+      "frostRoughness": 3,
+      "sparkle": 0.5,
+      "gloss": 0.6,
+      "fresnel": 0.02,
+      "lightAngle": 300,
+      "speed": 0.3,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

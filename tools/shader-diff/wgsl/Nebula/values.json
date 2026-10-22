@@ -1,0 +1,97 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "scale": 1,
+  "rotation": 0,
+  "coreColor": [
+   0.945650577545166,
+   0.7040334343910217,
+   0.4626227021217346,
+   1
+  ],
+  "gasColor": [
+   0.8423342108726501,
+   0.14141112565994263,
+   0.2023896723985672,
+   1
+  ],
+  "veilColor": [
+   0.053372930735349655,
+   0.10254831612110138,
+   0.6532869935035706,
+   1
+  ],
+  "colorSpace": 2,
+  "density": 1,
+  "cavity": 0,
+  "dust": 0.55,
+  "gasScale": 0.4,
+  "billow": 0.6,
+  "glow": 0,
+  "seed": 0,
+  "stars": 0.07,
+  "starScale": 1,
+  "twinkle": 0.35,
+  "refraction": 0.5,
+  "environment": 0.7,
+  "highlight": 1.15,
+  "highlightSoftness": 0.5,
+  "lightAngle": 315,
+  "edgeSoftness": 0.05,
+  "speed": 0.3,
+  "_opacity": 1,
+  "_animTime": 0.9000000000000006,
+  "_vfOriginX": 0,
+  "_vfOriginY": 0,
+  "_vfSpanX": 1,
+  "_vfSpanY": 1,
+  "_vfActiveRes": 1,
+  "_vfRBound": 0.6,
+  "_saRadius": 0.35,
+  "_saSides": 6,
+  "_saRounding": 0,
+  "_saInnerRatio": 0.4,
+  "_saRotation": 0,
+  "_saHeight": 0.25,
+  "_saOffset": 0.2,
+  "_saAperture": 270,
+  "convVeil": [
+   0,
+   0,
+   0
+  ],
+  "convGas": [
+   0,
+   0,
+   0
+  ],
+  "convCore": [
+   0,
+   0,
+   0
+  ]
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

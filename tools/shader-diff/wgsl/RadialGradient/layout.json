@@ -1,0 +1,38 @@
+{
+  "name": "RadialGradient",
+  "role": "generator",
+  "spec": {
+    "type": "RadialGradient",
+    "props": {
+      "colorA": "#ff0000",
+      "colorB": "#0000ff",
+      "stops": null,
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "radius": 1,
+      "repeat": 1,
+      "aspect": 1,
+      "skewAngle": 0,
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

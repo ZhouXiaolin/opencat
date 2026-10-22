@@ -1,0 +1,141 @@
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+fn floatBitsToUint2(v: vec2f) -> vec2u { return bitcast<vec2u>(v); }
+
+fn hash22(p: vec2f) -> vec2f {
+  let u = floatBitsToUint2((p * vec2f(141421360, 2718281728)));
+  let h = (u.x ^ u.y);
+  let prod = (vec2u(h, h) * vec2u(3141592653, 1618033988));
+  return (vec2f(f32(prod.x), f32(prod.y)) / 4294967296f);
+}
+
+fn perlinGrad2(i: vec2f, f: vec2f, ox: f32, oy: f32) -> f32 {
+  let o = vec2f(ox, oy);
+  return dot(normalize((hash22((i + o)) - 0.5f)), (f - o));
+}
+
+fn perlin12(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = (p - i);
+  let u = (((f * f) * f) * ((f * ((f * 6f) - 15f)) + 10f));
+  let a = perlinGrad2(i, f, 0f, 0f);
+  let b = perlinGrad2(i, f, 1f, 0f);
+  let c = perlinGrad2(i, f, 0f, 1f);
+  let dd = perlinGrad2(i, f, 1f, 1f);
+  return ((mix(mix(a, b, u.x), mix(c, dd, u.x), u.y) * 0.7f) + 0.5f);
+}
+
+fn curl22(p: vec2f) -> vec2f {
+  let a = vec2f(perlin12((p + vec2f(0.10000000149011612, 0))), perlin12((p + vec2f(0, 0.10000000149011612))));
+  let b = vec2f(perlin12((p - vec2f(0.10000000149011612, 0))), perlin12((p - vec2f(0, 0.10000000149011612))));
+  return (((a - b) / 0.1f) * 0.5f);
+}
+
+fn fbmPaper(p: vec2f, octaves: i32) -> vec2f {
+  var s = vec2f();
+  var m = 0f;
+  var a = 1f;
+  var pp = vec2f(p.x, p.y);
+  for (var i = 0; (i < octaves); i++) {
+    s = (s + (clamp(((curl22(pp) * 0.5f) + 0.5f), vec2f(), vec2f(1)) * a));
+    m = (m + a);
+    a = (a * 0.8f);
+    pp = (pp * 2f);
+  }
+  return (s / m);
+}
+
+fn paper12(p: vec2f, octaves: i32) -> f32 {
+  return (((length(fbmPaper(p, octaves)) / 1.414f) * 0.6f) + 0.4f);
+}
+
+fn paperSurface(uv: vec2f, aspect: f32, grainScale: f32, seed: f32, displacement: f32, roughness: f32) -> vec3f {
+  let aspectUV = vec2f((uv.x * aspect), uv.y);
+  let grainFreq = (grainScale * 6f);
+  let grainUV = ((aspectUV * grainFreq) + seed);
+  let disp = ((curl22(grainUV) * displacement) * 0.0025f);
+  let displacedUV = (uv + disp);
+  let grain = paper12(grainUV, 6i);
+  let brightness = clamp((1f + ((grain - 0.7f) * (roughness * 1.2f))), 0f, 1.5f);
+  return vec3f(displacedUV.x, displacedUV.y, brightness);
+}
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct padded_1 {
+  roughness: f32,
+  grainScale: f32,
+  displacement: f32,
+  seed: f32,
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: padded_1,
+  n_n0c0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  var composed_0 = vec4f(((unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (paperSurface(uv, uniforms._sys.aspect, uniforms.n_n0.grainScale, uniforms.n_n0.seed, uniforms.n_n0.displacement, uniforms.n_n0.roughness)).xy))).rgb * (paperSurface(uv, uniforms._sys.aspect, uniforms.n_n0.grainScale, uniforms.n_n0.seed, uniforms.n_n0.displacement, uniforms.n_n0.roughness)).z), (unpremultiplyAlpha(textureSample(rtt_0, linearClamp, (paperSurface(uv, uniforms._sys.aspect, uniforms.n_n0.grainScale, uniforms.n_n0.seed, uniforms.n_n0.displacement, uniforms.n_n0.roughness)).xy))).a);
+  return vec4f(linearToSrgb(tone_linear(composed_0.rgb)) * composed_0.a, composed_0.a);
+}

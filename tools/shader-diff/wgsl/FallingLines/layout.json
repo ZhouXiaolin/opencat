@@ -1,0 +1,37 @@
+{
+  "name": "FallingLines",
+  "role": "generator",
+  "spec": {
+    "type": "FallingLines",
+    "props": {
+      "colorA": "#ffffff",
+      "colorB": "#ffffff00",
+      "colorSpace": "linear",
+      "angle": 90,
+      "speed": 0.5,
+      "speedVariance": 0.3,
+      "density": 15,
+      "trailLength": 0.35,
+      "balance": 0.5,
+      "strokeWidth": 0.15,
+      "rounding": 1
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

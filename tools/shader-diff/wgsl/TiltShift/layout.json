@@ -1,0 +1,46 @@
+{
+  "name": "TiltShift",
+  "role": "filter",
+  "spec": {
+    "type": "TiltShift",
+    "props": {
+      "intensity": 50,
+      "width": 0.3,
+      "falloff": 0.3,
+      "angle": 0,
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "dispersion": 0,
+      "jitter": 0
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

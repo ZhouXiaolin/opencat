@@ -1,0 +1,47 @@
+{
+  "name": "Form3D",
+  "role": "filter",
+  "spec": {
+    "type": "Form3D",
+    "props": {
+      "shape3d": "{\"type\":\"ribbon\",\"angle\":0,\"twist\":50,\"width\":40,\"thickness\":20,\"seed\":0}",
+      "shape3dType": "ribbon",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "zoom": 50,
+      "glossiness": 50,
+      "lighting": 50,
+      "uvMode": "stretch",
+      "speed": 1
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "IsometricCubes",
+  "role": "generator",
+  "spec": {
+    "type": "IsometricCubes",
+    "props": {
+      "colorA": "#7c5cff",
+      "colorB": "#ff5c9d",
+      "lineColor": "#000000",
+      "cells": 6,
+      "thickness": 1,
+      "rotation": 0,
+      "softness": 0,
+      "colorVariation": 1,
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

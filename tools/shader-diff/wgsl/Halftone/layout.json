@@ -1,0 +1,50 @@
+{
+  "name": "Halftone",
+  "role": "filter",
+  "spec": {
+    "type": "Halftone",
+    "props": {
+      "style": "classic",
+      "frequency": 100,
+      "angle": 45,
+      "cyanAngle": 15,
+      "magentaAngle": 75,
+      "yellowAngle": 0,
+      "blackAngle": 45,
+      "misprint": 0,
+      "misprintAngle": 0,
+      "paperColor": "#ffffff",
+      "cyanColor": "#00ffff",
+      "magentaColor": "#ff00ff",
+      "yellowColor": "#ffff00",
+      "blackColor": "#000000"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

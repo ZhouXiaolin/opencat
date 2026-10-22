@@ -1,0 +1,36 @@
+{
+  "name": "Godrays",
+  "role": "generator",
+  "spec": {
+    "type": "Godrays",
+    "props": {
+      "center": {
+        "x": 0,
+        "y": 0
+      },
+      "density": 0.3,
+      "intensity": 0.8,
+      "spotty": 1,
+      "speed": 0.5,
+      "rayColor": "#4283fb",
+      "backgroundColor": "transparent"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

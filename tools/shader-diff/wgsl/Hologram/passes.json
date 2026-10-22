@@ -1,0 +1,12 @@
+{
+  "rtt": [],
+  "finalReads": [
+    "compute_0"
+  ],
+  "rttFormat": "rgba16float",
+  "computeSteps": 1,
+  "computeNodeIds": [
+    "n0"
+  ],
+  "externalReads": []
+}

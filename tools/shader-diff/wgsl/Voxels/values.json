@@ -1,0 +1,118 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "scale": 1,
+  "rotation": 0,
+  "voxelSize": 0.035,
+  "voxelScale": 1,
+  "fill": 0,
+  "bevel": 0.08,
+  "depth": 0.12,
+  "colorA": [
+   0.197762593626976,
+   0.38375040888786316,
+   0.9415324330329895,
+   1
+  ],
+  "colorB": [
+   0.014394068159162998,
+   0.02376358024775982,
+   0.07315003871917725,
+   1
+  ],
+  "colorVariation": 0.25,
+  "colorSpace": 2,
+  "lightAngle": 225,
+  "lightElevation": 42,
+  "lightColor": [
+   0.9801020622253418,
+   0.8916434049606323,
+   0.7532480955123901,
+   1
+  ],
+  "lightIntensity": 1.1,
+  "ambientColor": [
+   0.36618122458457947,
+   0.45276939868927,
+   0.6642062664031982,
+   1
+  ],
+  "ambient": 0.55,
+  "shadows": 0.85,
+  "shadowSoftness": 0.35,
+  "ao": 1,
+  "glossiness": 0.35,
+  "specular": 0.6,
+  "seams": 0.2,
+  "_opacity": 1,
+  "_vfOriginX": 0,
+  "_vfOriginY": 0,
+  "_vfSpanX": 1,
+  "_vfSpanY": 1,
+  "_vfActiveRes": 1,
+  "_vfRBound": 0.6,
+  "_saRadius": 0.35,
+  "_saSides": 6,
+  "_saRounding": 0,
+  "_saInnerRatio": 0.4,
+  "_saRotation": 0,
+  "_saHeight": 0.25,
+  "_saOffset": 0.2,
+  "_saAperture": 270,
+  "_vxMx": [
+   1,
+   0,
+   0
+  ],
+  "_vxMy": [
+   0,
+   1,
+   0
+  ],
+  "_vxMz": [
+   0,
+   0,
+   1
+  ],
+  "_vxVoxel": 0.03,
+  "_vxGridOrigin": -0.6,
+  "_vxL": [
+   0,
+   0,
+   -1
+  ],
+  "_vxT1": [
+   1,
+   0,
+   0
+  ],
+  "_vxT2": [
+   0,
+   1,
+   0
+  ]
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

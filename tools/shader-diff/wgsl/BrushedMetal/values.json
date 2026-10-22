@@ -1,0 +1,70 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "scale": 1,
+  "rotation": 0,
+  "lightColor": [
+   0.8176735639572144,
+   0.830241322517395,
+   0.859987199306488,
+   1
+  ],
+  "darkColor": [
+   0.019708435982465744,
+   0.021158045157790184,
+   0.025760458782315254,
+   1
+  ],
+  "brushAngle": 0,
+  "anisotropy": 0.4,
+  "grain": 0.4,
+  "grainScale": 2,
+  "roughness": 0.5,
+  "environment": 1.4,
+  "envRotation": 0,
+  "lightAngle": 215,
+  "speed": 0.4,
+  "bevelWidth": 0.05,
+  "bevelShape": 0,
+  "edgeSoftness": 0.05,
+  "_opacity": 1,
+  "_animTime": 1.2,
+  "_vfOriginX": 0,
+  "_vfOriginY": 0,
+  "_vfSpanX": 1,
+  "_vfSpanY": 1,
+  "_vfActiveRes": 1,
+  "_vfRBound": 0.6,
+  "_saRadius": 0.35,
+  "_saSides": 6,
+  "_saRounding": 0,
+  "_saInnerRatio": 0.4,
+  "_saRotation": 0,
+  "_saHeight": 0.25,
+  "_saOffset": 0.2,
+  "_saAperture": 270
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

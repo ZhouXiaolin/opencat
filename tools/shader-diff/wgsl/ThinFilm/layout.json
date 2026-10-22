@@ -1,0 +1,50 @@
+{
+  "name": "ThinFilm",
+  "role": "generator+compute",
+  "spec": {
+    "type": "ThinFilm",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "intensity": 1,
+      "rimWidth": 1,
+      "edgeSoftness": 0.3,
+      "thickness": 0.5,
+      "dispersion": 0.5,
+      "saturation": 1,
+      "hueShift": 0,
+      "lightAngle": 300,
+      "mode": "rainbow",
+      "colorA": "#2b6fff",
+      "colorB": "#ffffff",
+      "colorC": "#ff7a21",
+      "colorSpace": "oklch",
+      "speed": 0.1,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

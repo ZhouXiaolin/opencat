@@ -1,0 +1,52 @@
+{
+  "name": "Water",
+  "role": "generator+compute",
+  "spec": {
+    "type": "Water",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "waterColor": "#00bfeb",
+      "clarity": 0.4,
+      "depth": 5,
+      "shallows": 0.5,
+      "caustics": 0.15,
+      "causticScale": 6,
+      "choppiness": 0.8,
+      "waveScale": 3.5,
+      "swirl": 0.6,
+      "speed": 0.5,
+      "reflection": 2,
+      "envRotation": 0,
+      "sharpness": 0.1,
+      "lightAngle": 30,
+      "foam": 0.3,
+      "edgeSoftness": 0.05,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

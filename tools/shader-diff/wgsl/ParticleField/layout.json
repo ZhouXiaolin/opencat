@@ -1,0 +1,52 @@
+{
+  "name": "ParticleField",
+  "role": "filter",
+  "spec": {
+    "type": "ParticleField",
+    "props": {
+      "count": 15000,
+      "depthSource": "luminance",
+      "depth": 0.7,
+      "particleShape": "dot",
+      "particleSize": 0.75,
+      "depthShading": 0.6,
+      "wobble": 0.35,
+      "zoom": 1,
+      "rotationX": 0,
+      "rotationY": 0,
+      "rotationZ": 0,
+      "offsetX": 0,
+      "offsetY": 0,
+      "cursorMode": "push",
+      "cursorStrength": 0.8,
+      "cursorRadius": 0.2
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "name": "SmokeFlow",
+  "role": "generator+compute",
+  "spec": {
+    "type": "SmokeFlow",
+    "props": {
+      "colorA": "#e29c8b",
+      "colorB": "#d517f9",
+      "stops": null,
+      "intensity": 1,
+      "emitRadius": 0.07,
+      "momentum": 20,
+      "dissipation": 0.5,
+      "detail": 10,
+      "gravity": 2,
+      "colorDecay": 0.5,
+      "colorSpace": "OKLAB"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

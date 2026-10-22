@@ -1,0 +1,73 @@
+{
+  "name": "Obsidian",
+  "role": "generator+compute",
+  "spec": {
+    "type": "Obsidian",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "bodyColor": "#06071a",
+      "colorA": "#ff2f7a",
+      "colorB": "#5fe6ff",
+      "stops": [
+        {
+          "color": "#ff2f7a",
+          "position": 0
+        },
+        {
+          "color": "#2a2cff",
+          "position": 0.3
+        },
+        {
+          "color": "#5fe6ff",
+          "position": 0.55
+        },
+        {
+          "color": "#a6ffd8",
+          "position": 0.75
+        },
+        {
+          "color": "#ffb3e6",
+          "position": 1
+        }
+      ],
+      "colorSpace": "oklab",
+      "iridescence": 1,
+      "rimWidth": 0.55,
+      "rimSoftness": 0.25,
+      "flowAngle": 30,
+      "flowScale": 1,
+      "speed": 0.5,
+      "gloss": 0.35,
+      "envRotation": 0,
+      "bevelWidth": 0.08,
+      "bevelShape": 0,
+      "edgeSoftness": 0.05,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

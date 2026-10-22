@@ -1,0 +1,74 @@
+{
+ "n_root": {
+  "_opacity": 1
+ },
+ "n_n0": {
+  "center": [
+   0.5,
+   0.5
+  ],
+  "scale": 1,
+  "rotation": 0,
+  "intensity": 1,
+  "rimWidth": 1,
+  "edgeSoftness": 0.3,
+  "thickness": 0.5,
+  "dispersion": 0.5,
+  "saturation": 1,
+  "hueShift": 0,
+  "lightAngle": 300,
+  "colorA": [
+   0.04809032753109932,
+   0.15448614954948425,
+   0.9224409461021423,
+   1
+  ],
+  "colorB": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "colorC": [
+   0.8570140600204468,
+   0.22135184705257416,
+   0.04502011835575104,
+   1
+  ],
+  "colorSpace": 1,
+  "speed": 0.1,
+  "_opacity": 1,
+  "_animTime": 0.3,
+  "_vfOriginX": 0,
+  "_vfOriginY": 0,
+  "_vfSpanX": 1,
+  "_vfSpanY": 1,
+  "_vfActiveRes": 1,
+  "_vfRBound": 0.6,
+  "_saRadius": 0.35,
+  "_saSides": 6,
+  "_saRounding": 0,
+  "_saInnerRatio": 0.4,
+  "_saRotation": 0,
+  "_saHeight": 0.25,
+  "_saOffset": 0.2,
+  "_saAperture": 270
+ },
+ "_sys": {
+  "time": 0,
+  "viewportSize": [
+   1,
+   1
+  ],
+  "logicalViewportSize": [
+   1,
+   1
+  ],
+  "aspect": 1,
+  "pointer": [
+   0.5,
+   0.5
+  ],
+  "pointerActive": 0
+ }
+}

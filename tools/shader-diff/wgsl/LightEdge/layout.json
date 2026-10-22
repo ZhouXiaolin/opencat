@@ -1,0 +1,64 @@
+{
+  "name": "LightEdge",
+  "role": "generator+compute",
+  "spec": {
+    "type": "LightEdge",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "colorA": "#7b2ff7",
+      "colorB": "#00e0ff",
+      "stops": [
+        {
+          "color": "#7b2ff7",
+          "position": 0
+        },
+        {
+          "color": "#00e0ff",
+          "position": 0.5
+        },
+        {
+          "color": "#ff3d81",
+          "position": 1
+        }
+      ],
+      "colorSpace": "linear",
+      "thickness": 0.25,
+      "softness": 0.5,
+      "intensity": 0.6,
+      "bloom": 0.3,
+      "spots": 3,
+      "spotSize": 0.5,
+      "pulse": 0,
+      "smoke": 0.3,
+      "smokeSize": 0.5,
+      "speed": 1,
+      "seed": 0,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

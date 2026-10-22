@@ -1,0 +1,44 @@
+{
+  "name": "CRTScreen",
+  "role": "filter",
+  "spec": {
+    "type": "CRTScreen",
+    "props": {
+      "pixelSize": 128,
+      "colorShift": 1,
+      "scanlineIntensity": 0.3,
+      "scanlineFrequency": 200,
+      "brightness": 1,
+      "contrast": 1,
+      "vignetteIntensity": 1,
+      "vignetteRadius": 0.5
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "DiamondGradient",
+  "role": "generator",
+  "spec": {
+    "type": "DiamondGradient",
+    "props": {
+      "colorA": "#4ffb4a",
+      "colorB": "#4f1238",
+      "stops": null,
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "size": 0.7,
+      "rotation": 0,
+      "repeat": 1,
+      "roundness": 0,
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

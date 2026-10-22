@@ -1,0 +1,60 @@
+{
+  "name": "Voxels",
+  "role": "generator+compute",
+  "spec": {
+    "type": "Voxels",
+    "props": {
+      "origin": "center",
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "scale": 1,
+      "rotation": 0,
+      "voxelSize": 0.035,
+      "voxelShape": "cube",
+      "voxelScale": 1,
+      "fill": 0,
+      "bevel": 0.08,
+      "depth": 0.12,
+      "gridSpace": "shape",
+      "colorA": "#6ea8ff",
+      "colorB": "#1d2b4f",
+      "colorMode": "height",
+      "colorVariation": 0.25,
+      "colorSpace": "oklab",
+      "lightAngle": 225,
+      "lightElevation": 42,
+      "lightColor": "#fff2df",
+      "lightIntensity": 1.1,
+      "ambientColor": "#9fb4d8",
+      "ambient": 0.55,
+      "shadows": 0.85,
+      "shadowSoftness": 0.35,
+      "ao": 1,
+      "glossiness": 0.35,
+      "specular": 0.6,
+      "seams": 0.2,
+      "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+      "shapeSdfUrl": "",
+      "shapeType": ""
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

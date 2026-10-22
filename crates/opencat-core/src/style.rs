@@ -1946,6 +1946,10 @@ pub struct NodeStyle {
 
     // SVG / Path (Tailwind align: fill-*, stroke-*)
     pub fill_color: Option<ColorToken>,
+    /// `fill: none` —— 与「没声明 fill」不同：没声明时 SVG 的初始值是黑色，
+    /// 声明 none 则不填充。MorphSVG 读 computed `fill` 决定 `fillSafe`
+    /// （填充形状要考虑绕向，描边形状不用），所以两者不能合并。
+    pub fill_none: bool,
     pub stroke_color: Option<ColorToken>,
     pub stroke_width: Option<f32>,
     pub stroke_dasharray: Option<StrokeDash>,

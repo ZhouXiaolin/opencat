@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi, type MockInstance } from 'vitest';
 import {
   clearCachedVideoFrames,
   getCachedVideoFrameRgba,
@@ -6,20 +6,17 @@ import {
   injectVideoFramesForRender,
   prefetchVideoFramesForRender,
 } from '../../crates/opencat-web/web/src/media/video-frame-injector';
-import {
-  getDecodedFrameRgba,
-  getDecodedVideoFrame,
-  prefetchDecodedVideoFrame,
-} from '../../crates/opencat-web/web/src/media/video-decoder';
+import * as videoDecoder from '../../crates/opencat-web/web/src/media/video-decoder';
 
-vi.mock('../../crates/opencat-web/web/src/media/video-decoder', () => ({
-  getDecodedFrameRgba: vi.fn(),
-  getDecodedVideoFrame: vi.fn(),
-  prefetchDecodedVideoFrame: vi.fn(),
-}));
+// 命名空间 spyOn,不用 vi.mock 工厂:后者依赖 hoisting,在 bun 的 vitest
+// 运行时里会被忽略(导入绑定到真实模块,spy 不生效)。beforeEach 里重建
+// 三个 let 绑定,测试体直接引用这些名字。
+let getDecodedFrameRgba: MockInstance<typeof videoDecoder.getDecodedFrameRgba>;
+let getDecodedVideoFrame: MockInstance<typeof videoDecoder.getDecodedVideoFrame>;
+let prefetchDecodedVideoFrame: MockInstance<typeof videoDecoder.prefetchDecodedVideoFrame>;
 
-function mockFn<T extends (...args: any[]) => any>(fn: T) {
-  return fn as unknown as ReturnType<typeof vi.fn>;
+function mockFn(fn: unknown) {
+  return fn as ReturnType<typeof vi.fn>;
 }
 
 // Build a mediaPlan string with the given video frames.
@@ -29,7 +26,10 @@ function mediaPlanWith(videoFrames: { assetId: string; timeMicros: number }[]): 
 
 describe('video frame injector', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    getDecodedFrameRgba = vi.spyOn(videoDecoder, 'getDecodedFrameRgba');
+    getDecodedVideoFrame = vi.spyOn(videoDecoder, 'getDecodedVideoFrame');
+    prefetchDecodedVideoFrame = vi.spyOn(videoDecoder, 'prefetchDecodedVideoFrame');
     clearCachedVideoFrames();
   });
 

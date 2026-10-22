@@ -1,5 +1,6 @@
 import { gsap } from 'gsap';
-import { useGSAP, useCanvas, useRef } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useGSAP, useFrame } from 'opencat/runtime';
 import { clamp, hexRgb } from '../shared.jsx';
 /* ══ flex-css (master 17.30-19.01, compositions/flex-css.html) ══════════ */
 var CSS_START = 17.30, CSS_DUR = 1.71;
@@ -7,9 +8,10 @@ var CSS_ORDER = [0, 1, 2, 3, 4, 5, 11, 17, 16, 15, 14, 13, 12, 6, 7, 8, 10, 9];
 var CSS_CELL = 'rounded-[16px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.05)] border-[1px] border-[rgba(0,0,0,0.04)] overflow-hidden flex items-center justify-center';
 var CSS_P = { red: '#e63946', blue: '#457b9d', orange: '#f4a261', teal: '#2a9d8f', navy: '#1d3557', rose: '#d4738a', lime: '#84a98c', purple: '#6b4c9a' };
 
+let FC_CK = null;
+CanvasKitInit({}).then((ck) => { FC_CK = ck; });
+
 export default function FlexCss() {
-  const spin1 = useRef(), spin2 = useRef(), orb1 = useRef(), orb2 = useRef();
-  const grad1 = useRef(), grad2 = useRef();
 
   useGSAP(() => {
     var T = ctx.current.time;
@@ -115,20 +117,23 @@ export default function FlexCss() {
 
   });
 
-  /* CanvasKit 绘制走 useCanvas；useGSAP 只留 tween */
-  useCanvas(spin1, (c, t) => drawSpin(c, t, 1, CSS_P.red, CSS_P.blue));
-  useCanvas(spin2, (c, t) => drawSpin(c, t, 0.8, CSS_P.teal, CSS_P.orange));
-  useCanvas(orb1, (c, t) => drawOrbit(c, t, 1, [CSS_P.red, CSS_P.blue, CSS_P.orange]));
-  useCanvas(orb2, (c, t) => drawOrbit(c, t, -1, [CSS_P.teal, CSS_P.purple, CSS_P.lime]));
-  useCanvas(grad1, (c) => drawConic(c, [[230, 57, 70], [244, 162, 97], [42, 157, 143], [69, 123, 157]]));
-  useCanvas(grad2, (c) => drawConic(c, [[107, 76, 154], [212, 115, 138], [132, 169, 140], [29, 53, 87]]));
+  /* CanvasKit 绘制走 useFrame + 官方 MakeCanvasSurface；useGSAP 只留 tween */
+  useFrame((ctx, t) => {
+    if (!FC_CK) return;
+    drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin1').getCanvas(), t, 1, CSS_P.red, CSS_P.blue, FC_CK);
+    drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin2').getCanvas(), t, 0.8, CSS_P.teal, CSS_P.orange, FC_CK);
+    drawOrbit(FC_CK.MakeCanvasSurface('fc-cv-orb1').getCanvas(), t, 1, [CSS_P.red, CSS_P.blue, CSS_P.orange], FC_CK);
+    drawOrbit(FC_CK.MakeCanvasSurface('fc-cv-orb2').getCanvas(), t, -1, [CSS_P.teal, CSS_P.purple, CSS_P.lime], FC_CK);
+    drawConic(FC_CK.MakeCanvasSurface('fc-cv-grad1').getCanvas(), [[230, 57, 70], [244, 162, 97], [42, 157, 143], [69, 123, 157]]);
+    drawConic(FC_CK.MakeCanvasSurface('fc-cv-grad2').getCanvas(), [[107, 76, 154], [212, 115, 138], [132, 169, 140], [29, 53, 87]]);
+  });
 
   return (
     <div id="fc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fafaf2]">
       <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#fafaf2_0%,#f0efe6_100%)]"></div>
       <div id="fc-wrap" class="absolute inset-0">
         <div class="absolute left-[12px] top-[12px] w-[1896px] h-[1056px] grid grid-cols-6 grid-rows-3 gap-[12px]">
-          <div id="fc-c0" class={CSS_CELL}><canvas ref={spin1} id="fc-cv-spin1" class="w-[80px] h-[80px]" /></div>
+          <div id="fc-c0" class={CSS_CELL}><canvas id="fc-cv-spin1" class="w-[80px] h-[80px]" /></div>
           <div id="fc-c1" class={CSS_CELL}>
             <div class="relative w-[80px] h-[80px]">
               <div id="fc-pulse-dot" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full bg-[#2a9d8f]"></div>
@@ -146,8 +151,8 @@ export default function FlexCss() {
             </div>
           </div>
           <div id="fc-c3" class={CSS_CELL}><div id="fc-morph" class="w-[80px] h-[80px] rounded-[8px] bg-[#e63946]"></div></div>
-          <div id="fc-c4" class={CSS_CELL}><canvas ref={orb1} id="fc-cv-orb1" class="w-[100px] h-[100px]" /></div>
-          <div id="fc-c5" class={CSS_CELL}><canvas ref={grad1} id="fc-cv-grad1" class="w-[110px] h-[110px]" /></div>
+          <div id="fc-c4" class={CSS_CELL}><canvas id="fc-cv-orb1" class="w-[100px] h-[100px]" /></div>
+          <div id="fc-c5" class={CSS_CELL}><canvas id="fc-cv-grad1" class="w-[110px] h-[110px]" /></div>
 
           <div id="fc-c6" class={CSS_CELL}>
             <div class="flex flex-col gap-[10px] w-[160px]">
@@ -174,10 +179,10 @@ export default function FlexCss() {
               ))}
             </div>
           </div>
-          <div id="fc-c11" class={CSS_CELL}><canvas ref={spin2} id="fc-cv-spin2" class="w-[80px] h-[80px]" /></div>
+          <div id="fc-c11" class={CSS_CELL}><canvas id="fc-cv-spin2" class="w-[80px] h-[80px]" /></div>
 
-          <div id="fc-c12" class={CSS_CELL}><canvas ref={grad2} id="fc-cv-grad2" class="w-[110px] h-[110px]" /></div>
-          <div id="fc-c13" class={CSS_CELL}><canvas ref={orb2} id="fc-cv-orb2" class="w-[100px] h-[100px]" /></div>
+          <div id="fc-c12" class={CSS_CELL}><canvas id="fc-cv-grad2" class="w-[110px] h-[110px]" /></div>
+          <div id="fc-c13" class={CSS_CELL}><canvas id="fc-cv-orb2" class="w-[100px] h-[100px]" /></div>
           <div id="fc-c14" class={CSS_CELL}>
             <div class="flex items-end gap-[6px] h-[90px]">
               <div id="fc-bars2-0" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[50px]"></div>
@@ -209,9 +214,8 @@ export default function FlexCss() {
 }
 
 /* spinner cell: two offset ring arcs, 720/-540 deg per beat. `c` is the
-   ref-resolved canvas handle from useCanvas. */
-function drawSpin(c, t, sp, c1, c2) {
-  var ck = c.CK;
+   official MakeCanvasSurface handle. */
+function drawSpin(c, t, sp, c1, c2, ck) {
   c.clear();
   var paint = new ck.Paint();
   paint.setStyle(ck.PaintStyle.Stroke);
@@ -233,8 +237,7 @@ function drawSpin(c, t, sp, c1, c2) {
 }
 
 /* orbit cell: 3 dots on R=36, proxy angle -> per-frame maths. */
-function drawOrbit(c, t, dir, cols) {
-  var ck = c.CK;
+function drawOrbit(c, t, dir, cols, ck) {
   c.clear();
   var paint = new ck.Paint();
   paint.setStyle(ck.PaintStyle.Fill);

@@ -1,11 +1,12 @@
 // JSX frontend port of examples/nexus7-cyberpunk.jsx — see the XML original for
 // the full scene notes. What changes: `<template>` becomes a component
 // (props replace $id/$color), and the `<script>` block splits by capability
-// (useGSAP for the gsap.to/fromTo facade part, useCanvas for the
+// (useGSAP for the gsap timeline part, useFrame + CanvasKitInit for the
 // neural-fabric canvas).
 
 import { gsap } from 'gsap';
-import { useCanvas, useGSAP, useRef } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useGSAP, useFrame } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 30 };
 
@@ -75,9 +76,11 @@ function Corners({ id, color }) {
 
 /* ── Scene 5 神经织网：canvas + 每帧确定性重绘 ── */
 function NeuralFabric() {
-  const net = useRef();
-  useCanvas(net, (cv, t, ctx) => {
-    const CK = ctx.CanvasKit;
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
+  useFrame((ctx, t) => {
+    if (!CK) return;
+    const cv = CK.MakeCanvasSurface('s5-net').getCanvas();
         cv.clear();
         function hash(i) {
           var n = (i * 1274126177) ^ 1664525;
@@ -128,7 +131,7 @@ function NeuralFabric() {
           cv.drawCircle(nd.x, nd.y, nd.r * 0.7 * pulse + 1.6, nodeP);
         }
   });
-  return <canvas id="s5-net" ref={net} class="absolute inset-0 w-full h-full" />;
+  return <canvas id="s5-net" class="absolute inset-0 w-full h-full" />;
 }
 
 export default function Nexus7() {

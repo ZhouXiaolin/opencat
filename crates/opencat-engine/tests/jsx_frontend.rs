@@ -91,9 +91,11 @@ fn dribbble_port_extracts_tree_and_frame_driver() {
     for expected in ["root", "pink-glow", "logo-container", "logo-path", "particle-canvas"] {
         assert!(ids.iter().any(|id| id == expected), "missing id `{expected}` in {ids:?}");
     }
-    // Per-frame driver: reset, re-render, replay `use*` hooks.
+    // Per-frame driver: reset, re-render. The `use*` hooks replay in
+    // run_frame, after the frame's microtask drain (promise-resolved
+    // entries — CanvasKitInit — are in place before any draw).
     assert!(driver.contains("__ocResetFrame()"), "driver: {driver}");
-    assert!(driver.contains("__ocRunFrameHooks()"), "driver: {driver}");
+    assert!(!driver.contains("__ocRunFrameHooks()"), "driver: {driver}");
     assert!(driver.contains("__ocModuleSources"), "driver: {driver}");
 }
 

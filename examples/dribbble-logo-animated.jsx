@@ -5,7 +5,8 @@
 // callbacks, which the pipeline replays per frame — frame = f(t).
 
 import { gsap } from 'gsap';
-import { useCanvas, useCanvasKit, useGSAP, useRef } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useGSAP, useFrame } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 6 };
 
@@ -53,7 +54,7 @@ export default function Scene() {
   );
 }
 
-/* ── 粒子系统 (useCanvas per-frame draw) ── */
+/* ── 粒子系统 (useFrame per-frame draw) ── */
 const PARTICLE_COUNT = 30;
 const particles = [];
 
@@ -83,8 +84,11 @@ const particleDuration = 0.666667;
 const particleEnd = particleStart + particleDuration;
 
 function ParticleField() {
-  const canvas = useRef();
-  useCanvas(canvas, (c, t) => {
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
+  useFrame((ctx, t) => {
+    if (!CK) return;
+    const c = CK.MakeCanvasSurface('particle-canvas').getCanvas();
     if (t < particleStart || t > particleEnd) {
       c.clear();
       return;
@@ -92,11 +96,13 @@ function ParticleField() {
     c.clear();
     const progress = (t - particleStart) / particleDuration;
     const eased = 1 - Math.pow(1 - progress, 3);
-    const paint = c.paint({ color: [0.918, 0.298, 0.537, 1 - progress], style: 'fill' });
+    const paint = new CK.Paint();
+    paint.setStyle(CK.PaintStyle.Fill);
+    paint.setColor([0.918, 0.298, 0.537, 1 - progress]);
     for (let k = 0; k < PARTICLE_COUNT; k++) {
       const p = particles[k];
       c.drawCircle(p.cx + p.dx * eased, p.cy + p.dy * eased, p.r, paint);
     }
   });
-  return <canvas id="particle-canvas" ref={canvas} class="absolute inset-0 z-30 pointer-events-none w-[1920px] h-[1080px]" />;
+  return <canvas id="particle-canvas" class="absolute inset-0 z-30 pointer-events-none w-[1920px] h-[1080px]" />;
 }

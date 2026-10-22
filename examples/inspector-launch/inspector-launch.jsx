@@ -16,6 +16,7 @@
  */
 import { gsap } from 'gsap';
 import { CustomEase } from 'gsap/CustomEase';
+import CanvasKitInit from 'canvaskit-wasm';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 44.97 };
@@ -299,8 +300,11 @@ function vis(ctx, id, on) { var n = ctx.getNode(id); if (n) n.opacity(on ? 1 : 0
 
 /* ════════════ global halftone background ════════════ */
 function Halftone() {
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   useGSAP(() => {
-    var CK = ctx.CanvasKit, T = ctx.global.time;
+    if (!CK) return;
+    var T = ctx.global.time;
     var node = ctx.getNode('global-halftone');
     if (node) {
       node.translateX(htView.x);
@@ -308,7 +312,7 @@ function Halftone() {
       node.scale(htView.scale);
       node.filter('hue-rotate(' + htView.hue + 'deg) saturate(' + htView.sat + ') blur(' + htView.blur + 'px)');
     }
-    var gcv = ctx.getCanvasById('global-halftone');
+    var gcv = CK.MakeCanvasSurface('global-halftone').getCanvas();
     if (!gcv) return;
     gcv.clear();
     var s = halftoneS();

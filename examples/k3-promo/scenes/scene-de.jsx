@@ -1,10 +1,12 @@
 import { gsap } from 'gsap';
 import { SplitText } from 'gsap/SplitText';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { Cdot, StageCanvas, Tick, clamp, drawPlusses, drawQmarks, mulberry32, vis } from './shared.jsx';
 
 export default function SceneDE() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 7.35 && T < 11.293) {
@@ -62,12 +64,13 @@ export default function SceneDE() {
     }
   });
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     var DE_ON = (T >= 7.35 && T < 11.293);
     vis(ctx, 'sceneDE', DE_ON);
     if (DE_ON) {
       // D bottom pin wave (7.34 → 9.5s)
-      var dcv = ctx.getCanvasById('dpins-canvas');
+      var dcv = CK.MakeCanvasSurface('dpins-canvas').getCanvas();
       if (dcv) {
         dcv.clear();
         if (T >= 7.34 && T <= 9.5) {
@@ -101,7 +104,7 @@ export default function SceneDE() {
       // E helix pins via canvas projection. Perspective: rotateX(phi-90deg)
       // under perspective:4100px about the SCREEN centre. Dots ride the same
       // endpoints; near-side rod luma +10% (cosφ>0 → #515152).
-      var hcv = ctx.getCanvasById('epins-canvas');
+      var hcv = CK.MakeCanvasSurface('epins-canvas').getCanvas();
       if (hcv) {
         hcv.clear();
         if (T >= 9.0 && T <= 11.35) {
@@ -128,7 +131,7 @@ export default function SceneDE() {
       // by single-frame xcorr (r14 §26.3 method); glide X = hatchGlide()
       // verbatim (measured schedule).
       {
-        var OC = ctx.getCanvasById('ohatch-canvas');
+        var OC = CK.MakeCanvasSurface('ohatch-canvas').getCanvas();
         var oHA = 0;
         if (T >= 7.73) oHA = 1;
         else if (T >= 7.4) {
@@ -177,7 +180,7 @@ export default function SceneDE() {
            Glide = hatchGlide Xm/Xa. m-box extra chain = main −50px (Chrome
            tile artifact, not in source CSS); a-box NEVER shows it. */
         if (T >= 9.1 && T <= 11.3) {
-          var mHC = ctx.getCanvasById('mhatch-canvas'), aHC = ctx.getCanvasById('ahatch-canvas');
+          var mHC = CK.MakeCanvasSurface('mhatch-canvas').getCanvas(), aHC = CK.MakeCanvasSurface('ahatch-canvas').getCanvas();
           var Xm2 = 0, Xa2 = 0;
           if (hf >= 285) { var mu2 = Math.min(hf - 285, 97.8); Xm2 = 4.4 * mu2 - 0.0225 * mu2 * mu2; }
           if (hf >= 286) {
@@ -207,7 +210,7 @@ export default function SceneDE() {
       }
       // deqmarks: 4 qmarks + 4 plusses, static while the clip is on (the
       // layer fade carries them out).
-      var dqCv = ctx.getCanvasById('deqmarks-canvas');
+      var dqCv = CK.MakeCanvasSurface('deqmarks-canvas').getCanvas();
       if (dqCv) {
         dqCv.clear();
         drawQmarks(CK, dqCv, [[205, 215, -1, -1], [1720, 215, 1, -1], [205, 870, -1, 1], [1720, 870, 1, 1]]);

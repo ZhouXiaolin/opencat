@@ -1,10 +1,12 @@
 import { gsap } from 'gsap';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { AgentPill, Cdot, GS, StageCanvas, clamp, getK3Field, makeMeasure, mulberry32, pillWidths, vis } from './shared.jsx';
 
 
 export default function SceneA() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   // gsap code: declarative timelines (zoom/field envelope, title fade).
   useGSAP((ctx, t) => {
     var T = t;
@@ -35,6 +37,7 @@ export default function SceneA() {
   });
   // CanvasKit drawing + per-frame gating.
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     var A_ON = (T >= 0.75 && T < 4.62);
     vis(ctx, 'sceneA', A_ON);
@@ -46,7 +49,7 @@ export default function SceneA() {
       function ioEase(p) { p = p < 0 ? 0 : (p > 1 ? 1 : p); return p < 0.5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p); }
 
       function paintField(canvasId, purple) {
-        var cv = ctx.getCanvasById(canvasId); if (!cv) return;
+        var cv = CK.MakeCanvasSurface(canvasId).getCanvas(); if (!cv) return;
         cv.clear();
         var pf = new CK.Paint(); pf.setStyle(CK.PaintStyle.Fill);
         var ps = new CK.Paint(); ps.setStrokeWidth(1); ps.setStyle(CK.PaintStyle.Stroke);
@@ -225,7 +228,7 @@ export default function SceneA() {
       // centre ("/" direction), inside the clipped 467x185 aselrect at
       // (755,444). Dashes 3x13 glide down-left. Drawn on BOTH canvases.
       function drawLanes(canvasId, purple) {
-        var cv = ctx.getCanvasById(canvasId); if (!cv) return;
+        var cv = CK.MakeCanvasSurface(canvasId).getCanvas(); if (!cv) return;
         var lineA = purple ? 0.22 : 0.10, dashA = purple ? 0.78 : 0.6;
         var lc = purple ? [171, 132, 207] : [255, 255, 255];
         var dc = purple ? [171, 132, 207] : [224, 224, 228];
@@ -295,7 +298,7 @@ export default function SceneA() {
       // .hstrip hatch lives on its own canvas inside #apills (same z-layer
       // as the pill boxes, unaffected by #afield's envelope fade)
       var F = Math.floor(T * 30 + 1e-4); // frame number
-      var sCvAll = ctx.getCanvasById('apill-canvas');
+      var sCvAll = CK.MakeCanvasSurface('apill-canvas').getCanvas();
       if (sCvAll) sCvAll.clear();
       if (T >= 1.4 && T <= 4.6) {
         var th = orbTheta(T);
@@ -365,7 +368,7 @@ export default function SceneA() {
       // short alternating, 18 mid dots; container #afurn fades via the
       // timeline above.
       if (T >= 0.75 && T < 4.62) {
-        var sAL = ctx.getCanvasById('stripAL'), sAR = ctx.getCanvasById('stripAR');
+        var sAL = CK.MakeCanvasSurface('stripAL').getCanvas(), sAR = CK.MakeCanvasSurface('stripAR').getCanvas();
         var scvs = [sAL, sAR];
         for (var si = 0; si < 2; si++) {
           var scv = scvs[si]; if (!scv) continue;

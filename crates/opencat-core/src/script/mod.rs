@@ -1,7 +1,7 @@
 //! Shared JS script runtime files.
 //!
 //! These JS files implement the user-facing animation and style API
-//! (`ctx.getNode()`, `ctx.animate()`, `ctx.canvas()`, etc.) and are
+//! (`ctx.getNode()`, `ctx.animate()`, etc.) and are
 //! evaluated by both the desktop engine (via QuickJS) and the web
 //! frontend (via the browser's native JS engine).
 //!

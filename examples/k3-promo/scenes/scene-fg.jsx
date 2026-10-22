@@ -1,9 +1,11 @@
 import { gsap } from 'gsap';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { Bigword, StageCanvas, drawPlusses, drawQmarks, drawStrip, vis } from './shared.jsx';
 
 export default function SceneFG() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 11.233 && T < 13.7) {
@@ -31,6 +33,7 @@ export default function SceneFG() {
     }
   });
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     var FG_ON = (T >= 11.233 && T < 13.7);
     vis(ctx, 'sceneFG', FG_ON);
@@ -41,14 +44,14 @@ export default function SceneFG() {
       document.getElementById('gw1').left(486.758); document.getElementById('gw2').left(738.6634); document.getElementById('gw3').left(1071.4648);
       // F furniture: stripFL/FR inside #ffurn; G furniture: stripGL/GR +
       // gqmarks + plusses inside #gfurn.
-      var ffCv = ctx.getCanvasById('ffurn-canvas');
+      var ffCv = CK.MakeCanvasSurface('ffurn-canvas').getCanvas();
       if (ffCv) {
         ffCv.clear();
         if (T >= 11.633 && T < 12.717) {
           drawStrip(CK, ffCv, 239, 532, 85, 12, 13); drawStrip(CK, ffCv, 1595, 532, 85, 12, 13);
         }
       }
-      var gfCv = ctx.getCanvasById('gfurn-canvas');
+      var gfCv = CK.MakeCanvasSurface('gfurn-canvas').getCanvas();
       if (gfCv) {
         gfCv.clear();
         if (T >= 12.7297) {

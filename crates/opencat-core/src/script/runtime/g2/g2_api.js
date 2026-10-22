@@ -245,12 +245,22 @@
 
     // g-canvaskit's `loadCanvaskit()` resolves through this. The bundle's
     // canvaskit-wasm glue is patched out (it cannot run in this realm), so the
-    // only thing that answers is our own facade.
+    // only thing that answers is our own facade — the G2 view over it.
     globalThis.__ocCanvasKitInit = function (options) {
-        return Promise.resolve(extendCanvasKit());
+        return Promise.resolve(g2CanvasKit());
     };
 
-    function extendCanvasKit() {
+    // ── the G2 view over the one CanvasKit facade ────────────────────
+    // `globalThis.CanvasKit` (canvas_api.js) carries the official signature
+    // surface: Skia enum numbers, Paint/Path/Font, RuntimeEffect, color/rect
+    // helpers, MakeCanvasSurface. G2 additionally needs text layout + font
+    // management and a chart-specific surface. Everything here is a DERIVED
+    // object (`Object.create`) so the public facade never carries G2-only
+    // shapes (inert Font handles, fake Paragraphs, the skip-unconfigured-
+    // paint surface). Text is measured through the same real-font path that
+    // draws the glyphs (`__canvas_measure_paragraph`); paragraphs draw
+    // through the surface path (`__canvas_draw_paragraph`).
+    function g2CanvasKit() {
         var CK = globalThis.CanvasKit;
         if (!CK) throw new Error('g2: CanvasKit facade is not installed');
         CK.ParagraphStyle = function ParagraphStyle(style) { this.style = style || {}; };
@@ -289,26 +299,15 @@
         CK.TextAlign = { Left: 0, Right: 1, Center: 2, Justify: 3, Start: 4, End: 5 };
         CK.RectHeightStyle = { Tight: 0, Max: 1 };
         CK.FontStyle = FakeCKFontStyle;
-        CK.MakeWebGLCanvasSurface = function (canvas) { return makeG2Surface(canvas); };
-        CK.MakeCanvasSurface = CK.MakeWebGLCanvasSurface;
-        CK.Color4f = function (r, g, b, a) { return [r, g, b, a == null ? 1 : a]; };
-        // g-canvaskit clears the surface with a Color4f before drawing and
-        // builds fills from gradient shaders; both are read by the recorder,
-        // which resolves a [r,g,b,a] list into its own color representation.
-        CK.TileMode = { Clamp: 0, Repeat: 1, Mirror: 2, Decal: 3 };
+        // Text baseline/decoration enums: read only to map chart spec
+        // keywords; the recorder draws paragraphs as one run, so decoration
+        // is dropped rather than modelled.
         CK.TextBaseline = { Alphabetic: 0, Top: 1, Bottom: 2, Middle: 3, Ideographic: 4, Hanging: 5 };
-        CK.FontEdging = { Alias: 0, AntiAlias: 1, SubpixelAntiAlias: 2 };
-        CK.FontHinting = { None: 0, Slight: 1, Normal: 2, Full: 3 };
-        CK.BlurStyle = { Normal: 0, Solid: 1, Outer: 2, Inner: 3 };
-        // Text decoration support is only read to map CSS keywords; the
-        // recorder draws paragraphs as one run, so decoration is dropped
-        // rather than modelled.
         CK.DecorationStyle = { Solid: 0, Double: 1, Dotted: 2, Dashed: 3, Wavy: 4 };
         CK.NoDecoration = 0;
         CK.UnderlineDecoration = 1;
         CK.OverlineDecoration = 2;
         CK.LineThroughDecoration = 4;
-        CK.TextDirection = CK.TextDirection || { LTR: 1, RTL: 0 };
         CK.PathEffect = {
             MakeDash: function (intervals, phase) { return { __opencatPathEffect: true, kind: 'dash', intervals: intervals, phase: phase || 0 }; },
             MakeDiscrete: function () { return { __opencatPathEffect: true, kind: 'discrete' }; },
@@ -316,24 +315,12 @@
             MakeSum: function (a, b) { return a || b; },
             MakeCorner: function (radius) { return { __opencatPathEffect: true, kind: 'corner', radius: radius }; },
         };
-        CK.MaskFilter = {
-            MakeBlur: function (style, sigma, respectCTM) { return { __opencatMaskFilter: true, style: style, sigma: sigma, respectCTM: respectCTM }; },
-        };
-        CK.ImageFilter = {
-            MakeBlur: function (sigmaX, sigmaY, mode) { return { __opencatImageFilter: true, mode: mode, sigmaX: sigmaX, sigmaY: sigmaY }; },
-        };
-        CK.PaintStyle = CK.PaintStyle || { Fill: 0, Stroke: 1 };
-        CK.StrokeCap = CK.StrokeCap || { Butt: 0, Round: 1, Square: 2 };
-        CK.StrokeJoin = CK.StrokeJoin || { Miter: 0, Round: 1, Bevel: 2 };
-        CK.ClipOp = CK.ClipOp || { Difference: 0, Intersect: 1 };
         CK.makePathFromSVGString = function () { return null; };
         CK.makePathFromCmds = function () { return null; };
-        CK.BlendMode = CK.BlendMode || { Clear: 0, Src: 1, Dst: 2, SrcOver: 3, DstOver: 4 };
         CK.Image = {
             MakeFromEncoded: function () { return { width: function () { return 0; }, height: function () { return 0; }, delete: function () {} }; },
             MakeFromImage: function (image) { return image; },
         };
-        CK.Shader = CK.Shader || {};
         // 3x3 row-major is a good enough approximation for what G2 asks of the
         // matrix helpers; the actual shaders are built on the Rust side.
         CK.Matrix = {
@@ -356,6 +343,10 @@
                 return out;
             },
         };
+        // G2's renderer reaches the canvas through its own surface so a
+        // never-configured paint draw is dropped (see makeG2Surface).
+        CK.MakeWebGLCanvasSurface = function (canvas) { return makeG2Surface(canvas); };
+        CK.MakeCanvasSurface = CK.MakeWebGLCanvasSurface;
         return CK;
     }
 
@@ -369,9 +360,9 @@
 
     // ── the recording surface ────────────────────────────────────────
     // `getCanvas()` forwards to `globalThis.ctx.getCanvasById(nodeId)` — the
-    // exact same facade a `useCanvas` callback receives, so G2's draws land on
-    // the node's DrawOp stream. `flush()` is a no-op (ops are already in the
-    // stream and are replayed by the renderer).
+    // exact same CanvasKit Canvas facade official `MakeCanvasSurface` code
+    // reaches, so G2's draws land on the node's DrawOp stream. `flush()` is a
+    // no-op (ops are already in the stream and are replayed by the renderer).
     // A paint no setter has ever touched carries the class defaults (fill
     // style, opaque black); g-canvaskit produces those when its
     // `lineWidth > 0` guard skips the whole configure block for a zero-width
@@ -666,7 +657,7 @@
         currentWidth = width;
         currentHeight = height;
         installDomShims(nodeId, width, height);
-        extendCanvasKit();
+        var g2CK = g2CanvasKit();
         globalThis.__ocG2SetTime(t);
 
         // Cache hit: the store replays the recorded ops and re-registers the
@@ -695,7 +686,7 @@
                     next.renderer = new RendererClass({
                         width: width,
                         height: height,
-                        canvasKit: globalThis.CanvasKit,
+                        canvasKit: g2CK,
                     });
                 }
                 super(next);

@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useFrame } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 /* ══ flex-music (master 27.40-27.98, compositions/flex-music.html) ══════
    The vinyl/tone-arm SVGs become canvas draws (jsx svg supports <path>
    only). The reference's back.out rotation tween is fully overwritten by
@@ -24,7 +24,7 @@ export default function FlexMusic() {
 
   /* vinyl disc (svg 600 -> 520px canvas, k=0.8667). Static art: the spin is a
      DOM tween on #fm-record, so the canvas only needs its resting pixels. */
-  useFrame(() => {
+  useEffect(() => {
     if (!FM_CK) return;
     var c = FM_CK.MakeCanvasSurface('fm-record-canvas').getCanvas();
     var ck = FM_CK;
@@ -60,7 +60,7 @@ export default function FlexMusic() {
   });
 
   /* tone arm (svg 200x400 -> 120x280 canvas, meet: k=0.6, y+20) */
-  useFrame(() => {
+  useEffect(() => {
     if (!FM_CK) return;
     var c = FM_CK.MakeCanvasSurface('fm-arm-canvas').getCanvas();
     var ck = FM_CK;

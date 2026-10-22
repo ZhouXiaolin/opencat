@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { Cbar, QX, QY, StageCanvas, drawQmarks, getK3Stream, vis } from './shared.jsx';
 
 export default function SceneC() {
@@ -23,7 +23,8 @@ export default function SceneC() {
       }
     }
   });
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     var C_ON = (T >= 5.433 && T < 7.35);

@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { Bigword, StageCanvas, drawPlusses, drawQmarks, drawStrip, vis } from './shared.jsx';
 
 export default function SceneFG() {
@@ -32,7 +32,8 @@ export default function SceneFG() {
         .set('gw3', { opacity: 1 }, 12.7997);
     }
   });
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     var FG_ON = (T >= 11.233 && T < 13.7);

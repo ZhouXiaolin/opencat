@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { AgentPill, Cdot, GS, StageCanvas, clamp, getK3Field, makeMeasure, mulberry32, pillWidths, vis } from './shared.jsx';
 
 
@@ -36,7 +36,8 @@ export default function SceneA() {
     }
   });
   // CanvasKit drawing + per-frame gating.
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     var A_ON = (T >= 0.75 && T < 4.62);

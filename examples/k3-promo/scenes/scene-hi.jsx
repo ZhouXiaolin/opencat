@@ -4,7 +4,7 @@
 
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { Cdot, StageCanvas, drawDissolve, drawPlusses, drawQmarks, drawStrip, rebuildDissolveField, vis } from './shared.jsx';
 
 export default function SceneHI() {
@@ -49,7 +49,8 @@ export default function SceneHI() {
         .to('ifurn-canvas', { opacity: 1, duration: 0.16, ease: 'power1.out' }, 15.3);
     }
   });
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     if (typeof globalThis.__k3disBuilt === 'undefined') rebuildDissolveField(ctx);

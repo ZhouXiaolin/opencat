@@ -1570,8 +1570,8 @@ fn dom_get_context_2d_records_canvas_ops_and_webgl_errors() {
         .expect_err("webgl should error");
     let text = format!("{err:#}");
     assert!(
-        text.contains("ctx.three") && text.contains("useThree"),
-        "webgl error should point at ctx.three / useThree, got: {text}"
+        text.contains("three") && text.contains("WebGLRenderer"),
+        "webgl error should point at three / WebGLRenderer, got: {text}"
     );
 }
 

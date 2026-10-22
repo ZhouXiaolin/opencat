@@ -193,7 +193,7 @@
         var t = String(type);
         if (t === 'webgl' || t === 'webgl2') {
             throw new Error(
-                "getContext('" + t + "') is not supported; build 3D with ctx.three (useThree) — WebGLRenderer + scene + camera"
+                "getContext('" + t + "') is not supported; build 3D with three (import * as THREE from 'three') — WebGLRenderer + scene + camera"
             );
         }
         if (t !== '2d') {

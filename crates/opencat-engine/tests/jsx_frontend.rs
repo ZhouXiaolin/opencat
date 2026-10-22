@@ -313,7 +313,7 @@ fn liquid_port_parses_full_three_script_body() {
     );
     // The verbatim script body, intact after the transform.
     for marker in [
-        "T3.Renderer(",
+        "THREE.WebGLRenderer(",
         "scene3d.add(bgPlane3d)",
         "renderer3d.render(scene3d, camera3d)",
         "gl_FragColor",

@@ -2060,7 +2060,7 @@
                 throw new Error('Surface.makeImageSnapshot is not available — read pixels back with ly.surface(w, h) + getImageData, or draw with putImageData');
             },
             requestAnimationFrame() {
-                throw new Error('Surface.requestAnimationFrame is not available — frames are f(t); register per-frame drawing with useFrame/useGSAP');
+                throw new Error('Surface.requestAnimationFrame is not available — frames are f(t); register per-frame drawing with useEffect/useGSAP');
             },
         };
     }

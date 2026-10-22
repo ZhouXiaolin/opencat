@@ -12,8 +12,9 @@
 //! 6. `ANIMATION_FACADE` — `ctx.from/to/fromTo/set()`, `ctx.timeline()`, `flushTimelines`
 //! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API + DOM property facade
 //! 8. `CANVAS_API_RUNTIME` — the CanvasKit signature facade (`globalThis.CanvasKit` + the `CanvasKitInit` stub)
-//! 9. `THREE_API_RUNTIME` — `ctx.three` three.js 风格 3D 场景图 + `Renderer.render()`
-//! 10. `G2_BUNDLE` + `G2_API_RUNTIME` — `useChart(ref, build)` AntV G2 图表，
+//! 9. `THREE_API_RUNTIME` — `ctx.threejs` three.js 语义 3D 场景图 + `WebGLRenderer.render()`
+//!    （`import * as THREE from 'three'` 解析到这里；`ctx.three` 是旧拼写）
+//! 10. `G2_BUNDLE` + `G2_API_RUNTIME` — `useChart(ref, build)` AntV G2 图表（legacy），
 //! 11. `DOM_API_RUNTIME` — `document`/`window` 全局与越界 API 报错
 //!
 //! All files are IIFE-wrapped and assume the existence of native

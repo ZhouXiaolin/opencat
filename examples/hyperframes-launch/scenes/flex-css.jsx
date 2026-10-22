@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useFrame } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { clamp, hexRgb } from '../shared.jsx';
 /* ══ flex-css (master 17.30-19.01, compositions/flex-css.html) ══════════ */
 var CSS_START = 17.30, CSS_DUR = 1.71;
@@ -117,8 +117,9 @@ export default function FlexCss() {
 
   });
 
-  /* CanvasKit 绘制走 useFrame + 官方 MakeCanvasSurface；useGSAP 只留 tween */
-  useFrame((ctx, t) => {
+  /* CanvasKit 绘制走 useEffect + 官方 MakeCanvasSurface；useGSAP 只留 tween */
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!FC_CK) return;
     drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin1').getCanvas(), t, 1, CSS_P.red, CSS_P.blue, FC_CK);
     drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin2').getCanvas(), t, 0.8, CSS_P.teal, CSS_P.orange, FC_CK);

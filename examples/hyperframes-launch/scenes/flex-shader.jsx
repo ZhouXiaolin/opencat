@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useFrame } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { clamp } from '../shared.jsx';
 
 /* ══ flex-shader (master 20.81-22.01, compositions/flex-shader.html) ════
@@ -23,8 +23,9 @@ export default function FlexShader() {
   });
 
   /* module-level kernel: source compiled once by Rust, sampled per frame.
-     The canvas draw goes through useFrame + the official MakeCanvasSurface. */
-  useFrame((ctx, t) => {
+     The canvas draw goes through useEffect + the official MakeCanvasSurface. */
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!FS_CK) return;
     var c = FS_CK.MakeCanvasSurface('fs-canvas').getCanvas();
     if (!FlexShader._kern) {

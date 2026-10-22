@@ -290,11 +290,11 @@
         globalThis.clearTimeout = function () {};
     }
     if (typeof globalThis.setInterval !== 'function') {
-        globalThis.setInterval = timerError('setInterval', 'use useFrame(build) for per-frame work');
+        globalThis.setInterval = timerError('setInterval', 'use useEffect(fn) in your component for per-frame work');
         globalThis.clearInterval = function () {};
     }
     if (typeof globalThis.requestAnimationFrame !== 'function') {
-        globalThis.requestAnimationFrame = timerError('requestAnimationFrame', 'use useFrame(build) to run per-frame work');
+        globalThis.requestAnimationFrame = timerError('requestAnimationFrame', 'use useEffect(fn) in your component to run per-frame work');
         globalThis.cancelAnimationFrame = function () {};
     }
 })();

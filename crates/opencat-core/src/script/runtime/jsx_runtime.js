@@ -13,12 +13,20 @@
  *      materializes the returned element tree into a DOM tree (the host hands
  *      it to parse::dom). Runs BEFORE any per-frame driver.
  *
- * `use*` family (v1):
- *   useThree(ref, build)   — per-frame three.js-like 3D scene on a <canvas ref>
- *   useChart(ref, build)   — per-frame AntV G2 chart on a <canvas ref>
+ * `use*` family:
+ *   useEffect(fn, deps)    — React's own effect hook; `fn` runs after the frame's
+ *                            tree walk. This is the ONE per-frame entry: 3D,
+ *                            CanvasKit, chart and tween work all happen here.
  *   useGSAP(build)         — per-frame timeline block (GSAP-like)
- *   useFrame(build)        — escape hatch: arbitrary per-frame `(ctx, t)` work
+ *   useChart(ref, build)   — per-frame AntV G2 chart on a <canvas ref> (legacy,
+ *                            scheduled to fold into useEffect)
+ *   useFrame(build)        — legacy alias of `useEffect(fn)`, keep for older
+ *                            examples until they migrate
  *   useComposition()       — `{ width, height, fps, duration }` from `meta`
+ *
+ * Frame time is read, not passed: `ctx.current.time` is the clock of the scene
+ * the component lives in, `ctx.global.time` the composition clock. Inside
+ * `useEffect` `ctx.current` is already bound to the component's own scene.
  *
  * Canvas drawing goes through the official entry —
  * `import CanvasKitInit from 'canvaskit-wasm'` +
@@ -299,6 +307,9 @@
         sceneStack.length = 0;
         idCounter = 0;
         textCounter = 0;
+        // Effect slots survive the frame (that is what makes deps meaningful);
+        // only the call-order cursor restarts.
+        effectIndex = 0;
     };
 
     // Register a per-frame hook. The scene clock in effect right now (the
@@ -320,7 +331,17 @@
             // Off screen the scene is not rendered, so its work is pure waste —
             // this is what keeps a long timeline from re-running every scene's
             // driver on every frame.
-            if (hook.clock && hook.clock.active === false) continue;
+            if (hook.clock && hook.clock.active === false) {
+                // A scene that left the screen will not run its effect again, so
+                // this is its unmount: run the pending cleanup once.
+                var off = hook.effect;
+                if (off && typeof off.cleanup === 'function') {
+                    var pending = off.cleanup;
+                    off.cleanup = null;
+                    pending();
+                }
+                continue;
+            }
             var saved = ctx.current;
             var savedFrame = globalThis.__ocScriptFrame;
             var savedTime = globalThis.__ocScriptTimeSecs;
@@ -360,28 +381,58 @@
     };
 
     // ── use* registry ───────────────────────────────────────────────
-    // useThree(ref, build): the ref must point at a <canvas>; `build` receives
-    // (three, node, t, ctx) and owns the whole scene graph + render call, the
-    // same body a `<script>` block would run.
-    function useThree(ref, build) {
-        if (!ref || typeof ref !== 'object' || !('current' in ref)) {
-            throw new Error('useThree: first argument must be a ref from useRef()');
+    // ── useEffect: the React contract, on the frame clock ───────────
+    // `useEffect(fn, deps)` registers `fn` as a per-frame driver that runs after
+    // the tree walk (the walk is what calls components, so a component body
+    // registers its effects before any of them run).
+    //
+    // A component body re-renders once per frame — that is the `frame = f(t)`
+    // contract — so `fn` without a deps array runs once per frame. With a deps
+    // array it runs only when a dependency changed, exactly like React: `[]`
+    // pins it to the first frame, the usual way to build a scene graph once and
+    // update it from a deps-less effect. Slots are matched by call order, the
+    // same rule React states for hooks.
+    var effectSlots = [];
+    var effectIndex = 0;
+
+    function sameDeps(a, b) {
+        if (!a || !b || a.length !== b.length) return false;
+        for (var i = 0; i < a.length; i++) {
+            if (!Object.is(a[i], b[i])) return false;
         }
-        globalThis.__ocOnFrame(function () {
-            var node = ref.current;
-            if (!node || node.__ocEl !== true || node.tag !== 'canvas') {
-                throw new Error(
-                    'useThree: ref must point at a <canvas> element (got ' +
-                    (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
-                );
-            }
-            build(globalThis.ctx.three, node, globalThis.ctx.current.time, globalThis.ctx);
-        });
+        return true;
+    }
+
+    function runEffect(slot, effect) {
+        // Cleanup of the previous run happens first, like React unmounting the
+        // old effect before mounting the new one.
+        var prev = slot.cleanup;
+        slot.cleanup = null;
+        if (typeof prev === 'function') prev();
+        var next = effect();
+        slot.cleanup = typeof next === 'function' ? next : null;
+    }
+
+    function useEffect(effect, deps) {
+        if (typeof effect !== 'function') {
+            throw new Error('useEffect: first argument must be a function');
+        }
+        if (deps !== undefined && deps !== null && !Array.isArray(deps)) {
+            throw new Error('useEffect: the second argument must be an array of dependencies');
+        }
+        var index = effectIndex++;
+        var slot = effectSlots[index];
+        if (!slot) slot = effectSlots[index] = { deps: undefined, ran: false, cleanup: null };
+        if (Array.isArray(deps) && slot.ran && sameDeps(slot.deps, deps)) return;
+        slot.ran = true;
+        slot.deps = Array.isArray(deps) ? deps.slice() : undefined;
+        globalThis.__ocOnFrame(function () { runEffect(slot, effect); });
+        hooks[hooks.length - 1].effect = slot;
     }
 
     // useChart(ref, build): the ref must point at a <canvas>; `build(Chart,
-    // node, t, ctx)` constructs the chart for THIS frame. Like useCanvas and
-    // useThree, the chart is rebuilt every frame — G2's animation timeline runs
+    // node, t, ctx)` constructs the chart for THIS frame. Legacy: a per-frame
+    // entry that predates useEffect. The chart is rebuilt every frame — G2's animation timeline runs
     // on the virtual clock the G2 host advances to `t` (`frame = f(t)`), and
     // every draw lands on the node's DrawOp stream.
     function useChart(ref, build) {
@@ -415,6 +466,8 @@
         });
     }
 
+    // Legacy spelling of `useEffect(function () { build(ctx, ctx.current.time); })`.
+    // Kept so examples written against it keep running; new code uses useEffect.
     function useFrame(build) {
         globalThis.__ocOnFrame(function () {
             build(globalThis.ctx, globalThis.ctx.current.time);
@@ -429,7 +482,7 @@
         h: h,
         useRef: useRef,
         Fragment: FRAGMENT,
-        useThree: useThree,
+        useEffect: useEffect,
         useChart: useChart,
         useGSAP: useGSAP,
         useFrame: useFrame,
@@ -452,7 +505,7 @@
                 return function () {
                     if (!globalThis.__ocHookCtx) {
                         throw new Error(
-                            apiName + ': call it inside useGSAP() / useFrame() — the per-frame hook is where the scene clock is bound'
+                            apiName + ': call it inside useEffect() or useGSAP() — the per-frame hook is where the scene clock is bound'
                         );
                     }
                     return v.apply(this, arguments);

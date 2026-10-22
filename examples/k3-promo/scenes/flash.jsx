@@ -4,11 +4,12 @@
    the difference degrades to a plain flash. z=5 (below grade-vig z=6) is
    MEASURED: the vignette multiplies the flash output. */
 
-import { useFrame } from 'opencat/runtime';
+import { useEffect } from 'opencat/runtime';
 import { vis } from './shared.jsx';
 
 export default function Flash() {
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     var T = t;
     vis(ctx, 'flash', T >= 7.3333 && T < 7.391);
   });

@@ -1,7 +1,7 @@
 import { gsap } from 'gsap';
 import { SplitText } from 'gsap/SplitText';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { Cdot, StageCanvas, Tick, clamp, drawPlusses, drawQmarks, mulberry32, vis } from './shared.jsx';
 
 export default function SceneDE() {
@@ -63,7 +63,8 @@ export default function SceneDE() {
       })();
     }
   });
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     var DE_ON = (T >= 7.35 && T < 11.293);

@@ -1,9 +1,10 @@
 import { gsap } from 'gsap';
-import { useGSAP, useThree, useRef } from 'opencat/runtime';
+import * as THREE from 'three';
+import { useGSAP, useEffect, useRef } from 'opencat/runtime';
 import { clamp, hexRgb } from '../shared.jsx';
 
 /* ══ flex-threejs (master 22.01-23.22, compositions/flex-threejs.html) ══
-   3D torus via ctx.three (opencat-three / wgpu). The reference is pure CSS 3D
+   3D torus via three (opencat-three / wgpu). The reference is pure CSS 3D
    (no three.js library): .three-stage has perspective:900px +
    perspective-origin:50% 50%, so CSS (x,y,z) -> (960 + x*900/(900-z),
    540 + y*900/(900-z)). A three.js PerspectiveCamera at z=near+900 with
@@ -28,7 +29,7 @@ export default function FlexThreejs() {
     tl.fromTo('ft-label', { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, A(0.2));
   });
 
-  /* Real 3D via ctx.three (opencat-three / wgpu). The reference is pure CSS 3D
+  /* Real 3D via `three` (opencat-three / wgpu). The reference is pure CSS 3D
      (no three.js library): .three-stage has perspective:900px with
      perspective-origin:50% 50%, so a CSS point (x,y,z) projects to
      (960 + x*900/(900-z), 540 + y*900/(900-z)). A three.js PerspectiveCamera
@@ -38,19 +39,19 @@ export default function FlexThreejs() {
      rotateX negates too; the form's rotateY is unchanged. Each torus segment
      is a PlaneGeometry (segment-local +x = inward radial, +y = up) whose
      ShaderMaterial draws the rounded-rect mask + 135deg two-stop ramp. */
-  useThree(canvas, (T3, node, t, ctx) => {
-    var T = t;
+  useEffect(() => {
+    var T = ctx.current.time;
 
-    var scene = new T3.Scene();
-    var camera = new T3.PerspectiveCamera(61.9275, 1920 / 1080, 0.1, 5000);
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(61.9275, 1920 / 1080, 0.1, 5000);
     camera.position.set(0, 0, 900.1);
     camera.lookAt(0, 0, 0);
-    scene.add(new T3.AmbientLight(0xffffff, 1.0));
-    scene.add(new T3.HemisphereLight(0xffffff, 0xffffff, 0.5));
+    scene.add(new THREE.AmbientLight(0xffffff, 1.0));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xffffff, 0.5));
 
     function face(col, half, rad, op) {
       var c1 = hexRgb(col[0]), c2 = hexRgb(col[1]);
-      var mat = new T3.ShaderMaterial({
+      var mat = new THREE.ShaderMaterial({
         // Every blade carries an antialiased clip edge, so all of them need the
         // src-alpha list: the opaque list replaces the destination and would
         // make a front blade's partial edge reveal the background instead of
@@ -102,11 +103,11 @@ export default function FlexThreejs() {
           '}',
         ].join('\n'),
       });
-      return new T3.Mesh(new T3.PlaneGeometry(2 * half, 2 * half), mat);
+      return new THREE.Mesh(new THREE.PlaneGeometry(2 * half, 2 * half), mat);
     }
 
     var SEGS = 16, RING_R = 400;
-    var formX = new T3.Group();
+    var formX = new THREE.Group();
     /* CSS 的 .torus-seg 无 left/top，margin −87 把 175px 盒子推到
        (−87,−87)，transform-origin（盒子中心）落在 form 本地 (0.5,0.5)——
        CSS y 向下，three y 向上即 (0.5,−0.5)。内圈 translateY(62) 叠加
@@ -126,7 +127,7 @@ export default function FlexThreejs() {
       m2.rotation.y = -a2 + Math.PI;
       formX.add(m2);
     }
-    var formY = new T3.Group();
+    var formY = new THREE.Group();
     formY.add(formX);
     /* The CSS stage (top:42%, width/height:0, perspective-origin:50% 50%)
        fixes the vanishing point at screen (960, 453.6) — 86.4px above the
@@ -146,7 +147,9 @@ export default function FlexThreejs() {
     formY.rotation.y = (-30 + 340 * (0.5 - 0.5 * Math.cos(Math.PI * clamp(T / 1.2, 0, 1)))) * Math.PI / 180;
     formX.rotation.x = -(25 + (10 - 25) * s) * Math.PI / 180;
 
-    new T3.Renderer('ft-canvas', 1920, 1080).render(scene, camera);
+    new THREE.WebGLRenderer({ canvas: canvas.current })
+      .setSize(1920, 1080)
+      .render(scene, camera);
   });
 
   return (

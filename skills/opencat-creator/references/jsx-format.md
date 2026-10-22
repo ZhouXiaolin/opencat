@@ -299,7 +299,7 @@ API：`ctx.from` / `to` / `fromTo` / `set` / `timeline`、`ctx.getNode(id)`（�
 | API | 行为 |
 | --- | --- |
 | `document.getElementById(id)` | 返回节点句柄，与 `ctx.getNode(id)` 同一个对象。惰性：元素未创建也能拿句柄（钩子按序回放） |
-| `document.querySelector('#id')` / `querySelectorAll` | 只支持 `#id` 形态；class/组合器选择器报错（没有可变布局树） |
+| `document.querySelector('#id')` / `querySelectorAll` | 只支持 `#id` 形态；class/组合器选择器报错（没有可变布局树）。返回 gsap target 的元素面句柄，与 `gsap.to('#id', …)` 的 target 是同一个对象（插件按身份比对目标时依赖这一点） |
 | `document.createElement` / `createTextNode` / `addEventListener` / `appendChild` 等 | 报错：树是声明式的，结构写在 JSX 里，动效走 gsap |
 | `window.innerWidth` / `innerHeight` | `meta` 的宽高；`devicePixelRatio` 恒为 1 |
 | `setTimeout` / `setInterval` / `requestAnimationFrame` | `setTimeout`/`setInterval` 报错（确定性渲染器：时间只来自合成时钟）。`requestAnimationFrame` 由 G2 的帧队列接管，回调在下一帧边界跑一次 |

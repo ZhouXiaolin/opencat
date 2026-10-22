@@ -77,6 +77,12 @@ pub struct TreeOverlay {
     static_tags: HashMap<String, String>,
     static_class: HashMap<String, String>,
     static_ids: std::collections::HashSet<String>,
+    /// realm 级：脚本写入的节点属性（`setAttribute`）。
+    ///
+    /// 属性是节点状态，不是帧状态：MorphSVG 只在第一次 tween 初始化时写
+    /// `data-original`（`if (!target.getAttributeNS(null, "data-original"))`），
+    /// 若每帧清空，第二帧起就会把已经变形过的 `d` 当成原始路径记下来。
+    attrs: HashMap<String, HashMap<String, String>>,
     /// 帧级：子级视图覆盖（只有被脚本改过的节点才有条目）。
     overrides: HashMap<String, Vec<String>>,
     /// 帧级：子 → 父，随视图维护。
@@ -206,6 +212,29 @@ impl TreeOverlay {
             return true;
         }
         false
+    }
+
+    /// 脚本写入的属性值。与 `className` 同级：这是节点事实，不是可动画
+    /// 样式，写进样式通道会被静默丢弃（`write_style_value` 只认已知键）。
+    pub fn attribute_of(&self, id: &str, name: &str) -> Option<String> {
+        self.attrs
+            .get(id)
+            .and_then(|attrs| attrs.get(name))
+            .cloned()
+    }
+
+    pub fn set_attribute(&mut self, id: &str, name: &str, value: &str) -> bool {
+        if !self.knows(id) {
+            return false;
+        }
+        let attrs = self.attrs.entry(id.to_string()).or_default();
+        if value.is_empty() {
+            // `removeAttribute` 与「写空串」在 DOM 上是同一件事。
+            attrs.remove(name);
+        } else {
+            attrs.insert(name.to_string(), value.to_string());
+        }
+        true
     }
 
     pub fn create_text_node(&mut self, text: &str) -> String {

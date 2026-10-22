@@ -522,11 +522,18 @@ pub fn apply_property(
         }
 
         // ---- SVG ----
-        Property::Fill(paint) => {
-            if let SVGPaint::Color(c) = paint {
+        Property::Fill(paint) => match paint {
+            SVGPaint::Color(c) => {
                 style.fill_color = color_token(c);
+                style.fill_none = false;
             }
-        }
+            SVGPaint::None => {
+                style.fill_color = None;
+                style.fill_none = true;
+            }
+            // `url(#gradient)` / `context-fill` 没有渲染载体；保持上一次的值。
+            _ => {}
+        },
         Property::Stroke(paint) => {
             if let SVGPaint::Color(c) = paint {
                 style.stroke_color = color_token(c);

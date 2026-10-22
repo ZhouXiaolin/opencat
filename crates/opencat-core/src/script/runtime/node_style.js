@@ -129,17 +129,30 @@
         return f && f.d ? String(f.d) : '';
     }
 
-    // SVG shape attributes. The composition is declarative, so the only shape
-    // data that exists is what JSX declared (`d` on a path — animated writes
-    // land in the store) plus geometry the host derives from the node box.
+    // Attributes a script wrote (`setAttribute`). These are node facts, not
+    // animatable style — MorphSVG stores the pre-morph `d` in `data-original`
+    // so a later `morphSVG` back to the same element can revert it.
+    function scriptAttribute(id, name) {
+        var v = __dom_get_attribute(id, name);
+        return v === null || v === undefined ? null : String(v);
+    }
+
+    // SVG shape attributes. The composition is declarative, so shape data is
+    // what JSX declared (`d` on a path — animated writes land in the store)
+    // plus geometry the host derives from the node box.
     function readAttribute(id, name) {
         name = String(name);
+        // `d` reads the style channel first: a tween writes there, and that
+        // value is the one being rendered. `data-original` and other script
+        // attributes only ever live in the attribute bag.
         if (name === 'd' || name === 'morphSVG') {
             var d = pathDataFor(id);
             return d === '' ? null : d;
         }
         if (name === 'id') return id;
         if (name === 'class' || name === 'className') return readClassName(id);
+        var written = scriptAttribute(id, name);
+        if (written !== null) return written;
         if (name === 'width') return box(id).width;
         if (name === 'height') return box(id).height;
         if (name === 'x' || name === 'left') return box(id).left;
@@ -149,17 +162,21 @@
         return v === null || v === undefined ? '' : String(v);
     }
 
+    // Writes land in both channels. The attribute bag is what read-back sees
+    // (a browser reports `getAttribute('fill')` after `setAttribute('fill')`),
+    // the style channel is what the renderer paints — presentation attributes
+    // ARE styles in a browser. Unknown names are ignored by the style channel,
+    // so `data-*` costs nothing there.
     function writeAttribute(id, name, value) {
         name = String(name);
-        if (name === 'd') {
-            __write_style_value(id, 'd', String(value));
-            return;
-        }
+        var text = String(value);
         if (name === 'class' || name === 'className') {
-            writeClassName(id, value);
+            writeClassName(id, text);
+            __dom_set_attribute(id, 'class', text);
             return;
         }
-        __write_style_value(id, styleKey(name), value);
+        __dom_set_attribute(id, name, text);
+        __write_style_value(id, name === 'd' ? 'd' : styleKey(name), text);
     }
 
     // Children come from the script-side overlay: a declared node's declared

@@ -806,6 +806,18 @@ macro_rules! for_each_binding {
             Ok(overlay.set_class_name(&id, &class_name))
         }}
 
+        $binding! { qry $store dom_get_attribute (id: String, name: String) -> Option<String> {
+            // 脚本写入的节点属性。MorphSVG 用 `data-original` 记住原始 `d`
+            // （变形后要能 revert），SplitText/DrawSVG 也读写 `class`/`d`。
+            // 未写过的属性返回 None，调用方退回声明值。
+            Ok($store.tree_overlay().and_then(|overlay| overlay.attribute_of(&id, &name)))
+        }}
+        $binding! { cmd $store dom_set_attribute (id: String, name: String, value: String) -> bool {
+            let overlay = $store.tree_overlay_mut()
+                .ok_or_else(|| anyhow::anyhow!("setAttribute: this recorder has no script tree"))?;
+            Ok(overlay.set_attribute(&id, &name, &value))
+        }}
+
         $binding! { cmd $store dom_text_range (id: String) -> Option<(u32, u32, String)> {
             // SplitText 的 wrapper 是空壳：它的盒子来自它承载的那段原文。
             // 沿父链上溯到声明文本节点，累加前置兄弟的文本长度得到区间。

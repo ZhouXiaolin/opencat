@@ -1,0 +1,43 @@
+{
+  "name": "PagePeel",
+  "role": "filter",
+  "spec": {
+    "type": "PagePeel",
+    "props": {
+      "corner": "bottom-right",
+      "amount": 0.2,
+      "radius": 0.2,
+      "shading": 0.55,
+      "highlight": 0.4,
+      "highlightSoftness": 0.2,
+      "shadow": 1
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

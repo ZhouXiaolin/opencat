@@ -1,0 +1,36 @@
+{
+  "name": "Fog",
+  "role": "generator+compute",
+  "spec": {
+    "type": "Fog",
+    "props": {
+      "colorA": "#e0e0e0",
+      "colorB": "#888888",
+      "seed": 0,
+      "speed": 1,
+      "turbulence": 1,
+      "detail": 15,
+      "blending": 0.3,
+      "mouseInfluence": 0.1,
+      "mouseRadius": 0.1,
+      "colorSpace": "linear"
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

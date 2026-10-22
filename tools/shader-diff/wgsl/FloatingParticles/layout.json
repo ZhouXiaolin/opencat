@@ -1,0 +1,38 @@
+{
+  "name": "FloatingParticles",
+  "role": "generator+compute",
+  "spec": {
+    "type": "FloatingParticles",
+    "props": {
+      "particleColor": "#ffffff",
+      "shape": "dot",
+      "count": 1200,
+      "particleSize": 1.2,
+      "softness": 0.1,
+      "speed": 0.25,
+      "angle": 90,
+      "speedVariance": 0.3,
+      "angleVariance": 30,
+      "randomness": 0.25,
+      "twinkle": 0.5,
+      "cursorStrength": 0
+    }
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

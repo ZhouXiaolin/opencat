@@ -1,0 +1,101 @@
+fn unpremultiplyAlpha(color2: vec4f) -> vec4f {
+  let alpha = color2.w;
+  let straightRGB = select(vec3f(), (color2.xyz / alpha), (alpha > 1e-3f));
+  return vec4f(straightRGB, alpha);
+}
+
+fn dropShadowComposite(originalColor: vec4f, shadowColor: vec4f, shadowAlpha: f32, cutout: f32) -> vec4f {
+  let shadowRgb = vec3f(shadowColor.x, shadowColor.y, shadowColor.z);
+  let shadowA = (shadowColor.w * shadowAlpha);
+  let cutoutA = clamp((shadowA - originalColor.w), 0f, 1f);
+  let cutoutRgb = ((shadowRgb * shadowColor.w) * cutoutA);
+  let shadowPremulRgb = ((shadowRgb * shadowColor.w) * shadowAlpha);
+  let oneMinusOrigA = (1f - originalColor.w);
+  let normalRgb = (vec3f(originalColor.x, originalColor.y, originalColor.z) + (shadowPremulRgb * oneMinusOrigA));
+  let normalA = max((originalColor.w + (shadowA * oneMinusOrigA)), originalColor.w);
+  let useCut = (cutout > 0.5f);
+  let rgb = select(normalRgb, cutoutRgb, useCut);
+  let a = select(normalA, cutoutA, useCut);
+  return vec4f(rgb.x, rgb.y, rgb.z, a);
+}
+
+@group(1) @binding(0) var rtt_0: texture_2d<f32>;
+
+@group(2) @binding(0) var linearClamp: sampler;
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  color: vec4f,
+  distance: f32,
+  angle: f32,
+  blur: f32,
+  intensity: f32,
+  cutout: f32,
+  _opacity: f32,
+}
+
+struct struct_2 {
+  colorA: vec4f,
+  colorB: vec4f,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  start: vec2f,
+  end: vec2f,
+  angle: f32,
+  edges: f32,
+  colorSpace: f32,
+  _opacity: f32,
+}
+
+struct struct_3 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: struct_1,
+  n_n0c0: struct_2,
+  _sys: struct_3,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+@group(1) @binding(1) var rtt_1: texture_2d<f32>;
+
+fn dropShadowTapUV(uv: vec2f, viewport: vec2f, blurRadius: f32, ox: f32, oy: f32) -> vec2f {
+  return vec2f((uv.x + ((ox * blurRadius) / viewport.x)), (uv.y + ((oy * blurRadius) / viewport.y)));
+}
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  var composed_0 = unpremultiplyAlpha(dropShadowComposite(textureSample(rtt_0, linearClamp, uv), uniforms.n_n0.color, (((((((((((((((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, -6.0))).r * 0.009011908593498551) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, -5.0))).r * 0.021725136787898294)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, -4.0))).r * 0.04473768908915352)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, -3.0))).r * 0.07837141937560346)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, -2.0))).r * 0.11683295783714193)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, -1.0))).r * 0.14853556485355648)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 0.0))).r * 0.16092693916961698)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 1.0))).r * 0.14853556485355648)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 2.0))).r * 0.11683295783714193)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 3.0))).r * 0.07837141937560346)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 4.0))).r * 0.04473768908915352)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 5.0))).r * 0.021725136787898294)) + ((textureSample(rtt_1, linearClamp, dropShadowTapUV(uv, uniforms._sys.viewportSize, uniforms.n_n0.blur, 0.0, 6.0))).r * 0.009011908593498551)) * uniforms.n_n0.intensity), 0.0));
+  return vec4f(linearToSrgb(tone_linear(composed_0.rgb)) * composed_0.a, composed_0.a);
+}

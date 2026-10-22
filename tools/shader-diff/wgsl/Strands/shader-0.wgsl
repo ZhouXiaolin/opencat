@@ -1,0 +1,199 @@
+fn toneLift(rgb: vec3f) -> vec3f {
+  return pow(rgb, vec3f(0.8500000238418579));
+}
+
+fn sRGBToP3(srgb: vec3f) -> vec3f {
+  let r = (((srgb.x * 0.8224621f) + (srgb.y * 0.177538f)) + (srgb.z * 0f));
+  let g = (((srgb.x * 0.0331941f) + (srgb.y * 0.9668058f)) + (srgb.z * 0f));
+  let b = (((srgb.x * 0.0170826f) + (srgb.y * 0.0723974f)) + (srgb.z * 0.9105199f));
+  return vec3f(r, g, b);
+}
+
+fn oklabToRgb(lab: vec3f) -> vec3f {
+  let L = lab.x;
+  let a = lab.y;
+  let b = lab.z;
+  let l_ = ((L + (a * 0.3963377774f)) + (b * 0.2158037573f));
+  let m_ = ((L - (a * 0.1055613458f)) - (b * 0.0638541728f));
+  let s_ = ((L - (a * 0.0894841775f)) - (b * 1.291485548f));
+  let l = pow(l_, 3f);
+  let m = pow(m_, 3f);
+  let s = pow(s_, 3f);
+  return vec3f((((l * 4.0767416621f) - (m * 3.3077115913f)) + (s * 0.2309699292f)), (((l * -1.2684380046f) + (m * 2.6097574011f)) - (s * 0.3413193965f)), (((l * -0.0041960863f) - (m * 0.7034186147f)) + (s * 1.707614701f)));
+}
+
+fn ribbonPathFrame(uv: vec2f, viewport: vec2f, start: vec2f, end: vec2f, pinFlag: f32) -> vec4f {
+  let aspectRatio = (viewport.x / max(viewport.y, 1e-6f));
+  let startPos = vec2f((start.x * aspectRatio), (1f - start.y));
+  let endPos = vec2f((end.x * aspectRatio), (1f - end.y));
+  let aspectUV = vec2f((uv.x * aspectRatio), uv.y);
+  let direction = vec2f((endPos.x - startPos.x), (endPos.y - startPos.y));
+  let len = max(length(direction), 1e-6f);
+  let normalizedDir = vec2f((direction.x / len), (direction.y / len));
+  let perpDir = vec2f(-(normalizedDir.y), normalizedDir.x);
+  let relativePos = vec2f((aspectUV.x - startPos.x), (aspectUV.y - startPos.y));
+  let progress = (dot(relativePos, normalizedDir) / len);
+  let perpDist = dot(relativePos, perpDir);
+  let pinOn = (pinFlag > 0f);
+  let clampedProg = clamp(progress, 0f, 1f);
+  let pinch = select(1f, sin((clampedProg * 3.141592653589793f)), pinOn);
+  let fade = (smoothstep(0f, 0.06f, progress) * (1f - smoothstep(0.94f, 1f, progress)));
+  let edgeFade = select(1f, fade, pinOn);
+  return vec4f(progress, perpDist, pinch, edgeFade);
+}
+
+fn awMix(a: vec3f, b: vec3f, wA: f32, wB: f32, sw: f32) -> vec3f {
+  return (((a * wA) + (b * wB)) / sw);
+}
+
+struct MixStep {
+  conv: vec3f,
+  alpha: f32,
+}
+
+fn mixInSpace(convA: vec3f, alphaA: f32, convB: vec3f, alphaB: f32, t: f32) -> MixStep {
+  let weightA = (alphaA * (1f - t));
+  let weightB = (alphaB * t);
+  let totalWeight = (weightA + weightB);
+  let safeWeight = max(totalWeight, 1e-3f);
+  return MixStep(awMix(convA, convB, weightA, weightB, safeWeight), totalWeight);
+}
+
+fn gradientStopsInSpace(t: f32, colors: array<vec4f, 8>, positions: array<vec4f, 2>, converted: array<vec3f, 8>, stopCount: f32) -> MixStep {
+  let clampedT = clamp(t, 0f, 1f);
+  let n = i32(stopCount);
+  let c0 = converted[0i];
+  var conv = vec3f(c0.x, c0.y, c0.z);
+  var alpha = colors[0i].w;
+  for (var i = 1; (i < n); i++) {
+    let va = positions[((i - 1i) >> 2u)];
+    let vb = positions[(i >> 2u)];
+    let posA = va[((i - 1i) & 3i)];
+    let posB = vb[(i & 3i)];
+    let seg = clamp(((clampedT - posA) / max((posB - posA), 1e-6f)), 0f, 1f);
+    let step_1 = mixInSpace(conv, alpha, converted[i], colors[i].w, seg);
+    conv = vec3f(step_1.conv.x, step_1.conv.y, step_1.conv.z);
+    alpha = step_1.alpha;
+  }
+  return MixStep(conv, alpha);
+}
+
+fn ribbonsField(uv: vec2f, viewport: vec2f, start: vec2f, end: vec2f, packed1: vec4f, packed2: vec4f, packed3: vec4f, colors: array<vec4f, 8>, positions: array<vec4f, 2>, converted: array<vec3f, 8>) -> vec4f {
+  let amplitude = packed1.x;
+  let frequency = packed1.y;
+  let lineCount = packed1.z;
+  let lineWidth = packed1.w;
+  let softnessP = packed2.x;
+  let spread = packed2.y;
+  let colorScale = packed2.z;
+  let colorVariance = packed2.w;
+  let waveT = packed3.y;
+  let colorT = packed3.z;
+  let stopCount = packed3.w;
+  let frame = ribbonPathFrame(uv, viewport, start, end, packed3.x);
+  let progress = frame.x;
+  let perpDist = frame.y;
+  let pinch = frame.z;
+  let edgeFade = frame.w;
+  let thickness = (lineWidth * 0.07f);
+  let softness = ((softnessP * 0.08f) + 8e-4f);
+  let denom = max((lineCount - 1f), 1f);
+  var accumColor = vec3f();
+  var accumWeight = 0f;
+  let waveBase = ((progress * 6.283185307179586f) * frequency);
+  let shimmerBase = ((progress * 8f) + (waveT * 2f));
+  let colorBase = ((progress * colorScale) + colorT);
+  let n = i32(round(lineCount));
+  for (var idx = 0; (idx < n); idx++) {
+    let fi = f32(idx);
+    let norm = (fi / denom);
+    let phase = (fi * 0.9f);
+    let strandT = (waveT * ((norm * 0.6f) + 0.7f));
+    let wave = (sin(((waveBase + strandT) + phase)) + (sin((((waveBase * 2.1f) - (strandT * 0.7f)) + phase)) * 0.5f));
+    let displacement = ((wave * amplitude) * 0.06f);
+    let baseline = ((norm - 0.5f) * spread);
+    let centre = ((baseline + displacement) * pinch);
+    let dd = abs((perpDist - centre));
+    let line = (1f - smoothstep(thickness, (thickness + softness), dd));
+    let shimmer = ((sin((shimmerBase + fi)) * 0.15f) + 0.85f);
+    let cc = (colorBase + (norm * colorVariance));
+    let colorCoord = (1f - abs(((fract((cc * 0.5f)) * 2f) - 1f)));
+    var stepRes = gradientStopsInSpace(colorCoord, colors, positions, converted, stopCount);
+    let strandColor = (&stepRes.conv);
+    let weight = (line * shimmer);
+    accumColor = (accumColor + ((*strandColor) * weight));
+    accumWeight = (accumWeight + weight);
+  }
+  let workingColor = (accumColor / max(accumWeight, 1e-4f));
+  let alpha = clamp((accumWeight * edgeFade), 0f, 1f);
+  return vec4f(workingColor, alpha);
+}
+
+struct padded {
+  _opacity: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+}
+
+struct struct_1 {
+  speed: f32,
+  amplitude: f32,
+  frequency: f32,
+  lineCount: f32,
+  lineWidth: f32,
+  softness: f32,
+  spread: f32,
+  pinEdges: f32,
+  colorsArray: array<vec4f, 8>,
+  positionsArray: array<vec4f, 2>,
+  convertedColorsArray: array<vec3f, 8>,
+  stopCount: f32,
+  colorSpace: f32,
+  colorScale: f32,
+  colorVariance: f32,
+  colorSpeed: f32,
+  start: vec2f,
+  end: vec2f,
+  _opacity: f32,
+  _animTime: f32,
+  _animTime_color: f32,
+}
+
+struct struct_2 {
+  time: f32,
+  viewportSize: vec2f,
+  logicalViewportSize: vec2f,
+  aspect: f32,
+  pointer: vec2f,
+  pointerActive: f32,
+}
+
+struct combined {
+  n_root: padded,
+  n_n0: struct_1,
+  _sys: struct_2,
+}
+
+@group(0) @binding(0) var<uniform> uniforms: combined;
+
+fn linearToSrgb(color: vec3f) -> vec3f {
+  let a = ((pow(color, vec3f(0.41666001081466675)) * 1.055f) - 0.055f);
+  let b = (color * 12.92f);
+  let factor = (color <= vec3f(0.0031308000907301903));
+  return select(a, b, factor);
+}
+
+fn tone_linear(color: vec3f) -> vec3f {
+  return vec3f(color.x, color.y, color.z);
+}
+
+struct final_Input {
+  @location(0) uv: vec2f,
+}
+
+@fragment fn final_1(in: final_Input) -> @location(0)  vec4f {
+  var uv = in.uv;
+  var composed_0 = vec4f(toneLift(sRGBToP3(oklabToRgb((ribbonsField(uv, uniforms._sys.viewportSize, uniforms.n_n0.start, uniforms.n_n0.end, vec4f(uniforms.n_n0.amplitude, uniforms.n_n0.frequency, uniforms.n_n0.lineCount, uniforms.n_n0.lineWidth), vec4f(uniforms.n_n0.softness, uniforms.n_n0.spread, uniforms.n_n0.colorScale, uniforms.n_n0.colorVariance), vec4f(uniforms.n_n0.pinEdges, uniforms.n_n0._animTime, uniforms.n_n0._animTime_color, uniforms.n_n0.stopCount), uniforms.n_n0.colorsArray, uniforms.n_n0.positionsArray, uniforms.n_n0.convertedColorsArray)).rgb))), (ribbonsField(uv, uniforms._sys.viewportSize, uniforms.n_n0.start, uniforms.n_n0.end, vec4f(uniforms.n_n0.amplitude, uniforms.n_n0.frequency, uniforms.n_n0.lineCount, uniforms.n_n0.lineWidth), vec4f(uniforms.n_n0.softness, uniforms.n_n0.spread, uniforms.n_n0.colorScale, uniforms.n_n0.colorVariance), vec4f(uniforms.n_n0.pinEdges, uniforms.n_n0._animTime, uniforms.n_n0._animTime_color, uniforms.n_n0.stopCount), uniforms.n_n0.colorsArray, uniforms.n_n0.positionsArray, uniforms.n_n0.convertedColorsArray)).a);
+  return vec4f(linearToSrgb(tone_linear(composed_0.rgb)) * composed_0.a, composed_0.a);
+}

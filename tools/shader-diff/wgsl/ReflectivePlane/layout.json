@@ -1,0 +1,42 @@
+{
+  "name": "ReflectivePlane",
+  "role": "filter",
+  "spec": {
+    "type": "ReflectivePlane",
+    "props": {
+      "height": 0.7,
+      "distance": 0.5,
+      "falloff": 0.5,
+      "blur": 3,
+      "blurDistance": 0.3,
+      "edges": "stretch"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

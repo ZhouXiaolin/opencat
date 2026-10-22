@@ -1,0 +1,49 @@
+{
+  "name": "Spherize",
+  "role": "filter",
+  "spec": {
+    "type": "Spherize",
+    "props": {
+      "radius": 1,
+      "depth": 1,
+      "center": {
+        "x": 0.5,
+        "y": 0.5
+      },
+      "lightPosition": {
+        "x": 0.3,
+        "y": 0.3
+      },
+      "lightIntensity": 0.5,
+      "lightSoftness": 0.5,
+      "lightColor": "#ffffff"
+    },
+    "children": [
+      {
+        "type": "LinearGradient",
+        "props": {
+          "colorA": "#312e81",
+          "colorB": "#f59e0b",
+          "angle": 35
+        }
+      }
+    ]
+  },
+  "sysInitial": {
+    "time": 0,
+    "viewportSize": [
+      512,
+      512
+    ],
+    "logicalViewportSize": [
+      512,
+      512
+    ],
+    "aspect": 1,
+    "pointer": [
+      0.5,
+      0.5
+    ],
+    "pointerActive": 0
+  }
+}

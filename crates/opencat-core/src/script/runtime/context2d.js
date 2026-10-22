@@ -1,7 +1,8 @@
 // 2D-context adapter: `node.getContext('2d')` exposes the HTML canvas 2D
 // *shape* of the API, but the backing engine is NOT a browser 2D canvas — it
-// is OpenCat's CanvasKit (Skia) command stream, the same stream
-// `ctx.canvas(id)` (CanvasKit facade) records into. State (fillStyle /
+// is OpenCat's CanvasKit (Skia) command stream, the same stream the official
+// `CanvasKitInit().then(CK => CK.MakeCanvasSurface(id))` path records into.
+// State (fillStyle /
 // strokeStyle / lineWidth / font…) lives in one record per context and is
 // lowered per call into CK paint state + draw ops, exactly like
 // `applyFillPaint` does for CanvasKit Paint objects. Text goes through

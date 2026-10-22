@@ -75,11 +75,10 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // Realm bootstrap + the runtime slice the extract pass needs. The load
     // order mirrors `ScriptRealm::ensure_runtime` (style/canvas/three before
     // the JSX runtime) so the real-package builtins can forward to
-    // `ctx.threejs` / `ctx.canvas` — author modules may `require` them at top
-    // level during extract. `gsap` is project-supplied: the sidecar bundle is
-    // materialized into `__ocModuleSources` in the walk below.
-    // Module top-level code may read `ctx.CanvasKit` (e.g. `useCanvasKit()`);
-    // the shim is pure JS until a draw call happens, so it is safe here.
+    // `ctx.threejs` / `globalThis.CanvasKit` — author modules may `require`
+    // them at top level during extract. `gsap` is project-supplied: the
+    // sidecar bundle is materialized into `__ocModuleSources` in the walk
+    // below.
     ctx.eval(CANVAS_API_RUNTIME)?;
     // rAF queue: the gsap bundle wakes its ticker once at eval time, which
     // schedules a tick — without this the load throws. Same shim (and same
@@ -215,9 +214,11 @@ fn module_path(base_dir: Option<&Path>, from_key: &str, key: &str) -> PathBuf {
 }
 
 /// The per-frame driver: fresh module state, render the entry component (this
-/// is where `use*` calls register their per-frame drivers), then replay the
-/// hooks. Re-rendering every frame is what re-initializes globals — the
-/// `frame = f(t)` contract, same as the XML `<script>` block.
+/// is where `use*` calls register their per-frame drivers). Re-rendering every
+/// frame is what re-initializes globals — the `frame = f(t)` contract, same
+/// as the XML `<script>` block. The hooks themselves run after the frame's
+/// microtask drain (run_frame), so promise-resolved surfaces — the official
+/// `CanvasKitInit(...).then(...)` shape — are in place before any draw.
 fn build_driver(modules: &BTreeMap<String, String>) -> String {
     format!(
         "(function () {{\n\
@@ -234,7 +235,6 @@ fn build_driver(modules: &BTreeMap<String, String>) -> String {
              // either a component or an already-rendered element, and an element\n\
              // still holds components further down that own hooks.\n\
              globalThis.__ocWalkTree(__ocRoot, null);\n\
-             if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();\n\
          }})();",
         sources = serde_json::to_string(modules).unwrap_or_else(|_| "{}".to_string()),
         entry = serde_json::to_string(ENTRY_SPEC).unwrap_or_else(|_| "\"<entry>\"".to_string()),

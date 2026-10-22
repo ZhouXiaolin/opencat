@@ -1,9 +1,11 @@
 import { gsap } from 'gsap';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { makeMeasure, pillWidths, vis } from './shared.jsx';
 
 export default function SceneB() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   // gsap code: index.html:1644-1649 — cluster slides in (power2.out/cubic)
   // and fades (power1.in/quad); pill waterfall is a 1-frame stagger.
   useGSAP((ctx, t) => {
@@ -23,6 +25,7 @@ export default function SceneB() {
   // carry per-pill residuals measured on f160: [bs1 +2.215, bs2 -1.805,
   // bs3 -1.884, bs4 +1.891, bs5 -0.247]px.
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     var B_ON = (T >= 4.563 && T < 5.853);
     vis(ctx, 'sceneB', B_ON);
@@ -30,7 +33,7 @@ export default function SceneB() {
       // Coordinates are bcluster-local (s = 1 — the stack has no scale).
       // Pill widths reuse the measured pillW map (the STACK labels are the
       // same five strings as the A pills).
-      var bsCv = ctx.getCanvasById('bstack-canvas');
+      var bsCv = CK.MakeCanvasSurface('bstack-canvas').getCanvas();
       if (bsCv) {
         bsCv.clear();
         var PILL_W = pillWidths(makeMeasure(ctx));

@@ -1193,13 +1193,14 @@ mod tests {
             .asset_path("hero", image_path.to_string_lossy().into_owned())
             .script_source(
                 r#"
-                const CK = ctx.CanvasKit;
-                const image = ctx.getImage("hero");
-                ctx.getCanvasById('canvas').drawImageRect(
-                    image,
-                    CK.XYWHRect(0, 0, 2, 1),
-                    CK.XYWHRect(0, 0, 2, 1),
-                );
+                CanvasKitInit({}).then(function (CK) {
+                    const image = ctx.getImage("hero");
+                    CK.MakeCanvasSurface('canvas').getCanvas().drawImageRect(
+                        image,
+                        CK.XYWHRect(0, 0, 2, 1),
+                        CK.XYWHRect(0, 0, 2, 1),
+                    );
+                });
                 "#,
             )
             .expect("script should compile");

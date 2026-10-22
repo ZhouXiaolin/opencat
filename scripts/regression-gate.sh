@@ -92,6 +92,11 @@ run_check "WEB" "crate tsc build:types" \
 run_check "WEB" "crate vite build" \
     bunx vite build
 
+# ---- Dialect scan (ARCHITECTURE.md §3 壳子原则闸门) ----
+cd "$ROOT"
+run_check "DIALECT" "方言反查（已退役面零残留）" \
+    bash "$ROOT/scripts/check-dialect.sh"
+
 
 # ---- Summary ----
 echo ""

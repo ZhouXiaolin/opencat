@@ -3,11 +3,13 @@
    x:-23 y:66 rides the node transform. */
 
 import { gsap } from 'gsap';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { Cdot, StageCanvas, drawDissolve, drawPlusses, drawQmarks, drawStrip, rebuildDissolveField, vis } from './shared.jsx';
 
 export default function SceneHI() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 13.7) {
@@ -48,6 +50,7 @@ export default function SceneHI() {
     }
   });
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     if (typeof globalThis.__k3disBuilt === 'undefined') rebuildDissolveField(ctx);
     var HI_ON = (T >= 13.7);
@@ -55,7 +58,7 @@ export default function SceneHI() {
     if (HI_ON) {
       // hatch lines inside the box (hbox-canvas coords = box-local 1150x385);
       // exact 26° CSS geometry, staggered 13.77 + k*0.04.
-      var hCv = ctx.getCanvasById('hbox-canvas');
+      var hCv = CK.MakeCanvasSurface('hbox-canvas').getCanvas();
       if (hCv) {
         hCv.clear();
         var hatchP = new CK.Paint(); hatchP.setStyle(CK.PaintStyle.Stroke); hatchP.setStrokeWidth(2);
@@ -70,20 +73,20 @@ export default function SceneHI() {
       }
       // scramble dissolve: lambda drawRect over the field render target;
       // the draw lands at hcanvas-local (232, 230) = screen (232, 430)
-      var hDCv = ctx.getCanvasById('hcanvas');
+      var hDCv = CK.MakeCanvasSurface('hcanvas').getCanvas();
       if (hDCv) {
         hDCv.clear();
         drawDissolve(ctx, hDCv, T);
       }
       // g2qmarks furniture (ref makeQmarks/makePlusses); opacity is declarative.
-      var g2Cv = ctx.getCanvasById('g2qmarks-canvas');
+      var g2Cv = CK.MakeCanvasSurface('g2qmarks-canvas').getCanvas();
       if (g2Cv) {
         g2Cv.clear();
         drawQmarks(CK, g2Cv, [[343, 265, -1, -1], [1575, 265, 1, -1], [343, 813, -1, 1], [1575, 813, 1, 1]]);
         drawPlusses(CK, g2Cv, [[252, 178], [1668, 178], [252, 898], [1668, 898]], 22, 0.4);
       }
       // ifurn: stripIL/IR + iqmarks + plusses (opacity is declarative).
-      var ifCv = ctx.getCanvasById('ifurn-canvas');
+      var ifCv = CK.MakeCanvasSurface('ifurn-canvas').getCanvas();
       if (ifCv) {
         ifCv.clear();
         drawStrip(CK, ifCv, 306, 535, 109, 9, 15); drawStrip(CK, ifCv, 1504, 535, 109, 9, 15);

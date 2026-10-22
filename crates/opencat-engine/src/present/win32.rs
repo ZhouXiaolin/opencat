@@ -32,8 +32,10 @@ pub struct Presenter {
 }
 
 impl Presenter {
-    pub fn new(window: WindowHandle, _width: i32, _height: i32) -> Result<Self> {
-        let ctx = WglContext::from_window(window.hwnd)?;
+    /// # Safety
+    /// `window.hwnd` 必须是宿主线程上有效的顶层窗口句柄。
+    pub unsafe fn new(window: WindowHandle, _width: i32, _height: i32) -> Result<Self> {
+        let ctx = unsafe { WglContext::from_window(window.hwnd) }?;
         let interface = gl::Interface::new_load_with(|name| ctx.load_proc(name))
             .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface"))?;
         let skia = gpu::direct_contexts::make_gl(interface, None)

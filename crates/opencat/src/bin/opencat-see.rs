@@ -295,7 +295,7 @@ mod app {
             // 首帧渲染前完成（`preset` 只设一次）。后端不支持时保持懒初始化
             //（走 CPU 读回）。
             let mut presenter = match window_handle(&window).and_then(|handle| {
-                PreviewPresenter::for_window(handle, &self.pipeline, self.width, self.height)
+                unsafe { PreviewPresenter::for_window(handle, &self.pipeline, self.width, self.height) }
             }) {
                 Ok(presenter) => presenter,
                 Err(error) => {

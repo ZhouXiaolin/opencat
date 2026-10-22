@@ -1,9 +1,11 @@
 import { gsap } from 'gsap';
-import { useCanvasKit, useFrame, useGSAP } from 'opencat/runtime';
+import CanvasKitInit from 'canvaskit-wasm';
+import { useFrame, useGSAP } from 'opencat/runtime';
 import { Cbar, QX, QY, StageCanvas, drawQmarks, getK3Stream, vis } from './shared.jsx';
 
 export default function SceneC() {
-  var CK = useCanvasKit();
+  let CK = null;
+  CanvasKitInit({}).then((ck) => { CK = ck; });
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 5.433 && T < 7.35) {
@@ -22,12 +24,13 @@ export default function SceneC() {
     }
   });
   useFrame((ctx, t) => {
+    if (!CK) return;
     var T = t;
     var C_ON = (T >= 5.433 && T < 7.35);
     vis(ctx, 'sceneC', C_ON);
     if (C_ON) {
       // cicons: 3 mini bars + dot + trend line
-      var ciCv = ctx.getCanvasById('cicons');
+      var ciCv = CK.MakeCanvasSurface('cicons').getCanvas();
       if (ciCv) {
         ciCv.clear();
         var ciP = new CK.Paint(); ciP.setStyle(CK.PaintStyle.Stroke); ciP.setStrokeWidth(6); ciP.setStrokeCap(CK.StrokeCap.Round); ciP.setColor(CK.parseColorString('#b9b9b5'));
@@ -104,7 +107,7 @@ export default function SceneC() {
         var barN = document.getElementById('bar-' + bi); if (barN) barN.width(sx * 660);
       }
       // corner qmarks — visible for the whole scene C clip
-      var cqCv = ctx.getCanvasById('cqmarks-canvas');
+      var cqCv = CK.MakeCanvasSurface('cqmarks-canvas').getCanvas();
       if (cqCv) {
         cqCv.clear();
         drawQmarks(CK, cqCv, [[310, 275, -1, -1], [1490, 275, 1, -1], [310, 805, -1, 1], [1490, 805, 1, 1]]);

@@ -186,9 +186,10 @@ type ImageFilterSpec =
   | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[]; keepContent: boolean }
   | { type: 'colorFilter'; filter: ColorFilterSpec }
   | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec }
-  // SVG `<filter>` primitive 链（P4）。web 侧透传字节流（字段不解构成
-  // CanvasKit filter），保证 reader 对齐即可。
-  | { type: 'chain'; output: number; primitives: unknown[] };
+  // SVG `<filter>` primitive 链（P4）。线格式是 chain 列表（chainCount 前
+  // 导）；web 侧透传字节流（字段不解构成 CanvasKit filter），保证 reader
+  // 对齐即可。
+  | { type: 'chain'; chains: { output: number; primitives: unknown[] }[] };
 
 type ColorFilterSpec =
   | { type: 'matrix'; matrix: number[] }
@@ -903,7 +904,8 @@ export function renderEncodedDrawFrame(
           if (!ckImage) {
             const assetDesc = image.type === 'static' ? image.assetId
               : image.type === 'video' ? `${image.assetId}@${image.timeMicros}`
-              : `generated:${image.id}`;
+              : image.type === 'generated' ? `generated:${image.id}`
+              : `encoded:${image.byteId}`;
             throw new MediaValidationError(
               'image',
               assetDesc,
@@ -923,7 +925,8 @@ export function renderEncodedDrawFrame(
           if (!ckImage) {
             const assetDesc = image.type === 'static' ? image.assetId
               : image.type === 'video' ? `${image.assetId}@${image.timeMicros}`
-              : `generated:${image.id}`;
+              : image.type === 'generated' ? `generated:${image.id}`
+              : `encoded:${image.byteId}`;
             throw new MediaValidationError(
               'image',
               assetDesc,
@@ -1323,7 +1326,7 @@ function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
   // `encode_image_filter` / `encode_filter_chain` 严格对称，逐 primitive
   // 读完（web 渲染暂不消费这些字段）。
   const chainCount = reader.u32();
-  const chains: unknown[] = [];
+  const chains: { output: number; primitives: unknown[] }[] = [];
   for (let c = 0; c < chainCount; c++) {
     const hasSourceCrop = reader.u8() !== 0;
     if (hasSourceCrop) reader.f32Array(4);
@@ -1760,6 +1763,11 @@ function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec, dispose: Dispose
     ));
   }
   if (spec.type === 'colorFilter') return dispose(CK.ImageFilter.MakeColorFilter(buildColorFilter(CK, spec.filter, dispose), null));
+  if (spec.type === 'chain') {
+    // 解码侧只保证 reader 对齐（见 ImageFilterSpec chain 注释）；web 重放
+    // 尚不消费链式滤镜，fail-loud 指路。
+    throw new Error('chain image filters are not replayed on web yet');
+  }
   return dispose(CK.ImageFilter.MakeCompose(buildImageFilter(CK, spec.outer, dispose), buildImageFilter(CK, spec.inner, dispose)));
 }
 
@@ -1899,6 +1907,9 @@ function resolveImage(
     return ckImage;
   }
 
+  // encoded refs（字节在 IR bytes section，web 尚不消费）走到这里返回
+  // null，由调用方抛 MediaValidationError（带 `encoded:<byteId>` 描述）。
+  if (image.type !== 'video') return null;
   const transientKey = `${image.assetId}\0${image.timeMicros}`;
   const existing = transientImageCache.get(transientKey);
   if (existing) return existing;

@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import * as wasm from '../../crates/opencat-web/web/src/wasm';
+import * as drawIr from '../../crates/opencat-web/web/src/draw-ir';
+import * as injector from '../../crates/opencat-web/web/src/media/video-frame-injector';
 
+// 依赖隔离用命名空间 spyOn:vi.doMock 依赖 hoisting,在 bun 的 vitest
+// 运行时里会被忽略(动态 import 拿到真实模块)。globals 仍用 stubGlobal。
 describe('PNG frame export', () => {
   afterEach(() => {
-    vi.resetModules();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -50,16 +54,10 @@ describe('PNG frame export', () => {
       revokeObjectURL: vi.fn(),
     });
 
-    vi.doMock('../../crates/opencat-web/web/src/wasm', () => ({
-      getRendererOrThrow: () => renderer,
-    }));
-    vi.doMock('../../crates/opencat-web/web/src/draw-ir', () => ({
-      renderEncodedDrawFrame: vi.fn(),
-    }));
-    vi.doMock('../../crates/opencat-web/web/src/media/video-frame-injector', () => ({
-      prepareCatalogVideoSources: vi.fn(async () => {}),
-      injectVideoFramesForRender: vi.fn(async () => {}),
-    }));
+    vi.spyOn(wasm, 'getRendererOrThrow').mockReturnValue(renderer as any);
+    vi.spyOn(drawIr, 'renderEncodedDrawFrame').mockImplementation((() => undefined) as any);
+    vi.spyOn(injector, 'prepareCatalogVideoSources').mockResolvedValue(undefined);
+    vi.spyOn(injector, 'injectVideoFramesForRender').mockResolvedValue(undefined);
 
     const { exportPngFrame } = await import('../../crates/opencat-web/web/src/media/exporter');
 

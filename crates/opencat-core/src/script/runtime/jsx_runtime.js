@@ -14,13 +14,15 @@
  *      it to parse::dom). Runs BEFORE any per-frame driver.
  *
  * `use*` family (v1):
- *   useCanvas(ref, draw)   — per-frame CanvasKit 2D drawing on a <canvas ref>
  *   useThree(ref, build)   — per-frame three.js-like 3D scene on a <canvas ref>
  *   useChart(ref, build)   — per-frame AntV G2 chart on a <canvas ref>
  *   useGSAP(build)         — per-frame timeline block (GSAP-like)
  *   useFrame(build)        — escape hatch: arbitrary per-frame `(ctx, t)` work
- *   useCanvasKit()         — the CanvasKit namespace, for module-level paints
  *   useComposition()       — `{ width, height, fps, duration }` from `meta`
+ *
+ * Canvas drawing goes through the official entry —
+ * `import CanvasKitInit from 'canvaskit-wasm'` +
+ * `CanvasKitInit({}).then(CK => CK.MakeCanvasSurface(id))`.
  */
 (function () {
     'use strict';
@@ -358,60 +360,6 @@
     };
 
     // ── use* registry ───────────────────────────────────────────────
-    function useCanvas(ref, draw) {
-        if (!ref || typeof ref !== 'object' || !('current' in ref)) {
-            throw new Error('useCanvas: first argument must be a ref from useRef()');
-        }
-        globalThis.__ocOnFrame(function () {
-            var node = ref.current;
-            if (!node || node.__ocEl !== true || node.tag !== 'canvas') {
-                throw new Error(
-                    'useCanvas: ref must point at a <canvas> element (got ' +
-                    (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
-                );
-            }
-            var id = String(node.props.id);
-            var canvas = globalThis.ctx.getCanvasById(id);
-            augmentCanvas(canvas, id);
-            draw(canvas, globalThis.ctx.current.time, globalThis.ctx);
-        });
-    }
-
-    // Full handle surface: the raw CanvasKit facade (clear / drawCircle /
-    // drawPath / save / restore / …) plus the shorthands below.
-    var augmented = new WeakMap();
-    function augmentCanvas(canvas, id) {
-        if (augmented.get(canvas)) return canvas;
-        augmented.set(canvas, true);
-        canvas.nodeId = id;
-        canvas.CK = globalThis.ctx.CanvasKit;
-        // paint({ color, alpha, style, strokeWidth, cap, join, dash })
-        // `color` accepts '#rrggbb', [r,g,b,a] in 0..1, or a CK color array.
-        canvas.paint = function (opts) {
-            opts = opts || {};
-            var paint = new globalThis.ctx.CanvasKit.Paint();
-            if (opts.style) paint.setStyle(opts.style);
-            if (opts.antiAlias !== undefined) paint.setAntiAlias(opts.antiAlias);
-            if (opts.color !== undefined) {
-                if (Array.isArray(opts.color)) {
-                    paint.setColorComponents(
-                        opts.color[0], opts.color[1], opts.color[2],
-                        opts.color.length > 3 ? opts.color[3] : 1
-                    );
-                } else {
-                    paint.setColor(opts.color);
-                }
-            }
-            if (opts.alpha !== undefined) paint.setAlphaf(opts.alpha);
-            if (opts.strokeWidth !== undefined) paint.setStrokeWidth(opts.strokeWidth);
-            if (opts.cap) paint.setStrokeCap(opts.cap);
-            if (opts.join) paint.setStrokeJoin(opts.join);
-            if (opts.dash) paint.setStrokeDash(opts.dash, opts.dashPhase || 0);
-            return paint;
-        };
-        return canvas;
-    }
-
     // useThree(ref, build): the ref must point at a <canvas>; `build` receives
     // (three, node, t, ctx) and owns the whole scene graph + render call, the
     // same body a `<script>` block would run.
@@ -473,10 +421,6 @@
         });
     }
 
-    function useCanvasKit() {
-        return globalThis.ctx.CanvasKit;
-    }
-
     function useComposition() {
         return globalThis.__ocMeta || {};
     }
@@ -485,12 +429,10 @@
         h: h,
         useRef: useRef,
         Fragment: FRAGMENT,
-        useCanvas: useCanvas,
         useThree: useThree,
         useChart: useChart,
         useGSAP: useGSAP,
         useFrame: useFrame,
-        useCanvasKit: useCanvasKit,
         useComposition: useComposition,
     };
 
@@ -694,9 +636,13 @@
         builtins['gsap/EasePack'] = easeBag;
     }
     builtins['three'] = globalThis.ctx.threejs;
+    // Official entry: `import CanvasKitInit from 'canvaskit-wasm'` resolves to
+    // the loader stub (canvas_api.js), which resolves immediately with the
+    // signature facade — the example's `.then(CK => CK.MakeCanvasSurface(id))`
+    // runs in the frame's microtask drain, before the frame hooks.
     builtins['canvaskit-wasm'] = {
-        default: globalThis.ctx.canvas,
-        CanvasKit: globalThis.ctx.canvas,
+        default: globalThis.CanvasKitInit,
+        CanvasKitInit: globalThis.CanvasKitInit,
     };
 
     // ── ctx.ocTarget: real-gsap capture target ──────────────────────

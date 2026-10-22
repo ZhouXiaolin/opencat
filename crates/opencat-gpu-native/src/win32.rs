@@ -42,7 +42,10 @@ impl WglContext {
     /// 在 `hwnd` 上建 GL 上下文并 make current。
     ///
     /// `hwnd` 是裸窗口句柄（`raw-window-handle` 的 `Win32WindowHandle::hwnd`）。
-    pub fn from_window(hwnd: *mut c_void) -> Result<Self> {
+    ///
+    /// # Safety
+    /// `hwnd` 必须是宿主线程上有效的顶层窗口句柄。
+    pub unsafe fn from_window(hwnd: *mut c_void) -> Result<Self> {
         if hwnd.is_null() {
             return Err(anyhow!("Win32 window handle is null"));
         }

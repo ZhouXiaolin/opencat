@@ -52,6 +52,17 @@
         return selector.trim().slice(1);
     }
 
+    // Queries return the element-face handle (`ctx.__domTarget`), not the
+    // chainable author handle `ctx.getNode` hands out. Plugins compare the
+    // element they queried against the tween target by identity — MorphSVG
+    // reads `data-original` back only when `e === target` — and the two
+    // handles must stay distinct (see node_style.js), so the query has to
+    // answer with the same object gsap was handed as the target.
+    function elementFor(id, api) {
+        nodeFor(id, api);
+        return globalThis.ctx.__domTarget(id, { allowUnknown: true });
+    }
+
     function declarativeOnly(api) {
         return function () {
             throw new Error(
@@ -175,10 +186,10 @@
             return nodeFor(String(id), 'document.getElementById');
         },
         querySelector(selector) {
-            return nodeFor(selectorToId('document.querySelector', selector), 'document.querySelector');
+            return elementFor(selectorToId('document.querySelector', selector), 'document.querySelector');
         },
         querySelectorAll(selector) {
-            return [nodeFor(selectorToId('document.querySelectorAll', selector), 'document.querySelectorAll')];
+            return [elementFor(selectorToId('document.querySelectorAll', selector), 'document.querySelectorAll')];
         },
         createElement(tag) {
             return globalThis.__ocTree.createElement(tag);

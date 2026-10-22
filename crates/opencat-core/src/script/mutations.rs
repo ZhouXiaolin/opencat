@@ -57,6 +57,8 @@ pub struct NodeStyleMutations {
     pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
     pub fill_color: Option<ColorToken>,
+    /// `fill: none`（见 `NodeStyle::fill_none`）。
+    pub fill_none: bool,
     pub stroke_color: Option<ColorToken>,
     pub stroke_width: Option<f32>,
     pub stroke_dasharray: Option<crate::style::StrokeDash>,
@@ -482,8 +484,12 @@ impl NodeStyleMutations {
         if let Some(v) = self.bg_color {
             style.bg_color = Some(v);
         }
-        if let Some(v) = self.fill_color {
+        if self.fill_none {
+            style.fill_color = None;
+            style.fill_none = true;
+        } else if let Some(v) = self.fill_color {
             style.fill_color = Some(v);
+            style.fill_none = false;
         }
         if let Some(v) = self.stroke_color {
             style.stroke_color = Some(v);

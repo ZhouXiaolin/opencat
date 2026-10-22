@@ -713,6 +713,20 @@ impl MutationStore {
         // colors
         add_color!("fillColor", fill_color);
         add_color!("strokeColor", stroke_color);
+        // CSS 的 `fill` / `stroke` 是 SVG 的表现属性，也是 computed style 报
+        // 的名字。MorphSVG 读 computed `fill` 决定 fillSafe（填充形状要考虑
+        // 绕向，描边形状不用）；`fill: none` 必须报 "none"，不能退化成
+        // 初始值黑色。
+        if style.fill_none {
+            props.insert("fill".into(), json!("none"));
+        } else if let Some(ref c) = style.fill_color {
+            let (r, g, b, a) = c.rgba();
+            props.insert("fill".into(), json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)));
+        }
+        if let Some(ref c) = style.stroke_color {
+            let (r, g, b, a) = c.rgba();
+            props.insert("stroke".into(), json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)));
+        }
         add_color!("backgroundColor", bg_color);
         add_color!("textColor", text_color);
         add_color!("borderColor", border_color);
@@ -846,6 +860,17 @@ impl MutationStore {
                     mutations.backdrop_blur_sigma.map(|f| json!(f))
                 }
                 // colors (serialize as "#RRGGBBAA" or "transparent")
+                "fill" => mutations
+                    .fill_none
+                    .then(|| json!("none"))
+                    .or_else(|| mutations.fill_color.as_ref().map(|c| {
+                        let (r, g, b, a) = c.rgba();
+                        json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
+                    })),
+                "stroke" => mutations.stroke_color.as_ref().map(|c| {
+                    let (r, g, b, a) = c.rgba();
+                    json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
+                }),
                 "fillColor" => mutations.fill_color.as_ref().map(|c| {
                     let (r, g, b, a) = c.rgba();
                     json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
@@ -1110,9 +1135,22 @@ impl MutationStore {
                     entry.bg_color = color_token_from_script_string(s);
                 }
             }
-            "fillColor" => {
+            "fillColor" | "fill" => {
                 if let Some(s) = value.as_str() {
-                    entry.fill_color = color_token_from_script_string(s);
+                    // `fill: none` 是「不填充」，不是一种颜色；它必须与
+                    // 「没声明 fill」区分开（MorphSVG 的 fillSafe 读这个）。
+                    if s.trim().eq_ignore_ascii_case("none") {
+                        entry.fill_color = None;
+                        entry.fill_none = true;
+                    } else {
+                        entry.fill_color = color_token_from_script_string(s);
+                        entry.fill_none = false;
+                    }
+                }
+            }
+            "stroke" => {
+                if let Some(s) = value.as_str() {
+                    entry.stroke_color = color_token_from_script_string(s);
                 }
             }
             "strokeColor" => {

@@ -1,10 +1,10 @@
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame } from 'opencat/runtime';
+import { useEffect } from 'opencat/runtime';
 /* ══ canvas-close (master 46.02-49.77, compositions/canvas-close.html) ══
    ASCII-terminal lightning reveal. The reference is a <canvas> with 2D
    fillText per character cell (10x16px grid), driven by a GSAP proxy
-   tween 0→3.93 linear → here the scene clock `t` (useFrame passes
-   ctx.current.time) drives the same renderAtTime. Text goes through ly.surface (2D subset, fontdb
+   tween 0→3.93 linear → here the scene clock `t` (read as
+   ctx.current.time inside useEffect) drives the same renderAtTime. Text goes through ly.surface (2D subset, fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
    offset at 14px), then ly.draw samples it on the stage canvas. Master
@@ -445,7 +445,8 @@ function ccRender(cv, ctx, t) {
 
 export default function CanvasClose() {
 
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CC_CK) return;
     ccRender(CC_CK.MakeCanvasSurface('cc-canvas').getCanvas(), ctx, Math.min(t, 3.93));
   });

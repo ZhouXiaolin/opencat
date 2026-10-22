@@ -1,18 +1,20 @@
 // JSX frontend port of examples/liquid-brand-refraction/liquid-brand-refraction.xml.
 //
-// The whole threejs-like scene graph + renderAt(t) body moves into a single
-// useThree callback: `build(three, canvasNode, t, ctx)`. Everything else
-// (constants, scene construction, per-frame updates, renderer.render) is the
-// XML <script> verbatim, so the render stays pixel-comparable.
+// The whole scene graph + renderAt(t) body lives in a single `useEffect`: it
+// re-runs every frame, which is exactly the `frame = f(t)` contract. Everything
+// else (constants, scene construction, per-frame updates, renderer.render) is
+// the XML <script> verbatim, so the render stays pixel-comparable.
 
-import { useThree, useRef } from 'opencat/runtime';
+import * as THREE from 'three';
+import { useEffect, useRef } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 6.0 };
 
 export default function LiquidBrandRefraction() {
   const canvas = useRef();
 
-  useThree(canvas, (T3, node, t, ctx) => {
+  useEffect(() => {
+        var t = ctx.current.time;
         /* ════════════════════════════════════════════════════════════════════
            Per-frame procedural port of js/liquid-pop-v2.js renderAt(t).
            Constants, ease helpers and phase boundaries copied 1:1.
@@ -84,17 +86,17 @@ export default function LiquidBrandRefraction() {
               js/liquid-pop-v2.js 的模块级构建一一对应；每帧更新段对应
               renderAt()。几何/相机/时序数值全部引自参考源码常量（括号内为
               js 行号）。 ══ */
-        var scene3d = new T3.Scene();                                   // js:30
+        var scene3d = new THREE.Scene();                                   // js:30
         /* ⑥b 环境 IBL（js:37/42-46/48-50）：equirect 庭园 JPEG →
            EquirectangularReflectionMapping + SRGBColorSpace → scene.environment。
            引擎侧加载期一次性 PMREM 预滤波（PMREMGenerator.fromEquirectangular
            对应物，CPU 卷积）+ cubeUV 采样进 fs_physical 间接光；BitmapTexture
            的 mapping/colorSpace 由 Renderer.render 校验（fail-loud shim）。 */
-        var gardenEnvironment3d = new T3.BitmapTexture('assets/equirect-garden.jpg'); // js:37/43
-        gardenEnvironment3d.mapping = T3.EquirectangularReflectionMapping;   // js:48
-        gardenEnvironment3d.colorSpace = T3.SRGBColorSpace;                  // js:49
+        var gardenEnvironment3d = new THREE.BitmapTexture('assets/equirect-garden.jpg'); // js:37/43
+        gardenEnvironment3d.mapping = THREE.EquirectangularReflectionMapping;   // js:48
+        gardenEnvironment3d.colorSpace = THREE.SRGBColorSpace;                  // js:49
         scene3d.environment = gardenEnvironment3d;                           // js:50
-        var camera3d = new T3.PerspectiveCamera(35, 1920 / 1080, 0.1, 100); // js:31
+        var camera3d = new THREE.PerspectiveCamera(35, 1920 / 1080, 0.1, 100); // js:31
         camera3d.position.set(0, 0, 7);                                 // js:32 初值
         camera3d.lookAt(0, 0, 0);                                       // js:33
         /* 背景 ShaderMaterial（js:62-97 GLSL 逐字；varying/gl_FragColor 的
@@ -105,7 +107,7 @@ export default function LiquidBrandRefraction() {
            （js:63-65）仍为逐材质深度态偏差（引擎尚无逐材质深度态，handoff
            §26）：等价性依据 = bg 深度最远（z=-3.5），opaque 段内无论 bg 与
            更近物的绘制先后，深度测试都让更近物覆盖 bg —— 逐像素同果。 */
-        var backgroundMaterial3d = new T3.ShaderMaterial({              // js:62
+        var backgroundMaterial3d = new THREE.ShaderMaterial({              // js:62
           depthWrite: false,                                            // js:63（等价实现，见上）
           depthTest: false,                                             // js:64（等价实现，见上）
           /* js:65 toneMapped:false = 文档性声明：three.js 不向 ShaderMaterial
@@ -145,20 +147,20 @@ export default function LiquidBrandRefraction() {
             }
           `,
         });
-        var bgPlane3d = new T3.Mesh(                                    // js:98
-          new T3.PlaneGeometry(15, 8.5), backgroundMaterial3d);
+        var bgPlane3d = new THREE.Mesh(                                    // js:98
+          new THREE.PlaneGeometry(15, 8.5), backgroundMaterial3d);
         bgPlane3d.position.set(0, 0, -3.5);                             // js:99
         bgPlane3d.renderOrder = -10;                                    // js:100
         scene3d.add(bgPlane3d);                                         // js:101
-        var hemiLight3d = new T3.HemisphereLight(0xffffff, 0x7eb6a4, 2.1); // js:103
+        var hemiLight3d = new THREE.HemisphereLight(0xffffff, 0x7eb6a4, 2.1); // js:103
         scene3d.add(hemiLight3d);
-        var keyLight3d = new T3.DirectionalLight(0xffffff, 3.4);        // js:104-105
+        var keyLight3d = new THREE.DirectionalLight(0xffffff, 3.4);        // js:104-105
         keyLight3d.position.set(-4, 5, 6);                              // js:106
         scene3d.add(keyLight3d);
-        var rimLight3d = new T3.DirectionalLight(0xc596ff, 2.2);        // js:107-108
+        var rimLight3d = new THREE.DirectionalLight(0xc596ff, 2.2);        // js:107-108
         rimLight3d.position.set(5, -2, 3);                              // js:109
         scene3d.add(rimLight3d);
-        var heroMaterial3d = new T3.MeshPhysicalMaterial({             // js:163-179
+        var heroMaterial3d = new THREE.MeshPhysicalMaterial({             // js:163-179
           color: 0xffffff,                                              // js:164
           transmission: 1,                                              // js:165
           opacity: 1,                                                   // js:166
@@ -182,8 +184,8 @@ export default function LiquidBrandRefraction() {
           // vNormal 是死代码——折射/高光用未位移法线，剪影仍波动（r8 实证）。
           noiseDisplacement: { amplitude: 0.12, frequency: 1.5, worldFrequency: 0.1, timeSpeed: 0.4 },
         });
-        var heroSphere = new T3.Mesh(                                   // js:217
-          new T3.SphereGeometry(1.5, 128, 128),
+        var heroSphere = new THREE.Mesh(                                   // js:217
+          new THREE.SphereGeometry(1.5, 128, 128),
           heroMaterial3d);
         heroSphere.position.y = 0.1;                                    // js:218
         heroSphere.renderOrder = 4;                                     // js:219（透射段 droplets(3)→hero(4)）
@@ -198,15 +200,15 @@ export default function LiquidBrandRefraction() {
               主面 COLOR_0≈0 按 COLOR_1 字节 id 选 8 路 facet 视频槽、屏幕空间
               surfaceUv 采样 + frost；非主面取主导通道 corner 色）——常量全部
               引自参考 shader 源码（括号内为 js 行号）。 ── */
-        var prismGeo3d = new T3.GLTFGeometry('assets/heygen-prism.glb', 'prism');
+        var prismGeo3d = new THREE.GLTFGeometry('assets/heygen-prism.glb', 'prism');
         // js:230-241：8 路 VideoTexture（opencat 侧路径 = 参考仓库 assets/
         // 01..08.mp4 的逐字节拷贝，data-start 0 / duration 6 语义下采样合成
         // 时间 t 处的帧）。
         var facetTextures3d = [];
         for (var fi = 0; fi < 8; fi++) {
-          facetTextures3d.push(new T3.VideoTexture('assets/0' + (fi + 1) + '.mp4'));
+          facetTextures3d.push(new THREE.VideoTexture('assets/0' + (fi + 1) + '.mp4'));
         }
-        var prismMaterial3d = new T3.MeshMosaicMaterial({
+        var prismMaterial3d = new THREE.MeshMosaicMaterial({
           // js:267-270 modelFaceIdToVideoId（GLB COLOR_1 字节 id → 视频槽）。
           faceToTexture: [6, 3, 4, 1, 7, 2, 5, 0],
           // js:260-264 kCornerColors。
@@ -222,11 +224,11 @@ export default function LiquidBrandRefraction() {
           uvCrop: 0.75,   // js:314 (gl_FragCoord/uResolution − 0.5)/0.75 + 0.5
           videoTextures: facetTextures3d,   // js:245-247 uVideo0..7
         });
-        var prismMesh3d = new T3.Mesh(prismGeo3d, prismMaterial3d);     // js:337
+        var prismMesh3d = new THREE.Mesh(prismGeo3d, prismMaterial3d);     // js:337
         prismMesh3d.scale.setScalar(0.72);                              // js:338
         prismMesh3d.rotation.order = 'YXZ';                             // js:339
         prismMesh3d.renderOrder = 1;                                    // js:340（opaque 段 bg(-10)→prism(1)→wordmark(2)）
-        var brandMark3d = new T3.Group();                               // js:366
+        var brandMark3d = new THREE.Group();                               // js:366
         brandMark3d.add(prismMesh3d);                                   // js:343
         brandMark3d.position.set(0, 0.02, -0.35);                       // js:375
         brandMark3d.rotation.set(0, 0, 0);                              // js:376
@@ -260,14 +262,14 @@ export default function LiquidBrandRefraction() {
               正对相机（+z 面朝视点），引擎 FrontSide 与其逐像素等价（§27.7-4）。 ── */
         var WM_ASPECT = 3356.0 / 1000.0;                // wordmarkAspect（官方 SVG 3356×1000）
         var WM_PLANE_H = 0.55;                          // finalWordmarkHeight（js:382）
-        var wordmarkMaterial3d = new T3.ShaderMaterial({                // js:384-401 的编译产物
+        var wordmarkMaterial3d = new THREE.ShaderMaterial({                // js:384-401 的编译产物
           depthWrite: true,                                             // js:387
           /* js:388 toneMapped:false → 编译产物无 TONE_MAPPING define
              （WebGLProgram.js:831 只在 parameters.toneMapping ≠ NoToneMapping
              时定义），tonemapping_fragment 为空；下方 GLSL 相应无 ACES 项，
              仅保留恒注入的 colorspace_fragment（WebGLProgram.js:839）。 */
           toneMapped: false,
-          map: new T3.BitmapTexture('assets/wordmark.png'),    // js:385（js:42-45/57-60 TextureLoader）
+          map: new THREE.BitmapTexture('assets/wordmark.png'),    // js:385（js:42-45/57-60 TextureLoader）
           uniforms: {
             uWordmarkReveal: { value: 0 },                              // js:383/392 wordmarkReveal
             diffuse: { value: [1, 1, 1] },                              // js:164 color 0xffffff（内建 diffuse）
@@ -304,8 +306,8 @@ export default function LiquidBrandRefraction() {
             }
           `,
         });
-        var wordmarkPlane3d = new T3.Mesh(                              // js:403-406
-          new T3.PlaneGeometry(WM_PLANE_H * WM_ASPECT, WM_PLANE_H),
+        var wordmarkPlane3d = new THREE.Mesh(                              // js:403-406
+          new THREE.PlaneGeometry(WM_PLANE_H * WM_ASPECT, WM_PLANE_H),
           wordmarkMaterial3d);
         wordmarkPlane3d.position.set(0.35, 0.14, -0.35);                // js:407（isHeygenWebgl）
         wordmarkPlane3d.renderOrder = 2;                                // js:408
@@ -321,7 +323,7 @@ export default function LiquidBrandRefraction() {
               push 的 transmissive 分类）；uTime 与 hero 同一 liquidClock 值
               （js:524-526）。参考对 droplet 无 visible 逐帧写——Object3D 默认
               可见（本轮提升：过渡 pin DROPS_WM_3D_PROMOTED 撤除）。 ── */
-        var dropletMaterial3d = new T3.MeshPhysicalMaterial({          // js:216 = js:163-179
+        var dropletMaterial3d = new THREE.MeshPhysicalMaterial({          // js:216 = js:163-179
           color: 0xffffff,                                              // js:164
           transmission: 1,                                              // js:165
           opacity: 1,                                                   // js:166
@@ -348,10 +350,10 @@ export default function LiquidBrandRefraction() {
           var dcY = Math.sin(dcAngle * 1.37) * (1.2 + 0.07 * (dci % 3)); // js:418
           var dcX = Math.cos(dcAngle) * dcRing;                         // js:419
           var dcZ = -0.15 + 0.16 * ((dci % 5) - 2);                     // js:420
-          var dcBase = new T3.Vector3(dcX, dcY + 0.1, dcZ);             // js:421
-          var dcDir = new T3.Vector3(dcX, dcY * 0.88, 0.08 * ((dci % 3) - 1)).normalize(); // js:422
-          var dcMesh = new T3.Mesh(                                     // js:423
-            new T3.SphereGeometry(dcRadius, 32, 32), dropletMaterial3d);
+          var dcBase = new THREE.Vector3(dcX, dcY + 0.1, dcZ);             // js:421
+          var dcDir = new THREE.Vector3(dcX, dcY * 0.88, 0.08 * ((dci % 3) - 1)).normalize(); // js:422
+          var dcMesh = new THREE.Mesh(                                     // js:423
+            new THREE.SphereGeometry(dcRadius, 32, 32), dropletMaterial3d);
           dcMesh.position.copy(dcBase);                                 // js:424
           dcMesh.userData = {                                           // js:425-430
             base: dcBase,
@@ -363,14 +365,15 @@ export default function LiquidBrandRefraction() {
           droplets3d.push(dcMesh);                                      // js:432
           scene3d.add(dcMesh);                                          // js:433
         }
-        var renderer3d = new T3.Renderer('threecanvas', 1920, 1080);    // js:17-24
+        var renderer3d = new THREE.WebGLRenderer({ canvas: canvas.current }); // js:17-24
+        renderer3d.setSize(1920, 1080);
         /* ⑥a 输出变换（js:18-20，参考在 renderer 构造后立即声明的三个设置）：
            内建材质（Unlit/Lambert/Physical 分支）主 pass 输出链 = tonemapping
            （ACESFilmic × exposure，tonemapping_pars_fragment.glsl.js 逐字移植）
            → colorspace（sRGBTransferOETF）；ShaderMaterial 恒 raw；透射 RT
            二遍恒 NoToneMapping+Linear（WebGLRenderer.js:1921-1922/:2197）。 */
-        renderer3d.outputColorSpace = T3.SRGBColorSpace;                // js:18 THREE.SRGBColorSpace
-        renderer3d.toneMapping = T3.ACESFilmicToneMapping;              // js:19 THREE.ACESFilmicToneMapping
+        renderer3d.outputColorSpace = THREE.SRGBColorSpace;                // js:18 THREE.SRGBColorSpace
+        renderer3d.toneMapping = THREE.ACESFilmicToneMapping;              // js:19 THREE.ACESFilmicToneMapping
         renderer3d.toneMappingExposure = 1.08;                          // js:20
 
         /* renderAt() 每帧段（js:459-467）：相机推近 + hero 建立期缩放/挤压/
@@ -429,7 +432,6 @@ export default function LiquidBrandRefraction() {
         }
         dropletMaterial3d.noiseTime = shaderTime;       // js:526 uTime（与 hero 同一值）
         renderer3d.render(scene3d, camera3d);           // js:540
-  
   });
 
   return (

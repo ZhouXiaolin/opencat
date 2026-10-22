@@ -2,11 +2,11 @@
 // every layer is gated by its time window via opacity, driven by the frame clock.
 // The XML <template>s become components (props replace $param), and the
 // <script> sections split into per-scene components: gsap tweens live in
-// useGSAP, CanvasKit drawing in useFrame, so hook order (tree order)
+// useGSAP, CanvasKit drawing in useEffect, so hook order (tree order)
 // mirrors the XML script order. Shared prologue work (type calibration) runs
 // in the entry component's own hook, which registers before all children.
 
-import { useFrame } from 'opencat/runtime';
+import { useEffect } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 16.4667 };
 
@@ -39,7 +39,7 @@ import { applyTypeCalibration } from './scenes/shared.jsx';
    tree order = hook order = XML script order (OPEN card last: it only
    touches its own subtree). */
 function K3Promo() {
-  useFrame((ctx) => {
+  useEffect(() => {
     // per-frame prologue: the type calibration runs before every scene hook,
     // exactly like the XML script top-level.
     applyTypeCalibration(ctx);

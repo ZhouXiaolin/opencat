@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { makeMeasure, pillWidths, vis } from './shared.jsx';
 
 export default function SceneB() {
@@ -24,7 +24,8 @@ export default function SceneB() {
   // roll is parked at -44 (finished before B starts). Stripe phase anchors
   // carry per-pill residuals measured on f160: [bs1 +2.215, bs2 -1.805,
   // bs3 -1.884, bs4 +1.891, bs5 -0.247]px.
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     var B_ON = (T >= 4.563 && T < 5.853);

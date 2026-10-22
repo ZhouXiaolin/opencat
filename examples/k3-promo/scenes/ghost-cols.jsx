@@ -1,6 +1,6 @@
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
-import { useFrame, useGSAP } from 'opencat/runtime';
+import { useGSAP, useEffect } from 'opencat/runtime';
 import { StageCanvas, getK3Stream, vis } from './shared.jsx';
 
 
@@ -16,7 +16,8 @@ export default function GhostCols() {
         .to('ghostinner', { opacity: 0.9, duration: 0.55, ease: 'power1.inOut' }, 4.683);
     }
   });
-  useFrame((ctx, t) => {
+  useEffect(() => {
+    var t = ctx.current.time;
     if (!CK) return;
     var T = t;
     var G_ON = (T >= 4.583 && T < 7.35);

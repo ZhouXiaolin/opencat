@@ -32,16 +32,16 @@ export default function FlexSfx() {
   var bars = [];
   for (var b = 0; b < 48; b++) bars.push(b);
   return (
-    <div id="fx-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#1a1208]">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#2a1f10_0%,#0e0a04_100%)]"></div>
-      <div id="fx-glow" class="absolute left-[560px] top-[140px] w-[800px] h-[800px] bg-[radial-gradient(circle,rgba(200,132,10,0.25)_0%,transparent_70%)] opacity-0"></div>
-      <div class="absolute left-[960px] top-[540px] w-0 h-0">
+    <div id="fx-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#1a1208]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#2a1f10_0%,#0e0a04_100%)]"></div>
+      <div id="fx-glow" className="absolute left-[560px] top-[140px] w-[800px] h-[800px] bg-[radial-gradient(circle,rgba(200,132,10,0.25)_0%,transparent_70%)] opacity-0"></div>
+      <div className="absolute left-[960px] top-[540px] w-0 h-0">
         {bars.map((i) => (
-          <div id={'fx-b' + i} class="absolute bottom-0 left-[-3px] w-[6px] rounded-[3px] bg-[linear-gradient(to_top,#c8840a,#f5c842)] h-[4px] opacity-0 [transform-origin:50%_100%]"></div>
+          <div id={'fx-b' + i} className="absolute bottom-0 left-[-3px] w-[6px] rounded-[3px] bg-[linear-gradient(to_top,#c8840a,#f5c842)] h-[4px] opacity-0 [transform-origin:50%_100%]"></div>
         ))}
       </div>
-      <div class="absolute left-0 top-[540px] w-full flex justify-center">
-        <text id="fx-text" class="mt-[-26px] text-[52px] leading-none tracking-[0.1em] font-[hf-inter-med] text-[#f5e8c8] uppercase [text-shadow:0_0_40px_rgba(200,132,10,0.5)] opacity-0">sound effects</text>
+      <div className="absolute left-0 top-[540px] w-full flex justify-center">
+        <text id="fx-text" className="mt-[-26px] text-[52px] leading-none tracking-[0.1em] font-[hf-inter-med] text-[#f5e8c8] uppercase [text-shadow:0_0_40px_rgba(200,132,10,0.5)] opacity-0">sound effects</text>
       </div>
     </div>
   );

@@ -38,8 +38,8 @@ export default function OpenCard() {
     }
   });
   return (
-    <div id="opencard" class="absolute inset-0 z-[9] opacity-0">
-      <div id="stripOL" class="absolute left-[32px] top-[528px] flex items-end gap-[6.8px] opacity-90">
+    <div id="opencard" className="absolute inset-0 z-[9] opacity-0">
+      <div id="stripOL" className="absolute left-[32px] top-[528px] flex items-end gap-[6.8px] opacity-90">
         <Tick id="d-566" ht="23px" /><Tick id="d-567" ht="10px" mb="mb-[6px]" />
         <Tick id="d-568" ht="23px" /><Tick id="d-569" ht="10px" mb="mb-[6px]" />
         <Tick id="d-570" ht="23px" /><Tick id="d-571" ht="10px" mb="mb-[6px]" />
@@ -60,7 +60,7 @@ export default function OpenCard() {
         <Tick id="d-600" ht="23px" /><Tick id="d-601" ht="10px" mb="mb-[6px]" />
         <Tick id="d-602" ht="23px" />
       </div>
-      <div id="stripOR" class="absolute left-[1627px] top-[528px] flex items-end gap-[6.8px] opacity-90">
+      <div id="stripOR" className="absolute left-[1627px] top-[528px] flex items-end gap-[6.8px] opacity-90">
         <Tick id="d-603" ht="23px" /><Tick id="d-604" ht="10px" mb="mb-[6px]" />
         <Tick id="d-605" ht="23px" /><Tick id="d-606" ht="10px" mb="mb-[6px]" />
         <Tick id="d-607" ht="23px" /><Tick id="d-608" ht="10px" mb="mb-[6px]" />
@@ -82,11 +82,11 @@ export default function OpenCard() {
         <Tick id="d-639" ht="23px" />
       </div>
       {/* braces + headline centered in the 698px brace box */}
-      <text id="obl" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{'{'}</text>
-      <text id="obr" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1362.496px] top-[473.661px] text-[128.8546px]">{'}'}</text>
-      <div id="opentext" class="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none flex whitespace-nowrap left-[590.3768px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px]"><text id="ot1" class="opacity-0">Open Frontier</text><text id="ot2" class="opacity-0">{" Intelligence"}</text></div>
-      <text id="openmid" class="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap left-[666.7227px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">en Frontier Intelligen</text>
-      <text id="openrem" class="absolute font-[k3-sans] font-normal text-[#98989c] leading-none whitespace-nowrap left-[923.6878px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">ier</text>
+      <text id="obl" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{'{'}</text>
+      <text id="obr" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1362.496px] top-[473.661px] text-[128.8546px]">{'}'}</text>
+      <div id="opentext" className="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none flex whitespace-nowrap left-[590.3768px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px]"><text id="ot1" className="opacity-0">Open Frontier</text><text id="ot2" className="opacity-0">{" Intelligence"}</text></div>
+      <text id="openmid" className="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap left-[666.7227px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">en Frontier Intelligen</text>
+      <text id="openrem" className="absolute font-[k3-sans] font-normal text-[#98989c] leading-none whitespace-nowrap left-[923.6878px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">ier</text>
     </div>
   );
 }

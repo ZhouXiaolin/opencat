@@ -1,12 +1,10 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { AgentPill, Cdot, GS, StageCanvas, clamp, getK3Field, makeMeasure, mulberry32, pillWidths, vis } from './shared.jsx';
 
 
 export default function SceneA() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   // gsap code: declarative timelines (zoom/field envelope, title fade).
   useGSAP((ctx, t) => {
     var T = t;
@@ -38,7 +36,6 @@ export default function SceneA() {
   // CanvasKit drawing + per-frame gating.
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     var A_ON = (T >= 0.75 && T < 4.62);
     vis(ctx, 'sceneA', A_ON);
@@ -213,7 +210,7 @@ export default function SceneA() {
       // #afield opacity comes from the field-energy timeline above.
       // hue-shift to dark purple after n105 (index.html:1583) — a thin
       // marker call; the engine supports the full CSS filter chain natively.
-      if (T >= 3.5) document.getElementById('afield').filter('brightness(0.5) sepia(1) hue-rotate(215deg) saturate(2.2)');
+      if (T >= 3.5) document.getElementById('afield').style.filter = 'brightness(0.5) sepia(1) hue-rotate(215deg) saturate(2.2)';
       paintField('afield-canvas', false);
 
       // purple clone crossfade (3.03→3.23 in, 3.83→4.00 out; power1.inOut) is
@@ -305,8 +302,8 @@ export default function SceneA() {
         var th = orbTheta(T);
         for (var pi = 0; pi < pillIds.length; pi++) {
           var pn = document.getElementById(pillIds[pi]); if (!pn) continue;
-          if (T < PBIRTH[pi] - 0.001) { pn.opacity(0); continue; }
-          pn.opacity(1);
+          if (T < PBIRTH[pi] - 0.001) { pn.style.opacity = 0; continue; }
+          pn.style.opacity = 1;
           var trk = pillTracks[pi], a, r;
           if (T <= trk[0][0]) { a = trk[0][1] - (orbTheta(trk[0][0]) - th); r = trk[0][2]; }
           else if (T >= trk[trk.length - 1][0]) {
@@ -391,43 +388,43 @@ export default function SceneA() {
     }
   });
   return (
-    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
+    <div id="sceneA" className="absolute inset-0 z-[2] opacity-0">
       {/* zoom layer (scale 1.07 → 0.9417); field + title sit inside */}
-      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
+      <div id="azoom" className="absolute inset-0 [transform-origin:50%_50%]">
         {/* white lattice field, masked by a radial gradient */}
-        <div id="afield" class="absolute inset-0">
+        <div id="afield" className="absolute inset-0">
           <StageCanvas id="afield-canvas" />
         </div>
         {/* field edge fade overlay (CSS mask-image not supported, use overlay) */}
-        <div id="afield-mask" class="absolute inset-0 bg-[radial-gradient(ellipse_64%_70%_at_50%_50%,transparent_52%,#010101_100%)]"></div>
-        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
-          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
-          <Cdot id="a-tl" s="13px" c="#d8d8da" class="-left-[7px] -top-[7px]" />
-          <Cdot id="a-tr" s="13px" c="#d8d8da" class="-right-[7px] -top-[7px]" />
-          <Cdot id="a-bl" s="13px" c="#d8d8da" class="-left-[7px] -bottom-[7px]" />
-          <Cdot id="a-br" s="13px" c="#d8d8da" class="-right-[7px] -bottom-[7px]" />
-          <div id="aline1" class="absolute flex whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0"><text id="aw1">Every</text><text id="aw2">{" token"}</text></div>
-          <text id="aline2" class="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</text>
+        <div id="afield-mask" className="absolute inset-0 bg-[radial-gradient(ellipse_64%_70%_at_50%_50%,transparent_52%,#010101_100%)]"></div>
+        <div id="atitlegrp" className="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
+          <div id="a-sel" className="absolute inset-0 border-[1px] border-white/25"></div>
+          <Cdot id="a-tl" s="13px" c="#d8d8da" className="-left-[7px] -top-[7px]" />
+          <Cdot id="a-tr" s="13px" c="#d8d8da" className="-right-[7px] -top-[7px]" />
+          <Cdot id="a-bl" s="13px" c="#d8d8da" className="-left-[7px] -bottom-[7px]" />
+          <Cdot id="a-br" s="13px" c="#d8d8da" className="-right-[7px] -bottom-[7px]" />
+          <div id="aline1" className="absolute flex whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0"><text id="aw1">Every</text><text id="aw2">{" token"}</text></div>
+          <text id="aline2" className="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</text>
         </div>
-        <div id="apwrap" class="absolute inset-0 opacity-0">
-          <div id="afieldp" class="absolute inset-0">
+        <div id="apwrap" className="absolute inset-0 opacity-0">
+          <div id="afieldp" className="absolute inset-0">
             <StageCanvas id="afieldp-canvas" />
           </div>
           {/* afieldp-mask overlay REMOVED (r12): purple paint alphas are
               pre-multiplied by w(r) inside paintField instead. */}
-          <div id="atitlegrpp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
-            <div id="a-pp-sel" class="absolute inset-0 border-[1px] border-[rgba(171,132,207,0.75)]"></div>
-            <Cdot id="a-pp-tl" s="13px" c="#ab84cf" class="-left-[7px] -top-[7px]" />
-            <Cdot id="a-pp-tr" s="13px" c="#ab84cf" class="-right-[7px] -top-[7px]" />
-            <Cdot id="a-pp-bl" s="13px" c="#ab84cf" class="-left-[7px] -bottom-[7px]" />
-            <Cdot id="a-pp-br" s="13px" c="#ab84cf" class="-right-[7px] -bottom-[7px]" />
-            <text id="aline1p" class="absolute whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">Every token</text>
-            <text id="aline2p" class="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</text>
+          <div id="atitlegrpp" className="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
+            <div id="a-pp-sel" className="absolute inset-0 border-[1px] border-[rgba(171,132,207,0.75)]"></div>
+            <Cdot id="a-pp-tl" s="13px" c="#ab84cf" className="-left-[7px] -top-[7px]" />
+            <Cdot id="a-pp-tr" s="13px" c="#ab84cf" className="-right-[7px] -top-[7px]" />
+            <Cdot id="a-pp-bl" s="13px" c="#ab84cf" className="-left-[7px] -bottom-[7px]" />
+            <Cdot id="a-pp-br" s="13px" c="#ab84cf" className="-right-[7px] -bottom-[7px]" />
+            <text id="aline1p" className="absolute whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">Every token</text>
+            <text id="aline2p" className="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</text>
           </div>
         </div>
       </div>
       {/* pills sit OUTSIDE the zoom layer (screen-space orbit) */}
-      <div id="apills" class="absolute inset-0">
+      <div id="apills" className="absolute inset-0">
         <StageCanvas id="apill-canvas" />
         <AgentPill id="ap1" t="Agentic" />
         <AgentPill id="ap2" t="Delta Attention" />
@@ -437,9 +434,9 @@ export default function SceneA() {
       </div>
       {/* A furniture (ruler strips): canvas is 4px wider than the 139px box —
           tick #19 sits at left=139 and was being clipped by the surface. */}
-      <div id="afurn" class="absolute inset-0">
-        <canvas id="stripAL" class="absolute left-[157px] top-[530px] w-[143px] h-[15px]"></canvas>
-        <canvas id="stripAR" class="absolute left-[1626px] top-[530px] w-[143px] h-[15px]"></canvas>
+      <div id="afurn" className="absolute inset-0">
+        <canvas id="stripAL" className="absolute left-[157px] top-[530px] w-[143px] h-[15px]"></canvas>
+        <canvas id="stripAR" className="absolute left-[1626px] top-[530px] w-[143px] h-[15px]"></canvas>
       </div>
     </div>
   );

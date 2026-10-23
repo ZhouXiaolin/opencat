@@ -67,7 +67,7 @@ import CanvasClose from './scenes/canvas-close.jsx';
    falls out of the scene window. ═════════════════════════════ */
 function HyperframesLaunch() {
   return (
-    <div id="hf-root" class="relative w-[1920px] h-[1080px] bg-[#0a0a0a] overflow-hidden">
+    <div id="hf-root" className="relative w-[1920px] h-[1080px] bg-[#0a0a0a] overflow-hidden">
       {/* The master stage is a `<tl>`: 16 sub-compositions on a 49.77s timeline.
           Each scene declares its own segment length; `ctx.current` inside a
           scene is its local clock, starting at 0 where the scene becomes
@@ -75,7 +75,7 @@ function HyperframesLaunch() {
           they overlap in the reference. The rest hard-cut. The 1.13s gap
           between flex-gsap and flex-shader is the reference's own empty beat —
           a blank spacer segment holds it. */}
-      <tl id="hf-tl" class="absolute inset-0">
+      <tl id="hf-tl" className="absolute inset-0">
         <GlassIntro duration={17.30} />
         {/* The reference hard-cuts at 17.30 — glass-intro's tree is removed and
             flex-css is drawn over it. The overlap still counts as time, so the
@@ -101,7 +101,7 @@ function HyperframesLaunch() {
         <CanvasClose duration={3.75} />
       </tl>
       <CaptionLayer />
-      <audio id="hf-vo" path="assets/voiceover.mp3" attach="hf-root" />
+      <audio id="hf-vo" src="assets/voiceover.mp3" attach="hf-root" />
     </div>
   );
 }
@@ -110,7 +110,7 @@ function HyperframesLaunch() {
    reference leaves 1.13s of bare background between flex-gsap and
    flex-shader. */
 function Spacer() {
-  return <div id="spacer" class="absolute left-0 top-0 w-[1920px] h-[1080px]"></div>;
+  return <div id="spacer" className="absolute left-0 top-0 w-[1920px] h-[1080px]"></div>;
 }
 
 export function main() {

@@ -1,13 +1,11 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { StageCanvas, getK3Stream, vis } from './shared.jsx';
 
 
 /* ghost order-book columns (track 1, window 4.583→7.35s) */
 export default function GhostCols() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 4.583 && T < 7.35) {
@@ -18,7 +16,6 @@ export default function GhostCols() {
   });
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     var G_ON = (T >= 4.583 && T < 7.35);
     vis(ctx, 'ghostcols', G_ON);
@@ -41,8 +38,8 @@ export default function GhostCols() {
     }
   });
   return (
-    <div id="ghostcols" class="absolute inset-0 z-[1] opacity-0">
-      <div id="ghostinner" class="absolute inset-0">
+    <div id="ghostcols" className="absolute inset-0 z-[1] opacity-0">
+      <div id="ghostinner" className="absolute inset-0">
         <StageCanvas id="ghostcols-canvas" />
       </div>
     </div>

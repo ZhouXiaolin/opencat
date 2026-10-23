@@ -43,13 +43,13 @@ export default function FlexGsap() {
   var cols = [];
   for (var c3 = 0; c3 < GS_COLS; c3++) cols.push(c3);
   return (
-    <div id="fg-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0e100f]">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#161816_0%,#0e100f_100%)]"></div>
-      <div id="fg-grid" class="absolute left-[960px] top-[540px] ml-[-700px] mt-[-420px] flex flex-col">
+    <div id="fg-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0e100f]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#161816_0%,#0e100f_100%)]"></div>
+      <div id="fg-grid" className="absolute left-[960px] top-[540px] ml-[-700px] mt-[-420px] flex flex-col">
         {rows.map((r) => (
-          <div id={'fg-row' + r} class="flex">
+          <div id={'fg-row' + r} className="flex">
             {cols.map((c) => (
-              <div id={'fg-d' + r + '-' + c} class="w-[40px] h-[40px] m-[8px] rounded-full bg-[#fffce1]"></div>
+              <div id={'fg-d' + r + '-' + c} className="w-[40px] h-[40px] m-[8px] rounded-full bg-[#fffce1]"></div>
             ))}
           </div>
         ))}

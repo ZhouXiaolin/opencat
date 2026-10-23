@@ -1,12 +1,10 @@
 import { gsap } from 'gsap';
 import { SplitText } from 'gsap/SplitText';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { Cdot, StageCanvas, Tick, clamp, drawPlusses, drawQmarks, mulberry32, vis } from './shared.jsx';
 
 export default function SceneDE() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 7.35 && T < 11.293) {
@@ -47,7 +45,7 @@ export default function SceneDE() {
         // wrapper per non-space index: `oi` stays the offset in the original
         // text, which is what the x formula is calibrated against.
         var SRC = 'Every modality';
-        var chars = new SplitText(ctx.getNode('otxt'), { type: 'chars' }).chars;
+        var chars = new SplitText(document.getElementById('otxt'), { type: 'chars' }).chars;
         var ci = 0;
         var gTl = gsap.timeline();
         for (var oi = 0; oi < SRC.length; oi++) {
@@ -65,7 +63,6 @@ export default function SceneDE() {
   });
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     var DE_ON = (T >= 7.35 && T < 11.293);
     vis(ctx, 'sceneDE', DE_ON);
@@ -220,50 +217,50 @@ export default function SceneDE() {
     }
   });
   return (
-    <div id="sceneDE" class="absolute inset-0 z-[2] opacity-0">
-      <div id="deinner" class="absolute inset-0">
+    <div id="sceneDE" className="absolute inset-0 z-[2] opacity-0">
+      <div id="deinner" className="absolute inset-0">
         {/* D bottom pin wave canvas (pins anchored to bottom edge) */}
-        <canvas id="dpins-canvas" class="absolute left-0 bottom-[-5px] w-[1920px] h-[280px]"></canvas>
+        <canvas id="dpins-canvas" className="absolute left-0 bottom-[-5px] w-[1920px] h-[280px]"></canvas>
         {/* E helix pins canvas (corkscrew about y=534) */}
-        <canvas id="epins-canvas" class="absolute left-0 top-[400px] w-[1920px] h-[280px]"></canvas>
+        <canvas id="epins-canvas" className="absolute left-0 top-[400px] w-[1920px] h-[280px]"></canvas>
 
         {/* center hatched box: "EVERY MODALITY" (1010×379 at 454,350) */}
-        <div id="ordergrp" class="absolute border-[1px] border-[#5a5a5a] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[454px] top-[350px] w-[1010px] h-[379px] opacity-0">
-          <canvas id="ohatch-canvas" class="absolute left-0 top-0 w-[1010px] h-[379px]"></canvas>
-          <Cdot id="d-508" s="13px" c="#e6e6e6" class="-left-[26px] -top-[26px]" />
-          <Cdot id="d-509" s="13px" c="#e6e6e6" class="-right-[26px] -top-[26px]" />
-          <Cdot id="d-510" s="13px" c="#e6e6e6" class="-left-[26px] -bottom-[26px]" />
-          <Cdot id="d-511" s="13px" c="#e6e6e6" class="-right-[26px] -bottom-[26px]" />
-          <text id="otxt" class="text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] tracking-[-2.5px] opacity-0">Every modality</text>
+        <div id="ordergrp" className="absolute border-[1px] border-[#5a5a5a] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[454px] top-[350px] w-[1010px] h-[379px] opacity-0">
+          <canvas id="ohatch-canvas" className="absolute left-0 top-0 w-[1010px] h-[379px]"></canvas>
+          <Cdot id="d-508" s="13px" c="#e6e6e6" className="-left-[26px] -top-[26px]" />
+          <Cdot id="d-509" s="13px" c="#e6e6e6" className="-right-[26px] -top-[26px]" />
+          <Cdot id="d-510" s="13px" c="#e6e6e6" className="-left-[26px] -bottom-[26px]" />
+          <Cdot id="d-511" s="13px" c="#e6e6e6" className="-right-[26px] -bottom-[26px]" />
+          <text id="otxt" className="text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] tracking-[-2.5px] opacity-0">Every modality</text>
         </div>
         {/* left flanking box: "Every market" */}
-        <div id="mktgrp" class="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[130px] top-[437px] w-[520px] h-[183px] opacity-0">
-          <canvas id="mhatch-canvas" class="absolute left-0 top-0 w-[520px] h-[183px]"></canvas>
-          <Cdot id="d-512" s="13px" c="#e6e6e6" class="-left-[20px] -top-[20px]" />
-          <Cdot id="d-513" s="13px" c="#e6e6e6" class="-right-[20px] -top-[20px]" />
-          <Cdot id="d-514" s="13px" c="#e6e6e6" class="-left-[20px] -bottom-[20px]" />
-          <Cdot id="d-515" s="13px" c="#e6e6e6" class="-right-[20px] -bottom-[20px]" />
-          <text id="t-649" class="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every token</text>
+        <div id="mktgrp" className="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[130px] top-[437px] w-[520px] h-[183px] opacity-0">
+          <canvas id="mhatch-canvas" className="absolute left-0 top-0 w-[520px] h-[183px]"></canvas>
+          <Cdot id="d-512" s="13px" c="#e6e6e6" className="-left-[20px] -top-[20px]" />
+          <Cdot id="d-513" s="13px" c="#e6e6e6" className="-right-[20px] -top-[20px]" />
+          <Cdot id="d-514" s="13px" c="#e6e6e6" className="-left-[20px] -bottom-[20px]" />
+          <Cdot id="d-515" s="13px" c="#e6e6e6" className="-right-[20px] -bottom-[20px]" />
+          <text id="t-649" className="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every token</text>
         </div>
         {/* right flanking box: "Every task" */}
-        <div id="astgrp" class="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[1260px] top-[437px] w-[520px] h-[183px] opacity-0">
-          <canvas id="ahatch-canvas" class="absolute left-0 top-0 w-[520px] h-[183px]"></canvas>
-          <Cdot id="d-516" s="13px" c="#e6e6e6" class="-left-[20px] -top-[20px]" />
-          <Cdot id="d-517" s="13px" c="#e6e6e6" class="-right-[20px] -top-[20px]" />
-          <Cdot id="d-518" s="13px" c="#e6e6e6" class="-left-[20px] -bottom-[20px]" />
-          <Cdot id="d-519" s="13px" c="#e6e6e6" class="-right-[20px] -bottom-[20px]" />
-          <text id="t-650" class="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every task</text>
+        <div id="astgrp" className="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[1260px] top-[437px] w-[520px] h-[183px] opacity-0">
+          <canvas id="ahatch-canvas" className="absolute left-0 top-0 w-[520px] h-[183px]"></canvas>
+          <Cdot id="d-516" s="13px" c="#e6e6e6" className="-left-[20px] -top-[20px]" />
+          <Cdot id="d-517" s="13px" c="#e6e6e6" className="-right-[20px] -top-[20px]" />
+          <Cdot id="d-518" s="13px" c="#e6e6e6" className="-left-[20px] -bottom-[20px]" />
+          <Cdot id="d-519" s="13px" c="#e6e6e6" className="-right-[20px] -bottom-[20px]" />
+          <text id="t-650" className="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every task</text>
         </div>
         {/* three drop-lines + flanking dashes */}
-        <div id="dl1" class="absolute w-[2px] bg-[#cfcfcc] left-[389px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>
-        <div id="dl2" class="absolute w-[2px] bg-[#cfcfcc] left-[958px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>
-        <div id="dl3" class="absolute w-[2px] bg-[#cfcfcc] left-[1519px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>
-        <div id="ddashL" class="absolute h-[2px] bg-[#8f8f8b] left-[318px] top-[537px] w-[40px] opacity-0"></div>
-        <div id="ddashR" class="absolute h-[2px] bg-[#8f8f8b] left-[1562px] top-[537px] w-[40px] opacity-0"></div>
+        <div id="dl1" className="absolute w-[2px] bg-[#cfcfcc] left-[389px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>
+        <div id="dl2" className="absolute w-[2px] bg-[#cfcfcc] left-[958px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>
+        <div id="dl3" className="absolute w-[2px] bg-[#cfcfcc] left-[1519px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>
+        <div id="ddashL" className="absolute h-[2px] bg-[#8f8f8b] left-[318px] top-[537px] w-[40px] opacity-0"></div>
+        <div id="ddashR" className="absolute h-[2px] bg-[#8f8f8b] left-[1562px] top-[537px] w-[40px] opacity-0"></div>
       </div>
       {/* D/E furniture */}
-      <div id="furnDE" class="absolute inset-0">
-        <div id="stripDL" class="absolute left-[75px] top-[533px] flex items-end gap-[6px] opacity-90">
+      <div id="furnDE" className="absolute inset-0">
+        <div id="stripDL" className="absolute left-[75px] top-[533px] flex items-end gap-[6px] opacity-90">
           <Tick id="d-520" ht="15px" /><Tick id="d-521" ht="7px" mb="mb-[3px]" />
           <Tick id="d-522" ht="15px" /><Tick id="d-523" ht="7px" mb="mb-[3px]" />
           <Tick id="d-524" ht="15px" /><Tick id="d-525" ht="7px" mb="mb-[3px]" />
@@ -275,7 +272,7 @@ export default function SceneDE() {
           <Tick id="d-536" ht="15px" /><Tick id="d-537" ht="7px" mb="mb-[3px]" />
           <Tick id="d-538" ht="15px" />
         </div>
-        <div id="stripDR" class="absolute left-[1700px] top-[533px] flex items-end gap-[6px] opacity-90">
+        <div id="stripDR" className="absolute left-[1700px] top-[533px] flex items-end gap-[6px] opacity-90">
           <Tick id="d-539" ht="15px" /><Tick id="d-540" ht="7px" mb="mb-[3px]" />
           <Tick id="d-541" ht="15px" /><Tick id="d-542" ht="7px" mb="mb-[3px]" />
           <Tick id="d-543" ht="15px" /><Tick id="d-544" ht="7px" mb="mb-[3px]" />

@@ -1,19 +1,16 @@
-import CanvasKitInit from 'canvaskit-wasm';
-import { useEffect } from 'opencat/runtime';
+import { useEffect, useCanvasKit } from 'opencat/runtime';
 /* ══ canvas-close (master 46.02-49.77, compositions/canvas-close.html) ══
    ASCII-terminal lightning reveal. The reference is a <canvas> with 2D
    fillText per character cell (10x16px grid), driven by a GSAP proxy
    tween 0→3.93 linear → here the scene clock `t` (read as
-   ctx.current.time inside useEffect) drives the same renderAtTime. Text goes through ly.surface (2D subset, fontdb
+   ctx.current.time inside useEffect) drives the same renderAtTime. Text goes through an offscreen 2D context (fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
    offset at 14px), then ly.draw samples it on the stage canvas. Master
    slot is 3.75s so the last 0.18s of the 3.93s timeline
    is truncated by the master, exactly like the reference cut. */
-let CC_CK = null;
 
 var CC_START = 46.02, CC_DUR = 3.75;
-CanvasKitInit({}).then((ck) => { CC_CK = ck; });
 var CC_CELL_W = 10, CC_CELL_H = 16;
 var CC_COLS = Math.floor(1920 / CC_CELL_W); /* 192 */
 var CC_ROWS = Math.floor(1080 / CC_CELL_H); /* 67 */
@@ -325,7 +322,7 @@ function CCpaintBolt(boltData, bb, mega, superMega) {
    the offset is the ascent of the resolved face (JetBrains Mono at 14px
    sits 11px above the top edge — 13px was the pre-alignment guess). */
 function ccRender(cv, ctx, t) {
-  var surf = ly.surface(1920, 1080);
+  var surf = new OffscreenCanvas(1920, 1080).getContext('2d');
   surf.font = '400 14px "JetBrains Mono", monospace';
   surf.clearRect(0, 0, 1920, 1080);
 
@@ -444,16 +441,16 @@ function ccRender(cv, ctx, t) {
 }
 
 export default function CanvasClose() {
+  const CC_CK = useCanvasKit();
 
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CC_CK) return;
     ccRender(CC_CK.MakeCanvasSurface('cc-canvas').getCanvas(), ctx, Math.min(t, 3.93));
   });
 
   return (
-    <div id="cc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000]">
-      <canvas id="cc-canvas" class="w-[1920px] h-[1080px]" />
+    <div id="cc-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000]">
+      <canvas id="cc-canvas" className="w-[1920px] h-[1080px]" />
     </div>
   );
 }

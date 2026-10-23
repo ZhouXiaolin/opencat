@@ -1,6 +1,5 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useGSAP, useEffect, useCanvasKit } from 'opencat/runtime';
 import { clamp } from '../shared.jsx';
 
 /* ══ flex-shader (master 20.81-22.01, compositions/flex-shader.html) ════
@@ -12,10 +11,9 @@ import { clamp } from '../shared.jsx';
    the frame holds (master slot is 1.20s). */
 var FS_START = 20.81, FS_DUR = 1.20, FS_ANIM = 0.94;
 
-let FS_CK = null;
-CanvasKitInit({}).then((ck) => { FS_CK = ck; });
 
 export default function FlexShader() {
+  const FS_CK = useCanvasKit();
 
   useGSAP(() => {
     var tl = gsap.timeline();
@@ -26,7 +24,6 @@ export default function FlexShader() {
      The canvas draw goes through useEffect + the official MakeCanvasSurface. */
   useEffect(() => {
     var t = ctx.current.time;
-    if (!FS_CK) return;
     var c = FS_CK.MakeCanvasSurface('fs-canvas').getCanvas();
     if (!FlexShader._kern) {
       FlexShader._kern = ly.pixel((uv, u) => {
@@ -84,9 +81,9 @@ export default function FlexShader() {
   });
 
   return (
-    <div id="fs-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0a0a12]">
-      <canvas id="fs-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
-      <text id="fs-label" class="absolute right-[80px] bottom-[60px] text-[28px] tracking-[0.08em] font-[hf-azeret] text-[rgba(255,255,255,0.35)] opacity-0">Shaders</text>
+    <div id="fs-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0a0a12]">
+      <canvas id="fs-canvas" className="absolute left-0 top-0 w-[1920px] h-[1080px]" />
+      <text id="fs-label" className="absolute right-[80px] bottom-[60px] text-[28px] tracking-[0.08em] font-[hf-azeret] text-[rgba(255,255,255,0.35)] opacity-0">Shaders</text>
     </div>
   );
 }

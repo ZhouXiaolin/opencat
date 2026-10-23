@@ -42,24 +42,24 @@ export default function Engine() {
   /* duplicated det-card content (front/back) */
   function DetCard(id) {
     return (
-      <div id={id} class="absolute left-0 top-0 w-[640px] h-[420px] rounded-[20px] overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.15)] border-[2px] border-[rgba(61,64,91,0.1)]">
-        <div class="w-full h-full bg-[#2a2a30] px-[32px] py-[32px]">
-          <div class="w-[288px] h-[14px] rounded-[7px] bg-[#E07A5F] mb-[28px]"></div>
-          <div class="flex items-center gap-[16px] mb-[20px]">
-            <div class="w-[32px] h-[32px] rounded-[6px] bg-[#81B29A] shrink-0"></div>
-            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[432px]"></div>
+      <div id={id} className="absolute left-0 top-0 w-[640px] h-[420px] rounded-[20px] overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.15)] border-[2px] border-[rgba(61,64,91,0.1)]">
+        <div className="w-full h-full bg-[#2a2a30] px-[32px] py-[32px]">
+          <div className="w-[288px] h-[14px] rounded-[7px] bg-[#E07A5F] mb-[28px]"></div>
+          <div className="flex items-center gap-[16px] mb-[20px]">
+            <div className="w-[32px] h-[32px] rounded-[6px] bg-[#81B29A] shrink-0"></div>
+            <div className="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[432px]"></div>
           </div>
-          <div class="flex items-center gap-[16px] mb-[20px]">
-            <div class="w-[32px] h-[32px] rounded-full bg-[#F2CC8F] shrink-0"></div>
-            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[316.8px]"></div>
+          <div className="flex items-center gap-[16px] mb-[20px]">
+            <div className="w-[32px] h-[32px] rounded-full bg-[#F2CC8F] shrink-0"></div>
+            <div className="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[316.8px]"></div>
           </div>
-          <div class="flex items-center gap-[16px] mb-[20px]">
-            <div class="relative w-[32px] h-[28px] shrink-0">
-              <path view-box="0 0 32 28" d="M16 0L32 28L0 28Z" class="absolute left-0 top-0 w-[32px] h-[28px] fill-[#E07A5F]" />
+          <div className="flex items-center gap-[16px] mb-[20px]">
+            <div className="relative w-[32px] h-[28px] shrink-0">
+              <path viewBox="0 0 32 28" d="M16 0L32 28L0 28Z" className="absolute left-0 top-0 w-[32px] h-[28px] fill-[#E07A5F]" />
             </div>
-            <div class="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[374.4px]"></div>
+            <div className="h-[10px] rounded-[5px] bg-[rgba(255,255,255,0.12)] w-[374.4px]"></div>
           </div>
-          <div class="mt-[20px] h-[24px] rounded-[4px] bg-[repeating-linear-gradient(90deg,rgba(255,255,255,0.08)_0px,rgba(255,255,255,0.08)_6px,transparent_6px,transparent_10px)]"></div>
+          <div className="mt-[20px] h-[24px] rounded-[4px] bg-[repeating-linear-gradient(90deg,rgba(255,255,255,0.08)_0px,rgba(255,255,255,0.08)_6px,transparent_6px,transparent_10px)]"></div>
         </div>
       </div>
     );
@@ -70,78 +70,78 @@ export default function Engine() {
   var TITLE = 'text-[96px] leading-none tracking-[-0.02em] font-[hf-serif] text-[#3D405B]';
   var SUB = 'text-[28px] leading-none tracking-[0.06em] font-[hf-jbm] text-[#E07A5F]';
   return (
-    <div id="en-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#F4F1DE] overflow-hidden">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(255,252,240,0.6)_0%,transparent_50%),linear-gradient(180deg,#F4F1DE_0%,#ece8d2_100%)]"></div>
-      <div id="en-wrap" class="absolute inset-0">
-        <div id="en-canvas" class="absolute left-0 top-0 w-[1920px] h-[6000px]">
+    <div id="en-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#F4F1DE] overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,rgba(255,252,240,0.6)_0%,transparent_50%),linear-gradient(180deg,#F4F1DE_0%,#ece8d2_100%)]"></div>
+      <div id="en-wrap" className="absolute inset-0">
+        <div id="en-canvas" className="absolute left-0 top-0 w-[1920px] h-[6000px]">
           {/* STEP 1 — Agent */}
-          <div id="en-step1" class="absolute left-[510px] top-[360px] w-[900px] flex flex-col items-center gap-[32px] opacity-0">
-            <div class="relative w-[360px] h-[360px]">
-              <div id="en-r1o" class={RING_O + ' border-[#3D405B]'}></div>
-              <div id="en-r1i" class={RING_I + ' border-[#3D405B]'}></div>
-              <div class="absolute left-[72px] top-[72px] w-[216px] h-[216px] rounded-full bg-[#eaeaf2] shadow-[0_16px_48px_rgba(0,0,0,0.1)] flex items-center justify-center">
-                <div class="relative w-[100px] h-[100px]">
-                  <path view-box="0 0 80 80" d="M30 26a10 10 0 1 0 20 0a10 10 0 1 0 -20 0Z" class="absolute left-0 top-0 w-[100px] h-[100px] fill-[#3D405B]" />
-                  <path view-box="0 0 80 80" d="M18 60c0-12 10-22 22-22s22 10 22 22" class="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#3D405B] stroke-[4]" />
-                  <path view-box="0 0 80 80" d="M52 16L58 10M56 24L62 24M54 32L60 35" class="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#3D405B] stroke-[3] opacity-[0.6]" />
+          <div id="en-step1" className="absolute left-[510px] top-[360px] w-[900px] flex flex-col items-center gap-[32px] opacity-0">
+            <div className="relative w-[360px] h-[360px]">
+              <div id="en-r1o" className={RING_O + ' border-[#3D405B]'}></div>
+              <div id="en-r1i" className={RING_I + ' border-[#3D405B]'}></div>
+              <div className="absolute left-[72px] top-[72px] w-[216px] h-[216px] rounded-full bg-[#eaeaf2] shadow-[0_16px_48px_rgba(0,0,0,0.1)] flex items-center justify-center">
+                <div className="relative w-[100px] h-[100px]">
+                  <path viewBox="0 0 80 80" d="M30 26a10 10 0 1 0 20 0a10 10 0 1 0 -20 0Z" className="absolute left-0 top-0 w-[100px] h-[100px] fill-[#3D405B]" />
+                  <path viewBox="0 0 80 80" d="M18 60c0-12 10-22 22-22s22 10 22 22" className="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#3D405B] stroke-[4]" />
+                  <path viewBox="0 0 80 80" d="M52 16L58 10M56 24L62 24M54 32L60 35" className="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#3D405B] stroke-[3] opacity-[0.6]" />
                 </div>
               </div>
             </div>
-            <text class={TITLE}>Agent</text>
-            <text class={SUB}>writes HTML</text>
+            <text className={TITLE}>Agent</text>
+            <text className={SUB}>writes HTML</text>
           </div>
-          <path id="en-flow1" view-box="0 0 4 700" d="M2 0L2 700" class="absolute left-[958px] top-[920px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
-          <div id="en-pip1" class="absolute left-[950px] top-[1610px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
+          <path id="en-flow1" viewBox="0 0 4 700" d="M2 0L2 700" className="absolute left-[958px] top-[920px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
+          <div id="en-pip1" className="absolute left-[950px] top-[1610px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
 
           {/* STEP 2 — Renderer */}
-          <div id="en-step2" class="absolute left-[510px] top-[1820px] w-[900px] flex flex-col items-center gap-[32px] opacity-0">
-            <div class="relative w-[360px] h-[360px]">
-              <div id="en-r2o" class={RING_O + ' border-[#E07A5F]'}></div>
-              <div id="en-r2i" class={RING_I + ' border-[#E07A5F]'}></div>
-              <div class="absolute left-[72px] top-[72px] w-[216px] h-[216px] rounded-full bg-[#fef0eb] shadow-[0_16px_48px_rgba(0,0,0,0.1)] flex items-center justify-center">
-                <div class="relative w-[100px] h-[100px]">
-                  <path view-box="0 0 80 80" d="M14 40a26 26 0 1 0 52 0a26 26 0 1 0 -52 0" class="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#E07A5F] stroke-[4]" />
-                  <path view-box="0 0 80 80" d="M26 40a14 14 0 1 0 28 0a14 14 0 1 0 -28 0" class="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#E07A5F] stroke-[2] opacity-[0.4]" />
-                  <path view-box="0 0 80 80" d="M35 40a5 5 0 1 0 10 0a5 5 0 1 0 -10 0Z" class="absolute left-0 top-0 w-[100px] h-[100px] fill-[#E07A5F]" />
-                  <path view-box="0 0 80 80" d="M40 6L40 16M40 64L40 74M6 40L16 40M64 40L74 40" class="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#E07A5F] stroke-[3]" />
+          <div id="en-step2" className="absolute left-[510px] top-[1820px] w-[900px] flex flex-col items-center gap-[32px] opacity-0">
+            <div className="relative w-[360px] h-[360px]">
+              <div id="en-r2o" className={RING_O + ' border-[#E07A5F]'}></div>
+              <div id="en-r2i" className={RING_I + ' border-[#E07A5F]'}></div>
+              <div className="absolute left-[72px] top-[72px] w-[216px] h-[216px] rounded-full bg-[#fef0eb] shadow-[0_16px_48px_rgba(0,0,0,0.1)] flex items-center justify-center">
+                <div className="relative w-[100px] h-[100px]">
+                  <path viewBox="0 0 80 80" d="M14 40a26 26 0 1 0 52 0a26 26 0 1 0 -52 0" className="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#E07A5F] stroke-[4]" />
+                  <path viewBox="0 0 80 80" d="M26 40a14 14 0 1 0 28 0a14 14 0 1 0 -28 0" className="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#E07A5F] stroke-[2] opacity-[0.4]" />
+                  <path viewBox="0 0 80 80" d="M35 40a5 5 0 1 0 10 0a5 5 0 1 0 -10 0Z" className="absolute left-0 top-0 w-[100px] h-[100px] fill-[#E07A5F]" />
+                  <path viewBox="0 0 80 80" d="M40 6L40 16M40 64L40 74M6 40L16 40M64 40L74 40" className="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#E07A5F] stroke-[3]" />
                 </div>
               </div>
             </div>
-            <text class={TITLE}>Renderer</text>
-            <text class={SUB}>captures every frame</text>
+            <text className={TITLE}>Renderer</text>
+            <text className={SUB}>captures every frame</text>
           </div>
-          <path id="en-flow2" view-box="0 0 4 700" d="M2 0L2 700" class="absolute left-[958px] top-[2380px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
-          <div id="en-pip2" class="absolute left-[950px] top-[3070px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
+          <path id="en-flow2" viewBox="0 0 4 700" d="M2 0L2 700" className="absolute left-[958px] top-[2380px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
+          <div id="en-pip2" className="absolute left-[950px] top-[3070px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
 
           {/* STEP 3 — MP4 */}
-          <div id="en-step3" class="absolute left-[510px] top-[3280px] w-[900px] flex flex-col items-center gap-[32px] opacity-0">
-            <div class="relative w-[360px] h-[360px]">
-              <div id="en-r3o" class={RING_O + ' border-[#81B29A]'}></div>
-              <div id="en-r3i" class={RING_I + ' border-[#81B29A]'}></div>
-              <div class="absolute left-[72px] top-[72px] w-[216px] h-[216px] rounded-full bg-[#eaf5ef] shadow-[0_16px_48px_rgba(0,0,0,0.1)] flex items-center justify-center">
-                <div class="relative w-[100px] h-[100px]">
-                  <path view-box="0 0 80 80" d="M22 10H58A12 12 0 0 1 70 22V58A12 12 0 0 1 58 70H22A12 12 0 0 1 10 58V22A12 12 0 0 1 22 10Z" class="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#81B29A] stroke-[4]" />
-                  <path view-box="0 0 80 80" d="M32 24L56 40L32 56Z" class="absolute left-0 top-0 w-[100px] h-[100px] fill-[#81B29A]" />
+          <div id="en-step3" className="absolute left-[510px] top-[3280px] w-[900px] flex flex-col items-center gap-[32px] opacity-0">
+            <div className="relative w-[360px] h-[360px]">
+              <div id="en-r3o" className={RING_O + ' border-[#81B29A]'}></div>
+              <div id="en-r3i" className={RING_I + ' border-[#81B29A]'}></div>
+              <div className="absolute left-[72px] top-[72px] w-[216px] h-[216px] rounded-full bg-[#eaf5ef] shadow-[0_16px_48px_rgba(0,0,0,0.1)] flex items-center justify-center">
+                <div className="relative w-[100px] h-[100px]">
+                  <path viewBox="0 0 80 80" d="M22 10H58A12 12 0 0 1 70 22V58A12 12 0 0 1 58 70H22A12 12 0 0 1 10 58V22A12 12 0 0 1 22 10Z" className="absolute left-0 top-0 w-[100px] h-[100px] fill-none stroke-[#81B29A] stroke-[4]" />
+                  <path viewBox="0 0 80 80" d="M32 24L56 40L32 56Z" className="absolute left-0 top-0 w-[100px] h-[100px] fill-[#81B29A]" />
                 </div>
               </div>
             </div>
-            <text class={TITLE}>MP4</text>
-            <text class={SUB}>ready to ship</text>
+            <text className={TITLE}>MP4</text>
+            <text className={SUB}>ready to ship</text>
           </div>
 
           {/* DETERMINISTIC */}
-          <div class="absolute left-[260px] top-[4400px] w-[1400px] flex flex-col items-center gap-[48px]">
-            <div class="relative w-[640px] h-[420px]">
+          <div className="absolute left-[260px] top-[4400px] w-[1400px] flex flex-col items-center gap-[48px]">
+            <div className="relative w-[640px] h-[420px]">
               {DetCard('en-card-b')}
               {DetCard('en-card-f')}
             </div>
-            <text id="en-word" class="text-[120px] leading-none tracking-[-0.03em] font-[hf-serif] text-[#3D405B] opacity-0">Deterministic.</text>
-            <div id="en-proof" class="flex items-center gap-[16px] px-[32px] py-[14px] rounded-[14px] bg-[rgba(129,178,154,0.1)] border-[2px] border-[rgba(129,178,154,0.25)] opacity-0">
-              <div class="relative w-[40px] h-[40px] shrink-0">
-                <path view-box="0 0 40 40" d="M2 20a18 18 0 1 0 36 0a18 18 0 1 0 -36 0Z" class="absolute left-0 top-0 w-[40px] h-[40px] fill-[#81B29A]" />
-                <path view-box="0 0 40 40" d="M12 20l6 6 10-10" class="absolute left-0 top-0 w-[40px] h-[40px] fill-none stroke-[#F4F1DE] stroke-[3]" />
+            <text id="en-word" className="text-[120px] leading-none tracking-[-0.03em] font-[hf-serif] text-[#3D405B] opacity-0">Deterministic.</text>
+            <div id="en-proof" className="flex items-center gap-[16px] px-[32px] py-[14px] rounded-[14px] bg-[rgba(129,178,154,0.1)] border-[2px] border-[rgba(129,178,154,0.25)] opacity-0">
+              <div className="relative w-[40px] h-[40px] shrink-0">
+                <path viewBox="0 0 40 40" d="M2 20a18 18 0 1 0 36 0a18 18 0 1 0 -36 0Z" className="absolute left-0 top-0 w-[40px] h-[40px] fill-[#81B29A]" />
+                <path viewBox="0 0 40 40" d="M12 20l6 6 10-10" className="absolute left-0 top-0 w-[40px] h-[40px] fill-none stroke-[#F4F1DE] stroke-[3]" />
               </div>
-              <text class="text-[28px] italic font-[hf-serif-it] text-[#3D405B]">Identical output, every time.</text>
+              <text className="text-[28px] italic font-[hf-serif-it] text-[#3D405B]">Identical output, every time.</text>
             </div>
           </div>
         </div>

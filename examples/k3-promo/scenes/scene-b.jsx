@@ -1,11 +1,9 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { makeMeasure, pillWidths, vis } from './shared.jsx';
 
 export default function SceneB() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   // gsap code: index.html:1644-1649 — cluster slides in (power2.out/cubic)
   // and fades (power1.in/quad); pill waterfall is a 1-frame stagger.
   useGSAP((ctx, t) => {
@@ -26,7 +24,6 @@ export default function SceneB() {
   // bs3 -1.884, bs4 +1.891, bs5 -0.247]px.
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     var B_ON = (T >= 4.563 && T < 5.853);
     vis(ctx, 'sceneB', B_ON);
@@ -64,19 +61,19 @@ export default function SceneB() {
     }
   });
   return (
-    <div id="sceneB" class="absolute inset-0 z-[3] opacity-0">
-      <div id="bcluster" class="absolute left-[390px] top-[240px] w-[700px] h-[700px]">
-        <text id="btitle" class="absolute whitespace-nowrap leading-none left-[-8.62px] top-[9.6px] text-[#d8d8da] text-[90px] tracking-[-1px] opacity-0 [text-shadow:1.2px_0_rgba(255,70,70,0.10),-1.2px_0_rgba(90,210,255,0.10)]">One model</text>
-        <div id="bstack" class="absolute left-[77px] top-[164px]">
-          <div id="bs1" class="absolute top-[0px] opacity-0"><div id="d-500" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-640" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Delta Attention</text></div></div>
-          <div id="bs2" class="absolute top-[113px] opacity-0"><div id="d-501" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-641" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Coding</text></div></div>
-          <div id="bs3" class="absolute top-[227px] opacity-0"><div id="d-502" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-642" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">1M Context</text></div></div>
-          <div id="bs4" class="absolute top-[340px] opacity-0"><div id="d-503" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-643" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Vision</text></div></div>
-          <div id="bs5" class="absolute top-[456px] opacity-0"><div id="d-504" class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-644" class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Agentic</text></div></div>
+    <div id="sceneB" className="absolute inset-0 z-[3] opacity-0">
+      <div id="bcluster" className="absolute left-[390px] top-[240px] w-[700px] h-[700px]">
+        <text id="btitle" className="absolute whitespace-nowrap leading-none left-[-8.62px] top-[9.6px] text-[#d8d8da] text-[90px] tracking-[-1px] opacity-0 [text-shadow:1.2px_0_rgba(255,70,70,0.10),-1.2px_0_rgba(90,210,255,0.10)]">One model</text>
+        <div id="bstack" className="absolute left-[77px] top-[164px]">
+          <div id="bs1" className="absolute top-[0px] opacity-0"><div id="d-500" className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-640" className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Delta Attention</text></div></div>
+          <div id="bs2" className="absolute top-[113px] opacity-0"><div id="d-501" className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-641" className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Coding</text></div></div>
+          <div id="bs3" className="absolute top-[227px] opacity-0"><div id="d-502" className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-642" className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">1M Context</text></div></div>
+          <div id="bs4" className="absolute top-[340px] opacity-0"><div id="d-503" className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-643" className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Vision</text></div></div>
+          <div id="bs5" className="absolute top-[456px] opacity-0"><div id="d-504" className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]"><text id="t-644" className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">Agentic</text></div></div>
         </div>
         {/* .pill .hstrip hatch carrier: lives inside #bcluster so
             translateX(bx) applies. */}
-        <canvas id="bstack-canvas" class="absolute left-0 top-0 w-[700px] h-[700px]"></canvas>
+        <canvas id="bstack-canvas" className="absolute left-0 top-0 w-[700px] h-[700px]"></canvas>
       </div>
     </div>
   );

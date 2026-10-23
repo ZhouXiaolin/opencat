@@ -1,6 +1,5 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useGSAP, useEffect, useCanvasKit } from 'opencat/runtime';
 /* ══ flex-music (master 27.40-27.98, compositions/flex-music.html) ══════
    The vinyl/tone-arm SVGs become canvas draws (jsx svg supports <path>
    only). The reference's back.out rotation tween is fully overwritten by
@@ -8,10 +7,9 @@ import { useGSAP, useEffect } from 'opencat/runtime';
    is emitted. Record label text stays DOM. */
 var FM_START = 27.40, FM_DUR = 0.58;
 
-let FM_CK = null;
-CanvasKitInit({}).then((ck) => { FM_CK = ck; });
 
 export default function FlexMusic() {
+  const FM_CK = useCanvasKit();
 
   useGSAP(() => {
     var tl = gsap.timeline(), A = function (t) { return t; };
@@ -25,7 +23,6 @@ export default function FlexMusic() {
   /* vinyl disc (svg 600 -> 520px canvas, k=0.8667). Static art: the spin is a
      DOM tween on #fm-record, so the canvas only needs its resting pixels. */
   useEffect(() => {
-    if (!FM_CK) return;
     var c = FM_CK.MakeCanvasSurface('fm-record-canvas').getCanvas();
     var ck = FM_CK;
     c.clear();
@@ -61,7 +58,6 @@ export default function FlexMusic() {
 
   /* tone arm (svg 200x400 -> 120x280 canvas, meet: k=0.6, y+20) */
   useEffect(() => {
-    if (!FM_CK) return;
     var c = FM_CK.MakeCanvasSurface('fm-arm-canvas').getCanvas();
     var ck = FM_CK;
     c.clear();
@@ -85,18 +81,18 @@ export default function FlexMusic() {
   });
 
   return (
-    <div id="fm-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f5a623]">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_45%_48%,#f7c04a_0%,#e8960a_100%)]"></div>
-      <div id="fm-record" class="absolute left-[700px] top-[250px] w-[520px] h-[520px] opacity-0 drop-shadow-[0_20px_60px_rgba(20,12,0,0.4)]">
-        <canvas id="fm-record-canvas" class="w-[520px] h-[520px]" />
-        <text class="absolute left-0 top-[243px] w-full text-center text-[13.9px] tracking-[0.1em] font-[hf-inter-med] text-[#1a1208]">HYPERFRAMES</text>
-        <text class="absolute left-0 top-[264px] w-full text-center text-[9.5px] font-[hf-inter] text-[rgba(26,18,8,0.6)]">A-SIDE</text>
+    <div id="fm-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f5a623]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_45%_48%,#f7c04a_0%,#e8960a_100%)]"></div>
+      <div id="fm-record" className="absolute left-[700px] top-[250px] w-[520px] h-[520px] opacity-0 drop-shadow-[0_20px_60px_rgba(20,12,0,0.4)]">
+        <canvas id="fm-record-canvas" className="w-[520px] h-[520px]" />
+        <text className="absolute left-0 top-[243px] w-full text-center text-[13.9px] tracking-[0.1em] font-[hf-inter-med] text-[#1a1208]">HYPERFRAMES</text>
+        <text className="absolute left-0 top-[264px] w-full text-center text-[9.5px] font-[hf-inter] text-[rgba(26,18,8,0.6)]">A-SIDE</text>
       </div>
-      <div id="fm-arm" class="absolute left-[1140px] top-[250px] w-[120px] h-[280px] [transform-origin:50%_15px] opacity-0 drop-shadow-[0_4px_12px_rgba(20,12,0,0.3)]">
-        <canvas id="fm-arm-canvas" class="w-[120px] h-[280px]" />
+      <div id="fm-arm" className="absolute left-[1140px] top-[250px] w-[120px] h-[280px] [transform-origin:50%_15px] opacity-0 drop-shadow-[0_4px_12px_rgba(20,12,0,0.3)]">
+        <canvas id="fm-arm-canvas" className="w-[120px] h-[280px]" />
       </div>
-      <div class="absolute left-0 bottom-[120px] w-full flex justify-center">
-        <text id="fm-text" class="text-[64px] leading-none tracking-[0.08em] font-[hf-inter-med] text-[#2a1808] uppercase opacity-0">music</text>
+      <div className="absolute left-0 bottom-[120px] w-full flex justify-center">
+        <text id="fm-text" className="text-[64px] leading-none tracking-[0.08em] font-[hf-inter-med] text-[#2a1808] uppercase opacity-0">music</text>
       </div>
     </div>
   );

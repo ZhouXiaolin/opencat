@@ -6,7 +6,6 @@ members = [
     "crates/opencat-engine",
     "crates/opencat-liangyi",
     "crates/opencat-three",
-    "crates/opencat-shaders",
     "crates/opencat-web",
     "crates/opencat",
     "crates/faac",

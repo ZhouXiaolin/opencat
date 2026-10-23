@@ -8,7 +8,6 @@
         "@webav/av-cliper": "^1.2.8",
         "canvaskit-wasm": "^0.41.1",
         "opencat.js": "file:../crates/opencat-web/web",
-        "shaders": "^4.0.5",
         "web-demuxer": "^4.0.0",
       },
       "devDependencies": {
@@ -272,8 +271,6 @@
 
     "rollup": ["rollup@4.60.4", "https://mirrors.cloud.tencent.com/npm/rollup/-/rollup-4.60.4.tgz", { "dependencies": { "@types/estree": "1.0.8" }, "optionalDependencies": { "@rollup/rollup-android-arm-eabi": "4.60.4", "@rollup/rollup-android-arm64": "4.60.4", "@rollup/rollup-darwin-arm64": "4.60.4", "@rollup/rollup-darwin-x64": "4.60.4", "@rollup/rollup-freebsd-arm64": "4.60.4", "@rollup/rollup-freebsd-x64": "4.60.4", "@rollup/rollup-linux-arm-gnueabihf": "4.60.4", "@rollup/rollup-linux-arm-musleabihf": "4.60.4", "@rollup/rollup-linux-arm64-gnu": "4.60.4", "@rollup/rollup-linux-arm64-musl": "4.60.4", "@rollup/rollup-linux-loong64-gnu": "4.60.4", "@rollup/rollup-linux-loong64-musl": "4.60.4", "@rollup/rollup-linux-ppc64-gnu": "4.60.4", "@rollup/rollup-linux-ppc64-musl": "4.60.4", "@rollup/rollup-linux-riscv64-gnu": "4.60.4", "@rollup/rollup-linux-riscv64-musl": "4.60.4", "@rollup/rollup-linux-s390x-gnu": "4.60.4", "@rollup/rollup-linux-x64-gnu": "4.60.4", "@rollup/rollup-linux-x64-musl": "4.60.4", "@rollup/rollup-openbsd-x64": "4.60.4", "@rollup/rollup-openharmony-arm64": "4.60.4", "@rollup/rollup-win32-arm64-msvc": "4.60.4", "@rollup/rollup-win32-ia32-msvc": "4.60.4", "@rollup/rollup-win32-x64-gnu": "4.60.4", "@rollup/rollup-win32-x64-msvc": "4.60.4", "fsevents": "~2.3.2" }, "bin": "dist/bin/rollup" }, "sha512-WHeFSbZYsPu3+bLoNRUuAO+wavNlocOPf3wSHTP7hcFKVnJeWsYlCDbr3mTS14FCizf9ccIxXA8sGL8zKeQN3g=="],
 
-    "shaders": ["shaders@4.0.5", "https://mirrors.cloud.tencent.com/npm/shaders/-/shaders-4.0.5.tgz", { "dependencies": { "typegpu": "0.12.3" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0", "solid-js": "^1.8.0", "svelte": "^5", "vue": "^3.5.0" }, "optionalPeers": ["react", "react-dom", "solid-js", "svelte", "vue"], "bin": { "shaders": "dist/cli.js" } }, "sha512-1muVyMI5NGkv/+/QpHD9wY2HfmxeWq3MBDT3ERFBTStCSzikSBravuTaGv3B1nz0rXccvv3C0xp3lmvfptu3Zg=="],
-
     "siginfo": ["siginfo@2.0.0", "https://mirrors.cloud.tencent.com/npm/siginfo/-/siginfo-2.0.0.tgz", {}, "sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g=="],
 
     "source-map-js": ["source-map-js@1.2.1", "https://mirrors.cloud.tencent.com/npm/source-map-js/-/source-map-js-1.2.1.tgz", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
@@ -283,8 +280,6 @@
     "std-env": ["std-env@3.10.0", "https://mirrors.cloud.tencent.com/npm/std-env/-/std-env-3.10.0.tgz", {}, "sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg=="],
 
     "tinybench": ["tinybench@2.9.0", "https://mirrors.cloud.tencent.com/npm/tinybench/-/tinybench-2.9.0.tgz", {}, "sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg=="],
-
-    "tinyest": ["tinyest@0.3.4", "https://mirrors.cloud.tencent.com/npm/tinyest/-/tinyest-0.3.4.tgz", {}, "sha512-81EcMHTCQ2IPweOGk9SpMgjbenR9ZJRsAE84btEv0DhvVKwhe7qBy28hWgatoXa9ppWzmtpHiJ+e86SiaAtY6w=="],
 
     "tinyexec": ["tinyexec@0.3.2", "https://mirrors.cloud.tencent.com/npm/tinyexec/-/tinyexec-0.3.2.tgz", {}, "sha512-KQQR9yN7R5+OSwaK0XQoj22pwHoTlgYqmUscPYoknOoWCWfj/5/ABTMRi69FrKU5ffPVh5QcFikpWJI/P1ocHA=="],
 
@@ -297,12 +292,6 @@
     "tinyspy": ["tinyspy@3.0.2", "https://mirrors.cloud.tencent.com/npm/tinyspy/-/tinyspy-3.0.2.tgz", {}, "sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q=="],
 
     "tslib": ["tslib@2.8.1", "https://mirrors.cloud.tencent.com/npm/tslib/-/tslib-2.8.1.tgz", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
-
-    "tsover-runtime": ["tsover-runtime@0.0.7", "https://mirrors.cloud.tencent.com/npm/tsover-runtime/-/tsover-runtime-0.0.7.tgz", {}, "sha512-FHHwMJzZbnP23+fU1PxXljy7j0RRRosL2r1/CRUNTqfW+l7m35JsUkM615x/cAzw4GqRdXPIl3axKMj9qzpZtQ=="],
-
-    "typed-binary": ["typed-binary@4.3.4", "https://mirrors.cloud.tencent.com/npm/typed-binary/-/typed-binary-4.3.4.tgz", {}, "sha512-ivy9nisfsBhugH6OrygtdYI28c28mo7AFeB85COUzGG6MmuViFQPz4ylmDHNjAI3P12EAxWhqtjLsdYWfCj6xQ=="],
-
-    "typegpu": ["typegpu@0.12.3", "https://mirrors.cloud.tencent.com/npm/typegpu/-/typegpu-0.12.3.tgz", { "dependencies": { "tinyest": "~0.3.2", "tsover-runtime": "^0.0.7", "typed-binary": "^4.3.3" }, "bin": { "typegpu": "./bin.mjs" } }, "sha512-zYwQEhnPPwhq5vQKmollXRK1LCVjStOnL+2B0PiebqvAzYPr25rPNR4r3olLoow5sKKjyj3kzHKEcpD5SyDzGQ=="],
 
     "typescript": ["typescript@5.9.3", "https://mirrors.cloud.tencent.com/npm/typescript/-/typescript-5.9.3.tgz", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

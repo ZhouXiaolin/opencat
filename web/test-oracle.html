@@ -184,8 +184,12 @@
         }
 
         const CK = globalThis.__canvasKit;
+        // preserveDrawingBuffer keeps the WebGL back buffer readable after
+        // `flush()`: the video transport captures the canvas with
+        // `new VideoFrame(canvas)`, which sees a cleared buffer otherwise.
         const surface = getReusableSurface(CK, canvas, undefined, {
           alphaType: CK.AlphaType.Premul,
+          preserveDrawingBuffer: 1,
         });
         if (!surface) throw new Error('surface creation failed');
 

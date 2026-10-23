@@ -125,52 +125,6 @@ impl EnginePipelineHost {
         Ok(())
     }
 
-    /// `<Shader>` 段的像素回填——与 [`Self::render_scene3_section`] 同构：
-    /// core 为每个 canvas 录了一条空 RGBA 占位，这里按层栈烘焙出路 WGSL 并
-    /// 光栅化，把像素填回同 id 条目。烘焙（props → WGSL）在 `opencat-shaders`
-    /// 内完成，所以本段不需要（也不携带）WGSL 源码。
-    pub fn render_shader_section(
-        &self,
-        media_plan: &mut opencat_core::ir::media_plan::FrameMediaPlan,
-        section: &opencat_core::ir::shader::ShaderSection,
-    ) -> Result<()> {
-        for target in &section.targets {
-            // 占位图由绘制流（`record_frame_generated_image_deferred`）录，绘制流
-            // 会被显示树裁剪：整层 `opacity: 0` / 移出画面的 `<Shader>` 这一帧
-            // 根本没有占位图，也就没有像素要回填。跳过，不是错误。
-            let Some(entry) = media_plan
-                .generated_images
-                .iter_mut()
-                .find(|e| e.id == target.image_id)
-            else {
-                continue;
-            };
-            let layers: Vec<opencat_shaders::ShaderLayer> = target
-                .layers
-                .iter()
-                .map(|l| opencat_shaders::ShaderLayer {
-                    component: l.component.clone(),
-                    props: l.props.clone(),
-                })
-                .collect();
-            let mut rgba =
-                opencat_shaders::render_target(&layers, target.width, target.height, target.time)?;
-            // 烘焙器吐 pre-multiplied（shaders 库 `final_1` 的尾巴
-            // `linearToSrgb(...) * a`），而 `GeneratedImageEntry` 的契约是
-            // straight alpha（与 opencat-three 一致）——合成前先解预乘。
-            for px in rgba.chunks_exact_mut(4) {
-                let a = px[3] as u32;
-                if a != 0 && a != 255 {
-                    for c in px.iter_mut().take(3) {
-                        *c = (((*c as u32) * 255 + a / 2) / a).min(255) as u8;
-                    }
-                }
-            }
-            entry.rgba = rgba.into();
-        }
-        Ok(())
-    }
-
     /// Layout inspection from the same resolve/layout sessions as render.
     pub fn inspect_frame(
         &mut self,

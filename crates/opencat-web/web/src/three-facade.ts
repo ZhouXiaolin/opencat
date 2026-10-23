@@ -20,6 +20,12 @@ import { getAssetReader, getRendererOrThrow } from './wasm';
 import { getDecodedFrameRgba } from './media/video-decoder';
 import { provideGeneratedImageRgba } from './draw-ir';
 
+// Captured at module load, before the script realm installs its
+// `OffscreenCanvas` facade (which serves `getContext('2d')` from the
+// composition surface and rejects everything else). This is host code, not
+// composition code: it needs a real WebGL canvas.
+const NativeOffscreenCanvas = globalThis.OffscreenCanvas;
+
 type Vec3 = [number, number, number];
 
 type TextureJson =
@@ -360,7 +366,10 @@ export class Scene3WebExecutor {
     if (!renderer) {
       // Straight-alpha contract (module doc); 4× MSAA mirrors the native
       // main pass; offscreen canvas — pixels leave via readPixels only.
-      const canvas = document.createElement('canvas');
+      // Offscreen canvas, not `document.createElement`: the script realm
+      // replaces `document` with the composition overlay, so a DOM canvas
+      // there is an overlay handle, not a drawable surface.
+      const canvas = new NativeOffscreenCanvas(w, h);
       renderer = new THREE.WebGLRenderer({
         canvas,
         alpha: true,

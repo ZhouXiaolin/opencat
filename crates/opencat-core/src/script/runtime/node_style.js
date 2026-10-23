@@ -56,11 +56,27 @@
                     };
                 }
                 if (prop === 'removeProperty') return function () { return ''; };
+                // `style.cssText = 'opacity:0; left:10px'` — the standard bulk
+                // write. Split on `;`, then on the first `:` so `filter` values
+                // keep their own commas and parentheses.
+                if (prop === 'cssText') {
+                    return function () { return ''; };
+                }
                 var v = __read_style_value(id, styleKey(prop));
                 return v === null || v === undefined ? '' : v;
             },
             set(_target, prop, value) {
                 if (typeof prop !== 'string') return false;
+                if (prop === 'cssText') {
+                    String(value).split(';').forEach(function (decl) {
+                        var i = decl.indexOf(':');
+                        if (i < 0) return;
+                        var name = decl.slice(0, i).trim();
+                        if (!name) return;
+                        __write_style_value(id, styleKey(name), decl.slice(i + 1).trim());
+                    });
+                    return true;
+                }
                 __write_style_value(id, styleKey(prop), value);
                 return true;
             },
@@ -495,15 +511,6 @@
                     if (typeof prop !== 'string' || prop === 'then') return undefined;
                     if (prop in t) return t[prop];
                     if (prop in own) return own[prop];
-                    // `<Shader>` per-frame props: merge into the declared layer
-                    // stack (f(t) values land here, submitted after hooks run).
-                    // Second argument names the layer when a stack has several.
-                    if (prop === 'shaderProps' && globalThis.__ocShaderProps) {
-                        return (props, component) => {
-                            globalThis.__ocShaderProps(id, props || {}, component);
-                            return api;
-                        };
-                    }
                     return (...args) => {
                         applyMutation(id, prop, ...args);
                         return api;

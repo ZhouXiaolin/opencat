@@ -132,7 +132,6 @@ impl WebRenderer {
             draw: render.draw,
             media: render.media,
             scene3: render.scene3,
-            shader: render.shader,
         };
 
         // Scene3 placeholders carry no pixels on the web path — the web
@@ -143,17 +142,6 @@ impl WebRenderer {
         if let Some(section) = &render.scene3 {
             let ids: std::collections::HashSet<_> =
                 section.commits.iter().map(|c| c.image_id).collect();
-            render
-                .media
-                .generated_images
-                .retain(|g| !ids.contains(&g.id));
-        }
-
-        // Same for shader targets: the web executor (real shaders library,
-        // shader-facade.ts) renders them and injects the pixels.
-        if let Some(section) = &render.shader {
-            let ids: std::collections::HashSet<_> =
-                section.targets.iter().map(|t| t.image_id).collect();
             render
                 .media
                 .generated_images
@@ -199,19 +187,6 @@ impl WebRenderer {
             .map_err(|_| JsValue::from_str("build_frame_ir: failed to set scene3"))?;
         }
 
-        // Shader IR section: the same layer stacks the native engine feeds
-        // opencat-shaders (wgpu). The web executor renders them with the real
-        // shaders library and hands the pixels to draw-ir's generated slot.
-        if let Some(section) = &render.shader {
-            let payload = shader_payload_json(section)
-                .map_err(|e| JsValue::from_str(&format!("build_frame_ir shader: {e}")))?;
-            js_sys::Reflect::set(
-                &obj,
-                &JsValue::from_str("shader"),
-                &JsValue::from_str(&payload),
-            )
-            .map_err(|_| JsValue::from_str("build_frame_ir: failed to set shader"))?;
-        }
         Ok(JsValue::from(obj))
     }
 
@@ -516,31 +491,6 @@ fn scene3_payload_json(
     serde_json::to_string(&commits)
 }
 
-/// Shader section as JSON for the web executor (the real shaders library):
-/// one target per `<Shader>` this frame. `layers` keeps declaration order
-/// (that IS the z order) and carries props as the IR recorded them — no WGSL
-/// travels: the browser side bakes props through the library itself, exactly
-/// like `opencat-shaders` does natively.
-fn shader_payload_json(
-    section: &opencat_core::ir::shader::ShaderSection,
-) -> Result<String, serde_json::Error> {
-    let targets: Vec<Value> = section
-        .targets
-        .iter()
-        .map(|t| {
-            json!({
-                "imageId": t.image_id.0.to_string(),
-                "canvasId": t.canvas_id,
-                "width": t.width,
-                "height": t.height,
-                "time": t.time,
-                "layers": t.layers,
-            })
-        })
-        .collect();
-    serde_json::to_string(&targets)
-}
-
 /// Free async helper behind [`WebRenderer::open_design`]: does every step that
 /// does not need `&mut self`, so the `&mut self` on the wasm-bindgen method is
 /// only held across synchronous assignment — never across an `.await`. This
@@ -712,7 +662,6 @@ mod tests {
             draw: DrawOpFrame::default(),
             media: FrameMediaPlan::default(),
             scene3: None,
-            shader: None,
         }
     }
 
@@ -831,7 +780,6 @@ mod tests {
                 ..Default::default()
             },
             scene3: None,
-            shader: None,
         };
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
@@ -889,7 +837,6 @@ mod tests {
                 ..Default::default()
             },
             scene3: None,
-            shader: None,
         };
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
@@ -922,7 +869,6 @@ mod tests {
                 ..Default::default()
             },
             scene3: None,
-            shader: None,
         };
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();

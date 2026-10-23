@@ -13,9 +13,6 @@ opencat-liangyi = { path = "../opencat-liangyi" }
 # 3D 渲染后端（wgpu）：Scene3 快照 → straight-alpha RGBA，经 generated
 # image 进合成；web 侧走同一 WGSL 的 wasm 后端。
 opencat-three = { path = "../opencat-three" }
-# shaders 库烘焙器（props → WGSL → wgpu 出图）：`<Shader>` 段在 engine 侧
-# 光栅化后回填 generated image；web 侧改用浏览器里的 shaders 原库。
-opencat-shaders = { path = "../opencat-shaders" }
 # 原生图形 API（GL/Metal/EGL）：FBO、PBO、平台上下文引导。engine 只见
 # 不透明句柄，不自己调 GL。
 opencat-gpu-native = { path = "../opencat-gpu-native" }

@@ -20,7 +20,6 @@
     "@webav/av-cliper": "^1.2.8",
     "canvaskit-wasm": "^0.41.1",
     "opencat.js": "file:../crates/opencat-web/web",
-    "shaders": "^4.0.5",
     "web-demuxer": "^4.0.0"
   }
 }

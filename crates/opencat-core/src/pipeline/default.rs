@@ -191,7 +191,7 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
     }
 
     fn render_frame(&mut self, frame_index: u32) -> Result<RenderFrame> {
-        let (draw, media, scene3, shader) = super::frame::render_frame_with_state(
+        let (draw, media, scene3) = super::frame::render_frame_with_state(
             &self.composition,
             frame_index,
             &mut self.layout_session,
@@ -202,7 +202,7 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
             &mut self.scripts,
             &mut self.generated_images,
         )?;
-        Ok(RenderFrame { draw, media, scene3, shader })
+        Ok(RenderFrame { draw, media, scene3 })
     }
 }
 

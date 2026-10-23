@@ -3487,7 +3487,6 @@ dependencies = [
  "opencat-core",
  "opencat-gpu-native",
  "opencat-liangyi",
- "opencat-shaders",
  "opencat-three",
  "reqwest",
  "serde",
@@ -3523,21 +3522,6 @@ dependencies = [
  "oxc_span",
  "rayon",
  "serde_json",
-]
-
-[[package]]
-name = "opencat-shaders"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "env_logger",
- "image",
- "naga",
- "pollster",
- "serde",
- "serde_json",
- "wgpu",
 ]
 
 [[package]]

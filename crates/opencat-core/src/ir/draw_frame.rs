@@ -51,8 +51,7 @@ pub struct Scene3Section {
 /// media preparation plan for this frame (images, video frames, Lottie bundles,
 /// runtime effects, **and full generated-image RGBA**); `scene3` is the 3D
 /// scene IR section (declared snapshots + placeholder generated-image ids the
-/// executing host rasterizes into the plan), `shader` is the shaders-library
-/// section (declared layer stacks + placeholder ids the host bakes). All halves are a pure
+/// executing host rasterizes into the plan). All halves are a pure
 /// function of the composition and the requested `frame_index`: rendering the
 /// same frame on the same pipeline — directly, out of order, or repeatedly —
 /// must yield field-by-field identical results regardless of call history.
@@ -66,7 +65,6 @@ pub struct RenderFrame {
     pub draw: DrawOpFrame,
     pub media: FrameMediaPlan,
     pub scene3: Option<Scene3Section>,
-    pub shader: Option<super::shader::ShaderSection>,
 }
 
 /// Reusable scratch buffers for binary encoding.

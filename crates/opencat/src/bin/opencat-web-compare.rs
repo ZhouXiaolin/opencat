@@ -109,6 +109,13 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     save_all: bool,
 
+    /// Directory for composition-relative paths (`assets/...`, `dist/gsap.bundle.mjs`).
+    /// Defaults to the input file's directory. Set it when the input is a build
+    /// artifact in `dist/` — the compiled bundle is the only entry that carries
+    /// the compiled stylesheet.
+    #[arg(long)]
+    base_dir: Option<PathBuf>,
+
     /// Transport the web render as a single in-page-encoded H.264 MP4 (WebCodecs
     /// + MP4Box.js) instead of per-frame `rgbaHex`. The MP4 crosses the
     /// WebDriver boundary once, so a full every-frame sweep no longer OOMs the
@@ -125,11 +132,12 @@ struct SampleResult {
     passed: bool,
 }
 
-fn composition_meta(source: &str) -> Result<(u32, u32, u32, u32)> {
+fn composition_meta(source: &str, base_dir: Option<&Path>) -> Result<(u32, u32, u32, u32)> {
     // Returns (width, height, fps, frames) — resolved through the engine's own
     // parse (module extraction + font manifest) for the authoritative header.
-    let parsed =
-        opencat_engine::source_io::parse_with_base_dir(source, None).context("parse composition")?;
+    // `base_dir` is the entry's directory: relative `import`s resolve there.
+    let parsed = opencat_engine::source_io::parse_with_base_dir(source, base_dir)
+        .context("parse composition")?;
     let fps = parsed.fps.max(1) as u32;
     // Match the engine's frame count exactly (rational rounding, not ceil).
     let frames = opencat_core::duration_secs_to_frames(parsed.duration, fps).max(1);
@@ -516,9 +524,11 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
 
     let source = fs::read_to_string(&input).with_context(|| format!("read {}", input.display()))?;
     let input_rel = rel_input(&input, &repo);
-    let web_source = web_envelope_for_oracle(&source, input.parent())
+    let base_dir = cli.base_dir.clone().or_else(|| input.parent().map(Path::to_path_buf));
+    let base_dir = base_dir.as_deref();
+    let web_source = web_envelope_for_oracle(&source, base_dir)
         .with_context(|| format!("extract JSX for the web oracle ({})", input.display()))?;
-    let (width, height, fps, total_frames) = composition_meta(&source)?;
+    let (width, height, fps, total_frames) = composition_meta(&source, base_dir)?;
     let mut frames = sample_frames(fps, total_frames, cli.interval_secs, cli.max_samples);
     let end_frame = cli.end_frame.unwrap_or(total_frames.saturating_sub(1));
     if cli.start_frame > 0 || cli.end_frame.is_some() {
@@ -582,7 +592,7 @@ fn run_compare_sync(cli: &Cli) -> Result<ExitCode> {
         let engine_t0 = std::time::Instant::now();
         for &frame in &frames {
             let (rgba, w, h) =
-                render_single_frame_from_source_with_base(&source, input.parent(), frame)
+                render_single_frame_from_source_with_base(&source, base_dir, frame)
                     .with_context(|| format!("engine render frame {frame}"))?;
             if w != width || h != height {
                 bail!("engine frame {frame} size {w}x{h} != composition {width}x{height}");

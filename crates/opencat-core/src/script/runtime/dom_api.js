@@ -242,8 +242,18 @@
             if (!OVERWRITE[key] && globalThis.document[key] !== undefined && globalThis.document[key] !== null) {
                 continue;
             }
+            // A real browser `Document` exposes `body`/`documentElement` as
+            // getter-only prototype accessors, so plain assignment throws.
+            // An own property shadows the accessor, which is what plugins
+            // need: `document.body` must be the composition root, not the
+            // live page body.
             try {
-                globalThis.document[key] = document[key];
+                Object.defineProperty(globalThis.document, key, {
+                    value: document[key],
+                    configurable: true,
+                    writable: true,
+                    enumerable: true,
+                });
             } catch (e) {
                 // Some shim documents are proxies over a fixed member set;
                 // leave whatever they refuse to accept.
@@ -261,8 +271,16 @@
     // element and every transform read throws. Also the DOM's own
     // createElementNS is absent here, so the plugin's `_createElement` falls
     // through to `createElement` — which is what the scratch element is for.
-    globalThis.window.document = document;
-    globalThis.window.navigator = globalThis.window.navigator || { userAgent: 'opencat' };
+    // A browser window exposes `document`/`navigator` as getter-only
+    // accessors, so the assignment throws there. It is also unnecessary: on
+    // that host `globalThis.window.document` IS `globalThis.document`, the
+    // object merged above.
+    try {
+        globalThis.window.document = document;
+        globalThis.window.navigator = globalThis.window.navigator || { userAgent: 'opencat' };
+    } catch (e) {
+        // Read-only accessors on a real window: already what we need.
+    }
 
     // SplitText's `autoSplit` observes its elements so a resize re-splits. A
     // composition's box is fixed by the composition, never by a viewport, so

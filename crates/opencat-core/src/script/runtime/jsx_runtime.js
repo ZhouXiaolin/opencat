@@ -211,26 +211,12 @@
         }
         var name = String(tag);
         var isComponent = typeof tag === 'function' || /^[A-Z]/.test(name) || name.indexOf('.') >= 0;
-        // `<Shader>` is the one tag written in PascalCase that is NOT a
-        // component: it is a shader stack. Normalise it here so it never goes
-        // down the component path (its children are library component names,
-        // not React components).
-        if (name === 'Shader') tag = 'shader';
         if (isComponent && children.length > 0) props.children = children;
         return el;
     }
 
     globalThis.h = h;
     globalThis[FRAGMENT] = FRAGMENT;
-    // `<Shader>` and its layer children are written with JSX capitalisation, so
-    // each needs an evaluable binding. The value IS the name: the tag carries
-    // the semantics, nothing else. `import { Aurora } from 'shaders'` is the
-    // same list, and on the web those names are the library's own exports.
-    // Keep in sync with `opencat_shaders::render_target`'s component arms.
-    var SHADER_NAMES = ['Aurora', 'MeshGradient', 'VHS', 'ZoomBlur'];
-    var shaderExports = { Shader: 'shader' };
-    for (var sn = 0; sn < SHADER_NAMES.length; sn++) shaderExports[SHADER_NAMES[sn]] = SHADER_NAMES[sn];
-    for (var sk in shaderExports) globalThis[sk] = shaderExports[sk];
 
     // ── module system ────────────────────────────────────────────────
     function resolveSpec(spec) {
@@ -324,9 +310,6 @@
         // Effect slots survive the frame (that is what makes deps meaningful);
         // only the call-order cursor restarts.
         effectIndex = 0;
-        // `shaderProps()` overrides are per-frame (f(t)); the declared stack
-        // itself is rebuilt by this frame's tree walk.
-        shaderStacks = Object.create(null);
     };
 
     // Register a per-frame hook. The scene clock in effect right now (the
@@ -395,9 +378,6 @@
                 }
             }
         }
-        // Hooks ran last: layer props written by `shaderProps()` this frame are
-        // in `shaderStacks` now, so this is the only correct submit point.
-        submitShaderStacks();
     };
 
     // ── use* registry ───────────────────────────────────────────────
@@ -498,11 +478,20 @@
         return globalThis.__ocMeta || {};
     }
 
+    // useCanvasKit(): the resolved CanvasKit module, synchronously. In a
+    // browser this is the `const CK = await CanvasKitInit()` module singleton;
+    // here the loader resolves on the first frame, so the component body can
+    // read it directly instead of holding a module-level promise.
+    function useCanvasKit() {
+        return globalThis.CanvasKit;
+    }
+
     builtins['opencat/runtime'] = {
         h: h,
         useRef: useRef,
         Fragment: FRAGMENT,
         useEffect: useEffect,
+        useCanvasKit: useCanvasKit,
         useChart: useChart,
         useGSAP: useGSAP,
         useFrame: useFrame,
@@ -713,7 +702,6 @@
     // the loader stub (canvas_api.js), which resolves immediately with the
     // signature facade — the example's `.then(CK => CK.MakeCanvasSurface(id))`
     // runs in the frame's microtask drain, before the frame hooks.
-    builtins['shaders'] = shaderExports;
     builtins['canvaskit-wasm'] = {
         default: globalThis.CanvasKitInit,
         CanvasKitInit: globalThis.CanvasKitInit,
@@ -1011,77 +999,10 @@
         }
         out.push(value);
     }
-    // ── <Shader> ────────────────────────────────────────────────────
-    // A `<Shader id="...">` element is a shader stack, not a scene-graph node.
-    // Its children ARE shaders-library component names (`<Aurora/>`,
-    // `<VHS/>`...): each is a `{component, props}` layer, drawn in source
-    // order. Registered hosts bake the stack into one image per frame
-    // (`opencat-shaders` in the engine, the real shaders library on the web).
-    //
-    // Semantics live on the element, not in the tree: `emitElement` collects
-    // every stack once and commits it via `__shader_layers(canvasId, w, h,
-    // layers)`. Nothing else about the tag reaches the Rust element schema.
-    var shaderStacks = Object.create(null);
-    // `which` names one component ("VHS") when a stack has several; omitted
-    // means the first layer, which is what a single-layer stack expects.
-    globalThis.__ocShaderProps = function (id, props, which) {
-        var key = String(id);
-        var stack = shaderStacks[key];
-        if (!stack) return;
-        for (var i = 0; i < stack.layers.length; i++) {
-            var layer = stack.layers[i];
-            if (which != null && layer.component !== String(which)) continue;
-            var own = Object.create(null);
-            for (var k in layer.props) own[k] = layer.props[k];
-            for (var k2 in props) own[k2] = props[k2];
-            layer.props = own;
-        }
-    };
-    function collectShaderLayers(el, out) {
-        for (var i = 0; i < el.children.length; i++) {
-            var child = el.children[i];
-            if (child === null || child === undefined || child === false) continue;
-            if (typeof child === 'string' || typeof child === 'number') continue;
-            if (Array.isArray(child)) {
-                collectShaderLayers({ children: child }, out);
-                continue;
-            }
-            if (child.__ocEl !== true) continue;
-            if (typeof child.tag === 'function') {
-                collectShaderLayers({ children: [child.tag(child.props)] }, out);
-                continue;
-            }
-            if (child.tag === FRAGMENT) {
-                collectShaderLayers(child, out);
-                continue;
-            }
-            // Static props only: the per-frame values arrive through
-            // `ctx.getNode(id).shaderProps({...})`, which merges here at submit.
-            out.push({ component: String(child.tag), props: child.props || {} });
-        }
-    }
-    function submitShaderStacks() {
-        // Extract passes walk the tree without a recorder installed — the stack
-        // is a render-time product, so there is nothing to commit yet.
-        if (typeof globalThis.__shader_layers !== 'function') return;
-        for (var canvasId in shaderStacks) {
-            var stack = shaderStacks[canvasId];
-            var box = (globalThis.__read_box && globalThis.__read_box(canvasId)) || {};
-            var width = stack.width || box.width || 0;
-            var height = stack.height || box.height || 0;
-            if (!(width > 0) || !(height > 0)) {
-                throw new Error(
-                    "<Shader id=\"" + canvasId + "\"> has no box (" + width + "x" + height + "); give it `width`/`height` props, an inline `style`, or a class that resolves to a size — the shader image is rendered at that box size"
-                );
-            }
-            globalThis.__shader_layers(canvasId, width, height, stack.time, stack.layers);
-        }
-    }
-
     var SUPPORTED_TAGS = {
         div: true, text: true, canvas: true, image: true, audio: true,
         video: true, transition: true, tl: true,
-        path: true, lottie: true, svg: true, shader: true,
+        path: true, lottie: true, svg: true,
     };
 
     // 容器标签：孩子的发射结果挂进 node.children；其余标签的孩子仅走一遍
@@ -1118,43 +1039,6 @@
         var id = String(props.id);
         // HTML spelling `<img>` reaches the same element as `<image>`.
         var tag = el.tag === 'img' ? 'image' : el.tag;
-        if (tag === 'shader') {
-            // A shader stack: layers are declared by the children, the stack
-            // itself is a leaf in the element tree. Width/height default to the
-            // element box (resolved in `submitShaderStacks`, after layout).
-            var layers = [];
-            collectShaderLayers(el, layers);
-            var pending = shaderStacks[id];
-            var merged = pending ? pending.layers : [];
-            for (var li = 0; li < layers.length; li++) {
-                var declared = layers[li];
-                merged[li] = merged[li] && merged[li].component === declared.component
-                    ? { component: declared.component, props: merged[li].props }
-                    : { component: declared.component, props: declared.props };
-            }
-            merged.length = layers.length;
-            // Clock of the scene this stack is declared in — the same `f(t)`
-            // a `useGSAP` in that scene would see. `shaderProps({ time })`
-            // can override it per frame.
-            var top = sceneStack.length ? sceneStack[sceneStack.length - 1] : null;
-            shaderStacks[id] = {
-                layers: merged,
-                width: num(props.width),
-                height: num(props.height),
-                time: top ? top.time : Number((globalThis.ctx && globalThis.ctx.global && globalThis.ctx.global.time) || 0),
-            };
-            // Emitted as a `<canvas>` leaf: the shader image IS that element's
-            // content, so it composites in the element's box with no new
-            // element kind in the Rust schema (same shape as the 3D target).
-            // Layer children are NOT emitted — they are stack description, so
-            // they never reach the element tree.
-            var shaderNode = { type: 'canvas', id: id };
-            var shaderClass = props.class || props.className;
-            if (shaderClass) shaderNode.className = shaderClass;
-            var shaderStyle = styleDeclarations(props.style);
-            if (shaderStyle) shaderNode.style = shaderStyle;
-            return shaderNode;
-        }
         var node = { type: tag, id: id };
         // `audioId` attaches a pooled `export const audio` source to wherever it
         // is written: a `<tl>` plays it across the whole timeline, a scene plays
@@ -1278,7 +1162,6 @@
     // are discarded. Per-frame replay walks this way.
     globalThis.__ocWalkTree = function (root) {
         emitElement(root, null);
-        submitShaderStacks();
     };
 
     // Entry convention: `export function main()` (the multi-file layout puts

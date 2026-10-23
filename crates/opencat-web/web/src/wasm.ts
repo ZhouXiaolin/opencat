@@ -31,8 +31,6 @@ export interface WebRendererInstance {
     frame: number;
     /** Scene3 section JSON (array of commits) — present when the frame commits 3D scenes. */
     scene3?: string;
-    /** Shader section JSON (array of targets) — present when the frame commits <Shader> canvases. */
-    shader?: string;
   };
   /** Renders frame and returns only its media plan JSON (for readahead/prefetch). */
   get_frame_plan(frame: number): string;

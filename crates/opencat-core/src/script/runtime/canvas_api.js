@@ -2010,6 +2010,24 @@
         return surfaceById('surface-' + ww + 'x' + hh, ww, hh);
     };
 
+    // ── OffscreenCanvas: the standard web spelling of `ctx.surface` ──
+    // `new OffscreenCanvas(w, h).getContext('2d')` is how a browser script
+    // allocates a detached 2D drawing surface; here it resolves to the same
+    // facade `ctx.surface(w, h)` returns, so both spellings share one target.
+    function OffscreenCanvas(w, h) {
+        const ww = Math.max(1, Math.round(toFiniteNumber(w)));
+        const hh = Math.max(1, Math.round(toFiniteNumber(h)));
+        this.width = ww;
+        this.height = hh;
+        this.getContext = function (kind) {
+            if (kind !== '2d') {
+                throw new Error("OffscreenCanvas.getContext: only '2d' is supported, got '" + kind + "'");
+            }
+            return ctx.surface(ww, hh);
+        };
+    }
+    globalThis.OffscreenCanvas = OffscreenCanvas;
+
     // ── Official surface entry: CK.MakeCanvasSurface(id) ─────────────
     // `canvas` accepts an id string, a useRef() element handle, or a DOM
     // handle carrying .id — the official MakeCanvasSurface signature takes a

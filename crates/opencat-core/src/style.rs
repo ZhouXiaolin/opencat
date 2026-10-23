@@ -1281,6 +1281,26 @@ pub enum Transform {
         #[serde(rename = "perspective")]
         perspective: f32,
     },
+    /// CSS `translateZ()` — moves the node off its parent's plane. Only
+    /// meaningful inside a 3-D context (an ancestor with `perspective`); on its
+    /// own it has no visible effect, exactly like the browser.
+    #[serde(rename = "translateZ")]
+    TranslateZ {
+        #[serde(rename = "value")]
+        value: f32,
+    },
+    /// CSS `rotateX()` — tips the node about its horizontal axis.
+    #[serde(rename = "rotateX")]
+    RotateXDeg {
+        #[serde(rename = "value")]
+        value: f32,
+    },
+    /// CSS `rotateY()` — turns the node about its vertical axis.
+    #[serde(rename = "rotateY")]
+    RotateYDeg {
+        #[serde(rename = "value")]
+        value: f32,
+    },
 }
 
 impl std::hash::Hash for Transform {
@@ -1337,6 +1357,18 @@ impl std::hash::Hash for Transform {
                 rotation_x.to_bits().hash(state);
                 rotation_y.to_bits().hash(state);
                 perspective.to_bits().hash(state);
+            }
+            Transform::TranslateZ { value } => {
+                11_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::RotateXDeg { value } => {
+                12_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::RotateYDeg { value } => {
+                13_u8.hash(state);
+                value.to_bits().hash(state);
             }
         }
     }
@@ -1943,6 +1975,14 @@ pub struct NodeStyle {
     pub transforms: Vec<Transform>,
     /// Static CSS `transform-origin` (the anchor for `transforms`). `None` = box centre.
     pub transform_origin: Option<TransformOrigin>,
+    /// CSS `perspective` on this node: the distance a child's `translateZ` is
+    /// projected from. `None` = no perspective (children stay orthographic).
+    pub perspective: Option<f32>,
+    /// CSS `transform-style`. `Some(true)` is `preserve-3d`: children share this
+    /// node's 3-D space. The default (`flat`) still lets a child's own
+    /// transforms project through an ancestor's `perspective` — only the
+    /// *nesting* of a rotated child inside a rotated parent needs this flag.
+    pub transform_style_preserve_3d: Option<bool>,
 
     // SVG / Path (Tailwind align: fill-*, stroke-*)
     pub fill_color: Option<ColorToken>,

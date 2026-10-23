@@ -138,6 +138,217 @@ pub fn camera_basis(eye: [f64; 3], target: [f64; 3]) -> ([f64; 3], [f64; 3], [f6
     (forward, right, up)
 }
 
+// ---------------------------------------------------------------------------
+// 4×4 matrices — the CSS 3-D transform chain
+// ---------------------------------------------------------------------------
+
+/// Column-major 4×4 matrix (`m[col * 4 + row]`), the layout three.js and
+/// OpenGL use. Only the operations the CSS `transform` grammar needs exist.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mat4(pub [f32; 16]);
+
+impl Default for Mat4 {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+impl Mat4 {
+    pub const IDENTITY: Mat4 = Mat4([
+        1.0, 0.0, 0.0, 0.0, //
+        0.0, 1.0, 0.0, 0.0, //
+        0.0, 0.0, 1.0, 0.0, //
+        0.0, 0.0, 0.0, 1.0,
+    ]);
+
+    /// `self · rhs` — a point is transformed by `rhs` first.
+    pub fn mul(&self, rhs: &Mat4) -> Mat4 {
+        let mut out = [0.0f32; 16];
+        for col in 0..4 {
+            for row in 0..4 {
+                let mut sum = 0.0;
+                for k in 0..4 {
+                    sum += self.0[k * 4 + row] * rhs.0[col * 4 + k];
+                }
+                out[col * 4 + row] = sum;
+            }
+        }
+        Mat4(out)
+    }
+
+    pub fn translate(x: f32, y: f32, z: f32) -> Mat4 {
+        let mut m = Mat4::IDENTITY.0;
+        m[12] = x;
+        m[13] = y;
+        m[14] = z;
+        Mat4(m)
+    }
+
+    /// CSS `rotateX(deg)` — positive angles tip the +y edge away from the
+    /// viewer (the CSS y axis points down).
+    pub fn rotate_x_deg(deg: f32) -> Mat4 {
+        let (s, c) = deg.to_radians().sin_cos();
+        let mut m = Mat4::IDENTITY.0;
+        m[5] = c;
+        m[6] = s;
+        m[9] = -s;
+        m[10] = c;
+        Mat4(m)
+    }
+
+    /// CSS `rotateY(deg)`.
+    pub fn rotate_y_deg(deg: f32) -> Mat4 {
+        let (s, c) = deg.to_radians().sin_cos();
+        let mut m = Mat4::IDENTITY.0;
+        m[0] = c;
+        m[2] = -s;
+        m[8] = s;
+        m[10] = c;
+        Mat4(m)
+    }
+
+    /// CSS `rotate(deg)` — rotation about the view axis.
+    pub fn rotate_z_deg(deg: f32) -> Mat4 {
+        let (s, c) = deg.to_radians().sin_cos();
+        let mut m = Mat4::IDENTITY.0;
+        m[0] = c;
+        m[1] = s;
+        m[4] = -s;
+        m[5] = c;
+        Mat4(m)
+    }
+
+    pub fn scale(sx: f32, sy: f32) -> Mat4 {
+        let mut m = Mat4::IDENTITY.0;
+        m[0] = sx;
+        m[5] = sy;
+        Mat4(m)
+    }
+
+    /// CSS `skew(ax, ay)`: `[[1, tan ax], [tan ay, 1]]`.
+    pub fn skew(ax_deg: f32, ay_deg: f32) -> Mat4 {
+        let mut m = Mat4::IDENTITY.0;
+        m[4] = ax_deg.to_radians().tan();
+        m[1] = ay_deg.to_radians().tan();
+        Mat4(m)
+    }
+
+    /// CSS `perspective(d)`: the w row gains `-1/d`, so points further along
+    /// +z shrink toward the origin. `d <= 0` is the identity (no perspective).
+    pub fn perspective(d: f32) -> Mat4 {
+        if d <= 0.0 {
+            return Mat4::IDENTITY;
+        }
+        let mut m = Mat4::IDENTITY.0;
+        m[11] = -1.0 / d;
+        Mat4(m)
+    }
+
+    /// Project onto the z=0 plane as a 3×3 homography, in the column-major
+    /// layout `DrawOp::Concat` reads: `[h00, h10, h20, h01, h11, h21, h02,
+    /// h12, h22]`, mapping `(x, y, 1)` to `(X, Y, W)`.
+    ///
+    /// A node's content is planar, so rows 0, 1 and 3 fully describe it; row 2
+    /// (the z the *children* still need) is dropped here and read from the 4×4.
+    pub fn to_homography3(&self) -> [f32; 9] {
+        let m = &self.0;
+        [m[0], m[1], m[3], m[4], m[5], m[7], m[12], m[13], m[15]]
+    }
+
+    /// GSAP's folded `rotationX`/`rotationY`/`transformPerspective` triple as
+    /// the CSS transform `rotateY(rotation_y) rotateX(rotation_x)`, i.e.
+    /// `Ry · Rx`, with the perspective row folded into `w`.
+    ///
+    /// The z row matters as much as the planar one: a child sitting at
+    /// `translateZ(d)` has to be scaled by `cos_x·cos_y` and to enter the
+    /// perspective divisor through its own depth, otherwise a rotating form
+    /// does not carry its children's depth with it.
+    pub fn rotate3(rotation_x: f32, rotation_y: f32, perspective: f32) -> Mat4 {
+        let k = if perspective > 0.0 {
+            1.0 / perspective
+        } else {
+            0.0
+        };
+        let mut m = Mat4::rotate_y_deg(rotation_y)
+            .mul(&Mat4::rotate_x_deg(rotation_x))
+            .0;
+        // w row: `1 - z'/perspective`, with `z'` the third row of Ry·Rx.
+        m[3] = -m[2] * k;
+        m[7] = -m[6] * k;
+        m[11] = -m[10] * k;
+        Mat4(m)
+    }
+
+    /// True when the matrix keeps the z=0 plane where it is: no z output and no
+    /// z-dependent w. Those nodes need nothing beyond the ordinary 2-D ops.
+    pub fn is_planar(&self) -> bool {
+        let m = &self.0;
+        m[2] == 0.0 && m[6] == 0.0 && m[14] == 0.0 && m[10] == 1.0 && m[11] == 0.0
+    }
+
+    /// Drop this matrix's own depth: children land in the node's plane. CSS
+    /// `transform-style: flat`.
+    ///
+    /// shortcut: only the z output is zeroed, so a child's own `translateZ`
+    /// stops mattering but an ancestor's perspective stays. Enough for flat
+    /// containers that merely group 3-D children; revisit if a flat node ever
+    /// sits *inside* a rotated 3-D subtree.
+    pub fn flatten_depth(&self) -> Mat4 {
+        let mut m = self.0;
+        m[2] = 0.0;
+        m[6] = 0.0;
+        m[14] = 0.0;
+        Mat4(m)
+    }
+
+    /// Transformed z of the point `(x, y, 0)`. Used to order siblings inside a
+    /// 3-D rendering context (painter's algorithm on the transformed depth).
+    pub fn z_at(&self, x: f32, y: f32) -> f32 {
+        let m = &self.0;
+        m[2] * x + m[6] * y + m[14]
+    }
+}
+
+/// Product of two column-major 3×3 homographies: `a · b`, so `b` applies first.
+pub fn mul3(a: [f32; 9], b: [f32; 9]) -> [f32; 9] {
+    let mut out = [0.0f32; 9];
+    for col in 0..3 {
+        for row in 0..3 {
+            let mut sum = 0.0;
+            for k in 0..3 {
+                sum += a[k * 3 + row] * b[col * 3 + k];
+            }
+            out[col * 3 + row] = sum;
+        }
+    }
+    out
+}
+
+/// Inverse of a column-major 3×3 homography. `None` when it is singular (a
+/// degenerate parent transform) — the caller then skips the subtree.
+pub fn invert3(m: [f32; 9]) -> Option<[f32; 9]> {
+    // m laid out as [a, d, g, b, e, h, c, f, i] (column-major).
+    let (a, b, c) = (m[0], m[3], m[6]);
+    let (d, e, f) = (m[1], m[4], m[7]);
+    let (g, h, i) = (m[2], m[5], m[8]);
+    let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    Some([
+        (e * i - f * h) * inv,
+        (f * g - d * i) * inv,
+        (d * h - e * g) * inv,
+        (c * h - b * i) * inv,
+        (a * i - c * g) * inv,
+        (b * g - a * h) * inv,
+        (b * f - c * e) * inv,
+        (c * d - a * f) * inv,
+        (a * e - b * d) * inv,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +457,76 @@ mod tests {
         assert!((deg - 45.0).abs() < 1e-6, "angle {deg} not 45");
         let s = 2.0_f64.sqrt();
         assert!((w - s).abs() < 1e-6 && (h - s).abs() < 1e-6, "w {w} h {h}");
+    }
+
+    #[test]
+    fn mat4_identity_is_neutral() {
+        let r = Mat4::rotate_y_deg(37.0);
+        assert_eq!(Mat4::IDENTITY.mul(&r), r);
+        assert_eq!(r.mul(&Mat4::IDENTITY), r);
+    }
+
+    #[test]
+    fn mat4_translate_z_moves_depth_only() {
+        let m = Mat4::translate(1.0, 2.0, 3.0);
+        assert_eq!(m.z_at(0.0, 0.0), 3.0);
+        // The projected homography of a pure translate keeps x/y linear.
+        let h = m.to_homography3();
+        assert_eq!([h[6], h[7], h[8]], [1.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn mat4_rotate_y_quarter_turn_maps_x_to_minus_z() {
+        // rotateY(90) sends +x to -z (away from the viewer).
+        let m = Mat4::rotate_y_deg(90.0);
+        assert!((m.z_at(1.0, 0.0) + 1.0).abs() < 1e-6, "z={}", m.z_at(1.0, 0.0));
+        assert!(m.z_at(0.0, 0.0).abs() < 1e-6);
+        // rotateY(0) leaves depth alone.
+        assert_eq!(Mat4::rotate_y_deg(0.0).z_at(5.0, 5.0), 0.0);
+    }
+
+    #[test]
+    fn mat4_perspective_shrinks_far_points() {
+        // CSS `perspective(900)` on a point pushed 400px toward the viewer:
+        // w = 1 - z/d, so the point scales up by d/(d - z) = 900/500.
+        let m = Mat4::perspective(900.0).mul(&Mat4::translate(100.0, 0.0, 400.0));
+        let h = m.to_homography3();
+        let w = h[2] * 100.0 + h[8];
+        assert!((w - (1.0 - 400.0 / 900.0)).abs() < 1e-5, "w={w}");
+        assert!((h[0] * 100.0 / w - 100.0 * 900.0 / 500.0).abs() < 1e-2);
+        // Pushed away (z = -400) it shrinks instead.
+        let far = Mat4::perspective(900.0).mul(&Mat4::translate(100.0, 0.0, -400.0));
+        let hf = far.to_homography3();
+        assert!(hf[0] * 100.0 / (hf[2] * 100.0 + hf[8]) < 100.0);
+    }
+
+    #[test]
+    fn invert3_round_trips() {
+        let m = Mat4::perspective(900.0)
+            .mul(&Mat4::rotate_y_deg(-30.0))
+            .mul(&Mat4::rotate_x_deg(25.0))
+            .mul(&Mat4::translate(12.0, -7.0, 400.0));
+        let h = m.to_homography3();
+        let inv = invert3(h).expect("non-singular");
+        // inv · h is the identity homography.
+        let mut id = [0.0f32; 9];
+        for col in 0..3 {
+            for row in 0..3 {
+                let mut sum = 0.0;
+                for k in 0..3 {
+                    sum += inv[k * 3 + row] * h[col * 3 + k];
+                }
+                id[col * 3 + row] = sum;
+            }
+        }
+        let want = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        for (got, want) in id.iter().zip(want.iter()) {
+            assert!((got - want).abs() < 1e-4, "id={id:?}");
+        }
+    }
+
+    #[test]
+    fn invert3_rejects_singular() {
+        assert!(invert3([1.0, 2.0, 0.0, 2.0, 4.0, 0.0, 0.0, 0.0, 1.0]).is_none());
     }
 }

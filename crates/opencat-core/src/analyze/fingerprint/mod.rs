@@ -283,6 +283,9 @@ mod tests {
             bounds: empty_bounds(),
             transforms: Vec::new(),
             origin: Default::default(),
+            local_m4: None,
+            perspective: None,
+            preserve_3d: false,
         }
     }
 

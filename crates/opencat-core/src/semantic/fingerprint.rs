@@ -249,6 +249,8 @@ impl Hash for ApplyInputLocal<'_> {
         visual.transforms.hash(state);
         F32Hash(visual.transform_origin.x).hash(state);
         F32Hash(visual.transform_origin.y).hash(state);
+        visual.perspective.map(F32Hash).hash(state);
+        visual.transform_style_preserve_3d.hash(state);
         visual.css_filter.hash(state);
         visual.backdrop_blur_sigma.map(F32Hash).hash(state);
         visual.backdrop_filter.hash(state);

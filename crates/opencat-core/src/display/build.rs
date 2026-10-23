@@ -15,6 +15,7 @@ use crate::{
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
     },
     frame_ctx::FrameCtx,
+    geom::Mat4,
     layout::tree::{LayoutNode, LayoutTree},
     parse::transition::TransitionKind,
     resolve::{
@@ -293,6 +294,69 @@ fn build_display_node(
 /// 抽出来给两条路径共享：
 /// - `build_display_node`：无缓存的全量构建
 /// - `DisplayBuildSession::update_or_build`：每帧 merkle 失效后的局部重建
+/// The node's CSS `transform` chain as one 4×4, pivoted at `origin`.
+///
+/// `None` when every function is 2-D: those already render through the plain
+/// `DrawOp` path, and keeping them out of the 4×4 path leaves every existing
+/// composition's draw-op stream untouched.
+pub(crate) fn local_m4(
+    transforms: &[crate::style::Transform],
+    origin: crate::style::TransformOrigin,
+    bounds: DisplayRect,
+) -> Option<Mat4> {
+    use crate::style::Transform;
+
+    let has_3d = transforms.iter().any(|t| {
+        matches!(
+            t,
+            Transform::TranslateZ { .. }
+                | Transform::RotateXDeg { .. }
+                | Transform::RotateYDeg { .. }
+                | Transform::Rotate3 { .. }
+        )
+    });
+    if !has_3d {
+        return None;
+    }
+
+    let mut m = Mat4::IDENTITY;
+    let pivot = Mat4::translate(
+        bounds.width * origin.x,
+        bounds.height * origin.y,
+        0.0,
+    );
+    let unpivot = Mat4::translate(
+        -bounds.width * origin.x,
+        -bounds.height * origin.y,
+        0.0,
+    );
+    for t in transforms {
+        m = m.mul(&match *t {
+            Transform::TranslateX { value } => Mat4::translate(value, 0.0, 0.0),
+            Transform::TranslateY { value } => Mat4::translate(0.0, value, 0.0),
+            Transform::Translate { x, y } => Mat4::translate(x, y, 0.0),
+            Transform::TranslateZ { value } => Mat4::translate(0.0, 0.0, value),
+            Transform::Scale { value } => Mat4::scale(value, value),
+            Transform::ScaleX { value } => Mat4::scale(value, 1.0),
+            Transform::ScaleY { value } => Mat4::scale(1.0, value),
+            Transform::RotateDeg { value } => Mat4::rotate_z_deg(value),
+            Transform::RotateXDeg { value } => Mat4::rotate_x_deg(value),
+            Transform::RotateYDeg { value } => Mat4::rotate_y_deg(value),
+            Transform::SkewXDeg { value } => Mat4::skew(value, 0.0),
+            Transform::SkewYDeg { value } => Mat4::skew(0.0, value),
+            Transform::SkewDeg { x, y } => Mat4::skew(x, y),
+            // GSAP's own projective form. The 4×4 projection reproduces the
+            // matrix the 2-D `Rotate3` arm has always emitted.
+            Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            } => Mat4::rotate3(rotation_x, rotation_y, perspective),
+        });
+    }
+    Some(pivot.mul(&m).mul(&unpivot))
+}
+
 fn assemble_display_node(
     element: &ElementNode,
     layout: &LayoutNode,
@@ -390,6 +454,13 @@ fn assemble_display_node(
             bounds,
             transforms: element.style.visual.transforms.clone(),
             origin: element.style.visual.transform_origin,
+            local_m4: local_m4(
+                &element.style.visual.transforms,
+                element.style.visual.transform_origin,
+                bounds,
+            ),
+            perspective: element.style.visual.perspective,
+            preserve_3d: element.style.visual.transform_style_preserve_3d,
         },
         element_id: element.id,
         opacity: element.style.visual.opacity,

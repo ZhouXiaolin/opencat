@@ -384,3 +384,38 @@ fn drop_shadow_through_var_chain() {
     assert_eq!(shadow.blur_sigma, 30.0, "σ = blur/2");
     assert_eq!(shadow.color.rgba().3, 0x66, "fallback 颜色生效");
 }
+
+#[test]
+fn css_3d_transform_functions_parse() {
+    // 原片 flex-threejs.html 的段落变换链：
+    // `rotateY(-22.5deg) translateZ(400px) rotateY(90deg)`
+    let eng = engine(".seg{transform:rotateY(-22.5deg) translateZ(400px) rotateY(90deg)}");
+    let s = eng.compute_node_style("seg", "n", "div");
+    use crate::style::Transform;
+    assert_eq!(s.transforms.len(), 3, "{:?}", s.transforms);
+    assert!(matches!(s.transforms[0], Transform::RotateYDeg { value } if (value + 22.5).abs() < 1e-3));
+    assert!(matches!(s.transforms[1], Transform::TranslateZ { value } if (value - 400.0).abs() < 1e-3));
+    assert!(matches!(s.transforms[2], Transform::RotateYDeg { value } if (value - 90.0).abs() < 1e-3));
+}
+
+#[test]
+fn css_3d_stage_properties_parse() {
+    let eng = engine(".stage{perspective:900px}.flat{perspective:none}.form{transform-style:preserve-3d}");
+    assert_eq!(eng.compute_node_style("stage", "a", "div").perspective, Some(900.0));
+    assert_eq!(eng.compute_node_style("flat", "b", "div").perspective, None);
+    assert_eq!(
+        eng.compute_node_style("form", "c", "div").transform_style_preserve_3d,
+        Some(true)
+    );
+}
+
+#[test]
+fn css_3d_translate_z_and_rotate_x_parse() {
+    let eng = engine(".s{transform:translateZ(280px) rotateX(25deg)}");
+    let s = eng.compute_node_style("s", "n", "div");
+    use crate::style::Transform;
+    assert!(matches!(s.transforms.as_slice(),
+        [Transform::TranslateZ { value: z }, Transform::RotateXDeg { value: rx }]
+        if (z - 280.0).abs() < 1e-3 && (rx - 25.0).abs() < 1e-3));
+}
+

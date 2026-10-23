@@ -201,7 +201,10 @@ fn css_transform_string(transforms: &[Transform]) -> String {
             ),
             // 3D transforms have no 2D matrix form; the 2D part of the
             // projection is what a 2D reader can act on, so nothing to add.
-            Transform::Rotate3 { .. } => m,
+            Transform::Rotate3 { .. }
+            | Transform::TranslateZ { .. }
+            | Transform::RotateXDeg { .. }
+            | Transform::RotateYDeg { .. } => m,
         };
     }
     format!(
@@ -218,6 +221,12 @@ fn css_transform_string(transforms: &[Transform]) -> String {
 /// produced by the plugin suite and is ignored.
 fn parse_css_transform(text: &str) -> Vec<Transform> {
     let mut out = Vec::new();
+    // CSSPlugin emits `perspective()` first, then `rotateY()`, then `rotateX()`
+    // — the three fold into one projective transform whose matrix is
+    // P·Ry·Rx, exactly what `Transform::Rotate3` stores. The placeholder is
+    // pushed where the first of the three appears so the list keeps the CSS
+    // order (later entries are applied to points first).
+    let mut rotate3: Option<usize> = None;
     let mut rest = text.trim();
     while let Some(open) = rest.find('(') {
         let name = rest[..open].trim().to_ascii_lowercase();
@@ -239,6 +248,10 @@ fn parse_css_transform(text: &str) -> Vec<Transform> {
                 out.push(Transform::TranslateY {
                     value: args.get(1).copied().unwrap_or(0.0),
                 });
+                let z = args.get(2).copied().unwrap_or(0.0);
+                if z != 0.0 {
+                    out.push(Transform::TranslateZ { value: z });
+                }
             }
             "translatex" => out.push(Transform::TranslateX { value: first }),
             "translatey" => out.push(Transform::TranslateY { value: first }),
@@ -264,11 +277,39 @@ fn parse_css_transform(text: &str) -> Vec<Transform> {
             "scaley" => out.push(Transform::ScaleY { value: first }),
             // perspective()/rotateX()/rotateY() fold into one Rotate3; the
             // writes land through the same path as the named properties.
+            "perspective" => set_rotate3(&mut out, &mut rotate3, 2, first),
+            "rotatex" => set_rotate3(&mut out, &mut rotate3, 0, first),
+            "rotatey" => set_rotate3(&mut out, &mut rotate3, 1, first),
             _ => {}
         }
         rest = &rest[open + close + 1..];
     }
     out
+}
+
+/// Write one field of the folded `Rotate3`, pushing the transform the first
+/// time any of `perspective()`/`rotateX()`/`rotateY()` shows up.
+fn set_rotate3(out: &mut Vec<Transform>, slot: &mut Option<usize>, field: usize, value: f32) {
+    let index = *slot.get_or_insert_with(|| {
+        out.push(Transform::Rotate3 {
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            perspective: 0.0,
+        });
+        out.len() - 1
+    });
+    if let Transform::Rotate3 {
+        rotation_x,
+        rotation_y,
+        perspective,
+    } = &mut out[index]
+    {
+        match field {
+            0 => *rotation_x = value,
+            1 => *rotation_y = value,
+            _ => *perspective = value,
+        }
+    }
 }
 
 /// 脚本写值 → 数值。

@@ -394,6 +394,32 @@ pub fn apply_property(
             }
         }
         Property::TransformOrigin(pos, _) => style.transform_origin = position_to_origin(pos, ctx),
+        Property::Perspective(perspective, _) => {
+            use lightningcss::properties::transform::Perspective;
+            style.perspective = match perspective {
+                Perspective::None => None,
+                Perspective::Length(len) => Some(len_to_px(len, ctx)),
+            };
+        }
+        Property::TransformStyle(transform_style, _) => {
+            use lightningcss::properties::transform::TransformStyle;
+            style.transform_style_preserve_3d =
+                Some(matches!(transform_style, TransformStyle::Preserve3d));
+        }
+        // lightningcss 1.0.0-alpha.72 的 `enum_property!` 按 kebab 拼关键字，
+        // 把 `Preserve3d` 拼成 `preserve3d`，与规范的 `preserve-3d` 不符，
+        // 于是这个值落到 Unparsed。按原文补救。
+        Property::Unparsed(unparsed) => {
+            if matches!(
+                unparsed.property_id,
+                PropertyId::TransformStyle(_)
+            ) && serialize_tokens(&unparsed.value).as_deref() == Some("preserve-3d")
+            {
+                style.transform_style_preserve_3d = Some(true);
+            } else {
+                warn_unsupported(unparsed.property_id.clone(), "第一阶段未接入");
+            }
+        }
 
         // ---- 文本 ----
         Property::Color(c) => style.text_color = color_token(c),
@@ -851,6 +877,15 @@ fn apply_transform(style: &mut crate::style::NodeStyle, list: &TransformList, ct
             CssTransform::Rotate(angle) => style
                 .transforms
                 .push(CatTransform::RotateDeg { value: angle.to_degrees() }),
+            CssTransform::TranslateZ(z) => style
+                .transforms
+                .push(CatTransform::TranslateZ { value: len_to_px(z, ctx) }),
+            CssTransform::RotateX(angle) => style
+                .transforms
+                .push(CatTransform::RotateXDeg { value: angle.to_degrees() }),
+            CssTransform::RotateY(angle) => style
+                .transforms
+                .push(CatTransform::RotateYDeg { value: angle.to_degrees() }),
             _ => {}
         }
     }

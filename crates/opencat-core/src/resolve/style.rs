@@ -161,6 +161,10 @@ pub struct ComputedVisualStyle {
     pub transforms: Vec<Transform>,
     /// Static `transform-origin` anchor (fractions of the box). Defaults to centre.
     pub transform_origin: TransformOrigin,
+    /// CSS `perspective` distance; `None` = children stay orthographic.
+    pub perspective: Option<f32>,
+    /// CSS `transform-style: preserve-3d` — children share this node's 3-D space.
+    pub transform_style_preserve_3d: bool,
     pub box_shadow: Vec<BoxShadow>,
     pub inset_shadow: Vec<InsetShadow>,
     pub drop_shadow: Vec<DropShadow>,

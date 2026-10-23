@@ -23,10 +23,14 @@ pub struct RenderCtx<'a> {
     pub builder: &'a mut DrawOpBuilder,
     pub font_db: &'a fontdb::Database,
     pub hidden_picture_stack: Vec<String>,
-    /// Pipeline-owned table for core-rasterized images (color-emoji glyphs).
+    /// Table for core-rasterized images (color-emoji glyphs).
     /// Text rendering inserts RGBA here and emits `ImageRef::Generated`; hosts
     /// resolve the id back to a bitmap from this table.
     pub generated_images: &'a mut GeneratedImageTable,
+    /// Accumulated 4×4 of the 3-D context we are currently inside. Kept here
+    /// because rendering is the only place that knows a node's position in the
+    /// 3-D tree, and it changes every frame.
+    pub space3: crate::render::dispatch::Space3,
 }
 
 /// Mutable drawing state carried through a draw-script execution.

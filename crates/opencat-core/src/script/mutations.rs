@@ -148,6 +148,9 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
         Transform::SkewYDeg { .. } => &[6],
         Transform::SkewDeg { .. } => &[5, 6],
         Transform::Rotate3 { .. } => &[7, 8],
+        Transform::TranslateZ { .. } => &[9],
+        Transform::RotateXDeg { .. } => &[10],
+        Transform::RotateYDeg { .. } => &[11],
     }
 }
 
@@ -158,7 +161,9 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
 fn matrix_rank(t: &Transform) -> u8 {
     match t {
         Transform::TranslateX { .. } | Transform::TranslateY { .. } | Transform::Translate { .. } => 0,
+        Transform::TranslateZ { .. } => 0,
         Transform::RotateDeg { .. } | Transform::Rotate3 { .. } => 1,
+        Transform::RotateXDeg { .. } | Transform::RotateYDeg { .. } => 1,
         Transform::Scale { .. } | Transform::ScaleX { .. } | Transform::ScaleY { .. } => 2,
         Transform::SkewXDeg { .. } | Transform::SkewYDeg { .. } | Transform::SkewDeg { .. } => 3,
     }
@@ -916,6 +921,11 @@ pub fn apply_node_to_recorder(
                 rotation_y,
                 perspective,
             } => recorder.record_rotate3(id, rotation_x, rotation_y, perspective),
+            // No recorder channel: the GSAP path folds 3-D into `Rotate3`, and
+            // `css_transform_string` has never carried depth either.
+            Transform::TranslateZ { .. }
+            | Transform::RotateXDeg { .. }
+            | Transform::RotateYDeg { .. } => {}
         }
     }
     if let Some(origin) = m.transform_origin {

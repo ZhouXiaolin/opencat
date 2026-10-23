@@ -111,6 +111,14 @@ pub struct DisplayTransform {
     pub transforms: Vec<crate::style::Transform>,
     /// Static anchor (fractions of `bounds`) that `transforms` pivot around.
     pub origin: crate::style::TransformOrigin,
+    /// This node's own transform chain as one 4×4, in the node's local space
+    /// (origin at its top-left). `None` when the chain is purely 2-D — the
+    /// renderer then takes the cheap `DrawOp` path.
+    pub local_m4: Option<crate::geom::Mat4>,
+    /// CSS `perspective` on this node, applied to its children's 3-D space.
+    pub perspective: Option<f32>,
+    /// CSS `transform-style: preserve-3d`.
+    pub preserve_3d: bool,
 }
 
 #[derive(Clone, Debug)]

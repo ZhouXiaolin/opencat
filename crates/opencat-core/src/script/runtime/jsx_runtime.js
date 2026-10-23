@@ -1022,12 +1022,15 @@
     // every stack once and commits it via `__shader_layers(canvasId, w, h,
     // layers)`. Nothing else about the tag reaches the Rust element schema.
     var shaderStacks = Object.create(null);
-    globalThis.__ocShaderProps = function (id, props) {
+    // `which` names one component ("VHS") when a stack has several; omitted
+    // means the first layer, which is what a single-layer stack expects.
+    globalThis.__ocShaderProps = function (id, props, which) {
         var key = String(id);
         var stack = shaderStacks[key];
         if (!stack) return;
         for (var i = 0; i < stack.layers.length; i++) {
             var layer = stack.layers[i];
+            if (which != null && layer.component !== String(which)) continue;
             var own = Object.create(null);
             for (var k in layer.props) own[k] = layer.props[k];
             for (var k2 in props) own[k2] = props[k2];

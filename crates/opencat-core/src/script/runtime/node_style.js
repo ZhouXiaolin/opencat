@@ -497,9 +497,10 @@
                     if (prop in own) return own[prop];
                     // `<Shader>` per-frame props: merge into the declared layer
                     // stack (f(t) values land here, submitted after hooks run).
+                    // Second argument names the layer when a stack has several.
                     if (prop === 'shaderProps' && globalThis.__ocShaderProps) {
-                        return (props) => {
-                            globalThis.__ocShaderProps(id, props || {});
+                        return (props, component) => {
+                            globalThis.__ocShaderProps(id, props || {}, component);
                             return api;
                         };
                     }

@@ -18,6 +18,7 @@ import {
   scene3Executor,
   setWasmBaseUrl,
   setWorkerBaseUrl,
+  shaderExecutor,
   type AudioPlan,
   type CompositionFile,
   type CompositionInfo,
@@ -406,7 +407,7 @@ async function renderFrameWithPipeline(
   if (!CK) throw new Error('CanvasKit is not initialized');
 
   // One-shot ABI: build_frame_ir returns both OCIR and media plan.
-  const { ir, mediaPlan, scene3 } = renderer.build_frame_ir(frame);
+  const { ir, mediaPlan, scene3, shader } = renderer.build_frame_ir(frame);
 
   await injectVideoFramesForRender({
     mediaPlan,
@@ -419,6 +420,14 @@ async function renderFrameWithPipeline(
     const commits = JSON.parse(scene3) as Parameters<typeof scene3Executor.renderFrame>[0];
     await scene3Executor.prepare(commits);
     scene3Executor.renderFrame(commits);
+  }
+
+  // Shader IR section: the real shaders library bakes each <Shader>'s props
+  // into its placeholder's generated-image slot, same contract as 3D.
+  if (shader) {
+    const targets = JSON.parse(shader) as Parameters<typeof shaderExecutor.renderFrame>[0];
+    await shaderExecutor.prepare(targets);
+    await shaderExecutor.renderFrame(targets);
   }
 
   // Reuse one surface for the whole playback loop. Creating a fresh canvas

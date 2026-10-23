@@ -40,6 +40,8 @@ pub struct MutationStore {
     canvases: HashMap<String, CanvasMutations>,
     /// three-like shim 每帧重提交的 3D 场景快照（key = 目标 canvas id）。
     scene3s: HashMap<String, crate::ir::scene3::Scene3>,
+    /// `<Shader>` 层栈（key = canvas id）：脚本每帧全量重提交。
+    shaders: HashMap<String, (f32, f32, f32, Vec<crate::ir::shader::ShaderLayer>)>,
     /// realm 级 3D 几何注册表（GLB 一次性解码，快照只带 `Asset { id }`）。
     /// NOT cleared by reset_for_frame：几何与资产同寿命（prism GLB
     /// 11280 顶点 / 60096 索引 ≈ 2 MB，注册一次，全片复用）。
@@ -588,6 +590,11 @@ impl MutationStore {
         &mut self,
     ) -> HashMap<String, crate::ir::scene3::Scene3> {
         std::mem::take(&mut self.scene3s)
+    }
+
+    /// `<Shader>` 层栈（key = canvas id）转移。与 scene3 同构：每帧全量重提交。
+    pub fn take_shaders(&mut self) -> HashMap<String, (f32, f32, f32, Vec<crate::ir::shader::ShaderLayer>)> {
+        std::mem::take(&mut self.shaders)
     }
 
     /// 消耗性帧级 mutation 转移（`std::mem::take`，零拷贝）。仅取每帧重建
@@ -1518,6 +1525,18 @@ impl MutationRecorder for MutationStore {
         self.scene3s.insert(id.to_string(), scene);
     }
 
+    fn record_shader_layers(
+        &mut self,
+        canvas_id: &str,
+        width: f32,
+        height: f32,
+        time: f32,
+        layers: Vec<crate::ir::shader::ShaderLayer>,
+    ) {
+        self.shaders
+            .insert(canvas_id.to_string(), (width, height, time, layers));
+    }
+
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32) {
         self.record_draw_op(
             target_id,
@@ -1552,6 +1571,7 @@ impl MutationRecorder for MutationStore {
         self.styles.clear();
         self.canvases.clear();
         self.scene3s.clear();
+        self.shaders.clear();
         self.current_frame = current_frame;
         self.frame_override = None;
         self.time_override_secs = None;

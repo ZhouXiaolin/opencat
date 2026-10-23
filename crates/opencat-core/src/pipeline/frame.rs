@@ -129,6 +129,7 @@ pub fn render_frame_with_state(
     DrawOpFrame,
     FrameMediaPlan,
     Option<crate::ir::draw_frame::Scene3Section>,
+    Option<crate::ir::shader::ShaderSection>,
 )> {
     #[cfg(feature = "profile")]
     let _frame_span = span!(
@@ -179,6 +180,8 @@ pub fn render_frame_with_state(
     // 3D scene IR section (`ctx.three` commits + placeholder DrawOps already
     // in the draw stream). Rides `RenderFrame.scene3` to the executing host.
     let scene3 = script.take_scene3_commits();
+    // shaders 库段（`<Shader>` 层栈 + 占位 id）。同 scene3，纯声明。
+    let shader = script.take_shader_section();
     let frame_ctx = evaluation.frame_ctx;
     let element_root = evaluation.element_root;
     let layout_tree = evaluation.layout_tree;
@@ -225,7 +228,7 @@ pub fn render_frame_with_state(
         debug_stack_balance(&frame.ops);
     }
     let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
-    Ok((frame, media_plan, scene3))
+    Ok((frame, media_plan, scene3, shader))
 }
 
 /// Debug-only (`OC_DBG_STACK=1`): report the save/restore balance of a

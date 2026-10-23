@@ -2124,6 +2124,7 @@ mod tests {
                 ..Default::default()
             },
             scene3: None,
+            shader: None,
         }
     }
 

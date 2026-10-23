@@ -28,7 +28,7 @@ use anyhow::{Result, bail};
 ///
 /// Note: unlike the table-index id newtypes in `draw_types.rs` (which are
 /// `u32`), this carries a `u64` because the glyph cache key is a full hash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct GeneratedImageId(pub u64);
 
 impl GeneratedImageId {

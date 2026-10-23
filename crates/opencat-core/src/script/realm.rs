@@ -145,6 +145,8 @@ pub struct ScriptRealm<C: JsContext> {
     /// 本帧已导出的 3D 场景 IR 段（`export_scene3_commits` 产出，
     /// pipeline 经 `take_scene3_commits` 取走装入 `RenderFrame.scene3`）。
     pending_scene3: Option<crate::ir::draw_frame::Scene3Section>,
+    /// 本帧的 shader 段（`<Shader>` 层栈，pipeline 经 `take_shader_section` 取走）。
+    pending_shader: Option<crate::ir::shader::ShaderSection>,
     /// 文档 base 目录（宿主 = XML 所在目录）：`GLTFGeometry` 等相对路径的
     /// join 基准——three.js `GLTFLoader` 相对 URL 对 import.meta.url 解析
     /// （参考 js:40 `new URL(prismUrl, import.meta.url)`）的 opencat 对应物。
@@ -160,6 +162,7 @@ impl<C: JsContext> ScriptRealm<C> {
             text_sources: HashMap::new(),
             target_registry: None,
             pending_scene3: None,
+            pending_shader: None,
             document_base: None,
         })
     }
@@ -468,6 +471,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // 像素/句柄由执行宿主（engine = opencat-three，web = 真 three.js）
         // 回填进 `FrameMediaPlan::generated_images` 的同名占位条目。
         self.pending_scene3 = self.export_scene3_commits()?;
+        self.pending_shader = self.export_shader_section()?;
 
         // Consuming transfer: the store's frame-level mutations move out
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
@@ -488,6 +492,14 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
 
     fn take_scene3_commits(&mut self) -> Option<crate::ir::draw_frame::Scene3Section> {
         self.pending_scene3.take()
+    }
+
+    /// Drain the frame's `<Shader>` section. Same contract as the 3D one: core
+    /// records an empty-RGBA placeholder (`record_frame_generated_image_deferred`,
+    /// which also emits the `DrawOp::Image{Generated}` that keeps z order) and
+    /// the host bakes the layers into it.
+    fn take_shader_section(&mut self) -> Option<crate::ir::shader::ShaderSection> {
+        self.pending_shader.take()
     }
 
     fn set_style_defaults(
@@ -567,6 +579,49 @@ impl<C: JsContext> ScriptRealm<C> {
             commits,
             geometries,
         }))
+    }
+
+    /// `<Shader>` 层栈 → `ShaderSection`。id 同样内容寻址
+    /// (`shader:{canvas}:{hash}`): 层栈与 props 都不变时跨帧复用同一张图。
+    fn export_shader_section(&mut self) -> Result<Option<crate::ir::shader::ShaderSection>> {
+        let layers_by_canvas = self.ctx.with_store_mut(|s| s.take_shaders());
+        if layers_by_canvas.is_empty() {
+            return Ok(None);
+        }
+        let mut targets = Vec::with_capacity(layers_by_canvas.len());
+        for (canvas_id, (width, height, time, layers)) in &layers_by_canvas {
+            let (w, h) = (*width, *height);
+            if w <= 0.0 || h <= 0.0 {
+                continue;
+            }
+            let canonical = serde_json::to_vec(layers)?;
+            let mut hf = ahash::AHasher::default();
+            use std::hash::{Hash, Hasher};
+            canvas_id.hash(&mut hf);
+            time.to_bits().hash(&mut hf);
+            canonical.hash(&mut hf);
+            let key = format!("shader:{canvas_id}:{:016x}", hf.finish());
+            let image_id = crate::ir::GeneratedImageId::from_key(&key);
+            let width_u = w.round().max(1.0) as u32;
+            let height_u = h.round().max(1.0) as u32;
+            self.ctx.with_store_mut(|s| {
+                s.record_frame_generated_image_deferred(
+                    canvas_id, image_id, 0.0, 0.0, width_u, height_u,
+                );
+            });
+            targets.push(crate::ir::shader::ShaderTarget {
+                image_id,
+                canvas_id: canvas_id.clone(),
+                width: width_u,
+                height: height_u,
+                time: *time,
+                layers: layers.clone(),
+            });
+        }
+        if targets.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(crate::ir::shader::ShaderSection { targets }))
     }
 }
 

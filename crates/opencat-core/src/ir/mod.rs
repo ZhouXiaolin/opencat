@@ -7,6 +7,7 @@ pub mod draw_types;
 pub mod generated_image;
 pub mod media_plan;
 pub mod scene3;
+pub mod shader;
 pub mod scene3_glb;
 pub mod schema_gen;
 pub mod transport;
@@ -14,6 +15,7 @@ pub mod transport;
 pub use asset_id::*;
 pub use composition_info::CompositionInfo;
 pub use draw_frame::{DrawOpFrame, RenderFrame, Scene3Commit, Scene3Section};
+pub use shader::{ShaderLayer, ShaderSection, ShaderTarget};
 pub use generated_image::{
     GeneratedImageCollision, GeneratedImageEntry, GeneratedImageId, GeneratedImageTable,
 };

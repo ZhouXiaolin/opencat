@@ -495,6 +495,14 @@
                     if (typeof prop !== 'string' || prop === 'then') return undefined;
                     if (prop in t) return t[prop];
                     if (prop in own) return own[prop];
+                    // `<Shader>` per-frame props: merge into the declared layer
+                    // stack (f(t) values land here, submitted after hooks run).
+                    if (prop === 'shaderProps' && globalThis.__ocShaderProps) {
+                        return (props) => {
+                            globalThis.__ocShaderProps(id, props || {});
+                            return api;
+                        };
+                    }
                     return (...args) => {
                         applyMutation(id, prop, ...args);
                         return api;

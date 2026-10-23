@@ -1,0 +1,22 @@
+[package]
+name = "opencat-shaders"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wgpu = "30"
+# props→WGSL 的烘焙器自身不翻译 WGSL，但要用 naga 反射烘焙结果的 uniform 布局，
+# 并在建 pipeline 前验一次（与 wgpu 30 内部同一份 naga）。
+naga = { version = "30", features = ["wgsl-in"] }
+anyhow.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "1"
+# IR 里的 `<Shader>` 层栈把 props 作为 JSON 带过来（`ShaderLayer.props`），
+# 烘焙器负责把 JSON 值换成该组件的 transform 后形态。
+serde_json = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = "0.25"
+env_logger = "0.11"

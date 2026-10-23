@@ -111,6 +111,12 @@ macro_rules! for_each_binding {
             $rec . record_scene3($id, scene);
         }}
 
+        // ── Node: shaders 库层栈（`<Shader>` 每帧全量重提交）──
+
+        $binding! { node $rec $id shader_layers ($id: &str, width: f32, height: f32, time: f32, layers: Vec<crate::ir::shader::ShaderLayer>) {
+            $rec . record_shader_layers($id, width, height, time, layers);
+        }}
+
         // ── Cmd: 3D 几何注册表（GLB 一次性解码 → 重网格不逐帧过 JSON 桥）──
 
         $binding! { cmd $store scene3_geometry_register (path: String, id: String) -> String {

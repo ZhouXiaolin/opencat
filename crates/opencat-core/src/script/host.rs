@@ -113,6 +113,12 @@ pub trait ScriptHost {
     fn take_scene3_commits(&mut self) -> Option<crate::ir::draw_frame::Scene3Section> {
         None
     }
+    /// Drain the frame's shader section (`<Shader>` layer stacks + placeholder
+    /// generated ids already recorded as `DrawOp::Image`). Rides
+    /// `RenderFrame.shader` to the executing host.
+    fn take_shader_section(&mut self) -> Option<crate::ir::shader::ShaderSection> {
+        None
+    }
 }
 
 #[cfg(test)]

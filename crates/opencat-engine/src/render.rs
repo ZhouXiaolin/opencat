@@ -68,6 +68,9 @@ fn render_pipeline_frame_to_rgba(
     if let Some(scene3) = &render.scene3 {
         pipeline.render_scene3_section(&mut media_plan, scene3)?;
     }
+    if let Some(shader) = &render.shader {
+        pipeline.render_shader_section(&mut media_plan, shader)?;
+    }
 
     let mut surface = surfaces::raster_n32_premul((surface_w as i32, surface_h as i32))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
@@ -224,6 +227,9 @@ impl GpuRenderSession {
         let mut media_plan = render.media;
         if let Some(scene3) = &render.scene3 {
             pipeline.render_scene3_section(&mut media_plan, scene3)?;
+        }
+        if let Some(shader) = &render.shader {
+            pipeline.render_shader_section(&mut media_plan, shader)?;
         }
 
         // 收集本帧引用的 GPU 纹理凭据：合成后统一归还。

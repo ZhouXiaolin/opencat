@@ -37,6 +37,8 @@ export type {
 } from './draw-ir';
 
 export { Scene3WebExecutor, scene3Executor } from './three-facade';
+export { ShaderWebExecutor, shaderExecutor } from './shader-facade';
+export type { ShaderLayerJson, ShaderTargetJson } from './shader-facade';
 
 export {
   clearVideoCache,

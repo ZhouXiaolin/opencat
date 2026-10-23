@@ -136,6 +136,7 @@ mod tests {
             draw: frame,
             media: Default::default(),
             scene3: None,
+            shader: None,
         };
         let mut scratch = DrawFrameScratch::default();
         encode_ir_envelope(&render, &mut scratch).unwrap()

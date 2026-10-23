@@ -14,8 +14,6 @@ export default defineConfig({
       external: [
         '@webav/av-cliper',
         'canvaskit-wasm',
-        'shaders',
-        /^shaders\//,
         /\/pkg\/opencat_web/,
       ],
     },

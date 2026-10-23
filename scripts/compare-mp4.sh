@@ -35,6 +35,8 @@
 #   REFERENCE           compare the web render against this video instead of
 #                       the native engine (adds --reference)
 #   START_FRAME/END_FRAME  restrict the sampled frame range
+#   BASE_DIR            composition-relative root (assets, dist/gsap.bundle.mjs);
+#                       needed when EXAMPLE is a dist/ bundle
 #   SAVE_ALL=1          keep engine/web/diff PNGs for every sample
 #   SKIP_BUILD=1        reuse existing opencat-web-compare binary
 #   CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL
@@ -130,6 +132,9 @@ if [ "${WEB_VIDEO:-0}" = "1" ]; then
 fi
 if [ -n "${REFERENCE:-}" ]; then
     args+=(--reference "$REFERENCE")
+fi
+if [ -n "${BASE_DIR:-}" ]; then
+    args+=(--base-dir "$BASE_DIR")
 fi
 if [ -n "${START_FRAME:-}" ]; then
     args+=(--start-frame "$START_FRAME")

@@ -1,11 +1,9 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { Cbar, QX, QY, StageCanvas, drawQmarks, getK3Stream, vis } from './shared.jsx';
 
 export default function SceneC() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 5.433 && T < 7.35) {
@@ -25,7 +23,6 @@ export default function SceneC() {
   });
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     var C_ON = (T >= 5.433 && T < 7.35);
     vis(ctx, 'sceneC', C_ON);
@@ -105,7 +102,7 @@ export default function SceneC() {
       for (var bi = 0; bi < 18; bi++) {
         var sx = barSample(BAR_CHAINS[bi], T);
         if (sx < 0) sx = 0;
-        var barN = document.getElementById('bar-' + bi); if (barN) barN.width(sx * 660);
+        var barN = document.getElementById('bar-' + bi); if (barN) barN.style.width = (sx * 660) + 'px';
       }
       // corner qmarks — visible for the whole scene C clip
       var cqCv = CK.MakeCanvasSurface('cqmarks-canvas').getCanvas();
@@ -116,21 +113,21 @@ export default function SceneC() {
     }
   });
   return (
-    <div id="sceneC" class="absolute inset-0 z-[4] opacity-0">
-      <div id="cpanel" class="absolute inset-0">
-        <div id="d-505" class="absolute top-[-60px] w-[2.5px] h-[1250px] bg-[#2e2e2e] left-[403px]"></div>
-        <div id="d-506" class="absolute top-[-60px] w-[2.5px] h-[1250px] bg-[#2e2e2e] left-[1442px]"></div>
-        <div id="ctab" class="absolute flex items-center justify-center bg-[#1c1c1c] left-[467px] top-[117px] w-[250px] h-[130px] opacity-0">
-          <text id="t-645" class="font-[k3-mono] text-[#d8d8da] text-[42px] tracking-[3px]">DECODE</text>
+    <div id="sceneC" className="absolute inset-0 z-[4] opacity-0">
+      <div id="cpanel" className="absolute inset-0">
+        <div id="d-505" className="absolute top-[-60px] w-[2.5px] h-[1250px] bg-[#2e2e2e] left-[403px]"></div>
+        <div id="d-506" className="absolute top-[-60px] w-[2.5px] h-[1250px] bg-[#2e2e2e] left-[1442px]"></div>
+        <div id="ctab" className="absolute flex items-center justify-center bg-[#1c1c1c] left-[467px] top-[117px] w-[250px] h-[130px] opacity-0">
+          <text id="t-645" className="font-[k3-mono] text-[#d8d8da] text-[42px] tracking-[3px]">DECODE</text>
         </div>
-        <canvas id="cicons" class="absolute left-[1147px] top-[133px] w-[230px] h-[85px] opacity-0"></canvas>
-        <div id="cliverow" class="absolute font-[k3-mono] left-[470px] top-[322px] w-[1000px] h-[52px] opacity-0">
-          <div id="d-507" class="absolute rounded-full bg-[#0dbc8a] left-[2px] top-[14px] w-[23px] h-[23px]"></div>
-          <text id="t-646" class="absolute text-[#92918a] left-[34px] top-[0] text-[47px]">Live</text>
-          <text id="t-647" class="absolute text-[#cd7c74] left-[427px] top-[0] text-[47px]">↑ 6.3x</text>
-          <text id="t-648" class="absolute text-[#89cfba] left-[687px] top-[0] text-[47px]">↓ 25% cost</text>
+        <canvas id="cicons" className="absolute left-[1147px] top-[133px] w-[230px] h-[85px] opacity-0"></canvas>
+        <div id="cliverow" className="absolute font-[k3-mono] left-[470px] top-[322px] w-[1000px] h-[52px] opacity-0">
+          <div id="d-507" className="absolute rounded-full bg-[#0dbc8a] left-[2px] top-[14px] w-[23px] h-[23px]"></div>
+          <text id="t-646" className="absolute text-[#92918a] left-[34px] top-[0] text-[47px]">Live</text>
+          <text id="t-647" className="absolute text-[#cd7c74] left-[427px] top-[0] text-[47px]">↑ 6.3x</text>
+          <text id="t-648" className="absolute text-[#89cfba] left-[687px] top-[0] text-[47px]">↓ 25% cost</text>
         </div>
-        <div id="cbars" class="absolute left-[467px] top-[443px] w-[700px] h-[700px] overflow-hidden">
+        <div id="cbars" className="absolute left-[467px] top-[443px] w-[700px] h-[700px] overflow-hidden">
           <Cbar n="0" top="0px" g="#254a7e,#0a1830" />
           <Cbar n="1" top="38px" g="#254a7e,#0a1830" />
           <Cbar n="2" top="76px" g="#254a7e,#0a1830" />

@@ -13,5 +13,5 @@ export default function Flash() {
     var T = t;
     vis(ctx, 'flash', T >= 7.3333 && T < 7.391);
   });
-  return <div id="flash" class="absolute inset-0 z-[5] bg-[#fbfbfd] opacity-0 [mix-blend-mode:difference]"></div>;
+  return <div id="flash" className="absolute inset-0 z-[5] bg-[#fbfbfd] opacity-0 [mix-blend-mode:difference]"></div>;
 }

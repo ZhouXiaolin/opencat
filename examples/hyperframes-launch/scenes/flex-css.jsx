@@ -1,6 +1,5 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useGSAP, useEffect, useCanvasKit } from 'opencat/runtime';
 import { clamp, hexRgb } from '../shared.jsx';
 /* ══ flex-css (master 17.30-19.01, compositions/flex-css.html) ══════════ */
 var CSS_START = 17.30, CSS_DUR = 1.71;
@@ -8,10 +7,9 @@ var CSS_ORDER = [0, 1, 2, 3, 4, 5, 11, 17, 16, 15, 14, 13, 12, 6, 7, 8, 10, 9];
 var CSS_CELL = 'rounded-[16px] bg-white shadow-[0_2px_12px_rgba(0,0,0,0.05)] border-[1px] border-[rgba(0,0,0,0.04)] overflow-hidden flex items-center justify-center';
 var CSS_P = { red: '#e63946', blue: '#457b9d', orange: '#f4a261', teal: '#2a9d8f', navy: '#1d3557', rose: '#d4738a', lime: '#84a98c', purple: '#6b4c9a' };
 
-let FC_CK = null;
-CanvasKitInit({}).then((ck) => { FC_CK = ck; });
 
 export default function FlexCss() {
+  const FC_CK = useCanvasKit();
 
   useGSAP(() => {
     var T = ctx.current.time;
@@ -109,18 +107,17 @@ export default function FlexCss() {
     if (T >= r1s && T < r1e) { var p1 = (T - r1s) / 0.38; rot = 180 * (p1 < 0.5 ? 2 * p1 * p1 : 1 - 2 * (1 - p1) * (1 - p1)); }
     else if (T >= r1e && T < r2s) rot = 180;
     else if (T >= r2s) { var p2 = clamp((T - r2s) / 0.38, 0, 1); rot = 180 + 180 * (p2 < 0.5 ? 2 * p2 * p2 : 1 - 2 * (1 - p2) * (1 - p2)); }
-    var ff = ctx.getNode('fc-flip-front'), fb = ctx.getNode('fc-flip-back');
-    ff.transformPerspective(600); fb.transformPerspective(600);
-    ff.rotationY(rot); fb.rotationY(rot + 180);
+    var ff = document.getElementById('fc-flip-front'), fb = document.getElementById('fc-flip-back');
+    ff.style.cssText = 'transformPerspective:600; rotationY:' + rot;
+    fb.style.cssText = 'transformPerspective:600; rotationY:' + (rot + 180);
     var frontOn = Math.cos(rot * Math.PI / 180) >= 0;
-    ff.opacity(frontOn ? 1 : 0); fb.opacity(frontOn ? 0 : 1);
+    ff.style.opacity = frontOn ? 1 : 0; fb.style.opacity = frontOn ? 0 : 1;
 
   });
 
   /* CanvasKit 绘制走 useEffect + 官方 MakeCanvasSurface；useGSAP 只留 tween */
   useEffect(() => {
     var t = ctx.current.time;
-    if (!FC_CK) return;
     drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin1').getCanvas(), t, 1, CSS_P.red, CSS_P.blue, FC_CK);
     drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin2').getCanvas(), t, 0.8, CSS_P.teal, CSS_P.orange, FC_CK);
     drawOrbit(FC_CK.MakeCanvasSurface('fc-cv-orb1').getCanvas(), t, 1, [CSS_P.red, CSS_P.blue, CSS_P.orange], FC_CK);
@@ -130,82 +127,82 @@ export default function FlexCss() {
   });
 
   return (
-    <div id="fc-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fafaf2]">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#fafaf2_0%,#f0efe6_100%)]"></div>
-      <div id="fc-wrap" class="absolute inset-0">
-        <div class="absolute left-[12px] top-[12px] w-[1896px] h-[1056px] grid grid-cols-6 grid-rows-3 gap-[12px]">
-          <div id="fc-c0" class={CSS_CELL}><canvas id="fc-cv-spin1" class="w-[80px] h-[80px]" /></div>
-          <div id="fc-c1" class={CSS_CELL}>
-            <div class="relative w-[80px] h-[80px]">
-              <div id="fc-pulse-dot" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full bg-[#2a9d8f]"></div>
-              <div id="fc-pulse-r0" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#2a9d8f] opacity-0"></div>
-              <div id="fc-pulse-r1" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#2a9d8f] opacity-0"></div>
+    <div id="fc-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fafaf2]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_50%,#fafaf2_0%,#f0efe6_100%)]"></div>
+      <div id="fc-wrap" className="absolute inset-0">
+        <div className="absolute left-[12px] top-[12px] w-[1896px] h-[1056px] grid grid-cols-6 grid-rows-3 gap-[12px]">
+          <div id="fc-c0" className={CSS_CELL}><canvas id="fc-cv-spin1" className="w-[80px] h-[80px]" /></div>
+          <div id="fc-c1" className={CSS_CELL}>
+            <div className="relative w-[80px] h-[80px]">
+              <div id="fc-pulse-dot" className="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full bg-[#2a9d8f]"></div>
+              <div id="fc-pulse-r0" className="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#2a9d8f] opacity-0"></div>
+              <div id="fc-pulse-r1" className="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#2a9d8f] opacity-0"></div>
             </div>
           </div>
-          <div id="fc-c2" class={CSS_CELL}>
-            <div class="flex items-end gap-[6px] h-[90px]">
-              <div id="fc-bars0" class="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[30px]"></div>
-              <div id="fc-bars1" class="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[50px]"></div>
-              <div id="fc-bars2" class="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[70px]"></div>
-              <div id="fc-bars3" class="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[40px]"></div>
-              <div id="fc-bars4" class="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[60px]"></div>
+          <div id="fc-c2" className={CSS_CELL}>
+            <div className="flex items-end gap-[6px] h-[90px]">
+              <div id="fc-bars0" className="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[30px]"></div>
+              <div id="fc-bars1" className="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[50px]"></div>
+              <div id="fc-bars2" className="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[70px]"></div>
+              <div id="fc-bars3" className="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[40px]"></div>
+              <div id="fc-bars4" className="w-[18px] rounded-t-[4px] bg-[#f4a261] h-[60px]"></div>
             </div>
           </div>
-          <div id="fc-c3" class={CSS_CELL}><div id="fc-morph" class="w-[80px] h-[80px] rounded-[8px] bg-[#e63946]"></div></div>
-          <div id="fc-c4" class={CSS_CELL}><canvas id="fc-cv-orb1" class="w-[100px] h-[100px]" /></div>
-          <div id="fc-c5" class={CSS_CELL}><canvas id="fc-cv-grad1" class="w-[110px] h-[110px]" /></div>
+          <div id="fc-c3" className={CSS_CELL}><div id="fc-morph" className="w-[80px] h-[80px] rounded-[8px] bg-[#e63946]"></div></div>
+          <div id="fc-c4" className={CSS_CELL}><canvas id="fc-cv-orb1" className="w-[100px] h-[100px]" /></div>
+          <div id="fc-c5" className={CSS_CELL}><canvas id="fc-cv-grad1" className="w-[110px] h-[110px]" /></div>
 
-          <div id="fc-c6" class={CSS_CELL}>
-            <div class="flex flex-col gap-[10px] w-[160px]">
-              <div id="fc-wave0" class="h-[5px] rounded-[3px] bg-[#457b9d] w-[160px]"></div>
-              <div id="fc-wave1" class="h-[5px] rounded-[3px] bg-[#457b9d] w-[104px]"></div>
-              <div id="fc-wave2" class="h-[5px] rounded-[3px] bg-[#457b9d] w-[136px]"></div>
+          <div id="fc-c6" className={CSS_CELL}>
+            <div className="flex flex-col gap-[10px] w-[160px]">
+              <div id="fc-wave0" className="h-[5px] rounded-[3px] bg-[#457b9d] w-[160px]"></div>
+              <div id="fc-wave1" className="h-[5px] rounded-[3px] bg-[#457b9d] w-[104px]"></div>
+              <div id="fc-wave2" className="h-[5px] rounded-[3px] bg-[#457b9d] w-[136px]"></div>
             </div>
           </div>
-          <div id="fc-c7" class={CSS_CELL}>
-            <div class="relative w-[100px] h-[70px]">
-              <div id="fc-flip-front" class="absolute inset-0 rounded-[8px] bg-[#2a9d8f]"></div>
-              <div id="fc-flip-back" class="absolute inset-0 rounded-[8px] bg-[#e63946]"></div>
+          <div id="fc-c7" className={CSS_CELL}>
+            <div className="relative w-[100px] h-[70px]">
+              <div id="fc-flip-front" className="absolute inset-0 rounded-[8px] bg-[#2a9d8f]"></div>
+              <div id="fc-flip-back" className="absolute inset-0 rounded-[8px] bg-[#e63946]"></div>
             </div>
           </div>
-          <div id="fc-c8" class={CSS_CELL}><div id="fc-bounce" class="w-[36px] h-[36px] rounded-full bg-[#f4a261]"></div></div>
-          <div id="fc-c9" class="rounded-[16px] bg-[#1a1a1a] overflow-hidden flex flex-col items-center justify-center gap-[6px]">
-            <text id="fc-title" class="text-[80px] leading-none tracking-[-0.04em] font-[hf-grotesk-bold] text-[#fafaf2]">CSS</text>
-            <text id="fc-sub" class="text-[20px] leading-none tracking-[0.16em] font-[hf-grotesk] text-[#777] uppercase">animations</text>
+          <div id="fc-c8" className={CSS_CELL}><div id="fc-bounce" className="w-[36px] h-[36px] rounded-full bg-[#f4a261]"></div></div>
+          <div id="fc-c9" className="rounded-[16px] bg-[#1a1a1a] overflow-hidden flex flex-col items-center justify-center gap-[6px]">
+            <text id="fc-title" className="text-[80px] leading-none tracking-[-0.04em] font-[hf-grotesk-bold] text-[#fafaf2]">CSS</text>
+            <text id="fc-sub" className="text-[20px] leading-none tracking-[0.16em] font-[hf-grotesk] text-[#777] uppercase">animations</text>
           </div>
-          <div id="fc-c10" class={CSS_CELL}>
-            <div class="grid grid-cols-3 gap-[8px]">
+          <div id="fc-c10" className={CSS_CELL}>
+            <div className="grid grid-cols-3 gap-[8px]">
               {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-                <div id={'fc-sc' + i} class="w-[28px] h-[28px] rounded-[6px] bg-[#457b9d] opacity-[0.3]"></div>
+                <div id={'fc-sc' + i} className="w-[28px] h-[28px] rounded-[6px] bg-[#457b9d] opacity-[0.3]"></div>
               ))}
             </div>
           </div>
-          <div id="fc-c11" class={CSS_CELL}><canvas id="fc-cv-spin2" class="w-[80px] h-[80px]" /></div>
+          <div id="fc-c11" className={CSS_CELL}><canvas id="fc-cv-spin2" className="w-[80px] h-[80px]" /></div>
 
-          <div id="fc-c12" class={CSS_CELL}><canvas id="fc-cv-grad2" class="w-[110px] h-[110px]" /></div>
-          <div id="fc-c13" class={CSS_CELL}><canvas id="fc-cv-orb2" class="w-[100px] h-[100px]" /></div>
-          <div id="fc-c14" class={CSS_CELL}>
-            <div class="flex items-end gap-[6px] h-[90px]">
-              <div id="fc-bars2-0" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[50px]"></div>
-              <div id="fc-bars2-1" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[30px]"></div>
-              <div id="fc-bars2-2" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[60px]"></div>
-              <div id="fc-bars2-3" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[80px]"></div>
-              <div id="fc-bars2-4" class="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[40px]"></div>
+          <div id="fc-c12" className={CSS_CELL}><canvas id="fc-cv-grad2" className="w-[110px] h-[110px]" /></div>
+          <div id="fc-c13" className={CSS_CELL}><canvas id="fc-cv-orb2" className="w-[100px] h-[100px]" /></div>
+          <div id="fc-c14" className={CSS_CELL}>
+            <div className="flex items-end gap-[6px] h-[90px]">
+              <div id="fc-bars2-0" className="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[50px]"></div>
+              <div id="fc-bars2-1" className="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[30px]"></div>
+              <div id="fc-bars2-2" className="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[60px]"></div>
+              <div id="fc-bars2-3" className="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[80px]"></div>
+              <div id="fc-bars2-4" className="w-[18px] rounded-t-[4px] bg-[#457b9d] h-[40px]"></div>
             </div>
           </div>
-          <div id="fc-c15" class={CSS_CELL}><div id="fc-morph2" class="w-[80px] h-[80px] rounded-[8px] bg-[#6b4c9a]"></div></div>
-          <div id="fc-c16" class={CSS_CELL}>
-            <div class="relative w-[80px] h-[80px]">
-              <div id="fc-pulse2-dot" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full bg-[#d4738a]"></div>
-              <div id="fc-pulse2-r0" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#d4738a] opacity-0"></div>
-              <div id="fc-pulse2-r1" class="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#d4738a] opacity-0"></div>
+          <div id="fc-c15" className={CSS_CELL}><div id="fc-morph2" className="w-[80px] h-[80px] rounded-[8px] bg-[#6b4c9a]"></div></div>
+          <div id="fc-c16" className={CSS_CELL}>
+            <div className="relative w-[80px] h-[80px]">
+              <div id="fc-pulse2-dot" className="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full bg-[#d4738a]"></div>
+              <div id="fc-pulse2-r0" className="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#d4738a] opacity-0"></div>
+              <div id="fc-pulse2-r1" className="absolute left-[30px] top-[30px] w-[20px] h-[20px] rounded-full border-[2px] border-[#d4738a] opacity-0"></div>
             </div>
           </div>
-          <div id="fc-c17" class={CSS_CELL}>
-            <div class="flex flex-col gap-[10px] w-[160px]">
-              <div id="fc-wave2-0" class="h-[5px] rounded-[3px] bg-[#2a9d8f] w-[160px]"></div>
-              <div id="fc-wave2-1" class="h-[5px] rounded-[3px] bg-[#2a9d8f] w-[104px]"></div>
-              <div id="fc-wave2-2" class="h-[5px] rounded-[3px] bg-[#2a9d8f] w-[136px]"></div>
+          <div id="fc-c17" className={CSS_CELL}>
+            <div className="flex flex-col gap-[10px] w-[160px]">
+              <div id="fc-wave2-0" className="h-[5px] rounded-[3px] bg-[#2a9d8f] w-[160px]"></div>
+              <div id="fc-wave2-1" className="h-[5px] rounded-[3px] bg-[#2a9d8f] w-[104px]"></div>
+              <div id="fc-wave2-2" className="h-[5px] rounded-[3px] bg-[#2a9d8f] w-[136px]"></div>
             </div>
           </div>
         </div>

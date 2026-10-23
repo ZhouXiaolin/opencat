@@ -25,11 +25,11 @@ export default function CaptionLayer() {
     for (var i = 0; i < CAPS.length; i++) vis(ctx, CAPS[i][0], T >= CAPS[i][1] && T < CAPS[i][2]);
   });
   return (
-    <div class="absolute left-0 top-0 w-[1920px] h-[1080px] z-[50]">
+    <div className="absolute left-0 top-0 w-[1920px] h-[1080px] z-[50]">
       {CAPS.map((c) => (
-        <div id={c[0]} class="absolute left-0 bottom-[80px] w-full flex justify-center opacity-0">
-          <div class="px-[28px] py-[12px] rounded-[10px] bg-[rgba(10,8,5,0.55)] backdrop-blur-[8px] whitespace-nowrap">
-            <text class="text-[40px] leading-[48px] tracking-[-0.005em] font-[500] font-[hf-inter-med] text-[rgba(240,235,220,0.92)]">{c[3]}</text>
+        <div id={c[0]} className="absolute left-0 bottom-[80px] w-full flex justify-center opacity-0">
+          <div className="px-[28px] py-[12px] rounded-[10px] bg-[rgba(10,8,5,0.55)] backdrop-blur-[8px] whitespace-nowrap">
+            <text className="text-[40px] leading-[48px] tracking-[-0.005em] font-[500] font-[hf-inter-med] text-[rgba(240,235,220,0.92)]">{c[3]}</text>
           </div>
         </div>
       ))}

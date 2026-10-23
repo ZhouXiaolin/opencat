@@ -1,11 +1,9 @@
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { Bigword, StageCanvas, drawPlusses, drawQmarks, drawStrip, vis } from './shared.jsx';
 
 export default function SceneFG() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 11.233 && T < 13.7) {
@@ -34,15 +32,14 @@ export default function SceneFG() {
   });
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     var FG_ON = (T >= 11.233 && T < 13.7);
     vis(ctx, 'sceneFG', FG_ON);
     if (FG_ON) {
       // word positions: baked from the calibrated F/G run geometry
       // (F run center 958.5, G run center 962.5, cap 108, ls -2.5)
-      document.getElementById('fw1').left(611.4953); document.getElementById('fw2').left(894.5192);
-      document.getElementById('gw1').left(486.758); document.getElementById('gw2').left(738.6634); document.getElementById('gw3').left(1071.4648);
+      document.getElementById('fw1').style.left = '611.4953px'; document.getElementById('fw2').style.left = '894.5192px';
+      document.getElementById('gw1').style.left = '486.758px'; document.getElementById('gw2').style.left = '738.6634px'; document.getElementById('gw3').style.left = '1071.4648px';
       // F furniture: stripFL/FR inside #ffurn; G furniture: stripGL/GR +
       // gqmarks + plusses inside #gfurn.
       var ffCv = CK.MakeCanvasSurface('ffurn-canvas').getCanvas();
@@ -64,13 +61,13 @@ export default function SceneFG() {
     }
   });
   return (
-    <div id="sceneFG" class="absolute inset-0 z-[3] opacity-0">
-      <div id="fgwrap" class="absolute inset-0">
+    <div id="sceneFG" className="absolute inset-0 z-[3] opacity-0">
+      <div id="fgwrap" className="absolute inset-0">
         {/* center stem that retracts as braces settle */}
-        <div id="fstem" class="absolute w-[3px] bg-[#bdbdb9] left-[958px] top-[0] h-[330px] [transform-origin:top_center] opacity-0"></div>
+        <div id="fstem" className="absolute w-[3px] bg-[#bdbdb9] left-[958px] top-[0] h-[330px] [transform-origin:top_center] opacity-0"></div>
         {/* F/G braces (light weight) */}
-        <text id="fgbl" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[390.564px] top-[468.467px] text-[131.0573px] opacity-0">{'{'}</text>
-        <text id="fgbr" class="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1460.35px] top-[468.467px] text-[131.0573px] opacity-0">{'}'}</text>
+        <text id="fgbl" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[390.564px] top-[468.467px] text-[131.0573px] opacity-0">{'{'}</text>
+        <text id="fgbr" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1460.35px] top-[468.467px] text-[131.0573px] opacity-0">{'}'}</text>
         {/* F words: "One" + "model" */}
         <Bigword id="fw1" left="611.4953px" t="One" />
         <Bigword id="fw2" left="894.5192px" t="model" />
@@ -79,8 +76,8 @@ export default function SceneFG() {
         <Bigword id="gw2" left="738.6634px" t="Now" />
         <Bigword id="gw3" left="1071.4648px" t="Open" />
         {/* flanking dashes */}
-        <div id="fd1" class="absolute h-[3px] bg-[#a9a9ac] left-[197px] top-[537px] w-[42px] opacity-0"></div>
-        <div id="fd2" class="absolute h-[3px] bg-[#a9a9ac] left-[1680px] top-[537px] w-[42px] opacity-0"></div>
+        <div id="fd1" className="absolute h-[3px] bg-[#a9a9ac] left-[197px] top-[537px] w-[42px] opacity-0"></div>
+        <div id="fd2" className="absolute h-[3px] bg-[#a9a9ac] left-[1680px] top-[537px] w-[42px] opacity-0"></div>
         {/* F/G furniture canvases: hosts #ffurn (11.633→12.717) / #gfurn
             (12.7297→clip end) gate visibility */}
         <StageCanvas id="ffurn-canvas" />

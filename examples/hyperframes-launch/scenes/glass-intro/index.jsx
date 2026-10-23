@@ -34,8 +34,8 @@ import Beat4 from './beat4.jsx';
 
 export default function GlassIntro() {
   return (
-    <div id="gi-root" class="absolute inset-0 w-[1920px] h-[1080px]">
-      <tl id="gi-tl" class="absolute inset-0">
+    <div id="gi-root" className="absolute inset-0 w-[1920px] h-[1080px]">
+      <tl id="gi-tl" className="absolute inset-0">
         <Beat1 duration={2.1} />
         <Beat2 duration={1.75} />
         <Beat3 duration={1.75} />

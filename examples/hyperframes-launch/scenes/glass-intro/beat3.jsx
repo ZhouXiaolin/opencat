@@ -24,15 +24,15 @@ export default function Beat3() {
     zoomBlur(tl, B, 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 1.5167);
     zoomBlur(tl, ['gi-bar3'], 'blur(2px)', 'blur(16px)', 0.2, 'expo.in', 1.5167);
 
-    if (T >= 0 && T < 1.75) ctx.getNode('gi-bar3-time').text('0:0' + Math.min(2, Math.floor(T)) + ' / 0:02');
+    if (T >= 0 && T < 1.75) document.getElementById('gi-bar3-time').textContent = '0:0' + Math.min(2, Math.floor(T)) + ' / 0:02';
   });
   return (
-    <div id="gi-beat3" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
-      <video id="gi-bg-video2" path="assets/bg-2.mp4" data-start="0" data-duration="1.75" class="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
-      <div id="gi-zoom-b3" class="absolute left-0 top-0 w-[1920px] h-[1080px]">
-        <div id="gi-frame2" class="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] backdrop-saturate-[1.12] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
-        <div id="gi-spotify-wrap" class="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
-          <video id="gi-spotify-video" path="assets/spotify-bento.mp4" data-start="0" data-duration="1.75" data-media-start="0" class="w-full h-full object-cover" />
+    <div id="gi-beat3" className="absolute left-0 top-0 w-[1920px] h-[1080px]">
+      <video id="gi-bg-video2" src="assets/bg-2.mp4" dataStart="0" dataDuration="1.75" className="absolute left-0 top-0 w-[1920px] h-[1080px] object-cover" />
+      <div id="gi-zoom-b3" className="absolute left-0 top-0 w-[1920px] h-[1080px]">
+        <div id="gi-frame2" className="absolute left-[120px] top-[67.5px] w-[1680px] h-[945px] rounded-[56px] border-[1px] border-[rgba(255,255,255,0.16)] backdrop-blur-[14px] backdrop-saturate-[1.12] shadow-[0_30px_90px_rgba(0,0,0,0.42)] inset-shadow-[0_1px_0_rgba(255,255,255,0.22)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)]"></div>
+        <div id="gi-spotify-wrap" className="absolute left-[170px] top-[117.5px] w-[1580px] h-[758px] rounded-[40px] overflow-hidden shadow-[0_10px_28px_rgba(0,0,0,0.35)]">
+          <video id="gi-spotify-video" src="assets/spotify-bento.mp4" dataStart="0" dataDuration="1.75" dataMediaStart="0" className="w-full h-full object-cover" />
         </div>
         <PlayerBar id="gi-bar3" left={210} w={1500} track={1332} time0="0:00 / 0:02" />
       </div>

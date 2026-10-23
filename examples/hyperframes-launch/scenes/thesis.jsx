@@ -42,32 +42,32 @@ export default function Thesis() {
   var L1CLS = 'text-[132px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]';
   var L2CLS = 'text-[132px] leading-[1.08] tracking-[-0.02em] italic font-[hf-serif-it] text-[#2a1f0a]';
   return (
-    <div id="th-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fbf4e3]">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)]"></div>
-      <div id="th-wrap" class="absolute inset-0">
-        <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_45%,rgba(110,70,15,0.08)_100%)]"></div>
-        <div id="th-scene" class="absolute left-[100px] top-[388.4px] w-[1720px]">
-          <div class="relative px-[21.12px]">
-            <div class="flex justify-center gap-[62.2px]">
+    <div id="th-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#fbf4e3]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_45%,#fcf6e7_0%,#f6edd4_100%)]"></div>
+      <div id="th-wrap" className="absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_55%,transparent_45%,rgba(110,70,15,0.08)_100%)]"></div>
+        <div id="th-scene" className="absolute left-[100px] top-[388.4px] w-[1720px]">
+          <div className="relative px-[21.12px]">
+            <div className="flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
-                <text id={'th-w' + i} class={L1CLS + ' opacity-0'}>{w}</text>
+                <text id={'th-w' + i} className={L1CLS + ' opacity-0'}>{w}</text>
               ))}
             </div>
-            <div class="absolute inset-0 flex justify-center gap-[62.2px]">
+            <div className="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
-                <text id={'th-g' + i} class={L1CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
+                <text id={'th-g' + i} className={L1CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
               ))}
             </div>
           </div>
-          <div id="th-l2wrap" class="relative mt-[18px] px-[21.12px]">
-            <div class="flex justify-center gap-[62.2px]">
+          <div id="th-l2wrap" className="relative mt-[18px] px-[21.12px]">
+            <div className="flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
-                <text id={'th-w' + (5 + j)} class={L2CLS + ' opacity-0'}>{w}</text>
+                <text id={'th-w' + (5 + j)} className={L2CLS + ' opacity-0'}>{w}</text>
               ))}
             </div>
-            <div class="absolute inset-0 flex justify-center gap-[62.2px]">
+            <div className="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
-                <text id={'th-g' + (5 + j)} class={L2CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
+                <text id={'th-g' + (5 + j)} className={L2CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
               ))}
             </div>
           </div>

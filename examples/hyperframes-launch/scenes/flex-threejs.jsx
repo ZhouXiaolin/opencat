@@ -153,13 +153,13 @@ export default function FlexThreejs() {
   });
 
   return (
-    <div id="ft-root" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f0ebe3]">
-      <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_35%,rgba(255,245,230,0.6)_0%,transparent_50%),radial-gradient(ellipse_at_50%_50%,#f0ebe3_0%,#e4ddd2_100%)]"></div>
-      <div class="absolute left-[672px] top-[162px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(255,235,200,0.25)_0%,transparent_60%)]"></div>
-      <div id="ft-shadow" class="absolute left-[780px] top-[680px] w-[360px] h-[50px] rounded-full bg-[radial-gradient(ellipse,rgba(80,60,40,0.18)_0%,transparent_70%)]"></div>
-      <canvas id="ft-canvas" ref={canvas} class="absolute left-0 top-0 w-[1920px] h-[1080px]" style="top:-86.4px" />
-      <div class="absolute left-0 bottom-[140px] w-full flex justify-center">
-        <text id="ft-label" class="text-[64px] leading-none tracking-[0.02em] italic font-medium font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
+    <div id="ft-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#f0ebe3]">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_35%,rgba(255,245,230,0.6)_0%,transparent_50%),radial-gradient(ellipse_at_50%_50%,#f0ebe3_0%,#e4ddd2_100%)]"></div>
+      <div className="absolute left-[672px] top-[162px] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(255,235,200,0.25)_0%,transparent_60%)]"></div>
+      <div id="ft-shadow" className="absolute left-[780px] top-[680px] w-[360px] h-[50px] rounded-full bg-[radial-gradient(ellipse,rgba(80,60,40,0.18)_0%,transparent_70%)]"></div>
+      <canvas id="ft-canvas" ref={canvas} className="absolute left-0 top-0 w-[1920px] h-[1080px]" style={{ top: -86.4 }} />
+      <div className="absolute left-0 bottom-[140px] w-full flex justify-center">
+        <text id="ft-label" className="text-[64px] leading-none tracking-[0.02em] italic font-medium font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
       </div>
     </div>
   );

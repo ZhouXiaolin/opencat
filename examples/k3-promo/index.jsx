@@ -45,7 +45,7 @@ function K3Promo() {
     applyTypeCalibration(ctx);
   });
   return (
-<div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden font-[k3-sans]">
+<div id="root" className="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden font-[k3-sans]">
     <GhostCols />
     <SceneA />
     <SceneB />
@@ -57,11 +57,11 @@ function K3Promo() {
     <OpenCard />
 
     {/* film-grade layers (always on, full duration) */}
-    <div id="grade-vig" class="absolute inset-0 z-[6] bg-[radial-gradient(ellipse_76%_80%_at_50%_50%,transparent_58%,rgba(0,0,0,0.28)_100%)]"></div>
-    <div id="grade-lines" class="absolute inset-0 z-[10] bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.18)_0_1px,transparent_1px_3px)]"></div>
+    <div id="grade-vig" className="absolute inset-0 z-[6] bg-[radial-gradient(ellipse_76%_80%_at_50%_50%,transparent_58%,rgba(0,0,0,0.28)_100%)]"></div>
+    <div id="grade-lines" className="absolute inset-0 z-[10] bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.18)_0_1px,transparent_1px_3px)]"></div>
     {/* index.html #gradenoise: data-URL SVG feTurbulence(fractalNoise,0.9,2,7)
        tiled 240×240 at opacity 0.012 — Skia renders the same noise Chrome does */}
-    <div id="grade-noise" class="absolute inset-0 z-[10] opacity-[0.012] bg-[fe-turbulence(fractalNoise,0.9,2,7)] bg-[length:240px_240px]"></div>
+    <div id="grade-noise" className="absolute inset-0 z-[10] opacity-[0.012] bg-[fe-turbulence(fractalNoise,0.9,2,7)] bg-[length:240px_240px]"></div>
 </div>
   );
 }

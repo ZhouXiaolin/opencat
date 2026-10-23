@@ -3,13 +3,11 @@
    x:-23 y:66 rides the node transform. */
 
 import { gsap } from 'gsap';
-import CanvasKitInit from 'canvaskit-wasm';
-import { useGSAP, useEffect } from 'opencat/runtime';
+import { useCanvasKit, useEffect, useGSAP } from 'opencat/runtime';
 import { Cdot, StageCanvas, drawDissolve, drawPlusses, drawQmarks, drawStrip, rebuildDissolveField, vis } from './shared.jsx';
 
 export default function SceneHI() {
-  let CK = null;
-  CanvasKitInit({}).then((ck) => { CK = ck; });
+  const CK = useCanvasKit();
   useGSAP((ctx, t) => {
     var T = t;
     if (T >= 13.7) {
@@ -51,7 +49,6 @@ export default function SceneHI() {
   });
   useEffect(() => {
     var t = ctx.current.time;
-    if (!CK) return;
     var T = t;
     if (typeof globalThis.__k3disBuilt === 'undefined') rebuildDissolveField(ctx);
     var HI_ON = (T >= 13.7);
@@ -97,63 +94,63 @@ export default function SceneHI() {
     }
   });
   return (
-    <div id="sceneHI" class="absolute inset-0 z-[2] opacity-0">
+    <div id="sceneHI" className="absolute inset-0 z-[2] opacity-0">
       {/* g2qmarks live in #gfurn2, the FIRST child of sceneHI — must paint
           under hbox/iwordmark */}
       <StageCanvas id="g2qmarks-canvas" />
       {/* wireframe dissolve box */}
-      <div id="hbox" class="absolute border-[1px] border-[#6a6a6a] left-[400px] top-[265px] w-[1150px] h-[385px] opacity-0">
-        <Cdot id="d-558" s="12px" c="#e6e6e6" class="-left-[24px] -top-[24px]" />
-        <Cdot id="d-559" s="12px" c="#e6e6e6" class="-right-[24px] -top-[24px]" />
-        <Cdot id="d-560" s="12px" c="#e6e6e6" class="-left-[24px] -bottom-[24px]" />
-        <Cdot id="d-561" s="12px" c="#e6e6e6" class="-right-[24px] -bottom-[24px]" />
-        <Cdot id="d-721" s="7px" c="#cfcfcc" class="-left-[9px] -top-[9px]" />
-        <Cdot id="d-722" s="7px" c="#cfcfcc" class="-right-[9px] -top-[9px]" />
-        <Cdot id="d-723" s="7px" c="#cfcfcc" class="-left-[9px] -bottom-[9px]" />
-        <Cdot id="d-724" s="7px" c="#cfcfcc" class="-right-[9px] -bottom-[9px]" />
-        <canvas id="hbox-canvas" class="absolute inset-0 w-[1150px] h-[385px]"></canvas>
+      <div id="hbox" className="absolute border-[1px] border-[#6a6a6a] left-[400px] top-[265px] w-[1150px] h-[385px] opacity-0">
+        <Cdot id="d-558" s="12px" c="#e6e6e6" className="-left-[24px] -top-[24px]" />
+        <Cdot id="d-559" s="12px" c="#e6e6e6" className="-right-[24px] -top-[24px]" />
+        <Cdot id="d-560" s="12px" c="#e6e6e6" className="-left-[24px] -bottom-[24px]" />
+        <Cdot id="d-561" s="12px" c="#e6e6e6" className="-right-[24px] -bottom-[24px]" />
+        <Cdot id="d-721" s="7px" c="#cfcfcc" className="-left-[9px] -top-[9px]" />
+        <Cdot id="d-722" s="7px" c="#cfcfcc" className="-right-[9px] -top-[9px]" />
+        <Cdot id="d-723" s="7px" c="#cfcfcc" className="-left-[9px] -bottom-[9px]" />
+        <Cdot id="d-724" s="7px" c="#cfcfcc" className="-right-[9px] -bottom-[9px]" />
+        <canvas id="hbox-canvas" className="absolute inset-0 w-[1150px] h-[385px]"></canvas>
       </div>
       {/* dissolve canvas: full-bleed layer at screen (0,200) like #hcanvas */}
-      <canvas id="hcanvas" class="absolute left-0 top-[200px] w-[1920px] h-[560px]"></canvas>
+      <canvas id="hcanvas" className="absolute left-0 top-[200px] w-[1920px] h-[560px]"></canvas>
       {/* bloom glow layers: each is the lockup itself blurred. CSS
           blur(<length>) takes the STANDARD DEVIATION directly, and with
           scale applied after the filter σ_eff = σ*scale. */}
-      <div id="iglow3" class="absolute left-[746.94px] top-[462.45px] w-[426.12px] h-[154.1px] opacity-0 blur-[69.6px] brightness-[2.2]">
-        <div id="d-562" class="absolute left-[30.82px] top-0 w-[154.1px] h-[154.1px]">
-          <path id="g3-p1" view-box="0 0 512 512" class="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#ffffff]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
-          <path id="g3-p2" view-box="0 0 512 512" class="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#4d9dff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
-          <path id="g3-p3" view-box="0 0 512 512" class="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
+      <div id="iglow3" className="absolute left-[746.94px] top-[462.45px] w-[426.12px] h-[154.1px] opacity-0 blur-[69.6px] brightness-[2.2]">
+        <div id="d-562" className="absolute left-[30.82px] top-0 w-[154.1px] h-[154.1px]">
+          <path id="g3-p1" viewBox="0 0 512 512" className="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#ffffff]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
+          <path id="g3-p2" viewBox="0 0 512 512" className="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#4d9dff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
+          <path id="g3-p3" viewBox="0 0 512 512" className="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="g3-t" class="absolute left-[214.45px] top-[5.75px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[143.67px] tracking-[-3.35px]">K3</text>
+        <text id="g3-t" className="absolute left-[214.45px] top-[5.75px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[143.67px] tracking-[-3.35px]">K3</text>
       </div>
-      <div id="iglow2" class="absolute left-[801px] top-[482px] w-[318px] h-[115px] opacity-0 blur-[24.6px] brightness-[2.1]">
-        <div id="d-563" class="absolute left-[23px] top-0 w-[115px] h-[115px]">
-          <path id="g2-p1" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#ffffff]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
-          <path id="g2-p2" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#4d9dff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
-          <path id="g2-p3" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
+      <div id="iglow2" className="absolute left-[801px] top-[482px] w-[318px] h-[115px] opacity-0 blur-[24.6px] brightness-[2.1]">
+        <div id="d-563" className="absolute left-[23px] top-0 w-[115px] h-[115px]">
+          <path id="g2-p1" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#ffffff]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
+          <path id="g2-p2" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#4d9dff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
+          <path id="g2-p3" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="g2-t" class="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
+        <text id="g2-t" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
       </div>
-      <div id="iglow1" class="absolute left-[801px] top-[482px] w-[318px] h-[115px] opacity-0 blur-[4.1px] brightness-[1.5]">
-        <div id="d-564" class="absolute left-[23px] top-0 w-[115px] h-[115px]">
-          <path id="g1-p1" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#e6e6e9]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
-          <path id="g1-p2" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#2b8bff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
-          <path id="g1-p3" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
+      <div id="iglow1" className="absolute left-[801px] top-[482px] w-[318px] h-[115px] opacity-0 blur-[4.1px] brightness-[1.5]">
+        <div id="d-564" className="absolute left-[23px] top-0 w-[115px] h-[115px]">
+          <path id="g1-p1" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#e6e6e9]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
+          <path id="g1-p2" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#2b8bff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
+          <path id="g1-p3" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="g1-t" class="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#e6e6e9] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
+        <text id="g1-t" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#e6e6e9] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
       </div>
       {/* K3 wordmark lockup (318×115) */}
-      <div id="iwordmark" class="absolute flex items-center gap-[18px] left-[801px] top-[482px] w-[318px] h-[115px] opacity-0">
-        <div id="d-565" class="absolute left-[23px] top-0 w-[115px] h-[115px]">
-          <path id="p-652" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#dadade]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
-          <path id="p-653" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#027aff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
-          <path id="p-654" view-box="0 0 512 512" class="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
+      <div id="iwordmark" className="absolute flex items-center gap-[18px] left-[801px] top-[482px] w-[318px] h-[115px] opacity-0">
+        <div id="d-565" className="absolute left-[23px] top-0 w-[115px] h-[115px]">
+          <path id="p-652" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#dadade]" d="M503 114.333v280c0 60.711-49.29 110-110 110H113c-60.711 0-110-49.289-110-110v-280c0-60.71 49.289-110 110-110h280c60.71 0 110 49.29 110 110z" />
+          <path id="p-653" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#027aff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
+          <path id="p-654" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="t-651" class="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#dadade] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
+        <text id="t-651" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#dadade] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
       </div>
       {/* flanking formation dashes */}
-      <div id="idashL" class="absolute h-[3px] bg-[#a9a9ac] left-[718px] top-[538px] w-[30px] opacity-0"></div>
-      <div id="idashR" class="absolute h-[3px] bg-[#a9a9ac] left-[1172px] top-[538px] w-[30px] opacity-0"></div>
+      <div id="idashL" className="absolute h-[3px] bg-[#a9a9ac] left-[718px] top-[538px] w-[30px] opacity-0"></div>
+      <div id="idashR" className="absolute h-[3px] bg-[#a9a9ac] left-[1172px] top-[538px] w-[30px] opacity-0"></div>
       {/* ifurn: stripIL/IR + iqmarks + plusses, shown 15.3→15.46 */}
       <StageCanvas id="ifurn-canvas" />
     </div>

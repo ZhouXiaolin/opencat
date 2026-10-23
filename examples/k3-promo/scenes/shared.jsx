@@ -2,43 +2,43 @@
 // single-file k3-promo.jsx). Pure functions/pure data; every scene imports
 // what it needs. Line-verbatim split — see git history for the pre-split file.
 export function StageCanvas({ id }) {
-  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
+  return <canvas id={id} className="absolute inset-0 w-[1920px] h-[1080px]" />;
 }
 
 // prop 用 `ht` 而非 `h`：JSX transform 在组件体内生成 h(...)，prop 名 h 会
 // 遮蔽元素创建函数。
 export function Tick({ id, ht, mb }) {
-  return <div id={id} class={'w-[2px] h-[' + ht + 'px] bg-[#cfcfd2]' + (mb ? ' ' + mb : '')} />;
+  return <div id={id} className={'w-[2px] h-[' + ht + 'px] bg-[#cfcfd2]' + (mb ? ' ' + mb : '')} />;
 }
 
 // `top` 与渐变由 props 决定，写进 class 的话 tailwind CLI 静态扫描不到；
 // 用内联 style，和原版 index.html 的 `b.style.background` 一致。
 export function Cbar({ n, top, g }) {
   return (
-    <div id={'bar-' + n} class="absolute left-0 w-[0px] h-[38px]"
-         style={'top:' + top + ';background-image:linear-gradient(90deg,' + g + ')'}>
-      <div id={'pale-' + n} class="absolute left-0 top-0 w-full h-[38px] opacity-0"
-           style="background-image:linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))"></div>
+    <div id={'bar-' + n} className="absolute left-0 w-[0px] h-[38px]"
+         style={{ top: top, backgroundImage: 'linear-gradient(90deg,' + g + ')' }}>
+      <div id={'pale-' + n} className="absolute left-0 top-0 w-full h-[38px] opacity-0"
+           style={{ backgroundImage: 'linear-gradient(90deg,rgba(233,229,224,0.95),rgba(206,199,193,0.6))' }}></div>
     </div>
   );
 }
 
 export function AgentPill({ id, t }) {
   return (
-    <div id={id} class="absolute left-[0] top-[0] opacity-0">
-      <div id={id + '-box'} class="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]">
-        <text id={id + '-txt'} class="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">{t}</text>
+    <div id={id} className="absolute left-[0] top-[0] opacity-0">
+      <div id={id + '-box'} className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]">
+        <text id={id + '-txt'} className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">{t}</text>
       </div>
     </div>
   );
 }
 
-export function Cdot({ id, s, c, class: extra }) {
-  return <div id={id} class={'absolute w-[' + s + 'px] h-[' + s + 'px] bg-[' + c + ']' + (extra ? ' ' + extra : '')} />;
+export function Cdot({ id, s, c, className: extra }) {
+  return <div id={id} className={'absolute w-[' + s + 'px] h-[' + s + 'px] bg-[' + c + ']' + (extra ? ' ' + extra : '')} />;
 }
 
 export function Bigword({ id, left, t }) {
-  return <text id={id} class={'absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[' + left + 'px] top-[458.3299px] opacity-0'}>{t}</text>;
+  return <text id={id} className={'absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[' + left + 'px] top-[458.3299px] opacity-0'}>{t}</text>;
 }
 
 /* ════════ 共享每帧工具（XML script 顶层；模块体每帧重估，纯函数/纯数据） ════════ */
@@ -54,19 +54,18 @@ export var pick = function (arr, r) { return arr[Math.floor((r || rnd)() * arr.l
 export var range = function (a, b, r) { return a + (r || rnd)() * (b - a); };
 export var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
 export var rnd = mulberry32(1337);
-export // Window gate helper. `document.getElementById` is the standard DOM face of
-// the same node handle ctx.getNode hands out.
-function vis(ctx, id, on) { document.getElementById(id).opacity(on ? 1 : 0); }
+export // Window gate helper — the standard DOM face of a composition node.
+function vis(ctx, id, on) { document.getElementById(id).style.cssText = 'opacity:' + (on ? 1 : 0); }
 export function frac(v) { return v - Math.floor(v); }
 
 export var FAM = '"Inter", "Helvetica Neue", Arial, sans-serif';  // index.html:438
 
 /* inkMetrics + natW/swapW over the real-font measure surface (1x1 —
    measurement never touches pixels). One measure stack shared by the type
-   calibration, pill widths and the dissolve field (ctx.surface is
+   calibration, pill widths and the dissolve field (OffscreenCanvas is
    get-or-create by size, so re-entering per consumer is free). */
 export function makeMeasure(ctx) {
-  var MSR = ctx.surface(1, 1);
+  var MSR = new OffscreenCanvas(1, 1).getContext('2d');
   function inkM(weight, probe) {
     MSR.font = weight + ' 100px ' + FAM;
     MSR.letterSpacing = '0px';
@@ -136,7 +135,7 @@ export function applyTypeCalibration(ctx) {
   };
   for (var calId in CAL_SCALEX) {
     var calN = document.getElementById(calId);
-    if (calN) calN.scaleX(CAL_SCALEX[calId]);
+    if (calN) calN.style.cssText = 'scaleX:' + CAL_SCALEX[calId];
   }
 }
 
@@ -323,7 +322,7 @@ export function getK3Field() {
    the liangyi/两仪 lambda path retired. V8 runs the loops fast enough
    offline (~324K px/frame):
      1. fillText the card lockup ONCE into an offscreen surface
-        (ctx.surface → real Inter faces via swash);
+        (OffscreenCanvas 2D context → real Inter faces via swash);
      2. read the lockup region back once (surface.getImageData → engine
         native zero-marshal path), then build mask + 3-4 chamfer distance
         field as plain typed arrays in JS (Uint8Array / Int16Array, dist
@@ -341,7 +340,7 @@ export var FGB_TOP = 480, FGB_H = 119;                            // index.html:
 
 export function rebuildDissolveField(ctx) {
   var m = makeMeasure(ctx);
-  var ox = ctx.surface(1920, 1080);
+  var ox = new OffscreenCanvas(1920, 1080).getContext('2d');
   ox.clearRect(0, 0, 1920, 1080);
   ox.fillStyle = '#fff';
   var capM = m.inkM(400, 'H');

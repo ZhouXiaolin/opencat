@@ -51,6 +51,7 @@ pub fn bake(props: &Props, width: f32, height: f32, time: f32) -> Baked {
         ],
         uniform_bytes: uniform.bytes().expect("VHS uniform 字节"),
         final_reads: vec!["rtt_0".into()],
+        consumes_input: true,
     }
 }
 

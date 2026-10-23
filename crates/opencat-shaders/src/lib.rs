@@ -47,6 +47,13 @@ pub struct Baked {
     pub uniform_bytes: Vec<u8>,
     /// final pass 读哪些 rtt（按 binding 序）。空 = 纯 generator，不读任何纹理。
     pub final_reads: Vec<String>,
+    /// 第一个 rtt pass 是否要读**外层输入**（前一层/子树合成结果）。
+    ///
+    /// filter/warp 的真语义是「吃下面的东西」：快照烘焙时那个东西是
+    /// `catalog.json` 的 `LinearGradient` 子层，所以在 `bake()` 里被画成
+    /// `rtt_0`。运行时那个输入来自真实的上游，所以这里把 `rtt_0` 换成输入
+    /// 纹理，`rtt_0` 那一 pass 整段跳过。
+    pub consumes_input: bool,
 }
 
 pub struct BakedPass {
@@ -104,9 +111,34 @@ fn rtt_key(entry: &str) -> String {
 }
 
 pub fn render(baked: &Baked, width: u32, height: u32) -> Result<Vec<u8>> {
+    render_with_input(baked, width, height, None)
+}
+
+/// 同 [`render`]，但允许把外层图像（straight-alpha RGBA8，`w*h*4`）当作第一个
+/// rtt key 的输入。`consumes_input` 的组件（VHS / ZoomBlur）因为自己不再画
+/// 那个 pass，必须提供；其余组件忽略这个参数。
+pub fn render_with_input(
+    baked: &Baked,
+    width: u32,
+    height: u32,
+    input: Option<&[u8]>,
+) -> Result<Vec<u8>> {
     if width == 0 || height == 0 {
         bail!("shader render needs a non-zero canvas size, got {width}x{height}");
     }
+    // 没给输入时退回到烘焙时那个内建子层（快照烘焙就是这样比的）；运行期
+    // 由 [`render_target`] 拦下真正缺上游的情况。
+    let input = if let (true, Some(rgba)) = (baked.consumes_input, input) {
+        if rgba.len() != (width as usize) * (height as usize) * 4 {
+            bail!(
+                "shader 输入尺寸不匹配：期望 {}x{} ({}) 字节，拿到 {} 字节",
+                width, height, (width as usize) * (height as usize) * 4, rgba.len()
+            );
+        }
+        Some(rgba)
+    } else {
+        None
+    };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
         .context("no wgpu adapter for shader rendering")?;
@@ -178,9 +210,56 @@ pub fn render(baked: &Baked, width: u32, height: u32) -> Result<Vec<u8>> {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
+
+    // 外层输入（前一层 / 子树合成结果）：装进第一个 rtt key 的槽位，
+    // 这样 filter/warp 的 final pass 不必区分「快照子层」与「真实上游」。
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    if let Some(rgba) = input {
+        let key = rtt_key(&baked.passes[0].entry);
+        let padded_bpr = (width * 4).div_ceil(256) * 256;
+        let mut padded_bytes = Vec::with_capacity((padded_bpr * height) as usize);
+        for y in 0..height {
+            let start = (y * width * 4) as usize;
+            padded_bytes.extend_from_slice(&rgba[start..start + (width * 4) as usize]);
+            padded_bytes.resize(padded_bytes.len() + (padded_bpr - width * 4) as usize, 0);
+        }
+        let staging = {
+            use wgpu::util::DeviceExt;
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("shader input"),
+                contents: &padded_bytes,
+                usage: wgpu::BufferUsages::COPY_SRC,
+            })
+        };
+        let slot = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("shader input"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        encoder.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: &staging,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded_bpr), rows_per_image: Some(height) },
+            },
+            wgpu::TexelCopyTextureInfo {
+                texture: &slot,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            size,
+        );
+        // filter/warp 自身的子层 pass 被真实上游取代，slot 直接占住那个 key。
+        rtt_tex.insert(key, slot);
+    }
 
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("linearClamp"),
@@ -224,9 +303,12 @@ pub fn render(baked: &Baked, width: u32, height: u32) -> Result<Vec<u8>> {
         }))
     };
 
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
     let n = baked.passes.len();
     for (i, pass) in baked.passes.iter().enumerate() {
+        // 输入已经占住第一个 rtt key，对应那一 pass 不再跑。
+        if input.is_some() && i == 0 && n > 1 {
+            continue;
+        }
         let format = if i + 1 == n { wgpu::TextureFormat::Rgba8Unorm } else { wgpu::TextureFormat::Rgba16Float };
         let pipeline = make_pipeline(&pass.wgsl, &pass.entry, format).with_context(|| {
             format!("pass {} ({}) pipeline", i, pass.entry)
@@ -350,7 +432,7 @@ pub fn render_target(
     }
     let (w, h) = (width as f32, height as f32);
     let mut rgba: Option<Vec<u8>> = None;
-    for (i, layer) in layers.iter().enumerate() {
+    for layer in layers {
         let props = props_of(&layer.component, &layer.props)?;
         // 帧时钟：`shaderProps({ time })` 可以覆盖它（动画加速/暂停），
         // 未覆盖时就是 hook 的时钟。
@@ -362,8 +444,14 @@ pub fn render_target(
             "ZoomBlur" => zoom_blur::bake(&props, w, h, t),
             other => bail!("shader 组件 {other} 还没有烘焙器（已支持 Aurora / MeshGradient / VHS / ZoomBlur）"),
         };
-        let _ = i;
-        rgba = Some(render(&baked, width, height)?);
+        // filter/warp 的真语义是「吃下面的东西」：它的输入就是上一层的成品。
+        if baked.consumes_input && rgba.is_none() {
+            bail!(
+                "shader 层 {} 要吃上游图像，但它是这个 <Shader> 的第一层——在它前面放一个 generator（Aurora / MeshGradient）或一块 <img>",
+                layer.component
+            );
+        }
+        rgba = Some(render_with_input(&baked, width, height, rgba.as_deref())?);
     }
     Ok(rgba.expect("layers 非空"))
 }

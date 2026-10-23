@@ -7,6 +7,7 @@ use crate::analyze::annotation::{
 use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
+use crate::geom::Mat4;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::media::VideoFrameRequest;
@@ -96,7 +97,7 @@ pub(crate) fn save_composite_layer(
     css_filter: &CssFilter,
     backdrop_filter: &CssFilter,
     backdrop_blur: Option<f32>,
-    bounds: DisplayRect,
+    bounds: Option<DisplayRect>,
     backdrop_bounds: DisplayRect,
     backdrop_radius: BorderRadius,
 ) -> BackdropLayerState {
@@ -117,7 +118,11 @@ pub(crate) fn save_composite_layer(
             result = "count",
             amount = 1_u64
         );
-        let bounds_rect4 = display_rect_to_rect4(bounds);
+        // `None` means "let the layer cover whatever the subtree paints": a
+        // 3-D subtree projects outside the element rect, so clipping to it
+        // would cut off the parts nearer the camera.
+        let bounds_rect4 = display_rect_to_rect4(bounds.unwrap_or(backdrop_bounds));
+        let layer_bounds = bounds.map(display_rect_to_rect4);
         // The stored value carries the CSS `backdrop-filter: blur(R)` radius —
         // same Gaussian sigma = R semantics as `filter: blur()` (see
         // `css_filter_image_filter`); pass through to Skia unchanged.
@@ -196,14 +201,14 @@ pub(crate) fn save_composite_layer(
             };
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::SaveLayer {
-                bounds: Some(bounds_rect4),
+                bounds: layer_bounds,
                 paint: Some(paint_id),
                 alpha: opacity,
                 backdrop: false,
             });
         } else {
             builder.push(DrawOp::SaveLayer {
-                bounds: Some(bounds_rect4),
+                bounds: layer_bounds,
                 paint: None,
                 alpha: opacity,
                 backdrop: false,
@@ -269,17 +274,139 @@ fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
 fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     builder.push(DrawOp::Save);
     apply_transform(builder, plan.transform);
+    // A node inside a 3-D context paints outside its own element rect (a
+    // `translateZ` toward the camera magnifies it), so clipping its layer to
+    // `layer_bounds` would cut that overflow off. Drop the bounds there.
+    let layer_bounds = if is_3d(plan.transform) {
+        None
+    } else {
+        Some(plan.layer_bounds)
+    };
     let layer_state = save_composite_layer(
         builder,
         plan.opacity,
         plan.css_filter,
         plan.backdrop_filter,
         plan.backdrop_blur_sigma,
-        plan.layer_bounds,
+        layer_bounds,
         plan.transform.bounds,
         plan.backdrop_border_radius,
     );
     ApplyFrame { layer_state }
+}
+
+/// Whether this node opens a 3-D context of its own, or is transformed into
+/// one its parent opened.
+fn is_3d(transform: &DisplayTransform) -> bool {
+    transform.local_m4.is_some() || transform.perspective.is_some() || transform.preserve_3d
+}
+
+/// The 4×4 every node in the current 3-D context inherits.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Space3 {
+    /// Maps this context's local space into the parent's, `z = 0` being the
+    /// plane the enclosing draw-op transform already established.
+    abs: Mat4,
+    /// Homography `abs` projects to. `None` when it is exactly the identity,
+    /// which is the common case and lets us skip the `Concat`.
+    abs_h: Option<[f32; 9]>,
+}
+
+impl Space3 {
+    pub(crate) fn root() -> Self {
+        Self {
+            abs: Mat4::IDENTITY,
+            abs_h: None,
+        }
+    }
+
+    fn compose(&self, local: Mat4) -> Self {
+        let abs = self.abs.mul(&local);
+        let h = abs.to_homography3();
+        let is_identity = h == Mat4::IDENTITY.to_homography3();
+        Self {
+            abs,
+            abs_h: if is_identity { None } else { Some(h) },
+        }
+    }
+}
+
+/// A node's accumulated 4×4 in the space its parent's children are drawn in.
+/// The node's own `Translate` is part of it, because `apply_transform` has
+/// already emitted it by the time this runs.
+fn node_abs(space: Space3, transform: &DisplayTransform) -> Option<Space3> {
+    let local = transform.local_m4?;
+    Some(
+        space
+            .compose(Mat4::translate(
+                transform.translation_x,
+                transform.translation_y,
+                0.0,
+            ))
+            .compose(local),
+    )
+}
+
+/// Enter a node's own 3-D space: the `Concat` that takes the enclosing draw-op
+/// transform (which already includes this node's `Translate`) to its own.
+fn enter_node_space(ctx: &mut RenderCtx, transform: &DisplayTransform) -> Space3 {
+    let parent = ctx.space3;
+    let Some(node) = node_abs(parent, transform) else {
+        return parent;
+    };
+    let Some(node_h) = node.abs_h else {
+        return parent;
+    };
+    // Incremental, so the enclosing `Save`/`Restore` still unwinds it and the
+    // composite-layer bounds keep their meaning.
+    let after_translate = parent.compose(Mat4::translate(
+        transform.translation_x,
+        transform.translation_y,
+        0.0,
+    ));
+    // `Concat` pre-concatenates (CTM' = CTM · M), so M has to be
+    // inv(CTM) · target, not target · inv(CTM).
+    let matrix = match after_translate.abs_h {
+        None => node_h,
+        Some(parent_h) => match crate::geom::invert3(parent_h) {
+            Some(inv) => crate::geom::mul3(inv, node_h),
+            None => return parent,
+        },
+    };
+    ctx.builder.push(DrawOp::Concat { matrix });
+    ctx.space3 = node;
+    node
+}
+
+/// The space a node's children are drawn in: its own, projected through its
+/// CSS `perspective`, with the depth dropped when it is `transform-style: flat`.
+///
+/// The invariant `abs_h` must keep is *what the draw-op CTM currently holds*,
+/// so every space change that is not already in the CTM has to be pushed here.
+fn child_space(ctx: &mut RenderCtx, node: Space3, transform: &DisplayTransform) -> Space3 {
+    let mut space = match transform.perspective {
+        Some(distance) if distance > 0.0 => {
+            let projected = node.compose(Mat4::perspective(distance));
+            if let Some(projected_h) = projected.abs_h {
+                let matrix = match node.abs_h {
+                    None => projected_h,
+                    Some(node_h) => match crate::geom::invert3(node_h) {
+                        Some(inv) => crate::geom::mul3(inv, projected_h),
+                        None => node_h,
+                    },
+                };
+                ctx.builder.push(DrawOp::Concat { matrix });
+            }
+            projected
+        }
+        _ => node,
+    };
+    if !transform.preserve_3d {
+        // Flattening only zeroes the z output row, which `to_homography3` never
+        // reads, so the CTM still holds `space.abs_h` unchanged.
+        space.abs = space.abs.flatten_depth();
+    }
+    space
 }
 
 fn emit_apply_suffix(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
@@ -300,6 +427,7 @@ pub fn render_display_tree(
     ctx: &mut RenderCtx,
     tree: &AnnotatedDisplayTree,
 ) -> Result<(), RenderError> {
+    ctx.space3 = Space3::root();
     render_scene_op(ctx, &ctx.ordered_scene.root, tree)
 }
 
@@ -331,6 +459,54 @@ fn render_scene_op(
     }
 }
 
+/// Render a node's children in painter's order.
+///
+/// Inside a 3-D context the DOM order is not the visible order: a segment with
+/// a larger projected z is nearer the viewer and must be drawn last. The depth
+/// changes every frame, so the ordering lives here rather than in the build-time
+/// `z_index` sort.
+fn render_children(
+    ctx: &mut RenderCtx,
+    children: &[OrderedSceneOp],
+    tree: &AnnotatedDisplayTree,
+) -> Result<(), RenderError> {
+    if ctx.space3.abs_h.is_none() {
+        for child in children {
+            render_scene_op(ctx, child, tree)?;
+        }
+        return Ok(());
+    }
+    let mut ordered: Vec<(f32, &OrderedSceneOp)> = children
+        .iter()
+        .map(|child| {
+            let transform = &tree.node(child.handle()).transform;
+            let depth = match transform.local_m4 {
+                Some(_) => {
+                    let m = node_abs(ctx.space3, transform)
+                        .map(|space| space.abs)
+                        .unwrap_or(ctx.space3.abs);
+                    m.z_at(
+                        transform.bounds.width * transform.origin.x,
+                        transform.bounds.height * transform.origin.y,
+                    )
+                }
+                None => ctx
+                    .space3
+                    .abs
+                    .z_at(transform.translation_x, transform.translation_y),
+            };
+            (depth, child)
+        })
+        .collect();
+    // Nearer last; ties keep DOM order so the common all-coplanar case is
+    // untouched.
+    ordered.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (_, child) in ordered {
+        render_scene_op(ctx, child, tree)?;
+    }
+    Ok(())
+}
+
 fn render_reused_subtree(
     ctx: &mut RenderCtx,
     handle: AnnotatedNodeHandle,
@@ -347,7 +523,10 @@ fn render_reused_subtree(
 
     let layer_bounds = tree.layer_bounds(handle);
     let apply_plan = ApplyPlan::from_draw_composite(draw, layer_bounds);
+    let parent_space = ctx.space3;
     let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
+    let node_space = enter_node_space(ctx, apply_plan.transform);
+    ctx.space3 = child_space(ctx, node_space, apply_plan.transform);
     let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
         RenderError::InvalidArgument(
             "ReusedSubtree node must have snapshot_fingerprint".to_string(),
@@ -374,9 +553,7 @@ fn render_reused_subtree(
     }
 
     // Render children dynamically.
-    for child in &subtree.children {
-        render_scene_op(ctx, child, tree)?;
-    }
+    render_children(ctx, &subtree.children, tree)?;
     if has_clip {
         ctx.builder.push(DrawOp::Restore);
     }
@@ -384,6 +561,7 @@ fn render_reused_subtree(
         ctx.builder.push(DrawOp::Restore);
     }
 
+    ctx.space3 = parent_space;
     finish_apply_frame(ctx.builder, &apply_frame);
     Ok(())
 }
@@ -404,7 +582,10 @@ fn render_live_subtree(
     }
 
     let apply_plan = ApplyPlan::from_draw_composite(draw, tree.layer_bounds(handle));
+    let parent_space = ctx.space3;
     let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
+    let node_space = enter_node_space(ctx, apply_plan.transform);
+    ctx.space3 = child_space(ctx, node_space, apply_plan.transform);
 
     // Transition compositing: render from/to subtrees and blend them
     if let DisplayItem::Timeline(timeline) = &node.item
@@ -453,6 +634,7 @@ fn render_live_subtree(
         if node.clip.is_some() {
             ctx.builder.push(DrawOp::Restore);
         }
+        ctx.space3 = parent_space;
         finish_apply_frame(ctx.builder, &apply_frame);
         return Ok(());
     }
@@ -478,9 +660,7 @@ fn render_live_subtree(
         }
     }
 
-    for child in children {
-        render_scene_op(ctx, child, tree)?;
-    }
+    render_children(ctx, children, tree)?;
 
     if node.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
@@ -488,6 +668,7 @@ fn render_live_subtree(
     if node.paint_clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
     }
+    ctx.space3 = parent_space;
     finish_apply_frame(ctx.builder, &apply_frame);
     Ok(())
 }
@@ -722,6 +903,12 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
     if transform.transforms.is_empty() {
         return;
     }
+    // A chain carrying a 3-D operator is emitted by `enter_node_space` as one
+    // 4x4 `Concat`; emitting the 2-D operators here as well would apply the
+    // rotation twice.
+    if transform.local_m4.is_some() {
+        return;
+    }
     // The pivot is the node's static `transform-origin` (default centre). Scale/
     // rotate/skew anchor here; translations are unaffected.
     let center_x = transform.bounds.width * transform.origin.x;
@@ -812,6 +999,36 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
                     y: -center_y,
                 });
             }
+            Transform::RotateXDeg { value: deg } => {
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
+                builder.push(DrawOp::Concat {
+                    matrix: crate::geom::Mat4::rotate_x_deg(deg).to_homography3(),
+                });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
+            }
+            Transform::RotateYDeg { value: deg } => {
+                builder.push(DrawOp::Translate {
+                    x: center_x,
+                    y: center_y,
+                });
+                builder.push(DrawOp::Concat {
+                    matrix: crate::geom::Mat4::rotate_y_deg(deg).to_homography3(),
+                });
+                builder.push(DrawOp::Translate {
+                    x: -center_x,
+                    y: -center_y,
+                });
+            }
+            // A bare `translateZ` is a no-op on the node's own planar content;
+            // it only moves the plane its children are drawn on, which the
+            // 4×4 stack in `enter_node_space` already did.
+            Transform::TranslateZ { .. } => {}
             Transform::Rotate3 {
                 rotation_x,
                 rotation_y,
@@ -823,11 +1040,8 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
                 // rotateX FIRST (M = P·Ry·Rx, the transpose-order of the CSS
                 // list). Verified against the reference render: with rx=6/ry=-7
                 // the two orders diverge by ~5px at ±400px from the pivot, and
-                // the reference raster matches Ry·Rx. On the z=0 plane that is
-                // ONE projective homography:
-                //   X' = ( cos_ry·x + sin_rx·sin_ry·y )  / w
-                //   Y' = ( cos_rx·y )                    / w
-                //   w  = 1 + (sin_ry·x − cos_ry·sin_rx·y) / P
+                // the reference raster matches Ry·Rx. `Mat4::rotate3` builds
+                // exactly that matrix and folds the perspective row into `w`.
                 // Emitted as a single column-major `DrawOp::Concat` about the
                 // node's transform-origin (the pivot keeps z=0, so the planar
                 // homography stays exact).
@@ -835,17 +1049,9 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
                     x: center_x,
                     y: center_y,
                 });
-                let sin_rx = rotation_x.to_radians().sin();
-                let cos_rx = rotation_x.to_radians().cos();
-                let sin_ry = rotation_y.to_radians().sin();
-                let cos_ry = rotation_y.to_radians().cos();
-                let inv_p = if perspective > 0.0 { 1.0 / perspective } else { 0.0 };
                 builder.push(DrawOp::Concat {
-                    matrix: [
-                        cos_ry, sin_rx * sin_ry, sin_ry * inv_p, // column 0 (a, d, g)
-                        0.0, cos_rx, -cos_ry * sin_rx * inv_p, // column 1 (b, e, h)
-                        0.0, 0.0, 1.0, // column 2 (c, f, i)
-                    ],
+                    matrix: crate::geom::Mat4::rotate3(rotation_x, rotation_y, perspective)
+                        .to_homography3(),
                 });
                 builder.push(DrawOp::Translate {
                     x: -center_x,
@@ -929,6 +1135,9 @@ mod tests {
             },
             transforms: Vec::new(),
             origin: Default::default(),
+            local_m4: None,
+            perspective: None,
+            preserve_3d: false,
         }
     }
 
@@ -1097,5 +1306,43 @@ mod tests {
         assert_eq!(plan.transform.translation_x, 3.0);
         assert_eq!(plan.transform.translation_y, 4.0);
     }
+
+    /// A torus segment: `rotateY(a) translateZ(400) rotateY(90)` pivoting on its
+    /// own centre, exactly what `display/build.rs` folds into `local_m4`.
+    fn segment(a: f32) -> DisplayTransform {
+        let mut t = transform(0.0, 0.0);
+        t.transforms = vec![
+            Transform::RotateYDeg { value: a },
+            Transform::TranslateZ { value: 400.0 },
+            Transform::RotateYDeg { value: 90.0 },
+        ];
+        t.local_m4 = crate::display::build::local_m4(&t.transforms, t.origin, t.bounds);
+        t
+    }
+
+    #[test]
+    fn segment_local_m4_keeps_its_depth() {
+        // The box centre is the pivot, so only the `translateZ` may move it.
+        // A 3×3 chain would drop that depth and collapse the ring onto one
+        // plane; the 4×4 keeps it.
+        let t = segment(0.0);
+        let m4 = t.local_m4.expect("3-D chain produces a 4×4");
+        let (cx, cy) = (50.0, 50.0);
+        let x = m4.0[12] + cx * m4.0[0] + cy * m4.0[4];
+        let y = m4.0[13] + cx * m4.0[1] + cy * m4.0[5];
+        let z = m4.0[14] + cx * m4.0[2] + cy * m4.0[6];
+        assert!((x - 50.0).abs() < 1e-2, "x = {x}");
+        assert!((y - 50.0).abs() < 1e-2, "y = {y}");
+        assert!((z - 400.0).abs() < 1e-2, "z = {z}");
+
+        // Turn the segment 22.5° and the same 400px now points off-axis, as
+        // the ring placement requires.
+        let t = segment(-22.5);
+        let m4 = t.local_m4.unwrap();
+        let z = m4.0[14] + cx * m4.0[2] + cy * m4.0[6];
+        let expected = 400.0 * (-22.5f32).to_radians().cos();
+        assert!((z - expected).abs() < 1e-2, "z = {z}, expected {expected}");
+    }
+
 
 }

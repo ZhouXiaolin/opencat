@@ -1728,6 +1728,7 @@ fn record_hidden_subtree(
     let ordered_scene = ctx.ordered_scene;
     let font_db = ctx.font_db;
     let generated_images: &mut GeneratedImageTable = ctx.generated_images;
+    let space3 = ctx.space3;
     let result = ctx.builder.record_subtree(|builder| {
         let mut subtree_ctx = RenderCtx {
             catalog,
@@ -1738,6 +1739,7 @@ fn record_hidden_subtree(
             font_db,
             hidden_picture_stack: stack,
             generated_images,
+            space3,
         };
         for child in hidden_subtree {
             if child.owner_id == owner_id {
@@ -1828,7 +1830,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         &node.css_filter,
         &node.backdrop_filter,
         node.backdrop_blur_sigma,
-        bounds,
+        Some(bounds),
         node.transform.bounds,
         backdrop_radius,
     );

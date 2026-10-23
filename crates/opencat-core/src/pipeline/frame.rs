@@ -214,6 +214,7 @@ pub fn render_frame_with_state(
         font_db: font_db.as_ref(),
         hidden_picture_stack: Vec::new(),
         generated_images,
+        space3: crate::render::dispatch::Space3::root(),
     };
 
     crate::text::scope_font_db(font_db, || {

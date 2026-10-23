@@ -135,13 +135,16 @@ impl EnginePipelineHost {
         section: &opencat_core::ir::shader::ShaderSection,
     ) -> Result<()> {
         for target in &section.targets {
-            let entry = media_plan
+            // 占位图由绘制流（`record_frame_generated_image_deferred`）录，绘制流
+            // 会被显示树裁剪：整层 `opacity: 0` / 移出画面的 `<Shader>` 这一帧
+            // 根本没有占位图，也就没有像素要回填。跳过，不是错误。
+            let Some(entry) = media_plan
                 .generated_images
                 .iter_mut()
                 .find(|e| e.id == target.image_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("shader 占位 {} 不在本帧 media plan 中", target.image_id.0)
-                })?;
+            else {
+                continue;
+            };
             let layers: Vec<opencat_shaders::ShaderLayer> = target
                 .layers
                 .iter()

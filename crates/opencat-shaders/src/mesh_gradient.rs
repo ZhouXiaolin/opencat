@@ -112,6 +112,7 @@ pub fn bake(props: &Props, width: f32, height: f32, time: f32) -> Baked {
         passes: vec![BakedPass { entry: "final_1".into(), wgsl, reads: vec![] }],
         uniform_bytes: uniform.bytes().expect("MeshGradient uniform 字节"),
         final_reads: vec![],
+        consumes_input: false,
     }
 }
 

@@ -120,3 +120,55 @@ fn assert_close(rgba: &[u8], component: &str, frame: u32) {
     eprintln!("{component} f{frame}: mae {mae:.6} maxd {max}");
     assert!(mae < 0.5, "{component} f{frame}: mae {mae} 超过门禁 0.5");
 }
+
+/// filter/warp 吃**真实上游**：给它一个纯色输入，输出里不应再出现内建
+/// LinearGradient（`#312e81`→`#f59e0b` 的横向渐变）。
+///
+/// 判据用像素本身，不依赖外部快照：内建子层在左边缘是深蓝、右边缘是橙黄；
+/// 纯红输入经 VHS/ZoomBlur 之后整体仍偏红（r 通道显著高于 b）。
+#[test]
+fn filter_layers_consume_upstream_input() {
+    let (w, h) = (64u32, 64u32);
+    let mut red = vec![0u8; (w * h * 4) as usize];
+    for px in red.chunks_exact_mut(4) {
+        px[0] = 200;
+        px[3] = 255;
+    }
+
+    for component in ["VHS", "ZoomBlur"] {
+        let mut props = match component {
+            "VHS" => opencat_shaders::vhs::default_props(),
+            _ => opencat_shaders::zoom_blur::default_props(),
+        };
+        // 关掉会把颜色搅乱的项，只留「贴图 + 直出」这条主干。
+        props.insert("wobble".into(), Val::F(0.0));
+        props.insert("scanlineNoise".into(), Val::F(0.0));
+        props.insert("smear".into(), Val::F(0.0));
+        props.insert("intensity".into(), Val::F(0.0));
+        let baked = match component {
+            "VHS" => opencat_shaders::vhs::bake(&props, w as f32, h as f32, 0.0),
+            _ => opencat_shaders::zoom_blur::bake(&props, w as f32, h as f32, 0.0),
+        };
+        assert!(baked.consumes_input, "{component} 应该声明吃上游");
+
+        let out = opencat_shaders::render_with_input(&baked, w, h, Some(&red)).expect("render");
+        let mid = ((h / 2) * w + w / 2) as usize * 4;
+        let (r, b) = (out[mid] as i32, out[mid + 2] as i32);
+        assert!(
+            r > b + 40,
+            "{component} 没有吃到红色上游：中间像素 r={r} b={b}（若是内建渐变则是蓝橙）"
+        );
+    }
+}
+
+/// 第一层就是 filter 时必须报错，不能拿内建渐变顶替。
+#[test]
+fn filter_without_upstream_is_an_error() {
+    let layers = vec![opencat_shaders::ShaderLayer {
+        component: "VHS".into(),
+        props: serde_json::json!({}),
+    }];
+    let err = opencat_shaders::render_target(&layers, 32, 32, 0.0).expect_err("应当报错");
+    let text = err.to_string();
+    assert!(text.contains("第一层"), "错误应指出缺少上游，got: {text}");
+}

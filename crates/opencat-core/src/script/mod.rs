@@ -16,8 +16,6 @@
 pub mod animate;
 pub mod bindings;
 pub mod dispatch;
-#[cfg(test)]
-mod lambda_integration_tests;
 pub mod helpers;
 pub mod host;
 pub mod js_context;

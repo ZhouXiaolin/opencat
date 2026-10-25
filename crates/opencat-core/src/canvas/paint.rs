@@ -347,6 +347,21 @@ pub enum ShaderSpec {
         tile: Option<[f32; 2]>,
         origin: [f32; 2],
     },
+    /// CSS `conic-gradient`（Skia sweep）。`center` 是设备 px；`start/end`
+    /// 是已换算的 Skia 角度（度，0 = +x 轴，y 向下故顺时针增长）——CSS 的
+    /// `from θ`（0 = 12 点方向）换算在生成 spec 时完成（α = θ − 90）。
+    /// stops 均布在 `[start, end]`；repeating 语义由生成侧收缩 `end` 到
+    /// 一个周期并配 `TileMode::Repeat`。
+    SweepGradient {
+        center: [f32; 2],
+        start_angle_deg: f32,
+        end_angle_deg: f32,
+        stops: Vec<f32>,
+        colors: Vec<[f32; 4]>,
+        tile_mode: TileMode,
+        /// 同 [`ShaderSpec::LinearGradient::interpolate_premul`]。
+        interpolate_premul: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -723,6 +738,41 @@ impl PartialEq for ShaderSpec {
                     && aorig[0].to_bits() == borig[0].to_bits()
                     && aorig[1].to_bits() == borig[1].to_bits()
             }
+            (
+                ShaderSpec::SweepGradient {
+                    center: ac,
+                    start_angle_deg: asa,
+                    end_angle_deg: aea,
+                    stops: ast,
+                    colors: acol,
+                    tile_mode: atm,
+                    interpolate_premul: aip,
+                },
+                ShaderSpec::SweepGradient {
+                    center: bc,
+                    start_angle_deg: bsa,
+                    end_angle_deg: bea,
+                    stops: bst,
+                    colors: bcol,
+                    tile_mode: btm,
+                    interpolate_premul: bip,
+                },
+            ) => {
+                ac[0].to_bits() == bc[0].to_bits()
+                    && ac[1].to_bits() == bc[1].to_bits()
+                    && asa.to_bits() == bsa.to_bits()
+                    && aea.to_bits() == bea.to_bits()
+                    && ast.len() == bst.len()
+                    && ast.iter().zip(bst.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                    && acol.len() == bcol.len()
+                    && acol.iter().zip(bcol.iter()).all(|(ca, cb)| {
+                        ca.iter()
+                            .zip(cb.iter())
+                            .all(|(a, b)| a.to_bits() == b.to_bits())
+                    })
+                    && atm == btm
+                    && aip == bip
+            }
             _ => false,
         }
     }
@@ -796,6 +846,25 @@ impl Hash for ShaderSpec {
                 }
                 tile.is_some().hash(state);
                 origin.iter().for_each(|v| v.to_bits().hash(state));
+            }
+            ShaderSpec::SweepGradient {
+                center,
+                start_angle_deg,
+                end_angle_deg,
+                stops,
+                colors,
+                tile_mode,
+                interpolate_premul,
+            } => {
+                center.iter().for_each(|v| v.to_bits().hash(state));
+                start_angle_deg.to_bits().hash(state);
+                end_angle_deg.to_bits().hash(state);
+                stops.iter().for_each(|v| v.to_bits().hash(state));
+                colors
+                    .iter()
+                    .for_each(|c| c.iter().for_each(|v| v.to_bits().hash(state)));
+                tile_mode.hash(state);
+                interpolate_premul.hash(state);
             }
         }
     }

@@ -6,7 +6,8 @@ import { useEffect, useCanvasKit } from 'opencat/runtime';
    ctx.current.time inside useEffect) drives the same renderAtTime. Text goes through an offscreen 2D context (fontdb
    resolves the registered "JetBrains Mono" face — same 0.6em advance as
    the reference's DejaVu Sans Mono; baseline +13px = its top-baseline
-   offset at 14px), then ly.draw samples it on the stage canvas. Master
+   offset at 14px), then getImageData + putImageData blit it onto the stage
+   canvas. Master
    slot is 3.75s so the last 0.18s of the 3.93s timeline
    is truncated by the master, exactly like the reference cut. */
 
@@ -429,15 +430,12 @@ function ccRender(cv, ctx, t) {
     }
   }
 
-  /* The surface is sampled straight by an identity kernel: ly.draw takes the
-     surface as a source and bakes it on demand, so the script no longer
-     manages a frame-scoped generated-image key. */
-  var ccIdent = ly.pixel((uv, src) => {
-    var c = src.eval(uv);
-    if (c.a > 0.0) { return [c.r / c.a, c.g / c.a, c.b / c.a, c.a]; }
-    return [0.0, 0.0, 0.0, 0.0];
-  });
-  ly.draw(cv, ccIdent, { rect: [0, 0, 1920, 1080], sources: [surf] });
+  /* The surface bitmaps straight onto the stage canvas: getImageData reads
+     the offscreen pixels back and putImageData uploads them as a frame-scoped
+     generated image at (0, 0) — official Canvas2D semantics, the same channel
+     the k3 dissolve uses. The key is frame-unique (the generated-image table
+     treats a repeated key as idempotent-same or hard error). */
+  cv.putImageData(surf.getImageData(0, 0, 1920, 1080), 0, 0, 'cc-' + Math.round(t * 1e6));
 }
 
 export default function CanvasClose() {

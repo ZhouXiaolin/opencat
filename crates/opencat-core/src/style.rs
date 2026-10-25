@@ -986,6 +986,22 @@ pub enum ArbitraryGradient {
         #[serde(rename = "size")]
         size: Option<[f32; 2]>,
     },
+    /// CSS `conic-gradient`。色带从 `from` 角起顺时针绕中心一周。
+    #[serde(rename = "conic")]
+    ConicGradient {
+        /// `from <angle>`（deg，0 = 12 点方向，顺时针）。`None` = 0。
+        #[serde(rename = "angleDeg")]
+        angle_deg: Option<f32>,
+        /// `at <position>`（单位盒内比例）。`None` = 盒中心 `[0.5, 0.5]`。
+        #[serde(rename = "center")]
+        center: Option<[f32; 2]>,
+        #[serde(rename = "stops")]
+        stops: Vec<GradientStop>,
+        #[serde(rename = "size")]
+        size: Option<[f32; 2]>,
+        #[serde(rename = "repeat")]
+        repeat: bool,
+    },
 }
 
 impl std::hash::Hash for ArbitraryGradient {
@@ -1052,6 +1068,29 @@ impl std::hash::Hash for ArbitraryGradient {
                     s[1].to_bits().hash(state);
                 }
             }
+            ArbitraryGradient::ConicGradient {
+                angle_deg,
+                center,
+                stops,
+                size,
+                repeat,
+            } => {
+                if let Some(a) = angle_deg {
+                    a.to_bits().hash(state);
+                }
+                if let Some(c) = center {
+                    c[0].to_bits().hash(state);
+                    c[1].to_bits().hash(state);
+                }
+                for stop in stops {
+                    stop.hash(state);
+                }
+                if let Some(s) = size {
+                    s[0].to_bits().hash(state);
+                    s[1].to_bits().hash(state);
+                }
+                repeat.hash(state);
+            }
         }
     }
 }
@@ -1060,7 +1099,8 @@ impl ArbitraryGradient {
     pub fn stops(&self) -> &[GradientStop] {
         match self {
             ArbitraryGradient::LinearGradient { stops, .. }
-            | ArbitraryGradient::RadialGradient { stops, .. } => stops,
+            | ArbitraryGradient::RadialGradient { stops, .. }
+            | ArbitraryGradient::ConicGradient { stops, .. } => stops,
             ArbitraryGradient::Turbulence { .. } => &[],
         }
     }
@@ -1068,7 +1108,8 @@ impl ArbitraryGradient {
     pub fn repeat(&self) -> bool {
         match self {
             ArbitraryGradient::LinearGradient { repeat, .. }
-            | ArbitraryGradient::RadialGradient { repeat, .. } => *repeat,
+            | ArbitraryGradient::RadialGradient { repeat, .. }
+            | ArbitraryGradient::ConicGradient { repeat, .. } => *repeat,
             ArbitraryGradient::Turbulence { .. } => false,
         }
     }

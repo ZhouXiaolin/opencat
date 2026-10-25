@@ -632,6 +632,50 @@ fn build_radial_gradient(
     }
 }
 
+/// Build a `ShaderSpec::SweepGradient` (CSS `conic-gradient`) for `box_`.
+///
+/// CSS 角度语义（`from θ`，0 = 12 点方向、顺时针）在此换算成 Skia sweep
+/// 角度（0 = +x 轴；y 轴向下，顺时针为正）：12 点方向 = −90°，故 α = θ − 90。
+/// stop 位置是绕心比例（0..1 映射一整圈 360°）；`repeat`（repeating-conic）
+/// 把 shader 收缩到最后一个 stop 的周期并配 `TileMode::Repeat`，与 linear
+/// 的收缩逻辑同构。
+fn build_sweep_gradient(
+    angle_deg: Option<f32>,
+    center_ratio: [f32; 2],
+    stops: &[GradientStop],
+    repeat: bool,
+    tile_mode: TileMode,
+    box_: GradientBox,
+) -> ShaderSpec {
+    let start = angle_deg.unwrap_or(0.0) - 90.0;
+    // 比例直接就是绕心位置；Px 形态的 stop 在 conic 语法里不合法，解析层
+    // 只产生 Fraction——这里沿用同一换算兜底（px 数值按比例处理）。
+    let dev = stop_device_positions(stops, 1.0);
+    let extent = if repeat {
+        let period = dev.iter().cloned().fold(0.0_f32, f32::max);
+        if period > 0.0 { period } else { 1.0 }
+    } else {
+        1.0
+    };
+    let positions: Vec<f32> = dev
+        .iter()
+        .map(|d| if extent > 0.0 { d / extent } else { 0.0 })
+        .collect();
+    let colors = stops
+        .iter()
+        .map(|s| color_token_to_rgba(&s.color))
+        .collect();
+    ShaderSpec::SweepGradient {
+        center: box_.to_device(center_ratio[0] * box_.w, center_ratio[1] * box_.h),
+        start_angle_deg: start,
+        end_angle_deg: start + 360.0 * extent,
+        stops: positions,
+        colors,
+        tile_mode,
+        interpolate_premul: true,
+    }
+}
+
 /// Convert an arbitrary CSS-syntax gradient into a canvas `ShaderSpec` mapped
 /// onto the node `rect` (or its `background-size` tile).
 fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, rect: Rect) -> ShaderSpec {
@@ -677,6 +721,24 @@ fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, rect: Rect) -
                 extent: *extent,
             };
             build_radial_gradient(box_, &params, stops, *repeat)
+        }
+        ArbitraryGradient::ConicGradient {
+            angle_deg,
+            center,
+            stops,
+            size,
+            repeat,
+        } => {
+            let box_ = match size {
+                Some(s) => GradientBox::with_size(&rect, *s),
+                None => GradientBox::from_rect(&rect),
+            };
+            let tile_mode = if *repeat || size.is_some() {
+                TileMode::Repeat
+            } else {
+                TileMode::Clamp
+            };
+            build_sweep_gradient(*angle_deg, center.unwrap_or([0.5, 0.5]), stops, *repeat, tile_mode, box_)
         }
         ArbitraryGradient::Turbulence {
             base_frequency,

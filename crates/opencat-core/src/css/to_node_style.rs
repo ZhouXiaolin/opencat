@@ -965,6 +965,7 @@ pub fn apply_background_size_to_layers(style: &mut crate::style::NodeStyle) {
             let size = match gradient {
                 ArbitraryGradient::LinearGradient { size, .. }
                 | ArbitraryGradient::RadialGradient { size, .. }
+                | ArbitraryGradient::ConicGradient { size, .. }
                 | ArbitraryGradient::Turbulence { size, .. } => size,
             };
             if size.is_none() {
@@ -987,6 +988,8 @@ fn gradient_to_fill(g: &Gradient) -> Option<BackgroundFill> {
         Gradient::RepeatingLinear(lg) => linear_to_fill(lg, true),
         Gradient::Radial(rg) => radial_to_fill(rg, false),
         Gradient::RepeatingRadial(rg) => radial_to_fill(rg, true),
+        Gradient::Conic(cg) => conic_to_fill(cg, false),
+        Gradient::RepeatingConic(cg) => conic_to_fill(cg, true),
         _ => None,
     }
 }
@@ -1074,7 +1077,28 @@ fn radial_to_fill(
 
     // `center` 位置是单位盒内的比例；像素位置暂按比例近似（径向中心实际
     // 只用到百分比形态）。
-    let center_x = match &rg.position.x {
+    let center = css_position_ratio(&rg.position);
+
+    Some(BackgroundFill::ArbitraryGradient {
+        gradient: crate::style::ArbitraryGradient::RadialGradient {
+            center,
+            stops: gradient_items_to_stops(&rg.items)?,
+            size: None,
+            repeat,
+            shape,
+            radii,
+            extent,
+        },
+    })
+}
+
+/// CSS `at <position>` 解析为单位盒内比例（与 radial/conic 共用；像素位置
+/// 暂按比例近似，语料只用到百分比形态）。
+fn css_position_ratio(
+    position: &lightningcss::values::position::Position,
+) -> [f32; 2] {
+    use lightningcss::values::position::{PositionComponent, VerticalPositionKeyword};
+    let x = match &position.x {
         PositionComponent::Center => 0.5,
         PositionComponent::Length(LengthPercentage::Percentage(p)) => p.0,
         PositionComponent::Length(LengthPercentage::Dimension(d)) => {
@@ -1089,7 +1113,7 @@ fn radial_to_fill(
         }
         _ => 0.5,
     };
-    let center_y = match &rg.position.y {
+    let y = match &position.y {
         PositionComponent::Center => 0.5,
         PositionComponent::Length(LengthPercentage::Percentage(p)) => p.0,
         PositionComponent::Length(LengthPercentage::Dimension(d)) => {
@@ -1104,18 +1128,56 @@ fn radial_to_fill(
         }
         _ => 0.5,
     };
+    [x, y]
+}
 
+fn conic_to_fill(
+    cg: &lightningcss::values::gradient::ConicGradient,
+    repeat: bool,
+) -> Option<BackgroundFill> {
     Some(BackgroundFill::ArbitraryGradient {
-        gradient: crate::style::ArbitraryGradient::RadialGradient {
-            center: [center_x, center_y],
-            stops: gradient_items_to_stops(&rg.items)?,
+        gradient: crate::style::ArbitraryGradient::ConicGradient {
+            angle_deg: Some(cg.angle.to_degrees() as f32),
+            center: Some(css_position_ratio(&cg.position)),
+            stops: conic_items_to_stops(&cg.items)?,
             size: None,
             repeat,
-            shape,
-            radii,
-            extent,
         },
     })
+}
+
+/// conic 的色标位置是角度（deg）或比例；长度单位在 conic 里不合法，含 calc
+/// 的色标整段丢弃（与 linear 分支对未知形态的 `continue` 一致）。
+fn conic_items_to_stops(
+    items: &[lightningcss::values::gradient::GradientItem<
+        lightningcss::values::angle::AnglePercentage,
+    >],
+) -> Option<Vec<GradientStop>> {
+    let mut stops = Vec::new();
+    let total = items.len().max(2) as f32;
+    for (i, item) in items.iter().enumerate() {
+        let lightningcss::values::gradient::GradientItem::ColorStop(stop) = item else {
+            continue;
+        };
+        let color = css_color_to_f32(&stop.color)?;
+        let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        use lightningcss::values::angle::AnglePercentage;
+        use lightningcss::values::percentage::DimensionPercentage;
+        let (pos, unit) = match &stop.position {
+            Some(DimensionPercentage::Percentage(p)) => (p.0, StopUnit::Fraction),
+            Some(DimensionPercentage::Dimension(a)) => {
+                (a.to_degrees() as f32 / 360.0, StopUnit::Fraction)
+            }
+            None => (i as f32 / (total - 1.0), StopUnit::Fraction),
+            _ => continue,
+        };
+        stops.push(GradientStop {
+            pos,
+            unit,
+            color: ColorToken::Custom(ch(color[0]), ch(color[1]), ch(color[2]), ch(color[3])),
+        });
+    }
+    Some(stops)
 }
 
 fn extent_from_css(e: &lightningcss::values::gradient::ShapeExtent) -> crate::style::RadialExtent {

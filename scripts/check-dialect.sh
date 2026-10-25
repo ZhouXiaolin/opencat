@@ -37,11 +37,11 @@ STRICT_PATTERNS=(
     'ctx\.getCanvasById\b'        # 批次 ②：CK.MakeCanvasSurface(id) 唯一路
     'useCanvasKit\b'              # 批次 ②：同上
     'useCanvas\b'                 # 批次 ②：useFrame + MakeCanvasSurface 拆解
+    'ly\.(pixel|scan|draw|surface|source)\b'  # 批次 ⑤：liangyi 退役——官方 RuntimeEffect(SKSL) / ctx.surface 唯一路
 )
 
 # 批次目标面：迁移闭环时移入 STRICT
 PENDING_PATTERNS=(
-    'ly\.(pixel|scan)\b'          # liangyi 退役已决策，前置迁移（putImageData+资源像素读回+示例过 oracle）未闭环
     'ctx\.three(js)?\b'           # ③ three 纵切：import * as THREE from 'three'
     'useThree\b'                  # ③ three 纵切：同上
 )

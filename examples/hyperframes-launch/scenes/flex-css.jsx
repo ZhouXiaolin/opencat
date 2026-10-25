@@ -93,8 +93,8 @@ export default function FlexCss() {
       });
     }
 
-    /* gradient cells: conic ramp is a ly.pixel lambda (engine has no conic
-       gradient); the rotation/breathing stay DOM tweens on the canvas node */
+    /* gradient cells: plain CSS conic-gradients now (engine rasterizes them
+       natively); the rotation/breathing stay DOM tweens on the div nodes */
     tl.fromTo('fc-cv-grad1', { rotation: 0 }, { rotation: 360, duration: CSS_DUR, ease: 'none' }, A(0));
     tl.fromTo('fc-cv-grad2', { rotation: 0 }, { rotation: 360, duration: CSS_DUR, ease: 'none' }, A(0));
     tl.fromTo('fc-cv-grad1', { scale: 1 }, { scale: 1.12, duration: 0.28, ease: 'sine.inOut', yoyo: true, repeat: 2 }, A(0.10));
@@ -122,8 +122,6 @@ export default function FlexCss() {
     drawSpin(FC_CK.MakeCanvasSurface('fc-cv-spin2').getCanvas(), t, 0.8, CSS_P.teal, CSS_P.orange, FC_CK);
     drawOrbit(FC_CK.MakeCanvasSurface('fc-cv-orb1').getCanvas(), t, 1, [CSS_P.red, CSS_P.blue, CSS_P.orange], FC_CK);
     drawOrbit(FC_CK.MakeCanvasSurface('fc-cv-orb2').getCanvas(), t, -1, [CSS_P.teal, CSS_P.purple, CSS_P.lime], FC_CK);
-    drawConic(FC_CK.MakeCanvasSurface('fc-cv-grad1').getCanvas(), [[230, 57, 70], [244, 162, 97], [42, 157, 143], [69, 123, 157]]);
-    drawConic(FC_CK.MakeCanvasSurface('fc-cv-grad2').getCanvas(), [[107, 76, 154], [212, 115, 138], [132, 169, 140], [29, 53, 87]]);
   });
 
   return (
@@ -150,7 +148,7 @@ export default function FlexCss() {
           </div>
           <div id="fc-c3" className={CSS_CELL}><div id="fc-morph" className="w-[80px] h-[80px] rounded-[8px] bg-[#e63946]"></div></div>
           <div id="fc-c4" className={CSS_CELL}><canvas id="fc-cv-orb1" className="w-[100px] h-[100px]" /></div>
-          <div id="fc-c5" className={CSS_CELL}><canvas id="fc-cv-grad1" className="w-[110px] h-[110px]" /></div>
+          <div id="fc-c5" className={CSS_CELL}><div id="fc-cv-grad1" className="w-[110px] h-[110px] rounded-full bg-[conic-gradient(#e63946,#f4a261,#2a9d8f,#457b9d,#e63946)]"></div></div>
 
           <div id="fc-c6" className={CSS_CELL}>
             <div className="flex flex-col gap-[10px] w-[160px]">
@@ -179,7 +177,7 @@ export default function FlexCss() {
           </div>
           <div id="fc-c11" className={CSS_CELL}><canvas id="fc-cv-spin2" className="w-[80px] h-[80px]" /></div>
 
-          <div id="fc-c12" className={CSS_CELL}><canvas id="fc-cv-grad2" className="w-[110px] h-[110px]" /></div>
+          <div id="fc-c12" className={CSS_CELL}><div id="fc-cv-grad2" className="w-[110px] h-[110px] rounded-full bg-[conic-gradient(#6b4c9a,#d4738a,#84a98c,#1d3557,#6b4c9a)]"></div></div>
           <div id="fc-c13" className={CSS_CELL}><canvas id="fc-cv-orb2" className="w-[100px] h-[100px]" /></div>
           <div id="fc-c14" className={CSS_CELL}>
             <div className="flex items-end gap-[6px] h-[90px]">
@@ -249,29 +247,7 @@ function drawOrbit(c, t, dir, cols, ck) {
   }
 }
 
-/* conic-gradient ramp as a ly.pixel lambda (flex-css.html:344-345). Stops
-   are uniform over the circle, starting at 12 o'clock, clockwise. The kernel
-   is uniform-driven, so one module-level instance serves both cells. */
-function drawConic(c, stops) {
-  if (!drawConic._kern) {
-    drawConic._kern = ly.pixel((uv, u) => {
-      const dx = uv.x - 55;
-      const dy = uv.y - 55;
-      const d = sqrt(dx * dx + dy * dy);
-      let a = atan2(dx, -dy);
-      if (a < 0) a = a + 6.283185307179586;
-      const t = a / 6.283185307179586;
-      let col = u.c0;
-      if (t < 0.25) col = u.c0 + (u.c1 - u.c0) * (t * 4);
-      else if (t < 0.5) col = u.c1 + (u.c2 - u.c1) * (t * 4 - 1);
-      else if (t < 0.75) col = u.c2 + (u.c3 - u.c2) * (t * 4 - 2);
-      else col = u.c3 + (u.c0 - u.c3) * (t * 4 - 3);
-      const al = d > 54.5 ? 0 : 1;
-      return [col.x / 255, col.y / 255, col.z / 255, al];
-    }, { uniforms: { c0: 'float3', c1: 'float3', c2: 'float3', c3: 'float3' } });
-  }
-  ly.draw(c, drawConic._kern, {
-    rect: [0, 0, 110, 110],
-    uniforms: { c0: stops[0], c1: stops[1], c2: stops[2], c3: stops[3] },
-  });
-}
+/* gradient cells are plain CSS conic-gradients now (flex-css.html:344-345):
+   uniform stops from 12 o'clock, clockwise, on a 110px circle. The engine
+   rasterizes the CSS conic-gradient natively (lightningcss → sweep shader).
+   The rotation/scale tweens above stay DOM tweens on the div nodes. */

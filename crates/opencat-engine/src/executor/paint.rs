@@ -262,6 +262,31 @@ fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
                 matrix.as_ref(),
             )
         }
+        ShaderSpec::SweepGradient {
+            center,
+            start_angle_deg,
+            end_angle_deg,
+            stops,
+            colors,
+            tile_mode,
+            interpolate_premul,
+        } => {
+            let skia_colors: Vec<Color> = colors.iter().map(|c| float4_to_color(*c)).collect();
+            let grad_flags = if *interpolate_premul {
+                Some(gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL)
+            } else {
+                None
+            };
+            gradient_shader::sweep(
+                (center[0], center[1]),
+                skia_colors.as_slice(),
+                Some(stops.as_slice()),
+                convert_tile_mode(*tile_mode),
+                (*start_angle_deg, *end_angle_deg),
+                grad_flags,
+                None,
+            )
+        }
         ShaderSpec::Turbulence {
             base_frequency,
             num_octaves,

@@ -1041,7 +1041,9 @@ function IntroCard() {
        not know `backdropBlur`, so a tween on it never reaches the store. */
     T.set('next-card', { opacity: 0, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 0);
     T.set('next-card', { opacity: 1, scale: 1.45, filter: 'blur(14px)', transformOrigin: '50% 50%' }, 3.1);
-    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9, ease: 'cubic-bezier(0.266, 0.47, 0.58, 0.908)' }, 3.1);
+    /* upstream `entryEase` (vfx-text-cursor.html:332) is the quadratic
+       `-0.806t² + 1.806t`, not a cubic-bezier — the two differ mid-tween. */
+    T.to('next-card', { scale: 0.88, filter: 'blur(0px)', duration: 0.9, ease: (t) => -0.806 * t * t + 1.806 * t }, 3.1);
     T.to('next-card', { scale: 0.84, filter: 'blur(1.5px)', duration: 0.4, ease: 'linear' }, 4.0);
 
     /* phrase A: "HTML" types (typeStep .085, titleHold .25), caret rides the
@@ -1055,7 +1057,12 @@ function IntroCard() {
     var widths = measurePrefixes(ctx, '__vhc_htmlW', '900 292px "Big Shoulders Display"', '4.38px', HTML_TEXT);
     var parts = new SplitText(ctx.getNode('html-type'), { type: 'chars' }).chars;
     T.set('html-type', { opacity: 1 }, 0);
-    T.set('html-word', { x: 300, y: -6, scale: 1.8, transformOrigin: '50% 50%' }, 0);
+    /* upstream `getTitleOffset()` (vfx-text-cursor.html:336-344) reads the
+       laid-out boxes of the card and the typed word. This engine lays out text
+       without exposing those boxes to script, so the same offset is calibrated
+       against the reference render instead: measured at 292px, the word box is
+       centred on the card and the ink starts 85,130 card-local from it. */
+    T.set('html-word', { x: 85, y: 130, scale: 1.8, transformOrigin: '50% 50%' }, 0);
     T.set('html-caret', { opacity: 0, left: 0 }, 0);
     T.set('html-caret', { opacity: 1 }, htmlStart - 0.05);
     for (var i = 0; i < parts.length; i++) {
@@ -1093,7 +1100,7 @@ function IntroCard() {
         <div id="phrase-a" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] flex flex-col items-center justify-center text-center text-[#ffffff] text-[292px] font-[inter900] font-black leading-[0.88] tracking-[0]">
           <div id="pa-line1" class="flex items-center justify-center">
             <div id="html-word" class="relative text-left text-[#f6ff7a] font-[big] font-black tracking-[4.38px]">
-              <text id="html-type" class="font-[big] font-black tracking-[4.38px]">HTML</text>
+              <text id="html-type" class="font-[big] font-black tracking-[4.38px]" style={{ textShadow: '-6px 0 16px rgba(73,242,255,0.48), 6px 0 16px rgba(255,79,216,0.34), 0 0 24px rgba(246,255,122,0.34), 0 24px 72px rgba(0,0,0,0.56)' }}>HTML</text>
               <text id="html-caret" class="absolute left-[0px] top-[0px] text-[#f6ff7a] font-[big] font-black text-[292px] leading-[0.88] opacity-0">|</text>
             </div>
             <text id="html-tail" class="opacity-0">{'\u2013'}in</text>

@@ -5,13 +5,17 @@
 //!
 //! 它是两侧之间的**资源中间层**，管三件事：
 //!
-//! - **上下文**（[`win32::WglContext`] / [`egl::EglContext`]）：宿主从自己的
-//!   窗口建出来，交给 wgpu 加入。两端共享同一个 context，才谈得上纹理
-//!   零拷贝。离线渲染没有窗口，上下文由 wgpu 自建，不经过这里——但 GL
-//!   入口解析（[`egl::load_proc`]）两侧共用。
+//! - **上下文**（[`win32::WglContext`] / [`egl::EglContext`] / macOS 的
+//!   [`metal::DeviceContext`]）：宿主从自己的窗口建出来，交给 wgpu 加入。
+//!   两端共享同一个 context，才谈得上纹理零拷贝。Metal 没有 GL 式
+//!   context——一块系统 MTLDevice 天然共享，[`metal::DeviceContext`] 只补
+//!   一条读回自用队列。离线渲染没有窗口，GL 上下文由 wgpu 自建，不经过
+//!   这里——但 GL 入口解析（[`egl::load_proc`]）两侧共用。
 //! - **纹理登记**（[`TextureRegistry`]）：生产方交出「原生句柄 + 保活
 //!   凭据」，消费方凭 [`TextureId`] 取用、归还。谁保活、谁归还在这一处定。
-//! - **渲染目标**（[`gl::Target`]）：离屏目标的原生纹理、FBO 与双缓冲读回。
+//! - **渲染目标**（[`gl::Target`] / [`metal::Target`]）：离屏目标的原生
+//!   纹理、FBO/Metal staging 与双缓冲读回。两者接口同形，调用方经
+//!   [`Target`] 别名按平台取得正确的那一个。
 //!
 //! 本 crate 只依赖 `std` 与平台 FFI——它认识原生 API，不认识 wgpu，也不
 //! 认识 Skia。所以 `cfg(target_os)` 止步于此，而 three 不会被拖进 Skia。
@@ -21,6 +25,8 @@
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod gl;
+#[cfg(target_os = "macos")]
+pub mod metal;
 #[cfg(target_os = "linux")]
 pub mod egl;
 mod registry;
@@ -35,6 +41,19 @@ pub use registry::{TextureId, TextureRegistry};
 #[link(name = "GL")]
 #[link(name = "EGL")]
 unsafe extern "C" {}
+
+/// 离屏渲染目标：GL 上是 FBO + PBO 双缓冲，Metal 上是 staging buffer 双缓冲。
+///
+/// 两个平台的 `Target` 接口同形（`new` / `width` / `height` / `has_readback`
+/// / `readback`，Metal 多一个帧头必须调的 `wait_inflight`），调用方只见本
+/// 别名。
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+pub use backend::Target;
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+pub use gl as backend;
+#[cfg(target_os = "macos")]
+pub use metal as backend;
 
 /// 后端原生纹理句柄。
 ///

@@ -110,17 +110,15 @@ fn render_pipeline_frame_to_rgba(
     Ok(rgba)
 }
 
-/// GPU 合成路径的会话状态（Windows=WGL / Linux=EGL 的 GL 后端）。
+/// GPU 合成路径的会话状态（macOS=Metal；Windows=WGL / Linux=EGL 的 GL）。
 ///
 /// 持有 Skia GPU 合成器与它背后的 wgpu 渲染器。**锁纪律**：合成器的每个
 /// 方法都必须在 `renderer.with_context` 的锁内调用（见
-/// [`crate::gpu_compositor`] 的模块文档）。
+/// [`crate::gpu_compositor`] 的模块文档）；Metal 没有共享 context，闭包直接
+/// 执行——差值由 [`opencat_three::LazyRenderer3d::run_with_gpu`] 收口。
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub struct GpuRenderSession {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
     compositor: crate::gpu_compositor::GpuCompositor,
-    #[cfg(target_os = "macos")]
-    compositor: crate::gpu_compositor_metal::MetalCompositor,
     renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
     /// 共享纹理登记处（3D 输出纹理的取用与归还）。
     textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
@@ -158,29 +156,17 @@ impl GpuRenderSession {
             anyhow::bail!("合成目标没有原生纹理句柄");
         }
 
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        // 锁内建 Skia 合成器。GL 需要 context current（Skia 共享同一
+        // HGLRC），Metal 只需要两个裸句柄——平台差异在
+        // `CompositorBackend` 的构造里，调用形状相同。
+        // 平台桥在锁外构造：Metal 要取设备/队列句柄（那本身是一次
+        // `with_renderer`），放进 `run_with_gpu` 的闭包里会自我死锁。
+        let backend = compositor_backend(&renderer);
         let compositor = renderer
-            .with_context(|| {
-                crate::gpu_compositor::GpuCompositor::new(target_token, native, width, height)
+            .run_with_gpu(|| {
+                crate::gpu_compositor::GpuCompositor::new(backend, native, width, height)
             })
-            .ok_or_else(|| anyhow!("GL context 不可用"))??;
-
-        #[cfg(target_os = "macos")]
-        let compositor = {
-            // Metal 没有 "current context"：直接取设备/队列裸句柄建 Skia context。
-            let handles = renderer
-                .with_renderer(|r| (r.metal_device_raw(), r.metal_queue_raw()))
-                .ok_or_else(|| anyhow!("取 Metal 设备句柄失败（渲染器未就绪？）"))?;
-            let device = handles
-                .0
-                .ok_or_else(|| anyhow!("MTLDevice 句柄为空"))?;
-            let queue = handles
-                .1
-                .ok_or_else(|| anyhow!("MTLCommandQueue 句柄为空"))?;
-            crate::gpu_compositor_metal::MetalCompositor::new(
-                device, queue, native, width, height,
-            )?
-        };
+            .ok_or_else(|| anyhow!("GPU 上下文不可用"))??;
 
         Ok(Self {
             compositor,
@@ -267,22 +253,15 @@ impl GpuRenderSession {
         // GL 版必须在 context 锁内做（Skia 共享同一 HGLRC）；Metal 版不需要
         // 锁，Skia 自己的命令队列与 wgpu 的队列在 MTLDevice 层面同步。
         if !gpu_handles.is_empty() {
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
             renderer
-                .with_context(|| compositor.reset_backend_state())
-                .ok_or_else(|| anyhow!("GL context 不可用"))?;
-            #[cfg(target_os = "macos")]
-            compositor.reset_backend_state();
+                .run_with_gpu(|| compositor.reset_backend_state())
+                .ok_or_else(|| anyhow!("GPU 上下文不可用"))?;
         }
 
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
         let rgba = renderer
-            .with_context(|| -> Result<Option<Vec<u8>>> {
+            .run_with_gpu(|| -> Result<Option<Vec<u8>>> {
                 let (canvas, skia) = compositor.split();
-                let mut resolver = crate::gpu_compositor::CompositorResolver {
-                    skia,
-                    textures,
-                };
+                let mut resolver = crate::gpu_compositor::CompositorResolver { skia, textures };
                 crate::consumer::execute_render_frame_with_gpu(
                     &mut frame,
                     &media_plan,
@@ -300,35 +279,38 @@ impl GpuRenderSession {
                     compositor.finish_frame_blocking().map(Some)
                 }
             })
-            .ok_or_else(|| anyhow!("GL context 不可用"))??;
-
-        #[cfg(target_os = "macos")]
-        let rgba = {
-            let (canvas, skia) = compositor.split();
-            let mut resolver = crate::gpu_compositor_metal::CompositorResolver { skia, textures };
-            crate::consumer::execute_render_frame_with_gpu(
-                &mut frame,
-                &media_plan,
-                executor,
-                pipeline.loader(),
-                media_ctx,
-                generated_cache,
-                Some(&mut resolver),
-                canvas,
-            )
-            .map_err(|e| anyhow!("{e}"))?;
-            if deferred {
-                compositor.finish_frame()
-            } else {
-                compositor.finish_frame_blocking().map(Some)
-            }?
-        };
+            .ok_or_else(|| anyhow!("GPU 上下文不可用"))??;
 
         // 锁外：归还本帧的 3D 输出纹理（丢掉保活凭据，纹理随即销毁）。
         for id in gpu_handles {
             textures.release(id);
         }
         Ok(rgba)
+    }
+}
+
+/// 平台桥的构造：GL 只需「context 已 current」这一事实（`run_with_gpu`
+/// 保证），Metal 需要设备与队列的裸句柄。
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+fn compositor_backend(
+    renderer: &opencat_three::LazyRenderer3d,
+) -> crate::gpu_compositor::CompositorBackend {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        let _ = renderer;
+        crate::gpu_compositor::CompositorBackend::Gl
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // Metal 没有 "current context"：取设备/队列裸句柄建 Skia context。
+        // 两者在 `run_with_gpu` 的外层锁内取得，与 wgpu 侧同一块 MTLDevice。
+        let (device, queue) = renderer
+            .with_renderer(|r| (r.metal_device_raw(), r.metal_queue_raw()))
+            .unwrap_or((None, None));
+        crate::gpu_compositor::CompositorBackend::Metal {
+            device: device.unwrap_or(0),
+            queue: queue.unwrap_or(0),
+        }
     }
 }
 

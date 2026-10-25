@@ -1,50 +1,53 @@
-//! Skia GPU 合成器（Windows=WGL / Linux=EGL 的 GL 后端）。
+//! Skia GPU 合成器（Windows=WGL / Linux=EGL 走 GL；macOS 走 Metal）。
 //!
-//! 全片 GPU 化时，Skia 不再光栅到 CPU surface，而是在一块自建 GL FBO 上
-//! 合成；`ctx.three` 的 3D 输出以 GL texture id 零拷贝导入（见
+//! 全片 GPU 化时，Skia 不再光栅到 CPU surface，而是直接合成到一块 3D 渲染
+//! 器产出的纹理上；`ctx.three` 的输出以原生纹理句柄零拷贝导入（见
 //! [`opencat_three::LazyRenderer3d::render_to_gpu`]），省掉每帧
-//! `wgpu → CPU → Skia` 的整帧往返。每帧末尾只 `read_pixels` 一次交给编码器。
+//! `wgpu → CPU → Skia` 的整帧往返。每帧末尾只读回一次交给编码器。
 //!
-//! ## 与 wgpu 的上下文共享
+//! ## 两个平台只差三处
 //!
-//! Skia 用 wgpu 的 `HGLRC` 建 `DirectContext`（同一 GL context），因此两者
-//! 共享同一资源空间——wgpu 建的纹理 Skia 可直接采样。
+//! 本模块只有三个平台分支，都用 `cfg` 收在函数体内，调用方（离线渲染、
+//! 预览）完全无感知：
 //!
-//! ## 锁纪律（硬约束）
+//! | 环节 | GL | Metal |
+//! |---|---|---|
+//! | 建 `DirectContext` | 用 wgpu 的 `HGLRC` 建（共享资源空间） | 用同一 `MTLDevice` 建 |
+//! | 包渲染目标 | GL FBO（`gl::Target`） | MTLTexture（`metal::Target`） |
+//! | 导入 3D 纹理 | `make_gl` | `make_mtl` |
+//!
+//! ## 锁纪律（GL 平台的硬约束）
 //!
 //! wgpu 的 GL 后端用一把互斥锁串行化 context 访问，**1 秒超时后 panic**。
 //! 因此：
 //!
 //! - 所有 wgpu 调用（建纹理、渲染）必须在**锁外**完成；
-//! - Skia / 裸 GL 操作在 [`opencat_three::LazyRenderer3d::with_context`]
-//!   的锁内完成；
+//! - Skia / 裸 GL 操作在 `LazyRenderer3d::run_with_gpu` 的闭包内完成；
 //! - 二者**绝不嵌套**。离线渲染逐帧串行（3D → 合成），天然满足。
 //!
-//! 本模块的所有 `&mut self` 方法都假定调用方已持 GL 锁。
+//! Metal 没有 context 概念：wgpu 与 Skia 各持一条 MTLCommandQueue，共享同一
+//! MTLDevice，`run_with_gpu` 直接调用闭包。跨队列顺序由两处保证：wgpu 在 3D
+//! 出口等待 GPU 完成（见 `Renderer3d::render_to_texture`），Skia 读回前由
+//! [`opencat_gpu_native::Target::wait_inflight`] 等上一帧 blit。
 
 use anyhow::{Result, anyhow};
-use opencat_gpu_native::gl;
 use opencat_gpu_native::{NativeTexture, TextureId, TextureRegistry};
 use skia_safe::gpu::SurfaceOrigin;
 use skia_safe::{AlphaType, ColorType, ImageInfo, Surface, gpu};
 
 /// 合成器持有的 GPU 资源。
 ///
-/// 构造与销毁涉及裸 GL 调用（FBO），必须在 GL 锁内进行；其余方法同。
+/// 构造与销毁涉及原生调用（FBO / staging buffer），必须在
+/// `LazyRenderer3d::run_with_gpu` 的闭包内进行；其余方法同。
 /// 合成目标纹理的所有权在 [`opencat_gpu_native::TextureRegistry`] 里，
 /// 所以本模块不依赖 wgpu 类型。
-///
-/// 字段顺序即析构顺序：Skia 先放弃资源，再解 surface，最后 `target` 删
-/// FBO 与 PBO。
 pub struct GpuCompositor {
-    /// Skia 的 GL direct context（建在 wgpu 的 HGLRC 上）。
+    /// Skia 的 direct context（建在 wgpu 的设备/上下文上）。
     skia: gpu::DirectContext,
     /// 包裹目标纹理的 Skia surface（每帧复用）。
     surface: Surface,
-    /// 合成目标：原生纹理 + FBO + 双缓冲读回。
-    target: gl::Target,
-    /// 合成目标在共享纹理表里的凭据（归还凭据，见 `GpuImageHandle::token`）。
-    target_token: TextureId,
+    /// 合成目标：原生纹理 + 双缓冲读回。两个平台同形。
+    target: opencat_gpu_native::Target,
     width: u32,
     height: u32,
 }
@@ -52,68 +55,30 @@ pub struct GpuCompositor {
 impl GpuCompositor {
     /// 建一个 `width × height` 的合成器。
     ///
-    /// `target_token` 与 `native` 由调用方在**锁外**经
-    /// [`opencat_three::LazyRenderer3d::make_composite_target`] 取得——
-    /// 本函数只做锁内的 Skia / 裸 GL 工作。
+    /// `native` 由调用方在**锁外**经
+    /// [`opencat_three::LazyRenderer3d::make_composite_target`] 取得——本函数
+    /// 只做需要原生上下文的 Skia 工作，必须在
+    /// `opencat_three::LazyRenderer3d::run_with_gpu` 的闭包内调用。
+    ///
+    /// `backend` 是平台桥：GL 为空标记（用当前线程的 context），Metal 交出
+    /// `MTLDevice` / `MTLCommandQueue`。
     pub fn new(
-        target_token: TextureId,
+        backend: CompositorBackend,
         native: NativeTexture,
         width: u32,
         height: u32,
     ) -> Result<Self> {
-        let interface = {
-            #[cfg(target_os = "windows")]
-            {
-                gpu::interfaces::make_win()
-                    .ok_or_else(|| anyhow!("Skia make_win interface 失败"))?
-            }
-            #[cfg(target_os = "linux")]
-            {
-                // 与 wgpu 的 EGL context 同一驱动栈；核心入口经 libGL dlsym，
-                // 扩展经 eglGetProcAddress（见 opencat_gpu_native::egl::load_proc）。
-                gpu::gl::Interface::new_load_with(opencat_gpu_native::egl::load_proc)
-                    .ok_or_else(|| anyhow!("Skia GL 接口构建失败（EGL/libGL 入口缺失？）"))?
-            }
-        };
-        let mut skia = gpu::direct_contexts::make_gl(interface, None)
-            .ok_or_else(|| anyhow!("Skia make_gl 失败"))?;
-
-        let target = gl::Target::new(native, width, height)?;
-
-        let brt = gpu::backend_render_targets::make_gl(
-            (width as i32, height as i32),
-            0usize,
-            8,
-            gpu::gl::FramebufferInfo {
-                fboid: target.fbo(),
-                format: gpu::gl::Format::RGBA8.into(),
-                ..Default::default()
-            },
-        );
-        let surface = gpu::surfaces::wrap_backend_render_target(
-            &mut skia,
-            &brt,
-            SurfaceOrigin::TopLeft,
-            ColorType::RGBA8888,
-            None,
-            None,
-        )
-        .ok_or_else(|| anyhow!("wrap_backend_render_target 失败"))?;
-
+        let mut skia = backend.make_direct_context()?;
+        let target = opencat_gpu_native::Target::new(native, width, height)?;
+        let surface = backend.wrap_target(&mut skia, &target, width, height)?;
 
         Ok(Self {
             skia,
             surface,
             target,
-            target_token,
             width,
             height,
         })
-    }
-
-    /// 合成目标纹理的凭据（调用方据此在帧末释放）。
-    pub fn target_token(&self) -> TextureId {
-        self.target_token
     }
 
     pub fn width(&self) -> u32 {
@@ -124,12 +89,14 @@ impl GpuCompositor {
         self.height
     }
 
-    /// 让 Skia 丢弃缓存的 GL 状态，下次绘制时重新查询。
+    /// 让 Skia 丢弃缓存的后端状态，下次绘制时重新查询。
     ///
     /// wgpu 的 3D pass 会改动 GL 状态（绑定、viewport、program……），而 Skia
     /// 的 `DirectContext` 缓存了它上次留下的状态。二者共享同一个 `HGLRC`，
     /// 所以每帧合成前必须让 Skia 失效缓存，否则它会按过期状态发包——在
-    /// NVIDIA 驱动上表现为 `nvoglv64.dll` 里的访问违例。
+    /// NVIDIA 驱动上表现为 `nvg lv64.dll` 里的访问违例。
+    ///
+    /// Metal 上没有共享的 GL 状态，调用无副作用（仍保留以统一调用点）。
     pub fn reset_backend_state(&mut self) {
         self.skia.reset(None);
     }
@@ -149,47 +116,39 @@ impl GpuCompositor {
 
     /// 提交 GPU，并取回**上一帧**的像素。
     ///
-    /// 本帧的像素只是**发起**读回到 PBO 就返回（约 0.1ms），GPU→CPU 的传输
-    /// 交给 DMA 引擎，与下一帧的渲染重叠。所以这里交出的是上一帧的画面——
-    /// 调用方必须容忍一帧延迟（末帧由 `encode_rgba_frames` 多渲染一帧排空）。
-    ///
-    /// 首帧没有在途读回可取，返回 `None`。
+    /// 本帧的像素只是**发起**读回就返回，GPU→CPU 的传输交给 DMA 引擎，与
+    /// 下一帧的渲染重叠。所以这里交出的是上一帧的画面——调用方必须容忍一帧
+    /// 延迟（末帧由 `encode_rgba_frames` 多渲染一帧排空）。首帧返回 `None`。
     pub fn finish_frame(&mut self) -> Result<Option<Vec<u8>>> {
         self.skia
             .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::Yes));
+        // 帧头等上一帧 blit：Metal 跨队列无隐式顺序，不等就会与 Skia 本帧
+        // 对同一纹理的重绘并发（GL 靠 context FIFO 天然免掉这一步）。
+        self.target.wait_inflight();
         if self.target.has_readback() {
-            // 取回上一帧 + 发起本帧。PBO 路径只把传输移出关键路径，帧序不变。
+            // 取回上一帧 + 发起本帧。读回路径只把传输移出关键路径，帧序不变。
             let out = self.target.readback();
-            // 裸 GL 读回解绑了 FBO，Skia 的状态缓存却仍以为它绑着——下一帧
+            // GL 上裸读回解绑了 FBO，Skia 的状态缓存却仍以为它绑着——下一帧
             // 会把 DrawOp 发到空目标上（实测表现为 Skia 读回全零、画面冻结
             // 在旧帧）。读回后必须让 Skia 丢弃缓存，重新查询绑定。
             self.skia.reset(None);
             return Ok(out);
         }
-        // 无 PBO 入口：退回同步读回，帧延迟为 0（首帧即返回本帧）。
-        let mut out = vec![0u8; self.width as usize * self.height as usize * 4];
-        let info = ImageInfo::new(
-            (self.width as i32, self.height as i32),
-            ColorType::RGBA8888,
-            AlphaType::Premul,
-            None,
-        );
-        if !self
-            .surface
-            .read_pixels(&info, &mut out, self.width as usize * 4, (0, 0))
-        {
-            return Err(anyhow!("GPU surface read_pixels 失败"));
-        }
-        Ok(Some(out))
+        // 无读回入口：退回同步读回，帧延迟为 0。
+        Ok(Some(self.read_pixels()?))
     }
 
     /// 提交 GPU 并**同步**读回本帧像素（无延迟）。
     ///
-    /// 单帧 / PNG 序列这类一次一帧的调用方用它——PBO 的一帧延迟会打乱它们
-    /// 的输出。逐帧循环请改用 [`Self::finish_frame`]。
+    /// 单帧 / PNG 序列这类一次一帧的调用方用它——双缓冲的一帧延迟会打乱
+    /// 它们的输出。逐帧循环请改用 [`Self::finish_frame`]。
     pub fn finish_frame_blocking(&mut self) -> Result<Vec<u8>> {
         self.skia
             .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::Yes));
+        self.read_pixels()
+    }
+
+    fn read_pixels(&mut self) -> Result<Vec<u8>> {
         let info = ImageInfo::new(
             (self.width as i32, self.height as i32),
             ColorType::RGBA8888,
@@ -212,6 +171,102 @@ impl Drop for GpuCompositor {
         // Skia 先放弃资源，再解 surface、删 FBO——顺序不能反（surface 引用 FBO）。
         // 字段的 drop 顺序由声明顺序决定，所以这里只做 Skia 那一步。
         self.skia.release_resources_and_abandon();
+    }
+}
+
+/// 平台桥：把「建 DirectContext / 包渲染目标 / 导入纹理」三件事分派到 GL
+/// 或 Metal。
+///
+/// 这是本模块唯一的 `cfg` 集中处。两个变体的构造函数在调用方的 `cfg`
+/// 分支里创建（GL 需要 `&Renderer3d` 上锁，Metal 只需要两个裸句柄）。
+pub enum CompositorBackend {
+    /// GL：`HGLRC` 由 wgpu 持有，Skia 共享同一上下文——入口从当前线程解析
+    /// （调用方保证 context 已 current）。
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    Gl,
+    /// Metal：一块系统 MTLDevice，wgpu 与 Skia 各自的队列共享它。
+    #[cfg(target_os = "macos")]
+    Metal { device: u64, queue: u64 },
+}
+
+impl CompositorBackend {
+    fn make_direct_context(&self) -> Result<gpu::DirectContext> {
+        match self {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            Self::Gl => {
+                let interface = {
+                    #[cfg(target_os = "windows")]
+                    {
+                        gpu::interfaces::make_win()
+                            .ok_or_else(|| anyhow!("Skia make_win interface 失败"))?
+                    }
+                    #[cfg(target_os = "linux")]
+                    {
+                        // 与 wgpu 的 EGL context 同一驱动栈；核心入口经 libGL
+                        // dlsym，扩展经 eglGetProcAddress
+                        // （见 opencat_gpu_native::egl::load_proc）。
+                        gpu::gl::Interface::new_load_with(opencat_gpu_native::egl::load_proc)
+                            .ok_or_else(|| {
+                                anyhow!("Skia GL 接口构建失败（EGL/libGL 入口缺失？）")
+                            })?
+                    }
+                };
+                gpu::direct_contexts::make_gl(interface, None)
+                    .ok_or_else(|| anyhow!("Skia make_gl 失败"))
+            }
+            #[cfg(target_os = "macos")]
+            Self::Metal { device, queue } => {
+                let backend = unsafe {
+                    skia_safe::gpu::mtl::BackendContext::new(
+                        *device as skia_safe::gpu::mtl::Handle,
+                        *queue as skia_safe::gpu::mtl::Handle,
+                    )
+                };
+                gpu::direct_contexts::make_metal(&backend, None)
+                    .ok_or_else(|| anyhow!("Skia make_metal 失败"))
+            }
+        }
+    }
+
+    fn wrap_target(
+        &self,
+        skia: &mut gpu::DirectContext,
+        target: &opencat_gpu_native::Target,
+        width: u32,
+        height: u32,
+    ) -> Result<Surface> {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        let brt = gpu::backend_render_targets::make_gl(
+            (width as i32, height as i32),
+            0usize,
+            8,
+            gpu::gl::FramebufferInfo {
+                fboid: target.fbo(),
+                format: gpu::gl::Format::RGBA8.into(),
+                ..Default::default()
+            },
+        );
+        #[cfg(target_os = "macos")]
+        let brt = unsafe {
+            let info = gpu::mtl::TextureInfo::new(target.texture().raw() as gpu::mtl::Handle);
+            gpu::backend_render_targets::make_mtl((width as i32, height as i32), &info)
+        };
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "macos"
+        )))]
+        let brt = unreachable!();
+
+        gpu::surfaces::wrap_backend_render_target(
+            skia,
+            &brt,
+            SurfaceOrigin::TopLeft,
+            ColorType::RGBA8888,
+            None,
+            None,
+        )
+        .ok_or_else(|| anyhow!("wrap_backend_render_target 失败"))
     }
 }
 
@@ -250,11 +305,12 @@ pub fn import_texture(
     width: u32,
     height: u32,
 ) -> Result<skia_safe::Image> {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let backend_tex = unsafe {
         let info = gpu::gl::TextureInfo {
-            target: gl::TEXTURE_2D,
+            target: opencat_gpu_native::gl::TEXTURE_2D,
             id: native.raw() as u32,
-            format: gl::RGBA8,
+            format: opencat_gpu_native::gl::RGBA8,
             ..Default::default()
         };
         gpu::backend_textures::make_gl(
@@ -264,6 +320,17 @@ pub fn import_texture(
             "opencat-three-output",
         )
     };
+    #[cfg(target_os = "macos")]
+    let backend_tex = unsafe {
+        let info = gpu::mtl::TextureInfo::new(native.raw() as gpu::mtl::Handle);
+        gpu::backend_textures::make_mtl(
+            (width as i32, height as i32),
+            gpu::Mipmapped::No,
+            &info,
+            "opencat-three-output",
+        )
+    };
+
     gpu::images::borrow_texture_from(
         skia,
         &backend_tex,

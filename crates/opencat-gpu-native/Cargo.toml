@@ -14,6 +14,13 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_LibraryLoader",
 ] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# MTLDevice/MTLCommandQueue 与读回 blit。与 opencat-engine 同版本，整棵
+# 依赖树归一到一份构建。
+metal = "0.33.0"
+# 读回 blit 的 completion handler（metal 0.33 自身依赖同一版本）。
+block = "0.1.6"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # EGL 上下文/表面管理（`dynamic` 运行时加载 libEGL.so.1，无需 pkg-config
 # 构建依赖）。Skia 的 binary-cache 构建是 EGL-only（GL 函数解析走

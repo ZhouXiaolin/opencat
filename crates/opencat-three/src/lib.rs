@@ -1336,6 +1336,11 @@ impl Renderer3d {
         Self::from_device(device, queue)
     }
 
+    /// 阻塞版 [`Self::new`]，供非 async 调用方（预览器）用。
+    pub fn new_blocking() -> Result<Self> {
+        pollster::block_on(Self::new())
+    }
+
     /// Linux 离线专用：自建 EGL 4.6 core 离屏上下文 + 外部适配器。
     ///
     /// 上下文由返回的渲染器持有（[`Self::offscreen_egl`]），构造即 make
@@ -3883,6 +3888,37 @@ impl LazyRenderer3d {
         let Ok(renderer) = init else { return None };
         let r = renderer.lock().expect("opencat-three renderer mutex poisoned");
         r.with_gl_context(f)
+    }
+
+    /// 在 GPU 合成的原生上下文就绪时运行 `f`：GL 需 context current（Skia
+    /// 与 wgpu 共享同一 `HGLRC`），Metal 只需两者共享同一 `MTLDevice`，无
+    /// context 可绑。
+    ///
+    /// 这是**离线渲染与预览共用的唯一入口**：调用方写一份代码，平台差异
+    /// 收在这里。
+    ///
+    /// **`f` 内不得再调用本渲染器的任何 wgpu 方法**——GL 上会二次加锁，1 秒
+    /// 后 panic（实测确认）；Metal 上会与外层 `Mutex` 死锁。
+    pub fn run_with_gpu<R>(&self, f: impl FnOnce() -> R) -> Option<R> {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        {
+            self.with_context(f)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // Metal：仍取外层锁，保持与 wgpu 侧对 `Renderer3d` 的互斥（合成
+            // 期间不做 3D 渲染），但不锁 context——没有 context 可锁。
+            self.with_renderer(|_| f())
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "macos"
+        )))]
+        {
+            let _ = f;
+            None
+        }
     }
 
     /// 只取渲染器外层锁（**不加 GL context 锁**），用于建 wgpu 资源。

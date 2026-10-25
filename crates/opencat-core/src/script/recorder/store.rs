@@ -1834,6 +1834,7 @@ mod tests {
                 tone_mapping_exposure: 1.0,
                 output_color_space: crate::ir::scene3::OutputColorSpace3::Linear,
                 environment: None,
+                environment_srgb: false,
                 meshes: vec![crate::ir::scene3::Mesh3 {
                     geometry: crate::ir::scene3::Geometry3::Inline {
                         positions: vec![[0.0; 3]; 3],

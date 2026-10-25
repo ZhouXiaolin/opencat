@@ -34,16 +34,32 @@ pub struct ChartCacheEntry {
     pub dynamic: bool,
 }
 
+/// 一条 WebGL/WebGPU 命令流的录制中间态（frame 级，reset 清空）。
+///
+/// `ops` 是 `[opcode: u8][payload]` 的连续字节流；`bytes`/`byte_ranges` 是
+/// 流内 intern 池（buffer 数据 / 纹理像素 / shader 源码），payload 带 range
+/// id。格式权威定义见 `ir::gpu_stream::gl_opcode`——本类型不解释字节。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct GpuStreamRecord {
+    pub target_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub backend: u8,
+    pub attrs_bits: u8,
+    pub ops: Vec<u8>,
+    pub bytes: Vec<u8>,
+    pub byte_ranges: Vec<crate::ir::draw_types::TableRange>,
+}
+
 #[derive(Default)]
 pub struct MutationStore {
     styles: HashMap<String, NodeStyleMutations>,
     canvases: HashMap<String, CanvasMutations>,
-    /// three-like shim 每帧重提交的 3D 场景快照（key = 目标 canvas id）。
-    scene3s: HashMap<String, crate::ir::scene3::Scene3>,
-    /// realm 级 3D 几何注册表（GLB 一次性解码，快照只带 `Asset { id }`）。
-    /// NOT cleared by reset_for_frame：几何与资产同寿命（prism GLB
-    /// 11280 顶点 / 60096 索引 ≈ 2 MB，注册一次，全片复用）。
-    geometries: crate::ir::scene3::GeometryRegistry,
+    /// 本帧录制的 GPU 命令流（key 顺序 = begin 顺序）。同 target 幂等复用。
+    gpu_streams: Vec<GpuStreamRecord>,
+    /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
+    /// 的存活期由脚本侧的 delete 决定，与帧无关）。
+    gl_next_handle: u32,
     /// Base-style values keyed by (node_id, property_name), set once before
     /// scripts run. Not cleared during reset_for_frame so read_style_value
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
@@ -409,11 +425,10 @@ impl MutationStore {
         );
     }
 
-    /// Record a scene3 placeholder: the draw op (z-order contract) plus a
-    /// table entry carrying **no pixels** — the executing host rasterizes the
-    /// frame's `RenderFrame.scene3` section (engine → opencat-three, web →
-    /// real three.js) and patches the plan entry before draw execution. Same
-    /// id contract as [`Self::record_frame_generated_image`].
+    /// Record a stream placeholder: the draw op (z-order contract) plus a
+    /// table entry carrying **no pixels** — the executing host renders the
+    /// frame's GPU stream section and patches the plan entry before draw
+    /// execution. Same id contract as [`Self::record_frame_generated_image`].
     pub fn record_frame_generated_image_deferred(
         &mut self,
         node_id: &str,
@@ -434,8 +449,8 @@ impl MutationStore {
         );
     }
 
-    /// Record a script-generated image whose pixels live on the GPU (the
-    /// `ctx.three` render-target path). Same contract as
+    /// Record a script-generated image whose pixels live on the GPU. Same
+    /// contract as
     /// [`Self::record_frame_generated_image`], except the pixels are carried
     /// as an opaque host handle instead of a CPU buffer.
     pub fn record_frame_generated_image_gpu(
@@ -621,39 +636,94 @@ impl MutationStore {
             .map(|img| (img.width, img.height, &img.rgba))
     }
 
-    /// Drain this frame's 3D scene snapshots (three-like shim 全量重提交).
-    /// Used by the realm to rasterize each snapshot into a frame generated
-    /// image; callers re-commit the scenes afterwards so the mutation
-    /// snapshot still carries them (`snapshot_mutations` 语义不变).
-    pub fn take_scene3s(
+    // ── GPU 命令流录制（webgl_api.js 录制面 → 执行宿主）──────────────
+
+    /// 开一条目标 canvas 的命令流。同 target 同帧幂等：复用已开的流
+    /// （getContext 二次调用返回同一录制上下文，不重置已录命令）。
+    pub fn gl_stream_begin(
         &mut self,
-    ) -> HashMap<String, crate::ir::scene3::Scene3> {
-        std::mem::take(&mut self.scene3s)
+        target_id: &str,
+        width: u32,
+        height: u32,
+        backend: u8,
+        attrs_bits: u8,
+    ) {
+        if let Some(existing) = self
+            .gpu_streams
+            .iter_mut()
+            .find(|s| s.target_id == target_id)
+        {
+            existing.width = width;
+            existing.height = height;
+            return;
+        }
+        self.gpu_streams.push(GpuStreamRecord {
+            target_id: target_id.to_string(),
+            width,
+            height,
+            backend,
+            attrs_bits,
+            ..Default::default()
+        });
+    }
+
+    /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。
+    pub fn gl_stream_emit(&mut self, target_id: &str, cmd: Vec<u8>) -> anyhow::Result<()> {
+        let stream = self
+            .gpu_streams
+            .iter_mut()
+            .find(|s| s.target_id == target_id)
+            .ok_or_else(|| anyhow::anyhow!("gl emit: no stream open for canvas '{target_id}'"))?;
+        stream.ops.extend_from_slice(&cmd);
+        Ok(())
+    }
+
+    /// intern 一段字节（buffer 数据 / 纹理像素 / shader 源码 UTF-8），
+    /// 返回 payload 用的 range id（内容寻址去重）。
+    pub fn gl_stream_intern(&mut self, target_id: &str, data: Vec<u8>) -> anyhow::Result<u32> {
+        let stream = self
+            .gpu_streams
+            .iter_mut()
+            .find(|s| s.target_id == target_id)
+            .ok_or_else(|| anyhow::anyhow!("gl intern: no stream open for canvas '{target_id}'"))?;
+        for (i, range) in stream.byte_ranges.iter().enumerate() {
+            let existing =
+                &stream.bytes[range.start as usize..(range.start + range.len) as usize];
+            if existing.len() == data.len() && existing == data.as_slice() {
+                return Ok(i as u32);
+            }
+        }
+        let start = stream.bytes.len() as u32;
+        stream.bytes.extend_from_slice(&data);
+        stream.byte_ranges.push(crate::ir::draw_types::TableRange {
+            start,
+            len: data.len() as u32,
+        });
+        Ok((stream.byte_ranges.len() - 1) as u32)
+    }
+
+    /// 分配一个 GL 资源句柄（realm 级单调，从 1 起——0 是 GL 的 null；
+    /// derive Default 的 0 初值用 max(1) 消化）。
+    pub fn gl_alloc_handle(&mut self) -> u32 {
+        self.gl_next_handle = self.gl_next_handle.max(1) + 1;
+        self.gl_next_handle - 1
+    }
+
+    /// 本帧录制的全部 GPU 流（消耗性取出）。
+    pub fn take_gpu_streams(&mut self) -> Vec<GpuStreamRecord> {
+        std::mem::take(&mut self.gpu_streams)
     }
 
     /// 消耗性帧级 mutation 转移（`std::mem::take`，零拷贝）。仅取每帧重建
     /// 的三个字段，清理面与 [`MutationStore::reset_for_frame`] 一致；
-    /// geometries、initial_styles、pending_generated_images 等 realm 级
+    /// initial_styles、pending_generated_images 等 realm 级
     /// 字段保持原位。调用方（realm `run_frame`、resolve `push_script_scope`）
     /// 均为"录完即取、取后即弃"，take 与原快照语义等价且无深拷贝。
     pub fn take_mutations(&mut self) -> StyleMutations {
         StyleMutations {
             mutations: std::mem::take(&mut self.styles),
             canvas_mutations: std::mem::take(&mut self.canvases),
-            scene3_mutations: std::mem::take(&mut self.scene3s),
         }
-    }
-
-    /// 注册一块几何（GLB 解码产物）。同 id 重复注册 = 覆盖（确定性解码
-    /// 下内容一致，等价 no-op）；不随帧清除（realm 级）。
-    pub fn record_geometry(&mut self, id: &str, geometry: std::sync::Arc<crate::ir::scene3::Geometry3>) {
-        self.geometries.insert(id.to_string(), geometry);
-    }
-
-    /// 几何注册表的轻量快照（`Arc` 计数 +1，无几何体拷贝）——realm 每次
-    /// 光栅化传给 [`crate::ir::scene3::Scene3Raster`]。
-    pub fn geometry_registry(&self) -> crate::ir::scene3::GeometryRegistry {
-        self.geometries.clone()
     }
 
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
@@ -1555,10 +1625,6 @@ impl MutationRecorder for MutationStore {
         MutationStore::chart_cache_drop(self, node_id)
     }
 
-    fn record_scene3(&mut self, id: &str, scene: crate::ir::scene3::Scene3) {
-        self.scene3s.insert(id.to_string(), scene);
-    }
-
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32) {
         self.record_draw_op(
             target_id,
@@ -1592,7 +1658,7 @@ impl MutationRecorder for MutationStore {
     fn reset_for_frame(&mut self, current_frame: u32, fps: u32) {
         self.styles.clear();
         self.canvases.clear();
-        self.scene3s.clear();
+        self.gpu_streams.clear();
         self.current_frame = current_frame;
         self.frame_override = None;
         self.time_override_secs = None;
@@ -1603,7 +1669,6 @@ impl MutationRecorder for MutationStore {
         StyleMutations {
             mutations: self.styles.clone(),
             canvas_mutations: self.canvases.clone(),
-            scene3_mutations: self.scene3s.clone(),
         }
     }
 
@@ -1813,82 +1878,6 @@ mod tests {
         // into the next frame's evaluation.
         store.reset_for_frame(91, 30);
         assert_eq!(store.script_frame(), 91);
-    }
-
-    #[test]
-    fn scene3_commit_overwrites_and_resets_per_frame() {
-        let mut store = MutationStore::default();
-        let scene = |matrix: [f32; 16]| -> crate::ir::scene3::Scene3 {
-            crate::ir::scene3::Scene3 {
-                clear: [0.0, 0.0, 0.0, 0.0],
-                target: [64, 64],
-                camera: crate::ir::scene3::Camera3 {
-                    position: [0.0, 0.0, 3.0],
-                    target: [0.0; 3],
-                    fov_y_degrees: 45.0,
-                    near: 0.1,
-                    far: 10.0,
-                },
-                lights: vec![],
-                tone_mapping: crate::ir::scene3::ToneMapping3::None,
-                tone_mapping_exposure: 1.0,
-                output_color_space: crate::ir::scene3::OutputColorSpace3::Linear,
-                environment: None,
-                environment_srgb: false,
-                meshes: vec![crate::ir::scene3::Mesh3 {
-                    geometry: crate::ir::scene3::Geometry3::Inline {
-                        positions: vec![[0.0; 3]; 3],
-                        normals: vec![[0.0, 0.0, 1.0]; 3],
-                        indices: vec![0, 1, 2],
-                        uvs: vec![],
-                        colors: vec![],
-                        colors1: vec![],
-                    },
-                    material: crate::ir::scene3::Material3 {
-                        base_color: [1.0; 4],
-                        shading: crate::ir::scene3::Shading3::Lambert,
-                        displacement: None,
-                        map: None,
-                        textures: vec![],
-                        transparent: false,
-                        base_color_map: None,
-                        normal_map: None,
-                        metallic_roughness_map: None,
-                    },
-                    matrix,
-                    render_order: 0,
-                }],
-            }
-        };
-        store.record_scene3("c3d", scene([1.0; 16]));
-        // 同 id 重复提交 → 覆盖（最后一次赢），不是追加。
-        store.record_scene3("c3d", scene([2.0; 16]));
-        assert_eq!(store.scene3s.len(), 1);
-        assert_eq!(store.scene3s["c3d"].meshes[0].matrix, [2.0; 16]);
-
-        store.reset_for_frame(1, 30);
-        assert!(store.scene3s.is_empty());
-        assert!(store.snapshot_mutations().scene3_mutations.is_empty());
-    }
-
-    #[test]
-    fn geometry_registry_survives_frame_reset() {
-        use crate::ir::scene3::Geometry3;
-        let mut store = MutationStore::default();
-        let geo = std::sync::Arc::new(Geometry3::Inline {
-            positions: vec![[0.0; 3]; 4],
-            normals: vec![[0.0, 0.0, 1.0]; 4],
-            indices: vec![0, 1, 2, 0, 2, 3],
-            uvs: vec![],
-            colors: vec![],
-            colors1: vec![],
-        });
-        store.record_geometry("prism", geo.clone());
-        store.record_geometry("prism", geo.clone()); // 幂等覆盖
-        store.reset_for_frame(7, 30);
-        let registry = store.geometry_registry();
-        assert_eq!(registry.len(), 1, "注册表不随帧清除");
-        assert_eq!(registry["prism"].as_ref(), geo.as_ref());
     }
 
     #[test]

@@ -24,28 +24,14 @@ export type AssetReader = (path: string) => AssetReaderResult | Promise<AssetRea
 
 export interface WebRendererInstance {
   open_design(compositionSource: string): Promise<string>;
-  /** One-shot: renders frame and returns { ir, mediaPlan, frame, scene3? } */
+  /** One-shot: renders frame and returns { ir, mediaPlan, frame } */
   build_frame_ir(frame: number): {
     ir: Uint8Array;
     mediaPlan: string;
     frame: number;
-    /** Scene3 section JSON (array of commits) — present when the frame commits 3D scenes. */
-    scene3?: string;
   };
   /** Renders frame and returns only its media plan JSON (for readahead/prefetch). */
   get_frame_plan(frame: number): string;
-  /**
-   * Fetch a registered 3D geometry as typed arrays (xyz/xy/xyzw per vertex).
-   * Registry is realm-level and never clears — fetch each id once, then cache.
-   */
-  get_scene3_geometry(id: string): {
-    positions: Float32Array;
-    normals: Float32Array;
-    uvs: Float32Array;
-    indices: Uint32Array;
-    colors: Float32Array;
-    colors1: Float32Array;
-  };
   load_default_fonts(sans_sc: Uint8Array, color_emoji: Uint8Array): void;
   load_font_data(bytes: Uint8Array): void;
   decode_audio_file(asset_id: string, data: Uint8Array): Promise<void>;
@@ -159,8 +145,7 @@ export function setAssetReader(reader: AssetReader): void {
 }
 
 /// TS-side copy of the registered reader — the wasm module also holds one for
-/// Rust-side fetches; the scene3 web executor (three facade) reads assets
-/// (bitmap textures / equirect environments) through this one.
+/// Rust-side fetches; the GPU-stream executor reads assets through this one.
 let assetReader: AssetReader | null = null;
 
 /** Internal: the currently registered asset reader (null before setAssetReader). */

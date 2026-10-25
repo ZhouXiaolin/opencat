@@ -9,7 +9,6 @@ use core_graphics_types::geometry::CGSize;
 // `ForeignType::as_ptr` / `as_ref` —— `Device::as_ptr`、`layer.as_ref` 要用。
 use foreign_types::{ForeignType, ForeignTypeRef};
 use metal::{CommandQueue, Device, MTLPixelFormat, MetalDrawable, MetalLayer};
-use opencat_three::Renderer3d;
 use skia_safe::{
     ColorType,
     gpu::{self, SurfaceOrigin, backend_render_targets, mtl},
@@ -142,15 +141,6 @@ impl Presenter {
     /// （跨队列顺序由 wgpu 出口的 `poll(Wait)` 与 `metal::Target` 的
     /// `wait_inflight` 保证），所以为空操作。
     pub fn reset_backend_state(&mut self) {}
-
-    /// 建 wgpu 的 Metal 渲染器，与本呈现器共享同一块 `MTLDevice`。
-    ///
-    /// Metal 不像 GL 需要「加入宿主的 context」：系统默认设备是进程级单例，
-    /// wgpu 自建的渲染器与这里 Skia 的 `DirectContext` 落在同一块设备上，
-    /// 纹理凭裸指针即可跨队列共享，因此 3D 输出同样走零拷贝。
-    pub fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
-        Ok(Some(Renderer3d::new_blocking()?))
-    }
 
     pub fn with_canvas_and_resolver(
         &mut self,

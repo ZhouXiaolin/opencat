@@ -320,7 +320,7 @@
             getScreenCTM: function () {
                 return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
             },
-            getContext: function (type) { return ctx.getContext(id, type); },
+            getContext: function (type, attrs) { return ctx.getContext(id, type, attrs); },
 
             // Text reads prefer the style store's `text` channel, then the
             // composition's declared text.

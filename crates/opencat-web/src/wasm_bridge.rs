@@ -131,21 +131,36 @@ impl WebRenderer {
         let mut render = RenderFrame {
             draw: render.draw,
             media: render.media,
-            scene3: render.scene3,
+            gpu: render.gpu,
         };
 
-        // Scene3 placeholders carry no pixels on the web path — the web
-        // executor (real three.js, three-facade.ts) produces them and injects
-        // them into draw-ir's generated map. Strip them from the media plan /
-        // section 12 so the decoder never registers an empty entry over the
-        // facade's pixels.
-        if let Some(section) = &render.scene3 {
-            let ids: std::collections::HashSet<_> =
-                section.commits.iter().map(|c| c.image_id).collect();
-            render
-                .media
-                .generated_images
-                .retain(|g| !ids.contains(&g.id));
+        // GPU stream placeholders carry no pixels on the web path — the web
+        // stream executor produces them and injects them into draw-ir's
+        // generated map. Strip them from the media plan / section 12 so the
+        // decoder never registers an empty entry over the executor's pixels.
+        {
+            let gpu_ids: std::collections::HashSet<_> = render
+                .draw
+                .ops
+                .iter()
+                .filter_map(|op| match op {
+                    opencat_core::ir::draw_op::DrawOp::Image {
+                        image: opencat_core::ir::draw_types::ImageRef::Generated { id },
+                        ..
+                    }
+                    | opencat_core::ir::draw_op::DrawOp::ImageRect {
+                        image: opencat_core::ir::draw_types::ImageRef::Generated { id },
+                        ..
+                    } => Some(*id),
+                    _ => None,
+                })
+                .collect();
+            if !gpu_ids.is_empty() {
+                render
+                    .media
+                    .generated_images
+                    .retain(|g| !gpu_ids.contains(&g.id));
+            }
         }
 
         // Extract the media plan BEFORE encoding (encoding mutates draw internals).
@@ -171,90 +186,6 @@ impl WebRenderer {
         )
         .map_err(|_| JsValue::from_str("build_frame_ir: failed to set frame"))?;
 
-        // 3D IR section: the same Scene3 the native engine feeds
-        // opencat-three. The web executor (real three.js) renders these
-        // commits and hands the pixels to draw-ir's resolveImage('generated')
-        // at the placeholder z-position. `imageId` ships as a decimal string
-        // — the TS side BigInt()s it to match the OCIR-decoded u64 exactly.
-        if let Some(section) = &render.scene3 {
-            let payload = scene3_payload_json(section)
-                .map_err(|e| JsValue::from_str(&format!("build_frame_ir scene3: {e}")))?;
-            js_sys::Reflect::set(
-                &obj,
-                &JsValue::from_str("scene3"),
-                &JsValue::from_str(&payload),
-            )
-            .map_err(|_| JsValue::from_str("build_frame_ir: failed to set scene3"))?;
-        }
-
-        Ok(JsValue::from(obj))
-    }
-
-    /// Fetch a registered 3D geometry's vertex data as typed arrays.
-    ///
-    /// Scene snapshots reference shared (heavy) geometries by id
-    /// (`Geometry3::Asset`); the registry is realm-level and never cleared,
-    /// so the TS side fetches each id once and caches. Shape:
-    /// `{ positions/normals/uvs/colors/colors1: Float32Array,
-    /// indices: Uint32Array }` — xyz / xy / xyzw per vertex.
-    #[wasm_bindgen]
-    pub fn get_scene3_geometry(&mut self, id: String) -> Result<JsValue, JsValue> {
-        let pipeline = self.pipeline.as_mut().ok_or_else(|| {
-            JsValue::from_str("get_scene3_geometry: no design opened; call open_design first")
-        })?;
-        let geometry = pipeline
-            .scene3_geometry_registry()
-            .get(&id)
-            .ok_or_else(|| {
-                JsValue::from_str(&format!("get_scene3_geometry: unknown geometry {id}"))
-            })?
-            .clone();
-        let (positions, normals, indices, uvs, colors, colors1) = match geometry.as_ref() {
-            opencat_core::ir::scene3::Geometry3::Inline {
-                positions,
-                normals,
-                indices,
-                uvs,
-                colors,
-                colors1,
-            } => (positions, normals, indices, uvs, colors, colors1),
-            opencat_core::ir::scene3::Geometry3::Asset { id } => {
-                return Err(JsValue::from_str(&format!(
-                    "get_scene3_geometry: registry holds unresolved asset reference {id}"
-                )));
-            }
-        };
-        let flat = |v: &[[f32; 3]]| -> js_sys::Float32Array {
-            let mut out = Vec::with_capacity(v.len() * 3);
-            for p in v {
-                out.extend_from_slice(p);
-            }
-            js_sys::Float32Array::from(out.as_slice())
-        };
-        let flat2 = |v: &[[f32; 2]]| -> js_sys::Float32Array {
-            let mut out = Vec::with_capacity(v.len() * 2);
-            for p in v {
-                out.extend_from_slice(p);
-            }
-            js_sys::Float32Array::from(out.as_slice())
-        };
-        let flat4 = |v: &[[f32; 4]]| -> js_sys::Float32Array {
-            let mut out = Vec::with_capacity(v.len() * 4);
-            for p in v {
-                out.extend_from_slice(p);
-            }
-            js_sys::Float32Array::from(out.as_slice())
-        };
-        let obj = Object::new();
-        let set = |key: &str, value: JsValue| -> Result<(), JsValue> {
-            js_sys::Reflect::set(&obj, &JsValue::from_str(key), &value).map(|_| ())
-        };
-        set("positions", flat(positions).into())?;
-        set("normals", flat(normals).into())?;
-        set("uvs", flat2(uvs).into())?;
-        set("indices", js_sys::Uint32Array::from(indices.as_slice()).into())?;
-        set("colors", flat4(colors).into())?;
-        set("colors1", flat4(colors1).into())?;
         Ok(JsValue::from(obj))
     }
 
@@ -468,29 +399,6 @@ fn js_err(v: &JsValue) -> String {
     v.as_string().unwrap_or_else(|| format!("{:?}", v))
 }
 
-/// Scene3 section as JSON for the web executor (real three.js): one commit
-/// per 3D scene this frame, drawn at its placeholder's z-position. Geometry
-/// payloads ride [`WebRenderer::get_scene3_geometry`] (fetched once per id,
-/// never re-shipped per frame).
-fn scene3_payload_json(
-    section: &opencat_core::ir::draw_frame::Scene3Section,
-) -> Result<String, serde_json::Error> {
-    let commits: Vec<Value> = section
-        .commits
-        .iter()
-        .map(|c| {
-            json!({
-                "imageId": c.image_id.0.to_string(),
-                "targetId": c.target_id,
-                "width": c.scene.target[0],
-                "height": c.scene.target[1],
-                "scene": c.scene,
-            })
-        })
-        .collect();
-    serde_json::to_string(&commits)
-}
-
 /// Free async helper behind [`WebRenderer::open_design`]: does every step that
 /// does not need `&mut self`, so the `&mut self` on the wasm-bindgen method is
 /// only held across synchronous assignment — never across an `.await`. This
@@ -661,7 +569,6 @@ mod tests {
         RenderFrame {
             draw: DrawOpFrame::default(),
             media: FrameMediaPlan::default(),
-            scene3: None,
         }
     }
 
@@ -779,7 +686,6 @@ mod tests {
                 generated_images: delta,
                 ..Default::default()
             },
-            scene3: None,
         };
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
@@ -836,7 +742,6 @@ mod tests {
                 generated_images: vec![glyph.clone()],
                 ..Default::default()
             },
-            scene3: None,
         };
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();
@@ -868,7 +773,6 @@ mod tests {
                 generated_images: vec![glyph],
                 ..Default::default()
             },
-            scene3: None,
         };
         let mut scratch = DrawFrameScratch::default();
         let bytes = encode_ir_envelope(&frame, &mut scratch).unwrap();

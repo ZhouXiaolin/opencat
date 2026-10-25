@@ -15,7 +15,6 @@ import {
   prefetchVideoFramesForRender,
   registerVideoGlobals,
   renderEncodedDrawFrame,
-  scene3Executor,
   setWasmBaseUrl,
   setWorkerBaseUrl,
   type AudioPlan,
@@ -406,20 +405,12 @@ async function renderFrameWithPipeline(
   if (!CK) throw new Error('CanvasKit is not initialized');
 
   // One-shot ABI: build_frame_ir returns both OCIR and media plan.
-  const { ir, mediaPlan, scene3 } = renderer.build_frame_ir(frame);
+  const { ir, mediaPlan } = renderer.build_frame_ir(frame);
 
   await injectVideoFramesForRender({
     mediaPlan,
     quality,
   });
-
-  // 3D IR section: real three.js renders each commit into its placeholder's
-  // generated-image slot before the OCIR replay consumes it.
-  if (scene3) {
-    const commits = JSON.parse(scene3) as Parameters<typeof scene3Executor.renderFrame>[0];
-    await scene3Executor.prepare(commits);
-    scene3Executor.renderFrame(commits);
-  }
 
   // Reuse one surface for the whole playback loop. Creating a fresh canvas
   // surface per frame leaks GPU-process memory (~8 MB/frame) until the tab

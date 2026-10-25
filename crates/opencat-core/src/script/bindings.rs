@@ -99,90 +99,33 @@ macro_rules! for_each_binding {
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
             $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias, fill_type: Default::default() });
         }}
+        // ── Cmd: GPU 命令流录制（webgl_api.js 的 WebGL2 录制面）──────────
+
+        $binding! { cmd $store gl_stream_begin (target_id: String, width: u32, height: u32, backend: u8, attrs_bits: u8) -> () {
+            $store . gl_stream_begin(&target_id, width, height, backend, attrs_bits);
+            Ok(())
+        }}
+
+        /// JS 侧编码好的整条命令（[opcode][payload]）原样追加——core 不解释。
+        $binding! { cmd $store gl_stream_emit (target_id: String, cmd: Vec<u8>) -> () {
+            $store . gl_stream_emit(&target_id, cmd)
+        }}
+
+        /// intern 大块数据（buffer/纹理/shader 源码），返回 range id。
+        $binding! { cmd $store gl_stream_intern (target_id: String, data: Vec<u8>) -> u32 {
+            $store . gl_stream_intern(&target_id, data)
+        }}
+
+        /// 分配 GL 资源句柄（realm 级单调）。
+        $binding! { cmd $store gl_alloc_handle () -> u32 {
+            Ok($store.gl_alloc_handle())
+        }}
+
         $binding! { node $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));
             $rec . record_draw_op($id, DrawOp::Path(PathOp::LineTo { x: x1, y: y1 }));
             $rec . record_draw_op($id, DrawOp::StrokePath);
-        }}
-        // ── Node: 3D 场景快照（three-like shim 每帧全量重提交）──
-
-        $binding! { node $rec $id scene3_commit ($id: &str, scene: crate::ir::scene3::Scene3) {
-            $rec . record_scene3($id, scene);
-        }}
-
-        // ── Cmd: 3D 几何注册表（GLB 一次性解码 → 重网格不逐帧过 JSON 桥）──
-
-        $binding! { cmd $store scene3_geometry_register (path: String, id: String) -> String {
-            let geometry = $crate::ir::scene3_glb::load_glb_file(&path)?;
-            $store . record_geometry(&id, std::sync::Arc::new(geometry));
-            Ok(id)
-        }}
-
-        // ── Cmd: GLB 场景导入（node 树 + 材质 + 内嵌纹理 → 网格表）──
-        // 内嵌图片先落到按 GLB 路径散列的缓存目录，纹理来源就是普通
-        // `Bitmap { path }`——宿主的纹理解码按路径直接读盘，无需登记资产。
-        $binding! { cmd $store scene3_glb_scene_register (path: String) -> serde_json::Value {
-            let cache = $crate::ir::scene3_glb_scene::texture_cache_dir(&path);
-            let scene = $crate::ir::scene3_glb_scene::load_glb_scene(&path, &cache)?;
-            // 几何进 realm 注册表（重网格不逐帧过 JSON 桥），快照只带 id。
-            let mut out = Vec::with_capacity(scene.meshes.len());
-            for (i, mesh) in scene.meshes.iter().enumerate() {
-                let id = format!("{path}#{i}");
-                $store . record_geometry(&id, std::sync::Arc::new(mesh.geometry.clone()));
-                out.push($crate::ir::scene3_glb_scene::GlbSceneMesh {
-                    geometry_id: id,
-                    material: mesh.material.clone(),
-                    matrix: mesh.matrix,
-                    screen: scene.screens[i],
-                });
-            }
-            // 世界包围盒（three.js Box3().setFromObject 的对应物）：脚本用它
-            // 归一化尺寸并把模型中心挪到原点。
-            let (mut lo, mut hi) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
-            for mesh in &scene.meshes {
-                if let $crate::ir::scene3::Geometry3::Inline { positions, .. } = &mesh.geometry {
-                    for p in positions {
-                        let w = [
-                            mesh.matrix[0] * p[0] + mesh.matrix[4] * p[1] + mesh.matrix[8] * p[2] + mesh.matrix[12],
-                            mesh.matrix[1] * p[0] + mesh.matrix[5] * p[1] + mesh.matrix[9] * p[2] + mesh.matrix[13],
-                            mesh.matrix[2] * p[0] + mesh.matrix[6] * p[1] + mesh.matrix[10] * p[2] + mesh.matrix[14],
-                        ];
-                        for k in 0..3 {
-                            lo[k] = lo[k].min(w[k]);
-                            hi[k] = hi[k].max(w[k]);
-                        }
-                    }
-                }
-            }
-            Ok(serde_json::json!({ "meshes": out, "min": lo, "max": hi }))
-        }}
-
-        // 脚本内建几何（SphereGeometry 等）一次性注册：重网格不逐帧过 JSON 桥。
-        $binding! { cmd $store scene3_geometry_register_inline (id: String, positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, indices: Vec<u32>) -> String {
-            let count = positions.len();
-            if normals.len() != count {
-                anyhow::bail!(
-                    "scene3_geometry_register_inline '{id}': normals 数量 {} != positions 数量 {count}",
-                    normals.len()
-                );
-            }
-            if let Some((j, idx)) = indices.iter().enumerate().find(|(_, i)| (**i as usize) >= count) {
-                anyhow::bail!(
-                    "scene3_geometry_register_inline '{id}': indices[{j}] = {idx} 越界（positions = {count}）"
-                );
-            }
-            $store . record_geometry(&id, std::sync::Arc::new(
-                $crate::ir::scene3::Geometry3::Inline {
-                    positions,
-                    normals,
-                    indices,
-                    uvs: Vec::new(),
-                    colors: Vec::new(),
-                    colors1: Vec::new(),
-                },
-            ));
-            Ok(id)
         }}
 
         $binding! { node $rec $id canvas_fill_circle ($id: &str, cx: f32, cy: f32, radius: f32) {

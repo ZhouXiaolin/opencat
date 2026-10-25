@@ -21,7 +21,7 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, G2_API_RUNTIME,
-    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, THREE_API_RUNTIME, TREE_API_RUNTIME,
+    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -142,13 +142,13 @@ pub struct ScriptRealm<C: JsContext> {
     installed: HashMap<u64, ()>,
     text_sources: HashMap<String, ScriptTextSource>,
     target_registry: Option<ScriptTargetRegistry>,
-    /// 本帧已导出的 3D 场景 IR 段（`export_scene3_commits` 产出，
-    /// pipeline 经 `take_scene3_commits` 取走装入 `RenderFrame.scene3`）。
-    pending_scene3: Option<crate::ir::draw_frame::Scene3Section>,
     /// 文档 base 目录（宿主 = XML 所在目录）：`GLTFGeometry` 等相对路径的
     /// join 基准——three.js `GLTFLoader` 相对 URL 对 import.meta.url 解析
     /// （参考 js:40 `new URL(prismUrl, import.meta.url)`）的 opencat 对应物。
     document_base: Option<String>,
+    /// 本帧已导出的 GPU 命令流段（`export_gpu_streams` 产出，pipeline 经
+    /// `take_gpu_streams` 取走装入 `RenderFrame.gpu`）。
+    pending_gpu: Option<crate::ir::GpuSection>,
 }
 
 impl<C: JsContext> ScriptRealm<C> {
@@ -159,8 +159,8 @@ impl<C: JsContext> ScriptRealm<C> {
             installed: HashMap::new(),
             text_sources: HashMap::new(),
             target_registry: None,
-            pending_scene3: None,
             document_base: None,
+            pending_gpu: None,
         })
     }
 
@@ -172,13 +172,6 @@ impl<C: JsContext> ScriptRealm<C> {
         if self.runtime_installed {
             let _ = self.ctx.set_ctx_field("__documentBase", json!(base));
         }
-    }
-
-    /// Realm 级 3D 几何注册表快照（Arc 克隆）：`RenderFrame.scene3` 里
-    /// `Geometry3::Asset { id }` 的解析来源。注册表随 pipeline 常驻
-    /// （不逐帧清空），web 宿主可按 id 懒取。
-    pub fn geometry_registry(&mut self) -> crate::ir::scene3::GeometryRegistry {
-        self.ctx.with_store_mut(|s| s.geometry_registry())
     }
 
     /// Build a realm from a freshly constructed backend context.
@@ -246,7 +239,6 @@ impl<C: JsContext> ScriptRealm<C> {
 
         self.ctx.eval(NODE_STYLE_RUNTIME)?;
         self.ctx.eval(CANVAS_API_RUNTIME)?;
-        self.ctx.eval(THREE_API_RUNTIME)?;
         // G2 charts. The bundle is a browser IIFE: it needs the JS-platform
         // globals first and it must see the CanvasKit facade
         // `CANVAS_API_RUNTIME` installs — both are satisfied here.
@@ -265,6 +257,10 @@ impl<C: JsContext> ScriptRealm<C> {
         // 2D-context adapter (`node.getContext('2d')`): after NODE_STYLE_RUNTIME,
         // whose `getContext` branch forwards here.
         self.ctx.eval(CONTEXT2D_RUNTIME)?;
+        // WebGL2 recording face: wraps `ctx.getContext` and answers
+        // 'webgl2' with the command recorder. After CONTEXT2D_RUNTIME (it
+        // chains the base `ctx.getContext`).
+        self.ctx.eval(WEBGL_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
         // JSX frontend: h() + use* registry + module loader. Pure-XML
         // compositions simply never call into it. The `gsap` package is NOT
@@ -462,12 +458,12 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 self.ctx.eval("__ocG2Flush();")?;
             }
         }
-        // three-like shim 每帧全量重提交的 3D 快照：导出为帧级 scene3 IR 段
-        // （纯声明，随 `RenderFrame.scene3` 跨边界），并在目标 canvas 录入占位
+        // GPU 命令流（getContext 录制面每帧全量重录）：导出为帧级 gpu IR
+        // 段（随 `RenderFrame.gpu` 跨边界），并在目标 canvas 录入占位
         // `DrawOp::Image { ImageRef::Generated }`——z 序 = canvas 命令流位置，
-        // 像素/句柄由执行宿主（engine = opencat-three，web = 真 three.js）
-        // 回填进 `FrameMediaPlan::generated_images` 的同名占位条目。
-        self.pending_scene3 = self.export_scene3_commits()?;
+        // 像素由执行宿主（engine = glow，web = 真 WebGL2）渲染流后回填进
+        // `FrameMediaPlan::generated_images` 的同名占位条目。
+        self.pending_gpu = self.export_gpu_streams()?;
 
         // Consuming transfer: the store's frame-level mutations move out
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
@@ -486,8 +482,8 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.ctx.with_store_mut(|s| s.take_pending_generated_images())
     }
 
-    fn take_scene3_commits(&mut self) -> Option<crate::ir::draw_frame::Scene3Section> {
-        self.pending_scene3.take()
+    fn take_gpu_streams(&mut self) -> Option<crate::ir::GpuSection> {
+        self.pending_gpu.take()
     }
 
     fn set_style_defaults(
@@ -524,49 +520,56 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
 }
 
 impl<C: JsContext> ScriptRealm<C> {
-    /// Export every scene3 snapshot committed this frame as the frame's 3D IR
+    /// Export every GPU stream recorded this frame as the frame's gpu IR
     /// section, and record one placeholder `DrawOp::Image` on the target
     /// canvas (z-order = canvas command-stream position). Pixels are NOT
-    /// produced here: the executing host rasterizes `RenderFrame.scene3`
-    /// (engine → opencat-three, web → real three.js) and patches the matching
+    /// produced here: the executing host renders the stream (engine → glow,
+    /// web → real WebGL2) and patches the matching
     /// `FrameMediaPlan::generated_images` placeholder entries.
     ///
-    /// Placeholder ids are IR-content-addressed (`scene3:{target}:{hash}` of
-    /// the canonical snapshot JSON): a static scene keeps its id across frames
+    /// Placeholder ids are IR-content-addressed (`gpu:{target}:{hash}` over
+    /// the encoded command bytes): a static stream keeps its id across frames
     /// (table idempotency), an animated one gets a fresh id per content.
-    fn export_scene3_commits(&mut self) -> Result<Option<crate::ir::draw_frame::Scene3Section>> {
-        let scenes = self.ctx.with_store_mut(|s| s.take_scene3s());
-        if scenes.is_empty() {
+    fn export_gpu_streams(&mut self) -> Result<Option<crate::ir::GpuSection>> {
+        let streams = self.ctx.with_store_mut(|s| s.take_gpu_streams());
+        if streams.is_empty() {
             return Ok(None);
         }
-        // 几何注册表轻量快照（Arc 克隆）：`Asset { id }` 的解析来源。
-        let geometries = self.ctx.with_store_mut(|s| s.geometry_registry());
-        let mut commits = Vec::with_capacity(scenes.len());
-        for (id, scene) in &scenes {
-            let (width, height) = (scene.target[0], scene.target[1]);
-            let canonical = serde_json::to_vec(scene)?;
+        let mut section = Vec::with_capacity(streams.len());
+        for stream in &streams {
             let mut hf = ahash::AHasher::default();
             use std::hash::{Hash, Hasher};
-            id.hash(&mut hf);
-            canonical.hash(&mut hf);
-            let key = format!("scene3:{id}:{:016x}", hf.finish());
+            stream.target_id.hash(&mut hf);
+            stream.ops.hash(&mut hf);
+            stream.bytes.hash(&mut hf);
+            stream.byte_ranges.hash(&mut hf);
+            let key = format!("gpu:{}:{:016x}", stream.target_id, hf.finish());
             let image_id = crate::ir::GeneratedImageId::from_key(&key);
             self.ctx.with_store_mut(|s| {
-                s.record_frame_generated_image_deferred(id, image_id, 0.0, 0.0, width, height);
-                // 快照保留：mutation 流仍携带 scene3（对齐 engine 既有测试
-                // 的逐帧重提交语义；渲染只消费占位 DrawOp + IR 段）。
-                s.record_scene3(id, scene.clone());
+                s.record_frame_generated_image_deferred(
+                    &stream.target_id,
+                    image_id,
+                    0.0,
+                    0.0,
+                    stream.width,
+                    stream.height,
+                );
             });
-            commits.push(crate::ir::draw_frame::Scene3Commit {
+            section.push(crate::ir::GpuStream {
                 image_id,
-                target_id: id.clone(),
-                scene: scene.clone(),
+                target_id: stream.target_id.clone(),
+                width: stream.width,
+                height: stream.height,
+                backend: crate::ir::GpuBackend::WebGL2,
+                attrs: crate::ir::gpu_stream::ContextAttrs::unpack(stream.attrs_bits),
+                ops: crate::ir::GpuOpFrame {
+                    ops: stream.ops.clone(),
+                    bytes: stream.bytes.clone(),
+                    byte_ranges: stream.byte_ranges.clone(),
+                },
             });
         }
-        Ok(Some(crate::ir::draw_frame::Scene3Section {
-            commits,
-            geometries,
-        }))
+        Ok(Some(crate::ir::GpuSection { streams: section }))
     }
 }
 

@@ -128,7 +128,7 @@ pub fn render_frame_with_state(
 ) -> Result<(
     DrawOpFrame,
     FrameMediaPlan,
-    Option<crate::ir::draw_frame::Scene3Section>,
+    Option<crate::ir::GpuSection>,
 )> {
     #[cfg(feature = "profile")]
     let _frame_span = span!(
@@ -162,8 +162,8 @@ pub fn render_frame_with_state(
     // the media plan is built so hosts receive the payloads for this frame.
     for image in script.take_frame_generated_images() {
         // GPU-resident entries carry no CPU pixels (see `FrameGeneratedImage`);
-        // scene3 placeholders ship none either — the executing host backfills
-        // both from this frame's render payload before drawing.
+        // stream placeholders ship none either — the executing host backfills
+        // from this frame's render payload before drawing.
         match (image.gpu, image.rgba.is_empty()) {
             (Some(gpu), _) => {
                 generated_images.insert_gpu(image.id, image.width, image.height, gpu)?
@@ -176,9 +176,8 @@ pub fn render_frame_with_state(
             }
         }
     }
-    // 3D scene IR section (`ctx.three` commits + placeholder DrawOps already
-    // in the draw stream). Rides `RenderFrame.scene3` to the executing host.
-    let scene3 = script.take_scene3_commits();
+    // GPU 命令流段（getContext 录制面 + 占位 DrawOps 已在 draw 流）。
+    let gpu = script.take_gpu_streams();
     let frame_ctx = evaluation.frame_ctx;
     let element_root = evaluation.element_root;
     let layout_tree = evaluation.layout_tree;
@@ -226,7 +225,7 @@ pub fn render_frame_with_state(
         debug_stack_balance(&frame.ops);
     }
     let media_plan = build_media_plan(&frame, generated_images, &video_color_matrices(catalog));
-    Ok((frame, media_plan, scene3))
+    Ok((frame, media_plan, gpu))
 }
 
 /// Debug-only (`OC_DBG_STACK=1`): report the save/restore balance of a

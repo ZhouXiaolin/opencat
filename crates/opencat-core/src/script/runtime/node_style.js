@@ -96,6 +96,17 @@
         var top = Number(raw.top) || 0;
         var width = Number(raw.width) || 0;
         var height = Number(raw.height) || 0;
+        // An inline text element has no declared width: its box is the ink box
+        // of its shaped run (what the renderer draws), not the style store.
+        if (width === 0 || height === 0) {
+            var ink = (__text_element_boxes(id, []) || [])[0];
+            if (ink) {
+                left = Number(ink.left) || 0;
+                top = Number(ink.top) || 0;
+                width = Number(ink.width) || 0;
+                height = Number(ink.height) || 0;
+            }
+        }
         return {
             left: left, top: top, width: width, height: height,
             right: left + width, bottom: top + height,

@@ -920,6 +920,18 @@ macro_rules! for_each_binding {
             }))
         }}
 
+        // Viewport-relative rect from this frame's geometry pass. Only populated
+        // for elements with no declared box (inline text), where `read_box`
+        // cannot answer; `None` everywhere else.
+        $binding! { qry $store read_layout_box (id: String) -> serde_json::Value {
+            Ok(match $crate::script::layout_probe::box_for(&id) {
+                Some(b) => serde_json::json!({
+                    "left": b.x, "top": b.y, "width": b.width, "height": b.height,
+                }),
+                None => serde_json::Value::Null,
+            })
+        }}
+
         $binding! { node $rec $id write_style_value ($id: &str, property: String, value: serde_json::Value) {
             $rec . write_style_value($id, &property, value);
         }}

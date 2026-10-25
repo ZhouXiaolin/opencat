@@ -96,15 +96,23 @@
         var top = Number(raw.top) || 0;
         var width = Number(raw.width) || 0;
         var height = Number(raw.height) || 0;
-        // An inline text element has no declared width: its box is the ink box
-        // of its shaped run (what the renderer draws), not the style store.
+        // An inline text element has no declared box: its rect is the layout
+        // box, which is viewport-relative and needs a layout pass to exist.
         if (width === 0 || height === 0) {
-            var ink = (__text_element_boxes(id, []) || [])[0];
-            if (ink) {
-                left = Number(ink.left) || 0;
-                top = Number(ink.top) || 0;
-                width = Number(ink.width) || 0;
-                height = Number(ink.height) || 0;
+            var laid = (typeof __read_layout_box === 'function' && __read_layout_box(id)) || null;
+            if (laid) {
+                left = Number(laid.left) || 0;
+                top = Number(laid.top) || 0;
+                width = Number(laid.width) || 0;
+                height = Number(laid.height) || 0;
+            } else {
+                var ink = (__text_element_boxes(id, []) || [])[0];
+                if (ink) {
+                    left = Number(ink.left) || 0;
+                    top = Number(ink.top) || 0;
+                    width = Number(ink.width) || 0;
+                    height = Number(ink.height) || 0;
+                }
             }
         }
         return {
@@ -368,6 +376,10 @@
 
             get offsetWidth() { return box(id).width; },
             get offsetHeight() { return box(id).height; },
+            // Offsets are border-box edges relative to the offset parent; with
+            // no offset parent those are the viewport edges (CSSOM View §7.3).
+            get offsetLeft() { return box(id).left; },
+            get offsetTop() { return box(id).top; },
 
             // Every node in a declarative composition is laid out — its box
             // exists without anything having to be attached to a document. A

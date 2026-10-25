@@ -792,7 +792,31 @@ where
     // so the animation engine can read current values for ctx.to / ctx.from.
     seed_initial_style_defaults(&seeded, cx.script_runtime);
 
-    push_script_scope(style, cx)
+    // `getBoundingClientRect` is viewport-relative and scripts run before this
+    // frame's layout pass, so measure the scope once up front. Scripts see the
+    // pre-mutation geometry — the same tree the browser measures.
+    let boxes = driver_wants_geometry(style).then(|| {
+        crate::script::layout_probe::scope_boxes(
+            &seeded,
+            cx.frame_ctx,
+            cx.script_frame_ctx,
+            cx.assets,
+        )
+    });
+
+    match boxes {
+        Some(Some(boxes)) => crate::script::layout_probe::with_footprint(boxes, || {
+            push_script_scope(style, cx)
+        }),
+        _ => push_script_scope(style, cx),
+    }
+}
+
+fn driver_wants_geometry(style: &NodeStyle) -> bool {
+    style
+        .script_driver
+        .as_deref()
+        .is_some_and(|driver| crate::script::layout_probe::wants_geometry(&driver.source))
 }
 
 /// Traverse the node tree and push each node's resolved base style into the

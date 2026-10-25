@@ -89,6 +89,7 @@ fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
 pub(crate) struct BackdropLayerState {
     uses_layer: bool,
     has_backdrop_clip: bool,
+    has_content_layer: bool,
 }
 
 pub(crate) fn save_composite_layer(
@@ -108,6 +109,7 @@ pub(crate) fn save_composite_layer(
     let uses_layer =
         opacity < 1.0 || backdrop_sigma.is_some() || uses_backdrop_filter || uses_css_filter;
     let mut has_backdrop_clip = false;
+    let mut has_content_layer = false;
     if uses_layer {
         #[cfg(feature = "profile")]
         event!(
@@ -187,6 +189,30 @@ pub(crate) fn save_composite_layer(
                 ],
                 paint: Some(paint_id),
             });
+            // The node's own `filter` never touches the backdrop, but it still
+            // applies to the subtree. Nest a content layer so both run, in the
+            // CSS order (backdrop first, then the element's own filter).
+            if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
+                let paint = PaintSpec {
+                    fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
+                    style: PaintStyle::Fill,
+                    stroke: None,
+                    anti_alias: true,
+                    blend_mode: BlendMode::SrcOver,
+                    image_filter: Some(image_filter),
+                    color_filter: None,
+                    mask_filter: None,
+                    path_effect: None,
+                };
+                let paint_id = builder.intern_paint(paint);
+                builder.push(DrawOp::SaveLayer {
+                    bounds: layer_bounds,
+                    paint: Some(paint_id),
+                    alpha: opacity,
+                    backdrop: false,
+                });
+                has_content_layer = true;
+            }
         } else if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
             let paint = PaintSpec {
                 fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
@@ -218,11 +244,15 @@ pub(crate) fn save_composite_layer(
     BackdropLayerState {
         uses_layer,
         has_backdrop_clip,
+        has_content_layer,
     }
 }
 
 pub(crate) fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &BackdropLayerState) {
     if state.uses_layer {
+        if state.has_content_layer {
+            builder.push(DrawOp::Restore);
+        }
         builder.push(DrawOp::Restore);
         if state.has_backdrop_clip {
             builder.push(DrawOp::Restore);
@@ -261,6 +291,9 @@ struct ApplyFrame {
 
 fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
     let uses_backdrop_filter = !plan.backdrop_filter.is_identity();
+    // Mirrors `save_composite_layer`: the content layer exists only on the
+    // backdrop branch, and only when the node has its own non-identity filter.
+    let backdrop_branch = plan.backdrop_blur_sigma.is_some() || uses_backdrop_filter;
     BackdropLayerState {
         uses_layer: plan.opacity < 1.0
             || plan.backdrop_blur_sigma.is_some()
@@ -268,6 +301,7 @@ fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
             || !plan.css_filter.is_identity(),
         has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0)
             || uses_backdrop_filter,
+        has_content_layer: backdrop_branch && !plan.css_filter.is_identity(),
     }
 }
 

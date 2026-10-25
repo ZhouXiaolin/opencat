@@ -37,7 +37,6 @@
         prepareCatalogVideoSources,
         registerVideoGlobals,
         renderEncodedDrawFrame,
-        scene3Executor,
         setAssetReader,
         setWasmBaseUrl,
         setWorkerBaseUrl,
@@ -174,14 +173,6 @@
           quality: 'exact',
           frameOutput: 'source',
         });
-
-        // 3D IR section: real three.js rasterizes each Scene3 commit into its
-        // placeholder's generated-image slot before the OCIR replay runs.
-        if (result.scene3) {
-          const commits = JSON.parse(result.scene3);
-          await scene3Executor.prepare(commits);
-          scene3Executor.renderFrame(commits);
-        }
 
         const CK = globalThis.__canvasKit;
         // preserveDrawingBuffer keeps the WebGL back buffer readable after

@@ -1,9 +1,9 @@
 //! Skia GPU 合成器（Windows=WGL / Linux=EGL 走 GL；macOS 走 Metal）。
 //!
-//! 全片 GPU 化时，Skia 不再光栅到 CPU surface，而是直接合成到一块 3D 渲染
-//! 器产出的纹理上；`ctx.three` 的输出以原生纹理句柄零拷贝导入（见
-//! [`opencat_three::LazyRenderer3d::render_to_gpu`]），省掉每帧
-//! `wgpu → CPU → Skia` 的整帧往返。每帧末尾只读回一次交给编码器。
+//! 全片 GPU 化时，Skia 不再光栅到 CPU surface，而是直接合成到一块自建纹理
+//! 上；GPU 命令流执行器的输出以原生纹理句柄零拷贝导入（经共享纹理表
+//! [`opencat_gpu_native::TextureRegistry`]），省掉每帧 GPU → CPU 的整帧
+//! 往返。每帧末尾只读回一次交给编码器。
 //!
 //! ## 两个平台只差三处
 //!
@@ -12,23 +12,15 @@
 //!
 //! | 环节 | GL | Metal |
 //! |---|---|---|
-//! | 建 `DirectContext` | 用 wgpu 的 `HGLRC` 建（共享资源空间） | 用同一 `MTLDevice` 建 |
+//! | 建 `DirectContext` | 用 current 的 `HGLRC` 建（共享资源空间） | 用同一 `MTLDevice` 建 |
 //! | 包渲染目标 | GL FBO（`gl::Target`） | MTLTexture（`metal::Target`） |
 //! | 导入 3D 纹理 | `make_gl` | `make_mtl` |
 //!
-//! ## 锁纪律（GL 平台的硬约束）
+//! ## GL 上下文纪律
 //!
-//! wgpu 的 GL 后端用一把互斥锁串行化 context 访问，**1 秒超时后 panic**。
-//! 因此：
-//!
-//! - 所有 wgpu 调用（建纹理、渲染）必须在**锁外**完成；
-//! - Skia / 裸 GL 操作在 `LazyRenderer3d::run_with_gpu` 的闭包内完成；
-//! - 二者**绝不嵌套**。离线渲染逐帧串行（3D → 合成），天然满足。
-//!
-//! Metal 没有 context 概念：wgpu 与 Skia 各持一条 MTLCommandQueue，共享同一
-//! MTLDevice，`run_with_gpu` 直接调用闭包。跨队列顺序由两处保证：wgpu 在 3D
-//! 出口等待 GPU 完成（见 `Renderer3d::render_to_texture`），Skia 读回前由
-//! [`opencat_gpu_native::Target::wait_inflight`] 等上一帧 blit。
+//! GL 上下文非线程安全。离线渲染的合成器、命令流执行器与裸 GL 操作都在
+//! 拥有上下文的同一线程上串行执行（`GlSession` 建与用同线程），每帧前
+//! `make_current` 一次即可；无锁。
 
 use anyhow::{Result, anyhow};
 use opencat_gpu_native::{NativeTexture, TextureId, TextureRegistry};
@@ -37,16 +29,16 @@ use skia_safe::{AlphaType, ColorType, ImageInfo, Surface, gpu};
 
 /// 合成器持有的 GPU 资源。
 ///
-/// 构造与销毁涉及原生调用（FBO / staging buffer），必须在
-/// `LazyRenderer3d::run_with_gpu` 的闭包内进行；其余方法同。
-/// 合成目标纹理的所有权在 [`opencat_gpu_native::TextureRegistry`] 里，
-/// 所以本模块不依赖 wgpu 类型。
+/// 构造与销毁涉及原生调用（FBO / staging buffer），必须在 GL 上下文
+/// current 的线程上进行；其余方法同。
+/// 合成目标纹理由调用方建（[`opencat_gpu_native::gl::create_texture_rgba8`]）
+/// 并自管生命周期；FBO 归 [`opencat_gpu_native::Target`]。
 pub struct GpuCompositor {
-    /// Skia 的 direct context（建在 wgpu 的设备/上下文上）。
+    /// Skia 的 direct context（建在 current 的 GL 上下文上）。
     skia: gpu::DirectContext,
     /// 包裹目标纹理的 Skia surface（每帧复用）。
     surface: Surface,
-    /// 合成目标：原生纹理 + 双缓冲读回。两个平台同形。
+    /// 合成目标：原生纹理 + FBO + 双缓冲读回。
     target: opencat_gpu_native::Target,
     width: u32,
     height: u32,
@@ -55,21 +47,34 @@ pub struct GpuCompositor {
 impl GpuCompositor {
     /// 建一个 `width × height` 的合成器。
     ///
-    /// `native` 由调用方在**锁外**经
-    /// [`opencat_three::LazyRenderer3d::make_composite_target`] 取得——本函数
-    /// 只做需要原生上下文的 Skia 工作，必须在
-    /// `opencat_three::LazyRenderer3d::run_with_gpu` 的闭包内调用。
-    ///
-    /// `backend` 是平台桥：GL 为空标记（用当前线程的 context），Metal 交出
-    /// `MTLDevice` / `MTLCommandQueue`。
+    /// `gl` 是共享的 glow 函数面（GL 平台）；调用线程必须已把上下文
+    /// make current。`native` 由调用方在 current 上下文里建
+    /// （[`opencat_gpu_native::gl::create_texture_rgba8`]）。`backend` 是
+    /// 平台桥：GL 为空标记，Metal 交出 `MTLDevice` / `MTLCommandQueue`。
     pub fn new(
         backend: CompositorBackend,
+        gl: Option<std::sync::Arc<glow::Context>>,
         native: NativeTexture,
         width: u32,
         height: u32,
     ) -> Result<Self> {
         let mut skia = backend.make_direct_context()?;
-        let target = opencat_gpu_native::Target::new(native, width, height)?;
+        let target = {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                opencat_gpu_native::Target::new(
+                    gl.ok_or_else(|| anyhow!("GL 平台必须携带 glow 上下文"))?,
+                    native,
+                    width,
+                    height,
+                )?
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let _ = gl;
+                opencat_gpu_native::Target::new(native, width, height)?
+            }
+        };
         let surface = backend.wrap_target(&mut skia, &target, width, height)?;
 
         Ok(Self {
@@ -273,7 +278,7 @@ impl CompositorBackend {
 /// [`crate::consumer::GpuImageResolver`] 实现：凭共享纹理表的凭据取原生句柄，
 /// 导入为 Skia image。
 ///
-/// 只借用 Skia 的 `DirectContext` 与共享登记处——本类型不认识 opencat-three。
+/// 只借用 Skia 的 `DirectContext` 与共享登记处。
 /// 纹理的存活由登记处保证：本帧合成完成后宿主才 `release` 凭据。
 pub struct CompositorResolver<'a> {
     pub skia: &'a mut gpu::DirectContext,
@@ -317,7 +322,7 @@ pub fn import_texture(
             (width as i32, height as i32),
             gpu::Mipmapped::No,
             info,
-            "opencat-three-output",
+            "gpu-stream-output",
         )
     };
     #[cfg(target_os = "macos")]
@@ -327,14 +332,21 @@ pub fn import_texture(
             (width as i32, height as i32),
             gpu::Mipmapped::No,
             &info,
-            "opencat-three-output",
+            "gpu-stream-output",
         )
     };
 
+    // GL 纹理是 bottom-left 原点（FBO 渲染行序自底向上）；Metal 是 top-left。
+    // wgpu 时代写死 TopLeft 是对的（wgpu NDC 即 top-left），GL 执行器接手后
+    // 必须按后端区分，否则合成帧竖直翻转（实测 tracer 全帧上下颠倒）。
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let origin = SurfaceOrigin::BottomLeft;
+    #[cfg(target_os = "macos")]
+    let origin = SurfaceOrigin::TopLeft;
     gpu::images::borrow_texture_from(
         skia,
         &backend_tex,
-        SurfaceOrigin::TopLeft,
+        origin,
         ColorType::RGBA8888,
         // 实测（flex-threejs 帧 672）：Unpremul 时内圈 opacity 0.85 叶片
         // 对参考偏差 ≤2/255，Premul 反而整体 +27——内容含 rgb=a·color 的

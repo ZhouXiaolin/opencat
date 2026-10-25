@@ -104,13 +104,12 @@ pub trait ScriptHost {
     fn take_frame_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
         Vec::new()
     }
-    /// Drain the frame's 3D scene IR section (`ctx.three` commits: declared
-    /// [`Scene3`](crate::ir::scene3::Scene3) snapshots + placeholder generated
-    /// ids already recorded as `DrawOp::Image` on the target canvases).
-    /// Called once per rendered frame by the render pipeline; the section
-    /// rides `RenderFrame.scene3` to the executing host (engine →
-    /// opencat-three, web → real three.js).
-    fn take_scene3_commits(&mut self) -> Option<crate::ir::draw_frame::Scene3Section> {
+    /// Drain the frame's GPU command-stream section (the `getContext('webgl2')`
+    /// recording face's streams, with placeholder `DrawOp::Image` entries
+    /// already recorded on the target canvases). Called once per rendered
+    /// frame by the render pipeline; the section rides `RenderFrame.gpu` to
+    /// the executing host (engine → glow, web → real WebGL2).
+    fn take_gpu_streams(&mut self) -> Option<crate::ir::GpuSection> {
         None
     }
 }

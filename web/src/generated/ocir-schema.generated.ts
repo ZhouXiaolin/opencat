@@ -11,7 +11,7 @@
 export const IR_MAGIC: [number, number, number, number] = [0x4f, 0x43, 0x49, 0x52];
 
 /// Wire protocol version (must match [super::draw_encoding::IR_VERSION]).
-export const IR_VERSION: number = 8;
+export const IR_VERSION: number = 9;
 
 // ---------------------------------------------------------------------------
 // Compressed OCIR transport container (issue #46, part 1)
@@ -54,6 +54,7 @@ export const SECTION = {
     EFFECTS: 10,
     SUBTREES: 11,
     GENERATED_IMAGES: 12,
+    GPU_STREAMS: 13,
 } as const;
 
 export type SectionId = (typeof SECTION)[keyof typeof SECTION];
@@ -125,6 +126,78 @@ export type Opcode = (typeof OP)[keyof typeof OP];
 /// length field and no padding. Indexed by opcode (0..=MAX_OPCODE).
 /// Keep in sync with `opcode::OPCODE_PAYLOAD_LEN` in core.
 export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 36, 4, 4, 4, 4, 4, 12, 0, 4, 1, 0, 0, 0, 0, 2, 16, 4, 20, 36, 68, 20, 16, 29, 20, 16, 8, 25, 50, 32, 8, 12, 24, 8, 8, 16, 24, 0, 16, 20, 16, 24, 41, 52, 0, 62, 21];
+
+// ---------------------------------------------------------------------------
+         // GPU stream GL opcodes — authority: ir/gpu_stream.rs gl_opcode.
+         // One command = `[GLOP: u8][GLOP_PAYLOAD_LEN[GLOP] payload]`; variable
+         // length entries (count-prefixed uniforms) are `-1`.
+         // ---------------------------------------------------------------------------
+
+         export const GLOP = {
+    SHADER_CREATE: 0,
+    SHADER_SOURCE: 1,
+    COMPILE_SHADER: 2,
+    SHADER_DELETE: 3,
+    PROGRAM_CREATE: 4,
+    PROGRAM_ATTACH: 5,
+    PROGRAM_LINK: 6,
+    PROGRAM_DELETE: 7,
+    PROGRAM_USE: 8,
+    BUFFER_CREATE: 9,
+    BUFFER_BIND: 10,
+    BUFFER_DATA: 11,
+    BUFFER_DATA_NULL: 12,
+    BUFFER_DELETE: 13,
+    VAO_CREATE: 14,
+    VAO_BIND: 15,
+    VAO_DELETE: 16,
+    ATTRIB_ENABLE: 17,
+    ATTRIB_DISABLE: 18,
+    ATTRIB_POINTER: 19,
+    ATTRIB_DIVISOR: 20,
+    UNIFORM_1F: 21,
+    UNIFORM_2F: 22,
+    UNIFORM_3F: 23,
+    UNIFORM_4F: 24,
+    UNIFORM_1I: 25,
+    UNIFORM_NF: 26,
+    UNIFORM_NI: 27,
+    UNIFORM_MATRIX_4F: 28,
+    TEXTURE_CREATE: 29,
+    TEXTURE_DELETE: 30,
+    TEXTURE_ACTIVE: 31,
+    TEXTURE_BIND: 32,
+    TEX_PARAM_I: 33,
+    TEX_PARAM_F: 34,
+    TEX_IMAGE_2D: 35,
+    GENERATE_MIPMAP: 36,
+    PIXEL_STORE_I: 37,
+    FRAMEBUFFER_CREATE: 38,
+    FRAMEBUFFER_DELETE: 39,
+    BIND_FRAMEBUFFER: 40,
+    FRAMEBUFFER_TEXTURE_2D: 41,
+    VIEWPORT: 42,
+    CLEAR_COLOR: 43,
+    CLEAR: 44,
+    ENABLE: 45,
+    DISABLE: 46,
+    DEPTH_FUNC: 47,
+    DEPTH_MASK: 48,
+    BLEND_FUNC: 49,
+    BLEND_EQUATION: 50,
+    BLEND_COLOR: 51,
+    CULL_FACE: 52,
+    FRONT_FACE: 53,
+    CLEAR_DEPTH: 54,
+    CLEAR_STENCIL: 55,
+    POLYGON_OFFSET: 56,
+    DRAW_ARRAYS: 57,
+    DRAW_ELEMENTS: 58,
+} as const;
+
+         /// Payload length per GLOP; -1 = variable (count-prefixed).
+         export const GLOP_PAYLOAD_LEN: readonly number[] = [6, 8, 4, 4, 4, 8, 4, 4, 4, 4, 6, 8, 8, 4, 4, 4, 4, 4, 4, 16, 8, 8, 12, 16, 20, 8, -1, -1, -1, 4, 4, 1, 6, 8, 8, 23, 2, 6, 4, 4, 6, 14, 16, 16, 1, 2, 2, 2, 1, 4, 2, 16, 2, 2, 4, 4, 8, 10, 12] as const;
+
 
 // ---------------------------------------------------------------------------
 // PathOp sub-opcodes (embedded in PATH_OP payload)

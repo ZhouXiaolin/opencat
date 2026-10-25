@@ -5,6 +5,9 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+# GL 函数面加载（WebGL 同名 API 形状）：engine 的离屏会话与预览共用一份
+# glow 上下文，FBO/PBO/纹理原语全部走它，本 crate 不再手写 GL extern。
+glow = "0.13.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.61.2", features = [
@@ -12,6 +15,7 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Graphics_Gdi",
     "Win32_Graphics_OpenGL",
     "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

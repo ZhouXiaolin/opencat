@@ -1,118 +1,32 @@
-//! 裸 GL 原语（Windows/WGL、Linux/EGL）：wgpu 与 Skia 都不提供的 FBO 与
-//! PBO 管理。
+//! 裸 GL 原语（Windows/WGL、Linux/EGL）：FBO 与 PBO 管理。
 //!
-//! 全片 GPU 化时 Skia 合成到一个自建 FBO 上（附着一张 wgpu 建的 GL
-//! 纹理）：wgpu 只提供纹理、不提供 FBO，Skia 的 `wrap_backend_render_target`
-//! 需要一个已存在的 FBO id，所以这几个入口只能直接调 GL。PBO 双缓冲读回
-//! （[`ReadbackPixels`]）同理——Skia 没有暴露异步读回。
+//! GL 函数面统一走 [`glow`]（WebGL 同名 API 形状）——本 crate 不再手写
+//! `extern`：`glow::Context` 由调用方在 current 上下文下构建一次
+//! （engine 的 [`crate::gl_session`]，loader 复用 win32/EGL 的入口解析），
+//! 此后所有原语都携带它。
 //!
-//! 入口解析分平台：Windows 经 `wglGetProcAddress`（GL 1.0 的
-//! glReadPixels/glReadBuffer 由 opengl32.dll 直接导出，**不走**
-//! `wglGetProcAddress`）；Linux 走 [`crate::egl::load_proc`]（libGL dlsym
-//! 优先，EGL `eglGetProcAddress` 补扩展）。调用线程必须有 current
-//! 的 GL context——调用方经 `opencat_three::Renderer3d::with_context` 保证。
+//! Skia 的 `wrap_backend_render_target` 需要一个已存在的 FBO id，PBO 双缓冲
+//! 读回（[`ReadbackPixels`]）是 Skia 没有暴露的异步读回——这两件事 Skia 与
+//! GPU 命令流执行器都不管，落在这里。
+//!
+//! 调用线程必须有 current 的 GL 上下文——调用方由 engine 的 GL 会话保证
+//! （预览链不使用本模块：预览画默认帧缓冲，无需 FBO/PBO）。
 
-use std::os::raw::c_void;
+use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use glow::HasContext;
 
 use crate::NativeTexture;
 
-#[cfg(target_os = "windows")]
-mod entry {
-    use std::ffi::CString;
-    use std::os::raw::c_void;
-
-    #[link(name = "opengl32")]
-    unsafe extern "system" {
-        pub fn wglGetProcAddress(name: *const u8) -> *const c_void;
-        /// GL 1.0，由 opengl32.dll 直接导出，**不走** `wglGetProcAddress`。
-        pub fn glReadPixels(
-            x: i32,
-            y: i32,
-            width: i32,
-            height: i32,
-            format: u32,
-            ty: u32,
-            pixels: *mut c_void,
-        );
-        /// GL 1.0，同上。FBO 的读缓冲是 FBO 自身状态，Skia 读过之后可能被留在
-        /// 非 `COLOR_ATTACHMENT0` 的值上，必须每次显式设回来。
-        pub fn glReadBuffer(mode: u32);
-    }
-
-    /// 解析一个 GL 入口点。
-    ///
-    /// `wglGetProcAddress` 对已知函数可能返回 1/2/3/`usize::MAX` 这类哨兵值
-    /// （规范允许），必须过滤，否则会当成合法指针调用。
-    pub fn gl_proc(name: &str) -> *const c_void {
-        let Ok(c) = CString::new(name) else {
-            return std::ptr::null();
-        };
-        let p = unsafe { wglGetProcAddress(c.as_ptr() as *const u8) };
-        if matches!(p as usize, 0 | 1 | 2 | 3 | usize::MAX) {
-            std::ptr::null()
-        } else {
-            p
-        }
-    }
-
-    pub unsafe fn read_pixels(
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        format: u32,
-        ty: u32,
-        pixels: *mut c_void,
-    ) {
-        unsafe { glReadPixels(x, y, width, height, format, ty, pixels) }
-    }
-
-    pub unsafe fn read_buffer(mode: u32) {
-        unsafe { glReadBuffer(mode) }
-    }
+/// glow 的句柄包装是 NonZero 的——0 永远不进 glow(调用方已在 NativeTexture
+/// 层面把 0 当「无纹理」拦截)。
+fn nz(v: u32) -> NonZeroU32 {
+    NonZeroU32::new(v).expect("glow handle 0")
 }
 
-#[cfg(target_os = "linux")]
-mod entry {
-    use std::os::raw::c_void;
-
-    use crate::egl::load_proc;
-
-    type GlReadPixels = unsafe extern "system" fn(i32, i32, i32, i32, u32, u32, *mut c_void);
-    type GlReadBuffer = unsafe extern "system" fn(u32);
-
-    /// Linux 上没有 opengl32 式的静态链接 GL：全部入口运行时解析。
-    /// glReadPixels/glReadBuffer 是 GL 1.0，libGL 的导出表里有。
-    pub fn gl_proc(name: &str) -> *const c_void {
-        load_proc(name)
-    }
-
-    pub unsafe fn read_pixels(
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-        format: u32,
-        ty: u32,
-        pixels: *mut c_void,
-    ) {
-        let p = gl_proc("glReadPixels");
-        assert!(!p.is_null(), "glReadPixels 不可用（libGL 缺失？）");
-        let f: GlReadPixels = unsafe { std::mem::transmute(p) };
-        unsafe { f(x, y, width, height, format, ty, pixels) }
-    }
-
-    pub unsafe fn read_buffer(mode: u32) {
-        let p = gl_proc("glReadBuffer");
-        assert!(!p.is_null(), "glReadBuffer 不可用（libGL 缺失？）");
-        let f: GlReadBuffer = unsafe { std::mem::transmute(p) };
-        unsafe { f(mode) }
-    }
-}
-
-use entry::{gl_proc, read_buffer, read_pixels};
+const GL_MAP_READ_BIT: u32 = 0x0001;
 
 /// Skia 的 `gpu::gl::TextureInfo` 要填的目标与内部格式（GL 枚举）。
 ///
@@ -121,80 +35,88 @@ use entry::{gl_proc, read_buffer, read_pixels};
 pub const TEXTURE_2D: u32 = 0x0DE1;
 pub const RGBA8: u32 = 0x8058;
 
-const GL_FRAMEBUFFER: u32 = 0x8D40;
-const GL_COLOR_ATTACHMENT0: u32 = 0x8CE0;
-const GL_TEXTURE_2D: u32 = TEXTURE_2D;
-const GL_FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
-const GL_PIXEL_PACK_BUFFER: u32 = 0x88EB;
-const GL_STREAM_READ: u32 = 0x88E1;
-const GL_MAP_READ_BIT: u32 = 0x0001;
-const GL_RGBA: u32 = 0x1908;
-const GL_UNSIGNED_BYTE: u32 = 0x1401;
-
 /// 建一个以 `tex` 为颜色附件的 FBO，返回 FBO id。
 ///
-/// 缺 GL 入口或 FBO 不完整时返回 `None`。成功时 FBO 已解绑（绑回 0），
-/// 不干扰调用方后续的 GL 状态。
+/// FBO 不完整时返回 `None`。成功时 FBO 已解绑（绑回 0），不干扰调用方
+/// 后续的 GL 状态。
 ///
 /// 返回的 id 对调用方**不透明**：它只被塞进 Skia 的 `FramebufferInfo`。
 /// 调用方不得对它做 GL 调用，也不得做算术。
-pub fn create_framebuffer(tex: NativeTexture) -> Option<u32> {
-    type Gen = unsafe extern "system" fn(i32, *mut u32);
-    type Bind = unsafe extern "system" fn(u32, u32);
-    type Attach = unsafe extern "system" fn(u32, u32, u32, u32, i32);
-    type Check = unsafe extern "system" fn(u32) -> u32;
-
-    let (g, b, a, c) = (
-        gl_proc("glGenFramebuffers"),
-        gl_proc("glBindFramebuffer"),
-        gl_proc("glFramebufferTexture2D"),
-        gl_proc("glCheckFramebufferStatus"),
-    );
-    if g.is_null() || b.is_null() || a.is_null() || c.is_null() {
-        return None;
-    }
-    let gen_fn: Gen = unsafe { std::mem::transmute(g) };
-    let bind: Bind = unsafe { std::mem::transmute(b) };
-    let attach: Attach = unsafe { std::mem::transmute(a) };
-    let check: Check = unsafe { std::mem::transmute(c) };
-
-    let mut fbo: u32 = 0;
+pub fn create_framebuffer(gl: &glow::Context, tex: NativeTexture) -> Option<u32> {
     unsafe {
-        gen_fn(1, &mut fbo);
-        bind(GL_FRAMEBUFFER, fbo);
-        attach(
-            GL_FRAMEBUFFER,
-            GL_COLOR_ATTACHMENT0,
-            GL_TEXTURE_2D,
-            tex.raw() as u32,
+        let fbo = gl.create_framebuffer().ok()?;
+        gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
+        gl.framebuffer_texture_2d(
+            glow::FRAMEBUFFER,
+            glow::COLOR_ATTACHMENT0,
+            glow::TEXTURE_2D,
+            Some(glow::NativeTexture(nz(tex.raw() as u32))),
             0,
         );
-        let status = check(GL_FRAMEBUFFER);
-        bind(GL_FRAMEBUFFER, 0);
-        if status != GL_FRAMEBUFFER_COMPLETE {
+        let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+        gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+        if status != glow::FRAMEBUFFER_COMPLETE {
+            gl.delete_framebuffer(fbo);
             return None;
         }
+        Some(fbo.0.get())
     }
-    Some(fbo)
 }
 
 /// 删除 [`create_framebuffer`] 建的 FBO。
-pub fn delete_framebuffer(fbo: u32) {
-    type Del = unsafe extern "system" fn(i32, *const u32);
-    let p = gl_proc("glDeleteFramebuffers");
-    if p.is_null() {
+pub fn delete_framebuffer(gl: &glow::Context, fbo: u32) {
+    if fbo == 0 {
         return;
     }
-    let del: Del = unsafe { std::mem::transmute(p) };
-    unsafe { del(1, &fbo) };
+    unsafe {
+        gl.delete_framebuffer(glow::NativeFramebuffer(nz(fbo)));
+    }
+}
+
+/// 建一张 `width × height` 的 RGBA8 纹理（数据为空——作为渲染目标的颜色
+/// 附件，内容由渲染写入）。返回纹理名。
+///
+/// 需要 GL context current。失败（含尺寸为 0）时返回 `None`。
+pub fn create_texture_rgba8(gl: &glow::Context, width: u32, height: u32) -> Option<NativeTexture> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    unsafe {
+        let tex = gl.create_texture().ok()?;
+        gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+        gl.tex_image_2d(
+            glow::TEXTURE_2D,
+            0,
+            glow::RGBA8 as i32,
+            width as i32,
+            height as i32,
+            0,
+            glow::RGBA,
+            glow::UNSIGNED_BYTE,
+            None,
+        );
+        gl.bind_texture(glow::TEXTURE_2D, None);
+        Some(NativeTexture::from_raw(tex.0.get() as u64))
+    }
+}
+
+/// 删除 [`create_texture_rgba8`] 建的纹理。需要 GL context current。
+pub fn delete_texture(gl: &glow::Context, tex: NativeTexture) {
+    if tex.is_none() {
+        return;
+    }
+    unsafe {
+        gl.delete_texture(glow::NativeTexture(nz(tex.raw() as u32)));
+    }
 }
 
 /// 一块离屏合成目标：原生纹理 + FBO + 双缓冲读回器。
 ///
-/// 建 [`Self::new`] 时要求 GL context current——FBO 与 PBO 都是 context 资源。
-/// drop 时删 FBO 与 PBO；**纹理不归它管**，那是 [`crate::TextureRegistry`]
-/// 的活。
+/// 建 [`Self::new`] 时要求 GL context current——FBO 与 PBO 都是 context
+/// 资源。drop 时删 FBO；**纹理不归它管**（[`create_texture_rgba8`] 的
+/// 调用方用 [`delete_texture`] 删）。
 pub struct Target {
+    gl: Arc<glow::Context>,
     tex: NativeTexture,
     fbo: u32,
     width: u32,
@@ -205,19 +127,21 @@ pub struct Target {
 
 impl Target {
     /// 用 `tex` 作颜色附件建目标。
-    pub fn new(tex: NativeTexture, width: u32, height: u32) -> Result<Self> {
-        let fbo = create_framebuffer(tex)
+    pub fn new(gl: Arc<glow::Context>, tex: NativeTexture, width: u32, height: u32) -> Result<Self> {
+        let fbo = create_framebuffer(&gl, tex)
             .ok_or_else(|| anyhow!("创建 FBO 失败（GL 入口缺失或 FBO 不完整）"))?;
+        let readback = ReadbackPixels::new(&gl, fbo, width, height);
         Ok(Self {
+            gl,
             tex,
             fbo,
             width,
             height,
-            readback: ReadbackPixels::new(fbo, width, height),
+            readback,
         })
     }
 
-    /// 目标纹理句柄（Metal 侧同形接口；GL 上 Skia 用 FBO 而非纹理名）。
+    /// 目标纹理句柄。
     pub fn texture(&self) -> NativeTexture {
         self.tex
     }
@@ -252,14 +176,14 @@ impl Target {
     pub fn readback(&mut self) -> Option<Vec<u8>> {
         self.readback
             .as_mut()
-            .and_then(ReadbackPixels::read_frame)
+            .and_then(|rb| rb.read_frame())
     }
 }
 
 impl Drop for Target {
     fn drop(&mut self) {
         if self.fbo != 0 {
-            delete_framebuffer(self.fbo);
+            delete_framebuffer(&self.gl, self.fbo);
         }
     }
 }
@@ -277,53 +201,39 @@ impl Drop for Target {
 /// 代价：多一帧延迟，且容量为 2 帧 RGBA（1080p 约 16.6MB）。离线渲染逐帧串行，
 /// 帧序不变，所以输出逐字节不变。
 pub struct ReadbackPixels {
+    gl: Arc<glow::Context>,
     fbo: u32,
     width: u32,
     height: u32,
     /// 两个 PBO 槽，构造时建好。
-    slots: [u32; 2],
+    slots: [Option<glow::NativeBuffer>; 2],
     /// 已发起、待取回的槽。`None` 表示还没有在途的读回。
     pending: Option<usize>,
 }
 
 impl ReadbackPixels {
-    /// 建两个 PBO 槽。GL 入口缺失时返回 `None`，调用方退回同步读回。
+    /// 建两个 PBO 槽。入口缺失时返回 `None`，调用方退回同步读回。
     ///
     /// 必须带 current 的 GL context 调用（PBO 是 context 资源）。
-    pub fn new(fbo: u32, width: u32, height: u32) -> Option<Self> {
-        type GenBuf = unsafe extern "system" fn(i32, *mut u32);
-        type BindBuf = unsafe extern "system" fn(u32, u32);
-        type BufferData = unsafe extern "system" fn(u32, isize, *const c_void, u32);
-        let (gb, bb, bd) = (
-            gl_proc("glGenBuffers"),
-            gl_proc("glBindBuffer"),
-            gl_proc("glBufferData"),
-        );
-        // 读回路径要用的入口一次探齐，避免中途才发现缺——那会静默丢帧。
-        let (bf, mb) = (gl_proc("glBindFramebuffer"), gl_proc("glMapBufferRange"));
-        if gb.is_null() || bb.is_null() || bd.is_null() || bf.is_null() || mb.is_null() {
-            return None;
-        }
-        let gen_buf: GenBuf = unsafe { std::mem::transmute(gb) };
-        let bind: BindBuf = unsafe { std::mem::transmute(bb) };
-        let data: BufferData = unsafe { std::mem::transmute(bd) };
-        let mut slots = [0u32; 2];
-        let bytes = (width as usize * height as usize * 4) as isize;
+    pub fn new(gl: &Arc<glow::Context>, fbo: u32, width: u32, height: u32) -> Option<Self> {
         unsafe {
-            gen_buf(2, slots.as_mut_ptr());
-            for id in slots {
-                bind(GL_PIXEL_PACK_BUFFER, id);
-                data(GL_PIXEL_PACK_BUFFER, bytes, std::ptr::null(), GL_STREAM_READ);
+            let a = gl.create_buffer().ok()?;
+            let b = gl.create_buffer().ok()?;
+            let bytes = (width as usize * height as usize * 4) as i32;
+            for slot in [&a, &b] {
+                gl.bind_buffer(glow::PIXEL_PACK_BUFFER, Some(*slot));
+                gl.buffer_data_size(glow::PIXEL_PACK_BUFFER, bytes, glow::STREAM_READ);
             }
-            bind(GL_PIXEL_PACK_BUFFER, 0);
+            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
+            Some(Self {
+                gl: gl.clone(),
+                fbo,
+                width,
+                height,
+                slots: [Some(a), Some(b)],
+                pending: None,
+            })
         }
-        Some(Self {
-            fbo,
-            width,
-            height,
-            slots,
-            pending: None,
-        })
     }
 
     /// 发起本帧的读回，并取回**上一帧**的结果。
@@ -352,29 +262,24 @@ impl ReadbackPixels {
 
     /// 发起一次异步读回到 `slot`。
     fn issue(&self, slot: usize) {
-        type BindBuf = unsafe extern "system" fn(u32, u32);
-        type BindFbo = unsafe extern "system" fn(u32, u32);
-        let (bb, bf) = (gl_proc("glBindBuffer"), gl_proc("glBindFramebuffer"));
-        // `new` 已探过这两个入口。
-        let bind: BindBuf = unsafe { std::mem::transmute(bb) };
-        let bind_fbo: BindFbo = unsafe { std::mem::transmute(bf) };
         unsafe {
-            bind(GL_PIXEL_PACK_BUFFER, self.slots[slot]);
-            bind_fbo(GL_FRAMEBUFFER, self.fbo);
+            let gl = &self.gl;
+            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, self.slots[slot]);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(self.fbo))));
             // 读缓冲是 FBO 的状态，Skia 未必留在 `COLOR_ATTACHMENT0` 上。
-            read_buffer(GL_COLOR_ATTACHMENT0);
+            gl.read_buffer(glow::COLOR_ATTACHMENT0);
             // 目标指针为 null 即「写进当前绑定的 PBO」，立即返回。
-            read_pixels(
+            gl.read_pixels(
                 0,
                 0,
                 self.width as i32,
                 self.height as i32,
-                GL_RGBA,
-                GL_UNSIGNED_BYTE,
-                std::ptr::null_mut(),
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::BufferOffset(0),
             );
-            bind_fbo(GL_FRAMEBUFFER, 0);
-            bind(GL_PIXEL_PACK_BUFFER, 0);
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
         }
     }
 
@@ -382,31 +287,25 @@ impl ReadbackPixels {
     ///
     /// `GL_MAP_READ_BIT` 保证 map 期间那次传输已完成，不必另加栅栏。
     fn collect(&self, slot: usize, bytes: usize) -> Option<Vec<u8>> {
-        type BindBuf = unsafe extern "system" fn(u32, u32);
-        type MapBufferRange = unsafe extern "system" fn(u32, isize, isize, u32) -> *mut c_void;
-        type UnmapBuffer = unsafe extern "system" fn(u32) -> u8;
-        let (bb, mb, ub) = (
-            gl_proc("glBindBuffer"),
-            gl_proc("glMapBufferRange"),
-            gl_proc("glUnmapBuffer"),
-        );
-        // `new` 已探过 `glBindBuffer` 与 `glMapBufferRange`。
-        let bind: BindBuf = unsafe { std::mem::transmute(bb) };
-        let map: MapBufferRange = unsafe { std::mem::transmute(mb) };
-        let unmap: UnmapBuffer = unsafe { std::mem::transmute(ub) };
         unsafe {
-            bind(GL_PIXEL_PACK_BUFFER, self.slots[slot]);
-            let ptr = map(GL_PIXEL_PACK_BUFFER, 0, bytes as isize, GL_MAP_READ_BIT);
+            let gl = &self.gl;
+            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, self.slots[slot]);
+            let ptr = gl.map_buffer_range(
+                glow::PIXEL_PACK_BUFFER,
+                0,
+                bytes as i32,
+                GL_MAP_READ_BIT,
+            );
             let out = if ptr.is_null() {
                 None
             } else {
                 let slice = std::slice::from_raw_parts(ptr as *const u8, bytes);
                 Some(slice.to_vec())
             };
-            if !ptr.is_null() && !ub.is_null() {
-                unmap(GL_PIXEL_PACK_BUFFER);
+            if !ptr.is_null() {
+                gl.unmap_buffer(glow::PIXEL_PACK_BUFFER);
             }
-            bind(GL_PIXEL_PACK_BUFFER, 0);
+            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
             out
         }
     }
@@ -414,15 +313,12 @@ impl ReadbackPixels {
 
 impl Drop for ReadbackPixels {
     fn drop(&mut self) {
-        if self.slots[0] == 0 {
-            return;
+        unsafe {
+            for slot in self.slots.iter_mut() {
+                if let Some(buf) = slot.take() {
+                    self.gl.delete_buffer(buf);
+                }
+            }
         }
-        type DelBuf = unsafe extern "system" fn(i32, *const u32);
-        let p = gl_proc("glDeleteBuffers");
-        if p.is_null() {
-            return;
-        }
-        let del: DelBuf = unsafe { std::mem::transmute(p) };
-        unsafe { del(2, self.slots.as_ptr()) };
     }
 }

@@ -98,13 +98,6 @@ impl<S: JsContext> DefaultPipeline<S> {
         self.scripts.set_document_base(base);
     }
 
-    /// Expose the realm-level 3D geometry registry (`Geometry3::Asset { id }`
-    /// resolution source for `RenderFrame.scene3`). The registry persists for
-    /// the pipeline lifetime, so web hosts can fetch geometries by id lazily.
-    pub fn scene3_geometry_registry(&mut self) -> crate::ir::scene3::GeometryRegistry {
-        self.scripts.geometry_registry()
-    }
-
     /// Inspect layout for a frame using the same resolve/layout sessions as
     /// [`Pipeline::render_frame`]. Does not re-seed catalogs or open a second
     /// script realm — host-prepared metadata and pipeline state are authoritative.
@@ -191,7 +184,7 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
     }
 
     fn render_frame(&mut self, frame_index: u32) -> Result<RenderFrame> {
-        let (draw, media, scene3) = super::frame::render_frame_with_state(
+        let (draw, media, gpu) = super::frame::render_frame_with_state(
             &self.composition,
             frame_index,
             &mut self.layout_session,
@@ -202,7 +195,8 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
             &mut self.scripts,
             &mut self.generated_images,
         )?;
-        Ok(RenderFrame { draw, media, scene3 })
+        // GPU 流段由 pipeline 组装时从脚本侧取走（见 frame.rs）。
+        Ok(RenderFrame { draw, media, gpu })
     }
 }
 

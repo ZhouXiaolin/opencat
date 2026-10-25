@@ -15,7 +15,6 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use opencat_core::ir::RenderFrame;
-use opencat_core::ir::scene3::Scene3Raster;
 use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::ParsedComposition;
@@ -47,14 +46,8 @@ pub struct EnginePipelineHost {
     pub pipeline: CorePipeline,
     /// Engine-owned resource owner: cached asset handles, fetcher, providers.
     pub loader: EngineLoader,
-    /// 3D 渲染器（[`Self::scene3_raster`] 的底层实例）。GPU 合成器靠它取
-    /// 3D 输出纹理；CPU 路径不用。
-    pub scene3_renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
-    /// 3D 光栅化器：core 导出的 Scene3 段在 render_frame 之后由它渲染，
-    /// 结果回填 media plan 占位条目（见 [`Self::render_scene3_section`]）。
-    pub scene3_raster: std::sync::Arc<TexturedRaster3d>,
-    /// 共享纹理登记处：3D 输出纹理与合成目标纹理的存活都归它管。
-    /// 生产方（`scene3_renderer`）与消费方（GPU 合成器、预览器）共用同一个。
+    /// 共享纹理登记处：GPU 流输出纹理与合成目标纹理的存活都归它管。
+    /// 生产方（GPU 执行器）与消费方（GPU 合成器、预览器）共用同一个。
     pub textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
 }
 
@@ -95,39 +88,6 @@ impl EnginePipelineHost {
         self.pipeline.render_frame(idx)
     }
 
-    /// 渲染本帧的 Scene3 段并回填 `media_plan` 的占位图条目。
-    ///
-    /// core 为每个 3D 场景录一条空 RGBA 的 generated-image 占位（同时把
-    /// `DrawOp::Image{ImageRef::Generated}` 录进目标 canvas 保 z 序），这里
-    /// 逐 commit 光栅化快照，把像素/GPU 句柄填回同 id 条目——下游
-    /// `prepare_frame` 与 draw 执行器对 3D 无感知，签名零改动。
-    pub fn render_scene3_section(
-        &self,
-        media_plan: &mut opencat_core::ir::media_plan::FrameMediaPlan,
-        section: &opencat_core::ir::draw_frame::Scene3Section,
-    ) -> Result<()> {
-        for commit in &section.commits {
-            // 占位不在本帧 plan 中 = 那条 `DrawOp::Image` 被裁掉了（元素透明/
-            // 完全离屏）：没有消费者，光栅化纯属浪费，直接跳过。
-            let Some(entry) = media_plan
-                .generated_images
-                .iter_mut()
-                .find(|e| e.id == commit.image_id)
-            else {
-                continue;
-            };
-            let rasterized = self.scene3_raster.render(
-                &commit.scene,
-                &section.geometries,
-                entry.width,
-                entry.height,
-            )?;
-            entry.rgba = rasterized.rgba;
-            entry.gpu = rasterized.gpu;
-        }
-        Ok(())
-    }
-
     /// Layout inspection from the same resolve/layout sessions as render.
     pub fn inspect_frame(
         &mut self,
@@ -162,7 +122,6 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Resu
         scripts,
         engine_default_font_faces(),
         font_bytes,
-        crate::gpu_pipeline::enabled(),
     )?;
     Ok(host)
 }
@@ -188,7 +147,6 @@ pub(crate) fn open_parsed_host_owned(
         scripts,
         font_bytes,
         Default::default(),
-        false,
     )
 }
 
@@ -198,7 +156,6 @@ fn open_parsed_host_owned_with_fonts(
     scripts: V8JsContext,
     font_bytes: Vec<Vec<u8>>,
     font_bytes_by_face_id: std::collections::HashMap<String, Vec<u8>>,
-    gpu_mode: bool,
 ) -> Result<EnginePipelineHost> {
     let draft = CompositionDraft::from_parsed(parsed);
     let requests = collect_resource_requests_from_parsed(draft.parsed());
@@ -299,26 +256,11 @@ fn open_parsed_host_owned_with_fonts(
 
     let prepared = draft.prepare(inputs).map_err(prepare_err)?;
     let mut pipeline = prepared.open_pipeline(scripts)?;
-    // 3D 渲染器（opencat-three，wgpu，懒初始化）：core 每帧把 Scene3 段
-    // 原样导出进 RenderFrame.scene3，engine 在 render_frame 之后用
-    // [`TexturedRaster3d`] 光栅化并回填 media plan 占位条目——纹理**来源**
-    // （视频帧/位图路径）用 MediaContext 解码成位图表再交给 wgpu，core 与
-    // opencat-three 都不碰媒体解码，像素不过 JSON 桥。无 3D 场景的合成不
-    // 付任何 GPU 成本，GPU 不可用时只在真正提交 3D 场景的帧上报错（见
-    // LazyRenderer3d）。
-    // 共享纹理登记处：3D 输出纹理与合成目标纹理都登记在这里，宿主凭句柄
-    // 取用、归还。谁保活、谁归还全在这一处定（见 opencat-gpu-native）。
+    // 共享纹理登记处：GPU 流输出纹理与合成目标纹理都登记在这里，宿主凭
+    // 句柄取用、归还。谁保活、谁归还全在这一处定（见 opencat-gpu-native）。
     let textures = std::sync::Arc::new(opencat_gpu_native::TextureRegistry::new());
-    let scene3_renderer = std::sync::Arc::new(opencat_three::LazyRenderer3d::new(
-        textures.clone(),
-    ));
-    let scene3_raster = std::sync::Arc::new(TexturedRaster3d {
-        inner: scene3_renderer.clone(),
-        resolve_tx: std::sync::OnceLock::new(),
-        gpu_mode,
-    });
-    // 文档 base 目录：脚本内相对资产路径（GLTFGeometry 等）对它 join——
-    // three.js GLTFLoader 相对 URL 语义的 opencat 对应物。
+    // 文档 base 目录：脚本内相对资产路径对它 join——three.js GLTFLoader
+    // 相对 URL 语义的 opencat 对应物。
     pipeline.set_document_base(&loader.base_dir().to_string_lossy());
 
     let composition = pipeline.composition().clone();
@@ -327,213 +269,12 @@ fn open_parsed_host_owned_with_fonts(
     Ok(EnginePipelineHost {
         pipeline,
         loader,
-        scene3_renderer,
-        scene3_raster,
         textures,
     })
 }
 
 fn prepare_err(err: PrepareError) -> anyhow::Error {
     anyhow::anyhow!(err)
-}
-
-/// 引擎侧 3D 光栅化器：[`opencat_three::LazyRenderer3d`] + 视频帧/位图
-/// 解码。纹理槽表按「逐 mesh 先 `textures` 槽表后 `map`，场景序」的遍历
-/// 规则构建（与 opencat-three 的槽位推导规则一致）。
-///
-/// 解码在专属 worker 线程上进行：`MediaContext`（ffmpeg 解码缓存）不是
-/// `Send`，不能跨线程移动——它在 worker 线程内构造并终身驻留，channel 只
-/// 携带 `Texture3`（来源，Send）进、`TextureBitmap3`（像素，Send）出。
-/// 逐帧顺序渲染下 worker 内的解码缓存与 2D 路径同温（顺序解码，不回 seek）。
-struct TexturedRaster3d {
-    /// 3D 渲染器。宿主与光栅器共享同一实例：GPU 管线要靠它把 3D 渲染
-    /// 目标登记到共享纹理表，消费方凭凭据取用。
-    inner: std::sync::Arc<opencat_three::LazyRenderer3d>,
-    /// 纹理解析 worker 的发送端（懒建，首个带纹理的场景才起线程）。
-    resolve_tx: std::sync::OnceLock<std::sync::mpsc::Sender<TextureResolveJob>>,
-    /// GPU 管线开关（默认开，`OC_GPU_PIPELINE=0` 关）：3D 输出留在显存，
-    /// 交给 Skia 零拷贝导入，跳过 wgpu→CPU 的整帧回读。
-    gpu_mode: bool,
-}
-
-/// 一帧的纹理解析请求（进 worker：来源列表；出 worker：按同序的位图表）。
-struct TextureResolveJob {
-    sources: Vec<opencat_core::ir::scene3::Texture3>,
-    /// `Texture3::Surface` 的像素随 job 一起过来（surface 注册表在脚本线程，
-    /// worker 线程取不到）。
-    surfaces: Vec<(String, u32, u32, Arc<Vec<u8>>)>,
-    reply: std::sync::mpsc::SyncSender<anyhow::Result<opencat_three::TextureTable3>>,
-}
-
-/// 把来源列表里的 `Texture3::Surface` 像素抓成本帧快照。surface 注册表是
-/// 脚本线程的 thread-local，渲染线程/worker 取不到，必须在这里过手。
-fn collect_surfaces(
-    sources: &[opencat_core::ir::scene3::Texture3],
-) -> anyhow::Result<Vec<(String, u32, u32, Arc<Vec<u8>>)>> {
-    let mut out = Vec::new();
-    for src in sources {
-        if let opencat_core::ir::scene3::Texture3::Surface { id } = src {
-            let rgba = opencat_core::text::surface::surface_rgba_arc(id)?;
-            let (w, h) = opencat_core::text::surface::surface_dimensions(id)?;
-            out.push((id.clone(), w, h, Arc::new(rgba.to_vec())));
-        }
-    }
-    Ok(out)
-}
-
-fn spawn_texture_worker() -> std::sync::mpsc::Sender<TextureResolveJob> {
-    let (tx, rx) = std::sync::mpsc::channel::<TextureResolveJob>();
-    std::thread::Builder::new()
-        .name("scene3-textures".into())
-        .spawn(move || {
-            // MediaContext 诞生并终身驻留在本线程（!Send 依赖不跨线程）。
-            let mut media = crate::media::MediaContext::new();
-            for job in rx {
-                let out = (|| -> anyhow::Result<opencat_three::TextureTable3> {
-                    let mut table = opencat_three::TextureTable3::new();
-                    for source in &job.sources {
-                        let bitmap = match source {
-                            opencat_core::ir::scene3::Texture3::VideoFrame { path, time } => {
-                                let bmp = media.frame_rgba_at_time_by_path(
-                                    std::path::Path::new(path),
-                                    *time as f64,
-                                )?;
-                                opencat_three::TextureBitmap3 {
-                                    rgba: bmp.data,
-                                    width: bmp.width,
-                                    height: bmp.height,
-                                }
-                            }
-                            // canvas → 纹理：脚本侧离屏 surface 的当前像素。
-                            // surface 注册表是脚本线程的 thread-local，宿主在
-                            // 光栅化前把整幅像素取一次随 job 传进来。
-                            opencat_core::ir::scene3::Texture3::Surface { id } => {
-                                let (rgba, w, h) = job
-                                    .surfaces
-                                    .iter()
-                                    .find(|(sid, ..)| sid == id)
-                                    .map(|(_, w, h, rgba)| (rgba.clone(), *w, *h))
-                                    .ok_or_else(|| {
-                                        anyhow::anyhow!(
-                                            "surface 纹理 '{id}' 没有随本帧上传像素"
-                                        )
-                                    })?;
-                                opencat_three::TextureBitmap3 {
-                                    rgba,
-                                    width: w,
-                                    height: h,
-                                }
-                            }
-                            opencat_core::ir::scene3::Texture3::Bitmap { path } => {
-                                let (data, w, h) =
-                                    media.get_bitmap(std::path::Path::new(path), None)?;
-                                opencat_three::TextureBitmap3 {
-                                    rgba: data,
-                                    width: w,
-                                    height: h,
-                                }
-                            }
-                        };
-                        table.push((source.table_key(), bitmap));
-                    }
-                    Ok(table)
-                })();
-                if job.reply.send(out).is_err() {
-                    break; // 渲染侧已放弃本帧（管线关闭），收尾退出。
-                }
-            }
-        })
-        .expect("spawn scene3-texture worker");
-    tx
-}
-
-impl opencat_core::ir::scene3::Scene3Raster for TexturedRaster3d {
-    fn render(
-        &self,
-        scene: &opencat_core::ir::scene3::Scene3,
-        geometries: &opencat_core::ir::scene3::GeometryRegistry,
-        width: u32,
-        height: u32,
-    ) -> anyhow::Result<opencat_core::ir::scene3::Rasterized3d> {
-        // 遍历规则即槽位序：textures 在前（马赛克槽表）、map 在后。
-        let mut sources: Vec<opencat_core::ir::scene3::Texture3> = Vec::new();
-        for mesh in &scene.meshes {
-            for tex in mesh
-                .material
-                .textures
-                .iter()
-                .chain(mesh.material.map.iter())
-                .chain(mesh.material.base_color_map.iter())
-                .chain(mesh.material.metallic_roughness_map.iter())
-                .chain(mesh.material.normal_map.iter())
-            {
-                let key = tex.table_key();
-                if sources.iter().any(|s| s.table_key() == key) {
-                    continue;
-                }
-                sources.push(tex.clone());
-            }
-        }
-        if sources.len() > opencat_three::MAX_TEXTURE_SLOTS {
-            anyhow::bail!(
-                "3D 纹理来源 {} 路超过上限 {}（马赛克槽表 + map 合计）",
-                sources.len(),
-                opencat_three::MAX_TEXTURE_SLOTS
-            );
-        }
-        let tx = self.resolve_tx.get_or_init(spawn_texture_worker);
-        // 先把本帧所有 surface 来源的像素取出来（脚本线程的 thread-local）。
-        let surfaces = collect_surfaces(&sources)?;
-        let (reply_tx, reply_rx) = std::sync::mpsc::sync_channel(1);
-        tx.send(TextureResolveJob {
-            sources,
-            surfaces,
-            reply: reply_tx,
-        })
-        .map_err(|_| anyhow::anyhow!("scene3-texture worker 已退出"))?;
-        let table = reply_rx
-            .recv()
-            .map_err(|_| anyhow::anyhow!("scene3-texture worker 丢失应答"))??;
-        // 场景环境（three.js scene.environment，js:23-26）：equirect 位图
-        // 走同一 worker 解码，交给渲染器做一次性 PMREM 预滤波
-        //（LazyRenderer3d::set_environment 内按 Arc 指针缓存）。
-        if let Some(env) = &scene.environment {
-            let (env_tx, env_rx) = std::sync::mpsc::sync_channel(1);
-            let env_sources = vec![env.clone()];
-            let env_surfaces = collect_surfaces(&env_sources)?;
-            tx.send(TextureResolveJob {
-                sources: env_sources,
-                surfaces: env_surfaces,
-                reply: env_tx,
-            })
-            .map_err(|_| anyhow::anyhow!("scene3-texture worker 已退出"))?;
-            let env_table = env_rx
-                .recv()
-                .map_err(|_| anyhow::anyhow!("scene3-texture worker 丢失应答"))??;
-            let (_, env_bitmap) = env_table
-                .into_iter()
-                .next()
-                .ok_or_else(|| anyhow::anyhow!("环境纹理来源解析为空表"))?;
-            self.inner
-                .set_environment(&env_bitmap, scene.environment_srgb)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
-        }
-        // GPU 模式：渲染到显存并登记句柄，Skia 侧零拷贝导入（见
-        // [`crate::gpu_pipeline`]）。CPU 模式：读回像素走原有路径。
-        if self.gpu_mode {
-            let handle = self
-                .inner
-                .render_to_gpu(scene, geometries, &table, width, height)?;
-            return Ok(opencat_core::ir::scene3::Rasterized3d {
-                rgba: std::sync::Arc::from(Vec::new()),
-                gpu: Some(handle),
-            });
-        }
-        Ok(opencat_core::ir::scene3::Rasterized3d::cpu(
-            self.inner
-                .render_with_textures(scene, geometries, &table, width, height)?,
-        ))
-    }
 }
 
 #[cfg(test)]

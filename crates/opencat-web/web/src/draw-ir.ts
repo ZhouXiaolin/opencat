@@ -17,6 +17,7 @@ import {
   PATH_OP_F32_WIDTHS,
   BLEND_MODE,
 } from './generated/ocir-schema.generated';
+import { decodeGpuStreamsFromEnvelope, executeGpuStreams } from './web-gl-stream';
 import type {
   BlendMode,
   BlurStyle,
@@ -327,10 +328,10 @@ const generatedImageRgba = new Map<string, { width: number; height: number; rgba
 
 /**
  * Register RGBA for a generated-image id from outside the OCIR envelope —
- * the scene3 web executor (three-facade.ts) rasterizes the Scene3 section
- * with real three.js and lands its pixels here. resolveImage('generated')
- * builds the CanvasKit Image lazily from this slot at the placeholder's
- * z-position (core never ships scene3 placeholders in section 12).
+ * the GPU-stream executor renders the frame's streams and lands its pixels
+ * here. resolveImage('generated') builds the CanvasKit Image lazily from
+ * this slot at the placeholder's z-position (core never ships stream
+ * placeholders' pixels in section 12).
  */
 export function provideGeneratedImageRgba(id: bigint | string, width: number, height: number, rgba: Uint8Array): void {
   generatedImageRgba.set(`${id}`, { width, height, rgba });
@@ -485,6 +486,15 @@ export function renderEncodedDrawFrame(
   options: RenderEncodedDrawFrameOptions = {},
 ): void {
   const frame = decodeFrame(encoded);
+  // GPU streams render FIRST: the 2D replay composites their pixels at the
+  // placeholder `Image{ImageRef::Generated}` z-position via
+  // resolveImage('generated'), which reads the slot this fills.
+  const gpuStreams = decodeGpuStreamsFromEnvelope(
+    encoded instanceof Uint8Array ? encoded : new Uint8Array(encoded),
+  );
+  if (gpuStreams && gpuStreams.length > 0) {
+    executeGpuStreams(gpuStreams);
+  }
   // Atomic fail-fast: validate all current-frame media exists before any
   // CanvasKit operation. If any image, video frame, Lottie bundle, or runtime
   // effect is missing or failed, a typed MediaValidationError is thrown and no

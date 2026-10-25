@@ -8,6 +8,7 @@
 //! 只有几个函数指针，且已经过实测。
 
 use std::ffi::{CString, c_void};
+use std::sync::OnceLock;
 
 use anyhow::{Result, anyhow};
 use windows_sys::Win32::{
@@ -20,7 +21,11 @@ use windows_sys::Win32::{
             wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
         },
     },
-    System::LibraryLoader::{GetProcAddress, LoadLibraryA},
+    System::LibraryLoader::{GetProcAddress, GetModuleHandleA, LoadLibraryA},
+    UI::WindowsAndMessaging::{
+        CS_OWNDC, CreateWindowExA, DefWindowProcA, DestroyWindow, RegisterClassA, WNDCLASSA,
+        WS_POPUP,
+    },
 };
 
 /// 一个窗口上的 WGL 上下文。
@@ -36,6 +41,8 @@ pub struct WglContext {
     hdc: HDC,
     glrc: HGLRC,
     opengl32: HMODULE,
+    /// 离屏模式（[`Self::offscreen`]）自建的窗口：drop 时一并销毁。
+    owns_window: bool,
 }
 
 impl WglContext {
@@ -46,12 +53,92 @@ impl WglContext {
     /// # Safety
     /// `hwnd` 必须是宿主线程上有效的顶层窗口句柄。
     pub unsafe fn from_window(hwnd: *mut c_void) -> Result<Self> {
+        unsafe { Self::create_on_hwnd(hwnd as HWND, false) }
+    }
+
+    /// 无窗口离屏上下文（离线渲染用）。
+    ///
+    /// WGL 必须挂在窗口 DC 上——离线渲染没有宿主窗口，这里自建一个
+    /// 1×1 隐藏窗口（`CS_OWNDC`，像素格式独占），生命周期与上下文同体：
+    /// drop 时解绑上下文、销毁窗口。
+    ///
+    /// 与 [`Self::from_window`] 同为 legacy 兼容 profile——桌面驱动在此
+    /// profile 下给出它支持的最高 GL（实测 NVIDIA 4.6 compat），GLSL
+    /// 330 core / FBO / PBO 全可用。
+    ///
+    /// # Safety
+    /// 必须在将要 make current 本上下文的线程上调用：WGL 上下文跨线程
+    /// 迁移没有意义，离线渲染的建与用同线程。
+    pub unsafe fn offscreen() -> Result<Self> {
+        unsafe {
+            let hinstance = GetModuleHandleA(std::ptr::null());
+            let _atom = Self::offscreen_class();
+            let hwnd = CreateWindowExA(
+                0,
+                OFFSCREEN_CLASS.as_ptr(),
+                b"opencat\0".as_ptr(),
+                WS_POPUP,
+                0,
+                0,
+                1,
+                1,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                hinstance,
+                std::ptr::null(),
+            );
+            if hwnd.is_null() {
+                return Err(anyhow!(
+                    "CreateWindowExA 离屏窗口创建失败 (GetLastError={})",
+                    windows_sys::Win32::Foundation::GetLastError()
+                ));
+            }
+            Self::create_on_hwnd(hwnd, true)
+        }
+    }
+
+    /// 1×1 隐藏离屏窗口的窗口类（进程级注册一次）。已注册时
+    /// RegisterClassA 返回 0 且 GetLastError=ERROR_CLASS_ALREADY_EXISTS，
+    /// 缓存住即可；真失败（atom 0 且错误码不同）在调用方报出。
+    fn offscreen_class() -> u16 {
+        static ATOM: OnceLock<Result<u16, u32>> = OnceLock::new();
+        ATOM
+        .get_or_init(|| unsafe {
+            let wc = WNDCLASSA {
+                style: CS_OWNDC,
+                lpfnWndProc: Some(DefWindowProcA),
+                lpszClassName: OFFSCREEN_CLASS.as_ptr(),
+                hInstance: GetModuleHandleA(std::ptr::null()),
+                ..Default::default()
+            };
+            let atom = RegisterClassA(&wc);
+            if atom != 0 {
+                Ok(atom)
+            } else {
+                let err = windows_sys::Win32::Foundation::GetLastError();
+                // 1410 = ERROR_CLASS_ALREADY_EXISTS：并发注册的良性竞争。
+                if err == 1410 { Ok(0) } else { Err(err) }
+            }
+        })
+        .map_err(|e| anyhow!("RegisterClassA 离屏窗口类注册失败 (GetLastError={e})"))
+        .unwrap_or(0)
+    }
+
+    /// `hwnd` 上的像素格式 + 上下文引导，`from_window` 与 `offscreen` 共用。
+    ///
+    /// # Safety
+    /// `hwnd` 必须是调用线程上有效的窗口句柄。
+    unsafe fn create_on_hwnd(hwnd: HWND, owns_window: bool) -> Result<Self> {
         if hwnd.is_null() {
             return Err(anyhow!("Win32 window handle is null"));
         }
+        let _atom = if owns_window { Self::offscreen_class() } else { 0 };
 
         let hdc = unsafe { GetDC(hwnd) };
         if hdc.is_null() {
+            if owns_window {
+                unsafe { DestroyWindow(hwnd) };
+            }
             return Err(anyhow!("GetDC returned null for Win32 window"));
         }
 
@@ -71,17 +158,26 @@ impl WglContext {
         let pixel_format = unsafe { ChoosePixelFormat(hdc, &pixel_format_descriptor) };
         if pixel_format == 0 {
             unsafe { ReleaseDC(hwnd, hdc) };
+            if owns_window {
+                unsafe { DestroyWindow(hwnd) };
+            }
             return Err(anyhow!("ChoosePixelFormat failed for Win32 OpenGL window"));
         }
 
         if unsafe { SetPixelFormat(hdc, pixel_format, &pixel_format_descriptor) } == 0 {
             unsafe { ReleaseDC(hwnd, hdc) };
+            if owns_window {
+                unsafe { DestroyWindow(hwnd) };
+            }
             return Err(anyhow!("SetPixelFormat failed for Win32 OpenGL window"));
         }
 
         let glrc = unsafe { wglCreateContext(hdc) };
         if glrc.is_null() {
             unsafe { ReleaseDC(hwnd, hdc) };
+            if owns_window {
+                unsafe { DestroyWindow(hwnd) };
+            }
             return Err(anyhow!("wglCreateContext failed for Win32 window"));
         }
 
@@ -89,6 +185,9 @@ impl WglContext {
             unsafe {
                 wglDeleteContext(glrc);
                 ReleaseDC(hwnd, hdc);
+            }
+            if owns_window {
+                unsafe { DestroyWindow(hwnd) };
             }
             return Err(anyhow!(
                 "wglMakeCurrent failed while creating Win32 context"
@@ -101,6 +200,9 @@ impl WglContext {
                 wglMakeCurrent(hdc, std::ptr::null_mut());
                 wglDeleteContext(glrc);
                 ReleaseDC(hwnd, hdc);
+                if owns_window {
+                    DestroyWindow(hwnd);
+                }
             }
             return Err(anyhow!("LoadLibraryA(opengl32.dll) failed"));
         }
@@ -110,6 +212,7 @@ impl WglContext {
             hdc,
             glrc,
             opengl32,
+            owns_window,
         })
     }
 
@@ -152,6 +255,9 @@ impl WglContext {
     }
 }
 
+/// 离屏窗口类名（NUL 结尾）。
+const OFFSCREEN_CLASS: &[u8] = b"opencat-gl-offscreen\0";
+
 impl Drop for WglContext {
     fn drop(&mut self) {
         unsafe {
@@ -161,6 +267,9 @@ impl Drop for WglContext {
             }
             if !self.hdc.is_null() {
                 ReleaseDC(self.hwnd, self.hdc);
+            }
+            if self.owns_window && !self.hwnd.is_null() {
+                DestroyWindow(self.hwnd);
             }
             if !self.opengl32.is_null() {
                 FreeLibrary(self.opengl32);

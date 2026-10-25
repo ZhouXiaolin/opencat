@@ -10,7 +10,6 @@ use std::ffi::c_void;
 use anyhow::{Result, anyhow};
 use opencat_gpu_native::TextureRegistry;
 use opencat_gpu_native::egl::EglContext;
-use opencat_three::Renderer3d;
 use skia_safe::{
     ColorType,
     gpu::{self, SurfaceOrigin, backend_render_targets, gl},
@@ -111,17 +110,6 @@ impl Presenter {
     /// 所以每帧合成前必须让 Skia 失效缓存，否则它会按过期状态发包。
     pub fn reset_backend_state(&mut self) {
         self.skia.reset(None);
-    }
-
-    /// 建一个与本窗口 EGL 上下文**共享**的 wgpu 渲染器（3D 零拷贝）。
-    ///
-    /// `make_current` 回调是必需的——wgpu-hal 的 GL 实例初始化会在结尾
-    /// unmake，把宿主的上下文解绑。
-    pub fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
-        Ok(Some(Renderer3d::new_external(
-            |name| opencat_gpu_native::egl::load_proc(name),
-            || self.ctx.make_current(),
-        )?))
     }
 
     /// 在同一帧内借出绘制 canvas 与 GPU 图像解析器。

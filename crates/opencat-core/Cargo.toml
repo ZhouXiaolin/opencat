@@ -10,7 +10,6 @@ path = "src/lib.rs"
 anyhow.workspace = true
 # GLB/glTF 解析一律走现成 crate（容器/accessor/后续材质层级），不再手写。
 # default-features = false 关掉 import（会拖 image 解码栈）；utils 提供遍历工具。
-gltf = { version = "1.4", default-features = false, features = ["utils"] }
 # calc feature 会让 CompactLength 内部变成裸指针 tagged pointer（Style 非
 # Send/Sync）。我们的 CSS 求值层已把 calc() 全部化简成字面值，用不到它。
 taffy = { version = "0.14.0", default-features = false, features = [

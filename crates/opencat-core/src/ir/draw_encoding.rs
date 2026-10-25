@@ -62,7 +62,10 @@ pub const IR_MAGIC: [u8; 4] = *b"OCIR";
 ///
 /// v8: SAVE_BACKDROP_LAYER payload grows by 4×f32 border-box corner radii
 /// (CSS clips the filtered backdrop to the rounded border box).
-pub const IR_VERSION: u32 = 8;
+///
+/// v9 (GPU 协议面): SECTION_GPU_STREAMS (13) — WebGL2 命令流段，承载
+/// `getContext('webgl2')` 录制面的位编码命令（见 `ir::gpu_stream`）。
+pub const IR_VERSION: u32 = 9;
 
 /// Section identifiers in the OCIR directory.
 pub mod section {
@@ -78,6 +81,7 @@ pub mod section {
     pub const EFFECTS: u32 = 10;
     pub const SUBTREES: u32 = 11;
     pub const GENERATED_IMAGES: u32 = 12;
+    pub const GPU_STREAMS: u32 = 13;
 }
 
 /// Encoding failure (unknown required string id, oversized envelope, …).
@@ -508,6 +512,7 @@ pub fn encode_ir_envelope(
     pack_ir_envelope(
         &render_frame.draw,
         &render_frame.media.generated_images,
+        render_frame.gpu.as_ref(),
         &sections,
     )
 }
@@ -516,9 +521,11 @@ pub fn encode_ir_envelope(
 pub fn pack_ir_envelope(
     draw: &super::draw_frame::DrawOpFrame,
     generated_images: &[FrameGeneratedImage],
+    gpu: Option<&super::gpu_stream::GpuSection>,
     encoded: &EncodedDrawSections,
 ) -> Result<Vec<u8>, EncodeError> {
     let generated_images_section = encode_generated_images(generated_images);
+    let gpu_streams_section = encode_gpu_streams(gpu);
     let section_payloads = [
         (section::OPS, encoded.ops.clone()),
         (section::SUBTREES, encoded.subtrees.clone()),
@@ -538,6 +545,7 @@ pub fn pack_ir_envelope(
         ),
         (section::EFFECTS, encode_effects(&draw.effects)),
         (section::GENERATED_IMAGES, generated_images_section),
+        (section::GPU_STREAMS, gpu_streams_section),
     ];
 
     let header_len = 12 + section_payloads.len() * 12;
@@ -579,6 +587,39 @@ fn encode_generated_images(delta: &[FrameGeneratedImage]) -> Vec<u8> {
         write_u32(&mut out, record.width);
         write_u32(&mut out, record.height);
         write_bytes_with_len(&mut out, &record.rgba);
+    }
+    out
+}
+
+/// GPU 命令流段（section 13）：
+/// `u32 count` × per stream `{ u64 image_id, str target_id, u32 w, u32 h,
+/// u8 backend, u8 attr_bits, u32 ops_len + ops, u32 bytes_len + bytes,
+/// u32 ranges_count + (u32 start, u32 len)×n }`。
+fn encode_gpu_streams(gpu: Option<&super::gpu_stream::GpuSection>) -> Vec<u8> {
+    let mut out = Vec::new();
+    match gpu {
+        None => write_u32(&mut out, 0),
+        Some(section) => {
+            write_u32(&mut out, section.streams.len() as u32);
+            for stream in &section.streams {
+                write_u64(&mut out, stream.image_id.0);
+                write_u32(&mut out, stream.target_id.len() as u32);
+                out.extend_from_slice(stream.target_id.as_bytes());
+                write_u32(&mut out, stream.width);
+                write_u32(&mut out, stream.height);
+                write_u8(&mut out, stream.backend as u8);
+                write_u8(&mut out, stream.attrs.pack());
+                write_u32(&mut out, stream.ops.ops.len() as u32);
+                out.extend_from_slice(&stream.ops.ops);
+                write_u32(&mut out, stream.ops.bytes.len() as u32);
+                out.extend_from_slice(&stream.ops.bytes);
+                write_u32(&mut out, stream.ops.byte_ranges.len() as u32);
+                for range in &stream.ops.byte_ranges {
+                    write_u32(&mut out, range.start);
+                    write_u32(&mut out, range.len);
+                }
+            }
+        }
     }
     out
 }
@@ -2141,7 +2182,7 @@ mod tests {
                 generated_images,
                 ..Default::default()
             },
-            scene3: None,
+            gpu: None,
         }
     }
 
@@ -2155,7 +2196,7 @@ mod tests {
         let mut scratch = DrawFrameScratch::default();
         let encoded = encode_draw_sections(&frame, &mut scratch);
         assert!(encoded.ops.is_empty());
-        let envelope = pack_ir_envelope(&frame, &[], &encoded).expect("envelope");
+        let envelope = pack_ir_envelope(&frame, &[], None, &encoded).expect("envelope");
         assert_eq!(&envelope[0..4], b"OCIR");
         assert_eq!(
             u32::from_le_bytes(envelope[4..8].try_into().unwrap()),

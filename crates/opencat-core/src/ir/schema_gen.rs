@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 use super::draw_encoding::{IR_VERSION, section, opcode};
+use super::gpu_stream::gl_opcode;
 
 /// Return the complete TypeScript source for the OCIR wire-protocol constants
 /// and canonical enum mappings.
@@ -24,6 +25,8 @@ pub fn generate_ocir_schema_ts() -> String {
     section_constants(&mut ts);
     ts.push('\n');
     opcode_constants(&mut ts);
+    ts.push('\n');
+    gl_opcode_constants(&mut ts);
     ts.push('\n');
     path_op_sub_constants(&mut ts);
     ts.push('\n');
@@ -119,6 +122,7 @@ fn section_constants(ts: &mut String) {
         ("EFFECTS", section::EFFECTS),
         ("SUBTREES", section::SUBTREES),
         ("GENERATED_IMAGES", section::GENERATED_IMAGES),
+        ("GPU_STREAMS", section::GPU_STREAMS),
     ] {
         let _ = write!(ts, "    {}: {},\n", name, id);
     }
@@ -212,6 +216,104 @@ fn opcode_constants(ts: &mut String) {
         let _ = write!(ts, "{}", n);
     }
     ts.push_str("];\n");
+}
+
+fn gl_opcode_constants(ts: &mut String) {
+    use std::fmt::Write;
+    ts.push_str(
+        "// ---------------------------------------------------------------------------
+         // GPU stream GL opcodes — authority: ir/gpu_stream.rs gl_opcode.
+         // One command = `[GLOP: u8][GLOP_PAYLOAD_LEN[GLOP] payload]`; variable
+         // length entries (count-prefixed uniforms) are `-1`.
+         // ---------------------------------------------------------------------------
+
+         export const GLOP = {
+",
+    );
+    for (name, value) in &[
+        ("SHADER_CREATE", gl_opcode::SHADER_CREATE),
+        ("SHADER_SOURCE", gl_opcode::SHADER_SOURCE),
+        ("COMPILE_SHADER", gl_opcode::COMPILE_SHADER),
+        ("SHADER_DELETE", gl_opcode::SHADER_DELETE),
+        ("PROGRAM_CREATE", gl_opcode::PROGRAM_CREATE),
+        ("PROGRAM_ATTACH", gl_opcode::PROGRAM_ATTACH),
+        ("PROGRAM_LINK", gl_opcode::PROGRAM_LINK),
+        ("PROGRAM_DELETE", gl_opcode::PROGRAM_DELETE),
+        ("PROGRAM_USE", gl_opcode::PROGRAM_USE),
+        ("BUFFER_CREATE", gl_opcode::BUFFER_CREATE),
+        ("BUFFER_BIND", gl_opcode::BUFFER_BIND),
+        ("BUFFER_DATA", gl_opcode::BUFFER_DATA),
+        ("BUFFER_DATA_NULL", gl_opcode::BUFFER_DATA_NULL),
+        ("BUFFER_DELETE", gl_opcode::BUFFER_DELETE),
+        ("VAO_CREATE", gl_opcode::VAO_CREATE),
+        ("VAO_BIND", gl_opcode::VAO_BIND),
+        ("VAO_DELETE", gl_opcode::VAO_DELETE),
+        ("ATTRIB_ENABLE", gl_opcode::ATTRIB_ENABLE),
+        ("ATTRIB_DISABLE", gl_opcode::ATTRIB_DISABLE),
+        ("ATTRIB_POINTER", gl_opcode::ATTRIB_POINTER),
+        ("ATTRIB_DIVISOR", gl_opcode::ATTRIB_DIVISOR),
+        ("UNIFORM_1F", gl_opcode::UNIFORM_1F),
+        ("UNIFORM_2F", gl_opcode::UNIFORM_2F),
+        ("UNIFORM_3F", gl_opcode::UNIFORM_3F),
+        ("UNIFORM_4F", gl_opcode::UNIFORM_4F),
+        ("UNIFORM_1I", gl_opcode::UNIFORM_1I),
+        ("UNIFORM_NF", gl_opcode::UNIFORM_NF),
+        ("UNIFORM_NI", gl_opcode::UNIFORM_NI),
+        ("UNIFORM_MATRIX_4F", gl_opcode::UNIFORM_MATRIX_4F),
+        ("TEXTURE_CREATE", gl_opcode::TEXTURE_CREATE),
+        ("TEXTURE_DELETE", gl_opcode::TEXTURE_DELETE),
+        ("TEXTURE_ACTIVE", gl_opcode::TEXTURE_ACTIVE),
+        ("TEXTURE_BIND", gl_opcode::TEXTURE_BIND),
+        ("TEX_PARAM_I", gl_opcode::TEX_PARAM_I),
+        ("TEX_PARAM_F", gl_opcode::TEX_PARAM_F),
+        ("TEX_IMAGE_2D", gl_opcode::TEX_IMAGE_2D),
+        ("GENERATE_MIPMAP", gl_opcode::GENERATE_MIPMAP),
+        ("PIXEL_STORE_I", gl_opcode::PIXEL_STORE_I),
+        ("FRAMEBUFFER_CREATE", gl_opcode::FRAMEBUFFER_CREATE),
+        ("FRAMEBUFFER_DELETE", gl_opcode::FRAMEBUFFER_DELETE),
+        ("BIND_FRAMEBUFFER", gl_opcode::BIND_FRAMEBUFFER),
+        ("FRAMEBUFFER_TEXTURE_2D", gl_opcode::FRAMEBUFFER_TEXTURE_2D),
+        ("VIEWPORT", gl_opcode::VIEWPORT),
+        ("CLEAR_COLOR", gl_opcode::CLEAR_COLOR),
+        ("CLEAR", gl_opcode::CLEAR),
+        ("ENABLE", gl_opcode::ENABLE),
+        ("DISABLE", gl_opcode::DISABLE),
+        ("DEPTH_FUNC", gl_opcode::DEPTH_FUNC),
+        ("DEPTH_MASK", gl_opcode::DEPTH_MASK),
+        ("BLEND_FUNC", gl_opcode::BLEND_FUNC),
+        ("BLEND_EQUATION", gl_opcode::BLEND_EQUATION),
+        ("BLEND_COLOR", gl_opcode::BLEND_COLOR),
+        ("CULL_FACE", gl_opcode::CULL_FACE),
+        ("FRONT_FACE", gl_opcode::FRONT_FACE),
+        ("CLEAR_DEPTH", gl_opcode::CLEAR_DEPTH),
+        ("CLEAR_STENCIL", gl_opcode::CLEAR_STENCIL),
+        ("POLYGON_OFFSET", gl_opcode::POLYGON_OFFSET),
+        ("DRAW_ARRAYS", gl_opcode::DRAW_ARRAYS),
+        ("DRAW_ELEMENTS", gl_opcode::DRAW_ELEMENTS),
+    ] {
+        let _ = write!(ts, "    {}: {},
+", name, value);
+    }
+    ts.push_str(
+        "} as const;
+
+         /// Payload length per GLOP; -1 = variable (count-prefixed).
+         export const GLOP_PAYLOAD_LEN: readonly number[] = [",
+    );
+    for (i, n) in gl_opcode::PAYLOAD_LEN.iter().enumerate() {
+        if i > 0 {
+            ts.push_str(", ");
+        }
+        match n {
+            Some(v) => {
+                let _ = write!(ts, "{}", v);
+            }
+            None => ts.push_str("-1"),
+        }
+    }
+    ts.push_str("] as const;
+
+");
 }
 
 fn path_op_sub_constants(ts: &mut String) {

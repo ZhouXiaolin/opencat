@@ -1463,7 +1463,6 @@ mod tests {
 
         let mutations = StyleMutations {
             mutations: Default::default(),
-            scene3_mutations: Default::default(),
             canvas_mutations: [(
                 "c".to_string(),
                 crate::script::CanvasMutations {

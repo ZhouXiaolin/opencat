@@ -4,7 +4,6 @@ members = [
     "crates/opencat-core",
     "crates/opencat-gpu-native",
     "crates/opencat-engine",
-    "crates/opencat-three",
     "crates/opencat-web",
     "crates/opencat",
     "crates/faac",

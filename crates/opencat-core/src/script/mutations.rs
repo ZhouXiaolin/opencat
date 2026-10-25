@@ -680,9 +680,6 @@ pub struct StyleMutations {
     pub mutations: HashMap<String, NodeStyleMutations>,
     #[serde(skip)]
     pub canvas_mutations: HashMap<String, CanvasMutations>,
-    /// three-like shim 每帧全量重提交的 3D 场景快照，key = 目标 canvas id。
-    #[serde(skip)]
-    pub scene3_mutations: HashMap<String, crate::ir::scene3::Scene3>,
 }
 
 impl StyleMutations {
@@ -720,23 +717,20 @@ impl StyleMutations {
         for (node_id, node_mutations) in &self.mutations {
             apply_node_to_recorder(recorder, node_id, node_mutations);
         }
-        // Consuming form: canvas DrawOps and scene3 snapshots move straight
-        // into the recorder instead of being cloned out of a borrowed snapshot
-        // (callers take them from the store, so they are uniquely owned).
+        // Consuming form: canvas DrawOps move straight into the recorder
+        // instead of being cloned out of a borrowed snapshot (callers take
+        // them from the store, so they are uniquely owned).
         for (canvas_id, canvas_mutations) in self.canvas_mutations {
             for cmd in canvas_mutations.commands {
                 recorder.record_draw_op(&canvas_id, cmd);
             }
         }
-        for (canvas_id, scene) in self.scene3_mutations {
-            recorder.record_scene3(&canvas_id, scene);
-        }
     }
 
     /// Borrowing form for hosts whose mutations outlive one apply
     /// (`PrecomputedScriptHost` re-applies the same snapshot every frame).
-    /// Styles apply by reference; canvas DrawOps and scene3 snapshots are
-    /// still cloned because the recorder takes owned values.
+    /// Styles apply by reference; canvas DrawOps are still cloned because
+    /// the recorder takes owned values.
     pub fn apply_to_recorder_ref(
         &self,
         recorder: &mut dyn crate::script::recorder::MutationRecorder,
@@ -748,9 +742,6 @@ impl StyleMutations {
             for cmd in &canvas_mutations.commands {
                 recorder.record_draw_op(canvas_id, cmd.clone());
             }
-        }
-        for (canvas_id, scene) in &self.scene3_mutations {
-            recorder.record_scene3(canvas_id, scene.clone());
         }
     }
 }

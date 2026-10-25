@@ -7,8 +7,13 @@
 pub mod consumer;
 pub mod executor;
 pub mod fonts;
+// GL 会话底座只在桌面 GL 平台成立；macOS 的离线渲染走 CPU 路径，预览的
+// Metal 合成在 present 平台模块里自建上下文，不经这里。
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+pub mod gl_session;
 pub mod gpu_compositor;
 pub mod gpu_pipeline;
+pub mod gpu_stream_executor;
 pub mod inspect;
 pub mod js_context;
 pub mod jsx;

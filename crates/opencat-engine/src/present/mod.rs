@@ -68,14 +68,11 @@ impl PreviewPresenter {
     /// `window.hwnd` 必须是宿主线程上有效的顶层窗口句柄。
     pub unsafe fn for_window(
         window: WindowHandle,
-        pipeline: &EnginePipeline,
+        _pipeline: &EnginePipeline,
         width: i32,
         height: i32,
     ) -> Result<Self> {
-        let mut inner = unsafe { platform::Presenter::new(window, width, height) }?;
-        if let Some(renderer) = inner.build_scene3_renderer()? {
-            pipeline.scene3_renderer.preset(renderer)?;
-        }
+        let inner = unsafe { platform::Presenter::new(window, width, height) }?;
         Ok(Self { inner })
     }
 
@@ -97,9 +94,6 @@ impl PreviewPresenter {
         let render = pipeline.render_frame(frame_index)?;
         let mut draw = render.draw;
         let mut media_plan = render.media;
-        if let Some(scene3) = &render.scene3 {
-            pipeline.render_scene3_section(&mut media_plan, scene3)?;
-        }
 
         // 本帧引用的 GPU 纹理凭据：合成后归还。
         let gpu_tokens: Vec<TextureId> = media_plan

@@ -20,6 +20,11 @@ anyhow.workspace = true
 # 在同步渲染流里懒初始化，需要 block_on。
 pollster = "1"
 
+# macOS：Skia Metal 合成路径要从 wgpu 的纹理取 MTLTexture 裸句柄，
+# 需要 objc2 的 Retained（wgpu-hal 内部就是这套类型）。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+
 [dev-dependencies]
 env_logger = "0.11"
 image = "0.25"

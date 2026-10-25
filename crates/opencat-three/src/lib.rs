@@ -15,7 +15,12 @@
 //! wgpu 与真 three.js 之间是容差级一致，对齐走 k3diff 的 mae/maxd/p8 指标。
 
 use std::borrow::Cow;
+#[cfg(target_os = "macos")]
+use std::ffi::c_void;
 use std::sync::{Arc, Mutex, OnceLock};
+
+#[cfg(target_os = "macos")]
+use objc2::rc::Retained;
 
 use anyhow::{Result, bail};
 use bytemuck::{Pod, Zeroable};
@@ -41,7 +46,7 @@ const MAX_MESHES_PER_FRAME: usize = 256;
 /// 透射 RT 9、Clamp 采样器 10、DFG LUT 11——既有绑定号不动，WGSL 物理
 /// 路径逐位不变）；布局采样纹理总数 12+2=14 ≤ wgpu/WebGL2 片元默认
 /// 预算 16（`max_sampled_textures_per_shader_stages`）。
-pub const MAX_TEXTURE_SLOTS: usize = 12;
+pub const MAX_TEXTURE_SLOTS: usize = 40;
 
 /// 纹理槽位（表下标）→ group(2) 绑定号。槽 0..7 直映射（r6 及之前的
 /// 8 路视频槽），槽 8..11 跳过 8..11 号保留绑定映射到 12..15。
@@ -53,8 +58,8 @@ fn slot_binding(slot: usize) -> u32 {
     }
 }
 
-const GLOBALS_SIZE: u64 = 368; // mat4*3 + vec4*11
-const OBJECT_SIZE: u64 = 448; // mat4*2 + vec4<f32>*11 + vec4<u32>*2 + vec4<u32>[2]*3 + vec4<f32>[3]
+const GLOBALS_SIZE: u64 = 432; // mat4*3 + vec4*15
+const OBJECT_SIZE: u64 = 480; // mat4*2 + vec4<f32>*11 + vec4<u32>*3 + vec4<u32>[2]*3 + vec4<f32>[3] + vec4<u32>*2
 
 const _: () = assert!(std::mem::size_of::<GlobalsUniform>() as u64 == GLOBALS_SIZE);
 const _: () = assert!(std::mem::size_of::<ObjectUniform>() as u64 == OBJECT_SIZE);
@@ -66,6 +71,26 @@ pub struct TextureBitmap3 {
     pub rgba: std::sync::Arc<Vec<u8>>,
     pub width: u32,
     pub height: u32,
+}
+
+/// PMREM 缓存键：env 位图的内容指纹。
+///
+/// 静态 env 逐帧字节相同 ⇒ 命中；动态 env（脚本 surface）只在真正变化时
+/// 重算。用 FxHash 风格的手写折叠，避免为一次非热点调用引入 hasher。
+fn env_content_key(env: &TextureBitmap3, srgb: bool) -> usize {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a 偏移基
+    h ^= env.width as u64;
+    h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    h ^= env.height as u64;
+    h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    // 逐字节哈希 4 MB 太贵；按 16 B 步长跳跃采样——PMREM 只依赖低频亮度
+    // 分布，跳采样足以区分内容，且成本降到 1/16。
+    for b in env.rgba.iter().step_by(16) {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h ^= srgb as u64;
+    h as usize
 }
 
 /// 本帧纹理表：槽位（下标）→ (表键, 位图)。表键 =
@@ -107,6 +132,10 @@ struct GlobalsUniform {
     /// ShaderMaterial 程序不读它（three.js 不向 ShaderMaterial 注入
     /// tonemapping/colorspace chunk，WebGLProgram.js:831-833）。
     output_xform: [f32; 4],
+    /// 点光 1/2：xyz = 世界位置、w = 衰减指数（three.js `decay`）。
+    point_pos: [[f32; 4]; 2],
+    /// 点光 1/2：rgb = 颜色×强度、w = 光照半径（0 = 不衰减）。
+    point_color: [[f32; 4]; 2],
     /// 环境 cubeUV 采样参数（WebGLProgram.js generateCubeUVSize 的
     /// 对应物，set_environment 按 imageHeight=RT 高推得）：x = texelWidth、
     /// y = texelHeight、z = CUBEUV_MAX_MIP、w = 场景带 environment 开关
@@ -150,6 +179,11 @@ struct ObjectUniform {
     /// PBR 透射参数 D：x = envMapIntensity（材质级 IBL 强度，envmap chunk
     /// uniform；js:172 = 1.2），y/z/w 备用。
     phys_d: [f32; 4],
+    /// glTF PBR 贴图槽（Physical 分支消费）：x = baseColor，
+    /// y = metallicRoughness（0xFFFF_FFFF = 无）。
+    pbr_tex: [u32; 4],
+    /// 法线贴图槽，0xFFFF_FFFF = 无。
+    normal_tex: [u32; 4],
 }
 
 /// WGSL 是唯一着色源：engine（Vulkan/Metal/GL）与 web（WebGPU/WebGL2）
@@ -171,6 +205,8 @@ struct Globals {
     resolution: vec4<f32>,   // x,y = 视口 px（主面屏幕空间 UV）
     camera_pos: vec4<f32>,   // xyz = 相机世界位置（cameraPosition 对应物）
     output_xform: vec4<f32>, // x = tonemap 开关, y = exposure, z = 输出 OETF（1 = sRGB）
+    point_pos: array<vec4<f32>, 2>,   // xyz = 世界位置, w = decay
+    point_color: array<vec4<f32>, 2>, // rgb = 颜色×强度, w = 光照半径（0 = 不衰减）
     env_cubuv: vec4<f32>,    // x = texelWidth, y = texelHeight, z = CUBEUV_MAX_MIP, w = 带 env 开关
 };
 struct Object {
@@ -191,6 +227,8 @@ struct Object {
     phys_c: vec4<f32>,       // clearcoat, clearcoat_roughness
     attenuation_color: vec4<f32>,  // rgb = 体吸收色
     phys_d: vec4<f32>,             // x = envMapIntensity（材质级 IBL 强度）
+    pbr_tex: vec4<u32>,            // x = baseColor 槽, y = metallicRoughness 槽
+    normal_tex: vec4<u32>,         // x = 法线贴图槽
 };
 @group(0) @binding(0) var<uniform> globals: Globals;
 @group(1) @binding(0) var<uniform> object: Object;
@@ -205,11 +243,40 @@ struct Object {
 @group(2) @binding(5) var tex5: texture_2d<f32>;
 @group(2) @binding(6) var tex6: texture_2d<f32>;
 @group(2) @binding(7) var tex7: texture_2d<f32>;
-// 槽 8..11（静态贴图槽，r7 起可含 map 位图），绑定 12..15。
+// 槽 8..31（静态贴图槽：GLB 的 baseColor / metallicRoughness / 屏幕 surface），
+// 绑定 = 槽 + 4（8..11 号绑定被下方专用资源占用；16 留给环境贴图，故再跳过）。
 @group(2) @binding(12) var tex8: texture_2d<f32>;
 @group(2) @binding(13) var tex9: texture_2d<f32>;
 @group(2) @binding(14) var tex10: texture_2d<f32>;
 @group(2) @binding(15) var tex11: texture_2d<f32>;
+@group(2) @binding(16) var tex12: texture_2d<f32>;
+@group(2) @binding(17) var tex13: texture_2d<f32>;
+@group(2) @binding(18) var tex14: texture_2d<f32>;
+@group(2) @binding(19) var tex15: texture_2d<f32>;
+@group(2) @binding(20) var tex16: texture_2d<f32>;
+@group(2) @binding(21) var tex17: texture_2d<f32>;
+@group(2) @binding(22) var tex18: texture_2d<f32>;
+@group(2) @binding(23) var tex19: texture_2d<f32>;
+@group(2) @binding(24) var tex20: texture_2d<f32>;
+@group(2) @binding(25) var tex21: texture_2d<f32>;
+@group(2) @binding(26) var tex22: texture_2d<f32>;
+@group(2) @binding(27) var tex23: texture_2d<f32>;
+@group(2) @binding(28) var tex24: texture_2d<f32>;
+@group(2) @binding(29) var tex25: texture_2d<f32>;
+@group(2) @binding(30) var tex26: texture_2d<f32>;
+@group(2) @binding(31) var tex27: texture_2d<f32>;
+@group(2) @binding(32) var tex28: texture_2d<f32>;
+@group(2) @binding(33) var tex29: texture_2d<f32>;
+@group(2) @binding(34) var tex30: texture_2d<f32>;
+@group(2) @binding(35) var tex31: texture_2d<f32>;
+@group(2) @binding(36) var tex32: texture_2d<f32>;
+@group(2) @binding(37) var tex33: texture_2d<f32>;
+@group(2) @binding(38) var tex34: texture_2d<f32>;
+@group(2) @binding(39) var tex35: texture_2d<f32>;
+@group(2) @binding(40) var tex36: texture_2d<f32>;
+@group(2) @binding(41) var tex37: texture_2d<f32>;
+@group(2) @binding(42) var tex38: texture_2d<f32>;
+@group(2) @binding(43) var tex39: texture_2d<f32>;
 @group(2) @binding(8) var smp: sampler;
 // 透射材质：场景色缓冲（WebGLRenderer renderTransmissionPass 的 RT 对应物）
 // + Clamp 采样器（RenderTarget 纹理默认 ClampToEdge，与 Repeat 的视频槽区分）
@@ -221,7 +288,7 @@ struct Object {
 // HalfFloat RGBA、Linear/Clamp 采样——PMREM RT 同参数，PMREMGenerator.js
 // :236-243）。无 env 时绑 1×1 占位、globals.env_cubuv.w=0（getIBL* 归零，
 // `USE_ENVMAP` 未定义语义）。
-@group(2) @binding(16) var env_cubuv_tex: texture_2d<f32>;
+@group(2) @binding(44) var env_cubuv_tex: texture_2d<f32>;
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
@@ -327,6 +394,34 @@ fn sample_slot(slot: u32, uv: vec2<f32>) -> vec4<f32> {
     if (slot == 9u) { return textureSampleLevel(tex9, smp, uv, 0.0); }
     if (slot == 10u) { return textureSampleLevel(tex10, smp, uv, 0.0); }
     if (slot == 11u) { return textureSampleLevel(tex11, smp, uv, 0.0); }
+    if (slot == 12u) { return textureSampleLevel(tex12, smp, uv, 0.0); }
+    if (slot == 13u) { return textureSampleLevel(tex13, smp, uv, 0.0); }
+    if (slot == 14u) { return textureSampleLevel(tex14, smp, uv, 0.0); }
+    if (slot == 15u) { return textureSampleLevel(tex15, smp, uv, 0.0); }
+    if (slot == 16u) { return textureSampleLevel(tex16, smp, uv, 0.0); }
+    if (slot == 17u) { return textureSampleLevel(tex17, smp, uv, 0.0); }
+    if (slot == 18u) { return textureSampleLevel(tex18, smp, uv, 0.0); }
+    if (slot == 19u) { return textureSampleLevel(tex19, smp, uv, 0.0); }
+    if (slot == 20u) { return textureSampleLevel(tex20, smp, uv, 0.0); }
+    if (slot == 21u) { return textureSampleLevel(tex21, smp, uv, 0.0); }
+    if (slot == 22u) { return textureSampleLevel(tex22, smp, uv, 0.0); }
+    if (slot == 23u) { return textureSampleLevel(tex23, smp, uv, 0.0); }
+    if (slot == 24u) { return textureSampleLevel(tex24, smp, uv, 0.0); }
+    if (slot == 25u) { return textureSampleLevel(tex25, smp, uv, 0.0); }
+    if (slot == 26u) { return textureSampleLevel(tex26, smp, uv, 0.0); }
+    if (slot == 27u) { return textureSampleLevel(tex27, smp, uv, 0.0); }
+    if (slot == 28u) { return textureSampleLevel(tex28, smp, uv, 0.0); }
+    if (slot == 29u) { return textureSampleLevel(tex29, smp, uv, 0.0); }
+    if (slot == 30u) { return textureSampleLevel(tex30, smp, uv, 0.0); }
+    if (slot == 31u) { return textureSampleLevel(tex31, smp, uv, 0.0); }
+    if (slot == 32u) { return textureSampleLevel(tex32, smp, uv, 0.0); }
+    if (slot == 33u) { return textureSampleLevel(tex33, smp, uv, 0.0); }
+    if (slot == 34u) { return textureSampleLevel(tex34, smp, uv, 0.0); }
+    if (slot == 35u) { return textureSampleLevel(tex35, smp, uv, 0.0); }
+    if (slot == 36u) { return textureSampleLevel(tex36, smp, uv, 0.0); }
+    if (slot == 37u) { return textureSampleLevel(tex37, smp, uv, 0.0); }
+    if (slot == 38u) { return textureSampleLevel(tex38, smp, uv, 0.0); }
+    if (slot == 39u) { return textureSampleLevel(tex39, smp, uv, 0.0); }
     return vec4<f32>(1.0, 1.0, 1.0, 1.0);
 }
 
@@ -809,22 +904,78 @@ fn get_ibl_radiance(v: vec3<f32>, n: vec3<f32>, roughness: f32) -> vec3<f32> {
     return texture_cube_uv(mixed, roughness).rgb * object.phys_d.x;
 }
 
-fn fs_physical(n_world: vec3<f32>, world_pos: vec3<f32>, geometry_roughness: f32) -> vec4<f32> {
+fn fs_physical(
+    n_world: vec3<f32>,
+    world_pos: vec3<f32>,
+    geometry_roughness: f32,
+    uv: vec2<f32>,
+) -> vec4<f32> {
+    // 法线贴图（three.js `normal_fragment_maps` 的切线空间展开）。切线由
+    // 屏幕导数反推（cotangent frame）——glTF 未提供 TANGENT 时 three.js
+    // 走的也是这一支，所以不依赖几何属性。
+    // 导数（dpdx/dpdy）必须在一致控制流里求值——采样结果在分支外算出，
+    // 用 select 遮蔽，而不是把 dpdx 放进 if。
+    let map_n = select(
+        vec3<f32>(0.0, 0.0, 1.0),
+        sample_slot(object.normal_tex.x, uv).xyz * 2.0 - 1.0,
+        object.normal_tex.x != 0xFFFFFFFFu,
+    );
+    let n0 = normalize(n_world);
+    let dp1 = dpdx(world_pos);
+    let dp2 = dpdy(world_pos);
+    let duv1 = dpdx(uv);
+    let duv2 = dpdy(uv);
+    let dp2perp = cross(dp2, n0);
+    let dp1perp = cross(n0, dp1);
+    let t = dp2perp * duv1.x + dp1perp * duv2.x;
+    let bt = dp2perp * duv1.y + dp1perp * duv2.y;
+    // 无 normalMap 时 r147 不建切线架（normal_fragment_maps 整段在
+    // `#ifdef USE_NORMALMAP` 内）。这里必须同样短路：退化 UV（常 UV 的
+    // 网格 → duv=0）会让 dot(t,t)=dot(bt,bt)=0，inverseSqrt(0)=Inf，
+    // 0*Inf=NaN 顺着 mat3×map_n 污染 n → 片元 alpha=0 → 该区透出背景层
+    // （GLB 的 PaletteMaterial003/004 网格就是常 UV）。
+    let has_normal_map = object.normal_tex.x != 0xFFFFFFFFu;
+    let invmax = inverseSqrt(max(max(dot(t, t), dot(bt, bt)), 1e-12));
+    let n_in = normalize(select(
+        n0,
+        mat3x3<f32>(t * invmax, bt * invmax, n0) * map_n,
+        has_normal_map,
+    ));
     // 材质初始化（lights_physical_fragment.glsl.js:4-58；js:163-179 常量
     // 经 uniform 进来）。roughness 下限 0.0525 + 屏幕空间法线梯度。
-    let metalness = object.phys_b.z;
-    let diffuse = object.base_color.rgb * (1.0 - metalness);
-    let roughness = min(max(object.phys_b.y, 0.0525) + geometry_roughness, 1.0);
+    // glTF PBR 贴图（meshStandardMaterial）：baseColor 乘进 diffuse，
+    // metallicRoughness 的 G→roughness、B→metalness（纹理缺失时 1.0 无影响）。
+    var base = object.base_color.rgb;
+    var base_alpha = object.base_color.a;
+    if (object.pbr_tex.x != 0xFFFFFFFFu) {
+        // r147 map_fragment.glsl.js：`diffuseColor *= sampledDiffuseColor`
+        // 是 vec4 乘，alpha 通道必须一起进——GLB 的 Palette 网格靠贴图
+        // alpha 才出苹果 logo 的镂空/暗区，丢掉 alpha 会整块铺成灰面。
+        let s = sample_slot(object.pbr_tex.x, uv);
+        base = base * s.rgb;
+        base_alpha = base_alpha * s.a;
+    }
+    var roughness_factor = object.phys_b.y;
+    var metalness = object.phys_b.z;
+    if (object.pbr_tex.y != 0xFFFFFFFFu) {
+        let mr = sample_slot(object.pbr_tex.y, uv);
+        roughness_factor = roughness_factor * mr.g;
+        metalness = metalness * mr.b;
+    }
+    let diffuse = base * (1.0 - metalness);
+    let roughness = min(max(roughness_factor, 0.0525) + geometry_roughness, 1.0);
     let spec_f90 = mix(object.phys_b.w, 1.0, metalness);
     let ior = object.phys_a.x;
     // specularColor = mix(min(((ior−1)/(ior+1))², 1)·specularIntensity,
     // diffuse, metalness)。
     let f0 = pow2_local((ior - 1.0) / (ior + 1.0));
-    let spec_color = mix(min(vec3<f32>(f0), vec3<f32>(1.0)) * object.phys_b.w, diffuse, metalness);
+    // specularColor 的金属项是**原始** diffuseColor（albedo），不是乘过
+    // (1−metalness) 的 diffuse——用 diffuse 会让 metalness=1 的金属全黑。
+    let spec_color = mix(min(vec3<f32>(f0), vec3<f32>(1.0)) * object.phys_b.w, base, metalness);
     let clearcoat = object.phys_c.x;
     let cc_roughness = min(max(object.phys_c.y, 0.0525) + geometry_roughness, 1.0);
     let v = normalize(globals.camera_pos.xyz - world_pos);
-    let n = normalize(n_world);
+    let n = normalize(n_in);
     // 灯光循环（RE_Direct_Physical / RE_IndirectDiffuse_Physical）。方向光
     // 传播方向取反 = three.js directLight.direction（指向光源）。
     var direct_diffuse = vec3<f32>(0.0, 0.0, 0.0);
@@ -842,6 +993,21 @@ fn fs_physical(n_world: vec3<f32>, world_pos: vec3<f32>, geometry_roughness: f32
     direct_specular += irr2 * brdf_ggx_multiscatter(l2, v, n, spec_color, spec_f90, roughness);
     direct_diffuse += irr2 * (diffuse * 0.3183098861837907);
     clearcoat_specular += irr2 * brdf_ggx_clearcoat(l2, v, n, cc_roughness);
+    // 点光（RE_Direct_Physical 的 punctual 分支）：方向 = 位置 − 着色点，
+    // 辐照度 × 距离衰减。
+    for (var pi = 0u; pi < 2u; pi += 1u) {
+        let to_light = globals.point_pos[pi].xyz - world_pos;
+        let ld = length(to_light);
+        if (ld > 0.0001) {
+            let lp = to_light / ld;
+            let irr = saturate1(dot(n, lp))
+                * globals.point_color[pi].rgb
+                * point_attenuation(ld, globals.point_color[pi].w, globals.point_pos[pi].w);
+            direct_specular += irr * brdf_ggx_multiscatter(lp, v, n, spec_color, spec_f90, roughness);
+            direct_diffuse += irr * (diffuse * 0.3183098861837907);
+            clearcoat_specular += irr * brdf_ggx_clearcoat(lp, v, n, cc_roughness);
+        }
+    }
     // Hemisphere + Ambient → indirectDiffuse（irradiance × BRDF_Lambert）。
     let hemi = mix(globals.hemi_ground.rgb, globals.hemi_sky.rgb, n.y * 0.5 + 0.5);
     var indirect_diffuse = (globals.ambient.rgb + hemi) * (diffuse * 0.3183098861837907);
@@ -896,7 +1062,23 @@ fn fs_physical(n_world: vec3<f32>, world_pos: vec3<f32>, geometry_roughness: f32
     outgoing = outgoing * (1.0 - clearcoat * f_cc)
         + (clearcoat_specular + cc_specular_indirect) * clearcoat;
     // opaque_fragment.glsl.js。
-    return vec4<f32>(outgoing, object.base_color.a * transmission_alpha);
+    return vec4<f32>(outgoing, base_alpha * transmission_alpha);
+}
+
+
+// 点光距离衰减（three.js r181 lights_pars_begin.glsl.js 的
+// getDistanceAttenuation）。
+// cutoff = 光照半径（0 = 不衰减），decay = 衰减指数。
+fn point_attenuation(light_distance: f32, cutoff: f32, decay: f32) -> f32 {
+    // three.js r181 lights_pars_begin.glsl.js:56-73。decayExponent > 0 恒成立
+    // （PointLight 缺省 decay = 2，脚本传入即原值），故不走 r147 的“非物理”
+    // 窗函数分支——那是 physicallyCorrectLights=false 时代的旧写法。
+    var distance_falloff = 1.0 / max(pow(light_distance, decay), 0.01);
+    if (cutoff > 0.0) {
+        let ratio = light_distance / cutoff;
+        distance_falloff = distance_falloff * pow2_local(saturate1(1.0 - pow2_local(ratio) * pow2_local(ratio)));
+    }
+    return distance_falloff;
 }
 
 fn pow2_local(x: f32) -> f32 {
@@ -970,7 +1152,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     if (object.flags.x == 3u) {
         // 内建材质（MeshPhysicalMaterial）：输出链 = opaque_fragment →
         // tonemapping_fragment → colorspace_fragment（上方 output_xform 注释）。
-        return output_xform(fs_physical(in.normal, in.world, geometry_roughness));
+        return output_xform(fs_physical(in.normal, in.world, geometry_roughness, in.uv));
     }
     if (object.flags.x == 2u) {
         // 视频-马赛克面片（js:309-329 逐行同构）。**不走 output_xform**：
@@ -1244,6 +1426,10 @@ impl Renderer3d {
         adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("opencat-three"),
+                required_limits: wgpu::Limits {
+                    max_sampled_textures_per_shader_stage: MAX_TEXTURE_SLOTS as u32 + 3,
+                    ..wgpu::Limits::downlevel_defaults()
+                },
                 ..Default::default()
             })
             .await
@@ -1275,6 +1461,7 @@ impl Renderer3d {
             None,
             MAIN_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba8Unorm,
+            true,
         );
         let pipeline_blended = build_render_pipeline(
             &device,
@@ -1289,6 +1476,7 @@ impl Renderer3d {
             Some(wgpu::BlendState::ALPHA_BLENDING),
             MAIN_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba8Unorm,
+            false,
         );
         // 透射 RT pass 变体：4×MSAA + HalfFloat 附件（WebGLRenderer.js
         // renderTransmissionPass 的 RT 参数，:1876-1880）——附件采样数与
@@ -1304,6 +1492,7 @@ impl Renderer3d {
             None,
             TRANSMISSION_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba16Float,
+            true,
         );
         let pipeline_blended_rt = build_render_pipeline(
             &device,
@@ -1316,6 +1505,7 @@ impl Renderer3d {
             Some(wgpu::BlendState::ALPHA_BLENDING),
             TRANSMISSION_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba16Float,
+            false,
         );
         let globals_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("opencat-three-globals"),
@@ -1574,12 +1764,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     /// 设置场景环境（three.js `PMREMGenerator.fromEquirectangular` 的加载期
     /// 对应物，js:23-26：equirect JPEG → cubeUV RT 预滤波一次性完成）。
     /// 位图须为自然图像行序（行 0 = 顶）；PMREM 卷积在 [`pmrem`] 模块。
-    pub fn set_environment(&mut self, env: &TextureBitmap3) -> Result<()> {
-        let key = std::sync::Arc::as_ptr(&env.rgba) as *const () as usize;
+    /// `srgb` = three.js `scene.environment.colorSpace === SRGBColorSpace`
+    /// （GL 采样即做 sRGB EOTF）；false 时字节按线性光使用。
+    pub fn set_environment(&mut self, env: &TextureBitmap3, srgb: bool) -> Result<()> {
+        // 缓存键不能用 Arc 指针：动态 env（脚本 surface）每帧都产出新的
+        // Arc，指针必然不同，于是每帧重算一次 CPU 卷积（1024×512 的
+        // equirect 约 4.5 s）。改按内容哈希——静态 env 一次命中，动态 env
+        // 只在真正变化时重算。
+        let key = env_content_key(env, srgb);
         if self.env_cache_key == key {
-            return Ok(()); // MediaContext 图像缓存同 Arc ⇒ 同指针跳过重算
+            return Ok(());
         }
-        let pm = pmrem::generate(env)?;
+        let pm = pmrem::generate(env, srgb)?;
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("opencat-three-env-cubuv"),
             size: wgpu::Extent3d {
@@ -1770,6 +1966,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             None,
             MAIN_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba8Unorm,
+            true,
         );
         let pipeline_blended = build_render_pipeline(
             &self.device,
@@ -1782,6 +1979,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             Some(wgpu::BlendState::ALPHA_BLENDING),
             MAIN_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba8Unorm,
+            false,
         );
         // 透射 RT pass 的 4×MSAA + Rgba16Float 变体（RT pass 也画
         // ShaderMaterial 不透明网格——背景板）。
@@ -1796,6 +1994,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             None,
             TRANSMISSION_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba16Float,
+            true,
         );
         let pipeline_blended_rt = build_render_pipeline(
             &self.device,
@@ -1808,6 +2007,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             Some(wgpu::BlendState::ALPHA_BLENDING),
             TRANSMISSION_SAMPLE_COUNT,
             wgpu::TextureFormat::Rgba16Float,
+            false,
         );
         let idx = self.shader_programs.len();
         self.shader_programs.push((
@@ -1914,11 +2114,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             // ⑥b 环境采样参数（set_environment 预计算；w=1 语义 = 场景
             // 带 environment，对应 three.js USE_ENVMAP 定义）。RT pass 的
             // globals 同值——IBL 是场景光照内容，透射 RT 同样带 env。
+            point_pos: [[0.0, 0.0, 0.0, 2.0], [0.0, 0.0, 0.0, 2.0]],
+            point_color: [[0.0; 4], [0.0; 4]],
             env_cubuv: self.env_cubuv,
         };
         // 环境光求和；Hemisphere 取第一个；方向光按场景序取前两个
         // （对齐片的布光正好是 key + rim 两盏；更多是后续扩展）。
         let mut dir_lights: Vec<(Vec3, [f32; 3])> = Vec::new();
+        let mut point_lights: Vec<([f32; 3], [f32; 3], f32, f32)> = Vec::new();
         let mut hemi_taken = false;
         for light in &scene.lights {
             match light {
@@ -1938,6 +2141,26 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                             globals.hemi_sky[i] = sky_color[i] * intensity;
                             globals.hemi_ground[i] = ground_color[i] * intensity;
                         }
+                    }
+                }
+                Light3::Point {
+                    position,
+                    color,
+                    intensity,
+                    distance,
+                    decay,
+                } => {
+                    if point_lights.len() < 2 {
+                        point_lights.push((
+                            *position,
+                            [
+                                color[0] * intensity,
+                                color[1] * intensity,
+                                color[2] * intensity,
+                            ],
+                            *distance,
+                            *decay,
+                        ));
                     }
                 }
                 Light3::Directional {
@@ -1965,6 +2188,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         if let Some((d, c)) = dir_lights.get(1) {
             globals.light_dir2 = [d.x, d.y, d.z, 0.0];
             globals.light_color2 = [c[0], c[1], c[2], 0.0];
+        }
+        for (i, (pos, color, distance, decay)) in point_lights.iter().enumerate() {
+            globals.point_pos[i] = [pos[0], pos[1], pos[2], *decay];
+            globals.point_color[i] = [color[0], color[1], color[2], *distance];
         }
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
@@ -2114,10 +2341,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             binding: 11,
             resource: wgpu::BindingResource::TextureView(&self.dfg_view),
         });
-        // 场景环境 PMREM cubeUV（binding 16）：无 env 绑 dummy（w=0 时
+        // 场景环境 PMREM cubeUV（binding 44）：无 env 绑 dummy（w=0 时
         // WGSL 不采样）。env 纹理从不是渲染目标 ⇒ 两 pass 同视图合法。
         tex_entries.push(wgpu::BindGroupEntry {
-            binding: 16,
+            binding: 44,
             resource: wgpu::BindingResource::TextureView(&self.env_view),
         });
         let texture_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2312,23 +2539,43 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                     contents: bytemuck::cast_slice(indices),
                     usage: wgpu::BufferUsages::INDEX,
                 });
-                // 单贴图槽位：按表键解析（Unlit+map 消费；其余材质忽略）。
-                let map_slot = mesh
-                    .material
-                    .map
-                    .as_ref()
-                    .map(|t| {
-                        slot_of.get(t.table_key().as_str()).copied().ok_or_else(|| {
-                            anyhow::anyhow!("材质 map 纹理 '{:?}' 不在宿主纹理表中", t.table_key())
-                        })
+                // 贴图槽位：按表键解析（Unlit+map / Physical 的 glTF PBR
+                // 贴图消费；其余材质忽略）。
+                let resolve_slot = |tex: &opencat_core::ir::scene3::Texture3| {
+                    slot_of.get(tex.table_key().as_str()).copied().ok_or_else(|| {
+                        anyhow::anyhow!("材质纹理 '{:?}' 不在宿主纹理表中", tex.table_key())
                     })
-                    .transpose()?;
+                };
+                let map_slot = mesh.material.map.as_ref().map(|t| resolve_slot(t)).transpose()?;
+                // glTF PBR 贴图只对 Physical 有意义（其余着色模型忽略）。
+                let pbr_slots = if matches!(mesh.material.shading, Shading3::Physical(_)) {
+                    (
+                        mesh.material
+                            .base_color_map
+                            .as_ref()
+                            .map(|t| resolve_slot(t))
+                            .transpose()?,
+                        mesh.material
+                            .metallic_roughness_map
+                            .as_ref()
+                            .map(|t| resolve_slot(t))
+                            .transpose()?,
+                        mesh.material
+                            .normal_map
+                            .as_ref()
+                            .map(|t| resolve_slot(t))
+                            .transpose()?,
+                    )
+                } else {
+                    (None, None, None)
+                };
                 let ubuf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("opencat-three-u"),
                     contents: bytemuck::bytes_of(&object_uniform(
                         &mesh.material,
                         &mesh.matrix,
                         map_slot,
+                        pbr_slots,
                     )),
                     usage: wgpu::BufferUsages::UNIFORM,
                 });
@@ -2696,11 +2943,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
 
-    /// 建一张可用作 Skia 合成目标的纹理（GL 后端）。
+    /// 建一张可用作 Skia 合成目标的纹理（GL / Metal 后端）。
     ///
-    /// 在**锁外**调用（创建纹理是 wgpu 操作）。合成的 FBO 与读回由
-    /// `opencat_gpu_native::gl::Target` 在锁内建。
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    /// 在**锁外**调用（创建纹理是 wgpu 操作）。GL 上 FBO 与读回由
+    /// `opencat_gpu_native::gl::Target` 在锁内建；Metal 上 Skia 直接
+    /// 包这张 MTLTexture 作渲染目标。
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub fn create_composite_target(&self, width: u32, height: u32) -> Option<wgpu::Texture> {
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("opencat-three-composite-target"),
@@ -2733,6 +2981,58 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         #[cfg(not(any(target_os = "windows", target_os = "linux")))]
         {
             false
+        }
+    }
+
+    /// 当前后端是否为 Metal（macOS 的 GPU 纹理共享路径）。
+    pub fn is_metal(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            unsafe { self.device.as_hal::<wgpu::hal::api::Metal>().is_some() }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
+    }
+
+    /// 输出纹理的原生句柄（Metal 后端）。
+    ///
+    /// 返回 MTLTexture 的裸指针值；调用方须保证纹理在采样期内存活。
+    #[cfg(target_os = "macos")]
+    pub fn output_native_texture_metal(tex: &wgpu::Texture) -> Option<NativeTexture> {
+        use wgpu::hal::api::Metal;
+        unsafe {
+            let hal_tex = tex.as_hal::<Metal>()?;
+            let raw = hal_tex.raw_handle();
+            // ProtocolObject 是 #[repr(C)] 的单个 objc_object 指针，直接取地址值。
+            let ptr = raw as *const _ as *const c_void as u64;
+            Some(NativeTexture::from_raw(ptr))
+        }
+    }
+
+    /// 取 Metal 的 MTLDevice 裸指针（Skia Metal BackendContext 用）。
+    #[cfg(target_os = "macos")]
+    pub fn metal_device_raw(&self) -> Option<u64> {
+        use wgpu::hal::api::Metal;
+        unsafe {
+            let hal_dev = self.device.as_hal::<Metal>()?;
+            let raw = hal_dev.raw_device();
+            Some(Retained::as_ptr(raw) as *const c_void as u64)
+        }
+    }
+
+    /// 取 Metal 的 MTLCommandQueue 裸指针。
+    ///
+    /// wgpu 的 Queue 没有公开 raw accessor，所以这里用设备自建一条独立队列。
+    /// Skia 与 wgpu 各用一条队列是安全的：两者共享同一 MTLDevice，资源
+    /// 同步由 Metal 的 hazard tracking 负责。
+    #[cfg(target_os = "macos")]
+    pub fn metal_queue_raw(&self) -> Option<u64> {
+        use wgpu::hal::api::Metal;
+        unsafe {
+            let hal_q = self.queue.as_hal::<Metal>()?;
+            Some(hal_q.as_raw() as *const _ as *const c_void as u64)
         }
     }
 
@@ -3025,7 +3325,7 @@ fn texture_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         count: None,
     });
     entries.push(wgpu::BindGroupLayoutEntry {
-        binding: 16, // 场景环境 PMREM cubeUV（Rgba16Float 可过滤）
+        binding: 44, // 场景环境 PMREM cubeUV（Rgba16Float 可过滤）
         visibility: wgpu::ShaderStages::FRAGMENT,
         ty: wgpu::BindingType::Texture {
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -3123,7 +3423,9 @@ fn build_render_pipeline(
     blend: Option<wgpu::BlendState>,
     sample_count: u32,
     target_format: wgpu::TextureFormat,
+    depth_write: bool,
 ) -> wgpu::RenderPipeline {
+
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(layout),
@@ -3182,8 +3484,12 @@ fn build_render_pipeline(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24Plus,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
+            depth_write_enabled: Some(depth_write),
+            // r147 WebGLState.setFunc 缺省 LessEqualDepth → gl.LEQUAL。
+            // 用 Less 会丢弃与先画者同深度的像素：iPhone GLB 里共面/复制的
+            // 网格（logo、镜头环、玻璃盖板都各自有同深度孪生面）会被挖成洞
+            // ——像素上表现为背景穿透成的紫斑。
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
@@ -3339,7 +3645,12 @@ fn write_uniform_values(
     Ok(buf)
 }
 
-fn object_uniform(material: &Material3, matrix: &[f32; 16], map_slot: Option<u32>) -> ObjectUniform {
+fn object_uniform(
+    material: &Material3,
+    matrix: &[f32; 16],
+    map_slot: Option<u32>,
+    pbr_slots: (Option<u32>, Option<u32>, Option<u32>),
+) -> ObjectUniform {
     let model = Mat4::from_cols_array(matrix);
     // 逆转置：非均匀缩放下法线保持垂直于表面。
     let n3 = Mat3::from_mat4(model).inverse().transpose();
@@ -3432,6 +3743,13 @@ fn object_uniform(material: &Material3, matrix: &[f32; 16], map_slot: Option<u32
         phys_d: physical
             .map(|p| [p.env_map_intensity, 0.0, 0.0, 0.0])
             .unwrap_or([0.0; 4]),
+        pbr_tex: [
+            pbr_slots.0.unwrap_or(NO_MAP_SLOT),
+            pbr_slots.1.unwrap_or(NO_MAP_SLOT),
+            0,
+            0,
+        ],
+        normal_tex: [pbr_slots.2.unwrap_or(NO_MAP_SLOT), 0, 0, 0],
     }
 }
 
@@ -3527,7 +3845,13 @@ impl LazyRenderer3d {
     fn publish(&self, tex: wgpu::Texture) -> opencat_core::ir::generated_image::GpuImageHandle {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
         let native = Renderer3d::output_native_texture(&tex).unwrap_or(NativeTexture::NONE);
-        #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+        #[cfg(target_os = "macos")]
+        let native = Renderer3d::output_native_texture_metal(&tex).unwrap_or(NativeTexture::NONE);
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "linux",
+            target_os = "macos"
+        )))]
         let native = NativeTexture::NONE;
 
         let id = self.registry.publish(native, Box::new(tex));
@@ -3537,8 +3861,8 @@ impl LazyRenderer3d {
     /// 建一张合成目标纹理并登记到共享表。
     ///
     /// 在**锁外**调用（创建纹理是 wgpu 操作）。纹理所有权归共享登记处。
-    /// 仅 GL 后端有效。
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    /// Metal 与 GL 后端都有效。
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     pub fn make_composite_target(
         &self,
         width: u32,
@@ -3566,6 +3890,12 @@ impl LazyRenderer3d {
     /// wgpu 的每次调用都会自己加/放 GL context 锁，所以这里只串行化对
     /// `Renderer3d` 的访问。**`f` 内不得做 Skia 操作**（context 未 make
     /// current）。
+    /// 当前后端是否为 Metal（macOS 的 GPU 合成路径）。
+    #[cfg(target_os = "macos")]
+    pub fn is_metal(&self) -> bool {
+        self.with_renderer(|r| r.is_metal()).unwrap_or(false)
+    }
+
     pub fn with_renderer<R>(&self, f: impl FnOnce(&Renderer3d) -> R) -> Option<R> {
         let init = self.inner.get()?;
         let Ok(renderer) = init else { return None };
@@ -3600,7 +3930,7 @@ impl scene3::Scene3Raster for LazyRenderer3d {
 impl LazyRenderer3d {
     /// 场景环境预计算入口（锁内转发 [`Renderer3d::set_environment`]）。
     /// 逐帧调用幂等：env 位图来自宿主图像缓存的同一 Arc ⇒ 同指针直接跳过。
-    pub fn set_environment(&self, env: &TextureBitmap3) -> Result<(), String> {
+    pub fn set_environment(&self, env: &TextureBitmap3, srgb: bool) -> Result<(), String> {
         let init = self.inner.get_or_init(|| {
             pollster::block_on(Renderer3d::new())
                 .map(Mutex::new)
@@ -3610,7 +3940,7 @@ impl LazyRenderer3d {
             Ok(renderer) => renderer
                 .lock()
                 .expect("opencat-three renderer mutex poisoned")
-                .set_environment(env)
+                .set_environment(env, srgb)
                 .map_err(|e| format!("{e:#}")),
             Err(msg) => Err(msg.clone()),
         }

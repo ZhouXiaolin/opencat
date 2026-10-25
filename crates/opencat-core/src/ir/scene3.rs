@@ -48,12 +48,18 @@ pub struct Scene3 {
     pub output_color_space: OutputColorSpace3,
     /// three.js `scene.environment`（js:25-26）。None = 无环境（IBL 项全 0，
     /// 与 three.js 无 envMap 同值）。Some 时该纹理按
-    /// `EquirectangularReflectionMapping` + SRGBColorSpace 语义处理
-    /// （WebGLCubeUVMaps.js:31-33：equirect 映射的环境贴图经
-    /// PMREMGenerator.fromEquirectangular 转 cubeUV RT 后供材质采样；
-    /// 映射/色彩空间由脚本 shim 校验声明，快照只带来源）。
+    /// `EquirectangularReflectionMapping` 经 PMREMGenerator.fromEquirectangular
+    /// 转 cubeUV RT 后供材质采样（WebGLCubeUVMaps.js:31-33）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<Texture3>,
+    /// environment 纹理的采样色彩空间是 SRGBColorSpace（true）还是
+    /// NoColorSpace / LinearSRGBColorSpace（false）。three.js r181 的
+    /// PMREM 在 equirect 采样那一步按纹理声明的色彩空间决定是否做 sRGB
+    /// EOTF（`_getEquirectMaterial` 用标准 map 采样，mipmap 链因
+    /// `texture.colorSpace` 在 GL 侧生效）。shim 只允许 SRGB、其余缺省
+    /// false；由脚本 shim 按 environment 纹理的 colorSpace 落位。
+    #[serde(default, skip_serializing_if = "core::ops::Not::not")]
+    pub environment_srgb: bool,
 }
 
 /// three.js `renderer.toneMapping` 枚举（只实现参考用到的 ACESFilmic）。
@@ -154,6 +160,23 @@ pub enum Light3 {
         color: [f32; 3],
         intensity: f32,
     },
+    /// 点光源（three.js `PointLight`）：`position` 世界坐标，`distance` =
+    /// 光照半径（0 = 无限远、不衰减；three.js `distance` 语义），
+    /// `decay` = 物理衰减指数（three.js 默认 2 → 强度除距离平方）。
+    /// 参考 js:567-572 的两盏补光就是点光。
+    Point {
+        position: [f32; 3],
+        color: [f32; 3],
+        intensity: f32,
+        #[serde(default)]
+        distance: f32,
+        #[serde(default = "default_light_decay")]
+        decay: f32,
+    },
+}
+
+fn default_light_decay() -> f32 {
+    2.0
 }
 
 /// 一个网格实例：几何 + 材质 + 世界矩阵。
@@ -226,6 +249,18 @@ pub struct Material3 {
     /// three.js `WebGLRenderLists.js:118-133 push()` 的分类规则。
     #[serde(default)]
     pub transparent: bool,
+    /// glTF PBR 的 baseColor 贴图：乘进物理材质的 `diffuse`
+    /// （`meshStandardMaterial` 语义）。`None` = 用 `base_color` 常量。
+    #[serde(default)]
+    pub base_color_map: Option<Texture3>,
+    /// glTF 的 metallicRoughness 贴图：**G** 乘 roughness、**B** 乘 metalness。
+    #[serde(default)]
+    pub metallic_roughness_map: Option<Texture3>,
+    /// glTF 的法线贴图：切线空间法线（R/G = xy，B = z），按"屏幕导数
+    /// 反推切线"展开（three.js `normal_fragment_maps` + `perturbNormal2Arb`，
+    /// 与 `MeshStandardMaterial` 同一算法）。
+    #[serde(default)]
+    pub normal_map: Option<Texture3>,
 }
 
 /// 纹理来源（纯数据，可序列化；解码与像素上传是宿主光栅化器的事）。
@@ -236,6 +271,9 @@ pub enum Texture3 {
     VideoFrame { path: String, time: f32 },
     /// 静态位图（路径；宿主一次性解码）。
     Bitmap { path: String },
+    /// 脚本侧离屏 surface（`ly.surface`）的当前像素——canvas → 纹理
+    /// 通道：像素在脚本线程的 surface 注册表里，宿主光栅化前取一次。
+    Surface { id: String },
 }
 
 impl Texture3 {
@@ -244,6 +282,7 @@ impl Texture3 {
         match self {
             Texture3::VideoFrame { path, time } => format!("videoframe:{path}@{time:.6}"),
             Texture3::Bitmap { path } => format!("bitmap:{path}"),
+            Texture3::Surface { id } => format!("surface:{id}"),
         }
     }
 }
@@ -313,6 +352,27 @@ pub struct Physical3 {
 
 fn default_env_map_intensity() -> f32 {
     1.0
+}
+
+/// glTF/three.js 材质的缺省形状（全部因子 0，衰减距离 = inf）。GLB 导入器
+/// 只覆写规范里写了的字段。
+impl Default for Physical3 {
+    fn default() -> Self {
+        Self {
+            ior: 1.5,
+            thickness: 0.0,
+            transmission: 0.0,
+            roughness: 1.0,
+            metalness: 1.0,
+            specular_intensity: 1.0,
+            clearcoat: 0.0,
+            clearcoat_roughness: 0.0,
+            dispersion: 0.0,
+            attenuation_color: [0.0, 0.0, 0.0],
+            attenuation_distance: f32::INFINITY,
+            env_map_intensity: 1.0,
+        }
+    }
 }
 
 /// 脚本着色器 uniform 值（three.js `ShaderMaterial` uniforms 字典的值域：
@@ -450,6 +510,7 @@ mod tests {
             tone_mapping_exposure: 1.0,
             output_color_space: OutputColorSpace3::Linear,
             environment: None,
+            environment_srgb: false,
             meshes: vec![Mesh3 {
                 geometry: Geometry3::Inline {
                     positions: vec![[0.0; 3]; 3],
@@ -466,6 +527,9 @@ mod tests {
                     map: None,
                     textures: vec![],
                     transparent: false,
+                    base_color_map: None,
+                    normal_map: None,
+                    metallic_roughness_map: None,
                 },
                 matrix: [
                     1.0, 0.0, 0.0, 0.0, //
@@ -576,15 +640,22 @@ mod tests {
         assert!(json.contains("\"transparent\":true"), "transparent 字段: {json}");
         let back: Scene3 = serde_json::from_str(&json).expect("快照反序列化");
         assert_eq!(back, scene);
-        // 旧快照（r6 及之前不含 render_order/transparent）解码不炸：剥掉
-        // 这两个尾巴字段（两者都是各自对象的末字段，前面带逗号）。
+        // 旧快照（r6 及之前不含 render_order/transparent，PBR 贴图段也不含
+        // base_color_map/metallic_roughness_map）解码不炸：剥掉这些尾巴字段
+        // （它们都在各自对象的尾部）。
         let stripped = json
+            .replace(
+                ",\"base_color_map\":null,\"metallic_roughness_map\":null}",
+                "}",
+            )
             .replace(",\"render_order\":-10}", "}")
             .replace(",\"transparent\":true}", "}");
         let old: Scene3 =
             serde_json::from_str(&stripped).expect("旧快照（无新字段）应靠 default 解码");
         assert_eq!(old.meshes[0].render_order, 0);
         assert!(!old.meshes[0].material.transparent);
+        assert!(old.meshes[0].material.base_color_map.is_none());
+        assert!(old.meshes[0].material.metallic_roughness_map.is_none());
     }
 
     // tone_mapping / tone_mapping_exposure / output_color_space（threejs-like

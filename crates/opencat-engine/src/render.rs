@@ -115,15 +115,18 @@ fn render_pipeline_frame_to_rgba(
 /// 持有 Skia GPU 合成器与它背后的 wgpu 渲染器。**锁纪律**：合成器的每个
 /// 方法都必须在 `renderer.with_context` 的锁内调用（见
 /// [`crate::gpu_compositor`] 的模块文档）。
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 pub struct GpuRenderSession {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     compositor: crate::gpu_compositor::GpuCompositor,
+    #[cfg(target_os = "macos")]
+    compositor: crate::gpu_compositor_metal::MetalCompositor,
     renderer: std::sync::Arc<opencat_three::LazyRenderer3d>,
     /// 共享纹理登记处（3D 输出纹理的取用与归还）。
     textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
 }
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
 impl GpuRenderSession {
     /// 建一个 `width × height` 的 GPU 合成会话。
     pub fn new(
@@ -133,14 +136,20 @@ impl GpuRenderSession {
     ) -> Result<Self> {
         // 锁外：先确保 wgpu 设备就绪（合成目标不能等首个 3D 场景懒初始化）。
         renderer.ensure_initialized()?;
+        // macOS 走 Metal，其余平台走 GL（见 [`crate::gpu_pipeline`]）。
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         if !renderer.is_gles() {
             anyhow::bail!("GPU 管线需要 GL 后端（当前 WGPU_BACKEND 不是 gl）");
+        }
+        #[cfg(target_os = "macos")]
+        if !renderer.is_metal() {
+            anyhow::bail!("GPU 管线需要 Metal 后端（当前 WGPU_BACKEND 不是 metal）");
         }
         // 锁外：建 wgpu 合成目标纹理并登记到共享表。
         let textures = renderer.registry().clone();
         let handle = renderer
             .make_composite_target(width, height)
-            .ok_or_else(|| anyhow!("创建合成目标失败（GL 后端不可用）"))?;
+            .ok_or_else(|| anyhow!("创建合成目标失败（GPU 后端不可用）"))?;
         let target_token = opencat_gpu_native::TextureId::from_raw(handle.token);
         let native = textures
             .resolve(target_token)
@@ -149,12 +158,29 @@ impl GpuRenderSession {
             anyhow::bail!("合成目标没有原生纹理句柄");
         }
 
-        // 锁内：建 FBO + Skia DirectContext + surface。
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         let compositor = renderer
             .with_context(|| {
                 crate::gpu_compositor::GpuCompositor::new(target_token, native, width, height)
             })
             .ok_or_else(|| anyhow!("GL context 不可用"))??;
+
+        #[cfg(target_os = "macos")]
+        let compositor = {
+            // Metal 没有 "current context"：直接取设备/队列裸句柄建 Skia context。
+            let handles = renderer
+                .with_renderer(|r| (r.metal_device_raw(), r.metal_queue_raw()))
+                .ok_or_else(|| anyhow!("取 Metal 设备句柄失败（渲染器未就绪？）"))?;
+            let device = handles
+                .0
+                .ok_or_else(|| anyhow!("MTLDevice 句柄为空"))?;
+            let queue = handles
+                .1
+                .ok_or_else(|| anyhow!("MTLCommandQueue 句柄为空"))?;
+            crate::gpu_compositor_metal::MetalCompositor::new(
+                device, queue, native, width, height,
+            )?
+        };
 
         Ok(Self {
             compositor,
@@ -237,14 +263,19 @@ impl GpuRenderSession {
         let textures = &self.textures;
         let compositor = &mut self.compositor;
 
-        // 本帧有 3D 场景 → wgpu 刚跑过 GL pass，Skia 缓存的状态已失效。
+        // 本帧有 3D 场景 → wgpu 刚跑过 GPU pass，Skia 缓存的状态已失效。
+        // GL 版必须在 context 锁内做（Skia 共享同一 HGLRC）；Metal 版不需要
+        // 锁，Skia 自己的命令队列与 wgpu 的队列在 MTLDevice 层面同步。
         if !gpu_handles.is_empty() {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             renderer
                 .with_context(|| compositor.reset_backend_state())
                 .ok_or_else(|| anyhow!("GL context 不可用"))?;
+            #[cfg(target_os = "macos")]
+            compositor.reset_backend_state();
         }
 
-        // 锁内：只做 Skia 操作（导入 3D 纹理 + 重放 DrawOp + 读回）。
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
         let rgba = renderer
             .with_context(|| -> Result<Option<Vec<u8>>> {
                 let (canvas, skia) = compositor.split();
@@ -271,6 +302,28 @@ impl GpuRenderSession {
             })
             .ok_or_else(|| anyhow!("GL context 不可用"))??;
 
+        #[cfg(target_os = "macos")]
+        let rgba = {
+            let (canvas, skia) = compositor.split();
+            let mut resolver = crate::gpu_compositor_metal::CompositorResolver { skia, textures };
+            crate::consumer::execute_render_frame_with_gpu(
+                &mut frame,
+                &media_plan,
+                executor,
+                pipeline.loader(),
+                media_ctx,
+                generated_cache,
+                Some(&mut resolver),
+                canvas,
+            )
+            .map_err(|e| anyhow!("{e}"))?;
+            if deferred {
+                compositor.finish_frame()
+            } else {
+                compositor.finish_frame_blocking().map(Some)
+            }?
+        };
+
         // 锁外：归还本帧的 3D 输出纹理（丢掉保活凭据，纹理随即销毁）。
         for id in gpu_handles {
             textures.release(id);
@@ -279,19 +332,19 @@ impl GpuRenderSession {
     }
 }
 
-/// 逐帧渲染器：CPU 光栅，或（GL 后端）GPU 合成。
+/// 逐帧渲染器：CPU 光栅，或（GL / Metal 后端）GPU 合成。
 ///
 /// 选择只发生在会话建立时，两种路径逐帧产出同样的 RGBA 尺寸与 alpha 约定
 /// （premul），所以编码分支无需分叉。
 enum FrameRenderer {
     Cpu,
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     Gpu(Box<GpuRenderSession>),
 }
 
 impl FrameRenderer {
     fn new(pipeline: &crate::EnginePipeline, width: u32, height: u32) -> Result<Self> {
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         if crate::gpu_pipeline::requested() {
             return Ok(Self::Gpu(Box::new(GpuRenderSession::new(
                 pipeline.scene3_renderer.clone(),
@@ -324,7 +377,7 @@ impl FrameRenderer {
                 frame_index,
             )
             .map(Some),
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             Self::Gpu(session) => {
                 session.render_frame(pipeline, media_ctx, executor, generated_cache, frame_index)
             }
@@ -356,7 +409,7 @@ impl FrameRenderer {
                 height,
                 frame_index,
             ),
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
             Self::Gpu(session) => session.render_frame_blocking(
                 pipeline,
                 media_ctx,

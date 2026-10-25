@@ -3534,6 +3534,7 @@ dependencies = [
  "glam",
  "image",
  "naga",
+ "objc2 0.6.5",
  "opencat-core",
  "opencat-gpu-native",
  "pollster",

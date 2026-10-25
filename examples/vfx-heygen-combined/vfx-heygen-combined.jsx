@@ -37,7 +37,8 @@
 //     power2=Cubic, power3=Quart), matching the engine's ease strings
 //     (easing.rs) so hand-written channels and timeline tweens agree.
 
-import { useGSAP } from 'opencat/runtime';
+import { useEffect, useGSAP, useRef } from 'opencat/runtime';
+import * as THREE from 'three';
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
 import { SplitText } from 'gsap/SplitText';
@@ -385,22 +386,35 @@ function MainBg() {
   );
 }
 
-/* V1: #theater — the DRACO GLB iPhone re-authored in 2D. Per frame the exact
-   source camera (PerspectiveCamera 34° at S.cX/cY/cZ looking at clX/clY/clZ)
-   projects the phone quad (P0 = S.phX/phY/phZ + drift jitter, half extents
-   1.6 × 0.7393 world); entry/exit (y 340 blur 18, x −1220 blur 22) ride the
-   timeline on the outer node like the source's #theater tweens. */
+/* V1: #theater — the source's THREE render of models/iphone.glb, ported to
+   opencat-three. Same scene as index.html:507-846:
+     · PerspectiveCamera(34, 1920/1080, 0.1, 100) at S.cX/cY/cZ → S.clX/clY/clZ
+     · ACESFilmic tone mapping, exposure 1.12, sRGB output
+     · AmbientLight 0x222233/0.55 + DirectionalLight 0xffffff/2.3 @(-3.5,4.5,5)
+     · one equirect environment (a CanvasTexture gradient in the source; here a
+       surface drawn with the same stops and handed over as a PMREM source)
+     · the phone's screen material swapped for an unlit canvas texture that
+       redraws the HeyGen page every frame at S.scroll
+   The GLB's own meshes/materials/PBR maps come from `three.GLTFScene`, which
+   parses the whole glTF scene graph (31 nodes) into IR meshes.
+   Entry/exit (y 340 blur 18, x −1220 blur 22) still ride CSS on the outer
+   wrapper, exactly like the source's #theater tweens. */
 function Theater() {
+  const canvas = useRef();
+  /* 进场/出场（index.html:1264/1298-1307）作用在外层节点上：y 340 blur 18
+     → 0、x −1220 blur 22 并淡出。t 已平移 +5.58（见文件头的源时 → 绝对时表）。 */
   useGSAP((ctx) => {
-    var st = Math.max(0, ctx.global.time);
-    var ps = st - 5.58; // source script time
     var T = gsap.timeline();
     T.set('phone', { y: 340, opacity: 0, filter: 'blur(18px)' }, 0);
     T.to('phone', { y: 0, opacity: 1, filter: 'blur(0px)', duration: 0.74, ease: 'expo.out' }, 5.62);
     T.to('phone', { x: -1220, filter: 'blur(22px)', duration: 0.53, ease: 'expo.out' }, 9.62);
     T.to('phone', { opacity: 0, duration: 0.18, ease: 'power2.out' }, 9.62);
+  });
+  useEffect(() => {
+    var t = ctx.current.time;
+    var ps = Math.max(0, t) - 5.58; // source script time
 
-    /* S state (index.html:830-845 + master tweens) */
+    /* ── S state (index.html:829-846 + the master tweens) ─────────────── */
     var phY = seg(ps, 0.08, 0.95, expoOut, -3.45, 0.02);
     var phRX = ps < 0.18 ? 0.01 : lerp(0.01, -0.012, breathe((ps - 0.18) / 0.78));
     var phRY;
@@ -409,10 +423,10 @@ function Theater() {
     else if (ps < 2.2) phRY = PI - 0.035;
     else if (ps < 3.93) phRY = (PI - 0.035) + 4 * PI * ((ps - 2.2) / 1.73);
     else phRY = 5 * PI - 0.035;
-    /* phRZ: spin segment writes -0.015 -> 0.006 over 2.2..3.93, but the later
-       push tween (source index.html:1294, phRZ: PI/2 power3.inOut @3.43) wins
+    /* phRZ: the spin segment writes -0.015 -> 0.006 over 2.2..3.93, but the
+       later push tween (index.html:1294, phRZ PI/2 power3.inOut @3.43) wins
        per-frame once running (GSAP no-overwrite). Its from-value is the spin
-       channel's value at 3.43: -0.015 + 0.021 * (3.43-2.2)/1.73 = -0.000069. */
+       channel's value at 3.43: -0.015 + 0.021*(3.43-2.2)/1.73 = -0.000069. */
     var phRZ;
     if (ps < 2.2) phRZ = -0.015;
     else if (ps < 3.43) phRZ = lerp(-0.015, 0.006, (ps - 2.2) / 1.73);
@@ -421,148 +435,266 @@ function Theater() {
     cZ = seg(ps, 3.43, 0.85, p3io, cZ, 3.85);
     var cY = seg(ps, 3.43, 0.85, p3io, 0.16, 0.12);
     var d = Math.max(0, Math.min(5, ps));
-    var P0 = [Math.sin(d * 0.56) * 0.015, phY + Math.sin(d * 0.72) * 0.009,
-              0.45 + Math.cos(d * 0.44) * 0.008];
-
-    /* phone local axes under Euler XYZ: v' = RX(RY(RZ v)) */
-    function rotV(v) {
-      var x1 = v[0] * Math.cos(phRZ) - v[1] * Math.sin(phRZ);
-      var y1 = v[0] * Math.sin(phRZ) + v[1] * Math.cos(phRZ);
-      var z1 = v[2];
-      var x2 = x1 * Math.cos(phRY) + z1 * Math.sin(phRY);
-      var y2 = y1;
-      var z2 = -x1 * Math.sin(phRY) + z1 * Math.cos(phRY);
-      var y3 = y2 * Math.cos(phRX) - z2 * Math.sin(phRX);
-      var z3 = y2 * Math.sin(phRX) + z2 * Math.cos(phRX);
-      return [x2, y3, z3];
-    }
-    var uA = rotV([0, 1, 0]), rA = rotV([1, 0, 0]);
-    var HL = 1.6, HW = 0.7393; // model 3.2 tall, screen aspect 390:844
-
-    var C = [0, cY, cZ], L = [0, 0.04, 0];
-    var B = camBasis(C, L);
-    var tanH = Math.tan(17 * PI / 180), aspect = 1920 / 1080;
-    function proj(P) {
-      var vx = P[0] - C[0], vy = P[1] - C[1], vz = P[2] - C[2];
-      var dep = vx * B.F[0] + vy * B.F[1] + vz * B.F[2];
-      var sx = (vx * B.R[0] + vy * B.R[1] + vz * B.R[2]) / (dep * tanH * aspect);
-      var sy = (vx * B.U[0] + vy * B.U[1] + vz * B.U[2]) / (dep * tanH);
-      return [(sx + 1) * 960, (1 - sy) * 540];
-    }
-    var minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9, i, s, t2, c;
-    for (i = 0; i < 4; i++) {
-      s = i < 2 ? 1 : -1;
-      t2 = (i === 0 || i === 3) ? 1 : -1;
-      c = proj([P0[0] + s * HL * uA[0] + t2 * HW * rA[0],
-                P0[1] + s * HL * uA[1] + t2 * HW * rA[1],
-                P0[2] + s * HL * uA[2] + t2 * HW * rA[2]]);
-      if (c[0] < minX) minX = c[0];
-      if (c[0] > maxX) maxX = c[0];
-      if (c[1] < minY) minY = c[1];
-      if (c[1] > maxY) maxY = c[1];
-    }
-    var tc = proj([P0[0] + HL * uA[0], P0[1] + HL * uA[1], P0[2] + HL * uA[2]]);
-    var bc = proj([P0[0] - HL * uA[0], P0[1] - HL * uA[1], P0[2] - HL * uA[2]]);
-    var rc = proj([P0[0] + HW * rA[0], P0[1] + HW * rA[1], P0[2] + HW * rA[2]]);
-    var cc = proj(P0);
-    var hpx = Math.sqrt((tc[0] - bc[0]) * (tc[0] - bc[0]) + (tc[1] - bc[1]) * (tc[1] - bc[1]));
-    var wpx = Math.sqrt((rc[0] - cc[0]) * (rc[0] - cc[0]) + (rc[1] - cc[1]) * (rc[1] - cc[1])) * 2;
-    var rot = Math.atan2(tc[0] - bc[0], -(tc[1] - bc[1])) * 180 / PI;
-    var W = Math.max(2, maxX - minX), H = Math.max(2, maxY - minY);
-
-    var phone = ctx.getNode('phone');
-    phone.left(minX); phone.top(minY); phone.width(W); phone.height(H);
-    ctx.getNode('phone-spin').rotate(rot);
-    /* face switch: screen normal n_z = -cos(phRY); back visible when n_z < 0
-       (phRY=PI is front-facing). The crossing sits at the 90deg silhouette,
-       where the projected body is at its narrowest. */
-    ctx.getNode('pb-back').opacity(Math.cos(phRY) > 0 ? 1 : 0);
-    var anch = ctx.getNode('phone-anch');
-    anch.left(W / 2); anch.top(H / 2);
-    anch.scaleX(Math.max(0.02, wpx / 396));
-    anch.scaleY(Math.max(0.02, hpx / 856));
-
-    /* screen scroll: S.scroll 0→0.9 power1.out @2.05; source fallback page
-       scrolls 980px per unit in 390px space → 920px in this 366px space */
     var scroll = seg(ps, 2.05, 2.45, p1out, 0, 0.9);
-    ctx.getNode('phone-page').top(-scroll * 920);
+
+    /* ── screen canvas (index.html:636-760 drawHeyGenPage) ────────────── */
+    var SCREEN_W = 390, SCREEN_H = 844;
+    var screen = ctx.surface(SCREEN_W, SCREEN_H);
+    drawHeyGenPage(screen, SCREEN_W, SCREEN_H, scroll);
+
+    /* ── scene graph (built once per realm; the surface handle is stable) ─ */
+    var g = ctx.__vhcTheater;
+    if (!g) {
+      var renderer3d = new THREE.WebGLRenderer({ canvas: canvas.current });
+      renderer3d.setSize(1920, 1080);
+      renderer3d.setPixelRatio(1);
+      renderer3d.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer3d.toneMappingExposure = 1.12;
+      renderer3d.outputColorSpace = THREE.SRGBColorSpace;
+      renderer3d.setClearColor(0x050508, 0);
+
+      var scene3d = new THREE.Scene();
+      scene3d.background = null;
+      var camera3d = new THREE.PerspectiveCamera(34, 1920 / 1080, 0.1, 100);
+
+      var env = ctx.surface(1024, 512);
+      drawEnvGradient(env, 1024, 512);
+      var envTex = new THREE.CanvasTexture(env);
+      envTex.mapping = THREE.EquirectangularReflectionMapping;
+      /* 不设 colorSpace：CanvasTexture 缺省 NoColorSpace（r181
+         Texture.js:48），env 字节按线性光进 PMREM——与 r147 的
+         LinearEncoding 缺省同义。设成 SRGBColorSpace 会多一次 EOTF，
+         渐变 env 的平均能量掉到 1/3，机身随之从 sRGB 67 掉到 20。 */
+      var pmrem = new THREE.PMREMGenerator(renderer3d);
+      scene3d.environment = pmrem.fromEquirectangular(envTex).texture;
+      envTex.dispose();
+      pmrem.dispose();
+
+      /* ── r147 补偿（唯一的非原版写法，全部集中在这里）─────────────────
+         参考片 renders/vfx-heygen-combined_2026-10-05_swgl.mp4 是
+         index.html 用 three r147 渲的（index.html:8）。引擎是 r181 语义，
+         两处口径差要在这里显式补回来：
+
+         ① 灯光单位：r147 WebGLLights.js 里
+            `scaleFactor = physicallyCorrectLights ? 1 : Math.PI`，而
+            `physicallyCorrectLights` 缺省 false ⇒ 四类灯的 intensity 在
+            进 uniform 前一律 ×π（r155 删掉了这个缩放，r181 没有）。
+         ② 灯光颜色：r147 `ColorManagement.legacyMode = true`
+            （ColorManagement.js:r147 顶部）⇒ `new Color(0x222233)` 不做
+            sRGB→线性解码，hex 字节直接当线性值用。r181 缺省
+            `enabled = true` 会解码，蓝色通道被压暗 3 倍且色相偏。
+
+         原版两侧的写法是 `new THREE.AmbientLight(0x222233, 0.55)` 等四处
+         （index.html:538-550）。 */
+      var R147_LIGHT_UNIT = Math.PI;
+      function r147Color(hex) {
+        return new THREE.Color().setRGB(
+          ((hex >> 16) & 255) / 255,
+          ((hex >> 8) & 255) / 255,
+          (hex & 255) / 255
+        );
+      }
+      scene3d.add(new THREE.AmbientLight(r147Color(0x222233), 0.55 * R147_LIGHT_UNIT));
+      var keyLight = new THREE.DirectionalLight(r147Color(0xffffff), 2.3 * R147_LIGHT_UNIT);
+      keyLight.position.set(-3.5, 4.5, 5.0);
+      scene3d.add(keyLight);
+      var fill1 = new THREE.PointLight(r147Color(0x7c9cff), 3.2 * R147_LIGHT_UNIT, 15);
+      fill1.position.set(4.2, 2.4, 3.0);
+      scene3d.add(fill1);
+      var fill2 = new THREE.PointLight(r147Color(0xd7ff3f), 1.4 * R147_LIGHT_UNIT, 12);
+      fill2.position.set(-2.8, -0.8, 3.8);
+      scene3d.add(fill2);
+
+      var screenTex = new THREE.CanvasTexture(screen);
+      screenTex.minFilter = THREE.LinearFilter;
+      screenTex.magFilter = THREE.LinearFilter;
+      screenTex.generateMipmaps = false;
+
+      /* the GLB: normalized to 3.2 world units tall and centred, exactly like
+         index.html:788-828 (Box3 -> scale 3.2/size.y -> position -= center). */
+      var phoneGrp = new THREE.GLTFScene('assets/iphone.glb', { height: 3.2 });
+      var screenMesh = phoneGrp.screenMesh();
+      if (screenMesh) {
+        phoneGrp.setMaterial(screenMesh.index, new THREE.MeshBasicMaterial({ map: screenTex }));
+      }
+      scene3d.add(phoneGrp);
+
+      g = ctx.__vhcTheater = {
+        scene: scene3d, camera: camera3d, renderer: renderer3d,
+        phone: phoneGrp, grain: 0,
+      };
+    }
+
+    g.phone.position.set(
+      Math.sin(d * 0.56) * 0.015,
+      phY + Math.sin(d * 0.72) * 0.009,
+      0.45 + Math.cos(d * 0.44) * 0.008
+    );
+    g.phone.rotation.set(phRX, phRY, phRZ);
+    g.camera.position.set(0, cY, cZ);
+    g.camera.lookAt(0, 0.04, 0);
+    g.renderer.render(g.scene, g.camera);
   });
+
   return (
     <div id="phone" class="absolute left-0 top-0 opacity-0">
-      <div id="phone-spin" class="absolute inset-0">
-        <div id="phone-anch" class="absolute left-[0px] top-[0px]">
-          <div id="phone-body" class="absolute left-[-198px] top-[-428px] w-[396px] h-[856px]">
-            <div id="pb-shell" class="absolute inset-0 rounded-[58px] bg-[#07080c] border-[5px] border-[rgba(255,255,255,0.20)]"></div>
-            <div id="pb-notch" class="absolute left-[70px] top-[16px] w-[256px] h-[30px] rounded-full bg-[#000000]"></div>
-            <div id="pb-screen" class="absolute left-[15px] top-[22px] w-[366px] h-[812px] rounded-[44px] overflow-hidden bg-[#f7f4ee]">
-              <div id="phone-page" class="absolute left-0 top-0 w-[366px] h-[1720px]">
-                <text id="pp-brand" class="absolute left-[22px] top-[30px] text-[#111111] font-[inter900] font-black text-[22px]">HeyGen</text>
-                <div id="pp-cta" class="absolute left-[236px] top-[26px] px-[16px] py-[8px] rounded-full bg-[#d7ff3f]"><text id="pp-cta-t" class="text-[#111111] font-[inter800] font-extrabold text-[12px]">Get Started</text></div>
-                <text id="pp-h1" class="absolute left-[22px] top-[92px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">Turn your</text>
-                <text id="pp-h2" class="absolute left-[22px] top-[140px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">ideas into</text>
-                <text id="pp-h3" class="absolute left-[22px] top-[188px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">videos in</text>
-                <text id="pp-h4" class="absolute left-[22px] top-[236px] text-[#111111] font-[inter900] font-black text-[46px] leading-[0.98]">minutes</text>
-                <text id="pp-b1" class="absolute left-[22px] top-[318px] text-[rgba(17,17,17,0.66)] font-[inter400] text-[15px]">Go from script, image, presentation,</text>
-                <text id="pp-b2" class="absolute left-[22px] top-[340px] text-[rgba(17,17,17,0.66)] font-[inter400] text-[15px]">or PDF to finished video. No cameras,</text>
-                <text id="pp-b3" class="absolute left-[22px] top-[362px] text-[rgba(17,17,17,0.66)] font-[inter400] text-[15px]">no crew, no editing skills required.</text>
-                <div id="pp-pill1" class="absolute left-[22px] top-[400px] px-[14px] py-[9px] rounded-full bg-[#111111]"><text id="pp-pill1-t" class="text-[#f7f4ee] font-[inter700] text-[12px]">AI Video Generator</text></div>
-                <div id="pp-pill2" class="absolute left-[178px] top-[400px] px-[14px] py-[9px] rounded-full bg-[#d7ff3f]"><text id="pp-pill2-t" class="text-[#111111] font-[inter700] text-[12px]">Free to start</text></div>
-                <div id="pp-hero" class="absolute left-[22px] top-[470px] w-[322px] h-[220px] rounded-[28px] overflow-hidden bg-[linear-gradient(135deg,#10131c_0%,#4d78ff_52%,#d7ff3f_100%)]">
-                  <text id="pp-hero-t1" class="absolute left-[20px] top-[44px] text-[#ffffff] font-[inter800] font-extrabold text-[22px]">One-Shot Text-to-Video</text>
-                  <text id="pp-hero-t2" class="absolute left-[20px] top-[80px] text-[rgba(255,255,255,0.92)] font-[inter600] text-[13px]">Type your idea. Click generate.</text>
-                  <text id="pp-hero-t3" class="absolute left-[20px] top-[100px] text-[rgba(255,255,255,0.92)] font-[inter600] text-[13px]">Get a share-ready video.</text>
-                  <div id="pp-hero-btn" class="absolute left-[20px] top-[136px] px-[18px] py-[11px] rounded-[12px] bg-[rgba(255,255,255,0.92)]"><text id="pp-hero-btn-t" class="text-[#111111] font-[inter800] text-[13px]">Generate</text></div>
-                </div>
-                <text id="pp-s1" class="absolute left-[22px] top-[712px] text-[#111111] font-[inter800] text-[26px]">128M+ videos generated</text>
-                <text id="pp-s2" class="absolute left-[22px] top-[750px] text-[#111111] font-[inter800] text-[26px]">102M+ avatars generated</text>
-                <text id="pp-s3" class="absolute left-[22px] top-[788px] text-[#111111] font-[inter800] text-[26px]">17M+ videos translated</text>
-                <text id="pp-trust" class="absolute left-[22px] top-[840px] text-[rgba(17,17,17,0.54)] font-[inter700] text-[12px]">Trusted by millions worldwide</text>
-                <div id="pp-lg1" class="absolute left-[22px] top-[899px] w-[148px] h-[40px] rounded-[13px] bg-[#ffffff]"><text id="pp-lg1-t" class="absolute left-[16px] top-[24px] text-[rgba(17,17,17,0.62)] font-[inter800] text-[14px]">Miro</text></div>
-                <div id="pp-lg2" class="absolute left-[196px] top-[899px] w-[148px] h-[40px] rounded-[13px] bg-[#ffffff]"><text id="pp-lg2-t" class="absolute left-[16px] top-[24px] text-[rgba(17,17,17,0.62)] font-[inter800] text-[14px]">Workday</text></div>
-                <div id="pp-lg3" class="absolute left-[22px] top-[953px] w-[148px] h-[40px] rounded-[13px] bg-[#ffffff]"><text id="pp-lg3-t" class="absolute left-[16px] top-[24px] text-[rgba(17,17,17,0.62)] font-[inter800] text-[14px]">Coursera</text></div>
-                <div id="pp-lg4" class="absolute left-[196px] top-[953px] w-[148px] h-[40px] rounded-[13px] bg-[#ffffff]"><text id="pp-lg4-t" class="absolute left-[16px] top-[24px] text-[rgba(17,17,17,0.62)] font-[inter800] text-[14px]">HubSpot</text></div>
-                <div id="pp-lg5" class="absolute left-[22px] top-[1008px] w-[148px] h-[40px] rounded-[13px] bg-[#ffffff]"><text id="pp-lg5-t" class="absolute left-[16px] top-[24px] text-[rgba(17,17,17,0.62)] font-[inter800] text-[14px]">Airtable</text></div>
-                <div id="pp-lg6" class="absolute left-[196px] top-[1008px] w-[148px] h-[40px] rounded-[13px] bg-[#ffffff]"><text id="pp-lg6-t" class="absolute left-[16px] top-[24px] text-[rgba(17,17,17,0.62)] font-[inter800] text-[14px]">Wondershare</text></div>
-                <text id="pp-f1" class="absolute left-[22px] top-[1090px] text-[#111111] font-[inter900] font-black text-[30px]">AI video creation</text>
-                <text id="pp-f2" class="absolute left-[22px] top-[1128px] text-[#111111] font-[inter900] font-black text-[30px]">just became your</text>
-                <text id="pp-f3" class="absolute left-[22px] top-[1166px] text-[#111111] font-[inter900] font-black text-[30px]">superpower</text>
-                <div id="pp-feat1" class="absolute left-[22px] top-[1239px] w-[321px] h-[141px] rounded-[19px] bg-[#ffffff] border-[1px] border-[rgba(17,17,17,0.08)]">
-                  <div id="pp-feat1-ic" class="absolute left-[15px] top-[15px] w-[39px] h-[39px] rounded-[13px] bg-[#d7ff3f]"></div>
-                  <text id="pp-feat1-t" class="absolute left-[15px] top-[75px] text-[#111111] font-[inter800] text-[18px]">Text to Video</text>
-                  <text id="pp-feat1-b1" class="absolute left-[15px] top-[99px] text-[rgba(17,17,17,0.58)] font-[inter] font-medium text-[12px]">Create complete AI videos from a script</text>
-                  <text id="pp-feat1-b2" class="absolute left-[15px] top-[115px] text-[rgba(17,17,17,0.58)] font-[inter] font-medium text-[12px]">with voiceovers, visuals, and avatars.</text>
-                </div>
-                <div id="pp-feat2" class="absolute left-[22px] top-[1399px] w-[321px] h-[141px] rounded-[19px] bg-[#ffffff] border-[1px] border-[rgba(17,17,17,0.08)]">
-                  <div id="pp-feat2-ic" class="absolute left-[15px] top-[15px] w-[39px] h-[39px] rounded-[13px] bg-[#4d78ff]"></div>
-                  <text id="pp-feat2-t" class="absolute left-[15px] top-[75px] text-[#111111] font-[inter800] text-[18px]">Photo to Video</text>
-                  <text id="pp-feat2-b1" class="absolute left-[15px] top-[99px] text-[rgba(17,17,17,0.58)] font-[inter] font-medium text-[12px]">Upload an image and script to create</text>
-                  <text id="pp-feat2-b2" class="absolute left-[15px] top-[115px] text-[rgba(17,17,17,0.58)] font-[inter] font-medium text-[12px]">lifelike motion and natural lip-sync.</text>
-                </div>
-                <div id="pp-feat3" class="absolute left-[22px] top-[1558px] w-[321px] h-[141px] rounded-[19px] bg-[#ffffff] border-[1px] border-[rgba(17,17,17,0.08)]">
-                  <div id="pp-feat3-ic" class="absolute left-[15px] top-[15px] w-[39px] h-[39px] rounded-[13px] bg-[#ff7a59]"></div>
-                  <text id="pp-feat3-t" class="absolute left-[15px] top-[75px] text-[#111111] font-[inter800] text-[18px]">Translate Video</text>
-                  <text id="pp-feat3-b1" class="absolute left-[15px] top-[99px] text-[rgba(17,17,17,0.58)] font-[inter] font-medium text-[12px]">Dub content into 175+ languages with</text>
-                  <text id="pp-feat3-b2" class="absolute left-[15px] top-[115px] text-[rgba(17,17,17,0.58)] font-[inter] font-medium text-[12px]">voice cloning and subtitles.</text>
-                </div>
-              </div>
-              <div id="pp-topfade" class="absolute left-0 top-0 w-[366px] h-[86px] bg-[linear-gradient(180deg,rgba(247,244,238,1)_0%,rgba(247,244,238,0.92)_55%,rgba(247,244,238,0)_100%)]"></div>
-            </div>
-            {/* back face (Three.js GLB shows the real back panel while the spin
-               passes phRY 90..270deg; a 2D body must switch faces by hand) */}
-            <div id="pb-back" class="absolute inset-0 rounded-[58px] bg-[linear-gradient(170deg,#5a605c_0%,#454b48_45%,#363c39_100%)] border-[5px] border-[rgba(255,255,255,0.20)] opacity-0">
-              <div id="pbb-cam" class="absolute left-[10px] top-[12px] w-[170px] h-[173px] rounded-[40px] bg-[#141817]">
-                <div id="pbb-l1" class="absolute left-[12px] top-[13px] w-[57px] h-[57px] rounded-full bg-[#060908] border-[4px] border-[rgba(210,220,215,0.35)]"></div>
-                <div id="pbb-l2" class="absolute left-[94px] top-[18px] w-[57px] h-[57px] rounded-full bg-[#060908] border-[4px] border-[rgba(210,220,215,0.35)]"></div>
-                <div id="pbb-l3" class="absolute left-[16px] top-[92px] w-[57px] h-[57px] rounded-full bg-[#060908] border-[4px] border-[rgba(210,220,215,0.35)]"></div>
-                <div id="pbb-flash" class="absolute left-[104px] top-[104px] w-[22px] h-[22px] rounded-full bg-[#262c29]"></div>
-              </div>
-              <path id="pbb-logo" view-box="0 0 384 512" class="absolute left-[168px] top-[388px] w-[60px] h-[74px] fill-[#232823]" d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
-            </div>
-          </div>
-        </div>
-      </div>
+      <canvas id="theater" ref={canvas} class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
     </div>
   );
+}
+
+/* index.html:533-563 的环境贴图：1024×512 线性渐变 + 三条 screen 混合的白线。
+   surface 只有纯色/线性渐变填充，`globalCompositeOperation` 用"画出比底色更
+   亮的色"近似（参考那三条线的可见效果就是提亮）。 */
+function drawEnvGradient(s, W, H) {
+  var grad = s.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#020307');
+  grad.addColorStop(0.22, '#1f2937');
+  grad.addColorStop(0.36, '#ffffff');
+  grad.addColorStop(0.52, '#15161a');
+  grad.addColorStop(0.68, '#d7ff3f');
+  grad.addColorStop(0.84, '#28406f');
+  grad.addColorStop(1, '#020307');
+  s.fillStyle = grad;
+  s.fillRect(0, 0, W, H);
+  s.fillStyle = 'rgba(255,255,255,0.18)';
+  s.fillRect(160, 98, 640, 4);
+  s.fillStyle = 'rgba(255,255,255,0.18)';
+  s.fillRect(0, 280, 760, 3);
+  s.fillStyle = 'rgba(215,255,63,0.12)';
+  s.fillRect(310, 180, 520, 5);
+}
+
+/* index.html:596-760 drawHeyGenPage, transcribed: same box geometry, same
+   strings, same type scale. Only the primitives change (surface has
+   fillRect/roundRect/linear gradients/text at the alphabetic baseline). */
+function drawHeyGenPage(s, W, H, scrollProgress) {
+  var scroll = scrollProgress * 980;
+  s.clearRect(0, 0, W, H);
+
+  s.fillStyle = '#f7f4ee';
+  s.fillRect(0, 0, W, H);
+
+  s.save();
+  s.translate(0, -scroll);
+
+  s.font = '900 22px Inter';
+  s.fillStyle = '#111111';
+  s.fillText('HeyGen', 24, 46);
+  pageLabel(s, 'Get Started', 264, 20, 102, 34, '#d7ff3f', '#111111');
+
+  var headline = ['Turn your', 'ideas into', 'videos in', 'minutes'];
+  s.font = '900 48px Inter';
+  s.fillStyle = '#111111';
+  for (var h = 0; h < headline.length; h += 1) s.fillText(headline[h], 24, 118 + h * 50);
+
+  s.font = '500 16px Inter';
+  s.fillStyle = 'rgba(17,17,17,0.68)';
+  var body = [
+    'Go from script, image, presentation,',
+    'or PDF to finished video. No cameras,',
+    'no crew, no editing skills required.',
+  ];
+  for (var b = 0; b < body.length; b += 1) s.fillText(body[b], 24, 346 + b * 22);
+
+  pageLabel(s, 'AI Video Generator', 24, 420, 154, 38, '#111111', '#f7f4ee');
+  pageLabel(s, 'Free to start', 188, 420, 122, 38, '#d7ff3f', '#111111');
+
+  /* hero card (index.html:673-706): rounded rect with a 3-stop gradient */
+  var hero = s.createLinearGradient(24, 494, 366, 720);
+  hero.addColorStop(0, '#10131c');
+  hero.addColorStop(0.5, '#4d78ff');
+  hero.addColorStop(1, '#d7ff3f');
+  s.fillStyle = hero;
+  s.roundRect(24, 494, 342, 226, 28);
+  s.fillStyle = 'rgba(255,255,255,0.92)';
+  s.font = '800 24px Inter';
+  s.fillText('One-Shot Text-to-Video', 44, 556);
+  s.font = '600 15px Inter';
+  s.fillText('Type your idea. Click generate.', 44, 590);
+  s.fillText('Get a share-ready video.', 44, 614);
+  s.fillStyle = '#ffffff';
+  s.roundRect(44, 642, 144, 44, 14);
+  s.fillStyle = '#111111';
+  s.font = '800 14px Inter';
+  s.fillText('Generate', 76, 669);
+
+  s.font = '850 28px Inter';
+  s.fillStyle = '#111111';
+  s.fillText('128M+ videos generated', 24, 784);
+  s.fillText('102M+ avatars generated', 24, 826);
+  s.fillText('17M+ videos translated', 24, 868);
+
+  s.font = '700 13px Inter';
+  s.fillStyle = 'rgba(17,17,17,0.54)';
+  s.fillText('Trusted by millions worldwide', 24, 930);
+
+  var logos = ['Miro', 'Workday', 'Coursera', 'HubSpot', 'Airtable', 'Wondershare'];
+  for (var l = 0; l < logos.length; l += 1) {
+    var lx = 24 + (l % 2) * 174;
+    var ly = 958 + Math.floor(l / 2) * 58;
+    s.fillStyle = '#ffffff';
+    s.roundRect(lx, ly, 156, 42, 14);
+    s.fillStyle = 'rgba(17,17,17,0.62)';
+    s.font = '800 14px Inter';
+    s.fillText(logos[l], lx + 18, ly + 27);
+  }
+
+  s.font = '900 31px Inter';
+  s.fillStyle = '#111111';
+  s.fillText('AI video creation', 24, 1196);
+  s.fillText('just became your', 24, 1234);
+  s.fillText('superpower', 24, 1272);
+
+  pageFeature(s, 24, 1320, 342, 150, '#d7ff3f', 'Text to Video',
+    'Create complete AI videos from a script with voiceovers, visuals, and avatars.');
+  pageFeature(s, 24, 1490, 342, 150, '#4d78ff', 'Photo to Video',
+    'Upload an image and script to create lifelike motion and natural lip-sync.');
+  pageFeature(s, 24, 1660, 342, 150, '#ff7a59', 'Translate Video',
+    'Dub content into 175+ languages with voice cloning and subtitles.');
+
+  s.restore();
+
+  /* top fade (index.html:748-757) */
+  var fade = s.createLinearGradient(0, 0, 0, 92);
+  fade.addColorStop(0, 'rgba(247,244,238,1)');
+  fade.addColorStop(0.55, 'rgba(247,244,238,0.92)');
+  fade.addColorStop(1, 'rgba(247,244,238,0)');
+  s.fillStyle = fade;
+  s.fillRect(0, 0, W, 92);
+}
+
+function pageLabel(s, text, x, y, w, h, fill, color) {
+  s.fillStyle = fill;
+  s.roundRect(x, y, w, h, h / 2);
+  s.fillStyle = color;
+  s.font = '700 12px Inter';
+  s.fillText(text, x + 14, y + h / 2 + 4);
+}
+
+function pageFeature(s, x, y, w, h, accent, title, body) {
+  s.fillStyle = '#ffffff';
+  s.roundRect(x, y, w, h, 18);
+  s.fillStyle = accent;
+  s.roundRect(x + 16, y + 18, 42, 42, 14);
+  s.fillStyle = '#111111';
+  s.font = '800 19px Inter';
+  s.fillText(title, x + 16, y + 82);
+  s.fillStyle = 'rgba(17,17,17,0.58)';
+  s.font = '500 13px Inter';
+  var words = body.split(' ');
+  var line = '', row = 0;
+  for (var i = 0; i < words.length; i += 1) {
+    var next = line ? line + ' ' + words[i] : words[i];
+    if (s.measureText(next).width > w - 32 && line) {
+      s.fillText(line, x + 16, y + 107 + row * 17);
+      row += 1;
+      line = words[i];
+    } else {
+      line = next;
+    }
+  }
+  if (line) s.fillText(line, x + 16, y + 107 + row * 17);
 }
 
 /* V2: #finger-overlay — static CSS rotate(-75deg) origin 174px 0, enters

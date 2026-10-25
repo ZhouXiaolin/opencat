@@ -304,6 +304,27 @@ impl MediaContext {
         }
     }
 
+    /// 内存里的一段已编码图片（如 GLB 内嵌的 `bufferView` 纹理）→ RGBA 位图。
+    /// 与 [`Self::get_bitmap`] 的 `StaticImage` 分支同一条解码路径（image
+    /// crate；skia codec 缺 webp），只是来源是字节而不是文件。
+    pub fn decode_encoded_bitmap(&mut self, bytes: &[u8]) -> Result<(Arc<Vec<u8>>, u32, u32)> {
+        let image = Image::from_encoded(Data::new_copy(bytes))
+            .ok_or_else(|| anyhow!("failed to decode embedded image bytes"))?;
+        let width = image.width() as u32;
+        let height = image.height() as u32;
+        let mut pixels = vec![0_u8; width as usize * height as usize * 4];
+        let info = ImageInfo::new(
+            (width as i32, height as i32),
+            ColorType::RGBA8888,
+            AlphaType::Unpremul,
+            None,
+        );
+        if !image.read_pixels(&info, pixels.as_mut_slice(), width as usize * 4, (0, 0), CachingHint::Allow) {
+            anyhow::bail!("failed to read decoded embedded image pixels");
+        }
+        Ok((Arc::new(pixels), width, height))
+    }
+
     pub fn frame_rgba_at_time_by_path(
         &mut self,
         path: &Path,
@@ -451,10 +472,28 @@ impl Default for MediaContext {
     }
 }
 
+/// skia 解不了的格式（webp 等）用 `image` crate 解码后重编码成 PNG 字节再
+/// 交给 skia —— 两条路径最终都产 `skia_safe::Image`，色彩空间与预乘一致。
+fn decode_with_image_crate(encoded: &[u8]) -> Option<Image> {
+    let img = image::load_from_memory(encoded).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    let info = skia_safe::ImageInfo::new(
+        (w as i32, h as i32),
+        skia_safe::ColorType::RGBA8888,
+        skia_safe::AlphaType::Unpremul,
+        None,
+    );
+    let data = skia_safe::Data::new_copy(img.as_raw());
+    skia_safe::images::raster_from_data(&info, data, (w as usize) * 4)
+}
+
 fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
     let encoded = fs::read(path)
         .with_context(|| format!("failed to read image bytes: {}", path.display()))?;
     let image = Image::from_encoded(Data::new_copy(&encoded))
+        // skia 的编码器不含 webp（GLB 内嵌纹理常见 image/webp），回退到
+        // `image` crate 解码后走 `Image::from_raster` 同一路径。
+        .or_else(|| decode_with_image_crate(&encoded))
         .ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
 
     let width = image.width() as u32;

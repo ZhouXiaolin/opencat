@@ -61,9 +61,10 @@ pub struct PmremCubeUv {
     pub rgba_f16: Vec<u16>,
 }
 
-/// 从 equirect 位图（RGBA8，**sRGB 编码**——three.js 里该纹理声明
-/// SRGBColorSpace，GL 采样即线性化）生成 PMREM cubeUV。
-pub fn generate(env: &TextureBitmap3) -> anyhow::Result<PmremCubeUv> {
+/// 从 equirect 位图（RGBA8）生成 PMREM cubeUV。`srgb_decode` 对应
+/// three.js 里该纹理的 `colorSpace = SRGBColorSpace`（GL 采样即线性化）；
+/// false 时字节按线性光使用（NoColorSpace / LinearSRGBColorSpace）。
+pub fn generate(env: &TextureBitmap3, srgb_decode: bool) -> anyhow::Result<PmremCubeUv> {
     let w = env.width;
     let h = env.height;
     anyhow::ensure!(
@@ -97,47 +98,7 @@ pub fn generate(env: &TextureBitmap3) -> anyhow::Result<PmremCubeUv> {
     let max_mip = lod_max as f32;
 
     // ── 级 0：equirect → 六面（`_getEquirectMaterial` + lodMeshes[0]）──
-    // 源采样 LOD：面片覆盖方位角 π/2（四分之一圆周）⇒ 面内 u 方向的源
-    // 像素跨度 = W/4 对 cubeSize 个目标像素 ⇒ GL LinearMipmapLinear 的
-    // 导数 LOD = log2(W/(4·cubeSize))（∈[0,1)，恒只涉及 mip0/mip1 两级；
-    // v 方向 asin 压缩只让它更接近 0。GPU 的逐像素导数是区域变量，此处
-    // 取常量——记录近似）。相机在原点、面片平行 ⇒ LOD 面内恒定；mip1
-    //（2×2 box）逐 texel 现算、不落盘。
-    let src_lod = (w as f32 / (4.0 * cube_size as f32)).log2().max(0.0);
-    let src_lod_int = src_lod.floor() as u32;
-    let src_lod_frac = src_lod - src_lod_int as f32;
-    for face in 0..6u32 {
-        let (col, row_base) = face_origin(face, cube_size);
-        let texel_size = 1.0 / (cube_size as f64 - 2.0);
-        for py in 0..cube_size {
-            for px in 0..cube_size {
-                // 片元中心 → 面内属性 uv（`_createPlanes` uv1：
-                // [min..max] 线性插值，min=−texelSize、max=1+texelSize）。
-                let fu = (f64::from(px) + 0.5) / f64::from(cube_size);
-                let fv = (f64::from(py) + 0.5) / f64::from(cube_size);
-                let uv = (
-                    -texel_size + (1.0 + 2.0 * texel_size) * fu,
-                    -texel_size + (1.0 + 2.0 * texel_size) * fv,
-                );
-                let dir = normalize3(get_direction(uv, face));
-                // equirectUv（common.glsl.js:82-92，r181）：u = atan(z,x)/2π+0.5、
-                // v = asin(y)/π+0.5、返回 (u, v)（无 1−v 翻转——旧版公式，
-                // r181 已是直返）。v=1 = 天顶 = GL 纹理 v=1 = flipY 上传后的
-                // 图像顶行；图像行序的换算在 sample_equirect_linear 内做。
-                let eu = dir[2].atan2(dir[0]) as f32 * 0.15915494309189535 + 0.5;
-                let ev = dir[1].clamp(-1.0, 1.0).asin() as f32 * std::f32::consts::FRAC_1_PI + 0.5;
-                let (su, sv) = (eu, ev);
-                let [r, g, b, _a] = sample_equirect_linear(
-                    &env.rgba, w, h, su, sv, src_lod_int, src_lod_frac,
-                );
-                let idx = ((row_base + py) as usize * rt_w as usize + (col + px) as usize) * 4;
-                rt[idx] = r;
-                rt[idx + 1] = g;
-                rt[idx + 2] = b;
-                rt[idx + 3] = 1.0;
-            }
-        }
-    }
+    fill_lod0(env, &mut rt, rt_w, cube_size, srgb_decode);
 
     // ── 级 1..n-1：GGX VNDF 卷积（`_applyPMREM` / `_applyGGXFilter`）──
     let n = size_lods.len();
@@ -239,6 +200,131 @@ pub fn generate(env: &TextureBitmap3) -> anyhow::Result<PmremCubeUv> {
     })
 }
 
+/// 级 0：equirect → 六面（`_getEquirectMaterial` + lodPlanes[0]）。
+/// 源采样 LOD：面片覆盖方位角 π/2（四分之一圆周）⇒ 面内 u 方向的源
+/// 像素跨度 = W/4 对 cubeSize 个目标像素 ⇒ GL LinearMipmapLinear 的
+/// 导数 LOD = log2(W/(4·cubeSize))（∈[0,1)，恒只涉及 mip0/mip1 两级；
+/// v 方向 asin 压缩只让它更接近 0。GPU 的逐像素导数是区域变量，此处
+/// 取常量——记录近似）。相机在原点、面片平行 ⇒ LOD 面内恒定；mip1
+///（2×2 box）逐 texel 现算、不落盘。`srgb_decode` 见
+/// [`sample_equirect_linear`]（r147 legacy 路径传 false——r147 的 equirect
+/// shader 直接 `texture2D` 采样 LinearEncoding 源，值直通）。
+fn fill_lod0(
+    env: &TextureBitmap3,
+    rt: &mut [f32],
+    rt_w: u32,
+    cube_size: u32,
+    srgb_decode: bool,
+) {
+    let w = env.width;
+    let h = env.height;
+    let src_lod = (w as f32 / (4.0 * cube_size as f32)).log2().max(0.0);
+    let src_lod_int = src_lod.floor() as u32;
+    let src_lod_frac = src_lod - src_lod_int as f32;
+    for face in 0..6u32 {
+        let (col, row_base) = face_origin(face, cube_size);
+        let texel_size = 1.0 / (cube_size as f64 - 2.0);
+        for py in 0..cube_size {
+            for px in 0..cube_size {
+                // 片元中心 → 面内属性 uv（`_createPlanes` uv1：
+                // [min..max] 线性插值，min=−texelSize、max=1+texelSize）。
+                let fu = (f64::from(px) + 0.5) / f64::from(cube_size);
+                let fv = (f64::from(py) + 0.5) / f64::from(cube_size);
+                let uv = (
+                    -texel_size + (1.0 + 2.0 * texel_size) * fu,
+                    -texel_size + (1.0 + 2.0 * texel_size) * fv,
+                );
+                let dir = normalize3(get_direction(uv, face));
+                // equirectUv（common.glsl.js:82-92）：u = atan(z,x)/2π+0.5、
+                // v = asin(y)/π+0.5。v=1 = 天顶 = GL 纹理 v=1 = flipY 上传后
+                // 的图像顶行；图像行序的换算在 sample_equirect_linear 内做。
+                let eu = dir[2].atan2(dir[0]) as f32 * 0.15915494309189535 + 0.5;
+                let ev = dir[1].clamp(-1.0, 1.0).asin() as f32 * std::f32::consts::FRAC_1_PI + 0.5;
+                let (su, sv) = (eu, ev);
+                let [r, g, b, _a] =
+                    sample_equirect_linear(&env.rgba, w, h, su, sv, src_lod_int, src_lod_frac, srgb_decode);
+                let idx = ((row_base + py) as usize * rt_w as usize + (col + px) as usize) * 4;
+                rt[idx] = r;
+                rt[idx + 1] = g;
+                rt[idx + 2] = b;
+                rt[idx + 3] = 1.0;
+            }
+        }
+    }
+}
+
+/// r147 `EXTRA_LOD_SIGMA`（PMREMGenerator.js:32）——LOD_MIN 以下的 6 级
+/// r147 `_getBlurShader` 的单 texel 一遍（`SphericalGaussianBlur`）：
+/// 沿旋转轴 ±θ·k（Rodrigues）各采一点，权重 exp(−x²/2) 归一化，
+/// STANDARD_DEVIATIONS = 3 截断、MAX_SAMPLES = 20。latitudinal 时轴 =
+/// poleAxis；longitudinal 时轴 = cross(poleAxis, dir)（零向量回退
+/// (dir.z, 0, −dir.x)）。`size_in` = 源级 sizeLod（σ 弧度→像素换算）。
+fn gauss_blur_texel(
+    src: &[f32],
+    rt_w: u32,
+    rt_h: u32,
+    max_mip: f32,
+    dir: [f32; 3],
+    mip_int: f32,
+    sigma: f32,
+    pole: [f32; 3],
+    latitudinal: bool,
+    size_in: u32,
+) -> [f32; 3] {
+    const MAX_SAMPLES: usize = 20;
+    let rad_pp = std::f32::consts::PI / (2.0 * (size_in as f32 - 1.0));
+    let sig_pix = sigma / rad_pp;
+    let nsamp = (1 + (3.0 * sig_pix) as usize).min(MAX_SAMPLES);
+    let mut w = [0.0f32; MAX_SAMPLES];
+    let mut sum = 0.0f32;
+    for (k, wk) in w.iter_mut().enumerate() {
+        let x = k as f32 / sig_pix;
+        let g = (-x * x / 2.0).exp();
+        *wk = g;
+        if k == 0 {
+            sum += g;
+        } else if k < nsamp {
+            sum += 2.0 * g;
+        }
+    }
+    for wk in w.iter_mut().take(nsamp) {
+        *wk /= sum;
+    }
+    let axis = if latitudinal {
+        normalize3_f32(pole)
+    } else {
+        let c = cross3(pole, dir);
+        if c == [0.0, 0.0, 0.0] {
+            normalize3_f32([dir[2], 0.0, -dir[0]])
+        } else {
+            normalize3_f32(c)
+        }
+    };
+    let ct = dot3(dir, axis);
+    let cr = cross3(axis, dir);
+    let mut out = scale3(bilinear_cube_uv(src, rt_w, rt_h, max_mip, dir, mip_int), w[0]);
+    for k in 1..nsamp {
+        let th = rad_pp * k as f32;
+        let c = th.cos();
+        let s = th.sin();
+        // Rodrigues 轴角旋转 ±θ。
+        let d_pos = add3(
+            add3(scale3(dir, c), scale3(cr, s)),
+            scale3(axis, ct * (1.0 - c)),
+        );
+        let d_neg = add3(
+            add3(scale3(dir, c), scale3(cr, -s)),
+            scale3(axis, ct * (1.0 - c)),
+        );
+        let v = add3(
+            bilinear_cube_uv(src, rt_w, rt_h, max_mip, d_pos, mip_int),
+            bilinear_cube_uv(src, rt_w, rt_h, max_mip, d_neg, mip_int),
+        );
+        out = add3(out, scale3(v, w[k]));
+    }
+    out
+}
+
 /// 级区域写入口（`_applyGGXFilter` 的 viewport 公式）：x = 3·size·(lodOut >
 /// lodMax−LOD_MIN ? lodOut−lodMax+LOD_MIN : 0)、y = 4·(cubeSize − size)。
 /// 与 [`face_origin`]（面内基）相加即区域原点。
@@ -257,6 +343,18 @@ fn level_origin(lod_out: u32, lod_max: u32, size_lods: &[u32]) -> (u32, u32) {
 /// 面 3..5 在行 [S,2S)）。
 fn face_origin(face: u32, size: u32) -> (u32, u32) {
     ((face % 3) * size, if face > 2 { size } else { 0 })
+}
+
+/// 级内某 texel 的方向（`_getCommonVertexShader.getDirection`：面内 uv 外扩
+/// texelSize 后归一化）。
+fn level_texel_dir(face: u32, px: u32, py: u32, s_out: u32, texel_size: f64) -> [f32; 3] {
+    let fu = (f64::from(px) + 0.5) / f64::from(s_out);
+    let fv = (f64::from(py) + 0.5) / f64::from(s_out);
+    let uv = (
+        -texel_size + (1.0 + 2.0 * texel_size) * fu,
+        -texel_size + (1.0 + 2.0 * texel_size) * fv,
+    );
+    normalize3(get_direction(uv, face))
 }
 
 /// `_getCommonVertexShader.getDirection`（PMREMGenerator.js:1134-1170）：
@@ -398,7 +496,10 @@ fn bilinear_sample(rt: &[f32], w: u32, h: u32, u: f32, v: f32) -> [f32; 3] {
 
 /// 源 equirect 采样：双线性 + mip0/mip1 trilinear（src_lod_frac）。
 /// mip1 = 2×2 box（逐 texel 现算）。sRGB EOTF 线性化在 texel 读取处
-/// （GL SRGB8_ALPHA8 采样即线性化；trilinear 在线性域混合）。
+/// （GL SRGB8_ALPHA8 采样即线性化；trilinear 在线性域混合）；
+/// `srgb_decode = false` 时值直通——r147 legacy 语义（r147 的 equirect
+/// shader 直接 `texture2D(envMap, uv)`，源 CanvasTexture 缺省
+/// LinearEncoding，GL 采样无解码）。
 ///
 /// `sv` 是 equirectUv（common.glsl.js:82-92）输出的 **GL 纹理 v**：v=1 =
 /// 天顶。three.js 纹理默认 flipY=true（WebGLTextures 上传时
@@ -415,6 +516,7 @@ fn sample_equirect_linear(
     sv: f32,
     _lod_int: u32,
     lod_frac: f32,
+    srgb_decode: bool,
 ) -> [f32; 4] {
     let clampi = |i: i64, n: u32| i.clamp(0, n as i64 - 1) as u32;
     let bilinear = |w: u32, h: u32, fetch: &dyn Fn(u32, u32) -> [f32; 4]| -> [f32; 4] {
@@ -438,10 +540,18 @@ fn sample_equirect_linear(
     };
     let at0 = |xx: u32, yy: u32| -> [f32; 4] {
         let idx = (yy as usize * w as usize + xx as usize) * 4;
+        let dec = |c: u8| {
+            let v = c as f32 / 255.0;
+            if srgb_decode {
+                srgb_eotf(v)
+            } else {
+                v
+            }
+        };
         [
-            srgb_eotf(src[idx] as f32 / 255.0),
-            srgb_eotf(src[idx + 1] as f32 / 255.0),
-            srgb_eotf(src[idx + 2] as f32 / 255.0),
+            dec(src[idx]),
+            dec(src[idx + 1]),
+            dec(src[idx + 2]),
             src[idx + 3] as f32 / 255.0,
         ]
     };
@@ -647,9 +757,9 @@ mod tests {
     /// 6144×3072（参考 equirect-garden.jpg 尺寸）→ lodMax 10、RT 3072×4096。
     #[test]
     fn layout_follows_from_texture_set_size() {
-        let p = generate(&solid_bitmap(64, 32, [0, 0, 0, 255])).expect("生成");
+        let p = generate(&solid_bitmap(64, 32, [0, 0, 0, 255]), true).expect("生成");
         assert_eq!((p.width, p.height, p.max_mip), (336, 64, 4.0));
-        let p2 = generate(&solid_bitmap(256, 128, [0, 0, 0, 255])).expect("生成");
+        let p2 = generate(&solid_bitmap(256, 128, [0, 0, 0, 255]), true).expect("生成");
         assert_eq!((p2.width, p2.height, p2.max_mip), (336, 256, 6.0));
         // 不解码 6144×3072 全图也能验算公式（尺寸推导单列于注释）：
         // 6144/4 = 1536 → floor(log2) = 10 → cubeSize 1024 → RT 3072×4096。
@@ -679,7 +789,7 @@ mod tests {
     #[test]
     fn solid_env_stays_solid_at_every_written_texel() {
         let lin = srgb_eotf(0x80 as f32 / 255.0);
-        let p = generate(&solid_bitmap(64, 32, [0x80, 0x80, 0x80, 255])).expect("生成");
+        let p = generate(&solid_bitmap(64, 32, [0x80, 0x80, 0x80, 255]), true).expect("生成");
         // cubeSize=16：全部 7 级（base 3·16×2·16 + 6 个 extra tile）都写
         // 在行 [0, 32)，行带下半是未写零区（见模块文档布局段）。
         let mut checked = 0usize;
@@ -720,7 +830,7 @@ mod tests {
             width: w,
             height: h,
         };
-        let p = generate(&env).expect("生成");
+        let p = generate(&env, true).expect("生成");
         let mean = 0.5 * (srgb_eotf(1.0) + srgb_eotf(0.0));
         // 布局（cubeSize 64，lodMax 6）：base 区域 3·64×2·64 在 (0,0)；
         // lodOut 6（最粗 extra）x = 3·16·(6−2) = 192、y = 4·(64−16) = 192。

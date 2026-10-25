@@ -299,6 +299,26 @@ fn emit_expr(program: &Program, expr: &Expr) -> LambdaResult<String> {
             let emitted = emitted?;
             // byte() 不是 SKSL 内建：JS `x|0` 截断语义 → trunc(x)（向零取整）
             // atan2(y,x) 在 SKSL 是双参 atan(y, x)（无 atan2 标识符）。
+            // Skia 的 pow(x,y) 对 x<0 返回 NaN，而 SwiftShader（参考渲染器）把
+            // 整数常量指数折成连乘。照做，避开负底数的实现差异。
+            if *id == super::stdlib::BuiltinId::Pow {
+                if let Some(Expr::LitF(y)) = args.get(1) {
+                    if y.fract() == 0.0 && y.abs() <= 4.0 {
+                        let k = y.abs() as usize;
+                        let a = &emitted[0];
+                        let prod = if k == 0 {
+                            "1.0".to_string()
+                        } else {
+                            vec![a.as_str(); k].join(" * ")
+                        };
+                        return Ok(if *y < 0.0 {
+                            format!("(1.0 / ({prod}))")
+                        } else {
+                            format!("({prod})")
+                        });
+                    }
+                }
+            }
             let name = match *id {
                 super::stdlib::BuiltinId::Byte => "trunc".to_string(),
                 super::stdlib::BuiltinId::CastF => "float".to_string(),

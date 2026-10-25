@@ -1760,6 +1760,48 @@
             specCache = { font: state.font, letterSpacing: state.letterSpacing, spec };
             return spec;
         }
+        // fillStyle 的两种形态：CSS 颜色字符串，或 createLinearGradient 的
+        // 返回值（只支持线性渐变；轴向声明在 gradient 上）。
+        function makeGradient(x0, y0, x1, y1) {
+            const g = {
+                __opencatGradient: true,
+                x0: toFiniteNumber(x0), y0: toFiniteNumber(y0),
+                x1: toFiniteNumber(x1), y1: toFiniteNumber(y1),
+                stops: [],
+                addColorStop(offset, color) {
+                    g.stops.push([toFiniteNumber(offset), String(color)]);
+                    return g;
+                }
+            };
+            return g;
+        }
+        function fillShape(x, y, w, h, radius) {
+            const style = state.fillStyle;
+            let flat = [];
+            let color = '#000000';
+            if (style && style.__opencatGradient) {
+                for (let i = 0; i < style.stops.length; i += 1) {
+                    const [off, css] = style.stops[i];
+                    const rgba = normalizeColor(css);
+                    flat.push(off, rgba[0], rgba[1], rgba[2], rgba[3]);
+                }
+            } else {
+                color = colorToCss(style);
+            }
+            const g = style && style.__opencatGradient ? style : { x0: 0, y0: 0, x1: 1, y1: 0 };
+            __surface_fill_shape(
+                id,
+                matrix.tx + matrix.a * toFiniteNumber(x),
+                matrix.ty + toFiniteNumber(y),
+                toFiniteNumber(w) * matrix.a,
+                toFiniteNumber(h),
+                toFiniteNumber(radius),
+                g.x0, g.y0, g.x1, g.y1,
+                flat,
+                color
+            );
+        }
+
         return {
             __opencatSurface: true,
             id: id,
@@ -1782,6 +1824,17 @@
             },
             clearRect(x, y, w, h) {
                 __surface_clear(id, toFiniteNumber(x), toFiniteNumber(y), toFiniteNumber(w), toFiniteNumber(h));
+            },
+            /* fillRect / roundRect 都走同一个 binding：圆角半径 + 线性渐变轴 +
+               色标表。fillStyle 是字符串时按纯色，是 gradient 对象时按色标。 */
+            fillRect(x, y, w, h) {
+                fillShape(x, y, w, h, 0);
+            },
+            roundRect(x, y, w, h, radius) {
+                fillShape(x, y, w, h, radius);
+            },
+            createLinearGradient(x0, y0, x1, y1) {
+                return makeGradient(x0, y0, x1, y1);
             },
             measureText(text) {
                 const f = fontSpec();

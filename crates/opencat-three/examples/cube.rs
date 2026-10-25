@@ -85,7 +85,10 @@ fn scene(rot_y_deg: f32) -> Scene3 {
                 map: None,
                 textures: vec![],
                 transparent: false,
-            },
+            base_color_map: None,
+            normal_map: None,
+            metallic_roughness_map: None,
+},
             matrix: world_matrix_rot_y(rot_y_deg),
             render_order: 0,
         }],
@@ -105,7 +108,10 @@ fn scene_transmission() -> Scene3 {
         map: None,
         textures: vec![],
         transparent: false,
-    };
+    base_color_map: None,
+    normal_map: None,
+    metallic_roughness_map: None,
+};
     board.matrix = [
         20.0, 0.0, 0.0, 0.0, //
         0.0, 20.0, 0.0, 0.0, //
@@ -192,7 +198,10 @@ fn main() -> anyhow::Result<()> {
                 map: None,
                 textures: vec![],
                 transparent: false,
-            },
+            base_color_map: None,
+            normal_map: None,
+            metallic_roughness_map: None,
+},
             matrix: world_matrix_rot_y(0.0),
             render_order: 0,
         });
@@ -347,7 +356,10 @@ void main() {
             map: None,
             textures: vec![],
             transparent: false,
-        },
+        base_color_map: None,
+        normal_map: None,
+        metallic_roughness_map: None,
+},
         matrix: [
             1.0, 0.0, 0.0, 0.0, //
             0.0, 1.0, 0.0, 0.0, //
@@ -424,7 +436,10 @@ void main() {
                 map: None,
                 textures: vec![],
                 transparent: false,
-            },
+            base_color_map: None,
+            normal_map: None,
+            metallic_roughness_map: None,
+},
             matrix: [
                 1.0, 0.0, 0.0, 0.0, //
                 0.0, 1.0, 0.0, 0.0, //
@@ -443,6 +458,9 @@ void main() {
                 map: None,
                 textures: vec![],
                 transparent,
+                base_color_map: None,
+                normal_map: None,
+                metallic_roughness_map: None,
             },
             matrix: [
                 1.0, 0.0, 0.0, 0.0, //
@@ -568,7 +586,10 @@ void main() {
                 }),
                 textures: vec![],
                 transparent: false,
-            },
+            base_color_map: None,
+            normal_map: None,
+            metallic_roughness_map: None,
+},
             matrix: [
                 1.0, 0.0, 0.0, 0.0, //
                 0.0, 1.0, 0.0, 0.0, //
@@ -637,7 +658,7 @@ void main() {
         });
         s
     };
-    r.set_environment(&solid_env)
+    r.set_environment(&solid_env, true)
         .expect("纯色 env 的 PMREM 生成不应失败");
     for (tag, intensity) in [("1.0", 1.0f32), ("0.7", 0.7)] {
         let f = r.render(&ibl_scene(intensity), &no_assets, &no_textures, w, h)?;

@@ -119,6 +119,45 @@ macro_rules! for_each_binding {
             Ok(id)
         }}
 
+        // ── Cmd: GLB 场景导入（node 树 + 材质 + 内嵌纹理 → 网格表）──
+        // 内嵌图片先落到按 GLB 路径散列的缓存目录，纹理来源就是普通
+        // `Bitmap { path }`——宿主的纹理解码按路径直接读盘，无需登记资产。
+        $binding! { cmd $store scene3_glb_scene_register (path: String) -> serde_json::Value {
+            let cache = $crate::ir::scene3_glb_scene::texture_cache_dir(&path);
+            let scene = $crate::ir::scene3_glb_scene::load_glb_scene(&path, &cache)?;
+            // 几何进 realm 注册表（重网格不逐帧过 JSON 桥），快照只带 id。
+            let mut out = Vec::with_capacity(scene.meshes.len());
+            for (i, mesh) in scene.meshes.iter().enumerate() {
+                let id = format!("{path}#{i}");
+                $store . record_geometry(&id, std::sync::Arc::new(mesh.geometry.clone()));
+                out.push($crate::ir::scene3_glb_scene::GlbSceneMesh {
+                    geometry_id: id,
+                    material: mesh.material.clone(),
+                    matrix: mesh.matrix,
+                    screen: scene.screens[i],
+                });
+            }
+            // 世界包围盒（three.js Box3().setFromObject 的对应物）：脚本用它
+            // 归一化尺寸并把模型中心挪到原点。
+            let (mut lo, mut hi) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+            for mesh in &scene.meshes {
+                if let $crate::ir::scene3::Geometry3::Inline { positions, .. } = &mesh.geometry {
+                    for p in positions {
+                        let w = [
+                            mesh.matrix[0] * p[0] + mesh.matrix[4] * p[1] + mesh.matrix[8] * p[2] + mesh.matrix[12],
+                            mesh.matrix[1] * p[0] + mesh.matrix[5] * p[1] + mesh.matrix[9] * p[2] + mesh.matrix[13],
+                            mesh.matrix[2] * p[0] + mesh.matrix[6] * p[1] + mesh.matrix[10] * p[2] + mesh.matrix[14],
+                        ];
+                        for k in 0..3 {
+                            lo[k] = lo[k].min(w[k]);
+                            hi[k] = hi[k].max(w[k]);
+                        }
+                    }
+                }
+            }
+            Ok(serde_json::json!({ "meshes": out, "min": lo, "max": hi }))
+        }}
+
         // 脚本内建几何（SphereGeometry 等）一次性注册：重网格不逐帧过 JSON 桥。
         $binding! { cmd $store scene3_geometry_register_inline (id: String, positions: Vec<[f32; 3]>, normals: Vec<[f32; 3]>, indices: Vec<u32>) -> String {
             let count = positions.len();
@@ -896,6 +935,22 @@ macro_rules! for_each_binding {
         }}
         $binding! { pure surface_clear (id: String, x: f64, y: f64, w: f64, h: f64) -> bool {
             Ok($crate::text::surface::surface_clear(&id, x, y, w, h).is_ok())
+        }}
+        // 圆角矩形 / 线性渐变填充：`stops` 是 [offset, r, g, b, a] 扁平数组
+        // （offset 0..1，分量 0..1），空 = 纯色 `color`。轴 = (ax,ay)->(bx,by)。
+        $binding! { pure surface_fill_shape (id: String, x: f64, y: f64, w: f64, h: f64, radius: f64, ax: f64, ay: f64, bx: f64, by: f64, stops: Vec<f64>, color: String) -> bool {
+            let c = $crate::script::helpers::parse_color(&color, "surface.fillShape")?;
+            let flat = [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0];
+            let mut parsed: Vec<(f32, [f32; 4])> = Vec::with_capacity(stops.len() / 5);
+            for chunk in stops.chunks_exact(5) {
+                parsed.push((chunk[0] as f32, [chunk[1] as f32, chunk[2] as f32, chunk[3] as f32, chunk[4] as f32]));
+            }
+            if parsed.is_empty() {
+                parsed.push((0.0, flat));
+            }
+            Ok($crate::text::surface::surface_fill_shape(
+                &id, x, y, w, h, radius, ([ax, ay], [bx, by]), &parsed,
+            ).is_ok())
         }}
         $binding! { pure surface_measure_text (text: String, family: String, weight: u32, size_px: f64, letter_spacing_px: f64) -> $crate::text::surface::InkMetrics {
             $crate::text::surface::surface_measure_text(&text, &family, weight, size_px, letter_spacing_px)

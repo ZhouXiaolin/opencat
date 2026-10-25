@@ -8,6 +8,7 @@ pub mod generated_image;
 pub mod media_plan;
 pub mod scene3;
 pub mod scene3_glb;
+pub mod scene3_glb_scene;
 pub mod schema_gen;
 pub mod transport;
 

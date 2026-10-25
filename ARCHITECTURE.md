@@ -1,7 +1,7 @@
 # OpenCat 架构宪法
 
 > 本文是架构裁决线（constitution）。所有"这个功能放哪一层"的争议以本文为准。
-> 专项路线见 `goal.md`（gsap）。每条判据标注拍板来源；修改本文须用户拍板。
+> 每条判据标注拍板来源；修改本文须用户拍板。
 
 ## 1. 两原则
 
@@ -46,7 +46,7 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 
 ## 6. 各库拍板（2026-10-22 grilling 十项收口）
 
-### gsap（专项见 goal.md，已完成五批退役）
+### gsap（已完成五批退役，2026-10-22 收口）
 - 插件收录已收齐（15 项，对照 npm 3.15.0 全部 22 个独立插件文件归类完毕）；attr/snap/数组 tween 随 core 主文件。
 - 永久排除：交互类（ScrollTrigger/ScrollTo/Observer/ScrollSmoother/Draggable/Inertia——输入事件与真实时钟不可能写成 t 的纯函数）、外部库桥（Pixi/Easel）、工具（GSDevTools/MotionPathHelper）、CSSRule。
 - 剩三缺口：CSS 字符串写入通道（cssText/setProperty）、translate3d 分支、Flip（见下）。

@@ -460,7 +460,6 @@
             }
             if (shader.__opencatShader !== 'runtime'
                 && shader.__opencatShader !== 'image'
-                && shader.__opencatShader !== 'lambda'
                 && shader.__opencatShader !== 'generated') {
                 throw new Error('setShader expects a shader handle');
             }
@@ -469,11 +468,11 @@
         }
 
         setMaskFilter(filter) {
-            throw new Error('Paint.setMaskFilter is not available — blur effects go through RuntimeEffect / ly.pixel kernels');
+            throw new Error('Paint.setMaskFilter is not available — blur effects go through RuntimeEffect shaders');
         }
 
         setImageFilter(filter) {
-            throw new Error('Paint.setImageFilter is not available — filter effects go through RuntimeEffect / ly.pixel kernels');
+            throw new Error('Paint.setImageFilter is not available — filter effects go through RuntimeEffect shaders');
         }
 
         setColorFilter(filter) {
@@ -621,154 +620,16 @@
         };
     }
 
-    /* ── Liangyi 内核（编译型效果 DSL，ly.pixel / ly.scan）────────────
-       fn 只被读取源码（fn.toString()）、从不被执行：Rust 侧解析该源码并
-       重建计算，自动派发 SKSL（RuntimeEffect）或纯 CPU 逐像素后端。
-       约束：lambda 必须是源码内联的箭头函数（不可是原生函数/被压缩）；
-       白名单语法 —— 数值/布尔/数组字面量、算术/比较/逻辑/三目、if/else、
-       let/const、有界 `for (let i=a; i<b; i++)` 循环、顶层用户函数
-       `const f = (p) => …`（单态、无捕获、先声明后使用）、std 内建与
-       Math.*、u.<name>、child.eval(pos)、swizzle 读。
-       spec: { uniforms: {t:'float', ...} | [['t','float'], ...],
-               backend: 'auto'|'sksl'|'cpu' }；scan 内核另有 dir:
-       'forward'|'backward'（声明期固定，遍历顺序归 executor 所有）。
-       uniforms 展平顺序 = spec 声明序（向量按分量展开）。
-
-       执行动词在 `ly` 上，不在内核上：`ly.draw(dst, kernel, opts)` 把
-       内核画到画布，`ly.surface(w,h).apply / .sweep` 把它跑进离屏目标。
-       CanvasKit 的 Paint / drawRect / getSubTree / TileMode 一概不出现在
-       内核路径里 —— 后端（Skia / CPU）由引擎按内核能力自行选择。 */
-    class Kernel {
-        constructor(fn, spec, kind, who) {
-            this._fnSource = assertLambdaFn(fn, who);
-            this.__opencatKernel = true;
-            this.kind = kind;
-            const s = spec || {};
-            this.uniforms = normalizeUniformSpec(s.uniforms, who);
-            this.backend = s.backend == null ? 'auto' : String(s.backend);
-            if (kind === 'scan') {
-                this.dir = s.dir == null ? 'forward' : String(s.dir);
-                if (this.dir !== 'forward' && this.dir !== 'backward') {
-                    throw new Error(who + ": spec.dir must be 'forward' or 'backward'");
-                }
-            }
-        }
-
-        /* spec JSON（数组保序；kind/backend 声明期固定）*/
-        specJson() {
-            return JSON.stringify({
-                kind: this.kind,
-                backend: this.backend,
-                uniforms: this.uniforms,
-            });
-        }
-    }
-
-    /* uniforms 声明序归一：对象形式 {name: type} → [['name','type'], ...]
-       （JS 字符串键保插入序，即 f32 打包序）；数组形式原样通过。 */
-    function normalizeUniformSpec(uniforms, who) {
-        if (uniforms == null) return [];
-        if (Array.isArray(uniforms)) return uniforms;
-        if (typeof uniforms === 'object') {
-            const out = [];
-            for (const name of Object.keys(uniforms)) {
-                out.push([name, String(uniforms[name])]);
-            }
-            return out;
-        }
-        throw new Error(who + ': spec.uniforms must be an object or array');
-    }
-
-    /* lambda 源码可用性检查（编译型契约：源码被 Rust 取走编译，从不执行）。
-       `this._fnSource = ...` 之前必须先过这里。 */
-    function assertLambdaFn(fn, who) {
-        if (typeof fn !== 'function') {
-            throw new Error(who + ': fn must be a function');
-        }
-        const src = fn.toString();
-        if (src.length === 0 || src.includes('[native code]')) {
-            throw new Error(who + ': lambda source unavailable (native or minified fn)');
-        }
-        return src;
-    }
-
-    /* spec 声明序展开 uniforms：float→1 个数，float2/3/4→2/3/4 个数。
-       输入可以是平铺数组（元素为数或数）或 {name: value} 映射。 */
-    function flattenLambdaUniforms(effect, uniforms, who) {
-        const label = who || 'ly.pixel';
-        const specUniforms = effect.uniforms;
-        const out = [];
-        const pushValue = (ty, v, name) => {
-            const n = ty === 'float' ? 1 : Number(String(ty).slice(5)) || 0;
-            if (!(n >= 1 && n <= 4)) {
-                throw new Error(`${label}: unsupported uniform type '${ty}'`);
-            }
-            if (n === 1) {
-                if (Array.isArray(v)) {
-                    throw new Error(`uniform '${name}' expects a number`);
-                }
-                out.push(toFiniteNumber(v));
-                return;
-            }
-            if (!isArrayLike(v) || v.length !== n) {
-                throw new Error(`uniform '${name}' expects ${n} numbers`);
-            }
-            for (let i = 0; i < n; i++) out.push(toFiniteNumber(v[i]));
-        };
-        if (uniforms == null) {
-            for (const [name, ty] of specUniforms) pushValue(ty, 0, name);
-            return out;
-        }
-        if (isArrayLike(uniforms)) {
-            let flat = [];
-            for (const v of uniforms) {
-                if (isArrayLike(v)) flat.push(...v);
-                else flat.push(v);
-            }
-            let k = 0;
-            for (const [name, ty] of specUniforms) {
-                const n = ty === 'float' ? 1 : Number(String(ty).slice(5)) || 0;
-                if (k + n > flat.length) {
-                    throw new Error(
-                        `${label}: not enough uniform values for '${name}'`
-                    );
-                }
-                pushValue(ty, n === 1 ? flat[k] : flat.slice(k, k + n), name);
-                k += n;
-            }
-            return out;
-        }
-        if (typeof uniforms === 'object') {
-            for (const [name, ty] of specUniforms) {
-                if (!(name in uniforms)) {
-                    throw new Error(`${label}: missing uniform '${name}'`);
-                }
-                pushValue(ty, uniforms[name], name);
-            }
-            return out;
-        }
-        throw new Error(`${label}: uniforms must be an array or object`);
-    }
-
-    /* 内核 source（opts.sources）归一：把用户交出的东西收敛成引擎认识的
-       child 描述。ly.source(...) 已产出规范句柄，这里再收一遍裸值
-       （<canvas> 句柄 / surface 句柄 / image 句柄）以免用户必须显式包一层。
-       —— Skia 的 TileMode / makeShader 不在此暴露；采样模式由后端定。 */
+    /* RuntimeEffect child（makeShaderWithChildren）归一：把用户交出的东西
+       收敛成引擎认识的 child 描述 —— <canvas> 句柄（子树 picture）、
+       getSubTree() 句柄或 ctx.getImage 句柄。 */
     function normalizeKernelSource(c, who) {
         if (c == null) throw new Error(who + ': source is null');
         if (c.__opencatShader === 'image'
-            || c.__opencatShader === 'picture'
-            || c.__opencatShader === 'surface') {
+            || c.__opencatShader === 'picture') {
             return c;
         }
-        /* surface（ly.surface 产出）：session 级像素目标 */
-        if (c.__opencatSurface === true) {
-            if (typeof c.id !== 'string' || c.id.length === 0) {
-                throw new Error(who + ': surface source requires an id');
-            }
-            return { __opencatShader: 'surface', id: c.id };
-        }
-        /* <canvas> 句柄（ly.source(canvas) 或直接交 canvas）：子树即像素源 */
+        /* <canvas> 句柄：子树即像素源 */
         if (c.__opencatCanvas === true) {
             if (typeof c.id !== 'string' || c.id.length === 0) {
                 throw new Error(who + ': canvas source requires an id');
@@ -798,16 +659,17 @@
                 tileY: 'clamp',
             };
         }
+        /* surface 句柄（ctx.surface 产出）：session 级像素，不跨线 —— 要当
+           纹理采样先 getImageData + putImageData 走 generated image。 */
+        if (c.__opencatSurface === true) {
+            throw new Error(who
+                + ': a surface is a session buffer and cannot be a shader child — '
+                + 'read it with surface.getImageData() and putImageData() it onto the canvas');
+        }
         throw new Error(
-            who + ': unsupported source (expected ly.source(...), ly.surface(...), '
-            + 'an <canvas> handle, or an image handle)'
+            who + ': unsupported source (expected canvas.getSubTree().makeShader() '
+            + 'or an image handle from ctx.getImage)'
         );
-    }
-
-    function normalizeKernelSources(list, who) {
-        if (list == null) return [];
-        const arr = isArrayLike(list) ? Array.from(list) : [list];
-        return arr.map((c) => normalizeKernelSource(c, who));
     }
 
     function normalizeTileMode(value) {
@@ -991,13 +853,13 @@
            error with the supported alternative instead of silently diverging. */
         Shader: {
             MakeLinearGradient(start, end, colors, positions, mode, localMatrix) {
-                throw new Error('Shader.MakeLinearGradient is not available — gradient fills are backed by RuntimeEffect / ly.pixel kernels');
+                throw new Error('Shader.MakeLinearGradient is not available — gradient fills are backed by the CSS engine');
             },
             MakeRadialGradient(center, radius, colors, positions, mode, localMatrix) {
-                throw new Error('Shader.MakeRadialGradient is not available — gradient fills are backed by RuntimeEffect / ly.pixel kernels');
+                throw new Error('Shader.MakeRadialGradient is not available — gradient fills are backed by the CSS engine');
             },
             MakeBlend(mode, dst, src) {
-                throw new Error('Shader.MakeBlend is not available — gradient fills are backed by RuntimeEffect / ly.pixel kernels');
+                throw new Error('Shader.MakeBlend is not available — gradient fills are backed by the CSS engine');
             },
         },
         /* Signature-only factories (zero corpus): the record objects exist so
@@ -1288,22 +1150,6 @@
                     __canvas_runtime_effect_draw(
                         id,
                         sh.effect._sksl,
-                        sh.uniforms,
-                        JSON.stringify(sh.children),
-                        normalized.x,
-                        normalized.y,
-                        normalized.width,
-                        normalized.height,
-                    );
-                    return this;
-                }
-                if (resolvedPaint._shader
-                    && resolvedPaint._shader.__opencatShader === 'lambda') {
-                    const sh = resolvedPaint._shader;
-                    __canvas_lambda_effect_draw(
-                        id,
-                        sh.effect._fnSource,
-                        sh.effect.specJson(),
                         sh.uniforms,
                         JSON.stringify(sh.children),
                         normalized.x,
@@ -1886,51 +1732,8 @@
                 };
             },
             /* ── Render target 执行（§render target）────────────────────
-               JS 拥有算法：内核源码只被 Rust 编译、从不执行，像素缓冲
-               永不跨进 JS；引擎侧只有通用执行器（逐像素重绘 / 顺序扫描），
-               不含任何具体效果算法。
-               - apply(kernel, opts)：ly.pixel 内核逐像素重绘本目标（f64
-                 解释器，rayon 按行并行）。opts: { uniforms, sources }。
-                 sources 可采样其它 surface（session 级，不上 wire）、
-                 图片或 <canvas> 子树。
-               - sweep(kernel, opts)：ly.scan 内核（首参 get）就地顺序
-                 扫描一遍；方向声明在内核上（spec.dir），get(dx,dy) 读
-                 in-progress 字节（clamp-to-edge）。单线程。
-               本目标像素直接作 ly.draw 的 source 采样 —— 无需注册成帧级
-               生成图像，绘制路径会自行烘焙（见 ly.draw）。 */
-            apply(kernel, opts) {
-                if (!kernel || kernel.__opencatKernel !== true || kernel.kind !== 'pixel') {
-                    throw new Error('surface.apply: expected a ly.pixel kernel');
-                }
-                if (kernel.backend === 'sksl') {
-                    throw new Error(
-                        'surface.apply: target ops always run on the CPU interpreter (sksl is a draw-time backend)'
-                    );
-                }
-                const o = opts || {};
-                const flat = flattenLambdaUniforms(kernel, o.uniforms, 'surface.apply');
-                const kids = normalizeKernelSources(o.sources, 'surface.apply');
-                if (__surface_apply_effect(id, kernel._fnSource, kernel.specJson(), flat, JSON.stringify(kids)) !== true) {
-                    throw new Error('surface.apply: engine rejected the kernel');
-                }
-                return this;
-            },
-            sweep(kernel, opts) {
-                if (!kernel || kernel.__opencatKernel !== true || kernel.kind !== 'scan') {
-                    throw new Error('surface.sweep: expected a ly.scan kernel');
-                }
-                if (kernel.backend === 'sksl') {
-                    throw new Error(
-                        'surface.sweep: scan kernels have no SKSL form (ordered scan is CPU-interpreter only)'
-                    );
-                }
-                const o = opts || {};
-                const flat = flattenLambdaUniforms(kernel, o.uniforms, 'surface.sweep');
-                if (__surface_scan_pass(id, kernel._fnSource, kernel.specJson(), flat, kernel.dir) !== true) {
-                    throw new Error('surface.sweep: engine rejected the kernel');
-                }
-                return this;
-            },
+               已退役：效果内核只走官方 RuntimeEffect（SKSL）——像素处理
+               需要逐字节访问时用 getImageData（读）与 putImageData（写）。 */
             get font() { return state.font; },
             set font(v) { state.font = String(v); specCache = null; },
             get letterSpacing() { return state.letterSpacing; },
@@ -1942,8 +1745,8 @@
         };
     }
 
-    /* 内部：按 id 取或建一张 surface 句柄。id 由 ly.surface 生成（尺寸派生），
-       脚本不再直接持有它 —— 这是「隐藏 canvas 细节」的一部分。 */
+    /* 内部：按 id 取或建一张 surface 句柄。id 由 ctx.surface 生成（尺寸派生），
+       脚本不再直接持有它。 */
     function surfaceById(id, w, h) {
         id = String(id);
         if (!surfaceCache[id]) {
@@ -1953,110 +1756,11 @@
         return surfaceCache[id];
     }
 
-    /* ── ly：Liangyi（两仪）效果内核语言命名空间 ─────────────────────
-       后端无关门面：内核只被编译、从不执行；像素由后端实例化（CPU 解释器
-       / Skia RuntimeEffect / 将来的 wgpu）。**CanvasKit 不出现在 ly 路径
-       里** —— 没有 Paint、没有 drawRect、没有 getSubTree().makeShader、
-       没有 TileMode。内核画到画布用 `ly.draw`，跑进离屏目标用
-       `ly.surface(w,h).apply/.sweep`。
-       - ly.pixel(fn, spec)：pixel 类内核。spec.uniforms 用对象按名声明
-         （{t:'float', pa:'float4'}，键序即 f32 打包序）；spec.backend
-         'auto'（默认，Rust 依内建能力派发）| 'sksl' | 'cpu'。
-       - ly.scan(fn, spec)：scan 类内核（首参 get）。spec.dir 声明
-         遍历方向（'forward' | 'backward'，声明期固定）。
-       - ly.draw(dst, kernel, opts)：把内核画到 canvas（dst 是 useCanvas
-         回调收到的画布句柄）。opts: { rect?, uniforms?, sources? }。
-         rect 缺省 = 整画布；sources 依 child 声明序。
-       - ly.surface(w, h)：离屏目标（按尺寸 get-or-create）。2D 子集
-         （fillText / measureText / getImageData / …）与 .apply/.sweep。
-       - ly.source(x)：把 canvas 句柄 / image 句柄 / surface 包成像素源，
-         供 opts.sources 采样。 */
-    const ly = {        pixel(fn, spec) {
-            return new Kernel(fn, spec, 'pixel', 'ly.pixel');
-        },
-        scan(fn, spec) {
-            return new Kernel(fn, spec, 'scan', 'ly.scan');
-        },
-
-        /* 把内核画到画布。dst 必须是 canvas 句柄（useCanvas 的 c）；
-           rect 缺省为整画布（composition 尺寸），显式给时是 [x, y, w, h]
-           —— 与 CK.XYWHRect 的实参序一致，不含 [left,top,right,bottom]
-           的歧义。 */
-        draw(dst, kernel, opts) {
-            if (!dst || dst.__opencatCanvas !== true) {
-                throw new Error('ly.draw: dst must be a canvas handle (the first arg of useCanvas)');
-            }
-            if (!kernel || kernel.__opencatKernel !== true) {
-                throw new Error('ly.draw: expected a ly.pixel / ly.scan kernel');
-            }
-            if (kernel.kind === 'scan') {
-                throw new Error('ly.draw: scan kernels are ordered passes; run them with surface.sweep');
-            }
-            const o = opts || {};
-            const [rx, ry, rw, rh] = o.rect == null
-                ? ly._canvasRect(dst)
-                : ly._xywh(o.rect, 'ly.draw');
-            const flat = flattenLambdaUniforms(kernel, o.uniforms, 'ly.draw');
-            const kids = normalizeKernelSources(o.sources, 'ly.draw');
-            if (__canvas_lambda_effect_draw(
-                dst.id,
-                kernel._fnSource,
-                kernel.specJson(),
-                flat,
-                JSON.stringify(kids),
-                rx,
-                ry,
-                rw,
-                rh,
-            ) !== true) {
-                throw new Error('ly.draw: engine rejected the kernel');
-            }
-            return dst;
-        },
-
-        /* 离屏目标：按尺寸 get-or-create，所以同一句 `ly.surface(1460, 222)`
-           跨帧拿到同一张目标 —— 无需 id、无需跨帧挂载点。 */
-        surface(w, h) {
-            const ww = Math.max(1, Math.round(toFiniteNumber(w)));
-            const hh = Math.max(1, Math.round(toFiniteNumber(h)));
-            const key = 'ly-' + ww + 'x' + hh;
-            return surfaceById(key, ww, hh);
-        },
-
-        /* 像素源句柄：canvas / image / surface 统一入口，供 opts.sources。 */
-        source(x) {
-            return normalizeKernelSource(x, 'ly.source');
-        },
-
-        /* 整画布 rect：优先读 composition meta，回退 1920x1080。 */
-        _canvasRect(dst) {
-            const meta = globalThis.__ocMeta || {};
-            const w = toFiniteNumber(meta.width, 0) || 1920;
-            const h = toFiniteNumber(meta.height, 0) || 1080;
-            return [0, 0, w, h];
-        },
-
-        /* 显式 rect 归一：只接受 [x, y, w, h]。 */
-        _xywh(rect, who) {
-            if (!isArrayLike(rect) || rect.length < 4) {
-                throw new Error(who + ': rect must be [x, y, width, height]');
-            }
-            return [
-                toFiniteNumber(rect[0]),
-                toFiniteNumber(rect[1]),
-                toFiniteNumber(rect[2]),
-                toFiniteNumber(rect[3]),
-            ];
-        },
-    };
-    globalThis.ly = ly;
-    ctx.ly = ly;
-
     // ── ctx.surface: the standard offscreen 2D text surface ─────────
-    // Same facade ly.surface hands out (real-font fillText / measureText /
-    // getImageData over the scoped fontdb), exposed under its own name so
-    // compositions don't have to reach into the liangyi namespace. The
-    // surface itself was never a liangyi kernel — only the name was.
+    // Same facade (real-font fillText / measureText / getImageData over the
+    // scoped fontdb), exposed under its own name. The surface is a session
+    // pixel buffer: read it with getImageData, upload it with canvas
+    // putImageData — official Canvas2D semantics.
     ctx.surface = function (w, h) {
         const ww = Math.max(1, Math.round(toFiniteNumber(w)));
         const hh = Math.max(1, Math.round(toFiniteNumber(h)));
@@ -2088,7 +1792,7 @@
     // CanvasKit Canvas facade whose draw calls land on the canvas node's
     // DrawOp stream; flush()/dispose() are no-ops (no live GPU surface).
     // Pixel-buffer style sizes error (the offscreen pixel target is
-    // ly.surface(w, h)); makeImageSnapshot / requestAnimationFrame have no
+    // ctx.surface(w, h)); makeImageSnapshot / requestAnimationFrame have no
     // engine path and error with a pointer.
     function resolveCanvasTargetId(canvas) {
         if (typeof canvas === 'string' && canvas) {
@@ -2128,7 +1832,7 @@
                 return surfaceMetaNumber('height');
             },
             makeImageSnapshot() {
-                throw new Error('Surface.makeImageSnapshot is not available — read pixels back with ly.surface(w, h) + getImageData, or draw with putImageData');
+                throw new Error('Surface.makeImageSnapshot is not available — a recording surface has no pixels; use ctx.surface(w, h) + getImageData for pixel access');
             },
             requestAnimationFrame() {
                 throw new Error('Surface.requestAnimationFrame is not available — frames are f(t); register per-frame drawing with useEffect/useGSAP');

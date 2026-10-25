@@ -1,7 +1,5 @@
 //! opencat-core — 纯数据 + trait + 算法，零 IO/平台依赖。
 
-// Liangyi（两仪）效果内核语言：独立 crate，经 core 再导出供脚本宏（`$crate` 相对路径）使用。
-pub use opencat_liangyi;
 
 
 pub mod ablate;

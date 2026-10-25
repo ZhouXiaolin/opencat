@@ -1727,8 +1727,8 @@ fn canvas_namespace_make_surface_resolves_element_and_draws() {
     realm.set_target_registry(registry);
     let err = run_driver_expect_err(&mut realm, driver);
     assert!(
-        err.contains("makeImageSnapshot") && err.contains("ly.surface"),
-        "makeImageSnapshot error should point at ly.surface, got: {err}"
+        err.contains("makeImageSnapshot") && err.contains("ctx.surface"),
+        "makeImageSnapshot error should point at ctx.surface, got: {err}"
     );
 
     // (3) missing canvas id errors with the option pointer.

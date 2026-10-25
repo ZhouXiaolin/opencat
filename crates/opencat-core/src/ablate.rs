@@ -23,8 +23,6 @@ pub enum Ablation {
     GlyphRasters,
     /// 宿主 generated-image LRU（`canvas putImageData` / surface 自动烘焙）。
     GeneratedImages,
-    /// 两仪 lambda 编译缓存。
-    LiangyiCompile,
 }
 
 /// `(变体, OC_ABLATE token)`。token 即变体名的 snake_case。
@@ -37,7 +35,6 @@ const TOKENS: &[(Ablation, &str)] = &[
     (Ablation::RuntimeEffects, "runtime_effects"),
     (Ablation::GlyphRasters, "glyph_rasters"),
     (Ablation::GeneratedImages, "generated_images"),
-    (Ablation::LiangyiCompile, "liangyi_compile"),
 ];
 
 fn mask() -> u32 {

@@ -292,33 +292,3 @@ fn nexus_port_manifests_document_fonts() {
     }
 }
 
-#[test]
-fn liquid_port_parses_full_three_script_body() {
-    // Pixel parity for this port is pending a machine with a working wgpu
-    // adapter (the XML original fails to render here too). What IS locked:
-    // the whole `<script>` body survives the transform and compiles — module
-    // evaluation wraps every module source in `new Function(...)`, so a
-    // mangled `<` comparison or template literal would fail right here.
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/liquid-brand-refraction/liquid-brand-refraction.jsx")
-        .canonicalize()
-        .expect("example file");
-    let source = std::fs::read_to_string(&path).expect("read example");
-    let (ids, driver) = parse_ids(&source, path.parent().unwrap());
-
-    assert!(ids.iter().any(|id| id == "root"), "ids: {ids:?}");
-    assert!(
-        ids.iter().any(|id| id == "threecanvas"),
-        "ids: {ids:?}"
-    );
-    // The verbatim script body, intact after the transform.
-    for marker in [
-        "THREE.WebGLRenderer(",
-        "scene3d.add(bgPlane3d)",
-        "renderer3d.render(scene3d, camera3d)",
-        "gl_FragColor",
-        "137.508 * Math.PI",
-    ] {
-        assert!(driver.contains(marker), "driver missing `{marker}`");
-    }
-}

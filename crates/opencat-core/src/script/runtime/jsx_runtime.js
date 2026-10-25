@@ -502,11 +502,10 @@
     // `import { gsap } from 'gsap'` (oxc lowers to __ocRequire("gsap").gsap)
     // resolves to the REAL npm package, bundled by the example project into
     // dist/gsap.bundle.mjs and injected into __ocModuleSources by the host.
-    // three / canvaskit forward to the ctx namespaces, which really are their
-    // whole surface. gsap is hook-gated: tween calls only mean something
+    // canvaskit forwards to the ctx namespace, which really is its whole
+    // surface. gsap is hook-gated: tween calls only mean something
     // inside a per-frame hook, where the scene clock is bound. Object
-    // constructors (three / canvaskit) forward ungated — they are pure local
-    // state.
+    // constructors (canvaskit) forward ungated — they are pure local state.
     function hookGated(target, apiName) {
         var wrapped = new WeakMap();
         function wrapValue(v) {
@@ -697,7 +696,6 @@
         easeBag['EasePack'] = easeBag['default'];
         builtins['gsap/EasePack'] = easeBag;
     }
-    builtins['three'] = globalThis.ctx.threejs;
     // Official entry: `import CanvasKitInit from 'canvaskit-wasm'` resolves to
     // the loader stub (canvas_api.js), which resolves immediately with the
     // signature facade — the example's `.then(CK => CK.MakeCanvasSurface(id))`

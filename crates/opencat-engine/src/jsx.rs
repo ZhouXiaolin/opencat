@@ -21,7 +21,7 @@ use opencat_core::script::js_context::JsContext;
 use opencat_core::script::realm::JS_PLATFORM_SHIM;
 use opencat_core::script::runtime::{
     ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, JSX_RUNTIME,
-    NODE_STYLE_RUNTIME, THREE_API_RUNTIME, TREE_API_RUNTIME,
+    NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
 };
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
@@ -95,7 +95,6 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // Script-side DOM overlay handles. Must follow NODE_STYLE_RUNTIME: a
     // declared handle delegates its style surface to `ctx.__domTarget`.
     ctx.eval(TREE_API_RUNTIME)?;
-    ctx.eval(THREE_API_RUNTIME)?;
     ctx.eval(ANIMATION_RUNTIME)?;
     // Last: the JSX runtime itself — its package builtins forward to the
     // namespaces the runtimes above install. `gsap` is not installed here:

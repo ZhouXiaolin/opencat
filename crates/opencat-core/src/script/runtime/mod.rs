@@ -12,8 +12,6 @@
 //! 6. `ANIMATION_FACADE` — `ctx.from/to/fromTo/set()`, `ctx.timeline()`, `flushTimelines`
 //! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API + DOM property facade
 //! 8. `CANVAS_API_RUNTIME` — the CanvasKit signature facade (`globalThis.CanvasKit` + the `CanvasKitInit` stub)
-//! 9. `THREE_API_RUNTIME` — `ctx.threejs` three.js 语义 3D 场景图 + `WebGLRenderer.render()`
-//!    （`import * as THREE from 'three'` 解析到这里；`ctx.three` 是旧拼写）
 //! 10. `G2_BUNDLE` + `G2_API_RUNTIME` — `useChart(ref, build)` AntV G2 图表（legacy），
 //! 11. `DOM_API_RUNTIME` — `document`/`window` 全局与越界 API 报错
 //!
@@ -28,7 +26,7 @@ pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 // (`document.createElement` returns these handles).
 pub const TREE_API_RUNTIME: &str = include_str!("tree_api.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
-pub const THREE_API_RUNTIME: &str = include_str!("three_api.js");
+pub const WEBGL_API_RUNTIME: &str = include_str!("webgl_api.js");
 // DOM globals (`document`/`window`/timer guards). Loaded after
 // `NODE_STYLE_RUNTIME` (getElementById hands out the same node handles) and
 // after `JS_PLATFORM_SHIM` in the realm bootstrap (the G2 rAF polyfill must

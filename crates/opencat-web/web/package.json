@@ -27,12 +27,10 @@
     "web-demuxer": "^4.0.0"
   },
   "devDependencies": {
-    "@types/three": "^0.181.0",
     "canvaskit-wasm": "^0.41.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
   },
   "dependencies": {
-    "three": "^0.181.0"
   }
 }

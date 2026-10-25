@@ -115,8 +115,8 @@ describe('OCIR generated schema constants (#66)', () => {
     expect(IR_MAGIC).toEqual([0x4f, 0x43, 0x49, 0x52]);
   });
 
-  test('IR_VERSION from generated schema matches v8', () => {
-    expect(IR_VERSION).toBe(8);
+  test('IR_VERSION from generated schema matches v9', () => {
+    expect(IR_VERSION).toBe(9);
   });
 
   test('rejects envelope whose magic does not match IR_MAGIC', () => {

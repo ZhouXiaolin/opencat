@@ -5,19 +5,18 @@ pub mod draw_frame;
 pub mod draw_op;
 pub mod draw_types;
 pub mod generated_image;
+pub mod gpu_stream;
 pub mod media_plan;
-pub mod scene3;
-pub mod scene3_glb;
-pub mod scene3_glb_scene;
 pub mod schema_gen;
 pub mod transport;
 
 pub use asset_id::*;
 pub use composition_info::CompositionInfo;
-pub use draw_frame::{DrawOpFrame, RenderFrame, Scene3Commit, Scene3Section};
+pub use draw_frame::{DrawOpFrame, RenderFrame};
 pub use generated_image::{
     GeneratedImageCollision, GeneratedImageEntry, GeneratedImageId, GeneratedImageTable,
 };
+pub use gpu_stream::{GpuBackend, GpuOpFrame, GpuSection, GpuStream};
 pub use media_plan::{FrameGeneratedImage, FrameMediaPlan};
 
 pub use draw_encoding::section as ir_section;

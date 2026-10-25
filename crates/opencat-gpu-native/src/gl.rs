@@ -195,6 +195,7 @@ pub fn delete_framebuffer(fbo: u32) {
 /// drop 时删 FBO 与 PBO；**纹理不归它管**，那是 [`crate::TextureRegistry`]
 /// 的活。
 pub struct Target {
+    tex: NativeTexture,
     fbo: u32,
     width: u32,
     height: u32,
@@ -208,11 +209,17 @@ impl Target {
         let fbo = create_framebuffer(tex)
             .ok_or_else(|| anyhow!("创建 FBO 失败（GL 入口缺失或 FBO 不完整）"))?;
         Ok(Self {
+            tex,
             fbo,
             width,
             height,
             readback: ReadbackPixels::new(fbo, width, height),
         })
+    }
+
+    /// 目标纹理句柄（Metal 侧同形接口；GL 上 Skia 用 FBO 而非纹理名）。
+    pub fn texture(&self) -> NativeTexture {
+        self.tex
     }
 
     /// FBO id，交给 Skia 的 `FramebufferInfo`。对调用方**不透明**。
@@ -232,6 +239,14 @@ impl Target {
     pub fn has_readback(&self) -> bool {
         self.readback.is_some()
     }
+
+    /// 等上一帧的读回完成。**每帧合成开始前调用**。
+    ///
+    /// GL 的 context 命令流是 FIFO：上一帧的 `glReadPixels` 天然排在渲染
+    /// 之后，CPU 不需要显式等待。此方法只为与
+    /// [`crate::metal::Target::wait_inflight`] 接口对齐——Metal 跨队列无
+    /// 隐式顺序，那边必须真等。
+    pub fn wait_inflight(&mut self) {}
 
     /// 取回**上一帧**的像素，并为当前帧发起一次读回。首帧返回 `None`。
     pub fn readback(&mut self) -> Option<Vec<u8>> {

@@ -7,10 +7,7 @@
 pub mod consumer;
 pub mod executor;
 pub mod fonts;
-#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod gpu_compositor;
-#[cfg(target_os = "macos")]
-pub mod gpu_compositor_metal;
 pub mod gpu_pipeline;
 pub mod inspect;
 pub mod js_context;

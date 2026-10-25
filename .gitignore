@@ -93,9 +93,13 @@ examples/variables-launch/assets/hooks/hook-g.mp4
 examples/variables-launch/assets/hooks/hook-h.mp4
 examples/variables-launch/assets/hooks/hook-i.mp4
 tools/g2-align/node_modules/
+# 符号链接形式的 node_modules（指向别处的共享依赖）。
+node_modules
 
 # bun tailwindcss 管线的本地依赖
 node_modules/
+# 符号链接形式的 node_modules（指向别处的共享依赖）。
+node_modules
 
 # 测试/裸示例的 gsap sidecar（构建产物，测试缺省时写协议 stub）
 /examples/dist/

@@ -7,8 +7,9 @@
    its window. Element reveals the scene window does not cover (the glass-intro
    typewriter, the caption chips) stay per-frame `vis()` gates.
    Engine substitutions (web fonts -> faces, CSS 3D -> projected canvas,
-   WebGL shader -> ly.pixel lambda, Canvas2D ASCII -> canvas 2d, conic
-   gradients -> canvas, backgroundPosition sweeps -> crossfading layers) are
+   WebGL shader -> Skia RuntimeEffect (SKSL), Canvas2D ASCII -> canvas 2d +
+   offscreen surface blit, conic gradients -> native CSS conic-gradient,
+   backgroundPosition sweeps -> crossfading layers) are
    annotated inline with the reference line they replace. */
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 49.8 };

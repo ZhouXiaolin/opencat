@@ -128,7 +128,7 @@ function camBasis(eye, look) {
 /* prefix advance widths for caret tracks (engine measure == engine layout) */
 function measurePrefixes(ctx, key, font, ls, str) {
   if (globalThis[key]) return globalThis[key];
-  var MSR = ly.surface(1, 1);
+  var MSR = ctx.surface(1, 1);
   MSR.font = font;
   MSR.letterSpacing = ls;
   var out = [];
@@ -137,238 +137,285 @@ function measurePrefixes(ctx, key, font, ls, str) {
   return out;
 }
 
-/* ══ SKSL kernels ════════════════════════════════════════════════════ */
+/* ══ SKSL kernels (official RuntimeEffect) ═══════════════════════════ */
 
 /* intro sting — 1:1 actA port of vfx-text-cursor.html:449-546 (112-sample
-   ray-march; hash/spectrum primitives; mask=alpha / colour=rgb texture) */
-var STING = (uv, image, colormask, u) => {
-  const gx = uv.x / u.w;
-  const gy = 1.0 - uv.y / u.h;
-  const scale = u.scale;
-  const lx = (gx - 0.5) / scale + 0.5;
-  const ly = (gy - 0.5) / scale + 0.5 + u.logoY / u.h;
-  const mask = colormask.eval([lx * u.w, (1.0 - ly) * u.h]).a;
-  const logo = image.eval([lx * u.w, (1.0 - ly) * u.h]);
-  /* p = uv*2-1 (GLSL y-up), p.x *= aspect — source vfx-text-cursor.html:499 */
-  const ax = (gx * 2.0 - 1.0) * (u.w / u.h);
-  const ay = gy * 2.0 - 1.0;
-  const progress = u.progress;
-  const mpx = (progress * 2.0 - 1.0) * (u.w / u.h);
-  const mpy = 0.0;
-  const dax = (mpx - ax) / 112.0;
-  const day = (mpy - ay) / 112.0;
-  let acc = 0.0;
-  let rx = ax;
-  let ry = ay;
-  for (let i = 0.0; i < 112.0; i++) {
-    rx += dax;
-    ry += day;
-    const h1 = fract(sin((rx * 489.0 + ry * 589.0 + i * 58.0)) * 492.0) * 2.0 - 1.0;
-    const h2 = fract(sin(((rx + 1.0) * 489.0 + (ry + 1.0) * 589.0 + (i + 1.0) * 58.0)) * 492.0) * 2.0 - 1.0;
-    rx += h1 * 0.5 / 112.0;
-    ry += h2 * 0.5 / 112.0;
-    const bx = rx / (u.w / u.h) * 0.5 + 0.5;
-    const by = ry * 0.5 + 0.5;
-    const rlx = (bx - 0.5) / scale + 0.5;
-    const rly = (by - 0.5) / scale + 0.5 + u.logoY / u.h;
-    acc += colormask.eval([rlx * u.w, (1.0 - rly) * u.h]).a / 112.0;
-  }
-  let cr = cos((cos(acc * 4.9) - 0.0) * 0.6 * 3.141593) * acc * 3.65 - acc * 0.24;
-  let cg = cos((cos(acc * 4.9) - 0.5) * 1.0 * 3.141593) * acc * 3.65 - acc * 0.24;
-  let cb = cos((cos(acc * 4.9) - 1.0) * 0.5 * 3.141593) * acc * 3.65 - acc * 0.24;
-  cr = max(cr - 0.035, 0.0) * 1.16;
-  cg = max(cg - 0.035, 0.0) * 1.16;
-  cb = max(cb - 0.035, 0.0) * 1.16;
-  const sweep = exp(-pow((gx - progress) * 6.2, 2.0));
-  const textProx = smoothstep(0.006, 0.34, acc);
-  const longRay = smoothstep(0.004, 0.18, acc);
-  const sx = progress * 1.8;
-  const swR = 0.14 + cos((sx - 0.0) * 0.6 * 3.141593) * 0.28;
-  const swG = 0.65 + cos((sx - 0.5) * 1.0 * 3.141593) * 0.28;
-  const swB = 0.85 + cos((sx - 1.0) * 0.5 * 3.141593) * 0.28;
-  const lrR = cos((progress + acc * 2.0 - 0.0) * 0.6 * 3.141593);
-  const lrG = cos((progress + acc * 2.0 - 0.5) * 1.0 * 3.141593);
-  const lrB = cos((progress + acc * 2.0 - 1.0) * 0.5 * 3.141593);
-  const sweepTerm = sweep * (0.34 + textProx * 2.35);
-  cr += swR * sweepTerm + lrR * longRay * 0.58;
-  cg += swG * sweepTerm + lrG * longRay * 0.58;
-  cb += swB * sweepTerm + lrB * longRay * 0.58;
-  const logoTerm = acc * 1.18 + sweep * mask * 0.92;
-  cr += logo.r * logoTerm;
-  cg += logo.g * logoTerm;
-  cb += logo.b * logoTerm;
-  const mixv = u.mix;
-  cr *= mixv; cg *= mixv; cb *= mixv;
-  const lm = smoothstep(0.02, 0.75, logo.a);
-  cr = mix(cr, logo.r, lm);
-  cg = mix(cg, logo.g, lm);
-  cb = mix(cb, logo.b, lm);
-  const white = smoothstep(0.04, 0.38, mask) * 0.12 * mixv;
-  cr += white; cg += white; cb += white;
-  /* static grain field (vfx-text-cursor.html:539-542). hash(vec3(uv.xyy +
-     mouse.x*0.0007)) with mouse.x = progress*1920 (state.progress*WIDTH):
-     GLSL vec3+float adds to EVERY component, so
-     dot((uv.x+m, uv.y+m, uv.y+m), (489,589,58)) = uv.x*489 + uv.y*647 +
-     m*(489+589+58) = uv.x*489 + uv.y*647 + progress*1.344*1136 — uv is GL
-     y-up, so use gy = 1 - uv.y/u.h. */
-  const grain = fract(sin(gx * 489.0 + gy * 647.0 + progress * 1527.168) * 492.0) * 2.0 - 1.0;
-  const ag = abs(grain);
-  const dust = smoothstep(0.02, 0.38, acc) + smoothstep(0.03, 0.22, mask);
-  const dustTerm = grain * 0.07 * (0.42 + dust) * mixv;
-  const dustT = smoothstep(0.02, 0.5, acc) * ag * 0.045 * mixv;
-  const gsR = cos((progress + grain - 0.0) * 0.6 * 3.141593);
-  const gsG = cos((progress + grain - 0.5) * 1.0 * 3.141593);
-  const gsB = cos((progress + grain - 1.0) * 0.5 * 3.141593);
-  return [clamp(cr + dustTerm + gsR * dustT, 0.0, 1.0),
-          clamp(cg + dustTerm + gsG * dustT, 0.0, 1.0),
-          clamp(cb + dustTerm + gsB * dustT, 0.0, 1.0), 1.0];
-};
-var STING_SPEC = {
-  uniforms: { w: 'float', h: 'float', scale: 'float',
-              logoY: 'float', mix: 'float', progress: 'float' },
-  backend: 'sksl'
-};
+   ray-march; hash/spectrum primitives; mask=alpha / colour=rgb texture).
+   Child order follows sources: [image, colormask]. */
+var STING_SKSL = `
+uniform float u_w;
+uniform float u_h;
+uniform float u_scale;
+uniform float u_logoY;
+uniform float u_mix;
+uniform float u_progress;
+uniform shader u_image;
+uniform shader u_mask;
+
+half4 main(float2 xy) {
+    float gx = xy.x / u_w;
+    float gy = 1.0 - xy.y / u_h;
+    float scale = u_scale;
+    float lx = (gx - 0.5) / scale + 0.5;
+    float ly = (gy - 0.5) / scale + 0.5 + u_logoY / u_h;
+    float mask = u_mask.eval(float2(lx * u_w, (1.0 - ly) * u_h)).a;
+    float4 logo = u_image.eval(float2(lx * u_w, (1.0 - ly) * u_h));
+    /* p = xy*2-1 (GLSL y-up), p.x *= aspect — source vfx-text-cursor.html:499 */
+    float ax = (gx * 2.0 - 1.0) * (u_w / u_h);
+    float ay = gy * 2.0 - 1.0;
+    float progress = u_progress;
+    float mpx = (progress * 2.0 - 1.0) * (u_w / u_h);
+    float mpy = 0.0;
+    float dax = (mpx - ax) / 112.0;
+    float day = (mpy - ay) / 112.0;
+    float acc = 0.0;
+    float rx = ax;
+    float ry = ay;
+    for (float i = 0.0; i < 112.0; i++) {
+        rx += dax;
+        ry += day;
+        float h1 = fract(sin((rx * 489.0 + ry * 589.0 + i * 58.0)) * 492.0) * 2.0 - 1.0;
+        float h2 = fract(sin(((rx + 1.0) * 489.0 + (ry + 1.0) * 589.0 + (i + 1.0) * 58.0)) * 492.0) * 2.0 - 1.0;
+        rx += h1 * 0.5 / 112.0;
+        ry += h2 * 0.5 / 112.0;
+        float bx = rx / (u_w / u_h) * 0.5 + 0.5;
+        float by = ry * 0.5 + 0.5;
+        float rlx = (bx - 0.5) / scale + 0.5;
+        float rly = (by - 0.5) / scale + 0.5 + u_logoY / u_h;
+        acc += u_mask.eval(float2(rlx * u_w, (1.0 - rly) * u_h)).a / 112.0;
+    }
+    float cr = cos((cos(acc * 4.9) - 0.0) * 0.6 * 3.141593) * acc * 3.65 - acc * 0.24;
+    float cg = cos((cos(acc * 4.9) - 0.5) * 1.0 * 3.141593) * acc * 3.65 - acc * 0.24;
+    float cb = cos((cos(acc * 4.9) - 1.0) * 0.5 * 3.141593) * acc * 3.65 - acc * 0.24;
+    cr = max(cr - 0.035, 0.0) * 1.16;
+    cg = max(cg - 0.035, 0.0) * 1.16;
+    cb = max(cb - 0.035, 0.0) * 1.16;
+    float sweep = exp(-pow((gx - progress) * 6.2, 2.0));
+    float textProx = smoothstep(0.006, 0.34, acc);
+    float longRay = smoothstep(0.004, 0.18, acc);
+    float sx = progress * 1.8;
+    float swR = 0.14 + cos((sx - 0.0) * 0.6 * 3.141593) * 0.28;
+    float swG = 0.65 + cos((sx - 0.5) * 1.0 * 3.141593) * 0.28;
+    float swB = 0.85 + cos((sx - 1.0) * 0.5 * 3.141593) * 0.28;
+    float lrR = cos((progress + acc * 2.0 - 0.0) * 0.6 * 3.141593);
+    float lrG = cos((progress + acc * 2.0 - 0.5) * 1.0 * 3.141593);
+    float lrB = cos((progress + acc * 2.0 - 1.0) * 0.5 * 3.141593);
+    float sweepTerm = sweep * (0.34 + textProx * 2.35);
+    cr += swR * sweepTerm + lrR * longRay * 0.58;
+    cg += swG * sweepTerm + lrG * longRay * 0.58;
+    cb += swB * sweepTerm + lrB * longRay * 0.58;
+    float logoTerm = acc * 1.18 + sweep * mask * 0.92;
+    cr += logo.r * logoTerm;
+    cg += logo.g * logoTerm;
+    cb += logo.b * logoTerm;
+    float mixv = u_mix;
+    cr *= mixv; cg *= mixv; cb *= mixv;
+    float lm = smoothstep(0.02, 0.75, logo.a);
+    cr = mix(cr, logo.r, lm);
+    cg = mix(cg, logo.g, lm);
+    cb = mix(cb, logo.b, lm);
+    float white = smoothstep(0.04, 0.38, mask) * 0.12 * mixv;
+    cr += white; cg += white; cb += white;
+    /* static grain field (vfx-text-cursor.html:539-542). hash(vec3(uv.xyy +
+       mouse.x*0.0007)) with mouse.x = progress*1920: uv is GL y-up, so
+       gy = 1 - xy.y/u_w above. */
+    float grain = fract(sin(gx * 489.0 + gy * 647.0 + progress * 1527.168) * 492.0) * 2.0 - 1.0;
+    float ag = abs(grain);
+    float dust = smoothstep(0.02, 0.38, acc) + smoothstep(0.03, 0.22, mask);
+    float dustTerm = grain * 0.07 * (0.42 + dust) * mixv;
+    float dustT = smoothstep(0.02, 0.5, acc) * ag * 0.045 * mixv;
+    float gsR = cos((progress + grain - 0.0) * 0.6 * 3.141593);
+    float gsG = cos((progress + grain - 0.5) * 1.0 * 3.141593);
+    float gsB = cos((progress + grain - 1.0) * 0.5 * 3.141593);
+    return half4(clamp(cr + dustTerm + gsR * dustT, 0.0, 1.0),
+                 clamp(cg + dustTerm + gsG * dustT, 0.0, 1.0),
+                 clamp(cb + dustTerm + gsB * dustT, 0.0, 1.0), 1.0);
+}`;
 
 /* exact early-out of STING at effectMix==0 (frames 0..0.72s): every ray /
    sweep / grain term carries *mixv = 0, white-core too, so the shader
    reduces to mix(0, logo.rgb, smoothstep(.02,.75,logo.a)) — a single eval.
-   Bit-identical to STING with u.mix=0, ~12s/frame → ~0.3s (render-budget). */
-var STING_LOGOONLY = (uv, image, u) => {
-  const gx = uv.x / u.w;
-  const gy = 1.0 - uv.y / u.h;
-  const lx = (gx - 0.5) / u.scale + 0.5;
-  const ly = (gy - 0.5) / u.scale + 0.5 + u.logoY / u.h;
-  const logo = image.eval([lx * u.w, (1.0 - ly) * u.h]);
-  const lm = smoothstep(0.02, 0.75, logo.a);
-  return [logo.r * lm, logo.g * lm, logo.b * lm, 1.0];
-};
-var STING_LOGOONLY_SPEC = {
-  uniforms: { w: 'float', h: 'float', scale: 'float', logoY: 'float' },
-  backend: 'sksl'
-};
+   Bit-identical to STING with u_mix=0, ~12s/frame → ~0.3s (render-budget). */
+var STING_LOGOONLY_SKSL = `
+uniform float u_w;
+uniform float u_h;
+uniform float u_scale;
+uniform float u_logoY;
+uniform shader u_image;
+
+half4 main(float2 xy) {
+    float gx = xy.x / u_w;
+    float gy = 1.0 - xy.y / u_h;
+    float lx = (gx - 0.5) / u_scale + 0.5;
+    float ly = (gy - 0.5) / u_scale + 0.5 + u_logoY / u_h;
+    float4 logo = u_image.eval(float2(lx * u_w, (1.0 - ly) * u_h));
+    float lm = smoothstep(0.02, 0.75, logo.a);
+    return half4(logo.r * lm, logo.g * lm, logo.b * lm, 1.0);
+}`;
 
 /* chromatic RGB split — 1:1 actC port of index.html:1017-1090 (three
    additive channel planes, source lum formula, exact perspective).
    PERF: the ref's UnrealBloomPass (index.html:1066) is NOT re-implemented —
-   a ring-tap approximation cost 87 evals/px ≈ 6s/frame (105 frames ≈ 10.5min,
-   measured via frame mtimes) and blew the 30min render budget with the STING
-   march. This 3-eval kernel is exactly the shipped actC XML form that
-   measured avg_p8 .1698 over its 387-frame act (docs/handoffs §12.4: ref is
-   somewhat brighter inside the split glyphs). sy follows the
-   actC-XML-validated convention (uv.y/u.h*2-1, the flipY'd CanvasTexture
-   sample below closes the mapping). */
-var CHROM = (uv, image, u) => {
-  const sx = uv.x / u.w * 2.0 - 1.0;
-  const sy = uv.y / u.h * 2.0 - 1.0;
-  const Dx = u.fx + sx * u.rx + sy * u.ux;
-  const Dy = u.fy + sx * u.ry + sy * u.uy;
-  const Dz = u.fz + sx * u.rz + sy * u.uz;
-  const a = u.alpha;
-  const tR = -(((u.cx - u.px0) * u.sn0 + (u.cz - u.pz0) * u.cs0)) /
-             (Dx * u.sn0 + Dz * u.cs0);
-  const exR = (u.cx + tR * Dx) - u.px0;
-  const eyR = (u.cy + tR * Dy) - u.py0;
-  const ezR = (u.cz + tR * Dz) - u.pz0;
-  const lxR = (exR * u.cs0 - ezR * u.sn0) / u.scale;
-  const lyR = eyR / u.scale;
-  const sR = image.eval([clamp(lxR / u.pw + 0.5, 0.0, 1.0) * u.w,
-                         clamp(0.5 - lyR / u.ph, 0.0, 1.0) * u.h]);
-  const tG = -(((u.cx - u.px1) * u.sn1 + (u.cz - u.pz1) * u.cs1)) /
-             (Dx * u.sn1 + Dz * u.cs1);
-  const exG = (u.cx + tG * Dx) - u.px1;
-  const eyG = (u.cy + tG * Dy) - u.py1;
-  const ezG = (u.cz + tG * Dz) - u.pz1;
-  const lxG = (exG * u.cs1 - ezG * u.sn1) / u.scale;
-  const lyG = eyG / u.scale;
-  const sG = image.eval([clamp(lxG / u.pw + 0.5, 0.0, 1.0) * u.w,
-                         clamp(0.5 - lyG / u.ph, 0.0, 1.0) * u.h]);
-  const tB = -(((u.cx - u.px2) * u.sn2 + (u.cz - u.pz2) * u.cs2)) /
-             (Dx * u.sn2 + Dz * u.cs2);
-  const exB = (u.cx + tB * Dx) - u.px2;
-  const eyB = (u.cy + tB * Dy) - u.py2;
-  const ezB = (u.cz + tB * Dz) - u.pz2;
-  const lxB = (exB * u.cs2 - ezB * u.sn2) / u.scale;
-  const lyB = eyB / u.scale;
-  const sB = image.eval([clamp(lxB / u.pw + 0.5, 0.0, 1.0) * u.w,
-                         clamp(0.5 - lyB / u.ph, 0.0, 1.0) * u.h]);
-  const lumR = sR.r * 0.6 + max(sR.g, sR.b) * 0.4;
-  const lumG = sG.g * 0.6 + max(sG.r, sG.b) * 0.4;
-  const lumB = sB.b * 0.6 + max(sB.r, sB.g) * 0.4;
-  const bcR = min(sR.r * lumR * a, 1.0);
-  const bcG = min(sG.g * lumG * a, 1.0);
-  const bcB = min(sB.b * lumB * a, 1.0);
-  return [bcR, bcG, bcB, 1.0];
-};
-var CHROM_SPEC = {
-  uniforms: { w: 'float', h: 'float', pw: 'float', ph: 'float',
-              scale: 'float', alpha: 'float',
-              cx: 'float', cy: 'float', cz: 'float',
-              fx: 'float', fy: 'float', fz: 'float',
-              rx: 'float', ry: 'float', rz: 'float',
-              ux: 'float', uy: 'float', uz: 'float',
-              px0: 'float', py0: 'float', pz0: 'float', cs0: 'float', sn0: 'float',
-              px1: 'float', py1: 'float', pz1: 'float', cs1: 'float', sn1: 'float',
-              px2: 'float', py2: 'float', pz2: 'float', cs2: 'float', sn2: 'float' },
-  backend: 'sksl'
-};
+   this 3-eval kernel is exactly the shipped actC XML form that measured
+   avg_p8 .1698 over its 387-frame act (docs/handoffs §12.4: ref is somewhat
+   brighter inside the split glyphs). sy follows the actC-XML-validated
+   convention (xy.y/u_h*2-1, the flipY'd CanvasTexture sample below closes
+   the mapping). */
+var CHROM_SKSL = `
+uniform float u_w;
+uniform float u_h;
+uniform float u_pw;
+uniform float u_ph;
+uniform float u_scale;
+uniform float u_alpha;
+uniform float u_cx;
+uniform float u_cy;
+uniform float u_cz;
+uniform float u_fx;
+uniform float u_fy;
+uniform float u_fz;
+uniform float u_rx;
+uniform float u_ry;
+uniform float u_rz;
+uniform float u_ux;
+uniform float u_uy;
+uniform float u_uz;
+uniform float u_px0;
+uniform float u_py0;
+uniform float u_pz0;
+uniform float u_cs0;
+uniform float u_sn0;
+uniform float u_px1;
+uniform float u_py1;
+uniform float u_pz1;
+uniform float u_cs1;
+uniform float u_sn1;
+uniform float u_px2;
+uniform float u_py2;
+uniform float u_pz2;
+uniform float u_cs2;
+uniform float u_sn2;
+uniform shader u_image;
+
+half4 main(float2 xy) {
+    float sx = xy.x / u_w * 2.0 - 1.0;
+    float sy = xy.y / u_h * 2.0 - 1.0;
+    float Dx = u_fx + sx * u_rx + sy * u_ux;
+    float Dy = u_fy + sx * u_ry + sy * u_uy;
+    float Dz = u_fz + sx * u_rz + sy * u_uz;
+    float a = u_alpha;
+    float tR = -(((u_cx - u_px0) * u_sn0 + (u_cz - u_pz0) * u_cs0)) /
+               (Dx * u_sn0 + Dz * u_cs0);
+    float exR = (u_cx + tR * Dx) - u_px0;
+    float eyR = (u_cy + tR * Dy) - u_py0;
+    float ezR = (u_cz + tR * Dz) - u_pz0;
+    float lxR = (exR * u_cs0 - ezR * u_sn0) / u_scale;
+    float lyR = eyR / u_scale;
+    float4 sR = u_image.eval(float2(clamp(lxR / u_pw + 0.5, 0.0, 1.0) * u_w,
+                                    clamp(0.5 - lyR / u_ph, 0.0, 1.0) * u_h));
+    float tG = -(((u_cx - u_px1) * u_sn1 + (u_cz - u_pz1) * u_cs1)) /
+               (Dx * u_sn1 + Dz * u_cs1);
+    float exG = (u_cx + tG * Dx) - u_px1;
+    float eyG = (u_cy + tG * Dy) - u_py1;
+    float ezG = (u_cz + tG * Dz) - u_pz1;
+    float lxG = (exG * u_cs1 - ezG * u_sn1) / u_scale;
+    float lyG = eyG / u_scale;
+    float4 sG = u_image.eval(float2(clamp(lxG / u_pw + 0.5, 0.0, 1.0) * u_w,
+                                    clamp(0.5 - lyG / u_ph, 0.0, 1.0) * u_h));
+    float tB = -(((u_cx - u_px2) * u_sn2 + (u_cz - u_pz2) * u_cs2)) /
+               (Dx * u_sn2 + Dz * u_cs2);
+    float exB = (u_cx + tB * Dx) - u_px2;
+    float eyB = (u_cy + tB * Dy) - u_py2;
+    float ezB = (u_cz + tB * Dz) - u_pz2;
+    float lxB = (exB * u_cs2 - ezB * u_sn2) / u_scale;
+    float lyB = eyB / u_scale;
+    float4 sB = u_image.eval(float2(clamp(lxB / u_pw + 0.5, 0.0, 1.0) * u_w,
+                                    clamp(0.5 - lyB / u_ph, 0.0, 1.0) * u_h));
+    float lumR = sR.r * 0.6 + max(sR.g, sR.b) * 0.4;
+    float lumG = sG.g * 0.6 + max(sG.r, sG.b) * 0.4;
+    float lumB = sB.b * 0.6 + max(sB.r, sB.g) * 0.4;
+    float bcR = min(sR.r * lumR * a, 1.0);
+    float bcG = min(sG.g * lumG * a, 1.0);
+    float bcB = min(sB.b * lumB * a, 1.0);
+    return half4(bcR, bcG, bcB, 1.0);
+}`;
 
 /* portal reveal — full port of index.html:1161-1218 (edge noise, distortion,
    RGB fringe on the front texture, ring glow, sparks). Source noise() is
-   [0,1]-range value noise; engine noise2 is the same sin-hash lattice mapped
-   to [-1,1], so source_noise = (noise2 + 1) * 0.5. Reversed smoothsteps are
-   inlined (the lambda whitelist has no nested functions; GLSL edge0>edge1 is
-   UB anyway). */
-var PORTAL = (uv, image, u) => {
-  const px = (uv.x / u.w - 0.5) * (u.w / u.h);
-  const py = uv.y / u.h - 0.5;
-  const dist = length([px, py]);
-  const ang = atan2(py, px);
-  const eN = (noise2([ang * 3.0, u.time * 2.0]) + 1.0) * 0.5 * 0.03 * u.energy;
-  const edge = u.radius + eN;
-  const eD = abs(dist - edge);
-  let tD = clamp((eD - u.ew * 1.5) / (0.0 - u.ew * 1.5), 0.0, 1.0);
-  tD = tD * tD * (3.0 - 2.0 * tD);
-  const dMask = tD * u.distort;
-  const dl = length([px + 0.0001, py + 0.0001]);
-  const dirX = (px + 0.0001) / dl;
-  const dirY = (py + 0.0001) / dl;
-  const wob = sin(ang * 8.0 + u.time * 5.0) * dMask;
-  const offX = dirX * wob * u.w;
-  const offY = dirY * wob * u.h;
-  let tC = clamp((eD - u.ew * 2.0) / (0.0 - u.ew * 2.0), 0.0, 1.0);
-  tC = tC * tC * (3.0 - 2.0 * tC);
-  const cMask = tC * u.chroma;
-  const chX = dirX * cMask * u.w;
-  const chY = dirY * cMask * u.h;
-  const front = image.eval([uv.x + offX, uv.y + offY]);
-  const fr = image.eval([uv.x + offX + chX, uv.y + offY + chY]).r;
-  const fg = front.g;
-  const fb = image.eval([uv.x + offX - chX, uv.y + offY - chY]).b;
-  const mK = clamp((dist - (edge - 0.008)) / 0.016, 0.0, 1.0);
-  const mask = mK * mK * (3.0 - 2.0 * mK);
-  let tI = clamp((eD - u.ew) / (0.0 - u.ew), 0.0, 1.0);
-  tI = tI * tI * (3.0 - 2.0 * tI);
-  let tO = clamp((eD - u.ew * 2.5) / (u.ew * 0.5 - u.ew * 2.5), 0.0, 1.0);
-  tO = tO * tO * (3.0 - 2.0 * tO);
-  const glow = tI * tO * u.energy;
-  const phase = fract(ang / 6.2832 + u.time * 0.4);
-  const m = sin(phase * 6.2832) * 0.5 + 0.5;
-  const rr = 0.486 + (0.290 - 0.486) * m;
-  const rg = 0.227 + (0.565 - 0.227) * m;
-  const rb = 0.929 + (1.000 - 0.929) * m;
-  let sp = (noise2([ang * 12.0, u.time * 8.0]) + 1.0) * 0.5;
-  sp = pow(sp, 4.0) * tI * u.energy * 2.0;
-  let cr = fr * mask + rr * glow * 2.5 + sp * 1.0;
-  let cg = fg * mask + rg * glow * 2.5 + sp * 0.9;
-  let cb = fb * mask + rb * glow * 2.5 + sp * 1.0;
-  const alpha = clamp(mask + glow * 0.5 + sp * 0.3, 0.0, 1.0);
-  return [cr, cg, cb, alpha];
-};
-var PORTAL_SPEC = {
-  uniforms: { w: 'float', h: 'float', radius: 'float', energy: 'float',
-              time: 'float', ew: 'float', chroma: 'float', distort: 'float' },
-  backend: 'sksl'
-};
+   [0,1]-range value noise; oc_noise2 is the same sin-hash lattice mapped
+   to [-1,1], so source_noise = (oc_noise2 + 1) * 0.5. Reversed smoothsteps
+   are inlined. */
+var PORTAL_SKSL = `
+uniform float u_w;
+uniform float u_h;
+uniform float u_radius;
+uniform float u_energy;
+uniform float u_time;
+uniform float u_ew;
+uniform float u_chroma;
+uniform float u_distort;
+uniform shader u_image;
+
+float oc_hash2(float2 p) {
+    return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123);
+}
+float oc_noise2(float2 p) {
+    float2 i = floor(p);
+    float2 f = fract(p);
+    float2 u = f * f * (3.0 - 2.0 * f);
+    float a = oc_hash2(i);
+    float b = oc_hash2(i + float2(1.0, 0.0));
+    float c = oc_hash2(i + float2(0.0, 1.0));
+    float d = oc_hash2(i + float2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;
+}
+
+half4 main(float2 xy) {
+    float px = (xy.x / u_w - 0.5) * (u_w / u_h);
+    float py = xy.y / u_h - 0.5;
+    float dist = length(float2(px, py));
+    float ang = atan(py, px);
+    float eN = (oc_noise2(float2(ang * 3.0, u_time * 2.0)) + 1.0) * 0.5 * 0.03 * u_energy;
+    float edge = u_radius + eN;
+    float eD = abs(dist - edge);
+    float tD = clamp((eD - u_ew * 1.5) / (0.0 - u_ew * 1.5), 0.0, 1.0);
+    tD = tD * tD * (3.0 - 2.0 * tD);
+    float dMask = tD * u_distort;
+    float dl = length(float2(px + 0.0001, py + 0.0001));
+    float dirX = (px + 0.0001) / dl;
+    float dirY = (py + 0.0001) / dl;
+    float wob = sin(ang * 8.0 + u_time * 5.0) * dMask;
+    float offX = dirX * wob * u_w;
+    float offY = dirY * wob * u_h;
+    float tC = clamp((eD - u_ew * 2.0) / (0.0 - u_ew * 2.0), 0.0, 1.0);
+    tC = tC * tC * (3.0 - 2.0 * tC);
+    float cMask = tC * u_chroma;
+    float chX = dirX * cMask * u_w;
+    float chY = dirY * cMask * u_h;
+    float4 front = u_image.eval(float2(xy.x + offX, xy.y + offY));
+    float fr = u_image.eval(float2(xy.x + offX + chX, xy.y + offY + chY)).r;
+    float fg = front.g;
+    float fb = u_image.eval(float2(xy.x + offX - chX, xy.y + offY - chY)).b;
+    float mK = clamp((dist - (edge - 0.008)) / 0.016, 0.0, 1.0);
+    float mask = mK * mK * (3.0 - 2.0 * mK);
+    float tI = clamp((eD - u_ew) / (0.0 - u_ew), 0.0, 1.0);
+    tI = tI * tI * (3.0 - 2.0 * tI);
+    float tO = clamp((eD - u_ew * 2.5) / (u_ew * 0.5 - u_ew * 2.5), 0.0, 1.0);
+    tO = tO * tO * (3.0 - 2.0 * tO);
+    float glow = tI * tO * u_energy;
+    float phase = fract(ang / 6.2832 + u_time * 0.4);
+    float m = sin(phase * 6.2832) * 0.5 + 0.5;
+    float rr = 0.486 + (0.290 - 0.486) * m;
+    float rg = 0.227 + (0.565 - 0.227) * m;
+    float rb = 0.929 + (1.000 - 0.929) * m;
+    float sp = (oc_noise2(float2(ang * 12.0, u_time * 8.0)) + 1.0) * 0.5;
+    sp = pow(sp, 4.0) * tI * u_energy * 2.0;
+    float cr = fr * mask + rr * glow * 2.5 + sp * 1.0;
+    float cg = fg * mask + rg * glow * 2.5 + sp * 0.9;
+    float cb = fb * mask + rb * glow * 2.5 + sp * 1.0;
+    float alpha = clamp(mask + glow * 0.5 + sp * 0.3, 0.0, 1.0);
+    return half4(cr, cg, cb, alpha);
+}`;
 
 /* ══ components (tree order == paint order == hook order) ════════════ */
 
@@ -885,19 +932,18 @@ function ChromaticSplit() {
     var c0 = [Math.cos(redRotY), Math.sin(redRotY)];
     var c1 = [Math.cos(greenRotY), Math.sin(greenRotY)];
     var c2 = [Math.cos(blueRotY), Math.sin(blueRotY)];
-    var chromEffect = ly.pixel(CHROM, CHROM_SPEC);
-    ly.draw(chromCanvas, chromEffect, {
-      rect: [0, 0, 1920, 1080],
-      uniforms: [
-        PW, PH, planeW, planeH, planeScale, sceneAlpha,
-        camX, camY, camZ,
-        B.F[0], B.F[1], B.F[2], Rx, Ry, Rz, Ux, Uy, Uz,
-        depthX - xSplit, 0.0, depthZ + zSplit, c0[0], c0[1],
-        depthX,          0.0, depthZ,          c1[0], c1[1],
-        depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1]
-      ],
-      sources: [chromCanvas],
-    });
+    var chromEffect = CS_CK.RuntimeEffect.Make(CHROM_SKSL);
+    if (!chromEffect) throw new Error('CHROM_SKSL compile failed');
+    var chromPaint = new CS_CK.Paint();
+    chromPaint.setShader(chromEffect.makeShaderWithChildren([
+      PW, PH, planeW, planeH, planeScale, sceneAlpha,
+      camX, camY, camZ,
+      B.F[0], B.F[1], B.F[2], Rx, Ry, Rz, Ux, Uy, Uz,
+      depthX - xSplit, 0.0, depthZ + zSplit, c0[0], c0[1],
+      depthX,          0.0, depthZ,          c1[0], c1[1],
+      depthX + xSplit, 0.0, depthZ - zSplit, c2[0], c2[1]
+    ], [chromCanvas.getSubTree().makeShader()]));
+    chromCanvas.drawRect(CS_CK.XYWHRect(0, 0, 1920, 1080), chromPaint);
   });
   return (
     <canvas id="chromatic-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000000] opacity-0">
@@ -958,12 +1004,13 @@ function Portal() {
 
     if (!PT_CK) return;
     var portalCanvas = PT_CK.MakeCanvasSurface('portal-canvas').getCanvas();
-    var portalEffect = ly.pixel(PORTAL, PORTAL_SPEC);
-    ly.draw(portalCanvas, portalEffect, {
-      rect: [0, 0, 1920, 1080],
-      uniforms: [1920.0, 1080.0, radius, energy, st - PS, ew, chroma, distort],
-      sources: [portalCanvas],
-    });
+    var portalEffect = PT_CK.RuntimeEffect.Make(PORTAL_SKSL);
+    if (!portalEffect) throw new Error('PORTAL_SKSL compile failed');
+    var portalPaint = new PT_CK.Paint();
+    portalPaint.setShader(portalEffect.makeShaderWithChildren(
+      [1920.0, 1080.0, radius, energy, st - PS, ew, chroma, distort],
+      [portalCanvas.getSubTree().makeShader()]));
+    portalCanvas.drawRect(PT_CK.XYWHRect(0, 0, 1920, 1080), portalPaint);
   });
   return (
     <>
@@ -999,19 +1046,21 @@ function IntroSting() {
       if (!IS_CK) return;
       var stingCanvas = IS_CK.MakeCanvasSurface('sting-canvas').getCanvas();
       if (effectMix <= 0) {
-        var loEffect = ly.pixel(STING_LOGOONLY, STING_LOGOONLY_SPEC);
-        ly.draw(stingCanvas, loEffect, {
-          rect: [0, 0, 1920, 1080],
-          uniforms: [1920.0, 1080.0, logoScale, logoY],
-          sources: [stingCanvas],
-        });
+        var loEffect = IS_CK.RuntimeEffect.Make(STING_LOGOONLY_SKSL);
+        if (!loEffect) throw new Error('STING_LOGOONLY_SKSL compile failed');
+        var loPaint = new IS_CK.Paint();
+        loPaint.setShader(loEffect.makeShaderWithChildren(
+          [1920.0, 1080.0, logoScale, logoY],
+          [stingCanvas.getSubTree().makeShader()]));
+        stingCanvas.drawRect(IS_CK.XYWHRect(0, 0, 1920, 1080), loPaint);
       } else {
-        var stingEffect = ly.pixel(STING, STING_SPEC);
-        ly.draw(stingCanvas, stingEffect, {
-          rect: [0, 0, 1920, 1080],
-          uniforms: [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
-          sources: [stingCanvas, stingCanvas],
-        });
+        var stingEffect = IS_CK.RuntimeEffect.Make(STING_SKSL);
+        if (!stingEffect) throw new Error('STING_SKSL compile failed');
+        var stingPaint = new IS_CK.Paint();
+        stingPaint.setShader(stingEffect.makeShaderWithChildren(
+          [1920.0, 1080.0, logoScale, logoY, effectMix, progress],
+          [stingCanvas.getSubTree().makeShader(), stingCanvas.getSubTree().makeShader()]));
+        stingCanvas.drawRect(IS_CK.XYWHRect(0, 0, 1920, 1080), stingPaint);
       }
     }
     T.set('sting-canvas', { opacity: 1 }, 0);

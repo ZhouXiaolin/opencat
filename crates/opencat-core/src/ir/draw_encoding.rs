@@ -696,6 +696,24 @@ fn encode_paint_shader(out: &mut Vec<u8>, shader: &PaintShaderSpec) {
             }
             write_f32_array(out, origin);
         }
+        PaintShaderSpec::SweepGradient {
+            center,
+            start_angle_deg,
+            end_angle_deg,
+            stops,
+            colors,
+            tile_mode,
+            interpolate_premul,
+        } => {
+            write_u8(out, 3);
+            write_u8(out, encode_tile_mode(*tile_mode));
+            write_u8(out, *interpolate_premul as u8);
+            write_f32_array(out, center);
+            write_f32(out, *start_angle_deg);
+            write_f32(out, *end_angle_deg);
+            write_f32_vec(out, stops);
+            write_color_vec(out, colors);
+        }
     }
 }
 

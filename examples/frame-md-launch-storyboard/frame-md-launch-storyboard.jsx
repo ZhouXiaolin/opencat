@@ -48,7 +48,7 @@ function vis(ctx, id, on) {
 
 // 1x1 measure surface (get-or-create, never renders pixels).
 function makeMeasure(ctx) {
-  var MSR = ly.surface(1, 1);
+  var MSR = ctx.surface(1, 1);
   function w(family, weight, size, text, ls) {
     MSR.font = weight + ' ' + size + 'px "' + family + '"';
     MSR.letterSpacing = (ls || 0) + 'px';

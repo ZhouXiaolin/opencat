@@ -163,6 +163,7 @@ type FillSpec =
   | { type: 'solid'; color: [number, number, number, number] }
   | { type: 'linearGradient'; tileMode: number; interpolatePremul: number; from: [number, number]; to: [number, number]; stops: number[]; colors: number[][]; localMatrix: number[] | null }
   | { type: 'radialGradient'; tileMode: number; interpolatePremul: number; center: [number, number]; radius: number; stops: number[]; colors: number[][]; localMatrix: number[] | null; focal: [number, number, number] | null }
+  | { type: 'sweepGradient'; tileMode: number; interpolatePremul: number; center: [number, number]; startAngle: number; endAngle: number; stops: number[]; colors: number[][] }
   // SVG feTurbulence fractal-noise (bg-[fe-turbulence(...)]). `tile` mirrors the
   // engine: Some([w, h]) bakes one tileable tile repeated from `origin` (CSS
   // background semantics); null renders nothing (the engine skips it too).
@@ -1270,6 +1271,24 @@ function parseFill(reader: BinaryReader): FillSpec {
       origin: reader.f32Array(2) as [number, number],
     };
   }
+  if (shaderKind === 3) {
+    // sweepGradient (CSS conic-gradient): [tileMode u8][interpolatePremul u8]
+    // [center f32x2][startAngle f32][endAngle f32][stops][colors] — angles are
+    // already Skia-semantics degrees (0 = +x axis, clockwise); the CSS `from θ`
+    // conversion happened at spec-build time.
+    const tileMode = reader.u8();
+    const interpolatePremul = reader.u8();
+    return {
+      type: 'sweepGradient',
+      tileMode,
+      interpolatePremul,
+      center: reader.f32Array(2) as [number, number],
+      startAngle: reader.f32(),
+      endAngle: reader.f32(),
+      stops: readF32Vec(reader),
+      colors: readColorVec(reader),
+    };
+  }
   // radialGradient: [tileMode u8][interpolatePremul u8][center f32x2][radius f32][stops][colors][matrix?][focal: u8 + f32x3 | u8=0]
   const tileMode = reader.u8();
   const interpolatePremul = reader.u8();
@@ -1658,8 +1677,22 @@ function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, dispose
   // interpolatePremul byte picks per-shader. ShaderSpec children without the
   // field default to premul.
   const gradFlags = 'interpolatePremul' in fill ? fill.interpolatePremul : 1;
-  if (fill.type === 'linearGradient') {
-    return CK.Shader.MakeLinearGradient(
+  if (fill.type === 'sweepGradient') {
+    // CSS conic-gradient → official Skia sweep. `startAngle`/`endAngle` arrive
+    // already converted to Skia semantics (degrees, 0 = +x axis, clockwise).
+    return CK.Shader.MakeSweepGradient(
+      fill.center[0],
+      fill.center[1],
+      fill.colors.map((c) => CK.Color4f(c[0], c[1], c[2], c[3])),
+      fill.stops,
+      mapTileMode(CK, fill.tileMode),
+      localMatrix as any,
+      gradFlags,
+      fill.startAngle,
+      fill.endAngle,
+    );
+  }
+  if (fill.type === 'linearGradient') {    return CK.Shader.MakeLinearGradient(
       'from' in fill ? fill.from : fill.start,
       'to' in fill ? fill.to : fill.end,
       fill.colors.map((c) => CK.Color4f(c[0], c[1], c[2], c[3])),

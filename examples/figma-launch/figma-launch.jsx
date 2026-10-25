@@ -81,7 +81,7 @@ function easeInOutCubic(p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * 
 
 /* advance width through the shared 1x1 measure surface (never touches pixels) */
 function makeMeasure(ctx) {
-  var MSR = ly.surface(1, 1);
+  var MSR = ctx.surface(1, 1);
   return function adv(family, weight, fs, ls, s) {
     MSR.font = weight + ' ' + fs + 'px ' + family;
     MSR.letterSpacing = (ls || 0) + 'px';

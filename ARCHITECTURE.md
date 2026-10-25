@@ -101,8 +101,7 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 2. **官方/唯一路径**存在且已接通；
 3. **渲染逐位回归**通过（k3diff 与基线一致）。
 
-先例：ctx.splitText（C4）、方言插件四件（批次 1 f2d716c1）、Rust tween 链 9 绑定（批次 2 4c935bd7）、parse/color.rs（保留面过堂决议：全仓零消费、与 animate/color.rs 重复）。
-已决策待闭环：**liangyi 整体退役**（2026-10-20 拍板并再次确认；前置 = putImageData + 资源像素读回落地、受影响示例 hyperframes-launch / vfx-heygen-combined / k3-mono 移植过 oracle）。
+先例：ctx.splitText（C4）、方言插件四件（批次 1 f2d716c1）、Rust tween 链 9 绑定（批次 2 4c935bd7）、parse/color.rs（保留面过堂决议：全仓零消费、与 animate/color.rs 重复）、**liangyi 整体退役**（批次 ⑤ 2026-10-25：效果只留官方 RuntimeEffect(SKSL) 一条路，ly.* 全家 + opencat-liangyi crate 出清，反查转 STRICT）。
 
 ## 11. 验收构成
 
@@ -112,6 +111,6 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 
 ## 12. 路线图（按库纵切，2026-10-22 拍板）
 
-① 宪法 + 方言反查（✅） → ② canvaskit 纵切（✅ 2026-10-22：13 示例迁官方 CanvasKitInit import、core 假面合并进 canvas_api.js 官方签名面、g2 改派生面、hooks 移微任务 drain 后、反查转 STRICT；k3/hyperframes/inspector/vfx 自回归 mae=0，k3 对齐 swgl avg_p8 1.29%）→ ③ three 纵切：three-entry 拦截 → 示例迁 `import * as THREE from 'three'` → three_api 退役 → 语料对齐 → ④ gsap 三缺口：CSS 字符串写入 + translate3d → Flip 按需重排 → ⑤ liangyi 退役：putImageData + 资源像素读回落地 → hyperframes-launch / vfx-heygen-combined / k3-mono 移植过 oracle → 出工作空间（反查黑名单 ly.* 转 STRICT）。
+① 宪法 + 方言反查（✅） → ② canvaskit 纵切（✅ 2026-10-22：13 示例迁官方 CanvasKitInit import、core 假面合并进 canvas_api.js 官方签名面、g2 改派生面、hooks 移微任务 drain 后、反查转 STRICT；k3/hyperframes/inspector/vfx 自回归 mae=0，k3 对齐 swgl avg_p8 1.29%）→ ③ three 纵切：three-entry 拦截 → 示例迁 `import * as THREE from 'three'` → three_api 退役 → 语料对齐 → ④ gsap 三缺口：CSS 字符串写入 + translate3d → Flip 按需重排 → ⑤ liangyi 退役（✅ 2026-10-25：7 处 ly.pixel 内核迁官方 RuntimeEffect(SKSL)——hyperframes-launch 的 flex-shader 与 vfx-heygen-combined 四内核手写 SKSL 直译原 WebGL 数学、canvas-close 走 ctx.surface + getImageData/putImageData 官方 Canvas2D 链、flex-css 的 conic-gradient 引擎补全原生 CSS conic 链路（lightningcss 解析 → SweepGradient spec → engine skia sweep / web MakeSweepGradient）——ly.* 出 canvas_api.js/bindings/helpers，opencat-liangyi 出工作空间删除，分带光栅（ExecutionPlan）随编译器失去来源一并退役，反查黑名单 ly.* 转 STRICT；gate 10/10，两示例新链路渲染成功，SKSL 与 swgl 参考的混沌 fbm 差异用户拍板可接受）。
 
 每库闭环 = "example 里那行代码变回官方写法，渲染逐位不变"。

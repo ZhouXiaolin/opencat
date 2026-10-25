@@ -433,7 +433,6 @@ fn prepare_frame(
         let effect = compile_runtime_effect_cached(effect_ref.hash, &effect_ref.sksl)?;
         runtime_effects.push(crate::executor::PreparedRuntimeEffect {
             effect,
-            plan: opencat_liangyi::sksl_execution_plan(&effect_ref.sksl),
             hash: effect_ref.hash,
             sksl: effect_ref.sksl.clone(),
         });

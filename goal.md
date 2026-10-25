@@ -26,7 +26,7 @@ examples/template 写**标准代码**:官方 npm 包(gsap / three / canvaskit-wa
   - 插件收录收齐:15 项(npm 3.15.0 全部 22 个独立插件归类完毕,无第三个桶);交互类/桥/工具永久排除
 - **宪法 + 方言反查上线**:ARCHITECTURE.md;`scripts/check-dialect.sh` 接入 regression-gate(STRICT 全绿;PENDING 39 处=§3 工作量清单)
 - **保留面过堂**:parse/color.rs 已删(cargo test 497 全绿)
-- **状态修正**:liangyi 尚未退役(工作空间成员,12 处 ly.pixel 服役)——已决策、前置迁移未闭环,列 §3 批次⑤
+- **批次⑤ liangyi 退役收口**(2026-10-25):7 处内核迁官方 SKSL/CSS 面,crate 出工作空间,反查 STRICT,gate 10/10
 - **批次② canvaskit 纵切收口**(2026-10-22):13 个示例文件迁官方 `CanvasKitInit` import(k3×7 / dribbble / nexus7 / inspector / vfx 三处死变量 / hyperframes×4),useCanvas/useCanvasKit/ctx.CanvasKit 全退役;core 假面合并=canvas_api.js 一处官方签名面(Embind 数字枚举+官方形态 RRectXY+Rust 绑定字符串翻译层+MakeCanvasSurface/CanvasKitInit 桩+drawParagraph 签名留位),g2_api.js 改 g2CanvasKit() 派生面(G2 特有 Paragraph/FakeFont/MakeDash 不污染全局);frame hooks 移到微任务 drain 后(then 回调先 resolve,hook 首帧即有 CK);方言反查四处转 STRICT。**验收数据**:k3/hyperframes/inspector/vfx 新旧代码自回归 mae=0 maxd=0 逐位;k3 对齐 F:\hyperframes-launches swgl 参考 avg_p8 1.29%(<2%);hyperframes 对齐 4.35%=存量移植差距(自回归归零,无黑帧);dribbble/nexus7 修复后首渲成功——此前被批次 D 误提交的 stub `examples/dist/gsap.bundle.mjs` 挡死(tl.fromTo 不存在),已用 esbuild 标准管线换真 bundle;gate 10/10 全绿(cargo test+clippy×3+web test/tsc/build+crate tsc/vite+方言反查;本环境补装 clippy、web 依赖,测试 vi.mock 工厂改命名空间 spy 兼容 bun)
 
 ## 3. 路线图(按库纵切,串行)
@@ -67,12 +67,12 @@ examples/template 写**标准代码**:官方 npm 包(gsap / three / canvaskit-wa
 
 **验收**:上述示例逐位回归。
 
-### 批次⑤ liangyi 退役(已决策,2026-10-20 拍板并再次确认)
+### 批次⑤ liangyi 退役(✅ 2026-10-25 收口)
 
-1. **前置**:putImageData + 资源像素读回落地(host 把解码后资源 RGBA 字节交 realm;**红线=禁读回引擎已合成的表面**)。
-2. **示例移植**:hyperframes-launch(ly.pixel→JS 逐像素循环,V8 JIT 性能已排除风险)、vfx-heygen-combined(4 处)、k3-mono(溶解);oracle=tools/k3dissolve.py 逐帧像素对拍。
-3. **出清**:opencat-liangyi 出工作空间;反查黑名单 ly.* 转 STRICT。
-4. 效果此后只有原 JS 语义一条路。
+1. **前置**:putImageData + 资源像素读回——早已落地(k3 溶解先行)。
+2. **示例移植**(7 处 ly.pixel 全清,形态=官方 CanvasKit/Canvas2D 写法):flex-shader 与 vfx 四内核(CHROM/PORTAL/STING/STING_LOGOONLY)→ 手写 SKSL(RuntimeEffect.Make + makeShaderWithChildren + paint.setShader + drawRect;GLSL 直译保表达式序,noise2 抄 codegen 同式);canvas-close → ctx.surface + getImageData + putImageData(k3 同链);flex-css conic → 原始 CSS conic-gradient 写法(引擎补全原生 conic 链:lightningcss→SweepGradient→engine gradient_shader::sweep / web MakeSweepGradient);5 处 ly.surface(1,1) measure → ctx.surface。
+3. **出清**:canvas_api.js ly 面全家(Kernel/flatten/ly 命名空间/apply/sweep)、bindings 三绑定(canvas_lambda_effect_draw/surface_apply_effect/surface_scan_pass)、helpers(auto_bake/cpu_child_images/uniform_f32s_to_vals/Surface child)、ablate LiangyiCompile、lambda_integration_tests、engine 分带光标(ExecutionPlan/draw_runtime_effect_banded/PreparedRuntimeEffect.plan)、opencat-liangyi crate 删除出工作空间;反查 ly.* 转 STRICT。
+4. 效果此后只有官方 RuntimeEffect(SKSL) 一条路。验收:gate 10/10 全绿;hyperframes/vfx 新链路渲染成功;SKSL 与 swgl 参考的混沌 fbm 图案差用户拍板可接受(fbm 对浮点序敏感,非缺陷)。
 
 ### 批次⑥ 文档与桩
 

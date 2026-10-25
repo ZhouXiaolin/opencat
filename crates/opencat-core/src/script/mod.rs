@@ -21,6 +21,7 @@ mod lambda_integration_tests;
 pub mod helpers;
 pub mod host;
 pub mod js_context;
+pub mod layout_probe;
 pub mod mutations;
 pub mod precomputed_host;
 pub mod realm;

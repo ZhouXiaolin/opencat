@@ -1057,11 +1057,12 @@ function IntroCard() {
     var widths = measurePrefixes(ctx, '__vhc_htmlW', '900 292px "Big Shoulders Display"', '4.38px', HTML_TEXT);
     var parts = new SplitText(ctx.getNode('html-type'), { type: 'chars' }).chars;
     T.set('html-type', { opacity: 1 }, 0);
-    /* upstream `getTitleOffset()` (vfx-text-cursor.html:336-344) reads the
-       laid-out boxes of the card and the typed word. This engine lays out text
-       without exposing those boxes to script, so the same offset is calibrated
-       against the reference render instead: measured at 292px, the word box is
-       centred on the card and the ink starts 85,130 card-local from it. */
+    /* upstream `getTitleOffset()` (vfx-text-cursor.html:336-344) centres the
+       laid-out word box on the card. Our `getBoundingClientRect` now reports
+       real layout geometry, but the offset still lands ~160px right of the
+       reference: our `-in` tail is set in Big Shoulders (upstream leaves
+       `.html-tail` on the card's default face), so the centred line sits at a
+       different x. Calibrate against the reference until the tail face matches. */
     T.set('html-word', { x: 85, y: 130, scale: 1.8, transformOrigin: '50% 50%' }, 0);
     T.set('html-caret', { opacity: 0, left: 0 }, 0);
     T.set('html-caret', { opacity: 1 }, htmlStart - 0.05);

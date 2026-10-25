@@ -138,17 +138,23 @@ impl Presenter {
         Ok(())
     }
 
-    /// Metal 后端不与 wgpu 共享上下文，所以为空操作。
+    /// Metal 没有 GL 式的共享 context，Skia 与本节点之间不需要重同步状态
+    /// （跨队列顺序由 wgpu 出口的 `poll(Wait)` 与 `metal::Target` 的
+    /// `wait_inflight` 保证），所以为空操作。
     pub fn reset_backend_state(&mut self) {}
 
-    /// Metal 后端不支持加入 wgpu；3D 走 CPU 读回。
+    /// 建 wgpu 的 Metal 渲染器，与本呈现器共享同一块 `MTLDevice`。
+    ///
+    /// Metal 不像 GL 需要「加入宿主的 context」：系统默认设备是进程级单例，
+    /// wgpu 自建的渲染器与这里 Skia 的 `DirectContext` 落在同一块设备上，
+    /// 纹理凭裸指针即可跨队列共享，因此 3D 输出同样走零拷贝。
     pub fn build_scene3_renderer(&mut self) -> Result<Option<Renderer3d>> {
-        Ok(None)
+        Ok(Some(Renderer3d::new_blocking()?))
     }
 
     pub fn with_canvas_and_resolver(
         &mut self,
-        _textures: &opencat_gpu_native::TextureRegistry,
+        textures: &opencat_gpu_native::TextureRegistry,
         f: &mut dyn FnMut(
             &mut skia_safe::Canvas,
             Option<&mut dyn crate::consumer::GpuImageResolver>,
@@ -163,6 +169,10 @@ impl Presenter {
         let canvas: &mut skia_safe::Canvas = unsafe {
             &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
         };
-        f(canvas, None)
+        let mut resolver = crate::gpu_compositor::CompositorResolver {
+            skia: &mut self.skia,
+            textures,
+        };
+        f(canvas, Some(&mut resolver))
     }
 }

@@ -3505,8 +3505,10 @@ name = "opencat-gpu-native"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block",
  "khronos-egl",
  "libc",
+ "metal",
  "windows-sys 0.61.2",
 ]
 

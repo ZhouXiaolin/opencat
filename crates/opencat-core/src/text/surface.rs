@@ -51,10 +51,13 @@ pub fn surface_delete(id: &str) {
     });
 }
 
+/// surface 单边尺寸上限（8192 = 常见 GL 纹理上限的保守值）。
+pub const MAX_SURFACE_DIMENSION: u32 = 8192;
+
 /// 创建（或重置）一张全透明 surface。
 pub fn surface_create(id: &str, width: u32, height: u32) -> Result<()> {
-    if width == 0 || height == 0 || width > 8192 || height > 8192 {
-        bail!("surface `{id}`: unsupported dimensions {width}x{height}");
+    if width == 0 || height == 0 || width > MAX_SURFACE_DIMENSION || height > MAX_SURFACE_DIMENSION {
+        bail!("surface `{id}`: unsupported dimensions {width}x{height}（单边上限 {MAX_SURFACE_DIMENSION}）");
     }
     let len = width as usize * height as usize * 4;
     SURFACES.with(|s| {
@@ -115,6 +118,119 @@ pub fn surface_clear(id: &str, x: f64, y: f64, w: f64, h: f64) -> Result<()> {
             for xx in x0..x1 {
                 let o = (row + xx as usize) * 4;
                 surface.rgba[o..o + 4].fill(0);
+            }
+        }
+        surface.generation = surface.generation.wrapping_add(1);
+        Ok(())
+    })
+}
+
+/// `canvas.fillRect` / `fillRoundRect` / 线性渐变的统一入口：轴对齐圆角
+/// 矩形，SrcOver 合成进 surface（覆盖率抗锯齿）。
+///
+/// `radius` 为圆角半径（0 = 直角）；`axis` 是从 `a` 到 `b` 的渐变轴，`stops`
+/// 是 `(offset, [r,g,b,a])` 列表（offset 0..1，不要求均匀；空 = 用最后一个
+/// stop 当纯色）。颜色分量 0..1、unpremul。
+pub fn surface_fill_shape(
+    id: &str,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    radius: f64,
+    axis: ([f64; 2], [f64; 2]),
+    stops: &[(f32, [f32; 4])],
+) -> Result<()> {
+    let colors: Vec<[f32; 4]> = if stops.is_empty() {
+        vec![[0.0, 0.0, 0.0, 1.0]]
+    } else {
+        stops.iter().map(|(_, c)| *c).collect()
+    };
+    if colors.iter().all(|c| c[3] <= 0.0) || !(w > 0.0) || !(h > 0.0) {
+        return Ok(());
+    }
+    let (a, b) = axis;
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len2 = dx * dx + dy * dy;
+    with_surface(id, |surface| {
+        let sw = surface.width as f64;
+        let sh = surface.height as f64;
+        let x0 = x.max(0.0);
+        let y0 = y.max(0.0);
+        let x1 = (x + w).min(sw);
+        let y1 = (y + h).min(sh);
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        let r = radius.max(0.0).min((x1 - x0).min(y1 - y0) * 0.5);
+        // 圆角矩形的有符号距离（像素中心 → 边界，负 = 内部）；覆盖率 =
+        // clamp(0.5 - d, 0, 1) 即 1 像素宽抗锯齿带，与 canvas 2D 一致。
+        let (ccx, ccy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
+        let (hx, hy) = ((x1 - x0) * 0.5 - r, (y1 - y0) * 0.5 - r);
+        let coverage = |px: f64, py: f64| -> f64 {
+            let qx = (px + 0.5 - ccx).abs() - hx;
+            let qy = (py + 0.5 - ccy).abs() - hy;
+            let d = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt()
+                + qx.max(qy).min(0.0)
+                - r;
+            (0.5 - d).clamp(0.0, 1.0)
+        };
+        // 渐变轴上的位置 → stop 插值。
+        let sample = |t: f32| -> [f32; 4] {
+            if stops.is_empty() {
+                return colors[0];
+            }
+            let mut lo = &stops[0];
+            for s in stops {
+                if s.0 <= t {
+                    lo = s;
+                }
+            }
+            let mut hi = lo;
+            for s in stops {
+                if s.0 >= t {
+                    hi = s;
+                    break;
+                }
+            }
+            let span = hi.0 - lo.0;
+            let k = if span > 1e-6 { ((t - lo.0) / span).clamp(0.0, 1.0) } else { 0.0 };
+            let mut out = [0.0f32; 4];
+            for i in 0..4 {
+                out[i] = lo.1[i] + (hi.1[i] - lo.1[i]) * k;
+            }
+            out
+        };
+        for py in y0.floor() as usize..(y1.ceil() as usize).min(surface.height as usize) {
+            for px in x0.floor() as usize..(x1.ceil() as usize).min(surface.width as usize) {
+                let cov = coverage(px as f64, py as f64) as f32;
+                if cov <= 0.0 {
+                    continue;
+                }
+                let t = if len2 > 1e-12 {
+                    ((((px as f64 + 0.5) - a[0]) * dx + ((py as f64 + 0.5) - a[1]) * dy) / len2)
+                        .clamp(0.0, 1.0) as f32
+                } else {
+                    1.0
+                };
+                let [fr, fg, fb, fa] = sample(t);
+                let sa = cov * fa;
+                if sa <= 0.0 {
+                    continue;
+                }
+                let o = (py * surface.width as usize + px) * 4;
+                let da = surface.rgba[o + 3] as f32 / 255.0;
+                let oa = sa + da * (1.0 - sa);
+                if oa <= 0.0 {
+                    surface.rgba[o..o + 4].fill(0);
+                    continue;
+                }
+                for (c, sc) in [fr, fg, fb].iter().enumerate() {
+                    let dc = surface.rgba[o + c] as f32 / 255.0;
+                    let oc = (sc * sa + dc * da * (1.0 - sa)) / oa;
+                    surface.rgba[o + c] = (oc.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                }
+                surface.rgba[o + 3] = (oa.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             }
         }
         surface.generation = surface.generation.wrapping_add(1);

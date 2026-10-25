@@ -56,11 +56,12 @@
     function linearToSrgb(c) {
         return c < 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 0.41666) - 0.055;
     }
-    // 0xRRGGBB → 线性 [r, g, b]（0..1），three.js Color.setHex 语义
+    // 0xRRGGBB → 线性 [r, g, b]，three.js Color.setHex 语义
     // （setHex 默认 sourceColorSpace = SRGBColorSpace → toWorkingColorSpace）。
+    // 这是引擎的唯一口径（r181）：Color 的 working 分量恒为线性值。
     function rgbFromHex(hex) {
         const h = Math.max(0, Math.min(0xffffff, Math.round(num(hex, 0xffffff)))) & 0xffffff;
-        return [srgbToLinear(((h >> 16) & 255) / 255), srgbToLinear(((h >> 8) & 255) / 255), srgbToLinear((h & 255) / 255)];
+        return [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255].map(srgbToLinear);
     }
 
     /* ── 列主序 mat4 ──────────────────────────────────────────────
@@ -159,8 +160,22 @@
     }
 
     class Color {
-        constructor(hex = 0xffffff) { this._rgb = rgbFromHex(hex); }
-        set(hex) { this._rgb = rgbFromHex(hex); return this; }
+        // 分量恒在线性 working color space（r181 `ColorManagement.enabled`
+        // 缺省 true）。r147 的退化口径（hex 字节直接当线性值）不在这里实现
+        // ——需要它的示例自己写 `setRGB` 传入线性值。
+        constructor(hex = 0xffffff) {
+            this._rgb = rgbFromHex(hex);
+        }
+        set(hex) {
+            this._rgb = rgbFromHex(hex);
+            return this;
+        }
+        // three.js Color.setRGB(r, g, b, colorSpace = ColorManagement.workingColorSpace)：
+        // 缺省按工作空间（线性）解释，不做事后转换。
+        setRGB(r, g, b) {
+            this._rgb = [num(r), num(g), num(b)];
+            return this;
+        }
     }
 
     /* ── 场景图 ── */
@@ -238,6 +253,18 @@
             this.color = new Color(skyColor);
             this.groundColor = new Color(groundColor);
             this.intensity = num(intensity, 1);
+        }
+    }
+
+    // three.js PointLight(color, intensity, distance, decay)：位置 = 世界
+    // 平移，distance = 光照半径（0 = 不衰减），decay = 物理衰减指数。
+    class PointLight extends Object3D {
+        constructor(color = 0xffffff, intensity = 1, distance = 0, decay = 2) {
+            super('point');
+            this.color = new Color(color);
+            this.intensity = num(intensity, 1);
+            this.distance = num(distance, 0);
+            this.decay = num(decay, 2);
         }
     }
 
@@ -347,6 +374,61 @@
         }
     }
 
+    // GLB 整场景导入（three.js `gltfLoader.loadAsync(url)` 后取 `gltf.scene`
+    // 的对应物）：node 树 + glTF 材质 + 内嵌纹理一次解完，网格几何进 realm
+    // 注册表、材质是 IR 载荷。返回一个 Group，其子节点是**预解好的网格**
+    // （`__glbMesh`），collectScene 直接把它转成快照条目——不再经过
+    // material 对象，glTF 的 roughness/metallic/贴图原样保留。
+    //
+    // 坐标：glTF 的 Y 轴向上、米制；模型按 `scale = targetHeight / size.y`
+    // 归一化并把包围盒中心挪到原点（参考 index.html:788-828 的两步）。
+    class GLTFScene extends Object3D {
+        constructor(path, options) {
+            super('group');
+            var opts = options || {};
+            var resolved = resolveAssetPath(String(path));
+            var cacheKey = 'glbscene:' + resolved;
+            var data = __geometryCache[cacheKey];
+            if (!data) {
+                data = __scene3_glb_scene_register(resolved);
+                if (!data || !data.meshes) {
+                    throw new Error('three: GLTFScene 载入失败：' + resolved);
+                }
+                __geometryCache[cacheKey] = data;
+            }
+            this.__glb = data;
+            var sizeY = data.max[1] - data.min[1];
+            if (opts.height && sizeY > 0) this.__normalize = opts.height / sizeY;
+            else this.__normalize = 1;
+            this.__center = [
+                (data.min[0] + data.max[0]) * 0.5,
+                (data.min[1] + data.max[1]) * 0.5,
+                (data.min[2] + data.max[2]) * 0.5,
+            ];
+            if (opts.center !== false) this.position.set(-this.__center[0], -this.__center[1], -this.__center[2]);
+            if (this.__normalize !== 1) this.scale.setScalar(this.__normalize);
+        }
+        // 屏幕网格（glTF 里带 emissiveTexture 的那一个）——参考源码正是用
+        // emissiveMap 判据找它（index.html:804-816）。
+        screenMesh() {
+            var list = this.__glb.meshes;
+            for (var i = 0; i < list.length; i += 1) {
+                var m = list[i];
+                if (m.screen) return { index: i, material: m.material };
+            }
+            return null;
+        }
+        // 覆写某个网格的材质（换屏幕贴图用）：返回 chainable 句柄。
+        setMaterial(index, material) {
+            if (!(index >= 0 && index < this.__glb.meshes.length)) {
+                throw new Error('three: GLTFScene.setMaterial 索引越界：' + index);
+            }
+            this.__overrides = this.__overrides || {};
+            this.__overrides[index] = material;
+            return this;
+        }
+    }
+
     // three.js GLTFLoader 的相对 URL 对文档 base 解析（参考 js:40
     // `new URL("../assets/heygen-prism.glb", import.meta.url)`）的 opencat
     // 对应物：宿主注入 XML 所在目录（ctx.__documentBase，engine 取
@@ -444,8 +526,8 @@
             } : null;
             this.noiseTime = params.noiseTime === undefined ? 0 : num(params.noiseTime);
             // 单贴图（three.js MeshBasicMaterial({ map }) / ShaderMaterial map）。
-            this.__map = (params.map instanceof VideoTexture || params.map instanceof BitmapTexture)
-                ? params.map : null;
+            this.__map = (params.map instanceof VideoTexture || params.map instanceof BitmapTexture
+                || params.map instanceof SurfaceTexture) ? params.map : null;
             this.__textures = null;
             this.__mosaic = null;
         };
@@ -518,6 +600,54 @@
             this.mapping = UVMapping;
             this.colorSpace = NoColorSpace;
         }
+    }
+
+    // canvas → 纹理：把一张脚本侧离屏 surface（`ctx.surface(w,h)` 的返回值）
+    // 的当前像素当作静态贴图。快照携带 `{ Surface: { id } }`，宿主在光栅化
+    // 前从 surface 注册表取一次像素（与 Bitmap 同一张纹理表）。
+    class SurfaceTexture {
+        constructor(surface) {
+            if (!surface || surface.__opencatSurface !== true) {
+                throw new Error('three: SurfaceTexture 需要 ctx.surface(w, h) 的返回值');
+            }
+            this.__kind = 'surface-texture';
+            this.__surface = surface;
+            this.__path = surface.id;
+            // three.js Texture 的采样属性。宿主光栅化固定 Linear/MipmapLinear、
+            // 不读 mipmap 链，这里只存值保源码兼容（默认值即三处缺省）。
+            this.minFilter = LinearFilter;
+            this.magFilter = LinearFilter;
+            this.generateMipmaps = true;
+            // three.js Texture 构造缺省 `colorSpace = NoColorSpace`（r181
+            // Texture.js:48）：字节按线性光使用，不做 EOTF。
+            this.colorSpace = NoColorSpace;
+        }
+        // 参考源码 `envTex.dispose()`：源 surface 由脚本侧 `ctx.surface` 持有、
+        // 生命周期与 realm 一致，纹理对象本身无 GPU 资源可回收。
+        dispose() {}
+    }
+
+    // three.js CanvasTexture(canvas) 的对应物：源是脚本离屏 surface。
+    // 与 SurfaceTexture 无行为差别（r181 CanvasTexture 不设 colorSpace，
+    // 仍是 NoColorSpace；env 想被 sRGB 解码就由脚本显式写 colorSpace）。
+    class CanvasTexture extends SurfaceTexture {}
+
+    // three.js PMREMGenerator 的对应物：`pmrem.fromEquirectangular(tex).texture`
+    // 就是原始环境贴图本身。真正的 prefilter（cubeUV + roughness mip 链）在
+    // 宿主渲染器初始化时一次性做（`crates/opencat-three/src/pmrem.rs`），脚本
+    // 层没有 GPU 可调——所以这里只做签名与所有权转交。参考源码的三步骤
+    // （fromEquirectangular → envTex.dispose → pmrem.dispose）因此可逐字照抄。
+    class PMREMGenerator {
+        constructor(renderer) {
+            if (!renderer) throw new Error('three: PMREMGenerator 需要 renderer');
+        }
+        fromEquirectangular(texture) {
+            if (!(texture instanceof BitmapTexture || texture instanceof SurfaceTexture)) {
+                throw new Error('three: PMREMGenerator.fromEquirectangular 需要 BitmapTexture / CanvasTexture');
+            }
+            return { texture: texture };
+        }
+        dispose() {}
     }
 
     // 视频-马赛克面片材质（参考 js:248-253 ShaderMaterial 的通用化）：
@@ -732,7 +862,38 @@
         if (tex instanceof BitmapTexture) {
             return { Bitmap: { path: tex.__path } };
         }
-        throw new Error('three: 不支持的纹理来源（支持 VideoTexture/BitmapTexture）');
+        if (tex instanceof SurfaceTexture) {
+            return { Surface: { id: tex.__path } };
+        }
+        throw new Error('three: 不支持的纹理来源（支持 VideoTexture/BitmapTexture/SurfaceTexture）');
+    }
+
+    // 脚本材质对象 → 快照材质载荷（glTF 材质走另一条路：宿主已解好）。
+    function snapshotMaterial(mat) {
+        const rgb = mat.color ? mat.color._rgb : [1, 1, 1];
+        const disp = mat.__displacement
+            ? { ...mat.__displacement, time: num(mat.noiseTime) }
+            : null;
+        return {
+            base_color: [rgb[0], rgb[1], rgb[2], num(mat.opacity, 1)],
+            // enum 外部标签：VideoMosaic/Physical/Shader 携带参数载荷（serde 默认命名）。
+            shading: mat.__mosaic ? { VideoMosaic: mat.__mosaic }
+                : mat.__physical ? { Physical: mat.__physical }
+                : mat.__shader ? {
+                    Shader: {
+                        vertex_shader: mat.__shader.vertex_shader,
+                        fragment_shader: mat.__shader.fragment_shader,
+                        uniforms: shaderUniformPayload(mat),
+                    },
+                }
+                : (mat.__shading || 'Unlit'),
+            displacement: disp,
+            map: mat.__map ? texturePayload(mat.__map) : null,
+            textures: mat.__textures ? mat.__textures.map(texturePayload) : [],
+            // glTF PBR 贴图（脚本建材质时可能是 null → 快照省略）。
+            base_color_map: mat.__baseColorMap ? texturePayload(mat.__baseColorMap) : null,
+            metallic_roughness_map: mat.__metallicRoughnessMap ? texturePayload(mat.__metallicRoughnessMap) : null,
+        };
     }
 
     function collectScene(scene) {
@@ -740,6 +901,24 @@
         (function walk(node, parent) {
             if (node.visible === false) return; // three.js：不可见节点剪掉子树
             const world = matMultiply(parent, matCompose(node.position._v, node.rotation._v, node.scale._v, node.rotation.order));
+            // GLB 整场景：子网格的材质/几何已由宿主解好，直接摊进快照
+            // （矩阵 = 节点世界矩阵 × 网格局部矩阵）。
+            if (node.__glb) {
+                const overrides = node.__overrides || {};
+                for (let i = 0; i < node.__glb.meshes.length; i += 1) {
+                    const entry = node.__glb.meshes[i];
+                    const mat = overrides[i] || null;
+                    meshes.push({
+                        geometry: { Asset: { id: entry.geometry_id } },
+                        material: mat ? snapshotMaterial(mat) : entry.material,
+                        matrix: matMultiply(world, entry.matrix),
+                        render_order: num(node.renderOrder, 0),
+                        transparent: mat ? mat.__transparent === true : entry.material.transparent,
+                    });
+                }
+                for (const c of node.__children) walk(c, world);
+                return;
+            }
             switch (node.__kind) {
                 case 'mesh': {
                     // 两种几何来源：脚本内建（__data → Inline）或注册表
@@ -750,33 +929,13 @@
                         : null;
                     if (!geo && !geoId) throw new Error('three: mesh.geometry 缺少可用几何（支持 BoxGeometry/SphereGeometry/PlaneGeometry/GLTFGeometry）');
                     const mat = node.material || {};
-                    const rgb = mat.color ? mat.color._rgb : [1, 1, 1];
-                    const disp = mat.__displacement
-                        ? { ...mat.__displacement, time: num(mat.noiseTime) }
-                        : null;
                     meshes.push({
                         geometry: geoId
                             ? { Asset: { id: geoId } }
                             // Inline 几何带 uvs（PlaneGeometry 的 vUv 面是
                             // 背景场输入；无 uv 的几何缺省 []）。
                             : { Inline: { positions: geo.positions, normals: geo.normals, indices: geo.indices, uvs: geo.uvs || [] } },
-                        material: {
-                            base_color: [rgb[0], rgb[1], rgb[2], num(mat.opacity, 1)],
-                            // enum 外部标签：VideoMosaic/Physical/Shader 携带参数载荷（serde 默认命名）。
-                            shading: mat.__mosaic ? { VideoMosaic: mat.__mosaic }
-                                : mat.__physical ? { Physical: mat.__physical }
-                                : mat.__shader ? {
-                                    Shader: {
-                                        vertex_shader: mat.__shader.vertex_shader,
-                                        fragment_shader: mat.__shader.fragment_shader,
-                                        uniforms: shaderUniformPayload(mat),
-                                    },
-                                }
-                                : (mat.__shading || 'Unlit'),
-                            displacement: disp,
-                            map: mat.__map ? texturePayload(mat.__map) : null,
-                            textures: mat.__textures ? mat.__textures.map(texturePayload) : [],
-                        },
+                        material: snapshotMaterial(mat),
                         matrix: world,
                         // three.js 渲染列表语义（Object3D.renderOrder /
                         // Material.transparent；snake_case 直通 Scene3 serde）。
@@ -786,14 +945,25 @@
                     break;
                 }
                 case 'ambient':
-                    lights.push({ Ambient: { color: node.color._rgb, intensity: node.intensity } });
+                    lights.push({ Ambient: { color: node.color._rgb.slice(), intensity: node.intensity } });
                     break;
                 case 'hemisphere':
                     lights.push({
                         Hemisphere: {
-                            sky_color: node.color._rgb,
-                            ground_color: node.groundColor._rgb,
+                            sky_color: node.color._rgb.slice(),
+                            ground_color: node.groundColor._rgb.slice(),
                             intensity: node.intensity,
+                        },
+                    });
+                    break;
+                case 'point':
+                    lights.push({
+                        Point: {
+                            position: [world[12], world[13], world[14]],
+                            color: node.color._rgb.slice(),
+                            intensity: node.intensity,
+                            distance: node.distance,
+                            decay: node.decay,
                         },
                     });
                     break;
@@ -802,7 +972,7 @@
                     lights.push({
                         Directional: {
                             direction: [-world[12], -world[13], -world[14]],
-                            color: node.color._rgb,
+                            color: node.color._rgb.slice(),
                             intensity: node.intensity,
                         },
                     });
@@ -841,7 +1011,15 @@
             this.outputColorSpace = LinearSRGBColorSpace;
             this.toneMapping = NoToneMapping;
             this.toneMappingExposure = 1.0;
+            this.__clearColor = null;
         }
+        // three.js WebGLRenderer.setClearColor(color, alpha)（index.html:526
+        // `setClearColor(0x050508, 0)`）：scene.background 为 null 时的清屏色。
+        setClearColor(color, alpha) {
+            this.__clearColor = rgbFromHex(color).concat([alpha === undefined ? 1 : num(alpha, 1)]);
+            return this;
+        }
+        setPixelRatio() { return this; } // 输出尺寸由 setSize 决定，无 DPR 概念
         render(scene, camera) {
             if (!scene || scene.__kind !== 'scene') throw new Error('three: render() 需要 Scene');
             if (!camera || camera.__kind !== 'camera') throw new Error('three: render() 需要 PerspectiveCamera');
@@ -850,15 +1028,17 @@
             }
             const snapshot = collectScene(scene);
             const bg = scene.background && scene.background._rgb;
-            if (bg) {
+            const srgbOut = this.outputColorSpace === SRGBColorSpace;
+            const clearSource = bg ? bg.concat([1]) : this.__clearColor;
+            if (clearSource) {
                 // WebGLBackground.js setClear（r181）：背景 Color 的线性 working
                 // 分量经 getRGB(getUnlitUniformColorSpace(renderer)) 转到输出
                 // 色彩空间后写清屏——SRGB 输出下 0x101014 清屏回写
                 // 16/255,16/255,20/255（值 round-trip 恒等）。引擎清屏不走
                 // 输出变换（LoadOp::Clear 原样写入），故编码在此完成。
-                snapshot.clear = this.outputColorSpace === SRGBColorSpace
-                    ? [linearToSrgb(bg[0]), linearToSrgb(bg[1]), linearToSrgb(bg[2]), 1]
-                    : [bg[0], bg[1], bg[2], 1];
+                snapshot.clear = srgbOut
+                    ? [linearToSrgb(clearSource[0]), linearToSrgb(clearSource[1]), linearToSrgb(clearSource[2]), clearSource[3]]
+                    : [clearSource[0], clearSource[1], clearSource[2], clearSource[3]];
             } else {
                 snapshot.clear = [0, 0, 0, 0];
             }
@@ -873,20 +1053,27 @@
             // ⑥b 环境（Scene3 serde Option<Texture3>；js:23-26）。equirect
             // 映射是渲染器 PMREM 路径的前提（WebGLCubeUVMaps.js:31-33 只对
             // equirect/refraction 映射转换）——其它映射 fail loud 而不是
-            // 静默当平面贴图采样。色彩空间：参考声明 SRGBColorSpace（js:24）
-            // ——PMREM 前按 sRGB EOTF 线性化；非 Srgb 声明同样 fail loud
-            // （本渲染器的 PMREM 固定按 sRGB 源实现，静默当线性源会错亮度）。
+            // 静默当平面贴图采样。色彩空间决定 PMREM 前是否做 sRGB EOTF
+            // 线性化（r181：由纹理声明决定），随后统一走 GGX VNDF 预滤波。
             if (scene.environment !== null) {
-                if (!(scene.environment instanceof BitmapTexture)) {
-                    throw new Error('three: scene.environment 需要 BitmapTexture（VideoTexture 环境不支持）');
+                // SurfaceTexture 与 BitmapTexture 同一条静态贴图通途（快照只
+                // 带来源标识）；VideoTexture 是逐帧视频解码，不是环境源。
+                if (!(scene.environment instanceof BitmapTexture || scene.environment instanceof SurfaceTexture)) {
+                    throw new Error('three: scene.environment 需要 BitmapTexture / SurfaceTexture（VideoTexture 环境不支持）');
                 }
                 if (scene.environment.mapping !== EquirectangularReflectionMapping) {
                     throw new Error('three: scene.environment.mapping 必须是 EquirectangularReflectionMapping（PMREM cubeUV 路径）');
                 }
-                if (scene.environment.colorSpace !== SRGBColorSpace) {
-                    throw new Error('three: scene.environment.colorSpace 必须是 SRGBColorSpace（PMREM 按 sRGB 源线性化）');
+                // r181 语义：PMREM 的 equirect 采样按纹理声明的色彩空间做
+                // sRGB EOTF。SRGBColorSpace ⇒ 解码；NoColorSpace /
+                // LinearSRGBColorSpace ⇒ 字节按线性光使用（CanvasTexture 的
+                // 缺省）。其它声明 fail loud。
+                var envCs = scene.environment.colorSpace;
+                if (envCs !== SRGBColorSpace && envCs !== NoColorSpace && envCs !== LinearSRGBColorSpace) {
+                    throw new Error('three: scene.environment.colorSpace 只支持 SRGBColorSpace / NoColorSpace / LinearSRGBColorSpace，实际 ' + JSON.stringify(envCs));
                 }
                 snapshot.environment = texturePayload(scene.environment);
+                snapshot.environment_srgb = envCs === SRGBColorSpace;
             }
             // ⑥ 输出变换（Scene3 serde 单元变体名拼写；上方常量即变体名）。
             snapshot.tone_mapping = this.toneMapping || NoToneMapping;
@@ -908,6 +1095,12 @@
     const SRGBColorSpace = 'Srgb';
     const NoColorSpace = '';
     const UVMapping = 'UVMapping';
+    // three.js constants.js 的纹理过滤枚举（数值逐字：NearestFilter=1003、
+    // LinearFilter=1006、LinearMipmapLinearFilter=1008）。宿主光栅化只实现
+    // Linear+repeat，这里保留数值保签名兼容。
+    const NearestFilter = 1003;
+    const LinearFilter = 1006;
+    const LinearMipmapLinearFilter = 1008;
     // three.js constants.js：EquirectangularReflectionMapping = 302（数字
     // 值；本 shim 用语义拼写——快照不携带 mapping，只作 render() 时
     // environment 的路径校验：equirect 环境经渲染器 PMREM 转 cubeUV）。
@@ -919,6 +1112,9 @@
         LinearSRGBColorSpace,
         SRGBColorSpace,
         NoColorSpace,
+        NearestFilter,
+        LinearFilter,
+        LinearMipmapLinearFilter,
         UVMapping,
         EquirectangularReflectionMapping,
         Scene,
@@ -928,10 +1124,15 @@
         DirectionalLight,
         HemisphereLight,
         AmbientLight,
+        PointLight,
         BoxGeometry,
         SphereGeometry,
         PlaneGeometry,
         GLTFGeometry,
+        GLTFScene,
+        SurfaceTexture,
+        CanvasTexture,
+        PMREMGenerator,
         MeshLambertMaterial,
         MeshBasicMaterial,
         MeshMosaicMaterial,

@@ -19,7 +19,7 @@ opencat-gpu-native = { path = "../opencat-gpu-native" }
 # 0.23 pinned: cosmic-text 0.19.0 (latest) still requires fontdb 0.23
 fontdb = "0.23.0"
 anyhow.workspace = true
-image = "0.25.10"
+image = { version = "0.25.10", features = ["webp"] }
 # SVG 对齐（docs/svg-align/PLAN.md）：OC_PATH_RASTERIZER=tiny 时 DrawPath
 # 走 tiny-skia 离屏光栅化，与 diff 参考 resvg 同一光栅化器（同版本 0.12，
 # 同默认 features，保证同一套 simd 数值路径）。

@@ -66,6 +66,29 @@ fn gsap_sidecar_path(base_dir: Option<&Path>) -> PathBuf {
     base.join("dist").join("gsap.bundle.mjs")
 }
 
+/// The project-supplied three bundle: `dist/three.bundle.mjs` under the entry
+/// directory — same convention as the gsap sidecar above.
+fn three_sidecar_path(base_dir: Option<&Path>) -> PathBuf {
+    let base = base_dir.unwrap_or_else(|| Path::new("."));
+    base.join("dist").join("three.bundle.mjs")
+}
+
+/// Read and transform a project sidecar bundle (`gsap` / `three`) into a
+/// module-table entry. Shared by both specifiers: the sidecar is pre-bundled
+/// from the project's own node_modules, so rendering never needs a Node/bun
+/// toolchain and the engine carries no package source.
+fn load_sidecar(spec: &str, path: &Path) -> Result<String> {
+    let source = std::fs::read_to_string(path).with_context(|| {
+        format!(
+            "jsx: `{spec}` resolves to the project bundle `{}`, which does not exist — \
+             build it with the vite plugin (`bun run build`) or \
+             `bun scripts/build-example-{spec}.mjs <example-dir>`",
+            path.display()
+        )
+    })?;
+    Ok(transform_source(&source)?.0)
+}
+
 /// Evaluate the entry module once and extract the tree: returns the extract
 /// payload (`{meta, fonts, lines}`) plus the per-frame driver source. This is
 /// the host-side half of the JSX frontend contract — hosts without a JS realm
@@ -114,27 +137,25 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
         let key = match normalize_relative(&spec) {
             Some(key) => key,
             None => {
-                // `gsap` is project-supplied: the vite plugin (or
-                // scripts/build-example-gsap.mjs) pre-bundles the npm package
-                // next to the main bundle. Subpaths (`gsap/SplitText`) are
-                // views over that one module in the JS runtime, so only the
-                // bare specifier is materialized here — but a module that
-                // imports ONLY a subpath never queues the bare specifier, so
-                // the subpath queues it on its behalf.
+                // `gsap` / `three` are project-supplied: the vite plugin (or
+                // scripts/build-example-{spec}.mjs) pre-bundles the npm
+                // package next to the main bundle. gsap subpaths
+                // (`gsap/SplitText`) are views over that one module in the
+                // JS runtime, so only the bare specifier is materialized
+                // here — but a module that imports ONLY a subpath never
+                // queues the bare specifier, so the subpath queues it on its
+                // behalf. `three/examples/jsm/*` subpaths stay folded into
+                // the main bundle by esbuild (only bare `three` is
+                // external), so no subpath handling is needed here.
                 let needs_gsap = spec == "gsap"
                     || (spec.starts_with("gsap/") && spec.len() > "gsap/".len());
                 if needs_gsap && !modules.contains_key("gsap") {
-                    let path = gsap_sidecar_path(base_dir);
-                    let source = std::fs::read_to_string(&path).with_context(|| {
-                        format!(
-                            "jsx: `gsap` resolves to the project bundle `{}`, which does not exist — \
-                             build it with the vite plugin (`bun run build`) or \
-                             `bun scripts/build-example-gsap.mjs <example-dir>`",
-                            path.display()
-                        )
-                    })?;
-                    let (code, _requires) = transform_source(&source)?;
+                    let code = load_sidecar("gsap", &gsap_sidecar_path(base_dir))?;
                     modules.insert("gsap".to_string(), code);
+                }
+                if spec == "three" && !modules.contains_key("three") {
+                    let code = load_sidecar("three", &three_sidecar_path(base_dir))?;
+                    modules.insert("three".to_string(), code);
                 }
                 continue; // builtin (`opencat/runtime`) or non-relative spec
             }

@@ -121,6 +121,12 @@ macro_rules! for_each_binding {
             Ok($store.gl_alloc_handle())
         }}
 
+        /// 真 GL 反射：link 后 three 立刻同步枚举 active uniform/attribute。
+        /// 反射器由宿主注入（engine 拿 GL 上下文向驱动问询），core 只转发。
+        $binding! { qry $store glsl_reflect (vs: String, fs: String) -> serde_json::Value {
+            $store.glsl_reflect(&vs, &fs)
+        }}
+
         $binding! { node $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));

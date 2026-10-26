@@ -315,6 +315,7 @@ fn gl_opcode_constants(ts: &mut String) {
         ("STENCIL_FUNC", gl_opcode::STENCIL_FUNC),
         ("STENCIL_OP", gl_opcode::STENCIL_OP),
         ("STENCIL_MASK", gl_opcode::STENCIL_MASK),
+        ("DRAW_BUFFERS", gl_opcode::DRAW_BUFFERS),
     ] {
         let _ = write!(ts, "    {}: {},
 ", name, value);

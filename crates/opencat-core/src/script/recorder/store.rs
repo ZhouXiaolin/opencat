@@ -60,8 +60,20 @@ pub struct MutationStore {
     /// 宿主（engine 侧编译→link→glGetActiveUniform）。`None` = 无 GL 宿主
     /// （web 回放等纯录制场景，反射走降级空表）。
     glsl_reflector: Option<Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>>,
+    /// 资产读取器（宿主注入）：按文档相对路径读字节（three FileLoader 的
+    /// fetch 垫 / GLB 主文件）。core 不持有文件系统根，路径解析在宿主。
+    asset_reader: Option<Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>>,
+    /// 图像解码器（宿主注入）：编码字节（webp/png/jpeg）→ (width, height,
+    /// rgba8)。three GLTFLoader 的 `createImageBitmap` 垫用，解码结果经
+    /// native 通道直写 surface。core 不依赖 image 解码 crate。
+    image_decoder: Option<Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>>,
     /// 本帧录制的 GPU 命令流（key 顺序 = begin 顺序）。同 target 幂等复用。
     gpu_streams: Vec<GpuStreamRecord>,
+    /// 最近一次 `gl_stream_begin` 的流头（target → (w, h, attrs)），跨帧
+    /// 持久。持久 renderer 的帧内不再触发 getContext（three 只在构造时调
+    /// 一次 canvas.getContext），reset_for_frame 清流后没人重开——emit 时
+    /// 用缓存的头自动重开。
+    gl_stream_headers: HashMap<String, (u32, u32, u8)>,
     /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
     /// 的存活期由脚本侧的 delete 决定，与帧无关）。
     gl_next_handle: u32,
@@ -660,8 +672,12 @@ impl MutationStore {
         {
             existing.width = width;
             existing.height = height;
+            self.gl_stream_headers
+                .insert(target_id.to_string(), (width, height, attrs_bits));
             return;
         }
+        self.gl_stream_headers
+            .insert(target_id.to_string(), (width, height, attrs_bits));
         self.gpu_streams.push(GpuStreamRecord {
             target_id: target_id.to_string(),
             width,
@@ -672,8 +688,18 @@ impl MutationStore {
         });
     }
 
-    /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。
+    /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。帧被清而流头
+    /// 还在（持久 renderer 本帧没走 getContext 路径）时按头自动重开。
     pub fn gl_stream_emit(&mut self, target_id: &str, cmd: Vec<u8>) -> anyhow::Result<()> {
+        if self
+            .gpu_streams
+            .iter()
+            .all(|s| s.target_id != target_id)
+        {
+            if let Some(&(w, h, attrs)) = self.gl_stream_headers.get(target_id) {
+                self.gl_stream_begin(target_id, w, h, 0, attrs);
+            }
+        }
         let stream = self
             .gpu_streams
             .iter_mut()
@@ -727,6 +753,37 @@ impl MutationStore {
         match &self.glsl_reflector {
             Some(f) => f(vs, fs),
             None => Ok(serde_json::json!({ "uniforms": [], "attributes": [] })),
+        }
+    }
+
+    /// 注入资产读取器 / 图像解码器（宿主在装配期调用一次）。
+    pub fn set_asset_reader(
+        &mut self,
+        f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>,
+    ) {
+        self.asset_reader = Some(f);
+    }
+    pub fn set_image_decoder(
+        &mut self,
+        f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
+    ) {
+        self.image_decoder = Some(f);
+    }
+
+    /// 按文档相对路径读资产字节；未注入宿主时明确报错（调用方是
+    /// GLTFLoader 等 Web 加载链，静默空表没有意义）。
+    pub fn asset_read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        match &self.asset_reader {
+            Some(f) => f(path),
+            None => anyhow::bail!("asset_read `{path}`: no asset reader host"),
+        }
+    }
+
+    /// 解码编码图像字节为 (width, height, rgba8)；语义同上。
+    pub fn image_decode(&self, bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+        match &self.image_decoder {
+            Some(f) => f(bytes),
+            None => anyhow::bail!("image_decode: no image decoder host"),
         }
     }
 

@@ -20,8 +20,8 @@ use opencat_core::parse::jsx_transform;
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::realm::JS_PLATFORM_SHIM;
 use opencat_core::script::runtime::{
-    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, JSX_RUNTIME,
-    NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
+    ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
+    JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
 };
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
@@ -123,6 +123,9 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // namespaces the runtimes above install. `gsap` is not installed here:
     // it is project-supplied and materialized below from the sidecar bundle.
     ctx.eval(JSX_RUNTIME)?;
+    // Web loading shims (fetch/Blob/URL/createImageBitmap over the engine's
+    // asset natives) — self-guarded, a no-op without them.
+    ctx.eval(ASSET_API_RUNTIME)?;
 
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
     let (entry_code, entry_requires) = transform_source(input)?;

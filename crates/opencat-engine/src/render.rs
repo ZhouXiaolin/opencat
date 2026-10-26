@@ -528,6 +528,7 @@ pub fn render_from_source_with_base(
         cache_dir,
     )?;
     let ctx = V8JsContext::new()?;
+    crate::gpu_stream_executor::install_glsl_reflector(&ctx);
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -630,6 +631,7 @@ pub fn render_single_frame_from_source_with_base(
         cache_dir,
     )?;
     let ctx = V8JsContext::new()?;
+    crate::gpu_stream_executor::install_glsl_reflector(&ctx);
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);

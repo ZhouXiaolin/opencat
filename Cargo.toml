@@ -8,6 +8,12 @@ members = [
     "crates/opencat",
     "crates/faac",
 ]
+# vendor/ 的 git submodule（fork 的 naga / resvg，留作后期改造底座）不是
+# workspace 成员，防止 cargo 扫到它们自己的成员表。
+exclude = [
+    "vendor/naga",
+    "vendor/resvg",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,7 +23,6 @@ edition = "2024"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tracing = "0.1"
 oxc_allocator = "0.153.0"
 oxc_ast = "0.153.0"
 oxc_codegen = "0.153.0"

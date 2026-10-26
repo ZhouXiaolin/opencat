@@ -205,12 +205,29 @@
         if (props.id === undefined || props.id === null || props.id === '') {
             props.id = 'oc-' + (++idCounter);
         }
-        var el = { __ocEl: true, tag: tag, props: props, children: children };
+        var name = String(tag);
+        var isComponent = typeof tag === 'function' || /^[A-Z]/.test(name) || name.indexOf('.') >= 0;
+        var el;
+        if (!isComponent && globalThis.ctx && globalThis.ctx.__ocElementFace) {
+            // 宿主标签：el 本身就是 HTML 语义元素——node_style 的元素面为
+            // 原型（style/getContext/addEventListener/children…），协议字段
+            // 是自有属性。ref.current 的消费者（three 的 canvas、用户代码）
+            // 拿到的是 HTMLElement 语义，树发射器读协议字段不受影响；
+            // getter 走原型保持惰性（树发射时才求值布局）。协议字段用
+            // defineProperty：元素面同名成员（children）是原型上的只读
+            // getter，赋值语义会撞 strict-mode TypeError。
+            el = Object.create(globalThis.ctx.__ocElementFace(String(props.id)));
+            Object.defineProperty(el, '__ocEl', { value: true });
+            Object.defineProperty(el, 'tag', { value: tag });
+            Object.defineProperty(el, 'props', { value: props });
+            Object.defineProperty(el, 'children', { value: children });
+        } else {
+            // 组件 / fragment：无实例语义，保持 plain record。
+            el = { __ocEl: true, tag: tag, props: props, children: children };
+        }
         if (props.ref && typeof props.ref === 'object' && 'current' in props.ref) {
             props.ref.current = el;
         }
-        var name = String(tag);
-        var isComponent = typeof tag === 'function' || /^[A-Z]/.test(name) || name.indexOf('.') >= 0;
         if (isComponent && children.length > 0) props.children = children;
         return el;
     }
@@ -296,13 +313,18 @@
     globalThis.__ocRequire = requireModule;
 
     globalThis.__ocResetFrame = function () {
-        // The gsap package module survives frame resets: it is a library, not
-        // per-frame state, and re-evaluating ~370KB of package code per frame
-        // would only leak one rAF tick into the queue each frame. Tweens and
-        // timelines are still created fresh every frame by the hooks.
-        var gsapModule = modules['gsap'];
+        // Library packages survive frame resets: they are not per-frame
+        // state, and re-evaluating them per frame would only burn the heap
+        // (three is 1.6MB of pure class definitions; re-evaluating it each
+        // frame OOMs the realm). Instances are still created fresh every
+        // frame by the hooks; gsap additionally re-runs its ticker install
+        // at eval time, which the persistent rAF queue absorbs.
+        var kept = {};
+        for (var lib in { gsap: 1, three: 1, 'canvaskit-wasm': 1 }) {
+            if (modules[lib]) kept[lib] = modules[lib];
+        }
         modules = Object.create(null);
-        if (gsapModule) modules['gsap'] = gsapModule;
+        for (lib in kept) modules[lib] = kept[lib];
         hooks.length = 0;
         sceneStack.length = 0;
         idCounter = 0;

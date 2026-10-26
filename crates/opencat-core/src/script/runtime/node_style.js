@@ -283,6 +283,18 @@
     // its per-target cache on `target._gsap`), so those writes survive.
     function elementMembers(id, own, getNode) {
         var style = makeStyleProxy(id);
+        // `<canvas>` 内容尺寸的写入缓冲（three 的 setSize 写 `canvas.width`/
+        // `height`）。初值是布局盒——浏览器里 canvas.width 初始就是声明的
+        // width 属性，而这里的布局盒就是那声明本身。惰性取：h() 建树时
+        // 布局还不存在（host 绑定未注入），首次读/写才落盒。
+        var canvasSize = null;
+        function canvasBox() {
+            if (!canvasSize) {
+                var b = box(id);
+                canvasSize = { w: b.width | 0, h: b.height | 0 };
+            }
+            return canvasSize;
+        }
         var members = {
             nodeType: 1,
             get tagName() { return tagFor(id).toUpperCase(); },
@@ -321,6 +333,21 @@
                 return { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
             },
             getContext: function (type, attrs) { return ctx.getContext(id, type, attrs); },
+
+            // three 的 WebGLRenderer 构造向 canvas 挂 `webglcontextlost`/
+            // `webglcontextrestored` 监听。确定性录制面没有上下文丢失事件，
+            // 订阅只须存在且可移除（同 document.fonts 的先例）。
+            addEventListener: function () {},
+            removeEventListener: function () {},
+
+            // `<canvas>` 的内容尺寸属性。three 的 setSize 写 `canvas.width`/
+            // `height = floor(css * pixelRatio)` 再回读；布局是声明式的，写
+            // 入不改布局盒，回读必须与写入 round-trip（three 的视口计算用
+            // 它），所以缓冲在句柄上而不映射回样式。
+            get width() { return canvasBox().w; },
+            set width(v) { canvasBox().w = Math.max(0, Math.floor(Number(v) || 0)); },
+            get height() { return canvasBox().h; },
+            set height(v) { canvasBox().h = Math.max(0, Math.floor(Number(v) || 0)); },
 
             // Text reads prefer the style store's `text` channel, then the
             // composition's declared text.
@@ -516,6 +543,37 @@
             });
         }
         return targetCache[id];
+    };
+
+    // jsx_runtime 的 `h()`：宿主标签的 el 以这个面为原型——ref.current 与
+    // `ctx.__domTarget(id)` 是同一对象（同一缓存），gsap/three 消费的
+    // HTMLElement 语义与 gsap 目标解析共享一份元素身份。与 __domTarget 的
+    // 差别只有验证：h 发生在树物化之前，unknown 是常态而非错误。
+    ctx.__ocElementFace = function (id) {
+        var key = String(id);
+        if (!targetCache[key]) {
+            var own = Object.create(null);
+            var members = elementMembers(key, own, ctx.__domTarget);
+            targetCache[key] = new Proxy(members, {
+                get(t, prop) {
+                    if (typeof prop !== 'string') return t[prop];
+                    if (prop in t) return t[prop];
+                    return own[prop];
+                },
+                set(t, prop, value) {
+                    if (typeof prop === 'string' && prop in t) {
+                        t[prop] = value;
+                        return true;
+                    }
+                    own[prop] = value;
+                    return true;
+                },
+                has(t, prop) {
+                    return typeof prop === 'string' && (prop in t || prop in own);
+                },
+            });
+        }
+        return targetCache[key];
     };
 
     // ── 2. Author handle: same element surface + chainable mutation API ──

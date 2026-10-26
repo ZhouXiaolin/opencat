@@ -53,10 +53,11 @@ oxc_semantic.workspace = true
 oxc_span.workspace = true
 oxc_transformer.workspace = true
 rayon.workspace = true
-# SVG 对齐工程（docs/svg-align/PLAN.md）：保留 usvg 做解析（本地 resvg 检出，
-# 锚点 054ccf39），绘制侧自研（Tree→DrawOp）。只开解析所需 feature；
-# system-fonts 让 text→glyph path 有字形可用（对齐质量归 P5 专项）。
-usvg = { path = "F:/resvg/crates/usvg", default-features = false, features = [
+# SVG 对齐工程（docs/svg-align/PLAN.md）：保留 usvg 做解析，绘制侧自研
+# （Tree→DrawOp）。resvg 以 fork（ZhouXiaolin/resvg）的 git submodule 形态
+# vendor 进仓（vendor/resvg，锚定 054ccf39 = usvg 0.48.1），只开解析所需
+# feature；system-fonts 让 text→glyph path 有字形可用（对齐质量归 P5 专项）。
+usvg = { path = "../../vendor/resvg/crates/usvg", default-features = false, features = [
     "svgz",
     "text",
     "system-fonts",

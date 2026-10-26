@@ -1,0 +1,6 @@
+[submodule "vendor/naga"]
+	path = vendor/naga
+	url = https://github.com/ZhouXiaolin/naga
+[submodule "vendor/resvg"]
+	path = vendor/resvg
+	url = https://github.com/ZhouXiaolin/resvg

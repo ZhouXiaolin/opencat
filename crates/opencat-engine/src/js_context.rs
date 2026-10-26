@@ -301,6 +301,16 @@ pub struct V8JsContext {
 }
 
 impl V8JsContext {
+    /// 注入真 GL 反射器（engine 专用，core 只定义转发通道）。见
+    /// [`crate::gpu_stream_executor::install_glsl_reflector`]。
+    pub fn set_glsl_reflector(
+        &self,
+        f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
+    ) {
+        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        guard.set_glsl_reflector(f);
+    }
+
     /// Evaluate `code` and marshal the result back as JSON.
     ///
     /// Used by the JSX frontend host pass (transform + tree extraction), where

@@ -193,10 +193,36 @@ export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 
     POLYGON_OFFSET: 56,
     DRAW_ARRAYS: 57,
     DRAW_ELEMENTS: 58,
+    BLEND_FUNC_SEPARATE: 59,
+    BLEND_EQUATION_SEPARATE: 60,
+    TEX_IMAGE_3D: 61,
+    TEX_SUB_IMAGE_2D: 62,
+    RENDERBUFFER_CREATE: 64,
+    BIND_RENDERBUFFER: 65,
+    RENDERBUFFER_STORAGE: 66,
+    FRAMEBUFFER_RENDERBUFFER: 67,
+    COLOR_MASK: 68,
+    UNIFORM_2I: 69,
+    UNIFORM_3I: 70,
+    UNIFORM_4I: 71,
+    TEX_STORAGE_2D: 72,
+    TEX_STORAGE_3D: 73,
+    TEX_SUB_IMAGE_3D: 74,
+    BIND_BUFFER_BASE: 75,
+    DRAW_ARRAYS_INSTANCED: 76,
+    DRAW_ELEMENTS_INSTANCED: 77,
+    VERTEX_ATTRIB_NFV: 78,
+    UNIFORM_BLOCK_BINDING: 79,
+    BIND_ATTRIB_LOCATION: 80,
+    SCISSOR: 81,
+    STENCIL_FUNC: 82,
+    STENCIL_OP: 83,
+    STENCIL_MASK: 84,
+    DRAW_BUFFERS: 85,
 } as const;
 
          /// Payload length per GLOP; -1 = variable (count-prefixed).
-         export const GLOP_PAYLOAD_LEN: readonly number[] = [6, 8, 4, 4, 4, 8, 4, 4, 4, 4, 6, 8, 8, 4, 4, 4, 4, 4, 4, 16, 8, 8, 12, 16, 20, 8, -1, -1, -1, 4, 4, 1, 6, 8, 8, 23, 2, 6, 4, 4, 6, 14, 16, 16, 1, 2, 2, 2, 1, 4, 2, 16, 2, 2, 4, 4, 8, 10, 12] as const;
+         export const GLOP_PAYLOAD_LEN: readonly number[] = [6, 8, 4, 4, 4, 8, 4, 4, 4, 4, 6, 8, 8, 4, 4, 4, 4, 4, 4, 16, 8, 8, 12, 16, 20, 8, -1, -1, -1, 4, 4, 1, 6, 8, 8, 24, 2, 6, 4, 4, 6, 14, 16, 16, 1, 2, 2, 2, 1, 4, 2, 16, 2, 2, 4, 4, 8, 10, 12, 8, 4, 28, 28, -1, 4, 6, 16, 8, 4, 12, 16, 20, 15, 19, 36, 10, 14, 14, 12, 12, 12, 16, 10, 6, 4, -1] as const;
 
 
 // ---------------------------------------------------------------------------

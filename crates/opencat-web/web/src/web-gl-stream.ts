@@ -224,9 +224,28 @@ function executeStream(stream: GpuStreamDecoded): void {
   const vaoByHandle = new Map<number, WebGLVertexArrayObject>();
   const textureByHandle = new Map<number, WebGLTexture>();
   const fboByHandle = new Map<number, WebGLFramebuffer>();
+  const renderbufferByHandle = new Map<number, WebGLRenderbuffer>();
   let lastBoundBuffer: number | null = null;
   let lastBoundTexture: number | null = null;
   let lastBoundTextureTarget = 0x0de1;
+  let lastBoundRenderbuffer: number | null = null;
+
+  const bufferEnsureTs = (handle: number): WebGLBuffer => {
+    let buf = bufferByHandle.get(handle);
+    if (!buf) {
+      buf = gl.createBuffer()!;
+      bufferByHandle.set(handle, buf);
+    }
+    return buf;
+  };
+  const rbEnsure = (handle: number): WebGLRenderbuffer => {
+    let rb = renderbufferByHandle.get(handle);
+    if (!rb) {
+      rb = gl.createRenderbuffer()!;
+      renderbufferByHandle.set(handle, rb);
+    }
+    return rb;
+  };
 
   const dv = new DataView(stream.ops.buffer, stream.ops.byteOffset, stream.ops.byteLength);
   let p = 0;
@@ -673,6 +692,188 @@ function executeStream(stream: GpuStreamDecoded): void {
         gl.blendEquation(u16());
         break;
       }
+      case GLOP.BLEND_FUNC_SEPARATE: {
+        const srcRgb = u16();
+        const dstRgb = u16();
+        const srcA = u16();
+        gl.blendFuncSeparate(srcRgb, dstRgb, srcA, u16());
+        break;
+      }
+      case GLOP.BLEND_EQUATION_SEPARATE: {
+        const rgb = u16();
+        gl.blendEquationSeparate(rgb, u16());
+        break;
+      }
+      case GLOP.TEX_IMAGE_3D: {
+        const target = u16();
+        const level = u8();
+        const internal = i32();
+        const w = u32();
+        const h = u32();
+        const d = u32();
+        const format = u16();
+        const type = u16();
+        const hasData = u8();
+        const bytes = hasData ? rangeBytes(u32()) : null;
+        const tex = textureByHandle.get(lastBoundTexture ?? NULL_HANDLE);
+        if (!tex) throw new Error('web-gl-stream: TEX_IMAGE_3D without a bound texture');
+        gl.bindTexture(lastBoundTextureTarget, tex);
+        gl.texImage3D(target, level, internal, w, h, d, 0, format, type, bytes);
+        break;
+      }
+      case GLOP.TEX_SUB_IMAGE_2D: {
+        const target = u16();
+        const level = u8();
+        const x = i32();
+        const y = i32();
+        const w = u32();
+        const h = u32();
+        const format = u16();
+        const type = u16();
+        const hasData = u8();
+        const bytes = hasData ? rangeBytes(u32()) : null;
+        const tex = textureByHandle.get(lastBoundTexture ?? NULL_HANDLE);
+        if (!tex) throw new Error('web-gl-stream: TEX_SUB_IMAGE_2D without a bound texture');
+        gl.bindTexture(target, tex);
+        gl.texSubImage2D(target, level, x, y, w, h, format, type, bytes);
+        break;
+      }
+      case GLOP.RENDERBUFFER_CREATE: {
+        const handle = u32();
+        if (!renderbufferByHandle.has(handle)) {
+          renderbufferByHandle.set(handle, gl.createRenderbuffer()!);
+        }
+        break;
+      }
+      case GLOP.BIND_RENDERBUFFER: {
+        const target = u16();
+        const handle = u32();
+        const rb = handle === NULL_HANDLE ? null : rbEnsure(handle);
+        if (rb) lastBoundRenderbuffer = handle;
+        gl.bindRenderbuffer(target, rb);
+        break;
+      }
+      case GLOP.RENDERBUFFER_STORAGE: {
+        u32(); // handle 保留位：语义走最近绑定（GL 状态机）
+        const internal = i32();
+        const w = u32();
+        gl.renderbufferStorage(gl.RENDERBUFFER, internal, w, u32());
+        break;
+      }
+      case GLOP.FRAMEBUFFER_RENDERBUFFER: {
+        const target = u16();
+        const attachment = u16();
+        const rbHandle = u32();
+        const rb = rbHandle === NULL_HANDLE ? null : rbEnsure(rbHandle);
+        gl.framebufferRenderbuffer(target, attachment, target, rb);
+        break;
+      }
+      case GLOP.COLOR_MASK: {
+        const r = u8();
+        const g = u8();
+        const b = u8();
+        gl.colorMask(r !== 0, g !== 0, b !== 0, u8() !== 0);
+        break;
+      }
+      case GLOP.UNIFORM_2I: {
+        const loc = uniformLoc(u32());
+        const x = i32();
+        gl.uniform2i(loc, x, i32());
+        break;
+      }
+      case GLOP.UNIFORM_3I: {
+        const loc = uniformLoc(u32());
+        const x = i32();
+        const y = i32();
+        gl.uniform3i(loc, x, y, i32());
+        break;
+      }
+      case GLOP.UNIFORM_4I: {
+        const loc = uniformLoc(u32());
+        const x = i32();
+        const y = i32();
+        const z = i32();
+        gl.uniform4i(loc, x, y, z, i32());
+        break;
+      }
+      case GLOP.TEX_STORAGE_2D: {
+        const target = u16();
+        const levels = u8();
+        const internal = i32();
+        const w = u32();
+        gl.texStorage2D(target, levels, internal, w, u32());
+        break;
+      }
+      case GLOP.TEX_STORAGE_3D: {
+        const target = u16();
+        const levels = u8();
+        const internal = i32();
+        const w = u32();
+        const h = u32();
+        gl.texStorage3D(target, levels, internal, w, h, u32());
+        break;
+      }
+      case GLOP.TEX_SUB_IMAGE_3D: {
+        const target = u16();
+        const level = u8();
+        const x = i32();
+        const y = i32();
+        const z = i32();
+        const w = u32();
+        const h = u32();
+        const d = u32();
+        const format = u16();
+        const type = u16();
+        const hasData = u8();
+        const bytes = hasData ? rangeBytes(u32()) : null;
+        const tex = textureByHandle.get(lastBoundTexture ?? NULL_HANDLE);
+        if (!tex) throw new Error('web-gl-stream: TEX_SUB_IMAGE_3D without a bound texture');
+        gl.bindTexture(target, tex);
+        gl.texSubImage3D(target, level, x, y, z, w, h, d, format, type, bytes);
+        break;
+      }
+      case GLOP.BIND_BUFFER_BASE: {
+        const target = u16();
+        const index = u32();
+        const handle = u32();
+        const buf = handle === NULL_HANDLE ? null : bufferByHandle.get(handle) ?? bufferEnsureTs(handle);
+        gl.bindBufferBase(target, index, buf);
+        break;
+      }
+      case GLOP.DRAW_ARRAYS_INSTANCED: {
+        const mode = u16();
+        const first = i32();
+        const count = i32();
+        gl.drawArraysInstanced(mode, first, count, i32());
+        break;
+      }
+      case GLOP.DRAW_ELEMENTS_INSTANCED: {
+        const mode = u16();
+        const count = i32();
+        const type = u16();
+        const offset = i32();
+        gl.drawElementsInstanced(mode, count, type, offset, i32());
+        break;
+      }
+      case GLOP.VERTEX_ATTRIB_NFV: {
+        const index = u32();
+        const nfloats = u32();
+        const data = rangeBytes(u32());
+        const dvv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        if (nfloats === 1) gl.vertexAttrib1f(index, dvv.getFloat32(0, true));
+        else if (nfloats === 2) gl.vertexAttrib2f(index, dvv.getFloat32(0, true), dvv.getFloat32(4, true));
+        else if (nfloats === 3) gl.vertexAttrib3f(index, dvv.getFloat32(0, true), dvv.getFloat32(4, true), dvv.getFloat32(8, true));
+        else gl.vertexAttrib4f(index, dvv.getFloat32(0, true), dvv.getFloat32(4, true), dvv.getFloat32(8, true), dvv.getFloat32(12, true));
+        break;
+      }
+      case GLOP.UNIFORM_BLOCK_BINDING: {
+        p += 12;
+        break;
+      }
+      case GLOP.BIND_ATTRIB_LOCATION: {
+        p += 12;
+        break;
+      }
       case GLOP.BLEND_COLOR: {
         const r = f32();
         const g = f32();
@@ -699,6 +900,37 @@ function executeStream(stream: GpuStreamDecoded): void {
       case GLOP.POLYGON_OFFSET: {
         const factor = f32();
         gl.polygonOffset(factor, f32());
+        break;
+      }
+      case GLOP.SCISSOR: {
+        const x = i32();
+        const y = i32();
+        const w = i32();
+        gl.scissor(x, y, w, i32());
+        break;
+      }
+      case GLOP.STENCIL_FUNC: {
+        const func = u16();
+        const reference = i32();
+        gl.stencilFunc(func, reference, u32());
+        break;
+      }
+      case GLOP.STENCIL_OP: {
+        const sfail = u16();
+        const dpfail = u16();
+        gl.stencilOp(sfail, dpfail, u16());
+        break;
+      }
+      case GLOP.STENCIL_MASK: {
+        gl.stencilMask(u32());
+        break;
+      }
+      case GLOP.DRAW_BUFFERS: {
+        // WebGL2 MRT：count 首部 + count×u32（变长，与 UNIFORM_MATRIX_4F 同型）。
+        const n = u8();
+        const modes: number[] = [];
+        for (let i = 0; i < n; i++) modes.push(u32());
+        gl.drawBuffers(modes);
         break;
       }
       case GLOP.DRAW_ARRAYS: {

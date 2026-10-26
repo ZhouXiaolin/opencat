@@ -103,3 +103,10 @@ node_modules
 
 # 测试/裸示例的 gsap sidecar（构建产物，测试缺省时写协议 stub）
 /examples/dist/
+
+# 批次②③ 示例构建产物与渲染交付物——本地保留，不入库（Solaren 惯例同上）
+examples/three-min/dist/
+examples/hf-min/dist/
+examples/hf-min/min.mp4
+examples/vfx-heygen-combined/out-vfx-full-cpu.mp4
+examples/vfx-heygen-combined/k3diff-cpu.csv/

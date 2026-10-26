@@ -55,6 +55,11 @@ pub struct GpuStreamRecord {
 pub struct MutationStore {
     styles: HashMap<String, NodeStyleMutations>,
     canvases: HashMap<String, CanvasMutations>,
+    /// 真 GL 反射器（宿主注入）：link 后 three 同步枚举 active
+    /// uniform/attribute，core 不解析 GLSL，问询转发给持有 GL 上下文的
+    /// 宿主（engine 侧编译→link→glGetActiveUniform）。`None` = 无 GL 宿主
+    /// （web 回放等纯录制场景，反射走降级空表）。
+    glsl_reflector: Option<Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>>,
     /// 本帧录制的 GPU 命令流（key 顺序 = begin 顺序）。同 target 幂等复用。
     gpu_streams: Vec<GpuStreamRecord>,
     /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
@@ -707,6 +712,22 @@ impl MutationStore {
     pub fn gl_alloc_handle(&mut self) -> u32 {
         self.gl_next_handle = self.gl_next_handle.max(1) + 1;
         self.gl_next_handle - 1
+    }
+
+    /// 注入真 GL 反射器（宿主在装配期调用一次）。
+    pub fn set_glsl_reflector(
+        &mut self,
+        f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
+    ) {
+        self.glsl_reflector = Some(f);
+    }
+
+    /// link 反射问询：转发注入的反射器；未注入时给空表（无 GL 宿主场景）。
+    pub fn glsl_reflect(&self, vs: &str, fs: &str) -> anyhow::Result<serde_json::Value> {
+        match &self.glsl_reflector {
+            Some(f) => f(vs, fs),
+            None => Ok(serde_json::json!({ "uniforms": [], "attributes": [] })),
+        }
     }
 
     /// 本帧录制的全部 GPU 流（消耗性取出）。

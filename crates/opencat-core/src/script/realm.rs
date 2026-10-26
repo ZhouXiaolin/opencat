@@ -545,6 +545,8 @@ impl<C: JsContext> ScriptRealm<C> {
             stream.byte_ranges.hash(&mut hf);
             let key = format!("gpu:{}:{:016x}", stream.target_id, hf.finish());
             let image_id = crate::ir::GeneratedImageId::from_key(&key);
+            #[cfg(feature = "profile")]
+            eprintln!("OCEXPORT stream {} id {} ops_bytes {}", stream.target_id, image_id.0, stream.ops.len());
             self.ctx.with_store_mut(|s| {
                 s.record_frame_generated_image_deferred(
                     &stream.target_id,

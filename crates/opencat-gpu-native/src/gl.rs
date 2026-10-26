@@ -250,7 +250,10 @@ impl ReadbackPixels {
 
         // 先取回上一帧发起的那次传输。此时它早已在后台完成，map 不阻塞。
         let out = match self.pending.take() {
-            Some(slot) => self.collect(slot, bytes),
+            // PBO map 失败（实测部分 NVIDIA/WGL 组合上 glReadPixels→PBO 报
+            // INVALID_OPERATION，随后 map 出 GL_INVALID_VALUE/null）时退回
+            // 同步读回：慢一帧但内容正确，渲染管线语义不变。
+            Some(slot) => self.collect(slot, bytes).or_else(|| self.read_direct()),
             None => None,
         };
 
@@ -258,6 +261,35 @@ impl ReadbackPixels {
         self.issue(next_slot);
         self.pending = Some(next_slot);
         out
+    }
+
+    /// 同步读回当前 FBO（PBO 路径失败时的回退）。
+    fn read_direct(&self) -> Option<Vec<u8>> {
+        unsafe {
+            let gl = &self.gl;
+            // PBO 读回失败（INVALID_OPERATION）留下的错误标志是粘滞的：不先
+            // 清掉，下面的 get_error 读到的是旧账，会把成功的同步读回也判死。
+            gl.get_error();
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(self.fbo))));
+            gl.read_buffer(glow::COLOR_ATTACHMENT0);
+            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
+            let mut out = vec![0u8; self.width as usize * self.height as usize * 4];
+            gl.read_pixels(
+                0,
+                0,
+                self.width as i32,
+                self.height as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelPackData::Slice(&mut out),
+            );
+            let err = gl.get_error();
+            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
+            if err != glow::NO_ERROR {
+                return None;
+            }
+            Some(out)
+        }
     }
 
     /// 发起一次异步读回到 `slot`。

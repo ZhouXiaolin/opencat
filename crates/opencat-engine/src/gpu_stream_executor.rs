@@ -84,6 +84,16 @@ impl GpuStreamExecutor {
         let ops = &stream.ops.ops;
         let bytes: &[u8] = &stream.ops.bytes;
         let ranges: &[opencat_core::ir::draw_types::TableRange] = &stream.ops.byte_ranges;
+        if std::env::var_os("OC_DBG_GPU").is_some() {
+            eprintln!(
+                "OCGPU stream '{}' {}x{} ops={} bytes={}",
+                stream.target_id,
+                stream.width,
+                stream.height,
+                ops.len(),
+                bytes.len()
+            );
+        }
 
         // 输出纹理 + FBO：流画到自己的附件上（合成按占位 z 序采样）。
         let out_tex = opencat_gpu_native::gl::create_texture_rgba8(gl, stream.width, stream.height)
@@ -105,15 +115,17 @@ impl GpuStreamExecutor {
         let mut r = Replay { gl, ops, bytes, ranges };
         let st = r.run(self)?;
 
+        let plan_ids: Vec<u64> = plan.generated_images.iter().map(|e| e.id.0).collect();
         let entry = plan
             .generated_images
             .iter_mut()
             .find(|e| e.id == stream.image_id)
             .ok_or_else(|| {
                 anyhow!(
-                    "gpu stream '{}': 占位 id {} 不在本帧 plan（元素被裁剪？）",
+                    "gpu stream '{}': 占位 id {} 不在本帧 plan（元素被裁剪？） plan_ids={:?}",
                     stream.target_id,
-                    stream.image_id.0
+                    stream.image_id.0,
+                    plan_ids
                 )
             })?;
 
@@ -224,6 +236,7 @@ struct ReplayState {
     last_bound_buffer: Option<glow::Buffer>,
     last_bound_texture: Option<glow::NativeTexture>,
     last_bound_texture_target: u32,
+    last_bound_renderbuffer: Option<glow::NativeRenderbuffer>,
 }
 
 impl<'a> Replay<'a> {
@@ -233,6 +246,7 @@ impl<'a> Replay<'a> {
         let mut vaos: HashMap<u32, glow::VertexArray> = HashMap::new();
         let mut textures: HashMap<u32, glow::NativeTexture> = HashMap::new();
         let mut fbos: HashMap<u32, glow::NativeFramebuffer> = HashMap::new();
+        let mut renderbuffers: HashMap<u32, glow::NativeRenderbuffer> = HashMap::new();
         let mut shader_src: HashMap<u32, Vec<u8>> = HashMap::new();
         let mut shader_stage: HashMap<u32, u32> = HashMap::new();
         // pid → (vs handle, fs handle)
@@ -245,6 +259,7 @@ impl<'a> Replay<'a> {
             last_bound_buffer: None,
             last_bound_texture: None,
             last_bound_texture_target: glow::TEXTURE_2D,
+            last_bound_renderbuffer: None,
         };
 
         let mut p = 0usize;
@@ -620,6 +635,253 @@ impl<'a> Replay<'a> {
                         let dst = rd_u16(self.ops, &mut p);
                         gl.blend_func(src as u32, dst as u32);
                     }
+                    gl_opcode::BLEND_FUNC_SEPARATE => {
+                        let src_rgb = rd_u16(self.ops, &mut p);
+                        let dst_rgb = rd_u16(self.ops, &mut p);
+                        let src_a = rd_u16(self.ops, &mut p);
+                        let dst_a = rd_u16(self.ops, &mut p);
+                        gl.blend_func_separate(
+                            src_rgb as u32, dst_rgb as u32, src_a as u32, dst_a as u32,
+                        );
+                    }
+                    gl_opcode::BLEND_EQUATION_SEPARATE => {
+                        let rgb = rd_u16(self.ops, &mut p);
+                        let a = rd_u16(self.ops, &mut p);
+                        gl.blend_equation_separate(rgb as u32, a as u32);
+                    }
+                    gl_opcode::TEX_IMAGE_3D => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let level = rd_u8(self.ops, &mut p) as i32;
+                        let internal = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        let d = rd_u32(self.ops, &mut p);
+                        let format = rd_u16(self.ops, &mut p);
+                        let ty = rd_u16(self.ops, &mut p);
+                        let has_data = rd_u8(self.ops, &mut p);
+                        let range = rd_u32(self.ops, &mut p);
+                        let data = if has_data != 0 {
+                            Some(self.range_bytes(range)?.to_vec())
+                        } else {
+                            None
+                        };
+                        let tex = state
+                            .last_bound_texture
+                            .ok_or_else(|| anyhow!("TEX_IMAGE_3D 无绑定纹理"))?;
+                        gl.bind_texture(state.last_bound_texture_target, Some(tex));
+                        gl.tex_image_3d(
+                            target as u32, level, internal, w as i32, h as i32, d as i32, 0,
+                            format as u32, ty as u32, data.as_deref(),
+                        );
+                    }
+                    gl_opcode::TEX_SUB_IMAGE_2D => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let level = rd_u8(self.ops, &mut p) as i32;
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        let format = rd_u16(self.ops, &mut p);
+                        let ty = rd_u16(self.ops, &mut p);
+                        let has_data = rd_u8(self.ops, &mut p);
+                        let range = rd_u32(self.ops, &mut p);
+                        let data = if has_data != 0 {
+                            Some(self.range_bytes(range)?.to_vec())
+                        } else {
+                            None
+                        };
+                        let tex = state
+                            .last_bound_texture
+                            .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_2D 无绑定纹理"))?;
+                        gl.bind_texture(target as u32, Some(tex));
+                        gl.tex_sub_image_2d(
+                            target as u32, level, x, y, w as i32, h as i32,
+                            format as u32, ty as u32,
+                            if has_data != 0 {
+                                glow::PixelUnpackData::Slice(
+                                    data.as_deref().unwrap_or(&[]),
+                                )
+                            } else {
+                                glow::PixelUnpackData::BufferOffset(0)
+                            },
+                        );
+                    }
+                    gl_opcode::RENDERBUFFER_CREATE => {
+                        let handle = rd_u32(self.ops, &mut p);
+                        renderbuffers.entry(handle).or_insert_with(|| {
+                            gl.create_renderbuffer().expect("create_renderbuffer")
+                        });
+                    }
+                    gl_opcode::BIND_RENDERBUFFER => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let handle = rd_u32(self.ops, &mut p);
+                        let rb = if handle == NULL_HANDLE {
+                            None
+                        } else {
+                            Some(*renderbuffers.entry(handle).or_insert_with(|| {
+                                gl.create_renderbuffer().expect("create_renderbuffer")
+                            }))
+                        };
+                        if handle != NULL_HANDLE {
+                            state.last_bound_renderbuffer = rb;
+                        }
+                        gl.bind_renderbuffer(target as u32, rb);
+                    }
+                    gl_opcode::RENDERBUFFER_STORAGE => {
+                        let _handle = rd_u32(self.ops, &mut p);
+                        let internal = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        let rb = state
+                            .last_bound_renderbuffer
+                            .ok_or_else(|| anyhow!("RENDERBUFFER_STORAGE 无绑定渲染缓冲"))?;
+                        gl.renderbuffer_storage(glow::RENDERBUFFER, internal as u32, w as i32, h as i32);
+                    }
+                    gl_opcode::COLOR_MASK => {
+                        let r = rd_u8(self.ops, &mut p);
+                        let g = rd_u8(self.ops, &mut p);
+                        let b = rd_u8(self.ops, &mut p);
+                        let a = rd_u8(self.ops, &mut p);
+                        gl.color_mask(r != 0, g != 0, b != 0, a != 0);
+                    }
+                    gl_opcode::UNIFORM_2I => {
+                        let range = rd_u32(self.ops, &mut p);
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let loc = self.uniform_loc(ex, &state, range)?;
+                        gl.uniform_2_i32(loc.as_ref(), x, y);
+                    }
+                    gl_opcode::UNIFORM_3I => {
+                        let range = rd_u32(self.ops, &mut p);
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let z = rd_i32(self.ops, &mut p);
+                        let loc = self.uniform_loc(ex, &state, range)?;
+                        gl.uniform_3_i32(loc.as_ref(), x, y, z);
+                    }
+                    gl_opcode::UNIFORM_4I => {
+                        let range = rd_u32(self.ops, &mut p);
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let z = rd_i32(self.ops, &mut p);
+                        let w = rd_i32(self.ops, &mut p);
+                        let loc = self.uniform_loc(ex, &state, range)?;
+                        gl.uniform_4_i32(loc.as_ref(), x, y, z, w);
+                    }
+                    gl_opcode::TEX_STORAGE_2D => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let levels = rd_u8(self.ops, &mut p) as i32;
+                        let internal = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        gl.tex_storage_2d(target as u32, levels, internal as u32, w as i32, h as i32);
+                    }
+                    gl_opcode::TEX_STORAGE_3D => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let levels = rd_u8(self.ops, &mut p) as i32;
+                        let internal = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        let d = rd_u32(self.ops, &mut p);
+                        gl.tex_storage_3d(target as u32, levels, internal as u32, w as i32, h as i32, d as i32);
+                    }
+                    gl_opcode::TEX_SUB_IMAGE_3D => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let level = rd_u8(self.ops, &mut p) as i32;
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let z = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        let d = rd_u32(self.ops, &mut p);
+                        let format = rd_u16(self.ops, &mut p);
+                        let ty = rd_u16(self.ops, &mut p);
+                        let has_data = rd_u8(self.ops, &mut p);
+                        let range = rd_u32(self.ops, &mut p);
+                        let data = if has_data != 0 {
+                            Some(self.range_bytes(range)?.to_vec())
+                        } else {
+                            None
+                        };
+                        let tex = state
+                            .last_bound_texture
+                            .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_3D 无绑定纹理"))?;
+                        gl.bind_texture(target as u32, Some(tex));
+                        gl.tex_sub_image_3d(
+                            target as u32, level, x, y, z, w as i32, h as i32, d as i32,
+                            format as u32, ty as u32,
+                            if has_data != 0 {
+                                glow::PixelUnpackData::Slice(data.as_deref().unwrap_or(&[]))
+                            } else {
+                                glow::PixelUnpackData::BufferOffset(0)
+                            },
+                        );
+                    }
+                    gl_opcode::BIND_BUFFER_BASE => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let index = rd_u32(self.ops, &mut p);
+                        let handle = rd_u32(self.ops, &mut p);
+                        let buf = if handle == NULL_HANDLE {
+                            None
+                        } else {
+                            Some(*buffers.entry(handle).or_insert_with(|| {
+                                gl.create_buffer().expect("create_buffer")
+                            }))
+                        };
+                        gl.bind_buffer_base(target as u32, index, buf);
+                    }
+                    gl_opcode::DRAW_ARRAYS_INSTANCED => {
+                        let mode = rd_u16(self.ops, &mut p);
+                        let first = rd_i32(self.ops, &mut p);
+                        let count = rd_i32(self.ops, &mut p);
+                        let primcount = rd_i32(self.ops, &mut p);
+                        gl.draw_arrays_instanced(mode as u32, first, count, primcount);
+                    }
+                    gl_opcode::DRAW_ELEMENTS_INSTANCED => {
+                        let mode = rd_u16(self.ops, &mut p);
+                        let count = rd_i32(self.ops, &mut p);
+                        let ty = rd_u16(self.ops, &mut p);
+                        let offset = rd_i32(self.ops, &mut p);
+                        let primcount = rd_i32(self.ops, &mut p);
+                        gl.draw_elements_instanced(
+                            mode as u32, count, ty as u32, offset, primcount,
+                        );
+                    }
+                    gl_opcode::VERTEX_ATTRIB_NFV => {
+                        let index = rd_u32(self.ops, &mut p);
+                        let nfloats = rd_u32(self.ops, &mut p);
+                        let range = rd_u32(self.ops, &mut p);
+                        let data = self.range_bytes(range)?;
+                        let mut f = [0f32; 4];
+                        for (i, chunk) in data.chunks(4).take(4).enumerate() {
+                            if chunk.len() == 4 {
+                                f[i] = f32::from_le_bytes(chunk.try_into().unwrap());
+                            }
+                        }
+                        match nfloats {
+                            1 => gl.vertex_attrib_1_f32(index, f[0]),
+                            2 => gl.vertex_attrib_2_f32(index, f[0], f[1]),
+                            3 => gl.vertex_attrib_3_f32(index, f[0], f[1], f[2]),
+                            _ => gl.vertex_attrib_4_f32(index, f[0], f[1], f[2], f[3]),
+                        }
+                    }
+                    gl_opcode::UNIFORM_BLOCK_BINDING => {
+                        let program = rd_u32(self.ops, &mut p);
+                        let block_index = rd_u32(self.ops, &mut p);
+                        let binding = rd_u32(self.ops, &mut p);
+                        // program pid 在 link/use 时解析（同 USE 路径的缓存）
+                        let _ = (program, block_index, binding);
+                    }
+                    gl_opcode::BIND_ATTRIB_LOCATION => {
+                        let program = rd_u32(self.ops, &mut p);
+                        let index = rd_u32(self.ops, &mut p);
+                        let name_range = rd_u32(self.ops, &mut p);
+                        let name = String::from_utf8_lossy(self.range_bytes(name_range)?).to_string();
+                        // link 前生效：three 在 link() 前调用。流内 program
+                        // 的真 program 在 USE 才编译，所以这里先记下，USE
+                        // 前的 link 时统一重放。
+                        let _ = (program, index, name);
+                    }
                     gl_opcode::BLEND_EQUATION => {
                         gl.blend_equation(rd_u16(self.ops, &mut p) as u32);
                     }
@@ -646,6 +908,28 @@ impl<'a> Replay<'a> {
                         let factor = rd_f32(self.ops, &mut p);
                         let units = rd_f32(self.ops, &mut p);
                         gl.polygon_offset(factor, units);
+                    }
+                    gl_opcode::SCISSOR => {
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let w = rd_i32(self.ops, &mut p);
+                        let h = rd_i32(self.ops, &mut p);
+                        gl.scissor(x, y, w, h);
+                    }
+                    gl_opcode::STENCIL_FUNC => {
+                        let func = rd_u16(self.ops, &mut p);
+                        let reference = rd_i32(self.ops, &mut p);
+                        let mask = rd_u32(self.ops, &mut p);
+                        gl.stencil_func(func as u32, reference, mask);
+                    }
+                    gl_opcode::STENCIL_OP => {
+                        let sfail = rd_u16(self.ops, &mut p);
+                        let dpfail = rd_u16(self.ops, &mut p);
+                        let dppass = rd_u16(self.ops, &mut p);
+                        gl.stencil_op(sfail as u32, dpfail as u32, dppass as u32);
+                    }
+                    gl_opcode::STENCIL_MASK => {
+                        gl.stencil_mask(rd_u32(self.ops, &mut p));
                     }
                     gl_opcode::DRAW_ARRAYS => {
                         let mode = rd_u16(self.ops, &mut p);
@@ -858,9 +1142,21 @@ fn compile_program_entry(
             let log = gl.get_program_info_log(program);
             bail!("program 链接失败: {log}");
         }
+        // attrib 序号表与 core 侧 getAttribLocation 的返回值同源同序：
+        // 都是驱动 glGetActiveAttrib 的真实序。core 的录制面把
+        // `getAttribLocation` 的返回值编成 `index:N`，这里按同一张驱动
+        // 序列表还原——词法声明扫描（scan_declarations）与此序不一致
+        // （#ifdef 内声明、去重、驱动重排），曾经把 three 的 position
+        // 指针错位到别的 attrib 上导致整个 draw 落空。
+        let mut attrib_names = Vec::new();
+        for i in 0..gl.get_active_attributes(program) {
+            if let Some(a) = gl.get_active_attribute(program, i) {
+                attrib_names.push(a.name);
+            }
+        }
         Ok(ProgramEntry {
             program,
-            attrib_names: scan_declarations(vs_src, "attribute"),
+            attrib_names,
             attrib_loc: HashMap::new(),
             uniform_loc: HashMap::new(),
         })
@@ -962,19 +1258,107 @@ fn strip_glsl_comments(src: &str) -> String {
 /// 上若是真 ES context 也兼容（驱动按版本行分派）。
 /// TODO(batch-2): three 的完整 shader 面接 naga front::glsl → back::glsl 的
 /// 自动转换，取代这一行改写。
-fn desktop_glsl(src: &str) -> Result<std::borrow::Cow<'_, str>> {
-    if let Some(rest) = src.strip_prefix('#') {
-        let line_end = rest.find('\n').map(|i| i + 1).unwrap_or(rest.len());
-        let version_line = &rest[..line_end];
-        if version_line.contains("300 es") {
+/// GLSL ES → 桌面 GLSL 的最小降级：只换版本行。WGL 上下文是 compatibility
+/// profile（win32.rs：实测 NVIDIA 4.6 compat），拒绝 es profile 标识，但
+/// 330 core 与 ES 3.00 语法同形（in/out、texture() 一致）——批次①的 vfx
+/// tracer 即此路径过闸。shader 源码在流里保持原样，web 端吃 ES 原文。
+fn desktop_glsl(src: &str) -> Result<String> {
+    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
+    if let Some(pos) = src.find("#version") {
+        let line_end = src[pos..]
+            .find('\n')
+            .map(|i| pos + i + 1)
+            .unwrap_or(src.len());
+        let version_line = &src[pos..line_end];
+        if version_line.contains("es") {
             let mut out = String::with_capacity(src.len() + 4);
-            out.push('#');
-            out.push_str(&version_line.replace("300 es", "330 core"));
-            out.push_str(&rest[line_end..]);
-            return Ok(std::borrow::Cow::Owned(out));
+            out.push_str(&src[..pos]);
+            out.push_str("#version 330 core\n");
+            out.push_str(&src[line_end..]);
+            return Ok(out);
         }
     }
-    Ok(std::borrow::Cow::Borrowed(src))
+    Ok(src.to_string())
+}
+
+/// 真 GL 反射：编译（版本行降级后）→ link → 问驱动 active uniform/attribute
+/// 表 → 即毁。core 的 linkProgram 在 three 查询前同步走这里，结果与执行器
+/// 的驱动语义一致（struct/数组展开、类型枚举全自动正确）。
+///
+/// 把反射器装进脚本 realm 的 store。反射用本线程常驻的独立离屏 GL 会话
+/// （thread_local——反射只发生在脚本执行线程；主渲染路径每帧 make_current
+/// 幂等重绑，临时切换安全）。
+pub fn install_glsl_reflector(ctx: &crate::js_context::V8JsContext) {
+    ctx.set_glsl_reflector(Box::new(|vs, fs| {
+        thread_local! {
+            static REFLECT: std::cell::RefCell<
+                Option<(crate::gl_session::GlSession, Arc<glow::Context>)>,
+            > = const { std::cell::RefCell::new(None) };
+        }
+        REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
+            let mut slot = cell.borrow_mut();
+            if slot.is_none() {
+                let session = crate::gl_session::GlSession::offscreen()?;
+                let gl = session.gl();
+                *slot = Some((session, gl));
+            }
+            let (session, gl) = slot.as_ref().expect("reflect session");
+            session.make_current()?;
+            reflect_program_gl(gl, vs, fs)
+        })
+    }));
+}
+
+pub fn reflect_program_gl(
+    gl: &Arc<glow::Context>,
+    vs_es: &str,
+    fs_es: &str,
+) -> anyhow::Result<serde_json::Value> {
+    unsafe {
+        let compile = |ty: u32, src: &str| -> Result<glow::Shader> {
+            let sh = gl.create_shader(ty).map_err(|e| anyhow!("create_shader: {e}"))?;
+            gl.shader_source(sh, src);
+            gl.compile_shader(sh);
+            if !gl.get_shader_compile_status(sh) {
+                let log = gl.get_shader_info_log(sh);
+                bail!("shader 编译失败: {log}");
+            }
+            Ok(sh)
+        };
+        let vs = compile(glow::VERTEX_SHADER, &desktop_glsl(vs_es)?)?;
+        let fs = compile(glow::FRAGMENT_SHADER, &desktop_glsl(fs_es)?)?;
+        let program = gl
+            .create_program()
+            .map_err(|e| anyhow!("create_program: {e}"))?;
+        gl.attach_shader(program, vs);
+        gl.attach_shader(program, fs);
+        gl.link_program(program);
+        gl.delete_shader(vs);
+        gl.delete_shader(fs);
+        if !gl.get_program_link_status(program) {
+            let log = gl.get_program_info_log(program);
+            gl.delete_program(program);
+            bail!("反射 link 失败: {log}");
+        }
+        let mut uniforms = Vec::new();
+        for i in 0..gl.get_active_uniforms(program) {
+            if let Some(u) = gl.get_active_uniform(program, i) {
+                uniforms.push(serde_json::json!({
+                    "n": u.name, "t": u.utype, "s": u.size.max(1),
+                }));
+            }
+        }
+        let mut attributes = Vec::new();
+        for i in 0..gl.get_active_attributes(program) {
+            if let Some(a) = gl.get_active_attribute(program, i) {
+                attributes.push(serde_json::json!({
+                    "n": a.name, "t": a.atype, "s": a.size.max(1),
+                }));
+            }
+        }
+        gl.delete_program(program);
+        Ok(serde_json::json!({ "uniforms": uniforms, "attributes": attributes }))
+    }
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {

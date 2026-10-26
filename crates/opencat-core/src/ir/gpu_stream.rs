@@ -286,7 +286,64 @@ pub mod gl_opcode {
     /// {mode: u16, count: i32, type: u16, offset: i32}
     pub const DRAW_ELEMENTS: u8 = 58;
 
-    pub const MAX_OPCODE: u8 = DRAW_ELEMENTS;
+    // ── 批次②扩展（官方 three 需要面）────────────────────────────
+    /// {src_rgb: u16, dst_rgb: u16, src_a: u16, dst_a: u16}
+    pub const BLEND_FUNC_SEPARATE: u8 = 59;
+    /// {rgb: u16, a: u16}
+    pub const BLEND_EQUATION_SEPARATE: u8 = 60;
+    /// {target: u16, level: u8, internal: i32, w: u32, h: u32, d: u32,
+    ///  format: u16, type: u16, has_data: u8, range: u32}
+    pub const TEX_IMAGE_3D: u8 = 61;
+    /// {target: u16, level: u8, x: i32, y: i32, w: u32, h: u32, format: u16,
+    ///  type: u16, has_data: u8, range: u32}
+    pub const TEX_SUB_IMAGE_2D: u8 = 62;
+    /// {handle: u32}
+    pub const RENDERBUFFER_CREATE: u8 = 64;
+    /// {target: u16, handle: u32}
+    pub const BIND_RENDERBUFFER: u8 = 65;
+    /// {handle: u32, internal: i32, w: u32, h: u32}
+    pub const RENDERBUFFER_STORAGE: u8 = 66;
+    /// {target: u16, attachment: u16, rb_handle: u32}
+    pub const FRAMEBUFFER_RENDERBUFFER: u8 = 67;
+
+    /// {r: u8, g: u8, b: u8, a: u8}
+    pub const COLOR_MASK: u8 = 68;
+    /// {name: u32, x: i32, y: i32}
+    pub const UNIFORM_2I: u8 = 69;
+    /// {name: u32, x: i32, y: i32, z: i32}
+    pub const UNIFORM_3I: u8 = 70;
+    /// {name: u32, x: i32, y: i32, z: i32, w: i32}
+    pub const UNIFORM_4I: u8 = 71;
+    /// {target: u16, levels: u8, internal: i32, w: u32, h: u32}
+    pub const TEX_STORAGE_2D: u8 = 72;
+    /// {target: u16, levels: u8, internal: i32, w: u32, h: u32, d: u32}
+    pub const TEX_STORAGE_3D: u8 = 73;
+    /// {target: u16, level: u8, x: i32, y: i32, z: i32, w: u32, h: u32,
+    ///  d: u32, format: u16, type: u16, has_data: u8, range: u32}
+    pub const TEX_SUB_IMAGE_3D: u8 = 74;
+    /// {target: u16, index: u32, buffer: u32}
+    pub const BIND_BUFFER_BASE: u8 = 75;
+    /// {mode: u16, first: i32, count: i32, primcount: i32}
+    pub const DRAW_ARRAYS_INSTANCED: u8 = 76;
+    /// {mode: u16, count: i32, type: u16, offset: i32, primcount: i32}
+    pub const DRAW_ELEMENTS_INSTANCED: u8 = 77;
+    /// {index: u32, count: u32, data} — count = float 数（1..4）。
+    /// 变长。
+    pub const VERTEX_ATTRIB_NFV: u8 = 78;
+    /// {program: u32, block_index: u32, binding: u32}
+    pub const UNIFORM_BLOCK_BINDING: u8 = 79;
+    /// {program: u32, index: u32, name_range: u32}
+    pub const BIND_ATTRIB_LOCATION: u8 = 80;
+    /// {x: i32, y: i32, w: i32, h: i32}
+    pub const SCISSOR: u8 = 81;
+    /// {func: u16, ref: i32, mask: u32}
+    pub const STENCIL_FUNC: u8 = 82;
+    /// {sfail: u16, dpfail: u16, dppass: u16}
+    pub const STENCIL_OP: u8 = 83;
+    /// {mask: u32}
+    pub const STENCIL_MASK: u8 = 84;
+
+    pub const MAX_OPCODE: u8 = STENCIL_MASK;
 
     /// 定长 payload 长度表；`None` = 变长（UNIFORM_NF/NI/MATRIX_4F）。
     pub const PAYLOAD_LEN: [Option<u16>; (MAX_OPCODE as usize) + 1] = build_payload_len();
@@ -331,7 +388,7 @@ pub mod gl_opcode {
         table[TEXTURE_BIND as usize] = Some(6);
         table[TEX_PARAM_I as usize] = Some(8);
         table[TEX_PARAM_F as usize] = Some(8);
-        table[TEX_IMAGE_2D as usize] = Some(23);
+        table[TEX_IMAGE_2D as usize] = Some(24);
         table[GENERATE_MIPMAP as usize] = Some(2);
         table[PIXEL_STORE_I as usize] = Some(6);
         // framebuffers
@@ -358,6 +415,33 @@ pub mod gl_opcode {
         // draw
         table[DRAW_ARRAYS as usize] = Some(10);
         table[DRAW_ELEMENTS as usize] = Some(12);
+        // 批次②扩展
+        table[BLEND_FUNC_SEPARATE as usize] = Some(8);
+        table[BLEND_EQUATION_SEPARATE as usize] = Some(4);
+        table[TEX_IMAGE_3D as usize] = Some(28);
+        table[TEX_SUB_IMAGE_2D as usize] = Some(28);
+        table[RENDERBUFFER_CREATE as usize] = Some(4);
+        table[BIND_RENDERBUFFER as usize] = Some(6);
+        table[RENDERBUFFER_STORAGE as usize] = Some(16);
+        table[FRAMEBUFFER_RENDERBUFFER as usize] = Some(8);
+        table[COLOR_MASK as usize] = Some(4);
+        table[UNIFORM_2I as usize] = Some(12);
+        table[UNIFORM_3I as usize] = Some(16);
+        table[UNIFORM_4I as usize] = Some(20);
+        table[TEX_STORAGE_2D as usize] = Some(15);
+        table[TEX_STORAGE_3D as usize] = Some(19);
+        table[TEX_SUB_IMAGE_3D as usize] = Some(36);
+        table[BIND_BUFFER_BASE as usize] = Some(10);
+        table[DRAW_ARRAYS_INSTANCED as usize] = Some(14);
+        table[DRAW_ELEMENTS_INSTANCED as usize] = Some(14);
+        table[VERTEX_ATTRIB_NFV as usize] = Some(12);
+        table[UNIFORM_BLOCK_BINDING as usize] = Some(12);
+        table[BIND_ATTRIB_LOCATION as usize] = Some(12);
+        table[SCISSOR as usize] = Some(16);
+        table[STENCIL_FUNC as usize] = Some(10);
+        table[STENCIL_OP as usize] = Some(6);
+        table[STENCIL_MASK as usize] = Some(4);
+
         table
     }
 }

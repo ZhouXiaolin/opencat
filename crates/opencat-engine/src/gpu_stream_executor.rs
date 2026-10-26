@@ -35,6 +35,169 @@ pub struct GpuStreamExecutor {
     program_cache: HashMap<String, ProgramEntry>,
     /// 内容 hash → 已上载纹理（跳过重传）。
     texture_cache: std::collections::HashSet<String>,
+    /// WebGL `UNPACK_FLIP_Y_WEBGL` 标志（影响下一次 texImage/SubImage2D）。
+    /// 桌面 GL 没有这个 pname，翻转由本执行器对上传字节手动做。
+    unpack_flip_y: bool,
+    // ── WebGL 句柄 → GL 对象映射（跨流持久）─────────────────────────
+    // JS 侧句柄 realm 级单调、GL 对象存活由脚本 delete 决定；持久 renderer
+    // 的后续帧流里没有创建命令（three 只在首次构造时 create），映射必须
+    // 跨流存活，否则 useProgram/bindBuffer 全部悬空。
+    obj_buffers: HashMap<u32, glow::Buffer>,
+    obj_vaos: HashMap<u32, glow::VertexArray>,
+    obj_textures: HashMap<u32, glow::NativeTexture>,
+    obj_fbos: HashMap<u32, glow::NativeFramebuffer>,
+    obj_renderbuffers: HashMap<u32, glow::NativeRenderbuffer>,
+    shader_src: HashMap<u32, Vec<u8>>,
+    shader_stage: HashMap<u32, u32>,
+    /// pid → (vs handle, fs handle)
+    program_shaders: HashMap<u32, (Option<u32>, Option<u32>)>,
+    /// 流内 pid → 内容 key（USE 时解析出 entry）。
+    program_key_by_pid: HashMap<u32, String>,
+    /// VAO 的 element 绑定由执行器自己记账、VAO_BIND 时主动重绑。共享
+    /// GL 上下文上 VAO 状态会被其他人（Skia 合成、restore、驱动）踩掉，
+    /// 而 three 的 bindingStates 缓存使后续帧不再重发绑定——依赖驱动
+    /// 保留状态必然炸（drawElements 拿到 index=0 直接访问违例）。
+    vao_element: HashMap<u32, u32>,
+    /// 当前绑定的 VAO 句柄（None = 无）。
+    cur_vao: Option<u32>,
+    /// 当前绑定的 element buffer 句柄（None = 无）。
+    cur_element: Option<u32>,
+    /// 当前使用的程序（内容 key；None = 无）。
+    cur_program_key: Option<String>,
+    /// 客户端可见的全局 GL 状态影子（three 的 JS 状态缓存视角）。
+    client: ClientGlState,
+}
+
+/// GL 命令流客户端的"最后一次设置"状态。帧尾必须恢复到这个影子而不是
+/// GL 默认——WebGL 客户端（three 的 WebGLState）按客户端视角缓存状态、
+/// 只在变化时发命令：真 GL 被清回默认后，后续帧的增量命令全被缓存吞掉
+/// （enable(CULL_FACE)/useProgram/bindTexture 只发一次），剔除、深度测试、
+/// 程序绑定集体失效。
+#[derive(Clone)]
+struct ClientGlState {
+    caps: Vec<(u32, bool)>,
+    front_face: u32,
+    cull_face: u32,
+    depth_func: u32,
+    depth_mask: bool,
+    color_mask: [bool; 4],
+    blend_equation: (u32, u32),
+    blend_func: (u32, u32, u32, u32),
+    blend_color: [f32; 4],
+    stencil_func: (u32, i32, u32),
+    stencil_op: (u32, u32, u32),
+    stencil_mask: u32,
+    polygon_offset: (f32, f32),
+    clear_color: [f32; 4],
+    clear_depth: f32,
+    clear_stencil: i32,
+    active_unit: u32,
+    /// (纹理单元, target, 句柄) —— 跨帧被 three 缓存引用的绑定。
+    tex_binds: Vec<(u32, u32, u32)>,
+    /// (target, 句柄) —— renderbuffer 绑定。
+    rb_binds: Vec<(u32, u32)>,
+    /// 全局 ARRAY_BUFFER 句柄（element 归 VAO 账本管）。
+    array_buffer: Option<u32>,
+}
+
+impl Default for ClientGlState {
+    fn default() -> Self {
+        Self {
+            caps: Vec::new(),
+            front_face: glow::CCW,
+            cull_face: glow::BACK,
+            depth_func: glow::LESS,
+            depth_mask: true,
+            color_mask: [true; 4],
+            blend_equation: (glow::FUNC_ADD, glow::FUNC_ADD),
+            blend_func: (glow::ONE, glow::ZERO, glow::ONE, glow::ZERO),
+            blend_color: [0.0; 4],
+            stencil_func: (glow::ALWAYS, 0, 0xFFFF_FFFF),
+            stencil_op: (glow::KEEP, glow::KEEP, glow::KEEP),
+            stencil_mask: 0xFFFF_FFFF,
+            polygon_offset: (0.0, 0.0),
+            clear_color: [0.0; 4],
+            clear_depth: 1.0,
+            clear_stencil: 0,
+            active_unit: 0,
+            tex_binds: Vec::new(),
+            rb_binds: Vec::new(),
+            array_buffer: None,
+        }
+    }
+}
+
+impl ClientGlState {
+    fn upsert_cap(&mut self, cap: u32, on: bool) {
+        if let Some(slot) = self.caps.iter_mut().find(|(c, _)| *c == cap) {
+            slot.1 = on;
+        } else {
+            self.caps.push((cap, on));
+        }
+    }
+}
+
+impl GpuStreamExecutor {
+    /// 客户端视角的当前纹理绑定（WebGL 语义，按 unit+target 持久）。
+    /// three 的 state.bindTexture 带缓存、命中时不再发 bind——持久
+    /// renderer 的后续帧流里可能没有 bind 命令，上传类命令必须从影子
+    /// 解析目标纹理，否则数据落到别的绑定上。
+    fn bound_texture(&self, target: u32) -> Option<u32> {
+        // cube 六个面是独立 target,但绑定挂在 TEXTURE_CUBE_MAP 上。
+        let binding_target = if (glow::TEXTURE_CUBE_MAP_POSITIVE_X..=glow::TEXTURE_CUBE_MAP_NEGATIVE_Z)
+            .contains(&target)
+        {
+            glow::TEXTURE_CUBE_MAP
+        } else {
+            target
+        };
+        self.client
+            .tex_binds
+            .iter()
+            .rev()
+            .find(|(u, t, _)| *u == self.client.active_unit && *t == binding_target)
+            .map(|(_, _, h)| *h)
+    }
+
+    /// 客户端视角的当前 buffer 绑定（ARRAY 全局；ELEMENT 归 VAO 账本）。
+    fn bound_buffer(&self, target: u32) -> Option<u32> {
+        if target == glow::ARRAY_BUFFER {
+            self.client.array_buffer
+        } else {
+            self.cur_element
+        }
+    }
+
+    /// 客户端视角的当前 renderbuffer 绑定。
+    fn bound_renderbuffer(&self, target: u32) -> Option<u32> {
+        self.client
+            .rb_binds
+            .iter()
+            .rev()
+            .find(|(t, _)| *t == target)
+            .map(|(_, h)| *h)
+    }
+}
+
+/// 行反转一段像素块（flipY 的手动等价）。行宽按字节数均分——不解释
+/// format/type，任何密度的行序都是同一个翻转。
+fn flip_rows_vertical(bytes: &mut [u8], height: u32) {
+    let h = height as usize;
+    if h <= 1 || bytes.is_empty() {
+        return;
+    }
+    let row = bytes.len() / h;
+    if row == 0 {
+        return;
+    }
+    let mut tmp = vec![0u8; row];
+    for i in 0..h / 2 {
+        let top = i * row;
+        let bottom = (h - 1 - i) * row;
+        tmp.copy_from_slice(&bytes[top..top + row]);
+        bytes.copy_within(bottom..bottom + row, top);
+        bytes[bottom..bottom + row].copy_from_slice(&tmp);
+    }
 }
 
 struct ProgramEntry {
@@ -67,9 +230,10 @@ impl GpuStreamExecutor {
             let out = self.execute_stream(gl, stream, plan, textures, gpu_mode)?;
             outputs.extend(out);
         }
-        if !outputs.is_empty() {
-            restore_default_state(gl);
-        }
+        // 无条件恢复:被丢弃的流(占位不可见)同样把状态留在流尾,下一帧的
+        // 执行不能从遗留状态开始。恢复到客户端影子(而非 GL 默认)——
+        // three 的缓存视角与真 GL 保持一致,后续帧的增量命令不被吞。
+        restore_default_state(self, gl);
         Ok(outputs)
     }
 
@@ -98,8 +262,9 @@ impl GpuStreamExecutor {
         // 输出纹理 + FBO：流画到自己的附件上（合成按占位 z 序采样）。
         let out_tex = opencat_gpu_native::gl::create_texture_rgba8(gl, stream.width, stream.height)
             .ok_or_else(|| anyhow!("gpu stream: 输出纹理创建失败"))?;
-        let out_fbo = opencat_gpu_native::gl::create_framebuffer(gl, out_tex)
-            .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
+        let out_fbo =
+            opencat_gpu_native::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
+                .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
 
         // 流内不录 bindFramebuffer（作者代码不调它）；执行器把输出 FBO 设为
         // 绘制目标，否则 clear/draw 落到默认帧缓冲，输出纹理保持黑。
@@ -115,19 +280,26 @@ impl GpuStreamExecutor {
         let mut r = Replay { gl, ops, bytes, ranges };
         let st = r.run(self)?;
 
-        let plan_ids: Vec<u64> = plan.generated_images.iter().map(|e| e.id.0).collect();
-        let entry = plan
+        // 占位不在本帧 plan = 该 canvas 子树本帧不可见（opacity 0 / 裁剪/
+        // 移出屏）——流照常执行：three 等持久 renderer 的资源创建命令
+        // （program/纹理/VBO）只在首帧录一次，跳过执行会让 GL 侧永远收
+        // 不到它们。只丢弃输出，不回填 plan。
+        let Some(entry) = plan
             .generated_images
             .iter_mut()
             .find(|e| e.id == stream.image_id)
-            .ok_or_else(|| {
-                anyhow!(
-                    "gpu stream '{}': 占位 id {} 不在本帧 plan（元素被裁剪？） plan_ids={:?}",
-                    stream.target_id,
-                    stream.image_id.0,
-                    plan_ids
-                )
-            })?;
+        else {
+            if std::env::var_os("OC_DBG_GPU").is_some() {
+                eprintln!(
+                    "OCGPU stream '{}' 占位不在本帧 plan（不可见）——已执行、输出丢弃",
+                    stream.target_id
+                );
+            }
+            opencat_gpu_native::gl::delete_framebuffer(gl, out_fbo);
+            opencat_gpu_native::gl::delete_texture(gl, out_tex);
+            let _ = st;
+            return Ok(Vec::new());
+        };
 
         let mut outputs = Vec::new();
         if gpu_mode {
@@ -158,35 +330,94 @@ impl GpuStreamExecutor {
 /// 我们共享同一 HGLRC,`resetContext(kAll)` 只失效 Skia 的缓存让它们重新
 /// 查询,并不改这些真实状态——flush 时驱动在遗留绑定上执行 Skia 的命令,
 /// 实测(Windows/NVIDIA)表现为访问违例。逐项还原到 GL 默认值。
-fn restore_default_state(gl: &Arc<glow::Context>) {
+fn restore_default_state(ex: &mut GpuStreamExecutor, gl: &Arc<glow::Context>) {
     unsafe {
-        gl.use_program(None);
-        gl.bind_buffer(glow::ARRAY_BUFFER, None);
-        gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
-        gl.bind_vertex_array(None);
+        // 绑定类恢复到客户端最后看到的对象(three 的缓存只在变化时重发);
+        // 句柄已删的回落 None 并同步账本。VAO 先绑回——ELEMENT 绑定和
+        // attrib 状态都属于 VAO,绑回后按账本重挂 element。
+        let vao = ex.cur_vao.and_then(|h| ex.obj_vaos.get(&h).copied());
+        gl.bind_vertex_array(vao);
+        if vao.is_none() {
+            ex.cur_vao = None;
+            ex.cur_element = None;
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
+        } else {
+            let eh = ex.cur_vao.and_then(|v| ex.vao_element.get(&v).copied());
+            ex.cur_element = eh;
+            if let Some(h) = eh && let Some(buf) = ex.obj_buffers.get(&h) {
+                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*buf));
+            }
+        }
+        let program = ex
+            .cur_program_key
+            .as_ref()
+            .and_then(|k| ex.program_cache.get(k));
+        if program.is_none() {
+            ex.cur_program_key = None;
+        }
+        gl.use_program(program.map(|e| e.program));
+        let ab = ex
+            .client
+            .array_buffer
+            .and_then(|h| ex.obj_buffers.get(&h).copied());
+        if ab.is_none() {
+            ex.client.array_buffer = None;
+        }
+        gl.bind_buffer(glow::ARRAY_BUFFER, ab);
+        // 纹理:先全清,再按影子恢复跨帧引用的绑定。
         for unit in 0u32..8 {
             gl.active_texture(glow::TEXTURE0 + unit);
             gl.bind_texture(glow::TEXTURE_2D, None);
             gl.bind_sampler(glow::TEXTURE0 + unit, None);
         }
-        gl.active_texture(glow::TEXTURE0);
+        ex.client.tex_binds.retain(|(_, _, h)| ex.obj_textures.contains_key(h));
+        for (unit, target, h) in &ex.client.tex_binds {
+            if *unit < 8 && let Some(tex) = ex.obj_textures.get(h) {
+                gl.active_texture(glow::TEXTURE0 + unit);
+                gl.bind_texture(*target, Some(*tex));
+            }
+        }
+        gl.active_texture(glow::TEXTURE0 + ex.client.active_unit);
+        // FBO/renderbuffer 不恢复绑定:协议规定每条流开画前由执行器自绑
+        // 输出 FBO,客户端(three)对 render target 的绑定在流内自恢复。
         gl.bind_renderbuffer(glow::RENDERBUFFER, None);
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
         gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, None);
-        gl.disable(glow::BLEND);
-        gl.disable(glow::DEPTH_TEST);
-        gl.disable(glow::SCISSOR_TEST);
-        gl.disable(glow::STENCIL_TEST);
-        gl.disable(glow::CULL_FACE);
-        gl.disable(glow::POLYGON_OFFSET_FILL);
-        gl.disable(glow::RASTERIZER_DISCARD);
-        gl.depth_mask(true);
-        gl.depth_func(glow::LESS);
-        gl.stencil_mask(0xffff_ffff);
-        gl.color_mask(true, true, true, true);
-        gl.blend_equation(glow::FUNC_ADD);
-        gl.blend_func(glow::ONE, glow::ZERO);
+        // PMREM/WebGL2 的 MRT 会把 draw buffer 组合改掉;状态残留会让
+        // Skia 的合成 pass 落到不存在的 attachment 上。
+        gl.draw_buffers(&[glow::BACK]);
+        // 全局值状态:恢复客户端影子。
+        for (cap, on) in &ex.client.caps {
+            if *on {
+                gl.enable(*cap);
+            } else {
+                gl.disable(*cap);
+            }
+        }
+        gl.front_face(ex.client.front_face);
+        gl.cull_face(ex.client.cull_face);
+        gl.depth_func(ex.client.depth_func);
+        gl.depth_mask(ex.client.depth_mask);
+        let cm = ex.client.color_mask;
+        gl.color_mask(cm[0], cm[1], cm[2], cm[3]);
+        let be = ex.client.blend_equation;
+        gl.blend_equation_separate(be.0, be.1);
+        let bf = ex.client.blend_func;
+        gl.blend_func_separate(bf.0, bf.1, bf.2, bf.3);
+        let bc = ex.client.blend_color;
+        gl.blend_color(bc[0], bc[1], bc[2], bc[3]);
+        let sf = ex.client.stencil_func;
+        gl.stencil_func(sf.0, sf.1, sf.2);
+        let so = ex.client.stencil_op;
+        gl.stencil_op(so.0, so.1, so.2);
+        gl.stencil_mask(ex.client.stencil_mask);
+        let po = ex.client.polygon_offset;
+        gl.polygon_offset(po.0, po.1);
+        let cc = ex.client.clear_color;
+        gl.clear_color(cc[0], cc[1], cc[2], cc[3]);
+        gl.clear_depth_f32(ex.client.clear_depth);
+        gl.clear_stencil(ex.client.clear_stencil);
         gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
         gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
     }
@@ -233,33 +464,16 @@ struct Replay<'a> {
 struct ReplayState {
     program: Option<glow::Program>,
     program_key: Option<String>,
-    last_bound_buffer: Option<glow::Buffer>,
-    last_bound_texture: Option<glow::NativeTexture>,
-    last_bound_texture_target: u32,
-    last_bound_renderbuffer: Option<glow::NativeRenderbuffer>,
 }
 
 impl<'a> Replay<'a> {
     fn run(&mut self, ex: &mut GpuStreamExecutor) -> Result<ReplayState> {
         let gl = self.gl;
-        let mut buffers: HashMap<u32, glow::Buffer> = HashMap::new();
-        let mut vaos: HashMap<u32, glow::VertexArray> = HashMap::new();
-        let mut textures: HashMap<u32, glow::NativeTexture> = HashMap::new();
-        let mut fbos: HashMap<u32, glow::NativeFramebuffer> = HashMap::new();
-        let mut renderbuffers: HashMap<u32, glow::NativeRenderbuffer> = HashMap::new();
-        let mut shader_src: HashMap<u32, Vec<u8>> = HashMap::new();
-        let mut shader_stage: HashMap<u32, u32> = HashMap::new();
-        // pid → (vs handle, fs handle)
-        let mut program_shaders: HashMap<u32, (Option<u32>, Option<u32>)> = HashMap::new();
-        // 流内 pid → 内容 key（USE 时解析出 entry）。
-        let mut program_key_by_pid: HashMap<u32, String> = HashMap::new();
+        // 句柄→GL 对象与 shader/program 元数据表都在 executor 上跨流持久
+        // （持久 renderer 的后续帧流没有创建命令）；state 只留帧内状态机。
         let mut state = ReplayState {
             program: None,
             program_key: None,
-            last_bound_buffer: None,
-            last_bound_texture: None,
-            last_bound_texture_target: glow::TEXTURE_2D,
-            last_bound_renderbuffer: None,
         };
 
         let mut p = 0usize;
@@ -268,17 +482,26 @@ impl<'a> Replay<'a> {
                 let opcode = self.ops[p];
                 let start = p;
                 p += 1;
+                if std::env::var_os("OC_DBG_OPS").is_some() {
+                    eprintln!("OCOP @{start:06} op={opcode}");
+                }
                 match opcode {
                     gl_opcode::SHADER_CREATE => {
                         let ty = rd_u16(self.ops, &mut p) as u32;
                         let id = rd_u32(self.ops, &mut p);
-                        shader_stage.insert(id, ty);
+                        if std::env::var_os("OC_DBG_SHADER").is_some() {
+                            eprintln!("OCGL SHADER_CREATE ty={ty:#x} id={id}");
+                        }
+                        ex.shader_stage.insert(id, ty);
                     }
                     gl_opcode::SHADER_SOURCE => {
                         let id = rd_u32(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
                         let src = self.range_bytes(range)?.to_vec();
-                        shader_src.insert(id, src);
+                        if std::env::var_os("OC_DBG_SHADER").is_some() {
+                            eprintln!("OCGL SHADER_SOURCE id={id} len={}", src.len());
+                        }
+                        ex.shader_src.insert(id, src);
                     }
                     gl_opcode::COMPILE_SHADER => {
                         rd_u32(self.ops, &mut p);
@@ -289,8 +512,14 @@ impl<'a> Replay<'a> {
                     gl_opcode::PROGRAM_ATTACH => {
                         let pid = rd_u32(self.ops, &mut p);
                         let sid = rd_u32(self.ops, &mut p);
-                        let slot = program_shaders.entry(pid).or_default();
-                        if shader_stage.get(&sid) == Some(&0x8B31) {
+                        if std::env::var_os("OC_DBG_SHADER").is_some() {
+                            eprintln!(
+                                "OCGL ATTACH pid={pid} sid={sid} stage={:?}",
+                                ex.shader_stage.get(&sid)
+                            );
+                        }
+                        let slot = ex.program_shaders.entry(pid).or_default();
+                        if ex.shader_stage.get(&sid) == Some(&0x8B31) {
                             slot.0 = Some(sid);
                         } else {
                             slot.1 = Some(sid);
@@ -304,39 +533,64 @@ impl<'a> Replay<'a> {
                         if pid == NULL_HANDLE {
                             state.program = None;
                             state.program_key = None;
+                            ex.cur_program_key = None;
                             gl.use_program(None);
                         } else {
-                            let key = ex.program_key_for(
-                                gl,
-                                pid,
-                                &shader_src,
-                                &program_shaders,
-                                &mut program_key_by_pid,
-                            )
-                            ?;
+                            if std::env::var_os("OC_DBG_SHADER").is_some() {
+                                eprintln!("OCGL USE pid={pid}");
+                            }
+                            let key = ex.program_key_for(gl, pid)?;
                             let entry = ex
                                 .program_cache
                                 .get(&key)
                                 .ok_or_else(|| anyhow!("program {pid} 缓存缺失"))?;
                             state.program = Some(entry.program);
-                            state.program_key = Some(key);
+                            state.program_key = Some(key.clone());
+                            ex.cur_program_key = Some(key);
                             // 状态机之外必须真绑定：漏了它 draw 落到固定
                             // 管线（compat profile 不报错、画默认色白三角）。
                             gl.use_program(Some(entry.program));
                         }
                     }
-                    gl_opcode::SHADER_DELETE
-                    | gl_opcode::PROGRAM_DELETE
-                    | gl_opcode::BUFFER_DELETE
-                    | gl_opcode::VAO_DELETE
-                    | gl_opcode::TEXTURE_DELETE
-                    | gl_opcode::FRAMEBUFFER_DELETE => {
-                        // 生命周期命令：句柄级删除留给流内资源映射。
+                    gl_opcode::SHADER_DELETE => {
+                        // WebGL 语义:attach 后 delete 只标记删除,program
+                        // 仍持引用(three 构造完就删)。源码/阶段表是惰性
+                        // 编译的元数据,跟随 program 生命周期,不随删。
                         let _ = rd_u32(self.ops, &mut p);
+                    }
+                    gl_opcode::PROGRAM_DELETE => {
+                        let pid = rd_u32(self.ops, &mut p);
+                        ex.program_shaders.remove(&pid);
+                        ex.program_key_by_pid.remove(&pid);
+                    }
+                    gl_opcode::BUFFER_DELETE => {
+                        let h = rd_u32(self.ops, &mut p);
+                        ex.obj_buffers.remove(&h);
+                    }
+                    gl_opcode::VAO_DELETE => {
+                        let h = rd_u32(self.ops, &mut p);
+                        if std::env::var_os("OC_DBG_OPS2").is_some() {
+                            eprintln!("OCVAO DELETE handle={h}");
+                        }
+                        ex.obj_vaos.remove(&h);
+                        if ex.cur_vao == Some(h) {
+                            ex.cur_vao = None;
+                            ex.cur_element = None;
+                        }
+                        ex.vao_element.remove(&h);
+                    }
+                    gl_opcode::TEXTURE_DELETE => {
+                        let h = rd_u32(self.ops, &mut p);
+                        ex.obj_textures.remove(&h);
+                        ex.client.tex_binds.retain(|(_, _, th)| *th != h);
+                    }
+                    gl_opcode::FRAMEBUFFER_DELETE => {
+                        let h = rd_u32(self.ops, &mut p);
+                        ex.obj_fbos.remove(&h);
                     }
                     gl_opcode::BUFFER_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        buffers
+                        ex.obj_buffers
                             .entry(handle)
                             .or_insert_with(|| gl.create_buffer().expect("create_buffer"));
                     }
@@ -344,13 +598,23 @@ impl<'a> Replay<'a> {
                         let target = rd_u16(self.ops, &mut p);
                         let handle = rd_u32(self.ops, &mut p);
                         let buf = if handle == NULL_HANDLE {
+                            ex.cur_element = None;
                             None
                         } else {
-                            Some(*buffers.entry(handle).or_insert_with(|| {
+                            ex.cur_element = Some(handle);
+                            if target as u32 == glow::ELEMENT_ARRAY_BUFFER
+                                && let Some(v) = ex.cur_vao
+                            {
+                                ex.vao_element.insert(v, handle);
+                            }
+                            Some(*ex.obj_buffers.entry(handle).or_insert_with(|| {
                                 gl.create_buffer().expect("create_buffer")
                             }))
                         };
-                        state.last_bound_buffer = buf;
+                        if target as u32 == glow::ARRAY_BUFFER {
+                            ex.client.array_buffer =
+                                (handle != NULL_HANDLE).then_some(handle);
+                        }
                         gl.bind_buffer(target as u32, buf);
                     }
                     gl_opcode::BUFFER_DATA => {
@@ -358,9 +622,10 @@ impl<'a> Replay<'a> {
                         let usage = rd_u16(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
                         let data = self.range_bytes(range)?;
-                        let buf = state
-                            .last_bound_buffer
-                            .ok_or_else(|| anyhow!("BUFFER_DATA 无绑定 buffer"))?;
+                        let buf = ex
+                            .bound_buffer(target as u32)
+                            .and_then(|h| ex.obj_buffers.get(&h).copied())
+                            .ok_or_else(|| anyhow!("BUFFER_DATA 无客户端绑定 buffer"))?;
                         gl.bind_buffer(target as u32, Some(buf));
                         gl.buffer_data_u8_slice(target as u32, data, usage as u32);
                     }
@@ -368,15 +633,19 @@ impl<'a> Replay<'a> {
                         let target = rd_u16(self.ops, &mut p);
                         let usage = rd_u16(self.ops, &mut p);
                         let size = rd_u32(self.ops, &mut p);
-                        let buf = state
-                            .last_bound_buffer
-                            .ok_or_else(|| anyhow!("BUFFER_DATA_NULL 无绑定 buffer"))?;
+                        let buf = ex
+                            .bound_buffer(target as u32)
+                            .and_then(|h| ex.obj_buffers.get(&h).copied())
+                            .ok_or_else(|| anyhow!("BUFFER_DATA_NULL 无客户端绑定 buffer"))?;
                         gl.bind_buffer(target as u32, Some(buf));
                         gl.buffer_data_size(target as u32, size as i32, usage as u32);
                     }
                     gl_opcode::VAO_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        vaos.entry(handle).or_insert_with(|| {
+                        if std::env::var_os("OC_DBG_OPS2").is_some() {
+                            eprintln!("OCVAO CREATE handle={handle} new={}", !ex.obj_vaos.contains_key(&handle));
+                        }
+                        ex.obj_vaos.entry(handle).or_insert_with(|| {
                             gl.create_vertex_array().expect("create_vertex_array")
                         });
                     }
@@ -385,11 +654,19 @@ impl<'a> Replay<'a> {
                         let vao = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*vaos.entry(handle).or_insert_with(|| {
+                            Some(*ex.obj_vaos.entry(handle).or_insert_with(|| {
                                 gl.create_vertex_array().expect("create_vertex_array")
                             }))
                         };
+                        ex.cur_vao = if handle == NULL_HANDLE { None } else { Some(handle) };
                         gl.bind_vertex_array(vao);
+                        // 绑定后按账本重挂 element：不信任驱动保留的 VAO
+                        // 状态（会被共享上下文的其他使用者踩掉）。
+                        if let Some(eh) = ex.vao_element.get(&handle).copied() {
+                            if let Some(buf) = ex.obj_buffers.get(&eh) {
+                                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*buf));
+                            }
+                        }
                     }
                     gl_opcode::ATTRIB_ENABLE => {
                         let name_range = rd_u32(self.ops, &mut p);
@@ -486,12 +763,13 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::TEXTURE_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        textures.entry(handle).or_insert_with(|| {
+                        ex.obj_textures.entry(handle).or_insert_with(|| {
                             gl.create_texture().expect("create_texture")
                         });
                     }
                     gl_opcode::TEXTURE_ACTIVE => {
                         let unit = rd_u8(self.ops, &mut p);
+                        ex.client.active_unit = unit as u32;
                         gl.active_texture(glow::TEXTURE0 + unit as u32);
                     }
                     gl_opcode::TEXTURE_BIND => {
@@ -500,13 +778,16 @@ impl<'a> Replay<'a> {
                         let tex = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*textures.entry(handle).or_insert_with(|| {
+                            Some(*ex.obj_textures.entry(handle).or_insert_with(|| {
                                 gl.create_texture().expect("create_texture")
                             }))
                         };
+                        let bind = (ex.client.active_unit, target as u32, handle);
+                        ex.client.tex_binds.retain(|b| {
+                            b.0 != bind.0 || b.1 != bind.1
+                        });
                         if handle != NULL_HANDLE {
-                            state.last_bound_texture = tex;
-                            state.last_bound_texture_target = target as u32;
+                            ex.client.tex_binds.push(bind);
                         }
                         gl.bind_texture(target as u32, tex);
                     }
@@ -532,20 +813,27 @@ impl<'a> Replay<'a> {
                         let ty = rd_u16(self.ops, &mut p);
                         let has_data = rd_u8(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
-                        let data = if has_data != 0 {
+                        let mut data = if has_data != 0 {
                             Some(self.range_bytes(range)?.to_vec())
                         } else {
                             None
                         };
-                        let tex = state
-                            .last_bound_texture
-                            .ok_or_else(|| anyhow!("TEX_IMAGE_2D 无绑定纹理"))?;
+                        let tex = ex
+                            .bound_texture(target as u32)
+                            .and_then(|th| ex.obj_textures.get(&th).copied())
+                            .ok_or_else(|| anyhow!("TEX_IMAGE_2D 无客户端绑定纹理"))?;
                         let content_key = format!(
-                            "{}|{internal}|{w}x{h}|{format}|{ty}",
-                            hash_bytes(data.as_deref().unwrap_or(&[]))
+                            "{}|{internal}|{w}x{h}|{format}|{ty}|fy={}",
+                            hash_bytes(data.as_deref().unwrap_or(&[])),
+                            ex.unpack_flip_y
                         );
                         if !ex.texture_cache.contains(&content_key) {
-                            gl.bind_texture(state.last_bound_texture_target, Some(tex));
+                            if ex.unpack_flip_y {
+                                if let Some(bytes) = data.as_mut() {
+                                    flip_rows_vertical(bytes, h);
+                                }
+                            }
+                            gl.bind_texture(target as u32, Some(tex));
                             gl.tex_image_2d(
                                 target as u32, level, internal, w as i32, h as i32, 0,
                                 format as u32, ty as u32, data.as_deref(),
@@ -560,11 +848,28 @@ impl<'a> Replay<'a> {
                     gl_opcode::PIXEL_STORE_I => {
                         let pname = rd_u16(self.ops, &mut p);
                         let value = rd_i32(self.ops, &mut p);
-                        gl.pixel_store_i32(pname as u32, value);
+                        // WebGL 专属 pixelStore 状态没有桌面 GL 平价:
+                        // FLIP_Y 由本执行器在下一次纹理上传时手动行反转,
+                        // premultiply/colorspace 无对应语义且 three 每次
+                        // 上传前都会重设,吞掉;UNPACK_ALIGNMENT 桌面合法,
+                        // 直通。
+                        match pname as u32 {
+                            0x9240 => ex.unpack_flip_y = value != 0,
+                            0x9241 | 0x9243 => {}
+                            _ => gl.pixel_store_i32(pname as u32, value),
+                        }
+                    }
+                    gl_opcode::DRAW_BUFFERS => {
+                        let n = rd_u8(self.ops, &mut p) as usize;
+                        let mut modes = [0u32; 8];
+                        for m in modes.iter_mut().take(n) {
+                            *m = rd_u32(self.ops, &mut p);
+                        }
+                        gl.draw_buffers(&modes[..n]);
                     }
                     gl_opcode::FRAMEBUFFER_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        fbos.entry(handle).or_insert_with(|| {
+                        ex.obj_fbos.entry(handle).or_insert_with(|| {
                             gl.create_framebuffer().expect("create_framebuffer")
                         });
                     }
@@ -574,7 +879,7 @@ impl<'a> Replay<'a> {
                         let fbo = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*fbos.entry(handle).or_insert_with(|| {
+                            Some(*ex.obj_fbos.entry(handle).or_insert_with(|| {
                                 gl.create_framebuffer().expect("create_framebuffer")
                             }))
                         };
@@ -589,7 +894,7 @@ impl<'a> Replay<'a> {
                         let tex = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*textures
+                            Some(*ex.obj_textures
                                 .get(&handle)
                                 .ok_or_else(|| anyhow!("FBO 附着未知纹理 {handle}"))?)
                         };
@@ -609,6 +914,7 @@ impl<'a> Replay<'a> {
                         let g = rd_f32(self.ops, &mut p);
                         let b = rd_f32(self.ops, &mut p);
                         let a = rd_f32(self.ops, &mut p);
+                        ex.client.clear_color = [r, g, b, a];
                         gl.clear_color(r, g, b, a);
                     }
                     gl_opcode::CLEAR => {
@@ -619,20 +925,29 @@ impl<'a> Replay<'a> {
                         gl.clear(mask);
                     }
                     gl_opcode::ENABLE => {
-                        gl.enable(rd_u16(self.ops, &mut p) as u32);
+                        let cap = rd_u16(self.ops, &mut p) as u32;
+                        ex.client.upsert_cap(cap, true);
+                        gl.enable(cap);
                     }
                     gl_opcode::DISABLE => {
-                        gl.disable(rd_u16(self.ops, &mut p) as u32);
+                        let cap = rd_u16(self.ops, &mut p) as u32;
+                        ex.client.upsert_cap(cap, false);
+                        gl.disable(cap);
                     }
                     gl_opcode::DEPTH_FUNC => {
-                        gl.depth_func(rd_u16(self.ops, &mut p) as u32);
+                        let f = rd_u16(self.ops, &mut p) as u32;
+                        ex.client.depth_func = f;
+                        gl.depth_func(f);
                     }
                     gl_opcode::DEPTH_MASK => {
-                        gl.depth_mask(rd_u8(self.ops, &mut p) != 0);
+                        let on = rd_u8(self.ops, &mut p) != 0;
+                        ex.client.depth_mask = on;
+                        gl.depth_mask(on);
                     }
                     gl_opcode::BLEND_FUNC => {
                         let src = rd_u16(self.ops, &mut p);
                         let dst = rd_u16(self.ops, &mut p);
+                        ex.client.blend_func = (src as u32, dst as u32, src as u32, dst as u32);
                         gl.blend_func(src as u32, dst as u32);
                     }
                     gl_opcode::BLEND_FUNC_SEPARATE => {
@@ -640,6 +955,9 @@ impl<'a> Replay<'a> {
                         let dst_rgb = rd_u16(self.ops, &mut p);
                         let src_a = rd_u16(self.ops, &mut p);
                         let dst_a = rd_u16(self.ops, &mut p);
+                        ex.client.blend_func = (
+                            src_rgb as u32, dst_rgb as u32, src_a as u32, dst_a as u32,
+                        );
                         gl.blend_func_separate(
                             src_rgb as u32, dst_rgb as u32, src_a as u32, dst_a as u32,
                         );
@@ -647,6 +965,7 @@ impl<'a> Replay<'a> {
                     gl_opcode::BLEND_EQUATION_SEPARATE => {
                         let rgb = rd_u16(self.ops, &mut p);
                         let a = rd_u16(self.ops, &mut p);
+                        ex.client.blend_equation = (rgb as u32, a as u32);
                         gl.blend_equation_separate(rgb as u32, a as u32);
                     }
                     gl_opcode::TEX_IMAGE_3D => {
@@ -665,10 +984,11 @@ impl<'a> Replay<'a> {
                         } else {
                             None
                         };
-                        let tex = state
-                            .last_bound_texture
-                            .ok_or_else(|| anyhow!("TEX_IMAGE_3D 无绑定纹理"))?;
-                        gl.bind_texture(state.last_bound_texture_target, Some(tex));
+                        let tex = ex
+                            .bound_texture(target as u32)
+                            .and_then(|th| ex.obj_textures.get(&th).copied())
+                            .ok_or_else(|| anyhow!("TEX_IMAGE_3D 无客户端绑定纹理"))?;
+                        gl.bind_texture(target as u32, Some(tex));
                         gl.tex_image_3d(
                             target as u32, level, internal, w as i32, h as i32, d as i32, 0,
                             format as u32, ty as u32, data.as_deref(),
@@ -685,14 +1005,20 @@ impl<'a> Replay<'a> {
                         let ty = rd_u16(self.ops, &mut p);
                         let has_data = rd_u8(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
-                        let data = if has_data != 0 {
+                        let mut data = if has_data != 0 {
                             Some(self.range_bytes(range)?.to_vec())
                         } else {
                             None
                         };
-                        let tex = state
-                            .last_bound_texture
-                            .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_2D 无绑定纹理"))?;
+                        let tex = ex
+                            .bound_texture(target as u32)
+                            .and_then(|th| ex.obj_textures.get(&th).copied())
+                            .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_2D 无客户端绑定纹理"))?;
+                        if ex.unpack_flip_y {
+                            if let Some(bytes) = data.as_mut() {
+                                flip_rows_vertical(bytes, h);
+                            }
+                        }
                         gl.bind_texture(target as u32, Some(tex));
                         gl.tex_sub_image_2d(
                             target as u32, level, x, y, w as i32, h as i32,
@@ -708,7 +1034,7 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::RENDERBUFFER_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        renderbuffers.entry(handle).or_insert_with(|| {
+                        ex.obj_renderbuffers.entry(handle).or_insert_with(|| {
                             gl.create_renderbuffer().expect("create_renderbuffer")
                         });
                     }
@@ -718,12 +1044,15 @@ impl<'a> Replay<'a> {
                         let rb = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*renderbuffers.entry(handle).or_insert_with(|| {
+                            Some(*ex.obj_renderbuffers.entry(handle).or_insert_with(|| {
                                 gl.create_renderbuffer().expect("create_renderbuffer")
                             }))
                         };
                         if handle != NULL_HANDLE {
-                            state.last_bound_renderbuffer = rb;
+                            ex.client.rb_binds.retain(|(t, _)| *t != target as u32);
+                            ex.client.rb_binds.push((target as u32, handle));
+                        } else {
+                            ex.client.rb_binds.retain(|(t, _)| *t != target as u32);
                         }
                         gl.bind_renderbuffer(target as u32, rb);
                     }
@@ -732,9 +1061,10 @@ impl<'a> Replay<'a> {
                         let internal = rd_i32(self.ops, &mut p);
                         let w = rd_u32(self.ops, &mut p);
                         let h = rd_u32(self.ops, &mut p);
-                        let rb = state
-                            .last_bound_renderbuffer
-                            .ok_or_else(|| anyhow!("RENDERBUFFER_STORAGE 无绑定渲染缓冲"))?;
+                        let rb = ex
+                            .bound_renderbuffer(glow::RENDERBUFFER)
+                            .and_then(|rh| ex.obj_renderbuffers.get(&rh).copied())
+                            .ok_or_else(|| anyhow!("RENDERBUFFER_STORAGE 无客户端绑定渲染缓冲"))?;
                         gl.renderbuffer_storage(glow::RENDERBUFFER, internal as u32, w as i32, h as i32);
                     }
                     gl_opcode::COLOR_MASK => {
@@ -742,6 +1072,7 @@ impl<'a> Replay<'a> {
                         let g = rd_u8(self.ops, &mut p);
                         let b = rd_u8(self.ops, &mut p);
                         let a = rd_u8(self.ops, &mut p);
+                        ex.client.color_mask = [r != 0, g != 0, b != 0, a != 0];
                         gl.color_mask(r != 0, g != 0, b != 0, a != 0);
                     }
                     gl_opcode::UNIFORM_2I => {
@@ -803,9 +1134,10 @@ impl<'a> Replay<'a> {
                         } else {
                             None
                         };
-                        let tex = state
-                            .last_bound_texture
-                            .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_3D 无绑定纹理"))?;
+                        let tex = ex
+                            .bound_texture(target as u32)
+                            .and_then(|th| ex.obj_textures.get(&th).copied())
+                            .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_3D 无客户端绑定纹理"))?;
                         gl.bind_texture(target as u32, Some(tex));
                         gl.tex_sub_image_3d(
                             target as u32, level, x, y, z, w as i32, h as i32, d as i32,
@@ -824,7 +1156,7 @@ impl<'a> Replay<'a> {
                         let buf = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*buffers.entry(handle).or_insert_with(|| {
+                            Some(*ex.obj_buffers.entry(handle).or_insert_with(|| {
                                 gl.create_buffer().expect("create_buffer")
                             }))
                         };
@@ -883,30 +1215,42 @@ impl<'a> Replay<'a> {
                         let _ = (program, index, name);
                     }
                     gl_opcode::BLEND_EQUATION => {
-                        gl.blend_equation(rd_u16(self.ops, &mut p) as u32);
+                        let eq = rd_u16(self.ops, &mut p) as u32;
+                        ex.client.blend_equation = (eq, eq);
+                        gl.blend_equation(eq);
                     }
                     gl_opcode::BLEND_COLOR => {
                         let r = rd_f32(self.ops, &mut p);
                         let g = rd_f32(self.ops, &mut p);
                         let b = rd_f32(self.ops, &mut p);
                         let a = rd_f32(self.ops, &mut p);
+                        ex.client.blend_color = [r, g, b, a];
                         gl.blend_color(r, g, b, a);
                     }
                     gl_opcode::CULL_FACE => {
-                        gl.cull_face(rd_u16(self.ops, &mut p) as u32);
+                        let mode = rd_u16(self.ops, &mut p) as u32;
+                        ex.client.cull_face = mode;
+                        gl.cull_face(mode);
                     }
                     gl_opcode::FRONT_FACE => {
-                        gl.front_face(rd_u16(self.ops, &mut p) as u32);
+                        let mode = rd_u16(self.ops, &mut p) as u32;
+                        ex.client.front_face = mode;
+                        gl.front_face(mode);
                     }
                     gl_opcode::CLEAR_DEPTH => {
-                        gl.clear_depth_f32(rd_f32(self.ops, &mut p));
+                        let d = rd_f32(self.ops, &mut p);
+                        ex.client.clear_depth = d;
+                        gl.clear_depth_f32(d);
                     }
                     gl_opcode::CLEAR_STENCIL => {
-                        gl.clear_stencil(rd_i32(self.ops, &mut p));
+                        let s = rd_i32(self.ops, &mut p);
+                        ex.client.clear_stencil = s;
+                        gl.clear_stencil(s);
                     }
                     gl_opcode::POLYGON_OFFSET => {
                         let factor = rd_f32(self.ops, &mut p);
                         let units = rd_f32(self.ops, &mut p);
+                        ex.client.polygon_offset = (factor, units);
                         gl.polygon_offset(factor, units);
                     }
                     gl_opcode::SCISSOR => {
@@ -920,16 +1264,21 @@ impl<'a> Replay<'a> {
                         let func = rd_u16(self.ops, &mut p);
                         let reference = rd_i32(self.ops, &mut p);
                         let mask = rd_u32(self.ops, &mut p);
+                        ex.client.stencil_func = (func as u32, reference, mask);
                         gl.stencil_func(func as u32, reference, mask);
                     }
                     gl_opcode::STENCIL_OP => {
                         let sfail = rd_u16(self.ops, &mut p);
                         let dpfail = rd_u16(self.ops, &mut p);
                         let dppass = rd_u16(self.ops, &mut p);
+                        ex.client.stencil_op =
+                            (sfail as u32, dpfail as u32, dppass as u32);
                         gl.stencil_op(sfail as u32, dpfail as u32, dppass as u32);
                     }
                     gl_opcode::STENCIL_MASK => {
-                        gl.stencil_mask(rd_u32(self.ops, &mut p));
+                        let m = rd_u32(self.ops, &mut p);
+                        ex.client.stencil_mask = m;
+                        gl.stencil_mask(m);
                     }
                     gl_opcode::DRAW_ARRAYS => {
                         let mode = rd_u16(self.ops, &mut p);
@@ -942,6 +1291,14 @@ impl<'a> Replay<'a> {
                         let count = rd_i32(self.ops, &mut p);
                         let ty = rd_u16(self.ops, &mut p);
                         let offset = rd_i32(self.ops, &mut p);
+                        if std::env::var_os("OC_DBG_OPS2").is_some() {
+                            let ele =
+                                gl.get_parameter_i32(glow::ELEMENT_ARRAY_BUFFER_BINDING);
+                            eprintln!(
+                                "OCDE mode={mode:#x} count={count} ty={ty:#x} off={offset} prog={:?} ele_buf={ele}",
+                                state.program.map(|p| p.0.get())
+                            );
+                        }
                         gl.draw_elements(mode as u32, count, ty as u32, offset);
                     }
                     other => bail!("gpu stream: 未知 opcode {other} @ {start}"),
@@ -1023,25 +1380,30 @@ impl<'a> Replay<'a> {
 
 impl GpuStreamExecutor {
     /// 解析（或惰性编译）`pid` 引用的程序，返回内容缓存 key。
-    fn program_key_for(
-        &mut self,
-        gl: &Arc<glow::Context>,
-        pid: u32,
-        shader_src: &HashMap<u32, Vec<u8>>,
-        program_shaders: &HashMap<u32, (Option<u32>, Option<u32>)>,
-        key_by_pid: &mut HashMap<u32, String>,
-    ) -> Result<String> {
-        if let Some(key) = key_by_pid.get(&pid) {
+    fn program_key_for(&mut self, gl: &Arc<glow::Context>, pid: u32) -> Result<String> {
+        if let Some(key) = self.program_key_by_pid.get(&pid) {
             return Ok(key.clone());
         }
-        let (vid, fid) = program_shaders
+        let (vid, fid) = self
+            .program_shaders
             .get(&pid)
             .and_then(|s| Some((s.0?, s.1?)))
             .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 shader"))?;
-        let vs = shader_src
-            .get(&vid)
-            .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 vs 源"))?;
-        let fs = shader_src
+        let vs = self.shader_src.get(&vid).ok_or_else(|| {
+            if std::env::var_os("OC_DBG_SHADER").is_some() {
+                let mut ks: Vec<u32> = self.shader_src.keys().copied().collect();
+                ks.sort_unstable();
+                let mut lens: Vec<(u32, usize)> =
+                    self.shader_src.iter().map(|(k, v)| (*k, v.len())).collect();
+                lens.sort_unstable();
+                eprintln!(
+                    "OCGL MISS pid={pid} vid={vid} keys={ks:?} lens={lens:?}"
+                );
+            }
+            anyhow!("gpu stream: program {pid} 缺 vs 源")
+        })?;
+        let fs = self
+            .shader_src
             .get(&fid)
             .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 fs 源"))?;
         let key = format!("{}|{}", hash_bytes(vs), hash_bytes(fs));
@@ -1051,7 +1413,7 @@ impl GpuStreamExecutor {
             let entry = compile_program_entry(gl, &vs_src, &fs_src)?;
             self.program_cache.insert(key.clone(), entry);
         }
-        key_by_pid.insert(pid, key.clone());
+        self.program_key_by_pid.insert(pid, key.clone());
         Ok(key)
     }
 
@@ -1306,6 +1668,24 @@ pub fn install_glsl_reflector(ctx: &crate::js_context::V8JsContext) {
             session.make_current()?;
             reflect_program_gl(gl, vs, fs)
         })
+    }));
+}
+
+/// 装资产读取器 + 图像解码器（three FileLoader 的 fetch 垫与 GLTFLoader 的
+/// createImageBitmap 垫的后端）。路径语义与声明式 `<image path=>` 一致：
+/// 逻辑相对路径对 base_dir join。解码走 image crate（default features 含
+/// png/jpeg，另开 webp）。
+pub fn install_asset_bridge(ctx: &crate::js_context::V8JsContext, base_dir: &std::path::Path) {
+    let root = base_dir.to_path_buf();
+    ctx.set_asset_reader(Box::new(move |path| {
+        let full = root.join(path);
+        std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
+    }));
+    ctx.set_image_decoder(Box::new(|bytes| {
+        let img = image::load_from_memory(bytes)
+            .map_err(|e| anyhow::anyhow!("image decode: {e}"))?;
+        let rgba = img.to_rgba8().into_raw();
+        Ok((img.width(), img.height(), rgba))
     }));
 }
 

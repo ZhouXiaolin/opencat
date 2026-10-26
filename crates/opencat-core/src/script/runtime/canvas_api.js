@@ -1570,7 +1570,7 @@
         return { weight: parseInt(m[1], 10), size: parseFloat(m[2]), family };
     }
 
-    function makeSurface(id) {
+    function makeSurface(id, w, h) {
         const state = {
             font: '400 16px sans-serif',
             letterSpacing: '0px',
@@ -1651,6 +1651,10 @@
         return {
             __opencatSurface: true,
             id: id,
+            /* three 的 CanvasTexture/上传路径读 image.width/height 推导
+               texImage2D 的 6 参形态,并校验尺寸——表面创建时已知。 */
+            width: w,
+            height: h,
             save() {
                 stack.push({ tx: matrix.tx, ty: matrix.ty, a: matrix.a });
             },
@@ -1751,7 +1755,7 @@
         id = String(id);
         if (!surfaceCache[id]) {
             __surface_create(id, toFiniteNumber(w), toFiniteNumber(h));
-            surfaceCache[id] = makeSurface(id);
+            surfaceCache[id] = makeSurface(id, w, h);
         }
         return surfaceCache[id];
     }
@@ -1766,6 +1770,10 @@
         const hh = Math.max(1, Math.round(toFiniteNumber(h)));
         return surfaceById('surface-' + ww + 'x' + hh, ww, hh);
     };
+
+    // asset_api 的 createImageBitmap 垫用同一条 surface 通道：解码位图和
+    // 手绘 surface 是同一种对象，texImage2D 的上传桥只认一种形态。
+    ctx.__surfaceById = surfaceById;
 
     // ── OffscreenCanvas: the standard web spelling of `ctx.surface` ──
     // `new OffscreenCanvas(w, h).getContext('2d')` is how a browser script

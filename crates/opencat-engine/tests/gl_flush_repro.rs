@@ -19,7 +19,7 @@ fn mirror_nan_clearcolor_then_flush() {
     let gl: Arc<glow::Context> = session.gl();
 
     let out_tex = ngl::create_texture_rgba8(&gl, 320, 240).expect("out tex");
-    let out_fbo = ngl::create_framebuffer(&gl, out_tex).expect("out fbo");
+    let out_fbo = ngl::create_framebuffer(&gl, out_tex, 320, 240).expect("out fbo");
     unsafe {
         gl.bind_framebuffer(
             glow::FRAMEBUFFER,

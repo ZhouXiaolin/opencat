@@ -71,12 +71,21 @@
     }
 
     function intern(targetId, bytes) {
+        // 大载荷通道(VBO/纹理,可达几十 MB):引擎 native 直拷字节,绕开
+        // JSON dispatcher。没有 native 的宿主(web 回放)回退 JSON 数字数组。
+        if (typeof __opencatGLIntern === 'function') {
+            if (!(bytes instanceof Uint8Array)) {
+                throw new Error('intern: non-U8 ' + (bytes && bytes.constructor ? bytes.constructor.name : typeof bytes));
+            }
+            return __opencatGLIntern(targetId, bytes);
+        }
         return __gl_stream_intern(targetId, Array.prototype.slice.call(bytes));
     }
 
     function utf8(str) {
         // Manual UTF-8 encode: the realm has no TextEncoder. Shader sources
-        // and names are small.
+        // and names are small. Returns Uint8Array — intern 的 native 通道
+        // 只收 Uint8Array。
         var out = [];
         for (var i = 0; i < str.length; i++) {
             var cp = str.codePointAt(i);
@@ -96,7 +105,7 @@
                 );
             }
         }
-        return out;
+        return new Uint8Array(out);
     }
 
     function internString(targetId, str) {
@@ -1004,16 +1013,28 @@
         };
 
         self.texImage2D = function (target, level, internalformat, width, height, border, format, type, pixels) {
-            // The bytes-form (TypedArray) streams the payload directly. DOM
-            // sources (img/canvas/video) arrive in batch ② via the media
-            // asset bridge; here they error with a pointer.
+            // WebGL2 六参重载 (target, level, internalformat, format, type,
+            // image) — three 的 uploadTexture 一直用这个形态;宽高从 image
+            // 推,image 是 TypedArray / surface / 解码位图三选一。
+            if (arguments.length === 6) {
+                pixels = arguments[5];
+                format = arguments[3];
+                type = arguments[4];
+                width = pixels.width;
+                height = pixels.height;
+                border = 0;
+            }
             var bytes = null;
             if (pixels !== undefined && pixels !== null) {
                 bytes = typedBytes(pixels);
+                if (!bytes && pixels.__opencatSurface === true) {
+                    var img = pixels.getImageData(0, 0, width, height);
+                    bytes = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                }
                 if (!bytes) {
                     badToken(
                         'texImage2D',
-                        'DOM-image sources need the batch-2 asset bridge; pass TypedArray pixels or use declared asset textures'
+                        'unsupported pixel source; pass TypedArray bytes or an engine surface'
                     );
                 }
             }
@@ -1029,7 +1050,22 @@
         };
 
         self.texSubImage2D = function (target, level, x, y, width, height, format, type, pixels) {
-            var bytes = typedBytes(pixels);
+            // 七参重载 (target, level, x, y, format, type, image) 同 texImage2D。
+            if (arguments.length === 7) {
+                pixels = arguments[6];
+                format = arguments[4];
+                type = arguments[5];
+                width = pixels.width;
+                height = pixels.height;
+            }
+            var bytes = null;
+            if (pixels !== undefined && pixels !== null) {
+                bytes = typedBytes(pixels);
+                if (!bytes && pixels.__opencatSurface === true) {
+                    var img = pixels.getImageData(0, 0, width, height);
+                    bytes = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                }
+            }
             var e = new Encoder(28);
             e.u16(target).u8(level).i32(x).i32(y).u32(width).u32(height).u16(format).u16(type);
             if (bytes) {
@@ -1342,8 +1378,14 @@
             return true; // XR 不在确定性渲染面内
         };
 
-        self.drawBuffers = function () {
-            badToken('drawBuffers', 'MRT rides batch 2');
+        self.drawBuffers = function (buffers) {
+            // WebGL2 MRT 绘制缓冲列表（three 的 setRenderTarget 每次都调）。
+            // 变长 payload：count 首部 + count×u32（与 UNIFORM_MATRIX_4F 同型）。
+            var n = buffers ? Math.min(buffers.length, 8) : 0;
+            var e = new Encoder(1 + n * 4);
+            e.u8(n);
+            for (var i = 0; i < n; i++) e.u32(buffers[i] >>> 0);
+            emit(streamId, 85, e.done(85));
         };
 
         self.flush = function () {};

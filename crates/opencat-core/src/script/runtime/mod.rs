@@ -27,6 +27,11 @@ pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 pub const TREE_API_RUNTIME: &str = include_str!("tree_api.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 pub const WEBGL_API_RUNTIME: &str = include_str!("webgl_api.js");
+// Web loading shims (fetch / Blob / URL.createObjectURL / createImageBitmap
+// over the engine's asset/image natives): the byte backend for three's
+// FileLoader → GLTFLoader texture chain. Self-guarded — hosts without the
+// natives (web replay) skip the whole file, so ordering is free.
+pub const ASSET_API_RUNTIME: &str = include_str!("asset_api.js");
 // DOM globals (`document`/`window`/timer guards). Loaded after
 // `NODE_STYLE_RUNTIME` (getElementById hands out the same node handles) and
 // after `JS_PLATFORM_SHIM` in the realm bootstrap (the G2 rAF polyfill must

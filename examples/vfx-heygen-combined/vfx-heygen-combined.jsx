@@ -39,6 +39,7 @@
 
 import { useEffect, useGSAP, useRef } from 'opencat/runtime';
 import * as THREE from 'three';
+import { GLTFLoader, DRACOLoader } from 'three';
 import { gsap } from 'gsap';
 import CanvasKitInit from 'canvaskit-wasm';
 import { SplitText } from 'gsap/SplitText';
@@ -433,8 +434,8 @@ function MainBg() {
   );
 }
 
-/* V1: #theater — the source's THREE render of models/iphone.glb, ported to
-   opencat-three. Same scene as index.html:507-846:
+/* V1: #theater — the source's THREE render of models/iphone.glb, ported 1:1
+   to the official three package (same scene as index.html:507-846):
      · PerspectiveCamera(34, 1920/1080, 0.1, 100) at S.cX/cY/cZ → S.clX/clY/clZ
      · ACESFilmic tone mapping, exposure 1.12, sRGB output
      · AmbientLight 0x222233/0.55 + DirectionalLight 0xffffff/2.3 @(-3.5,4.5,5)
@@ -442,8 +443,8 @@ function MainBg() {
        surface drawn with the same stops and handed over as a PMREM source)
      · the phone's screen material swapped for an unlit canvas texture that
        redraws the HeyGen page every frame at S.scroll
-   The GLB's own meshes/materials/PBR maps come from `three.GLTFScene`, which
-   parses the whole glTF scene graph (31 nodes) into IR meshes.
+   The GLB loads through the official GLTFLoader (parse + texture decode ride
+   the engine's fetch/createImageBitmap shims; see asset_api.js).
    Entry/exit (y 340 blur 18, x −1220 blur 22) still ride CSS on the outer
    wrapper, exactly like the source's #theater tweens. */
 function Theater() {
@@ -557,20 +558,60 @@ function Theater() {
       screenTex.magFilter = THREE.LinearFilter;
       screenTex.generateMipmaps = false;
 
-      /* the GLB: normalized to 3.2 world units tall and centred, exactly like
-         index.html:788-828 (Box3 -> scale 3.2/size.y -> position -= center). */
-      var phoneGrp = new THREE.GLTFScene('assets/iphone.glb', { height: 3.2 });
-      var screenMesh = phoneGrp.screenMesh();
-      if (screenMesh) {
-        phoneGrp.setMaterial(screenMesh.index, new THREE.MeshBasicMaterial({ map: screenTex }));
-      }
+      /* the GLB: official GLTFLoader, normalized to 3.2 world units tall and
+         centred, exactly like index.html:788-828 (Box3 -> scale 3.2/size.y ->
+         position -= center; screen mesh found by name/material probe). The
+         asset is the baseline iphone.glb run through gltf-transform copy:
+         byte-identical vertex data with the DRACO compression removed —
+         r181 DRACOLoader hard-requires Web Workers, which the engine realm
+         doesn't have. */
+      var phoneGrp = new THREE.Group();
       scene3d.add(phoneGrp);
+      var loader = new GLTFLoader();
+      loader.load('assets/iphone-decoded.glb', function (gltf) {
+        var model = gltf.scene;
+        var box = new THREE.Box3().setFromObject(model);
+        var size = box.getSize(new THREE.Vector3());
+        var scale = 3.2 / size.y;
+        model.scale.setScalar(scale);
+        box.setFromObject(model);
+        model.position.sub(box.getCenter(new THREE.Vector3()));
+
+        var screenApplied = false;
+        model.traverse(function (child) {
+          if (!child.isMesh) return;
+          var name = (child.name || '').toLowerCase();
+          var matName = child.material && child.material.name ? child.material.name.toLowerCase() : '';
+          if ((child.material && child.material.emissiveMap) || name.indexOf('screen') >= 0 || matName.indexOf('screen') >= 0 || matName.indexOf('display') >= 0) {
+            child.material = new THREE.MeshBasicMaterial({ map: screenTex });
+            screenApplied = true;
+          }
+        });
+        if (!screenApplied) {
+          model.traverse(function (child) {
+            if (!child.isMesh || screenApplied) return;
+            if (child.material && child.material.emissive) {
+              child.material = new THREE.MeshBasicMaterial({ map: screenTex });
+              screenApplied = true;
+            }
+          });
+        }
+
+        phoneGrp.add(model);
+      }, undefined, function (err) {
+        throw new Error('iphone.glb load failed: ' + err);
+      });
 
       g = ctx.__vhcTheater = {
         scene: scene3d, camera: camera3d, renderer: renderer3d,
-        phone: phoneGrp, grain: 0,
+        phone: phoneGrp, screenTex: screenTex, grain: 0,
       };
     }
+
+    /* index.html:644/746 — the screen canvas is redrawn every frame, so the
+       texture must re-upload every frame too (engine-side texture cache keys
+       on content, unchanged pixels skip the copy). */
+    g.screenTex.needsUpdate = true;
 
     g.phone.position.set(
       Math.sin(d * 0.56) * 0.015,

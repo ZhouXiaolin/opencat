@@ -1408,8 +1408,8 @@ impl GpuStreamExecutor {
             .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 fs 源"))?;
         let key = format!("{}|{}", hash_bytes(vs), hash_bytes(fs));
         if !self.program_cache.contains_key(&key) {
-            let vs_src = desktop_glsl(std::str::from_utf8(vs)?)?;
-            let fs_src = desktop_glsl(std::str::from_utf8(fs)?)?;
+            let vs_src = desktop_glsl(std::str::from_utf8(vs)?, naga::ShaderStage::Vertex)?;
+            let fs_src = desktop_glsl(std::str::from_utf8(fs)?, naga::ShaderStage::Fragment)?;
             let entry = compile_program_entry(gl, &vs_src, &fs_src)?;
             self.program_cache.insert(key.clone(), entry);
         }
@@ -1614,17 +1614,80 @@ fn strip_glsl_comments(src: &str) -> String {
     out
 }
 
+/// GLSL ES 300 → 桌面 GLSL 330 core。主路径走 naga fork 分支
+/// feat/glsl-es300-to-desktop330 的官方链（front::glsl → IR → back::glsl）：
+/// 预处理器宏、精度限定、重载解析全部由 IR 化吸收，输出驱动编译器直接吃
+/// 的结构化源码——取代批次①"只换版本行"的词法降级。shader 源码在流里
+/// 保持 ES 原文，web 端不受影响。
+///
+/// writer_flags 必须为空：默认的 ADJUST_COORDINATE_SPACE 是 Vulkan/Metal
+/// NDC 翻转垫片，GL→GL 不需要，开了画面会上下镜像。
+/// naga 吃不下的构造（front/validate/back 报错）回退到只换版本行的旧降级
+/// 并记日志：缺口由日志驱动逐个消除，不出片不炸。
+fn desktop_glsl(src: &str, stage: naga::ShaderStage) -> Result<String> {
+    match naga_es300_to_desktop330(src, stage) {
+        Ok(out) => Ok(out),
+        Err(e) => {
+            tracing::warn!("naga GLSL 转换失败，回退版本行降级: {e}");
+            desktop_glsl_version_line_only(src)
+        }
+    }
+}
+
+fn naga_es300_to_desktop330(src: &str, stage: naga::ShaderStage) -> Result<String> {
+    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
+    let mut parser = naga::front::glsl::Frontend::default();
+    let module = parser
+        .parse(
+            &naga::front::glsl::Options {
+                stage,
+                defines: Default::default(),
+            },
+            src,
+        )
+        .map_err(|errs| {
+            anyhow::anyhow!(
+                "glsl-in: {}",
+                errs.first().map(|e| e.to_string()).unwrap_or_default()
+            )
+        })?;
+    let info = naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::empty(),
+    )
+    .validate(&module)
+    .map_err(|e| anyhow::anyhow!("validate: {e}"))?;
+    let options = naga::back::glsl::Options {
+        version: naga::back::glsl::Version::Desktop(330),
+        writer_flags: naga::back::glsl::WriterFlags::empty(),
+        binding_map: Default::default(),
+        zero_initialize_workgroup_memory: false,
+    };
+    let pipeline = naga::back::glsl::PipelineOptions {
+        shader_stage: stage,
+        entry_point: "main".to_string(),
+        multiview: None,
+    };
+    let mut out = String::new();
+    let mut writer = naga::back::glsl::Writer::new(
+        &mut out,
+        &module,
+        &info,
+        &options,
+        &pipeline,
+        naga::proc::BoundsCheckPolicies::default(),
+    )
+    .map_err(|e| anyhow::anyhow!("glsl-out init: {e}"))?;
+    writer.write().map_err(|e| anyhow::anyhow!("glsl-out: {e}"))?;
+    Ok(out)
+}
+
 /// 桌面 GL（Windows WGL 的 compat profile）不认 GLSL ES 的 `#version 300 es`
-/// 头——换成 `330 core`（3.3 core 与 300 es 在本命令面覆盖内的语法差异可
-/// 忽略：in/out、texture()、precision 语句桌面 GLSL 全部接受）。Linux EGL
-/// 上若是真 ES context 也兼容（驱动按版本行分派）。
-/// TODO(batch-2): three 的完整 shader 面接 naga front::glsl → back::glsl 的
-/// 自动转换，取代这一行改写。
-/// GLSL ES → 桌面 GLSL 的最小降级：只换版本行。WGL 上下文是 compatibility
+/// 头——换成 `330 core`。WGL 上下文是 compatibility
 /// profile（win32.rs：实测 NVIDIA 4.6 compat），拒绝 es profile 标识，但
 /// 330 core 与 ES 3.00 语法同形（in/out、texture() 一致）——批次①的 vfx
-/// tracer 即此路径过闸。shader 源码在流里保持原样，web 端吃 ES 原文。
-fn desktop_glsl(src: &str) -> Result<String> {
+/// tracer 即此路径过闸。
+fn desktop_glsl_version_line_only(src: &str) -> Result<String> {
     let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     if let Some(pos) = src.find("#version") {
         let line_end = src[pos..]
@@ -1705,8 +1768,14 @@ pub fn reflect_program_gl(
             }
             Ok(sh)
         };
-        let vs = compile(glow::VERTEX_SHADER, &desktop_glsl(vs_es)?)?;
-        let fs = compile(glow::FRAGMENT_SHADER, &desktop_glsl(fs_es)?)?;
+        let vs = compile(
+            glow::VERTEX_SHADER,
+            &desktop_glsl(vs_es, naga::ShaderStage::Vertex)?,
+        )?;
+        let fs = compile(
+            glow::FRAGMENT_SHADER,
+            &desktop_glsl(fs_es, naga::ShaderStage::Fragment)?,
+        )?;
         let program = gl
             .create_program()
             .map_err(|e| anyhow!("create_program: {e}"))?;

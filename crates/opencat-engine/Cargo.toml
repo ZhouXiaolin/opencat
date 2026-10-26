@@ -14,6 +14,10 @@ opencat-gpu-native = { path = "../opencat-gpu-native" }
 # GPU 命令流执行器的 GL 函数面（WebGL 同名 API 形状）。上下文仍由
 # opencat-gpu-native 引导，glow 上下文在会话建立时构建一次。
 glow = "0.13.1"
+# vendor/naga fork 分支 feat/glsl-es300-to-desktop330：GLSL ES 300 → 桌面
+# GLSL 330 core 的转换底座（front::glsl → IR → back::glsl 官方链），取代
+# 只换版本行的词法降级。glsl-in/glsl-out 是最小 feature 面。
+naga = { path = "../../vendor/naga", features = ["glsl-in", "glsl-out"] }
 # 0.23 pinned: cosmic-text 0.19.0 (latest) still requires fontdb 0.23
 fontdb = "0.23.0"
 anyhow.workspace = true

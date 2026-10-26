@@ -291,7 +291,13 @@ impl GpuRenderSession {
         }
         let mut stream_outputs: Vec<(opencat_gpu_native::NativeTexture, u32)> = Vec::new();
         if std::env::var_os("OC_DISABLE_GPU_STREAM").is_none()
-            && let Some(gpu) = &render.gpu {
+            && let Some(gpu) = &render.gpu
+        {
+            // 脚本线程上的 GLSL 反射器（install_glsl_reflector）会在链路
+            // 查询时把它自己的离屏会话 make_current——执行前必须把本会话
+            // 抢回来，否则执行器拿本会话的持久句柄打到别人的上下文上
+            //（INVALID_VALUE/OUT_OF_MEMORY，NVIDIA 下直接段错误）。
+            self.gl_session.make_current()?;
             stream_outputs = self.gpu_executor.execute(
                 &self.gl_session.gl(),
                 gpu,
@@ -529,6 +535,7 @@ pub fn render_from_source_with_base(
     )?;
     let ctx = V8JsContext::new()?;
     crate::gpu_stream_executor::install_glsl_reflector(&ctx);
+    crate::gpu_stream_executor::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -632,6 +639,7 @@ pub fn render_single_frame_from_source_with_base(
     )?;
     let ctx = V8JsContext::new()?;
     crate::gpu_stream_executor::install_glsl_reflector(&ctx);
+    crate::gpu_stream_executor::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);

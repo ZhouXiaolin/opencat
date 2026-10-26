@@ -20,7 +20,7 @@ fn offscreen_gl_session_clear_and_readback() {
 
     // 直接 FBO 路径 readback(create texture + fbo + read)。
     let tex = opencat_gpu_native::gl::create_texture_rgba8(&gl, 4, 4).expect("tex");
-    let fbo = opencat_gpu_native::gl::create_framebuffer(&gl, tex).expect("fbo");
+    let fbo = opencat_gpu_native::gl::create_framebuffer(&gl, tex, 4, 4).expect("fbo");
     unsafe {
         gl.bind_framebuffer(
             glow::FRAMEBUFFER,

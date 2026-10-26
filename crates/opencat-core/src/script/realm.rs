@@ -20,8 +20,9 @@ use crate::script::dispatch::{binding_shim_js, dispatch_binding};
 use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
-    ANIMATION_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME, G2_API_RUNTIME,
-    G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME,
+    ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
+    G2_API_RUNTIME, G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
+    WEBGL_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -261,6 +262,9 @@ impl<C: JsContext> ScriptRealm<C> {
         // 'webgl2' with the command recorder. After CONTEXT2D_RUNTIME (it
         // chains the base `ctx.getContext`).
         self.ctx.eval(WEBGL_API_RUNTIME)?;
+        // Web loading shims (fetch/Blob/URL/createImageBitmap over the
+        // engine's asset natives) — self-guarded, a no-op without them.
+        self.ctx.eval(ASSET_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
         // JSX frontend: h() + use* registry + module loader. Pure-XML
         // compositions simply never call into it. The `gsap` package is NOT

@@ -35,14 +35,33 @@ const GL_MAP_READ_BIT: u32 = 0x0001;
 pub const TEXTURE_2D: u32 = 0x0DE1;
 pub const RGBA8: u32 = 0x8058;
 
-/// 建一个以 `tex` 为颜色附件的 FBO，返回 FBO id。
+/// FBO id → 其深度渲染缓冲（[`create_framebuffer`] 登记，[`delete_framebuffer`]
+/// 取走删除）。glow 0.13 没有附件查询入口，注册表兜底。
+fn depth_renderbuffers() -> &'static std::sync::Mutex<std::collections::HashMap<u32, u32>> {
+    static T: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u32, u32>>> =
+        std::sync::OnceLock::new();
+    T.get_or_init(Default::default)
+}
+
+/// 建一个以 `tex` 为颜色附件、`width × height` DEPTH_COMPONENT24 渲染
+/// 缓冲为深度附件的 FBO，返回 FBO id。
+///
+/// 深度附件是 WebGL 画布的默认语义（context 属性 depth=true）：3D 流的
+/// 深度测试全指着它——没有它深度测试恒过，画家序后画者胜，近处物体被
+/// 远处表面覆盖。
 ///
 /// FBO 不完整时返回 `None`。成功时 FBO 已解绑（绑回 0），不干扰调用方
 /// 后续的 GL 状态。
 ///
 /// 返回的 id 对调用方**不透明**：它只被塞进 Skia 的 `FramebufferInfo`。
-/// 调用方不得对它做 GL 调用，也不得做算术。
-pub fn create_framebuffer(gl: &glow::Context, tex: NativeTexture) -> Option<u32> {
+/// 调用方不得对它做 GL 调用，也不得做算术。深度渲染缓冲由
+/// [`delete_framebuffer`] 一并删除。
+pub fn create_framebuffer(
+    gl: &glow::Context,
+    tex: NativeTexture,
+    width: u32,
+    height: u32,
+) -> Option<u32> {
     unsafe {
         let fbo = gl.create_framebuffer().ok()?;
         gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fbo));
@@ -53,22 +72,46 @@ pub fn create_framebuffer(gl: &glow::Context, tex: NativeTexture) -> Option<u32>
             Some(glow::NativeTexture(nz(tex.raw() as u32))),
             0,
         );
+        let depth = gl.create_renderbuffer().ok()?;
+        gl.bind_renderbuffer(glow::RENDERBUFFER, Some(depth));
+        gl.renderbuffer_storage(
+            glow::RENDERBUFFER,
+            glow::DEPTH_COMPONENT24,
+            width as i32,
+            height as i32,
+        );
+        gl.framebuffer_renderbuffer(
+            glow::FRAMEBUFFER,
+            glow::DEPTH_ATTACHMENT,
+            glow::RENDERBUFFER,
+            Some(depth),
+        );
+        gl.bind_renderbuffer(glow::RENDERBUFFER, None);
         let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
         gl.bind_framebuffer(glow::FRAMEBUFFER, None);
         if status != glow::FRAMEBUFFER_COMPLETE {
+            gl.delete_renderbuffer(depth);
             gl.delete_framebuffer(fbo);
             return None;
         }
+        depth_renderbuffers()
+            .lock()
+            .unwrap()
+            .insert(fbo.0.get(), depth.0.get());
         Some(fbo.0.get())
     }
 }
 
-/// 删除 [`create_framebuffer`] 建的 FBO。
+/// 删除 [`create_framebuffer`] 建的 FBO（连同其深度渲染缓冲）。
 pub fn delete_framebuffer(gl: &glow::Context, fbo: u32) {
     if fbo == 0 {
         return;
     }
+    let depth = depth_renderbuffers().lock().unwrap().remove(&fbo);
     unsafe {
+        if let Some(depth) = depth {
+            gl.delete_renderbuffer(glow::NativeRenderbuffer(nz(depth)));
+        }
         gl.delete_framebuffer(glow::NativeFramebuffer(nz(fbo)));
     }
 }
@@ -128,7 +171,7 @@ pub struct Target {
 impl Target {
     /// 用 `tex` 作颜色附件建目标。
     pub fn new(gl: Arc<glow::Context>, tex: NativeTexture, width: u32, height: u32) -> Result<Self> {
-        let fbo = create_framebuffer(&gl, tex)
+        let fbo = create_framebuffer(&gl, tex, width, height)
             .ok_or_else(|| anyhow!("创建 FBO 失败（GL 入口缺失或 FBO 不完整）"))?;
         let readback = ReadbackPixels::new(&gl, fbo, width, height);
         Ok(Self {

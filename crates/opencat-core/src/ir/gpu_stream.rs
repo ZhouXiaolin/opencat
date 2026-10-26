@@ -342,8 +342,11 @@ pub mod gl_opcode {
     pub const STENCIL_OP: u8 = 83;
     /// {mask: u32}
     pub const STENCIL_MASK: u8 = 84;
+    /// {count: u8, modes: [u32; count]} — WebGL2 MRT 绘制缓冲列表（PMREM 的
+    /// setRenderTarget 路径）。变长（count 首部），不进 PAYLOAD_LEN。
+    pub const DRAW_BUFFERS: u8 = 85;
 
-    pub const MAX_OPCODE: u8 = STENCIL_MASK;
+    pub const MAX_OPCODE: u8 = DRAW_BUFFERS;
 
     /// 定长 payload 长度表；`None` = 变长（UNIFORM_NF/NI/MATRIX_4F）。
     pub const PAYLOAD_LEN: [Option<u16>; (MAX_OPCODE as usize) + 1] = build_payload_len();

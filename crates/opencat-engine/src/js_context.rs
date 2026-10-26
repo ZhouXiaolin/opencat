@@ -283,6 +283,152 @@ fn surface_read_into(
     rv.set_int32(bytes.len() as i32);
 }
 
+/// `__opencatGLIntern(targetId, bytes)` — binary fast path for GL stream
+/// intern payloads (VBO/texture bytes, up to tens of MB). Returns the range id.
+fn gl_intern(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "gl.intern: realm native state missing");
+        return;
+    };
+    let target_id = args.get(0).to_rust_string_lossy(scope);
+    let bytes_v8: Local<v8::Uint8Array> = match args.get(1).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "gl.intern: `bytes` must be a Uint8Array");
+            return;
+        }
+    };
+    let mut bytes = vec![0u8; bytes_v8.byte_length()];
+    let copied = v8::ArrayBufferView::copy_contents(&bytes_v8, &mut bytes);
+    bytes.truncate(copied);
+    let Ok(mut store) = state.store.lock() else {
+        throw(scope, "gl.intern: store lock poisoned");
+        return;
+    };
+    match store.gl_stream_intern(&target_id, bytes) {
+        Ok(range) => rv.set_int32(range as i32),
+        Err(e) => throw(scope, &format!("gl.intern: {e}")),
+    }
+}
+
+/// `__opencatAssetStat(path)` — byte length of a document-relative asset, or
+/// −1 when unreadable. The two-step stat/read shape keeps the fill-in-place
+/// contract (caller preallocates, native fills) used by `surface_read_into`.
+fn asset_stat(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "asset.stat: realm native state missing");
+        return;
+    };
+    let path = args.get(0).to_rust_string_lossy(scope);
+    let Ok(store) = state.store.lock() else {
+        throw(scope, "asset.stat: store lock poisoned");
+        return;
+    };
+    match store.asset_read(&path) {
+        Ok(bytes) => rv.set_int32(bytes.len() as i32),
+        Err(_) => rv.set_int32(-1),
+    }
+}
+
+/// `__opencatAssetReadInto(path, out)` — fill `out` with the asset bytes.
+fn asset_read_into(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "asset.read: realm native state missing");
+        return;
+    };
+    let path = args.get(0).to_rust_string_lossy(scope);
+    let out: Local<v8::Uint8Array> = match args.get(1).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "asset.read: `out` must be a Uint8Array");
+            return;
+        }
+    };
+    let Ok(store) = state.store.lock() else {
+        throw(scope, "asset.read: store lock poisoned");
+        return;
+    };
+    let bytes = match store.asset_read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            throw(scope, &format!("asset.read `{path}`: {e}"));
+            return;
+        }
+    };
+    if out.byte_length() < bytes.len() {
+        throw(scope, "asset.read: destination Uint8Array smaller than asset");
+        return;
+    }
+    let destination = out.data() as *mut u8;
+    // SAFETY: `out` is rooted by this call's arguments (see surface_read_into).
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
+    }
+    rv.set_int32(bytes.len() as i32);
+}
+
+/// `__opencatImageDecodeInto(src, surfaceId)` — decode an encoded image
+/// (webp/png/jpeg, the GLTFLoader texture payload) straight into a session
+/// surface; resolves to `{width, height}` or `null` on decode failure.
+fn image_decode_into(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "image.decode: realm native state missing");
+        return;
+    };
+    let src: Local<v8::Uint8Array> = match args.get(0).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "image.decode: `src` must be a Uint8Array");
+            return;
+        }
+    };
+    let mut bytes = vec![0u8; src.byte_length()];
+    let copied = v8::ArrayBufferView::copy_contents(&src, &mut bytes);
+    bytes.truncate(copied);
+    let surface_id = args.get(1).to_rust_string_lossy(scope);
+    let Ok(store) = state.store.lock() else {
+        throw(scope, "image.decode: store lock poisoned");
+        return;
+    };
+    let decoded = match store.image_decode(&bytes) {
+        Ok((w, h, rgba)) => (w, h, rgba),
+        Err(_) => {
+            let null = v8::null(scope);
+            rv.set(null.into());
+            return;
+        }
+    };
+    let (w, h, rgba) = decoded;
+    if opencat_core::text::surface::surface_create_or_resize(&surface_id, w, h).is_err()
+        || opencat_core::text::surface::surface_write_rgba(&surface_id, w, h, rgba).is_err()
+    {
+        let null = v8::null(scope);
+        rv.set(null.into());
+        return;
+    }
+    let json = serde_json::json!({ "width": w, "height": h });
+    match json_to_v8(scope, &json) {
+        Ok(v) => rv.set(v),
+        Err(e) => throw(scope, &format!("image.decode: {e}")),
+    }
+}
+
 // ── V8JsContext ──────────────────────────────────────────────────────
 
 /// V8-backed [`JsContext`]: one isolate + one context per pipeline.
@@ -309,6 +455,23 @@ impl V8JsContext {
     ) {
         let mut guard = self.natives.store.lock().expect("script store lock poisoned");
         guard.set_glsl_reflector(f);
+    }
+
+    /// 注入资产读取器（文档相对路径 → 字节）。见
+    /// [`crate::gpu_stream_executor::install_asset_bridge`]。
+    pub fn set_asset_reader(&self, f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>) {
+        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        guard.set_asset_reader(f);
+    }
+
+    /// 注入图像解码器（编码字节 → (w, h, rgba8)）。见
+    /// [`crate::gpu_stream_executor::install_asset_bridge`]。
+    pub fn set_image_decoder(
+        &self,
+        f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
+    ) {
+        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        guard.set_image_decoder(f);
     }
 
     /// Evaluate `code` and marshal the result back as JSON.
@@ -448,6 +611,24 @@ impl JsContext for V8JsContext {
             let read = Function::new(scope, surface_read_into)
                 .ok_or_else(|| anyhow!("v8: failed to create __opencatSurfaceReadInto"))?;
             set_global(scope, "__opencatSurfaceReadInto", read.into())?;
+
+            // GL stream / asset / image natives (binary fast paths, same shape
+            // as the two above).
+            let intern = Function::new(scope, gl_intern)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatGLIntern"))?;
+            set_global(scope, "__opencatGLIntern", intern.into())?;
+
+            let stat = Function::new(scope, asset_stat)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatAssetStat"))?;
+            set_global(scope, "__opencatAssetStat", stat.into())?;
+
+            let aread = Function::new(scope, asset_read_into)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatAssetReadInto"))?;
+            set_global(scope, "__opencatAssetReadInto", aread.into())?;
+
+            let idecode = Function::new(scope, image_decode_into)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatImageDecodeInto"))?;
+            set_global(scope, "__opencatImageDecodeInto", idecode.into())?;
             Ok(())
         })
     }

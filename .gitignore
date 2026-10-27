@@ -110,3 +110,5 @@ examples/hf-min/dist/
 examples/hf-min/min.mp4
 examples/vfx-heygen-combined/out-vfx-full-*.mp4
 examples/vfx-heygen-combined/k3diff-cpu.csv/
+examples/vfx-heygen-combined/out-vfx-*.mp4
+examples/gsap-plugins/out-*.mp4

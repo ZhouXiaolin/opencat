@@ -3184,7 +3184,6 @@ dependencies = [
  "serde_json",
  "skia-safe",
  "tempfile",
- "tiny-skia 0.12.0",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -4713,7 +4712,7 @@ dependencies = [
  "log",
  "memmap2",
  "smithay-client-toolkit",
- "tiny-skia 0.11.4",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -4884,15 +4883,6 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
-
-[[package]]
-name = "simplecss"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a9c6883ca9c3c7c90e888de77b7a5c849c779d25d74a1269b0218b14e8b136c"
-dependencies = [
- "log",
-]
 
 [[package]]
 name = "siphasher"
@@ -5506,21 +5496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tiny-skia"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
-dependencies = [
- "arrayref",
- "arrayvec",
- "bytemuck",
- "cfg-if",
- "log",
- "png",
- "tiny-skia-path 0.12.0",
-]
-
-[[package]]
 name = "tiny-skia-path"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5845,10 +5820,11 @@ dependencies = [
  "harfrust 0.12.0",
  "imagesize",
  "kurbo",
+ "lightningcss",
  "log",
+ "parcel_selectors",
  "pico-args",
  "roxmltree 0.21.1",
- "simplecss",
  "siphasher",
  "skrifa 0.44.0",
  "strict-num",

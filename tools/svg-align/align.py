@@ -109,9 +109,6 @@ def spawn_env():
     env = os.environ.copy()
     if _FFMPEG_DIR_FOUND:
         env["PATH"] = f"{_FFMPEG_DIR_FOUND};{env.get('PATH', '')}"
-    # diff 参考 resvg = tiny-skia 光栅化；svg 路径走同一光栅化器，形状
-    # 边缘逐像素同源（详见 engine executor/path_tiny.rs 模块注）。
-    env.setdefault("OC_PATH_RASTERIZER", "tiny")
     return env
 
 

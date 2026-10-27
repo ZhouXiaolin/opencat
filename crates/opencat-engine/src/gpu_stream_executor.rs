@@ -64,6 +64,10 @@ pub struct GpuStreamExecutor {
     cur_element: Option<u32>,
     /// 当前使用的程序（内容 key；None = 无）。
     cur_program_key: Option<String>,
+    /// 本帧流输出 FBO。WebGL `bindFramebuffer(target, null)` 的语义是
+    /// 「绑回 canvas 绘制面」——离屏会话里没有 window system 默认帧缓冲，
+    /// 必须显式映射到这里。
+    stream_out_fbo: u32,
     /// 客户端可见的全局 GL 状态影子（three 的 JS 状态缓存视角）。
     client: ClientGlState,
 }
@@ -226,6 +230,11 @@ impl GpuStreamExecutor {
         gpu_mode: bool,
     ) -> Result<Vec<(opencat_gpu_native::NativeTexture, u32)>> {
         let mut outputs = Vec::new();
+        if section.streams.is_empty() {
+            // 没有任何流 = 本会话 GL 状态没被流碰过。restore 的一堆绑定
+            // 调用反而会踩掉 Skia 的状态缓存，直接早退。
+            return Ok(outputs);
+        }
         for stream in &section.streams {
             let out = self.execute_stream(gl, stream, plan, textures, gpu_mode)?;
             outputs.extend(out);
@@ -259,15 +268,26 @@ impl GpuStreamExecutor {
             );
         }
 
+        // 流首状态对齐：GPU 管线下 Skia 合成与流执行共享上下文，上一帧
+        // restore 之后的 Skia pass 会改真状态（blend/depth 等）。客户端
+        // （three 的 WebGLState）只发增量命令——真状态若停在 Skia 遗留值，
+        // 影子外的一切增量都会被打到错误状态上（实测：blend 残留把流输出
+        // 的 alpha 通道整帧洗成 1、depth 残留毁掉机身的深度排序）。流首
+        // 无条件把真状态拉回客户端影子，增量命令的起点重新可信。
+        restore_default_state(self, gl);
+
         // 输出纹理 + FBO：流画到自己的附件上（合成按占位 z 序采样）。
         let out_tex = opencat_gpu_native::gl::create_texture_rgba8(gl, stream.width, stream.height)
             .ok_or_else(|| anyhow!("gpu stream: 输出纹理创建失败"))?;
         let out_fbo =
             opencat_gpu_native::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
                 .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
+        self.stream_out_fbo = out_fbo;
 
-        // 流内不录 bindFramebuffer（作者代码不调它）；执行器把输出 FBO 设为
-        // 绘制目标，否则 clear/draw 落到默认帧缓冲，输出纹理保持黑。
+        // 常规帧的流不含 bindFramebuffer（three 的 rt 绑定走缓存不重发）；
+        // 执行器把输出 FBO 设为绘制目标，clear/draw 才有落点。realm 构建
+        // 帧（PMREM 等多 pass）流内的 bindFramebuffer 由 BIND_FRAMEBUFFER
+        // 臂处理：null 映射回 out_fbo。
         unsafe {
             gl.bind_framebuffer(
                 glow::FRAMEBUFFER,
@@ -312,8 +332,27 @@ impl GpuStreamExecutor {
                 token: token.raw(),
             });
             outputs.push((native, out_fbo));
+            // 调试：dump 流输出纹理字节（与 CPU readback 路径对比用）。
+            if let Some(dir) = std::env::var_os("OC_DUMP_STREAM_OUTPUT") {
+                let rgba = readback_sync(gl, out_fbo, stream.width, stream.height)?;
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(
+                    std::path::Path::new(&dir)
+                        .join(format!("f{}-{}.rgba", stream.image_id.0, stream.target_id)),
+                    &rgba,
+                );
+            }
         } else {
             let rgba = readback_sync(gl, out_fbo, stream.width, stream.height)?;
+            // 调试：与 GPU 管线同格式 dump，供两端字节级对比。
+            if let Some(dir) = std::env::var_os("OC_DUMP_STREAM_OUTPUT") {
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::fs::write(
+                    std::path::Path::new(&dir)
+                        .join(format!("f{}-{}.rgba", stream.image_id.0, stream.target_id)),
+                    &rgba,
+                );
+            }
             entry.rgba = Arc::from(rgba);
             entry.gpu = None;
             opencat_gpu_native::gl::delete_framebuffer(gl, out_fbo);
@@ -877,7 +916,12 @@ impl<'a> Replay<'a> {
                         let target = rd_u16(self.ops, &mut p);
                         let handle = rd_u32(self.ops, &mut p);
                         let fbo = if handle == NULL_HANDLE {
-                            None
+                            // WebGL null = canvas 绘制面 = 本帧流输出 FBO。
+                            // 绑 None 是桌面 GL 的 window system 帧缓冲，
+                            // 离屏会话里不存在——主 pass 的绘制会整体丢失。
+                            Some(glow::NativeFramebuffer(
+                                std::num::NonZeroU32::new(ex.stream_out_fbo).unwrap(),
+                            ))
                         } else {
                             Some(*ex.obj_fbos.entry(handle).or_insert_with(|| {
                                 gl.create_framebuffer().expect("create_framebuffer")

@@ -114,7 +114,7 @@ pub const JS_PLATFORM_SHIM: &str = r#"
     globalThis.console = globalThis.console || {
         log: function () { var k = globalThis.__ocLogSink; if (k) { k('log ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.log ' + Array.prototype.join.call(arguments, ' ')); } },
         warn: function () { var k = globalThis.__ocLogSink; if (k) { k('warn ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.warn ' + Array.prototype.join.call(arguments, ' ')); } },
-        error: function () { var k = globalThis.__ocLogSink; if (k) { k('error ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.error ' + Array.prototype.join.call(arguments, ' ')); } },
+        error: function () { var m = Array.prototype.join.call(arguments, ' '); var k = globalThis.__ocLogSink; if (k) { k('error ' + m); } if (typeof __ocStderr === 'function') { __ocStderr(m); } (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.error ' + m); },
     };
     globalThis.__ocInstallLogSink = function (fn) { globalThis.__ocLogSink = fn; };
     }

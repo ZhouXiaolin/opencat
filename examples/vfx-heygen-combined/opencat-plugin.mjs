@@ -3,28 +3,57 @@
 // 职责：
 //   1. 构建期把 entry 所在目录的 className 编译成标准 CSS（tailwind 原语必须
 //      在构建期编译掉，引擎只吃标准 CSS），产物留在内存，不落盘。
-//   2. 用 esbuild 把入口打包成标准 bundle（解析 npm 依赖——lucide-react
-//      等真包在这里被折叠进产物；react 系 import alias 到 react-shim.mjs），
-//      并把编译后的 CSS 以 `export const css` 嵌进 bundle——bundle 单文件
-//      自包含，是渲染的唯一样式来源。bundle 与视频同放 `output` 所在目录
-//      （默认 dist/，构建产物不混进源码目录）。
+//   2. 用 esbuild 把入口、gsap、three 各打一份，拼成**单文件多模块段**的
+//      `dist/<stem>.bundle.jsx`：每段以 `/*@@oc-module:<spec>@@*/` 起头，
+//      引擎开文件时按标记切段灌进模块表（crates/opencat-engine/src/jsx.rs）。
+//      切段是必须的：`__ocResetFrame` 只让 gsap/three 的模块条目跨帧存活，
+//      内联进 entry 会让 1.6MB 的 three 类定义每帧重估。编译后的 CSS 以
+//      `export const css` 嵌在 entry 段内——bundle 单文件自包含，是渲染的
+//      唯一样式来源。bundle 与视频同放 `output` 所在目录（默认 dist/，构建
+//      产物不混进源码目录）。
 //   3. vite build 结束后自动调用 opencat render 产出视频（渲染的是 bundle）。
 //      bundle 不在入口目录，所以渲染显式传 `--base-dir <入口目录>`：资产/字体
 //      相对路径仍按入口目录解析。预览同理：build 产出 bundle 后
 //      `opencat-see dist/<stem>.bundle.jsx --base-dir .`。
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /// 垫片与插件同目录分发（模板/示例各自 cp 一份）。
 const SHIM_PATH = join(dirname(fileURLToPath(import.meta.url)), 'react-shim.mjs');
-/// gsap 收录面入口，同上分发。项目装了 gsap 时预打包成 dist/gsap.bundle.mjs
-/// ——引擎不再内嵌 gsap，渲染期按约定读该 sidecar 注入模块表。
+/// gsap 收录面入口，同上分发。项目装了 gsap 时打成 `gsap` 模块段。
 const GSAP_ENTRY = join(dirname(fileURLToPath(import.meta.url)), 'gsap-entry.mjs');
-/// three 主包入口，同上分发。装了 three 时预打包成 dist/three.bundle.mjs。
+/// three 主包入口，同上分发。项目装了 three 时打成 `three` 模块段。
 const THREE_ENTRY = join(dirname(fileURLToPath(import.meta.url)), 'three-entry.mjs');
+
+/// 段首标记：引擎按它把单文件切回多个模块条目。
+const SEGMENT_PREFIX = '/*@@oc-module:';
+const SEGMENT_SUFFIX = '@@*/';
+/// entry 段的 spec 名，与 `crates/opencat-core/src/parse/jsx.rs` 的 ENTRY_SPEC 一致。
+const ENTRY_SPEC = '<entry>';
+
+/// three 0.181 上游 bug：WebGLState/WebGLRenderer/DataTextureLoader 的
+/// `catch ( error )` 参数遮蔽模块级 error 工具函数，esbuild rename 忠实保留
+/// 该 bug，必须在打包前的源文本上把遮蔽调用改成 console.error（catch 外的
+/// 同名正常调用不动）。分布：module.js×11、core.js×1。
+const threeShadowPatch = {
+    name: 'three-shadowed-error',
+    setup(build) {
+        build.onLoad({ filter: /three[\\/]build[\\/]three(\.core|\.module)?\.(cjs|js)$/ }, (args) => {
+            let src = readFileSync(args.path, 'utf8');
+            for (const [from, to] of [
+                ["error( 'WebGLState:', error )", "console.error( 'WebGLState:', error )"],
+                ["error( 'WebGLRenderer: ' + error.message )", "console.error( 'WebGLRenderer: ' + error.message )"],
+                ["error( error )", "console.error( error )"],
+            ]) {
+                src = src.split(from).join(to);
+            }
+            return { contents: src, loader: 'js' };
+        });
+    },
+};
 
 export default function opencat(options = {}) {
     const entry = options.entry ?? 'src/index.jsx';
@@ -79,25 +108,49 @@ export default function opencat(options = {}) {
         });
     };
 
-    // 标准工程流：npm 组件树 → esbuild bundle → 引擎渲染 bundle。
-    // react/react/jsx-runtime alias 到垫片（svg 子树在垫片里序列化成
-    // inline markup）；opencat/runtime 与三个真包（gsap/three/canvaskit-wasm）
-    // 保持 external——引擎内建或项目 sidecar 解析（gsap 见 bundleGsap）。
-    const bundle = () => {
+    const requireEsbuild = () => {
         if (!esbuild) {
-            const require = createRequire(join(root, 'package.json'));
-            esbuild = require('esbuild');
+            esbuild = createRequire(join(root, 'package.json'))('esbuild');
         }
+        return esbuild;
+    };
+
+    /// 一个真包 → 一段 CJS 源码。项目没装该包时跳过：源码里的
+    /// `import 'gsap'` 会落到 JS 运行时的 resolveSpec 报缺包，不需要构建期
+    /// 报错（gsap/three 都是可选的）。
+    const buildSegment = async (spec, entryPath, plugins = []) => {
+        const nm = join(root, 'node_modules');
+        if (!existsSync(join(nm, spec)) || !existsSync(entryPath)) return null;
+        const result = await requireEsbuild().build({
+            entryPoints: [entryPath],
+            bundle: true,
+            write: false,
+            format: 'cjs',
+            platform: 'browser',
+            target: 'es2020',
+            charset: 'utf8',
+            logLevel: 'warning',
+            nodePaths: [nm],
+            plugins,
+        });
+        return segment(spec, result.outputFiles[0].text);
+    };
+
+    // 标准工程流：npm 组件树 → 单文件多段 bundle → 引擎渲染 bundle。
+    // react/react/jsx-runtime alias 到垫片（svg 子树在垫片里序列化成 inline
+    // markup）；opencat/runtime 与 canvaskit-wasm 是引擎内建，保持 external。
+    const bundle = async () => {
         const stem = basename(entryAbs).replace(/\.jsx$/, '');
         // 产物一律进 dist/（与视频同目录，一起被 gitignore）。bundle 不在入口
         // 同目录，所以渲染时必须显式把 base_dir 指回入口目录——资产/字体相对
         // 路径仍按入口目录解析。
         bundleAbs = join(distDir, `${stem}.bundle.jsx`);
         mkdirSync(distDir, { recursive: true });
-        esbuild.buildSync({
+
+        const entryResult = await requireEsbuild().build({
             entryPoints: [entryAbs],
-            outfile: bundleAbs,
             bundle: true,
+            write: false,
             format: 'esm',
             jsx: 'automatic',
             jsxImportSource: 'react',
@@ -109,98 +162,31 @@ export default function opencat(options = {}) {
             charset: 'utf8',
             logLevel: 'warning',
         });
-        embedCss();
+
+        const chunks = [];
+        for (const built of [
+            await buildSegment('gsap', GSAP_ENTRY),
+            await buildSegment('three', THREE_ENTRY, [threeShadowPatch]),
+        ]) {
+            if (built) chunks.push(built);
+        }
+        chunks.push(segment(ENTRY_SPEC, entryResult.outputFiles[0].text + cssExport()));
+
+        writeFileSync(bundleAbs, chunks.join(''));
         console.log(`[opencat] bundled ${entry} -> ${bundleAbs}`);
     };
 
-    // 编译后的样式表嵌进 bundle（`export const css`）：bundle 单文件自包含。
-    const embedCss = () => {
-        if (!cssText) return;
+    // 编译后的样式表嵌进 entry 段（`export const css`）：bundle 单文件自包含。
+    const cssExport = () => {
+        if (!cssText) return '';
         const literal = JSON.stringify(cssText)
             .replace(/\u2028/g, '\\u2028')
             .replace(/\u2029/g, '\\u2029');
-        appendFileSync(bundleAbs, `\nexport const css = ${literal};\n`);
-    };
-
-    // 项目侧 gsap bundle：`gsap` 在主 bundle 里保持 external，渲染期由引擎
-    // 从 dist/gsap.bundle.mjs 注入。gsap 从项目自身依赖解析（nodePaths），
-    // 版本跟项目；没装 gsap 的项目跳过。CJS 产物：引擎模块表按 CJS 语义
-    // new Function 执行，无 import/export 需要降级。
-    const bundleGsap = () => {
-        const nm = join(root, 'node_modules');
-        if (!existsSync(join(nm, 'gsap'))) return;
-        if (!esbuild) {
-            const require = createRequire(join(root, 'package.json'));
-            esbuild = require('esbuild');
-        }
-        const outfile = join(distDir, 'gsap.bundle.mjs');
-        mkdirSync(distDir, { recursive: true });
-        esbuild.buildSync({
-            entryPoints: [GSAP_ENTRY],
-            outfile,
-            bundle: true,
-            format: 'cjs',
-            platform: 'browser',
-            target: 'es2020',
-            charset: 'utf8',
-            logLevel: 'warning',
-            nodePaths: [nm],
-        });
-        console.log(`[opencat] bundled gsap -> ${outfile}`);
-    };
-
-    // 项目侧 three bundle：`three` 在主 bundle 里保持 external，渲染期由引擎
-    // 从 dist/three.bundle.mjs 注入。没装 three 的项目跳过。
-    // three 0.181 上游 bug：WebGLState/WebGLRenderer/DataTextureLoader 的
-    // `catch ( error )` 参数遮蔽模块级 error 工具函数，esbuild rename 忠实
-    // 保留该 bug，必须在打包前的源文本上把遮蔽调用改成 console.error
-    // （catch 外的同名正常调用不动）。分布：module.js×11、core.js×1。
-    const threeShadowPatch = {
-        name: 'three-shadowed-error',
-        setup(build) {
-            build.onLoad({ filter: /three[\\/]build[\\/]three(\.core|\.module)?\.(cjs|js)$/ }, (args) => {
-                let src = readFileSync(args.path, 'utf8');
-                for (const [from, to] of [
-                    ["error( 'WebGLState:', error )", "console.error( 'WebGLState:', error )"],
-                    ["error( 'WebGLRenderer: ' + error.message )", "console.error( 'WebGLRenderer: ' + error.message )"],
-                    ["error( error )", "console.error( error )"],
-                ]) {
-                    src = src.split(from).join(to);
-                }
-                return { contents: src, loader: 'js' };
-            });
-        },
-    };
-    // three 遮蔽 patch 要走 esbuild plugin（onLoad 改源文本），plugin 只在
-    // 异步 API 里可用——这里是工程流里唯一不能 buildSync 的打包步骤。
-    const bundleThree = async () => {
-        const nm = join(root, 'node_modules');
-        if (!existsSync(join(nm, 'three'))) return;
-        if (!esbuild) {
-            const require = createRequire(join(root, 'package.json'));
-            esbuild = require('esbuild');
-        }
-        const outfile = join(distDir, 'three.bundle.mjs');
-        mkdirSync(distDir, { recursive: true });
-        await esbuild.build({
-            entryPoints: [THREE_ENTRY],
-            outfile,
-            bundle: true,
-            format: 'cjs',
-            platform: 'browser',
-            target: 'es2020',
-            charset: 'utf8',
-            logLevel: 'warning',
-            nodePaths: [nm],
-            plugins: [threeShadowPatch],
-        });
-        console.log(`[opencat] bundled three -> ${outfile}`);
+        return `\nexport const css = ${literal};\n`;
     };
 
     const render = async () => {
-        bundle();
-        bundleGsap();
-        await bundleThree();
+        await bundle();
         const bin = findOpencatBin();
         mkdirSync(dirname(outputAbs), { recursive: true });
         console.log(`[opencat] render ${entry} -> ${output}`);
@@ -232,12 +218,16 @@ export default function opencat(options = {}) {
                 return compileTailwind();
             }
         },
-        async closeBundle() {
-            await render();
+        closeBundle() {
+            return render();
         },
     };
 }
 
+/// 把一段源码包成带段首标记的模块段。标记必须独占一行。
+function segment(spec, code) {
+    return `${SEGMENT_PREFIX}${spec}${SEGMENT_SUFFIX}\n${code}\n`;
+}
 
 /// 从项目 node_modules 解析 @tailwindcss/cli 的 bin 入口（dist/index.mjs）。
 function resolveTailwindCli(root) {

@@ -1,7 +1,7 @@
 // gsap 真包入口：core + CSSPlugin + 全部官方插件。
-// 由 opencat-plugin.mjs（vite 工程流）或 scripts/build-example-gsap.mjs
-// （裸 .jsx sidecar）用 esbuild 打成 CJS，产物是 <example>/dist/gsap.bundle.mjs
-// ——项目资产，渲染期由引擎按约定注入模块表（core 不再内嵌 gsap 源码）。
+// 由 opencat-plugin.mjs（vite 工程流）或 scripts/build-example-bundle.mjs
+// （裸 .jsx）用 esbuild 打成 CJS，作为单文件 bundle 里的 `gsap` 模块段
+// ——渲染期由引擎按段标记注入模块表（core 不再内嵌 gsap 源码）。
 //
 // 收录面 = npm `gsap` 包的全部插件。非交互插件在入口预注册；交互类
 // （ScrollTrigger/Draggable/Observer 等）与外部库桥、devtools 只收录导出，

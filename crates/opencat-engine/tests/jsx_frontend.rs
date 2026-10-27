@@ -1,10 +1,5 @@
-//! JSX frontend checks: entry extraction, per-frame driver, relative imports.
-//!
-//! The acceptance bar for the JSX experiment is "the ported example produces
-//! the same composition" — `examples/dribbble-logo-animated.jsx` is the
-//! pixel-verified port of `examples/dribbble-logo-animated.jsx` (verified via
-//! `opencat render <file> out.png <frame>` frame-by-frame). These tests lock
-//! the structural contract that makes that port work.
+//! JSX frontend checks: entry extraction, per-frame driver, relative imports,
+//! and the single-file multi-segment bundle the vite plugin emits.
 
 use std::path::Path;
 
@@ -44,59 +39,59 @@ fn parse_ids(source: &str, base_dir: &Path) -> (Vec<String>, String) {
     (ids, driver)
 }
 
-/// The engine resolves `gsap` from the project sidecar (`<base_dir>/dist/
-/// gsap.bundle.mjs`); the repo does not commit build artifacts. Extract never
-/// runs the animation hooks, so the protocol stub (same shape as the one in
-/// script_runtime_tests) is a sufficient supply for these structural checks.
-fn ensure_gsap_sidecar(base_dir: &Path) {
-    let dir = base_dir.join("dist");
-    let path = dir.join("gsap.bundle.mjs");
-    if path.is_file() {
-        return;
-    }
-    std::fs::create_dir_all(&dir).expect("dist dir");
-    let stub = r#"
-    var __ocStubGsap = {
-        timeline: function (vars) {
-            if (!vars || vars.paused !== true) throw new Error('timeline must be created paused');
-            var tweens = [];
-            var tl = {
-                to: function (target) { tweens.push(String(target)); return tl; },
-                time: function () { return 0; },
-            };
-            return tl;
-        },
-        to: function () {},
-    };
-    __ocStubGsap.default = __ocStubGsap;
-    module.exports = { gsap: __ocStubGsap, default: __ocStubGsap, TimelineLite: function () {} };
-    "#;
-    std::fs::write(&path, stub).expect("write stub gsap sidecar");
+/// `gsap` 的协议桩（与 script_runtime_tests 里的同类桩同形）。bundle 里的
+/// 真包无法在测试里打包（没有 esbuild），extract 也从不跑动画 hook，所以
+/// 段式 bundle 只带桩即可锁住「一个文件多个模块段」这条契约。
+const GSAP_STUB: &str = r#"
+var __ocStubGsap = {
+    timeline: function (vars) {
+        if (!vars || vars.paused !== true) throw new Error('timeline must be created paused');
+        var tweens = [];
+        var tl = {
+            to: function (target) { tweens.push(String(target)); return tl; },
+            time: function () { return 0; },
+        };
+        return tl;
+    },
+    to: function () {},
+};
+__ocStubGsap.default = __ocStubGsap;
+module.exports = { gsap: __ocStubGsap, default: __ocStubGsap, TimelineLite: function () {} };
+"#;
+
+/// 把 `source` 与 gsap 桩拼成单文件多段 bundle，形状与打包器产物一致。
+fn with_gsap_segment(source: &str) -> String {
+    format!("/*@@oc-module:gsap@@*/{GSAP_STUB}\n/*@@oc-module:<entry>@@*/\n{source}")
 }
 
 #[test]
-fn dribbble_port_extracts_tree_and_frame_driver() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/dribbble-logo-animated.jsx")
-        .canonicalize()
-        .expect("example file");
-    let source = std::fs::read_to_string(&path).expect("read example");
-    ensure_gsap_sidecar(path.parent().unwrap());
-    let parsed = parse_with_base_dir(&source, path.parent()).expect("jsx parse");
+fn segmented_bundle_supplies_gsap_as_its_own_module() {
+    // 段式 bundle：entry 只写 `import { gsap } from 'gsap'`，gsap 的源码在
+    // 同文件的另一个段里。锁住的是切段 + 模块表灌入这条链路——没有它，
+    // `gsap` 会落到 resolveSpec 报缺包。
+    let dir = std::env::temp_dir().join(format!("opencat-jsx-seg-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    let entry = r#"
+import { gsap } from 'gsap';
+import { useGSAP } from 'opencat/runtime';
 
-    assert_eq!((parsed.width, parsed.height, parsed.fps), (1920, 1080, 30));
-    assert!((parsed.duration - 6.0).abs() < 1e-9);
+export const meta = { width: 100, height: 100, fps: 30, duration: 1 };
 
-    let (ids, driver) = parse_ids(&source, path.parent().unwrap());
-    for expected in ["root", "pink-glow", "logo-container", "logo-path", "particle-canvas"] {
-        assert!(ids.iter().any(|id| id == expected), "missing id `{expected}` in {ids:?}");
-    }
-    // Per-frame driver: reset, re-render. The `use*` hooks replay in
-    // run_frame, after the frame's microtask drain (promise-resolved
-    // entries — CanvasKitInit — are in place before any draw).
-    assert!(driver.contains("__ocResetFrame()"), "driver: {driver}");
-    assert!(!driver.contains("__ocRunFrameHooks()"), "driver: {driver}");
-    assert!(driver.contains("__ocModuleSources"), "driver: {driver}");
+export default function Scene() {
+  useGSAP(() => {
+    gsap.timeline({ paused: true }).to('#root', { opacity: 0 });
+  });
+  return <div id="root" />;
+}
+"#;
+    let parsed = parse_with_base_dir(&with_gsap_segment(entry), Some(&dir)).expect("jsx parse");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(parsed.width, 100);
+    assert_eq!(parsed.root.style_ref().id, "root");
+
+    // 同名 gsap 段缺失时，缺包错误必须仍然指向项目 bundle 的段约定。
+    let err = parse_with_base_dir(entry, Some(&dir)).expect_err("missing gsap segment");
+    assert!(err.to_string().contains("unknown module"), "unexpected error: {err}");
 }
 
 #[test]
@@ -273,21 +268,20 @@ export default function A() { return <section id="root" />; }"#,
 }
 
 #[test]
-fn nexus_port_manifests_document_fonts() {
+fn variables_port_manifests_document_fonts() {
     // `export const fonts` is a top-level export, separate from `meta` — this
     // locks that it reaches the manifest (the XML `<fonts>` block equivalent).
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/nexus7-cyberpunk.jsx")
+        .join("../../examples/variables-launch/variables-launch.jsx")
         .canonicalize()
         .expect("example file");
     let source = std::fs::read_to_string(&path).expect("read example");
-    ensure_gsap_sidecar(path.parent().unwrap());
-    let parsed = parse_with_base_dir(&source, path.parent()).expect("jsx parse");
+    let parsed = parse_with_base_dir(&with_gsap_segment(&source), path.parent()).expect("jsx parse");
 
     let manifest = &parsed.font_manifest;
-    assert_eq!(manifest.default_face_id.as_deref(), Some("noto-sans"));
+    assert_eq!(manifest.default_face_id.as_deref(), Some("inter"));
     assert_eq!(manifest.faces.len(), 5, "faces: {:?}", manifest.faces);
-    for id in ["noto-sans", "orbitron", "jmono", "jmono-bold", "emoji"] {
+    for id in ["inter", "inter400", "inter800", "inter900", "mono500"] {
         assert!(manifest.face_by_id(id).is_some(), "missing face `{id}`");
     }
 }

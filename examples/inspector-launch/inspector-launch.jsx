@@ -669,16 +669,16 @@ function InspectorText() {
         <div id="inspector-text" class="flex items-end opacity-0">
           {LETTERS.map((ch, i) => {
             if (i !== 6) {
-              return <text key={i} id={LETTER_IDS[i]} class="text-[120px] font-[if9] text-[#fff8e9] tracking-[-4.2px] leading-none">{ch}</text>;
+              return <p key={i} id={LETTER_IDS[i]} class="text-[120px] font-[if9] text-[#fff8e9] tracking-[-4.2px] leading-none">{ch}</p>;
             }
             return (
               <div key={i} id="lt-zoom" class="relative">
                 <div id="lt-t" class="relative">
-                  <text id="lt-a" class={'text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] ' + LT_CLASSES[0]}>t</text>
-                  <text id="lt-b" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[ge7]">t</text>
-                  <text id="lt-c" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[jb4]">t</text>
-                  <text id="lt-d" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[ge4]">t</text>
-                  <text id="lt-e" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[jb4]">t</text>
+                  <p id="lt-a" class={'text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] ' + LT_CLASSES[0]}>t</p>
+                  <p id="lt-b" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[ge7]">t</p>
+                  <p id="lt-c" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[jb4]">t</p>
+                  <p id="lt-d" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[ge4]">t</p>
+                  <p id="lt-e" class="absolute left-0 top-0 text-[120px] tracking-[-4.2px] leading-none text-[#fff8e9] opacity-0 font-[jb4]">t</p>
                 </div>
               </div>
             );
@@ -742,7 +742,7 @@ function MagGlass() {
   return (
     <div id="mag-wrap" class="absolute inset-0 z-[3] opacity-0">
       <div id="mag-glass" class="absolute left-0 top-0 w-[220px] h-[220px] rounded-full overflow-hidden opacity-0 bg-[radial-gradient(circle,rgba(69,216,110,0.18)_1.2px,transparent_1.2px),radial-gradient(circle,rgba(25,183,213,0.12)_1px,transparent_1px),radial-gradient(circle_at_30%_40%,rgba(69,216,110,0.06),transparent_60%),#080f0b] bg-[length:10px_10px,14px_14px,100%_100%,100%_100%]">
-        <text id="mag-text-clone" class="absolute left-0 top-0 text-[288px] font-[if8] text-[#fff8e9] whitespace-nowrap">Inspector</text>
+        <p id="mag-text-clone" class="absolute left-0 top-0 text-[288px] font-[if8] text-[#fff8e9] whitespace-nowrap">Inspector</p>
         <div id="mag-overlay" class="absolute inset-0 rounded-full bg-[radial-gradient(circle_at_32%_28%,rgba(255,255,255,0.22),transparent_45%),radial-gradient(circle_at_22%_18%,rgba(255,255,255,0.35),transparent_12%),radial-gradient(circle_at_center,transparent_65%,rgba(0,0,0,0.4)_100%)] shadow-[inset_0_0_0_3px_rgba(255,248,233,0.55),inset_0_0_0_5px_rgba(7,16,12,0.5),inset_0_0_1px_6px_rgba(4,8,6,0.3),0_16px_50px_rgba(0,0,0,0.5)]"></div>
         <div id="mag-ring" class="absolute left-[-1px] top-[-1px] right-[-1px] bottom-[-1px] rounded-full border-[4px] border-[rgba(255,248,233,0.6)]"></div>
         <div id="mag-handle" class="absolute left-[240px] top-[204px] w-[12px] h-[48px] bg-[rgba(255,248,233,0.55)] rounded-[6px] rotate-[-45deg] origin-top"></div>
@@ -806,12 +806,12 @@ function Cursor() {
 
 /* ════════════ inspector panel ════════════ */
 function PanelLabel({ children }) {
-  return <text class="block text-[10px] font-[if7] tracking-[1px] text-[rgba(255,248,233,0.3)] mb-[10px]">{children}</text>;
+  return <p class="block text-[10px] font-[if7] tracking-[1px] text-[rgba(255,248,233,0.3)] mb-[10px]">{children}</p>;
 }
 function PanelField({ children, fl, id }) {
   return (
     <div id={id} class="flex-1 p-[8px_10px] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.08)] rounded-[10px] text-[13px] text-[rgba(255,248,233,0.7)] font-[jb4] relative">
-      <text class="text-[10px] text-[rgba(255,248,233,0.3)] mr-[4px]">{fl}</text>
+      <p class="text-[10px] text-[rgba(255,248,233,0.3)] mr-[4px]">{fl}</p>
       {children}
     </div>
   );
@@ -857,8 +857,8 @@ function InspectorPanel() {
       <div id="inspector-panel" class="absolute right-[-460px] top-0 bottom-0 w-[440px] bg-[#111b15] border-l border-[rgba(255,248,233,0.08)] rounded-l-[24px] p-[32px_24px] text-[13px] text-[rgba(255,248,233,0.6)] font-[if4]">
         <div class="mb-[24px] pb-[18px] border-b border-[rgba(255,248,233,0.06)]">
           <PanelLabel>Document</PanelLabel>
-          <text class="block text-[16px] font-[if7] text-[#fff8e9] mb-[4px]">Inspector</text>
-          <text class="block text-[11px] text-[rgba(255,248,233,0.3)]">#text-layer</text>
+          <p class="block text-[16px] font-[if7] text-[#fff8e9] mb-[4px]">Inspector</p>
+          <p class="block text-[11px] text-[rgba(255,248,233,0.3)]">#text-layer</p>
         </div>
         <div class="mb-[24px] pb-[18px] border-b border-[rgba(255,248,233,0.06)]">
           <PanelLabel>Layout</PanelLabel>
@@ -876,10 +876,10 @@ function InspectorPanel() {
           <div class="flex items-center gap-[12px]">
             <div id="color-swatch" class="w-[36px] h-[36px] rounded-[10px] border border-[rgba(255,248,233,0.12)] bg-[#fff8e9]"></div>
             <div class="relative font-[jb4] text-[12px]">
-              <text id="cl-0" class="text-[rgba(255,248,233,0.6)]">rgb(255,248,233)</text>
-              <text id="cl-1" class="absolute left-0 top-0 text-[rgba(255,248,233,0.6)] opacity-0">rgb(142,216,220)</text>
-              <text id="cl-2" class="absolute left-0 top-0 text-[rgba(255,248,233,0.6)] opacity-0">rgb(76,200,217)</text>
-              <text id="cl-3" class="absolute left-0 top-0 text-[rgba(255,248,233,0.6)] opacity-0">rgb(25,183,213)</text>
+              <p id="cl-0" class="text-[rgba(255,248,233,0.6)]">rgb(255,248,233)</p>
+              <p id="cl-1" class="absolute left-0 top-0 text-[rgba(255,248,233,0.6)] opacity-0">rgb(142,216,220)</p>
+              <p id="cl-2" class="absolute left-0 top-0 text-[rgba(255,248,233,0.6)] opacity-0">rgb(76,200,217)</p>
+              <p id="cl-3" class="absolute left-0 top-0 text-[rgba(255,248,233,0.6)] opacity-0">rgb(25,183,213)</p>
             </div>
           </div>
         </div>
@@ -887,28 +887,28 @@ function InspectorPanel() {
           <PanelLabel>Font</PanelLabel>
           <div class="p-[8px_12px] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.08)] rounded-[10px] text-[13px] text-[rgba(255,248,233,0.7)] flex justify-between items-center">
             <div class="relative">
-              <text id="fd-inter">Inter</text>
-              <text id="fd-fraunces" class="absolute left-0 top-0 opacity-0">Fraunces</text>
-              <text id="fd-plex" class="absolute left-0 top-0 opacity-0">IBM Plex Mono</text>
-              <text id="fd-georgia" class="absolute left-0 top-0 opacity-0">Georgia</text>
-              <text id="fd-plex2" class="absolute left-0 top-0 opacity-0">IBM Plex Mono</text>
+              <p id="fd-inter">Inter</p>
+              <p id="fd-fraunces" class="absolute left-0 top-0 opacity-0">Fraunces</p>
+              <p id="fd-plex" class="absolute left-0 top-0 opacity-0">IBM Plex Mono</p>
+              <p id="fd-georgia" class="absolute left-0 top-0 opacity-0">Georgia</p>
+              <p id="fd-plex2" class="absolute left-0 top-0 opacity-0">IBM Plex Mono</p>
             </div>
-            <text class="text-[12px] text-[rgba(255,248,233,0.3)]">v</text>
+            <p class="text-[12px] text-[rgba(255,248,233,0.3)]">v</p>
           </div>
         </div>
         <div class="mb-[24px]">
           <PanelLabel>Size</PanelLabel>
           <div id="size-field" class="p-[8px_10px] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.08)] rounded-[10px] text-[13px] text-[rgba(255,248,233,0.7)] font-[jb4] relative">
             <div id="size-field-hl" class="absolute inset-0 border border-[rgba(25,183,213,0.42)] rounded-[10px] opacity-0"></div>
-            <text class="text-[10px] text-[rgba(255,248,233,0.3)] mr-[4px]">Size</text>
-            <text id="sv-120">{" 120px"}</text>
-            <text id="sv-sel" class="absolute right-[10px] top-[8px] bg-[rgba(25,183,213,0.3)] rounded-[3px] px-[2px] opacity-0">{" 120"}</text>
-            <text id="sv-caret" class="absolute right-[10px] top-[6px] text-[#19b7d5] opacity-0">{" |"}</text>
-            <text id="sv-3a" class="absolute right-[10px] top-[8px] opacity-0">{" 3|"}</text>
-            <text id="sv-36" class="absolute right-[10px] top-[8px] opacity-0">{" 36|"}</text>
-            <text id="sv-360" class="absolute right-[10px] top-[8px] opacity-0">{" 360px"}</text>
-            <text id="sv-4a" class="absolute right-[10px] top-[8px] opacity-0">{" 4|"}</text>
-            <text id="sv-48" class="absolute right-[10px] top-[8px] opacity-0">{" 48px"}</text>
+            <p class="text-[10px] text-[rgba(255,248,233,0.3)] mr-[4px]">Size</p>
+            <p id="sv-120">{" 120px"}</p>
+            <p id="sv-sel" class="absolute right-[10px] top-[8px] bg-[rgba(25,183,213,0.3)] rounded-[3px] px-[2px] opacity-0">{" 120"}</p>
+            <p id="sv-caret" class="absolute right-[10px] top-[6px] text-[#19b7d5] opacity-0">{" |"}</p>
+            <p id="sv-3a" class="absolute right-[10px] top-[8px] opacity-0">{" 3|"}</p>
+            <p id="sv-36" class="absolute right-[10px] top-[8px] opacity-0">{" 36|"}</p>
+            <p id="sv-360" class="absolute right-[10px] top-[8px] opacity-0">{" 360px"}</p>
+            <p id="sv-4a" class="absolute right-[10px] top-[8px] opacity-0">{" 4|"}</p>
+            <p id="sv-48" class="absolute right-[10px] top-[8px] opacity-0">{" 48px"}</p>
           </div>
         </div>
       </div>
@@ -936,19 +936,19 @@ function ColorPicker() {
     <div id="picker-wrap" class="absolute inset-0 z-[6] opacity-0">
       <div class="absolute right-[460px] top-0 bottom-0 flex items-center">
         <div id="color-picker" class="w-[280px] bg-[#0a0a0a] border border-[rgba(255,248,233,0.1)] rounded-[18px] p-[22px] opacity-0">
-          <text class="block text-[15px] font-[if7] text-[#fff8e9] mb-[14px]">Stroke color</text>
+          <p class="block text-[15px] font-[if7] text-[#fff8e9] mb-[14px]">Stroke color</p>
           <div class="h-[120px] rounded-[10px] mb-[14px] border border-[rgba(255,248,233,0.08)] relative bg-[linear-gradient(to_bottom,transparent,black),linear-gradient(to_right,white,#19b7d5)]">
             <div id="picker-circle" class="absolute left-0 top-0 w-[16px] h-[16px] rounded-full border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)]"></div>
           </div>
           <div class="h-[14px] rounded-[7px] mb-[14px] relative bg-[linear-gradient(to_right,red,yellow,lime,cyan,blue,magenta,red)]">
             <div id="hue-thumb" class="absolute left-[114px] top-[-3px] w-[20px] h-[20px] rounded-full bg-[#19b7d5] border-2 border-white shadow-[0_0_4px_rgba(0,0,0,0.5)]"></div>
           </div>
-          <text class="block text-[10px] tracking-[0.8px] text-[rgba(255,248,233,0.3)] mb-[6px]">HEX</text>
+          <p class="block text-[10px] tracking-[0.8px] text-[rgba(255,248,233,0.3)] mb-[6px]">HEX</p>
           <div class="p-[10px_12px] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.08)] rounded-[10px] font-[jb4] text-[15px] text-[rgba(255,248,233,0.8)] relative">
-            <text id="hx-0">#FFF8E9</text>
-            <text id="hx-1" class="absolute left-[12px] top-[10px] opacity-0">#8ED8DC</text>
-            <text id="hx-2" class="absolute left-[12px] top-[10px] opacity-0">#4CC8D9</text>
-            <text id="hx-3" class="absolute left-[12px] top-[10px] opacity-0">#19B7D5</text>
+            <p id="hx-0">#FFF8E9</p>
+            <p id="hx-1" class="absolute left-[12px] top-[10px] opacity-0">#8ED8DC</p>
+            <p id="hx-2" class="absolute left-[12px] top-[10px] opacity-0">#4CC8D9</p>
+            <p id="hx-3" class="absolute left-[12px] top-[10px] opacity-0">#19B7D5</p>
           </div>
         </div>
       </div>
@@ -988,8 +988,8 @@ function FontList() {
   function Opt({ id, fsId, face, name, src }) {
     return (
       <div id={id} class="p-[12px_16px] text-[14px] text-[rgba(255,248,233,0.5)] border-b border-[rgba(255,248,233,0.04)] flex justify-between items-center">
-        <text class={face}>{name}</text>
-        <text id={fsId} class="text-[9px] tracking-[0.72px] text-[rgba(255,248,233,0.2)]">{src}</text>
+        <p class={face}>{name}</p>
+        <p id={fsId} class="text-[9px] tracking-[0.72px] text-[rgba(255,248,233,0.2)]">{src}</p>
       </div>
     );
   }
@@ -997,13 +997,13 @@ function FontList() {
     <div id="fontlist-wrap" class="absolute inset-0 z-[6] opacity-0">
       <div class="absolute right-[460px] top-0 bottom-0 flex items-center">
         <div id="font-list" class="w-[320px] bg-[#0d1510] border border-[rgba(255,248,233,0.1)] rounded-[18px] overflow-hidden opacity-0">
-          <text class="block p-[16px_16px_10px] text-[10px] font-[if7] tracking-[1px] text-[rgba(255,248,233,0.3)]">Font Family</text>
+          <p class="block p-[16px_16px_10px] text-[10px] font-[if7] tracking-[1px] text-[rgba(255,248,233,0.3)]">Font Family</p>
           <div class="mx-[16px] mb-[10px] p-[8px_12px] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.08)] rounded-[10px]">
-            <text class="text-[12px] text-[rgba(255,248,233,0.25)] font-[if4]">Search fonts</text>
+            <p class="text-[12px] text-[rgba(255,248,233,0.25)] font-[if4]">Search fonts</p>
           </div>
           <div class="flex gap-[6px] px-[16px] pb-[10px]">
-            <div class="p-[4px_10px] rounded-[6px] text-[11px] text-[rgba(255,248,233,0.4)] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.06)]"><text>Local</text></div>
-            <div class="p-[4px_10px] rounded-[6px] text-[11px] text-[rgba(255,248,233,0.4)] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.06)]"><text>Import</text></div>
+            <div class="p-[4px_10px] rounded-[6px] text-[11px] text-[rgba(255,248,233,0.4)] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.06)]"><p>Local</p></div>
+            <div class="p-[4px_10px] rounded-[6px] text-[11px] text-[rgba(255,248,233,0.4)] bg-[rgba(255,248,233,0.04)] border border-[rgba(255,248,233,0.06)]"><p>Import</p></div>
           </div>
           <Opt id="fo-inter" fsId="fs-inter" face="font-[if4]" name="Inter" src="Current" />
           <Opt id="fo-fraunces" fsId="fs-fraunces" face="font-[dmi]" name="Fraunces" src="Google" />
@@ -1052,8 +1052,8 @@ function Scene00() {
         <div class="relative w-full h-full flex items-center justify-center">
           <div id="sc0-prompt" class="relative w-[1480px] min-h-[224px] p-[44px_48px_36px] border border-[rgba(255,248,233,0.18)] rounded-[44px] bg-[linear-gradient(180deg,rgba(22,28,22,0.98),rgba(9,15,12,0.98)),#10140f] shadow-[0_70px_200px_rgba(0,0,0,0.52),inset_0_1px_0_rgba(255,248,233,0.08)]">
             <div class="min-h-[72px] pr-[160px] text-[46px] font-[if6] leading-[1.18] tracking-[-0.83px] whitespace-nowrap overflow-hidden text-[#fff8e9]">
-              <text id="sc0-typed"></text>
-              <text id="sc0-caret" class="inline-block relative top-[7px] w-[7px] h-[44px] ml-[6px] bg-[#d97757]"></text>
+              <p id="sc0-typed"></p>
+              <p id="sc0-caret" class="inline-block relative top-[7px] w-[7px] h-[44px] ml-[6px] bg-[#d97757]"></p>
             </div>
             <div id="sc0-actions" class="absolute right-[32px] bottom-[28px] flex items-center gap-[14px]">
               <div class="w-[60px] h-[60px] grid place-items-center text-[rgba(255,248,233,0.54)]">
@@ -1087,14 +1087,14 @@ function Scene01() {
       <div id="scene-01-stage" class="absolute inset-0 grid place-items-center p-[120px]">
         <div class="relative w-full h-full flex items-center justify-center">
           <div id="sc1-h1" class="flex items-end gap-[26px] text-[116px] font-[if9] leading-none tracking-[-5.22px] text-[#fff8e9] whitespace-nowrap [text-shadow:2px_0_rgba(25,183,213,0.36),-2px_0_rgba(217,119,87,0.28),0_30px_90px_rgba(0,0,0,0.42)]">
-            <text>Creating</text>
-            <text class="relative inline-block">
-              <text>video</text>
-              <text id="sc1-w2-ov" class="absolute left-0 top-0">
-                <text class="text-transparent bg-clip-text bg-[linear-gradient(90deg,#62e58c_0%,#3cd3ef_33%,#ffc858_66%,#62e58c_100%)] bg-[length:220%_100%]">video</text>
-              </text>
-            </text>
-            <text>should be easy.</text>
+            <p>Creating</p>
+            <p class="relative inline-block">
+              <p>video</p>
+              <p id="sc1-w2-ov" class="absolute left-0 top-0">
+                <p class="text-transparent bg-clip-text bg-[linear-gradient(90deg,#62e58c_0%,#3cd3ef_33%,#ffc858_66%,#62e58c_100%)] bg-[length:220%_100%]">video</p>
+              </p>
+            </p>
+            <p>should be easy.</p>
           </div>
         </div>
       </div>
@@ -1159,11 +1159,11 @@ function Scene01b() {
       <div id="scene-01b-stage" class="absolute inset-0 grid place-items-center p-[120px]">
         <div class="relative w-full h-full flex items-center justify-center">
           <div class="flex items-center text-[116px] font-[if9] leading-none tracking-[-5.22px] text-[#fff8e9] whitespace-nowrap [text-shadow:2px_0_rgba(25,183,213,0.36),-2px_0_rgba(217,119,87,0.28),0_30px_90px_rgba(0,0,0,0.42)]">
-            <text>For You and Your</text>
+            <p>For You and Your</p>
             <div id="ag-flip" class="relative w-[360px] h-[150px] ml-[18px]">
               <div id="ag-inner" class="absolute inset-0">
                 <div id="ag-face" class="absolute inset-0 grid place-items-center">
-                  <text class="text-[116px] font-[if9] tracking-[-5.22px] text-[#fff8e9]">Agent</text>
+                  <p class="text-[116px] font-[if9] tracking-[-5.22px] text-[#fff8e9]">Agent</p>
                 </div>
                 <div id="ag-back" class="absolute inset-0 grid place-items-center opacity-0">
                   <div id="ag-robot" class="relative w-[240px] h-[240px]">
@@ -1235,21 +1235,21 @@ function Scene02() {
           <div id="glass-frame" class="relative w-[1680px] h-[945px] rounded-[56px] border border-[rgba(255,255,255,0.16)] bg-[linear-gradient(160deg,rgba(255,255,255,0.075)_0%,rgba(255,255,255,0.025)_45%,rgba(255,255,255,0.010)_70%,rgba(255,255,255,0.055)_100%)] shadow-[0_30px_90px_rgba(0,0,0,0.42),inset_0_1px_0_rgba(255,255,255,0.22)] opacity-0 scale-[0.8]">
             <div class="absolute left-[50px] top-[72px] w-[1580px] h-[720px] rounded-[40px] bg-[#000000] overflow-hidden flex items-center px-[90px] shadow-[0_10px_28px_rgba(0,0,0,0.35),inset_0_0_80px_rgba(0,0,0,0.65)]">
               <div class="flex items-baseline gap-[23px] text-[104px] font-[if9] leading-none tracking-[-4.68px] text-[#fff8e9] whitespace-nowrap">
-                <text id="vs-w1" class="inline-block opacity-0">Sometimes</text>
-                <text id="vs-w2" class="inline-block opacity-0">AI</text>
-                <text id="vs-w3" class="inline-block opacity-0">gets</text>
-                <text id="vs-w4" class="inline-block opacity-0">you</text>
-                <text id="vs-w5" class="inline-block opacity-0">close</text>
+                <p id="vs-w1" class="inline-block opacity-0">Sometimes</p>
+                <p id="vs-w2" class="inline-block opacity-0">AI</p>
+                <p id="vs-w3" class="inline-block opacity-0">gets</p>
+                <p id="vs-w4" class="inline-block opacity-0">you</p>
+                <p id="vs-w5" class="inline-block opacity-0">close</p>
               </div>
             </div>
             <div class="absolute left-[50px] bottom-[72px] w-[1580px] h-[50px] flex items-center gap-[22px] px-[14px] text-[rgba(255,248,233,0.78)]">
               <div class="w-[28px] h-[28px]"><path d="M8 5 L23 14 L8 23 Z" view-box="0 0 28 28" fill="rgba(255,248,233,0.86)" /></div>
-              <text class="w-[56px] text-center text-[18px] font-[jb4] tracking-[0.72px]">0:00</text>
+              <p class="w-[56px] text-center text-[18px] font-[jb4] tracking-[0.72px]">0:00</p>
               <div class="flex-1 relative h-[4px] rounded-full bg-[rgba(255,248,233,0.18)]">
                 <div id="vt-progress" class="absolute left-0 top-0 h-full w-0 bg-[#fff8e9] rounded-full"></div>
                 <div id="vt-handle" class="absolute left-0 top-1/2 mt-[-7px] ml-[-7px] w-[14px] h-[14px] rounded-full bg-[#fff8e9] shadow-[0_0_14px_rgba(255,248,233,0.5)]"></div>
               </div>
-              <text class="w-[56px] text-center text-[18px] font-[jb4] tracking-[0.72px]">0:42</text>
+              <p class="w-[56px] text-center text-[18px] font-[jb4] tracking-[0.72px]">0:42</p>
             </div>
           </div>
         </div>
@@ -1277,26 +1277,26 @@ function Scene03() {
       <div id="scene-03-stage" class="absolute inset-0 grid place-items-center p-[120px]">
         <div class="relative w-full h-full flex items-center justify-center">
           <div id="sc3-h1" class="flex items-center text-[136px] font-[ge7] leading-[0.92] tracking-[-1px] text-[#fff8e9] whitespace-nowrap [text-shadow:2px_0_rgba(25,183,213,0.36),-2px_0_rgba(217,119,87,0.28),0_30px_90px_rgba(0,0,0,0.42)]">
-            <text>but close</text>
-            <text class="inline-block mx-[8px] w-[106px] h-[106px]">
+            <p>but close</p>
+            <p class="inline-block mx-[8px] w-[106px] h-[106px]">
               <div class="w-[106px] h-[106px]">
                 <path id="ne-top" d="M 16 40 L 84 40" view-box="0 0 100 100" fill="none" stroke="#fff8e9" stroke-width="14" stroke-dasharray="100" stroke-dashoffset="100" />
                 <path id="ne-bottom" d="M 16 62 L 84 62" view-box="0 0 100 100" fill="none" stroke="#fff8e9" stroke-width="14" stroke-dasharray="100" stroke-dashoffset="100" />
                 <path id="ne-slash" d="M 28 82 L 72 18" view-box="0 0 100 100" fill="none" stroke="#fff8e9" stroke-width="14" stroke-dasharray="100" stroke-dashoffset="100" />
               </div>
-            </text>
-            <text id="sl-0" class="inline-block">s</text>
-            <text id="sl-1" class="inline-block">h</text>
-            <text id="sl-2" class="inline-block">i</text>
-            <text id="sl-3" class="inline-block">p</text>
-            <text id="ship-final" class="inline-block w-0 opacity-0 overflow-hidden">
+            </p>
+            <p id="sl-0" class="inline-block">s</p>
+            <p id="sl-1" class="inline-block">h</p>
+            <p id="sl-2" class="inline-block">i</p>
+            <p id="sl-3" class="inline-block">p</p>
+            <p id="ship-final" class="inline-block w-0 opacity-0 overflow-hidden">
               <div class="w-[150px] h-[110px]">
                 <path d="M6 46 L94 46 L80 68 L20 68 Z" view-box="0 0 100 74" fill="#3B6EA5" />
                 <path d="M46 4 L46 42 L18 42 Z" view-box="0 0 100 74" fill="#E8EDF2" />
                 <path d="M52 10 L52 42 L82 42 Z" view-box="0 0 100 74" fill="#C9D6E3" />
                 <path d="M45 2 h4 v44 h-4 Z" fill="#8A6D4B" />
               </div>
-            </text>
+            </p>
           </div>
         </div>
       </div>
@@ -1315,15 +1315,15 @@ function ClaudeTopbar({ pfx }) {
         <div class="w-[36px] h-[36px] grid place-items-center">
           <ClaudeMark id={pfx + 'mark'} size="w-[30px] h-[30px]" />
         </div>
-        <text class="text-[22px] font-[if6] text-[#fff8e9]">HyperFrames Launch</text>
+        <p class="text-[22px] font-[if6] text-[#fff8e9]">HyperFrames Launch</p>
       </div>
       <div class="flex items-center gap-[14px]">
         <div class="flex items-center gap-[8px] p-[9px_16px] border border-[rgba(255,248,233,0.14)] rounded-full bg-[rgba(255,248,233,0.07)]">
-          <text class="text-[18px] font-[if5] text-[rgba(255,248,233,0.68)]">Claude Opus 4.7</text>
+          <p class="text-[18px] font-[if5] text-[rgba(255,248,233,0.68)]">Claude Opus 4.7</p>
           <div class="w-[11px] h-[11px]"><path d="M3 5l3 3 3-3" view-box="0 0 12 12" fill="none" stroke="rgba(255,248,233,0.68)" stroke-width="1.6" /></div>
         </div>
         <div class="w-[38px] h-[38px] grid place-items-center rounded-full bg-[#d97757]">
-          <text class="text-[17px] font-[if7] text-white">J</text>
+          <p class="text-[17px] font-[if7] text-white">J</p>
         </div>
       </div>
     </div>
@@ -1333,7 +1333,7 @@ function ClaudeComposer({ pfx, textId, initial }) {
   return (
     <div class="absolute left-[64px] right-[64px] bottom-[36px] min-h-[100px] p-[22px_24px_18px] border border-[rgba(255,248,233,0.18)] rounded-[22px] bg-[linear-gradient(180deg,rgba(22,28,22,0.98),rgba(9,15,12,0.98)),#10140f] shadow-[0_24px_66px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,248,233,0.06)]">
       <div class="min-h-[34px] pr-[130px] text-[24px] font-[if6] whitespace-nowrap overflow-hidden text-[#fff8e9]">
-        <text id={textId}>{initial}</text>
+        <p id={textId}>{initial}</p>
       </div>
       <div class="absolute right-[18px] bottom-[14px] flex items-center gap-[12px]">
         <div class="w-[44px] h-[44px] grid place-items-center">
@@ -1371,14 +1371,14 @@ function Scene04() {
             <div class="absolute left-[64px] right-[64px] top-[110px] bottom-[158px] overflow-hidden">
               <div class="flex justify-end">
                 <div id="cl-bubble" class="max-w-[720px] p-[22px_28px] border border-[rgba(255,248,233,0.14)] rounded-[24px] bg-[rgba(255,248,233,0.08)] shadow-[0_18px_42px_rgba(0,0,0,0.26)] opacity-0">
-                  <text class="text-[30px] font-[if6] leading-[1.25] text-[#fff8e9]">Can we try a different font?</text>
+                  <p class="text-[30px] font-[if6] leading-[1.25] text-[#fff8e9]">Can we try a different font?</p>
                 </div>
               </div>
               <div id="cl-reply" class="flex items-start gap-[18px] mt-[32px] max-w-[880px] opacity-0">
                 <div class="shrink-0 w-[44px] h-[44px] grid place-items-center border border-[rgba(255,248,233,0.14)] rounded-[12px] bg-[rgba(255,248,233,0.06)]">
                   <ClaudeMark id="cl-rmark" size="w-[22px] h-[22px]" />
                 </div>
-                <text class="text-[28px] leading-[1.4] text-[rgba(255,248,233,0.9)]">I'll update the title treatment and re-render the preview.</text>
+                <p class="text-[28px] leading-[1.4] text-[rgba(255,248,233,0.9)]">I'll update the title treatment and re-render the preview.</p>
               </div>
             </div>
             <ClaudeComposer pfx="cl-" textId="cl-comp-text" initial="Can we try a different font?" />
@@ -1455,14 +1455,14 @@ function Scene05() {
                   <div key={i} id={'fx-' + i} class="flex flex-col gap-[10px] opacity-0">
                     <div class="flex justify-end">
                       <div class="max-w-[720px] p-[18px_24px] border border-[rgba(255,248,233,0.14)] rounded-[20px] bg-[rgba(255,248,233,0.08)]">
-                        <text class="text-[26px] font-[if5] leading-[1.3] text-[#fff8e9]">{p}</text>
+                        <p class="text-[26px] font-[if5] leading-[1.3] text-[#fff8e9]">{p}</p>
                       </div>
                     </div>
                     <div class="flex items-start gap-[14px]">
                       <div class="shrink-0 w-[38px] h-[38px] grid place-items-center border border-[rgba(255,248,233,0.14)] rounded-[10px] bg-[rgba(255,248,233,0.06)]">
                         <ClaudeMark id={'s5m-' + i} size="w-[20px] h-[20px]" />
                       </div>
-                      <text class="pt-[4px] text-[26px] font-[if5] text-[rgba(255,248,233,0.9)]">Done.</text>
+                      <p class="pt-[4px] text-[26px] font-[if5] text-[rgba(255,248,233,0.9)]">Done.</p>
                     </div>
                   </div>
                 ))}

@@ -107,11 +107,11 @@ function FileRow({ base, i }) {
     <div id={base + '_' + String(55 + i * 5).padStart(3, '0')} class="relative flex items-center gap-[12px] px-[30.72px] py-[17.664px] border-b-[1px] border-[#f0f0f0]">
       {/* ref uses the text glyph ▾; the path's ink sits 3px right of it */}
       <path d="M4 7 L20 7 L12 17 Z" view-box="0 0 24 24" class="relative -left-[3px] w-[15px] h-[15px] fill-[#59636e] flex-none" />
-      <text class={mono + ' text-[#1f2328]'}>{name}</text>
+      <p class={mono + ' text-[#1f2328]'}>{name}</p>
       <div class="ml-auto flex items-center">
-        {add !== null && <text class={mono + ' text-[#1a7f37]'}>{add}</text>}
+        {add !== null && <p class={mono + ' text-[#1a7f37]'}>{add}</p>}
         {add !== null && <div class="w-[11.52px]"></div>}
-        <text class={mono + ' text-[#cf222e]'}>{del}</text>
+        <p class={mono + ' text-[#cf222e]'}>{del}</p>
       </div>
     </div>
   );
@@ -133,8 +133,8 @@ function ReviewRow({ i }) {
     <div id={'prs-r' + (i + 1)} class="flex items-center gap-[17.3px] py-[20.2px] border-b-[1px] border-[#f0f0f0] opacity-0">
       <image path={avatar} class="w-[36.5px] h-[36.5px] rounded-full object-cover flex-none" />
       <div class="flex items-center gap-[8px]">
-        <text class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">{name}</text>
-        <text class="text-[20.2px] text-[#3d3a34]">{rest}</text>
+        <p class="text-[20.2px] font-[hk6] font-semibold text-[#1f2328]">{name}</p>
+        <p class="text-[20.2px] text-[#3d3a34]">{rest}</p>
       </div>
     </div>
   );
@@ -166,8 +166,8 @@ function CodeLine({ seg }) {
   const [no, segs] = seg;
   return (
     <div class="flex whitespace-nowrap">
-      <text class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">{no}</text>
-      {segs.map((s, j) => <text key={j} class={'text-[' + s[0] + ']'}>{s[1]}</text>)}
+      <p class="w-[54px] text-right text-[#5e5d56] flex-none mr-[34px]">{no}</p>
+      {segs.map((s, j) => <p key={j} class={'text-[' + s[0] + ']'}>{s[1]}</p>)}
     </div>
   );
 }
@@ -188,7 +188,7 @@ function FfCard({ n, thumb }) {
       <div class="relative w-[82%] h-[7px] rounded-[4px] bg-[rgba(20,20,19,0.17)] mb-[8px]">
         <div class="absolute left-0 top-[12px] h-[6px] w-[54%] rounded-[4px] bg-[rgba(20,20,19,0.10)]"></div>
       </div>
-      <div class="absolute left-[8px] top-[8px] z-[2]"><text class="text-[14px] leading-[1.55] font-[mono5] text-[#3a392f] bg-[rgba(250,249,245,0.94)] rounded-[6px] px-[6px] shadow-[0_1px_3px_rgba(20,20,19,0.2)]">{'0' + n}</text></div>
+      <div class="absolute left-[8px] top-[8px] z-[2]"><p class="text-[14px] leading-[1.55] font-[mono5] text-[#3a392f] bg-[rgba(250,249,245,0.94)] rounded-[6px] px-[6px] shadow-[0_1px_3px_rgba(20,20,19,0.2)]">{'0' + n}</p></div>
     </div>
   );
 }
@@ -205,8 +205,8 @@ function PlayerWindow({ pwinId, sceneLabel, fillId, knobId, ptimeId, time0, stag
         <div class="w-[19.2px] h-[19.2px] rounded-full bg-[#FF5F57]"></div>
         <div class="w-[19.2px] h-[19.2px] rounded-full bg-[#FEBC2E]"></div>
         <div class="w-[19.2px] h-[19.2px] rounded-full bg-[#28C840]"></div>
-        <text class="ml-[17.3px] text-[20.2px] leading-none font-[mono4] text-[#cfcabd]">hyperframes-pr-1635.mp4</text>
-        <text class="ml-auto text-[18.24px] leading-none font-[mono4] text-[#8C8B83]">{sceneLabel}</text>
+        <p class="ml-[17.3px] text-[20.2px] leading-none font-[mono4] text-[#cfcabd]">hyperframes-pr-1635.mp4</p>
+        <p class="ml-auto text-[18.24px] leading-none font-[mono4] text-[#8C8B83]">{sceneLabel}</p>
       </div>
       <div class={'relative w-[1171.2px] h-[658.56px] mx-[28.8px] rounded-[7.68px] overflow-hidden bg-[' + stageBg + ']'}>{children}</div>
       <div class="flex items-center gap-[23px] px-[28.8px] pt-[23px] pb-[26.9px]">
@@ -215,7 +215,7 @@ function PlayerWindow({ pwinId, sceneLabel, fillId, knobId, ptimeId, time0, stag
           <div id={fillId} class="absolute left-0 top-0 h-full w-full bg-[#D97757] rounded-full origin-left"></div>
           <div id={knobId} class="absolute top-[3.265px] w-[19.2px] h-[19.2px] -mt-[9.6px] -ml-[9.6px] rounded-full bg-[#F0EFE9] shadow-[0_0_0_3.84px_rgba(217,119,87,0.35)]"></div>
         </div>
-        <text id={ptimeId} class="text-[19.2px] font-[mono4] text-[#9b988f] flex-none text-right min-w-[172.8px]">{time0}</text>
+        <p id={ptimeId} class="text-[19.2px] font-[mono4] text-[#9b988f] flex-none text-right min-w-[172.8px]">{time0}</p>
       </div>
     </div>
   );
@@ -224,7 +224,7 @@ function PlayerWindow({ pwinId, sceneLabel, fillId, knobId, ptimeId, time0, stag
 function CardTitle({ titleId, caretId }) {
   return (
     <div class="absolute left-0 right-0 top-[54px] flex items-center justify-center gap-[8.64px] h-[105.6px] z-[5]">
-      <text id={titleId} class="font-[black] text-[88.32px] tracking-[0.384px] text-[#1D1F1F] leading-none whitespace-nowrap"></text>
+      <p id={titleId} class="font-[black] text-[88.32px] tracking-[0.384px] text-[#1D1F1F] leading-none whitespace-nowrap"></p>
       <div id={caretId} class="w-[6.53px] h-[74.88px] bg-[#D97757] rounded-[1.34px]"></div>
     </div>
   );
@@ -323,13 +323,13 @@ function Opener({ rootId }) {
           <div id="op-stack" class="absolute left-0 right-0 bottom-0 flex flex-col gap-[30.72px]">
             <div id="op-m1" class="self-end flex flex-col items-end text-right opacity-0">
               <div class="flex items-baseline">
-                <text id="op-m1-a" class="text-[30.72px] text-[#F0EEE9] leading-[1.4]">{"Someone on our team just opened a PR for a new "}</text>
-                <text class="text-[30.72px] font-[hk6] font-semibold text-[#F0EEE9] leading-[1.4]">pr-to-video</text>
-                <text class="text-[30.72px] text-[#F0EEE9] leading-[1.4]">{" skill — can"}</text>
+                <p id="op-m1-a" class="text-[30.72px] text-[#F0EEE9] leading-[1.4]">{"Someone on our team just opened a PR for a new "}</p>
+                <p class="text-[30.72px] font-[hk6] font-semibold text-[#F0EEE9] leading-[1.4]">pr-to-video</p>
+                <p class="text-[30.72px] text-[#F0EEE9] leading-[1.4]">{" skill — can"}</p>
               </div>
               <div class="flex items-baseline mt-[16.6px]">
-                <text id="op-m1-b" class="text-[30.72px] text-[#F0EEE9] leading-[1.4]">you review it?</text>
-                <text id="op-prlink" class="text-[30.72px] font-[hk6] font-semibold text-[#D97757] leading-[1.4] border-b-[2.2px] border-[#D97757]">github.com/heygen-com/hyperframes/pull/1635</text>
+                <p id="op-m1-b" class="text-[30.72px] text-[#F0EEE9] leading-[1.4]">you review it?</p>
+                <p id="op-prlink" class="text-[30.72px] font-[hk6] font-semibold text-[#D97757] leading-[1.4] border-b-[2.2px] border-[#D97757]">github.com/heygen-com/hyperframes/pull/1635</p>
               </div>
             </div>
           </div>
@@ -338,11 +338,11 @@ function Opener({ rootId }) {
           <div id="op-chips" class="flex items-end gap-[11.52px] h-[40.5px]">
             <div class="h-[40.5px] flex items-center gap-[9.6px] bg-[#2C2C2B] rounded-[10.56px] px-[15.7px]">
               <path d="M4 5h16v11H4z M2 19h20" view-box="0 0 24 24" class="w-[21.12px] h-[21.12px] stroke-[1.7] stroke-[#C9C6BC] fill-none" />
-              <text class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA]">Local</text>
+              <p class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA]">Local</p>
             </div>
             <div class="h-[40.5px] flex items-center gap-[9.6px] bg-[#2C2C2B] rounded-[10.56px] px-[15.7px]">
               <path d="M3 7.5A2 2 0 0 1 5 5.5h4.2l2 2.2H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" view-box="0 0 24 24" class="w-[21.12px] h-[21.12px] stroke-[1.7] stroke-[#C9C6BC] fill-none" />
-              <text class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text>
+              <p class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</p>
             </div>
           </div>
           <div id="op-chipgap" class="h-[18.9px]"></div>
@@ -353,13 +353,13 @@ function Opener({ rootId }) {
                 than Chrome in this 1.714 line box) */}
             <div class="flex-1 flex flex-col justify-center pr-[50px] relative top-[2px]">
               <div class="flex items-center">
-                <text id="op-typed1" class="text-[22.08px] leading-[1.714] text-[#E6E2D6] whitespace-nowrap"></text>
-                <text id="op-caret1" class="text-[27.84px] leading-[1.36] text-[#D97757]">▏</text>
+                <p id="op-typed1" class="text-[22.08px] leading-[1.714] text-[#E6E2D6] whitespace-nowrap"></p>
+                <p id="op-caret1" class="text-[27.84px] leading-[1.36] text-[#D97757]">▏</p>
               </div>
               <div id="op-row2" class="flex items-center">
-                <text id="op-typed2" class="text-[22.08px] leading-[1.714] text-[#E6E2D6] whitespace-nowrap"></text>
-                <text id="op-url" class="text-[22.08px] leading-[1.714] text-[#85B6E8] whitespace-nowrap"></text>
-                <text id="op-caret2" class="text-[27.84px] leading-[1.36] text-[#D97757]"></text>
+                <p id="op-typed2" class="text-[22.08px] leading-[1.714] text-[#E6E2D6] whitespace-nowrap"></p>
+                <p id="op-url" class="text-[22.08px] leading-[1.714] text-[#85B6E8] whitespace-nowrap"></p>
+                <p id="op-caret2" class="text-[27.84px] leading-[1.36] text-[#D97757]"></p>
               </div>
             </div>
             <path d="M9 10 4 15 9 20 M20 4v7a4 4 0 0 1-4 4H4" view-box="0 0 24 24" class="absolute right-[21px] w-[15px] h-[15px] stroke-[2.6] stroke-[#6F6E66] fill-none" />
@@ -371,12 +371,12 @@ function Opener({ rootId }) {
           </div>
           <div id="op-meta" class="flex justify-between items-center mt-[16.8px]">
             <div class="flex items-center gap-[19.2px]">
-              <div class="bg-[rgba(202,164,62,0.16)] rounded-[8px] w-[62px] h-[29.7px] flex items-center justify-center"><text class="text-[17.3px] font-[hk5] font-medium text-[#CAA43E]">Auto</text></div>
-              <text class="text-[21px] text-[#8C8B83]">＋</text>
+              <div class="bg-[rgba(202,164,62,0.16)] rounded-[8px] w-[62px] h-[29.7px] flex items-center justify-center"><p class="text-[17.3px] font-[hk5] font-medium text-[#CAA43E]">Auto</p></div>
+              <p class="text-[21px] text-[#8C8B83]">＋</p>
             </div>
             <div class="flex items-center gap-[19.2px]">
-              <text class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text>
-              <text class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</text>
+              <p class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</p>
+              <p class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</p>
               <div id="op-orb" class="w-[24px] h-[24px] rounded-full border-[3.26px] border-[rgba(96,148,214,0.26)]"></div>
             </div>
           </div>
@@ -436,7 +436,7 @@ function PrScroll({ rootId }) {
           <div class="w-[18.24px] h-[18.24px] rounded-full bg-[#28C840]"></div>
           <div class="ml-[19.2px] flex-1 flex items-center gap-[8.64px] bg-[#fff] border-[1px] border-[#d8d2c6] rounded-[9.6px] h-[37.44px] px-[24px]">
             <path d="M5 11h14v9H5z M8 11V8a4 4 0 0 1 8 0v3" view-box="0 0 24 24" class="w-[17.3px] h-[17.3px] stroke-[2.2] stroke-[#6c6a64] fill-none" />
-            <text class="text-[17.66px] text-[#3d3a34] font-[mono4]">github.com/heygen-com/hyperframes/pull/1635</text>
+            <p class="text-[17.66px] text-[#3d3a34] font-[mono4]">github.com/heygen-com/hyperframes/pull/1635</p>
           </div>
         </div>
         {/* ref pr-scroll.html:77-79 .tab: label HK400 #59636e + <b> HK700
@@ -451,12 +451,12 @@ function PrScroll({ rootId }) {
           ].map(([k, label, num]) => (
             <div key={k} class="relative flex items-baseline">
               <div id={'prs-tab' + k + 'off'} class="flex items-baseline">
-                <text class="text-[19.2px] text-[#59636e] font-[hk4]">{label}</text>
-                <text class="text-[19.2px] text-[#1f2328] font-[hk4] font-bold">{num}</text>
+                <p class="text-[19.2px] text-[#59636e] font-[hk4]">{label}</p>
+                <p class="text-[19.2px] text-[#1f2328] font-[hk4] font-bold">{num}</p>
               </div>
               <div id={'prs-tab' + k + 'on'} class="absolute left-0 top-0 flex items-baseline opacity-0">
-                <text class="text-[19.2px] text-[#1f2328] font-[hk6] font-semibold">{label}</text>
-                <text class="text-[19.2px] text-[#1f2328] font-[hk6] font-semibold">{num}</text>
+                <p class="text-[19.2px] text-[#1f2328] font-[hk6] font-semibold">{label}</p>
+                <p class="text-[19.2px] text-[#1f2328] font-[hk6] font-semibold">{num}</p>
               </div>
               <div id={'prs-tabline' + k} class="absolute left-0 right-0 bottom-[-5.2px] h-[2px] bg-[#fd8c73] opacity-0"></div>
             </div>
@@ -474,22 +474,22 @@ function PrScroll({ rootId }) {
         </div>
       </div>
       <div class="absolute left-[1152px] top-[540px] -mt-[183.6px] w-[691.2px]">
-        <text id="prs-head" class="whitespace-nowrap font-[gal] text-[72.96px] leading-[75.9px] tracking-[-1.15px] text-[#262624] relative -top-[2px] opacity-0">A thousand</text>
-        <text id="prs-head2" class="whitespace-nowrap font-[gal] text-[72.96px] leading-[75.9px] tracking-[-1.15px] text-[#262624] mb-[34.56px] relative -top-[2px] opacity-0">slices of change.</text>
+        <p id="prs-head" class="whitespace-nowrap font-[gal] text-[72.96px] leading-[75.9px] tracking-[-1.15px] text-[#262624] relative -top-[2px] opacity-0">A thousand</p>
+        <p id="prs-head2" class="whitespace-nowrap font-[gal] text-[72.96px] leading-[75.9px] tracking-[-1.15px] text-[#262624] mb-[34.56px] relative -top-[2px] opacity-0">slices of change.</p>
         <div id="prs-s1" class="flex items-baseline gap-[11.52px] mb-[17.28px] border-t-[1px] border-[#ddd6c8] pt-[17.28px] opacity-0">
-          <text id="prs-files-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none relative -top-[3px]"></text>
+          <p id="prs-files-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none relative -top-[3px]"></p>
           <div id="prs-cr1" class="w-[44.7px] h-[48px] mr-[-1.28px] mb-[0.9px] flex-none opacity-0"><div class="w-[4.5px] h-[48px] bg-[#D97757] relative top-[2px]"></div></div>
-          <text class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">files changed</text>
+          <p class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">files changed</p>
         </div>
         <div id="prs-s2" class="flex items-baseline gap-[11.52px] mb-[17.28px] border-t-[1px] border-[#ddd6c8] pt-[17.28px] opacity-0">
-          <text id="prs-lines-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none relative -top-[3px]"></text>
+          <p id="prs-lines-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none relative -top-[3px]"></p>
           <div id="prs-cr2" class="w-[44.7px] h-[48px] mr-[-1.28px] mb-[0.9px] flex-none opacity-0"><div class="w-[4.5px] h-[48px] bg-[#D97757] relative top-[2px]"></div></div>
-          <text class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">lines removed</text>
+          <p class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">lines removed</p>
         </div>
         <div id="prs-s3" class="flex items-baseline gap-[11.52px] mb-[17.28px] border-t-[1px] border-[#ddd6c8] pt-[17.28px] opacity-0">
-          <text id="prs-commits-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none relative -top-[3px]"></text>
+          <p id="prs-commits-n" class="font-[mono5] text-[44.16px] text-[#D97757] leading-none relative -top-[3px]"></p>
           <div id="prs-cr3" class="w-[44.7px] h-[48px] mr-[-1.28px] mb-[0.9px] flex-none opacity-0"><div class="w-[4.5px] h-[48px] bg-[#D97757] relative top-[2px]"></div></div>
-          <text class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">commits to read through</text>
+          <p class="text-[22.08px] font-[hk5] font-medium text-[#6c6a64]">commits to read through</p>
         </div>
       </div>
     </div>
@@ -505,7 +505,7 @@ function HardRead({ rootId }) {
   return (
     <div id={rootId} class="absolute inset-0 z-[3] bg-[#1D1F1F] font-[gal] opacity-0">
       <div id="hr-txt" class="absolute left-0 right-0 top-[540px] -mt-[90px] text-center opacity-0">
-        <text class="text-[182.4px] tracking-[-3.456px] text-[#EFEADD] leading-none">Hard to read</text>
+        <p class="text-[182.4px] tracking-[-3.456px] text-[#EFEADD] leading-none">Hard to read</p>
       </div>
     </div>
   );
@@ -543,29 +543,29 @@ function Summarize({ rootId }) {
                   8-spoke); the engine's fallback pool picks Noto Color Emoji —
                   green, thicker — so draw the star as an 8-spoke path. */}
               <path d="M16 6.5 L16 25.5 M6.5 16 L25.5 16 M9.3 9.3 L22.7 22.7 M22.7 9.3 L9.3 22.7" view-box="0 0 32 32" class="w-[31.68px] h-[31.68px] flex-none stroke-[#D97757] fill-none stroke-[2.2] relative -top-[0.5px]" />
-              <text class="text-[31.68px] text-[#D8D4C8]">Here's the summary:</text>
+              <p class="text-[31.68px] text-[#D8D4C8]">Here's the summary:</p>
             </div>
-            <text class={h2}>## TL;DR</text>
-            <text class={al}>Three video skills now share one script-driven engine — less duplication, one place to fix bugs.</text>
-            <text class={h2}>## What moved</text>
-            <text class={al}>- product-launch, pr-to-video, faceless-explainer → one fetch / build-frame / audio / caption / assemble pipeline.</text>
-            <text class={al}>- each SKILL.md slimmed; the inline step logic now lives in shared scripts.</text>
-            <text class={al}>- story / tts / blueprints references trimmed where the engine owns the flow.</text>
-            <text class={h2}>## By the numbers</text>
-            <text class={al}>- 629 files touched, +8,322 / −87,291.</text>
-            <text class={al}>- the −87,291 is mostly moved, not deleted; net behaviour unchanged.</text>
-            <text class={al}>- 4 commits, each a coherent slice.</text>
-            <text class={h2}>## New surface</text>
-            <text class={al}>- a claude frame preset (FRAME.md + caption-skin.html).</text>
-            <text class={al}>- code-diff / code-typing / code-morph registry blocks for code beats.</text>
-            <text class={al}>- a shared audio engine: TTS + BGM lookup + SFX + duration sync.</text>
-            <text class={h2}>## Behaviour changes</text>
-            <text class={al}>- pr-to-video ingests via gh → a synthetic capture package; no website capture.</text>
-            <text class={al}>- product-launch keeps capture but delegates audio + captions to the engine.</text>
-            <text class={al}>- faceless-explainer drops its bespoke audio path entirely.</text>
-            <text class={h2}>## Risks to check</text>
-            <text class={al}>- the shared audio engine is a single point of failure for all three skills.</text>
-            <text class={al}>- verify no skill lost a reference in the move.</text>
+            <p class={h2}>## TL;DR</p>
+            <p class={al}>Three video skills now share one script-driven engine — less duplication, one place to fix bugs.</p>
+            <p class={h2}>## What moved</p>
+            <p class={al}>- product-launch, pr-to-video, faceless-explainer → one fetch / build-frame / audio / caption / assemble pipeline.</p>
+            <p class={al}>- each SKILL.md slimmed; the inline step logic now lives in shared scripts.</p>
+            <p class={al}>- story / tts / blueprints references trimmed where the engine owns the flow.</p>
+            <p class={h2}>## By the numbers</p>
+            <p class={al}>- 629 files touched, +8,322 / −87,291.</p>
+            <p class={al}>- the −87,291 is mostly moved, not deleted; net behaviour unchanged.</p>
+            <p class={al}>- 4 commits, each a coherent slice.</p>
+            <p class={h2}>## New surface</p>
+            <p class={al}>- a claude frame preset (FRAME.md + caption-skin.html).</p>
+            <p class={al}>- code-diff / code-typing / code-morph registry blocks for code beats.</p>
+            <p class={al}>- a shared audio engine: TTS + BGM lookup + SFX + duration sync.</p>
+            <p class={h2}>## Behaviour changes</p>
+            <p class={al}>- pr-to-video ingests via gh → a synthetic capture package; no website capture.</p>
+            <p class={al}>- product-launch keeps capture but delegates audio + captions to the engine.</p>
+            <p class={al}>- faceless-explainer drops its bespoke audio path entirely.</p>
+            <p class={h2}>## Risks to check</p>
+            <p class={al}>- the shared audio engine is a single point of failure for all three skills.</p>
+            <p class={al}>- verify no skill lost a reference in the move.</p>
           </div>
         </div>
         {/* ref summarize.html:55 bottom:370 — but the composed frame puts the
@@ -575,24 +575,24 @@ function Summarize({ rootId }) {
             bottom; +6px down onto the ref position). */}
         <div id="sm-composer" class="absolute left-[540px] w-[840px] bottom-[364px]">
           <div class="flex gap-[11.52px] mb-[17.28px]">
-            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">Local</text></div>
-            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text></div>
+            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><p class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">Local</p></div>
+            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><p class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</p></div>
           </div>
           <div class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[17.28px] min-h-[92.24px] px-[23px] shadow-[0_0_0_2.3px_rgba(217,119,87,0.5)]">
             <div class="flex-1 flex items-center pr-[50px]">
-              <text id="sm-typed" class="text-[23.04px] font-[mono4] text-[#E6E2D6] whitespace-nowrap"></text>
-              <text id="sm-caret" class="text-[27.84px] text-[#D97757]">▏</text>
+              <p id="sm-typed" class="text-[23.04px] font-[mono4] text-[#E6E2D6] whitespace-nowrap"></p>
+              <p id="sm-caret" class="text-[27.84px] text-[#D97757]">▏</p>
             </div>
             <path d="M9 10 4 15 9 20 M20 4v7a4 4 0 0 1-4 4H4" view-box="0 0 24 24" class="absolute right-[21px] w-[15px] h-[15px] stroke-[2.6] stroke-[#6F6E66] fill-none" />
           </div>
           <div class="flex justify-between items-center mt-[16.3px]">
             <div class="flex items-center gap-[19.2px]">
-              <div class="bg-[rgba(202,164,62,0.16)] rounded-[8.64px] px-[13.4px] py-[4.2px]"><text class="text-[17.7px] font-[hk5] font-medium text-[#CAA43E]">Auto</text></div>
-              <text class="text-[22.1px] text-[#8C8B83]">＋</text>
+              <div class="bg-[rgba(202,164,62,0.16)] rounded-[8.64px] px-[13.4px] py-[4.2px]"><p class="text-[17.7px] font-[hk5] font-medium text-[#CAA43E]">Auto</p></div>
+              <p class="text-[22.1px] text-[#8C8B83]">＋</p>
             </div>
             <div class="flex items-center gap-[19.2px]">
-              <text class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text>
-              <text class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</text>
+              <p class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</p>
+              <p class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</p>
               <div id="sm-orb" class="w-[24px] h-[24px] rounded-full border-[3.26px] border-[rgba(96,148,214,0.26)]"></div>
             </div>
           </div>
@@ -601,7 +601,7 @@ function Summarize({ rootId }) {
         {/* FIX: ref .still is top:50%+translateY(-50%); settled ink sits at
             454..592 on f358 while test was 450..588 — drop the box 4px */}
         <div id="sm-still" class="absolute left-0 right-0 top-[540px] -mt-[82px] text-center opacity-0">
-          <text class="font-[gal] text-[172.8px] tracking-[-3.456px] text-[#EFEADD] leading-none relative -top-[5px]">Still too long</text>
+          <p class="font-[gal] text-[172.8px] tracking-[-3.456px] text-[#EFEADD] leading-none relative -top-[5px]">Still too long</p>
         </div>
       </div>
     </div>
@@ -638,47 +638,47 @@ function UseSkill({ rootId }) {
           <div class="w-[20.2px] h-[20.2px] rounded-full bg-[#FF5F57]"></div>
           <div class="w-[20.2px] h-[20.2px] rounded-full bg-[#FEBC2E]"></div>
           <div class="w-[20.2px] h-[20.2px] rounded-full bg-[#28C840]"></div>
-          <text class="relative -top-[3px] ml-[14.3px] text-[19.2px] font-[mono4] text-[#8C8B83]">claude — ~/hyperframes</text>
+          <p class="relative -top-[3px] ml-[14.3px] text-[19.2px] font-[mono4] text-[#8C8B83]">claude — ~/hyperframes</p>
         </div>
         <div class="absolute left-[65.3px] right-[65.3px] top-[105.6px] bottom-[316.8px] overflow-hidden">
           <div id="us-stack" class="absolute left-0 right-0 bottom-0 flex flex-col gap-[26.88px]">
             <div id="us-cmd" class="self-end text-right opacity-0">
-              <text class="text-[25.92px] leading-[36.288px] font-[mono4] text-[#E6E2D6]">use pr-to-video to make a video for this pr</text>
+              <p class="text-[25.92px] leading-[36.288px] font-[mono4] text-[#E6E2D6]">use pr-to-video to make a video for this pr</p>
             </div>
             <div id="us-out" class="self-start opacity-0">
               {/* think/l0 row heights: ref .think normal line-height, .ol 1.45 */}
               <div id="us-think" class="flex items-center gap-[13.44px] mb-[19.2px] opacity-0">
                 <path id="us-ast" d="M16 6.5 L16 25.5 M6.5 16 L25.5 16 M9.3 9.3 L22.7 22.7 M22.7 9.3 L9.3 22.7" view-box="0 0 32 32" class="w-[30.72px] h-[30.72px] flex-none stroke-[#D97757] fill-none stroke-[2.1] relative -top-[0.5px]" />
-                <text class="text-[26.88px] leading-[35.025px] text-[#8C8B83]">thinking…</text>
+                <p class="text-[26.88px] leading-[35.025px] text-[#8C8B83]">thinking…</p>
               </div>
               <div id="us-l0" class="flex items-start gap-[13.44px] opacity-0">
-                <text class="text-[#D97757] text-[27.84px] leading-[40.368px] font-[hk7] font-bold">⏺</text>
-                <text class="text-[27.84px] leading-[40.368px] font-[mono4] text-[#A09D96]">Reading PR #1635 · 629 files · 4 commits</text>
+                <p class="text-[#D97757] text-[27.84px] leading-[40.368px] font-[hk7] font-bold">⏺</p>
+                <p class="text-[27.84px] leading-[40.368px] font-[mono4] text-[#A09D96]">Reading PR #1635 · 629 files · 4 commits</p>
               </div>
             </div>
           </div>
         </div>
         <div class="absolute left-[65.3px] right-[65.3px] bottom-[65.3px]">
           <div class="flex gap-[11.52px] mb-[17.28px]">
-            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">Local</text></div>
-            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><text class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</text></div>
+            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><p class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">Local</p></div>
+            <div class="bg-[#2C2C2B] rounded-[10.56px] px-[15.7px] py-[8.8px]"><p class="text-[18.3px] font-[hk5] font-medium text-[#D7D4CA]">hyperframes</p></div>
           </div>
           <div class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[17.28px] min-h-[92.24px] px-[23px] shadow-[0_0_0_2.3px_rgba(217,119,87,0.45)]">
             <div class="flex-1 flex items-center pr-[50px]">
-              <text id="us-typed" class="text-[21.12px] font-[mono4] text-[#E6E2D6] whitespace-nowrap"></text>
-              <text id="us-caret" class="text-[27.84px] text-[#D97757]">▏</text>
-              <text id="us-ph" class="relative top-[3px] ml-[-16px] text-[22.08px] text-[#6F6E66]">Reply to Claude…</text>
+              <p id="us-typed" class="text-[21.12px] font-[mono4] text-[#E6E2D6] whitespace-nowrap"></p>
+              <p id="us-caret" class="text-[27.84px] text-[#D97757]">▏</p>
+              <p id="us-ph" class="relative top-[3px] ml-[-16px] text-[22.08px] text-[#6F6E66]">Reply to Claude…</p>
             </div>
             <path d="M9 10 4 15 9 20 M20 4v7a4 4 0 0 1-4 4H4" view-box="0 0 24 24" class="absolute right-[21px] w-[15px] h-[15px] stroke-[2.6] stroke-[#6F6E66] fill-none" />
           </div>
           <div class="flex justify-between items-center mt-[16.3px]">
             <div class="flex items-center gap-[19.2px]">
-              <div class="bg-[rgba(202,164,62,0.16)] rounded-[8.64px] px-[13.4px] py-[4.2px]"><text class="text-[17.7px] font-[hk5] font-medium text-[#CAA43E]">Auto</text></div>
-              <text class="text-[22.1px] text-[#8C8B83]">＋</text>
+              <div class="bg-[rgba(202,164,62,0.16)] rounded-[8.64px] px-[13.4px] py-[4.2px]"><p class="text-[17.7px] font-[hk5] font-medium text-[#CAA43E]">Auto</p></div>
+              <p class="text-[22.1px] text-[#8C8B83]">＋</p>
             </div>
             <div class="flex items-center gap-[19.2px]">
-              <text class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text>
-              <text class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</text>
+              <p class="text-[19.2px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</p>
+              <p class="text-[19.2px] text-[#9A998F] font-[hk5] font-medium">High</p>
               <div id="us-orb" class="w-[24px] h-[24px] rounded-full border-[3.26px] border-[rgba(96,148,214,0.26)]"></div>
             </div>
           </div>
@@ -716,9 +716,9 @@ function FeatureCode({ ids }) {
               <div class="w-[20px] h-[20px] rounded-full bg-[#FF5F57]"></div>
               <div class="w-[20px] h-[20px] rounded-full bg-[#FEBC2E]"></div>
               <div class="w-[20px] h-[20px] rounded-full bg-[#28C840]"></div>
-              <text class="ml-[18px] text-[28px] text-[#9c9485]">skills/pr-to-video/scripts/</text>
-              <text class="text-[28px] text-[#F5EFE6] font-[mono5]">fetch-pr.mjs</text>
-              <text class="ml-auto text-[26px] text-[#5DB872]">+164 −0</text>
+              <p class="ml-[18px] text-[28px] text-[#9c9485]">skills/pr-to-video/scripts/</p>
+              <p class="text-[28px] text-[#F5EFE6] font-[mono5]">fetch-pr.mjs</p>
+              <p class="ml-auto text-[26px] text-[#5DB872]">+164 −0</p>
             </div>
             <div class="relative -top-[6.5px] pt-[34px]">
               <div class="px-[54px] text-[33px] leading-[62px]">
@@ -772,17 +772,17 @@ function FeatureFlow({ ids }) {
                 <div class="w-[14px] h-[14px] rounded-full bg-[#cc5f57]"></div>
                 <div class="w-[14px] h-[14px] rounded-full bg-[#d8a44a]"></div>
                 <div class="w-[14px] h-[14px] rounded-full bg-[#5db872]"></div>
-                <text class="ml-[14px] text-[24px] leading-[1.2] text-[#9c9485]">PR #1635 · the diff</text>
+                <p class="ml-[14px] text-[24px] leading-[1.2] text-[#9c9485]">PR #1635 · the diff</p>
               </div>
-              <div class="flex gap-[18px] px-[26px] py-[6px] text-[26px]"><text class="text-[#c64545]">-</text><text class="text-[#b87d77] whitespace-normal">gh pr view --json files</text></div>
-              <div class="flex gap-[18px] px-[26px] py-[6px] text-[26px]"><text class="text-[#5db872]">+</text><text class="text-[#9fc9a8] whitespace-normal">gh api --paginate …/files</text></div>
-              <div class="flex gap-[18px] px-[26px] py-[6px] mb-[22px] text-[26px]"><text class="text-[#5db872]">+</text><text class="text-[#9fc9a8] whitespace-normal">storyboard → frames → render</text></div>
+              <div class="flex gap-[18px] px-[26px] py-[6px] text-[26px]"><p class="text-[#c64545]">-</p><p class="text-[#b87d77] whitespace-normal">gh pr view --json files</p></div>
+              <div class="flex gap-[18px] px-[26px] py-[6px] text-[26px]"><p class="text-[#5db872]">+</p><p class="text-[#9fc9a8] whitespace-normal">gh api --paginate …/files</p></div>
+              <div class="flex gap-[18px] px-[26px] py-[6px] mb-[22px] text-[26px]"><p class="text-[#5db872]">+</p><p class="text-[#9fc9a8] whitespace-normal">storyboard → frames → render</p></div>
             </div>
             <path id="ff-a1" d="M6 20 H104 M92 9 L110 20 L92 31" view-box="0 0 120 40" class="w-[120px] h-[40px] flex-none stroke-[#CC785C] stroke-[3] fill-none opacity-0" />
             <div class="relative flex gap-[18px] items-start justify-center">
               {/* ref .fc{width:134px;padding:12px;border:1px} content-box → 160 flow */}
               {FF_CARDS.map((c) => <FfCard key={c[0]} n={c[0]} thumb={c[1]} />)}
-              <text id="ff-striplbl" class="absolute left-0 right-0 bottom-[-46px] text-center text-[22px] leading-[1.2] tracking-[0.66px] text-[#6b6459] whitespace-nowrap opacity-0">storyboard · scene by scene</text>
+              <p id="ff-striplbl" class="absolute left-0 right-0 bottom-[-46px] text-center text-[22px] leading-[1.2] tracking-[0.66px] text-[#6b6459] whitespace-nowrap opacity-0">storyboard · scene by scene</p>
             </div>
             <path id="ff-a2" d="M6 20 H104 M92 9 L110 20 L92 31" view-box="0 0 120 40" class="w-[120px] h-[40px] flex-none stroke-[#CC785C] stroke-[3] fill-none opacity-0" />
             {/* ref .vcard{width:420px;height:260px;border:1.5px} content-box → 423×263 */}
@@ -791,7 +791,7 @@ function FeatureFlow({ ids }) {
                 <div id="ff-vring" class="absolute inset-0 rounded-full border-[3px] border-[#CC785C] opacity-0"></div>
                 <path d="M8 5l11 7-11 7z" view-box="0 0 24 24" class="w-[46px] h-[46px] ml-[6px] fill-[#FAF9F5]" />
               </div>
-              <text class="text-[28px] leading-[1.2] text-[#141413]">video.mp4</text>
+              <p class="text-[28px] leading-[1.2] text-[#141413]">video.mp4</p>
             </div>
           </div>
           </div>
@@ -834,27 +834,27 @@ function FeatureDiscussion({ ids }) {
   const rowCls = 'flex items-center gap-[24px] h-[104px] mb-[14px] px-[26px] bg-[#FAF8F2] border-[1px] border-[rgba(20,20,19,0.14)] rounded-[13px] opacity-0';
   const avCls = 'w-[62px] h-[62px] rounded-full border-[1px] border-[rgba(20,20,19,0.12)] object-cover flex-none';
   const badge = (cls, label) => (
-    <div class={cls}><text class="text-[15px] leading-[1] font-[mono5]">{label}</text></div>
+    <div class={cls}><p class="text-[15px] leading-[1] font-[mono5]">{label}</p></div>
   );
-  // pills must be div-carried: <text> only paints bg as a line-box strip and
+  // pills must be div-carried: <p> only paints bg as a line-box strip and
   // drops border/rounded/padding entirely. Pill box = 17px + 2*7 + 2 border = 33.
   const pillBase = 'absolute right-0 top-[3.5px] h-[33px] flex items-center gap-[7px] px-[14px] rounded-[9px] border-[1px] text-[17px] leading-[1] font-[mono5]';
   const pillDone = (id) => (
     <div id={id} class={pillBase + ' bg-[rgba(79,157,91,0.16)] border-[rgba(79,157,91,0.5)] text-[#2f6b3d] opacity-0'}>
-      <text class="text-[#4F9D5B]">✓</text>
-      <text>resolved</text>
+      <p class="text-[#4F9D5B]">✓</p>
+      <p>resolved</p>
     </div>
   );
   const pillOpen = (id, mark, label, blk) => (
     <div id={id} class={pillBase + (blk ? ' bg-[rgba(214,69,69,0.12)] border-[rgba(214,69,69,0.35)] text-[#B23A3A]' : ' bg-[rgba(193,122,60,0.12)] border-[rgba(193,122,60,0.32)] text-[#9C5A1F]') + ' opacity-0'}>
-      <text class={blk ? 'text-[15px] text-[#D64545]' : 'text-[15px] text-[#C77C3C]'}>{mark}</text>
-      <text>{label}</text>
+      <p class={blk ? 'text-[15px] text-[#D64545]' : 'text-[15px] text-[#C77C3C]'}>{mark}</p>
+      <p>{label}</p>
     </div>
   );
   const pillPush = () => (
     <div class={pillBase + ' bg-[rgba(217,119,87,0.14)] border-[rgba(217,119,87,0.45)] text-[#B4502F]'}>
-      <text class="text-[#D97757]">✚</text>
-      <text>pushed</text>
+      <p class="text-[#D97757]">✚</p>
+      <p>pushed</p>
     </div>
   );
   return (
@@ -867,20 +867,20 @@ function FeatureDiscussion({ ids }) {
             <div id="fd-card" class="absolute left-[60px] right-[60px] top-[70px] h-[760px] border-[1px] border-[rgba(20,20,19,0.12)] rounded-[18px] bg-[rgba(236,227,212,0.32)] overflow-hidden opacity-0">
               <div id="fd-chead" class="flex items-center justify-between h-[72px] px-[30px] border-b-[1px] border-[rgba(20,20,19,0.1)] opacity-0">
                 <div class="flex items-center">
-                  <text class="text-[24px] leading-[1.2] font-[mono5] text-[#D97757]">◆</text>
-                  <text class="text-[24px] leading-[1.2] font-[mono5] text-[#3a392f]">{" #1635 · Conversation"}</text>
+                  <p class="text-[24px] leading-[1.2] font-[mono5] text-[#D97757]">◆</p>
+                  <p class="text-[24px] leading-[1.2] font-[mono5] text-[#3a392f]">{" #1635 · Conversation"}</p>
                 </div>
-                <text class="text-[20px] leading-[1.2] font-[mono4] text-[#8C8B83]">4 reviewers · 1 author</text>
+                <p class="text-[20px] leading-[1.2] font-[mono4] text-[#8C8B83]">4 reviewers · 1 author</p>
               </div>
               <div class="relative top-[2px] px-[26px] py-[26px]">
                 <div id="fd-r1" class={rowCls}>
                   <image path="assets/avatars/ghas-62.png" class={avCls} />
                   <div class="flex flex-col gap-[9px] flex-1">
                     <div class="flex items-center gap-[13px]">
-                      <text class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">CodeQL</text>
+                      <p class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">CodeQL</p>
                       {badge('text-[#B23A3A] bg-[rgba(214,69,69,0.12)] border-[1px] border-[rgba(214,69,69,0.35)] px-[11px] py-[4px] rounded-[7px]', 'security · bot')}
                     </div>
-                    <text class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">12 high-severity alerts · TOCTOU race + HTML injection</text>
+                    <p class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">12 high-severity alerts · TOCTOU race + HTML injection</p>
                   </div>
                   <div class="relative w-[190px] h-[40px] flex-none">
                     {pillOpen('fd-p1o', '●', 'blocking', true)}
@@ -891,10 +891,10 @@ function FeatureDiscussion({ ids }) {
                   <image path="assets/avatars/jrusso1020-62.png" class={avCls} />
                   <div class="flex flex-col gap-[9px] flex-1">
                     <div class="flex items-center gap-[13px]">
-                      <text class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">jrusso1020</text>
+                      <p class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">jrusso1020</p>
                       {badge('text-[#9C5A1F] bg-[rgba(193,122,60,0.14)] border-[1px] border-[rgba(193,122,60,0.35)] px-[11px] py-[4px] rounded-[7px]', 'changes requested')}
                     </div>
-                    <text class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">CodeQL required check failing — blocks approve</text>
+                    <p class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">CodeQL required check failing — blocks approve</p>
                   </div>
                   <div class="relative w-[190px] h-[40px] flex-none">
                     {pillOpen('fd-p2o', '●', 'changes', false)}
@@ -905,10 +905,10 @@ function FeatureDiscussion({ ids }) {
                   <image path="assets/avatars/miguel-62.png" class={avCls} />
                   <div class="flex flex-col gap-[9px] flex-1">
                     <div class="flex items-center gap-[13px]">
-                      <text class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">miguel-heygen</text>
+                      <p class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">miguel-heygen</p>
                       {badge('text-[#6b6a61] bg-[rgba(20,20,19,0.06)] border-[1px] border-[rgba(20,20,19,0.14)] px-[11px] py-[4px] rounded-[7px]', 're-review')}
                     </div>
-                    <text class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">TOCTOU + sanitization in captions.mjs across 3 skills</text>
+                    <p class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">TOCTOU + sanitization in captions.mjs across 3 skills</p>
                   </div>
                   <div class="relative w-[190px] h-[40px] flex-none">
                     {pillOpen('fd-p3o', '●', 'open', false)}
@@ -919,10 +919,10 @@ function FeatureDiscussion({ ids }) {
                   <image path="assets/avatars/miga-62.png" class={avCls} />
                   <div class="flex flex-col gap-[9px] flex-1">
                     <div class="flex items-center gap-[13px]">
-                      <text class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">miga-heygen</text>
+                      <p class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">miga-heygen</p>
                       {badge('text-[#6b6a61] bg-[rgba(20,20,19,0.06)] border-[1px] border-[rgba(20,20,19,0.14)] px-[11px] py-[4px] rounded-[7px]', 'review')}
                     </div>
-                    <text class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">major refactor · 630 files — verifying each commit</text>
+                    <p class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">major refactor · 630 files — verifying each commit</p>
                   </div>
                   <div class="relative w-[190px] h-[40px] flex-none">
                     {pillOpen('fd-p4o', '●', 'reviewing', false)}
@@ -933,10 +933,10 @@ function FeatureDiscussion({ ids }) {
                   <image path="assets/avatars/waterrr-62.png" class={avCls} />
                   <div class="flex flex-col gap-[9px] flex-1">
                     <div class="flex items-center gap-[13px]">
-                      <text class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">WaterrrForever</text>
+                      <p class="text-[27px] leading-[1] font-[hk6] font-semibold text-[#1D1F1F]">WaterrrForever</p>
                       {badge('text-[#B4502F] bg-[rgba(217,119,87,0.14)] border-[1px] border-[rgba(217,119,87,0.42)] px-[11px] py-[4px] rounded-[7px]', 'author')}
                     </div>
-                    <text class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">pushed cfdc213 · cb6de92 · e882ce9 — fixpoint sanitize + atomic writes</text>
+                    <p class="text-[18px] leading-[1] font-[mono4] text-[#6b6a61] whitespace-nowrap">pushed cfdc213 · cb6de92 · e882ce9 — fixpoint sanitize + atomic writes</p>
                   </div>
                   <div class="relative w-[190px] h-[40px] flex-none">
                     {pillPush()}
@@ -947,9 +947,9 @@ function FeatureDiscussion({ ids }) {
             {/* ref .merge: inline-flex shrink box centered via full-width justify-center */}
             <div class="absolute left-0 top-[876px] w-[1920px] flex justify-center">
               <div id="fd-merge" class="flex items-center gap-[11px] text-[30px] font-[mono5] text-[#2f6b3d] bg-[rgba(79,157,91,0.14)] border-[1px] border-[rgba(79,157,91,0.5)] rounded-[13px] px-[30px] py-[15px] opacity-0">
-                <text class="text-[#4F9D5B] text-[31px]">✓</text>
-                <text class="text-[30px] font-[mono5] text-[#2f6b3d]">all conversations resolved ·</text>
-                <text class="text-[30px] font-[mono5] font-semibold text-[#2f6b3d]">ready to merge</text>
+                <p class="text-[#4F9D5B] text-[31px]">✓</p>
+                <p class="text-[30px] font-[mono5] text-[#2f6b3d]">all conversations resolved ·</p>
+                <p class="text-[30px] font-[mono5] font-semibold text-[#2f6b3d]">ready to merge</p>
               </div>
             </div>
           </div>
@@ -982,8 +982,8 @@ function CreditCol({ c, i }) {
         {/* FIX: entrance ring pulse (ref ::after animation) */}
         <div id={'cr-ring' + n} class="absolute left-[-7px] right-[-7px] top-[-7px] bottom-[-7px] rounded-full border-[4px] border-[#CC785C] opacity-0"></div>
       </div>
-      <text id={'cr-nm' + n} class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">{name}</text>
-      <text id={'cr-rl' + n} class={'mt-[7px] text-[20px] text-[' + roleColor + '] whitespace-nowrap opacity-0'}>{role}</text>
+      <p id={'cr-nm' + n} class="mt-[22px] text-[24px] font-[mono5] text-[#1D1F1F] whitespace-nowrap opacity-0">{name}</p>
+      <p id={'cr-rl' + n} class={'mt-[7px] text-[20px] text-[' + roleColor + '] whitespace-nowrap opacity-0'}>{role}</p>
     </div>
   );
 }
@@ -1017,7 +1017,7 @@ function FeatureCredits({ ids }) {
   // FIX: group labels are centered over their avatar column (ref uses
   // left:50%+translateX(-50%); mono5 22px tracking 3px → 16.2px per char)
   const grp = (id, left, color, label) => (
-    <text id={id} class={'absolute left-[' + left + 'px] top-[300px] text-[22px] font-[mono5] tracking-[3px] text-[' + color + '] opacity-0'}>{label}</text>
+    <p id={id} class={'absolute left-[' + left + 'px] top-[300px] text-[22px] font-[mono5] tracking-[3px] text-[' + color + '] opacity-0'}>{label}</p>
   );
   return (
     <div id={ids.scene} class="absolute inset-0 z-[9] bg-[#F0EFE9] font-[hk4] opacity-0">
@@ -1034,8 +1034,8 @@ function FeatureCredits({ ids }) {
             {/* FIX: ref signoff is one centered row (left:50% + -50% translate):
                 whole line = 476(seg1, engine-measured) + 28(rdy margin) + 233
                 → seg1 starts at 960-368.5=591.5 (visual 735 = ref 735, frame 745) */}
-            <text id="cr-sign" class="absolute left-[591.5px] top-[830px] text-[24px] text-[#8C8B83] whitespace-nowrap opacity-0">PR #1635 · heygen-com/hyperframes</text>
-            <text id="cr-sign2" class="absolute left-[1095.5px] top-[830px] text-[24px] text-[#4F9D5B] whitespace-nowrap opacity-0">✓ ready to merge</text>
+            <p id="cr-sign" class="absolute left-[591.5px] top-[830px] text-[24px] text-[#8C8B83] whitespace-nowrap opacity-0">PR #1635 · heygen-com/hyperframes</p>
+            <p id="cr-sign2" class="absolute left-[1095.5px] top-[830px] text-[24px] text-[#4F9D5B] whitespace-nowrap opacity-0">✓ ready to merge</p>
           </div>
           </div>
         </PlayerWindow>
@@ -1099,9 +1099,9 @@ function CtaOutro({ rootId }) {
             at x≈960); full-width justify-center reproduces that per-frame
             recentering, a fixed left anchor would pin the final x during typing */}
         <div id="cta-headrow" class="absolute left-0 right-0 top-[356.4px] flex items-baseline justify-center whitespace-nowrap">
-          <text id="cta-h1" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#1D1F1F] whitespace-nowrap relative -top-[2px]"></text>
-          <text id="cta-h2" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#D97757] whitespace-nowrap relative -top-[2px]"></text>
-          <text id="cta-h3" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#1D1F1F] whitespace-nowrap relative -top-[2px]"></text>
+          <p id="cta-h1" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#1D1F1F] whitespace-nowrap relative -top-[2px]"></p>
+          <p id="cta-h2" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#D97757] whitespace-nowrap relative -top-[2px]"></p>
+          <p id="cta-h3" class="text-[96px] font-[hk7] font-bold tracking-[-2.88px] leading-none text-[#1D1F1F] whitespace-nowrap relative -top-[2px]"></p>
           {/* ref renders ▏ through a fallback font (latin subset lacks U+258F)
               whose advance is ~84px @96 — cross-checked twice: unscaled ref
               ink starts at x=368 and the f821 mid-zoom ink at 308. Round-6
@@ -1109,7 +1109,7 @@ function CtaOutro({ rootId }) {
               (center 925), test 364..1476 — same 1112px ink width, sitting
               5px left, so the caret placeholder is 10px too wide: 74px puts
               the 1192px row box at x=364 and the ink at 369=ref. */}
-          <text id="cta-hcaret" class="text-[96px] font-[hk4] leading-none text-[#D97757] ml-[0.77px] w-[74px] relative -top-[2px]">▏</text>
+          <p id="cta-hcaret" class="text-[96px] font-[hk4] leading-none text-[#D97757] ml-[0.77px] w-[74px] relative -top-[2px]">▏</p>
         </div>
       </div>
       {/* ref cta.html:43-26 composer spans y 646..875 (bottom 205.2). Flow
@@ -1119,8 +1119,8 @@ function CtaOutro({ rootId }) {
           bottom-0 (841.24..875) — ref cta.html:44-54 geometry. */}
       <div id="cta-composer" class="absolute left-[364.8px] bottom-[205.2px] w-[1190.4px] h-[229px] opacity-0">
         <div class="absolute left-0 top-0 flex gap-[11.52px]">
-          <div class="bg-[#2C2C2B] rounded-[11.52px] px-[17.3px] h-[44px] flex items-center"><text class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA] leading-none">Local</text></div>
-          <div class="bg-[#2C2C2B] rounded-[11.52px] px-[17.3px] h-[44px] flex items-center"><text class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA] leading-none">hyperframes</text></div>
+          <div class="bg-[#2C2C2B] rounded-[11.52px] px-[17.3px] h-[44px] flex items-center"><p class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA] leading-none">Local</p></div>
+          <div class="bg-[#2C2C2B] rounded-[11.52px] px-[17.3px] h-[44px] flex items-center"><p class="text-[19.2px] font-[hk5] font-medium text-[#D7D4CA] leading-none">hyperframes</p></div>
         </div>
         <div class="absolute left-0 right-0 top-[61px]">
         <div class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[19.2px] min-h-[115.28px] px-[26.9px] shadow-[0_0_0_2.5px_rgba(217,119,87,0.55)]">
@@ -1128,10 +1128,10 @@ function CtaOutro({ rootId }) {
               -3px offset → net +3px from unshifted; ref .url pads 0 .12cqw
               (2.304px) so the box and trailing caret sit 2.3px right. */}
           <div class="relative top-[3px] flex-1 flex items-center pr-[53.8px]">
-            <text id="cta-cmd" class="text-[24.96px] font-[mono4] text-[#E6E2D6] whitespace-nowrap"></text>
-            <text id="cta-url" class="text-[24.96px] font-[mono4] text-[#9CC4E6] whitespace-nowrap px-[2.3px] py-[5.6px]"></text>
-            <text id="cta-caret" class="text-[32.64px] text-[#D97757]">▏</text>
-            <text id="cta-ph" class="ml-[-16px] text-[25.92px] text-[#6F6E66]">Reply to Claude…</text>
+            <p id="cta-cmd" class="text-[24.96px] font-[mono4] text-[#E6E2D6] whitespace-nowrap"></p>
+            <p id="cta-url" class="text-[24.96px] font-[mono4] text-[#9CC4E6] whitespace-nowrap px-[2.3px] py-[5.6px]"></p>
+            <p id="cta-caret" class="text-[32.64px] text-[#D97757]">▏</p>
+            <p id="cta-ph" class="ml-[-16px] text-[25.92px] text-[#6F6E66]">Reply to Claude…</p>
           </div>
           <path id="cta-ret" d="M9 10 4 15 9 20 M20 4v7a4 4 0 0 1-4 4H4" view-box="0 0 24 24" class="absolute right-[23px] w-[17px] h-[17px] stroke-[2.6] stroke-[#6F6E66] fill-none" />
         </div>
@@ -1141,12 +1141,12 @@ function CtaOutro({ rootId }) {
             (f854 diff band 824-835) */}
         <div class="absolute left-0 right-0 bottom-0 flex justify-between items-center h-[33.76px]">
           <div class="flex items-center gap-[21.12px]">
-            <div class="bg-[rgba(202,164,62,0.16)] rounded-[9.6px] px-[14.4px] py-[4.6px]"><text class="text-[18.4px] font-[hk5] font-medium text-[#CAA43E]">Auto</text></div>
-            <text class="text-[22.1px] text-[#8C8B83]">＋</text>
+            <div class="bg-[rgba(202,164,62,0.16)] rounded-[9.6px] px-[14.4px] py-[4.6px]"><p class="text-[18.4px] font-[hk5] font-medium text-[#CAA43E]">Auto</p></div>
+            <p class="text-[22.1px] text-[#8C8B83]">＋</p>
           </div>
           <div class="flex items-center gap-[21.12px]">
-            <text class="text-[20.16px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</text>
-            <text class="text-[20.16px] text-[#9A998F] font-[hk5] font-medium">High</text>
+            <p class="text-[20.16px] text-[#7C7B73] font-[hk5] font-medium">Opus 4.8</p>
+            <p class="text-[20.16px] text-[#9A998F] font-[hk5] font-medium">High</p>
             <div id="cta-orb" class="w-[25px] h-[25px] rounded-full border-[3.46px] border-[rgba(96,148,214,0.26)]"></div>
           </div>
         </div>

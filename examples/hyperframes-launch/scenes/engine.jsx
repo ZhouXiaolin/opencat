@@ -87,8 +87,8 @@ export default function Engine() {
                 </div>
               </div>
             </div>
-            <text className={TITLE}>Agent</text>
-            <text className={SUB}>writes HTML</text>
+            <p className={TITLE}>Agent</p>
+            <p className={SUB}>writes HTML</p>
           </div>
           <path id="en-flow1" viewBox="0 0 4 700" d="M2 0L2 700" className="absolute left-[958px] top-[920px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
           <div id="en-pip1" className="absolute left-[950px] top-[1610px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
@@ -107,8 +107,8 @@ export default function Engine() {
                 </div>
               </div>
             </div>
-            <text className={TITLE}>Renderer</text>
-            <text className={SUB}>captures every frame</text>
+            <p className={TITLE}>Renderer</p>
+            <p className={SUB}>captures every frame</p>
           </div>
           <path id="en-flow2" viewBox="0 0 4 700" d="M2 0L2 700" className="absolute left-[958px] top-[2380px] w-[4px] h-[700px] fill-none stroke-[#c8c0a8] stroke-[3] [stroke-dasharray:700px] [stroke-dashoffset:700px]" />
           <div id="en-pip2" className="absolute left-[950px] top-[3070px] w-[20px] h-[20px] rounded-full bg-[#E07A5F] opacity-0"></div>
@@ -125,8 +125,8 @@ export default function Engine() {
                 </div>
               </div>
             </div>
-            <text className={TITLE}>MP4</text>
-            <text className={SUB}>ready to ship</text>
+            <p className={TITLE}>MP4</p>
+            <p className={SUB}>ready to ship</p>
           </div>
 
           {/* DETERMINISTIC */}
@@ -135,13 +135,13 @@ export default function Engine() {
               {DetCard('en-card-b')}
               {DetCard('en-card-f')}
             </div>
-            <text id="en-word" className="text-[120px] leading-none tracking-[-0.03em] font-[hf-serif] text-[#3D405B] opacity-0">Deterministic.</text>
+            <p id="en-word" className="text-[120px] leading-none tracking-[-0.03em] font-[hf-serif] text-[#3D405B] opacity-0">Deterministic.</p>
             <div id="en-proof" className="flex items-center gap-[16px] px-[32px] py-[14px] rounded-[14px] bg-[rgba(129,178,154,0.1)] border-[2px] border-[rgba(129,178,154,0.25)] opacity-0">
               <div className="relative w-[40px] h-[40px] shrink-0">
                 <path viewBox="0 0 40 40" d="M2 20a18 18 0 1 0 36 0a18 18 0 1 0 -36 0Z" className="absolute left-0 top-0 w-[40px] h-[40px] fill-[#81B29A]" />
                 <path viewBox="0 0 40 40" d="M12 20l6 6 10-10" className="absolute left-0 top-0 w-[40px] h-[40px] fill-none stroke-[#F4F1DE] stroke-[3]" />
               </div>
-              <text className="text-[28px] italic font-[hf-serif-it] text-[#3D405B]">Identical output, every time.</text>
+              <p className="text-[28px] italic font-[hf-serif-it] text-[#3D405B]">Identical output, every time.</p>
             </div>
           </div>
         </div>

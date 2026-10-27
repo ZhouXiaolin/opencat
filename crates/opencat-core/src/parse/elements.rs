@@ -37,8 +37,21 @@ pub enum JsonLine {
         style: Option<String>,
         duration: Option<f64>,
     },
-    #[serde(rename = "text")]
-    Text {
+    #[serde(rename = "p")]
+    P {
+        id: String,
+        #[serde(rename = "parentId")]
+        parent_id: Option<String>,
+        #[serde(rename = "className", alias = "class")]
+        class_name: Option<String>,
+        /// Inline `style` attribute, already serialized to CSS declaration
+        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        style: Option<String>,
+        text: String,
+        duration: Option<f64>,
+    },
+    #[serde(rename = "span")]
+    Span {
         id: String,
         #[serde(rename = "parentId")]
         parent_id: Option<String>,
@@ -405,7 +418,7 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
                 children: Vec::new(),
             },
         ),
-        JsonLine::Text {
+        JsonLine::P {
             id,
             parent_id,
             class_name,
@@ -414,7 +427,24 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
             duration,
         } => (
             parent_id,
-            DomElement::Text {
+            DomElement::P {
+                id,
+                class: class_name,
+                style,
+                text,
+                duration,
+            },
+        ),
+        JsonLine::Span {
+            id,
+            parent_id,
+            class_name,
+            style,
+            text,
+            duration,
+        } => (
+            parent_id,
+            DomElement::Span {
                 id,
                 class: class_name,
                 style,
@@ -1091,7 +1121,7 @@ mod tests {
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"stage","parentId":"root","type":"canvas","className":"w-full h-full"}
-{"id":"hidden","parentId":"stage","type":"text","className":"text-[12px]","text":"hidden"}"#,
+{"id":"hidden","parentId":"stage","type":"p","className":"text-[12px]","text":"hidden"}"#,
         )
         .expect("canvas hidden children should parse");
 
@@ -1104,7 +1134,7 @@ mod tests {
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
 {"id":"dup","parentId":"root","type":"div","className":""}
-{"id":"dup","parentId":"root","type":"text","className":"","text":"x"}"#,
+{"id":"dup","parentId":"root","type":"p","className":"","text":"x"}"#,
         )
         .expect_err("duplicate ids should fail");
 

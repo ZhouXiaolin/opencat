@@ -11,7 +11,7 @@ export default function FlexIt() {
   return (
     <div id="fi-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-black">
       <div className="absolute left-0 top-[540px] w-full flex justify-center">
-        <text id="fi-text" className="mt-[-160px] text-[320px] leading-none tracking-[-0.04em] font-[hf-inter-black] text-white">it</text>
+        <p id="fi-text" className="mt-[-160px] text-[320px] leading-none tracking-[-0.04em] font-[hf-inter-black] text-white">it</p>
       </div>
     </div>
   );

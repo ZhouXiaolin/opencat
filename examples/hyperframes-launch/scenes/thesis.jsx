@@ -50,24 +50,24 @@ export default function Thesis() {
           <div className="relative px-[21.12px]">
             <div className="flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
-                <text id={'th-w' + i} className={L1CLS + ' opacity-0'}>{w}</text>
+                <p id={'th-w' + i} className={L1CLS + ' opacity-0'}>{w}</p>
               ))}
             </div>
             <div className="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L1.map((w, i) => (
-                <text id={'th-g' + i} className={L1CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
+                <p id={'th-g' + i} className={L1CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</p>
               ))}
             </div>
           </div>
           <div id="th-l2wrap" className="relative mt-[18px] px-[21.12px]">
             <div className="flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
-                <text id={'th-w' + (5 + j)} className={L2CLS + ' opacity-0'}>{w}</text>
+                <p id={'th-w' + (5 + j)} className={L2CLS + ' opacity-0'}>{w}</p>
               ))}
             </div>
             <div className="absolute inset-0 flex justify-center gap-[62.2px]">
               {TH_L2.map((w, j) => (
-                <text id={'th-g' + (5 + j)} className={L2CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</text>
+                <p id={'th-g' + (5 + j)} className={L2CLS + ' ' + TH_GRAD + ' opacity-0'}>{w}</p>
               ))}
             </div>
           </div>

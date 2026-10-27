@@ -644,7 +644,7 @@ macro_rules! for_each_binding {
         }}
 
         // ── Cmd: script-side DOM tree reads ────────────────────────────────
-        // 读视图要惰性物化文本节点（`<text>` 的文本是合成子节点），所以
+        // 读视图要惰性物化文本节点（`<p>` 的文本是合成子节点），所以
         // 读也走可变路径 —— cmd 而不是 qry。
         $binding! { cmd $store dom_children (id: String) -> Vec<(String, u8)> {
             let overlay = $store.tree_overlay_mut()

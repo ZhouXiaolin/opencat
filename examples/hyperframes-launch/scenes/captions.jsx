@@ -29,7 +29,7 @@ export default function CaptionLayer() {
       {CAPS.map((c) => (
         <div id={c[0]} className="absolute left-0 bottom-[80px] w-full flex justify-center opacity-0">
           <div className="px-[28px] py-[12px] rounded-[10px] bg-[rgba(10,8,5,0.55)] backdrop-blur-[8px] whitespace-nowrap">
-            <text className="text-[40px] leading-[48px] tracking-[-0.005em] font-[500] font-[hf-inter-med] text-[rgba(240,235,220,0.92)]">{c[3]}</text>
+            <p className="text-[40px] leading-[48px] tracking-[-0.005em] font-[500] font-[hf-inter-med] text-[rgba(240,235,220,0.92)]">{c[3]}</p>
           </div>
         </div>
       ))}

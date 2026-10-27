@@ -1,43 +1,43 @@
 {"type": "composition", "width": 1280, "height": 720, "fps": 30, "duration":5}
 {"id": "scene", "parentId": null, "type": "div", "className": "flex flex-col w-[1280px] h-[720px] bg-slate-950 p-4 gap-4", "duration":5}
 {"id": "header", "parentId": "scene", "type": "div", "className": "flex flex-col items-center gap-1"}
-{"id": "title", "parentId": "header", "type": "text", "className": "text-[32px] font-bold text-white", "text": "OpenCat"}
-{"id": "subtitle", "parentId": "header", "type": "text", "className": "text-[14px] text-slate-400", "text": "repeat · yoyo · keyframes · HSL · alongPath · stagger"}
+{"id": "title", "parentId": "header", "type": "p", "className": "text-[32px] font-bold text-white", "text": "OpenCat"}
+{"id": "subtitle", "parentId": "header", "type": "p", "className": "text-[14px] text-slate-400", "text": "repeat · yoyo · keyframes · HSL · alongPath · stagger"}
 {"id": "row-top", "parentId": "scene", "type": "div", "className": "flex gap-4"}
 {"id": "easings-panel", "parentId": "row-top", "type": "div", "className": "flex flex-col flex-1 h-[220px] bg-slate-900 rounded-2xl p-4 gap-2"}
-{"id": "easings-label", "parentId": "easings-panel", "type": "text", "className": "text-[12px] text-slate-400 font-mono", "text": "easings · repeat:-1 · yoyo"}
+{"id": "easings-label", "parentId": "easings-panel", "type": "p", "className": "text-[12px] text-slate-400 font-mono", "text": "easings · repeat:-1 · yoyo"}
 {"id": "e-row-1", "parentId": "easings-panel", "type": "div", "className": "flex items-center gap-3"}
-{"id": "e-lbl-1", "parentId": "e-row-1", "type": "text", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "back-out"}
+{"id": "e-lbl-1", "parentId": "e-row-1", "type": "p", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "back-out"}
 {"id": "e-ball-1", "parentId": "e-row-1", "type": "div", "className": "w-[22px] h-[22px] rounded-full bg-blue-400 shadow-lg"}
 {"id": "e-row-2", "parentId": "easings-panel", "type": "div", "className": "flex items-center gap-3"}
-{"id": "e-lbl-2", "parentId": "e-row-2", "type": "text", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "elastic-out"}
+{"id": "e-lbl-2", "parentId": "e-row-2", "type": "p", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "elastic-out"}
 {"id": "e-ball-2", "parentId": "e-row-2", "type": "div", "className": "w-[22px] h-[22px] rounded-full bg-emerald-400 shadow-lg"}
 {"id": "e-row-3", "parentId": "easings-panel", "type": "div", "className": "flex items-center gap-3"}
-{"id": "e-lbl-3", "parentId": "e-row-3", "type": "text", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "bounce-out"}
+{"id": "e-lbl-3", "parentId": "e-row-3", "type": "p", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "bounce-out"}
 {"id": "e-ball-3", "parentId": "e-row-3", "type": "div", "className": "w-[22px] h-[22px] rounded-full bg-rose-400 shadow-lg"}
 {"id": "e-row-4", "parentId": "easings-panel", "type": "div", "className": "flex items-center gap-3"}
-{"id": "e-lbl-4", "parentId": "e-row-4", "type": "text", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "steps(8)"}
+{"id": "e-lbl-4", "parentId": "e-row-4", "type": "p", "className": "text-[12px] text-slate-300 font-mono w-[110px]", "text": "steps(8)"}
 {"id": "e-ball-4", "parentId": "e-row-4", "type": "div", "className": "w-[22px] h-[22px] rounded-full bg-amber-400 shadow-lg"}
 {"id": "kf-panel", "parentId": "row-top", "type": "div", "className": "flex flex-col flex-1 h-[220px] bg-slate-900 rounded-2xl p-4 gap-2"}
-{"id": "kf-label", "parentId": "kf-panel", "type": "text", "className": "text-[12px] text-slate-400 font-mono", "text": "keyframes · shorthand + full form"}
+{"id": "kf-label", "parentId": "kf-panel", "type": "p", "className": "text-[12px] text-slate-400 font-mono", "text": "keyframes · shorthand + full form"}
 {"id": "kf-row", "parentId": "kf-panel", "type": "div", "className": "flex items-center justify-around flex-grow"}
 {"id": "kf-scale-wrap", "parentId": "kf-row", "type": "div", "className": "flex flex-col items-center gap-2"}
 {"id": "kf-scale", "parentId": "kf-scale-wrap", "type": "div", "className": "w-[80px] h-[80px] rounded-2xl bg-cyan-500 shadow-lg"}
-{"id": "kf-scale-lbl", "parentId": "kf-scale-wrap", "type": "text", "className": "text-[10px] text-slate-400 font-mono", "text": "scale [1,1.4,.8,1.2,1]"}
+{"id": "kf-scale-lbl", "parentId": "kf-scale-wrap", "type": "p", "className": "text-[10px] text-slate-400 font-mono", "text": "scale [1,1.4,.8,1.2,1]"}
 {"id": "kf-rot-wrap", "parentId": "kf-row", "type": "div", "className": "flex flex-col items-center gap-2"}
 {"id": "kf-rot", "parentId": "kf-rot-wrap", "type": "div", "className": "w-[80px] h-[80px] rounded-2xl bg-fuchsia-500 shadow-lg"}
-{"id": "kf-rot-lbl", "parentId": "kf-rot-wrap", "type": "text", "className": "text-[10px] text-slate-400 font-mono", "text": "rotate 0→360→0 (back-out)"}
+{"id": "kf-rot-lbl", "parentId": "kf-rot-wrap", "type": "p", "className": "text-[10px] text-slate-400 font-mono", "text": "rotate 0→360→0 (back-out)"}
 {"id": "row-bot", "parentId": "scene", "type": "div", "className": "flex gap-4"}
 {"id": "color-panel", "parentId": "row-bot", "type": "div", "className": "flex flex-col flex-1 h-[220px] bg-slate-900 rounded-2xl p-4 gap-2"}
-{"id": "color-label", "parentId": "color-panel", "type": "text", "className": "text-[12px] text-slate-400 font-mono", "text": "HSL color interpolation · yoyo"}
+{"id": "color-label", "parentId": "color-panel", "type": "p", "className": "text-[12px] text-slate-400 font-mono", "text": "HSL color interpolation · yoyo"}
 {"id": "color-row", "parentId": "color-panel", "type": "div", "className": "flex items-center justify-center gap-6 flex-grow"}
 {"id": "color-swatch", "parentId": "color-row", "type": "div", "className": "w-[140px] h-[140px] rounded-3xl shadow-xl"}
-{"id": "color-text", "parentId": "color-row", "type": "text", "className": "text-[28px] font-bold", "text": "Hue Shift"}
+{"id": "color-text", "parentId": "color-row", "type": "p", "className": "text-[28px] font-bold", "text": "Hue Shift"}
 {"id": "path-panel", "parentId": "row-bot", "type": "div", "className": "relative flex-1 h-[220px] bg-slate-900 rounded-2xl overflow-hidden"}
-{"id": "path-label", "parentId": "path-panel", "type": "text", "className": "absolute left-4 top-4 text-[12px] text-slate-400 font-mono", "text": "path · orient · rocket"}
+{"id": "path-label", "parentId": "path-panel", "type": "p", "className": "absolute left-4 top-4 text-[12px] text-slate-400 font-mono", "text": "path · orient · rocket"}
 {"id": "rocket", "parentId": "path-panel", "type": "div", "className": "absolute left-0 top-0 w-[16px] h-[40px] rounded-md bg-orange-400 shadow-lg"}
 {"id": "stagger-panel", "parentId": "scene", "type": "div", "className": "flex flex-col h-[100px] bg-slate-900 rounded-2xl p-4 gap-2"}
-{"id": "stagger-label", "parentId": "stagger-panel", "type": "text", "className": "text-[12px] text-slate-400 font-mono", "text": "stagger · spring-wobbly · seeded jitter · repeat:-1 yoyo"}
+{"id": "stagger-label", "parentId": "stagger-panel", "type": "p", "className": "text-[12px] text-slate-400 font-mono", "text": "stagger · spring-wobbly · seeded jitter · repeat:-1 yoyo"}
 {"id": "stagger-row", "parentId": "stagger-panel", "type": "div", "className": "flex items-center justify-center gap-4 flex-grow"}
 {"id": "s-0", "parentId": "stagger-row", "type": "div", "className": "w-[24px] h-[24px] rounded-full bg-sky-400 shadow-md"}
 {"id": "s-1", "parentId": "stagger-row", "type": "div", "className": "w-[24px] h-[24px] rounded-full bg-sky-400 shadow-md"}

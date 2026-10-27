@@ -2,12 +2,12 @@
 {"id":"root","parentId":null,"type":"div","className":"relative w-[390px] h-[844px] bg-slate-950"}
 {"id":"main-tl","parentId":"root","type":"tl","className":"absolute inset-0"}
 {"id":"scene1","parentId":"main-tl","type":"div","className":"flex flex-col items-center justify-start pt-[280px] w-full h-full bg-amber-500","duration":1.533333}
-{"id":"title","parentId":"scene1","type":"text","className":"text-[48px] font-black text-white","text":"OpenCat"}
+{"id":"title","parentId":"scene1","type":"p","className":"text-[48px] font-black text-white","text":"OpenCat"}
 {"id":"scene2","parentId":"main-tl","type":"div","className":"flex flex-col items-center justify-start pt-[360px] w-full h-full bg-indigo-600","duration":1.4}
-{"id":"subtitle","parentId":"scene2","type":"text","className":"text-[20px] font-medium text-indigo-100","text":"Native video from JSONL"}
-{"id":"tagline","parentId":"scene2","type":"text","className":"text-[16px] font-normal text-amber-300","text":"One binary. Zero dependencies."}
+{"id":"subtitle","parentId":"scene2","type":"p","className":"text-[20px] font-medium text-indigo-100","text":"Native video from JSONL"}
+{"id":"tagline","parentId":"scene2","type":"p","className":"text-[16px] font-normal text-amber-300","text":"One binary. Zero dependencies."}
 {"id":"scene3","parentId":"main-tl","type":"div","className":"flex flex-col items-center justify-center w-full h-full bg-emerald-600","duration":1.133333}
-{"id":"closing","parentId":"scene3","type":"text","className":"text-[48px] font-black text-white","text":"OpenCat"}
+{"id":"closing","parentId":"scene3","type":"p","className":"text-[48px] font-black text-white","text":"OpenCat"}
 {"type":"transition","parentId":"main-tl","from":"scene1","to":"scene2","effect":"slide","direction":"from_bottom","duration":0.466667}
 {"type":"transition","parentId":"main-tl","from":"scene2","to":"scene3","effect":"slide","direction":"from_bottom","duration":0.466667}
 {"id":"s1","parentId":"root","type":"path","className":"absolute left-[30px] top-[120px] w-[52px] h-[52px] fill-violet-300/15","d":"M26 0C40.4 0 52 11.6 52 26S40.4 52 26 52 0 40.4 0 26 11.6 0 26 0z"}

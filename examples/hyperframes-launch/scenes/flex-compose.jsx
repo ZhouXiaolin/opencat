@@ -32,11 +32,11 @@ export default function FlexCompose() {
           </div>
           <div id="fc2-frame" className="absolute left-[-6px] top-[-6px] w-[852px] h-[552px] border-[3px] border-[#c84f1c] rounded-[22px] opacity-0"></div>
           <div id="fc2-lower" className="absolute left-[30px] bottom-[40px] px-[18px] py-[12px] bg-[rgba(248,244,237,0.94)] rounded-[6px] border-l-[4px] border-[#c84f1c] opacity-0">
-            <text className="text-[20px] leading-none tracking-[0.01em] font-[hf-geist-semi] text-[#1e1e1e]">Sarah Chen</text>
-            <text className="mt-[2px] text-[14px] leading-none font-[hf-geist] text-[#6a5a40]">Product Designer</text>
+            <p className="text-[20px] leading-none tracking-[0.01em] font-[hf-geist-semi] text-[#1e1e1e]">Sarah Chen</p>
+            <p className="mt-[2px] text-[14px] leading-none font-[hf-geist] text-[#6a5a40]">Product Designer</p>
           </div>
           <div className="absolute left-0 bottom-[120px] w-full flex justify-center">
-            <text id="fc2-caption" className="px-[20px] py-[8px] rounded-[6px] bg-[rgba(26,20,10,0.75)] text-[22px] leading-none font-[hf-geist] text-[#f8f4ed] whitespace-nowrap opacity-0">building something people actually want to use</text>
+            <p id="fc2-caption" className="px-[20px] py-[8px] rounded-[6px] bg-[rgba(26,20,10,0.75)] text-[22px] leading-none font-[hf-geist] text-[#f8f4ed] whitespace-nowrap opacity-0">building something people actually want to use</p>
           </div>
           <div id="fc2-wave" className="absolute left-0 bottom-[-50px] w-full h-[30px] flex items-center justify-center gap-[3px] opacity-0">
             {FC_WAVE_H.map(function (_, i) {
@@ -47,7 +47,7 @@ export default function FlexCompose() {
           </div>
         </div>
         <div className="absolute left-0 bottom-[80px] w-full flex justify-center">
-          <text id="fc2-label" className="text-[28px] leading-none tracking-[0.06em] font-[hf-jbm] text-[#8a6a2a] opacity-0">composes together</text>
+          <p id="fc2-label" className="text-[28px] leading-none tracking-[0.06em] font-[hf-jbm] text-[#8a6a2a] opacity-0">composes together</p>
         </div>
       </div>
     </div>

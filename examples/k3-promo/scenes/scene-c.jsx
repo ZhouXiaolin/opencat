@@ -118,14 +118,14 @@ export default function SceneC() {
         <div id="d-505" className="absolute top-[-60px] w-[2.5px] h-[1250px] bg-[#2e2e2e] left-[403px]"></div>
         <div id="d-506" className="absolute top-[-60px] w-[2.5px] h-[1250px] bg-[#2e2e2e] left-[1442px]"></div>
         <div id="ctab" className="absolute flex items-center justify-center bg-[#1c1c1c] left-[467px] top-[117px] w-[250px] h-[130px] opacity-0">
-          <text id="t-645" className="font-[k3-mono] text-[#d8d8da] text-[42px] tracking-[3px]">DECODE</text>
+          <p id="t-645" className="font-[k3-mono] text-[#d8d8da] text-[42px] tracking-[3px]">DECODE</p>
         </div>
         <canvas id="cicons" className="absolute left-[1147px] top-[133px] w-[230px] h-[85px] opacity-0"></canvas>
         <div id="cliverow" className="absolute font-[k3-mono] left-[470px] top-[322px] w-[1000px] h-[52px] opacity-0">
           <div id="d-507" className="absolute rounded-full bg-[#0dbc8a] left-[2px] top-[14px] w-[23px] h-[23px]"></div>
-          <text id="t-646" className="absolute text-[#92918a] left-[34px] top-[0] text-[47px]">Live</text>
-          <text id="t-647" className="absolute text-[#cd7c74] left-[427px] top-[0] text-[47px]">↑ 6.3x</text>
-          <text id="t-648" className="absolute text-[#89cfba] left-[687px] top-[0] text-[47px]">↓ 25% cost</text>
+          <p id="t-646" className="absolute text-[#92918a] left-[34px] top-[0] text-[47px]">Live</p>
+          <p id="t-647" className="absolute text-[#cd7c74] left-[427px] top-[0] text-[47px]">↑ 6.3x</p>
+          <p id="t-648" className="absolute text-[#89cfba] left-[687px] top-[0] text-[47px]">↓ 25% cost</p>
         </div>
         <div id="cbars" className="absolute left-[467px] top-[443px] w-[700px] h-[700px] overflow-hidden">
           <Cbar n="0" top="0px" g="#254a7e,#0a1830" />

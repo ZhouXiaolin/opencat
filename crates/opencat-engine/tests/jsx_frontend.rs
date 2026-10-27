@@ -126,7 +126,7 @@ export default function Scene() {
         dir.join("lib.js"),
         r#"
 export function Box(props) {
-  return <text id={props.id} class="text-[16px]">{props.label}</text>;
+  return <p id={props.id} class="text-[16px]">{props.label}</p>;
 }
 "#,
     )
@@ -207,7 +207,7 @@ fn html_markup_rules_apply() {
 
     let err = parse(
         r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
-export default function A() { return <div id="root"><text>a</span></div>; }"#,
+export default function A() { return <div id="root"><p>a</span></div>; }"#,
     )
     .expect_err("mismatched closing tag must fail");
     assert!(
@@ -222,7 +222,7 @@ export default function A() { return <div id="root"><text>a</span></div>; }"#,
 export default function A() {
   return (
     <div id="root">
-      <text>a</text>
+      <p>a</p>
   );
 }"#,
     )
@@ -235,7 +235,7 @@ export default function A() {
     let source = r#"export const meta = { width: 10, height: 10, fps: 30, duration: 1 };
 export default function A() {
   return <div id="root">
-    <text id="t">a &amp; b &lt;c&gt;</text>
+    <p id="t">a &amp; b &lt;c&gt;</p>
     <img id="i" src="a.png" />
     <div id="after" />
   </div>;

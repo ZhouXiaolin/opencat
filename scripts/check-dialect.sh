@@ -38,6 +38,7 @@ STRICT_PATTERNS=(
     'useCanvasKit\b'              # 批次 ②：同上
     'useCanvas\b'                 # 批次 ②：useFrame + MakeCanvasSurface 拆解
     'ly\.(pixel|scan|draw|surface|source)\b'  # 批次 ⑤：liangyi 退役——官方 RuntimeEffect(SKSL) / ctx.surface 唯一路
+    '<text[\s>/]'                 # 批次 ②：自有 Text 标签退役——HTML p/span 唯一路
 )
 
 # 批次目标面：迁移闭环时移入 STRICT

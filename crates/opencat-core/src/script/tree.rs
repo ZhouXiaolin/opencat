@@ -59,7 +59,7 @@ pub struct DeclaredNode {
     pub order: usize,
     /// 小写 tag（`div` / `text` / `path` …）。
     pub tag: String,
-    /// 该节点声明的文本内容（`<text>`），无文本为空串。
+    /// 该节点声明的文本内容（`<p>`/`<span>`），无文本为空串。
     pub text: String,
 }
 
@@ -68,7 +68,7 @@ pub struct TreeOverlay {
     /// realm 级：动态节点记录（id 从不复用）。
     nodes: HashMap<String, OverlayNode>,
     next_id: u32,
-    /// realm 级：静态节点 → 物化出的文本节点 id（`<text>` 的文本子节点）。
+    /// realm 级：静态节点 → 物化出的文本节点 id（`<p>` 的文本子节点）。
     materialized: HashMap<String, String>,
     /// 帧级：静态节点的声明事实。
     static_children: HashMap<String, Vec<String>>,

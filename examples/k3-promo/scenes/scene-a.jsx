@@ -403,8 +403,8 @@ export default function SceneA() {
           <Cdot id="a-tr" s="13px" c="#d8d8da" className="-right-[7px] -top-[7px]" />
           <Cdot id="a-bl" s="13px" c="#d8d8da" className="-left-[7px] -bottom-[7px]" />
           <Cdot id="a-br" s="13px" c="#d8d8da" className="-right-[7px] -bottom-[7px]" />
-          <div id="aline1" className="absolute flex whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0"><text id="aw1">Every</text><text id="aw2">{" token"}</text></div>
-          <text id="aline2" className="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</text>
+          <div id="aline1" className="absolute flex whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0"><p id="aw1">Every</p><p id="aw2">{" token"}</p></div>
+          <p id="aline2" className="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</p>
         </div>
         <div id="apwrap" className="absolute inset-0 opacity-0">
           <div id="afieldp" className="absolute inset-0">
@@ -418,8 +418,8 @@ export default function SceneA() {
             <Cdot id="a-pp-tr" s="13px" c="#ab84cf" className="-right-[7px] -top-[7px]" />
             <Cdot id="a-pp-bl" s="13px" c="#ab84cf" className="-left-[7px] -bottom-[7px]" />
             <Cdot id="a-pp-br" s="13px" c="#ab84cf" className="-right-[7px] -bottom-[7px]" />
-            <text id="aline1p" className="absolute whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">Every token</text>
-            <text id="aline2p" className="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</text>
+            <p id="aline1p" className="absolute whitespace-nowrap leading-none left-[60.864px] top-[26.567px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">Every token</p>
+            <p id="aline2p" className="absolute whitespace-nowrap leading-none left-[85.7902px] top-[88.4674px] text-[#ab84cf] text-[63.6426px] tracking-[-0.8px] opacity-0">of context</p>
           </div>
         </div>
       </div>

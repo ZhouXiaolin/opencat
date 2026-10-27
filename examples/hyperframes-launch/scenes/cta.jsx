@@ -96,7 +96,7 @@ export default function Cta() {
           <div className="w-[12px] h-[12px] rounded-full bg-[#ff5f57] shrink-0"></div>
           <div className="w-[12px] h-[12px] rounded-full bg-[#febc2e] shrink-0"></div>
           <div className="w-[12px] h-[12px] rounded-full bg-[#28c840] shrink-0"></div>
-          <text className="ml-[16px] text-[15px] font-[hf-geist-semi] text-[#8a7e6a] tracking-[0.02em]">Terminal — zsh</text>
+          <p className="ml-[16px] text-[15px] font-[hf-geist-semi] text-[#8a7e6a] tracking-[0.02em]">Terminal — zsh</p>
         </div>
         <div className="flex-1 flex overflow-hidden">
           {/* left terminal */}
@@ -108,43 +108,43 @@ export default function Cta() {
               <div className="relative w-[10px] h-[18px] mr-[8px] shrink-0">
                 <path viewBox="0 0 10 18" d="M1 1l8 8-8 8" className="absolute left-0 top-0 w-[10px] h-[18px] fill-none stroke-[#81B29A] stroke-[2.5]" />
               </div>
-              <text id="cta-typed-1" className="text-[20px] font-[hf-jbm] text-[#2a2418]"></text>
+              <p id="cta-typed-1" className="text-[20px] font-[hf-jbm] text-[#2a2418]"></p>
               <div id="cta-cursor-1" className="w-[11px] h-[22px] bg-[#2a2418] ml-[1px] shrink-0"></div>
             </div>
             <div className="flex flex-col gap-[4px] pt-[12px] pb-[16px] pl-[28px]">
-              <text id="sl-1" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">Creating project structure...</text>
-              <text id="sl-2" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">index.html</text>
-              <text id="sl-3" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">meta.json</text>
-              <text id="sl-4" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">compositions/</text>
+              <p id="sl-1" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">Creating project structure...</p>
+              <p id="sl-2" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">index.html</p>
+              <p id="sl-3" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">meta.json</p>
+              <p id="sl-4" className="text-[15px] font-[hf-jbm] text-[#8a7e6a] leading-[1.6]">compositions/</p>
               <div id="sl-5" className="flex items-center text-[15px] leading-[1.6]">
                 <div className="relative w-[11px] h-[11px] mr-[6px] shrink-0">
                   <path viewBox="0 0 12 12" d="M1.5 6.5l3 3 6-7" className="absolute left-0 top-0 w-[11px] h-[11px] fill-none stroke-[#81B29A] stroke-[2]" />
                 </div>
-                <text className="font-[hf-jbm] text-[#8a7e6a]">{" Project initialized"}</text>
+                <p className="font-[hf-jbm] text-[#8a7e6a]">{" Project initialized"}</p>
               </div>
             </div>
             <div id="cta-line-2" className="mt-[8px] flex items-center gap-[10px] h-[40px] shrink-0">
               <div className="relative w-[10px] h-[18px] mr-[8px] shrink-0">
                 <path viewBox="0 0 10 18" d="M1 1l8 8-8 8" className="absolute left-0 top-0 w-[10px] h-[18px] fill-none stroke-[#81B29A] stroke-[2.5]" />
               </div>
-              <text id="cta-typed-2" className="text-[20px] font-[hf-jbm] text-[#2a2418]"></text>
+              <p id="cta-typed-2" className="text-[20px] font-[hf-jbm] text-[#2a2418]"></p>
               <div id="cta-cursor-2" className="w-[11px] h-[22px] bg-[#2a2418] ml-[1px] shrink-0"></div>
             </div>
           </div>
           {/* right preview */}
           <div id="cta-right" className="flex-1 relative bg-[#faf8f4] overflow-hidden">
             <div className="h-[44px] bg-[#f0ebe3] border-b border-[#e0d8ca] flex items-center justify-between px-[20px]">
-              <text className="text-[13px] font-[hf-geist] text-[#8a7e6a] tracking-[0.04em] uppercase">Preview</text>
+              <p className="text-[13px] font-[hf-geist] text-[#8a7e6a] tracking-[0.04em] uppercase">Preview</p>
               <div className="relative">
-                <text id="cta-status-build" className="text-[12px] font-[hf-jbm] text-[#c8860a]">Building...</text>
-                <text id="cta-status-ready" className="absolute right-0 top-0 text-[12px] font-[hf-jbm] text-[#5a8a6e] opacity-0">Ready</text>
+                <p id="cta-status-build" className="text-[12px] font-[hf-jbm] text-[#c8860a]">Building...</p>
+                <p id="cta-status-ready" className="absolute right-0 top-0 text-[12px] font-[hf-jbm] text-[#5a8a6e] opacity-0">Ready</p>
               </div>
             </div>
             <div className="absolute left-0 top-[44px] right-0 bottom-[120px] overflow-hidden">
               <div className="absolute inset-0 bg-[linear-gradient(135deg,#f9f5ef_0%,#f0e8d8_100%)]"></div>
               <div id="mini-title" className="absolute left-[60px] top-[80px] text-[72px] leading-[1.05] tracking-[-0.03em] font-[hf-serif] text-[#1a1510]">
-                <text>Kinetic</text>
-                <text>Typography</text>
+                <p>Kinetic</p>
+                <p>Typography</p>
               </div>
               <div id="mini-b1" className="absolute top-[100px] right-[60px] w-[200px] h-[200px] rounded-[12px] bg-[#E07A5F]"></div>
               <div id="mini-b2" className="absolute top-[320px] right-[60px] w-[200px] h-[80px] rounded-[12px] bg-[#81B29A]"></div>
@@ -157,14 +157,14 @@ export default function Cta() {
               </div>
             </div>
             <div id="cta-code" className="absolute left-0 right-0 bottom-0 h-[120px] bg-[#2a2820] border-t border-[#3a3830] overflow-hidden pt-[12px] pb-[12px] pl-[16px] pr-[16px]">
-              <text id="cta-code-text" className="text-[11px] leading-[1.6] font-[hf-jbm] text-[rgba(255,255,255,0.5)]"></text>
+              <p id="cta-code-text" className="text-[11px] leading-[1.6] font-[hf-jbm] text-[rgba(255,255,255,0.5)]"></p>
             </div>
             <div id="cta-ready" className="absolute top-[52px] right-[12px] flex items-center gap-[6px] rounded-[8px] pl-[8px] pr-[14px] py-[6px] bg-[rgba(129,178,154,0.15)] border-[1.5px] border-[rgba(129,178,154,0.3)]">
               <div className="relative w-[18px] h-[18px] shrink-0">
                 <path viewBox="0 0 20 20" d="M2 10a8 8 0 1 0 16 0a8 8 0 1 0 -16 0Z" className="absolute left-0 top-0 w-[18px] h-[18px] fill-[#81B29A]" />
                 <path viewBox="0 0 20 20" d="M6 10l3 3 5-5" className="absolute left-0 top-0 w-[18px] h-[18px] fill-none stroke-[#fff] stroke-[1.5]" />
               </div>
-              <text className="text-[13px] font-[hf-geist] text-[#5a8a6e]">Ready</text>
+              <p className="text-[13px] font-[hf-geist] text-[#5a8a6e]">Ready</p>
             </div>
           </div>
         </div>

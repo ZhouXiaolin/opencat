@@ -1291,7 +1291,7 @@ fn collect_visual_script_targets_at(
             },
         };
         registry.facts.insert(id.to_string(), facts);
-        // 文档序快照：脚本侧覆盖层据此组装默认子级视图（`<text>` 的文本
+        // 文档序快照：脚本侧覆盖层据此组装默认子级视图（`<p>` 的文本
         // 物化为一个文本节点）。DFS 前序即文档序。
         let order = registry.declared_nodes.len();
         let text = match node.kind() {
@@ -1359,7 +1359,7 @@ fn node_tag_name(node: &Node) -> String {
     match node.kind() {
         NodeKind::Div(_) => "div",
         NodeKind::Canvas(_) => "canvas",
-        NodeKind::Text(_) => "text",
+        NodeKind::Text(text) => text.tag().as_str(),
         NodeKind::Image(_) => "image",
         NodeKind::Lottie(_) => "lottie",
         NodeKind::Path(_) => "path",

@@ -65,3 +65,25 @@ k3diff 风格像素 diff（透明底统一黑底合成后比通道差）：
   层叠语义已对齐 Chrome；
 - 后续候选：SVG2 geometry properties 的支持面（usvg 侧改造）、
   blend 的色彩空间语义（影响面小，暂缓）。
+
+## 追记：tiny-skia 退役后的三方基线（2026-10-27，主仓 4fffa79a）
+
+engine 全面退役 tiny-skia（skia 单一执行端）后，本 oracle 的定位从
+「对齐验收」升级为「方向判定」：resvg 不再是逐位参考，Chrome 是唯一
+参考。三方对比（同口径复跑）：
+
+| 子集 | 对比对 | 过线（p8≤0.5%） | 均值 |
+|---|---|---|---|
+| CSS（122 案） | chrome↔opencat | 113 | 1.15% |
+| CSS（122 案） | chrome↔resvg | 112 | 1.27% |
+| filters（408 案） | chrome↔opencat | 357 | 2.56% |
+| filters（408 案） | chrome↔resvg | 324 | 3.30% |
+
+两个类目上 opencat（纯 Skia）都已比 resvg 更接近 Chrome。代表性案：
+`feConvolveMatrix/bias=0.5` chrome↔opencat p8=0（maxd=1）——skia 内建
+即 Chrome 行为，此前 resvg 的 SKSL 逐位复刻反而是偏的一方。已知代价：
+`feDiffuseLighting/diffuseConstant=-1`（skia 内建拒绝负系数、直通原图；
+Chrome blink 自实现 lighting 允许负）。官方测试集（resvg 语料）上，
+opencat↔resvg 从逐位一致变为 1449/1746 过 p8≤0.5% 线，残差全部为 AA
+边缘像素差（maxd 26~80），无渲染错误。出片链路零漂移（vfx 帧 0 对
+naga 基线 p8=0、maxd=8）。

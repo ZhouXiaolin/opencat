@@ -379,6 +379,18 @@ fn asset_read_into(
     rv.set_int32(bytes.len() as i32);
 }
 
+/// `__ocStderr(msg)` — realm console.error 的宿主 stderr 出口（兜底
+/// __ocG2Logs 在 CLI 渲染没有消费者，资源加载链错误曾因此全部静默）。
+fn stderr_log(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let msg = args.get(0).to_rust_string_lossy(scope);
+    eprintln!("[js] {msg}");
+    rv.set(v8::undefined(scope).into());
+}
+
 /// `__opencatImageDecodeInto(src, surfaceId)` — decode an encoded image
 /// (webp/png/jpeg, the GLTFLoader texture payload) straight into a session
 /// surface; resolves to `{width, height}` or `null` on decode failure.
@@ -408,7 +420,8 @@ fn image_decode_into(
     };
     let decoded = match store.image_decode(&bytes) {
         Ok((w, h, rgba)) => (w, h, rgba),
-        Err(_) => {
+        Err(e) => {
+            eprintln!("[js] image_decode failed: {e} ({} bytes)", bytes.len());
             let null = v8::null(scope);
             rv.set(null.into());
             return;
@@ -629,6 +642,10 @@ impl JsContext for V8JsContext {
             let idecode = Function::new(scope, image_decode_into)
                 .ok_or_else(|| anyhow!("v8: failed to create __opencatImageDecodeInto"))?;
             set_global(scope, "__opencatImageDecodeInto", idecode.into())?;
+
+            let stderr = Function::new(scope, stderr_log)
+                .ok_or_else(|| anyhow!("v8: failed to create __ocStderr"))?;
+            set_global(scope, "__ocStderr", stderr.into())?;
             Ok(())
         })
     }

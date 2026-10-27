@@ -148,8 +148,8 @@ function CardHead({ av, name, handle }) {
     <div class="absolute left-[50px] top-[44px] w-[920px] h-[74px] flex items-center gap-[20px]">
       <div class={'w-[74px] h-[74px] rounded-full flex-none bg-[linear-gradient(135deg,' + av + ')]'}></div>
       <div class="flex-1">
-        <text class="font-[fl-sans-bold] font-[700] text-[#ffffff] text-[30px] leading-[34.5px]">{name}</text>
-        <text class="font-[fl-sans] text-[rgba(245,246,244,0.5)] text-[26px] leading-[29.9px]">{handle}</text>
+        <p class="font-[fl-sans-bold] font-[700] text-[#ffffff] text-[30px] leading-[34.5px]">{name}</p>
+        <p class="font-[fl-sans] text-[rgba(245,246,244,0.5)] text-[26px] leading-[29.9px]">{handle}</p>
       </div>
       <path view-box="0 0 24 24" class="w-[38px] h-[38px] flex-none fill-[#ffffff] opacity-90" d={X_PATH} />
     </div>
@@ -160,25 +160,25 @@ function CardFoot({ footId, m0, m1, views, s0, s1, s2 }) {
   return (
     <div id={footId} class="absolute left-[50px] w-[920px]">
       <div class="flex whitespace-nowrap font-[fl-sans] text-[rgba(245,246,244,0.5)] text-[24px] leading-[30.72px]">
-        <text>{m0}</text>
-        <text>{' · '}</text>
-        <text>{m1}</text>
-        <text>{' · '}</text>
-        <text class="font-[fl-sans-bold] font-[700] text-[rgba(245,246,244,0.72)]">{views}</text>
-        <text>{' Views'}</text>
+        <p>{m0}</p>
+        <p>{' · '}</p>
+        <p>{m1}</p>
+        <p>{' · '}</p>
+        <p class="font-[fl-sans-bold] font-[700] text-[rgba(245,246,244,0.72)]">{views}</p>
+        <p>{' Views'}</p>
       </div>
       <div class="flex gap-[90px] mt-[21px] pt-[19px] border-t-[1px] border-[rgba(255,255,255,0.12)] whitespace-nowrap font-[fl-sans] text-[rgba(245,246,244,0.5)] text-[24px] leading-[30.72px]">
         <div class="flex items-center gap-[12px]">
           <path view-box="0 0 24 24" class="w-[29px] h-[29px] stroke-[rgba(245,246,244,0.5)] stroke-[1.8]" d={ICON_REPLY} />
-          <text>{s0}</text>
+          <p>{s0}</p>
         </div>
         <div class="flex items-center gap-[12px]">
           <path view-box="0 0 24 24" class="w-[29px] h-[29px] stroke-[rgba(245,246,244,0.5)] stroke-[1.8]" d={ICON_RT} />
-          <text>{s1}</text>
+          <p>{s1}</p>
         </div>
         <div class="flex items-center gap-[12px]">
           <path view-box="0 0 24 24" class="w-[29px] h-[29px] stroke-[rgba(245,246,244,0.5)] stroke-[1.8]" d={ICON_LIKE} />
-          <text>{s2}</text>
+          <p>{s2}</p>
         </div>
       </div>
     </div>
@@ -191,9 +191,9 @@ function CardBody({ id, hlCount, top }) {
     <div id={id} class={'absolute left-[50px] top-[' + (top || 142) + 'px] w-[920px] h-[157.32px]'}>
       {hlCount >= 1 ? <div id={id + '-hl1'} class="absolute rounded-[8px] bg-[linear-gradient(90deg,rgba(94,241,124,0.42),rgba(79,214,255,0.30))] [transform-origin:0_50%] opacity-0"></div> : null}
       {hlCount >= 2 ? <div id={id + '-hl2'} class="absolute rounded-[8px] bg-[linear-gradient(90deg,rgba(94,241,124,0.42),rgba(79,214,255,0.30))] [transform-origin:0_50%] opacity-0"></div> : null}
-      <text id={id + '-r0'} class="absolute left-0 top-0 whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]"></text>
-      <text id={id + '-r1'} class="absolute left-0 top-[52.44px] whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]"></text>
-      <text id={id + '-r2'} class="absolute left-0 top-[104.88px] whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]"></text>
+      <p id={id + '-r0'} class="absolute left-0 top-0 whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]"></p>
+      <p id={id + '-r1'} class="absolute left-0 top-[52.44px] whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]"></p>
+      <p id={id + '-r2'} class="absolute left-0 top-[104.88px] whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]"></p>
     </div>
   );
 }
@@ -355,20 +355,20 @@ function Act1() {
           <div id="act1-c1head" class="absolute left-[50px] top-[44px] w-[920px] h-[74px] flex items-center gap-[20px] opacity-0">
             <div class="w-[74px] h-[74px] rounded-full flex-none bg-[linear-gradient(135deg,#B8A08A,#7A6A58)]"></div>
             <div class="flex-1">
-              <text class="font-[fl-sans-bold] font-[700] text-[#ffffff] text-[30px] leading-[34.5px]">Frustrated Founder</text>
-              <text class="font-[fl-sans] text-[rgba(245,246,244,0.5)] text-[26px] leading-[29.9px]">@frustrated_founder</text>
+              <p class="font-[fl-sans-bold] font-[700] text-[#ffffff] text-[30px] leading-[34.5px]">Frustrated Founder</p>
+              <p class="font-[fl-sans] text-[rgba(245,246,244,0.5)] text-[26px] leading-[29.9px]">@frustrated_founder</p>
             </div>
             <path view-box="0 0 24 24" class="w-[38px] h-[38px] flex-none fill-[#ffffff] opacity-90" d={X_PATH} />
           </div>
           {/* body line 1: mask + slider + "but" cascade */}
           <div class="absolute left-[50px] top-[142px] w-[920px] h-[52.44px] flex">
             <div id="act1-l1mask" class="h-[52.44px] overflow-hidden flex-none">
-              <text id="act1-l1slide" class="whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]">hyperframes is genuinely great</text>
+              <p id="act1-l1slide" class="whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]">hyperframes is genuinely great</p>
             </div>
             <div class="flex flex-none ml-[9px]">
-              <text id="act1-b1" class="font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px] opacity-0">b</text>
-              <text id="act1-b2" class="font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px] opacity-0">u</text>
-              <text id="act1-b3" class="font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px] opacity-0">t</text>
+              <p id="act1-b1" class="font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px] opacity-0">b</p>
+              <p id="act1-b2" class="font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px] opacity-0">u</p>
+              <p id="act1-b3" class="font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px] opacity-0">t</p>
             </div>
           </div>
           <CardBody id="act1-rest" hlCount={1} top={194.44} />
@@ -392,8 +392,8 @@ function Act1() {
           <CardHead av="#A47C6C,#66463D" name="Motion Enjoyer" handle="@motion_enjoyer" />
           <div id="act1-c3body" class="absolute left-[50px] top-[142px] w-[920px] h-[104.88px]">
             <div id="act1-c3body-hl1" class="absolute rounded-[8px] bg-[linear-gradient(90deg,rgba(94,241,124,0.42),rgba(79,214,255,0.30))] [transform-origin:0_50%] opacity-0"></div>
-            <text class="absolute left-0 top-0 whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]">love the motion. hate that it keeps</text>
-            <text class="absolute left-0 top-[52.44px] whitespace-nowrap font-[fl-sans] text-[#ffffff] text-[38px] leading-[52.44px] tracking-[-0.19px]">inventing a UI we don't have.</text>
+            <p class="absolute left-0 top-0 whitespace-nowrap font-[fl-sans] text-[#f5f6f4] text-[38px] leading-[52.44px] tracking-[-0.19px]">love the motion. hate that it keeps</p>
+            <p class="absolute left-0 top-[52.44px] whitespace-nowrap font-[fl-sans] text-[#ffffff] text-[38px] leading-[52.44px] tracking-[-0.19px]">inventing a UI we don't have.</p>
           </div>
           <CardFoot footId="act1-c3foot" m0="11:03 PM" m1="Jul 2, 2026" views="301K" s0="93" s1="512" s2="2.2K" />
         </div>
@@ -580,7 +580,7 @@ function Act3() {
     <div id="sec-act3" class="absolute inset-0 z-[3] opacity-0">
       <div id="act3-ground" class="absolute inset-0 bg-[#000]"></div>
       <div id="act3-shade" class="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.5),rgba(0,0,0,0.25)_40%,rgba(0,0,0,0.55))] opacity-0"></div>
-      <text id="act3-line" class="absolute left-0 top-[455px] w-full text-center whitespace-nowrap font-[fl-display] text-[#ffffff] text-[150px] leading-[165px] tracking-[-2.25px]">Until now</text>
+      <p id="act3-line" class="absolute left-0 top-[455px] w-full text-center whitespace-nowrap font-[fl-display] text-[#ffffff] text-[150px] leading-[165px] tracking-[-2.25px]">Until now</p>
     </div>
   );
 }
@@ -602,8 +602,8 @@ function Act4() {
   return (
     <div id="sec-act4" class="absolute inset-0 z-[4] opacity-0">
       <div class="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.5),rgba(0,0,0,0.25)_40%,rgba(0,0,0,0.55))]"></div>
-      <text id="act4-intro" class="absolute left-0 top-[466px] w-full text-center whitespace-nowrap font-[fl-display] text-[#ffffff] text-[132px] leading-[145.2px] tracking-[-1.98px]">Introducing</text>
-      <text id="act4-skill" class="absolute left-0 top-[540px] w-full text-center whitespace-nowrap font-[fl-mono] text-[#5ef17c] text-[190px] leading-[190px] opacity-0">/figma</text>
+      <p id="act4-intro" class="absolute left-0 top-[466px] w-full text-center whitespace-nowrap font-[fl-display] text-[#ffffff] text-[132px] leading-[145.2px] tracking-[-1.98px]">Introducing</p>
+      <p id="act4-skill" class="absolute left-0 top-[540px] w-full text-center whitespace-nowrap font-[fl-mono] text-[#5ef17c] text-[190px] leading-[190px] opacity-0">/figma</p>
     </div>
   );
 }
@@ -752,28 +752,28 @@ function ChatWindow({ pfx }) {
     <div id={pfx + '-inputbar'} class="relative flex items-center bg-[#2C2C2B] border-[1px] border-[#3a3a38] rounded-[15.12px] min-h-[56.16px] px-[20.52px] py-[11.88px]">
       <div class="flex-1 flex flex-col pr-[43.2px]">
         <div id={pfx + '-row0'} class={rowClass}>
-          <text id={pfx + '-r0a'} class={typedClass}></text>
-          <text id={pfx + '-r0l'} class="font-[fl-sans] text-[#7DB8E8] text-[18.9px]"></text>
-          <text id={pfx + '-r0b'} class={typedClass}></text>
-          <text id={pfx + '-c0'} class={caretClass}>{'▏'}</text>
+          <p id={pfx + '-r0a'} class={typedClass}></p>
+          <p id={pfx + '-r0l'} class="font-[fl-sans] text-[#7DB8E8] text-[18.9px]"></p>
+          <p id={pfx + '-r0b'} class={typedClass}></p>
+          <p id={pfx + '-c0'} class={caretClass}>{'▏'}</p>
           <div id={pfx + '-ul0'} class="absolute left-0 top-[21px] h-[1.9px] w-[0px] bg-[#7DB8E8] opacity-0"></div>
         </div>
         <div id={pfx + '-row1'} class={rowClass}>
-          <text id={pfx + '-r1a'} class={typedClass}></text>
-          <text id={pfx + '-r1l'} class="font-[fl-sans] text-[#7DB8E8] text-[18.9px]"></text>
-          <text id={pfx + '-r1b'} class={typedClass}></text>
-          <text id={pfx + '-c1'} class={caretClass}>{'▏'}</text>
+          <p id={pfx + '-r1a'} class={typedClass}></p>
+          <p id={pfx + '-r1l'} class="font-[fl-sans] text-[#7DB8E8] text-[18.9px]"></p>
+          <p id={pfx + '-r1b'} class={typedClass}></p>
+          <p id={pfx + '-c1'} class={caretClass}>{'▏'}</p>
           <div id={pfx + '-ul1'} class="absolute left-0 top-[21px] h-[1.9px] w-[0px] bg-[#7DB8E8] opacity-0"></div>
         </div>
         <div id={pfx + '-row2'} class={rowClass}>
-          <text id={pfx + '-r2a'} class={typedClass}></text>
-          <text id={pfx + '-r2l'} class="font-[fl-sans] text-[#7DB8E8] text-[18.9px]"></text>
-          <text id={pfx + '-r2b'} class={typedClass}></text>
-          <text id={pfx + '-c2'} class={caretClass}>{'▏'}</text>
+          <p id={pfx + '-r2a'} class={typedClass}></p>
+          <p id={pfx + '-r2l'} class="font-[fl-sans] text-[#7DB8E8] text-[18.9px]"></p>
+          <p id={pfx + '-r2b'} class={typedClass}></p>
+          <p id={pfx + '-c2'} class={caretClass}>{'▏'}</p>
           <div id={pfx + '-ul2'} class="absolute left-0 top-[21px] h-[1.9px] w-[0px] bg-[#7DB8E8] opacity-0"></div>
         </div>
       </div>
-      <text id={pfx + '-ret'} class="flex-none font-[fl-sans] text-[#6F6E66] text-[20.52px] leading-[24.63px]">{'↵'}</text>
+      <p id={pfx + '-ret'} class="flex-none font-[fl-sans] text-[#6F6E66] text-[20.52px] leading-[24.63px]">{'↵'}</p>
     </div>
   );
 }
@@ -783,11 +783,11 @@ function ComposerChips() {
     <div class="flex gap-[10.8px] mb-[15.12px]">
       <div class="flex items-center gap-[8.64px] bg-[#2C2C2B] px-[14.04px] py-[8.1px] rounded-[9.72px]">
         <path view-box="0 0 24 24" class="w-[18.9px] h-[18.9px] stroke-[#C9C6BC] stroke-[1.8]" d="M4 5h16v11H4z M2 19h20" />
-        <text class="font-[fl-sans-medium] font-[500] text-[#D7D4CA] text-[16.74px] leading-[20px]">Local</text>
+        <p class="font-[fl-sans-medium] font-[500] text-[#D7D4CA] text-[16.74px] leading-[20px]">Local</p>
       </div>
       <div class="flex items-center gap-[8.64px] bg-[#2C2C2B] px-[14.04px] py-[8.1px] rounded-[9.72px]">
         <path view-box="0 0 24 24" class="w-[18.9px] h-[18.9px] stroke-[#C9C6BC] stroke-[1.8]" d="M3 7.5A2 2 0 0 1 5 5.5h4.2l2 2.2H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-        <text class="font-[fl-sans-medium] font-[500] text-[#D7D4CA] text-[16.74px] leading-[20px]">CC</text>
+        <p class="font-[fl-sans-medium] font-[500] text-[#D7D4CA] text-[16.74px] leading-[20px]">CC</p>
       </div>
     </div>
   );
@@ -798,15 +798,15 @@ function ComposerMeta({ orbId }) {
     <div class="flex justify-between items-center mt-[14.04px] font-[fl-sans-medium] font-[500] text-[#7C7B73] text-[16.74px]">
       <div class="flex items-center gap-[17.28px]">
         <div class="bg-[rgba(202,164,62,0.16)] px-[11.88px] py-[3.78px] rounded-[7.56px]">
-          <text class="font-[fl-sans-medium] font-[500] text-[#CAA43E] text-[15.66px] leading-[18.8px]">Auto</text>
+          <p class="font-[fl-sans-medium] font-[500] text-[#CAA43E] text-[15.66px] leading-[18.8px]">Auto</p>
         </div>
-        <text class="text-[#8C8B83] text-[19.44px] leading-[23px]">{'+'}</text>
+        <p class="text-[#8C8B83] text-[19.44px] leading-[23px]">{'+'}</p>
         <path view-box="0 0 24 24" class="w-[21.06px] h-[21.06px] stroke-[#8C8B83] stroke-[2]" d="M12 5.5a3 3 0 0 1 3 3v3a3 3 0 0 1-6 0v-3a3 3 0 0 1 3-3z M5 11a7 7 0 0 0 14 0 M12 18v3" />
-        <text class="text-[#8C8B83] text-[14.58px] leading-[20px]">{'⌄'}</text>
+        <p class="text-[#8C8B83] text-[14.58px] leading-[20px]">{'⌄'}</p>
       </div>
       <div class="flex items-center gap-[17.28px]">
-        <text class="leading-[20px]">Opus 4.8</text>
-        <text class="text-[#9A998F] leading-[20px]">High</text>
+        <p class="leading-[20px]">Opus 4.8</p>
+        <p class="text-[#9A998F] leading-[20px]">High</p>
         <div class="relative w-[21.06px] h-[21.06px]">
           <path view-box="0 0 24 24" class="absolute left-0 top-0 w-[21.06px] h-[21.06px] stroke-[rgba(96,148,214,0.26)] stroke-[2.916]" d="M12 2.4a9.6 9.6 0 1 1 0 19.2a9.6 9.6 0 1 1 0-19.2" />
           <path id={orbId} view-box="0 0 24 24" class="absolute left-0 top-0 w-[21.06px] h-[21.06px] stroke-[#5A9BE6] stroke-[2.916] [transform-origin:50%_50%]" d="M12 2.4a9.6 9.6 0 0 1 9.6 9.6" />
@@ -821,9 +821,9 @@ function SentMessage({ pfx, cls }) {
   for (var r = 0; r < 3; r++) {
     rows.push(
       <div id={pfx + '-u' + r} class="absolute right-0 top-0 h-[31.8px] flex justify-end whitespace-nowrap opacity-0">
-        <text id={pfx + '-u' + r + 'a'} class="font-[fl-sans-medium] font-[500] text-[#EFEADD] text-[24.84px] leading-[31.8px]"></text>
-        <text id={pfx + '-u' + r + 'l'} class="font-[fl-sans-medium] font-[500] text-[#7DB8E8] text-[24.84px] leading-[31.8px]"></text>
-        <text id={pfx + '-u' + r + 'b'} class="font-[fl-sans-medium] font-[500] text-[#EFEADD] text-[24.84px] leading-[31.8px]"></text>
+        <p id={pfx + '-u' + r + 'a'} class="font-[fl-sans-medium] font-[500] text-[#EFEADD] text-[24.84px] leading-[31.8px]"></p>
+        <p id={pfx + '-u' + r + 'l'} class="font-[fl-sans-medium] font-[500] text-[#7DB8E8] text-[24.84px] leading-[31.8px]"></p>
+        <p id={pfx + '-u' + r + 'b'} class="font-[fl-sans-medium] font-[500] text-[#EFEADD] text-[24.84px] leading-[31.8px]"></p>
         <div id={pfx + '-u' + r + '-ul'} class="absolute left-0 top-[25px] h-[2.2px] w-[0px] bg-[#7DB8E8] opacity-0"></div>
       </div>
     );
@@ -920,31 +920,31 @@ function Act5() {
           <SentMessage pfx="act5" />
           <div id="act5-agent" class="absolute left-0 top-[129.6px] opacity-0">
             <div id="act5-rl0" class="flex mb-[21.6px] whitespace-nowrap opacity-0">
-              <text class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Reading your Figma file…</text>
-              <text class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' 4 frames found.'}</text>
+              <p class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Reading your Figma file…</p>
+              <p class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' 4 frames found.'}</p>
             </div>
             <div id="act5-rl1" class="flex mb-[21.6px] whitespace-nowrap opacity-0">
-              <text class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Brand tokens →</text>
-              <text class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' '}</text>
-              <text class="font-[fl-mono] text-[#4fd6ff] text-[20.52px] leading-[28.73px]">#232833</text>
-              <text class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' · '}</text>
-              <text class="font-[fl-mono] text-[#4fd6ff] text-[20.52px] leading-[28.73px]">#FBFAF9</text>
-              <text class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' · '}</text>
-              <text class="font-[fl-mono] text-[#4fd6ff] text-[20.52px] leading-[28.73px]">#DEF0F8</text>
+              <p class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Brand tokens →</p>
+              <p class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' '}</p>
+              <p class="font-[fl-mono] text-[#4fd6ff] text-[20.52px] leading-[28.73px]">#232833</p>
+              <p class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' · '}</p>
+              <p class="font-[fl-mono] text-[#4fd6ff] text-[20.52px] leading-[28.73px]">#FBFAF9</p>
+              <p class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' · '}</p>
+              <p class="font-[fl-mono] text-[#4fd6ff] text-[20.52px] leading-[28.73px]">#DEF0F8</p>
             </div>
             <div id="act5-rl2" class="flex mb-[21.6px] whitespace-nowrap opacity-0">
-              <text class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Type →</text>
-              <text class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' ABC Solar Display / TT Norms Pro'}</text>
+              <p class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Type →</p>
+              <p class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' ABC Solar Display / TT Norms Pro'}</p>
             </div>
             <div id="act5-rl3" class="flex mb-[21.6px] whitespace-nowrap opacity-0">
-              <text class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Frames read as states →</text>
-              <text class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' rebuilding as live DOM…'}</text>
+              <p class="font-[fl-mono] text-[#8C8B83] text-[20.52px] leading-[28.73px]">Frames read as states →</p>
+              <p class="font-[fl-mono] text-[#A9C4A0] text-[20.52px] leading-[28.73px]">{' rebuilding as live DOM…'}</p>
             </div>
-            <text id="act5-closer" class="mt-[28.08px] whitespace-nowrap font-[fl-sans] text-[#EFEADD] text-[24.84px] leading-[34.78px] opacity-0">Done. Every hex, every radius — straight from your file.</text>
+            <p id="act5-closer" class="mt-[28.08px] whitespace-nowrap font-[fl-sans] text-[#EFEADD] text-[24.84px] leading-[34.78px] opacity-0">Done. Every hex, every radius — straight from your file.</p>
           </div>
           <div id="act5-think" class="absolute left-0 bottom-[6.48px] flex items-center gap-[11.88px] opacity-0">
             <path id="act5-ast" view-box="0 0 24 24" class="w-[24.84px] h-[24.84px] flex-none stroke-[#D97757] stroke-[1.7] [transform-origin:50%_50%]" d="M12 2.2v19.6 M2.2 12h19.6 M5.2 5.2l13.6 13.6 M18.8 5.2L5.2 18.8" />
-            <text class="font-[fl-sans-medium] font-[500] text-[#8C8B83] text-[19.44px]">3s · thinking…</text>
+            <p class="font-[fl-sans-medium] font-[500] text-[#8C8B83] text-[19.44px]">3s · thinking…</p>
           </div>
         </div>
         <div id="act5-composer" class="absolute w-[690px] bottom-[360px] [transform-origin:50%_100%]">
@@ -1005,24 +1005,24 @@ function Act6() {
       <div id="act6-stage" class="absolute inset-0 [transform-origin:50%_46%]">
         {/* canvas */}
         <div class="absolute left-[224px] right-0 top-[56px] bottom-0 overflow-hidden">
-          <text id="act6-flabel" class="absolute left-[56px] top-[378px] font-[fl-inter] text-[#9a9a9a] text-[13px]">app-flow</text>
+          <p id="act6-flabel" class="absolute left-[56px] top-[378px] font-[fl-inter] text-[#9a9a9a] text-[13px]">app-flow</p>
           <div class="absolute left-[56px] top-[400px] w-[744px] h-[170px] bg-[#0f0f0f] rounded-[4px] pl-[20px] pr-[20px] pt-[22px] pb-[18px]">
             <div class="flex gap-[16px]">
               <div>
                 <image path="assets/fig-f1.png" class="w-[166px] h-[94px] rounded-[3px] object-cover" />
-                <text class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">1 · Home</text>
+                <p class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">1 · Home</p>
               </div>
               <div>
                 <image path="assets/fig-f2.png" class="w-[166px] h-[94px] rounded-[3px] object-cover" />
-                <text class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">2 · Describe</text>
+                <p class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">2 · Describe</p>
               </div>
               <div>
                 <image path="assets/fig-f3.png" class="w-[166px] h-[94px] rounded-[3px] object-cover" />
-                <text class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">3 · Generate</text>
+                <p class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">3 · Generate</p>
               </div>
               <div>
                 <image path="assets/fig-f4.png" class="w-[166px] h-[94px] rounded-[3px] object-cover" />
-                <text class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">4 · Result</text>
+                <p class="mt-[8px] font-[fl-inter] text-[#7a7a7a] text-[11px]">4 · Result</p>
               </div>
             </div>
           </div>
@@ -1034,33 +1034,33 @@ function Act6() {
             <div class="absolute right-[-5px] bottom-[-5px] w-[8px] h-[8px] bg-[#ffffff] border-[1.5px] border-[#0D99FF]"></div>
             <div class="absolute left-0 right-0 bottom-[-30px] flex justify-center">
               <div class="bg-[#0D99FF] px-[8px] py-[3px] rounded-[3px]">
-                <text class="font-[fl-inter-medium] font-[500] text-[#ffffff] text-[11.5px]">2976 × 680</text>
+                <p class="font-[fl-inter-medium] font-[500] text-[#ffffff] text-[11.5px]">2976 × 680</p>
               </div>
             </div>
           </div>
         </div>
         {/* layers panel */}
         <div class="absolute left-0 top-[56px] bottom-0 w-[224px] bg-[#2C2C2C] border-r-[1px] border-[#1a1a1a] pt-[14px]">
-          <div class="pl-[16px] pb-[10px]"><text class="font-[fl-inter-medium] font-[500] text-[#888] text-[12px]">Layers</text></div>
+          <div class="pl-[16px] pb-[10px]"><p class="font-[fl-inter-medium] font-[500] text-[#888] text-[12px]">Layers</p></div>
           <div id="act6-lrow" class="flex items-center gap-[8px] pl-[16px] pr-[16px] pt-[7px] pb-[7px]">
             <path view-box="0 0 16 16" class="w-[13px] h-[13px] stroke-[#999] stroke-[1.5]" d={LROW_ICON} />
-            <text class="font-[fl-inter] text-[#ffffff] text-[13.5px]">app-flow</text>
+            <p class="font-[fl-inter] text-[#ffffff] text-[13.5px]">app-flow</p>
           </div>
           <div class="flex items-center gap-[8px] pl-[38px] pr-[16px] pt-[7px] pb-[7px]">
             <path view-box="0 0 16 16" class="w-[13px] h-[13px] stroke-[#999] stroke-[1.5]" d={LROW_CHILD} />
-            <text class="font-[fl-inter] text-[#cccccc] text-[13.5px]">1 · Home</text>
+            <p class="font-[fl-inter] text-[#cccccc] text-[13.5px]">1 · Home</p>
           </div>
           <div class="flex items-center gap-[8px] pl-[38px] pr-[16px] pt-[7px] pb-[7px]">
             <path view-box="0 0 16 16" class="w-[13px] h-[13px] stroke-[#999] stroke-[1.5]" d={LROW_CHILD} />
-            <text class="font-[fl-inter] text-[#cccccc] text-[13.5px]">2 · Describe</text>
+            <p class="font-[fl-inter] text-[#cccccc] text-[13.5px]">2 · Describe</p>
           </div>
           <div class="flex items-center gap-[8px] pl-[38px] pr-[16px] pt-[7px] pb-[7px]">
             <path view-box="0 0 16 16" class="w-[13px] h-[13px] stroke-[#999] stroke-[1.5]" d={LROW_CHILD} />
-            <text class="font-[fl-inter] text-[#cccccc] text-[13.5px]">3 · Generate</text>
+            <p class="font-[fl-inter] text-[#cccccc] text-[13.5px]">3 · Generate</p>
           </div>
           <div class="flex items-center gap-[8px] pl-[38px] pr-[16px] pt-[7px] pb-[7px]">
             <path view-box="0 0 16 16" class="w-[13px] h-[13px] stroke-[#999] stroke-[1.5]" d={LROW_CHILD} />
-            <text class="font-[fl-inter] text-[#cccccc] text-[13.5px]">4 · Result</text>
+            <p class="font-[fl-inter] text-[#cccccc] text-[13.5px]">4 · Result</p>
           </div>
         </div>
         {/* top toolbar */}
@@ -1081,14 +1081,14 @@ function Act6() {
           </div>
           <div class="absolute left-0 right-0 top-0 h-[56px] flex items-center justify-center">
             <div class="flex items-center gap-[8px]">
-              <text class="font-[fl-inter-medium] font-[500] text-[#dddddd] text-[15px]">AI Video Generator — Frames</text>
+              <p class="font-[fl-inter-medium] font-[500] text-[#dddddd] text-[15px]">AI Video Generator — Frames</p>
               <path view-box="0 0 10 6" class="w-[10px] h-[6px] fill-[#888888]" d="M0 0h10L5 6z" />
             </div>
           </div>
           <div class="flex items-center gap-[14px] ml-auto">
             <div class="w-[30px] h-[30px] rounded-full bg-[linear-gradient(135deg,#8AA4B8,#4E6478)] border-[2px] border-[#2C2C2C]"></div>
             <div id="act6-share" class="bg-[#0D99FF] px-[18px] py-[9px] rounded-[7px] [transform-origin:50%_50%]">
-              <text class="font-[fl-inter-medium] font-[500] text-[#ffffff] text-[14px]">Share</text>
+              <p class="font-[fl-inter-medium] font-[500] text-[#ffffff] text-[14px]">Share</p>
             </div>
           </div>
         </div>
@@ -1096,19 +1096,19 @@ function Act6() {
         <div id="act6-drop" class="absolute right-[14px] top-[60px] w-[290px] bg-[#2C2C2C] border-[1px] border-[#444444] rounded-[10px] p-[8px] opacity-0 shadow-[0_16px_40px_rgba(0,0,0,0.5)] [transform-origin:88%_0%]">
           <div id="act6-copyrow" class="flex items-center gap-[10px] p-[10px] pl-[12px] pr-[12px] rounded-[6px]">
             <path view-box="0 0 24 24" class="w-[16px] h-[16px] stroke-[#cccccc] stroke-[1.6]" d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
-            <text class="font-[fl-inter] text-[#eeeeee] text-[14px]">Copy link</text>
-            <text class="ml-auto font-[fl-inter] text-[#999999] text-[12px]">{'⌘L'}</text>
+            <p class="font-[fl-inter] text-[#eeeeee] text-[14px]">Copy link</p>
+            <p class="ml-auto font-[fl-inter] text-[#999999] text-[12px]">{'⌘L'}</p>
           </div>
           <div class="flex items-center gap-[10px] p-[10px] pl-[12px] pr-[12px] rounded-[6px]">
             <path view-box="0 0 24 24" class="w-[16px] h-[16px] stroke-[#cccccc] stroke-[1.6]" d="M3 5h18v14H3z M3 9h18" />
-            <text class="font-[fl-inter] text-[#eeeeee] text-[14px]">Publish to Community</text>
+            <p class="font-[fl-inter] text-[#eeeeee] text-[14px]">Publish to Community</p>
           </div>
         </div>
         {/* toast */}
         <div class="absolute left-0 right-0 bottom-[56px] flex justify-center">
           <div id="act6-toast" class="flex items-center bg-[#1a1a1a] border-[1px] border-[#3a3a3a] px-[20px] py-[12px] rounded-[8px] shadow-[0_12px_30px_rgba(0,0,0,0.5)] opacity-0">
-            <text class="font-[fl-inter] text-[#ffffff] text-[14.5px]">Link copied — </text>
-            <text class="font-[fl-inter] text-[#4FB8FF] text-[14.5px]">figma.com/xK9…</text>
+            <p class="font-[fl-inter] text-[#ffffff] text-[14.5px]">Link copied — </p>
+            <p class="font-[fl-inter] text-[#4FB8FF] text-[14.5px]">figma.com/xK9…</p>
           </div>
         </div>
       </div>
@@ -1144,16 +1144,16 @@ function Act7() {
     <div id="sec-act7" class="absolute inset-0 z-[10] opacity-0">
       <div class="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.5),rgba(0,0,0,0.25)_40%,rgba(0,0,0,0.55))]"></div>
       <div id="act7-l1" class="absolute left-0 top-[390px] w-full h-[104.56px] overflow-hidden flex justify-center">
-        <div id="act7-in1" class="flex-none h-[98.56px]"><text class={LN}>Making videos</text></div>
+        <div id="act7-in1" class="flex-none h-[98.56px]"><p class={LN}>Making videos</p></div>
       </div>
       <div id="act7-l2" class="absolute left-0 top-[489px] w-full h-[104.56px] overflow-hidden flex justify-center">
-        <div id="act7-in2" class="flex-none h-[98.56px]"><text class={LN}>from your designs</text></div>
+        <div id="act7-in2" class="flex-none h-[98.56px]"><p class={LN}>from your designs</p></div>
       </div>
       <div id="act7-l3" class="absolute left-0 top-[588px] w-full h-[104.56px] overflow-hidden">
         <div id="act7-in3" class="absolute left-0 top-0 w-full h-[98.56px] flex justify-center">
-          <text class={LN}>has</text>
+          <p class={LN}>has</p>
           <div id="act7-sp3" class="flex-none"></div>
-          <text class={LN + ' text-[#5ef17c]'}>never been easier.</text>
+          <p class={LN + ' text-[#5ef17c]'}>never been easier.</p>
         </div>
       </div>
     </div>
@@ -1209,15 +1209,15 @@ function Act8() {
     <div id="sec-act8" class="absolute inset-0 z-[11] opacity-0">
       <div class="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.5),rgba(0,0,0,0.25)_40%,rgba(0,0,0,0.55))]"></div>
       <div id="act8-l1" class="absolute left-0 top-[410px] w-full h-[110px] flex justify-center">
-        <text class={L1}>And yes,</text>
+        <p class={L1}>And yes,</p>
       </div>
       <div id="act8-l2" class="absolute left-0 top-[532px] w-full h-[92.4px]">
-        <text id="act8-w1" class={L2 + ' text-[#ffffff]'}>figma</text>
-        <text id="act8-m0" class={L2 + ' text-[#5ef17c]'}>motion</text>
-        <text id="act8-m1" class={L2 + ' text-[#eafff0]'}>motion</text>
-        <text id="act8-m2" class={L2 + ' text-[#5ef17c]'}>motion</text>
+        <p id="act8-w1" class={L2 + ' text-[#ffffff]'}>figma</p>
+        <p id="act8-m0" class={L2 + ' text-[#5ef17c]'}>motion</p>
+        <p id="act8-m1" class={L2 + ' text-[#eafff0]'}>motion</p>
+        <p id="act8-m2" class={L2 + ' text-[#5ef17c]'}>motion</p>
         <div id="act8-sp" class="absolute top-0 h-[92.4px]"></div>
-        <text id="act8-w2" class={L2 + ' text-[#ffffff]'}>works</text>
+        <p id="act8-w2" class={L2 + ' text-[#ffffff]'}>works</p>
       </div>
     </div>
   );
@@ -1239,8 +1239,8 @@ function Act10() {
   return (
     <div id="sec-act10" class="absolute inset-0 z-[20] opacity-0">
       <div class="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.5),rgba(0,0,0,0.25)_40%,rgba(0,0,0,0.55))]"></div>
-      <text id="act10-l1" class="absolute left-0 top-[436px] w-full text-center whitespace-nowrap font-[fl-display] text-[#ffffff] text-[72px] leading-[79.2px] tracking-[-1.08px]">Try it yourself</text>
-      <text id="act10-l2" class="absolute left-0 top-[551px] w-full text-center whitespace-nowrap font-[fl-mono] text-[#5ef17c] text-[50px] leading-[60px]">npx hyperframes@latest skills</text>
+      <p id="act10-l1" class="absolute left-0 top-[436px] w-full text-center whitespace-nowrap font-[fl-display] text-[#ffffff] text-[72px] leading-[79.2px] tracking-[-1.08px]">Try it yourself</p>
+      <p id="act10-l2" class="absolute left-0 top-[551px] w-full text-center whitespace-nowrap font-[fl-mono] text-[#5ef17c] text-[50px] leading-[60px]">npx hyperframes@latest skills</p>
     </div>
   );
 }
@@ -1333,20 +1333,20 @@ function Act9() {
           <div class="w-[17.28px] h-[17.28px] rounded-full bg-[#28C840]"></div>
         </div>
         <div class="absolute left-[54px] right-[54px] top-[97.2px] bottom-[280.8px]">
-          <text class="absolute left-0 top-0 whitespace-nowrap font-[fl-sans] text-[rgba(216,212,200,0.4)] text-[22.68px]">Done. Every hex, every radius — straight from your file.</text>
+          <p class="absolute left-0 top-0 whitespace-nowrap font-[fl-sans] text-[rgba(216,212,200,0.4)] text-[22.68px]">Done. Every hex, every radius — straight from your file.</p>
           <SentMessage pfx="act9" cls="absolute right-0 top-[86.4px] w-[756px] h-[95.4px] opacity-0" />
           <div id="act9-agent2" class="absolute left-0 top-[183.6px] w-[777.6px] opacity-0">
             <div class="absolute left-0 top-0 h-[34.78px] flex items-center whitespace-nowrap">
               <div class="w-[12.4px] h-[12.4px] rounded-full bg-[#D97757] flex-none"></div>
               <div id="act9-ag-sp" class="flex-none"></div>
-              <text id="act9-ag-r0" class="font-[fl-sans] text-[#D8D4C8] text-[24.84px] leading-[34.78px]"></text>
+              <p id="act9-ag-r0" class="font-[fl-sans] text-[#D8D4C8] text-[24.84px] leading-[34.78px]"></p>
             </div>
-            <text id="act9-ag-r1" class="absolute left-0 top-[34.78px] whitespace-nowrap font-[fl-sans] text-[#D8D4C8] text-[24.84px] leading-[34.78px] opacity-0"></text>
-            <text id="act9-ag-r2" class="absolute left-0 top-[69.56px] whitespace-nowrap font-[fl-sans] text-[#D8D4C8] text-[24.84px] leading-[34.78px] opacity-0"></text>
+            <p id="act9-ag-r1" class="absolute left-0 top-[34.78px] whitespace-nowrap font-[fl-sans] text-[#D8D4C8] text-[24.84px] leading-[34.78px] opacity-0"></p>
+            <p id="act9-ag-r2" class="absolute left-0 top-[69.56px] whitespace-nowrap font-[fl-sans] text-[#D8D4C8] text-[24.84px] leading-[34.78px] opacity-0"></p>
           </div>
           <div id="act9-think" class="absolute left-0 bottom-[6.48px] flex items-center gap-[11.88px] opacity-0">
             <path id="act9-ast" view-box="0 0 24 24" class="w-[24.84px] h-[24.84px] flex-none stroke-[#D97757] stroke-[1.7] [transform-origin:50%_50%]" d="M12 2.2v19.6 M2.2 12h19.6 M5.2 5.2l13.6 13.6 M18.8 5.2L5.2 18.8" />
-            <text class="font-[fl-sans-medium] font-[500] text-[#8C8B83] text-[19.44px]">2s · thinking…</text>
+            <p class="font-[fl-sans-medium] font-[500] text-[#8C8B83] text-[19.44px]">2s · thinking…</p>
           </div>
         </div>
         <div class="absolute left-[48.6px] right-[48.6px] bottom-[48.6px]">
@@ -1543,14 +1543,14 @@ function Act11() {
             </div>
             <div id="a11-label" class="relative w-[58px] h-[34px] overflow-hidden flex-none">
               <div id="a11-lcol" class="absolute left-0 top-0">
-                <div class="h-[34px] flex items-center"><text class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[26px] leading-[34px]">Star</text></div>
-                <div class="h-[34px] flex items-center"><text class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[26px] leading-[34px]">Starred</text></div>
+                <div class="h-[34px] flex items-center"><p class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[26px] leading-[34px]">Star</p></div>
+                <div class="h-[34px] flex items-center"><p class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[26px] leading-[34px]">Starred</p></div>
               </div>
             </div>
             <div class="h-[36px] rounded-full bg-[#14181F] pl-[16px] pr-[16px] overflow-hidden flex-none">
               <div id="a11-ccount" class="relative left-0 top-0">
-                <div class="h-[36px] flex items-center"><text class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[23px] leading-[36px]">34.1k</text></div>
-                <div class="h-[36px] flex items-center"><text class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[23px] leading-[36px]">34.2k</text></div>
+                <div class="h-[36px] flex items-center"><p class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[23px] leading-[36px]">34.1k</p></div>
+                <div class="h-[36px] flex items-center"><p class="font-[fl-segoe-bold] font-[600] text-[#E6EDF3] text-[23px] leading-[36px]">34.2k</p></div>
               </div>
             </div>
           </div>

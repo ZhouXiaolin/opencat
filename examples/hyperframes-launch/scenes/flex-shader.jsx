@@ -88,12 +88,11 @@ export default function FlexShader() {
     c.clear();
     c.drawRect(FS_CK.XYWHRect(0, 0, 1920, 1080), paint);
   });
-  });
 
   return (
     <div id="fs-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0a0a12]">
       <canvas id="fs-canvas" className="absolute left-0 top-0 w-[1920px] h-[1080px]" />
-      <text id="fs-label" className="absolute right-[80px] bottom-[60px] text-[28px] tracking-[0.08em] font-[hf-azeret] text-[rgba(255,255,255,0.35)] opacity-0">Shaders</text>
+      <p id="fs-label" className="absolute right-[80px] bottom-[60px] text-[28px] tracking-[0.08em] font-[hf-azeret] text-[rgba(255,255,255,0.35)] opacity-0">Shaders</p>
     </div>
   );
 }

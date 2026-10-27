@@ -19,13 +19,13 @@ export default function Beat1() {
       <div id="gi-intro-mask" className="absolute left-0 top-0 w-[1920px] h-[1080px] overflow-hidden">
         <div className="absolute left-0 top-0 w-[1720px] h-full overflow-hidden">
           <div id="gi-intro-text" className="absolute left-0 top-0 w-[1920px] h-full flex items-center justify-center px-[40px]">
-            <text id="gi-w0" className="text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">Imagine</text>
-            <text id="gi-w1" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">you</text>
-            <text id="gi-w2" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">could</text>
-            <text id="gi-w3" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">make</text>
-            <text id="gi-w4" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">videos</text>
-            <text id="gi-w5" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">like</text>
-            <text id="gi-w6" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">this</text>
+            <p id="gi-w0" className="text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">Imagine</p>
+            <p id="gi-w1" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">you</p>
+            <p id="gi-w2" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">could</p>
+            <p id="gi-w3" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">make</p>
+            <p id="gi-w4" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">videos</p>
+            <p id="gi-w5" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">like</p>
+            <p id="gi-w6" className="ml-[21.6px] text-[108px] leading-[1.08] tracking-[-0.02em] font-[hf-serif] text-[#14110a]">this</p>
           </div>
         </div>
       </div>

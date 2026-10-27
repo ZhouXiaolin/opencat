@@ -574,7 +574,7 @@ fn display_item_for_node(
                 _ => None,
             };
             // A normal (non clip:text) background paints as the inline box
-            // behind the glyphs — pills/badges (`bg-[rgba(...)]` on `<text>`).
+            // behind the glyphs — pills/badges (`bg-[rgba(...)]` on `<p>`).
             let node_background = match element.style.visual.background_clip {
                 crate::style::BackgroundClip::Text if !text_fill.is_none() => Vec::new(),
                 _ => element.style.visual.background.clone(),
@@ -804,7 +804,7 @@ mod tests {
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"relative w-full h-full"}
 {"id":"panel","parentId":"root","type":"div","className":"absolute left-[20px] top-[20px] w-[140px] h-[60px]"}
-{"id":"label","parentId":"panel","type":"text","className":"absolute left-[12px] top-[10px] text-[13px] tracking-[3px]","text":"SHORTHAND"}"#,
+{"id":"label","parentId":"panel","type":"p","className":"absolute left-[12px] top-[10px] text-[13px] tracking-[3px]","text":"SHORTHAND"}"#,
             None,
         )
         .expect("jsonl should parse");
@@ -871,8 +871,8 @@ mod tests {
         let parsed = crate::parse::elements::parse_lines_for_tests(
             r#"{"type":"composition","width":320,"height":180,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"front","parentId":"root","type":"text","className":"text-[12px] z-10","text":"front"}
-{"id":"back","parentId":"root","type":"text","className":"text-[12px]","text":"back"}"#,
+{"id":"front","parentId":"root","type":"p","className":"text-[12px] z-10","text":"front"}
+{"id":"back","parentId":"root","type":"p","className":"text-[12px]","text":"back"}"#,
             None,
         )
         .expect("jsonl should parse");
@@ -1166,7 +1166,7 @@ mod tests {
         let parsed = crate::parse::elements::parse_lines_for_tests(
             r#"{"type":"composition","width":100,"height":100,"fps":30,"duration":0.033333333333}
 {"id":"root","parentId":null,"type":"div","className":"w-full h-full"}
-{"id":"child","parentId":"root","type":"text","className":"text-[12px]","text":"A"}"#,
+{"id":"child","parentId":"root","type":"p","className":"text-[12px]","text":"A"}"#,
             None,
         )
         .expect("jsonl should parse");
@@ -1278,7 +1278,7 @@ mod tests {
             r#"{"type":"composition","width":320,"height":240,"fps":30,"duration":0.033333333333}
 {"type":"canvas","id":"stage","parentId":null,"className":"w-[200px] h-[120px]"}
 {"type":"div","id":"card","parentId":"stage","className":"absolute left-[12px] top-[18px] w-[80px] h-[40px] bg-white"}
-{"type":"text","id":"label","parentId":"card","className":"absolute left-[6px] top-[8px] text-[12px] text-black","text":"Hi"}"#,
+{"type":"p","id":"label","parentId":"card","className":"absolute left-[6px] top-[8px] text-[12px] text-black","text":"Hi"}"#,
             None,
         )
         .expect("jsonl should parse");

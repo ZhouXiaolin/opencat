@@ -117,7 +117,7 @@ export default function Beat4() {
         <div className="absolute left-0 top-0 w-[1920px] h-[1080px] flex items-center justify-center">
           <div className="relative h-[79.2px]">
             {ASK.split('').map((ch, i) => (
-              <text id={"gi-ask-ch" + i} className="absolute top-0 text-[72px] leading-[79.2px] tracking-[-0.01em] font-[hf-jbm] text-[#14110a] opacity-0" style={{ left: i * 43.2 }}>{ch === ' ' ? ' ' : ch}</text>
+              <p id={"gi-ask-ch" + i} className="absolute top-0 text-[72px] leading-[79.2px] tracking-[-0.01em] font-[hf-jbm] text-[#14110a] opacity-0" style={{ left: i * 43.2 }}>{ch === ' ' ? ' ' : ch}</p>
             ))}
             <div id="gi-ask-cursor" className="absolute top-[5.4px] w-[4px] h-[61.2px] bg-[#14110a] opacity-0"></div>
           </div>

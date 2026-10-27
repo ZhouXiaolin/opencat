@@ -68,18 +68,18 @@ function DialStage({ pfx }) {
       {/* intro conveyor words: positions come from the measure prologue */}
       <div id={P + 'iw-wrap'} class="absolute inset-0">
         {INTRO_WORDS.map((w) => (
-          <text id={P + 'iw-' + w} class="absolute font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0">{w}</text>
+          <p id={P + 'iw-' + w} class="absolute font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0">{w}</p>
         ))}
       </div>
       {/* dial line: "the perfect [slot] video", slot width = max word width */}
       <div id={P + 'dial-line'} class="absolute left-0 top-0 w-[1920px] h-[1080px] flex items-center justify-center">
-        <text id={P + 'perfect-word'} class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap">the perfect</text>
+        <p id={P + 'perfect-word'} class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap">the perfect</p>
         <div id={P + 'dial-slot'} class="relative">
           {DIAL_WORDS.map((w) => (
-            <text id={P + 'dw-' + w} class="absolute left-0 top-0 w-full text-center font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[120.64px] text-[#0a0a0a] whitespace-nowrap opacity-0">{w}</text>
+            <p id={P + 'dw-' + w} class="absolute left-0 top-0 w-full text-center font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[120.64px] text-[#0a0a0a] whitespace-nowrap opacity-0">{w}</p>
           ))}
         </div>
-        <div id={P + 'siri-wrap'} class="relative opacity-0"><text id={P + 'video-word'} class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] whitespace-nowrap text-transparent bg-[linear-gradient(90deg,#FF6B6B_0%,#FF9500_20%,#E879F9_40%,#818CF8_60%,#22D3EE_80%,#FF6B6B_100%)] bg-[length:200%_100%] bg-clip-text">video</text></div>
+        <div id={P + 'siri-wrap'} class="relative opacity-0"><p id={P + 'video-word'} class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] whitespace-nowrap text-transparent bg-[linear-gradient(90deg,#FF6B6B_0%,#FF9500_20%,#E879F9_40%,#818CF8_60%,#22D3EE_80%,#FF6B6B_100%)] bg-[length:200%_100%] bg-clip-text">video</p></div>
       </div>
       <canvas id={P + 'dial-canvas'} class="absolute left-0 top-0 w-[1920px] h-[1080px]" />
     </div>
@@ -196,9 +196,9 @@ function Scene02() {
   return (
     <div id="scene-02" class="absolute inset-0 bg-[#ffffff]" duration="4.0">
       <div id="s2-line" class="absolute left-0 top-0 w-[1920px] h-[1080px] flex items-center justify-center">
-        <text id="s2-perfect" class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap">the perfect</text>
-        <text id="s2-center" class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap mx-[20.8px]">UGC ad</text>
-        <text id="s2-video" class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] whitespace-nowrap text-transparent bg-[linear-gradient(90deg,#FF6B6B_0%,#FF9500_20%,#E879F9_40%,#818CF8_60%,#22D3EE_80%,#FF6B6B_100%)] bg-[length:200%_100%] bg-clip-text">video</text>
+        <p id="s2-perfect" class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap">the perfect</p>
+        <p id="s2-center" class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap mx-[20.8px]">UGC ad</p>
+        <p id="s2-video" class="font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[1.16] whitespace-nowrap text-transparent bg-[linear-gradient(90deg,#FF6B6B_0%,#FF9500_20%,#E879F9_40%,#818CF8_60%,#22D3EE_80%,#FF6B6B_100%)] bg-[length:200%_100%] bg-clip-text">video</p>
       </div>
       <div id="s2-card" class="absolute left-[770px] top-[202.5px] w-[380px] h-[675px] rounded-[24px] overflow-hidden border-[1px] border-[rgba(0,0,0,0.08)] bg-[linear-gradient(165deg,rgba(0,0,0,0.04)_0%,rgba(0,0,0,0.02)_40%,rgba(0,0,0,0.01)_100%)] opacity-0 shadow-[0_8px_32px_rgba(0,0,0,0.06),0_2px_8px_rgba(0,0,0,0.04)]">
         <video id="s2-video-el" path="assets/hooks/hook-c.mp4" data-start="0.51" data-duration="3.49" class="absolute inset-0 w-full h-full object-cover rounded-[23px]" />
@@ -267,12 +267,12 @@ function Scene03() {
     <div id="scene-03" class="absolute inset-0 bg-[#ffffff]" duration="3.2">
       <div id="l3a" class="absolute left-0 top-[452px] w-[1920px] h-[110px] flex items-center gap-[18px] justify-center whitespace-nowrap">
         {LINE_A.map((w, i) => (
-          <text key={w} id={'l3a-' + w} class={'font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] whitespace-nowrap ' + (i === 5 ? 'text-[#F3A6FF]' : 'text-[#0a0a0a]')}>{w}</text>
+          <p key={w} id={'l3a-' + w} class={'font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] whitespace-nowrap ' + (i === 5 ? 'text-[#F3A6FF]' : 'text-[#0a0a0a]')}>{w}</p>
         ))}
       </div>
       <div id="l3b" class="absolute left-0 top-[452px] w-[1920px] h-[110px] flex items-center gap-[18px] justify-center whitespace-nowrap opacity-0">
         {LINE_B.map((w, i) => (
-          <text key={w} id={'l3b-' + w} class={'font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] whitespace-nowrap ' + (i === 3 ? 'text-[#35C838]' : 'text-[#0a0a0a]')}>{w}</text>
+          <p key={w} id={'l3b-' + w} class={'font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] whitespace-nowrap ' + (i === 3 ? 'text-[#35C838]' : 'text-[#0a0a0a]')}>{w}</p>
         ))}
       </div>
     </div>
@@ -308,15 +308,15 @@ function CodeOverlay({ id, label, rows, color }) {
   return (
     <div id={id} class="absolute inset-0 bg-[rgba(0,0,0,0.82)] rounded-[23px] pt-[36px] pr-[36px] pb-[36px] pl-[36px] font-[mono500] text-[42px] leading-[2.2] z-[4]">
       <div id={id + '-t'} class="opacity-0">
-        <text class="font-[inter800] font-extrabold text-[44px] tracking-[1.76px] text-[rgba(255,255,255,0.75)] uppercase">{label}</text>
+        <p class="font-[inter800] font-extrabold text-[44px] tracking-[1.76px] text-[rgba(255,255,255,0.75)] uppercase">{label}</p>
       </div>
       {rows.map((r) => (
         <div key={r.id} id={id + '-row-' + r.id} class="opacity-0">
-          <text class="text-[rgba(255,255,255,0.5)]">hookText</text>
-          <text class="text-[rgba(255,255,255,0.25)]">: </text>
+          <p class="text-[rgba(255,255,255,0.5)]">hookText</p>
+          <p class="text-[rgba(255,255,255,0.25)]">: </p>
           <div class="relative inline-block">
-            <text id={r.id + '-old'} class="text-[#00C3FF]">{r.old}</text>
-            <text id={r.id + '-new'} class={'text-[#' + (r.cls === 'hot' ? 'F3A6FF' : '35C838') + '] absolute left-0 top-0 whitespace-nowrap opacity-0'}>{r.new}</text>
+            <p id={r.id + '-old'} class="text-[#00C3FF]">{r.old}</p>
+            <p id={r.id + '-new'} class={'text-[#' + (r.cls === 'hot' ? 'F3A6FF' : '35C838') + '] absolute left-0 top-0 whitespace-nowrap opacity-0'}>{r.new}</p>
           </div>
         </div>
       ))}
@@ -462,10 +462,10 @@ function Scene05() {
   return (
     <div id="scene-05" class="absolute inset-0 bg-[#ffffff]" duration="6.0">
       <div id="h1" class="absolute left-0 top-[240px] w-[1920px] text-center font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0">
-        <text class="text-[#09B2E5]">Any</text>{' composition.'}
+        <p class="text-[#09B2E5]">Any</p>{' composition.'}
       </div>
       <div id="h2" class="absolute left-0 top-[360px] w-[1920px] text-center font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0">
-        {'Now a '}<text class="text-[#F3A6FF]">template.</text>
+        {'Now a '}<p class="text-[#F3A6FF]">template.</p>
       </div>
       <div id="code-block" class="absolute left-0 top-[200px] w-[1920px] flex flex-col items-center opacity-0">
         <div class="font-[mono500] text-[48px] leading-[2.0] text-[rgba(0,0,0,0.55)] whitespace-nowrap">
@@ -615,9 +615,9 @@ function Scene07() {
   return (
     <div id="scene-07" class="absolute inset-0 bg-[#ffffff]" duration="3.8">
       {S7_WORDS.map((w) => (
-        <text key={w.id} id={w.id} class={'absolute left-0 top-0 font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[120.64px] whitespace-nowrap text-[' + w.color + '] opacity-0'}>{w.text}</text>
+        <p key={w.id} id={w.id} class={'absolute left-0 top-0 font-[inter800] font-extrabold text-[104px] tracking-[-3.12px] leading-[120.64px] whitespace-nowrap text-[' + w.color + '] opacity-0'}>{w.text}</p>
       ))}
-      <text id="cloud-emoji" class="absolute left-0 top-0 font-[inter800] text-[170px] leading-[1.16] whitespace-nowrap opacity-0">&nbsp;</text>
+      <p id="cloud-emoji" class="absolute left-0 top-0 font-[inter800] text-[170px] leading-[1.16] whitespace-nowrap opacity-0">&nbsp;</p>
     </div>
   );
 }
@@ -647,7 +647,7 @@ function DigitRoll({ id }) {
     <div id={id} class="absolute left-0 top-0 w-[13px] h-[21.6px] overflow-hidden">
       <div class="absolute left-0 top-0 flex flex-col">
         {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => (
-          <text key={d} class="font-[mono500] font-semibold text-[18px] leading-[21.6px] text-[rgba(0,0,0,0.35)]">{d}</text>
+          <p key={d} class="font-[mono500] font-semibold text-[18px] leading-[21.6px] text-[rgba(0,0,0,0.35)]">{d}</p>
         ))}
       </div>
     </div>
@@ -662,7 +662,7 @@ function PctReadout({ index }) {
         <DigitRoll id={'pct-t-' + index} />
         <DigitRoll id={'pct-u-' + index} />
       </div>
-      <text class="absolute left-[48px] top-0 font-[mono500] font-semibold text-[18px] leading-[21.6px] text-[rgba(0,0,0,0.35)]">%</text>
+      <p class="absolute left-[48px] top-0 font-[mono500] font-semibold text-[18px] leading-[21.6px] text-[rgba(0,0,0,0.35)]">%</p>
     </div>
   );
 }
@@ -677,7 +677,7 @@ function RenderRow({ index }) {
   var num = String(index + 1).padStart(3, '0');
   return (
     <div id={'row-' + index} class="absolute left-[510px] top-[80px] w-[900px] h-[52px] opacity-0">
-      <text class="absolute left-0 top-[14px] w-[220px] text-right font-[mono500] text-[20px] leading-[24px] text-[rgba(0,0,0,0.5)]">{'variant-' + num + '.mp4'}</text>
+      <p class="absolute left-0 top-[14px] w-[220px] text-right font-[mono500] text-[20px] leading-[24px] text-[rgba(0,0,0,0.5)]">{'variant-' + num + '.mp4'}</p>
       <div class="absolute left-[240px] top-[8px] w-[620px] h-[36px] rounded-[8px] bg-[rgba(0,0,0,0.04)] overflow-hidden">
         <div id={'fill-' + index} class={'absolute left-0 top-0 w-[0px] h-full rounded-[8px] ' + S8_ROW_FILL_CLASS[index % 3]} />
       </div>
@@ -767,8 +767,8 @@ function Scene09() {
   });
   return (
     <div id="scene-09" class="absolute inset-0 bg-[#ffffff]" duration="3.6">
-      <text id="line-a" class="absolute font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0"><text class="text-[#35C838]">Scale</text>{' your best work.'}</text>
-      <text id="line-b" class="absolute font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0">{'Not your '}<text class="text-[#F3A6FF]">workload.</text></text>
+      <p id="line-a" class="absolute font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0"><p class="text-[#35C838]">Scale</p>{' your best work.'}</p>
+      <p id="line-b" class="absolute font-[inter800] font-extrabold text-[94px] tracking-[-2.82px] leading-[1.16] text-[#0a0a0a] whitespace-nowrap opacity-0">{'Not your '}<p class="text-[#F3A6FF]">workload.</p></p>
       <image id="logo" path="assets/hyperframes-dark.png" class="absolute left-[240px] top-[690px] w-[1440px] h-[432px] object-contain opacity-0" />
     </div>
   );

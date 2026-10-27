@@ -100,7 +100,7 @@ function TermChrome({ ids, logo, label }) {
       <div id={ids.y} class="w-[13px] h-[13px] rounded-full bg-[#febc2e]"></div>
       <div id={ids.g} class="w-[13px] h-[13px] rounded-full bg-[#28c840]"></div>
       <image id={ids.logo} class="w-[28px] h-[28px] rounded-[5px]" path={logo} />
-      <text id={ids.label} class="font-[mono] font-medium text-[18px] text-[#8a8f98] whitespace-nowrap">{label}</text>
+      <p id={ids.label} class="font-[mono] font-medium text-[18px] text-[#8a8f98] whitespace-nowrap">{label}</p>
     </div>
   );
 }
@@ -118,8 +118,8 @@ function A3Cap({ id, nid, bid, num, brand, light }) {
     : 'font-[inter400] font-normal text-[42px] tracking-[-0.01em] text-[rgba(255,255,255,0.96)]';
   return (
     <div id={id} class={boxCls}>
-      <text id={nid} class={numCls}>{num}</text>
-      <text id={bid} class={brandCls}>{brand}</text>
+      <p id={nid} class={numCls}>{num}</p>
+      <p id={bid} class={brandCls}>{brand}</p>
     </div>
   );
 }
@@ -142,7 +142,7 @@ function BottomCap({ id, tid, t, accent, light }) {
   return (
     <div id={id} class="absolute left-0 top-[900px] w-[1920px] flex justify-center opacity-0 z-[25]">
       <div id={tid + 'p'} class={pillCls}>
-        <text id={tid} class={textCls}>{t}</text>
+        <p id={tid} class={textCls}>{t}</p>
       </div>
     </div>
   );
@@ -307,8 +307,8 @@ function Act1() {
       {/* ═══ MORPH BOX: CTA → Claude Code ═══ */}
       <div id="morph" class="absolute left-[100px] top-[450px] w-[1720px] h-[180px] bg-[#1a1b1f] rounded-[20px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.28),0_12px_22px_rgba(11,11,15,0.14)]">
         <div id="cta" class="absolute inset-0 flex items-center pl-[56px]">
-          <text id="x001" class="font-[mono] font-normal text-[44px] tracking-[-0.005em] mr-[4px] text-[#c86d3f]">{"$ "}</text>
-          <text id="cta-cmd" class="font-[mono] font-normal text-[44px] tracking-[-0.005em] text-[#f7f8f8]">{CTA_CMD}</text>
+          <p id="x001" class="font-[mono] font-normal text-[44px] tracking-[-0.005em] mr-[4px] text-[#c86d3f]">{"$ "}</p>
+          <p id="cta-cmd" class="font-[mono] font-normal text-[44px] tracking-[-0.005em] text-[#f7f8f8]">{CTA_CMD}</p>
           <div id="cta-caret" class="w-[4px] h-[44px] bg-[#f7f8f8] ml-[2px]"></div>
         </div>
 
@@ -316,18 +316,18 @@ function Act1() {
           <TermChrome ids={{ bar: 'd001', r: 'd002', y: 'd003', g: 'd004', logo: 'claude-logo', label: 'x002' }} logo="assets/w2h-logos/claude.png" label="Claude Code · Opus 4.7" />
           <div id="d005" class="absolute left-[24px] right-[24px] bottom-[28px] px-[16px] pt-[14px] pb-[12px] bg-[rgba(11,11,15,0.4)] border-[1px] border-[rgba(200,109,63,0.55)] rounded-[12px]">
             <div id="d006" class="flex items-center px-[6px] pt-[6px] pb-[14px] border-b-[1px] border-[rgba(255,255,255,0.06)]">
-              <text id="p1" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P1}</text>
+              <p id="p1" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P1}</p>
               <div id="c1" class="w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
             </div>
             <div id="d007" class="flex justify-between items-center pt-[10px]">
               <div id="d008" class="flex gap-[8px]">
-                <div id="d009" class="w-[26px] h-[26px] rounded-[6px] bg-[rgba(255,255,255,0.05)] flex items-center justify-center"><text id="x003" class="font-[mono] text-[14px] text-[#8a8f98]">+</text></div>
-                <div id="d010" class="w-[26px] h-[26px] rounded-[6px] bg-[rgba(255,255,255,0.05)] flex items-center justify-center"><text id="x004" class="font-[mono] text-[14px] text-[#8a8f98]">/</text></div>
+                <div id="d009" class="w-[26px] h-[26px] rounded-[6px] bg-[rgba(255,255,255,0.05)] flex items-center justify-center"><p id="x003" class="font-[mono] text-[14px] text-[#8a8f98]">+</p></div>
+                <div id="d010" class="w-[26px] h-[26px] rounded-[6px] bg-[rgba(255,255,255,0.05)] flex items-center justify-center"><p id="x004" class="font-[mono] text-[14px] text-[#8a8f98]">/</p></div>
                 <div id="d011" class="w-[26px] h-[26px] rounded-full border-[1.5px] border-[rgba(200,109,63,0.7)]"></div>
               </div>
               <div id="d012" class="flex items-center gap-[14px]">
-                <text id="x005" class="font-[mono] text-[12px] text-[#8a8f98]">Ask before edits</text>
-                <div id="d013" class="w-[32px] h-[32px] bg-[#c86d3f] rounded-[6px] flex items-center justify-center"><text id="x006" class="font-[mono] text-[14px] text-[#ffffff]">↑</text></div>
+                <p id="x005" class="font-[mono] text-[12px] text-[#8a8f98]">Ask before edits</p>
+                <div id="d013" class="w-[32px] h-[32px] bg-[#c86d3f] rounded-[6px] flex items-center justify-center"><p id="x006" class="font-[mono] text-[14px] text-[#ffffff]">↑</p></div>
               </div>
             </div>
           </div>
@@ -341,16 +341,16 @@ function Act1() {
       <div id="t-cursor" class="absolute left-[260px] top-[150px] w-[1400px] h-[780px] bg-[#1a1b1f] rounded-[22px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.32),0_12px_22px_rgba(11,11,15,0.16)] opacity-0">
         <TermChrome ids={{ bar: 'd014', r: 'd015', y: 'd016', g: 'd017', logo: 'cursor-logo', label: 'x007' }} logo="assets/w2h-logos/cursor.png" label="Cursor · Agent" />
         <div id="d018" class="absolute inset-x-0 top-[54px] bottom-0 px-[36px] pt-[32px]">
-          <div id="d019" class="flex justify-between items-center mb-[18px]"><text id="x008" class="font-[inter400] text-[14px] text-[#c7c7c9]">New Chat</text><text id="x009" class="font-[inter400] text-[14px] text-[#8a8f98]">＋　···</text></div>
+          <div id="d019" class="flex justify-between items-center mb-[18px]"><p id="x008" class="font-[inter400] text-[14px] text-[#c7c7c9]">New Chat</p><p id="x009" class="font-[inter400] text-[14px] text-[#8a8f98]">＋　···</p></div>
           <div id="d020" class="relative border-[1.5px] border-[rgba(120,120,140,0.45)] rounded-[14px] px-[18px] pt-[18px] pb-[14px] bg-[rgba(11,11,15,0.22)] h-[214px] mb-[12px]">
-            <text id="cu-hint" class="absolute left-[22px] top-[20px] font-[inter400] text-[15px] text-[#6e7077]">Plan, @ for context, / for commands</text>
+            <p id="cu-hint" class="absolute left-[22px] top-[20px] font-[inter400] text-[15px] text-[#6e7077]">Plan, @ for context, / for commands</p>
             <div id="d021" class="absolute left-[22px] top-[20px] flex items-center overflow-hidden">
-              <text id="p2" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P2}</text>
+              <p id="p2" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P2}</p>
               <div id="c2" class="w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
             </div>
             <div id="d022" class="absolute left-[18px] right-[18px] bottom-[14px] flex items-center gap-[14px]">
-              <div id="d023" class="flex items-center gap-[6px] pl-[10px] pr-[12px] py-[5px] border-[1px] border-[#3a3b3f] rounded-full"><text id="x010" class="font-[inter400] text-[13px] text-[#f0f0f0]">Agent ⌄</text></div>
-              <text id="x011" class="font-[inter400] text-[13px] text-[#c7c7c9]">Opus 4.7 ⌄</text>
+              <div id="d023" class="flex items-center gap-[6px] pl-[10px] pr-[12px] py-[5px] border-[1px] border-[#3a3b3f] rounded-full"><p id="x010" class="font-[inter400] text-[13px] text-[#f0f0f0]">Agent ⌄</p></div>
+              <p id="x011" class="font-[inter400] text-[13px] text-[#c7c7c9]">Opus 4.7 ⌄</p>
               {/* .cu-icon-set (ml-auto): two 14px glyphs + 26px mic circle */}
               <div id="d0-cuicons" class="flex items-center gap-[12px] ml-auto">
                 <div id="d0-cui1" class="w-[14px] h-[14px]"></div>
@@ -362,7 +362,7 @@ function Act1() {
           {/* .cu-local pill below the input card (absent from the XML port);
               engine has no inline-flex display, so pin a fixed-size flex box
               at the flow position (card bottom + 12px margin) */}
-          <div id="d0-culocal" class="absolute left-[36px] top-[349px] w-[78px] h-[26px] flex items-center pl-[8px] pr-[10px] py-[4px] border-[1px] border-[#3a3b3f] rounded-full"><text id="x0culocal" class="font-[inter400] text-[13px] text-[#c7c7c9] whitespace-nowrap">Local ⌄</text></div>
+          <div id="d0-culocal" class="absolute left-[36px] top-[349px] w-[78px] h-[26px] flex items-center pl-[8px] pr-[10px] py-[4px] border-[1px] border-[#3a3b3f] rounded-full"><p id="x0culocal" class="font-[inter400] text-[13px] text-[#c7c7c9] whitespace-nowrap">Local ⌄</p></div>
         </div>
       </div>
 
@@ -370,23 +370,23 @@ function Act1() {
       <div id="t-codex" class="absolute left-[260px] top-[150px] w-[1400px] h-[780px] bg-[#1a1b1f] rounded-[22px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.32),0_12px_22px_rgba(11,11,15,0.16)] opacity-0">
         <TermChrome ids={{ bar: 'd024', r: 'd025', y: 'd026', g: 'd027', logo: 'codex-logo', label: 'x012' }} logo="assets/w2h-logos/codex.png" label="Codex · GPT-5.4" />
         <div id="d028" class="absolute inset-x-0 top-[54px] bottom-0 px-[36px] pt-[32px]">
-          <div id="d029" class="flex items-center gap-[12px]"><text id="x013" class="font-[inter400] font-medium text-[14px] text-[#f7f8f8]">New thread</text><div id="x014" class="px-[12px] py-[4px] bg-[#7a6aff] rounded-full"><text id="x014t" class="font-[inter400] text-[11px] text-[#f0f0f0]">✦ Get Plus</text></div></div>
+          <div id="d029" class="flex items-center gap-[12px]"><p id="x013" class="font-[inter400] font-medium text-[14px] text-[#f7f8f8]">New thread</p><div id="x014" class="px-[12px] py-[4px] bg-[#7a6aff] rounded-full"><p id="x014t" class="font-[inter400] text-[11px] text-[#f0f0f0]">✦ Get Plus</p></div></div>
           <div id="d030" class="absolute left-[600px] top-[180px] w-[200px] text-center">
             <image id="codex-big" class="w-[44px] h-[44px] mb-[14px] mx-auto" path="assets/w2h-logos/codex-large.png" />
-            <text id="x015" class="font-[inter400] text-[28px] font-medium text-[#f0f0f0]">Let's build</text>
-            <text id="x016" class="font-[inter400] text-[15px] text-[#8a8f98] mt-[4px]">New project ⌄</text>
+            <p id="x015" class="font-[inter400] text-[28px] font-medium text-[#f0f0f0]">Let's build</p>
+            <p id="x016" class="font-[inter400] text-[15px] text-[#8a8f98] mt-[4px]">New project ⌄</p>
           </div>
           <div id="d031" class="absolute left-[24px] right-[24px] bottom-[60px] flex items-center gap-[14px] px-[14px] py-[12px] bg-[#15161a] border-[1px] border-[#2e2e32] rounded-[12px]">
-            <text id="x017" class="font-[inter400] text-[18px] text-[#8a8f98]">＋</text>
+            <p id="x017" class="font-[inter400] text-[18px] text-[#8a8f98]">＋</p>
             <div id="d032" class="flex-1 flex items-center overflow-hidden">
-              <text id="p3" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P3}</text>
+              <p id="p3" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P3}</p>
               <div id="c3" class="w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
             </div>
-            <div id="d033" class="w-[26px] h-[26px] bg-[#2e2e32] rounded-full flex items-center justify-center"><text id="x018" class="font-[inter400] text-[12px] text-[#f0f0f0]">↑</text></div>
+            <div id="d033" class="w-[26px] h-[26px] bg-[#2e2e32] rounded-full flex items-center justify-center"><p id="x018" class="font-[inter400] text-[12px] text-[#f0f0f0]">↑</p></div>
           </div>
           <div id="d034" class="absolute left-[24px] bottom-[22px] flex gap-[8px]">
-            <div id="d035" class="px-[10px] py-[4px] border-[1px] border-[#2e2e32] rounded-full"><text id="x019" class="font-[inter400] text-[11px] text-[#c7c7c9]">GPT-5.4 ⌄</text></div>
-            <div id="d036" class="px-[10px] py-[4px] border-[1px] border-[#2e2e32] rounded-full"><text id="x020" class="font-[inter400] text-[11px] text-[#c7c7c9]">High ⌄</text></div>
+            <div id="d035" class="px-[10px] py-[4px] border-[1px] border-[#2e2e32] rounded-full"><p id="x019" class="font-[inter400] text-[11px] text-[#c7c7c9]">GPT-5.4 ⌄</p></div>
+            <div id="d036" class="px-[10px] py-[4px] border-[1px] border-[#2e2e32] rounded-full"><p id="x020" class="font-[inter400] text-[11px] text-[#c7c7c9]">High ⌄</p></div>
           </div>
         </div>
       </div>
@@ -395,33 +395,33 @@ function Act1() {
       <div id="t-gemini" class="absolute left-[260px] top-[150px] w-[1400px] h-[780px] bg-[#1a1b1f] rounded-[22px] overflow-hidden shadow-[0_32px_70px_rgba(11,11,15,0.32),0_12px_22px_rgba(11,11,15,0.16)] opacity-0">
         <TermChrome ids={{ bar: 'd037', r: 'd038', y: 'd039', g: 'd040', logo: 'gemini-logo', label: 'x021' }} logo="assets/w2h-logos/gemini.png" label="Gemini CLI · gemini-3-flash" />
         <div id="d041" class="absolute inset-x-0 top-[54px] bottom-0 px-[28px] pt-[22px]">
-          <div id="d042" class="flex justify-between pt-[18px] pb-[14px]"><text id="x022" class="font-[mono] text-[12px] text-[#8a8f98]">Shift+Tab to accept edits</text><text id="x023" class="font-[mono] text-[12px] text-[#8a8f98]">12 skills</text></div>
+          <div id="d042" class="flex justify-between pt-[18px] pb-[14px]"><p id="x022" class="font-[mono] text-[12px] text-[#8a8f98]">Shift+Tab to accept edits</p><p id="x023" class="font-[mono] text-[12px] text-[#8a8f98]">12 skills</p></div>
           <div id="d043" class="border-t-[1px] border-dashed border-[rgba(255,255,255,0.14)]"></div>
           <div id="d044" class="relative flex items-center gap-[10px] py-[80px]">
-            <text id="x024" class="font-[mono] text-[18px] text-[#8a8f98]">{'>'}</text>
-            <text id="p4" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P4}</text>
+            <p id="x024" class="font-[mono] text-[18px] text-[#8a8f98]">{'>'}</p>
+            <p id="p4" class="font-[mono] font-normal text-[26px] text-[#f0f0f0] whitespace-nowrap">{P4}</p>
             <div id="c4" class="w-[11px] h-[28px] bg-[#f0f0f0] ml-[2px] opacity-0"></div>
-            <text id="ge-ph" class="absolute right-0 font-[mono] text-[13px] text-[#6e7077]">Type your message or @path/to/file</text>
+            <p id="ge-ph" class="absolute right-0 font-[mono] text-[13px] text-[#6e7077]">Type your message or @path/to/file</p>
           </div>
           <div id="d045" class="border-t-[1px] border-dashed border-[rgba(255,255,255,0.14)]"></div>
           <div id="d046" class="grid grid-cols-3 gap-[30px] pt-[18px]">
-            <div id="gecol1"><text id="x025" class="font-[mono] text-[11px] text-[#8a8f98]">workspace</text><text id="x026" class="font-[mono] text-[11px] font-medium text-[#f0f0f0]">~/Desktop</text></div>
-            <div id="gecol2"><text id="x027" class="font-[mono] text-[11px] text-[#8a8f98]">sandbox</text><text id="x028" class="font-[mono] text-[11px] font-medium text-[#ff5577]">no-sandbox</text></div>
-            <div id="gecol3" class="text-right"><text id="x029" class="font-[mono] text-[11px] text-[#8a8f98]">/model</text><text id="x030" class="font-[mono] text-[11px] font-medium text-[#f0f0f0]">gemini-3-flash-preview</text></div>
+            <div id="gecol1"><p id="x025" class="font-[mono] text-[11px] text-[#8a8f98]">workspace</p><p id="x026" class="font-[mono] text-[11px] font-medium text-[#f0f0f0]">~/Desktop</p></div>
+            <div id="gecol2"><p id="x027" class="font-[mono] text-[11px] text-[#8a8f98]">sandbox</p><p id="x028" class="font-[mono] text-[11px] font-medium text-[#ff5577]">no-sandbox</p></div>
+            <div id="gecol3" class="text-right"><p id="x029" class="font-[mono] text-[11px] text-[#8a8f98]">/model</p><p id="x030" class="font-[mono] text-[11px] font-medium text-[#f0f0f0]">gemini-3-flash-preview</p></div>
           </div>
         </div>
       </div>
 
       {/* ═══ Phrase ═══ */}
       <div id="phrase" class="absolute left-0 top-[288px] w-[1920px] text-center tracking-[-0.025em] z-[18]">
-        <text id="pw1" class="font-[inter800] font-extrabold text-[160px] leading-[1.05] text-[#0b0b0f] opacity-0 blur-[14px]">Now</text>
-        <text id="pw2" class="font-[inter800] font-extrabold text-[160px] leading-[1.05] text-[#533afd] opacity-0 blur-[14px]">any site becomes</text>
-        <text id="pw3" class="font-[inter800] font-extrabold italic text-[160px] leading-[1.05] text-[#00a7d9] opacity-0 blur-[14px]">video.</text>
+        <p id="pw1" class="font-[inter800] font-extrabold text-[160px] leading-[1.05] text-[#0b0b0f] opacity-0 blur-[14px]">Now</p>
+        <p id="pw2" class="font-[inter800] font-extrabold text-[160px] leading-[1.05] text-[#533afd] opacity-0 blur-[14px]">any site becomes</p>
+        <p id="pw3" class="font-[inter800] font-extrabold italic text-[160px] leading-[1.05] text-[#00a7d9] opacity-0 blur-[14px]">video.</p>
       </div>
 
       {/* ═══ YEAHH + sparkle stars ═══ */}
       <div id="yeahh" class="absolute left-0 top-[420px] w-[1920px] text-center opacity-0 z-[20]">
-        <text id="yeahh-t" class="font-[bungee] text-[240px] leading-none text-[#ffd60a] [text-shadow:3px_3px_0_#ff006e,6px_6px_0_rgba(0,0,0,0.4)]">YEAHH</text>
+        <p id="yeahh-t" class="font-[bungee] text-[240px] leading-none text-[#ffd60a] [text-shadow:3px_3px_0_#ff006e,6px_6px_0_rgba(0,0,0,0.4)]">YEAHH</p>
         {/* Reference stars are the text glyph ✦ in a 60px box positioned
             around its shrink-to-fit wrap (box 307.5..1612.5 x, 420..660 y;
             measured advance width 1305). The engine has no ✦ glyph, so each
@@ -441,17 +441,17 @@ function Act1() {
 
       {/* ═══ Sent bubbles (max-w 340 + ellipsis in the reference) ═══ */}
       <div id="sm-claude" class="absolute left-[350px] top-[160px] z-[24] rounded-[14px] px-[16px] py-[10px] bg-[rgba(200,109,63,0.22)] border-[1px] border-[rgba(200,109,63,0.45)] opacity-0">
-        <text id="x031" class="font-[mono] text-[13px] text-[#f2e6d5] whitespace-nowrap max-w-[340px] truncate">{P1}</text>
+        <p id="x031" class="font-[mono] text-[13px] text-[#f2e6d5] whitespace-nowrap max-w-[340px] truncate">{P1}</p>
       </div>
       <div id="sm-cursor" class="absolute left-[1310px] top-[130px] z-[24] rounded-[14px] px-[16px] py-[10px] bg-[rgba(120,110,180,0.22)] border-[1px] border-[rgba(150,140,220,0.4)] opacity-0">
-        <text id="x032" class="font-[mono] text-[13px] text-[#e8e6f2] whitespace-nowrap max-w-[340px] truncate">{P2}</text>
+        <p id="x032" class="font-[mono] text-[13px] text-[#e8e6f2] whitespace-nowrap max-w-[340px] truncate">{P2}</p>
       </div>
       <div id="sm-codex" class="absolute left-[350px] top-[700px] z-[24] rounded-[14px] px-[16px] py-[10px] bg-[rgba(110,100,180,0.22)] border-[1px] border-[rgba(140,130,210,0.4)] opacity-0">
-        <text id="x033" class="font-[mono] text-[13px] text-[#e8e6f2] whitespace-nowrap max-w-[340px] truncate">{P3}</text>
+        <p id="x033" class="font-[mono] text-[13px] text-[#e8e6f2] whitespace-nowrap max-w-[340px] truncate">{P3}</p>
       </div>
       <div id="sm-gemini" class="absolute left-[1150px] top-[780px] z-[24] flex items-center gap-[6px] py-[4px] opacity-0">
-        <text id="x034a" class="font-[mono] text-[12px] text-[#28c840] whitespace-nowrap">✓</text>
-        <text id="x034" class="font-[mono] text-[12px] text-[#7aaa7a] whitespace-nowrap">{" task accepted · website-to-hyperframes queued"}</text>
+        <p id="x034a" class="font-[mono] text-[12px] text-[#28c840] whitespace-nowrap">✓</p>
+        <p id="x034" class="font-[mono] text-[12px] text-[#7aaa7a] whitespace-nowrap">{" task accepted · website-to-hyperframes queued"}</p>
       </div>
 
       {/* Master bottom captions (VO-synced) */}
@@ -603,18 +603,18 @@ function Act4({ rootId }) {
 
       {/* wordmark: Hyper solid, Frames gradient (background-clip: text) */}
       <div id="wm-wrap" class="absolute left-0 top-[320px] w-[1920px] flex justify-center items-start">
-        <text id="w-hyper" class="font-[inter900] font-black tracking-[-0.04em] text-[200px] leading-none text-[#f7f8f8] opacity-0 blur-[20px]">Hyper</text>
-        <text id="w-frames" class="font-[inter900] font-black tracking-[-0.04em] text-[200px] leading-none text-transparent opacity-0 blur-[20px] bg-[linear-gradient(95deg,#533afd_0%,#00c3ff_45%,#3ecf8e_100%)] bg-clip-text">Frames</text>
+        <p id="w-hyper" class="font-[inter900] font-black tracking-[-0.04em] text-[200px] leading-none text-[#f7f8f8] opacity-0 blur-[20px]">Hyper</p>
+        <p id="w-frames" class="font-[inter900] font-black tracking-[-0.04em] text-[200px] leading-none text-transparent opacity-0 blur-[20px] bg-[linear-gradient(95deg,#533afd_0%,#00c3ff_45%,#3ecf8e_100%)] bg-clip-text">Frames</p>
       </div>
 
       {/* promise lines */}
-      <text id="line-1" class="absolute left-0 top-[586px] w-[1920px] text-center font-[inter] font-medium text-[58px] tracking-[-0.01em] leading-none text-[rgba(247,248,248,0.9)] opacity-0 blur-[14px]">Give your agent a URL.</text>
-      <text id="line-2" class="absolute left-0 top-[664px] w-[1920px] text-center font-[inter] font-medium text-[58px] tracking-[-0.01em] leading-none text-[rgba(247,248,248,0.9)] opacity-0 blur-[14px]">It does the rest.</text>
+      <p id="line-1" class="absolute left-0 top-[586px] w-[1920px] text-center font-[inter] font-medium text-[58px] tracking-[-0.01em] leading-none text-[rgba(247,248,248,0.9)] opacity-0 blur-[14px]">Give your agent a URL.</p>
+      <p id="line-2" class="absolute left-0 top-[664px] w-[1920px] text-center font-[inter] font-medium text-[58px] tracking-[-0.01em] leading-none text-[rgba(247,248,248,0.9)] opacity-0 blur-[14px]">It does the rest.</p>
 
       {/* install pill */}
       <div id="install" class="absolute left-0 top-[815px] w-[1920px] flex justify-center opacity-0">
         <div id="install-inner" class="px-[28px] py-[14px] rounded-[12px] bg-[rgba(255,255,255,0.04)] border-[1px] border-[rgba(255,255,255,0.08)] backdrop-blur-[8px]">
-          <text id="install-cmd" class="font-[mono500] font-medium text-[28px] tracking-[0.005em] leading-none text-[rgba(247,248,248,0.85)] opacity-0 blur-[8px]">npx skills add heygen-com/hyperframes</text>
+          <p id="install-cmd" class="font-[mono500] font-medium text-[28px] tracking-[0.005em] leading-none text-[rgba(247,248,248,0.85)] opacity-0 blur-[8px]">npx skills add heygen-com/hyperframes</p>
         </div>
       </div>
 

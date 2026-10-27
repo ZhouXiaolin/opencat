@@ -234,24 +234,24 @@ export default function Nexus7() {
       <div id="scene1" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="3.6">
         <CyberBg id="s1" />
         <div id="s1-glow" class="absolute left-[510px] top-[90px] w-[900px] h-[900px] bg-[radial-gradient(circle,rgba(0,255,136,0.14),transparent_70%)]"></div>
-        <text id="s1-ghost" class="absolute left-[80px] top-[120px] text-[440px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">N7</text>
+        <p id="s1-ghost" class="absolute left-[80px] top-[120px] text-[440px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">N7</p>
 
-        <text id="s1-meta" class="absolute left-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">NEXUS // SYS.BOOT // 2089.07.01</text>
-        <text id="s1-meta2" class="absolute right-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">SECURE LINK · ENCRYPTED</text>
+        <p id="s1-meta" class="absolute left-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">NEXUS // SYS.BOOT // 2089.07.01</p>
+        <p id="s1-meta2" class="absolute right-[120px] top-[120px] font-[jmono] text-[24px] tracking-[4px] text-[#6b7280]">SECURE LINK · ENCRYPTED</p>
 
         <div id="s1-term" class="absolute left-[120px] top-[320px] flex flex-col gap-[20px] font-[jmono]">
-          <text id="s1-log1" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; INITIALIZING NEURAL CORE...</text>
-          <text id="s1-log2" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; LOADING SYNAPSE MATRIX...</text>
-          <text id="s1-log3" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; 7.3B PARAMETERS ONLINE</text>
-          <text id="s1-log4" class="text-[34px] tracking-[2px] text-[#00d4ff]">&gt; NEXUS-7 READY_</text>
+          <p id="s1-log1" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; INITIALIZING NEURAL CORE...</p>
+          <p id="s1-log2" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; LOADING SYNAPSE MATRIX...</p>
+          <p id="s1-log3" class="text-[34px] tracking-[2px] text-[#00ff88]">&gt; 7.3B PARAMETERS ONLINE</p>
+          <p id="s1-log4" class="text-[34px] tracking-[2px] text-[#00d4ff]">&gt; NEXUS-7 READY_</p>
         </div>
 
         <div id="s1-prog-track" class="absolute left-[120px] top-[840px] w-[1000px] h-[14px] border-[1px] border-[#2a2a3a] bg-[#12121a]">
           <div id="s1-prog-fill" class="h-full bg-[#00ff88] shadow-[0_0_12px_#00ff88]"></div>
         </div>
-        <text id="s1-pct" class="absolute right-[120px] top-[800px] font-[jmono] text-[28px] text-[#00ff88]">000%</text>
+        <p id="s1-pct" class="absolute right-[120px] top-[800px] font-[jmono] text-[28px] text-[#00ff88]">000%</p>
         <div id="s1-cursor" class="absolute left-[120px] top-[920px] w-[18px] h-[34px] bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
-        <text id="s1-foot" class="absolute left-[160px] top-[924px] font-[jmono] text-[26px] tracking-[2px] text-[#6b7280]">awaiting authorization</text>
+        <p id="s1-foot" class="absolute left-[160px] top-[924px] font-[jmono] text-[26px] tracking-[2px] text-[#6b7280]">awaiting authorization</p>
       </div>
 
       <transition from="scene1" to="scene2" effect="fade" duration="0.4" timing="ease-in-out" />
@@ -261,24 +261,24 @@ export default function Nexus7() {
         <CyberBg id="s2" />
         <div id="s2-glow1" class="absolute left-[-220px] top-[-220px] w-[820px] h-[820px] bg-[radial-gradient(circle,rgba(0,255,136,0.16),transparent_70%)]"></div>
         <div id="s2-glow2" class="absolute right-[-220px] bottom-[-220px] w-[820px] h-[820px] bg-[radial-gradient(circle,rgba(255,0,255,0.13),transparent_70%)]"></div>
-        <text id="s2-ghost" class="absolute left-[40px] top-[-70px] text-[560px] font-[orbitron] font-black text-[#ff00ff] opacity-[0.07] leading-[0.8]">AI</text>
+        <p id="s2-ghost" class="absolute left-[40px] top-[-70px] text-[560px] font-[orbitron] font-black text-[#ff00ff] opacity-[0.07] leading-[0.8]">AI</p>
 
         <div id="s2-kicker" class="absolute left-[120px] top-[180px] px-[20px] py-[8px] border-[1px] border-[#00ff88] bg-[#00ff880f]">
-          <text id="s2-kicker-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// NEXUS-7 NEURAL ENGINE</text>
+          <p id="s2-kicker-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// NEXUS-7 NEURAL ENGINE</p>
         </div>
 
-        <text id="s2-hero" class="absolute left-[120px] top-[280px] font-[orbitron] font-black text-[150px] text-[#e0e0e0] uppercase leading-[0.9] tracking-[-2px] [text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]">RESET{'\n'}INTELLIGENCE</text>
-        <text id="s2-zh" class="absolute left-[124px] top-[640px] font-[noto-sans] font-black text-[64px] text-[#00ff88] tracking-[12px] [text-shadow:0_0_24px_#00ff8890]">重塑智能边界</text>
-        <text id="s2-sub" class="absolute left-[124px] top-[750px] font-[jmono] text-[30px] tracking-[2px] text-[#6b7280]">新一代神经引擎 · 7.3B 参数 · 0.8ms 推理延迟</text>
+        <p id="s2-hero" class="absolute left-[120px] top-[280px] font-[orbitron] font-black text-[150px] text-[#e0e0e0] uppercase leading-[0.9] tracking-[-2px] [text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]">RESET{'\n'}INTELLIGENCE</p>
+        <p id="s2-zh" class="absolute left-[124px] top-[640px] font-[noto-sans] font-black text-[64px] text-[#00ff88] tracking-[12px] [text-shadow:0_0_24px_#00ff8890]">重塑智能边界</p>
+        <p id="s2-sub" class="absolute left-[124px] top-[750px] font-[jmono] text-[30px] tracking-[2px] text-[#6b7280]">新一代神经引擎 · 7.3B 参数 · 0.8ms 推理延迟</p>
 
         <div id="s2-ver" class="absolute right-[120px] top-[300px] flex flex-col items-end gap-[12px]">
-          <text id="s2-ver-t" class="font-[jmono] text-[22px] tracking-[4px] text-[#00d4ff]">VER 7.0.0</text>
-          <text id="s2-ver-b" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280]">BUILD // N7-2089</text>
+          <p id="s2-ver-t" class="font-[jmono] text-[22px] tracking-[4px] text-[#00d4ff]">VER 7.0.0</p>
+          <p id="s2-ver-b" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280]">BUILD // N7-2089</p>
           <div id="s2-ver-bar" class="w-[180px] h-[3px] bg-[#00d4ff] shadow-[0_0_8px_#00d4ff]"></div>
         </div>
 
-        <text id="s2-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 02 — MANIFESTO</text>
-        <text id="s2-meta2" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">REC ● 00:04.00</text>
+        <p id="s2-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 02 — MANIFESTO</p>
+        <p id="s2-meta2" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">REC ● 00:04.00</p>
       </div>
 
       <transition from="scene2" to="scene3" effect="GlitchDisplace" duration="0.5" timing="ease-in-out" />
@@ -286,67 +286,67 @@ export default function Nexus7() {
       
       <div id="scene3" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="4.4">
         <CyberBg id="s3-bg" />
-        <text id="s3-ghost" class="absolute right-[60px] top-[-50px] text-[380px] font-[orbitron] font-black text-[#00d4ff] opacity-[0.06] leading-[0.8]">03</text>
+        <p id="s3-ghost" class="absolute right-[60px] top-[-50px] text-[380px] font-[orbitron] font-black text-[#00d4ff] opacity-[0.06] leading-[0.8]">03</p>
 
         <div id="s3-kicker" class="absolute left-[120px] top-[140px] flex items-center gap-[16px]">
           <div id="s3-kick-line" class="w-[60px] h-[2px] bg-[#00ff88] shadow-[0_0_8px_#00ff88]"></div>
-          <text id="s3-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// CORE CAPABILITIES</text>
+          <p id="s3-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// CORE CAPABILITIES</p>
         </div>
-        <text id="s3-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#00ff8840]">三重神经能力</text>
-        <text id="s3-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ multimodal · realtime · autonomous</text>
+        <p id="s3-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#00ff8840]">三重神经能力</p>
+        <p id="s3-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ multimodal · realtime · autonomous</p>
 
         
         <div id="s3-c1" class="absolute left-[120px] top-[420px] w-[500px] h-[500px] border-[2px] border-[#2a2a3a] bg-[#12121a] flex flex-col p-[40px]">
           <Corners id="s3-c1-corners" color="#00ff88" />
-          <text id="s3-c1-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">01 / 03</text>
+          <p id="s3-c1-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">01 / 03</p>
           <div id="s3-c1-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#00ff88] flex items-center justify-center shadow-[0_0_16px_#00ff8860]">
             <svg id="s3-c1-ic" inline={ICONS.brain} class="w-[44px] h-[44px]" />
           </div>
-          <text id="s3-c1-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">多模态理解</text>
-          <text id="s3-c1-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">文本 · 图像 · 语音 · 视频 统一编码</text>
-          <text id="s3-c1-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#00ff88] [text-shadow:0_0_16px_#00ff8880]">128K</text>
-          <text id="s3-c1-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">CONTEXT WINDOW</text>
+          <p id="s3-c1-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">多模态理解</p>
+          <p id="s3-c1-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">文本 · 图像 · 语音 · 视频 统一编码</p>
+          <p id="s3-c1-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#00ff88] [text-shadow:0_0_16px_#00ff8880]">128K</p>
+          <p id="s3-c1-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">CONTEXT WINDOW</p>
           <div id="s3-c1-active" class="absolute right-[40px] top-[40px] flex items-center gap-[8px]">
             <div id="s3-c1-dot" class="w-[10px] h-[10px] bg-[#00ff88] shadow-[0_0_8px_#00ff88]"></div>
-            <text id="s3-c1-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#00ff88]">ACTIVE</text>
+            <p id="s3-c1-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#00ff88]">ACTIVE</p>
           </div>
         </div>
 
         
         <div id="s3-c2" class="absolute left-[710px] top-[420px] w-[500px] h-[500px] border-[2px] border-[#2a2a3a] bg-[#12121a] flex flex-col p-[40px]">
           <Corners id="s3-c2-corners" color="#ff00ff" />
-          <text id="s3-c2-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">02 / 03</text>
+          <p id="s3-c2-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">02 / 03</p>
           <div id="s3-c2-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#ff00ff] flex items-center justify-center shadow-[0_0_16px_#ff00ff60]">
             <svg id="s3-c2-ic" inline={ICONS.zap} class="w-[44px] h-[44px]" />
           </div>
-          <text id="s3-c2-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">实时推理</text>
-          <text id="s3-c2-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">稀疏激活 · 动态路由 · 流式输出</text>
-          <text id="s3-c2-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#ff00ff] [text-shadow:0_0_16px_#ff00ff80]">0.8ms</text>
-          <text id="s3-c2-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">TOKEN LATENCY</text>
+          <p id="s3-c2-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">实时推理</p>
+          <p id="s3-c2-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">稀疏激活 · 动态路由 · 流式输出</p>
+          <p id="s3-c2-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#ff00ff] [text-shadow:0_0_16px_#ff00ff80]">0.8ms</p>
+          <p id="s3-c2-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">TOKEN LATENCY</p>
           <div id="s3-c2-active" class="absolute right-[40px] top-[40px] flex items-center gap-[8px]">
             <div id="s3-c2-dot" class="w-[10px] h-[10px] bg-[#ff00ff] shadow-[0_0_8px_#ff00ff]"></div>
-            <text id="s3-c2-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#ff00ff]">ACTIVE</text>
+            <p id="s3-c2-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#ff00ff]">ACTIVE</p>
           </div>
         </div>
 
         
         <div id="s3-c3" class="absolute left-[1300px] top-[420px] w-[500px] h-[500px] border-[2px] border-[#2a2a3a] bg-[#12121a] flex flex-col p-[40px]">
           <Corners id="s3-c3-corners" color="#00d4ff" />
-          <text id="s3-c3-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">03 / 03</text>
+          <p id="s3-c3-num" class="font-[jmono] text-[20px] tracking-[4px] text-[#6b7280]">03 / 03</p>
           <div id="s3-c3-icon" class="mt-[24px] w-[80px] h-[80px] border-[2px] border-[#00d4ff] flex items-center justify-center shadow-[0_0_16px_#00d4ff60]">
             <svg id="s3-c3-ic" inline={ICONS.gitBranch} class="w-[44px] h-[44px]" />
           </div>
-          <text id="s3-c3-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">自主决策</text>
-          <text id="s3-c3-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">多步规划 · 工具调用 · 自我校验</text>
-          <text id="s3-c3-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#00d4ff] [text-shadow:0_0_16px_#00d4ff80]">99.4%</text>
-          <text id="s3-c3-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">TASK ACCURACY</text>
+          <p id="s3-c3-title" class="mt-[32px] font-[noto-sans] font-black text-[44px] text-[#e0e0e0]">自主决策</p>
+          <p id="s3-c3-desc" class="mt-[16px] font-[jmono] text-[22px] leading-[1.5] text-[#6b7280]">多步规划 · 工具调用 · 自我校验</p>
+          <p id="s3-c3-stat" class="mt-auto font-[orbitron] font-black text-[56px] text-[#00d4ff] [text-shadow:0_0_16px_#00d4ff80]">99.4%</p>
+          <p id="s3-c3-stat-l" class="font-[jmono] text-[18px] tracking-[3px] text-[#6b7280] uppercase">TASK ACCURACY</p>
           <div id="s3-c3-active" class="absolute right-[40px] top-[40px] flex items-center gap-[8px]">
             <div id="s3-c3-dot" class="w-[10px] h-[10px] bg-[#00d4ff] shadow-[0_0_8px_#00d4ff]"></div>
-            <text id="s3-c3-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#00d4ff]">ACTIVE</text>
+            <p id="s3-c3-active-t" class="font-[jmono] text-[18px] tracking-[2px] text-[#00d4ff]">ACTIVE</p>
           </div>
         </div>
 
-        <text id="s3-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 03 — CAPABILITIES</text>
+        <p id="s3-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 03 — CAPABILITIES</p>
       </div>
 
       <transition from="scene3" to="scene4" effect="slide" direction="from_right" duration="0.4" timing="ease-out" />
@@ -354,43 +354,43 @@ export default function Nexus7() {
       
       <div id="scene4" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="4.4">
         <CyberBg id="s4" />
-        <text id="s4-ghost" class="absolute left-[60px] top-[-50px] text-[380px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">04</text>
+        <p id="s4-ghost" class="absolute left-[60px] top-[-50px] text-[380px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">04</p>
 
         <div id="s4-kicker" class="absolute left-[120px] top-[140px] flex items-center gap-[16px]">
           <div id="s4-kick-line" class="w-[60px] h-[2px] bg-[#ff00ff] shadow-[0_0_8px_#ff00ff]"></div>
-          <text id="s4-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#ff00ff] uppercase">// BENCHMARK // PERFORMANCE</text>
+          <p id="s4-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#ff00ff] uppercase">// BENCHMARK // PERFORMANCE</p>
         </div>
-        <text id="s4-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#ff00ff40]">数据即重量</text>
-        <text id="s4-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ measured · not marketed</text>
+        <p id="s4-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#ff00ff40]">数据即重量</p>
+        <p id="s4-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ measured · not marketed</p>
 
         <div id="s4-stats" class="absolute left-[120px] top-[440px] right-[120px] flex justify-between gap-[60px]">
           <div id="s4-st1" class="flex flex-col w-[520px]">
-            <text id="s4-st1-num" class="font-[orbitron] font-black text-[180px] text-[#00ff88] leading-[1] [text-shadow:0_0_32px_#00ff8880]">7.3B</text>
+            <p id="s4-st1-num" class="font-[orbitron] font-black text-[180px] text-[#00ff88] leading-[1] [text-shadow:0_0_32px_#00ff8880]">7.3B</p>
             <div id="s4-st1-bar-track" class="mt-[28px] w-full h-[6px] bg-[#1c1c2e]">
               <div id="s4-st1-bar" class="h-full bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
             </div>
-            <text id="s4-st1-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">PARAMETERS</text>
-            <text id="s4-st1-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">激活参数 · 稀疏路由</text>
+            <p id="s4-st1-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">PARAMETERS</p>
+            <p id="s4-st1-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">激活参数 · 稀疏路由</p>
           </div>
           <div id="s4-st2" class="flex flex-col w-[520px]">
-            <text id="s4-st2-num" class="font-[orbitron] font-black text-[180px] text-[#ff00ff] leading-[1] [text-shadow:0_0_32px_#ff00ff80]">0.8ms</text>
+            <p id="s4-st2-num" class="font-[orbitron] font-black text-[180px] text-[#ff00ff] leading-[1] [text-shadow:0_0_32px_#ff00ff80]">0.8ms</p>
             <div id="s4-st2-bar-track" class="mt-[28px] w-full h-[6px] bg-[#1c1c2e]">
               <div id="s4-st2-bar" class="h-full bg-[#ff00ff] shadow-[0_0_10px_#ff00ff]"></div>
             </div>
-            <text id="s4-st2-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">TOKEN LATENCY</text>
-            <text id="s4-st2-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">首 token · 端到端</text>
+            <p id="s4-st2-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">TOKEN LATENCY</p>
+            <p id="s4-st2-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">首 token · 端到端</p>
           </div>
           <div id="s4-st3" class="flex flex-col w-[520px]">
-            <text id="s4-st3-num" class="font-[orbitron] font-black text-[180px] text-[#00d4ff] leading-[1] [text-shadow:0_0_32px_#00d4ff80]">99.4%</text>
+            <p id="s4-st3-num" class="font-[orbitron] font-black text-[180px] text-[#00d4ff] leading-[1] [text-shadow:0_0_32px_#00d4ff80]">99.4%</p>
             <div id="s4-st3-bar-track" class="mt-[28px] w-full h-[6px] bg-[#1c1c2e]">
               <div id="s4-st3-bar" class="h-full bg-[#00d4ff] shadow-[0_0_10px_#00d4ff]"></div>
             </div>
-            <text id="s4-st3-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">TASK ACCURACY</text>
-            <text id="s4-st3-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">MMLU · 综合 benchmark</text>
+            <p id="s4-st3-label" class="mt-[20px] font-[jmono] text-[26px] tracking-[3px] text-[#e0e0e0] uppercase">TASK ACCURACY</p>
+            <p id="s4-st3-sub" class="mt-[8px] font-[jmono] text-[20px] text-[#6b7280]">MMLU · 综合 benchmark</p>
           </div>
         </div>
 
-        <text id="s4-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 04 — TELEMETRY</text>
+        <p id="s4-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 04 — TELEMETRY</p>
       </div>
 
       <transition from="scene4" to="scene5" effect="wipe" direction="from_left" duration="0.4" timing="ease-in-out" />
@@ -402,25 +402,25 @@ export default function Nexus7() {
 
         <div id="s5-kicker" class="absolute left-[120px] top-[140px] flex items-center gap-[16px]">
           <div id="s5-kick-line" class="w-[60px] h-[2px] bg-[#00d4ff] shadow-[0_0_8px_#00d4ff]"></div>
-          <text id="s5-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00d4ff] uppercase">// NEURAL FABRIC // LIVE</text>
+          <p id="s5-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00d4ff] uppercase">// NEURAL FABRIC // LIVE</p>
         </div>
-        <text id="s5-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#00d4ff40]">神经织网</text>
-        <text id="s5-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ 7.3B synapses · streaming</text>
+        <p id="s5-title" class="absolute left-[120px] top-[190px] font-[noto-sans] font-black text-[88px] text-[#e0e0e0] leading-[1] [text-shadow:0_0_20px_#00d4ff40]">神经织网</p>
+        <p id="s5-title-en" class="absolute left-[124px] top-[300px] font-[jmono] text-[26px] tracking-[4px] text-[#6b7280] uppercase">/ 7.3B synapses · streaming</p>
 
         <div id="s5-hud" class="absolute right-[120px] top-[440px] w-[460px] border-[2px] border-[#00ff8860] bg-[#0a0a0f99] p-[32px] flex flex-col gap-[22px] shadow-[0_0_30px_#00ff8830]">
           <Corners id="s5-hud" color="#00ff88" />
-          <text id="s5-hud-t" class="font-[jmono] text-[22px] tracking-[4px] text-[#00ff88] uppercase">// LIVE METRICS</text>
+          <p id="s5-hud-t" class="font-[jmono] text-[22px] tracking-[4px] text-[#00ff88] uppercase">// LIVE METRICS</p>
           <div id="s5-hud-row1" class="flex justify-between items-center">
-            <text id="s5-hud-l1" class="font-[jmono] text-[22px] text-[#6b7280]">THROUGHPUT</text>
-            <text id="s5-hud-v1" class="font-[orbitron] font-black text-[34px] text-[#00ff88]">1.2M/s</text>
+            <p id="s5-hud-l1" class="font-[jmono] text-[22px] text-[#6b7280]">THROUGHPUT</p>
+            <p id="s5-hud-v1" class="font-[orbitron] font-black text-[34px] text-[#00ff88]">1.2M/s</p>
           </div>
           <div id="s5-hud-row2" class="flex justify-between items-center">
-            <text id="s5-hud-l2" class="font-[jmono] text-[22px] text-[#6b7280]">ACTIVE NODES</text>
-            <text id="s5-hud-v2" class="font-[orbitron] font-black text-[34px] text-[#00d4ff]">7,312</text>
+            <p id="s5-hud-l2" class="font-[jmono] text-[22px] text-[#6b7280]">ACTIVE NODES</p>
+            <p id="s5-hud-v2" class="font-[orbitron] font-black text-[34px] text-[#00d4ff]">7,312</p>
           </div>
           <div id="s5-hud-row3" class="flex justify-between items-center">
-            <text id="s5-hud-l3" class="font-[jmono] text-[22px] text-[#6b7280]">COHERENCE</text>
-            <text id="s5-hud-v3" class="font-[orbitron] font-black text-[34px] text-[#ff00ff]">98.7%</text>
+            <p id="s5-hud-l3" class="font-[jmono] text-[22px] text-[#6b7280]">COHERENCE</p>
+            <p id="s5-hud-v3" class="font-[orbitron] font-black text-[34px] text-[#ff00ff]">98.7%</p>
           </div>
           <div id="s5-hud-spark" class="w-full h-[40px] flex items-end gap-[4px]">
             <div id="s5-sp1" class="flex-1 bg-[#00ff88] h-[40%]"></div>
@@ -434,8 +434,8 @@ export default function Nexus7() {
           </div>
         </div>
 
-        <text id="s5-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 05 — FABRIC</text>
-        <text id="s5-coord" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">X:0960 Y:0540 · Z:N7</text>
+        <p id="s5-meta" class="absolute left-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// SCENE 05 — FABRIC</p>
+        <p id="s5-coord" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">X:0960 Y:0540 · Z:N7</p>
       </div>
 
       <transition from="scene5" to="scene6" effect="light_leak" duration="0.5" seed="7" hueShift="60" maskScale="0.6" />
@@ -444,29 +444,29 @@ export default function Nexus7() {
       <div id="scene6" class="relative w-full h-full bg-[#0a0a0f] overflow-hidden" duration="6.2">
         <CyberBg id="s6" />
         <div id="s6-glow" class="absolute left-[510px] top-[120px] w-[900px] h-[840px] bg-[radial-gradient(circle,rgba(0,255,136,0.18),transparent_70%)]"></div>
-        <text id="s6-ghost" class="absolute left-[80px] top-[180px] text-[520px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">N7</text>
+        <p id="s6-ghost" class="absolute left-[80px] top-[180px] text-[520px] font-[orbitron] font-black text-[#00ff88] opacity-[0.06] leading-[0.8]">N7</p>
 
         <div id="s6-kicker" class="absolute left-[120px] top-[180px] flex items-center gap-[16px]">
           <div id="s6-kick-line" class="w-[60px] h-[2px] bg-[#00ff88] shadow-[0_0_8px_#00ff88]"></div>
-          <text id="s6-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// ACCESS GRANTED</text>
+          <p id="s6-kick-t" class="font-[jmono] text-[24px] tracking-[6px] text-[#00ff88] uppercase">// ACCESS GRANTED</p>
         </div>
 
-        <text id="s6-hero" class="absolute left-[120px] top-[280px] font-[orbitron] font-black text-[140px] text-[#e0e0e0] uppercase leading-[0.9] tracking-[-2px] [text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]">ENTER{'\n'}THE NEXUS</text>
-        <text id="s6-zh" class="absolute left-[124px] top-[660px] font-[noto-sans] font-black text-[52px] text-[#00ff88] tracking-[10px] [text-shadow:0_0_24px_#00ff8890]">NEXUS-7 神经引擎 · 现已上线</text>
+        <p id="s6-hero" class="absolute left-[120px] top-[280px] font-[orbitron] font-black text-[140px] text-[#e0e0e0] uppercase leading-[0.9] tracking-[-2px] [text-shadow:-3px_0_#ff00ff,3px_0_#00d4ff,0_0_32px_#00ff8870]">ENTER{'\n'}THE NEXUS</p>
+        <p id="s6-zh" class="absolute left-[124px] top-[660px] font-[noto-sans] font-black text-[52px] text-[#00ff88] tracking-[10px] [text-shadow:0_0_24px_#00ff8890]">NEXUS-7 神经引擎 · 现已上线</p>
 
         <div id="s6-cta" class="absolute left-[124px] top-[820px] px-[56px] py-[26px] bg-[#00ff88] flex items-center gap-[20px] shadow-[0_0_20px_#00ff88,0_0_50px_#00ff8860]">
           <Corners id="s6-cta" color="#0a0a0f" />
-          <text id="s6-cta-t" class="font-[orbitron] font-black text-[40px] text-[#0a0a0f] uppercase tracking-[3px]">ACTIVATE</text>
+          <p id="s6-cta-t" class="font-[orbitron] font-black text-[40px] text-[#0a0a0f] uppercase tracking-[3px]">ACTIVATE</p>
           <svg id="s6-cta-ic" inline={ICONS.arrowRight} class="w-[36px] h-[36px]" />
         </div>
 
         <div id="s6-url-wrap" class="absolute left-[124px] top-[970px] flex items-center gap-[10px]">
-          <text id="s6-url" class="font-[jmono] text-[28px] tracking-[2px] text-[#6b7280]">&gt; nexus.ai // activate</text>
+          <p id="s6-url" class="font-[jmono] text-[28px] tracking-[2px] text-[#6b7280]">&gt; nexus.ai // activate</p>
           <div id="s6-cursor" class="w-[16px] h-[30px] bg-[#00ff88] shadow-[0_0_10px_#00ff88]"></div>
         </div>
 
-        <text id="s6-meta" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// END TRANSMISSION</text>
-        <text id="s6-meta2" class="absolute right-[120px] top-[180px] font-[jmono] text-[22px] tracking-[4px] text-[#00d4ff]">N7 · 2089</text>
+        <p id="s6-meta" class="absolute right-[120px] bottom-[120px] font-[jmono] text-[22px] tracking-[4px] text-[#6b7280]">// END TRANSMISSION</p>
+        <p id="s6-meta2" class="absolute right-[120px] top-[180px] font-[jmono] text-[22px] tracking-[4px] text-[#00d4ff]">N7 · 2089</p>
       </div>
 
     </tl>

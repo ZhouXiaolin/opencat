@@ -27,7 +27,7 @@ export function PlayerBar({ id, left, w, track, time0 }) {
         <div id={id + '-fill'} className="absolute left-0 top-0 w-0 h-full rounded-[2px] bg-white"></div>
         <div id={id + '-scrub'} className="absolute left-[-6px] top-[-4.5px] w-[12px] h-[12px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]"></div>
       </div>
-      <text id={id + '-time'} className="w-[110px] text-right text-[20px] leading-none tracking-[0.02em] opacity-[0.85] font-[hf-inter-med] text-[rgba(255,255,255,0.92)]">{time0}</text>
+      <p id={id + '-time'} className="w-[110px] text-right text-[20px] leading-none tracking-[0.02em] opacity-[0.85] font-[hf-inter-med] text-[rgba(255,255,255,0.92)]">{time0}</p>
     </div>
   );
 }

@@ -11,7 +11,7 @@ function Bar({ top, id }) {
         <div class="absolute left-0 top-0 h-full rounded-[2px] bg-white" style="width:420px" />
         <div class="absolute left-[-6px] top-[-4.5px] w-[12px] h-[12px] rounded-full bg-white shadow-[0_2px_6px_rgba(0,0,0,0.25)]" />
       </div>
-      <text class="w-[110px] text-right text-[20px] leading-none tracking-[0.02em] opacity-[0.85] font-[hf-inter-med] text-[rgba(255,255,255,0.92)]">0:00 / 0:02</text>
+      <p class="w-[110px] text-right text-[20px] leading-none tracking-[0.02em] opacity-[0.85] font-[hf-inter-med] text-[rgba(255,255,255,0.92)]">0:00 / 0:02</p>
     </div>
   );
 }

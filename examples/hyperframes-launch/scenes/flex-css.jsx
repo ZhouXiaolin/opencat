@@ -165,8 +165,8 @@ export default function FlexCss() {
           </div>
           <div id="fc-c8" className={CSS_CELL}><div id="fc-bounce" className="w-[36px] h-[36px] rounded-full bg-[#f4a261]"></div></div>
           <div id="fc-c9" className="rounded-[16px] bg-[#1a1a1a] overflow-hidden flex flex-col items-center justify-center gap-[6px]">
-            <text id="fc-title" className="text-[80px] leading-none tracking-[-0.04em] font-[hf-grotesk-bold] text-[#fafaf2]">CSS</text>
-            <text id="fc-sub" className="text-[20px] leading-none tracking-[0.16em] font-[hf-grotesk] text-[#777] uppercase">animations</text>
+            <p id="fc-title" className="text-[80px] leading-none tracking-[-0.04em] font-[hf-grotesk-bold] text-[#fafaf2]">CSS</p>
+            <p id="fc-sub" className="text-[20px] leading-none tracking-[0.16em] font-[hf-grotesk] text-[#777] uppercase">animations</p>
           </div>
           <div id="fc-c10" className={CSS_CELL}>
             <div className="grid grid-cols-3 gap-[8px]">

@@ -479,7 +479,7 @@ export const fonts = {
 export default function App() {
   return (
     <div id="root" class="w-full h-full">
-      <text id="t" class="font-sans text-white text-[24px]">你好</text>
+      <p id="t" class="font-sans text-white text-[24px]">你好</p>
     </div>
   );
 }

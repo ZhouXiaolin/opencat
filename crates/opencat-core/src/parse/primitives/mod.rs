@@ -16,5 +16,5 @@ pub use div::{Div, div};
 pub use image::{Image, ImageSource, OpenverseQuery, image};
 pub use lottie::{Lottie, LottieSource, lottie};
 pub use path::{Path, path};
-pub use text::{Text, text};
+pub use text::{Text, TextTag, span, text};
 pub use video::{Video, VideoSource, video, video_url};

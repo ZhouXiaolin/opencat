@@ -25,68 +25,57 @@ use opencat_core::script::runtime::{
 };
 
 /// Parse a JSX entry source into a [`ParsedComposition`].
+///
+/// 样式表只有一条来源：打包器嵌进 entry 段的 `export const css`
+/// （`opencat-plugin.mjs` 与 `scripts/build-example-bundle.mjs` 都写它）。没有
+/// css 时 class 不产生任何声明。
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
-    let (mut extract, driver) = extract_with_base_dir(input, base_dir)?;
-    // 样式表来源有两条：打包器嵌进 bundle 的 `export const css`（标准工程流），
-    // 以及裸 `.jsx` 的 sidecar 约定——入口同目录的 `tailwind.css`（docs/svg-align
-    // /PLAN.md）。sidecar 只补位，bundle 自带的 css 永远优先；两者都没有时 class
-    // 不产生任何声明。
-    if extract.get("css").map_or(true, Value::is_null) {
-        if let Some(css) = read_sidecar_css(base_dir) {
-            extract["css"] = Value::String(css);
-        }
-    }
+    let (extract, driver) = extract_with_base_dir(input, base_dir)?;
     opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
 }
 
-/// `tailwind.css` next to the entry file, if present. Reads by convention only:
-/// the stylesheet is compiled ahead of time (tools/build-example-css.mjs), so
-/// rendering never needs a Node/bun toolchain.
-fn read_sidecar_css(base_dir: Option<&Path>) -> Option<String> {
-    let path = base_dir?.join("tailwind.css");
-    if !path.is_file() {
-        return None;
-    }
-    match std::fs::read_to_string(&path) {
-        Ok(css) => Some(css),
-        Err(err) => {
-            eprintln!("jsx: ignoring unreadable sidecar {}: {err}", path.display());
-            None
+/// 单文件多模块段的段首标记：`/*@@oc-module:<spec>@@*/`。
+///
+/// 打包器把 gsap/three 的 CJS 产物与 entry 的 ESM 产物拼进同一个
+/// `dist/<stem>.bundle.jsx`，每段一个标记。分段的理由不是文件大小，而是
+/// `__ocResetFrame` 的跨帧保活（`jsx_runtime.js`）：它只保留 `gsap` / `three`
+/// / `canvaskit-wasm` 三个**模块表条目**，three 的 1.6MB 类定义每帧重估会
+/// OOM。段切开后键名与保活列表不变，运行时零改动。
+const SEGMENT_PREFIX: &str = "/*@@oc-module:";
+const SEGMENT_SUFFIX: &str = "@@*/";
+
+/// 按段首标记把 bundle 切成 `(spec, source)`。没有标记的裸 `.jsx`（以及标记
+/// 之前的正文）整体归到 [`ENTRY_SPEC`]，两种输入走同一条切段路径。
+fn split_bundle_segments(input: &str) -> Vec<(String, &str)> {
+    let mut segments: Vec<(String, &str)> = Vec::new();
+    let mut current: Option<String> = None;
+    let mut start = 0usize;
+    let mut offset = 0usize;
+    for line in input.split_inclusive('\n') {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix(SEGMENT_PREFIX)
+            && let Some(spec) = rest.strip_suffix(SEGMENT_SUFFIX)
+        {
+            match current.take() {
+                Some(spec) => segments.push((spec, &input[start..offset])),
+                // 第一个标记之前的正文（裸 `.jsx` 不会有）算 entry。
+                None if !input[start..offset].trim().is_empty() => {
+                    segments.push((ENTRY_SPEC.to_string(), &input[start..offset]));
+                }
+                None => {}
+            }
+            current = Some(spec.trim().to_string());
+            offset += line.len();
+            start = offset;
+            continue;
         }
+        offset += line.len();
     }
-}
-
-/// The project-supplied gsap bundle: `dist/gsap.bundle.mjs` under the entry
-/// directory — the same `dist/` the vite plugin writes the main bundle to, and
-/// where scripts/build-example-gsap.mjs puts the bare-jsx sidecar. Built
-/// ahead of time from the project's own node_modules, so rendering never
-/// needs a Node/bun toolchain and the engine carries no gsap source.
-fn gsap_sidecar_path(base_dir: Option<&Path>) -> PathBuf {
-    let base = base_dir.unwrap_or_else(|| Path::new("."));
-    base.join("dist").join("gsap.bundle.mjs")
-}
-
-/// The project-supplied three bundle: `dist/three.bundle.mjs` under the entry
-/// directory — same convention as the gsap sidecar above.
-fn three_sidecar_path(base_dir: Option<&Path>) -> PathBuf {
-    let base = base_dir.unwrap_or_else(|| Path::new("."));
-    base.join("dist").join("three.bundle.mjs")
-}
-
-/// Read and transform a project sidecar bundle (`gsap` / `three`) into a
-/// module-table entry. Shared by both specifiers: the sidecar is pre-bundled
-/// from the project's own node_modules, so rendering never needs a Node/bun
-/// toolchain and the engine carries no package source.
-fn load_sidecar(spec: &str, path: &Path) -> Result<String> {
-    let source = std::fs::read_to_string(path).with_context(|| {
-        format!(
-            "jsx: `{spec}` resolves to the project bundle `{}`, which does not exist — \
-             build it with the vite plugin (`bun run build`) or \
-             `bun scripts/build-example-{spec}.mjs <example-dir>`",
-            path.display()
-        )
-    })?;
-    Ok(transform_source(&source)?.0)
+    match current {
+        Some(spec) => segments.push((spec, &input[start..offset])),
+        None => segments.push((ENTRY_SPEC.to_string(), input)),
+    }
+    segments
 }
 
 /// Evaluate the entry module once and extract the tree: returns the extract
@@ -99,9 +88,9 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     // order mirrors `ScriptRealm::ensure_runtime` (style/canvas/three before
     // the JSX runtime) so the real-package builtins can forward to
     // `ctx.threejs` / `globalThis.CanvasKit` — author modules may `require`
-    // them at top level during extract. `gsap` is project-supplied: the
-    // sidecar bundle is materialized into `__ocModuleSources` in the walk
-    // below.
+    // them at top level during extract. `gsap` / `three` are project-supplied:
+    // their segments are materialized into `__ocModuleSources` by
+    // [`split_bundle_segments`].
     ctx.eval(CANVAS_API_RUNTIME)?;
     // rAF queue: the gsap bundle wakes its ticker once at eval time, which
     // schedules a tick — without this the load throws. Same shim (and same
@@ -121,46 +110,34 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
     ctx.eval(ANIMATION_RUNTIME)?;
     // Last: the JSX runtime itself — its package builtins forward to the
     // namespaces the runtimes above install. `gsap` is not installed here:
-    // it is project-supplied and materialized below from the sidecar bundle.
+    // it is project-supplied and materialized below from the bundle's own segment.
     ctx.eval(JSX_RUNTIME)?;
     // Web loading shims (fetch/Blob/URL/createImageBitmap over the engine's
     // asset natives) — self-guarded, a no-op without them.
     ctx.eval(ASSET_API_RUNTIME)?;
 
     let mut modules: BTreeMap<String, String> = BTreeMap::new();
-    let (entry_code, entry_requires) = transform_source(input)?;
-    modules.insert(ENTRY_SPEC.to_string(), entry_code);
-
     let mut queue: VecDeque<(String, String)> = VecDeque::new();
-    for spec in entry_requires {
-        queue.push_back((ENTRY_SPEC.to_string(), spec));
+
+    // 单文件多段：bundle 自带 gsap/three 段时先把它们灌进模块表，BFS 遇到
+    // 这些 specifier 就命中缓存直接跳过。裸 `.jsx` 只有一个段，行为不变。
+    for (spec, source) in split_bundle_segments(input) {
+        let (code, requires) = transform_source(source)?;
+        for next in &requires {
+            queue.push_back((spec.clone(), next.clone()));
+        }
+        modules.insert(spec, code);
     }
 
     while let Some((from, spec)) = queue.pop_front() {
         let key = match normalize_relative(&spec) {
             Some(key) => key,
             None => {
-                // `gsap` / `three` are project-supplied: the vite plugin (or
-                // scripts/build-example-{spec}.mjs) pre-bundles the npm
-                // package next to the main bundle. gsap subpaths
-                // (`gsap/SplitText`) are views over that one module in the
-                // JS runtime, so only the bare specifier is materialized
-                // here — but a module that imports ONLY a subpath never
-                // queues the bare specifier, so the subpath queues it on its
-                // behalf. `three/examples/jsm/*` subpaths stay folded into
-                // the main bundle by esbuild (only bare `three` is
-                // external), so no subpath handling is needed here.
-                let needs_gsap = spec == "gsap"
-                    || (spec.starts_with("gsap/") && spec.len() > "gsap/".len());
-                if needs_gsap && !modules.contains_key("gsap") {
-                    let code = load_sidecar("gsap", &gsap_sidecar_path(base_dir))?;
-                    modules.insert("gsap".to_string(), code);
-                }
-                if spec == "three" && !modules.contains_key("three") {
-                    let code = load_sidecar("three", &three_sidecar_path(base_dir))?;
-                    modules.insert("three".to_string(), code);
-                }
-                continue; // builtin (`opencat/runtime`) or non-relative spec
+                // `gsap` / `three` 由打包器切段带进来（见 split_bundle_segments）；
+                // 段缺失说明项目没装该包，模块图里也没有它，落到 JS 运行时的
+                // resolveSpec 报缺失包名。其余非相对 specifier（`opencat/runtime`
+                // 等内建）同理。
+                continue;
             }
         };
         if modules.contains_key(&key) {

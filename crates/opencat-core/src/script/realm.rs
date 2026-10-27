@@ -268,8 +268,9 @@ impl<C: JsContext> ScriptRealm<C> {
         self.ctx.eval(ANIMATION_RUNTIME)?;
         // JSX frontend: h() + use* registry + module loader. Pure-XML
         // compositions simply never call into it. The `gsap` package is NOT
-        // installed here: it is project-supplied (dist/gsap.bundle.mjs) and
-        // the per-composition driver injects it into __ocModuleSources.
+        // installed here: it is project-supplied (its own segment of the
+        // single-file bundle) and the per-composition driver injects it into
+        // __ocModuleSources.
         self.ctx.eval(JSX_RUNTIME)?;
         if let Some(registry) = &self.target_registry {
             apply_target_registry(&self.ctx, registry)?;

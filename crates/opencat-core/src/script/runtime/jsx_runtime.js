@@ -241,7 +241,7 @@
         var sources = globalThis.__ocModuleSources || {};
         if (Object.prototype.hasOwnProperty.call(sources, spec)) return spec;
         if (spec.charAt(0) !== '.') {
-            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "three", "canvaskit-wasm" resolve in-engine, and "gsap" (+ gsap/<Plugin> subpaths) is injected by the host from the project\'s dist/gsap.bundle.mjs; any other npm package must be bundled by the vite plugin)');
+            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "three", "canvaskit-wasm" resolve in-engine, and "gsap" (+ gsap/<Plugin> subpaths) lives in its own segment of the project bundle (a bare `.jsx` has no gsap segment); any other npm package must be bundled)');
         }
         var base = currentModule || '';
         var slash = base.lastIndexOf('/');
@@ -272,7 +272,7 @@
         if (spec !== 'gsap' && spec.indexOf('gsap/') === 0) {
             requireModule('gsap');
             var subpath = builtins[spec];
-            if (!subpath) throw new Error('use: gsap has no subpath "' + spec + '" (not in the project gsap.bundle.mjs export list)');
+            if (!subpath) throw new Error('use: gsap has no subpath "' + spec + '" (not in the project bundle gsap export list)');
             return subpath;
         }
         var key = resolveSpec(spec);
@@ -522,8 +522,8 @@
 
     // ── package builtins ────────────────────────────────────────────
     // `import { gsap } from 'gsap'` (oxc lowers to __ocRequire("gsap").gsap)
-    // resolves to the REAL npm package, bundled by the example project into
-    // dist/gsap.bundle.mjs and injected into __ocModuleSources by the host.
+    // resolves to the REAL npm package, bundled by the example project as the
+    // bundle's own `gsap` segment and injected into __ocModuleSources by the host.
     // canvaskit forwards to the ctx namespace, which really is its whole
     // surface. gsap is hook-gated: tween calls only mean something
     // inside a per-frame hook, where the scene clock is bound. Object
@@ -564,8 +564,8 @@
     // __ocRequire("gsap").gsap and `import gsap from 'gsap'` to .default —
     // so the builtin is the package's module record, not the namespace.
     //
-    // `gsap` resolves to the REAL npm package (the project's
-    // dist/gsap.bundle.mjs, injected by the host). The model stays
+    // `gsap` resolves to the REAL npm package (the bundle's `gsap`
+    // segment, injected by the host). The model stays
     // frame=f(t): the author writes declarative animation —
     // `gsap.timeline().to(...)`, `gsap.from(...)` — and NEVER drives it.
     // Creation registers the tween on the current hook; the hook runner seeks
@@ -574,10 +574,10 @@
     // the package's ticker.
     //
     // The package is project-supplied, so it is NOT present at realm
-    // bootstrap: requireModule('gsap') evaluates the sidecar module and then
-    // calls installGsapBuiltins once. A missing sidecar is a project error
-    // (the host reports it when it cannot read the file); there is no
-    // fallback surface.
+    // bootstrap: requireModule('gsap') evaluates the module and then calls
+    // installGsapBuiltins once. A missing segment is a project error (the
+    // runtime's resolveSpec reports the unknown module); there is no fallback
+    // surface.
     function installGsapBuiltins(gsapPackage) {
         if (builtins['gsap']) return;
         // animate = g(t) plumbing: register every created tween on the
@@ -684,7 +684,7 @@
         // `import { CustomEase } from 'gsap/CustomEase'` — the npm package's own
         // per-plugin subpaths. Each record carries the plugin as both the named
         // and the default export, so the documented import line works verbatim;
-        // the sidecar entry already registered every plugin on the core.
+        // the gsap entry already registered every plugin on the core.
         var gsapSubpaths = [
             'CSSPlugin',
             'CustomEase',

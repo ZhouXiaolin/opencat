@@ -1156,7 +1156,7 @@ fn canvas_namespace_make_surface_resolves_element_and_draws() {
 
 // ── C-4: real-package builtins (pure forwards) + hook gate ────────────────
 // `import { gsap } from 'gsap'` is project-supplied: the host materializes
-// dist/gsap.bundle.mjs into __ocModuleSources['gsap'], and the runtime's
+// the bundle's gsap segment into __ocModuleSources['gsap'], and the runtime's
 // install pass adds target normalization, the paused protocol and the hook
 // gate on top of the raw package. These tests drive that exact protocol with
 // a stub package; gsap's animation semantics are covered by the rendered

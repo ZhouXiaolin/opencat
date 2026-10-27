@@ -35,7 +35,7 @@
 #   REFERENCE           compare the web render against this video instead of
 #                       the native engine (adds --reference)
 #   START_FRAME/END_FRAME  restrict the sampled frame range
-#   BASE_DIR            composition-relative root (assets, dist/gsap.bundle.mjs);
+#   BASE_DIR            composition-relative root (assets);
 #                       needed when EXAMPLE is a dist/ bundle
 #   SAVE_ALL=1          keep engine/web/diff PNGs for every sample
 #   SKIP_BUILD=1        reuse existing opencat-web-compare binary

@@ -1,6 +1,6 @@
 // 动画属性注册表：ocTarget 桥（ctx.getNode(id).prop(v) 的 descriptor 转
 // 发）的唯一支撑。补间引擎与 ctx.* 方言面已退役——作者动画一律走官方
-// gsap（项目侧 dist/gsap.bundle.mjs 供货）。
+// gsap（项目侧 bundle 的 gsap 模块段供货）。
 (function() {
     var runtime = {};
 

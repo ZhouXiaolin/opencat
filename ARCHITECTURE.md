@@ -40,7 +40,7 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 
 1. **esbuild external**：`opencat/runtime`、`gsap`、`three`、`canvaskit-wasm` 在主 bundle 保持 external（`packages/create-opencat/template/opencat-plugin.mjs`）。
 2. **模块表按目标供货**：core 模块表把包名解析到承接面；web 目标解析到官方包。
-3. **sidecar**：gsap 由项目侧预打包 `dist/gsap.bundle.mjs`（esbuild cjs，入口 `scripts/gsap-entry.mjs`），引擎 BFS 遇 `'gsap'` 读 sidecar 注入 `__ocModuleSources`，缺失报错指路。three 同模板（纯 JS 可 bundle）。**canvaskit-wasm 例外：不打官方 bundle、不加载真 .wasm**——官方 JS 层只是 API 糖 + WASM 装载器，绘制语义在 DrawOp + 两端重放器；模块表把 `'canvaskit-wasm'` 解析到官方签名 facade，`CanvasKitInit({locateFile})` 桩直接 resolve。
+3. **单文件多模块段**：gsap/three 由项目侧预打包成 CJS（入口 `scripts/gsap-entry.mjs` / `scripts/three-entry.mjs`），与 entry 的 ESM 产物拼进同一个 `dist/<stem>.bundle.jsx`，每段以 `/*@@oc-module:<spec>@@*/` 起头。引擎开文件时按标记切段灌进 `__ocModuleSources`（`crates/opencat-engine/src/jsx.rs::split_bundle_segments`），缺段则 `'gsap'` / `'three'` 落到 resolveSpec 报未知模块。分段而非内联的理由是第 4 条的常驻豁免：three 的 1.6MB 类定义必须保持独立模块条目才能跨帧存活。样式表同样自包含：tailwind 产物以 `export const css` 嵌在 entry 段里，引擎只读这一处，入口同目录不再有 `tailwind.css`。**canvaskit-wasm 例外：不打官方 bundle、不加载真 .wasm**——官方 JS 层只是 API 糖 + WASM 装载器，绘制语义在 DrawOp + 两端重放器；模块表把 `'canvaskit-wasm'` 解析到官方签名 facade，`CanvasKitInit({locateFile})` 桩直接 resolve。
 4. **惰性装配 + 常驻豁免**：包模块首次 require 时装配（patch/gate/子路径视图），`__ocResetFrame` 豁免常驻，防每帧重执行。异步初始化桩立即 resolve（确定性增强：首帧资源可见）。
 5. **出口拦截**：拦截点在出口不在面内。gsap=tween 工厂包装（paused 协议 + target 归一）；three=`WebGLRenderer` 构造/render（场景图/矩阵/ColorManagement 全由官方包跑，updateMatrixWorld 纯 JS 确定）；canvaskit=API 调用即记录。
 

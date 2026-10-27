@@ -109,7 +109,7 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     save_all: bool,
 
-    /// Directory for composition-relative paths (`assets/...`, `dist/gsap.bundle.mjs`).
+    /// Directory for composition-relative paths (`assets/...`).
     /// Defaults to the input file's directory. Set it when the input is a build
     /// artifact in `dist/` — the compiled bundle is the only entry that carries
     /// the compiled stylesheet.

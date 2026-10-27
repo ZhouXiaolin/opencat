@@ -590,6 +590,17 @@
             api = new Proxy(members, {
                 get(t, prop) {
                     if (typeof prop !== 'string' || prop === 'then') return undefined;
+                    // `width` / `height` 是 `<canvas>` 的内容尺寸数据属性，
+                    // 会遮住作者句柄的链式写入 `ctx.getNode(id).width(v)`。
+                    // 非 canvas 节点没有数据属性，落回 applyMutation。
+                    if (prop === 'width' || prop === 'height') {
+                        if (tagFor(id) !== 'canvas') {
+                            return (...args) => {
+                                applyMutation(id, prop, ...args);
+                                return api;
+                            };
+                        }
+                    }
                     if (prop in t) return t[prop];
                     if (prop in own) return own[prop];
                     return (...args) => {

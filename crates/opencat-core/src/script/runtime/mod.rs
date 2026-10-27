@@ -58,7 +58,7 @@ pub const JSX_RUNTIME: &str = include_str!("jsx_runtime.js");
 // (bootstrap) + property descriptors (properties/) + the bridge's three helper
 // functions (core.js). The tween engine and the ctx.* facade/plugins are
 // retired; author animation runs on the official gsap supplied by the project
-// (dist/gsap.bundle.mjs).
+// as its own segment of the single-file bundle.
 pub const ANIMATION_BOOTSTRAP: &str = include_str!("animation/bootstrap.js");
 pub const ANIMATION_CORE: &str = include_str!("animation/core.js");
 

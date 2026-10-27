@@ -285,9 +285,8 @@ fn prepare_frame(
 
     // Frame-embedded encoded images (svg `<image>` bytes interned by core).
     // Core forwards the bytes untouched; decoding is engine work. Drawn at
-    // natural decode size through the CTM — no draw-size pre-shrink, svg
-    // alignment wants resvg's single bicubic resample.
-    let mut encoded_pixmaps = HashMap::new();
+    // natural decode size through the CTM — no draw-size pre-shrink, one
+    // bicubic resample from natural pixels to device pixels.
     for entry in &plan.encoded_images {
         let image_ref = ImageRef::Encoded { data: entry.data };
         let sk_image = video.encoded_image(entry.data, &entry.bytes).map_err(|e| {
@@ -296,11 +295,6 @@ fn prepare_frame(
                 detail: e.to_string(),
             }
         })?;
-        // tiny Pattern 重采样的解码像素在 encoded_image 内生成（resvg 字节
-        // 布局）；这里取用即可。缺失不致命，回退 Skia 路径。
-        if let Some(pm) = video.encoded_tiny_pixmap(entry.data) {
-            encoded_pixmaps.insert(image_ref.clone(), pm);
-        }
         let idx = sk_images.len();
         sk_images.push(sk_image);
         image_scales.push(1.0);
@@ -444,7 +438,6 @@ fn prepare_frame(
         image_index,
         runtime_effects,
         image_scales,
-        encoded_pixmaps,
     })
 }
 

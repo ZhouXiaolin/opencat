@@ -429,10 +429,10 @@ pub enum DrawOp {
     },
 
     /// svg `<pattern>` 填充：tile 内容是一次 picture recording（subtree），
-    /// 引擎按 resvg `render_pattern_pixmap` 的语义离屏重放成 tile 像素，
-    /// 再以 tiny Pattern（Repeat+Bicubic）平铺填充 `path`。
-    /// `pattern_transform` 是 asAffine 序 [sx ky kx sy tx ty]（tiny 0.12
-    /// from_row 的对接序；skia to_affine 同序）。
+    /// 引擎按设备密度（tile × (CTM ∘ patternTransform) 的 scale 分量）离屏
+    /// 重放成 tile 图，再以 Repeat image shader 平铺填充 `path`。
+    /// `pattern_transform` 是 asAffine 序 [sx ky kx sy tx ty]（skia
+    /// to_affine 同序）。
     FillPattern {
         path: PathId,
         subtree: SubtreeId,
@@ -442,8 +442,8 @@ pub enum DrawOp {
     },
 
     /// svg `<pattern>` 描边：同 [`DrawOp::FillPattern`]，但平铺结果沿
-    /// `stroke` 描边（resvg 的 stroke pattern 同语义）。stroke 内联（不进
-    /// paint 表），只有 width/cap/join/miter 四个定长字段。
+    /// `stroke` 描边。stroke 内联（不进 paint 表），只有
+    /// width/cap/join/miter 四个定长字段。
     StrokePattern {
         path: PathId,
         subtree: SubtreeId,
@@ -454,11 +454,11 @@ pub enum DrawOp {
     },
 
     /// svg `<mask>`：内容子树（user space 坐标，与使用处同系）离屏渲染成
-    /// 逐像素遮罩——luminance（demul 后 0.2126R+0.7152G+0.0722B 再乘
-    /// alpha，sRGB 直算，tiny-skia 同式 ceil）或 alpha——作为连续 coverage
-    /// clip 作用于其后绘制。`region` 是 usvg 归一后的 mask 矩形（region 外
-    /// 遮罩为 0）。`kind`：0=luminance、1=alpha。嵌套 mask（mask.mask()）
-    /// 由 emit 侧展开为串联的多个 MaskClip。
+    /// 逐像素遮罩——luminance（SVG spec：demul 后 0.2126R+0.7152G+0.0722B
+    /// 再乘 alpha，sRGB 直算）或 alpha——作为连续 coverage clip 作用于其后
+    /// 绘制。`region` 是 usvg 归一后的 mask 矩形（region 外遮罩为 0）。
+    /// `kind`：0=luminance、1=alpha。嵌套 mask（mask.mask()）由 emit 侧
+    /// 展开为串联的多个 MaskClip。
     MaskClip {
         subtree: SubtreeId,
         kind: u8,

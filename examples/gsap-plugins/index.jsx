@@ -345,7 +345,7 @@ export default function PluginsShowcase() {
                     'background-color': '#fbbf24',
                 }}
             />
-            <text
+            <p
                 id="scramble-text"
                 style={{
                     position: 'absolute',
@@ -359,8 +359,8 @@ export default function PluginsShowcase() {
                     ScrambleText 的 lengthDif 按初始文本长度算，多一个
                     空格就少揭示一位。 */}
                 {'DECODED PAYLOAD'}
-            </text>
-            <text
+            </p>
+            <p
                 id="text-target"
                 style={{
                     position: 'absolute',
@@ -371,9 +371,9 @@ export default function PluginsShowcase() {
                 }}
             >
                 {'start'}
-            </text>
+            </p>
             {/* SplitText 三段：同一块区域三行，各用不同 type 拆分。 */}
-            <text
+            <p
                 id="split-chars"
                 style={{
                     position: 'absolute',
@@ -384,8 +384,8 @@ export default function PluginsShowcase() {
                 }}
             >
                 {SPLIT_CHARS}
-            </text>
-            <text
+            </p>
+            <p
                 id="split-words"
                 style={{
                     position: 'absolute',
@@ -396,8 +396,8 @@ export default function PluginsShowcase() {
                 }}
             >
                 {SPLIT_WORDS}
-            </text>
-            <text
+            </p>
+            <p
                 id="split-lines"
                 style={{
                     position: 'absolute',
@@ -409,7 +409,7 @@ export default function PluginsShowcase() {
                 }}
             >
                 {SPLIT_LINES}
-            </text>
+            </p>
         </div>
     );
 }

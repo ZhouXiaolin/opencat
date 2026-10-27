@@ -26,6 +26,8 @@ use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
 use crate::render::builder::DrawOpBuilder;
 
+mod svg_text;
+
 // ---------------------------------------------------------------------------
 // Tree 加载与缓存
 // ---------------------------------------------------------------------------
@@ -130,6 +132,10 @@ pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4) {
         for (i, p) in builder.paints_debug().iter().enumerate() {
             eprintln!("  [{}] {:?}", i, p);
         }
+        eprintln!("[svg] paths:");
+        for (i, p) in builder.paths_debug().iter().enumerate() {
+            eprintln!("  [{}] fill={:?} first={:?} last={:?} n={}", i, p.fill_type, p.ops.first(), p.ops.last(), p.ops.len());
+        }
     }
 }
 
@@ -177,8 +183,9 @@ fn render_node(
             render_image(builder, state, image);
         }
         usvg::Node::Text(text) => {
-            // usvg 已把 text 排版成 glyph path 组（PLAN §3：按 path 走）。
-            render_group(builder, state, text.flattened());
+            // Linear 流走 core 文本栈（cosmic-text shaping + 本模块 SVG
+            // 定位语义）；竖排/textPath 回退 usvg 布局（svg_text 模块）。
+            svg_text::render_text(builder, state, text);
         }
     }
 }
@@ -678,7 +685,11 @@ fn fill_type(rule: Option<usvg::FillRule>) -> FillType {
 
 /// 填充 paint；无 fill 或渐变缺 stop 时返回 None。
 fn fill_paint(path: &usvg::Path, aa: bool) -> Option<PaintSpec> {
-    let fill = path.fill()?;
+    fill_paint_of(path.fill()?, aa)
+}
+
+/// `usvg::Fill` → paint（text glyph 与 path 共用）。
+fn fill_paint_of(fill: &usvg::Fill, aa: bool) -> Option<PaintSpec> {
     let fill_spec = paint_to_fill(fill.paint(), fill.opacity())?;
     Some(PaintSpec {
         fill: fill_spec,
@@ -694,7 +705,11 @@ fn fill_paint(path: &usvg::Path, aa: bool) -> Option<PaintSpec> {
 }
 
 fn stroke_paint(path: &usvg::Path, aa: bool) -> Option<PaintSpec> {
-    let stroke = path.stroke()?;
+    stroke_paint_of(path.stroke()?, aa)
+}
+
+/// `usvg::Stroke` → paint（text glyph 与 path 共用）。
+fn stroke_paint_of(stroke: &usvg::Stroke, aa: bool) -> Option<PaintSpec> {
     if stroke.width().get() <= 0.0 {
         return None;
     }

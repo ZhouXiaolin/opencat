@@ -146,7 +146,9 @@
         if (bytes === undefined) {
             var len = __opencatAssetStat(url);
             if (len < 0) {
-                return Promise.reject(new Error('fetch: asset not found: ' + url));
+                var err = new Error('fetch: asset not found: ' + url);
+                if (typeof console !== 'undefined' && console.error) console.error(err.message);
+                return Promise.reject(err);
             }
             bytes = new Uint8Array(len);
             __opencatAssetReadInto(url, bytes);
@@ -155,8 +157,11 @@
     };
 
     if (!globalThis.URL) globalThis.URL = {};
+    // 返回值必须带真 `blob:` 前缀：three 的 LoaderUtils.resolveURL 对
+    // /^blob:/ 白名单放行，自定义前缀会被当相对路径拼上 resourcePath
+    //（`assets/oc-blob:1`），GLB 全部内嵌贴图 404。
     globalThis.URL.createObjectURL = function (blob) {
-        var key = 'oc-blob:' + (blobSeq++);
+        var key = 'blob:oc/' + (blobSeq++);
         blobRegistry[key] = bytesOf(blob) || new Uint8Array(0);
         return key;
     };
@@ -170,12 +175,16 @@
     globalThis.createImageBitmap = function (source) {
         var bytes = bytesOf(source);
         if (!bytes) {
-            return Promise.reject(new Error('createImageBitmap: unsupported source'));
+            var e0 = new Error('createImageBitmap: unsupported source');
+            if (typeof console !== 'undefined' && console.error) console.error(e0.message);
+            return Promise.reject(e0);
         }
         var sid = 'ibm-' + (bitmapSeq++);
         var info = __opencatImageDecodeInto(bytes, sid);
         if (!info) {
-            return Promise.reject(new Error('createImageBitmap: decode failed'));
+            var e1 = new Error('createImageBitmap: decode failed (' + bytes.length + ' bytes)');
+            if (typeof console !== 'undefined' && console.error) console.error(e1.message);
+            return Promise.reject(e1);
         }
         var surface = globalThis.ctx.__surfaceById(sid, info.width, info.height);
         return Promise.resolve(surface);

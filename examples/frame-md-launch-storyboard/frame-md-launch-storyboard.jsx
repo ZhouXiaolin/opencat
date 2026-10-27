@@ -64,20 +64,20 @@ function SlideFurniture(p) {
   var hide = p.hide ? ' opacity-0' : '';
   return (
     <div>
-      <text id={pre + 'kicker'} class="absolute left-[190px] top-[300px] font-[fl-sans-bold] font-[700] text-[28px] leading-none tracking-[6.2px] text-[#6e6e74] whitespace-nowrap">TRANSLATED FOR VIDEO</text>
+      <p id={pre + 'kicker'} class="absolute left-[190px] top-[300px] font-[fl-sans-bold] font-[700] text-[28px] leading-none tracking-[6.2px] text-[#6e6e74] whitespace-nowrap">TRANSLATED FOR VIDEO</p>
       <div id={pre + 'hero'} class={'absolute left-[190px] top-[400px] font-[fl-sans-bold] font-[700] text-[116px] leading-[1.02] tracking-[-4.6px] text-[#ffffff]' + hide}>
-        <text id={pre + 'hero-l1'} class="whitespace-nowrap">Interfaces,</text>
+        <p id={pre + 'hero-l1'} class="whitespace-nowrap">Interfaces,</p>
         <div class="flex flex-row items-start">
-          <text class="whitespace-nowrap">{'not '}</text>
+          <p class="whitespace-nowrap">{'not '}</p>
           <div class="relative">
-            <text class="whitespace-nowrap">videos</text>
+            <p class="whitespace-nowrap">videos</p>
             <div id={pre + 'hero-u'} class="absolute left-[0px] bottom-[6px] w-full h-[9px] bg-[#ffffff]"></div>
           </div>
         </div>
       </div>
-      <text id={pre + 'sub'} class={'absolute left-[190px] top-[660px] w-[1100px] font-[fl-sans] text-[38px] leading-[1.4] text-[#a0a0a6]' + hide}>Hand an agent a screen-design spec and the brand arranges itself like slides — not frames.</text>
-      <text id={pre + 'brand'} class={'absolute left-[190px] top-[952px] font-[fl-sans-bold] font-[700] text-[30px] leading-none text-[#ffffff] whitespace-nowrap' + hide}>DESIGN.md</text>
-      <text id={pre + 'page'} class={'absolute right-[190px] bottom-[96px] font-[fl-sans-bold] font-[700] text-[26px] leading-none text-[#7a7a80] whitespace-nowrap' + hide}>01</text>
+      <p id={pre + 'sub'} class={'absolute left-[190px] top-[660px] w-[1100px] font-[fl-sans] text-[38px] leading-[1.4] text-[#a0a0a6]' + hide}>Hand an agent a screen-design spec and the brand arranges itself like slides — not frames.</p>
+      <p id={pre + 'brand'} class={'absolute left-[190px] top-[952px] font-[fl-sans-bold] font-[700] text-[30px] leading-none text-[#ffffff] whitespace-nowrap' + hide}>DESIGN.md</p>
+      <p id={pre + 'page'} class={'absolute right-[190px] bottom-[96px] font-[fl-sans-bold] font-[700] text-[26px] leading-none text-[#7a7a80] whitespace-nowrap' + hide}>01</p>
     </div>
   );
 }
@@ -136,9 +136,9 @@ function Scene1() {
     <div id="s1-root" class="absolute inset-0 overflow-hidden bg-[#f7f7f5] z-[11]">
       <div id="s1-stage" class="absolute inset-0 flex flex-row items-center justify-center bg-[#f7f7f5]">
         <div id="s1-token" class="flex flex-row items-center justify-center font-[fl-mono-bold] text-[122px] leading-none text-[#050505]">
-          <div id="s1-fw" class="w-[0px] overflow-hidden whitespace-nowrap"><text>FRAME</text></div>
-          <div id="s1-dw" class="w-[0px] overflow-hidden whitespace-nowrap"><text>DESIGN</text></div>
-          <div id="s1-sw" class="w-[0px] overflow-hidden whitespace-nowrap"><text>.md</text></div>
+          <div id="s1-fw" class="w-[0px] overflow-hidden whitespace-nowrap"><p>FRAME</p></div>
+          <div id="s1-dw" class="w-[0px] overflow-hidden whitespace-nowrap"><p>DESIGN</p></div>
+          <div id="s1-sw" class="w-[0px] overflow-hidden whitespace-nowrap"><p>.md</p></div>
           <div id="s1-caret" class="w-[8px] h-[116px] ml-[20px] rounded-[4px] bg-[#050505]"></div>
         </div>
         <div id="s1-cursor" class="absolute left-[0px] top-[0px] w-[92px] h-[112px] opacity-0">
@@ -161,27 +161,27 @@ function MzDoc() {
   ];
   return (
     <div id="s2-mz" class="absolute left-[52px] top-[56px] w-[696px] font-[fl-sans] text-[#f1f1f1]">
-      <text id="s2-mzh1" class="absolute left-[0px] top-[0px] font-[fl-sans-med] font-[500] text-[56px] leading-[1.1] whitespace-nowrap">DESIGN.md</text>
-      <text id="s2-mzh2" class="absolute left-[0px] top-[85.1px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Style Prompt</text>
+      <p id="s2-mzh1" class="absolute left-[0px] top-[0px] font-[fl-sans-med] font-[500] text-[56px] leading-[1.1] whitespace-nowrap">DESIGN.md</p>
+      <p id="s2-mzh2" class="absolute left-[0px] top-[85.1px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Style Prompt</p>
       <div id="s2-scroll" class="absolute left-[0px] top-[141.2px] w-[696px]">
-        <text id="s2-p1" class="absolute left-[0px] top-[0px] w-[486px] text-[27px] leading-[1.55]">Horizontal launch video built around local background removal and maximal caption energy.</text>
-        <text id="s2-p2" class="absolute left-[0px] top-[152.55px] w-[486px] text-[27px] leading-[1.55]">Use a dark terminal surface, crisp white type, and confident motion cues.</text>
-        <text id="s2-h2c" class="absolute left-[0px] top-[298.95px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Colors</text>
+        <p id="s2-p1" class="absolute left-[0px] top-[0px] w-[486px] text-[27px] leading-[1.55]">Horizontal launch video built around local background removal and maximal caption energy.</p>
+        <p id="s2-p2" class="absolute left-[0px] top-[152.55px] w-[486px] text-[27px] leading-[1.55]">Use a dark terminal surface, crisp white type, and confident motion cues.</p>
+        <p id="s2-h2c" class="absolute left-[0px] top-[298.95px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Colors</p>
         {CL.map(function (l, i) {
           return (
             <div id={'s2-cl' + i} class={'absolute left-[0px] top-[' + (361 + i * 53.73) + 'px] flex flex-row items-center font-[fl-sans] text-[27px] leading-[1.55]'}>
-              <text class="whitespace-nowrap">{'- '}</text>
-              <text class={'whitespace-nowrap text-[' + l.c + ']'}>{l.hex}</text>
-              <text class="whitespace-nowrap">{' ' + l.d}</text>
+              <p class="whitespace-nowrap">{'- '}</p>
+              <p class={'whitespace-nowrap text-[' + l.c + ']'}>{l.hex}</p>
+              <p class="whitespace-nowrap">{' ' + l.d}</p>
             </div>
           );
         })}
-        <text id="s2-h2t" class="absolute left-[0px] top-[605.66px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Typography</text>
-        <text id="s2-p3" class="absolute left-[0px] top-[661.76px] w-[486px] text-[27px] leading-[1.55]">Inter / system sans, heavy weights. SF Mono for terminal and spec surfaces.</text>
-        <text id="s2-p4" class="absolute left-[0px] top-[772.46px] w-[486px] text-[27px] leading-[1.55]">Specialty caption moments may borrow self, stroke, glow, pill, and texture treatments.</text>
-        <text id="s2-h2k" class="absolute left-[0px] top-[918.86px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Components</text>
-        <text id="s2-p5" class="absolute left-[0px] top-[974.96px] w-[486px] text-[27px] leading-[1.55]">Cards, badges, nav bars, feature grids, buttons, panels.</text>
-        <text id="s2-p6" class="absolute left-[0px] top-[1085.66px] w-[486px] text-[27px] leading-[1.55]">Favor web-interface primitives when describing pages and product surfaces.</text>
+        <p id="s2-h2t" class="absolute left-[0px] top-[605.66px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Typography</p>
+        <p id="s2-p3" class="absolute left-[0px] top-[661.76px] w-[486px] text-[27px] leading-[1.55]">Inter / system sans, heavy weights. SF Mono for terminal and spec surfaces.</p>
+        <p id="s2-p4" class="absolute left-[0px] top-[772.46px] w-[486px] text-[27px] leading-[1.55]">Specialty caption moments may borrow self, stroke, glow, pill, and texture treatments.</p>
+        <p id="s2-h2k" class="absolute left-[0px] top-[918.86px] font-[fl-sans-med] font-[500] text-[34px] leading-[1.15] whitespace-nowrap">## Components</p>
+        <p id="s2-p5" class="absolute left-[0px] top-[974.96px] w-[486px] text-[27px] leading-[1.55]">Cards, badges, nav bars, feature grids, buttons, panels.</p>
+        <p id="s2-p6" class="absolute left-[0px] top-[1085.66px] w-[486px] text-[27px] leading-[1.55]">Favor web-interface primitives when describing pages and product surfaces.</p>
       </div>
     </div>
   );
@@ -189,7 +189,7 @@ function MzDoc() {
 
 // one hook word (id + text); positions come from a centered flex row per line.
 function HookWord(p) {
-  return <text id={p.id} class="whitespace-nowrap opacity-0">{p.t}</text>;
+  return <p id={p.id} class="whitespace-nowrap opacity-0">{p.t}</p>;
 }
 
 function Scene2() {
@@ -329,11 +329,11 @@ function Scene2() {
           <MzDoc />
         </div>
         <div id="s2-anno" class="absolute inset-0">
-          <text id="s2-aw" class="absolute font-[fl-hand] text-[95px] leading-none text-[#000000] whitespace-nowrap">Written</text>
-          <text id="s2-af" class="absolute font-[fl-sans-bold] font-[700] text-[56px] leading-none text-[#000000] whitespace-nowrap">f</text>
-          <text id="s2-ao" class="absolute font-[fl-sans-bold] font-[700] text-[56px] leading-none text-[#000000] whitespace-nowrap">o</text>
-          <text id="s2-ar" class="absolute font-[fl-sans-bold] font-[700] text-[56px] leading-none text-[#000000] whitespace-nowrap">r</text>
-          <text id="s2-apages" class="absolute left-[628px] top-[13px] font-[fl-sans-bold] font-[700] text-[54px] leading-none text-[#000000] whitespace-nowrap">pages</text>
+          <p id="s2-aw" class="absolute font-[fl-hand] text-[95px] leading-none text-[#000000] whitespace-nowrap">Written</p>
+          <p id="s2-af" class="absolute font-[fl-sans-bold] font-[700] text-[56px] leading-none text-[#000000] whitespace-nowrap">f</p>
+          <p id="s2-ao" class="absolute font-[fl-sans-bold] font-[700] text-[56px] leading-none text-[#000000] whitespace-nowrap">o</p>
+          <p id="s2-ar" class="absolute font-[fl-sans-bold] font-[700] text-[56px] leading-none text-[#000000] whitespace-nowrap">r</p>
+          <p id="s2-apages" class="absolute left-[628px] top-[13px] font-[fl-sans-bold] font-[700] text-[54px] leading-none text-[#000000] whitespace-nowrap">pages</p>
         </div>
       </div>
 
@@ -344,19 +344,19 @@ function Scene2() {
           <div class="w-[15px] h-[15px] rounded-[999px] bg-[#ffbd2e]"></div>
           <div class="w-[15px] h-[15px] rounded-[999px] bg-[#28c840]"></div>
         </div>
-        <div class="grow text-center font-[fl-mono] text-[22px] text-[#66666b]"><text class="whitespace-nowrap">brand.com</text></div>
+        <div class="grow text-center font-[fl-mono] text-[22px] text-[#66666b]"><p class="whitespace-nowrap">brand.com</p></div>
       </div>
       <div id="s2-navmenu" class="absolute left-[1140px] top-[196px] flex flex-row gap-[38px] font-[fl-sans] text-[24px] text-[#9a9aa0] z-[2] opacity-0">
-        <text class="whitespace-nowrap">Product</text><text class="whitespace-nowrap">Docs</text><text class="whitespace-nowrap">Pricing</text>
+        <p class="whitespace-nowrap">Product</p><p class="whitespace-nowrap">Docs</p><p class="whitespace-nowrap">Pricing</p>
       </div>
       <div id="s2-cta" class="absolute left-[1488px] top-[178px] bg-[#ffffff] text-[#000000] rounded-[14px] px-[28px] py-[14px] font-[fl-sans-bold] font-[700] text-[24px] leading-none z-[2] opacity-0">
-        <text class="whitespace-nowrap">Get started</text>
+        <p class="whitespace-nowrap">Get started</p>
       </div>
-      <text id="s2-eyebrow" class="absolute left-[270px] top-[332px] font-[fl-sans-bold] font-[700] text-[20px] leading-none tracking-[4px] text-[#6e6e74] whitespace-nowrap z-[2] opacity-0">PLATFORM</text>
-      <text id="s2-subtext" class="absolute left-[270px] top-[624px] w-[600px] font-[fl-sans] text-[28px] leading-[1.45] text-[#a0a0a6] z-[2] opacity-0">Ship polished product surfaces with components your team already knows.</text>
+      <p id="s2-eyebrow" class="absolute left-[270px] top-[332px] font-[fl-sans-bold] font-[700] text-[20px] leading-none tracking-[4px] text-[#6e6e74] whitespace-nowrap z-[2] opacity-0">PLATFORM</p>
+      <p id="s2-subtext" class="absolute left-[270px] top-[624px] w-[600px] font-[fl-sans] text-[28px] leading-[1.45] text-[#a0a0a6] z-[2] opacity-0">Ship polished product surfaces with components your team already knows.</p>
       <div id="s2-actions" class="absolute left-[270px] top-[724px] flex flex-row gap-[22px] z-[2] opacity-0">
-        <div class="bg-[#ffffff] text-[#000000] rounded-[14px] px-[34px] py-[18px] font-[fl-sans-bold] font-[700] text-[25px] leading-none"><text class="whitespace-nowrap">Get started</text></div>
-        <div class="border-[1px] border-[#3a3a3f] text-[#e6e6ea] rounded-[14px] px-[34px] py-[18px] font-[fl-sans] text-[25px] leading-none"><text class="whitespace-nowrap">Read docs</text></div>
+        <div class="bg-[#ffffff] text-[#000000] rounded-[14px] px-[34px] py-[18px] font-[fl-sans-bold] font-[700] text-[25px] leading-none"><p class="whitespace-nowrap">Get started</p></div>
+        <div class="border-[1px] border-[#3a3a3f] text-[#e6e6ea] rounded-[14px] px-[34px] py-[18px] font-[fl-sans] text-[25px] leading-none"><p class="whitespace-nowrap">Read docs</p></div>
       </div>
       <div id="s2-cards" class="absolute left-[270px] top-[806px] w-[1380px] grid grid-cols-3 gap-[30px] z-[2] opacity-0">
         {[1, 2, 3].map(function (n) {
@@ -373,16 +373,16 @@ function Scene2() {
 
       {/* persistent hero + brand */}
       <div id="s2-hero" class="absolute left-[270px] top-[380px] font-[fl-sans-bold] font-[700] text-[96px] leading-[1.02] tracking-[-2.88px] text-[#ffffff] z-[3] opacity-0">
-        <text class="whitespace-nowrap">Interfaces,</text>
+        <p class="whitespace-nowrap">Interfaces,</p>
         <div class="flex flex-row items-start">
-          <text class="whitespace-nowrap">not&nbsp;</text>
+          <p class="whitespace-nowrap">not&nbsp;</p>
           <div class="relative">
-            <text class="whitespace-nowrap">videos</text>
+            <p class="whitespace-nowrap">videos</p>
             <div id="s2-hero-u" class="absolute left-[0px] bottom-[5px] w-full h-[8px] bg-[#ffffff]"></div>
           </div>
         </div>
       </div>
-      <text id="s2-brand" class="absolute left-[270px] top-[186px] font-[fl-sans-bold] font-[700] text-[32px] leading-none tracking-[-0.64px] text-[#ffffff] whitespace-nowrap z-[3] opacity-0">DESIGN.md</text>
+      <p id="s2-brand" class="absolute left-[270px] top-[186px] font-[fl-sans-bold] font-[700] text-[32px] leading-none tracking-[-0.64px] text-[#ffffff] whitespace-nowrap z-[3] opacity-0">DESIGN.md</p>
 
       {/* 2G slide furniture */}
       <SlideFurniture pre="s2g-" hide />
@@ -537,13 +537,13 @@ function Scene3() {
       {/* beat-b: instructions */}
       <div id="s3-bb" class="absolute inset-0 overflow-hidden bg-[#fffaf0]">
         <div id="s3-bb-ghost" class="absolute inset-0 flex flex-row items-center justify-center font-[fl-sans-black] font-[900] text-[192px] tracking-[-9.6px] text-[rgba(10,10,10,0.06)] blur-[16px] scale-[1.22]">
-          <text class="whitespace-nowrap">instructions</text>
+          <p class="whitespace-nowrap">instructions</p>
         </div>
         <Blob id="s3-bb-lav" c="lav" s={154} pos="left-[154px] top-[134px]" />
         <Blob id="s3-bb-ochre" c="ochre" s={134} pos="right-[154px] bottom-[134px]" />
         <div id="s3-bb-line" class="absolute left-[144px] right-[144px] top-[420px] text-center font-[fl-sans-black] font-[900] text-[125px] leading-[0.96] tracking-[-5.6px]">
-          <text class="whitespace-nowrap">But your agent needs</text>
-          <text class="whitespace-nowrap">different instructions.</text>
+          <p class="whitespace-nowrap">But your agent needs</p>
+          <p class="whitespace-nowrap">different instructions.</p>
         </div>
       </div>
 
@@ -553,10 +553,10 @@ function Scene3() {
           <video class="absolute inset-0 w-full h-full object-cover" src="assets/scene-03-aroll-h264.mp4" data-start={S3 + 2.94} data-duration={2.63} />
           <div id="s3-grade" class="absolute inset-0 z-[2] [mix-blend-mode:screen] opacity-0 bg-[radial-gradient(circle_at_24%_20%,rgba(255,77,139,0.34),transparent_288px),radial-gradient(circle_at_80%_18%,rgba(184,164,237,0.35),transparent_288px),linear-gradient(180deg,rgba(255,250,240,0.1),rgba(10,10,10,0.08))]"></div>
           <div id="s3-giant" class="absolute left-[153.5px] top-[25px] w-[1613px] h-[653px] flex flex-row items-center justify-center gap-[15px] px-[35px] pb-[9px] rounded-[84px] z-[3] bg-[radial-gradient(circle_at_28%_24%,rgba(255,255,255,0.5),transparent_307px),linear-gradient(135deg,#b8a4ed,#ff4d8b)] shadow-[0_23px_0_rgba(10,10,10,0.16),inset_-23px_-29px_42px_rgba(10,10,10,0.14),inset_19px_19px_35px_rgba(255,255,255,0.34)] font-[fl-sans-black] font-[900] text-[726px] leading-[0.72] tracking-[-36.3px] text-[rgba(10,10,10,0.86)] [text-shadow:0_5px_0_rgba(255,255,255,0.22)]">
-            <text id="s3-g1" class="whitespace-nowrap">1</text>
-            <text id="s3-g2" class="whitespace-nowrap">6</text>
-            <text id="s3-g3" class="whitespace-nowrap text-[609.84px]">x</text>
-            <text id="s3-g4" class="whitespace-nowrap">9</text>
+            <p id="s3-g1" class="whitespace-nowrap">1</p>
+            <p id="s3-g2" class="whitespace-nowrap">6</p>
+            <p id="s3-g3" class="whitespace-nowrap text-[609.84px]">x</p>
+            <p id="s3-g4" class="whitespace-nowrap">9</p>
           </div>
           <div id="s3-mark" class="absolute left-[111px] top-[86px] w-[1698px] h-[890px] border-[3px] border-[rgba(10,10,10,0.16)] rounded-[38px] z-[3] opacity-0">
             <div class="absolute left-[695.5px] top-[-21px] w-[307px] h-[6px] rounded-[999px] bg-[rgba(10,10,10,0.18)]"></div>
@@ -572,9 +572,9 @@ function Scene3() {
           <video class="absolute inset-0 w-full h-full object-cover z-[4]" src="assets/scene-03-aroll-cutout-alpha.mov" data-start={S3 + 2.94} data-duration={2.63} />
           <div id="s3-cap" class="absolute left-[0px] bottom-[79px] w-[1920px] flex flex-row justify-center z-[6]">
             <div class="flex flex-row items-center px-[42px] pt-[21px] pb-[24px] rounded-[27px] bg-[#ff4d8b] text-[#ffffff] font-[fl-sans-black] font-[900] text-[67px] leading-[0.96] tracking-[-3.7px] text-center shadow-[0_14px_0_rgba(10,10,10,0.14)] rotate-[-1deg]">
-              <text class="whitespace-nowrap">{'use a\u00a0'}</text>
-              <div class="px-[9px] pb-[2px] rounded-[13px] bg-[#e8b94a] text-[#0a0a0a]"><text class="whitespace-nowrap">16:9</text></div>
-              <text class="whitespace-nowrap">{'\u00a0frame'}</text>
+              <p class="whitespace-nowrap">{'use a\u00a0'}</p>
+              <div class="px-[9px] pb-[2px] rounded-[13px] bg-[#e8b94a] text-[#0a0a0a]"><p class="whitespace-nowrap">16:9</p></div>
+              <p class="whitespace-nowrap">{'\u00a0frame'}</p>
             </div>
           </div>
         </div>
@@ -583,7 +583,7 @@ function Scene3() {
       {/* beat-d: duration */}
       <div id="s3-bd" class="absolute inset-0 overflow-hidden bg-[#fffaf0]">
         <div id="s3-dcard" class="absolute left-[158px] top-[292px] w-[1604px] h-[300px] rounded-[999px] bg-[#b8a4ed] px-[81px] py-[38px] flex flex-row items-center justify-center text-center shadow-[0_23px_0_rgba(10,10,10,0.08)]">
-          <text class="font-[fl-sans-black] font-[900] text-[101px] leading-[0.96] tracking-[-4.5px] whitespace-nowrap">how long a message can live</text>
+          <p class="font-[fl-sans-black] font-[900] text-[101px] leading-[0.96] tracking-[-4.5px] whitespace-nowrap">how long a message can live</p>
         </div>
         <div id="s3-drail" class="absolute left-[230px] top-[863px] w-[1460px] h-[25px] bg-[rgba(10,10,10,0.12)] rounded-[999px] overflow-hidden opacity-0">
           <div id="s3-drailfill" class="w-[525.6px] h-full bg-[#0a0a0a]"></div>
@@ -597,17 +597,17 @@ function Scene3() {
         <div id="s3-pl1" class="absolute left-[77px] top-[326px] w-[672px] h-[4px] bg-[rgba(10,10,10,0.18)]"></div>
         <div id="s3-pl2" class="absolute left-[1171px] top-[480px] w-[672px] h-[4px] bg-[rgba(10,10,10,0.18)]"></div>
         <div id="s3-pl3" class="absolute left-[77px] top-[634px] w-[806px] h-[4px] bg-[rgba(10,10,10,0.18)]"></div>
-        <div id="s3-lanea" class="absolute left-[192px] top-[265px] w-[768px] h-[108px] rounded-[26px] bg-[#e8b94a] flex flex-row items-center px-[40px] font-[fl-sans-black] font-[900] text-[61px] leading-none tracking-[-2.1px] shadow-[0_15px_0_rgba(10,10,10,0.08)] opacity-0"><text class="whitespace-nowrap">what</text></div>
-        <div id="s3-laneb" class="absolute left-[922px] top-[417px] w-[787px] h-[108px] rounded-[26px] bg-[#1a3a3a] text-[#ffffff] flex flex-row items-center px-[40px] font-[fl-sans-black] font-[900] text-[61px] leading-none tracking-[-2.1px] shadow-[0_15px_0_rgba(10,10,10,0.08)] opacity-0"><text class="whitespace-nowrap">should</text></div>
-        <div id="s3-lanec" class="absolute left-[384px] top-[570px] w-[845px] h-[108px] rounded-[26px] bg-[#ff4d8b] text-[#ffffff] flex flex-row items-center px-[40px] font-[fl-sans-black] font-[900] text-[61px] leading-none tracking-[-2.1px] shadow-[0_15px_0_rgba(10,10,10,0.08)] opacity-0"><text class="whitespace-nowrap">move</text></div>
+        <div id="s3-lanea" class="absolute left-[192px] top-[265px] w-[768px] h-[108px] rounded-[26px] bg-[#e8b94a] flex flex-row items-center px-[40px] font-[fl-sans-black] font-[900] text-[61px] leading-none tracking-[-2.1px] shadow-[0_15px_0_rgba(10,10,10,0.08)] opacity-0"><p class="whitespace-nowrap">what</p></div>
+        <div id="s3-laneb" class="absolute left-[922px] top-[417px] w-[787px] h-[108px] rounded-[26px] bg-[#1a3a3a] text-[#ffffff] flex flex-row items-center px-[40px] font-[fl-sans-black] font-[900] text-[61px] leading-none tracking-[-2.1px] shadow-[0_15px_0_rgba(10,10,10,0.08)] opacity-0"><p class="whitespace-nowrap">should</p></div>
+        <div id="s3-lanec" class="absolute left-[384px] top-[570px] w-[845px] h-[108px] rounded-[26px] bg-[#ff4d8b] text-[#ffffff] flex flex-row items-center px-[40px] font-[fl-sans-black] font-[900] text-[61px] leading-none tracking-[-2.1px] shadow-[0_15px_0_rgba(10,10,10,0.08)] opacity-0"><p class="whitespace-nowrap">move</p></div>
         <Blob id="s3-be-lav" c="lav" s={115} pos="right-[154px] bottom-[134px]" />
       </div>
 
       {/* beat-f: scale */}
       <div id="s3-bf" class="absolute inset-0 overflow-hidden bg-[#fffaf0]">
         <div class="absolute inset-0 flex flex-col items-center justify-center text-center">
-          <text id="s3-fsmall" class="font-[fl-sans-bold] font-[700] text-[61px] leading-none tracking-[-2.1px] text-[rgba(10,10,10,0.44)]">what needs</text>
-          <text id="s3-fword" class="mt-[-19px] font-[fl-sans-black] font-[900] text-[269px] leading-[0.84] tracking-[-18.8px]">scale</text>
+          <p id="s3-fsmall" class="font-[fl-sans-bold] font-[700] text-[61px] leading-none tracking-[-2.1px] text-[rgba(10,10,10,0.44)]">what needs</p>
+          <p id="s3-fword" class="mt-[-19px] font-[fl-sans-black] font-[900] text-[269px] leading-[0.84] tracking-[-18.8px]">scale</p>
         </div>
       </div>
 
@@ -615,7 +615,7 @@ function Scene3() {
       <div id="s3-bg" class="absolute inset-0 overflow-hidden bg-[#fffaf0]">
         <div id="s3-qframe" class="absolute left-[154px] top-[134px] w-[1612px] h-[812px] border-[2px] border-[rgba(10,10,10,0.08)] rounded-[23px] opacity-0"></div>
         <div id="s3-qwrap" class="absolute inset-0 flex flex-row items-center justify-center font-[fl-sans-bold] font-[700] text-[54px] leading-[1.1] tracking-[-1.35px] text-[rgba(10,10,10,0.58)] opacity-0">
-          <text class="whitespace-nowrap">what deserves silence</text>
+          <p class="whitespace-nowrap">what deserves silence</p>
         </div>
         <Blob id="s3-bg-ochre" c="ochre" s={77} pos="left-[192px] top-[811px]" op={0.2} />
         <Blob id="s3-bg-pink" c="pink" s={86} pos="left-[1604px] top-[211px]" op={0.14} />
@@ -666,14 +666,14 @@ function Scene4() {
       <div id="s4-shell" class="absolute left-[-170px] top-[0px] w-[2260px] h-[1240px] rounded-[56px] bg-[#fffaf0] overflow-hidden shadow-[0_-34px_80px_rgba(10,10,10,0.18)]">
         <div id="s4-stack" class="absolute left-[210px] top-[370px] w-[1840px] h-[500px] opacity-0">
           <div id="s4-bp" class="absolute inset-0 flex flex-row items-center justify-center font-[fl-round] font-[900] text-[392px] leading-[0.9] tracking-[-29.4px] text-[#ff4d8b] opacity-0">
-            <text class="whitespace-nowrap">frame.md</text>
+            <p class="whitespace-nowrap">frame.md</p>
           </div>
           <div id="s4-bb" class="absolute inset-0 flex flex-row items-center justify-center font-[fl-round] font-[900] text-[392px] leading-[0.9] tracking-[-29.4px] text-[#0007cd] opacity-0">
-            <text class="whitespace-nowrap">frame.md</text>
+            <p class="whitespace-nowrap">frame.md</p>
           </div>
           <div id="s4-main" class="absolute inset-0 flex flex-row items-center justify-center font-[fl-round] font-[900] text-[392px] leading-[0.9] text-[#ffffff] [-webkit-text-stroke:8px_rgba(10,10,10,0.92)] [text-shadow:0_20px_34px_rgba(10,10,10,0.24)]">
             {WORD.map(function (c, i) {
-              return <text id={'s4-x' + (i + 1)} class={'tracking-[-29.4px] whitespace-nowrap' + (c.color ? ' text-[' + c.color + ']' : '')}>{c.t}</text>;
+              return <p id={'s4-x' + (i + 1)} class={'tracking-[-29.4px] whitespace-nowrap' + (c.color ? ' text-[' + c.color + ']' : '')}>{c.t}</p>;
             })}
           </div>
         </div>
@@ -688,9 +688,9 @@ function S5Caption(p) {
     <div id={p.id} class="absolute left-[0px] bottom-[48px] w-[1920px] flex flex-row justify-center z-[30] opacity-0">
       <div class="flex flex-row items-center px-[82px] pt-[10px] pb-[13px] rounded-[20px] bg-[#ff4d8b] text-[#ffffff] border-[1px] border-[rgba(255,255,255,0.32)] shadow-[0_7px_0_rgba(10,10,10,0.12),0_15px_28px_rgba(255,77,139,0.22)] font-[fl-sans-black] font-[900] text-[40px] leading-[0.92] tracking-[-1.4px] text-center whitespace-nowrap rotate-[-1deg]">
         {p.parts.map(function (part) {
-          if (part.hl === 'em') return <div class="px-[8px] pb-[2px] rounded-[10px] bg-[#a4d4c5] text-[#0a0a0a]"><text class="whitespace-nowrap">{part.t}</text></div>;
-          if (part.hl === 'strong') return <div class="px-[8px] pb-[2px] rounded-[10px] bg-[#e8b94a] text-[#0a0a0a]"><text class="whitespace-nowrap">{part.t}</text></div>;
-          return <text class="whitespace-nowrap">{part.t}</text>;
+          if (part.hl === 'em') return <div class="px-[8px] pb-[2px] rounded-[10px] bg-[#a4d4c5] text-[#0a0a0a]"><p class="whitespace-nowrap">{part.t}</p></div>;
+          if (part.hl === 'strong') return <div class="px-[8px] pb-[2px] rounded-[10px] bg-[#e8b94a] text-[#0a0a0a]"><p class="whitespace-nowrap">{part.t}</p></div>;
+          return <p class="whitespace-nowrap">{part.t}</p>;
         })}
       </div>
     </div>
@@ -744,7 +744,7 @@ function Scene5() {
         <div id="s5-frame" class="absolute left-[330px] top-[74px] w-[1600px] h-[900px] rounded-[54px] p-[8px] bg-[#0007cd] shadow-[0_10px_0_rgba(10,10,10,0.1),0_24px_58px_rgba(0,7,205,0.18)] overflow-hidden opacity-0">
           <div class="relative w-full h-full rounded-[46px] overflow-hidden bg-[radial-gradient(circle_at_72%_18%,rgba(255,77,139,0.26),transparent_310px),radial-gradient(circle_at_21%_74%,rgba(0,7,205,0.24),transparent_340px),linear-gradient(135deg,#f9f5e9,#fffaf0_48%,#f1ecdf)]">
             <div class="absolute left-[64px] top-[56px] px-[18px] pt-[13px] pb-[15px] rounded-[16px] bg-[#ff4d8b] text-[#ffffff] font-[fl-sans-black] font-[900] text-[28px] leading-none rotate-[-2deg] shadow-[0_7px_0_rgba(10,10,10,0.13)]">
-              <text class="whitespace-nowrap">Screen Studio placeholder</text>
+              <p class="whitespace-nowrap">Screen Studio placeholder</p>
             </div>
             <div id="s5-plight" class="absolute left-[85px] top-[132px] w-[614.2px] h-[674px] rounded-[28px] bg-[rgba(255,255,255,0.74)] border-[1px] border-[rgba(10,10,10,0.12)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.55)] opacity-0">
               {LR.map(function (r, i) {
@@ -757,8 +757,8 @@ function Scene5() {
               })}
             </div>
             <div id="s5-bigph" class="absolute left-[0px] top-[359.6px] w-[1584px] flex flex-col items-center text-center font-[fl-sans-black] font-[900] text-[96px] leading-[0.95] text-[rgba(10,10,10,0.13)] opacity-0 rotate-[-2deg]">
-              <text class="whitespace-nowrap">design spec</text>
-              <text class="whitespace-nowrap">to frame language</text>
+              <p class="whitespace-nowrap">design spec</p>
+              <p class="whitespace-nowrap">to frame language</p>
             </div>
             <div id="s5-cursor" class="absolute left-[1015px] top-[492px] w-[34px] h-[34px] rounded-[999px] bg-[#e8b94a] shadow-[0_0_0_12px_rgba(232,185,74,0.24)] opacity-0"></div>
             <video class="absolute inset-0 w-full h-full object-cover z-[20]" src="assets/ssframe.mp4" data-start={S5} data-duration={13.184} />
@@ -843,10 +843,10 @@ function Scene6() {
       <div id="s6-tstage" class="absolute inset-0 overflow-hidden bg-[#ffffff]">
         <div id="s6-sweep" class="absolute left-[96px] top-[84px] w-[1620px] h-[760px] border-l-[11px] border-l-[#ef00e4] opacity-0"></div>
         {/* hf-studio path offsets baked in (title -6,121 / origin -14,170 / body -11,163 / pace -4,162) */}
-        <text id="s6-title" class="absolute left-[140px] top-[247px] font-[fl-sans-black] font-[900] text-[82px] leading-[1.08] text-[#ef00e4] whitespace-nowrap">## Hero Band</text>
-        <text id="s6-origin" class="absolute left-[132px] top-[430.56px] font-[fl-sans-black] font-[900] text-[41px] leading-[1.86] text-[#ef00e4] whitespace-nowrap">hero band with spotlight and terminal.</text>
-        <text id="s6-body" class="absolute left-[135px] top-[511.82px] w-[1560px] font-[fl-sans-black] font-[900] text-[41px] leading-[1.86] text-[#ef00e4]">Anchor scene. Centered display-mega headline with a primary final clause, badge pair above, and the 2x2 terminal grid centered beneath inside a radial primary-glow field.</text>
-        <text id="s6-pace" class="absolute left-[142px] top-[751.6px] w-[1540px] font-[fl-sans-black] font-[900] text-[41px] leading-[1.86] text-[#ef00e4]">Frame-pace: low. Needs dwelling for the code panes to read.</text>
+        <p id="s6-title" class="absolute left-[140px] top-[247px] font-[fl-sans-black] font-[900] text-[82px] leading-[1.08] text-[#ef00e4] whitespace-nowrap">## Hero Band</p>
+        <p id="s6-origin" class="absolute left-[132px] top-[430.56px] font-[fl-sans-black] font-[900] text-[41px] leading-[1.86] text-[#ef00e4] whitespace-nowrap">hero band with spotlight and terminal.</p>
+        <p id="s6-body" class="absolute left-[135px] top-[511.82px] w-[1560px] font-[fl-sans-black] font-[900] text-[41px] leading-[1.86] text-[#ef00e4]">Anchor scene. Centered display-mega headline with a primary final clause, badge pair above, and the 2x2 terminal grid centered beneath inside a radial primary-glow field.</p>
+        <p id="s6-pace" class="absolute left-[142px] top-[751.6px] w-[1540px] font-[fl-sans-black] font-[900] text-[41px] leading-[1.86] text-[#ef00e4]">Frame-pace: low. Needs dwelling for the code panes to read.</p>
       </div>
 
       <div id="s6-fstage" class="absolute inset-0 overflow-hidden bg-[#fffaf0] opacity-0">
@@ -859,7 +859,7 @@ function Scene6() {
           {/* hero: 144px inline override, offset (3,-39) baked */}
           <div class="absolute left-[172px] top-[91px] w-[1330px] text-center">
             <div id="s6-herom" class="font-[fl-round] font-[900] text-[144px] leading-[0.96] text-[#ff4d8b] [-webkit-text-stroke:3px_#0a0a0a] opacity-0">
-              <text class="whitespace-nowrap">It becomes a scene</text>
+              <p class="whitespace-nowrap">It becomes a scene</p>
             </div>
           </div>
           <div id="s6-tgrid" class="absolute left-[279px] top-[424px] w-[1110px] h-[430px] grid grid-cols-2 grid-rows-2 gap-[16px] p-[28px] rounded-[28px] bg-[#0a0a0a] border-[5px] border-[#0a0a0a] shadow-[20px_22px_0_rgba(10,10,10,0.16)] opacity-0">
@@ -881,13 +881,13 @@ function Scene6() {
 
       <div id="s6-cap1" class="absolute left-[0px] bottom-[62px] w-[1920px] flex flex-row justify-center z-[8] opacity-0">
         <div class="flex flex-row items-center px-[40px] pt-[20px] pb-[23px] rounded-[27px] bg-[#ff4d8b] text-[#ffffff] shadow-[0_14px_0_rgba(10,10,10,0.14)] font-[fl-sans-black] font-[900] text-[42px] leading-[0.96] text-center whitespace-nowrap rotate-[-1deg]">
-          <text class="whitespace-nowrap">{'A paragraph like\u00a0'}</text>
-          <div class="px-[8px] pb-[2px] rounded-[10px] bg-[#e8b94a] text-[#0a0a0a]"><text class="whitespace-nowrap">hero band with spotlight and terminal</text></div>
+          <p class="whitespace-nowrap">{'A paragraph like\u00a0'}</p>
+          <div class="px-[8px] pb-[2px] rounded-[10px] bg-[#e8b94a] text-[#0a0a0a]"><p class="whitespace-nowrap">hero band with spotlight and terminal</p></div>
         </div>
       </div>
       <div id="s6-cap2" class="absolute left-[0px] bottom-[62px] w-[1920px] flex flex-row justify-center z-[8] opacity-0">
         <div class="px-[40px] pt-[20px] pb-[23px] rounded-[27px] bg-[#ff4d8b] text-[#ffffff] shadow-[0_14px_0_rgba(10,10,10,0.14)] font-[fl-sans-black] font-[900] text-[42px] leading-[0.96] text-center whitespace-nowrap rotate-[-1deg]">
-          <text class="whitespace-nowrap">stops being documentation.</text>
+          <p class="whitespace-nowrap">stops being documentation.</p>
         </div>
       </div>
     </div>
@@ -951,7 +951,7 @@ function Scene7() {
 
       <div id="s7-fidea" class="absolute inset-0">
         <div id="s7-slab" class="absolute left-[210px] top-[164px] w-[910px] h-[620px] border-[6px] border-[#0a0a0a] rounded-[32px] bg-[#ffffff] rotate-[-2deg] shadow-[24px_28px_0_rgba(10,10,10,0.14)]">
-          <text class="absolute left-[46px] top-[42px] font-[fl-sans-black] font-[900] text-[34px] leading-none text-[#ef00e4] whitespace-nowrap">design.md</text>
+          <p class="absolute left-[46px] top-[42px] font-[fl-sans-black] font-[900] text-[34px] leading-none text-[#ef00e4] whitespace-nowrap">design.md</p>
           <div id="s7-l1" class="absolute left-[46px] top-[142px] w-[690px] h-[24px] rounded-[999px] bg-[#ff4d8b]"></div>
           <div id="s7-l2" class="absolute left-[46px] top-[204px] w-[540px] h-[24px] rounded-[999px] bg-[rgba(10,10,10,0.13)]"></div>
           <div id="s7-l3" class="absolute left-[46px] top-[266px] w-[650px] h-[24px] rounded-[999px] bg-[#b8a4ed]"></div>
@@ -960,10 +960,10 @@ function Scene7() {
         </div>
         {/* hf-studio offsets baked: NOT (97,-33), old-line (489,-29) */}
         <div id="s7-not" class="absolute left-[917px] top-[111px] px-[42px] pt-[24px] pb-[30px] border-[7px] border-[#0a0a0a] rounded-[999px] bg-[#e8b94a] font-[fl-sans-black] font-[900] text-[108px] leading-[0.8] rotate-[-12deg] shadow-[13px_14px_0_rgba(10,10,10,0.18)] opacity-0">
-          <text class="whitespace-nowrap">NOT</text>
+          <p class="whitespace-nowrap">NOT</p>
         </div>
-        <text id="s7-old1" class="absolute left-[1219px] top-[505px] font-[fl-sans-black] font-[900] text-[104px] leading-[0.9] whitespace-nowrap opacity-0">a prettier</text>
-        <text id="s7-old2" class="absolute left-[1219px] top-[598.6px] font-[fl-sans-black] font-[900] text-[104px] leading-[0.9] whitespace-nowrap opacity-0">design file</text>
+        <p id="s7-old1" class="absolute left-[1219px] top-[505px] font-[fl-sans-black] font-[900] text-[104px] leading-[0.9] whitespace-nowrap opacity-0">a prettier</p>
+        <p id="s7-old2" class="absolute left-[1219px] top-[598.6px] font-[fl-sans-black] font-[900] text-[104px] leading-[0.9] whitespace-nowrap opacity-0">design file</p>
         <div id="s7-slash" class="absolute left-[660px] top-[538px] w-[960px] h-[26px] rounded-[999px] border-[4px] border-[#0a0a0a] bg-[#ff4d8b] rotate-[-8deg] shadow-[0_10px_0_rgba(10,10,10,0.14)]"></div>
       </div>
 
@@ -975,12 +975,12 @@ function Scene7() {
         <div id="s7-o4" class="absolute left-[1512px] top-[760px] w-[154px] h-[154px] border-[5px] border-[#0a0a0a] rounded-full bg-[#a4d4c5] shadow-[10px_12px_0_rgba(10,10,10,0.16)] opacity-0"></div>
         <div class="absolute left-[210px] top-[230px] w-[1500px] text-center">
           <div id="s7-nfm" class="font-[fl-round] font-[900] text-[250px] leading-[0.82] [text-shadow:8px_9px_0_rgba(255,255,255,0.46)] opacity-0">
-            <text class="whitespace-nowrap">NEW FORMAT</text>
+            <p class="whitespace-nowrap">NEW FORMAT</p>
           </div>
         </div>
         <div class="absolute left-[0px] top-[690px] w-[1920px] flex flex-row justify-center">
           <div id="s7-pill" class="px-[42px] pt-[18px] pb-[24px] rounded-[30px] border-[6px] border-[#0a0a0a] bg-[#1a3a3a] text-[#ffffff] font-[fl-sans-black] font-[900] text-[66px] leading-[0.9] rotate-[-2deg] shadow-[12px_14px_0_rgba(10,10,10,0.17)] opacity-0">
-            <text class="whitespace-nowrap">for agents</text>
+            <p class="whitespace-nowrap">for agents</p>
           </div>
         </div>
       </div>
@@ -1062,7 +1062,7 @@ function Scene8() {
       <div id="s8-softbg" class="absolute left-[-120px] top-[-120px] w-[2160px] h-[1320px] opacity-0 bg-[radial-gradient(circle_at_18%_32%,rgba(255,77,139,0.22),transparent_340px),radial-gradient(circle_at_78%_28%,rgba(184,164,237,0.26),transparent_360px),radial-gradient(circle_at_54%_78%,rgba(232,185,74,0.22),transparent_330px)]"></div>
       <div id="s8-stage" class="absolute inset-0">
         <div id="s8-dcard" class="absolute left-[128px] top-[150px] w-[700px] h-[540px] border-[6px] border-[#0a0a0a] rounded-[34px] bg-[#ffffff] rotate-[-2deg] shadow-[18px_21px_0_rgba(10,10,10,0.13)] overflow-hidden opacity-0">
-          <text class="absolute left-[36px] top-[34px] font-[fl-sans-black] font-[900] text-[48px] leading-none text-[#ef00e4] whitespace-nowrap">design.md</text>
+          <p class="absolute left-[36px] top-[34px] font-[fl-sans-black] font-[900] text-[48px] leading-none text-[#ef00e4] whitespace-nowrap">design.md</p>
           <div id="s8-dl1" class="absolute left-[42px] top-[142px] w-[430px] h-[22px] rounded-[999px] bg-[#ff4d8b]"></div>
           <div id="s8-dl2" class="absolute left-[42px] top-[196px] w-[552px] h-[22px] rounded-[999px] bg-[rgba(10,10,10,0.15)]"></div>
           <div id="s8-dl3" class="absolute left-[42px] top-[250px] w-[370px] h-[22px] rounded-[999px] bg-[#b8a4ed]"></div>
@@ -1075,10 +1075,10 @@ function Scene8() {
           </div>
         </div>
         <div id="s8-plus" class="absolute left-[905px] top-[410px] w-[110px] h-[110px] border-[6px] border-[#0a0a0a] rounded-full bg-[#e8b94a] flex flex-row items-center justify-center font-[fl-sans-black] font-[900] text-[82px] leading-none shadow-[10px_12px_0_rgba(10,10,10,0.14)] opacity-0">
-          <text>+</text>
+          <p>+</p>
         </div>
         <div id="s8-fcard" class="absolute left-[1092px] top-[150px] w-[700px] h-[540px] border-[6px] border-[#0a0a0a] rounded-[34px] rotate-[2deg] shadow-[18px_21px_0_rgba(10,10,10,0.13)] overflow-hidden opacity-0 bg-[radial-gradient(circle_at_50%_54%,rgba(255,77,139,0.56),transparent_205px),linear-gradient(135deg,#b8a4ed,#a4d4c5)]">
-          <text class="absolute left-[36px] top-[34px] font-[fl-sans-black] font-[900] text-[48px] leading-none text-[#ef00e4] whitespace-nowrap">frame.md</text>
+          <p class="absolute left-[36px] top-[34px] font-[fl-sans-black] font-[900] text-[48px] leading-none text-[#ef00e4] whitespace-nowrap">frame.md</p>
           <div class="absolute left-[58px] top-[132px] w-[584px] h-[329px] border-[7px] border-[#0a0a0a] rounded-[24px] bg-[#fffaf0] overflow-hidden">
             <div id="s8-chipa" class="absolute left-[48px] top-[86px] w-[210px] h-[76px] border-[4px] border-[#0a0a0a] rounded-[999px] bg-[#ff4d8b] rotate-[-8deg] shadow-[8px_9px_0_rgba(10,10,10,0.16)] opacity-0"></div>
             <div id="s8-chipb" class="absolute left-[360px] top-[168px] w-[178px] h-[178px] border-[4px] border-[#0a0a0a] rounded-full bg-[#ffb084] shadow-[8px_9px_0_rgba(10,10,10,0.16)] opacity-0"></div>
@@ -1087,13 +1087,13 @@ function Scene8() {
           </div>
         </div>
         {/* statement spans (offset/rotate baked via set in the hook) */}
-        <text id="s8-st1" class="absolute left-[0px] top-[753.3px] font-[fl-round] font-[900] text-[86px] leading-[0.95] whitespace-nowrap opacity-0">what the brand is</text>
-        <text id="s8-st2" class="absolute left-[0px] top-[763.3px] font-[fl-round] font-[900] text-[86px] leading-[0.95] text-[#ff4d8b] [-webkit-text-stroke:3px_#0a0a0a] whitespace-nowrap opacity-0">how it moves</text>
+        <p id="s8-st1" class="absolute left-[0px] top-[753.3px] font-[fl-round] font-[900] text-[86px] leading-[0.95] whitespace-nowrap opacity-0">what the brand is</p>
+        <p id="s8-st2" class="absolute left-[0px] top-[763.3px] font-[fl-round] font-[900] text-[86px] leading-[0.95] text-[#ff4d8b] [-webkit-text-stroke:3px_#0a0a0a] whitespace-nowrap opacity-0">how it moves</p>
       </div>
       <div id="s8-final" class="absolute left-[170px] top-[414.45px] w-[1580px] text-center font-[fl-round] font-[900] text-[146px] leading-[0.86] opacity-0">
-        <text class="whitespace-nowrap">Your brand,</text>
+        <p class="whitespace-nowrap">Your brand,</p>
         <div id="s8-final-em" class="text-[#ff4d8b] [-webkit-text-stroke:4px_#0a0a0a]">
-          <text class="whitespace-nowrap">translated for motion.</text>
+          <p class="whitespace-nowrap">translated for motion.</p>
         </div>
       </div>
       <div id="s8-logo" class="absolute left-[310px] top-[344.75px] w-[1300px] h-[390.5px] opacity-0">
@@ -1112,7 +1112,7 @@ function Cap(p) {
   return (
     <div id={p.id} class="absolute left-[0px] bottom-[54px] w-[1920px] flex flex-row justify-center opacity-0">
       <div class={'px-[38px] pt-[23px] pb-[25px] rounded-[22px] border-[1px] font-[fl-sans-bold] font-[700] text-[43px] leading-[1.08] text-center whitespace-nowrap' + dark}>
-        <text>{p.t}</text>
+        <p>{p.t}</p>
       </div>
     </div>
   );

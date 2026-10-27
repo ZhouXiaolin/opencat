@@ -27,7 +27,7 @@ export function AgentPill({ id, t }) {
   return (
     <div id={id} className="absolute left-[0] top-[0] opacity-0">
       <div id={id + '-box'} className="px-[14px] pt-[10px] pb-[9px] border-[1.5px] border-[#dcdcde] bg-[rgba(2,2,2,0.88)]">
-        <text id={id + '-txt'} className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">{t}</text>
+        <p id={id + '-txt'} className="font-[k3-sans-medium] text-[#dcdcde] whitespace-nowrap text-[26px] font-[500] tracking-[0.2px] leading-none">{t}</p>
       </div>
     </div>
   );
@@ -38,7 +38,7 @@ export function Cdot({ id, s, c, className: extra }) {
 }
 
 export function Bigword({ id, left, t }) {
-  return <text id={id} className={'absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[' + left + 'px] top-[458.3299px] opacity-0'}>{t}</text>;
+  return <p id={id} className={'absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap text-[148.4536px] tracking-[-2.5px] left-[' + left + 'px] top-[458.3299px] opacity-0'}>{t}</p>;
 }
 
 /* ════════ 共享每帧工具（XML script 顶层；模块体每帧重估，纯函数/纯数据） ════════ */
@@ -102,7 +102,7 @@ export function pillWidths(m) {
 /* ════════════ TYPE CALIBRATION (index.html:1356-1439) ═════════════
    The reference computes every calibrated run's font-size from a target
    cap height, then squeezes the run horizontally to an exact measured
-   width (transform-origin 0 50% + left = centre - W/2). Our <text> box
+   width (transform-origin 0 50% + left = centre - W/2). Our <p> box
    width equals the run's ADVANCE, and ctx scaleX() squeezes about the
    box CENTRE, so the equivalent is scaleX = W/advance_natural with
    left = centre - advance_natural/2.

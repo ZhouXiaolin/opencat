@@ -121,7 +121,7 @@ export default function SceneHI() {
           <path id="g3-p2" viewBox="0 0 512 512" className="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#4d9dff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
           <path id="g3-p3" viewBox="0 0 512 512" className="absolute inset-0 w-[154.1px] h-[154.1px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="g3-t" className="absolute left-[214.45px] top-[5.75px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[143.67px] tracking-[-3.35px]">K3</text>
+        <p id="g3-t" className="absolute left-[214.45px] top-[5.75px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[143.67px] tracking-[-3.35px]">K3</p>
       </div>
       <div id="iglow2" className="absolute left-[801px] top-[482px] w-[318px] h-[115px] opacity-0 blur-[24.6px] brightness-[2.1]">
         <div id="d-563" className="absolute left-[23px] top-0 w-[115px] h-[115px]">
@@ -129,7 +129,7 @@ export default function SceneHI() {
           <path id="g2-p2" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#4d9dff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
           <path id="g2-p3" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="g2-t" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
+        <p id="g2-t" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#ffffff] leading-none text-[107.2165px] tracking-[-2.5px]">K3</p>
       </div>
       <div id="iglow1" className="absolute left-[801px] top-[482px] w-[318px] h-[115px] opacity-0 blur-[4.1px] brightness-[1.5]">
         <div id="d-564" className="absolute left-[23px] top-0 w-[115px] h-[115px]">
@@ -137,7 +137,7 @@ export default function SceneHI() {
           <path id="g1-p2" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#2b8bff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
           <path id="g1-p3" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="g1-t" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#e6e6e9] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
+        <p id="g1-t" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#e6e6e9] leading-none text-[107.2165px] tracking-[-2.5px]">K3</p>
       </div>
       {/* K3 wordmark lockup (318×115) */}
       <div id="iwordmark" className="absolute flex items-center gap-[18px] left-[801px] top-[482px] w-[318px] h-[115px] opacity-0">
@@ -146,7 +146,7 @@ export default function SceneHI() {
           <path id="p-653" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#027aff]" d="M342.065 189.759c1.886-2.42 3.541-4.63 5.289-6.77.81-1.007.74-1.771-.046-2.824-7.58-9.965-8.298-21.028-3.935-32.254 3.275-8.448 10.52-12.406 19.373-13.25 5.52-.521 10.936.046 15.959 2.73 6.596 3.53 10.438 8.912 11.688 16.341.995 5.926.81 11.712-.868 17.452-2.974 10.161-10.277 15.427-20.287 16.758-8.31 1.11-16.734 1.25-25.113 1.817-.648.046-1.308 0-2.06 0z" />
           <path id="p-654" viewBox="0 0 512 512" className="absolute inset-0 w-[115px] h-[115px] fill-[#010101]" d="M321.512 144.254h-50.064l-39.637 90.384h-56.036v-89.99H131v232.868h44.787v-98.103h78.973c13.598 0 26.015-7.927 31.744-20.252v118.355h44.787v-98.103c0-23.342-18.239-42.97-41.523-44.671v-.116h-24.593a45.577 45.577 0 0026.884-24.534l29.453-65.838z" />
         </div>
-        <text id="t-651" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#dadade] leading-none text-[107.2165px] tracking-[-2.5px]">K3</text>
+        <p id="t-651" className="absolute left-[160.0345px] top-[4.2938px] font-[k3-sans] font-medium text-[#dadade] leading-none text-[107.2165px] tracking-[-2.5px]">K3</p>
       </div>
       {/* flanking formation dashes */}
       <div id="idashL" className="absolute h-[3px] bg-[#a9a9ac] left-[718px] top-[538px] w-[30px] opacity-0"></div>

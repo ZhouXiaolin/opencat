@@ -1591,7 +1591,7 @@ mod tests {
             sans_fonts_json(),
             serde_json::json!([
                 {"type": "div", "id": "root", "parentId": null, "className": "w-full h-full font-sans"},
-                {"type": "text", "id": "t", "parentId": "root", "className": "text-white", "text": "Hi"}
+                {"type": "p", "id": "t", "parentId": "root", "className": "text-white", "text": "Hi"}
             ]),
         );
         let fonts: Vec<_> = draft
@@ -1666,7 +1666,7 @@ mod tests {
             sans_fonts_json(),
             serde_json::json!([
                 {"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"},
-                {"type": "text", "id": "t", "parentId": "root", "className": "font-sans text-white text-[24px]", "text": "你好"}
+                {"type": "p", "id": "t", "parentId": "root", "className": "font-sans text-white text-[24px]", "text": "你好"}
             ]),
         );
         let font_id = draft
@@ -1763,7 +1763,7 @@ mod tests {
             serde_json::json!({"faces": [{"id": "display", "family": "Noto Sans SC", "path": "fonts/display.otf"}]}),
             serde_json::json!([
                 {"type": "div", "id": "root", "parentId": null, "className": "w-full h-full"},
-                {"type": "text", "id": "t", "parentId": "root", "className": "font-[display] text-white text-[20px]", "text": "Aa"}
+                {"type": "p", "id": "t", "parentId": "root", "className": "font-[display] text-white text-[20px]", "text": "Aa"}
             ]),
         );
         let font_id = draft

@@ -80,7 +80,7 @@ export default function FlexThreejs() {
         </div>
       </div>
       <div className="absolute left-0 bottom-[140px] w-full flex justify-center">
-        <text id="ft-label" className="text-[64px] leading-none tracking-[0.02em] italic font-medium font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</text>
+        <p id="ft-label" className="text-[64px] leading-none tracking-[0.02em] italic font-medium font-[hf-cg-it] text-[#5a4a3a] opacity-0">Three.js</p>
       </div>
     </div>
   );

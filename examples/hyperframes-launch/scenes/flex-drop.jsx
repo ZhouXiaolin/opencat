@@ -12,7 +12,7 @@ export default function FlexDrop() {
     <div id="fd-root" className="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#0d1b2a]">
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_60%,#152238_0%,#0d1b2a_100%)]"></div>
       <div className="absolute left-0 top-[450px] w-full flex justify-center">
-        <text id="fd-text" className="text-[180px] leading-none tracking-[0.04em] font-[hf-bebas] text-white opacity-0 whitespace-nowrap">drop in</text>
+        <p id="fd-text" className="text-[180px] leading-none tracking-[0.04em] font-[hf-bebas] text-white opacity-0 whitespace-nowrap">drop in</p>
       </div>
       <div className="absolute left-0 top-[618.5px] w-full flex justify-center">
         <div id="fd-line" className="w-[300px] h-[3px] rounded-[2px] bg-[rgba(255,255,255,0.25)]"></div>

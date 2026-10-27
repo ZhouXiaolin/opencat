@@ -82,11 +82,11 @@ export default function OpenCard() {
         <Tick id="d-639" ht="23px" />
       </div>
       {/* braces + headline centered in the 698px brace box */}
-      <text id="obl" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{'{'}</text>
-      <text id="obr" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1362.496px] top-[473.661px] text-[128.8546px]">{'}'}</text>
-      <div id="opentext" className="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none flex whitespace-nowrap left-[590.3768px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px]"><text id="ot1" className="opacity-0">Open Frontier</text><text id="ot2" className="opacity-0">{" Intelligence"}</text></div>
-      <text id="openmid" className="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap left-[666.7227px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">en Frontier Intelligen</text>
-      <text id="openrem" className="absolute font-[k3-sans] font-normal text-[#98989c] leading-none whitespace-nowrap left-[923.6878px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">ier</text>
+      <p id="obl" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[501.722px] top-[473.661px] text-[128.8546px]">{'{'}</p>
+      <p id="obr" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1362.496px] top-[473.661px] text-[128.8546px]">{'}'}</p>
+      <div id="opentext" className="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none flex whitespace-nowrap left-[590.3768px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px]"><p id="ot1" className="opacity-0">Open Frontier</p><p id="ot2" className="opacity-0">{" Intelligence"}</p></div>
+      <p id="openmid" className="absolute font-[k3-sans] font-normal text-[#d8d8da] leading-none whitespace-nowrap left-[666.7227px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">en Frontier Intelligen</p>
+      <p id="openrem" className="absolute font-[k3-sans] font-normal text-[#98989c] leading-none whitespace-nowrap left-[923.6878px] top-[511.5263px] text-[64.4305px] tracking-[-1.6px] opacity-0">ier</p>
     </div>
   );
 }

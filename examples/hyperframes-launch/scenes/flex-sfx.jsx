@@ -41,7 +41,7 @@ export default function FlexSfx() {
         ))}
       </div>
       <div className="absolute left-0 top-[540px] w-full flex justify-center">
-        <text id="fx-text" className="mt-[-26px] text-[52px] leading-none tracking-[0.1em] font-[hf-inter-med] text-[#f5e8c8] uppercase [text-shadow:0_0_40px_rgba(200,132,10,0.5)] opacity-0">sound effects</text>
+        <p id="fx-text" className="mt-[-26px] text-[52px] leading-none tracking-[0.1em] font-[hf-inter-med] text-[#f5e8c8] uppercase [text-shadow:0_0_40px_rgba(200,132,10,0.5)] opacity-0">sound effects</p>
       </div>
     </div>
   );

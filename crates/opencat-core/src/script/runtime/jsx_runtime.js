@@ -1020,7 +1020,7 @@
         out.push(value);
     }
     var SUPPORTED_TAGS = {
-        div: true, text: true, canvas: true, image: true, audio: true,
+        div: true, p: true, span: true, canvas: true, image: true, audio: true,
         video: true, transition: true, tl: true,
         path: true, lottie: true, svg: true,
     };
@@ -1038,7 +1038,7 @@
         }
         if (typeof el === 'string' || typeof el === 'number') {
             var textId = 'oc-text-' + (++textCounter);
-            return { type: 'text', id: textId, text: String(el) };
+            return { type: 'p', id: textId, text: String(el) };
         }
         if (!el || el.__ocEl !== true) {
             throw new Error('use: JSX tree contains a non-element value (' + typeof el + ')');
@@ -1071,7 +1071,11 @@
         var duration = num(props.duration);
         if (duration !== undefined) node.duration = duration;
         switch (tag) {
-            case 'text': {
+            // HTML 文本标签：p=块级段落、span=行内片段。内容串接自子级
+            // 字符串（与浏览器 textContent 语义一致）；span 的同行混排
+            // （行内 runs）批次③随 Paragraph 算子补齐。
+            case 'p':
+            case 'span': {
                 var text = '';
                 for (var t = 0; t < el.children.length; t++) {
                     var child = el.children[t];

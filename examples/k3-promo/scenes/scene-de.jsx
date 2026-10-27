@@ -231,7 +231,7 @@ export default function SceneDE() {
           <Cdot id="d-509" s="13px" c="#e6e6e6" className="-right-[26px] -top-[26px]" />
           <Cdot id="d-510" s="13px" c="#e6e6e6" className="-left-[26px] -bottom-[26px]" />
           <Cdot id="d-511" s="13px" c="#e6e6e6" className="-right-[26px] -bottom-[26px]" />
-          <text id="otxt" className="text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] tracking-[-2.5px] opacity-0">Every modality</text>
+          <p id="otxt" className="text-[#d8d8da] whitespace-nowrap leading-none text-[133.3333px] tracking-[-2.5px] opacity-0">Every modality</p>
         </div>
         {/* left flanking box: "Every market" */}
         <div id="mktgrp" className="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[130px] top-[437px] w-[520px] h-[183px] opacity-0">
@@ -240,7 +240,7 @@ export default function SceneDE() {
           <Cdot id="d-513" s="13px" c="#e6e6e6" className="-right-[20px] -top-[20px]" />
           <Cdot id="d-514" s="13px" c="#e6e6e6" className="-left-[20px] -bottom-[20px]" />
           <Cdot id="d-515" s="13px" c="#e6e6e6" className="-right-[20px] -bottom-[20px]" />
-          <text id="t-649" className="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every token</text>
+          <p id="t-649" className="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every token</p>
         </div>
         {/* right flanking box: "Every task" */}
         <div id="astgrp" className="absolute border-[1px] border-[#565656] bg-[#010101] bg-[linear-gradient(100deg,rgba(255,255,255,0.010),rgba(255,255,255,0.018)_45%,rgba(255,255,255,0.006))] overflow-hidden flex items-center justify-center left-[1260px] top-[437px] w-[520px] h-[183px] opacity-0">
@@ -249,7 +249,7 @@ export default function SceneDE() {
           <Cdot id="d-517" s="13px" c="#e6e6e6" className="-right-[20px] -top-[20px]" />
           <Cdot id="d-518" s="13px" c="#e6e6e6" className="-left-[20px] -bottom-[20px]" />
           <Cdot id="d-519" s="13px" c="#e6e6e6" className="-right-[20px] -bottom-[20px]" />
-          <text id="t-650" className="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every task</text>
+          <p id="t-650" className="text-[#e4e4e6] whitespace-nowrap leading-none text-[68.7285px]">Every task</p>
         </div>
         {/* three drop-lines + flanking dashes */}
         <div id="dl1" className="absolute w-[2px] bg-[#cfcfcc] left-[389px] top-[622px] h-[95px] [transform-origin:top_center] opacity-0"></div>

@@ -31,7 +31,7 @@ export default function FlexFootage() {
       <div id="ff-strip-top" className={'absolute left-0 top-0 w-[2200px] h-[80px] opacity-[0.7] ' + STRIP}></div>
       <div id="ff-strip-bottom" className={'absolute left-0 bottom-0 w-[2200px] h-[80px] opacity-[0.7] ' + STRIP}></div>
       <div className="absolute left-0 top-[540px] w-full flex justify-center">
-        <text id="ff-text" className="mt-[-80px] text-[160px] leading-none tracking-[0.01em] italic font-[hf-eb-it] text-[#f0e6d2] [text-shadow:0_6px_24px_rgba(0,0,0,0.8),0_2px_8px_rgba(0,0,0,0.6)] opacity-0">footage</text>
+        <p id="ff-text" className="mt-[-80px] text-[160px] leading-none tracking-[0.01em] italic font-[hf-eb-it] text-[#f0e6d2] [text-shadow:0_6px_24px_rgba(0,0,0,0.8),0_2px_8px_rgba(0,0,0,0.6)] opacity-0">footage</p>
       </div>
       {/* reference grain = one node with 3 radial-gradient layers at 3/5/7px
           tiles; engine bg-[length:...] takes a single layer, so 3 stacked

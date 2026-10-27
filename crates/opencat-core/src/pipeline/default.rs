@@ -565,7 +565,7 @@ mod tests {
     fn render_frame_generated_images_are_complete_and_deterministic() {
         let jsonl = r#"{"type":"composition","width":96,"height":80,"fps":30,"duration":0.2}
 {"type":"div","id":"root","parentId":null,"className":"w-[96px] h-[80px] bg-white"}
-{"type":"text","id":"emoji","parentId":"root","className":"absolute left-[16px] top-[12px] w-[64px] h-[64px] text-[48px] text-black","text":"😀"}"#;
+{"type":"p","id":"emoji","parentId":"root","className":"absolute left-[16px] top-[12px] w-[64px] h-[64px] text-[48px] text-black","text":"😀"}"#;
 
         let mut fresh = open_test_pipeline(jsonl);
         let baseline = fresh.render_frame(0).expect("fresh frame 0");

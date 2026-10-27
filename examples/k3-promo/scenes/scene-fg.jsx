@@ -66,8 +66,8 @@ export default function SceneFG() {
         {/* center stem that retracts as braces settle */}
         <div id="fstem" className="absolute w-[3px] bg-[#bdbdb9] left-[958px] top-[0] h-[330px] [transform-origin:top_center] opacity-0"></div>
         {/* F/G braces (light weight) */}
-        <text id="fgbl" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[390.564px] top-[468.467px] text-[131.0573px] opacity-0">{'{'}</text>
-        <text id="fgbr" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1460.35px] top-[468.467px] text-[131.0573px] opacity-0">{'}'}</text>
+        <p id="fgbl" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[390.564px] top-[468.467px] text-[131.0573px] opacity-0">{'{'}</p>
+        <p id="fgbr" className="absolute font-[k3-sans-light] font-light text-[#dcdcde] leading-none left-[1460.35px] top-[468.467px] text-[131.0573px] opacity-0">{'}'}</p>
         {/* F words: "One" + "model" */}
         <Bigword id="fw1" left="611.4953px" t="One" />
         <Bigword id="fw2" left="894.5192px" t="model" />

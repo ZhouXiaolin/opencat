@@ -22,8 +22,8 @@ use crate::parse::document::{DeclaredScript, ParsedComposition, script_driver_fr
 use crate::parse::easing::{Easing, SpringConfig, easing_from_name};
 use crate::parse::node::Node;
 use crate::parse::primitives::{
-    AudioSource, ImageSource, OpenverseQuery, VideoSource, canvas, div, image, path, text, video,
-    video_url,
+    AudioSource, ImageSource, OpenverseQuery, VideoSource, canvas, div, image, path, span, text,
+    video, video_url,
 };
 use crate::parse::transition::{
     Transition, clock_wipe, cut, fade, gl_transition, iris, light_leak, slide, timeline, wipe,
@@ -45,8 +45,20 @@ pub enum DomElement {
         #[serde(default)]
         children: Vec<DomElement>,
     },
-    #[serde(rename = "text")]
-    Text {
+    // HTML 语义的文本标签：p=块级段落、span=行内片段。两者当前共用同一
+    // 文本节点机制（单字符串、宽约束断行、text-align）；UA 表取 p
+    // { margin: 0 }（swgl 对齐基线是旧 text 渲的，版式零漂移优先）。
+    #[serde(rename = "p")]
+    P {
+        id: String,
+        #[serde(rename = "className", alias = "class")]
+        class: Option<String>,
+        style: Option<String>,
+        text: String,
+        duration: Option<f64>,
+    },
+    #[serde(rename = "span")]
+    Span {
         id: String,
         #[serde(rename = "className", alias = "class")]
         class: Option<String>,
@@ -187,7 +199,7 @@ impl DomElement {
     pub fn id(&self) -> &str {
         match self {
             DomElement::Div { id, .. }
-            | DomElement::Text { id, .. }
+            | DomElement::P { id, .. } | DomElement::Span { id, .. }
             | DomElement::Canvas { id, .. }
             | DomElement::Image { id, .. }
             | DomElement::Video { id, .. }
@@ -223,7 +235,7 @@ impl DomElement {
     pub fn duration(&self) -> Option<f64> {
         match self {
             DomElement::Div { duration, .. }
-            | DomElement::Text { duration, .. }
+            | DomElement::P { duration, .. } | DomElement::Span { duration, .. }
             | DomElement::Canvas { duration, .. }
             | DomElement::Image { duration, .. }
             | DomElement::Video { duration, .. }
@@ -482,7 +494,10 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             }
             Ok(Node::new(div_node))
         }
-        DomElement::Text {
+        // HTML 语义的文本标签：p=块级段落、span=行内片段（批次②起 p/span
+        // 共用同一文本节点机制，p 的 UA margin 取 0 保版式零漂移；真标签
+        // 名进 CSS 层叠的 tag 选择器输入）。
+        DomElement::P {
             id,
             class,
             style: inline_style,
@@ -490,9 +505,23 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             ..
         } => {
             let mut style =
-                resolve_style_for(&id, "text", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "p", class.as_deref(), inline_style.as_deref(), ctx);
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = text(content);
+            text_node.style = style;
+            Ok(Node::new(text_node))
+        }
+        DomElement::Span {
+            id,
+            class,
+            style: inline_style,
+            text: content,
+            ..
+        } => {
+            let mut style =
+                resolve_style_for(&id, "span", class.as_deref(), inline_style.as_deref(), ctx);
+            attach_driver(&mut style, &id, ctx)?;
+            let mut text_node = span(content);
             text_node.style = style;
             Ok(Node::new(text_node))
         }

@@ -81,6 +81,37 @@ fn cpu_execute_gpu_streams(
     })
 }
 
+/// 调试用：dump 原始 GPU 流（诊断两链命令分歧）。全片体量过大：默认只落
+/// 前 2 帧；`OC_DUMP_GPU_STREAM_ALL=1` 全量。
+fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, frame_index: u32) {
+    if frame_index >= 2 && std::env::var_os("OC_DUMP_GPU_STREAM_ALL").is_none() {
+        return;
+    }
+    let _ = std::fs::create_dir_all(dir);
+    for (si, stream) in gpu.streams.iter().enumerate() {
+        let mut buf: Vec<u8> = Vec::new();
+        fn w(buf: &mut Vec<u8>, chunk: &[u8]) {
+            buf.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
+            buf.extend_from_slice(chunk);
+        }
+        buf.extend_from_slice(&stream.image_id.0.to_le_bytes());
+        w(&mut buf, stream.target_id.as_bytes());
+        buf.extend_from_slice(&stream.width.to_le_bytes());
+        buf.extend_from_slice(&stream.height.to_le_bytes());
+        w(&mut buf, &stream.ops.ops);
+        w(&mut buf, &stream.ops.bytes);
+        buf.extend_from_slice(&(stream.ops.byte_ranges.len() as u32).to_le_bytes());
+        for r in &stream.ops.byte_ranges {
+            buf.extend_from_slice(&r.start.to_le_bytes());
+            buf.extend_from_slice(&r.len.to_le_bytes());
+        }
+        let _ = std::fs::write(
+            dir.join(format!("gpu-frame{frame_index}-s{si}.bin")),
+            &buf,
+        );
+    }
+}
+
 fn render_pipeline_frame_to_rgba(
     pipeline: &mut crate::EnginePipeline,
     media_ctx: &mut MediaContext,
@@ -94,6 +125,9 @@ fn render_pipeline_frame_to_rgba(
     let mut frame = render.draw;
     let mut media_plan = render.media;
     if let Some(gpu) = &render.gpu {
+        if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM") {
+            dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
+        }
         cpu_execute_gpu_streams(&pipeline.textures, &mut media_plan, gpu)?;
     }
 
@@ -261,35 +295,16 @@ impl GpuRenderSession {
         let mut frame = render.draw;
         let mut media_plan = render.media;
         // 调试用:dump 原始 GPU 流(测试进程加载后离线复现执行器+flush 崩溃)。
-        if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM") {
-            let raw = &render.gpu;
-            if let Some(gpu) = raw {
-                let _ = std::fs::create_dir_all(&dir);
-                for (si, stream) in gpu.streams.iter().enumerate() {
-                    let mut buf: Vec<u8> = Vec::new();
-                    fn w(buf: &mut Vec<u8>, chunk: &[u8]) {
-                        buf.extend_from_slice(&(chunk.len() as u32).to_le_bytes());
-                        buf.extend_from_slice(chunk);
-                    }
-                    buf.extend_from_slice(&stream.image_id.0.to_le_bytes());
-                    w(&mut buf, stream.target_id.as_bytes());
-                    buf.extend_from_slice(&stream.width.to_le_bytes());
-                    buf.extend_from_slice(&stream.height.to_le_bytes());
-                    w(&mut buf, &stream.ops.ops);
-                    w(&mut buf, &stream.ops.bytes);
-                    buf.extend_from_slice(&(stream.ops.byte_ranges.len() as u32).to_le_bytes());
-                    for r in &stream.ops.byte_ranges {
-                        buf.extend_from_slice(&r.start.to_le_bytes());
-                        buf.extend_from_slice(&r.len.to_le_bytes());
-                    }
-                    let _ = std::fs::write(
-                        std::path::Path::new(&dir).join(format!("gpu-frame{frame_index}-s{si}.bin")),
-                        &buf,
-                    );
-                }
-            }
+        if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM")
+            && let Some(gpu) = &render.gpu
+        {
+            dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
         }
         let mut stream_outputs: Vec<(opencat_gpu_native::NativeTexture, u32)> = Vec::new();
+        // 流执行过 = GL 上下文被改过（哪怕占位不可见、输出被丢弃——three
+        // 这类持久 renderer 的不可见帧照常执行命令），Skia 合成前就必须
+        // reset。判据不是 gpu_handles：输出被丢弃的帧 handle 为空。
+        let mut gpu_stream_ran = false;
         if std::env::var_os("OC_DISABLE_GPU_STREAM").is_none()
             && let Some(gpu) = &render.gpu
         {
@@ -298,6 +313,7 @@ impl GpuRenderSession {
             // 抢回来，否则执行器拿本会话的持久句柄打到别人的上下文上
             //（INVALID_VALUE/OUT_OF_MEMORY，NVIDIA 下直接段错误）。
             self.gl_session.make_current()?;
+            gpu_stream_ran = !gpu.streams.is_empty();
             stream_outputs = self.gpu_executor.execute(
                 &self.gl_session.gl(),
                 gpu,
@@ -319,7 +335,7 @@ impl GpuRenderSession {
 
         // 本帧有 GPU 流执行过 pass（命令流改动了 GL 状态），Skia 缓存的状态
         // 已失效：两者共享同一 GL 上下文，合成前必须让 Skia 重新查询。
-        if !gpu_handles.is_empty() {
+        if gpu_stream_ran {
             compositor.reset_backend_state();
         }
 

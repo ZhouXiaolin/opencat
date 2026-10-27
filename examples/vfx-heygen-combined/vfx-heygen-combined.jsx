@@ -873,12 +873,12 @@ function PromptScene() {
       <div id="prompt-app" class="absolute left-0 top-0 w-[1920px] h-[1080px] flex flex-col">
         <div id="prompt-topbar" class="h-[64px] px-[28px] flex items-center justify-between border-b-[1px] border-[#EBE7DB] bg-[#FAF9F5]">
           <div id="ptb-left" class="flex items-center gap-[14px]">
-            <text id="ptb-star" class="text-[#D97757] text-[26px] font-[inter900] font-black">{'\u2726'}</text>
-            <text id="ptb-name" class="text-[#3D3929] text-[18px] font-[inter] font-medium">HyperFrames Project</text>
+            <p id="ptb-star" class="text-[#D97757] text-[26px] font-[inter900] font-black">{'\u2726'}</p>
+            <p id="ptb-name" class="text-[#3D3929] text-[18px] font-[inter] font-medium">HyperFrames Project</p>
           </div>
           <div id="ptb-right" class="flex items-center gap-[14px]">
-            <div id="ptb-pill" class="px-[14px] py-[8px] rounded-full bg-[#F0ECE0] border-[1px] border-[#E5E0D1]"><text id="ptb-pill-t" class="text-[#6B6757] text-[15px] font-[inter] font-medium">Claude Opus 4.7</text></div>
-            <div id="ptb-avatar" class="w-[36px] h-[36px] rounded-full bg-[#D97757] flex items-center justify-center"><text id="ptb-avatar-t" class="text-[#ffffff] text-[15px] font-[inter600]">J</text></div>
+            <div id="ptb-pill" class="px-[14px] py-[8px] rounded-full bg-[#F0ECE0] border-[1px] border-[#E5E0D1]"><p id="ptb-pill-t" class="text-[#6B6757] text-[15px] font-[inter] font-medium">Claude Opus 4.7</p></div>
+            <div id="ptb-avatar" class="w-[36px] h-[36px] rounded-full bg-[#D97757] flex items-center justify-center"><p id="ptb-avatar-t" class="text-[#ffffff] text-[15px] font-[inter600]">J</p></div>
           </div>
         </div>
         <div id="ptb-thread" class="flex-1"></div>
@@ -887,23 +887,23 @@ function PromptScene() {
             <div id="composer-shadow" class="absolute inset-0 rounded-[22px] bg-[#F5F4ED] shadow-[0_18px_48px_rgba(61,57,41,0.12)]"></div>
             <div id="prompt-composer" class="absolute inset-0 bg-[#FFFFFF] border-[1px] border-[#E5E0D1] rounded-[22px] px-[30px] pt-[30px] pb-[24px] flex flex-col justify-between">
               <div id="pc-textrow" class="flex items-center">
-                <text id="prompt-command" class="text-[#3D3929] text-[34px] font-[inter400] whitespace-nowrap">npx hyperframes add iphone-canvas</text>
+                <p id="prompt-command" class="text-[#3D3929] text-[34px] font-[inter400] whitespace-nowrap">npx hyperframes add iphone-canvas</p>
               </div>
               <div id="pc-actions" class="flex justify-end items-center gap-[10px]">
-                <text id="pc-attach" class="text-[#8C8674] text-[18px] font-[inter] font-medium">{'\uD83D\uDCCE'}</text>
+                <p id="pc-attach" class="text-[#8C8674] text-[18px] font-[inter] font-medium">{'\uD83D\uDCCE'}</p>
                 <div id="prompt-send" class="relative w-[36px] h-[36px] rounded-[10px] bg-[#D97757] flex items-center justify-center">
                   <div id="send-glow" class="absolute inset-0 rounded-[10px] shadow-[0_12px_34px_rgba(217,119,87,0.42)] opacity-0"></div>
-                  <text id="pc-send-arrow" class="text-[#ffffff] font-[inter800] text-[20px]">{'\u2191'}</text>
+                  <p id="pc-send-arrow" class="text-[#ffffff] font-[inter800] text-[20px]">{'\u2191'}</p>
                 </div>
               </div>
               <div id="prompt-caret" class="absolute w-[14px] h-[38px] rounded-[2px] bg-[#D97757] opacity-0"></div>
             </div>
           </div>
-          <text id="prompt-meta" class="text-[#3D3929] text-[13px] font-[inter400] opacity-0">Claude can make mistakes. Please double-check responses.</text>
+          <p id="prompt-meta" class="text-[#3D3929] text-[13px] font-[inter400] opacity-0">Claude can make mistakes. Please double-check responses.</p>
         </div>
       </div>
       <div id="game-change-copy" class="absolute left-0 top-[0px] w-[1920px] h-[1080px] flex items-center justify-center opacity-0">
-        <text id="game-change-line" class="text-[#3D3929] text-[136px] font-[inter800] font-extrabold leading-[0.94] text-center">You can make this too</text>
+        <p id="game-change-line" class="text-[#3D3929] text-[136px] font-[inter800] font-extrabold leading-[0.94] text-center">You can make this too</p>
       </div>
       <image id="click-cursor" path="assets/cursor.png"
         class="absolute left-[940px] top-[528px] w-[118px] h-[118px] opacity-0 drop-shadow-[0_18px_18px_rgba(61,57,41,0.22)]" />
@@ -992,7 +992,7 @@ function ChromaticSplit() {
         <div id="chrom-warm" class="absolute left-[540px] top-[-270px] w-[1300px] h-[1300px] rounded-full bg-[radial-gradient(closest-side,rgba(255,49,93,0.26),rgba(217,119,87,0))]"></div>
         <div id="chrom-blue" class="absolute left-[70px] top-[115px] w-[1240px] h-[1240px] rounded-full bg-[radial-gradient(closest-side,rgba(37,200,255,0.24),rgba(37,200,255,0))]"></div>
         <div id="chrom-green" class="absolute left-[440px] top-[35px] w-[1040px] h-[1040px] rounded-full bg-[radial-gradient(closest-side,rgba(49,255,131,0.13),rgba(49,255,131,0))]"></div>
-        <text id="chrom-text" class="absolute left-0 top-[472px] w-[1920px] text-center text-[#F5F4ED] text-[136px] font-[inter800] font-extrabold leading-[0.94] [text-shadow:0_0_34px_rgba(245,244,237,0.42)]">You can make this too</text>
+        <p id="chrom-text" class="absolute left-0 top-[472px] w-[1920px] text-center text-[#F5F4ED] text-[136px] font-[inter800] font-extrabold leading-[0.94] [text-shadow:0_0_34px_rgba(245,244,237,0.42)]">You can make this too</p>
       </div>
     </canvas>
   );
@@ -1009,8 +1009,8 @@ function Cta() {
   });
   return (
     <div id="upgrade-cta" class="absolute left-0 top-0 w-[1920px] h-[1080px] flex flex-col items-center justify-center gap-[38px] opacity-0">
-      <text id="cta-main" class="text-[#F5F4ED] text-[178px] font-[inter900] font-black leading-[0.88] text-center">Full catalog</text>
-      <text id="cta-sub" class="text-[rgba(245,244,237,0.82)] text-[92px] font-[inter800] font-extrabold leading-[0.92] text-center">available now</text>
+      <p id="cta-main" class="text-[#F5F4ED] text-[178px] font-[inter900] font-black leading-[0.88] text-center">Full catalog</p>
+      <p id="cta-sub" class="text-[rgba(245,244,237,0.82)] text-[92px] font-[inter800] font-extrabold leading-[0.92] text-center">available now</p>
     </div>
   );
 }
@@ -1057,12 +1057,12 @@ function Portal() {
     <>
       <div id="portal-logo-frame" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#FFFFFF] flex flex-col items-center justify-center gap-[42px] opacity-0">
         <image id="end-logo" class="w-[650px] h-[195px]" path="assets/hyperframes-dark.png" />
-        <text id="end-url" class="text-[#111111] font-[mono] font-extrabold text-[32px] leading-none opacity-[0.72]">hyperframes.heygen.com/catalog</text>
+        <p id="end-url" class="text-[#111111] font-[mono] font-extrabold text-[32px] leading-none opacity-[0.72]">hyperframes.heygen.com/catalog</p>
       </div>
       <canvas id="portal-canvas" class="absolute left-0 top-0 w-[1920px] h-[1080px] opacity-0">
         <div id="chrome-front" class="absolute left-0 top-0 w-[1920px] h-[1080px] bg-[#000000]">
-          <text id="cf-main" class="absolute left-0 top-[426px] w-[1920px] text-center text-[#F5F4ED] text-[178px] font-[inter900] font-black leading-[0.88]">Full catalog</text>
-          <text id="cf-sub" class="absolute left-0 top-[600px] w-[1920px] text-center text-[rgba(245,244,237,0.82)] text-[92px] font-[inter800] font-extrabold leading-[0.92]">available now</text>
+          <p id="cf-main" class="absolute left-0 top-[426px] w-[1920px] text-center text-[#F5F4ED] text-[178px] font-[inter900] font-black leading-[0.88]">Full catalog</p>
+          <p id="cf-sub" class="absolute left-0 top-[600px] w-[1920px] text-center text-[rgba(245,244,237,0.82)] text-[92px] font-[inter800] font-extrabold leading-[0.92]">available now</p>
         </div>
       </canvas>
     </>
@@ -1191,21 +1191,21 @@ function IntroCard() {
         <div id="phrase-a" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] flex flex-col items-center justify-center text-center text-[#ffffff] text-[292px] font-[inter900] font-black leading-[0.88] tracking-[0]">
           <div id="pa-line1" class="flex items-center justify-center">
             <div id="html-word" class="relative text-left text-[#f6ff7a] font-[big] font-black tracking-[4.38px]">
-              <text id="html-type" class="font-[big] font-black tracking-[4.38px]" style={{ textShadow: '-6px 0 16px rgba(73,242,255,0.48), 6px 0 16px rgba(255,79,216,0.34), 0 0 24px rgba(246,255,122,0.34), 0 24px 72px rgba(0,0,0,0.56)' }}>HTML</text>
-              <text id="html-caret" class="absolute left-[0px] top-[0px] text-[#f6ff7a] font-[big] font-black text-[292px] leading-[0.88] opacity-0">|</text>
+              <p id="html-type" class="font-[big] font-black tracking-[4.38px]" style={{ textShadow: '-6px 0 16px rgba(73,242,255,0.48), 6px 0 16px rgba(255,79,216,0.34), 0 0 24px rgba(246,255,122,0.34), 0 24px 72px rgba(0,0,0,0.56)' }}>HTML</p>
+              <p id="html-caret" class="absolute left-[0px] top-[0px] text-[#f6ff7a] font-[big] font-black text-[292px] leading-[0.88] opacity-0">|</p>
             </div>
-            <text id="html-tail" class="opacity-0">{'\u2013'}in</text>
+            <p id="html-tail" class="opacity-0">{'\u2013'}in</p>
           </div>
-          <text id="canvas-word" class="opacity-0">canvas</text>
+          <p id="canvas-word" class="opacity-0">canvas</p>
         </div>
         <div id="phrase-b" class="absolute left-[126px] right-[126px] top-[96px] bottom-[96px] text-[#ffffff] opacity-0">
-          <text id="avail-now" class="absolute left-[0px] top-[76px] text-[161px] font-[inter800] font-extrabold leading-[0.88]">Now</text>
-          <text id="avail-natively" class="absolute left-[92px] top-[212px] text-[#f6ff7a] font-[serifd] text-[304px] italic font-normal leading-[0.78]">natively</text>
+          <p id="avail-now" class="absolute left-[0px] top-[76px] text-[161px] font-[inter800] font-extrabold leading-[0.88]">Now</p>
+          <p id="avail-natively" class="absolute left-[92px] top-[212px] text-[#f6ff7a] font-[serifd] text-[304px] italic font-normal leading-[0.78]">natively</p>
           {/* source `.availability > span{display:block}` outranks
               `.availability-supported{display:flex}`, so the lockup is a
               left-aligned block, not a flex row. */}
           <div id="avail-supported-wrap" class="absolute right-[0px] top-[526px] w-[940px]">
-            <text id="avail-supported" class="text-[161px] font-[inter800] font-extrabold leading-[0.88] whitespace-nowrap">supported.</text>
+            <p id="avail-supported" class="text-[161px] font-[inter800] font-extrabold leading-[0.88] whitespace-nowrap">supported.</p>
           </div>
         </div>
       </div>

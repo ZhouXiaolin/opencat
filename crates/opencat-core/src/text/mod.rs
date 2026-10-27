@@ -51,6 +51,9 @@ pub struct GlyphPosition {
     pub outline_key: u64,
     pub x: f32,
     pub y: f32,
+    /// Unquantized x. cosmic-text bins `x` into 1/4px via CacheKey (see
+    /// `LayoutGlyph::physical`); vectorial output (SVG) needs the raw f32.
+    pub x_precise: f32,
     /// Byte range of the glyph within the original (transformed) text,
     /// used for text-unit override grouping.
     pub byte_range: Range<usize>,
@@ -74,6 +77,31 @@ pub struct TextRasterization {
     pub glyphs: HashMap<u64, GlyphData>,
     /// Lines with positioned glyphs
     pub lines: Vec<TextLine>,
+    /// Vertical metrics of the font that actually shaped the first glyph
+    /// (px domain; ascent positive, descent negative). Decoration
+    /// underlines and baseline alignment hang off this — querying the
+    /// family separately can pick a different face than shaping's
+    /// fallback did.
+    pub metrics: Option<FontTextMetrics>,
+}
+
+/// Vertical font metrics for text decorations and baseline alignment.
+/// Read from post/os2 via swash — the same tables usvg consults.
+#[derive(Clone, Copy, Debug)]
+pub struct FontTextMetrics {
+    pub ascent: f32,
+    pub descent: f32,
+    pub x_height: f32,
+    /// Baseline to top-of-underline (post.underlinePosition, usually negative).
+    pub underline_offset: f32,
+    /// Baseline to top-of-strikeout (os2 yStrikeoutPosition).
+    pub strikeout_offset: f32,
+    /// Underline/strikeout stroke thickness (post.underlineThickness).
+    pub stroke_size: f32,
+    /// Baseline shift for `sub`/`super` (os2 ySubscriptYOffset /
+    /// ySuperscriptYOffset; swash 不读这两项，usvg 同源直读 os2)。
+    pub subscript_offset: f32,
+    pub superscript_offset: f32,
 }
 
 // ── Font database ──────────────────────────────────────────────────────────
@@ -538,6 +566,25 @@ pub fn measure_text(
 
 // ── Glyph rasterization ────────────────────────────────────────────────────
 
+/// os2 表的 ySubscriptYOffset / ySuperscriptYOffset（设计单位，i16 大端，
+/// 偏移 16 / 24）。swash 不读这两项；缺表回退 usvg 同款通用值
+/// （upem/0.2、upem/0.4，Inkscape/librsvg 同源）。
+fn os2_subsuper(font: swash::FontRef, upem: f32) -> (i16, i16) {
+    const FALLBACK: fn(f32) -> (i16, i16) = |upem| {
+        ((upem / 0.2).round() as i16, (upem / 0.4).round() as i16)
+    };
+    let Some(t) = font.table(swash::tag_from_bytes(b"OS/2")) else {
+        return FALLBACK(upem);
+    };
+    if t.len() < 26 {
+        return FALLBACK(upem);
+    }
+    (
+        i16::from_be_bytes([t[16], t[17]]),
+        i16::from_be_bytes([t[24], t[25]]),
+    )
+}
+
 /// Rasterize text into backend-agnostic glyph data.
 /// Returns deduplicated glyphs keyed by `cache_key` and positioned per line.
 pub fn rasterize_glyphs(
@@ -553,6 +600,7 @@ pub fn rasterize_glyphs(
         return TextRasterization {
             glyphs: HashMap::default(),
             lines: Vec::new(),
+            metrics: None,
         };
     }
 
@@ -570,7 +618,7 @@ pub fn rasterize_glyphs(
     let metrics = Metrics::new(style.text_px, line_height);
 
     let attrs = text_attrs(style);
-    let (glyphs, lines) =
+    let (glyphs, lines, font_metrics) =
         with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(&rendered), |font_system| {
             let mut buffer = Buffer::new(font_system, metrics);
             buffer.set_size(layout_width, None);
@@ -579,6 +627,7 @@ pub fn rasterize_glyphs(
 
             let mut glyphs: HashMap<u64, GlyphData> = HashMap::default();
             let mut lines: Vec<TextLine> = Vec::new();
+            let mut font_metrics: Option<FontTextMetrics> = None;
 
             with_swash_cache(|swash_cache| {
                 for run in buffer.layout_runs() {
@@ -586,6 +635,26 @@ pub fn rasterize_glyphs(
 
                     for glyph in run.glyphs {
                         let physical = glyph.physical((0.0, 0.0), 1.0);
+                        if font_metrics.is_none()
+                            && let Some(f) = font_system
+                                .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
+                        {
+                            let sw = f.as_swash();
+                            let raw = sw.metrics(&[]);
+                            let m = raw.scale(style.text_px);
+                            let (sub_du, super_du) = os2_subsuper(sw, raw.units_per_em as f32);
+                            let k = style.text_px / raw.units_per_em as f32;
+                            font_metrics = Some(FontTextMetrics {
+                                ascent: m.ascent,
+                                descent: m.descent,
+                                x_height: m.x_height,
+                                underline_offset: m.underline_offset,
+                                strikeout_offset: m.strikeout_offset,
+                                stroke_size: m.stroke_size,
+                                subscript_offset: sub_du as f32 * k,
+                                superscript_offset: super_du as f32 * k,
+                            });
+                        }
                         let ck = glyph_cache_key(&physical.cache_key);
                         let ok = glyph_outline_key(&physical.cache_key);
 
@@ -598,6 +667,7 @@ pub fn rasterize_glyphs(
                             outline_key: ok,
                             x,
                             y,
+                            x_precise: glyph.x + glyph.font_size * glyph.x_offset,
                             byte_range: glyph.start..glyph.end,
                         });
 
@@ -644,10 +714,14 @@ pub fn rasterize_glyphs(
                 }
             });
 
-            (glyphs, lines)
+            (glyphs, lines, font_metrics)
         });
 
-    TextRasterization { glyphs, lines }
+    TextRasterization {
+        glyphs,
+        lines,
+        metrics: font_metrics,
+    }
 }
 
 // ── Script offscreen surface (canvas drawText / getImageData capability) ───

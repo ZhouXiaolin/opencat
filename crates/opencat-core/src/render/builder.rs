@@ -58,6 +58,11 @@ impl DrawOpBuilder {
         &self.paints
     }
 
+    /// Debug dump of the interned path table (OC_SVG_DEBUG diagnostics only).
+    pub fn paths_debug(&self) -> &[EncodedPath] {
+        &self.paths
+    }
+
     /// Intern a PaintSpec, returning a deduplicated PaintId.
     pub fn intern_paint(&mut self, spec: PaintSpec) -> PaintId {
         if let Some(&id) = self.paint_dedup.get(&spec) {

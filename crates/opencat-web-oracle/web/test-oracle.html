@@ -29,6 +29,7 @@
       import {
         clearBlobs,
         clearVideoCache,
+        dumpEncodedFrameOps,
         getReusableSurface,
         releaseReusableSurface,
         getRendererOrThrow,
@@ -435,7 +436,34 @@
         };
       }
 
-      globalThis.__opencatOracle = { renderFrame, renderFramesToMp4 };
+      // Module-scope helpers exposed for the harness's eval_js debug channel
+      // (webdriver eval runs in a separate script context and cannot see
+      // module imports).
+      globalThis.__opencatOracle = {
+        renderFrame, renderFramesToMp4, drawFrame,
+        getRendererOrThrow, getReusableSurface, renderEncodedDrawFrame,
+        // Step-wise helpers for the web-eval debug driver: open once, then
+        // build + render separately so a thrown TypeError carries the exact
+        // failing call in its stack.
+        async openDesign(envelope) {
+          await ready;
+          clearBlobs();
+          await clearVideoCache();
+          const renderer = getRendererOrThrow();
+          const catalogJson = await renderer.open_design(envelope);
+          await prepareCatalogVideoSources(catalogJson);
+          return 'opened';
+        },
+        buildFrameIr(frame) {
+          const renderer = getRendererOrThrow();
+          return renderer.build_frame_ir(frame);
+        },
+        dumpFrameOps(frame, limit) {
+          const renderer = getRendererOrThrow();
+          const result = renderer.build_frame_ir(frame);
+          return dumpEncodedFrameOps(result.ir, limit);
+        },
+      };
     </script>
   </body>
 </html>

@@ -589,6 +589,49 @@ impl BrowserHarness {
         wait_for_document_ready(&self.client, &self.webdriver_url, &self.session_id).await
     }
 
+    /// Evaluate one async JS snippet in the page (result of the last
+    /// expression is JSON-serialized back). Debug escape hatch — keeps the
+    /// full `err.stack` that the typed render methods flatten away.
+    pub async fn eval_js(&self, script: &str) -> Result<String> {
+        let result = webdriver_post(
+            &self.client,
+            &self.webdriver_url,
+            &self.session_id,
+            "execute/async",
+            json!({
+                "script": format!(
+                    r#"
+                    const userScript = arguments[0];
+                    const done = arguments[arguments.length - 1];
+                    (async () => {{
+                        // eslint-disable-next-line no-eval
+                        return eval(userScript);
+                    }})()
+                      .then((v) => done({{ ok: true, value: v === undefined ? null : JSON.stringify(v) }}))
+                      .catch((err) => done({{ ok: false, error: String(err && (err.stack || err.message) || err) }}));
+                    "#
+                ),
+                "args": [script],
+            }),
+        )
+        .await?;
+
+        if result.get("ok").and_then(Value::as_bool) != Some(true) {
+            bail!(
+                "{}",
+                result
+                    .get("error")
+                    .and_then(Value::as_str)
+                    .unwrap_or("eval_js returned an unknown error")
+            );
+        }
+        Ok(result
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string())
+    }
+
     pub async fn render_frame(&self, envelope: &str, frame: u32) -> Result<WebFrame> {
         let result = webdriver_post(
             &self.client,

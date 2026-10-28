@@ -30,6 +30,7 @@ export {
   MediaValidationError,
   isEncodedDrawEnvelope,
   decodeDrawEnvelope,
+  dumpEncodedFrameOps,
   __generatedImageTestSeam,
 } from './draw-ir';
 export type {

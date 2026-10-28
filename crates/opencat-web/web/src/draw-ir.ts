@@ -670,9 +670,16 @@ export function renderEncodedDrawFrame(
         case OP_SKEW:
           targetCanvas.skew(p.f32(), p.f32());
           break;
-        case OP_CONCAT:
-          targetCanvas.concat(p.f32Array(9));
+        case OP_CONCAT: {
+          // Wire layout is column-major (`[h00,h10,h20, h01,h11,h21, h02,
+          // h12,h22]`, Mat4::to_homography3); CanvasKit's 9-array concat reads
+          // SkMatrix row-major [sx,kx,tx, ky,sy,ty, p0,p1,p2]. Same shuffle
+          // replay.rs does with Matrix::new_all — without it the translation
+          // lands in the perspective row and W=tx·x collapses the draw.
+          const m = p.f32Array(9);
+          targetCanvas.concat([m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]);
           break;
+        }
         case OP_SET_FILL_STYLE:
           state.fillColor = colorU32ToF32(p.u32());
           break;
@@ -2146,6 +2153,106 @@ function mapPointMode(CK: CanvasKit, value: number): CanvasKitEnum {
 
 function align4(value: number): number {
   return (value + 3) & ~3;
+}
+
+/// Debug (oracle eval_js channel): decode an encoded frame and summarize its
+/// op stream — opcode names plus the geometry-bearing params. This is how a
+/// "layer vanished on web" question gets answered at the IR level: if the ops
+/// are present with sane coords, the bug is replay; if absent, the bug is
+/// upstream in core's display build.
+export function dumpEncodedFrameOps(encoded: EncodedDrawFrame, limit = 400): string {
+  const frame = decodeFrame(encoded);
+  const entries = parseOps(frame.ops);
+  const names: Record<number, string> = {};
+  for (const [name, value] of Object.entries(OP)) names[value as number] = name;
+
+  const f32 = (p: { f32: () => number }, n: number): number[] =>
+    Array.from({ length: n }, () => p.f32());
+  const fx = (v: number[]): string => v.map((x) => (Math.round(x * 1000) / 1000).toString()).join(',');
+
+  const lines: string[] = [];
+  const push = (s: string) => lines.push(s);
+  push(`ops=${entries.length} subtrees=${frame.subtrees.length} paths=${frame.paths.length} strings=${frame.strings.length}`);
+  const n = Math.min(entries.length, limit);
+  for (let i = 0; i < n; i++) {
+    const e = entries[i];
+    const p = new Payload(frame.ops, e.payloadOffset, e.payloadLen);
+    let detail = '';
+    switch (e.opcode) {
+      case OP.SAVE: break;
+      case OP.SAVE_LAYER: {
+        const flags = p.u8();
+        const v = f32(p, 4);
+        detail = `flags=${flags.toString(2).padStart(3, '0')} rect=[${fx(v)}] paint=${p.u32()} alpha=${p.f32().toFixed(2)}`;
+        break;
+      }
+      case OP.SAVE_BACKDROP_LAYER: {
+        const flags = p.u8();
+        const v = f32(p, 4);
+        const paint = p.u32();
+        const alpha = p.f32();
+        const radii = f32(p, 4);
+        detail = `flags=${flags.toString(2).padStart(3, '0')} rect=[${fx(v)}] paint=${paint} alpha=${alpha.toFixed(2)} r=[${fx(radii)}]`;
+        break;
+      }
+      case OP.RESTORE: break;
+      case OP.RESTORE_TO_COUNT: detail = `count=${p.u32()}`; break;
+      case OP.TRANSLATE: detail = `t=[${fx(f32(p, 2))}]`; break;
+      case OP.SCALE: detail = `s=[${fx(f32(p, 2))}]`; break;
+      case OP.ROTATE: detail = `r=[${fx(f32(p, 3))}]`; break;
+      case OP.SKEW: detail = `k=[${fx(f32(p, 2))}]`; break;
+      case OP.CONCAT: detail = `m=[${fx(f32(p, 9))}]`; break;
+      case OP.SET_FILL_STYLE: detail = `fill=#${p.u32().toString(16)}`; break;
+      case OP.SET_STROKE_STYLE: detail = `stroke=#${p.u32().toString(16)}`; break;
+      case OP.SET_LINE_WIDTH: p.f32(); break;
+      case OP.SET_GLOBAL_ALPHA: detail = `a=${p.f32().toFixed(3)}`; break;
+      case OP.PAINT: detail = `paint=${p.u32()}`; break;
+      case OP.RECT: {
+        const v = f32(p, 4);
+        detail = `rect=[${fx(v)}] paint=${p.u32()}`;
+        break;
+      }
+      case OP.R_RECT: {
+        const v = f32(p, 8);
+        detail = `rr=[${fx(v.slice(0, 4))}] r=[${fx(v.slice(4))}] paint=${p.u32()}`;
+        break;
+      }
+      case OP.D_RRECT: {
+        const outer = f32(p, 8);
+        const inner = f32(p, 8);
+        detail = `outer=[${fx(outer)}] inner=[${fx(inner)}] paint=${p.u32()}`;
+        break;
+      }
+      case OP.OVAL: {
+        const v = f32(p, 4);
+        detail = `oval=[${fx(v)}] paint=${p.u32()}`;
+        break;
+      }
+      case OP.CIRCLE: detail = `c=[${fx(f32(p, 3))}] paint=${p.u32()}`; break;
+      case OP.DRAW_PATH: detail = `path=${p.u32()} paint=${p.u32()}`; break;
+      case OP.IMAGE_RECT: {
+        // tag u8 + string u32 + time u64 + src 4xf32 + dst 4xf32 + paint u32.
+        const tag = p.u8();
+        const asset = frame.strings[p.u32()] ?? '?';
+        const time = p.u64();
+        const src = f32(p, 4);
+        const dst = f32(p, 4);
+        detail = `tag=${tag} ${asset}@${time} src=[${fx(src)}] dst=[${fx(dst)}] paint=${p.u32()}`;
+        break;
+      }
+      case OP.REPLAY_RANGE: detail = `range=[${p.u32()}+${p.u32()}]`; break;
+      case OP.DRAW_SUBTREE_PICTURE: detail = `subtree=${p.u32()} at=[${fx(f32(p, 2))}]`; break;
+      default: detail = `${e.payloadLen}B`;
+    }
+    push(`${i}: ${names[e.opcode] ?? e.opcode} ${detail}`.trimEnd());
+  }
+  if (entries.length > n) push(`… ${entries.length - n} more`);
+  // Subtree op streams: the picture caches per-subtree draws.
+  for (let si = 0; si < frame.subtrees.length && si < 8; si++) {
+    const subEntries = parseOps(frame.subtrees[si]);
+    push(`— subtree ${si}: ${subEntries.length} ops`);
+  }
+  return lines.join('\n');
 }
 
 /// True if `bytes` is a compressed OCIR transport container ("OCZ1"), as opposed

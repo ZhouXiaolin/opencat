@@ -259,18 +259,40 @@ fn run(cli: &Cli) -> Result<()> {
     let mut list = String::new();
     let mut total_frames = 0u32;
     for (idx, (seg_start, seg_end, mp4)) in rendered.iter().enumerate() {
-        let seg_path = concat_dir.join(format!(
-            "{}.seg{idx:02}.mp4",
-            cli.out.file_stem().unwrap_or_default().to_string_lossy()
-        ));
-        fs::write(&seg_path, &mp4.mp4)
-            .with_context(|| format!("write segment {}", seg_path.display()))?;
+        let stem = cli.out.file_stem().unwrap_or_default().to_string_lossy();
+        // The in-page WebCodecs bitstream carries full-range data with NO VUI,
+        // so every downstream decoder assumes tv-range and one tv->full
+        // stretch leaks into the concat re-encode (+10~19 per channel — the
+        // whole frame drifts). Inject the VUI into each segment on disk
+        // (stream copy) so the concat decode is range-correct, exactly like
+        // the single-segment path above.
+        let raw_path = concat_dir.join(format!("{stem}.seg{idx:02}.raw.mp4"));
+        let seg_path = concat_dir.join(format!("{stem}.seg{idx:02}.mp4"));
+        fs::write(&raw_path, &mp4.mp4)
+            .with_context(|| format!("write segment {}", raw_path.display()))?;
+        let tagged = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-i"])
+            .arg(&raw_path)
+            .args(["-c", "copy"])
+            .args(COLOR_BSF)
+            .arg(&seg_path)
+            .status()
+            .context("spawn ffmpeg to tag web render segment VUI")?;
+        if !tagged.success() {
+            bail!("ffmpeg VUI tag failed for segment {idx}");
+        }
+        let _ = fs::remove_file(&raw_path);
         eprintln!(
             "  segment {idx}: frames {seg_start}..={seg_end} -> {} ({} bytes)",
             seg_path.display(),
             mp4.mp4.len()
         );
-        list.push_str(&format!("file '{}'\n", seg_path.display()));
+        // Concat 清单里的相对路径以清单所在目录为基准解析——写目录前缀会
+        // 叠成双路径。段文件与清单同目录，写纯文件名。
+        list.push_str(&format!(
+            "file '{}'\n",
+            seg_path.file_name().unwrap_or_default().to_string_lossy()
+        ));
         total_frames += mp4.frames_encoded;
     }
     let list_path = concat_dir.join(format!(

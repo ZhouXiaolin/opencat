@@ -14,7 +14,7 @@
 //   3. vite build 结束后自动调用 opencat render 产出视频（渲染的是 bundle）。
 //      bundle 不在入口目录，所以渲染显式传 `--base-dir <入口目录>`：资产/字体
 //      相对路径仍按入口目录解析。预览同理：build 产出 bundle 后
-//      `opencat-see dist/<stem>.bundle.jsx --base-dir .`。
+//      `opencat view dist/<stem>.bundle.jsx --base-dir .`。
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

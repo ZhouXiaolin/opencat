@@ -1,10 +1,8 @@
-//! Headless Chrome + static server harness for web-vs-engine frame oracles.
+//! Headless Chrome + static server harness for driving wasm renders.
 //!
-//! Shared by `scripts/compare-mp4.sh` via the `opencat-web-compare` binary
-//! (sampled hex or whole-range video).
-//!
-//! The browser path always goes through `web/test-oracle.html`. Two transports
-//! are exposed:
+//! ChromeDriver opens the in-crate harness page (`web/test-oracle.html`),
+//! which loads the opencat.js facade (wasm + CanvasKit) and renders frames of
+//! a host-extracted JSX envelope. Two transports are exposed:
 //! - **hex** (sampled oracle): one frame per call, CanvasKit `readPixels` → raw
 //!   RGBA hex. Exact, but ships 16.6 MB of hex per 1920×1080 frame and grows the
 //!   page JS heap without bound → the tab OOMs after a few hundred frames.
@@ -44,7 +42,7 @@ use serde_json::{Value, json};
 /// rebuilds the composition from it. `base_dir` resolves relative `import`s
 /// during extraction.
 pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<String> {
-    let (extract, driver) = crate::jsx::extract_with_base_dir(source, base_dir)?;
+    let (extract, driver) = opencat_engine::jsx::extract_with_base_dir(source, base_dir)?;
     // Repo-relative baseDir (`examples/<example>`): the static server maps
     // `/assets/<baseDir>/...` back under the repo root, so an absolute
     // host path would leak into the URL.
@@ -71,6 +69,14 @@ pub fn repo_root() -> Result<PathBuf> {
         .nth(2)
         .map(Path::to_path_buf)
         .ok_or_else(|| anyhow!("failed to derive repo root from CARGO_MANIFEST_DIR"))
+}
+
+/// The oracle harness page ships with this crate, so the static server serves
+/// it independently of where the wasm facade or the node_modules deps live.
+fn harness_page() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("web")
+        .join("test-oracle.html")
 }
 
 pub struct WebAppServer {
@@ -142,7 +148,7 @@ impl StaticRoutes {
     fn resolve(&self, request_path: &str) -> Option<PathBuf> {
         // The oracle harness page.
         if request_path == "/" || request_path == "/test-oracle.html" {
-            return Some(self.repo.join("web/test-oracle.html"));
+            return Some(harness_page());
         }
 
         // web-demuxer.wasm is resolved by the video-decode worker as
@@ -701,6 +707,40 @@ impl BrowserHarness {
         parse_frames_mp4(parsed)
     }
 
+    /// Drain the browser console log (chromedriver `browser` log type).
+    /// Session capabilities enable `goog:loggingPrefs` so WebGL/shader
+    /// diagnostics reach this — call after a failed or suspicious render.
+    pub async fn browser_logs(&self) -> Vec<String> {
+        let response = self
+            .client
+            .post(format!(
+                "{}/session/{}/se/log",
+                self.webdriver_url, self.session_id
+            ))
+            .json(&serde_json::json!({ "type": "browser" }))
+            .send()
+            .await;
+        let Ok(response) = response else {
+            return Vec::new();
+        };
+        let Ok(body) = response.json::<Value>().await else {
+            return Vec::new();
+        };
+        body.get("value")
+            .and_then(Value::as_array)
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|e| {
+                        let level = e.get("level").and_then(Value::as_str)?;
+                        let msg = e.get("message").and_then(Value::as_str)?;
+                        Some(format!("[{level}] {msg}"))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     pub async fn shutdown(mut self) -> Result<()> {
         let _ = self
             .client
@@ -772,6 +812,7 @@ async fn create_session(
             "capabilities": {
                 "alwaysMatch": {
                     "browserName": "chrome",
+                    "goog:loggingPrefs": { "browser": "ALL" },
                     "goog:chromeOptions": chrome_options
                 }
             }
@@ -862,13 +903,6 @@ pub struct WebFrame {
     pub rgba: Vec<u8>,
 }
 
-struct EngineFrame {
-    frame: u32,
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-}
-
 fn parse_web_frame(value: &Value) -> Result<WebFrame> {
     let width = parse_u32(value, "width")?;
     let height = parse_u32(value, "height")?;
@@ -927,7 +961,7 @@ fn parse_u32(value: &Value, key: &str) -> Result<u32> {
 /// One in-page-encoded H.264 MP4 covering a contiguous frame range, returned by
 /// [`BrowserHarness::render_frames_to_mp4`]. `first_frame` is the composition
 /// index of sample 0 (0 unless the range was chunked); `fps` is the track
-/// timescale. Decode with [`decode_mp4_bytes_frames_rgba`].
+/// timescale. Feed `mp4` to a video comparator (e.g. `tools/k3diff.py`).
 pub struct FramesMp4 {
     pub width: u32,
     pub height: u32,
@@ -969,251 +1003,3 @@ fn parse_frames_mp4(value: &Value) -> Result<FramesMp4> {
     })
 }
 
-/// Decode an in-memory MP4 (from [`FramesMp4`]) to RGBA via ffmpeg.
-///
-/// The bytes are written to a temp file because ffmpeg pipes do not seek the
-/// `moov` atom reliably; the oracle MP4 is at most a few MB.
-pub fn decode_mp4_bytes_frames_rgba(
-    mp4: &[u8],
-    width: u32,
-    height: u32,
-    frames: &[u32],
-    first_frame: u32,
-) -> Result<std::collections::HashMap<u32, Vec<u8>>> {
-    let mut tmp = tempfile::Builder::new()
-        .prefix("opencat-oracle-")
-        .suffix(".mp4")
-        .tempfile()
-        .context("create temp file for oracle MP4")?;
-    tmp.write_all(mp4).context("write oracle MP4 to temp file")?;
-    tmp.as_file_mut()
-        .sync_all()
-        .context("flush oracle MP4 temp file")?;
-    decode_reference_frames_rgba(tmp.path(), width, height, frames, first_frame)
-}
-
-#[allow(dead_code)] // retained for per-pixel diagnostics; the oracle uses SSIM
-struct DiffStats {
-    mismatched_pixels: usize,
-    mismatched_pixel_ratio: f64,
-    max_channel_delta: u8,
-    mean_abs_channel_delta: f64,
-}
-
-#[allow(dead_code)] // retained for per-pixel diagnostics; the oracle uses SSIM
-fn compare_rgba(expected: &[u8], actual: &[u8], channel_tolerance: u8) -> Result<DiffStats> {
-    if expected.len() != actual.len() {
-        bail!(
-            "rgba length mismatch: expected {} bytes, got {} bytes",
-            expected.len(),
-            actual.len()
-        );
-    }
-    if expected.len() % 4 != 0 {
-        bail!("rgba length is not divisible by 4: {}", expected.len());
-    }
-
-    let mut mismatched_pixels = 0usize;
-    let mut max_channel_delta = 0u8;
-    let mut abs_delta_sum = 0u64;
-
-    for (expected_px, actual_px) in expected.chunks_exact(4).zip(actual.chunks_exact(4)) {
-        let mut pixel_mismatched = false;
-        for (&e, &a) in expected_px.iter().zip(actual_px) {
-            let delta = e.abs_diff(a);
-            max_channel_delta = max_channel_delta.max(delta);
-            abs_delta_sum += u64::from(delta);
-            if delta > channel_tolerance {
-                pixel_mismatched = true;
-            }
-        }
-        if pixel_mismatched {
-            mismatched_pixels += 1;
-        }
-    }
-
-    let pixel_count = expected.len() / 4;
-    Ok(DiffStats {
-        mismatched_pixels,
-        mismatched_pixel_ratio: mismatched_pixels as f64 / pixel_count.max(1) as f64,
-        max_channel_delta,
-        mean_abs_channel_delta: abs_delta_sum as f64 / expected.len().max(1) as f64,
-    })
-}
-
-/// Hard pixel-level difference between two RGBA buffers — the native
-/// equivalent of `tools/k3diff.py` (per-channel max delta, not SSIM).
-///
-/// SSIM collapses to a single "structural similarity" scalar and hides
-/// localized misalignment; the alignment methodology uses this instead so
-/// every frame is judged by `mae` / `maxd` / per-threshold changed-pixel
-/// fractions, exactly like the reference gate.
-#[derive(Debug, Clone, Copy)]
-pub struct PixelDiff {
-    /// Mean absolute error across R,G,B (0..255).
-    pub mae: f64,
-    /// Max per-pixel channel delta in the frame.
-    pub maxd: u32,
-    /// Fraction of pixels whose max-channel delta is above
-    /// `[2, 4, 8, 16, 32, 64, 128]` (k3diff `p2`..`p128`).
-    pub frac_above: [f64; 7],
-    /// Bounding box (x0,y0,x1,y1) of pixels above the 16 delta threshold.
-    pub bbox: Option<(u32, u32, u32, u32)>,
-}
-
-/// k3diff threshold ladder (excludes the `p0` = "changed at all" bucket).
-pub const PIXEL_DIFF_THRESHOLDS: [u32; 7] = [2, 4, 8, 16, 32, 64, 128];
-
-/// Compare two RGBA buffers with hard pixel metrics (k3diff semantics).
-pub fn compute_pixel_diff_rgba(
-    a: &[u8],
-    b: &[u8],
-    width: u32,
-    height: u32,
-) -> Result<PixelDiff> {
-    let pixels = width as usize * height as usize;
-    let expected = pixels * 4;
-    if a.len() != expected || b.len() != expected {
-        bail!(
-            "pixel diff expects {expected} bytes per buffer, got a={} b={}",
-            a.len(),
-            b.len()
-        );
-    }
-
-    let mut sum: u64 = 0;
-    let mut maxd: u32 = 0;
-    let mut counts = [0u64; PIXEL_DIFF_THRESHOLDS.len()];
-    let mut bbox: Option<(u32, u32, u32, u32)> = None;
-
-    for i in 0..pixels {
-        let base = i * 4;
-        let mut dm: u32 = 0;
-        // k3diff max-channel delta is over R,G,B only (alpha excluded).
-        for c in 0..3 {
-            let d = a[base + c].abs_diff(b[base + c]) as u32;
-            sum += u64::from(d);
-            dm = dm.max(d);
-        }
-        maxd = maxd.max(dm);
-        for (k, t) in PIXEL_DIFF_THRESHOLDS.iter().enumerate() {
-            if dm > *t {
-                counts[k] += 1;
-            }
-        }
-        // bbox uses the k3diff default bbox threshold (> 16).
-        if dm > 16 {
-            let x = (i % width as usize) as u32;
-            let y = (i / width as usize) as u32;
-            bbox = Some(match bbox {
-                None => (x, y, x, y),
-                Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
-            });
-        }
-    }
-
-    let mae = sum as f64 / (pixels as f64 * 3.0);
-    let frac_above = counts.map(|c| c as f64 / pixels as f64);
-    Ok(PixelDiff {
-        mae,
-        maxd,
-        frac_above,
-        bbox,
-    })
-}
-
-/// Decode selected frames from a reference video (e.g. the hyperframes-launch
-/// `k3-promo.mp4`) as RGBA at `width`x`height`, streaming the file once.
-///
-/// This lets the web (wasm + CanvasKit) path be pixel-aligned **directly
-/// against the original reference render**, not merely against the native
-/// engine — which surfaces wasm-specific problems the engine-vs-web oracle
-/// cannot (both sides would share an engine bug). Frames past the end of the
-/// video are omitted from the result. ffmpeg is required on PATH.
-pub fn decode_reference_frames_rgba(
-    path: &Path,
-    width: u32,
-    height: u32,
-    frames: &[u32],
-    first_frame: u32,
-) -> Result<std::collections::HashMap<u32, Vec<u8>>> {
-    use std::collections::{BTreeSet, HashMap};
-
-    let mut wanted: BTreeSet<u32> = frames.iter().copied().collect();
-    let Some(max_frame) = wanted.iter().next_back().copied() else {
-        return Ok(HashMap::new());
-    };
-
-    let mut child = Command::new("ffmpeg")
-        .args(["-v", "error", "-i"])
-        .arg(path)
-        .args([
-            "-f",
-            "rawvideo",
-            "-pix_fmt",
-            "rgba",
-            "-s",
-            &format!("{width}x{height}"),
-            "-",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| format!("spawn ffmpeg to decode {}", path.display()))?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .context("ffmpeg stdout should be piped")?;
-
-    let frame_len = width as usize * height as usize * 4;
-    let mut buf = vec![0u8; frame_len];
-    let mut out = HashMap::new();
-    // Stream order ≠ composition frame number: a web-video MP4 rendered from
-    // a mid-range START_FRAME stores its first frame at stream index 0 but is
-    // tagged `first_frame`, so offsets every decoded frame into absolute
-    // composition frame numbers before matching `wanted`.
-    let mut idx: u32 = 0;
-    loop {
-        if stdout.read_exact(&mut buf).is_err() {
-            break;
-        }
-        let frame_no = first_frame.saturating_add(idx);
-        if wanted.remove(&frame_no) {
-            out.insert(frame_no, buf.clone());
-        }
-        if frame_no >= max_frame {
-            break;
-        }
-        idx += 1;
-    }
-    drop(stdout);
-    let _ = child.wait();
-    Ok(out)
-}
-
-
-pub fn write_artifacts(
-    dir: &Path,
-    width: u32,
-    height: u32,
-    expected: &[u8],
-    actual: &[u8],
-) -> Result<()> {
-    fs::create_dir_all(dir)?;
-    write_png(&dir.join("engine.png"), width, height, expected)?;
-    write_png(&dir.join("web.png"), width, height, actual)?;
-
-    let mut diff = Vec::with_capacity(expected.len());
-    for (&e, &a) in expected.iter().zip(actual) {
-        diff.push(e.abs_diff(a).saturating_mul(8));
-    }
-    write_png(&dir.join("diff.png"), width, height, &diff)
-}
-
-pub fn write_png(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<()> {
-    let image = image::RgbaImage::from_raw(width, height, rgba.to_vec())
-        .ok_or_else(|| anyhow!("failed to build png image buffer for {}", path.display()))?;
-    image
-        .save(path)
-        .with_context(|| format!("save {}", path.display()))
-}

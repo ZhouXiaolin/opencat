@@ -28,9 +28,6 @@ pub mod style;
 pub mod text;
 pub mod time;
 
-#[cfg(any(test, feature = "test-support"))]
-pub mod test_support;
-
 pub use self::frame_ctx::FrameCtx;
 pub use self::ir::asset_id::{AssetId, ResourceKind};
 pub use self::lifecycle::{

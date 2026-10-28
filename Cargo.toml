@@ -5,6 +5,7 @@ members = [
     "crates/opencat-gpu-native",
     "crates/opencat-engine",
     "crates/opencat-web",
+    "crates/opencat-web-oracle",
     "crates/opencat",
     "crates/faac",
 ]

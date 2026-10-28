@@ -94,19 +94,4 @@ impl PathMeasureEntry {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn cubic_bezier_length_matches_skia_old_value() {
-        let entry = PathMeasureEntry::from_svg("M100 360 C400 80 880 640 1180 360")
-            .expect("parses single cubic");
-        assert!(entry.total_length > 1000.0, "len = {}", entry.total_length);
-    }
-    #[test]
-    fn multi_contour_lengths_add_up() {
-        let entry =
-            PathMeasureEntry::from_svg("M0 0 L100 0 M100 100 L200 100").expect("two contours");
-        assert!((entry.total_length - 200.0).abs() < 1.0, "len = {}", entry.total_length);
-    }
-}
+

@@ -14,7 +14,6 @@ pub mod gl_session;
 pub mod gpu_compositor;
 pub mod gpu_pipeline;
 pub mod gpu_stream_executor;
-pub mod inspect;
 pub mod js_context;
 pub mod jsx;
 pub mod media;
@@ -38,17 +37,10 @@ pub type EnginePipeline = crate::pipeline::EnginePipelineHost;
 
 // Test-only paths so engine integration tests can use `crate::div` / etc.
 // Not part of the production public API (issue #24).
-#[cfg(test)]
-pub(crate) use opencat_core::frame_ctx::FrameCtx;
-#[cfg(test)]
-pub(crate) use opencat_core::parse::composition::Composition;
-#[cfg(test)]
-pub(crate) use opencat_core::parse::easing::Easing;
-#[cfg(test)]
-pub(crate) use opencat_core::parse::node::Node;
-#[cfg(test)]
-pub(crate) use opencat_core::parse::primitives::{canvas, div, image, text};
-#[cfg(test)]
-pub(crate) use opencat_core::parse::transition::{fade, timeline};
-#[cfg(test)]
-pub(crate) use opencat_core::style::ColorToken;
+
+
+
+
+
+
+

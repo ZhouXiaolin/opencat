@@ -29,7 +29,6 @@ tracing-subscriber = { version = "0.3", features = ["registry"] }
 num_cpus = "1.17.0"
 dirs = "7.0.0"
 
-# Video-transport oracle: the page POSTs the H.264 MP4 to a scratch path.
 tempfile = "3"
 
 # Host-owned resource probing (issue #40)
@@ -45,10 +44,6 @@ ffmpeg-next = "9.0.0"
 v8 = { version = "152.2.0", features = ["use_custom_libcxx"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "socks"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
-
-[dev-dependencies]
-opencat-core = { path = "../opencat-core", features = ["test-support"] }
-tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # EGL 上下文/表面管理在 opencat-gpu-native（本 crate 只消费其不透明句柄）。

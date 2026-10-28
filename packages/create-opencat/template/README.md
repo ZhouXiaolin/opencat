@@ -8,7 +8,7 @@ npm run build    # esbuild bundle（嵌入编译后 CSS）+ opencat render → d
 ```
 
 预览：build 产出 `dist/index.bundle.jsx`（样式已嵌入），
-`opencat-see dist/index.bundle.jsx --base-dir src`。
+`opencat view dist/index.bundle.jsx --base-dir src`。
 
 ## 前置条件
 

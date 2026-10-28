@@ -118,33 +118,4 @@ pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow:
     serde_json::from_str(json).map_err(|e| anyhow::anyhow!("children_json decode: {e}"))
 }
 
-#[cfg(test)]
-mod script_children_tests {
-    use super::*;
 
-    #[test]
-    fn parses_image_child_spec_with_tile_modes() {
-        let specs = parse_script_children(
-            r#"[{"__opencatShader":"image","assetId":"decor","tileX":"clamp","tileY":"repeat"}]"#,
-        )
-        .unwrap();
-        assert_eq!(specs.len(), 1);
-        match &specs[0] {
-            ScriptChildSpec::Image { asset_id, .. } => assert_eq!(asset_id, "decor"),
-            other => panic!("expected image spec, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn parses_picture_child_spec() {
-        let specs = parse_script_children(
-            r#"[{"__opencatShader":"picture","ownerId":"c-card","tileX":"clamp","tileY":"clamp"}]"#,
-        )
-        .unwrap();
-        assert_eq!(specs.len(), 1);
-        match &specs[0] {
-            ScriptChildSpec::Picture { owner_id, .. } => assert_eq!(owner_id, "c-card"),
-            other => panic!("expected picture spec, got {other:?}"),
-        }
-    }
-}

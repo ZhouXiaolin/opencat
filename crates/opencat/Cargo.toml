@@ -7,8 +7,6 @@ edition.workspace = true
 profile = ["opencat-core/profile"]
 
 [dependencies]
-tokio = { version = "1.53.2", features = ["rt-multi-thread"] }
-serde_json.workspace = true
 opencat-core = { path = "../opencat-core" }
 opencat-engine = { path = "../opencat-engine" }
 
@@ -25,11 +23,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "opencat"
-path = "src/bin/opencat.rs"
-
-[[bin]]
-name = "opencat-see"
-path = "src/bin/opencat-see.rs"
+path = "src/bin/opencat/main.rs"
 
 [[bin]]
 name = "opencat-frames"
@@ -40,7 +34,3 @@ rodio = "0.22.2"
 
 # 预览器不认识 Skia，也不认识原生图形 API（GL/Metal/EGL）——窗口的图形
 # 上下文、Skia 后端、每帧 surface 全在 `opencat_engine::present` 里。
-
-[[bin]]
-name = "opencat-web-compare"
-path = "src/bin/opencat-web-compare.rs"

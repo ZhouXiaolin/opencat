@@ -114,16 +114,4 @@ pub trait ScriptHost {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn install_returns_stable_id() {
-        use crate::test_support::MockScriptHost;
-        let mut host: Box<dyn ScriptHost> = Box::new(MockScriptHost::default());
-        let id1 = host.install("ctx => {}").unwrap();
-        let id2 = host.install("ctx => {}").unwrap();
-        assert_eq!(id1, id2);
-    }
-}

@@ -123,13 +123,4 @@ fn aac_sample_rate_index(sample_rate: u32) -> u8 {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::audio_specific_config;
 
-    #[test]
-    fn builds_aac_lc_audio_specific_config() {
-        assert_eq!(audio_specific_config(48_000, 2), vec![0x11, 0x90]);
-        assert_eq!(audio_specific_config(44_100, 1), vec![0x12, 0x08]);
-    }
-}

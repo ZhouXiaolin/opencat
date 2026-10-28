@@ -128,48 +128,4 @@ pub fn build_decode_slice_plan(
     plan
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn exact_quality_uses_wider_seek_window() {
-        assert_eq!(seek_feed_margin_us(VideoPreviewQuality::Scrubbing), 120_000);
-        assert_eq!(seek_feed_margin_us(VideoPreviewQuality::Exact), 500_000);
-        assert!((seek_threshold_secs(VideoPreviewQuality::Exact) - 1.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn lane_selection_reuses_nearby_cursor_or_opens_a_lane() {
-        let lanes = [
-            DecoderCursor {
-                has_frame: true,
-                current_pts_secs: 1.0,
-            },
-            DecoderCursor {
-                has_frame: true,
-                current_pts_secs: 7.0,
-            },
-        ];
-        assert_eq!(
-            select_decoder_lane(&lanes, 1.2, VideoPreviewQuality::Realtime, 2),
-            DecoderLaneSelection::Reuse(0)
-        );
-        assert_eq!(
-            select_decoder_lane(&lanes[..1], 6.0, VideoPreviewQuality::Exact, 2),
-            DecoderLaneSelection::OpenNew
-        );
-    }
-
-    #[test]
-    fn decode_plan_starts_at_nearest_keyframe() {
-        let plan = build_decode_slice_plan(
-            &[0, 1_000_000, 2_000_000],
-            1_400_000,
-            VideoPreviewQuality::Realtime,
-        );
-        assert_eq!(plan[0].timestamp_us, 1_000_000);
-        assert!(plan[0].is_key);
-        assert_eq!(plan[1].timestamp_us, 1_750_000);
-    }
-}

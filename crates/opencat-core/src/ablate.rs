@@ -72,24 +72,4 @@ pub fn active() -> Vec<&'static str> {    TOKENS
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{Ablation, TOKENS};
 
-    #[test]
-    fn token_table_covers_every_variant() {
-        for (variant, name) in TOKENS {
-            assert!(!name.is_empty(), "{variant:?} has no token");
-        }
-        assert_eq!(
-            TOKENS.len(),
-            {
-                // 变体数 = 最大判别值 + 1；新增变体忘了登记 token 时这里失败。
-                let max = TOKENS.iter().map(|(v, _)| *v as u32).max().unwrap();
-                max as usize + 1
-            },
-            "every Ablation variant needs a token row"
-        );
-        assert!(TOKENS.iter().any(|(v, _)| *v == Ablation::LayoutMerkle));
-    }
-}

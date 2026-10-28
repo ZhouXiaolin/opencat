@@ -81,8 +81,4 @@ optional = true
 
 [features]
 default = []
-test-support = []
 profile = ["tracing", "tracing-subscriber"]
-
-[dev-dependencies]
-tempfile = "3"

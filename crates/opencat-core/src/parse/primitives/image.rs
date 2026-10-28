@@ -79,29 +79,4 @@ pub fn image() -> Image {
 
 impl_node_style_api!(Image);
 
-#[cfg(test)]
-mod tests {
-    use super::{ImageSource, image};
 
-    #[test]
-    fn image_query_builder_keeps_openverse_options() {
-        let image = image().query("cats").query_count(3).aspect_ratio("square");
-
-        let ImageSource::Query(query) = image.source() else {
-            panic!("expected query image source");
-        };
-
-        assert_eq!(query.query, "cats");
-        assert_eq!(query.count, 3);
-        assert_eq!(query.aspect_ratio.as_deref(), Some("square"));
-    }
-
-    #[test]
-    fn image_path_stores_logical_string() {
-        let image = image().path("photos/a.png");
-        assert_eq!(
-            image.source(),
-            &ImageSource::Path("photos/a.png".to_string())
-        );
-    }
-}

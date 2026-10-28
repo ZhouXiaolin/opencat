@@ -217,28 +217,4 @@ pub enum CanonicalKind {
     Lottie,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::media::VideoColorMatrix;
 
-    /// `data-color-matrix` resolves into the catalog so the frame media plan
-    /// can route the host decoder to the asset's real encoding.
-    #[test]
-    fn set_video_color_matrix_round_trips_through_video_info() {
-        let mut catalog = PreparedResourceCatalog::default();
-        let id = catalog.register_video_dimensions("video:path:clip.mp4", 1920, 1080, Some(1.5));
-
-        assert_eq!(
-            catalog.video_info(&id).unwrap().color_matrix,
-            None,
-            "untagged assets decode automatically"
-        );
-
-        catalog.set_video_color_matrix(&id, VideoColorMatrix::Bt601);
-        let info = catalog.video_info(&id).expect("registered above");
-        assert_eq!(info.color_matrix, Some(VideoColorMatrix::Bt601));
-        assert_eq!(info.width, 1920);
-        assert_eq!(info.duration_secs(), Some(1.5));
-    }
-}

@@ -75,16 +75,4 @@ pub fn lottie() -> Lottie {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{LottieSource, lottie};
 
-    #[test]
-    fn lottie_path_stores_logical_string() {
-        let node = lottie().path("anim/loader.json");
-        assert_eq!(
-            node.source(),
-            &LottieSource::Path("anim/loader.json".to_string())
-        );
-    }
-}

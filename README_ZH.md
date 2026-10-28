@@ -225,27 +225,22 @@ ly.draw(canvas, DIS, {
 cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 
 # 桌面播放器实时预览（macOS / Windows）
-cargo run --bin opencat-see -- path/to/input.jsx
+cargo run --bin opencat -- view path/to/input.jsx
 ```
 
 > Web (WASM)：`cd crates/opencat-web/web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
 
 ### Engine / Web 像素对齐（k3diff 像素指标）
 
-用 ChromeDriver + 硬像素指标（`mae`/`maxd`/`p8`，非 SSIM）对比原生 Skia 与 WASM CanvasKit 逐帧输出，工具是 `tools/k3diff.py`。也可用 `opencat-web-compare --reference` 把 web 渲染直接和原始参考视频比对。
+硬像素指标（`mae`/`maxd`/`p8`，非 SSIM），裁决工具是 `tools/k3diff.py`：两边各自出 MP4 后逐帧比对。原生侧用 `opencat render`；web 侧由 `crates/opencat-web-oracle`（ChromeDriver headless 驱动 wasm facade + CanvasKit 渲染 harness 页）出分段的 H.264 MP4，再与原生渲染或原始参考视频一起喂给 k3diff。
 
 ```bash
-# 1) oracle 组合依赖的媒体（会请求 http://127.0.0.1:8080/...）
-#    将 mp4/png/mp3 目录用静态服务挂到 :8080
-
-# 2) 构建 web facade（wasm + JS + web-demuxer.wasm → dist/）
+# 1) 构建 web facade（wasm + JS + web-demuxer.wasm → dist/）
 cd crates/opencat-web/web && npm run build && cd -
 
-# 3) 多帧 oracle — 需要 Chrome + chromedriver + ffmpeg
-cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
+# 2) oracle 组合依赖的媒体（会请求 http://127.0.0.1:8080/...）
+#    将 mp4/png/mp3 目录用静态服务挂到 :8080
 ```
-
-失败帧产物：`target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`。
 
 <details>
 <summary><strong>Architecture</strong></summary>
@@ -402,7 +397,7 @@ cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
 **桌面预览播放器（macOS / Windows）：**
 
 ```bash
-cargo run --release --bin opencat-see -- path/to/input.jsx
+cargo run --release --bin opencat -- view path/to/input.jsx
 ```
 
 **Web（WASM）：**

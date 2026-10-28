@@ -1,26 +1,30 @@
 # Regression Evidence — Engine / Web Cross-Platform Gate
 
 > Gate: **k3diff hard-pixel metrics**, not SSIM — `mae` / `maxd` / changed-pixel
-> fractions from `compute_pixel_diff_rgba`, matching
-> [`tools/k3diff.py`](../tools/k3diff.py). The earlier SSIM runs (#25 / #48)
-> and the in-tree `web_frame_oracle` tests (removed in 4a6e903) are superseded
-> by the `opencat-web-compare` ChromeDriver harness.
+> fractions from [`tools/k3diff.py`](../tools/k3diff.py). The earlier SSIM runs
+> (#25 / #48), the in-tree `web_frame_oracle` tests (removed in 4a6e903), and
+> the `opencat-web-compare` binary (removed 2026-10-28 — its in-Rust diff
+> duplicated k3diff) are superseded by the `opencat-web-oracle` ChromeDriver
+> harness plus k3diff.py on rendered MP4s.
 
 ## Channels
 
-- **Web vs native engine** (executor alignment — the primary gate):
-  `scripts/compare-mp4.sh <example>`.
-  - hex transport (default): per-frame CanvasKit `readPixels`, exact pixels;
-    a long sweep OOMs the tab after a few hundred frames — chunk the range.
-  - `WEB_VIDEO=1`: the range renders in-page and crosses as one H.264 MP4
+- **Web vs native engine** (executor alignment — the primary gate): render the
+  web side through the `opencat-web-oracle` harness (headless ChromeDriver,
+  wasm facade + CanvasKit), the native side with `opencat render`, then hand
+  both videos to `tools/k3diff.py`.
+  - hex transport: per-frame CanvasKit `readPixels`, exact pixels; a long
+    sweep OOMs the tab after a few hundred frames — chunk the range.
+  - video transport: the range renders in-page and crosses as one H.264 MP4
     (WebCodecs + MP4Box.js). Codec loss is negligible on ordinary content but
     smears high-frequency noise textures — read those frames with tolerance.
-- **Web vs a reference video**: add `REFERENCE=<mp4>`. Meaningful only
-  relative to the **native floor** — first measure native-vs-reference
+- **Web vs a reference video**: diff the web MP4 against the original
+  reference render with k3diff. Meaningful only relative to the
+  **native floor** — first measure native-vs-reference
   (`scripts/compare-k3diff.sh`); a web-vs-reference failure that the native
   engine also has is a content gap, not an executor bug.
 
-Defaults: `mae ≤ 1.0`, `p8 ≤ 0.02` (`MAX_MAE` / `MAX_FRAC`).
+Standing gate values: `mae ≤ 1.0`, `p8 ≤ 0.02`.
 
 `p8` is dominated by glyph antialiasing — Skia and CanvasKit differ in
 coverage on text edges by ~1% of pixels, with no positional shift.
@@ -37,14 +41,11 @@ coverage on text edges by ~1% of pixels, with no positional shift.
 
 ## Evidence
 
-- Per-frame artifacts (engine/web/diff PNGs; fails always, all frames with
-  `SAVE_ALL=1`) are written under `out/compare-mp4-<stem>/frame-NNNN/`, or
-  `OUT_DIR` if set.
 - Whole-video native-vs-reference summaries are written by
   `scripts/compare-k3diff.sh` to `out/compare-k3diff-<stem>/`.
-- CI (`.github/workflows/regression.yml`) runs the Rust suite, clippy, and the
-  web build/typecheck jobs. The browser gate needs Chrome, ChromeDriver, and
-  ffmpeg — run it locally via `scripts/compare-mp4.sh`.
+- CI (`.github/workflows/regression.yml`) runs the clippy and web
+  build/typecheck jobs. The browser gate needs Chrome + ChromeDriver —
+  drive the `crates/opencat-web-oracle` harness locally and diff with k3diff.
 
 ### hyperframes-launch web gate (Scene3 era, 2026-10)
 

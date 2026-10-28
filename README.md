@@ -225,7 +225,7 @@ Any HTML subtree — layout, images, text, video → texture → shader → outp
 cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 
 # Desktop player for live preview (macOS / Windows / Linux)
-cargo run --bin opencat-see -- path/to/input.jsx
+cargo run --bin opencat -- view path/to/input.jsx
 ```
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requires `Cross-Origin-Isolated` environment.
@@ -243,26 +243,21 @@ bun install        # or npm install
 npm run build      # bundles the entry with the compiled CSS embedded → dist/video.mp4
 ```
 
-Preview: `opencat-see dist/index.bundle.jsx --base-dir src` (the bundle carries the embedded stylesheet).
+Preview: `opencat view dist/index.bundle.jsx --base-dir src` (the bundle carries the embedded stylesheet).
 
 The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that (1) bundles the entry with esbuild — real npm packages such as `lucide-react` resolve here, and `react`/`react/jsx-runtime` are aliased to a shim that serializes `<svg>` subtrees into the engine's `<svg inline>` channel — (2) compiles tailwind classes into standard CSS in memory and embeds it in the bundle as `export const css`, so the bundle is single-file self-contained, and (3) shells out to `opencat render` on the bundle. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Build artifacts (bundle + video) land in `dist/`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory, and the plugin passes `--base-dir <entry dir>` when rendering the bundle from `dist/`.
 
 ### Engine / Web alignment (k3diff pixel metrics)
 
-Pixel-compare native Skia vs WASM CanvasKit with ChromeDriver using hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM), via `tools/k3diff.py`. Can also compare the web render directly against the original reference video with `opencat-web-compare --reference`.
+Hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM) — the verdict comes from `tools/k3diff.py`: render both sides to MP4 and diff the videos. Native side: `opencat render`. Web side: `crates/opencat-web-oracle` drives the harness page headlessly via ChromeDriver (wasm facade + CanvasKit) and hands back a per-range H.264 MP4; diff it against the native render or the original reference video.
 
 ```bash
-# 1) media used by the oracle compositions (loads http://127.0.0.1:8080/...)
-#    serve your mp4/png/mp3 tree on :8080
-
-# 2) build web facade (wasm + JS + web-demuxer.wasm → dist/)
+# 1) build web facade (wasm + JS + web-demuxer.wasm → dist/)
 cd crates/opencat-web/web && npm run build && cd -
 
-# 3) multi-frame oracle — needs Chrome + chromedriver + ffmpeg
-cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
+# 2) media used by the oracle compositions (loads http://127.0.0.1:8080/...)
+#    serve your mp4/png/mp3 tree on :8080
 ```
-
-Failures write `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`.
 
 <details>
 <summary><strong>Architecture</strong></summary>
@@ -366,7 +361,7 @@ opencat
 
   macOS provides Metal via the system SDK (no manual install). Windows provides OpenGL via the system driver.
 
-  `opencat-see` (the desktop preview player) creates its GL context via **EGL** on Linux, matching the prebuilt Skia backend. It currently requires an **X11** window handle, so on a Wayland session it runs through **XWayland** (set `WAYLAND_DISPLAY=` only if auto-selection fails). Native Wayland (`wl_surface`) support is not wired up yet.
+  `opencat view` (the desktop preview player) creates its GL context via **EGL** on Linux, matching the prebuilt Skia backend. It currently requires an **X11** window handle, so on a Wayland session it runs through **XWayland** (set `WAYLAND_DISPLAY=` only if auto-selection fails). Native Wayland (`wl_surface`) support is not wired up yet.
 
 - **Fontconfig dev library** (Linux):
 
@@ -433,7 +428,7 @@ cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
 **Desktop preview player (macOS / Windows / Linux):**
 
 ```bash
-cargo run --release --bin opencat-see -- path/to/input.jsx
+cargo run --release --bin opencat -- view path/to/input.jsx
 ```
 
 **Web (WASM):**

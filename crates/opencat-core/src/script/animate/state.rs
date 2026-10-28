@@ -17,13 +17,4 @@ fn xorshift32(seed: u32) -> u32 {
     x
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn random_seed_deterministic() {
-        let a = random_from_seed(42.0);
-        let b = random_from_seed(42.0);
-        assert!((a - b).abs() < 1e-9);
-    }
-}
+

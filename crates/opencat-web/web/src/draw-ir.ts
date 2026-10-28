@@ -304,9 +304,14 @@ const effectCache = new Map<bigint, RuntimeEffect>();
 // Full RGBA arrives every frame in section 12. The CanvasKit Image is built
 // lazily from the RGBA on first use and reused across frames.
 const generatedImageCache = new Map<string, Image>();
-// Shared offscreen for the backdrop-filter two-pass prefix snapshots (see the
-// call site): one surface for the page's lifetime, cleared per use.
-let backdropScratchSurface: Surface | null = null;
+// (The old backdrop two-pass pre-rasterized each layer's op prefix into a
+// scratch surface. That scratch could never draw the frame's video images:
+// `makeImageFromTextureSource` binds them to the main surface's GL context —
+// a CPU raster scratch (or a makeSurface peer, which gets its own context)
+// silently samples recycled texture content instead, observed as a previous
+// video frame bleeding into every backdrop after a video cut. The snapshot is
+// now taken from the main surface itself at the backdrop op — the video image
+// is on its home surface, so the content is always the frame's own.)
 // Churning ids (animated Scene3 placeholders mint a new content-addressed id
 // every frame) must not retain one image per rendered frame. FIFO cap: far
 // above any single frame's distinct generated-image count, so a live image is
@@ -513,14 +518,7 @@ export function renderEncodedDrawFrame(
     resolveImage(CK, image, options.surface, transientImageCache)
   );
 
-  // CSS `backdrop-filter` two-pass (mirrors executor/replay.rs): this Skia
-  // silently drops `saveLayer`'s backdrop filter whenever the layer nests
-  // inside another layer. Pre-rasterize each backdrop layer's op prefix and
-  // draw it as the layer base through the blur filter instead.
-  const backdropSnapshots: Image[] = [];
-  let backdropSlot = 0;
-
-  const executeOpsOnCanvas = (targetCanvas: Canvas, opBytes: Uint8Array, opEntries: OpEntry[], start: number, len: number, backdropBuilding = false) => {
+  const executeOpsOnCanvas = (targetCanvas: Canvas, opBytes: Uint8Array, opEntries: OpEntry[], start: number, len: number) => {
     const state = initialRenderState();
     let currentPathBuilder: PathBuilder | undefined;
 
@@ -540,34 +538,6 @@ export function renderEncodedDrawFrame(
       const end = Math.min(opEntries.length, rangeStart + rangeLen);
       for (let i = rangeStart; i < end; i++) executeOp(opEntries[i]);
     };
-
-    if (!backdropBuilding) {
-      // Pre-rasterize the prefix before each backdrop layer into an offscreen
-      // image (replay.rs records a Picture and draw_picture's it through the
-      // filter; a raster snapshot + drawImage-with-filter is the CanvasKit
-      // equivalent). Margin covers the blur spill so Clamp never stretches.
-      // The scratch surface is reused across prefixes AND frames: a fresh
-      // MakeSurface per element per frame grows CanvasKit's linear heap by
-      // ~10.7 MB per frame — Surface/Image delete does not return those
-      // pages — until the module traps at its ceiling (~2 GB, observed as a
-      // wasm "memory access out of bounds" abort at frame 237 of
-      // hyperframes-launch). Each clear() copy-on-write-isolates the previous
-      // frame's snapshot; per-frame snapshot deletes stay as the backstop.
-      backdropScratchSurface ??= CK.MakeSurface(2112, 1272);
-      const scratch = backdropScratchSurface;
-      if (scratch) {
-        const sc = scratch.getCanvas();
-        for (let i = 0; i < opEntries.length; i++) {
-          if (opEntries[i].opcode !== OP_SAVE_BACKDROP_LAYER) continue;
-          sc.clear(CK.TRANSPARENT);
-          sc.save();
-          sc.translate(96, 96);
-          executeOpsOnCanvas(sc, opBytes, opEntries, 0, i, true);
-          sc.restore();
-          backdropSnapshots.push(dispose(scratch.makeImageSnapshot()));
-        }
-      }
-    }
 
     const executeOp = (entry: OpEntry) => {
       const p = new Payload(opBytes, entry.payloadOffset, entry.payloadLen);
@@ -608,12 +578,8 @@ export function renderEncodedDrawFrame(
               paint.setImageFilter(null);
             }
           }
-          const slot = backdropSlot++;
-          if (
-            backdropBuilding || !backdrop || slot >= backdropSnapshots.length
-            || (flags & 0b01) === 0
-          ) {
-            // Prefix rasterization, no filter, or a nesting level where the
+          if (!backdrop || (flags & 0b01) === 0 || !options.surface) {
+            // No filter, no surface to snapshot, or a nesting level where the
             // backdrop never rendered anyway (replay.rs's fallback path).
             targetCanvas.saveLayer(
               paint ?? undefined,
@@ -622,11 +588,11 @@ export function renderEncodedDrawFrame(
             );
             break;
           }
-          // Two-pass: open the layer unbounded (box-shadows draw past it),
-          // clip the blurred base to the element rect, then stamp the
-          // pre-rasterized prefix through the backdrop filter — replay.rs's
-          // draw_picture-with-filter path. The snapshot was taken in the
-          // identity basis with a 96px margin, so draw it offset by that.
+          // Two-pass: snapshot what the frame has already drawn (the CSS
+          // backdrop — taken on the main surface, where the frame's video
+          // images are texture-backed and only drawable), open the layer
+          // unbounded (box-shadows draw past it), clip the blurred snapshot to
+          // the element rect, then stamp it back through the backdrop filter.
           targetCanvas.saveLayer(paint ?? undefined, null);
           targetCanvas.save();
           if ((flags & 0b01) !== 0) {
@@ -648,7 +614,8 @@ export function renderEncodedDrawFrame(
           if (inv) targetCanvas.concat(inv);
           const stamp = dispose(new CK.Paint());
           stamp.setImageFilter(backdrop);
-          targetCanvas.drawImage(backdropSnapshots[slot], -96, -96, stamp);
+          const snap = dispose(options.surface.makeImageSnapshot());
+          targetCanvas.drawImage(snap, 0, 0, stamp);
           targetCanvas.restore();
           break;
         }
@@ -2231,13 +2198,17 @@ export function dumpEncodedFrameOps(encoded: EncodedDrawFrame, limit = 400): str
       case OP.CIRCLE: detail = `c=[${fx(f32(p, 3))}] paint=${p.u32()}`; break;
       case OP.DRAW_PATH: detail = `path=${p.u32()} paint=${p.u32()}`; break;
       case OP.IMAGE_RECT: {
-        // tag u8 + string u32 + time u64 + src 4xf32 + dst 4xf32 + paint u32.
+        // tag u8 + id-slot 12B (u32 string + u64 time) + src-present u8 +
+        // src 4xf32 + dst 4xf32 + paint u32 (0xFFFFFFFF = no paint).
         const tag = p.u8();
         const asset = frame.strings[p.u32()] ?? '?';
         const time = p.u64();
+        const hasSrc = p.u8() === 1;
         const src = f32(p, 4);
         const dst = f32(p, 4);
-        detail = `tag=${tag} ${asset}@${time} src=[${fx(src)}] dst=[${fx(dst)}] paint=${p.u32()}`;
+        const paintId = p.u32();
+        const paint = paintId === 0xffff_ffff ? '' : ` paint=${paintId}`;
+        detail = `tag=${tag} ${asset}@${Number(time) / 1e6}s src=${hasSrc ? `[${fx(src)}]` : 'none'} dst=[${fx(dst)}]${paint}`;
         break;
       }
       case OP.REPLAY_RANGE: detail = `range=[${p.u32()}+${p.u32()}]`; break;

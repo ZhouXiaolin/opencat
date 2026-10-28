@@ -30,6 +30,7 @@
         clearBlobs,
         clearVideoCache,
         dumpEncodedFrameOps,
+        getDecodedVideoFrame,
         getReusableSurface,
         releaseReusableSurface,
         getRendererOrThrow,
@@ -44,6 +45,15 @@
       } from '/wasm/opencat.js';
 
       const canvas = document.getElementById('frame');
+      // Scene-cut detection canvas. Created HERE at page load, not inside
+      // renderFramesToMp4: after open_design the wasm realm patches the main
+      // thread's canvas factories and a freshly-created 2D context loses
+      // drawImage/getImageData (the same trap that forces probes to grab
+      // __probeCtx before open).
+      const sceneCanvas = document.createElement('canvas');
+      sceneCanvas.width = 48;
+      sceneCanvas.height = 27;
+      const sceneCtx = sceneCanvas.getContext('2d', { willReadFrequently: true });
       // Reused across frames: one CanvasKit surface per canvas, not per frame.
       // A fresh canvas surface per frame leaks a WebGL framebuffer (~8 MB at
       // 1920×1080) of GPU-process memory every frame and crashes the tab.
@@ -294,15 +304,16 @@
         }
 
         const codec = comp.height <= 1088 ? 'avc1.640028' : 'avc1.640033';
-        // 0.10 bits/pixel/frame (≈6 Mbps at 1080p30, clamped to 8 Mbps):
-        // the earlier 0.4 factor produced ~25 Mbps and dominated the soft
-        // encoder's CPU cost. Gate is mae ≤ 1.0; measured codec loss at this
-        // rate stays ~0.1-0.2 mae on dynamic content.
+        // 0.30 bits/pixel/frame (≈19 Mbps at 1080p30, clamped to 8 Mbps):
+        // at the earlier 0.10 (~6 Mbps) the soft encoder crushed whole-frame
+        // cuts +8-10 luma even on IDR cut frames (see the scene-cut note
+        // below); 0.30 removes that crush. File size roughly doubles vs
+        // 0.10 — accepted for cut stability.
         const config = {
           codec,
           width: comp.width,
           height: comp.height,
-          bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.10)),
+          bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.30)),
           framerate: fps,
           latencyMode: 'quality',
         };
@@ -331,6 +342,45 @@
         encoder.configure(config);
 
         let processed = 0;
+        // Scene-cut handling: at 0.10 bits/pixel/frame the soft encoder
+        // crushes quality on a whole-frame cut — the cut frame (even when the
+        // encoder itself makes it an IDR) reconstructs +8-10 luma high and
+        // drifts back over the following frames (hyperframes-launch f116-119).
+        // 0.30 removes the crush outright; the detector below is the belt to
+        // that suspenders: it forces a keyframe at the cut so recovery does
+        // not wait for the next periodic IDR. Threshold + cooldown matter:
+        // continuous ramps move 2-8/frame and keyframing them starves the
+        // bitrate budget for the FOLLOWING frames; real cuts jump 40+. The
+        // canvas/ctx live at page scope (see the note at the top of this
+        // file).
+        let scenePrev = null;
+        let sceneCooldown = 0;
+        const detectSceneCut = (frame) => {
+          if (!sceneCtx || typeof sceneCtx.drawImage !== 'function') return false;
+          if (sceneCooldown > 0) { sceneCooldown -= 1; return false; }
+          try {
+            sceneCtx.drawImage(canvas, 0, 0, 48, 27);
+            const cur = sceneCtx.getImageData(0, 0, 48, 27).data;
+            let cut = false;
+            let d = 0;
+            if (scenePrev) {
+              for (let i = 0; i < cur.length; i += 4) {
+                d += Math.abs(cur[i] - scenePrev[i]) + Math.abs(cur[i + 1] - scenePrev[i + 1]) + Math.abs(cur[i + 2] - scenePrev[i + 2]);
+              }
+              d = d / (cur.length / 4) * 3;
+              cut = d > 15;
+            }
+            scenePrev = cur;
+            if (cut) {
+              sceneCooldown = 12;
+              console.log('[scene-cut] keyframe at frame', frame, 'diff', Math.round(d));
+            }
+            return cut;
+          } catch (err) {
+            console.log('[scene-cut] detector failed:', String(err).slice(0, 120));
+            return false;
+          }
+        };
         // Memory trajectory: a continuous whole-movie encode lives or dies on
         // per-frame retention; the sampled path localizes any abort. The last
         // 80 samples ride along on the error if the loop dies mid-run.
@@ -358,7 +408,8 @@
               duration: Math.round(1_000_000 / fps),
             });
             // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
-            encoder.encode(vf, { keyFrame: (frame - startFrame) % fps === 0 });
+            // Scene cuts force an IDR immediately (see detectSceneCut above).
+            encoder.encode(vf, { keyFrame: detectSceneCut(frame) || (frame - startFrame) % fps === 0 });
             vf.close();
             const vfMs = Math.round(performance.now() - tVf0);
             frameTimings.push({ frame, renderMs, vfMs, queue: encoder.encodeQueueSize });
@@ -441,12 +492,16 @@
       // module imports).
       globalThis.__opencatOracle = {
         renderFrame, renderFramesToMp4, drawFrame,
-        getRendererOrThrow, getReusableSurface, renderEncodedDrawFrame,
+        getRendererOrThrow, getReusableSurface, releaseReusableSurface,
+        renderEncodedDrawFrame,
         // Step-wise helpers for the web-eval debug driver: open once, then
         // build + render separately so a thrown TypeError carries the exact
         // failing call in its stack.
         async openDesign(envelope) {
           await ready;
+          // Set compositionBaseDir before anything fetches assets —
+          // open_design's font/asset preloads go through the asset reader.
+          compositionInfo(envelope);
           clearBlobs();
           await clearVideoCache();
           const renderer = getRendererOrThrow();
@@ -462,6 +517,57 @@
           const renderer = getRendererOrThrow();
           const result = renderer.build_frame_ir(frame);
           return dumpEncodedFrameOps(result.ir, limit);
+        },
+        // Half-scale PNG (base64, no data-url prefix) of the harness canvas
+        // as it currently stands. With `frame` given, draw that frame first;
+        // without, capture the standing content (sweep-state debugging).
+        async captureCanvasPng(envelope, frame) {
+          if (frame !== undefined) await drawFrame(envelope, frame);
+          const c2 = globalThis.__pngCanvas;
+          c2.width = Math.round(1920 / 2);
+          c2.height = Math.round(1080 / 2);
+          const ctx = c2.getContext('2d');
+          ctx.drawImage(canvas, 0, 0, c2.width, c2.height);
+          const dataUrl = c2.toDataURL('image/png');
+          return dataUrl.substring(dataUrl.indexOf(',') + 1);
+        },
+        // Decode each mediaPlan video entry at `frame` standalone and report
+        // the VideoFrame timestamps the worker actually returned — the
+        // authoritative stale-frame detector after a sequential sweep.
+        // Also samples a few pixels of the first entry's decoded frame so a
+        // wrong-content frame is visible in numbers, not eyeballs.
+        async probeVideoTimes(envelope, frame) {
+          await ready;
+          const renderer = getRendererOrThrow();
+          const result = renderer.build_frame_ir(frame);
+          const plan = JSON.parse(result.mediaPlan);
+          const out = [];
+          for (const item of plan.videoFrames ?? []) {
+            const f = await getDecodedVideoFrame(item.assetId, item.timeMicros / 1e6, 'exact');
+            const entry = {
+              assetId: item.assetId,
+              wantMicros: item.timeMicros,
+              gotMicros: f ? f.timestamp : null,
+              w: f ? f.displayWidth : 0,
+              h: f ? f.displayHeight : 0,
+            };
+            if (f) {
+              // The wasm realm patches main-thread canvas factories after
+              // open_design (no drawImage on their stubs) — use the probe 2D
+              // context captured before open_design by the driver.
+              const ctx = globalThis.__probeCtx;
+              ctx.drawImage(f, 0, 0, 1920, 1080);
+              const px = (x, y) => Array.from(ctx.getImageData(x, y, 1, 1).data.slice(0, 3));
+              entry.samples = {
+                top: px(960, 30),
+                mid: px(960, 540),
+                band: px(960, 1040),
+              };
+            }
+            out.push(entry);
+            try { f?.close(); } catch { /* ignore */ }
+          }
+          return JSON.stringify(out);
         },
       };
     </script>

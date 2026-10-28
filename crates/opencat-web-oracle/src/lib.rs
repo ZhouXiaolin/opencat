@@ -257,6 +257,19 @@ fn handle_static_request(mut stream: TcpStream, routes: &StaticRoutes) -> Result
     if method == "POST" && raw_path.split('?').next() == Some("/oracle-video") {
         return handle_oracle_video_post(&mut stream, &request, &buffer[header_end..len]);
     }
+    // Debug sink for the eval_js channel (`drawFramePng`): a single binary
+    // blob (e.g. a PNG of one frame) too big for the WebDriver JSON boundary.
+    // The response is the temp file path so the driver knows what to read.
+    if method == "POST" && raw_path.split('?').next() == Some("/oracle-blob") {
+        // Optional ?f=N suffix names the sink per frame, so a sweep can POST
+        // every frame's PNG without each overwriting the last.
+        let file = raw_path
+            .split_once('?')
+            .and_then(|(_, q)| q.strip_prefix("f=").map(|n| format!("opencat-oracle-blob-{n}.bin")))
+            .unwrap_or_else(|| "opencat-oracle-blob.bin".to_string());
+        let path = std::env::temp_dir().join(file);
+        return handle_oracle_video_post_at(&mut stream, &request, &buffer[header_end..len], &path);
+    }
     if method != "GET" && method != "HEAD" {
         write_response(
             &mut stream,
@@ -309,6 +322,15 @@ fn handle_oracle_video_post(
     head: &str,
     body_prefix: &[u8],
 ) -> Result<()> {
+    handle_oracle_video_post_at(stream, head, body_prefix, &oracle_video_path())
+}
+
+fn handle_oracle_video_post_at(
+    stream: &mut TcpStream,
+    head: &str,
+    body_prefix: &[u8],
+    path: &std::path::Path,
+) -> Result<()> {
     // fetch keeps the connection alive after the body, so read exactly
     // Content-Length bytes and then answer — reading to EOF would block.
     let content_length = head
@@ -319,7 +341,7 @@ fn handle_oracle_video_post(
                 .then(|| value.trim().parse::<usize>().ok())
                 .flatten()
         })
-        .ok_or_else(|| anyhow!("oracle-video POST missing content-length"))?;
+        .ok_or_else(|| anyhow!("oracle blob POST missing content-length"))?;
     let mut mp4 = body_prefix.to_vec();
     let mut chunk = [0_u8; 65_536];
     while mp4.len() < content_length {
@@ -333,7 +355,7 @@ fn handle_oracle_video_post(
         write_response(stream, "400 Bad Request", "text/plain", b"truncated body")?;
         return Ok(());
     }
-    fs::write(oracle_video_path(), &mp4)?;
+    fs::write(path, &mp4)?;
     write_response(stream, "200 OK", "text/plain", b"ok")?;
     Ok(())
 }

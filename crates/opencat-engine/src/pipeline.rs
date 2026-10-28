@@ -25,7 +25,7 @@ use opencat_core::parse::primitives::LottieSource;
 
 use crate::EnginePipeline;
 use crate::fonts::engine_default_font_faces;
-use crate::js_context::V8JsContext;
+use crate::script::V8JsContext;
 use crate::resource::loader::EngineLoader;
 
 /// Core pipeline opened by the engine through the explicit lifecycle
@@ -48,7 +48,7 @@ pub struct EnginePipelineHost {
     pub loader: EngineLoader,
     /// 共享纹理登记处：GPU 流输出纹理与合成目标纹理的存活都归它管。
     /// 生产方（GPU 执行器）与消费方（GPU 合成器、预览器）共用同一个。
-    pub textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
+    pub textures: std::sync::Arc<crate::gpu::TextureRegistry>,
 }
 
 impl EnginePipelineHost {
@@ -113,7 +113,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Resu
         .base_dir()
         .canonicalize()
         .unwrap_or_else(|_| loader.base_dir().to_path_buf());
-    let parsed = crate::source_io::parse_with_base_dir(input, Some(&base_dir))?;
+    let parsed = crate::script::jsx::parse_with_base_dir(input, Some(&base_dir))?;
     let font_bytes = loader.load_font_manifest(&parsed.font_manifest)?;
     loader.register_font_handles(&parsed.font_manifest, &font_bytes)?;
     let host = open_parsed_host_owned_with_fonts(
@@ -258,7 +258,7 @@ fn open_parsed_host_owned_with_fonts(
     let mut pipeline = prepared.open_pipeline(scripts)?;
     // 共享纹理登记处：GPU 流输出纹理与合成目标纹理都登记在这里，宿主凭
     // 句柄取用、归还。谁保活、谁归还全在这一处定（见 opencat-gpu-native）。
-    let textures = std::sync::Arc::new(opencat_gpu_native::TextureRegistry::new());
+    let textures = std::sync::Arc::new(crate::gpu::TextureRegistry::new());
     // 文档 base 目录：脚本内相对资产路径对它 join——three.js GLTFLoader
     // 相对 URL 语义的 opencat 对应物。
     pipeline.set_document_base(&loader.base_dir().to_string_lossy());

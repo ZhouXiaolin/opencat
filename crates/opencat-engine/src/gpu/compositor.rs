@@ -2,7 +2,7 @@
 //!
 //! 全片 GPU 化时，Skia 不再光栅到 CPU surface，而是直接合成到一块自建纹理
 //! 上；GPU 命令流执行器的输出以原生纹理句柄零拷贝导入（经共享纹理表
-//! [`opencat_gpu_native::TextureRegistry`]），省掉每帧 GPU → CPU 的整帧
+//! [`crate::gpu::TextureRegistry`]），省掉每帧 GPU → CPU 的整帧
 //! 往返。每帧末尾只读回一次交给编码器。
 //!
 //! ## 两个平台只差三处
@@ -23,7 +23,7 @@
 //! `make_current` 一次即可；无锁。
 
 use anyhow::{Result, anyhow};
-use opencat_gpu_native::{NativeTexture, TextureId, TextureRegistry};
+use crate::gpu::{NativeTexture, TextureId, TextureRegistry};
 use skia_safe::gpu::SurfaceOrigin;
 use skia_safe::{AlphaType, ColorType, ImageInfo, Surface, gpu};
 
@@ -31,15 +31,15 @@ use skia_safe::{AlphaType, ColorType, ImageInfo, Surface, gpu};
 ///
 /// 构造与销毁涉及原生调用（FBO / staging buffer），必须在 GL 上下文
 /// current 的线程上进行；其余方法同。
-/// 合成目标纹理由调用方建（[`opencat_gpu_native::gl::create_texture_rgba8`]）
-/// 并自管生命周期；FBO 归 [`opencat_gpu_native::Target`]。
+/// 合成目标纹理由调用方建（[`crate::gpu::gl::create_texture_rgba8`]）
+/// 并自管生命周期；FBO 归 [`crate::gpu::Target`]。
 pub struct GpuCompositor {
     /// Skia 的 direct context（建在 current 的 GL 上下文上）。
     skia: gpu::DirectContext,
     /// 包裹目标纹理的 Skia surface（每帧复用）。
     surface: Surface,
     /// 合成目标：原生纹理 + FBO + 双缓冲读回。
-    target: opencat_gpu_native::Target,
+    target: crate::gpu::Target,
     width: u32,
     height: u32,
 }
@@ -49,7 +49,7 @@ impl GpuCompositor {
     ///
     /// `gl` 是共享的 glow 函数面（GL 平台）；调用线程必须已把上下文
     /// make current。`native` 由调用方在 current 上下文里建
-    /// （[`opencat_gpu_native::gl::create_texture_rgba8`]）。`backend` 是
+    /// （[`crate::gpu::gl::create_texture_rgba8`]）。`backend` 是
     /// 平台桥：GL 为空标记，Metal 交出 `MTLDevice` / `MTLCommandQueue`。
     pub fn new(
         backend: CompositorBackend,
@@ -62,7 +62,7 @@ impl GpuCompositor {
         let target = {
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             {
-                opencat_gpu_native::Target::new(
+                crate::gpu::Target::new(
                     gl.ok_or_else(|| anyhow!("GL 平台必须携带 glow 上下文"))?,
                     native,
                     width,
@@ -72,7 +72,7 @@ impl GpuCompositor {
             #[cfg(target_os = "macos")]
             {
                 let _ = gl;
-                opencat_gpu_native::Target::new(native, width, height)?
+                crate::gpu::Target::new(native, width, height)?
             }
         };
         let surface = backend.wrap_target(&mut skia, &target, width, height)?;
@@ -209,8 +209,8 @@ impl CompositorBackend {
                     {
                         // 与 wgpu 的 EGL context 同一驱动栈；核心入口经 libGL
                         // dlsym，扩展经 eglGetProcAddress
-                        // （见 opencat_gpu_native::egl::load_proc）。
-                        gpu::gl::Interface::new_load_with(opencat_gpu_native::egl::load_proc)
+                        // （见 crate::gpu::egl::load_proc）。
+                        gpu::gl::Interface::new_load_with(crate::gpu::egl::load_proc)
                             .ok_or_else(|| {
                                 anyhow!("Skia GL 接口构建失败（EGL/libGL 入口缺失？）")
                             })?
@@ -236,7 +236,7 @@ impl CompositorBackend {
     fn wrap_target(
         &self,
         skia: &mut gpu::DirectContext,
-        target: &opencat_gpu_native::Target,
+        target: &crate::gpu::Target,
         width: u32,
         height: u32,
     ) -> Result<Surface> {
@@ -275,7 +275,7 @@ impl CompositorBackend {
     }
 }
 
-/// [`crate::consumer::GpuImageResolver`] 实现：凭共享纹理表的凭据取原生句柄，
+/// [`crate::render::frame::GpuImageResolver`] 实现：凭共享纹理表的凭据取原生句柄，
 /// 导入为 Skia image。
 ///
 /// 只借用 Skia 的 `DirectContext` 与共享登记处。
@@ -285,7 +285,7 @@ pub struct CompositorResolver<'a> {
     pub textures: &'a TextureRegistry,
 }
 
-impl crate::consumer::GpuImageResolver for CompositorResolver<'_> {
+impl crate::render::frame::GpuImageResolver for CompositorResolver<'_> {
     fn import(
         &mut self,
         id: TextureId,
@@ -313,9 +313,9 @@ pub fn import_texture(
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let backend_tex = unsafe {
         let info = gpu::gl::TextureInfo {
-            target: opencat_gpu_native::gl::TEXTURE_2D,
+            target: crate::gpu::gl::TEXTURE_2D,
             id: native.raw() as u32,
-            format: opencat_gpu_native::gl::RGBA8,
+            format: crate::gpu::gl::RGBA8,
             ..Default::default()
         };
         gpu::backend_textures::make_gl(

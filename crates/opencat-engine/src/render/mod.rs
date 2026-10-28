@@ -3,9 +3,12 @@ use std::path::Path;
 use anyhow::{Result, anyhow};
 use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
+pub mod executor;
+pub mod frame;
+
 pub use crate::media::Mp4Config;
 
-use crate::media::{AudioTrack, MediaContext, decode_audio_to_f32_stereo, encode_rgba_frames};
+use crate::media::{MediaContext, encode_rgba_frames};
 use opencat_core::frame_ctx::duration_secs_to_frames;
 use opencat_core::ir::GeneratedImageId;
 use skia_safe::Image;
@@ -56,13 +59,13 @@ pub struct EncodingConfig {
 /// CPU 合成路径的 GPU 流执行底座（懒建，线程本地——GL 上下文非线程安全）。
 thread_local! {
     static CPU_GL: std::cell::RefCell<
-        Option<(crate::gl_session::GlSession, crate::gpu_stream_executor::GpuStreamExecutor)>,
+        Option<(crate::gpu::session::GlSession, crate::gpu::stream_executor::GpuStreamExecutor)>,
     > = const { std::cell::RefCell::new(None) };
 }
 
 /// CPU 合成路径的 GPU 流执行：readback 喂占位条目（无零拷贝）。
 fn cpu_execute_gpu_streams(
-    textures: &std::sync::Arc<opencat_gpu_native::TextureRegistry>,
+    textures: &std::sync::Arc<crate::gpu::TextureRegistry>,
     media_plan: &mut opencat_core::ir::media_plan::FrameMediaPlan,
     section: &opencat_core::ir::GpuSection,
 ) -> Result<()> {
@@ -70,8 +73,8 @@ fn cpu_execute_gpu_streams(
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
             *slot = Some((
-                crate::gl_session::GlSession::offscreen()?,
-                crate::gpu_stream_executor::GpuStreamExecutor::new(),
+                crate::gpu::session::GlSession::offscreen()?,
+                crate::gpu::stream_executor::GpuStreamExecutor::new(),
             ));
         }
         let (session, executor) = slot.as_mut().unwrap();
@@ -115,7 +118,7 @@ fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, f
 fn render_pipeline_frame_to_rgba(
     pipeline: &mut crate::EnginePipeline,
     media_ctx: &mut MediaContext,
-    executor: &mut crate::executor::EngineDrawExecutor,
+    executor: &mut crate::render::executor::EngineDrawExecutor,
     generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
     surface_w: u32,
     surface_h: u32,
@@ -141,7 +144,7 @@ fn render_pipeline_frame_to_rgba(
     let canvas: &mut skia_safe::Canvas =
         unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
 
-    crate::consumer::execute_render_frame(
+    crate::render::frame::execute_render_frame(
         &mut frame,
         &media_plan,
         executor,
@@ -179,14 +182,14 @@ fn render_pipeline_frame_to_rgba(
 /// `make_current` 一次；无锁。
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub struct GpuRenderSession {
-    compositor: crate::gpu_compositor::GpuCompositor,
+    compositor: crate::gpu::compositor::GpuCompositor,
     /// 合成目标纹理：drop 早于 `gl_session`（字段顺序即 drop 顺序）。
     composite_tex: CompositeTexture,
-    gl_session: crate::gl_session::GlSession,
+    gl_session: crate::gpu::session::GlSession,
     /// GPU 命令流执行器（内容缓存跨帧复用）。
-    gpu_executor: crate::gpu_stream_executor::GpuStreamExecutor,
+    gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor,
     /// 共享纹理登记处（GPU 流输出纹理的取用与归还）。
-    textures: std::sync::Arc<opencat_gpu_native::TextureRegistry>,
+    textures: std::sync::Arc<crate::gpu::TextureRegistry>,
 }
 
 /// 合成目标纹理的 RAII（GL 纹理名的删除需要 current 上下文，所以先于
@@ -194,13 +197,13 @@ pub struct GpuRenderSession {
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 struct CompositeTexture {
     gl: std::sync::Arc<glow::Context>,
-    tex: opencat_gpu_native::NativeTexture,
+    tex: crate::gpu::NativeTexture,
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 impl Drop for CompositeTexture {
     fn drop(&mut self) {
-        opencat_gpu_native::gl::delete_texture(&self.gl, self.tex);
+        crate::gpu::gl::delete_texture(&self.gl, self.tex);
     }
 }
 
@@ -209,16 +212,16 @@ impl GpuRenderSession {
     /// 建一个 `width × height` 的 GPU 合成会话。
     pub fn new(width: u32, height: u32) -> Result<Self> {
         // 离屏 GL 会话：构造即 make current。
-        let gl_session = crate::gl_session::GlSession::offscreen()?;
+        let gl_session = crate::gpu::session::GlSession::offscreen()?;
         let gl = gl_session.gl();
         // 合成目标纹理：RGBA8 + FBO，Skia 的 wrap_backend_render_target 用。
-        let native = opencat_gpu_native::gl::create_texture_rgba8(&gl, width, height)
+        let native = crate::gpu::gl::create_texture_rgba8(&gl, width, height)
             .ok_or_else(|| anyhow!("创建合成目标纹理失败"))?;
         let composite_tex = CompositeTexture { gl: gl.clone(), tex: native };
 
         // Skia 合成器（共享同一 GL 上下文）。
-        let compositor = crate::gpu_compositor::GpuCompositor::new(
-            crate::gpu_compositor::CompositorBackend::Gl,
+        let compositor = crate::gpu::compositor::GpuCompositor::new(
+            crate::gpu::compositor::CompositorBackend::Gl,
             Some(gl),
             native,
             width,
@@ -229,8 +232,8 @@ impl GpuRenderSession {
             compositor,
             composite_tex,
             gl_session,
-            gpu_executor: crate::gpu_stream_executor::GpuStreamExecutor::new(),
-            textures: std::sync::Arc::new(opencat_gpu_native::TextureRegistry::new()),
+            gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor::new(),
+            textures: std::sync::Arc::new(crate::gpu::TextureRegistry::new()),
         })
     }
 
@@ -243,7 +246,7 @@ impl GpuRenderSession {
         &mut self,
         pipeline: &mut crate::EnginePipeline,
         media_ctx: &mut MediaContext,
-        executor: &mut crate::executor::EngineDrawExecutor,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
     ) -> Result<Option<Vec<u8>>> {
@@ -266,7 +269,7 @@ impl GpuRenderSession {
         &mut self,
         pipeline: &mut crate::EnginePipeline,
         media_ctx: &mut MediaContext,
-        executor: &mut crate::executor::EngineDrawExecutor,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
     ) -> Result<Vec<u8>> {
@@ -285,7 +288,7 @@ impl GpuRenderSession {
         &mut self,
         pipeline: &mut crate::EnginePipeline,
         media_ctx: &mut MediaContext,
-        executor: &mut crate::executor::EngineDrawExecutor,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
         deferred: bool,
@@ -300,7 +303,7 @@ impl GpuRenderSession {
         {
             dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
         }
-        let mut stream_outputs: Vec<(opencat_gpu_native::NativeTexture, u32)> = Vec::new();
+        let mut stream_outputs: Vec<(crate::gpu::NativeTexture, u32)> = Vec::new();
         // 流执行过 = GL 上下文被改过（哪怕占位不可见、输出被丢弃——three
         // 这类持久 renderer 的不可见帧照常执行命令），Skia 合成前就必须
         // reset。判据不是 gpu_handles：输出被丢弃的帧 handle 为空。
@@ -324,10 +327,10 @@ impl GpuRenderSession {
         }
 
         // 收集本帧引用的 GPU 纹理凭据：合成后统一归还。
-        let gpu_handles: Vec<opencat_gpu_native::TextureId> = media_plan
+        let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
             .generated_images
             .iter()
-            .filter_map(|g| g.gpu.map(|h| opencat_gpu_native::TextureId::from_raw(h.token)))
+            .filter_map(|g| g.gpu.map(|h| crate::gpu::TextureId::from_raw(h.token)))
             .collect();
 
         let compositor = &mut self.compositor;
@@ -341,8 +344,8 @@ impl GpuRenderSession {
 
         {
             let (canvas, skia) = compositor.split();
-            let mut resolver = crate::gpu_compositor::CompositorResolver { skia, textures };
-            crate::consumer::execute_render_frame_with_gpu(
+            let mut resolver = crate::gpu::compositor::CompositorResolver { skia, textures };
+            crate::render::frame::execute_render_frame_with_gpu(
                 &mut frame,
                 &media_plan,
                 executor,
@@ -363,8 +366,8 @@ impl GpuRenderSession {
 
         // 合成完成：删 GL 资源（像素已被 Skia 采样进合成帧），归还凭据。
         for (tex, fbo) in stream_outputs {
-            opencat_gpu_native::gl::delete_framebuffer(&self.gl_session.gl(), fbo);
-            opencat_gpu_native::gl::delete_texture(&self.gl_session.gl(), tex);
+            crate::gpu::gl::delete_framebuffer(&self.gl_session.gl(), fbo);
+            crate::gpu::gl::delete_texture(&self.gl_session.gl(), tex);
         }
         for id in gpu_handles {
             textures.release(id);
@@ -388,7 +391,7 @@ enum FrameRenderer {
 impl FrameRenderer {
     fn new(_pipeline: &crate::EnginePipeline, width: u32, height: u32) -> Result<Self> {
         #[cfg(any(target_os = "windows", target_os = "linux"))]
-        if crate::gpu_pipeline::requested() {
+        if crate::gpu::requested() {
             return Ok(Self::Gpu(Box::new(GpuRenderSession::new(width, height)?)));
         }
         let _ = (width, height);
@@ -399,7 +402,7 @@ impl FrameRenderer {
         &mut self,
         pipeline: &mut crate::EnginePipeline,
         media_ctx: &mut MediaContext,
-        executor: &mut crate::executor::EngineDrawExecutor,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
         width: u32,
@@ -432,7 +435,7 @@ impl FrameRenderer {
         &mut self,
         pipeline: &mut crate::EnginePipeline,
         media_ctx: &mut MediaContext,
-        executor: &mut crate::executor::EngineDrawExecutor,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
         width: u32,
@@ -460,67 +463,6 @@ impl FrameRenderer {
     }
 }
 
-/// Premix the whole composition audio track.
-/// Shared by `render_from_source` and `opencat view`.
-///
-/// Segment timing comes exclusively from the canonical core
-/// [`opencat_core::AudioPlan`] on `CompositionInfo::audio_plan` (issue #18 /
-/// issue #47). The engine only decodes and mixes — it never re-walks the
-/// composition tree to calculate its own segment offsets.
-///
-/// The plan is already anchored in microsecond precision; the engine converts
-/// `start_micros` / `end_micros` directly to sample frames for the mix
-/// buffer, so no second derivation of timeline/scene/transition geometry is
-/// possible.
-pub fn build_audio_track_from_pipeline(
-    pipeline: &crate::EnginePipeline,
-) -> Result<Option<AudioTrack>> {
-    let info = pipeline.info();
-    let plan = &info.audio_plan;
-    if plan.segments.is_empty() {
-        return Ok(None);
-    }
-
-    let mut mixed_samples = Vec::new();
-    let sample_rate: u32 = 48_000;
-    let channels: u16 = 2;
-    let frame_count = duration_secs_to_frames(info.duration, info.fps);
-    let total_sample_frames = ((frame_count as u64 * sample_rate as u64) / info.fps as u64) as usize;
-    mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
-
-    for seg in &plan.segments {
-        let handle = pipeline
-            .loader()
-            .handle(&seg.asset)
-            .ok_or_else(|| anyhow!("audio asset {:?} not found in loader", seg.asset))?;
-        let path = handle
-            .local_path()
-            .ok_or_else(|| anyhow!("audio {:?}: local_path required", seg.asset))?;
-        let clip = decode_audio_to_f32_stereo(path, sample_rate)?;
-        let start_us = seg.start_micros().0;
-        let end_us = seg.end_micros().0;
-        let start_sample = ((start_us * sample_rate as u64) / 1_000_000) as usize;
-        let end_sample = ((end_us * sample_rate as u64) / 1_000_000) as usize;
-        let copy_frames = end_sample
-            .saturating_sub(start_sample)
-            .min(clip.sample_frames());
-        for i in 0..copy_frames {
-            let dst = (start_sample + i) * channels as usize;
-            let src = i * channels as usize;
-            if dst + 1 < mixed_samples.len() && src + 1 < clip.samples.len() {
-                mixed_samples[dst] += clip.samples[src];
-                mixed_samples[dst + 1] += clip.samples[src + 1];
-            }
-        }
-    }
-
-    for s in &mut mixed_samples {
-        *s = s.clamp(-1.0, 1.0);
-    }
-
-    Ok(Some(AudioTrack::new(sample_rate, channels, mixed_samples)))
-}
-
 /// Primary render entry: parse JSX → EnginePipeline → encode frames.
 pub fn render_from_source(
     source: &str,
@@ -536,7 +478,7 @@ pub fn render_from_source_with_base(
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
 ) -> Result<()> {
-    use crate::js_context::V8JsContext;
+    use crate::script::V8JsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -550,8 +492,8 @@ pub fn render_from_source_with_base(
         cache_dir,
     )?;
     let ctx = V8JsContext::new()?;
-    crate::gpu_stream_executor::install_glsl_reflector(&ctx);
-    crate::gpu_stream_executor::install_asset_bridge(&ctx, loader.base_dir());
+    crate::gpu::stream_executor::install_glsl_reflector(&ctx);
+    crate::gpu::stream_executor::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -560,11 +502,11 @@ pub fn render_from_source_with_base(
     media_ctx.set_composition_fps(info.fps);
     let mut generated_cache = generated_image_cache_from_env();
 
-    let audio_track = build_audio_track_from_pipeline(&pipeline)?;
+    let audio_track = crate::media::audio::build_audio_track_from_pipeline(&pipeline)?;
 
     match &config.format {
         OutputFormat::Png => {
-            let mut executor = crate::executor::EngineDrawExecutor::new();
+            let mut executor = crate::render::executor::EngineDrawExecutor::new();
             let mut renderer = FrameRenderer::new(&pipeline, info.width, info.height)?;
             for i in 0..frame_count {
                 let rgba = renderer.render_frame_blocking(
@@ -591,7 +533,7 @@ pub fn render_from_source_with_base(
                 (info.width, info.height)
             };
 
-            let mut executor = crate::executor::EngineDrawExecutor::new();
+            let mut executor = crate::render::executor::EngineDrawExecutor::new();
             let mut renderer = FrameRenderer::new(&pipeline, aligned_info.0, aligned_info.1)?;
             encode_rgba_frames(
                 output_path,
@@ -641,7 +583,7 @@ pub fn render_single_frame_from_source_with_base(
     base_dir: Option<&Path>,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    use crate::js_context::V8JsContext;
+    use crate::script::V8JsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -654,8 +596,8 @@ pub fn render_single_frame_from_source_with_base(
         cache_dir,
     )?;
     let ctx = V8JsContext::new()?;
-    crate::gpu_stream_executor::install_glsl_reflector(&ctx);
-    crate::gpu_stream_executor::install_asset_bridge(&ctx, loader.base_dir());
+    crate::gpu::stream_executor::install_glsl_reflector(&ctx);
+    crate::gpu::stream_executor::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -670,7 +612,7 @@ pub fn render_single_frame_from_source_with_base(
 
     let mut media_ctx = MediaContext::new();
     media_ctx.set_composition_fps(info.fps);
-    let mut executor = crate::executor::EngineDrawExecutor::new();
+    let mut executor = crate::render::executor::EngineDrawExecutor::new();
     let mut generated_cache = generated_image_cache_from_env();
     let mut renderer = FrameRenderer::new(&pipeline, info.width, info.height)?;
     let rgba = renderer.render_frame_blocking(

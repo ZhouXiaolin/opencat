@@ -7,7 +7,7 @@ use opencat_core::ir::GeneratedImageId;
 use opencat_core::ir::asset_id::{AssetId, ResourceKind};
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
 
-use crate::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
+use crate::render::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
 use crate::media::MediaContext;
 
 /// GPU 图像句柄的解析器（GPU 管线用）。
@@ -16,13 +16,13 @@ use crate::media::MediaContext;
 /// 的条目导入为 Skia image（零拷贝：纹理已在显存里）。CPU 管线传 `None`，
 /// 此时任何 GPU 句柄都是硬错误（说明两路径被混用）。
 ///
-/// 实现方是 [`crate::gpu_compositor::CompositorResolver`]（在 GL 锁内调用）。
+/// 实现方是 [`crate::gpu::compositor::CompositorResolver`]（在 GL 锁内调用）。
 pub trait GpuImageResolver {
     /// `id` 是句柄携带的共享纹理凭据（见
     /// [`opencat_core::ir::generated_image::GpuImageHandle::token`]）。
     fn import(
         &mut self,
-        id: opencat_gpu_native::TextureId,
+        id: crate::gpu::TextureId,
         width: u32,
         height: u32,
     ) -> anyhow::Result<Image>;
@@ -372,7 +372,7 @@ fn prepare_frame(
                         .into(),
                 }
             })?;
-            let id = opencat_gpu_native::TextureId::from_raw(handle.token);
+            let id = crate::gpu::TextureId::from_raw(handle.token);
             let sk_image = resolver.import(id, entry.width, entry.height).map_err(|e| {
                 MediaError::GeneratedImageDecodeFailed {
                     id: entry.id,
@@ -425,7 +425,7 @@ fn prepare_frame(
     let mut runtime_effects = Vec::with_capacity(plan.runtime_effects.len());
     for effect_ref in &plan.runtime_effects {
         let effect = compile_runtime_effect_cached(effect_ref.hash, &effect_ref.sksl)?;
-        runtime_effects.push(crate::executor::PreparedRuntimeEffect {
+        runtime_effects.push(crate::render::executor::PreparedRuntimeEffect {
             effect,
             hash: effect_ref.hash,
             sksl: effect_ref.sksl.clone(),

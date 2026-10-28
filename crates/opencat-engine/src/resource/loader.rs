@@ -19,7 +19,7 @@ use opencat_core::probe::catalog::ResourceRequests;
 use opencat_core::fonts::{FontManifest, font_asset_id};
 
 use crate::resource::fetch::{EngineFetcher, build_preload_runtime};
-use crate::resource::utils::cache_file_path;
+use crate::resource::path_store::cache_file_path;
 
 #[derive(Clone)]
 pub struct EngineAssetHandle {

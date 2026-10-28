@@ -12,7 +12,6 @@ use skia_safe::{
 use crate::media::decode::VideoDecodeCache;
 use crate::media::realtime::VideoRealtimeDecoder;
 use crate::media::video_cache::VideoFrameCache;
-use crate::runtime::cache::CacheCaps;
 use opencat_core::probe::bitmap_source::{BitmapSourceKind, bitmap_source_kind};
 
 pub use crate::media::decode::VideoInfo;
@@ -136,17 +135,19 @@ pub struct MediaContext {
 
 impl MediaContext {
     pub fn new() -> Self {
-        Self::with_cache_caps(CacheCaps::default())
+        Self::with_video_frame_cache(64)
     }
 
-    pub fn with_cache_caps(caps: CacheCaps) -> Self {
+    /// 自定义解码帧 LRU 容量。实时解码线程传 0 关掉帧缓存（它的帧窗口
+    /// 本身就是缓存，再叠一层只会多占内存）。
+    pub fn with_video_frame_cache(video_frames: usize) -> Self {
         Self {
             videos: VideoDecodeCache::new(),
             images: HashMap::new(),
             static_images: HashMap::new(),
             scaled_images: HashMap::new(),
             encoded_images: HashMap::new(),
-            video_frame_cache: VideoFrameCache::new(caps.video_frames),
+            video_frame_cache: VideoFrameCache::new(video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
             composition_fps: 30,
             realtime: None,

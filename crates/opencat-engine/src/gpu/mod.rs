@@ -1,9 +1,10 @@
-//! 原生图形 API 的唯一落点。
+//! Engine 的 GPU 全家：原生 FFI 落点、离屏会话、合成器、命令流执行器。
 //!
-//! Skia 与 wgpu 是统一抽象，任何 crate 都可以直接用。原生 API 不是——
-//! WGL/GL、Metal、EGL 只许出现在本 crate。其余 crate 只见不透明句柄。
+//! Skia 与 wgpu 是统一抽象，任何模块都可以直接用。原生 API 不是——
+//! WGL/GL、Metal、EGL 只许出现在本模块的 [`gl`] / [`win32`] / [`egl`] /
+//! [`metal`] 里，其余代码只见不透明句柄。
 //!
-//! 它是两侧之间的**资源中间层**，管三件事：
+//! 原生侧管三件事：
 //!
 //! - **上下文**（[`win32::WglContext`] / [`egl::EglContext`] / macOS 的
 //!   [`metal::DeviceContext`]）：宿主从自己的窗口建出来，交给 wgpu 加入。
@@ -17,8 +18,8 @@
 //!   纹理、FBO/Metal staging 与双缓冲读回。两者接口同形，调用方经
 //!   [`Target`] 别名按平台取得正确的那一个。
 //!
-//! 本 crate 只依赖 `std` 与平台 FFI——它认识原生 API，不认识 wgpu，也不
-//! 认识 Skia。所以 `cfg(target_os)` 止步于此，而 three 不会被拖进 Skia。
+//! 原生子模块只依赖 `std` 与平台 FFI——它们认识原生 API，不认识 wgpu，
+//! 也不认识 Skia。
 //!
 //! 能力探测一律走返回值：入口缺失时 [`gl::create_framebuffer`] 与
 //! [`gl::ReadbackPixels::new`] 返回 `None`，调用方据此回退。
@@ -32,6 +33,11 @@ pub mod egl;
 mod registry;
 #[cfg(target_os = "windows")]
 pub mod win32;
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+pub mod session;
+pub mod compositor;
+pub mod stream_executor;
 
 pub use registry::{TextureId, TextureRegistry};
 
@@ -83,4 +89,16 @@ impl NativeTexture {
     pub fn is_none(self) -> bool {
         self.0 == 0
     }
+}
+
+/// GPU 管线是否启用（用户开关）。
+///
+/// 默认开启。只有显式设 `OC_GPU_PIPELINE=0` / `false` / `off` 才走 CPU——
+/// `1` / `true`（旧写法）与任何其他值都保持开启。非 GL/Metal 平台即使开着
+/// 也走 CPU——否则 3D 会产出 GPU 句柄，而 CPU 合成器无法消费。
+pub fn requested() -> bool {
+    !matches!(
+        std::env::var("OC_GPU_PIPELINE").as_deref(),
+        Ok("0") | Ok("false") | Ok("off")
+    )
 }

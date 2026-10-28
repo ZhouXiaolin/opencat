@@ -1,8 +1,8 @@
 //! 离屏 GL 会话：GPU 合成与 GPU 命令流执行共用的上下文底座。
 //!
 //! opencat-three（wgpu）退役后，engine 的 GPU 基建直接建在裸 GL 上：
-//! Windows = WGL 隐藏窗口（[`opencat_gpu_native::win32::WglContext::offscreen`]），
-//! Linux = EGL pbuffer（[`opencat_gpu_native::egl::EglContext::offscreen`]）。
+//! Windows = WGL 隐藏窗口（[`crate::gpu::win32::WglContext::offscreen`]），
+//! Linux = EGL pbuffer（[`crate::gpu::egl::EglContext::offscreen`]）。
 //! 上下文引导归 opencat-gpu-native；GL 函数面统一走 [`glow`]——会话建立时
 //! 在 current 上下文下构建一次 glow 上下文，此后 GPU 合成器与命令流执行器
 //! 都携带同一份 [`glow::Context`]。
@@ -19,9 +19,9 @@ use anyhow::Result;
 pub struct GlSession {
     gl: Arc<glow::Context>,
     #[cfg(target_os = "windows")]
-    wgl: opencat_gpu_native::win32::WglContext,
+    wgl: crate::gpu::win32::WglContext,
     #[cfg(target_os = "linux")]
-    egl: opencat_gpu_native::egl::EglContext,
+    egl: crate::gpu::egl::EglContext,
 }
 
 impl GlSession {
@@ -31,7 +31,7 @@ impl GlSession {
         {
             // WglContext::offscreen 构造即 current——glow 的入口解析要求
             // current 上下文（wglGetProcAddress 语义）。
-            let wgl = unsafe { opencat_gpu_native::win32::WglContext::offscreen() }?;
+            let wgl = unsafe { crate::gpu::win32::WglContext::offscreen() }?;
             let gl = unsafe {
                 glow::Context::from_loader_function_cstr(|name| {
                     wgl.load_proc(name.to_str().unwrap_or(""))
@@ -44,10 +44,10 @@ impl GlSession {
         }
         #[cfg(target_os = "linux")]
         {
-            let egl = opencat_gpu_native::egl::EglContext::offscreen()?;
+            let egl = crate::gpu::egl::EglContext::offscreen()?;
             let gl = unsafe {
                 glow::Context::from_loader_function_cstr(|name| {
-                    opencat_gpu_native::egl::load_proc(name.to_str().unwrap_or(""))
+                    crate::gpu::egl::load_proc(name.to_str().unwrap_or(""))
                 })
             };
             Ok(Self {

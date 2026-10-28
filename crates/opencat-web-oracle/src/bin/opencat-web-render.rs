@@ -94,7 +94,7 @@ fn kept_segments(first: u32, last: u32, ranges: &[(u32, u32)]) -> Vec<(u32, u32)
 fn composition_meta(source: &str, base_dir: Option<&Path>) -> Result<(u32, u32, u32, u32)> {
     // (width, height, fps, frames) through the engine's own parse — same
     // header the native renderer resolves.
-    let parsed = opencat_engine::source_io::parse_with_base_dir(source, base_dir)
+    let parsed = opencat_engine::script::jsx::parse_with_base_dir(source, base_dir)
         .context("parse composition")?;
     let fps = parsed.fps.max(1) as u32;
     let frames = opencat_core::frame_ctx::duration_secs_to_frames(parsed.duration, fps).max(1);

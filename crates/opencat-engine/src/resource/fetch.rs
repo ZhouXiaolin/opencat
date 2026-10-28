@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tokio::runtime::Builder;
 
-use crate::resource::utils::cache_file_path;
+use crate::resource::path_store::cache_file_path;
 use opencat_core::ir::asset_id::AssetId;
 
 const HTTP_USER_AGENT: &str = "OpenCat/0.1 (+https://github.com/solaren/opencat)";

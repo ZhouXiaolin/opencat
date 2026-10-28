@@ -42,7 +42,7 @@ use serde_json::{Value, json};
 /// rebuilds the composition from it. `base_dir` resolves relative `import`s
 /// during extraction.
 pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<String> {
-    let (extract, driver) = opencat_engine::jsx::extract_with_base_dir(source, base_dir)?;
+    let (extract, driver) = opencat_engine::script::jsx::extract_with_base_dir(source, base_dir)?;
     // Repo-relative baseDir (`examples/<example>`): the static server maps
     // `/assets/<baseDir>/...` back under the repo root, so an absolute
     // host path would leak into the URL.

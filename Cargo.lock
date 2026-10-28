@@ -3161,6 +3161,7 @@ name = "opencat-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block",
  "cocoa",
  "core-graphics-types 0.2.0",
  "dirs",
@@ -3170,12 +3171,13 @@ dependencies = [
  "glow",
  "image",
  "imagesize",
+ "khronos-egl",
+ "libc",
  "metal",
  "naga",
  "nom-exif",
  "num_cpus",
  "opencat-core",
- "opencat-gpu-native",
  "reqwest",
  "serde",
  "serde_json",
@@ -3185,18 +3187,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "v8",
-]
-
-[[package]]
-name = "opencat-gpu-native"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "block",
- "glow",
- "khronos-egl",
- "libc",
- "metal",
  "windows-sys 0.61.2",
 ]
 

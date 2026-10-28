@@ -2,7 +2,7 @@
 //!
 //! GL 函数面统一走 [`glow`]（WebGL 同名 API 形状）——本 crate 不再手写
 //! `extern`：`glow::Context` 由调用方在 current 上下文下构建一次
-//! （engine 的 [`crate::gl_session`]，loader 复用 win32/EGL 的入口解析），
+//! （engine 的 [`crate::gpu::session`]，loader 复用 win32/EGL 的入口解析），
 //! 此后所有原语都携带它。
 //!
 //! Skia 的 `wrap_backend_render_target` 需要一个已存在的 FBO id，PBO 双缓冲
@@ -18,7 +18,7 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use glow::HasContext;
 
-use crate::NativeTexture;
+use super::NativeTexture;
 
 /// glow 的句柄包装是 NonZero 的——0 永远不进 glow(调用方已在 NativeTexture
 /// 层面把 0 当「无纹理」拦截)。
@@ -211,7 +211,7 @@ impl Target {
     ///
     /// GL 的 context 命令流是 FIFO：上一帧的 `glReadPixels` 天然排在渲染
     /// 之后，CPU 不需要显式等待。此方法只为与
-    /// [`crate::metal::Target::wait_inflight`] 接口对齐——Metal 跨队列无
+    /// [`super::metal::Target::wait_inflight`] 接口对齐——Metal 跨队列无
     /// 隐式顺序，那边必须真等。
     pub fn wait_inflight(&mut self) {}
 

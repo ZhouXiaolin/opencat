@@ -1,4 +1,4 @@
-//! macOS 的原生 Metal 落点（GL 平台的 [`crate::gl`] 对应物）。
+//! macOS 的原生 Metal 落点（GL 平台的 [`super::gl`] 对应物）。
 //!
 //! Metal 没有 GL 式的「context」：一块系统 MTLDevice 上，wgpu、Skia 与本
 //! 模块各持一条 MTLCommandQueue，纹理天然跨队列共享。代价是**没有隐式同步**
@@ -26,7 +26,7 @@ use anyhow::{Result, anyhow};
 use metal::foreign_types::{ForeignType, ForeignTypeRef};
 use metal::{MTLBlitOption, MTLOrigin, MTLResourceOptions, MTLSize};
 
-use crate::NativeTexture;
+use super::NativeTexture;
 
 /// blit 行距按 256 对齐（Apple 平台的保守对齐；读回按行解包）。
 const ROW_ALIGN: usize = 256;
@@ -129,7 +129,7 @@ impl Target {
         self.height
     }
 
-    /// 有无读回入口（对齐 [`crate::gl::Target::has_readback`] 的调用形状；
+    /// 有无读回入口（对齐 [`super::gl::Target::has_readback`] 的调用形状；
     /// Metal 的 blit 入口恒在）。
     pub fn has_readback(&self) -> bool {
         true

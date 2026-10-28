@@ -7,7 +7,7 @@
 //!
 //! | 平台 | 上下文 | Skia 后端 |
 //! |---|---|---|
-//! | Windows | WGL（[`opencat_gpu_native::win32::WglContext`]） | GL |
+//! | Windows | WGL（[`crate::gpu::win32::WglContext`]） | GL |
 //! | macOS | CAMetalLayer | Metal |
 //! | Linux | EGL（X11） | GL |
 //!
@@ -33,10 +33,10 @@ use win32 as platform;
 pub use platform::WindowHandle;
 
 use crate::EnginePipeline;
-use crate::executor::EngineDrawExecutor;
+use crate::render::executor::EngineDrawExecutor;
 use crate::media::MediaContext;
 use crate::render::GeneratedImageCache;
-use opencat_gpu_native::TextureId;
+use crate::gpu::TextureId;
 
 /// 一帧的渲染输入。宿主提供**数据**，不提供任何图形对象。
 pub struct PreviewFrame<'a> {
@@ -119,7 +119,7 @@ impl PreviewPresenter {
                 if render_scale != 1.0 {
                     canvas.scale((render_scale, render_scale));
                 }
-                crate::consumer::execute_render_frame_with_gpu(
+                crate::render::frame::execute_render_frame_with_gpu(
                     &mut draw,
                     &media_plan,
                     executor,

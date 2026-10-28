@@ -1,20 +1,20 @@
 //! Windows 呈现器：WGL 上下文 + Skia GL 后端。
 //!
-//! 窗口的 HDC/HGLRC 由 [`opencat_gpu_native::win32::WglContext`] 建并持有；
+//! 窗口的 HDC/HGLRC 由 [`crate::gpu::win32::WglContext`] 建并持有；
 //! 本模块只做 Skia 那一侧。
 
 use std::ffi::c_void;
 
 use anyhow::{Result, anyhow};
-use opencat_gpu_native::TextureRegistry;
-use opencat_gpu_native::win32::WglContext;
+use crate::gpu::TextureRegistry;
+use crate::gpu::win32::WglContext;
 use skia_safe::{
     ColorType,
     gpu::{self, SurfaceOrigin, backend_render_targets, gl},
 };
 
-use crate::consumer::GpuImageResolver;
-use crate::gpu_compositor::CompositorResolver;
+use crate::render::frame::GpuImageResolver;
+use crate::gpu::compositor::CompositorResolver;
 
 /// 宿主窗口句柄（`raw-window-handle` 的 `Win32WindowHandle::hwnd`）。
 pub struct WindowHandle {

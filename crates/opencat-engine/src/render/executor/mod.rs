@@ -181,7 +181,7 @@ impl EngineDrawExecutor {
     }
 
     /// Without Skottie there is no native Lottie renderer: leave the cache
-    /// empty so [`crate::executor::replay`] skips `LottieRect` ops instead of
+    /// empty so [`crate::render::executor::replay`] skips `LottieRect` ops instead of
     /// pulling `skottie` into the binary.
     #[cfg(not(target_os = "linux"))]
     pub fn ensure_lottie_animations<P: Fn(&str) -> Option<Vec<u8>>>(

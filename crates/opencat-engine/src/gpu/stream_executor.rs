@@ -12,7 +12,7 @@
 //! 传输，这里去重上载）。
 //!
 //! 输出：每条流渲进自己的 FBO（RGBA8 纹理）。GPU 合成模式纹理句柄走
-//! [`opencat_gpu_native::TextureRegistry`]（Skia 零拷贝采样），CPU 合成模式
+//! [`crate::gpu::TextureRegistry`]（Skia 零拷贝采样），CPU 合成模式
 //! readback 像素直填占位条目。
 
 use std::collections::HashMap;
@@ -226,9 +226,9 @@ impl GpuStreamExecutor {
         gl: &Arc<glow::Context>,
         section: &GpuSection,
         plan: &mut FrameMediaPlan,
-        textures: &opencat_gpu_native::TextureRegistry,
+        textures: &crate::gpu::TextureRegistry,
         gpu_mode: bool,
-    ) -> Result<Vec<(opencat_gpu_native::NativeTexture, u32)>> {
+    ) -> Result<Vec<(crate::gpu::NativeTexture, u32)>> {
         let mut outputs = Vec::new();
         if section.streams.is_empty() {
             // 没有任何流 = 本会话 GL 状态没被流碰过。restore 的一堆绑定
@@ -251,9 +251,9 @@ impl GpuStreamExecutor {
         gl: &Arc<glow::Context>,
         stream: &GpuStream,
         plan: &mut FrameMediaPlan,
-        textures: &opencat_gpu_native::TextureRegistry,
+        textures: &crate::gpu::TextureRegistry,
         gpu_mode: bool,
-    ) -> Result<Vec<(opencat_gpu_native::NativeTexture, u32)>> {
+    ) -> Result<Vec<(crate::gpu::NativeTexture, u32)>> {
         let ops = &stream.ops.ops;
         let bytes: &[u8] = &stream.ops.bytes;
         let ranges: &[opencat_core::ir::draw_types::TableRange] = &stream.ops.byte_ranges;
@@ -277,10 +277,10 @@ impl GpuStreamExecutor {
         restore_default_state(self, gl);
 
         // 输出纹理 + FBO：流画到自己的附件上（合成按占位 z 序采样）。
-        let out_tex = opencat_gpu_native::gl::create_texture_rgba8(gl, stream.width, stream.height)
+        let out_tex = crate::gpu::gl::create_texture_rgba8(gl, stream.width, stream.height)
             .ok_or_else(|| anyhow!("gpu stream: 输出纹理创建失败"))?;
         let out_fbo =
-            opencat_gpu_native::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
+            crate::gpu::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
                 .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
         self.stream_out_fbo = out_fbo;
 
@@ -315,8 +315,8 @@ impl GpuStreamExecutor {
                     stream.target_id
                 );
             }
-            opencat_gpu_native::gl::delete_framebuffer(gl, out_fbo);
-            opencat_gpu_native::gl::delete_texture(gl, out_tex);
+            crate::gpu::gl::delete_framebuffer(gl, out_fbo);
+            crate::gpu::gl::delete_texture(gl, out_tex);
             let _ = st;
             return Ok(Vec::new());
         };
@@ -325,7 +325,7 @@ impl GpuStreamExecutor {
         if gpu_mode {
             // 纹理登记到共享表；GL 资源的删除由调用方在合成完成后做
             // （outputs 携带 (纹理名, FBO)——调用点持有 current 上下文）。
-            let native = opencat_gpu_native::NativeTexture::from_raw(out_tex.raw());
+            let native = crate::gpu::NativeTexture::from_raw(out_tex.raw());
             let token = textures.publish(native, Box::new(()));
             entry.rgba = Arc::from(Vec::new());
             entry.gpu = Some(opencat_core::ir::generated_image::GpuImageHandle {
@@ -355,8 +355,8 @@ impl GpuStreamExecutor {
             }
             entry.rgba = Arc::from(rgba);
             entry.gpu = None;
-            opencat_gpu_native::gl::delete_framebuffer(gl, out_fbo);
-            opencat_gpu_native::gl::delete_texture(gl, out_tex);
+            crate::gpu::gl::delete_framebuffer(gl, out_fbo);
+            crate::gpu::gl::delete_texture(gl, out_tex);
         }
         let _ = st;
         Ok(outputs)
@@ -1757,17 +1757,17 @@ fn desktop_glsl_version_line_only(src: &str) -> Result<String> {
 /// 把反射器装进脚本 realm 的 store。反射用本线程常驻的独立离屏 GL 会话
 /// （thread_local——反射只发生在脚本执行线程；主渲染路径每帧 make_current
 /// 幂等重绑，临时切换安全）。
-pub fn install_glsl_reflector(ctx: &crate::js_context::V8JsContext) {
+pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
     ctx.set_glsl_reflector(Box::new(|vs, fs| {
         thread_local! {
             static REFLECT: std::cell::RefCell<
-                Option<(crate::gl_session::GlSession, Arc<glow::Context>)>,
+                Option<(crate::gpu::session::GlSession, Arc<glow::Context>)>,
             > = const { std::cell::RefCell::new(None) };
         }
         REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
             let mut slot = cell.borrow_mut();
             if slot.is_none() {
-                let session = crate::gl_session::GlSession::offscreen()?;
+                let session = crate::gpu::session::GlSession::offscreen()?;
                 let gl = session.gl();
                 *slot = Some((session, gl));
             }
@@ -1782,7 +1782,7 @@ pub fn install_glsl_reflector(ctx: &crate::js_context::V8JsContext) {
 /// createImageBitmap 垫的后端）。路径语义与声明式 `<image path=>` 一致：
 /// 逻辑相对路径对 base_dir join。解码走 image crate（default features 含
 /// png/jpeg，另开 webp）。
-pub fn install_asset_bridge(ctx: &crate::js_context::V8JsContext, base_dir: &std::path::Path) {
+pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::path::Path) {
     let root = base_dir.to_path_buf();
     ctx.set_asset_reader(Box::new(move |path| {
         let full = root.join(path);

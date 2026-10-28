@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-use crate::js_context::V8JsContext;
+use crate::script::V8JsContext;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::jsx::ENTRY_SPEC;
 use opencat_core::parse::jsx_transform;
@@ -32,6 +32,15 @@ use opencat_core::script::runtime::{
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
     let (extract, driver) = extract_with_base_dir(input, base_dir)?;
     opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
+}
+
+/// 从文件读取 JSX 源并解析；`base_dir` 取文件所在目录（相对资源定位的基准）。
+pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
+    let path = path.as_ref();
+    let input = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read file: {}", path.display()))?;
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+    parse_with_base_dir(&input, Some(base_dir))
 }
 
 /// 单文件多模块段的段首标记：`/*@@oc-module:<spec>@@*/`。

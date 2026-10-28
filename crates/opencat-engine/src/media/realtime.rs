@@ -25,7 +25,6 @@ use std::time::{Duration, Instant};
 use opencat_core::media::VideoColorMatrix;
 
 use super::video::{MediaContext, VideoPreviewQuality};
-use crate::runtime::cache::CacheCaps;
 
 /// 播放头**之前**保留的帧数（web: `REALTIME_CACHE_BEHIND_FRAMES`）。
 const BEHIND_FRAMES: usize = 3;
@@ -231,10 +230,7 @@ impl Shard {
             .spawn(move || {
                 // `MediaContext` 里有 FFmpeg 上下文，不是 `Send`，只能在线程内构造。
                 // 关掉它自己的帧 LRU：窗口就是这里的缓存，再叠一层只会多占内存。
-                let mut ctx = MediaContext::with_cache_caps(CacheCaps {
-                    video_frames: 0,
-                    ..CacheCaps::default()
-                });
+                let mut ctx = MediaContext::with_video_frame_cache(0);
                 ctx.set_composition_fps(fps);
                 ctx.set_video_preview_quality(quality);
 

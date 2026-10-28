@@ -461,7 +461,7 @@ pub struct V8JsContext {
 
 impl V8JsContext {
     /// 注入真 GL 反射器（engine 专用，core 只定义转发通道）。见
-    /// [`crate::gpu_stream_executor::install_glsl_reflector`]。
+    /// [`crate::gpu::stream_executor::install_glsl_reflector`]。
     pub fn set_glsl_reflector(
         &self,
         f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
@@ -471,14 +471,14 @@ impl V8JsContext {
     }
 
     /// 注入资产读取器（文档相对路径 → 字节）。见
-    /// [`crate::gpu_stream_executor::install_asset_bridge`]。
+    /// [`crate::gpu::stream_executor::install_asset_bridge`]。
     pub fn set_asset_reader(&self, f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>) {
         let mut guard = self.natives.store.lock().expect("script store lock poisoned");
         guard.set_asset_reader(f);
     }
 
     /// 注入图像解码器（编码字节 → (w, h, rgba8)）。见
-    /// [`crate::gpu_stream_executor::install_asset_bridge`]。
+    /// [`crate::gpu::stream_executor::install_asset_bridge`]。
     pub fn set_image_decoder(
         &self,
         f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,

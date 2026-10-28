@@ -1,6 +1,6 @@
 //! EGL 上下文引导与 GL 入口解析（Linux）。
 //!
-//! 与 [`crate::win32::WglContext`] 同位：宿主（预览器）拿到窗口后在这里建
+//! 与 [`super::win32::WglContext`] 同位：宿主（预览器）拿到窗口后在这里建
 //! GL 上下文；wgpu 以外部上下文模式加入，Skia 用 GL 后端，三者共享同一
 //! EGL context，纹理才谈得上零拷贝。
 //!

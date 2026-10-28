@@ -8,11 +8,8 @@ path = "src/lib.rs"
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
-# 原生图形 API（GL/Metal/EGL）：FBO、PBO、平台上下文引导。engine 只见
-# 不透明句柄，不自己调 GL。
-opencat-gpu-native = { path = "../opencat-gpu-native" }
-# GPU 命令流执行器的 GL 函数面（WebGL 同名 API 形状）。上下文仍由
-# opencat-gpu-native 引导，glow 上下文在会话建立时构建一次。
+# GL 函数面（WebGL 同名 API 形状）：离屏会话、合成器、GPU 命令流执行器
+# 共用一份 glow 上下文，会话建立时构建一次。
 glow = "0.13.1"
 # vendor/naga fork 分支 feat/glsl-es300-to-desktop330：GLSL ES 300 → 桌面
 # GLSL 330 core 的转换底座（front::glsl → IR → back::glsl 官方链），取代
@@ -46,13 +43,20 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json", "r
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# EGL 上下文/表面管理在 opencat-gpu-native（本 crate 只消费其不透明句柄）。
+# EGL 上下文/表面管理（`dynamic` 运行时加载 libEGL.so.1，无需 pkg-config
+# 构建依赖）。Skia 的 binary-cache 构建是 EGL-only（GL 函数解析走
+# eglGetProcAddress），所以 Linux 用 EGL 而不是 GLX。
+khronos-egl = { version = "6", features = ["dynamic"] }
+libc = "0.2"
 skia-safe = { version = "0.153.3", features = ["binary-cache", "gl", "skottie"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.27.0"
 foreign-types = "0.5.0"
+# MTLDevice/MTLCommandQueue 与读回 blit（gpu/metal.rs）。
 metal = "0.33.0"
+# 读回 blit 的 completion handler（metal 0.33 自身依赖同一版本）。
+block = "0.1.6"
 # No `skottie`: rust-skia ships no prebuilt binaries with Skottie for
 # x86_64-apple-darwin (only Linux), which would force a full Skia source
 # build. Native Lottie is disabled on macOS for now — see
@@ -64,5 +68,13 @@ core-graphics-types = "0.2.0"
 # No `skottie` — rust-skia publishes no prebuilt windows-msvc binaries with
 # Skottie (only linux/egl), which would force a full Skia source build.
 # Native Lottie is disabled on Windows too — see
-# `executor::EngineDrawExecutor::ensure_lottie_animations`.
+# `render::executor::EngineDrawExecutor::ensure_lottie_animations`.
 skia-safe = { version = "0.153.3", features = ["binary-cache", "gl"] }
+# WGL 隐藏窗口与 GL 入口解析（gpu/win32.rs）。
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_OpenGL",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+] }

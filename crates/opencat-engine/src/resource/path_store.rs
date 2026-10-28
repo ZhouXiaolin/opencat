@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
-use opencat_core::ir::asset_id::AssetId;
+use opencat_core::ir::asset_id::{AssetId, stable_hash};
 
 #[derive(Default, Debug)]
 pub struct AssetPathStore {
@@ -48,3 +48,9 @@ impl AssetPathStore {
 }
 
 
+
+/// 生成 cache 文件路径。统一 `.bin` 扩展名 —— 运行时不依赖扩展名，
+/// 格式由文件内容（image/video container header）决定。
+pub fn cache_file_path(cache_dir: &Path, id: &AssetId) -> PathBuf {
+    cache_dir.join(format!("{:016x}.bin", stable_hash(&id.key)))
+}

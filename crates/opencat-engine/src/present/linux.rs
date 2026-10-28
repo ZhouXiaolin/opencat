@@ -1,6 +1,6 @@
 //! Linux 呈现器：EGL（X11）+ Skia GL 后端。
 //!
-//! 窗口的 EGL 上下文由 [`opencat_gpu_native::egl::EglContext`] 建并持有；
+//! 窗口的 EGL 上下文由 [`crate::gpu::egl::EglContext`] 建并持有；
 //! 本模块只做 Skia 那一侧。wgpu 以外部上下文模式加入同一 context（见
 //! [`Self::build_scene3_renderer`]），3D 输出纹理对本节点的 Skia 可直接
 //! 采样——零拷贝。
@@ -8,15 +8,15 @@
 use std::ffi::c_void;
 
 use anyhow::{Result, anyhow};
-use opencat_gpu_native::TextureRegistry;
-use opencat_gpu_native::egl::EglContext;
+use crate::gpu::TextureRegistry;
+use crate::gpu::egl::EglContext;
 use skia_safe::{
     ColorType,
     gpu::{self, SurfaceOrigin, backend_render_targets, gl},
 };
 
-use crate::consumer::GpuImageResolver;
-use crate::gpu_compositor::CompositorResolver;
+use crate::render::frame::GpuImageResolver;
+use crate::gpu::compositor::CompositorResolver;
 
 /// 宿主窗口句柄。两者都来自 `raw-window-handle` 的 Xlib 句柄。
 pub struct WindowHandle {
@@ -36,7 +36,7 @@ pub struct Presenter {
 impl Presenter {
     pub fn new(window: WindowHandle, _width: i32, _height: i32) -> Result<Self> {
         let ctx = EglContext::from_window(window.x11_display, window.x11_window)?;
-        let interface = gl::Interface::new_load_with(opencat_gpu_native::egl::load_proc)
+        let interface = gl::Interface::new_load_with(crate::gpu::egl::load_proc)
             .ok_or_else(|| anyhow!("failed to create Skia OpenGL interface (EGL)"))?;
         let skia = gpu::direct_contexts::make_gl(interface, None)
             .ok_or_else(|| anyhow!("failed to create Skia OpenGL direct context (EGL)"))?;

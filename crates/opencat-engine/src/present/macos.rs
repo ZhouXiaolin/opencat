@@ -144,10 +144,10 @@ impl Presenter {
 
     pub fn with_canvas_and_resolver(
         &mut self,
-        textures: &opencat_gpu_native::TextureRegistry,
+        textures: &crate::gpu::TextureRegistry,
         f: &mut dyn FnMut(
             &mut skia_safe::Canvas,
-            Option<&mut dyn crate::consumer::GpuImageResolver>,
+            Option<&mut dyn crate::render::frame::GpuImageResolver>,
         ) -> Result<()>,
     ) -> Result<()> {
         let surface = self
@@ -159,7 +159,7 @@ impl Presenter {
         let canvas: &mut skia_safe::Canvas = unsafe {
             &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas)
         };
-        let mut resolver = crate::gpu_compositor::CompositorResolver {
+        let mut resolver = crate::gpu::compositor::CompositorResolver {
             skia: &mut self.skia,
             textures,
         };

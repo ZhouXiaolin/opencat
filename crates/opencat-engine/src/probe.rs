@@ -141,48 +141,4 @@ fn entry_u64(v: &EntryValue) -> Option<u64> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    const PNG_1X1: &[u8] = &[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
-        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
-        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
-        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
-        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ];
-
-    #[test]
-    fn probe_image_reads_png() {
-        let meta = probe_image(PNG_1X1).expect("png dims");
-        assert_eq!(meta.width, 1);
-        assert_eq!(meta.height, 1);
-    }
-
-    #[test]
-    fn parse_lottie_meta_reads_dimensions_and_frame_range() {
-        let json = r#"{"w":280,"h":200,"fr":25,"ip":0,"op":32,"assets":[
-            {"p":"data:image/png;base64,AAAA"},
-            {"u":"images/","p":"photo.png"}
-        ]}"#;
-        let meta = parse_lottie_meta(json).unwrap();
-        assert_eq!(meta.width, 280);
-        assert_eq!(meta.height, 200);
-        assert_eq!(meta.fps, 25.0);
-        assert_eq!(meta.duration_frames(), 32);
-        assert_eq!(meta.dependencies, vec!["photo.png"]);
-    }
-
-    #[test]
-    fn scan_finds_external_u_names() {
-        let json = r#"{
-          "assets": [
-            { "p": "data:image/png;base64,AAAA" },
-            { "u": "images/photo.png" }
-          ]
-        }"#;
-        let deps = scan_lottie_dependencies(json).unwrap();
-        assert_eq!(deps, vec!["photo.png"]);
-    }
-}

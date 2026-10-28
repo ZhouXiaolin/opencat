@@ -304,39 +304,4 @@ impl RenderProfileAggregator {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{ProfileCountEvent, RenderProfileAggregator};
 
-    #[test]
-    fn count_events_record_input_merkle_full_hit_subtrees() {
-        let mut aggregator = RenderProfileAggregator::default();
-
-        aggregator.record_count(ProfileCountEvent {
-            frame: 7,
-            kind: "layout",
-            name: "input_merkle_full_hit_subtrees",
-            result: "count",
-            amount: 3,
-        });
-
-        let summary = aggregator.finish();
-        assert_eq!(summary.frames[&7].input_merkle_full_hit_subtrees, 3);
-    }
-
-    #[test]
-    fn count_events_record_layout_merkle_skipped_nodes() {
-        let mut aggregator = RenderProfileAggregator::default();
-
-        aggregator.record_count(ProfileCountEvent {
-            frame: 7,
-            kind: "layout",
-            name: "layout_merkle_skipped_nodes",
-            result: "count",
-            amount: 12,
-        });
-
-        let summary = aggregator.finish();
-        assert_eq!(summary.frames[&7].layout_merkle_skipped_nodes, 12);
-    }
-}

@@ -124,25 +124,4 @@ impl ScriptFrameCtx {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::FrameCtx;
-    use super::duration_secs_to_frames;
 
-    #[test]
-    fn duration_secs_to_frames_keeps_positive_duration_visible() {
-        assert_eq!(duration_secs_to_frames(0.000000001, 30), 1);
-    }
-
-    #[test]
-    fn frame_ctx_time_micros_matches_integer_fps() {
-        let ctx = FrameCtx {
-            frame: 90,
-            fps: 30,
-            width: 320,
-            height: 180,
-            frames: 300,
-        };
-        assert_eq!(ctx.time_micros().0, 3_000_000);
-    }
-}

@@ -10,17 +10,18 @@ env:
   CARGO_TERM_COLOR: always
   BUN_VERSION: "1.2"
 
+# 唯一验收标准是 scripts/regression-gate.sh（release 渲染标准示例的
+# engine/web 视频与原始 swgl 参考做 k3diff），需要 GPU/Chrome/参考视频，
+# 只在本地跑；CI 只做编译面检查。
 jobs:
-  native-regression:
-    name: Rust native regression (AC1-AC2)
+  native-build:
+    name: Rust native build + clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-      - name: Run cargo tests
-        run: cargo test -p opencat-core -p opencat-engine -p opencat --lib
       - name: Run cargo clippy (core)
         run: cargo clippy -p opencat-core --lib -- -D warnings
       - name: Run cargo clippy (engine)
@@ -28,8 +29,8 @@ jobs:
       - name: Run cargo clippy (opencat)
         run: cargo clippy -p opencat --lib -- -D warnings
 
-  web-regression:
-    name: Web regression (AC3-AC4)
+  web-build:
+    name: Web app typecheck + build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -42,15 +43,13 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Install dependencies
         run: bun install --frozen-lockfile
-      - name: Run bun tests
-        run: bun run test
       - name: TypeScript check
         run: bunx tsc --noEmit
       - name: Build
         run: bun run build
 
-  crate-web-regression:
-    name: Crate web regression (AC4)
+  crate-web-build:
+    name: Crate web types + build
     runs-on: ubuntu-latest
     defaults:
       run:

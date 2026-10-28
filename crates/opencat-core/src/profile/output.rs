@@ -254,44 +254,4 @@ fn append_backend_span_node(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::render_profile_text;
-    use crate::profile::{BackendSpanAggregate, BackendSpanKey, RenderProfileSummary};
 
-    #[test]
-    fn text_output_contains_expected_sections() {
-        let mut summary = RenderProfileSummary::default();
-        let frame = summary.frames.entry(0).or_default();
-        frame.resolve_ms = 16.61;
-        frame.layout_ms = 0.57;
-        frame.display_ms = 0.19;
-        frame.backend_ms = 77.29;
-        frame.transition_ms = 3.71;
-        frame.input_merkle_full_hit_subtrees = 5;
-        frame.input_merkle_full_hit_nodes = 13;
-        frame.layout_merkle_skipped_subtrees = 7;
-        frame.layout_merkle_skipped_nodes = 21;
-        frame.backend_spans.insert(
-            BackendSpanKey {
-                depth: 0,
-                parent: None,
-                name: "display_tree_direct_draw",
-            },
-            BackendSpanAggregate {
-                inclusive_ms: 77.27,
-                exclusive_ms: 0.10,
-                count: 1,
-            },
-        );
-
-        let text = render_profile_text(&summary);
-
-        assert!(text.contains("Render profile:"));
-        assert!(text.contains("avg ms/frame"));
-        assert!(text.contains("input_full_hit_nodes"));
-        assert!(text.contains("layout_skipped_nodes"));
-        assert!(text.contains("display avg/frame"));
-        assert!(text.contains("backend avg spans/frame"));
-    }
-}

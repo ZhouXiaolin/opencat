@@ -12,7 +12,7 @@ npm run build    # → dist/index.bundle.jsx + dist/video.mp4（49.8s @ 30fps，
 
 - 入口：`index.jsx`（`export function main()` 约定，`vite.config.mjs` 的 `entry`
   指向它）。子场景在 `scenes/`，共享工具在 `shared.jsx`，esbuild 按模块图打包。
-- 预览：`opencat-see dist/index.bundle.jsx --base-dir .`
+- 预览：`opencat view dist/index.bundle.jsx --base-dir .`
   （bundle 不在入口目录，用 `--base-dir` 把资产/字体相对路径指回工程根目录）
 - 单帧：`opencat render dist/index.bundle.jsx out.png 625 --base-dir .`
 

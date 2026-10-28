@@ -103,11 +103,14 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 
 先例：ctx.splitText（C4）、方言插件四件（批次 1 f2d716c1）、Rust tween 链 9 绑定（批次 2 4c935bd7）、parse/color.rs（保留面过堂决议：全仓零消费、与 animate/color.rs 重复）、**liangyi 整体退役**（批次 ⑤ 2026-10-25：效果只留官方 RuntimeEffect(SKSL) 一条路，ly.* 全家 + opencat-liangyi crate 出清，反查转 STRICT）。
 
-## 11. 验收构成
+## 11. 验收构成（2026-10-28 拍板：唯一标准）
 
-1. `scripts/regression-gate.sh`：cargo test + clippy + web test/tsc/build + **方言反查**（`scripts/check-dialect.sh`，黑名单随退役批次收紧）。
-2. k3diff 渲染回归（入口必须用 `dist/index.bundle.jsx`；`opencat` 与 `opencat-frames` 是两个 bin，验收须 `--bins`）。
-3. oracle：Chrome 官方 gsap/three/canvaskit 截帧参考 + web 重放端。
+**唯一标准**：release 模式渲染标准示例（k3-promo / vfx-heygen-combined / hyperframes-launch）的 engine 与 web 视频，与原始 swgl 参考（`$REF_ROOT/<example>/renders/*_swgl.mp4`）做 `tools/k3diff.py` 硬像素比对（mae/maxd/p8，非 SSIM）。入口必须用 `dist/index.bundle.jsx`（编译后的 bundle 携带内嵌样式）。落地点：
+
+- engine 侧：标准工程流 vite build（`OPENCAT_BIN` 指向 release `opencat`）→ `dist/video.mp4`。
+- web 侧：`opencat-web-render`（`crates/opencat-web-oracle`，ChromeDriver headless 驱动 wasm + CanvasKit）→ MP4。
+- 汇总：`scripts/regression-gate.sh`（门限 avg_p8≤2%，swgl 参考的既定验收线；mae 聚合值只记录——swgl 底噪使每帧 mae 门无意义。hyperframes-launch 的 web 侧排除 HEVC 窗口 213-549/866-905/907-975，参考裁剪到同一窗口集后比对）。
+- 全仓测试已退役（faac 保留）；CI（`.github/workflows/regression.yml`）只保留编译面检查（clippy / tsc / build）。
 
 ## 12. 路线图（按库纵切，2026-10-22 拍板）
 

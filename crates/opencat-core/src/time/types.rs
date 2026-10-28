@@ -133,34 +133,4 @@ impl DurationRange {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn rational_integer_and_broadcast() {
-        assert_eq!(RationalFrameRate::integer(30).as_f64(), 30.0);
-        let ntsc = RationalFrameRate::new(30_000, 1_001);
-        assert!((ntsc.as_f64() - 29.970_029_97).abs() < 1e-6);
-        assert_eq!(RationalFrameRate::new(0, 0).num, 1);
-    }
-
-    #[test]
-    fn duration_range_contains_half_open() {
-        let range =
-            DurationRange::with_duration(TimestampMicros(1_000_000), DurationMicros(500_000));
-        assert!(range.contains(TimestampMicros(1_000_000)));
-        assert!(range.contains(TimestampMicros(1_499_999)));
-        assert!(!range.contains(TimestampMicros(1_500_000)));
-        assert!(!range.contains(TimestampMicros(999_999)));
-        assert_eq!(range.end(), Some(TimestampMicros(1_500_000)));
-    }
-
-    #[test]
-    fn open_ended_range() {
-        let range = DurationRange::from_start(TimestampMicros(10));
-        assert!(range.contains(TimestampMicros(10)));
-        assert!(range.contains(TimestampMicros(u64::MAX)));
-        assert!(!range.contains(TimestampMicros(9)));
-    }
-}

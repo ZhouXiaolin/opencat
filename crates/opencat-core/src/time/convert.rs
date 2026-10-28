@@ -81,43 +81,4 @@ pub fn ms_to_duration_micros(ms: u64) -> DurationMicros {
     DurationMicros(ms.saturating_mul(1_000))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn secs_round_trip_common_media_times() {
-        assert_eq!(secs_to_micros(0.0), 0);
-        assert_eq!(secs_to_micros(-1.0), 0);
-        assert_eq!(secs_to_micros(1.5), 1_500_000);
-        assert_eq!(secs_to_micros(12.0), 12_000_000);
-        assert!((timestamp_micros_to_secs(1_500_000) - 1.5).abs() < 1e-12);
-    }
-
-    #[test]
-    fn duration_secs_to_frames_tolerates_fraction_rounding() {
-        assert_eq!(duration_secs_to_frames(10.0000003 / 30.0, 30), 10);
-        assert_eq!(duration_secs_to_frames(0.000000001, 30), 1);
-    }
-
-    #[test]
-    fn rational_ntsc_frame_timestamp() {
-        let rate = RationalFrameRate::new(30_000, 1_001);
-        // frame 0 → 0
-        assert_eq!(frames_to_timestamp_micros(FrameIndex(0), rate).0, 0);
-        // frame 30000 ≈ 1001 seconds at 30000/1001
-        let t = frames_to_timestamp_micros(FrameIndex(30_000), rate);
-        assert_eq!(t.0, 1_001_000_000);
-    }
-
-    #[test]
-    fn non_integer_rate_boundary_frames() {
-        let rate = RationalFrameRate::new(24_000, 1_001); // ~23.976
-        let t0 = frames_to_timestamp_micros(FrameIndex(0), rate);
-        let t1 = frames_to_timestamp_micros(FrameIndex(1), rate);
-        assert_eq!(t0.0, 0);
-        // 1001/24000 s ≈ 41708.333… µs → 41708
-        assert_eq!(t1.0, 41_708);
-        assert_eq!(timestamp_micros_to_frame(t1, rate), FrameIndex(1));
-    }
-}

@@ -140,7 +140,6 @@ export default defineConfig({
     serveStaticDirs([
       { mount: '/json', path: resolve(REPO_ROOT, 'json') },
       { mount: '/lucide', path: resolve(REPO_ROOT, 'crates/opencat-core/lucide') },
-      { mount: '/fixtures', path: resolve(REPO_ROOT, 'testsupport/fixtures') },
       {
         mount: '/fonts',
         path: resolve(REPO_ROOT, 'assets'),

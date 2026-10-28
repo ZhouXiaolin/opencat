@@ -227,27 +227,22 @@ Cualquier subárbol HTML: diseño, imágenes, texto, video → textura → shade
 cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
 
 # Visor de vista previa de escritorio (macOS / Windows / Linux)
-cargo run --bin opencat-see -- path/to/input.jsx
+cargo run --bin opencat -- view path/to/input.jsx
 ```
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requiere un entorno `Cross-Origin-Isolated`.
 
 ### Alineación Engine / Web (métricas de píxel k3diff)
 
-Comparación píxel a píxel del Skia nativo vs WASM CanvasKit con ChromeDriver usando métricas de píxel duras (`mae`/`maxd`/`p8`, no SSIM), con `tools/k3diff.py`. También puede comparar el render web directamente contra el video de referencia original con `opencat-web-compare --reference`.
+Métricas de píxel duras (`mae`/`maxd`/`p8`, no SSIM); el veredicto lo da `tools/k3diff.py`: renderice ambos lados a MP4 y compare los videos. Lado nativo: `opencat render`. Lado web: `crates/opencat-web-oracle` maneja la página de harness sin cabeza vía ChromeDriver (fachada wasm + CanvasKit) y devuelve un MP4 H.264 por rango; compárelo contra el render nativo o el video de referencia original.
 
 ```bash
-# 1) multimedia usada por las composiciones del oráculo (carga http://127.0.0.1:8080/...)
-#    sirva tu árbol de mp4/png/mp3 en :8080
-
-# 2) construir la fachada web (wasm + JS + web-demuxer.wasm → dist/)
+# 1) construir la fachada web (wasm + JS + web-demuxer.wasm → dist/)
 cd crates/opencat-web/web && npm run build && cd -
 
-# 3) oráculo multi-frame — necesita Chrome + chromedriver + ffmpeg
-cargo test chromedriver_ --package opencat-engine --lib -- --ignored --nocapture
+# 2) multimedia usada por las composiciones del oráculo (carga http://127.0.0.1:8080/...)
+#    sirva su árbol de mp4/png/mp3 en :8080
 ```
-
-Los fallos generan `target/opencat-web-oracle/<stem>-frame-NNNN/{engine,web,diff}.png`.
 
 <details>
 <summary><strong>Arquitectura</strong></summary>
@@ -351,7 +346,7 @@ opencat
 
   macOS proporciona Metal a través del SDK del sistema (sin instalación manual). Windows proporciona OpenGL a través del controlador del sistema.
 
-  `opencat-see` (el visor de vista previa de escritorio) crea su contexto GL vía EGL en Linux, coincidiendo con el backend de Skia precompilado. Actualmente requiere un identificador de ventana X11, por lo que en una sesión Wayland se ejecuta a través de XWayland (configura `WAYLAND_DISPLAY=` solo si la selección automática falla). El soporte nativo de Wayland (`wl_surface`) aún no está conectado.
+  `opencat view` (el visor de vista previa de escritorio) crea su contexto GL vía EGL en Linux, coincidiendo con el backend de Skia precompilado. Actualmente requiere un identificador de ventana X11, por lo que en una sesión Wayland se ejecuta a través de XWayland (configura `WAYLAND_DISPLAY=` solo si la selección automática falla). El soporte nativo de Wayland (`wl_surface`) aún no está conectado.
 
 - **Biblioteca de desarrollo de Fontconfig** (Linux):
 
@@ -404,7 +399,7 @@ cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
 **Visor de vista previa de escritorio (macOS / Windows / Linux):**
 
 ```bash
-cargo run --release --bin opencat-see -- path/to/input.jsx
+cargo run --release --bin opencat -- view path/to/input.jsx
 ```
 
 **Web (WASM):**

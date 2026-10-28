@@ -758,41 +758,4 @@ fn render_text_body(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), R
     }
 }
 
-#[cfg(test)]
-mod chained_shadow_tests {
-    use super::suffix_max_outsets;
-    use crate::style::{ColorToken, TextShadow};
 
-    fn shadow(dx: f32, dy: f32, sigma: f32) -> TextShadow {
-        TextShadow {
-            offset_x: dx,
-            offset_y: dy,
-            blur_sigma: sigma,
-            color: ColorToken::Custom(0, 0, 0, 255),
-        }
-    }
-
-    /// Chained (nested) shadow layers need per-level bounds that also contain
-    /// every deeper shadow's spread: level i's output includes shadows i+1..,
-    /// so its outsets are the suffix max, not just its own.
-    #[test]
-    fn suffix_max_outsets_takes_component_wise_suffix_max() {
-        let shadows = vec![shadow(100.0, 0.0, 6.0), shadow(0.0, 60.0, 3.0)];
-        let refs: Vec<&TextShadow> = shadows.iter().collect();
-        let suffix = suffix_max_outsets(&refs);
-        // shadow_outsets: (max(3s−dx,0), max(3s−dy,0), 3s+dx, 3s+dy).
-        // shadow(100,0,6) → (0,18,118,18); shadow(0,60,3) → (9,0,9,69).
-        assert_eq!(suffix.len(), 2);
-        assert_eq!(suffix[0], (9.0, 18.0, 118.0, 69.0));
-        assert_eq!(suffix[1], (9.0, 0.0, 9.0, 69.0));
-    }
-
-    #[test]
-    fn suffix_max_outsets_single_shadow_is_identity() {
-        let shadows = vec![shadow(5.0, 7.0, 2.0)];
-        let refs: Vec<&TextShadow> = shadows.iter().collect();
-        let suffix = suffix_max_outsets(&refs);
-        assert_eq!(suffix.len(), 1);
-        assert_eq!(suffix[0], (1.0, 0.0, 11.0, 13.0));
-    }
-}

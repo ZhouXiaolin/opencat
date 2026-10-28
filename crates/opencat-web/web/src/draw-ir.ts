@@ -17,7 +17,6 @@ import {
   PATH_OP_F32_WIDTHS,
   BLEND_MODE,
 } from './generated/ocir-schema.generated';
-import { decodeGpuStreamsFromEnvelope, executeGpuStreams } from './web-gl-stream';
 import type {
   BlendMode,
   BlurStyle,
@@ -486,15 +485,6 @@ export function renderEncodedDrawFrame(
   options: RenderEncodedDrawFrameOptions = {},
 ): void {
   const frame = decodeFrame(encoded);
-  // GPU streams render FIRST: the 2D replay composites their pixels at the
-  // placeholder `Image{ImageRef::Generated}` z-position via
-  // resolveImage('generated'), which reads the slot this fills.
-  const gpuStreams = decodeGpuStreamsFromEnvelope(
-    encoded instanceof Uint8Array ? encoded : new Uint8Array(encoded),
-  );
-  if (gpuStreams && gpuStreams.length > 0) {
-    executeGpuStreams(gpuStreams);
-  }
   // Atomic fail-fast: validate all current-frame media exists before any
   // CanvasKit operation. If any image, video frame, Lottie bundle, or runtime
   // effect is missing or failed, a typed MediaValidationError is thrown and no

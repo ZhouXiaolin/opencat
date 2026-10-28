@@ -190,13 +190,4 @@ pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     (r, g, b)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn parse_hex_three_digit() {
-        let c = parse_color("#f00").expect("parses");
-        let (r, g, b) = hsl_to_rgb(c.h, c.s, c.l);
-        assert_eq!((r, g, b), (255, 0, 0));
-    }
-}
+

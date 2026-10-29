@@ -559,10 +559,6 @@
         };
 
         self.shaderSource = function (shader, source) {
-            if (typeof __ocStderr === 'function' && String(source).indexOf('u_SDFMap') >= 0) {
-                (globalThis.__ocSdfShaders || (globalThis.__ocSdfShaders = {}))[resId(shader, 'shaderSource')] = true;
-                __ocStderr('[shader-sdf] compiled');
-            }
             var id = resId(shader, 'shaderSource');
             shaderSource[id] = String(source);
             var range = internString(streamId, shaderSource[id]);
@@ -597,11 +593,6 @@
         };
 
         self.attachShader = function (program, shader) {
-            var sh = globalThis.__ocSdfShaders || {};
-            if (sh[resId(shader, 'attachShader')]) {
-                var pm = globalThis.__ocProgSdf || (globalThis.__ocProgSdf = {});
-                pm[resId(program, 'attachShader')] = true;
-            }
             var pid = resId(program, 'attachShader');
             var sid = resId(shader, 'attachShader');
             programShaders[pid + ':' + shaderKind[sid]] = sid;
@@ -615,12 +606,6 @@
         };
 
         self.linkProgram = function (program) {
-            if (globalThis.__ocProgSdf && globalThis.__ocProgSdf[resId(program, 'linkProgram')]) {
-                (globalThis.__ocSdfPrograms || (globalThis.__ocSdfPrograms = {}))[resId(program, 'linkProgram')] = true;
-                if (typeof __ocStderr === 'function') __ocStderr('[program-sdf] linked');
-            }
-            if (typeof __ocStderr === 'function') __ocStderr('[js-link] pid=' + resId(program, 'linkProgram'));
-            globalThis.__ocDumpAllDraw = true;
             var pid = resId(program, 'linkProgram');
             var e = new Encoder(4);
             e.u32(pid);
@@ -632,10 +617,6 @@
                 shaderSource[programShaders[pid + ':v']] || '',
                 shaderSource[programShaders[pid + ':f']] || ''
             );
-            if (globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[pid] && typeof __ocStderr === 'function') {
-                __ocStderr('[js-attr] pid=' + pid + ' attrs=' + programInfo[pid].attributes.map(function (a, i) { return i + '=' + a.n; }).join(','));
-                __ocStderr('[js-uni] pid=' + pid + ' blocks=' + (programInfo[pid].blocks || []).map(function (b) { return b.i + ':' + b.n; }).join(',') + ' unis=' + programInfo[pid].uniforms.map(function (u) { return u.n; }).join(','));
-            }
         };
 
         self.deleteProgram = function (program) {
@@ -648,9 +629,7 @@
         };
 
         self.useProgram = function (program) {
-            globalThis.__ocCurProgram = program === null || program === undefined ? 0 : resId(program, 'useProgram');
-            curProgramId = globalThis.__ocCurProgram;
-            if (typeof __ocStderr === 'function' && globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[curProgramId]) __ocStderr('[js-use] pid=' + curProgramId);
+            curProgramId = program === null || program === undefined ? 0 : resId(program, 'useProgram');
             var e = new Encoder(4);
             e.u32(resId(program, 'useProgram'));
             emit(streamId, 8 /* PROGRAM_USE */, e.done(8));
@@ -819,7 +798,6 @@
         };
 
         self.samplerParameteri = function (sampler, pname, value) {
-            if (typeof __ocStderr === 'function') __ocStderr('[smp-param] pname=0x' + (pname >>> 0).toString(16) + ' value=' + value);
             var e = new Encoder(10);
             e.u32(resId(sampler, 'samplerParameteri')).u16(pname).i32(value);
             emit(streamId, 89 /* SAMPLER_PARAM_I */, e.done(89));
@@ -874,13 +852,6 @@
         };
 
         self.bindBufferRange = function (target, index, buffer, offset, size) {
-            if (typeof __ocStderr === 'function' && target === 0x8a11) {
-                var bh = buffer ? resId(buffer, 'bindBufferRange') : 0;
-                var sh = bufferShadow[bh];
-                var f = [];
-                if (sh && sh.bytes) { var dv = new DataView(sh.bytes.buffer, sh.bytes.byteOffset); for (var q = 0; q < 8 && (offset + q * 4 + 4) <= sh.bytes.length; q++) f.push(dv.getFloat32(offset + q * 4, true).toFixed(2)); }
-                __ocStderr('[ubbind] idx=' + index + ' buf=' + bh + ' off=' + offset + ' size=' + size + ' bytes=' + (sh && sh.bytes ? sh.bytes.length : -1) + ' f=' + f.join(','));
-            }
             var e = new Encoder(18);
             e.u16(target).u32(index >>> 0)
                 .u32(buffer ? resId(buffer, 'bindBufferRange') : NULL_HANDLE())
@@ -1002,8 +973,6 @@
         };
 
         self.vertexAttribPointer = function (nameOrIndex, size, type, normalized, stride, offset) {
-            var key = typeof nameOrIndex === 'string' ? nameOrIndex : 'index:' + (nameOrIndex >>> 0);
-            (globalThis.__ocAttrLayout || (globalThis.__ocAttrLayout = {}))[key] = { size: size, type: type, stride: stride, offset: offset, buf: boundBuffers[0x8892] };
             var e = new Encoder(16);
             e.u32(attrNameRange(nameOrIndex, 'vertexAttribPointer')).u8(size).u16(type).u8(normalized ? 1 : 0).u32(stride).u32(offset);
             emit(streamId, 19, e.done(19));
@@ -1229,11 +1198,9 @@
             var blocks = (info && info.blocks) || [];
             for (var i = 0; i < blocks.length; i++) {
                 if (blocks[i].n === String(blockName)) {
-                    if (typeof __ocStderr === 'function') __ocStderr('[ublk] pid=' + resId(program, 'getUniformBlockIndex') + ' ' + blockName + ' -> ' + blocks[i].i + ' of ' + blocks.map(function (b) { return b.n; }).join(','));
                     return blocks[i].i >>> 0;
                 }
             }
-            if (typeof __ocStderr === 'function') __ocStderr('[ublk-miss] ' + blockName + ' have ' + blocks.map(function (b) { return b.n; }).join(','));
             return 0xffffffff;
         };
         self.getActiveUniformBlockName = function (program, index) {
@@ -1280,7 +1247,6 @@
         };
 
         self.texParameteri = function (target, pname, value) {
-            if (typeof __ocStderr === 'function' && (pname === 0x2800 || pname === 0x2801 || pname === 0x2802 || pname === 0x2803)) __ocStderr('[tex-param] pname=0x' + (pname >>> 0).toString(16) + ' value=0x' + (value >>> 0).toString(16));
             var e = new Encoder(8);
             e.u16(target).u16(pname).i32(value);
             emit(streamId, 33, e.done(33));
@@ -1320,30 +1286,8 @@
                 }
             }
             var e = new Encoder(24);
-            if (typeof __ocStderr === 'function' && bytes && width > 100 && height > 100 && format === 0x1906) {
-                var dumpCell = function (cx, cy) {
-                    var rows = [];
-                    for (var rr = 0; rr < 27; rr++) {
-                        var line = '';
-                        for (var cc = 0; cc < 23; cc++) {
-                            var v = bytes[(cy + rr) * width + cx + cc] || 0;
-                            line += v > 200 ? '#' : (v > 60 ? '+' : (v > 0 ? '.' : ' '));
-                        }
-                        rows.push(line);
-                    }
-                    return rows.join('\n');
-                };
-                __ocStderr('[atlas-up] ' + width + 'x' + height + ' len=' + bytes.length + ' fullmap:');
-                for (var fr = 0; fr < height; fr += 2) {
-                    var fline = '';
-                    for (var fc = 0; fc < width; fc++) {
-                        var fv = bytes[fr * width + fc] || 0;
-                        fline += fv > 200 ? '#' : (fv > 60 ? '+' : (fv > 20 ? '.' : ' '));
-                    }
-                    __ocStderr(fline);
-                }
-            }
-            e.u16(target).u8(level).i32(internalformat).u32(width).u32(height).u16(format).u16(type);            if (bytes) {
+            e.u16(target).u8(level).i32(internalformat).u32(width).u32(height).u16(format).u16(type);
+            if (bytes) {
                 var range = intern(streamId, bytes);
                 e.u8(1).u32(range);
             } else {
@@ -1452,7 +1396,6 @@
         };
 
         self.bindFramebuffer = function (target, framebuffer) {
-            globalThis.__ocCurFbo = framebuffer ? resId(framebuffer, 'bindFramebuffer') : 0;
             var e = new Encoder(6);
             e.u16(target).u32(framebuffer ? resId(framebuffer, 'bindFramebuffer') : NULL_HANDLE());
             emit(streamId, 40, e.done(40));
@@ -1657,86 +1600,22 @@
         // ── draw ────────────────────────────────────────────────────
 
         self.drawArrays = function (mode, first, count) {
-            globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
-            globalThis.__ocDrawLog += 'A' + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + ' ';
-            if (typeof __ocStderr === 'function') __ocStderr('[da] mode=' + mode + ' first=' + first + ' count=' + count);
             var e = new Encoder(12);
             e.u16(mode).i32(first).i32(count);
             emit(streamId, 57, e.done(57));
         };
 
         self.drawElements = function (mode, count, type, offset) {
-            if (typeof __ocStderr === 'function') {
-                var pr = globalThis.__ocCurProgram;
-                globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
-                globalThis.__ocDrawLog += (globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[pr] ? 'S' : 'o') + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + ' ';
-                var wantDump = (globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[pr]) || globalThis.__ocDumpAllDraw;
-                if (typeof __ocStderr === 'function' && !wantDump) __ocStderr('[de] count=' + count + ' pr=' + pr);
-                if (wantDump) {
-                    __ocStderr('[draw-sdf] count=' + count);
-                    try {
-                        var ab = boundBuffers[0x8892], eb = boundBuffers[0x8893];
-                        var abB = ab !== undefined && bufferShadow[ab] && bufferShadow[ab].bytes;
-                        var ebB = eb !== undefined && bufferShadow[eb] && bufferShadow[eb].bytes;
-                        var idxs = [];
-                        if (ebB && type === 0x1403) {
-                            var u16v = new Uint16Array(ebB.buffer, ebB.byteOffset, ebB.byteLength >> 1);
-                            for (var i2 = 0; i2 < Math.min(count, 18); i2++) idxs.push(u16v[(offset >> 1) + i2]);
-                        } else if (ebB && type === 0x1405) {
-                            var u32v = new Uint32Array(ebB.buffer, ebB.byteOffset, ebB.byteLength >> 2);
-                            for (var i3 = 0; i3 < Math.min(count, 18); i3++) idxs.push(u32v[(offset >> 2) + i3]);
-                        }
-                        var out = 'idx=[' + idxs.join(',') + ']';
-                        var layout = globalThis.__ocAttrLayout || {};
-                        var keys = Object.keys(layout).sort();
-                        var maxIdx = 0;
-                        for (var mi = 0; mi < idxs.length; mi++) if (idxs[mi] > maxIdx) maxIdx = idxs[mi];
-                        out += ' maxIdx=' + maxIdx;
-                        for (var ki = 0; ki < keys.length; ki++) {
-                            var L = layout[keys[ki]];
-                            var bB = L.buf !== undefined && L.buf !== 0xffffffff && bufferShadow[L.buf] && bufferShadow[L.buf].bytes;
-                            if (!bB || L.type !== 0x1406) { out += ' ' + keys[ki] + '=?'; continue; }
-                            var f32 = new Float32Array(bB.buffer, bB.byteOffset, bB.byteLength >> 2);
-                            var strideF = (L.stride || 0) >> 2;
-                            var parts = [];
-                            for (var k = 0; k < Math.min(idxs.length, 6); k++) {
-                                var vi = idxs[k];
-                                var base = strideF ? vi * strideF + ((L.offset || 0) >> 2) : vi * L.size + ((L.offset || 0) >> 2);
-                                var vals = [];
-                                for (var c = 0; c < L.size; c++) vals.push(Math.round(f32[base + c] * 100) / 100);
-                                parts.push(vals.join(','));
-                            }
-                            out += ' ' + keys[ki] + '/b' + L.buf + '(' + L.size + ',st' + L.stride + ',of' + L.offset + ',bytes' + bB.byteLength + ')[' + parts.join(' | ') + ']';
-                        }
-                        // stride128 instance 布局：顶点 0 的完整 32 floats
-                        var st128 = null;
-                        for (var si = 0; si < keys.length; si++) {
-                            if ((layout[keys[si]].stride || 0) === 128) { st128 = layout[keys[si]]; break; }
-                        }
-                        if (st128 && st128.buf !== undefined && bufferShadow[st128.buf] && bufferShadow[st128.buf].bytes) {
-                            var sf = new Float32Array(bufferShadow[st128.buf].bytes.buffer, bufferShadow[st128.buf].bytes.byteOffset, bufferShadow[st128.buf].bytes.byteLength >> 2);
-                            var row = [];
-                            for (var fi = 0; fi < Math.min(32, sf.length); fi++) row.push(Math.round(sf[fi] * 1000) / 1000);
-                            out += ' | inst0[32f]=' + row.join(',');
-                        }
-                        __ocStderr('[vtx] ' + out);
-                    } catch (err) { __ocStderr('[vtx-err] ' + err); }
-                }
-            }
             var e = new Encoder(12);
             e.u16(mode).i32(count).u16(type).i32(offset);
             emit(streamId, 58, e.done(58));
         };
         self.drawArraysInstanced = function (mode, first, count, primcount) {
-            globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
-            globalThis.__ocDrawLog += 'AI' + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + 'x' + primcount + ' ';
             var e = new Encoder(14);
             e.u16(mode).i32(first).i32(count).i32(primcount);
             emit(streamId, 76, e.done(76));
         };
         self.drawElementsInstanced = function (mode, count, type, offset, primcount) {
-            globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
-            globalThis.__ocDrawLog += 'EI' + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + 'x' + primcount + ' ';
             var e = new Encoder(16);
             e.u16(mode).i32(count).u16(type).i32(offset).i32(primcount);
             emit(streamId, 77, e.done(77));
@@ -1747,7 +1626,6 @@
             emit(streamId, 75, e.done(75));
         };
         self.uniformBlockBinding = function (program, blockIndex, blockBinding) {
-            if (typeof __ocStderr === 'function') __ocStderr('[ublk-bind] pid=' + resId(program, 'uniformBlockBinding') + ' idx=' + blockIndex + ' binding=' + blockBinding);
             var e = new Encoder(12);
             e.u32(resId(program, 'uniformBlockBinding')).u32(blockIndex >>> 0).u32(blockBinding >>> 0);
             emit(streamId, 79, e.done(79));
@@ -1771,12 +1649,7 @@
             emit(streamId, 85, e.done(85));
         };
 
-        self.flush = function () {
-            if (typeof __ocStderr === 'function') {
-                __ocStderr('[drawlog] ' + (globalThis.__ocDrawLog || '').trim());
-                globalThis.__ocDrawLog = '';
-            }
-        };
+        self.flush = function () {};
         self.finish = function () {};
 
         return self;

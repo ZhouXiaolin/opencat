@@ -2043,6 +2043,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                  by execute_draw_op before binary encoding"
             );
         }
+
+        DrawOp::ScriptSetLineDash { .. } => {
+            unreachable!(
+                "DrawOp::ScriptSetLineDash must be interned into SetLineDash \
+                 by execute_draw_op before binary encoding"
+            );
+        }
     }
     // v6: no trailing pad — the next op starts immediately after this op's
     // fixed-length payload.

@@ -66,10 +66,15 @@ pub fn path_from_encoded(encoded: &EncodedPath) -> skia_safe::Path {
                 start_angle,
                 sweep_angle,
             } => {
-                builder.add_arc(
+                // Stream arc angles are radians (canvas semantics); Skia's
+                // arc_to takes degrees. force_move_to must stay false: a
+                // wedge's inner arc continues the contour, add_arc would
+                // split it.
+                builder.arc_to(
                     Rect::new(x, y, x + width, y + height),
-                    start_angle,
-                    sweep_angle,
+                    start_angle * 180.0 / std::f32::consts::PI,
+                    sweep_angle * 180.0 / std::f32::consts::PI,
+                    false,
                 );
             }
         }

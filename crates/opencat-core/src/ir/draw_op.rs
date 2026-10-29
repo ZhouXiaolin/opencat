@@ -474,6 +474,15 @@ pub enum DrawOp {
         children: Vec<ScriptRuntimeEffectChild>,
         dst: Rect4,
     },
+
+    /// Script-originated dash state (pre-intern intermediate form): the
+    /// recorder has no `f32_pool` access, so `SetLineDash`'s `F32Range` can't
+    /// be built there. `execute_draw_op` interns the intervals and pushes the
+    /// standard `DrawOp::SetLineDash`; the binary encoder must never see it.
+    ScriptSetLineDash {
+        intervals: Vec<f32>,
+        phase: f32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -789,6 +798,11 @@ impl std::hash::Hash for DrawOp {
                 uniforms_bytes.hash(state);
                 children.hash(state);
                 dst.hash(state);
+            }
+            DrawOp::ScriptSetLineDash { intervals, phase } => {
+                41_u8.hash(state);
+                intervals.iter().for_each(|v| v.to_bits().hash(state));
+                phase.to_bits().hash(state);
             }
         }
     }

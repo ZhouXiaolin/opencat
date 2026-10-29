@@ -2076,6 +2076,17 @@ fn execute_draw_op(
                 phase: *phase,
             });
         }
+        // Pre-intern form from the script recorder (`canvas_set_line_dash`):
+        // intern the intervals and emit the canonical dash op.
+        DrawOp::ScriptSetLineDash { intervals, phase } => {
+            let range = b.intern_f32_range(intervals);
+            state.line_dash = None;
+            state.line_dash_phase = *phase;
+            b.push(DrawOp::SetLineDash {
+                intervals: range,
+                phase: *phase,
+            });
+        }
         DrawOp::ClearLineDash => {
             state.line_dash = None;
             state.line_dash_phase = 0.0;

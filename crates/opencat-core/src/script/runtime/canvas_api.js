@@ -2079,15 +2079,49 @@
        fillText / getImageData. Rotated or y-scaled text is rejected. */
     const surfaceCache = {};
 
+    /* CSS font shorthand (css-fonts-4 §2): `[style] [variant] [weight]
+       [stretch] size[/line-height] family`. TinySDF sets exactly
+       "normal normal 24px sans-serif", so the leading keyword slots must be
+       tolerated instead of demanding a numeric weight. Only the weight and
+       size reach the rasterizer; style/variant/stretch are parsed and
+       dropped (upright small-caps/stretch text is not in the surface
+       subset — see the file header). */
     function parseCssFont(font) {
-        const m = /^\s*(\d+)\s+([0-9.]+)px\s+(.+?)\s*$/.exec(String(font));
-        if (!m) {
+        const src = String(font).trim().replace(/\s+/g, ' ');
+        const tokens = src.split(' ');
+        let i = 0;
+        let weight = 400;
+        const WEIGHTS = { normal: 400, bold: 700, bolder: 700, lighter: 300 };
+        while (i < tokens.length) {
+            const tok = tokens[i].toLowerCase();
+            if (/^(italic|oblique(\s+[-0-9.]+deg)?|small-caps|ultra-condensed|extra-condensed|condensed|semi-condensed|semi-expanded|expanded|extra-expanded|ultra-expanded)$/.test(tok)) {
+                i += 1;
+                continue;
+            }
+            if (Object.prototype.hasOwnProperty.call(WEIGHTS, tok)) {
+                weight = WEIGHTS[tok];
+                i += 1;
+                continue;
+            }
+            if (/^[1-9]00$/.test(tok)) {
+                weight = parseInt(tok, 10);
+                i += 1;
+                continue;
+            }
+            break;
+        }
+        const sizeTok = tokens[i] || '';
+        const sm = /^([0-9.]+)(px|pt|em|rem|%)?(?:\/[-0-9.a-z%]+)?$/.exec(sizeTok);
+        if (!sm || !tokens[i + 1]) {
             throw new Error('unsupported font shorthand: ' + font);
         }
-        // CSS family list: resolve the FIRST family only (no font fallback
-        // in the core surface; unknown families error at the binding).
-        const family = m[3].split(',')[0].replace(/["']/g, '').trim();
-        return { weight: parseInt(m[1], 10), size: parseFloat(m[2]), family };
+        const UNIT = { px: 1, pt: 4 / 3, em: 16, rem: 16, '%': 0.16 };
+        const size = parseFloat(sm[1]) * (UNIT[(sm[2] || 'px').toLowerCase()] || 1);
+        const family = tokens.slice(i + 1).join(' ').split(',')[0].replace(/["']/g, '').trim();
+        if (!family) {
+            throw new Error('unsupported font shorthand: ' + font);
+        }
+        return { weight, size, family };
     }
 
     function makeSurface(id, w, h) {

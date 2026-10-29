@@ -181,7 +181,28 @@
         // ascent/descent 全错、文本节点高度错、轴 autoPadding 跟着错。墨带
         // 模型：记住最近一次 fillText 的墨行区间 [baseline-ink_ascent,
         // baseline+ink_descent)，getImageData 合成红底+墨行。
+        // 墨带模型只够"找行"式的布局测量。真读像素的调用方（g-webgl 的
+        // TinySDF 文字图集：真画字形 → getImageData 读回位图）需要真像素。
+        // 于是把绘制序列记下来，getImageData 时按序重放进宿主提供的一次性
+        // 2D surface（canvas_api 的 ctx.surface，真字体光栅）再取像素——
+        // 语义与浏览器一致："读回你画的东西"。
         var raster = { red: false, ink: null };
+        var ops = [];
+        function replayIntoSurface(w, h) {
+            var s = globalThis.ctx.surface(w, h);
+            s.clearRect(0, 0, w, h);
+            for (var i = 0; i < ops.length; i++) {
+                var op = ops[i];
+                if (op.font) s.font = op.font;
+                if (op.fill) s.fillStyle = op.fill;
+                if (op.baseline) s.textBaseline = op.baseline;
+                if (op.align) s.textAlign = op.align;
+                if (op.k === 't') s.fillText(op.text, op.x, op.y);
+                else if (op.k === 'r') s.fillRect(op.x, op.y, op.w, op.h);
+                else if (op.k === 'c') s.clearRect(op.x, op.y, op.w, op.h);
+            }
+            return s;
+        }
         function shadowMeasure(text) {
             var f = parseShadowFont(String(this.font || '10px sans-serif'));
             if (typeof __surface_measure_text === 'function') {
@@ -206,17 +227,50 @@
             fillText: function (text, x, y) {
                 var m = shadowMeasure.call(this, text);
                 raster.ink = [y - m.ink_ascent, y + m.ink_descent];
+                ops.push({ k: 't', text: String(text), x: x, y: y, font: this.font, fill: this.fillStyle, baseline: this.textBaseline, align: this.textAlign });
             },
             strokeText: function () {},
-            clearRect: function () {
+            clearRect: function (x, y, w, h) {
                 raster.red = false;
                 raster.ink = null;
+                ops.length = 0;
             },
-            fillRect: function () {
+            fillRect: function (x, y, w, h) {
                 raster.red = true;
                 raster.ink = null;
+                ops.push({ k: 'r', x: x, y: y, w: w, h: h, fill: this.fillStyle });
             },
             getImageData: function (x, y, w, h) {
+                if (typeof __ocStderr === 'function') __ocStderr('[shadow-gid-in] ' + w + 'x' + h + ' ops=' + ops.length + ' hasCtx=' + (globalThis.ctx && typeof globalThis.ctx.surface === 'function'));
+                if (globalThis.ctx && typeof globalThis.ctx.surface === 'function' && ops.length) {
+                    // 重放走画布自身的尺寸（浏览器里画布内容属性即像素缓冲
+                    // 尺寸；读区域可以超出内容区，浏览器会补透明）。
+                    var cw = Math.max(1, (canvas && canvas.width) | 0);
+                    var ch = Math.max(1, (canvas && canvas.height) | 0);
+                    var img;
+                    try {
+                        img = replayIntoSurface(cw, ch).getImageData(x, y, w, h);
+                    } catch (e) {
+                        if (typeof __ocStderr === 'function') __ocStderr('[shadow-replay-threw] ' + ((e && e.stack) || e));
+                        var z0 = new Uint8ClampedArray(Math.max(0, w | 0) * Math.max(0, h | 0) * 4);
+                        return { width: w, height: h, data: z0 };
+                    }
+                    var nz = 0, mx = 0;
+                    for (var i3 = 3; i3 < img.data.length; i3 += 4) { if (img.data[i3] > 0) nz++; if (img.data[i3] > mx) mx = img.data[i3]; }
+                    if (typeof __ocStderr === 'function') {
+                        var rows = [];
+                        for (var rr = 0; rr < Math.min(h | 0, 24); rr++) {
+                            var line = '';
+                            for (var cc = 0; cc < Math.min(w | 0, 32); cc++) {
+                                var a = img.data[(rr * w + cc) * 4 + 3];
+                                line += a > 200 ? '#' : (a > 60 ? '+' : (a > 0 ? '.' : ' '));
+                            }
+                            rows.push(line);
+                        }
+                        __ocStderr('[shadow-gid] ' + w + 'x' + h + ' font=' + (ops[0] && ops[0].font) + ' text=' + JSON.stringify(ops[0] && ops[0].text) + '\n' + rows.join('\n'));
+                    }
+                    return img;
+                }
                 var data = new Uint8ClampedArray(Math.max(0, w | 0) * Math.max(0, h | 0) * 4);
                 for (var r = 0; r < h; r++) {
                     var inked = raster.ink && y + r >= raster.ink[0] && y + r < raster.ink[1];
@@ -350,18 +404,19 @@
         if (tag === 'CANVAS') {
             node.width = (opts && opts.width) || 300;
             node.height = (opts && opts.height) || 150;
-            node.getContext = function (kind) {
-                if (kind !== '2d') {
-                    throw new Error("canvas.getContext: only '2d' is supported on a shadow canvas, got '" + kind + "'");
-                }
+            node.getContext = function (kind, attrs) {
+                var t = String(kind);
                 // 分流：挂进图表容器的 canvas 冒用了声明节点 id（appendChild
-                // 钩子）——g-canvas 渲染器在它上面真画，产 DrawOp 流；其余
-                // （g TextService 的字体探测画布）只要只读测量桩。
+                // 钩子）——库渲染器在它上面真画：2d 产 DrawOp 流（g-canvas /
+                // g-canvaskit），webgl2 产 GpuStream（g-webgl，录制面在
+                // webgl_api.js）；其余（g TextService 的字体探测画布）只要
+                // 只读测量桩。
                 var visual = (globalThis.ctx.__targetRegistry || {}).visual || {};
-                if (node.id && visual[String(node.id)]) {
-                    return globalThis.ctx.getContext(node.id, '2d');
+                if (node.id && visual[String(node.id)] && (t === '2d' || t === 'webgl2' || t === 'webgl')) {
+                    return globalThis.ctx.getContext(node.id, t, attrs);
                 }
-                return shadowContext2d(node);
+                if (t === '2d') return shadowContext2d(node);
+                throw new Error("canvas.getContext: only '2d'/'webgl2' is supported on a shadow canvas, got '" + kind + "'");
             };
         }
         return node;

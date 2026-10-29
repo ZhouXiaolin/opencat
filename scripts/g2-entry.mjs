@@ -13,9 +13,12 @@
 // 容器下的一棵私有 <svg> 子树，每次 setAttribute 只是一次字符串写入——
 // runtime 的 dom_api.js 给这棵子树做了影子元素，宿主再把它序列化成
 // markup 交给 usvg 管线（与 <svg inline> 同一条 emit 路径）。
+// RendererWebGL = 官方 @antv/g-webgl：绘制面是 `canvas.getContext('webgl2')`,
+// runtime 的 webgl_api.js 把每次 GL 调用录进 GpuStream（与 three 同一条路）。
 import { Chart } from '@antv/g2';
 import { Renderer } from '@antv/g-canvaskit';
 import { Renderer as Renderer2D } from '@antv/g-canvas';
 import { Renderer as RendererSVG } from '@antv/g-svg';
+import { Renderer as RendererWebGL } from '@antv/g-webgl';
 
-export { Chart, Renderer, Renderer2D, RendererSVG };
+export { Chart, Renderer, Renderer2D, RendererSVG, RendererWebGL };

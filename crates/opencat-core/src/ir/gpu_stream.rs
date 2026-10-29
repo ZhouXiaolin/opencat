@@ -346,7 +346,41 @@ pub mod gl_opcode {
     /// setRenderTarget 路径）。变长（count 首部），不进 PAYLOAD_LEN。
     pub const DRAW_BUFFERS: u8 = 85;
 
-    pub const MAX_OPCODE: u8 = DRAW_BUFFERS;
+    // ── sampler objects（WebGL2）────────────────────────────────────
+    // WebGL2 把采样状态搬进 sampler 对象（纹理自身参数在绑定时被它覆盖），
+    // g-webgl / g-device-api 每次 drawcall 都 `bindSampler`，所以采样语义
+    // 只能靠这条通路表达。
+    /// {handle: u32}
+    pub const SAMPLER_CREATE: u8 = 86;
+    /// {handle: u32}
+    pub const SAMPLER_DELETE: u8 = 87;
+    /// {unit: u32, sampler: u32} — sampler = NULL_HANDLE 解绑
+    pub const SAMPLER_BIND: u8 = 88;
+    /// {sampler: u32, pname: u16, value: i32}
+    pub const SAMPLER_PARAM_I: u8 = 89;
+    /// {sampler: u32, pname: u16, value: f32}
+    pub const SAMPLER_PARAM_F: u8 = 90;
+
+    /// {face: u16, func: u16, ref: i32, mask: u32} — 分离面模板测试
+    pub const STENCIL_FUNC_SEPARATE: u8 = 91;
+    /// {face: u16, sfail: u16, dpfail: u16, dppass: u16}
+    pub const STENCIL_OP_SEPARATE: u8 = 92;
+    /// {samples: u32, internal: i32, w: u32, h: u32} — 作用于客户端绑定的
+    /// 渲染缓冲（与 RENDERBUFFER_STORAGE 同约定）
+    pub const RENDERBUFFER_STORAGE_MS: u8 = 93;
+    /// {target: u16, drawbuffer: i32, r: f32, g: f32, b: f32, a: f32}
+    pub const CLEAR_BUFFER_FV: u8 = 94;
+    /// {target: u16, drawbuffer: i32, x: i32, y: i32, z: i32, w: i32}
+    pub const CLEAR_BUFFER_IV: u8 = 95;
+    /// {target: u16, drawbuffer: i32, depth: f32, stencil: i32}
+    pub const CLEAR_BUFFER_FI: u8 = 96;
+    /// {target: u16, index: u32, buffer: u32, offset: i32, size: i32}
+    pub const BIND_BUFFER_RANGE: u8 = 97;
+    /// {sx0,sy0,sx1,sy1,dx0,dy0,dx1,dy1: i32 ×8, mask: u16（1=color 2=depth
+    /// 4=stencil）, filter: u16} — 读/绘制 framebuffer 之间的块拷贝（MSAA 解析）
+    pub const BLIT_FRAMEBUFFER: u8 = 98;
+
+    pub const MAX_OPCODE: u8 = BLIT_FRAMEBUFFER;
 
     /// 定长 payload 长度表；`None` = 变长（UNIFORM_NF/NI/MATRIX_4F）。
     pub const PAYLOAD_LEN: [Option<u16>; (MAX_OPCODE as usize) + 1] = build_payload_len();
@@ -436,7 +470,7 @@ pub mod gl_opcode {
         table[TEX_SUB_IMAGE_3D as usize] = Some(36);
         table[BIND_BUFFER_BASE as usize] = Some(10);
         table[DRAW_ARRAYS_INSTANCED as usize] = Some(14);
-        table[DRAW_ELEMENTS_INSTANCED as usize] = Some(14);
+        table[DRAW_ELEMENTS_INSTANCED as usize] = Some(16);
         table[VERTEX_ATTRIB_NFV as usize] = Some(12);
         table[UNIFORM_BLOCK_BINDING as usize] = Some(12);
         table[BIND_ATTRIB_LOCATION as usize] = Some(12);
@@ -444,6 +478,21 @@ pub mod gl_opcode {
         table[STENCIL_FUNC as usize] = Some(10);
         table[STENCIL_OP as usize] = Some(6);
         table[STENCIL_MASK as usize] = Some(4);
+        // sampler objects（WebGL2）
+        table[SAMPLER_CREATE as usize] = Some(4);
+        table[SAMPLER_DELETE as usize] = Some(4);
+        table[SAMPLER_BIND as usize] = Some(8);
+        table[SAMPLER_PARAM_I as usize] = Some(10);
+        table[SAMPLER_PARAM_F as usize] = Some(10);
+        // WebGL2 状态/绘制补充
+        table[STENCIL_FUNC_SEPARATE as usize] = Some(12);
+        table[STENCIL_OP_SEPARATE as usize] = Some(8);
+        table[RENDERBUFFER_STORAGE_MS as usize] = Some(16);
+        table[CLEAR_BUFFER_FV as usize] = Some(22);
+        table[CLEAR_BUFFER_IV as usize] = Some(22);
+        table[CLEAR_BUFFER_FI as usize] = Some(14);
+        table[BIND_BUFFER_RANGE as usize] = Some(18);
+        table[BLIT_FRAMEBUFFER as usize] = Some(36);
 
         table
     }

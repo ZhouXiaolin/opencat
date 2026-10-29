@@ -102,6 +102,13 @@ pub trait MutationRecorder {
 
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32);
 
+    /// 本帧某个 canvas 节点录到了 SVG markup（g-svg 渲染器产 `<svg>` 子树而
+    /// 不产 DrawOp）。录进 canvas 条目的 `svg` 槽，resolve 时该节点按内联
+    /// SVG 解析。默认 no-op：不消费 SVG 的录制器无需关心。
+    fn record_canvas_svg(&mut self, canvas_id: &str, markup: String) {
+        let _ = (canvas_id, markup);
+    }
+
     fn record_canvas_runtime_effect(
         &mut self,
         id: &str,

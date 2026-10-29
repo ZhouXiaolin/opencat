@@ -433,9 +433,30 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
         let child_inherited_style = InheritedStyle::for_child(&computed);
         let children = resolve_hidden_children(canvas, cx, &child_inherited_style)?;
 
+        // g-svg 渲染器的图表不产 DrawOp，产一棵 `<svg>` 子树：整块当作
+        // 内联 SVG 渲染（usvg 管线，与 `<svg inline>` 同一条路），尺寸取
+        // canvas 自己的盒子。
+        let svg_markup = cx
+            .mutation_stack
+            .iter()
+            .rev()
+            .find_map(|m| m.svg_markup_for(&style.id))
+            .map(str::to_string);
+        let kind = match svg_markup {
+            Some(markup) => ElementKind::Svg(ElementSvg {
+                src: std::path::PathBuf::new(),
+                inline: Some(markup),
+                width: None,
+                height: None,
+                preserve_aspect_ratio: None,
+                intrinsic_size: None,
+            }),
+            None => ElementKind::Canvas(ElementCanvas { commands }),
+        };
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
-            kind: ElementKind::Canvas(ElementCanvas { commands }),
+            kind,
             style: computed.clone(),
             children,
             // Canvas commands are carried by `ElementCanvas.commands` (the

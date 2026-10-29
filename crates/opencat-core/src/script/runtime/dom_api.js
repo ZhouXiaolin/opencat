@@ -28,6 +28,14 @@
             addEventListener: function () {},
             removeEventListener: function () {},
             dispatchEvent: function () { return true; },
+            // g-svg 用 `$def.querySelector('#id')` 判重（渐变/图案/滤镜/裁剪），
+            // 用 `[name=…]` 找已注册的 filter。只实现这两种选择器。
+            querySelector: function (sel) {
+                var list = svgQueryAll(node, sel);
+                return list.length ? list[0] : null;
+            },
+            querySelectorAll: function (sel) { return svgQueryAll(node, sel); },
+            matches: function (sel) { return svgMatches(node, sel); },
         };
         globalThis.addEventListener = globalThis.window.addEventListener;
         globalThis.removeEventListener = globalThis.window.removeEventListener;
@@ -116,7 +124,12 @@
             parentNode: null,
             style: rootStyle(),
             createElement(tag) { return globalThis.__ocTree.createElement(tag); },
-            createElementNS(_ns, tag) { return globalThis.__ocTree.createElement(tag); },
+            // SVG 命名空间走影子元素（g-svg 的绘制面），其余沿用overlay：
+            // 同一个 `document` 上两种节点形态并存，互不干扰。
+            createElementNS(ns, tag) {
+                if (String(ns) === SVG_NS) return svgElement(tag, SVG_NS);
+                return globalThis.__ocTree.createElement(tag);
+            },
             createTextNode(text) { return globalThis.__ocTree.createTextNode(String(text)); },
             appendChild(child) { return child; },
             removeChild(child) { return child; },
@@ -285,7 +298,9 @@
                 return child;
             },
             contains: function () { return false; },
-            setAttribute: function (name, value) { node.attributes[name] = String(value); },
+            setAttribute: function (name, value) {
+                node.attributes[name] = String(value);
+            },
             getAttribute: function (name) {
                 return Object.prototype.hasOwnProperty.call(node.attributes, name)
                     ? node.attributes[name]
@@ -298,6 +313,14 @@
             addEventListener: function () {},
             removeEventListener: function () {},
             dispatchEvent: function () { return true; },
+            // g-svg 用 `$def.querySelector('#id')` 判重（渐变/图案/滤镜/裁剪），
+            // 用 `[name=…]` 找已注册的 filter。只实现这两种选择器。
+            querySelector: function (sel) {
+                var list = svgQueryAll(node, sel);
+                return list.length ? list[0] : null;
+            },
+            querySelectorAll: function (sel) { return svgQueryAll(node, sel); },
+            matches: function (sel) { return svgMatches(node, sel); },
             focus: function () {},
             blur: function () {},
             // 布局不进合成树：盒子是零矩形，尺寸语义只走 clientWidth/Height。
@@ -331,10 +354,361 @@
                 if (kind !== '2d') {
                     throw new Error("canvas.getContext: only '2d' is supported on a shadow canvas, got '" + kind + "'");
                 }
+                // 分流：挂进图表容器的 canvas 冒用了声明节点 id（appendChild
+                // 钩子）——g-canvas 渲染器在它上面真画，产 DrawOp 流；其余
+                // （g TextService 的字体探测画布）只要只读测量桩。
+                var visual = (globalThis.ctx.__targetRegistry || {}).visual || {};
+                if (node.id && visual[String(node.id)]) {
+                    return globalThis.ctx.getContext(node.id, '2d');
+                }
                 return shadowContext2d(node);
             };
         }
         return node;
+    }
+
+    // ── SVG 影子元素：g-svg 的绘制面 ─────────────────────────────────
+    // @antv/g-svg 不画像素：它把场景建成图表容器下的一棵 `<svg>` 子树——
+    // 元素全走 `createElementNS`，属性全走 `setAttribute`，连样式也当属性
+    // 写（`setAttribute('style', …)`）。这棵子树不进合成树、不写 style
+    // store：只要元素名/属性/子节点/文本保真，就能整棵序列化成 markup，
+    // 由宿主的 usvg 管线当成 `<svg inline>` 渲染（同一条 emit 路径）。
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function svgTextNode(text) {
+        var node = {
+            nodeType: 3,
+            nodeName: '#text',
+            data: String(text),
+            parentNode: null,
+            removeChild: function (child) { return child; },
+        };
+        Object.defineProperty(node, 'textContent', {
+            get: function () { return node.data; },
+            set: function (value) { node.data = String(value); },
+        });
+        Object.defineProperty(node, 'nodeValue', {
+            get: function () { return node.data; },
+            set: function (value) { node.data = String(value); },
+        });
+        return node;
+    }
+
+    /// DocumentFragment：g-svg 用"先把子元素搬进 fragment、再整体挂回父节点"
+    /// 重排 z 序（标准 DOM 语义：appendChild 到 fragment 即从原父节点移动）。
+    /// 序列化时 fragment 自身不产标签，孩子直接接进父节点。
+    function svgFragment() {
+        var frag = {
+            nodeType: 11,
+            nodeName: '#document-fragment',
+            childNodes: [],
+            parentNode: null,
+            appendChild: function (child) { return adoptChild(frag, child, null); },
+            insertBefore: function (child, reference) { return adoptChild(frag, child, reference); },
+            removeChild: function (child) { return detachChild(frag, child); },
+        };
+        Object.defineProperty(frag, 'textContent', {
+            get: function () {
+                var out = '';
+                for (var i = 0; i < frag.childNodes.length; i++) out += frag.childNodes[i].textContent;
+                return out;
+            },
+        });
+        return frag;
+    }
+
+    /// 把 `child` 挂进 `parent`（fragment 则摊平其孩子），并先从原父节点摘除。
+    function adoptChild(parent, child, reference) {
+        if (!child) return child;
+        if (child.nodeType === 11) {
+            var kids = child.childNodes.slice();
+            child.childNodes.length = 0;
+            for (var i = 0; i < kids.length; i++) adoptChild(parent, kids[i], reference);
+            return child;
+        }
+        if (child.parentNode && child.parentNode !== parent
+            && typeof child.parentNode.removeChild === 'function') {
+            child.parentNode.removeChild(child);
+        }
+        child.parentNode = parent;
+        child.parentElement = parent.nodeType === 1 ? parent : null;
+        if (reference) {
+            var at = parent.childNodes.indexOf(reference);
+            if (at >= 0) { parent.childNodes.splice(at, 0, child); return child; }
+        }
+        parent.childNodes.push(child);
+        return child;
+    }
+
+    function detachChild(parent, child) {
+        var i = parent.childNodes.indexOf(child);
+        if (i >= 0) {
+            parent.childNodes.splice(i, 1);
+            child.parentNode = null;
+            child.parentElement = null;
+        }
+        return child;
+    }
+
+    function svgElement(tagName, ns) {
+        var tag = String(tagName || 'svg');
+        var node = {
+            nodeType: 1,
+            nodeName: tag,
+            tagName: tag,
+            localName: tag,
+            namespaceURI: ns || SVG_NS,
+            style: rootStyle(),
+            attributes: {},
+            childNodes: [],
+            parentNode: null,
+            parentElement: null,
+            classList: shadowClassList(),
+            ownerSVGElement: null,
+            appendChild: function (child) { return adoptChild(node, child, null); },
+            insertBefore: function (child, reference) { return adoptChild(node, child, reference); },
+            removeChild: function (child) { return detachChild(node, child); },
+            replaceChild: function (next, old) {
+                var i = node.childNodes.indexOf(old);
+                if (i >= 0) node.childNodes[i] = next;
+                next.parentNode = node;
+                next.parentElement = node;
+                old.parentNode = null;
+                old.parentElement = null;
+                return old;
+            },
+            setAttribute: function (name, value) {
+                node.attributes[name] = String(value);
+            },
+            getAttribute: function (name) {
+                return Object.prototype.hasOwnProperty.call(node.attributes, name)
+                    ? node.attributes[name]
+                    : null;
+            },
+            removeAttribute: function (name) { delete node.attributes[name]; },
+            hasAttribute: function (name) {
+                return Object.prototype.hasOwnProperty.call(node.attributes, name);
+            },
+            addEventListener: function () {},
+            removeEventListener: function () {},
+            dispatchEvent: function () { return true; },
+            // g-svg 用 `$def.querySelector('#id')` 判重（渐变/图案/滤镜/裁剪），
+            // 用 `[name=…]` 找已注册的 filter。只实现这两种选择器。
+            querySelector: function (sel) {
+                var list = svgQueryAll(node, sel);
+                return list.length ? list[0] : null;
+            },
+            querySelectorAll: function (sel) { return svgQueryAll(node, sel); },
+            matches: function (sel) { return svgMatches(node, sel); },
+            // 布局不进合成树：盒子为零矩形（SVG 场景树不需要浏览器布局）。
+            getBoundingClientRect: function () {
+                return { x: 0, y: 0, left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
+            },
+            getBBox: function () { return { x: 0, y: 0, width: 0, height: 0 }; },
+        };
+        Object.defineProperty(node, 'children', {
+            get: function () {
+                return node.childNodes.filter(function (c) { return c && c.nodeType === 1; });
+            },
+        });
+        Object.defineProperty(node, 'textContent', {
+            get: function () {
+                var out = '';
+                for (var i = 0; i < node.childNodes.length; i++) out += node.childNodes[i].textContent;
+                return out;
+            },
+            set: function (value) {
+                node.childNodes = [];
+                if (String(value) !== '') node.appendChild(svgTextNode(value));
+            },
+        });
+        Object.defineProperty(node, 'innerHTML', {
+            get: function () {
+                var out = '';
+                for (var i = 0; i < node.childNodes.length; i++) out += serializeSvgNode(node.childNodes[i]);
+                return out;
+            },
+            set: function (value) {
+                node.childNodes = [];
+                svgParseInto(node, value);
+            },
+        });
+        Object.defineProperty(node, 'ownerDocument', {
+            get: function () { return globalThis.document; },
+        });
+        Object.defineProperty(node, 'id', {
+            get: function () { return node.attributes.id || ''; },
+            set: function (value) { node.attributes.id = String(value); },
+        });
+        Object.defineProperty(node, 'className', {
+            get: function () { return { baseVal: node.attributes.class || '' }; },
+            set: function (value) { node.attributes.class = String(value); },
+        });
+        Object.defineProperty(node, 'firstChild', {
+            get: function () { return node.childNodes[0] || null; },
+        });
+        Object.defineProperty(node, 'lastChild', {
+            get: function () { return node.childNodes[node.childNodes.length - 1] || null; },
+        });
+        Object.defineProperty(node, 'nextSibling', {
+            get: function () {
+                var p = node.parentNode;
+                if (!p) return null;
+                var i = p.childNodes.indexOf(node);
+                return i >= 0 && i + 1 < p.childNodes.length ? p.childNodes[i + 1] : null;
+            },
+        });
+        Object.defineProperty(node, 'previousSibling', {
+            get: function () {
+                var p = node.parentNode;
+                if (!p) return null;
+                var i = p.childNodes.indexOf(node);
+                return i > 0 ? p.childNodes[i - 1] : null;
+            },
+        });
+        node.cloneNode = function (deep) {
+            var copy = svgElement(tag, node.namespaceURI);
+            for (var name in node.attributes) {
+                if (Object.prototype.hasOwnProperty.call(node.attributes, name)) {
+                    copy.attributes[name] = node.attributes[name];
+                }
+            }
+            if (deep) {
+                for (var i = 0; i < node.childNodes.length; i++) {
+                    var child = node.childNodes[i];
+                    copy.appendChild(child.cloneNode ? child.cloneNode(true) : svgTextNode(child.data));
+                }
+            }
+            return copy;
+        };
+        return node;
+    }
+
+    /// 选择器只覆盖 g-svg 用到的两种形态：`#id`（含 `tag#id`）与
+    /// `[name=value]`；`*` 与裸标签按 tagName 比。查找范围是后代（不含自身）。
+    function svgMatches(node, sel) {
+        if (!node || node.nodeType !== 1) return false;
+        var s = String(sel == null ? '' : sel).trim();
+        if (!s) return false;
+        var hash = s.indexOf('#');
+        var tagPart = hash < 0 ? s : s.slice(0, hash);
+        var idPart = hash < 0 ? '' : s.slice(hash + 1);
+        if (tagPart && tagPart !== '*' && String(node.tagName) !== tagPart) return false;
+        if (idPart && String(node.attributes.id || '') !== idPart) return false;
+        var attr = /^\[([A-Za-z0-9_:-]+)(?:=["']?([^"'\]]*)["']?)?\]$/.exec(s);
+        if (attr) {
+            var name = attr[1];
+            if (!Object.prototype.hasOwnProperty.call(node.attributes, name)) return false;
+            if (attr[2] !== undefined && String(node.attributes[name]) !== attr[2]) return false;
+        }
+        return true;
+    }
+
+    function svgQueryAll(root, sel) {
+        var out = [];
+        var stack = [];
+        for (var i = root.childNodes.length - 1; i >= 0; i--) stack.push(root.childNodes[i]);
+        while (stack.length) {
+            var node = stack.pop();
+            if (!node || node.nodeType !== 1) continue;
+            if (svgMatches(node, sel)) out.push(node);
+            for (var j = node.childNodes.length - 1; j >= 0; j--) stack.push(node.childNodes[j]);
+        }
+        return out;
+    }
+
+    function svgDecodeEntities(text) {
+        return String(text)
+            .replace(/&#(\d+);/g, function (_, code) { return String.fromCharCode(parseInt(code, 10)); })
+            .replace(/&#x([0-9a-fA-F]+);/g, function (_, code) { return String.fromCharCode(parseInt(code, 16)); })
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&amp;/g, '&');
+    }
+
+    /// `innerHTML` 只覆盖 g-svg 写文本用到的形态：`<tspan …>文本</tspan>`、
+    /// 自闭合标签与实体转义。它不实现 `<script>`/注释等 HTML 语义。
+    function svgParseInto(node, markup) {
+        var html = String(markup == null ? '' : markup);
+        var stack = [node];
+        var i = 0;
+        var appendText = function (parent, text) {
+            var decoded = svgDecodeEntities(text);
+            if (decoded !== '') parent.appendChild(svgTextNode(decoded));
+        };
+        while (i < html.length) {
+            var lt = html.indexOf('<', i);
+            if (lt < 0) { appendText(stack[stack.length - 1], html.slice(i)); break; }
+            if (lt > i) appendText(stack[stack.length - 1], html.slice(i, lt));
+            var gt = html.indexOf('>', lt);
+            if (gt < 0) break;
+            var raw = html.slice(lt + 1, gt).trim();
+            i = gt + 1;
+            if (!raw) continue;
+            if (raw.charAt(0) === '/') { if (stack.length > 1) stack.pop(); continue; }
+            var selfClose = raw.charAt(raw.length - 1) === '/';
+            if (selfClose) raw = raw.slice(0, -1);
+            var sp = raw.search(/\s/);
+            var tag = (sp < 0 ? raw : raw.slice(0, sp)).trim();
+            var element = svgElement(tag, SVG_NS);
+            if (sp >= 0) {
+                var re = /([A-Za-z0-9_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+                var attrsPart = raw.slice(sp);
+                var m;
+                while ((m = re.exec(attrsPart))) {
+                    element.attributes[m[1]] = svgDecodeEntities(m[2] !== undefined ? m[2] : m[3]);
+                }
+            }
+            stack[stack.length - 1].appendChild(element);
+            if (!selfClose) stack.push(element);
+        }
+    }
+
+    function escapeSvgText(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function escapeSvgAttr(value) {
+        return escapeSvgText(value).replace(/"/g, '&quot;');
+    }
+
+    /// 影子元素的 style bag → `style="…"` 文本（空串表示没有内联样式）。
+    function svgStyleText(style) {
+        if (!style) return '';
+        var out = '';
+        for (var name in style) {
+            var value = style[name];
+            if (value === undefined || value === null || value === '') continue;
+            out += (out ? ';' : '') + name + ':' + value;
+        }
+        return out;
+    }
+
+    function serializeSvgNode(node) {
+        if (!node) return '';
+        if (node.nodeType === 3) return escapeSvgText(node.textContent);
+        if (node.nodeType !== 1) return '';
+        var tag = node.tagName;
+        var attrs = '';
+        // 根元素必须自带命名空间：usvg 按 XML 解析，缺 xmlns 认不出 SVG。
+        if (tag === 'svg') attrs += ' xmlns="' + SVG_NS + '"';
+        var values = node.attributes || {};
+        for (var name in values) {
+            if (!Object.prototype.hasOwnProperty.call(values, name)) continue;
+            attrs += ' ' + name + '="' + escapeSvgAttr(values[name]) + '"';
+        }
+        var inlineStyle = svgStyleText(node.style);
+        if (inlineStyle) attrs += ' style="' + escapeSvgAttr(inlineStyle) + '"';
+        var inner = '';
+        for (var i = 0; i < node.childNodes.length; i++) inner += serializeSvgNode(node.childNodes[i]);
+        return inner
+            ? '<' + tag + attrs + '>' + inner + '</' + tag + '>'
+            : '<' + tag + attrs + '/>';
     }
 
     // 图表宿主入口：为 `nodeId`（<canvas> 声明节点）建/取影子容器。
@@ -345,8 +719,7 @@
         ensureChart(nodeId, width, height) {
             var id = String(nodeId);
             var container = shadowById[id];
-            if (!container) {
-                container = shadowElement('div', { width: width, height: height });
+            if (!container) {                container = shadowElement('div', { width: width, height: height });
                 container.id = id;
                 container.style.position = 'relative';
                 container.style.width = width + 'px';
@@ -361,7 +734,22 @@
                 };
                 shadowById[id] = container;
             }
+            // 图表每帧重建：容器里挂的是上一帧的 canvas / <svg> 子树，先清空
+            // 再让这一帧的库代码重新挂载（否则子树逐帧累积，SVG 序列化会取到
+            // 旧树；canvas 侧的 DrawOp 流由录制 surface 自己管理，不依赖它）。
+            if (container.childNodes.length) container.childNodes.length = 0;
             return container;
+        },
+        serializeSvg(nodeId) {
+            var container = shadowById[String(nodeId)];
+            if (!container) return null;
+            for (var i = container.childNodes.length - 1; i >= 0; i--) {
+                var child = container.childNodes[i];
+                if (child && child.nodeType === 1 && String(child.tagName) === 'svg') {
+                    return serializeSvgNode(child);
+                }
+            }
+            return null;
         },
         byId(id) {
             return shadowById[String(id)] || null;
@@ -452,10 +840,12 @@
             return globalThis.__ocTree.createElement(tag);
         },
         // Plugins reach for `createElementNS` first (`_createElement` in
-        // CSSPlugin) and only fall back to `createElement`. There is no
-        // namespace in a declarative composition, so both make a scratch
-        // element.
-        createElementNS(_ns, tag) {
+        // CSSPlugin) and only fall back to `createElement`. SVG 命名空间是
+        // 例外：g-svg 一类渲染器把整棵场景建成 `<svg>` 子树，必须真的能
+        // 挂节点、存属性（dom_api 的 SVG 影子元素面），其余命名空间在
+        // 声明式合成里没有对应物，仍旧退化成 scratch 节点。
+        createElementNS(ns, tag) {
+            if (String(ns) === SVG_NS) return svgElement(tag, SVG_NS);
             if (String(tag).toLowerCase() === 'canvas') {
                 return shadowElement('canvas', {});
             }
@@ -463,6 +853,11 @@
         },
         createTextNode(text) {
             return globalThis.__ocTree.createTextNode(String(text));
+        },
+        // g-svg 用 fragment 重排 SVG 子树的 z 序（标准 DocumentFragment 语义：
+        // 挂进 fragment 即从原父节点移动）。
+        createDocumentFragment() {
+            return svgFragment();
         },
         // 离线帧没有事件循环：库（g 的 EventService）挂 document 级监听
         // 只是初始化仪式，no-op 即可。fail-loud 的 declarativeOnly 在这里

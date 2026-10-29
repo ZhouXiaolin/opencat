@@ -141,7 +141,9 @@ pub const JS_PLATFORM_SHIM: &str = r#"
        `requestAnimationFrame` steps its ready protocol uses before the render
        promise resolves. */
     globalThis.__ocFlushRaf = function () {
-        for (var pass = 0; pass < 3; pass++) {
+        var cap = 3;
+        if (globalThis.OC_RAF_PASSES) cap = Number(globalThis.OC_RAF_PASSES) || 3;
+        for (var pass = 0; pass < cap; pass++) {
             var batch = globalThis.__ocRafQueue;
             globalThis.__ocRafQueue = [];
             if (!batch.length) break;
@@ -333,6 +335,16 @@ impl<C: JsContext> ScriptRealm<C> {
         if matches!(std::env::var("OC_NO_G2_CACHE"), Ok(v) if v == "1") {
             self.ctx.eval("globalThis.OC_NO_G2_CACHE = '1';")?;
         }
+        // Renderer selector for chart compositions ('2d' = official
+        // @antv/g-canvas); g2_api.js reads it when injecting the renderer.
+        if let Ok(v) = std::env::var("OC_G2_RENDERER") {
+            self.ctx
+                .eval(&format!("globalThis.OC_G2_RENDERER = {:?};", v))?;
+        }
+        if let Ok(v) = std::env::var("OC_RAF_PASSES") {
+            self.ctx
+                .eval(&format!("globalThis.OC_RAF_PASSES = {:?};", v))?;
+        }
         // User-created globalThis keys persist for the realm lifetime: there
         // is no frame-boundary cleanup. The realm lives and dies with one
         // pipeline, so session-level state is bounded by the composition, and
@@ -511,6 +523,38 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
                 self.ctx.eval("__ocFlushRaf();")?;
+            }
+        }
+        // G2 chart-cache commit (queued by g2_api's `__ocG2Frame`): g's draw
+        // chain paints in promise continuations, so an inline commit at
+        // `__ocG2Frame` time snapshots only the synchronous clear/background
+        // prefix and the cache would replay a broken frame. Here the full
+        // stream is in the canvas entries — commit and drop the queue.
+        let queued = self.ctx.eval_json("(globalThis.__ocG2CommitQueue || [])")?;
+        if let serde_json::Value::Array(nodes) = queued {
+            let nodes: Vec<String> = nodes
+                .into_iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            if !nodes.is_empty() {
+                self.ctx.eval("globalThis.__ocG2CommitQueue = [];")?;
+                for node in nodes {
+                    // g-svg 渲染器不产 DrawOp：它的产物是容器下的一棵
+                    // `<svg>` 子树，此刻（微任务已排空）序列化成 markup。
+                    // canvas 渲染器返回 null，走 DrawOp 提交。
+                    let markup = self.ctx.eval_json(&format!(
+                        "globalThis.__ocG2SvgMarkup ? globalThis.__ocG2SvgMarkup({}) : null",
+                        serde_json::to_string(&node)?
+                    ))?;
+                    match markup {
+                        serde_json::Value::String(markup) if !markup.is_empty() => {
+                            self.ctx.with_store_mut(|s| s.set_canvas_svg(&node, markup));
+                        }
+                        _ => {
+                            let _ = self.ctx.with_store_mut(|s| s.chart_cache_commit(&node));
+                        }
+                    }
+                }
             }
         }
         // GPU 命令流（getContext 录制面每帧全量重录）：导出为帧级 gpu IR

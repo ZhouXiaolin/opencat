@@ -614,6 +614,14 @@ impl MutationStore {
         Some(dynamic)
     }
 
+    /// 把一段内联 SVG 子树挂到 canvas 节点上。SVG 类渲染器（g-svg）不产
+    /// DrawOp，产的是整棵 `<svg>` 子树：这里只承载 markup，resolve 把它当成
+    /// `<svg inline>` 元素渲染。不进 chart 缓存——SVG 每帧重建，且缓存整体
+    /// 在批次 F（图表常驻）退役。
+    pub fn set_canvas_svg(&mut self, node_id: &str, markup: String) {
+        self.canvases.entry(node_id.to_string()).or_default().svg = Some(markup);
+    }
+
     /// Drop a node's cached chart (spec changed, or the author opted out).
     pub fn chart_cache_drop(&mut self, node_id: &str) {
         self.chart_cache.remove(node_id);
@@ -1486,6 +1494,9 @@ impl MutationStore {
 }
 
 impl MutationRecorder for MutationStore {
+    fn record_canvas_svg(&mut self, canvas_id: &str, markup: String) {
+        self.set_canvas_svg(canvas_id, markup);
+    }
     fn record_opacity(&mut self, id: &str, v: f32) {
         self.entry(id).opacity = Some(v);
     }

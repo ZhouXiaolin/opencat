@@ -45,11 +45,11 @@ pub fn parse_file(path: impl AsRef<Path>) -> Result<ParsedComposition> {
 
 /// 单文件多模块段的段首标记：`/*@@oc-module:<spec>@@*/`。
 ///
-/// 打包器把 gsap/three 的 CJS 产物与 entry 的 ESM 产物拼进同一个
+/// 打包器把 gsap/three/g2 的 CJS 产物与 entry 的 ESM 产物拼进同一个
 /// `dist/<stem>.bundle.jsx`，每段一个标记。分段的理由不是文件大小，而是
-/// `__ocResetFrame` 的跨帧保活（`jsx_runtime.js`）：它只保留 `gsap` / `three`
-/// / `canvaskit-wasm` 三个**模块表条目**，three 的 1.6MB 类定义每帧重估会
-/// OOM。段切开后键名与保活列表不变，运行时零改动。
+/// `__ocResetFrame` 的跨帧保活（`jsx_runtime.js`）：它只保留 `gsap` /
+/// `three` / `canvaskit-wasm` / `g2` 四个**模块表条目**，three 的 1.6MB
+/// 类定义每帧重估会 OOM。段切开后键名与保活列表不变，运行时零改动。
 const SEGMENT_PREFIX: &str = "/*@@oc-module:";
 const SEGMENT_SUFFIX: &str = "@@*/";
 

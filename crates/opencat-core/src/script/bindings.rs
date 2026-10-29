@@ -304,6 +304,149 @@ macro_rules! for_each_binding {
             }))
         }}
 
+        //    批次 B 文本转路径：文本 shape 成 glyph outline path 载荷，facade
+        //    把整段烘成一个 Path 一次 drawPath——DrawOp 流里只剩 path，两端
+        //    （engine Skia / web 真 CK）各画同一份 path，web 零文本栈，且度
+        //    量与绘制同源（此前度量走 surface 的 kern-free 简排、绘制走
+        //    swash 位图，两者互不认识）。positions 的 y 以首行基线为原点；
+        //    outline 命令由 swash 按请求字号生成（cache_key 含 font_size），
+        //    已是 px 域，只翻 y（字体 y-up → 屏幕 y-down；与 render/text.rs
+        //    的 build_glyph_path 同构——那边乘 upem/px 是为按设计单位 intern
+        //    共享 path，此处按 size 逐份发放，直接 px 直出）。ColorImage
+        //    （emoji）不走 path：置 color 标记，facade 回退既有位图通道
+        //    （core 不解释 payload）。
+        $binding! { pure canvas_glyph_paths (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
+            let style = $crate::style::ComputedTextStyle {
+                text_px: size,
+                font_family: if family.is_empty() { None } else { Some(family) },
+                font_weight: $crate::style::FontWeight(weight as u16),
+                ..Default::default()
+            };
+            let raster = $crate::text::rasterize_glyphs(
+                &text,
+                &style,
+                f32::INFINITY,
+                false,
+                false,
+                &$crate::text::script_font_db(),
+            );
+            let Some(line) = raster.lines.first() else {
+                return Ok(serde_json::json!({ "glyphs": [], "positions": [], "width": 0.0, "ascent": size * 0.8, "descent": size * 0.2, "color": false }));
+            };
+            let mut has_color = false;
+            let glyphs: Vec<serde_json::Value> = raster
+                .glyphs
+                .iter()
+                .filter_map(|(key, data)| {
+                    let $crate::text::GlyphData::Outline(commands, _upem) = data else {
+                        has_color = true;
+                        return None;
+                    };
+                    let ops: Vec<serde_json::Value> = commands
+                        .iter()
+                        .map(|cmd| match cmd {
+                            cosmic_text::Command::MoveTo(p) => serde_json::json!([0, p.x, -p.y]),
+                            cosmic_text::Command::LineTo(p) => serde_json::json!([1, p.x, -p.y]),
+                            cosmic_text::Command::QuadTo(c, p) => {
+                                serde_json::json!([2, c.x, -c.y, p.x, -p.y])
+                            }
+                            cosmic_text::Command::CurveTo(c1, c2, p) => serde_json::json!([
+                                3, c1.x, -c1.y, c2.x, -c2.y, p.x, -p.y
+                            ]),
+                            cosmic_text::Command::Close => serde_json::json!([4]),
+                        })
+                        .collect();
+                    Some(serde_json::json!({ "k": key, "ops": ops }))
+                })
+                .collect();
+            let positions: Vec<serde_json::Value> = line
+                .positions
+                .iter()
+                .map(|pos| {
+                    serde_json::json!({ "k": pos.cache_key, "x": pos.x, "y": pos.y - line.y })
+                })
+                .collect();
+            let (ascent, descent) = raster
+                .metrics
+                .map_or((size * 0.8, size * 0.2), |m| (m.ascent, m.descent));
+            Ok(serde_json::json!({
+                "glyphs": glyphs,
+                "positions": positions,
+                "width": line.width,
+                "ascent": ascent,
+                "descent": descent,
+                "color": has_color,
+            }))
+        }}
+
+        //    CanvasKit.Image.MakeFromEncoded → drawImage。过渡落地：字节在
+        //    绑定侧经宿主 decoder 解码为 RGBA，走帧生成图通道贴回（与
+        //    `g2-para` 位图同构，z 序经 DrawOp::Image 保持）。批次 B 文本
+        //    换血时把 image mark 一并转 `ImageRef::Encoded` 真通道
+        //    （BytesRangeId 直通，两端重放零解码分歧）。
+        $binding! { cmd $store canvas_draw_image_encoded (node_id: String, data: Vec<u8>, x: f32, y: f32, alpha: f32, anti_alias: bool) -> bool {
+            let _ = (alpha, anti_alias);
+            if data.is_empty() {
+                return Ok(false);
+            }
+            let (width, height, rgba) = $store.image_decode(&data)?;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            data.hash(&mut hasher);
+            let key = format!("g2-encoded:{}", hasher.finish());
+            let image_id = $crate::ir::generated_image::GeneratedImageId::from_key(&key);
+            $store.record_frame_generated_image(&node_id, image_id, x, y, width, height, std::sync::Arc::from(rgba));
+            Ok(true)
+        }}
+
+        //    CanvasKit.makePathFromSVGString：SVG path 片段 → usvg 解析 →
+        //    绝对段命令 flat 数组（0=moveTo 1=lineTo 2=quadTo 3=cubicTo
+        //    4=close，后随坐标）。复用 svg-align 管线（markup 解析 + 段
+        //    提取），取树根首个 path 节点。
+        $binding! { pure oc_path_from_svg (svg: String) -> Option<Vec<f64>> {
+            use tiny_skia_path::PathSegment;
+            let Some(tree) = $crate::render::svg::load_tree_markup(&svg) else {
+                return Ok(None);
+            };
+            let mut flat: Vec<f64> = Vec::new();
+            for child in tree.root().children() {
+                let usvg::Node::Path(path) = child else { continue };
+                for seg in path.data().segments() {
+                    match seg {
+                        PathSegment::MoveTo(p) => {
+                            flat.push(0.0);
+                            flat.push(p.x as f64);
+                            flat.push(p.y as f64);
+                        }
+                        PathSegment::LineTo(p) => {
+                            flat.push(1.0);
+                            flat.push(p.x as f64);
+                            flat.push(p.y as f64);
+                        }
+                        PathSegment::QuadTo(c, p) => {
+                            flat.push(2.0);
+                            flat.push(c.x as f64);
+                            flat.push(c.y as f64);
+                            flat.push(p.x as f64);
+                            flat.push(p.y as f64);
+                        }
+                        PathSegment::CubicTo(c1, c2, p) => {
+                            flat.push(3.0);
+                            flat.push(c1.x as f64);
+                            flat.push(c1.y as f64);
+                            flat.push(c2.x as f64);
+                            flat.push(c2.y as f64);
+                            flat.push(p.x as f64);
+                            flat.push(p.y as f64);
+                        }
+                        PathSegment::Close => flat.push(4.0),
+                    }
+                }
+                break; // 官方签名返回单条 path：取根级第一条
+            }
+            Ok(if flat.is_empty() { None } else { Some(flat) })
+        }}
+
         // ── Node: G2 chart cache ──────────────────────────────────────────
         //    A chart's DrawOp stream is time-invariant (the G2 shim freezes
         //    animations at the virtual-clock origin), so the stream recorded on

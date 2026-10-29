@@ -876,7 +876,11 @@ async fn create_session(
         .json(&json!({
             "capabilities": {
                 "alwaysMatch": {
-                    "browserName": "chrome",
+                    // browserName 不设：chromedriver 隐含 chrome、msedgedriver
+                    // 隐含 msedge；写死任一名都会被另一家拒（msedgedriver 报
+                    // No matching capabilities，chromedriver 报 unrecognized
+                    // Chrome version: Edg/*）。binary capability 已显式指向
+                    // 浏览器可执行文件。
                     "goog:loggingPrefs": { "browser": "ALL" },
                     "goog:chromeOptions": chrome_options
                 }

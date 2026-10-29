@@ -241,7 +241,7 @@
         var sources = globalThis.__ocModuleSources || {};
         if (Object.prototype.hasOwnProperty.call(sources, spec)) return spec;
         if (spec.charAt(0) !== '.') {
-            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "three", "canvaskit-wasm" resolve in-engine, and "gsap" (+ gsap/<Plugin> subpaths) lives in its own segment of the project bundle (a bare `.jsx` has no gsap segment); any other npm package must be bundled)');
+            throw new Error('use: unknown module "' + spec + '" (relative paths plus the builtins "opencat/runtime", "three", "canvaskit-wasm" resolve in-engine; "gsap" (+ gsap/<Plugin> subpaths) and "g2" live in their own segments of the project bundle (a bare `.jsx` has no library segments); any other npm package must be bundled)');
         }
         var base = currentModule || '';
         var slash = base.lastIndexOf('/');
@@ -320,7 +320,7 @@
         // frame by the hooks; gsap additionally re-runs its ticker install
         // at eval time, which the persistent rAF queue absorbs.
         var kept = {};
-        for (var lib in { gsap: 1, three: 1, 'canvaskit-wasm': 1 }) {
+        for (var lib in { gsap: 1, three: 1, 'canvaskit-wasm': 1, g2: 1 }) {
             if (modules[lib]) kept[lib] = modules[lib];
         }
         modules = Object.create(null);

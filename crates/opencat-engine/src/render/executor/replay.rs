@@ -1366,6 +1366,10 @@ fn replay_op(
 
         DrawOp::ScriptRuntimeEffect { .. } => Ok(()),
 
+        // Pre-intern script form: translated by execute_draw_op before the
+        // stream reaches the executor; nothing to replay.
+        DrawOp::ScriptSetLineDash { .. } => Ok(()),
+
         DrawOp::LottieRect {
             bundle_id,
             frame,
@@ -1453,10 +1457,15 @@ fn apply_path_op(builder: &mut PathBuilder, op: &PathOp) {
             start_angle,
             sweep_angle,
         } => {
-            builder.add_arc(
+            // Stream arc angles are radians (canvas semantics); Skia's
+            // arc_to takes degrees. force_move_to must stay false: a
+            // wedge's inner arc continues the contour, add_arc would
+            // split it.
+            builder.arc_to(
                 Rect::new(x, y, x + width, y + height),
-                start_angle,
-                sweep_angle,
+                start_angle * 180.0 / std::f32::consts::PI,
+                sweep_angle * 180.0 / std::f32::consts::PI,
+                false,
             );
         }
     }

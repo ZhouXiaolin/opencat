@@ -205,14 +205,20 @@ fn run(cli: &Cli) -> Result<()> {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
 
-    // The in-page WebCodecs H.264 encoder emits bt709 full-range but writes
-    // no VUI, so every decoder assumes tv-range and the comparison shifts by
-    // a uniform color offset. Inject the true VUI on the way out (stream
-    // copy, no re-encode). Without ffmpeg on PATH, fall back to the raw
+    // The in-page WebCodecs H.264 encoder emits LIMITED-range samples (black
+    // sits at Y=16; RGB->YUV goes through a limited conversion) but writes no
+    // VUI. Tag them as what they are — bt709 *tv* range — on the way out
+    // (stream copy, no re-encode), and give the muxer the same range so the
+    // `colr` box agrees with the SPS. Tagging them `pc` instead made every
+    // decoder skip the 16..235 -> 0..255 expansion: the web leg then read as
+    // a uniform +16 level shift (k3 web avg_p8 0.9889, hf web 0.9744), not a
+    // rendering difference. Without ffmpeg on PATH, fall back to the raw
     // untagged bitstream with a loud warning.
     const COLOR_BSF: &[&str] = &[
         "-bsf:v",
-        "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=1",
+        "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=0",
+        "-color_range",
+        "tv",
     ];
 
     if rendered.len() == 1 {
@@ -260,12 +266,11 @@ fn run(cli: &Cli) -> Result<()> {
     let mut total_frames = 0u32;
     for (idx, (seg_start, seg_end, mp4)) in rendered.iter().enumerate() {
         let stem = cli.out.file_stem().unwrap_or_default().to_string_lossy();
-        // The in-page WebCodecs bitstream carries full-range data with NO VUI,
-        // so every downstream decoder assumes tv-range and one tv->full
-        // stretch leaks into the concat re-encode (+10~19 per channel — the
-        // whole frame drifts). Inject the VUI into each segment on disk
-        // (stream copy) so the concat decode is range-correct, exactly like
-        // the single-segment path above.
+        // The in-page WebCodecs bitstream carries limited-range samples with
+        // NO VUI, so every downstream decoder has to guess. Inject the range
+        // (tv) plus the bt709 triple into each segment on disk (stream copy)
+        // so the concat decode is range-correct, exactly like the
+        // single-segment path above.
         let raw_path = concat_dir.join(format!("{stem}.seg{idx:02}.raw.mp4"));
         let seg_path = concat_dir.join(format!("{stem}.seg{idx:02}.mp4"));
         fs::write(&raw_path, &mp4.mp4)
@@ -305,6 +310,9 @@ fn run(cli: &Cli) -> Result<()> {
     // copy would merge into a non-monotonic PTS mess. Decode-and-re-encode
     // with a clean per-frame timeline instead; crf 0 keeps the bitstream
     // faithful and the explicit color tags replace the single-segment bsf.
+    // Range stays tv: the segments decode limited-range samples, so the
+    // re-encode (libx264 default yuv420p) is limited too — tagging `pc` here
+    // would re-introduce the level shift on multi-segment outputs (hf).
     let status = std::process::Command::new("ffmpeg")
         .args(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i"])
         .arg(&list_path)
@@ -320,7 +328,7 @@ fn run(cli: &Cli) -> Result<()> {
             "-pix_fmt",
             "yuv420p",
             "-color_range",
-            "pc",
+            "tv",
             "-colorspace",
             "bt709",
             "-color_primaries",

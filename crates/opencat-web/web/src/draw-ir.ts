@@ -1844,9 +1844,17 @@ function applyPathCommand(CK: CanvasKit, builder: PathBuilder, op: PathCommand):
     case PATH_OP_SUB.ADD_OVAL:
       builder.addOval(CK.XYWHRect(v[0], v[1], v[2], v[3]));
       break;
-    case PATH_OP_SUB.ADD_ARC:
-      builder.addArc(CK.XYWHRect(v[0], v[1], v[2], v[3]), v[4], v[5]);
+    case PATH_OP_SUB.ADD_ARC: {
+      // Stream arc angles are radians (canvas semantics); CanvasKit takes
+      // degrees. The third argument is a SIGNED SWEEP despite the type name
+      // `endAngle` (probe: arcToOval(rect, 90, 0, false) is an empty single
+      // point, arcToOval(rect, 0, -90, false) is the upper-right quarter).
+      // forceMoveTo=false: arcs continue the contour (a wedge's inner arc
+      // must not split it); addArc hardcodes forceMoveTo=true.
+      const deg = 180 / Math.PI;
+      builder.arcToOval(CK.XYWHRect(v[0], v[1], v[2], v[3]), v[4] * deg, v[5] * deg, false);
       break;
+    }
     default:
       throw new Error(`Unsupported PathOp ${op.kind}`);
   }

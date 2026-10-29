@@ -332,6 +332,10 @@
         // Effect slots survive the frame (that is what makes deps meaningful);
         // only the call-order cursor restarts.
         effectIndex = 0;
+        // Cached 2D contexts reset with the frame: their JS-tracked matrices
+        // must start at identity because the executor's CTM does (see
+        // context2d.js `__ocResetFrameState`).
+        if (typeof globalThis.__ocResetContext2d === 'function') globalThis.__ocResetContext2d();
     };
 
     // Register a per-frame hook. The scene clock in effect right now (the

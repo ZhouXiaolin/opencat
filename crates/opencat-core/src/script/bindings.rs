@@ -316,9 +316,19 @@ macro_rules! for_each_binding {
         //    （emoji）不走 path：置 color 标记，facade 回退既有位图通道
         //    （core 不解释 payload）。
         $binding! { pure canvas_glyph_paths (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
+            // Generic `sans-serif` must resolve through fontdb's registered
+            // sans-serif family (engine: Noto Sans SC), not as a literal
+            // name — a literal lookup misses and cosmic-text's fallback
+            // bottom-feeds into Noto Color Emoji, where even '0' has a
+            // color keycap bitmap. `None` → `Family::SansSerif` → the
+            // registered mapping.
+            let family = match family.trim() {
+                "" | "sans-serif" => None,
+                _ => Some(family),
+            };
             let style = $crate::style::ComputedTextStyle {
                 text_px: size,
-                font_family: if family.is_empty() { None } else { Some(family) },
+                font_family: family,
                 font_weight: $crate::style::FontWeight(weight as u16),
                 ..Default::default()
             };
@@ -508,10 +518,15 @@ macro_rules! for_each_binding {
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
-            // Phase 2 limitation: setLineDash not yet supported with DrawOp pipeline.
-            // Dash intervals require f32_pool allocation in DrawOpBuilder which is not
-            // accessible from the MutationRecorder trait. Will be fixed in Phase 3.
-            let _ = (intervals, phase);
+            // The recorder has no f32_pool access, so the dash intervals go
+            // out as the pre-intern `ScriptSetLineDash` form;
+            // `execute_draw_op` interns them and pushes the standard
+            // `SetLineDash`. An empty list is the browser's "solid line".
+            if intervals.is_empty() {
+                $rec . record_draw_op($id, DrawOp::ClearLineDash);
+            } else {
+                $rec . record_draw_op($id, DrawOp::ScriptSetLineDash { intervals, phase });
+            }
         }}
         $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
             $rec . record_draw_op($id, DrawOp::ClearLineDash);
@@ -954,7 +969,8 @@ macro_rules! for_each_binding {
             ).is_ok())
         }}
         $binding! { pure surface_measure_text (text: String, family: String, weight: u32, size_px: f64, letter_spacing_px: f64) -> $crate::text::surface::InkMetrics {
-            $crate::text::surface::surface_measure_text(&text, &family, weight, size_px, letter_spacing_px)
+            let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight, size_px, letter_spacing_px)?;
+            Ok(metrics)
         }}
         $binding! { pure surface_fill_text (id: String, text: String, x: f64, y: f64, family: String, weight: u32, size_px: f64, letter_spacing_px: f64, scale_x: f64, color: String) -> bool {
             let c = $crate::script::helpers::parse_color(&color, "surface.fillText")?;

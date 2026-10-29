@@ -530,6 +530,21 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // `__ocG2Frame` time snapshots only the synchronous clear/background
         // prefix and the cache would replay a broken frame. Here the full
         // stream is in the canvas entries — commit and drop the queue.
+        // TEMP-PROBE
+        for _ in 0..8 { let _ = self.ctx.eval("void 0;"); }
+        if let Ok(serde_json::Value::String(msg)) = self.ctx.eval_json(
+            "(function(){var e=globalThis.__ocInitAsyncError; return e ? String((e && e.stack) || e) : '';})()",
+        ) {
+            if !msg.is_empty() { eprintln!("[initAsync-error] {msg}"); }
+        }
+        if std::env::var("OC_DUMP_DRAW").is_ok() {
+            if let Ok(log) = self.ctx.eval_json("(globalThis.__ocDrawLog || '')") {
+                if let serde_json::Value::String(l) = log {
+                    eprintln!("[draw-log] {l}");
+                }
+            }
+
+        }
         let queued = self.ctx.eval_json("(globalThis.__ocG2CommitQueue || [])")?;
         if let serde_json::Value::Array(nodes) = queued {
             let nodes: Vec<String> = nodes

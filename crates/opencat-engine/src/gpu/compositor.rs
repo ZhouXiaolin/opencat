@@ -348,12 +348,13 @@ pub fn import_texture(
         &backend_tex,
         origin,
         ColorType::RGBA8888,
-        // 实测（flex-threejs 帧 672）：Unpremul 时内圈 opacity 0.85 叶片
-        // 对参考偏差 ≤2/255，Premul 反而整体 +27——内容含 rgb=a·color 的
-        // 预乘痕迹（透明清屏 + src-alpha 混合），但 Skia 端按 Unpremul
-        // 直读直绘恰好落在参考值上；语义待与 read_back CPU 路径统一后
-        // 再定，先保持现状。
-        AlphaType::Unpremul,
+        // GL 执行器输出的物理字节 = framebuffer 原样：透明清屏 + src-alpha
+        // 混合天然产生预乘内容（rgb=a·color），必须按 Premul 解读。曾按
+        // Unpremul 直读（flex-threejs α=1 场景两语义等价，当时误判），对
+        // 半透明内容（G2 柱 α≈0.95）会让 Skia 再预乘一次、白底合成后整体
+        // 偏暗一档（实测 G2 蓝柱 35,137,255 → 34,131,243，逐位吻合双重
+        // 预乘模型），改回 Premul。
+        AlphaType::Premul,
         None,
     )
     .ok_or_else(|| anyhow!("borrow_texture_from 失败"))

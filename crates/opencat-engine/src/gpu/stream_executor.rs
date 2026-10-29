@@ -31,6 +31,8 @@ use opencat_core::ir::GpuOpFrame;
 
 #[derive(Default)]
 pub struct GpuStreamExecutor {
+    /// TEMP 探针（OC_DBG_VTX）：loc → (buf handle, size, ty, stride, offset)
+    probe_loc_binds: HashMap<u32, (u32, u8, u16, u32, u32)>,
     /// 内容 hash → 编译好的程序（跨帧/跨流复用）。
     program_cache: HashMap<String, ProgramEntry>,
     /// 内容 hash → 已上载纹理（跳过重传）。
@@ -38,6 +40,9 @@ pub struct GpuStreamExecutor {
     /// WebGL `UNPACK_FLIP_Y_WEBGL` 标志（影响下一次 texImage/SubImage2D）。
     /// 桌面 GL 没有这个 pname，翻转由本执行器对上传字节手动做。
     unpack_flip_y: bool,
+    /// `GL_UNPACK_ALIGNMENT`（0 视作 GL 初值 4）。未定尺基础格式摊平时
+    /// 要按它算源行距。
+    unpack_alignment: i32,
     // ── WebGL 句柄 → GL 对象映射（跨流持久）─────────────────────────
     // JS 侧句柄 realm 级单调、GL 对象存活由脚本 delete 决定；持久 renderer
     // 的后续帧流里没有创建命令（three 只在首次构造时 create），映射必须
@@ -47,10 +52,19 @@ pub struct GpuStreamExecutor {
     obj_textures: HashMap<u32, glow::NativeTexture>,
     obj_fbos: HashMap<u32, glow::NativeFramebuffer>,
     obj_renderbuffers: HashMap<u32, glow::NativeRenderbuffer>,
+    /// WebGL2 sampler 对象。采样状态（过滤/包裹/比较）在 WebGL2 里由
+    /// sampler 对象承担并覆盖纹理自身参数——g-device-api 每次 drawcall 都
+    /// `bindSampler`，糊弄会改像素，必须真建。
+    obj_samplers: HashMap<u32, glow::NativeSampler>,
     shader_src: HashMap<u32, Vec<u8>>,
     shader_stage: HashMap<u32, u32>,
     /// pid → (vs handle, fs handle)
     program_shaders: HashMap<u32, (Option<u32>, Option<u32>)>,
+    /// pid → link 前的 bindAttribLocation 请求表（按调用序）。真 program
+    /// 在 USE 时才惰性编译，编译必须重放这张表，否则驱动自然分配的
+    /// location 与调用方的固定常量（@antv 的 TEX=12/OFFSET=13）错位，
+    /// vertexAttribPointer 全部绑到无效槽。
+    program_attrib_binds: HashMap<u32, Vec<(u32, String)>>,
     /// 流内 pid → 内容 key（USE 时解析出 entry）。
     program_key_by_pid: HashMap<u32, String>,
     /// VAO 的 element 绑定由执行器自己记账、VAO_BIND 时主动重绑。共享
@@ -300,6 +314,35 @@ impl GpuStreamExecutor {
         let mut r = Replay { gl, ops, bytes, ranges };
         let st = r.run(self)?;
 
+        // TEMP：每流输出 readPixels dump（分辨流内绘制 vs 合成问题）
+        if std::env::var_os("OC_DBG_STREAMDUMP").is_some() {
+            unsafe {
+                let n = (stream.width as usize) * (stream.height as usize) * 4;
+                let mut px = vec![0u8; n];
+                gl.bind_framebuffer(
+                    glow::FRAMEBUFFER,
+                    Some(glow::NativeFramebuffer(
+                        std::num::NonZeroU32::new(out_fbo).unwrap(),
+                    )),
+                );
+                gl.read_pixels(
+                    0,
+                    0,
+                    stream.width as i32,
+                    stream.height as i32,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelPackData::Slice(&mut px),
+                );
+                let path = format!(
+                    "C:/Users/zhoux/AppData/Local/Temp/stream_{}.raw",
+                    stream.target_id.replace(['/', '\\', ':'], "_")
+                );
+                std::fs::write(&path, &px).ok();
+                eprintln!("[streamdump] {} {}x{} -> {}", stream.target_id, stream.width, stream.height, path);
+            }
+        }
+
         // 占位不在本帧 plan = 该 canvas 子树本帧不可见（opacity 0 / 裁剪/
         // 移出屏）——流照常执行：three 等持久 renderer 的资源创建命令
         // （program/纹理/VBO）只在首帧录一次，跳过执行会让 GL 侧永远收
@@ -369,6 +412,19 @@ impl GpuStreamExecutor {
 /// 我们共享同一 HGLRC,`resetContext(kAll)` 只失效 Skia 的缓存让它们重新
 /// 查询,并不改这些真实状态——flush 时驱动在遗留绑定上执行 Skia 的命令,
 /// 实测(Windows/NVIDIA)表现为访问违例。逐项还原到 GL 默认值。
+/// WebGL2 的 buffer target 枚举 → 本上下文可用的桌面值。
+/// g-device-api 的 setSubData 全走 WebGL 的 COPY_WRITE_BUFFER(0x8F37)：
+/// 直传被驱动按无效枚举拒掉（实测 err=0x500），数据落空，SDF 文字因此
+/// 错位；本执行器的 WGL legacy 上下文也不收桌面 4.4 的 0x94FA。退回
+/// ARRAY_BUFFER 上传——驱动语义自洽（pointer 前总是重新 bind），客户端
+/// 账本仍按原 target 记账，不会被上传踩掉。
+fn desktop_buffer_target(target: u32) -> u32 {
+    match target {
+        0x8F36 | 0x8F37 => glow::ARRAY_BUFFER, // COPY_READ/WRITE_BUFFER
+        v => v,
+    }
+}
+
 fn restore_default_state(ex: &mut GpuStreamExecutor, gl: &Arc<glow::Context>) {
     unsafe {
         // 绑定类恢复到客户端最后看到的对象(three 的缓存只在变化时重发);
@@ -521,6 +577,12 @@ impl<'a> Replay<'a> {
                 let opcode = self.ops[p];
                 let start = p;
                 p += 1;
+                if std::env::var_os("OC_DBG_ERRTRACE").is_some() {
+                    let err = gl.get_error();
+                    if err != 0 {
+                        eprintln!("[err] before op={opcode} @{start} err={err:#x}");
+                    }
+                }
                 if std::env::var_os("OC_DBG_OPS").is_some() {
                     eprintln!("OCOP @{start:06} op={opcode}");
                 }
@@ -575,7 +637,9 @@ impl<'a> Replay<'a> {
                             ex.cur_program_key = None;
                             gl.use_program(None);
                         } else {
-                            if std::env::var_os("OC_DBG_SHADER").is_some() {
+                            if std::env::var_os("OC_DBG_SHADER").is_some()
+                                || std::env::var_os("OC_DBG_VTX").is_some()
+                            {
                                 eprintln!("OCGL USE pid={pid}");
                             }
                             let key = ex.program_key_for(gl, pid)?;
@@ -601,6 +665,7 @@ impl<'a> Replay<'a> {
                         let pid = rd_u32(self.ops, &mut p);
                         ex.program_shaders.remove(&pid);
                         ex.program_key_by_pid.remove(&pid);
+                        ex.program_attrib_binds.remove(&pid);
                     }
                     gl_opcode::BUFFER_DELETE => {
                         let h = rd_u32(self.ops, &mut p);
@@ -636,6 +701,7 @@ impl<'a> Replay<'a> {
                     gl_opcode::BUFFER_BIND => {
                         let target = rd_u16(self.ops, &mut p);
                         let handle = rd_u32(self.ops, &mut p);
+                        let dt = desktop_buffer_target(target as u32);
                         let buf = if handle == NULL_HANDLE {
                             ex.cur_element = None;
                             None
@@ -654,7 +720,7 @@ impl<'a> Replay<'a> {
                             ex.client.array_buffer =
                                 (handle != NULL_HANDLE).then_some(handle);
                         }
-                        gl.bind_buffer(target as u32, buf);
+                        gl.bind_buffer(dt, buf);
                     }
                     gl_opcode::BUFFER_DATA => {
                         let target = rd_u16(self.ops, &mut p);
@@ -665,8 +731,51 @@ impl<'a> Replay<'a> {
                             .bound_buffer(target as u32)
                             .and_then(|h| ex.obj_buffers.get(&h).copied())
                             .ok_or_else(|| anyhow!("BUFFER_DATA 无客户端绑定 buffer"))?;
-                        gl.bind_buffer(target as u32, Some(buf));
-                        gl.buffer_data_u8_slice(target as u32, data, usage as u32);
+                        gl.bind_buffer(desktop_buffer_target(target as u32), Some(buf));
+                        // TEMP-PROBE 破坏实验：定位 draw 实际消费哪批上传。
+                        let broken = match std::env::var("OC_DBG_BREAK").as_deref() {
+                            Ok("arr") if target as u32 == glow::ARRAY_BUFFER => true,
+                            Ok("ele")
+                                if target as u32 == glow::ELEMENT_ARRAY_BUFFER
+                                    || target as u32 == 0x8F37 =>
+                            {
+                                true
+                            }
+                            _ => false,
+                        };
+                        let d: &[u8] = if broken {
+                            &vec![0u8; data.len()]
+                        } else {
+                            data
+                        };
+                        gl.buffer_data_u8_slice(desktop_buffer_target(target as u32), d, usage as u32);
+                        // g-device-api 全部 setSubData 走 WebGL 的
+                        // COPY_WRITE_BUFFER(0x8F37)：枚举直传桌面 GL 是
+                        // INVALID_ENUM，buffer 全空——SDF 文字因此错位。
+                        if std::env::var_os("OC_DBG_VTX").is_some() {
+                            let f8: Vec<f32> = data[..data.len().min(32)]
+                                .chunks_exact(4)
+                                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                .collect();
+                            eprintln!(
+                                "OCBD tgt={:#x} len={} cur_ele={} f0..7={:?} err={:#x}",
+                                target as u32,
+                                data.len(),
+                                ex.cur_element.unwrap_or(0),
+                                f8,
+                                gl.get_error()
+                            );
+                        }
+                        // TEMP：抓 UBO（UNIFORM_BUFFER=0x8A11）大块上传的次数与内容
+                        if target as u32 == 0x8A11 && data.len() >= 32000
+                            && std::env::var_os("OC_DBG_VTX").is_some()
+                        {
+                            let f: Vec<f32> = data[..32]
+                                .chunks_exact(4)
+                                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                .collect();
+                            eprintln!("[OCUBO] upload len={} err={:#x} f0..7={:?}", data.len(), gl.get_error(), f);
+                        }
                     }
                     gl_opcode::BUFFER_DATA_NULL => {
                         let target = rd_u16(self.ops, &mut p);
@@ -676,8 +785,8 @@ impl<'a> Replay<'a> {
                             .bound_buffer(target as u32)
                             .and_then(|h| ex.obj_buffers.get(&h).copied())
                             .ok_or_else(|| anyhow!("BUFFER_DATA_NULL 无客户端绑定 buffer"))?;
-                        gl.bind_buffer(target as u32, Some(buf));
-                        gl.buffer_data_size(target as u32, size as i32, usage as u32);
+                        gl.bind_buffer(desktop_buffer_target(target as u32), Some(buf));
+                        gl.buffer_data_size(desktop_buffer_target(target as u32), size as i32, usage as u32);
                     }
                     gl_opcode::VAO_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
@@ -735,6 +844,12 @@ impl<'a> Replay<'a> {
                                 stride as i32,
                                 offset as i32,
                             );
+                            if std::env::var_os("OC_DBG_VTX").is_some() {
+                                if let Some(h) = ex.bound_buffer(glow::ARRAY_BUFFER) {
+                                    ex.probe_loc_binds
+                                        .insert(loc, (h, size, ty, stride, offset));
+                                }
+                            }
                         }
                     }
                     gl_opcode::ATTRIB_DIVISOR => {
@@ -773,6 +888,9 @@ impl<'a> Replay<'a> {
                     gl_opcode::UNIFORM_1I => {
                         let range = rd_u32(self.ops, &mut p);
                         let v = rd_i32(self.ops, &mut p);
+                        if std::env::var_os("OC_DBG_VTX").is_some() {
+                            eprintln!("[u1i] range={range} v={v}");
+                        }
                         gl.uniform_1_i32(self.uniform_loc(ex, &state, range)?.as_ref(), v);
                     }
                     gl_opcode::UNIFORM_NF => {
@@ -861,22 +979,62 @@ impl<'a> Replay<'a> {
                             .bound_texture(target as u32)
                             .and_then(|th| ex.obj_textures.get(&th).copied())
                             .ok_or_else(|| anyhow!("TEX_IMAGE_2D 无客户端绑定纹理"))?;
-                        let content_key = format!(
-                            "{}|{internal}|{w}x{h}|{format}|{ty}|fy={}",
-                            hash_bytes(data.as_deref().unwrap_or(&[])),
-                            ex.unpack_flip_y
-                        );
-                        if !ex.texture_cache.contains(&content_key) {
-                            if ex.unpack_flip_y {
-                                if let Some(bytes) = data.as_mut() {
-                                    flip_rows_vertical(bytes, h);
-                                }
+                        if ex.unpack_flip_y {
+                            if let Some(bytes) = data.as_mut() {
+                                flip_rows_vertical(bytes, h);
                             }
+                        }
+                        // WebGL2 允许 ALPHA / LUMINANCE / LUMINANCE_ALPHA /
+                        // RGB 这类未定尺基础格式当 internalformat，桌面 GL
+                        // 3.3 core 已移除——摊平成 RGBA8 并改写像素，语义等价。
+                        let mut internal = internal;
+                        let mut format = format;
+                        let mut expanded = expand_unsized_upload(
+                            internal,
+                            format as u32,
+                            ty as u32,
+                            data.as_deref(),
+                            w,
+                            h,
+                            ex.unpack_alignment.max(0) as usize,
+                        );
+                        if let Some((nint, nfmt, bytes)) = expanded.take() {
+                            internal = nint;
+                            format = nfmt as u16;
+                            data = Some(bytes);
+                        }
+                        // 上传去重必须按纹理对象——同内容的不同纹理对象
+                        // （如多 canvas 各自的 SDF 图集）各自需要真实上传，
+                        // 只按内容 hash 去重会把后续纹理留成空纹理。
+                        let tex_handle = ex.bound_texture(target as u32).unwrap_or(0);
+                        let content_key = format!(
+                            "{tex_handle}|{internal}|{w}x{h}|{format}|{ty}|{}",
+                            hash_bytes(data.as_deref().unwrap_or(&[])),
+                        );
+                        if std::env::var_os("OC_DBG_ATLAS").is_some() && w > 100 && h > 100 {
+                            if let Some(bytes) = data.as_deref() {
+                                let n = std::env::var("OC_DBG_ATLAS_N").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+                                std::env::set_var("OC_DBG_ATLAS_N", (n + 1).to_string());
+                                let dir = std::env::temp_dir();
+                                let path = dir.join(format!("atlas_{n}_{w}x{h}_{format}.raw"));
+                                let path = path.display().to_string();
+                                let _ = std::fs::write(&path, bytes);
+                                eprintln!("[atlas-raw] {path} len={} fmt={format} internal={internal}", bytes.len());
+                            }
+                        }
+                        if !ex.texture_cache.contains(&content_key) {
                             gl.bind_texture(target as u32, Some(tex));
                             gl.tex_image_2d(
                                 target as u32, level, internal, w as i32, h as i32, 0,
                                 format as u32, ty as u32, data.as_deref(),
                             );
+                            // ANGLE（Chrome）把单 level 纹理的 mip 选择钳回
+                            // base level（D3D SRV 的 mip 范围语义）；桌面 GL
+                            // 无此钳制——mip 模式 sampler 对缺失 level 实测
+                            // 采出 (0,0,0,1)，SDF 文字因此成实心块。
+                            if level == 0 {
+                                gl.tex_parameter_i32(target as u32, glow::TEXTURE_MAX_LEVEL, 0);
+                            }
                             ex.texture_cache.insert(content_key);
                         }
                     }
@@ -895,6 +1053,12 @@ impl<'a> Replay<'a> {
                         match pname as u32 {
                             0x9240 => ex.unpack_flip_y = value != 0,
                             0x9241 | 0x9243 => {}
+                            0x0CF5 => {
+                                // UNPACK_ALIGNMENT：直通给桌面 GL，同时记下
+                                // 供未定尺格式摊平算源行距。
+                                ex.unpack_alignment = value;
+                                gl.pixel_store_i32(pname as u32, value);
+                            }
                             _ => gl.pixel_store_i32(pname as u32, value),
                         }
                     }
@@ -1063,6 +1227,19 @@ impl<'a> Replay<'a> {
                                 flip_rows_vertical(bytes, h);
                             }
                         }
+                        let mut format = format;
+                        if let Some((_nint, nfmt, bytes)) = expand_unsized_upload(
+                            format as i32,
+                            format as u32,
+                            ty as u32,
+                            data.as_deref(),
+                            w,
+                            h,
+                            ex.unpack_alignment.max(0) as usize,
+                        ) {
+                            format = nfmt as u16;
+                            data = Some(bytes);
+                        }
                         gl.bind_texture(target as u32, Some(tex));
                         gl.tex_sub_image_2d(
                             target as u32, level, x, y, w as i32, h as i32,
@@ -1204,6 +1381,26 @@ impl<'a> Replay<'a> {
                                 gl.create_buffer().expect("create_buffer")
                             }))
                         };
+                        if std::env::var_os("OC_DBG_VTX").is_some() && target == 0x8A11 {
+                            unsafe {
+                                gl.bind_buffer(glow::ARRAY_BUFFER, buf);
+                                let mut dst = [0u8; 64];
+                                gl.get_buffer_sub_data(
+                                    glow::ARRAY_BUFFER,
+                                    0,
+                                    &mut dst,
+                                );
+                                let f: Vec<f32> = dst
+                                    .chunks_exact(4)
+                                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                    .collect();
+                                eprintln!(
+                                    "[OCUBB] ubo h={} idx={} data={:?}",
+                                    handle, index, &f[..8]
+                                );
+                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                            }
+                        }
                         gl.bind_buffer_base(target as u32, index, buf);
                     }
                     gl_opcode::DRAW_ARRAYS_INSTANCED => {
@@ -1245,18 +1442,32 @@ impl<'a> Replay<'a> {
                         let program = rd_u32(self.ops, &mut p);
                         let block_index = rd_u32(self.ops, &mut p);
                         let binding = rd_u32(self.ops, &mut p);
-                        // program pid 在 link/use 时解析（同 USE 路径的缓存）
-                        let _ = (program, block_index, binding);
+                        if std::env::var("OC_DBG_VTX").is_ok() {
+                            eprintln!("[OCUB] pid={} idx={} binding={}", program, block_index, binding);
+                        }
+                        // program pid 在 link/use 时解析（同 USE 路径的缓存）：
+                        // 块绑定是 program 对象状态，必须在真 program 上执行。
+                        let key = ex.program_key_for(gl, program)?;
+                        match ex.program_cache.get(&key) {
+                            Some(entry) => {
+                                gl.uniform_block_binding(entry.program, block_index, binding);
+                            }
+                            None => bail!(
+                                "gpu stream: program {program} 未编译，块绑定无处落"
+                            ),
+                        }
                     }
                     gl_opcode::BIND_ATTRIB_LOCATION => {
                         let program = rd_u32(self.ops, &mut p);
                         let index = rd_u32(self.ops, &mut p);
                         let name_range = rd_u32(self.ops, &mut p);
                         let name = String::from_utf8_lossy(self.range_bytes(name_range)?).to_string();
-                        // link 前生效：three 在 link() 前调用。流内 program
-                        // 的真 program 在 USE 才编译，所以这里先记下，USE
-                        // 前的 link 时统一重放。
-                        let _ = (program, index, name);
+                        // link 前生效：真 program 在 USE 时惰性编译，这里
+                        // 只记账，编译时统一重放（program_key_for）。
+                        ex.program_attrib_binds
+                            .entry(program)
+                            .or_default()
+                            .push((index, name));
                     }
                     gl_opcode::BLEND_EQUATION => {
                         let eq = rd_u16(self.ops, &mut p) as u32;
@@ -1328,7 +1539,243 @@ impl<'a> Replay<'a> {
                         let mode = rd_u16(self.ops, &mut p);
                         let first = rd_i32(self.ops, &mut p);
                         let count = rd_i32(self.ops, &mut p);
+                        if std::env::var_os("OC_DBG_OPS2").is_some() {
+                            eprintln!(
+                                "OCDA mode={mode:#x} first={first} count={count} prog={:?} vao={:?}",
+                                state.program.map(|x| x.0.get()),
+                                ex.cur_vao,
+                            );
+                        }
                         gl.draw_arrays(mode as u32, first, count);
+                    }
+                    gl_opcode::FRAMEBUFFER_RENDERBUFFER => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let attachment = rd_u16(self.ops, &mut p);
+                        let handle = rd_u32(self.ops, &mut p);
+                        let rb = if handle == NULL_HANDLE {
+                            None
+                        } else {
+                            Some(*ex.obj_renderbuffers.entry(handle).or_insert_with(|| {
+                                gl.create_renderbuffer().expect("create_renderbuffer")
+                            }))
+                        };
+                        gl.framebuffer_renderbuffer(
+                            target as u32,
+                            attachment as u32,
+                            glow::RENDERBUFFER,
+                            rb,
+                        );
+                    }
+                    gl_opcode::SAMPLER_CREATE => {
+                        let handle = rd_u32(self.ops, &mut p);
+                        ex.obj_samplers
+                            .entry(handle)
+                            .or_insert_with(|| gl.create_sampler().expect("create_sampler"));
+                    }
+                    gl_opcode::SAMPLER_DELETE => {
+                        let handle = rd_u32(self.ops, &mut p);
+                        if let Some(smp) = ex.obj_samplers.remove(&handle) {
+                            gl.delete_sampler(smp);
+                        }
+                    }
+                    gl_opcode::SAMPLER_BIND => {
+                        let unit = rd_u32(self.ops, &mut p);
+                        let handle = rd_u32(self.ops, &mut p);
+                        if std::env::var_os("OC_DBG_VTX").is_some() {
+                            eprintln!("[smpbind] unit={unit} handle={handle}");
+                        }
+                        let smp = if handle == NULL_HANDLE {
+                            None
+                        } else {
+                            Some(*ex.obj_samplers.entry(handle).or_insert_with(|| {
+                                gl.create_sampler().expect("create_sampler")
+                            }))
+                        };
+                        gl.bind_sampler(unit, smp);
+                    }
+                    gl_opcode::SAMPLER_PARAM_I => {
+                        let handle = rd_u32(self.ops, &mut p);
+                        let pname = rd_u16(self.ops, &mut p);
+                        let value = rd_i32(self.ops, &mut p);
+                        if let Some(smp) = ex.obj_samplers.get(&handle).copied() {
+                            let mut value = value;
+                            if std::env::var_os("OC_DBG_VTX").is_some() {
+                                eprintln!(
+                                    "[smpparam] handle={handle} pname={pname:#04x} value={value:#x}"
+                                );
+                            }
+                            if std::env::var_os("OC_DBG_NOMIP").is_some() && pname as u32 == 0x2801 {
+                                value = match value {
+                                    0x2700..=0x2703 => 0x2600,
+                                    0x2704..=0x2707 => 0x2601,
+                                    v => v,
+                                };
+                            }
+                            gl.sampler_parameter_i32(smp, pname as u32, value);
+                        }
+                    }
+                    gl_opcode::SAMPLER_PARAM_F => {
+                        let handle = rd_u32(self.ops, &mut p);
+                        let pname = rd_u16(self.ops, &mut p);
+                        let value = rd_f32(self.ops, &mut p);
+                        if let Some(smp) = ex.obj_samplers.get(&handle).copied() {
+                            gl.sampler_parameter_f32(smp, pname as u32, value);
+                        }
+                    }
+                    gl_opcode::STENCIL_FUNC_SEPARATE => {
+                        let face = rd_u16(self.ops, &mut p);
+                        let func = rd_u16(self.ops, &mut p);
+                        let reference = rd_i32(self.ops, &mut p);
+                        let mask = rd_u32(self.ops, &mut p);
+                        gl.stencil_func_separate(face as u32, func as u32, reference, mask);
+                    }
+                    gl_opcode::STENCIL_OP_SEPARATE => {
+                        let face = rd_u16(self.ops, &mut p);
+                        let sfail = rd_u16(self.ops, &mut p);
+                        let dpfail = rd_u16(self.ops, &mut p);
+                        let dppass = rd_u16(self.ops, &mut p);
+                        gl.stencil_op_separate(
+                            face as u32,
+                            sfail as u32,
+                            dpfail as u32,
+                            dppass as u32,
+                        );
+                    }
+                    gl_opcode::RENDERBUFFER_STORAGE_MS => {
+                        let samples = rd_u32(self.ops, &mut p);
+                        let internal = rd_i32(self.ops, &mut p);
+                        let w = rd_u32(self.ops, &mut p);
+                        let h = rd_u32(self.ops, &mut p);
+                        let _rb = ex
+                            .bound_renderbuffer(glow::RENDERBUFFER)
+                            .and_then(|rh| ex.obj_renderbuffers.get(&rh).copied())
+                            .ok_or_else(|| {
+                                anyhow!("RENDERBUFFER_STORAGE_MS 无客户端绑定渲染缓冲")
+                            })?;
+                        gl.renderbuffer_storage_multisample(
+                            glow::RENDERBUFFER,
+                            samples as i32,
+                            internal as u32,
+                            w as i32,
+                            h as i32,
+                        );
+                    }
+                    gl_opcode::CLEAR_BUFFER_FV => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let drawbuffer = rd_i32(self.ops, &mut p);
+                        let r = rd_f32(self.ops, &mut p);
+                        let g = rd_f32(self.ops, &mut p);
+                        let b = rd_f32(self.ops, &mut p);
+                        let a = rd_f32(self.ops, &mut p);
+                        gl.clear_buffer_f32_slice(target as u32, drawbuffer as u32, &[r, g, b, a]);
+                    }
+                    gl_opcode::CLEAR_BUFFER_IV => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let drawbuffer = rd_i32(self.ops, &mut p);
+                        let x = rd_i32(self.ops, &mut p);
+                        let y = rd_i32(self.ops, &mut p);
+                        let z = rd_i32(self.ops, &mut p);
+                        let w = rd_i32(self.ops, &mut p);
+                        gl.clear_buffer_i32_slice(target as u32, drawbuffer as u32, &[x, y, z, w]);
+                    }
+                    gl_opcode::CLEAR_BUFFER_FI => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let drawbuffer = rd_i32(self.ops, &mut p);
+                        let depth = rd_f32(self.ops, &mut p);
+                        let stencil = rd_i32(self.ops, &mut p);
+                        gl.clear_buffer_depth_stencil(
+                            target as u32,
+                            drawbuffer as u32,
+                            depth,
+                            stencil,
+                        );
+                    }
+                    gl_opcode::BIND_BUFFER_RANGE => {
+                        let target = rd_u16(self.ops, &mut p);
+                        let index = rd_u32(self.ops, &mut p);
+                        let handle = rd_u32(self.ops, &mut p);
+                        let offset = rd_i32(self.ops, &mut p);
+                        let size = rd_i32(self.ops, &mut p);
+                        let buf = if handle == NULL_HANDLE {
+                            None
+                        } else {
+                            Some(*ex.obj_buffers.entry(handle).or_insert_with(|| {
+                                gl.create_buffer().expect("create_buffer")
+                            }))
+                        };
+                        if std::env::var_os("OC_DBG_BREAK3").is_some()
+                            && target == 0x8A11
+                            && index == 1
+                            && offset == 256
+                        {
+                            unsafe {
+                                gl.bind_buffer(glow::ARRAY_BUFFER, buf);
+                                let zeros = vec![0u8; size as usize];
+                                gl.buffer_sub_data_u8_slice(
+                                    glow::ARRAY_BUFFER,
+                                    offset,
+                                    &zeros,
+                                );
+                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                            }
+                            eprintln!("[OCBREAK3] ubo idx=1 zeroed at off={offset}");
+                        }
+                        if std::env::var_os("OC_DBG_VTX").is_some()
+                            && target == 0x8A11
+                            && offset != 256
+                        {
+                            unsafe {
+                                gl.bind_buffer(glow::ARRAY_BUFFER, buf);
+                                let mut dst = [0u8; 32];
+                                gl.get_buffer_sub_data(
+                                    glow::ARRAY_BUFFER,
+                                    offset,
+                                    &mut dst,
+                                );
+                                let f: Vec<f32> = dst
+                                    .chunks_exact(4)
+                                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                    .collect();
+                                eprintln!(
+                                    "[OCUBR] ubo h={} idx={} off={} size={} at-off={:?}",
+                                    handle, index, offset, size, &f
+                                );
+                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                            }
+                        }
+                        let mut offset = offset;
+                        if std::env::var_os("OC_DBG_BREAKEQ").is_some()
+                            && target == 0x8A11
+                            && index == 1
+                        {
+                            offset = 256;
+                        }
+                        gl.bind_buffer_range(target as u32, index, buf, offset, size);
+                    }
+                    gl_opcode::BLIT_FRAMEBUFFER => {
+                        let sx0 = rd_i32(self.ops, &mut p);
+                        let sy0 = rd_i32(self.ops, &mut p);
+                        let sx1 = rd_i32(self.ops, &mut p);
+                        let sy1 = rd_i32(self.ops, &mut p);
+                        let dx0 = rd_i32(self.ops, &mut p);
+                        let dy0 = rd_i32(self.ops, &mut p);
+                        let dx1 = rd_i32(self.ops, &mut p);
+                        let dy1 = rd_i32(self.ops, &mut p);
+                        let mask = rd_u16(self.ops, &mut p);
+                        let filter = rd_u16(self.ops, &mut p);
+                        let mut gl_mask = 0u32;
+                        if mask & 1 != 0 {
+                            gl_mask |= glow::COLOR_BUFFER_BIT;
+                        }
+                        if mask & 2 != 0 {
+                            gl_mask |= glow::DEPTH_BUFFER_BIT;
+                        }
+                        if mask & 4 != 0 {
+                            gl_mask |= glow::STENCIL_BUFFER_BIT;
+                        }
+                        gl.blit_framebuffer(
+                            sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, gl_mask, filter as u32,
+                        );
                     }
                     gl_opcode::DRAW_ELEMENTS => {
                         let mode = rd_u16(self.ops, &mut p);
@@ -1342,6 +1789,173 @@ impl<'a> Replay<'a> {
                                 "OCDE mode={mode:#x} count={count} ty={ty:#x} off={offset} prog={:?} ele_buf={ele}",
                                 state.program.map(|p| p.0.get())
                             );
+                        }
+                        if count >= 30 && std::env::var_os("OC_DBG_VTX").is_some() {
+                            let err = gl.get_error();
+                            let ele = gl.get_parameter_i32(glow::ELEMENT_ARRAY_BUFFER_BINDING);
+                            eprintln!(
+                                "OCVTX count={count} ty={ty:#x} err={err:#x} ele={ele} vao={:?} prog={:?}",
+                                ex.cur_vao,
+                                state.program.map(|p| p.0.get()),
+                            );
+                            // TEMP：dump 采样器 uniform 与各 unit 纹理绑定
+                            let prev = gl.get_parameter_i32(glow::ACTIVE_TEXTURE);
+                            for u in 0..8u32 {
+                                gl.active_texture(glow::TEXTURE0 + u);
+                                let t = gl.get_parameter_i32(glow::TEXTURE_BINDING_2D);
+                                let s = gl.get_parameter_i32(glow::SAMPLER_BINDING);
+                                eprintln!("[unit{u}] tex={t} smp={s}");
+                            }
+                            gl.active_texture(prev as u32);
+                            // TEMP：消融实验（关 depth/cull 看 sold/Y轴复活）
+                            if std::env::var_os("OC_DBG_NODEPTH").is_some() {
+                                gl.disable(glow::DEPTH_TEST);
+                            }
+                            if std::env::var_os("OC_DBG_NOCULL").is_some() {
+                                gl.disable(glow::CULL_FACE);
+                            }
+                            let gp = |w: &glow::Context, k: u32| -> i32 {
+                                w.get_parameter_i32(k)
+                            };
+                            let mut box4 = [0i32; 4];
+                            gl.get_parameter_i32_slice(glow::SCISSOR_BOX, &mut box4);
+                            let mut vp4 = [0i32; 4];
+                            gl.get_parameter_i32_slice(glow::VIEWPORT, &mut vp4);
+                            let mut cm4 = [0i32; 4];
+                            gl.get_parameter_i32_slice(glow::COLOR_WRITEMASK, &mut cm4);
+                            let (blend_src_rgb, blend_dst_rgb) = (
+                                gp(gl, glow::BLEND_SRC_RGB),
+                                gp(gl, glow::BLEND_DST_RGB),
+                            );
+                            let (blend_src_a, blend_dst_a) = (
+                                gp(gl, glow::BLEND_SRC_ALPHA),
+                                gp(gl, glow::BLEND_DST_ALPHA),
+                            );
+                            let (beq_rgb, beq_a) = (
+                                gp(gl, glow::BLEND_EQUATION_RGB),
+                                gp(gl, glow::BLEND_EQUATION_ALPHA),
+                            );
+                            eprintln!(
+                                "[state] blend on={} srcRGB={blend_src_rgb:#x} dstRGB={blend_dst_rgb:#x} srcA={blend_src_a:#x} dstA={blend_dst_a:#x} eqRGB={beq_rgb:#x} eqA={beq_a:#x}",
+                                gp(gl, glow::BLEND) != 0
+                            );
+                            eprintln!(
+                                "[state] depthTest={} depthMask={} depthFunc={:#x} cullFace={} cullMode={:#x}",
+                                gp(gl, glow::DEPTH_TEST) != 0,
+                                gp(gl, glow::DEPTH_WRITEMASK),
+                                gp(gl, glow::DEPTH_FUNC),
+                                gp(gl, glow::CULL_FACE) != 0,
+                                gp(gl, glow::CULL_FACE_MODE),
+                            );
+                            eprintln!(
+                                "[state] scissor={} box={box4:?} viewport={vp4:?} colorMask={cm4:?} stencilMask={:#x} dither={} sampleAlpha={}",
+                                gp(gl, glow::SCISSOR_TEST) != 0,
+                                gp(gl, glow::STENCIL_WRITEMASK),
+                                gp(gl, glow::DITHER) != 0,
+                                gp(gl, glow::SAMPLE_ALPHA_TO_COVERAGE) != 0,
+                            );
+                            // TEMP：按 pointer 账本 dump 每 attrib 前 2 顶点真数据
+                            let mut dump = String::new();
+                            let binds: Vec<_> = ex.probe_loc_binds.iter().collect();
+                            for (loc, (h, size, ty, stride, off)) in binds {
+                                if let Some(buf) = ex.obj_buffers.get(&h) {
+                                    unsafe {
+                                        gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buf));
+                                        // loc12(Tex) 特例：dump 前 100 顶点（25 字形全量）
+                                        let nv = if *loc == 12 { 104 } else { 8 };
+                                        let n = (*stride as usize * nv).max(16);
+                                        let mut dst = vec![0u8; n];
+                                        gl.get_buffer_sub_data(
+                                            glow::ARRAY_BUFFER,
+                                            *off as i32,
+                                            &mut dst,
+                                        );
+                                        let f: Vec<f32> = dst
+                                            .chunks_exact(4)
+                                            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                            .collect();
+                                        let upto = if *loc == 12 {
+                                            f.len()
+                                        } else {
+                                            (n / 4).min(32)
+                                        };
+                                        dump.push_str(&format!(
+                                            " loc{loc}[b{h} sz{size} ty{ty:#x} st{stride} of{off}] {:?}",
+                                            &f[..upto]
+                                        ));
+                                    }
+                                }
+                            }
+                            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                            // TEMP：dump 索引 buffer 前 24 个索引（当前 VAO 已绑定
+                            // ELEMENT，勿重新 bind/unbind——会污染 VAO 状态）
+                            if let Some(eh) = ex.cur_element {
+                                unsafe {
+                                    let mut ibb = [0u8; 96];
+                                    gl.get_buffer_sub_data(
+                                        glow::ELEMENT_ARRAY_BUFFER,
+                                        0,
+                                        &mut ibb,
+                                    );
+                                    let ib: Vec<u32> = ibb
+                                        .chunks_exact(4)
+                                        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                        .collect();
+                                    eprintln!("[OCIDX] ele_h={eh} first24={ib:?}");
+                                }
+                            }
+                            eprintln!("[OCVTD]{dump}");
+                            // TEMP：count==150（Y 轴刻度+sold）全量 instance 平移与 Offset
+                            if count == 150 && std::env::var_os("OC_DBG_VTX").is_some() {
+                                for (loc, (h, size, ty, stride, off)) in ex.probe_loc_binds.iter() {
+                                    if *loc != 3 && *loc != 13 {
+                                        continue;
+                                    }
+                                    if let Some(buf) = ex.obj_buffers.get(h) {
+                                        unsafe {
+                                            gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buf));
+                                            // probe_loc_binds 的 size 是 attrib component
+                                            // 数不是字节数——按 loc 硬编码读取长度
+                                            let n = if *loc == 3 { 3200 } else { 1600 };
+                                            let mut dst = vec![0u8; n];
+                                            gl.get_buffer_sub_data(
+                                                glow::ARRAY_BUFFER,
+                                                *off as i32,
+                                                &mut dst,
+                                            );
+                                            let f: Vec<f32> = dst
+                                                .chunks_exact(4)
+                                                .map(|c| {
+                                                    f32::from_le_bytes([c[0], c[1], c[2], c[3]])
+                                                })
+                                                .collect();
+                                            let per = (*stride as usize / 4).max(1);
+                                            for (i, v) in f.chunks_exact(per).enumerate() {
+                                                if *loc == 3 || i < 26 {
+                                                    eprintln!(
+                                                        "[OCY] l{loc} i{i} =({},{},{},{})",
+                                                        v[0], v[1], v[2], v[3]
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // TEMP 实验：重放全部 pointer 再 draw（须先绑对应 buffer）
+                            if std::env::var_os("OC_DBG_FIXPTR").is_some() {
+                                for (loc, (h, size, ty, stride, off)) in ex.probe_loc_binds.iter() {
+                                    if let Some(buf) = ex.obj_buffers.get(h) {
+                                        gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buf));
+                                        gl.vertex_attrib_pointer_f32(
+                                            *loc, *size as i32, *ty as u32, false,
+                                            *stride as i32, *off as i32,
+                                        );
+                                    }
+                                }
+                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                                eprintln!("[OCFIX] re-applied {} pointers", ex.probe_loc_binds.len());
+                            }
                         }
                         gl.draw_elements(mode as u32, count, ty as u32, offset);
                     }
@@ -1400,6 +2014,16 @@ impl<'a> Replay<'a> {
         name_range: u32,
     ) -> Result<Option<u32>> {
         let name = std::str::from_utf8(self.range_bytes(name_range)?)?;
+        // `index:<n>` 是录制面的扫描序号哨兵：vertexAttribPointer 是 VAO
+        // 状态、与程序无关，GL 语义上此时可能还没 useProgram。扫描序与
+        // 驱动 active attribute 序一致，直接当 location 用。
+        if let Some(idx) = name.strip_prefix("index:") {
+            let loc: u32 = idx.parse()?;
+            if std::env::var_os("OC_DBG_VTX").is_some() {
+                eprintln!("OCAP lit name={name} loc={loc}");
+            }
+            return Ok(Some(loc));
+        }
         let key = state
             .program_key
             .as_ref()
@@ -1450,11 +2074,72 @@ impl GpuStreamExecutor {
             .shader_src
             .get(&fid)
             .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 fs 源"))?;
-        let key = format!("{}|{}", hash_bytes(vs), hash_bytes(fs));
+        let base = format!("{}|{}", hash_bytes(vs), hash_bytes(fs));
+        // 重放 bindAttribLocation：绑定表进 key——同源码不同表必须各编
+        // 各的，否则先编译者的 location 布局会被后者复用。
+        let binds = self
+            .program_attrib_binds
+            .get(&pid)
+            .cloned()
+            .unwrap_or_default();
+        if std::env::var_os("OC_DBG_VTX").is_some() && !binds.is_empty() {
+            eprintln!("OCAB pid={pid} binds={:?}", binds);
+        }
+        let key = if binds.is_empty() {
+            base
+        } else {
+            let mut material = String::new();
+            for (i, n) in &binds {
+                material.push_str(&i.to_string());
+                material.push('\u{1}');
+                material.push_str(n);
+                material.push('\u{2}');
+            }
+            format!("{base}|ab{}", hash_bytes(material.as_bytes()))
+        };
         if !self.program_cache.contains_key(&key) {
-            let vs_src = desktop_glsl(std::str::from_utf8(vs)?, naga::ShaderStage::Vertex)?;
-            let fs_src = desktop_glsl(std::str::from_utf8(fs)?, naga::ShaderStage::Fragment)?;
-            let entry = compile_program_entry(gl, &vs_src, &fs_src)?;
+            // TEMP：env 开关的 NDC 位置可视化（文字 program 专属；不污染 bundle）
+            let mut vs_src =
+                desktop_glsl(std::str::from_utf8(vs)?, naga::ShaderStage::Vertex)?;
+            let mut fs_src =
+                desktop_glsl(std::str::from_utf8(fs)?, naga::ShaderStage::Fragment)?;
+            if std::env::var_os("OC_DBG_FSDIST").is_some() && vs_src.contains("a_Tex") {
+                vs_src = vs_src
+                    .replace(
+                        "out vec2 v_Uv;",
+                        "out vec2 v_Uv;\nout vec2 v_Debug;",
+                    )
+                    .replace(
+                        "gl_Position = project(vec4(a_Position.xy + offset, u_ZIndex, 1.0), u_ProjectionMatrix, u_ViewMatrix, u_ModelMatrix);",
+                        "gl_Position = project(vec4(a_Position.xy + offset, u_ZIndex, 1.0), u_ProjectionMatrix, u_ViewMatrix, u_ModelMatrix); v_Debug = gl_Position.xy / gl_Position.w;",
+                    );
+                fs_src = fs_src
+                    .replace("in vec2 v_Uv;", "in vec2 v_Uv;\nin vec2 v_Debug;");
+                if std::env::var("OC_DBG_FSDIST").as_deref() == Ok("raw") {
+                    // 原始采样可视化：RGB=texture(u_SDFMap,v_Uv)，不 discard
+                    fs_src = fs_src.replace(
+                        "float dist = texture(u_SDFMap, v_Uv).a;",
+                        "vec4 rawS = texture(u_SDFMap, v_Uv); outputColor = vec4(rawS.a, rawS.r, rawS.g, 1.0); return; float dist = rawS.a;",
+                    );
+                } else {
+                    fs_src = fs_src.replace(
+                        "float dist = texture(u_SDFMap, v_Uv).a;",
+                        "outputColor = vec4(v_Debug.x * 0.5 + 0.5, v_Debug.y * 0.5 + 0.5, 0.0, 1.0); return; float dist = texture(u_SDFMap, v_Uv).a;",
+                    );
+                }
+            }
+            let entry = compile_program_entry(gl, &vs_src, &fs_src, &binds)?;
+            if std::env::var_os("OC_DBG_SHADER").is_some() {
+                let mut table = String::new();
+                for n in &entry.attrib_names {
+                    let loc =
+                        unsafe { gl.get_attrib_location(entry.program, n) }.unwrap_or(0);
+                    table.push_str(&format!("{n}={loc} "));
+                }
+                eprintln!("OCPROG pid={pid} key={key} binds={} attrs: {table}", binds.len());
+                eprintln!("OCVSSRC-START\n{vs_src}\nOCVSSRC-END");
+                eprintln!("OCFSSRC-START\n{fs_src}\nOCFSSRC-END");
+            }
             self.program_cache.insert(key.clone(), entry);
         }
         self.program_key_by_pid.insert(pid, key.clone());
@@ -1522,6 +2207,7 @@ fn compile_program_entry(
     gl: &Arc<glow::Context>,
     vs_src: &str,
     fs_src: &str,
+    attrib_binds: &[(u32, String)],
 ) -> Result<ProgramEntry> {
     unsafe {
         let compile = |ty: u32, src: &str| -> Result<glow::Shader> {
@@ -1543,6 +2229,12 @@ fn compile_program_entry(
         gl.attach_shader(program, fs);
         gl.delete_shader(vs);
         gl.delete_shader(fs);
+        // 重放 link 前的 bindAttribLocation：调用方（@antv 等固定布局的
+        // renderer）按请求值发 vertexAttribPointer，驱动自然分配的
+        // location 与之错位会让指针全落空。
+        for (index, name) in attrib_binds {
+            gl.bind_attrib_location(program, *index, name);
+        }
         gl.link_program(program);
         if !gl.get_program_link_status(program) {
             let log = gl.get_program_info_log(program);
@@ -1849,9 +2541,117 @@ pub fn reflect_program_gl(
                 }));
             }
         }
+        // uniform 块（WebGL2 的 sampler 之外，矩阵/屏尺寸等都走 std140 块）。
+        // glow 没有块计数 API，只能按序号探名；越界探名会置 GL_INVALID_VALUE，
+        // 探完清错。
+        let mut blocks = Vec::new();
+        for i in 0..16u32 {
+            let name = gl.get_active_uniform_block_name(program, i);
+            if name.is_empty() {
+                break;
+            }
+            blocks.push(serde_json::json!({ "n": name, "i": i }));
+        }
         gl.delete_program(program);
-        Ok(serde_json::json!({ "uniforms": uniforms, "attributes": attributes }))
+        while gl.get_error() != glow::NO_ERROR {}
+        Ok(serde_json::json!({
+            "uniforms": uniforms,
+            "attributes": attributes,
+            "blocks": blocks,
+        }))
     }
+}
+
+/// 把 WebGL2 允许、桌面 GL 3.3 core 已移除的"未定尺基础格式"
+/// （ALPHA / LUMINANCE / LUMINANCE_ALPHA / RGB）摊平成 RGBA8。
+///
+/// WebGL2 里 `texImage2D(TEXTURE_2D, 0, ALPHA, w, h, 0, ALPHA, UNSIGNED_BYTE, px)`
+/// 是合法上传；桌面 GL 3.3 core 只接受定尺 internalformat，同形调用直接
+/// GL_INVALID_ENUM。语义等价改写：ALPHA→RGBA8 且 `a = src`，LUMINANCE→
+/// `(l,l,l,255)`，LUMINANCE_ALPHA→`(l,l,l,a)`，RGB→`(r,g,b,255)`。
+///
+/// 返回 `None` 表示无需改写（格式已定尺或数据缺失）。
+/// `alignment` 是同批 `GL_UNPACK_ALIGNMENT`，用于算源行距（浏览器与
+/// TinySDF 的图集常是宽度不被 4 整除的 ALPHA 图）。
+fn expand_unsized_upload(
+    internal: i32,
+    format: u32,
+    ty: u32,
+    data: Option<&[u8]>,
+    w: u32,
+    h: u32,
+    alignment: usize,
+) -> Option<(i32, u32, Vec<u8>)> {
+    const ALPHA: u32 = 0x1906;
+    const RGB: u32 = 0x1907;
+    const RGBA: u32 = 0x1908;
+    const LUMINANCE: u32 = 0x1909;
+    const LUMINANCE_ALPHA: u32 = 0x190A;
+    const UNSIGNED_BYTE: u32 = 0x1401;
+    if ty != UNSIGNED_BYTE {
+        return None;
+    }
+    let channels = match format {
+        ALPHA => 1usize,
+        LUMINANCE => 1,
+        LUMINANCE_ALPHA => 2,
+        RGB => 3,
+        _ => return None,
+    };
+    let src = data?;
+    let (w, h) = (w as usize, h as usize);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let align = if alignment == 0 { 4 } else { alignment };
+    let row_raw = w * channels;
+    let row_padded = (row_raw + align - 1) / align * align;
+    // 数据长度既可能按 alignment 补齐，也可能被调用方按紧排送来。
+    let stride = if src.len() >= row_padded * h {
+        row_padded
+    } else if src.len() >= row_raw * h {
+        row_raw
+    } else {
+        return None;
+    };
+    let mut out = vec![0u8; w * h * 4];
+    for row in 0..h {
+        let base = row * stride;
+        for col in 0..w {
+            let si = base + col * channels;
+            let di = (row * w + col) * 4;
+            match format {
+                ALPHA => {
+                    out[di] = 0;
+                    out[di + 1] = 0;
+                    out[di + 2] = 0;
+                    out[di + 3] = src[si];
+                }
+                LUMINANCE => {
+                    let l = src[si];
+                    out[di] = l;
+                    out[di + 1] = l;
+                    out[di + 2] = l;
+                    out[di + 3] = 255;
+                }
+                LUMINANCE_ALPHA => {
+                    let l = src[si];
+                    out[di] = l;
+                    out[di + 1] = l;
+                    out[di + 2] = l;
+                    out[di + 3] = src[si + 1];
+                }
+                _ => {
+                    out[di] = src[si];
+                    out[di + 1] = src[si + 1];
+                    out[di + 2] = src[si + 2];
+                    out[di + 3] = 255;
+                }
+            }
+        }
+    }
+    let _ = internal;
+    Some((RGBA as i32, RGBA, out))
 }
 
 fn hash_bytes(bytes: &[u8]) -> String {

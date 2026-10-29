@@ -25,6 +25,15 @@
 
     var ctx = globalThis.ctx;
 
+    // ── WebGL2RenderingContext 全局 ─────────────────────────────────
+    // 浏览器把 `WebGL2RenderingContext` 暴露成全局构造器，任何 webgl2 上下文
+    // 都是它的实例。真实包用这个做特性探测（@antv/g-device-api 的
+    // `isWebGL2(gl) = gl instanceof WebGL2RenderingContext`，three 也查
+    // instanceOf），所以录制上下文必须落在同一条原型链上——否则包会把自己
+    // 判成 WebGL1，走 GLSL1/扩展路径，整条管线错位。
+    function WebGL2RenderingContext() {}
+    globalThis.WebGL2RenderingContext = WebGL2RenderingContext;
+
     // ── command encoding ────────────────────────────────────────────
     // One scratch buffer per command; the binding copies it into the stream.
 
@@ -395,10 +404,12 @@
 
     function makeRecordingContext(canvasId, width, height, attrsBits, sizeFace) {
         var streamId = canvasId;
-        var self = {};
+        // 原型挂到 WebGL2RenderingContext —— 见上文全局构造器的说明。
+        var self = Object.create(WebGL2RenderingContext.prototype);
 
         // link-time scan cache: program handle → { uniforms, attributes }
         var programInfo = {};
+        var curProgramId = 0;
         var shaderSource = {}; // shader handle → source text
         var shaderKind = {}; // shader handle → 'v' | 'f'
         var programShaders = {}; // 'pid:v' / 'pid:f' → shader handle
@@ -434,7 +445,13 @@
 
         Object.defineProperty(self, 'drawingBufferWidth', { get: function () { return surfaceSize()[0]; } });
         Object.defineProperty(self, 'drawingBufferHeight', { get: function () { return surfaceSize()[1]; } });
+        // `gl.canvas` 在浏览器里是 HTMLCanvasElement。渲染层（g-plugin-
+        // device-renderer `renderInput.backbufferWidth/Height`）读它的
+        // width/height 来定 backbuffer 尺寸，所以这里必须给出与绘制缓冲
+        // 同源的尺寸，而不能只留一个 id。
         self.canvas = { id: canvasId };
+        Object.defineProperty(self.canvas, 'width', { get: function () { return surfaceSize()[0]; } });
+        Object.defineProperty(self.canvas, 'height', { get: function () { return surfaceSize()[1]; } });
 
         function badToken(api, what) {
             throw new Error(api + ': ' + what);
@@ -466,6 +483,17 @@
 
         self.getSupportedExtensions = function () {
             return SUPPORTED_EXTENSIONS.slice();
+        };
+
+        // 采样档位查询（WebGL2）。真驱动会返回 [4,2,1] 之类的列表，库据此
+        // 决定是否走多重采样 renderbuffer。我们的流里只有 renderbufferStorage
+        // （无 multisample 变体），所以如实报"只有单采样"——报多档等于把库
+        // 引到执行端不存在的路径上。
+        self.getInternalformatParameter = function (target, internalformat, pname) {
+            void target;
+            void internalformat;
+            if (pname === GL.SAMPLES) return new Uint32Array([1]);
+            return null;
         };
 
         self.getShaderPrecisionFormat = function (shaderType, precisionType) {
@@ -531,6 +559,10 @@
         };
 
         self.shaderSource = function (shader, source) {
+            if (typeof __ocStderr === 'function' && String(source).indexOf('u_SDFMap') >= 0) {
+                (globalThis.__ocSdfShaders || (globalThis.__ocSdfShaders = {}))[resId(shader, 'shaderSource')] = true;
+                __ocStderr('[shader-sdf] compiled');
+            }
             var id = resId(shader, 'shaderSource');
             shaderSource[id] = String(source);
             var range = internString(streamId, shaderSource[id]);
@@ -565,6 +597,11 @@
         };
 
         self.attachShader = function (program, shader) {
+            var sh = globalThis.__ocSdfShaders || {};
+            if (sh[resId(shader, 'attachShader')]) {
+                var pm = globalThis.__ocProgSdf || (globalThis.__ocProgSdf = {});
+                pm[resId(program, 'attachShader')] = true;
+            }
             var pid = resId(program, 'attachShader');
             var sid = resId(shader, 'attachShader');
             programShaders[pid + ':' + shaderKind[sid]] = sid;
@@ -578,6 +615,12 @@
         };
 
         self.linkProgram = function (program) {
+            if (globalThis.__ocProgSdf && globalThis.__ocProgSdf[resId(program, 'linkProgram')]) {
+                (globalThis.__ocSdfPrograms || (globalThis.__ocSdfPrograms = {}))[resId(program, 'linkProgram')] = true;
+                if (typeof __ocStderr === 'function') __ocStderr('[program-sdf] linked');
+            }
+            if (typeof __ocStderr === 'function') __ocStderr('[js-link] pid=' + resId(program, 'linkProgram'));
+            globalThis.__ocDumpAllDraw = true;
             var pid = resId(program, 'linkProgram');
             var e = new Encoder(4);
             e.u32(pid);
@@ -589,6 +632,10 @@
                 shaderSource[programShaders[pid + ':v']] || '',
                 shaderSource[programShaders[pid + ':f']] || ''
             );
+            if (globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[pid] && typeof __ocStderr === 'function') {
+                __ocStderr('[js-attr] pid=' + pid + ' attrs=' + programInfo[pid].attributes.map(function (a, i) { return i + '=' + a.n; }).join(','));
+                __ocStderr('[js-uni] pid=' + pid + ' blocks=' + (programInfo[pid].blocks || []).map(function (b) { return b.i + ':' + b.n; }).join(',') + ' unis=' + programInfo[pid].uniforms.map(function (u) { return u.n; }).join(','));
+            }
         };
 
         self.deleteProgram = function (program) {
@@ -601,6 +648,9 @@
         };
 
         self.useProgram = function (program) {
+            globalThis.__ocCurProgram = program === null || program === undefined ? 0 : resId(program, 'useProgram');
+            curProgramId = globalThis.__ocCurProgram;
+            if (typeof __ocStderr === 'function' && globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[curProgramId]) __ocStderr('[js-use] pid=' + curProgramId);
             var e = new Encoder(4);
             e.u32(resId(program, 'useProgram'));
             emit(streamId, 8 /* PROGRAM_USE */, e.done(8));
@@ -658,6 +708,11 @@
 
         // ── buffer ──────────────────────────────────────────────────
 
+        // 客户端 GL 状态影子：绑定以 target 为键；内容以 handle 为键，
+        // 只服务 `bufferSubData` 的整块重传（见下）。
+        var bufferShadow = Object.create(null);
+        var boundBuffers = Object.create(null);
+
         self.createBuffer = function () {
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
@@ -667,36 +722,241 @@
         };
 
         self.bindBuffer = function (target, buffer) {
+            var id = buffer ? resId(buffer, 'bindBuffer') : NULL_HANDLE();
+            boundBuffers[target] = id;
             var e = new Encoder(6);
-            e.u16(target).u32(buffer ? resId(buffer, 'bindBuffer') : NULL_HANDLE());
+            e.u16(target).u32(id);
             emit(streamId, 10, e.done(10));
         };
 
         self.bufferData = function (target, srcData, usage) {
+            var id = boundBuffers[target];
             if (srcData === null || srcData === undefined || typeof srcData === 'number') {
                 // size form: bufferData(target, size, usage)
+                var size = srcData >>> 0;
+                if (id !== undefined && id !== NULL_HANDLE()) bufferShadow[id] = { size: size, usage: usage };
                 var e2 = new Encoder(8);
-                e2.u16(target).u16(usage).u32(srcData >>> 0);
+                e2.u16(target).u16(usage).u32(size);
                 emit(streamId, 12 /* BUFFER_DATA_NULL */, e2.done(12));
                 return;
             }
             var bytes = typedBytes(srcData);
             if (!bytes) badToken('bufferData', 'expected TypedArray/ArrayBuffer data');
+            if (id !== undefined && id !== NULL_HANDLE()) {
+                bufferShadow[id] = { bytes: new Uint8Array(bytes), usage: usage };
+            }
             var range = intern(streamId, bytes);
             var e = new Encoder(8);
             e.u16(target).u16(usage).u32(range);
             emit(streamId, 11 /* BUFFER_DATA */, e.done(11));
         };
 
-        self.bufferSubData = function () {
-            badToken('bufferSubData', 're-upload with bufferData (streams cannot patch)');
+        // `bufferSubData` 改的是"已上传内容的一段"，而 GpuStream 不支持原位
+        // 打补丁：录制面为每块 buffer 留一份字节副本（`bufferData` 时拷一份，
+        // `BUFFER_DATA_NULL` 时只记尺寸、首次打补丁才分配），补丁合并后按
+        // BUFFER_DATA 整块重传——执行器顺序重放，结果与真 GL 一致。
+        self.bufferSubData = function (target, dstByteOffset, srcData, srcOffset, length) {
+            var id = boundBuffers[target];
+            if (id === undefined || id === NULL_HANDLE()) {
+                badToken('bufferSubData', 'no buffer bound to target ' + target);
+            }
+            var entry = bufferShadow[id];
+            if (!entry) {
+                badToken('bufferSubData', 'buffer contents unknown (uploaded before this canvas context)');
+            }
+            if (entry.bytes === undefined) {
+                entry.bytes = new Uint8Array(entry.size);
+                delete entry.size;
+            }
+            var src = typedBytes(srcData);
+            if (!src) badToken('bufferSubData', 'expected TypedArray/ArrayBuffer data');
+            var from = srcOffset ? srcOffset >>> 0 : 0;
+            var count = length === undefined || length === null ? src.byteLength - from : length >>> 0;
+            var dst = dstByteOffset >>> 0;
+            if (dst + count > entry.bytes.length) {
+                badToken('bufferSubData', 'write range exceeds buffer size (' + (dst + count) + ' > ' + entry.bytes.length + ')');
+            }
+            entry.bytes.set(src.subarray(from, from + count), dst);
+            var range = intern(streamId, entry.bytes);
+            var e = new Encoder(8);
+            e.u16(target).u16(entry.usage).u32(range);
+            emit(streamId, 11 /* BUFFER_DATA */, e.done(11));
         };
 
         self.deleteBuffer = function (buffer) {
             if (!buffer) return;
+            var id = resId(buffer, 'deleteBuffer');
+            delete bufferShadow[id];
             var e = new Encoder(4);
-            e.u32(resId(buffer, 'deleteBuffer'));
+            e.u32(id);
             emit(streamId, 13, e.done(13));
+        };
+
+        // ── sampler objects（WebGL2）──────────────────────────────────
+        // 采样状态（wrap/filter/LOD/compare）挂在 sampler 对象上，drawcall
+        // 用 `bindSampler(unit, s)` 生效；纹理自身的 texParameteri 在
+        // WebGL2 下不再承担这件事。
+
+        self.createSampler = function () {
+            var id = __gl_alloc_handle();
+            var e = new Encoder(4);
+            e.u32(id);
+            emit(streamId, 86 /* SAMPLER_CREATE */, e.done(86));
+            return glRes('sampler', id);
+        };
+
+        self.deleteSampler = function (sampler) {
+            if (!sampler) return;
+            var e = new Encoder(4);
+            e.u32(resId(sampler, 'deleteSampler'));
+            emit(streamId, 87 /* SAMPLER_DELETE */, e.done(87));
+        };
+
+        self.bindSampler = function (unit, sampler) {
+            var e = new Encoder(8);
+            e.u32(unit >>> 0).u32(sampler ? resId(sampler, 'bindSampler') : NULL_HANDLE());
+            emit(streamId, 88 /* SAMPLER_BIND */, e.done(88));
+        };
+
+        self.samplerParameteri = function (sampler, pname, value) {
+            if (typeof __ocStderr === 'function') __ocStderr('[smp-param] pname=0x' + (pname >>> 0).toString(16) + ' value=' + value);
+            var e = new Encoder(10);
+            e.u32(resId(sampler, 'samplerParameteri')).u16(pname).i32(value);
+            emit(streamId, 89 /* SAMPLER_PARAM_I */, e.done(89));
+        };
+
+        self.samplerParameterf = function (sampler, pname, value) {
+            var e = new Encoder(10);
+            e.u32(resId(sampler, 'samplerParameterf')).u16(pname).f32(value);
+            emit(streamId, 90 /* SAMPLER_PARAM_F */, e.done(90));
+        };
+
+        // ── WebGL2 状态补面 ─────────────────────────────────────────
+
+        self.stencilFuncSeparate = function (face, func, ref, mask) {
+            var e = new Encoder(12);
+            e.u16(face).u16(func).i32(ref).u32(mask);
+            emit(streamId, 91 /* STENCIL_FUNC_SEPARATE */, e.done(91));
+        };
+
+        self.stencilOpSeparate = function (face, sfail, dpfail, dppass) {
+            var e = new Encoder(8);
+            e.u16(face).u16(sfail).u16(dpfail).u16(dppass);
+            emit(streamId, 92 /* STENCIL_OP_SEPARATE */, e.done(92));
+        };
+
+        self.renderbufferStorageMultisample = function (target, samples, internalformat, width, height) {
+            var e = new Encoder(16);
+            e.u32(samples >>> 0).i32(internalformat).u32(width >>> 0).u32(height >>> 0);
+            emit(streamId, 93 /* RENDERBUFFER_STORAGE_MS */, e.done(93));
+        };
+
+        self.clearBufferfv = function (target, drawbuffer, values) {
+            var v = values || [];
+            var e = new Encoder(22);
+            e.u16(target).i32(drawbuffer)
+                .f32(v[0] || 0).f32(v[1] || 0).f32(v[2] || 0).f32(v[3] || 0);
+            emit(streamId, 94 /* CLEAR_BUFFER_FV */, e.done(94));
+        };
+
+        self.clearBufferiv = function (target, drawbuffer, values) {
+            var v = values || [];
+            var e = new Encoder(22);
+            e.u16(target).i32(drawbuffer)
+                .i32(v[0] || 0).i32(v[1] || 0).i32(v[2] || 0).i32(v[3] || 0);
+            emit(streamId, 95 /* CLEAR_BUFFER_IV */, e.done(95));
+        };
+
+        self.clearBufferfi = function (target, drawbuffer, depth, stencil) {
+            var e = new Encoder(14);
+            e.u16(target).i32(drawbuffer).f32(depth).i32(stencil);
+            emit(streamId, 96 /* CLEAR_BUFFER_FI */, e.done(96));
+        };
+
+        self.bindBufferRange = function (target, index, buffer, offset, size) {
+            if (typeof __ocStderr === 'function' && target === 0x8a11) {
+                var bh = buffer ? resId(buffer, 'bindBufferRange') : 0;
+                var sh = bufferShadow[bh];
+                var f = [];
+                if (sh && sh.bytes) { var dv = new DataView(sh.bytes.buffer, sh.bytes.byteOffset); for (var q = 0; q < 8 && (offset + q * 4 + 4) <= sh.bytes.length; q++) f.push(dv.getFloat32(offset + q * 4, true).toFixed(2)); }
+                __ocStderr('[ubbind] idx=' + index + ' buf=' + bh + ' off=' + offset + ' size=' + size + ' bytes=' + (sh && sh.bytes ? sh.bytes.length : -1) + ' f=' + f.join(','));
+            }
+            var e = new Encoder(18);
+            e.u16(target).u32(index >>> 0)
+                .u32(buffer ? resId(buffer, 'bindBufferRange') : NULL_HANDLE())
+                .i32(offset | 0).i32(size | 0);
+            emit(streamId, 97 /* BIND_BUFFER_RANGE */, e.done(97));
+        };
+
+        // ── query / sync / 回读：不产像素的 WebGL2 面 ────────────────
+        // Query 与 fence 的结果是 GPU 时序/显存状态，帧内容与它无关；录制面
+        // 给出确定性的答案（结果就绪、结果 0、fence 立即满足），语义上是
+        // "查询已支持但没有可报告的统计值"。buffer 回读走 `bufferShadow`
+        // 的内容副本，与真 GL 一致。
+
+        var queries = Object.create(null); // handle -> {done}
+        var activeQueries = Object.create(null); // target -> handle
+        var QUERY_RESULT = 0x8866;
+        var QUERY_RESULT_AVAILABLE = 0x8867;
+        var CONDITION_SATISFIED = 0x911c;
+
+        self.createQuery = function () {
+            var id = __gl_alloc_handle();
+            queries[id] = { done: false };
+            return glRes('query', id);
+        };
+
+        self.deleteQuery = function (query) {
+            if (query) delete queries[resId(query, 'deleteQuery')];
+        };
+
+        self.beginQuery = function (target, query) {
+            var id = resId(query, 'beginQuery');
+            queries[id] = { done: false };
+            activeQueries[target] = id;
+        };
+
+        self.endQuery = function (target) {
+            var id = activeQueries[target];
+            if (id !== undefined) {
+                queries[id] = { done: true };
+                delete activeQueries[target];
+            }
+        };
+
+        self.getQueryParameter = function (query, pname) {
+            var q = queries[resId(query, 'getQueryParameter')];
+            if (pname === QUERY_RESULT_AVAILABLE) return q ? q.done : true;
+            if (pname === QUERY_RESULT) return 0;
+            return 0;
+        };
+
+        self.fenceSync = function () {
+            return glRes('sync', __gl_alloc_handle());
+        };
+
+        self.clientWaitSync = function () {
+            return CONDITION_SATISFIED;
+        };
+
+        self.deleteSync = function () {};
+
+        self.isSync = function (v) {
+            return !!v && typeof v === 'object' && v.__glKind === 'sync';
+        };
+
+        self.getBufferSubData = function (target, srcByteOffset, dstBuffer, dstOffset, length) {
+            var id = boundBuffers[target];
+            var entry = id === undefined || id === NULL_HANDLE() ? null : bufferShadow[id];
+            if (!entry || entry.bytes === undefined) {
+                badToken('getBufferSubData', 'buffer contents unknown (nothing uploaded on this canvas context)');
+            }
+            var dst = typedBytes(dstBuffer);
+            if (!dst) badToken('getBufferSubData', 'expected TypedArray/ArrayBuffer destination');
+            var from = srcByteOffset >>> 0;
+            var to = dstOffset === undefined ? 0 : dstOffset >>> 0;
+            var count = length === undefined ? dst.byteLength - to : length >>> 0;
+            dst.set(entry.bytes.subarray(from, from + count), to);
         };
 
         // ── vao ─────────────────────────────────────────────────────
@@ -742,6 +1002,8 @@
         };
 
         self.vertexAttribPointer = function (nameOrIndex, size, type, normalized, stride, offset) {
+            var key = typeof nameOrIndex === 'string' ? nameOrIndex : 'index:' + (nameOrIndex >>> 0);
+            (globalThis.__ocAttrLayout || (globalThis.__ocAttrLayout = {}))[key] = { size: size, type: type, stride: stride, offset: offset, buf: boundBuffers[0x8892] };
             var e = new Encoder(16);
             e.u32(attrNameRange(nameOrIndex, 'vertexAttribPointer')).u8(size).u16(type).u8(normalized ? 1 : 0).u32(stride).u32(offset);
             emit(streamId, 19, e.done(19));
@@ -959,10 +1221,27 @@
             return { name: a.n, type: a.t, size: 1 };
         };
 
-        self.getUniformBlockIndex = function () {
+        // std140 块的序号由宿主反射给出（GL 无块计数查询，反射会话按序号
+        // 探名）。返回假值会让 device-api 跳过 uniformBlockBinding：三个块
+        // 全停在 binding 0，数据却按 0/1/2 绑 ⇒ 块内容整体错位。
+        self.getUniformBlockIndex = function (program, blockName) {
+            var info = programInfo[resId(program, 'getUniformBlockIndex')];
+            var blocks = (info && info.blocks) || [];
+            for (var i = 0; i < blocks.length; i++) {
+                if (blocks[i].n === String(blockName)) {
+                    if (typeof __ocStderr === 'function') __ocStderr('[ublk] pid=' + resId(program, 'getUniformBlockIndex') + ' ' + blockName + ' -> ' + blocks[i].i + ' of ' + blocks.map(function (b) { return b.n; }).join(','));
+                    return blocks[i].i >>> 0;
+                }
+            }
+            if (typeof __ocStderr === 'function') __ocStderr('[ublk-miss] ' + blockName + ' have ' + blocks.map(function (b) { return b.n; }).join(','));
             return 0xffffffff;
         };
-        self.getActiveUniformBlockName = function () {
+        self.getActiveUniformBlockName = function (program, index) {
+            var info = programInfo[resId(program, 'getActiveUniformBlockName')];
+            var blocks = (info && info.blocks) || [];
+            for (var i = 0; i < blocks.length; i++) {
+                if (blocks[i].i === index) return blocks[i].n;
+            }
             return '';
         };
         self.getActiveUniformBlockParameter = function () {
@@ -1001,6 +1280,7 @@
         };
 
         self.texParameteri = function (target, pname, value) {
+            if (typeof __ocStderr === 'function' && (pname === 0x2800 || pname === 0x2801 || pname === 0x2802 || pname === 0x2803)) __ocStderr('[tex-param] pname=0x' + (pname >>> 0).toString(16) + ' value=0x' + (value >>> 0).toString(16));
             var e = new Encoder(8);
             e.u16(target).u16(pname).i32(value);
             emit(streamId, 33, e.done(33));
@@ -1013,6 +1293,7 @@
         };
 
         self.texImage2D = function (target, level, internalformat, width, height, border, format, type, pixels) {
+
             // WebGL2 六参重载 (target, level, internalformat, format, type,
             // image) — three 的 uploadTexture 一直用这个形态;宽高从 image
             // 推,image 是 TypedArray / surface / 解码位图三选一。
@@ -1039,8 +1320,30 @@
                 }
             }
             var e = new Encoder(24);
-            e.u16(target).u8(level).i32(internalformat).u32(width).u32(height).u16(format).u16(type);
-            if (bytes) {
+            if (typeof __ocStderr === 'function' && bytes && width > 100 && height > 100 && format === 0x1906) {
+                var dumpCell = function (cx, cy) {
+                    var rows = [];
+                    for (var rr = 0; rr < 27; rr++) {
+                        var line = '';
+                        for (var cc = 0; cc < 23; cc++) {
+                            var v = bytes[(cy + rr) * width + cx + cc] || 0;
+                            line += v > 200 ? '#' : (v > 60 ? '+' : (v > 0 ? '.' : ' '));
+                        }
+                        rows.push(line);
+                    }
+                    return rows.join('\n');
+                };
+                __ocStderr('[atlas-up] ' + width + 'x' + height + ' len=' + bytes.length + ' fullmap:');
+                for (var fr = 0; fr < height; fr += 2) {
+                    var fline = '';
+                    for (var fc = 0; fc < width; fc++) {
+                        var fv = bytes[fr * width + fc] || 0;
+                        fline += fv > 200 ? '#' : (fv > 60 ? '+' : (fv > 20 ? '.' : ' '));
+                    }
+                    __ocStderr(fline);
+                }
+            }
+            e.u16(target).u8(level).i32(internalformat).u32(width).u32(height).u16(format).u16(type);            if (bytes) {
                 var range = intern(streamId, bytes);
                 e.u8(1).u32(range);
             } else {
@@ -1050,6 +1353,7 @@
         };
 
         self.texSubImage2D = function (target, level, x, y, width, height, format, type, pixels) {
+
             // 七参重载 (target, level, x, y, format, type, image) 同 texImage2D。
             if (arguments.length === 7) {
                 pixels = arguments[6];
@@ -1148,6 +1452,7 @@
         };
 
         self.bindFramebuffer = function (target, framebuffer) {
+            globalThis.__ocCurFbo = framebuffer ? resId(framebuffer, 'bindFramebuffer') : 0;
             var e = new Encoder(6);
             e.u16(target).u32(framebuffer ? resId(framebuffer, 'bindFramebuffer') : NULL_HANDLE());
             emit(streamId, 40, e.done(40));
@@ -1163,9 +1468,11 @@
             return GL.FRAMEBUFFER_COMPLETE;
         };
 
-        self.framebufferRenderbuffer = function (target, attachment, renderbuffer) {
+        // WebGL 语义是四参 (target, attachment, renderbuffertarget, renderbuffer)：
+        // 第三参恒为 RENDERBUFFER，流的载荷里不带它（执行器按 RENDERBUFFER 绑）。
+        self.framebufferRenderbuffer = function (target, attachment, renderbuffertarget, renderbuffer) {
             var e = new Encoder(8);
-            e.u16(target).u16(attachment).u32(resId(renderbuffer, 'framebufferRenderbuffer'));
+            e.u16(target).u16(attachment).u32(renderbuffer ? resId(renderbuffer, 'framebufferRenderbuffer') : NULL_HANDLE());
             emit(streamId, 67, e.done(67));
         };
         self.createRenderbuffer = function () {
@@ -1185,8 +1492,16 @@
             e.u32(0).i32(internalformat).u32(width).u32(height);
             emit(streamId, 66, e.done(66));
         };
-        self.blitFramebuffer = function () {
-            badToken('blitFramebuffer', 'batch 2 (three RT resolves)');
+        self.blitFramebuffer = function (sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter) {
+            var bits =
+                (mask & GL.COLOR_BUFFER_BIT ? 1 : 0) |
+                (mask & GL.DEPTH_BUFFER_BIT ? 2 : 0) |
+                (mask & GL.STENCIL_BUFFER_BIT ? 4 : 0);
+            var e = new Encoder(36);
+            e.i32(sx0).i32(sy0).i32(sx1).i32(sy1)
+                .i32(dx0).i32(dy0).i32(dx1).i32(dy1);
+            e.u16(bits).u16(filter);
+            emit(streamId, 98 /* BLIT_FRAMEBUFFER */, e.done(98));
         };
 
         self.readPixels = function () {
@@ -1199,6 +1514,7 @@
         // ── state ───────────────────────────────────────────────────
 
         self.viewport = function (x, y, w, h) {
+            globalThis.__ocCurViewport = x + ',' + y + ',' + w + ',' + h;
             var e = new Encoder(16);
             e.i32(x).i32(y).i32(w).i32(h);
             emit(streamId, 42, e.done(42));
@@ -1221,6 +1537,8 @@
         };
 
         self.enable = function (cap) {
+            if (cap === 0x0be2) globalThis.__ocCurBlend = 1;
+            if (cap === 0x0b71) globalThis.__ocCurDepth = 1;
             var e = new Encoder(2);
             e.u16(cap);
             emit(streamId, 45, e.done(45));
@@ -1339,23 +1657,87 @@
         // ── draw ────────────────────────────────────────────────────
 
         self.drawArrays = function (mode, first, count) {
+            globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
+            globalThis.__ocDrawLog += 'A' + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + ' ';
+            if (typeof __ocStderr === 'function') __ocStderr('[da] mode=' + mode + ' first=' + first + ' count=' + count);
             var e = new Encoder(12);
             e.u16(mode).i32(first).i32(count);
             emit(streamId, 57, e.done(57));
         };
 
         self.drawElements = function (mode, count, type, offset) {
+            if (typeof __ocStderr === 'function') {
+                var pr = globalThis.__ocCurProgram;
+                globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
+                globalThis.__ocDrawLog += (globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[pr] ? 'S' : 'o') + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + ' ';
+                var wantDump = (globalThis.__ocSdfPrograms && globalThis.__ocSdfPrograms[pr]) || globalThis.__ocDumpAllDraw;
+                if (typeof __ocStderr === 'function' && !wantDump) __ocStderr('[de] count=' + count + ' pr=' + pr);
+                if (wantDump) {
+                    __ocStderr('[draw-sdf] count=' + count);
+                    try {
+                        var ab = boundBuffers[0x8892], eb = boundBuffers[0x8893];
+                        var abB = ab !== undefined && bufferShadow[ab] && bufferShadow[ab].bytes;
+                        var ebB = eb !== undefined && bufferShadow[eb] && bufferShadow[eb].bytes;
+                        var idxs = [];
+                        if (ebB && type === 0x1403) {
+                            var u16v = new Uint16Array(ebB.buffer, ebB.byteOffset, ebB.byteLength >> 1);
+                            for (var i2 = 0; i2 < Math.min(count, 18); i2++) idxs.push(u16v[(offset >> 1) + i2]);
+                        } else if (ebB && type === 0x1405) {
+                            var u32v = new Uint32Array(ebB.buffer, ebB.byteOffset, ebB.byteLength >> 2);
+                            for (var i3 = 0; i3 < Math.min(count, 18); i3++) idxs.push(u32v[(offset >> 2) + i3]);
+                        }
+                        var out = 'idx=[' + idxs.join(',') + ']';
+                        var layout = globalThis.__ocAttrLayout || {};
+                        var keys = Object.keys(layout).sort();
+                        var maxIdx = 0;
+                        for (var mi = 0; mi < idxs.length; mi++) if (idxs[mi] > maxIdx) maxIdx = idxs[mi];
+                        out += ' maxIdx=' + maxIdx;
+                        for (var ki = 0; ki < keys.length; ki++) {
+                            var L = layout[keys[ki]];
+                            var bB = L.buf !== undefined && L.buf !== 0xffffffff && bufferShadow[L.buf] && bufferShadow[L.buf].bytes;
+                            if (!bB || L.type !== 0x1406) { out += ' ' + keys[ki] + '=?'; continue; }
+                            var f32 = new Float32Array(bB.buffer, bB.byteOffset, bB.byteLength >> 2);
+                            var strideF = (L.stride || 0) >> 2;
+                            var parts = [];
+                            for (var k = 0; k < Math.min(idxs.length, 6); k++) {
+                                var vi = idxs[k];
+                                var base = strideF ? vi * strideF + ((L.offset || 0) >> 2) : vi * L.size + ((L.offset || 0) >> 2);
+                                var vals = [];
+                                for (var c = 0; c < L.size; c++) vals.push(Math.round(f32[base + c] * 100) / 100);
+                                parts.push(vals.join(','));
+                            }
+                            out += ' ' + keys[ki] + '/b' + L.buf + '(' + L.size + ',st' + L.stride + ',of' + L.offset + ',bytes' + bB.byteLength + ')[' + parts.join(' | ') + ']';
+                        }
+                        // stride128 instance 布局：顶点 0 的完整 32 floats
+                        var st128 = null;
+                        for (var si = 0; si < keys.length; si++) {
+                            if ((layout[keys[si]].stride || 0) === 128) { st128 = layout[keys[si]]; break; }
+                        }
+                        if (st128 && st128.buf !== undefined && bufferShadow[st128.buf] && bufferShadow[st128.buf].bytes) {
+                            var sf = new Float32Array(bufferShadow[st128.buf].bytes.buffer, bufferShadow[st128.buf].bytes.byteOffset, bufferShadow[st128.buf].bytes.byteLength >> 2);
+                            var row = [];
+                            for (var fi = 0; fi < Math.min(32, sf.length); fi++) row.push(Math.round(sf[fi] * 1000) / 1000);
+                            out += ' | inst0[32f]=' + row.join(',');
+                        }
+                        __ocStderr('[vtx] ' + out);
+                    } catch (err) { __ocStderr('[vtx-err] ' + err); }
+                }
+            }
             var e = new Encoder(12);
             e.u16(mode).i32(count).u16(type).i32(offset);
             emit(streamId, 58, e.done(58));
         };
         self.drawArraysInstanced = function (mode, first, count, primcount) {
+            globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
+            globalThis.__ocDrawLog += 'AI' + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + 'x' + primcount + ' ';
             var e = new Encoder(14);
             e.u16(mode).i32(first).i32(count).i32(primcount);
             emit(streamId, 76, e.done(76));
         };
         self.drawElementsInstanced = function (mode, count, type, offset, primcount) {
-            var e = new Encoder(14);
+            globalThis.__ocDrawLog = (globalThis.__ocDrawLog || '');
+            globalThis.__ocDrawLog += 'EI' + (globalThis.__ocCurFbo ? 'F' + globalThis.__ocCurFbo : '-') + ':' + count + 'x' + primcount + ' ';
+            var e = new Encoder(16);
             e.u16(mode).i32(count).u16(type).i32(offset).i32(primcount);
             emit(streamId, 77, e.done(77));
         };
@@ -1365,6 +1747,7 @@
             emit(streamId, 75, e.done(75));
         };
         self.uniformBlockBinding = function (program, blockIndex, blockBinding) {
+            if (typeof __ocStderr === 'function') __ocStderr('[ublk-bind] pid=' + resId(program, 'uniformBlockBinding') + ' idx=' + blockIndex + ' binding=' + blockBinding);
             var e = new Encoder(12);
             e.u32(resId(program, 'uniformBlockBinding')).u32(blockIndex >>> 0).u32(blockBinding >>> 0);
             emit(streamId, 79, e.done(79));
@@ -1388,7 +1771,12 @@
             emit(streamId, 85, e.done(85));
         };
 
-        self.flush = function () {};
+        self.flush = function () {
+            if (typeof __ocStderr === 'function') {
+                __ocStderr('[drawlog] ' + (globalThis.__ocDrawLog || '').trim());
+                globalThis.__ocDrawLog = '';
+            }
+        };
         self.finish = function () {};
 
         return self;

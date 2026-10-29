@@ -241,7 +241,6 @@
                 ops.push({ k: 'r', x: x, y: y, w: w, h: h, fill: this.fillStyle });
             },
             getImageData: function (x, y, w, h) {
-                if (typeof __ocStderr === 'function') __ocStderr('[shadow-gid-in] ' + w + 'x' + h + ' ops=' + ops.length + ' hasCtx=' + (globalThis.ctx && typeof globalThis.ctx.surface === 'function'));
                 if (globalThis.ctx && typeof globalThis.ctx.surface === 'function' && ops.length) {
                     // 重放走画布自身的尺寸（浏览器里画布内容属性即像素缓冲
                     // 尺寸；读区域可以超出内容区，浏览器会补透明）。
@@ -251,23 +250,8 @@
                     try {
                         img = replayIntoSurface(cw, ch).getImageData(x, y, w, h);
                     } catch (e) {
-                        if (typeof __ocStderr === 'function') __ocStderr('[shadow-replay-threw] ' + ((e && e.stack) || e));
                         var z0 = new Uint8ClampedArray(Math.max(0, w | 0) * Math.max(0, h | 0) * 4);
                         return { width: w, height: h, data: z0 };
-                    }
-                    var nz = 0, mx = 0;
-                    for (var i3 = 3; i3 < img.data.length; i3 += 4) { if (img.data[i3] > 0) nz++; if (img.data[i3] > mx) mx = img.data[i3]; }
-                    if (typeof __ocStderr === 'function') {
-                        var rows = [];
-                        for (var rr = 0; rr < Math.min(h | 0, 24); rr++) {
-                            var line = '';
-                            for (var cc = 0; cc < Math.min(w | 0, 32); cc++) {
-                                var a = img.data[(rr * w + cc) * 4 + 3];
-                                line += a > 200 ? '#' : (a > 60 ? '+' : (a > 0 ? '.' : ' '));
-                            }
-                            rows.push(line);
-                        }
-                        __ocStderr('[shadow-gid] ' + w + 'x' + h + ' font=' + (ops[0] && ops[0].font) + ' text=' + JSON.stringify(ops[0] && ops[0].text) + '\n' + rows.join('\n'));
                     }
                     return img;
                 }

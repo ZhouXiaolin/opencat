@@ -31,8 +31,6 @@ use opencat_core::ir::GpuOpFrame;
 
 #[derive(Default)]
 pub struct GpuStreamExecutor {
-    /// TEMP 探针（OC_DBG_VTX）：loc → (buf handle, size, ty, stride, offset)
-    probe_loc_binds: HashMap<u32, (u32, u8, u16, u32, u32)>,
     /// 内容 hash → 编译好的程序（跨帧/跨流复用）。
     program_cache: HashMap<String, ProgramEntry>,
     /// 内容 hash → 已上载纹理（跳过重传）。
@@ -271,16 +269,6 @@ impl GpuStreamExecutor {
         let ops = &stream.ops.ops;
         let bytes: &[u8] = &stream.ops.bytes;
         let ranges: &[opencat_core::ir::draw_types::TableRange] = &stream.ops.byte_ranges;
-        if std::env::var_os("OC_DBG_GPU").is_some() {
-            eprintln!(
-                "OCGPU stream '{}' {}x{} ops={} bytes={}",
-                stream.target_id,
-                stream.width,
-                stream.height,
-                ops.len(),
-                bytes.len()
-            );
-        }
 
         // 流首状态对齐：GPU 管线下 Skia 合成与流执行共享上下文，上一帧
         // restore 之后的 Skia pass 会改真状态（blend/depth 等）。客户端
@@ -314,35 +302,6 @@ impl GpuStreamExecutor {
         let mut r = Replay { gl, ops, bytes, ranges };
         let st = r.run(self)?;
 
-        // TEMP：每流输出 readPixels dump（分辨流内绘制 vs 合成问题）
-        if std::env::var_os("OC_DBG_STREAMDUMP").is_some() {
-            unsafe {
-                let n = (stream.width as usize) * (stream.height as usize) * 4;
-                let mut px = vec![0u8; n];
-                gl.bind_framebuffer(
-                    glow::FRAMEBUFFER,
-                    Some(glow::NativeFramebuffer(
-                        std::num::NonZeroU32::new(out_fbo).unwrap(),
-                    )),
-                );
-                gl.read_pixels(
-                    0,
-                    0,
-                    stream.width as i32,
-                    stream.height as i32,
-                    glow::RGBA,
-                    glow::UNSIGNED_BYTE,
-                    glow::PixelPackData::Slice(&mut px),
-                );
-                let path = format!(
-                    "C:/Users/zhoux/AppData/Local/Temp/stream_{}.raw",
-                    stream.target_id.replace(['/', '\\', ':'], "_")
-                );
-                std::fs::write(&path, &px).ok();
-                eprintln!("[streamdump] {} {}x{} -> {}", stream.target_id, stream.width, stream.height, path);
-            }
-        }
-
         // 占位不在本帧 plan = 该 canvas 子树本帧不可见（opacity 0 / 裁剪/
         // 移出屏）——流照常执行：three 等持久 renderer 的资源创建命令
         // （program/纹理/VBO）只在首帧录一次，跳过执行会让 GL 侧永远收
@@ -352,12 +311,6 @@ impl GpuStreamExecutor {
             .iter_mut()
             .find(|e| e.id == stream.image_id)
         else {
-            if std::env::var_os("OC_DBG_GPU").is_some() {
-                eprintln!(
-                    "OCGPU stream '{}' 占位不在本帧 plan（不可见）——已执行、输出丢弃",
-                    stream.target_id
-                );
-            }
             crate::gpu::gl::delete_framebuffer(gl, out_fbo);
             crate::gpu::gl::delete_texture(gl, out_tex);
             let _ = st;
@@ -577,31 +530,16 @@ impl<'a> Replay<'a> {
                 let opcode = self.ops[p];
                 let start = p;
                 p += 1;
-                if std::env::var_os("OC_DBG_ERRTRACE").is_some() {
-                    let err = gl.get_error();
-                    if err != 0 {
-                        eprintln!("[err] before op={opcode} @{start} err={err:#x}");
-                    }
-                }
-                if std::env::var_os("OC_DBG_OPS").is_some() {
-                    eprintln!("OCOP @{start:06} op={opcode}");
-                }
                 match opcode {
                     gl_opcode::SHADER_CREATE => {
                         let ty = rd_u16(self.ops, &mut p) as u32;
                         let id = rd_u32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_SHADER").is_some() {
-                            eprintln!("OCGL SHADER_CREATE ty={ty:#x} id={id}");
-                        }
                         ex.shader_stage.insert(id, ty);
                     }
                     gl_opcode::SHADER_SOURCE => {
                         let id = rd_u32(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
                         let src = self.range_bytes(range)?.to_vec();
-                        if std::env::var_os("OC_DBG_SHADER").is_some() {
-                            eprintln!("OCGL SHADER_SOURCE id={id} len={}", src.len());
-                        }
                         ex.shader_src.insert(id, src);
                     }
                     gl_opcode::COMPILE_SHADER => {
@@ -613,12 +551,6 @@ impl<'a> Replay<'a> {
                     gl_opcode::PROGRAM_ATTACH => {
                         let pid = rd_u32(self.ops, &mut p);
                         let sid = rd_u32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_SHADER").is_some() {
-                            eprintln!(
-                                "OCGL ATTACH pid={pid} sid={sid} stage={:?}",
-                                ex.shader_stage.get(&sid)
-                            );
-                        }
                         let slot = ex.program_shaders.entry(pid).or_default();
                         if ex.shader_stage.get(&sid) == Some(&0x8B31) {
                             slot.0 = Some(sid);
@@ -637,11 +569,6 @@ impl<'a> Replay<'a> {
                             ex.cur_program_key = None;
                             gl.use_program(None);
                         } else {
-                            if std::env::var_os("OC_DBG_SHADER").is_some()
-                                || std::env::var_os("OC_DBG_VTX").is_some()
-                            {
-                                eprintln!("OCGL USE pid={pid}");
-                            }
                             let key = ex.program_key_for(gl, pid)?;
                             let entry = ex
                                 .program_cache
@@ -673,9 +600,6 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::VAO_DELETE => {
                         let h = rd_u32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_OPS2").is_some() {
-                            eprintln!("OCVAO DELETE handle={h}");
-                        }
                         ex.obj_vaos.remove(&h);
                         if ex.cur_vao == Some(h) {
                             ex.cur_vao = None;
@@ -731,51 +655,11 @@ impl<'a> Replay<'a> {
                             .bound_buffer(target as u32)
                             .and_then(|h| ex.obj_buffers.get(&h).copied())
                             .ok_or_else(|| anyhow!("BUFFER_DATA 无客户端绑定 buffer"))?;
-                        gl.bind_buffer(desktop_buffer_target(target as u32), Some(buf));
-                        // TEMP-PROBE 破坏实验：定位 draw 实际消费哪批上传。
-                        let broken = match std::env::var("OC_DBG_BREAK").as_deref() {
-                            Ok("arr") if target as u32 == glow::ARRAY_BUFFER => true,
-                            Ok("ele")
-                                if target as u32 == glow::ELEMENT_ARRAY_BUFFER
-                                    || target as u32 == 0x8F37 =>
-                            {
-                                true
-                            }
-                            _ => false,
-                        };
-                        let d: &[u8] = if broken {
-                            &vec![0u8; data.len()]
-                        } else {
-                            data
-                        };
-                        gl.buffer_data_u8_slice(desktop_buffer_target(target as u32), d, usage as u32);
                         // g-device-api 全部 setSubData 走 WebGL 的
                         // COPY_WRITE_BUFFER(0x8F37)：枚举直传桌面 GL 是
                         // INVALID_ENUM，buffer 全空——SDF 文字因此错位。
-                        if std::env::var_os("OC_DBG_VTX").is_some() {
-                            let f8: Vec<f32> = data[..data.len().min(32)]
-                                .chunks_exact(4)
-                                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                                .collect();
-                            eprintln!(
-                                "OCBD tgt={:#x} len={} cur_ele={} f0..7={:?} err={:#x}",
-                                target as u32,
-                                data.len(),
-                                ex.cur_element.unwrap_or(0),
-                                f8,
-                                gl.get_error()
-                            );
-                        }
-                        // TEMP：抓 UBO（UNIFORM_BUFFER=0x8A11）大块上传的次数与内容
-                        if target as u32 == 0x8A11 && data.len() >= 32000
-                            && std::env::var_os("OC_DBG_VTX").is_some()
-                        {
-                            let f: Vec<f32> = data[..32]
-                                .chunks_exact(4)
-                                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                                .collect();
-                            eprintln!("[OCUBO] upload len={} err={:#x} f0..7={:?}", data.len(), gl.get_error(), f);
-                        }
+                        gl.bind_buffer(desktop_buffer_target(target as u32), Some(buf));
+                        gl.buffer_data_u8_slice(desktop_buffer_target(target as u32), data, usage as u32);
                     }
                     gl_opcode::BUFFER_DATA_NULL => {
                         let target = rd_u16(self.ops, &mut p);
@@ -790,9 +674,6 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::VAO_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_OPS2").is_some() {
-                            eprintln!("OCVAO CREATE handle={handle} new={}", !ex.obj_vaos.contains_key(&handle));
-                        }
                         ex.obj_vaos.entry(handle).or_insert_with(|| {
                             gl.create_vertex_array().expect("create_vertex_array")
                         });
@@ -844,12 +725,6 @@ impl<'a> Replay<'a> {
                                 stride as i32,
                                 offset as i32,
                             );
-                            if std::env::var_os("OC_DBG_VTX").is_some() {
-                                if let Some(h) = ex.bound_buffer(glow::ARRAY_BUFFER) {
-                                    ex.probe_loc_binds
-                                        .insert(loc, (h, size, ty, stride, offset));
-                                }
-                            }
                         }
                     }
                     gl_opcode::ATTRIB_DIVISOR => {
@@ -888,9 +763,6 @@ impl<'a> Replay<'a> {
                     gl_opcode::UNIFORM_1I => {
                         let range = rd_u32(self.ops, &mut p);
                         let v = rd_i32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_VTX").is_some() {
-                            eprintln!("[u1i] range={range} v={v}");
-                        }
                         gl.uniform_1_i32(self.uniform_loc(ex, &state, range)?.as_ref(), v);
                     }
                     gl_opcode::UNIFORM_NF => {
@@ -1011,17 +883,6 @@ impl<'a> Replay<'a> {
                             "{tex_handle}|{internal}|{w}x{h}|{format}|{ty}|{}",
                             hash_bytes(data.as_deref().unwrap_or(&[])),
                         );
-                        if std::env::var_os("OC_DBG_ATLAS").is_some() && w > 100 && h > 100 {
-                            if let Some(bytes) = data.as_deref() {
-                                let n = std::env::var("OC_DBG_ATLAS_N").ok().and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
-                                std::env::set_var("OC_DBG_ATLAS_N", (n + 1).to_string());
-                                let dir = std::env::temp_dir();
-                                let path = dir.join(format!("atlas_{n}_{w}x{h}_{format}.raw"));
-                                let path = path.display().to_string();
-                                let _ = std::fs::write(&path, bytes);
-                                eprintln!("[atlas-raw] {path} len={} fmt={format} internal={internal}", bytes.len());
-                            }
-                        }
                         if !ex.texture_cache.contains(&content_key) {
                             gl.bind_texture(target as u32, Some(tex));
                             gl.tex_image_2d(
@@ -1381,26 +1242,6 @@ impl<'a> Replay<'a> {
                                 gl.create_buffer().expect("create_buffer")
                             }))
                         };
-                        if std::env::var_os("OC_DBG_VTX").is_some() && target == 0x8A11 {
-                            unsafe {
-                                gl.bind_buffer(glow::ARRAY_BUFFER, buf);
-                                let mut dst = [0u8; 64];
-                                gl.get_buffer_sub_data(
-                                    glow::ARRAY_BUFFER,
-                                    0,
-                                    &mut dst,
-                                );
-                                let f: Vec<f32> = dst
-                                    .chunks_exact(4)
-                                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                                    .collect();
-                                eprintln!(
-                                    "[OCUBB] ubo h={} idx={} data={:?}",
-                                    handle, index, &f[..8]
-                                );
-                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                            }
-                        }
                         gl.bind_buffer_base(target as u32, index, buf);
                     }
                     gl_opcode::DRAW_ARRAYS_INSTANCED => {
@@ -1442,9 +1283,6 @@ impl<'a> Replay<'a> {
                         let program = rd_u32(self.ops, &mut p);
                         let block_index = rd_u32(self.ops, &mut p);
                         let binding = rd_u32(self.ops, &mut p);
-                        if std::env::var("OC_DBG_VTX").is_ok() {
-                            eprintln!("[OCUB] pid={} idx={} binding={}", program, block_index, binding);
-                        }
                         // program pid 在 link/use 时解析（同 USE 路径的缓存）：
                         // 块绑定是 program 对象状态，必须在真 program 上执行。
                         let key = ex.program_key_for(gl, program)?;
@@ -1539,13 +1377,6 @@ impl<'a> Replay<'a> {
                         let mode = rd_u16(self.ops, &mut p);
                         let first = rd_i32(self.ops, &mut p);
                         let count = rd_i32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_OPS2").is_some() {
-                            eprintln!(
-                                "OCDA mode={mode:#x} first={first} count={count} prog={:?} vao={:?}",
-                                state.program.map(|x| x.0.get()),
-                                ex.cur_vao,
-                            );
-                        }
                         gl.draw_arrays(mode as u32, first, count);
                     }
                     gl_opcode::FRAMEBUFFER_RENDERBUFFER => {
@@ -1581,9 +1412,6 @@ impl<'a> Replay<'a> {
                     gl_opcode::SAMPLER_BIND => {
                         let unit = rd_u32(self.ops, &mut p);
                         let handle = rd_u32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_VTX").is_some() {
-                            eprintln!("[smpbind] unit={unit} handle={handle}");
-                        }
                         let smp = if handle == NULL_HANDLE {
                             None
                         } else {
@@ -1598,19 +1426,6 @@ impl<'a> Replay<'a> {
                         let pname = rd_u16(self.ops, &mut p);
                         let value = rd_i32(self.ops, &mut p);
                         if let Some(smp) = ex.obj_samplers.get(&handle).copied() {
-                            let mut value = value;
-                            if std::env::var_os("OC_DBG_VTX").is_some() {
-                                eprintln!(
-                                    "[smpparam] handle={handle} pname={pname:#04x} value={value:#x}"
-                                );
-                            }
-                            if std::env::var_os("OC_DBG_NOMIP").is_some() && pname as u32 == 0x2801 {
-                                value = match value {
-                                    0x2700..=0x2703 => 0x2600,
-                                    0x2704..=0x2707 => 0x2601,
-                                    v => v,
-                                };
-                            }
                             gl.sampler_parameter_i32(smp, pname as u32, value);
                         }
                     }
@@ -1703,53 +1518,6 @@ impl<'a> Replay<'a> {
                                 gl.create_buffer().expect("create_buffer")
                             }))
                         };
-                        if std::env::var_os("OC_DBG_BREAK3").is_some()
-                            && target == 0x8A11
-                            && index == 1
-                            && offset == 256
-                        {
-                            unsafe {
-                                gl.bind_buffer(glow::ARRAY_BUFFER, buf);
-                                let zeros = vec![0u8; size as usize];
-                                gl.buffer_sub_data_u8_slice(
-                                    glow::ARRAY_BUFFER,
-                                    offset,
-                                    &zeros,
-                                );
-                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                            }
-                            eprintln!("[OCBREAK3] ubo idx=1 zeroed at off={offset}");
-                        }
-                        if std::env::var_os("OC_DBG_VTX").is_some()
-                            && target == 0x8A11
-                            && offset != 256
-                        {
-                            unsafe {
-                                gl.bind_buffer(glow::ARRAY_BUFFER, buf);
-                                let mut dst = [0u8; 32];
-                                gl.get_buffer_sub_data(
-                                    glow::ARRAY_BUFFER,
-                                    offset,
-                                    &mut dst,
-                                );
-                                let f: Vec<f32> = dst
-                                    .chunks_exact(4)
-                                    .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                                    .collect();
-                                eprintln!(
-                                    "[OCUBR] ubo h={} idx={} off={} size={} at-off={:?}",
-                                    handle, index, offset, size, &f
-                                );
-                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                            }
-                        }
-                        let mut offset = offset;
-                        if std::env::var_os("OC_DBG_BREAKEQ").is_some()
-                            && target == 0x8A11
-                            && index == 1
-                        {
-                            offset = 256;
-                        }
                         gl.bind_buffer_range(target as u32, index, buf, offset, size);
                     }
                     gl_opcode::BLIT_FRAMEBUFFER => {
@@ -1782,181 +1550,6 @@ impl<'a> Replay<'a> {
                         let count = rd_i32(self.ops, &mut p);
                         let ty = rd_u16(self.ops, &mut p);
                         let offset = rd_i32(self.ops, &mut p);
-                        if std::env::var_os("OC_DBG_OPS2").is_some() {
-                            let ele =
-                                gl.get_parameter_i32(glow::ELEMENT_ARRAY_BUFFER_BINDING);
-                            eprintln!(
-                                "OCDE mode={mode:#x} count={count} ty={ty:#x} off={offset} prog={:?} ele_buf={ele}",
-                                state.program.map(|p| p.0.get())
-                            );
-                        }
-                        if count >= 30 && std::env::var_os("OC_DBG_VTX").is_some() {
-                            let err = gl.get_error();
-                            let ele = gl.get_parameter_i32(glow::ELEMENT_ARRAY_BUFFER_BINDING);
-                            eprintln!(
-                                "OCVTX count={count} ty={ty:#x} err={err:#x} ele={ele} vao={:?} prog={:?}",
-                                ex.cur_vao,
-                                state.program.map(|p| p.0.get()),
-                            );
-                            // TEMP：dump 采样器 uniform 与各 unit 纹理绑定
-                            let prev = gl.get_parameter_i32(glow::ACTIVE_TEXTURE);
-                            for u in 0..8u32 {
-                                gl.active_texture(glow::TEXTURE0 + u);
-                                let t = gl.get_parameter_i32(glow::TEXTURE_BINDING_2D);
-                                let s = gl.get_parameter_i32(glow::SAMPLER_BINDING);
-                                eprintln!("[unit{u}] tex={t} smp={s}");
-                            }
-                            gl.active_texture(prev as u32);
-                            // TEMP：消融实验（关 depth/cull 看 sold/Y轴复活）
-                            if std::env::var_os("OC_DBG_NODEPTH").is_some() {
-                                gl.disable(glow::DEPTH_TEST);
-                            }
-                            if std::env::var_os("OC_DBG_NOCULL").is_some() {
-                                gl.disable(glow::CULL_FACE);
-                            }
-                            let gp = |w: &glow::Context, k: u32| -> i32 {
-                                w.get_parameter_i32(k)
-                            };
-                            let mut box4 = [0i32; 4];
-                            gl.get_parameter_i32_slice(glow::SCISSOR_BOX, &mut box4);
-                            let mut vp4 = [0i32; 4];
-                            gl.get_parameter_i32_slice(glow::VIEWPORT, &mut vp4);
-                            let mut cm4 = [0i32; 4];
-                            gl.get_parameter_i32_slice(glow::COLOR_WRITEMASK, &mut cm4);
-                            let (blend_src_rgb, blend_dst_rgb) = (
-                                gp(gl, glow::BLEND_SRC_RGB),
-                                gp(gl, glow::BLEND_DST_RGB),
-                            );
-                            let (blend_src_a, blend_dst_a) = (
-                                gp(gl, glow::BLEND_SRC_ALPHA),
-                                gp(gl, glow::BLEND_DST_ALPHA),
-                            );
-                            let (beq_rgb, beq_a) = (
-                                gp(gl, glow::BLEND_EQUATION_RGB),
-                                gp(gl, glow::BLEND_EQUATION_ALPHA),
-                            );
-                            eprintln!(
-                                "[state] blend on={} srcRGB={blend_src_rgb:#x} dstRGB={blend_dst_rgb:#x} srcA={blend_src_a:#x} dstA={blend_dst_a:#x} eqRGB={beq_rgb:#x} eqA={beq_a:#x}",
-                                gp(gl, glow::BLEND) != 0
-                            );
-                            eprintln!(
-                                "[state] depthTest={} depthMask={} depthFunc={:#x} cullFace={} cullMode={:#x}",
-                                gp(gl, glow::DEPTH_TEST) != 0,
-                                gp(gl, glow::DEPTH_WRITEMASK),
-                                gp(gl, glow::DEPTH_FUNC),
-                                gp(gl, glow::CULL_FACE) != 0,
-                                gp(gl, glow::CULL_FACE_MODE),
-                            );
-                            eprintln!(
-                                "[state] scissor={} box={box4:?} viewport={vp4:?} colorMask={cm4:?} stencilMask={:#x} dither={} sampleAlpha={}",
-                                gp(gl, glow::SCISSOR_TEST) != 0,
-                                gp(gl, glow::STENCIL_WRITEMASK),
-                                gp(gl, glow::DITHER) != 0,
-                                gp(gl, glow::SAMPLE_ALPHA_TO_COVERAGE) != 0,
-                            );
-                            // TEMP：按 pointer 账本 dump 每 attrib 前 2 顶点真数据
-                            let mut dump = String::new();
-                            let binds: Vec<_> = ex.probe_loc_binds.iter().collect();
-                            for (loc, (h, size, ty, stride, off)) in binds {
-                                if let Some(buf) = ex.obj_buffers.get(&h) {
-                                    unsafe {
-                                        gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buf));
-                                        // loc12(Tex) 特例：dump 前 100 顶点（25 字形全量）
-                                        let nv = if *loc == 12 { 104 } else { 8 };
-                                        let n = (*stride as usize * nv).max(16);
-                                        let mut dst = vec![0u8; n];
-                                        gl.get_buffer_sub_data(
-                                            glow::ARRAY_BUFFER,
-                                            *off as i32,
-                                            &mut dst,
-                                        );
-                                        let f: Vec<f32> = dst
-                                            .chunks_exact(4)
-                                            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                                            .collect();
-                                        let upto = if *loc == 12 {
-                                            f.len()
-                                        } else {
-                                            (n / 4).min(32)
-                                        };
-                                        dump.push_str(&format!(
-                                            " loc{loc}[b{h} sz{size} ty{ty:#x} st{stride} of{off}] {:?}",
-                                            &f[..upto]
-                                        ));
-                                    }
-                                }
-                            }
-                            gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                            // TEMP：dump 索引 buffer 前 24 个索引（当前 VAO 已绑定
-                            // ELEMENT，勿重新 bind/unbind——会污染 VAO 状态）
-                            if let Some(eh) = ex.cur_element {
-                                unsafe {
-                                    let mut ibb = [0u8; 96];
-                                    gl.get_buffer_sub_data(
-                                        glow::ELEMENT_ARRAY_BUFFER,
-                                        0,
-                                        &mut ibb,
-                                    );
-                                    let ib: Vec<u32> = ibb
-                                        .chunks_exact(4)
-                                        .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                                        .collect();
-                                    eprintln!("[OCIDX] ele_h={eh} first24={ib:?}");
-                                }
-                            }
-                            eprintln!("[OCVTD]{dump}");
-                            // TEMP：count==150（Y 轴刻度+sold）全量 instance 平移与 Offset
-                            if count == 150 && std::env::var_os("OC_DBG_VTX").is_some() {
-                                for (loc, (h, size, ty, stride, off)) in ex.probe_loc_binds.iter() {
-                                    if *loc != 3 && *loc != 13 {
-                                        continue;
-                                    }
-                                    if let Some(buf) = ex.obj_buffers.get(h) {
-                                        unsafe {
-                                            gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buf));
-                                            // probe_loc_binds 的 size 是 attrib component
-                                            // 数不是字节数——按 loc 硬编码读取长度
-                                            let n = if *loc == 3 { 3200 } else { 1600 };
-                                            let mut dst = vec![0u8; n];
-                                            gl.get_buffer_sub_data(
-                                                glow::ARRAY_BUFFER,
-                                                *off as i32,
-                                                &mut dst,
-                                            );
-                                            let f: Vec<f32> = dst
-                                                .chunks_exact(4)
-                                                .map(|c| {
-                                                    f32::from_le_bytes([c[0], c[1], c[2], c[3]])
-                                                })
-                                                .collect();
-                                            let per = (*stride as usize / 4).max(1);
-                                            for (i, v) in f.chunks_exact(per).enumerate() {
-                                                if *loc == 3 || i < 26 {
-                                                    eprintln!(
-                                                        "[OCY] l{loc} i{i} =({},{},{},{})",
-                                                        v[0], v[1], v[2], v[3]
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            // TEMP 实验：重放全部 pointer 再 draw（须先绑对应 buffer）
-                            if std::env::var_os("OC_DBG_FIXPTR").is_some() {
-                                for (loc, (h, size, ty, stride, off)) in ex.probe_loc_binds.iter() {
-                                    if let Some(buf) = ex.obj_buffers.get(h) {
-                                        gl.bind_buffer(glow::ARRAY_BUFFER, Some(*buf));
-                                        gl.vertex_attrib_pointer_f32(
-                                            *loc, *size as i32, *ty as u32, false,
-                                            *stride as i32, *off as i32,
-                                        );
-                                    }
-                                }
-                                gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                                eprintln!("[OCFIX] re-applied {} pointers", ex.probe_loc_binds.len());
-                            }
-                        }
                         gl.draw_elements(mode as u32, count, ty as u32, offset);
                     }
                     other => bail!("gpu stream: 未知 opcode {other} @ {start}"),
@@ -2019,9 +1612,6 @@ impl<'a> Replay<'a> {
         // 驱动 active attribute 序一致，直接当 location 用。
         if let Some(idx) = name.strip_prefix("index:") {
             let loc: u32 = idx.parse()?;
-            if std::env::var_os("OC_DBG_VTX").is_some() {
-                eprintln!("OCAP lit name={name} loc={loc}");
-            }
             return Ok(Some(loc));
         }
         let key = state
@@ -2057,19 +1647,10 @@ impl GpuStreamExecutor {
             .get(&pid)
             .and_then(|s| Some((s.0?, s.1?)))
             .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 shader"))?;
-        let vs = self.shader_src.get(&vid).ok_or_else(|| {
-            if std::env::var_os("OC_DBG_SHADER").is_some() {
-                let mut ks: Vec<u32> = self.shader_src.keys().copied().collect();
-                ks.sort_unstable();
-                let mut lens: Vec<(u32, usize)> =
-                    self.shader_src.iter().map(|(k, v)| (*k, v.len())).collect();
-                lens.sort_unstable();
-                eprintln!(
-                    "OCGL MISS pid={pid} vid={vid} keys={ks:?} lens={lens:?}"
-                );
-            }
-            anyhow!("gpu stream: program {pid} 缺 vs 源")
-        })?;
+        let vs = self
+            .shader_src
+            .get(&vid)
+            .ok_or_else(|| anyhow!("gpu stream: program {pid} 缺 vs 源"))?;
         let fs = self
             .shader_src
             .get(&fid)
@@ -2082,9 +1663,6 @@ impl GpuStreamExecutor {
             .get(&pid)
             .cloned()
             .unwrap_or_default();
-        if std::env::var_os("OC_DBG_VTX").is_some() && !binds.is_empty() {
-            eprintln!("OCAB pid={pid} binds={:?}", binds);
-        }
         let key = if binds.is_empty() {
             base
         } else {
@@ -2098,48 +1676,9 @@ impl GpuStreamExecutor {
             format!("{base}|ab{}", hash_bytes(material.as_bytes()))
         };
         if !self.program_cache.contains_key(&key) {
-            // TEMP：env 开关的 NDC 位置可视化（文字 program 专属；不污染 bundle）
-            let mut vs_src =
-                desktop_glsl(std::str::from_utf8(vs)?, naga::ShaderStage::Vertex)?;
-            let mut fs_src =
-                desktop_glsl(std::str::from_utf8(fs)?, naga::ShaderStage::Fragment)?;
-            if std::env::var_os("OC_DBG_FSDIST").is_some() && vs_src.contains("a_Tex") {
-                vs_src = vs_src
-                    .replace(
-                        "out vec2 v_Uv;",
-                        "out vec2 v_Uv;\nout vec2 v_Debug;",
-                    )
-                    .replace(
-                        "gl_Position = project(vec4(a_Position.xy + offset, u_ZIndex, 1.0), u_ProjectionMatrix, u_ViewMatrix, u_ModelMatrix);",
-                        "gl_Position = project(vec4(a_Position.xy + offset, u_ZIndex, 1.0), u_ProjectionMatrix, u_ViewMatrix, u_ModelMatrix); v_Debug = gl_Position.xy / gl_Position.w;",
-                    );
-                fs_src = fs_src
-                    .replace("in vec2 v_Uv;", "in vec2 v_Uv;\nin vec2 v_Debug;");
-                if std::env::var("OC_DBG_FSDIST").as_deref() == Ok("raw") {
-                    // 原始采样可视化：RGB=texture(u_SDFMap,v_Uv)，不 discard
-                    fs_src = fs_src.replace(
-                        "float dist = texture(u_SDFMap, v_Uv).a;",
-                        "vec4 rawS = texture(u_SDFMap, v_Uv); outputColor = vec4(rawS.a, rawS.r, rawS.g, 1.0); return; float dist = rawS.a;",
-                    );
-                } else {
-                    fs_src = fs_src.replace(
-                        "float dist = texture(u_SDFMap, v_Uv).a;",
-                        "outputColor = vec4(v_Debug.x * 0.5 + 0.5, v_Debug.y * 0.5 + 0.5, 0.0, 1.0); return; float dist = texture(u_SDFMap, v_Uv).a;",
-                    );
-                }
-            }
+            let vs_src = desktop_glsl(std::str::from_utf8(vs)?, naga::ShaderStage::Vertex)?;
+            let fs_src = desktop_glsl(std::str::from_utf8(fs)?, naga::ShaderStage::Fragment)?;
             let entry = compile_program_entry(gl, &vs_src, &fs_src, &binds)?;
-            if std::env::var_os("OC_DBG_SHADER").is_some() {
-                let mut table = String::new();
-                for n in &entry.attrib_names {
-                    let loc =
-                        unsafe { gl.get_attrib_location(entry.program, n) }.unwrap_or(0);
-                    table.push_str(&format!("{n}={loc} "));
-                }
-                eprintln!("OCPROG pid={pid} key={key} binds={} attrs: {table}", binds.len());
-                eprintln!("OCVSSRC-START\n{vs_src}\nOCVSSRC-END");
-                eprintln!("OCFSSRC-START\n{fs_src}\nOCFSSRC-END");
-            }
             self.program_cache.insert(key.clone(), entry);
         }
         self.program_key_by_pid.insert(pid, key.clone());

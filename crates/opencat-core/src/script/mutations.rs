@@ -670,6 +670,10 @@ use crate::ir::draw_op::DrawOp;
 #[derive(Debug, Clone, Default)]
 pub struct CanvasMutations {
     pub commands: Vec<DrawOp>,
+    /// g-svg 渲染器的产物：容器下整棵 `<svg>` 子树的 markup。SVG 渲染器
+    /// 不产 DrawOp，所以这条与 `commands` 互斥；存在时 resolve 把该 canvas
+    /// 解析成 `ElementKind::Svg`（内联 markup），走 usvg 渲染管线。
+    pub svg: Option<String>,
 }
 
 // ── Style mutations collection ────────────────────────────────────
@@ -707,6 +711,14 @@ impl StyleMutations {
         }
     }
 
+    /// 本帧该 canvas 节点录到的 SVG markup（g-svg 渲染器产物）。多层
+    /// mutation 时后写的覆盖先写的（每帧最多一次捕获）。
+    pub fn svg_markup_for(&self, id: &str) -> Option<&str> {
+        self.canvas_mutations
+            .get(id)
+            .and_then(|m| m.svg.as_deref())
+    }
+
     pub fn text_content_for(&self, id: &str) -> Option<&str> {
         self.mutations
             .get(id)
@@ -723,6 +735,9 @@ impl StyleMutations {
         for (canvas_id, canvas_mutations) in self.canvas_mutations {
             for cmd in canvas_mutations.commands {
                 recorder.record_draw_op(&canvas_id, cmd);
+            }
+            if let Some(markup) = canvas_mutations.svg {
+                recorder.record_canvas_svg(&canvas_id, markup);
             }
         }
     }
@@ -741,6 +756,9 @@ impl StyleMutations {
         for (canvas_id, canvas_mutations) in &self.canvas_mutations {
             for cmd in &canvas_mutations.commands {
                 recorder.record_draw_op(canvas_id, cmd.clone());
+            }
+            if let Some(markup) = &canvas_mutations.svg {
+                recorder.record_canvas_svg(canvas_id, markup.clone());
             }
         }
     }

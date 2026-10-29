@@ -239,10 +239,11 @@
     }
 
     class Font {
+        /* `typeface` 是惰性句柄（Typeface.MakeFreeTypeFaceFromData 的返回，
+           当前为 null）：字体字节由宿主 scoped fontdb 供给，句柄不跨桥。
+           接受任意值让 g 系 fontLoader 原样跑通。 */
         constructor(typeface = null, size = 16, scaleX = 1, skewX = 0) {
-            if (typeface != null) {
-                throw new Error('custom typeface is not supported yet; pass null for system default');
-            }
+            this._typeface = typeface;
             this._size = Math.max(1, toFiniteNumber(size, 16));
             this._scaleX = toFiniteNumber(scaleX, 1);
             this._skewX = toFiniteNumber(skewX, 0);
@@ -251,7 +252,7 @@
         }
 
         copy() {
-            const copy = new Font(null, this._size, this._scaleX, this._skewX);
+            const copy = new Font(this._typeface, this._size, this._scaleX, this._skewX);
             copy._subpixel = this._subpixel;
             copy._edging = this._edging;
             return copy;
@@ -261,6 +262,20 @@
 
         getSize() {
             return this._size;
+        }
+
+        /* 文字基线盒。度量绑定 `__canvas_measure_paragraph` 缺席时（web 重放
+           无该绑定）按 Skia 常见比例兜底——过渡面，批次 B 统一走 core 文本
+           引擎后由真度量供给。 */
+        getMetrics() {
+            const measured = typeof __canvas_measure_paragraph === 'function'
+                ? __canvas_measure_paragraph('', this._size, 'sans-serif', 400)
+                : null;
+            return {
+                ascent: toFiniteNumber(measured && measured.ascent, this._size * 0.8),
+                descent: toFiniteNumber(measured && measured.descent, this._size * 0.2),
+                leading: 0,
+            };
         }
 
         measureText(str) {
@@ -307,20 +322,18 @@
 
     class Paint {
         constructor() {
+            // SkPaint 默认态：不透明黑、Fill、hairline(0)、无 AA、Butt/Miter。
+            // g 系渲染器在 `lineWidth > 0` 的 guard 之前就构造 stroke paint，
+            // guard 跳过整个配置块后 paint 保持默认——真 CanvasKit 画出的
+            // 就是默认样式（G2 柱状图全黑的真上游行为），这里必须同默认。
             this._color = [0, 0, 0, 1];
             this._style = CanvasKit.PaintStyle.Fill;
-            this._strokeWidth = 1;
+            this._strokeWidth = 0;
             this._strokeCap = CanvasKit.StrokeCap.Butt;
             this._strokeJoin = CanvasKit.StrokeJoin.Miter;
             this._pathEffect = null;
-            this._antiAlias = true;
+            this._antiAlias = false;
             this._shader = null;
-            // False until any setter runs. g-canvaskit builds stroke paints
-            // before checking `lineWidth > 0`, so a skipped block leaves a
-            // never-configured paint that then draws as an opaque default-black
-            // fill (the G2 bar-rendered-black bug). Callers that care — the G2
-            // surface proxy — check this flag and drop the draw.
-            this._configured = false;
         }
 
         copy() {
@@ -341,7 +354,6 @@
                 : null;
             copy._antiAlias = this._antiAlias;
             copy._shader = this._shader;
-            copy._configured = this._configured;
             return copy;
         }
 
@@ -491,6 +503,55 @@
             return copy;
         }
 
+        /* 官方签名：transform(scaleX, skewX, transX, skewY, scaleY, transY,
+           pers0, pers1, pers2) 或 transform(matrix9, resultPath?)——数组按
+           行主序读。g-canvaskit 的阴影路径传 gl-matrix mat3（列主序）原样
+           进来，官方 canvaskit 同样按行主序误读——两端保持同一误读即对齐。
+           仿射六元生效，透视分量忽略（阴影是纯平移）。 */
+        transform(...args) {
+            let m;
+            if (args.length === 1 && Array.isArray(args[0])) {
+                m = args[0];
+            } else if (args.length >= 6) {
+                m = args;
+            } else {
+                throw new Error('Path.transform: expected a 9-entry matrix or 9 numbers');
+            }
+            const [a, b, c, d, e, f] = m.map((v) => toFiniteNumber(v, 0));
+            const apply = (x, y) => [a * x + b * y + c, d * x + e * y + f];
+            const rebuilt = [];
+            for (const op of this._ops) {
+                if (op[0] === 'close') {
+                    rebuilt.push(op.slice());
+                    continue;
+                }
+                if (op[0] === 'addRect') {
+                    const [x, y, w, h] = [op[1], op[2], op[3], op[4]];
+                    const [x0, y0] = apply(x, y);
+                    const [x1, y1] = apply(x + w, y + h);
+                    rebuilt.push(['addRect', Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)]);
+                    continue;
+                }
+                if (op[0] === 'addRRect') {
+                    // 圆角矩阵变换后不再是标准 RRect；退化为外接矩形。
+                    const [x, y, w, h] = [op[1], op[2], op[3], op[4]];
+                    const [x0, y0] = apply(x, y);
+                    const [x1, y1] = apply(x + w, y + h);
+                    rebuilt.push(['addRect', Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)]);
+                    continue;
+                }
+                const next = op.slice();
+                for (let i = 1; i + 1 < next.length; i += 2) {
+                    const [px, py] = apply(next[i], next[i + 1]);
+                    next[i] = px;
+                    next[i + 1] = py;
+                }
+                rebuilt.push(next);
+            }
+            this._ops = rebuilt;
+            return this;
+        }
+
         delete() {}
 
         moveTo(x, y) {
@@ -529,6 +590,120 @@
 
         close() {
             this._ops.push(['close']);
+            return this;
+        }
+
+        /* 当前画笔落点：扫描 ops 取最后一个端点；close 回到子路径起点。
+           arcToRotated 的椭圆弧以它为起点。 */
+        _lastPoint() {
+            let x = 0;
+            let y = 0;
+            let subpathStart = null;
+            for (const op of this._ops) {
+                if (op[0] === 'close') {
+                    if (subpathStart) {
+                        x = subpathStart[0];
+                        y = subpathStart[1];
+                    }
+                    continue;
+                }
+                if (op[0] === 'addRect' || op[0] === 'addRRect') {
+                    x = op[1];
+                    y = op[2];
+                    subpathStart = [x, y];
+                    continue;
+                }
+                x = op[op.length - 2];
+                y = op[op.length - 1];
+                if (op[0] === 'moveTo') subpathStart = [x, y];
+            }
+            return { x, y };
+        }
+
+        /* 官方签名 arcToRotated(rx, ry, xAxisDeg, largeArc, sweep, x, y)：
+           SVG 椭圆弧语义，分解为三次贝塞尔（90° 段近似）。饼图/theta 坐标
+           系的弧形 mark 走这里。 */
+        arcToRotated(rx, ry, xAxisDegree, largeArc, sweep, x, y) {
+            rx = Math.abs(toFiniteNumber(rx));
+            ry = Math.abs(toFiniteNumber(ry));
+            const x2 = toFiniteNumber(x);
+            const y2 = toFiniteNumber(y);
+            const cur = this._lastPoint();
+            const x1 = cur.x;
+            const y1 = cur.y;
+            if (rx === 0 || ry === 0 || (x1 === x2 && y1 === y2)) {
+                this.lineTo(x2, y2);
+                return this;
+            }
+            const phi = toFiniteNumber(xAxisDegree) * Math.PI / 180;
+            const cosPhi = Math.cos(phi);
+            const sinPhi = Math.sin(phi);
+            const dx2 = (x1 - x2) / 2;
+            const dy2 = (y1 - y2) / 2;
+            const x1p = cosPhi * dx2 + sinPhi * dy2;
+            const y1p = -sinPhi * dx2 + cosPhi * dy2;
+            let rx2 = rx * rx;
+            let ry2 = ry * ry;
+            const lambda = (x1p * x1p) / rx2 + (y1p * y1p) / ry2;
+            if (lambda > 1) {
+                const s = Math.sqrt(lambda);
+                rx *= s;
+                ry *= s;
+                rx2 = rx * rx;
+                ry2 = ry * ry;
+            }
+            const sign = largeArc !== sweep ? 1 : -1;
+            const num = rx2 * ry2 - rx2 * y1p * y1p - ry2 * x1p * x1p;
+            const den = rx2 * y1p * y1p + ry2 * x1p * x1p;
+            const coef = sign * Math.sqrt(Math.max(0, num / den));
+            const cxp = (coef * rx * y1p) / ry;
+            const cyp = (-coef * ry * x1p) / rx;
+            const cx = cosPhi * cxp - sinPhi * cyp + (x1 + x2) / 2;
+            const cy = sinPhi * cxp + cosPhi * cyp + (y1 + y2) / 2;
+            const angleBetween = (ux, uy, vx, vy) => {
+                const dot = ux * vx + uy * vy;
+                const len = Math.sqrt(ux * ux + uy * uy) * Math.sqrt(vx * vx + vy * vy);
+                let a = Math.acos(Math.min(1, Math.max(-1, dot / len)));
+                if (ux * vy - uy * vx < 0) a = -a;
+                return a;
+            };
+            const theta1 = angleBetween(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+            let dTheta = angleBetween((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+            if (!sweep && dTheta > 0) dTheta -= 2 * Math.PI;
+            if (sweep && dTheta < 0) dTheta += 2 * Math.PI;
+            const segments = Math.ceil(Math.abs(dTheta / (Math.PI / 2)));
+            const delta = dTheta / segments;
+            const t = (4 / 3) * Math.tan(delta / 4);
+            let px = x1;
+            let py = y1;
+            for (let i = 0; i < segments; i++) {
+                const th0 = theta1 + i * delta;
+                const th1 = th0 + delta;
+                const cos0 = Math.cos(th0);
+                const sin0 = Math.sin(th0);
+                const cos1 = Math.cos(th1);
+                const sin1 = Math.sin(th1);
+                const ex = cosPhi * rx * cos1 - sinPhi * ry * sin1 + cx;
+                const ey = sinPhi * rx * cos1 + cosPhi * ry * sin1 + cy;
+                const d0x = t * (-cosPhi * rx * sin0 - sinPhi * ry * cos0);
+                const d0y = t * (-sinPhi * rx * sin0 + cosPhi * ry * cos0);
+                const d1x = t * (cosPhi * rx * sin1 + sinPhi * ry * cos1);
+                const d1y = t * (sinPhi * rx * sin1 - cosPhi * ry * cos1);
+                this.cubicTo(px + d0x, py + d0y, ex + d1x, ey + d1y, ex, ey);
+                px = ex;
+                py = ey;
+            }
+            return this;
+        }
+
+        /* 官方签名 addPoly(points, close)：points 是 [x0,y0,x1,y1,…] 平铺。 */
+        addPoly(points, close) {
+            const flat = Array.prototype.slice.call(points);
+            for (let i = 0; i + 1 < flat.length; i += 2) {
+                if (i === 0) this.moveTo(flat[0], flat[1]);
+                else this.lineTo(flat[i], flat[i + 1]);
+            }
+            if (close) this.close();
             return this;
         }
 
@@ -683,6 +858,149 @@
         throw new Error(`unsupported TileMode: ${value}`);
     }
 
+    /* ── Paragraph 实现（批次 B：shape 载荷 → path，度量与绘制同源）──
+       一个段落 = 一次度量 + 一次绘制。度量与绘制都吃 `__canvas_glyph_paths`
+       的 shape 载荷；emoji（ColorImage）段落走生成图位图。 */
+    function paragraphStyleOf(textStyle) {
+        const style = textStyle || {};
+        const family = Array.isArray(style.fontFamilies) && style.fontFamilies.length
+            ? String(style.fontFamilies[0]).replace(/["']/g, '')
+            : 'sans-serif';
+        const size = toFiniteNumber(style.fontSize, 12);
+        const weight = toFiniteNumber(style.fontStyle && style.fontStyle.weight, 400);
+        return { family, size, weight, color: style.color };
+    }
+
+    function paragraphMetricsOf(text, textStyle) {
+        const style = paragraphStyleOf(textStyle);
+        /* 批次 B：优先 shape 绑定——glyph path 载荷 + 真排版度量，度量与
+           绘制同源。绑定缺席（旧宿主）时落回 surface 的 kern-free 简排。 */
+        if (typeof __canvas_glyph_paths === 'function') {
+            const shaped = __canvas_glyph_paths(text, style.size, style.family, Math.round(style.weight) || 400) || {};
+            const glyphMap = {};
+            for (const g of shaped.glyphs || []) glyphMap[g.k] = g.ops;
+            const ascent = toFiniteNumber(shaped.ascent, style.size * 0.8);
+            const descent = toFiniteNumber(shaped.descent, style.size * 0.2);
+            return {
+                ...style,
+                shaped: true,
+                glyphMap,
+                positions: shaped.positions || [],
+                colorOnly: shaped.color === true,
+                width: toFiniteNumber(shaped.width, 0),
+                height: ascent + descent,
+                ascent,
+                descent,
+            };
+        }
+        const measured = typeof __canvas_measure_paragraph === 'function'
+            ? (__canvas_measure_paragraph(text, style.size, style.family, style.weight) || {})
+            : {};
+        const ascent = toFiniteNumber(measured.ascent, style.size * 0.8);
+        const descent = toFiniteNumber(measured.descent, style.size * 0.2);
+        return {
+            ...style,
+            width: toFiniteNumber(measured.width, 0),
+            height: ascent + descent,
+            ascent,
+            descent,
+        };
+    }
+
+    class ParagraphImpl {
+        constructor(text, paragraphStyle, textStyle) {
+            this.text = String(text == null ? '' : text);
+            this.paragraphStyle = paragraphStyle || {};
+            this.textStyle = textStyle || {};
+            this._laidWidth = 0;
+            this.__metrics = null;
+        }
+
+        get _metrics() {
+            if (!this.__metrics) this.__metrics = paragraphMetricsOf(this.text, this.textStyle);
+            return this.__metrics;
+        }
+
+        layout(width) {
+            this._laidWidth = Math.max(0, toFiniteNumber(width, 0));
+        }
+
+        getMaxWidth() {
+            return this._metrics.width;
+        }
+
+        getHeight() {
+            return this._metrics.height;
+        }
+
+        /* CanvasKit 的行盒是 ascent（基线上方，正值）+ descent。g-canvaskit
+           按 textBaseline 平移段落，其基线在 `ascent` 处——其它取值会把
+           每个标签整体移动。 */
+        getLineMetrics() {
+            const m = this._metrics;
+            return [{
+                startIndex: 0,
+                endIndex: this.text.length,
+                ascent: m.ascent,
+                descent: m.descent,
+                left: 0,
+                width: m.width,
+                height: m.height,
+                baseline: m.ascent,
+            }];
+        }
+
+        getRectsForRange() {
+            const m = this._metrics;
+            return [{ rect: { x: 0, y: 0, w: m.width, h: m.height } }];
+        }
+
+        delete() {}
+    }
+
+    class ParagraphBuilderImpl {
+        constructor(paragraphStyle) {
+            this.paragraphStyle = paragraphStyle || {};
+            this.textStyle = {};
+            this.parts = [];
+        }
+
+        addText(text) {
+            this.parts.push(String(text));
+            return this;
+        }
+
+        pushStyle(style) {
+            if (style) {
+                const next = Object.assign({}, this.textStyle);
+                for (const key in style) {
+                    if (Object.prototype.hasOwnProperty.call(style, key)) {
+                        const value = style[key];
+                        // Skia fontStyle arrives as { weight: { value } }.
+                        if (key === 'fontStyle' && value && typeof value === 'object'
+                            && value.weight && typeof value.weight === 'object') {
+                            next.fontStyle = { weight: value.weight };
+                        } else {
+                            next[key] = value;
+                        }
+                    }
+                }
+                this.textStyle = next;
+            }
+            return this;
+        }
+
+        pop() {
+            return this;
+        }
+
+        build() {
+            return new ParagraphImpl(this.parts.join(''), this.paragraphStyle, this.textStyle);
+        }
+
+        delete() {}
+    }
+
     const CanvasKit = {
         Color(r, g, b, a = 1) {
             return [
@@ -769,6 +1087,115 @@
                     delete() {}
                 };
             }
+        },
+        /* ── Matrix：官方 canvaskit-wasm helpers 的 3x3 row-major 展开 ──
+           x' = m0·x + m1·y + m2（透视 w = m6·x + m7·y + m8，见 mapPoints），
+           内存序与 `__canvas_concat` → SkMatrix 一致。原样展开自
+           canvaskit.js：rotated/scaled/skewed 的 pivot 平移补正、invert 的
+           伴随除行列式（不可逆 → null）、multiply 的左到右 reduce。 */
+        Matrix: {
+            identity() {
+                return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+            },
+            invert(m) {
+                const d = m[0] * m[4] * m[8] + m[1] * m[5] * m[6] + m[2] * m[3] * m[7]
+                    - m[2] * m[4] * m[6] - m[1] * m[3] * m[8] - m[0] * m[5] * m[7];
+                if (!d) return null;
+                return [
+                    (m[4] * m[8] - m[5] * m[7]) / d, (m[2] * m[7] - m[1] * m[8]) / d, (m[1] * m[5] - m[2] * m[4]) / d,
+                    (m[5] * m[6] - m[3] * m[8]) / d, (m[0] * m[8] - m[2] * m[6]) / d, (m[2] * m[3] - m[0] * m[5]) / d,
+                    (m[3] * m[7] - m[4] * m[6]) / d, (m[1] * m[6] - m[0] * m[7]) / d, (m[0] * m[4] - m[1] * m[3]) / d,
+                ];
+            },
+            mapPoints(m, pts) {
+                for (let i = 0; i < pts.length; i += 2) {
+                    const x = pts[i];
+                    const y = pts[i + 1];
+                    const w = m[6] * x + m[7] * y + m[8];
+                    const yRow = m[3] * x + m[4] * y + m[5];
+                    pts[i] = (m[0] * x + m[1] * y + m[2]) / w;
+                    pts[i + 1] = yRow / w;
+                }
+                return pts;
+            },
+            multiply(...ms) {
+                if (ms.length < 2) {
+                    throw new Error('Matrix.multiply expects at least two matrices');
+                }
+                let acc = ms[0].slice();
+                for (let i = 1; i < ms.length; i++) {
+                    const a = acc;
+                    const b = ms[i];
+                    const out = new Array(9);
+                    for (let r = 0; r < 3; r++) {
+                        for (let c = 0; c < 3; c++) {
+                            let sum = 0;
+                            for (let k = 0; k < 3; k++) sum += a[r * 3 + k] * b[k * 3 + c];
+                            out[r * 3 + c] = sum;
+                        }
+                    }
+                    acc = out;
+                }
+                return acc;
+            },
+            rotated(radians, px = 0, py = 0) {
+                const s = Math.sin(radians);
+                const c = Math.cos(radians);
+                return [c, -s, s * py + (1 - c) * px, s, c, -s * px + (1 - c) * py, 0, 0, 1];
+            },
+            scaled(sx, sy, px = 0, py = 0) {
+                return [sx, 0, px - sx * px, 0, sy, py - sy * py, 0, 0, 1];
+            },
+            skewed(kx, ky, px = 0, py = 0) {
+                return [1, kx, -kx * px, ky, 1, -ky * py, 0, 0, 1];
+            },
+            translated(dx, dy) {
+                return [1, 0, dx, 0, 1, dy, 0, 0, 1];
+            },
+        },
+        /* Image 编码字节直通（`ImageRef::Encoded` 先例）：core 不解释载荷，
+           解码归两端渲染器。句柄携带原始字节，drawImage 时进帧 bytes 表。 */
+        Image: {
+            MakeFromEncoded(data) {
+                if (!(data instanceof Uint8Array)) {
+                    throw new Error('MakeFromEncoded expects a Uint8Array of encoded (PNG/JPEG/...) bytes');
+                }
+                const handle = {
+                    __opencatImage: true,
+                    __opencatEncoded: data,
+                    assetId: '',
+                    width() { return 0; },
+                    height() { return 0; },
+                    delete() {},
+                };
+                handle.makeShader = function () {
+                    throw new Error('an encoded image cannot be a shader child — declare the asset in JSX (ctx.getImage)');
+                };
+                return handle;
+            },
+            MakeFromImage(image) {
+                return image;
+            },
+        },
+        /* SVG path 字符串 → 官方 Path。usvg 解析（svg-align 管线），段
+           命令经 `__oc_path_from_svg` 回来后组装。 */
+        makePathFromSVGString(svg) {
+            if (typeof __oc_path_from_svg !== 'function') {
+                throw new Error('makePathFromSVGString requires the host path binding');
+            }
+            const flat = __oc_path_from_svg(String(svg));
+            if (!flat) return null;
+            const path = new Path();
+            for (let i = 0; i < flat.length;) {
+                const cmd = flat[i++];
+                if (cmd === 0) { path.moveTo(flat[i++], flat[i++]); }
+                else if (cmd === 1) { path.lineTo(flat[i++], flat[i++]); }
+                else if (cmd === 2) { path.quadTo(flat[i++], flat[i++], flat[i++], flat[i++]); }
+                else if (cmd === 3) { path.cubicTo(flat[i++], flat[i++], flat[i++], flat[i++], flat[i++], flat[i++]); }
+                else if (cmd === 4) { path.close(); }
+                else { throw new Error(`makePathFromSVGString: unknown verb ${cmd}`); }
+            }
+            return path;
         },
         /* Enum values are the Skia C++ constants (canvaskit-wasm exposes them
            as embind numbers), so `CK.PaintStyle.Fill === 0` etc. holds. */
@@ -874,16 +1301,44 @@
                 return { __opencatImageFilter: true, sigmaX: sigmaX, sigmaY: sigmaY, mode: mode };
             },
         },
-        /* Signature-only (zero corpus): paragraph text is data-only in OpenCat —
-           core lays out glyph runs (cosmic-text); draw text through the 2D
-           surface or declare it in JSX. */
+        /* ── Paragraph 签名面（过渡：位图贴回，批次 B 换血 cosmic-text→path）──
+           g 系渲染器（@antv/g-canvaskit）经此面排版文字。度量走真字体绑定
+           `__canvas_measure_paragraph`；绘制经 Canvas.drawParagraph 把文字
+           光栅成帧内生成位图贴回节点 DrawOp 流（g2-para 通道）。签名与
+           canvaskit-wasm 的 Paragraph 一致：layout/getMaxWidth/getHeight/
+           getLineMetrics/getRectsForRange/delete。 */
         ParagraphStyle: function ParagraphStyle(style) {
-            throw new Error('ParagraphStyle is not available — draw text with the 2D surface fillText / JSX text');
+            this.style = style || {};
         },
         ParagraphBuilder: {
-            Make(style, fontMgr) {
-                throw new Error('ParagraphBuilder.Make is not available — draw text with the 2D surface fillText / JSX text');
+            Make(style) {
+                return new ParagraphBuilderImpl(style);
             },
+        },
+        TextDirection: { LTR: 0, RTL: 1 },
+        TextAlign: { Left: 0, Right: 1, Center: 2, Justify: 3, Start: 4, End: 5 },
+        TextBaseline: { Alphabetic: 0, Ideographic: 1 },
+        RectHeightStyle: { Tight: 0, Max: 1 },
+        // g-canvaskit 的文本装饰构建（TextRenderer → DecorationStyle.Solid）
+        // 会读这个枚举；官方 canvaskit 的数值。
+        DecorationStyle: { Solid: 0, Double: 1, Dotted: 2, Dashed: 3, Wavy: 4 },
+        /* FontMgr/Typeface 是惰性签名面：字体字节由宿主 scoped fontdb 供给
+           （face 查找按 family 名走 `__canvas_*` 度量/绘制绑定），管理器对象
+           不携带字体。批次 B 换血为 core 文本引擎后维持同签名。 */
+        FontMgr: {
+            FromData() {
+                return {
+                    matchFamilyStyle() { return null; },
+                    countFamilies() { return 0; },
+                    getFamilyName() { return ''; },
+                    delete() {},
+                };
+            },
+        },
+        Typeface: {
+            MakeDefault() { return null; },
+            MakeFreeTypeFaceFromData() { return null; },
+            MakeFromName() { return null; },
         },
         /* Official signatures: `canvas` is an id string, a useRef() element
            handle, or a DOM handle with .id. Returns a recording Surface —
@@ -1127,6 +1582,7 @@
             },
 
             drawPath(path, paint) {
+                
                 const resolvedPath = ensurePath(path);
                 const resolvedPaint = ensurePaint(paint);
                 if (resolvedPaint._style === CanvasKit.PaintStyle.Stroke) {
@@ -1142,6 +1598,7 @@
             },
 
             drawRect(rect, paint) {
+                
                 const normalized = normalizeRect(rect);
                 const resolvedPaint = ensurePaint(paint);
                 if (resolvedPaint._shader
@@ -1421,6 +1878,17 @@
             drawImage(image, x, y, paint) {
                 const resolvedImage = ensureImage(image);
                 const imagePaint = resolveImagePaint(paint);
+                if (resolvedImage.__opencatEncoded) {
+                    __canvas_draw_image_encoded(
+                        id,
+                        Array.from(resolvedImage.__opencatEncoded),
+                        toFiniteNumber(x),
+                        toFiniteNumber(y),
+                        imagePaint.alpha,
+                        imagePaint.antiAlias
+                    );
+                    return this;
+                }
                 __canvas_draw_image_simple(
                     id,
                     resolvedImage.assetId,
@@ -1497,11 +1965,63 @@
                 return this;
             },
 
-            /* Signature placeholder (zero corpus, see ARCHITECTURE.md §2):
-               paragraph text is laid out in core (cosmic-text) and drawn as
-               data; there is no SkParagraph on the canvas path. */
+            /* 段落绘制（批次 B 转路径）：shape 载荷烘成一个 Path 一次
+               drawPath——glyph 位置平移进 path 坐标，DrawOp 流里只剩
+               path，两端各自重放（web 零文本栈）。基线 = y + ascent
+               （官方 drawParagraph 的 y 是段落顶）。emoji（ColorImage）
+               段落走生成图位图——Generated 是 core 宪法允许的先例。 */
             drawParagraph(paragraph, x, y) {
-                throw new Error('drawParagraph is not available — draw text with the 2D surface fillText / JSX text');
+                if (!(paragraph instanceof ParagraphImpl)) {
+                    throw new Error('drawParagraph expects a CanvasKit.Paragraph');
+                }
+                const text = paragraph.text;
+                if (!text) return this;
+                const m = paragraph._metrics;
+                const color = Array.isArray(m.color) ? m.color : [0, 0, 0, 1];
+                if (!m.shaped) {
+                    // shape 绑定（__canvas_glyph_paths）在 core 宿主常在；
+                    // 缺席 = 宿主装配损坏，loud fail 不静默回位图。
+                    throw new Error('drawParagraph: glyph shaping binding unavailable');
+                }
+                if (m.colorOnly) {
+                    __canvas_draw_paragraph(
+                        id,
+                        text,
+                        m.size,
+                        m.family,
+                        Math.round(m.weight) || 400,
+                        colorToCss(color),
+                        toFiniteNumber(x),
+                        toFiniteNumber(y),
+                        m.width,
+                        m.height
+                    );
+                    return this;
+                }
+                const bx = toFiniteNumber(x);
+                const by = toFiniteNumber(y) + m.ascent;
+                const path = new Path();
+                for (const pos of m.positions) {
+                    const ops = m.glyphMap[pos.k];
+                    if (!ops) continue;
+                    const gx = bx + pos.x;
+                    const gy = by + pos.y;
+                    for (const op of ops) {
+                        switch (op[0]) {
+                            case 0: path.moveTo(gx + op[1], gy + op[2]); break;
+                            case 1: path.lineTo(gx + op[1], gy + op[2]); break;
+                            case 2: path.quadTo(gx + op[1], gy + op[2], gx + op[3], gy + op[4]); break;
+                            case 3: path.cubicTo(gx + op[1], gy + op[2], gx + op[3], gy + op[4], gx + op[5], gy + op[6]); break;
+                            case 4: path.close(); break;
+                            default: throw new Error(`drawParagraph: unknown glyph op ${op[0]}`);
+                        }
+                    }
+                }
+                const paint = new Paint();
+                paint.setColor(color);
+                paint.setAntiAlias(true);
+                this.drawPath(path, paint);
+                return this;
             },
         };
     }
@@ -1833,6 +2353,15 @@
             },
             flush() {},
             dispose() {},
+            /* Emscripten 堆 API：g 系渲染器销毁路径（RenderingService.destroy
+               → surface.deleteLater）逐个调用；录制 surface 没有堆，no-op。 */
+            deleteLater() {},
+            delete() {},
+            /* g-canvaskit 每帧 drawFrame 第一行调 isDeleted()——缺失会把整帧
+               绘制打成静默 TypeError（2026-10-28 corpus 首跑定位）。 */
+            isDeleted() {
+                return false;
+            },
             width() {
                 return surfaceMetaNumber('width');
             },
@@ -1842,8 +2371,16 @@
             makeImageSnapshot() {
                 throw new Error('Surface.makeImageSnapshot is not available — a recording surface has no pixels; use ctx.surface(w, h) + getImageData for pixel access');
             },
-            requestAnimationFrame() {
-                throw new Error('Surface.requestAnimationFrame is not available — frames are f(t); register per-frame drawing with useEffect/useGSAP');
+            /* g 系渲染器的 draw loop 经此入队（CanvasKit 语义：回调收到
+               surface 的 canvas）。realm 的同步 rAF 队列在本次 host flush
+               中排空（`__ocFlushRaf`），回调拿到本 surface 的 canvas。 */
+            requestAnimationFrame(callback) {
+                if (typeof globalThis.requestAnimationFrame !== 'function') {
+                    throw new Error('Surface.requestAnimationFrame requires the realm frame queue');
+                }
+                return globalThis.requestAnimationFrame(() => {
+                    callback(this.getCanvas());
+                });
             },
         };
     }

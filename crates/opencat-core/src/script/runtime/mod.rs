@@ -41,11 +41,12 @@ pub const DOM_API_RUNTIME: &str = include_str!("dom_api.js");
 // Loaded after `NODE_STYLE_RUNTIME` — the node facade's `getContext` branch
 // calls `ctx.getContext` defined here.
 pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
-// AntV G2 chart runtime. `G2_BUNDLE` is the built @antv/g2 +
-// @antv/g-canvaskit IIFE (built by the same esbuild chain as g2-rs);
-// `G2_API_RUNTIME` is the host side that binds G2 to an OpenCat <canvas>
-// through the existing `__canvas_*` bindings.
-pub const G2_BUNDLE: &str = include_str!("g2/g2.bundle.js");
+// AntV G2 chart runtime (host side). The bundle (`@antv/g2` +
+// `@antv/g-canvaskit`) is project-supplied as a `g2` segment of the
+// single-file bundle and required lazily through the module table — gsap /
+// three 同款，core 不嵌第三方包。`G2_API_RUNTIME` binds G2 to an OpenCat
+// <canvas> through the official faces (shadow DOM, realm clock, CanvasKit
+// facade).
 pub const G2_API_RUNTIME: &str = include_str!("g2/g2_api.js");
 
 // JSX frontend (`parse::jsx`): element factory + `use*` registry + module

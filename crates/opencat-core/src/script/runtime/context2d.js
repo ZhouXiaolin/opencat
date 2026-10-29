@@ -5,9 +5,10 @@
 // State (fillStyle /
 // strokeStyle / lineWidth / font…) lives in one record per context and is
 // lowered per call into CK paint state + draw ops, exactly like
-// `applyFillPaint` does for CanvasKit Paint objects. Text goes through
-// `__canvas_draw_paragraph` (offscreen surface → frame generated image →
-// real-font glyphs), matching every other text path.
+// `applyFillPaint` does for CanvasKit Paint objects. Text shapes through
+// `__canvas_glyph_paths` (the same payload the CanvasKit Paragraph path
+// eats) and bakes glyphs into a 2D path fill — the DrawOp stream only ever
+// sees a path.
 //
 // What this buys: real packages written against `getContext('2d')` (progress
 // rings, sparklines, particles) run unmodified on the CK backend. Anything
@@ -146,6 +147,20 @@
             },
 
             // ── text ──
+            // 批次 B 文本转路径：fillText/measureText 与 CanvasKit 面同源，
+            // 都吃 __canvas_glyph_paths 的 shape 载荷（px 域 outline +
+            // 相对基线的逐字位置）。字形烘进 2D path 一次 fill——DrawOp 流
+            // 里只剩 path，段落位图通道（__canvas_draw_paragraph）退役出
+            // 本面。emoji（color 载荷）不支持，报错指路 CanvasKit Paragraph。
+            shapeGlyphs(text, font) {
+                var shaped = __canvas_glyph_paths(text, font.size, font.family, font.weight);
+                if (!shaped || shaped.color === true) {
+                    throw new Error(
+                        'fillText: color/emoji text is not supported on the 2D context; use the CanvasKit Paragraph API'
+                    );
+                }
+                return shaped;
+            },
             fillText(text, x, y) {
                 var t = String(text);
                 if (t === '') return;
@@ -160,20 +175,36 @@
                     );
                 }
                 var f = parseFont(state.font);
-                var m = __canvas_measure_paragraph(t, f.size, f.family, f.weight) || {};
-                var width = Math.ceil(Number(m.width) || 0);
-                var height = Math.ceil((Number(m.ascent) || 0) + (Number(m.descent) || 0)) || Math.ceil(f.size * 1.2);
+                var shaped = this.shapeGlyphs(t, f);
+                var byGlyph = {};
+                var gs = shaped.glyphs || [];
+                for (var i = 0; i < gs.length; i++) byGlyph[gs[i].k] = gs[i].ops;
+                var positions = shaped.positions || [];
+                var bx = num(x);
+                var by = num(y);
                 applyFill();
-                __canvas_draw_paragraph(
-                    id, t, f.size, f.family, f.weight,
-                    cssColor(state.fillStyle),
-                    num(x), num(y), width, height
-                );
+                __canvas_begin_path(id);
+                for (var p = 0; p < positions.length; p++) {
+                    var ops = byGlyph[positions[p].k];
+                    if (!ops) continue;
+                    var gx = bx + positions[p].x;
+                    var gy = by + positions[p].y;
+                    for (var j = 0; j < ops.length; j++) {
+                        var op = ops[j];
+                        if (op[0] === 0) __canvas_move_to(id, gx + op[1], gy + op[2]);
+                        else if (op[0] === 1) __canvas_line_to(id, gx + op[1], gy + op[2]);
+                        else if (op[0] === 2) __canvas_quad_to(id, gx + op[1], gy + op[2], gx + op[3], gy + op[4]);
+                        else if (op[0] === 3) __canvas_cubic_to(id, gx + op[1], gy + op[2], gx + op[3], gy + op[4], gx + op[5], gy + op[6]);
+                        else if (op[0] === 4) __canvas_close_path(id);
+                        else throw new Error('fillText: unknown glyph op ' + op[0]);
+                    }
+                }
+                __canvas_fill_path(id);
             },
             measureText(text) {
                 var f = parseFont(state.font);
-                var m = __canvas_measure_paragraph(String(text), f.size, f.family, f.weight) || {};
-                return { width: Number(m.width) || 0 };
+                var shaped = this.shapeGlyphs(String(text), f);
+                return { width: Number(shaped.width) || 0 };
             },
         };
     }

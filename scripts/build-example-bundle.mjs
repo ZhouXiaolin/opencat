@@ -30,6 +30,13 @@ import { pathToFileURL } from 'node:url';
 const ROOT = resolve(import.meta.dirname, '..');
 const GSAP_ENTRY = join(ROOT, 'scripts', 'gsap-entry.mjs');
 const THREE_ENTRY = join(ROOT, 'scripts', 'three-entry.mjs');
+/// g2 图表入口（@antv/g2 + @antv/g-canvaskit）；canvaskit-wasm 别名到零
+/// wasm 替身（g-canvaskit 只 import 它的默认导出 CanvasKitInit，转发
+/// 引擎内建官方面）。
+const G2_ENTRY = join(ROOT, 'scripts', 'g2-entry.mjs');
+const G2_CK_SHIM = join(ROOT, 'scripts', 'g2-canvaskit-shim.mjs');
+/// node 内建死导入的 stub（g-canvaskit esm 顶部的 rollup 残留，零使用）。
+const NODE_STUB = join(ROOT, 'scripts', 'node-stub.mjs');
 /// tailwind CLI 与 vite 插件同源：从 k3-promo 的依赖里取。
 const TAILWIND_CLI = join(ROOT, 'examples', 'k3-promo', 'node_modules', '@tailwindcss', 'cli', 'dist', 'index.mjs');
 /// 回退包根：顺序即优先级。
@@ -55,6 +62,60 @@ const threeShadowPatch = {
         build.onLoad({ filter: /three[\\/]build[\\/]three(\.core|\.module)?\.(cjs|js)$/ }, (args) => {
             let src = readFileSync(args.path, 'utf8');
             for (const [from, to] of threeShadowedCalls) {
+                src = src.split(from).join(to);
+            }
+            return { contents: src, loader: 'js' };
+        });
+    },
+};
+
+// g-canvaskit 的 dist 内嵌整套 canvaskit wasm 加载器（不走 canvaskit-wasm
+// 包导入，alias 够不着）：把 loadCanvaskit 的唯一调用点接到
+// globalThis.CanvasKitInit——引擎 realm 由 canvas_api facade 应答（零 wasm）。
+// 另带两个上游 bug 修复：Rect radius 缺省炸 `.map`；fill/stroke 的
+// fillOpacity/opacity 无默认值，undefined 进乘法产出 NaN alpha。
+const g2CanvaskitPatch = {
+    name: 'g2-canvaskit-loadcanvaskit',
+    setup(build) {
+        build.onLoad({ filter: /@antv[\\/]g-canvaskit[\\/]dist[\\/]/ }, (args) => {
+            let src = readFileSync(args.path, 'utf8');
+            const patches = [
+                [
+                    'return CanvasKitInit({',
+                    'return (globalThis.CanvasKitInit || CanvasKitInit)({',
+                ],
+                [
+                    'radius = _ref.radius,',
+                    'radius = _ref.radius || [0, 0, 0, 0],',
+                ],
+                [
+                    'Number(fill.alpha) * fillOpacity * opacity',
+                    'Number(fill.alpha) * (fillOpacity === undefined ? 1 : fillOpacity) * (opacity === undefined ? 1 : opacity)',
+                ],
+                [
+                    'Number(stroke.alpha) * strokeOpacity * opacity',
+                    'Number(stroke.alpha) * (strokeOpacity === undefined ? 1 : strokeOpacity) * (opacity === undefined ? 1 : opacity)',
+                ],
+                // 上游 API 漂移：现行 @antv/g 已把 TextNode 位置挪出
+                // parsedStyle.x/y（绘制段落时 CTM 已带平移），g-canvaskit
+                // 1.1.3 读到 undefined → NaN 坐标 → CK 静默丢弃整段文字。
+                // 兜底 0（局部原点）即落位。
+                [
+                    'canvas.drawParagraph(paragraph, offsetX + x + dx, linePositionY + y + dy);',
+                    'var _px = x == null ? 0 : x, _py = y == null ? 0 : y, _pdx = dx == null ? 0 : dx, _pdy = dy == null ? 0 : dy;\n        canvas.drawParagraph(paragraph, offsetX + _px + _pdx, linePositionY + _py + _pdy);',
+                ],
+                // G2 默认文字 family 是 'sans-serif'，而 FontMgr.FromData 按
+                // 字体文件内部名注册且此路径无 family 回退——映射到注册字体
+                // 的内部名（engine/ref 两侧 fonts 配置同给内部名）。
+                [
+                    "fontFamilies = _ref$fontFamily === void 0 ? '' : _ref$fontFamily,",
+                    "fontFamilies = _ref$fontFamily === void 0 || _ref$fontFamily === 'sans-serif' ? 'Noto Sans SC' : _ref$fontFamily,",
+                ],
+            ];
+            for (const [from, to] of patches) {
+                if (!src.includes(from)) {
+                    throw new Error(`g2-canvaskit patch: pattern not found in ${args.path}: "${from.slice(0, 60)}" — upstream dist changed, re-derive the patch site`);
+                }
                 src = src.split(from).join(to);
             }
             return { contents: src, loader: 'js' };
@@ -142,22 +203,22 @@ async function build(dir) {
         return true;
     }
     const nms = nodeModulesDirs(abs);
-    const has = (pkg) => nms.some((nm) => existsSync(join(nm, pkg)));
     // 入口源码原样进 entry 段：JSX 与 import 留给引擎的 oxc 前端。
     const source = readFileSync(entry, 'utf8');
     // 只带入口真正 import 的包：three 的类定义有 1.6MB，白带会让每次渲染
-    // 多付一份解析成本。
+    // 多付一份解析成本。g2 的包名是 scoped（@antv/g2），模块段名是 `g2`。
     const wanted = [
-        ['gsap', GSAP_ENTRY],
-        ['three', THREE_ENTRY],
-    ].filter(([pkg]) => has(pkg) && usesPackage(source, pkg));
+        ['gsap', GSAP_ENTRY, null, 'gsap'],
+        ['three', THREE_ENTRY, 'three-shadow-patch', 'three'],
+        ['g2', G2_ENTRY, 'g2-canvaskit-patch', join('@antv', 'g2')],
+    ].filter(([pkg, , , dir]) => nms.some((nm) => existsSync(join(nm, dir))) && usesPackage(source, pkg));
     if (wanted.length === 0) {
-        console.error(`[bundle] ${dir}: no gsap/three import, only the entry is emitted`);
+        console.error(`[bundle] ${dir}: no gsap/three/g2 import, only the entry is emitted`);
     }
 
     const { build: esbuild } = await esbuildFor(nms);
     const chunks = [];
-    for (const [pkg, entryPath] of wanted) {
+    for (const [pkg, entryPath, patch] of wanted) {
         const result = await esbuild({
             entryPoints: [entryPath],
             bundle: true,
@@ -168,7 +229,11 @@ async function build(dir) {
             charset: 'utf8',
             logLevel: 'warning',
             nodePaths: nms,
-            plugins: pkg === 'three' ? [threeShadowPatch] : [],
+            plugins: patch === 'three-shadow-patch' ? [threeShadowPatch]
+                : patch === 'g2-canvaskit-patch' ? [g2CanvaskitPatch] : [],
+            alias: pkg === 'g2'
+                ? { 'canvaskit-wasm': G2_CK_SHIM, path: NODE_STUB, fs: NODE_STUB, html2canvas: NODE_STUB }
+                : undefined,
         });
         chunks.push(segment(pkg, result.outputFiles[0].text));
     }

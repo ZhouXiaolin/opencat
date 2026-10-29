@@ -27,6 +27,12 @@ const SHIM_PATH = join(dirname(fileURLToPath(import.meta.url)), 'react-shim.mjs'
 const GSAP_ENTRY = join(dirname(fileURLToPath(import.meta.url)), 'gsap-entry.mjs');
 /// three 主包入口，同上分发。项目装了 three 时打成 `three` 模块段。
 const THREE_ENTRY = join(dirname(fileURLToPath(import.meta.url)), 'three-entry.mjs');
+/// g2 图表入口（@antv/g2 + @antv/g-canvaskit），同上分发。项目装了
+/// @antv/g2 时打成 `g2` 模块段；canvaskit-wasm 别名到零 wasm 替身。
+const G2_ENTRY = join(dirname(fileURLToPath(import.meta.url)), 'g2-entry.mjs');
+const G2_CK_SHIM = join(dirname(fileURLToPath(import.meta.url)), 'g2-canvaskit-shim.mjs');
+/// node 内建死导入的 stub（见文件头注释），g2 段内 path/fs 都指到它。
+const NODE_STUB = join(dirname(fileURLToPath(import.meta.url)), 'node-stub.mjs');
 
 /// 段首标记：引擎按它把单文件切回多个模块条目。
 const SEGMENT_PREFIX = '/*@@oc-module:';
@@ -48,6 +54,65 @@ const threeShadowPatch = {
                 ["error( 'WebGLRenderer: ' + error.message )", "console.error( 'WebGLRenderer: ' + error.message )"],
                 ["error( error )", "console.error( error )"],
             ]) {
+                src = src.split(from).join(to);
+            }
+            return { contents: src, loader: 'js' };
+        });
+    },
+};
+
+/// g-canvaskit 的 dist 内嵌整套 canvaskit wasm 加载器（不走 canvaskit-wasm
+/// 包导入，alias 够不着）：把 loadCanvaskit 的唯一调用点接到
+/// globalThis.CanvasKitInit——引擎 realm 由 canvas_api facade 应答（零 wasm，
+/// 引擎画图走 DrawOp 流）；浏览器参考侧该全局不存在，落回它自己的真加载器
+/// （wasmDir 由 Renderer 配置指向本地 node_modules 的配对版本）。
+const g2CanvaskitPatch = {
+    name: 'g2-canvaskit-loadcanvaskit',
+    setup(build) {
+        build.onLoad({ filter: /@antv[\\/]g-canvaskit[\\/]dist[\\/]/ }, (args) => {
+            let src = readFileSync(args.path, 'utf8');
+            const patches = [
+                // loadCanvaskit 接到 globalThis.CanvasKitInit（见上）。参考侧
+                // 浏览器没有该全局，落回它内嵌的真 wasm 加载器。
+                [
+                    'return CanvasKitInit({',
+                    'return (globalThis.CanvasKitInit || CanvasKitInit)({',
+                ],
+                // 上游 bug：Rect 的 parsedStyle.radius 可能缺省，`.map` 直接炸
+                [
+                    'radius = _ref.radius,',
+                    'radius = _ref.radius || [0, 0, 0, 0],',
+                ],
+                // 上游 bug：fillOpacity/opacity 未参与默认值系统，undefined
+                // 进乘法产出 NaN alpha（g-canvas 浏览器渲染器没有此路径）
+                [
+                    'Number(fill.alpha) * fillOpacity * opacity',
+                    'Number(fill.alpha) * (fillOpacity === undefined ? 1 : fillOpacity) * (opacity === undefined ? 1 : opacity)',
+                ],
+                [
+                    'Number(stroke.alpha) * strokeOpacity * opacity',
+                    'Number(stroke.alpha) * (strokeOpacity === undefined ? 1 : strokeOpacity) * (opacity === undefined ? 1 : opacity)',
+                ],
+                // 上游 API 漂移：现行 @antv/g 已把 TextNode 位置挪出
+                // parsedStyle.x/y（绘制段落时 CTM 已带平移），g-canvaskit
+                // 1.1.3 读到 undefined → NaN 坐标 → CK 静默丢弃整段文字。
+                // 兜底 0（局部原点）即落位。
+                [
+                    'canvas.drawParagraph(paragraph, offsetX + x + dx, linePositionY + y + dy);',
+                    'var _px = x == null ? 0 : x, _py = y == null ? 0 : y, _pdx = dx == null ? 0 : dx, _pdy = dy == null ? 0 : dy;\n        canvas.drawParagraph(paragraph, offsetX + _px + _pdx, linePositionY + _py + _pdy);',
+                ],
+                // G2 默认文字 family 是 'sans-serif'，而 FontMgr.FromData 按
+                // 字体文件内部名注册且此路径无 family 回退——映射到注册字体
+                // 的内部名（engine/ref 两侧 fonts 配置同给内部名）。
+                [
+                    "fontFamilies = _ref$fontFamily === void 0 ? '' : _ref$fontFamily,",
+                    "fontFamilies = _ref$fontFamily === void 0 || _ref$fontFamily === 'sans-serif' ? 'Noto Sans SC' : _ref$fontFamily,",
+                ],
+            ];
+            for (const [from, to] of patches) {
+                if (!src.includes(from)) {
+                    throw new Error(`g2-canvaskit patch: pattern not found in ${args.path}: "${from.slice(0, 60)}" — upstream dist changed, re-derive the patch site`);
+                }
                 src = src.split(from).join(to);
             }
             return { contents: src, loader: 'js' };
@@ -117,10 +182,13 @@ export default function opencat(options = {}) {
 
     /// 一个真包 → 一段 CJS 源码。项目没装该包时跳过：源码里的
     /// `import 'gsap'` 会落到 JS 运行时的 resolveSpec 报缺包，不需要构建期
-    /// 报错（gsap/three 都是可选的）。
-    const buildSegment = async (spec, entryPath, plugins = []) => {
+    /// 报错（gsap/three/g2 都是可选的）。包目录按 spec 解析（g2 是
+    /// @antv/g2 的模块段名，包名 scoped）。alias 把段内 import 转投本地
+    /// 替身（g2 段的 canvaskit-wasm → 零 wasm shim）。
+    const pkgDirOf = (spec, nm) => (spec === 'g2' ? join(nm, '@antv', 'g2') : join(nm, spec));
+    const buildSegment = async (spec, entryPath, plugins = [], alias) => {
         const nm = join(root, 'node_modules');
-        if (!existsSync(join(nm, spec)) || !existsSync(entryPath)) return null;
+        if (!existsSync(pkgDirOf(spec, nm)) || !existsSync(entryPath)) return null;
         const result = await requireEsbuild().build({
             entryPoints: [entryPath],
             bundle: true,
@@ -132,6 +200,7 @@ export default function opencat(options = {}) {
             logLevel: 'warning',
             nodePaths: [nm],
             plugins,
+            alias,
         });
         return segment(spec, result.outputFiles[0].text);
     };
@@ -167,6 +236,15 @@ export default function opencat(options = {}) {
         for (const built of [
             await buildSegment('gsap', GSAP_ENTRY),
             await buildSegment('three', THREE_ENTRY, [threeShadowPatch]),
+            await buildSegment('g2', G2_ENTRY, [g2CanvaskitPatch], {
+                'canvaskit-wasm': G2_CK_SHIM,
+                path: NODE_STUB,
+                fs: NODE_STUB,
+                // @antv/g 依赖 html2canvas（外来 HTML 光栅化），其模块顶层
+                // 就探 `document.location`——引擎 realm 没有这个面，图表路径
+                // 也用不到，stub 掉。
+                html2canvas: NODE_STUB,
+            }),
         ]) {
             if (built) chunks.push(built);
         }

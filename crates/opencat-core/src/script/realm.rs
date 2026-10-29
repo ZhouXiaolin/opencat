@@ -21,18 +21,20 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
-    G2_API_RUNTIME, G2_BUNDLE, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
+    G2_API_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
     WEBGL_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
 };
 
-// JS platform globals V8 does not ship, needed by the G2 bundle at
-// load time (TextEncoder) and by G2's font loading at render time. Public
-// because the JSX extract realm (a throwaway realm built before the pipeline
-// realm) needs the same `requestAnimationFrame` queue: the gsap bundle calls
-// `_wake()` at eval time, which schedules one tick.
+// JS platform globals V8 does not ship (TextEncoder/TextDecoder/Blob) plus
+// the realm clock facilities every library runs on: a synchronous rAF queue,
+// the virtual clock (`frame = f(t)` — every clock read inside the realm sees
+// it), and `performance`/`Date` rewired to that clock. Public because the JSX
+// extract realm (a throwaway realm built before the pipeline realm) needs the
+// same `requestAnimationFrame` queue: the gsap bundle calls `_wake()` at eval
+// time, which schedules one tick.
 pub const JS_PLATFORM_SHIM: &str = r#"
 (function () {
     if (typeof globalThis.TextEncoder === 'undefined') {
@@ -72,37 +74,85 @@ pub const JS_PLATFORM_SHIM: &str = r#"
             this.type = '';
         };
     }
+    // ── the realm clock ──────────────────────────────────────────────
+    // One virtual clock for the whole realm: the frame host sets it
+    // (`__ocSetClock`) before each replay, and every library clock read —
+    // g2's tween engine, gsap's ticker math, rAF timestamps — sees one
+    // coherent `frame = f(t)` time. `performance.now` and `Date.now` are
+    // rewired to it; a library reading the host's real clock inside the
+    // realm would be nondeterministic by construction.
+    var clockMs = 0;
+    globalThis.__ocSetClock = function (secs) {
+        clockMs = Math.max(0, Number(secs) || 0) * 1000;
+    };
+    globalThis.__ocClockMs = function () { return clockMs; };
+    globalThis.performance = {
+        now: function () { return clockMs; },
+        mark: function () {},
+        measure: function () {},
+        getEntriesByName: function () { return []; },
+        getEntriesByType: function () { return []; },
+        clearMarks: function () {},
+        clearMeasures: function () {},
+    };
+    // The Date shape mirrors the clock: `Date.now()` returns the virtual
+    // millisecond, and a constructor call binds to the clock instead of the
+    // host wall clock. The native Date stays as the prototype carrier, so
+    // every calendar method (`getHours`, `toISOString`, …) keeps working on
+    // the instance's own epoch value — which is the virtual one.
+    var NativeDate = Date;
+    globalThis.Date = function () {
+        if (!(this instanceof globalThis.Date)) return new NativeDate(clockMs).toString();
+        if (arguments.length === 0) return new NativeDate(clockMs);
+        return new (Function.prototype.bind.apply(NativeDate, [null].concat(Array.prototype.slice.call(arguments))))();
+    };
+    globalThis.Date.prototype = NativeDate.prototype;
+    globalThis.Date.now = function () { return clockMs; };
+    globalThis.Date.parse = NativeDate.parse;
+    globalThis.Date.UTC = NativeDate.UTC;
     // A synchronous frame queue. g's `Canvas` takes `requestAnimationFrame`
     // from `raf.bind(root)` at bundle-eval time (see its raf-polyfill), so the
-    // implementation has to be on the global *before* the bundle runs: the
-    // bundle caches the reference and re-assigns it to itself. This is the
-    // same queue the G2 host runtime drains, so a queued callback runs at the
-    // next frame boundary and never on a host timer.
+    // implementation has to be on the global *before* any library bundle is
+    // required: the bundle caches the reference and re-assigns it to itself.
+    // The queue is drained by the frame host (`__ocFlushRaf`) — a queued
+    // callback runs at the next frame boundary and never on a host timer.
     // The bundle's raf-polyfill resolves its `root` through `self.self === self`
-    // (then `global`) at bundle-eval time and CACHES the reference. The DOM
-    // shims install later, inside the first frame, so without these aliases
-    // `root` lands on `{}` and the polyfill's setTimeout variant is what g's
-    // Canvas captures — which never fires in this realm.
+    // (then `global`) at bundle-eval time and CACHES the reference.
     if (typeof globalThis.self !== 'object' || globalThis.self === null) globalThis.self = globalThis;
     if (typeof globalThis.global !== 'object' || globalThis.global === null) globalThis.global = globalThis;
-    if (typeof globalThis.__ocG2RafQueue !== 'object' || globalThis.__ocG2RafQueue === null) {
-        globalThis.__ocG2RafQueue = [];
+    if (typeof globalThis.__ocRafQueue !== 'object' || globalThis.__ocRafQueue === null) {
+        globalThis.__ocRafQueue = [];
     }
-    if (typeof globalThis.__ocG2RafNextId !== 'number') {
-        globalThis.__ocG2RafNextId = 1;
+    if (typeof globalThis.__ocRafNextId !== 'number') {
+        globalThis.__ocRafNextId = 1;
     }
     globalThis.requestAnimationFrame = function (callback) {
-        globalThis.__ocG2RafQueued = (globalThis.__ocG2RafQueued || 0) + 1;
-        globalThis.__ocG2RafQueueLenAtRegister = globalThis.__ocG2RafQueue.length;
-        globalThis.__ocG2RafQueue.push(callback);
-        return globalThis.__ocG2RafNextId++;
+        globalThis.__ocRafQueue.push(callback);
+        return globalThis.__ocRafNextId++;
     };
-    globalThis.cancelAnimationFrame = function (id) {
-        var queue = globalThis.__ocG2RafQueue;
-        for (var i = 0; i < queue.length; i++) {
-            if (queue[i].__ocG2RafId === id) { queue.splice(i, 1); return true; }
+    globalThis.cancelAnimationFrame = function () {};
+    /* Run the queued frame callbacks.
+       One flush is one composition frame: the queue as it stands when the
+       host asks, plus a bounded number of follow-up passes for callbacks that
+       were queued *while* running. g's canvas keeps re-registering its draw
+       loop at the end of every frame, so "queue is empty" never happens; the
+       cap is what stops one host frame from rendering forever. Three passes
+       cover g-canvaskit's draw pass plus the two nested
+       `requestAnimationFrame` steps its ready protocol uses before the render
+       promise resolves. */
+    globalThis.__ocFlushRaf = function () {
+        for (var pass = 0; pass < 3; pass++) {
+            var batch = globalThis.__ocRafQueue;
+            globalThis.__ocRafQueue = [];
+            if (!batch.length) break;
+            for (var i = 0; i < batch.length; i++) {
+                try {
+                    batch[i](globalThis.__ocClockMs());
+                } catch (e) {
+                    if (typeof __ocStderr === 'function') __ocStderr('raf callback threw: ' + (e && e.stack || e));
+                }
+            }
         }
-        return false;
     };
     if (typeof globalThis.navigator !== 'object' || globalThis.navigator === null) {
         globalThis.navigator = {};
@@ -112,9 +162,9 @@ pub const JS_PLATFORM_SHIM: &str = r#"
     if (typeof globalThis.navigator.msPointerEnabled !== 'boolean') {
         globalThis.navigator.msPointerEnabled = false;
     globalThis.console = globalThis.console || {
-        log: function () { var k = globalThis.__ocLogSink; if (k) { k('log ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.log ' + Array.prototype.join.call(arguments, ' ')); } },
-        warn: function () { var k = globalThis.__ocLogSink; if (k) { k('warn ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.warn ' + Array.prototype.join.call(arguments, ' ')); } },
-        error: function () { var m = Array.prototype.join.call(arguments, ' '); var k = globalThis.__ocLogSink; if (k) { k('error ' + m); } if (typeof __ocStderr === 'function') { __ocStderr(m); } (globalThis.__ocG2Logs = globalThis.__ocG2Logs || []).push('console.error ' + m); },
+        log: function () { var k = globalThis.__ocLogSink; if (k) { k('log ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('console.log ' + Array.prototype.join.call(arguments, ' ')); } },
+        warn: function () { var k = globalThis.__ocLogSink; if (k) { k('warn ' + Array.prototype.join.call(arguments, ' ')); } else { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('console.warn ' + Array.prototype.join.call(arguments, ' ')); } },
+        error: function () { var m = Array.prototype.join.call(arguments, ' '); var k = globalThis.__ocLogSink; if (k) { k('error ' + m); } if (typeof __ocStderr === 'function') { __ocStderr(m); } (globalThis.__ocLogs = globalThis.__ocLogs || []).push('console.error ' + m); },
     };
     globalThis.__ocInstallLogSink = function (fn) { globalThis.__ocLogSink = fn; };
     }
@@ -240,11 +290,11 @@ impl<C: JsContext> ScriptRealm<C> {
 
         self.ctx.eval(NODE_STYLE_RUNTIME)?;
         self.ctx.eval(CANVAS_API_RUNTIME)?;
-        // G2 charts. The bundle is a browser IIFE: it needs the JS-platform
-        // globals first and it must see the CanvasKit facade
-        // `CANVAS_API_RUNTIME` installs — both are satisfied here.
+        // JS platform globals + the realm clock/rAF facilities. The g2 host
+        // runtime (`G2_API_RUNTIME`) defines `__ocG2Frame` but the g2 bundle
+        // itself is project-supplied: required lazily through the module
+        // table on the first chart frame (`require('g2')`).
         self.ctx.eval(JS_PLATFORM_SHIM)?;
-        self.ctx.eval(G2_BUNDLE)?;
         self.ctx.eval(G2_API_RUNTIME)?;
         // DOM globals: `document`/`window` + timer guards. After the G2 shim
         // (its rAF polyfill owns `requestAnimationFrame`; the guard only
@@ -444,7 +494,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // the end of every rAF tick, so it never drains empty, and polling
         // `queued == 0` here ran all 32 passes every frame — each pass
         // executing another identical G2 redraw at the same frozen clock.
-        // `__ocG2Flush` bounds itself internally (FLUSH_PASSES); a fixed small
+        // `__ocFlushRaf` bounds itself internally; a fixed small
         // number of host passes covers the promise resolution plus the two
         // nested rAF steps g-canvaskit's ready protocol needs.
         {
@@ -460,7 +510,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             )?;
             for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
-                self.ctx.eval("__ocG2Flush();")?;
+                self.ctx.eval("__ocFlushRaf();")?;
             }
         }
         // GPU 命令流（getContext 录制面每帧全量重录）：导出为帧级 gpu IR

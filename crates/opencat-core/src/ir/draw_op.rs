@@ -536,6 +536,21 @@ pub enum DrawOp {
         end: [f32; 3],
         stops: Vec<f32>,
     },
+
+    /// Script-originated shadow state (pre-translation intermediate form):
+    /// canvas `shadowColor` / `shadowBlur` / `shadowOffsetX` / `shadowOffsetY`.
+    /// Canvas 2D shadows have no Skia op — `execute_draw_op` keeps the state
+    /// and expands each following fill/stroke into a `SaveLayer` carrying a
+    /// `DropShadow` image filter wrapped around it (`keep_content: false`:
+    /// only the blurred silhouette in `color` composites back), then the real
+    /// draw. Recorded instead of translated in the recorder because the
+    /// recorder has no paint pool. The binary encoder must never see it.
+    ScriptSetShadow {
+        color: ColorU8,
+        blur: f32,
+        dx: f32,
+        dy: f32,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -653,8 +668,7 @@ impl std::hash::Hash for DrawOp {
             DrawOp::SetAntiAlias { enabled } => {
                 17_u8.hash(state);
                 enabled.hash(state);
-            }
-            DrawOp::BeginPath => 18_u8.hash(state),
+            }            DrawOp::BeginPath => 18_u8.hash(state),
             DrawOp::Path(p) => {
                 19_u8.hash(state);
                 p.hash(state);
@@ -910,6 +924,18 @@ impl std::hash::Hash for DrawOp {
                 start.map(f32::to_bits).hash(state);
                 end.map(f32::to_bits).hash(state);
                 stops.iter().for_each(|v| v.to_bits().hash(state));
+            }
+            DrawOp::ScriptSetShadow {
+                color,
+                blur,
+                dx,
+                dy,
+            } => {
+                57_u8.hash(state);
+                color.hash(state);
+                blur.to_bits().hash(state);
+                dx.to_bits().hash(state);
+                dy.to_bits().hash(state);
             }
         }
     }

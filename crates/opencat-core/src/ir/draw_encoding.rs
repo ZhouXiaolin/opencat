@@ -2111,6 +2111,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                  SetStyleRadialGradient by execute_draw_op before binary encoding"
             );
         }
+
+        DrawOp::ScriptSetShadow { .. } => {
+            unreachable!(
+                "DrawOp::ScriptSetShadow must be expanded into SaveLayer + DropShadow \
+                 by execute_draw_op before binary encoding"
+            );
+        }
     }
     // v6: no trailing pad — the next op starts immediately after this op's
     // fixed-length payload.

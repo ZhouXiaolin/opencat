@@ -175,6 +175,7 @@
             // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
             // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
             __canvas_set_global_alpha(id, num(state.globalAlpha));
+            lowerShadow(id, state);
         }
 
         function applyFill() {
@@ -187,6 +188,7 @@
             // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
             // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
             __canvas_set_global_alpha(id, num(state.globalAlpha));
+            lowerShadow(id, state);
         }
 
         function setMatrix(next) {
@@ -622,12 +624,18 @@
         }
     }
 
-    function checkShadow(state) {
-        // Canvas shadows are accepted but not rasterized yet: the Skia
-        // binding layer has no draw-looper, so shadowing every draw op
-        // (double-draw with a blurred paint) is a larger surface. Charts
-        // still draw their main shapes without the shadow pass.
-        var _ = state;
+    // Canvas shadows have no Skia op: core expands this sticky state around
+    // every fill/stroke as SaveLayer(DropShadow, keep_content:false) + the
+    // real draw (helpers.rs `push_shadowed`). It is executor-side persistent
+    // state, so it must ride along with each paint — same rule as globalAlpha.
+    function lowerShadow(id, state) {
+        __canvas_set_shadow(
+            id,
+            cssColor(state.shadowColor),
+            num(state.shadowBlur),
+            num(state.shadowOffsetX),
+            num(state.shadowOffsetY)
+        );
     }
 
     function checkFilter(v) {
@@ -647,10 +655,10 @@
         fillStyle: function (state, v) { paintObject(v, 'fillStyle'); state.fillStyle = v; },
         strokeStyle: function (state, v) { paintObject(v, 'strokeStyle'); state.strokeStyle = v; },
         globalCompositeOperation: function (state, v) { checkComposite(v); state.globalCompositeOperation = v; },
-        shadowColor: function (state, v) { state.shadowColor = v; checkShadow(state); },
-        shadowBlur: function (state, v) { state.shadowBlur = num(v); checkShadow(state); },
-        shadowOffsetX: function (state, v) { state.shadowOffsetX = num(v); checkShadow(state); },
-        shadowOffsetY: function (state, v) { state.shadowOffsetY = num(v); checkShadow(state); },
+        shadowColor: function (state, v) { state.shadowColor = v; },
+        shadowBlur: function (state, v) { state.shadowBlur = num(v); },
+        shadowOffsetX: function (state, v) { state.shadowOffsetX = num(v); },
+        shadowOffsetY: function (state, v) { state.shadowOffsetY = num(v); },
         filter: function (state, v) { checkFilter(v); state.filter = v; },
         miterLimit: function (state, v) {
             // 4 is what the stream's stroke paint carries (SkPaint default);

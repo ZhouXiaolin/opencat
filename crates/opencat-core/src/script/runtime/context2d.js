@@ -142,6 +142,22 @@
         var matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
         var matrixStack = [];
         var stateStack = [];
+        // 当前路径的保守包围盒（用户空间）。只有图案填充要它：瓦片必须铺满
+        // 整条路径，而流里没有 pattern 对象，core 只能按包围盒铺瓦片。曲线
+        // 取控制点、圆弧取整圆——宁大勿小。
+        var pathBounds = null;
+
+        function expandPathBounds(x0, y0, x1, y1) {
+            if (!(x0 <= x1) || !(y0 <= y1)) return;
+            if (!pathBounds) {
+                pathBounds = { x0: x0, y0: y0, x1: x1, y1: y1 };
+                return;
+            }
+            if (x0 < pathBounds.x0) pathBounds.x0 = x0;
+            if (y0 < pathBounds.y0) pathBounds.y0 = y0;
+            if (x1 > pathBounds.x1) pathBounds.x1 = x1;
+            if (y1 > pathBounds.y1) pathBounds.y1 = y1;
+        }
 
         function lowerDash() {
             if (dash.length) __canvas_set_line_dash(id, dash, num(state.lineDashOffset));
@@ -189,6 +205,51 @@
             // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
             __canvas_set_global_alpha(id, num(state.globalAlpha));
             lowerShadow(id, state);
+        }
+
+        // 图案填充。浏览器里 `fillStyle = createPattern(图, 'repeat')` 是「按
+        // 图案坐标平铺瓦片图并裁到当前路径」；Skia 里没有 canvas pattern 这个
+        // 对象，展开成标准 op 序列：save → clip(当前路径) → concat(图案矩阵)
+        // → 包围盒内的每块瓦片 drawImage → restore。瓦片是普通 ImageRect，
+        // 不引入新 op。
+        function fillPattern(paint) {
+            var b = pathBounds;
+            if (!b) return;
+            var m = paint.mat;
+            var det = m.a * m.d - m.b * m.c;
+            if (!det) return;
+            // 图案空间 = 用户空间经 inv(m)：包围盒四角映过去取包围盒，瓦片
+            // 按下标铺，纹理原点因此固定在图样自身 (0,0)。
+            var corners = [[b.x0, b.y0], [b.x1, b.y0], [b.x0, b.y1], [b.x1, b.y1]];
+            var u0 = Infinity, v0 = Infinity, u1 = -Infinity, v1 = -Infinity;
+            for (var k = 0; k < 4; k++) {
+                var px = corners[k][0] - m.e;
+                var py = corners[k][1] - m.f;
+                var u = (m.d * px - m.c * py) / det;
+                var v = (m.a * py - m.b * px) / det;
+                if (u < u0) u0 = u;
+                if (u > u1) u1 = u;
+                if (v < v0) v0 = v;
+                if (v > v1) v1 = v;
+            }
+            var w = paint.w, h = paint.h;
+            var alpha = num(state.globalAlpha);
+            // pattern 分支在 applyFill 之前返回，透明度得自己下发（ScriptImage
+            // 展开成 ImageRect 时沿用执行端 current_alpha）。
+            __canvas_set_global_alpha(id, alpha);
+            __canvas_save(id);
+            __canvas_clip_path(id, true);
+            __canvas_concat(id, [m.a, m.b, 0, m.c, m.d, 0, m.e, m.f, 1]);
+            for (var i = Math.floor(u0 / w); i <= Math.floor(u1 / w); i++) {
+                for (var j = Math.floor(v0 / h); j <= Math.floor(v1 / h); j++) {
+                    // 参数顺序与 canvas.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
+                    // 不同：绑定层收 (dst, src)，即 [dx, dy, dw, dh, sx, sy, sw, sh]。
+                    __canvas_draw_image_bytes(
+                        id, paint.bytes, [i * w, j * h, w, h, 0, 0, w, h], alpha, true
+                    );
+                }
+            }
+            __canvas_restore(id);
         }
 
         function setMatrix(next) {
@@ -290,6 +351,20 @@
                 );
             },
             fillRect(x, y, w, h) {
+                if (state.fillStyle && state.fillStyle.__ocPattern) {
+                    // fillRect 不动调用方的当前路径：借用一条临时矩形路径
+                    // 做裁剪，包围盒也临时替换，画完还原。
+                    var savedBounds = pathBounds;
+                    __canvas_begin_path(id);
+                    __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
+                    pathBounds = {
+                        x0: num(x), y0: num(y),
+                        x1: num(x) + num(w), y1: num(y) + num(h),
+                    };
+                    fillPattern(state.fillStyle);
+                    pathBounds = savedBounds;
+                    return;
+                }
                 if (state.fillStyle && state.fillStyle.__ocGradient) {
                     // Gradient fillRect lowers to the path surface: FillRect
                     // carries its own solid color, while FillPath consumes the
@@ -339,7 +414,7 @@
             },
 
             // ── paths ──
-            beginPath() { __canvas_begin_path(id); },
+            beginPath() { pathBounds = null; __canvas_begin_path(id); },
             // HTML 2D dash surface over the same `dash` the stroke lowering
             // consumes (`lowerDash`); [] restores the solid line.
             setLineDash(segments) {
@@ -391,19 +466,69 @@
                     },
                 };
             },
+            // 图案画刷：只接解码后的 Image 源（离屏 canvas 源需要真像素面，
+            // 未实现）。`setTransform` 记下图案矩阵，填充时由 fillPattern 用。
+            createPattern(source, repetition) {
+                var bytes = source && source.__ocImageArray;
+                if (!bytes) {
+                    throw new Error('createPattern: only decoded Image sources are supported');
+                }
+                var w = num(source.naturalWidth || source.width) || 0;
+                var h = num(source.naturalHeight || source.height) || 0;
+                if (!(w > 0 && h > 0)) throw new Error('createPattern: empty source image');
+                var tile = String(repetition === undefined ? 'repeat' : repetition);
+                if (tile !== 'repeat') {
+                    throw new Error(
+                        "createPattern: only repetition 'repeat' is supported, got '" + tile + "'"
+                    );
+                }
+                return {
+                    __ocPattern: true,
+                    bytes: bytes,
+                    w: w,
+                    h: h,
+                    mat: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
+                    setTransform(m) {
+                        if (!m) return;
+                        this.mat = {
+                            a: num(m.a), b: num(m.b), c: num(m.c),
+                            d: num(m.d), e: num(m.e), f: num(m.f),
+                        };
+                    },
+                };
+            },
             closePath() { __canvas_close_path(id); },
-            moveTo(x, y) { __canvas_move_to(id, num(x), num(y)); },
-            lineTo(x, y) { __canvas_line_to(id, num(x), num(y)); },
+            moveTo(x, y) {
+                expandPathBounds(num(x), num(y), num(x), num(y));
+                __canvas_move_to(id, num(x), num(y));
+            },
+            lineTo(x, y) {
+                expandPathBounds(num(x), num(y), num(x), num(y));
+                __canvas_line_to(id, num(x), num(y));
+            },
             rect(x, y, w, h) {
+                expandPathBounds(num(x), num(y), num(x) + num(w), num(y) + num(h));
                 __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
             },
             quadraticCurveTo(cpx, cpy, x, y) {
+                expandPathBounds(
+                    Math.min(num(cpx), num(x)), Math.min(num(cpy), num(y)),
+                    Math.max(num(cpx), num(x)), Math.max(num(cpy), num(y))
+                );
                 __canvas_quad_to(id, num(cpx), num(cpy), num(x), num(y));
             },
             bezierCurveTo(c1x, c1y, c2x, c2y, x, y) {
+                expandPathBounds(
+                    Math.min(num(c1x), num(c2x), num(x)), Math.min(num(c1y), num(c2y), num(y)),
+                    Math.max(num(c1x), num(c2x), num(x)), Math.max(num(c1y), num(c2y), num(y))
+                );
                 __canvas_cubic_to(id, num(c1x), num(c1y), num(c2x), num(c2y), num(x), num(y));
             },
             arc(x, y, radius, startAngle, endAngle, counterclockwise) {
+                expandPathBounds(
+                    num(x) - num(radius), num(y) - num(radius),
+                    num(x) + num(radius), num(y) + num(radius)
+                );
                 var s = normalizeSweep(startAngle, endAngle, !!counterclockwise);
                 __canvas_path_add_arc(
                     id,
@@ -419,6 +544,10 @@
                 if (num(xRotation) !== 0) {
                     throw new Error('ellipse: rotated ellipses are not supported');
                 }
+                expandPathBounds(
+                    num(x) - num(radiusX), num(y) - num(radiusY),
+                    num(x) + num(radiusX), num(y) + num(radiusY)
+                );
                 var s = normalizeSweep(startAngle, endAngle, !!counterclockwise);
                 __canvas_path_add_arc(
                     id,
@@ -431,6 +560,10 @@
                 __canvas_clip_path(id, true);
             },
             fill() {
+                if (state.fillStyle && state.fillStyle.__ocPattern) {
+                    fillPattern(state.fillStyle);
+                    return;
+                }
                 applyFill();
                 __canvas_fill_path(id);
             },
@@ -609,7 +742,7 @@
     // object's value differs from its default, so these writer checks never
     // fire for objects that don't use the feature.
     function paintObject(v, api) {
-        if (v !== null && typeof v === 'object' && !v.__ocGradient) {
+        if (v !== null && typeof v === 'object' && !v.__ocGradient && !v.__ocPattern) {
             throw new Error(
                 api + ': gradient/pattern paint objects are not supported; use a CSS color string'
             );

@@ -103,12 +103,16 @@ class Chart extends G2Chart {
         if (typeof globalThis.__ocSetClock === 'function') {
             // 动画 finished 后 fill:'both' 的终值 style 写入不带渲染 dirty
             // 标记（g-lite 的 renderReasons 为空就跳过整帧），最后一次重绘
-            // 会定格在动画中途。每轮推钟后手动置 DISPLAY_OBJECT_CHANGED 再
-            // flush，逼出终态重绘。
+            // 会定格在动画中途。每轮推钟后手动置 CAMERA_CHANGED 再 flush，
+            // 逼出终态重绘。必须用 CAMERA_CHANGED（0）而不是
+            // DISPLAY_OBJECT_CHANGED（1）：后者走局部脏矩形重绘，只重画
+            // 被标记的对象——离线帧把整帧 op 累积成一张图，中间那次整帧
+            // clear 之后只剩「clear 后重画过的对象」，其余元素消失（图案
+            // 图源异步到达时逐柱重绘，正是这种情形）。
             const forceRepaint = () => {
                 try {
                     const rc = this.getContext().canvas.context.renderingContext;
-                    if (rc && rc.renderReasons && rc.renderReasons.add) rc.renderReasons.add(1);
+                    if (rc && rc.renderReasons && rc.renderReasons.add) rc.renderReasons.add(0);
                 } catch (e) { /* canvas 未建好则由主循环自然重绘 */ }
             };
             let t = 0;

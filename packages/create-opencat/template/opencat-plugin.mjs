@@ -227,7 +227,7 @@ export default function opencat(options = {}) {
                 react: SHIM_PATH,
                 'react/jsx-runtime': SHIM_PATH,
             },
-            external: ['opencat/runtime', 'gsap', 'three', 'canvaskit-wasm'],
+            external: ['opencat/runtime', 'gsap', 'three', 'g2', 'canvaskit-wasm'],
             charset: 'utf8',
             logLevel: 'warning',
         });

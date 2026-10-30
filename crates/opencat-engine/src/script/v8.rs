@@ -379,8 +379,8 @@ fn asset_read_into(
     rv.set_int32(bytes.len() as i32);
 }
 
-/// `__ocStderr(msg)` — realm console.error 的宿主 stderr 出口（兜底
-/// __ocG2Logs 在 CLI 渲染没有消费者，资源加载链错误曾因此全部静默）。
+/// `__ocStderr(msg)` — realm console.error 的宿主 stderr 出口（CLI 渲染
+/// 没有别的诊断通道，资源加载链错误曾因此全部静默）。
 fn stderr_log(
     scope: &mut PinScope<'_, '_>,
     args: v8::FunctionCallbackArguments<'_>,

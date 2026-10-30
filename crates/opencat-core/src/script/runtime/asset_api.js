@@ -169,6 +169,100 @@
         delete blobRegistry[key];
     };
 
+    // `<img>` / `new Image()`：只支持引擎镜像的本地资产（批量对齐面把远程
+    // 图片镜像到 cwd 的 `assets/`，URL → 文件名表由入口注入 `__ocAssetMap`）。
+    // 加载是异步的（微任务）——g 系渲染器先赋 `src` 再挂 `onload`，同步派发
+    // 会丢回调。解码尺寸走 `__image_probe`，字节留给 `ctx.drawImage`。
+    var IMAGE_OK = typeof __opencatAssetStat === 'function' && typeof __image_probe === 'function';
+    function imageAssetPath(src) {
+        var url = String(src);
+        var map = globalThis.__ocAssetMap;
+        var name = map && map[url];
+        if (name) return 'assets/' + name;
+        return url.replace(/^\.?\//, '');
+    }
+    function ImageElement(width, height) {
+        this.width = Number(width) || 0;
+        this.height = Number(height) || 0;
+        this.naturalWidth = 0;
+        this.naturalHeight = 0;
+        this.complete = false;
+        this.crossOrigin = null;
+        this.alt = '';
+        this.onload = null;
+        this.onerror = null;
+        this.__ocImageBytes = null;
+        this.__ocListeners = { load: [], error: [] };
+    }
+    ImageElement.prototype.addEventListener = function (type, fn) {
+        var list = this.__ocListeners[type];
+        if (list && typeof fn === 'function') list.push(fn);
+    };
+    ImageElement.prototype.removeEventListener = function (type, fn) {
+        var list = this.__ocListeners[type];
+        if (!list) return;
+        var i = list.indexOf(fn);
+        if (i >= 0) list.splice(i, 1);
+    };
+    ImageElement.prototype.decode = function () {
+        var self = this;
+        return new Promise(function (resolve, reject) {
+            if (self.complete && self.__ocImageBytes) resolve();
+            else reject(new Error('decode: image is not loaded: ' + self.src));
+        });
+    };
+    ImageElement.prototype.__ocSettle = function (err) {
+        var self = this;
+        Promise.resolve().then(function () {
+            var type = err ? 'error' : 'load';
+            var handler = self['on' + type];
+            if (typeof handler === 'function') handler.call(self, { type: type, target: self });
+            var list = self.__ocListeners[type];
+            for (var i = 0; i < list.length; i++) list[i].call(self, { type: type, target: self });
+        });
+    };
+    Object.defineProperty(ImageElement.prototype, 'src', {
+        get: function () { return this.__ocSrc || ''; },
+        set: function (value) {
+            this.__ocSrc = String(value);
+            if (!IMAGE_OK) {
+                this.__ocSettle(new Error('Image.src: asset store is unavailable: ' + this.__ocSrc));
+                return;
+            }
+            var path = imageAssetPath(this.__ocSrc);
+            var len = __opencatAssetStat(path);
+            if (len < 0) {
+                this.__ocSettle(new Error('Image.src: asset not found: ' + path));
+                return;
+            }
+            var bytes = new Uint8Array(len);
+            __opencatAssetReadInto(path, bytes);
+            // 绑定层只吃普通数组（Uint8Array 会被当成 map 解码），转换一次
+            // 后缓存，避免每帧 drawImage 重复展开。
+            var plain = Array.from(bytes);
+            var size = __image_probe(plain);
+            if (!size || size.length < 2) {
+                this.__ocSettle(new Error('Image.src: decode failed: ' + path));
+                return;
+            }
+            this.__ocImageBytes = bytes;
+            this.__ocImageArray = plain;
+            this.naturalWidth = this.width = size[0];
+            this.naturalHeight = this.height = size[1];
+            this.complete = true;
+            this.__ocSettle(null);
+        },
+    });
+    globalThis.Image = ImageElement;
+    // `img instanceof HTMLImageElement` 是图库的常规判断（canvas 出身的
+    // 图源要区分开）；接口面与 Image 同源即可。
+    if (!globalThis.HTMLImageElement) globalThis.HTMLImageElement = ImageElement;
+    if (globalThis.window) {
+        globalThis.window.Image = ImageElement;
+        if (!globalThis.window.HTMLImageElement) globalThis.window.HTMLImageElement = ImageElement;
+    }
+
+
     // 解码进会话 surface，返回 surface 形态对象（width/height/getImageData/
     // __opencatSurface）——与 CanvasTexture 的 image 输入同构，texImage2D 的
     // 上传链共用一条桥。

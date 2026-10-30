@@ -287,6 +287,35 @@
         };
     }
 
+    /// 选择器拆解：`tag`、`.class`、`#id` 的任意组合（覆盖 @antv/component
+    /// 的 style util 与 tooltip 用到的形态；伪类/后代组合一律当不匹配）。
+    function selectorParts(selector) {
+        var s = String(selector == null ? '' : selector).trim();
+        if (!s) return null;
+        var parts = { tag: '', id: '', classes: [] };
+        var tokenRe = /#([\w-]+)|\.([\w-]+)|^([a-zA-Z][\w-]*)/g;
+        var m;
+        while ((m = tokenRe.exec(s))) {
+            if (m[1]) parts.id = m[1];
+            else if (m[2]) parts.classes.push(m[2]);
+            else if (m[3]) parts.tag = m[3].toUpperCase();
+        }
+        return parts;
+    }
+
+    function matchesParts(handle, parts) {
+        if (!handle || !handle.tagName) return false;
+        if (parts.tag && String(handle.tagName).toUpperCase() !== parts.tag) return false;
+        if (parts.id && String(handle.id || '') !== parts.id) return false;
+        if (parts.classes.length) {
+            var cls = String(handle.className || '');
+            for (var i = 0; i < parts.classes.length; i++) {
+                if (cls.split(/\s+/).indexOf(parts.classes[i]) < 0) return false;
+            }
+        }
+        return true;
+    }
+
     /// Children/tree members every overlay-backed node shares.
     function treeMembers(id, target) {
         function define(name, getter, setter) {
@@ -354,6 +383,42 @@
             return false;
         };
         target.getBoundingClientRect = function () { return rectOf(id); };
+        // 只覆盖库实际用的选择器形态：`tag`、`.class`、`#id` 及组合
+        // （component 的 tooltip 拿 `'.g2-tooltip-list'` 找列表容器）。
+        target.querySelectorAll = function (selector) {
+            var parts = selectorParts(selector);
+            var out = [];
+            if (!parts) return out;
+            (function walk(parentId) {
+                var kids = childHandles(parentId);
+                for (var i = 0; i < kids.length; i++) {
+                    if (matchesParts(kids[i], parts)) out.push(kids[i]);
+                    walk(nodeId(kids[i]));
+                }
+            })(String(id));
+            return out;
+        };
+        target.querySelector = function (selector) {
+            var list = target.querySelectorAll(selector);
+            return list.length ? list[0] : null;
+        };
+        target.matches = function (selector) {
+            var parts = selectorParts(selector);
+            return !!parts && matchesParts(target, parts);
+        };
+        target.getElementsByClassName = function (name) {
+            var want = String(name);
+            var out = [];
+            (function walk(parentId) {
+                var kids = childHandles(parentId);
+                for (var i = 0; i < kids.length; i++) {
+                    var cls = String(kids[i].className || '');
+                    if (cls.split(/\s+/).indexOf(want) >= 0) out.push(kids[i]);
+                    walk(nodeId(kids[i]));
+                }
+            })(String(id));
+            return out;
+        };
         target.getBBox = function () {
             var b = boxOf(id);
             return { x: b.left, y: b.top, width: b.width, height: b.height };
@@ -401,7 +466,14 @@
             set data(value) { __dom_set_text(id, String(value)); },
             // A created element holds text only, so markup round trips as text.
             get innerHTML() { return textOf(id); },
-            set innerHTML(value) { __dom_set_text(id, String(value)); },
+            set innerHTML(value) {
+                var text = String(value);
+                if (text.indexOf('<') < 0) {
+                    __dom_set_text(id, text);
+                    return;
+                }
+                fillInnerHtml(id, text);
+            },
             get outerHTML() { return textOf(id); },
             get offsetWidth() { return 0; },
             get offsetHeight() { return 0; },
@@ -435,6 +507,41 @@
             __dom_insert_before(parentId, childId, refId || null);
         }
         return child;
+    }
+
+    /// `innerHTML` 的标记分支：@antv/util 的 `createDOM` 靠它造 tooltip/图例
+    /// 的 HTML 覆盖层（detached div → innerHTML → 取 `childNodes[0]`）。这些
+    /// 节点没有声明位置、出片不出像素，但节点树必须立起来：库随后按
+    /// className 往里填 title/item。
+    function fillInnerHtml(id, html) {
+        var kids = childHandles(String(id));
+        for (var k = 0; k < kids.length; k++) __dom_remove(nodeId(kids[k]));
+        var stack = [String(id)];
+        var re = /<\s*(\/?)\s*([a-zA-Z][\w:-]*)((?:\s+[^<>]*?)?)(\/?)\s*>|([^<]+)/g;
+        var m;
+        while ((m = re.exec(String(html == null ? '' : html)))) {
+            var parentId = stack[stack.length - 1];
+            if (m[5] !== undefined) {
+                if (m[5].trim() !== '') {
+                    __dom_append_child(parentId, String(__dom_create_text_node(m[5])));
+                }
+                continue;
+            }
+            if (m[1]) {
+                if (stack.length > 1) stack.pop();
+                continue;
+            }
+            var elId = String(__dom_create_element(m[2]));
+            var el = handleFor(elId);
+            var are = /([\w:-]+)(?:\s*=\s*"([^"]*)")?/g;
+            var am;
+            while ((am = are.exec(m[3] || ''))) {
+                if (am[1] === 'class') el.className = am[2] || '';
+                else if (am[2] !== undefined) el.setAttribute(am[1], am[2]);
+            }
+            __dom_append_child(parentId, elId);
+            if (!m[4]) stack.push(elId);
+        }
     }
 
     function nodeId(node) {

@@ -653,6 +653,25 @@ export function renderEncodedDrawFrame(
         case OP_SET_STROKE_STYLE:
           state.strokeColor = colorU32ToF32(p.u32());
           break;
+        case OP.SET_STYLE_LINEAR_GRADIENT: {
+          // Web leg doesn't rasterize gradient paints yet; consume the fixed
+          // payload ([u8 stroke][4xf32 start/end][u32 f32Pool start][u32 len])
+          // so the op stream stays aligned.
+          p.u8();
+          p.f32Array(4);
+          p.u32();
+          p.u32();
+          break;
+        }
+        case OP.SET_STYLE_RADIAL_GRADIENT: {
+          // Same as the linear gradient: consume the fixed payload
+          // ([u8 stroke][6xf32 two circles][u32 f32Pool start][u32 len]).
+          p.u8();
+          p.f32Array(6);
+          p.u32();
+          p.u32();
+          break;
+        }
         case OP_SET_LINE_WIDTH:
           state.lineWidth = p.f32();
           break;

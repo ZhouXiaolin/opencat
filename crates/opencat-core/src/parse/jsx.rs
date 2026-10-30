@@ -41,17 +41,22 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
     // `export const css = \`...\``（tailwindcss CLI 编译产物或手写样式表）：
     // class 解析一律走标准 CSS 引擎；没有 css 时用空样式表，等价于无样式。
     let css_engine = match extract.get("css").and_then(Value::as_str) {
-        Some(css_text) => Some(crate::css::CssEngine::from_css_text(
-            css_text,
-            crate::css::EvalContext {
-                viewport: (
-                    meta_f64(&meta, "width", 1920.0) as f32,
-                    meta_f64(&meta, "height", 1080.0) as f32,
-                ),
-                rem_base: 16.0,
-            },
-        )?),
-        None => None,
+        Some(css_text) => {
+            Some(crate::css::CssEngine::from_css_text(
+                css_text,
+                crate::css::EvalContext {
+                    viewport: (
+                        meta_f64(&meta, "width", 1920.0) as f32,
+                        meta_f64(&meta, "height", 1080.0) as f32,
+                    ),
+                    rem_base: 16.0,
+                },
+            )?)
+        }
+        None => {
+            eprintln!("jsx: extract css MISSING; keys={:?}", extract.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+            None
+        }
     };
 
     let Some(tree) = extract.get("tree") else {

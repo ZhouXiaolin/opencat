@@ -361,7 +361,24 @@ fn with_resolved_font<R>(
         style: fontdb::Style::Normal,
         stretch: fontdb::Stretch::Normal,
     };
-    let Some(face_id) = db.query(&query) else {
+    // 字体兜底：浏览器对未安装的 family 按 CSS 字体列表回退到通用族
+    // （缺 `Impact` 既不该报错，也不该改变测量语义——回退后的度量就是
+    // 浏览器实际使用的那个 face 的度量）。逐个回退到 sans-serif/serif，
+    // 全落空才报错。
+    let face_id = db.query(&query).or_else(|| {
+        let fallback = fontdb::Query {
+            families: &[fontdb::Family::SansSerif],
+            ..query
+        };
+        db.query(&fallback)
+    }).or_else(|| {
+        let fallback = fontdb::Query {
+            families: &[fontdb::Family::Serif],
+            ..query
+        };
+        db.query(&fallback)
+    });
+    let Some(face_id) = face_id else {
         bail!("surface: no font face for family `{family}` weight {weight}");
     };
     let mut out: Option<Result<R>> = None;

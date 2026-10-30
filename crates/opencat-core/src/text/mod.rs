@@ -91,6 +91,15 @@ pub struct TextRasterization {
 pub struct FontTextMetrics {
     pub ascent: f32,
     pub descent: f32,
+    /// OS/2 sTypoAscender/sTypoDescender in px, descent positive down.
+    ///
+    /// Browsers position canvas text (`textBaseline`) with these, not with the
+    /// hhea ascent/descent above: Chromium's `top`/`middle`/`bottom` offsets
+    /// are `typo_ascent`, `(typo_ascent - typo_descent) / 2` and
+    /// `-typo_descent`. For a CJK face the two differ by ~0.28 em, which is
+    /// a whole pixel of baseline at 12-16 px.
+    pub typo_ascent: f32,
+    pub typo_descent: f32,
     pub x_height: f32,
     /// Baseline to top-of-underline (post.underlinePosition, usually negative).
     pub underline_offset: f32,
@@ -558,6 +567,21 @@ pub fn measure_text(
 /// os2 表的 ySubscriptYOffset / ySuperscriptYOffset（设计单位，i16 大端，
 /// 偏移 16 / 24）。swash 不读这两项；缺表回退 usvg 同款通用值
 /// （upem/0.2、upem/0.4，Inkscape/librsvg 同源）。
+/// OS/2 `sTypoAscender`/`sTypoDescender` (font units); `None` when absent or
+/// zeroed, in which case the hhea pair above is the only sane source.
+fn os2_typo(font: swash::FontRef) -> Option<(i16, i16)> {
+    let t = font.table(swash::tag_from_bytes(b"OS/2"))?;
+    if t.len() < 72 {
+        return None;
+    }
+    let asc = i16::from_be_bytes([t[68], t[69]]);
+    let desc = i16::from_be_bytes([t[70], t[71]]);
+    if asc == 0 && desc == 0 {
+        return None;
+    }
+    Some((asc, desc))
+}
+
 fn os2_subsuper(font: swash::FontRef, upem: f32) -> (i16, i16) {
     const FALLBACK: fn(f32) -> (i16, i16) = |upem| {
         ((upem / 0.2).round() as i16, (upem / 0.4).round() as i16)
@@ -633,9 +657,15 @@ pub fn rasterize_glyphs(
                             let m = raw.scale(style.text_px);
                             let (sub_du, super_du) = os2_subsuper(sw, raw.units_per_em as f32);
                             let k = style.text_px / raw.units_per_em as f32;
+                            let (typo_asc, typo_desc) =
+                                os2_typo(sw).map_or((m.ascent, m.descent), |(a, d)| {
+                                    (a as f32 * k, -d as f32 * k)
+                                });
                             font_metrics = Some(FontTextMetrics {
                                 ascent: m.ascent,
                                 descent: m.descent,
+                                typo_ascent: typo_asc,
+                                typo_descent: typo_desc,
                                 x_height: m.x_height,
                                 underline_offset: m.underline_offset,
                                 strikeout_offset: m.strikeout_offset,

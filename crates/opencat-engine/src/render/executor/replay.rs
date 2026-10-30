@@ -10,7 +10,7 @@ use opencat_core::ir::draw_types::{DrawOpRange, ImageRef, PathOp, RuntimeEffectC
 use skia_safe::{
     AlphaType, Canvas, ColorType, CubicResampler, Data, FilterMode, Image, ImageInfo, Matrix,
     MipmapMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, SamplingOptions,
-    Shader, TileMode, Vector, surfaces,
+    Shader, TileMode, Vector, scalar, surfaces,
 };
 
 /// feImage 检测：filter 链里有 feImage primitive（需子树预渲染）。
@@ -99,7 +99,14 @@ fn render_filter_images(
 }
 
 fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
-    let a = (paint.color().a() as f32 / 255.0) * alpha;
+    // Shader-painted paths take their coverage from the shader: canvas keeps
+    // `globalAlpha` in the paint alpha and leaves the solid color untouched
+    // (it stays at whatever the last solid style set — often alpha 0).
+    let a = if paint.shader().is_some() {
+        alpha
+    } else {
+        (paint.color().a() as f32 / 255.0) * alpha
+    };
     paint.set_alpha((a * 255.0).round() as u8);
 }
 
@@ -340,7 +347,7 @@ pub fn replay_frame(
     exec.backdrop_pictures = build_backdrop_pictures(exec, draw, media)?;
     exec.backdrop_next = 0;
     exec.backdrop_building = false;
-    for op in &draw.ops {
+    for (i, op) in draw.ops.iter().enumerate() {
         replay_op(exec, canvas, draw, media, op)?;
     }
     exec.backdrop_pictures.clear();
@@ -810,11 +817,100 @@ fn replay_op(
         DrawOp::SetFillStyle { color } => {
             let c = skia_safe::Color::from_argb(color.a, color.r, color.g, color.b);
             exec.current_fill_paint.set_color(c);
+            // A solid style switch replaces any gradient paint (browser
+            // fillStyle/strokeStyle assignment semantics).
+            exec.current_fill_paint.set_shader(None::<skia_safe::Shader>);
             Ok(())
         }
         DrawOp::SetStrokeStyle { color } => {
             let c = skia_safe::Color::from_argb(color.a, color.r, color.g, color.b);
             exec.current_stroke_paint.set_color(c);
+            exec.current_stroke_paint.set_shader(None::<skia_safe::Shader>);
+            Ok(())
+        }
+        DrawOp::SetStyleLinearGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            let n = (stops.len / 5) as usize;
+            let base = stops.start as usize;
+            if base + stops.len as usize > draw.f32_pool.len() {
+                return Err(DrawError(format!(
+                    "SetStyleLinearGradient f32_pool out of bounds"
+                )));
+            }
+            let mut colors: Vec<skia_safe::Color> = Vec::with_capacity(n);
+            let mut positions: Vec<scalar> = Vec::with_capacity(n);
+            for i in 0..n {
+                let o = base + i * 5;
+                positions.push(draw.f32_pool[o]);
+                colors.push(skia_safe::Color::from_argb(
+                    draw.f32_pool[o + 4].round() as u8,
+                    draw.f32_pool[o + 1].round() as u8,
+                    draw.f32_pool[o + 2].round() as u8,
+                    draw.f32_pool[o + 3].round() as u8,
+                ));
+            }
+            // Canvas gradients interpolate in premultiplied space (CSS /
+            // canvas spec semantics — see paint.rs ShaderSpec::LinearGradient).
+            let shader = skia_safe::gradient_shader::linear(
+                ((start[0], start[1]), (end[0], end[1])),
+                colors.as_slice(),
+                Some(positions.as_slice()),
+                skia_safe::TileMode::Clamp,
+                Some(skia_safe::gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL),
+                None,
+            );
+            if *stroke {
+                exec.current_stroke_paint.set_shader(shader);
+            } else {
+                exec.current_fill_paint.set_shader(shader);
+            }
+            Ok(())
+        }
+        DrawOp::SetStyleRadialGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            let n = (stops.len / 5) as usize;
+            let base = stops.start as usize;
+            if base + stops.len as usize > draw.f32_pool.len() {
+                return Err(DrawError(format!(
+                    "SetStyleRadialGradient f32_pool out of bounds"
+                )));
+            }
+            let mut colors: Vec<skia_safe::Color> = Vec::with_capacity(n);
+            let mut positions: Vec<scalar> = Vec::with_capacity(n);
+            for i in 0..n {
+                let o = base + i * 5;
+                positions.push(draw.f32_pool[o]);
+                colors.push(skia_safe::Color::from_argb(
+                    draw.f32_pool[o + 4].round() as u8,
+                    draw.f32_pool[o + 1].round() as u8,
+                    draw.f32_pool[o + 2].round() as u8,
+                    draw.f32_pool[o + 3].round() as u8,
+                ));
+            }
+            let shader = skia_safe::gradient_shader::two_point_conical(
+                (start[0], start[1]),
+                start[2],
+                (end[0], end[1]),
+                end[2],
+                colors.as_slice(),
+                Some(positions.as_slice()),
+                skia_safe::TileMode::Clamp,
+                Some(skia_safe::gradient_shader::Flags::INTERPOLATE_COLORS_IN_PREMUL),
+                None,
+            );
+            if *stroke {
+                exec.current_stroke_paint.set_shader(shader);
+            } else {
+                exec.current_fill_paint.set_shader(shader);
+            }
             Ok(())
         }
         DrawOp::SetLineWidth { width } => {
@@ -875,22 +971,27 @@ fn replay_op(
             Ok(())
         }
         DrawOp::FillPath => {
-            if let Some(mut pb) = exec.current_path.take() {
-                let path = pb.detach();
-                let mut paint = exec.current_fill_paint.clone();
-                apply_global_alpha(&mut paint, exec.current_alpha);
-                canvas.draw_path(&path, &paint);
-                exec.current_path = Some(PathBuilder::new());
+            // Canvas2D 语义：fill() 不消耗当前路径，后续 stroke() 仍描同一条。
+            // g-canvas 的 Path 元素正是 beginPath→path→fill()→stroke() 的写法，
+            // 若在这里 take() 掉，紧随其后的 StrokePath 就落到空路径上。
+            if let Some(pb) = &exec.current_path {
+                let path = pb.snapshot();
+                if !path.is_empty() {
+                    let mut paint = exec.current_fill_paint.clone();
+                    apply_global_alpha(&mut paint, exec.current_alpha);
+                    canvas.draw_path(&path, &paint);
+                }
             }
             Ok(())
         }
         DrawOp::StrokePath => {
-            if let Some(mut pb) = exec.current_path.take() {
-                let path = pb.detach();
-                let mut paint = exec.current_stroke_paint.clone();
-                apply_global_alpha(&mut paint, exec.current_alpha);
-                canvas.draw_path(&path, &paint);
-                exec.current_path = Some(PathBuilder::new());
+            if let Some(pb) = &exec.current_path {
+                let path = pb.snapshot();
+                if !path.is_empty() {
+                    let mut paint = exec.current_stroke_paint.clone();
+                    apply_global_alpha(&mut paint, exec.current_alpha);
+                    canvas.draw_path(&path, &paint);
+                }
             }
             Ok(())
         }
@@ -1368,7 +1469,10 @@ fn replay_op(
 
         // Pre-intern script form: translated by execute_draw_op before the
         // stream reaches the executor; nothing to replay.
+        DrawOp::ScriptImage { .. } => Ok(()),
         DrawOp::ScriptSetLineDash { .. } => Ok(()),
+        DrawOp::ScriptSetStyleLinearGradient { .. } => Ok(()),
+        DrawOp::ScriptSetStyleRadialGradient { .. } => Ok(()),
 
         DrawOp::LottieRect {
             bundle_id,

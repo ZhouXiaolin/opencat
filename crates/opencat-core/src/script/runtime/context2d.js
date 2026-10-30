@@ -148,20 +148,45 @@
             else __canvas_clear_line_dash(id);
         }
 
+        function lowerGradientPaint(stroke, paint) {
+            if (paint.__ocRadial) {
+                __canvas_set_style_radial_gradient(
+                    id, stroke, paint.x0, paint.y0, paint.r0, paint.x1, paint.y1, paint.r1,
+                    paint.offsets, paint.colors
+                );
+            } else {
+                __canvas_set_style_gradient(
+                    id, stroke, paint.x0, paint.y0, paint.x1, paint.y1, paint.offsets, paint.colors
+                );
+            }
+        }
+
         function applyStroke() {
             __canvas_set_anti_alias(id, true);
-            __canvas_set_stroke_style(id, cssColor(state.strokeStyle));
+            if (state.strokeStyle && state.strokeStyle.__ocGradient) {
+                lowerGradientPaint(true, state.strokeStyle);
+            } else {
+                __canvas_set_stroke_style(id, cssColor(state.strokeStyle));
+            }
             __canvas_set_line_width(id, num(state.lineWidth));
             __canvas_set_line_cap(id, state.lineCap);
             __canvas_set_line_join(id, state.lineJoin);
             lowerDash();
-            if (num(state.globalAlpha) < 1) __canvas_set_global_alpha(id, num(state.globalAlpha));
+            // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
+            // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
+            __canvas_set_global_alpha(id, num(state.globalAlpha));
         }
 
         function applyFill() {
             __canvas_set_anti_alias(id, true);
-            __canvas_set_fill_style(id, cssColor(state.fillStyle));
-            if (num(state.globalAlpha) < 1) __canvas_set_global_alpha(id, num(state.globalAlpha));
+            if (state.fillStyle && state.fillStyle.__ocGradient) {
+                lowerGradientPaint(false, state.fillStyle);
+            } else {
+                __canvas_set_fill_style(id, cssColor(state.fillStyle));
+            }
+            // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
+            // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
+            __canvas_set_global_alpha(id, num(state.globalAlpha));
         }
 
         function setMatrix(next) {
@@ -263,16 +288,107 @@
                 );
             },
             fillRect(x, y, w, h) {
+                if (state.fillStyle && state.fillStyle.__ocGradient) {
+                    // Gradient fillRect lowers to the path surface: FillRect
+                    // carries its own solid color, while FillPath consumes the
+                    // current (gradient) paint.
+                    applyFill();
+                    __canvas_begin_path(id);
+                    __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
+                    __canvas_fill_path(id);
+                    return;
+                }
                 applyFill();
                 __canvas_fill_rect(id, num(x), num(y), num(w), num(h), cssColor(state.fillStyle));
             },
             strokeRect(x, y, w, h) {
+                if (state.strokeStyle && state.strokeStyle.__ocGradient) {
+                    applyStroke();
+                    __canvas_begin_path(id);
+                    __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
+                    __canvas_stroke_path(id);
+                    return;
+                }
                 applyStroke();
                 __canvas_stroke_rect(id, num(x), num(y), num(w), num(h), cssColor(state.strokeStyle), num(state.lineWidth));
             },
 
+            // 位图绘制：3 参（默认自然尺寸）/ 5 参（缩放）/ 9 参（源矩形）。
+            // 编码字节随 op 一起进记录器，由 execute_draw_op 内联进帧字节表。
+            drawImage(image, ...args) {
+                const bytes = image && image.__ocImageArray;
+                if (!bytes) throw new Error('drawImage: only decoded Image sources are supported');
+                const nw = num(image.naturalWidth || image.width) || 0;
+                const nh = num(image.naturalHeight || image.height) || 0;
+                let values;
+                if (args.length === 2) {
+                    values = [num(args[0]), num(args[1]), nw, nh];
+                } else if (args.length === 4) {
+                    values = [num(args[0]), num(args[1]), num(args[2]), num(args[3])];
+                } else if (args.length === 8) {
+                    values = [
+                        num(args[4]), num(args[5]), num(args[6]), num(args[7]),
+                        num(args[0]), num(args[1]), num(args[2]), num(args[3]),
+                    ];
+                } else {
+                    throw new Error('drawImage: expected 3, 5 or 9 arguments, got ' + (args.length + 1));
+                }
+                __canvas_draw_image_bytes(id, bytes, values, num(state.globalAlpha), true);
+            },
+
             // ── paths ──
             beginPath() { __canvas_begin_path(id); },
+            // HTML 2D dash surface over the same `dash` the stroke lowering
+            // consumes (`lowerDash`); [] restores the solid line.
+            setLineDash(segments) {
+                dash = Array.isArray(segments) ? segments.map(num) : [];
+                lowerDash();
+            },
+            getLineDash() { return dash.slice(); },
+            // Linear gradient paint. Coordinates are captured in the current
+            // transform space like the browser (the stream's CTM applies on
+            // top); stops go out as (offset, css color) pairs and get parsed
+            // on the Rust side.
+            createLinearGradient(x0, y0, x1, y1) {
+                var offsets = [];
+                var colors = [];
+                return {
+                    __ocGradient: true,
+                    x0: num(x0), y0: num(y0), x1: num(x1), y1: num(y1),
+                    offsets: offsets,
+                    colors: colors,
+                    addColorStop(offset, color) {
+                        var off = num(offset);
+                        if (!(off >= 0 && off <= 1)) {
+                            throw new Error('addColorStop: offset must be in [0, 1], got ' + offset);
+                        }
+                        offsets.push(off);
+                        colors.push(String(color));
+                    },
+                };
+            },
+            // Radial gradient paint: two circles (x0,y0,r0)/(x1,y1,r1), same
+            // stop lowering as the linear form.
+            createRadialGradient(x0, y0, r0, x1, y1, r1) {
+                var offsets = [];
+                var colors = [];
+                return {
+                    __ocGradient: true,
+                    __ocRadial: true,
+                    x0: num(x0), y0: num(y0), r0: num(r0),
+                    x1: num(x1), y1: num(y1), r1: num(r1),
+                    offsets: offsets,
+                    colors: colors,
+                    addColorStop(offset, color) {
+                        var off = num(offset);
+                        if (!(off >= 0 && off <= 1)) {
+                            throw new Error('addColorStop: offset must be in [0, 1], got ' + offset);
+                        }
+                        offsets.push(off);
+                        colors.push(String(color));
+                    },
+                };
+            },
             closePath() { __canvas_close_path(id); },
             moveTo(x, y) { __canvas_move_to(id, num(x), num(y)); },
             lineTo(x, y) { __canvas_line_to(id, num(x), num(y)); },
@@ -351,11 +467,29 @@
             // 本面。emoji（color 载荷）不支持，报错指路 CanvasKit Paragraph。
             shapeGlyphs(text, font) {
                 var shaped = __canvas_glyph_paths(text, font.size, font.family, font.weight);
-                if (!shaped || shaped.color === true) {
-                    throw new Error(
-                        'fillText: color/emoji text is not supported on the 2D context; use the CanvasKit Paragraph API (text: "'
-                        + String(text).slice(0, 40) + '")'
-                    );
+                if (shaped && shaped.color === true) {
+                    // 彩色字形（emoji）：glyph outline 面拿不到彩图，改走段落
+                    // 位图通道（`__canvas_draw_paragraph`，与 CanvasKit
+                    // Paragraph 同源）。度量同取段落通道，行盒/基线与浏览器
+                    // 一致；调用方见 `color` 标记改画位图。
+                    if (typeof __canvas_measure_paragraph !== 'function'
+                        || typeof __canvas_draw_paragraph !== 'function') {
+                        throw new Error(
+                            'fillText: color/emoji text needs the paragraph bindings (text: "'
+                            + String(text).slice(0, 40) + '")'
+                        );
+                    }
+                    var m = __canvas_measure_paragraph(
+                        String(text), font.size, font.family, font.weight
+                    ) || {};
+                    return {
+                        color: true,
+                        glyphs: [],
+                        positions: [],
+                        width: Number(m.width) || 0,
+                        ascent: Number(m.ascent) || 0,
+                        descent: Number(m.descent) || 0,
+                    };
                 }
                 return shaped;
             },
@@ -394,11 +528,16 @@
                 var by = num(y);
                 var ascent = Number(shaped.ascent) || 0;
                 var descent = Number(shaped.descent) || 0;
+                // Baseline anchors come from the OS/2 typo pair (Chrome's
+                // rule), not from the hhea em box above: for a CJK face they
+                // differ by ~0.28em, i.e. a whole pixel at label sizes.
+                var bAscent = shaped.baselineAscent === undefined ? ascent : Number(shaped.baselineAscent) || 0;
+                var bDescent = shaped.baselineDescent === undefined ? descent : Number(shaped.baselineDescent) || 0;
                 switch (state.textBaseline) {
                     case 'alphabetic': break;
-                    case 'middle': by += (ascent - descent) / 2; break;
-                    case 'top': by += ascent; break;
-                    case 'bottom': case 'ideographic': by -= descent; break;
+                    case 'middle': by += (bAscent - bDescent) / 2; break;
+                    case 'top': by += bAscent; break;
+                    case 'bottom': case 'ideographic': by -= bDescent; break;
                     case 'hanging': by += ascent * 0.8; break;
                     default:
                         throw new Error(
@@ -411,6 +550,17 @@
                 // around the rounded device baseline; skewed text is not snapped.
                 if (matrix.b === 0 && matrix.d !== 0) {
                     by = (Math.round(matrix.d * by + matrix.f) - matrix.f) / matrix.d;
+                }
+                if (shaped.color === true) {
+                    // 彩色字形走位图（绑定约定 y 是段落顶，基线 = 顶 + ascent）。
+                    // strokeText 同样落到位图：彩图字形没有 outline 可描，静默
+                    // 描边比整帧失败更接近浏览器观察值。
+                    var col = typeof state.fillStyle === 'string' ? state.fillStyle : '#000000';
+                    __canvas_draw_paragraph(
+                        id, t, f.size, f.family, Math.round(f.weight) || 400, col,
+                        bx, by - ascent, Number(shaped.width) || 0, ascent + descent
+                    );
+                    return true;
                 }
                 __canvas_begin_path(id);
                 for (var p = 0; p < positions.length; p++) {
@@ -457,7 +607,7 @@
     // object's value differs from its default, so these writer checks never
     // fire for objects that don't use the feature.
     function paintObject(v, api) {
-        if (v !== null && typeof v === 'object') {
+        if (v !== null && typeof v === 'object' && !v.__ocGradient) {
             throw new Error(
                 api + ': gradient/pattern paint objects are not supported; use a CSS color string'
             );
@@ -473,17 +623,11 @@
     }
 
     function checkShadow(state) {
-        var color = String(state.shadowColor).replace(/\s/g, '').toLowerCase();
-        var opaque = !/rgba?\([^)]*,0\)$/.test(color) && color !== 'transparent' && color !== ''
-            && !/^#[0-9a-f]{8}$/.test(color) && color !== '#0000';
-        var effective = num(state.shadowBlur) > 0
-            || num(state.shadowOffsetX) !== 0 || num(state.shadowOffsetY) !== 0;
-        if (opaque && effective) {
-            throw new Error(
-                'context2d: canvas shadows are not supported (shadowColor='
-                + state.shadowColor + ', blur=' + state.shadowBlur + ')'
-            );
-        }
+        // Canvas shadows are accepted but not rasterized yet: the Skia
+        // binding layer has no draw-looper, so shadowing every draw op
+        // (double-draw with a blurred paint) is a larger surface. Charts
+        // still draw their main shapes without the shadow pass.
+        var _ = state;
     }
 
     function checkFilter(v) {

@@ -18,8 +18,6 @@
  *                            tree walk. This is the ONE per-frame entry: 3D,
  *                            CanvasKit, chart and tween work all happen here.
  *   useGSAP(build)         — per-frame timeline block (GSAP-like)
- *   useChart(ref, build)   — per-frame AntV G2 chart on a <canvas ref> (legacy,
- *                            scheduled to fold into useEffect)
  *   useFrame(build)        — legacy alias of `useEffect(fn)`, keep for older
  *                            examples until they migrate
  *   useComposition()       — `{ width, height, fps, duration }` from `meta`
@@ -290,11 +288,14 @@
             var source = sources[key];
             var fn = factories[key];
             if (fn === undefined || factorySource[key] !== source) {
-                fn = new Function('__ocRequire', 'module', 'exports', source);
+                // `require` 形参接住 cjs 段里的裸 external require（esbuild 的
+                // cjs 产物对 external 包直接发 `require("spec")`；oxc 前端只
+                // 重写 ESM import 语句）。
+                fn = new Function('__ocRequire', 'require', 'module', 'exports', source);
                 factories[key] = fn;
                 factorySource[key] = source;
             }
-            fn(requireModule, mod, mod.exports);
+            fn(requireModule, requireModule, mod, mod.exports);
             // The project-supplied package needs one install pass (target
             // normalization, paused protocol, hook gating, subpath views)
             // before any of its exports are handed to user code. The gated
@@ -456,33 +457,6 @@
         hooks[hooks.length - 1].effect = slot;
     }
 
-    // useChart(ref, build): the ref must point at a <canvas>; `build(Chart,
-    // node, t, ctx)` constructs the chart for THIS frame. Legacy: a per-frame
-    // entry that predates useEffect. The chart is rebuilt every frame — G2's animation timeline runs
-    // on the virtual clock the G2 host advances to `t` (`frame = f(t)`), and
-    // every draw lands on the node's DrawOp stream.
-    function useChart(ref, build) {
-        if (!ref || typeof ref !== 'object' || !('current' in ref)) {
-            throw new Error('useChart: first argument must be a ref from useRef()');
-        }
-        globalThis.__ocOnFrame(function () {
-            var node = ref.current;
-            if (!node || node.__ocEl !== true || node.tag !== 'canvas') {
-                throw new Error(
-                    'useChart: ref must point at a <canvas> element (got ' +
-                    (node && node.tag ? '<' + node.tag + '>' : String(node)) + ')'
-                );
-            }
-            var id = String(node.props.id);
-            if (typeof globalThis.__ocG2Frame !== 'function') {
-                throw new Error('useChart: the G2 runtime is not installed');
-            }
-            globalThis.__ocG2Frame(id, globalThis.ctx.current.time, function (Chart, chartNode) {
-                build(Chart, chartNode, globalThis.ctx.current.time, globalThis.ctx);
-            });
-        });
-    }
-
     // useGSAP(build): build(ctx, t) — author picks ctx.to/fromTo (facade) or
     // ctx.timeline(). Entries are re-recorded every frame and flushed after
     // the driver, exactly like the XML <script> block.
@@ -518,7 +492,6 @@
         Fragment: FRAGMENT,
         useEffect: useEffect,
         useCanvasKit: useCanvasKit,
-        useChart: useChart,
         useGSAP: useGSAP,
         useFrame: useFrame,
         useComposition: useComposition,

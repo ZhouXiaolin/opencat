@@ -576,6 +576,10 @@ macro_rules! for_each_binding {
         $binding! { node $rec $id canvas_set_global_alpha ($id: &str, alpha: f32) {
             $rec . record_draw_op($id, DrawOp::SetGlobalAlpha { alpha: alpha.clamp(0.0, 1.0) });
         }}
+        $binding! { node $rec $id canvas_set_shadow ($id: &str, color: String, blur: f32, dx: f32, dy: f32) {
+            let c = $crate::script::helpers::parse_color(&color, "shadowColor")?;
+            $rec . record_draw_op($id, DrawOp::ScriptSetShadow { color: c, blur, dx, dy });
+        }}
         $binding! { node $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
             $rec . record_draw_op($id, DrawOp::SetAntiAlias { enabled });
         }}

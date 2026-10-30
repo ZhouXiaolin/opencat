@@ -940,6 +940,55 @@ fn push_draw_rrect(builder: &mut DrawOpBuilder, rect: Rect, radii: [f32; 4], pai
     });
 }
 
+/// Emit `draw` wrapped in the canvas 2D shadow pass.
+///
+/// Canvas shadows are not a Skia op: `fill()`/`stroke()` under an active
+/// shadow first paints the blurred silhouette of the same geometry, offset by
+/// (`dx`, `dy`), and then the geometry itself. The standard vocabulary says
+/// exactly that: a `SaveLayer` whose paint carries a `DropShadow` image filter
+/// with `keep_content: false` composites back **only** the blurred silhouette
+/// in the shadow colour (the paint of the inner draw is irrelevant — its
+/// coverage is all that survives), and the real draw follows the layer.
+fn push_shadowed(b: &mut DrawOpBuilder, shadow: Option<CanvasShadow>, draw: DrawOp) {
+    let Some(sh) = shadow else {
+        b.push(draw);
+        return;
+    };
+    // Chromium maps `shadowBlur` to a gaussian sigma of half the radius.
+    // The offset is *user* space (canvas shadowOffsetX/Y ride the CTM), so it
+    // is a `Translate` around the layer, not the filter's device-space dx/dy
+    // — same reason `draw_box_shadow` offsets the rect it draws.
+    let sigma = sh.blur * 0.5;
+    let paint = filter_layer_paint(ImageFilterSpec::DropShadow {
+        dx: 0.0,
+        dy: 0.0,
+        sigma_x: sigma,
+        sigma_y: sigma,
+        color: [
+            sh.color.r as f32 / 255.0,
+            sh.color.g as f32 / 255.0,
+            sh.color.b as f32 / 255.0,
+            sh.color.a as f32 / 255.0,
+        ],
+        keep_content: false,
+    });
+    let paint_id = b.intern_paint(paint);
+    b.push(DrawOp::Save);
+    if sh.dx != 0.0 || sh.dy != 0.0 {
+        b.push(DrawOp::Translate { x: sh.dx, y: sh.dy });
+    }
+    b.push(DrawOp::SaveLayer {
+        bounds: None,
+        paint: Some(paint_id),
+        alpha: 1.0,
+        backdrop: false,
+    });
+    b.push(draw.clone());
+    b.push(DrawOp::Restore);
+    b.push(DrawOp::Restore);
+    b.push(draw);
+}
+
 pub fn draw_box_shadow(
     builder: &mut DrawOpBuilder,
     bounds: DisplayRect,
@@ -1585,6 +1634,18 @@ struct LocalPaintState {
     line_dash_phase: f32,
     global_alpha: f32,
     anti_alias: bool,
+    /// Canvas 2D shadow state (sticky until overwritten). Translated here,
+    /// in core, into a `SaveLayer` + `DropShadow` wrapper — never emitted.
+    shadow: Option<CanvasShadow>,
+}
+
+/// Canvas 2D shadow (`shadowColor` / `shadowBlur` / `shadowOffsetX/Y`).
+#[derive(Clone, Copy, Debug)]
+struct CanvasShadow {
+    color: ColorU8,
+    blur: f32,
+    dx: f32,
+    dy: f32,
 }
 
 impl Default for LocalPaintState {
@@ -1608,6 +1669,7 @@ impl Default for LocalPaintState {
             line_dash: None,
             line_dash_phase: 0.0,
             global_alpha: 1.0,
+            shadow: None,
             anti_alias: true,
         }
     }
@@ -2173,12 +2235,28 @@ fn execute_draw_op(
         DrawOp::Path(path_op) => {
             b.push(DrawOp::Path(path_op.clone()));
         }
-        DrawOp::FillPath => {
-            b.push(DrawOp::FillPath);
+        // Canvas 2D shadow has no Skia op: it is sticky state that core
+        // expands around the next fills/strokes (see `push_shadowed`).
+        // Nothing is emitted here.
+        DrawOp::ScriptSetShadow {
+            color,
+            blur,
+            dx,
+            dy,
+        } => {
+            state.shadow = if color.a == 0 {
+                None
+            } else {
+                Some(CanvasShadow {
+                    color: *color,
+                    blur: *blur,
+                    dx: *dx,
+                    dy: *dy,
+                })
+            };
         }
-        DrawOp::StrokePath => {
-            b.push(DrawOp::StrokePath);
-        }
+        DrawOp::FillPath => push_shadowed(b, state.shadow, DrawOp::FillPath),
+        DrawOp::StrokePath => push_shadowed(b, state.shadow, DrawOp::StrokePath),
         DrawOp::ClipPath { anti_alias, fill_type } => {
             b.push(DrawOp::ClipPath {
                 anti_alias: *anti_alias,

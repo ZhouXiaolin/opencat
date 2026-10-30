@@ -1473,6 +1473,7 @@ fn replay_op(
         DrawOp::ScriptSetLineDash { .. } => Ok(()),
         DrawOp::ScriptSetStyleLinearGradient { .. } => Ok(()),
         DrawOp::ScriptSetStyleRadialGradient { .. } => Ok(()),
+        DrawOp::ScriptSetShadow { .. } => Ok(()),
 
         DrawOp::LottieRect {
             bundle_id,

@@ -1009,6 +1009,4 @@ fn build_path_effect(spec: &PathEffectSpec) -> Option<PathEffect> {
     }
 }
 
-// ── TEMP: Skia backdrop-blur 行为探针（CPU 光栅面）───────────────────────
-
 

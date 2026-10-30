@@ -246,6 +246,16 @@ pub enum DrawOp {
         color: ColorU8,
     },
 
+    /// Set the fill or stroke paint to a linear gradient (CSS
+    /// createLinearGradient semantics). Stops live in the f32 pool as flat
+    /// quintuples (offset, r, g, b, a), sorted by offset.
+    SetStyleLinearGradient {
+        stroke: bool,
+        start: [f32; 2],
+        end: [f32; 2],
+        stops: F32Range,
+    },
+
     /// Set the stroke width.
     SetLineWidth {
         width: f32,
@@ -475,6 +485,17 @@ pub enum DrawOp {
         dst: Rect4,
     },
 
+    /// Script-originated image bytes (pre-intern intermediate form): the
+    /// recorder holds no frame byte table, so `ctx.drawImage` hands the raw
+    /// encoded bytes here. `execute_draw_op` interns them into
+    /// `ImageRef::Encoded` and pushes the standard `DrawOp::ImageRect`; the
+    /// binary encoder must never see it.
+    ScriptImage {
+        bytes: Vec<u8>,
+        src: Option<Rect4>,
+        dst: Rect4,
+    },
+
     /// Script-originated dash state (pre-intern intermediate form): the
     /// recorder has no `f32_pool` access, so `SetLineDash`'s `F32Range` can't
     /// be built there. `execute_draw_op` interns the intervals and pushes the
@@ -482,6 +503,38 @@ pub enum DrawOp {
     ScriptSetLineDash {
         intervals: Vec<f32>,
         phase: f32,
+    },
+
+    /// Script-originated linear gradient paint (pre-intern intermediate
+    /// form): the recorder has no `f32_pool` access, so the stops can't be
+    /// interned there. `execute_draw_op` interns the stops and pushes the
+    /// standard `DrawOp::SetStyleLinearGradient`; the binary encoder must
+    /// never see it. `stops` is flat (offset, r, g, b, a) per stop.
+    ScriptSetStyleLinearGradient {
+        stroke: bool,
+        start: [f32; 2],
+        end: [f32; 2],
+        stops: Vec<f32>,
+    },
+
+    /// Standard radial gradient paint: `start` is the inner circle
+    /// (x0, y0, r0), `end` the outer circle (x1, y1, r1); stops are interned
+    /// f32 pool flat (offset, r, g, b, a) quintuples.
+    SetStyleRadialGradient {
+        stroke: bool,
+        start: [f32; 3],
+        end: [f32; 3],
+        stops: F32Range,
+    },
+
+    /// Script-originated radial gradient paint (pre-intern intermediate form
+    /// of `SetStyleRadialGradient`), same relationship as
+    /// `ScriptSetStyleLinearGradient`.
+    ScriptSetStyleRadialGradient {
+        stroke: bool,
+        start: [f32; 3],
+        end: [f32; 3],
+        stops: Vec<f32>,
     },
 }
 
@@ -550,6 +603,30 @@ impl std::hash::Hash for DrawOp {
             DrawOp::SetStrokeStyle { color } => {
                 10_u8.hash(state);
                 color.hash(state);
+            }
+            DrawOp::SetStyleLinearGradient {
+                stroke,
+                start,
+                end,
+                stops,
+            } => {
+                54_u8.hash(state);
+                stroke.hash(state);
+                start.map(f32::to_bits).hash(state);
+                end.map(f32::to_bits).hash(state);
+                stops.hash(state);
+            }
+            DrawOp::SetStyleRadialGradient {
+                stroke,
+                start,
+                end,
+                stops,
+            } => {
+                55_u8.hash(state);
+                stroke.hash(state);
+                start.map(f32::to_bits).hash(state);
+                end.map(f32::to_bits).hash(state);
+                stops.hash(state);
             }
             DrawOp::SetLineWidth { width } => {
                 11_u8.hash(state);
@@ -799,10 +876,40 @@ impl std::hash::Hash for DrawOp {
                 children.hash(state);
                 dst.hash(state);
             }
+            DrawOp::ScriptImage { bytes, src, dst } => {
+                56_u8.hash(state);
+                bytes.hash(state);
+                src.hash(state);
+                dst.hash(state);
+            }
             DrawOp::ScriptSetLineDash { intervals, phase } => {
                 41_u8.hash(state);
                 intervals.iter().for_each(|v| v.to_bits().hash(state));
                 phase.to_bits().hash(state);
+            }
+            DrawOp::ScriptSetStyleLinearGradient {
+                stroke,
+                start,
+                end,
+                stops,
+            } => {
+                54_u8.hash(state);
+                stroke.hash(state);
+                start.map(f32::to_bits).hash(state);
+                end.map(f32::to_bits).hash(state);
+                stops.iter().for_each(|v| v.to_bits().hash(state));
+            }
+            DrawOp::ScriptSetStyleRadialGradient {
+                stroke,
+                start,
+                end,
+                stops,
+            } => {
+                55_u8.hash(state);
+                stroke.hash(state);
+                start.map(f32::to_bits).hash(state);
+                end.map(f32::to_bits).hash(state);
+                stops.iter().for_each(|v| v.to_bits().hash(state));
             }
         }
     }

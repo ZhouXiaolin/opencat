@@ -174,6 +174,13 @@ pub mod opcode {
     pub const STROKE_PATTERN: u16 = 52;
     /// svg `<mask>`: content subtree → per-pixel coverage clip.
     pub const MASK_CLIP: u16 = 53;
+    /// Script linear gradient paint (CSS createLinearGradient): fill or
+    /// stroke paint switch + gradient geometry; stop colors live in the
+    /// f32 pool (flat offset,r,g,b,a quintuples).
+    pub const SET_STYLE_LINEAR_GRADIENT: u16 = 54;
+    /// Script radial gradient paint (CSS createRadialGradient): same stop
+    /// encoding, geometry is two circles [x0,y0,r0] / [x1,y1,r1].
+    pub const SET_STYLE_RADIAL_GRADIENT: u16 = 55;
 
     /// Per-opcode payload length in bytes for the v6 dense op stream.
     ///
@@ -183,7 +190,7 @@ pub mod opcode {
     /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
     /// unconditionally and signals absence via a flag byte, and `ImageRef`
     /// always writes tag(1) + id-slot(12).
-    pub const OPCODE_PAYLOAD_LEN: [u16; 54] = [
+    pub const OPCODE_PAYLOAD_LEN: [u16; 56] = [
         0,  // 0  SAVE
         25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
         0,  // 2  RESTORE
@@ -238,11 +245,13 @@ pub mod opcode {
         0,  // 51 (unused)
         62, // 52 STROKE_PATTERN — FILL_PATTERN layout + [f32 width][u8 cap][u8 join][f32 miter]
         21, // 53 MASK_CLIP [u32 subtree][u8 kind][4xf32 region]
+        25, // 54 SET_STYLE_LINEAR_GRADIENT [u8 stroke][4xf32 start/end][u32 f32_pool start][u32 len]
+        41, // 55 SET_STYLE_RADIAL_GRADIENT [u8 stroke][6xf32 two circles][u32 f32_pool start][u32 len]
     ];
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
     /// it must fit in the wire's 1-byte opcode field.
-    pub const MAX_OPCODE: u16 = PATH_ADD_ARC_OP;
+    pub const MAX_OPCODE: u16 = SET_STYLE_RADIAL_GRADIENT;
 
     /// Map a PathOp sub-opcode (0..=8) to its v6 top-level opcode.
     #[inline]
@@ -1676,6 +1685,37 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u32(buf, encode_color_u8(*color));
         }
 
+        DrawOp::SetStyleLinearGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            write_op_header(buf, opcode::SET_STYLE_LINEAR_GRADIENT);
+            write_u8(buf, if *stroke { 1 } else { 0 });
+            write_f32(buf, start[0]);
+            write_f32(buf, start[1]);
+            write_f32(buf, end[0]);
+            write_f32(buf, end[1]);
+            write_u32(buf, stops.start);
+            write_u32(buf, stops.len);
+        }
+
+        DrawOp::SetStyleRadialGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            write_op_header(buf, opcode::SET_STYLE_RADIAL_GRADIENT);
+            write_u8(buf, if *stroke { 1 } else { 0 });
+            for v in start.iter().chain(end.iter()) {
+                write_f32(buf, *v);
+            }
+            write_u32(buf, stops.start);
+            write_u32(buf, stops.len);
+        }
+
         DrawOp::SetLineWidth { width } => {
             write_op_header(buf, opcode::SET_LINE_WIDTH);
             write_f32(buf, *width);
@@ -2044,10 +2084,31 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             );
         }
 
+        DrawOp::ScriptImage { .. } => {
+            unreachable!(
+                "DrawOp::ScriptImage must be translated into ImageRect \
+                 by execute_draw_op before binary encoding"
+            );
+        }
+
         DrawOp::ScriptSetLineDash { .. } => {
             unreachable!(
                 "DrawOp::ScriptSetLineDash must be interned into SetLineDash \
                  by execute_draw_op before binary encoding"
+            );
+        }
+
+        DrawOp::ScriptSetStyleLinearGradient { .. } => {
+            unreachable!(
+                "DrawOp::ScriptSetStyleLinearGradient must be interned into \
+                 SetStyleLinearGradient by execute_draw_op before binary encoding"
+            );
+        }
+
+        DrawOp::ScriptSetStyleRadialGradient { .. } => {
+            unreachable!(
+                "DrawOp::ScriptSetStyleRadialGradient must be interned into \
+                 SetStyleRadialGradient by execute_draw_op before binary encoding"
             );
         }
     }

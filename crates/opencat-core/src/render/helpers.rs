@@ -1946,6 +1946,17 @@ fn execute_draw_op(
     state: &mut LocalPaintState,
 ) -> Result<(), RenderError> {
     match op {
+        // Script-side `ctx.drawImage`: intern the encoded bytes into the frame
+        // byte table and emit the canonical `ImageRect`.
+        DrawOp::ScriptImage { bytes, src, dst } => {
+            let data = b.intern_bytes(bytes);
+            b.push(DrawOp::ImageRect {
+                image: ImageRef::Encoded { data },
+                src: *src,
+                dst: *dst,
+                paint: None,
+            });
+        }
         // ── Stack management ──────────────────────────────────────────
         DrawOp::Save => {
             b.push(DrawOp::Save);
@@ -2091,6 +2102,53 @@ fn execute_draw_op(
             state.line_dash = None;
             state.line_dash_phase = 0.0;
             b.push(DrawOp::ClearLineDash);
+        }
+        // Pre-intern form from the script recorder (`canvas_set_style_gradient`):
+        // intern the stop quintuples and emit the canonical gradient op.
+        DrawOp::SetStyleLinearGradient { stroke, start, end, stops } => {
+            b.push(DrawOp::SetStyleLinearGradient {
+                stroke: *stroke,
+                start: *start,
+                end: *end,
+                stops: *stops,
+            });
+        }
+        DrawOp::ScriptSetStyleLinearGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            let range = b.intern_f32_range(stops);
+            b.push(DrawOp::SetStyleLinearGradient {
+                stroke: *stroke,
+                start: *start,
+                end: *end,
+                stops: range,
+            });
+        }
+        // Same pre-intern pattern for the radial form (createRadialGradient).
+        DrawOp::SetStyleRadialGradient { stroke, start, end, stops } => {
+            b.push(DrawOp::SetStyleRadialGradient {
+                stroke: *stroke,
+                start: *start,
+                end: *end,
+                stops: *stops,
+            });
+        }
+        DrawOp::ScriptSetStyleRadialGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            let range = b.intern_f32_range(stops);
+            b.push(DrawOp::SetStyleRadialGradient {
+                stroke: *stroke,
+                start: *start,
+                end: *end,
+                stops: range,
+            });
         }
         DrawOp::SetGlobalAlpha { alpha } => {
             state.global_alpha = alpha.clamp(0.0, 1.0);

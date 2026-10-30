@@ -27,11 +27,19 @@ pub fn engine_font_fallback_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![
         PathBuf::from("/usr/share/fonts"),
         PathBuf::from("/usr/local/share/fonts"),
+        // macOS
+        PathBuf::from("/System/Library/Fonts"),
+        PathBuf::from("/Library/Fonts"),
+        // Windows（浏览器同样吃系统字体：demo 里 'Impact' 之类未打包的
+        // family 必须能解析到，否则词云布局与参考图整体错位）
+        PathBuf::from("C:/Windows/Fonts"),
     ];
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         dirs.push(home.join(".fonts"));
         dirs.push(home.join(".local/share/fonts"));
+        dirs.push(home.join("Library/Fonts"));
+        dirs.push(home.join("AppData/Local/Microsoft/Windows/Fonts"));
     }
     dirs.retain(|dir| dir.is_dir());
     dirs

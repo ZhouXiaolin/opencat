@@ -188,6 +188,7 @@
         // 语义与浏览器一致："读回你画的东西"。
         var raster = { red: false, ink: null };
         var ops = [];
+        var dash = [];
         function replayIntoSurface(w, h) {
             var s = globalThis.ctx.surface(w, h);
             s.clearRect(0, 0, w, h);
@@ -295,7 +296,93 @@
             stroke: function () {},
             clip: function () {},
             isPointInPath: function () { return false; },
+            // 布局桩不产像素，但方法面要齐：g-canvas 对任何拿到的 2D
+            // context 都会走 applyAttributesToContext（dash 属性落在默认
+            // 空数组上）。
+            setLineDash: function (segments) { dash = Array.isArray(segments) ? segments.slice() : []; },
+            getLineDash: function () { return dash.slice(); },
         };
+    }
+
+    // Re-parent inside the shadow tree. Plain shadow faces take a direct
+    // write; declared-node handles expose getter-only `parentNode` and
+    // `parentElement`, so fall back to shadowing the accessors with own data
+    // properties (chart libraries re-parent these nodes freely).
+    function attachShadowParent(child, parent) {
+        try {
+            child.parentNode = parent;
+            child.parentElement = parent;
+        } catch (e) {
+            Object.defineProperty(child, 'parentNode', {
+                value: parent, writable: true, configurable: true,
+            });
+            Object.defineProperty(child, 'parentElement', {
+                value: parent, writable: true, configurable: true,
+            });
+        }
+    }
+
+    // ChildNode 便捷方法（CSSOM）。宿主面只实现 Node 级
+    // appendChild/insertBefore/removeChild，而图库的 tooltip/brush 层用
+    // `el.before(x)` / `el.after(x)` / `el.replaceWith(x)` / `el.remove()`
+    // 做重排——缺一个就是整帧 TypeError。
+    function attachChildNodeApi(node) {
+        node.before = function (nodes) {
+            var parent = node.parentNode;
+            if (!parent) return;
+            var args = arguments;
+            for (var k = 0; k < args.length; k++) parent.insertBefore(args[k], node);
+        };
+        node.after = function (nodes) {
+            var parent = node.parentNode;
+            if (!parent) return;
+            var ref = node.nextSibling || null;
+            var args = arguments;
+            for (var k = 0; k < args.length; k++) parent.insertBefore(args[k], ref);
+        };
+        node.replaceWith = function (nodes) {
+            var parent = node.parentNode;
+            if (!parent) return;
+            var args = arguments;
+            for (var k = 0; k < args.length; k++) parent.insertBefore(args[k], node);
+            parent.removeChild(node);
+        };
+        node.remove = function () {
+            if (node.parentNode) node.parentNode.removeChild(node);
+        };
+    }
+
+    // 极简 HTML 片段解析：只服务 @antv/util 的 `createDOM`（图例/tooltip 层
+    // 用 `div.innerHTML = '<li class="…">…</li>'` 造节点）。HTML 覆盖层不进
+    // 像素树，只要节点树/属性/文本立起来、别在 render 里炸。
+    function parseHtmlFragment(html) {
+        var root = shadowElement('div');
+        var stack = [root];
+        var re = /<\s*(\/?)\s*([a-zA-Z][\w:-]*)((?:\s+[^<>]*?)?)(\/?)\s*>|([^<]+)/g;
+        var m;
+        while ((m = re.exec(String(html == null ? '' : html)))) {
+            var top = stack[stack.length - 1];
+            if (m[5] !== undefined) {
+                var text = globalThis.__ocTree.createTextNode(m[5]);
+                attachShadowParent(text, top);
+                top.childNodes.push(text);
+                continue;
+            }
+            if (m[1]) {
+                if (stack.length > 1) stack.pop();
+                continue;
+            }
+            var el = shadowElement(m[2]);
+            var are = /([\w:-]+)(?:\s*=\s*"([^"]*)")?/g;
+            var am;
+            while ((am = are.exec(m[3] || ''))) {
+                if (am[2] !== undefined) el.attributes[am[1]] = am[2];
+            }
+            attachShadowParent(el, top);
+            top.childNodes.push(el);
+            if (!m[4]) stack.push(el);
+        }
+        return root.childNodes;
     }
 
     function shadowElement(tagName, opts) {
@@ -312,15 +399,13 @@
             classList: shadowClassList(),
             appendChild(child) {
                 if (!child) return child;
-                child.parentNode = node;
-                child.parentElement = node;
+                attachShadowParent(child, node);
                 node.childNodes.push(child);
                 return child;
             },
             insertBefore(child, reference) {
                 if (!child) return child;
-                child.parentNode = node;
-                child.parentElement = node;
+                attachShadowParent(child, node);
                 var i = reference ? node.childNodes.indexOf(reference) : -1;
                 if (i < 0) node.childNodes.push(child);
                 else node.childNodes.splice(i, 0, child);
@@ -330,8 +415,7 @@
                 var i = node.childNodes.indexOf(child);
                 if (i >= 0) {
                     node.childNodes.splice(i, 1);
-                    child.parentNode = null;
-                    child.parentElement = null;
+                    attachShadowParent(child, null);
                 }
                 return child;
             },
@@ -367,6 +451,31 @@
             },
         };
         Object.defineProperty(node, 'children', { get: function () { return node.childNodes; } });
+        Object.defineProperty(node, 'className', {
+            get: function () { return node.attributes['class'] || ''; },
+            set: function (value) { node.attributes['class'] = String(value); },
+        });
+        Object.defineProperty(node, 'innerHTML', {
+            get: function () { return ''; },
+            set: function (value) {
+                node.childNodes = [];
+                var kids = parseHtmlFragment(value);
+                for (var i = 0; i < kids.length; i++) node.appendChild(kids[i]);
+            },
+        });
+        node.getElementsByClassName = function (name) {
+            var want = String(name);
+            var out = [];
+            (function walk(current) {
+                for (var i = 0; i < current.childNodes.length; i++) {
+                    var kid = current.childNodes[i];
+                    var cls = (kid.attributes && kid.attributes['class']) || '';
+                    if (cls.split(/\s+/).indexOf(want) >= 0) out.push(kid);
+                    if (kid.childNodes) walk(kid);
+                }
+            })(node);
+            return out;
+        };
         Object.defineProperty(node, 'firstChild', {
             get: function () { return node.childNodes[0] || null; },
         });
@@ -403,6 +512,7 @@
                 throw new Error("canvas.getContext: only '2d'/'webgl2' is supported on a shadow canvas, got '" + kind + "'");
             };
         }
+        attachChildNodeApi(node);
         return node;
     }
 
@@ -620,6 +730,7 @@
             }
             return copy;
         };
+        attachChildNodeApi(node);
         return node;
     }
 
@@ -750,49 +861,57 @@
             : '<' + tag + attrs + '/>';
     }
 
-    // 图表宿主入口：为 `nodeId`（<canvas> 声明节点）建/取影子容器。
-    // 容器冒用节点 id——图表库 `new Chart({ container })` 期望一个可
-    // appendChild 的元素，而声明节点句柄的样式写会进合成树；影子容器的
-    // 私有 bag 隔离这一切。幂等：同一图表节点跨帧拿到同一容器。
-    globalThis.__ocShadow = {
-        ensureChart(nodeId, width, height) {
-            var id = String(nodeId);
-            var container = shadowById[id];
-            if (!container) {                container = shadowElement('div', { width: width, height: height });
-                container.id = id;
-                container.style.position = 'relative';
-                container.style.width = width + 'px';
-                container.style.height = height + 'px';
-                // g-canvaskit 自建 `createElement('canvas')` 再挂进容器；引擎的
-                // 录制 surface 按 canvas 的 id 找 DrawOp 流（makeRecordingSurface
-                // → getCanvasById），挂载时把容器冒用的图表节点 id 传给它。
-                var baseAppend = container.appendChild;
-                container.appendChild = function (child) {
-                    if (child && child.tagName === 'CANVAS' && !child.id) child.id = id;
-                    return baseAppend.call(this, child);
-                };
-                shadowById[id] = container;
+    // ── 图表宿主容器 ────────────────────────────────────────────────
+    // 作者用浏览器写法 `document.querySelector('#chart')` 拿容器，id 指向
+    // JSX 里声明的 <canvas>。容器是影子元素：可 appendChild、私有样式 bag、
+    // 不进合成树——声明节点句柄的样式写会进合成树，做不到这些。
+    // canvas 冒用：图表库自建 `createElement('canvas')` 挂进容器，引擎的
+    // 录制 surface 按 canvas 的 id 找 DrawOp 流（makeRecordingSurface →
+    // getCanvasById），挂载时把无 id 的 canvas 冒用宿主节点 id。
+    // 幂等：同一 id 跨帧拿到同一容器；每次调用清空子树（图表每帧重建，
+    // 旧子树累积会让 SVG 序列化取到旧树；canvas 的 DrawOp 流由录制
+    // surface 自己管理，不依赖它）。
+    function ensureCanvasHost(nodeId) {
+        var id = String(nodeId);
+        var container = shadowById[id];
+        if (!container) {
+            container = shadowElement('div', {});
+            container.id = id;
+            container.__ocHostId = id;
+            container.style.position = 'relative';
+            var baseAppend = container.appendChild;
+            container.appendChild = function (child) {
+                if (child && child.tagName === 'CANVAS' && !child.id) child.id = id;
+                return baseAppend.call(this, child);
+            };
+            shadowById[id] = container;
+        }
+        if (container.childNodes.length) container.childNodes.length = 0;
+        return container;
+    }
+
+    // SVG 子树捕获：SVG 类渲染器（g-svg）不产 DrawOp，产物是容器下的一棵
+    // `<svg>` 子树。渲染器标记容器（`__ocMarkSvgSubtree`），宿主在微任务
+    // 排空后（realm commit 循环）对每个标记的宿主节点调
+    // `__ocSvgSubtreeMarkup` 序列化成 markup，按 `<svg inline>` 渲染。
+    globalThis.__ocMarkSvgSubtree = function (container) {
+        var hostId = container && container.__ocHostId;
+        if (!hostId) return;
+        var nodes = globalThis.__ocSvgSubtrees;
+        if (!nodes) nodes = globalThis.__ocSvgSubtrees = [];
+        if (nodes.indexOf(hostId) < 0) nodes.push(hostId);
+    };
+
+    globalThis.__ocSvgSubtreeMarkup = function (nodeId) {
+        var container = shadowById[String(nodeId)];
+        if (!container) return null;
+        for (var i = container.childNodes.length - 1; i >= 0; i--) {
+            var child = container.childNodes[i];
+            if (child && child.nodeType === 1 && String(child.tagName) === 'svg') {
+                return serializeSvgNode(child);
             }
-            // 图表每帧重建：容器里挂的是上一帧的 canvas / <svg> 子树，先清空
-            // 再让这一帧的库代码重新挂载（否则子树逐帧累积，SVG 序列化会取到
-            // 旧树；canvas 侧的 DrawOp 流由录制 surface 自己管理，不依赖它）。
-            if (container.childNodes.length) container.childNodes.length = 0;
-            return container;
-        },
-        serializeSvg(nodeId) {
-            var container = shadowById[String(nodeId)];
-            if (!container) return null;
-            for (var i = container.childNodes.length - 1; i >= 0; i--) {
-                var child = container.childNodes[i];
-                if (child && child.nodeType === 1 && String(child.tagName) === 'svg') {
-                    return serializeSvgNode(child);
-                }
-            }
-            return null;
-        },
-        byId(id) {
-            return shadowById[String(id)] || null;
-        },
+        }
+        return null;
     };
 
 
@@ -852,17 +971,31 @@
     var ROOT = rootElement();
 
     var document = {
-        // 影子注册表优先：图表容器 id（`__ocShadow.ensureChart` 登记的）
-        // 永远返回影子——图表库要往里 appendChild，声明节点句柄做不到。
+        // 影子注册表优先：图表宿主容器（querySelector('#chart') 在声明
+        // canvas 节点上建的）永远返回影子——图表库要往里 appendChild，
+        // 声明节点句柄做不到。
         getElementById(id) {
             var shadow = shadowById[String(id)];
             if (shadow) return shadow;
             return nodeFor(String(id), 'document.getElementById');
         },
         querySelector(selector) {
-            var shadow = shadowById[selectorToId('document.querySelector', selector)];
+            var id = selectorToId('document.querySelector', selector);
+            var shadow = shadowById[id];
             if (shadow) return shadow;
-            return elementFor(selectorToId('document.querySelector', selector), 'document.querySelector');
+            // '#id' 指向声明 canvas 节点：图表宿主容器语义（见
+            // ensureCanvasHost）。其余已知 id 保持 element-face 语义；未知
+            // id 兜底成宿主容器（G2 多容器 demo 引用 JSX 里没声明的
+            // `<div id>`——kChart、focus-context 的副图容器——浏览器里
+            // 这些节点由页面 HTML 提供，runner 没法预声明）。
+            var registry = (globalThis.ctx && globalThis.ctx.__targetRegistry) || {};
+            if (registry.visual && registry.visual[id]) {
+                if (registry.canvas && registry.canvas[id]) {
+                    return ensureCanvasHost(id);
+                }
+                return elementFor(id, 'document.querySelector');
+            }
+            return ensureCanvasHost(id);
         },
         querySelectorAll(selector) {
             var shadow = shadowById[selectorToId('document.querySelectorAll', selector)];
@@ -919,10 +1052,9 @@
         documentElement: ROOT,
     };
 
-    // 唯一的 document 安装点。图表库的 DOM 需求由影子面（上方
-    // `__ocShadow` / canvas 分流）承接，不再有私有 document shim 抢先
-    // 安装——那会把全 realm 的 document 换成元素桩（旧 g2 shim 的违宪
-    // 形态，已退役）。
+    // 唯一的 document 安装点。图表库的 DOM 需求由影子面（上方宿主容器 /
+    // canvas 分流）承接，不再有私有 document shim 抢先安装——那会把全
+    // realm 的 document 换成元素桩（旧 g2 shim 的违宪形态，已退役）。
     if (typeof globalThis.document === 'undefined' || !globalThis.document) {
         globalThis.document = document;
     }
@@ -973,25 +1105,31 @@
         globalThis.devicePixelRatio = 1;
     }
 
-    // ── Timers / frame callbacks: hard errors with a pointer to the model ──
+    // ── Timers: deterministic degradation onto the frame queue ──
+    // Offline rendering has no wall clock, so timers ignore their delay and
+    // run on the next frame drain. setTimeout recurring chains therefore
+    // advance one step per flush pass instead of spinning microtasks.
     // g's bundle installs its own rAF queue polyfill BEFORE this runtime
-    // (see JS_PLATFORM_SHIM), so only define the guard when the G2 polyfill
-    // has not claimed the name.
-    function timerError(api, alternative) {
-        return function () {
-            throw new Error(api + ' is not available in a deterministic renderer' + (alternative ? '; ' + alternative : ''));
-        };
-    }
+    // (see JS_PLATFORM_SHIM), so these reuse whatever frame queue exists and
+    // the rAF guard below only defines a hard error when nothing is installed.
     if (typeof globalThis.setTimeout !== 'function') {
-        globalThis.setTimeout = timerError('setTimeout', 'advance time through the composition clock (ctx.global.time)');
+        globalThis.setTimeout = function (fn) {
+            return globalThis.requestAnimationFrame(function () { fn(); });
+        };
         globalThis.clearTimeout = function () {};
     }
     if (typeof globalThis.setInterval !== 'function') {
-        globalThis.setInterval = timerError('setInterval', 'use useEffect(fn) in your component for per-frame work');
+        // One shot: recurring work would never converge in a single-frame
+        // render, and the offline final state only needs the first tick.
+        globalThis.setInterval = function (fn) {
+            return globalThis.requestAnimationFrame(function () { fn(); });
+        };
         globalThis.clearInterval = function () {};
     }
     if (typeof globalThis.requestAnimationFrame !== 'function') {
-        globalThis.requestAnimationFrame = timerError('requestAnimationFrame', 'use useEffect(fn) in your component to run per-frame work');
+        globalThis.requestAnimationFrame = function () {
+            throw new Error('requestAnimationFrame is not available in a deterministic renderer; use useEffect(fn) in your component to run per-frame work');
+        };
         globalThis.cancelAnimationFrame = function () {};
     }
 })();

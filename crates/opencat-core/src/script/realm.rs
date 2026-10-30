@@ -21,7 +21,7 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
-    G2_API_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
+    JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
     WEBGL_API_RUNTIME,
 };
 use crate::script::{
@@ -104,12 +104,66 @@ pub const JS_PLATFORM_SHIM: &str = r#"
     globalThis.Date = function () {
         if (!(this instanceof globalThis.Date)) return new NativeDate(clockMs).toString();
         if (arguments.length === 0) return new NativeDate(clockMs);
+        if (arguments.length === 1 && typeof arguments[0] === 'string') {
+            return new NativeDate(globalThis.Date.parse(arguments[0]));
+        }
         return new (Function.prototype.bind.apply(NativeDate, [null].concat(Array.prototype.slice.call(arguments))))();
     };
     globalThis.Date.prototype = NativeDate.prototype;
     globalThis.Date.now = function () { return clockMs; };
-    globalThis.Date.parse = NativeDate.parse;
-    globalThis.Date.UTC = NativeDate.UTC;
+    // The host V8 build has no ICU: `NativeDate.UTC` is absent too, so compute
+    // the UTC timestamp with the days-from-civil algorithm (proleptic
+    // Gregorian), which needs no runtime calendar support at all.
+    globalThis.Date.UTC = function (y, mo, da, hh, mi, ss, ms) {
+        y = Math.floor(+y || 0);
+        mo = Math.floor(+mo || 0);
+        y += Math.floor(mo / 12);
+        mo = ((mo % 12) + 12) % 12;
+        var day = Math.floor(+da || 1);
+        var hhv = Math.floor(+hh || 0);
+        var miv = Math.floor(+mi || 0);
+        var ssv = Math.floor(+ss || 0);
+        var msv = Math.floor(+ms || 0);
+        var m1 = mo + 1; // Hinnant's days-from-civil counts months from 1
+        if (m1 <= 2) y -= 1; // Jan/Feb belong to the previous era-year
+        var era = Math.floor((y >= 0 ? y : y - 399) / 400);
+        var yoe = y - era * 400;
+        var doy = Math.floor((153 * (m1 + (m1 > 2 ? -3 : 9)) + 2) / 5) + day - 1;
+        var doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+        var days = era * 146097 + doe - 719468;
+        return days * 86400000 + hhv * 3600000 + miv * 60000 + ssv * 1000 + msv;
+    };
+    globalThis.Date.parse = function (str) {
+        // ES-conforming calendar parser: date-only forms are UTC per spec,
+        // a date-time without an offset is local wall time. Falls back to
+        // the native parser (when present) for non-ISO shapes.
+        var s = String(str).trim();
+        var m = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?(?:[Tt ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?)?([Zz]|[+-]\d{2}:?\d{2})?$/.exec(s);
+        if (!m) {
+            return typeof NativeDate.parse === 'function' ? NativeDate.parse(s) : NaN;
+        }
+        var ms = globalThis.Date.UTC(
+            +m[1],
+            (+(m[2] || 1)) - 1,
+            +(m[3] || 1),
+            +(m[4] || 0),
+            +(m[5] || 0),
+            +(m[6] || 0),
+            +(((m[7] || '') + '000').slice(0, 3))
+        );
+        if (isNaN(ms)) return NaN;
+        if (m[8] && m[8] !== 'Z' && m[8] !== 'z') {
+            var sign = m[8].charAt(0) === '-' ? 1 : -1;
+            var oh = +m[8].slice(1, 3), om = +m[8].slice(-2);
+            ms += sign * (oh * 60 + om) * 60000;
+        } else if (m[4] !== undefined && !m[8]) {
+            var probe = new NativeDate(ms);
+            if (typeof probe.getTimezoneOffset === 'function') {
+                ms -= probe.getTimezoneOffset() * 60000;
+            }
+        }
+        return ms;
+    };
     // A synchronous frame queue. g's `Canvas` takes `requestAnimationFrame`
     // from `raf.bind(root)` at bundle-eval time (see its raf-polyfill), so the
     // implementation has to be on the global *before* any library bundle is
@@ -281,23 +335,15 @@ impl<C: JsContext> ScriptRealm<C> {
              globalThis.__opencatRandomCallIndex = 0;",
         )?;
 
-        // Disable real clock: Date.now always returns 0 so scripts cannot
-        // depend on wall-clock time. The only time a script should read is
-        // ctx.global / ctx.current, both sourced from FrameCtx.
-        self.ctx.eval(
-            "var _Date = Date;\
-             Date = function() { return new _Date(0); };\
-             Date.now = function() { return 0; };",
-        )?;
-
+        // Real-clock erasure happens inside JS_PLATFORM_SHIM's Date wrapper
+        // (constructor without args and `Date.now` both read the virtual
+        // clock). An extra zero-epoch stub here would be captured as the
+        // `NativeDate` of that wrapper and flatten every constructed date
+        // to epoch 0, so it must not precede the shim.
         self.ctx.eval(NODE_STYLE_RUNTIME)?;
         self.ctx.eval(CANVAS_API_RUNTIME)?;
-        // JS platform globals + the realm clock/rAF facilities. The g2 host
-        // runtime (`G2_API_RUNTIME`) defines `__ocG2Frame` but the g2 bundle
-        // itself is project-supplied: required lazily through the module
-        // table on the first chart frame (`require('g2')`).
+        // JS platform globals + the realm clock/rAF facilities.
         self.ctx.eval(JS_PLATFORM_SHIM)?;
-        self.ctx.eval(G2_API_RUNTIME)?;
         // DOM globals: `document`/`window` + timer guards. After the G2 shim
         // (its rAF polyfill owns `requestAnimationFrame`; the guard only
         // fills the gap) and after NODE_STYLE_RUNTIME (getElementById hands
@@ -330,13 +376,9 @@ impl<C: JsContext> ScriptRealm<C> {
         if let Some(base) = &self.document_base {
             self.ctx.set_ctx_field("__documentBase", json!(base))?;
         }
-        // A-B timing / diagnostics escape hatch for the G2 static-build cache
-        // (g2_api.js reads it before each chart frame).
-        if matches!(std::env::var("OC_NO_G2_CACHE"), Ok(v) if v == "1") {
-            self.ctx.eval("globalThis.OC_NO_G2_CACHE = '1';")?;
-        }
         // Renderer selector for chart compositions ('2d' = official
-        // @antv/g-canvas); g2_api.js reads it when injecting the renderer.
+        // @antv/g-canvas); the project's `g2` bundle segment reads it when
+        // injecting the renderer.
         if let Ok(v) = std::env::var("OC_G2_RENDERER") {
             self.ctx
                 .eval(&format!("globalThis.OC_G2_RENDERER = {:?};", v))?;
@@ -344,6 +386,11 @@ impl<C: JsContext> ScriptRealm<C> {
         if let Ok(v) = std::env::var("OC_RAF_PASSES") {
             self.ctx
                 .eval(&format!("globalThis.OC_RAF_PASSES = {:?};", v))?;
+        }
+        // Demo slug for the g2 example-batch runner composition.
+        if let Ok(v) = std::env::var("OC_G2_DEMO") {
+            self.ctx
+                .eval(&format!("globalThis.OC_G2_DEMO = {:?};", v))?;
         }
         // User-created globalThis keys persist for the realm lifetime: there
         // is no frame-boundary cleanup. The realm lives and dies with one
@@ -525,33 +572,29 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 self.ctx.eval("__ocFlushRaf();")?;
             }
         }
-        // G2 chart-cache commit (queued by g2_api's `__ocG2Frame`): g's draw
-        // chain paints in promise continuations, so an inline commit at
-        // `__ocG2Frame` time snapshots only the synchronous clear/background
-        // prefix and the cache would replay a broken frame. Here the full
-        // stream is in the canvas entries — commit and drop the queue.
-        let queued = self.ctx.eval_json("(globalThis.__ocG2CommitQueue || [])")?;
+        // SVG-subtree capture: SVG-family chart renderers (g-svg) paint no
+        // pixels — their output is an `<svg>` subtree under the container,
+        // built in promise continuations. The shadow-DOM layer marks such
+        // containers via `__ocMarkSvgSubtree`; here (microtasks drained, the
+        // full tree exists) each marked node's subtree serializes into the
+        // canvas entry's `svg` slot. Canvas-family renderers never mark, so
+        // the queue is empty for them.
+        let queued = self.ctx.eval_json("(globalThis.__ocSvgSubtrees || [])")?;
         if let serde_json::Value::Array(nodes) = queued {
             let nodes: Vec<String> = nodes
                 .into_iter()
                 .filter_map(|v| v.as_str().map(String::from))
                 .collect();
             if !nodes.is_empty() {
-                self.ctx.eval("globalThis.__ocG2CommitQueue = [];")?;
+                self.ctx.eval("globalThis.__ocSvgSubtrees = [];")?;
                 for node in nodes {
-                    // g-svg 渲染器不产 DrawOp：它的产物是容器下的一棵
-                    // `<svg>` 子树，此刻（微任务已排空）序列化成 markup。
-                    // canvas 渲染器返回 null，走 DrawOp 提交。
                     let markup = self.ctx.eval_json(&format!(
-                        "globalThis.__ocG2SvgMarkup ? globalThis.__ocG2SvgMarkup({}) : null",
+                        "globalThis.__ocSvgSubtreeMarkup ? globalThis.__ocSvgSubtreeMarkup({}) : null",
                         serde_json::to_string(&node)?
                     ))?;
-                    match markup {
-                        serde_json::Value::String(markup) if !markup.is_empty() => {
+                    if let serde_json::Value::String(markup) = markup {
+                        if !markup.is_empty() {
                             self.ctx.with_store_mut(|s| s.set_canvas_svg(&node, markup));
-                        }
-                        _ => {
-                            let _ = self.ctx.with_store_mut(|s| s.chart_cache_commit(&node));
                         }
                     }
                 }

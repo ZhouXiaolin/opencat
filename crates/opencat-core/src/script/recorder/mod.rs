@@ -92,14 +92,6 @@ pub trait MutationRecorder {
 
     fn record_draw_op(&mut self, id: &str, cmd: DrawOp);
 
-    /// G2 chart cache: replay a cached build (false = miss, run a real build).
-    fn chart_cache_fetch(&mut self, node_id: &str) -> bool { false }
-    /// Snapshot the build that just ran; second call at a different frame
-    /// time decides static (`Some(false)`) vs dynamic (`Some(true)`).
-    fn chart_cache_commit(&mut self, node_id: &str) -> Option<bool> { let _ = node_id; None }
-    /// Drop a node's cached chart.
-    fn chart_cache_drop(&mut self, node_id: &str) { let _ = node_id; }
-
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32);
 
     /// 本帧某个 canvas 节点录到了 SVG markup（g-svg 渲染器产 `<svg>` 子树而

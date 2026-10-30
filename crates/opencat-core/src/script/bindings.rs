@@ -379,12 +379,19 @@ macro_rules! for_each_binding {
             let (ascent, descent) = raster
                 .metrics
                 .map_or((size * 0.8, size * 0.2), |m| (m.ascent, m.descent));
+            // Baseline anchors follow the browser's OS/2 typo metrics, not the
+            // hhea pair the em box uses — see `FontTextMetrics::typo_ascent`.
+            let (baseline_ascent, baseline_descent) = raster
+                .metrics
+                .map_or((ascent, descent), |m| (m.typo_ascent, m.typo_descent));
             Ok(serde_json::json!({
                 "glyphs": glyphs,
                 "positions": positions,
                 "width": line.width,
                 "ascent": ascent,
                 "descent": descent,
+                "baselineAscent": baseline_ascent,
+                "baselineDescent": baseline_descent,
                 "color": has_color,
             }))
         }}
@@ -457,27 +464,6 @@ macro_rules! for_each_binding {
             Ok(if flat.is_empty() { None } else { Some(flat) })
         }}
 
-        // ── Node: G2 chart cache ──────────────────────────────────────────
-        //    A chart's DrawOp stream is time-invariant (the G2 shim freezes
-        //    animations at the virtual-clock origin), so the stream recorded on
-        //    one frame replays verbatim on every later frame. `g2_cache_fetch`
-        //    replays a cached build (false = miss → run a real G2 build);
-        //    `g2_cache_commit` snapshots the build that just ran — the second
-        //    commit at a different frame time decides static vs dynamic;
-        //    `g2_cache_drop` invalidates.
-
-        $binding! { cmd $store g2_cache_fetch (node_id: String) -> bool {
-            Ok($store.chart_cache_fetch(&node_id))
-        }}
-
-        $binding! { cmd $store g2_cache_commit (node_id: String) -> Option<bool> {
-            Ok($store.chart_cache_commit(&node_id))
-        }}
-
-        $binding! { node $rec $id g2_cache_drop ($id: &str) {
-            $rec . chart_cache_drop($id);
-        }}
-
         $binding! { node $rec $id canvas_save_layer ($id: &str, alpha: f32, bounds: Option<Vec<f32>>) {
             let bounds = match bounds {
                 Some(b) => Some($crate::script::helpers::parse_image_rect("saveLayer", &b)?),
@@ -530,6 +516,62 @@ macro_rules! for_each_binding {
         }}
         $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
             $rec . record_draw_op($id, DrawOp::ClearLineDash);
+        }}
+        $binding! { node $rec $id canvas_set_style_gradient (
+            $id: &str, stroke: bool, x0: f32, y0: f32, x1: f32, y1: f32,
+            offsets: Vec<f32>, colors: Vec<String>
+        ) {
+            // Pre-intern form like `canvas_set_line_dash`: stop colors go
+            // through `parse_color` here, then `execute_draw_op` interns the
+            // flat (offset, r, g, b, a) quintuples into the canonical
+            // `SetStyleLinearGradient`.
+            if offsets.len() != colors.len() {
+                return Err(anyhow::anyhow!(
+                    "addColorStop: {} offsets vs {} colors", offsets.len(), colors.len()
+                ));
+            }
+            let mut stops = Vec::with_capacity(offsets.len() * 5);
+            for (i, off) in offsets.iter().enumerate() {
+                let c = $crate::script::helpers::parse_color(&colors[i], "addColorStop")?;
+                stops.push(*off);
+                stops.push(c.r as f32);
+                stops.push(c.g as f32);
+                stops.push(c.b as f32);
+                stops.push(c.a as f32);
+            }
+            $rec . record_draw_op($id, DrawOp::ScriptSetStyleLinearGradient {
+                stroke,
+                start: [x0, y0],
+                end: [x1, y1],
+                stops,
+            });
+        }}
+        $binding! { node $rec $id canvas_set_style_radial_gradient (
+            $id: &str, stroke: bool, x0: f32, y0: f32, r0: f32, x1: f32, y1: f32, r1: f32,
+            offsets: Vec<f32>, colors: Vec<String>
+        ) {
+            // Radial counterpart of `canvas_set_style_gradient`; same stop
+            // encoding, geometry is the two circles (x0,y0,r0)/(x1,y1,r1).
+            if offsets.len() != colors.len() {
+                return Err(anyhow::anyhow!(
+                    "addColorStop: {} offsets vs {} colors", offsets.len(), colors.len()
+                ));
+            }
+            let mut stops = Vec::with_capacity(offsets.len() * 5);
+            for (i, off) in offsets.iter().enumerate() {
+                let c = $crate::script::helpers::parse_color(&colors[i], "addColorStop")?;
+                stops.push(*off);
+                stops.push(c.r as f32);
+                stops.push(c.g as f32);
+                stops.push(c.b as f32);
+                stops.push(c.a as f32);
+            }
+            $rec . record_draw_op($id, DrawOp::ScriptSetStyleRadialGradient {
+                stroke,
+                start: [x0, y0, r0],
+                end: [x1, y1, r1],
+                stops,
+            });
         }}
         $binding! { node $rec $id canvas_set_global_alpha ($id: &str, alpha: f32) {
             $rec . record_draw_op($id, DrawOp::SetGlobalAlpha { alpha: alpha.clamp(0.0, 1.0) });
@@ -613,6 +655,29 @@ macro_rules! for_each_binding {
                 src,
                 dst,
                 paint: None,
+            });
+            Ok::<_, anyhow::Error>(())
+        }}
+        // 脚本侧 `ctx.drawImage`（image mark / 内联位图）。字节来自 JS 持有的
+        // 编码图像，走 `DrawOp::ScriptImage` 中间态，由 execute_draw_op 内联进
+        // 帧字节表（与 `ScriptRuntimeEffect` 同一分层：记录器没有 bytes 表）。
+        $binding! { node $rec $id canvas_draw_image_bytes ($id: &str, bytes: Vec<u8>, values: Vec<f32>, alpha: f32, anti_alias: bool) {
+            let _ = (alpha, anti_alias);
+            if values.len() < 4 {
+                return Err($crate::script::helpers::script_error(
+                    "drawImage",
+                    "expected destination rect as [x, y, width, height]".to_string(),
+                ));
+            }
+            let dst = Rect4 { x: values[0], y: values[1], width: values[2], height: values[3] };
+            let src = match values.len() {
+                8.. => Some(Rect4 { x: values[4], y: values[5], width: values[6], height: values[7] }),
+                _ => None,
+            };
+            $rec . record_draw_op($id, DrawOp::ScriptImage {
+                bytes,
+                src,
+                dst,
             });
             Ok::<_, anyhow::Error>(())
         }}
@@ -941,6 +1006,26 @@ macro_rules! for_each_binding {
         }}
 
         // ── Pure: no store (4 entries: text measure, random, graphemes, easing) ─
+        // Local data mirror for offline `fetch` shims: chart libraries fetch
+        // remote JSON/CSV; the harness mirrors those files under
+        // `<base-dir>/assets/` and the JS shim maps URL → filename first.
+        // Goes through the same asset reader as three's FileLoader
+        // (base_dir join), so the path stays relative to --base-dir.
+        $binding! { cmd $store asset_fetch (name: String) -> String {
+            let bytes = $store.asset_read(&format!("assets/{}", name))?;
+            let text = String::from_utf8(bytes)
+                .map_err(|e| anyhow::anyhow!("asset_fetch: assets/{name} is not utf-8: {e}"))?;
+            Ok(text)
+        }}
+        // 编码图像的自然尺寸（`Image` 元素的 naturalWidth/naturalHeight）。
+        // 解码器由宿主注入；失败返回空表（JS 侧当作加载失败）。
+        $binding! { cmd $store image_probe (data: Vec<u8>) -> Vec<f32> {
+            match $store.image_decode(&data) {
+                Ok((width, height, _)) => Ok(vec![width as f32, height as f32]),
+                Err(_) => Ok(Vec::new()),
+            }
+        }}
+
         $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}

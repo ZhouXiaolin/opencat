@@ -12,7 +12,6 @@
 //! 6. `ANIMATION_FACADE` — `ctx.from/to/fromTo/set()`, `ctx.timeline()`, `flushTimelines`
 //! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API + DOM property facade
 //! 8. `CANVAS_API_RUNTIME` — the CanvasKit signature facade (`globalThis.CanvasKit` + the `CanvasKitInit` stub)
-//! 10. `G2_BUNDLE` + `G2_API_RUNTIME` — `useChart(ref, build)` AntV G2 图表（legacy），
 //! 11. `DOM_API_RUNTIME` — `document`/`window` 全局与越界 API 报错
 //!
 //! All files are IIFE-wrapped and assume the existence of native
@@ -41,13 +40,6 @@ pub const DOM_API_RUNTIME: &str = include_str!("dom_api.js");
 // Loaded after `NODE_STYLE_RUNTIME` — the node facade's `getContext` branch
 // calls `ctx.getContext` defined here.
 pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
-// AntV G2 chart runtime (host side). The bundle (`@antv/g2` +
-// `@antv/g-canvaskit`) is project-supplied as a `g2` segment of the
-// single-file bundle and required lazily through the module table — gsap /
-// three 同款，core 不嵌第三方包。`G2_API_RUNTIME` binds G2 to an OpenCat
-// <canvas> through the official faces (shadow DOM, realm clock, CanvasKit
-// facade).
-pub const G2_API_RUNTIME: &str = include_str!("g2/g2_api.js");
 
 // JSX frontend (`parse::jsx`): element factory + `use*` registry + module
 // loader, installed in every script realm (the per-frame driver produced by

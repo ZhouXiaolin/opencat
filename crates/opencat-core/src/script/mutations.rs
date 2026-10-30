@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use lightningcss::traits::Parse;
+
 use crate::style::{
     BorderRadius, BorderStyle, BoxShadow, ClipPath, ColorToken, CssFilter, DropShadow,
     FlexDirection, FontWeight, InsetShadow, JustifyContent, LengthPercentageAuto, ObjectFit,
@@ -997,6 +999,13 @@ pub fn font_edging_from_name(name: &str) -> Option<String> {
 // ── Color parsing ─────────────────────────────────────────────────
 
 pub fn script_color_from_value(value: &str) -> Option<crate::ir::draw_op::ColorU8> {
+    // CSS `currentColor`：脚本面没有层叠上下文，取 `color` 属性的初始值
+    // （black）。浏览器里 Canvas2D 把它当非法值忽略、沿用上一次 fillStyle，
+    // 而 g-lite 默认 `color` 就是黑色，两者在离屏缺省下同解。
+    if value.trim().eq_ignore_ascii_case("currentcolor") {
+        return Some(crate::ir::draw_op::ColorU8 { r: 0, g: 0, b: 0, a: 255 });
+    }
+
     let color = crate::style::color_token_from_script_name(value).map(|color| color.rgba());
     if let Some((r, g, b, a)) = color {
         return Some(crate::ir::draw_op::ColorU8 { r, g, b, a });
@@ -1004,6 +1013,19 @@ pub fn script_color_from_value(value: &str) -> Option<crate::ir::draw_op::ColorU
 
     if let Some(color) = parse_rgb_function(value) {
         return Some(color);
+    }
+
+    // CSS 命名色与剩余合法语法（hsl、#rrggbb 之外的变体）走 lightningcss
+    // 全解析兜底。大写/带空白（` WHITE `）浏览器也接受，先 trim。
+    if let Ok(lightningcss::values::color::CssColor::RGBA(rgba)) =
+        lightningcss::values::color::CssColor::parse_string(value.trim())
+    {
+        return Some(crate::ir::draw_op::ColorU8 {
+            r: rgba.red,
+            g: rgba.green,
+            b: rgba.blue,
+            a: rgba.alpha,
+        });
     }
 
     let hex = value.strip_prefix('#')?;

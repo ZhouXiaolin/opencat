@@ -769,6 +769,98 @@
         }
     }
 
+    /* Web 标准 Path2D：context2d.stroke/fill 直接收它。构造器支持 SVG
+       path 字符串（custom-pattern-with-canvas 的斜线纹理 d）、另一个
+       Path2D（拷贝）、或空。内部与 CanvasKit Path 同款 `_ops` 形态，
+       context2d 端 replayPath 原样可用；SVG 构造走 `__oc_path_from_svg`
+       （usvg 解析，与 makePathFromSVGString 同通道）。 */
+    class Path2D {
+        constructor(source) {
+            this._ops = [];
+            if (source === undefined || source === null) return;
+            if (typeof source === 'string') {
+                if (typeof __oc_path_from_svg !== 'function') {
+                    throw new Error('Path2D(string) requires the host path binding');
+                }
+                const flat = __oc_path_from_svg(String(source));
+                if (!flat) return;
+                for (let i = 0; i < flat.length;) {
+                    const cmd = flat[i++];
+                    if (cmd === 0) { this.moveTo(flat[i++], flat[i++]); }
+                    else if (cmd === 1) { this.lineTo(flat[i++], flat[i++]); }
+                    else if (cmd === 2) { this.quadTo(flat[i++], flat[i++], flat[i++], flat[i++]); }
+                    else if (cmd === 3) { this.cubicTo(flat[i++], flat[i++], flat[i++], flat[i++], flat[i++], flat[i++]); }
+                    else if (cmd === 4) { this.close(); }
+                    else { throw new Error(`Path2D: unknown verb ${cmd}`); }
+                }
+                return;
+            }
+            if (source instanceof Path2D || (source && Array.isArray(source._ops))) {
+                this._ops = source._ops.map((op) => op.slice());
+                return;
+            }
+            throw new Error('Path2D: constructor expects an SVG path string or another Path2D');
+        }
+
+        moveTo(x, y) { this._ops.push(['moveTo', toFiniteNumber(x), toFiniteNumber(y)]); }
+        lineTo(x, y) { this._ops.push(['lineTo', toFiniteNumber(x), toFiniteNumber(y)]); }
+        quadTo(x1, y1, x2, y2) {
+            this._ops.push(['quadTo', toFiniteNumber(x1), toFiniteNumber(y1), toFiniteNumber(x2), toFiniteNumber(y2)]);
+        }
+        bezierCurveTo(x1, y1, x2, y2, x3, y3) {
+            this._ops.push([
+                'cubicTo',
+                toFiniteNumber(x1), toFiniteNumber(y1),
+                toFiniteNumber(x2), toFiniteNumber(y2),
+                toFiniteNumber(x3), toFiniteNumber(y3)
+            ]);
+        }
+        closePath() { this._ops.push(['close']); }
+
+        /* Web 标准矩阵语义（DOMMatrix 顺序：m11 m12 m21 m22 dx dy，列主）。
+           只支持仿射六元——Path2D.transform 不带透视。 */
+        transform(m11, m12, m21, m22, dx, dy) {
+            const apply = (x, y) => [m11 * x + m21 * y + dx, m12 * x + m22 * y + dy];
+            const rebuilt = [];
+            for (const op of this._ops) {
+                if (op[0] === 'close') { rebuilt.push(op.slice()); continue; }
+                const next = op.slice();
+                for (let i = 1; i + 1 < next.length; i += 2) {
+                    const [px, py] = apply(next[i], next[i + 1]);
+                    next[i] = px;
+                    next[i + 1] = py;
+                }
+                rebuilt.push(next);
+            }
+            this._ops = rebuilt;
+        }
+
+        addPath(path, transform) {
+            if (!(path instanceof Path2D)) {
+                throw new Error('Path2D.addPath: expected a Path2D');
+            }
+            let t = null;
+            if (transform) {
+                t = [
+                    toFiniteNumber(transform.a, 1), toFiniteNumber(transform.b, 0),
+                    toFiniteNumber(transform.c, 0), toFiniteNumber(transform.d, 1),
+                    toFiniteNumber(transform.e, 0), toFiniteNumber(transform.f, 0)
+                ];
+            }
+            for (const op of path._ops) {
+                if (!t || op[0] === 'close') { this._ops.push(op.slice()); continue; }
+                const apply = (x, y) => [t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]];
+                const next = op.slice();
+                for (let i = 1; i + 1 < next.length; i += 2) {
+                    const [px, py] = apply(next[i], next[i + 1]);
+                    next[i] = px;
+                    next[i + 1] = py;
+                }
+                this._ops.push(next);
+            }
+        }
+    }
+
     class RuntimeEffect {
         constructor(sksl) {
             this.__opencatRuntimeEffect = true;
@@ -2027,6 +2119,7 @@
     }
 
     globalThis.CanvasKit = CanvasKit;
+    globalThis.Path2D = Path2D;
     ctx.getImage = function(assetId) {
         const handle = {
             __opencatImage: true,
@@ -2428,4 +2521,8 @@
         return Promise.resolve(globalThis.CanvasKit);
     }
     globalThis.CanvasKitInit = CanvasKitInit;
+    // Path2D/fill(path)/stroke(path) 复用：context2d.js 的 fill(path)/stroke(path)
+    // 接收 Path2D（同款 _ops 形态），需要这条重放通道。canvas_api 的 Path 与
+    // context2d 的 Path2D 都以 `_ops` 数组为唯一载体。
+    globalThis.__ocReplayPathOps = replayPath;
 })();

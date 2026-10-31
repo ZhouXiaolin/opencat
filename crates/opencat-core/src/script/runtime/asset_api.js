@@ -7,6 +7,67 @@
 (function () {
     if (typeof __opencatAssetStat !== 'function') return;
 
+    // base64 编解码（Web 标准 atob/btoa）：离屏 canvas `toDataURL` 需要
+    // btoa，`Image.src` 的 data URL 分支需要 atob。realm 没有宿主内置，
+    // 这里手写实现（字节序 String.fromCharCode，块处理防栈溢出）。
+    var B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    var B64_LOOKUP = null;
+    function makeLookup() {
+        var table = new Uint8Array(128);
+        for (var i = 0; i < B64_CHARS.length; i++) table[B64_CHARS.charCodeAt(i)] = i;
+        return table;
+    }
+    if (typeof globalThis.btoa !== 'function') {
+        globalThis.btoa = function (text) {
+            var bytes = new Uint8Array(text.length);
+            for (var i = 0; i < text.length; i++) {
+                var code = text.charCodeAt(i);
+                if (code > 0xff) throw new Error('btoa: source contains chars above U+00FF');
+                bytes[i] = code;
+            }
+            var out = '';
+            for (var i = 0; i < bytes.length; i += 3) {
+                var b0 = bytes[i];
+                var b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+                var b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+                out += B64_CHARS[b0 >> 2];
+                out += B64_CHARS[((b0 & 3) << 4) | (b1 >> 4)];
+                out += i + 1 < bytes.length ? B64_CHARS[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+                out += i + 2 < bytes.length ? B64_CHARS[b2 & 63] : '=';
+            }
+            return out;
+        };
+    }
+    if (typeof globalThis.atob !== 'function') {
+        globalThis.atob = function (text) {
+            var clean = String(text).replace(/[^A-Za-z0-9+/]/g, '');
+            if (clean.length % 4 === 1) throw new Error('atob: invalid base64 length');
+            while (clean.length % 4 !== 0) clean += '=';
+            var table = B64_LOOKUP || (B64_LOOKUP = makeLookup());
+            var pad = 0;
+            if (clean.length >= 2 && clean[clean.length - 1] === '=') pad++;
+            if (clean.length >= 2 && clean[clean.length - 2] === '=') pad++;
+            var outLen = Math.floor(clean.length / 4) * 3 - pad;
+            var out = '';
+            var chunk = [];
+            for (var i = 0; i < clean.length; i += 4) {
+                var a = table[clean.charCodeAt(i)];
+                var b = table[clean.charCodeAt(i + 1)];
+                var c = clean.charCodeAt(i + 2) === 61 ? 0 : table[clean.charCodeAt(i + 2)];
+                var d = clean.charCodeAt(i + 3) === 61 ? 0 : table[clean.charCodeAt(i + 3)];
+                var n = (a << 18) | (b << 12) | (c << 6) | d;
+                chunk.push((n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff);
+            }
+            chunk.length = outLen;
+            // 逐块 fromCharCode（大输入一次性 apply 会栈溢出）。
+            for (var i = 0; i < chunk.length; i += 0x8000) {
+                out += String.fromCharCode.apply(null, chunk.slice(i, i + 0x8000));
+            }
+            return out;
+        };
+    }
+
+
     var blobRegistry = {};
     var blobSeq = 1;
     var bitmapSeq = 1;
@@ -225,6 +286,31 @@
         get: function () { return this.__ocSrc || ''; },
         set: function (value) {
             this.__ocSrc = String(value);
+            // data URL（heatmap 离屏 canvas 的 toDataURL 产物）：base64
+            // 解码后与文件资产同一条 __image_probe 通道，无需 asset store。
+            var dataMatch = /^data:image\/[a-z+.-]+;base64,(.*)$/s.exec(this.__ocSrc);
+            if (dataMatch) {
+                if (typeof atob !== 'function') {
+                    this.__ocSettle(new Error('Image.src: atob unavailable for data URL'));
+                    return;
+                }
+                var bin = atob(dataMatch[1]);
+                var bytes = new Uint8Array(bin.length);
+                for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                var plain = Array.from(bytes);
+                var size = __image_probe(plain);
+                if (!size || size.length < 2) {
+                    this.__ocSettle(new Error('Image.src: data URL decode failed'));
+                    return;
+                }
+                this.__ocImageBytes = bytes;
+                this.__ocImageArray = plain;
+                this.naturalWidth = this.width = size[0];
+                this.naturalHeight = this.height = size[1];
+                this.complete = true;
+                this.__ocSettle(null);
+                return;
+            }
             if (!IMAGE_OK) {
                 this.__ocSettle(new Error('Image.src: asset store is unavailable: ' + this.__ocSrc));
                 return;

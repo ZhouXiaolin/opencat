@@ -402,7 +402,12 @@
 
     // ── recording context ───────────────────────────────────────────
 
-    function makeRecordingContext(canvasId, width, height, attrsBits, sizeFace) {
+    function makeRecordingContext(canvasId, width, height, attrsBits, sizeFace, originX, originY) {
+        // 流位置：canvas 元素在目标节点坐标系里的块级流位置（前序 in-flow
+        // 兄弟堆叠，dom_api 算好传进来）。realm 导出占位 Image op 时用它，
+        // 等价浏览器把画布表面合成在元素盒上。
+        originX = Number(originX) || 0;
+        originY = Number(originY) || 0;
         var streamId = canvasId;
         // 原型挂到 WebGL2RenderingContext —— 见上文全局构造器的说明。
         var self = Object.create(WebGL2RenderingContext.prototype);
@@ -435,7 +440,7 @@
         // 所以缓存命中路径也要重开(帧内幂等——同 target 复用同一条流)。
         self.__beginFrameStream = function () {
             var wh = surfaceSize();
-            __gl_stream_begin(streamId, wh[0], wh[1], 0, attrsBits);
+            __gl_stream_begin(streamId, wh[0], wh[1], 0, attrsBits, originX, originY);
         };
         self.__beginFrameStream();
 
@@ -1686,7 +1691,7 @@
         return bits;
     }
 
-    function getWebGLContext(nodeId, type, options) {
+    function getWebGLContext(nodeId, type, options, sizeW, sizeH, originX, originY) {
         var key = String(nodeId);
         var want = type === 'webgl2' ? 'webgl2' : 'webgl';
         var existing = contexts[key];
@@ -1712,16 +1717,20 @@
         // 来自声明样式/布局盒；three 的 setSize 建上下文后才写属性，帧流头
         // 每帧重读（makeRecordingContext）。都取不到就 1×1 兜底（GL 不接受
         // 0 尺寸目标）。
-        var sizeFace = ctx.__ocElementFace ? ctx.__ocElementFace(key) : null;
-        var width = sizeFace ? sizeFace.width | 0 : 0;
-        var height = sizeFace ? sizeFace.height | 0 : 0;
+        // 调用方（dom_api 的 canvas 元素）带过来的是元素的 width/height
+        // 内容属性——HTML 语义里 drawingBuffer 就是它，与布局盒无关。
+        var width = Number(sizeW) > 0 ? Math.floor(Number(sizeW)) : 0;
+        var height = Number(sizeH) > 0 ? Math.floor(Number(sizeH)) : 0;
+        var sizeFace = (width && height) ? null : (ctx.__ocElementFace ? ctx.__ocElementFace(key) : null);
+        if (!width) width = sizeFace ? sizeFace.width | 0 : 0;
+        if (!height) height = sizeFace ? sizeFace.height | 0 : 0;
         if (!width || !height) {
             var box = (typeof __read_box === 'function' && __read_box(key)) || {};
             if (!width) width = Math.round(Number(box.width) || 0);
             if (!height) height = Math.round(Number(box.height) || 0);
         }
 
-        var rec = makeRecordingContext(key, Math.max(1, width), Math.max(1, height), packAttrsBits(attrs), sizeFace);
+        var rec = makeRecordingContext(key, Math.max(1, width), Math.max(1, height), packAttrsBits(attrs), sizeFace, originX, originY);
         rec.__kind = want;
         contexts[key] = rec;
         return rec;
@@ -1730,10 +1739,10 @@
     // Route `ctx.getContext(id, 'webgl2'|'webgl', attrs)` (and the element
     // face, which forwards through here) into the recorder.
     var baseGetContext = ctx.getContext;
-    ctx.getContext = function (nodeId, type, attrs) {
+    ctx.getContext = function (nodeId, type, attrs, sizeW, sizeH, originX, originY) {
         var t = String(type);
         if (t === 'webgl2' || t === 'webgl') {
-            return getWebGLContext(nodeId, t, attrs);
+            return getWebGLContext(nodeId, t, attrs, sizeW, sizeH, originX, originY);
         }
         return baseGetContext(nodeId, type, attrs);
     };

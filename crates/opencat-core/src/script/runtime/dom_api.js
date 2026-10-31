@@ -385,6 +385,38 @@
         return root.childNodes;
     }
 
+    // 浏览器块级流布局的最小近似：动态元素的页面位置 = 逐层累加前序
+    // in-flow 兄弟的堆叠高度。引擎的声明式构图没有布局 pass，这里只覆
+    // 盖对拍里真实出现的形态（如 rect-ring 容器里先塞了一个 <button>，
+    // 把 640×480 的图表画布推到 (0,21)）。绝对/固定定位不占流，跳过。
+    function uaFlowHeight(el) {
+        if (!el || !el.tagName) return 0;
+        var pos = el.style && el.style.position;
+        if (pos === 'absolute' || pos === 'fixed') return 0;
+        var tag = el.tagName;
+        if (tag === 'BUTTON') {
+            // Chrome/Edge UA 默认：13.3333px Arial + line-height normal +
+            // padding-block 1px + border 2px outset → 块高实测 21px。
+            return 21;
+        }
+        if (tag === 'CANVAS') return (Number(el.height) || 0);
+        var kids = el.childNodes || [];
+        var h = 0;
+        for (var i = 0; i < kids.length; i++) h += uaFlowHeight(kids[i]);
+        return h;
+    }
+    function flowOrigin(node) {
+        var x = 0, y = 0, cur = node;
+        while (cur && cur.parentNode) {
+            var kids = cur.parentNode.childNodes || [];
+            for (var i = 0; i < kids.length && kids[i] !== cur; i++) {
+                y += uaFlowHeight(kids[i]);
+            }
+            cur = cur.parentNode;
+        }
+        return { x: x, y: y };
+    }
+
     function shadowElement(tagName, opts) {
         var tag = String(tagName || 'div').toUpperCase();
         var node = {
@@ -499,6 +531,17 @@
             node.height = (opts && opts.height) || 150;
             node.getContext = function (kind, attrs) {
                 var t = String(kind);
+                // 离屏 canvas（`document.createElement('canvas')`，无 DOM
+                // 挂载、无 visual 注册）：合成 id `__oc_offscreen_N`，2D
+                // 上下文走真 DrawOp 录制面（context2d.makeContext2d），op
+                // 流按前缀路由进 store 的持久 map。消费点（createPattern/
+                // drawImage/脚本期读取）经 engine `__opencatRasterCanvasPNG`
+                // Skia 离屏重放光栅化。显式 id 的（`node.id` 且挂进 visual
+                // 注册表）才走图表录制面分支。
+                if (node.__ocOffscreenCanvas) {
+                    if (t === '2d') return globalThis.__ocMakeOffscreenContext2d(node.__ocOffscreenId);
+                    throw new Error("canvas.getContext: only '2d' is supported on an offscreen canvas, got '" + kind + "'");
+                }
                 // 分流：挂进图表容器的 canvas 冒用了声明节点 id（appendChild
                 // 钩子）——库渲染器在它上面真画：2d 产 DrawOp 流（g-canvas /
                 // g-canvaskit），webgl2 产 GpuStream（g-webgl，录制面在
@@ -506,11 +549,29 @@
                 // 只读测量桩。
                 var visual = (globalThis.ctx.__targetRegistry || {}).visual || {};
                 if (node.id && visual[String(node.id)] && (t === '2d' || t === 'webgl2' || t === 'webgl')) {
-                    return globalThis.ctx.getContext(node.id, t, attrs);
+                    // 尺寸透传：GL 的 drawingBuffer 尺寸是 canvas 元素的
+                    // width/height 内容属性（g-webgl 建上下文前按 config
+                    // 写、之后随 resize 更新），不是声明节点的布局盒。
+                    // 两者可以不同——chart 显式 720×720 落在 960×540 的
+                    // 容器里就是这种——按布局盒建上下文会让 swapchain 与
+                    // viewport 对不上。
+                    // 流位置透传：浏览器把画布表面合成在元素盒上；前序
+                    // in-flow 兄弟（如 <button>）会把它推离容器原点。2D 以
+                    // 基 translate 进录制流，GL 随流头进占位 Image op。
+                    var origin = flowOrigin(node);
+                    if (t === '2d') {
+                        var c2d = globalThis.ctx.getContext(node.id, t, attrs, node.width, node.height);
+                        if ((origin.x || origin.y) && typeof c2d.__ocSetBaseOrigin === 'function') {
+                            c2d.__ocSetBaseOrigin(origin.x, origin.y);
+                        }
+                        return c2d;
+                    }
+                    return globalThis.ctx.getContext(node.id, t, attrs, node.width, node.height, origin.x, origin.y);
                 }
                 if (t === '2d') return shadowContext2d(node);
                 throw new Error("canvas.getContext: only '2d'/'webgl2' is supported on a shadow canvas, got '" + kind + "'");
             };
+            if (node.__ocOffscreenCanvas) attachOffscreenConsumers(node);
         }
         attachChildNodeApi(node);
         return node;
@@ -523,6 +584,101 @@
     // store：只要元素名/属性/子节点/文本保真，就能整棵序列化成 markup，
     // 由宿主的 usvg 管线当成 `<svg inline>` 渲染（同一条 emit 路径）。
     var SVG_NS = 'http://www.w3.org/2000/svg';
+
+    // 离屏 canvas 标记：合成 id `__oc_offscreen_N`（store 按前缀路由进持久
+    // op 流 map），`__ocOffscreenCanvas` 让 getContext 分派到真 2D 录制面。
+    // 挂进图表容器的 canvas（appendChild 钩子冒用声明节点 id）不会被标记
+    // ——它们的 id 属于 visual 注册表，走图表录制面。
+    var offscreenCanvasSeq = 0;
+    var offscreenById = Object.create(null);
+    function markOffscreenCanvas(canvas) {
+        offscreenCanvasSeq += 1;
+        canvas.__ocOffscreenCanvas = true;
+        canvas.__ocOffscreenId = '__oc_offscreen_' + offscreenCanvasSeq;
+        offscreenById[canvas.__ocOffscreenId] = canvas;
+        // HTMLCanvasElement.width/height 是 unsigned long 属性：赋值先转整数
+        // （4.2426→4、7.071→7），不是浮点。canvas pattern 的 demo 直接写
+        // 浮点尺寸，若按浮点光栅化，ceil 出的多出边条透明——平铺后每格都有
+        // 缝，出图出现参考图没有的网格。默认值同 HTML：300×150。
+        var backingW = 300;
+        var backingH = 150;
+        var toBacking = function (value) {
+            var n = Number(value);
+            return isFinite(n) && n > 0 ? Math.floor(n) : 0;
+        };
+        Object.defineProperty(canvas, 'width', {
+            configurable: true,
+            get: function () { return backingW; },
+            set: function (value) { backingW = toBacking(value); },
+        });
+        Object.defineProperty(canvas, 'height', {
+            configurable: true,
+            get: function () { return backingH; },
+            set: function (value) { backingH = toBacking(value); },
+        });
+        return canvas;
+    }
+    // context2d 面的 getImageData 只有字符串 id，经此反查 canvas 元素
+    // （拿当前 width/height）。
+    globalThis.__ocOffscreenById = function (id) { return offscreenById[id] || null; };
+
+    // 离屏 canvas 消费点：脚本期把 op 流 Skia 光栅化读回像素。`getImageData`
+    // 直接走 engine `__opencatRasterCanvas`（RGBA 回填调用方 Uint8Array，
+    // fill-in-place 契约）；`toDataURL` 走 `__opencatRasterCanvasPNG`（PNG
+    // 字节→base64）。两者都即时光栅化，不缓存——heatmap 在 putImageData
+    // 之后还要 getImageData（首帧中间态），缓存会错。
+    function attachOffscreenConsumers(node) {
+        node.toDataURL = function () {
+            if (typeof __opencatRasterCanvasPNG !== 'function') {
+                throw new Error('canvas.toDataURL: engine native __opencatRasterCanvasPNG unavailable');
+            }
+            var w = Math.max(1, Math.ceil(node.width > 0 ? node.width : 1));
+            var h = Math.max(1, Math.ceil(node.height > 0 ? node.height : 1));
+            // PNG 上界：RGBA + 每行 filter + zlib stored 开销 + 容器头尾
+            var out = new Uint8Array(w * h * 4 + w + h + 4096);
+            var len = __opencatRasterCanvasPNG(node.__ocOffscreenId, w, h, out);
+            var binary = '';
+            var chunk = out.subarray(0, len);
+            // 逐块 String.fromCharCode（大画布一次性 spread 会栈溢出）。
+            for (var i = 0; i < chunk.length; i += 0x8000) {
+                binary += String.fromCharCode.apply(null, chunk.subarray(i, i + 0x8000));
+            }
+            return 'data:image/png;base64,' + btoa(binary);
+        };
+        node.getImageData = function (x, y, w, h) {
+            if (typeof __opencatRasterCanvas !== 'function') {
+                throw new Error('canvas.getImageData: engine native __opencatRasterCanvas unavailable');
+            }
+            var cw = Math.max(1, Math.ceil(node.width > 0 ? node.width : 1));
+            var ch = Math.max(1, Math.ceil(node.height > 0 ? node.height : 1));
+            var x0 = Math.max(0, Math.floor(x || 0));
+            var y0 = Math.max(0, Math.floor(y || 0));
+            var w0 = Math.max(0, Math.min(Math.floor(w || 0), cw - x0));
+            var h0 = Math.max(0, Math.min(Math.floor(h || 0), ch - y0));
+            var full = new Uint8Array(cw * ch * 4);
+            __opencatRasterCanvas(node.__ocOffscreenId, cw, ch, full);
+            var data = new Uint8ClampedArray(w0 * h0 * 4);
+            for (var row = 0; row < h0; row++) {
+                var src = ((y0 + row) * cw + x0) * 4;
+                data.set(full.subarray(src, src + w0 * 4), row * w0 * 4);
+            }
+            return { width: w0, height: h0, data: data };
+        };
+        node.putImageData = function (img, dx, dy) {
+            if (typeof __opencatPutImageData !== 'function') {
+                throw new Error('canvas.putImageData: engine native __opencatPutImageData unavailable');
+            }
+            var u8 = img.data instanceof Uint8Array ? img.data : new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+            // key 必须 frame-unique：同一离屏 id 多次 putImageData 时以
+            // 自增序号区分（同 id 同像素幂等，异像素 hard error）。
+            node.__ocPutSeq = (node.__ocPutSeq || 0) + 1;
+            __opencatPutImageData(
+                node.__ocOffscreenId,
+                node.__ocOffscreenId + ':' + node.__ocPutSeq,
+                u8, Math.floor(dx || 0), Math.floor(dy || 0), img.width, img.height
+            );
+        };
+    }
 
     function svgTextNode(text) {
         var node = {
@@ -881,7 +1037,15 @@
             container.style.position = 'relative';
             var baseAppend = container.appendChild;
             container.appendChild = function (child) {
-                if (child && child.tagName === 'CANVAS' && !child.id) child.id = id;
+                if (child && child.tagName === 'CANVAS' && !child.id) {
+                    child.id = id;
+                    // 冒用宿主 id = 这块 canvas 变成图表录制面（visual 注册
+                    // 表按 node.id 分派）——撤销 createElement 时打的离屏
+                    // 标记与合成 id，否则 getContext 走离屏分支、DrawOp 流
+                    // 落进 store 离屏 map，主画面全白。
+                    child.__ocOffscreenCanvas = false;
+                    child.__ocOffscreenId = null;
+                }
                 return baseAppend.call(this, child);
             };
             shadowById[id] = container;
@@ -1004,10 +1168,15 @@
         },
         // canvas 元素进影子面：图表库的 `createElement('canvas')` 要的是
         // 一个带尺寸与字体探测 context 的私有元素，不进合成树。其余标签
-        // 仍走树 overlay（gsap SplitText 等的可见包装节点）。
+        // 仍走树 overlay（gsap SplitText 等的可见包装节点）。未挂进图表
+        // 容器（无 visual 注册）的 canvas 是离屏面（pattern 源、heatmap
+        // 主画布）：打 `__ocOffscreenCanvas` 标记 + 合成 id
+        // `__oc_offscreen_N`，getContext('2d') 走真 DrawOp 录制面。
         createElement(tag) {
             if (String(tag).toLowerCase() === 'canvas') {
-                return shadowElement('canvas', {});
+                var canvas = shadowElement('canvas', {});
+                markOffscreenCanvas(canvas);
+                return canvas;
             }
             return globalThis.__ocTree.createElement(tag);
         },
@@ -1019,7 +1188,9 @@
         createElementNS(ns, tag) {
             if (String(ns) === SVG_NS) return svgElement(tag, SVG_NS);
             if (String(tag).toLowerCase() === 'canvas') {
-                return shadowElement('canvas', {});
+                var canvas = shadowElement('canvas', {});
+                markOffscreenCanvas(canvas);
+                return canvas;
             }
             return globalThis.__ocTree.createElement(tag);
         },

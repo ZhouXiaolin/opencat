@@ -227,7 +227,10 @@ fn put_image_data(
         throw(scope, "putImageData: store lock poisoned");
         return;
     };
-    store.record_frame_generated_image(
+    // Canvas 2D putImageData 是像素直写（无 alpha 混合）：Src blend 的
+    // ImageRect，不是 SrcOver 的 DrawOp::Image——否则底下已画内容会透出
+    // （heatmap：径向渐变瓦片上 putImageData 着色覆盖）。
+    store.record_frame_put_image(
         &node_id,
         id,
         x as f32,
@@ -281,6 +284,137 @@ fn surface_read_into(
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination, bytes.len());
     }
     rv.set_int32(bytes.len() as i32);
+}
+
+/// `__opencatRasterCanvas(id, w, h, out, key)` — offscreen canvas fast path.
+///
+/// `document.createElement('canvas')` surfaces record standard draw ops into
+/// `MutationStore::canvases` (same `__canvas_*` bindings as DOM canvases).
+/// When script synchronously consumes pixels (getImageData / toDataURL /
+/// createPattern / drawImage with a canvas source) this rasterizes the
+/// recorded ops via the engine's Skia replay path, registers the result as a
+/// frame generated image (deterministic id from `key`), and fills the
+/// caller's preallocated `Uint8Array` in place. Zero new IR ops: the main
+/// frame consumes the pixels as a standard ImageRect{Generated}.
+fn raster_canvas(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "rasterCanvas: realm native state missing");
+        return;
+    };
+    let id = args.get(0).to_rust_string_lossy(scope);
+    let number = |index: i32| {
+        args.get(index)
+            .to_number(scope)
+            .map(|n| n.value())
+            .unwrap_or(0.0)
+    };
+    let (w, h) = (number(1), number(2));
+    let out: Local<v8::Uint8Array> = match args.get(3).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "rasterCanvas: `out` must be a Uint8Array");
+            return;
+        }
+    };
+    let Ok(mut store) = state.store.lock() else {
+        throw(scope, "rasterCanvas: store lock poisoned");
+        return;
+    };
+    let Some(canvas) = store.canvas_commands(&id).cloned() else {
+        throw(scope, &format!("rasterCanvas: canvas `{id}` has no recorded ops"));
+        return;
+    };
+    let (width, height, rgba) =
+        match crate::script::offscreen::rasterize_canvas_commands(&canvas, w as f32, h as f32, &mut store) {
+            Ok(result) => result,
+            Err(e) => {
+                throw(scope, &format!("rasterCanvas: {e}"));
+                return;
+            }
+        };
+    if out.byte_length() < rgba.len() {
+        throw(scope, "rasterCanvas: destination Uint8Array smaller than canvas");
+        return;
+    }
+    // Read-only binding (getImageData/probes): rasterize and copy out. No
+    // generated-image registration — a read must not mutate the frame's
+    // generated table (two different-size canvases would collide on a
+    // shared key; consuming paths register their own pixels explicitly).
+    let destination = out.data() as *mut u8;
+    // SAFETY: `out` is rooted by this call's arguments, so its backing store
+    // stays alive (and cannot be detached) across the copy.
+    unsafe {
+        std::ptr::copy_nonoverlapping(rgba.as_ptr(), destination, rgba.len());
+    }
+    rv.set_int32(rgba.len() as i32);
+}
+
+/// `__opencatRasterCanvasPNG(id, w, h, out)` — offscreen canvas → PNG bytes.
+///
+/// Same rasterization as `raster_canvas`, but the caller gets an encoded PNG
+/// (for `toDataURL`/inline `ScriptImage` bytes). `out` is a preallocated
+/// `Uint8Array`; returns the PNG byte length.
+fn raster_canvas_png(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "rasterCanvasPNG: realm native state missing");
+        return;
+    };
+    let id = args.get(0).to_rust_string_lossy(scope);
+    let number = |index: i32| {
+        args.get(index)
+            .to_number(scope)
+            .map(|n| n.value())
+            .unwrap_or(0.0)
+    };
+    let (w, h) = (number(1), number(2));
+    let out: Local<v8::Uint8Array> = match args.get(3).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "rasterCanvasPNG: `out` must be a Uint8Array");
+            return;
+        }
+    };
+
+    let Ok(mut store) = state.store.lock() else {
+        throw(scope, "rasterCanvasPNG: store lock poisoned");
+        return;
+    };
+    let Some(canvas) = store.canvas_commands(&id).cloned() else {
+        throw(scope, &format!("rasterCanvasPNG: canvas `{id}` has no recorded ops"));
+        return;
+    };
+    let (width, height, png) = match crate::script::offscreen::rasterize_canvas_commands_png(
+        &canvas, w as f32, h as f32, &mut store,
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            throw(scope, &format!("rasterCanvasPNG: {e}"));
+            return;
+        }
+    };
+    if out.byte_length() < png.len() {
+        throw(scope, "rasterCanvasPNG: destination Uint8Array smaller than PNG");
+        return;
+    }
+    let destination = out.data() as *mut u8;
+    // SAFETY: `out` is rooted by this call's arguments, so its backing store
+    // stays alive (and cannot be detached) across the copy.
+    unsafe {
+        std::ptr::copy_nonoverlapping(png.as_ptr(), destination, png.len());
+    }
+    // Keep width/height discoverable from JS: pack into the return value as
+    // `length | (width << 20) | height << 4` is fragile — JS side instead
+    // tracks width/height itself; return just the length.
+    let _ = (width, height);
+    rv.set_int32(png.len() as i32);
 }
 
 /// `__opencatGLIntern(targetId, bytes)` — binary fast path for GL stream
@@ -624,6 +758,12 @@ impl JsContext for V8JsContext {
             let read = Function::new(scope, surface_read_into)
                 .ok_or_else(|| anyhow!("v8: failed to create __opencatSurfaceReadInto"))?;
             set_global(scope, "__opencatSurfaceReadInto", read.into())?;
+            let raster = Function::new(scope, raster_canvas)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatRasterCanvas"))?;
+            set_global(scope, "__opencatRasterCanvas", raster.into())?;
+            let raster_png = Function::new(scope, raster_canvas_png)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatRasterCanvasPNG"))?;
+            set_global(scope, "__opencatRasterCanvasPNG", raster_png.into())?;
 
             // GL stream / asset / image natives (binary fast paths, same shape
             // as the two above).

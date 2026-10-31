@@ -496,6 +496,19 @@ pub enum DrawOp {
         dst: Rect4,
     },
 
+    /// Script-originated pixel-direct write (Canvas 2D `putImageData`): the
+    /// recorder holds no paint table, so the Src-blend `PaintSpec` can't be
+    /// interned there. `execute_draw_op` interns a
+    /// `PaintSpec { blend_mode: Src }` and pushes the standard
+    /// `DrawOp::ImageRect` — putImageData replaces pixels without alpha
+    /// compositing (SrcOver would let the backdrop bleed through, e.g.
+    /// heatmap tiles colored via putImageData over radial-gradient tiles).
+    /// The binary encoder must never see it.
+    ScriptPutImage {
+        image: ImageRef,
+        dst: Rect4,
+    },
+
     /// Script-originated dash state (pre-intern intermediate form): the
     /// recorder has no `f32_pool` access, so `SetLineDash`'s `F32Range` can't
     /// be built there. `execute_draw_op` interns the intervals and pushes the
@@ -551,6 +564,12 @@ pub enum DrawOp {
         dx: f32,
         dy: f32,
     },
+    /// Canvas 2D shadow for a *group* of ops (canvas pattern fill): the shadow
+    /// of `fill(图案)` is the blurred alpha of the clipped tile group, so it
+    /// cannot be attached to one draw. `execute_draw_op` expands this into
+    /// `Save` + `Translate` + `SaveLayer(DropShadow)` from the sticky shadow
+    /// state; the caller closes it with matching `Restore`s. Never encoded.
+    ScriptBeginShadowLayer,
 }
 
 // ---------------------------------------------------------------------------
@@ -896,6 +915,11 @@ impl std::hash::Hash for DrawOp {
                 src.hash(state);
                 dst.hash(state);
             }
+            DrawOp::ScriptPutImage { image, dst } => {
+                57_u8.hash(state);
+                image.hash(state);
+                dst.hash(state);
+            }
             DrawOp::ScriptSetLineDash { intervals, phase } => {
                 41_u8.hash(state);
                 intervals.iter().for_each(|v| v.to_bits().hash(state));
@@ -936,6 +960,9 @@ impl std::hash::Hash for DrawOp {
                 blur.to_bits().hash(state);
                 dx.to_bits().hash(state);
                 dy.to_bits().hash(state);
+            }
+            DrawOp::ScriptBeginShadowLayer => {
+                58_u8.hash(state);
             }
         }
     }

@@ -101,8 +101,8 @@ macro_rules! for_each_binding {
         }}
         // ── Cmd: GPU 命令流录制（webgl_api.js 的 WebGL2 录制面）──────────
 
-        $binding! { cmd $store gl_stream_begin (target_id: String, width: u32, height: u32, backend: u8, attrs_bits: u8) -> () {
-            $store . gl_stream_begin(&target_id, width, height, backend, attrs_bits);
+        $binding! { cmd $store gl_stream_begin (target_id: String, width: u32, height: u32, backend: u8, attrs_bits: u8, x: f32, y: f32) -> () {
+            $store . gl_stream_begin(&target_id, width, height, backend, attrs_bits, x, y);
             Ok(())
         }}
 
@@ -419,9 +419,52 @@ macro_rules! for_each_binding {
         //    CanvasKit.makePathFromSVGString：SVG path 片段 → usvg 解析 →
         //    绝对段命令 flat 数组（0=moveTo 1=lineTo 2=quadTo 3=cubicTo
         //    4=close，后随坐标）。复用 svg-align 管线（markup 解析 + 段
-        //    提取），取树根首个 path 节点。
+        //    提取），取树根首个 path 节点。裸 path data（非 <svg> 文档，
+        //    即 Path2D(string) / new Path2D(d) 的标准输入）走 kurbo
+        //    BezPath::from_svg（与 path_measure 同源，相对命令/HVST/A 全
+        //    部折算为绝对 M/L/Q/C/Z）。
         $binding! { pure oc_path_from_svg (svg: String) -> Option<Vec<f64>> {
             use tiny_skia_path::PathSegment;
+            let trimmed = svg.trim_start();
+            if !trimmed.starts_with('<') {
+                let bez = match kurbo::BezPath::from_svg(&trimmed) {
+                    Ok(bez) => bez,
+                    Err(_) => return Err(anyhow::anyhow!("oc_path_from_svg: invalid path data")),
+                };
+                let mut flat: Vec<f64> = Vec::new();
+                for el in bez.elements() {
+                    match *el {
+                        kurbo::PathEl::MoveTo(p) => {
+                            flat.push(0.0);
+                            flat.push(p.x);
+                            flat.push(p.y);
+                        }
+                        kurbo::PathEl::LineTo(p) => {
+                            flat.push(1.0);
+                            flat.push(p.x);
+                            flat.push(p.y);
+                        }
+                        kurbo::PathEl::QuadTo(c, p) => {
+                            flat.push(2.0);
+                            flat.push(c.x);
+                            flat.push(c.y);
+                            flat.push(p.x);
+                            flat.push(p.y);
+                        }
+                        kurbo::PathEl::CurveTo(c1, c2, p) => {
+                            flat.push(3.0);
+                            flat.push(c1.x);
+                            flat.push(c1.y);
+                            flat.push(c2.x);
+                            flat.push(c2.y);
+                            flat.push(p.x);
+                            flat.push(p.y);
+                        }
+                        kurbo::PathEl::ClosePath => flat.push(4.0),
+                    }
+                }
+                return Ok(if flat.is_empty() { None } else { Some(flat) });
+            }
             let Some(tree) = $crate::render::svg::load_tree_markup(&svg) else {
                 return Ok(None);
             };
@@ -579,6 +622,11 @@ macro_rules! for_each_binding {
         $binding! { node $rec $id canvas_set_shadow ($id: &str, color: String, blur: f32, dx: f32, dy: f32) {
             let c = $crate::script::helpers::parse_color(&color, "shadowColor")?;
             $rec . record_draw_op($id, DrawOp::ScriptSetShadow { color: c, blur, dx, dy });
+        }}
+        // 组级阴影（canvas pattern 填充）：把接下来的一组 op 包进
+        // SaveLayer(DropShadow)。调用方负责配平 Save/Restore。
+        $binding! { node $rec $id canvas_begin_shadow_layer ($id: &str) {
+            $rec . record_draw_op($id, DrawOp::ScriptBeginShadowLayer);
         }}
         $binding! { node $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
             $rec . record_draw_op($id, DrawOp::SetAntiAlias { enabled });

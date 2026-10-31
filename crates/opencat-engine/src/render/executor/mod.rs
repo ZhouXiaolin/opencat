@@ -1,6 +1,6 @@
 pub mod paint;
 pub mod path;
-mod replay;
+pub(crate) mod replay;
 
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;

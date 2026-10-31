@@ -7,5 +7,6 @@
 mod v8;
 
 pub mod jsx;
+pub mod offscreen;
 
 pub use v8::V8JsContext;

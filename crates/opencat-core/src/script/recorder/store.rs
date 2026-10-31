@@ -30,6 +30,11 @@ pub struct GpuStreamRecord {
     pub target_id: String,
     pub width: u32,
     pub height: u32,
+    /// canvas 元素在目标节点坐标系里的流位置（块级流布局：前序 in-flow
+    /// 兄弟堆叠，如 rect-ring 容器里的 `<button>` 把 640×480 画布推到
+    /// (0,21)）。realm 导出占位 Image op 时用它，engine 无感知。
+    pub x: f32,
+    pub y: f32,
     pub backend: u8,
     pub attrs_bits: u8,
     pub ops: Vec<u8>,
@@ -37,10 +42,17 @@ pub struct GpuStreamRecord {
     pub byte_ranges: Vec<crate::ir::draw_types::TableRange>,
 }
 
+/// 离屏 canvas op 流 LRU 上限（每个 demo 只建 handful，防泄漏足够）。
+const OFFSCREEN_CANVAS_CAP: usize = 64;
+
 #[derive(Default)]
 pub struct MutationStore {
     styles: HashMap<String, NodeStyleMutations>,
     canvases: HashMap<String, CanvasMutations>,
+    /// 离屏 canvas 的持久 op 流（id 前缀 `__oc_offscreen_` 路由，见
+    /// `canvas_entry`）。帧级 `canvases` 清空后仍可光栅化。
+    offscreen_canvases: HashMap<String, CanvasMutations>,
+    offscreen_recency: std::collections::VecDeque<String>,
     /// 真 GL 反射器（宿主注入）：link 后 three 同步枚举 active
     /// uniform/attribute，core 不解析 GLSL，问询转发给持有 GL 上下文的
     /// 宿主（engine 侧编译→link→glGetActiveUniform）。`None` = 无 GL 宿主
@@ -55,11 +67,11 @@ pub struct MutationStore {
     image_decoder: Option<Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>>,
     /// 本帧录制的 GPU 命令流（key 顺序 = begin 顺序）。同 target 幂等复用。
     gpu_streams: Vec<GpuStreamRecord>,
-    /// 最近一次 `gl_stream_begin` 的流头（target → (w, h, attrs)），跨帧
+    /// 最近一次 `gl_stream_begin` 的流头（target → (w, h, attrs, x, y)），跨帧
     /// 持久。持久 renderer 的帧内不再触发 getContext（three 只在构造时调
     /// 一次 canvas.getContext），reset_for_frame 清流后没人重开——emit 时
     /// 用缓存的头自动重开。
-    gl_stream_headers: HashMap<String, (u32, u32, u8)>,
+    gl_stream_headers: HashMap<String, (u32, u32, u8, f32, f32)>,
     /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
     /// 的存活期由脚本侧的 delete 决定，与帧无关）。
     gl_next_handle: u32,
@@ -491,6 +503,22 @@ impl MutationStore {
         self.canvases.entry(node_id.to_string()).or_default().svg = Some(markup);
     }
 
+    /// 离屏 canvas（未 resolve 的 id）的脚本命令流只读访问。
+    /// `document.createElement('canvas')` 的 2D 绘制与 DOM canvas 走同一套
+    /// `__canvas_*` 绑定落进 `canvases`；离屏 id 不会出现在显示树里，所以
+    /// `take_mutations` 后 resolve 静默忽略——脚本期消费点
+    /// （getImageData/toDataURL/createPattern/drawImage(canvas源)）经此读取，
+    /// 由 engine 侧 Skia 离屏重放光栅化。前缀 `__oc_offscreen_` 走持久 map。
+    pub fn canvas_commands(&mut self, node_id: &str) -> Option<&CanvasMutations> {
+        if node_id.starts_with("__oc_offscreen_") {
+            let key = node_id.to_string();
+            self.offscreen_recency.retain(|k| k != &key);
+            self.offscreen_recency.push_back(key);
+            return self.offscreen_canvases.get(node_id);
+        }
+        self.canvases.get(node_id)
+    }
+
     /// Register a frame-scoped generated image WITHOUT recording a draw op —
     /// the pixels become available to later draws in the same frame (e.g. a
     /// lambda-effect child sampling a baked render target). Same idempotency
@@ -511,6 +539,42 @@ impl MutationStore {
                 rgba,
                 gpu: None,
             });
+    }
+
+    /// 离屏 canvas `putImageData`：像素注册（同 record 契约）+ 一个带
+    /// `BlendMode::Src` 的 ImageRect op——Canvas 2D putImageData 是像素
+    /// 直写（无 alpha 混合），SrcOver 会让底下已画内容透出（heatmap
+    /// 瓦片先径向渐变、putImageData 着色覆盖的场景）。
+    pub fn record_frame_put_image(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+        rgba: std::sync::Arc<[u8]>,
+    ) {
+        self.pending_generated_images
+            .push(crate::ir::FrameGeneratedImage {
+                id,
+                width,
+                height,
+                rgba: rgba.clone(),
+                gpu: None,
+            });
+        self.record_draw_op(
+            node_id,
+            crate::ir::draw_op::DrawOp::ScriptPutImage {
+                image: crate::ir::draw_types::ImageRef::Generated { id },
+                dst: crate::ir::draw_op::Rect4 {
+                    x,
+                    y,
+                    width: width as f32,
+                    height: height as f32,
+                },
+            },
+        );
     }
 
     /// Latest registered pixels for a generated image id (this frame).
@@ -536,6 +600,8 @@ impl MutationStore {
         height: u32,
         backend: u8,
         attrs_bits: u8,
+        x: f32,
+        y: f32,
     ) {
         if let Some(existing) = self
             .gpu_streams
@@ -544,16 +610,24 @@ impl MutationStore {
         {
             existing.width = width;
             existing.height = height;
-            self.gl_stream_headers
-                .insert(target_id.to_string(), (width, height, attrs_bits));
+            existing.x = x;
+            existing.y = y;
+            self.gl_stream_headers.insert(
+                target_id.to_string(),
+                (width, height, attrs_bits, x, y),
+            );
             return;
         }
-        self.gl_stream_headers
-            .insert(target_id.to_string(), (width, height, attrs_bits));
+        self.gl_stream_headers.insert(
+            target_id.to_string(),
+            (width, height, attrs_bits, x, y),
+        );
         self.gpu_streams.push(GpuStreamRecord {
             target_id: target_id.to_string(),
             width,
             height,
+            x,
+            y,
             backend,
             attrs_bits,
             ..Default::default()
@@ -568,8 +642,8 @@ impl MutationStore {
             .iter()
             .all(|s| s.target_id != target_id)
         {
-            if let Some(&(w, h, attrs)) = self.gl_stream_headers.get(target_id) {
-                self.gl_stream_begin(target_id, w, h, 0, attrs);
+            if let Some(&(w, h, attrs, sx, sy)) = self.gl_stream_headers.get(target_id) {
+                self.gl_stream_begin(target_id, w, h, 0, attrs, sx, sy);
             }
         }
         let stream = self
@@ -681,6 +755,23 @@ impl MutationStore {
     }
 
     fn canvas_entry(&mut self, id: &str) -> &mut CanvasMutations {
+        // 离屏 canvas（`document.createElement('canvas')`，id 前缀
+        // `__oc_offscreen_`）持久保存：pattern 源 canvas 建一次、跨帧消费
+        // （fillPattern 每帧重铺），不能进帧级 `canvases`（reset_for_frame
+        // 清空）。消费时触碰 recency，容量封顶防泄漏。
+        if id.starts_with("__oc_offscreen_") {
+            // 先摸 entry 再动 recency（避免同时可变借用两个 map）。
+            if !self.offscreen_canvases.contains_key(id) {
+                self.offscreen_canvases.insert(id.to_string(), CanvasMutations::default());
+            }
+            self.offscreen_recency.retain(|k| k != id);
+            self.offscreen_recency.push_back(id.to_string());
+            while self.offscreen_recency.len() > OFFSCREEN_CANVAS_CAP {
+                let evicted = self.offscreen_recency.pop_front().unwrap();
+                self.offscreen_canvases.remove(&evicted);
+            }
+            return self.offscreen_canvases.get_mut(id).unwrap();
+        }
         self.canvases.entry(id.to_string()).or_default()
     }
 

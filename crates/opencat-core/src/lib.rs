@@ -23,6 +23,7 @@ pub mod profile;
 pub(crate) mod render;
 pub mod resolve;
 pub mod script;
+pub mod render_offscreen;
 pub(crate) mod semantic;
 pub mod style;
 pub mod text;

@@ -949,15 +949,12 @@ fn push_draw_rrect(builder: &mut DrawOpBuilder, rect: Rect, radii: [f32; 4], pai
 /// with `keep_content: false` composites back **only** the blurred silhouette
 /// in the shadow colour (the paint of the inner draw is irrelevant — its
 /// coverage is all that survives), and the real draw follows the layer.
-fn push_shadowed(b: &mut DrawOpBuilder, shadow: Option<CanvasShadow>, draw: DrawOp) {
-    let Some(sh) = shadow else {
-        b.push(draw);
-        return;
-    };
-    // Chromium maps `shadowBlur` to a gaussian sigma of half the radius.
-    // The offset is *user* space (canvas shadowOffsetX/Y ride the CTM), so it
-    // is a `Translate` around the layer, not the filter's device-space dx/dy
-    // — same reason `draw_box_shadow` offsets the rect it draws.
+/// Interns the `SaveLayer` paint that renders the group's alpha as a blurred
+/// shadow. Chromium maps `shadowBlur` to a gaussian sigma of half the radius.
+/// The offset is *user* space (canvas shadowOffsetX/Y ride the CTM), so it is
+/// a `Translate` around the layer, not the filter's device-space dx/dy — same
+/// reason `draw_box_shadow` offsets the rect it draws.
+fn shadow_layer_paint_id(b: &mut DrawOpBuilder, sh: CanvasShadow) -> PaintId {
     let sigma = sh.blur * 0.5;
     let paint = filter_layer_paint(ImageFilterSpec::DropShadow {
         dx: 0.0,
@@ -972,7 +969,15 @@ fn push_shadowed(b: &mut DrawOpBuilder, shadow: Option<CanvasShadow>, draw: Draw
         ],
         keep_content: false,
     });
-    let paint_id = b.intern_paint(paint);
+    b.intern_paint(paint)
+}
+
+pub(crate) fn push_shadowed(b: &mut DrawOpBuilder, shadow: Option<CanvasShadow>, draw: DrawOp) {
+    let Some(sh) = shadow else {
+        b.push(draw);
+        return;
+    };
+    let paint_id = shadow_layer_paint_id(b, sh);
     b.push(DrawOp::Save);
     if sh.dx != 0.0 || sh.dy != 0.0 {
         b.push(DrawOp::Translate { x: sh.dx, y: sh.dy });
@@ -1624,28 +1629,28 @@ const SENTINEL_FILL: u32 = u32::MAX;
 /// Sentinel: the stored DrawOp carries PaintId(u32::MAX - 1) meaning "resolve to stroke paint".
 const SENTINEL_STROKE: u32 = u32::MAX - 1;
 
-struct LocalPaintState {
-    fill_color: ColorU8,
-    stroke_color: ColorU8,
-    line_width: f32,
-    line_cap: LineCap,
-    line_join: LineJoin,
-    line_dash: Option<Vec<f32>>,
-    line_dash_phase: f32,
-    global_alpha: f32,
-    anti_alias: bool,
+pub(crate) struct LocalPaintState {
+    pub(crate) fill_color: ColorU8,
+    pub(crate) stroke_color: ColorU8,
+    pub(crate) line_width: f32,
+    pub(crate) line_cap: LineCap,
+    pub(crate) line_join: LineJoin,
+    pub(crate) line_dash: Option<Vec<f32>>,
+    pub(crate) line_dash_phase: f32,
+    pub(crate) global_alpha: f32,
+    pub(crate) anti_alias: bool,
     /// Canvas 2D shadow state (sticky until overwritten). Translated here,
     /// in core, into a `SaveLayer` + `DropShadow` wrapper — never emitted.
-    shadow: Option<CanvasShadow>,
+    pub(crate) shadow: Option<CanvasShadow>,
 }
 
 /// Canvas 2D shadow (`shadowColor` / `shadowBlur` / `shadowOffsetX/Y`).
 #[derive(Clone, Copy, Debug)]
-struct CanvasShadow {
-    color: ColorU8,
-    blur: f32,
-    dx: f32,
-    dy: f32,
+pub(crate) struct CanvasShadow {
+    pub(crate) color: ColorU8,
+    pub(crate) blur: f32,
+    pub(crate) dx: f32,
+    pub(crate) dy: f32,
 }
 
 impl Default for LocalPaintState {
@@ -2002,7 +2007,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
     Ok(())
 }
 
-fn execute_draw_op(
+pub(crate) fn execute_draw_op(
     b: &mut crate::render::builder::DrawOpBuilder,
     op: &DrawOp,
     state: &mut LocalPaintState,
@@ -2017,6 +2022,28 @@ fn execute_draw_op(
                 src: *src,
                 dst: *dst,
                 paint: None,
+            });
+        }
+        // Script-side `putImageData`: pixel-direct write — intern the Src
+        // blend paint (no alpha compositing) and emit the canonical
+        // `ImageRect`.
+        DrawOp::ScriptPutImage { image, dst } => {
+            let paint = b.intern_paint(crate::canvas::paint::PaintSpec {
+                fill: crate::canvas::paint::FillSpec::Solid([0.0, 0.0, 0.0, 0.0]),
+                style: crate::canvas::paint::PaintStyle::Fill,
+                stroke: None,
+                anti_alias: false,
+                blend_mode: crate::canvas::paint::BlendMode::Src,
+                image_filter: None,
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            });
+            b.push(DrawOp::ImageRect {
+                image: image.clone(),
+                src: None,
+                dst: *dst,
+                paint: Some(paint),
             });
         }
         // ── Stack management ──────────────────────────────────────────
@@ -2254,6 +2281,35 @@ fn execute_draw_op(
                     dy: *dy,
                 })
             };
+        }
+        // 组级阴影（canvas pattern 填充）：开 Save + SaveLayer(DropShadow)，
+        // 组内 op 的 alpha 被滤镜折成阴影；调用方用等量 Restore 收尾。
+        DrawOp::ScriptBeginShadowLayer => {
+            let sh = state.shadow.unwrap_or(CanvasShadow {
+                color: ColorU8 {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                },
+                blur: 0.0,
+                dx: 0.0,
+                dy: 0.0,
+            });
+            let paint_id = shadow_layer_paint_id(b, sh);
+            b.push(DrawOp::Save);
+            if sh.dx != 0.0 || sh.dy != 0.0 {
+                b.push(DrawOp::Translate {
+                    x: sh.dx,
+                    y: sh.dy,
+                });
+            }
+            b.push(DrawOp::SaveLayer {
+                bounds: None,
+                paint: Some(paint_id),
+                alpha: 1.0,
+                backdrop: false,
+            });
         }
         DrawOp::FillPath => push_shadowed(b, state.shadow, DrawOp::FillPath),
         DrawOp::StrokePath => push_shadowed(b, state.shadow, DrawOp::StrokePath),

@@ -2091,6 +2091,13 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             );
         }
 
+        DrawOp::ScriptPutImage { .. } => {
+            unreachable!(
+                "DrawOp::ScriptPutImage must be translated into ImageRect \
+                 by execute_draw_op before binary encoding"
+            );
+        }
+
         DrawOp::ScriptSetLineDash { .. } => {
             unreachable!(
                 "DrawOp::ScriptSetLineDash must be interned into SetLineDash \
@@ -2116,6 +2123,12 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             unreachable!(
                 "DrawOp::ScriptSetShadow must be expanded into SaveLayer + DropShadow \
                  by execute_draw_op before binary encoding"
+            );
+        }
+        DrawOp::ScriptBeginShadowLayer => {
+            unreachable!(
+                "DrawOp::ScriptBeginShadowLayer must be expanded into SaveLayer + \
+                 DropShadow by execute_draw_op before binary encoding"
             );
         }
     }

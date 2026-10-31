@@ -1297,12 +1297,20 @@ fn replay_op(
                             }
                         }
                         ImageRef::Encoded { .. } => {
-                            // svg `<image>` 高质量重采样：放大缩小都走 Mitchell
-                            // cubic、不落 mipmap。1:1 blit 时 cubic 退化为精确
-                            // 拷贝，与 VideoFrame 同款走 Nearest。
+                            // svg `<image>` 高质量重采样：放大走 Mitchell cubic、
+                            // 不落 mipmap。1:1 blit 时 cubic 退化为精确拷贝，与
+                            // VideoFrame 同款走 Nearest。设备空间 1:1 但带亚像素
+                            // 平移时用 cubic 会把每个像素抹成 4 像素宽的核（画布
+                            // pattern 的瓦片就是这种 1:1 亚像素贴图，实测暗端被抬
+                            // 高 15+，图案整体「变软」），与浏览器 linear 采样也
+                            // 不一致，故与 Static 分支同口径改用 Linear。
                             let src_size = (sk_image.width() as f32, sk_image.height() as f32);
                             if is_identity_blit(canvas, src_size, src_rect.as_ref(), &dst_rect) {
                                 SamplingOptions::new(FilterMode::Nearest, MipmapMode::None)
+                            } else if device_scale(canvas, src_size, src_rect.as_ref(), &dst_rect)
+                                <= 1.0 + 1e-3
+                            {
+                                SamplingOptions::new(FilterMode::Linear, MipmapMode::None)
                             } else {
                                 SamplingOptions {
                                     use_cubic: true,
@@ -1470,10 +1478,13 @@ fn replay_op(
         // Pre-intern script form: translated by execute_draw_op before the
         // stream reaches the executor; nothing to replay.
         DrawOp::ScriptImage { .. } => Ok(()),
+        DrawOp::ScriptPutImage { .. } => Ok(()),
         DrawOp::ScriptSetLineDash { .. } => Ok(()),
         DrawOp::ScriptSetStyleLinearGradient { .. } => Ok(()),
         DrawOp::ScriptSetStyleRadialGradient { .. } => Ok(()),
         DrawOp::ScriptSetShadow { .. } => Ok(()),
+        // 已由 execute_draw_op 展开成 Save + Translate + SaveLayer。
+        DrawOp::ScriptBeginShadowLayer => Ok(()),
 
         DrawOp::LottieRect {
             bundle_id,

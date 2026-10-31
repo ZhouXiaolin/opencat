@@ -136,9 +136,41 @@
         return { start: num(start), sweep: sweep };
     }
 
+    // 离屏 canvas（`document.createElement('canvas')`，`__oc_offscreen_` id）
+    // 的像素化：engine 绑定 `__opencatRasterCanvasPNG(id, w, h, out)` 用 Skia
+    // 离屏重放该 canvas 的 op 流 → PNG 字节。这正是用户允许的「分配 surface，
+    // 最后回读为 data」——像素化属于 op，不引入新 IR 指令。结果按 id 缓存
+    // （pattern 源 canvas 建一次、每帧 fillPattern 重铺，不能每次光栅化）。
+    var offscreenRasterCache = Object.create(null);
+    function rasterizeOffscreenCanvas(canvas) {
+        var cached = offscreenRasterCache[canvas.__ocOffscreenId];
+        if (cached) return cached;
+        if (typeof __opencatRasterCanvasPNG !== 'function') {
+            throw new Error('rasterizeOffscreenCanvas: engine native __opencatRasterCanvasPNG unavailable');
+        }
+        var w = Math.max(1, Math.ceil(canvas.width > 0 ? canvas.width : 1));
+        var h = Math.max(1, Math.ceil(canvas.height > 0 ? canvas.height : 1));
+        // PNG 上界：RGBA + 每行 filter 字节 + zlib stored 块开销 + 容器固定头尾
+        var out = new Uint8Array(w * h * 4 + w + h + 4096);
+        var len = __opencatRasterCanvasPNG(canvas.__ocOffscreenId, w, h, out);
+        var record = {
+            bytes: Array.from(out.subarray(0, len)),
+            width: w,
+            height: h,
+        };
+        offscreenRasterCache[canvas.__ocOffscreenId] = record;
+        return record;
+    }
+
     function makeContext2d(id) {
         var state = freshState();
         var dash = [];
+        // 基 origin：canvas 元素在宿主容器里的块级流位置（如 rect-ring
+        // 的图表画布被前序 <button> 推到 (0,21)）。浏览器里画布表面合成
+        // 在元素盒上，表面自身的 (0,0) 就是这里——每帧在矩阵重置后重录
+        // 一次 translate，让表面坐标系落回基 origin；setTransform 的
+        // identity 同样回落到它，等价浏览器 surface 语义。
+        var baseOrigin = null;
         var matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
         var matrixStack = [];
         var stateStack = [];
@@ -237,6 +269,22 @@
             // pattern 分支在 applyFill 之前返回，透明度得自己下发（ScriptImage
             // 展开成 ImageRect 时沿用执行端 current_alpha）。
             __canvas_set_global_alpha(id, alpha);
+            // 浏览器把 shadow 作用在「图案 × 路径」的整体 alpha 上，阴影不能
+            // 挂在单次绘制上。图案不透明时轮廓就等于路径本身：用不透明黑漆把
+            // 路径填一遍，只给滤镜提供 alpha 轮廓；层内内容被 keep_content=
+            // false 丢弃，不会和瓦片叠出双重 AA 暗环。
+            if (num(state.shadowBlur) > 0
+                || num(state.shadowOffsetX) !== 0
+                || num(state.shadowOffsetY) !== 0) {
+                __canvas_set_fill_style(id, '#000');
+                lowerShadow(id, state);
+                __canvas_begin_shadow_layer(id);
+                // 层内填色不能再叠一次阴影，否则轮廓被模糊两次。
+                __canvas_set_shadow(id, 'rgba(0, 0, 0, 0)', 0, 0, 0);
+                __canvas_fill_path(id);
+                __canvas_restore(id);
+                __canvas_restore(id);
+            }
             __canvas_save(id);
             __canvas_clip_path(id, true);
             __canvas_concat(id, [m.a, m.b, 0, m.c, m.d, 0, m.e, m.f, 1]);
@@ -276,6 +324,24 @@
                 matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
                 matrixStack.length = 0;
                 stateStack.length = 0;
+                // 基 origin 重录：executor CTM 每帧从 identity 开始，只在
+                // 设置时 translate 一次第二帧就丢。JS `matrix` 仍保持相对
+                // 基的 identity——后续 setMatrix 的 delta = inverse(prev)×next
+                // 拼上去恒等于 T_base×matrix，即 setTransform/resetTransform
+                // 回落到表面原点（基 origin），等价浏览器 surface 语义。
+                if (baseOrigin && (baseOrigin.x || baseOrigin.y)) {
+                    __canvas_translate(id, baseOrigin.x, baseOrigin.y);
+                }
+            },
+
+            // dom_api 在拿到录制面后按流布局位置设置（一次即可，之后每帧
+            // 自动重录）。幂等：重复调用以首次为准，防二次 translate。
+            __ocSetBaseOrigin(x, y) {
+                if (baseOrigin) return;
+                var nx = num(x), ny = num(y);
+                if (!nx && !ny) return;
+                baseOrigin = { x: nx, y: ny };
+                __canvas_translate(id, nx, ny);
             },
 
             // ── transforms ──
@@ -336,19 +402,17 @@
             },
 
             // ── rects ──
-            // g-canvas clears from the origin on every frame entry; offline
-            // frames have no prior content to erase, so an origin clear is
-            // just a full-canvas clear. True regional clears would need a
-            // transparent-fill op the stream doesn't have.
+            // Browsers *replace* the rect's pixels, and Skia's Clear is a
+            // Src-blend paint under the current clip — so the regional form
+            // is clip + clear, no bespoke op needed. Zero/negative area
+            // clears nothing (HTML spec): TinySDF wipes its atlas with
+            // `clearRect(3, 3, 0, 0)` before it knows the glyph box.
             clearRect(x, y, w, h) {
-                if (num(x) <= 0 && num(y) <= 0 && num(w) > 0 && num(h) > 0) {
-                    __canvas_clear(id, null);
-                    return;
-                }
-                throw new Error(
-                    'clearRect: only full-canvas clears from the origin are supported ('
-                    + num(x) + ',' + num(y) + ',' + num(w) + ',' + num(h) + ')'
-                );
+                if (!(num(w) > 0) || !(num(h) > 0)) return;
+                __canvas_save(id);
+                __canvas_clip_rect(id, num(x), num(y), num(w), num(h), false);
+                __canvas_clear(id, null);
+                __canvas_restore(id);
             },
             fillRect(x, y, w, h) {
                 if (state.fillStyle && state.fillStyle.__ocPattern) {
@@ -393,10 +457,22 @@
             // 位图绘制：3 参（默认自然尺寸）/ 5 参（缩放）/ 9 参（源矩形）。
             // 编码字节随 op 一起进记录器，由 execute_draw_op 内联进帧字节表。
             drawImage(image, ...args) {
-                const bytes = image && image.__ocImageArray;
-                if (!bytes) throw new Error('drawImage: only decoded Image sources are supported');
-                const nw = num(image.naturalWidth || image.width) || 0;
-                const nh = num(image.naturalHeight || image.height) || 0;
+                var bytes, nw, nh;
+                if (image && image.__ocImageArray) {
+                    bytes = image.__ocImageArray;
+                    nw = num(image.naturalWidth || image.width) || 0;
+                    nh = num(image.naturalHeight || image.height) || 0;
+                } else if (image && image.__ocOffscreenCanvas) {
+                    // 离屏 canvas 源：脚本期 Skia 光栅化 → PNG 字节 → 标准
+                    // ImageRect（Encoded）。这正是用户允许的「分配 surface，
+                    // 最后回读为 data」op。
+                    var rasterized = rasterizeOffscreenCanvas(image);
+                    bytes = rasterized.bytes;
+                    nw = rasterized.width;
+                    nh = rasterized.height;
+                } else {
+                    throw new Error('drawImage: only decoded Image or offscreen canvas sources are supported');
+                }
                 let values;
                 if (args.length === 2) {
                     values = [num(args[0]), num(args[1]), nw, nh];
@@ -466,15 +542,22 @@
                     },
                 };
             },
-            // 图案画刷：只接解码后的 Image 源（离屏 canvas 源需要真像素面，
-            // 未实现）。`setTransform` 记下图案矩阵，填充时由 fillPattern 用。
+            // 图案画刷：解码 Image 源或离屏 canvas 源（脚本期 Skia 光栅化 →
+            // PNG 字节）。`setTransform` 记下图案矩阵，填充时由 fillPattern 用。
             createPattern(source, repetition) {
-                var bytes = source && source.__ocImageArray;
-                if (!bytes) {
-                    throw new Error('createPattern: only decoded Image sources are supported');
+                var bytes, w, h;
+                if (source && source.__ocImageArray) {
+                    bytes = source.__ocImageArray;
+                    w = num(source.naturalWidth || source.width) || 0;
+                    h = num(source.naturalHeight || source.height) || 0;
+                } else if (source && source.__ocOffscreenCanvas) {
+                    var rasterized = rasterizeOffscreenCanvas(source);
+                    bytes = rasterized.bytes;
+                    w = rasterized.width;
+                    h = rasterized.height;
+                } else {
+                    throw new Error('createPattern: only decoded Image or offscreen canvas sources are supported');
                 }
-                var w = num(source.naturalWidth || source.width) || 0;
-                var h = num(source.naturalHeight || source.height) || 0;
                 if (!(w > 0 && h > 0)) throw new Error('createPattern: empty source image');
                 var tile = String(repetition === undefined ? 'repeat' : repetition);
                 if (tile !== 'repeat') {
@@ -559,7 +642,10 @@
             clip() {
                 __canvas_clip_path(id, true);
             },
-            fill() {
+            fill(path) {
+                if (path && path._ops && typeof __ocReplayPathOps === 'function') {
+                    __ocReplayPathOps(id, path);
+                }
                 if (state.fillStyle && state.fillStyle.__ocPattern) {
                     fillPattern(state.fillStyle);
                     return;
@@ -567,7 +653,10 @@
                 applyFill();
                 __canvas_fill_path(id);
             },
-            stroke() {
+            stroke(path) {
+                if (path && path._ops && typeof __ocReplayPathOps === 'function') {
+                    __ocReplayPathOps(id, path);
+                }
                 applyStroke();
                 __canvas_stroke_path(id);
             },
@@ -728,7 +817,77 @@
             measureText(text) {
                 var f = parseFont(state.font);
                 var shaped = this.shapeGlyphs(String(text), f);
-                return { width: Number(shaped.width) || 0 };
+                // Browsers report the *ink* box, not the em box: TinySDF
+                // (the g-webgl glyph atlas) sizes its SDF from
+                // actualBoundingBox* and runs an EDT over exactly that
+                // region. Curve control points overestimate the true ink by
+                // a few tenths of a pixel — ceil() eats it, and solving the
+                // extrema here would buy nothing visible.
+                var byGlyph = {};
+                var gs = shaped.glyphs || [];
+                for (var i = 0; i < gs.length; i++) byGlyph[gs[i].k] = gs[i].ops;
+                var positions = shaped.positions || [];
+                var minX = 0, maxX = 0, minY = 0, maxY = 0, ink = false;
+                for (var p = 0; p < positions.length; p++) {
+                    var ops = byGlyph[positions[p].k];
+                    if (!ops) continue;
+                    var ox = Number(positions[p].x) || 0;
+                    var oy = Number(positions[p].y) || 0;
+                    for (var j = 0; j < ops.length; j++) {
+                        var op = ops[j];
+                        for (var c = 1; c + 1 < op.length; c += 2) {
+                            var gx = ox + Number(op[c]);
+                            var gy = oy + Number(op[c + 1]);
+                            if (!ink) {
+                                minX = maxX = gx; minY = maxY = gy; ink = true;
+                            } else {
+                                if (gx < minX) minX = gx;
+                                if (gx > maxX) maxX = gx;
+                                if (gy < minY) minY = gy;
+                                if (gy > maxY) maxY = gy;
+                            }
+                        }
+                    }
+                }
+                return {
+                    width: Number(shaped.width) || 0,
+                    actualBoundingBoxLeft: ink ? -minX : 0,
+                    actualBoundingBoxRight: ink ? maxX : 0,
+                    actualBoundingBoxAscent: ink ? -minY : 0,
+                    actualBoundingBoxDescent: ink ? maxY : 0,
+                };
+            },
+            // 光栅化回读（g-lite measureFont 逐像素扫 ascent/descent、heatmap
+            // DE 全图 LUT 换色都走这里）：整个 canvas 重放成 RGBA，再行拷贝
+            // 切出请求窗口。仅对离屏 canvas 有意义——DOM chart canvas 的 id
+            // 在帧级 op 流里，脚本期没有可重放帧。
+            getImageData(sx, sy, sw, sh) {
+                if (!id.indexOf || id.indexOf('__oc_offscreen_') !== 0) {
+                    throw new Error('getImageData: only offscreen canvases support pixel reads');
+                }
+                var canvas = typeof __ocOffscreenById === 'function' ? __ocOffscreenById(id) : null;
+                if (!canvas) throw new Error('getImageData: no offscreen canvas for ' + id);
+                var cw = Math.max(1, Math.ceil(canvas.width > 0 ? canvas.width : 1));
+                var ch = Math.max(1, Math.ceil(canvas.height > 0 ? canvas.height : 1));
+                if (typeof __opencatRasterCanvas !== 'function') {
+                    throw new Error('getImageData: engine native __opencatRasterCanvas unavailable');
+                }
+                var full = new Uint8Array(cw * ch * 4);
+                __opencatRasterCanvas(id, cw, ch, full);
+                // 规范化请求窗口（Web 语义：越界部分透明黑，负宽高翻转忽略——
+                // g-lite/heatmap 都传规范值，这里只做夹取）。
+                var x0 = Math.max(0, Math.min(cw, sx | 0));
+                var y0 = Math.max(0, Math.min(ch, sy | 0));
+                var x1 = Math.max(0, Math.min(cw, (sx + (sw | 0)) | 0));
+                var y1 = Math.max(0, Math.min(ch, (sy + (sh | 0)) | 0));
+                var w = Math.max(1, x1 - x0);
+                var h = Math.max(1, y1 - y0);
+                var out = new Uint8ClampedArray(w * h * 4);
+                for (var row = 0; row < h; row++) {
+                    var srcRow = ((y0 + row) * cw + x0) * 4;
+                    out.set(full.subarray(srcRow, srcRow + w * 4), row * w * 4);
+                }
+                return { width: w, height: h, data: out };
             },
         };
     }
@@ -743,10 +902,15 @@
     // fire for objects that don't use the feature.
     function paintObject(v, api) {
         if (v !== null && typeof v === 'object' && !v.__ocGradient && !v.__ocPattern) {
-            throw new Error(
-                api + ': gradient/pattern paint objects are not supported; use a CSS color string'
-            );
+            // g-lite 的 applyAttributesToContext 会把 **raw** pattern 对象
+            // （{image, repetition}）先赋给 fillStyle/strokeStyle；浏览器对
+            // 无法识别的 paint 对象静默忽略（fillStyle 保持原值），真正的
+            // CanvasPattern 在 styleRenderer.render 里经 getPattern →
+            // createPattern 后重新赋值（那时才带 __ocPattern）。这里保持
+            // 浏览器语义：记录赋值无效，不改状态。
+            return false;
         }
+        return true;
     }
 
     function checkComposite(v) {
@@ -785,8 +949,8 @@
     ];
 
     var WRITERS = {
-        fillStyle: function (state, v) { paintObject(v, 'fillStyle'); state.fillStyle = v; },
-        strokeStyle: function (state, v) { paintObject(v, 'strokeStyle'); state.strokeStyle = v; },
+        fillStyle: function (state, v) { if (paintObject(v, 'fillStyle')) state.fillStyle = v; },
+        strokeStyle: function (state, v) { if (paintObject(v, 'strokeStyle')) state.strokeStyle = v; },
         globalCompositeOperation: function (state, v) { checkComposite(v); state.globalCompositeOperation = v; },
         shadowColor: function (state, v) { state.shadowColor = v; },
         shadowBlur: function (state, v) { state.shadowBlur = num(v); },
@@ -840,5 +1004,16 @@
     // module's globals (extract probes) stay unaffected.
     globalThis.__ocResetContext2d = function () {
         for (var key in contexts) contexts[key].__ocResetFrameState();
+        // offscreenRasterCache 故意跨帧存活：pattern 源 canvas 建一次、每帧
+        // fillPattern 重铺同一 PNG 字节。canvas 内容以 putImageData/draw
+        // 追加时 id 不变，缓存失效由 rasterizeOffscreenCanvas 的调用点按
+        // 「首像素化后只读」约定处理（2D pattern 源正是如此）。
+    };
+    // Offscreen canvases (`document.createElement('canvas')`) share this
+    // recorder: dom_api hands us a synthetic id, we hand back the same
+    // descriptor-wrapped face as `ctx.getContext`. Cached by id so repeated
+    // getContext calls return the same object (Web identity semantics).
+    globalThis.__ocMakeOffscreenContext2d = function (id) {
+        return ctx.getContext(id, '2d');
     };
 })();

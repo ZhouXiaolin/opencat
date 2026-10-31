@@ -693,8 +693,8 @@ impl<C: JsContext> ScriptRealm<C> {
                 s.record_frame_generated_image_deferred(
                     &stream.target_id,
                     image_id,
-                    0.0,
-                    0.0,
+                    stream.x,
+                    stream.y,
                     stream.width,
                     stream.height,
                 );

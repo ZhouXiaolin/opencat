@@ -965,7 +965,11 @@ fn apply_mutation_stack(style: &mut NodeStyle, stack: &[StyleMutations]) {
     }
 }
 
-fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutations], id: &str) {
+fn apply_canvas_mutation_stack(
+    commands: &mut Vec<crate::script::canvas_op::CanvasOp>,
+    stack: &[StyleMutations],
+    id: &str,
+) {
     for mutations in stack {
         mutations.apply_to_canvas(commands, id);
     }
@@ -975,12 +979,14 @@ fn apply_canvas_mutation_stack(commands: &mut Vec<DrawOp>, stack: &[StyleMutatio
 /// place. Video-frame refs already carry canonical ids and are left untouched.
 /// An alias that is neither registered nor a known canonical asset is an error.
 fn canonicalize_canvas_image_refs(
-    commands: &mut [DrawOp],
+    commands: &mut [crate::script::canvas_op::CanvasOp],
     assets: &PreparedResourceCatalog,
 ) -> Result<()> {
-    for op in commands.iter_mut() {
-        let image_ref = match op {
-            DrawOp::Image { image, .. } | DrawOp::ImageRect { image, .. } => image,
+    for cmd in commands.iter_mut() {
+        let image_ref = match cmd {
+            crate::script::canvas_op::CanvasOp::Op(DrawOp::Image { image, .. })
+            | crate::script::canvas_op::CanvasOp::Op(DrawOp::ImageRect { image, .. })
+            | crate::script::canvas_op::CanvasOp::PutImage { image, .. } => image,
             _ => continue,
         };
         if let ImageRef::Static { asset_id } = image_ref {

@@ -1473,19 +1473,6 @@ fn replay_op(
 
         DrawOp::DrawSubtreePicture { .. } => Ok(()),
 
-        DrawOp::ScriptRuntimeEffect { .. } => Ok(()),
-
-        // Pre-intern script form: translated by execute_draw_op before the
-        // stream reaches the executor; nothing to replay.
-        DrawOp::ScriptImage { .. } => Ok(()),
-        DrawOp::ScriptPutImage { .. } => Ok(()),
-        DrawOp::ScriptSetLineDash { .. } => Ok(()),
-        DrawOp::ScriptSetStyleLinearGradient { .. } => Ok(()),
-        DrawOp::ScriptSetStyleRadialGradient { .. } => Ok(()),
-        DrawOp::ScriptSetShadow { .. } => Ok(()),
-        // 已由 execute_draw_op 展开成 Save + Translate + SaveLayer。
-        DrawOp::ScriptBeginShadowLayer => Ok(()),
-
         DrawOp::LottieRect {
             bundle_id,
             frame,

@@ -211,7 +211,7 @@ pub struct BitmapDisplayItem {
 #[derive(Clone, Debug)]
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
-    pub commands: Vec<DrawOp>,
+    pub commands: Vec<crate::script::canvas_op::CanvasOp>,
     pub drop_shadow: Vec<DropShadow>,
     pub hidden_subtree: Vec<crate::display::tree::HiddenChildDisplayNode>,
 }

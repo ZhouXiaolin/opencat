@@ -15,6 +15,7 @@
 
 pub mod animate;
 pub mod bindings;
+pub mod canvas_op;
 pub mod dispatch;
 pub mod helpers;
 pub mod host;
@@ -28,6 +29,7 @@ pub mod runtime;
 pub mod tree;
 
 pub use host::{ScriptDriverId, ScriptHost, ScriptTargetRegistry, driver_id_from_source};
+pub use canvas_op::CanvasOp;
 pub use mutations::*;
 pub use precomputed_host::PrecomputedScriptHost;
 pub use realm::ScriptRealm;

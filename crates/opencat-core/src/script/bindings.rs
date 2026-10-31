@@ -548,13 +548,13 @@ macro_rules! for_each_binding {
         }}
         $binding! { node $rec $id canvas_set_line_dash ($id: &str, intervals: Vec<f32>, phase: f32) {
             // The recorder has no f32_pool access, so the dash intervals go
-            // out as the pre-intern `ScriptSetLineDash` form;
-            // `execute_draw_op` interns them and pushes the standard
+            // out as the pre-intern `CanvasOp::SetLineDash` form;
+            // the translation layer interns them and pushes the standard
             // `SetLineDash`. An empty list is the browser's "solid line".
             if intervals.is_empty() {
                 $rec . record_draw_op($id, DrawOp::ClearLineDash);
             } else {
-                $rec . record_draw_op($id, DrawOp::ScriptSetLineDash { intervals, phase });
+                $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::SetLineDash { intervals, phase });
             }
         }}
         $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
@@ -582,7 +582,7 @@ macro_rules! for_each_binding {
                 stops.push(c.b as f32);
                 stops.push(c.a as f32);
             }
-            $rec . record_draw_op($id, DrawOp::ScriptSetStyleLinearGradient {
+            $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::SetStyleLinearGradient {
                 stroke,
                 start: [x0, y0],
                 end: [x1, y1],
@@ -609,7 +609,7 @@ macro_rules! for_each_binding {
                 stops.push(c.b as f32);
                 stops.push(c.a as f32);
             }
-            $rec . record_draw_op($id, DrawOp::ScriptSetStyleRadialGradient {
+            $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::SetStyleRadialGradient {
                 stroke,
                 start: [x0, y0, r0],
                 end: [x1, y1, r1],
@@ -621,12 +621,12 @@ macro_rules! for_each_binding {
         }}
         $binding! { node $rec $id canvas_set_shadow ($id: &str, color: String, blur: f32, dx: f32, dy: f32) {
             let c = $crate::script::helpers::parse_color(&color, "shadowColor")?;
-            $rec . record_draw_op($id, DrawOp::ScriptSetShadow { color: c, blur, dx, dy });
+            $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::SetShadow { color: c, blur, dx, dy });
         }}
         // 组级阴影（canvas pattern 填充）：把接下来的一组 op 包进
         // SaveLayer(DropShadow)。调用方负责配平 Save/Restore。
         $binding! { node $rec $id canvas_begin_shadow_layer ($id: &str) {
-            $rec . record_draw_op($id, DrawOp::ScriptBeginShadowLayer);
+            $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::BeginShadowLayer);
         }}
         $binding! { node $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
             $rec . record_draw_op($id, DrawOp::SetAntiAlias { enabled });
@@ -711,8 +711,8 @@ macro_rules! for_each_binding {
             Ok::<_, anyhow::Error>(())
         }}
         // 脚本侧 `ctx.drawImage`（image mark / 内联位图）。字节来自 JS 持有的
-        // 编码图像，走 `DrawOp::ScriptImage` 中间态，由 execute_draw_op 内联进
-        // 帧字节表（与 `ScriptRuntimeEffect` 同一分层：记录器没有 bytes 表）。
+        // 编码图像，走 `CanvasOp::Image` 中间态，由翻译层内联进
+        // 帧字节表（与 `RuntimeEffect` 同一分层：记录器没有 bytes 表）。
         $binding! { node $rec $id canvas_draw_image_bytes ($id: &str, bytes: Vec<u8>, values: Vec<f32>, alpha: f32, anti_alias: bool) {
             let _ = (alpha, anti_alias);
             if values.len() < 4 {
@@ -726,7 +726,7 @@ macro_rules! for_each_binding {
                 8.. => Some(Rect4 { x: values[4], y: values[5], width: values[6], height: values[7] }),
                 _ => None,
             };
-            $rec . record_draw_op($id, DrawOp::ScriptImage {
+            $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::Image {
                 bytes,
                 src,
                 dst,

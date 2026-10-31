@@ -2077,60 +2077,6 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             );
         }
 
-        DrawOp::ScriptRuntimeEffect { .. } => {
-            unreachable!(
-                "DrawOp::ScriptRuntimeEffect must be translated into RuntimeEffect \
-                 by execute_draw_op before binary encoding"
-            );
-        }
-
-        DrawOp::ScriptImage { .. } => {
-            unreachable!(
-                "DrawOp::ScriptImage must be translated into ImageRect \
-                 by execute_draw_op before binary encoding"
-            );
-        }
-
-        DrawOp::ScriptPutImage { .. } => {
-            unreachable!(
-                "DrawOp::ScriptPutImage must be translated into ImageRect \
-                 by execute_draw_op before binary encoding"
-            );
-        }
-
-        DrawOp::ScriptSetLineDash { .. } => {
-            unreachable!(
-                "DrawOp::ScriptSetLineDash must be interned into SetLineDash \
-                 by execute_draw_op before binary encoding"
-            );
-        }
-
-        DrawOp::ScriptSetStyleLinearGradient { .. } => {
-            unreachable!(
-                "DrawOp::ScriptSetStyleLinearGradient must be interned into \
-                 SetStyleLinearGradient by execute_draw_op before binary encoding"
-            );
-        }
-
-        DrawOp::ScriptSetStyleRadialGradient { .. } => {
-            unreachable!(
-                "DrawOp::ScriptSetStyleRadialGradient must be interned into \
-                 SetStyleRadialGradient by execute_draw_op before binary encoding"
-            );
-        }
-
-        DrawOp::ScriptSetShadow { .. } => {
-            unreachable!(
-                "DrawOp::ScriptSetShadow must be expanded into SaveLayer + DropShadow \
-                 by execute_draw_op before binary encoding"
-            );
-        }
-        DrawOp::ScriptBeginShadowLayer => {
-            unreachable!(
-                "DrawOp::ScriptBeginShadowLayer must be expanded into SaveLayer + \
-                 DropShadow by execute_draw_op before binary encoding"
-            );
-        }
     }
     // v6: no trailing pad — the next op starts immediately after this op's
     // fixed-length payload.

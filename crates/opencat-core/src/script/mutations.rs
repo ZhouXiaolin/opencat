@@ -667,11 +667,10 @@ pub fn text_shadows_from_value(value: &serde_json::Value) -> Option<Vec<crate::s
     Some(out)
 }
 
-use crate::ir::draw_op::DrawOp;
 
 #[derive(Debug, Clone, Default)]
 pub struct CanvasMutations {
-    pub commands: Vec<DrawOp>,
+    pub commands: Vec<crate::script::canvas_op::CanvasOp>,
     /// g-svg 渲染器的产物：容器下整棵 `<svg>` 子树的 markup。SVG 渲染器
     /// 不产 DrawOp，所以这条与 `commands` 互斥；存在时 resolve 把该 canvas
     /// 解析成 `ElementKind::Svg`（内联 markup），走 usvg 渲染管线。
@@ -707,7 +706,7 @@ impl StyleMutations {
         self.canvas_mutations.get(id)
     }
 
-    pub fn apply_to_canvas(&self, commands: &mut Vec<DrawOp>, id: &str) {
+    pub fn apply_to_canvas(&self, commands: &mut Vec<crate::script::canvas_op::CanvasOp>, id: &str) {
         if let Some(mutation) = self.canvas_mutations.get(id) {
             commands.extend(mutation.commands.iter().cloned());
         }
@@ -736,7 +735,7 @@ impl StyleMutations {
         // them from the store, so they are uniquely owned).
         for (canvas_id, canvas_mutations) in self.canvas_mutations {
             for cmd in canvas_mutations.commands {
-                recorder.record_draw_op(&canvas_id, cmd);
+                recorder.record_canvas_op(&canvas_id, cmd);
             }
             if let Some(markup) = canvas_mutations.svg {
                 recorder.record_canvas_svg(&canvas_id, markup);
@@ -757,7 +756,7 @@ impl StyleMutations {
         }
         for (canvas_id, canvas_mutations) in &self.canvas_mutations {
             for cmd in &canvas_mutations.commands {
-                recorder.record_draw_op(canvas_id, cmd.clone());
+                recorder.record_canvas_op(canvas_id, cmd.clone());
             }
             if let Some(markup) = &canvas_mutations.svg {
                 recorder.record_canvas_svg(canvas_id, markup.clone());

@@ -90,7 +90,16 @@ pub trait MutationRecorder {
     fn record_text_content(&mut self, id: &str, text: String);
     fn record_svg_path(&mut self, id: &str, data: String);
 
-    fn record_draw_op(&mut self, id: &str, cmd: DrawOp);
+    /// canonical DrawOp 直录（绝大多数绑定走这里；内部包成
+    /// [`CanvasOp::Op`] 透传）。
+    fn record_draw_op(&mut self, id: &str, cmd: DrawOp) {
+        self.record_canvas_op(id, crate::script::canvas_op::CanvasOp::Op(cmd));
+    }
+
+    /// canvas 2D 录制面命令：canonical 透传之外，还有翻译层才消化的
+    /// 浏览器语义 / 裸 payload 形态（shadow 状态机、putImageData、
+    /// 预驻留渐变等）。见 `script::canvas_op`。
+    fn record_canvas_op(&mut self, id: &str, cmd: crate::script::canvas_op::CanvasOp);
 
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32);
 

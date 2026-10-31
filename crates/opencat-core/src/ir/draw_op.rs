@@ -1,6 +1,6 @@
 use super::draw_types::{
     BytesRangeId, ChildRange, DrawOpRange, EffectId, FillType, ImageRef, PaintId, PathId, PathOp,
-    ScriptRuntimeEffectChild, SubtreeId,
+    SubtreeId,
 };
 #[allow(unused_imports)]
 use crate::canvas::paint::{BlendMode, StrokeSpec};
@@ -475,61 +475,6 @@ pub enum DrawOp {
         region: Rect4,
     },
 
-    /// Script-originated runtime effect (pre-intern intermediate form).
-    /// Translated to `DrawOp::RuntimeEffect` during `execute_draw_op`.
-    /// Engine replay treats this as a no-op; the binary encoder must never see it.
-    ScriptRuntimeEffect {
-        sksl: String,
-        uniforms_bytes: Vec<u8>,
-        children: Vec<ScriptRuntimeEffectChild>,
-        dst: Rect4,
-    },
-
-    /// Script-originated image bytes (pre-intern intermediate form): the
-    /// recorder holds no frame byte table, so `ctx.drawImage` hands the raw
-    /// encoded bytes here. `execute_draw_op` interns them into
-    /// `ImageRef::Encoded` and pushes the standard `DrawOp::ImageRect`; the
-    /// binary encoder must never see it.
-    ScriptImage {
-        bytes: Vec<u8>,
-        src: Option<Rect4>,
-        dst: Rect4,
-    },
-
-    /// Script-originated pixel-direct write (Canvas 2D `putImageData`): the
-    /// recorder holds no paint table, so the Src-blend `PaintSpec` can't be
-    /// interned there. `execute_draw_op` interns a
-    /// `PaintSpec { blend_mode: Src }` and pushes the standard
-    /// `DrawOp::ImageRect` — putImageData replaces pixels without alpha
-    /// compositing (SrcOver would let the backdrop bleed through, e.g.
-    /// heatmap tiles colored via putImageData over radial-gradient tiles).
-    /// The binary encoder must never see it.
-    ScriptPutImage {
-        image: ImageRef,
-        dst: Rect4,
-    },
-
-    /// Script-originated dash state (pre-intern intermediate form): the
-    /// recorder has no `f32_pool` access, so `SetLineDash`'s `F32Range` can't
-    /// be built there. `execute_draw_op` interns the intervals and pushes the
-    /// standard `DrawOp::SetLineDash`; the binary encoder must never see it.
-    ScriptSetLineDash {
-        intervals: Vec<f32>,
-        phase: f32,
-    },
-
-    /// Script-originated linear gradient paint (pre-intern intermediate
-    /// form): the recorder has no `f32_pool` access, so the stops can't be
-    /// interned there. `execute_draw_op` interns the stops and pushes the
-    /// standard `DrawOp::SetStyleLinearGradient`; the binary encoder must
-    /// never see it. `stops` is flat (offset, r, g, b, a) per stop.
-    ScriptSetStyleLinearGradient {
-        stroke: bool,
-        start: [f32; 2],
-        end: [f32; 2],
-        stops: Vec<f32>,
-    },
-
     /// Standard radial gradient paint: `start` is the inner circle
     /// (x0, y0, r0), `end` the outer circle (x1, y1, r1); stops are interned
     /// f32 pool flat (offset, r, g, b, a) quintuples.
@@ -540,36 +485,6 @@ pub enum DrawOp {
         stops: F32Range,
     },
 
-    /// Script-originated radial gradient paint (pre-intern intermediate form
-    /// of `SetStyleRadialGradient`), same relationship as
-    /// `ScriptSetStyleLinearGradient`.
-    ScriptSetStyleRadialGradient {
-        stroke: bool,
-        start: [f32; 3],
-        end: [f32; 3],
-        stops: Vec<f32>,
-    },
-
-    /// Script-originated shadow state (pre-translation intermediate form):
-    /// canvas `shadowColor` / `shadowBlur` / `shadowOffsetX` / `shadowOffsetY`.
-    /// Canvas 2D shadows have no Skia op — `execute_draw_op` keeps the state
-    /// and expands each following fill/stroke into a `SaveLayer` carrying a
-    /// `DropShadow` image filter wrapped around it (`keep_content: false`:
-    /// only the blurred silhouette in `color` composites back), then the real
-    /// draw. Recorded instead of translated in the recorder because the
-    /// recorder has no paint pool. The binary encoder must never see it.
-    ScriptSetShadow {
-        color: ColorU8,
-        blur: f32,
-        dx: f32,
-        dy: f32,
-    },
-    /// Canvas 2D shadow for a *group* of ops (canvas pattern fill): the shadow
-    /// of `fill(图案)` is the blurred alpha of the clipped tile group, so it
-    /// cannot be attached to one draw. `execute_draw_op` expands this into
-    /// `Save` + `Translate` + `SaveLayer(DropShadow)` from the sticky shadow
-    /// state; the caller closes it with matching `Restore`s. Never encoded.
-    ScriptBeginShadowLayer,
 }
 
 // ---------------------------------------------------------------------------
@@ -896,73 +811,6 @@ impl std::hash::Hash for DrawOp {
                 for v in [region.x, region.y, region.width, region.height] {
                     v.to_bits().hash(state);
                 }
-            }
-            DrawOp::ScriptRuntimeEffect {
-                sksl,
-                uniforms_bytes,
-                children,
-                dst,
-            } => {
-                40_u8.hash(state);
-                sksl.hash(state);
-                uniforms_bytes.hash(state);
-                children.hash(state);
-                dst.hash(state);
-            }
-            DrawOp::ScriptImage { bytes, src, dst } => {
-                56_u8.hash(state);
-                bytes.hash(state);
-                src.hash(state);
-                dst.hash(state);
-            }
-            DrawOp::ScriptPutImage { image, dst } => {
-                57_u8.hash(state);
-                image.hash(state);
-                dst.hash(state);
-            }
-            DrawOp::ScriptSetLineDash { intervals, phase } => {
-                41_u8.hash(state);
-                intervals.iter().for_each(|v| v.to_bits().hash(state));
-                phase.to_bits().hash(state);
-            }
-            DrawOp::ScriptSetStyleLinearGradient {
-                stroke,
-                start,
-                end,
-                stops,
-            } => {
-                54_u8.hash(state);
-                stroke.hash(state);
-                start.map(f32::to_bits).hash(state);
-                end.map(f32::to_bits).hash(state);
-                stops.iter().for_each(|v| v.to_bits().hash(state));
-            }
-            DrawOp::ScriptSetStyleRadialGradient {
-                stroke,
-                start,
-                end,
-                stops,
-            } => {
-                55_u8.hash(state);
-                stroke.hash(state);
-                start.map(f32::to_bits).hash(state);
-                end.map(f32::to_bits).hash(state);
-                stops.iter().for_each(|v| v.to_bits().hash(state));
-            }
-            DrawOp::ScriptSetShadow {
-                color,
-                blur,
-                dx,
-                dy,
-            } => {
-                57_u8.hash(state);
-                color.hash(state);
-                blur.to_bits().hash(state);
-                dx.to_bits().hash(state);
-                dy.to_bits().hash(state);
-            }
-            DrawOp::ScriptBeginShadowLayer => {
-                58_u8.hash(state);
             }
         }
     }

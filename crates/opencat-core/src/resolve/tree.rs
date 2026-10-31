@@ -1,5 +1,4 @@
 use crate::ir::asset_id::AssetId;
-use crate::ir::draw_op::DrawOp;
 use crate::media::VideoFrameTiming;
 use crate::parse::transition::TransitionKind;
 use crate::script::TextUnitOverrideBatch;
@@ -12,7 +11,7 @@ pub struct ElementId(pub u64);
 
 #[derive(Clone, Debug, Default)]
 pub struct ElementDrawSlot {
-    pub commands: Vec<DrawOp>,
+    pub commands: Vec<crate::script::canvas_op::CanvasOp>,
 }
 
 #[derive(Clone, Debug)]
@@ -79,7 +78,7 @@ pub struct ElementLottie {
 
 #[derive(Clone, Debug)]
 pub struct ElementCanvas {
-    pub commands: Vec<DrawOp>,
+    pub commands: Vec<crate::script::canvas_op::CanvasOp>,
 }
 
 #[derive(Clone, Debug)]

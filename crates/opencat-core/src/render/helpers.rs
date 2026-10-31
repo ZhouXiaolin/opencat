@@ -19,6 +19,7 @@ use crate::ir::draw_types::{
     ScriptRuntimeEffectChild, SubtreeId,
 };
 use crate::media::VideoFrameRequest;
+use crate::script::canvas_op::CanvasOp;
 use crate::parse::gl_transition;
 use crate::parse::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
@@ -1770,7 +1771,7 @@ pub fn render_draw_script(
     let needs_alpha_layer = item
         .commands
         .iter()
-        .any(|cmd| matches!(cmd, DrawOp::Clear { .. }));
+        .any(|cmd| matches!(cmd, CanvasOp::Op(DrawOp::Clear { .. })));
 
     let clip_rect = rect4_xywh(
         item.bounds.x,
@@ -1800,14 +1801,14 @@ pub fn render_draw_script(
 
     for command in &item.commands {
         match command {
-            DrawOp::DrawSubtreePicture { .. } => {
-                execute_draw_subtree_picture(ctx, command, &item.hidden_subtree)?;
+            CanvasOp::Op(op @ DrawOp::DrawSubtreePicture { .. }) => {
+                execute_draw_subtree_picture(ctx, op, &item.hidden_subtree)?;
             }
-            DrawOp::ScriptRuntimeEffect { .. } => {
+            CanvasOp::RuntimeEffect { .. } => {
                 execute_script_runtime_effect(ctx, command, &item.hidden_subtree, &mut state)?;
             }
-            _ => {
-                execute_draw_op(&mut ctx.builder, command, &mut state)?;
+            other => {
+                lower_canvas_op(&mut ctx.builder, other, &mut state)?;
             }
         }
     }
@@ -1887,11 +1888,11 @@ fn record_hidden_subtree(
 /// subtree programs referenced by `RuntimeEffectChildRef::SubtreePicture`.
 fn execute_script_runtime_effect(
     ctx: &mut RenderCtx,
-    op: &DrawOp,
+    op: &CanvasOp,
     hidden_subtree: &[HiddenChildDisplayNode],
     _state: &mut LocalPaintState,
 ) -> Result<(), RenderError> {
-    let DrawOp::ScriptRuntimeEffect {
+    let CanvasOp::RuntimeEffect {
         sksl,
         uniforms_bytes,
         children,
@@ -2013,39 +2014,6 @@ pub(crate) fn execute_draw_op(
     state: &mut LocalPaintState,
 ) -> Result<(), RenderError> {
     match op {
-        // Script-side `ctx.drawImage`: intern the encoded bytes into the frame
-        // byte table and emit the canonical `ImageRect`.
-        DrawOp::ScriptImage { bytes, src, dst } => {
-            let data = b.intern_bytes(bytes);
-            b.push(DrawOp::ImageRect {
-                image: ImageRef::Encoded { data },
-                src: *src,
-                dst: *dst,
-                paint: None,
-            });
-        }
-        // Script-side `putImageData`: pixel-direct write — intern the Src
-        // blend paint (no alpha compositing) and emit the canonical
-        // `ImageRect`.
-        DrawOp::ScriptPutImage { image, dst } => {
-            let paint = b.intern_paint(crate::canvas::paint::PaintSpec {
-                fill: crate::canvas::paint::FillSpec::Solid([0.0, 0.0, 0.0, 0.0]),
-                style: crate::canvas::paint::PaintStyle::Fill,
-                stroke: None,
-                anti_alias: false,
-                blend_mode: crate::canvas::paint::BlendMode::Src,
-                image_filter: None,
-                color_filter: None,
-                mask_filter: None,
-                path_effect: None,
-            });
-            b.push(DrawOp::ImageRect {
-                image: image.clone(),
-                src: None,
-                dst: *dst,
-                paint: Some(paint),
-            });
-        }
         // ── Stack management ──────────────────────────────────────────
         DrawOp::Save => {
             b.push(DrawOp::Save);
@@ -2178,22 +2146,11 @@ pub(crate) fn execute_draw_op(
         }
         // Pre-intern form from the script recorder (`canvas_set_line_dash`):
         // intern the intervals and emit the canonical dash op.
-        DrawOp::ScriptSetLineDash { intervals, phase } => {
-            let range = b.intern_f32_range(intervals);
-            state.line_dash = None;
-            state.line_dash_phase = *phase;
-            b.push(DrawOp::SetLineDash {
-                intervals: range,
-                phase: *phase,
-            });
-        }
         DrawOp::ClearLineDash => {
             state.line_dash = None;
             state.line_dash_phase = 0.0;
             b.push(DrawOp::ClearLineDash);
         }
-        // Pre-intern form from the script recorder (`canvas_set_style_gradient`):
-        // intern the stop quintuples and emit the canonical gradient op.
         DrawOp::SetStyleLinearGradient { stroke, start, end, stops } => {
             b.push(DrawOp::SetStyleLinearGradient {
                 stroke: *stroke,
@@ -2202,41 +2159,13 @@ pub(crate) fn execute_draw_op(
                 stops: *stops,
             });
         }
-        DrawOp::ScriptSetStyleLinearGradient {
-            stroke,
-            start,
-            end,
-            stops,
-        } => {
-            let range = b.intern_f32_range(stops);
-            b.push(DrawOp::SetStyleLinearGradient {
-                stroke: *stroke,
-                start: *start,
-                end: *end,
-                stops: range,
-            });
-        }
-        // Same pre-intern pattern for the radial form (createRadialGradient).
+        // Same forwarding for the radial form (createRadialGradient).
         DrawOp::SetStyleRadialGradient { stroke, start, end, stops } => {
             b.push(DrawOp::SetStyleRadialGradient {
                 stroke: *stroke,
                 start: *start,
                 end: *end,
                 stops: *stops,
-            });
-        }
-        DrawOp::ScriptSetStyleRadialGradient {
-            stroke,
-            start,
-            end,
-            stops,
-        } => {
-            let range = b.intern_f32_range(stops);
-            b.push(DrawOp::SetStyleRadialGradient {
-                stroke: *stroke,
-                start: *start,
-                end: *end,
-                stops: range,
             });
         }
         DrawOp::SetGlobalAlpha { alpha } => {
@@ -2261,55 +2190,6 @@ pub(crate) fn execute_draw_op(
         }
         DrawOp::Path(path_op) => {
             b.push(DrawOp::Path(path_op.clone()));
-        }
-        // Canvas 2D shadow has no Skia op: it is sticky state that core
-        // expands around the next fills/strokes (see `push_shadowed`).
-        // Nothing is emitted here.
-        DrawOp::ScriptSetShadow {
-            color,
-            blur,
-            dx,
-            dy,
-        } => {
-            state.shadow = if color.a == 0 {
-                None
-            } else {
-                Some(CanvasShadow {
-                    color: *color,
-                    blur: *blur,
-                    dx: *dx,
-                    dy: *dy,
-                })
-            };
-        }
-        // 组级阴影（canvas pattern 填充）：开 Save + SaveLayer(DropShadow)，
-        // 组内 op 的 alpha 被滤镜折成阴影；调用方用等量 Restore 收尾。
-        DrawOp::ScriptBeginShadowLayer => {
-            let sh = state.shadow.unwrap_or(CanvasShadow {
-                color: ColorU8 {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                },
-                blur: 0.0,
-                dx: 0.0,
-                dy: 0.0,
-            });
-            let paint_id = shadow_layer_paint_id(b, sh);
-            b.push(DrawOp::Save);
-            if sh.dx != 0.0 || sh.dy != 0.0 {
-                b.push(DrawOp::Translate {
-                    x: sh.dx,
-                    y: sh.dy,
-                });
-            }
-            b.push(DrawOp::SaveLayer {
-                bounds: None,
-                paint: Some(paint_id),
-                alpha: 1.0,
-                backdrop: false,
-            });
         }
         DrawOp::FillPath => push_shadowed(b, state.shadow, DrawOp::FillPath),
         DrawOp::StrokePath => push_shadowed(b, state.shadow, DrawOp::StrokePath),
@@ -2536,12 +2416,146 @@ pub(crate) fn execute_draw_op(
                 y: *y,
             });
         }
-        DrawOp::ScriptRuntimeEffect { .. } => {
-            // Always routed through `execute_script_runtime_effect` from
-            // `render_draw_script` (it needs the canvas's `hidden_subtree` to
-            // resolve PictureSubtree children). Should never reach here.
+    }
+    Ok(())
+}
+
+// ── Canvas 2D 翻译层 ─────────────────────────────────────────────────
+//
+// canvas 2D 录制面命令（`CanvasOp`）→ canonical `DrawOp` 流。浏览器语义
+// （shadow 状态机、putImageData 直写、组级阴影层）与录制面无法 intern 的
+// 裸 payload（图像字节、f32 stops、dash 区间）在这里消化；`execute_draw_op`
+// 及下游（engine replay / 编码器）只见纯 Skia 语义。
+pub(crate) fn lower_canvas_op(
+    b: &mut DrawOpBuilder,
+    op: &CanvasOp,
+    state: &mut LocalPaintState,
+) -> Result<(), RenderError> {
+    match op {
+        CanvasOp::Op(canonical) => execute_draw_op(b, canonical, state)?,
+        // `ctx.drawImage`：编码字节 intern 进帧字节表，发标准 `ImageRect`。
+        CanvasOp::Image { bytes, src, dst } => {
+            let data = b.intern_bytes(bytes);
+            b.push(DrawOp::ImageRect {
+                image: ImageRef::Encoded { data },
+                src: *src,
+                dst: *dst,
+                paint: None,
+            });
+        }
+        // `putImageData`：像素直写——intern Src 混合漆（不做 alpha 合成）
+        // 后发标准 `ImageRect`。
+        CanvasOp::PutImage { image, dst } => {
+            let paint = b.intern_paint(crate::canvas::paint::PaintSpec {
+                fill: crate::canvas::paint::FillSpec::Solid([0.0, 0.0, 0.0, 0.0]),
+                style: crate::canvas::paint::PaintStyle::Fill,
+                stroke: None,
+                anti_alias: false,
+                blend_mode: crate::canvas::paint::BlendMode::Src,
+                image_filter: None,
+                color_filter: None,
+                mask_filter: None,
+                path_effect: None,
+            });
+            b.push(DrawOp::ImageRect {
+                image: image.clone(),
+                src: None,
+                dst: *dst,
+                paint: Some(paint),
+            });
+        }
+        // `setLineDash`：intern 区间后发标准 `SetLineDash`。
+        CanvasOp::SetLineDash { intervals, phase } => {
+            let range = b.intern_f32_range(intervals);
+            state.line_dash = None;
+            state.line_dash_phase = *phase;
+            b.push(DrawOp::SetLineDash {
+                intervals: range,
+                phase: *phase,
+            });
+        }
+        // 渐变裸 stops：intern f32 池后发标准渐变 op。
+        CanvasOp::SetStyleLinearGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            let range = b.intern_f32_range(stops);
+            b.push(DrawOp::SetStyleLinearGradient {
+                stroke: *stroke,
+                start: *start,
+                end: *end,
+                stops: range,
+            });
+        }
+        CanvasOp::SetStyleRadialGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
+            let range = b.intern_f32_range(stops);
+            b.push(DrawOp::SetStyleRadialGradient {
+                stroke: *stroke,
+                start: *start,
+                end: *end,
+                stops: range,
+            });
+        }
+        // canvas 阴影状态机：sticky 状态，无 Skia op——后续 fill/stroke 由
+        // `push_shadowed` 包进 SaveLayer(DropShadow)。
+        CanvasOp::SetShadow {
+            color,
+            blur,
+            dx,
+            dy,
+        } => {
+            state.shadow = if color.a == 0 {
+                None
+            } else {
+                Some(CanvasShadow {
+                    color: *color,
+                    blur: *blur,
+                    dx: *dx,
+                    dy: *dy,
+                })
+            };
+        }
+        // 组级阴影（canvas pattern 填充）：开 Save + SaveLayer(DropShadow)，
+        // 组内 op 的 alpha 被滤镜折成阴影；调用方用等量 Restore 收尾。
+        CanvasOp::BeginShadowLayer => {
+            let sh = state.shadow.unwrap_or(CanvasShadow {
+                color: ColorU8 {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                },
+                blur: 0.0,
+                dx: 0.0,
+                dy: 0.0,
+            });
+            let paint_id = shadow_layer_paint_id(b, sh);
+            b.push(DrawOp::Save);
+            if sh.dx != 0.0 || sh.dy != 0.0 {
+                b.push(DrawOp::Translate {
+                    x: sh.dx,
+                    y: sh.dy,
+                });
+            }
+            b.push(DrawOp::SaveLayer {
+                bounds: None,
+                paint: Some(paint_id),
+                alpha: 1.0,
+                backdrop: false,
+            });
+        }
+        // RuntimeEffect 永远走 `execute_script_runtime_effect`（render 循环
+        // 就地分发，PictureSubtree 子项需要 hidden_subtree）。
+        CanvasOp::RuntimeEffect { .. } => {
             return Err(RenderError::InvalidArgument(
-                "ScriptRuntimeEffect must be expanded by execute_script_runtime_effect".into(),
+                "RuntimeEffect must be expanded by execute_script_runtime_effect".into(),
             ));
         }
     }

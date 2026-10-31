@@ -563,9 +563,9 @@ impl MutationStore {
                 rgba: rgba.clone(),
                 gpu: None,
             });
-        self.record_draw_op(
+        self.record_canvas_op(
             node_id,
-            crate::ir::draw_op::DrawOp::ScriptPutImage {
+            crate::script::canvas_op::CanvasOp::PutImage {
                 image: crate::ir::draw_types::ImageRef::Generated { id },
                 dst: crate::ir::draw_op::Rect4 {
                     x,
@@ -1655,7 +1655,7 @@ impl MutationRecorder for MutationStore {
         self.entry(id).svg_path = Some(data);
     }
 
-    fn record_draw_op(&mut self, id: &str, cmd: crate::ir::draw_op::DrawOp) {
+    fn record_canvas_op(&mut self, id: &str, cmd: crate::script::canvas_op::CanvasOp) {
         self.canvas_entry(id).commands.push(cmd);
     }
 
@@ -1679,9 +1679,9 @@ impl MutationRecorder for MutationStore {
         children: Vec<crate::ir::draw_types::ScriptRuntimeEffectChild>,
         dst: crate::ir::draw_op::Rect4,
     ) {
-        self.record_draw_op(
+        self.record_canvas_op(
             id,
-            crate::ir::draw_op::DrawOp::ScriptRuntimeEffect {
+            crate::script::canvas_op::CanvasOp::RuntimeEffect {
                 sksl,
                 uniforms_bytes,
                 children,

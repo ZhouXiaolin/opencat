@@ -324,9 +324,23 @@ fn raster_canvas(
         throw(scope, "rasterCanvas: store lock poisoned");
         return;
     };
-    let Some(canvas) = store.canvas_commands(&id).cloned() else {
-        throw(scope, &format!("rasterCanvas: canvas `{id}` has no recorded ops"));
+    // 处女画布（从未落笔）：浏览器 getImageData 返回全透明——wordCloud 的
+    // 碰撞板在布局起步时就会先读后写。空画布直接返回零字节，不 raster
+    // 也不抛错（out 本就是零初始化的 Uint8Array）。
+    let empty_canvas = match store.canvas_commands(&id) {
+        None => true,
+        Some(canvas) => canvas.commands.is_empty(),
+    };
+    if empty_canvas {
+        let need = (w as f32 * h as f32) as usize * 4;
+        if out.byte_length() < need {
+            throw(scope, "rasterCanvas: destination Uint8Array smaller than canvas");
+            return;
+        }
         return;
+    }
+    let Some(canvas) = store.canvas_commands(&id).cloned() else {
+        unreachable!("canvas_commands vanished between empty check and clone");
     };
     let (width, height, rgba) =
         match crate::script::offscreen::rasterize_canvas_commands(&canvas, w as f32, h as f32, &mut store) {
@@ -387,9 +401,29 @@ fn raster_canvas_png(
         throw(scope, "rasterCanvasPNG: store lock poisoned");
         return;
     };
-    let Some(canvas) = store.canvas_commands(&id).cloned() else {
-        throw(scope, &format!("rasterCanvasPNG: canvas `{id}` has no recorded ops"));
+    // 处女画布：toDataURL 应得到全透明图，不抛错。
+    let empty_canvas = match store.canvas_commands(&id) {
+        None => true,
+        Some(canvas) => canvas.commands.is_empty(),
+    };
+    if empty_canvas {
+        let (iw, ih) = ((w as u32).max(1), (h as u32).max(1));
+        let png = crate::script::offscreen::encode_rgba_png(iw, ih, &vec![0u8; (iw * ih * 4) as usize])
+            .unwrap_or_else(|_| vec![0u8; 8]);
+        if out.byte_length() < png.len() {
+            throw(scope, "rasterCanvasPNG: destination Uint8Array smaller than PNG");
+            return;
+        }
+        let destination = out.data() as *mut u8;
+        // SAFETY: `out` is rooted by this call's arguments.
+        unsafe {
+            std::ptr::copy_nonoverlapping(png.as_ptr(), destination, png.len());
+        }
+        rv.set_int32(png.len() as i32);
         return;
+    }
+    let Some(canvas) = store.canvas_commands(&id).cloned() else {
+        unreachable!("canvas_commands vanished between empty check and clone");
     };
     let (width, height, png) = match crate::script::offscreen::rasterize_canvas_commands_png(
         &canvas, w as f32, h as f32, &mut store,

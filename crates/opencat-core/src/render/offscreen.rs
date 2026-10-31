@@ -30,40 +30,25 @@ pub fn compile_offscreen_commands(
     let mut state = LocalPaintState::default();
 
     // 内容区裁剪：与 render_draw_script 对 DOM canvas 的处理一致
-    // （无 Clear 时 Save+AddRect+ClipPath；脚本 getImageData 语义是
-    // "读回你画的东西"，画布边界外浏览器补透明）。
-    let needs_alpha_layer = canvas
-        .commands
-        .iter()
-        .any(|cmd| matches!(cmd, crate::script::canvas_op::CanvasOp::Op(crate::ir::draw_op::DrawOp::Clear { .. })));
-    if needs_alpha_layer {
-        builder.push(crate::ir::draw_op::DrawOp::SaveLayer {
-            bounds: Some(crate::ir::draw_op::Rect4 {
-                x: 0.0,
-                y: 0.0,
-                width,
-                height,
-            }),
-            paint: None,
-            alpha: 1.0,
-            backdrop: false,
-        });
-    } else {
-        builder.push(crate::ir::draw_op::DrawOp::Save);
-        builder.push(crate::ir::draw_op::DrawOp::BeginPath);
-        builder.push(crate::ir::draw_op::DrawOp::Path(
-            crate::ir::draw_types::PathOp::AddRect {
-                x: 0.0,
-                y: 0.0,
-                width,
-                height,
-            },
-        ));
-        builder.push(crate::ir::draw_op::DrawOp::ClipPath {
-            anti_alias: true,
-            fill_type: Default::default(),
-        });
-    }
+    // （Save+AddRect+ClipPath；脚本 getImageData 语义是"读回你画的
+    // 东西"，画布边界外浏览器补透明）。不用 SaveLayer 包裹：脚本流允许
+    // 未配对 save（浏览器 save 栈深度不可观察，d3-cloud 的条带循环
+    // break 就会泄漏一条），SaveLayer 依赖结尾配平 Restore 才合成，
+    // 泄漏会把层压在栈里永不合成 → 读回全透明。
+    builder.push(crate::ir::draw_op::DrawOp::Save);
+    builder.push(crate::ir::draw_op::DrawOp::BeginPath);
+    builder.push(crate::ir::draw_op::DrawOp::Path(
+        crate::ir::draw_types::PathOp::AddRect {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        },
+    ));
+    builder.push(crate::ir::draw_op::DrawOp::ClipPath {
+        anti_alias: true,
+        fill_type: Default::default(),
+    });
 
     for command in &canvas.commands {
         match command {
@@ -74,6 +59,8 @@ pub fn compile_offscreen_commands(
         }
     }
 
-    builder.push(crate::ir::draw_op::DrawOp::Restore);
+    // 收尾不用单条 Restore：脚本流的 save 深度不可信（见上），弹回基础
+    // 层（count=1）才保证不依赖流自身配平——浏览器读回与 save 栈深度无关。
+    builder.push(crate::ir::draw_op::DrawOp::RestoreToCount { count: 1 });
     Ok(builder.finish())
 }

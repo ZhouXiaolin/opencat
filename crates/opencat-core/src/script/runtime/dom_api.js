@@ -1290,12 +1290,39 @@
         globalThis.clearTimeout = function () {};
     }
     if (typeof globalThis.setInterval !== 'function') {
-        // One shot: recurring work would never converge in a single-frame
-        // render, and the offline final state only needs the first tick.
+        // 真循环语义：每次 flush pass 重新武装，直到 clearInterval。离线
+        // 渲染没有墙钟，delay 被忽略——但像 d3-cloud（wordCloud 布局，
+        // `setInterval(step, 0)` 驱动逐词摆放、放完 clearInterval 收尾）
+        // 这类自终止循环，逐 pass 推进到 stop 即为浏览器终态；之前的一次
+        // 性降级会让 step 只跑一步，_tags 恒为空。
+        var __ocIntervalSeq = 0;
+        var __ocIntervalCancel = new Map();
         globalThis.setInterval = function (fn) {
-            return globalThis.requestAnimationFrame(function () { fn(); });
+            var id = ++__ocIntervalSeq;
+            var cancelled = false;
+            __ocIntervalCancel.set(id, function () { cancelled = true; });
+            function tick() {
+                if (cancelled)
+                    return;
+                try {
+                    fn();
+                } catch (e) {
+                    // 浏览器把回调异常打到 console；引擎 console 静默，吞掉
+                    // 保持与在线行为一致（自终止循环靠 clearInterval 收尾）。
+                }
+                if (!cancelled)
+                    globalThis.requestAnimationFrame(tick);
+            }
+            globalThis.requestAnimationFrame(tick);
+            return id;
         };
-        globalThis.clearInterval = function () {};
+        globalThis.clearInterval = function (id) {
+            var cancel = __ocIntervalCancel.get(id);
+            if (cancel) {
+                cancel();
+                __ocIntervalCancel.delete(id);
+            }
+        };
     }
     if (typeof globalThis.requestAnimationFrame !== 'function') {
         globalThis.requestAnimationFrame = function () {

@@ -32,7 +32,13 @@
     // instanceOf），所以录制上下文必须落在同一条原型链上——否则包会把自己
     // 判成 WebGL1，走 GLSL1/扩展路径，整条管线错位。
     function WebGL2RenderingContext() {}
-    globalThis.WebGL2RenderingContext = WebGL2RenderingContext;
+    // Native web mode: the browser's real WebGL2 context must keep the real
+    // `WebGL2RenderingContext` constructor so `instanceof` checks in three
+    // succeed. The recorder face below still needs the shim prototype.
+    var NATIVE_WEBGL =
+        !!globalThis.__ocNativeWebGL &&
+        typeof globalThis.__ocRealOffscreenCanvas === 'function';
+    if (!NATIVE_WEBGL) globalThis.WebGL2RenderingContext = WebGL2RenderingContext;
 
     // ── command encoding ────────────────────────────────────────────
     // One scratch buffer per command; the binding copies it into the stream.
@@ -1663,6 +1669,10 @@
     // ── getContext integration ──────────────────────────────────────
 
     var contexts = {};
+    // Native web mode: one real OffscreenCanvas WebGL2 context per synthetic
+    // canvas. The browser executes the original three.js calls; at frame end
+    // we read the drawing buffer back into the generated-image channel.
+    var nativeContexts = {};
 
     function attrsFromOptions(options) {
         options = options || {};
@@ -1691,9 +1701,139 @@
         return bits;
     }
 
+    function resolveSurfaceSize(sizeW, sizeH, key) {
+        var width = Number(sizeW) > 0 ? Math.floor(Number(sizeW)) : 0;
+        var height = Number(sizeH) > 0 ? Math.floor(Number(sizeH)) : 0;
+        var sizeFace = (width && height) ? null : (ctx.__ocElementFace ? ctx.__ocElementFace(key) : null);
+        if (!width) width = sizeFace ? sizeFace.width | 0 : 0;
+        if (!height) height = sizeFace ? sizeFace.height | 0 : 0;
+        if (!width || !height) {
+            var box = (typeof __read_box === 'function' && __read_box(key)) || {};
+            if (!width) width = Math.round(Number(box.width) || 0);
+            if (!height) height = Math.round(Number(box.height) || 0);
+        }
+        return [Math.max(1, width), Math.max(1, height)];
+    }
+
+    // three uploads engine surfaces (CanvasTexture / createImageBitmap shim)
+    // straight through texImage2D. A real WebGL2 context only accepts a real
+    // TexImageSource, so flatten the surface bytes first — the recorder path
+    // performs the same conversion when it interns the upload.
+    function wrapSurfaceUploads(gl) {
+        if (gl.__ocSurfaceUploadsWrapped) return;
+        gl.__ocSurfaceUploadsWrapped = true;
+        var texImage2D = gl.texImage2D.bind(gl);
+        var texSubImage2D = gl.texSubImage2D.bind(gl);
+        Object.defineProperty(gl, 'texImage2D', {
+            configurable: true,
+            value: function () {
+                var a = arguments;
+                if (a.length === 6 && a[5] && a[5].__opencatSurface === true) {
+                    var img = a[5];
+                    var w = Math.max(1, img.width | 0);
+                    var h = Math.max(1, img.height | 0);
+                    var data = img.getImageData(0, 0, w, h).data;
+                    return texImage2D(a[0], a[1], a[2], w, h, 0, a[3], a[4], data);
+                }
+                return texImage2D.apply(gl, a);
+            },
+        });
+        Object.defineProperty(gl, 'texSubImage2D', {
+            configurable: true,
+            value: function () {
+                var a = arguments;
+                if (a.length === 7 && a[6] && a[6].__opencatSurface === true) {
+                    var img = a[6];
+                    var w = Math.max(1, img.width | 0);
+                    var h = Math.max(1, img.height | 0);
+                    var data = img.getImageData(0, 0, w, h).data;
+                    return texSubImage2D(a[0], a[1], a[2], a[3], w, h, a[4], a[5], data);
+                }
+                return texSubImage2D.apply(gl, a);
+            },
+        });
+    }
+
+    function getNativeWebGLContext(key, options, sizeW, sizeH, originX, originY) {
+        var existing = nativeContexts[key];
+        var wh = resolveSurfaceSize(sizeW, sizeH, key);
+        if (existing) {
+            existing.x = Number(originX) || 0;
+            existing.y = Number(originY) || 0;
+            return existing.gl;
+        }
+        var offscreen = new globalThis.__ocRealOffscreenCanvas(wh[0], wh[1]);
+        var gl = offscreen.getContext(
+            'webgl2',
+            Object.assign({}, options || {}, { preserveDrawingBuffer: true })
+        );
+        if (!gl) {
+            throw new Error("getContext('webgl2') returned null from the native OffscreenCanvas");
+        }
+        wrapSurfaceUploads(gl);
+        gl.__ocNativeOffscreen = offscreen;
+        gl.__ocNativeTarget = key;
+        nativeContexts[key] = {
+            gl: gl,
+            offscreen: offscreen,
+            x: Number(originX) || 0,
+            y: Number(originY) || 0,
+        };
+        return gl;
+    }
+
+    function readNativeCanvas(entry) {
+        var gl = entry.gl;
+        if (gl.isContextLost && gl.isContextLost()) return null;
+        var w = gl.drawingBufferWidth | 0;
+        var h = gl.drawingBufferHeight | 0;
+        if (!w || !h) return null;
+        var rgba = new Uint8Array(w * h * 4);
+        var prev = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+        gl.finish();
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prev);
+        // GL is bottom-up; the generated-image channel is top-down.
+        var row = w * 4;
+        var flipped = new Uint8Array(rgba.length);
+        for (var y = 0; y < h; y++) {
+            flipped.set(rgba.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+        }
+        return { width: w, height: h, rgba: flipped };
+    }
+
+    var nativeFrameSeq = 0;
+
+    // Called by the realm after rAF callbacks and microtasks, before frame IR
+    // export. No-op unless the host opted into native web GL.
+    globalThis.__ocNativeCanvasFrameEnd = function () {
+        if (!NATIVE_WEBGL) return;
+        if (typeof __opencatRecordNativeCanvas !== 'function') return;
+        // A real GL canvas can change every frame. Keep the generated-image id
+        // unique per frame: core rejects re-registering the same id with
+        // different RGBA.
+        var seq = ++nativeFrameSeq;
+        for (var key in nativeContexts) {
+            var entry = nativeContexts[key];
+            var shot = readNativeCanvas(entry);
+            if (!shot) continue;
+            var idkey = 'native:' + key + ':' + shot.width + 'x' + shot.height + ':' + seq;
+            __opencatRecordNativeCanvas(key, idkey, shot.rgba, entry.x, entry.y, shot.width, shot.height);
+        }
+    };
+
     function getWebGLContext(nodeId, type, options, sizeW, sizeH, originX, originY) {
         var key = String(nodeId);
         var want = type === 'webgl2' ? 'webgl2' : 'webgl';
+        if (NATIVE_WEBGL) {
+            if (want !== 'webgl2') {
+                throw new Error(
+                    "getContext('webgl') (WebGL1) is not supported — three r152+ and every OpenCat executor target WebGL2"
+                );
+            }
+            return getNativeWebGLContext(key, options, sizeW, sizeH, originX, originY);
+        }
         var existing = contexts[key];
         if (existing) {
             if (existing.__kind !== want) {
@@ -1719,18 +1859,12 @@
         // 0 尺寸目标）。
         // 调用方（dom_api 的 canvas 元素）带过来的是元素的 width/height
         // 内容属性——HTML 语义里 drawingBuffer 就是它，与布局盒无关。
-        var width = Number(sizeW) > 0 ? Math.floor(Number(sizeW)) : 0;
-        var height = Number(sizeH) > 0 ? Math.floor(Number(sizeH)) : 0;
-        var sizeFace = (width && height) ? null : (ctx.__ocElementFace ? ctx.__ocElementFace(key) : null);
-        if (!width) width = sizeFace ? sizeFace.width | 0 : 0;
-        if (!height) height = sizeFace ? sizeFace.height | 0 : 0;
-        if (!width || !height) {
-            var box = (typeof __read_box === 'function' && __read_box(key)) || {};
-            if (!width) width = Math.round(Number(box.width) || 0);
-            if (!height) height = Math.round(Number(box.height) || 0);
-        }
+        var wh = resolveSurfaceSize(sizeW, sizeH, key);
+        var sizeFace = (Number(sizeW) > 0 && Number(sizeH) > 0)
+            ? null
+            : (ctx.__ocElementFace ? ctx.__ocElementFace(key) : null);
 
-        var rec = makeRecordingContext(key, Math.max(1, width), Math.max(1, height), packAttrsBits(attrs), sizeFace, originX, originY);
+        var rec = makeRecordingContext(key, wh[0], wh[1], packAttrsBits(attrs), sizeFace, originX, originY);
         rec.__kind = want;
         contexts[key] = rec;
         return rec;

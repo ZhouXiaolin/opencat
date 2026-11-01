@@ -578,6 +578,12 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 self.ctx.run_microtasks();
                 self.ctx.eval("__ocFlushRaf();")?;
             }
+            // Native web GL: rAF callbacks have issued the real WebGL draw
+            // calls; read the canvas drawing buffers into the generated-image
+            // channel before the frame's media plan is built.
+            self.ctx.eval(
+                "if (globalThis.__ocNativeCanvasFrameEnd) globalThis.__ocNativeCanvasFrameEnd();",
+            )?;
         }
         // SVG-subtree capture: SVG-family chart renderers (g-svg) paint no
         // pixels — their output is an `<svg>` subtree under the container,

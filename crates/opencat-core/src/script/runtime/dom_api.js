@@ -533,8 +533,27 @@
             get: function () { return numberOr(parseInt(node.style.height, 10), (opts && opts.height) || 0); },
         });
         if (tag === 'CANVAS') {
-            node.width = (opts && opts.width) || 300;
-            node.height = (opts && opts.height) || 150;
+            // HTML canvas width/height are live drawing-buffer attributes.
+            // The web host may back this synthetic canvas with a real
+            // OffscreenCanvas; the setter must resize that buffer immediately
+            // (three calls setSize before the first render, and a later resize
+            // would clear the frame we just drew).
+            var canvasWidth = (opts && opts.width) || 300;
+            var canvasHeight = (opts && opts.height) || 150;
+            Object.defineProperty(node, 'width', {
+                get: function () { return canvasWidth; },
+                set: function (v) {
+                    canvasWidth = Number(v) || 0;
+                    if (node.__ocNativeCanvas) node.__ocNativeCanvas.width = canvasWidth;
+                },
+            });
+            Object.defineProperty(node, 'height', {
+                get: function () { return canvasHeight; },
+                set: function (v) {
+                    canvasHeight = Number(v) || 0;
+                    if (node.__ocNativeCanvas) node.__ocNativeCanvas.height = canvasHeight;
+                },
+            });
             node.getContext = function (kind, attrs) {
                 var t = String(kind);
                 // 离屏 canvas（`document.createElement('canvas')`，无 DOM
@@ -572,7 +591,13 @@
                         }
                         return c2d;
                     }
-                    return globalThis.ctx.getContext(node.id, t, attrs, node.width, node.height, origin.x, origin.y);
+                    var gl = globalThis.ctx.getContext(node.id, t, attrs, node.width, node.height, origin.x, origin.y);
+                    if (gl && gl.__ocNativeOffscreen) {
+                        node.__ocNativeCanvas = gl.__ocNativeOffscreen;
+                        gl.__ocNativeOffscreen.width = canvasWidth;
+                        gl.__ocNativeOffscreen.height = canvasHeight;
+                    }
+                    return gl;
                 }
                 if (t === '2d') return shadowContext2d(node);
                 throw new Error("canvas.getContext: only '2d'/'webgl2' is supported on a shadow canvas, got '" + kind + "'");

@@ -22,6 +22,9 @@ pub enum CanvasOp {
         bytes: Vec<u8>,
         src: Option<Rect4>,
         dst: Rect4,
+        /// 浏览器 `globalAlpha` 在 drawImage 时刻的快照（ heatmap 逐点
+        /// 图章这类调用依赖它做 alpha 合成）。
+        alpha: f32,
     },
 
     /// `putImageData`：像素直写。翻译层 intern `PaintSpec{blend_mode: Src}`
@@ -86,11 +89,12 @@ impl std::hash::Hash for CanvasOp {
                 0_u8.hash(state);
                 op.hash(state);
             }
-            CanvasOp::Image { bytes, src, dst } => {
+            CanvasOp::Image { bytes, src, dst, alpha } => {
                 1_u8.hash(state);
                 bytes.hash(state);
                 src.hash(state);
                 dst.hash(state);
+                alpha.to_bits().hash(state);
             }
             CanvasOp::PutImage { image, dst } => {
                 2_u8.hash(state);

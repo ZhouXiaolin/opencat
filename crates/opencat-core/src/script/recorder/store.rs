@@ -754,6 +754,17 @@ impl MutationStore {
         self.styles.entry(id.to_string()).or_default()
     }
 
+    /// 浏览器 width/height 赋值语义：画布重置——内容清空、后续绘制从
+    /// 空白开始（HTML spec: setting width/height resets the canvas）。
+    /// G2 的 OffscreenCanvasCreator 复用同一块离屏画布画多个 pattern 瓦片，
+    /// 每次画前重设 width；不清流会让下一个 pattern 光栅化出上一个的
+    /// 内容叠加。同时调用方需失效 JS 侧 raster 缓存。
+    pub fn reset_offscreen_canvas(&mut self, id: &str) {
+        if id.starts_with("__oc_offscreen_") {
+            self.offscreen_canvases.remove(id);
+        }
+    }
+
     fn canvas_entry(&mut self, id: &str) -> &mut CanvasMutations {
         // 离屏 canvas（`document.createElement('canvas')`，id 前缀
         // `__oc_offscreen_`）持久保存：pattern 源 canvas 建一次、跨帧消费

@@ -596,6 +596,10 @@
         canvas.__ocOffscreenCanvas = true;
         canvas.__ocOffscreenId = '__oc_offscreen_' + offscreenCanvasSeq;
         offscreenById[canvas.__ocOffscreenId] = canvas;
+        // toDataURL/getImageData/putImageData 在标记时挂（shadowElement
+        // 创建时标记位还没打，那里挂不上——heatmap 的 ctx.canvas.toDataURL
+        // 是第一个消费者）。
+        attachOffscreenConsumers(canvas);
         // HTMLCanvasElement.width/height 是 unsigned long 属性：赋值先转整数
         // （4.2426→4、7.071→7），不是浮点。canvas pattern 的 demo 直接写
         // 浮点尺寸，若按浮点光栅化，ceil 出的多出边条透明——平铺后每格都有
@@ -606,15 +610,27 @@
             var n = Number(value);
             return isFinite(n) && n > 0 ? Math.floor(n) : 0;
         };
+        // 浏览器语义：width/height 赋值（含同值重赋）= 画布重置——内容
+        // 清空、尺寸变更。离屏画布的命令流是持久的，必须同步丢弃，否则
+        // 复用画布的下一个消费者（G2 OffscreenCanvasCreator 单例画多个
+        // pattern 瓦片）会把上一个内容叠加/串用。
+        var resetBacking = function () {
+            if (typeof __opencatOffscreenReset === 'function') {
+                __opencatOffscreenReset(canvas.__ocOffscreenId);
+            }
+            if (typeof globalThis.__ocInvalidateOffscreenRaster === 'function') {
+                globalThis.__ocInvalidateOffscreenRaster(canvas.__ocOffscreenId);
+            }
+        };
         Object.defineProperty(canvas, 'width', {
             configurable: true,
             get: function () { return backingW; },
-            set: function (value) { backingW = toBacking(value); },
+            set: function (value) { backingW = toBacking(value); resetBacking(); },
         });
         Object.defineProperty(canvas, 'height', {
             configurable: true,
             get: function () { return backingH; },
-            set: function (value) { backingH = toBacking(value); },
+            set: function (value) { backingH = toBacking(value); resetBacking(); },
         });
         return canvas;
     }

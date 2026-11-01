@@ -142,6 +142,12 @@
     // 最后回读为 data」——像素化属于 op，不引入新 IR 指令。结果按 id 缓存
     // （pattern 源 canvas 建一次、每帧 fillPattern 重铺，不能每次光栅化）。
     var offscreenRasterCache = Object.create(null);
+    // 画布被 width/height 赋值重置时由 dom_api 调用（浏览器语义：赋值即
+    // 重置，旧像素作废）——不失效会让复用画布的下一个消费者拿到上一个
+    // 内容的光栅化（G2 pattern 三瓦片全串成一个的根因）。
+    globalThis.__ocInvalidateOffscreenRaster = function (id) {
+        delete offscreenRasterCache[id];
+    };
     function rasterizeOffscreenCanvas(canvas) {
         var cached = offscreenRasterCache[canvas.__ocOffscreenId];
         if (cached) return cached;
@@ -165,6 +171,8 @@
     function makeContext2d(id) {
         var state = freshState();
         var dash = [];
+        // putImageData 的帧唯一键序号（同 id 多次直写像素，见 putImageData）。
+        var putImageSeq = 0;
         // 基 origin：canvas 元素在宿主容器里的块级流位置（如 rect-ring
         // 的图表画布被前序 <button> 推到 (0,21)）。浏览器里画布表面合成
         // 在元素盒上，表面自身的 (0,0) 就是这里——每帧在矩阵重置后重录
@@ -292,8 +300,14 @@
                 for (var j = Math.floor(v0 / h); j <= Math.floor(v1 / h); j++) {
                     // 参数顺序与 canvas.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
                     // 不同：绑定层收 (dst, src)，即 [dx, dy, dw, dh, sx, sy, sw, sh]。
+                    // alpha 传 1：透明度已由上方 __canvas_set_global_alpha 进执行端
+                    // current_alpha，drawImage 的 alpha 快照会再发一道 SrcOver α
+                    // 漆——两道相乘 = ga²，高频 pattern 纹理对比度塌掉（custom-
+                    // pattern 两案 0.027→0.100/0.204 的实证）。主画布的 ga 靠
+                    // current_alpha 乘一次即可；离屏画布（heatmap 逐点图章）的
+                    // globalAlpha 不进 current_alpha，仍靠 op 自带 alpha 漆。
                     __canvas_draw_image_bytes(
-                        id, paint.bytes, [i * w, j * h, w, h, 0, 0, w, h], alpha, true
+                        id, paint.bytes, [i * w, j * h, w, h, 0, 0, w, h], 1, true
                     );
                 }
             }
@@ -889,6 +903,24 @@
                 }
                 return { width: w, height: h, data: out };
             },
+            // putImageData（浏览器语义：方法在 context 上，G2 heatmap 的
+            // `ctx.putImageData(img, 0, 0)` 走这里；dom_api 元素级
+            // node.putImageData 是同一 native 的旧挂法）。直写像素以
+            // CanvasOp::PutImage 进离屏 op 流；key 帧（调用序）唯一——
+            // 同 id 异像素共用键会被 native 判 hard error。
+            putImageData(img, dx, dy) {
+                if (!id.indexOf || id.indexOf('__oc_offscreen_') !== 0) {
+                    throw new Error('putImageData: only offscreen canvases support pixel writes');
+                }
+                if (typeof __opencatPutImageData !== 'function') {
+                    throw new Error('putImageData: engine native __opencatPutImageData unavailable');
+                }
+                var u8 = img.data instanceof Uint8Array
+                    ? img.data
+                    : new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                putImageSeq += 1;
+                __opencatPutImageData(id, id + ':' + putImageSeq, u8, dx | 0, dy | 0, img.width, img.height);
+            },
         };
     }
 
@@ -1014,6 +1046,16 @@
     // descriptor-wrapped face as `ctx.getContext`. Cached by id so repeated
     // getContext calls return the same object (Web identity semantics).
     globalThis.__ocMakeOffscreenContext2d = function (id) {
-        return ctx.getContext(id, '2d');
+        var face = ctx.getContext(id, '2d');
+        // 浏览器 2D 上下文都有 `.canvas` 反指（G2 heatmap 渲染器拿
+        // ctx.canvas.toDataURL() 消费离屏产物）。face 由 makeContext2d
+        // 缓存共享，defineProperty 一次即可。
+        if (face && face.canvas === undefined) {
+            Object.defineProperty(face, 'canvas', {
+                get: function () { return globalThis.__ocOffscreenById(id); },
+                configurable: true,
+            });
+        }
+        return face;
     };
 })();

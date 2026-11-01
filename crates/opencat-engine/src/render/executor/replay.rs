@@ -174,11 +174,10 @@ fn fill_pattern_skia(
     shader_lm.pre_scale((1.0 / sx, 1.0 / sy), None);
     let Some(shader) = tile_image.to_shader(
         (TileMode::Repeat, TileMode::Repeat),
-        SamplingOptions {
-            use_cubic: true,
-            cubic: CubicResampler::catmull_rom(),
-            ..SamplingOptions::default()
-        },
+        // 浏览器 pattern repeat 的采样是双线性：cubic 核会把高频瓦片纹理
+        // （custom-pattern 两案的斜线/点阵）抹成均匀色——A/B 实证案 p8
+        // 0.027→0.100/0.204，Linear 双侧一致。
+        SamplingOptions::new(FilterMode::Linear, MipmapMode::None),
         Some(&shader_lm),
     ) else {
         return Ok(false);
@@ -1310,6 +1309,12 @@ fn replay_op(
                             } else if device_scale(canvas, src_size, src_rect.as_ref(), &dst_rect)
                                 <= 1.0 + 1e-3
                             {
+                                // 1:1 亚像素平移与缩小都走 Linear（画布 pattern
+                                // 瓦片就是这种贴图，cubic 核会把暗端抬高 15+）；
+                                // 缩小换 Mitchell 会把高频 pattern 纹理抹糊——
+                                // 浏览器（Edge）downscale 出的点阵纹理清晰与
+                                // Linear 一致而与 Mitchell 相悖（custom-pattern
+                                // 两案 A/B 实证：Mitchell 案 p8 0.027→0.100）。
                                 SamplingOptions::new(FilterMode::Linear, MipmapMode::None)
                             } else {
                                 SamplingOptions {

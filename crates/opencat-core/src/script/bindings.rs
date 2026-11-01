@@ -714,7 +714,7 @@ macro_rules! for_each_binding {
         // 编码图像，走 `CanvasOp::Image` 中间态，由翻译层内联进
         // 帧字节表（与 `RuntimeEffect` 同一分层：记录器没有 bytes 表）。
         $binding! { node $rec $id canvas_draw_image_bytes ($id: &str, bytes: Vec<u8>, values: Vec<f32>, alpha: f32, anti_alias: bool) {
-            let _ = (alpha, anti_alias);
+            let _ = anti_alias;
             if values.len() < 4 {
                 return Err($crate::script::helpers::script_error(
                     "drawImage",
@@ -730,6 +730,7 @@ macro_rules! for_each_binding {
                 bytes,
                 src,
                 dst,
+                alpha,
             });
             Ok::<_, anyhow::Error>(())
         }}

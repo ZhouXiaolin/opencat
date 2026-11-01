@@ -415,7 +415,8 @@
             // which has no document to attach to here.
             get offsetParent() {
                 var parent = this.parentNode;
-                return parent || (globalThis.document && globalThis.document.body) || null;
+                var d = globalThis.__ocDocument || globalThis.document;
+                return parent || (d && d.body) || null;
             },
 
             get classList() {

@@ -12,8 +12,12 @@
 (function () {
     'use strict';
 
-    if (typeof globalThis.window === 'undefined' || !globalThis.window) {
-        globalThis.window = {
+    // The author-facing `window` is always a shim, even on a real browser:
+    // composition code must see the declarative node tree, not the host page
+    // (the host page's own DOM is not the composition). The runtime binds this
+    // object into every module scope, so `window`/`document` resolve to the
+    // composition faces on both the native and the web host.
+    var shimWindow = {
             get innerWidth() {
                 var g = globalThis.ctx && globalThis.ctx.global;
                 return g && Number.isFinite(Number(g.width)) ? Number(g.width) : 0;
@@ -36,12 +40,14 @@
             },
             querySelectorAll: function (sel) { return svgQueryAll(node, sel); },
             matches: function (sel) { return svgMatches(node, sel); },
-        };
-        globalThis.addEventListener = globalThis.window.addEventListener;
-        globalThis.removeEventListener = globalThis.window.removeEventListener;
-        globalThis.dispatchEvent = globalThis.window.dispatchEvent;
-        // Bundles commonly alias these at eval time.
-        globalThis.window.self = globalThis.window;
+    };
+    // Bundles commonly alias these at eval time.
+    shimWindow.self = shimWindow;
+    if (typeof globalThis.window === 'undefined' || !globalThis.window) {
+        globalThis.window = shimWindow;
+        globalThis.addEventListener = shimWindow.addEventListener;
+        globalThis.removeEventListener = shimWindow.removeEventListener;
+        globalThis.dispatchEvent = shimWindow.dispatchEvent;
     }
 
     function unknownId(api, id) {
@@ -855,7 +861,7 @@
             },
         });
         Object.defineProperty(node, 'ownerDocument', {
-            get: function () { return globalThis.document; },
+            get: function () { return globalThis.__ocDocument || globalThis.document; },
         });
         Object.defineProperty(node, 'id', {
             get: function () { return node.attributes.id || ''; },
@@ -1242,6 +1248,10 @@
     // 唯一的 document 安装点。图表库的 DOM 需求由影子面（上方宿主容器 /
     // canvas 分流）承接，不再有私有 document shim 抢先安装——那会把全
     // realm 的 document 换成元素桩（旧 g2 shim 的违宪形态，已退役）。
+    // Web 宿主里 `document` 已存在（宿主页面自己的 DOM），不能替换；作者
+    // 代码通过 `__ocDocument` 拿到合成面，见 jsx_runtime.js 的模块绑定。
+    globalThis.__ocDocument = document;
+    globalThis.__ocWindow = shimWindow;
     if (typeof globalThis.document === 'undefined' || !globalThis.document) {
         globalThis.document = document;
     }
@@ -1249,7 +1259,7 @@
     // `window.getComputedStyle` is what the plugins actually call — they grab
     // it off `window`, not `document`. Assigned unconditionally: the G2 shim
     // installed its own earlier, and that one only knows canvas element bags.
-    globalThis.window.getComputedStyle = getComputedStyle;
+    shimWindow.getComputedStyle = getComputedStyle;
     globalThis.getComputedStyle = getComputedStyle;
     // `window.document` gates CSSPlugin's `_initCore` (`if (_windowExists() &&
     // window.document)`); without it the plugin never builds its scratch
@@ -1258,13 +1268,10 @@
     // through to `createElement` — which is what the scratch element is for.
     // A browser window exposes `document`/`navigator` as getter-only
     // accessors, so the assignment throws there. It is also unnecessary: on
-    // that host `globalThis.window.document` IS `globalThis.document`, the
-    // object merged above.
-    try {
-        globalThis.window.document = document;
-        globalThis.window.navigator = globalThis.window.navigator || { userAgent: 'opencat' };
-    } catch (e) {
-        // Read-only accessors on a real window: already what we need.
+    shimWindow.document = document;
+    shimWindow.navigator = shimWindow.navigator || { userAgent: 'opencat' };
+    if (globalThis.window === shimWindow) {
+        globalThis.window = shimWindow;
     }
 
     // SplitText's `autoSplit` observes its elements so a resize re-splits. A

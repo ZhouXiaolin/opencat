@@ -18,7 +18,7 @@ use opencat_core::script::recorder::MutationStore;
 pub struct WebJsContext {
     store: Rc<RefCell<MutationStore>>,
     _dispatcher_handle: RefCell<Option<Closure<dyn FnMut(JsValue, JsValue) -> JsValue>>>,
-    _natives_handles: RefCell<Vec<Closure<dyn FnMut(JsValue) -> JsValue>>>,
+    _natives_handles: RefCell<Vec<JsValue>>,
 }
 
 impl JsContext for WebJsContext {
@@ -93,27 +93,60 @@ impl JsContext for WebJsContext {
         let mut natives = self._natives_handles.borrow_mut();
 
         let put_store = self.store.clone();
-        let put = Closure::wrap(Box::new(move |args: JsValue| -> JsValue {
-            put_image_data(&put_store, &args);
-            JsValue::UNDEFINED
-        }) as Box<dyn FnMut(JsValue) -> JsValue>);
+        // The runtime calls these positionally
+        // (`__opencatPutImageData(nodeId, key, pixels, x, y, w, h)`), matching
+        // the native V8 fast path; pack them back into one array so the
+        // existing index-based readers stay shared with the JSON side.
+        let put = Closure::wrap(Box::new(
+            move |a: JsValue,
+                  b: JsValue,
+                  c: JsValue,
+                  d: JsValue,
+                  e: JsValue,
+                  f: JsValue,
+                  g: JsValue|
+                  -> JsValue {
+                let args = js_sys::Array::new();
+                for v in [a, b, c, d, e, f, g] {
+                    args.push(&v);
+                }
+                put_image_data(&put_store, &args);
+                JsValue::UNDEFINED
+            },
+        )
+            as Box<
+                dyn FnMut(JsValue, JsValue, JsValue, JsValue, JsValue, JsValue, JsValue) -> JsValue,
+            >);
         let _ = js_sys::Reflect::set(
             &global,
             &JsValue::from_str("__opencatPutImageData"),
             put.as_ref().unchecked_ref(),
         );
-        natives.push(put);
+        natives.push(put.into_js_value());
 
-        let read = Closure::wrap(Box::new(|args: JsValue| -> JsValue {
-            surface_read_into(&args);
-            JsValue::UNDEFINED
-        }) as Box<dyn FnMut(JsValue) -> JsValue>);
+        let read = Closure::wrap(Box::new(
+            |a: JsValue,
+             b: JsValue,
+             c: JsValue,
+             d: JsValue,
+             e: JsValue,
+             f: JsValue|
+             -> JsValue {
+                let args = js_sys::Array::new();
+                for v in [a, b, c, d, e, f] {
+                    args.push(&v);
+                }
+                surface_read_into(&args);
+                JsValue::UNDEFINED
+            },
+        )
+            as Box<dyn FnMut(JsValue, JsValue, JsValue, JsValue, JsValue, JsValue) -> JsValue>);
         let _ = js_sys::Reflect::set(
             &global,
             &JsValue::from_str("__opencatSurfaceReadInto"),
             read.as_ref().unchecked_ref(),
         );
-        natives.push(read);
+        natives.push(read.into_js_value());
 
         Ok(())
     }
@@ -167,7 +200,9 @@ fn put_image_data(store: &Rc<RefCell<MutationStore>>, args: &JsValue) {
         num_arg(args, 6),
     );
     let id = opencat_core::ir::GeneratedImageId::from_key(&key);
-    store.borrow_mut().record_frame_generated_image(
+    // Same semantics as the native fast path: putImageData is a direct pixel
+    // write (Src ImageRect), not a generated image registration.
+    store.borrow_mut().record_frame_put_image(
         &node_id,
         id,
         x as f32,

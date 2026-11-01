@@ -55,6 +55,10 @@ pub enum DomElement {
         class: Option<String>,
         style: Option<String>,
         text: String,
+        /// 映射前的 HTML 语义标签（h1-h6→p、b/strong/i/em→span）：进 CSS
+        /// 层叠的 tag 选择器输入，UA 兜底表按它命中字形默认。
+        #[serde(rename = "uaTag", default)]
+        ua_tag: Option<String>,
         duration: Option<f64>,
     },
     #[serde(rename = "span")]
@@ -64,6 +68,9 @@ pub enum DomElement {
         class: Option<String>,
         style: Option<String>,
         text: String,
+        /// 同 `P::ua_tag`（b/strong/i/em 的真标签名）。
+        #[serde(rename = "uaTag", default)]
+        ua_tag: Option<String>,
         duration: Option<f64>,
     },
     #[serde(rename = "canvas")]
@@ -496,16 +503,22 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
         }
         // HTML 语义的文本标签：p=块级段落、span=行内片段（批次②起 p/span
         // 共用同一文本节点机制，p 的 UA margin 取 0 保版式零漂移；真标签
-        // 名进 CSS 层叠的 tag 选择器输入）。
+        // 名进 CSS 层叠的 tag 选择器输入——UA 兜底表按它命中字形默认）。
         DomElement::P {
             id,
             class,
             style: inline_style,
             text: content,
+            ua_tag,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "p", class.as_deref(), inline_style.as_deref(), ctx);
+            let mut style = resolve_style_for(
+                &id,
+                ua_tag.as_deref().unwrap_or("p"),
+                class.as_deref(),
+                inline_style.as_deref(),
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = text(content);
             text_node.style = style;
@@ -516,10 +529,16 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             class,
             style: inline_style,
             text: content,
+            ua_tag,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "span", class.as_deref(), inline_style.as_deref(), ctx);
+            let mut style = resolve_style_for(
+                &id,
+                ua_tag.as_deref().unwrap_or("span"),
+                class.as_deref(),
+                inline_style.as_deref(),
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = span(content);
             text_node.style = style;

@@ -1002,6 +1002,16 @@
         path: true, lottie: true, svg: true,
     };
 
+    // HTML 语义标签映射（HTML 最小子集第一层）：标题→p、语义内联→span。
+    // 真标签名经 `uaTag` 传给 Rust，进 CSS 层叠的 tag 选择器输入——UA 兜底
+    // 表按它命中字形默认（h2 字号、strong 字重、em 斜体），作者 class 照常
+    // 覆盖。行内混排（`<p>a<b>b</b>c</p>` 的 b 内联段）不在此层：非字符串
+    // 子级仍按 p/span 现有语义忽略，等批次③ Paragraph 行内 runs 算子。
+    var HTML_TAG_ALIASES = {
+        h1: 'p', h2: 'p', h3: 'p', h4: 'p', h5: 'p', h6: 'p',
+        b: 'span', strong: 'span', i: 'span', em: 'span',
+    };
+
     // 容器标签：孩子的发射结果挂进 node.children；其余标签的孩子仅走一遍
     // （组件函数里的 use* 要登记驱动），节点丢弃 —— 与 Rust 装配一致：只有
     // div/canvas/video/tl 消费子树。
@@ -1036,7 +1046,15 @@
         var id = String(props.id);
         // HTML spelling `<img>` reaches the same element as `<image>`.
         var tag = el.tag === 'img' ? 'image' : el.tag;
+        // HTML 语义标签映射到承载元素；白名单不放行原标签，漏映射的路径
+        // （直接进 default 分支）依旧报错。
+        var uaTag = null;
+        if (SUPPORTED_TAGS[tag] !== true && HTML_TAG_ALIASES[tag]) {
+            uaTag = tag;
+            tag = HTML_TAG_ALIASES[tag];
+        }
         var node = { type: tag, id: id };
+        if (uaTag) node.uaTag = uaTag;
         // `audioId` attaches a pooled `export const audio` source to wherever it
         // is written: a `<tl>` plays it across the whole timeline, a scene plays
         // it inside that scene. Recorded here, resolved on the Rust side.

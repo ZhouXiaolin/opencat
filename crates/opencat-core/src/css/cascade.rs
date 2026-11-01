@@ -68,6 +68,12 @@ pub fn match_rules(
             b.order,
         ))
     });
+    sort_and_dedup(out)
+}
+
+/// 已按层叠键升序的声明做属性级去重；多张样式表（作者 + UA 兜底）合并后
+/// 复用同一段排序管道。
+pub fn sort_and_dedup(out: Vec<AppliedDeclaration>) -> Vec<AppliedDeclaration> {
     // 层叠去重：每个属性只保留排序后的胜者（后者胜）。width 这类单值
     // 字段重复写天然覆盖，但 box-shadow 这类列表字段是 push 语义，重复
     // 声明会把阴影叠加绘制。--tw-* 变量键不同、互不去重，仍按声明序进

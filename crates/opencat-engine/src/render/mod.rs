@@ -188,6 +188,8 @@ pub struct GpuRenderSession {
     gl_session: crate::gpu::session::GlSession,
     /// GPU 命令流执行器（内容缓存跨帧复用）。
     gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor,
+    /// WebGPU 流执行器（wgpu 一对一映射；独立设备，与 GL 上下文零共享）。
+    wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor,
     /// 共享纹理登记处（GPU 流输出纹理的取用与归还）。
     textures: std::sync::Arc<crate::gpu::TextureRegistry>,
 }
@@ -233,6 +235,7 @@ impl GpuRenderSession {
             composite_tex,
             gl_session,
             gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor::new(),
+            wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor::new(),
             textures: std::sync::Arc::new(crate::gpu::TextureRegistry::new()),
         })
     }
@@ -311,19 +314,58 @@ impl GpuRenderSession {
         if std::env::var_os("OC_DISABLE_GPU_STREAM").is_none()
             && let Some(gpu) = &render.gpu
         {
-            // 脚本线程上的 GLSL 反射器（install_glsl_reflector）会在链路
-            // 查询时把它自己的离屏会话 make_current——执行前必须把本会话
-            // 抢回来，否则执行器拿本会话的持久句柄打到别人的上下文上
-            //（INVALID_VALUE/OUT_OF_MEMORY，NVIDIA 下直接段错误）。
-            self.gl_session.make_current()?;
-            gpu_stream_ran = !gpu.streams.is_empty();
-            stream_outputs = self.gpu_executor.execute(
-                &self.gl_session.gl(),
-                gpu,
-                &mut media_plan,
-                &self.textures,
-                true,
-            )?;
+            // backend 分流：WebGPU 流进 wgpu 执行器（独立设备，与 GL 零共享
+            // 状态）；WebGL2 流走 glow 执行器。语料一帧只有一种 backend
+            //（一个 canvas 一个 renderer），混合帧为防御性支持。
+            let has_webgpu = gpu
+                .streams
+                .iter()
+                .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU);
+            let has_gl = gpu
+                .streams
+                .iter()
+                .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2);
+            if has_webgpu {
+                let webgpu_streams: Vec<&opencat_core::ir::gpu_stream::GpuStream> = gpu
+                    .streams
+                    .iter()
+                    .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
+                    .collect();
+                self.wgpu_executor.execute(&webgpu_streams, &mut media_plan)?;
+            }
+            if has_gl {
+                // 脚本线程上的 GLSL 反射器（install_glsl_reflector）会在链路
+                // 查询时把它自己的离屏会话 make_current——执行前必须把本会话
+                // 抢回来，否则执行器拿本会话的持久句柄打到别人的上下文上
+                //（INVALID_VALUE/OUT_OF_MEMORY，NVIDIA 下直接段错误）。
+                self.gl_session.make_current()?;
+                gpu_stream_ran = true;
+                if has_webgpu {
+                    let gl_section = opencat_core::ir::gpu_stream::GpuSection {
+                        streams: gpu
+                            .streams
+                            .iter()
+                            .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2)
+                            .cloned()
+                            .collect(),
+                    };
+                    stream_outputs = self.gpu_executor.execute(
+                        &self.gl_session.gl(),
+                        &gl_section,
+                        &mut media_plan,
+                        &self.textures,
+                        true,
+                    )?;
+                } else {
+                    stream_outputs = self.gpu_executor.execute(
+                        &self.gl_session.gl(),
+                        gpu,
+                        &mut media_plan,
+                        &self.textures,
+                        true,
+                    )?;
+                }
+            }
         }
 
         // 收集本帧引用的 GPU 纹理凭据：合成后统一归还。

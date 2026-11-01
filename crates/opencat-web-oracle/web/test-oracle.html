@@ -77,6 +77,16 @@
         const envelope = JSON.parse(source);
         const meta = (envelope.extract && envelope.extract.meta) || {};
         compositionBaseDir = String(envelope.baseDir || '').replace(/\/+$/, '');
+        // Standard HTML URL resolution for code that fetches relative paths
+        // (three's GLTFLoader, <img src>, fetch('assets/...')): resolve them
+        // against the composition, not the oracle page. Absolute `/assets/...`
+        // requests from the wasm asset reader are unaffected.
+        let base = document.querySelector('base');
+        if (!base) {
+          base = document.createElement('base');
+          document.head.prepend(base);
+        }
+        base.href = compositionBaseDir ? `/assets/${compositionBaseDir}/` : '/';
         return {
           width: meta.width,
           height: meta.height,

@@ -1,0 +1,142 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; background: #fff; }
+  #fx { position: absolute; left: 0; top: 0; width: 960px; height: 540px; }
+</style>
+<script>
+  // shaders 变体的取像素护栏。WebGPU 画布内容对 drawImage/captureScreenshot
+  // 不可达（headless 下合成面不回读），走与引擎执行器同构的
+  // copyTextureToBuffer 读回。与 g2 ref.html 的差别：shaders 的 final pass
+  // 直接画画布纹理（无 offscreen→canvas 的 t2t copy），所以直接读
+  // getCurrentTexture 的纹理即可；且对拍是逐帧序列（frame-locked），不做
+  // g2 的「首帧定格冻结」——每帧 submit 后读回，按帧序 push __ocFrames。
+  //
+  // 口径：canvas 输出是 premultiplied；读回的 RGBA 压到白纸 canvas 再
+  // toDataURL（浏览器按页面实际观感合成），与 engine 侧 Skia 画占位图到
+  // 白底的语义对齐（α<255 的案才敏感，pilot 静态案 A=255 无差）。
+  (function () {
+    var wg = { device: null, tex: null, busy: false, dirty: false };
+    function readback() {
+      var srcTex = wg.tex;
+      if (!wg.device || !srcTex || wg.busy) return;
+      wg.busy = true;
+      try {
+        var w = srcTex.width, h = srcTex.height;
+        var bpr = w * 4;
+        var bprAligned = Math.ceil(bpr / 256) * 256;
+        var buf = wg.device.createBuffer({ size: bprAligned * h, usage: 0x1 | 0x8 }); // MAP_READ|COPY_DST
+        var enc = wg.device.createCommandEncoder();
+        enc.copyTextureToBuffer(
+          { texture: srcTex },
+          { buffer: buf, bytesPerRow: bprAligned, rowsPerImage: h },
+          { width: w, height: h, depthOrArrayLayers: 1 }
+        );
+        // 读回用 hook 前保存的原生 submit 直调（对象不可扩展，标记法不可靠）。
+        wg.rawSubmit.call(wg.device.queue, [enc.finish()]);
+        buf.mapAsync(0x1).then(function () {
+          var src = new Uint8Array(buf.getMappedRange());
+          var rgba = new Uint8Array(bpr * h);
+          for (var row = 0; row < h; row++) {
+            var line = row * bprAligned;
+            var dst = row * bpr;
+            for (var px = 0; px < w * 4; px += 4) {
+              rgba[dst + px] = src[line + px + 2];     // BGRA→RGBA
+              rgba[dst + px + 1] = src[line + px + 1];
+              rgba[dst + px + 2] = src[line + px];
+              rgba[dst + px + 3] = src[line + px + 3];
+            }
+          }
+          buf.unmap();
+          var t = document.createElement('canvas');
+          t.width = w; t.height = h;
+          t.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+          var paper = document.createElement('canvas');
+          paper.width = 960; paper.height = 540;
+          var x = paper.getContext('2d');
+          x.fillStyle = '#fff';
+          x.fillRect(0, 0, 960, 540);
+          x.drawImage(t, 0, 0);
+          (window.__ocFrames = window.__ocFrames || []).push(paper.toDataURL('image/png'));
+        }).catch(function (e) {
+          window.__ocRbErr = String(e && e.message || e);
+        }).finally(function () {
+          wg.busy = false;
+          if (wg.dirty) { wg.dirty = false; setTimeout(readback, 0); }
+        });
+      } catch (e) {
+        wg.busy = false;
+        window.__ocRbErr = String(e && e.message || e);
+      }
+    }
+    // 创建期验证错误探针（与 g2 同款）：失败多在 createRenderPipeline/
+    // createBindGroup 处被验证拒掉，页面只表现为「不提交」——errorScope 取
+    // 原始 message。
+    window.__ocWgVerifyErr = [];
+    (function () {
+      if (!window.GPUDevice) return;
+      ['createRenderPipeline', 'createRenderPipelineAsync', 'createBindGroup',
+        'createBindGroupLayout', 'createShaderModule', 'createTexture'].forEach(function (name) {
+          var raw = GPUDevice.prototype[name];
+          if (typeof raw !== 'function') return;
+          GPUDevice.prototype[name] = function () {
+            try { this.pushErrorScope('validation'); } catch (e) { return raw.apply(this, arguments); }
+            var r = raw.apply(this, arguments);
+            this.popErrorScope().then(function (err) {
+              if (err && window.__ocWgVerifyErr.length < 40) {
+                window.__ocWgVerifyErr.push(name + ': ' + String(err.message || err).slice(0, 400));
+              }
+            }).catch(function () { });
+            return r;
+          };
+        });
+    })();
+    if (window.GPUQueue && GPUQueue.prototype.submit) {
+      var rawSubmit = GPUQueue.prototype.submit;
+      wg.rawSubmit = rawSubmit;
+      GPUQueue.prototype.submit = function () {
+        var r = rawSubmit.apply(this, arguments);
+        wg.dirty = true;
+        Promise.resolve().then(function () {
+          if (!wg.busy && wg.dirty) { wg.dirty = false; readback(); }
+        });
+        return r;
+      };
+      var rawConfigure = GPUCanvasContext.prototype.configure;
+      GPUCanvasContext.prototype.configure = function (desc) {
+        wg.device = desc.device;
+        // 首条 uncaptured error 全文（上游自挂的只打类名）。
+        try {
+          wg.device.onuncapturederror = function (e) {
+            var msg = String(e.error && e.error.message || e);
+            window.__ocWgErrCount = (window.__ocWgErrCount || 0) + 1;
+            if (!window.__ocWgFirstError) window.__ocWgFirstError = msg;
+          };
+        } catch (err) { }
+        // 读回需要 COPY_SRC(0x01)：TypeGPU 的 configureContext 不传 usage
+        // 字段（规范默认 RENDER_ATTACHMENT=0x10）——undefined 也补位。
+        var usage = (desc.usage === undefined ? 0x10 : desc.usage) | 0x1;
+        if (usage !== desc.usage) {
+          try { return rawConfigure.call(this, Object.assign({}, desc, { usage: usage })); } catch (e) { /* 原样重试 */ }
+        }
+        return rawConfigure.apply(this, arguments);
+      };
+      var rawGCT = GPUCanvasContext.prototype.getCurrentTexture;
+      GPUCanvasContext.prototype.getCurrentTexture = function () {
+        var t = rawGCT.apply(this, arguments);
+        wg.tex = t;
+        return t;
+      };
+    } else {
+      window.__ocWgHookMissing = true;
+    }
+  })();
+</script>
+</head>
+<body>
+<canvas id="fx" width="960" height="540"></canvas>
+<script src="./ref.bundle.js"></script>
+</body>
+</html>

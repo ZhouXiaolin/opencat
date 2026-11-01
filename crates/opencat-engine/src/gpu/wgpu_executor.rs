@@ -350,6 +350,11 @@ struct WgpuResources {
     /// auto 派生 layout 的 pipeline（desc 无 layout/'auto'）。Dawn 语义：
     /// 只接受自身派生 BGL 的 bind group，显式 BGL 绑上即整 buffer 拒绝。
     pipeline_auto: HashMap<u32, bool>,
+    /// pipeline 声明的顶点缓冲槽数（draw 校验网用：wgpu 要求声明槽在
+    /// draw 时**全部已绑定**，未绑 = 整 command buffer 校验拒绝）。
+    pipeline_vertex_slots: HashMap<u32, u32>,
+    /// draw 校验网用的空绑定替身（32 字节零区，声明槽补绑取空切片）。
+    dummy_vertex_buffer: Option<Buffer>,
 }
 
 /// 帧内录制状态（流尾即帧尾，逐帧重建）。
@@ -407,12 +412,35 @@ impl WgpuStreamExecutor {
                 backends,
                 flags: wgpu::InstanceFlags::default(),
                 memory_budget_thresholds: Default::default(),
-                backend_options: Default::default(),
+                // DX12 shader compiler 显式走 DXC（exe 旁 dxcompiler.dll），与
+                // ref 腿浏览器 Dawn 同编译器族；S1c 实测 FXC/DXC 逐位一致，对齐
+                // 残差源在 GPU adapter（见下方 OC_WGPU_POWER），不在编译器。
+                backend_options: wgpu::BackendOptions {
+                    dx12: wgpu::Dx12BackendOptions {
+                        shader_compiler: wgpu::Dx12Compiler::default_dynamic_dxc(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
                 display: None,
             });
+            // OC_WGPU_POWER=low → LowPower 请求（Optimus 机器取核显），缺省
+            // HighPerformance。shaders-align S1c 实锤：headless Edge/Chrome 的
+            // WebGPU 固定落核显（Intel UHD630），HighPerformance 拿独显
+            // （NVIDIA MX250）；同段 WGSL 的 hash33 微探针在 NVIDIA 上
+            // （DXBC/DXIL/Vulkan 三路同病）f32 tie 节点整格翻转、核显逐位
+            // IEEE——驱动 fast-math 差异，与 naga/FXC/DXC/precise 无关。对齐
+            // corpus 用 OC_WGPU_POWER=low + OC_WGPU_BACKEND=dx12 钉到与 ref 腿
+            // 同 GPU（注意核显的 Vulkan 路 create_device 段错误，必须 dx12；
+            // 也不能用 enumerate_adapters 过滤——其 adapter 未经 hal 初始化，
+            // request_device 直接段错误）。
+            let power = match std::env::var("OC_WGPU_POWER").ok().as_deref() {
+                Some("low") => PowerPreference::LowPower,
+                _ => PowerPreference::HighPerformance,
+            };
             let adapter = pollster::block_on(instance.request_adapter(
                 &wgpu::RequestAdapterOptions {
-                    power_preference: PowerPreference::HighPerformance,
+                    power_preference: power,
                     compatible_surface: None,
                     force_fallback_adapter: false,
                     apply_limit_buckets: false,
@@ -425,10 +453,7 @@ impl WgpuStreamExecutor {
                 required_limits: Default::default(),
                 experimental_features: Default::default(),
                 memory_hints: Default::default(),
-                trace: match std::env::var("OC_WGPU_TRACE") {
-                    Ok(dir) if !dir.is_empty() => wgpu::Trace::Directory(std::path::PathBuf::from(dir)),
-                    _ => Default::default(),
-                },
+                trace: Default::default(),
             }))
             .map_err(|e| anyhow!("wgpu: request_device 失败: {e}"))?;
             device.on_uncaptured_error(std::sync::Arc::new(|e| {
@@ -481,6 +506,16 @@ fn execute_stream(
     frame.segments.clear();
     frame.cmd_buffers.clear();
     frame.out_handle = None;
+
+    // draw 校验网替身（惰性建一次；32 字节零区，补绑只取空切片）。
+    if res.dummy_vertex_buffer.is_none() {
+        res.dummy_vertex_buffer = Some(rt.device.create_buffer(&BufferDescriptor {
+            label: Some("opencat-wgpu-vb-dummy"),
+            size: 32,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+    }
 
     let mut out_texture = Some(rt.device.create_texture(&TextureDescriptor {
         label: Some("opencat-wgpu-out"),
@@ -910,18 +945,10 @@ fn execute_stream(
                 if let Some(dir) = std::env::var_os("OC_DUMP_WGPU_STREAM") {
                     let _ = std::fs::create_dir_all(&dir);
                     let _ = std::fs::write(
-                        std::path::Path::new(&dir).join(format!("buf-{buffer}.bin")),
+                        std::path::Path::new(&dir)
+                            .join(format!("buf-{buffer}.bin")),
                         &data,
                     );
-                    // TEMP 探针（批次 G 诊断，收口删）：write 时序——同一
-                    // buffer 的多次 write 次数与内容头，对 ref 侧 writeBuffer
-                    // hook 的时序。
-                    let head: String = data
-                        .iter()
-                        .take(16)
-                        .map(|b| format!("{b:02x}"))
-                        .collect();
-                    eprintln!("[wg-wb] buf={buffer} off={offset} len={} head={head}", data.len());
                 }
                 rt.queue.write_buffer(res.buffer_ref(buffer)?, offset, data);
             }
@@ -934,16 +961,6 @@ fn execute_stream(
                 let size: Value = json_at(size_r, bytes, ranges)?;
                 let layout: Value = json_at(layout_r, bytes, ranges)?;
                 let data = range(bytes, ranges, data_r)?;
-                // TEMP 探针（批次 G 诊断，收口删）：writeTexture 目标/尺寸/头部字节。
-                if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
-                    let head: Vec<String> =
-                        data.iter().take(16).map(|b| format!("{b:02x}")).collect();
-                    eprintln!(
-                        "[wg-wtex] dest={:?} size={:?} layout={:?} bytes={} head={}",
-                        dest, size, layout, data.len(),
-                        head.join(" ")
-                    );
-                }
                 let tex = res.texture_ref(h_of(
                     dest.get("texture")
                         .ok_or_else(|| anyhow!("writeTexture: 缺 texture"))?,
@@ -1203,11 +1220,13 @@ fn finish_encoder(
                 if rejected {
                     return Ok(None);
                 }
-                // 阶段二（&）：回放。
+                // 阶段二（&）：回放。bound_vbs = 本 pass 已绑顶点缓冲槽
+                //（draw 校验网用，见 bind_missing_vertex_buffers）。
                 let mut rpass = res.begin_render_pass(&mut encoder, &v)?;
                 let mut cur_pipeline = None;
+                let mut bound_vbs: Vec<u32> = Vec::new();
                 for (op, p) in &seg.cmds {
-                    apply_pass_cmd(res, &mut cur_pipeline, &mut rpass, *op, p)?;
+                    apply_pass_cmd(res, &mut cur_pipeline, &mut bound_vbs, &mut rpass, *op, p)?;
                 }
                 drop(rpass); // end()
             }
@@ -1297,9 +1316,39 @@ fn apply_encoder_copy(
     Ok(())
 }
 
+/// draw 校验网：pipeline 声明而本 pass 未绑的顶点缓冲槽，补绑空替身
+/// （stride=0 声明槽需要的字节区间也是 0，空切片即满足）。wgpu 对声明槽
+/// 是硬约束——"requires vertex buffer N to be set"，未绑整 command
+/// buffer 校验拒绝。兜底对象：VertexState 补齐（G2 缺口）注入的声明槽。
+fn bind_missing_vertex_buffers(
+    res: &WgpuResources,
+    cur_pipeline: &Option<u32>,
+    bound_vbs: &mut Vec<u32>,
+    rpass: &mut RenderPass<'_>,
+) {
+    let Some(ph) = *cur_pipeline else { return };
+    let Some(slots) = res.pipeline_vertex_slots.get(&ph).copied() else {
+        return;
+    };
+    let missing: Vec<u32> = (0..slots)
+        .filter(|s| !bound_vbs.contains(s))
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    let Some(dummy) = res.dummy_vertex_buffer.as_ref() else {
+        return;
+    };
+    for slot in missing {
+        rpass.set_vertex_buffer(slot, dummy.slice(0..0));
+        bound_vbs.push(slot);
+    }
+}
+
 fn apply_pass_cmd(
     res: &WgpuResources,
     cur_pipeline: &mut Option<u32>,
+    bound_vbs: &mut Vec<u32>,
     rpass: &mut RenderPass<'_>,
     opcode: u8,
     p: &[u8],
@@ -1336,6 +1385,9 @@ fn apply_pass_cmd(
             let buffer = res.buffer_ref(u32(p, 8)?)?;
             let offset = u64at(p, 12)?;
             rpass.set_vertex_buffer(slot, buffer.slice(offset..));
+            if !bound_vbs.contains(&slot) {
+                bound_vbs.push(slot);
+            }
         }
         W::PASS_SET_INDEX_BUFFER => {
             let buffer = res.buffer_ref(u32(p, 4)?)?;
@@ -1383,6 +1435,7 @@ fn apply_pass_cmd(
 
                 );
             }
+            bind_missing_vertex_buffers(res, cur_pipeline, bound_vbs, rpass);
             let vertices = u32(p, 4)?;
             let instances = u32(p, 8)?;
             let first_vertex = u32(p, 12)?;
@@ -1405,6 +1458,7 @@ fn apply_pass_cmd(
                     u32(p, 20)?,
                 );
             }
+            bind_missing_vertex_buffers(res, cur_pipeline, bound_vbs, rpass);
             let indices = u32(p, 4)?;
             let instances = u32(p, 8)?;
             let first_index = u32(p, 12)?;
@@ -1608,8 +1662,52 @@ fn patch_mesh_coverage(fs: &str) -> String {
     out
 }
 
+/// 顶点入口的参数表文本（`@vertex fn NAME(…) ` 的括号区）。`entry` 给定
+/// 时只取同名入口，否则取全部 @vertex 入口（并集，保守）。找不到结构时
+/// 返回空串——空串扫不出 @location，等于放弃补齐（与误注入相比，放弃是
+/// 安全侧：缺真顶点输入的 pipeline 在 wgpu 创建期就报 invalid，fail-loud）。
+fn vertex_param_region(code: &str, entry: Option<&str>) -> String {
+    let mut regions: Vec<&str> = Vec::new();
+    let mut rest = code;
+    while let Some(pos) = rest.find("@vertex") {
+        let tail = &rest[pos..];
+        let Some(fn_pos) = tail.find("fn ") else { break };
+        let after_fn = &tail[fn_pos + 3..];
+        let name: String = after_fn
+            .trim_start()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        let Some(paren) = after_fn.find('(') else { break };
+        let mut depth = 0usize;
+        let mut close = None;
+        for (i, c) in after_fn[paren..].char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 {
+                        close = Some(paren + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else { break };
+        if entry.is_none_or(|e| e == name) {
+            regions.push(&after_fn[paren + 1..close]);
+            if entry.is_some() {
+                break;
+            }
+        }
+        rest = &tail[fn_pos + close..];
+    }
+    regions.join("\n")
+}
+
 fn create_render_pipeline(
-        &self,
+        &mut self,
         device: &wgpu::Device,
         handle: u32,
         v: &Value,
@@ -1670,11 +1768,16 @@ fn create_render_pipeline(
         // 无顶点声明而 WGSL 引用 @location → wgpu 同样 validation error →
         // pipeline invalid → 后续 draw 毒化整帧命令。把 shader 引用而
         // VertexState 缺失的 location 补进 arrayStride=0 的兜底 buffer
-        // （多余声明合法；float32x4 与各 vecN<f32> 输入兼容；@location 扫描
-        // 连 fragment 输出一起命中——它们不在 VertexState 校验域，属无害
-        // 多余声明）。
+        // （float32x4 与各 vecN<f32> 输入兼容）。
+        //
+        // 扫描域**只允许是顶点入口的参数表**：整份代码扫描会把 fragment 的
+        // `-> @location(0)` 输出与 final_Input 的输入误判成顶点输入（全屏
+        // 三角类 shader 全中招）。且补出的声明槽在 wgpu 是硬约束——draw 时
+        // 未绑定即 "requires vertex buffer N to be set" 整 buffer 拒绝，
+        // 「无害多余声明」不成立；回放侧配 draw 校验网兜底（apply_pass_cmd）。
         let fallback_v = Value::Null;
         if let Some(code) = self.shader_codes.get(&vs_handle) {
+            let vs_params = Self::vertex_param_region(code, vs_entry);
             let mut declared: Vec<u32> = pairs
                 .iter()
                 .filter_map(|(_, a)| a.as_ref())
@@ -1683,7 +1786,7 @@ fn create_render_pipeline(
             declared.sort_unstable();
             declared.dedup();
             let mut missing: Vec<u32> = Vec::new();
-            let mut rest = code.as_str();
+            let mut rest = vs_params.as_str();
             while let Some(pos) = rest.find("@location(") {
                 let tail = &rest[pos + "@location(".len()..];
                 let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
@@ -1909,7 +2012,7 @@ fn create_render_pipeline(
         };
 
         let layout = self.pipeline_layout_ref(v.get("layout"))?;
-        Ok(device.create_render_pipeline(&RenderPipelineDescriptor {
+        let pipe = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: ph_label.as_deref(),
             layout,
             vertex: VertexState {
@@ -1924,7 +2027,10 @@ fn create_render_pipeline(
             fragment,
             multiview_mask: None,
             cache: None,
-        }))
+        });
+        self.pipeline_vertex_slots
+            .insert(handle, buffers.len() as u32);
+        Ok(pipe)
     }
 
     /// begin render pass：附件借用 self 的视图表，desc 在本作用域消费，

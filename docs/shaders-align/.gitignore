@@ -1,0 +1,8 @@
+# corpus 运行产物与第三方依赖不入库（脚手架见 goal.md；重建 = bun i +
+# CASE=<案> bun vite build / bun ref/build.mjs && bun ref/shoot.mjs <案>）
+node_modules/
+dist/
+out-k3/
+corpus/ref/out/
+corpus/ref/ref.bundle.js
+corpus/bun.lock

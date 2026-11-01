@@ -1,0 +1,13 @@
+{
+  "name": "shaders-align-corpus",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "shaders": "^4.0.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "esbuild": "^0.28.2",
+    "vite": "^8.3.5"
+  }
+}

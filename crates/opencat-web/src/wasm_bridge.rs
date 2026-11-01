@@ -159,7 +159,9 @@ impl WebRenderer {
                 render
                     .media
                     .generated_images
-                    .retain(|g| !gpu_ids.contains(&g.id));
+                    // Only the GPU placeholders are empty; a CPU-generated
+                    // image (e.g. Canvas 2D putImageData) must keep its pixels.
+                    .retain(|g| g.gpu.is_none() || !gpu_ids.contains(&g.id));
             }
         }
 

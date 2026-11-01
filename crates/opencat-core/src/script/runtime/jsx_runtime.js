@@ -291,11 +291,16 @@
                 // `require` 形参接住 cjs 段里的裸 external require（esbuild 的
                 // cjs 产物对 external 包直接发 `require("spec")`；oxc 前端只
                 // 重写 ESM import 语句）。
-                fn = new Function('__ocRequire', 'require', 'module', 'exports', source);
+                // Bind the composition faces explicitly: on a web host the
+                // page's real `document`/`window` must not leak into author
+                // code, which targets the declarative node tree.
+                fn = new Function('__ocRequire', 'require', 'module', 'exports', 'document', 'window', source);
                 factories[key] = fn;
                 factorySource[key] = source;
             }
-            fn(requireModule, requireModule, mod, mod.exports);
+            fn(requireModule, requireModule, mod, mod.exports,
+                globalThis.__ocDocument || globalThis.document,
+                globalThis.__ocWindow || globalThis.window);
             // The project-supplied package needs one install pass (target
             // normalization, paused protocol, hook gating, subpath views)
             // before any of its exports are handed to user code. The gated

@@ -430,7 +430,7 @@
         Object.defineProperty(target, 'offsetWidth', { get: function () { return boxOf(id).width; }, configurable: true });
         Object.defineProperty(target, 'offsetHeight', { get: function () { return boxOf(id).height; }, configurable: true });
         Object.defineProperty(target, 'offsetParent', {
-            get: function () { return parentHandle(id) || (globalThis.document && globalThis.document.body) || null; },
+            get: function () { var d = globalThis.__ocDocument || globalThis.document; return parentHandle(id) || (d && d.body) || null; },
             configurable: true,
         });
         return target;

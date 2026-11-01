@@ -2524,8 +2524,34 @@
     // JS layer is API sugar + a WASM loader; drawing semantics live in DrawOp
     // plus the two replay backends (engine / web), so the stub resolves
     // immediately with the facade — deterministic, first-frame visible.
+    // The loader does no I/O: the facade is already installed, so a real
+    // Promise only defers `.then` to a microtask. The engine drains
+    // microtasks between the driver and the frame hooks; the web host cannot
+    // — wasm-bindgen keeps the JS stack busy for the whole frame, so the
+    // browser's microtask checkpoint never runs and `CK` would stay null.
+    // Resolve synchronously instead: the callback body sees the same facade
+    // on every host, and frame one is deterministic.
+    function ResolvedThenable(value) {
+        this.value = value;
+    }
+    ResolvedThenable.prototype.then = function (onFulfilled, onRejected) {
+        if (typeof onFulfilled !== 'function') return this;
+        try {
+            return new ResolvedThenable(onFulfilled(this.value));
+        } catch (e) {
+            if (typeof onRejected === 'function') return new ResolvedThenable(onRejected(e));
+            throw e;
+        }
+    };
+    ResolvedThenable.prototype.catch = function () {
+        return this;
+    };
+    ResolvedThenable.prototype.finally = function (cb) {
+        if (typeof cb === 'function') cb();
+        return this;
+    };
     function CanvasKitInit(options) {
-        return Promise.resolve(globalThis.CanvasKit);
+        return new ResolvedThenable(globalThis.CanvasKit);
     }
     globalThis.CanvasKitInit = CanvasKitInit;
     // Path2D/fill(path)/stroke(path) 复用：context2d.js 的 fill(path)/stroke(path)

@@ -347,8 +347,6 @@ struct WgpuResources {
     /// 派生 BGL 的 bind group → 派生源 pipeline（wgpu 严格身份校验适配，
     /// 见 apply_pass_cmd 的 rebind）。
     bg_owner: HashMap<u32, u32>,
-    /// 已按 (bg, pipeline) 重建的替身（同对复用，免反复重建）。
-    bg_rebound: HashMap<(u32, u32), BindGroup>,
     /// auto 派生 layout 的 pipeline（desc 无 layout/'auto'）。Dawn 语义：
     /// 只接受自身派生 BGL 的 bind group，显式 BGL 绑上即整 buffer 拒绝。
     pipeline_auto: HashMap<u32, bool>,
@@ -976,11 +974,11 @@ fn execute_stream(
                         .get(&buf_h)
                         .copied()
                         .ok_or_else(|| unknown("commandBuffer", buf_h))?;
-                    cmd_bufs.push(
-                        finish_encoder(rt, res, frame, enc_h, bytes, ranges)?.ok_or_else(
-                            || anyhow!("commandBuffer {buf_h}: encoder {enc_h} 无命令段"),
-                        )?,
-                    );
+                    // encoder 整体作废（Dawn default-layout 校验）时跳过该
+                    // command buffer：Dawn 只丢这一个，submit 继续。
+                    if let Some(cb) = finish_encoder(rt, res, frame, enc_h, bytes, ranges)? {
+                        cmd_bufs.push(cb);
+                    }
                 }
                 if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
                     eprintln!("[wg-enc] submit {} cmd_bufs", cmd_bufs.len());
@@ -1165,11 +1163,18 @@ fn finish_encoder(
             }
             Some(desc_range) => {
                 let v: Value = json_at(desc_range as usize, bytes, ranges)?;
-                // 阶段一（&mut）：预扫段命令，把跨 pipeline 复用的 bg 替身
-                // 建好（阶段二的回放只读 res，RenderPass 借用无冲突）。
-                // Dawn 的拒绝语义（auto pipeline + 显式 BGL）在预扫即可判：
-                // 命中则丢弃整个 encoder（对称 buffer 级拒绝），回放照常
-                // 跑其余 encoder——G2 在 ref 页面正是 catch 后继续。
+                // 阶段一：预扫段命令，按 Dawn 的 default-layout 校验判定
+                // 整段是否作废。Dawn 原文（真 Edge 实测，anim 案）：
+                //   "The current pipeline was created with a default layout,
+                //    and is not compatible with the BindGroup set at group
+                //    index 0 which uses a BindGroupLayout that was not created
+                //    by the pipeline. Either use the bind group layout returned
+                //    by calling getBindGroupLayout(0) on the pipeline when
+                //    creating the bind group, or provide an explicit pipeline
+                //    layout when creating the pipeline."
+                // 报错点在 Draw 编码期，后果是**整个 CommandEncoder 作废**。
+                // 判据因此是「bg 的派生源必须是当前 pipeline 本人」——跨
+                // pipeline 复用（哪怕两边都是 auto 派生、内容等价）同样拒。
                 let mut rejected = false;
                 {
                     let mut pre = None;
@@ -1181,17 +1186,13 @@ fn finish_encoder(
                                 if let Some(cp) = pre {
                                     let auto =
                                         res.pipeline_auto.get(&cp).copied().unwrap_or(false);
-                                    if auto && !res.bg_owner.contains_key(&bg) {
+                                    if auto && res.bg_owner.get(&bg).copied() != Some(cp) {
                                         eprintln!(
-                                            "[wg-enc] validation reject: enc={enc} 显式 BGL bind group {bg} 绑 auto pipeline {cp}——丢整个 encoder（对称 Dawn）"
+                                            "[wg-enc] validation reject: enc={enc} bind group {bg}（派生源 {:?}）绑 auto pipeline {cp}——丢整个 encoder（对称 Dawn）",
+                                            res.bg_owner.get(&bg)
                                         );
                                         rejected = true;
                                         break;
-                                    }
-                                    if let Some(owner) = res.bg_owner.get(&bg).copied() {
-                                        if owner != cp {
-                                            res.rebound_bind_group(&rt.device, bg, cp)?;
-                                        }
                                     }
                                 }
                             }
@@ -1317,23 +1318,10 @@ fn apply_pass_cmd(
                     res.bind_group_desc.get(&bg)
                 );
             }
-            // wgpu 严格身份校验适配：G2（Dawn 语义）允许把内容等价的
-            // auto 派生 bind group 跨 pipeline 复用，wgpu 的 BGL 校验是
-            // Arc::ptr_eq 一票否决。bg 派生源 ≠ 当前 pipeline 时，用当前
-            // pipeline 的派生 BGL 重建替身（entries 不变，等价性由 G2 的
-            // 绑定行为背书——它敢绑 Dawn 就放行）。
-            //
-            // Dawn 拒绝语义（auto pipeline + 显式 BGL）在 finish_encoder
-            // 的预扫阶段已拦截（丢弃整个 encoder）——此处只处理合法复用。
-            let use_bg: &BindGroup =
-                match (res.bg_owner.get(&bg).copied(), *cur_pipeline) {
-                    (Some(owner), Some(cur)) if owner != cur => res
-                        .bg_rebound
-                        .get(&(bg, cur))
-                        .ok_or_else(|| anyhow!("rebind: 替身未建 bg={bg} ph={cur}"))?,
-                    _ => res.bind_group_ref(bg)?,
-                };
-            rpass.set_bind_group(idx, use_bg, &[]);
+            // 跨 pipeline 的派生 bind group 复用已在 finish_encoder 预扫
+            // 阶段按 Dawn 语义整段拒掉（auto layout 只认自身派生的 BGL），
+            // 走到这里的绑定都合法，直接取原对象。
+            rpass.set_bind_group(idx, res.bind_group_ref(bg)?, &[]);
         }
         W::PASS_SET_VERTEX_BUFFER => {
             if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
@@ -1532,54 +1520,6 @@ impl WgpuResources {
             }
         };
         Ok(BindGroupEntry { binding, resource })
-    }
-
-    /// 跨 pipeline 重绑替身：用目标 pipeline 的派生 BGL 重建 bg
-    /// （entries 取自创建期留存的 desc）。同 (bg, pipeline) 对只建一次。
-    fn rebound_bind_group(
-        &mut self,
-        device: &wgpu::Device,
-        bg: u32,
-        target: u32,
-    ) -> Result<&BindGroup> {
-        if let Some(b) = self.bg_rebound.get(&(bg, target)) {
-            return Ok(b);
-        }
-        let desc = self
-            .bind_group_desc
-            .get(&bg)
-            .cloned()
-            .ok_or_else(|| anyhow!("rebind: bg {bg} 无留存 desc"))?;
-        let pi = desc
-            .get("layout")
-            .and_then(|l| l.get("pi"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0) as u32;
-        let layout = match res_kind(self, target)? {
-            Kind::RenderPipeline => self.render_pipeline_ref(target)?.get_bind_group_layout(pi),
-            other => bail!("rebind: 目标句柄 {target} 不是 render pipeline（是 {other:?}）"),
-        };
-        let mut entries = Vec::new();
-        for e in desc
-            .get("entries")
-            .and_then(Value::as_array)
-            .ok_or_else(|| anyhow!("rebind: bg {bg} desc 缺 entries"))?
-        {
-            if e.get("resource").is_none() {
-                continue; // 空槽跳过（与 create_bind_group 同规则）
-            }
-            entries.push(self.bind_group_entry(e)?);
-        }
-        let new_bg = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("opencat-rebind"),
-            layout: &layout,
-            entries: &entries,
-        });
-        self.bg_rebound.insert((bg, target), new_bg);
-        Ok(self
-            .bg_rebound
-            .get(&(bg, target))
-            .ok_or_else(|| anyhow!("rebind: 插入失败"))?)
     }
 
     /// 建 bind group：layout（显式或派生）与 entries 全部解析成 wgpu 类型

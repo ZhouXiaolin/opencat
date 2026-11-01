@@ -615,12 +615,22 @@
             var stub = makeStub(ctor, kind, id);
             // Derived layout (g-device-api createBindings): layout comes from
             // the pipeline (shader auto-derive), wrapped as {"ph","pi"}.
+            //
+            // 同一 (pipeline, index) 必须返回同一对象——Dawn 就是这么做的
+            // （BGL 建 pipeline 时缓存，getBindGroupLayout 只取缓存）。这层
+            // 同一性直接决定 G2 的行为：g-device-api 按 BGL 对象身份缓存
+            // bind group，每次返回新对象会让缓存永不命中，于是它每帧重建
+            // bind group（派生源=当时 pipeline，恰好合法），Dawn 下则命中
+            // 旧 bind group 并跨 pipeline 复用（非法）。不能忠实复刻这点，
+            // 引擎就会比 Dawn 多画出一帧内容，失败不对称。
+            var derivedLayouts = [];
             stub.getBindGroupLayout = function (index) {
-                return {
+                var i = index | 0;
+                return derivedLayouts[i] || (derivedLayouts[i] = {
                     __gpuKind: 'derivedLayout',
                     __ocPipeline: id,
-                    __ocLayoutIndex: index | 0,
-                };
+                    __ocLayoutIndex: i,
+                });
             };
             return stub;
         }

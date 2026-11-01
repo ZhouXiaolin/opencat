@@ -498,6 +498,176 @@ pub mod gl_opcode {
     }
 }
 
+/// WebGPU 命令 opcode 表 —— `webgpu_api.js` 录制面与 wgpu 执行器的权威契约。
+///
+/// 与 [`gl_opcode`] 同构，但映射方向不同：GL 流是「本来就是调用序列」，这里
+/// 是把浏览器真 WebGPU（`navigator.gpu`）的调用序列一对一映射到 wgpu crate。
+/// 录制面只桩掉 `GPUAdapter/GPUDevice/GPUCanvasContext` 对象面；g-device-api
+/// 的 GLSL→WGSL 编译（realm 内 wasm 真跑）发生在 `createShaderModule` 上游，
+/// 所以流里 [`wgpu_opcode::SHADER_MODULE_CREATE`] 携带的已是 WGSL——与 ref 腿
+/// （Edge/Dawn 编译的同一份 WGSL）同源。
+///
+/// ## 描述符约定
+///
+/// 创建类命令的 descriptor（`GPUBufferDescriptor` 等）以 JSON intern 进
+/// `byte_ranges`（serde_json 解析，`glsl_reflect` 先例）。JSON 里的资源句柄
+/// 用 `{"h": <id>}` 包装标记（bindGroup 的 buffer/sampler/textureView、
+/// pipeline 的 layout/module 等），执行端解析后替换成映射表里的真实资源；
+/// 其余字段名与 WebGPU 规格一致（`loadOp: "clear"`、`format: "bgra8unorm"`）。
+///
+/// ## payload 布局（小端）
+///
+/// `u32` 句柄 / range id 同 GL；新增 `u64`（BufferAddress）用于 buffer
+/// offset/size；`u8` 枚举仅用于可枚举穷尽的短枚举（index format、alpha
+/// mode），其余枚举走 JSON 字符串原值。
+pub mod wgpu_opcode {
+    // ── 资源创建（desc JSON intern）────────────────────────────────
+    /// {handle: u32, desc_range: u32} — GPUBufferDescriptor
+    pub const BUFFER_CREATE: u8 = 0;
+    /// {handle: u32, desc_range: u32} — GPUTextureDescriptor
+    pub const TEXTURE_CREATE: u8 = 1;
+    /// {handle: u32, texture: u32, desc_range: u32} — GPUTextureViewDescriptor
+    pub const TEXTURE_VIEW_CREATE: u8 = 2;
+    /// {handle: u32, desc_range: u32} — GPUSamplerDescriptor
+    pub const SAMPLER_CREATE: u8 = 3;
+    /// {handle: u32, desc_range: u32} — GPUBindGroupLayoutDescriptor
+    pub const BIND_GROUP_LAYOUT_CREATE: u8 = 4;
+    /// {handle: u32, layout: u32, desc_range: u32} — GPUBindGroupDescriptor
+    pub const BIND_GROUP_CREATE: u8 = 5;
+    /// {handle: u32, desc_range: u32} — GPUPipelineLayoutDescriptor
+    pub const PIPELINE_LAYOUT_CREATE: u8 = 6;
+    /// {handle: u32, code_range: u32} — code 是 WGSL UTF-8
+    pub const SHADER_MODULE_CREATE: u8 = 7;
+    /// {handle: u32, desc_range: u32} — GPURenderPipelineDescriptor
+    pub const RENDER_PIPELINE_CREATE: u8 = 8;
+    /// {handle: u32, desc_range: u32} — GPUComputePipelineDescriptor
+    pub const COMPUTE_PIPELINE_CREATE: u8 = 9;
+    /// {handle: u32, desc_range: u32} — GPUQuerySetDescriptor
+    pub const QUERY_SET_CREATE: u8 = 10;
+    /// {handle: u32, desc_range: u32} — GPURenderBundleEncoderDescriptor
+    pub const RENDER_BUNDLE_ENCODER_CREATE: u8 = 11;
+    /// {handle: u32} — WebGPU 统一 destroy；类型由执行端映射表得知
+    pub const RESOURCE_DESTROY: u8 = 12;
+
+    // ── 画布面（swapchain 语义）────────────────────────────────────
+    /// {format_range: u32, alpha_mode: u8, usage: u32} — alphaMode:
+    /// 0=opaque 1=premultiplied。执行端把 getCurrentTexture 映射到本流的
+    /// 输出纹理（同 GL 的 bindFramebuffer(null)→out_fbo 规则）。
+    pub const CANVAS_CONFIGURE: u8 = 13;
+    /// {handle: u32} — 返回的 GPUTexture 桩句柄，attachment 引用它
+    pub const CANVAS_GET_CURRENT_TEXTURE: u8 = 14;
+
+    // ── queue ──────────────────────────────────────────────────────
+    /// {buffer: u32, offset: u64, data_range: u32}
+    pub const QUEUE_WRITE_BUFFER: u8 = 15;
+    /// {dest_range: u32, data_range: u32, size_range: u32} — dest 是
+    /// GPUTextureCopyView JSON（texture: {"h":id}），size 是 GPUExtent3D JSON
+    pub const QUEUE_WRITE_TEXTURE: u8 = 16;
+    /// {count: u32, encoders: [u32 × count]} — 变长（count 首部）
+    pub const QUEUE_SUBMIT: u8 = 17;
+
+    // ── command encoder ────────────────────────────────────────────
+    /// {enc: u32, pass: u32, desc_range: u32} — GPURenderPassDescriptor
+    pub const ENC_BEGIN_RENDER_PASS: u8 = 18;
+    /// {enc: u32, src: u32, src_offset: u64, dst: u32, dst_offset: u64, size: u64}
+    pub const ENC_COPY_BUFFER_TO_BUFFER: u8 = 19;
+    /// {enc: u32, desc_range: u32} — copyTextureToTexture 三段 JSON
+    pub const ENC_COPY_TEXTURE_TO_TEXTURE: u8 = 20;
+    /// {enc: u32, desc_range: u32}
+    pub const ENC_COPY_TEXTURE_TO_BUFFER: u8 = 21;
+    /// {enc: u32, desc_range: u32}
+    pub const ENC_COPY_BUFFER_TO_TEXTURE: u8 = 22;
+    /// {enc: u32, cmd_buf: u32}
+    pub const ENC_FINISH: u8 = 23;
+
+    // ── render pass 热路径（每帧逐 drawcall）────────────────────────
+    /// {pass: u32, pipeline: u32}
+    pub const PASS_SET_PIPELINE: u8 = 24;
+    /// {pass: u32, index: u32, bind_group: u32} — dynamicOffsets 不支持
+    /// （g-device-api setBindings 不传；录制面遇到即 throw，fail-loud）
+    pub const PASS_SET_BIND_GROUP: u8 = 25;
+    /// {pass: u32, slot: u32, buffer: u32, offset: u64}
+    pub const PASS_SET_VERTEX_BUFFER: u8 = 26;
+    /// {pass: u32, buffer: u32, index_format: u8, offset: u64} — 0=u16 1=u32
+    pub const PASS_SET_INDEX_BUFFER: u8 = 27;
+    /// {pass: u32, x,y,w,h, min_depth, max_depth: f32 ×6}
+    pub const PASS_SET_VIEWPORT: u8 = 28;
+    /// {pass: u32, x,y,w,h: u32 ×4}
+    pub const PASS_SET_SCISSOR_RECT: u8 = 29;
+    /// {pass: u32, r,g,b,a: f32 ×4}
+    pub const PASS_SET_BLEND_CONSTANT: u8 = 30;
+    /// {pass: u32, reference: u32}
+    pub const PASS_SET_STENCIL_REFERENCE: u8 = 31;
+    /// {pass: u32, vertices: u32, instances: u32, first_vertex: u32, first_instance: u32}
+    pub const PASS_DRAW: u8 = 32;
+    /// {pass: u32, indices: u32, instances: u32, first_index: u32, base_vertex: i32, first_instance: u32}
+    pub const PASS_DRAW_INDEXED: u8 = 33;
+    /// {pass: u32, buffer: u32, offset: u64}
+    pub const PASS_DRAW_INDIRECT: u8 = 34;
+    /// {pass: u32, buffer: u32, offset: u64}
+    pub const PASS_DRAW_INDEXED_INDIRECT: u8 = 35;
+    /// {pass: u32}
+    pub const PASS_END: u8 = 36;
+
+    pub const MAX_OPCODE: u8 = PASS_END;
+
+    /// 定长 payload 长度表；`None` = 变长（QUEUE_SUBMIT）。
+    pub const PAYLOAD_LEN: [Option<u16>; (MAX_OPCODE as usize) + 1] = build_payload_len();
+
+    const fn build_payload_len() -> [Option<u16>; (MAX_OPCODE as usize) + 1] {
+        let mut table = [None; (MAX_OPCODE as usize) + 1];
+        // 资源创建
+        table[BUFFER_CREATE as usize] = Some(8);
+        table[TEXTURE_CREATE as usize] = Some(8);
+        table[TEXTURE_VIEW_CREATE as usize] = Some(12);
+        table[SAMPLER_CREATE as usize] = Some(8);
+        table[BIND_GROUP_LAYOUT_CREATE as usize] = Some(8);
+        // {handle: u32, desc_range: u32} —— 与 SET_BIND_GROUP(12, 含 index) 不同
+        table[BIND_GROUP_CREATE as usize] = Some(8);
+        table[PIPELINE_LAYOUT_CREATE as usize] = Some(8);
+        table[SHADER_MODULE_CREATE as usize] = Some(8);
+        table[RENDER_PIPELINE_CREATE as usize] = Some(8);
+        table[COMPUTE_PIPELINE_CREATE as usize] = Some(8);
+        table[QUERY_SET_CREATE as usize] = Some(8);
+        table[RENDER_BUNDLE_ENCODER_CREATE as usize] = Some(8);
+        table[RESOURCE_DESTROY as usize] = Some(4);
+        // 画布
+        table[CANVAS_CONFIGURE as usize] = Some(9);
+        table[CANVAS_GET_CURRENT_TEXTURE as usize] = Some(4);
+        // queue
+        table[QUEUE_WRITE_BUFFER as usize] = Some(16);
+        table[QUEUE_WRITE_TEXTURE as usize] = Some(16); // dest+data+size+layout ranges
+        // QUEUE_SUBMIT: 变长（count 首部）
+        // encoder
+        table[ENC_BEGIN_RENDER_PASS as usize] = Some(12);
+        table[ENC_COPY_BUFFER_TO_BUFFER as usize] = Some(36);
+        table[ENC_COPY_TEXTURE_TO_TEXTURE as usize] = Some(8);
+        table[ENC_COPY_TEXTURE_TO_BUFFER as usize] = Some(8);
+        table[ENC_COPY_BUFFER_TO_TEXTURE as usize] = Some(8);
+        table[ENC_FINISH as usize] = Some(8);
+        // render pass
+        table[PASS_SET_PIPELINE as usize] = Some(8);
+        table[PASS_SET_BIND_GROUP as usize] = Some(12);
+        table[PASS_SET_VERTEX_BUFFER as usize] = Some(20); // pass+slot+buffer+u64 offset
+        table[PASS_SET_INDEX_BUFFER as usize] = Some(17);
+        table[PASS_SET_VIEWPORT as usize] = Some(28);
+        table[PASS_SET_SCISSOR_RECT as usize] = Some(20);
+        table[PASS_SET_BLEND_CONSTANT as usize] = Some(20);
+        table[PASS_SET_STENCIL_REFERENCE as usize] = Some(8);
+        table[PASS_DRAW as usize] = Some(20);
+        table[PASS_DRAW_INDEXED as usize] = Some(24);
+        table[PASS_DRAW_INDIRECT as usize] = Some(16);
+        table[PASS_DRAW_INDEXED_INDIRECT as usize] = Some(16);
+        table[PASS_END as usize] = Some(4);
+        table
+    }
+}
+
+/// WebGPU 变长命令：QUEUE_SUBMIT（count 首部，之后每元素 u32 encoder 句柄）。
+pub fn wgpu_variable_payload_submit(opcode: u8) -> bool {
+    matches!(opcode, wgpu_opcode::QUEUE_SUBMIT)
+}
+
 /// 变长命令首部（loc/count 等）之后的每元素字节数。
 pub fn variable_payload_f32(opcode: u8) -> bool {
     matches!(opcode, gl_opcode::UNIFORM_NF)

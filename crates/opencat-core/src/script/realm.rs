@@ -227,7 +227,10 @@ pub const JS_PLATFORM_SHIM: &str = r#"
     if (typeof globalThis.navigator.userAgent !== 'string') {
         globalThis.navigator.userAgent = 'opencat';
     }
-    if (typeof globalThis.URL !== 'object' || globalThis.URL === null) globalThis.URL = {};
+    // In a browser `URL` is a constructor (typeof "function"); keep it so
+    // `new URL()` and blob: URLs keep their standard semantics. Only the
+    // realm without any URL face gets the object shim.
+    if ((typeof globalThis.URL !== 'object' && typeof globalThis.URL !== 'function') || globalThis.URL === null) globalThis.URL = {};
     if (typeof globalThis.URL.createObjectURL !== 'function') {
         globalThis.URL.createObjectURL = function () { return 'blob:opencat'; };
         globalThis.URL.revokeObjectURL = function () {};

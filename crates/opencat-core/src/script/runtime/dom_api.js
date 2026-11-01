@@ -548,7 +548,7 @@
                 // webgl_api.js）；其余（g TextService 的字体探测画布）只要
                 // 只读测量桩。
                 var visual = (globalThis.ctx.__targetRegistry || {}).visual || {};
-                if (node.id && visual[String(node.id)] && (t === '2d' || t === 'webgl2' || t === 'webgl')) {
+                if (node.id && visual[String(node.id)] && (t === '2d' || t === 'webgl2' || t === 'webgl' || t === 'webgpu')) {
                     // 尺寸透传：GL 的 drawingBuffer 尺寸是 canvas 元素的
                     // width/height 内容属性（g-webgl 建上下文前按 config
                     // 写、之后随 resize 更新），不是声明节点的布局盒。

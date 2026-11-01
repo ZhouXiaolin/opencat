@@ -26,6 +26,10 @@ pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 pub const TREE_API_RUNTIME: &str = include_str!("tree_api.js");
 pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 pub const WEBGL_API_RUNTIME: &str = include_str!("webgl_api.js");
+// WebGPU recording face (`navigator.gpu` + `canvas.getContext('webgpu')`):
+// same stream plumbing as WebGL2, opcodes in `ir::gpu_stream::wgpu_opcode`.
+// Loaded after WEBGL_API_RUNTIME (chains `ctx.getContext`).
+pub const WEBGPU_API_RUNTIME: &str = include_str!("webgpu_api.js");
 // Web loading shims (fetch / Blob / URL.createObjectURL / createImageBitmap
 // over the engine's asset/image natives): the byte backend for three's
 // FileLoader → GLTFLoader texture chain. Self-guarded — hosts without the

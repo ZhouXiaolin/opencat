@@ -22,7 +22,7 @@ use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
     JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
-    WEBGL_API_RUNTIME,
+    WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -360,6 +360,10 @@ impl<C: JsContext> ScriptRealm<C> {
         // 'webgl2' with the command recorder. After CONTEXT2D_RUNTIME (it
         // chains the base `ctx.getContext`).
         self.ctx.eval(WEBGL_API_RUNTIME)?;
+        // WebGPU recording face ('webgpu' + navigator.gpu): chains the same
+        // `ctx.getContext`; installs the synchronous wasm compile shim the
+        // g-device-api GLSL→WGSL compiler needs (0-worker V8 platform).
+        self.ctx.eval(WEBGPU_API_RUNTIME)?;
         // Web loading shims (fetch/Blob/URL/createImageBitmap over the
         // engine's asset natives) — self-guarded, a no-op without them.
         self.ctx.eval(ASSET_API_RUNTIME)?;
@@ -704,7 +708,11 @@ impl<C: JsContext> ScriptRealm<C> {
                 target_id: stream.target_id.clone(),
                 width: stream.width,
                 height: stream.height,
-                backend: crate::ir::GpuBackend::WebGL2,
+                backend: if stream.backend == 1 {
+                    crate::ir::GpuBackend::WebGPU
+                } else {
+                    crate::ir::GpuBackend::WebGL2
+                },
                 attrs: crate::ir::gpu_stream::ContextAttrs::unpack(stream.attrs_bits),
                 ops: crate::ir::GpuOpFrame {
                     ops: stream.ops.clone(),

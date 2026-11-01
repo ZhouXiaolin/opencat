@@ -130,6 +130,10 @@
         this.ok = true;
         this.status = 200;
         this.statusText = 'OK';
+        // wasm-bindgen glue 在 instantiateStreaming 失败回退时读
+        // `response.headers.get('Content-Type')`；本地资产无真实头，恒给
+        // wasm MIME（bytes 长得像 wasm 时语义也对）。
+        this.headers = new Headers({ 'Content-Type': 'application/wasm' });
     }
     ResponseShim.prototype.arrayBuffer = function () {
         return Promise.resolve(this.__ocBytes.slice().buffer);
@@ -143,6 +147,10 @@
     ResponseShim.prototype.json = function () {
         return Promise.resolve(JSON.parse(utf8Decode(this.__ocBytes)));
     };
+    // wasm-bindgen glue 的 `module instanceof Response` 分支（glsl_wgsl_compiler
+    // 等 __wbg_load）需要全局 Response 构造器；不注册时 fetch 返回值被当
+    // ArrayBuffer 处理直接 TypeError。与 Request/Headers/Blob 同批注册。
+    globalThis.Response = ResponseShim;
 
     globalThis.Blob = Blob;
 

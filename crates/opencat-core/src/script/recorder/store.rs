@@ -71,7 +71,7 @@ pub struct MutationStore {
     /// 持久。持久 renderer 的帧内不再触发 getContext（three 只在构造时调
     /// 一次 canvas.getContext），reset_for_frame 清流后没人重开——emit 时
     /// 用缓存的头自动重开。
-    gl_stream_headers: HashMap<String, (u32, u32, u8, f32, f32)>,
+    gl_stream_headers: HashMap<String, (u32, u32, u8, u8, f32, f32)>,
     /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
     /// 的存活期由脚本侧的 delete 决定，与帧无关）。
     gl_next_handle: u32,
@@ -614,13 +614,13 @@ impl MutationStore {
             existing.y = y;
             self.gl_stream_headers.insert(
                 target_id.to_string(),
-                (width, height, attrs_bits, x, y),
+                (width, height, backend, attrs_bits, x, y),
             );
             return;
         }
         self.gl_stream_headers.insert(
             target_id.to_string(),
-            (width, height, attrs_bits, x, y),
+            (width, height, backend, attrs_bits, x, y),
         );
         self.gpu_streams.push(GpuStreamRecord {
             target_id: target_id.to_string(),
@@ -642,8 +642,8 @@ impl MutationStore {
             .iter()
             .all(|s| s.target_id != target_id)
         {
-            if let Some(&(w, h, attrs, sx, sy)) = self.gl_stream_headers.get(target_id) {
-                self.gl_stream_begin(target_id, w, h, 0, attrs, sx, sy);
+            if let Some(&(w, h, backend, attrs, sx, sy)) = self.gl_stream_headers.get(target_id) {
+                self.gl_stream_begin(target_id, w, h, backend, attrs, sx, sy);
             }
         }
         let stream = self
@@ -658,6 +658,13 @@ impl MutationStore {
     /// intern 一段字节（buffer 数据 / 纹理像素 / shader 源码 UTF-8），
     /// 返回 payload 用的 range id（内容寻址去重）。
     pub fn gl_stream_intern(&mut self, target_id: &str, data: Vec<u8>) -> anyhow::Result<u32> {
+        // 与 gl_stream_emit 同一重开语义：帧被清而流头还在（configure 前
+        // 的 fallback 资源 intern）时按头自动重开。
+        if self.gpu_streams.iter().all(|s| s.target_id != target_id) {
+            if let Some(&(w, h, backend, attrs, sx, sy)) = self.gl_stream_headers.get(target_id) {
+                self.gl_stream_begin(target_id, w, h, backend, attrs, sx, sy);
+            }
+        }
         let stream = self
             .gpu_streams
             .iter_mut()

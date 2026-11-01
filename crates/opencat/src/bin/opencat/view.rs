@@ -170,7 +170,7 @@ fn window_handle(window: &Window) -> Result<WindowHandle> {
     {
         let display = match window
             .display_handle()
-            .map_err(|e| anyhow!("display handle unavailable: {e}"))
+            .map_err(|e| anyhow!("display handle unavailable: {e}"))?
             .as_raw()
         {
             RawDisplayHandle::Xlib(handle) => handle

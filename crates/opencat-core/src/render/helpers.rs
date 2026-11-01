@@ -2434,20 +2434,38 @@ pub(crate) fn lower_canvas_op(
     match op {
         CanvasOp::Op(canonical) => execute_draw_op(b, canonical, state)?,
         // `ctx.drawImage`：编码字节 intern 进帧字节表，发标准 `ImageRect`。
-        CanvasOp::Image { bytes, src, dst } => {
+        // drawImage 参与浏览器 alpha 合成（heatmap 逐点 globalAlpha 图章）：
+        // globalAlpha<1 时 intern 带 alpha 的 SrcOver 漆——Skia 的
+        // drawImageRect 会把漆 alpha 乘到图像上；globalAlpha=1 不发漆，
+        // 保持无漆快路径。
+        CanvasOp::Image { bytes, src, dst, alpha } => {
             let data = b.intern_bytes(bytes);
+            let paint = (*alpha < 1.0).then(|| {
+                b.intern_paint(crate::canvas::paint::PaintSpec {
+                    fill: crate::canvas::paint::FillSpec::Solid([1.0, 1.0, 1.0, *alpha]),
+                    style: crate::canvas::paint::PaintStyle::Fill,
+                    stroke: None,
+                    anti_alias: true,
+                    blend_mode: crate::canvas::paint::BlendMode::SrcOver,
+                    image_filter: None,
+                    color_filter: None,
+                    mask_filter: None,
+                    path_effect: None,
+                })
+            });
             b.push(DrawOp::ImageRect {
                 image: ImageRef::Encoded { data },
                 src: *src,
                 dst: *dst,
-                paint: None,
+                paint,
             });
         }
         // `putImageData`：像素直写——intern Src 混合漆（不做 alpha 合成）
-        // 后发标准 `ImageRect`。
+        // 后发标准 `ImageRect`。fill 必须不透明：Skia 的 drawImageRect 会把
+        // 漆的 alpha 乘到图像上，透明 fill 等于整图消失（heatmap 白图根因）。
         CanvasOp::PutImage { image, dst } => {
             let paint = b.intern_paint(crate::canvas::paint::PaintSpec {
-                fill: crate::canvas::paint::FillSpec::Solid([0.0, 0.0, 0.0, 0.0]),
+                fill: crate::canvas::paint::FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
                 style: crate::canvas::paint::PaintStyle::Fill,
                 stroke: None,
                 anti_alias: false,

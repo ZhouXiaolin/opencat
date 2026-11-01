@@ -367,6 +367,27 @@ fn raster_canvas(
     rv.set_int32(rgba.len() as i32);
 }
 
+/// `__opencatOffscreenReset(id)` — 浏览器 width/height 赋值语义的清流端：
+/// 丢弃该离屏画布的持久命令流（配合 JS 侧 raster 缓存失效，见 dom_api 的
+/// width/height setter）。
+fn offscreen_canvas_reset(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let _ = rv;
+    let Some(state) = native_state(scope) else {
+        throw(scope, "offscreenReset: realm native state missing");
+        return;
+    };
+    let id = args.get(0).to_rust_string_lossy(scope);
+    let Ok(mut store) = state.store.lock() else {
+        throw(scope, "offscreenReset: store lock poisoned");
+        return;
+    };
+    store.reset_offscreen_canvas(&id);
+}
+
 /// `__opencatRasterCanvasPNG(id, w, h, out)` — offscreen canvas → PNG bytes.
 ///
 /// Same rasterization as `raster_canvas`, but the caller gets an encoded PNG
@@ -798,6 +819,9 @@ impl JsContext for V8JsContext {
             let raster_png = Function::new(scope, raster_canvas_png)
                 .ok_or_else(|| anyhow!("v8: failed to create __opencatRasterCanvasPNG"))?;
             set_global(scope, "__opencatRasterCanvasPNG", raster_png.into())?;
+            let oreset = Function::new(scope, offscreen_canvas_reset)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatOffscreenReset"))?;
+            set_global(scope, "__opencatOffscreenReset", oreset.into())?;
 
             // GL stream / asset / image natives (binary fast paths, same shape
             // as the two above).

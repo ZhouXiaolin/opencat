@@ -23,6 +23,30 @@ import { Renderer } from '@antv/g-canvaskit';
 import { Renderer as Renderer2D } from '@antv/g-canvas';
 import { Renderer as RendererSVG } from '@antv/g-svg';
 import { Renderer as RendererWebGL } from '@antv/g-webgl';
+import { Renderer as RendererWebGPU } from '@antv/g-webgpu';
+import { Canvas as GLiteCanvas } from '@antv/g-lite';
+
+// GLSL→WGSL 编译器（wasm-bindgen 产物）的本地路径：默认指 unpkg CDN，
+// 离线必须覆盖。引擎侧 asset reader 以 bundle 目录为 base，此相对路径
+// 按 corpus 布局（dist/ 与 node_modules/ 同父目录）写死；其它布局
+// （scripts/template 的 examples/<dir>/dist）须按各自 base 自行供给
+// wasm，否则 webgpu 渲染器初始化 fetch 失败（fail-loud 可见）。ref 腿
+// （ref/entry.mjs）自行传页面绝对路径，不经此常量。
+var G_WEBGPU_WASM_PATH = '../node_modules/@antv/g-device-api/dist/pkg/glsl_wgsl_compiler_bg.wasm';
+
+// webgl 分支的绘制全部经过 g-lite Canvas.render。浏览器里空场景帧落在
+// initAsync 未落定之前（inited=false 直接空转）；我们的 init 同步完成，
+// g-webgl 会用空场景走真帧，RenderGraph 在 beginGraphBuilder 里断言
+// currentGraph === null 后卡死，后续每帧都抛同一条 assert。跳过空场景
+// 帧与浏览器观察到的顺序等价。
+if (globalThis.OC_G2_RENDERER === 'webgl' || globalThis.OC_G2_RENDERER === 'webgpu') {
+    const ocRender = GLiteCanvas.prototype.render;
+    GLiteCanvas.prototype.render = function () {
+        const root = this.document && this.document.documentElement;
+        if (root && root.childNodes.length === 0) return;
+        return ocRender.apply(this, arguments);
+    };
+}
 
 class Chart extends G2Chart {
     constructor(config) {
@@ -39,10 +63,20 @@ class Chart extends G2Chart {
         }
         // autoFit 读的是浏览器容器 clientWidth；离线面没有真布局，统一
         // 固定尺寸（与参考侧 harness 的容器同大）。
+        // webgl 不再强制 960x540：引擎侧 GL drawingBuffer 已改为读 canvas
+        // 元素的 width/height 内容属性（dom_api/webgl_api 尺寸透传），
+        // chart 的 720x720 由宿主 canvas 跟随。
         if (next.autoFit && !next.width) {
             next.width = 960;
             next.height = 540;
             next.autoFit = false;
+        }
+        // heatmap 一类 mark 需要真像素画布（模板/调色板/密度场 + toDataURL）。
+        // 不传 createCanvas 时 G2 回落到 g-lite document.createElement——引擎里
+        // 那是显示对象不是画布。统一注入：返回宿主 document 的 canvas 元素
+        // （引擎侧是影子离屏画布，浏览器侧是真 DOM canvas，语义一致）。
+        if (!next.createCanvas) {
+            next.createCanvas = () => globalThis.document.createElement('canvas');
         }
         if (!next.renderer) {
             const mode = globalThis.OC_G2_RENDERER;
@@ -59,6 +93,8 @@ class Chart extends G2Chart {
                 next.renderer = new RendererSVG(size);
             } else if (mode === 'webgl') {
                 next.renderer = new RendererWebGL(size);
+            } else if (mode === 'webgpu') {
+                next.renderer = new RendererWebGPU({ shaderCompilerPath: G_WEBGPU_WASM_PATH });
             } else {
                 next.renderer = new Renderer(size);
             }
@@ -69,6 +105,8 @@ class Chart extends G2Chart {
         // 元素创建即终态。
         next.animate = false;
         super(next);
+        // 批量 harness（g2-batch.jsx）的收尾强制帧靠它拿到 chart 引用。
+        globalThis.__ocLastChart = this;
     }
 
     interaction() { return this; }
@@ -113,10 +151,39 @@ class Chart extends G2Chart {
                 try {
                     const rc = this.getContext().canvas.context.renderingContext;
                     if (rc && rc.renderReasons && rc.renderReasons.add) rc.renderReasons.add(0);
+                    // webgl/webgpu 分支没有宿主 rAF 渲染循环，推钟/置脏后必须
+                    // 手动驱动一帧，否则终态永远上不了 GPU 流。
+                    if (globalThis.OC_G2_RENDERER === 'webgl' || globalThis.OC_G2_RENDERER === 'webgpu')
+                        this.getContext().canvas.render();
                 } catch (e) { /* canvas 未建好则由主循环自然重绘 */ }
+            };
+            // play 的时机不可预知（G2 orchestration 是长 promise 链）——把
+            // stub 安装放进每轮重试：canvas/timeline 在头几轮才就绪（构造期
+            // 安装会 throw 被 catch 吞掉，playCount 一直为 0，动画走真
+            // timeline 且 tick 不推进，fadeIn 停在 opacity 0——heatmap 出白
+            // 图的根因）。装上后 animate 的 play 直接 resolve 终态。
+            const ensurePlayStub = () => {
+                try {
+                    const tl = this.getContext().canvas.document.timeline;
+                    if (tl && !tl.__ocPlayStubbed) {
+                        tl.__ocPlayStubbed = true;
+                        tl.play = function () {
+                            const finished = Promise.resolve();
+                            return {
+                                finished,
+                                cancel() {},
+                                currentTime: 0,
+                                startTime: 0,
+                                playState: 'finished',
+                                effect: null,
+                            };
+                        };
+                    }
+                } catch (e) { /* canvas/timeline 未就绪，下一轮重试 */ }
             };
             let t = 0;
             for (let round = 0; round < 8; round++) {
+                ensurePlayStub();
                 for (let i = 0; i < 15; i++) globalThis.__ocFlushRaf();
                 t += 10000;
                 globalThis.__ocSetClock(t);
@@ -130,6 +197,7 @@ class Chart extends G2Chart {
             // idempotent).
             promise.then(() => {
                 for (let round = 0; round < 4; round++) {
+                    ensurePlayStub();
                     for (let i = 0; i < 15; i++) globalThis.__ocFlushRaf();
                     t += 10000;
                     globalThis.__ocSetClock(t);
@@ -137,32 +205,8 @@ class Chart extends G2Chart {
                 }
                 for (let i = 0; i < 3; i++) globalThis.__ocFlushRaf();
             }).catch(() => {});
-            // play 的时机不可预知（G2 orchestration 是长 promise 链，且其
-            // render promise 在引擎里可能永不 resolve）——直接 hook
-            // timeline.play：动画一挂上就安排一程推钟，把 startTime 定格在
-            // play 时刻的动画推过 duration。同批 play 只安排一次。
-            try {
-                const tl = this.getContext().canvas.document.timeline;
-                tl.play = function (target, kf, opts) {
-                    // 不播动画（stub animation）：G2 的 animate:false 在
-                    // createAnimationFunction 里被 `animation ||
-                    // defaultAnimation` 击穿（type:null 触发 shape 默认
-                    // fadeIn），关不干净；而动画 tick 在离线链路上不写值
-                    // （推钟/kf 改终值后渲染面 strokeOpacity 仍停在初值）。
-                    // play 前 shape 样式就是终态（fadeIn 的 kf[1] 取自
-                    // shape 当前值），跳过 play 即保持终态。finished 直接
-                    // resolve 让 orchestration 继续。
-                    const finished = Promise.resolve();
-                    return {
-                        finished,
-                        cancel() {},
-                        currentTime: 0,
-                        startTime: 0,
-                        playState: 'finished',
-                        effect: null,
-                    };
-                };
-            } catch (e) { /* canvas 尚未建好则放弃兜底（动画本就走主循环） */ }
+            // （旧版一次性 tl.play stub 安装已并入上方 ensurePlayStub：构造
+            // 期 canvas 未就绪会 throw 被吞，装不上还误报成功。）
         }
         return promise;
     }

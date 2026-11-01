@@ -38,6 +38,8 @@ pub mod win32;
 pub mod session;
 pub mod compositor;
 pub mod stream_executor;
+/// WebGPU 命令流执行器（`wgpu_opcode` → wgpu crate 一对一映射）。
+pub mod wgpu_executor;
 
 pub use registry::{TextureId, TextureRegistry};
 

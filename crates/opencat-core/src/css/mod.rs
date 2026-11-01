@@ -82,6 +82,27 @@ pub struct CssEngine {
     ctx: EvalContext,
 }
 
+/// UA 兜底样式表：HTML 语义标签的浏览器默认字形（字号/字重/斜体）。
+/// 版式零漂移优先——不引入浏览器默认 margin（与既有 p 约定一致），
+/// 间距一律由作者 class/inline 提供。层叠时整表压进 layer 0，
+/// 作者规则（unlayered 或任何 @layer）都压过它。
+const UA_CSS: &str = concat!(
+    "h1 { font-size: 32px; font-weight: 700; }\n",
+    "h2 { font-size: 24px; font-weight: 700; }\n",
+    "h3 { font-size: 18.72px; font-weight: 700; }\n",
+    "h4 { font-size: 16px; font-weight: 700; }\n",
+    "h5 { font-size: 13.28px; font-weight: 700; }\n",
+    "h6 { font-size: 10.72px; font-weight: 700; }\n",
+    "b, strong { font-weight: 700; }\n",
+    "i, em { font-style: italic; }\n",
+);
+
+fn ua_sheet() -> &'static CssStylesheet {
+    use std::sync::OnceLock;
+    static SHEET: OnceLock<CssStylesheet> = OnceLock::new();
+    SHEET.get_or_init(|| CssStylesheet::parse(UA_CSS).expect("内置 UA 样式表解析失败"))
+}
+
 impl CssEngine {
     pub fn from_css_text(css: &str, ctx: EvalContext) -> anyhow::Result<Self> {
         Ok(Self {
@@ -95,7 +116,16 @@ impl CssEngine {
     /// `tag` 是节点对应的 HTML 标签名（div/text→span 等），供元素选择器
     /// 匹配；`element_id` 供 `#id` 选择器匹配。两个都可以为空串。
     pub fn compute_node_style(&self, class_name: &str, element_id: &str, tag: &str) -> NodeStyle {
-        let matched = cascade::match_rules(&self.sheet, class_name, element_id, tag);
+        let mut matched = cascade::match_rules(&self.sheet, class_name, element_id, tag);
+        // UA 兜底层压进 layer 0：作者规则（unlayered = usize::MAX 或任何
+        // 显式 @layer）在层叠键上天然压过它，同 specificity 时 `text-4xl`
+        // 这类作者字号照常覆盖 h2 的 UA 字号。
+        let mut ua = cascade::match_rules(ua_sheet(), class_name, element_id, tag);
+        for decl in &mut ua {
+            decl.layer = 0;
+        }
+        matched.extend(ua);
+        let matched = cascade::sort_and_dedup(matched);
         let mut style = NodeStyle {
             id: element_id.to_string(),
             ..NodeStyle::default()

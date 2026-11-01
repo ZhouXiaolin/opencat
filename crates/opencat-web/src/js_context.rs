@@ -124,6 +124,34 @@ impl JsContext for WebJsContext {
         );
         natives.push(put.into_js_value());
 
+        let native_canvas_store = self.store.clone();
+        let native_canvas = Closure::wrap(Box::new(
+            move |a: JsValue,
+                  b: JsValue,
+                  c: JsValue,
+                  d: JsValue,
+                  e: JsValue,
+                  f: JsValue,
+                  g: JsValue|
+                  -> JsValue {
+                let args = js_sys::Array::new();
+                for v in [a, b, c, d, e, f, g] {
+                    args.push(&v);
+                }
+                record_native_canvas(&native_canvas_store, &args);
+                JsValue::UNDEFINED
+            },
+        )
+            as Box<
+                dyn FnMut(JsValue, JsValue, JsValue, JsValue, JsValue, JsValue, JsValue) -> JsValue,
+            >);
+        let _ = js_sys::Reflect::set(
+            &global,
+            &JsValue::from_str("__opencatRecordNativeCanvas"),
+            native_canvas.as_ref().unchecked_ref(),
+        );
+        natives.push(native_canvas.into_js_value());
+
         let read = Closure::wrap(Box::new(
             |a: JsValue,
              b: JsValue,
@@ -203,6 +231,39 @@ fn put_image_data(store: &Rc<RefCell<MutationStore>>, args: &JsValue) {
     // Same semantics as the native fast path: putImageData is a direct pixel
     // write (Src ImageRect), not a generated image registration.
     store.borrow_mut().record_frame_put_image(
+        &node_id,
+        id,
+        x as f32,
+        y as f32,
+        w as u32,
+        h as u32,
+        pixels.to_vec().into(),
+    );
+}
+
+/// `__opencatRecordNativeCanvas(nodeId, key, pixels, x, y, w, h)`.
+///
+/// Web native-GL mode: the browser executed the composition's real WebGL2
+/// calls, and the frame-end hook read the drawing buffer back. Register it
+/// through the normal generated-image channel (the draw op sits on the canvas
+/// node, so the element's stacking/opacity still applies).
+fn record_native_canvas(store: &Rc<RefCell<MutationStore>>, args: &JsValue) {
+    let node_id = str_arg(args, 0);
+    let key = str_arg(args, 1);
+    let Some(pixels) = bytes_arg(args, 2) else {
+        web_sys::console::error_1(&JsValue::from_str(
+            "recordNativeCanvas: `pixels` must be a Uint8Array",
+        ));
+        return;
+    };
+    let (x, y, w, h) = (
+        num_arg(args, 3),
+        num_arg(args, 4),
+        num_arg(args, 5),
+        num_arg(args, 6),
+    );
+    let id = opencat_core::ir::GeneratedImageId::from_key(&key);
+    store.borrow_mut().record_frame_generated_image(
         &node_id,
         id,
         x as f32,

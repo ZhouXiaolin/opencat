@@ -44,6 +44,13 @@
         setWorkerBaseUrl,
       } from '/wasm/opencat.js';
 
+      // The oracle runs inside a real Chrome with WebGL2. Composition canvases
+      // use a real OffscreenCanvas context there instead of the command
+      // recorder: the browser executes three's original GL calls and the
+      // frame-end hook reads the drawing buffer into the generated-image
+      // channel.
+      globalThis.__ocNativeWebGL = true;
+
       const canvas = document.getElementById('frame');
       // Scene-cut detection canvas. Created HERE at page load, not inside
       // renderFramesToMp4: after open_design the wasm realm patches the main

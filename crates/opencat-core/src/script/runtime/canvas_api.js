@@ -2438,6 +2438,13 @@
             return ctx.surface(ww, hh);
         };
     }
+    // Keep the browser's real OffscreenCanvas reachable: the WebGL recorder
+    // facade below replaces the global, but the web host can run a real GL
+    // context on the composition canvas (standard HTML semantics) and must
+    // still be able to allocate the backing OffscreenCanvas.
+    if (typeof globalThis.OffscreenCanvas === 'function' && !globalThis.__ocRealOffscreenCanvas) {
+        globalThis.__ocRealOffscreenCanvas = globalThis.OffscreenCanvas;
+    }
     globalThis.OffscreenCanvas = OffscreenCanvas;
 
     // ── Official surface entry: CK.MakeCanvasSurface(id) ─────────────

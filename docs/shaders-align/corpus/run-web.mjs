@@ -49,18 +49,31 @@ for (const name of caseNames) {
     const t0 = Date.now();
 
     // web wasm 腿出 mp4（页内 WebCodecs 编码 + VUI tag）。
-    run(WEB_EXE, [
-        bundle,
-        '--base-dir', CORPUS,
-        '--out', webMp4,
-    ], { env: WEB_ENV });
+    // 韧性：单案失败记 RENDER-FAIL 继续，不中断批次（Ascii 曾 exit 2 中断全量）。
+    let rendered = true;
+    try {
+        run(WEB_EXE, [
+            bundle,
+            '--base-dir', CORPUS,
+            '--out', webMp4,
+        ], { env: WEB_ENV });
+    } catch (e) {
+        console.error(`[web:${name}] render failed: ${e.message}`);
+        rendered = false;
+    }
+    if (!rendered) { results.push({ name, p8: 1, pass: false, ms: Date.now() - t0, fail: 'render' }); continue; }
 
     // k3diff：web vs ref（双侧 headless Edge 真 Dawn，同 adapter）。
     mkdirSync(diffDir, { recursive: true });
-    run('python', [join(REPO, 'tools', 'k3diff.py'), refMp4, webMp4, '--out', diffDir]);
-
-    const summary = JSON.parse(readFileSync(join(diffDir, 'summary.json'), 'utf8'));
-    const p8 = summary.agg.avg_p8;
+    let p8;
+    try {
+        run('python', [join(REPO, 'tools', 'k3diff.py'), refMp4, webMp4, '--out', diffDir]);
+        p8 = JSON.parse(readFileSync(join(diffDir, 'summary.json'), 'utf8')).agg.avg_p8;
+    } catch (e) {
+        console.error(`[web:${name}] diff failed: ${e.message}`);
+        results.push({ name, p8: 1, pass: false, ms: Date.now() - t0, fail: 'diff' });
+        continue;
+    }
     results.push({ name, p8, pass: p8 <= 0.02, ms: Date.now() - t0 });
     console.log(`[web:${name}] avg_p8=${(p8 * 100).toFixed(4)}% ${p8 <= 0.02 ? 'PASS' : 'FAIL'}`);
 }

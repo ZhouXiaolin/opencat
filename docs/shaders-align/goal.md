@@ -239,12 +239,74 @@ fallback（全 α=255 语料对快照不敏感，fallback 内含补偿公式）�
 - wasm facade 重建：`cd crates/opencat-web/web && bun run build:wasm &&
   bun run build:lib`（wasm-pack 已 `cargo install wasm-pack --locked`）。
 
+## 批次 S6+S8+S9（2026-11-02）：registry 全量第一批，138 案
+
+范围拍板：registry 200 组件分解——已测 19（S1-S5）→ 本批新增 119（S6 纯
+fragment 30 / S8 requiresChild filter 76 / S9 Transitions 13）= 138；
+动画族 44 留 S7；Interactive/媒体/Utilities 留 S10。生成器
+`gen-presets-batch.mjs`：registry → presets 片段（props 一律显式填
+registry default；散列预筛 = core chunk grep S3 判据，Crystal/Goo 出列；
+S8 child=LinearGradient 基线底图；S9 双 child + RadialGradient，
+progress=0.5 中间态）。
+
+结果：engine 腿 **135/135 可判全 PASS**（出列 3 案不计）；web 腿
+**134/135 可判全 PASS**（首批 49 + 缺口批 85；可判集 = 138 − 出列 3 −
+IsometricCubes 与 FilmGrain 两案见下）。首批曾被 Ascii render exit 2
+中断——runner 已韧性化，单案失败记 RENDER-FAIL 继续不中断批次。
+
+### 出列五案（定性与判据）
+
+1. **Particles**（engine 12.36%）：TypeGPU compute 力场（force.turbulence，
+   seedScale 997）→ FMA 收缩分歧内在极限①，同 RD 无约束版。compute
+   语料选型时按 S3 判据预查。
+2. **Ascii**（engine 5.55% 全白；web 腿 render exit 2）：engine 侧
+   glyph atlas 缺口——引擎工程债非协议面，出列挂账引擎能力清单。
+3. **Halftone**（engine mp4 2.51% / PNG 22.2%）：亮度→点直径阈值映射对
+   child 亮度微差是放大器——中心区放大对比实锤 engine 点径系统性大
+   ~2 倍（ref 点小而实）；frequency 40 实测 48.37% 更差（粗点阵放大更
+   刺眼），调参不可关断。mp4 2.51% 是编码糊化假收敛，以 PNG 22.2% 为
+   准出列。
+4. **IsometricCubes**（web 2.2865%，engine PASS）：线条 AA 半像素差 ×
+   全屏密集线网（cells=6）面积放大——放大对比结构/配色/随机面逐位一致。
+   **thickness 1→2 关闭面实验证伪**（web 2.58% 反向，粗线绝对差更大），
+   无参数面可关，出列；参数已回滚 registry default（thickness=1）。
+5. **FilmGrain**（web 6.5492%，engine 0.0000% PASS）：**对拍口径债非渲
+   染分歧**——web 腿 mp4 走页内 WebCodecs 编码 vs ref ffmpeg crf0，编码
+   器不同源 × 全屏高频噪声。四证据：数值常量两 bundle 逐位同、通道差
+   G<R<B = 4:2:0 色度半采样特征、engine 同渲染 ffmpeg 链 0.0000% 背书、
+   max diff 20 + 均值零偏（渲染级分歧会 30+ 且漂移）。渲染无账可挂；
+   同形态案再犯时按通道差形态先查编码腿。
+
+### 预筛盲区教训（共享 chunk）
+
+isHashy 只 grep 组件级 chunk，std-DqXMpDa3.js 共享 chunk 里 17 处
+`43758.5453` 不被任何组件命中。FilmGrain 最终定性非散列（见上），但盲
+区成立：今后组件过筛须连带其 import 的 std/common chunk 一起查（或实测
+engine 腿 PASS 间接排除）。
+
+### 基建（保留）
+
+- `gen-presets-batch.mjs`：registry → presets 生成器（幂等，tested 集
+  合吃 presets 全案；manualOut 实测出列表固化在生成器，重生成不回带）。
+- `run-web.mjs` 韧性化：render/diff 失败记 RENDER-FAIL/DIFF-FAIL 继续。
+- 后台批量 env 教训：run-all 的 engine 腿要 `OPENCAT_BIN`（release 目录
+  曾被清，debug 腿显式指 target/debug/opencat.exe）；run-web 的
+  `OPENCAT_WEB_BIN` 同理——release exe 不存在时 spawnSync 返回
+  status null（run-web 报 "exit null"），不是浏览器互杀。管道 `| tail`
+  会吃掉退出码——判成败看日志内容不看 exit code。
+- web-render 一次性 PNG 探针：`web-eval` bin（oracle sweep 通道，
+  drawFramePng POST /oracle-blob），本次未用通（路径错误未修），mp4 口
+  径债案如需 PNG 实锤先修它。
+
 ## 后续批次（已拍板范围）
 
 - S2 动画时钟全案 ✅ 2026-11-02。
 - S3 扩语料（compute 系出列）✅ 2026-11-02。
 - S4 compute pass 协议（录制面协议级缺失）✅ 2026-11-02。
 - S5 web 腿（原始代码直跑）✅ 2026-11-02（19/19 PASS，rd 豁免撤销）。
+- S6+S8+S9 registry 全量第一批 ✅ 2026-11-02（138 案，三出列）。
+- S7 动画族 44 案（speed 族 + animTime 面；散列案已预筛）。
+- S10 Interactive 15 + 媒体 5（ImageTexture/VideoTexture/Webcam/HTML/Text）。
 - 长期约束：tie 敏感语料对拍必须双侧同 GPU；NVIDIA 驱动 fast-math 是平台事实，
   WGSL 的 IEEE 语义在 NVIDIA 上不可依赖；**跨编译器内在极限两类（FMA 收缩/
   数位提取散列）语料选型时先查 WGSL 源，命中即出列或找关闭面**；**对拍呈现

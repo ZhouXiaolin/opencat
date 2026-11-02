@@ -135,6 +135,8 @@ initialize 的 then 里——微任务 drain 时机在本帧最后一次 effect 
    成斑期）。RD 约束为单帧 + speed 32：种子核纯 IEEE 单步运算逐位一致，
    32 次迭代同时覆盖 ping-pong 两向；团斑形态对 4:2:0 色度可行（稀疏 1px
    点是色度最劣形态，speed 2 单帧 mp4 14.6% vs PNG 0.0000% 的教训）。
+   （S5 更正：web 腿 rd 的 76.5% 曾误归此类拍板豁免——实为回读呈现链语义
+   差，已在 S5 根因③修复，0.0363% PASS。）
 2. **数位提取散列**：`fract(sin(dot(p,(127.1,311.7)))*43758.5453)`——
    sin 参数 1 ulp × 43758 → fract 相位跳变 → 特征点全场重排。voronoi
    （无 jitter 面）/worley-anim（漂移即抖动路径）出列；worley-noise 保留
@@ -153,12 +155,98 @@ initialize 的 then 里——微任务 drain 时机在本帧最后一次 effect 
 - 运维：改 presets.mjs 必须 `bun ref/build.mjs`（ref 腿吃预构建 bundle）；
   reshoot 前清 `ref/out/<案>`（stale PNG 污染计数）。
 
+## 批次 S2（2026-11-02）：动画时钟全案，19/19 PASS
+
+包内动画面盘点：组件级 `speed` 消费方 = PerlinNoise / SimplexNoise / Plasma /
+Stripes（Worley/Voronoi 的 animTime 路径=散列出列，见 S3 内在极限②；其余
+组件无 time uniform，静态）。S2 补齐三案：**simplex-anim**（30f）、
+**stripes-anim**（30f）、**noise-anim-long**（90f，长钟累加验证）。
+
+结果：19/19 PASS，新增三案全 **0.0000%**。推钟协议（时间只经 deltaSeconds、
+两侧全禁 rAF、首绘在 initialize().then）在 4 个 speed 族 + 90 帧累加下零漂移
+零跳步——S1 协议升格为全量验证完毕。
+
+## 批次 S5（2026-11-02）：web 腿（原始代码直跑），19/19 PASS
+
+链路：opencat-web-render（headless Edge + oracle 页）→ wasm facade realm 跑
+bundle 原始代码（shaders 库整体执行，全真 Dawn）；`webgpu_api.js` 装前端面
+NATIVE_WEBGPU：不装任何录制面，只把 `canvas.getContext('webgpu')` 路由到真
+OffscreenCanvas 的真上下文（薄 facade 只转发交换链语义），帧末把呈现结果
+回读进生成图通道 → WebCodecs 编码 mp4 → k3diff vs ref。
+
+结果：**19/19 PASS**——12 案 0.0000%；动画族 simplex-anim/plasma-anim
+0.0000%、stripes-anim 0.0108%；亚像素 AA 底噪案 star 0.1146% / conic
+0.2811% / radial 0.4313% / stripes 0.0600% / truchet 0.9188%；
+reaction-diffusion **0.0363%**（原"混沌内在极限豁免"结论已证伪撤销，见根
+因③）。
+
+### 根因①（oracle 侧，已修）：ANGLE 旗标改变 Dawn adapter 选取
+
+`--use-gl=angle --use-angle=swiftshader` 组会让 Dawn 拿 SwiftShader 软适配
+器（与 ref 腿硬 adapter 不同源）。star 10.48% → 删旗标换
+`--enable-unsafe-webgpu`（headless 下 navigator.gpu 显式开启）后 0.1146%。
+对拍两侧必须同 WebGPU 后端（同 dx12 核显）。
+
+### 根因②（oracle 侧，已修）：warmup 探针「零注册假归零」→ 单帧案黑帧
+
+首帧前 requestAdapter→getContext 的 IPC 是毫秒-百毫秒级浏览器任务；
+`__ocNativeWebGpuDrain()` 在 `nativeCanvases` 零注册时也返回 0——泵循环
+30 轮就假归零 break，重绘时 `inited=false` 不画 → 帧末回读空交换链。
+blend/checkerboard/simplex-noise 三案 mp4 全黑（1065 字节）；动画案帧 0
+黑后自愈成 ~3.3%（=1/30，S3 根因③见过的 3.33% 即此症状）。修复 = 泵循环
+最短 150 轮才允许归零 break（600 轮上限不变）。
+
+### 根因③（回读链，已修）：drawImage 快照呈现语义 ≠ ref 直读链
+
+ref 腿（ref.html）读回 = copyTextureToBuffer 直读交换链纹理**原始字节**
+（BGRA→RGBA swap）→ putImageData 直灌 → 白纸 drawImage → toDataURL。
+web 腿旧实现 = `drawImage(offscreen)` 同步快照 + getImageData——快照走
+Chrome 合成路径（premultiplied 语义 + unpremultiply 往返 + 色彩管理），
+与直读链系统性不同。α=255 语料两侧退化相同（18 案全过），reaction-diffusion
+（palette v→alpha，α<1）两侧分叉 76.5%——曾据此拍板「混沌跨编译器内在极
+限，不修豁免」，**已证伪**：团斑位置逐一对齐（初始态/演化轨迹一致），分歧
+纯在回读呈现；且码率 8M→80M 实验无变化（编码腿无罪）。
+
+修复 = 回读主路逐环节复刻 ref（configure 补 COPY_SRC、帧末同步发起
+copyTextureToBuffer——OffscreenCanvas 无 rAF 即无帧边界，present 不发生纹
+理仍有效；mapAsync 由 warmup/encode 循环的宏任务泵 resolve；帧末消费原始
+字节走同构末段），`getCurrent` 计数做逐帧变化检测：新绘制到来作废旧拷贝、
+对当前帧纹理重发起（发起帧不产出记录，宿主泵后同帧重绘——done 幂等守卫
+跳过渲染——消费当帧字节）。drawImage 快照降级为 readback 未就绪帧的
+fallback（全 α=255 语料对快照不敏感，fallback 内含补偿公式）。手算预乘模
+型路线废弃：一次混白/unpremultiply/二次预乘三版 mean 亮度 223.5/212.8/
+192.2 没有一版落上 ref 的 206.0——语义由真 canvas 环节自己决定，不手算。
+
+### 附带修复
+
+- `dom_api.js`：createElement('canvas') 的 width/height 访问器补
+  `configurable: true`——离屏标记会用 getter/setter 重定义同属性，不标
+  configurable 全部 canvas 路径当场 TypeError。
+- `gen-cases.mjs` static 模板 then 尾写 done：web 腿 warmup 的重绘踢脚会
+  绕过「effect 写 done」的幂等守卫多调一次 renderFrame——状态机类案
+  （ReactionDiffusion compute 迭代）多演化 32 次（实测 93.8% 那轮）。写
+  done 后 renderFrame 恒 1 次与 ref 协议同构。anim 模板 pushed 绝对计数
+  天然免疫（重绘帧 while 补 0 帧）。
+- msedgedriver 缺失（Temp 被清）：唯一通路
+  `msedgedriver.microsoft.com/<Edge版本>/edgedriver_win64.zip`。
+
+### 基建（保留）
+
+- `run-web.mjs`：web 批量 runner（bundle → opencat-web-render → k3diff vs
+  复用 ref mp4）。debug 腿可用 `OPENCAT_WEB_BIN` 指向
+  `target/debug/opencat-web-render.exe`（release 目录曾整目录清理，
+  ffmpeg-sys 需 `FFMPEG_DIR=C:/ffmpeg-9.0.2/ffmpeg-9.0.2-full_build-shared`）。
+- wasm facade 重建：`cd crates/opencat-web/web && bun run build:wasm &&
+  bun run build:lib`（wasm-pack 已 `cargo install wasm-pack --locked`）。
+
 ## 后续批次（已拍板范围）
 
-- S2 动画时钟全案（推钟协议全量验证）——S3 动画案已部分覆盖，余量待估。
+- S2 动画时钟全案 ✅ 2026-11-02。
 - S3 扩语料（compute 系出列）✅ 2026-11-02。
 - S4 compute pass 协议（录制面协议级缺失）✅ 2026-11-02。
-- S5 web 腿（原始代码直跑）。
+- S5 web 腿（原始代码直跑）✅ 2026-11-02（19/19 PASS，rd 豁免撤销）。
 - 长期约束：tie 敏感语料对拍必须双侧同 GPU；NVIDIA 驱动 fast-math 是平台事实，
   WGSL 的 IEEE 语义在 NVIDIA 上不可依赖；**跨编译器内在极限两类（FMA 收缩/
-  数位提取散列）语料选型时先查 WGSL 源，命中即出列或找关闭面**。
+  数位提取散列）语料选型时先查 WGSL 源，命中即出列或找关闭面**；**对拍呈现
+  语义的任何分岔先怀疑回读链（mp4 口径、快照合成、直读字节），PNG 直出或
+  逐环节同构复刻再下结论**。

@@ -16,7 +16,7 @@ const CASE = CASES["noise-anim"];
 
 export default function Composition() {
     useEffect(() => {
-        const st = (globalThis.__ocShadersCase ??= { r: null, ready: false, done: -1 });
+        const st = (globalThis.__ocShadersCase ??= { r: null, ready: false, done: -1, pushed: 0 });
         if (!st.r) {
             const host = document.querySelector('#fx');
             const canvas = document.createElement('canvas');
@@ -28,12 +28,16 @@ export default function Composition() {
             // drain——then 里的首绘（delta 0）同帧进流。首绘必须在 then
             // 里做：微任务 drain 时机在本帧最后一次 effect 之后时，靠
             // effect 铸帧 0 会整帧落空（f0 黑帧）。失败 fail-loud。
+            // 注意 then 只设 ready/首绘，**不写 done**：真 WebGPU 端
+            // （web 腿）onSubmittedWorkDone 是浏览器任务级异步，then 尾
+            // 可能迟到数帧——若它把 done 打回 0，下一帧的补齐循环会重推
+            // 已推过的 delta（钟快 N 帧 → 动画相位恒差）。delta 推进量
+            // 由 pushed 绝对计数（帧 f 的钟恒 = f/FPS，同 ref-entry.mjs）。
             st.r.initialize(canvas)
                 .then(() => {
                     st.ready = true;
                     return st.r.renderFrame({ deltaSeconds: 0 });
                 })
-                .then(() => { st.done = 0; })
                 .catch((e) => globalThis.__ocStderr?.(
                     '[shaders] initialize failed: ' + (e && (e.stack || e.message))));
             return;
@@ -41,15 +45,13 @@ export default function Composition() {
         if (!st.ready) return;
         const f = globalThis.ctx.global.frame;
         if (st.done >= f) return; // 同帧的后续 effect 运行：不重复渲染
-        // 补齐跳号（f=0 已在 then 里绘过，done=0 守卫直接跳过）。
-        while (st.done < f - 1) {
+        // 绝对推进：帧 f 的钟 = f 次 delta（帧 0 的 delta 0 已在首绘里）。
+        // 跳号（f 快进）天然由 while 补齐，与 done 无关。
+        while (st.pushed < f) {
             st.r.renderFrame({ deltaSeconds: 1 / FPS });
-            st.done++;
+            st.pushed++;
         }
-        if (f > 0) {
-            st.r.renderFrame({ deltaSeconds: 1 / FPS });
-            st.done = f;
-        }
+        st.done = f;
     });
     return (
         <div id="root" class="relative w-[960px] h-[540px] overflow-hidden bg-white">

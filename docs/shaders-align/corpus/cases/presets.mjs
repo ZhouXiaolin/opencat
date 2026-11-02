@@ -138,6 +138,31 @@ export const CASES = {
             { type: 'Plasma', id: 'pl1', props: { density: 2, speed: 1, colorA: '#7018be', colorB: '#000000' } },
         ],
     },
+    // ── S2 动画时钟全案：全部 speed 消费方（PerlinNoise/SimplexNoise/
+    // Plasma/Stripes；Worley/Voronoi 的 animTime 路径=散列出列）+ 长钟案
+    // （90 帧累加协议验证）───────────────────────────────────────────
+    'simplex-anim': {
+        frames: 30,
+        anim: true,
+        components: [
+            { type: 'SimplexNoise', id: 'sa1', props: { scale: 3, seed: 7, speed: 1 } },
+        ],
+    },
+    'stripes-anim': {
+        frames: 30,
+        anim: true,
+        components: [
+            { type: 'Stripes', id: 'st2', props: { colorA: '#111827', colorB: '#f9fafb', angle: 30, density: 6, speed: 1 } },
+        ],
+    },
+    // 长钟：90 帧 = 3 秒钟累加，验证推钟协议无漂移/无跳步。
+    'noise-anim-long': {
+        frames: 90,
+        anim: true,
+        components: [
+            { type: 'PerlinNoise', id: 'nl1', props: { scale: 3, seed: 42, speed: 1 } },
+        ],
+    },
     // worley-anim 出列（2026-11-02）：细胞漂移动画本身走 animTime+sin
     // 抖动路径（同 voronoi 散列），关闭动画=静态图，该案无对拍面。
     // ── S4 compute 验收案：Gray-Scott 反应扩散（TypeGPU compute 管线，

@@ -861,8 +861,11 @@ async fn create_session(
             "--disable-dev-shm-usage",
             "--ignore-gpu-blocklist",
             "--enable-unsafe-swiftshader",
-            "--use-gl=angle",
-            "--use-angle=swiftshader",
+            // WebGPU 原生面（shaders 语料 web 腿）：headless 下 navigator.gpu
+            // 需要显式开启；ref 腿（shoot.mjs）同旗标，两侧同 adapter。
+            // 注意不挂 --use-gl/--use-angle：ANGLE/SwiftShader 组会改变 Dawn
+            // 的 adapter 选取，shaders 对拍两侧必须同 WebGPU 后端。
+            "--enable-unsafe-webgpu",
             format!("--window-size={},{}", width.max(1), height.max(1)),
         ]
     });

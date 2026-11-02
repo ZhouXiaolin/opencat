@@ -24,6 +24,279 @@
 
     var ctx = globalThis.ctx;
 
+    // ── native web mode（web 腿"原始代码直跑"，与 webgl_api NATIVE_WEBGL
+    // 同构）─────────────────────────────────────────────────────────
+    // 宿主（test-oracle.html）设 `__ocNativeWebGPU = true` 且 realm 捕获了
+    // 真 OffscreenCanvas 时：不装任何录制面——页面 window 的 navigator.gpu
+    // 本来就是真的（js_sys::eval 落页面全局），requestAdapter/requestDevice/
+    // pipeline 全部真 Dawn；只有 canvas.getContext('webgpu') 需要路由到真
+    // OffscreenCanvas 的真上下文，帧末把呈现结果同步回读进生成图通道
+    // （drawImage→getImageData，全同步——VideoFrame.copyTo/mapAsync 都是
+    // Promise，realm 帧末钩子之后不再排微任务）。
+    var NATIVE_WEBGPU =
+        !!globalThis.__ocNativeWebGPU &&
+        typeof globalThis.__ocRealOffscreenCanvas === 'function';
+
+    if (NATIVE_WEBGPU) {
+        installNativeWebGPU();
+        return;
+    }
+
+    function installNativeWebGPU() {
+        // key → { offscreen, x, y, mirror, mctx }
+        var nativeCanvases = {};
+        // 观察者 stub：shaders lib initialize 会 new ResizeObserver /
+        // IntersectionObserver 并 observe 影子 canvas（realm 对象非真
+        // Element，真构造器直接 TypeError）。引擎 realm 里这两个构造器
+        // 不存在 → lib 的 typeof 守卫跳过。web 原生面对齐该语义：no-op。
+        // 确定性渲染协议下（禁 rAF、时间只经 deltaSeconds），观察者驱动的
+        // 重渲染本就应禁。
+        ['ResizeObserver', 'IntersectionObserver'].forEach(function (name) {
+            var Real = globalThis[name];
+            if (typeof Real !== 'function') return;
+            function Stub() { this._cbs = []; }
+            Stub.prototype.observe = function () {};
+            Stub.prototype.unobserve = function () {};
+            Stub.prototype.disconnect = function () {};
+            globalThis[name] = Stub;
+        });
+
+        function resolveSize(sizeW, sizeH, key) {
+            var width = Number(sizeW) > 0 ? Math.floor(Number(sizeW)) : 0;
+            var height = Number(sizeH) > 0 ? Math.floor(Number(sizeH)) : 0;
+            if (!width || !height) {
+                var box = (typeof __read_box === 'function' && __read_box(key)) || {};
+                if (!width) width = Math.round(Number(box.width) || 0);
+                if (!height) height = Math.round(Number(box.height) || 0);
+            }
+            return [Math.max(1, width), Math.max(1, height)];
+        }
+
+        function getNativeGpuContext(nodeId, sizeW, sizeH, originX, originY) {
+            var key = String(nodeId);
+            var existing = nativeCanvases[key];
+            if (existing) return existing.facade;
+            var wh = resolveSize(sizeW, sizeH, key);
+            var offscreen = new globalThis.__ocRealOffscreenCanvas(wh[0], wh[1]);
+            var real = offscreen.getContext('webgpu');
+            if (!real) {
+                throw new Error("getContext('webgpu') returned null from the native OffscreenCanvas");
+            }
+            // 薄 facade：设备/流水线全真，只转发交换链语义。getCurrentTexture
+            // 返回真 GPUTexture（真 view 进真 render pass）。
+            var facade = {
+                canvas: { id: key },
+                configure: function (config) {
+                    if (!config || !config.device) throw new Error('canvas configure: device required');
+                    // 回读需要 COPY_SRC(0x1)：TypeGPU 的 configureContext 不传
+                    // usage（规范默认 RENDER_ATTACHMENT=0x10）——undefined 也补
+                    // 位。与 ref.html 的 configure hook 同款。
+                    var usage = (config.usage === undefined ? 0x10 : config.usage) | 0x1;
+                    entry.device = config.device;
+                    if (usage !== config.usage) {
+                        var patched = {};
+                        for (var f in config) patched[f] = config[f];
+                        patched.usage = usage;
+                        real.configure(patched);
+                        return;
+                    }
+                    real.configure(config);
+                },
+                unconfigure: function () {
+                    real.unconfigure();
+                },
+                getCurrentTexture: function () {
+                    stats.getCurrent += 1;
+                    var t = real.getCurrentTexture();
+                    entry.tex = t;
+                    return t;
+                },
+                getConfiguration: function () {
+                    return real.getConfiguration ? real.getConfiguration() : null;
+                },
+            };
+            var stats = { getCurrent: 0 };
+            var entry = {
+                offscreen: offscreen,
+                x: Number(originX) || 0,
+                y: Number(originY) || 0,
+                facade: facade,
+                mirror: null,
+                mctx: null,
+                stats: stats,
+                device: null,
+                tex: null,
+                copiedAt: null, // 已发起直读时的 getCurrent 计数（变化检测）
+                readback: null, // 同步发起、泵间 resolve 的拷贝句柄
+                result: null,   // { rgba, w, h } copyTextureToBuffer 原始字节
+            };
+            nativeCanvases[key] = entry;
+            return facade;
+        }
+
+        // 挂载宿主 warmup 探针：还有几个已注册 canvas 未拿到首绘
+        // （getCurrent 未发生）。oracle 页泵事件循环直到归零——真实
+        // requestAdapter/requestDevice 的初始化链是浏览器任务级异步，且
+        // shaders lib 每组件独立 requestAdapter（IPC 毫秒级-百毫秒级），
+        // 固定轮数等不住。
+        globalThis.__ocNativeWebGpuDrain = function () {
+            var pending = 0;
+            for (var k in nativeCanvases) {
+                if (nativeCanvases[k].stats.getCurrent === 0) pending += 1;
+            }
+            return pending;
+        };
+
+        // 挂载宿主 readback 探针：还有几个直读拷贝在 mapAsync 途中（结果
+        // 未落）。oracle 页 encode 循环每帧用它泵宏任务——mapAsync 是
+        // 任务级异步，帧末同步钩子取不到，泵完重绘同帧消费。
+        globalThis.__ocNativeWebGpuReadbackPending = function () {
+            var pending = 0;
+            for (var k in nativeCanvases) {
+                if (nativeCanvases[k].readback && !nativeCanvases[k].result) pending += 1;
+            }
+            return pending;
+        };
+
+        var baseGetContext = ctx.getContext;
+        ctx.getContext = function (nodeId, type, attrs, sizeW, sizeH, originX, originY) {
+            if (String(type) === 'webgpu') {
+                return getNativeGpuContext(nodeId, sizeW, sizeH, originX, originY);
+            }
+            return baseGetContext(nodeId, type, attrs, sizeW, sizeH, originX, originY);
+        };
+
+        // 帧末回读（realm 在微任务/rAF 排空后调用）。两条路：
+        // 主路 = copyTextureToBuffer 直读交换链纹理原始字节（与 ref.html
+        // 的 readback 逐环节同构：BGRA→RGBA byteswap → putImageData 直灌
+        // → 白纸 drawImage → getImageData——呈现语义由真 canvas 环节自己
+        // 决定，不手算模型）。mapAsync 是宏任务：同步发起后由 warmup 泵
+        // 的宏任务边界 resolve（then 自跑），就绪后各帧直接取字节。
+        // 发起时机 = 首个帧末（此刻 submit 已全部完成、present 未发生
+        // —— OffscreenCanvas 无 rAF 推动即无帧边界，纹理仍有效）。
+        // 末路 = drawImage 同步快照（readback 未就绪的帧；全 α=255 语料
+        // 对快照的 unpremultiply 不敏感，α<255 案由下方补偿公式近似）。
+        var frameSeq = 0;
+        var prevFrameEnd = globalThis.__ocNativeCanvasFrameEnd;
+        globalThis.__ocNativeCanvasFrameEnd = function () {
+            if (prevFrameEnd) prevFrameEnd();
+            if (typeof __opencatRecordNativeCanvas !== 'function') {
+                console.error('[oc-wgpu-native] no __opencatRecordNativeCanvas binding');
+                return;
+            }
+            for (var key in nativeCanvases) {
+                var e = nativeCanvases[key];
+                var w = e.offscreen.width;
+                var h = e.offscreen.height;
+
+                // ── 主路：直读交换链纹理 ──────────────────────────────
+                // 本帧有新绘制（getCurrent 推进，renderFrame 又跑过）：
+                // 旧 readback/result 作废，对当前帧纹理重新发起直读。发起
+                // 帧本身不产出记录——宿主泵宏任务（mapAsync resolve）后
+                // 重绘同帧（done 幂等守卫跳过渲染）消费当帧字节。
+                if (e.device && e.tex && e.stats.getCurrent !== e.copiedAt) {
+                    e.result = null;
+                    e.readback = null;
+                    e.copiedAt = e.stats.getCurrent;
+                    var bpr = w * 4;
+                    var bprAligned = Math.ceil(bpr / 256) * 256;
+                    var buf;
+                    try {
+                        buf = e.device.createBuffer({ size: bprAligned * h, usage: 0x1 | 0x8 }); // MAP_READ|COPY_DST
+                        var enc = e.device.createCommandEncoder();
+                        enc.copyTextureToBuffer(
+                            { texture: e.tex },
+                            { buffer: buf, bytesPerRow: bprAligned, rowsPerImage: h },
+                            { width: w, height: h, depthOrArrayLayers: 1 }
+                        );
+                        e.device.queue.submit([enc.finish()]);
+                    } catch (err) {
+                        console.error('[oc-wgpu-native] copyTextureToBuffer failed key=' + key + ': ' + err);
+                        buf = null;
+                    }
+                    if (buf) {
+                        var myReadback = { done: false };
+                        e.readback = myReadback;
+                        buf.mapAsync(0x1).then(function () {
+                            if (e.readback !== myReadback) return; // 已被新帧作废
+                            var src = new Uint8Array(buf.getMappedRange());
+                            var rgba = new Uint8Array(bpr * h);
+                            for (var row = 0; row < h; row++) {
+                                var line = row * bprAligned;
+                                var dst = row * bpr;
+                                for (var p = 0; p < bpr; p += 4) {
+                                    rgba[dst + p] = src[line + p + 2];     // BGRA→RGBA
+                                    rgba[dst + p + 1] = src[line + p + 1];
+                                    rgba[dst + p + 2] = src[line + p];
+                                    rgba[dst + p + 3] = src[line + p + 3];
+                                }
+                            }
+                            buf.unmap();
+                            buf.destroy();
+                            myReadback.done = true;
+                            e.result = { rgba: rgba, w: w, h: h };
+                        }).catch(function (err) {
+                            console.error('[oc-wgpu-native] mapAsync failed key=' + key + ': ' + err);
+                        });
+                        continue; // 本帧无字节：宿主泵后重绘同帧消费
+                    }
+                }
+                if (e.result && e.result.w === w && e.result.h === h) {
+                    // ref.html 同构末段：putImageData 直灌原始字节（premul
+                    // 字节按 straight 语义解释，Chrome 内部自行转换）→
+                    // 白纸 drawImage（α<255 混白）→ getImageData。全部走
+                    // 真 OffscreenCanvas（realm 的 document.createElement
+                    // 产影子元素 + 录制面 2d 桩，语义不通）。
+                    var t = new globalThis.__ocRealOffscreenCanvas(w, h);
+                    t.getContext('2d').putImageData(
+                        new ImageData(new Uint8ClampedArray(e.result.rgba), w, h), 0, 0);
+                    var paper = new globalThis.__ocRealOffscreenCanvas(w, h);
+                    var pctx = paper.getContext('2d');
+                    pctx.fillStyle = '#fff';
+                    pctx.fillRect(0, 0, w, h);
+                    pctx.drawImage(t, 0, 0);
+                    var data = pctx.getImageData(0, 0, w, h);
+                    var rgba = new Uint8Array(data.data.buffer, data.data.byteOffset, data.data.byteLength);
+                    var idkey = 'gpunative:' + key + ':' + w + 'x' + h + ':' + ++frameSeq;
+                    __opencatRecordNativeCanvas(key, idkey, rgba, e.x, e.y, w, h);
+                    continue;
+                }
+
+                // ── 末路：drawImage 同步快照（readback 未就绪） ────────
+                if (!e.mirror || e.mirror.width !== w || e.mirror.height !== h) {
+                    e.mirror = new globalThis.__ocRealOffscreenCanvas(w, h);
+                    e.mctx = e.mirror.getContext('2d', { willReadFrequently: true });
+                }
+                try {
+                    e.mctx.drawImage(e.offscreen, 0, 0);
+                } catch (err) {
+                    console.error('[oc-wgpu-native] drawImage failed key=' + key + ': ' + err);
+                    continue; // 呈现未落（异步竞态）：该帧记缺，fail-loud 由上层判定
+                }
+                var data = e.mctx.getImageData(0, 0, w, h);
+                // 快照额外做一次 unpremultiply（s = B·255/α）——对 ref 腿
+                // 「premul 字节直灌 + 混白」契约（out = B·α/255 + 255-α）做
+                // 补偿：out = s·α²/255² + 255-α，α 写 255。α=255 像素无操作
+                // （热路径零开销）；残留误差 ±1-2 级量化。主路就绪后此路
+                // 只服务全 α=255 语料（公式不触发）。
+                var px = data.data;
+                for (var i = 0; i < px.length; i += 4) {
+                    var a = px[i + 3];
+                    if (a !== 255) {
+                        var k = (a * a) / 65025;
+                        px[i] = px[i] * k + 255 - a;
+                        px[i + 1] = px[i + 1] * k + 255 - a;
+                        px[i + 2] = px[i + 2] * k + 255 - a;
+                        px[i + 3] = 255;
+                    }
+                }
+                var rgba = new Uint8Array(data.data.buffer, data.data.byteOffset, data.data.byteLength);
+                var idkey = 'gpunative:' + key + ':' + w + 'x' + h + ':' + ++frameSeq;
+                __opencatRecordNativeCanvas(key, idkey, rgba, e.x, e.y, w, h);
+            }
+        };
+    }
+
     // ── platform globals for g-device-api instanceof probes ─────────
     // Texture_WebGPU.setImageData 判型第一行就是 `data instanceof
     // ImageBitmap`——realm 缺构造器时是 ReferenceError 而不是 false，

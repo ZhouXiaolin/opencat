@@ -345,10 +345,14 @@ PixelThrow/Shatter）。
 - **ImageTexture 双腿 0.0000%**：fetch 字节面路径，未走
   copyExternalImageToTexture——预判「engine 必挂」证伪。
 - **Text engine 0.2573% PASS**：跨排版引擎预判证伪（fillText→像素上传
-  路径 engine 侧已处理）。**web 腿 100% FAIL**：wasm facade 的
-  `createElement('canvas')` 是 stub（无 2D 像素面）→ Text 的中间 canvas
-  白。挂账（可修非内在极限）：NATIVE_WEBGPU 模式的 2D 离屏 canvas 真化
-  路由（同 webgpu 上下文路由先例）。
+  路径 engine 侧已处理）。**web 腿 100% FAIL 已修**（2026-11-03，同日）：
+  NATIVE_WEBGPU 面 2D 离屏 canvas 真化——realm 离屏 canvas 的
+  `getContext('2d')` 路由到每 canvas 真 OffscreenCanvas 真上下文（真
+  Chrome 光栅语义，与 ref 腿同源；宽高经 dom_api 访问器 `__ocNativeCanvas`
+  桥同步），requestAdapter→requestDevice→queue 薄包装把
+  copyExternalImageToTexture 的 realm canvas source 解包到真 backing。
+  修复后 web 0.2573% PASS（与 engine 同值）；blend/star/rd/
+  ImageTexture/HTMLInCanvas 五案回归抽查全绿。
 - **HTMLInCanvas 双腿 0.0000%** ✓。
 
 ### 基建（保留）
@@ -374,10 +378,10 @@ PixelThrow/Shatter）。
   Boids/Hologram/Fog/PixelSort）+ 放大器 3（Halftone/IsometricCubes/
   FilmGrain 口径债）+ 引擎缺口 3（Ascii glyph/Satin naga 前端/VideoTexture
   外部纹理通道）+ 环境 1（WebcamTexture）**。
-- 挂账工程（非内在极限，按需开批）：① NATIVE_WEBGPU 模式 2D 离屏 canvas
-  真化（Text web 腿）；② registerExternalTexture 外部像素源通道
-  （VideoTexture 三腿）；③ naga WGSL 前端兼容（Satin；升 wgpu/naga 或 patch）；
-  ④ engine glyph atlas（Ascii）。
+- 挂账工程（非内在极限，按需开批）：~~① NATIVE_WEBGPU 模式 2D 离屏 canvas
+  真化~~（✅ 2026-11-03 已修，Text web 0.2573% PASS）；②
+  registerExternalTexture 外部像素源通道（VideoTexture 三腿）；③ naga
+  WGSL 前端兼容（Satin；升 wgpu/naga 或 patch）；④ engine glyph atlas（Ascii）。
 - 长期约束：tie 敏感语料对拍必须双侧同 GPU；NVIDIA 驱动 fast-math 是平台事实，
   WGSL 的 IEEE 语义在 NVIDIA 上不可依赖；**跨编译器内在极限两类（FMA 收缩/
   数位提取散列）语料选型时先查 WGSL 源，命中即出列或找关闭面**；**对拍呈现

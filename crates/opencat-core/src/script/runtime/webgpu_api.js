@@ -166,6 +166,62 @@
             return baseGetContext(nodeId, type, attrs, sizeW, sizeH, originX, originY);
         };
 
+        // ── 2D 像素面真化（Text 等 canvas 光栅→copyExternalImageToTexture 消费方）──
+        // realm 离屏 canvas 的录制面 2D 是命令流（无像素），真 Dawn 的
+        // copyExternalImageToTexture 也不收 realm 对象。每 canvas 备一个真
+        // OffscreenCanvas：getContext('2d') 返回真上下文（真 Chrome 光栅语义，
+        // 与 ref 腿同源）；宽高经 dom_api 访问器同步（__ocNativeCanvas 桥）；
+        // __ocRealBacking 供 queue 解包。
+        var native2dBackings = {};
+        globalThis.__ocNative2dContext = function (node, offscreenId) {
+            var key = String(offscreenId || node.id || 'anon');
+            var entry = native2dBackings[key];
+            if (!entry) {
+                var w = Number(node.width) > 0 ? Math.floor(Number(node.width)) : 1;
+                var h = Number(node.height) > 0 ? Math.floor(Number(node.height)) : 1;
+                var offscreen = new globalThis.__ocRealOffscreenCanvas(w, h);
+                entry = native2dBackings[key] = { offscreen: offscreen };
+                node.__ocNativeCanvas = offscreen;   // dom_api 宽高访问器同步桥
+                node.__ocRealBacking = offscreen;    // queue 解包标记
+            }
+            return entry.offscreen.getContext('2d');
+        };
+
+        // requestAdapter→requestDevice→queue 薄包装：copyExternalImageToTexture
+        // 的 source 是 realm canvas 对象时解包到真 backing（其余实参原样透传）。
+        if (!navigator.gpu.__ocUnwrapPatched) {
+            navigator.gpu.__ocUnwrapPatched = true;
+            var baseRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+            navigator.gpu.requestAdapter = function (options) {
+                return baseRequestAdapter(options).then(function (adapter) {
+                    if (!adapter || adapter.__ocDevicePatched) return adapter;
+                    adapter.__ocDevicePatched = true;
+                    var baseRequestDevice = adapter.requestDevice.bind(adapter);
+                    adapter.requestDevice = function (descriptor) {
+                        return baseRequestDevice(descriptor).then(function (device) {
+                            var queue = device.queue;
+                            if (!queue.__ocCopyPatched) {
+                                queue.__ocCopyPatched = true;
+                                var baseCopy = queue.copyExternalImageToTexture.bind(queue);
+                                queue.copyExternalImageToTexture = function (source, destination, copySize) {
+                                    var src = source && source.source;
+                                    if (src && src.__ocRealBacking) {
+                                        var unwrapped = {};
+                                        for (var f in source) unwrapped[f] = source[f];
+                                        unwrapped.source = src.__ocRealBacking;
+                                        source = unwrapped;
+                                    }
+                                    return baseCopy(source, destination, copySize);
+                                };
+                            }
+                            return device;
+                        });
+                    };
+                    return adapter;
+                });
+            };
+        }
+
         // 帧末回读（realm 在微任务/rAF 排空后调用）。两条路：
         // 主路 = copyTextureToBuffer 直读交换链纹理原始字节（与 ref.html
         // 的 readback 逐环节同构：BGRA→RGBA byteswap → putImageData 直灌

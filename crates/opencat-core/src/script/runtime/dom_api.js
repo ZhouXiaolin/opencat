@@ -571,7 +571,16 @@
                 // Skia 离屏重放光栅化。显式 id 的（`node.id` 且挂进 visual
                 // 注册表）才走图表录制面分支。
                 if (node.__ocOffscreenCanvas) {
-                    if (t === '2d') return globalThis.__ocMakeOffscreenContext2d(node.__ocOffscreenId);
+                    if (t === '2d') {
+                        // native web 模式（installNativeWebGPU 挂载）：2D 走真
+                        // OffscreenCanvas 像素面——canvas 光栅→
+                        // copyExternalImageToTexture 消费链需要真像素与真 canvas
+                        // 源，录制面命令流两者皆无。
+                        if (typeof globalThis.__ocNative2dContext === 'function') {
+                            return globalThis.__ocNative2dContext(node, node.__ocOffscreenId);
+                        }
+                        return globalThis.__ocMakeOffscreenContext2d(node.__ocOffscreenId);
+                    }
                     throw new Error("canvas.getContext: only '2d' is supported on an offscreen canvas, got '" + kind + "'");
                 }
                 // 分流：挂进图表容器的 canvas 冒用了声明节点 id（appendChild
@@ -663,12 +672,21 @@
         Object.defineProperty(canvas, 'width', {
             configurable: true,
             get: function () { return backingW; },
-            set: function (value) { backingW = toBacking(value); resetBacking(); },
+            set: function (value) {
+                backingW = toBacking(value);
+                resetBacking();
+                // native web 模式的真像素面同步（__ocNative2dContext 挂）。
+                if (canvas.__ocNativeCanvas) canvas.__ocNativeCanvas.width = backingW;
+            },
         });
         Object.defineProperty(canvas, 'height', {
             configurable: true,
             get: function () { return backingH; },
-            set: function (value) { backingH = toBacking(value); resetBacking(); },
+            set: function (value) {
+                backingH = toBacking(value);
+                resetBacking();
+                if (canvas.__ocNativeCanvas) canvas.__ocNativeCanvas.height = backingH;
+            },
         });
         return canvas;
     }

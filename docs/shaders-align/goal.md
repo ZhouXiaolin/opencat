@@ -298,6 +298,68 @@ engine 腿 PASS 间接排除）。
   drawFramePng POST /oracle-blob），本次未用通（路径错误未修），mp4 口
   径债案如需 PNG 实锤先修它。
 
+## 批次 S7+S10（2026-11-03）：registry 全量收口，presets 201 案
+
+范围：S7 动画族 44 案（30 帧 delta=1/30 推钟）+ S10 Interactive 15 /
+Utilities Group / 媒体 5。registry 200 组件至此全覆盖入册：201 presets
+案 = 196 组件案 + 19 旧 kebab 案 − 对应关系；从未入册出列 4（Crystal/
+Goo/PixelSort/WebcamTexture）。
+
+结果：**S7 engine 40/44、web 40/40 可判全 PASS；S10 engine（Interactive
++Group+media）14/19、web media 2/3**。出列见下。生成器同批扩展：S7
+anim 池（frames 30/anim true）、Interactive 归并 S7/S6/S8（判据=有无
+speed/animTime/requiresChild），排除=Utilities+媒体类走手工条目。
+
+### Interactive 可测性拍板（无输入态协议）
+
+指针值来自 `frameParams?.pointer ?? (.5,.5)`（std chunk 实锤）——无输入
+态三腿缺省一致，**无需事件注入**。Interactive 按有无 speed/animTime 分
+池：speed 族→S7 anim（Boids/Fog/ParticleFlow/Smoke）；无 time uniform
+→S6 静态单帧（CursorTrail/ChromaFlow/InkFlow/MagneticFilings/SmokeFlow）；
+requiresChild→S8 child 静态（CursorRipples/GridDistortion/Liquify/
+PixelThrow/Shatter）。
+
+### S7+S10 出列九案（定性与判据）
+
+1. **Satin**（engine 100% 全白）：**naga WGSL 前端解析失败**
+   （`failed to convert expression to a concrete type`，Dawn 接受同源
+   WGSL）→ 管线建不成白帧。49KB monolithic WGSL（TypeGPU 生成）未二分
+   定位构造——挂账 naga/wgpu 升级或 vendor patch，单案不值修。
+2. **Voronoi**（12.11%）/**FloatingParticles**（7.87%）/**ParticleFlow**
+   （17.32%）/**MagneticFilings**（11.54%）：点位/粒子位置散列重排
+   （内在极限②）——**共享 chunk 盲区实锤三连**（std 的 43758 与 drift
+   原语，组件级 grep 不中）。
+3. **Hologram**（3.33%）/**Fog**（31.39%）：FMA 时间相位漂移 × 高频
+   条纹/噪声场（内在极限①动画亚型）——frame17 条纹相位错位、云形全场
+   重排，前段逐位后段累积。
+4. **Boids**（16.15%）：compute 群体模拟（2000 boid）演化发散——内在
+   极限①。
+5. **VideoTexture**（三腿全白）：`registerExternalTexture` 外部视频纹理
+   通道在 ref.html harness / oracle web 页 / engine 录制面**三处共同
+   缺口**——metadata/play 链路全通（console 无 onError 无 autoplay
+   warn）但画面恒白；30 帧等帧、mp4 faststart 均无效。挂账：外部像素
+   源进 GPU 纹理注入通道（同 copyExternalImageToTexture 一族）。
+
+### media 可测性三实证（预判两处被证伪）
+
+- **ImageTexture 双腿 0.0000%**：fetch 字节面路径，未走
+  copyExternalImageToTexture——预判「engine 必挂」证伪。
+- **Text engine 0.2573% PASS**：跨排版引擎预判证伪（fillText→像素上传
+  路径 engine 侧已处理）。**web 腿 100% FAIL**：wasm facade 的
+  `createElement('canvas')` 是 stub（无 2D 像素面）→ Text 的中间 canvas
+  白。挂账（可修非内在极限）：NATIVE_WEBGPU 模式的 2D 离屏 canvas 真化
+  路由（同 webgpu 上下文路由先例）。
+- **HTMLInCanvas 双腿 0.0000%** ✓。
+
+### 基建（保留）
+
+- 资产面：`assets/probe.png`（PIL 确定性渐变棋盘 256²）+ `assets/
+  probe.mp4`（gradients lavfi crf0 faststart）——media 案确定性资产。
+- 预筛教训升级：组件级 grep→「组件 chunk + 其 import 的共享 chunk」都
+  查；engine 腿 PASS 可间接排除散列（散列两腿同毁）。
+- naga 前端缺口识别法：engine 白帧 + stderr `Shader '' parsing error`
+  + Dawn 侧正常 = naga 兼容性，非渲染分歧。
+
 ## 后续批次（已拍板范围）
 
 - S2 动画时钟全案 ✅ 2026-11-02。
@@ -305,8 +367,17 @@ engine 腿 PASS 间接排除）。
 - S4 compute pass 协议（录制面协议级缺失）✅ 2026-11-02。
 - S5 web 腿（原始代码直跑）✅ 2026-11-02（19/19 PASS，rd 豁免撤销）。
 - S6+S8+S9 registry 全量第一批 ✅ 2026-11-02（138 案，三出列）。
-- S7 动画族 44 案（speed 族 + animTime 面；散列案已预筛）。
-- S10 Interactive 15 + 媒体 5（ImageTexture/VideoTexture/Webcam/HTML/Text）。
+- S7 动画族 + S10 Interactive/媒体 ✅ 2026-11-03（registry 200 组件全覆盖收口，
+  九案出列两案挂账）。**registry 全量盘点终态：可判对拍案全 PASS（Text web 腿
+  FAIL=挂账 harness 缺口非渲染分歧）；出列 18 = 散列 6（Crystal/Goo/Voronoi/
+  FloatingParticles/ParticleFlow/MagneticFilings）+ FMA/模拟 5（Particles/
+  Boids/Hologram/Fog/PixelSort）+ 放大器 3（Halftone/IsometricCubes/
+  FilmGrain 口径债）+ 引擎缺口 3（Ascii glyph/Satin naga 前端/VideoTexture
+  外部纹理通道）+ 环境 1（WebcamTexture）**。
+- 挂账工程（非内在极限，按需开批）：① NATIVE_WEBGPU 模式 2D 离屏 canvas
+  真化（Text web 腿）；② registerExternalTexture 外部像素源通道
+  （VideoTexture 三腿）；③ naga WGSL 前端兼容（Satin；升 wgpu/naga 或 patch）；
+  ④ engine glyph atlas（Ascii）。
 - 长期约束：tie 敏感语料对拍必须双侧同 GPU；NVIDIA 驱动 fast-math 是平台事实，
   WGSL 的 IEEE 语义在 NVIDIA 上不可依赖；**跨编译器内在极限两类（FMA 收缩/
   数位提取散列）语料选型时先查 WGSL 源，命中即出列或找关闭面**；**对拍呈现

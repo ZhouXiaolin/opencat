@@ -3636,5 +3636,1690 @@ export const CASES = {
                 ]
         }],
     },
+    // ── 批次 S6：纯 fragment 源效果 0 案（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    // ── 批次 S7：动画族 44 案（30 帧 delta=1/30 推钟；props=registry default）（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    "Aurora": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Aurora",
+                "id": "s7-aurora",
+                "props": {
+                        "colorA": "#a533f8",
+                        "colorB": "#22ee88",
+                        "colorC": "#1694e8",
+                        "colorSpace": "linear",
+                        "balance": 50,
+                        "intensity": 80,
+                        "curtainCount": 4,
+                        "speed": 5,
+                        "waviness": 50,
+                        "rayDensity": 20,
+                        "height": 120,
+                        "center": {
+                                "x": 0.5,
+                                "y": 0
+                        },
+                        "seed": 0
+                }
+        }],
+    },
+    "Blob": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Blob",
+                "id": "s7-blob",
+                "props": {
+                        "origin": "center",
+                        "colorA": "#ff6b35",
+                        "colorB": "#e91e63",
+                        "stops": null,
+                        "size": 0.5,
+                        "deformation": 0.5,
+                        "softness": 0.5,
+                        "highlightIntensity": 0.5,
+                        "highlightX": 0.3,
+                        "highlightY": -0.3,
+                        "highlightZ": 0.4,
+                        "highlightColor": "#ffe11a",
+                        "speed": 0.5,
+                        "seed": 1,
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "BlockNoise": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "BlockNoise",
+                "id": "s7-blocknoise",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#000000",
+                        "stops": null,
+                        "colorSpace": "linear",
+                        "scale": 2,
+                        "contrast": 0,
+                        "balance": 0,
+                        "seed": 0,
+                        "speed": 1
+                }
+        }],
+    },
+    "BrickPattern": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "BrickPattern",
+                "id": "s7-brickpattern",
+                "props": {
+                        "colorBrick": "#000000",
+                        "colorMortar": "#ffffff",
+                        "cellsX": 8,
+                        "cellsY": 10,
+                        "mortar": 0.05,
+                        "softness": 0,
+                        "variation": 0,
+                        "rotation": 0,
+                        "speed": 0,
+                        "offset": 0,
+                        "speedVariance": 0,
+                        "seed": 0,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "BrushedMetal": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "BrushedMetal",
+                "id": "s7-brushedmetal",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "lightColor": "#e9ebef",
+                        "darkColor": "#26282d",
+                        "brushAngle": 0,
+                        "anisotropy": 0.4,
+                        "grain": 0.4,
+                        "grainScale": 2,
+                        "roughness": 0.5,
+                        "environment": 1.4,
+                        "envRotation": 0,
+                        "lightAngle": 215,
+                        "speed": 0.4,
+                        "bevelWidth": 0.05,
+                        "bevelShape": 0,
+                        "edgeSoftness": 0.05,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Chevron": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Chevron",
+                "id": "s7-chevron",
+                "props": {
+                        "colorA": "#000000",
+                        "colorB": "#ffffff",
+                        "count": 5,
+                        "angle": 0,
+                        "balance": 0.5,
+                        "softness": 0,
+                        "speed": 0,
+                        "offset": 0,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "Chrome": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Chrome",
+                "id": "s7-chrome",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "tint": "#ffffff",
+                        "warmColor": "#ffa94d",
+                        "coolColor": "#82a7e6",
+                        "bevelWidth": 0.028,
+                        "bevelShape": 0.55,
+                        "curvature": 0.5,
+                        "waviness": 0.15,
+                        "environment": 1,
+                        "envRotation": 0,
+                        "softness": 0.3,
+                        "spectral": 0.9,
+                        "dispersion": 0.3,
+                        "shadows": 0.7,
+                        "speed": 0.5,
+                        "edgeSoftness": 0.05,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "ColorWheel": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "ColorWheel",
+                "id": "s7-colorwheel",
+                "props": {
+                        "mode": "rainbow",
+                        "colorA": "#ff0000",
+                        "colorB": "#00ff88",
+                        "colorC": "#0066ff",
+                        "scale": 1,
+                        "angle": 0,
+                        "speed": 0.05,
+                        "colorSpace": "oklch"
+                }
+        }],
+    },
+    "CurlNoise": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "CurlNoise",
+                "id": "s7-curlnoise",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#000000",
+                        "stops": null,
+                        "colorSpace": "linear",
+                        "scale": 2,
+                        "contrast": 0,
+                        "balance": 0,
+                        "seed": 0,
+                        "speed": 1
+                }
+        }],
+    },
+    "DotGrid": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "DotGrid",
+                "id": "s7-dotgrid",
+                "props": {
+                        "color": "#ffffff",
+                        "density": 30,
+                        "dotSize": 0.3,
+                        "offset": 0,
+                        "speed": 0,
+                        "speedVariance": 0.3,
+                        "twinkle": 0
+                }
+        }],
+    },
+    "FallingLines": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "FallingLines",
+                "id": "s7-fallinglines",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#ffffff00",
+                        "colorSpace": "linear",
+                        "angle": 90,
+                        "speed": 0.5,
+                        "speedVariance": 0.3,
+                        "density": 15,
+                        "trailLength": 0.35,
+                        "balance": 0.5,
+                        "strokeWidth": 0.15,
+                        "rounding": 1
+                }
+        }],
+    },
+    "FloatingParticles": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "FloatingParticles",
+                "id": "s7-floatingparticles",
+                "props": {
+                        "particleColor": "#ffffff",
+                        "shape": "dot",
+                        "count": 1200,
+                        "particleSize": 1.2,
+                        "softness": 0.1,
+                        "speed": 0.25,
+                        "angle": 90,
+                        "speedVariance": 0.3,
+                        "angleVariance": 30,
+                        "randomness": 0.25,
+                        "twinkle": 0.5,
+                        "cursorStrength": 0
+                }
+        }],
+    },
+    "FlowingGradient": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "FlowingGradient",
+                "id": "s7-flowinggradient",
+                "props": {
+                        "colorA": "#0a0015",
+                        "colorB": "#6b17e6",
+                        "colorC": "#ff4d6a",
+                        "colorD": "#ff6b35",
+                        "colorSpace": "oklch",
+                        "speed": 1,
+                        "distortion": 0.5,
+                        "seed": 0
+                }
+        }],
+    },
+    "FractalNoise": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "FractalNoise",
+                "id": "s7-fractalnoise",
+                "props": {
+                        "colorA": "#000000",
+                        "colorB": "#ffffff",
+                        "stops": null,
+                        "octaves": 4,
+                        "detail": 2,
+                        "contrast": 0.5,
+                        "speed": 0.15,
+                        "angle": 0,
+                        "seed": 0,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "Frost": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Frost",
+                "id": "s7-frost",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "iceColor": "#0597fc",
+                        "ambient": 0,
+                        "edgeSoftness": 0.05,
+                        "density": 5,
+                        "absorption": 1,
+                        "scatter": 0.5,
+                        "frostAmount": 0.8,
+                        "frostDepth": 0.4,
+                        "frostScale": 1,
+                        "frostRoughness": 3,
+                        "sparkle": 0.5,
+                        "gloss": 0.6,
+                        "fresnel": 0.02,
+                        "lightAngle": 300,
+                        "speed": 0.3,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "GaborNoise": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "GaborNoise",
+                "id": "s7-gabornoise",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#000000",
+                        "stops": null,
+                        "colorSpace": "linear",
+                        "scale": 1.5,
+                        "frequency": 8,
+                        "contrast": 0,
+                        "balance": 0,
+                        "seed": 0,
+                        "speed": 1
+                }
+        }],
+    },
+    "Godrays": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Godrays",
+                "id": "s7-godrays",
+                "props": {
+                        "center": {
+                                "x": 0,
+                                "y": 0
+                        },
+                        "density": 0.3,
+                        "intensity": 0.8,
+                        "spotty": 1,
+                        "speed": 0.5,
+                        "rayColor": "#4283fb",
+                        "backgroundColor": "transparent"
+                }
+        }],
+    },
+    "Heatmap": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Heatmap",
+                "id": "s7-heatmap",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "colorA": "#02010f",
+                        "colorB": "#f9e25f",
+                        "stops": [
+                                {
+                                        "color": "#02010f",
+                                        "position": 0
+                                },
+                                {
+                                        "color": "#2a0a8a",
+                                        "position": 0.2
+                                },
+                                {
+                                        "color": "#a41c9b",
+                                        "position": 0.45
+                                },
+                                {
+                                        "color": "#e8632b",
+                                        "position": 0.7
+                                },
+                                {
+                                        "color": "#f9e25f",
+                                        "position": 0.9
+                                },
+                                {
+                                        "color": "#ffffff",
+                                        "position": 1
+                                }
+                        ],
+                        "colorSpace": "oklab",
+                        "innerGlow": 0.4,
+                        "outerGlow": 0.2,
+                        "contour": 0.5,
+                        "angle": 90,
+                        "speed": 1,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Hologram": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Hologram",
+                "id": "s7-hologram",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "color": "#5ec8ff",
+                        "brightness": 2.5,
+                        "edgeSoftness": 0.04,
+                        "fill": 0.45,
+                        "edgeGlow": 1,
+                        "depthLines": 0.5,
+                        "depthScale": 26,
+                        "scanlines": 0.55,
+                        "scanlineScale": 130,
+                        "scanlineSpeed": 1,
+                        "sweep": 0.1,
+                        "flicker": 0.3,
+                        "distortion": 0.1,
+                        "grain": 0.7,
+                        "speed": 1,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Holographic": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Holographic",
+                "id": "s7-holographic",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "hueShift": 0,
+                        "foilScale": 1.5,
+                        "saturation": 0.75,
+                        "roughness": 0.25,
+                        "speed": 1,
+                        "crinkle": 0.5,
+                        "crinkleScale": 1,
+                        "sparkle": 0.4,
+                        "edgeSoftness": 0.05,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "LensFlare": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "LensFlare",
+                "id": "s7-lensflare",
+                "props": {
+                        "lightPosition": {
+                                "x": 0.3,
+                                "y": 0.3
+                        },
+                        "intensity": 0.5,
+                        "ghostIntensity": 0.4,
+                        "ghostSpread": 0.7,
+                        "ghostChroma": 0.3,
+                        "haloIntensity": 0.4,
+                        "haloRadius": 0.6,
+                        "haloChroma": 0.6,
+                        "haloSoftness": 0.8,
+                        "starburstIntensity": 0.3,
+                        "starburstPoints": 6,
+                        "streakIntensity": 0.15,
+                        "streakLength": 0.5,
+                        "glareIntensity": 0.2,
+                        "glareSize": 0.5,
+                        "edgeFade": 0.2,
+                        "speed": 0.5
+                }
+        }],
+    },
+    "LightEdge": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "LightEdge",
+                "id": "s7-lightedge",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "colorA": "#7b2ff7",
+                        "colorB": "#00e0ff",
+                        "stops": [
+                                {
+                                        "color": "#7b2ff7",
+                                        "position": 0
+                                },
+                                {
+                                        "color": "#00e0ff",
+                                        "position": 0.5
+                                },
+                                {
+                                        "color": "#ff3d81",
+                                        "position": 1
+                                }
+                        ],
+                        "colorSpace": "linear",
+                        "thickness": 0.25,
+                        "softness": 0.5,
+                        "intensity": 0.6,
+                        "bloom": 0.3,
+                        "spots": 3,
+                        "spotSize": 0.5,
+                        "pulse": 0,
+                        "smoke": 0.3,
+                        "smokeSize": 0.5,
+                        "speed": 1,
+                        "seed": 0,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "LiquidMetal": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "LiquidMetal",
+                "id": "s7-liquidmetal",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "lightColor": "#eef0f6",
+                        "darkColor": "#141414",
+                        "turbulence": 1,
+                        "ripple": 4,
+                        "warp": 1.5,
+                        "speed": 0.5,
+                        "environment": 1.5,
+                        "envRotation": 0,
+                        "sharpness": 0.6,
+                        "dispersion": 0.25,
+                        "lightAngle": 265,
+                        "bevelWidth": 0.05,
+                        "bevelShape": 0,
+                        "edgeSoftness": 0.05,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Marble": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Marble",
+                "id": "s7-marble",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#3a2d54",
+                        "colorC": "#0f0f0f",
+                        "scale": 2,
+                        "turbulence": 10,
+                        "speed": 0.05,
+                        "seed": 0,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "MeshGradient": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "MeshGradient",
+                "id": "s7-meshgradient",
+                "props": {
+                        "colorA": "#1a0533",
+                        "colorB": "#ffdf8e",
+                        "stops": [
+                                {
+                                        "color": "#1a0533",
+                                        "position": 0
+                                },
+                                {
+                                        "color": "#6d2fd1",
+                                        "position": 0.26
+                                },
+                                {
+                                        "color": "#e04b9e",
+                                        "position": 0.52
+                                },
+                                {
+                                        "color": "#ff8c42",
+                                        "position": 0.76
+                                },
+                                {
+                                        "color": "#ffdf8e",
+                                        "position": 1
+                                }
+                        ],
+                        "colorSpace": "oklab",
+                        "count": 5,
+                        "smoothness": 2,
+                        "variation": 0.35,
+                        "swirl": 0.3,
+                        "drift": 0.5,
+                        "wrapping": 0,
+                        "speed": 1,
+                        "seed": 0
+                }
+        }],
+    },
+    "Nebula": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Nebula",
+                "id": "s7-nebula",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "coreColor": "#ffd9b0",
+                        "gasColor": "#ff5e7a",
+                        "veilColor": "#3a5bdb",
+                        "colorSpace": "oklab",
+                        "density": 1,
+                        "cavity": 0,
+                        "dust": 0.55,
+                        "gasScale": 0.4,
+                        "billow": 0.6,
+                        "glow": 0,
+                        "seed": 0,
+                        "stars": 0.07,
+                        "starScale": 1,
+                        "twinkle": 0.35,
+                        "refraction": 0.5,
+                        "environment": 0.7,
+                        "highlight": 1.15,
+                        "highlightSoftness": 0.5,
+                        "lightAngle": 315,
+                        "edgeSoftness": 0.05,
+                        "speed": 0.3,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Obsidian": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Obsidian",
+                "id": "s7-obsidian",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "bodyColor": "#06071a",
+                        "colorA": "#ff2f7a",
+                        "colorB": "#5fe6ff",
+                        "stops": [
+                                {
+                                        "color": "#ff2f7a",
+                                        "position": 0
+                                },
+                                {
+                                        "color": "#2a2cff",
+                                        "position": 0.3
+                                },
+                                {
+                                        "color": "#5fe6ff",
+                                        "position": 0.55
+                                },
+                                {
+                                        "color": "#a6ffd8",
+                                        "position": 0.75
+                                },
+                                {
+                                        "color": "#ffb3e6",
+                                        "position": 1
+                                }
+                        ],
+                        "colorSpace": "oklab",
+                        "iridescence": 1,
+                        "rimWidth": 0.55,
+                        "rimSoftness": 0.25,
+                        "flowAngle": 30,
+                        "flowScale": 1,
+                        "speed": 0.5,
+                        "gloss": 0.35,
+                        "envRotation": 0,
+                        "bevelWidth": 0.08,
+                        "bevelShape": 0,
+                        "edgeSoftness": 0.05,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Plastic": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Plastic",
+                "id": "s7-plastic",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "colorA": "#f5f5f7",
+                        "colorB": "#d9dade",
+                        "stops": null,
+                        "gradientAngle": 90,
+                        "colorSpace": "linear",
+                        "thickness": 0.5,
+                        "roughness": 0.12,
+                        "reflectivity": 1,
+                        "crumple": 0.25,
+                        "crumpleScale": 1,
+                        "crumpleCoverage": 1,
+                        "seed": 0,
+                        "edgeSoftness": 0.05,
+                        "lightAngle": 315,
+                        "speed": 1,
+                        "shading": 0.35,
+                        "rim": 0.25,
+                        "rimColor": "#ffffff",
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Prism": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Prism",
+                "id": "s7-prism",
+                "props": {
+                        "position": {
+                                "x": 0.18,
+                                "y": 0.18
+                        },
+                        "beamWidth": 0.04,
+                        "intensity": 1.6,
+                        "beamColor": "#ffffff",
+                        "startFalloff": 0.15,
+                        "endFalloff": 0.6,
+                        "splitPosition": {
+                                "x": 0.5,
+                                "y": 0.42
+                        },
+                        "spread": 0.7,
+                        "softness": 0.12,
+                        "saturation": 0.95,
+                        "speed": 0.1
+                }
+        }],
+    },
+    "Ripples": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Ripples",
+                "id": "s7-ripples",
+                "props": {
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "colorA": "#ffffff",
+                        "colorB": "#000000",
+                        "speed": 1,
+                        "frequency": 20,
+                        "softness": 0,
+                        "thickness": 0.5,
+                        "phase": 0
+                }
+        }],
+    },
+    "Satin": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Satin",
+                "id": "s7-satin",
+                "props": {
+                        "color": "#c92c40",
+                        "highlightColor": "#c4667b",
+                        "foldCount": 7,
+                        "foldDirection": 90,
+                        "foldDepth": 0.5,
+                        "foldWidth": 0.14,
+                        "pinning": 0.6,
+                        "seed": 0,
+                        "speed": 1,
+                        "breeze": 0.4,
+                        "gloss": 0.1,
+                        "anisotropy": 0.7,
+                        "bloom": 0.5,
+                        "sheen": 0.5,
+                        "weave": 0.1,
+                        "fiberAngle": 90,
+                        "lightAngle": 215,
+                        "fill": 0.35
+                }
+        }],
+    },
+    "Scratches": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Scratches",
+                "id": "s7-scratches",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#000000",
+                        "scale": 2,
+                        "thickness": 1,
+                        "seed": 0,
+                        "speed": 1
+                }
+        }],
+    },
+    "SineWave": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "SineWave",
+                "id": "s7-sinewave",
+                "props": {
+                        "color": "#ffffff",
+                        "amplitude": 0.15,
+                        "frequency": 1,
+                        "speed": 1,
+                        "angle": 0,
+                        "position": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "thickness": 0.2,
+                        "softness": 0.4
+                }
+        }],
+    },
+    "SmokeFill": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "SmokeFill",
+                "id": "s7-smokefill",
+                "props": {
+                        "colorA": "#8cf3ff",
+                        "colorB": "#04a0d6",
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "emitFrom": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "direction": 0,
+                        "speed": 10,
+                        "spread": 60,
+                        "emitRadius": 0.03,
+                        "intensity": 1,
+                        "dissipation": 0.3,
+                        "detail": 25,
+                        "gravity": 0.5,
+                        "colorDecay": 0.4,
+                        "mouseInfluence": 0.1,
+                        "mouseRadius": 0.1,
+                        "colorSpace": "linear",
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Spiral": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Spiral",
+                "id": "s7-spiral",
+                "props": {
+                        "colorA": "#000000",
+                        "colorB": "#ffffff",
+                        "strokeWidth": 0.5,
+                        "strokeFalloff": 0,
+                        "softness": 0,
+                        "speed": 1,
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "Strands": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Strands",
+                "id": "s7-strands",
+                "props": {
+                        "speed": 0.5,
+                        "amplitude": 2,
+                        "frequency": 0.3,
+                        "lineCount": 8,
+                        "lineWidth": 0.05,
+                        "softness": 0.05,
+                        "spread": 0.2,
+                        "pinEdges": false,
+                        "stops": [
+                                {
+                                        "color": "#00e5ff",
+                                        "position": 0
+                                },
+                                {
+                                        "color": "#5b8cff",
+                                        "position": 0.34
+                                },
+                                {
+                                        "color": "#b06bff",
+                                        "position": 0.67
+                                },
+                                {
+                                        "color": "#ff5fa2",
+                                        "position": 1
+                                }
+                        ],
+                        "colorSpace": "oklab",
+                        "colorScale": 1,
+                        "colorVariance": 1,
+                        "colorSpeed": 1,
+                        "start": {
+                                "x": 0,
+                                "y": 0.5
+                        },
+                        "end": {
+                                "x": 1,
+                                "y": 0.5
+                        }
+                }
+        }],
+    },
+    "SunBurst": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "SunBurst",
+                "id": "s7-sunburst",
+                "props": {
+                        "color": "#ffdd88",
+                        "background": "#000000",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "rayCount": 12,
+                        "softness": 0.3,
+                        "radius": 0.8,
+                        "feather": 0.5,
+                        "speed": 0.2
+                }
+        }],
+    },
+    "Swirl": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Swirl",
+                "id": "s7-swirl",
+                "props": {
+                        "colorA": "#1275d8",
+                        "colorB": "#e19136",
+                        "stops": null,
+                        "speed": 1,
+                        "detail": 1,
+                        "blend": 50,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "ThinFilm": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "ThinFilm",
+                "id": "s7-thinfilm",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "intensity": 1,
+                        "rimWidth": 1,
+                        "edgeSoftness": 0.3,
+                        "thickness": 0.5,
+                        "dispersion": 0.5,
+                        "saturation": 1,
+                        "hueShift": 0,
+                        "lightAngle": 300,
+                        "mode": "rainbow",
+                        "colorA": "#2b6fff",
+                        "colorB": "#ffffff",
+                        "colorC": "#ff7a21",
+                        "colorSpace": "oklch",
+                        "speed": 0.1,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "TriangularGrid": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "TriangularGrid",
+                "id": "s7-triangulargrid",
+                "props": {
+                        "colorA": "#1a1a1a",
+                        "colorB": "#ffffff",
+                        "cells": 8,
+                        "thickness": 1,
+                        "rotation": 0,
+                        "softness": 0,
+                        "variation": 0,
+                        "speed": 0,
+                        "speedVariance": 0.3,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "Voronoi": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Voronoi",
+                "id": "s7-voronoi",
+                "props": {
+                        "colorA": "#3186cf",
+                        "colorB": "#fc02dd",
+                        "stops": null,
+                        "colorBorder": "#000000",
+                        "scale": 6,
+                        "speed": 0.5,
+                        "seed": 0,
+                        "edgeIntensity": 0.5,
+                        "edgeSoftness": 0.05,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "Water": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Water",
+                "id": "s7-water",
+                "props": {
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "scale": 1,
+                        "rotation": 0,
+                        "waterColor": "#00bfeb",
+                        "clarity": 0.4,
+                        "depth": 5,
+                        "shallows": 0.5,
+                        "caustics": 0.15,
+                        "causticScale": 6,
+                        "choppiness": 0.8,
+                        "waveScale": 3.5,
+                        "swirl": 0.6,
+                        "speed": 0.5,
+                        "reflection": 2,
+                        "envRotation": 0,
+                        "sharpness": 0.1,
+                        "lightAngle": 30,
+                        "foam": 0.3,
+                        "edgeSoftness": 0.05,
+                        "shape": "{\"type\":\"sphere3D\",\"radius\":0.35}",
+                        "shapeSdfUrl": "",
+                        "shapeType": ""
+                }
+        }],
+    },
+    "Waveform": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Waveform",
+                "id": "s7-waveform",
+                "props": {
+                        "style": "bars",
+                        "colorA": "#3b5bff",
+                        "colorB": "#ff3bd4",
+                        "stops": null,
+                        "colorSpace": "oklab",
+                        "from": {
+                                "x": 0,
+                                "y": 0.5
+                        },
+                        "to": {
+                                "x": 1,
+                                "y": 0.5
+                        },
+                        "amplitude": 1,
+                        "frequency": 1,
+                        "height": 0.6,
+                        "align": "mirrored",
+                        "count": 32,
+                        "barWidth": 0.6,
+                        "rounding": 1,
+                        "dotSize": 0.7,
+                        "lineWidth": 0.006,
+                        "softness": 0,
+                        "speed": 1,
+                        "seed": 1
+                }
+        }],
+    },
+    "WaveletNoise": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "WaveletNoise",
+                "id": "s7-waveletnoise",
+                "props": {
+                        "colorA": "#ffffff",
+                        "colorB": "#000000",
+                        "stops": null,
+                        "colorSpace": "linear",
+                        "scale": 1.5,
+                        "detail": 1.24,
+                        "contrast": 0,
+                        "balance": 0,
+                        "seed": 0,
+                        "speed": 1
+                }
+        }],
+    },
+    // ── 批次 S8：filter 批量 0 案（child=LinearGradient 基线底图）（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    // ── 批次 S9：Transitions 0 案（双 child，progress=0.5 中间态）（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    // ── 批次 S6：纯 fragment 源效果 5 案（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    "ChromaFlow": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "ChromaFlow",
+                "id": "s6-chromaflow",
+                "props": {
+                        "baseColor": "#0066ff",
+                        "upColor": "#00ff00",
+                        "downColor": "#ff0000",
+                        "leftColor": "#0000ff",
+                        "rightColor": "#ffff00",
+                        "intensity": 1,
+                        "radius": 3,
+                        "momentum": 30
+                }
+        }],
+    },
+    "CursorTrail": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "CursorTrail",
+                "id": "s6-cursortrail",
+                "props": {
+                        "colorA": "#00aaff",
+                        "colorB": "#ff00aa",
+                        "stops": null,
+                        "radius": 0.5,
+                        "length": 0.5,
+                        "shrink": 1,
+                        "softness": 0,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    "InkFlow": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "InkFlow",
+                "id": "s6-inkflow",
+                "props": {
+                        "colorMode": "rainbow",
+                        "colorSpeed": 1,
+                        "color": "#ff2d7e",
+                        "color1": "#4338ff",
+                        "color2": "#ff2d7e",
+                        "color3": "#19e3ff",
+                        "colorSpace": "oklab",
+                        "radius": 0.3,
+                        "force": 1,
+                        "curl": 0,
+                        "decay": 0.5,
+                        "momentum": 0.6
+                }
+        }],
+    },
+    // MagneticFilings 出列（2026-11-03）：磁屑点场排布分歧——散列/模拟内在极限族。
+    "MagneticFilings": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "MagneticFilings",
+                "id": "s6-magneticfilings",
+                "props": {
+                        "colorA": "#be1ef9",
+                        "colorB": "#6326ff",
+                        "colorSpace": "oklab",
+                        "shape": "dot",
+                        "count": 8000,
+                        "size": 1,
+                        "restOrientation": "random",
+                        "fieldType": "dipole",
+                        "strength": 1.7,
+                        "reach": 0.6,
+                        "response": 0.5
+                }
+        }],
+    },
+    "SmokeFlow": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "SmokeFlow",
+                "id": "s6-smokeflow",
+                "props": {
+                        "colorA": "#e29c8b",
+                        "colorB": "#d517f9",
+                        "stops": null,
+                        "intensity": 1,
+                        "emitRadius": 0.07,
+                        "momentum": 20,
+                        "dissipation": 0.5,
+                        "detail": 10,
+                        "gravity": 2,
+                        "colorDecay": 0.5,
+                        "colorSpace": "OKLAB"
+                }
+        }],
+    },
+    // ── 批次 S7：动画族 4 案（30 帧 delta=1/30 推钟；props=registry default）（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    // Boids 出列（2026-11-03）：compute 群体模拟（2000 boid 群飞）演化发散——FMA 收缩分歧内在极限①。
+    "Boids": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Boids",
+                "id": "s7-boids",
+                "props": {
+                        "colorA": "#8ec5ff",
+                        "colorB": "#ff7ad9",
+                        "colorSpace": "oklab",
+                        "agentShape": "arrow",
+                        "count": 2000,
+                        "speed": 2,
+                        "seed": 0,
+                        "size": 1.5,
+                        "trails": 0,
+                        "separation": 1.7,
+                        "alignment": 1.5,
+                        "cohesion": 1,
+                        "perception": 0.12,
+                        "cursorMode": "repel",
+                        "cursorStrength": 1.5
+                }
+        }],
+    },
+    // Fog 出列（2026-11-03）：噪声雾场演化分歧（31.4% 全场云形重排）——FMA/散列内在极限族。
+    "Fog": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Fog",
+                "id": "s7-fog",
+                "props": {
+                        "colorA": "#e0e0e0",
+                        "colorB": "#888888",
+                        "seed": 0,
+                        "speed": 1,
+                        "turbulence": 1,
+                        "detail": 15,
+                        "blending": 0.3,
+                        "mouseInfluence": 0.1,
+                        "mouseRadius": 0.1,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    // ParticleFlow 出列（2026-11-03）：粒子初始位置散列重排（共享 chunk 原语）——内在极限②。
+    "ParticleFlow": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "ParticleFlow",
+                "id": "s7-particleflow",
+                "props": {
+                        "colorA": "#8ec5ff",
+                        "colorB": "#ffd98e",
+                        "colorSpace": "oklab",
+                        "shape": "streak",
+                        "count": 6000,
+                        "size": 1.2,
+                        "trails": 0,
+                        "speed": 1,
+                        "force": 1,
+                        "swirl": 25,
+                        "momentum": 0.6,
+                        "ambient": 0.15
+                }
+        }],
+    },
+    "Smoke": {
+        frames: 30,
+        anim: true,
+        components: [{
+                "type": "Smoke",
+                "id": "s7-smoke",
+                "props": {
+                        "colorA": "#fc83f9",
+                        "colorB": "#c21c79",
+                        "stops": null,
+                        "emitFrom": {
+                                "x": 0.5,
+                                "y": 1
+                        },
+                        "direction": 0,
+                        "speed": 20,
+                        "spread": 60,
+                        "emitRadius": 0.08,
+                        "intensity": 1,
+                        "dissipation": 0.2,
+                        "detail": 25,
+                        "gravity": 0.5,
+                        "colorDecay": 0.4,
+                        "mouseInfluence": 0.1,
+                        "mouseRadius": 0.1,
+                        "colorSpace": "linear"
+                }
+        }],
+    },
+    // ── 批次 S8：filter 批量 5 案（child=LinearGradient 基线底图）（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    "CursorRipples": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "CursorRipples",
+                "id": "s8-cursorripples",
+                "props": {
+                        "intensity": 10,
+                        "decay": 10,
+                        "radius": 0.5,
+                        "chromaticSplit": 1,
+                        "edges": "stretch"
+                },
+                "children": [
+                        {
+                                "type": "LinearGradient",
+                                "id": "s8-cursorripples-c",
+                                "props": {
+                                        "colorA": "#0f172a",
+                                        "colorB": "#7c3aed",
+                                        "angle": 45
+                                }
+                        }
+                ]
+        }],
+    },
+    "GridDistortion": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "GridDistortion",
+                "id": "s8-griddistortion",
+                "props": {
+                        "intensity": 1,
+                        "decay": 3,
+                        "radius": 1,
+                        "gridSize": 20,
+                        "edges": "stretch"
+                },
+                "children": [
+                        {
+                                "type": "LinearGradient",
+                                "id": "s8-griddistortion-c",
+                                "props": {
+                                        "colorA": "#0f172a",
+                                        "colorB": "#7c3aed",
+                                        "angle": 45
+                                }
+                        }
+                ]
+        }],
+    },
+    "Liquify": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "Liquify",
+                "id": "s8-liquify",
+                "props": {
+                        "intensity": 10,
+                        "stiffness": 3,
+                        "damping": 3,
+                        "radius": 1,
+                        "edges": "stretch"
+                },
+                "children": [
+                        {
+                                "type": "LinearGradient",
+                                "id": "s8-liquify-c",
+                                "props": {
+                                        "colorA": "#0f172a",
+                                        "colorB": "#7c3aed",
+                                        "angle": 45
+                                }
+                        }
+                ]
+        }],
+    },
+    "PixelThrow": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "PixelThrow",
+                "id": "s8-pixelthrow",
+                "props": {
+                        "throwKey": "luminance",
+                        "strength": 0.25,
+                        "keyInfluence": 0.8,
+                        "radius": 0.2,
+                        "friction": 0.3,
+                        "momentum": 0.5,
+                        "edges": "stretch"
+                },
+                "children": [
+                        {
+                                "type": "LinearGradient",
+                                "id": "s8-pixelthrow-c",
+                                "props": {
+                                        "colorA": "#0f172a",
+                                        "colorB": "#7c3aed",
+                                        "angle": 45
+                                }
+                        }
+                ]
+        }],
+    },
+    "Shatter": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "Shatter",
+                "id": "s8-shatter",
+                "props": {
+                        "crackWidth": 1,
+                        "intensity": 4,
+                        "radius": 0.4,
+                        "decay": 1,
+                        "seed": 2,
+                        "chromaticSplit": 1,
+                        "refractionStrength": 5,
+                        "shardLighting": 0.1,
+                        "edges": "mirror"
+                },
+                "children": [
+                        {
+                                "type": "LinearGradient",
+                                "id": "s8-shatter-c",
+                                "props": {
+                                        "colorA": "#0f172a",
+                                        "colorB": "#7c3aed",
+                                        "angle": 45
+                                }
+                        }
+                ]
+        }],
+    },
+    // ── 批次 S9：Transitions 0 案（双 child，progress=0.5 中间态）（props=registry default；散列出列见 gen-presets-batch.mjs）──
+    // ── 批次 S10 手工条目：媒体/文字（WebcamTexture 出列=无摄像头环境不可测）──
+    "ImageTexture": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "ImageTexture",
+                "id": "s10-imagetexture",
+                "props": {
+                        "url": "assets/probe.png",
+                        "objectFit": "fill"
+                }
+        }],
+    },
+    // VideoTexture 出列（2026-11-03）：外部视频纹理通道（registerExternalTexture）
+    // 在 ref.html harness / oracle web 页 / engine 录制面三处共同缺口——链路 metadata/play
+    // 全通（无 onError 无 autoplay warn）但画面恒白；30 帧等帧、mp4 faststart 均无效。
+    // 挂账：外部像素源进 GPU 纹理的注入通道（同 copyExternalImageToTexture 一族）。
+    "VideoTexture": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "VideoTexture",
+                "id": "s10-videotexture",
+                "props": {
+                        "url": "assets/probe.mp4",
+                        "objectFit": "fill",
+                        "loop": true
+                }
+        }],
+    },
+    "Text": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "Text",
+                "id": "s10-text",
+                "props": {
+                        "text": "Hello World",
+                        "fontFamily": "Inter",
+                        "fontWeight": 400,
+                        "italic": false,
+                        "textTransform": "none",
+                        "fontSize": 0.07,
+                        "letterSpacing": 0,
+                        "lineHeight": 1.2,
+                        "textAlign": "center",
+                        "width": 0,
+                        "color": "#ffffff",
+                        "origin": "center",
+                        "center": {
+                                "x": 0.5,
+                                "y": 0.5
+                        },
+                        "rotation": 0
+                }
+        }],
+    },
+    "HTMLInCanvas": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "HTMLInCanvas",
+                "id": "s10-htmlincanvas",
+                "props": {}
+        }],
+    },
+    "Group": {
+        frames: 1,
+        anim: false,
+        components: [{
+                "type": "Group",
+                "id": "s10-group",
+                "props": {},
+                "children": [
+                        {
+                                "type": "LinearGradient",
+                                "id": "s10-group-c1",
+                                "props": {
+                                        "colorA": "#0f172a",
+                                        "colorB": "#7c3aed",
+                                        "angle": 45
+                                }
+                        },
+                        {
+                                "type": "RadialGradient",
+                                "id": "s10-group-c2",
+                                "props": {
+                                        "colorA": "#0ea5e9",
+                                        "colorB": "#f97316",
+                                        "repeat": 2
+                                }
+                        }
+                ]
+        }],
+    },
 
 };

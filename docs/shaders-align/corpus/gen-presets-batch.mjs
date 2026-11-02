@@ -40,7 +40,7 @@ const childRadial = (id) => ({
     type: 'RadialGradient', id, props: { colorA: '#0ea5e9', colorB: '#f97316', repeat: 2 },
 });
 
-const pools = { s6: [], s8: [], s9: [], skipped: [] };
+const pools = { s6: [], s7: [], s8: [], s9: [], skipped: [] };
 // 实测出列表（2026-11-02 批次 S6/S8/S9，goal.md 有定性）：
 // - Particles：TypeGPU compute 力场（force.turbulence）→ FMA 收缩分歧内在极限①
 // - Ascii：engine glyph atlas 缺口全白（引擎工程债，非协议面）
@@ -54,16 +54,34 @@ const manualOut = {
     Halftone: 'mapping-amplifier',
     IsometricCubes: 'aa-network-amplifier',
     FilmGrain: 'web-mp4-codec-basis',
+    // S3 拍板 compute 系出列（PixelSort 本体）+ S6 预筛散列案（Crystal/Goo，
+    // 散列在共享 chunk——组件级 grep 不中，实测/人工判）
+    PixelSort: 'compute',
+    Crystal: 'hash',
+    Goo: 'hash',
+    // S7/S10 实测出列（2026-11-03）
+    Satin: 'naga-wgsl-parse', // engine naga 前端 "failed to convert expression to a concrete type"（Dawn 接受）
+    Voronoi: 'hash', // 点位散列（共享 chunk 盲区）
+    FloatingParticles: 'hash', // 粒子位置=std drift 散列原语
+    Hologram: 'fma-phase', // FMA 时间相位漂移×高频条纹（动画亚型）
+    Boids: 'compute-FMA',
+    Fog: 'fma-phase',
+    ParticleFlow: 'hash',
+    MagneticFilings: 'hash',
+    VideoTexture: 'external-texture-channel', // registerExternalTexture 三腿 harness/引擎共同缺口
 };
 for (const s of shaderRegistry) {
     if (tested.has(s.name)) continue;
-    if (s.category === 'Interactive' || s.category === 'Utilities' ||
+    // S10 拍板（2026-11-03）：Interactive 归 S7 anim 池——指针值来自
+    // frameParams?.pointer ?? (.5,.5)，无输入态三腿缺省一致，无需事件注入；
+    // Utilities/媒体类走 presets 手工条目（url/text 特殊 props + 资产面）。
+    if (s.category === 'Utilities' ||
         ['ImageTexture', 'VideoTexture', 'WebcamTexture', 'HTMLInCanvas', 'Text'].includes(s.name)) continue;
     if (manualOut[s.name]) { pools.skipped.push(`${s.name}(${manualOut[s.name]})`); continue; }
     if (isHashy(s)) { pools.skipped.push(`${s.name}(hash)`); continue; }
     if (s.category === 'Transitions') { pools.s9.push(s); continue; }
     if (s.requiresChild) { pools.s8.push(s); continue; }
-    if (hasAnim(s)) { pools.skipped.push(`${s.name}(anim)`); continue; }
+    if (hasAnim(s)) { pools.s7.push(s); continue; }
     pools.s6.push(s);
 }
 
@@ -73,13 +91,17 @@ const entry = (s, kind, seq) => {
     const comp = { type: s.name, id, props: defaults(s) };
     if (kind === 's8') comp.children = [childGradient(id + '-c')];
     if (kind === 's9') comp.children = [childGradient(id + '-c1'), childRadial(id + '-c2')];
-    return `    ${JSON.stringify(s.name)}: {\n        frames: 1,\n        anim: false,\n        components: [${JSON.stringify(comp, null, 8).replace(/\n/g, '\n        ')}],\n    },`;
+    const frames = kind === 's7' ? 30 : 1;
+    const anim = kind === 's7';
+    return `    ${JSON.stringify(s.name)}: {\n        frames: ${frames},\n        anim: ${anim},\n        components: [${JSON.stringify(comp, null, 8).replace(/\n/g, '\n        ')}],\n    },`;
 };
 
 const header = (title) => `    // ── ${title}（props=registry default；散列出列见 gen-presets-batch.mjs）──`;
 const sections = [
     header(`批次 S6：纯 fragment 源效果 ${pools.s6.length} 案`),
     ...pools.s6.map((s) => entry(s, 's6')),
+    header(`批次 S7：动画族 ${pools.s7.length} 案（30 帧 delta=1/30 推钟；props=registry default）`),
+    ...pools.s7.map((s) => entry(s, 's7')),
     header(`批次 S8：filter 批量 ${pools.s8.length} 案（child=LinearGradient 基线底图）`),
     ...pools.s8.map((s) => entry(s, 's8')),
     header(`批次 S9：Transitions ${pools.s9.length} 案（双 child，progress=0.5 中间态）`),
@@ -87,7 +109,7 @@ const sections = [
 ];
 const text = sections.join('\n') + '\n';
 
-console.log(`S6=${pools.s6.length} S8=${pools.s8.length} S9=${pools.s9.length} 排除=${pools.skipped.length}`);
+console.log(`S6=${pools.s6.length} S7=${pools.s7.length} S8=${pools.s8.length} S9=${pools.s9.length} 排除=${pools.skipped.length}`);
 if (process.argv.includes('--emit')) {
     writeFileSync('cases/presets.batch.mjs', text);
     console.log('written: cases/presets.batch.mjs');

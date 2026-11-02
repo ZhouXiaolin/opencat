@@ -50,6 +50,9 @@
       // frame-end hook reads the drawing buffer into the generated-image
       // channel.
       globalThis.__ocNativeWebGL = true;
+      // WebGPU 同构（shaders 语料）：真 navigator.gpu + 真 OffscreenCanvas
+      // 'webgpu' 上下文，webgpu_api.js 只路由 getContext + 帧末同步回读。
+      globalThis.__ocNativeWebGPU = true;
 
       const canvas = document.getElementById('frame');
       // Scene-cut detection canvas. Created HERE at page load, not inside
@@ -190,6 +193,13 @@
           const catalogJson = await renderer.open_design(envelope);
           await prepareCatalogVideoSources(catalogJson);
           openedFor = envelope;
+          // Native WebGPU（shaders 语料）初始化走真实异步：requestAdapter/
+          // requestDevice 在浏览器任务队列解析，首绘在 initialize().then。
+          // realm 帧内 drain 只有微任务，推不动宏任务——open 后先泵事件
+          // 循环再建帧 IR，否则（尤其单帧案）帧 0 读到空交换链。30 轮足够
+          // 覆盖 adapter→device→管线→首绘提交的十余跳异步；对非 WebGPU
+          // 语料只是推进已有异步加载，无语义影响。
+          for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0));
         }
 
         // Headless SwiftShader often cannot import VideoFrame textures via
@@ -215,6 +225,45 @@
         renderEncodedDrawFrame(result.ir, surface.getCanvas(), CK, { surface });
         surface.flush();
         return { comp, surface, CK };
+      }
+
+      // Native WebGPU（shaders 语料）warmup：首帧的 build_frame_ir 发起作者
+      // initialize——真实 requestAdapter/requestDevice 的 promise 在浏览器
+      // 任务队列解析，realm 帧内微任务 drain 推不动；首绘（initialize().then
+      // 里的 renderFrame delta 0）因此落在帧 0 之后，单帧案就整段全白。
+      // 修法 = 先踢一脚（跑一次 build_frame_ir 触发 effect/initialize），
+      // 泵事件循环让异步链走完（getContext 注册 + 首绘都落定），再重绘同一
+      // 帧——重绘时 done 幂等守卫跳过重绘、帧末钩子读到已画好的交换链。
+      async function warmupNativeAsync(envelope, frame) {
+        await drawFrame(envelope, frame);
+        // 泵到所有已注册 native WebGPU canvas 拿到首绘（探针归零）；非
+        // WebGPU 设计（无探针）至少泵 150 轮兜底（open 后的既有异步加载）。
+        // 最短轮数是关键：drain()===0 在「零 canvas 注册」时也是真——
+        // requestAdapter→getContext 的 IPC 是毫秒-百毫秒级浏览器任务，
+        // 30 轮 setTimeout(0) 可能在注册发生前跑完，假归零提前 break，
+        // 重绘时 inited=false 不画 → 帧末回读空交换链 → 单帧案整段黑帧
+        // （blend/checkerboard/simplex-noise 黑帧根因，动画案表现=帧 0
+        // 黑、后续帧自愈成 ~3.3%）。
+        for (let i = 0; i < 600; i++) {
+          await new Promise((r) => setTimeout(r, 0));
+          const drain = globalThis.__ocNativeWebGpuDrain;
+          if (i >= 150 && (!drain || drain() === 0)) break;
+        }
+        await drawFrame(envelope, frame);
+      }
+
+      // Native WebGPU 直读消费：copyTextureToBuffer 的 mapAsync 是任务级
+      // 异步，帧末同步钩子取不到字节。每帧 drawFrame 后泵宏任务等全部
+      // 在途直读落定，再重绘同一帧——done 幂等守卫跳过渲染，帧末钩子
+      // 消费当帧原始字节（发起帧本身不产出记录）。非 WebGPU 语料（探针
+      // 不存在 / 无在途拷贝）直通零开销。
+      async function settleNativeWebGpuReadback(envelope, frame) {
+        const pend = globalThis.__ocNativeWebGpuReadbackPending;
+        if (!pend || pend() === 0) return;
+        for (let i = 0; i < 600 && pend() > 0; i++) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        await drawFrame(envelope, frame);
       }
 
       // Hex transport (sampled oracle): one frame out as raw RGBA hex.
@@ -283,6 +332,7 @@
         if (renderOnly) {
           // Diagnostic: draw every frame without encoder/muxer — isolates
           // render-side memory growth from the encode path.
+          await warmupNativeAsync(envelope, startFrame);
           const probeRows = [];
           const renderOnlyTimings = [];
           let lastFrame = startFrame;
@@ -290,6 +340,7 @@
             for (let frame = startFrame; frame <= endFrame; frame++) {
               const t0 = performance.now();
               await drawFrame(envelope, frame);
+              await settleNativeWebGpuReadback(envelope, frame);
               renderOnlyTimings.push(Math.round(performance.now() - t0));
               lastFrame = frame;
               if ((frame - startFrame) % 25 === 0) {
@@ -358,6 +409,7 @@
         });
         encoder.configure(config);
 
+        await warmupNativeAsync(envelope, startFrame);
         let processed = 0;
         // Scene-cut handling: at 0.10 bits/pixel/frame the soft encoder
         // crushes quality on a whole-frame cut — the cut frame (even when the
@@ -418,6 +470,7 @@
             if (encodeError) throw encodeError;
             const tRender0 = performance.now();
             await drawFrame(envelope, frame);
+            await settleNativeWebGpuReadback(envelope, frame);
             const renderMs = Math.round(performance.now() - tRender0);
             const tVf0 = performance.now();
             const vf = new VideoFrame(canvas, {

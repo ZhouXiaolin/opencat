@@ -540,7 +540,13 @@
             // would clear the frame we just drew).
             var canvasWidth = (opts && opts.width) || 300;
             var canvasHeight = (opts && opts.height) || 150;
+            // configurable 必须开：离屏标记（markOffscreenCanvas）会用自己
+            // 的 getter/setter 重定义这两个属性——旧实现是普通赋值（天然
+            // configurable），改成访问器后不标 configurable 会让所有
+            // createElement('canvas') 路径（g2 系/shaders corpus）当场
+            // TypeError: Cannot redefine property。
             Object.defineProperty(node, 'width', {
+                configurable: true,
                 get: function () { return canvasWidth; },
                 set: function (v) {
                     canvasWidth = Number(v) || 0;
@@ -548,6 +554,7 @@
                 },
             });
             Object.defineProperty(node, 'height', {
+                configurable: true,
                 get: function () { return canvasHeight; },
                 set: function (v) {
                     canvasHeight = Number(v) || 0;

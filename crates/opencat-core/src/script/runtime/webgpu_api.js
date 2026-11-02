@@ -104,6 +104,9 @@
         PASS_DRAW_INDIRECT: 34,
         PASS_DRAW_INDEXED_INDIRECT: 35,
         PASS_END: 36,
+        ENC_BEGIN_COMPUTE_PASS: 37,
+        PASS_DISPATCH_WORKGROUPS: 38,
+        PASS_DISPATCH_WORKGROUPS_INDIRECT: 39,
     };
 
     var ALPHA_MODE = { opaque: 0, premultiplied: 1 };
@@ -667,8 +670,12 @@
                 emit(tid2, W.ENC_BEGIN_RENDER_PASS, new Encoder(12).u32(id).u32(pid).u32(internDesc(tid2, desc)).done(W.ENC_BEGIN_RENDER_PASS));
                 return makeRenderPassEncoder(pid);
             };
-            enc.beginComputePass = function () {
-                throw new Error('webgpu recording: compute passes unsupported (corpus is render-only)');
+            enc.beginComputePass = function (desc) {
+                var tid2 = target();
+                var pid = alloc('computePass');
+                if (desc && desc.timestampWrites) throw new Error('compute pass timestampWrites unsupported');
+                emit(tid2, W.ENC_BEGIN_COMPUTE_PASS, new Encoder(12).u32(id).u32(pid).u32(internDesc(tid2, desc || {})).done(W.ENC_BEGIN_COMPUTE_PASS));
+                return makeComputePassEncoder(pid);
             };
             enc.copyBufferToBuffer = function (src, srcOffset, dst, dstOffset, size) {
                 emitTo('copyBufferToBuffer', W.ENC_COPY_BUFFER_TO_BUFFER, new Encoder(36)
@@ -710,6 +717,36 @@
             };
             return enc;
         };
+
+        function makeComputePassEncoder(pid) {
+            var pass = makeStub(GPUComputePassEncoder, 'computePass', pid);
+            var t = function () { return target(); };
+            // setPipeline/setBindGroup 与 render pass 共 opcode（pass 句柄
+            // 全局唯一，执行端按段类别分派到 ComputePipeline/BindGroup）。
+            pass.setPipeline = function (pipeline) {
+                emit(t(), W.PASS_SET_PIPELINE, new Encoder(8).u32(pid).u32(stubId(pipeline, 'setPipeline')).done(W.PASS_SET_PIPELINE));
+            };
+            pass.setBindGroup = function (index, bindGroup, dynamicOffsets) {
+                if (dynamicOffsets && dynamicOffsets.length) {
+                    throw new Error('webgpu recording: dynamicOffsets unsupported');
+                }
+                emit(t(), W.PASS_SET_BIND_GROUP, new Encoder(12).u32(pid).u32(index | 0).u32(stubId(bindGroup, 'setBindGroup')).done(W.PASS_SET_BIND_GROUP));
+            };
+            pass.dispatchWorkgroups = function (x, y, z) {
+                emit(t(), W.PASS_DISPATCH_WORKGROUPS, new Encoder(16).u32(pid)
+                    .u32(x | 0).u32(y === undefined ? 1 : y | 0).u32(z === undefined ? 1 : z | 0).done(W.PASS_DISPATCH_WORKGROUPS));
+            };
+            pass.dispatchWorkgroupsIndirect = function (buffer, offset) {
+                emit(t(), W.PASS_DISPATCH_WORKGROUPS_INDIRECT, new Encoder(16).u32(pid).u32(stubId(buffer, 'dispatchWorkgroupsIndirect')).u64(offset || 0).done(W.PASS_DISPATCH_WORKGROUPS_INDIRECT));
+            };
+            pass.end = function () {
+                emit(t(), W.PASS_END, new Encoder(4).u32(pid).done(W.PASS_END));
+            };
+            pass.pushDebugGroup = function () {};
+            pass.popDebugGroup = function () {};
+            pass.insertDebugMarker = function () {};
+            return pass;
+        }
 
         function makeRenderPassEncoder(pid) {
             var pass = makeStub(GPURenderPassEncoder, 'renderPass', pid);

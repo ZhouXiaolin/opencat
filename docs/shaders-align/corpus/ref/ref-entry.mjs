@@ -8,6 +8,11 @@
 import { createRendererFromJSON } from 'shaders/core';
 import { CASES } from '../cases/presets.mjs';
 
+// rAF 全程禁用：lib requestRender 的墙钟渲染会推进 animatedTime
+// （worley/voronoi 特征点位移），corpus 钟协议 = 时间只经 deltaSeconds
+// 推进——与 engine 侧 jsx 模板同禁才是同一协议（gen-cases.mjs 注释）。
+window.requestAnimationFrame = () => 0;
+
 const q = new URLSearchParams(location.search);
 const name = q.get('case');
 const spec = CASES[name];

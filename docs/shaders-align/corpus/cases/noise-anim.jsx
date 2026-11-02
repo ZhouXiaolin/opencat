@@ -1,10 +1,14 @@
-// shaders 对齐案 noise-anim：createRendererFromJSON + 逐帧 renderFrame。
+// shaders 对齐案 noise-anim（动画）：createRendererFromJSON + 逐帧 renderFrame（每帧恰一次）。
+// 钟协议与 ref-entry.mjs 相同：帧 0 delta 0（首绘无推进），帧 i 的时钟 =
+// 累加 i 次 delta 1/30；引擎帧号跳号时补齐中间帧（时钟不缺步）。
 // 挂载 = g2 同构（声明 canvas 只是容器，自建 canvas appendChild 冒用 id）。
-// renderer 挂 globalThis（entry 模块每帧重评估，realm 全局持久）；delta
-// 按帧号补齐——同帧的多次 effect 运行（analyze+render phase）幂等。
 import { useEffect } from 'opencat/runtime';
 import { createRendererFromJSON } from 'shaders';
 import { CASES, W, H, FPS } from './presets.mjs';
+
+// rAF 全程禁用：lib requestRender 的墙钟渲染会推进 animatedTime，
+// corpus 协议时间只经 deltaSeconds 推进（ref-entry.mjs 同禁）。
+globalThis.requestAnimationFrame = () => 0;
 
 export const meta = { width: W, height: H, fps: FPS, duration: CASES["noise-anim"].frames / FPS };
 
@@ -12,7 +16,7 @@ const CASE = CASES["noise-anim"];
 
 export default function Composition() {
     useEffect(() => {
-        const st = (globalThis.__ocShadersCase ??= { r: null, ready: false, last: -1 });
+        const st = (globalThis.__ocShadersCase ??= { r: null, ready: false, done: -1 });
         if (!st.r) {
             const host = document.querySelector('#fx');
             const canvas = document.createElement('canvas');
@@ -21,28 +25,31 @@ export default function Composition() {
             host.appendChild(canvas);
             st.r = createRendererFromJSON({ components: CASE.components });
             // initialize 是 async：录制桩立即 resolve，落定在本帧微任务
-            // drain——then 里的首绘（补齐 delta + 重绘）同帧进流。
+            // drain——then 里的首绘（delta 0）同帧进流。首绘必须在 then
+            // 里做：微任务 drain 时机在本帧最后一次 effect 之后时，靠
+            // effect 铸帧 0 会整帧落空（f0 黑帧）。失败 fail-loud。
             st.r.initialize(canvas)
                 .then(() => {
                     st.ready = true;
-                    const f = globalThis.ctx.global.frame;
-                    while (st.last < f) {
-                        st.r.renderFrame({ deltaSeconds: 1 / FPS });
-                        st.last++;
-                    }
                     return st.r.renderFrame({ deltaSeconds: 0 });
                 })
+                .then(() => { st.done = 0; })
                 .catch((e) => globalThis.__ocStderr?.(
                     '[shaders] initialize failed: ' + (e && (e.stack || e.message))));
             return;
         }
         if (!st.ready) return;
         const f = globalThis.ctx.global.frame;
-        while (st.last < f) {
+        if (st.done >= f) return; // 同帧的后续 effect 运行：不重复渲染
+        // 补齐跳号（f=0 已在 then 里绘过，done=0 守卫直接跳过）。
+        while (st.done < f - 1) {
             st.r.renderFrame({ deltaSeconds: 1 / FPS });
-            st.last++;
+            st.done++;
         }
-        st.r.renderFrame({ deltaSeconds: 0 });
+        if (f > 0) {
+            st.r.renderFrame({ deltaSeconds: 1 / FPS });
+            st.done = f;
+        }
     });
     return (
         <div id="root" class="relative w-[960px] h-[540px] overflow-hidden bg-white">

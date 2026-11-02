@@ -1,50 +1,52 @@
-// shaders 对齐案：createRendererFromJSON + 逐帧 renderFrame({deltaSeconds})
-// 是官方 frame-locked 确定性通路（时钟精确等于 delta 之和），与 ref 侧
-// ref-entry.mjs 同序列（静态案每帧 delta 0 原样重画）。
+// shaders 对齐案 solid：createRendererFromJSON + 静态重绘（delta 0）。
+// 案帧数 presets.frames、每帧 delta 0——time 恒 0，两侧同钟。
+// 挂载 = g2 同构（声明 canvas 只是容器，自建 canvas appendChild 冒用 id）。
 import { useEffect } from 'opencat/runtime';
 import { createRendererFromJSON } from 'shaders';
-import { CASES, W, H } from './presets.mjs';
+import { CASES, W, H, FPS } from './presets.mjs';
 
-export const meta = { width: W, height: H, fps: 30, duration: 1 / 30 };
+// rAF 全程禁用：lib requestRender 的墙钟渲染会推进 animatedTime，
+// corpus 协议时间只经 deltaSeconds 推进（ref-entry.mjs 同禁）。
+globalThis.requestAnimationFrame = () => 0;
 
-const CASE = CASES.solid;
-const CASE_W = W;
-const CASE_H = H;
+export const meta = { width: W, height: H, fps: FPS, duration: CASES["solid"].frames / FPS };
+
+const CASE = CASES["solid"];
 
 let renderer = null;
 let inited = false;
+let done = -1;
 
 export default function Composition() {
     useEffect(() => {
+        const f = globalThis.ctx.global.frame;
+        if (done >= f) return; // 同帧的后续 effect 运行：不重复渲染
         if (!renderer) {
-            // g2 同构挂载：声明 canvas 只是容器（声明节点 handle 没有
-            // getContext），自建 canvas 经 appendChild 钩子冒用声明 id 进
-            // visual registry，对自建 canvas 拿 'webgpu' context。
             const host = document.querySelector('#fx');
             const canvas = document.createElement('canvas');
-            canvas.width = CASE_W;
-            canvas.height = CASE_H;
+            canvas.width = W;
+            canvas.height = H;
             host.appendChild(canvas);
             renderer = createRendererFromJSON({ components: CASE.components });
-            // initialize 是 async：录制桩的 requestAdapter/requestDevice 立即
-            // resolve，落定发生在本帧的微任务 drain——then 里的首绘（delta 0）
-            // 同帧进流，帧 0 即有内容。失败必须 fail-loud（__ocStderr 上抛）。
+            // initialize 是 async：录制桩立即 resolve，落定在本帧微任务
+            // drain——then 里的首绘（delta 0）同帧进流。失败 fail-loud。
             renderer.initialize(canvas)
                 .then(() => {
                     inited = true;
                     return renderer.renderFrame({ deltaSeconds: 0 });
                 })
-                .catch((e) => {
-                    globalThis.__ocStderr?.('[shaders] initialize failed: ' + (e && (e.stack || e.message)));
-                });
+                .then(() => { done = f; })
+                .catch((e) => globalThis.__ocStderr?.(
+                    '[shaders] initialize failed: ' + (e && (e.stack || e.message))));
             return;
         }
         if (!inited) return;
         renderer.renderFrame({ deltaSeconds: 0 });
+        done = f;
     });
     return (
         <div id="root" class="relative w-[960px] h-[540px] overflow-hidden bg-white">
-            <canvas id="fx" class="absolute left-0 top-0 w-[960px] h-[540px]" width={960} height={540} />
+            <canvas id="fx" class="absolute left-0 top-0 w-[960px] h-[540px]" width={W} height={H} />
         </div>
     );
 }

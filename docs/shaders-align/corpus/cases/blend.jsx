@@ -1,10 +1,13 @@
 // shaders 对齐案 blend：createRendererFromJSON + 静态重绘（delta 0）。
-// 案本质单帧（presets frames=1 anim=false），ref 侧协议所有帧 delta 0
-// ——time 恒 0，两侧必须同钟。挂载 = g2 同构（声明 canvas 只是容器，
-// 自建 canvas appendChild 冒用 id）。
+// 案帧数 presets.frames、每帧 delta 0——time 恒 0，两侧同钟。
+// 挂载 = g2 同构（声明 canvas 只是容器，自建 canvas appendChild 冒用 id）。
 import { useEffect } from 'opencat/runtime';
 import { createRendererFromJSON } from 'shaders';
 import { CASES, W, H, FPS } from './presets.mjs';
+
+// rAF 全程禁用：lib requestRender 的墙钟渲染会推进 animatedTime，
+// corpus 协议时间只经 deltaSeconds 推进（ref-entry.mjs 同禁）。
+globalThis.requestAnimationFrame = () => 0;
 
 export const meta = { width: W, height: H, fps: FPS, duration: CASES["blend"].frames / FPS };
 
@@ -12,9 +15,12 @@ const CASE = CASES["blend"];
 
 let renderer = null;
 let inited = false;
+let done = -1;
 
 export default function Composition() {
     useEffect(() => {
+        const f = globalThis.ctx.global.frame;
+        if (done >= f) return; // 同帧的后续 effect 运行：不重复渲染
         if (!renderer) {
             const host = document.querySelector('#fx');
             const canvas = document.createElement('canvas');
@@ -29,12 +35,14 @@ export default function Composition() {
                     inited = true;
                     return renderer.renderFrame({ deltaSeconds: 0 });
                 })
+                .then(() => { done = f; })
                 .catch((e) => globalThis.__ocStderr?.(
                     '[shaders] initialize failed: ' + (e && (e.stack || e.message))));
             return;
         }
         if (!inited) return;
         renderer.renderFrame({ deltaSeconds: 0 });
+        done = f;
     });
     return (
         <div id="root" class="relative w-[960px] h-[540px] overflow-hidden bg-white">

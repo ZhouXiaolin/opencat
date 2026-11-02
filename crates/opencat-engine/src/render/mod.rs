@@ -720,8 +720,17 @@ fn write_rgba_png(output_path: &Path, width: u32, height: u32, mut rgba: Vec<u8>
 
 impl EncodingConfig {
     pub fn mp4() -> Self {
+        // 对拍 corpus 需要无损引擎腿（ref 侧 crf 0）：环境量覆盖默认
+        // crf，产品默认保持 18 不动。
+        let crf = std::env::var("OC_VIDEO_CRF")
+            .ok()
+            .and_then(|s| s.parse::<u8>().ok())
+            .unwrap_or(18);
         Self {
-            format: OutputFormat::Mp4(Mp4Config::default()),
+            format: OutputFormat::Mp4(Mp4Config {
+                crf,
+                preset: "fast".to_string(),
+            }),
         }
     }
 

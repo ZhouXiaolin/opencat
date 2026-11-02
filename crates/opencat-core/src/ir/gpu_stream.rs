@@ -609,7 +609,17 @@ pub mod wgpu_opcode {
     /// {pass: u32}
     pub const PASS_END: u8 = 36;
 
-    pub const MAX_OPCODE: u8 = PASS_END;
+    // ── compute pass 热路径（与 render pass 共用 SET_PIPELINE /
+    // SET_BIND_GROUP / PASS_END；pass 句柄全局唯一，执行端按段类别分派）──
+    /// {enc: u32, pass: u32, desc_range: u32} — GPUComputePassDescriptor
+    /// （语料只传 label；timestampWrites 录制面即 throw）
+    pub const ENC_BEGIN_COMPUTE_PASS: u8 = 37;
+    /// {pass: u32, x: u32, y: u32, z: u32}
+    pub const PASS_DISPATCH_WORKGROUPS: u8 = 38;
+    /// {pass: u32, buffer: u32, offset: u64}
+    pub const PASS_DISPATCH_WORKGROUPS_INDIRECT: u8 = 39;
+
+    pub const MAX_OPCODE: u8 = PASS_DISPATCH_WORKGROUPS_INDIRECT;
 
     /// 定长 payload 长度表；`None` = 变长（QUEUE_SUBMIT）。
     pub const PAYLOAD_LEN: [Option<u16>; (MAX_OPCODE as usize) + 1] = build_payload_len();
@@ -659,6 +669,10 @@ pub mod wgpu_opcode {
         table[PASS_DRAW_INDIRECT as usize] = Some(16);
         table[PASS_DRAW_INDEXED_INDIRECT as usize] = Some(16);
         table[PASS_END as usize] = Some(4);
+        // compute pass
+        table[ENC_BEGIN_COMPUTE_PASS as usize] = Some(12);
+        table[PASS_DISPATCH_WORKGROUPS as usize] = Some(16);
+        table[PASS_DISPATCH_WORKGROUPS_INDIRECT as usize] = Some(16);
         table
     }
 }

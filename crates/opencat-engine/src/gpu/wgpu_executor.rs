@@ -31,7 +31,8 @@ use wgpu::{
     BindGroupLayoutDescriptor, BindGroupLayoutEntry,
     BindingResource, BindingType, BlendState, Buffer, BufferBinding, BufferBindingType,
     BufferDescriptor, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoder,
-    CommandEncoderDescriptor, CompareFunction, ComputePipeline, DepthBiasState, DepthStencilState,
+    CommandEncoderDescriptor, CompareFunction, ComputePass, ComputePassDescriptor,
+    ComputePipeline, DepthBiasState, DepthStencilState,
     DeviceDescriptor, Extent3d, FragmentState, Instance, InstanceDescriptor, LoadOp, MapMode,
     MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayout,
     PipelineLayoutDescriptor, PollError, PollType, PowerPreference, PrimitiveState,
@@ -366,8 +367,17 @@ struct FrameState {
     out_handle: Option<u32>,        // swapchain 纹理桩句柄
 }
 
-/// desc_range = None 的段是 encoder 级拷贝段（无附件，命令直接打 encoder）。
+/// 段类别：Copy = encoder 级拷贝（desc_range=None，命令直接打 encoder）；
+/// Render/Compute = pass 段（desc_range=Some，pass 命令 begin/end 之间重放）。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SegKind {
+    Copy,
+    Render,
+    Compute,
+}
+
 struct RecordedPass {
+    kind: SegKind,
     desc_range: Option<u32>,
     cmds: Vec<(u8, Vec<u8>)>,
 }
@@ -457,7 +467,15 @@ impl WgpuStreamExecutor {
             }))
             .map_err(|e| anyhow!("wgpu: request_device 失败: {e}"))?;
             device.on_uncaptured_error(std::sync::Arc::new(|e| {
-                eprintln!("wgpu uncaptured error: {e}");
+                // wgpu 30 的 Display 只打 "Validation Error" 空壳，细节在
+                // source 链——逐层展开，否则验证失败不可定位（不变式 2）。
+                let mut msg = format!("{e}");
+                let mut src = std::error::Error::source(&e);
+                while let Some(s) = src {
+                    msg.push_str(&format!("\n  caused by: {s}"));
+                    src = s.source();
+                }
+                eprintln!("wgpu uncaptured error: {msg}");
             }));
             self.rt = Some(WgpuRuntime { device, queue });
         }
@@ -702,9 +720,9 @@ fn execute_stream(
                         .unwrap_or(1) as u32,
                     dimension,
                     format: fmt_of(&v)?,
-                    // 读回需要 COPY_SRC：诊断 readback（OC_DUMP_WGPU_TEX）对
-                    // 任意纹理可用。多余 usage 声明合法（与 configure 补位同
-                    // 一自由度），渲染语义不变。
+                    // 补 COPY_SRC：录制面声明的 usage 可能缺读回/拷贝位（与
+                    // configure 补位同一自由度），多余 usage 声明合法，渲染
+                    // 语义不变。
                     usage: TextureUsages::from_bits_truncate(
                         v.get("usage").and_then(Value::as_u64).unwrap_or(0) as u32,
                     ) | TextureUsages::COPY_SRC,
@@ -879,6 +897,13 @@ fn execute_stream(
                 );
                 res.compute_pipelines.insert(handle, pipe);
                 res.kind_of.insert(handle, Kind::ComputePipeline);
+                // auto 派生 layout 判据与 render pipeline 同构（预扫校验
+                // 对 compute 段同样生效——派生 bg 只认派生源 pipeline）。
+                let auto = match v.get("layout") {
+                    None | Some(Value::Null) => true,
+                    Some(l) => l.as_str() == Some("auto"),
+                };
+                res.pipeline_auto.insert(handle, auto);
             }
             W::QUERY_SET_CREATE => {
                 let handle = u32(&payload, 0)?;
@@ -1007,9 +1032,20 @@ fn execute_stream(
                 let pass = u32(&payload, 4)?;
                 let r = u32(&payload, 8)?;
                 frame.encoders.entry(enc).or_default().push(pass);
-                frame
-                    .segments
-                    .insert(pass, RecordedPass { desc_range: Some(r), cmds: Vec::new() });
+                frame.segments.insert(
+                    pass,
+                    RecordedPass { kind: SegKind::Render, desc_range: Some(r), cmds: Vec::new() },
+                );
+            }
+            W::ENC_BEGIN_COMPUTE_PASS => {
+                let enc = u32(&payload, 0)?;
+                let pass = u32(&payload, 4)?;
+                let r = u32(&payload, 8)?;
+                frame.encoders.entry(enc).or_default().push(pass);
+                frame.segments.insert(
+                    pass,
+                    RecordedPass { kind: SegKind::Compute, desc_range: Some(r), cmds: Vec::new() },
+                );
             }
             W::ENC_COPY_TEXTURE_TO_TEXTURE => {
                 // 流内照录（copy_segment 组合分支），帧尾镜像收集供直通。
@@ -1033,12 +1069,13 @@ fn execute_stream(
             | W::PASS_SET_INDEX_BUFFER | W::PASS_SET_VIEWPORT | W::PASS_SET_SCISSOR_RECT
             | W::PASS_SET_BLEND_CONSTANT | W::PASS_SET_STENCIL_REFERENCE | W::PASS_DRAW
             | W::PASS_DRAW_INDEXED | W::PASS_DRAW_INDIRECT | W::PASS_DRAW_INDEXED_INDIRECT
+            | W::PASS_DISPATCH_WORKGROUPS | W::PASS_DISPATCH_WORKGROUPS_INDIRECT
             | W::PASS_END => {
                 let pass = u32(&payload, 0)?;
                 let p = frame
                     .segments
                     .get_mut(&pass)
-                    .ok_or_else(|| unknown("renderPass", pass))?;
+                    .ok_or_else(|| unknown("pass", pass))?;
                 p.cmds.push((opcode, payload.to_vec()));
             }
             other => bail!("opcode {other} 未实现"),
@@ -1110,21 +1147,6 @@ fn execute_stream(
                 .join(format!("f{}-{}.rgba", stream.image_id.0, stream.target_id)),
             &rgba,
         );
-        // TEMP 探针（批次 G，收口删）：OC_DUMP_WGPU_TEX=handle 附加 readback
-        if let Some(h) = std::env::var("OC_DUMP_WGPU_TEX")
-            .ok()
-            .and_then(|s| s.parse::<u32>().ok())
-        {
-            if let Ok(tex) = res.texture_ref(h) {
-                if let Ok(px) = readback_rgba(rt, tex, stream.width, stream.height) {
-                    let _ = std::fs::write(
-                        std::path::Path::new(&dir)
-                            .join(format!("tex{h}.rgba",)),
-                        &px,
-                    );
-                }
-            }
-        }
     }
     entry.rgba = std::sync::Arc::from(rgba);
     entry.gpu = None;
@@ -1139,7 +1161,7 @@ fn copy_segment<'f>(frame: &'f mut FrameState, enc: u32) -> Result<&'f mut Recor
     if !frame.segments.contains_key(&seg_id) {
         frame.segments.insert(
             seg_id,
-            RecordedPass { desc_range: None, cmds: Vec::new() },
+            RecordedPass { kind: SegKind::Copy, desc_range: None, cmds: Vec::new() },
         );
         frame.encoders.entry(enc).or_default().push(seg_id);
     }
@@ -1167,8 +1189,8 @@ fn finish_encoder(
         .create_command_encoder(&CommandEncoderDescriptor { label: Some(&name) });
     for seg_id in seg_ids {
         let Some(seg) = frame.segments.remove(&seg_id) else { continue };
-        match seg.desc_range {
-            None => {
+        match seg.kind {
+            SegKind::Copy => {
                 // encoder 级拷贝段：命令直接打 encoder（纹理拷贝的描述符
                 // 在流字节里，重放时带上下文重解析）。
                 if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
@@ -1178,7 +1200,10 @@ fn finish_encoder(
                     apply_encoder_copy(res, &mut encoder, *op, p, bytes, ranges)?;
                 }
             }
-            Some(desc_range) => {
+            SegKind::Render | SegKind::Compute => {
+                let desc_range = seg.desc_range.ok_or_else(|| {
+                    anyhow!("pass 段（kind={:?}）缺 desc_range", seg.kind)
+                })?;
                 let v: Value = json_at(desc_range as usize, bytes, ranges)?;
                 // 阶段一：预扫段命令，按 Dawn 的 default-layout 校验判定
                 // 整段是否作废。Dawn 原文（真 Edge 实测，anim 案）：
@@ -1220,19 +1245,81 @@ fn finish_encoder(
                 if rejected {
                     return Ok(None);
                 }
-                // 阶段二（&）：回放。bound_vbs = 本 pass 已绑顶点缓冲槽
-                //（draw 校验网用，见 bind_missing_vertex_buffers）。
-                let mut rpass = res.begin_render_pass(&mut encoder, &v)?;
-                let mut cur_pipeline = None;
-                let mut bound_vbs: Vec<u32> = Vec::new();
-                for (op, p) in &seg.cmds {
-                    apply_pass_cmd(res, &mut cur_pipeline, &mut bound_vbs, &mut rpass, *op, p)?;
+                if seg.kind == SegKind::Render {
+                    // 阶段二（&）：回放。bound_vbs = 本 pass 已绑顶点缓冲槽
+                    //（draw 校验网用，见 bind_missing_vertex_buffers）。
+                    let mut rpass = res.begin_render_pass(&mut encoder, &v)?;
+                    let mut cur_pipeline = None;
+                    let mut bound_vbs: Vec<u32> = Vec::new();
+                    for (op, p) in &seg.cmds {
+                        apply_pass_cmd(res, &mut cur_pipeline, &mut bound_vbs, &mut rpass, *op, p)?;
+                    }
+                    drop(rpass); // end()
+                } else {
+                    // compute pass：无附件（desc 语料只带 label；timestampWrites
+                    // 录制面已 throw，这里不解析附件语义）。命令面是
+                    // SET_PIPELINE / SET_BIND_GROUP / DISPATCH(±INDIRECT)。
+                    let mut cpass =
+                        encoder.begin_compute_pass(&ComputePassDescriptor {
+                            label: None,
+                            timestamp_writes: None,
+                        });
+                    let mut cur_pipeline = None;
+                    for (op, p) in &seg.cmds {
+                        apply_compute_pass_cmd(res, &mut cur_pipeline, &mut cpass, *op, p)?;
+                    }
+                    drop(cpass); // end()
                 }
-                drop(rpass); // end()
             }
         }
     }
     Ok(Some(encoder.finish()))
+}
+
+/// compute pass 段命令回放。SET_PIPELINE/SET_BIND_GROUP 与 render pass 共
+/// opcode，句柄按 Kind 分派；render 专属命令（顶点缓冲/draw 族）走到这里
+/// 即 fail-loud（流类别错乱，不留静默替身）。
+fn apply_compute_pass_cmd(
+    res: &WgpuResources,
+    cur_pipeline: &mut Option<u32>,
+    cpass: &mut ComputePass<'_>,
+    opcode: u8,
+    p: &[u8],
+) -> Result<()> {
+    match opcode {
+        W::PASS_SET_PIPELINE => {
+            let ph = u32(p, 4)?;
+            cpass.set_pipeline(res.compute_pipeline_ref(ph)?);
+            *cur_pipeline = Some(ph);
+        }
+        W::PASS_SET_BIND_GROUP => {
+            let (idx, bg) = (u32(p, 4)?, u32(p, 8)?);
+            if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
+                eprintln!(
+                    "[wg-cpass] setBG idx={idx} bg={bg} desc={:?}",
+                    res.bind_group_desc.get(&bg)
+                );
+            }
+            cpass.set_bind_group(idx, res.bind_group_ref(bg)?, &[]);
+        }
+        // {pass, x(4), y(8), z(12)}
+        W::PASS_DISPATCH_WORKGROUPS => {
+            let (x, y, z) = (u32(p, 4)?, u32(p, 8)?, u32(p, 12)?);
+            if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
+                eprintln!("[wg-cpass] dispatch pp={:?} {}x{}x{}", cur_pipeline, x, y, z);
+            }
+            cpass.dispatch_workgroups(x, y, z);
+        }
+        // {pass, buffer(4), offset(8): u64}
+        W::PASS_DISPATCH_WORKGROUPS_INDIRECT => {
+            let buffer = res.buffer_ref(u32(p, 4)?)?;
+            let offset = u64at(p, 8)?;
+            cpass.dispatch_workgroups_indirect(buffer, offset);
+        }
+        W::PASS_END => {}
+        other => bail!("apply_compute_pass_cmd: opcode {other} 不属于 compute pass 段"),
+    }
+    Ok(())
 }
 
 fn apply_encoder_copy(
@@ -1504,6 +1591,11 @@ impl WgpuResources {
         self.render_pipelines
             .get(&h)
             .ok_or_else(|| unknown("renderPipeline", h))
+    }
+    fn compute_pipeline_ref(&self, h: u32) -> Result<&ComputePipeline> {
+        self.compute_pipelines
+            .get(&h)
+            .ok_or_else(|| unknown("computePipeline", h))
     }
     fn bind_group_ref(&self, h: u32) -> Result<&BindGroup> {
         self.bind_groups.get(&h).ok_or_else(|| unknown("bindGroup", h))
@@ -2293,6 +2385,20 @@ fn u32_opt(v: Option<&Value>) -> Option<u32> {
 }
 
 fn extent_of(v: &Value) -> Result<Extent3d> {
+    // GPUExtent3D 双形：sequence [w, h?, d?] 或 dict {width, height,
+    // depthOrArrayLayers}（与 origin_of 同一自由度；录制面 size 走数组）。
+    if let Some(a) = v.as_array() {
+        let at = |i: usize| -> u32 {
+            a.get(i)
+                .and_then(Value::as_u64)
+                .unwrap_or(1) as u32
+        };
+        return Ok(Extent3d {
+            width: at(0),
+            height: at(1),
+            depth_or_array_layers: at(2),
+        });
+    }
     Ok(Extent3d {
         width: v.get("width").and_then(Value::as_u64).unwrap_or(1) as u32,
         height: v.get("height").and_then(Value::as_u64).unwrap_or(1) as u32,
@@ -2369,8 +2475,13 @@ fn binding_type_of(e: &Value) -> Result<BindingType> {
     if let Some(b) = e.get("buffer") {
         return Ok(BindingType::Buffer {
             ty: match b.get("type").and_then(Value::as_str).unwrap_or("uniform") {
-                "storage" | "read-only-storage" => BufferBindingType::Storage { read_only: true },
-                "mutable-storage" => BufferBindingType::Storage { read_only: false },
+                // WebGPU 规范词汇（GPUBindGroupLayoutEntry.buffer.type）：
+                // 'storage' = 可写存储缓冲（LOAD|STORE），'read-only-storage'
+                // 才是只读。'mutable-storage' 是 g-device-api 方言的历史名。
+                "storage" | "mutable-storage" => {
+                    BufferBindingType::Storage { read_only: false }
+                }
+                "read-only-storage" => BufferBindingType::Storage { read_only: true },
                 _ => BufferBindingType::Uniform,
             },
             has_dynamic_offset: b

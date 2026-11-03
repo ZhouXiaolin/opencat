@@ -24,9 +24,10 @@
 
 JSX 定义场景、动画与布局，Skia GPU 加速渲染，FFmpeg 编码输出 MP4 —— 跨机器、跨平台、确定性一致。告别 Chromium 快照、Puppeteer 和笨重的 Web 渲染管线。
 
-写一个视频，就是写一个 JSX 文件（下面是 [`examples/k3-promo/k3-promo.jsx`](examples/k3-promo/k3-promo.jsx) 的场景 A，即上方示例）：
+写一个视频，就是写一段 JSX（下面是 [`examples/k3-promo`](examples/k3-promo) 的场景 A——入口 `index.jsx`，场景在 `scenes/` 目录，即上方示例）：
 
 ```jsx
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 16.4667 };
@@ -36,11 +37,10 @@ function StageCanvas({ id }) {
 }
 
 function SceneA() {
-  useGSAP((ctx) => {
-    var T = ctx.global.time;                 // 秒，覆盖整个 16.4667s
-    ctx.getNode('sceneA').opacity(T >= 0.75 && T < 4.62 ? 1 : 0);
+  useGSAP((ctx, t) => {
+    var T = t;                               // 秒，覆盖整个 16.4667s
     if (T >= 0.75 && T < 4.62) {
-      ctx.timeline()
+      gsap.timeline()
         .set('azoom', { scale: 1.07 }, 0.933)
         .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
         .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
@@ -65,10 +65,12 @@ export default function K3Promo() {
 ```
 
 ```bash
-cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
+cd examples/k3-promo
+npm install        # bun install 也可以
+npm run build      # vite：打包 JSX、内嵌编译后的 CSS 并渲染 → dist/video.mp4
 ```
 
-MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界面。
+MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界面（vite 插件通过 `opencat` 二进制渲染，从 `PATH` 或 `OPENCAT_BIN` 解析）。
 
 
 ## Why OpenCat
@@ -78,7 +80,7 @@ MP4 已生成。不需要浏览器、不需要截图、不需要任何图形界�
 | **渲染方式** | Rust 原生 GPU (Skia) | Chrome snapshot |
 | **渲染速度** | 10x | 基准 |
 | **部署环境** | 任意环境 / 纯 CLI | 需要 Chromium |
-| **动画** | 自研 GSAP 兼容 API（覆盖 80%+） | 直接使用 GSAP / anime.js |
+| **动画** | 真 GSAP——官方 npm 包在引擎内直接运行 | 直接使用 GSAP / anime.js |
 | **浏览器渲染** | WASM + CanvasKit | 原生 |
 | **确定性输出** | ✅ 跨机器一致 | ❌ |
 | **AI 友好** | JSX 声明式 | JSX/HTML，较复杂 |
@@ -87,23 +89,28 @@ Remotion 复用了 Web 生态，但 Chrome snapshot 的先天缺陷无法绕过 
 
 ## Capabilities
 
-### 声明式动画，GSAP 级表达
+### 真 GSAP——官方包，引擎内运行
+
+官方 gsap 3.x 源码在引擎内（V8）跑在确定性 seek 时钟上：tween 就是 `g(t)`，每帧按 t 求值——ticker 永不接触墙钟。非交互的官方插件全部收录（eases 全家、SplitText、MorphSVG、DrawSVG、MotionPath、ScrambleText、Physics2D/PhysicsProps、Flip、CustomEase 等）；滚动/指针类插件按设计排除——输入事件不可能写成 t 的纯函数。
 
 ```js
-// 声明式 timeline —— examples/k3-promo/k3-promo.jsx 场景 A
-ctx.timeline()
+import { gsap } from 'gsap';
+import { SplitText } from 'gsap/SplitText';
+
+// 声明式 timeline —— examples/k3-promo 场景 A（scenes/scene-a.jsx）。
+// tween 目标是节点 id；每帧按 t 对 timeline 求值。
+gsap.timeline()
   .set('azoom', { scale: 1.07 }, 0.933)
   .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
   .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
   .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
 
 // 官方 SplitText（gsap 自带那个包）：拆出来的 wrapper 是真节点
-var chars = new SplitText(ctx.getNode('otxt'), { type: 'chars' }).chars;
+var chars = new SplitText(document.getElementById('otxt'), { type: 'chars' }).chars;
 var tl = gsap.timeline();
 chars.forEach(function (p, i) {
-  tl.set(p, { opacity: 0 }, 7.35)
-    .set(p, { opacity: 1 }, 7.5333)
-    .fromTo(p, { x: (i - 6.5) * 21 }, { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
+  tl.fromTo(p, { opacity: 0, x: (i - 6.5) * 21 },
+    { opacity: 1, x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
 });
 ```
 
@@ -123,7 +130,7 @@ chars.forEach(function (p, i) {
 
 ### 组件 —— 可复用的构件
 
-任何 JSX 函数都是组件。`k3-promo` 把六个公共构件从节点树中提出来 —— 用 props 取代旧的模板参数：
+任何 JSX 函数都是组件。`k3-promo` 把公共构件从节点树中提出来（`scenes/shared.jsx`）—— 用 props 取代旧的模板参数：
 
 ```jsx
 function StageCanvas({ id }) {
@@ -166,52 +173,24 @@ await exportMp4({ /* ... */ });
 
 纯 WASM + CanvasKit，无需服务器。
 
-### HTML in Canvas — Subtree Texture Sampling
+### Canvas 绘制 + SKSL 效果
 
-`<canvas>` 节点的子树内容可实时纹理化，传入逐像素效果做后处理。效果用 **JS lambda** 表达（只被编译、从不被执行——Rust 解析后自动生成 SKSL 或派发到 CPU 渲染，自身不固化任何效果算法）。离屏目标（`ly.surface`）承载"构建一次、逐帧采样"的数据。**`ly` 路径不暴露任何 CanvasKit** —— 没有 `Paint`、没有 `drawRect`、没有 `TileMode`；Skia 还是 CPU 由引擎按内核能力自行选择。`examples/k3-promo/k3-promo.jsx` 场景 H 的溶解距离场完全在 JS 里构建：
+每个 `<canvas>` 节点都是真画布：官方 CanvasKit API 面（`CK.MakeCanvasSurface`、`Paint`、`RuntimeEffect` 等）直接画进合成，节点的 CSS 盒、变换与效果仍叠加在其上。引擎接受官方 CanvasKit 签名并降为绘制指令流——原生侧由 Rust 渲染器重放，浏览器侧由真 canvaskit.wasm 重放。逐像素自定义效果一律手写 **SKSL，走 `CK.RuntimeEffect.Make`**——这是唯一的效果通路，与浏览器跑的同源：
 
 ```js
-// 1) 文字锁排一次性栅格化进离屏目标
-var ox = ly.surface(1920, 1080);
-ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
-
-// 2) 用 pixel 内核播种 mask + 距离场，以那个目标作 source 采样
-var field = ly.surface(1460, 222);
-const seed = ly.pixel((uv, src) => {
-  const c = src.eval(uv + [232, 430]);
-  const m = byte(c.a * 255 + 0.5);
-  const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist 低/高字节
-  return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
-});
-field.apply(seed, { sources: [ox] });
-
-// 3) chamfer 扫描——scan 类 lambda 就地遍历；get(dx,dy) 读 in-progress 缓冲，
-//    遍历顺序由 executor 拥有（forward/backward）
-field.sweep(ly.scan((get) => {
-  const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
-  const c = get(0, 0), d = at(c);
-  const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
-              min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
-  return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
-}, { dir: 'forward' }));
-
-// 4) 每帧：画一个直接采样 field 目标的 pixel 内核
-var DIS = ly.pixel((uv, field, u) => {
-  const c = field.eval(uv);
-  const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
-  /* scramble 噪点 · dust · glow → straight RGBA */
-}, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
-ly.draw(canvas, DIS, {
-  rect: [232, 230, 1460, 222],
-  uniforms: { x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] },
-  sources: [field],
-});
+// examples/inspector-launch —— SKSL 半调背景
+var fx = CK.RuntimeEffect.Make(SKSL_SOURCE);           // 编译一次，缓存复用
+var paint = new CK.Paint();
+paint.setStyle(CK.PaintStyle.Fill);
+paint.setShader(fx.makeShader([ax, ay, bx, by, blend, phase]));  // uniforms
+canvas.drawRect([0, 0, 1920, 1080], paint);
 ```
 
-画布内 HTML 子树的任意布局、图片、文本、视频 → 纹理 → 着色器 → 输出。像素缓冲永不跨 JS 桥，Rust 侧只有**通用执行器**：`target.apply` 用 pixel 内核重绘，`target.sweep` 用 scan 内核就地扫描，`ly.draw` 按需把目标烘给绘制路径。需要原始 SKSL 控制力时仍可用 `CK.RuntimeEffect.Make(sksl)` 手写着色器。参考：`examples/k3-promo/k3-promo.jsx` 场景 H；指南：`skills/opencat-creator/references/canvaskit.md`。
+canvas 子树——布局、图片、文本、视频——经 surface 管线（canvas target → surface → picture）合成进场景；像素缓冲永不跨 JS 桥。参考：`examples/inspector-launch/inspector-launch.jsx`、`examples/hyperframes-launch`；指南：`skills/opencat-creator/references/canvaskit.md`。
 
 ### 更多能力
 
+- **3D 场景**：`import * as THREE from 'three'`——官方包原样执行，`WebGLRenderer` 输出被捕获进场景图，由 Rust 原生渲染（浏览器侧用真 three 重放）。支持 GLTF/GLB（`GLTFLoader`）、贴图、自定义着色器
 - **标准 CSS 布局**：`class="flex items-center justify-center gap-4"` 由 tailwindcss 编译成纯 CSS 后交给内置 CSS 引擎（选择器匹配、层叠、var/calc/color-mix）；`style` 属性支持完整声明
 - **音频混音**：多轨道，场景级挂载，自动混音输出
 - **字幕引擎**：SRT 解析，跨场景持久化显示
@@ -221,18 +200,20 @@ ly.draw(canvas, DIS, {
 ## Quick start
 
 ```bash
-# 渲染 MP4（上方示例）
-cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
+# 渲染 MP4（上方示例）——打包 + 内嵌 CSS + 渲染一条命令完成
+cd examples/k3-promo && npm install && npm run build    # → dist/video.mp4
 
-# 桌面播放器实时预览（macOS / Windows）
-cargo run --bin opencat -- view path/to/input.jsx
+# 桌面播放器实时预览（macOS / Windows / Linux）
+cargo run --release --bin opencat -- view path/to/input.jsx
 ```
+
+CLI 形态是 `opencat render <input>` / `opencat view <input>`；老的裸调用 `opencat input.jsx` 仍然可用。渲染 dist 构建产物时传 `--base-dir`（相对资源路径默认按输入文件所在目录解析）。
 
 > Web (WASM)：`cd crates/opencat-web/web && npm run build`，浏览器需要 `Cross-Origin-Isolated` 环境。
 
 ### Engine / Web 像素对齐（k3diff 像素指标）
 
-硬像素指标（`mae`/`maxd`/`p8`，非 SSIM），裁决工具是 `tools/k3diff.py`：两边各自出 MP4 后逐帧比对。原生侧用 `opencat render`；web 侧由 `crates/opencat-web-oracle`（ChromeDriver headless 驱动 wasm facade + CanvasKit 渲染 harness 页）出分段的 H.264 MP4，再与原生渲染或原始参考视频一起喂给 k3diff。
+硬像素指标（`mae`/`maxd`/`p8`，非 SSIM），裁决工具是 `tools/k3diff.py`：两边各自出 MP4 后逐帧比对。原生侧用 `opencat render`；web 侧由 `crates/opencat-web-oracle`（ChromeDriver headless 驱动 wasm facade + CanvasKit 渲染 harness 页）出分段的 H.264 MP4，再与原生渲染或原始参考视频一起喂给 k3diff。除样片组合外，还有一份着色器效果注册表（[`docs/shaders-align`](docs/shaders-align)，200+ 预设）逐预设钉住 engine↔web↔compute 的像素一致性。
 
 ```bash
 # 1) 构建 web facade（wasm + JS + web-demuxer.wasm → dist/）
@@ -258,12 +239,15 @@ JSX ──→ Taffy 布局 ──→ Skia 渲染 ──→ 编码 → MP4
 ```
 opencat
 ├── crates/
-│   ├── opencat-core/      # 布局 (Taffy)、文字 (cosmic-text)、字体
-│   ├── opencat-engine/    # Skia 渲染、FFmpeg 编码、V8 脚本
-│   ├── opencat-web/       # WASM：浏览器端渲染 + 导出
-│   └── opencat/           # CLI 入口
-├── web/                   # Web 视频编辑器
-└── examples/                  # 示例 JSX 文件
+│   ├── opencat-core/        # JSX 运行时 (V8)、布局 (Taffy)、文字 (cosmic-text)、CSS 引擎
+│   ├── opencat-engine/      # Skia 渲染、three 光栅化、FFmpeg 编码、V8 宿主
+│   ├── opencat-web/         # WASM：浏览器端渲染 + MP4 导出
+│   ├── opencat-web-oracle/  # headless web 渲染器——对齐 oracle
+│   ├── opencat/             # CLI：render / view
+│   └── faac/                # AAC 编码绑定
+├── packages/create-opencat/ # vite 工程模板
+├── web/                     # Web 视频编辑器
+└── examples/                # 示例工程
 ```
 
 </details>
@@ -391,7 +375,7 @@ cargo build --release --bin opencat
 二进制文件在 `target/release/opencat`。渲染视频：
 
 ```bash
-cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
+opencat render examples/k3-promo/dist/index.bundle.jsx
 ```
 
 **桌面预览播放器（macOS / Windows）：**

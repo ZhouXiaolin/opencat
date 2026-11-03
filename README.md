@@ -24,9 +24,10 @@
 
 JSX defines scenes, animations, and layouts. Skia GPU renders, FFmpeg encodes to MP4 — deterministic, cross-platform, cross-machine consistent. No Chromium snapshots, no Puppeteer, no bloated Web rendering pipeline.
 
-A video is just a JSX file (this is scene A of [`examples/k3-promo/k3-promo.jsx`](examples/k3-promo/k3-promo.jsx), the spot above):
+A video is just JSX (below is scene A of [`examples/k3-promo`](examples/k3-promo) — entry `index.jsx`, scenes in `scenes/` — the spot above):
 
 ```jsx
+import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
 export const meta = { width: 1920, height: 1080, fps: 30, duration: 16.4667 };
@@ -36,11 +37,10 @@ function StageCanvas({ id }) {
 }
 
 function SceneA() {
-  useGSAP((ctx) => {
-    var T = ctx.global.time;                 // seconds over the whole 16.4667s
-    ctx.getNode('sceneA').opacity(T >= 0.75 && T < 4.62 ? 1 : 0);
+  useGSAP((ctx, t) => {
+    var T = t;                               // seconds over the whole 16.4667s
     if (T >= 0.75 && T < 4.62) {
-      ctx.timeline()
+      gsap.timeline()
         .set('azoom', { scale: 1.07 }, 0.933)
         .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
         .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
@@ -65,10 +65,12 @@ export default function K3Promo() {
 ```
 
 ```bash
-cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
+cd examples/k3-promo
+npm install        # bun install works too
+npm run build      # vite: bundles JSX, embeds the compiled CSS, renders → dist/video.mp4
 ```
 
-MP4 ready. No browser, no screenshots, no GUI needed.
+MP4 ready. No browser, no screenshots, no GUI needed (the vite plugin renders through the `opencat` binary, resolved from `PATH` or `OPENCAT_BIN`).
 
 
 ## Why OpenCat
@@ -78,7 +80,7 @@ MP4 ready. No browser, no screenshots, no GUI needed.
 | **Render** | Rust native GPU (Skia) | Chrome snapshot |
 | **Speed** | 10x | Baseline |
 | **Deployment** | Any environment / pure CLI | Requires Chromium |
-| **Animation** | Custom GSAP-compatible API (80%+ coverage) | Direct GSAP / anime.js |
+| **Animation** | Real GSAP — the official npm package runs in-engine | Direct GSAP / anime.js |
 | **Browser render** | WASM + CanvasKit | Native |
 | **Deterministic** | ✅ Cross-machine consistent | ❌ |
 | **AI-friendly** | Declarative JSX | JSX/HTML, more complex |
@@ -87,23 +89,28 @@ Remotion reuses the Web ecosystem, but Chrome snapshot has inherent limitations 
 
 ## Capabilities
 
-### Declarative animation, GSAP-grade API
+### Real GSAP — the official package, in-engine
+
+The official gsap 3.x source runs inside the engine (V8) on a deterministic seek clock: tweens are `g(t)`, evaluated per frame — the ticker never touches wall-clock time. Non-interactive official plugins are bundled (eases, SplitText, MorphSVG, DrawSVG, MotionPath, ScrambleText, Physics2D/PhysicsProps, Flip, CustomEase, …); scroll/pointer-driven plugins are excluded by design — input events cannot be a pure function of t.
 
 ```js
-// Declarative timeline — scene A of examples/k3-promo/k3-promo.jsx
-ctx.timeline()
+import { gsap } from 'gsap';
+import { SplitText } from 'gsap/SplitText';
+
+// Declarative timeline — scene A of examples/k3-promo (scenes/scene-a.jsx).
+// Tween targets are node ids; every frame evaluates the timeline at t.
+gsap.timeline()
   .set('azoom', { scale: 1.07 }, 0.933)
   .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
   .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
   .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
 
 // Official SplitText — the same package gsap ships. Wrappers are real nodes.
-var chars = new SplitText(ctx.getNode('otxt'), { type: 'chars' }).chars;
+var chars = new SplitText(document.getElementById('otxt'), { type: 'chars' }).chars;
 var tl = gsap.timeline();
 chars.forEach(function (p, i) {
-  tl.set(p, { opacity: 0 }, 7.35)
-    .set(p, { opacity: 1 }, 7.5333)
-    .fromTo(p, { x: (i - 6.5) * 21 }, { x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
+  tl.fromTo(p, { opacity: 0, x: (i - 6.5) * 21 },
+    { opacity: 1, x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
 });
 ```
 
@@ -123,7 +130,7 @@ Built-in: fade / slide / wipe / clock_wipe / iris / light_leak, with custom GLSL
 
 ### Components — reusable building blocks
 
-Any JSX function is a component. `k3-promo` hoists six shared building blocks out of the node tree — props replace the old template parameters:
+Any JSX function is a component. `k3-promo` hoists shared building blocks out of the node tree (`scenes/shared.jsx`) — props replace the old template parameters:
 
 ```jsx
 function StageCanvas({ id }) {
@@ -166,52 +173,24 @@ await exportMp4({ /* ... */ });
 
 Pure WASM + CanvasKit, no server required.
 
-### HTML in Canvas — Subtree Texture Sampling
+### Canvas drawing + SKSL effects
 
-A `<canvas>` node's subtree content can be live-textured and fed into a per-pixel effect. Effects are authored as **JS lambdas** (compiled, never executed — Rust parses the source, lowers it to SKSL or dispatches it to the CPU renderer, and hardcodes no effect algorithm). Offscreen targets (`ly.surface`) hold build-once, sample-per-frame data. **The `ly` path exposes no CanvasKit** — no `Paint`, no `drawRect`, no `TileMode`; the engine picks Skia or CPU by kernel capability. `examples/k3-promo/k3-promo.jsx` scene H builds its dissolve distance field entirely in JS:
+Every `<canvas>` node is a real canvas: the official CanvasKit API surface (`CK.MakeCanvasSurface`, `Paint`, `RuntimeEffect`, …) draws straight into the composition, and the node's CSS box, transforms and effects still apply on top. The engine accepts the official CanvasKit signatures and lowers them to a draw-operation stream — replayed natively by the Rust renderer, and in the browser by real canvaskit.wasm. Custom per-pixel effects are hand-written **SKSL through `CK.RuntimeEffect.Make`** — the only effect path, and the same one a browser would run:
 
 ```js
-// 1) raster the lockup once into an offscreen surface
-var ox = ly.surface(1920, 1080);
-ox.fillStyle = '#fff'; ox.fillText('K3. Now Open', 962, 586);
-
-// 2) seed a mask + distance field — a pixel kernel sampling that surface as a source
-var field = ly.surface(1460, 222);
-const seed = ly.pixel((uv, src) => {
-  const c = src.eval(uv + [232, 430]);
-  const m = byte(c.a * 255 + 0.5);
-  const d = m > 120 ? 0 : 3000;                      // R=mask, G/B=dist lo/hi
-  return [m / 255, d % 256 / 255, floor(d / 256) / 255, 1];
-});
-field.apply(seed, { sources: [ox] });
-
-// 3) chamfer sweeps — a scan kernel, in place; get(dx,dy) reads the in-progress
-//    buffer and the traversal direction rides on the kernel declaration
-field.sweep(ly.scan((get) => {
-  const at = (n) => byte(n.g * 255 + 0.5) + byte(n.b * 255 + 0.5) * 256;
-  const c = get(0, 0), d = at(c);
-  const m = min(min(d, at(get(-1, 0)) + 3), min(at(get(0, -1)) + 3,
-              min(at(get(-1, -1)) + 4, at(get(1, -1)) + 4)));
-  return [c.r, m % 256 / 255, floor(m / 256) / 255, 1];
-}, { dir: 'forward' }));
-
-// 4) each frame: draw a pixel kernel that samples the field surface directly
-var DIS = ly.pixel((uv, field, u) => {
-  const c = field.eval(uv);
-  const d = (byte(c.g * 255 + 0.5) + 256 * byte(c.b * 255 + 0.5)) / 3;
-  /* scramble noise · dust · glow → straight RGBA */
-}, { uniforms: { x0: 'float', f: 'float', ep: 'float', pa: 'float4' } });
-ly.draw(canvas, DIS, {
-  rect: [232, 230, 1460, 222],
-  uniforms: { x0: 232, f: 420, ep: 60, pa: [.9, .8, .7, .3] },
-  sources: [field],
-});
+// examples/inspector-launch — an SKSL halftone background
+var fx = CK.RuntimeEffect.Make(SKSL_SOURCE);           // compiled once, cached
+var paint = new CK.Paint();
+paint.setStyle(CK.PaintStyle.Fill);
+paint.setShader(fx.makeShader([ax, ay, bx, by, blend, phase]));  // uniforms
+canvas.drawRect([0, 0, 1920, 1080], paint);
 ```
 
-Any HTML subtree — layout, images, text, video → texture → shader → output. Pixel buffers never cross the JS bridge and the Rust side holds only a **generic executor**: `target.apply` rewrites pixels with a pixel kernel, `target.sweep` sweeps in place with a scan kernel, and `ly.draw` bakes a surface on demand for the draw path. The effect-kernel language is **Liangyi** (`ly.*` — `crates/opencat-liangyi`): JS-hosted, compiled never executed, dispatched to SKSL or a CPU interpreter by capability. When you need raw SKSL control, hand-written shaders via `CK.RuntimeEffect.Make(sksl)` still work. Reference: `examples/k3-promo/k3-promo.jsx` scene H; guide: `skills/opencat-creator/references/canvaskit.md`.
+A canvas subtree — layout, images, text, video — composites into the scene through the surface pipeline (canvas target → surface → picture); pixel buffers never cross the JS bridge. Reference: `examples/inspector-launch/inspector-launch.jsx`, `examples/hyperframes-launch`; guide: `skills/opencat-creator/references/canvaskit.md`.
 
 ### More
 
+- **3D scenes**: `import * as THREE from 'three'` — the official package executes as-is; the `WebGLRenderer` output is captured into the scene graph and rendered natively in Rust (and replayed with real three in the browser). GLTF/GLB via `GLTFLoader`, textures, custom shaders
 - **Standard CSS layout**：`class="flex items-center justify-center gap-4"` compiles to plain CSS via tailwindcss and runs through the built-in CSS engine (selector matching, cascade, var/calc/color-mix); the `style` attribute accepts full declarations
 - **Audio mixing**：multi-track, scene-attached, auto-mix to output
 - **Subtitle engine**：SRT parsing, cross-scene persistent display
@@ -221,12 +200,14 @@ Any HTML subtree — layout, images, text, video → texture → shader → outp
 ## Quick start
 
 ```bash
-# Render MP4 (the spot above)
-cargo run --bin opencat -- examples/k3-promo/k3-promo.jsx
+# Render MP4 (the spot above) — bundle + embed CSS + render in one command
+cd examples/k3-promo && npm install && npm run build    # → dist/video.mp4
 
 # Desktop player for live preview (macOS / Windows / Linux)
-cargo run --bin opencat -- view path/to/input.jsx
+cargo run --release --bin opencat -- view path/to/input.jsx
 ```
+
+The CLI is `opencat render <input>` / `opencat view <input>`; the legacy bare form `opencat input.jsx` still works. Pass `--base-dir` when rendering a build artifact outside the project (relative asset paths resolve against the input file's directory by default).
 
 > Web (WASM): `cd crates/opencat-web/web && npm run build`, requires `Cross-Origin-Isolated` environment.
 
@@ -249,7 +230,7 @@ The generator copies `packages/create-opencat/template/`: a vite config with an 
 
 ### Engine / Web alignment (k3diff pixel metrics)
 
-Hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM) — the verdict comes from `tools/k3diff.py`: render both sides to MP4 and diff the videos. Native side: `opencat render`. Web side: `crates/opencat-web-oracle` drives the harness page headlessly via ChromeDriver (wasm facade + CanvasKit) and hands back a per-range H.264 MP4; diff it against the native render or the original reference video.
+Hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM) — the verdict comes from `tools/k3diff.py`: render both sides to MP4 and diff the videos. Native side: `opencat render`. Web side: `crates/opencat-web-oracle` drives the harness page headlessly via ChromeDriver (wasm facade + CanvasKit) and hands back a per-range H.264 MP4; diff it against the native render or the original reference video. Beyond the spot compositions, a shader-effect registry ([`docs/shaders-align`](docs/shaders-align), 200+ presets) pins engine↔web↔compute pixel parity per preset.
 
 ```bash
 # 1) build web facade (wasm + JS + web-demuxer.wasm → dist/)
@@ -275,12 +256,15 @@ JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
 ```
 opencat
 ├── crates/
-│   ├── opencat-core/      # Layout (Taffy), text (cosmic-text), fonts
-│   ├── opencat-engine/    # Skia render, FFmpeg encode, V8 script
-│   ├── opencat-web/       # WASM: browser render + export
-│   └── opencat/           # CLI entry
-├── web/                   # Web video editor
-└── examples/                  # Example JSX files
+│   ├── opencat-core/        # JSX runtime (V8), layout (Taffy), text (cosmic-text), CSS engine
+│   ├── opencat-engine/      # Skia render, three rasterizer, FFmpeg encode, V8 host
+│   ├── opencat-web/         # WASM: browser render + MP4 export
+│   ├── opencat-web-oracle/  # headless web renderer — the alignment oracle
+│   ├── opencat/             # CLI: render / view
+│   └── faac/                # AAC encoder binding
+├── packages/create-opencat/ # vite project template
+├── web/                     # Web video editor
+└── examples/                # Example projects
 ```
 
 </details>
@@ -422,7 +406,7 @@ cargo build --release --bin opencat
 The binary is at `target/release/opencat`. Render a video:
 
 ```bash
-cargo run --release --bin opencat -- examples/k3-promo/k3-promo.jsx
+opencat render examples/k3-promo/dist/index.bundle.jsx
 ```
 
 **Desktop preview player (macOS / Windows / Linux):**

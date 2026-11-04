@@ -248,52 +248,9 @@ fn update_or_build(
     Ok((node, cached_entry))
 }
 
-pub fn build_display_tree(
-    element_root: &ElementNode,
-    layout_tree: &LayoutTree,
-    frame_ctx: &FrameCtx,
-) -> Result<DisplayTree> {
-    Ok(DisplayTree {
-        root: build_display_node(element_root, &layout_tree.root, frame_ctx)?,
-    })
-}
-
-fn build_display_node(
-    element: &ElementNode,
-    layout: &LayoutNode,
-    frame_ctx: &FrameCtx,
-) -> Result<DisplayNode> {
-    if element.children.len() != layout.children.len() {
-        return Err(anyhow!(
-            "element/layout child count mismatch while building display tree"
-        ));
-    }
-
-    let mut child_pairs = element
-        .children
-        .iter()
-        .zip(layout.children.iter())
-        .collect::<Vec<_>>();
-    child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
-
-    let built_children = child_pairs
-        .into_iter()
-        .map(|(child, child_layout)| build_display_node(child, child_layout, frame_ctx))
-        .collect::<Result<Vec<_>>>()?;
-
-    Ok(assemble_display_node(
-        element,
-        layout,
-        frame_ctx,
-        built_children,
-    ))
-}
-
 /// 把已经构建好（按 z_index 排序）的 `built_children` 装配为父节点。
 ///
-/// 抽出来给两条路径共享：
-/// - `build_display_node`：无缓存的全量构建
-/// - `DisplayBuildSession::update_or_build`：每帧 merkle 失效后的局部重建
+/// `DisplayBuildSession::update_or_build` 每帧 merkle 失效后的局部重建复用。
 /// The node's CSS `transform` chain as one 4×4, pivoted at `origin`.
 ///
 /// `None` when every function is 2-D: those already render through the plain

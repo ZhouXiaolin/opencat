@@ -1,49 +1,5 @@
 use std::fmt;
 
-#[cfg(feature = "profile")]
-use tracing::{Level, event};
-
-use crate::cache::lru::CacheMutationReport;
-
-#[cfg(feature = "profile")]
-pub(crate) fn record_cache_pressure<K>(cache_name: &'static str, report: &CacheMutationReport<K>) {
-    if !report.evicted.is_empty() {
-        event!(
-            target: "render.cache",
-            Level::TRACE,
-            kind = "eviction",
-            name = cache_name,
-            result = "count",
-            amount = report.evicted.len() as u64
-        );
-    }
-    if report.replaced {
-        event!(
-            target: "render.cache",
-            Level::TRACE,
-            kind = "repeat",
-            name = cache_name,
-            result = "count",
-            amount = 1_u64
-        );
-    }
-    event!(
-        target: "render.cache",
-        Level::TRACE,
-        kind = "utilization",
-        name = cache_name,
-        result = "count",
-        amount = report.utilization as u64
-    );
-}
-
-#[cfg(not(feature = "profile"))]
-pub(crate) fn record_cache_pressure<K>(
-    _cache_name: &'static str,
-    _report: &CacheMutationReport<K>,
-) {
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderError {
     Platform(String),

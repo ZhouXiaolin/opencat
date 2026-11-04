@@ -291,22 +291,6 @@ struct ApplyFrame {
     layer_state: BackdropLayerState,
 }
 
-fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
-    let uses_backdrop_filter = plan.backdrop_filter_image.is_some();
-    // Mirrors `save_composite_layer`: the content layer exists only on the
-    // backdrop branch, and only when the node has its own non-identity filter.
-    let backdrop_branch = plan.backdrop_blur_sigma.is_some() || uses_backdrop_filter;
-    BackdropLayerState {
-        uses_layer: plan.opacity < 1.0
-            || plan.backdrop_blur_sigma.is_some()
-            || uses_backdrop_filter
-            || plan.css_filter_image.is_some(),
-        has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0)
-            || uses_backdrop_filter,
-        has_content_layer: backdrop_branch && plan.css_filter_image.is_some(),
-    }
-}
-
 fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
     builder.push(DrawOp::Save);
     apply_transform(builder, plan.transform);

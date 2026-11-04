@@ -2,7 +2,6 @@ use serde_json::json;
 use std::collections::HashMap;
 
 use super::MutationRecorder;
-use crate::frame_ctx::duration_secs_to_frames;
 use crate::script::ScriptTextSource;
 use crate::script::tree::TreeOverlay;
 use crate::script::mutations::{
@@ -1494,10 +1493,6 @@ impl MutationStore {
 
     fn canvas_entry(&mut self, id: &str) -> &mut CanvasMutations {
         self.canvases.entry(id)
-    }
-
-    fn seconds_to_frames(&self, seconds: f32) -> u32 {
-        duration_secs_to_frames(seconds as f64, self.fps.max(1))
     }
 
     /// Set a base-style value (from Tailwind/resolve) for later reading.

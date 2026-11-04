@@ -4,22 +4,6 @@ use crate::ir::draw_op::DrawOp;
 use crate::ir::draw_types::*;
 use std::collections::HashMap;
 
-/// Immediate-mode paint state for script canvas tracking.
-/// Mirrors the HTML5 CanvasRenderingContext2D state for paint properties.
-/// Currently populated by script canvas recording (to be integrated in Chunk 7).
-#[derive(Default)]
-#[allow(dead_code)]
-struct DrawScriptPaintState {
-    fill_color: Option<crate::ir::draw_op::ColorU8>,
-    stroke_color: Option<crate::ir::draw_op::ColorU8>,
-    line_width: f32,
-    line_cap: crate::ir::draw_op::LineCap,
-    line_join: crate::ir::draw_op::LineJoin,
-    line_dash: Option<(Vec<f32>, f32)>,
-    global_alpha: f32,
-    anti_alias: bool,
-}
-
 /// Frame-local builder that all rendering functions write into.
 /// The single point of interning for paint/path/string data.
 #[derive(Default)]
@@ -31,15 +15,12 @@ pub struct DrawOpBuilder {
     paths: Vec<EncodedPath>,
     children: Vec<RuntimeEffectChildRef>,
     strings: Vec<String>,
-    string_dedup: HashMap<String, StringId>,
     bytes: Vec<u8>,
     byte_ranges: Vec<TableRange>,
     f32_pool: Vec<f32>,
     ranges: Vec<DrawOpRange>,
     resources: Vec<ResourceRef>,
     effects: Vec<EffectRef>,
-    #[allow(dead_code)]
-    paint_state: DrawScriptPaintState,
 }
 
 impl DrawOpBuilder {
@@ -71,17 +52,6 @@ impl DrawOpBuilder {
         let id = PaintId(self.paints.len() as u32);
         self.paints.push(spec.clone());
         self.paint_dedup.insert(spec, id);
-        id
-    }
-
-    /// Intern a string, returning a deduplicated StringId.
-    pub fn intern_string(&mut self, s: &str) -> StringId {
-        if let Some(&id) = self.string_dedup.get(s) {
-            return id;
-        }
-        let id = StringId(self.strings.len() as u32);
-        self.strings.push(s.to_string());
-        self.string_dedup.insert(s.to_string(), id);
         id
     }
 

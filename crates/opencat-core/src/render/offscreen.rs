@@ -12,7 +12,7 @@
 //! 零新 IR op：主帧只见标准 ImageRect{Generated} / FillPattern。
 
 use crate::render::builder::DrawOpBuilder;
-use crate::render::helpers::{LocalPaintState, lower_canvas_op};
+use crate::render::{LocalPaintState, lower_canvas_op};
 use crate::script::mutations::CanvasMutations;
 
 /// 折叠离屏 canvas 命令流为规范 [`DrawOpFrame`]。

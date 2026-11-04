@@ -1,6 +1,5 @@
 use crate::{
     ir::asset_id::AssetId,
-    ir::draw_op::DrawOp,
     media::VideoFrameTiming,
     parse::transition::TransitionKind,
     script::TextUnitOverrideBatch,

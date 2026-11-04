@@ -22,7 +22,7 @@ use crate::{
         style::text_element_allows_wrap,
         tree::{ElementId, ElementKind, ElementNode},
     },
-    style::{ClipPath, LengthPercentage, Position},
+    style::{ClipPath, LengthPercentage},
 };
 
 /// L3 子树 merkle 缓存。命中条件：

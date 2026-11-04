@@ -91,7 +91,7 @@ pub(crate) fn evaluate_frame_layout(
     drop(_resolve_span);
 
     let provider = DefaultFontProvider::from_arc(font_db.clone());
-    let (layout_tree, layout_pass) =
+    let (layout_tree, _layout_pass) =
         layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
 
     #[cfg(feature = "profile")]

@@ -1,6 +1,6 @@
 use crate::{
     frame_ctx::ScriptFrameCtx,
-    frame_ctx::{FrameCtx, duration_secs_to_frames, frames_to_duration_secs},
+    frame_ctx::{FrameCtx, duration_secs_to_frames},
     parse::{
         easing::Easing,
         node::{Node, NodeKind},

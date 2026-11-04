@@ -564,7 +564,7 @@
             var id = __gl_alloc_handle();
             var e = new Encoder(6);
             e.u16(type).u32(id);
-            emit(streamId, 0 /* SHADER_CREATE */, e.done(0));
+            emit(streamId, GLOP.SHADER_CREATE, e.done(GLOP.SHADER_CREATE));
             shaderKind[id] = type === GL.VERTEX_SHADER ? 'v' : 'f';
             return glRes('shader', id);
         };
@@ -575,7 +575,7 @@
             var range = internString(streamId, shaderSource[id]);
             var e = new Encoder(8);
             e.u32(id).u32(range);
-            emit(streamId, 1 /* SHADER_SOURCE */, e.done(1));
+            emit(streamId, GLOP.SHADER_SOURCE, e.done(GLOP.SHADER_SOURCE));
         };
 
         self.getShaderSource = function () {
@@ -585,21 +585,21 @@
         self.compileShader = function (shader) {
             var e = new Encoder(4);
             e.u32(resId(shader, 'compileShader'));
-            emit(streamId, 2 /* COMPILE_SHADER */, e.done(2));
+            emit(streamId, GLOP.COMPILE_SHADER, e.done(GLOP.COMPILE_SHADER));
         };
 
         self.deleteShader = function (shader) {
             if (!shader) return;
             var e = new Encoder(4);
             e.u32(resId(shader, 'deleteShader'));
-            emit(streamId, 3, e.done(3));
+            emit(streamId, GLOP.SHADER_DELETE, e.done(GLOP.SHADER_DELETE));
         };
 
         self.createProgram = function () {
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 4 /* PROGRAM_CREATE */, e.done(4));
+            emit(streamId, GLOP.PROGRAM_CREATE, e.done(GLOP.PROGRAM_CREATE));
             return glRes('program', id);
         };
 
@@ -609,7 +609,7 @@
             programShaders[pid + ':' + shaderKind[sid]] = sid;
             var e = new Encoder(8);
             e.u32(pid).u32(sid);
-            emit(streamId, 5, e.done(5));
+            emit(streamId, GLOP.PROGRAM_ATTACH, e.done(GLOP.PROGRAM_ATTACH));
         };
 
         self.detachShader = function () {
@@ -620,7 +620,7 @@
             var pid = resId(program, 'linkProgram');
             var e = new Encoder(4);
             e.u32(pid);
-            emit(streamId, 6 /* PROGRAM_LINK */, e.done(6));
+            emit(streamId, GLOP.PROGRAM_LINK, e.done(GLOP.PROGRAM_LINK));
             // Link is the query point: three reads the active lists right
             // after. Reflection comes from the naga front end on the host
             // side — core JS never parses GLSL.
@@ -635,7 +635,7 @@
             var id = resId(program, 'deleteProgram');
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 7, e.done(7));
+            emit(streamId, GLOP.PROGRAM_DELETE, e.done(GLOP.PROGRAM_DELETE));
             delete programInfo[id];
         };
 
@@ -643,7 +643,7 @@
             curProgramId = program === null || program === undefined ? 0 : resId(program, 'useProgram');
             var e = new Encoder(4);
             e.u32(resId(program, 'useProgram'));
-            emit(streamId, 8 /* PROGRAM_USE */, e.done(8));
+            emit(streamId, GLOP.PROGRAM_USE, e.done(GLOP.PROGRAM_USE));
         };
 
         self.getShaderParameter = function (shader, pname) {
@@ -707,7 +707,7 @@
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 9 /* BUFFER_CREATE */, e.done(9));
+            emit(streamId, GLOP.BUFFER_CREATE, e.done(GLOP.BUFFER_CREATE));
             return glRes('buffer', id);
         };
 
@@ -716,7 +716,7 @@
             boundBuffers[target] = id;
             var e = new Encoder(6);
             e.u16(target).u32(id);
-            emit(streamId, 10, e.done(10));
+            emit(streamId, GLOP.BUFFER_BIND, e.done(GLOP.BUFFER_BIND));
         };
 
         self.bufferData = function (target, srcData, usage) {
@@ -727,7 +727,7 @@
                 if (id !== undefined && id !== NULL_HANDLE()) bufferShadow[id] = { size: size, usage: usage };
                 var e2 = new Encoder(8);
                 e2.u16(target).u16(usage).u32(size);
-                emit(streamId, 12 /* BUFFER_DATA_NULL */, e2.done(12));
+                emit(streamId, GLOP.BUFFER_DATA_NULL, e2.done(GLOP.BUFFER_DATA_NULL));
                 return;
             }
             var bytes = typedBytes(srcData);
@@ -738,7 +738,7 @@
             var range = intern(streamId, bytes);
             var e = new Encoder(8);
             e.u16(target).u16(usage).u32(range);
-            emit(streamId, 11 /* BUFFER_DATA */, e.done(11));
+            emit(streamId, GLOP.BUFFER_DATA, e.done(GLOP.BUFFER_DATA));
         };
 
         // `bufferSubData` 改的是"已上传内容的一段"，而 GpuStream 不支持原位
@@ -770,7 +770,7 @@
             var range = intern(streamId, entry.bytes);
             var e = new Encoder(8);
             e.u16(target).u16(entry.usage).u32(range);
-            emit(streamId, 11 /* BUFFER_DATA */, e.done(11));
+            emit(streamId, GLOP.BUFFER_DATA, e.done(GLOP.BUFFER_DATA));
         };
 
         self.deleteBuffer = function (buffer) {
@@ -779,7 +779,7 @@
             delete bufferShadow[id];
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 13, e.done(13));
+            emit(streamId, GLOP.BUFFER_DELETE, e.done(GLOP.BUFFER_DELETE));
         };
 
         // ── sampler objects（WebGL2）──────────────────────────────────
@@ -791,7 +791,7 @@
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 86 /* SAMPLER_CREATE */, e.done(86));
+            emit(streamId, GLOP.SAMPLER_CREATE, e.done(GLOP.SAMPLER_CREATE));
             return glRes('sampler', id);
         };
 
@@ -799,25 +799,25 @@
             if (!sampler) return;
             var e = new Encoder(4);
             e.u32(resId(sampler, 'deleteSampler'));
-            emit(streamId, 87 /* SAMPLER_DELETE */, e.done(87));
+            emit(streamId, GLOP.SAMPLER_DELETE, e.done(GLOP.SAMPLER_DELETE));
         };
 
         self.bindSampler = function (unit, sampler) {
             var e = new Encoder(8);
             e.u32(unit >>> 0).u32(sampler ? resId(sampler, 'bindSampler') : NULL_HANDLE());
-            emit(streamId, 88 /* SAMPLER_BIND */, e.done(88));
+            emit(streamId, GLOP.SAMPLER_BIND, e.done(GLOP.SAMPLER_BIND));
         };
 
         self.samplerParameteri = function (sampler, pname, value) {
             var e = new Encoder(10);
             e.u32(resId(sampler, 'samplerParameteri')).u16(pname).i32(value);
-            emit(streamId, 89 /* SAMPLER_PARAM_I */, e.done(89));
+            emit(streamId, GLOP.SAMPLER_PARAM_I, e.done(GLOP.SAMPLER_PARAM_I));
         };
 
         self.samplerParameterf = function (sampler, pname, value) {
             var e = new Encoder(10);
             e.u32(resId(sampler, 'samplerParameterf')).u16(pname).f32(value);
-            emit(streamId, 90 /* SAMPLER_PARAM_F */, e.done(90));
+            emit(streamId, GLOP.SAMPLER_PARAM_F, e.done(GLOP.SAMPLER_PARAM_F));
         };
 
         // ── WebGL2 状态补面 ─────────────────────────────────────────
@@ -825,19 +825,19 @@
         self.stencilFuncSeparate = function (face, func, ref, mask) {
             var e = new Encoder(12);
             e.u16(face).u16(func).i32(ref).u32(mask);
-            emit(streamId, 91 /* STENCIL_FUNC_SEPARATE */, e.done(91));
+            emit(streamId, GLOP.STENCIL_FUNC_SEPARATE, e.done(GLOP.STENCIL_FUNC_SEPARATE));
         };
 
         self.stencilOpSeparate = function (face, sfail, dpfail, dppass) {
             var e = new Encoder(8);
             e.u16(face).u16(sfail).u16(dpfail).u16(dppass);
-            emit(streamId, 92 /* STENCIL_OP_SEPARATE */, e.done(92));
+            emit(streamId, GLOP.STENCIL_OP_SEPARATE, e.done(GLOP.STENCIL_OP_SEPARATE));
         };
 
         self.renderbufferStorageMultisample = function (target, samples, internalformat, width, height) {
             var e = new Encoder(16);
             e.u32(samples >>> 0).i32(internalformat).u32(width >>> 0).u32(height >>> 0);
-            emit(streamId, 93 /* RENDERBUFFER_STORAGE_MS */, e.done(93));
+            emit(streamId, GLOP.RENDERBUFFER_STORAGE_MS, e.done(GLOP.RENDERBUFFER_STORAGE_MS));
         };
 
         self.clearBufferfv = function (target, drawbuffer, values) {
@@ -845,7 +845,7 @@
             var e = new Encoder(22);
             e.u16(target).i32(drawbuffer)
                 .f32(v[0] || 0).f32(v[1] || 0).f32(v[2] || 0).f32(v[3] || 0);
-            emit(streamId, 94 /* CLEAR_BUFFER_FV */, e.done(94));
+            emit(streamId, GLOP.CLEAR_BUFFER_FV, e.done(GLOP.CLEAR_BUFFER_FV));
         };
 
         self.clearBufferiv = function (target, drawbuffer, values) {
@@ -853,13 +853,13 @@
             var e = new Encoder(22);
             e.u16(target).i32(drawbuffer)
                 .i32(v[0] || 0).i32(v[1] || 0).i32(v[2] || 0).i32(v[3] || 0);
-            emit(streamId, 95 /* CLEAR_BUFFER_IV */, e.done(95));
+            emit(streamId, GLOP.CLEAR_BUFFER_IV, e.done(GLOP.CLEAR_BUFFER_IV));
         };
 
         self.clearBufferfi = function (target, drawbuffer, depth, stencil) {
             var e = new Encoder(14);
             e.u16(target).i32(drawbuffer).f32(depth).i32(stencil);
-            emit(streamId, 96 /* CLEAR_BUFFER_FI */, e.done(96));
+            emit(streamId, GLOP.CLEAR_BUFFER_FI, e.done(GLOP.CLEAR_BUFFER_FI));
         };
 
         self.bindBufferRange = function (target, index, buffer, offset, size) {
@@ -867,7 +867,7 @@
             e.u16(target).u32(index >>> 0)
                 .u32(buffer ? resId(buffer, 'bindBufferRange') : NULL_HANDLE())
                 .i32(offset | 0).i32(size | 0);
-            emit(streamId, 97 /* BIND_BUFFER_RANGE */, e.done(97));
+            emit(streamId, GLOP.BIND_BUFFER_RANGE, e.done(GLOP.BIND_BUFFER_RANGE));
         };
 
         // ── query / sync / 回读：不产像素的 WebGL2 面 ────────────────
@@ -947,21 +947,21 @@
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 14 /* VAO_CREATE */, e.done(14));
+            emit(streamId, GLOP.VAO_CREATE, e.done(GLOP.VAO_CREATE));
             return glRes('vao', id);
         };
 
         self.bindVertexArray = function (vao) {
             var e = new Encoder(4);
             e.u32(vao ? resId(vao, 'bindVertexArray') : NULL_HANDLE());
-            emit(streamId, 15, e.done(15));
+            emit(streamId, GLOP.VAO_BIND, e.done(GLOP.VAO_BIND));
         };
 
         self.deleteVertexArray = function (vao) {
             if (!vao) return;
             var e = new Encoder(4);
             e.u32(resId(vao, 'deleteVertexArray'));
-            emit(streamId, 16, e.done(16));
+            emit(streamId, GLOP.VAO_DELETE, e.done(GLOP.VAO_DELETE));
         };
 
         // ── attributes ──────────────────────────────────────────────
@@ -974,25 +974,25 @@
         self.enableVertexAttribArray = function (nameOrIndex) {
             var e = new Encoder(4);
             e.u32(attrNameRange(nameOrIndex, 'enableVertexAttribArray'));
-            emit(streamId, 17, e.done(17));
+            emit(streamId, GLOP.ATTRIB_ENABLE, e.done(GLOP.ATTRIB_ENABLE));
         };
 
         self.disableVertexAttribArray = function (nameOrIndex) {
             var e = new Encoder(4);
             e.u32(attrNameRange(nameOrIndex, 'disableVertexAttribArray'));
-            emit(streamId, 18, e.done(18));
+            emit(streamId, GLOP.ATTRIB_DISABLE, e.done(GLOP.ATTRIB_DISABLE));
         };
 
         self.vertexAttribPointer = function (nameOrIndex, size, type, normalized, stride, offset) {
             var e = new Encoder(16);
             e.u32(attrNameRange(nameOrIndex, 'vertexAttribPointer')).u8(size).u16(type).u8(normalized ? 1 : 0).u32(stride).u32(offset);
-            emit(streamId, 19, e.done(19));
+            emit(streamId, GLOP.ATTRIB_POINTER, e.done(GLOP.ATTRIB_POINTER));
         };
 
         self.vertexAttribDivisor = function (nameOrIndex, divisor) {
             var e = new Encoder(8);
             e.u32(attrNameRange(nameOrIndex, 'vertexAttribDivisor')).u32(divisor);
-            emit(streamId, 20, e.done(20));
+            emit(streamId, GLOP.ATTRIB_DIVISOR, e.done(GLOP.ATTRIB_DIVISOR));
         };
         // 常量（非数组）vertex attrib：值 ≤4 个 float，走 NFV。
         self.vertexAttrib1fv = function (nameOrIndex, values) {
@@ -1002,7 +1002,7 @@
             e.u32(attrNameRange(nameOrIndex, 'vertexAttrib1fv')).u32(bytes.byteLength);
             var range = intern(streamId, bytes);
             e.u32(range);
-            emit(streamId, 78, e.done(78));
+            emit(streamId, GLOP.VERTEX_ATTRIB_NFV, e.done(GLOP.VERTEX_ATTRIB_NFV));
         };
         self.vertexAttrib2fv = self.vertexAttrib1fv;
         self.vertexAttrib3fv = self.vertexAttrib1fv;
@@ -1010,7 +1010,7 @@
         self.vertexAttribIPointer = function (nameOrIndex, size, type, stride, offset) {
             var e = new Encoder(16);
             e.u32(attrNameRange(nameOrIndex, 'vertexAttribIPointer')).u8(size).u16(type).u32(stride).u32(offset);
-            emit(streamId, 19, e.done(19)); // ATTRIB_POINTER，int 语义由着色器签名定
+            emit(streamId, GLOP.ATTRIB_POINTER, e.done(GLOP.ATTRIB_POINTER)); // ATTRIB_POINTER，int 语义由着色器签名定
         };
 
         function attrNameRange(nameOrIndex, api) {
@@ -1043,7 +1043,7 @@
             var range = internString(streamId, name);
             var e = new Encoder(8);
             e.u32(range).f32(x);
-            emit(streamId, 21, e.done(21));
+            emit(streamId, GLOP.UNIFORM_1F, e.done(GLOP.UNIFORM_1F));
         };
         self.uniform2f = function (loc, x, y) {
             var name = uniName(loc, 'uniform2f');
@@ -1051,7 +1051,7 @@
             var range = internString(streamId, name);
             var e = new Encoder(12);
             e.u32(range).f32(x).f32(y);
-            emit(streamId, 22, e.done(22));
+            emit(streamId, GLOP.UNIFORM_2F, e.done(GLOP.UNIFORM_2F));
         };
         self.uniform3f = function (loc, x, y, z) {
             var name = uniName(loc, 'uniform3f');
@@ -1059,7 +1059,7 @@
             var range = internString(streamId, name);
             var e = new Encoder(16);
             e.u32(range).f32(x).f32(y).f32(z);
-            emit(streamId, 23, e.done(23));
+            emit(streamId, GLOP.UNIFORM_3F, e.done(GLOP.UNIFORM_3F));
         };
         self.uniform4f = function (loc, x, y, z, w) {
             var name = uniName(loc, 'uniform4f');
@@ -1067,7 +1067,7 @@
             var range = internString(streamId, name);
             var e = new Encoder(20);
             e.u32(range).f32(x).f32(y).f32(z).f32(w);
-            emit(streamId, 24, e.done(24));
+            emit(streamId, GLOP.UNIFORM_4F, e.done(GLOP.UNIFORM_4F));
         };
         self.uniform1i = function (loc, v) {
             var name = uniName(loc, 'uniform1i');
@@ -1075,7 +1075,7 @@
             var range = internString(streamId, name);
             var e = new Encoder(8);
             e.u32(range).i32(v);
-            emit(streamId, 25, e.done(25));
+            emit(streamId, GLOP.UNIFORM_1I, e.done(GLOP.UNIFORM_1I));
         };
 
         self.uniform2i = function (loc, x, y) {
@@ -1083,21 +1083,21 @@
             if (name === null) return;
             var e = new Encoder(12);
             e.u32(internString(streamId, name)).i32(x).i32(y);
-            emit(streamId, 69, e.done(69));
+            emit(streamId, GLOP.UNIFORM_2I, e.done(GLOP.UNIFORM_2I));
         };
         self.uniform3i = function (loc, x, y, z) {
             var name = uniName(location, 'uniform');
             if (name === null) return;
             var e = new Encoder(16);
             e.u32(internString(streamId, name)).i32(x).i32(y).i32(z);
-            emit(streamId, 70, e.done(70));
+            emit(streamId, GLOP.UNIFORM_3I, e.done(GLOP.UNIFORM_3I));
         };
         self.uniform4i = function (loc, x, y, z, w) {
             var name = uniName(location, 'uniform');
             if (name === null) return;
             var e = new Encoder(20);
             e.u32(internString(streamId, name)).i32(x).i32(y).i32(z).i32(w);
-            emit(streamId, 71, e.done(71));
+            emit(streamId, GLOP.UNIFORM_4I, e.done(GLOP.UNIFORM_4I));
         };
         // uint 通道与 i32 位模式一致（驱动按着色器签名解释）；执行器走
         // 同一 I 通道。
@@ -1232,7 +1232,7 @@
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 29, e.done(29));
+            emit(streamId, GLOP.TEXTURE_CREATE, e.done(GLOP.TEXTURE_CREATE));
             return glRes('texture', id);
         };
 
@@ -1240,7 +1240,7 @@
             if (!texture) return;
             var e = new Encoder(4);
             e.u32(resId(texture, 'deleteTexture'));
-            emit(streamId, 30, e.done(30));
+            emit(streamId, GLOP.TEXTURE_DELETE, e.done(GLOP.TEXTURE_DELETE));
         };
 
         self.activeTexture = function (unit) {
@@ -1248,25 +1248,25 @@
             var idx = unit - GL.TEXTURE0;
             var e = new Encoder(1);
             e.u8(idx >= 0 && idx < 32 ? idx : (unit >>> 0));
-            emit(streamId, 31, e.done(31));
+            emit(streamId, GLOP.TEXTURE_ACTIVE, e.done(GLOP.TEXTURE_ACTIVE));
         };
 
         self.bindTexture = function (target, texture) {
             var e = new Encoder(6);
             e.u16(target).u32(texture ? resId(texture, 'bindTexture') : NULL_HANDLE());
-            emit(streamId, 32, e.done(32));
+            emit(streamId, GLOP.TEXTURE_BIND, e.done(GLOP.TEXTURE_BIND));
         };
 
         self.texParameteri = function (target, pname, value) {
             var e = new Encoder(8);
             e.u16(target).u16(pname).i32(value);
-            emit(streamId, 33, e.done(33));
+            emit(streamId, GLOP.TEX_PARAM_I, e.done(GLOP.TEX_PARAM_I));
         };
 
         self.texParameterf = function (target, pname, value) {
             var e = new Encoder(8);
             e.u16(target).u16(pname).f32(value);
-            emit(streamId, 34, e.done(34));
+            emit(streamId, GLOP.TEX_PARAM_F, e.done(GLOP.TEX_PARAM_F));
         };
 
         self.texImage2D = function (target, level, internalformat, width, height, border, format, type, pixels) {
@@ -1304,7 +1304,7 @@
             } else {
                 e.u8(0).u32(0);
             }
-            emit(streamId, 35, e.done(35));
+            emit(streamId, GLOP.TEX_IMAGE_2D, e.done(GLOP.TEX_IMAGE_2D));
         };
 
         self.texSubImage2D = function (target, level, x, y, width, height, format, type, pixels) {
@@ -1333,7 +1333,7 @@
             } else {
                 e.u8(0).u32(0);
             }
-            emit(streamId, 62, e.done(62));
+            emit(streamId, GLOP.TEX_SUB_IMAGE_2D, e.done(GLOP.TEX_SUB_IMAGE_2D));
         };
         // WebGLState 的 empty 3D/array 纹理与 DataTexture3D 走这里；探测
         // 上传恒 1×1×1、4 字节数据。
@@ -1347,18 +1347,18 @@
             } else {
                 e.u8(0).u32(0);
             }
-            emit(streamId, 61, e.done(61));
+            emit(streamId, GLOP.TEX_IMAGE_3D, e.done(GLOP.TEX_IMAGE_3D));
         };
 
         self.texStorage2D = function (target, levels, internalformat, width, height) {
             var e = new Encoder(15);
             e.u16(target).u8(levels).i32(internalformat).u32(width).u32(height);
-            emit(streamId, 72, e.done(72));
+            emit(streamId, GLOP.TEX_STORAGE_2D, e.done(GLOP.TEX_STORAGE_2D));
         };
         self.texStorage3D = function (target, levels, internalformat, width, height, depth) {
             var e = new Encoder(19);
             e.u16(target).u8(levels).i32(internalformat).u32(width).u32(height).u32(depth);
-            emit(streamId, 73, e.done(73));
+            emit(streamId, GLOP.TEX_STORAGE_3D, e.done(GLOP.TEX_STORAGE_3D));
         };
         self.texSubImage3D = function (target, level, x, y, z, width, height, depth, format, type, pixels) {
             var bytes = typedBytes(pixels);
@@ -1370,7 +1370,7 @@
             } else {
                 e.u8(0).u32(0);
             }
-            emit(streamId, 74, e.done(74));
+            emit(streamId, GLOP.TEX_SUB_IMAGE_3D, e.done(GLOP.TEX_SUB_IMAGE_3D));
         };
         self.compressedTexImage2D = function () {
             badToken('compressedTexImage2D', 'batch 2');
@@ -1380,13 +1380,13 @@
         self.generateMipmap = function (target) {
             var e = new Encoder(2);
             e.u16(target);
-            emit(streamId, 36, e.done(36));
+            emit(streamId, GLOP.GENERATE_MIPMAP, e.done(GLOP.GENERATE_MIPMAP));
         };
 
         self.pixelStorei = function (pname, value) {
             var e = new Encoder(6);
             e.u16(pname).i32(value);
-            emit(streamId, 37, e.done(37));
+            emit(streamId, GLOP.PIXEL_STORE_I, e.done(GLOP.PIXEL_STORE_I));
         };
 
         // ── framebuffers ────────────────────────────────────────────
@@ -1395,7 +1395,7 @@
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 38, e.done(38));
+            emit(streamId, GLOP.FRAMEBUFFER_CREATE, e.done(GLOP.FRAMEBUFFER_CREATE));
             return glRes('fbo', id);
         };
 
@@ -1403,19 +1403,19 @@
             if (!fbo) return;
             var e = new Encoder(4);
             e.u32(resId(fbo, 'deleteFramebuffer'));
-            emit(streamId, 39, e.done(39));
+            emit(streamId, GLOP.FRAMEBUFFER_DELETE, e.done(GLOP.FRAMEBUFFER_DELETE));
         };
 
         self.bindFramebuffer = function (target, framebuffer) {
             var e = new Encoder(6);
             e.u16(target).u32(framebuffer ? resId(framebuffer, 'bindFramebuffer') : NULL_HANDLE());
-            emit(streamId, 40, e.done(40));
+            emit(streamId, GLOP.BIND_FRAMEBUFFER, e.done(GLOP.BIND_FRAMEBUFFER));
         };
 
         self.framebufferTexture2D = function (target, attachment, textarget, texture, level) {
             var e = new Encoder(14);
             e.u16(target).u16(attachment).u16(textarget).u32(texture ? resId(texture, 'framebufferTexture2D') : NULL_HANDLE()).i32(level);
-            emit(streamId, 41, e.done(41));
+            emit(streamId, GLOP.FRAMEBUFFER_TEXTURE_2D, e.done(GLOP.FRAMEBUFFER_TEXTURE_2D));
         };
 
         self.checkFramebufferStatus = function () {
@@ -1427,24 +1427,24 @@
         self.framebufferRenderbuffer = function (target, attachment, renderbuffertarget, renderbuffer) {
             var e = new Encoder(8);
             e.u16(target).u16(attachment).u32(renderbuffer ? resId(renderbuffer, 'framebufferRenderbuffer') : NULL_HANDLE());
-            emit(streamId, 67, e.done(67));
+            emit(streamId, GLOP.FRAMEBUFFER_RENDERBUFFER, e.done(GLOP.FRAMEBUFFER_RENDERBUFFER));
         };
         self.createRenderbuffer = function () {
             var id = __gl_alloc_handle();
             var e = new Encoder(4);
             e.u32(id);
-            emit(streamId, 64, e.done(64));
+            emit(streamId, GLOP.RENDERBUFFER_CREATE, e.done(GLOP.RENDERBUFFER_CREATE));
             return glRes('renderbuffer', id);
         };
         self.bindRenderbuffer = function (target, renderbuffer) {
             var e = new Encoder(6);
             e.u16(target).u32(resId(renderbuffer, 'bindRenderbuffer'));
-            emit(streamId, 65, e.done(65));
+            emit(streamId, GLOP.BIND_RENDERBUFFER, e.done(GLOP.BIND_RENDERBUFFER));
         };
         self.renderbufferStorage = function (target, internalformat, width, height) {
             var e = new Encoder(16);
             e.u32(0).i32(internalformat).u32(width).u32(height);
-            emit(streamId, 66, e.done(66));
+            emit(streamId, GLOP.RENDERBUFFER_STORAGE, e.done(GLOP.RENDERBUFFER_STORAGE));
         };
         self.blitFramebuffer = function (sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, mask, filter) {
             var bits =
@@ -1455,7 +1455,7 @@
             e.i32(sx0).i32(sy0).i32(sx1).i32(sy1)
                 .i32(dx0).i32(dy0).i32(dx1).i32(dy1);
             e.u16(bits).u16(filter);
-            emit(streamId, 98 /* BLIT_FRAMEBUFFER */, e.done(98));
+            emit(streamId, GLOP.BLIT_FRAMEBUFFER, e.done(GLOP.BLIT_FRAMEBUFFER));
         };
 
         self.readPixels = function () {
@@ -1471,13 +1471,13 @@
             globalThis.__ocCurViewport = x + ',' + y + ',' + w + ',' + h;
             var e = new Encoder(16);
             e.i32(x).i32(y).i32(w).i32(h);
-            emit(streamId, 42, e.done(42));
+            emit(streamId, GLOP.VIEWPORT, e.done(GLOP.VIEWPORT));
         };
 
         self.clearColor = function (r, g, b, a) {
             var e = new Encoder(16);
             e.f32(r).f32(g).f32(b).f32(a);
-            emit(streamId, 43, e.done(43));
+            emit(streamId, GLOP.CLEAR_COLOR, e.done(GLOP.CLEAR_COLOR));
         };
 
         self.clear = function (mask) {
@@ -1487,7 +1487,7 @@
                 (mask & GL.STENCIL_BUFFER_BIT ? 4 : 0);
             var e = new Encoder(1);
             e.u8(bits);
-            emit(streamId, 44, e.done(44));
+            emit(streamId, GLOP.CLEAR, e.done(GLOP.CLEAR));
         };
 
         self.enable = function (cap) {
@@ -1495,36 +1495,36 @@
             if (cap === 0x0b71) globalThis.__ocCurDepth = 1;
             var e = new Encoder(2);
             e.u16(cap);
-            emit(streamId, 45, e.done(45));
+            emit(streamId, GLOP.ENABLE, e.done(GLOP.ENABLE));
         };
 
         self.disable = function (cap) {
             var e = new Encoder(2);
             e.u16(cap);
-            emit(streamId, 46, e.done(46));
+            emit(streamId, GLOP.DISABLE, e.done(GLOP.DISABLE));
         };
 
         self.depthFunc = function (func) {
             var e = new Encoder(2);
             e.u16(func);
-            emit(streamId, 47, e.done(47));
+            emit(streamId, GLOP.DEPTH_FUNC, e.done(GLOP.DEPTH_FUNC));
         };
 
         self.colorMask = function (r, g, b, a) {
             var e = new Encoder(4);
             e.u8(r ? 1 : 0).u8(g ? 1 : 0).u8(b ? 1 : 0).u8(a ? 1 : 0);
-            emit(streamId, 68, e.done(68));
+            emit(streamId, GLOP.COLOR_MASK, e.done(GLOP.COLOR_MASK));
         };
         self.depthMask = function (flag) {
             var e = new Encoder(1);
             e.u8(flag ? 1 : 0);
-            emit(streamId, 48, e.done(48));
+            emit(streamId, GLOP.DEPTH_MASK, e.done(GLOP.DEPTH_MASK));
         };
 
         self.blendFunc = function (src, dst) {
             var e = new Encoder(4);
             e.u16(src).u16(dst);
-            emit(streamId, 49, e.done(49));
+            emit(streamId, GLOP.BLEND_FUNC, e.done(GLOP.BLEND_FUNC));
         };
 
         self.blendFuncSeparate = function (srcRGB, dstRGB, srcA, dstA) {
@@ -1534,76 +1534,76 @@
             }
             var e = new Encoder(8);
             e.u16(srcRGB).u16(dstRGB).u16(srcA).u16(dstA);
-            emit(streamId, 59, e.done(59));
+            emit(streamId, GLOP.BLEND_FUNC_SEPARATE, e.done(GLOP.BLEND_FUNC_SEPARATE));
         };
 
         self.blendEquationSeparate = function (rgb, alpha) {
             var e = new Encoder(4);
             e.u16(rgb).u16(alpha);
-            emit(streamId, 60, e.done(60));
+            emit(streamId, GLOP.BLEND_EQUATION_SEPARATE, e.done(GLOP.BLEND_EQUATION_SEPARATE));
         };
 
         self.blendEquation = function (mode) {
             var e = new Encoder(2);
             e.u16(mode);
-            emit(streamId, 50, e.done(50));
+            emit(streamId, GLOP.BLEND_EQUATION, e.done(GLOP.BLEND_EQUATION));
         };
 
         self.blendColor = function (r, g, b, a) {
             var e = new Encoder(16);
             e.f32(r).f32(g).f32(b).f32(a);
-            emit(streamId, 51, e.done(51));
+            emit(streamId, GLOP.BLEND_COLOR, e.done(GLOP.BLEND_COLOR));
         };
 
         self.cullFace = function (mode) {
             var e = new Encoder(2);
             e.u16(mode);
-            emit(streamId, 52, e.done(52));
+            emit(streamId, GLOP.CULL_FACE, e.done(GLOP.CULL_FACE));
         };
 
         self.frontFace = function (mode) {
             var e = new Encoder(2);
             e.u16(mode);
-            emit(streamId, 53, e.done(53));
+            emit(streamId, GLOP.FRONT_FACE, e.done(GLOP.FRONT_FACE));
         };
 
         self.clearDepth = function (d) {
             var e = new Encoder(4);
             e.f32(d);
-            emit(streamId, 54, e.done(54));
+            emit(streamId, GLOP.CLEAR_DEPTH, e.done(GLOP.CLEAR_DEPTH));
         };
 
         self.clearStencil = function (s) {
             var e = new Encoder(4);
             e.i32(s);
-            emit(streamId, 55, e.done(55));
+            emit(streamId, GLOP.CLEAR_STENCIL, e.done(GLOP.CLEAR_STENCIL));
         };
 
         self.polygonOffset = function (factor, units) {
             var e = new Encoder(8);
             e.f32(factor).f32(units);
-            emit(streamId, 56, e.done(56));
+            emit(streamId, GLOP.POLYGON_OFFSET, e.done(GLOP.POLYGON_OFFSET));
         };
 
         self.scissor = function (x, y, w, h) {
             var e = new Encoder(16);
             e.i32(x).i32(y).i32(w).i32(h);
-            emit(streamId, 81, e.done(81));
+            emit(streamId, GLOP.SCISSOR, e.done(GLOP.SCISSOR));
         };
         self.stencilFunc = function (func, ref, mask) {
             var e = new Encoder(10);
             e.u16(func).i32(ref).u32(mask >>> 0);
-            emit(streamId, 82, e.done(82));
+            emit(streamId, GLOP.STENCIL_FUNC, e.done(GLOP.STENCIL_FUNC));
         };
         self.stencilOp = function (sfail, dpfail, dppass) {
             var e = new Encoder(6);
             e.u16(sfail).u16(dpfail).u16(dppass);
-            emit(streamId, 83, e.done(83));
+            emit(streamId, GLOP.STENCIL_OP, e.done(GLOP.STENCIL_OP));
         };
         self.stencilMask = function (mask) {
             var e = new Encoder(4);
             e.u32(mask >>> 0);
-            emit(streamId, 84, e.done(84));
+            emit(streamId, GLOP.STENCIL_MASK, e.done(GLOP.STENCIL_MASK));
         };
         self.hint = function () {};
         self.lineWidth = function () {};
@@ -1613,38 +1613,38 @@
         self.drawArrays = function (mode, first, count) {
             var e = new Encoder(12);
             e.u16(mode).i32(first).i32(count);
-            emit(streamId, 57, e.done(57));
+            emit(streamId, GLOP.DRAW_ARRAYS, e.done(GLOP.DRAW_ARRAYS));
         };
 
         self.drawElements = function (mode, count, type, offset) {
             var e = new Encoder(12);
             e.u16(mode).i32(count).u16(type).i32(offset);
-            emit(streamId, 58, e.done(58));
+            emit(streamId, GLOP.DRAW_ELEMENTS, e.done(GLOP.DRAW_ELEMENTS));
         };
         self.drawArraysInstanced = function (mode, first, count, primcount) {
             var e = new Encoder(14);
             e.u16(mode).i32(first).i32(count).i32(primcount);
-            emit(streamId, 76, e.done(76));
+            emit(streamId, GLOP.DRAW_ARRAYS_INSTANCED, e.done(GLOP.DRAW_ARRAYS_INSTANCED));
         };
         self.drawElementsInstanced = function (mode, count, type, offset, primcount) {
             var e = new Encoder(16);
             e.u16(mode).i32(count).u16(type).i32(offset).i32(primcount);
-            emit(streamId, 77, e.done(77));
+            emit(streamId, GLOP.DRAW_ELEMENTS_INSTANCED, e.done(GLOP.DRAW_ELEMENTS_INSTANCED));
         };
         self.bindBufferBase = function (target, index, buffer) {
             var e = new Encoder(10);
             e.u16(target).u32(index).u32(resId(buffer, 'bindBufferBase'));
-            emit(streamId, 75, e.done(75));
+            emit(streamId, GLOP.BIND_BUFFER_BASE, e.done(GLOP.BIND_BUFFER_BASE));
         };
         self.uniformBlockBinding = function (program, blockIndex, blockBinding) {
             var e = new Encoder(12);
             e.u32(resId(program, 'uniformBlockBinding')).u32(blockIndex >>> 0).u32(blockBinding >>> 0);
-            emit(streamId, 79, e.done(79));
+            emit(streamId, GLOP.UNIFORM_BLOCK_BINDING, e.done(GLOP.UNIFORM_BLOCK_BINDING));
         };
         self.bindAttribLocation = function (program, index, name) {
             var e = new Encoder(12);
             e.u32(resId(program, 'bindAttribLocation')).u32(index >>> 0).u32(internString(streamId, String(name)));
-            emit(streamId, 80, e.done(80));
+            emit(streamId, GLOP.BIND_ATTRIB_LOCATION, e.done(GLOP.BIND_ATTRIB_LOCATION));
         };
         self.makeXRCompatible = function () {
             return true; // XR 不在确定性渲染面内
@@ -1657,7 +1657,7 @@
             var e = new Encoder(1 + n * 4);
             e.u8(n);
             for (var i = 0; i < n; i++) e.u32(buffers[i] >>> 0);
-            emit(streamId, 85, e.done(85));
+            emit(streamId, GLOP.DRAW_BUFFERS, e.done(GLOP.DRAW_BUFFERS));
         };
 
         self.flush = function () {};

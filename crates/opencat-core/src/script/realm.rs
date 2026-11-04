@@ -22,7 +22,7 @@ use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
     JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
-    WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
+    GL_OPCODES_RUNTIME, WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -359,6 +359,8 @@ impl<C: JsContext> ScriptRealm<C> {
         // 2D-context adapter (`node.getContext('2d')`): after NODE_STYLE_RUNTIME,
         // whose `getContext` branch forwards here.
         self.ctx.eval(CONTEXT2D_RUNTIME)?;
+        // GL opcode constants first (WEBGL_API_RUNTIME references GLOP.*).
+        self.ctx.eval(GL_OPCODES_RUNTIME)?;
         // WebGL2 recording face: wraps `ctx.getContext` and answers
         // 'webgl2' with the command recorder. After CONTEXT2D_RUNTIME (it
         // chains the base `ctx.getContext`).

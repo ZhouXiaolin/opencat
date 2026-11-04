@@ -560,13 +560,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     width: resolve_dimension(
                         layout.width,
                         layout.width_percent,
-                        layout.width_full,
                         Dimension::auto(),
                     ),
                     height: resolve_dimension(
                         layout.height,
                         layout.height_percent,
-                        layout.height_full,
                         Dimension::auto(),
                     ),
                 },
@@ -574,7 +572,6 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     width: resolve_dimension(
                         layout.width,
                         layout.width_percent,
-                        layout.width_full,
                         if layout.auto_size {
                             Dimension::auto()
                         } else {
@@ -584,7 +581,6 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     height: resolve_dimension(
                         layout.height,
                         layout.height_percent,
-                        layout.height_full,
                         if layout.auto_size {
                             Dimension::auto()
                         } else {
@@ -615,13 +611,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 width: resolve_dimension(
                     layout.width,
                     layout.width_percent,
-                    layout.width_full,
                     Dimension::auto(),
                 ),
                 height: resolve_dimension(
                     layout.height,
-                    None,
-                    layout.height_full,
+                    layout.height_percent,
                     Dimension::auto(),
                 ),
             },
@@ -632,13 +626,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 width: resolve_dimension(
                     layout.width,
                     layout.width_percent,
-                    layout.width_full,
                     Dimension::length(bitmap.width as f32),
                 ),
                 height: resolve_dimension(
                     layout.height,
-                    None,
-                    layout.height_full,
+                    layout.height_percent,
                     Dimension::length(bitmap.height as f32),
                 ),
             },
@@ -649,13 +641,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                 width: resolve_dimension(
                     layout.width,
                     layout.width_percent,
-                    layout.width_full,
                     Dimension::length(lottie.width as f32),
                 ),
                 height: resolve_dimension(
                     layout.height,
-                    None,
-                    layout.height_full,
+                    layout.height_percent,
                     Dimension::length(lottie.height as f32),
                 ),
             },
@@ -671,13 +661,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     width: resolve_dimension(
                         layout.width,
                         layout.width_percent,
-                        layout.width_full,
                         default_size.0,
                     ),
                     height: resolve_dimension(
                         layout.height,
-                        None,
-                        layout.height_full,
+                        layout.height_percent,
                         default_size.1,
                     ),
                 },
@@ -701,13 +689,11 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     width: resolve_dimension(
                         layout.width,
                         layout.width_percent,
-                        layout.width_full,
                         default_size.0,
                     ),
                     height: resolve_dimension(
                         layout.height,
-                        None,
-                        layout.height_full,
+                        layout.height_percent,
                         default_size.1,
                     ),
                 },
@@ -914,15 +900,8 @@ fn resolve_dimension_value(value: LengthPercentageAuto) -> Dimension {
     }
 }
 
-fn resolve_dimension(
-    value: Option<f32>,
-    percent: Option<f32>,
-    full: bool,
-    fallback: Dimension,
-) -> Dimension {
-    if full {
-        Dimension::percent(1.0)
-    } else if let Some(pct) = percent {
+fn resolve_dimension(value: Option<f32>, percent: Option<f32>, fallback: Dimension) -> Dimension {
+    if let Some(pct) = percent {
         Dimension::percent(pct)
     } else {
         value.map(Dimension::length).unwrap_or(fallback)

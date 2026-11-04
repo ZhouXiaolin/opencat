@@ -20,9 +20,8 @@ pub fn text_element_allows_wrap(element: &crate::resolve::tree::ElementNode) -> 
         return false;
     }
 
-    let has_definite_width = element.style.layout.width.is_some()
-        || element.style.layout.width_percent.is_some()
-        || element.style.layout.width_full;
+    let has_definite_width =
+        element.style.layout.width.is_some() || element.style.layout.width_percent.is_some();
 
     if element.style.layout.position == Position::Absolute && !has_definite_width {
         return false;
@@ -53,9 +52,8 @@ pub struct InheritedStyle {
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
         let mut text = style.text.clone();
-        let container_has_definite_width = style.layout.width.is_some()
-            || style.layout.width_percent.is_some()
-            || style.layout.width_full;
+        let container_has_definite_width =
+            style.layout.width.is_some() || style.layout.width_percent.is_some();
         // `position: absolute` with `width: auto` resolves via CSS shrink-to-fit —
         // its width comes from its own content, not from the containing block.
         // Inline-width constraints from ancestors must stop at such a boundary,
@@ -88,8 +86,6 @@ pub struct ComputedLayoutStyle {
     pub height_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,
-    pub width_full: bool,
-    pub height_full: bool,
     pub padding_top: f32,
     pub padding_right: f32,
     pub padding_bottom: f32,

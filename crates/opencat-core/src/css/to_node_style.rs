@@ -186,7 +186,7 @@ pub fn apply_property(
             if let Size::LengthPercentage(lp) = v {
                 match lp_to_len_percent(lp, ctx) {
                     Some(LenPercent::Px(px)) => style.width = Some(px),
-                    Some(LenPercent::Pct(p)) => style.width_percent = Some(p * 100.0),
+                    Some(LenPercent::Pct(p)) => style.width_percent = Some(p),
                     None => warn_unsupported(PropertyId::Width, "calc"),
                 }
             }
@@ -195,7 +195,7 @@ pub fn apply_property(
             if let Size::LengthPercentage(lp) = v {
                 match lp_to_len_percent(lp, ctx) {
                     Some(LenPercent::Px(px)) => style.height = Some(px),
-                    Some(LenPercent::Pct(p)) => style.height_percent = Some(p * 100.0),
+                    Some(LenPercent::Pct(p)) => style.height_percent = Some(p),
                     None => warn_unsupported(PropertyId::Height, "calc"),
                 }
             }
@@ -208,7 +208,6 @@ pub fn apply_property(
             }
         }
         Property::Padding(v) => {
-            padding_longhand(&mut style.padding, &v.top, ctx);
             padding_longhand(&mut style.padding_top, &v.top, ctx);
             padding_longhand(&mut style.padding_right, &v.right, ctx);
             padding_longhand(&mut style.padding_bottom, &v.bottom, ctx);

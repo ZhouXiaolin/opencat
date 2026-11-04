@@ -337,29 +337,40 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.width {
             style.width = Some(v);
-            style.width_full = false;
+            style.width_percent = None;
         }
         if let Some(v) = self.height {
             style.height = Some(v);
-            style.height_full = false;
+            style.height_percent = None;
         }
         if let Some(v) = self.padding {
-            style.padding = Some(v);
+            style.padding_top = Some(v);
+            style.padding_right = Some(v);
+            style.padding_bottom = Some(v);
+            style.padding_left = Some(v);
         }
         if let Some(v) = self.padding_x {
-            style.padding_x = Some(v);
+            style.padding_left = Some(v);
+            style.padding_right = Some(v);
         }
         if let Some(v) = self.padding_y {
-            style.padding_y = Some(v);
+            style.padding_top = Some(v);
+            style.padding_bottom = Some(v);
         }
         if let Some(v) = self.margin {
-            style.margin = Some(LengthPercentageAuto::Length(v));
+            let m = LengthPercentageAuto::Length(v);
+            style.margin_top = Some(m);
+            style.margin_right = Some(m);
+            style.margin_bottom = Some(m);
+            style.margin_left = Some(m);
         }
         if let Some(v) = self.margin_x {
-            style.margin_x = Some(LengthPercentageAuto::Length(v));
+            style.margin_left = Some(LengthPercentageAuto::Length(v));
+            style.margin_right = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.margin_y {
-            style.margin_y = Some(LengthPercentageAuto::Length(v));
+            style.margin_top = Some(LengthPercentageAuto::Length(v));
+            style.margin_bottom = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.flex_direction {
             style.flex_direction = Some(v);

@@ -271,8 +271,6 @@ impl Hash for LayoutStyleInput<'_> {
         style.width_percent.map(F32Hash).hash(state);
         style.height.map(F32Hash).hash(state);
         style.max_width.map(F32Hash).hash(state);
-        style.width_full.hash(state);
-        style.height_full.hash(state);
         F32Hash(style.padding_top).hash(state);
         F32Hash(style.padding_right).hash(state);
         F32Hash(style.padding_bottom).hash(state);

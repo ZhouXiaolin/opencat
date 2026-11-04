@@ -1899,7 +1899,7 @@ fn strip_glsl_comments(src: &str) -> String {
 /// NDC 翻转垫片，GL→GL 不需要，开了画面会上下镜像。
 /// naga 吃不下的构造（front/validate/back 报错）回退到只换版本行的旧降级
 /// 并记日志：缺口由日志驱动逐个消除，不出片不炸。
-fn desktop_glsl(src: &str, stage: naga::ShaderStage) -> Result<String> {
+pub(crate) fn desktop_glsl(src: &str, stage: naga::ShaderStage) -> Result<String> {
     match naga_es300_to_desktop330(src, stage) {
         Ok(out) => Ok(out),
         Err(e) => {
@@ -1979,126 +1979,6 @@ fn desktop_glsl_version_line_only(src: &str) -> Result<String> {
         }
     }
     Ok(src.to_string())
-}
-
-/// 真 GL 反射：编译（版本行降级后）→ link → 问驱动 active uniform/attribute
-/// 表 → 即毁。core 的 linkProgram 在 three 查询前同步走这里，结果与执行器
-/// 的驱动语义一致（struct/数组展开、类型枚举全自动正确）。
-///
-/// 把反射器装进脚本 realm 的 store。反射用本线程常驻的独立离屏 GL 会话
-/// （thread_local——反射只发生在脚本执行线程；主渲染路径每帧 make_current
-/// 幂等重绑，临时切换安全）。
-pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
-    ctx.set_glsl_reflector(Box::new(|vs, fs| {
-        thread_local! {
-            static REFLECT: std::cell::RefCell<
-                Option<(crate::gpu::session::GlSession, Arc<glow::Context>)>,
-            > = const { std::cell::RefCell::new(None) };
-        }
-        REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
-            let mut slot = cell.borrow_mut();
-            if slot.is_none() {
-                let session = crate::gpu::session::GlSession::offscreen()?;
-                let gl = session.gl();
-                *slot = Some((session, gl));
-            }
-            let (session, gl) = slot.as_ref().expect("reflect session");
-            session.make_current()?;
-            reflect_program_gl(gl, vs, fs)
-        })
-    }));
-}
-
-/// 装资产读取器 + 图像解码器（three FileLoader 的 fetch 垫与 GLTFLoader 的
-/// createImageBitmap 垫的后端）。路径语义与声明式 `<image path=>` 一致：
-/// 逻辑相对路径对 base_dir join。解码走 image crate（default features 含
-/// png/jpeg，另开 webp）。
-pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::path::Path) {
-    let root = base_dir.to_path_buf();
-    ctx.set_asset_reader(Box::new(move |path| {
-        let full = root.join(path);
-        std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
-    }));
-    ctx.set_image_decoder(Box::new(|bytes| {
-        let img = image::load_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("image decode: {e}"))?;
-        let rgba = img.to_rgba8().into_raw();
-        Ok((img.width(), img.height(), rgba))
-    }));
-}
-
-pub fn reflect_program_gl(
-    gl: &Arc<glow::Context>,
-    vs_es: &str,
-    fs_es: &str,
-) -> anyhow::Result<serde_json::Value> {
-    unsafe {
-        let compile = |ty: u32, src: &str| -> Result<glow::Shader> {
-            let sh = gl.create_shader(ty).map_err(|e| anyhow!("create_shader: {e}"))?;
-            gl.shader_source(sh, src);
-            gl.compile_shader(sh);
-            if !gl.get_shader_compile_status(sh) {
-                let log = gl.get_shader_info_log(sh);
-                bail!("shader 编译失败: {log}");
-            }
-            Ok(sh)
-        };
-        let vs = compile(
-            glow::VERTEX_SHADER,
-            &desktop_glsl(vs_es, naga::ShaderStage::Vertex)?,
-        )?;
-        let fs = compile(
-            glow::FRAGMENT_SHADER,
-            &desktop_glsl(fs_es, naga::ShaderStage::Fragment)?,
-        )?;
-        let program = gl
-            .create_program()
-            .map_err(|e| anyhow!("create_program: {e}"))?;
-        gl.attach_shader(program, vs);
-        gl.attach_shader(program, fs);
-        gl.link_program(program);
-        gl.delete_shader(vs);
-        gl.delete_shader(fs);
-        if !gl.get_program_link_status(program) {
-            let log = gl.get_program_info_log(program);
-            gl.delete_program(program);
-            bail!("反射 link 失败: {log}");
-        }
-        let mut uniforms = Vec::new();
-        for i in 0..gl.get_active_uniforms(program) {
-            if let Some(u) = gl.get_active_uniform(program, i) {
-                uniforms.push(serde_json::json!({
-                    "n": u.name, "t": u.utype, "s": u.size.max(1),
-                }));
-            }
-        }
-        let mut attributes = Vec::new();
-        for i in 0..gl.get_active_attributes(program) {
-            if let Some(a) = gl.get_active_attribute(program, i) {
-                attributes.push(serde_json::json!({
-                    "n": a.name, "t": a.atype, "s": a.size.max(1),
-                }));
-            }
-        }
-        // uniform 块（WebGL2 的 sampler 之外，矩阵/屏尺寸等都走 std140 块）。
-        // glow 没有块计数 API，只能按序号探名；越界探名会置 GL_INVALID_VALUE，
-        // 探完清错。
-        let mut blocks = Vec::new();
-        for i in 0..16u32 {
-            let name = gl.get_active_uniform_block_name(program, i);
-            if name.is_empty() {
-                break;
-            }
-            blocks.push(serde_json::json!({ "n": name, "i": i }));
-        }
-        gl.delete_program(program);
-        while gl.get_error() != glow::NO_ERROR {}
-        Ok(serde_json::json!({
-            "uniforms": uniforms,
-            "attributes": attributes,
-            "blocks": blocks,
-        }))
-    }
 }
 
 /// 把 WebGL2 允许、桌面 GL 3.3 core 已移除的"未定尺基础格式"

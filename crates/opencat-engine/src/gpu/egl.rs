@@ -191,6 +191,36 @@ impl EglContext {
             .map_err(|e| anyhow!("eglMakeCurrent failed for Linux render target: {e}"))
     }
 
+    /// 当前线程绑定着的 (display, draw, read, context)；任一缺失（无线程
+    /// 绑定）时返回 `None`。现场恢复用（`script::bridge` 的
+    /// `CurrentContextGuard`）。
+    pub fn get_current_context()
+    -> Option<(egl::Display, egl::Surface, egl::Surface, egl::Context)> {
+        let egl = EGL
+            .get_or_init(|| unsafe { egl::DynamicInstance::<egl::EGL1_5>::load_required().ok() })
+            .as_ref()?;
+        let display = egl.get_current_display()?;
+        let draw = egl.get_current_surface(egl::DRAW)?;
+        let read = egl.get_current_surface(egl::READ)?;
+        let context = egl.get_current_context()?;
+        Some((display, draw, read, context))
+    }
+
+    /// 直接绑定一组已存在的 EGL 对象——现场恢复用，不经 [`EglContext`]。
+    pub fn make_current_raw(
+        display: egl::Display,
+        draw: egl::Surface,
+        read: egl::Surface,
+        context: egl::Context,
+    ) -> Result<()> {
+        let egl = EGL
+            .get_or_init(|| unsafe { egl::DynamicInstance::<egl::EGL1_5>::load_required().ok() })
+            .as_ref()
+            .ok_or_else(|| anyhow!("failed to load libEGL.so.1 (context restore)"))?;
+        egl.make_current(display, Some(draw), Some(read), Some(context))
+            .map_err(|e| anyhow!("eglMakeCurrent failed (context restore): {e}"))
+    }
+
     /// 交换前后缓冲（双缓冲窗口）。
     pub fn swap_buffers(&self) -> Result<()> {
         self._egl

@@ -65,9 +65,19 @@ export {
   createSurfaceWithFallback,
   getReusableSurface,
   releaseReusableSurface,
+} from './media/surface';
+
+export {
   downloadMp4,
   exportMp4,
   exportPngFrame,
   initFFmpeg,
 } from './media/exporter';
 export type { ExportProgressStage } from './media/exporter';
+
+export { RenderSession } from './render-session';
+export type { RenderSessionOptions } from './render-session';
+
+export { ORACLE_METHODS } from './oracle-contract';
+export type { OracleMethod, OracleRenderFrameResult, OracleRenderMp4Result } from './oracle-contract';
+

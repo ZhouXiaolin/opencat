@@ -6,17 +6,16 @@ import {
   type ResourceMeta,
 } from '../types';
 import { createWasmFaacEncoder, getRendererOrThrow } from '../wasm';
-import {
-  injectVideoFramesForRender,
-  prepareCatalogVideoSources,
-} from './video-frame-injector';
+import { injectVideoFramesForRender, prepareCatalogVideoSources } from './video-frame-injector';
 import { renderEncodedDrawFrame } from '../draw-ir';
+import { RenderSession } from '../render-session';
+import { createSurfaceWithFallback } from './surface';
 import {
   canUseFaacAudioEncoderFallback,
   installFaacAudioEncoderFallback,
 } from './faac-audio-encoder';
 import type { IClip } from '@webav/av-cliper';
-import type { CanvasKit, ColorSpace, Surface, WebGLOptions } from 'canvaskit-wasm';
+import type { CanvasKit, Surface } from 'canvaskit-wasm';
 
 /** Map composition-time slice onto source offset inside one core AudioPlan segment. */
 function segmentExportSlice(
@@ -44,71 +43,6 @@ export type ExportProgressStage =
 type ProgressCallback = (current: number, total: number, stage?: ExportProgressStage) => void;
 type CanvasKitGlobal = typeof globalThis & { __canvasKit?: CanvasKit };
 
-export function createSurfaceWithFallback(
-  CK: CanvasKit,
-  canvas: HTMLCanvasElement | OffscreenCanvas,
-  colorSpace?: ColorSpace,
-  opts?: WebGLOptions,
-): Surface | null {
-  if (typeof CK.MakeWebGLCanvasSurface === 'function') {
-    try {
-      const surface = CK.MakeWebGLCanvasSurface(canvas, colorSpace, opts);
-      if (surface) return surface;
-    } catch (err) {
-      console.warn(
-        'CanvasKit: WebGL surface creation failed, falling back to software surface.',
-        err,
-      );
-    }
-  }
-
-  if (typeof CK.MakeSWCanvasSurface === 'function') {
-    try {
-      return CK.MakeSWCanvasSurface(canvas) ?? null;
-    } catch (err) {
-      console.warn('CanvasKit: software surface creation failed.', err);
-      return null;
-    }
-  }
-
-  return null;
-}
-
-// A CanvasKit `Surface` is backed by a WebGL context/EGL framebuffer that
-// `surface.delete()` does NOT fully release in headless Chrome: creating a new
-// canvas surface per frame accumulates ~one frame buffer (1920×1080×4 = 8 MB)
-// of GPU-process memory per frame until the GPU process SIGTRAPs
-// (`exit_code=133`, "GPU state invalid" → the tab's WebGL context is lost).
-// Reuse one surface per canvas instead — a long render loop is streaming by
-// nature and should keep exactly one framebuffer alive.
-const reusableSurfaces = new WeakMap<HTMLCanvasElement | OffscreenCanvas, Surface>();
-
-/** Get or create the reusable CanvasKit surface bound to `canvas`. */
-export function getReusableSurface(
-  CK: CanvasKit,
-  canvas: HTMLCanvasElement | OffscreenCanvas,
-  colorSpace?: ColorSpace,
-  opts?: WebGLOptions,
-): Surface | null {
-  const existing = reusableSurfaces.get(canvas);
-  if (existing) return existing;
-  const surface = createSurfaceWithFallback(CK, canvas, colorSpace, opts);
-  if (surface) reusableSurfaces.set(canvas, surface);
-  return surface;
-}
-
-/** Drop the cached surface for `canvas` (e.g. after a size or context change). */
-export function releaseReusableSurface(canvas: HTMLCanvasElement | OffscreenCanvas): void {
-  const surface = reusableSurfaces.get(canvas);
-  if (!surface) return;
-  reusableSurfaces.delete(canvas);
-  try {
-    surface.delete();
-  } catch {
-    /* ignore CanvasKit teardown failures */
-  }
-}
-
 async function yieldToBrowser(): Promise<void> {
   await new Promise<void>((resolve) => {
     if (typeof requestAnimationFrame === 'function') {
@@ -126,14 +60,13 @@ class ExportClip implements IClip {
   readonly ready: Promise<{ width: number; height: number; duration: number }>;
 
   private canvas: HTMLCanvasElement | OffscreenCanvas;
-  private jsonlContent: string;
   private comp: CompositionInfo;
   private totalFrames: number;
   private fps: number;
   private sampleRate: number;
   private onProgress: ProgressCallback;
   private audioPlan: AudioPlan;
-  private surface: Surface | null;
+  private session: RenderSession | null;
 
   constructor(
     canvas: HTMLCanvasElement | OffscreenCanvas,
@@ -143,33 +76,26 @@ class ExportClip implements IClip {
     audioPlan: AudioPlan,
   ) {
     this.canvas = canvas;
-    this.jsonlContent = jsonlContent;
     this.comp = comp;
     this.totalFrames = compositionFrameCount(comp);
     this.fps = comp.fps;
     this.sampleRate = 48000;
     this.onProgress = onProgress;
     this.audioPlan = audioPlan;
-    this.surface = null;
+    this.session = null;
 
     this.meta = {
       width: comp.width,
       height: comp.height,
       duration: Math.round(comp.duration * 1_000_000),
     };
-    // Open the persistent host-owned pipeline (issue #8) before any frame
-    // renders. Fetches resources, builds catalog, opens the pipeline, then
-    // prepares WebCodecs video sources (required for injectVideoFrames).
-    this.ready = getRendererOrThrow()
-      .open_design(jsonlContent)
-      .then((catalogJson) => prepareCatalogVideoSources(catalogJson))
-      .then(() => this.meta);
-  }
-
-  private getSurface(CK: CanvasKit): Surface {
-    this.surface ??= createSurfaceWithFallback(CK, this.canvas);
-    if (!this.surface) throw new Error('createExportSurface failed');
-    return this.surface;
+    // 渲染半环唯一实现在 RenderSession：open-once 管线、可复用 surface、
+    // build_frame_ir + 注入 + 绘制都在那里。IClip 的 ready 契约由它兜底。
+    this.ready = RenderSession.create(canvas, jsonlContent, comp, this.totalFrames)
+      .then((session) => {
+        this.session = session;
+        return this.meta;
+      });
   }
 
   async tick(time: number): Promise<{
@@ -189,26 +115,11 @@ class ExportClip implements IClip {
     );
     const timeSecs = time / 1_000_000;
 
-    const renderer = getRendererOrThrow();
-    const CK = (globalThis as CanvasKitGlobal).__canvasKit;
-    if (!CK) throw new Error('CanvasKit is not initialized');
-
     this.onProgress(frameNum, this.totalFrames, 'rendering');
     if (frameNum === 0 || frameNum % 5 === 0) await yieldToBrowser();
 
-    // One-shot ABI: build_frame_ir returns both OCIR and media plan.
-    const result = renderer.build_frame_ir(frameNum);
-
-    await injectVideoFramesForRender({
-      mediaPlan: result.mediaPlan,
-      quality: 'exact',
-    });
-
-    const surface = this.getSurface(CK);
-
-    const ckCanvas = surface.getCanvas();
-    renderEncodedDrawFrame(result.ir, ckCanvas, CK, { surface });
-    surface.flush();
+    // 半环已含 build_frame_ir + 注入 + 绘制 + flush。
+    await this.session!.drawFrame(frameNum);
 
     const startSecs = timeSecs;
     const durationSecs = 1.0 / this.fps;
@@ -279,8 +190,8 @@ class ExportClip implements IClip {
   }
 
   destroy(): void {
-    try { this.surface?.delete(); } catch { /* ignore CanvasKit cleanup failures */ }
-    this.surface = null;
+    try { this.session?.destroy(); } catch { /* ignore CanvasKit cleanup failures */ }
+    this.session = null;
   }
 }
 

@@ -35,13 +35,13 @@
         releaseReusableSurface,
         getRendererOrThrow,
         initWasm,
-        injectVideoFramesForRender,
         prepareCatalogVideoSources,
         registerVideoGlobals,
         renderEncodedDrawFrame,
         setAssetReader,
         setWasmBaseUrl,
         setWorkerBaseUrl,
+        RenderSession,
       } from '/wasm/opencat.js';
 
       // The oracle runs inside a real Chrome with WebGL2. Composition canvases
@@ -64,10 +64,22 @@
       sceneCanvas.width = 48;
       sceneCanvas.height = 27;
       const sceneCtx = sceneCanvas.getContext('2d', { willReadFrequently: true });
-      // Reused across frames: one CanvasKit surface per canvas, not per frame.
-      // A fresh canvas surface per frame leaks a WebGL framebuffer (~8 MB at
-      // 1920×1080) of GPU-process memory every frame and crashes the tab.
-      let surfaceSize = { w: 0, h: 0 };
+
+      // 渲染半环（open-once 管线 / 可复用 surface / warmup / settle）的唯一
+      // 实现在 facade 的 RenderSession；页面持有当前 envelope 的单例。
+      let session = null;
+      let sessionFor = null;
+
+      async function ensureSession(envelope) {
+        const comp = compositionInfo(envelope);
+        if (sessionFor !== envelope) {
+          session?.destroy();
+          session = await RenderSession.create(
+            canvas, envelope, comp, comp.frames, { frameOutput: 'source' });
+          sessionFor = envelope;
+        }
+        return session;
+      }
 
       function compositionFrameCount(fps, duration, frames) {
         if (Number.isFinite(frames) && frames > 0) return Math.floor(frames);
@@ -140,12 +152,7 @@
         registerVideoGlobals();
       })();
 
-      // Open-once state: the host-owned pipeline (issue #8) is opened a single
-      // time and every subsequent frame streams through it. Reopening the
-      // design per frame rebuilds the whole pipeline + script realm in WASM
-      // linear memory, which grows the renderer process without bound
-      // (~10 MB/frame) until the tab is OOM-killed around frame ~90.
-      let openedFor = null;
+      // Open-once state：管线打开收敛进 RenderSession（见 ensureSession）。
       // Composition metadata is a pure function of the source; parsing it with
       // DOMParser every frame builds a throwaway DOM tree each call (measured
       // as unbounded "JavaScript" growth in measureUserAgentSpecificMemory).
@@ -165,105 +172,20 @@
       // (video transport) without re-deriving state. Pixel readback is left to
       // the caller — it is the expensive, transport-specific step.
       async function drawFrame(envelope, frame) {
-        await ready;
-
-        const comp = compositionInfo(envelope);
-        if (frame < 0 || frame >= comp.frames) {
-          throw new Error(`frame ${frame} out of range 0..${comp.frames - 1}`);
-        }
-
-        canvas.width = comp.width;
-        canvas.height = comp.height;
-        // A previous frame at a different size invalidates the cached surface.
-        if (surfaceSize.w !== comp.width || surfaceSize.h !== comp.height) {
-          releaseReusableSurface(canvas);
-          surfaceSize = { w: comp.width, h: comp.height };
-        }
-
-        const renderer = getRendererOrThrow();
-
-        // Open (or reopen, when the composition source changes) the
-        // host-owned pipeline: fetches resources, builds the catalog, opens
-        // the pipeline. Without prepareCatalogVideoSources,
-        // injectVideoFramesForRender silently blanks every VideoFrame draw
-        // (profile-showcase s2/s3).
-        if (openedFor !== envelope) {
-          clearBlobs();
-          await clearVideoCache();
-          const catalogJson = await renderer.open_design(envelope);
-          await prepareCatalogVideoSources(catalogJson);
-          openedFor = envelope;
-          // Native WebGPU（shaders 语料）初始化走真实异步：requestAdapter/
-          // requestDevice 在浏览器任务队列解析，首绘在 initialize().then。
-          // realm 帧内 drain 只有微任务，推不动宏任务——open 后先泵事件
-          // 循环再建帧 IR，否则（尤其单帧案）帧 0 读到空交换链。30 轮足够
-          // 覆盖 adapter→device→管线→首绘提交的十余跳异步；对非 WebGPU
-          // 语料只是推进已有异步加载，无语义影响。
-          for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0));
-        }
-
-        // Headless SwiftShader often cannot import VideoFrame textures via
-        // makeImageFromTextureSource. Inject as CPU RGBA so draw-ir can
-        // MakeImage() without a GPU texture path.
-        const result = renderer.build_frame_ir(frame);
-        await injectVideoFramesForRender({
-          mediaPlan: result.mediaPlan,
-          quality: 'exact',
-          frameOutput: 'source',
-        });
-
-        const CK = globalThis.__canvasKit;
-        // preserveDrawingBuffer keeps the WebGL back buffer readable after
-        // `flush()`: the video transport captures the canvas with
-        // `new VideoFrame(canvas)`, which sees a cleared buffer otherwise.
-        const surface = getReusableSurface(CK, canvas, undefined, {
-          alphaType: CK.AlphaType.Premul,
-          preserveDrawingBuffer: 1,
-        });
-        if (!surface) throw new Error('surface creation failed');
-
-        renderEncodedDrawFrame(result.ir, surface.getCanvas(), CK, { surface });
-        surface.flush();
-        return { comp, surface, CK };
+        const s = await ensureSession(envelope);
+        return s.drawFrame(frame);
       }
 
-      // Native WebGPU（shaders 语料）warmup：首帧的 build_frame_ir 发起作者
-      // initialize——真实 requestAdapter/requestDevice 的 promise 在浏览器
-      // 任务队列解析，realm 帧内微任务 drain 推不动；首绘（initialize().then
-      // 里的 renderFrame delta 0）因此落在帧 0 之后，单帧案就整段全白。
-      // 修法 = 先踢一脚（跑一次 build_frame_ir 触发 effect/initialize），
-      // 泵事件循环让异步链走完（getContext 注册 + 首绘都落定），再重绘同一
-      // 帧——重绘时 done 幂等守卫跳过重绘、帧末钩子读到已画好的交换链。
+      // Native WebGPU warmup（先踢一脚 + 泵 + 重绘，详见 RenderSession）。
       async function warmupNativeAsync(envelope, frame) {
-        await drawFrame(envelope, frame);
-        // 泵到所有已注册 native WebGPU canvas 拿到首绘（探针归零）；非
-        // WebGPU 设计（无探针）至少泵 150 轮兜底（open 后的既有异步加载）。
-        // 最短轮数是关键：drain()===0 在「零 canvas 注册」时也是真——
-        // requestAdapter→getContext 的 IPC 是毫秒-百毫秒级浏览器任务，
-        // 30 轮 setTimeout(0) 可能在注册发生前跑完，假归零提前 break，
-        // 重绘时 inited=false 不画 → 帧末回读空交换链 → 单帧案整段黑帧
-        // （blend/checkerboard/simplex-noise 黑帧根因，动画案表现=帧 0
-        // 黑、后续帧自愈成 ~3.3%）。
-        for (let i = 0; i < 600; i++) {
-          await new Promise((r) => setTimeout(r, 0));
-          const drain = globalThis.__ocNativeWebGpuDrain;
-          if (i >= 150 && (!drain || drain() === 0)) break;
-        }
-        await drawFrame(envelope, frame);
+        const s = await ensureSession(envelope);
+        await s.warmupNative(frame);
       }
 
-      // Native WebGPU 直读消费：copyTextureToBuffer 的 mapAsync 是任务级
-      // 异步，帧末同步钩子取不到字节。每帧 drawFrame 后泵宏任务等全部
-      // 在途直读落定，再重绘同一帧——done 幂等守卫跳过渲染，帧末钩子
-      // 消费当帧原始字节（发起帧本身不产出记录）。非 WebGPU 语料（探针
-      // 不存在 / 无在途拷贝）直通零开销。
+      // Native WebGPU 直读消费（等在途 copyTextureToBuffer 落定后重绘）。
       async function settleNativeWebGpuReadback(envelope, frame) {
-        const pend = globalThis.__ocNativeWebGpuReadbackPending;
-        if (!pend || pend() === 0) return;
-        for (let i = 0; i < 600 && pend() > 0; i++) {
-          await new Promise((r) => setTimeout(r, 0));
-        }
-        await drawFrame(envelope, frame);
+        const s = await ensureSession(envelope);
+        await s.settleNativeWebGpuReadback(frame);
       }
 
       // Hex transport (sampled oracle): one frame out as raw RGBA hex.

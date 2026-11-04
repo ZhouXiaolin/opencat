@@ -2309,30 +2309,3 @@ export async function decodeDrawEnvelope(
   }
   return raw;
 }
-
-// --- Test-only seam (issue #45) -------------------------------------------
-// The decoder mutates module-level generated-image state. Exposing a narrow
-// hook lets unit tests drive `decodeFrame` directly with a hand-built envelope
-// and inspect/observe the cache identity semantics without a full CanvasKit +
-// GPU surface. Not part of the public render API.
-export const __generatedImageTestSeam = {
-  /** Decode a raw OCIR v6 envelope without rendering. Exposed for tests. */
-  decode: (bytes: Uint8Array) => decodeFrame(bytes),
-  /** Number of generated-image RGBA entries currently held. */
-  cacheSize: () => {
-    let n = 0;
-    for (const _key of generatedImageCache.keys()) n += 1;
-    for (const _key of generatedImageRgba.keys()) n += 1;
-    return n;
-  },
-  /** Look up a generated glyph's raw RGBA registered by id. */
-  rgbaFor: (id: bigint) => generatedImageRgba.get(`${id}`),
-  /** Reset all generated-image state (for test isolation). */
-  reset: () => {
-    for (const img of generatedImageCache.values()) {
-      try { img?.delete?.(); } catch { /* test-only; ignore */ }
-    }
-    generatedImageCache.clear();
-    generatedImageRgba.clear();
-  },
-};

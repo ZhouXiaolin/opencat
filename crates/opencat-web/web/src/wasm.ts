@@ -74,12 +74,6 @@ export async function initWasm(wasmBaseUrl?: string): Promise<void> {
     exports.memory;
   wasmModule = mod as unknown as WasmModule;
   renderer = new wasmModule.WebRenderer();
-  const { bindResourceProviderApi } = await import('./resource-provider');
-  bindResourceProviderApi({
-    load_resource_bytes: (path, name) => wasmModule!.load_resource_bytes(path, name),
-    get_skottie_bundle_assets: (bundleId) =>
-      wasmModule!.get_skottie_bundle_assets(bundleId),
-  });
   await loadDefaultFontsIntoWasm(renderer);
 }
 
@@ -140,22 +134,11 @@ export function blobCount(): number {
 
 export function setAssetReader(reader: AssetReader): void {
   if (!wasmModule) throw new Error('WASM not initialized');
-  assetReader = reader;
   wasmModule.set_asset_reader(reader);
-}
-
-/// TS-side copy of the registered reader — the wasm module also holds one for
-/// Rust-side fetches; the GPU-stream executor reads assets through this one.
-let assetReader: AssetReader | null = null;
-
-/** Internal: the currently registered asset reader (null before setAssetReader). */
-export function getAssetReader(): AssetReader | null {
-  return assetReader;
 }
 
 export function clearAssetReader(): void {
   if (!wasmModule) return;
-  assetReader = null;
   wasmModule.clear_asset_reader();
 }
 

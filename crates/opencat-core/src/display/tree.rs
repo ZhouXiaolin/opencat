@@ -2,7 +2,7 @@ use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScrip
 use crate::layout::tree::LayoutOutputFingerprint;
 use crate::resolve::tree::ElementId;
 use crate::semantic::fingerprint::ElementInputFingerprints;
-use crate::style::CssFilter;
+use crate::canvas::paint::ImageFilterSpec;
 
 #[derive(Clone, Debug)]
 pub struct DisplayTree {
@@ -26,10 +26,13 @@ pub struct DisplayNode {
     pub recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
-    pub css_filter: CssFilter,
+    /// `filter` 折算产物（build 期经 `css_filter_image_filter`）；
+    /// display 层不携带 style 词汇（H1）。
+    pub css_filter_image: Option<ImageFilterSpec>,
     pub backdrop_blur_sigma: Option<f32>,
-    /// CSS `backdrop-filter` 的非 blur 算子（blur 走 `backdrop_blur_sigma`）。
-    pub backdrop_filter: CssFilter,
+    /// CSS `backdrop-filter` 非 blur 算子的折算产物（blur 走
+    /// `backdrop_blur_sigma`）。
+    pub backdrop_filter_image: Option<ImageFilterSpec>,
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,

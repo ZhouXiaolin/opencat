@@ -13,7 +13,7 @@ use crate::ir::draw_types::{DrawOpRange, PathOp};
 use crate::media::VideoFrameRequest;
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
-use crate::style::{BorderRadius, CssFilter, Transform};
+use crate::style::{BorderRadius, Transform};
 
 use super::{RenderCtx, RenderError};
 
@@ -95,8 +95,8 @@ pub(crate) struct BackdropLayerState {
 pub(crate) fn save_composite_layer(
     builder: &mut DrawOpBuilder,
     opacity: f32,
-    css_filter: &CssFilter,
-    backdrop_filter: &CssFilter,
+    css_filter_image: Option<&ImageFilterSpec>,
+    backdrop_filter_image: Option<&ImageFilterSpec>,
     backdrop_blur: Option<f32>,
     bounds: Option<DisplayRect>,
     backdrop_bounds: DisplayRect,
@@ -104,8 +104,10 @@ pub(crate) fn save_composite_layer(
 ) -> BackdropLayerState {
     // `backdrop-filter` 生效条件：blur sigma 或非 blur 算子任一存在。
     let backdrop_sigma = backdrop_blur.filter(|sigma| *sigma > 0.0);
-    let uses_backdrop_filter = !backdrop_filter.is_identity();
-    let uses_css_filter = !css_filter.is_identity();
+    // 折算产物 None ⇔ 全 identity 算子（`css_filter_image_filter` 跳过
+    // identity 且七种颜色算子恒可折算——判定等价，见 H1）。
+    let uses_backdrop_filter = backdrop_filter_image.is_some();
+    let uses_css_filter = css_filter_image.is_some();
     let uses_layer =
         opacity < 1.0 || backdrop_sigma.is_some() || uses_backdrop_filter || uses_css_filter;
     let mut has_backdrop_clip = false;
@@ -141,7 +143,7 @@ pub(crate) fn save_composite_layer(
                 crop_rect: None,
                 decal: false,
             });
-            let color_filter_chain = super::css_filter_image_filter(backdrop_filter);
+            let color_filter_chain = backdrop_filter_image.cloned();
             let image_filter = match (blur_filter, color_filter_chain) {
                 (Some(blur), Some(chain)) => {
                     ImageFilterSpec::Compose(Box::new(chain), Box::new(blur))
@@ -192,7 +194,7 @@ pub(crate) fn save_composite_layer(
             // The node's own `filter` never touches the backdrop, but it still
             // applies to the subtree. Nest a content layer so both run, in the
             // CSS order (backdrop first, then the element's own filter).
-            if let Some(image_filter) = super::css_filter_image_filter(css_filter) {
+            if let Some(image_filter) = css_filter_image.cloned() {
                 let paint = PaintSpec {
                     fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
                     style: PaintStyle::Fill,
@@ -213,7 +215,7 @@ pub(crate) fn save_composite_layer(
                 });
                 has_content_layer = true;
             }
-        } else if let Some(image_filter) = super::css_filter_image_filter(css_filter) {
+        } else if let Some(image_filter) = css_filter_image.cloned() {
             let paint = PaintSpec {
                 fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
                 style: PaintStyle::Fill,
@@ -264,8 +266,8 @@ pub(crate) fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &B
 struct ApplyPlan<'a> {
     transform: &'a DisplayTransform,
     opacity: f32,
-    css_filter: &'a CssFilter,
-    backdrop_filter: &'a CssFilter,
+    css_filter_image: Option<&'a ImageFilterSpec>,
+    backdrop_filter_image: Option<&'a ImageFilterSpec>,
     backdrop_blur_sigma: Option<f32>,
     backdrop_border_radius: BorderRadius,
     layer_bounds: DisplayRect,
@@ -276,8 +278,8 @@ impl<'a> ApplyPlan<'a> {
         Self {
             transform: draw.transform,
             opacity: draw.opacity,
-            css_filter: draw.css_filter,
-            backdrop_filter: draw.backdrop_filter,
+            css_filter_image: draw.css_filter_image,
+            backdrop_filter_image: draw.backdrop_filter_image,
             backdrop_blur_sigma: draw.backdrop_blur_sigma,
             backdrop_border_radius: draw.backdrop_border_radius,
             layer_bounds,
@@ -290,7 +292,7 @@ struct ApplyFrame {
 }
 
 fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
-    let uses_backdrop_filter = !plan.backdrop_filter.is_identity();
+    let uses_backdrop_filter = plan.backdrop_filter_image.is_some();
     // Mirrors `save_composite_layer`: the content layer exists only on the
     // backdrop branch, and only when the node has its own non-identity filter.
     let backdrop_branch = plan.backdrop_blur_sigma.is_some() || uses_backdrop_filter;
@@ -298,10 +300,10 @@ fn backdrop_layer_state_for_plan(plan: &ApplyPlan<'_>) -> BackdropLayerState {
         uses_layer: plan.opacity < 1.0
             || plan.backdrop_blur_sigma.is_some()
             || uses_backdrop_filter
-            || !plan.css_filter.is_identity(),
+            || plan.css_filter_image.is_some(),
         has_backdrop_clip: plan.backdrop_blur_sigma.is_some_and(|sigma| sigma > 0.0)
             || uses_backdrop_filter,
-        has_content_layer: backdrop_branch && !plan.css_filter.is_identity(),
+        has_content_layer: backdrop_branch && plan.css_filter_image.is_some(),
     }
 }
 
@@ -319,8 +321,8 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
     let layer_state = save_composite_layer(
         builder,
         plan.opacity,
-        plan.css_filter,
-        plan.backdrop_filter,
+        plan.css_filter_image,
+        plan.backdrop_filter_image,
         plan.backdrop_blur_sigma,
         layer_bounds,
         plan.transform.bounds,

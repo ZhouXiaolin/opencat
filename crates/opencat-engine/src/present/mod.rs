@@ -122,10 +122,12 @@ impl PreviewPresenter {
                 crate::render::frame::execute_render_frame_with_gpu(
                     &mut draw,
                     &media_plan,
-                    executor,
                     loader,
-                    media_ctx,
-                    generated_cache,
+                    crate::render::frame::FrameExec {
+                        executor,
+                        media_ctx,
+                        generated_cache,
+                    },
                     resolver,
                     canvas,
                 )

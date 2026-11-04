@@ -28,6 +28,14 @@ pub trait GpuImageResolver {
     ) -> anyhow::Result<Image>;
 }
 
+/// 一帧执行共享的可变状态束：执行器 + 媒体上下文 + 生成图缓存。纯参数
+/// 收拢（借用形态与三个独立 `&mut` 参数完全一致），现场构造即可。
+pub struct FrameExec<'a> {
+    pub executor: &'a mut EngineDrawExecutor,
+    pub media_ctx: &'a mut MediaContext,
+    pub generated_cache: &'a mut BoundedLruCache<GeneratedImageId, Image>,
+}
+
 // ---------------------------------------------------------------------------
 // MediaError — typed error for frame media preparation failures
 // ---------------------------------------------------------------------------
@@ -503,38 +511,29 @@ pub(crate) fn compile_runtime_effect_cached(
 pub fn execute_render_frame(
     draw: &mut DrawOpFrame,
     plan: &FrameMediaPlan,
-    executor: &mut EngineDrawExecutor,
     loader: &crate::resource::loader::EngineLoader,
-    media_ctx: &mut MediaContext,
-    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+    fexec: FrameExec<'_>,
     canvas: &mut Canvas,
 ) -> Result<(), ConsumerError> {
-    execute_render_frame_with_gpu(
-        draw,
-        plan,
-        executor,
-        loader,
-        media_ctx,
-        generated_cache,
-        None,
-        canvas,
-    )
+    execute_render_frame_with_gpu(draw, plan, loader, fexec, None, canvas)
 }
 
 /// [`execute_render_frame`] 的 GPU 变体：多一个 GPU 句柄解析器。
 ///
 /// 解析器在 **GL 锁内**调用（Skia 导入纹理需要 current 的 GL context）。
-#[allow(clippy::too_many_arguments)]
 pub fn execute_render_frame_with_gpu(
     draw: &mut DrawOpFrame,
     plan: &FrameMediaPlan,
-    executor: &mut EngineDrawExecutor,
     loader: &crate::resource::loader::EngineLoader,
-    media_ctx: &mut MediaContext,
-    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+    fexec: FrameExec<'_>,
     gpu: Option<&mut dyn GpuImageResolver>,
     canvas: &mut Canvas,
 ) -> Result<(), ConsumerError> {
+    let FrameExec {
+        executor,
+        media_ctx,
+        generated_cache,
+    } = fexec;
     // Atomic validation: check all media handles exist BEFORE starting any
     // decode. This ensures no partial work is observable if any media is
     // missing — the frame stays uncommitted.

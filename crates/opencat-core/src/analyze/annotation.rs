@@ -8,8 +8,8 @@ use crate::{
     },
     layout::tree::LayoutOutputFingerprint,
     semantic::fingerprint::ElementInputFingerprints,
-    style::CssFilter,
     style::BorderRadius,
+    canvas::paint::ImageFilterSpec,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -34,9 +34,9 @@ pub struct AnnotatedDisplayNode {
     pub recorded_subtree_fingerprint: DisplayRecordedSubtreeFingerprint,
     pub transform: DisplayTransform,
     pub opacity: f32,
-    pub css_filter: CssFilter,
+    pub css_filter_image: Option<ImageFilterSpec>,
     pub backdrop_blur_sigma: Option<f32>,
-    pub backdrop_filter: CssFilter,
+    pub backdrop_filter_image: Option<ImageFilterSpec>,
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
@@ -57,10 +57,11 @@ pub struct RecordedNodeSemantics<'a> {
 pub struct DrawCompositeSemantics<'a> {
     pub transform: &'a DisplayTransform,
     pub opacity: f32,
-    pub css_filter: &'a CssFilter,
+    pub css_filter_image: Option<&'a ImageFilterSpec>,
     pub backdrop_blur_sigma: Option<f32>,
-    /// Non-blur ops of CSS `backdrop-filter` (blur rides `backdrop_blur_sigma`).
-    pub backdrop_filter: &'a CssFilter,
+    /// Non-blur ops of CSS `backdrop-filter` folded at build time (blur
+    /// rides `backdrop_blur_sigma`).
+    pub backdrop_filter_image: Option<&'a ImageFilterSpec>,
     /// The node's own border-box radius — CSS clips a backdrop-filter to the
     /// rounded border box, so the filtered backdrop needs it at draw time.
     pub backdrop_border_radius: BorderRadius,
@@ -127,9 +128,9 @@ impl AnnotatedDisplayNode {
         DrawCompositeSemantics {
             transform: &self.transform,
             opacity: self.opacity,
-            css_filter: &self.css_filter,
+            css_filter_image: self.css_filter_image.as_ref(),
             backdrop_blur_sigma: self.backdrop_blur_sigma,
-            backdrop_filter: &self.backdrop_filter,
+            backdrop_filter_image: self.backdrop_filter_image.as_ref(),
             backdrop_border_radius,
         }
     }
@@ -182,9 +183,9 @@ fn annotate_display_node(
         recorded_subtree_fingerprint: node.recorded_subtree_fingerprint,
         transform: node.transform.clone(),
         opacity: node.opacity,
-        css_filter: node.css_filter.clone(),
+        css_filter_image: node.css_filter_image.clone(),
         backdrop_blur_sigma: node.backdrop_blur_sigma,
-        backdrop_filter: node.backdrop_filter.clone(),
+        backdrop_filter_image: node.backdrop_filter_image.clone(),
         paint_clip: node.paint_clip.clone(),
         clip: node.clip.clone(),
         item: node.item.clone(),
@@ -207,10 +208,26 @@ fn annotate_display_node(
     }
     // CSS filter 的绘制区域是 filter region：`drop-shadow()` 的阴影落在
     // 元素框之外，合成层的 bounds 必须扩到能容纳它，否则阴影被裁掉。
-    for op in &annotated.css_filter.ops {
-        if let Some(shadow) = op.shadow {
-            let (left, top, right, bottom) = shadow.outsets();
-            node_layer_bounds = node_layer_bounds.outset(left, top, right, bottom);
+    // 与 style.rs `shadow_outsets` 同公式（extent = σ·3），从折算链的
+     // DropShadow 参数重算——identity 算子不进折算产物（透明/零参阴影
+     // 不产出像素，bounds 不扩无视觉差）。
+    let mut filter_stack: Vec<&ImageFilterSpec> =
+        annotated.css_filter_image.as_ref().into_iter().collect();
+    while let Some(filter) = filter_stack.pop() {
+        match filter {
+            ImageFilterSpec::DropShadow { dx, dy, sigma_x, .. } => {
+                let extent = sigma_x * 3.0;
+                let left = (extent - dx).max(0.0);
+                let top = (extent - dy).max(0.0);
+                let right = (extent + dx).max(0.0);
+                let bottom = (extent + dy).max(0.0);
+                node_layer_bounds = node_layer_bounds.outset(left, top, right, bottom);
+            }
+            ImageFilterSpec::Compose(outer, inner) => {
+                filter_stack.push(outer);
+                filter_stack.push(inner);
+            }
+            _ => {}
         }
     }
 

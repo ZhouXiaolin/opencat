@@ -217,8 +217,8 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
     let layer_state = super::dispatch::save_composite_layer(
         ctx.builder,
         node.opacity,
-        &node.css_filter,
-        &node.backdrop_filter,
+        node.css_filter_image.as_ref(),
+        node.backdrop_filter_image.as_ref(),
         node.backdrop_blur_sigma,
         Some(bounds),
         node.transform.bounds,

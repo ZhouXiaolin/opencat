@@ -464,9 +464,13 @@ fn assemble_display_node(
         },
         element_id: element.id,
         opacity: element.style.visual.opacity,
-        css_filter: element.style.visual.css_filter.clone(),
+        css_filter_image: crate::render::css_filter_image_filter(
+            &element.style.visual.css_filter,
+        ),
         backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
-        backdrop_filter: element.style.visual.backdrop_filter.clone(),
+        backdrop_filter_image: crate::render::css_filter_image_filter(
+            &element.style.visual.backdrop_filter,
+        ),
         paint_clip,
         clip,
         item,

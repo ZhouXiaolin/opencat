@@ -45,71 +45,6 @@ pub struct GpuStreamRecord {
 /// 离屏 canvas op 流 LRU 上限（每个 demo 只建 handful，防泄漏足够）。
 const OFFSCREEN_CANVAS_CAP: usize = 64;
 
-#[derive(Default)]
-pub struct MutationStore {
-    styles: HashMap<String, NodeStyleMutations>,
-    canvases: HashMap<String, CanvasMutations>,
-    /// 离屏 canvas 的持久 op 流（id 前缀 `__oc_offscreen_` 路由，见
-    /// `canvas_entry`）。帧级 `canvases` 清空后仍可光栅化。
-    offscreen_canvases: HashMap<String, CanvasMutations>,
-    offscreen_recency: std::collections::VecDeque<String>,
-    /// 真 GL 反射器（宿主注入）：link 后 three 同步枚举 active
-    /// uniform/attribute，core 不解析 GLSL，问询转发给持有 GL 上下文的
-    /// 宿主（engine 侧编译→link→glGetActiveUniform）。`None` = 无 GL 宿主
-    /// （web 回放等纯录制场景，反射走降级空表）。
-    glsl_reflector: Option<Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>>,
-    /// 资产读取器（宿主注入）：按文档相对路径读字节（three FileLoader 的
-    /// fetch 垫 / GLB 主文件）。core 不持有文件系统根，路径解析在宿主。
-    asset_reader: Option<Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>>,
-    /// 图像解码器（宿主注入）：编码字节（webp/png/jpeg）→ (width, height,
-    /// rgba8)。three GLTFLoader 的 `createImageBitmap` 垫用，解码结果经
-    /// native 通道直写 surface。core 不依赖 image 解码 crate。
-    image_decoder: Option<Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>>,
-    /// 本帧录制的 GPU 命令流（key 顺序 = begin 顺序）。同 target 幂等复用。
-    gpu_streams: Vec<GpuStreamRecord>,
-    /// 最近一次 `gl_stream_begin` 的流头（target → (w, h, attrs, x, y)），跨帧
-    /// 持久。持久 renderer 的帧内不再触发 getContext（three 只在构造时调
-    /// 一次 canvas.getContext），reset_for_frame 清流后没人重开——emit 时
-    /// 用缓存的头自动重开。
-    gl_stream_headers: HashMap<String, (u32, u32, u8, u8, f32, f32)>,
-    /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
-    /// 的存活期由脚本侧的 delete 决定，与帧无关）。
-    gl_next_handle: u32,
-    /// Base-style values keyed by (node_id, property_name), set once before
-    /// scripts run. Not cleared during reset_for_frame so read_style_value
-    /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
-    initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
-    text_sources: HashMap<String, ScriptTextSource>,
-    /// 声明树里每个节点的文本样式（脚本变更未施加），realm 级。
-    /// `getBoundingClientRect` 要给 SplitText 报盒子，盒子来自整形，整形要
-    /// 样式 —— 样式只在这一侧可得。
-    text_styles: HashMap<String, crate::style::ComputedTextStyle>,
-    /// 脚本侧 DOM 覆盖层：动态节点（realm 级身份）+ 帧级子级视图。
-    /// 节点表不随帧清空（插件的模块级草稿元素要跨帧存活），结构每帧
-    /// 由 `begin_frame` 从声明树重建。
-    tree: TreeOverlay,
-    /// Script-recorded generated images (canvas putImageData / surface
-    /// auto-bake path). NOT cleared by reset_for_frame: recorded during
-    /// script runs, drained once per frame by the render pipeline into the
-    /// pipeline `GeneratedImageTable`. Ids must be deterministic per content.
-    pending_generated_images: Vec<crate::ir::FrameGeneratedImage>,
-    current_frame: u32,
-    /// Scene-local frame override. The JSX frontend emits ONE root driver whose
-    /// store frame is the composition frame, but each `<tl>` scene has its own
-    /// clock. The JSX runtime sets this around every hook and every timeline
-    /// flush so tween progress is evaluated against the scene's local frame
-    /// (matching XML node scripts, whose realm already runs with a
-    /// `for_segment` frame). `None` = use `current_frame` as-is.
-    frame_override: Option<u32>,
-    /// Scene-local time override in seconds. Tween progress advances by elapsed
-    /// time, and a scene window may start between frames (a `<tl>` boundary is
-    /// quantized to a frame, the author's placement is not). Without this the
-    /// fractional part of the scene start would be dropped, and every tween in
-    /// that scene would run that much early. `None` = derive from the frame.
-    time_override_secs: Option<f64>,
-    fps: u32,
-}
-
 fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
     if let Some(filter) = value.as_str() {
         return Some(CssFilter::parse_css_filter_string(filter));
@@ -396,409 +331,32 @@ fn clip_path_from_value(value: &serde_json::Value) -> Option<Option<ClipPath>> {
     ClipPath::parse_css(raw).map(Some)
 }
 
-impl MutationStore {
-    /// Record a script-generated RGBA image (canvas `putImageData` path) and
-    /// return its draw payload. The pixels go to
-    /// [`Self::pending_generated_images`]; the caller records the matching
-    /// `DrawOp::Image { image: ImageRef::Generated { id }, .. }` for the
-    /// canvas node. Ids must be deterministic per content — re-recording the
-    /// same id with different pixels is a hard error downstream.
-    pub fn record_frame_generated_image(
-        &mut self,
-        node_id: &str,
-        id: crate::ir::GeneratedImageId,
-        x: f32,
-        y: f32,
-        width: u32,
-        height: u32,
-        rgba: std::sync::Arc<[u8]>,
-    ) {
-        self.pending_generated_images
-            .push(crate::ir::FrameGeneratedImage {
-                id,
-                width,
-                height,
-                rgba,
-                gpu: None,
-            });
-        self.record_draw_op(
-            node_id,
-            crate::ir::draw_op::DrawOp::Image {
-                image: crate::ir::draw_types::ImageRef::Generated { id },
-                x,
-                y,
-                paint: None,
-            },
-        );
-    }
+// ── 内部子 store：按域分组的字段 + 邻近自己的方法。全部 store.rs 私有，
+//    绑定层只见 facade `MutationStore`。─────────────────────────────────
 
-    /// Record a stream placeholder: the draw op (z-order contract) plus a
-    /// table entry carrying **no pixels** — the executing host renders the
-    /// frame's GPU stream section and patches the plan entry before draw
-    /// execution. Same id contract as [`Self::record_frame_generated_image`].
-    pub fn record_frame_generated_image_deferred(
-        &mut self,
-        node_id: &str,
-        id: crate::ir::GeneratedImageId,
-        x: f32,
-        y: f32,
-        width: u32,
-        height: u32,
-    ) {
-        self.record_frame_generated_image(
-            node_id,
-            id,
-            x,
-            y,
-            width,
-            height,
-            std::sync::Arc::from(Vec::new()),
-        );
-    }
+/// 帧级样式 mutation 表 + realm 级初始样式（Tailwind/className 基准值）。
+/// `read_style_value`/`write_style_value` 的属性名→字段映射只在这一层。
+#[derive(Default)]
+struct StyleStore {
+    styles: HashMap<String, NodeStyleMutations>,
+    /// Base-style values keyed by (node_id, property_name), set once before
+    /// scripts run. Not cleared during reset_for_frame so read_style_value
+    /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
+    initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
+}
 
-    /// Record a script-generated image whose pixels live on the GPU. Same
-    /// contract as
-    /// [`Self::record_frame_generated_image`], except the pixels are carried
-    /// as an opaque host handle instead of a CPU buffer.
-    pub fn record_frame_generated_image_gpu(
-        &mut self,
-        node_id: &str,
-        id: crate::ir::GeneratedImageId,
-        x: f32,
-        y: f32,
-        width: u32,
-        height: u32,
-        gpu: crate::ir::generated_image::GpuImageHandle,
-    ) {
-        self.pending_generated_images
-            .push(crate::ir::FrameGeneratedImage {
-                id,
-                width,
-                height,
-                rgba: std::sync::Arc::from(Vec::new()),
-                gpu: Some(gpu),
-            });
-        self.record_draw_op(
-            node_id,
-            crate::ir::draw_op::DrawOp::Image {
-                image: crate::ir::draw_types::ImageRef::Generated { id },
-                x,
-                y,
-                paint: None,
-            },
-        );
-    }
-
-    /// Drain all pending generated images (called once per rendered frame by
-    /// the pipeline, which inserts them into the `GeneratedImageTable`).
-    pub fn take_pending_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
-        std::mem::take(&mut self.pending_generated_images)
-    }
-
-    /// 把一段内联 SVG 子树挂到 canvas 节点上。SVG 类渲染器（g-svg）不产
-    /// DrawOp，产的是整棵 `<svg>` 子树：这里只承载 markup，resolve 把它当成
-    /// `<svg inline>` 元素渲染。不进 chart 缓存——SVG 每帧重建，且缓存整体
-    /// 在批次 F（图表常驻）退役。
-    pub fn set_canvas_svg(&mut self, node_id: &str, markup: String) {
-        self.canvases.entry(node_id.to_string()).or_default().svg = Some(markup);
-    }
-
-    /// 离屏 canvas（未 resolve 的 id）的脚本命令流只读访问。
-    /// `document.createElement('canvas')` 的 2D 绘制与 DOM canvas 走同一套
-    /// `__canvas_*` 绑定落进 `canvases`；离屏 id 不会出现在显示树里，所以
-    /// `take_mutations` 后 resolve 静默忽略——脚本期消费点
-    /// （getImageData/toDataURL/createPattern/drawImage(canvas源)）经此读取，
-    /// 由 engine 侧 Skia 离屏重放光栅化。前缀 `__oc_offscreen_` 走持久 map。
-    pub fn canvas_commands(&mut self, node_id: &str) -> Option<&CanvasMutations> {
-        if node_id.starts_with("__oc_offscreen_") {
-            let key = node_id.to_string();
-            self.offscreen_recency.retain(|k| k != &key);
-            self.offscreen_recency.push_back(key);
-            return self.offscreen_canvases.get(node_id);
-        }
-        self.canvases.get(node_id)
-    }
-
-    /// Register a frame-scoped generated image WITHOUT recording a draw op —
-    /// the pixels become available to later draws in the same frame (e.g. a
-    /// lambda-effect child sampling a baked render target). Same idempotency
-    /// contract as [`Self::record_frame_generated_image`]: re-recording the
-    /// same id with different pixels is a downstream hard error.
-    pub fn register_frame_generated_image(
-        &mut self,
-        id: crate::ir::GeneratedImageId,
-        width: u32,
-        height: u32,
-        rgba: std::sync::Arc<[u8]>,
-    ) {
-        self.pending_generated_images
-            .push(crate::ir::FrameGeneratedImage {
-                id,
-                width,
-                height,
-                rgba,
-                gpu: None,
-            });
-    }
-
-    /// 离屏 canvas `putImageData`：像素注册（同 record 契约）+ 一个带
-    /// `BlendMode::Src` 的 ImageRect op——Canvas 2D putImageData 是像素
-    /// 直写（无 alpha 混合），SrcOver 会让底下已画内容透出（heatmap
-    /// 瓦片先径向渐变、putImageData 着色覆盖的场景）。
-    pub fn record_frame_put_image(
-        &mut self,
-        node_id: &str,
-        id: crate::ir::GeneratedImageId,
-        x: f32,
-        y: f32,
-        width: u32,
-        height: u32,
-        rgba: std::sync::Arc<[u8]>,
-    ) {
-        self.pending_generated_images
-            .push(crate::ir::FrameGeneratedImage {
-                id,
-                width,
-                height,
-                rgba: rgba.clone(),
-                gpu: None,
-            });
-        self.record_canvas_op(
-            node_id,
-            crate::script::canvas_op::CanvasOp::PutImage {
-                image: crate::ir::draw_types::ImageRef::Generated { id },
-                dst: crate::ir::draw_op::Rect4 {
-                    x,
-                    y,
-                    width: width as f32,
-                    height: height as f32,
-                },
-            },
-        );
-    }
-
-    /// Latest registered pixels for a generated image id (this frame).
-    pub fn pending_generated_image(
-        &self,
-        id: &crate::ir::GeneratedImageId,
-    ) -> Option<(u32, u32, &std::sync::Arc<[u8]>)> {
-        self.pending_generated_images
-            .iter()
-            .rev()
-            .find(|img| &img.id == id)
-            .map(|img| (img.width, img.height, &img.rgba))
-    }
-
-    // ── GPU 命令流录制（webgl_api.js 录制面 → 执行宿主）──────────────
-
-    /// 开一条目标 canvas 的命令流。同 target 同帧幂等：复用已开的流
-    /// （getContext 二次调用返回同一录制上下文，不重置已录命令）。
-    pub fn gl_stream_begin(
-        &mut self,
-        target_id: &str,
-        width: u32,
-        height: u32,
-        backend: u8,
-        attrs_bits: u8,
-        x: f32,
-        y: f32,
-    ) {
-        if let Some(existing) = self
-            .gpu_streams
-            .iter_mut()
-            .find(|s| s.target_id == target_id)
-        {
-            existing.width = width;
-            existing.height = height;
-            existing.x = x;
-            existing.y = y;
-            self.gl_stream_headers.insert(
-                target_id.to_string(),
-                (width, height, backend, attrs_bits, x, y),
-            );
-            return;
-        }
-        self.gl_stream_headers.insert(
-            target_id.to_string(),
-            (width, height, backend, attrs_bits, x, y),
-        );
-        self.gpu_streams.push(GpuStreamRecord {
-            target_id: target_id.to_string(),
-            width,
-            height,
-            x,
-            y,
-            backend,
-            attrs_bits,
-            ..Default::default()
-        });
-    }
-
-    /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。帧被清而流头
-    /// 还在（持久 renderer 本帧没走 getContext 路径）时按头自动重开。
-    pub fn gl_stream_emit(&mut self, target_id: &str, cmd: Vec<u8>) -> anyhow::Result<()> {
-        if self
-            .gpu_streams
-            .iter()
-            .all(|s| s.target_id != target_id)
-        {
-            if let Some(&(w, h, backend, attrs, sx, sy)) = self.gl_stream_headers.get(target_id) {
-                self.gl_stream_begin(target_id, w, h, backend, attrs, sx, sy);
-            }
-        }
-        let stream = self
-            .gpu_streams
-            .iter_mut()
-            .find(|s| s.target_id == target_id)
-            .ok_or_else(|| anyhow::anyhow!("gl emit: no stream open for canvas '{target_id}'"))?;
-        stream.ops.extend_from_slice(&cmd);
-        Ok(())
-    }
-
-    /// intern 一段字节（buffer 数据 / 纹理像素 / shader 源码 UTF-8），
-    /// 返回 payload 用的 range id（内容寻址去重）。
-    pub fn gl_stream_intern(&mut self, target_id: &str, data: Vec<u8>) -> anyhow::Result<u32> {
-        // 与 gl_stream_emit 同一重开语义：帧被清而流头还在（configure 前
-        // 的 fallback 资源 intern）时按头自动重开。
-        if self.gpu_streams.iter().all(|s| s.target_id != target_id) {
-            if let Some(&(w, h, backend, attrs, sx, sy)) = self.gl_stream_headers.get(target_id) {
-                self.gl_stream_begin(target_id, w, h, backend, attrs, sx, sy);
-            }
-        }
-        let stream = self
-            .gpu_streams
-            .iter_mut()
-            .find(|s| s.target_id == target_id)
-            .ok_or_else(|| anyhow::anyhow!("gl intern: no stream open for canvas '{target_id}'"))?;
-        for (i, range) in stream.byte_ranges.iter().enumerate() {
-            let existing =
-                &stream.bytes[range.start as usize..(range.start + range.len) as usize];
-            if existing.len() == data.len() && existing == data.as_slice() {
-                return Ok(i as u32);
-            }
-        }
-        let start = stream.bytes.len() as u32;
-        stream.bytes.extend_from_slice(&data);
-        stream.byte_ranges.push(crate::ir::draw_types::TableRange {
-            start,
-            len: data.len() as u32,
-        });
-        Ok((stream.byte_ranges.len() - 1) as u32)
-    }
-
-    /// 分配一个 GL 资源句柄（realm 级单调，从 1 起——0 是 GL 的 null；
-    /// derive Default 的 0 初值用 max(1) 消化）。
-    pub fn gl_alloc_handle(&mut self) -> u32 {
-        self.gl_next_handle = self.gl_next_handle.max(1) + 1;
-        self.gl_next_handle - 1
-    }
-
-    /// 注入真 GL 反射器（宿主在装配期调用一次）。
-    pub fn set_glsl_reflector(
-        &mut self,
-        f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
-    ) {
-        self.glsl_reflector = Some(f);
-    }
-
-    /// link 反射问询：转发注入的反射器；未注入时给空表（无 GL 宿主场景）。
-    pub fn glsl_reflect(&self, vs: &str, fs: &str) -> anyhow::Result<serde_json::Value> {
-        match &self.glsl_reflector {
-            Some(f) => f(vs, fs),
-            None => Ok(serde_json::json!({ "uniforms": [], "attributes": [] })),
-        }
-    }
-
-    /// 注入资产读取器 / 图像解码器（宿主在装配期调用一次）。
-    pub fn set_asset_reader(
-        &mut self,
-        f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>,
-    ) {
-        self.asset_reader = Some(f);
-    }
-    pub fn set_image_decoder(
-        &mut self,
-        f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
-    ) {
-        self.image_decoder = Some(f);
-    }
-
-    /// 按文档相对路径读资产字节；未注入宿主时明确报错（调用方是
-    /// GLTFLoader 等 Web 加载链，静默空表没有意义）。
-    pub fn asset_read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
-        match &self.asset_reader {
-            Some(f) => f(path),
-            None => anyhow::bail!("asset_read `{path}`: no asset reader host"),
-        }
-    }
-
-    /// 解码编码图像字节为 (width, height, rgba8)；语义同上。
-    pub fn image_decode(&self, bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> {
-        match &self.image_decoder {
-            Some(f) => f(bytes),
-            None => anyhow::bail!("image_decode: no image decoder host"),
-        }
-    }
-
-    /// 本帧录制的全部 GPU 流（消耗性取出）。
-    pub fn take_gpu_streams(&mut self) -> Vec<GpuStreamRecord> {
-        std::mem::take(&mut self.gpu_streams)
-    }
-
-    /// 消耗性帧级 mutation 转移（`std::mem::take`，零拷贝）。仅取每帧重建
-    /// 的三个字段，清理面与 [`MutationStore::reset_for_frame`] 一致；
-    /// initial_styles、pending_generated_images 等 realm 级
-    /// 字段保持原位。调用方（realm `run_frame`、resolve `push_script_scope`）
-    /// 均为"录完即取、取后即弃"，take 与原快照语义等价且无深拷贝。
-    pub fn take_mutations(&mut self) -> StyleMutations {
-        StyleMutations {
-            mutations: std::mem::take(&mut self.styles),
-            canvas_mutations: std::mem::take(&mut self.canvases),
-        }
-    }
-
+impl StyleStore {
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
         self.styles.entry(id.to_string()).or_default()
     }
 
-    /// 浏览器 width/height 赋值语义：画布重置——内容清空、后续绘制从
-    /// 空白开始（HTML spec: setting width/height resets the canvas）。
-    /// G2 的 OffscreenCanvasCreator 复用同一块离屏画布画多个 pattern 瓦片，
-    /// 每次画前重设 width；不清流会让下一个 pattern 光栅化出上一个的
-    /// 内容叠加。同时调用方需失效 JS 侧 raster 缓存。
-    pub fn reset_offscreen_canvas(&mut self, id: &str) {
-        if id.starts_with("__oc_offscreen_") {
-            self.offscreen_canvases.remove(id);
-        }
-    }
-
-    fn canvas_entry(&mut self, id: &str) -> &mut CanvasMutations {
-        // 离屏 canvas（`document.createElement('canvas')`，id 前缀
-        // `__oc_offscreen_`）持久保存：pattern 源 canvas 建一次、跨帧消费
-        // （fillPattern 每帧重铺），不能进帧级 `canvases`（reset_for_frame
-        // 清空）。消费时触碰 recency，容量封顶防泄漏。
-        if id.starts_with("__oc_offscreen_") {
-            // 先摸 entry 再动 recency（避免同时可变借用两个 map）。
-            if !self.offscreen_canvases.contains_key(id) {
-                self.offscreen_canvases.insert(id.to_string(), CanvasMutations::default());
-            }
-            self.offscreen_recency.retain(|k| k != id);
-            self.offscreen_recency.push_back(id.to_string());
-            while self.offscreen_recency.len() > OFFSCREEN_CANVAS_CAP {
-                let evicted = self.offscreen_recency.pop_front().unwrap();
-                self.offscreen_canvases.remove(&evicted);
-            }
-            return self.offscreen_canvases.get_mut(id).unwrap();
-        }
-        self.canvases.entry(id.to_string()).or_default()
-    }
-
-    fn seconds_to_frames(&self, seconds: f32) -> u32 {
-        duration_secs_to_frames(seconds as f64, self.fps.max(1))
+    /// 每帧重建面清空（initial_styles 是 realm 级，不清）。
+    fn clear_frame(&mut self) {
+        self.styles.clear();
     }
 
     /// Set a base-style value (from Tailwind/resolve) for later reading.
-    pub fn set_initial_style(&mut self, id: &str, property: &str, value: serde_json::Value) {
+    fn set_initial_style(&mut self, id: &str, property: &str, value: serde_json::Value) {
         self.initial_styles
             .entry(id.to_string())
             .or_default()
@@ -807,7 +365,7 @@ impl MutationStore {
 
     /// Populate initial styles from a resolved NodeStyle. All animatable
     /// property extraction is centralized here — callers just pass (id, &NodeStyle).
-    pub fn set_initial_style_from_node(&mut self, id: &str, style: &NodeStyle) {
+    fn set_initial_style_from_node(&mut self, id: &str, style: &NodeStyle) {
         let mut props = HashMap::new();
 
         macro_rules! add_f32 {
@@ -969,7 +527,7 @@ impl MutationStore {
 
     /// Read the current value: mutation first, then base-style, then None.
     /// Returns JSON: f32 as Number, color as String, path as String.
-    pub fn read_style_value(&self, id: &str, property: &str) -> Option<serde_json::Value> {
+    fn read_style_value(&self, id: &str, property: &str) -> Option<serde_json::Value> {
         // 1. Check current-frame mutations
         if let Some(mutations) = self.styles.get(id) {
             let v: Option<serde_json::Value> = match property {
@@ -1082,7 +640,7 @@ impl MutationStore {
 
     /// Unified write: set any animatable property from (id, property_name, JSON value).
     /// Centralizes all property→field mapping in one place.
-    pub fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value) {
+    fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value) {
         // `transformOrigin: '174px 0'` is how gsap (and the browser CSSOM) names
         // a pixel anchor. The store keeps origins as box fractions, so the px
         // has to be resolved against the box BEFORE the entry borrow starts.
@@ -1463,6 +1021,649 @@ impl MutationStore {
             _ => {}
         }
     }
+}
+
+/// canvas op 流：帧级 `canvases` + 离屏持久 LRU。
+#[derive(Default)]
+struct CanvasStreams {
+    canvases: HashMap<String, CanvasMutations>,
+    /// 离屏 canvas 的持久 op 流（id 前缀 `__oc_offscreen_` 路由，见
+    /// `entry`）。帧级 `canvases` 清空后仍可光栅化。
+    offscreen_canvases: HashMap<String, CanvasMutations>,
+    offscreen_recency: std::collections::VecDeque<String>,
+}
+
+impl CanvasStreams {
+    /// 离屏 canvas（未 resolve 的 id）的脚本命令流只读访问。
+    /// `document.createElement('canvas')` 的 2D 绘制与 DOM canvas 走同一套
+    /// `__canvas_*` 绑定落进 `canvases`；离屏 id 不会出现在显示树里，所以
+    /// `take_mutations` 后 resolve 静默忽略——脚本期消费点
+    /// （getImageData/toDataURL/createPattern/drawImage(canvas源)）经此读取，
+    /// 由 engine 侧 Skia 离屏重放光栅化。前缀 `__oc_offscreen_` 走持久 map。
+    fn commands(&mut self, node_id: &str) -> Option<&CanvasMutations> {
+        if node_id.starts_with("__oc_offscreen_") {
+            let key = node_id.to_string();
+            self.offscreen_recency.retain(|k| k != &key);
+            self.offscreen_recency.push_back(key);
+            return self.offscreen_canvases.get(node_id);
+        }
+        self.canvases.get(node_id)
+    }
+
+    fn entry(&mut self, id: &str) -> &mut CanvasMutations {
+        // 离屏 canvas（`document.createElement('canvas')`，id 前缀
+        // `__oc_offscreen_`）持久保存：pattern 源 canvas 建一次、跨帧消费
+        // （fillPattern 每帧重铺），不能进帧级 `canvases`（reset_for_frame
+        // 清空）。消费时触碰 recency，容量封顶防泄漏。
+        if id.starts_with("__oc_offscreen_") {
+            // 先摸 entry 再动 recency（避免同时可变借用两个 map）。
+            if !self.offscreen_canvases.contains_key(id) {
+                self.offscreen_canvases.insert(id.to_string(), CanvasMutations::default());
+            }
+            self.offscreen_recency.retain(|k| k != id);
+            self.offscreen_recency.push_back(id.to_string());
+            while self.offscreen_recency.len() > OFFSCREEN_CANVAS_CAP {
+                let evicted = self.offscreen_recency.pop_front().unwrap();
+                self.offscreen_canvases.remove(&evicted);
+            }
+            return self.offscreen_canvases.get_mut(id).unwrap();
+        }
+        self.canvases.entry(id.to_string()).or_default()
+    }
+
+    /// 浏览器 width/height 赋值语义：画布重置——内容清空、后续绘制从
+    /// 空白开始（HTML spec: setting width/height resets the canvas）。
+    /// G2 的 OffscreenCanvasCreator 复用同一块离屏画布画多个 pattern 瓦片，
+    /// 每次画前重设 width；不清流会让下一个 pattern 光栅化出上一个的
+    /// 内容叠加。同时调用方需失效 JS 侧 raster 缓存。
+    fn reset_offscreen_canvas(&mut self, id: &str) {
+        if id.starts_with("__oc_offscreen_") {
+            self.offscreen_canvases.remove(id);
+        }
+    }
+
+    /// 把一段内联 SVG 子树挂到 canvas 节点上。SVG 类渲染器（g-svg）不产
+    /// DrawOp，产的是整棵 `<svg>` 子树：这里只承载 markup，resolve 把它当成
+    /// `<svg inline>` 元素渲染。不进 chart 缓存——SVG 每帧重建，且缓存整体
+    /// 在批次 F（图表常驻）退役。
+    fn set_svg(&mut self, node_id: &str, markup: String) {
+        self.canvases.entry(node_id.to_string()).or_default().svg = Some(markup);
+    }
+
+    /// 每帧重建面清空（离屏 LRU 是跨帧持久，不清）。
+    fn clear_frame(&mut self) {
+        self.canvases.clear();
+    }
+}
+
+/// 本帧 GL/GPU 命令流录制态（帧级流 + 跨帧流头缓存 + realm 级句柄分配器）。
+#[derive(Default)]
+struct GlStreams {
+    /// 本帧录制的 GPU 命令流（key 顺序 = begin 顺序）。同 target 幂等复用。
+    streams: Vec<GpuStreamRecord>,
+    /// 最近一次 `begin` 的流头（target → (w, h, attrs, x, y)），跨帧
+    /// 持久。持久 renderer 的帧内不再触发 getContext（three 只在构造时调
+    /// 一次 canvas.getContext），reset_for_frame 清流后没人重开——emit 时
+    /// 用缓存的头自动重开。
+    stream_headers: HashMap<String, (u32, u32, u8, u8, f32, f32)>,
+    /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
+    /// 的存活期由脚本侧的 delete 决定，与帧无关）。
+    next_handle: u32,
+}
+
+impl GlStreams {
+    /// 开一条目标 canvas 的命令流。同 target 同帧幂等：复用已开的流
+    /// （getContext 二次调用返回同一录制上下文，不重置已录命令）。
+    fn begin(
+        &mut self,
+        target_id: &str,
+        width: u32,
+        height: u32,
+        backend: u8,
+        attrs_bits: u8,
+        x: f32,
+        y: f32,
+    ) {
+        if let Some(existing) = self.streams.iter_mut().find(|s| s.target_id == target_id) {
+            existing.width = width;
+            existing.height = height;
+            existing.x = x;
+            existing.y = y;
+            self.stream_headers.insert(
+                target_id.to_string(),
+                (width, height, backend, attrs_bits, x, y),
+            );
+            return;
+        }
+        self.stream_headers.insert(
+            target_id.to_string(),
+            (width, height, backend, attrs_bits, x, y),
+        );
+        self.streams.push(GpuStreamRecord {
+            target_id: target_id.to_string(),
+            width,
+            height,
+            x,
+            y,
+            backend,
+            attrs_bits,
+            ..Default::default()
+        });
+    }
+
+    /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。帧被清而流头
+    /// 还在（持久 renderer 本帧没走 getContext 路径）时按头自动重开。
+    fn emit(&mut self, target_id: &str, cmd: Vec<u8>) -> anyhow::Result<()> {
+        if self.streams.iter().all(|s| s.target_id != target_id) {
+            if let Some(&(w, h, backend, attrs, sx, sy)) = self.stream_headers.get(target_id) {
+                self.begin(target_id, w, h, backend, attrs, sx, sy);
+            }
+        }
+        let stream = self
+            .streams
+            .iter_mut()
+            .find(|s| s.target_id == target_id)
+            .ok_or_else(|| anyhow::anyhow!("gl emit: no stream open for canvas '{target_id}'"))?;
+        stream.ops.extend_from_slice(&cmd);
+        Ok(())
+    }
+
+    /// intern 一段字节（buffer 数据 / 纹理像素 / shader 源码 UTF-8），
+    /// 返回 payload 用的 range id（内容寻址去重）。
+    fn intern(&mut self, target_id: &str, data: Vec<u8>) -> anyhow::Result<u32> {
+        // 与 emit 同一重开语义：帧被清而流头还在（configure 前
+        // 的 fallback 资源 intern）时按头自动重开。
+        if self.streams.iter().all(|s| s.target_id != target_id) {
+            if let Some(&(w, h, backend, attrs, sx, sy)) = self.stream_headers.get(target_id) {
+                self.begin(target_id, w, h, backend, attrs, sx, sy);
+            }
+        }
+        let stream = self
+            .streams
+            .iter_mut()
+            .find(|s| s.target_id == target_id)
+            .ok_or_else(|| anyhow::anyhow!("gl intern: no stream open for canvas '{target_id}'"))?;
+        for (i, range) in stream.byte_ranges.iter().enumerate() {
+            let existing =
+                &stream.bytes[range.start as usize..(range.start + range.len) as usize];
+            if existing.len() == data.len() && existing == data.as_slice() {
+                return Ok(i as u32);
+            }
+        }
+        let start = stream.bytes.len() as u32;
+        stream.bytes.extend_from_slice(&data);
+        stream.byte_ranges.push(crate::ir::draw_types::TableRange {
+            start,
+            len: data.len() as u32,
+        });
+        Ok((stream.byte_ranges.len() - 1) as u32)
+    }
+
+    /// 分配一个 GL 资源句柄（realm 级单调，从 1 起——0 是 GL 的 null；
+    /// derive Default 的 0 初值用 max(1) 消化）。
+    fn alloc_handle(&mut self) -> u32 {
+        self.next_handle = self.next_handle.max(1) + 1;
+        self.next_handle - 1
+    }
+
+    /// 本帧录制的全部 GPU 流（消耗性取出）。
+    fn take_streams(&mut self) -> Vec<GpuStreamRecord> {
+        std::mem::take(&mut self.streams)
+    }
+
+    /// 每帧重建面清空（流头缓存与句柄分配器跨帧持久，不清）。
+    fn clear_frame(&mut self) {
+        self.streams.clear();
+    }
+}
+
+/// 宿主注入的能力桥：GL 反射 / 资产读取 / 图像解码。core 不实现能力，
+/// 只转发给持有真实资源的宿主（engine 有 GL 上下文与文件系统根，web
+/// 纯录制场景不注入、走降级或明确报错）。
+#[derive(Default)]
+struct HostBridges {
+    /// 真 GL 反射器（宿主注入）：link 后 three 同步枚举 active
+    /// uniform/attribute，core 不解析 GLSL，问询转发给持有 GL 上下文的
+    /// 宿主（engine 侧编译→link→glGetActiveUniform）。`None` = 无 GL 宿主
+    /// （web 回放等纯录制场景，反射走降级空表）。
+    glsl_reflector: Option<Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>>,
+    /// 资产读取器（宿主注入）：按文档相对路径读字节（three FileLoader 的
+    /// fetch 垫 / GLB 主文件）。core 不持有文件系统根，路径解析在宿主。
+    asset_reader: Option<Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>>,
+    /// 图像解码器（宿主注入）：编码字节（webp/png/jpeg）→ (width, height,
+    /// rgba8)。three GLTFLoader 的 `createImageBitmap` 垫用，解码结果经
+    /// native 通道直写 surface。core 不依赖 image 解码 crate。
+    image_decoder: Option<Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>>,
+}
+
+impl HostBridges {
+    /// 注入真 GL 反射器（宿主在装配期调用一次）。
+    fn set_glsl_reflector(
+        &mut self,
+        f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
+    ) {
+        self.glsl_reflector = Some(f);
+    }
+
+    /// link 反射问询：转发注入的反射器；未注入时给空表（无 GL 宿主场景）。
+    fn glsl_reflect(&self, vs: &str, fs: &str) -> anyhow::Result<serde_json::Value> {
+        match &self.glsl_reflector {
+            Some(f) => f(vs, fs),
+            None => Ok(serde_json::json!({ "uniforms": [], "attributes": [] })),
+        }
+    }
+
+    /// 注入资产读取器 / 图像解码器（宿主在装配期调用一次）。
+    fn set_asset_reader(&mut self, f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>) {
+        self.asset_reader = Some(f);
+    }
+    fn set_image_decoder(
+        &mut self,
+        f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
+    ) {
+        self.image_decoder = Some(f);
+    }
+
+    /// 按文档相对路径读资产字节；未注入宿主时明确报错（调用方是
+    /// GLTFLoader 等 Web 加载链，静默空表没有意义）。
+    fn asset_read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        match &self.asset_reader {
+            Some(f) => f(path),
+            None => anyhow::bail!("asset_read `{path}`: no asset reader host"),
+        }
+    }
+
+    /// 解码编码图像字节为 (width, height, rgba8)；语义同上。
+    fn image_decode(&self, bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+        match &self.image_decoder {
+            Some(f) => f(bytes),
+            None => anyhow::bail!("image_decode: no image decoder host"),
+        }
+    }
+}
+
+/// 脚本侧生成的图像（canvas putImageData / surface auto-bake / GPU 句柄）。
+/// 帧内累积，渲染管线每帧取空进 pipeline `GeneratedImageTable`。Ids 按
+/// 内容确定性。
+#[derive(Default)]
+struct GeneratedImages {
+    pending: Vec<crate::ir::FrameGeneratedImage>,
+}
+
+impl GeneratedImages {
+    fn push(&mut self, image: crate::ir::FrameGeneratedImage) {
+        self.pending.push(image);
+    }
+
+    /// Drain all pending generated images (called once per rendered frame by
+    /// the pipeline).
+    fn take(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
+        std::mem::take(&mut self.pending)
+    }
+
+    /// Latest registered pixels for a generated image id (this frame).
+    fn latest(
+        &self,
+        id: &crate::ir::GeneratedImageId,
+    ) -> Option<(u32, u32, &std::sync::Arc<[u8]>)> {
+        self.pending
+            .iter()
+            .rev()
+            .find(|img| &img.id == id)
+            .map(|img| (img.width, img.height, &img.rgba))
+    }
+}
+
+/// 脚本侧文本与 DOM 覆盖层（全部 realm 级，不随帧清空）。
+#[derive(Default)]
+struct TreeAndText {
+    text_sources: HashMap<String, ScriptTextSource>,
+    /// 声明树里每个节点的文本样式（脚本变更未施加），realm 级。
+    /// `getBoundingClientRect` 要给 SplitText 报盒子，盒子来自整形，整形要
+    /// 样式 —— 样式只在这一侧可得。
+    text_styles: HashMap<String, crate::style::ComputedTextStyle>,
+    /// 脚本侧 DOM 覆盖层：动态节点（realm 级身份）+ 帧级子级视图。
+    /// 节点表不随帧清空（插件的模块级草稿元素要跨帧存活），结构每帧
+    /// 由 `begin_frame` 从声明树重建。
+    tree: TreeOverlay,
+}
+
+/// 面向绑定层（bindings.rs / js_context.rs）的统一录制面。内部按域拆六个
+/// 子 store（样式 / canvas 流 / GL 流 / 宿主桥 / 生成图像 / 树与文本）+ 帧钟；
+/// 每个 pub 方法转发对应子 store，方法签名即绑定层 API 契约。
+#[derive(Default)]
+pub struct MutationStore {
+    style: StyleStore,
+    canvases: CanvasStreams,
+    gl: GlStreams,
+    bridges: HostBridges,
+    generated: GeneratedImages,
+    tree_text: TreeAndText,
+    current_frame: u32,
+    /// Scene-local frame override. The JSX frontend emits ONE root driver whose
+    /// store frame is the composition frame, but each `<tl>` scene has its own
+    /// clock. The JSX runtime sets this around every hook and every timeline
+    /// flush so tween progress is evaluated against the scene's local frame
+    /// (matching XML node scripts, whose realm already runs with a
+    /// `for_segment` frame). `None` = use `current_frame` as-is.
+    frame_override: Option<u32>,
+    /// Scene-local time override in seconds. Tween progress advances by elapsed
+    /// time, and a scene window may start between frames (a `<tl>` boundary is
+    /// quantized to a frame, the author's placement is not). Without this the
+    /// fractional part of the scene start would be dropped, and every tween in
+    /// that scene would run that much early. `None` = derive from the frame.
+    time_override_secs: Option<f64>,
+    fps: u32,
+}
+
+impl MutationStore {
+    /// Record a script-generated RGBA image (canvas `putImageData` path) and
+    /// return its draw payload. The pixels go to the generated-image table;
+    /// the caller records the matching
+    /// `DrawOp::Image { image: ImageRef::Generated { id }, .. }` for the
+    /// canvas node. Ids must be deterministic per content — re-recording the
+    /// same id with different pixels is a hard error downstream.
+    pub fn record_frame_generated_image(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+        rgba: std::sync::Arc<[u8]>,
+    ) {
+        self.generated.push(crate::ir::FrameGeneratedImage {
+            id,
+            width,
+            height,
+            rgba,
+            gpu: None,
+        });
+        self.record_draw_op(
+            node_id,
+            crate::ir::draw_op::DrawOp::Image {
+                image: crate::ir::draw_types::ImageRef::Generated { id },
+                x,
+                y,
+                paint: None,
+            },
+        );
+    }
+
+    /// Record a stream placeholder: the draw op (z-order contract) plus a
+    /// table entry carrying **no pixels** — the executing host renders the
+    /// frame's GPU stream section and patches the plan entry before draw
+    /// execution. Same id contract as [`Self::record_frame_generated_image`].
+    pub fn record_frame_generated_image_deferred(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+    ) {
+        self.record_frame_generated_image(
+            node_id,
+            id,
+            x,
+            y,
+            width,
+            height,
+            std::sync::Arc::from(Vec::new()),
+        );
+    }
+
+    /// Record a script-generated image whose pixels live on the GPU. Same
+    /// contract as
+    /// [`Self::record_frame_generated_image`], except the pixels are carried
+    /// as an opaque host handle instead of a CPU buffer.
+    pub fn record_frame_generated_image_gpu(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+        gpu: crate::ir::generated_image::GpuImageHandle,
+    ) {
+        self.generated.push(crate::ir::FrameGeneratedImage {
+            id,
+            width,
+            height,
+            rgba: std::sync::Arc::from(Vec::new()),
+            gpu: Some(gpu),
+        });
+        self.record_draw_op(
+            node_id,
+            crate::ir::draw_op::DrawOp::Image {
+                image: crate::ir::draw_types::ImageRef::Generated { id },
+                x,
+                y,
+                paint: None,
+            },
+        );
+    }
+
+    /// Drain all pending generated images (called once per rendered frame by
+    /// the pipeline, which inserts them into the `GeneratedImageTable`).
+    pub fn take_pending_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
+        self.generated.take()
+    }
+
+    /// 把一段内联 SVG 子树挂到 canvas 节点上。SVG 类渲染器（g-svg）不产
+    /// DrawOp，产的是整棵 `<svg>` 子树：这里只承载 markup，resolve 把它当成
+    /// `<svg inline>` 元素渲染。不进 chart 缓存——SVG 每帧重建，且缓存整体
+    /// 在批次 F（图表常驻）退役。
+    pub fn set_canvas_svg(&mut self, node_id: &str, markup: String) {
+        self.canvases.set_svg(node_id, markup);
+    }
+
+    /// 离屏 canvas（未 resolve 的 id）的脚本命令流只读访问。
+    /// `document.createElement('canvas')` 的 2D 绘制与 DOM canvas 走同一套
+    /// `__canvas_*` 绑定落进 `canvases`；离屏 id 不会出现在显示树里，所以
+    /// `take_mutations` 后 resolve 静默忽略——脚本期消费点
+    /// （getImageData/toDataURL/createPattern/drawImage(canvas源)）经此读取，
+    /// 由 engine 侧 Skia 离屏重放光栅化。前缀 `__oc_offscreen_` 走持久 map。
+    pub fn canvas_commands(&mut self, node_id: &str) -> Option<&CanvasMutations> {
+        self.canvases.commands(node_id)
+    }
+
+    /// Register a frame-scoped generated image WITHOUT recording a draw op —
+    /// the pixels become available to later draws in the same frame (e.g. a
+    /// lambda-effect child sampling a baked render target). Same idempotency
+    /// contract as [`Self::record_frame_generated_image`]: re-recording the
+    /// same id with different pixels is a downstream hard error.
+    pub fn register_frame_generated_image(
+        &mut self,
+        id: crate::ir::GeneratedImageId,
+        width: u32,
+        height: u32,
+        rgba: std::sync::Arc<[u8]>,
+    ) {
+        self.generated.push(crate::ir::FrameGeneratedImage {
+            id,
+            width,
+            height,
+            rgba,
+            gpu: None,
+        });
+    }
+
+    /// 离屏 canvas `putImageData`：像素注册（同 record 契约）+ 一个带
+    /// `BlendMode::Src` 的 ImageRect op——Canvas 2D putImageData 是像素
+    /// 直写（无 alpha 混合），SrcOver 会让底下已画内容透出（heatmap
+    /// 瓦片先径向渐变、putImageData 着色覆盖的场景）。
+    pub fn record_frame_put_image(
+        &mut self,
+        node_id: &str,
+        id: crate::ir::GeneratedImageId,
+        x: f32,
+        y: f32,
+        width: u32,
+        height: u32,
+        rgba: std::sync::Arc<[u8]>,
+    ) {
+        self.generated.push(crate::ir::FrameGeneratedImage {
+            id,
+            width,
+            height,
+            rgba: rgba.clone(),
+            gpu: None,
+        });
+        self.record_canvas_op(
+            node_id,
+            crate::script::canvas_op::CanvasOp::PutImage {
+                image: crate::ir::draw_types::ImageRef::Generated { id },
+                dst: crate::ir::draw_op::Rect4 {
+                    x,
+                    y,
+                    width: width as f32,
+                    height: height as f32,
+                },
+            },
+        );
+    }
+
+    /// Latest registered pixels for a generated image id (this frame).
+    pub fn pending_generated_image(
+        &self,
+        id: &crate::ir::GeneratedImageId,
+    ) -> Option<(u32, u32, &std::sync::Arc<[u8]>)> {
+        self.generated.latest(id)
+    }
+
+    // ── GPU 命令流录制（webgl_api.js 录制面 → 执行宿主）──────────────
+
+    /// 开一条目标 canvas 的命令流。同 target 同帧幂等：复用已开的流
+    /// （getContext 二次调用返回同一录制上下文，不重置已录命令）。
+    pub fn gl_stream_begin(
+        &mut self,
+        target_id: &str,
+        width: u32,
+        height: u32,
+        backend: u8,
+        attrs_bits: u8,
+        x: f32,
+        y: f32,
+    ) {
+        self.gl.begin(target_id, width, height, backend, attrs_bits, x, y);
+    }
+
+    /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。帧被清而流头
+    /// 还在（持久 renderer 本帧没走 getContext 路径）时按头自动重开。
+    pub fn gl_stream_emit(&mut self, target_id: &str, cmd: Vec<u8>) -> anyhow::Result<()> {
+        self.gl.emit(target_id, cmd)
+    }
+
+    /// intern 一段字节（buffer 数据 / 纹理像素 / shader 源码 UTF-8），
+    /// 返回 payload 用的 range id（内容寻址去重）。
+    pub fn gl_stream_intern(&mut self, target_id: &str, data: Vec<u8>) -> anyhow::Result<u32> {
+        self.gl.intern(target_id, data)
+    }
+
+    /// 分配一个 GL 资源句柄（realm 级单调，从 1 起——0 是 GL 的 null）。
+    pub fn gl_alloc_handle(&mut self) -> u32 {
+        self.gl.alloc_handle()
+    }
+
+    /// 注入真 GL 反射器（宿主在装配期调用一次）。
+    pub fn set_glsl_reflector(
+        &mut self,
+        f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
+    ) {
+        self.bridges.set_glsl_reflector(f);
+    }
+
+    /// link 反射问询：转发注入的反射器；未注入时给空表（无 GL 宿主场景）。
+    pub fn glsl_reflect(&self, vs: &str, fs: &str) -> anyhow::Result<serde_json::Value> {
+        self.bridges.glsl_reflect(vs, fs)
+    }
+
+    /// 注入资产读取器 / 图像解码器（宿主在装配期调用一次）。
+    pub fn set_asset_reader(&mut self, f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>) {
+        self.bridges.set_asset_reader(f);
+    }
+    pub fn set_image_decoder(
+        &mut self,
+        f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
+    ) {
+        self.bridges.set_image_decoder(f);
+    }
+
+    /// 按文档相对路径读资产字节；未注入宿主时明确报错（调用方是
+    /// GLTFLoader 等 Web 加载链，静默空表没有意义）。
+    pub fn asset_read(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        self.bridges.asset_read(path)
+    }
+
+    /// 解码编码图像字节为 (width, height, rgba8)；语义同上。
+    pub fn image_decode(&self, bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> {
+        self.bridges.image_decode(bytes)
+    }
+
+    /// 本帧录制的全部 GPU 流（消耗性取出）。
+    pub fn take_gpu_streams(&mut self) -> Vec<GpuStreamRecord> {
+        self.gl.take_streams()
+    }
+
+    /// 消耗性帧级 mutation 转移（`std::mem::take`，零拷贝）。仅取每帧重建
+    /// 的两个字段，清理面与 [`MutationStore::reset_for_frame`] 一致；
+    /// initial_styles、pending_generated_images 等 realm 级
+    /// 字段保持原位。调用方（realm `run_frame`、resolve `push_script_scope`）
+    /// 均为"录完即取、取后即弃"，take 与原快照语义等价且无深拷贝。
+    pub fn take_mutations(&mut self) -> StyleMutations {
+        StyleMutations {
+            mutations: std::mem::take(&mut self.style.styles),
+            canvas_mutations: std::mem::take(&mut self.canvases.canvases),
+        }
+    }
+
+    fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
+        self.style.entry(id)
+    }
+
+    /// 浏览器 width/height 赋值语义：画布重置——内容清空、后续绘制从
+    /// 空白开始（HTML spec: setting width/height resets the canvas）。
+    /// G2 的 OffscreenCanvasCreator 复用同一块离屏画布画多个 pattern 瓦片，
+    /// 每次画前重设 width；不清流会让下一个 pattern 光栅化出上一个的
+    /// 内容叠加。同时调用方需失效 JS 侧 raster 缓存。
+    pub fn reset_offscreen_canvas(&mut self, id: &str) {
+        self.canvases.reset_offscreen_canvas(id);
+    }
+
+    fn canvas_entry(&mut self, id: &str) -> &mut CanvasMutations {
+        self.canvases.entry(id)
+    }
+
+    fn seconds_to_frames(&self, seconds: f32) -> u32 {
+        duration_secs_to_frames(seconds as f64, self.fps.max(1))
+    }
+
+    /// Set a base-style value (from Tailwind/resolve) for later reading.
+    pub fn set_initial_style(&mut self, id: &str, property: &str, value: serde_json::Value) {
+        self.style.set_initial_style(id, property, value);
+    }
+
+    /// Populate initial styles from a resolved NodeStyle. All animatable
+    /// property extraction is centralized here — callers just pass (id, &NodeStyle).
+    pub fn set_initial_style_from_node(&mut self, id: &str, style: &NodeStyle) {
+        self.style.set_initial_style_from_node(id, style);
+    }
+
+    /// Read the current value: mutation first, then base-style, then None.
+    /// Returns JSON: f32 as Number, color as String, path as String.
+    pub fn read_style_value(&self, id: &str, property: &str) -> Option<serde_json::Value> {
+        self.style.read_style_value(id, property)
+    }
+
+    /// Unified write: set any animatable property from (id, property_name, JSON value).
+    /// Centralizes all property→field mapping in one place.
+    pub fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value) {
+        self.style.write_style_value(id, property, value)
+    }
 
 }
 
@@ -1660,7 +1861,7 @@ impl MutationRecorder for MutationStore {
 
     fn record_text_content(&mut self, id: &str, text: String) {
         self.entry(id).text_content = Some(text.clone());
-        self.text_sources.insert(
+        self.tree_text.text_sources.insert(
             id.to_string(),
             ScriptTextSource {
                 text,
@@ -1709,9 +1910,9 @@ impl MutationRecorder for MutationStore {
     }
 
     fn reset_for_frame(&mut self, current_frame: u32, fps: u32) {
-        self.styles.clear();
-        self.canvases.clear();
-        self.gpu_streams.clear();
+        self.style.clear_frame();
+        self.canvases.clear_frame();
+        self.gl.clear_frame();
         self.current_frame = current_frame;
         self.frame_override = None;
         self.time_override_secs = None;
@@ -1720,8 +1921,8 @@ impl MutationRecorder for MutationStore {
 
     fn snapshot_mutations(&self) -> StyleMutations {
         StyleMutations {
-            mutations: self.styles.clone(),
-            canvas_mutations: self.canvases.clone(),
+            mutations: self.style.styles.clone(),
+            canvas_mutations: self.canvases.canvases.clone(),
         }
     }
 
@@ -1734,28 +1935,28 @@ impl MutationRecorder for MutationStore {
     }
 
     fn register_text_source(&mut self, id: &str, source: ScriptTextSource) {
-        self.text_sources.insert(id.to_string(), source);
+        self.tree_text.text_sources.insert(id.to_string(), source);
     }
     fn clear_text_sources(&mut self) {
-        self.text_sources.clear();
+        self.tree_text.text_sources.clear();
     }
     fn get_text_source(&self, id: &str) -> Option<&ScriptTextSource> {
-        self.text_sources.get(id)
+        self.tree_text.text_sources.get(id)
     }
     fn tree_overlay(&self) -> Option<&TreeOverlay> {
-        Some(&self.tree)
+        Some(&self.tree_text.tree)
     }
     fn tree_overlay_mut(&mut self) -> Option<&mut TreeOverlay> {
-        Some(&mut self.tree)
+        Some(&mut self.tree_text.tree)
     }
     fn set_text_styles(&mut self, styles: &HashMap<String, crate::style::ComputedTextStyle>) {
-        self.text_styles = styles.clone();
+        self.tree_text.text_styles = styles.clone();
     }
     fn text_style(&self, id: &str) -> Option<&crate::style::ComputedTextStyle> {
-        self.text_styles.get(id)
+        self.tree_text.text_styles.get(id)
     }
     fn text_leaf_ranges(&mut self, id: &str) -> Vec<(Vec<String>, usize, usize)> {
-        self.tree.leaf_ranges(id)
+        self.tree_text.tree.leaf_ranges(id)
     }
     fn current_frame(&self) -> u32 {
         self.current_frame
@@ -1775,5 +1976,3 @@ impl MutationRecorder for MutationStore {
         self.time_override_secs = secs;
     }
 }
-
-

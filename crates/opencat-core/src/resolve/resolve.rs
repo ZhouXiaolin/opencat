@@ -255,8 +255,8 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.layout.inset_bottom = Some(LengthPercentageAuto::Length(0.0));
     style.layout.width = None;
     style.layout.height = None;
-    style.layout.width_full = true;
-    style.layout.height_full = true;
+    style.layout.width_percent = Some(1.0);
+    style.layout.height_percent = Some(1.0);
     style.layout.margin_top = LengthPercentageAuto::Length(0.0);
     style.layout.margin_right = LengthPercentageAuto::Length(0.0);
     style.layout.margin_bottom = LengthPercentageAuto::Length(0.0);
@@ -1110,49 +1110,23 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
             height_percent: style.height_percent,
             height: style.height,
             max_width: style.max_width,
-            width_full: style.width_full,
-            height_full: style.height_full,
             min_height: style.min_height,
             min_width: style.min_width,
-            padding_top: style
-                .padding_top
-                .or(style.padding_y)
-                .or(style.padding)
-                .unwrap_or(0.0),
-            padding_right: style
-                .padding_right
-                .or(style.padding_x)
-                .or(style.padding)
-                .unwrap_or(0.0),
-            padding_bottom: style
-                .padding_bottom
-                .or(style.padding_y)
-                .or(style.padding)
-                .unwrap_or(0.0),
-            padding_left: style
-                .padding_left
-                .or(style.padding_x)
-                .or(style.padding)
-                .unwrap_or(0.0),
+            padding_top: style.padding_top.unwrap_or(0.0),
+            padding_right: style.padding_right.unwrap_or(0.0),
+            padding_bottom: style.padding_bottom.unwrap_or(0.0),
+            padding_left: style.padding_left.unwrap_or(0.0),
             margin_top: style
                 .margin_top
-                .or(style.margin_y)
-                .or(style.margin)
                 .unwrap_or(LengthPercentageAuto::Length(0.0)),
             margin_right: style
                 .margin_right
-                .or(style.margin_x)
-                .or(style.margin)
                 .unwrap_or(LengthPercentageAuto::Length(0.0)),
             margin_bottom: style
                 .margin_bottom
-                .or(style.margin_y)
-                .or(style.margin)
                 .unwrap_or(LengthPercentageAuto::Length(0.0)),
             margin_left: style
                 .margin_left
-                .or(style.margin_x)
-                .or(style.margin)
                 .unwrap_or(LengthPercentageAuto::Length(0.0)),
             is_flex: style.is_flex,
             is_grid: style.is_grid,

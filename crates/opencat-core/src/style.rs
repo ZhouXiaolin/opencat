@@ -1923,20 +1923,12 @@ pub struct NodeStyle {
     pub height_percent: Option<f32>,
     pub height: Option<f32>,
     pub max_width: Option<f32>,
-    pub width_full: bool,
-    pub height_full: bool,
 
     // Spacing
-    pub padding: Option<f32>,
-    pub padding_x: Option<f32>,
-    pub padding_y: Option<f32>,
     pub padding_top: Option<f32>,
     pub padding_right: Option<f32>,
     pub padding_bottom: Option<f32>,
     pub padding_left: Option<f32>,
-    pub margin: Option<LengthPercentageAuto>,
-    pub margin_x: Option<LengthPercentageAuto>,
-    pub margin_y: Option<LengthPercentageAuto>,
     pub margin_top: Option<LengthPercentageAuto>,
     pub margin_right: Option<LengthPercentageAuto>,
     pub margin_bottom: Option<LengthPercentageAuto>,
@@ -2253,37 +2245,42 @@ macro_rules! impl_node_style_api {
             // === Size ===
             pub fn w(mut self, value: f32) -> Self {
                 self.style.width = Some(value);
-                self.style.width_full = false;
+                self.style.width_percent = None;
                 self
             }
 
             pub fn h(mut self, value: f32) -> Self {
                 self.style.height = Some(value);
-                self.style.height_full = false;
+                self.style.height_percent = None;
                 self
             }
 
             pub fn size(mut self, width: f32, height: f32) -> Self {
                 self.style.width = Some(width);
                 self.style.height = Some(height);
-                self.style.width_full = false;
-                self.style.height_full = false;
+                self.style.width_percent = None;
+                self.style.height_percent = None;
                 self
             }
 
             // === Padding ===
             pub fn p(mut self, value: f32) -> Self {
-                self.style.padding = Some(value);
+                self.style.padding_top = Some(value);
+                self.style.padding_right = Some(value);
+                self.style.padding_bottom = Some(value);
+                self.style.padding_left = Some(value);
                 self
             }
 
             pub fn px(mut self, value: f32) -> Self {
-                self.style.padding_x = Some(value);
+                self.style.padding_left = Some(value);
+                self.style.padding_right = Some(value);
                 self
             }
 
             pub fn py(mut self, value: f32) -> Self {
-                self.style.padding_y = Some(value);
+                self.style.padding_top = Some(value);
+                self.style.padding_bottom = Some(value);
                 self
             }
 
@@ -2309,17 +2306,22 @@ macro_rules! impl_node_style_api {
 
             // === Margin ===
             pub fn m(mut self, value: f32) -> Self {
-                self.style.margin = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn mx(mut self, value: f32) -> Self {
-                self.style.margin_x = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
             pub fn my(mut self, value: f32) -> Self {
-                self.style.margin_y = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Length(value));
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Length(value));
                 self
             }
 
@@ -2344,17 +2346,22 @@ macro_rules! impl_node_style_api {
             }
 
             pub fn mx_auto(mut self) -> Self {
-                self.style.margin_x = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn my_auto(mut self) -> Self {
-                self.style.margin_y = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
             pub fn m_auto(mut self) -> Self {
-                self.style.margin = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_top = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_right = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_bottom = Some($crate::style::LengthPercentageAuto::Auto);
+                self.style.margin_left = Some($crate::style::LengthPercentageAuto::Auto);
                 self
             }
 
@@ -2447,29 +2454,9 @@ macro_rules! impl_node_style_api {
                 self
             }
 
-            pub fn w_full(mut self) -> Self {
-                self.style.width = None;
-                self.style.width_full = true;
-                self
-            }
-
             pub fn max_w(mut self, value: f32) -> Self {
                 self.style.max_width = Some(value);
                 self
-            }
-
-            pub fn h_full(mut self) -> Self {
-                self.style.height = None;
-                self.style.height_full = true;
-                self
-            }
-
-            pub fn min_h_full(self) -> Self {
-                self.h_full()
-            }
-
-            pub fn max_w_full(self) -> Self {
-                self.w_full()
             }
 
             // === Layout: Justify Content (main axis) ===

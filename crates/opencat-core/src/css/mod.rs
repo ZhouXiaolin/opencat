@@ -12,10 +12,12 @@
 
 mod cascade;
 mod eval;
+mod property_semantics;
 mod stylesheet;
 mod to_node_style;
 mod to_taffy;
 
+pub use property_semantics::{origin_px_to_fractions, parse_css_transform};
 pub use stylesheet::CssStylesheet;
 
 use std::collections::HashMap;

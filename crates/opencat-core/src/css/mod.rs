@@ -175,16 +175,6 @@ impl CssEngine {
         to_node_style::apply_background_size_to_layers(style);
         style.css_layout = Some(crate::style::CssLayout(taffy_style));
     }
-
-    /// `class_name` 里样式表完全没有引用的类。运行时拼接类
-    /// （`left-[' + x + 'px]`）在 tailwind 静态扫描下不产出规则，
-    /// 调用方用这份名单做诊断。
-    pub(crate) fn unmatched_classes<'a>(&self, class_name: &'a str) -> Vec<&'a str> {
-        class_name
-            .split_whitespace()
-            .filter(|c| !cascade::class_has_rules(&self.sheet, c))
-            .collect()
-    }
 }
 
 

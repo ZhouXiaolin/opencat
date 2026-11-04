@@ -235,6 +235,8 @@ Hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM) — the verdict comes from `too
 ```bash
 # 1) build web facade (wasm + JS + web-demuxer.wasm → dist/)
 cd crates/opencat-web/web && npm run build && cd -
+#    (the build regenerates ocir-schema.generated.ts / gl-opcodes.generated.js
+#     from the Rust op tables first - hand-editing them is pointless)
 
 # 2) media used by the oracle compositions (loads http://127.0.0.1:8080/...)
 #    serve your mp4/png/mp3 tree on :8080

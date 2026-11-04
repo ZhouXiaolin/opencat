@@ -16,6 +16,8 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 
 **排版例外**（2026-10-22 拍板）：文字排版（shaping/断行/定位出 glyph runs）发生在 core（cosmic-text），重放端只光栅化已定位的 glyph runs、不重新排版——这是两端逐位一致的关键。排版=解释文字生成字节，不是绘制。Skia 的 text 能力（SkParagraph/SkFont/SkTypeface/SkFontMgr）在 core 全部数据化，不经 Skia。
 
+**display 层词汇判据**（批次 H1/H2，2026-11-05）：DisplayNode 只携带 build 期折算产物（`ImageFilterSpec`），不携带 style 词汇（`CssFilter`）——折算单点在 `css_filter_image_filter`，identity 算子不进产物（透明阴影不扩 bounds 无视觉差），消费端判 `is_some()`。CSS 属性文本→style 语义单点在 `css/property_semantics.rs`，store 写路径只 dispatch；声明式路径走 lightningcss 强类型不共用（输入形态不同）。布局词汇同理收敛（批次 H3）：CSS 节点布局走 `css_layout` taffy 直通（第一优先），旧类名词表字段只在直通缺失的节点上消费。
+
 ## 3. 壳子原则（examples/template）
 
 - examples 只写**标准代码**：标准 React 组件记法 + npm 官方包 import（gsap/three/canvaskit-wasm/lucide-react 全真包）+ 领域 hooks（useGSAP/useFrame/useCanvas）。
@@ -35,6 +37,7 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 - web 重放端天然是 engine 实现的对拍 oracle（k3diff 口径的第二个参照）。
 - 集成面沿用现状链路（G2 surface 管线 / Scene3WebExecutor 已可用），工作是**对齐**，不是新建。
 - 新 op 进协议前，engine 与 web 两端重放器都必须有实现，否则 fail-loud。
+- **协议生成面单源**（批次 B，2026-11-05）：OCIR op 表（`OpField` payload 布局，`draw_encoding.rs`）与 GL opcode 名值表（`gpu_stream.rs::gl_opcode::NAMES`）是唯一手写源；`ocir-schema-gen` bin 在 web 构建链第一步无条件重写 `ocir-schema.generated.ts` 与 `gl-opcodes.generated.js`，两端只消费生成物——布局漂移在构造上不可能，不靠检查抓。web 重放端拆层：`draw-ir/{decode,interpret,ck-adapter,dump}.ts`，decode 是唯一读字节处（dump 靠 `OPCODE_FIELDS` 通用化，新增 opcode 零改动即有正确转储）。
 
 ## 5. 接入形态（供货机制）
 
@@ -101,7 +104,7 @@ core 可以**生成**字节但永不**解释**、永不绘制到表面、不解�
 2. **官方/唯一路径**存在且已接通；
 3. **渲染逐位回归**通过（k3diff 与基线一致）。
 
-先例：ctx.splitText（C4）、方言插件四件（批次 1 f2d716c1）、Rust tween 链 9 绑定（批次 2 4c935bd7）、parse/color.rs（保留面过堂决议：全仓零消费、与 animate/color.rs 重复）、**liangyi 整体退役**（批次 ⑤ 2026-10-25：效果只留官方 RuntimeEffect(SKSL) 一条路，ly.* 全家 + opencat-liangyi crate 出清，反查转 STRICT）。
+先例：ctx.splitText（C4）、方言插件四件（批次 1 f2d716c1）、Rust tween 链 9 绑定（批次 2 4c935bd7）、parse/color.rs（保留面过堂决议：全仓零消费、与 animate/color.rs 重复）、**liangyi 整体退役**（批次 ⑤ 2026-10-25：效果只留官方 RuntimeEffect(SKSL) 一条路，ly.* 全家 + opencat-liangyi crate 出清，反查转 STRICT）、**tailwind 特化腿退役**（批次 H3，2026-11-05：NodeStyle 的 width_full/height_full + padding/margin 六简写字段 + builder w_full/h_full 系出清——三例语料零使用，官方唯一路 = sidecar CSS → css_layout 直通；写点迁移 percent=Some(1.0)/长手字段，布局逐位不变）。
 
 ## 11. 验收构成（2026-10-28 拍板：唯一标准）
 

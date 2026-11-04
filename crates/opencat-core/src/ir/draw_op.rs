@@ -609,7 +609,7 @@ impl std::hash::Hash for DrawOp {
             }
             DrawOp::FillPath => 20_u8.hash(state),
             DrawOp::StrokePath => 21_u8.hash(state),
-            DrawOp::ClipPath { anti_alias, fill_type } => {
+            DrawOp::ClipPath { anti_alias, fill_type: _ } => {
                 22_u8.hash(state);
                 anti_alias.hash(state);
             }

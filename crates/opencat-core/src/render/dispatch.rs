@@ -30,13 +30,13 @@ fn render_display_item_direct(ctx: &mut RenderCtx, item: &DisplayItem) -> Result
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_rect").entered();
             #[cfg(feature = "profile")]
             event!(target: "render.draw", Level::TRACE, kind = "draw", name = "rect", result = "count", amount = 1_u64);
-            super::helpers::render_rect_with_shadows(ctx, rect)
+            super::render_rect_with_shadows(ctx, rect)
         }
         DisplayItem::Timeline(timeline) => {
             #[cfg(feature = "profile")]
             let _span =
                 span!(target: "render.backend", Level::TRACE, "draw_item_timeline").entered();
-            super::helpers::render_timeline(ctx, timeline)
+            super::render_timeline(ctx, timeline)
         }
         DisplayItem::Text(text) => {
             #[cfg(feature = "profile")]
@@ -48,29 +48,29 @@ fn render_display_item_direct(ctx: &mut RenderCtx, item: &DisplayItem) -> Result
         DisplayItem::Bitmap(bitmap) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_bitmap").entered();
-            super::helpers::render_bitmap_with_shadows(ctx, bitmap)
+            super::render_bitmap_with_shadows(ctx, bitmap)
         }
         DisplayItem::Lottie(lottie) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_lottie").entered();
-            super::helpers::render_lottie_with_shadows(ctx, lottie)
+            super::render_lottie_with_shadows(ctx, lottie)
         }
         DisplayItem::DrawScript(script) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_script").entered();
             #[cfg(feature = "profile")]
             event!(target: "render.draw", Level::TRACE, kind = "draw", name = "script", result = "count", amount = 1_u64);
-            super::helpers::render_draw_script(ctx, script)
+            super::render_draw_script(ctx, script)
         }
         DisplayItem::SvgPath(svg) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg").entered();
-            super::helpers::render_svg_path(ctx, svg)
+            super::render_svg_path(ctx, svg)
         }
         DisplayItem::Svg(item) => {
             #[cfg(feature = "profile")]
             let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg_file").entered();
-            super::helpers::render_svg(ctx, item)
+            super::render_svg(ctx, item)
         }
     }
 }
@@ -141,7 +141,7 @@ pub(crate) fn save_composite_layer(
                 crop_rect: None,
                 decal: false,
             });
-            let color_filter_chain = super::helpers::css_filter_image_filter(backdrop_filter);
+            let color_filter_chain = super::css_filter_image_filter(backdrop_filter);
             let image_filter = match (blur_filter, color_filter_chain) {
                 (Some(blur), Some(chain)) => {
                     ImageFilterSpec::Compose(Box::new(chain), Box::new(blur))
@@ -192,7 +192,7 @@ pub(crate) fn save_composite_layer(
             // The node's own `filter` never touches the backdrop, but it still
             // applies to the subtree. Nest a content layer so both run, in the
             // CSS order (backdrop first, then the element's own filter).
-            if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
+            if let Some(image_filter) = super::css_filter_image_filter(css_filter) {
                 let paint = PaintSpec {
                     fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
                     style: PaintStyle::Fill,
@@ -213,7 +213,7 @@ pub(crate) fn save_composite_layer(
                 });
                 has_content_layer = true;
             }
-        } else if let Some(image_filter) = super::helpers::css_filter_image_filter(css_filter) {
+        } else if let Some(image_filter) = super::css_filter_image_filter(css_filter) {
             let paint = PaintSpec {
                 fill: FillSpec::Solid([1.0, 1.0, 1.0, 1.0]),
                 style: PaintStyle::Fill,
@@ -630,7 +630,7 @@ fn render_live_subtree(
             bounds: timeline.bounds,
             paint: timeline.paint.clone(),
         };
-        super::helpers::render_rect_with_shadows(ctx, &rect_item)?;
+        super::render_rect_with_shadows(ctx, &rect_item)?;
 
         if let Some(clip) = &node.clip {
             ctx.builder.push(DrawOp::Save);
@@ -690,7 +690,7 @@ fn render_live_subtree(
 
     if let Some(ref slot) = node.draw_slot {
         if !slot.commands.is_empty() {
-            super::helpers::render_draw_script(ctx, slot)?;
+            super::render_draw_script(ctx, slot)?;
         }
     }
 
@@ -816,12 +816,12 @@ fn render_transition_composite(
             ctx.builder.push(DrawOp::Restore);
         }
         TransitionKind::LightLeak(params) => {
-            super::helpers::render_light_leak_transition(
+            super::render_light_leak_transition(
                 ctx, from_range, to_range, progress, params, bounds,
             );
         }
         TransitionKind::Gl(effect) => {
-            super::helpers::render_gl_transition(
+            super::render_gl_transition(
                 ctx, from_range, to_range, progress, effect, bounds,
             );
         }

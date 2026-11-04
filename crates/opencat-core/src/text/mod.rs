@@ -537,7 +537,7 @@ pub fn measure_text(
 
     let transformed = apply_text_transform(text, style.text_transform);
     let attrs = text_attrs(style);
-    let (mut measured_width, mut measured_height) =
+    let (measured_width, mut measured_height) =
         with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(text), |font_system| {
             let mut buffer = Buffer::new(font_system, metrics);
             buffer.set_size(layout_width, None);

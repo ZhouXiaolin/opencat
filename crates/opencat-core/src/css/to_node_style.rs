@@ -1042,7 +1042,7 @@ fn radial_to_fill(
     repeat: bool,
 ) -> Option<BackgroundFill> {
     use lightningcss::values::gradient::{Circle, Ellipse, EndingShape};
-    use lightningcss::values::position::{PositionComponent, VerticalPositionKeyword};
+    
 
     let (shape, radii, extent) = match &rg.shape {
         EndingShape::Circle(c) => (
@@ -1161,7 +1161,7 @@ fn conic_items_to_stops(
         };
         let color = css_color_to_f32(&stop.color)?;
         let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        use lightningcss::values::angle::AnglePercentage;
+        
         use lightningcss::values::percentage::DimensionPercentage;
         let (pos, unit) = match &stop.position {
             Some(DimensionPercentage::Percentage(p)) => (p.0, StopUnit::Fraction),

@@ -8,13 +8,13 @@ use crate::ir::GeneratedImageId;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
 use crate::script::TextUnitOverride;
-use crate::style::{TextAlign, TextStroke};
+use crate::style::TextStroke;
 use crate::text::{
     GlyphData, apply_text_transform, compute_line_x_shift, describe_text_unit_ranges,
     ranges_overlap, rasterize_glyphs,
 };
 
-use super::helpers::drop_shadow_to_image_filter;
+use super::drop_shadow_to_image_filter;
 use super::{RenderCtx, RenderError};
 
 fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
@@ -47,7 +47,7 @@ pub(crate) fn text_fill_specs(
     lines: &[crate::text::TextLine],
 ) -> Vec<FillSpec> {
     let Some(layers) = item.text_fill.as_ref() else {
-        return vec![FillSpec::Solid(super::helpers::color_token_to_rgba(
+        return vec![FillSpec::Solid(super::color_token_to_rgba(
             &item.style.color,
         ))];
     };
@@ -57,9 +57,9 @@ pub(crate) fn text_fill_specs(
     let mut fills: Vec<FillSpec> = layers
         .iter()
         .rev()
-        .map(|layer| super::helpers::background_fill_to_fill_spec(layer, rect))
+        .map(|layer| super::background_fill_to_fill_spec(layer, rect))
         .collect();
-    let color = super::helpers::color_token_to_rgba(&item.style.color);
+    let color = super::color_token_to_rgba(&item.style.color);
     if color[3] > 0.0 {
         fills.push(FillSpec::Solid(color));
     }
@@ -176,7 +176,7 @@ fn glyph_paint(fill: FillSpec) -> PaintSpec {
 /// so the fill keeps full coverage and the visible outline is `width/2` wide.
 fn glyph_stroke_paint(stroke: &TextStroke) -> PaintSpec {
     PaintSpec {
-        fill: FillSpec::Solid(super::helpers::color_token_to_rgba(&stroke.color)),
+        fill: FillSpec::Solid(super::color_token_to_rgba(&stroke.color)),
         style: PaintStyle::Stroke,
         stroke: Some(StrokeSpec {
             width: stroke.width,
@@ -359,7 +359,7 @@ fn render_text_with_unit_overrides(
         ctx.font_db,
     );
 
-    let base_rgba = super::helpers::color_token_to_rgba(&item.style.color);
+    let base_rgba = super::color_token_to_rgba(&item.style.color);
     let text_align = item.style.text_align;
     let units = describe_text_unit_ranges(&rendered, batch.granularity);
 
@@ -377,7 +377,7 @@ fn render_text_with_unit_overrides(
         let unit_rgba = ov
             .color
             .as_ref()
-            .map(super::helpers::color_token_to_rgba)
+            .map(super::color_token_to_rgba)
             .unwrap_or(base_rgba);
         let unit_paint = PaintSpec {
             fill: FillSpec::Solid(unit_rgba),
@@ -621,7 +621,7 @@ pub fn render_text_with_shadows(
     // `background-clip: text` is active the layers live in `text_fill` and no
     // box is painted (CSS paints nothing behind the glyphs in that case).
     if item.text_fill.is_none() {
-        super::helpers::paint_background_box(
+        super::paint_background_box(
             &mut ctx.builder,
             item.bounds,
             &item.background,
@@ -635,7 +635,7 @@ pub fn render_text_with_shadows(
         let (image_filter, _color) = drop_shadow_to_image_filter(shadow);
         let paint_id = ctx
             .builder
-            .intern_paint(super::helpers::filter_layer_paint(image_filter));
+            .intern_paint(super::filter_layer_paint(image_filter));
         ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(display_rect_to_rect4(shadow_bounds)),
             paint: Some(paint_id),
@@ -729,12 +729,12 @@ fn render_blurred_shadow_chain(
         dy: shadow.offset_y,
         sigma_x: shadow.blur_sigma,
         sigma_y: shadow.blur_sigma,
-        color: super::helpers::color_token_to_rgba(&shadow.color),
+        color: super::color_token_to_rgba(&shadow.color),
         keep_content: true,
     };
     let paint_id = ctx
         .builder
-        .intern_paint(super::helpers::filter_layer_paint(image_filter));
+        .intern_paint(super::filter_layer_paint(image_filter));
     ctx.builder.push(DrawOp::SaveLayer {
         bounds: Some(display_rect_to_rect4(shadow_bounds)),
         paint: Some(paint_id),

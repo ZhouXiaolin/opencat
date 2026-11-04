@@ -18,7 +18,8 @@ use windows_sys::Win32::{
         OpenGL::{
             ChoosePixelFormat, HGLRC, PFD_DOUBLEBUFFER, PFD_DRAW_TO_WINDOW, PFD_MAIN_PLANE,
             PFD_SUPPORT_OPENGL, PFD_TYPE_RGBA, PIXELFORMATDESCRIPTOR, SetPixelFormat, SwapBuffers,
-            wglCreateContext, wglDeleteContext, wglGetProcAddress, wglMakeCurrent,
+            wglCreateContext, wglDeleteContext, wglGetCurrentContext, wglGetCurrentDC,
+            wglGetProcAddress, wglMakeCurrent,
         },
     },
     System::LibraryLoader::{GetProcAddress, GetModuleHandleA, LoadLibraryA},
@@ -220,6 +221,29 @@ impl WglContext {
     pub fn make_current(&self) -> Result<()> {
         if unsafe { wglMakeCurrent(self.hdc, self.glrc) } == 0 {
             return Err(anyhow!("wglMakeCurrent failed for Win32 context"));
+        }
+        Ok(())
+    }
+
+    /// 当前线程绑定着的 (HDC, HGLRC)；无线程绑定上下文时返回 `None`。
+    /// 现场恢复用（`script::bridge` 的 `CurrentContextGuard`）。
+    pub fn get_current_context() -> Option<(HDC, HGLRC)> {
+        let hdc = unsafe { wglGetCurrentDC() };
+        let glrc = unsafe { wglGetCurrentContext() };
+        if hdc.is_null() || glrc.is_null() {
+            None
+        } else {
+            Some((hdc, glrc))
+        }
+    }
+
+    /// 直接绑定一对已存在的 (HDC, HGLRC)——现场恢复用，不经 [`WglContext`]。
+    ///
+    /// # Safety
+    /// `hdc`/`glrc` 必须是调用线程上合法的设备/上下文句柄。
+    pub unsafe fn make_current_raw(hdc: HDC, glrc: HGLRC) -> Result<()> {
+        if unsafe { wglMakeCurrent(hdc, glrc) } == 0 {
+            return Err(anyhow!("wglMakeCurrent failed (context restore)"));
         }
         Ok(())
     }

@@ -334,11 +334,6 @@ impl GpuRenderSession {
                 self.wgpu_executor.execute(&webgpu_streams, &mut media_plan)?;
             }
             if has_gl {
-                // 脚本线程上的 GLSL 反射器（install_glsl_reflector）会在链路
-                // 查询时把它自己的离屏会话 make_current——执行前必须把本会话
-                // 抢回来，否则执行器拿本会话的持久句柄打到别人的上下文上
-                //（INVALID_VALUE/OUT_OF_MEMORY，NVIDIA 下直接段错误）。
-                self.gl_session.make_current()?;
                 gpu_stream_ran = true;
                 if has_webgpu {
                     let gl_section = opencat_core::ir::gpu_stream::GpuSection {
@@ -534,8 +529,8 @@ pub fn render_from_source_with_base(
         cache_dir,
     )?;
     let ctx = V8JsContext::new()?;
-    crate::gpu::stream_executor::install_glsl_reflector(&ctx);
-    crate::gpu::stream_executor::install_asset_bridge(&ctx, loader.base_dir());
+    crate::script::bridge::install_glsl_reflector(&ctx);
+    crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
@@ -638,8 +633,8 @@ pub fn render_single_frame_from_source_with_base(
         cache_dir,
     )?;
     let ctx = V8JsContext::new()?;
-    crate::gpu::stream_executor::install_glsl_reflector(&ctx);
-    crate::gpu::stream_executor::install_asset_bridge(&ctx, loader.base_dir());
+    crate::script::bridge::install_glsl_reflector(&ctx);
+    crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);

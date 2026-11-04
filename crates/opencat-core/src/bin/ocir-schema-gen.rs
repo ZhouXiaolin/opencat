@@ -11,9 +11,15 @@ use std::process::ExitCode;
 fn main() -> std::io::Result<ExitCode> {
     let ts = opencat_core::ir::schema_gen::generate_ocir_schema_ts();
     let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../opencat-web/web/src/generated/ocir-schema.generated.ts");
+        .join("../../crates/opencat-web/web/src/generated/ocir-schema.generated.ts");
     std::fs::create_dir_all(out.parent().expect("generated 目录的父级"))?;
     std::fs::write(&out, ts)?;
     println!("ocir-schema-gen: {}", out.display());
+
+    let js = opencat_core::ir::schema_gen::generate_gl_opcodes_js();
+    let js_out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/script/runtime/gl-opcodes.generated.js");
+    std::fs::write(&js_out, js)?;
+    println!("ocir-schema-gen: {}", js_out.display());
     Ok(ExitCode::SUCCESS)
 }

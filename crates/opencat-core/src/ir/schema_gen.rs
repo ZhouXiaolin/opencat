@@ -189,6 +189,8 @@ fn opcode_constants(ts: &mut String) {
         ("FILL_PATTERN", opcode::FILL_PATTERN),
         ("STROKE_PATTERN", opcode::STROKE_PATTERN),
         ("MASK_CLIP", opcode::MASK_CLIP),
+        ("SET_STYLE_LINEAR_GRADIENT", opcode::SET_STYLE_LINEAR_GRADIENT),
+        ("SET_STYLE_RADIAL_GRADIENT", opcode::SET_STYLE_RADIAL_GRADIENT),
         ("PATH_MOVE_TO", opcode::PATH_MOVE_TO_OP),
         ("PATH_LINE_TO", opcode::PATH_LINE_TO_OP),
         ("PATH_QUAD_TO", opcode::PATH_QUAD_TO_OP),
@@ -218,6 +220,30 @@ fn opcode_constants(ts: &mut String) {
         }
         let _ = write!(ts, "{}", n);
     }
+    ts.push_str(
+        "];\n\
+         \n\
+         /// Payload field layout per opcode, in wire order — authority:
+         /// `opcode::OP_FIELDS` in core. The web decoder reads fields in this
+         /// order instead of hand-ordered byte offsets; a field added in core
+         /// without regenerating this file shifts every later read and fails
+         /// loud at decode time.\n\
+         export const OPCODE_FIELDS: readonly (readonly { name: string; bytes: number }[])[] = [\n",
+    );
+    for (i, fields) in opcode::OP_FIELDS.iter().enumerate() {
+        if fields.is_empty() {
+            let _ = write!(ts, "    {}, // {}\n", "[]", i);
+            continue;
+        }
+        ts.push_str("    [");
+        for (j, field) in fields.iter().enumerate() {
+            if j > 0 {
+                ts.push_str(", ");
+            }
+            let _ = write!(ts, "{{ name: \"{}\", bytes: {} }}", field.name, field.bytes);
+        }
+        let _ = write!(ts, "], // {}\n", i);
+    }
     ts.push_str("];\n");
 }
 
@@ -233,93 +259,7 @@ fn gl_opcode_constants(ts: &mut String) {
          export const GLOP = {
 ",
     );
-    for (name, value) in &[
-        ("SHADER_CREATE", gl_opcode::SHADER_CREATE),
-        ("SHADER_SOURCE", gl_opcode::SHADER_SOURCE),
-        ("COMPILE_SHADER", gl_opcode::COMPILE_SHADER),
-        ("SHADER_DELETE", gl_opcode::SHADER_DELETE),
-        ("PROGRAM_CREATE", gl_opcode::PROGRAM_CREATE),
-        ("PROGRAM_ATTACH", gl_opcode::PROGRAM_ATTACH),
-        ("PROGRAM_LINK", gl_opcode::PROGRAM_LINK),
-        ("PROGRAM_DELETE", gl_opcode::PROGRAM_DELETE),
-        ("PROGRAM_USE", gl_opcode::PROGRAM_USE),
-        ("BUFFER_CREATE", gl_opcode::BUFFER_CREATE),
-        ("BUFFER_BIND", gl_opcode::BUFFER_BIND),
-        ("BUFFER_DATA", gl_opcode::BUFFER_DATA),
-        ("BUFFER_DATA_NULL", gl_opcode::BUFFER_DATA_NULL),
-        ("BUFFER_DELETE", gl_opcode::BUFFER_DELETE),
-        ("VAO_CREATE", gl_opcode::VAO_CREATE),
-        ("VAO_BIND", gl_opcode::VAO_BIND),
-        ("VAO_DELETE", gl_opcode::VAO_DELETE),
-        ("ATTRIB_ENABLE", gl_opcode::ATTRIB_ENABLE),
-        ("ATTRIB_DISABLE", gl_opcode::ATTRIB_DISABLE),
-        ("ATTRIB_POINTER", gl_opcode::ATTRIB_POINTER),
-        ("ATTRIB_DIVISOR", gl_opcode::ATTRIB_DIVISOR),
-        ("UNIFORM_1F", gl_opcode::UNIFORM_1F),
-        ("UNIFORM_2F", gl_opcode::UNIFORM_2F),
-        ("UNIFORM_3F", gl_opcode::UNIFORM_3F),
-        ("UNIFORM_4F", gl_opcode::UNIFORM_4F),
-        ("UNIFORM_1I", gl_opcode::UNIFORM_1I),
-        ("UNIFORM_NF", gl_opcode::UNIFORM_NF),
-        ("UNIFORM_NI", gl_opcode::UNIFORM_NI),
-        ("UNIFORM_MATRIX_4F", gl_opcode::UNIFORM_MATRIX_4F),
-        ("TEXTURE_CREATE", gl_opcode::TEXTURE_CREATE),
-        ("TEXTURE_DELETE", gl_opcode::TEXTURE_DELETE),
-        ("TEXTURE_ACTIVE", gl_opcode::TEXTURE_ACTIVE),
-        ("TEXTURE_BIND", gl_opcode::TEXTURE_BIND),
-        ("TEX_PARAM_I", gl_opcode::TEX_PARAM_I),
-        ("TEX_PARAM_F", gl_opcode::TEX_PARAM_F),
-        ("TEX_IMAGE_2D", gl_opcode::TEX_IMAGE_2D),
-        ("GENERATE_MIPMAP", gl_opcode::GENERATE_MIPMAP),
-        ("PIXEL_STORE_I", gl_opcode::PIXEL_STORE_I),
-        ("FRAMEBUFFER_CREATE", gl_opcode::FRAMEBUFFER_CREATE),
-        ("FRAMEBUFFER_DELETE", gl_opcode::FRAMEBUFFER_DELETE),
-        ("BIND_FRAMEBUFFER", gl_opcode::BIND_FRAMEBUFFER),
-        ("FRAMEBUFFER_TEXTURE_2D", gl_opcode::FRAMEBUFFER_TEXTURE_2D),
-        ("VIEWPORT", gl_opcode::VIEWPORT),
-        ("CLEAR_COLOR", gl_opcode::CLEAR_COLOR),
-        ("CLEAR", gl_opcode::CLEAR),
-        ("ENABLE", gl_opcode::ENABLE),
-        ("DISABLE", gl_opcode::DISABLE),
-        ("DEPTH_FUNC", gl_opcode::DEPTH_FUNC),
-        ("DEPTH_MASK", gl_opcode::DEPTH_MASK),
-        ("BLEND_FUNC", gl_opcode::BLEND_FUNC),
-        ("BLEND_EQUATION", gl_opcode::BLEND_EQUATION),
-        ("BLEND_COLOR", gl_opcode::BLEND_COLOR),
-        ("CULL_FACE", gl_opcode::CULL_FACE),
-        ("FRONT_FACE", gl_opcode::FRONT_FACE),
-        ("CLEAR_DEPTH", gl_opcode::CLEAR_DEPTH),
-        ("CLEAR_STENCIL", gl_opcode::CLEAR_STENCIL),
-        ("POLYGON_OFFSET", gl_opcode::POLYGON_OFFSET),
-        ("DRAW_ARRAYS", gl_opcode::DRAW_ARRAYS),
-        ("DRAW_ELEMENTS", gl_opcode::DRAW_ELEMENTS),
-        ("BLEND_FUNC_SEPARATE", gl_opcode::BLEND_FUNC_SEPARATE),
-        ("BLEND_EQUATION_SEPARATE", gl_opcode::BLEND_EQUATION_SEPARATE),
-        ("TEX_IMAGE_3D", gl_opcode::TEX_IMAGE_3D),
-        ("TEX_SUB_IMAGE_2D", gl_opcode::TEX_SUB_IMAGE_2D),
-        ("RENDERBUFFER_CREATE", gl_opcode::RENDERBUFFER_CREATE),
-        ("BIND_RENDERBUFFER", gl_opcode::BIND_RENDERBUFFER),
-        ("RENDERBUFFER_STORAGE", gl_opcode::RENDERBUFFER_STORAGE),
-        ("FRAMEBUFFER_RENDERBUFFER", gl_opcode::FRAMEBUFFER_RENDERBUFFER),
-        ("COLOR_MASK", gl_opcode::COLOR_MASK),
-        ("UNIFORM_2I", gl_opcode::UNIFORM_2I),
-        ("UNIFORM_3I", gl_opcode::UNIFORM_3I),
-        ("UNIFORM_4I", gl_opcode::UNIFORM_4I),
-        ("TEX_STORAGE_2D", gl_opcode::TEX_STORAGE_2D),
-        ("TEX_STORAGE_3D", gl_opcode::TEX_STORAGE_3D),
-        ("TEX_SUB_IMAGE_3D", gl_opcode::TEX_SUB_IMAGE_3D),
-        ("BIND_BUFFER_BASE", gl_opcode::BIND_BUFFER_BASE),
-        ("DRAW_ARRAYS_INSTANCED", gl_opcode::DRAW_ARRAYS_INSTANCED),
-        ("DRAW_ELEMENTS_INSTANCED", gl_opcode::DRAW_ELEMENTS_INSTANCED),
-        ("VERTEX_ATTRIB_NFV", gl_opcode::VERTEX_ATTRIB_NFV),
-        ("UNIFORM_BLOCK_BINDING", gl_opcode::UNIFORM_BLOCK_BINDING),
-        ("BIND_ATTRIB_LOCATION", gl_opcode::BIND_ATTRIB_LOCATION),
-        ("SCISSOR", gl_opcode::SCISSOR),
-        ("STENCIL_FUNC", gl_opcode::STENCIL_FUNC),
-        ("STENCIL_OP", gl_opcode::STENCIL_OP),
-        ("STENCIL_MASK", gl_opcode::STENCIL_MASK),
-        ("DRAW_BUFFERS", gl_opcode::DRAW_BUFFERS),
-    ] {
+    for (name, value) in gl_opcode::NAMES.iter() {
         let _ = write!(ts, "    {}: {},
 ", name, value);
     }
@@ -343,6 +283,25 @@ fn gl_opcode_constants(ts: &mut String) {
     ts.push_str("] as const;
 
 ");
+}
+
+/// realm 侧 GL opcode 常量对象：`gl-opcodes.generated.js`。由 ocir-schema-gen
+/// bin 写进 `script/runtime/`，realm 先于 webgl_api.js eval——生产侧
+/// （webgl_api.js 的 emit/done）与消费侧（engine glow 执行器）共用
+/// `gl_opcode::NAMES` 一张表，数字字面量出清。
+pub fn generate_gl_opcodes_js() -> String {
+    use std::fmt::Write;
+    let mut js = String::from(
+        "// Generated by the `ocir-schema-gen` bin — do not edit.\n\
+         // Authority: ir/gpu_stream.rs gl_opcode::NAMES. The realm evals this\n\
+         // before webgl_api.js; every emit/done opcode references GLOP.*.\n\
+         const GLOP = {\n",
+    );
+    for (name, value) in gl_opcode::NAMES.iter() {
+        let _ = writeln!(js, "  {}: {},", name, value);
+    }
+    js.push_str("};\n");
+    js
 }
 
 fn path_op_sub_constants(ts: &mut String) {

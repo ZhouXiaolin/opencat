@@ -182,72 +182,141 @@ pub mod opcode {
     /// encoding, geometry is two circles [x0,y0,r0] / [x1,y1,r1].
     pub const SET_STYLE_RADIAL_GRADIENT: u16 = 55;
 
-    /// Per-opcode payload length in bytes for the v6 dense op stream.
-    ///
-    /// Index by opcode (0..=52). An op is encoded as `[opcode: u8][N payload
-    /// bytes]` with no length field and no padding, so `N` must be a fixed
-    /// constant for every opcode variant — which holds: every optional-looking
-    /// payload (SaveLayer bounds/paint, Image/ImageRect src) writes its fields
-    /// unconditionally and signals absence via a flag byte, and `ImageRef`
-    /// always writes tag(1) + id-slot(12).
-    pub const OPCODE_PAYLOAD_LEN: [u16; 56] = [
-        0,  // 0  SAVE
-        25, // 1  SAVE_LAYER  [u8 flags][4xf32 bounds][u32 paint][f32 alpha]
-        0,  // 2  RESTORE
-        4,  // 3  RESTORE_TO_COUNT
-        8,  // 4  TRANSLATE
-        8,  // 5  SCALE
-        12, // 6  ROTATE
-        8,  // 7  SKEW
-        36, // 8  CONCAT
-        4,  // 9  SET_FILL_STYLE
-        4,  // 10 SET_STROKE_STYLE
-        4,  // 11 SET_LINE_WIDTH
-        4,  // 12 SET_LINE_CAP
-        4,  // 13 SET_LINE_JOIN
-        12, // 14 SET_LINE_DASH
-        0,  // 15 CLEAR_LINE_DASH
-        4,  // 16 SET_GLOBAL_ALPHA
-        1,  // 17 SET_ANTI_ALIAS
-        0,  // 18 BEGIN_PATH
-        0,  // 19 PATH_OP        (v5 only; unused in v6)
-        0,  // 20 FILL_PATH
-        0,  // 21 STROKE_PATH
-        2,  // 22 CLIP_PATH [u8 anti_alias][u8 fill_type]
-        16, // 23 CLEAR
-        4,  // 24 PAINT
-        20, // 25 RECT
-        36, // 26 R_RECT
-        68, // 27 D_RRECT
-        20, // 28 OVAL
-        16, // 29 CIRCLE
-        29, // 30 ARC
-        20, // 31 LINE
-        16, // 32 POINTS
-        8,  // 33 DRAW_PATH
-        25, // 34 IMAGE
-        50, // 35 IMAGE_RECT
-        32, // 36 RUNTIME_EFFECT
-        8,  // 37 REPLAY_RANGE
-        12, // 38 DRAW_SUBTREE_PICTURE
-        24, // 39 LOTTIE_RECT  [u32 bundle_id][f32 frame][4xf32 dst]
-        8,  // 40 PATH_MOVE_TO   [2xf32]
-        8,  // 41 PATH_LINE_TO   [2xf32]
-        16, // 42 PATH_QUAD_TO   [4xf32]
-        24, // 43 PATH_CUBIC_TO  [6xf32]
-        0,  // 44 PATH_CLOSE
-        16, // 45 PATH_ADD_RECT  [4xf32]
-        20, // 46 PATH_ADD_RRECT [5xf32]
-        16, // 47 PATH_ADD_OVAL  [4xf32]
-        24, // 48 PATH_ADD_ARC   [6xf32]
-        41, // 49 SAVE_BACKDROP_LAYER — SAVE_LAYER layout + 4×f32 corner radii
-        52, // 50 FILL_PATTERN [u32 path][u32 subtree][4xf32 tile][6xf32 pt][f32 opacity]
-        0,  // 51 (unused)
-        62, // 52 STROKE_PATTERN — FILL_PATTERN layout + [f32 width][u8 cap][u8 join][f32 miter]
-        21, // 53 MASK_CLIP [u32 subtree][u8 kind][4xf32 region]
-        25, // 54 SET_STYLE_LINEAR_GRADIENT [u8 stroke][4xf32 start/end][u32 f32_pool start][u32 len]
-        41, // 55 SET_STYLE_RADIAL_GRADIENT [u8 stroke][6xf32 two circles][u32 f32_pool start][u32 len]
+    /// One payload field of a v6 op: wire name + fixed byte width. Order in
+    /// the slice is the wire order; `write_*` calls in `encode_op` must
+    /// follow exactly this sequence.
+    pub struct OpField {
+        pub name: &'static str,
+        pub bytes: u16,
+    }
+
+    /// Per-op payload field layout for the v6 dense op stream, indexed by
+    /// opcode. This is the single source of truth for the wire: every
+    /// optional-looking payload (SaveLayer bounds/paint, Image/ImageRect src)
+    /// writes its fields unconditionally and signals absence via a flag byte,
+    /// and `ImageRef` always writes tag(1) + id-slot(12), so every slice sums
+    /// to a fixed byte count — which is what [`OPCODE_PAYLOAD_LEN`] derives
+    /// from (a drift is a compile-time constant mismatch, not a runtime
+    /// mystery). `schema_gen` consumes the same table to emit the TypeScript
+    /// `OPCODE_FIELDS` layout description.
+    pub const OP_FIELDS: [&[OpField]; 56] = [
+        &[],                                                    // 0  SAVE
+        &[
+            f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4),
+        ],                                                      // 1  SAVE_LAYER
+        &[],                                                    // 2  RESTORE
+        &[f("count", 4)],                                       // 3  RESTORE_TO_COUNT
+        &[f("x", 4), f("y", 4)],                                // 4  TRANSLATE
+        &[f("x", 4), f("y", 4)],                                // 5  SCALE
+        &[f("degrees", 4), f("cx", 4), f("cy", 4)],             // 6  ROTATE
+        &[f("sx", 4), f("sy", 4)],                              // 7  SKEW
+        &[f("matrix", 36)],                                     // 8  CONCAT
+        &[f("color", 4)],                                       // 9  SET_FILL_STYLE
+        &[f("color", 4)],                                       // 10 SET_STROKE_STYLE
+        &[f("width", 4)],                                       // 11 SET_LINE_WIDTH
+        &[f("cap", 4)],                                         // 12 SET_LINE_CAP
+        &[f("join", 4)],                                        // 13 SET_LINE_JOIN
+        &[f("start", 4), f("len", 4), f("phase", 4)],           // 14 SET_LINE_DASH
+        &[],                                                    // 15 CLEAR_LINE_DASH
+        &[f("alpha", 4)],                                       // 16 SET_GLOBAL_ALPHA
+        &[f("enabled", 1)],                                     // 17 SET_ANTI_ALIAS
+        &[],                                                    // 18 BEGIN_PATH
+        &[],                                                    // 19 PATH_OP (v5 only; unused in v6)
+        &[],                                                    // 20 FILL_PATH
+        &[],                                                    // 21 STROKE_PATH
+        &[f("anti_alias", 1), f("fill_type", 1)],               // 22 CLIP_PATH
+        &[f("color", 16)],                                      // 23 CLEAR
+        &[f("paint", 4)],                                       // 24 PAINT
+        &[f("rect", 16), f("paint", 4)],                        // 25 RECT
+        &[f("rect", 16), f("radii", 16), f("paint", 4)],        // 26 R_RECT
+        &[f("outer", 32), f("inner", 32), f("paint", 4)],       // 27 D_RRECT
+        &[f("rect", 16), f("paint", 4)],                        // 28 OVAL
+        &[f("cx", 4), f("cy", 4), f("radius", 4), f("paint", 4)], // 29 CIRCLE
+        &[
+            f("rect", 16), f("start", 4), f("sweep", 4), f("use_center", 1), f("paint", 4),
+        ],                                                      // 30 ARC
+        &[f("x0", 4), f("y0", 4), f("x1", 4), f("y1", 4), f("paint", 4)], // 31 LINE
+        &[f("mode", 4), f("start", 4), f("len", 4), f("paint", 4)],       // 32 POINTS
+        &[f("path", 4), f("paint", 4)],                         // 33 DRAW_PATH
+        &[
+            f("tag", 1), f("id_slot", 12), f("x", 4), f("y", 4), f("paint", 4),
+        ],                                                      // 34 IMAGE
+        &[
+            f("tag", 1), f("id_slot", 12), f("has_src", 1), f("src", 16), f("dst", 16),
+            f("paint", 4),
+        ],                                                      // 35 IMAGE_RECT
+        &[
+            f("effect", 4), f("uniforms", 4), f("children_start", 4), f("children_len", 4),
+            f("dst", 16),
+        ],                                                      // 36 RUNTIME_EFFECT
+        &[f("start_op", 4), f("op_len", 4)],                    // 37 REPLAY_RANGE
+        &[f("subtree", 4), f("x", 4), f("y", 4)],               // 38 DRAW_SUBTREE_PICTURE
+        &[f("bundle_id", 4), f("frame", 4), f("dst", 16)],      // 39 LOTTIE_RECT
+        &[f("x", 4), f("y", 4)],                                // 40 PATH_MOVE_TO
+        &[f("x", 4), f("y", 4)],                                // 41 PATH_LINE_TO
+        &[f("cx", 4), f("cy", 4), f("x", 4), f("y", 4)],        // 42 PATH_QUAD_TO
+        &[
+            f("c1x", 4), f("c1y", 4), f("c2x", 4), f("c2y", 4), f("x", 4), f("y", 4),
+        ],                                                      // 43 PATH_CUBIC_TO
+        &[],                                                    // 44 PATH_CLOSE
+        &[f("x", 4), f("y", 4), f("width", 4), f("height", 4)], // 45 PATH_ADD_RECT
+        &[
+            f("x", 4), f("y", 4), f("width", 4), f("height", 4), f("radius", 4),
+        ],                                                      // 46 PATH_ADD_RRECT
+        &[f("x", 4), f("y", 4), f("width", 4), f("height", 4)], // 47 PATH_ADD_OVAL
+        &[
+            f("x", 4), f("y", 4), f("width", 4), f("height", 4), f("start_angle", 4),
+            f("sweep_angle", 4),
+        ],                                                      // 48 PATH_ADD_ARC
+        &[
+            f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4), f("radii", 16),
+        ],                                                      // 49 SAVE_BACKDROP_LAYER
+        &[
+            f("path", 4), f("subtree", 4), f("tile", 16), f("transform", 24), f("opacity", 4),
+        ],                                                      // 50 FILL_PATTERN
+        &[],                                                    // 51 (unused)
+        &[
+            f("path", 4), f("subtree", 4), f("tile", 16), f("transform", 24), f("opacity", 4),
+            f("width", 4), f("cap", 1), f("join", 1), f("miter", 4),
+        ],                                                      // 52 STROKE_PATTERN
+        &[f("subtree", 4), f("kind", 1), f("region", 16)],      // 53 MASK_CLIP
+        &[
+            f("stroke", 1), f("start", 8), f("end", 8), f("pool_start", 4), f("len", 4),
+        ],                                                      // 54 SET_STYLE_LINEAR_GRADIENT
+        &[
+            f("stroke", 1), f("circles", 24), f("pool_start", 4), f("len", 4),
+        ],                                                      // 55 SET_STYLE_RADIAL_GRADIENT
     ];
+
+    const fn f(name: &'static str, bytes: u16) -> OpField {
+        OpField { name, bytes }
+    }
+
+    const fn fields_len(fields: &[OpField]) -> u16 {
+        let mut sum = 0u16;
+        let mut i = 0;
+        while i < fields.len() {
+            sum += fields[i].bytes;
+            i += 1;
+        }
+        sum
+    }
+
+    const fn build_opcode_payload_len() -> [u16; 56] {
+        let mut out = [0u16; 56];
+        let mut i = 0;
+        while i < OP_FIELDS.len() {
+            out[i] = fields_len(OP_FIELDS[i]);
+            i += 1;
+        }
+        out
+    }
+
+    /// Per-opcode payload length in bytes for the v6 dense op stream —
+    /// **derived** from [`OP_FIELDS`] (sum of field widths), never hand-written.
+    /// An op is encoded as `[opcode: u8][N payload bytes]` with no length
+    /// field and no padding.
+    pub const OPCODE_PAYLOAD_LEN: [u16; 56] = build_opcode_payload_len();
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
     /// it must fit in the wire's 1-byte opcode field.

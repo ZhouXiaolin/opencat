@@ -98,6 +98,10 @@ pub struct ComputedLayoutStyle {
     pub min_width: Option<LengthPercentageAuto>,
     pub is_flex: bool,
     pub is_grid: bool,
+    /// 行内格式化（docs/html-align/DESIGN.md）：HTML 前端里子节点全为
+    /// span 的 div 是一行行内内容；布局端在 taffy 之后按 advance 串接
+    /// 重排（taffy 无行内流）。浏览器语义的真实现，非近似节点。
+    pub inline_flow: bool,
     pub grid_template_columns: Option<u16>,
     pub grid_template_rows: Option<u16>,
     pub grid_auto_flow: Option<GridAutoFlow>,

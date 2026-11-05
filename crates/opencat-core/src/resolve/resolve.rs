@@ -131,6 +131,12 @@ pub fn resolve_ui_tree_with_script_cache(
 }
 
 fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
+    // HTML 可见窗（docs/html-align/DESIGN.md）：`[start, start+duration)`
+    // 半开窗外 = 整子树退出布局与绘制（空占位盒）。窗口盖住合成末尾的
+    // 拥有「终止瞬间」（hyperframes 语义），末帧不隐藏。
+    if clip_window_hides(node.style_ref(), cx.frame_ctx) {
+        return Ok(hidden_clip_placeholder(cx));
+    }
     match node.kind() {
         NodeKind::Video(video) => resolve_video(video, cx),
         NodeKind::Image(image) => resolve_image(image, cx),
@@ -141,6 +147,44 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         NodeKind::Path(path) => resolve_path(path, cx),
         NodeKind::Svg(svg) => resolve_svg(svg, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx),
+    }
+}
+
+/// HTML 可见窗判定：`t = frame/fps`（合成全局秒）落在半开窗外即隐藏。
+/// 窗终点在合成末尾 ± 半帧内视为「终止瞬间持有」，永不隐藏。
+fn clip_window_hides(style: &NodeStyle, frame_ctx: &FrameCtx) -> bool {
+    let Some(start) = style.clip_start else {
+        return false;
+    };
+    let fps = frame_ctx.fps.max(1) as f64;
+    let t = frame_ctx.frame as f64 / fps;
+    if t < start {
+        return true;
+    }
+    let Some(duration) = style.clip_duration else {
+        return false;
+    };
+    let end = start + duration;
+    let total = crate::time::frames_to_duration_secs(frame_ctx.frames, frame_ctx.fps) as f64;
+    if end >= total - 0.5 / fps {
+        return false;
+    }
+    t >= end - 1e-9
+}
+
+/// 窗外占位盒：display:none 语义的最小 Div（零尺寸、无子树）。
+fn hidden_clip_placeholder(cx: &mut ResolveContext<'_>) -> ElementNode {
+    let style = NodeStyle {
+        id: "__clip_hidden".to_string(),
+        ..Default::default()
+    };
+    ElementNode {
+        id: cx.ids.alloc(),
+        kind: ElementKind::Div(ElementDiv),
+        style: compute_style(&style, cx.inherited_style),
+        children: Vec::new(),
+        draw_slot: ElementDrawSlot::default(),
+        fingerprints: Default::default(),
     }
 }
 
@@ -1130,6 +1174,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
                 .unwrap_or(LengthPercentageAuto::Length(0.0)),
             is_flex: style.is_flex,
             is_grid: style.is_grid,
+            inline_flow: style.inline_flow,
             grid_template_columns: style.grid_template_columns,
             grid_template_rows: style.grid_template_rows,
             grid_auto_flow: style.grid_auto_flow,

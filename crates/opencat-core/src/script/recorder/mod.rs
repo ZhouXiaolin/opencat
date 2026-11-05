@@ -77,6 +77,9 @@ pub trait MutationRecorder {
     fn record_drop_shadow(&mut self, id: &str, sh: DropShadow);
 
     fn record_bg_color(&mut self, id: &str, color: ColorToken);
+    /// 脚本按帧写入的 CSS `background`/`background-image` 原文（渐变、瓦片
+    /// 背景没有颜色字段可放，由 resolve 侧解析成背景层）。
+    fn record_background_image(&mut self, id: &str, css: &str);
     fn record_fill_color(&mut self, id: &str, color: ColorToken);
     fn record_stroke_color(&mut self, id: &str, color: ColorToken);
     fn record_border_color(&mut self, id: &str, color: ColorToken);

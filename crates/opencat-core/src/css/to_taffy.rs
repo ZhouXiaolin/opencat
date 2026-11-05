@@ -13,7 +13,7 @@ use lightningcss::properties::align::{
     JustifyItems, JustifySelf, SelfPosition,
 };
 use lightningcss::properties::align::ContentPosition as ContentPositionKeyword;
-use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword};
+use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword, DisplayOutside};
 use lightningcss::properties::grid::{
     GridAutoFlow as CssGridAutoFlow, GridLine, RepeatCount, TrackBreadth, TrackListItem, TrackSize,
 };
@@ -49,6 +49,13 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
     match p {
         Property::Display(d) => {
             style.display = map_display(d);
+            // inline-block/inline-flex/inline-grid 是 shrink-to-fit 盒子：taffy 没有
+            // inline 层级，用 align_self:start 阻止父容器的 stretch（否则每个
+            // 逐字 inline-block span 都被拉成兄弟最宽者，k3 的「Every token」逐字
+            // 动画因此字间距全错）。
+            if matches!(d, Display::Pair(pair) if pair.outside == DisplayOutside::Inline) {
+                style.align_self = Some(taffy::style::AlignSelf::START);
+            }
         }
         Property::Position(v) => {
             use lightningcss::properties::position::Position as CssPosition;
@@ -58,10 +65,12 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
                 CssPosition::Sticky(_) => return true,
             };
         }
-        Property::Top(v) => style.inset.top = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
-        Property::Right(v) => style.inset.right = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
-        Property::Bottom(v) => style.inset.bottom = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
-        Property::Left(v) => style.inset.left = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto),
+        Property::Top(v) => apply_inset(&mut style.inset.top, &mut style.margin.top, v, ctx),
+        Property::Right(v) => apply_inset(&mut style.inset.right, &mut style.margin.right, v, ctx),
+        Property::Bottom(v) => {
+            apply_inset(&mut style.inset.bottom, &mut style.margin.bottom, v, ctx)
+        }
+        Property::Left(v) => apply_inset(&mut style.inset.left, &mut style.margin.left, v, ctx),
         // border 宽度参与布局（border-box 下挤压内容区）。CSS 路径下
         // `css_layout` 是布局的第一优先输入，漏接会让边框不占位。
         Property::BorderWidth(v) => {
@@ -87,10 +96,10 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
         }
         Property::Inset(v) => {
             // `inset: 0` 简写（tailwind inset-0 / inset-x-* 的产物）。
-            style.inset.top = lpa(&v.top, ctx).unwrap_or_else(TaffyLPA::auto);
-            style.inset.right = lpa(&v.right, ctx).unwrap_or_else(TaffyLPA::auto);
-            style.inset.bottom = lpa(&v.bottom, ctx).unwrap_or_else(TaffyLPA::auto);
-            style.inset.left = lpa(&v.left, ctx).unwrap_or_else(TaffyLPA::auto);
+            apply_inset(&mut style.inset.top, &mut style.margin.top, &v.top, ctx);
+            apply_inset(&mut style.inset.right, &mut style.margin.right, &v.right, ctx);
+            apply_inset(&mut style.inset.bottom, &mut style.margin.bottom, &v.bottom, ctx);
+            apply_inset(&mut style.inset.left, &mut style.margin.left, &v.left, ctx);
         }
         Property::Width(v) => {
             if let Size::LengthPercentage(inner) = v {
@@ -465,6 +474,61 @@ fn lp(v: &LengthPercentage, ctx: &EvalContext) -> Option<TaffyLP> {
         LengthPercentage::Percentage(p) => Some(TaffyLP::percent(p.0)),
         LengthPercentage::Calc(_) => None,
     }
+}
+
+/// `calc()` → (px, 百分比) 两段。taffy 的长度只有纯 px / 纯百分比两态，
+/// `top: calc(100% + 7px)` 这类 HTML 常用写法要把像素段另找载体。
+fn calc_px_pct(
+    calc: &lightningcss::values::calc::Calc<LengthPercentage>,
+    ctx: &EvalContext,
+) -> Option<(f32, f32)> {
+    use lightningcss::values::calc::MathFunction;
+    match calc {
+        lightningcss::values::calc::Calc::Value(v) => match &**v {
+            LengthPercentage::Dimension(unit) => Some((length_px(unit, ctx)?, 0.0)),
+            LengthPercentage::Percentage(p) => Some((0.0, p.0)),
+            _ => None,
+        },
+        lightningcss::values::calc::Calc::Number(n) => Some((*n, 0.0)),
+        lightningcss::values::calc::Calc::Sum(a, b) => {
+            let (ap, aq) = calc_px_pct(a, ctx)?;
+            let (bp, bq) = calc_px_pct(b, ctx)?;
+            Some((ap + bp, aq + bq))
+        }
+        lightningcss::values::calc::Calc::Product(k, v) => {
+            let (p, q) = calc_px_pct(v, ctx)?;
+            Some((p * k, q * k))
+        }
+        lightningcss::values::calc::Calc::Function(f) => match &**f {
+            MathFunction::Calc(inner) => calc_px_pct(inner, ctx),
+            _ => None,
+        },
+    }
+}
+
+/// 定位偏移写入口：`calc(百分比 ± 像素)` 的像素段折进同侧 margin——
+/// 绝对定位元素上 `top: calc(100% + 7px)` 与 `top:100%; margin-top:7px`
+/// 等价。
+fn apply_inset(
+    inset: &mut TaffyLPA,
+    margin: &mut TaffyLPA,
+    v: &LengthPercentageOrAuto,
+    ctx: &EvalContext,
+) {
+    if let LengthPercentageOrAuto::LengthPercentage(LengthPercentage::Calc(calc)) = v
+        && let Some((px, pct)) = calc_px_pct(calc, ctx)
+    {
+        *inset = TaffyLPA::percent(pct);
+        if px != 0.0 {
+            let base = match margin.expand() {
+                taffy::style::ExpandedLengthPercentageAuto::Length(px) => px,
+                _ => 0.0,
+            };
+            *margin = TaffyLPA::length(base + px);
+        }
+        return;
+    }
+    *inset = lpa(v, ctx).unwrap_or_else(TaffyLPA::auto);
 }
 
 fn lpa(v: &LengthPercentageOrAuto, ctx: &EvalContext) -> Option<TaffyLPA> {

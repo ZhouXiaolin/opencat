@@ -12,7 +12,7 @@ use lightningcss::properties::align::{
     AlignContent, AlignItems as CssAlignItems, AlignSelf as CssAlignSelf, ContentDistribution,
     ContentPosition, GapValue, JustifyContent as CssJustifyContent, SelfPosition,
 };
-use lightningcss::properties::background::{BackgroundClip, BackgroundSize};
+use lightningcss::properties::background::{Background, BackgroundClip, BackgroundSize};
 use lightningcss::properties::border::{Border, BorderSideWidth, LineStyle};
 use lightningcss::properties::border_radius::BorderRadius as CssBorderRadius;
 use lightningcss::properties::box_shadow::BoxShadow as CssBoxShadow;
@@ -276,6 +276,17 @@ pub fn apply_property(
             );
         }
         Property::BackgroundColor(c) => style.bg_color = color_token(c),
+        // `background` 简写（hyperframes 页面的主力写法：`background:#010101`
+        // / `background:repeating-linear-gradient(...)`）。lightningcss 只
+        // 在 longhand 才拆成 BackgroundColor/BackgroundImage，简写整条进这里。
+        Property::Background(layers) => {
+            for bg in layers {
+                style.bg_color = color_token(&bg.color);
+                if let Some(fill) = image_to_fill(&bg.image) {
+                    style.background_layers.push(fill);
+                }
+            }
+        }
         Property::BackgroundImage(images) => {
             for image in images {
                 if let Some(fill) = image_to_fill(image) {
@@ -452,6 +463,19 @@ pub fn apply_property(
             });
         }
         Property::FontFamily(list) => {
+            // 整条族栈按声明顺序留存：排版层按「第一个装了的族」选面，与
+            // 浏览器一致（k3 的 `"Inter","Helvetica Neue",Arial,sans-serif`
+            // 要落到 Arial，而不是随便挑一个 generic 面）。
+            style.font_stack = list
+                .iter()
+                .filter_map(|f| match f {
+                    CssFontFamily::FamilyName(name) => name
+                        .to_css_string(PrinterOptions::default())
+                        .ok()
+                        .map(|s| s.trim_matches(|c| c == '"' || c == '\'').to_string()),
+                    CssFontFamily::Generic(_) => None,
+                })
+                .collect();
             // 栈首是通用族（`ui-sans-serif`/`system-ui`/`sans-serif`）表示
             // 「系统默认族」——tailwind `font-sans` 展开后正是这种形态。
             // 这类栈交给文档字体清单里 role=sans 的 face 接管。
@@ -727,8 +751,13 @@ fn align_self_to_cat(v: &CssAlignSelf) -> Option<crate::style::AlignItems> {
 
 fn apply_border_radius(style: &mut crate::style::NodeStyle, v: &CssBorderRadius, ctx: &EvalContext) {
     // 字段是 Size2D<LengthPercentage>（x, y 圆角）；NodeStyle 只有 px 形态，
-    // 椭圆圆角取 x。百分比圆角丢弃。
-    let corner = |lp: &LengthPercentage| lp_to_px(lp, ctx);
+    // 椭圆圆角取 x。百分比圆角在这里还没有盒尺寸可依，按「贴到半高/半宽」
+    // 处理：给一个远大于任何盒的 px，绘制侧按像素圆角裁到半尺寸即为浏览器
+    // 的 50% 圆/椭圆。
+    let corner = |lp: &LengthPercentage| match lp {
+        LengthPercentage::Percentage(_) => Some(1.0e4),
+        _ => lp_to_px(lp, ctx),
+    };
     if let (Some(tl), Some(tr), Some(br), Some(bl)) = (
         corner(&v.top_left.0),
         corner(&v.top_right.0),
@@ -1032,6 +1061,9 @@ fn linear_to_fill(
             stops: gradient_items_to_stops(&lg.items)?,
             size: None,
             repeat,
+            position: None,
+            position_px: None,
+            size_pct: None,
         },
     })
 }
@@ -1251,4 +1283,153 @@ fn length_value_to_px(v: &LengthValue, ctx: &EvalContext) -> f32 {
         LengthValue::Pc(x) => x * 16.0,
         _ => 0.0,
     }
+}
+
+/// 长度/百分比拆成「比例部分 + 像素部分」。
+fn lp_split(lp: &LengthPercentage) -> (f32, f32) {
+    match lp {
+        LengthPercentage::Percentage(p) => (p.0, 0.0),
+        LengthPercentage::Dimension(l) => (0.0, l.to_px().unwrap_or(0.0)),
+        _ => (0.0, 0.0),
+    }
+}
+
+/// 把 `background` 简写里逐层的 `background-position` / `background-size`
+/// / `no-repeat` 补到线性渐变层上。
+///
+/// 只处理不重复的层：平铺层本来就铺满节点，定位与尺寸没有观测意义。百分比
+/// 位置落在「盒减图像」的剩余空间里（`0 0`/`100% 100%` 是关键用例），像素
+/// 位置是绝对值；两者分开存，绘制侧相加。
+fn apply_shorthand_box(fill: &mut crate::style::BackgroundFill, bg: &Background) {
+    use crate::style::ArbitraryGradient;
+    use lightningcss::properties::background::{BackgroundRepeatKeyword, BackgroundSize};
+    use lightningcss::values::position::{HorizontalPositionKeyword, VerticalPositionKeyword};
+
+    if !matches!(bg.repeat.x, BackgroundRepeatKeyword::NoRepeat)
+        || !matches!(bg.repeat.y, BackgroundRepeatKeyword::NoRepeat)
+    {
+        return;
+    }
+    let crate::style::BackgroundFill::ArbitraryGradient {
+        gradient:
+            ArbitraryGradient::LinearGradient {
+                size,
+                position,
+                position_px,
+                size_pct,
+                ..
+            },
+    } = fill
+    else {
+        return;
+    };
+
+    if let BackgroundSize::Explicit { width, height } = &bg.size {
+        let mut pct = [0.0f32; 2];
+        let mut px = [0.0f32; 2];
+        let mut pct_ok = true;
+        for (i, v) in [width, height].into_iter().enumerate() {
+            match v {
+                LengthPercentageOrAuto::LengthPercentage(lp) => {
+                    let (f, p) = lp_split(lp);
+                    pct[i] = f;
+                    px[i] = p;
+                    pct_ok &= f > 0.0;
+                }
+                LengthPercentageOrAuto::Auto => pct_ok = false,
+            }
+        }
+        *size = Some(px);
+        *size_pct = pct_ok.then_some(pct);
+    }
+
+    let pos: lightningcss::values::position::Position = (&bg.position).into();
+    let x = match &pos.x {
+        PositionComponent::Center => (0.5, 0.0),
+        PositionComponent::Length(lp) => lp_split(lp),
+        PositionComponent::Side { side, offset } => {
+            let base = f32::from(matches!(side, HorizontalPositionKeyword::Right));
+            let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
+            (base - f, -p)
+        }
+    };
+    let y = match &pos.y {
+        PositionComponent::Center => (0.5, 0.0),
+        PositionComponent::Length(lp) => lp_split(lp),
+        PositionComponent::Side { side, offset } => {
+            let base = f32::from(matches!(side, VerticalPositionKeyword::Bottom));
+            let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
+            (base - f, -p)
+        }
+    };
+    *position = Some([x.0, y.0]);
+    *position_px = Some([x.1, y.1]);
+}
+
+/// 脚本按帧写进 `el.style.background` 的 CSS 文本 → 颜色 + 背景层。
+///
+/// 静态树只带一份样式，渐变/瓦片背景只能靠每帧 mutation 通道送进来。
+/// lightningcss 的 `Property::parse_string` 要求 `'static` 输入，因此按文本
+/// 缓存：同一串只泄漏一次，条目过多时整体丢弃重建（渐变的字符串集合很小）。
+pub fn background_from_css(
+    value: &str,
+) -> (
+    Option<crate::style::ColorToken>,
+    Vec<crate::style::BackgroundFill>,
+) {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    type Parsed = (
+        Option<crate::style::ColorToken>,
+        Vec<crate::style::BackgroundFill>,
+    );
+    thread_local! {
+        static CACHE: RefCell<HashMap<String, Parsed>> = RefCell::new(HashMap::new());
+    }
+
+    if let Some(hit) = CACHE.with(|c| c.borrow().get(value).cloned()) {
+        return hit;
+    }
+
+    let leaked: &'static str = Box::leak(value.to_string().into_boxed_str());
+    let mut color = None;
+    let mut layers = Vec::new();
+    let parsed = Property::parse_string(
+        PropertyId::BackgroundImage,
+        leaked,
+        lightningcss::stylesheet::ParserOptions::default(),
+    );
+    match parsed {
+        Ok(Property::BackgroundImage(images)) => {
+            layers.extend(images.iter().filter_map(image_to_fill));
+        }
+        _ => {}
+    }
+    if layers.is_empty() {
+        if let Ok(Property::Background(bgs)) =
+            Property::parse_string(
+                PropertyId::Background,
+                leaked,
+                lightningcss::stylesheet::ParserOptions::default(),
+            )
+        {
+            for bg in bgs.iter() {
+                color = color.or_else(|| color_token(&bg.color));
+                if let Some(mut fill) = image_to_fill(&bg.image) {
+                    apply_shorthand_box(&mut fill, bg);
+                    layers.push(fill);
+                }
+            }
+        }
+    }
+    let out = (color, layers);
+    CACHE.with(|c| {
+        let mut cache = c.borrow_mut();
+        if cache.len() > 512 {
+            cache.clear();
+        }
+        cache.insert(value.to_string(), out.clone());
+    });
+    out
 }

@@ -42,6 +42,18 @@ pub enum DomElement {
         class: Option<String>,
         style: Option<String>,
         duration: Option<f64>,
+        /// HTML 前端（docs/html-align/DESIGN.md）的可见窗协议属性：
+        /// `[start, start+duration)` 半开窗外 = Display::None（整子树退出
+        /// 布局与绘制）。JSX 通道不产生，serde default 向后兼容。
+        #[serde(default, rename = "data-start")]
+        data_start: Option<f64>,
+        #[serde(default, rename = "data-duration")]
+        data_duration: Option<f64>,
+        /// 原始 HTML 标签（html5ever 前端产；JSX 通道为 None）。保留它是为了
+        /// 行内/块级判定（`<span>` 带元素子节点时也落 Div 承载）与 CSS tag
+        /// 选择器输入。JS 端 payload 原样回传（`uaTag`）。
+        #[serde(default, rename = "uaTag")]
+        ua_tag: Option<String>,
         #[serde(default)]
         children: Vec<DomElement>,
     },
@@ -80,6 +92,12 @@ pub enum DomElement {
         class: Option<String>,
         style: Option<String>,
         duration: Option<f64>,
+        /// `width`/`height` 属性：2D 画布的像素缓冲尺寸（缺省 300x150，
+        /// 与浏览器一致）。页面的 getContext('2d') 面按它开缓冲。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        width: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        height: Option<f32>,
         #[serde(default)]
         children: Vec<DomElement>,
     },
@@ -258,6 +276,98 @@ impl DomElement {
     pub(crate) fn is_tl(&self) -> bool {
         matches!(self, DomElement::Tl { .. })
     }
+
+    /// 级联匹配的 tag 输入（与 build_node 各分支的标签语义一致）。
+    pub fn css_tag(&self) -> &'static str {
+        match self {
+            DomElement::Div { ua_tag, .. } => match ua_tag.as_deref() {
+                Some("h1") => "h1",
+                Some("h2") => "h2",
+                Some("h3") => "h3",
+                Some("h4") => "h4",
+                Some("h5") => "h5",
+                Some("h6") => "h6",
+                Some(other) => css_tag_static(other),
+                None => "div",
+            },
+            DomElement::P { ua_tag, .. } => match ua_tag.as_deref() {
+                Some("h1") => "h1",
+                Some("h2") => "h2",
+                Some("h3") => "h3",
+                Some("h4") => "h4",
+                Some("h5") => "h5",
+                Some("h6") => "h6",
+                _ => "p",
+            },
+            DomElement::Span { .. } => "span",
+            DomElement::Canvas { .. } => "canvas",
+            DomElement::Image { .. } => "image",
+            DomElement::Video { .. } => "video",
+            DomElement::Lottie { .. } => "lottie",
+            DomElement::Path { .. } => "path",
+            DomElement::Svg { .. } => "svg",
+            DomElement::Tl { .. } => "tl",
+            DomElement::Audio { .. } => "audio",
+            DomElement::Transition { .. } => "transition",
+        }
+    }
+
+    pub fn css_class(&self) -> Option<&str> {
+        match self {
+            DomElement::Div { class, .. }
+            | DomElement::P { class, .. }
+            | DomElement::Span { class, .. }
+            | DomElement::Canvas { class, .. }
+            | DomElement::Image { class, .. }
+            | DomElement::Video { class, .. }
+            | DomElement::Lottie { class, .. }
+            | DomElement::Path { class, .. }
+            | DomElement::Svg { class, .. }
+            | DomElement::Tl { class, .. } => class.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+/// HTML 标签 → 静态字符串（tag 选择器输入需要 `&'static str`）。
+fn css_tag_static(tag: &str) -> &'static str {
+    const TAGS: &[&str] = &[
+        "div", "section", "main", "header", "footer", "aside", "nav", "article", "figure",
+        "figcaption", "ul", "ol", "li", "table", "thead", "tbody", "tr", "td", "th", "button",
+        "form", "label", "a", "blockquote", "hr", "body", "html", "p", "span", "b", "strong",
+        "i", "em", "u", "small", "mark", "code",
+    ];
+    TAGS.iter().find(|t| **t == tag).copied().unwrap_or("div")
+}
+
+/// 行内级子元素判定（HTML 行内格式化）：当前覆盖文本片段（`<span>` 及
+/// b/strong/i/em/u/small/mark/code 映射），带元素子节点的行内标签仍按
+/// 块级 Div 承载，不进入行内流。
+fn inline_level_child(el: &DomElement) -> bool {
+    // `<span>` 只有纯文本时降级成 Span；带元素子节点（逐字 span 套逐字 span）
+    // 时是 ua_tag="span" 的 Div —— 两者都是行内层级。
+    match el {
+        DomElement::Span { .. } => true,
+        DomElement::Div { ua_tag, .. } => ua_tag.as_deref() == Some("span"),
+        _ => false,
+    }
+}
+
+/// 级联匹配上下文链上的节点快照（owned：build_node 消费所有权前提取）。
+#[derive(Debug, Clone, Default)]
+pub struct CssNodeInfo {    pub tag: String,
+    pub id: String,
+    pub classes: String,
+}
+
+impl CssNodeInfo {
+    pub fn of(el: &DomElement) -> Self {
+        Self {
+            tag: el.css_tag().to_string(),
+            id: el.id().to_string(),
+            classes: el.css_class().unwrap_or_default().to_string(),
+        }
+    }
 }
 
 /// 全局音频池元素（文本格式 `<audio>` 行 / JSX `export const audio`）与树内
@@ -277,6 +387,9 @@ pub struct DomDocument {
     pub height: i32,
     pub fps: i32,
     pub duration: f64,
+    /// HTML 前端标记（docs/html-align/DESIGN.md）：根节点叠 html/body
+    /// tag 别名（`html, body {}` 规则命中合成根）。
+    pub html_frontend: bool,
     pub root: Option<DomElement>,
     /// `parentId` 挂载的脚本声明（文本格式 `<script parentId>` / JSX 提取的
     /// 每元素 driver）。
@@ -309,6 +422,13 @@ pub fn composition_from_dom(
         scripts_by_parent: &doc.scripts_by_parent,
         element_ids: HashSet::new(),
         tl_ids: HashSet::new(),
+        ancestors: Vec::new(),
+        prev_siblings: Vec::new(),
+        tag_aliases: doc
+            .html_frontend
+            .then(|| vec!["body", "html"])
+            .unwrap_or_default(),
+        html_frontend: doc.html_frontend,
     };
     let mut ctx = ctx;
     // 音频池元素也占 id 命名空间（`<audio>` 是文档元素）。
@@ -385,6 +505,15 @@ struct DomContext<'a> {
     scripts_by_parent: &'a HashMap<String, Vec<DeclaredScript>>,
     element_ids: HashSet<String>,
     tl_ids: HashSet<String>,
+    /// 级联匹配栈（docs/html-align/DESIGN.md）：祖先链（近→远）由 build_node
+    /// DFS push/pop；前兄链由父分支的子循环维护。
+    ancestors: Vec<CssNodeInfo>,
+    prev_siblings: Vec<CssNodeInfo>,
+    /// 当前待装配节点的 tag 别名（html 前端根 = body/html），装配后清空。
+    tag_aliases: Vec<&'static str>,
+    /// HTML 前端（docs/html-align/DESIGN.md）：开启行内格式化标记——
+    /// 子节点全为 span 的 div 是行内内容容器，布局端串接重排。
+    html_frontend: bool,
 }
 
 /// 树内 `<audio>` 收进音频池（保持文档顺序）；其余子树继续下探。
@@ -451,13 +580,40 @@ fn resolve_style_for(
     inline_style: Option<&str>,
     ctx: &DomContext<'_>,
 ) -> NodeStyle {
-    let mut style = crate::parse::elements::resolve_style(
+    let aliases = ctx.tag_aliases.clone();
+    // 栈是远→近（根在最底），级联匹配要近→远（[0] = 父）。
+    let ancestor_views: Vec<crate::css::SelectorNode<'_>> = ctx
+        .ancestors
+        .iter()
+        .rev()
+        .map(|n| crate::css::SelectorNode {
+            tag: &n.tag,
+            id: &n.id,
+            classes: &n.classes,
+        })
+        .collect();
+    let sibling_views: Vec<crate::css::SelectorNode<'_>> = ctx
+        .prev_siblings
+        .iter()
+        .rev()
+        .map(|n| crate::css::SelectorNode {
+            tag: &n.tag,
+            id: &n.id,
+            classes: &n.classes,
+        })
+        .collect();
+    let sel_ctx = crate::css::SelectorContext {
+        ancestors: &ancestor_views,
+        prev_siblings: &sibling_views,
+        tag_aliases: &aliases,
+    };
+    let mut style = crate::parse::elements::resolve_style_ctx(
         ctx.css,
         class.unwrap_or(""),
         inline_style,
         el_id,
         tag,
-        0,
+        &sel_ctx,
     );
     // 字体引用（`font-[faceId]` / 文档默认字体）在进 Node 前解析到 family。
     if let (Some(manifest), Some(index)) = (ctx.manifest, ctx.font_index)
@@ -490,15 +646,57 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             class,
             style: inline_style,
             duration: _,
+            data_start,
+            data_duration,
+            ua_tag,
             children,
         } => {
-            let mut style = resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), ctx);
+            // HTML 前端的根节点就是 <body>（<html> 无独立节点），
+            // 组合器选择器 `body .x` 要靠祖先链上的真标签命中。
+            let is_html_root = ctx.html_frontend && ctx.ancestors.is_empty();
+            let tag = if is_html_root {
+                "body"
+            } else {
+                ua_tag.as_deref().map(css_tag_static).unwrap_or("div")
+            };
+            let mut style = resolve_style_for(&id, tag, class.as_deref(), inline_style.as_deref(), ctx);
+            // tag 别名只作用于根节点（html 前端根 = body/html）。
+            ctx.tag_aliases.clear();
+            // HTML 可见窗协议属性（docs/html-align/DESIGN.md）。
+            style.clip_start = data_start;
+            style.clip_duration = data_duration;
+            // 行内格式化：HTML 前端的块级盒，子节点全为行内级（span 等）时
+            // 建立行内流（布局端串接重排，taffy 无 IFC）。
+            style.inline_flow = ctx.html_frontend
+                && !children.is_empty()
+                && children.iter().all(inline_level_child);
             attach_driver(&mut style, &id, ctx)?;
             let mut div_node = div();
             div_node.style = style;
-            for child in children {
-                div_node = div_node.child(build_node(child, ctx)?);
+            let mut self_info = CssNodeInfo::of(&DomElement::Div {
+                id: id.clone(),
+                class: class.clone(),
+                style: inline_style.clone(),
+                duration: None,
+                data_start: None,
+                data_duration: None,
+                ua_tag: ua_tag.clone(),
+                children: Vec::new(),
+            });
+            if is_html_root {
+                self_info.tag = tag.to_string();
             }
+            ctx.ancestors.push(self_info);
+            let saved_siblings = std::mem::take(&mut ctx.prev_siblings);
+            let mut sibling_infos: Vec<CssNodeInfo> = Vec::new();
+            for child in children {
+                ctx.prev_siblings = sibling_infos.clone();
+                let child_info = CssNodeInfo::of(&child);
+                div_node = div_node.child(build_node(child, ctx)?);
+                sibling_infos.push(child_info);
+            }
+            ctx.prev_siblings = saved_siblings;
+            ctx.ancestors.pop();
             Ok(Node::new(div_node))
         }
         // HTML 语义的文本标签：p=块级段落、span=行内片段（批次②起 p/span
@@ -549,11 +747,35 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             class,
             style: inline_style,
             children,
+            width,
+            height,
             ..
         } => {
             let mut style =
                 resolve_style_for(&id, "canvas", class.as_deref(), inline_style.as_deref(), ctx);
             attach_driver(&mut style, &id, ctx)?;
+            // canvas 的 width/height 属性是固有尺寸（CSS 未给尺寸时生效），
+            // 与浏览器一致：属性只提供默认盒，CSS 的 width/height 优先。
+            if width.is_some() || height.is_some() {
+                if let Some(css) = &mut style.css_layout {
+                    if css.0.size.width.is_auto() {
+                        if let Some(w) = width {
+                            css.0.size.width = taffy::prelude::Dimension::length(w);
+                        }
+                    }
+                    if css.0.size.height.is_auto() {
+                        if let Some(h) = height {
+                            css.0.size.height = taffy::prelude::Dimension::length(h);
+                        }
+                    }
+                }
+                if style.width.is_none() {
+                    style.width = width;
+                }
+                if style.height.is_none() {
+                    style.height = height;
+                }
+            }
             let mut canvas_node = canvas();
             canvas_node.style = style;
             // Hidden picture subtree: children rasterize offscreen and are only

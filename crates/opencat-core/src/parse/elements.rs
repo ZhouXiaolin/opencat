@@ -394,6 +394,9 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
                 class: class_name,
                 style,
                 duration,
+                data_start: None,
+                data_duration: None,
+                ua_tag: None,
                 children: Vec::new(),
             },
         ),
@@ -446,6 +449,8 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
                 class: class_name,
                 style,
                 duration,
+                width: None,
+                height: None,
                 children: Vec::new(),
             },
         ),
@@ -667,6 +672,9 @@ fn attach_children(
             class,
             style,
             duration,
+            data_start: None,
+            data_duration: None,
+            ua_tag: None,
             children,
         },
         DomElement::Canvas {
@@ -674,12 +682,16 @@ fn attach_children(
             class,
             style,
             duration,
+            width,
+            height,
             ..
         } => DomElement::Canvas {
             id,
             class,
             style,
             duration,
+            width,
+            height,
             children,
         },
         DomElement::Video {
@@ -744,9 +756,29 @@ pub(crate) fn resolve_style(
     tag: &str,
     _line_number: usize,
 ) -> NodeStyle {
+    resolve_style_ctx(
+        css,
+        class_name,
+        inline_style,
+        node_id,
+        tag,
+        &crate::css::SelectorContext::default(),
+    )
+}
+
+/// 带树上下文的样式解析（docs/html-align/DESIGN.md）：祖先/前兄链供组合器
+/// 选择器匹配。
+pub(crate) fn resolve_style_ctx(
+    css: Option<&crate::css::CssEngine>,
+    class_name: &str,
+    inline_style: Option<&str>,
+    node_id: &str,
+    tag: &str,
+    sel_ctx: &crate::css::SelectorContext<'_>,
+) -> NodeStyle {
     match css {
         Some(engine) => {
-            let mut style = engine.compute_node_style(class_name, node_id, tag);
+            let mut style = engine.compute_node_style_ctx(class_name, node_id, tag, sel_ctx);
             if let Some(text) = inline_style {
                 engine.apply_inline_style(&mut style, text, node_id, tag);
             }

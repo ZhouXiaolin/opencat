@@ -68,6 +68,8 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         height: meta_f64(&meta, "height", 1080.0) as i32,
         fps: meta_f64(&meta, "fps", 30.0) as i32,
         duration: meta_f64(&meta, "duration", 3.0),
+        // HTML 前端标记（docs/html-align/DESIGN.md）：payload 显式携带。
+        html_frontend: extract.get("html").and_then(Value::as_bool).unwrap_or(false),
         ..DomDocument::default()
     };
     doc.audio = audio_from_extract(extract)?;

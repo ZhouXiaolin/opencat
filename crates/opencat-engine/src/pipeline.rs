@@ -113,7 +113,20 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Resu
         .base_dir()
         .canonicalize()
         .unwrap_or_else(|_| loader.base_dir().to_path_buf());
-    let parsed = crate::script::jsx::parse_with_base_dir(input, Some(&base_dir))?;
+    // HTML 前端（docs/html-align/DESIGN.md）：hyperframes 页面按内容嗅探
+    // 分流——源文本以 doctype/`<html`/注释开头即 HTML 通道，其余走 JSX。
+    let looks_html = {
+        let t = input.trim_start();
+        t.starts_with("<!DOCTYPE")
+            || t.starts_with("<!doctype")
+            || t.starts_with("<html")
+            || t.starts_with("<!--")
+    };
+    let parsed = if looks_html {
+        crate::script::html::parse_with_base_dir(input, Some(&base_dir))?
+    } else {
+        crate::script::jsx::parse_with_base_dir(input, Some(&base_dir))?
+    };
     let font_bytes = loader.load_font_manifest(&parsed.font_manifest)?;
     loader.register_font_handles(&parsed.font_manifest, &font_bytes)?;
     let host = open_parsed_host_owned_with_fonts(

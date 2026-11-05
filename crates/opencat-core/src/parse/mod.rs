@@ -3,6 +3,7 @@ pub mod dom;
 pub mod document;
 pub mod easing;
 pub mod gl_transition;
+pub mod html;
 pub mod jsx;
 pub mod jsx_transform;
 pub mod elements;

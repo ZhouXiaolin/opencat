@@ -50,6 +50,13 @@ pub const DOM_API_RUNTIME: &str = include_str!("dom_api.js");
 // calls `ctx.getContext` defined here.
 pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
 
+// HTML frontend (`parse::html` + engine `script::html`): materializes the
+// html5ever seed tree into a JS element tree, lets page scripts build the
+// final structure, wraps gsap factories for the absolute-seek protocol, and
+// serializes the final tree back via `__ocHtmlExtract`. Self-contained — the
+// per-frame driver embeds this whole IIFE (re-eval = state reset).
+pub const HTML_API_RUNTIME: &str = include_str!("html_api.js");
+
 // JSX frontend (`parse::jsx`): element factory + `use*` registry + module
 // loader, installed in every script realm (the per-frame driver produced by
 // `parse::jsx` depends on them). The JSX->h() transform lives in Rust

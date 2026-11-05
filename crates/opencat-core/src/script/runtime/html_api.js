@@ -1,0 +1,1121 @@
+// HTML 前端文档面（docs/html-align/DESIGN.md）。
+//
+// hyperframes 页面 = 静态 HTML + 页面脚本动态建 DOM + GSAP 时间轴。本运行时
+// 把 html5ever 解析出的种子树（`__ocHtmlSeed`）物化成一份 JS 元素树，页面
+// 脚本在它上面继续构建最终结构；`__ocHtmlExtract()` 把最终树序列化回
+// DomElement JSON。每帧 `__ocHtmlResetFrame` 从种子重物化（脚本重放幂等），
+// `__ocHtmlSeek` 把本帧登记的 GSAP 产物 pause + absolute seek —— write-out
+// 即 seek，frame = f(t)。
+//
+// 与 jsx 通道的关系：样式写走同一 store 通道（`__write_style_value`），gsap
+// 面按元素对象目标工作（nodeType/tagName/style/classList）。文本内容静态
+// （seed 期定稿）；textContent tween 挂账（DESIGN.md 批次 B）。
+(function () {
+    'use strict';
+
+    var nodes = Object.create(null); // id → element face
+    var rootFace = null;
+    // 本帧登记的 gsap 产物（timeline 或顶层补间）。必须挂在 globalThis 上：
+    // 本文件每帧重 eval，闭包里的数组会随之重建，而 gsap 的包装器只装一次
+    // （旧闭包仍持有它），新帧写进旧数组 → 产物永不回收，整片渲染顶到 V8
+    // 堆上限（~110 帧即 OOM）。
+    var timelines = globalThis.__ocHtmlTimelines || (globalThis.__ocHtmlTimelines = []);
+    var synthSeq = 0;
+    var seed = null;
+    var hasStore = typeof __write_style_value === 'function';
+
+    // ── style 通道 ────────────────────────────────────────────────
+    // store 的键是 GSAP 词表，页面脚本写的是 CSS 词表：差异名在这一层
+    // 归一（`fontSize` 与 gsap 的 `textSize` 是同一字段）。
+    var CSS_KEY_ALIAS = { fontSize: 'textSize' };
+    function styleKey(name) {
+        name = String(name);
+        if (name.indexOf('--') === 0) return name;
+        if (name.indexOf('-') >= 0) {
+            name = name.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); });
+        }
+        return CSS_KEY_ALIAS[name] || name;
+    }
+
+    // 纯色判定：`border` 简写拆出来的颜色段要先验证是颜色本身。
+    var FLAT_COLOR = /^#([0-9a-fA-F]{3,8})$|^rgba?\(|^hsla?\(|^[a-zA-Z]+$/;
+    function writeStyle(id, key, value) {
+        if (!hasStore || !id) return;
+        var k = styleKey(key);
+        var v = value;
+        if (k === 'border') {
+            // `border: 1px solid rgba(...)` 拆成 store 的宽度 + 颜色两字段
+            var str = String(v);
+            var w = /(\d+(?:\.\d+)?)px/.exec(str);
+            var c = str.replace(/\d+(?:\.\d+)?px/g, '').replace(/solid|dashed|dotted|none/g, '').trim();
+            if (w) __write_style_value(id, 'borderWidth', w[1]);
+            if (c && FLAT_COLOR.test(c)) __write_style_value(id, 'borderColor', c);
+            return;
+        }
+        __write_style_value(id, k, v);
+    }
+
+    function readStyle(id, key) {
+        if (!hasStore || !id) return '';
+        var v = __read_style_value(id, styleKey(key));
+        return v === null || v === undefined ? '' : v;
+    }
+
+    function makeStyleProxy(el) {
+        // 取 id 必须延迟：`this.style = makeStyleProxy(this)` 在 id 存取器
+        // 定义之前执行，构造期读 `el.id` 恒为 undefined（写全被静默丢弃）。
+        function id() { return el.__payload.id; }
+        return new Proxy({}, {
+            get(_t, prop) {
+                if (typeof prop !== 'string') return undefined;
+                if (prop === 'setProperty') {
+                    return function (name, value) { writeStyle(id(), name, value); };
+                }
+                if (prop === 'getPropertyValue') {
+                    return function (name) { return String(readStyle(id(), name)); };
+                }
+                if (prop === 'removeProperty') return function () { return ''; };
+                if (prop === 'cssText') {
+                    return function () {
+                        var inline = el.__payload.style || '';
+                        var dyn = Object.keys(el.__styleBag).map(function (k) {
+                            return k + ': ' + el.__styleBag[k];
+                        });
+                        return dyn.length ? inline + '; ' + dyn.join('; ') : inline;
+                    };
+                }
+                var v = readStyle(id(), prop);
+                return v === '' ? (el.__styleBag[prop] !== undefined ? el.__styleBag[prop] : '') : v;
+            },
+            set(_t, prop, value) {
+                if (typeof prop !== 'string') return false;
+                if (prop === 'cssText') {
+                    String(value).split(';').forEach(function (decl) {
+                        var i = decl.indexOf(':');
+                        if (i < 0) return;
+                        var name = decl.slice(0, i).trim();
+                        if (!name) return;
+                        writeStyle(id(), name, decl.slice(i + 1).trim());
+                    });
+                    return true;
+                }
+                el.__styleBag[prop] = value;
+                writeStyle(id(), prop, value);
+                return true;
+            },
+            // gsap CSSPlugin 用 `'transform' in style` 探测属性支持
+            // （_checkPropPrefix）：无 has trap 时探测落空 → gr=null →
+            // `_parseTransform` 里 `e.replace` 炸。声明全支持（tree_api 的
+            // detachedStyle 同款约定）。
+            has() { return true; },
+        });
+    }
+
+    // ── 选择器引擎 ────────────────────────────────────────────────
+    // compound：tag / #id / .class / [attr=v]；组合器：后代 / > / + / ~；
+    // 逗号分隔多选择器。伪类伪元素不支持（永不匹配）。
+    function parseSelector(sel) {
+        var s = String(sel == null ? '' : sel).trim();
+        if (!s) return null;
+        var seqs = s.split(',').map(function (part) { return part.trim(); }).filter(Boolean);
+        var out = [];
+        for (var g = 0; g < seqs.length; g++) {
+            var seq = parseCompoundSeq(seqs[g]);
+            if (!seq) return null;
+            out.push(seq);
+        }
+        return out.length ? out : null;
+    }
+
+    // 一个 sequence：[{parts, comb}]，comb 是它与左侧相邻 compound 的组合器；
+    // parts[0] 是 subject。右到左匹配从 sequence 末尾开始。
+    function parseCompoundSeq(input) {
+        var s = input;
+        var i = 0;
+        var seq = [];
+        var pendingComb = null;
+        function readCompound() {
+            var parts = [];
+            var m = /^[a-zA-Z][\w-]*/.exec(s.slice(i));
+            if (m) { parts.push({ kind: 'tag', name: m[0].toLowerCase() }); i += m[0].length; }
+            for (;;) {
+                var ch = s[i];
+                if (ch === '#') {
+                    m = /^([\w-]+)/.exec(s.slice(i + 1));
+                    if (!m) return null;
+                    parts.push({ kind: 'id', name: m[1] }); i += 1 + m[0].length;
+                } else if (ch === '.') {
+                    m = /^([\w-]+)/.exec(s.slice(i + 1));
+                    if (!m) return null;
+                    parts.push({ kind: 'class', name: m[1] }); i += 1 + m[0].length;
+                } else if (ch === '[') {
+                    var close = s.indexOf(']', i);
+                    if (close < 0) return null;
+                    var inner = s.slice(i + 1, close);
+                    var eq = inner.indexOf('=');
+                    parts.push(eq >= 0
+                        ? { kind: 'attr', name: inner.slice(0, eq).trim(), value: inner.slice(eq + 1).trim().replace(/^["']|["']$/g, '') }
+                        : { kind: 'attr', name: inner.trim(), value: null });
+                    i = close + 1;
+                } else if (ch === ':') {
+                    return null;
+                } else break;
+            }
+            return parts.length ? parts : null;
+        }
+        for (;;) {
+            while (i < s.length && /\s/.test(s[i])) i++;
+            if (i >= s.length) break;
+            var parts = readCompound();
+            if (!parts) return null;
+            var comb = pendingComb || ' ';
+            pendingComb = null;
+            seq.push({ parts: parts, comb: comb });
+            var j = i;
+            while (j < s.length && /\s/.test(s[j])) j++;
+            if (j >= s.length) break;
+            if (s[j] === '>') { pendingComb = '>'; i = j + 1; }
+            else if (s[j] === '+') { pendingComb = '+'; i = j + 1; }
+            else if (s[j] === '~') { pendingComb = '~'; i = j + 1; }
+            // j > i 说明两个 compound 之间隔着空白 = 后代组合器（s[j] 已经是
+            // 下一个 compound 的首字符，不能再拿它判空白，否则 `.pin .stem`
+            // 这类后代选择器整条被丢弃）。
+            else if (j > i) { pendingComb = ' '; i = j; }
+            else return null;
+        }
+        return seq.length ? seq : null;
+    }
+
+    function elTag(el) {
+        var t = String(el.__payload.type || 'div').toLowerCase();
+        // 引擎节点名 → HTML 语义（CSS tag 选择器输入）
+        if (t === 'text') return 'span';
+        if (t === 'image') return 'img';
+        return t;
+    }
+
+    function elClasses(el) {
+        var cls = el.__payload.className || '';
+        return cls ? cls.split(/\s+/) : [];
+    }
+
+    function compoundMatches(el, parts) {
+        for (var i = 0; i < parts.length; i++) {
+            var p = parts[i];
+            if (p.kind === 'tag') {
+                if (elTag(el) !== p.name) {
+                    // html/body 别名只给根
+                    if (!((p.name === 'html' || p.name === 'body') && el === rootFace)) return false;
+                }
+            } else if (p.kind === 'id') {
+                if (el.id !== p.name) return false;
+            } else if (p.kind === 'class') {
+                if (elClasses(el).indexOf(p.name) < 0) return false;
+            } else if (p.kind === 'attr') {
+                var v = el.getAttribute(p.name);
+                if (p.value === null) { if (v === null) return false; }
+                else if (v !== p.value) return false;
+            }
+        }
+        return true;
+    }
+
+    function seqMatches(el, seq) {
+        // seq 右到左：seq[len-1] 是 subject。
+        var idx = seq.length - 1;
+        if (!compoundMatches(el, seq[idx].parts)) return false;
+        var cur = el;
+        while (idx > 0) {
+            idx--;
+            var comb = seq[idx + 1].comb; // subject 与左侧的连接
+            if (comb === '>') {
+                cur = cur.parentNode;
+                if (!cur || cur.nodeType !== 1 || !compoundMatches(cur, seq[idx].parts)) return false;
+            } else if (comb === ' ') {
+                var found = false;
+                cur = cur.parentNode;
+                while (cur && cur.nodeType === 1) {
+                    if (compoundMatches(cur, seq[idx].parts)) { found = true; break; }
+                    cur = cur.parentNode;
+                }
+                if (!found) return false;
+            } else if (comb === '+' || comb === '~') {
+                var sibs = elementSiblings(cur);
+                var at = sibs.indexOf(cur);
+                var hit = false;
+                for (var k = at - 1; k >= 0; k--) {
+                    if (compoundMatches(sibs[k], seq[idx].parts)) { hit = true; break; }
+                    if (comb === '+') break; // 相邻只看紧邻前兄
+                }
+                if (!hit) return false;
+                cur = sibs[k];
+            } else return false;
+        }
+        return true;
+    }
+
+    function matchesSelector(el, parsed) {
+        for (var i = 0; i < parsed.length; i++) {
+            if (seqMatches(el, parsed[i])) return true;
+        }
+        return false;
+    }
+
+    function walkAll(el, out) {
+        var kids = el.__kids || [];
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].nodeType !== 1) continue; // 文本节点不进选择器树
+            out.push(kids[i]);
+            walkAll(kids[i], out);
+        }
+        return out;
+    }
+
+    // 选择器兄弟语义只看元素（+ / ~ 跳过文本节点，DOM 标准行为）。
+    function elementSiblings(el) {
+        var parent = el.parentNode;
+        if (!parent) return [];
+        return (parent.__kids || []).filter(function (k) { return k.nodeType === 1; });
+    }
+
+    function queryAll(roots, sel) {
+        var parsed = parseSelector(sel);
+        if (!parsed) return [];
+        var all = [];
+        for (var i = 0; i < roots.length; i++) walkAll(roots[i], all);
+        return all.filter(function (el) { return matchesSelector(el, parsed); });
+    }
+
+    // ── innerHTML fragment 解析 ───────────────────────────────────
+    // 页面脚本注入的标记是模板字符串拼的（k3 语料）：div/span/br/img/
+    // svg 子树/文本/实体。 tokenizer 级解析，不追求完整 HTML5 语法。
+    var ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0' };
+
+    function decodeEntities(text) {
+        return String(text).replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, function (_, body) {
+            if (body[0] === '#') {
+                var code = body[1] === 'x' || body[1] === 'X'
+                    ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+                return isNaN(code) ? _ : String.fromCharCode(code);
+            }
+            return ENTITIES[body] !== undefined ? ENTITIES[body] : _;
+        });
+    }
+
+    var VOID_TAGS = { br: 1, img: 1, hr: 1, input: 1, meta: 1, link: 1 };
+
+    // fragment/createElement 的 tag → 引擎 DomElement 归一（serde 枚举只认
+    // 固定变体，unknown 直接炸——Rust 解析端的 Div 兜底到不了这条路）。
+    // 语义装饰标签（i/b/u/…）降 div：Div 承载文本时 Rust 端合成 P，不丢内容。
+    var FRAG_TAG_MAP = {
+        img: 'image', image: 'image', video: 'video', audio: 'audio',
+        canvas: 'canvas', svg: 'svg',
+        p: 'p', span: 'span', text: 'span',
+        h1: 'p', h2: 'p', h3: 'p', h4: 'p', h5: 'p', h6: 'p',
+        i: 'div', b: 'div', strong: 'div', em: 'div', u: 'div', small: 'div',
+        label: 'div', section: 'div', header: 'div', footer: 'div', nav: 'div',
+        main: 'div', article: 'div', aside: 'div', hr: 'div', br: 'div',
+        ul: 'div', ol: 'div', li: 'div', dl: 'div', dt: 'div', dd: 'div',
+        a: 'div', button: 'div', input: 'div', form: 'div', table: 'div',
+    };
+    function normalizeEngineTag(tag) {
+        return FRAG_TAG_MAP[tag] || 'div';
+    }
+
+    function xmlEscape(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    // svg 子树整体序列化成近似 XML（DomElement::Svg.inline 通道，与 Rust
+    // 解析端 serialize_subtree 同语义）；子树不再展开成 JS 元素。
+    function xmlSerialize(node) {
+        var s = '<' + node.tag;
+        for (var k in node.attrs) s += ' ' + k + '="' + xmlEscape(node.attrs[k]) + '"';
+        if (!node.kids.length) return s + '/>';
+        s += '>';
+        node.kids.forEach(function (kid) {
+            if (kid.text !== undefined) s += xmlEscape(kid.text);
+            else s += xmlSerialize(kid);
+        });
+        return s + '</' + node.tag + '>';
+    }
+
+    function parseFragment(html) {
+        var out = []; // [{tag, attrs, text}]
+        var s = String(html == null ? '' : html);
+        var i = 0;
+        var stack = []; // 未闭合标签栈；text 收进当前栈顶（或根）
+        function emit(node) {
+            if (stack.length) stack[stack.length - 1].kids.push(node);
+            else out.push(node);
+        }
+        while (i < s.length) {
+            var lt = s.indexOf('<', i);
+            if (lt < 0) {
+                var rest = s.slice(i);
+                if (rest) emit({ text: decodeEntities(rest) });
+                break;
+            }
+            if (lt > i) emit({ text: decodeEntities(s.slice(i, lt)) });
+            if (s.slice(lt, lt + 4) === '<!--') {
+                var end = s.indexOf('-->', lt);
+                i = end < 0 ? s.length : end + 3;
+                continue;
+            }
+            var close = /^<\/\s*([a-zA-Z][\w-]*)\s*>/.exec(s.slice(lt));
+            if (close) {
+                // 弹到同名标签为止（不校验嵌套，语料形态简单）
+                var name = close[1].toLowerCase();
+                for (var d = stack.length - 1; d >= 0; d--) {
+                    if (stack[d].tag === name) { stack.length = d; break; }
+                }
+                i = lt + close[0].length;
+                continue;
+            }
+            var open = /^<\s*([a-zA-Z][\w-]*)((?:\s+[\w-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)\s*>/.exec(s.slice(lt));
+            if (!open) {
+                // 不是标签（比如 `< ` 字面量）→ 文本
+                emit({ text: '<' });
+                i = lt + 1;
+                continue;
+            }
+            var node = { tag: open[1].toLowerCase(), attrs: {}, kids: [] };
+            var attrRe = /([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+            var am;
+            while ((am = attrRe.exec(open[2]))) {
+                var v = am[2] !== undefined ? am[2] : am[3] !== undefined ? am[3] : am[4] !== undefined ? am[4] : '';
+                node.attrs[am[1].toLowerCase()] = decodeEntities(v);
+            }
+            emit(node);
+            if (!open[3] && !VOID_TAGS[node.tag]) stack.push(node);
+            i = lt + open[0].length;
+        }
+        return out;
+    }
+
+    // ── 序列化（extract）─────────────────────────────────────────
+    // JS 树 → DomElement JSON。裸文本不能挂 Div（DomElement::Div 无 text
+    // 字段）：统一合成 P 子节点，与 html.rs 解析期 assemble_children 同语义。
+    function serializeNode(el) {
+        var p = el.__payload;
+        var out = { type: p.type, id: p.id };
+        if (p.className) out.className = p.className;
+        var inline = p.style || '';
+        if (inline) out.style = inline;
+        if (p.uaTag) out.uaTag = p.uaTag;
+        // svg 整树字符串通道：静态树（Rust 解析端产）与 fragment 路径同字段
+        if (p.inline) out.inline = p.inline;
+        else if (p.__svgInline) out.inline = p.__svgInline;
+        if (p.width !== undefined && p.width !== null) out.width = p.width;
+        if (p.height !== undefined && p.height !== null) out.height = p.height;
+        if (p.preserveAspectRatio) out.preserveAspectRatio = p.preserveAspectRatio;
+        if (p.data_start !== undefined && p.data_start !== null) out['data-start'] = p.data_start;
+        if (p.data_duration !== undefined && p.data_duration !== null) out['data-duration'] = p.data_duration;
+        if (p.src) out.src = p.src;
+        if (p.duration !== undefined && p.duration !== null) out.duration = p.duration;
+
+        var elementKids = el.__kids.filter(function (k) { return k.nodeType === 1; });
+        var textContent = p.text || '';
+
+        // 动态文本子节点（createTextNode → appendChild）并进 textContent 池
+        var textKids = '';
+        el.__kids.forEach(function (k) {
+            if (k.nodeType === 3) textKids += k.data;
+        });
+
+        // 前后空白裁剪与 html.rs 一致；中间空白保留（CSS 折叠在渲染端）。
+        // 注意 JS 的 `\s` 含 U+00A0（&nbsp;）——它是不可折叠空格，必须保留，
+        // 否则 k3 逐字 span 用 innerHTML="&nbsp;" 占位的空格会消失。
+        var allText = (textContent + textKids)
+            .replace(/^[ \t\n\r\f]*\n[ \t\n\r\f]*/, '')
+            .replace(/[ \t\n\r\f]*$/, '');
+
+        if (elementKids.length === 0) {
+            if (p.type === 'div') {
+                if (allText) out.children = [{ type: 'p', id: p.id + ':t', text: allText }];
+            } else {
+                // p/span/text 承载文本
+                if (allText || p.type === 'p' || p.type === 'span' || p.type === 'text') {
+                    out.text = allText;
+                }
+            }
+            return out;
+        }
+
+        // 有 element 子节点：
+        if (p.type === 'div') {
+            var kids = [];
+            if (allText) kids.push({ type: 'p', id: p.id + ':t', text: allText });
+            elementKids.forEach(function (k) { kids.push(serializeNode(k)); });
+            out.children = kids;
+            return out;
+        }
+        // p/span 承载文本却有了元素子节点 → 降级 div + 文本 P 首子
+        out.type = 'div';
+        var downgraded = [{ type: 'p', id: p.id + ':t', text: allText }];
+        elementKids.forEach(function (k) { downgraded.push(serializeNode(k)); });
+        out.children = downgraded;
+        return out;
+    }
+
+    // ── 元素 face ─────────────────────────────────────────────────
+    function HtmlText(data) {
+        this.nodeType = 3;
+        this.nodeName = '#text';
+        this.data = String(data);
+        this.parentNode = null;
+    }
+
+    function FragmentFace() {
+        this.nodeType = 11;
+        this.nodeName = '#document-fragment';
+        this.__kids = [];
+        this.parentNode = null;
+    }
+    FragmentFace.prototype.appendChild = function (child) {
+        if (!child) return child;
+        if (child.parentNode) child.parentNode.removeChild(child);
+        child.parentNode = this;
+        this.__kids.push(child);
+        return child;
+    };
+
+    // 外部库初始化期间（__ocExtPhase）造的探测元素另立命名空间：它们只在
+    // 首帧存在，混进主序号会让后续帧的合成 id 整体漂移，mutation 就落空。
+    var extSeq = 0;
+    function nextSynthId(hint) {
+        var base = String(hint || 'el').replace(/[^\w-]/g, '') || 'el';
+        if (globalThis.__ocExtPhase) {
+            return 'ext:' + base + ':' + (extSeq++);
+        }
+        var id;
+        do { id = base + ':' + (synthSeq++); } while (nodes[id]);
+        return id;
+    }
+
+    function createElementFace(payload) {
+        return new HtmlElement(payload);
+    }
+
+    function HtmlElement(payload) {
+        this.nodeType = 1;
+        this.__payload = payload;
+        this.__styleBag = Object.create(null);
+        this.__kids = []; // element/text faces；种子 children 在物化期填
+        this.parentNode = null;
+        this.__attrs = Object.create(null); // data-* 等动态属性袋
+        this.style = makeStyleProxy(this);
+        this.classList = attachClassList(this);
+
+        var self = this;
+        Object.defineProperty(this, 'id', {
+            get: function () { return self.__payload.id; },
+            set: function (v) {
+                var old = self.__payload.id;
+                if (old && nodes[old] === self) delete nodes[old];
+                self.__payload.id = String(v);
+                nodes[self.__payload.id] = self;
+            },
+            enumerable: true,
+        });
+        Object.defineProperty(this, 'className', {
+            get: function () { return self.__payload.className || ''; },
+            set: function (v) { self.__payload.className = String(v || ''); },
+            enumerable: true,
+        });
+        Object.defineProperty(this, 'tagName', { get: function () { return elTag(self).toUpperCase(); } });
+        this.nodeName = this.tagName;
+        Object.defineProperty(this, 'innerHTML', {
+            get: function () { return serializeHtml(self); },
+            set: function (v) {
+                self.__kids = [];
+                var frag = parseFragment(v);
+                frag.forEach(function (n) { self.__kids.push(materializeFragmentNode(n, self)); });
+            },
+            enumerable: true,
+        });
+        Object.defineProperty(this, 'textContent', {
+            get: function () {
+                var t = self.__payload.text || '';
+                self.__kids.forEach(function (k) {
+                    if (k.nodeType === 3) t += k.data;
+                    else if (k.nodeType === 1) t += k.textContent;
+                });
+                return t;
+            },
+            set: function (v) {
+                self.__kids = [];
+                self.__payload.text = String(v == null ? '' : v);
+            },
+            enumerable: true,
+        });
+        Object.defineProperty(this, 'children', {
+            get: function () { return self.__kids.filter(function (k) { return k.nodeType === 1; }); },
+        });
+        Object.defineProperty(this, 'childNodes', {
+            get: function () { return self.__kids.slice(); },
+        });
+        Object.defineProperty(this, 'firstChild', {
+            get: function () { return self.__kids.length ? self.__kids[0] : null; },
+        });
+        Object.defineProperty(this, 'lastChild', {
+            get: function () { return self.__kids.length ? self.__kids[self.__kids.length - 1] : null; },
+        });
+        Object.defineProperty(this, 'nextSibling', {
+            get: function () {
+                var p = self.parentNode;
+                if (!p) return null;
+                var i = p.__kids.indexOf(self);
+                return i >= 0 && i + 1 < p.__kids.length ? p.__kids[i + 1] : null;
+            },
+        });
+        Object.defineProperty(this, 'previousSibling', {
+            get: function () {
+                var p = self.parentNode;
+                if (!p) return null;
+                var i = p.__kids.indexOf(self);
+                return i > 0 ? p.__kids[i - 1] : null;
+            },
+        });
+    }
+
+    function detach(child) {
+        if (child.parentNode) {
+            var sibs = child.parentNode.__kids;
+            var i = sibs.indexOf(child);
+            if (i >= 0) sibs.splice(i, 1);
+        }
+    }
+
+    HtmlElement.prototype.appendChild = function (child) {
+        if (!child) return child;
+        if (child instanceof FragmentFace) {
+            var kids = child.__kids.slice();
+            kids.forEach(function (k) { this.appendChild(k); }, this);
+            child.__kids = [];
+            return child;
+        }
+        detach(child);
+        child.parentNode = this;
+        this.__kids.push(child);
+        return child;
+    };
+    HtmlElement.prototype.insertBefore = function (child, ref) {
+        if (!child) return child;
+        if (!ref) return this.appendChild(child);
+        if (child instanceof FragmentFace) {
+            var kids = child.__kids.slice();
+            var self = this;
+            kids.forEach(function (k) { self.insertBefore(k, ref); });
+            return child;
+        }
+        detach(child);
+        var i = this.__kids.indexOf(ref);
+        if (i < 0) { child.parentNode = this; this.__kids.push(child); }
+        else { child.parentNode = this; this.__kids.splice(i, 0, child); }
+        return child;
+    };
+    HtmlElement.prototype.removeChild = function (child) {
+        var i = this.__kids.indexOf(child);
+        if (i >= 0) { this.__kids.splice(i, 1); child.parentNode = null; }
+        return child;
+    };
+    HtmlElement.prototype.replaceChild = function (nu, old) {
+        var i = this.__kids.indexOf(old);
+        if (i < 0) return this.appendChild(nu);
+        this.removeChild(old);
+        this.insertBefore(nu, this.__kids[i] || null);
+        return old;
+    };
+    HtmlElement.prototype.contains = function (other) {
+        var cur = other;
+        while (cur) { if (cur === this) return true; cur = cur.parentNode; }
+        return false;
+    };
+    HtmlElement.prototype.cloneNode = function () {
+        var payload = {};
+        for (var k in this.__payload) {
+            if (Object.prototype.hasOwnProperty.call(this.__payload, k)) payload[k] = this.__payload[k];
+        }
+        payload.id = nextSynthId(this.__payload.id);
+        var copy = createElementFace(payload);
+        var self = this;
+        this.__kids.forEach(function (k) {
+            if (k.nodeType === 3) copy.appendChild(new HtmlText(k.data));
+            else if (k.nodeType === 1) copy.appendChild(k.cloneNode(true));
+        });
+        return copy;
+    };
+    HtmlElement.prototype.setAttribute = function (name, value) {
+        var n = String(name).toLowerCase();
+        var v = String(value);
+        if (n === 'class') this.__payload.className = v;
+        else if (n === 'style') this.__payload.style = v;
+        else if (n === 'id') this.id = v;
+        else if (n === 'src') this.__payload.src = v;
+        else if (n === 'data-start') this.__payload.data_start = parseFloat(v);
+        else if (n === 'data-duration') this.__payload.data_duration = parseFloat(v);
+        else this.__attrs[n] = v;
+    };
+    HtmlElement.prototype.getAttribute = function (name) {
+        var n = String(name).toLowerCase();
+        if (n === 'class') return this.__payload.className || null;
+        if (n === 'style') return this.__payload.style || null;
+        if (n === 'id') return this.__payload.id;
+        if (n === 'src') return this.__payload.src || null;
+        if (n === 'data-start') return this.__payload.data_start !== undefined ? String(this.__payload.data_start) : null;
+        if (n === 'data-duration') return this.__payload.data_duration !== undefined ? String(this.__payload.data_duration) : null;
+        return Object.prototype.hasOwnProperty.call(this.__attrs, n) ? this.__attrs[n] : null;
+    };
+    HtmlElement.prototype.hasAttribute = function (name) {
+        return this.getAttribute(name) !== null;
+    };
+    HtmlElement.prototype.removeAttribute = function (name) {
+        var n = String(name).toLowerCase();
+        if (n === 'class') this.__payload.className = '';
+        else if (n === 'style') this.__payload.style = '';
+        else if (n === 'src') delete this.__payload.src;
+        else delete this.__attrs[n];
+    };
+    HtmlElement.prototype.addEventListener = function () {};
+    HtmlElement.prototype.removeEventListener = function () {};
+    HtmlElement.prototype.dispatchEvent = function () { return true; };
+    HtmlElement.prototype.focus = function () {};
+    HtmlElement.prototype.blur = function () {};
+
+    function attachClassList(el) {
+        var face = {
+            add: function () {
+                var cls = elClasses(el);
+                for (var i = 0; i < arguments.length; i++) {
+                    var c = String(arguments[i]);
+                    if (c && cls.indexOf(c) < 0) cls.push(c);
+                }
+                el.__payload.className = cls.join(' ');
+            },
+            remove: function () {
+                var cls = elClasses(el);
+                for (var i = 0; i < arguments.length; i++) {
+                    var at = cls.indexOf(String(arguments[i]));
+                    if (at >= 0) cls.splice(at, 1);
+                }
+                el.__payload.className = cls.join(' ');
+            },
+            toggle: function (c, force) {
+                var cls = elClasses(el);
+                var at = cls.indexOf(String(c));
+                var want = force === undefined ? at < 0 : !!force;
+                if (want && at < 0) { cls.push(String(c)); }
+                else if (!want && at >= 0) cls.splice(at, 1);
+                el.__payload.className = cls.join(' ');
+                return want;
+            },
+            contains: function (c) { return elClasses(el).indexOf(String(c)) >= 0; },
+        };
+        Object.defineProperty(face, 'value', { get: function () { return el.__payload.className || ''; } });
+        return face;
+    }
+
+    // 布局盒：先读本帧样式盒，声明盒为空（内容自适应尺寸）时退回上一帧布局
+    // 探针的视口坐标盒——`offsetWidth` 是浏览器布局的事实，页面脚本（k3 的
+    // pillDims）据它算位置，恒回 0 会让所有这类定位偏掉。
+    function boxOf(el) {
+        var id = el.__payload.id;
+        var raw = (typeof __read_box === 'function' && __read_box(id)) || {};
+        var box = {
+            left: Number(raw.left) || 0,
+            top: Number(raw.top) || 0,
+            width: Number(raw.width) || 0,
+            height: Number(raw.height) || 0,
+        };
+        if ((box.width === 0 || box.height === 0) && typeof __read_layout_box === 'function') {
+            var laid = __read_layout_box(id);
+            if (laid) {
+                box.left = Number(laid.left) || 0;
+                box.top = Number(laid.top) || 0;
+                box.width = Number(laid.width) || 0;
+                box.height = Number(laid.height) || 0;
+            }
+        }
+        return box;
+    }
+
+    HtmlElement.prototype.getBoundingClientRect = function () {
+        var b = boxOf(this);
+        return {
+            x: b.left, y: b.top, left: b.left, top: b.top,
+            right: b.left + b.width, bottom: b.top + b.height,
+            width: b.width, height: b.height,
+        };
+    };
+    Object.defineProperty(HtmlElement.prototype, 'offsetWidth', { get: function () { return boxOf(this).width; } });
+    Object.defineProperty(HtmlElement.prototype, 'offsetHeight', { get: function () { return boxOf(this).height; } });
+    Object.defineProperty(HtmlElement.prototype, 'offsetLeft', { get: function () { return boxOf(this).left; } });
+    Object.defineProperty(HtmlElement.prototype, 'offsetTop', { get: function () { return boxOf(this).top; } });
+    Object.defineProperty(HtmlElement.prototype, 'clientWidth', { get: function () { return boxOf(this).width; } });
+    Object.defineProperty(HtmlElement.prototype, 'clientHeight', { get: function () { return boxOf(this).height; } });
+    HtmlElement.prototype.querySelector = function (sel) {
+        var list = queryAll([this], sel);
+        return list.length ? list[0] : null;
+    };
+    HtmlElement.prototype.querySelectorAll = function (sel) { return queryAll([this], sel); };
+    HtmlElement.prototype.matches = function (sel) {
+        var parsed = parseSelector(sel);
+        return !!parsed && matchesSelector(this, parsed);
+    };
+
+    // innerHTML 读回（调试用途为主）
+    function serializeHtml(el) {
+        var s = String(el.__payload.text || '');
+        el.__kids.forEach(function (k) {
+            if (k.nodeType === 3) s += k.data.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            else if (k.nodeType === 1) {
+                s += '<' + elTag(k);
+                if (k.__payload.className) s += ' class="' + k.__payload.className + '"';
+                s += '>';
+                s += serializeHtml(k);
+                s += '</' + elTag(k) + '>';
+            }
+        });
+        return s;
+    }
+
+    function materializeFragmentNode(node, parent) {
+        if (node.text !== undefined) return new HtmlText(node.text);
+        // svg 子树：整体字符串化进 inline，不展开 JS 子树
+        if (node.tag === 'svg') {
+            var svgPayload = {
+                type: 'svg',
+                id: node.attrs['id'] || nextSynthId('svg'),
+                className: node.attrs['class'] || '',
+                style: node.attrs['style'] || '',
+                __svgInline: xmlSerialize(node),
+            };
+            delete node.attrs['id'];
+            var svgEl = createElementFace(svgPayload);
+            svgEl.parentNode = parent;
+            nodes[svgPayload.id] = svgEl;
+            return svgEl;
+        }
+        var payload = {
+            type: normalizeEngineTag(node.tag),
+            uaTag: node.tag,
+            id: nextSynthId(node.tag),
+            className: node.attrs['class'] || '',
+            style: node.attrs['style'] || '',
+        };
+        delete node.attrs['class'];
+        delete node.attrs['style'];
+        var bag = Object.create(null);
+        for (var a in node.attrs) {
+            if (a === 'src') payload.src = node.attrs[a];
+            else if (a === 'id') payload.id = node.attrs[a];
+            else if (a === 'data-start') payload.data_start = parseFloat(node.attrs[a]);
+            else if (a === 'data-duration') payload.data_duration = parseFloat(node.attrs[a]);
+            else bag[a] = node.attrs[a];
+        }
+        var el = createElementFace(payload);
+        el.parentNode = parent;
+        el.__attrs = bag;
+        node.kids.forEach(function (kid) { el.__kids.push(materializeFragmentNode(kid, el)); });
+        nodes[payload.id] = el;
+        return el;
+    }
+
+    // canvas 元素：getContext('2d') → ctx.surface 面（其返回值本身就是 2D
+    // 上下文：fillText/measureText/getImageData 直接可用）。页面脚本常先设
+    // canvas.width/height 再画再 getImageData —— 代理层每次访问按当前
+    // payload 尺寸惰性重建 surface，保证读回矩形永不越界。
+    //
+    // 像素写入（putImageData）两条腿：surface 有真字形栅格、没有上传通道，
+    // 树内 canvas 的像素因此走 `__opencatPutImageData` 记成帧内生成图；
+    // 离屏 canvas（createElement 出来、没挂进文档）只被读回，不必合成。
+    var putSeq = 0;
+    // 树内的 canvas 有父节点；`createElement("canvas")` 出来、只当离屏栅格用
+    // 的那张从不 append，parentNode 恒为 null —— 只有前者需要合成。
+    function isAttached(el) {
+        return !!(el && el.parentNode);
+    }
+    HtmlElement.prototype.getContext = function (kind) {
+        if (String(kind).toLowerCase() !== '2d') return null;
+        var self = this;
+        if (self.__ctx2d) return self.__ctx2d;
+        if (typeof ctx === 'undefined' || !ctx || typeof ctx.surface !== 'function') return null;
+        var surf = null;
+        function ensure() {
+            var w = Math.max(1, Number(self.__payload.width) || 300);
+            var h = Math.max(1, Number(self.__payload.height) || 150);
+            if (!surf || surf.__ocW !== w || surf.__ocH !== h) {
+                // 每张 canvas 一张自己的 surface：ctx.surface 按尺寸共享，
+                // 同尺寸的两张 canvas 会互相覆写像素（k3 的离屏 ox 与树内
+                // hcanvas 正是这种情况）。
+                var key = 'html-canvas:' + self.__payload.id + ':' + w + 'x' + h;
+                surf = (typeof ctx.__surfaceById === 'function')
+                    ? ctx.__surfaceById(key, w, h)
+                    : ctx.surface(w, h);
+                surf.__ocW = w;
+                surf.__ocH = h;
+            }
+            return surf;
+        }
+        self.__ctx2d = new Proxy({}, {
+            get: function (_t, prop) {
+                if (prop === 'canvas') return self;
+                if (prop === 'createImageData') {
+                    return function (w, h) {
+                        var ww = Math.max(1, Math.round(Number(w) || 1));
+                        var hh = Math.max(1, Math.round(Number(h) || 1));
+                        return { width: ww, height: hh, data: new Uint8ClampedArray(ww * hh * 4) };
+                    };
+                }
+                if (prop === 'putImageData') {
+                    return function (img, dx, dy) {
+                        if (!img || !img.data || typeof __opencatPutImageData !== 'function') return;
+                        if (!isAttached(self)) return;
+                        var src = img.data;
+                        var u8 = src instanceof Uint8Array
+                            ? src
+                            : new Uint8Array(src.buffer, src.byteOffset, src.byteLength);
+                        putSeq += 1;
+                        // 生成图按内容寻址：同键不同像素是硬错误。键里带帧
+                        // 时刻；提取期 t<0 的那一遍干跑不出图。
+                        var t = Number(globalThis.__ocSeekT);
+                        if (!(t >= 0)) return;
+                        __opencatPutImageData(
+                            self.__payload.id,
+                            'html-put:' + self.__payload.id + ':' + t + ':' + putSeq,
+                            u8,
+                            Number(dx) || 0,
+                            Number(dy) || 0,
+                            img.width,
+                            img.height
+                        );
+                    };
+                }
+                var s = ensure();
+                var v = s[prop];
+                return typeof v === 'function' ? v.bind(s) : v;
+            },
+            set: function (_t, prop, value) {
+                ensure()[prop] = value;
+                return true;
+            },
+        });
+        return self.__ctx2d;
+    };
+    Object.defineProperty(HtmlElement.prototype, 'width', {
+        get: function () { return Number(this.__payload.width) || (this.__payload.type === 'canvas' ? 300 : undefined); },
+        set: function (v) { this.__payload.width = Number(v); },
+    });
+    Object.defineProperty(HtmlElement.prototype, 'height', {
+        get: function () { return Number(this.__payload.height) || (this.__payload.type === 'canvas' ? 150 : undefined); },
+        set: function (v) { this.__payload.height = Number(v); },
+    });
+
+    // ── 种子物化 ─────────────────────────────────────────────────
+    // serde 的连字符键（"data-start"）归一成 JS 侧驼峰字段。
+    function normalizeSeedPayload(p) {
+        if (p.data_start === undefined && p['data-start'] !== undefined) {
+            var v = parseFloat(p['data-start']);
+            if (!isNaN(v)) p.data_start = v;
+        }
+        if (p.data_duration === undefined && p['data-duration'] !== undefined) {
+            var v2 = parseFloat(p['data-duration']);
+            if (!isNaN(v2)) p.data_duration = v2;
+        }
+        return p;
+    }
+
+    function materializeSeed(payload, parent) {
+        normalizeSeedPayload(payload);
+        var el = createElementFace(payload);
+        el.parentNode = parent;
+        nodes[payload.id] = el;
+        var kids = payload.children || [];
+        for (var i = 0; i < kids.length; i++) {
+            el.__kids.push(materializeSeed(kids[i], el));
+        }
+        // seed payload 的文本（text 字段）留在 payload —— 序列化取回。
+        return el;
+    }
+
+    // ── gsap 包裹 + seek 协议 ─────────────────────────────────────
+    function findGsap() {
+        if (globalThis.gsap) return globalThis.gsap;
+        // UMD gsap 挂 window（shim shim）：提升到 globalThis 让裸标识符可解析。
+        if (typeof window !== 'undefined' && window && window.gsap) {
+            globalThis.gsap = window.gsap;
+            return window.gsap;
+        }
+        return null;
+    }
+
+    function wrapGsap() {
+        var g = findGsap();
+        if (!g || g.__ocHtmlWrapped) return;
+        g.__ocHtmlWrapped = true;
+        ['to', 'from', 'fromTo', 'set'].forEach(function (name) {
+            var orig = g[name];
+            g[name] = function () {
+                var anim = orig.apply(g, arguments);
+                if (anim) timelines.push(anim);
+                return anim;
+            };
+        });
+        var origTimeline = g.timeline;
+        g.timeline = function () {
+            var tl = origTimeline.apply(g, arguments);
+            if (tl) timelines.push(tl);
+            return tl;
+        };
+    }
+
+    globalThis.__ocHtmlSeek = function (t) {
+        globalThis.__ocSeekT = t;
+        for (var i = 0; i < timelines.length; i++) {
+            var a = timelines[i];
+            try {
+                a.pause();
+                // 不能抑制事件：页面把整帧重绘挂在 timeline 的 onUpdate 上
+                // （k3 的 orbitPills/drawDissolve/hatchGlide 都在这条通道），
+                // suppressEvents=true 会让这些逐帧函数永不执行。
+                a.totalTime(t, false);
+                // 播放头本来就等于 t 时 gsap 会短路、不渲染（首帧 t=0 正是
+                // 这种情况：`tl.set(x, {autoAlpha:0}, 0)` 永远不落地）。先推
+                // 一丁点再回到 t，逼出一次渲染。
+                if (Math.abs(a.totalTime() - t) < 1e-9) {
+                    a.totalTime(t + 1e-4, false);
+                    a.totalTime(t, false);
+                }
+            } catch (e) { /* 单产物失败不拖垮整帧 */ }
+        }
+    };
+
+    globalThis.__ocHtmlAfterScripts = function () {
+        wrapGsap(); // 页面自带 gsap 之外的兜底
+    };
+
+    // ── document face ─────────────────────────────────────────────
+    var documentFace = {
+        nodeType: 9,
+        documentElement: null, // 物化后指 rootFace
+        body: null,
+        head: null,
+        title: '',
+        readyState: 'complete',
+        getElementById: function (id) {
+            var el = nodes[String(id)];
+            return el === undefined ? null : el;
+        },
+        querySelector: function (sel) {
+            var list = queryAll([rootFace], sel);
+            return list.length ? list[0] : null;
+        },
+        querySelectorAll: function (sel) { return queryAll([rootFace], sel); },
+        createElement: function (tag) {
+            var t = String(tag || 'div').toLowerCase();
+            var payload = {
+                type: normalizeEngineTag(t),
+                uaTag: t,
+                id: nextSynthId(t),
+                className: '',
+                style: '',
+            };
+            var el = createElementFace(payload);
+            nodes[payload.id] = el;
+            return el;
+        },
+        createTextNode: function (text) { return new HtmlText(text); },
+        createDocumentFragment: function () { return new FragmentFace(); },
+        addEventListener: function () {},
+        removeEventListener: function () {},
+    };
+
+    // ── 帧边界 ────────────────────────────────────────────────────
+    globalThis.__ocHtmlResetFrame = function (seedJson) {
+        if (seedJson) seed = seedJson;
+        // 上一帧的 gsap 产物要 kill 掉：它们挂在 gsap 的全局时间线上并强引用
+        // 本帧的 DOM 面，不杀就逐帧累积（整片渲染会顶到 V8 堆上限）。
+        for (var i = 0; i < timelines.length; i++) {
+            var old = timelines[i];
+            if (old && typeof old.kill === 'function') {
+                try { old.kill(); } catch (e) { /* 已失效的时间线忽略 */ }
+            }
+        }
+        nodes = Object.create(null);
+        rootFace = null;
+        timelines.length = 0;
+        synthSeq = 0;
+        if (!seed) return;
+        rootFace = materializeSeed(seed.tree, null);
+        documentFace.documentElement = rootFace;
+        documentFace.body = rootFace;
+    };
+
+    // 返回对象（宿主统一 JSON.stringify——jsx 的 __ocExtract 同约定；
+    // 这里若先 stringify 会被双重包裹成 String，from_extract 读不到 tree）。
+    globalThis.__ocHtmlExtract = function () {
+        return {
+            html: true,
+            meta: seed ? seed.meta : {},
+            css: seed ? seed.css : '',
+            // from_extract 的 tree 是 `Vec<DomElement>`（多根约定）：单根包数组。
+            tree: [serializeNode(rootFace)],
+        };
+    };
+
+    // getComputedStyle 换皮：gsap CSSPlugin `_parseTransform` 从这里读
+    // 当前 transform/opacity（`null.replace` 的 null 就来自 dom_api 版对
+    // html 元素面返回的空值）。读 store，缺省给 CSS 初始值。
+    function computedStyleFor(el) {
+        var id = el && el.__payload ? el.__payload.id : null;
+        var defaults = {
+            transform: 'none',
+            opacity: '1',
+            visibility: 'visible',
+            display: 'block',
+            color: 'rgb(0, 0, 0)',
+        };
+        return new Proxy({}, {
+            get(_t, prop) {
+                if (typeof prop !== 'string') return undefined;
+                if (prop === 'getPropertyValue') {
+                    return function (name) {
+                        var n = String(name);
+                        if (id) {
+                            var v = readStyle(id, n);
+                            if (v !== '') return String(v);
+                        }
+                        return Object.prototype.hasOwnProperty.call(defaults, n)
+                            ? defaults[n]
+                            : '';
+                    };
+                }
+                if (id) {
+                    var v = readStyle(id, prop);
+                    if (v !== '') return String(v);
+                }
+                return Object.prototype.hasOwnProperty.call(defaults, prop) ? defaults[prop] : '';
+            },
+        });
+    }
+    globalThis.getComputedStyle = computedStyleFor;
+    if (ocWinFor()) {
+        ocWinFor().getComputedStyle = computedStyleFor;
+    }
+
+    // document 覆盖（dom_api 的 chart 面给 jsx 用；HTML 前端换皮）。
+    // gsap 从 `window.document` 缓存 doc（`Ie=window, Le=Ie.document`），
+    // 所以 shimWindow 这层必须一起换——它藏在 `globalThis.__ocWindow`
+    // （dom_api 的 shimWindow 是其 IIFE 局部变量，外面摸不到）。
+    globalThis.document = documentFace;
+    function ocWinFor() {
+        return typeof globalThis.__ocWindow === 'object' ? globalThis.__ocWindow : null;
+    }
+    var ocWin = ocWinFor();
+    if (ocWin) ocWin.document = documentFace;
+})();

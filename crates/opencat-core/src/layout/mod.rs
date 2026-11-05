@@ -151,7 +151,19 @@ impl LayoutSession {
             )?;
 
             let layout_tree = LayoutTree {
-                root: build_layout_tree(root, &self.taffy, root_id, font_db)?,
+                root: build_layout_tree_at(
+                    root,
+                    &self.taffy,
+                    root_id,
+                    font_db,
+                    (0.0, 0.0),
+                    LayoutRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: frame_ctx.width as f32,
+                        height: frame_ctx.height as f32,
+                    },
+                )?,
             };
             self.cached_layout_tree = Some(layout_tree.clone());
             self.last_layout_size = Some(viewport_size);
@@ -450,8 +462,18 @@ fn text_measure_context_for_element(element: &ElementNode) -> Option<TextMeasure
     }
 }
 
-fn taffy_style_for_element(element: &ElementNode) -> Style {
-    let layout = &element.style.layout;
+/// 元素在布局里的实际定位值。CSS 路径（`css_layout` 存在）以 taffy 样式为准，
+/// 其余回落到 NodeStyle。
+fn effective_position(element: &ElementNode) -> Position {
+    if let Some(css) = element.style.css_layout.as_ref()
+        && css.0.position == taffy::prelude::Position::Absolute
+    {
+        return Position::Absolute;
+    }
+    element.style.layout.position
+}
+
+fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &element.style.layout;
     // 标准直通腿：CSS 路径产出的 taffy 样式整体克隆。border 宽度也已在
     // `css::to_taffy` 落好（含 thin/medium/thick），不再用 paint 腿的
     // f32 镜像覆盖——那会把关键字宽度压成 0。固有尺寸（Bitmap/Lottie/
@@ -480,6 +502,12 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {
                     style.size.height = h;
                 }
             }
+        }
+        // 行内流容器：taffy 没有 inline 层级，默认 align-items:stretch 会把每个
+        // 行内子盒拉成同宽（逐字 span 的表面宽度全等）。按 start 让它们
+        // shrink-to-fit，行内串接由 build_layout_tree 的行内 pass 完成。
+        if layout.inline_flow {
+            style.align_items = Some(taffy::prelude::AlignItems::START);
         }
         return style;
     }
@@ -740,6 +768,66 @@ fn build_layout_tree(
     node_id: taffy::NodeId,
     font_db: &fontdb::Database,
 ) -> Result<LayoutNode> {
+    build_layout_tree_at(
+        element,
+        taffy,
+        node_id,
+        font_db,
+        (0.0, 0.0),
+        LayoutRect {
+            x: 0.0,
+            y: 0.0,
+            width: 0.0,
+            height: 0.0,
+        },
+    )
+}
+
+/// 单轴绝对定位求解：`start`/`end` 是 left/right 或 top/bottom，`size` 是元素
+/// 该轴尺寸，`static_pos` 是两侧都为 auto 时的静态位置。None = 交给 taffy 原值。
+fn resolve_abs_axis(
+    start: taffy::style::LengthPercentageAuto,
+    end: taffy::style::LengthPercentageAuto,
+    cb_start: f32,
+    cb_len: f32,
+    size: f32,
+    static_pos: f32,
+) -> Option<f32> {
+    use taffy::style::ExpandedLengthPercentageAuto as E;
+    let resolve = |v: taffy::style::LengthPercentageAuto, base: f32| match v.expand() {
+        E::Length(px) => Some(px),
+        E::Percent(p) => Some(p * base),
+        E::Auto => None,
+    };
+    if let Some(px) = resolve(start, cb_len) {
+        return Some(cb_start + px);
+    }
+    if let Some(px) = resolve(end, cb_len) {
+        return Some(cb_start + cb_len - px - size);
+    }
+    Some(static_pos)
+}
+
+/// 绝对定位的「包含块」上下文（`docs/html-align/DESIGN.md`）：CSS 规定绝对定位
+/// 元素的包含块是**最近的非 static 祖先**的 padding box，没有就是视口；taffy 一律
+/// 拿直接父盒当包含块。静态父盒高度为 0 时（k3 的 `#dpins`）会把 `bottom` 元素顶到
+/// 画外，所以在这里按浏览器规则重算一次坐标。
+#[derive(Clone, Copy)]
+struct AbsCtx {
+    /// 本元素 border box 左上角的绝对坐标。
+    origin: (f32, f32),
+    /// 最近的非 static 祖先的 padding box（绝对坐标）；全 static 链时是视口。
+    cb: LayoutRect,
+}
+
+fn build_layout_tree_at(
+    element: &ElementNode,
+    taffy: &TaffyTree<TextMeasureContext>,
+    node_id: taffy::NodeId,
+    font_db: &fontdb::Database,
+    origin: (f32, f32),
+    containing_block: LayoutRect,
+) -> Result<LayoutNode> {
     let layout = taffy.layout(node_id)?;
     let mut children = Vec::new();
     let taffy_children = taffy.children(node_id)?;
@@ -750,23 +838,157 @@ fn build_layout_tree(
     // Do NOT re-apply them here — that would double the offset. Locked by
     // `relative_inset_offsets_subtree_from_normal_flow_position`.
 
-    for ((_, element_child), taffy_child) in
-        ordered_children(element).into_iter().zip(taffy_children)
-    {
-        children.push(build_layout_tree(
-            element_child,
-            taffy,
-            taffy_child,
-            font_db,
-        )?);
-    }
-
-    let rect = LayoutRect {
+    let mut rect = LayoutRect {
         x: layout.location.x,
         y: layout.location.y,
         width: layout.size.width,
         height: layout.size.height,
     };
+
+    // CSS 直通腿的定位以 `css_layout` 为准：NodeStyle 的 position 只在非 CSS
+    // 路径被填，拿它判定会把 `position:absolute` 的 CSS 元素当 static，绝对
+    // 定位包含块整条失效（k3 的 .pin 全落到 (0,0)）。
+    let positioned = effective_position(element) != Position::Relative;
+    let padding_box = LayoutRect {
+        x: origin.0 + rect.x + layout.border.left + layout.padding.left,
+        y: origin.1 + rect.y + layout.border.top + layout.padding.top,
+        width: (rect.width - layout.border.left - layout.border.right
+            - layout.padding.left
+            - layout.padding.right)
+            .max(0.0),
+        height: (rect.height - layout.border.top - layout.border.bottom
+            - layout.padding.top
+            - layout.padding.bottom)
+            .max(0.0),
+    };
+    let child_ctx = AbsCtx {
+        origin: (origin.0 + rect.x, origin.1 + rect.y),
+        cb: if positioned { padding_box } else { containing_block },
+    };
+
+    for ((_, element_child), taffy_child) in
+        ordered_children(element).into_iter().zip(taffy_children)
+    {
+        let mut child = build_layout_tree_at(
+            element_child,
+            taffy,
+            taffy_child,
+            font_db,
+            child_ctx.origin,
+            child_ctx.cb,
+        )?;
+        // 静态父盒不是包含块：按最近非 static 祖先（或视口）重算绝对定位坐标。
+        if !positioned
+            && effective_position(element_child) == Position::Absolute
+            && let Some(css) = element_child.style.css_layout.as_ref()
+        {
+            if let Some(x) = resolve_abs_axis(
+                css.0.inset.left,
+                css.0.inset.right,
+                child_ctx.cb.x,
+                child_ctx.cb.width,
+                child.rect.width,
+                child_ctx.origin.0 + layout.border.left + layout.padding.left,
+            ) {
+                child.rect.x = x - child_ctx.origin.0;
+            }
+            if let Some(y) = resolve_abs_axis(
+                css.0.inset.top,
+                css.0.inset.bottom,
+                child_ctx.cb.y,
+                child_ctx.cb.height,
+                child.rect.height,
+                child_ctx.origin.1 + layout.border.top + layout.padding.top,
+            ) {
+                child.rect.y = y - child_ctx.origin.1;
+            }
+        }
+        children.push(child);
+    }
+
+    // HTML 行内格式化（docs/html-align/DESIGN.md）：taffy 没有 IFC，行内级
+    // 子节点会按块级竖排。这里按浏览器行语义串接：子节点 x 逐段累加、
+    // y 顶对齐到内容区上沿；容器 auto 尺寸改为行内容总宽/高。绝对定位
+    // 子节点不参与行流，保持 taffy 结果。
+    if element.style.layout.inline_flow && !children.is_empty() {
+        let left = layout.border.left + layout.padding.left;
+        let top = layout.border.top + layout.padding.top;
+        let mut content_w = 0.0f32;
+        let mut content_h = 0.0f32;
+        let mut has_in_flow = false;
+        for (child, (_, child_element)) in children.iter_mut().zip(ordered_children(element)) {
+            if child_element.style.layout.position == Position::Absolute {
+                continue;
+            }
+            has_in_flow = true;
+            // 行内子盒是 shrink-to-fit：taffy 的块布局会把它们拉成父宽（逐字
+            // span 的表面宽度全等，字间距全错），这里按自身文本重新量宽。
+            if !child_element.style.layout.inline_flow
+                && child_element.style.layout.width.is_none()
+                && child_element.style.layout.width_percent.is_none()
+                && let ElementKind::Text(text) = &child_element.kind
+                && !text_element_allows_wrap(child_element)
+            {
+                child.rect.width = crate::text::measure_text(
+                    &text.text,
+                    &text.text_style,
+                    f32::INFINITY,
+                    false,
+                    font_db,
+                )
+                .width;
+            }
+            child.rect.x = left + content_w;
+            child.rect.y = top;
+            content_w += child.rect.width;
+            content_h = content_h.max(child.rect.height);
+        }
+        if has_in_flow {
+            let layout_style = &element.style.layout;
+            // 绝对定位盒的尺寸归 taffy：inset 全给定时它已经拉伸到包含块，
+            // 我们按内容收缩会把两三行的居中文本盒压成内容高（k3 的
+            // `.tickbox .txt{inset:0}`）。
+            let abs_box = layout_style.position == Position::Absolute;
+            if !abs_box
+                && layout_style.width.is_none()
+                && layout_style.width_percent.is_none()
+            {
+                rect.width = left + content_w + layout.padding.right + layout.border.right;
+            }
+            if !abs_box
+                && layout_style.height.is_none()
+                && layout_style.height_percent.is_none()
+            {
+                rect.height = top + content_h + layout.padding.bottom + layout.border.bottom;
+            }
+            // 容器有显式高度且 align-items:center（`.tickbox .txt` 的 flex 居中）
+            // 时，行内容在内容区内垂直居中——行内 pass 顶对齐会把它贴到上沿。
+            let centered = element
+                .style
+                .css_layout
+                .as_ref()
+                .is_some_and(|css| css.0.align_items == Some(taffy::prelude::AlignItems::CENTER));
+            let spare = rect.height - top - content_h - layout.padding.bottom - layout.border.bottom;
+            let spare_w = rect.width - left - content_w - layout.padding.right - layout.border.right;
+            let h_center = element
+                .style
+                .css_layout
+                .as_ref()
+                .is_some_and(|css| css.0.justify_content == Some(taffy::prelude::JustifyContent::CENTER));
+            for (child, (_, child_element)) in children.iter_mut().zip(ordered_children(element)) {
+                if child_element.style.layout.position == Position::Absolute {
+                    continue;
+                }
+                if centered && spare > 0.0 {
+                    child.rect.y += spare * 0.5;
+                }
+                if h_center && spare_w > 0.0 {
+                    child.rect.x += spare_w * 0.5;
+                }
+            }
+        }
+    }
+
     let output_fingerprint = layout_output_fingerprint(rect, &children);
 
     Ok(LayoutNode {

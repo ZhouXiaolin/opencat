@@ -2210,7 +2210,13 @@
         }
         const UNIT = { px: 1, pt: 4 / 3, em: 16, rem: 16, '%': 0.16 };
         const size = parseFloat(sm[1]) * (UNIT[(sm[2] || 'px').toLowerCase()] || 1);
-        const family = tokens.slice(i + 1).join(' ').split(',')[0].replace(/["']/g, '').trim();
+        // 整条族栈原样交给排版引擎按顺序选面（浏览器语义）；只取首名会让
+        // `"Inter", "Helvetica Neue", Arial, sans-serif` 落到兜底 generic 面，
+        // 测量结果与正文排版用的面不一致。
+        // 整条族栈原样交给排版引擎按顺序选面（浏览器语义）；只取首名会让
+        // `"Inter", "Helvetica Neue", Arial, sans-serif` 落到兜底 generic 面，
+        // 测量结果与正文排版用的面不一致。
+        const family = tokens.slice(i + 1).join(' ').trim();
         if (!family) {
             throw new Error('unsupported font shorthand: ' + font);
         }

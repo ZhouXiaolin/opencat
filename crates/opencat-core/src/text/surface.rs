@@ -344,19 +344,29 @@ fn with_resolved_font<R>(
     f: impl FnOnce(&FontRef<'_>, FaceKey) -> Result<R>,
 ) -> Result<R> {
     let db = font_db_for_script();
-    // fontdb resolves CSS generic families (`sans-serif`, `monospace`, …) as a
-    // `Family::Serif`/`SansSerif`/`Monospace` query variant, while G2 and other
-    // third-party specs pass the CSS keyword verbatim as a family *name* — which
-    // `Family::Name` never matches. Map the keyword to the generic variant so
-    // the query lands on the registered generic family.
-    let family_kind = match crate::style::GenericFamily::parse_css(family) {
-        Some(crate::style::GenericFamily::Serif) => fontdb::Family::Serif,
-        Some(crate::style::GenericFamily::SansSerif) => fontdb::Family::SansSerif,
-        Some(crate::style::GenericFamily::Monospace) => fontdb::Family::Monospace,
-        None => fontdb::Family::Name(family),
-    };
+    // `family` 可能是一整条 CSS 族栈（canvas 的 `ctx.font` 就是如此），也可能
+    // 是单个族名或通用族关键字。按声明顺序展开成查询列表：fontdb 依次取第一
+    // 个命中的族，与浏览器选面一致（`"Inter","Helvetica Neue",Arial,sans-serif`
+    // 落到 Arial）。通用族关键字（`sans-serif` 等）必须映射成 `Family` 的通用
+    // 变体——`Family::Name` 永远匹配不到它们。
+    let mut families: Vec<fontdb::Family<'_>> = Vec::new();
+    for part in family.split(',') {
+        let name = part.trim().trim_matches(['"', '\'']);
+        if name.is_empty() {
+            continue;
+        }
+        families.push(match crate::style::GenericFamily::parse_css(name) {
+            Some(crate::style::GenericFamily::Serif) => fontdb::Family::Serif,
+            Some(crate::style::GenericFamily::SansSerif) => fontdb::Family::SansSerif,
+            Some(crate::style::GenericFamily::Monospace) => fontdb::Family::Monospace,
+            None => fontdb::Family::Name(name),
+        });
+    }
+    if families.is_empty() {
+        families.push(fontdb::Family::SansSerif);
+    }
     let query = fontdb::Query {
-        families: &[family_kind],
+        families: &families,
         weight: fontdb::Weight(weight as u16),
         style: fontdb::Style::Normal,
         stretch: fontdb::Stretch::Normal,

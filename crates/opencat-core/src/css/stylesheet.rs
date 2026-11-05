@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use lightningcss::properties::custom::{Token, TokenList, TokenOrValue};
 use lightningcss::properties::Property;
 use lightningcss::rules::{supports::SupportsCondition, CssRule};
-use lightningcss::selector::{Combinator, Component, Selector, SelectorList};
+use lightningcss::selector::{Component, Selector, SelectorList};
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::traits::{ParseWithOptions, ToCss};
 use lightningcss::values::syntax::ParsedComponent;
@@ -191,18 +191,10 @@ fn supported_selectors(list: &SelectorList<'static>) -> Vec<Selector<'static>> {
 }
 
 fn selector_is_supported(selector: &Selector<'static>) -> bool {
-    let mut saw_combinator = false;
+    // 组合器（后代/子/兄弟）由 cascade 的右到左匹配处理，这里只剔除
+    // 静态合成里没有载体的伪元素/伪类分支。
     for comp in selector.iter_raw_match_order() {
         match comp {
-            Component::Combinator(c) => {
-                // 伪元素派生的内部组合器不算真组合器。
-                if !matches!(
-                    c,
-                    Combinator::PseudoElement | Combinator::SlotAssignment | Combinator::Part
-                ) {
-                    saw_combinator = true;
-                }
-            }
             // ::before 等伪元素在合成管线里无载体，分支作废。
             Component::PseudoElement(..) => return false,
             // hover/active 等伪类在静态合成里无意义，分支作废；:root 由
@@ -212,7 +204,7 @@ fn selector_is_supported(selector: &Selector<'static>) -> bool {
             _ => {}
         }
     }
-    !saw_combinator
+    true
 }
 
 fn parsed_component_to_tokens(comp: &ParsedComponent<'static>) -> TokenList<'static> {

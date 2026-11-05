@@ -56,6 +56,36 @@ impl GradientBox {
     }
 }
 
+/// 图层经 `background-position` / `background-size` 定位后的绘制矩形（绝对
+/// 坐标）。只有带定位信息的线性层返回 `Some`——此时该层只落在这一块里，不再
+/// 铺满节点（`no-repeat` 语义）。
+pub(crate) fn layer_tile_rect(fill: &crate::style::BackgroundFill, rect: Rect) -> Option<Rect> {
+    let crate::style::BackgroundFill::ArbitraryGradient {
+        gradient:
+            ArbitraryGradient::LinearGradient {
+                size,
+                size_pct,
+                position,
+                position_px,
+                ..
+            },
+    } = fill
+    else {
+        return None;
+    };
+    let pos = position.as_ref()?;
+    let (bw, bh) = (rect.width() as f32, rect.height() as f32);
+    let (w, h) = match (size_pct, size) {
+        (Some([sx, sy]), _) => (bw * sx, bh * sy),
+        (None, Some([w, h])) => (*w, *h),
+        _ => (bw, bh),
+    };
+    let off = position_px.unwrap_or([0.0, 0.0]);
+    let x0 = rect.x0 + f64::from((bw - w) * pos[0] + off[0]);
+    let y0 = rect.y0 + f64::from((bh - h) * pos[1] + off[1]);
+    Some(Rect::new(x0, y0, x0 + f64::from(w), y0 + f64::from(h)))
+}
+
 /// Radial gradient parameters (shape/size/position), independent of the box.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RadialParams {
@@ -357,9 +387,16 @@ pub(crate) fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, re
             stops,
             size,
             repeat,
+            size_pct,
+            ..
         } => {
+            let size = match (size_pct, size) {
+                (Some([sx, sy]), _) => Some([rect.width() as f32 * sx, rect.height() as f32 * sy]),
+                (None, Some(s)) => Some(*s),
+                _ => None,
+            };
             let box_ = match size {
-                Some(s) => GradientBox::with_size(&rect, *s),
+                Some(s) => GradientBox::with_size(&rect, s),
                 None => GradientBox::from_rect(&rect),
             };
             // `repeating-*` gradients tile their (shrunk) one-period line; a

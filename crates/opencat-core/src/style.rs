@@ -945,6 +945,17 @@ pub enum ArbitraryGradient {
         size: Option<[f32; 2]>,
         #[serde(rename = "repeat")]
         repeat: bool,
+        /// `background-position`：图像左上角落在「盒减图像」剩余空间里的
+        /// 比例（`0 0`→`[0,0]`，`100% 100%`→`[1,1]`）。带此字段的层不铺满
+        /// 节点，绘制侧只画被定位出来的那一块矩形。
+        #[serde(rename = "position", default, skip_serializing_if = "Option::is_none")]
+        position: Option<[f32; 2]>,
+        /// `background-position` 的像素形态（绝对值）。
+        #[serde(rename = "positionPx", default, skip_serializing_if = "Option::is_none")]
+        position_px: Option<[f32; 2]>,
+        /// `background-size` 的百分比形态（占盒宽高的比例），优先于 `size`。
+        #[serde(rename = "sizePct", default, skip_serializing_if = "Option::is_none")]
+        size_pct: Option<[f32; 2]>,
     },
     #[serde(rename = "radial")]
     RadialGradient {
@@ -1014,6 +1025,9 @@ impl std::hash::Hash for ArbitraryGradient {
                 stops,
                 size,
                 repeat,
+                position,
+                position_px,
+                size_pct,
             } => {
                 if let Some(a) = angle_deg {
                     a.to_bits().hash(state);
@@ -1027,6 +1041,18 @@ impl std::hash::Hash for ArbitraryGradient {
                     s[1].to_bits().hash(state);
                 }
                 repeat.hash(state);
+                if let Some(p) = position {
+                    p[0].to_bits().hash(state);
+                    p[1].to_bits().hash(state);
+                }
+                if let Some(p) = position_px {
+                    p[0].to_bits().hash(state);
+                    p[1].to_bits().hash(state);
+                }
+                if let Some(s) = size_pct {
+                    s[0].to_bits().hash(state);
+                    s[1].to_bits().hash(state);
+                }
             }
             ArbitraryGradient::RadialGradient {
                 center,
@@ -2034,6 +2060,10 @@ pub struct NodeStyle {
     pub text_px: Option<f32>,
     /// Resolved `font-family` name for cosmic-text (from `<fonts>` + `font-[id]`).
     pub font_family: Option<String>,
+    /// CSS `font-family` 的完整族栈（按声明顺序）。样式层只存名字，选面在
+    /// 排版层做：第一个「库里有」的族胜出（浏览器行为）。`font_family`
+    /// 是旧路径的单名入口，两者共存。
+    pub font_stack: Vec<String>,
     /// Reference to `<font id="...">` before manifest resolution.
     pub font_face_id: Option<String>,
     /// Generic-family tail of the CSS font stack (`font-[mono4,monospace]`), or the
@@ -2079,6 +2109,13 @@ pub struct NodeStyle {
 
     // Node-local animation script scoped to this subtree.
     pub script_driver: Option<Arc<ScriptDriver>>,
+
+    // HTML 前端可见窗（docs/html-align/DESIGN.md）：`[start, start+duration)`
+    // 半开窗，窗外 resolve 期整子树退出布局与绘制。None = 无窗口语义。
+    pub clip_start: Option<f64>,
+    pub clip_duration: Option<f64>,
+    /// 行内格式化容器（见 ComputedLayoutStyle::inline_flow）。
+    pub inline_flow: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -2088,6 +2125,9 @@ pub struct ComputedTextStyle {
     pub text_px: f32,
     /// Shaping family name; `None` uses generic `sans-serif` (fontdb mapping).
     pub font_family: Option<String>,
+    /// CSS `font-family` 族栈（按声明顺序，已去引号）。排版层逐个试，第一个
+    /// 装在字体库里的族胜出；全缺时退到 `font_generic`。
+    pub font_stack: Vec<String>,
     /// Generic-family class of the resolved stack tail; reorders shaping fallback.
     pub font_generic: Option<GenericFamily>,
     pub font_weight: FontWeight,
@@ -2113,6 +2153,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.color.hash(state);
         self.text_px.to_bits().hash(state);
         self.font_family.hash(state);
+        self.font_stack.hash(state);
         self.font_generic.hash(state);
         self.font_weight.hash(state);
         self.font_style.hash(state);
@@ -2134,6 +2175,7 @@ impl Default for ComputedTextStyle {
             color: ColorToken::Custom(0, 0, 0, 255),
             text_px: 16.0,
             font_family: None,
+            font_stack: Vec::new(),
             font_generic: None,
             font_weight: FontWeight::NORMAL,
             font_style: FontStyle::Normal,
@@ -2171,6 +2213,12 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
             .font_family
             .clone()
             .or_else(|| parent.font_family.clone()),
+        // CSS font-family 是继承属性；子节点没声明就整栈继承。
+        font_stack: if style.font_stack.is_empty() {
+            parent.font_stack.clone()
+        } else {
+            style.font_stack.clone()
+        },
         // CSS font-family is inherited; so is the stack's generic class.
         font_generic: style.font_generic.or(parent.font_generic),
         font_weight: style.font_weight.unwrap_or(parent.font_weight),

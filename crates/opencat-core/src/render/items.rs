@@ -29,6 +29,7 @@ use super::ctx::RenderCtx;
 use super::canvas_lower::svg_path_to_ops;
 use super::gradient::{
     GradientBox, RadialParams, arbitrary_gradient_to_shader_spec, build_linear_gradient,
+    layer_tile_rect,
     build_radial_gradient,
 };
 use super::shadow_filter::{draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow};
@@ -601,13 +602,15 @@ pub(crate) fn paint_background_box(
     let radii = effective_corner_radius(&rect, border_radius);
     let has_radius = radii.iter().any(|&r| r > 0.0);
     for background in background.iter().rev() {
-        let paint_spec = background_fill_to_paint_spec(background, rect, blend_mode);
+        // 带 `background-position`/`size` 的层只画被定位出来的那一块。
+        let tile = layer_tile_rect(background, rect).unwrap_or(rect);
+        let paint_spec = background_fill_to_paint_spec(background, tile, blend_mode);
         let paint_id = builder.intern_paint(paint_spec);
-        if has_radius {
-            push_draw_rrect(builder, rect, radii, paint_id);
+        if has_radius && tile == rect {
+            push_draw_rrect(builder, tile, radii, paint_id);
         } else {
             builder.push(DrawOp::Rect {
-                rect: rect_to_rect4(rect),
+                rect: rect_to_rect4(tile),
                 paint: paint_id,
             });
         }
@@ -642,13 +645,14 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     if !style.background.is_empty() {
         // CSS 多层背景：第一层最靠近观察者（最上），从最后一层画到第一层。
         for background in style.background.iter().rev() {
-            let paint_spec = background_fill_to_paint_spec(background, rect, style.blend_mode);
+            let tile = layer_tile_rect(background, rect).unwrap_or(rect);
+            let paint_spec = background_fill_to_paint_spec(background, tile, style.blend_mode);
             let paint_id = builder.intern_paint(paint_spec);
-            if has_radius {
-                push_draw_rrect(builder, rect, radii, paint_id);
+            if has_radius && tile == rect {
+                push_draw_rrect(builder, tile, radii, paint_id);
             } else {
                 builder.push(DrawOp::Rect {
-                    rect: rect_to_rect4(rect),
+                    rect: rect_to_rect4(tile),
                     paint: paint_id,
                 });
             }

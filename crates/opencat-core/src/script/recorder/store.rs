@@ -478,6 +478,7 @@ impl StyleStore {
                 }),
                 // strings
                 "morphSVG" | "d" => mutations.svg_path.as_ref().map(|s| json!(s)),
+                "background" | "backgroundImage" => mutations.bg_image.as_ref().map(|s| json!(s)),
                 "text" => mutations.text_content.as_ref().map(|s| json!(s)),
                 "textShadow" | "textShadows" => mutations
                     .text_shadows
@@ -718,6 +719,13 @@ impl StyleStore {
             "bg" | "backgroundColor" => {
                 if let Some(s) = value.as_str() {
                     entry.bg_color = color_token_from_script_string(s);
+                }
+            }
+            // CSS `background`/`background-image` 原文：渐变、瓦片背景没有
+            // 颜色字段可放，整串交给 resolve 侧解析成背景层。
+            "background" | "backgroundImage" => {
+                if let Some(s) = value.as_str() {
+                    entry.bg_image = Some(s.to_string());
                 }
             }
             "fillColor" | "fill" => {
@@ -1679,6 +1687,9 @@ impl MutationRecorder for MutationStore {
         self.entry(id).drop_shadow = Some(sh);
     }
 
+    fn record_background_image(&mut self, id: &str, css: &str) {
+        self.entry(id).bg_image = Some(css.to_string());
+    }
     fn record_bg_color(&mut self, id: &str, color: ColorToken) {
         self.entry(id).bg_color = Some(color);
     }

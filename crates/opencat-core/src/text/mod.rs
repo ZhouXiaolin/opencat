@@ -536,7 +536,7 @@ pub fn measure_text(
     let metrics = Metrics::new(style.text_px, line_height);
 
     let transformed = apply_text_transform(text, style.text_transform);
-    let attrs = text_attrs(style);
+    let attrs = text_attrs(style, font_db);
     let (measured_width, mut measured_height) =
         with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(text), |font_system| {
             let mut buffer = Buffer::new(font_system, metrics);
@@ -630,7 +630,7 @@ pub fn rasterize_glyphs(
     let line_height = style.resolved_line_height_px();
     let metrics = Metrics::new(style.text_px, line_height);
 
-    let attrs = text_attrs(style);
+    let attrs = text_attrs(style, font_db);
     let (glyphs, lines, font_metrics) =
         with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(&rendered), |font_system| {
             let mut buffer = Buffer::new(font_system, metrics);
@@ -949,12 +949,37 @@ pub fn measure_script_text_width(text: &str, font_size: f32, scale_x: f32) -> f3
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn text_attrs(style: &ComputedTextStyle) -> Attrs<'_> {
+fn text_attrs<'a>(style: &'a ComputedTextStyle, db: &fontdb::Database) -> Attrs<'a> {
+    // 字面族名不在字体库里时不能直接交给 cosmic——它会让未知族落到
+    // 库里首个 face（可能是 CJK/符号字体，空格前进宽 ~1em，整行断开）。
+    // 与浏览器一致：整条栈都缺时退到通用族。
+    // 先试已解析的族名（JSX 的 manifest face），再按 CSS 族栈顺序找第一个
+    // 装在字体库里的族——浏览器就是这么选的，k3 的
+    // `"Inter","Helvetica Neue",Arial,sans-serif` 落到 Arial。
+    let installed = |name: &str| {
+        db.faces().any(|f| {
+            f.families
+                .iter()
+                .any(|(family, _)| family.eq_ignore_ascii_case(name))
+        })
+    };
     let family = style
         .font_family
         .as_deref()
+        .filter(|name| installed(name))
+        .or_else(|| {
+            style
+                .font_stack
+                .iter()
+                .map(String::as_str)
+                .find(|name| installed(name))
+        })
         .map(cosmic_text::Family::Name)
-        .unwrap_or(cosmic_text::Family::SansSerif);
+        .unwrap_or(match style.font_generic {
+            Some(crate::style::GenericFamily::Serif) => cosmic_text::Family::Serif,
+            Some(crate::style::GenericFamily::Monospace) => cosmic_text::Family::Monospace,
+            _ => cosmic_text::Family::SansSerif,
+        });
     let letter_spacing_em = if style.text_px > 0.0 {
         style.letter_spacing / style.text_px
     } else {

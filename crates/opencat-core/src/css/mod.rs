@@ -17,7 +17,9 @@ mod stylesheet;
 mod to_node_style;
 mod to_taffy;
 
+pub use cascade::{SelectorContext, SelectorNode};
 pub use property_semantics::{origin_px_to_fractions, parse_css_transform};
+pub use to_node_style::background_from_css;
 pub use stylesheet::CssStylesheet;
 
 use std::collections::HashMap;
@@ -118,11 +120,29 @@ impl CssEngine {
     /// `tag` 是节点对应的 HTML 标签名（div/text→span 等），供元素选择器
     /// 匹配；`element_id` 供 `#id` 选择器匹配。两个都可以为空串。
     pub fn compute_node_style(&self, class_name: &str, element_id: &str, tag: &str) -> NodeStyle {
-        let mut matched = cascade::match_rules(&self.sheet, class_name, element_id, tag);
+        self.compute_node_style_ctx(
+            class_name,
+            element_id,
+            tag,
+            &cascade::SelectorContext::default(),
+        )
+    }
+
+    /// 带树上下文的层叠入口（docs/html-align/DESIGN.md）：祖先链/前兄链
+    /// 供组合器匹配，`tag_aliases` 让 HTML 根节点同时命中 html/body 规则。
+    pub fn compute_node_style_ctx(
+        &self,
+        class_name: &str,
+        element_id: &str,
+        tag: &str,
+        ctx: &cascade::SelectorContext<'_>,
+    ) -> NodeStyle {
+        let mut matched =
+            cascade::match_rules_ctx(&self.sheet, class_name, element_id, tag, ctx);
         // UA 兜底层压进 layer 0：作者规则（unlayered = usize::MAX 或任何
         // 显式 @layer）在层叠键上天然压过它，同 specificity 时 `text-4xl`
         // 这类作者字号照常覆盖 h2 的 UA 字号。
-        let mut ua = cascade::match_rules(ua_sheet(), class_name, element_id, tag);
+        let mut ua = cascade::match_rules_ctx(ua_sheet(), class_name, element_id, tag, ctx);
         for decl in &mut ua {
             decl.layer = 0;
         }

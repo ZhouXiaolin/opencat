@@ -58,6 +58,9 @@ pub struct NodeStyleMutations {
     pub flex_grow: Option<f32>,
     pub opacity: Option<f32>,
     pub bg_color: Option<ColorToken>,
+    /// 脚本按帧写入的 CSS `background` 原文（渐变/瓦片背景）。静态树只带一份
+    /// 样式，动不了的背景层从这条通道进；纯色仍走 `bg_color`。
+    pub bg_image: Option<String>,
     pub fill_color: Option<ColorToken>,
     /// `fill: none`（见 `NodeStyle::fill_none`）。
     pub fill_none: bool,
@@ -499,6 +502,15 @@ impl NodeStyleMutations {
         if let Some(v) = self.opacity {
             style.opacity = Some(v.clamp(0.0, 1.0));
         }
+        if let Some(css) = &self.bg_image {
+            let (color, layers) = crate::css::background_from_css(css);
+            if let Some(c) = color {
+                style.bg_color = Some(c);
+            }
+            if !layers.is_empty() {
+                style.background_layers = layers;
+            }
+        }
         if let Some(v) = self.bg_color {
             style.bg_color = Some(v);
         }
@@ -900,6 +912,9 @@ pub fn apply_node_to_recorder(
         let value = serde_json::to_value(text_shadows_to_value(shadows))
             .unwrap_or_else(|_| serde_json::Value::Null);
         recorder.write_style_value(id, "textShadow", value);
+    }
+    if let Some(css) = &m.bg_image {
+        recorder.record_background_image(id, css);
     }
     if let Some(color) = m.bg_color {
         recorder.record_bg_color(id, color);

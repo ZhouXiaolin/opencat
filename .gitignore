@@ -112,3 +112,36 @@ examples/vfx-heygen-combined/out-vfx-full-*.mp4
 examples/vfx-heygen-combined/k3diff-cpu.csv/
 examples/vfx-heygen-combined/out-vfx-*.mp4
 examples/gsap-plugins/out-*.mp4
+
+# ===== 2026-11-05 history 清理：开发过程大媒体退库（文件保留在本地磁盘）=====
+# 孤儿测试视频（codex-five 残留，全仓库零引用）
+assets/codex-fig.mkv
+# 示例背景视频/旁白——本地保留，可从参考仓库重拷（惯例同文件头注释）
+examples/vfx-heygen-combined/assets/bg.mp4
+examples/vfx-heygen-combined/assets/bg-2.mp4
+examples/liquid-brand-refraction/assets/*.mp4
+examples/liquid-brand-refraction/assets/equirect-garden.jpg
+examples/liquid-brand-refraction/assets/heygen-prism.glb
+examples/website-to-hyperframes/assets/w2h-a3/
+examples/HF-heygen-stripe/assets/narration*.mp3
+examples/HF-heygen-stripe/assets/_jr_tmp.wav
+examples/hyperframes-launch/assets/voiceover*.mp3
+# 商业授权字体不入公开仓库（本地保留）
+examples/*/assets/fonts/TimesNewRoman*
+examples/*/assets/fonts/SegoeUI*
+examples/*/assets/fonts/Consolas*
+examples/*/assets/fonts/Impact*
+examples/*/assets/fonts/ArialBlack*
+examples/*/assets/fonts/georgia*
+examples/*/assets/fonts/TTNorms*
+examples/*/assets/fonts/ABCSolar*
+examples/*/assets/fonts/GalaxieCopernicus*
+examples/*/assets/GalaxieCopernicus*
+# 根部杂散临时文件
+examples/257dca27-01b0-40e4-9e09-f51254a19355.json
+examples/83627cee-1153-11ee-b832-fb1242dd7de9.json
+examples/bbbb.xml
+examples/xxx.xml
+# 开发过程文档
+docs/ablation/
+docs/g2-align/

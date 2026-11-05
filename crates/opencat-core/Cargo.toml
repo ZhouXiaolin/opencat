@@ -69,6 +69,10 @@ tiny-skia-path = "0.12.0"
 # 求值（var/calc/color-mix）由本 crate 的 css::eval 负责。into_owned 把
 # 借用输入文本的 StyleSheet<'i> 转成 'static，CssEngine 才能持有它。
 lightningcss = { version = "1.0.0-alpha.72", features = ["into_owned"] }
+# 标准 HTML 解析器（docs/html-align/DESIGN.md：.html 直渲入口）。rcdom 是
+# html5ever 官方参考树构建器：产出的 DOM 树交 parse::html 降级成 DomElement
+# 种子（json 值形态，与 JSX extract 同构，单通道进 JS realm）。
+html5ever = "0.29"
 
 [dependencies.tracing]
 version = "0.1"

@@ -7,6 +7,7 @@
 mod v8;
 
 pub mod bridge;
+pub mod html;
 pub mod jsx;
 pub mod offscreen;
 

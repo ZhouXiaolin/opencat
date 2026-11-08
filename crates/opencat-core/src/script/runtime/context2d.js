@@ -23,6 +23,44 @@
 
     var contexts = {};
 
+    // `__canvas_glyph_paths` 是纯函数（text/size/family/weight → 载荷），每次
+    // 调用都重新排版并整包转成 JS 对象。页脚本每帧重画同一批字符串（逐词
+    // measureText 折行尤甚），按参数记忆化；溢出整表清空。
+    var shapeCache = Object.create(null);
+    var shapeCacheSize = 0;
+    var SHAPE_CACHE_CAP = 4096;
+
+    // 字形轮廓按排版位置摊平成相对基线原点的 flat 路径（`__canvas_path_flat`
+    // 编码，Float64Array），挂在记忆化的 shape 载荷上，同一字符串逐帧复用。
+    // 宿主有 typed-array 快路径（`__opencatCanvasPathFlat`）时绕开 JSON 派发。
+    var FLAT_ARGS = [2, 2, 4, 6, 0];
+    function pathFlat(id, flat, dx, dy) {
+        if (typeof __opencatCanvasPathFlat === 'function') __opencatCanvasPathFlat(id, flat, dx, dy);
+        else __canvas_path_flat(id, Array.prototype.slice.call(flat), dx, dy);
+    }
+    function textFlat(shaped) {
+        if (shaped.flat) return shaped.flat;
+        var byGlyph = {};
+        var gs = shaped.glyphs || [];
+        for (var i = 0; i < gs.length; i++) byGlyph[gs[i].k] = gs[i].ops;
+        var positions = shaped.positions || [];
+        var flat = [];
+        for (var p = 0; p < positions.length; p++) {
+            var ops = byGlyph[positions[p].k];
+            if (!ops) continue;
+            var px = positions[p].x;
+            var py = positions[p].y;
+            for (var j = 0; j < ops.length; j++) {
+                var op = ops[j];
+                var n = FLAT_ARGS[op[0]];
+                if (n === undefined) throw new Error('fillText: unknown glyph op ' + op[0]);
+                flat.push(op[0]);
+                for (var c = 1; c <= n; c += 2) flat.push(px + op[c], py + op[c + 1]);
+            }
+        }
+        return (shaped.flat = new Float64Array(flat));
+    }
+
     // Fresh per-frame paint state (the canvas spec defaults).
     function freshState() {
         return {
@@ -179,6 +217,8 @@
         // 一次 translate，让表面坐标系落回基 origin；setTransform 的
         // identity 同样回落到它，等价浏览器 surface 语义。
         var baseOrigin = null;
+        // 当前路径点（arcTo 需要它求切点；其余路径方法只负责更新）。
+        var cur = { x: 0, y: 0, known: false };
         var matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
         var matrixStack = [];
         var stateStack = [];
@@ -504,7 +544,7 @@
             },
 
             // ── paths ──
-            beginPath() { pathBounds = null; __canvas_begin_path(id); },
+            beginPath() { pathBounds = null; cur = { x: 0, y: 0, known: false }; __canvas_begin_path(id); },
             // HTML 2D dash surface over the same `dash` the stroke lowering
             // consumes (`lowerDash`); [] restores the solid line.
             setLineDash(segments) {
@@ -597,14 +637,64 @@
             closePath() { __canvas_close_path(id); },
             moveTo(x, y) {
                 expandPathBounds(num(x), num(y), num(x), num(y));
+                cur = { x: num(x), y: num(y), known: true };
                 __canvas_move_to(id, num(x), num(y));
             },
             lineTo(x, y) {
                 expandPathBounds(num(x), num(y), num(x), num(y));
+                cur = { x: num(x), y: num(y), known: true };
                 __canvas_line_to(id, num(x), num(y));
+            },
+            // 流里只有弧段没有 arcTo：按 canvas 规范求切点，降级成
+            // lineTo(切点) + arc(圆心, 起止角)。圆角矩形全靠它。
+            arcTo(x1, y1, x2, y2, radius) {
+                var r = num(radius);
+                var ax = num(x1), ay = num(y1), bx = num(x2), by = num(y2);
+                if (!(r > 0) || !cur.known
+                    || (cur.x === ax && cur.y === ay) || (ax === bx && ay === by)) {
+                    this.lineTo(ax, ay);
+                    return;
+                }
+                var d1x = cur.x - ax, d1y = cur.y - ay;
+                var d2x = bx - ax, d2y = by - ay;
+                var l1 = Math.hypot(d1x, d1y), l2 = Math.hypot(d2x, d2y);
+                if (!(l1 > 0) || !(l2 > 0)) {
+                    this.lineTo(ax, ay);
+                    return;
+                }
+                d1x /= l1; d1y /= l1; d2x /= l2; d2y /= l2;
+                var cross = d1x * d2y - d1y * d2x;
+                var angle = Math.acos(Math.max(-1, Math.min(1, d1x * d2x + d1y * d2y)));
+                if (!(Math.abs(cross) > 1e-9) || !(angle > 1e-9)) {
+                    this.lineTo(ax, ay);
+                    return;
+                }
+                var tanHalf = Math.tan(angle / 2);
+                var dist = r / tanHalf;
+                var t1x = ax + d1x * dist, t1y = ay + d1y * dist;
+                var t2x = ax + d2x * dist, t2y = ay + d2y * dist;
+                var bisx = d1x + d2x, bisy = d1y + d2y;
+                var bl = Math.hypot(bisx, bisy);
+                if (!(bl > 0)) {
+                    this.lineTo(ax, ay);
+                    return;
+                }
+                var h = r / Math.sin(angle / 2);
+                var cx0 = ax + (bisx / bl) * h, cy0 = ay + (bisy / bl) * h;
+                this.lineTo(t1x, t1y);
+                // 切点间取短弧：y 向下坐标里 cross<0 的拐角，切点角递增
+                //（顺时针）才是短弧，counterclockwise 取 cross>0。
+                this.arc(
+                    cx0, cy0, r,
+                    Math.atan2(t1y - cy0, t1x - cx0),
+                    Math.atan2(t2y - cy0, t2x - cx0),
+                    cross > 0
+                );
+                cur = { x: t2x, y: t2y, known: true };
             },
             rect(x, y, w, h) {
                 expandPathBounds(num(x), num(y), num(x) + num(w), num(y) + num(h));
+                cur = { x: num(x), y: num(y), known: true };
                 __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
             },
             quadraticCurveTo(cpx, cpy, x, y) {
@@ -704,6 +794,17 @@
             // 里只剩 path，段落位图通道（__canvas_draw_paragraph）退役出
             // 本面。emoji（color 载荷）不支持，报错指路 CanvasKit Paragraph。
             shapeGlyphs(text, font) {
+                var key = text + '\u0000' + font.size + '\u0000' + font.family + '\u0000' + font.weight;
+                var hit = shapeCache[key];
+                if (hit) return hit;
+                if (shapeCacheSize >= SHAPE_CACHE_CAP) {
+                    shapeCache = Object.create(null);
+                    shapeCacheSize = 0;
+                }
+                shapeCacheSize++;
+                return (shapeCache[key] = this.shapeGlyphsUncached(text, font));
+            },
+            shapeGlyphsUncached(text, font) {
                 var shaped = __canvas_glyph_paths(text, font.size, font.family, font.weight);
                 if (shaped && shaped.color === true) {
                     // 彩色字形（emoji）：glyph outline 面拿不到彩图，改走段落
@@ -752,10 +853,6 @@
                 }
                 var f = parseFont(state.font);
                 var shaped = this.shapeGlyphs(t, f);
-                var byGlyph = {};
-                var gs = shaped.glyphs || [];
-                for (var i = 0; i < gs.length; i++) byGlyph[gs[i].k] = gs[i].ops;
-                var positions = shaped.positions || [];
                 var bx = num(x);
                 if (align === 'center') bx -= (Number(shaped.width) || 0) / 2;
                 else if (align === 'right') bx -= Number(shaped.width) || 0;
@@ -801,21 +898,7 @@
                     return true;
                 }
                 __canvas_begin_path(id);
-                for (var p = 0; p < positions.length; p++) {
-                    var ops = byGlyph[positions[p].k];
-                    if (!ops) continue;
-                    var gx = bx + positions[p].x;
-                    var gy = by + positions[p].y;
-                    for (var j = 0; j < ops.length; j++) {
-                        var op = ops[j];
-                        if (op[0] === 0) __canvas_move_to(id, gx + op[1], gy + op[2]);
-                        else if (op[0] === 1) __canvas_line_to(id, gx + op[1], gy + op[2]);
-                        else if (op[0] === 2) __canvas_quad_to(id, gx + op[1], gy + op[2], gx + op[3], gy + op[4]);
-                        else if (op[0] === 3) __canvas_cubic_to(id, gx + op[1], gy + op[2], gx + op[3], gy + op[4], gx + op[5], gy + op[6]);
-                        else if (op[0] === 4) __canvas_close_path(id);
-                        else throw new Error('fillText: unknown glyph op ' + op[0]);
-                    }
-                }
+                pathFlat(id, textFlat(shaped), bx, by);
                 return true;
             },
             fillText(text, x, y) {
@@ -872,15 +955,13 @@
                 };
             },
             // 光栅化回读（g-lite measureFont 逐像素扫 ascent/descent、heatmap
-            // DE 全图 LUT 换色都走这里）：整个 canvas 重放成 RGBA，再行拷贝
-            // 切出请求窗口。仅对离屏 canvas 有意义——DOM chart canvas 的 id
-            // 在帧级 op 流里，脚本期没有可重放帧。
+            // DE 全图 LUT 换色、three 拿 canvas 当贴图都走这里）：本帧已录的
+            // 命令重放成 RGBA，再行拷贝切出请求窗口。离屏画布与 html 通道的
+            // 树内 canvas 可读；尺寸各自从所属节点表取。
             getImageData(sx, sy, sw, sh) {
-                if (!id.indexOf || id.indexOf('__oc_offscreen_') !== 0) {
-                    throw new Error('getImageData: only offscreen canvases support pixel reads');
-                }
-                var canvas = typeof __ocOffscreenById === 'function' ? __ocOffscreenById(id) : null;
-                if (!canvas) throw new Error('getImageData: no offscreen canvas for ' + id);
+                var canvas = (typeof __ocOffscreenById === 'function' ? __ocOffscreenById(id) : null)
+                    || (typeof __ocHtmlCanvasById === 'function' ? __ocHtmlCanvasById(id) : null);
+                if (!canvas) throw new Error('getImageData: no readable canvas for ' + id);
                 var cw = Math.max(1, Math.ceil(canvas.width > 0 ? canvas.width : 1));
                 var ch = Math.max(1, Math.ceil(canvas.height > 0 ? canvas.height : 1));
                 if (typeof __opencatRasterCanvas !== 'function') {

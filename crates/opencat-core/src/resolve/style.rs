@@ -77,6 +77,9 @@ impl InheritedStyle {
 #[derive(Clone, Debug)]
 pub struct ComputedLayoutStyle {
     pub position: Position,
+    /// 显式定位（CSS `relative`/`absolute`/`fixed`）：是绝对定位后代的包含块。
+    /// `position` 把 static 与 relative 都记成 Relative，这一位补上二者之差。
+    pub positioned: bool,
     pub inset_left: Option<LengthPercentageAuto>,
     pub inset_top: Option<LengthPercentageAuto>,
     pub inset_right: Option<LengthPercentageAuto>,

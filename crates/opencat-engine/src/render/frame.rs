@@ -26,6 +26,11 @@ pub trait GpuImageResolver {
         width: u32,
         height: u32,
     ) -> anyhow::Result<Image>;
+
+    /// 调试：让后端直读图像像素（验证导入的纹理在 Skia 眼里是否有内容）。
+    fn debug_sample(&mut self, _image: &Image) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 /// 一帧执行共享的可变状态束：执行器 + 媒体上下文 + 生成图缓存。纯参数
@@ -336,6 +341,15 @@ fn prepare_frame(
                         asset_id: asset_id.clone(),
                         detail: e.to_string(),
                     })?;
+                if std::env::var_os("OC_TRACE_VIDEO").is_some() {
+                    eprintln!(
+                        "[video] {asset_id} t={} target={target:?} -> {}x{} scale={scale} bytes={}",
+                        *time_micros as f64 / 1_000_000.0,
+                        frame.width,
+                        frame.height,
+                        frame.data.len()
+                    );
+                }
                 let info = ImageInfo::new(
                     (frame.width as i32, frame.height as i32),
                     ColorType::RGBA8888,
@@ -380,6 +394,12 @@ fn prepare_frame(
                         .into(),
                 }
             })?;
+            if std::env::var_os("OC_TRACE_DRAW").is_some() {
+                eprintln!(
+                    "[import] generated {:?} {}x{} token={}",
+                    entry.id, entry.width, entry.height, handle.token
+                );
+            }
             let id = crate::gpu::TextureId::from_raw(handle.token);
             let sk_image = resolver.import(id, entry.width, entry.height).map_err(|e| {
                 MediaError::GeneratedImageDecodeFailed {
@@ -387,6 +407,11 @@ fn prepare_frame(
                     detail: format!("GPU texture import failed: {e}"),
                 }
             })?;
+            if std::env::var_os("OC_TRACE_DRAW").is_some() {
+                let mut px = vec![0u8; 4 * 4];
+                let _ = &mut px;
+                eprintln!("[import] Skia 采样 @960,540 px={:?}", resolver.debug_sample(&sk_image));
+            }
             let idx = sk_images.len();
             sk_images.push(sk_image);
             image_scales.push(1.0);

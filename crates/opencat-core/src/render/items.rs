@@ -107,7 +107,7 @@ pub(crate) fn rect_to_rect4(r: Rect) -> Rect4 {
     }
 }
 
-fn radii_to_radii4(r: [f32; 4]) -> Radii4 {
+pub(crate) fn radii_to_radii4(r: [f32; 4]) -> Radii4 {
     Radii4 {
         top_left: r[0],
         top_right: r[1],

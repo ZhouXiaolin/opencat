@@ -138,6 +138,7 @@ fn native_state(scope: &PinScope<'_, '_>) -> Option<Rc<NativeState>> {
     scope.get_slot::<Rc<NativeState>>().cloned()
 }
 
+
 // ── Native entry points ──────────────────────────────────────────────
 
 /// `__opencatCallNative(name, argsArray)` — the single generic binding entry.
@@ -386,6 +387,48 @@ fn offscreen_canvas_reset(
         return;
     };
     store.reset_offscreen_canvas(&id);
+}
+
+/// `__opencatCanvasPathFlat(id, flat, dx, dy)` — `canvas_path_flat` 的
+/// typed-array 快路径：fillText 烘焙的整段字形轮廓动辄数千个数，走 JSON
+/// 派发每次要数百微秒。
+fn canvas_path_flat(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    _rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "canvas.pathFlat: realm native state missing");
+        return;
+    };
+    let id = args.get(0).to_rust_string_lossy(scope);
+    let flat_v8: Local<v8::Float64Array> = match args.get(1).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "canvas.pathFlat: `flat` must be a Float64Array");
+            return;
+        }
+    };
+    let mut raw = vec![0u8; flat_v8.byte_length()];
+    let copied = v8::ArrayBufferView::copy_contents(&flat_v8, &mut raw);
+    let flat: Vec<f64> = raw[..copied]
+        .chunks_exact(8)
+        .map(|c| f64::from_ne_bytes(c.try_into().expect("8-byte chunk")))
+        .collect();
+    let number = |index: i32| {
+        args.get(index)
+            .to_number(scope)
+            .map(|n| n.value())
+            .unwrap_or(0.0)
+    };
+    let (dx, dy) = (number(2), number(3));
+    let Ok(mut store) = state.store.lock() else {
+        throw(scope, "canvas.pathFlat: store lock poisoned");
+        return;
+    };
+    if let Err(e) = opencat_core::script::bindings::record_path_flat(&mut *store, &id, &flat, dx, dy) {
+        throw(scope, &format!("canvas.pathFlat: {e}"));
+    }
 }
 
 /// `__opencatRasterCanvasPNG(id, w, h, out)` — offscreen canvas → PNG bytes.
@@ -783,10 +826,8 @@ impl JsContext for V8JsContext {
                 .map_err(|_| anyhow!("{name}: global is not a function"))?;
             v8::tc_scope!(let tc, scope);
             let receiver = v8::undefined(tc);
-            function
-                .call(tc, receiver.into(), &[])
-                .map(|_| ())
-                .ok_or_else(|| anyhow!(caught!(tc, name)))
+            let ok = function.call(tc, receiver.into(), &[]).is_some();
+            if ok { Ok(()) } else { Err(anyhow!(caught!(tc, name))) }
         })
     }
 
@@ -822,6 +863,9 @@ impl JsContext for V8JsContext {
             let oreset = Function::new(scope, offscreen_canvas_reset)
                 .ok_or_else(|| anyhow!("v8: failed to create __opencatOffscreenReset"))?;
             set_global(scope, "__opencatOffscreenReset", oreset.into())?;
+            let path_flat = Function::new(scope, canvas_path_flat)
+                .ok_or_else(|| anyhow!("v8: failed to create __opencatCanvasPathFlat"))?;
+            set_global(scope, "__opencatCanvasPathFlat", path_flat.into())?;
 
             // GL stream / asset / image natives (binary fast paths, same shape
             // as the two above).

@@ -33,8 +33,11 @@ use opencat_core::ir::GpuOpFrame;
 pub struct GpuStreamExecutor {
     /// 内容 hash → 编译好的程序（跨帧/跨流复用）。
     program_cache: HashMap<String, ProgramEntry>,
-    /// 内容 hash → 已上载纹理（跳过重传）。
-    texture_cache: std::collections::HashSet<String>,
+    /// (纹理句柄, target, level) → 该槽当前装着的上传内容键：同槽同内容才
+    /// 跳过重传。html 通道每帧句柄序归零重放，句柄可能逐帧换主（按时间惰性
+    /// 建资源的合成会让后续句柄整体漂移）——"上传过的内容集合"会把旧主的
+    /// 内容错当成现状。
+    texture_cache: HashMap<(u32, u32, i32), String>,
     /// WebGL `UNPACK_FLIP_Y_WEBGL` 标志（影响下一次 texImage/SubImage2D）。
     /// 桌面 GL 没有这个 pname，翻转由本执行器对上传字节手动做。
     unpack_flip_y: bool,
@@ -70,18 +73,16 @@ pub struct GpuStreamExecutor {
     /// 而 three 的 bindingStates 缓存使后续帧不再重发绑定——依赖驱动
     /// 保留状态必然炸（drawElements 拿到 index=0 直接访问违例）。
     vao_element: HashMap<u32, u32>,
-    /// 当前绑定的 VAO 句柄（None = 无）。
-    cur_vao: Option<u32>,
-    /// 当前绑定的 element buffer 句柄（None = 无）。
-    cur_element: Option<u32>,
-    /// 当前使用的程序（内容 key；None = 无）。
-    cur_program_key: Option<String>,
     /// 本帧流输出 FBO。WebGL `bindFramebuffer(target, null)` 的语义是
     /// 「绑回 canvas 绘制面」——离屏会话里没有 window system 默认帧缓冲，
     /// 必须显式映射到这里。
     stream_out_fbo: u32,
     /// 客户端可见的全局 GL 状态影子（three 的 JS 状态缓存视角）。
     client: ClientGlState,
+    /// 按 canvas（流 target_id）分桶的客户端状态影子。浏览器里每个 canvas
+    /// 是独立 GL 上下文，状态互不可见；执行器共用一份 GL 上下文，靠这里
+    /// 在流边界换入换出。
+    clients: HashMap<String, ClientGlState>,
 }
 
 /// GL 命令流客户端的"最后一次设置"状态。帧尾必须恢复到这个影子而不是
@@ -114,12 +115,37 @@ struct ClientGlState {
     rb_binds: Vec<(u32, u32)>,
     /// 全局 ARRAY_BUFFER 句柄（element 归 VAO 账本管）。
     array_buffer: Option<u32>,
+    /// 当前绑定的 VAO 句柄（None = 无）。
+    cur_vao: Option<u32>,
+    /// 当前绑定的 element buffer 句柄（None = 无）。
+    cur_element: Option<u32>,
+    /// 当前使用的程序（内容 key；None = 无）。
+    cur_program_key: Option<String>,
+    /// 视口 / 裁剪框（None = WebGL 初值，即画布尺寸；流首按流尺寸补）。
+    viewport: Option<[i32; 4]>,
+    scissor: Option<[i32; 4]>,
 }
+
+/// WebGL 的上下文初值 cap 表。影子必须**全量**记这些 cap：执行器把多个
+/// canvas 的流跑在同一个 GL 上下文上，换 canvas 时要靠这张表把上一个
+/// canvas 遗留的 cap 关掉——空表等于「什么都不关」，全屏 quad 会被别的
+/// canvas 留下的 CULL_FACE 整片剔除（实测 vfx-canvas 全黑即此因）。
+const DEFAULT_CAPS: [(u32, bool); 9] = [
+    (glow::BLEND, false),
+    (glow::CULL_FACE, false),
+    (glow::DEPTH_TEST, false),
+    (glow::DITHER, true),
+    (glow::POLYGON_OFFSET_FILL, false),
+    (glow::SCISSOR_TEST, false),
+    (glow::STENCIL_TEST, false),
+    (glow::SAMPLE_ALPHA_TO_COVERAGE, false),
+    (glow::SAMPLE_COVERAGE, false),
+];
 
 impl Default for ClientGlState {
     fn default() -> Self {
         Self {
-            caps: Vec::new(),
+            caps: DEFAULT_CAPS.to_vec(),
             front_face: glow::CCW,
             cull_face: glow::BACK,
             depth_func: glow::LESS,
@@ -135,10 +161,15 @@ impl Default for ClientGlState {
             clear_color: [0.0; 4],
             clear_depth: 1.0,
             clear_stencil: 0,
+            viewport: None,
+            scissor: None,
             active_unit: 0,
             tex_binds: Vec::new(),
             rb_binds: Vec::new(),
             array_buffer: None,
+            cur_vao: None,
+            cur_element: None,
+            cur_program_key: None,
         }
     }
 }
@@ -159,14 +190,7 @@ impl GpuStreamExecutor {
     /// renderer 的后续帧流里可能没有 bind 命令，上传类命令必须从影子
     /// 解析目标纹理，否则数据落到别的绑定上。
     fn bound_texture(&self, target: u32) -> Option<u32> {
-        // cube 六个面是独立 target,但绑定挂在 TEXTURE_CUBE_MAP 上。
-        let binding_target = if (glow::TEXTURE_CUBE_MAP_POSITIVE_X..=glow::TEXTURE_CUBE_MAP_NEGATIVE_Z)
-            .contains(&target)
-        {
-            glow::TEXTURE_CUBE_MAP
-        } else {
-            target
-        };
+        let binding_target = texture_bind_target(target);
         self.client
             .tex_binds
             .iter()
@@ -180,7 +204,7 @@ impl GpuStreamExecutor {
         if target == glow::ARRAY_BUFFER {
             self.client.array_buffer
         } else {
-            self.cur_element
+            self.client.cur_element
         }
     }
 
@@ -216,12 +240,27 @@ fn flip_rows_vertical(bytes: &mut [u8], height: u32) {
     }
 }
 
+/// 上传命令的 target → 纹理绑定点：cube 六个面是独立的上传 target，但
+/// 绑定与参数都挂在 TEXTURE_CUBE_MAP 上（面 target 传给 bind/texParameter
+/// 是 INVALID_ENUM）。
+fn texture_bind_target(target: u32) -> u32 {
+    if (glow::TEXTURE_CUBE_MAP_POSITIVE_X..=glow::TEXTURE_CUBE_MAP_NEGATIVE_Z).contains(&target) {
+        glow::TEXTURE_CUBE_MAP
+    } else {
+        target
+    }
+}
+
 struct ProgramEntry {
     program: glow::Program,
     /// 顶点源码的属性声明序（core 扫描序号的映射基准）。
     attrib_names: Vec<String>,
     attrib_loc: HashMap<String, Option<u32>>,
     uniform_loc: HashMap<String, Option<glow::UniformLocation>>,
+    /// 活跃 uniform 的声明类型（数组同时登记裸名与 `name[0]`）。录制面
+    /// 的 uniform{1,2,3,4}fv / iv 同走一条变长命令、不带分量宽度，执行时
+    /// 按声明类型选 GL 入口。
+    uniform_types: HashMap<String, u32>,
 }
 
 impl GpuStreamExecutor {
@@ -248,7 +287,17 @@ impl GpuStreamExecutor {
             return Ok(outputs);
         }
         for stream in &section.streams {
-            let out = self.execute_stream(gl, stream, plan, textures, gpu_mode)?;
+            // 每个 canvas 在浏览器里是独立 GL 上下文：客户端状态影子按
+            // target 分桶。跑流前换入该 canvas 的影子（首次 = WebGL 初值），
+            // 跑完换回——否则上一个 canvas 的 cap/绑定会灌进这个 canvas
+            // 的流首，全屏 quad 被别人的 CULL_FACE 剔除、输出只剩 clear 色。
+            let key = stream.target_id.clone();
+            let mut saved = self.clients.remove(&key).unwrap_or_default();
+            std::mem::swap(&mut self.client, &mut saved);
+            let out = self.execute_stream(gl, stream, plan, textures, gpu_mode);
+            let updated = std::mem::replace(&mut self.client, saved);
+            self.clients.insert(key, updated);
+            let out = out?;
             outputs.extend(out);
         }
         // 无条件恢复:被丢弃的流(占位不可见)同样把状态留在流尾,下一帧的
@@ -299,8 +348,56 @@ impl GpuStreamExecutor {
             );
         }
 
-        let mut r = Replay { gl, ops, bytes, ranges };
+        // 视口/裁剪框按客户端影子恢复，缺省 = WebGL 初值（画布尺寸）。WebGL
+        // 客户端只在变化时发 viewport（three 的 WebGLState 以
+        // getParameter(VIEWPORT) 的初值为起点，裸 WebGL 页常常从不调用），
+        // 离屏会话的真视口却停在上下文初值（1×1）或上一个使用者的值。
+        let full = [0, 0, stream.width as i32, stream.height as i32];
+        let vp = self.client.viewport.unwrap_or(full);
+        let sc = self.client.scissor.unwrap_or(full);
+        unsafe {
+            gl.viewport(vp[0], vp[1], vp[2], vp[3]);
+            gl.scissor(sc[0], sc[1], sc[2], sc[3]);
+        }
+
+        let trace = std::env::var("OC_TRACE_GL")
+            .map(|v| v == stream.target_id)
+            .unwrap_or(false);
+        if std::env::var_os("OC_DEBUG_CLEAN_STATE").is_some() {
+            unsafe {
+                gl.disable(glow::CULL_FACE);
+                gl.disable(glow::DEPTH_TEST);
+                gl.disable(glow::BLEND);
+                gl.disable(glow::STENCIL_TEST);
+                gl.disable(glow::SCISSOR_TEST);
+            }
+        }
+        let mut r = Replay { gl, ops, bytes, ranges, trace };
         let st = r.run(self)?;
+        if std::env::var_os("OC_DETACH_FBO").is_some() {
+            unsafe {
+                gl.bind_framebuffer(
+                    glow::FRAMEBUFFER,
+                    Some(glow::NativeFramebuffer(std::num::NonZeroU32::new(out_fbo).unwrap())),
+                );
+                gl.framebuffer_texture_2d(
+                    glow::FRAMEBUFFER,
+                    glow::COLOR_ATTACHMENT0,
+                    glow::TEXTURE_2D,
+                    None,
+                    0,
+                );
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            }
+        }
+        if std::env::var_os("OC_DEBUG_FILL_RED").is_some() {
+            unsafe {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(glow::NativeFramebuffer(std::num::NonZeroU32::new(out_fbo).unwrap())));
+                gl.clear_color(1.0, 0.0, 0.0, 1.0);
+                gl.clear(glow::COLOR_BUFFER_BIT);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            }
+        }
 
         // 占位不在本帧 plan = 该 canvas 子树本帧不可见（opacity 0 / 裁剪/
         // 移出屏）——流照常执行：three 等持久 renderer 的资源创建命令
@@ -311,6 +408,16 @@ impl GpuStreamExecutor {
             .iter_mut()
             .find(|e| e.id == stream.image_id)
         else {
+            if trace {
+                eprintln!(
+                    "       [gl] 占位不在 plan: image_id={:?} 现存={:?}",
+                    stream.image_id,
+                    plan.generated_images
+                        .iter()
+                        .map(|e| format!("{:?}", e.id))
+                        .collect::<Vec<_>>()
+                );
+            }
             crate::gpu::gl::delete_framebuffer(gl, out_fbo);
             crate::gpu::gl::delete_texture(gl, out_tex);
             let _ = st;
@@ -318,12 +425,22 @@ impl GpuStreamExecutor {
         };
 
         let mut outputs = Vec::new();
+        let gpu_mode = gpu_mode && std::env::var_os("OC_FORCE_CPU_STREAM").is_none();
         if gpu_mode {
             // 纹理登记到共享表；GL 资源的删除由调用方在合成完成后做
             // （outputs 携带 (纹理名, FBO)——调用点持有 current 上下文）。
             let native = crate::gpu::NativeTexture::from_raw(out_tex.raw());
             let token = textures.publish(native, Box::new(()));
             entry.rgba = Arc::from(Vec::new());
+            if std::env::var_os("OC_TRACE_DRAW").is_some() {
+                eprintln!(
+                    "[stream] 回填 {:?} {}x{} token={}",
+                    entry.id,
+                    entry.width,
+                    entry.height,
+                    token.raw()
+                );
+            }
             entry.gpu = Some(opencat_core::ir::generated_image::GpuImageHandle {
                 token: token.raw(),
             });
@@ -378,30 +495,48 @@ fn desktop_buffer_target(target: u32) -> u32 {
     }
 }
 
+impl GpuStreamExecutor {
+    pub fn debug_counts(&self) -> String {
+        format!(
+            "prog={} texc={} buf={} vao={} tex={} fbo={} rb={} smp={} shsrc={}",
+            self.program_cache.len(),
+            self.texture_cache.len(),
+            self.obj_buffers.len(),
+            self.obj_vaos.len(),
+            self.obj_textures.len(),
+            self.obj_fbos.len(),
+            self.obj_renderbuffers.len(),
+            self.obj_samplers.len(),
+            self.shader_src.len()
+        )
+    }
+}
+
 fn restore_default_state(ex: &mut GpuStreamExecutor, gl: &Arc<glow::Context>) {
     unsafe {
         // 绑定类恢复到客户端最后看到的对象(three 的缓存只在变化时重发);
         // 句柄已删的回落 None 并同步账本。VAO 先绑回——ELEMENT 绑定和
         // attrib 状态都属于 VAO,绑回后按账本重挂 element。
-        let vao = ex.cur_vao.and_then(|h| ex.obj_vaos.get(&h).copied());
+        let vao = ex.client.cur_vao.and_then(|h| ex.obj_vaos.get(&h).copied());
         gl.bind_vertex_array(vao);
         if vao.is_none() {
-            ex.cur_vao = None;
-            ex.cur_element = None;
+            ex.client.cur_vao = None;
+            ex.client.cur_element = None;
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
         } else {
-            let eh = ex.cur_vao.and_then(|v| ex.vao_element.get(&v).copied());
-            ex.cur_element = eh;
+            let eh = ex.client.cur_vao.and_then(|v| ex.vao_element.get(&v).copied());
+            ex.client.cur_element = eh;
             if let Some(h) = eh && let Some(buf) = ex.obj_buffers.get(&h) {
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*buf));
             }
         }
         let program = ex
+            .client
             .cur_program_key
             .as_ref()
             .and_then(|k| ex.program_cache.get(k));
         if program.is_none() {
-            ex.cur_program_key = None;
+            ex.client.cur_program_key = None;
         }
         gl.use_program(program.map(|e| e.program));
         let ab = ex
@@ -507,6 +642,8 @@ struct Replay<'a> {
     ops: &'a [u8],
     bytes: &'a [u8],
     ranges: &'a [opencat_core::ir::draw_types::TableRange],
+    /// 调试：`OC_TRACE_GL=<target_id>` 时打印本流每条命令。
+    trace: bool,
 }
 
 struct ReplayState {
@@ -524,12 +661,21 @@ impl<'a> Replay<'a> {
             program_key: None,
         };
 
+        let trace = self.trace;
         let mut p = 0usize;
         unsafe {
             while p < self.ops.len() {
                 let opcode = self.ops[p];
                 let start = p;
                 p += 1;
+                if trace {
+                    let name = gl_opcode::NAMES
+                        .iter()
+                        .find(|(_, v)| *v == opcode)
+                        .map(|(n, _)| *n)
+                        .unwrap_or("UNKNOWN");
+                    eprintln!("[gl] {start:>5} {name}");
+                }
                 match opcode {
                     gl_opcode::SHADER_CREATE => {
                         let ty = rd_u16(self.ops, &mut p) as u32;
@@ -546,7 +692,13 @@ impl<'a> Replay<'a> {
                         rd_u32(self.ops, &mut p);
                     }
                     gl_opcode::PROGRAM_CREATE => {
-                        rd_u32(self.ops, &mut p);
+                        // html 通道每帧句柄序归零重放：同一 pid 下一帧可能是
+                        // 另一份程序（惰性建 program 的合成会让后续句柄整体
+                        // 漂移）。新建即清旧映射；编译产物仍按源码键复用。
+                        let pid = rd_u32(self.ops, &mut p);
+                        ex.program_shaders.remove(&pid);
+                        ex.program_key_by_pid.remove(&pid);
+                        ex.program_attrib_binds.remove(&pid);
                     }
                     gl_opcode::PROGRAM_ATTACH => {
                         let pid = rd_u32(self.ops, &mut p);
@@ -566,7 +718,7 @@ impl<'a> Replay<'a> {
                         if pid == NULL_HANDLE {
                             state.program = None;
                             state.program_key = None;
-                            ex.cur_program_key = None;
+                            ex.client.cur_program_key = None;
                             gl.use_program(None);
                         } else {
                             let key = ex.program_key_for(gl, pid)?;
@@ -576,7 +728,7 @@ impl<'a> Replay<'a> {
                                 .ok_or_else(|| anyhow!("program {pid} 缓存缺失"))?;
                             state.program = Some(entry.program);
                             state.program_key = Some(key.clone());
-                            ex.cur_program_key = Some(key);
+                            ex.client.cur_program_key = Some(key);
                             // 状态机之外必须真绑定：漏了它 draw 落到固定
                             // 管线（compat profile 不报错、画默认色白三角）。
                             gl.use_program(Some(entry.program));
@@ -594,27 +746,38 @@ impl<'a> Replay<'a> {
                         ex.program_key_by_pid.remove(&pid);
                         ex.program_attrib_binds.remove(&pid);
                     }
+                    // 删除即真删 GL 对象：html 通道每帧重放会删了再建（PMREM 之类
+                    // 用完即 dispose），只摘映射不删对象会逐帧泄漏整份存储。
                     gl_opcode::BUFFER_DELETE => {
                         let h = rd_u32(self.ops, &mut p);
-                        ex.obj_buffers.remove(&h);
+                        if let Some(buf) = ex.obj_buffers.remove(&h) {
+                            gl.delete_buffer(buf);
+                        }
                     }
                     gl_opcode::VAO_DELETE => {
                         let h = rd_u32(self.ops, &mut p);
-                        ex.obj_vaos.remove(&h);
-                        if ex.cur_vao == Some(h) {
-                            ex.cur_vao = None;
-                            ex.cur_element = None;
+                        if let Some(vao) = ex.obj_vaos.remove(&h) {
+                            gl.delete_vertex_array(vao);
+                        }
+                        if ex.client.cur_vao == Some(h) {
+                            ex.client.cur_vao = None;
+                            ex.client.cur_element = None;
                         }
                         ex.vao_element.remove(&h);
                     }
                     gl_opcode::TEXTURE_DELETE => {
                         let h = rd_u32(self.ops, &mut p);
-                        ex.obj_textures.remove(&h);
+                        if let Some(tex) = ex.obj_textures.remove(&h) {
+                            gl.delete_texture(tex);
+                        }
+                        ex.texture_cache.retain(|(th, _, _), _| *th != h);
                         ex.client.tex_binds.retain(|(_, _, th)| *th != h);
                     }
                     gl_opcode::FRAMEBUFFER_DELETE => {
                         let h = rd_u32(self.ops, &mut p);
-                        ex.obj_fbos.remove(&h);
+                        if let Some(fbo) = ex.obj_fbos.remove(&h) {
+                            gl.delete_framebuffer(fbo);
+                        }
                     }
                     gl_opcode::BUFFER_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
@@ -627,12 +790,12 @@ impl<'a> Replay<'a> {
                         let handle = rd_u32(self.ops, &mut p);
                         let dt = desktop_buffer_target(target as u32);
                         let buf = if handle == NULL_HANDLE {
-                            ex.cur_element = None;
+                            ex.client.cur_element = None;
                             None
                         } else {
-                            ex.cur_element = Some(handle);
+                            ex.client.cur_element = Some(handle);
                             if target as u32 == glow::ELEMENT_ARRAY_BUFFER
-                                && let Some(v) = ex.cur_vao
+                                && let Some(v) = ex.client.cur_vao
                             {
                                 ex.vao_element.insert(v, handle);
                             }
@@ -651,6 +814,14 @@ impl<'a> Replay<'a> {
                         let usage = rd_u16(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
                         let data = self.range_bytes(range)?;
+                        if trace {
+                            let head: Vec<f32> = data
+                                .chunks_exact(4)
+                                .take(6)
+                                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                                .collect();
+                            eprintln!("       bufferData target={target} len={} head={head:?}", data.len());
+                        }
                         let buf = ex
                             .bound_buffer(target as u32)
                             .and_then(|h| ex.obj_buffers.get(&h).copied())
@@ -687,7 +858,7 @@ impl<'a> Replay<'a> {
                                 gl.create_vertex_array().expect("create_vertex_array")
                             }))
                         };
-                        ex.cur_vao = if handle == NULL_HANDLE { None } else { Some(handle) };
+                        ex.client.cur_vao = if handle == NULL_HANDLE { None } else { Some(handle) };
                         gl.bind_vertex_array(vao);
                         // 绑定后按账本重挂 element：不信任驱动保留的 VAO
                         // 状态（会被共享上下文的其他使用者踩掉）。
@@ -699,7 +870,12 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::ATTRIB_ENABLE => {
                         let name_range = rd_u32(self.ops, &mut p);
-                        if let Some(loc) = self.attrib_loc(ex, &state, name_range)? {
+                        let loc = self.attrib_loc(ex, &state, name_range)?;
+                        if trace {
+                            let name = self.range_str(name_range).unwrap_or("?");
+                            eprintln!("       attribEnable {name} loc={loc:?}");
+                        }
+                        if let Some(loc) = loc {
                             gl.enable_vertex_attrib_array(loc);
                         }
                     }
@@ -716,7 +892,14 @@ impl<'a> Replay<'a> {
                         let normalized = rd_u8(self.ops, &mut p);
                         let stride = rd_u32(self.ops, &mut p);
                         let offset = rd_u32(self.ops, &mut p);
-                        if let Some(loc) = self.attrib_loc(ex, &state, name_range)? {
+                        let loc = self.attrib_loc(ex, &state, name_range)?;
+                        if trace {
+                            let name = self.range_str(name_range).unwrap_or("?");
+                            eprintln!(
+                                "       attribPointer {name} loc={loc:?} size={size} ty={ty} stride={stride} off={offset}"
+                            );
+                        }
+                        if let Some(loc) = loc {
                             gl.vertex_attrib_pointer_f32(
                                 loc,
                                 size as i32,
@@ -737,6 +920,10 @@ impl<'a> Replay<'a> {
                     gl_opcode::UNIFORM_1F => {
                         let range = rd_u32(self.ops, &mut p);
                         let x = rd_f32(self.ops, &mut p);
+                        if trace {
+                            let name = self.range_str(range).unwrap_or("?");
+                            eprintln!("       uniform1f {name} = {x}");
+                        }
                         gl.uniform_1_f32(self.uniform_loc(ex, &state, range)?.as_ref(), x);
                     }
                     gl_opcode::UNIFORM_2F => {
@@ -769,13 +956,25 @@ impl<'a> Replay<'a> {
                         let range = rd_u32(self.ops, &mut p);
                         let count = rd_u32(self.ops, &mut p);
                         let data = self.tail_f32(&mut p, count)?;
-                        gl.uniform_1_f32_slice(self.uniform_loc(ex, &state, range)?.as_ref(), &data);
+                        let loc = self.uniform_loc(ex, &state, range)?;
+                        match self.uniform_type(ex, &state, range)? {
+                            Some(glow::FLOAT_VEC2) => gl.uniform_2_f32_slice(loc.as_ref(), &data),
+                            Some(glow::FLOAT_VEC3) => gl.uniform_3_f32_slice(loc.as_ref(), &data),
+                            Some(glow::FLOAT_VEC4) => gl.uniform_4_f32_slice(loc.as_ref(), &data),
+                            _ => gl.uniform_1_f32_slice(loc.as_ref(), &data),
+                        }
                     }
                     gl_opcode::UNIFORM_NI => {
                         let range = rd_u32(self.ops, &mut p);
                         let count = rd_u32(self.ops, &mut p);
                         let data = self.tail_i32(&mut p, count)?;
-                        gl.uniform_1_i32_slice(self.uniform_loc(ex, &state, range)?.as_ref(), &data);
+                        let loc = self.uniform_loc(ex, &state, range)?;
+                        match self.uniform_type(ex, &state, range)? {
+                            Some(glow::INT_VEC2 | glow::BOOL_VEC2) => gl.uniform_2_i32_slice(loc.as_ref(), &data),
+                            Some(glow::INT_VEC3 | glow::BOOL_VEC3) => gl.uniform_3_i32_slice(loc.as_ref(), &data),
+                            Some(glow::INT_VEC4 | glow::BOOL_VEC4) => gl.uniform_4_i32_slice(loc.as_ref(), &data),
+                            _ => gl.uniform_1_i32_slice(loc.as_ref(), &data),
+                        }
                     }
                     gl_opcode::UNIFORM_MATRIX_4F => {
                         let range = rd_u32(self.ops, &mut p);
@@ -842,6 +1041,9 @@ impl<'a> Replay<'a> {
                         let ty = rd_u16(self.ops, &mut p);
                         let has_data = rd_u8(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
+                        if trace {
+                            eprintln!("       texImage2D {w}x{h} has_data={has_data} range={range}");
+                        }
                         let mut data = if has_data != 0 {
                             Some(self.range_bytes(range)?.to_vec())
                         } else {
@@ -879,12 +1081,13 @@ impl<'a> Replay<'a> {
                         // （如多 canvas 各自的 SDF 图集）各自需要真实上传，
                         // 只按内容 hash 去重会把后续纹理留成空纹理。
                         let tex_handle = ex.bound_texture(target as u32).unwrap_or(0);
+                        let slot = (tex_handle, target as u32, level);
                         let content_key = format!(
-                            "{tex_handle}|{internal}|{w}x{h}|{format}|{ty}|{}",
+                            "{internal}|{w}x{h}|{format}|{ty}|{}",
                             hash_bytes(data.as_deref().unwrap_or(&[])),
                         );
-                        if !ex.texture_cache.contains(&content_key) {
-                            gl.bind_texture(target as u32, Some(tex));
+                        if ex.texture_cache.get(&slot) != Some(&content_key) {
+                            gl.bind_texture(texture_bind_target(target as u32), Some(tex));
                             gl.tex_image_2d(
                                 target as u32, level, internal, w as i32, h as i32, 0,
                                 format as u32, ty as u32, data.as_deref(),
@@ -894,9 +1097,9 @@ impl<'a> Replay<'a> {
                             // 无此钳制——mip 模式 sampler 对缺失 level 实测
                             // 采出 (0,0,0,1)，SDF 文字因此成实心块。
                             if level == 0 {
-                                gl.tex_parameter_i32(target as u32, glow::TEXTURE_MAX_LEVEL, 0);
+                                gl.tex_parameter_i32(texture_bind_target(target as u32), glow::TEXTURE_MAX_LEVEL, 0);
                             }
-                            ex.texture_cache.insert(content_key);
+                            ex.texture_cache.insert(slot, content_key);
                         }
                     }
                     gl_opcode::GENERATE_MIPMAP => {
@@ -926,8 +1129,13 @@ impl<'a> Replay<'a> {
                     gl_opcode::DRAW_BUFFERS => {
                         let n = rd_u8(self.ops, &mut p) as usize;
                         let mut modes = [0u32; 8];
+                        // WebGL 默认帧缓冲的 BACK 在这里是流输出 FBO 的
+                        // COLOR_ATTACHMENT0（FBO 上传 BACK 是 INVALID_OPERATION）。
                         for m in modes.iter_mut().take(n) {
-                            *m = rd_u32(self.ops, &mut p);
+                            *m = match rd_u32(self.ops, &mut p) {
+                                glow::BACK => glow::COLOR_ATTACHMENT0,
+                                v => v,
+                            };
                         }
                         gl.draw_buffers(&modes[..n]);
                     }
@@ -976,6 +1184,7 @@ impl<'a> Replay<'a> {
                         let y = rd_i32(self.ops, &mut p);
                         let w = rd_i32(self.ops, &mut p);
                         let h = rd_i32(self.ops, &mut p);
+                        ex.client.viewport = Some([x, y, w, h]);
                         gl.viewport(x, y, w, h);
                     }
                     gl_opcode::CLEAR_COLOR => {
@@ -1083,6 +1292,10 @@ impl<'a> Replay<'a> {
                             .bound_texture(target as u32)
                             .and_then(|th| ex.obj_textures.get(&th).copied())
                             .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_2D 无客户端绑定纹理"))?;
+                        // 子区写入改了槽内容：下一次整图上传不能再按旧键跳过。
+                        if let Some(th) = ex.bound_texture(target as u32) {
+                            ex.texture_cache.remove(&(th, target as u32, level));
+                        }
                         if ex.unpack_flip_y {
                             if let Some(bytes) = data.as_mut() {
                                 flip_rows_vertical(bytes, h);
@@ -1101,7 +1314,7 @@ impl<'a> Replay<'a> {
                             format = nfmt as u16;
                             data = Some(bytes);
                         }
-                        gl.bind_texture(target as u32, Some(tex));
+                        gl.bind_texture(texture_bind_target(target as u32), Some(tex));
                         gl.tex_sub_image_2d(
                             target as u32, level, x, y, w as i32, h as i32,
                             format as u32, ty as u32,
@@ -1351,6 +1564,7 @@ impl<'a> Replay<'a> {
                         let y = rd_i32(self.ops, &mut p);
                         let w = rd_i32(self.ops, &mut p);
                         let h = rd_i32(self.ops, &mut p);
+                        ex.client.scissor = Some([x, y, w, h]);
                         gl.scissor(x, y, w, h);
                     }
                     gl_opcode::STENCIL_FUNC => {
@@ -1377,6 +1591,31 @@ impl<'a> Replay<'a> {
                         let mode = rd_u16(self.ops, &mut p);
                         let first = rd_i32(self.ops, &mut p);
                         let count = rd_i32(self.ops, &mut p);
+                        if trace {
+                            eprintln!(
+                                "       drawArrays mode={mode} first={first} count={count} scissor={} depth={} blend={} cull={}",
+                                gl.is_enabled(glow::SCISSOR_TEST),
+                                gl.is_enabled(glow::DEPTH_TEST),
+                                gl.is_enabled(glow::BLEND),
+                                gl.is_enabled(glow::CULL_FACE),
+                            );
+                            gl.draw_arrays(mode as u32, first, count);
+                            let mut px = [0u8; 4];
+                            gl.read_pixels(
+                                960,
+                                540,
+                                1,
+                                1,
+                                glow::RGBA,
+                                glow::UNSIGNED_BYTE,
+                                glow::PixelPackData::Slice(&mut px),
+                            );
+                            eprintln!(
+                                "       glError after draw = {:?} center={px:?}",
+                                gl.get_error()
+                            );
+                            continue;
+                        }
                         gl.draw_arrays(mode as u32, first, count);
                     }
                     gl_opcode::FRAMEBUFFER_RENDERBUFFER => {
@@ -1576,6 +1815,11 @@ impl<'a> Replay<'a> {
         Ok(&self.bytes[r.start as usize..(r.start + r.len) as usize])
     }
 
+    /// 调试：range 内的 UTF-8 文本（uniform/attrib 名）。
+    fn range_str(&self, range: u32) -> Result<&'a str> {
+        Ok(std::str::from_utf8(self.range_bytes(range)?).unwrap_or("?"))
+    }
+
     fn tail_f32(&self, p: &mut usize, count: u32) -> Result<Vec<f32>> {
         if *p + count as usize * 4 > self.ops.len() {
             bail!("gpu stream: UNIFORM_NF 尾部越界");
@@ -1607,9 +1851,10 @@ impl<'a> Replay<'a> {
         name_range: u32,
     ) -> Result<Option<u32>> {
         let name = std::str::from_utf8(self.range_bytes(name_range)?)?;
-        // `index:<n>` 是录制面的扫描序号哨兵：vertexAttribPointer 是 VAO
-        // 状态、与程序无关，GL 语义上此时可能还没 useProgram。扫描序与
-        // 驱动 active attribute 序一致，直接当 location 用。
+        // `index:<n>` 是录制面 getAttribLocation 的返回值——即反射会话里
+        // 该 attrib 的驱动 location（core 取反射的 `l` 字段）。vertexAttrib
+        // Pointer 是 VAO 状态、与程序无关，GL 语义上此时可能还没
+        // useProgram，所以这里不查 attrib_names，直接用 location。
         if let Some(idx) = name.strip_prefix("index:") {
             let loc: u32 = idx.parse()?;
             return Ok(Some(loc));
@@ -1633,6 +1878,25 @@ impl<'a> Replay<'a> {
             .as_ref()
             .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前"))?;
         GpuStreamExecutor::resolve_uniform_on(ex, self.gl, key, name)
+    }
+
+    /// uniform 的声明类型；`arr[3]` 这类非首元素名按裸名查。
+    fn uniform_type(
+        &self,
+        ex: &mut GpuStreamExecutor,
+        state: &ReplayState,
+        name_range: u32,
+    ) -> Result<Option<u32>> {
+        let name = std::str::from_utf8(self.range_bytes(name_range)?)?;
+        let key = state
+            .program_key
+            .as_ref()
+            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前"))?;
+        let types = &ex.entry(key)?.uniform_types;
+        Ok(types.get(name).copied().or_else(|| {
+            let base = name.strip_suffix(']').and_then(|n| n.rsplit_once('[')).map(|(b, _)| b)?;
+            types.get(base).copied()
+        }))
     }
 }
 
@@ -1676,9 +1940,11 @@ impl GpuStreamExecutor {
             format!("{base}|ab{}", hash_bytes(material.as_bytes()))
         };
         if !self.program_cache.contains_key(&key) {
-            let vs_src = desktop_glsl(std::str::from_utf8(vs)?, naga::ShaderStage::Vertex)?;
-            let fs_src = desktop_glsl(std::str::from_utf8(fs)?, naga::ShaderStage::Fragment)?;
-            let entry = compile_program_entry(gl, &vs_src, &fs_src, &binds)?;
+            // 执行上下文是 ANGLE（GLES3）：GLSL ES 300 原文直接编译，不做
+            // 桌面升级（WGL 时代的 naga 330 core 转换已随桌面 GL 退役）。
+            let vs_src = std::str::from_utf8(vs)?;
+            let fs_src = std::str::from_utf8(fs)?;
+            let entry = compile_program_entry(gl, vs_src, fs_src, &binds)?;
             self.program_cache.insert(key.clone(), entry);
         }
         self.program_key_by_pid.insert(pid, key.clone());
@@ -1749,9 +2015,20 @@ fn compile_program_entry(
     attrib_binds: &[(u32, String)],
 ) -> Result<ProgramEntry> {
     unsafe {
+        // 调试：`OC_DEBUG_FS=1` 时把片元着色器换成纯红，用来区分「几何/绘制
+        // 通路坏了」与「shader 输出黑」。
+        let fs_src = if std::env::var_os("OC_DEBUG_FS").is_some() {
+            if fs_src.starts_with("#version 300") {
+                "#version 300 es\nprecision mediump float;\nout vec4 ocDebugColor;\nvoid main(){ ocDebugColor = vec4(1.0, 0.0, 0.0, 1.0); }"
+            } else {
+                "void main(){ gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }"
+            }
+        } else {
+            fs_src
+        };
         let compile = |ty: u32, src: &str| -> Result<glow::Shader> {
             let sh = gl.create_shader(ty).map_err(|e| anyhow!("create_shader: {e}"))?;
-            gl.shader_source(sh, src);
+            gl.shader_source(sh, &swiftshader_math(src));
             gl.compile_shader(sh);
             if !gl.get_shader_compile_status(sh) {
                 let log = gl.get_shader_info_log(sh);
@@ -1791,13 +2068,103 @@ fn compile_program_entry(
                 attrib_names.push(a.name);
             }
         }
+        let mut uniform_types = HashMap::new();
+        for i in 0..gl.get_active_uniforms(program) {
+            if let Some(u) = gl.get_active_uniform(program, i) {
+                if let Some(base) = u.name.strip_suffix("[0]") {
+                    uniform_types.insert(base.to_string(), u.utype);
+                }
+                uniform_types.insert(u.name, u.utype);
+            }
+        }
         Ok(ProgramEntry {
             program,
             attrib_names,
             attrib_loc: HashMap::new(),
             uniform_loc: HashMap::new(),
+            uniform_types,
         })
     }
+}
+
+/// 参考渲染器（Chrome `--use-angle=swiftshader`）的 sin/cos/dot 语义：sin/cos
+/// 是 SwiftShader 的 5 阶多项式近似（ShaderCore.cpp `Sin5`），点积与乘加按
+/// Subzero 后端不融合、逐步舍入。`fract(sin(dot(p, k)) * 43758.5453)` 一类
+/// 散列对最低位超敏感：驱动原生 sin 或融合的点积指令会让整幅噪声图案换一张。
+/// 乘积后加一个从不赋值的 uniform（GL 规定初值 0）：驱动折叠不掉它，乘法
+/// 因此单独舍入。
+const SW_MATH_PRELUDE: &str = "
+uniform highp float oc_sw_z;
+highp float oc_sw_m(highp float a, highp float b) { return a * b + oc_sw_z; }
+highp float oc_sw_rne(highp float x) {
+  highp float r = floor(x + 0.5);
+  return (r - x == 0.5 && mod(r, 2.0) != 0.0) ? r - 1.0 : r;
+}
+highp float oc_sw_sin5(highp float z) {
+  highp float z2 = oc_sw_m(z, z);
+  return oc_sw_m(oc_sw_m(oc_sw_m(74.43888854980469, z2) + -41.169368743896484, z2) + 6.282308578491211, z);
+}
+highp float oc_sw_sin(highp float x) {
+  highp float t = oc_sw_m(x, -0.15915493667125702) + 0.25;
+  return oc_sw_sin5(0.25 - abs(t - oc_sw_rne(t)));
+}
+highp float oc_sw_cos(highp float x) {
+  highp float t = oc_sw_m(x, 0.15915493667125702);
+  return oc_sw_sin5(0.25 - abs(t - oc_sw_rne(t)));
+}
+highp vec2 oc_sw_sin(highp vec2 v) { return vec2(oc_sw_sin(v.x), oc_sw_sin(v.y)); }
+highp vec3 oc_sw_sin(highp vec3 v) { return vec3(oc_sw_sin(v.x), oc_sw_sin(v.y), oc_sw_sin(v.z)); }
+highp vec4 oc_sw_sin(highp vec4 v) { return vec4(oc_sw_sin(v.x), oc_sw_sin(v.y), oc_sw_sin(v.z), oc_sw_sin(v.w)); }
+highp vec2 oc_sw_cos(highp vec2 v) { return vec2(oc_sw_cos(v.x), oc_sw_cos(v.y)); }
+highp vec3 oc_sw_cos(highp vec3 v) { return vec3(oc_sw_cos(v.x), oc_sw_cos(v.y), oc_sw_cos(v.z)); }
+highp vec4 oc_sw_cos(highp vec4 v) { return vec4(oc_sw_cos(v.x), oc_sw_cos(v.y), oc_sw_cos(v.z), oc_sw_cos(v.w)); }
+highp float oc_sw_dot(highp float a, highp float b) { return oc_sw_m(a, b); }
+highp float oc_sw_dot(highp vec2 a, highp vec2 b) { return oc_sw_m(a.y, b.y) + oc_sw_m(a.x, b.x); }
+highp float oc_sw_dot(highp vec3 a, highp vec3 b) {
+  return oc_sw_m(a.z, b.z) + (oc_sw_m(a.y, b.y) + oc_sw_m(a.x, b.x));
+}
+highp float oc_sw_dot(highp vec4 a, highp vec4 b) {
+  return oc_sw_m(a.w, b.w) + (oc_sw_m(a.z, b.z) + (oc_sw_m(a.y, b.y) + oc_sw_m(a.x, b.x)));
+}
+";
+
+/// 把 `sin(` / `cos(` / `dot(` 调用改写到 [`SW_MATH_PRELUDE`] 的等价实现，
+/// 前言插在 `#version` / `#extension` 指令之后。
+fn swiftshader_math(src: &str) -> String {
+    let bytes = src.as_bytes();
+    let mut out = String::with_capacity(src.len() + SW_MATH_PRELUDE.len());
+    let (mut last, mut i) = (0, 0);
+    while i < bytes.len() {
+        let start = i;
+        if bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' {
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+            let word = &src[start..i];
+            if matches!(word, "sin" | "cos" | "dot") && src[i..].trim_start().starts_with('(') {
+                out.push_str(&src[last..start]);
+                out.push_str("oc_sw_");
+                last = start;
+            }
+        } else {
+            i += 1;
+        }
+    }
+    if out.is_empty() {
+        return src.to_string();
+    }
+    out.push_str(&src[last..]);
+    let mut at = 0;
+    let mut offset = 0;
+    for line in out.split_inclusive('\n') {
+        offset += line.len();
+        let head = line.trim_start();
+        if head.starts_with("#version") || head.starts_with("#extension") {
+            at = offset;
+        }
+    }
+    out.insert_str(at, SW_MATH_PRELUDE);
+    out
 }
 
 /// GLSL 声明扫描（剥注释 → 按 `;` 分段 → 关键字匹配 → 名字提取）。
@@ -1889,97 +2256,6 @@ fn strip_glsl_comments(src: &str) -> String {
     out
 }
 
-/// GLSL ES 300 → 桌面 GLSL 330 core。主路径走 naga fork 分支
-/// feat/glsl-es300-to-desktop330 的官方链（front::glsl → IR → back::glsl）：
-/// 预处理器宏、精度限定、重载解析全部由 IR 化吸收，输出驱动编译器直接吃
-/// 的结构化源码——取代批次①"只换版本行"的词法降级。shader 源码在流里
-/// 保持 ES 原文，web 端不受影响。
-///
-/// writer_flags 必须为空：默认的 ADJUST_COORDINATE_SPACE 是 Vulkan/Metal
-/// NDC 翻转垫片，GL→GL 不需要，开了画面会上下镜像。
-/// naga 吃不下的构造（front/validate/back 报错）回退到只换版本行的旧降级
-/// 并记日志：缺口由日志驱动逐个消除，不出片不炸。
-pub(crate) fn desktop_glsl(src: &str, stage: naga::ShaderStage) -> Result<String> {
-    match naga_es300_to_desktop330(src, stage) {
-        Ok(out) => Ok(out),
-        Err(e) => {
-            tracing::warn!("naga GLSL 转换失败，回退版本行降级: {e}");
-            desktop_glsl_version_line_only(src)
-        }
-    }
-}
-
-fn naga_es300_to_desktop330(src: &str, stage: naga::ShaderStage) -> Result<String> {
-    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
-    let mut parser = naga::front::glsl::Frontend::default();
-    let module = parser
-        .parse(
-            &naga::front::glsl::Options {
-                stage,
-                defines: Default::default(),
-            },
-            src,
-        )
-        .map_err(|errs| {
-            anyhow::anyhow!(
-                "glsl-in: {}",
-                errs.first().map(|e| e.to_string()).unwrap_or_default()
-            )
-        })?;
-    let info = naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::empty(),
-    )
-    .validate(&module)
-    .map_err(|e| anyhow::anyhow!("validate: {e}"))?;
-    let options = naga::back::glsl::Options {
-        version: naga::back::glsl::Version::Desktop(330),
-        writer_flags: naga::back::glsl::WriterFlags::empty(),
-        binding_map: Default::default(),
-        zero_initialize_workgroup_memory: false,
-    };
-    let pipeline = naga::back::glsl::PipelineOptions {
-        shader_stage: stage,
-        entry_point: "main".to_string(),
-        multiview: None,
-    };
-    let mut out = String::new();
-    let mut writer = naga::back::glsl::Writer::new(
-        &mut out,
-        &module,
-        &info,
-        &options,
-        &pipeline,
-        naga::proc::BoundsCheckPolicies::default(),
-    )
-    .map_err(|e| anyhow::anyhow!("glsl-out init: {e}"))?;
-    writer.write().map_err(|e| anyhow::anyhow!("glsl-out: {e}"))?;
-    Ok(out)
-}
-
-/// 桌面 GL（Windows WGL 的 compat profile）不认 GLSL ES 的 `#version 300 es`
-/// 头——换成 `330 core`。WGL 上下文是 compatibility
-/// profile（win32.rs：实测 NVIDIA 4.6 compat），拒绝 es profile 标识，但
-/// 330 core 与 ES 3.00 语法同形（in/out、texture() 一致）——批次①的 vfx
-/// tracer 即此路径过闸。
-fn desktop_glsl_version_line_only(src: &str) -> Result<String> {
-    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
-    if let Some(pos) = src.find("#version") {
-        let line_end = src[pos..]
-            .find('\n')
-            .map(|i| pos + i + 1)
-            .unwrap_or(src.len());
-        let version_line = &src[pos..line_end];
-        if version_line.contains("es") {
-            let mut out = String::with_capacity(src.len() + 4);
-            out.push_str(&src[..pos]);
-            out.push_str("#version 330 core\n");
-            out.push_str(&src[line_end..]);
-            return Ok(out);
-        }
-    }
-    Ok(src.to_string())
-}
 
 /// 把 WebGL2 允许、桌面 GL 3.3 core 已移除的"未定尺基础格式"
 /// （ALPHA / LUMINANCE / LUMINANCE_ALPHA / RGB）摊平成 RGBA8。

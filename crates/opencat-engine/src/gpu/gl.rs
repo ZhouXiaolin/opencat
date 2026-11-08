@@ -76,13 +76,13 @@ pub fn create_framebuffer(
         gl.bind_renderbuffer(glow::RENDERBUFFER, Some(depth));
         gl.renderbuffer_storage(
             glow::RENDERBUFFER,
-            glow::DEPTH_COMPONENT24,
+            glow::DEPTH24_STENCIL8,
             width as i32,
             height as i32,
         );
         gl.framebuffer_renderbuffer(
             glow::FRAMEBUFFER,
-            glow::DEPTH_ATTACHMENT,
+            glow::DEPTH_STENCIL_ATTACHMENT,
             glow::RENDERBUFFER,
             Some(depth),
         );
@@ -138,6 +138,14 @@ pub fn create_texture_rgba8(gl: &glow::Context, width: u32, height: u32) -> Opti
             glow::UNSIGNED_BYTE,
             None,
         );
+        // 只填 mip 0 的纹理在 GL 里默认 MIN_FILTER=NEAREST_MIPMAP_LINEAR 下
+        // 是**不完整**的：FBO 回读仍拿得到内容，但采样一律返回 (0,0,0,1)。
+        // 桌面 NVIDIA 对此宽容，ANGLE/D3D11 严格——被 Skia 采样的纹理
+        // 必须显式给非 mipmap 过滤。
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
         gl.bind_texture(glow::TEXTURE_2D, None);
         Some(NativeTexture::from_raw(tex.0.get() as u64))
     }

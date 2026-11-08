@@ -1356,6 +1356,19 @@ pub enum Transform {
         #[serde(rename = "value")]
         value: f32,
     },
+    /// CSS `translateX()`/`translate()` 的百分比分量。参考长度是元素自身的
+    /// 边界盒（CSS `transform: translate(50%)` 语义），解析层没有盒子尺寸，
+    /// display build 折算成 `TranslateX`/`TranslateY` 后才进渲染。
+    #[serde(rename = "translateXPercent")]
+    TranslateXPercent {
+        #[serde(rename = "value")]
+        value: f32,
+    },
+    #[serde(rename = "translateYPercent")]
+    TranslateYPercent {
+        #[serde(rename = "value")]
+        value: f32,
+    },
     /// CSS `rotateX()` — tips the node about its horizontal axis.
     #[serde(rename = "rotateX")]
     RotateXDeg {
@@ -1434,6 +1447,14 @@ impl std::hash::Hash for Transform {
                 value.to_bits().hash(state);
             }
             Transform::RotateYDeg { value } => {
+                11_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::TranslateXPercent { value } => {
+                12_u8.hash(state);
+                value.to_bits().hash(state);
+            }
+            Transform::TranslateYPercent { value } => {
                 13_u8.hash(state);
                 value.to_bits().hash(state);
             }
@@ -1453,15 +1474,31 @@ pub struct TransformOrigin {
     pub x: f32,
     /// Vertical anchor as a fraction of the box height (`0` = top, `1` = bottom).
     pub y: f32,
+    /// Px offset added to the horizontal anchor (`transform-origin: 20px …`).
+    #[serde(default)]
+    pub x_px: f32,
+    /// Px offset added to the vertical anchor (`transform-origin: 50% -390px`).
+    #[serde(default)]
+    pub y_px: f32,
 }
 
 impl Default for TransformOrigin {
     fn default() -> Self {
-        Self { x: 0.5, y: 0.5 }
+        Self { x: 0.5, y: 0.5, x_px: 0.0, y_px: 0.0 }
     }
 }
 
 impl TransformOrigin {
+    /// The anchor point in box-local px for a `width` × `height` box.
+    pub fn point(&self, width: f32, height: f32) -> (f32, f32) {
+        (width * self.x + self.x_px, height * self.y + self.y_px)
+    }
+
+    /// Build from per-axis `(fraction, px)` pairs.
+    pub fn from_axes((x, x_px): (f32, f32), (y, y_px): (f32, f32)) -> Self {
+        Self { x, y, x_px, y_px }
+    }
+
     /// Parse a CSS `transform-origin` value. Accepts one or two components, each a
     /// percentage (`50%`), a keyword (`left`/`center`/`right`, `top`/`center`/`bottom`;
     /// `center` is ambiguous and only resolves positionally), or a length. The second
@@ -1473,14 +1510,8 @@ impl TransformOrigin {
             // A single component: a vertical keyword positions y (x centred),
             // anything else positions x (y centred). `center` centres both.
             [token] => match *token {
-                "top" | "bottom" => Some(Self {
-                    x: 0.5,
-                    y: parse_origin_axis(token)?,
-                }),
-                _ => Some(Self {
-                    x: parse_origin_axis(token)?,
-                    y: 0.5,
-                }),
+                "top" | "bottom" => Some(Self::from_axes((0.5, 0.0), parse_origin_axis(token)?)),
+                _ => Some(Self::from_axes(parse_origin_axis(token)?, (0.5, 0.0))),
             },
             // Two components: CSS accepts either `[x] [y]` or `[y] [x]` keyword
             // order, so a leading `top`/`bottom` means the author wrote y-first.
@@ -1490,30 +1521,29 @@ impl TransformOrigin {
                 } else {
                     (a, b)
                 };
-                Some(Self {
-                    x: parse_origin_axis(h)?,
-                    y: parse_origin_axis(v)?,
-                })
+                Some(Self::from_axes(parse_origin_axis(h)?, parse_origin_axis(v)?))
             }
             _ => None,
         }
     }
 }
 
-/// Resolve a single transform-origin keyword/percentage into a fraction `0..1`
-/// (fraction of the box along *either* axis — `left`/`top` = 0, `right`/`bottom` = 1).
-fn parse_origin_axis(token: &str) -> Option<f32> {
+/// Resolve a single transform-origin token into `(fraction, px)` along *either*
+/// axis — `left`/`top` = 0, `right`/`bottom` = 1, a percentage is a fraction, a
+/// px length an offset from the start edge.
+fn parse_origin_axis(token: &str) -> Option<(f32, f32)> {
     match token {
-        "left" | "top" => Some(0.0),
-        "right" | "bottom" => Some(1.0),
-        "center" => Some(0.5),
-        // A bare `0` length is unambiguous (the box edge) even without a box size;
-        // any other bare length needs the box size, which we don't have here.
+        "left" | "top" => Some((0.0, 0.0)),
+        "right" | "bottom" => Some((1.0, 0.0)),
+        "center" => Some((0.5, 0.0)),
         other => {
             if let Some(pct) = other.strip_suffix('%') {
-                pct.trim().parse::<f32>().ok().map(|p| p / 100.0)
+                pct.trim().parse::<f32>().ok().map(|p| (p / 100.0, 0.0))
+            } else if let Some(px) = other.strip_suffix("px") {
+                px.trim().parse::<f32>().ok().map(|v| (0.0, v))
             } else if other.trim().parse::<f32>().ok() == Some(0.0) {
-                Some(0.0)
+                // A bare `0` is the box edge (the only unitless length).
+                Some((0.0, 0.0))
             } else {
                 None
             }
@@ -2011,6 +2041,10 @@ pub struct NodeStyle {
     pub background_layers: Vec<BackgroundFill>,
     /// `bg-[length:Wpx_Hpx]`，绑定到最近添加的背景层（grid 等瓦片背景）。
     pub bg_size: Option<[f32; 2]>,
+    /// `background-size` 的百分比声明（占盒宽高比例，0.5 = 50%）。解析期没有
+    /// 盒子无法折 px，原样留存；`apply_background_size_to_layers` 回填进层的
+    /// `size_pct`（渲染端优先于 px `size`）。
+    pub bg_size_pct: Option<[f32; 2]>,
     pub border_radius: Option<BorderRadius>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,

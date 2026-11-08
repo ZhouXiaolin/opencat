@@ -459,6 +459,7 @@ fn length_px(v: &LengthValue, ctx: &EvalContext) -> Option<f32> {
     match v {
         LengthValue::Px(px) => Some(*px),
         LengthValue::Rem(r) => Some(r * ctx.rem_base),
+        LengthValue::Em(e) => Some(e * ctx.em_base),
         // vw/vh：视频画布即视口。
         LengthValue::Vw(v) => Some(v * ctx.viewport.0 / 100.0),
         LengthValue::Vh(v) => Some(v * ctx.viewport.1 / 100.0),
@@ -568,7 +569,13 @@ fn dim_lp(v: &LengthPercentage, ctx: &EvalContext) -> Dimension {
             length_px(unit, ctx).map(Dimension::length).unwrap_or_else(Dimension::auto)
         }
         LengthPercentage::Percentage(p) => Dimension::percent(p.0),
-        LengthPercentage::Calc(_) => Dimension::auto(),
+        // 纯像素/纯百分比的 calc（`calc(1.78em + 82px)`）化简后落地；px 与 %
+        // 混合 taffy 表达不了，退回 auto。
+        LengthPercentage::Calc(calc) => match calc_px_pct(calc, ctx) {
+            Some((px, pct)) if pct == 0.0 => Dimension::length(px),
+            Some((px, pct)) if px == 0.0 => Dimension::percent(pct),
+            _ => Dimension::auto(),
+        },
     }
 }
 

@@ -227,13 +227,157 @@ pub const JS_PLATFORM_SHIM: &str = r#"
     if (typeof globalThis.navigator.userAgent !== 'string') {
         globalThis.navigator.userAgent = 'opencat';
     }
-    // In a browser `URL` is a constructor (typeof "function"); keep it so
-    // `new URL()` and blob: URLs keep their standard semantics. Only the
-    // realm without any URL face gets the object shim.
-    if ((typeof globalThis.URL !== 'object' && typeof globalThis.URL !== 'function') || globalThis.URL === null) globalThis.URL = {};
-    if (typeof globalThis.URL.createObjectURL !== 'function') {
+    // 浏览器 `URL` 是构造函数；页面脚本（module 通道）用它做「相对
+    // import.meta.url 定位资产」的路径合并。最小语义：相对 base 目录 join +
+    // `./`/`../` 归一，href/pathname/protocol 字段；绝对 scheme 直通。完整
+    // URL 规范（查询/锚点/编码）语料未命中。后面 asset_api 会在同一对象上
+    // 补真 blob registry 的 createObjectURL/revokeObjectURL。
+    if (typeof globalThis.URL !== 'function' || globalThis.URL === null) {
+        globalThis.URL = function URL(url, base) {
+            var s = String(url == null ? '' : url);
+            var m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(s);
+            if (m) {
+                this.protocol = m[0];
+                this.href = s;
+            } else {
+                var b = '';
+                if (base !== undefined && base !== null) b = String(base);
+                else if (globalThis.location && globalThis.location.href) b = String(globalThis.location.href);
+                var dir = b;
+                var q = dir.search(/[?#]/);
+                if (q >= 0) dir = dir.slice(0, q);
+                dir = dir.slice(0, dir.lastIndexOf('/') + 1);
+                var href = dir + s;
+                var parts = href.split('/');
+                var out = [];
+                for (var i = 0; i < parts.length; i++) {
+                    if (parts[i] === '.') continue;
+                    if (parts[i] === '..' && out.length && out[out.length - 1] !== '..') { out.pop(); continue; }
+                    out.push(parts[i]);
+                }
+                href = out.join('/');
+                m = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.exec(href);
+                this.protocol = m ? m[0] : '';
+                this.href = href;
+            }
+            this.pathname = this.href.slice(this.protocol.length);
+        };
+        globalThis.URL.prototype.toString = function () { return this.href; };
         globalThis.URL.createObjectURL = function () { return 'blob:opencat'; };
         globalThis.URL.revokeObjectURL = function () {};
+    }
+    // `location`：页面脚本用它读 query（配 URLSearchParams）或拼绝对地址。
+    // 离线渲染没有文档 URL，给空 query 的静态形态；reload/assign 空操作。
+    if (typeof globalThis.location !== 'object' || globalThis.location === null) {
+        globalThis.location = {
+            href: '', protocol: '', host: '', hostname: '', port: '',
+            pathname: '', search: '', hash: '', origin: '',
+            reload: function () {}, replace: function () {}, assign: function () {},
+            toString: function () { return this.href; },
+        };
+    }
+    // CustomEvent：window 事件面（dom_api 记录派发）需要的事件载体。
+    if (typeof globalThis.CustomEvent !== 'function') {
+        globalThis.CustomEvent = function CustomEvent(type, params) {
+            this.type = String(type);
+            this.detail = params && params.detail !== undefined ? params.detail : null;
+        };
+    }
+    if (typeof globalThis.Event !== 'function') {
+        globalThis.Event = function Event(type) {
+            this.type = String(type);
+        };
+    }
+    if (typeof globalThis.URLSearchParams !== 'function') {
+        globalThis.URLSearchParams = function URLSearchParams(init) {
+            this._p = [];
+            var str = '';
+            if (typeof init === 'string') {
+                str = init;
+            } else if (init && typeof init === 'object') {
+                // [ [k,v], ... ] 或 { k: v }
+                if (typeof init.forEach === 'function') {
+                    init.forEach(function (v, k) { this.append(k, v); }, this);
+                } else {
+                    for (var kk in init) {
+                        if (Object.prototype.hasOwnProperty.call(init, kk)) this.append(kk, init[kk]);
+                    }
+                }
+            } else if (init !== undefined && init !== null) {
+                str = String(init);
+            }
+            if (str) {
+                var parts = str.charAt(0) === '?' ? str.slice(1).split('&') : str.split('&');
+                for (var i = 0; i < parts.length; i++) {
+                    if (!parts[i]) continue;
+                    var eq = parts[i].indexOf('=');
+                    var name = eq < 0 ? parts[i] : parts[i].slice(0, eq);
+                    var value = eq < 0 ? '' : parts[i].slice(eq + 1);
+                    var swap = function (s) {
+                        try { return decodeURIComponent(String(s).replace(/\+/g, ' ')); } catch (e) { return String(s); }
+                    };
+                    this._p.push([swap(name), swap(value)]);
+                }
+            }
+        };
+        globalThis.URLSearchParams.prototype.append = function (name, value) {
+            this._p.push([String(name), String(value)]);
+        };
+        globalThis.URLSearchParams.prototype.get = function (name) {
+            for (var i = 0; i < this._p.length; i++) {
+                if (this._p[i][0] === String(name)) return this._p[i][1];
+            }
+            return null;
+        };
+        globalThis.URLSearchParams.prototype.getAll = function (name) {
+            var out = [];
+            for (var i = 0; i < this._p.length; i++) {
+                if (this._p[i][0] === String(name)) out.push(this._p[i][1]);
+            }
+            return out;
+        };
+        globalThis.URLSearchParams.prototype.has = function (name) {
+            return this.get(name) !== null;
+        };
+        globalThis.URLSearchParams.prototype.set = function (name, value) {
+            var hit = false;
+            for (var i = 0; i < this._p.length; i++) {
+                if (this._p[i][0] === String(name)) {
+                    if (!hit) { this._p[i][1] = String(value); hit = true; }
+                    else this._p.splice(i--, 1);
+                }
+            }
+            if (!hit) this._p.push([String(name), String(value)]);
+        };
+        globalThis.URLSearchParams.prototype.delete = function (name) {
+            for (var i = this._p.length - 1; i >= 0; i--) {
+                if (this._p[i][0] === String(name)) this._p.splice(i, 1);
+            }
+        };
+        globalThis.URLSearchParams.prototype.forEach = function (fn, thisArg) {
+            for (var i = 0; i < this._p.length; i++) fn.call(thisArg, this._p[i][1], this._p[i][0], this);
+        };
+        globalThis.URLSearchParams.prototype.entries = function () {
+            var p = this._p.slice();
+            var i = 0;
+            return { next: function () { return i < p.length ? { done: false, value: p[i++].slice() } : { done: true, value: undefined }; } };
+        };
+        globalThis.URLSearchParams.prototype.keys = function () {
+            var p = this._p.slice();
+            var i = 0;
+            return { next: function () { return i < p.length ? { done: false, value: p[i++][0] } : { done: true, value: undefined }; } };
+        };
+        globalThis.URLSearchParams.prototype.values = function () {
+            var p = this._p.slice();
+            var i = 0;
+            return { next: function () { return i < p.length ? { done: false, value: p[i++][1] } : { done: true, value: undefined }; } };
+        };
+        globalThis.URLSearchParams.prototype.toString = function () {
+            var esc = function (s) { return encodeURIComponent(String(s)).replace(/%20/g, '+'); };
+            var out = [];
+            for (var i = 0; i < this._p.length; i++) out.push(esc(this._p[i][0]) + '=' + esc(this._p[i][1]));
+            return out.join('&');
+        };
     }
 })();
 "#;

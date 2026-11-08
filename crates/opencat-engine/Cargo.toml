@@ -43,6 +43,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json", "r
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 pollster = "1.0.1"
 wgpu = "30.0.1"
+mozangle = { version = "0.7.1", features = ["egl"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # EGL 上下文/表面管理（`dynamic` 运行时加载 libEGL.so.1，无需 pkg-config

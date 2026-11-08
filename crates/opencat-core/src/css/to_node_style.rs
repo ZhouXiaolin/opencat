@@ -81,7 +81,8 @@ fn lp_to_len_percent(lp: &LengthPercentage, ctx: &EvalContext) -> Option<LenPerc
     Some(match lp {
         LengthPercentage::Dimension(unit) => match unit {
             LengthValue::Px(v) => LenPercent::Px(*v),
-            LengthValue::Rem(v) | LengthValue::Em(v) => LenPercent::Px(v * ctx.rem_base),
+            LengthValue::Rem(v) => LenPercent::Px(v * ctx.rem_base),
+            LengthValue::Em(v) => LenPercent::Px(v * ctx.em_base),
             LengthValue::Vw(v) => LenPercent::Px(v * ctx.viewport.0 / 100.0),
             LengthValue::Vh(v) => LenPercent::Px(v * ctx.viewport.1 / 100.0),
             _ => return None,
@@ -239,11 +240,13 @@ pub fn apply_property(
         Property::MarginLeft(v) => style.margin_left = lpoa_to_cat(v, ctx),
         Property::MarginInlineEnd(v) => style.margin_right = lpoa_to_cat(v, ctx),
         Property::Position(v) => {
-            style.position = Some(match v {
-                CssPosition::Absolute | CssPosition::Fixed => crate::style::Position::Absolute,
-                CssPosition::Static | CssPosition::Relative => crate::style::Position::Relative,
+            // static 是初始值，记 None（非包含块）；relative 才是显式定位。
+            style.position = match v {
+                CssPosition::Absolute | CssPosition::Fixed => Some(crate::style::Position::Absolute),
+                CssPosition::Relative => Some(crate::style::Position::Relative),
+                CssPosition::Static => None,
                 CssPosition::Sticky(_) => return,
-            });
+            };
         }
         Property::Top(v) => style.inset_top = lpoa_to_cat(v, ctx),
         Property::Right(v) => style.inset_right = lpoa_to_cat(v, ctx),
@@ -301,12 +304,20 @@ pub fn apply_property(
         }
         Property::BackgroundSize(sizes) => {
             if let Some(BackgroundSize::Explicit { width, height }) = sizes.first() {
+                // 百分比尺寸解析期没有盒子，按口径原样留存（占盒比例），
+                // `apply_background_size_to_layers` 回填进层的 `size_pct`。
                 let side = |v: &LengthPercentageOrAuto| match v {
-                    LengthPercentageOrAuto::LengthPercentage(lp) => lp_to_px(lp, ctx),
+                    LengthPercentageOrAuto::LengthPercentage(lp) => lp_to_len_percent(lp, ctx),
                     LengthPercentageOrAuto::Auto => None,
                 };
-                if let (Some(w), Some(h)) = (side(width), side(height)) {
-                    style.bg_size = Some([w, h]);
+                match (side(width), side(height)) {
+                    (Some(LenPercent::Px(w)), Some(LenPercent::Px(h))) => {
+                        style.bg_size = Some([w, h]);
+                    }
+                    (Some(LenPercent::Pct(w)), Some(LenPercent::Pct(h))) => {
+                        style.bg_size_pct = Some([w, h]);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -329,7 +340,10 @@ pub fn apply_property(
         Property::BorderLeftStyle(v) => style.border_style = line_style_to_cat(v),
         Property::Border(v) => apply_border(style, v, ctx),
         Property::BorderRadius(v, _) => apply_border_radius(style, v, ctx),
+        // 后声明的 box-shadow 整体替换先前的（层叠语义），不累加。
         Property::BoxShadow(shadows, _) => {
+            style.box_shadow.clear();
+            style.inset_shadow.clear();
             for shadow in shadows {
                 apply_box_shadow(style, shadow, ctx);
             }
@@ -437,8 +451,8 @@ pub fn apply_property(
             if let FontSize::Length(lp) = size {
                 match lp_to_len_percent(lp, ctx) {
                     Some(LenPercent::Px(px)) => style.text_px = Some(px),
-                    // 字号百分比相对父字号；静态期用 rem 基准近似。
-                    Some(LenPercent::Pct(p)) => style.text_px = Some(ctx.rem_base * p),
+                    // 字号百分比相对父字号（级联第一段 em_base = 父字号）。
+                    Some(LenPercent::Pct(p)) => style.text_px = Some(ctx.em_base * p),
                     None => warn_unsupported(PropertyId::FontSize, "calc"),
                 }
             }
@@ -868,23 +882,81 @@ fn filter_list_to_css_filter(list: &FilterList<'static>, ctx: &EvalContext) -> C
 }
 
 fn apply_transform(style: &mut crate::style::NodeStyle, list: &TransformList, ctx: &EvalContext) {
+    // 百分比分量：解析期没有盒子尺寸，落 TranslateX/YPercent 变体，
+    // display build 折算成 px（参考长度 = 元素边界盒）。
+    fn lp_component(lp: &LengthPercentage, ctx: &EvalContext) -> Option<TransformComponent> {
+        Some(match lp_to_len_percent(lp, ctx)? {
+            LenPercent::Px(px) => TransformComponent::Px(px),
+            // `TranslateXPercent` 存百分数（-50 = -50%，与 gsap 写入、内联
+            // 解析同约定，display build 除以 100）；lightningcss 给的是分数。
+            LenPercent::Pct(pct) => TransformComponent::Pct(pct * 100.0),
+        })
+    }
+    enum TransformComponent {
+        Px(f32),
+        Pct(f32),
+    }
     for t in &list.0 {
         match t {
             CssTransform::Translate(x, y) => {
-                if let (Some(tx), Some(ty)) = (lp_to_px(x, ctx), lp_to_px(y, ctx)) {
-                    style.transforms.push(CatTransform::Translate { x: tx, y: ty });
-                } else {
-                    log::warn!("css: translate 百分比暂无载体，已跳过");
+                let (Some(tx), Some(ty)) = (
+                    lp_component(x, ctx),
+                    lp_component(y, ctx),
+                ) else {
+                    continue;
+                };
+                match (tx, ty) {
+                    (TransformComponent::Px(x), TransformComponent::Px(y)) => {
+                        style.transforms.push(CatTransform::Translate { x, y });
+                    }
+                    (TransformComponent::Px(x), TransformComponent::Pct(py)) => {
+                        style.transforms.push(CatTransform::TranslateX { value: x });
+                        style
+                            .transforms
+                            .push(CatTransform::TranslateYPercent { value: py });
+                    }
+                    (TransformComponent::Pct(px), TransformComponent::Px(y)) => {
+                        style
+                            .transforms
+                            .push(CatTransform::TranslateXPercent { value: px });
+                        style.transforms.push(CatTransform::TranslateY { value: y });
+                    }
+                    (TransformComponent::Pct(px), TransformComponent::Pct(py)) => {
+                        style
+                            .transforms
+                            .push(CatTransform::TranslateXPercent { value: px });
+                        style
+                            .transforms
+                            .push(CatTransform::TranslateYPercent { value: py });
+                    }
                 }
             }
             CssTransform::TranslateX(x) => {
-                if let Some(tx) = lp_to_px(x, ctx) {
-                    style.transforms.push(CatTransform::TranslateX { value: tx });
+                if let Some(tx) = lp_component(x, ctx) {
+                    match tx {
+                        TransformComponent::Px(v) => {
+                            style.transforms.push(CatTransform::TranslateX { value: v });
+                        }
+                        TransformComponent::Pct(p) => {
+                            style
+                                .transforms
+                                .push(CatTransform::TranslateXPercent { value: p });
+                        }
+                    }
                 }
             }
             CssTransform::TranslateY(y) => {
-                if let Some(ty) = lp_to_px(y, ctx) {
-                    style.transforms.push(CatTransform::TranslateY { value: ty });
+                if let Some(ty) = lp_component(y, ctx) {
+                    match ty {
+                        TransformComponent::Px(v) => {
+                            style.transforms.push(CatTransform::TranslateY { value: v });
+                        }
+                        TransformComponent::Pct(p) => {
+                            style
+                                .transforms
+                                .push(CatTransform::TranslateYPercent { value: p });
+                        }
+                    }
                 }
             }
             CssTransform::Scale(x, y) => {
@@ -920,28 +992,32 @@ fn apply_transform(style: &mut crate::style::NodeStyle, list: &TransformList, ct
 }
 
 fn position_to_origin(pos: &CssPositionValue, ctx: &EvalContext) -> Option<TransformOrigin> {
-    // transform-origin 归一为盒子分数：百分比直取，关键字映射端点，
-    // `side offset` 沿 CSS 语义（偏移自该侧起算）换算；px 偏移需要盒子
-    // 尺寸才能归一，静态期丢弃。
-    fn frac(lp: &LengthPercentage, ctx: &EvalContext) -> Option<f32> {
-        match lp_to_len_percent(lp, ctx) {
-            Some(LenPercent::Pct(p)) => Some(p),
-            _ => None,
+    // transform-origin 每轴归一为（盒子分数, px 偏移）：百分比进分数，长度
+    // 进偏移，关键字映射端点；`side offset` 沿 CSS 语义自该侧起算（右/下侧
+    // 的偏移朝内取负）。
+    fn axis(lp: &LengthPercentage, ctx: &EvalContext) -> Option<(f32, f32)> {
+        match lp_to_len_percent(lp, ctx)? {
+            LenPercent::Pct(p) => Some((p, 0.0)),
+            LenPercent::Px(px) => Some((0.0, px)),
         }
     }
     fn comp<S: Copy>(
         c: &PositionComponent<S>,
         side: impl Fn(&S) -> Option<f32>,
         ctx: &EvalContext,
-    ) -> Option<f32> {
+    ) -> Option<(f32, f32)> {
         match c {
-            PositionComponent::Center => Some(0.5),
-            PositionComponent::Length(lp) => frac(lp, ctx),
+            PositionComponent::Center => Some((0.5, 0.0)),
+            PositionComponent::Length(lp) => axis(lp, ctx),
             PositionComponent::Side { side: s, offset } => {
                 let base = side(s)?;
+                let sign = (0.5 - base) * 2.0;
                 Some(match offset {
-                    None => base,
-                    Some(o) => base + (0.5 - base) * 2.0 * frac(o, ctx)?,
+                    None => (base, 0.0),
+                    Some(o) => {
+                        let (f, px) = axis(o, ctx)?;
+                        (base + sign * f, sign * px)
+                    }
                 })
             }
         }
@@ -954,10 +1030,7 @@ fn position_to_origin(pos: &CssPositionValue, ctx: &EvalContext) -> Option<Trans
         VerticalPositionKeyword::Top => Some(0.0),
         VerticalPositionKeyword::Bottom => Some(1.0),
     };
-    Some(TransformOrigin {
-        x: comp(&pos.x, h, ctx)?,
-        y: comp(&pos.y, v, ctx)?,
-    })
+    Some(TransformOrigin::from_axes(comp(&pos.x, h, ctx)?, comp(&pos.y, v, ctx)?))
 }
 
 /// 字体栈是否以通用 `sans-serif` 结尾（tailwind `font-sans` 的产物形态）。
@@ -985,19 +1058,34 @@ fn generic_to_cat(generic: &GenericFontFamily) -> Option<GenericFamily> {
 /// 尺寸不能在 `BackgroundSize` 分支里就地写进渐变，而是在整份声明应用完后
 /// 统一回填：缺 size 的渐变层补上盒子的 tile 尺寸。
 pub fn apply_background_size_to_layers(style: &mut crate::style::NodeStyle) {
-    let Some([w, h]) = style.bg_size else {
+    let px = style.bg_size;
+    let pct = style.bg_size_pct;
+    if px.is_none() && pct.is_none() {
         return;
-    };
+    }
     for layer in &mut style.background_layers {
         if let BackgroundFill::ArbitraryGradient { gradient } = layer {
-            let size = match gradient {
-                ArbitraryGradient::LinearGradient { size, .. }
-                | ArbitraryGradient::RadialGradient { size, .. }
-                | ArbitraryGradient::ConicGradient { size, .. }
-                | ArbitraryGradient::Turbulence { size, .. } => size,
-            };
-            if size.is_none() {
-                *size = Some([w, h]);
+            match gradient {
+                // 只有线性层带 `size_pct`/定位语义；其余变体只回填 px tile。
+                ArbitraryGradient::LinearGradient { size, size_pct, .. } => {
+                    if size.is_none() {
+                        *size = px;
+                    }
+                    if size_pct.is_none() {
+                        *size_pct = pct;
+                    }
+                }
+                g => {
+                    let size = match g {
+                        ArbitraryGradient::RadialGradient { size, .. }
+                        | ArbitraryGradient::ConicGradient { size, .. }
+                        | ArbitraryGradient::Turbulence { size, .. } => size,
+                        ArbitraryGradient::LinearGradient { .. } => unreachable!(),
+                    };
+                    if size.is_none() {
+                        *size = px;
+                    }
+                }
             }
         }
     }
@@ -1271,7 +1359,8 @@ fn gradient_items_to_stops(items: &[GradientItem<LengthPercentage>]) -> Option<V
 fn length_value_to_px(v: &LengthValue, ctx: &EvalContext) -> f32 {
     match v {
         LengthValue::Px(x) => *x,
-        LengthValue::Rem(x) | LengthValue::Em(x) => x * ctx.rem_base,
+        LengthValue::Rem(x) => x * ctx.rem_base,
+        LengthValue::Em(x) => x * ctx.em_base,
         LengthValue::Vw(x) => x * ctx.viewport.0 / 100.0,
         LengthValue::Vh(x) => x * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(x) => x * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
@@ -1432,4 +1521,20 @@ pub fn background_from_css(
         cache.insert(value.to_string(), out.clone());
     });
     out
+}
+
+/// 脚本写的 CSS `box-shadow` 原文 → 外阴影 + 内阴影两组（gsap `boxShadow`
+/// 补间每帧写插值串）。解析不了返回两组空。
+pub fn box_shadow_from_css(value: &str) -> (Vec<CatBoxShadow>, Vec<InsetShadow>) {
+    let mut style = crate::style::NodeStyle::default();
+    if let Ok(Property::BoxShadow(shadows, _)) = Property::parse_string(
+        PropertyId::BoxShadow(lightningcss::vendor_prefix::VendorPrefix::None),
+        value,
+        lightningcss::stylesheet::ParserOptions::default(),
+    ) {
+        for shadow in &shadows {
+            apply_box_shadow(&mut style, shadow, &EvalContext::default());
+        }
+    }
+    (style.box_shadow, style.inset_shadow)
 }

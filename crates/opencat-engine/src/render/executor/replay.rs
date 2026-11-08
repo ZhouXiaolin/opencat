@@ -417,7 +417,11 @@ fn replay_range(
         )));
     }
 
+    let trace_draw = std::env::var_os("OC_TRACE_DRAW").is_some();
     for op in &draw.ops[start..end] {
+        if trace_draw {
+            eprintln!("[op] {op:?}");
+        }
         replay_op(exec, canvas, draw, media, op)?;
     }
     Ok(())
@@ -626,6 +630,9 @@ fn replay_op(
     media: &EnginePreparedFrameMedia,
     op: &DrawOp,
 ) -> Result<(), DrawError> {
+    if std::env::var_os("OC_TRACE_OP").is_some() {
+        eprintln!("[op] {op:?}");
+    }
     match op {
         DrawOp::Save => {
             canvas.save();
@@ -692,6 +699,10 @@ fn replay_op(
                     if backdrop_imf.is_some() {
                         sk_paint.set_image_filter(None);
                     }
+                    if std::env::var_os("OC_NO_LAYER_FILTER").is_some() {
+                        sk_paint.set_image_filter(None);
+                        sk_paint.set_blend_mode(skia_safe::BlendMode::SrcOver);
+                    }
                     let mut rec = skia_safe::canvas::SaveLayerRec::default();
                     if let Some(ref imf) = backdrop_imf {
                         rec = rec.backdrop(imf);
@@ -710,6 +721,11 @@ fn replay_op(
             Ok(())
         }
         DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
+            if std::env::var_os("OC_NO_BACKDROP").is_some() {
+                let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
+                canvas.save_layer_alpha(sk_rect, 255);
+                return Ok(());
+            }
             // CSS `backdrop-filter`: the image filter processes what is
             // already drawn beneath the layer bounds; the layer's own content
             // composites unfiltered on top.
@@ -1189,6 +1205,41 @@ fn replay_op(
             y,
             paint: pid,
         } => {
+            if std::env::var_os("OC_TRACE_DRAW").is_some() {
+                eprintln!(
+                    "[draw] Image {:?} at ({x},{y}) idx={:?} alpha={} clip={:?} dims={:?} pixels={:?}",
+                    image,
+                    media.image_index.get(image),
+                    exec.current_alpha,
+                    canvas.local_clip_bounds(),
+                    media.image_index.get(image).map(|i| (media.images[*i].width(), media.images[*i].height())),
+                {
+                    let px = media.image_index.get(image)
+                        .and_then(|i| media.images[*i].peek_pixels());
+                    px.map(|p| {
+                        let d = p.bytes().unwrap_or(&[]);
+                        let nz = d.chunks_exact(4).filter(|c| c[0] | c[1] | c[2] != 0).count();
+                        (d.len(), nz)
+                    })
+                }
+                );
+            }
+            if std::env::var_os("OC_DEBUG_DRAW_RECT").is_some() {
+                let mut p = Paint::default();
+                p.set_color(skia_safe::Color::RED);
+                canvas.draw_rect(
+                    Rect::new(*x, *y, *x + 1920.0, *y + 1080.0),
+                    &p,
+                );
+                return Ok(());
+            }
+            let skip_video = matches!(image, ImageRef::VideoFrame { .. })
+                && std::env::var_os("OC_SKIP_VIDEO").is_some();
+            let skip_static = matches!(image, ImageRef::Static { .. })
+                && std::env::var_os("OC_SKIP_STATIC").is_some();
+            if skip_video || skip_static {
+                return Ok(());
+            }
             if let Some(idx) = media.image_index.get(image) {
                 let sk_image = &media.images[*idx];
                 // 预缩小解码后 canvas.drawImage 的"自然尺寸"语义补偿：解码图
@@ -1219,6 +1270,17 @@ fn replay_op(
                     let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
                     apply_global_alpha(&mut paint, exec.current_alpha);
                     canvas.draw_image(sk_image, (*x, *y), Some(&paint));
+                } else if std::env::var_os("OC_DEBUG_IMAGERECT").is_some() {
+                    let mut paint = Paint::default();
+                    apply_global_alpha(&mut paint, exec.current_alpha);
+                    let dst = Rect::new(*x, *y, *x + sk_image.width() as f32, *y + sk_image.height() as f32);
+                    canvas.draw_image_rect_with_sampling_options(
+                        sk_image,
+                        None,
+                        dst,
+                        SamplingOptions::default(),
+                        &paint,
+                    );
                 } else {
                     canvas.draw_image(sk_image, (*x, *y), None);
                 }

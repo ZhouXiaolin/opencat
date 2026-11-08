@@ -114,14 +114,9 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Resu
         .canonicalize()
         .unwrap_or_else(|_| loader.base_dir().to_path_buf());
     // HTML 前端（docs/html-align/DESIGN.md）：hyperframes 页面按内容嗅探
-    // 分流——源文本以 doctype/`<html`/注释开头即 HTML 通道，其余走 JSX。
-    let looks_html = {
-        let t = input.trim_start();
-        t.starts_with("<!DOCTYPE")
-            || t.starts_with("<!doctype")
-            || t.starts_with("<html")
-            || t.starts_with("<!--")
-    };
+    // 分流——源文本以「<」开头即 HTML 通道（doctype/`<html`/注释/`<template`
+    // 包裹的子工程都是）；JSX 是代码，永远以标识符或 import 开头。
+    let looks_html = input.trim_start().starts_with('<');
     let parsed = if looks_html {
         crate::script::html::parse_with_base_dir(input, Some(&base_dir))?
     } else {
@@ -188,10 +183,20 @@ fn open_parsed_host_owned_with_fonts(
             continue;
         };
         if let Some(handle) = loader.handle(&id) {
-            if let Ok(bytes) = handle.read_bytes() {
-                if let Ok(meta) = crate::probe::probe_image(&bytes) {
-                    inputs.insert_image(id, meta).map_err(prepare_err)?;
-                }
+            if let Ok(bytes) = handle.read_bytes()
+                && let Ok(meta) = crate::probe::probe_image(&bytes)
+            {
+                inputs.insert_image(id, meta).map_err(prepare_err)?;
+            }
+        } else {
+            // 声明了但 host 拿不到（本地文件缺失）：落 1×1 透明占位，浏览器
+            // onerror 语义（空内容 + 页面继续），不让整页 fail-fast。
+            loader.register_missing_placeholder(&id)?;
+            if let Some(handle) = loader.handle(&id)
+                && let Ok(bytes) = handle.read_bytes()
+                && let Ok(meta) = crate::probe::probe_image(&bytes)
+            {
+                inputs.insert_image(id, meta).map_err(prepare_err)?;
             }
         }
     }

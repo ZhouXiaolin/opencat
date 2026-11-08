@@ -121,6 +121,13 @@ macro_rules! for_each_binding {
             Ok($store.gl_alloc_handle())
         }}
 
+        /// 句柄序归零（html 通道帧首：页脚本每帧重放、按同序重建资源——
+        /// 句柄逐帧稳定，执行器按句柄复用 GL 对象而不是逐帧新建泄漏）。
+        $binding! { cmd $store gl_reset_handles () -> () {
+            $store.gl_reset_handles();
+            Ok(())
+        }}
+
         /// 真 GL 反射：link 后 three 立刻同步枚举 active uniform/attribute。
         /// 反射器由宿主注入（engine 拿 GL 上下文向驱动问询），core 只转发。
         $binding! { qry $store glsl_reflect (vs: String, fs: String) -> serde_json::Value {
@@ -177,6 +184,12 @@ macro_rules! for_each_binding {
         }}
         $binding! { node $rec $id canvas_close_path ($id: &str) {
             $rec . record_draw_op($id, DrawOp::Path(PathOp::Close));
+        }}
+        // 整段路径一次录入：fillText 烘焙的字形轮廓逐点过绑定是每行数百次
+        // 跨界调用。flat 编码同 `oc_path_from_svg`（0 move / 1 line / 2 quad /
+        // 3 cubic / 4 close），坐标相对 (dx, dy)。
+        $binding! { node $rec $id canvas_path_flat ($id: &str, flat: Vec<f64>, dx: f64, dy: f64) {
+            $crate::script::bindings::record_path_flat($rec, $id, &flat, dx, dy)
         }}
         $binding! { node $rec $id canvas_path_add_rect ($id: &str, x: f32, y: f32, width: f32, height: f32) {
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
@@ -1023,6 +1036,14 @@ macro_rules! for_each_binding {
         }}
 
         $binding! { qry $store read_style_value (id: String, property: String) -> Option<serde_json::Value> {
+            if property == "transform" {
+                let (w, h) = $crate::script::layout_probe::box_for(&id, $store)
+                    .map(|b| (b.width, b.height))
+                    .unwrap_or_default();
+                if let Some(css) = $store.computed_transform(&id, w, h) {
+                    return Ok(Some(serde_json::Value::String(css)));
+                }
+            }
             Ok($store.read_style_value(&id, &property))
         }}
 
@@ -1042,11 +1063,11 @@ macro_rules! for_each_binding {
             }))
         }}
 
-        // Viewport-relative rect from this frame's geometry pass. Only populated
-        // for elements with no declared box (inline text), where `read_box`
-        // cannot answer; `None` everywhere else.
+        // Viewport-relative rect from a synchronous layout of the scope with the
+        // mutations written so far. Consulted for elements with no declared box
+        // (inline text), where `read_box` cannot answer; `None` outside a scope.
         $binding! { qry $store read_layout_box (id: String) -> serde_json::Value {
-            Ok(match $crate::script::layout_probe::box_for(&id) {
+            Ok(match $crate::script::layout_probe::box_for(&id, $store) {
                 Some(b) => serde_json::json!({
                     "left": b.x, "top": b.y, "width": b.width, "height": b.height,
                 }),
@@ -1106,6 +1127,26 @@ macro_rules! for_each_binding {
                 &id, x, y, w, h, radius, ([ax, ay], [bx, by]), &parsed,
             ).is_ok())
         }}
+        // 路径填充（canvas fill(Path2D) 语义）：`flat` 是 [verb, 坐标…] 编码
+        // （0=moveTo 1=lineTo 2=quadTo 3=cubicTo 4=close）；设备 =
+        // translate(tx,ty)∘scale(sx,sy)；渐变轴在用户空间随同一矩阵变换。
+        // `stops` 空表 = 纯色 `color`，非空 = [offset,r,g,b,a] 扁平数组。
+        // 失败传播成 script error：静默 false 会把空纹理伪装成成功。
+        $binding! { pure surface_fill_path (id: String, flat: Vec<f64>, tx: f64, ty: f64, sx: f64, sy: f64, ax: f64, ay: f64, bx: f64, by: f64, stops: Vec<f64>, color: String) -> bool {
+            let c = $crate::script::helpers::parse_color(&color, "surface.fillPath")?;
+            let flat_color = [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0];
+            let mut parsed: Vec<(f32, [f32; 4])> = Vec::with_capacity(stops.len() / 5);
+            for chunk in stops.chunks_exact(5) {
+                parsed.push((chunk[0] as f32, [chunk[1] as f32, chunk[2] as f32, chunk[3] as f32, chunk[4] as f32]));
+            }
+            if parsed.is_empty() {
+                parsed.push((0.0, flat_color));
+            }
+            $crate::text::surface::surface_fill_path(
+                &id, &flat, tx, ty, sx, sy, ([ax, ay], [bx, by]), &parsed,
+            )?;
+            Ok(true)
+        }}
         $binding! { pure surface_measure_text (text: String, family: String, weight: u32, size_px: f64, letter_spacing_px: f64) -> $crate::text::surface::InkMetrics {
             let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight, size_px, letter_spacing_px)?;
             Ok(metrics)
@@ -1164,4 +1205,37 @@ macro_rules! for_each_binding {
                 .unwrap_or(0.0))
         }}
     };
+}
+
+/// `canvas_path_flat` 的录入体：JSON 绑定与引擎 typed-array 快路径
+/// （`__opencatCanvasPathFlat`）共用。
+pub fn record_path_flat(
+    rec: &mut dyn crate::script::recorder::MutationRecorder,
+    id: &str,
+    flat: &[f64],
+    dx: f64,
+    dy: f64,
+) -> anyhow::Result<()> {
+    use crate::ir::{draw_op::DrawOp, draw_types::PathOp};
+    let at = |k: usize, o: f64| (o + flat[k]) as f32;
+    let mut i = 0usize;
+    while i < flat.len() {
+        let verb = flat[i] as i64;
+        i += 1;
+        let op = match verb {
+            0 => PathOp::MoveTo { x: at(i, dx), y: at(i + 1, dy) },
+            1 => PathOp::LineTo { x: at(i, dx), y: at(i + 1, dy) },
+            2 => PathOp::QuadTo { cx: at(i, dx), cy: at(i + 1, dy), x: at(i + 2, dx), y: at(i + 3, dy) },
+            3 => PathOp::CubicTo {
+                c1x: at(i, dx), c1y: at(i + 1, dy),
+                c2x: at(i + 2, dx), c2y: at(i + 3, dy),
+                x: at(i + 4, dx), y: at(i + 5, dy),
+            },
+            4 => PathOp::Close,
+            other => anyhow::bail!("unknown path verb {other}"),
+        };
+        i += [2, 2, 4, 6, 0][verb as usize];
+        rec.record_draw_op(id, DrawOp::Path(op));
+    }
+    Ok(())
 }

@@ -505,10 +505,10 @@ fn render_children(
                     let m = node_abs(ctx.space3, transform)
                         .map(|space| space.abs)
                         .unwrap_or(ctx.space3.abs);
-                    m.z_at(
-                        transform.bounds.width * transform.origin.x,
-                        transform.bounds.height * transform.origin.y,
-                    )
+                    let (ox, oy) = transform
+                        .origin
+                        .point(transform.bounds.width, transform.bounds.height);
+                    m.z_at(ox, oy)
                 }
                 None => ctx
                     .space3
@@ -931,10 +931,12 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
     }
     // The pivot is the node's static `transform-origin` (default centre). Scale/
     // rotate/skew anchor here; translations are unaffected.
-    let center_x = transform.bounds.width * transform.origin.x;
-    let center_y = transform.bounds.height * transform.origin.y;
+    let (center_x, center_y) = transform
+        .origin
+        .point(transform.bounds.width, transform.bounds.height);
 
     for t in transform.transforms.iter() {
+        // 百分比位移在 DisplayTransform 构造期已按边界盒折算成 px 变体。
         match *t {
             Transform::TranslateX { value } => builder.push(DrawOp::Translate { x: value, y: 0.0 }),
             Transform::TranslateY { value } => builder.push(DrawOp::Translate { x: 0.0, y: value }),
@@ -1049,6 +1051,9 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
             // it only moves the plane its children are drawn on, which the
             // 4×4 stack in `enter_node_space` already did.
             Transform::TranslateZ { .. } => {}
+            // Percent translates are folded to px variants at DisplayTransform
+            // construction (bounds known only there).
+            Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. } => {}
             Transform::Rotate3 {
                 rotation_x,
                 rotation_y,

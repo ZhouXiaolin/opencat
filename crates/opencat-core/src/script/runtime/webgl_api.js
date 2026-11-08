@@ -136,6 +136,15 @@
         return null;
     }
 
+    // WebGL 的 Float32List/Int32List 也接受普通数组（three PMREM 的 blur
+    // weights 就是 Array；丢了它 blur lod 全黑，金属材质反射一片黑）。
+    function f32Bytes(data) {
+        return typedBytes(Array.isArray(data) ? new Float32Array(data) : data);
+    }
+    function i32Bytes(data) {
+        return typedBytes(Array.isArray(data) ? new Int32Array(data) : data);
+    }
+
     // ── GL constants (WebGL2 GLenum; the working set) ───────────────
 
     var GL = {
@@ -996,7 +1005,7 @@
         };
         // 常量（非数组）vertex attrib：值 ≤4 个 float，走 NFV。
         self.vertexAttrib1fv = function (nameOrIndex, values) {
-            var bytes = typedBytes(values);
+            var bytes = f32Bytes(values);
             if (!bytes) return;
             var e = new Encoder(8 + bytes.byteLength);
             e.u32(attrNameRange(nameOrIndex, 'vertexAttrib1fv')).u32(bytes.byteLength);
@@ -1079,21 +1088,21 @@
         };
 
         self.uniform2i = function (loc, x, y) {
-            var name = uniName(location, 'uniform');
+            var name = uniName(loc, 'uniform2i');
             if (name === null) return;
             var e = new Encoder(12);
             e.u32(internString(streamId, name)).i32(x).i32(y);
             emit(streamId, GLOP.UNIFORM_2I, e.done(GLOP.UNIFORM_2I));
         };
         self.uniform3i = function (loc, x, y, z) {
-            var name = uniName(location, 'uniform');
+            var name = uniName(loc, 'uniform3i');
             if (name === null) return;
             var e = new Encoder(16);
             e.u32(internString(streamId, name)).i32(x).i32(y).i32(z);
             emit(streamId, GLOP.UNIFORM_3I, e.done(GLOP.UNIFORM_3I));
         };
         self.uniform4i = function (loc, x, y, z, w) {
-            var name = uniName(location, 'uniform');
+            var name = uniName(loc, 'uniform4i');
             if (name === null) return;
             var e = new Encoder(20);
             e.u32(internString(streamId, name)).i32(x).i32(y).i32(z).i32(w);
@@ -1128,7 +1137,7 @@
         }
 
         self.uniform1fv = function (loc, data) {
-            var bytes = typedBytes(data);
+            var bytes = f32Bytes(data);
             if (!bytes) return;
             emitVariableUniform(26, loc, bytes.byteLength / 4, bytes);
         };
@@ -1136,7 +1145,7 @@
         self.uniform3fv = self.uniform1fv;
         self.uniform4fv = self.uniform1fv;
         self.uniform1iv = function (loc, data) {
-            var bytes = typedBytes(data);
+            var bytes = i32Bytes(data);
             if (!bytes) return;
             emitVariableUniform(27, loc, bytes.byteLength / 4, bytes);
         };
@@ -1145,19 +1154,19 @@
         self.uniform4iv = self.uniform1iv;
         self.uniformMatrix2fv = function (loc, transpose, data) {
             void transpose; // WebGL2 requires false; the stream drops it
-            var bytes = typedBytes(data);
+            var bytes = f32Bytes(data);
             if (!bytes) return;
             emitVariableUniform(28, loc, bytes.byteLength / 16, bytes, 2);
         };
         self.uniformMatrix3fv = function (loc, transpose, data) {
             void transpose;
-            var bytes = typedBytes(data);
+            var bytes = f32Bytes(data);
             if (!bytes) return;
             emitVariableUniform(28, loc, bytes.byteLength / 36, bytes, 3);
         };
         self.uniformMatrix4fv = function (loc, transpose, data) {
             void transpose;
-            var bytes = typedBytes(data);
+            var bytes = f32Bytes(data);
             if (!bytes) return;
             emitVariableUniform(28, loc, bytes.byteLength / 64, bytes, 4);
         };
@@ -1180,7 +1189,13 @@
         self.getAttribLocation = function (program, name) {
             var info = programInfo[resId(program, 'getAttribLocation')];
             if (!info) return -1;
-            return uniformIndex({ uniforms: info.attributes }, String(name));
+            var idx = uniformIndex({ uniforms: info.attributes }, String(name));
+            if (idx < 0) return -1;
+            // 浏览器的返回值是驱动 location，不是 active-attrib 枚举序：两者
+            // 可以不等（声明了但被优化掉/重排时）。反射把真 location 放在
+            // `l`，缺失时才退回枚举序。
+            var loc = info.attributes[idx].l;
+            return typeof loc === 'number' ? loc : idx;
         };
 
         self.getActiveUniform = function (program, index) {
@@ -1285,9 +1300,15 @@
             var bytes = null;
             if (pixels !== undefined && pixels !== null) {
                 bytes = typedBytes(pixels);
-                if (!bytes && pixels.__opencatSurface === true) {
-                    var img = pixels.getImageData(0, 0, width, height);
-                    bytes = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                // surface 面（__opencatSurface）直接有 getImageData；html 通道
+                // 的 canvas 元素面经 getContext('2d') 拿上下文面（离屏元素由
+                // surface 兜底像素读回）。
+                if (!bytes && (pixels.__opencatSurface === true || typeof pixels.getContext === 'function')) {
+                    var src = pixels.__opencatSurface === true ? pixels : pixels.getContext('2d');
+                    var img = src ? src.getImageData(0, 0, width, height) : null;
+                    if (img) {
+                        bytes = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                    }
                 }
                 if (!bytes) {
                     badToken(
@@ -1320,9 +1341,12 @@
             var bytes = null;
             if (pixels !== undefined && pixels !== null) {
                 bytes = typedBytes(pixels);
-                if (!bytes && pixels.__opencatSurface === true) {
-                    var img = pixels.getImageData(0, 0, width, height);
-                    bytes = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                if (!bytes && (pixels.__opencatSurface === true || typeof pixels.getContext === 'function')) {
+                    var src = pixels.__opencatSurface === true ? pixels : pixels.getContext('2d');
+                    var img = src ? src.getImageData(0, 0, width, height) : null;
+                    if (img) {
+                        bytes = new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength);
+                    }
                 }
             }
             var e = new Encoder(28);
@@ -1825,13 +1849,11 @@
 
     function getWebGLContext(nodeId, type, options, sizeW, sizeH, originX, originY) {
         var key = String(nodeId);
-        var want = type === 'webgl2' ? 'webgl2' : 'webgl';
+        // 页面按 WebGL1 请求（three r147 显式 `getContext('webgl')`）时提升到
+        // WebGL2 录制面：执行端只有 WebGL2，返回 WebGL2 face 也让 three 走它
+        // 覆盖最全的 WebGL2 管线。显式 WebGL1 上下文在浏览器侧同样已弃用。
+        var want = 'webgl2';
         if (NATIVE_WEBGL) {
-            if (want !== 'webgl2') {
-                throw new Error(
-                    "getContext('webgl') (WebGL1) is not supported — three r152+ and every OpenCat executor target WebGL2"
-                );
-            }
             return getNativeWebGLContext(key, options, sizeW, sizeH, originX, originY);
         }
         var existing = contexts[key];
@@ -1843,11 +1865,6 @@
             }
             existing.__beginFrameStream();
             return existing;
-        }
-        if (want !== 'webgl2') {
-            throw new Error(
-                "getContext('webgl') (WebGL1) is not supported — three r152+ and every OpenCat executor target WebGL2"
-            );
         }
 
         var attrs = attrsFromOptions(options);
@@ -1866,8 +1883,28 @@
 
         var rec = makeRecordingContext(key, wh[0], wh[1], packAttrsBits(attrs), sizeFace, originX, originY);
         rec.__kind = want;
+        tagAsWebGL2(rec);
         contexts[key] = rec;
         return rec;
+    }
+
+    // three（r147 起）用 `gl instanceof WebGL2RenderingContext` 判定 WebGL2，
+    // 判 false 就按 WebGL1 发 GLSL 100 源——但 PMREM 等内部路径又用
+    // sampler2DArray（GLES3 专属语法），GLES3 上下文编译必炸。执行端只有
+    // WebGL2（webgl_api 提升规则同款），所以把录制 face 的原型链挂到补定义
+    // 的全局构造器上，让 instanceof 探测走真。
+    // 作用域限 html 通道（globalThis.__ocHtmlChannel，html_api.js 置位）：
+    // jsx 通道的 three r152 一直按「WebGL1 判定 + 录制面提升 webgl2」组合
+    // 跑（vfx jsx 基线 26.22%），全面切 WebGL2 判定会改命令流语义组合，
+    // three 场景绘制静默失败（实测 vfx jsx 26%→86%）。
+    function tagAsWebGL2(rec) {
+        if (!globalThis.__ocHtmlChannel) return;
+        if (typeof globalThis.WebGL2RenderingContext !== 'function') {
+            globalThis.WebGL2RenderingContext = function WebGL2RenderingContext() {};
+        }
+        if (!(rec instanceof globalThis.WebGL2RenderingContext)) {
+            Object.setPrototypeOf(rec, globalThis.WebGL2RenderingContext.prototype);
+        }
     }
 
     // Route `ctx.getContext(id, 'webgl2'|'webgl', attrs)` (and the element

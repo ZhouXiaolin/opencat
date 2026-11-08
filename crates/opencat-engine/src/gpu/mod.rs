@@ -32,6 +32,8 @@ pub mod metal;
 pub mod egl;
 mod registry;
 #[cfg(target_os = "windows")]
+pub mod angle;
+#[cfg(target_os = "windows")]
 pub mod win32;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]

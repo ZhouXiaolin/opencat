@@ -421,7 +421,7 @@ fn dimension_to_px(value: f32, unit: &str, ctx: &EvalContext) -> Option<f32> {
     Some(match unit.to_ascii_lowercase().as_str() {
         "px" => value,
         "rem" => value * ctx.rem_base,
-        "em" => value * ctx.rem_base, // 父字号传播为后续增强
+        "em" => value * ctx.em_base,
         "pt" => value * 96.0 / 72.0,
         "pc" => value * 16.0,
         "in" => value * 96.0,
@@ -439,7 +439,7 @@ fn length_to_px(len: LengthValue, ctx: &EvalContext) -> Option<f32> {
     Some(match len {
         LengthValue::Px(v) => v,
         LengthValue::Rem(v) => v * ctx.rem_base,
-        LengthValue::Em(v) => v * ctx.rem_base,
+        LengthValue::Em(v) => v * ctx.em_base,
         LengthValue::Vw(v) => v * ctx.viewport.0 / 100.0,
         LengthValue::Vh(v) => v * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(v) => v * ctx.viewport.0.min(ctx.viewport.1) / 100.0,

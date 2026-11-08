@@ -158,10 +158,15 @@ fn css_transform_string(transforms: &[Transform]) -> String {
             ),
             // 3D transforms have no 2D matrix form; the 2D part of the
             // projection is what a 2D reader can act on, so nothing to add.
+            // Percent translates have no size to resolve against here (this
+            // string is a script-read projection of GSAP-only writes; the CSS
+            // parser resolves them at display build).
             Transform::Rotate3 { .. }
             | Transform::TranslateZ { .. }
             | Transform::RotateXDeg { .. }
-            | Transform::RotateYDeg { .. } => m,
+            | Transform::RotateYDeg { .. }
+            | Transform::TranslateXPercent { .. }
+            | Transform::TranslateYPercent { .. } => m,
         };
     }
     format!(
@@ -177,6 +182,12 @@ fn css_transform_string(transforms: &[Transform]) -> String {
 /// `style.width = "660px"`）。两条通道落到同一个字段，所以统一在这里转。
 /// 单位只认 `px`；`%` / `auto` / `none` 没有声明式参照系可算，返回 None
 /// 好过按错误基准渲染。
+/// `"70%"` → 0.7（百分比文本才算；数字与 px 文本归 [`num_from_value`]）。
+fn pct_from_value(value: &serde_json::Value) -> Option<f32> {
+    let text = value.as_str()?.trim().strip_suffix('%')?;
+    text.trim().parse::<f32>().ok().map(|v| v / 100.0)
+}
+
 fn num_from_value(value: &serde_json::Value) -> Option<f32> {
     match value {
         serde_json::Value::Number(n) => n.as_f64().map(|v| v as f32),
@@ -243,6 +254,8 @@ struct StyleStore {
     /// scripts run. Not cleared during reset_for_frame so read_style_value
     /// always sees Tailwind/className defaults. Stores JSON values (f32, string, etc.)
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
+    /// 文本写入计数（单调，不随帧清零）：布局探针据此判断同步布局是否过期。
+    text_writes: u64,
 }
 
 impl StyleStore {
@@ -337,6 +350,12 @@ impl StyleStore {
             props.insert("clipPath".into(), json!(clip_path.to_css_string()));
         }
         add_f32!("backdropBlur", backdrop_blur_sigma);
+        // 样式表声明的变换以变换数组入种子：computed `transform` 要按元素
+        // 布局盒把百分比位移折成 px，盒子只在读取时（布局探针）才有，见
+        // [`MutationStore::computed_transform`]。
+        if !style.transforms.is_empty() {
+            props.insert("transform".into(), json!(style.transforms));
+        }
 
         // colors
         add_color!("fillColor", fill_color);
@@ -402,8 +421,14 @@ impl StyleStore {
                 "textSize" => mutations.text_px.map(|f| json!(f)),
                 "letterSpacing" => mutations.letter_spacing.map(|f| json!(f)),
                 "lineHeight" => mutations.line_height.map(|f| json!(f)),
-                "width" => mutations.width.map(|f| json!(f)),
-                "height" => mutations.height.map(|f| json!(f)),
+                "width" => mutations
+                    .width
+                    .map(|f| json!(f))
+                    .or_else(|| mutations.width_pct.map(|p| json!(format!("{}%", p * 100.0)))),
+                "height" => mutations
+                    .height
+                    .map(|f| json!(f))
+                    .or_else(|| mutations.height_pct.map(|p| json!(format!("{}%", p * 100.0)))),
                 "gap" => mutations.gap.map(|f| json!(f)),
                 "flexGrow" => mutations.flex_grow.map(|f| json!(f)),
                 "left" => mutations.inset_left.map(|f| json!(f)),
@@ -421,13 +446,16 @@ impl StyleStore {
                 // CSSPlugin hands this straight to `_applySVGOrigin`, which
                 // does `origin.split(" ")` — an array or a number here throws
                 // `origin.split is not a function` on every SVG tween.
-                // The stored origin is a fraction of the box, so it goes back
-                // out as a percentage (a browser never reports `0.5px`).
+                // The stored origin is a box fraction plus a px offset per
+                // axis; it goes back out as a percentage, a length, or both.
                 "transformOrigin" | "svgOrigin" => {
-                    let o = mutations
-                        .transform_origin
-                        .unwrap_or(crate::style::TransformOrigin { x: 0.5, y: 0.5 });
-                    Some(json!(format!("{}% {}%", o.x * 100.0, o.y * 100.0)))
+                    let o = mutations.transform_origin.unwrap_or_default();
+                    let axis = |frac: f32, px: f32| match (frac, px) {
+                        (_, 0.0) => format!("{}%", frac * 100.0),
+                        (0.0, _) => format!("{px}px"),
+                        _ => format!("calc({}% + {px}px)", frac * 100.0),
+                    };
+                    Some(json!(format!("{} {}", axis(o.x, o.x_px), axis(o.y, o.y_px))))
                 }
                 // CSS text form, the shape CSSPlugin parses on init.
                 "transform" => Some(json!(css_transform_string(&mutations.transforms))),
@@ -479,6 +507,7 @@ impl StyleStore {
                 // strings
                 "morphSVG" | "d" => mutations.svg_path.as_ref().map(|s| json!(s)),
                 "background" | "backgroundImage" => mutations.bg_image.as_ref().map(|s| json!(s)),
+                "boxShadow" => mutations.box_shadow_css.as_ref().map(|s| json!(s)),
                 "text" => mutations.text_content.as_ref().map(|s| json!(s)),
                 "textShadow" | "textShadows" => mutations
                     .text_shadows
@@ -513,6 +542,11 @@ impl StyleStore {
             // ── f32 ──
             "opacity" => {
                 entry.opacity = num_from_value(&value);
+            }
+            "display" => {
+                entry.display_none = value
+                    .as_str()
+                    .map(|s| s.trim().eq_ignore_ascii_case("none"));
             }
             // GSAP names (`x`/`y`) accepted too: the imperative `getNode(id).x(v)`
             // proxy forwards the raw property name, while the timeline property
@@ -591,6 +625,7 @@ impl StyleStore {
                         entry.transform_origin = Some(TransformOrigin {
                             x: x as f32,
                             y: y as f32,
+                            ..Default::default()
                         });
                     }
                 }
@@ -609,6 +644,7 @@ impl StyleStore {
             "transform" => {
                 if let Some(s) = value.as_str() {
                     entry.transforms = crate::css::parse_css_transform(s);
+                    entry.transform_css = Some(s.to_string());
                 }
             }
             "left" => {
@@ -624,10 +660,12 @@ impl StyleStore {
                 entry.inset_bottom = num_from_value(&value);
             }
             "width" => {
-                entry.width = num_from_value(&value);
+                entry.width_pct = pct_from_value(&value);
+                entry.width = entry.width_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "height" => {
-                entry.height = num_from_value(&value);
+                entry.height_pct = pct_from_value(&value);
+                entry.height = entry.height_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "padding" => {
                 entry.padding = num_from_value(&value);
@@ -646,6 +684,12 @@ impl StyleStore {
             }
             "marginY" => {
                 entry.margin_y = num_from_value(&value);
+            }
+            "marginLeft" => {
+                entry.margin_left = num_from_value(&value);
+            }
+            "marginTop" => {
+                entry.margin_top = num_from_value(&value);
             }
             "gap" => {
                 entry.gap = num_from_value(&value);
@@ -726,6 +770,18 @@ impl StyleStore {
             "background" | "backgroundImage" => {
                 if let Some(s) = value.as_str() {
                     entry.bg_image = Some(s.to_string());
+                }
+            }
+            // `background-position` 独立补间（gsap `backgroundPosition`）：
+            // 原文留存，resolve 侧套到背景层上（apply_bg_position_to_layers）。
+            "backgroundPosition" | "background-position" => {
+                if let Some(s) = value.as_str() {
+                    entry.bg_position = Some(s.to_string());
+                }
+            }
+            "boxShadow" => {
+                if let Some(s) = value.as_str() {
+                    entry.box_shadow_css = Some(s.to_string());
                 }
             }
             "fillColor" | "fill" => {
@@ -823,6 +879,7 @@ impl StyleStore {
             "text" => {
                 if let Some(s) = value.as_str() {
                     entry.text_content = Some(s.to_string());
+                    self.text_writes += 1;
                 }
             }
             "morphSVG" | "d" => {
@@ -1434,6 +1491,11 @@ impl MutationStore {
         self.gl.alloc_handle()
     }
 
+    /// 句柄序归零（html 通道帧首调用，见 bindings `gl_reset_handles`）。
+    pub fn gl_reset_handles(&mut self) {
+        self.gl.next_handle = 0;
+    }
+
     /// 注入真 GL 反射器（宿主在装配期调用一次）。
     pub fn set_glsl_reflector(
         &mut self,
@@ -1526,6 +1588,39 @@ impl MutationStore {
         self.style.write_style_value(id, property, value)
     }
 
+    /// 文本写入计数：布局探针的同步布局失效键。
+    /// 浏览器 computed `transform`：样式表声明的变换（`translate(-50%, -50%)`
+    /// 居中写法）按元素盒 `width` × `height` 折成 `matrix(...)`。gsap
+    /// `_parseTransform` 据矩阵位移等于 `-offsetWidth / 2` 识别 xPercent=-50
+    /// 并在之后的写入里保留——读成 `none` 时它的 transform 写入会冲掉居中。
+    /// 本帧脚本写过 transform 或没有声明变换时返回 None（走常规读）。
+    pub fn computed_transform(&self, id: &str, width: f32, height: f32) -> Option<String> {
+        let declared = match self.read_style_value(id, "transform")? {
+            serde_json::Value::Array(items) => items,
+            _ => return None,
+        };
+        let transforms: Vec<Transform> =
+            serde_json::from_value(serde_json::Value::Array(declared)).ok()?;
+        let bounds = crate::display::list::DisplayRect { x: 0.0, y: 0.0, width, height };
+        Some(css_transform_string(&crate::display::build::resolve_percent_transforms(
+            &transforms,
+            bounds,
+        )))
+    }
+
+    pub fn text_writes(&self) -> u64 {
+        self.style.text_writes
+    }
+
+    /// 本帧到目前为止的样式突变（不消耗、不含 canvas 流）：布局探针按它
+    /// 现场布局，即浏览器同步布局看到的 DOM 状态。
+    pub fn style_snapshot(&self) -> StyleMutations {
+        StyleMutations {
+            mutations: self.style.styles.clone(),
+            canvas_mutations: HashMap::new(),
+        }
+    }
+
 }
 
 impl MutationRecorder for MutationStore {
@@ -1543,6 +1638,12 @@ impl MutationRecorder for MutationStore {
     }
     fn record_translate_y(&mut self, id: &str, v: f32) {
         self.entry(id).push_transform(Transform::TranslateY { value: v });
+    }
+    fn record_translate_x_percent(&mut self, id: &str, pct: f32) {
+        self.entry(id).push_transform(Transform::TranslateXPercent { value: pct });
+    }
+    fn record_translate_y_percent(&mut self, id: &str, pct: f32) {
+        self.entry(id).push_transform(Transform::TranslateYPercent { value: pct });
     }
     fn record_scale(&mut self, id: &str, v: f32) {
         self.entry(id).push_transform(Transform::Scale { value: v });

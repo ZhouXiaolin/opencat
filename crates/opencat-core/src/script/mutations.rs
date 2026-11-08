@@ -45,22 +45,37 @@ pub struct NodeStyleMutations {
     pub inset_bottom: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
+    /// 脚本写的百分比尺寸（包含块的分数，`"70%"` → 0.7），与 px 尺寸互斥。
+    pub width_pct: Option<f32>,
+    pub height_pct: Option<f32>,
     pub padding: Option<f32>,
     pub padding_x: Option<f32>,
     pub padding_y: Option<f32>,
     pub margin: Option<f32>,
     pub margin_x: Option<f32>,
     pub margin_y: Option<f32>,
+    /// 脚本单边写 `marginLeft` / `marginTop`（gsap 网格负 margin 居中）。
+    pub margin_left: Option<f32>,
+    pub margin_top: Option<f32>,
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<crate::style::AlignItems>,
     pub gap: Option<f32>,
     pub flex_grow: Option<f32>,
     pub opacity: Option<f32>,
+    /// 脚本写的 `display`：`Some(true)` = none（整子树退出布局与绘制，同可见
+    /// 窗占位语义）；其余取值 `Some(false)` 撤销脚本隐藏。
+    pub display_none: Option<bool>,
     pub bg_color: Option<ColorToken>,
     /// 脚本按帧写入的 CSS `background` 原文（渐变/瓦片背景）。静态树只带一份
     /// 样式，动不了的背景层从这条通道进；纯色仍走 `bg_color`。
     pub bg_image: Option<String>,
+    /// 脚本按帧写入的 CSS `background-position` 原文（gsap 的
+    /// `backgroundPosition` 补间）。套到已有背景层上，见 `apply_bg_position_to_layers`。
+    pub bg_position: Option<String>,
+    /// 脚本按帧写入的 CSS `box-shadow` 原文（gsap `boxShadow` 补间）。内联
+    /// 样式语义：整体替换 class 层的外/内阴影，不叠加。
+    pub box_shadow_css: Option<String>,
     pub fill_color: Option<ColorToken>,
     /// `fill: none`（见 `NodeStyle::fill_none`）。
     pub fill_none: bool,
@@ -78,6 +93,9 @@ pub struct NodeStyleMutations {
     pub border_style: Option<BorderStyle>,
     pub object_fit: Option<ObjectFit>,
     pub transforms: Vec<Transform>,
+    /// 整串 `style.transform = "..."` 写入的原文（gsap CSSPlugin 的写法）。
+    /// 它是内联样式：覆盖样式表声明的变换，而不是叠加在其上。
+    pub transform_css: Option<String>,
     /// Script-writable `transform-origin` (GSAP `transformOrigin`/`svgOrigin`).
     /// Fractions of the node's box, same convention as the static style value.
     /// Written per frame like GSAP's origin properties; the last write wins.
@@ -110,10 +128,8 @@ pub struct NodeStyleMutations {
 /// Parse a GSAP-flavoured transform origin into box fractions.
 ///
 /// Delegates to the static [`crate::style::TransformOrigin::parse`] grammar
-/// (keywords, percentages, bare `0`) and additionally accepts the `0px`/`0em`
-/// spelling GSAP uses for the element corner (`"0px 0px"`). Px lengths other
-/// than zero need a box size the write channel does not have, so callers that
-/// need a pixel-accurate anchor should emit a percentage instead.
+/// (keywords, percentages, px lengths, bare `0`) and additionally accepts the
+/// `0em` spelling for the element corner.
 fn parse_transform_origin(value: &str) -> Option<crate::style::TransformOrigin> {
     let normalized = value
         .split_whitespace()
@@ -156,6 +172,10 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
         Transform::TranslateZ { .. } => &[9],
         Transform::RotateXDeg { .. } => &[10],
         Transform::RotateYDeg { .. } => &[11],
+        // 百分比位移与 px 位移在同一字符串里是**复合**（gsap 一个渲染串同时
+        // 含 `translate(-50%,-50%)` 与 `translate(0px,-30px)`），不是同名
+        // 属性覆盖——空槽位让它永不碰撞、不被后续 px 分量清掉。
+        Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. } => &[],
     }
 }
 
@@ -167,6 +187,7 @@ fn matrix_rank(t: &Transform) -> u8 {
     match t {
         Transform::TranslateX { .. } | Transform::TranslateY { .. } | Transform::Translate { .. } => 0,
         Transform::TranslateZ { .. } => 0,
+        Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. } => 0,
         Transform::RotateDeg { .. } | Transform::Rotate3 { .. } => 1,
         Transform::RotateXDeg { .. } | Transform::RotateYDeg { .. } => 1,
         Transform::Scale { .. } | Transform::ScaleX { .. } | Transform::ScaleY { .. } => 2,
@@ -342,9 +363,17 @@ impl NodeStyleMutations {
             style.width = Some(v);
             style.width_percent = None;
         }
+        if let Some(p) = self.width_pct {
+            style.width = None;
+            style.width_percent = Some(p);
+        }
         if let Some(v) = self.height {
             style.height = Some(v);
             style.height_percent = None;
+        }
+        if let Some(p) = self.height_pct {
+            style.height = None;
+            style.height_percent = Some(p);
         }
         if let Some(v) = self.padding {
             style.padding_top = Some(v);
@@ -374,6 +403,12 @@ impl NodeStyleMutations {
         if let Some(v) = self.margin_y {
             style.margin_top = Some(LengthPercentageAuto::Length(v));
             style.margin_bottom = Some(LengthPercentageAuto::Length(v));
+        }
+        if let Some(v) = self.margin_left {
+            style.margin_left = Some(LengthPercentageAuto::Length(v));
+        }
+        if let Some(v) = self.margin_top {
+            style.margin_top = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.flex_direction {
             style.flex_direction = Some(v);
@@ -421,8 +456,14 @@ impl NodeStyleMutations {
             if let Some(v) = self.width {
                 t.size.width = Dimension::length(v);
             }
+            if let Some(p) = self.width_pct {
+                t.size.width = Dimension::percent(p);
+            }
             if let Some(v) = self.height {
                 t.size.height = Dimension::length(v);
+            }
+            if let Some(p) = self.height_pct {
+                t.size.height = Dimension::percent(p);
             }
             if let Some(v) = self.padding {
                 t.padding = TaffyRect {
@@ -455,6 +496,12 @@ impl NodeStyleMutations {
             if let Some(v) = self.margin_y {
                 t.margin.top = TaffyLPA::length(v);
                 t.margin.bottom = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.margin_left {
+                t.margin.left = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.margin_top {
+                t.margin.top = TaffyLPA::length(v);
             }
             if let Some(v) = self.flex_direction {
                 t.flex_direction = match v {
@@ -511,6 +558,9 @@ impl NodeStyleMutations {
                 style.background_layers = layers;
             }
         }
+        if let Some(css) = &self.bg_position {
+            apply_bg_position_to_layers(style, css);
+        }
         if let Some(v) = self.bg_color {
             style.bg_color = Some(v);
         }
@@ -560,7 +610,9 @@ impl NodeStyleMutations {
         if let Some(v) = self.object_fit {
             style.object_fit = Some(v);
         }
-        if !self.transforms.is_empty() {
+        if self.transform_css.is_some() {
+            style.transforms = self.transforms.clone();
+        } else if !self.transforms.is_empty() {
             style.transforms.extend(self.transforms.iter().cloned());
         }
         if let Some(origin) = self.transform_origin {
@@ -583,6 +635,9 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.line_height {
             style.line_height = Some(v);
+        }
+        if let Some(css) = &self.box_shadow_css {
+            (style.box_shadow, style.inset_shadow) = crate::css::box_shadow_from_css(css);
         }
         if let Some(v) = self.box_shadow {
             style.box_shadow.push(v);
@@ -788,6 +843,42 @@ impl StyleMutations {
     }
 }
 
+/// 把脚本写的 `background-position` 原文套到已有背景层上。百分比走 CSS 定位
+/// 公式（offset = p ×（盒 − 图）），正是层 `position` 字段的语义；px 进
+/// `position_px`。唯一写方是 gsap 的 `backgroundPosition` 补间，值形如
+/// `"37.5% 37.5%"`（gsap 按起始串结构逐分量插值，两轴单位一致）。
+fn apply_bg_position_to_layers(style: &mut crate::style::NodeStyle, css: &str) {
+    let mut pos = [0.0f32, 0.0f32];
+    let mut pos_px = [None, None];
+    for (i, token) in css.split_whitespace().take(2).enumerate() {
+        let t = token.trim();
+        if let Some(p) = t.strip_suffix('%').and_then(|s| s.parse::<f32>().ok()) {
+            pos[i] = p / 100.0;
+        } else if let Some(v) = t.strip_suffix("px").and_then(|s| s.parse::<f32>().ok()) {
+            pos_px[i] = Some(v);
+        } else if t.eq_ignore_ascii_case("center") {
+            pos[i] = 0.5;
+        } else if t.eq_ignore_ascii_case("right") || t.eq_ignore_ascii_case("bottom") {
+            pos[i] = 1.0;
+        }
+    }
+    let px_pair =
+        if pos_px.iter().all(Option::is_some) { Some([pos_px[0].unwrap(), pos_px[1].unwrap()]) } else { None };
+    for layer in &mut style.background_layers {
+        if let crate::style::BackgroundFill::ArbitraryGradient { gradient } = layer {
+            if let crate::style::ArbitraryGradient::LinearGradient { position, position_px, .. } =
+                gradient
+            {
+                if let Some(pair) = px_pair {
+                    *position_px = Some(pair);
+                } else {
+                    *position = Some(pos);
+                }
+            }
+        }
+    }
+}
+
 pub fn apply_node_to_recorder(
     recorder: &mut dyn crate::script::recorder::MutationRecorder,
     id: &str,
@@ -795,6 +886,10 @@ pub fn apply_node_to_recorder(
 ) {
     if let Some(v) = m.opacity {
         recorder.record_opacity(id, v);
+    }
+    if let Some(none) = m.display_none {
+        let value = if none { "none" } else { "block" };
+        recorder.write_style_value(id, "display", serde_json::Value::String(value.into()));
     }
     if let Some(v) = m.inset_left {
         recorder.record_left(id, v);
@@ -814,6 +909,13 @@ pub fn apply_node_to_recorder(
     if let Some(v) = m.height {
         recorder.record_height(id, v);
     }
+    // 百分比尺寸走通用写通道：活写与重放共用 store 的同一条写臂。
+    if let Some(p) = m.width_pct {
+        recorder.write_style_value(id, "width", serde_json::json!(format!("{}%", p * 100.0)));
+    }
+    if let Some(p) = m.height_pct {
+        recorder.write_style_value(id, "height", serde_json::json!(format!("{}%", p * 100.0)));
+    }
     if let Some(v) = m.padding {
         recorder.record_padding(id, v);
     }
@@ -831,6 +933,12 @@ pub fn apply_node_to_recorder(
     }
     if let Some(v) = m.margin_y {
         recorder.record_margin_y(id, v);
+    }
+    if let Some(v) = m.margin_left {
+        recorder.write_style_value(id, "marginLeft", serde_json::json!(v));
+    }
+    if let Some(v) = m.margin_top {
+        recorder.write_style_value(id, "marginTop", serde_json::json!(v));
     }
     if let Some(v) = m.gap {
         recorder.record_gap(id, v);
@@ -916,6 +1024,17 @@ pub fn apply_node_to_recorder(
     if let Some(css) = &m.bg_image {
         recorder.record_background_image(id, css);
     }
+    if let Some(css) = &m.bg_position {
+        // 走通用写通道：活写与重放共用 store 的同一条写臂。
+        recorder.write_style_value(
+            id,
+            "backgroundPosition",
+            serde_json::Value::String(css.clone()),
+        );
+    }
+    if let Some(css) = &m.box_shadow_css {
+        recorder.write_style_value(id, "boxShadow", serde_json::Value::String(css.clone()));
+    }
     if let Some(color) = m.bg_color {
         recorder.record_bg_color(id, color);
     }
@@ -940,7 +1059,10 @@ pub fn apply_node_to_recorder(
     if let Some(color) = m.drop_shadow_color {
         recorder.record_drop_shadow_color(id, color);
     }
-    for t in &m.transforms {
+    if let Some(css) = &m.transform_css {
+        recorder.write_style_value(id, "transform", serde_json::json!(css));
+    }
+    for t in m.transforms.iter().filter(|_| m.transform_css.is_none()) {
         match *t {
             Transform::Translate { x, y } => recorder.record_translate(id, x, y),
             Transform::TranslateX { value } => recorder.record_translate_x(id, value),
@@ -962,6 +1084,12 @@ pub fn apply_node_to_recorder(
             Transform::TranslateZ { .. }
             | Transform::RotateXDeg { .. }
             | Transform::RotateYDeg { .. } => {}
+            Transform::TranslateXPercent { value } => {
+                recorder.record_translate_x_percent(id, value);
+            }
+            Transform::TranslateYPercent { value } => {
+                recorder.record_translate_y_percent(id, value);
+            }
         }
     }
     if let Some(origin) = m.transform_origin {

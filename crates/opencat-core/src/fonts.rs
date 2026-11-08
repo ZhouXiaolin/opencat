@@ -51,6 +51,9 @@ pub struct FontManifest {
     /// `default` attribute on `<fonts>` — id of the default sans face.
     pub default_face_id: Option<String>,
     pub faces: Vec<FontFaceDecl>,
+    /// html `@font-face` 清单：文档字体只按族名参与匹配，generic 族
+    /// （sans-serif）沿用宿主 base——浏览器里 @font-face 不改写 generic。
+    pub css_faces: bool,
 }
 
 impl FontManifest {
@@ -115,6 +118,23 @@ pub struct FontFamilyIndex {
     pub id_to_family: HashMap<String, String>,
 }
 
+/// woff2（`wOF2` magic）→ TTF 字节。woff 1.0 不处理（语料未命中）。
+/// 解码失败原样返回——fontdb 随后按自己的方式报错，错误不在这层吞掉
+/// 语义（与浏览器「坏字体面跳过」的容错差异记录在案）。
+pub fn decode_woff2_if_needed(bytes: Vec<u8>) -> Vec<u8> {
+    const WOF2: &[u8; 4] = b"wOF2";
+    if bytes.len() < 4 || &bytes[..4] != WOF2 {
+        return bytes;
+    }
+    match woff2::convert_woff2_to_ttf(&mut std::io::Cursor::new(&bytes)) {
+        Ok(ttf) => ttf,
+        Err(err) => {
+            eprintln!("fonts: woff2 decode failed, keeping raw bytes: {err}");
+            bytes
+        }
+    }
+}
+
 /// Load font bytes into `db`. Returns updated db and id → family index.
 pub fn load_faces_into_db(
     mut db: fontdb::Database,
@@ -127,12 +147,14 @@ pub fn load_faces_into_db(
         let bytes = bytes_by_id
             .get(&face.id)
             .ok_or_else(|| anyhow!("font `{}`: bytes not loaded", face.id))?;
-        db.load_font_data(bytes.clone());
+        db.load_font_data(decode_woff2_if_needed(bytes.clone()));
         let family = face.family.clone().unwrap_or_else(|| face.id.clone());
         index.id_to_family.insert(face.id.clone(), family);
     }
 
-    if let Some(default_id) = manifest.default_face_id.as_deref() {
+    if manifest.css_faces {
+        // generic 族不由 @font-face 决定（调用方沿用 base 的设置）。
+    } else if let Some(default_id) = manifest.default_face_id.as_deref() {
         if let Some(family) = index.id_to_family.get(default_id) {
             db.set_sans_serif_family(family);
         }
@@ -228,6 +250,12 @@ pub fn merge_document_over_base(
             }
         }
         families = family_names_in_db(&db);
+    }
+    if manifest.css_faces {
+        let sans = base.family_name(&fontdb::Family::SansSerif).to_string();
+        if !sans.is_empty() {
+            db.set_sans_serif_family(sans);
+        }
     }
 
     Ok((db, index))

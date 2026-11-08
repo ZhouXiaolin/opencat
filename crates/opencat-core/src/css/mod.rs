@@ -19,7 +19,7 @@ mod to_taffy;
 
 pub use cascade::{SelectorContext, SelectorNode};
 pub use property_semantics::{origin_px_to_fractions, parse_css_transform};
-pub use to_node_style::background_from_css;
+pub use to_node_style::{background_from_css, box_shadow_from_css};
 pub use stylesheet::CssStylesheet;
 
 use std::collections::HashMap;
@@ -35,6 +35,9 @@ pub struct EvalContext {
     /// `1rem` 对应的像素值。视频合成没有 DOM 根字号，固定 16px
     /// （与浏览器默认一致，tailwind 的 `--spacing: 0.25rem` 依赖它）。
     pub rem_base: f32,
+    /// `1em` 对应的像素值：元素自己的计算字号（`font-size` 自身的 em/%
+    /// 相对父字号，级联时先按父字号求出它）。无树上下文时等于 rem_base。
+    pub em_base: f32,
 }
 
 impl Default for EvalContext {
@@ -42,6 +45,7 @@ impl Default for EvalContext {
         Self {
             viewport: (1920.0, 1080.0),
             rem_base: 16.0,
+            em_base: 16.0,
         }
     }
 }
@@ -77,6 +81,47 @@ fn apply_declaration(
                 to_node_style::apply_property(style, &typed, ctx);
             }
         }
+    }
+}
+
+fn is_font_size(property: &Property<'static>) -> bool {
+    match property {
+        Property::FontSize(_) => true,
+        Property::Unparsed(unparsed) => {
+            unparsed.property_id == lightningcss::properties::PropertyId::FontSize
+        }
+        _ => false,
+    }
+}
+
+/// 一组声明按层叠序落地。`em` 的基准是元素自己的计算字号，而 `font-size`
+/// 自身的 em/% 相对父字号：有父字号时先单独应用 font-size（连同变量定义），
+/// 再以求出的字号应用其余声明。
+fn apply_declarations(
+    style: &mut NodeStyle,
+    taffy_style: &mut taffy::Style,
+    decls: &[&Property<'static>],
+    vars: &mut HashMap<String, lightningcss::properties::custom::TokenList<'static>>,
+    base: &EvalContext,
+    parent_font_px: Option<f32>,
+) {
+    let Some(parent) = parent_font_px else {
+        for property in decls {
+            apply_declaration(style, taffy_style, property, vars, base);
+        }
+        return;
+    };
+    let mut ctx = *base;
+    ctx.em_base = parent;
+    for property in decls
+        .iter()
+        .filter(|p| is_font_size(p) || matches!(p, Property::Custom(_)))
+    {
+        apply_declaration(style, taffy_style, property, vars, &ctx);
+    }
+    ctx.em_base = style.text_px.unwrap_or(parent);
+    for property in decls.iter().filter(|p| !is_font_size(p)) {
+        apply_declaration(style, taffy_style, property, vars, &ctx);
     }
 }
 
@@ -156,9 +201,15 @@ impl CssEngine {
         let mut vars: HashMap<String, lightningcss::properties::custom::TokenList<'static>> =
             self.sheet.root_vars.clone();
 
-        for decl in matched {
-            apply_declaration(&mut style, &mut taffy_style, &decl.property, &mut vars, &self.ctx);
-        }
+        let decls: Vec<&Property<'static>> = matched.iter().map(|decl| &decl.property).collect();
+        apply_declarations(
+            &mut style,
+            &mut taffy_style,
+            &decls,
+            &mut vars,
+            &self.ctx,
+            ctx.parent_font_px,
+        );
         to_node_style::apply_background_size_to_layers(&mut style);
         style.css_layout = Some(crate::style::CssLayout(taffy_style));
         style
@@ -168,7 +219,13 @@ impl CssEngine {
     ///
     /// 内联声明在层叠里高于任何选择器规则，因此它在 class 结果之后应用。
     /// 解析失败的单条声明被丢弃（CSS 的错误恢复语义），不影响其余声明。
-    pub fn apply_inline_style(&self, style: &mut NodeStyle, css: &str, _node_id: &str, _tag: &str) {
+    /// `parent_font_px` 同 [`cascade::SelectorContext::parent_font_px`]。
+    pub fn apply_inline_style(
+        &self,
+        style: &mut NodeStyle,
+        css: &str,
+        parent_font_px: Option<f32>,
+    ) {
         // 与样式表同一策略：声明块借用输入文本，泄漏一份换 'static。
         // 内联样式是节点级小文本，量级可忽略。
         let owned: &'static str = Box::leak(css.to_string().into_boxed_str());
@@ -189,9 +246,12 @@ impl CssEngine {
             .unwrap_or_else(to_taffy::initial_style);
         let mut vars: HashMap<String, lightningcss::properties::custom::TokenList<'static>> =
             self.sheet.root_vars.clone();
-        for decl in block.declarations.iter().chain(block.important_declarations.iter()) {
-            apply_declaration(style, &mut taffy_style, decl, &mut vars, &self.ctx);
-        }
+        let decls: Vec<&Property<'static>> = block
+            .declarations
+            .iter()
+            .chain(block.important_declarations.iter())
+            .collect();
+        apply_declarations(style, &mut taffy_style, &decls, &mut vars, &self.ctx, parent_font_px);
         to_node_style::apply_background_size_to_layers(style);
         style.css_layout = Some(crate::style::CssLayout(taffy_style));
     }

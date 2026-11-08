@@ -34,6 +34,11 @@ unicode-script = "0.5"
 cosmic-text = "0.19.0"
 # 0.23 pinned: cosmic-text 0.19.0 (latest) still requires fontdb 0.23
 fontdb = "0.23.0"
+# woff2 → TTF 解码（纯 Rust：容器解包 + brotli 解压）。fontdb/ttf-parser
+# 只认 TTF/OTF；浏览器语料的 @font-face 普遍只带 woff2 源。
+# vendored：上游 0.3.0 落后 bytes 1.6+ 的 `Buf::try_get_*` API（E0034 二义
+# +错误类型不匹配，发布时未编过）——vendor/woff2 已修（oc_take_* 安全读）。
+woff2 = { path = "../../vendor/woff2" }
 # Direct swash access for the script offscreen-surface text rasterizer
 # (`text::surface`). Same major version cosmic-text 0.19 uses internally.
 swash = "0.2"
@@ -64,11 +69,21 @@ usvg = { path = "../../vendor/resvg/crates/usvg", default-features = false, feat
 ] }
 # usvg 路径数据类型（PathSegment/Transform），与 usvg 锁同一 0.12。
 tiny-skia-path = "0.12.0"
+# svg_raster（`<img src=*.svg>` 的位图光栅）：skia codec 不认 svg 字节，
+# 走 resvg 光栅成预乘 RGBA。text 关闭（corpus 的 svg img 均为 path 图形，
+# 撞到带文本的再开）；raster-images 让 svg 内嵌位图引用不丢。
+resvg = { path = "../../vendor/resvg/crates/resvg", default-features = false, features = [
+    "raster-images",
+] }
 # 标准 CSS 解析器：css::style_engine 用它吃下 tailwindcss CLI 编译产物与手写
 # CSS。lightningcss 保留 var() 引用（退化为 UnparsedProperty + TokenList），
 # 求值（var/calc/color-mix）由本 crate 的 css::eval 负责。into_owned 把
 # 借用输入文本的 StyleSheet<'i> 转成 'static，CssEngine 才能持有它。
 lightningcss = { version = "1.0.0-alpha.72", features = ["into_owned"] }
+# 选择器 AST 的形状（Component/属性选择器的运算符枚举）。lightningcss 只
+# 以类型别名暴露 Component，运算符枚举没有 re-export；这里直接依赖同一个
+# 版本（lightningcss 声明的就是 0.28.3，cargo 解析到同一份）。
+parcel_selectors = "0.28.3"
 # 标准 HTML 解析器（docs/html-align/DESIGN.md：.html 直渲入口）。rcdom 是
 # html5ever 官方参考树构建器：产出的 DOM 树交 parse::html 降级成 DomElement
 # 种子（json 值形态，与 JSX extract 同构，单通道进 JS realm）。

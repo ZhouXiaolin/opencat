@@ -24,6 +24,7 @@ pub(crate) mod render;
 pub mod resolve;
 pub mod script;
 pub mod render_offscreen;
+pub mod svg_raster;
 pub(crate) mod semantic;
 pub mod style;
 pub mod text;

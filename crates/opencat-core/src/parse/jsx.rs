@@ -50,6 +50,7 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
                         meta_f64(&meta, "height", 1080.0) as f32,
                     ),
                     rem_base: 16.0,
+                    em_base: 16.0,
                 },
             )?)
         }
@@ -259,6 +260,7 @@ pub fn font_manifest_from_extract(extract: &Value, meta: &Value) -> Result<FontM
         Some(fonts) => fonts,
         None => return Ok(manifest),
     };
+    manifest.css_faces = fonts.get("css").and_then(Value::as_bool).unwrap_or(false);
     if let Some(default) = fonts.get("default").and_then(Value::as_str) {
         if default.is_empty() {
             anyhow::bail!("jsx fonts: `default` must be non-empty");

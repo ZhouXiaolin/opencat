@@ -32,6 +32,11 @@ enum Command {
         /// living outside the project (e.g. `dist/index.bundle.jsx`).
         #[arg(long, value_name = "DIR")]
         base_dir: Option<PathBuf>,
+        /// Render only these frames as a PNG sequence into the `output`
+        /// directory (`frame_%04d.png`): `start:end[:step]` (end exclusive) or
+        /// a comma list. One extraction serves every listed frame.
+        #[arg(long, value_name = "SPEC")]
+        frames: Option<String>,
     },
     /// Preview a composition in a native window (looped playback with audio).
     View {
@@ -58,7 +63,8 @@ fn main() -> anyhow::Result<()> {
             output,
             frame,
             base_dir,
-        } => render::render(input, output, frame, base_dir),
+            frames,
+        } => render::render(input, output, frame, base_dir, frames),
         Command::View {
             input,
             base_dir,

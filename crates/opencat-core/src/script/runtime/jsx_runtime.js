@@ -262,7 +262,19 @@
         throw new Error('use: cannot resolve "' + spec + '" from "' + (base || ENTRY) + '"');
     }
 
+    // `export * from 'x'` 的运行时转发（oxc 降级侧产出调用）。default 与
+    // 已占键不覆盖——与 ESM star 语义一致（后者优先、default 不含）。
+    globalThis.__ocReexportAll = function (exports, m) {
+        if (!m) return;
+        Object.keys(m).forEach(function (k) {
+            if (k !== 'default' && exports[k] === undefined) exports[k] = m[k];
+        });
+    };
+
     function requireModule(spec) {
+        if (globalThis.__ocDbgRequire === undefined) { globalThis.__ocDbgRequire = 0; }
+        globalThis.__ocDbgRequire++;
+        if (typeof __ocStderr === 'function') __ocStderr('OCDBG[' + (globalThis.__ocMode || 'render') + '] require: ' + spec);
         // `gsap/<Plugin>` subpaths are views over the one project-supplied
         // `gsap` module, not separate modules: requiring the main module
         // first installs the subpath builtins, then the view is served from
@@ -280,8 +292,7 @@
         if (!Object.prototype.hasOwnProperty.call(sources, key)) {
             throw new Error('use: module "' + key + '" was not provided by the host');
         }
-        var mod = { exports: {} };
-        modules[key] = mod;
+        var mod = { exports: {} };        modules[key] = mod;
         var previous = currentModule;
         currentModule = key;
         try {
@@ -298,9 +309,13 @@
                 factories[key] = fn;
                 factorySource[key] = source;
             }
+            if (typeof __ocStderr === 'function') __ocStderr('OCDBG[' + (globalThis.__ocMode || 'render') + '] calling: ' + key);
+            try {
             fn(requireModule, requireModule, mod, mod.exports,
                 globalThis.__ocDocument || globalThis.document,
                 globalThis.__ocWindow || globalThis.window);
+            if (typeof __ocStderr === 'function') __ocStderr('OCDBG[' + (globalThis.__ocMode || 'render') + '] returned: ' + key);
+            } catch (e) { if (typeof __ocStderr === 'function') __ocStderr('OCDBG factory threw ' + key + ': ' + (e && e.message)); throw e; }
             // The project-supplied package needs one install pass (target
             // normalization, paused protocol, hook gating, subpath views)
             // before any of its exports are handed to user code. The gated

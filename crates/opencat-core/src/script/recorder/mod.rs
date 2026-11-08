@@ -27,6 +27,9 @@ pub trait MutationRecorder {
     fn record_translate(&mut self, id: &str, x: f32, y: f32);
     fn record_translate_x(&mut self, id: &str, v: f32);
     fn record_translate_y(&mut self, id: &str, v: f32);
+    /// CSS/gsap `translate` 百分比分量（参考元素自身盒，display build 折算）。
+    fn record_translate_x_percent(&mut self, id: &str, pct: f32);
+    fn record_translate_y_percent(&mut self, id: &str, pct: f32);
     fn record_scale(&mut self, id: &str, v: f32);
     fn record_scale_x(&mut self, id: &str, v: f32);
     fn record_scale_y(&mut self, id: &str, v: f32);

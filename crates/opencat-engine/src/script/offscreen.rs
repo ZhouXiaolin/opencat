@@ -176,6 +176,16 @@ pub fn rasterize_offscreen(
     Ok(pix)
 }
 
+/// 离屏光栅化结果的内容寻址缓存（最近 [`RASTER_MEMO_CAP`] 条）。逐帧重放
+/// 的页面每帧重画同一张画布再读回（three `CanvasTexture` 上传），命令流
+/// 不变时像素必然不变。
+const RASTER_MEMO_CAP: usize = 4;
+
+thread_local! {
+    static RASTER_MEMO: std::cell::RefCell<std::collections::VecDeque<(u64, std::sync::Arc<Vec<u8>>)>> =
+        Default::default();
+}
+
 /// 便捷封装：store 里的离屏命令流 → 折叠 → 光栅化 → RGBA 字节。
 pub fn rasterize_canvas_commands(
     canvas: &opencat_core::script::mutations::CanvasMutations,
@@ -183,12 +193,44 @@ pub fn rasterize_canvas_commands(
     height: f32,
     store: &mut opencat_core::script::recorder::MutationStore,
 ) -> Result<(u32, u32, Vec<u8>), OffscreenError> {
+    use std::hash::{Hash, Hasher};
     let w = width.max(1.0) as i32;
     let h = height.max(1.0) as i32;
     let frame =
         opencat_core::render_offscreen::compile_offscreen_commands(canvas, w as f32, h as f32)
             .map_err(|e| format!("offscreen compile: {e}"))?;
+    // 键 = 命令流 + 尺寸 + 引用的 generated 像素（generated 按 id 引用，
+    // id 不担保内容，像素本身进键）。
+    let mut hasher = std::hash::DefaultHasher::new();
+    canvas.commands.hash(&mut hasher);
+    (w, h).hash(&mut hasher);
+    let mut needed = Vec::new();
+    collect_generated_ids(&frame.ops, &mut needed);
+    for subtree in &frame.subtrees {
+        collect_generated_ids(subtree, &mut needed);
+    }
+    for id in &needed {
+        if let Some((iw, ih, rgba)) = store.pending_generated_image(id) {
+            (iw, ih, &rgba[..]).hash(&mut hasher);
+        }
+    }
+    let key = hasher.finish();
+    let hit = RASTER_MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let pos = memo.iter().position(|(k, _)| *k == key)?;
+        let entry = memo.remove(pos)?;
+        memo.push_front(entry.clone());
+        Some(entry.1)
+    });
+    if let Some(pix) = hit {
+        return Ok((w as u32, h as u32, pix.to_vec()));
+    }
     let pix = rasterize_offscreen(&frame, w, h, store)?;
+    RASTER_MEMO.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        memo.push_front((key, std::sync::Arc::new(pix.clone())));
+        memo.truncate(RASTER_MEMO_CAP);
+    });
     Ok((w as u32, h as u32, pix))
 }
 

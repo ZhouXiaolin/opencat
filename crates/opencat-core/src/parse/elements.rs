@@ -397,6 +397,7 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
                 data_start: None,
                 data_duration: None,
                 ua_tag: None,
+                attrs: Vec::new(),
                 children: Vec::new(),
             },
         ),
@@ -666,6 +667,8 @@ fn attach_children(
             class,
             style,
             duration,
+            ua_tag,
+            attrs,
             ..
         } => DomElement::Div {
             id,
@@ -674,7 +677,8 @@ fn attach_children(
             duration,
             data_start: None,
             data_duration: None,
-            ua_tag: None,
+            ua_tag,
+            attrs,
             children,
         },
         DomElement::Canvas {
@@ -780,7 +784,7 @@ pub(crate) fn resolve_style_ctx(
         Some(engine) => {
             let mut style = engine.compute_node_style_ctx(class_name, node_id, tag, sel_ctx);
             if let Some(text) = inline_style {
-                engine.apply_inline_style(&mut style, text, node_id, tag);
+                engine.apply_inline_style(&mut style, text, sel_ctx.parent_font_px);
             }
             style
         }
@@ -791,7 +795,9 @@ pub(crate) fn resolve_style_ctx(
             };
             if let Some(text) = inline_style {
                 match crate::css::CssEngine::from_css_text("", crate::css::EvalContext::default()) {
-                    Ok(engine) => engine.apply_inline_style(&mut style, text, node_id, tag),
+                    Ok(engine) => {
+                        engine.apply_inline_style(&mut style, text, sel_ctx.parent_font_px)
+                    }
                     Err(err) => log::warn!("css: 内联 style 引擎不可用：{err}"),
                 }
             }

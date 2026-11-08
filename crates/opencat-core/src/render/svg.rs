@@ -49,7 +49,47 @@ fn parse_tree(text: &str, resources_dir: Option<PathBuf>) -> Option<usvg::Tree> 
         db.load_system_fonts();
         db
     });
-    usvg::Tree::from_str(text, &opt).ok()
+    if let Ok(tree) = usvg::Tree::from_str(text, &opt) {
+        return Some(tree);
+    }
+    // 浏览器语义:`width="0" height="0"` 的根 svg 是合法的 defs 容器
+    // (hyperframes 语料用它收集 filter defs)。usvg 拒绝非正尺寸——根标签
+    // 宽高为 0 时按 1px 占位重试;显示面积由布局盒(0)驱动,树只承载
+    // defs/path 引用。
+    usvg::Tree::from_str(&patch_zero_size_root(text), &opt).ok()
+}
+
+/// 根 `<svg …>` 标签里 width/height 为 0 时替换为 1(引号双形态)。其余
+/// 原样返回——重试只发生在首次解析失败之后,不影响正常形态。
+fn patch_zero_size_root(text: &str) -> String {
+    let Some(lt) = text.find("<svg") else {
+        return text.to_string();
+    };
+    let name_end = lt + 4;
+    if !text[name_end..]
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_whitespace() || c == '/' || c == '>')
+    {
+        return text.to_string();
+    }
+    let Some(rel) = text[name_end..].find('>') else {
+        return text.to_string();
+    };
+    let head_end = name_end + rel;
+    let root_attrs = &text[name_end..head_end];
+    let has_zero = ["width", "height"].iter().any(|k| {
+        root_attrs.contains(&format!("{k}=\"0\"")) || root_attrs.contains(&format!("{k}='0'"))
+    });
+    if !has_zero {
+        return text.to_string();
+    }
+    let patched = root_attrs
+        .replace("width=\"0\"", "width=\"1\"")
+        .replace("width='0'", "width='1'")
+        .replace("height=\"0\"", "height=\"1\"")
+        .replace("height='0'", "height='1'");
+    format!("{}{}{}", &text[..name_end], patched, &text[head_end..])
 }
 
 /// 解析并缓存一棵树。`src` 是 svg 文件路径；相对引用（`<image href>`）相对

@@ -217,12 +217,13 @@ impl EngineLoader {
         self.runtime.block_on(async {
             for src in &req.images {
                 let id = image_asset_id(src);
-                match src {
+                let loaded = match src {
                     ImageSource::Url(u) => {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
+                        true
                     }
                     ImageSource::Path(p) => {
-                        copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?;
+                        copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?
                     }
                     ImageSource::Query(q) => {
                         let search_id =
@@ -238,37 +239,46 @@ impl EngineLoader {
                         let image_url = parse_openverse_response(&search_bytes)
                             .with_context(|| format!("bad Openverse response for {:?}", q.query))?;
                         let _ = self.fetcher.fetch_bytes(&id, &image_url).await?;
+                        true
                     }
-                    ImageSource::Unset => continue,
+                    ImageSource::Unset => false,
+                };
+                if loaded {
+                    new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
                 }
-                new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
             }
 
             for src in &req.videos {
                 let id = video_asset_id(src);
-                match src {
+                let loaded = match src {
                     VideoSource::Url(u) => {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
+                        true
                     }
                     VideoSource::Path(p) => {
-                        copy_local_to_cache(Path::new(p), &base_dir, &cache_dir, &id)?;
+                        copy_local_to_cache(Path::new(p), &base_dir, &cache_dir, &id)?
                     }
+                };
+                if loaded {
+                    new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
                 }
-                new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
             }
 
             for src in &req.audios {
                 let id = audio_asset_id(src);
-                match src {
+                let loaded = match src {
                     AudioSource::Url(u) => {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
+                        true
                     }
                     AudioSource::Path(p) => {
-                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?;
+                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?
                     }
-                    AudioSource::Unset => continue,
+                    AudioSource::Unset => false,
+                };
+                if loaded {
+                    new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
                 }
-                new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
             }
 
             for lottie_req in &req.lotties {
@@ -276,15 +286,19 @@ impl EngineLoader {
                     continue;
                 }
                 let id = lottie_asset_id(&lottie_req.source);
-                match &lottie_req.source {
+                let loaded = match &lottie_req.source {
                     LottieSource::Url(u) => {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
+                        true
                     }
                     LottieSource::Path(p) => {
                         // Logical locator — host joins document base.
-                        copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?;
+                        copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?
                     }
                     LottieSource::Unset => continue,
+                };
+                if !loaded {
+                    continue;
                 }
                 let cached_path = cache_file_path(&cache_dir, &id);
                 new_handles.push((id.clone(), cached_path.clone()));
@@ -363,6 +377,27 @@ impl EngineLoader {
         Ok(())
     }
 
+    /// 缺失图片资产的占位：1×1 透明 PNG 进缓存并注册 handle。
+    ///
+    /// 浏览器语义里 `<img>` 404 是 onerror + 空内容，页面继续渲染；prepare
+    /// 的契约（Image 必须正尺寸）由占位满足，视觉上不可见。页面脚本对
+    /// `complete`/`naturalWidth` 的探测走 JS 面，不读这里的字节。
+    pub fn register_missing_placeholder(&mut self, id: &AssetId) -> Result<()> {
+        if self.handles.contains_key(id) {
+            return Ok(());
+        }
+        let png = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
+        let mut bytes = Vec::new();
+        png.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .context("encode 1x1 placeholder png")?;
+        let path = cache_file_path(&self.cache_dir, id);
+        std::fs::write(&path, bytes)
+            .with_context(|| format!("write image placeholder {}", path.display()))?;
+        self.handles
+            .insert(id.clone(), EngineAssetHandle { cached_path: path });
+        Ok(())
+    }
+
     pub fn handle(&self, id: &AssetId) -> Option<&EngineAssetHandle> {
         self.handles.get(id)
     }
@@ -398,19 +433,67 @@ fn lottie_asset_id(s: &LottieSource) -> AssetId {
     }
 }
 
-fn copy_local_to_cache(src: &Path, base_dir: &Path, cache_dir: &Path, id: &AssetId) -> Result<()> {
+/// 本地资产进缓存。返回 `false` = 源文件不存在（已跳过）：浏览器语义里
+/// `<img>`/`<video>` 404 是 onerror + 空内容，页面脚本普遍探测
+/// `complete`/`naturalWidth` 再消费，不能让整个渲染硬失败。
+fn copy_local_to_cache(src: &Path, base_dir: &Path, cache_dir: &Path, id: &AssetId) -> Result<bool> {
     let resolved = if src.is_relative() {
         base_dir.join(src)
     } else {
         src.to_path_buf()
     };
     let dst = cache_file_path(cache_dir, id);
-    if dst.exists() {
-        return Ok(());
+    if !resolved.exists() {
+        eprintln!(
+            "opencat: local asset not found, rendering without it: {}",
+            resolved.display()
+        );
+        return Ok(false);
+    }
+    if dst.exists() && cached_copy_is_current(&dst, &resolved) {
+        return Ok(true);
     }
     std::fs::copy(&resolved, &dst)
         .with_context(|| format!("copy {} -> {}", resolved.display(), dst.display()))?;
-    Ok(())
+    write_cache_stamp(&dst, &resolved);
+    Ok(true)
+}
+
+/// Sidecar recording which source file a cached blob was copied from.
+///
+/// `AssetId` keys path assets by their *logical locator* ("video:path:assets/
+/// bg.mp4"), so two projects that both ship an `assets/bg.mp4` share one cache
+/// slot. Reusing a stale blob silently renders the wrong video — this stamp
+/// lets a cache hit prove the blob still matches the file on disk.
+fn cache_stamp_path(cached: &Path) -> PathBuf {
+    let mut p = cached.as_os_str().to_owned();
+    p.push(".src");
+    PathBuf::from(p)
+}
+
+fn source_signature(path: &Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    Some(format!("{}\n{}\n{}", path.display(), meta.len(), mtime))
+}
+
+fn cached_copy_is_current(cached: &Path, source: &Path) -> bool {
+    let stamp = match std::fs::read_to_string(cache_stamp_path(cached)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    source_signature(source).is_some_and(|sig| sig == stamp)
+}
+
+fn write_cache_stamp(cached: &Path, source: &Path) {
+    if let Some(sig) = source_signature(source) {
+        let _ = std::fs::write(cache_stamp_path(cached), sig);
+    }
 }
 
 fn build_openverse_search_url(query: &opencat_core::parse::primitives::OpenverseQuery) -> String {

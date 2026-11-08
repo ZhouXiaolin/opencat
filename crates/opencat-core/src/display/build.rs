@@ -138,11 +138,14 @@ fn patch_cached_subtree_apply(
         .map(|c| (c.element_id, c))
         .collect();
 
-    let child_pairs: Vec<_> = element
+    let mut child_pairs: Vec<_> = element
         .children
         .iter()
         .zip(layout.children.iter())
         .collect();
+    // 与全建路径同一排序：补丁路径若按文档序直拼，z-index 兄弟在两帧间
+    // 会画出不同的遮挡关系（第一帧 z 排序、第二帧文档序）。
+    child_pairs.sort_by_key(|(child, _)| child.style.layout.z_index);
     let mut built_children: Vec<DisplayNode> = Vec::with_capacity(child_pairs.len());
     let mut cached_children: Vec<CachedDisplayNode> = Vec::with_capacity(child_pairs.len());
 
@@ -277,16 +280,9 @@ pub(crate) fn local_m4(
     }
 
     let mut m = Mat4::IDENTITY;
-    let pivot = Mat4::translate(
-        bounds.width * origin.x,
-        bounds.height * origin.y,
-        0.0,
-    );
-    let unpivot = Mat4::translate(
-        -bounds.width * origin.x,
-        -bounds.height * origin.y,
-        0.0,
-    );
+    let (ox, oy) = origin.point(bounds.width, bounds.height);
+    let pivot = Mat4::translate(ox, oy, 0.0);
+    let unpivot = Mat4::translate(-ox, -oy, 0.0);
     for t in transforms {
         m = m.mul(&match *t {
             Transform::TranslateX { value } => Mat4::translate(value, 0.0, 0.0),
@@ -302,6 +298,11 @@ pub(crate) fn local_m4(
             Transform::SkewXDeg { value } => Mat4::skew(value, 0.0),
             Transform::SkewYDeg { value } => Mat4::skew(0.0, value),
             Transform::SkewDeg { x, y } => Mat4::skew(x, y),
+            // 调用方（DisplayTransform 构造）已把百分比位移折算成 px；
+            // 其它入口（布局探针读样式）到不了这里。
+            Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. } => {
+                Mat4::IDENTITY
+            }
             // GSAP's own projective form. The 4×4 projection reproduces the
             // matrix the 2-D `Rotate3` arm has always emitted.
             Transform::Rotate3 {
@@ -405,19 +406,21 @@ fn assemble_display_node(
         input_fingerprints: element.fingerprints,
         layout_output_fingerprint: layout.output_fingerprint,
         recorded_subtree_fingerprint: Default::default(),
-        transform: DisplayTransform {
-            translation_x: layout.rect.x,
-            translation_y: layout.rect.y,
-            bounds,
-            transforms: element.style.visual.transforms.clone(),
-            origin: element.style.visual.transform_origin,
-            local_m4: local_m4(
-                &element.style.visual.transforms,
-                element.style.visual.transform_origin,
+        transform: {
+            // 百分比位移在解析期没有盒子尺寸，这里按边界盒折算成 px；
+            // 渲染端与 local_m4 只消费 px 变体。
+            let transforms =
+                resolve_percent_transforms(&element.style.visual.transforms, bounds);
+            DisplayTransform {
+                translation_x: layout.rect.x,
+                translation_y: layout.rect.y,
                 bounds,
-            ),
-            perspective: element.style.visual.perspective,
-            preserve_3d: element.style.visual.transform_style_preserve_3d,
+                transforms: transforms.clone(),
+                origin: element.style.visual.transform_origin,
+                local_m4: local_m4(&transforms, element.style.visual.transform_origin, bounds),
+                perspective: element.style.visual.perspective,
+                preserve_3d: element.style.visual.transform_style_preserve_3d,
+            }
         },
         element_id: element.id,
         opacity: element.style.visual.opacity,
@@ -437,6 +440,32 @@ fn assemble_display_node(
     };
     node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(&node);
     node
+}
+
+/// 百分比位移按边界盒折算成 px（CSS `translate(50%)` 参考元素自身盒）。
+pub(crate) fn resolve_percent_transforms(
+    transforms: &[crate::style::Transform],
+    bounds: DisplayRect,
+) -> Vec<crate::style::Transform> {
+    use crate::style::Transform;
+    let has_percent = transforms
+        .iter()
+        .any(|t| matches!(t, Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. }));
+    if !has_percent {
+        return transforms.to_vec();
+    }
+    transforms
+        .iter()
+        .map(|t| match *t {
+            Transform::TranslateXPercent { value } => Transform::TranslateX {
+                value: value / 100.0 * bounds.width,
+            },
+            Transform::TranslateYPercent { value } => Transform::TranslateY {
+                value: value / 100.0 * bounds.height,
+            },
+            t => t,
+        })
+        .collect()
 }
 
 fn display_clip_for_clip_path(clip_path: ClipPath, bounds: DisplayRect) -> DisplayClip {

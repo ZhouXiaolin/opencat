@@ -13,6 +13,7 @@
 use super::stylesheet::CssStylesheet;
 use lightningcss::properties::Property;
 use lightningcss::selector::{Combinator, Component, Selector};
+use parcel_selectors::attr::{AttrSelectorOperator, ParsedCaseSensitivity};
 
 /// 排序后的单条声明。
 pub struct AppliedDeclaration {
@@ -23,12 +24,15 @@ pub struct AppliedDeclaration {
     pub order: usize,
 }
 
-/// 树位置信息：祖先/兄弟链上的一员（HTML 语义标签名 + id + class 串）。
+/// 树位置信息：祖先/兄弟链上的一员（HTML 语义标签名 + id + class 串 +
+/// 属性表）。属性表只在 HTML 前端有内容（`data-*` 等原文属性）；JSX 通道
+/// 传空切片，属性选择器因此永不命中，行为与引入前一致。
 #[derive(Clone, Copy, Debug)]
 pub struct SelectorNode<'a> {
     pub tag: &'a str,
     pub id: &'a str,
     pub classes: &'a str,
+    pub attrs: &'a [(String, String)],
 }
 
 /// 一个节点的级联匹配上下文。空 context（全部缺省）时组合器永不命中，
@@ -41,6 +45,11 @@ pub struct SelectorContext<'a> {
     pub prev_siblings: &'a [SelectorNode<'a>],
     /// tag 别名：HTML 根节点同时匹配 html/body 规则。
     pub tag_aliases: &'a [&'a str],
+    /// subject 节点自身的属性（`[data-*="…"]` 等；JSX 通道为空）。
+    pub subject_attrs: &'a [(String, String)],
+    /// 父元素的计算字号：`em` 单位的求值基准（HTML 通道由 DOM 构建期的
+    /// 字号栈给出；None 时 em 按 rem 基准，JSX 通道保持原语义）。
+    pub parent_font_px: Option<f32>,
 }
 
 /// 对一个节点收集全部命中声明并按层叠序排列（无树上下文的旧入口）。
@@ -133,6 +142,7 @@ struct SubjectInfo<'a> {
     tags: Vec<&'a str>,
     id: &'a str,
     classes: &'a ahash::HashSet<&'a str>,
+    attrs: &'a [(String, String)],
 }
 
 fn subject_info<'a>(
@@ -140,6 +150,7 @@ fn subject_info<'a>(
     element_id: &'a str,
     classes: &'a ahash::HashSet<&'a str>,
     aliases: &'a [&'a str],
+    attrs: &'a [(String, String)],
 ) -> SubjectInfo<'a> {
     let mut tags = vec![tag];
     // 引擎节点名 → HTML 标签名对齐（text 在 DOM 里由 span 承载）。
@@ -156,6 +167,7 @@ fn subject_info<'a>(
         tags,
         id: element_id,
         classes,
+        attrs,
     }
 }
 
@@ -200,7 +212,7 @@ fn selector_matches(
     let Some((compounds, combinators)) = split_selector(selector) else {
         return false;
     };
-    let subject = subject_info(tag, element_id, classes, ctx.tag_aliases);
+    let subject = subject_info(tag, element_id, classes, ctx.tag_aliases, ctx.subject_attrs);
     match_chain(&compounds, &combinators, 0, 0, &subject, ctx)
 }
 
@@ -241,6 +253,7 @@ fn match_chain(
                         tags: vec![prev.tag],
                         id: prev.id,
                         classes: &classes,
+                        attrs: prev.attrs,
                     };
                     compound_matches_parts(&compounds[idx + 1], &info)
                         && idx + 1 == compounds.len() - 1
@@ -254,6 +267,7 @@ fn match_chain(
                         tags: vec![prev.tag],
                         id: prev.id,
                         classes: &classes,
+                        attrs: prev.attrs,
                     };
                     compound_matches_parts(&compounds[idx + 1], &info)
                         && idx + 1 == compounds.len() - 1
@@ -278,9 +292,95 @@ fn compound_matches_parts(parts: &[&Component<'static>], info: &SubjectInfo<'_>)
         Component::Negation(inner) => !inner
             .iter()
             .any(|s| compound_matches(s, info)),
-        // 其余（属性选择器/:is/:where/:nth 等）第一阶段不匹配。
+        Component::AttributeInNoNamespaceExists { local_name, .. } => {
+            info.attrs.iter().any(|(name, _)| name == local_name.as_ref())
+        }
+        Component::AttributeInNoNamespace {
+            local_name,
+            operator,
+            value,
+            case_sensitivity,
+            never_matches,
+        } => {
+            // `i` 标志（以及 HTML 视为大小写不敏感的已知属性）按不敏感比。
+            let insensitive = matches!(
+                case_sensitivity,
+                ParsedCaseSensitivity::AsciiCaseInsensitive
+                    | ParsedCaseSensitivity::AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument
+            );
+            !*never_matches
+                && attr_value_matches(
+                    info.attrs,
+                    local_name.as_ref(),
+                    *operator,
+                    value.as_ref(),
+                    insensitive,
+                )
+        }
+        // 其余（带命名空间属性/:is/:where/:nth 等）第一阶段不匹配。
         _ => false,
     })
+}
+
+/// 属性选择器求值：大小写不敏感时先把两侧都小写化（ASCII 足够——属性
+/// 选择器的大小写语义就定义在 ASCII 上）。
+/// 属性选择器求值：大小写不敏感时把两侧都小写化（属性值的大小写语义就
+/// 定义在 ASCII 上，`eq_ignore_ascii_case` 足够）。
+fn attr_value_matches(
+    attrs: &[(String, String)],
+    name: &str,
+    operator: AttrSelectorOperator,
+    value: &str,
+    insensitive: bool,
+) -> bool {
+    let Some((_, actual)) = attrs.iter().find(|(n, _)| n == name) else {
+        return false;
+    };
+    let cmp = |a: &str, b: &str| {
+        if insensitive {
+            a.eq_ignore_ascii_case(b)
+        } else {
+            a == b
+        }
+    };
+    match operator {
+        AttrSelectorOperator::Equal => cmp(actual, value),
+        // `~=`：空格分词的任一 token 相等。
+        AttrSelectorOperator::Includes => actual.split_whitespace().any(|word| cmp(word, value)),
+        // `|=`：相等或以 `value-` 开头（语言子标签）。
+        AttrSelectorOperator::DashMatch => cmp(actual, value) || {
+            let mut prefix = String::with_capacity(value.len() + 1);
+            prefix.push_str(value);
+            prefix.push('-');
+            if insensitive {
+                actual.to_ascii_lowercase().starts_with(&prefix.to_ascii_lowercase())
+            } else {
+                actual.starts_with(&prefix)
+            }
+        },
+        AttrSelectorOperator::Prefix => {
+            if insensitive {
+                actual.to_ascii_lowercase().starts_with(&value.to_ascii_lowercase())
+            } else {
+                actual.starts_with(value)
+            }
+        }
+        AttrSelectorOperator::Suffix => {
+            if insensitive {
+                actual.to_ascii_lowercase().ends_with(&value.to_ascii_lowercase())
+            } else {
+                actual.ends_with(value)
+            }
+        }
+        AttrSelectorOperator::Substring => {
+            if insensitive {
+                actual.to_ascii_lowercase().contains(&value.to_ascii_lowercase())
+            } else {
+                actual.contains(value)
+            }
+        }
+        _ => false,
+    }
 }
 
 fn compound_matches_node(parts: &[&Component<'static>], node: &SelectorNode<'_>) -> bool {
@@ -289,6 +389,7 @@ fn compound_matches_node(parts: &[&Component<'static>], node: &SelectorNode<'_>)
         tags: vec![node.tag],
         id: node.id,
         classes: &classes,
+        attrs: node.attrs,
     };
     compound_matches_parts(parts, &info)
 }

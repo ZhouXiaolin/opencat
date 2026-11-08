@@ -17,17 +17,13 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use glow::HasContext;
 
-use crate::gpu::stream_executor::desktop_glsl;
 
 /// 当前线程 GL 上下文的 RAII 现场：[`Self::save`] 记下 current，drop 时
 /// 恢复。无线程绑定上下文时 save 成功、drop 不做任何事（与现状一致：
 /// 本来就没有可恢复的东西）。
 struct CurrentContextGuard {
     #[cfg(target_os = "windows")]
-    saved: Option<(
-        windows_sys::Win32::Graphics::Gdi::HDC,
-        windows_sys::Win32::Graphics::OpenGL::HGLRC,
-    )>,
+    saved: Option<crate::gpu::angle::CurrentBinding>,
     #[cfg(target_os = "linux")]
     saved: Option<(
         khronos_egl::Display,
@@ -42,7 +38,7 @@ impl CurrentContextGuard {
         #[cfg(target_os = "windows")]
         {
             Ok(Self {
-                saved: crate::gpu::win32::WglContext::get_current_context(),
+                saved: crate::gpu::angle::CurrentBinding::save(),
             })
         }
         #[cfg(target_os = "linux")]
@@ -57,8 +53,8 @@ impl CurrentContextGuard {
 impl Drop for CurrentContextGuard {
     fn drop(&mut self) {
         #[cfg(target_os = "windows")]
-        if let Some((hdc, glrc)) = self.saved.take()
-            && let Err(e) = unsafe { crate::gpu::win32::WglContext::make_current_raw(hdc, glrc) }
+        if let Some(binding) = self.saved.take()
+            && let Err(e) = binding.restore()
         {
             tracing::warn!("GL 现场恢复失败: {e}");
         }
@@ -71,17 +67,34 @@ impl Drop for CurrentContextGuard {
     }
 }
 
+thread_local! {
+    /// 反射器常驻的独立离屏会话（反射只发生在脚本执行线程）。
+    static REFLECT: std::cell::RefCell<
+        Option<(crate::gpu::session::GlSession, Arc<glow::Context>)>,
+    > = const { std::cell::RefCell::new(None) };
+    /// 反射结果按 (vs, fs) 源码缓存：反射是源码的纯函数，html 页脚本每帧
+    /// 重建 renderer、同一批 program 逐帧重新 link，真编译（ANGLE 走
+    /// D3DCompile）每个几十毫秒。
+    static REFLECT_CACHE: std::cell::RefCell<
+        std::collections::HashMap<(String, String), serde_json::Value>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// 拆掉本线程的反射会话（进程退出前调用，见 `render::release_gl_sessions`）。
+pub(crate) fn release_reflector_session() {
+    let _ = REFLECT.try_with(|cell| cell.borrow_mut().take());
+}
+
 /// 把反射器装进脚本 realm 的 store。反射用本线程常驻的独立离屏 GL 会话
 /// （thread_local——反射只发生在脚本执行线程）；每次反射 save → make
 /// current → 反射 → RAII 恢复，主渲染路径的 current 不再被打断。
 pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
     ctx.set_glsl_reflector(Box::new(|vs, fs| {
-        thread_local! {
-            static REFLECT: std::cell::RefCell<
-                Option<(crate::gpu::session::GlSession, Arc<glow::Context>)>,
-            > = const { std::cell::RefCell::new(None) };
+        let key = (vs.to_string(), fs.to_string());
+        if let Some(hit) = REFLECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+            return Ok(hit);
         }
-        REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
+        let reflected = REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
             let mut slot = cell.borrow_mut();
             // guard 活到闭包尾：首建分支（GlSession::offscreen 构造即
             // make current）与后续反射都被覆盖，离开时现场归位。
@@ -94,7 +107,9 @@ pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
             let (session, gl) = slot.as_ref().expect("reflect session");
             session.make_current()?;
             reflect_program_gl(gl, vs, fs)
-        })
+        })?;
+        REFLECT_CACHE.with(|c| c.borrow_mut().insert(key, reflected.clone()));
+        Ok(reflected)
     }));
 }
 
@@ -105,6 +120,11 @@ pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
 pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::path::Path) {
     let root = base_dir.to_path_buf();
     ctx.set_asset_reader(Box::new(move |path| {
+        // 远程 URL（DRACOLoader 运行时拉解码器之类）：与外部脚本同一条
+        // 抓取 + 磁盘缓存通道（`.oc-cache/net`），同输入逐字节可复现。
+        if path.starts_with("https://") || path.starts_with("http://") {
+            return crate::script::html::fetch_remote_bytes(&root, path).map(|(_, bytes)| bytes);
+        }
         let full = root.join(path);
         std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
     }));
@@ -117,7 +137,7 @@ pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::pa
 }
 
 /// 真 GL 反射：编译→link→按序枚举 active uniform/attribute/uniform 块。
-/// GLSL（ES 方言）经 [`desktop_glsl`] 升到桌面 3.3。
+/// GLSL ES 300 源直接喂 ANGLE（GLES3）上下文。
 fn reflect_program_gl(
     gl: &Arc<glow::Context>,
     vs_es: &str,
@@ -134,14 +154,10 @@ fn reflect_program_gl(
             }
             Ok(sh)
         };
-        let vs = compile(
-            glow::VERTEX_SHADER,
-            &desktop_glsl(vs_es, naga::ShaderStage::Vertex)?,
-        )?;
-        let fs = compile(
-            glow::FRAGMENT_SHADER,
-            &desktop_glsl(fs_es, naga::ShaderStage::Fragment)?,
-        )?;
+        // 反射会话是 ANGLE（GLES3）：GLSL ES 300 原文直接编译，不做桌面
+        // 升级（WGL 时代的 naga 330 core 转换已随桌面 GL 退役）。
+        let vs = compile(glow::VERTEX_SHADER, vs_es)?;
+        let fs = compile(glow::FRAGMENT_SHADER, fs_es)?;
         let program = gl
             .create_program()
             .map_err(|e| anyhow!("create_program: {e}"))?;
@@ -166,8 +182,12 @@ fn reflect_program_gl(
         let mut attributes = Vec::new();
         for i in 0..gl.get_active_attributes(program) {
             if let Some(a) = gl.get_active_attribute(program, i) {
+                // `l` 是驱动 location（浏览器 getAttribLocation 的返回值）。
+                // 枚举序与之可以不等，core 侧必须拿真值——否则 three 的
+                // vertexAttribPointer 会指到别的 attrib 上。
+                let loc = gl.get_attrib_location(program, &a.name);
                 attributes.push(serde_json::json!({
-                    "n": a.name, "t": a.atype, "s": a.size.max(1),
+                    "n": a.name, "t": a.atype, "s": a.size.max(1), "l": loc,
                 }));
             }
         }

@@ -373,6 +373,20 @@ impl VideoDecoder {
         let mut frame = ffmpeg::frame::Video::empty();
         loop {
             if self.decoder.receive_frame(&mut frame).is_ok() {
+                // OC_DUMP_YUV=<dir>: dump the decoder's raw luma plane so the
+                // decode stage can be compared against ffmpeg's own decode.
+                if let Ok(dir) = std::env::var("OC_DUMP_YUV") {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let (w, h) = (frame.width() as usize, frame.height() as usize);
+                    let stride = frame.stride(0);
+                    let plane = frame.data(0);
+                    let mut luma = Vec::with_capacity(w * h);
+                    for y in 0..h {
+                        luma.extend_from_slice(&plane[y * stride..y * stride + w]);
+                    }
+                    let name = format!("{:08.4}.y", self.frame_pts_secs(&frame));
+                    let _ = std::fs::write(std::path::Path::new(&dir).join(name), luma);
+                }
                 return Ok(Some(frame));
             }
 
@@ -399,6 +413,20 @@ impl VideoDecoder {
     fn read_next_packet(&mut self) -> Option<ffmpeg::codec::packet::Packet> {
         for (stream, packet) in self.input.packets() {
             if stream.index() == self.stream_index {
+                // OC_LOG_PACKETS=1: trace demuxer output to compare against
+                // ffmpeg's own packet listing for the same file.
+                if std::env::var("OC_LOG_PACKETS").is_ok() {
+                    eprintln!(
+                        "[pkt] {} tb={}/{} pts={:?} dts={:?} size={} flags={:?}",
+                        self.path.display(),
+                        self.time_base.numerator(),
+                        self.time_base.denominator(),
+                        packet.pts(),
+                        packet.dts(),
+                        packet.size(),
+                        packet.flags()
+                    );
+                }
                 return Some(packet);
             }
         }
@@ -432,7 +460,21 @@ impl VideoDecoder {
         scaler.run(frame, &mut rgba)?;
         self.current_pts_secs = pts_secs;
         self.current_size = Some((out_w, out_h));
-        self.current_frame = Some(Arc::new(pack_rgba(&rgba, out_w, out_h)));
+        let mut packed = pack_rgba(&rgba, out_w, out_h);
+        // 参考渲染链（Chrome + hyperframes 帧提取）的素材每一帧都经过
+        // BT.601 full-range yuv420p 的往返（SDR_JPEG_AS_BT601_FULL_RANGE_FILTER
+        // + JPEG 编解码）。高频内容（颗粒噪声）的差异由 4:2:0 色度量化主导，
+        // JPEG q2 的有损小一个量级，这里只复刻色彩往返。
+        hf_extract_roundtrip(&mut packed, out_w, out_h);
+        let packed = Arc::new(packed);
+        // OC_DUMP_VIDEO=<dir>: dump every scaled frame so the decode output can
+        // be compared against ffmpeg's own decode of the same file.
+        if let Ok(dir) = std::env::var("OC_DUMP_VIDEO") {
+            let _ = std::fs::create_dir_all(&dir);
+            let name = format!("{:.4}_{}x{}.rgba", pts_secs, out_w, out_h);
+            let _ = std::fs::write(std::path::Path::new(&dir).join(name), packed.as_slice());
+        }
+        self.current_frame = Some(packed);
         Ok(())
     }
 
@@ -873,6 +915,58 @@ fn append_packed_stereo_samples(frame: &frame::Audio, output: &mut Vec<f32>) {
 fn floor_advance(target_micros: i64, ahead_pts_secs: f64) -> bool {
     let ahead_micros = (ahead_pts_secs * 1_000_000.0).round() as i64;
     ahead_micros <= target_micros
+}
+
+/// 复刻 hyperframes 帧提取管线的色彩口径：RGB → BT.601 full-range yuv420p
+/// （色度 2×2 box 下采样）→ 同矩阵还原。见 update_scaled_frame 里的调用点。
+fn hf_extract_roundtrip(packed: &mut [u8], width: u32, height: u32) {
+    let w = width as usize;
+    let h = height as usize;
+    let cw = w.div_ceil(2);
+    let mut y_plane = vec![0u8; w * h];
+    let mut u_plane = vec![0u8; cw * h.div_ceil(2)];
+    let mut v_plane = vec![0u8; cw * h.div_ceil(2)];
+    for y0 in (0..h).step_by(2) {
+        for x0 in (0..w).step_by(2) {
+            let mut sum_cb = 0.0f32;
+            let mut sum_cr = 0.0f32;
+            let mut n = 0.0f32;
+            for dy in 0..2 {
+                let yy = y0 + dy;
+                if yy >= h {
+                    break;
+                }
+                for dx in 0..2 {
+                    let xx = x0 + dx;
+                    if xx >= w {
+                        continue;
+                    }
+                    let i = (yy * w + xx) * 4;
+                    let (r, g, b) = (packed[i] as f32, packed[i + 1] as f32, packed[i + 2] as f32);
+                    y_plane[yy * w + xx] =
+                        (0.299 * r + 0.587 * g + 0.114 * b).round().clamp(0.0, 255.0) as u8;
+                    sum_cb += -0.168736 * r - 0.331264 * g + 0.5 * b;
+                    sum_cr += 0.5 * r - 0.418688 * g - 0.081312 * b;
+                    n += 1.0;
+                }
+            }
+            let ci = (y0 / 2) * cw + x0 / 2;
+            u_plane[ci] = ((sum_cb / n) + 128.0).round().clamp(0.0, 255.0) as u8;
+            v_plane[ci] = ((sum_cr / n) + 128.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    for yy in 0..h {
+        let crow = (yy / 2) * cw;
+        for xx in 0..w {
+            let i = (yy * w + xx) * 4;
+            let yv = y_plane[yy * w + xx] as f32;
+            let cb = u_plane[crow + xx / 2] as f32 - 128.0;
+            let cr = v_plane[crow + xx / 2] as f32 - 128.0;
+            packed[i] = (yv + 1.402 * cr).round().clamp(0.0, 255.0) as u8;
+            packed[i + 1] = (yv - 0.344136 * cb - 0.714136 * cr).round().clamp(0.0, 255.0) as u8;
+            packed[i + 2] = (yv + 1.772 * cb).round().clamp(0.0, 255.0) as u8;
+        }
+    }
 }
 
 fn pack_rgba(frame: &ffmpeg::frame::Video, width: u32, height: u32) -> Vec<u8> {

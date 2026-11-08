@@ -2,7 +2,7 @@ use crate::canvas::paint::{
     BlendMode, BlurStyle, FillSpec, ImageFilterSpec, MaskFilterSpec, PaintSpec, PaintStyle,
 };
 use crate::display::list::DisplayRect;
-use crate::ir::draw_op::DrawOp;
+use crate::ir::draw_op::{DRRectSpec, DrawOp};
 use crate::ir::draw_types::PaintId;
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{
@@ -16,7 +16,7 @@ use super::ctx::RenderCtx;
 
 use super::items::{
     CanvasShadow, clip_bounds, color_token_to_rgba, effective_corner_radius, kurbo_rect,
-    push_draw_rrect, rect_to_rect4, spread_radius,
+    push_draw_rrect, radii_to_radii4, rect_to_rect4, spread_radius,
 };
 
 fn color_matrix_for_filter_op(kind: CssFilterKind, value: f32) -> Option<[f32; 20]> {
@@ -216,12 +216,14 @@ pub fn box_shadow_to_mask_filter(shadow: &BoxShadow) -> (MaskFilterSpec, [f32; 4
     (filter, color)
 }
 
-/// Build a `MaskFilterSpec::Blur` (Inner style) from an `InsetShadow`, plus the shadow color.
+/// Build a `MaskFilterSpec::Blur` (Normal style) from an `InsetShadow`, plus the
+/// shadow color. The blur softens the ring [`draw_inset_shadow`] paints around
+/// the shadow hole.
 pub fn inset_shadow_to_mask_filter(shadow: &InsetShadow) -> (MaskFilterSpec, [f32; 4]) {
     let color = color_token_to_rgba(&shadow.color);
     let filter = MaskFilterSpec::Blur {
         sigma: shadow.blur_sigma,
-        style: BlurStyle::Inner,
+        style: BlurStyle::Normal,
         respect_ctm: true,
     };
     (filter, color)
@@ -402,14 +404,17 @@ pub fn draw_inset_shadow(
     border_radius: &BorderRadius,
     shadow: &InsetShadow,
 ) {
-    let shadow_bounds = if shadow.spread != 0.0 {
-        bounds.outset(shadow.spread, shadow.spread, shadow.spread, shadow.spread)
-    } else {
-        bounds
-    };
-    let rect = kurbo_rect(shadow_bounds.translate(shadow.offset_x, shadow.offset_y));
-    let sr = spread_radius(border_radius, shadow.spread);
-    let radii = effective_corner_radius(&rect, &sr);
+    // CSS inset shadow 画在盒内、偏移+内缩后的形状**之外**（形状是洞），模糊
+    // 后裁到盒内。Skia 的 Inner 模糊画的是形状内部——语义正相反，整块内部
+    // 被铺满阴影色（深色底上的玻璃卡整体发白）。
+    let s = shadow.spread;
+    let hole = bounds
+        .outset(-s, -s, -s, -s)
+        .translate(shadow.offset_x, shadow.offset_y);
+    // 外框要盖住偏移+模糊后仍可见的整个盒内区域，且严格包住洞（DRRect 前提）。
+    let reach =
+        shadow.blur_sigma * 3.0 + shadow.offset_x.abs() + shadow.offset_y.abs() + s.abs() + 1.0;
+    let outer = kurbo_rect(bounds.outset(reach, reach, reach, reach));
 
     let (mask_filter, color) = inset_shadow_to_mask_filter(shadow);
     let paint = PaintSpec {
@@ -427,11 +432,24 @@ pub fn draw_inset_shadow(
 
     builder.push(DrawOp::Save);
     clip_bounds(builder, bounds, border_radius);
-    if radii.iter().any(|&r| r > 0.0) {
-        push_draw_rrect(builder, rect, radii, paint_id);
+    if hole.width > 0.0 && hole.height > 0.0 {
+        let hole_rect = kurbo_rect(hole);
+        let hole_radii = effective_corner_radius(&hole_rect, &spread_radius(border_radius, -s));
+        builder.push(DrawOp::DRRect {
+            outer: DRRectSpec {
+                rect: rect_to_rect4(outer),
+                radii: radii_to_radii4([0.0; 4]),
+            },
+            inner: DRRectSpec {
+                rect: rect_to_rect4(hole_rect),
+                radii: radii_to_radii4(hole_radii),
+            },
+            paint: paint_id,
+        });
     } else {
+        // 内缩吃掉了整个洞：盒内全是阴影。
         builder.push(DrawOp::Rect {
-            rect: rect_to_rect4(rect),
+            rect: rect_to_rect4(outer),
             paint: paint_id,
         });
     }

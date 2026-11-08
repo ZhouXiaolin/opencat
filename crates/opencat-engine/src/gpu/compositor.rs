@@ -90,6 +90,11 @@ impl GpuCompositor {
         self.width
     }
 
+    /// 合成目标 FBO id（调试用）。
+    pub fn fbo(&self) -> u32 {
+        self.target.fbo()
+    }
+
     pub fn height(&self) -> u32 {
         self.height
     }
@@ -125,8 +130,12 @@ impl GpuCompositor {
     /// 下一帧的渲染重叠。所以这里交出的是上一帧的画面——调用方必须容忍一帧
     /// 延迟（末帧由 `encode_rgba_frames` 多渲染一帧排空）。首帧返回 `None`。
     pub fn finish_frame(&mut self) -> Result<Option<Vec<u8>>> {
+        // 不能 SyncCpu::Yes：那会 glFinish 等本帧全部 GPU 工作排空，PBO 双
+        // 缓冲的重叠就被打穿（实测 ANGLE/D3D11 每帧多 ~200ms 停顿）。这里只需
+        // **提交**——GL context FIFO 保证 PBO 读回排在 Skia 绘制之后；上一帧
+        // 的传输由 map(MAP_READ) 的完成语义兜底。
         self.skia
-            .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::Yes));
+            .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::No));
         // 帧头等上一帧 blit：Metal 跨队列无隐式顺序，不等就会与 Skia 本帧
         // 对同一纹理的重绘并发（GL 靠 context FIFO 天然免掉这一步）。
         self.target.wait_inflight();
@@ -167,6 +176,26 @@ impl GpuCompositor {
         {
             return Err(anyhow!("GPU surface read_pixels 失败"));
         }
+        if std::env::var_os("OC_TRACE_COMPOSITOR").is_some() {
+            let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, -1i32, -1i32);
+            for y in 0..self.height as i32 {
+                for x in 0..self.width as i32 {
+                    let a = out[((y as usize * self.width as usize + x as usize) * 4) + 3];
+                    if a != 0 {
+                        x0 = x0.min(x);
+                        y0 = y0.min(y);
+                        x1 = x1.max(x);
+                        y1 = y1.max(y);
+                    }
+                }
+            }
+            eprintln!(
+                "[compositor] surface={}x{} bbox={:?}",
+                self.surface.width(),
+                self.surface.height(),
+                (x0, y0, x1, y1)
+            );
+        }
         Ok(out)
     }
 }
@@ -185,10 +214,13 @@ impl Drop for GpuCompositor {
 /// 这是本模块唯一的 `cfg` 集中处。两个变体的构造函数在调用方的 `cfg`
 /// 分支里创建（GL 需要 `&Renderer3d` 上锁，Metal 只需要两个裸句柄）。
 pub enum CompositorBackend {
-    /// GL：`HGLRC` 由 wgpu 持有，Skia 共享同一上下文——入口从当前线程解析
-    /// （调用方保证 context 已 current）。
+    /// GL：Skia 与命令流执行器共享同一上下文——GL 入口解析跟会话同源
+    /// （ANGLE 用 eglGetProcAddress，WGL 用 wglGetProcAddress；调用方保证
+    /// context 已 current）。
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    Gl,
+    Gl {
+        loader: std::sync::Arc<dyn Fn(&str) -> *const std::ffi::c_void + Send + Sync>,
+    },
     /// Metal：一块系统 MTLDevice，wgpu 与 Skia 各自的队列共享它。
     #[cfg(target_os = "macos")]
     Metal { device: u64, queue: u64 },
@@ -198,24 +230,11 @@ impl CompositorBackend {
     fn make_direct_context(&self) -> Result<gpu::DirectContext> {
         match self {
             #[cfg(any(target_os = "windows", target_os = "linux"))]
-            Self::Gl => {
-                let interface = {
-                    #[cfg(target_os = "windows")]
-                    {
-                        gpu::interfaces::make_win()
-                            .ok_or_else(|| anyhow!("Skia make_win interface 失败"))?
-                    }
-                    #[cfg(target_os = "linux")]
-                    {
-                        // 与 wgpu 的 EGL context 同一驱动栈；核心入口经 libGL
-                        // dlsym，扩展经 eglGetProcAddress
-                        // （见 crate::gpu::egl::load_proc）。
-                        gpu::gl::Interface::new_load_with(crate::gpu::egl::load_proc)
-                            .ok_or_else(|| {
-                                anyhow!("Skia GL 接口构建失败（EGL/libGL 入口缺失？）")
-                            })?
-                    }
-                };
+            Self::Gl { loader } => {
+                // 入口与会话同源（Windows：ANGLE→eglGetProcAddress / WGL→
+                // wglGetProcAddress；Linux：EGL/libGL）。
+                let interface = gpu::gl::Interface::new_load_with(|name| (loader)(name))
+                    .ok_or_else(|| anyhow!("Skia GL 接口构建失败（会话入口缺失？）"))?;
                 gpu::direct_contexts::make_gl(interface, None)
                     .ok_or_else(|| anyhow!("Skia make_gl 失败"))
             }
@@ -298,6 +317,25 @@ impl crate::render::frame::GpuImageResolver for CompositorResolver<'_> {
             .ok_or_else(|| anyhow!("纹理凭据 {id:?} 不在共享表里（已被归还？）"))?;
         import_texture(self.skia, native, width, height)
     }
+
+    fn debug_sample(&mut self, image: &skia_safe::Image) -> Option<Vec<u8>> {
+        let mut px = vec![0u8; 2 * 2 * 4];
+        let ok = image.read_pixels_with_context(
+            Some(&mut *self.skia),
+            &skia_safe::ImageInfo::new(
+                (2, 2),
+                skia_safe::ColorType::RGBA8888,
+                skia_safe::AlphaType::Premul,
+                None,
+            ),
+            &mut px,
+            8,
+            (960, 540),
+            skia_safe::image::CachingHint::Allow,
+        );
+        eprintln!("[import] read_pixels ok={ok}");
+        Some(px)
+    }
 }
 
 /// 把一个原生纹理句柄导入为 Skia image（零拷贝）。
@@ -343,7 +381,7 @@ pub fn import_texture(
     let origin = SurfaceOrigin::BottomLeft;
     #[cfg(target_os = "macos")]
     let origin = SurfaceOrigin::TopLeft;
-    gpu::images::borrow_texture_from(
+    let img = gpu::images::borrow_texture_from(
         skia,
         &backend_tex,
         origin,
@@ -357,5 +395,32 @@ pub fn import_texture(
         AlphaType::Premul,
         None,
     )
-    .ok_or_else(|| anyhow!("borrow_texture_from 失败"))
+    .ok_or_else(|| anyhow!("borrow_texture_from 失败"))?;
+
+    // ANGLE 下 Skia 对借入的 GL 纹理**画不出来**：`read_pixels` 能读回正确
+    // 像素、同一位置的 `draw_rect` 正常落帧，只有 `draw_image` 静默无输出
+    // （纹理内容、尺寸、alpha、裁剪、坐标均已排除；ANGLE 之前走 WGL 时
+    // 无此问题）。零拷贝导入在这里不可用，改为一次性回读把纹理包成 raster
+    // image——语义不变（同样的 Premul 字节、同样的 origin 处理），代价是
+    // 每帧每 canvas 一次 8MB 回读。
+    let mut px = vec![0u8; (width as usize) * (height as usize) * 4];
+    let info = ImageInfo::new(
+        (width as i32, height as i32),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
+    if !img.read_pixels_with_context(
+        Some(&mut *skia),
+        &info,
+        &mut px,
+        (width as usize) * 4,
+        (0, 0),
+        skia_safe::image::CachingHint::Allow,
+    ) {
+        return Err(anyhow!("GPU 纹理回读失败（{width}x{height}）"));
+    }
+    let data = skia_safe::Data::new_copy(&px);
+    skia_safe::images::raster_from_data(&info, data, (width as usize) * 4)
+        .ok_or_else(|| anyhow!("raster_from_data 失败（{width}x{height}）"))
 }

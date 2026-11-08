@@ -24,9 +24,9 @@ use anyhow::{Result, bail};
 use oxc_allocator::{Allocator, Box as ArenaBox, GetAllocator, TakeIn, Vec as ArenaVec};
 use oxc_ast::ast::{
     Argument, AssignmentOperator, AssignmentTarget, BindingIdentifier, BindingPattern,
-    Declaration, ExportDefaultDeclarationKind, Expression, IdentifierName, IdentifierReference,
-    ImportDeclarationSpecifier, MemberExpression, ModuleExportName, SimpleAssignmentTarget,
-    Statement, VariableDeclarationKind,
+    Declaration, ExportAllDeclaration, ExportDefaultDeclarationKind, Expression,
+    IdentifierName, IdentifierReference, ImportDeclarationSpecifier, MemberExpression,
+    ModuleExportName, SimpleAssignmentTarget, Statement, VariableDeclarationKind,
 };
 use oxc_ast::builder::AstBuilder;
 use oxc_codegen::Codegen;
@@ -165,11 +165,50 @@ pub fn transform(source: &str) -> Result<Transformed> {
                     trailer.push((local, exported));
                 }
             }
-            Statement::ExportAllDeclaration(_) => {
-                bail!("jsx 导出降级: export * from 不支持（模块图没有转发语义）");
+            Statement::ExportFromDeclaration(mut ef) => {
+                // `export { a as b } from 'x'` → `module.exports.b = __ocRequire('x').a;`
+                //（three.module.js 的整体形态就是 re-export 壳）。
+                let ef = ef.take_in(&ast.allocator());
+                let spec = ef.source.value.as_str();
+                requires.push(spec.to_string());
+                for spec_item in ef.specifiers {
+                    // ExportSpecifier 是结构体（local/exported 双名）；re-export
+                    // 的 local 名在源模块，直接经 require 成员取值。
+                    let local = export_name(&spec_item.local, source)?;
+                    let exported = export_name(&spec_item.exported, source)?;
+                    kept.push(export_assign(
+                        &ast,
+                        &exported,
+                        member_call(&ast, spec, &local),
+                        spec_item.span,
+                    ));
+                }
             }
-            Statement::ExportFromDeclaration(_) => {
-                bail!("jsx 导出降级: re-export（export {{ a }} from）不支持，先在源模块导出");
+            Statement::ExportAllDeclaration(mut ea) => {
+                // `export * from 'x'` → `__ocReexportAll(module.exports, __ocRequire('x'));`
+                //（键枚举在运行时做，见 jsx_runtime 的 __ocReexportAll）。
+                let ea = ea.take_in(&ast.allocator());
+                let spec = ea.source.value.as_str();
+                requires.push(spec.to_string());
+                let exports_expr = Expression::new_static_member_expression(
+                    SPAN,
+                    ident_expr(&ast, "module", SPAN),
+                    IdentifierName::new(SPAN, "exports", &ast),
+                    false,
+                    &ast,
+                );
+                let call = Expression::new_call_expression(
+                    SPAN,
+                    ident_expr(&ast, "__ocReexportAll", SPAN),
+                    None,
+                    [
+                        Argument::from(exports_expr),
+                        Argument::from(require_call(&ast, spec)),
+                    ],
+                    false,
+                    &ast,
+                );
+                kept.push(Statement::new_expression_statement(SPAN, call, &ast));
             }
             other => kept.push(other),
         }
@@ -187,6 +226,28 @@ pub fn transform(source: &str) -> Result<Transformed> {
     }
     if !trailer.is_empty() {
         out.push('\n');
+    }
+    // 顶层 await（module 语义合法，classic `new Function` 是 SyntaxError）：
+    // 包 async IIFE。副作用在微任务排空（run_microtasks）里续跑；跨 await
+    // 读 module.exports 的消费方不支持（语料：liquid-pop-v2 的入口预载是
+    // 纯副作用，无自读 exports）。
+    let has_tla = program.body.iter().any(|s| match s {
+        Statement::ExpressionStatement(e) => {
+            matches!(&e.expression, Expression::AwaitExpression(_))
+        }
+        Statement::VariableDeclaration(v) => v.declarations.iter().any(|d| {
+            d.init
+                .as_ref()
+                .is_some_and(|i| matches!(i, Expression::AwaitExpression(_)))
+        }),
+        _ => false,
+    });
+    if has_tla {
+        // reject 显式化：async IIFE 的 throw 会被静默吞掉（未处理
+        // rejection），走 __ocStderr 才看得见资产链断在哪一环。
+        out = format!(
+            "(async () => {{\n{out}\n}})().catch(function (e) {{ if (typeof __ocStderr === 'function') __ocStderr('oc-tla: ' + (e && e.message)); }});"
+        );
     }
     Ok(Transformed { code: out, requires, exports })
 }
@@ -277,11 +338,11 @@ fn require_call<'a>(ast: &AstBuilder<'a>, spec: &'a str) -> Expression<'a> {
 }
 
 /// `__ocRequire('spec').<prop>`
-fn member_call<'a>(ast: &AstBuilder<'a>, spec: &'a str, prop: &'a str) -> Expression<'a> {
+fn member_call<'a>(ast: &AstBuilder<'a>, spec: &'a str, prop: &str) -> Expression<'a> {
     Expression::new_static_member_expression(
         SPAN,
         require_call(ast, spec),
-        IdentifierName::new(SPAN, prop, ast),
+        IdentifierName::new(SPAN, ast.allocator().alloc_str(prop), ast),
         false,
         ast,
     )
@@ -290,7 +351,7 @@ fn member_call<'a>(ast: &AstBuilder<'a>, spec: &'a str, prop: &'a str) -> Expres
 /// `module.exports.<prop> = <value>;`
 fn export_assign<'a>(
     ast: &AstBuilder<'a>,
-    prop: &'a str,
+    prop: &str,
     value: Expression<'a>,
     span: Span,
 ) -> Statement<'a> {
@@ -305,7 +366,7 @@ fn export_assign<'a>(
     let member = MemberExpression::new_static_member_expression(
         span,
         exports_expr,
-        IdentifierName::new(span, prop, ast),
+        IdentifierName::new(span, ast.allocator().alloc_str(prop), ast),
         false,
         ast,
     );

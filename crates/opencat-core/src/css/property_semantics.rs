@@ -14,6 +14,42 @@ use crate::style::Transform;
 /// `translate()/translate3d()`, `rotate()/rotateX()/rotateY()`, `skew()` and
 /// `scale()` in a fixed order. Anything else (matrix(), rotateZ()…) is not
 /// produced by the plugin suite and is ignored.
+/// One parsed `transform()` argument. GSAP's CSSPlugin emits `translate(x%,
+/// y%)` for xPercent/yPercent (percent of the element's own box) and px/deg
+/// everywhere else; the percent components land in the percent variants and
+/// resolve against the element bounds at display build.
+#[derive(Clone, Copy)]
+enum ArgVal {
+    Px(f32),
+    Pct(f32),
+    Deg(f32),
+}
+
+fn parse_arg(part: &str) -> Option<ArgVal> {
+    let s = part.trim();
+    let (bare, val) = if let Some(p) = s.strip_suffix('%') {
+        (s, p.parse::<f32>().ok().map(ArgVal::Pct))
+    } else if let Some(p) = s.strip_suffix("deg") {
+        (s, p.parse::<f32>().ok().map(ArgVal::Deg))
+    } else if let Some(p) = s.strip_suffix("px") {
+        (s, p.parse::<f32>().ok().map(ArgVal::Px))
+    } else {
+        (s, s.parse::<f32>().ok().map(ArgVal::Px))
+    };
+    let _ = bare;
+    val
+}
+
+/// A percent arg as a `translate` component (px keeps its value; percent
+/// keeps the percent).
+fn translate_component(v: Option<ArgVal>) -> (Option<f32>, Option<f32>) {
+    match v {
+        Some(ArgVal::Px(px)) => (Some(px), None),
+        Some(ArgVal::Pct(pct)) => (None, Some(pct)),
+        _ => (None, None),
+    }
+}
+
 pub fn parse_css_transform(text: &str) -> Vec<Transform> {
     let mut out = Vec::new();
     // CSSPlugin emits `perspective()` first, then `rotateY()`, then `rotateX()`
@@ -22,59 +58,130 @@ pub fn parse_css_transform(text: &str) -> Vec<Transform> {
     // pushed where the first of the three appears so the list keeps the CSS
     // order (later entries are applied to points first).
     let mut rotate3: Option<usize> = None;
+    // 没有 `perspective()` 时是普通 CSS 3D 变换串（脚本拼的 `rotateY(a)
+    // translateZ(r) rotateY(90deg)` 环形排布）：各函数按序独立入列，折叠会让
+    // 后一个 rotateY 覆盖前一个。
+    let fold = text.contains("perspective(");
     let mut rest = text.trim();
     while let Some(open) = rest.find('(') {
         let name = rest[..open].trim().to_ascii_lowercase();
         let Some(close) = rest[open..].find(')') else {
             break;
         };
-        let args: Vec<f32> = rest[open + 1..open + close]
+        let args: Vec<ArgVal> = rest[open + 1..open + close]
             .split(',')
-            .filter_map(|part| part.trim().trim_end_matches("px").trim_end_matches("deg").parse::<f32>().ok())
+            .filter_map(parse_arg)
             .collect();
-        let first = args.first().copied().unwrap_or(0.0);
+        let first = args.first().copied();
+        let px_or = |v: Option<ArgVal>| -> f32 {
+            match v {
+                Some(ArgVal::Px(px)) => px,
+                _ => 0.0,
+            }
+        };
+        let deg_or = |v: Option<ArgVal>| -> f32 {
+            match v {
+                Some(ArgVal::Deg(d)) => d,
+                Some(ArgVal::Px(px)) => px,
+                _ => 0.0,
+            }
+        };
         match name.as_str() {
-            "translate" => out.push(Transform::Translate {
-                x: first,
-                y: args.get(1).copied().unwrap_or(0.0),
-            }),
+            // px 分量与百分比分量混排：各自落到对应变体，display build 统一折算。
+            "translate" => {
+                let (x_px, x_pct) = translate_component(first);
+                let (y_px, y_pct) = translate_component(args.get(1).copied());
+                match (x_px, x_pct, y_px, y_pct) {
+                    (Some(x), _, Some(y), _) => out.push(Transform::Translate { x, y }),
+                    (Some(x), _, _, pct_y @ Some(_)) => {
+                        out.push(Transform::TranslateX { value: x });
+                        out.push(Transform::TranslateYPercent { value: pct_y.unwrap() });
+                    }
+                    (_, pct_x @ Some(_), Some(y), _) => {
+                        out.push(Transform::TranslateXPercent { value: pct_x.unwrap() });
+                        out.push(Transform::TranslateY { value: y });
+                    }
+                    (_, pct_x @ Some(_), _, pct_y @ Some(_)) => {
+                        out.push(Transform::TranslateXPercent { value: pct_x.unwrap() });
+                        out.push(Transform::TranslateYPercent { value: pct_y.unwrap() });
+                    }
+                    _ => {}
+                }
+            }
             "translate3d" => {
-                out.push(Transform::TranslateX { value: first });
-                out.push(Transform::TranslateY {
-                    value: args.get(1).copied().unwrap_or(0.0),
-                });
-                let z = args.get(2).copied().unwrap_or(0.0);
+                let (x_px, x_pct) = translate_component(first);
+                let (y_px, y_pct) = translate_component(args.get(1).copied());
+                match (x_px, x_pct) {
+                    (Some(x), _) => out.push(Transform::TranslateX { value: x }),
+                    (_, Some(p)) => out.push(Transform::TranslateXPercent { value: p }),
+                    _ => {}
+                }
+                match (y_px, y_pct) {
+                    (Some(y), _) => out.push(Transform::TranslateY { value: y }),
+                    (_, Some(p)) => out.push(Transform::TranslateYPercent { value: p }),
+                    _ => {}
+                }
+                let z = px_or(args.get(2).copied());
                 if z != 0.0 {
                     out.push(Transform::TranslateZ { value: z });
                 }
             }
-            "translatex" => out.push(Transform::TranslateX { value: first }),
-            "translatey" => out.push(Transform::TranslateY { value: first }),
-            "rotate" => out.push(Transform::RotateDeg { value: first }),
-            "skew" => out.push(Transform::SkewDeg {
-                x: first,
-                y: args.get(1).copied().unwrap_or(0.0),
+            "translatex" => match translate_component(first) {
+                (Some(v), _) => out.push(Transform::TranslateX { value: v }),
+                (_, Some(p)) => out.push(Transform::TranslateXPercent { value: p }),
+                _ => {}
+            },
+            "translatey" => match translate_component(first) {
+                (Some(v), _) => out.push(Transform::TranslateY { value: v }),
+                (_, Some(p)) => out.push(Transform::TranslateYPercent { value: p }),
+                _ => {}
+            },
+            "rotate" => out.push(Transform::RotateDeg {
+                value: deg_or(first),
             }),
-            "skewx" => out.push(Transform::SkewXDeg { value: first }),
-            "skewy" => out.push(Transform::SkewYDeg { value: first }),
+            "skew" => out.push(Transform::SkewDeg {
+                x: deg_or(first),
+                y: deg_or(args.get(1).copied()),
+            }),
+            "skewx" => out.push(Transform::SkewXDeg {
+                value: deg_or(first),
+            }),
+            "skewy" => out.push(Transform::SkewYDeg {
+                value: deg_or(first),
+            }),
             // CSSPlugin's renderTransform emits `scale(sx)` for a uniform
             // scale and `scale(sx, sy)` for a non-uniform one — `scaleY: 0`
             // arrives as `scale(1, 0)`. Keeping only the first argument loses
             // the second axis, so the node never collapses.
-            "scale" => match args.get(1).copied() {
-                Some(y) => {
-                    out.push(Transform::ScaleX { value: first });
-                    out.push(Transform::ScaleY { value: y });
+            "scale" => {
+                let sx = px_or(first);
+                // gsap 对 `scale(sx, sy)` 才发双参；单参 `scale(sx)` 无第二
+                // 个 arg。0 是合法 scaleY（压扁），不能用 0 区分缺省。
+                match args.get(1) {
+                    Some(_) => {
+                        out.push(Transform::ScaleX { value: sx });
+                        out.push(Transform::ScaleY {
+                            value: px_or(args.get(1).copied()),
+                        });
+                    }
+                    None => out.push(Transform::Scale { value: sx }),
                 }
-                None => out.push(Transform::Scale { value: first }),
-            },
-            "scalex" => out.push(Transform::ScaleX { value: first }),
-            "scaley" => out.push(Transform::ScaleY { value: first }),
+            }
+            "scalex" => out.push(Transform::ScaleX {
+                value: px_or(first),
+            }),
+            "scaley" => out.push(Transform::ScaleY {
+                value: px_or(first),
+            }),
             // perspective()/rotateX()/rotateY() fold into one Rotate3; the
             // writes land through the same path as the named properties.
-            "perspective" => set_rotate3(&mut out, &mut rotate3, 2, first),
-            "rotatex" => set_rotate3(&mut out, &mut rotate3, 0, first),
-            "rotatey" => set_rotate3(&mut out, &mut rotate3, 1, first),
+            "perspective" => set_rotate3(&mut out, &mut rotate3, 2, px_or(first)),
+            "rotatex" if fold => set_rotate3(&mut out, &mut rotate3, 0, deg_or(first)),
+            "rotatey" if fold => set_rotate3(&mut out, &mut rotate3, 1, deg_or(first)),
+            "rotatex" => out.push(Transform::RotateXDeg { value: deg_or(first) }),
+            "rotatey" => out.push(Transform::RotateYDeg { value: deg_or(first) }),
+            "rotatez" => out.push(Transform::RotateDeg { value: deg_or(first) }),
+            "translatez" => out.push(Transform::TranslateZ { value: px_or(first) }),
             _ => {}
         }
         rest = &rest[open + close + 1..];

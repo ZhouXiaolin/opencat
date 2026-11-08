@@ -388,12 +388,23 @@ pub(crate) fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, re
             size,
             repeat,
             size_pct,
+            position,
             ..
         } => {
-            let size = match (size_pct, size) {
-                (Some([sx, sy]), _) => Some([rect.width() as f32 * sx, rect.height() as f32 * sy]),
-                (None, Some(s)) => Some(*s),
-                _ => None,
+            // `position` 非空的层已经过 `layer_tile_rect` 定位，传入的 rect
+            // 就是折算完尺寸的 tile 本体——再套一次 size 会把渐变线拉长
+            // size 倍（窗口永远停在首段）。只有未定位的层（节点盒 + 瓦片
+            // 尺寸 Repeat 平铺）才在这里套。
+            let size = if position.is_some() {
+                None
+            } else {
+                match (size_pct, size) {
+                    (Some([sx, sy]), _) => {
+                        Some([rect.width() as f32 * sx, rect.height() as f32 * sy])
+                    }
+                    (None, Some(s)) => Some(*s),
+                    _ => None,
+                }
             };
             let box_ = match size {
                 Some(s) => GradientBox::with_size(&rect, s),

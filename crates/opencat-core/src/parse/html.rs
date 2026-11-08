@@ -30,6 +30,13 @@ use crate::parse::dom::DomElement;
 pub struct HtmlScript {
     pub src: Option<String>,
     pub inline: Option<String>,
+    /// 该脚本所属 composition 在全局时间轴上的起点（秒）。顶层文档为 0；
+    /// 嵌套 composition 的脚本用它把主时间换成局部时间再驱动自己的
+    /// timeline（engine 按段 seek，见 build_html_driver）。
+    pub start: f64,
+    /// `<script type="module">`：engine 端走模块图 BFS + oxc 降级装载
+    /// （见 build_html_driver），不进 classic driver body。
+    pub module: bool,
 }
 
 /// `<link>` 侧通道：stylesheet 的 href 交网络层，其余忽略。
@@ -68,6 +75,9 @@ pub struct HtmlDocument {
     pub css_text: String,
     pub scripts: Vec<HtmlScript>,
     pub links: Vec<HtmlLink>,
+    /// `<script type="importmap">` 的 JSON 原文（取最后一个，浏览器语义：
+    /// 多个 importmap 后者覆盖前者——这里语料只有一个，原文级合并不做）。
+    pub import_map: Option<String>,
     pub composition_hosts: Vec<CompositionHost>,
     /// 元素 id → 协议属性（含根与嵌套宿主）。
     pub protos: HashMap<String, ElementProto>,
@@ -381,6 +391,13 @@ impl Attrs<'_> {
     fn f64(&self, name: &str) -> Option<f64> {
         self.get(name).and_then(|v| v.trim().parse().ok())
     }
+    /// 全量属性（文档序）：属性选择器的匹配输入。
+    fn pairs(&self) -> Vec<(String, String)> {
+        self.items
+            .iter()
+            .map(|a| (a.name.local.to_string(), a.value.to_string()))
+            .collect()
+    }
 }
 
 fn is_pre_tag(tag: &str) -> bool {
@@ -462,24 +479,69 @@ fn is_http_url(src: &str) -> bool {
 
 struct LoweringState {
     synthetic: usize,
+    /// 合成 id 前缀：嵌套 composition 的子文档用它避开宿主的 id 命名空间。
+    id_prefix: String,
+    /// 预扫描定死的改写集：与宿主已占 id 撞车的作者 id（子文档才有内容）。
+    /// 命中者整文档一致改写成 `{id_prefix}{id}`——树内、CSS 选择器同步。
+    rewrite_ids: HashSet<String>,
     used_ids: HashSet<String>,
     hosts: Vec<CompositionHost>,
     protos: HashMap<String, ElementProto>,
     css_chunks: Vec<String>,
     scripts: Vec<HtmlScript>,
     links: Vec<HtmlLink>,
+    /// `<script type="importmap">` 的 JSON 原文。
+    import_map: Option<String>,
+}
+
+/// 文档里 `id="…"` 形态的作者 id 收集（预扫描输入：子文档全文）。
+fn scan_authored_ids(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(pos) = rest.find("id=") {
+        let after = &rest[pos + 3..];
+        let bytes = after.as_bytes();
+        let quote = match bytes.first() {
+            Some(b @ (b'"' | b'\'')) => *b,
+            _ => {
+                rest = after;
+                continue;
+            }
+        };
+        let Some(end) = after[1..].find(quote as char) else { break };
+        let id = after[1..][..end].trim().to_string();
+        if !id.is_empty() {
+            out.push(id);
+        }
+        rest = &after[end + 1..];
+    }
+    out
 }
 
 impl LoweringState {
     fn assign_id(&mut self, authored: Option<&str>) -> String {
-        if let Some(id) = authored.map(str::trim).filter(|s| !s.is_empty())
-            && self.used_ids.insert(id.to_string())
-        {
-            return id.to_string();
+        if let Some(id) = authored.map(str::trim).filter(|s| !s.is_empty()) {
+            // 嵌套 composition：预扫描撞车的作者 id 整文档一致改写成
+            // `{prefix}{id}`（`id_prefix` 只在子文档非空，宿主文档零行为
+            // 变化）。见 `parse_html_prefixed_excluded` 的文档注释。
+            let final_id = if self.rewrite_ids.contains(id) {
+                let mut candidate = format!("{}{}", self.id_prefix, id);
+                let mut n = 1;
+                while self.used_ids.contains(&candidate) {
+                    candidate = format!("{}{}-{}", self.id_prefix, id, n);
+                    n += 1;
+                }
+                candidate
+            } else {
+                id.to_string()
+            };
+            if self.used_ids.insert(final_id.clone()) {
+                return final_id;
+            }
         }
         loop {
             self.synthetic += 1;
-            let id = format!("hf-{}", self.synthetic);
+            let id = format!("{}hf-{}", self.id_prefix, self.synthetic);
             if self.used_ids.insert(id.clone()) {
                 return id;
             }
@@ -515,6 +577,43 @@ impl LoweringState {
 
 /// 解析整份文档。`fps_default` 是 data-fps 缺席时的合成帧率。
 pub fn parse_html(input: &str, fps_default: i32) -> Result<HtmlDocument> {
+    parse_html_prefixed(input, fps_default, "")
+}
+
+/// 同 [`parse_html`]，但合成 id（`hf-N`/`hf-root`）带 `id_prefix`。
+///
+/// 嵌套 composition 会把子文档的树挂进宿主文档，两棵树共用一个 id 命名空间；
+/// 每个文档的合成计数都从 1 开始，直接拼接会撞 id。作者 id 不受影响
+/// （子文档脚本仍按原 id 查询自己的子树）。
+pub fn parse_html_prefixed(
+    input: &str,
+    fps_default: i32,
+    id_prefix: &str,
+) -> Result<HtmlDocument> {
+    parse_html_prefixed_excluded(input, fps_default, id_prefix, &Default::default())
+}
+
+/// 同 [`parse_html_prefixed`]，外加宿主侧已占 id 集：子文档里与已占集撞车
+/// 的作者 id **整文档一致**改写成 `{id_prefix}{id}`——树内 id、CSS 文本里的
+/// id 选择器（`#foo`）同步改写，子文档脚本的查询面按 composition 根收窄、
+/// 查的是树内 face，语义不变。改写集在解析前预扫描定死（作者 id ∩ taken），
+/// 分配顺序与单文档解析逐位一致；正常工程（无撞车）零改写、零行为变化。
+///
+/// 文档内重复的作者 id（原逻辑直接合成兜底）保持原语义。
+pub fn parse_html_prefixed_excluded(
+    input: &str,
+    fps_default: i32,
+    id_prefix: &str,
+    taken: &std::collections::HashSet<String>,
+) -> Result<HtmlDocument> {
+    // 预扫描：标记里 `id="x"` 形态的作者 id ∩ taken → 改写集（CSS 的
+    // `#x` 选择器在 css_text 出口统一改写，扫描不依赖顺序）。
+    let rewrite: HashSet<String> = if id_prefix.is_empty() || taken.is_empty() {
+        HashSet::new()
+    } else {
+        scan_authored_ids(input).into_iter().filter(|id| taken.contains(id)).collect()
+    };
+
     let sink = OpenCtHtmlSink {
         document: Rc::new(RefCell::new(SinkNode {
             data: SinkData::Document,
@@ -526,12 +625,15 @@ pub fn parse_html(input: &str, fps_default: i32) -> Result<HtmlDocument> {
 
     let mut state = LoweringState {
         synthetic: 0,
+        id_prefix: id_prefix.to_string(),
+        rewrite_ids: rewrite,
         used_ids: Default::default(),
         hosts: Vec::new(),
         protos: HashMap::new(),
         css_chunks: Vec::new(),
         scripts: Vec::new(),
         links: Vec::new(),
+        import_map: None,
     };
 
     // document → html → (head, body)。head 走同一 lower_element 通路摘取
@@ -550,7 +652,16 @@ pub fn parse_html(input: &str, fps_default: i32) -> Result<HtmlDocument> {
             Some("head") => {
                 let kids = kid.borrow().children.clone();
                 for k in kids {
-                    lower_element(&k, &mut state)?;
+                    if tag_of(&k).as_deref() == Some("template") {
+                        // 无 body 文档里首个 `<template>` 落 "in head" 插入
+                        // 模式（hyperframes 子 composition 就是这种形态）：
+                        // 内容按 body 语义展开成顶层树，脚本/样式侧通道
+                        // 照常入袋。
+                        let items = lower_children(&k, &mut state, false)?;
+                        top.extend(assemble_children(items, &mut state, false, false));
+                    } else {
+                        lower_element(&k, &mut state)?;
+                    }
                 }
             }
             Some("body") => {
@@ -604,17 +715,40 @@ pub fn parse_html(input: &str, fps_default: i32) -> Result<HtmlDocument> {
                 "fps": proto.fps.unwrap_or(fps_default as f64) as i64,
                 "duration": proto.duration.unwrap_or(3.0),
             });
+            // 顶层文档渲染整个 body：根 composition 之外的 body 级兄弟（字幕/
+            // 媒体 clip）同样上屏，有兄弟时合成 body 根承载全部。子文档只挂
+            // 内层根（hyperframes inlineSubCompositions 同语义）。
+            let root = if state.id_prefix.is_empty() && top.len() > 1 {
+                let children = top
+                    .into_iter()
+                    .map(|el| if el.id() == id { root.clone() } else { el })
+                    .collect();
+                DomElement::Div {
+                    id: "hf-root".to_string(),
+                    class: None,
+                    style: None,
+                    duration: None,
+                    data_start: None,
+                    data_duration: None,
+                    ua_tag: None,
+                    attrs: Vec::new(),
+                    children,
+                }
+            } else {
+                root
+            };
             (Some(root), meta)
         }
         None => {
             let root = DomElement::Div {
-                id: "hf-root".to_string(),
+                id: format!("{}hf-root", state.id_prefix),
                 class: None,
                 style: None,
                 duration: None,
                 data_start: None,
                 data_duration: None,
                 ua_tag: None,
+                attrs: Vec::new(),
                 children: top,
             };
             let meta = json!({
@@ -627,15 +761,117 @@ pub fn parse_html(input: &str, fps_default: i32) -> Result<HtmlDocument> {
         }
     };
 
+    // CSS 的 id 选择器（`#foo`）与改写后的树内 id 同步：只在改写集非空的
+    // 子文档里发生，宿主文档零开销。匹配词边界——`#foot` 不吃 `#footer`
+    // （改写集里的 id 都是完整 token）。
+    let css_text = state.css_chunks.join("\n");
+    let css_text = rewrite_css_ids(css_text, &state.rewrite_ids, &state.id_prefix);
+    // 子文档（带前缀）的文档级裸选择器改指子文档根：hyperframes 挂载子
+    // composition 时 `html`/`body`/`:root` 落到 composition 自己的盒，不改
+    // 宿主 body（compositionScoping.ts 的 scopeRootSelectors）。宿主文档不动。
+    let css_text = match (&root, state.id_prefix.is_empty()) {
+        (Some(root), false) => rewrite_document_selectors(css_text, root.id()),
+        _ => css_text,
+    };
+
     Ok(HtmlDocument {
         meta,
         root,
-        css_text: state.css_chunks.join("\n"),
+        css_text,
         scripts: state.scripts,
         links: state.links,
+        import_map: state.import_map,
         composition_hosts: state.hosts,
         protos: state.protos,
     })
+}
+
+/// CSS 文本里的 id 选择器改写：`#old` → `#prefixold`。只在改写集非空时有
+/// 差异。词边界 = 后随字符不是 ident 字符（字母/数字/`-`/`_`）。
+fn rewrite_css_ids(css: String, rewrite: &HashSet<String>, prefix: &str) -> String {
+    if rewrite.is_empty() || prefix.is_empty() {
+        return css;
+    }
+    let mut out = css;
+    for id in rewrite {
+        let old = format!("#{id}");
+        let new = format!("#{prefix}{id}");
+        let mut start = 0;
+        while let Some(pos) = out[start..].find(&old) {
+            let at = start + pos;
+            let after = at + old.len();
+            let boundary = out[after..]
+                .chars()
+                .next()
+                .map(|c| !(c.is_alphanumeric() || c == '-' || c == '_'))
+                .unwrap_or(true);
+            if boundary {
+                out.replace_range(at..after, &new);
+                start = at + new.len();
+            } else {
+                start = after;
+            }
+        }
+    }
+    out
+}
+
+/// 选择器列表里的裸 `html`/`body`/`:root` → `#root_id`。prelude = 上一个
+/// `{`/`}`/`;` 之后到下一个 `{` 的文本；只有命中时才重组，其余字节不动。
+/// 复合形态（`body .x`）不在覆盖面内（与 hyperframes 一致只认裸形态）。
+fn rewrite_document_selectors(css: String, root_id: &str) -> String {
+    let is_document = |s: &str| {
+        let t = s.trim();
+        ["html", "body", ":root"].iter().any(|k| t.eq_ignore_ascii_case(k))
+    };
+    let mut out = String::with_capacity(css.len());
+    let mut from = 0;
+    for (i, c) in css.char_indices() {
+        match c {
+            '{' => {
+                let prelude = &css[from..i];
+                let parts = split_selector_list(prelude);
+                if parts.iter().any(|p| is_document(p)) {
+                    let rebuilt: Vec<String> = parts
+                        .iter()
+                        .map(|p| if is_document(p) { format!("#{root_id}") } else { p.trim().to_string() })
+                        .collect();
+                    out.push_str(&rebuilt.join(", "));
+                } else {
+                    out.push_str(prelude);
+                }
+                out.push('{');
+                from = i + 1;
+            }
+            '}' | ';' => {
+                out.push_str(&css[from..=i]);
+                from = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push_str(&css[from..]);
+    out
+}
+
+/// 按顶层逗号切选择器列表（括号/方括号内的逗号不切）。
+fn split_selector_list(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut start = 0;
+    for (i, c) in s.char_indices() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
 }
 
 fn tag_of(handle: &Handle) -> Option<String> {
@@ -667,6 +903,26 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
         }
         "script" => {
             let view = Attrs { items: &attrs };
+            let ty = view
+                .get("type")
+                .map(|t| t.trim().to_ascii_lowercase())
+                .unwrap_or_default();
+            // importmap 是数据块：JSON 原文收进 import_map（engine 消费），
+            // 不进执行序列（classic eval 对 JSON 报 SyntaxError）。
+            if ty == "importmap" {
+                let text = collect_text(handle);
+                if !text.trim().is_empty() {
+                    state.import_map = Some(text);
+                }
+                return Ok(None);
+            }
+            // HTML 规范:type 缺省 / text|application javascript 才是可执行
+            // 脚本;其余数据块跳过（JSON-LD 等）。
+            let is_js = ty.is_empty() || ty.ends_with("/javascript") || ty == "text/ecmascript";
+            let is_module = ty == "module";
+            if !is_js && !is_module {
+                return Ok(None);
+            }
             let src = view.get("src").map(str::to_string);
             let inline = if src.is_none() {
                 let text = collect_text(handle);
@@ -674,7 +930,12 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
             } else {
                 None
             };
-            state.scripts.push(HtmlScript { src, inline });
+            state.scripts.push(HtmlScript {
+                src,
+                inline,
+                start: 0.0,
+                module: is_module,
+            });
             return Ok(None);
         }
         "link" => {
@@ -828,6 +1089,8 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
                     data_duration: view.f64("data-duration"),
                     // 真标签名进级联（section/button/li… 的 tag 选择器）。
                     ua_tag: Some(tag),
+                    // 原文属性进级联（`[data-composition-id="…"]` 等）。
+                    attrs: view.pairs(),
                     children,
                 }
             }
@@ -865,6 +1128,22 @@ fn lower_children(handle: &Handle, state: &mut LoweringState, pre: bool) -> Resu
                 if tag_of(&kid).as_deref() == Some("br") {
                     items.push(Lowered::Break);
                     acc_dirty = true;
+                    continue;
+                }
+                // `<template>` 内容透明展开：hyperframes 把整个子 composition
+                // 包在 template 里（浏览器里内容惰性，runtime importNode 克隆
+                // 进宿主后才活）。html5ever 把内容放独立 fragment，本函数被
+                // 传 template 句柄时走 template_contents——递归展开即可让
+                // 树/样式/脚本三条侧通道都收到内容。
+                if tag_of(&kid).as_deref() == Some("template") {
+                    for item in lower_children(&kid, state, pre)? {
+                        if acc_dirty {
+                            items.push(Lowered::TextRun(std::mem::take(&mut text_acc)));
+                            acc_dirty = false;
+                            text_acc.clear();
+                        }
+                        items.push(item);
+                    }
                     continue;
                 }
                 if let Some(el) = lower_element(&kid, state)? {

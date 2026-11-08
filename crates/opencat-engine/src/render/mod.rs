@@ -44,7 +44,9 @@ pub fn generated_image_cache_from_env() -> GeneratedImageCache {
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
-    Png,
+    /// PNG 序列（`frame_%04d.png`）；`Some(帧号表)` 只渲这些帧（一次提取，
+    /// 多帧取样），`None` 全片。
+    Png(Option<Vec<u32>>),
 }
 
 pub struct EncodingConfig {
@@ -61,6 +63,14 @@ thread_local! {
     static CPU_GL: std::cell::RefCell<
         Option<(crate::gpu::session::GlSession, crate::gpu::stream_executor::GpuStreamExecutor)>,
     > = const { std::cell::RefCell::new(None) };
+}
+
+/// 渲染收尾：显式拆掉本线程的常驻 GL 会话（CPU 合成流执行 + GLSL 反射器）。
+/// 不能留给 TLS 析构——进程退出时其他线程已被杀，SwiftShader 的 eglTerminate
+/// 在 TLS 析构里等它们收尾会永久阻塞。
+pub fn release_gl_sessions() {
+    let _ = CPU_GL.try_with(|cell| cell.borrow_mut().take());
+    crate::script::bridge::release_reflector_session();
 }
 
 /// CPU 合成路径的 GPU 流执行：readback 喂占位条目（无零拷贝）。
@@ -223,10 +233,12 @@ impl GpuRenderSession {
             .ok_or_else(|| anyhow!("创建合成目标纹理失败"))?;
         let composite_tex = CompositeTexture { gl: gl.clone(), tex: native };
 
-        // Skia 合成器（共享同一 GL 上下文）。
+        // Skia 合成器（共享同一 GL 上下文；入口解析跟会话同源）。
         let compositor = crate::gpu::compositor::GpuCompositor::new(
-            crate::gpu::compositor::CompositorBackend::Gl,
-            Some(gl),
+            crate::gpu::compositor::CompositorBackend::Gl {
+                loader: gl_session.skia_loader(),
+            },
+            Some(gl.clone()),
             native,
             width,
             height,
@@ -300,6 +312,12 @@ impl GpuRenderSession {
     ) -> Result<Option<Vec<u8>>> {
         self.gl_session.make_current()?;
         let render = pipeline.render_frame(frame_index)?;
+        // 脚本执行期会把 EGL current context 切走（GLSL 反射器建自己的离屏
+        // 上下文；`script::bridge::CurrentContextGuard` 在 Windows 上仍走 WGL
+        // 存取，ANGLE 迁移后存不到也还不回）。流的执行与 Skia 合成必须在**本
+        // 会话**的上下文里：否则纹理/FBO 名字与合成目标撞号，合成目标变成
+        // INCOMPLETE_ATTACHMENT，绘制被静默丢弃（表现为随机尺寸的裁剪或全黑）。
+        self.gl_session.make_current()?;
         let mut frame = render.draw;
         let mut media_plan = render.media;
         // 调试用:dump 原始 GPU 流(测试进程加载后离线复现执行器+flush 崩溃)。
@@ -307,6 +325,23 @@ impl GpuRenderSession {
             && let Some(gpu) = &render.gpu
         {
             dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
+        }
+        if std::env::var_os("OC_TRACE_STREAMS").is_some() {
+            match &render.gpu {
+                Some(gpu) => {
+                    eprintln!("[streams] f{frame_index} n={}", gpu.streams.len());
+                    for s in &gpu.streams {
+                        eprintln!(
+                            "[streams]   {:?} {}x{} backend={:?}",
+                            s.target_id,
+                            s.width,
+                            s.height,
+                            s.backend
+                        );
+                    }
+                }
+                None => eprintln!("[streams] f{frame_index} none"),
+            }
         }
         let mut stream_outputs: Vec<(crate::gpu::NativeTexture, u32)> = Vec::new();
         // 流执行过 = GL 上下文被改过（哪怕占位不可见、输出被丢弃——three
@@ -354,9 +389,24 @@ impl GpuRenderSession {
                         true,
                     )?;
                 } else {
+                    let filtered;
+                    let section: &opencat_core::ir::gpu_stream::GpuSection = match std::env::var("OC_ONLY_STREAM") {
+                        Ok(only) => {
+                            filtered = opencat_core::ir::gpu_stream::GpuSection {
+                                streams: gpu
+                                    .streams
+                                    .iter()
+                                    .filter(|s| s.target_id == only)
+                                    .cloned()
+                                    .collect(),
+                            };
+                            &filtered
+                        }
+                        Err(_) => gpu,
+                    };
                     stream_outputs = self.gpu_executor.execute(
                         &self.gl_session.gl(),
-                        gpu,
+                        section,
                         &mut media_plan,
                         &self.textures,
                         true,
@@ -377,13 +427,89 @@ impl GpuRenderSession {
 
         // 本帧有 GPU 流执行过 pass（命令流改动了 GL 状态），Skia 缓存的状态
         // 已失效：两者共享同一 GL 上下文，合成前必须让 Skia 重新查询。
+        if std::env::var_os("OC_TRACE_GLSTATE").is_some() {
+            use glow::HasContext as _;
+            let gl = self.gl_session.gl();
+            unsafe {
+                let caps = [
+                    ("DEPTH_TEST", glow::DEPTH_TEST),
+                    ("STENCIL_TEST", glow::STENCIL_TEST),
+                    ("BLEND", glow::BLEND),
+                    ("CULL_FACE", glow::CULL_FACE),
+                    ("SCISSOR_TEST", glow::SCISSOR_TEST),
+                    ("RASTERIZER_DISCARD", glow::RASTERIZER_DISCARD),
+                    ("FRAMEBUFFER_SRGB", glow::FRAMEBUFFER_SRGB),
+                    ("POLYGON_OFFSET_FILL", glow::POLYGON_OFFSET_FILL),
+                    ("SAMPLE_ALPHA_TO_COVERAGE", glow::SAMPLE_ALPHA_TO_COVERAGE),
+                    ("SAMPLE_COVERAGE", glow::SAMPLE_COVERAGE),
+                ];
+                let mut on = Vec::new();
+                for (n, c) in caps {
+                    if gl.is_enabled(c) { on.push(n); }
+                }
+                let mut vp = [0i32; 4];
+                gl.get_parameter_i32_slice(glow::VIEWPORT, &mut vp);
+                let mut sc = [0i32; 4];
+                gl.get_parameter_i32_slice(glow::SCISSOR_BOX, &mut sc);
+                let fbo = gl.get_parameter_i32(glow::FRAMEBUFFER_BINDING);
+                let prog = gl.get_parameter_i32(glow::CURRENT_PROGRAM);
+                let err = gl.get_error();
+                if let Some(nz) = std::num::NonZeroU32::new(compositor.fbo()) {
+                    gl.bind_framebuffer(glow::FRAMEBUFFER, Some(glow::NativeFramebuffer(nz)));
+                }
+                let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                eprintln!("[glstate] f{frame_index} on={on:?} viewport={vp:?} scissor={sc:?} fbo={fbo} prog={prog} err={err:?} compFbo={} status={status:?}", compositor.fbo());
+            }
+        }
         if gpu_stream_ran {
             compositor.reset_backend_state();
+                    use glow::HasContext as _;
+                let gl = self.gl_session.gl();
+                unsafe {
+                    gl.disable(glow::SCISSOR_TEST);
+                    gl.disable(glow::RASTERIZER_DISCARD);
+                    gl.disable(glow::DEPTH_TEST);
+                    gl.disable(glow::STENCIL_TEST);
+                    gl.disable(glow::BLEND);
+                    gl.disable(glow::CULL_FACE);
+                    gl.disable(glow::DITHER);
+                    gl.disable(glow::POLYGON_OFFSET_FILL);
+                    gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE);
+                    gl.disable(glow::SAMPLE_COVERAGE);
+                    gl.bind_vertex_array(None);
+                    gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                    gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
+                    gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                    gl.bind_renderbuffer(glow::RENDERBUFFER, None);
+                    gl.use_program(None);
+                    gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
+                    gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
+                    gl.depth_mask(true);
+                    gl.stencil_mask(0xFFFFFFFF);
+                    gl.color_mask(true, true, true, true);
+                    for u in 0..8 {
+                        gl.active_texture(glow::TEXTURE0 + u);
+                        gl.bind_texture(glow::TEXTURE_2D, None);
+                        gl.bind_texture(glow::TEXTURE_CUBE_MAP, None);
+                        gl.bind_sampler(u, None);
+                    }
+                    gl.active_texture(glow::TEXTURE0);
+                    gl.blend_equation(glow::FUNC_ADD);
+                    gl.blend_func(glow::ONE, glow::ZERO);
+                    gl.viewport(0, 0, compositor.width() as i32, compositor.height() as i32);
+                    gl.color_mask(true, true, true, true);
+            }
         }
 
         {
             let (canvas, skia) = compositor.split();
             let mut resolver = crate::gpu::compositor::CompositorResolver { skia, textures };
+            if std::env::var_os("OC_DEBUG_PRERECT").is_some() {
+                let paint = skia_safe::Paint::new(skia_safe::Color4f::new(0.0, 0.0, 1.0, 1.0), None);
+                canvas.draw_rect(skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0), &paint);
+            }
+            if std::env::var_os("OC_DEBUG_SKIP_FRAME").is_none() {
             crate::render::frame::execute_render_frame_with_gpu(
                 &mut frame,
                 &media_plan,
@@ -397,6 +523,37 @@ impl GpuRenderSession {
                 canvas,
             )
             .map_err(|e| anyhow!("{e}"))?;
+            }
+            if std::env::var_os("OC_DEBUG_FULLRECT").is_some() {
+                let paint = skia_safe::Paint::new(skia_safe::Color4f::new(1.0, 0.0, 0.0, 1.0), None);
+                canvas.draw_rect(
+                    skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0),
+                    &paint,
+                );
+            }
+            if std::env::var_os("OC_TRACE_CANVAS").is_some() {
+                eprintln!(
+                    "[canvas] clip={:?} matrix={:?} saves={}",
+                    canvas.local_clip_bounds(),
+                    canvas.total_matrix(),
+                    canvas.save_count()
+                );
+            }
+        }
+        if std::env::var_os("OC_TRACE_DEFAULT_FB").is_some() {
+            use glow::HasContext as _;
+            let gl = self.gl_session.gl();
+            unsafe {
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                let mut px = [0u8; 4];
+                gl.read_pixels(0, 0, 1, 1, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut px[..]));
+                let mut px2 = [0u8; 4];
+                gl.read_pixels(960, 540, 1, 1, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut px2[..]));
+                let max_tex = gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE);
+                let max_rb = gl.get_parameter_i32(glow::MAX_RENDERBUFFER_SIZE);
+                let err = gl.get_error();
+                eprintln!("[defaultfb] px00={px:?} pxcenter={px2:?} maxTex={max_tex} maxRb={max_rb} err={err:?}");
+            }
         }
         let rgba = if deferred {
             let r = compositor.finish_frame()?;
@@ -406,9 +563,11 @@ impl GpuRenderSession {
         };
 
         // 合成完成：删 GL 资源（像素已被 Skia 采样进合成帧），归还凭据。
-        for (tex, fbo) in stream_outputs {
-            crate::gpu::gl::delete_framebuffer(&self.gl_session.gl(), fbo);
-            crate::gpu::gl::delete_texture(&self.gl_session.gl(), tex);
+        if std::env::var_os("OC_KEEP_STREAM_TEX").is_none() {
+            for (tex, fbo) in stream_outputs {
+                crate::gpu::gl::delete_framebuffer(&self.gl_session.gl(), fbo);
+                crate::gpu::gl::delete_texture(&self.gl_session.gl(), tex);
+            }
         }
         for id in gpu_handles {
             textures.release(id);
@@ -569,7 +728,7 @@ pub fn render_from_source_with_base(
     let audio_track = crate::media::audio::build_audio_track_from_pipeline(&pipeline)?;
 
     match &config.format {
-        OutputFormat::Png => {
+        OutputFormat::Png(frames) => {
             let mut executor = crate::render::executor::EngineDrawExecutor::new();
             let mut renderer = FrameRenderer::new(
                 &mut pipeline,
@@ -580,7 +739,15 @@ pub fn render_from_source_with_base(
                 info.width,
                 info.height,
             )?;
-            for i in 0..frame_count {
+            let all: Vec<u32>;
+            let frames = match frames {
+                Some(list) => list.as_slice(),
+                None => {
+                    all = (0..frame_count).collect();
+                    &all
+                }
+            };
+            for &i in frames.iter().filter(|&&i| i < frame_count) {
                 let rgba = renderer.render_frame_blocking(i)?;
                 let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
                     .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
@@ -755,7 +922,14 @@ impl EncodingConfig {
 
     pub fn png() -> Self {
         Self {
-            format: OutputFormat::Png,
+            format: OutputFormat::Png(None),
+        }
+    }
+
+    /// 只渲指定帧的 PNG 序列（一次提取、多帧取样——对齐迭代用）。
+    pub fn png_frames(frames: Vec<u32>) -> Self {
+        Self {
+            format: OutputFormat::Png(Some(frames)),
         }
     }
 }

@@ -201,8 +201,30 @@ pub fn surface_fill_shape(
             }
             out
         };
+        // 不透明纯色直角矩形的完全覆盖像素（|q| 两轴都 ≤ -0.5 ⇒ cov=1）：
+        // sa=1 ⇒ oa=1、oc=sc，合成结果恒为源色，直接写入（与逐像素公式
+        // 逐位一致，只省掉距离场与混色运算）。
+        let to_u8 = |c: f32| (c.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        let solid = (r == 0.0 && stops.windows(2).all(|p| p[0].1 == p[1].1))
+            .then(|| sample(0.0))
+            .filter(|c| c[3] == 1.0)
+            .map(|c| [to_u8(c[0]), to_u8(c[1]), to_u8(c[2]), 255u8]);
+        let px_range = x0.floor() as usize..(x1.ceil() as usize).min(surface.width as usize);
+        let inner_cols: Vec<bool> = px_range
+            .clone()
+            .map(|px| (px as f64 + 0.5 - ccx).abs() - hx <= -0.5)
+            .collect();
         for py in y0.floor() as usize..(y1.ceil() as usize).min(surface.height as usize) {
-            for px in x0.floor() as usize..(x1.ceil() as usize).min(surface.width as usize) {
+            let inner_row = (py as f64 + 0.5 - ccy).abs() - hy <= -0.5;
+            for (col, px) in px_range.clone().enumerate() {
+                if let Some(rgba) = solid
+                    && inner_row
+                    && inner_cols[col]
+                {
+                    let o = (py * surface.width as usize + px) * 4;
+                    surface.rgba[o..o + 4].copy_from_slice(&rgba);
+                    continue;
+                }
                 let cov = coverage(px as f64, py as f64) as f32;
                 if cov <= 0.0 {
                     continue;
@@ -219,6 +241,172 @@ pub fn surface_fill_shape(
                     continue;
                 }
                 let o = (py * surface.width as usize + px) * 4;
+                let da = surface.rgba[o + 3] as f32 / 255.0;
+                let oa = sa + da * (1.0 - sa);
+                if oa <= 0.0 {
+                    surface.rgba[o..o + 4].fill(0);
+                    continue;
+                }
+                for (c, sc) in [fr, fg, fb].iter().enumerate() {
+                    let dc = surface.rgba[o + c] as f32 / 255.0;
+                    let oc = (sc * sa + dc * da * (1.0 - sa)) / oa;
+                    surface.rgba[o + c] = (oc.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                }
+                surface.rgba[o + 3] = (oa.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+            }
+        }
+        surface.generation = surface.generation.wrapping_add(1);
+        Ok(())
+    })
+}
+
+/// `canvas.fill(Path2D)` 语义的路径填充：`flat` 是 [verb, 坐标…] 扁平数组
+/// （0=moveTo 1=lineTo 2=quadTo 3=cubicTo 4=close，与 `__oc_path_from_svg`
+/// 同编码）；设备坐标 = translate(tx,ty) ∘ scale(sx,sy)，渐变轴与路径同一
+/// 用户空间。覆盖率光栅走 tiny-skia winding 填充 AA（canvas 默认 nonzero），
+/// 颜色/渐变 SrcOver 与 surface_fill_shape 同约定。
+///
+/// 只覆盖路径包围盒：先烘进包围盒小 Pixmap（不透明白 = 纯覆盖率），再逐
+/// 像素与 surface 混色——渐变采样在设备像素中心做，与 fill_shape 的轴投影
+/// 公式一致。
+pub fn surface_fill_path(
+    id: &str,
+    flat: &[f64],
+    tx: f64,
+    ty: f64,
+    sx: f64,
+    sy: f64,
+    axis: ([f64; 2], [f64; 2]),
+    stops: &[(f32, [f32; 4])],
+) -> Result<()> {
+    if stops.is_empty() {
+        bail!("surface_fill_path: empty stops");
+    }
+    if !sx.is_finite() || !sy.is_finite() {
+        bail!("surface_fill_path: non-finite scale");
+    }
+    // 构建设备空间路径。
+    let mut pb = resvg::tiny_skia::PathBuilder::new();
+    let mut i = 0usize;
+    while i < flat.len() {
+        let verb = flat[i] as i64;
+        i += 1;
+        let d = |u: usize| -> f32 { (tx + sx * flat[i + u]) as f32 };
+        let dv = |u: usize| -> f32 { (ty + sy * flat[i + u + 1]) as f32 };
+        match verb {
+            0 => {
+                pb.move_to(d(0), dv(0));
+                i += 2;
+            }
+            1 => {
+                pb.line_to(d(0), dv(0));
+                i += 2;
+            }
+            2 => {
+                pb.quad_to(d(0), dv(0), d(2), dv(2));
+                i += 4;
+            }
+            3 => {
+                pb.cubic_to(d(0), dv(0), d(2), dv(2), d(4), dv(4));
+                i += 6;
+            }
+            4 => pb.close(),
+            other => bail!("surface_fill_path: unknown verb {other}"),
+        }
+    }
+    let path = pb
+        .finish()
+        .ok_or_else(|| anyhow::anyhow!("surface_fill_path: empty path"))?;
+    let bounds = path.bounds();
+    if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
+        return Ok(());
+    }
+
+    // 渐变轴 → 设备空间（用户空间声明，canvas 语义：fill 时当前变换作用
+    // 于轴与路径）。pad spread：t 截断到 [0,1]。
+    let (ua, ub) = axis;
+    let (ax, ay) = (tx + sx * ua[0], ty + sy * ua[1]);
+    let (bx, by) = (tx + sx * ub[0], ty + sy * ub[1]);
+    let (dx, dy) = (bx - ax, by - ay);
+    let len2 = dx * dx + dy * dy;
+    let sample = |t: f32| -> [f32; 4] {
+        let mut lo = &stops[0];
+        for s in stops {
+            if s.0 <= t {
+                lo = s;
+            }
+        }
+        let mut hi = lo;
+        for s in stops {
+            if s.0 >= t {
+                hi = s;
+                break;
+            }
+        }
+        let span = hi.0 - lo.0;
+        let k = if span > 1e-6 { ((t - lo.0) / span).clamp(0.0, 1.0) } else { 0.0 };
+        let mut out = [0.0f32; 4];
+        for (j, item) in out.iter_mut().enumerate() {
+            *item = lo.1[j] + (hi.1[j] - lo.1[j]) * k;
+        }
+        out
+    };
+
+    with_surface(id, |surface| {
+        // 覆盖率栅格 = 路径包围盒（±1px AA 带）∩ surface。
+        let bx0 = (bounds.left() as f64 - 1.0).max(0.0);
+        let by0 = (bounds.top() as f64 - 1.0).max(0.0);
+        let bx1 = (bounds.right() as f64 + 1.0).min(surface.width as f64);
+        let by1 = (bounds.bottom() as f64 + 1.0).min(surface.height as f64);
+        if bx1 <= bx0 || by1 <= by0 {
+            return Ok(());
+        }
+        let (bw, bh) = ((bx1 - bx0) as u32, (by1 - by0) as u32);
+        let mut pm = resvg::tiny_skia::Pixmap::new(bw, bh)
+            .ok_or_else(|| anyhow::anyhow!("surface_fill_path: bbox {bw}x{bh}"))?;
+        let mut paint = resvg::tiny_skia::Paint::default();
+        paint.anti_alias = true;
+        paint.shader = resvg::tiny_skia::Shader::SolidColor(
+            resvg::tiny_skia::Color::from_rgba(1.0, 1.0, 1.0, 1.0).unwrap(),
+        );
+        let local = path
+            .transform(resvg::tiny_skia::Transform::from_translate(
+                -bx0 as f32,
+                -by0 as f32,
+            ))
+            .ok_or_else(|| anyhow::anyhow!("surface_fill_path: degenerate transform"))?;
+        pm.fill_path(
+            &local,
+            &paint,
+            resvg::tiny_skia::FillRule::Winding,
+            resvg::tiny_skia::Transform::identity(),
+            None,
+        );
+        // 预乘白 → 覆盖率；颜色由渐变在设备像素中心采样，SrcOver 混进
+        // unpremul surface（同 fill_shape 的逐通道公式）。
+        let pm_data = pm.data();
+        for py in 0..bh {
+            for px in 0..bw {
+                let cov = pm_data[((py * bw + px) * 4 + 3) as usize] as f32 / 255.0;
+                if cov <= 0.0 {
+                    continue;
+                }
+                let pxc = bx0 + px as f64 + 0.5;
+                let pyc = by0 + py as f64 + 0.5;
+                let t = if len2 > 1e-12 {
+                    (((pxc - ax) * dx + (pyc - ay) * dy) / len2).clamp(0.0, 1.0) as f32
+                } else {
+                    1.0
+                };
+                let [fr, fg, fb, fa] = sample(t);
+                let sa = cov * fa;
+                if sa <= 0.0 {
+                    continue;
+                }
+                // bbox 局部 (px,py) → surface 坐标（bx0/by0 偏移）。
+                let sxp = px as usize + bx0 as usize;
+                let syp = py as usize + by0 as usize;
+                let o = (syp * surface.width as usize + sxp) * 4;
                 let da = surface.rgba[o + 3] as f32 / 255.0;
                 let oa = sa + da * (1.0 - sa);
                 if oa <= 0.0 {
@@ -338,6 +526,12 @@ pub struct InkMetrics {
 /// 字形光栅缓存用它做键，跨 DB 克隆仍命中同一 face。
 type FaceKey = (usize, u32);
 
+thread_local! {
+    /// 文件源字体的常驻字节，键为字体文件路径（见 `with_resolved_font`）。
+    static FILE_FACE_DATA: RefCell<HashMap<std::path::PathBuf, Arc<[u8]>>> =
+        RefCell::new(HashMap::new());
+}
+
 fn with_resolved_font<R>(
     family: &str,
     weight: u32,
@@ -391,6 +585,27 @@ fn with_resolved_font<R>(
     let Some(face_id) = face_id else {
         bail!("surface: no font face for family `{family}` weight {weight}");
     };
+    // 文件源字体（宿主回退目录 load_fonts_dir 装入）：fontdb 的
+    // with_face_data 每次调用都重新 open+mmap 文件，映射地址逐次变化，
+    // FaceKey（数据指针）随之失效——字形光栅缓存全部落空，地址复用时还会
+    // 错命中别的字体。文件字节读一次常驻本线程，指针稳定。
+    if let Some((path, index)) = db.face(face_id).and_then(|face| match &face.source {
+        fontdb::Source::File(path) => Some((path.clone(), face.index)),
+        _ => None,
+    }) {
+        let data = FILE_FACE_DATA.with(|cache| -> Result<Arc<[u8]>> {
+            if let Some(hit) = cache.borrow().get(&path) {
+                return Ok(hit.clone());
+            }
+            let bytes: Arc<[u8]> = Arc::from(std::fs::read(&path)?);
+            cache.borrow_mut().insert(path, bytes.clone());
+            Ok(bytes)
+        })?;
+        let Some(font) = FontRef::from_index(&data, index as usize) else {
+            bail!("surface: face `{face_id:?}` is not a readable font file");
+        };
+        return f(&font, (data.as_ptr() as usize, index));
+    }
     let mut out: Option<Result<R>> = None;
     db.with_face_data(face_id, |data, index| -> Result<()> {
         let Some(font) = FontRef::from_index(data, index as usize) else {

@@ -789,8 +789,8 @@
                     if (cmd === 0) { this.moveTo(flat[i++], flat[i++]); }
                     else if (cmd === 1) { this.lineTo(flat[i++], flat[i++]); }
                     else if (cmd === 2) { this.quadTo(flat[i++], flat[i++], flat[i++], flat[i++]); }
-                    else if (cmd === 3) { this.cubicTo(flat[i++], flat[i++], flat[i++], flat[i++], flat[i++], flat[i++]); }
-                    else if (cmd === 4) { this.close(); }
+                    else if (cmd === 3) { this.bezierCurveTo(flat[i++], flat[i++], flat[i++], flat[i++], flat[i++], flat[i++]); }
+                    else if (cmd === 4) { this.closePath(); }
                     else { throw new Error(`Path2D: unknown verb ${cmd}`); }
                 }
                 return;
@@ -2196,7 +2196,10 @@
                 i += 1;
                 continue;
             }
-            if (/^[1-9]00$/.test(tok)) {
+            // css-fonts-4 的 font-weight 是 1..1000 的任意整数（Inter 的
+            // 变量轴常写 720/840），不能只认 100 的整倍数：否则 "720 92px
+            // Inter" 会把 720 当字号，正文被放大 8 倍。
+            if (/^[1-9][0-9]{0,3}$/.test(tok) && parseInt(tok, 10) <= 1000) {
                 weight = parseInt(tok, 10);
                 i += 1;
                 continue;
@@ -2228,11 +2231,14 @@
             font: '400 16px sans-serif',
             letterSpacing: '0px',
             fillStyle: '#000',
-            textBaseline: 'alphabetic'
+            textBaseline: 'alphabetic',
+            textAlign: 'left'
         };
-        // translate + uniform-ish scaleX subset: fillText device position is
-        // (tx + a*x, ty + y); the x-scale also squeezes glyphs (scale_x).
-        const matrix = { tx: 0, ty: 0, a: 1 };
+        // translate + scale subset: fillText device position is
+        // (tx + a*x, ty + sy*y); the x-scale also squeezes glyphs (scale_x).
+        // sy 只服务 fill(Path2D)（等比缩放路径）；字形栅格没有 y 缩放，
+        // fillText 仍在 sy===1 下受支持（sy!==1 时抛错）。
+        const matrix = { tx: 0, ty: 0, a: 1, sy: 1 };
         const stack = [];
         // font+letterSpacing and fillStyle are parsed with a regex / string
         // scan on every fillText. Cache the parsed forms, invalidated by the
@@ -2309,21 +2315,61 @@
             width: w,
             height: h,
             save() {
-                stack.push({ tx: matrix.tx, ty: matrix.ty, a: matrix.a });
+                stack.push({ tx: matrix.tx, ty: matrix.ty, a: matrix.a, sy: matrix.sy });
             },
             restore() {
                 const s = stack.pop();
-                if (s) { matrix.tx = s.tx; matrix.ty = s.ty; matrix.a = s.a; }
+                if (s) { matrix.tx = s.tx; matrix.ty = s.ty; matrix.a = s.a; matrix.sy = s.sy; }
             },
             translate(x, y) {
                 matrix.tx += matrix.a * toFiniteNumber(x);
-                matrix.ty += toFiniteNumber(y);
+                matrix.ty += matrix.sy * toFiniteNumber(y);
             },
             scale(sx, sy) {
-                if (toFiniteNumber(sy, 1) !== 1) {
-                    throw new Error('surface scale: only scale(sx, 1) is supported');
+                // Web 标准：sy 缺省/非法时取 sx。
+                const x = toFiniteNumber(sx, 1);
+                const y = toFiniteNumber(sy, x);
+                matrix.a *= x;
+                matrix.sy *= y;
+            },
+            // fill(Path2D)：路径顶点与渐变轴都在用户空间，flat verbs 编码与
+            // `__oc_path_from_svg` 一致（0=moveTo 1=lineTo 2=quadTo
+            // 3=cubicTo 4=close）。字形栅格不支持 y 缩放，fillText 另处守卫。
+            fill(path) {
+                if (!path || !Array.isArray(path._ops)) {
+                    throw new Error('surface fill: expected a Path2D');
                 }
-                matrix.a *= toFiniteNumber(sx, 1);
+                const flat = [];
+                for (const op of path._ops) {
+                    switch (op[0]) {
+                        case 'moveTo': flat.push(0, op[1], op[2]); break;
+                        case 'lineTo': flat.push(1, op[1], op[2]); break;
+                        case 'quadTo': flat.push(2, op[1], op[2], op[3], op[4]); break;
+                        case 'cubicTo': flat.push(3, op[1], op[2], op[3], op[4], op[5], op[6]); break;
+                        case 'close': flat.push(4); break;
+                        default: throw new Error('surface fill: unsupported path op ' + op[0]);
+                    }
+                }
+                const style = state.fillStyle;
+                let ax = 0, ay = 0, bx = 0, by = 0;
+                let stops = [];
+                let color = '#000000';
+                if (style && style.__opencatGradient) {
+                    ax = style.x0; ay = style.y0;
+                    bx = style.x1; by = style.y1;
+                    for (const [off, css] of style.stops) {
+                        const rgba = normalizeColor(css);
+                        stops.push(off, rgba[0], rgba[1], rgba[2], rgba[3]);
+                    }
+                } else {
+                    color = colorToCss(style);
+                }
+                __surface_fill_path(
+                    id, flat,
+                    matrix.tx, matrix.ty, matrix.a, matrix.sy,
+                    ax, ay, bx, by,
+                    stops, color
+                );
             },
             clearRect(x, y, w, h) {
                 __surface_clear(id, toFiniteNumber(x), toFiniteNumber(y), toFiniteNumber(w), toFiniteNumber(h));
@@ -2353,16 +2399,41 @@
                 };
             },
             fillText(text, x, y) {
-                if (state.textBaseline !== 'alphabetic') {
-                    throw new Error('surface fillText: only the alphabetic baseline is supported');
+                // 字形栅格只有 x 缩放（scale_x）；y 缩放的文字位置会错，loud
+                // fail 不静默画歪。
+                if (matrix.sy !== 1) {
+                    throw new Error('surface fillText: only scale(sx, 1) text is supported');
+                }
+                // surface 内部只按 alphabetic 基线合成：其余取值在这里换算成
+                // 基线 y（浏览器语义 = em 盒的上缘/中心/下缘）。
+                let by = toFiniteNumber(y);
+                const baseline = String(state.textBaseline || 'alphabetic');
+                if (baseline !== 'alphabetic') {
+                    const mt = this.measureText(String(text));
+                    const asc = Number(mt.fontBoundingBoxAscent) || 0;
+                    const desc = Number(mt.fontBoundingBoxDescent) || 0;
+                    if (baseline === 'top' || baseline === 'hanging') by += asc;
+                    else if (baseline === 'middle') by += (asc - desc) / 2;
+                    else if (baseline === 'bottom' || baseline === 'ideographic') by -= desc;
+                    else throw new Error('surface fillText: unsupported textBaseline ' + baseline);
+                }
+                // textAlign 在用户空间里左移锚点（浏览器语义：advance 宽度
+                // 的一半 / 全部），再交给矩阵变换。
+                let ax = toFiniteNumber(x);
+                const align = String(state.textAlign || 'left');
+                if (align !== 'left' && align !== 'start') {
+                    const adv = Number(this.measureText(String(text)).width) || 0;
+                    if (align === 'center') ax -= adv / 2;
+                    else if (align === 'right' || align === 'end') ax -= adv;
+                    else throw new Error('surface fillText: unsupported textAlign ' + align);
                 }
                 const f = fontSpec();
                 const css = fillCssCache !== null ? fillCssCache : (fillCssCache = colorToCss(state.fillStyle));
                 __surface_fill_text(
                     id,
                     String(text),
-                    matrix.tx + matrix.a * toFiniteNumber(x),
-                    matrix.ty + toFiniteNumber(y),
+                    matrix.tx + matrix.a * ax,
+                    matrix.ty + by,
                     f.family,
                     f.weight,
                     f.size,
@@ -2398,16 +2469,19 @@
             get fillStyle() { return state.fillStyle; },
             set fillStyle(v) { state.fillStyle = v; fillCssCache = null; },
             get textBaseline() { return state.textBaseline; },
-            set textBaseline(v) { state.textBaseline = String(v); }
+            set textBaseline(v) { state.textBaseline = String(v); },
+            get textAlign() { return state.textAlign; },
+            set textAlign(v) { state.textAlign = String(v); }
         };
     }
 
     /* 内部：按 id 取或建一张 surface 句柄。id 由 ctx.surface 生成（尺寸派生），
-       脚本不再直接持有它。 */
-    function surfaceById(id, w, h) {
+       脚本不再直接持有它。adopt=true 时 surface 已由宿主建好并写入像素（解码
+       位图），只包句柄——再 create 会把像素清零（GLB 贴图全黑的根因）。 */
+    function surfaceById(id, w, h, adopt) {
         id = String(id);
         if (!surfaceCache[id]) {
-            __surface_create(id, toFiniteNumber(w), toFiniteNumber(h));
+            if (!adopt) __surface_create(id, toFiniteNumber(w), toFiniteNumber(h));
             surfaceCache[id] = makeSurface(id, w, h);
         }
         return surfaceCache[id];

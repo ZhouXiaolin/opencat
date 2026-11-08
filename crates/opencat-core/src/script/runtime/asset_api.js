@@ -70,7 +70,8 @@
 
     var blobRegistry = {};
     var blobSeq = 1;
-    var bitmapSeq = 1;
+    // 已解码位图的尺寸表，键为内容键（见 createImageBitmap）。
+    var bitmapInfo = {};
 
     function bytesOf(source) {
         if (source && source.__ocBytes) return source.__ocBytes;
@@ -238,6 +239,114 @@
         delete blobRegistry[key];
     };
 
+    // `new Worker(blobURL)`：同 realm 模拟（DRACOLoader 把「解码器包装 +
+    // worker 函数体」拼成 blob 起 worker）。源码在独立函数作用域里执行：
+    // `onmessage = …` 的隐式全局落到作用域变量，`self` / `postMessage` 指向
+    // worker 侧端点；`self` 以 globalThis 为原型（worker 按名取
+    // `self.Float32Array` 之类的构造器）。两向消息走微任务派发，投递序即
+    // 处理序；消息按结构化克隆语义复制（多个 worker 共收一份 init 配置时，
+    // Emscripten 会把运行时状态挂到配置对象上——共享引用即互相踩踏），
+    // transfer 列表里的 ArrayBuffer 按引用移交。
+    function cloneMessage(value, transfer, seen) {
+        if (value === null || typeof value !== 'object') return value;
+        if (seen.has(value)) return seen.get(value);
+        var out;
+        if (value instanceof ArrayBuffer) {
+            out = transfer.indexOf(value) >= 0 ? value : value.slice(0);
+        } else if (value instanceof DataView) {
+            out = new DataView(cloneMessage(value.buffer, transfer, seen), value.byteOffset, value.byteLength);
+        } else if (ArrayBuffer.isView(value)) {
+            out = new value.constructor(cloneMessage(value.buffer, transfer, seen), value.byteOffset, value.length);
+        } else {
+            out = Array.isArray(value) ? [] : {};
+            seen.set(value, out);
+            for (var k in value) {
+                if (Object.prototype.hasOwnProperty.call(value, k)) out[k] = cloneMessage(value[k], transfer, seen);
+            }
+            return out;
+        }
+        seen.set(value, out);
+        return out;
+    }
+    function WorkerShim(url) {
+        var bytes = blobRegistry[String(url)];
+        if (bytes === undefined) throw new Error('Worker: only blob: scripts are supported: ' + url);
+        var outer = this;
+        var inner = Object.create(globalThis);
+        inner.self = inner;
+        inner.location = { href: String(url) };
+        inner.onmessage = null;
+        inner.postMessage = function (data, transfer) {
+            var msg = cloneMessage(data, Array.isArray(transfer) ? transfer : [], new Map());
+            Promise.resolve().then(function () {
+                if (typeof outer.onmessage === 'function') outer.onmessage({ data: msg });
+            });
+        };
+        var handlerOf = new Function(
+            'self', 'postMessage', 'importScripts', 'location',
+            'var onmessage = null;\n' + utf8Decode(bytes) + '\n;return function () { return onmessage; };'
+        )(inner, inner.postMessage, function () {
+            throw new Error('Worker: importScripts is not supported');
+        }, inner.location);
+        this.onmessage = null;
+        this.onerror = null;
+        this.postMessage = function (data, transfer) {
+            var msg = cloneMessage(data, Array.isArray(transfer) ? transfer : [], new Map());
+            Promise.resolve().then(function () {
+                var handler = handlerOf() || inner.onmessage;
+                if (typeof handler !== 'function') return;
+                try {
+                    handler.call(inner, { data: msg });
+                } catch (e) {
+                    if (typeof console !== 'undefined' && console.error) console.error('Worker: ' + (e && e.stack || e));
+                    if (typeof outer.onerror === 'function') outer.onerror(e);
+                }
+            });
+        };
+        this.terminate = function () {};
+    }
+    globalThis.Worker = WorkerShim;
+
+    // WebAssembly 编译改同步：V8 的异步编译靠平台前台任务交付结果，渲染
+    // 循环只跑微任务检查点、不泵消息循环，大模块（draco 解码器）的
+    // instantiate Promise 永不 settle。同步编译后仍经 Promise 交付，帧内
+    // 确定完成；产物与异步路径相同。
+    // 编译产物按内容键缓存：页脚本逐帧重跑，同一模块（每个 Worker 一份
+    // 拷贝）每帧重编译，且永远停在基线层级。Module 不可变，按字节共享与
+    // 重编译等价。
+    if (typeof WebAssembly === 'object') {
+        var wasmModules = {};
+        var compileModule = function (source) {
+            var bytes = bytesOf(source);
+            if (!bytes) throw new TypeError('WebAssembly: unsupported source');
+            var h1 = 0x811c9dc5, h2 = 5381;
+            for (var i = 0; i < bytes.length; i++) {
+                h1 = Math.imul(h1 ^ bytes[i], 0x01000193);
+                h2 = (Math.imul(h2, 33) + bytes[i]) | 0;
+            }
+            var key = bytes.length + '-' + (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+            return wasmModules[key] || (wasmModules[key] = new WebAssembly.Module(bytes));
+        };
+        WebAssembly.compile = function (source) {
+            try {
+                return Promise.resolve(compileModule(source));
+            } catch (e) {
+                return Promise.reject(e);
+            }
+        };
+        WebAssembly.instantiate = function (source, imports) {
+            try {
+                if (source instanceof WebAssembly.Module) {
+                    return Promise.resolve(new WebAssembly.Instance(source, imports));
+                }
+                var module = compileModule(source);
+                return Promise.resolve({ module: module, instance: new WebAssembly.Instance(module, imports) });
+            } catch (e) {
+                return Promise.reject(e);
+            }
+        };
+    }
+
     // `<img>` / `new Image()`：只支持引擎镜像的本地资产（批量对齐面把远程
     // 图片镜像到 cwd 的 `assets/`，URL → 文件名表由入口注入 `__ocAssetMap`）。
     // 加载是异步的（微任务）——g 系渲染器先赋 `src` 再挂 `onload`，同步派发
@@ -367,14 +476,26 @@
             if (typeof console !== 'undefined' && console.error) console.error(e0.message);
             return Promise.reject(e0);
         }
-        var sid = 'ibm-' + (bitmapSeq++);
-        var info = __opencatImageDecodeInto(bytes, sid);
-        if (!info) {
-            var e1 = new Error('createImageBitmap: decode failed (' + bytes.length + ' bytes)');
-            if (typeof console !== 'undefined' && console.error) console.error(e1.message);
-            return Promise.reject(e1);
+        // 按内容寻址：页脚本每帧重放，GLTFLoader 每帧重新解出同一批贴图
+        // 字节。序号 id 会逐帧新建 surface（RGBA 常驻会话表，整片 OOM）；
+        // 内容键让同字节复用同一张已解码 surface，也省掉重复解码。
+        var h1 = 0x811c9dc5, h2 = 5381;
+        for (var i = 0; i < bytes.length; i++) {
+            h1 = Math.imul(h1 ^ bytes[i], 0x01000193);
+            h2 = (Math.imul(h2, 33) + bytes[i]) | 0;
         }
-        var surface = globalThis.ctx.__surfaceById(sid, info.width, info.height);
+        var sid = 'ibm-' + bytes.length + '-' + (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+        var info = bitmapInfo[sid];
+        if (!info) {
+            info = __opencatImageDecodeInto(bytes, sid);
+            if (!info) {
+                var e1 = new Error('createImageBitmap: decode failed (' + bytes.length + ' bytes)');
+                if (typeof console !== 'undefined' && console.error) console.error(e1.message);
+                return Promise.reject(e1);
+            }
+            bitmapInfo[sid] = info;
+        }
+        var surface = globalThis.ctx.__surfaceById(sid, info.width, info.height, true);
         return Promise.resolve(surface);
     };
 })();

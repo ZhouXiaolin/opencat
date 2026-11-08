@@ -54,6 +54,10 @@ pub enum DomElement {
         /// 选择器输入。JS 端 payload 原样回传（`uaTag`）。
         #[serde(default, rename = "uaTag")]
         ua_tag: Option<String>,
+        /// 原文属性表（文档序）。属性选择器（`[data-composition-id="…"]`）
+        /// 的匹配输入；JSX 通道与脚本新建节点为空。JS 端 payload 原样回传。
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        attrs: Vec<(String, String)>,
         #[serde(default)]
         children: Vec<DomElement>,
     },
@@ -247,7 +251,9 @@ impl DomElement {
         }
     }
 
-    fn children_mut(&mut self) -> Option<&mut Vec<DomElement>> {
+    /// 子节点可变视图（只有容器变体返回 Some）。嵌套 composition 展开时
+    /// 用来把子工程根挂进宿主元素。
+    pub fn children_mut(&mut self) -> Option<&mut Vec<DomElement>> {
         match self {
             DomElement::Div { children, .. }
             | DomElement::Canvas { children, .. }
@@ -327,6 +333,14 @@ impl DomElement {
             _ => None,
         }
     }
+
+    /// 原文属性表（HTML 前端产；其余变体为空）。属性选择器的匹配输入。
+    pub fn html_attrs(&self) -> &[(String, String)] {
+        match self {
+            DomElement::Div { attrs, .. } => attrs,
+            _ => &[],
+        }
+    }
 }
 
 /// HTML 标签 → 静态字符串（tag 选择器输入需要 `&'static str`）。
@@ -353,11 +367,20 @@ fn inline_level_child(el: &DomElement) -> bool {
     }
 }
 
+/// 匿名文本 run：html 前端把混排里的裸文本包成无标签的合成 P（真 `<p>`
+/// 与 h1-h6 都带 ua_tag）。它在行内流里与行内元素同排。
+fn anonymous_text_run(el: &DomElement) -> bool {
+    matches!(el, DomElement::P { ua_tag: None, .. })
+}
+
 /// 级联匹配上下文链上的节点快照（owned：build_node 消费所有权前提取）。
 #[derive(Debug, Clone, Default)]
-pub struct CssNodeInfo {    pub tag: String,
+pub struct CssNodeInfo {
+    pub tag: String,
     pub id: String,
     pub classes: String,
+    /// 原文属性表（属性选择器用；JSX 通道为空）。
+    pub attrs: Vec<(String, String)>,
 }
 
 impl CssNodeInfo {
@@ -366,6 +389,7 @@ impl CssNodeInfo {
             tag: el.css_tag().to_string(),
             id: el.id().to_string(),
             classes: el.css_class().unwrap_or_default().to_string(),
+            attrs: el.html_attrs().to_vec(),
         }
     }
 }
@@ -429,6 +453,7 @@ pub fn composition_from_dom(
             .then(|| vec!["body", "html"])
             .unwrap_or_default(),
         html_frontend: doc.html_frontend,
+        font_px: Vec::new(),
     };
     let mut ctx = ctx;
     // 音频池元素也占 id 命名空间（`<audio>` 是文档元素）。
@@ -514,6 +539,8 @@ struct DomContext<'a> {
     /// HTML 前端（docs/html-align/DESIGN.md）：开启行内格式化标记——
     /// 子节点全为 span 的 div 是行内内容容器，布局端串接重排。
     html_frontend: bool,
+    /// 祖先计算字号栈（HTML 前端）：栈顶是父元素字号，`em` 单位按它求值。
+    font_px: Vec<f32>,
 }
 
 /// 树内 `<audio>` 收进音频池（保持文档顺序）；其余子树继续下探。
@@ -530,17 +557,18 @@ fn harvest_audio(
     for child in children.drain(..) {
         match child {
             DomElement::Audio {
-                id,
+                id: audio_id,
                 mut attach,
                 path,
                 url,
                 duration,
             } => {
                 if attach.is_empty() {
-                    attach = parent_id.unwrap_or_default().to_string();
+                    // 根下直挂的 <audio>（html 顶层 body 级 clip）挂根自身。
+                    attach = parent_id.unwrap_or(&id).to_string();
                 }
                 out.push(DomAudio {
-                    id,
+                    id: audio_id,
                     attach,
                     source: parse_audio_source(path, url)?,
                     duration,
@@ -578,6 +606,7 @@ fn resolve_style_for(
     tag: &str,
     class: Option<&str>,
     inline_style: Option<&str>,
+    attrs: &[(String, String)],
     ctx: &DomContext<'_>,
 ) -> NodeStyle {
     let aliases = ctx.tag_aliases.clone();
@@ -590,6 +619,7 @@ fn resolve_style_for(
             tag: &n.tag,
             id: &n.id,
             classes: &n.classes,
+            attrs: &n.attrs,
         })
         .collect();
     let sibling_views: Vec<crate::css::SelectorNode<'_>> = ctx
@@ -600,12 +630,15 @@ fn resolve_style_for(
             tag: &n.tag,
             id: &n.id,
             classes: &n.classes,
+            attrs: &n.attrs,
         })
         .collect();
     let sel_ctx = crate::css::SelectorContext {
         ancestors: &ancestor_views,
         prev_siblings: &sibling_views,
         tag_aliases: &aliases,
+        subject_attrs: attrs,
+        parent_font_px: parent_font_px(ctx),
     };
     let mut style = crate::parse::elements::resolve_style_ctx(
         ctx.css,
@@ -622,6 +655,12 @@ fn resolve_style_for(
         manifest.apply_font_refs_to_style(index, &mut style);
     }
     style
+}
+
+/// 父元素计算字号（HTML 前端）：根元素的父字号是浏览器默认 16px。
+fn parent_font_px(ctx: &DomContext<'_>) -> Option<f32> {
+    ctx.html_frontend
+        .then(|| ctx.font_px.last().copied().unwrap_or(16.0))
 }
 
 fn attach_driver(
@@ -649,6 +688,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             data_start,
             data_duration,
             ua_tag,
+            attrs,
             children,
         } => {
             // HTML 前端的根节点就是 <body>（<html> 无独立节点），
@@ -659,18 +699,31 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             } else {
                 ua_tag.as_deref().map(css_tag_static).unwrap_or("div")
             };
-            let mut style = resolve_style_for(&id, tag, class.as_deref(), inline_style.as_deref(), ctx);
+            let mut style = resolve_style_for(&id, tag, class.as_deref(), inline_style.as_deref(), &attrs, ctx);
             // tag 别名只作用于根节点（html 前端根 = body/html）。
             ctx.tag_aliases.clear();
             // HTML 可见窗协议属性（docs/html-align/DESIGN.md）。
             style.clip_start = data_start;
             style.clip_duration = data_duration;
-            // 行内格式化：HTML 前端的块级盒，子节点全为行内级（span 等）时
-            // 建立行内流（布局端串接重排，taffy 无 IFC）。
+            // 行内格式化：HTML 前端的块级盒，子节点全为行内级（span 等与匿名
+            // 文本 run）且至少有一个行内元素时建立行内流（布局端串接重排，
+            // taffy 无 IFC）。纯文本容器走 Text 节点路径；flex/grid 容器的子
+            // 节点是 flex/grid 项，不进行内流。
+            let flex_or_grid = style.css_layout.as_ref().is_some_and(|css| {
+                matches!(
+                    css.0.display,
+                    taffy::prelude::Display::Flex | taffy::prelude::Display::Grid
+                )
+            });
             style.inline_flow = ctx.html_frontend
-                && !children.is_empty()
-                && children.iter().all(inline_level_child);
+                && !flex_or_grid
+                && children.iter().any(inline_level_child)
+                && children
+                    .iter()
+                    .all(|child| inline_level_child(child) || anonymous_text_run(child));
             attach_driver(&mut style, &id, ctx)?;
+            // 子元素的 em 基准：本元素字号（未声明则继承父字号）。
+            let own_font_px = parent_font_px(ctx).map(|parent| style.text_px.unwrap_or(parent));
             let mut div_node = div();
             div_node.style = style;
             let mut self_info = CssNodeInfo::of(&DomElement::Div {
@@ -681,12 +734,16 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 data_start: None,
                 data_duration: None,
                 ua_tag: ua_tag.clone(),
+                attrs: attrs.clone(),
                 children: Vec::new(),
             });
             if is_html_root {
                 self_info.tag = tag.to_string();
             }
             ctx.ancestors.push(self_info);
+            if let Some(px) = own_font_px {
+                ctx.font_px.push(px);
+            }
             let saved_siblings = std::mem::take(&mut ctx.prev_siblings);
             let mut sibling_infos: Vec<CssNodeInfo> = Vec::new();
             for child in children {
@@ -696,6 +753,9 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 sibling_infos.push(child_info);
             }
             ctx.prev_siblings = saved_siblings;
+            if own_font_px.is_some() {
+                ctx.font_px.pop();
+            }
             ctx.ancestors.pop();
             Ok(Node::new(div_node))
         }
@@ -715,6 +775,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 ua_tag.as_deref().unwrap_or("p"),
                 class.as_deref(),
                 inline_style.as_deref(),
+                &[],
                 ctx,
             );
             attach_driver(&mut style, &id, ctx)?;
@@ -735,6 +796,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 ua_tag.as_deref().unwrap_or("span"),
                 class.as_deref(),
                 inline_style.as_deref(),
+                &[],
                 ctx,
             );
             attach_driver(&mut style, &id, ctx)?;
@@ -752,7 +814,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             ..
         } => {
             let mut style =
-                resolve_style_for(&id, "canvas", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "canvas", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
             // canvas 的 width/height 属性是固有尺寸（CSS 未给尺寸时生效），
             // 与浏览器一致：属性只提供默认盒，CSS 的 width/height 优先。
@@ -797,7 +859,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             ..
         } => {
             let mut style =
-                resolve_style_for(&id, "image", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "image", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
             let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
             let mut image_node = image();
@@ -835,7 +897,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             ..
         } => {
             let mut style =
-                resolve_style_for(&id, "video", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "video", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
             let source = match url {
                 Some(u) => VideoSource::Url(u),
@@ -878,7 +940,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             ..
         } => {
             let mut style =
-                resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
             let source = match (path, url) {
                 (Some(p), None) => crate::parse::primitives::LottieSource::Path(p),
@@ -907,7 +969,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             ..
         } => {
             let mut style =
-                resolve_style_for(&id, "path", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "path", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
             let view_box = view_box.as_deref().map(parse_view_box_attr).transpose()?;
             let mut path_node = path(d);
@@ -928,8 +990,10 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             preserve_aspect_ratio,
             ..
         } => {
+            // 选择器按 svg 标签匹配（`#cursor svg { width: 100% }` 这类后代
+            // 类型选择器）；按 div 匹配会让 svg 的 CSS 尺寸整条落空。
             let mut style =
-                resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), ctx);
+                resolve_style_for(&id, "svg", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
             // 内联 markup 不落盘、无文件语义：src 仅在文件模式参与 base_dir 解析。
             let resolved_src = if inline.is_some() {
@@ -954,7 +1018,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             children,
             ..
         } => {
-            let mut style = resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), ctx);
+            let mut style = resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), &[], ctx);
             attach_driver(&mut style, &id, ctx)?;
 
             // 子元素分流：场景 vs transition（保持文档顺序）。

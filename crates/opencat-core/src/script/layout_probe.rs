@@ -6,20 +6,28 @@
 //! answer has to be produced by a layout pass, and scripts run *before* the
 //! frame's layout pass exists.
 //!
-//! This module breaks that cycle by running one on-demand resolve+layout for
-//! the scope's own subtree. The pass must not re-run the scope's scripts: it
-//! uses [`PrecomputedScriptHost`], whose `run_frame` applies no mutations, so
-//! the measured tree is the "raw" one the browser measures in `getTitleOffset`.
+//! This module breaks that cycle with a synchronous layout, as a browser does:
+//! the first geometry read of a scope resolves+lays out the scope's own subtree
+//! with the mutations the script has written so far this frame, and a later
+//! text write invalidates it. `getTitleOffset` writes "HTML" into an empty span
+//! and then measures it; the typing callbacks read `offsetWidth` right after
+//! each letter. The pass must not re-run the scope's scripts: it uses
+//! [`PrecomputedScriptHost`], which only replays the store snapshot.
 //!
 //! The probe is a scoped thread-local (the same shape as
 //! [`crate::text::scope_font_db`]) because the JS binding can only reach a
 //! `&MutationStore`, and the store cannot own the resolver state.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::parse::node::Node;
+use crate::probe::PreparedResourceCatalog;
+use crate::script::StyleMutations;
 use crate::script::precomputed_host::PrecomputedScriptHost;
+use crate::script::recorder::MutationStore;
 
 /// Viewport-space rect of an element, as CSSOM View reports it.
 ///
@@ -33,33 +41,42 @@ pub struct AbsBox {
     pub height: f32,
 }
 
+/// Inputs of one scope's synchronous layout, plus the boxes of the last pass
+/// keyed by the store's text-write count.
 struct ProbeScope {
-    boxes: RefCell<std::collections::HashMap<String, AbsBox>>,
+    node: Node,
+    frame_ctx: FrameCtx,
+    script_frame_ctx: ScriptFrameCtx,
+    assets: PreparedResourceCatalog,
+    cache: RefCell<Option<(u64, HashMap<String, AbsBox>)>>,
 }
 
 thread_local! {
-    static LIVE: RefCell<Vec<ProbeScope>> = const { RefCell::new(Vec::new()) };
-    /// A nested resolve re-enters `scope_boxes`; only the outermost may measure.
+    static LIVE: RefCell<Vec<Rc<ProbeScope>>> = const { RefCell::new(Vec::new()) };
+    /// A measuring pass re-enters the resolver; only the outermost scope may
+    /// measure, nested ones run without a probe.
     static DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Publish `boxes` to the scripts of this scope for the duration of `f`.
-pub(crate) fn with_footprint<R>(
-    boxes: std::collections::HashMap<String, AbsBox>,
+/// Give the scripts run inside `f` a synchronous-layout probe over `node`.
+pub(crate) fn with_scope<R>(
+    node: &Node,
+    frame_ctx: FrameCtx,
+    script_frame_ctx: ScriptFrameCtx,
+    assets: PreparedResourceCatalog,
     f: impl FnOnce() -> R,
 ) -> R {
-    if let Some(Ok(json)) = std::env::var_os("OPENCAT_DUMP_LAYOUT").map(|_| {
-        serde_json::to_string(
-            &boxes
-                .iter()
-                .map(|(k, v)| (k.clone(), serde_json::json!([v.x, v.y, v.width, v.height])))
-                .collect::<std::collections::BTreeMap<_, _>>(),
-        )
-    }) {
-        let _ = std::fs::create_dir_all("/tmp/opencat-layout");
-        let _ = std::fs::write("/tmp/opencat-layout/boxes.json", json);
+    if DEPTH.with(|depth| depth.get()) > 0 {
+        return f();
     }
-    LIVE.with(|live| live.borrow_mut().push(ProbeScope { boxes: RefCell::new(boxes) }));
+    let scope = ProbeScope {
+        node: node.clone(),
+        frame_ctx,
+        script_frame_ctx,
+        assets,
+        cache: RefCell::new(None),
+    };
+    LIVE.with(|live| live.borrow_mut().push(Rc::new(scope)));
     let out = f();
     LIVE.with(|live| {
         live.borrow_mut().pop();
@@ -67,8 +84,24 @@ pub(crate) fn with_footprint<R>(
     out
 }
 
-pub(crate) fn box_for(id: &str) -> Option<AbsBox> {
-    LIVE.with(|live| live.borrow().last()?.boxes.borrow().get(id).cloned())
+/// Box of `id` in the current scope, laid out with the store's current state.
+pub(crate) fn box_for(id: &str, store: &MutationStore) -> Option<AbsBox> {
+    let scope = LIVE.with(|live| live.borrow().last().cloned())?;
+    let key = store.text_writes();
+    let fresh = scope
+        .cache
+        .borrow()
+        .as_ref()
+        .is_some_and(|(cached, _)| *cached == key);
+    if !fresh {
+        let boxes = measure(&scope, store.style_snapshot())?;
+        *scope.cache.borrow_mut() = Some((key, boxes));
+    }
+    scope
+        .cache
+        .borrow()
+        .as_ref()
+        .and_then(|(_, boxes)| boxes.get(id).cloned())
 }
 
 /// Does this source ever ask for geometry? Under-reporting only makes the
@@ -92,7 +125,7 @@ pub(crate) fn wants_geometry(source: &str) -> bool {
 fn collect(
     node: &crate::layout::tree::LayoutNode,
     origin: (f32, f32),
-    out: &mut std::collections::HashMap<String, AbsBox>,
+    out: &mut HashMap<String, AbsBox>,
 ) {
     let x = origin.0 + node.rect.x;
     let y = origin.1 + node.rect.y;
@@ -107,25 +140,18 @@ fn collect(
     }
 }
 
-/// Resolve `node`'s subtree with a no-op host and lay it out.
-pub(crate) fn scope_boxes(
-    node: &Node,
-    frame_ctx: &FrameCtx,
-    script_frame_ctx: &ScriptFrameCtx,
-    assets: &mut crate::probe::PreparedResourceCatalog,
-) -> Option<std::collections::HashMap<String, AbsBox>> {
-    if DEPTH.with(|depth| depth.get()) > 0 {
-        return None;
-    }
+/// Resolve the scope's subtree with `mutations` replayed and lay it out.
+fn measure(scope: &ProbeScope, mutations: StyleMutations) -> Option<HashMap<String, AbsBox>> {
     let fonts = crate::text::script_font_db();
-    let mut host = PrecomputedScriptHost::new();
+    let mut host = PrecomputedScriptHost::from_single(mutations);
+    let mut assets = scope.assets.clone();
     DEPTH.with(|depth| depth.set(depth.get() + 1));
     let resolved = crate::text::scope_font_db(&fonts, || {
         crate::resolve::resolve::resolve_ui_tree_with_script_cache(
-            node,
-            frame_ctx,
-            script_frame_ctx,
-            assets,
+            &scope.node,
+            &scope.frame_ctx,
+            &scope.script_frame_ctx,
+            &mut assets,
             None,
             &mut host,
         )
@@ -135,11 +161,9 @@ pub(crate) fn scope_boxes(
     let provider = crate::text::DefaultFontProvider::from_arc(fonts);
     let mut session = crate::layout::LayoutSession::new();
     let (tree, _) = session
-        .compute_layout_with_provider(&element, frame_ctx, &provider)
+        .compute_layout_with_provider(&element, &scope.frame_ctx, &provider)
         .ok()?;
-    let mut out = std::collections::HashMap::default();
+    let mut out = HashMap::default();
     collect(&tree.root, (0.0, 0.0), &mut out);
     Some(out)
 }
-
-

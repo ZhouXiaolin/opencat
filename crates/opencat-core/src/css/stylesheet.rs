@@ -24,8 +24,18 @@ pub struct CssStylesheet {
     /// `:root` 与 `@property initial-value` 提供的自定义属性
     /// （文档顺序，后者覆盖前者）。
     pub root_vars: HashMap<String, TokenList<'static>>,
+    /// `@font-face` 声明（文档顺序）——html 通道的文档字体来源。
+    pub font_faces: Vec<CssFontFace>,
     /// 顶层 `@layer` 名 → 层号（登记顺序即优先级顺序）。
     top_layers: HashMap<String, usize>,
+}
+
+/// 一条 `@font-face`：族名 + `src` 里的 url 候选（文档序，`local()` 不收）。
+/// 字重/字形描述符不带：字体文件自身的 OS/2 元数据即选面依据（Google
+/// Fonts 每个字重给独立的静态实例）。
+pub struct CssFontFace {
+    pub family: String,
+    pub urls: Vec<String>,
 }
 
 /// 一条展平后的样式规则。
@@ -45,11 +55,21 @@ impl CssStylesheet {
         // token）。alpha 阶段没有 into_owned()，这里泄漏输入文本换取
         // 'static：样式表与引擎同生命周期，文本体量是 KB 级，可接受。
         let owned: &'static str = Box::leak(css.to_string().into_boxed_str());
-        let sheet = StyleSheet::parse(owned, ParserOptions::default())
-            .map_err(|e| anyhow::anyhow!("CSS 解析失败: {e:?}"))?;
+        // 错误恢复：浏览器按规范跳过非法规则继续解析（嵌套 composition 的
+        // `<style>` 可能带 `@import`，拼进宿主级联后位置非法；页面里也常见
+        // 实验语法）。严格模式下一条坏规则会让整帧渲染失败。
+        let sheet = StyleSheet::parse(
+            owned,
+            ParserOptions {
+                error_recovery: true,
+                ..ParserOptions::default()
+            },
+        )
+        .map_err(|e| anyhow::anyhow!("CSS 解析失败: {e:?}"))?;
         let mut out = Self {
             rules: Vec::new(),
             root_vars: HashMap::new(),
+            font_faces: Vec::new(),
             top_layers: HashMap::new(),
         };
         out.walk(&sheet.rules.0, UNLAYERED, None);
@@ -127,8 +147,35 @@ impl CssStylesheet {
                         self.root_vars.insert(key, tokens);
                     }
                 }
-                // @keyframes/@font-face 等在脚本动画与字体清单模型之外，
-                // 第一阶段不支持。
+                CssRule::FontFace(face) => {
+                    use lightningcss::rules::font_face::{FontFaceProperty, Source};
+                    let mut family = None;
+                    let mut urls = Vec::new();
+                    for prop in &face.properties {
+                        match prop {
+                            FontFaceProperty::FontFamily(name) => {
+                                family = name
+                                    .to_css_string(PrinterOptions::default())
+                                    .ok()
+                                    .map(|s| s.trim_matches(|c| c == '"' || c == '\'').to_string());
+                            }
+                            FontFaceProperty::Source(sources) => {
+                                for source in sources {
+                                    if let Source::Url(src) = source {
+                                        urls.push(src.url.url.to_string());
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    if let Some(family) = family.filter(|f| !f.is_empty())
+                        && !urls.is_empty()
+                    {
+                        self.font_faces.push(CssFontFace { family, urls });
+                    }
+                }
+                // @keyframes 等在脚本动画模型之外，第一阶段不支持。
                 _ => {}
             }
         }

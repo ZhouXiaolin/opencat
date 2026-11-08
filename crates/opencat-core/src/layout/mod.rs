@@ -473,6 +473,14 @@ fn effective_position(element: &ElementNode) -> Position {
     element.style.layout.position
 }
 
+/// CSS 直通腿给定的宽/高（非 auto）。NodeStyle 的 width/height 镜像不含
+/// calc/em 这类尺寸，它们只落在 `css_layout` 里。
+fn css_definite_size(element: &ElementNode) -> (bool, bool) {
+    element.style.css_layout.as_ref().map_or((false, false), |css| {
+        (!css.0.size.width.is_auto(), !css.0.size.height.is_auto())
+    })
+}
+
 fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &element.style.layout;
     // 标准直通腿：CSS 路径产出的 taffy 样式整体克隆。border 宽度也已在
     // `css::to_taffy` 落好（含 thin/medium/thick），不再用 paint 腿的
@@ -483,6 +491,22 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
         // <svg> 的 auto 尺寸回填元素 width/height 属性或 svg intrinsic
         // （浏览器 width:auto 语义）；CSS 显式尺寸优先，不覆盖。
         let mut style = css.0.clone();
+        // <img> 是 replaced element：两维都 auto 用固有尺寸；只有一维 auto
+        // 时按固有宽高比推出来（浏览器 `width:650px; height:auto` 语义）。
+        // taffy 没有 replaced 语义，不给 aspect_ratio 就会塌成 0。
+        if let ElementKind::Bitmap(bitmap) = &element.kind {
+            let (iw, ih) = (bitmap.width as f32, bitmap.height as f32);
+            if iw > 0.0 && ih > 0.0 {
+                let w_auto = style.size.width.is_auto();
+                let h_auto = style.size.height.is_auto();
+                if w_auto && h_auto {
+                    style.size.width = Dimension::length(iw);
+                    style.size.height = Dimension::length(ih);
+                } else if w_auto != h_auto {
+                    style.aspect_ratio = Some(iw / ih);
+                }
+            }
+        }
         if let ElementKind::Svg(svg) = &element.kind {
             let fallback_w = svg
                 .width
@@ -503,10 +527,14 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
                 }
             }
         }
-        // 行内流容器：taffy 没有 inline 层级，默认 align-items:stretch 会把每个
-        // 行内子盒拉成同宽（逐字 span 的表面宽度全等）。按 start 让它们
-        // shrink-to-fit，行内串接由 build_layout_tree 的行内 pass 完成。
+        // 行内流容器：taffy 没有 inline 层级。映射成单行 flex row（顶对齐、
+        // 子盒 shrink-to-fit），让 taffy 自己算出行内容的固有宽度（子盒宽之
+        // 和）——父盒的 shrink-to-fit 与居中才拿得到正确尺寸。行内串接的
+        // 最终坐标仍由 build_layout_tree 的行内 pass 定稿。
         if layout.inline_flow {
+            style.display = taffy::prelude::Display::Flex;
+            style.flex_direction = taffy::prelude::FlexDirection::Row;
+            style.flex_wrap = taffy::prelude::FlexWrap::NoWrap;
             style.align_items = Some(taffy::prelude::AlignItems::START);
         }
         return style;
@@ -792,6 +820,7 @@ fn resolve_abs_axis(
     cb_len: f32,
     size: f32,
     static_pos: f32,
+    (margin_start, margin_end): (f32, f32),
 ) -> Option<f32> {
     use taffy::style::ExpandedLengthPercentageAuto as E;
     let resolve = |v: taffy::style::LengthPercentageAuto, base: f32| match v.expand() {
@@ -799,13 +828,15 @@ fn resolve_abs_axis(
         E::Percent(p) => Some(p * base),
         E::Auto => None,
     };
+    // inset 定位的是 margin box：border box 再错开一个 margin（gsap 网格的
+    // `left:50%` + 负 margin 居中写法）。
     if let Some(px) = resolve(start, cb_len) {
-        return Some(cb_start + px);
+        return Some(cb_start + px + margin_start);
     }
     if let Some(px) = resolve(end, cb_len) {
-        return Some(cb_start + cb_len - px - size);
+        return Some(cb_start + cb_len - px - size - margin_end);
     }
-    Some(static_pos)
+    Some(static_pos + margin_start)
 }
 
 /// 绝对定位的「包含块」上下文（`docs/html-align/DESIGN.md`）：CSS 规定绝对定位
@@ -847,8 +878,10 @@ fn build_layout_tree_at(
 
     // CSS 直通腿的定位以 `css_layout` 为准：NodeStyle 的 position 只在非 CSS
     // 路径被填，拿它判定会把 `position:absolute` 的 CSS 元素当 static，绝对
-    // 定位包含块整条失效（k3 的 .pin 全落到 (0,0)）。
-    let positioned = effective_position(element) != Position::Relative;
+    // 定位包含块整条失效（k3 的 .pin 全落到 (0,0)）。`position: relative` 也是
+    // 包含块（vfx 的 caret 绝对定位在 relative 的 .html-word 里）。
+    let positioned =
+        element.style.layout.positioned || effective_position(element) != Position::Relative;
     let padding_box = LayoutRect {
         x: origin.0 + rect.x + layout.border.left + layout.padding.left,
         y: origin.1 + rect.y + layout.border.top + layout.padding.top,
@@ -866,9 +899,13 @@ fn build_layout_tree_at(
         cb: if positioned { padding_box } else { containing_block },
     };
 
+    // 子盒左右 margin（行内串接要计入；taffy 的块布局把它们算进了纵向流）。
+    let mut inline_margins: Vec<(f32, f32)> = Vec::new();
     for ((_, element_child), taffy_child) in
         ordered_children(element).into_iter().zip(taffy_children)
     {
+        let margin = taffy.layout(taffy_child)?.margin;
+        inline_margins.push((margin.left, margin.right));
         let mut child = build_layout_tree_at(
             element_child,
             taffy,
@@ -889,6 +926,7 @@ fn build_layout_tree_at(
                 child_ctx.cb.width,
                 child.rect.width,
                 child_ctx.origin.0 + layout.border.left + layout.padding.left,
+                (margin.left, margin.right),
             ) {
                 child.rect.x = x - child_ctx.origin.0;
             }
@@ -899,6 +937,7 @@ fn build_layout_tree_at(
                 child_ctx.cb.height,
                 child.rect.height,
                 child_ctx.origin.1 + layout.border.top + layout.padding.top,
+                (margin.top, margin.bottom),
             ) {
                 child.rect.y = y - child_ctx.origin.1;
             }
@@ -916,7 +955,11 @@ fn build_layout_tree_at(
         let mut content_w = 0.0f32;
         let mut content_h = 0.0f32;
         let mut has_in_flow = false;
-        for (child, (_, child_element)) in children.iter_mut().zip(ordered_children(element)) {
+        for ((child, (_, child_element)), &(margin_left, margin_right)) in children
+            .iter_mut()
+            .zip(ordered_children(element))
+            .zip(&inline_margins)
+        {
             if child_element.style.layout.position == Position::Absolute {
                 continue;
             }
@@ -926,6 +969,7 @@ fn build_layout_tree_at(
             if !child_element.style.layout.inline_flow
                 && child_element.style.layout.width.is_none()
                 && child_element.style.layout.width_percent.is_none()
+                && !css_definite_size(child_element).0
                 && let ElementKind::Text(text) = &child_element.kind
                 && !text_element_allows_wrap(child_element)
             {
@@ -938,9 +982,9 @@ fn build_layout_tree_at(
                 )
                 .width;
             }
-            child.rect.x = left + content_w;
+            child.rect.x = left + content_w + margin_left;
             child.rect.y = top;
-            content_w += child.rect.width;
+            content_w += margin_left + child.rect.width + margin_right;
             content_h = content_h.max(child.rect.height);
         }
         if has_in_flow {
@@ -949,15 +993,18 @@ fn build_layout_tree_at(
             // 我们按内容收缩会把两三行的居中文本盒压成内容高（k3 的
             // `.tickbox .txt{inset:0}`）。
             let abs_box = layout_style.position == Position::Absolute;
+            let (css_width, css_height) = css_definite_size(element);
             if !abs_box
                 && layout_style.width.is_none()
                 && layout_style.width_percent.is_none()
+                && !css_width
             {
                 rect.width = left + content_w + layout.padding.right + layout.border.right;
             }
             if !abs_box
                 && layout_style.height.is_none()
                 && layout_style.height_percent.is_none()
+                && !css_height
             {
                 rect.height = top + content_h + layout.padding.bottom + layout.border.bottom;
             }

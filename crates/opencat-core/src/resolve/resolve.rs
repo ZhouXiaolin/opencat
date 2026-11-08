@@ -134,7 +134,7 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     // HTML 可见窗（docs/html-align/DESIGN.md）：`[start, start+duration)`
     // 半开窗外 = 整子树退出布局与绘制（空占位盒）。窗口盖住合成末尾的
     // 拥有「终止瞬间」（hyperframes 语义），末帧不隐藏。
-    if clip_window_hides(node.style_ref(), cx.frame_ctx) {
+    if clip_window_hides(node.style_ref(), cx.frame_ctx) || script_display_none(node.style_ref(), cx) {
         return Ok(hidden_clip_placeholder(cx));
     }
     match node.kind() {
@@ -148,6 +148,15 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         NodeKind::Svg(svg) => resolve_svg(svg, cx),
         NodeKind::Timeline(timeline) => resolve_timeline(timeline, cx),
     }
+}
+
+/// 脚本写的 `display:none`（gsap `set(el, {display:"none"})`）：栈顶优先。
+fn script_display_none(style: &NodeStyle, cx: &ResolveContext<'_>) -> bool {
+    cx.mutation_stack
+        .iter()
+        .rev()
+        .find_map(|m| m.mutations.get(&style.id).and_then(|n| n.display_none))
+        .unwrap_or(false)
 }
 
 /// HTML 可见窗判定：`t = frame/fps`（合成全局秒）落在半开窗外即隐藏。
@@ -172,10 +181,16 @@ fn clip_window_hides(style: &NodeStyle, frame_ctx: &FrameCtx) -> bool {
     t >= end - 1e-9
 }
 
-/// 窗外占位盒：display:none 语义的最小 Div（零尺寸、无子树）。
+/// 窗外占位盒：display:none 语义的最小 Div（不进布局流、无子树）。
 fn hidden_clip_placeholder(cx: &mut ResolveContext<'_>) -> ElementNode {
     let style = NodeStyle {
         id: "__clip_hidden".to_string(),
+        // 走 CSS 直通腿：legacy 腿的 Div 默认 100%×100% 流内盒，会把后续
+        // 同级流内盒整体挤出父盒（overflow 裁掉 = 视频消失）。
+        css_layout: Some(crate::style::CssLayout(taffy::prelude::Style {
+            display: taffy::prelude::Display::None,
+            ..Default::default()
+        })),
         ..Default::default()
     };
     ElementNode {
@@ -396,6 +411,34 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             }
         }
 
+        // 渲染期 textContent 写入落在 `<id>:t`（html_api.js 的 setter）。种子里
+        // 没有这个文本子节点时（提取期从未写过文本），按浏览器语义现场新建，
+        // 继承本元素的文本样式；写入替换全部子节点——种子里声明的文本 run
+        // （解析期合成的 P）不能留着与新文本叠印。
+        let slot_id = format!("{}:t", style.id);
+        if !div.children_ref().iter().any(|child| child.style_ref().id == slot_id)
+            && let Some(content) = text_content_from_stack(cx.mutation_stack, &slot_id)
+        {
+            children.clear();
+            if !content.is_empty() {
+                let slot_style = NodeStyle { id: slot_id.clone(), ..NodeStyle::default() };
+                let slot_computed = compute_style(&slot_style, &inherited_style);
+                let text_unit_overrides = script_split_overrides(cx, &slot_id, &content);
+                children.push(ElementNode {
+                    id: cx.ids.alloc(),
+                    kind: ElementKind::Text(ElementText {
+                        text: content,
+                        text_style: slot_computed.text.clone(),
+                        text_unit_overrides,
+                    }),
+                    style: slot_computed,
+                    children: Vec::new(),
+                    draw_slot: draw_slot_for(&slot_id, cx.mutation_stack),
+                    fingerprints: Default::default(),
+                });
+            }
+        }
+
         Ok(ElementNode {
             id: cx.ids.alloc(),
             kind: ElementKind::Div(ElementDiv),
@@ -467,6 +510,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
 
         let mut commands = Vec::new();
         apply_canvas_mutation_stack(&mut commands, cx.mutation_stack, &style.id);
+
         // Canvas draw-image ops carry the script-facing alias as their
         // `ImageRef::Static` asset_id. Resolve every alias to its canonical
         // `AssetId` here so `DrawOpFrame` / `FrameMediaPlan` never expose an
@@ -857,22 +901,19 @@ where
     seed_initial_style_defaults(&seeded, cx.script_runtime);
 
     // `getBoundingClientRect` is viewport-relative and scripts run before this
-    // frame's layout pass, so measure the scope once up front. Scripts see the
-    // pre-mutation geometry — the same tree the browser measures.
-    let boxes = driver_wants_geometry(style).then(|| {
-        crate::script::layout_probe::scope_boxes(
+    // frame's layout pass: give them a synchronous-layout probe over the scope,
+    // which measures the tree with the mutations written so far — the same
+    // DOM state the browser lays out when a script reads geometry.
+    if driver_wants_geometry(style) {
+        crate::script::layout_probe::with_scope(
             &seeded,
-            cx.frame_ctx,
-            cx.script_frame_ctx,
-            cx.assets,
+            *cx.frame_ctx,
+            *cx.script_frame_ctx,
+            (*cx.assets).clone(),
+            || push_script_scope(style, cx),
         )
-    });
-
-    match boxes {
-        Some(Some(boxes)) => crate::script::layout_probe::with_footprint(boxes, || {
-            push_script_scope(style, cx)
-        }),
-        _ => push_script_scope(style, cx),
+    } else {
+        push_script_scope(style, cx)
     }
 }
 
@@ -1145,6 +1186,7 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
     ComputedStyle {
         layout: ComputedLayoutStyle {
             position: style.position.unwrap_or_default(),
+            positioned: style.position.is_some(),
             inset_left: style.inset_left,
             inset_top: style.inset_top,
             inset_right: style.inset_right,

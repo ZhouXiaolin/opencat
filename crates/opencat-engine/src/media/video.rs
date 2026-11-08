@@ -74,6 +74,11 @@ fn quantize_bucket(tw: u32, th: u32, max_w: u32, max_h: u32) -> Option<(u32, u32
         return None;
     }
     let bucket = |v: u32, max: u32| -> u32 {
+        // 上限本身小于网格宽度（微型视频资产，如 12px 缩略图）时 clamp
+        // 的 min>max 会 panic：直接取 max。
+        if max <= TARGET_SIZE_ALIGN {
+            return max;
+        }
         let aligned = v.div_ceil(TARGET_SIZE_ALIGN) * TARGET_SIZE_ALIGN;
         aligned.clamp(TARGET_SIZE_ALIGN, max)
     };
@@ -369,8 +374,26 @@ impl MediaContext {
             None => {
                 let encoded = fs::read(path)
                     .with_context(|| format!("failed to read image bytes: {}", path.display()))?;
-                let image = Image::from_encoded(Data::new_copy(&encoded))
-                    .ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
+                // skia codec 不认 svg：usvg+resvg 光栅成预乘 RGBA（尺寸带
+                // draw target，shrink-only 与位图同语义）。
+                let image = Image::from_encoded(Data::new_copy(&encoded)).or_else(|| {
+                    let (w, h) = target.unwrap_or((0, 0));
+                    let target = (w > 0 && h > 0).then_some((w, h));
+                    let (rgba, w, h) = opencat_core::svg_raster::rasterize_svg(&encoded, target)?;
+                    let info = ImageInfo::new(
+                        (w as i32, h as i32),
+                        ColorType::RGBA8888,
+                        AlphaType::Premul,
+                        None,
+                    );
+                    images::raster_from_data(&info, Data::new_copy(&rgba), w as usize * 4)
+                        .filter(|img| {
+                            // 光栅失败/零覆盖的兜底检查：尺寸必须对上。
+                            img.width() == w as i32 && img.height() == h as i32
+                        })
+                });
+                let image =
+                    image.ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
                 self.static_images.insert(path.to_path_buf(), image.clone());
                 image
             }

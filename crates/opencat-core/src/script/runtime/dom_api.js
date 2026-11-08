@@ -40,9 +40,36 @@
             },
             querySelectorAll: function (sel) { return svgQueryAll(node, sel); },
             matches: function (sel) { return svgMatches(node, sel); },
+            // JS_PLATFORM_SHIM 已装 globalThis.location（空 query 静态形态）；
+            // 页面脚本的 window.location.search 从这里取。
+            location: (typeof globalThis.location === 'object' && globalThis.location) || null,
     };
     // Bundles commonly alias these at eval time.
     shimWindow.self = shimWindow;
+    // window 事件面从「空操作」升级为真记录 + 派发：hyperframes 通道的
+    // liquid 语料把整帧重绘挂在 `window.addEventListener('hf-seek', …)` 上，
+    // 记录 + 引擎每帧 dispatch 才有画面。无人 dispatch 时行为与空操作一致。
+    var _windowListeners = {};
+    shimWindow.addEventListener = function (type, fn) {
+        if (typeof fn !== 'function') return;
+        (_windowListeners[String(type)] = _windowListeners[String(type)] || []).push(fn);
+    };
+    shimWindow.removeEventListener = function (type, fn) {
+        var a = _windowListeners[String(type)];
+        if (a) {
+            var i = a.indexOf(fn);
+            if (i >= 0) a.splice(i, 1);
+        }
+    };
+    shimWindow.dispatchEvent = function (ev) {
+        var a = ev && _windowListeners[ev.type];
+        if (a) {
+            a.slice().forEach(function (fn) {
+                try { fn.call(shimWindow, ev); } catch (e) { /* 单监听失败不拖垮 */ }
+            });
+        }
+        return true;
+    };
     if (typeof globalThis.window === 'undefined' || !globalThis.window) {
         globalThis.window = shimWindow;
         globalThis.addEventListener = shimWindow.addEventListener;

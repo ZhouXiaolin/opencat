@@ -441,6 +441,15 @@ fn splice_nested_hosts(
             anyhow::anyhow!("html: nested composition `{src}` has no composition root")
         })?;
         let sub_offset = offset + start;
+        // 子文档资产相对子文档目录（hyperframes composition 协议，参考端同
+        // 语义）：`./`/`../` 形态的媒体路径按子文档所在目录归一为相对主
+        // base_dir——prepare 按 path 直读，不归一就是 `missing host input`
+        // （variables/frame-md 语料）。
+        let sub_dir = match src.rfind('/') {
+            Some(i) => &src[..i],
+            None => "",
+        };
+        rewrite_asset_paths(&mut sub_root, sub_dir);
         // 子文档的可见窗（data-start）是子文档局部时间，引擎按全局秒判窗：
         // 先平移再递归（再嵌套的子根在递归里按自己的偏移平移，不重复叠加）。
         shift_clip_starts(&mut sub_root, sub_offset);
@@ -459,12 +468,16 @@ fn splice_nested_hosts(
         splice_nested_hosts(&mut sub_root, css, scripts, base_dir, sub_offset)?;
         for link in &sub.links {
             if link.rel.eq_ignore_ascii_case("stylesheet") {
+                let href = rewrite_rel_path(&link.href, sub_dir);
                 css.push('\n');
-                css.push_str(&resolve_external(base_dir, &link.href)?);
+                css.push_str(&resolve_external(base_dir, &href)?);
             }
         }
+        // 子文档 CSS 的相对 url(...)（@font-face 的 `../fonts/…` 等）同样
+        // 相对子文档目录——按 sub_dir 归一，css_font_faces 才能按主 base_dir
+        // 读到（woff2 放行后 pr-to-video 语料暴露）。link href 同语义。
         css.push('\n');
-        css.push_str(&sub.css_text);
+        css.push_str(&rewrite_css_asset_urls(&sub.css_text, sub_dir));
         for script in &sub.scripts {
             let mut script = script.clone();
             script.start += sub_offset;
@@ -481,6 +494,72 @@ fn splice_nested_hosts(
         }
     }
     Ok(())
+}
+
+/// `./`/`../` 开头的相对路径按子文档目录归一为主 base_dir 相对路径；
+/// 其余（裸相对/远程/数据 URI）原样返回。
+fn rewrite_rel_path(path: &str, sub_dir: &str) -> String {
+    if path.starts_with("./") || path.starts_with("../") {
+        let joined = if sub_dir.is_empty() {
+            path.to_string()
+        } else {
+            format!("{sub_dir}/{path}")
+        };
+        module_key(&joined)
+    } else {
+        path.to_string()
+    }
+}
+
+/// 子文档 CSS 文本里 `url(...)` 的相对引用归一（@font-face src 等）。
+fn rewrite_css_asset_urls(css: &str, sub_dir: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("url(") {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 4..];
+        let Some(close) = tail.find(')') else {
+            out.push_str("url(");
+            rest = tail;
+            break;
+        };
+        let inner = tail[..close].trim();
+        let unquoted = inner.trim_matches(|c| c == '\'' || c == '"');
+        out.push_str("url(");
+        if unquoted.starts_with("./") || unquoted.starts_with("../") {
+            out.push_str(&rewrite_rel_path(unquoted, sub_dir));
+        } else {
+            out.push_str(inner);
+        }
+        out.push(')');
+        rest = &tail[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 子树资产路径按子文档目录归一：`./`/`../` 开头的媒体路径（video/image/
+/// lottie/audio 的 path）相对 `sub_dir` 归一为主 base_dir 相对路径。裸相对
+/// （`assets/…`）与远程 URL 不动——前者按主 base 语义已是现网行为，后者
+/// 无目录语义。
+fn rewrite_asset_paths(el: &mut DomElement, sub_dir: &str) {
+    let rewrite = |p: &mut Option<String>| {
+        if let Some(path) = p {
+            *path = rewrite_rel_path(path, sub_dir);
+        }
+    };
+    match el {
+        DomElement::Video { path, .. } => rewrite(path),
+        DomElement::Image { path, .. } => rewrite(path),
+        DomElement::Lottie { path, .. } => rewrite(path),
+        DomElement::Audio { path, .. } => rewrite(path),
+        _ => {}
+    }
+    if let Some(children) = el.children_mut() {
+        for child in children {
+            rewrite_asset_paths(child, sub_dir);
+        }
+    }
 }
 
 /// 子树可见窗起点平移 `offset` 秒（嵌套 composition 局部时间 → 全局）。

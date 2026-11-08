@@ -463,9 +463,17 @@
         if (!inline || typeof inline !== 'string' || el.__svgKids) return;
         var tree = parseInlineXml(inline);
         el.__svgKids = [];
-        for (var i = 0; i < tree.kids.length; i++) {
-            if (tree.kids[i].tag === '#text') continue;
-            el.__svgKids.push(buildSvgQueryFace(tree.kids[i], el));
+        var kids = tree.kids;
+        // inline 是 `<svg>…</svg>` 整体（serialize_subtree / xmlSerialize
+        // 产物）：顶层元素是 svg 根自身——el 这个 face 已代表根，查询子面
+        // 取根的直接子元素，不再包一层 svg face。多包一层会让 `#mark > svg
+        // path` 的直父（`>`）语义断在中间 face 上（后代 ` ` 碰巧仍通）。
+        if (kids.length === 1 && String(kids[0].tag).toLowerCase() === 'svg') {
+            kids = kids[0].kids;
+        }
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].tag === '#text') continue;
+            el.__svgKids.push(buildSvgQueryFace(kids[i], el));
         }
     }
 

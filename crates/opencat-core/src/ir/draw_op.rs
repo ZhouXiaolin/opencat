@@ -290,6 +290,13 @@ pub enum DrawOp {
         enabled: bool,
     },
 
+    /// Canvas 2D `globalCompositeOperation`（sticky 状态 op）。wire 值是
+    /// `encode_blend_mode` 的规范编号；执行端把它折进当前 fill/stroke 漆
+    /// （engine `replay.rs` 的镜像漆、web `interpret.ts` 的 state）。
+    SetBlendMode {
+        mode: BlendMode,
+    },
+
     // =======================================================================
     // Path construction
     // =======================================================================
@@ -602,7 +609,12 @@ impl std::hash::Hash for DrawOp {
             DrawOp::SetAntiAlias { enabled } => {
                 17_u8.hash(state);
                 enabled.hash(state);
-            }            DrawOp::BeginPath => 18_u8.hash(state),
+            }
+            DrawOp::SetBlendMode { mode } => {
+                56_u8.hash(state);
+                mode.hash(state);
+            }
+            DrawOp::BeginPath => 18_u8.hash(state),
             DrawOp::Path(p) => {
                 19_u8.hash(state);
                 p.hash(state);

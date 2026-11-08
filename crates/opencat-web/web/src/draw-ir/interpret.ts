@@ -26,6 +26,7 @@ import {
   OP_CLEAR_LINE_DASH,
   OP_SET_GLOBAL_ALPHA,
   OP_SET_ANTI_ALIAS,
+  OP_SET_BLEND_MODE,
   OP_BEGIN_PATH,
   OP_FILL_PATH,
   OP_STROKE_PATH,
@@ -372,6 +373,12 @@ export function renderEncodedDrawFrame(
           break;
         case OP_SET_ANTI_ALIAS:
           state.antiAlias = p.u8() !== 0;
+          break;
+        case OP_SET_BLEND_MODE:
+          // u8 wire blend enum（SET_BLEND_MODE 每帧由 core 下发，见
+          // buildScriptPaint 的 setBlendMode）。未知值落到 mapBlendMode 的
+          // SrcOver 兜底。
+          state.blendMode = p.u8();
           break;
         case OP_BEGIN_PATH:
           // The previous builder (if any) is already registered with the walk

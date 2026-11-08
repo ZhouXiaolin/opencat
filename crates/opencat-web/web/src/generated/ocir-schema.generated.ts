@@ -111,6 +111,7 @@ export const OP = {
     MASK_CLIP: 53,
     SET_STYLE_LINEAR_GRADIENT: 54,
     SET_STYLE_RADIAL_GRADIENT: 55,
+    SET_BLEND_MODE: 56,
     PATH_MOVE_TO: 40,
     PATH_LINE_TO: 41,
     PATH_QUAD_TO: 42,
@@ -128,7 +129,7 @@ export type Opcode = (typeof OP)[keyof typeof OP];
 /// `[opcode: u8][OPCODE_PAYLOAD_LEN[opcode] payload bytes]` with no
 /// length field and no padding. Indexed by opcode (0..=MAX_OPCODE).
 /// Keep in sync with `opcode::OPCODE_PAYLOAD_LEN` in core.
-export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 36, 4, 4, 4, 4, 4, 12, 0, 4, 1, 0, 0, 0, 0, 2, 16, 4, 20, 36, 68, 20, 16, 29, 20, 16, 8, 25, 50, 32, 8, 12, 24, 8, 8, 16, 24, 0, 16, 20, 16, 24, 41, 52, 0, 62, 21, 25, 33];
+export const OPCODE_PAYLOAD_LEN: readonly number[] = [0, 25, 0, 4, 8, 8, 12, 8, 36, 4, 4, 4, 4, 4, 12, 0, 4, 1, 0, 0, 0, 0, 2, 16, 4, 20, 36, 68, 20, 16, 29, 20, 16, 8, 25, 50, 32, 8, 12, 24, 8, 8, 16, 24, 0, 16, 20, 16, 24, 41, 52, 0, 62, 21, 25, 33, 1];
 
 /// Payload field layout per opcode, in wire order — authority:
          /// `opcode::OP_FIELDS` in core. The web decoder reads fields in this
@@ -192,6 +193,7 @@ export const OPCODE_FIELDS: readonly (readonly { name: string; bytes: number }[]
     [{ name: "subtree", bytes: 4 }, { name: "kind", bytes: 1 }, { name: "region", bytes: 16 }], // 53
     [{ name: "stroke", bytes: 1 }, { name: "start", bytes: 8 }, { name: "end", bytes: 8 }, { name: "pool_start", bytes: 4 }, { name: "len", bytes: 4 }], // 54
     [{ name: "stroke", bytes: 1 }, { name: "circles", bytes: 24 }, { name: "pool_start", bytes: 4 }, { name: "len", bytes: 4 }], // 55
+    [{ name: "mode", bytes: 1 }], // 56
 ];
 
 // ---------------------------------------------------------------------------

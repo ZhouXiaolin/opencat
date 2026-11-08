@@ -80,6 +80,13 @@ pub enum CanvasOp {
     /// 组级阴影层（canvas pattern 填充）：翻译层展开为
     /// `Save + [Translate] + SaveLayer(DropShadow)`，调用方配平 Restore。
     BeginShadowLayer,
+
+    /// `ctx.filter: blur(R)`（sticky）：翻译层记入漆状态，把后续
+    /// fill/stroke 每笔包进 `SaveLayer(Blur)`（层漆带当前 composite
+    /// blend）。sigma=R 直传（CSS blur 的 R 即标准差）。
+    SetCtxFilter {
+        sigma: f32,
+    },
 }
 
 impl std::hash::Hash for CanvasOp {
@@ -156,6 +163,10 @@ impl std::hash::Hash for CanvasOp {
             }
             CanvasOp::BeginShadowLayer => {
                 8_u8.hash(state);
+            }
+            CanvasOp::SetCtxFilter { sigma } => {
+                9_u8.hash(state);
+                sigma.to_bits().hash(state);
             }
         }
     }

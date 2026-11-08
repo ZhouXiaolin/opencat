@@ -717,6 +717,11 @@ pub(crate) struct LocalPaintState {
     pub(crate) line_dash_phase: f32,
     pub(crate) global_alpha: f32,
     pub(crate) anti_alias: bool,
+    /// Canvas 2D `globalCompositeOperation` (sticky until overwritten).
+    pub(crate) blend_mode: BlendMode,
+    /// Canvas 2D `ctx.filter: blur(R)` sigma (sticky; 0 = none). Translated
+    /// in core into a per-draw `SaveLayer(Blur)` wrapper — never emitted.
+    pub(crate) filter_sigma: f32,
     /// Canvas 2D shadow state (sticky until overwritten). Translated here,
     /// in core, into a `SaveLayer` + `DropShadow` wrapper — never emitted.
     pub(crate) shadow: Option<CanvasShadow>,
@@ -752,6 +757,8 @@ impl Default for LocalPaintState {
             line_dash: None,
             line_dash_phase: 0.0,
             global_alpha: 1.0,
+            blend_mode: BlendMode::SrcOver,
+            filter_sigma: 0.0,
             shadow: None,
             anti_alias: true,
         }
@@ -772,7 +779,7 @@ impl LocalPaintState {
             style: PaintStyle::Fill,
             stroke: None,
             anti_alias: self.anti_alias,
-            blend_mode: BlendMode::SrcOver,
+            blend_mode: self.blend_mode,
             image_filter: None,
             color_filter: None,
             mask_filter: None,
@@ -798,7 +805,7 @@ impl LocalPaintState {
                 miter_limit: 4.0,
             }),
             anti_alias: self.anti_alias,
-            blend_mode: BlendMode::SrcOver,
+            blend_mode: self.blend_mode,
             image_filter: None,
             color_filter: None,
             mask_filter: None,

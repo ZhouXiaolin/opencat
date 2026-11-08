@@ -644,6 +644,15 @@ macro_rules! for_each_binding {
         $binding! { node $rec $id canvas_set_anti_alias ($id: &str, enabled: bool) {
             $rec . record_draw_op($id, DrawOp::SetAntiAlias { enabled });
         }}
+        $binding! { node $rec $id canvas_set_blend_mode ($id: &str, mode: u8) {
+            let mode = $crate::ir::draw_encoding::decode_blend_mode(mode)
+                .ok_or_else(|| $crate::script::helpers::script_error("globalCompositeOperation", format!("unsupported blend mode `{mode}`")))?;
+            $rec . record_draw_op($id, DrawOp::SetBlendMode { mode });
+            Ok::<_, anyhow::Error>(())
+        }}
+        $binding! { node $rec $id canvas_set_ctx_filter ($id: &str, sigma: f32) {
+            $rec . record_canvas_op($id, crate::script::canvas_op::CanvasOp::SetCtxFilter { sigma: sigma.max(0.0) });
+        }}
         $binding! { node $rec $id canvas_clear ($id: &str, color: Option<String>) {
             let color = match color {
                 Some(c) => {

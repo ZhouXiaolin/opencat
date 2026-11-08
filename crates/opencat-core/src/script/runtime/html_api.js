@@ -1421,6 +1421,14 @@
 
     globalThis.__ocTimelineCount = function () { return timelines.length; };
 
+    // hyperframes 编译器给页面预置 timeline 注册表（compositionScoping 的
+    // `window.__timelines = window.__timelines || {}`，页面脚本直接
+    // `window.__timelines[id] = tl` 不自建——codex-five-hour 语料）。
+    // 引擎等价预置；seek 走内部 timelines 列表，此表只是页面的登记处。
+    if (typeof globalThis.window === 'object' && globalThis.window) {
+        globalThis.window.__timelines = globalThis.window.__timelines || {};
+    }
+
     globalThis.__ocHtmlSeek = function (t) {
         globalThis.__ocSeekT = t;
         seekRange(t, 0, timelines.length);

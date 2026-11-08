@@ -2,7 +2,7 @@ use super::paint::{build_skia_image_filter, paint_from_spec};
 use super::path::path_from_encoded;
 use super::{DrawError, DrawStats};
 use super::{EngineDrawExecutor, EnginePreparedFrameMedia};
-use opencat_core::canvas::paint::{StrokeCap, StrokeJoin, StrokeSpec};
+use opencat_core::canvas::paint::{BlendMode, StrokeCap, StrokeJoin, StrokeSpec};
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
@@ -972,6 +972,12 @@ fn replay_op(
         DrawOp::SetAntiAlias { enabled } => {
             exec.current_fill_paint.set_anti_alias(*enabled);
             exec.current_stroke_paint.set_anti_alias(*enabled);
+            Ok(())
+        }
+        DrawOp::SetBlendMode { mode } => {
+            let sk = super::paint::convert_blend_mode(*mode);
+            exec.current_fill_paint.set_blend_mode(sk);
+            exec.current_stroke_paint.set_blend_mode(sk);
             Ok(())
         }
 

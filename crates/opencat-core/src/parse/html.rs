@@ -81,6 +81,9 @@ pub struct HtmlDocument {
     pub composition_hosts: Vec<CompositionHost>,
     /// 元素 id → 协议属性（含根与嵌套宿主）。
     pub protos: HashMap<String, ElementProto>,
+    /// 撞车改写的作者 id → 树内 id（只在嵌套子文档非空）。engine 拿它同步
+    /// 子文档脚本文本里的 `#id` 选择器。
+    pub id_renames: HashMap<String, String>,
 }
 
 // ── sink 层：html5ever TreeSink 的最小 Rc 树 ─────────────────────────
@@ -484,6 +487,9 @@ struct LoweringState {
     /// 预扫描定死的改写集：与宿主已占 id 撞车的作者 id（子文档才有内容）。
     /// 命中者整文档一致改写成 `{id_prefix}{id}`——树内、CSS 选择器同步。
     rewrite_ids: HashSet<String>,
+    /// 实际发生的改名（作者 id → 树内 id，首个分配为准）。子文档脚本文本
+    /// 的 `#id` 选择器按它同步（engine `splice_nested_hosts` 消费）。
+    renames: HashMap<String, String>,
     used_ids: HashSet<String>,
     hosts: Vec<CompositionHost>,
     protos: HashMap<String, ElementProto>,
@@ -531,6 +537,7 @@ impl LoweringState {
                     candidate = format!("{}{}-{}", self.id_prefix, id, n);
                     n += 1;
                 }
+                self.renames.entry(id.to_string()).or_insert(candidate.clone());
                 candidate
             } else {
                 id.to_string()
@@ -627,6 +634,7 @@ pub fn parse_html_prefixed_excluded(
         synthetic: 0,
         id_prefix: id_prefix.to_string(),
         rewrite_ids: rewrite,
+        renames: HashMap::new(),
         used_ids: Default::default(),
         hosts: Vec::new(),
         protos: HashMap::new(),
@@ -783,6 +791,7 @@ pub fn parse_html_prefixed_excluded(
         import_map: state.import_map,
         composition_hosts: state.hosts,
         protos: state.protos,
+        id_renames: state.renames,
     })
 }
 

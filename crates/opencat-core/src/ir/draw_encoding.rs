@@ -181,6 +181,8 @@ pub mod opcode {
     /// Script radial gradient paint (CSS createRadialGradient): same stop
     /// encoding, geometry is two circles [x0,y0,r0] / [x1,y1,r1].
     pub const SET_STYLE_RADIAL_GRADIENT: u16 = 55;
+    /// Canvas 2D `globalCompositeOperation` sticky state (u8 wire blend enum).
+    pub const SET_BLEND_MODE: u16 = 56;
 
     /// One payload field of a v6 op: wire name + fixed byte width. Order in
     /// the slice is the wire order; `write_*` calls in `encode_op` must
@@ -199,7 +201,7 @@ pub mod opcode {
     /// from (a drift is a compile-time constant mismatch, not a runtime
     /// mystery). `schema_gen` consumes the same table to emit the TypeScript
     /// `OPCODE_FIELDS` layout description.
-    pub const OP_FIELDS: [&[OpField]; 56] = [
+    pub const OP_FIELDS: [&[OpField]; 57] = [
         &[],                                                    // 0  SAVE
         &[
             f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4),
@@ -286,6 +288,7 @@ pub mod opcode {
         &[
             f("stroke", 1), f("circles", 24), f("pool_start", 4), f("len", 4),
         ],                                                      // 55 SET_STYLE_RADIAL_GRADIENT
+        &[f("mode", 1)],                                        // 56 SET_BLEND_MODE
     ];
 
     const fn f(name: &'static str, bytes: u16) -> OpField {
@@ -302,8 +305,8 @@ pub mod opcode {
         sum
     }
 
-    const fn build_opcode_payload_len() -> [u16; 56] {
-        let mut out = [0u16; 56];
+    const fn build_opcode_payload_len() -> [u16; OP_FIELDS.len()] {
+        let mut out = [0u16; OP_FIELDS.len()];
         let mut i = 0;
         while i < OP_FIELDS.len() {
             out[i] = fields_len(OP_FIELDS[i]);
@@ -316,11 +319,11 @@ pub mod opcode {
     /// **derived** from [`OP_FIELDS`] (sum of field widths), never hand-written.
     /// An op is encoded as `[opcode: u8][N payload bytes]` with no length
     /// field and no padding.
-    pub const OPCODE_PAYLOAD_LEN: [u16; 56] = build_opcode_payload_len();
+    pub const OPCODE_PAYLOAD_LEN: [u16; OP_FIELDS.len()] = build_opcode_payload_len();
 
     /// Highest opcode in use. v6 encoders never emit an opcode above this, so
     /// it must fit in the wire's 1-byte opcode field.
-    pub const MAX_OPCODE: u16 = SET_STYLE_RADIAL_GRADIENT;
+    pub const MAX_OPCODE: u16 = SET_BLEND_MODE;
 
     /// Map a PathOp sub-opcode (0..=8) to its v6 top-level opcode.
     #[inline]
@@ -1552,38 +1555,49 @@ pub(crate) fn encode_stroke_join(join: StrokeJoin) -> u8 {
     }
 }
 
+/// Blend mode 的 wire 编号表（编码/解码共源；序号即 wire 值）。
+const BLEND_MODE_WIRE: [BlendMode; 29] = [
+    BlendMode::Clear,
+    BlendMode::Src,
+    BlendMode::Dst,
+    BlendMode::SrcOver,
+    BlendMode::DstOver,
+    BlendMode::SrcIn,
+    BlendMode::DstIn,
+    BlendMode::SrcOut,
+    BlendMode::DstOut,
+    BlendMode::SrcATop,
+    BlendMode::DstATop,
+    BlendMode::Xor,
+    BlendMode::Plus,
+    BlendMode::Modulate,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::SoftLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Multiply,
+    BlendMode::Hue,
+    BlendMode::Saturation,
+    BlendMode::Color,
+    BlendMode::Luminosity,
+];
+
 pub(crate) fn encode_blend_mode(mode: BlendMode) -> u8 {
-    match mode {
-        BlendMode::Clear => 0,
-        BlendMode::Src => 1,
-        BlendMode::Dst => 2,
-        BlendMode::SrcOver => 3,
-        BlendMode::DstOver => 4,
-        BlendMode::SrcIn => 5,
-        BlendMode::DstIn => 6,
-        BlendMode::SrcOut => 7,
-        BlendMode::DstOut => 8,
-        BlendMode::SrcATop => 9,
-        BlendMode::DstATop => 10,
-        BlendMode::Xor => 11,
-        BlendMode::Plus => 12,
-        BlendMode::Modulate => 13,
-        BlendMode::Screen => 14,
-        BlendMode::Overlay => 15,
-        BlendMode::Darken => 16,
-        BlendMode::Lighten => 17,
-        BlendMode::ColorDodge => 18,
-        BlendMode::ColorBurn => 19,
-        BlendMode::HardLight => 20,
-        BlendMode::SoftLight => 21,
-        BlendMode::Difference => 22,
-        BlendMode::Exclusion => 23,
-        BlendMode::Multiply => 24,
-        BlendMode::Hue => 25,
-        BlendMode::Saturation => 26,
-        BlendMode::Color => 27,
-        BlendMode::Luminosity => 28,
-    }
+    BLEND_MODE_WIRE
+        .iter()
+        .position(|m| *m == mode)
+        .unwrap_or(3) as u8
+}
+
+/// `encode_blend_mode` 的逆映射（script 绑定从 wire 编号还原枚举）。
+pub(crate) fn decode_blend_mode(v: u8) -> Option<BlendMode> {
+    BLEND_MODE_WIRE.get(v as usize).copied()
 }
 
 pub(crate) fn encode_tile_mode(mode: TileMode) -> u8 {
@@ -1817,6 +1831,11 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         DrawOp::SetAntiAlias { enabled } => {
             write_op_header(buf, opcode::SET_ANTI_ALIAS);
             write_u8(buf, if *enabled { 1 } else { 0 });
+        }
+
+        DrawOp::SetBlendMode { mode } => {
+            write_op_header(buf, opcode::SET_BLEND_MODE);
+            write_u8(buf, encode_blend_mode(*mode));
         }
 
         // ===================================================================

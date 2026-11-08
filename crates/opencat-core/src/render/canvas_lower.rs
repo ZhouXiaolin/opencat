@@ -6,6 +6,7 @@ use crate::ir::GeneratedImageTable;
 use crate::ir::draw_op::{
     ColorU8, DrawOp, Rect4,
 };
+use crate::canvas::paint::BlendMode;
 use crate::ir::draw_types::ImageRef;
 use crate::ir::draw_types::{
     ChildRange, PathOp, RuntimeEffectChildRef,
@@ -438,6 +439,10 @@ pub(crate) fn execute_draw_op(
             state.anti_alias = *enabled;
             b.push(DrawOp::SetAntiAlias { enabled: *enabled });
         }
+        DrawOp::SetBlendMode { mode } => {
+            state.blend_mode = *mode;
+            b.push(DrawOp::SetBlendMode { mode: *mode });
+        }
 
         // ── Clear ─────────────────────────────────────────────────────
         DrawOp::Clear { color } => {
@@ -451,8 +456,8 @@ pub(crate) fn execute_draw_op(
         DrawOp::Path(path_op) => {
             b.push(DrawOp::Path(path_op.clone()));
         }
-        DrawOp::FillPath => push_shadowed(b, state.shadow, DrawOp::FillPath),
-        DrawOp::StrokePath => push_shadowed(b, state.shadow, DrawOp::StrokePath),
+        DrawOp::FillPath => push_painted(b, state, DrawOp::FillPath),
+        DrawOp::StrokePath => push_painted(b, state, DrawOp::StrokePath),
         DrawOp::ClipPath { anti_alias, fill_type } => {
             b.push(DrawOp::ClipPath {
                 anti_alias: *anti_alias,
@@ -680,6 +685,35 @@ pub(crate) fn execute_draw_op(
     Ok(())
 }
 
+/// draw 的状态包裹（canvas 2D sticky 状态 → per-draw 层）。
+///
+/// `ctx.filter` 外层：`SaveLayer(Blur)`，层漆带当前 composite blend——浏览器
+/// per-draw 语义 = 原语先经 filter 再按 `globalCompositeOperation` 合成。
+/// 层内为空内容，内层 draw 的 blend 对空层是恒等的，blend 只应用一次。
+/// shadow 内层沿用 [`push_shadowed`]。
+fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
+    if state.filter_sigma > 0.0 {
+        let paint_id =
+            b.intern_paint(crate::render::shadow_filter::ctx_filter_layer_paint(
+                state.filter_sigma,
+                state.blend_mode,
+            ));
+        b.push(DrawOp::Save);
+        b.push(DrawOp::SaveLayer {
+            bounds: None,
+            paint: Some(paint_id),
+            alpha: 1.0,
+            backdrop: false,
+        });
+        push_shadowed(b, state.shadow, draw);
+        // Save 与 SaveLayer 各配一个 Restore（同 push_shadowed 的双弹）。
+        b.push(DrawOp::Restore);
+        b.push(DrawOp::Restore);
+    } else {
+        push_shadowed(b, state.shadow, draw);
+    }
+}
+
 // ── Canvas 2D 翻译层 ─────────────────────────────────────────────────
 //
 // canvas 2D 录制面命令（`CanvasOp`）→ canonical `DrawOp` 流。浏览器语义
@@ -694,19 +728,19 @@ pub(crate) fn lower_canvas_op(
     match op {
         CanvasOp::Op(canonical) => execute_draw_op(b, canonical, state)?,
         // `ctx.drawImage`：编码字节 intern 进帧字节表，发标准 `ImageRect`。
-        // drawImage 参与浏览器 alpha 合成（heatmap 逐点 globalAlpha 图章）：
-        // globalAlpha<1 时 intern 带 alpha 的 SrcOver 漆——Skia 的
-        // drawImageRect 会把漆 alpha 乘到图像上；globalAlpha=1 不发漆，
-        // 保持无漆快路径。
+        // drawImage 参与浏览器 alpha/composite 合成（heatmap 逐点 globalAlpha
+        // 图章）：globalAlpha<1 或 composite≠SrcOver 时 intern 对应漆——Skia
+        // 的 drawImageRect 会把漆 alpha 乘到图像上；全默认不发漆，保持无漆
+        // 快路径。
         CanvasOp::Image { bytes, src, dst, alpha } => {
             let data = b.intern_bytes(bytes);
-            let paint = (*alpha < 1.0).then(|| {
+            let paint = (*alpha < 1.0 || state.blend_mode != BlendMode::SrcOver).then(|| {
                 b.intern_paint(crate::canvas::paint::PaintSpec {
                     fill: crate::canvas::paint::FillSpec::Solid([1.0, 1.0, 1.0, *alpha]),
                     style: crate::canvas::paint::PaintStyle::Fill,
                     stroke: None,
                     anti_alias: true,
-                    blend_mode: crate::canvas::paint::BlendMode::SrcOver,
+                    blend_mode: state.blend_mode,
                     image_filter: None,
                     color_filter: None,
                     mask_filter: None,
@@ -799,6 +833,11 @@ pub(crate) fn lower_canvas_op(
                     dy: *dy,
                 })
             };
+        }
+        // `ctx.filter`（blur）：sticky 状态，无 Skia op——后续 fill/stroke
+        // 由 `push_painted` 每笔包进 SaveLayer(Blur)。
+        CanvasOp::SetCtxFilter { sigma } => {
+            state.filter_sigma = *sigma;
         }
         // 组级阴影（canvas pattern 填充）：开 Save + SaveLayer(DropShadow)，
         // 组内 op 的 alpha 被滤镜折成阴影；调用方用等量 Restore 收尾。

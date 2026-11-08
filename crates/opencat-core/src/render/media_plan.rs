@@ -29,8 +29,10 @@ struct MediaCollector {
     visited_ranges: HashSet<DrawOpRange>,
     visited_subtrees: HashSet<SubtreeId>,
     /// Accumulated ancestor `Scale` factors, mirroring the executor's canvas
-    /// matrix along the walk. Never empty — the base entry is (1, 1).
+    /// matrix along the walk: `current_scale` 是当前矩阵 scale，`scale_stack`
+    /// 是 Save 快照（可为空）。
     scale_stack: Vec<(f32, f32)>,
+    current_scale: (f32, f32),
     /// Max-merged effective draw size per `ImageRect`-drawn reference.
     draw_sizes: HashMap<ImageRef, (u32, u32)>,
 }
@@ -50,7 +52,8 @@ impl MediaCollector {
             seen_lottie: HashSet::new(),
             visited_ranges: HashSet::new(),
             visited_subtrees: HashSet::new(),
-            scale_stack: vec![(1.0, 1.0)],
+            scale_stack: Vec::new(),
+            current_scale: (1.0, 1.0),
             draw_sizes: HashMap::new(),
         }
     }
@@ -91,7 +94,7 @@ impl MediaCollector {
         if matches!(image, ImageRef::Generated { .. }) {
             return;
         }
-        let (sx, sy) = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
+        let (sx, sy) = self.current_scale;
         let w = (dst.width * sx).ceil().max(1.0) as u32;
         let h = (dst.height * sy).ceil().max(1.0) as u32;
         match self.draw_sizes.get_mut(image) {
@@ -105,39 +108,41 @@ impl MediaCollector {
         }
     }
 
-    /// Mirror the executor's canvas matrix stack for the transform-affecting
-    /// ops. Translation/rotation don't change pixel density, so they're
-    /// ignored; `Concat` contributes its area scale (sqrt of the 2×2
-    /// determinant) to both axes as an approximation.
+    /// Mirror the executor's canvas matrix for the transform-affecting ops.
+    /// Skia 的矩阵是值语义：`Scale` 改**当前矩阵**（不触碰已 Save 的快照），
+    /// `Save` 快照当前值、`Restore` 回到快照——旧实现把 Scale 原地写进栈顶
+    /// 条目，Scale 后又 Save/Restore 的流会把它泄漏进更早的快照（inspector
+    /// 的 mag-clone 大 scale 污染后续 img 的 draw size，u32::MAX 解码失败的
+    /// 根因）。Translation/rotation 不改像素密度，忽略；`Concat` 贡献其
+    /// 2×2 行列式的面积 scale（sqrt|det|，双轴同值近似）。
     fn apply_transform_op(&mut self, op: &DrawOp) {
         match op {
             DrawOp::Save
             | DrawOp::SaveLayer { .. }
             | DrawOp::SaveBackdropLayer { .. } => {
-                let current = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
+                let current = self.current_scale;
                 self.scale_stack.push(current);
             }
             DrawOp::Restore => {
-                if self.scale_stack.len() > 1 {
-                    self.scale_stack.pop();
+                if let Some(restored) = self.scale_stack.pop() {
+                    self.current_scale = restored;
                 }
             }
             DrawOp::RestoreToCount { count } => {
                 let target = (*count).max(1) as usize;
                 if self.scale_stack.len() > target {
                     self.scale_stack.truncate(target);
+                    self.current_scale = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
                 }
             }
             DrawOp::Scale { x, y } => {
-                let (sx, sy) = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
-                let top = self.scale_stack.last_mut().expect("base scale always present");
-                *top = (sx * *x, sy * *y);
+                let (sx, sy) = self.current_scale;
+                self.current_scale = (sx * *x, sy * *y);
             }
             DrawOp::Concat { matrix } => {
                 let det = (matrix[0] * matrix[4] - matrix[1] * matrix[3]).abs().sqrt();
-                let (sx, sy) = self.scale_stack.last().copied().unwrap_or((1.0, 1.0));
-                let top = self.scale_stack.last_mut().expect("base scale always present");
-                *top = (sx * det, sy * det);
+                let (sx, sy) = self.current_scale;
+                self.current_scale = (sx * det, sy * det);
             }
             _ => {}
         }
@@ -349,7 +354,15 @@ fn collect_subtree(frame: &DrawOpFrame, subtree: SubtreeId, collector: &mut Medi
     let Some(ops) = frame.subtrees.get(subtree.0 as usize) else {
         return;
     };
+    // 子树在执行器侧录进独立 Picture（fresh matrix，内容自带内部
+    // transform），以 draw_picture 回放——内部 transform 状态绝不影响父流。
+    // 走查以父 scale 为起点（子树内容的设备尺寸 ≈ 父×内部 scale，供解码
+    // 尺寸用），退出恢复，防子树内失衡的 Scale/Restore 泄漏到父流。
+    let saved_scale = collector.current_scale;
+    let saved_stack = std::mem::take(&mut collector.scale_stack);
     collect_ops(frame, ops, collector);
+    collector.scale_stack = saved_stack;
+    collector.current_scale = saved_scale;
 }
 
 /// op 上直接挂的 paint id（feImage 的 subtree 引用扫描用）。

@@ -310,8 +310,11 @@ pub fn extract_html_with_base_dir(
     // 做法是让根选择器（`[data-composition-id="…"]`）把样式与查询都收窄到
     // 子根上（子根被挂进宿主，`page` 层不变）。
     let mut scripts = doc.scripts.clone();
+    // 子文档 src 脚本的撞车 id 改写文本（归一路径 → 改写后全文），driver
+    // 读取时按同键替换——保持「同 src 只估一次」的去重语义。
+    let mut src_rewrites = std::collections::HashMap::new();
     if !doc.composition_hosts.is_empty() {
-        splice_nested_hosts(&mut tree, &mut css_text, &mut scripts, base, 0.0)?;
+        splice_nested_hosts(&mut tree, &mut css_text, &mut scripts, base, 0.0, &mut src_rewrites)?;
     }
 
     // `@import`（子工程 `<style>` 里的 Google Fonts 等）展开 + `@font-face`
@@ -323,7 +326,7 @@ pub fn extract_html_with_base_dir(
 
     let seed = json!({ "meta": meta, "tree": tree, "css": css_text, "html": true });
 
-    let driver = build_html_driver(&scripts, base, &seed, doc.import_map.as_deref())?;
+    let driver = build_html_driver(&scripts, base, &seed, doc.import_map.as_deref(), &src_rewrites)?;
     if let Some(path) = std::env::var_os("OC_DUMP_DRIVER") {
         let _ = std::fs::write(&path, &driver);
     }
@@ -416,6 +419,7 @@ fn splice_nested_hosts(
     scripts: &mut Vec<HtmlScript>,
     base_dir: &Path,
     offset: f64,
+    src_rewrites: &mut std::collections::HashMap<String, String>,
 ) -> Result<()> {
     let mut hosts: Vec<(String, String, f64, Option<f64>)> = Vec::new();
     collect_hosts(root, &mut hosts);
@@ -465,7 +469,7 @@ fn splice_nested_hosts(
         {
             *dur = host_duration;
         }
-        splice_nested_hosts(&mut sub_root, css, scripts, base_dir, sub_offset)?;
+        splice_nested_hosts(&mut sub_root, css, scripts, base_dir, sub_offset, src_rewrites)?;
         for link in &sub.links {
             if link.rel.eq_ignore_ascii_case("stylesheet") {
                 let href = rewrite_rel_path(&link.href, sub_dir);
@@ -481,6 +485,25 @@ fn splice_nested_hosts(
         for script in &sub.scripts {
             let mut script = script.clone();
             script.start += sub_offset;
+            // 撞车改写的作者 id 同步进脚本文本：查询面是全局单树，改名后
+            // `#old` 按作者 id 查询落空（spacex `#tk` 语料——三份子文档同名
+            // id）。inline 直接重写；src 文本在 build_html_driver 读取时按
+            // `src_rewrites` 表替换（同键保同库去重语义）。module 文本走
+            // 模块图装载，不在此列。
+            if !sub.id_renames.is_empty() {
+                if let Some(code) = script.inline.as_mut() {
+                    rewrite_id_selectors(code, &sub.id_renames);
+                }
+                if let (Some(src), false) = (&script.src, script.module) {
+                    let norm = rewrite_rel_path(src, sub_dir);
+                    if let Ok(code) = resolve_external(base_dir, &norm) {
+                        let mut rewritten = code;
+                        rewrite_id_selectors(&mut rewritten, &sub.id_renames);
+                        src_rewrites.insert(norm.clone(), rewritten);
+                        script.src = Some(norm);
+                    }
+                }
+            }
             scripts.push(script);
         }
         // 改写后的子文档 id 并回已占集：同一宿主树的多个 composition 之间
@@ -536,6 +559,35 @@ fn rewrite_css_asset_urls(css: &str, sub_dir: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// 脚本文本里的 `#old` id 选择器同步改写（querySelector/gsap 字符串等）。
+/// 词边界 = 后随字符不是 ident 字符（字母/数字/`-`/`_`），与 CSS 侧
+/// `rewrite_css_ids` 同规则。裸字符串 id（`getElementById('old')`）不在此
+/// 处理面——现网语料的子文档查询全走选择器形态。
+fn rewrite_id_selectors(code: &mut String, renames: &std::collections::HashMap<String, String>) {
+    for (old, new) in renames {
+        let needle = format!("#{old}");
+        let mut out = String::with_capacity(code.len());
+        let mut rest = code.as_str();
+        while let Some(at) = rest.find(&needle) {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + needle.len()..];
+            let boundary = after
+                .chars()
+                .next()
+                .is_none_or(|c| !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_'));
+            if boundary {
+                out.push('#');
+                out.push_str(new);
+            } else {
+                out.push_str(&needle);
+            }
+            rest = after;
+        }
+        out.push_str(rest);
+        *code = out;
+    }
 }
 
 /// 子树资产路径按子文档目录归一：`./`/`../` 开头的媒体路径（video/image/
@@ -647,6 +699,7 @@ fn build_html_driver(
     base_dir: &Path,
     seed: &Value,
     import_map: Option<&str>,
+    src_rewrites: &std::collections::HashMap<String, String>,
 ) -> Result<String> {
     let mut body = String::new();
     let mut ext_idx = 0usize;
@@ -688,7 +741,12 @@ fn build_html_driver(
                     continue;
                 }
                 seen_src.push(src);
-                let code = resolve_external(base_dir, src)?;
+                // 撞车 id 改写过的子文档 src 脚本用改写文本（键=归一路径），
+                // 其余照读原文。
+                let code = match src_rewrites.get(src) {
+                    Some(rewritten) => rewritten.clone(),
+                    None => resolve_external(base_dir, src)?,
+                };
                 // external 只在首帧估一次（每帧重估会逐帧泄漏 gsap 的全局
                 // 插件实例，整片渲染直接 V8 OOM）。但库在初始化时造的探测
                 // 元素（gsap 的字体/样式嗅探）会占用合成 id 序，导致后续帧

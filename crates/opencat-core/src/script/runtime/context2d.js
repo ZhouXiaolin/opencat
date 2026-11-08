@@ -72,6 +72,10 @@
             miterLimit: 10,
             globalAlpha: 1,
             globalCompositeOperation: 'source-over',
+            // 最近发到后端的 blend/filter 值（-1=本帧未发过）。后端 sticky
+            // 状态的镜像：restore() 不回退它（见 restore 内注释）。
+            __ocBlendSent: -1,
+            __ocFilterSent: -1,
             shadowColor: 'rgba(0, 0, 0, 0)',
             shadowBlur: 0,
             shadowOffsetX: 0,
@@ -271,6 +275,7 @@
             // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
             // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
             __canvas_set_global_alpha(id, num(state.globalAlpha));
+            lowerComposite(id, state);
             lowerShadow(id, state);
         }
 
@@ -284,7 +289,45 @@
             // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
             // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
             __canvas_set_global_alpha(id, num(state.globalAlpha));
+            lowerComposite(id, state);
             lowerShadow(id, state);
+        }
+
+        // Arc 下沉到流的 arc op（oval rect + 带符号 sweep；force_move_to 语义
+        // 由执行端 arc_to(force_move_to=false) 承担）。空子路径上的 arc 自起新
+        // 子路径（canvas 语义）：先 moveTo 弧起点给执行端一个轮廓起点，否则
+        // arc_to 无线可续、几何消失。弧落点记回 cur（arcTo 接在 arc 后可续）。
+        // 满圈（|sweep|>=2π，canvas 规范钳为整圆）拆两个半弧链接——Skia 的
+        // arc_to 在 |sweep|>=2π 产空/回绕几何（arcsweep 探针实测）。
+        function lowerArc(cx, cy, rx, ry, s) {
+            var sweep = s.sweep;
+            var full = Math.abs(sweep) >= Math.PI * 2 - 1e-6;
+            if (!cur.known && full) {
+                // 空子路径上的满圈 arc：整圆 = add_oval（closed，fill/stroke
+                // 等价，1 op）。Skia 的 arc_to 在 |sweep|>=2π 产空/回绕几何
+                // （arcsweep 探针实测），半弧链每点 3 op——halftone 语料
+                // 7 万点/帧全走这条，必须走快路。
+                __canvas_path_add_oval(id, cx - rx, cy - ry, rx * 2, ry * 2);
+                var end = s.start + s.sweep;
+                cur = { x: cx + Math.cos(end) * rx, y: cy + Math.sin(end) * ry, known: true };
+                return;
+            }
+            if (!cur.known) {
+                var sx = cx + Math.cos(s.start) * rx;
+                var sy = cy + Math.sin(s.start) * ry;
+                expandPathBounds(sx, sy, sx, sy);
+                cur = { x: sx, y: sy, known: true };
+                __canvas_move_to(id, sx, sy);
+            }
+            if (full) {
+                var half = sweep > 0 ? Math.PI : -Math.PI;
+                __canvas_path_add_arc(id, cx - rx, cy - ry, rx * 2, ry * 2, s.start, half);
+                __canvas_path_add_arc(id, cx - rx, cy - ry, rx * 2, ry * 2, s.start + half, half);
+            } else {
+                __canvas_path_add_arc(id, cx - rx, cy - ry, rx * 2, ry * 2, s.start, sweep);
+            }
+            var end = s.start + s.sweep;
+            cur = { x: cx + Math.cos(end) * rx, y: cy + Math.sin(end) * ry, known: true };
         }
 
         // 图案填充。浏览器里 `fillStyle = createPattern(图, 'repeat')` 是「按
@@ -417,7 +460,15 @@
                 if (snap) {
                     var savedDash = snap.__dash;
                     delete snap.__dash;
+                    // __oc*Sent 是后端 sticky 状态的镜像：restore 不回退后端，
+                    // 保持**当前**值（不是 save 时刻的快照值）——否则 save 块
+                    // 内的下发被快照回卷，后续同值绘制被跳过、后端卡死在旧
+                    // blend/filter 上（blend 探针 multiply 瓦片实证）。
+                    var keepBlend = state.__ocBlendSent;
+                    var keepFilter = state.__ocFilterSent;
                     for (var k in snap) state[k] = snap[k];
+                    state.__ocBlendSent = keepBlend;
+                    state.__ocFilterSent = keepFilter;
                     dash.length = 0;
                     for (var i = 0; i < savedDash.length; i++) dash.push(savedDash[i]);
                 }
@@ -717,12 +768,7 @@
                     num(x) + num(radius), num(y) + num(radius)
                 );
                 var s = normalizeSweep(startAngle, endAngle, !!counterclockwise);
-                __canvas_path_add_arc(
-                    id,
-                    num(x) - num(radius), num(y) - num(radius),
-                    num(radius) * 2, num(radius) * 2,
-                    s.start, s.sweep
-                );
+                lowerArc(num(x), num(y), num(radius), num(radius), s);
             },
             // Ellipses lower onto the stream's arc op with an oval rect;
             // x-axis rotation would need a save/rotate/restore dance that the
@@ -736,12 +782,7 @@
                     num(x) + num(radiusX), num(y) + num(radiusY)
                 );
                 var s = normalizeSweep(startAngle, endAngle, !!counterclockwise);
-                __canvas_path_add_arc(
-                    id,
-                    num(x) - num(radiusX), num(y) - num(radiusY),
-                    num(radiusX) * 2, num(radiusY) * 2,
-                    s.start, s.sweep
-                );
+                lowerArc(num(x), num(y), num(radiusX), num(radiusY), s);
             },
             clip() {
                 __canvas_clip_path(id, true);
@@ -1026,10 +1067,48 @@
         return true;
     }
 
+    // canvas 2D composite/blend 名 → wire 编号（core `encode_blend_mode` 的
+    // 规范序）。'lighter' 即 Skia 的 Plus；纯 'destination'、'plus-lighter'、
+    // 'plus-darker' 不支持。
+    var COMPOSITE_MODES = {
+        'clear': 0,
+        'copy': 1,
+        'source-over': 3,
+        'destination-over': 4,
+        'source-in': 5,
+        'destination-in': 6,
+        'source-out': 7,
+        'destination-out': 8,
+        'source-atop': 9,
+        'destination-atop': 10,
+        'xor': 11,
+        'lighter': 12,
+        'multiply': 24,
+        'screen': 14,
+        'overlay': 15,
+        'darken': 16,
+        'lighten': 17,
+        'color-dodge': 18,
+        'color-burn': 19,
+        'hard-light': 20,
+        'soft-light': 21,
+        'difference': 22,
+        'exclusion': 23,
+        'hue': 25,
+        'saturation': 26,
+        'color': 27,
+        'luminosity': 28,
+    };
+
+    function compositeMode(state) {
+        var m = COMPOSITE_MODES[state.globalCompositeOperation];
+        return m === undefined ? 3 : m;
+    }
+
     function checkComposite(v) {
-        if (String(v) !== 'source-over') {
+        if (COMPOSITE_MODES[String(v)] === undefined) {
             throw new Error(
-                "context2d.globalCompositeOperation: only 'source-over' is supported, got '" + String(v) + "'"
+                "context2d.globalCompositeOperation: unsupported value '" + String(v) + "'"
             );
         }
     }
@@ -1048,9 +1127,43 @@
         );
     }
 
+    // globalCompositeOperation / ctx.filter likewise ride along with each
+    // paint as executor-side persistent state: composite folds into the fill/
+    // stroke paint, `blur` wraps each draw in a SaveLayer(Blur) (helpers.rs
+    // `push_painted`). 下发按需：`__oc*Sent` 记最近发到后端的值（后端 sticky
+    // 状态只被这两条 op 改写，restore 不动它），同值跳过——halftone 语料
+    // 每帧 ~30 万次 fill，每 draw 两条默认值 op 会把流撑大 1/3。
+    function lowerComposite(id, state) {
+        var blend = compositeMode(state);
+        if (state.__ocBlendSent !== blend) {
+            __canvas_set_blend_mode(id, blend);
+            state.__ocBlendSent = blend;
+        }
+        var sigma = filterSigma(state);
+        if (state.__ocFilterSent !== sigma) {
+            __canvas_set_ctx_filter(id, sigma);
+            state.__ocFilterSent = sigma;
+        }
+    }
+
+    // 'blur(<N>px)' → sigma；其余（含 'none'）→ null。
+    var FILTER_BLUR_RE = /^blur\(\s*([0-9]+(?:\.[0-9]+)?)px\s*\)$/;
+    function parseCtxFilter(v) {
+        var m = FILTER_BLUR_RE.exec(String(v).trim());
+        return m ? parseFloat(m[1]) : null;
+    }
+
+    function filterSigma(state) {
+        if (state.filter === 'none') return 0;
+        var s = parseCtxFilter(state.filter);
+        return s === null ? 0 : s;
+    }
+
     function checkFilter(v) {
-        if (String(v) !== 'none') {
-            throw new Error("context2d.filter: only 'none' is supported, got '" + String(v) + "'");
+        if (String(v) !== 'none' && parseCtxFilter(v) === null) {
+            throw new Error(
+                "context2d.filter: only 'none' or 'blur(<N>px)' is supported, got '" + String(v) + "'"
+            );
         }
     }
 

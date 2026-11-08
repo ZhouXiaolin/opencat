@@ -263,6 +263,28 @@ pub(crate) fn filter_layer_paint(image_filter: ImageFilterSpec) -> PaintSpec {
     }
 }
 
+/// `ctx.filter: blur(R)` 的 per-draw 包裹层漆：Blur 算子（sigma=R 直传，
+/// CSS filter 的 R 即标准差）+ 当前 composite blend。alpha 必须不透明
+/// （同 [`filter_layer_paint`]：层漆 alpha 乘全层内容）。
+pub(crate) fn ctx_filter_layer_paint(sigma: f32, blend_mode: BlendMode) -> PaintSpec {
+    PaintSpec {
+        fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+        style: PaintStyle::Fill,
+        stroke: None,
+        anti_alias: true,
+        blend_mode,
+        image_filter: Some(ImageFilterSpec::Blur {
+            sigma_x: sigma,
+            sigma_y: sigma,
+            crop_rect: None,
+            decal: false,
+        }),
+        color_filter: None,
+        mask_filter: None,
+        path_effect: None,
+    }
+}
+
 /// Emit `draw` wrapped in the canvas 2D shadow pass.
 ///
 /// Canvas shadows are not a Skia op: `fill()`/`stroke()` under an active

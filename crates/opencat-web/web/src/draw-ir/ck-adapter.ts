@@ -96,6 +96,8 @@ export type RenderState = {
   lineJoin: number;
   lineDash: { intervals: number[]; phase: number } | null;
   globalAlpha: number;
+  /// u8 wire blend enum（SET_BLEND_MODE sticky state，SrcOver=3）。
+  blendMode: number;
   antiAlias: boolean;
 };
 
@@ -129,6 +131,7 @@ export function initialRenderState(): RenderState {
     lineJoin: 0,
     lineDash: null,
     globalAlpha: 1,
+    blendMode: 3,
     antiAlias: true,
   };
 }
@@ -177,6 +180,7 @@ export function buildScriptPaint(CK: CanvasKit, state: RenderState, style: 'fill
   }
   paint.setAntiAlias(state.antiAlias);
   paint.setStyle(style === 'fill' ? CK.PaintStyle.Fill : CK.PaintStyle.Stroke);
+  paint.setBlendMode(mapBlendMode(CK, state.blendMode));
   if (style === 'stroke') {
     paint.setStrokeWidth(state.lineWidth);
     paint.setStrokeCap(mapLineCap(CK, state.lineCap));

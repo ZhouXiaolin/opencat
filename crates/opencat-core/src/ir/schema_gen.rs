@@ -191,6 +191,7 @@ fn opcode_constants(ts: &mut String) {
         ("MASK_CLIP", opcode::MASK_CLIP),
         ("SET_STYLE_LINEAR_GRADIENT", opcode::SET_STYLE_LINEAR_GRADIENT),
         ("SET_STYLE_RADIAL_GRADIENT", opcode::SET_STYLE_RADIAL_GRADIENT),
+        ("SET_BLEND_MODE", opcode::SET_BLEND_MODE),
         ("PATH_MOVE_TO", opcode::PATH_MOVE_TO_OP),
         ("PATH_LINE_TO", opcode::PATH_LINE_TO_OP),
         ("PATH_QUAD_TO", opcode::PATH_QUAD_TO_OP),

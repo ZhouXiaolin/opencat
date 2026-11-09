@@ -1156,6 +1156,11 @@ struct HostBridges {
     /// rgba8)。three GLTFLoader 的 `createImageBitmap` 垫用，解码结果经
     /// native 通道直写 surface。core 不依赖 image 解码 crate。
     image_decoder: Option<Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>>,
+    /// 视频帧解码器（宿主注入）：（文档相对路径，媒体时刻秒）→ RGBA 帧。
+    /// three VideoTexture 的 face 像素源——浏览器由视频管线供帧，我们经
+    /// 宿主的解码池按 (asset, time) 取帧。core 不持有解码器。
+    video_frame_decoder:
+        Option<Box<dyn Fn(&str, f64) -> anyhow::Result<(Vec<u8>, u32, u32)> + Send>>,
 }
 
 impl HostBridges {
@@ -1185,6 +1190,12 @@ impl HostBridges {
     ) {
         self.image_decoder = Some(f);
     }
+    fn set_video_frame_decoder(
+        &mut self,
+        f: Box<dyn Fn(&str, f64) -> anyhow::Result<(Vec<u8>, u32, u32)> + Send>,
+    ) {
+        self.video_frame_decoder = Some(f);
+    }
 
     /// 按文档相对路径读资产字节；未注入宿主时明确报错（调用方是
     /// GLTFLoader 等 Web 加载链，静默空表没有意义）。
@@ -1200,6 +1211,14 @@ impl HostBridges {
         match &self.image_decoder {
             Some(f) => f(bytes),
             None => anyhow::bail!("image_decode: no image decoder host"),
+        }
+    }
+
+    /// 取视频帧 RGBA（文档相对路径，媒体时刻秒）；未注入宿主时明确报错。
+    fn video_frame_decode(&self, path: &str, time_secs: f64) -> anyhow::Result<(Vec<u8>, u32, u32)> {
+        match &self.video_frame_decoder {
+            Some(f) => f(path, time_secs),
+            None => anyhow::bail!("video_frame_decode `{path}`: no video decoder host"),
         }
     }
 }
@@ -1519,6 +1538,12 @@ impl MutationStore {
     ) {
         self.bridges.set_image_decoder(f);
     }
+    pub fn set_video_frame_decoder(
+        &mut self,
+        f: Box<dyn Fn(&str, f64) -> anyhow::Result<(Vec<u8>, u32, u32)> + Send>,
+    ) {
+        self.bridges.set_video_frame_decoder(f);
+    }
 
     /// 按文档相对路径读资产字节；未注入宿主时明确报错（调用方是
     /// GLTFLoader 等 Web 加载链，静默空表没有意义）。
@@ -1529,6 +1554,15 @@ impl MutationStore {
     /// 解码编码图像字节为 (width, height, rgba8)；语义同上。
     pub fn image_decode(&self, bytes: &[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> {
         self.bridges.image_decode(bytes)
+    }
+
+    /// 取视频帧 RGBA（文档相对路径，媒体时刻秒）；语义同 image_decode。
+    pub fn video_frame_decode(
+        &self,
+        path: &str,
+        time_secs: f64,
+    ) -> anyhow::Result<(Vec<u8>, u32, u32)> {
+        self.bridges.video_frame_decode(path, time_secs)
     }
 
     /// 本帧录制的全部 GPU 流（消耗性取出）。

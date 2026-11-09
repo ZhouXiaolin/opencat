@@ -30,10 +30,20 @@ pub fn build_audio_track_from_pipeline(pipeline: &EnginePipeline) -> Result<Opti
     mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
 
     for seg in &plan.segments {
-        let handle = pipeline
-            .loader()
-            .handle(&seg.asset)
-            .ok_or_else(|| anyhow!("audio asset {:?} not found in loader", seg.asset))?;
+        // 浏览器语义：`<audio src=缺失>` 加载失败是静默的（音轨无声、页面照常
+        // 渲染）。上游语料存在引用未生成 SFX 的工程（claude-paper-launch 的
+        // click/toggle/typenew.mp3），按硬错误退出会让整片渲染失败——降级为
+        // 警告 + 该段静音。
+        let handle = match pipeline.loader().handle(&seg.asset) {
+            Some(handle) => handle,
+            None => {
+                eprintln!(
+                    "[audio] asset {:?} not found; segment muted (browser fallback)",
+                    seg.asset
+                );
+                continue;
+            }
+        };
         let path = handle
             .local_path()
             .ok_or_else(|| anyhow!("audio {:?}: local_path required", seg.asset))?;

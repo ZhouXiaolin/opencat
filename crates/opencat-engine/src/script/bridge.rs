@@ -129,10 +129,36 @@ pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::pa
         std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
     }));
     ctx.set_image_decoder(Box::new(|bytes| {
+        // SVG 先走 resvg 光栅（`<img src=*.svg>` 位图语义，见 svg_raster
+        // 模块注释）；image-rs 不认 svg 文本。预乘 RGBA 与 image-rs 的
+        // to_rgba8 输出同底色系（透明区域全零）。
+        if let Some((rgba, w, h)) = opencat_core::svg_raster::rasterize_svg(bytes, None) {
+            return Ok((w, h, rgba));
+        }
         let img = image::load_from_memory(bytes)
             .map_err(|e| anyhow::anyhow!("image decode: {e}"))?;
         let rgba = img.to_rgba8().into_raw();
         Ok((img.width(), img.height(), rgba))
+    }));
+    // 视频帧解码（three VideoTexture 的 face 像素源）：自持一个独立解码池，
+    // 与渲染管线的 MediaContext 互不借用——管线池按渲染帧预取，JS 侧按
+    // (asset, 媒体时刻) 惰性取帧；同一 mp4 两路解码在语料规模（数个短片段）
+    // 下代价可忽略。帧缓存让逐帧重放的同时刻请求命中缓存。
+    let pool_root = base_dir.to_path_buf();
+    let pool = std::sync::Mutex::new(crate::media::MediaContext::new());
+    ctx.set_video_frame_decoder(Box::new(move |path, time_secs| {
+        let full = pool_root.join(path);
+        let mut guard = pool.lock().expect("video frame pool poisoned");
+        let (data, w, h, _cached) = guard.get_video_frame(
+            &full,
+            crate::media::VideoFrameRequest {
+                composition_time_secs: time_secs,
+                timing: Default::default(),
+                quality: crate::media::VideoPreviewQuality::Exact,
+                target_size: None,
+            },
+        )?;
+        Ok((data.to_vec(), w, h))
     }));
 }
 

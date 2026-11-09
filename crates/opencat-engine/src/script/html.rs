@@ -798,8 +798,10 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     // hyperframes 播放器协议：页面把整帧重绘挂在 `hf-seek` 上（liquid 的
     // window.addEventListener('hf-seek')）。引擎按段 seek 完毕后派发一次，
     // detail.time = 当前主时间。将来归 hyperframes 适配层。
+    // handler 抛异常必须落 stderr：静默吞掉会让持久 renderer 的半帧流
+    // （如 transmission RT 创建中断）逐帧复制，排查成本极高。
     driver.push_str(
-        "    try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (e) {}\n",
+        "    try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (e) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (e && e.stack || e)); }\n",
     );
     driver.push_str("})();");
     Ok(driver)

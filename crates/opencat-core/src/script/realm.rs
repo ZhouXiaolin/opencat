@@ -765,6 +765,17 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // 像素由执行宿主（engine = glow，web = 真 WebGL2）渲染流后回填进
         // `FrameMediaPlan::generated_images` 的同名占位条目。
         self.pending_gpu = self.export_gpu_streams()?;
+        // 调试：OC_TRACE_JSLOGS 时把本帧 console 面（__ocLogs）尾部倒到
+        // stderr——html 通道没有 __ocStderr 绑定，console.error 只进这个
+        // 数组，页面 JS 的报错/探针输出要从这里取。
+        if std::env::var_os("OC_TRACE_JSLOGS").is_some() {
+            let logs = self
+                .ctx
+                .eval_json("(globalThis.__ocLogs || []).slice(-6)")?;
+            eprintln!("[jslogs] {logs:?}");
+            self.ctx
+                .eval("if (typeof __ocLogs !== 'undefined') __ocLogs.length = 0;")?;
+        }
 
         // Consuming transfer: the store's frame-level mutations move out
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at

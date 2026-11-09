@@ -1293,6 +1293,11 @@
                 pixels = arguments[5];
                 format = arguments[3];
                 type = arguments[4];
+                // VideoTexture 的 video face：先按当前 seek 时刻惰性取帧
+                // （回填 width/height/__ocPixels），宽高再从 face 读。
+                if (pixels && pixels.__ocVideoFace === true && typeof pixels.__ocVideoEnsureFrame === 'function') {
+                    pixels.__ocVideoEnsureFrame(typeof __ocSeekT !== 'undefined' ? __ocSeekT : 0);
+                }
                 width = pixels.width;
                 height = pixels.height;
                 border = 0;
@@ -1300,6 +1305,13 @@
             var bytes = null;
             if (pixels !== undefined && pixels !== null) {
                 bytes = typedBytes(pixels);
+                // img face 的解码像素（html_api 的 __image_decode_pixels 通道，
+                // SVG 走 resvg 光栅）。
+                if (!bytes && pixels.__ocPixels && pixels.__ocPixels.rgba) {
+                    bytes = pixels.__ocPixels.rgba;
+                    if (width === undefined || !width) width = pixels.__ocPixels.width;
+                    if (height === undefined || !height) height = pixels.__ocPixels.height;
+                }
                 // surface 面（__opencatSurface）直接有 getImageData；html 通道
                 // 的 canvas 元素面经 getContext('2d') 拿上下文面（离屏元素由
                 // surface 兜底像素读回）。
@@ -1341,6 +1353,13 @@
             var bytes = null;
             if (pixels !== undefined && pixels !== null) {
                 bytes = typedBytes(pixels);
+                // img face 的解码像素（texSubImage2D 对 bytes=null 静默记空流，
+                // 纹理全零透明——wordmark 不可见的根因），尺寸同 img face 回填。
+                if (!bytes && pixels.__ocPixels && pixels.__ocPixels.rgba) {
+                    bytes = pixels.__ocPixels.rgba;
+                    if (!width) width = pixels.__ocPixels.width;
+                    if (!height) height = pixels.__ocPixels.height;
+                }
                 if (!bytes && (pixels.__opencatSurface === true || typeof pixels.getContext === 'function')) {
                     var src = pixels.__opencatSurface === true ? pixels : pixels.getContext('2d');
                     var img = src ? src.getImageData(0, 0, width, height) : null;
@@ -1697,6 +1716,15 @@
     // canvas. The browser executes the original three.js calls; at frame end
     // we read the drawing buffer back into the generated-image channel.
     var nativeContexts = {};
+    // 帧首批量重开：持久 renderer（liquid：`new THREE.WebGLRenderer` 在
+    // module 顶层，module 只 eval 一次）帧 1+ 不再走 getContext，而
+    // reset_for_frame 每帧清流——流必须有人重开，emit 自动重开缓存的
+    // 旧头救不了头外的 origin/尺寸变化。html 通道帧首（__ocHtmlResetFrame）
+    // 调用；jsx 通道每帧全量重放必经 getContext，此表为空、开销为零。
+    // begin 幂等：同帧后续 getContext 的显式重开只是更新流头。
+    globalThis.__ocGlBeginFrameStreams = function () {
+        for (var k in contexts) contexts[k].__beginFrameStream();
+    };
 
     function attrsFromOptions(options) {
         options = options || {};
@@ -1877,9 +1905,12 @@
         // 调用方（dom_api 的 canvas 元素）带过来的是元素的 width/height
         // 内容属性——HTML 语义里 drawingBuffer 就是它，与布局盒无关。
         var wh = resolveSurfaceSize(sizeW, sizeH, key);
-        var sizeFace = (Number(sizeW) > 0 && Number(sizeH) > 0)
-            ? null
-            : (ctx.__ocElementFace ? ctx.__ocElementFace(key) : null);
+        // sizeFace 必须随 face 可得就挂：种子 canvas 无 width 属性时引擎
+        // 按 HTML 默认值填 300×150，构造初值恒 >0，若只在初值缺失时挂
+        // sizeFace，`setSize` 后写的 canvas.width 就永远到不了流头（liquid
+        // 的 1920 场景被画进 300×150 视口再拉伸——青色满屏几何全缺）。
+        // surfaceSize 对无效值回落构造初值。
+        var sizeFace = ctx.__ocElementFace ? ctx.__ocElementFace(key) : null;
 
         var rec = makeRecordingContext(key, wh[0], wh[1], packAttrsBits(attrs), sizeFace, originX, originY);
         rec.__kind = want;

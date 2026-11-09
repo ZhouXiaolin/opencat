@@ -1108,6 +1108,34 @@ macro_rules! for_each_binding {
                 Err(_) => Ok(Vec::new()),
             }
         }}
+        // 编码图像整帧解码：`<img>` face 的 `__ocPixels` 供给（three 的
+        // texImage2D/texSubImage2D 对 img face 的像素源；浏览器由渲染引擎
+        // 栅格化，我们经宿主注入的 image_decoder——SVG 分支走 resvg）。
+        // JS 侧收到 number[] 后转 Uint8Array 缓存到 face，一次解码跨帧复用。
+        $binding! { cmd $store image_decode_pixels (data: Vec<u8>) -> serde_json::Value {
+            match $store.image_decode(&data) {
+                Ok((width, height, rgba)) => Ok(serde_json::json!({
+                    "width": width,
+                    "height": height,
+                    "rgba": rgba,
+                })),
+                Err(_) => Ok(serde_json::Value::Null),
+            }
+        }}
+        // 视频帧解码：`<video>` face 的 `__ocPixels` 供给（three VideoTexture
+        // 的 texImage2D 像素源；浏览器由视频管线供帧）。path 是文档相对
+        // 资产路径，time_secs 是媒体时刻。解码失败返回 null（face 维持
+        // 全零透明——对齐 `<video>` 无数据的浏览器语义）。
+        $binding! { cmd $store video_frame_pixels (path: String, time_secs: f64) -> serde_json::Value {
+            match $store.video_frame_decode(&path, time_secs) {
+                Ok((rgba, width, height)) => Ok(serde_json::json!({
+                    "width": width,
+                    "height": height,
+                    "rgba": rgba,
+                })),
+                Err(_) => Ok(serde_json::Value::Null),
+            }
+        }}
 
         $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))

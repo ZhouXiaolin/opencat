@@ -719,6 +719,16 @@ impl V8JsContext {
         guard.set_image_decoder(f);
     }
 
+    /// 注入视频帧解码器（(文档相对路径, 媒体时刻秒) → RGBA 帧）。见
+    /// [`crate::script::bridge::install_asset_bridge`]。
+    pub fn set_video_frame_decoder(
+        &self,
+        f: Box<dyn Fn(&str, f64) -> anyhow::Result<(Vec<u8>, u32, u32)> + Send>,
+    ) {
+        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        guard.set_video_frame_decoder(f);
+    }
+
     /// Evaluate `code` and marshal the result back as JSON.
     ///
     /// Used by the JSX frontend host pass (transform + tree extraction), where

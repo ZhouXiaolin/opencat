@@ -65,7 +65,17 @@
         var a = ev && _windowListeners[ev.type];
         if (a) {
             a.slice().forEach(function (fn) {
-                try { fn.call(shimWindow, ev); } catch (e) { /* 单监听失败不拖垮 */ }
+                try {
+                    fn.call(shimWindow, ev);
+                } catch (e) {
+                    // 单监听失败不拖垮，但必须留下痕迹：整帧重绘挂在
+                    // hf-seek 上，静默吞掉会让每帧都停在首帧状态且无据可查。
+                    try {
+                        (globalThis.__ocLogs = globalThis.__ocLogs || []).push(
+                            'window handler ' + ev.type + ' threw: ' + (e && e.stack || e)
+                        );
+                    } catch (e2) { /* 日志通道也不可用时放弃 */ }
+                }
             });
         }
         return true;

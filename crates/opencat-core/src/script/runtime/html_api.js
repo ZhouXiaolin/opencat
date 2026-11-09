@@ -659,6 +659,34 @@
         el.play = function () { this.paused = false; return Promise.resolve(); };
         el.pause = function () { this.paused = true; };
         el.load = function () {};
+        if (el.__payload && el.__payload.type === 'video') {
+            // three VideoTexture 的供帧协议：readyState ≥ HAVE_CURRENT_DATA
+            // 让语料的 needsUpdate 判定通过；texImage2D 消费时经
+            // __video_frame_pixels 按 (src, 当前媒体时刻) 取帧——浏览器由
+            // 视频管线供帧，face 只承载状态与最近一帧的像素。
+            el.readyState = 2;
+            el.__ocVideoFace = true;
+            el.__ocVideoEnsureFrame = function (timeSecs) {
+                // seed media 节点的资产在 path 字段（parse/html.rs 的
+                // img/video 解析专字段）；页面脚本赋值走 src。
+                var src = this.__payload.src || this.__payload.path || '';
+                if (!src || typeof __video_frame_pixels !== 'function') return;
+                // 同一时刻不重取（逐帧重放会对同一时刻多次渲染）
+                if (this.__ocVideoFrameT === timeSecs && this.__ocPixels) return;
+                var frame = __video_frame_pixels(src, timeSecs);
+                if (!frame || !frame.rgba) return;
+                this.__ocPixels = {
+                    width: frame.width,
+                    height: frame.height,
+                    rgba: new Uint8Array(frame.rgba),
+                };
+                this.__ocVideoFrameT = timeSecs;
+                this.width = frame.width;
+                this.height = frame.height;
+                this.videoWidth = frame.width;
+                this.videoHeight = frame.height;
+            };
+        }
     }
 
     function HtmlElement(payload) {
@@ -1085,6 +1113,28 @@
         return box;
     }
 
+    // <img> 的加载：字节 → 宿主解码（__image_decode_pixels，SVG 分支走
+    // resvg 光栅）→ 尺寸 + RGBA 像素一把抓，缓存在 face 的 `__ocPixels`
+    // （three 的 texImage2D/texSubImage2D 对 img face 的像素源）。下游
+    // getDimensions 读 `naturalWidth || width` 分配纹理存储——face 缺尺寸
+    // 会发出 texStorage2D(NaN, undefined×undefined)，GL 分配失败后 three
+    // 每帧重试上传，命令流逐帧卡死在 TEX_STORAGE_2D（liquid wordmark 青屏
+    // 根因）；缺像素则 texSubImage2D 静默记空流，纹理全零透明。
+    function decodeImgFace(self, url) {
+        var len = __opencatAssetStat(url);
+        if (len <= 0) return false;
+        var bytes = new Uint8Array(len);
+        __opencatAssetReadInto(url, bytes);
+        var plain = Array.from(bytes);
+        if (typeof __image_decode_pixels !== 'function') return false;
+        var decoded = __image_decode_pixels(plain);
+        if (!decoded || !decoded.rgba) return false;
+        var rgba = new Uint8Array(decoded.rgba);
+        self.__ocPixels = { width: decoded.width, height: decoded.height, rgba: rgba };
+        self.naturalWidth = self.width = decoded.width;
+        self.naturalHeight = self.height = decoded.height;
+        return true;
+    }
     // img.src 赋值 → 异步解码 + load/error 事件（three ImageLoader 的
     // 浏览器语义：监听挂在 src 赋值之前，微任务后派发）。uaTag 判 img
     // （createElementNS('img') 的 face type 走 FRAG_TAG_MAP 归一成 div，
@@ -1098,6 +1148,10 @@
             Promise.resolve().then(function () {
                 var url = self.__payload.src || '';
                 var ok = typeof __opencatAssetStat === 'function' && __opencatAssetStat(url) >= 0;
+                if (ok && typeof __opencatAssetReadInto === 'function') {
+                    ok = decodeImgFace(self, url);
+                }
+                self.complete = true;
                 self.dispatchEvent({ type: ok ? 'load' : 'error', target: self });
             });
         },
@@ -1541,6 +1595,24 @@
                 try { old.kill(); } catch (e) { /* 已失效的时间线忽略 */ }
             }
         }
+        // lottie-web（bodymovin）把每个 `loadAnimation` 注册进 animationManager
+        // 的闭包注册表且永不清理；嵌套子页的内联脚本每帧重放都调一次
+        // loadAnimation，注册表逐帧持有整个 SVG renderer（timeline-launch /
+        // cloud-render-launch 全片渲染 V8 OOM 的根因——external 库脚本只在
+        // 首帧估一次，注册表却跨帧存活）。`AnimationItem.destroy()` 释放
+        // renderer 并经 destroy 事件把自身从注册表 splice 掉，一次调用两清。
+        try {
+            var lt = globalThis.lottie || (typeof window !== 'undefined' && window ? window.lottie : null);
+            if (lt && typeof lt.getRegisteredAnimations === 'function') {
+                var anims = lt.getRegisteredAnimations();
+                for (var li = 0; li < anims.length; li++) {
+                    var anim = anims[li];
+                    if (anim && typeof anim.destroy === 'function') {
+                        try { anim.destroy(); } catch (e2) { /* 已失效的动画忽略 */ }
+                    }
+                }
+            }
+        } catch (e) { /* lottie 未加载时跳过 */ }
         nodes = Object.create(null);
         rootFace = null;
         timelines.length = 0;
@@ -1548,6 +1620,9 @@
         // 页脚本每帧重放、按同序重建 GL 资源：句柄序归零让句柄逐帧稳定，
         // 执行器按句柄复用 GL 对象（单调句柄会逐帧新建对象，全片 OOM）。
         if (typeof __gl_reset_handles === 'function') __gl_reset_handles();
+        // 持久 renderer 的帧首重开流：module 只 eval 一次，帧 1+ 的
+        // getContext 缓存命中不再发生，reset_for_frame 清流后没人重开。
+        if (typeof __ocGlBeginFrameStreams === 'function') __ocGlBeginFrameStreams();
         if (!seed) return;
         rootFace = materializeSeed(seed.tree, null);
         documentFace.documentElement = rootFace;

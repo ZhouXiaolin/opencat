@@ -67,6 +67,20 @@ impl From<&VideoInfo> for opencat_core::probe::catalog::VideoInfoMeta {
 /// for an animation that drifts continuously across sizes.
 pub(crate) const TARGET_SIZE_ALIGN: u32 = 16;
 
+/// svg 绘制尺寸光栅的单轴上限（超出部分由 CTM 放大补足）。
+const SVG_RASTER_MAX: u32 = 4096;
+/// svg 绘制尺寸光栅缓存条数：补间缩放逐帧跨桶，只需留近几帧的桶。
+const SVG_RASTER_CACHE: usize = 16;
+
+/// svg 字节 → 预乘 RGBA 的 skia 图（`target` 为 None 时取 intrinsic 尺寸）。
+fn rasterize_svg_image(encoded: &[u8], target: Option<(u32, u32)>) -> Option<Image> {
+    let (rgba, w, h) = opencat_core::svg_raster::rasterize_svg(encoded, target)?;
+    let info = ImageInfo::new((w as i32, h as i32), ColorType::RGBA8888, AlphaType::Premul, None);
+    images::raster_from_data(&info, Data::new_copy(&rgba), w as usize * 4)
+        // 光栅失败/零覆盖的兜底检查：尺寸必须对上。
+        .filter(|img| img.width() == w as i32 && img.height() == h as i32)
+}
+
 /// Quantize a requested size onto the 16-pixel grid, clamped to `max` per axis.
 /// Returns `None` when the request is already at or above `max` (no shrink).
 fn quantize_bucket(tw: u32, th: u32, max_w: u32, max_h: u32) -> Option<(u32, u32)> {
@@ -126,6 +140,11 @@ pub struct MediaContext {
     /// Entries are at most the composition's draw size per asset, so this stays
     /// tiny compared to native-resolution decodes.
     scaled_images: HashMap<(PathBuf, u32, u32), Image>,
+    /// svg 源字节（skia codec 不认 svg）。矢量图按绘制尺寸桶重新光栅，
+    /// 放大也重光栅（浏览器语义），不经位图重采样。
+    svg_sources: HashMap<PathBuf, Arc<[u8]>>,
+    /// svg 的绘制尺寸光栅。补间缩放逐帧跨桶，有界淘汰。
+    svg_rasters: opencat_core::cache::lru::BoundedLruCache<(PathBuf, u32, u32), Image>,
     /// Lazy decodes of frame-embedded encoded images (`ImageRef::Encoded`,
     /// svg `<image>` bytes interned by core). Keyed by the frame's byte-table
     /// id; a tree usually re-emits the same id every frame.
@@ -151,6 +170,8 @@ impl MediaContext {
             images: HashMap::new(),
             static_images: HashMap::new(),
             scaled_images: HashMap::new(),
+            svg_sources: HashMap::new(),
+            svg_rasters: opencat_core::cache::lru::BoundedLruCache::new(SVG_RASTER_CACHE),
             encoded_images: HashMap::new(),
             video_frame_cache: VideoFrameCache::new(video_frames),
             video_preview_quality: VideoPreviewQuality::Realtime,
@@ -336,15 +357,16 @@ impl MediaContext {
     }
 
     /// Like [`Self::frame_rgba_at_time_by_path`] but decodes down to `target`
-    /// (16-pixel bucket, shrink-only). Returns the bitmap plus the horizontal
-    /// decode scale (`bitmap.width / source_width`) so callers can map source
-    /// rects onto the decoded pixels.
+    /// (16-pixel bucket, shrink-only). Returns the bitmap plus the per-axis
+    /// decode scale (`bitmap / source`) so callers can map source rects onto
+    /// the decoded pixels. The bucket aligns each axis on its own, so the two
+    /// scales differ (1920×1080 of a 2934×1650 source is 0.76% apart).
     pub fn frame_rgba_at_time_sized(
         &mut self,
         path: &Path,
         time_secs: f64,
         target: Option<(u32, u32)>,
-    ) -> Result<(VideoBitmap, f32)> {
+    ) -> Result<(VideoBitmap, (f32, f32))> {
         let request = VideoFrameRequest {
             composition_time_secs: time_secs.max(0.0),
             timing: VideoFrameTiming::default(),
@@ -352,14 +374,17 @@ impl MediaContext {
             target_size: target,
         };
         let bitmap = self.get_video_bitmap(path, request)?;
-        let source_width = self.video_info(path)?.width as f32;
-        let scale = bitmap.width as f32 / source_width;
+        let info = self.video_info(path)?;
+        let scale = (
+            bitmap.width as f32 / info.width as f32,
+            bitmap.height as f32 / info.height as f32,
+        );
         Ok((bitmap, scale))
     }
 
     /// Static image for drawing, decoded down to `target` (shrink-only, 16-pixel
-    /// bucket). Returns the image plus the horizontal decode scale
-    /// (`image.width() / source_width`); `1.0` means native/lazy (no shrink).
+    /// bucket). Returns the image plus the per-axis decode scale
+    /// (`image / source`); `(1.0, 1.0)` means native/lazy (no shrink).
     ///
     /// The lazy encoded image (file bytes only) is cached per path; shrunk
     /// rasters are cached per bucket so full-resolution RGBA pixels are never
@@ -368,30 +393,24 @@ impl MediaContext {
         &mut self,
         path: &Path,
         target: Option<(u32, u32)>,
-    ) -> Result<(Image, f32)> {
+    ) -> Result<(Image, (f32, f32))> {
         let lazy = match self.static_images.get(path) {
             Some(image) => image.clone(),
             None => {
                 let encoded = fs::read(path)
                     .with_context(|| format!("failed to read image bytes: {}", path.display()))?;
-                // skia codec 不认 svg：usvg+resvg 光栅成预乘 RGBA（尺寸带
-                // draw target，shrink-only 与位图同语义）。
-                let image = Image::from_encoded(Data::new_copy(&encoded)).or_else(|| {
-                    let (w, h) = target.unwrap_or((0, 0));
-                    let target = (w > 0 && h > 0).then_some((w, h));
-                    let (rgba, w, h) = opencat_core::svg_raster::rasterize_svg(&encoded, target)?;
-                    let info = ImageInfo::new(
-                        (w as i32, h as i32),
-                        ColorType::RGBA8888,
-                        AlphaType::Premul,
-                        None,
-                    );
-                    images::raster_from_data(&info, Data::new_copy(&rgba), w as usize * 4)
-                        .filter(|img| {
-                            // 光栅失败/零覆盖的兜底检查：尺寸必须对上。
-                            img.width() == w as i32 && img.height() == h as i32
-                        })
-                });
+                // skia codec 不认 svg：usvg+resvg 光栅。原生图固定取 intrinsic
+                // 尺寸（与哪一帧先请求无关），绘制尺寸光栅见下方 svg 分支。
+                let image = match Image::from_encoded(Data::new_copy(&encoded)) {
+                    Some(image) => Some(image),
+                    None => {
+                        let image = rasterize_svg_image(&encoded, None);
+                        if image.is_some() {
+                            self.svg_sources.insert(path.to_path_buf(), Arc::from(encoded));
+                        }
+                        image
+                    }
+                };
                 let image =
                     image.ok_or_else(|| anyhow!("failed to decode image: {}", path.display()))?;
                 self.static_images.insert(path.to_path_buf(), image.clone());
@@ -399,13 +418,34 @@ impl MediaContext {
             }
         };
         let (w0, h0) = (lazy.width() as u32, lazy.height() as u32);
+        if let Some(svg) = self.svg_sources.get(path).cloned() {
+            let Some((tw, th)) = target else {
+                return Ok((lazy, (1.0, 1.0)));
+            };
+            let bucket = |v: u32| v.div_ceil(TARGET_SIZE_ALIGN).clamp(1, SVG_RASTER_MAX / TARGET_SIZE_ALIGN)
+                * TARGET_SIZE_ALIGN;
+            let (bw, bh) = (bucket(tw), bucket(th));
+            if (bw, bh) == (w0, h0) {
+                return Ok((lazy, (1.0, 1.0)));
+            }
+            let scale = (bw as f32 / w0 as f32, bh as f32 / h0 as f32);
+            let key = (path.to_path_buf(), bw, bh);
+            if let Some(cached) = self.svg_rasters.get_cloned(&key) {
+                return Ok((cached, scale));
+            }
+            let image = rasterize_svg_image(&svg, Some((bw, bh)))
+                .ok_or_else(|| anyhow!("failed to rasterize svg {}x{}: {}", bw, bh, path.display()))?;
+            self.svg_rasters.insert(key, image.clone());
+            return Ok((image, scale));
+        }
         let Some((bw, bh)) = target.and_then(|(tw, th)| quantize_bucket(tw, th, w0, h0)) else {
-            return Ok((lazy, 1.0));
+            return Ok((lazy, (1.0, 1.0)));
         };
+        let scale = (bw as f32 / w0 as f32, bh as f32 / h0 as f32);
 
         let key = (path.to_path_buf(), bw, bh);
         if let Some(cached) = self.scaled_images.get(&key) {
-            return Ok((cached.clone(), bw as f32 / w0 as f32));
+            return Ok((cached.clone(), scale));
         }
         let mut surface = surfaces::raster_n32_premul((bw as i32, bh as i32))
             .ok_or_else(|| anyhow!("failed to allocate {}x{} surface for {}", bw, bh, path.display()))?;
@@ -423,7 +463,7 @@ impl MediaContext {
         );
         let shrunk = surface.image_snapshot();
         self.scaled_images.insert(key, shrunk.clone());
-        Ok((shrunk, bw as f32 / w0 as f32))
+        Ok((shrunk, scale))
     }
 
     /// Decode a frame-embedded encoded image (`ImageRef::Encoded`) at natural

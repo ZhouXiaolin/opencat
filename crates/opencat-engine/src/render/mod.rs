@@ -44,6 +44,9 @@ pub fn generated_image_cache_from_env() -> GeneratedImageCache {
 
 pub enum OutputFormat {
     Mp4(Mp4Config),
+    /// 分块并行渲染的一段：只渲 `[start, end)` 帧、纯视频；音轨由拼接方
+    /// 统一编码（见 [`crate::media::concat_video_segments`]）。
+    Mp4Segment(Mp4Config, std::ops::Range<u32>),
     /// PNG 序列（`frame_%04d.png`）；`Some(帧号表)` 只渲这些帧（一次提取，
     /// 多帧取样），`None` 全片。
     Png(Option<Vec<u32>>),
@@ -504,6 +507,13 @@ impl GpuRenderSession {
 
         {
             let (canvas, skia) = compositor.split();
+            // 帧间清屏：合成目标纹理跨帧持久（GpuRenderSession::new 建一次），
+            // 而浏览器语义是每帧在空白画布上重绘——没有全帧不透明背景的合成
+            // （页面根声明 `background: transparent`，或半透明淡出层）会把上
+            // 一帧残影透进当前帧：liquid 整体淡出段 lockup 永不消失、探针里
+            // 半透明矩形叠出「旧色×(1-α) + 新色×α」的根因。CPU 路径每帧新建
+            // surface（零初始化=透明），这里对齐同一语义。
+            canvas.clear(skia_safe::Color::TRANSPARENT);
             let mut resolver = crate::gpu::compositor::CompositorResolver { skia, textures };
             if std::env::var_os("OC_DEBUG_PRERECT").is_some() {
                 let paint = skia_safe::Paint::new(skia_safe::Color4f::new(0.0, 0.0, 1.0, 1.0), None);
@@ -695,6 +705,32 @@ pub fn render_from_source(
     render_from_source_with_base(source, None, output_path, config)
 }
 
+/// 分块并行渲染的父进程：只提取合成、不渲染，取帧数、帧率与混好的音轨
+/// （切段与拼接用；各段自己再提取一次）。
+pub fn probe_composition_with_base(
+    input: &str,
+    base_dir: Option<&Path>,
+) -> Result<(u32, u32, Option<crate::media::AudioTrack>)> {
+    use crate::script::V8JsContext;
+    use opencat_core::pipeline::Pipeline;
+    use opencat_core::script::js_context::JsContext;
+
+    let cache_base =
+        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let loader = crate::resource::loader::EngineLoader::new(
+        base_dir.unwrap_or(&cache_base).to_path_buf(),
+        cache_base.join(".opencat").join("assets"),
+    )?;
+    let ctx = V8JsContext::new()?;
+    crate::script::bridge::install_glsl_reflector(&ctx);
+    crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
+    let pipeline = crate::pipeline::open(input, loader, ctx)?;
+    let info = pipeline.info().clone();
+    let frame_count = duration_secs_to_frames(info.duration, info.fps);
+    let audio_track = crate::media::audio::build_audio_track_from_pipeline(&pipeline)?;
+    Ok((frame_count, info.fps, audio_track))
+}
+
 pub fn render_from_source_with_base(
     input: &str,
     base_dir: Option<&Path>,
@@ -725,7 +761,11 @@ pub fn render_from_source_with_base(
     media_ctx.set_composition_fps(info.fps);
     let mut generated_cache = generated_image_cache_from_env();
 
-    let audio_track = crate::media::audio::build_audio_track_from_pipeline(&pipeline)?;
+    // 音轨只有整片 MP4 要：分段由拼接方统一编码，PNG 不带音频。
+    let audio_track = match &config.format {
+        OutputFormat::Mp4(_) => crate::media::audio::build_audio_track_from_pipeline(&pipeline)?,
+        _ => None,
+    };
 
     match &config.format {
         OutputFormat::Png(frames) => {
@@ -755,7 +795,13 @@ pub fn render_from_source_with_base(
                 img.save(&filename)?;
             }
         }
-        OutputFormat::Mp4(mp4_config) => {
+        OutputFormat::Mp4(mp4_config) | OutputFormat::Mp4Segment(mp4_config, _) => {
+            let range = match &config.format {
+                OutputFormat::Mp4Segment(_, range) => {
+                    range.start.min(frame_count)..range.end.min(frame_count)
+                }
+                _ => 0..frame_count,
+            };
             let aligned_info = if info.width % 2 != 0 || info.height % 2 != 0 {
                 let aw = (info.width + 1) & !1;
                 let ah = (info.height + 1) & !1;
@@ -774,16 +820,22 @@ pub fn render_from_source_with_base(
                 aligned_info.0,
                 aligned_info.1,
             )?;
+            // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
+            // hf-seek 等）与连续渲染不同，预热后段内各帧与整片同相位。
+            if range.start > 0 {
+                renderer.render_frame_blocking(range.start - 1)?;
+            }
+            let start = range.start;
             encode_rgba_frames(
                 output_path,
                 aligned_info.0,
                 aligned_info.1,
                 info.fps,
-                frame_count,
+                range.end - range.start,
                 mp4_config,
                 audio_track.as_ref(),
                 |_, _| {},
-                |encode_index| renderer.render_for_encode(encode_index),
+                |encode_index| renderer.render_for_encode(start + encode_index),
             )?;
         }
     }
@@ -917,6 +969,16 @@ impl EncodingConfig {
     pub fn mp4_with(config: Mp4Config) -> Self {
         Self {
             format: OutputFormat::Mp4(config),
+        }
+    }
+
+    /// 分块并行渲染的一段（见 [`OutputFormat::Mp4Segment`]），编码参数同整片。
+    pub fn mp4_segment(range: std::ops::Range<u32>) -> Self {
+        let OutputFormat::Mp4(config) = Self::mp4().format else {
+            unreachable!("mp4() always builds the Mp4 format")
+        };
+        Self {
+            format: OutputFormat::Mp4Segment(config, range),
         }
     }
 

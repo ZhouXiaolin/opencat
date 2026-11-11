@@ -286,6 +286,9 @@ impl Hash for LayoutStyleInput<'_> {
         style.min_width.hash(state);
         style.is_flex.hash(state);
         style.is_grid.hash(state);
+        style.inline_flow.hash(state);
+        style.inline_atomic.hash(state);
+        style.vertical_align.hash(state);
         style.grid_template_columns.hash(state);
         style.grid_template_rows.hash(state);
         style.grid_auto_flow.hash(state);
@@ -321,6 +324,7 @@ struct PaintStyleInput<'a>(&'a ComputedVisualStyle);
 impl Hash for PaintStyleInput<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let style = self.0;
+        style.hidden.hash(state);
         style.background.hash(state);
         style.fill.hash(state);
         style.border_radius.hash(state);
@@ -337,6 +341,7 @@ impl Hash for PaintStyleInput<'_> {
         style.border_style.hash(state);
         style.object_fit.hash(state);
         style.clip_contents.hash(state);
+        style.clip_x_only.hash(state);
         style.clip_path.hash(state);
         style.box_shadow.hash(state);
         style.inset_shadow.hash(state);

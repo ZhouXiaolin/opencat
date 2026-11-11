@@ -13,7 +13,7 @@ use lightningcss::properties::align::{
     JustifyItems, JustifySelf, SelfPosition,
 };
 use lightningcss::properties::align::ContentPosition as ContentPositionKeyword;
-use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword, DisplayOutside};
+use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword};
 use lightningcss::properties::grid::{
     GridAutoFlow as CssGridAutoFlow, GridLine, RepeatCount, TrackBreadth, TrackListItem, TrackSize,
 };
@@ -47,16 +47,10 @@ pub(crate) fn initial_style() -> Style {
 /// paint 腿）。
 pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext) -> bool {
     match p {
-        Property::Display(d) => {
-            style.display = map_display(d);
-            // inline-block/inline-flex/inline-grid 是 shrink-to-fit 盒子：taffy 没有
-            // inline 层级，用 align_self:start 阻止父容器的 stretch（否则每个
-            // 逐字 inline-block span 都被拉成兄弟最宽者，k3 的「Every token」逐字
-            // 动画因此字间距全错）。
-            if matches!(d, Display::Pair(pair) if pair.outside == DisplayOutside::Inline) {
-                style.align_self = Some(taffy::style::AlignSelf::START);
-            }
-        }
+        // 行内级盒（inline-block 等）在 flex/grid 容器里按 CSS 块化成普通项，
+        // 对齐跟随父容器 align-items；块容器里的 shrink-to-fit 由 resolve 期
+        // shrink_inline_level_child 处理，这里不改对齐。
+        Property::Display(d) => style.display = map_display(d),
         Property::Position(v) => {
             use lightningcss::properties::position::Position as CssPosition;
             style.position = match v {
@@ -210,6 +204,8 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
             style.overflow.x = map_overflow(&v.x);
             style.overflow.y = map_overflow(&v.y);
         }
+        Property::OverflowX(k) => style.overflow.x = map_overflow(k),
+        Property::OverflowY(k) => style.overflow.y = map_overflow(k),
         Property::GridTemplateColumns(v) => match v {
             lightningcss::properties::grid::TrackSizing::TrackList(list) => {
                 style.grid_template_columns = map_tracks(&list.items, ctx);
@@ -465,6 +461,9 @@ fn length_px(v: &LengthValue, ctx: &EvalContext) -> Option<f32> {
         LengthValue::Vh(v) => Some(v * ctx.viewport.1 / 100.0),
         LengthValue::Vmin(v) => Some(v * ctx.viewport.0.min(ctx.viewport.1) / 100.0),
         LengthValue::Vmax(v) => Some(v * ctx.viewport.0.max(ctx.viewport.1) / 100.0),
+        // 容器查询单位：语料的 query container 恒为合成帧尺寸的根。
+        LengthValue::Cqw(v) => Some(v * ctx.viewport.0 / 100.0),
+        LengthValue::Cqh(v) => Some(v * ctx.viewport.1 / 100.0),
         _ => None,
     }
 }

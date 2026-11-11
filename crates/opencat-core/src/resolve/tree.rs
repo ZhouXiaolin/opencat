@@ -79,6 +79,8 @@ pub struct ElementLottie {
 #[derive(Clone, Debug)]
 pub struct ElementCanvas {
     pub commands: Vec<crate::script::canvas_op::CanvasOp>,
+    /// HTML 位图尺寸（见 `Canvas::bitmap`）：display 期按盒/位图缩放命令。
+    pub bitmap: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Debug)]

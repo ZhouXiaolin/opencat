@@ -456,6 +456,11 @@ pub enum DrawOp {
         tile: Rect4,
         pattern_transform: [f32; 6],
         opacity: f32,
+        /// tile 位图的固定光栅化分辨率（像素）。`None` = 引擎默认按设备
+        /// 密度（tile × (CTM ∘ patternTransform) 的 scale）。浏览器 canvas
+        /// 语义：命令流先进 `width×height` 属性分辨率的位图、再整体缩放
+        /// 显示——分辨率钉死在位图尺寸，不随设备缩放。
+        rasterize_at: Option<[f32; 2]>,
     },
 
     /// svg `<pattern>` 描边：同 [`DrawOp::FillPattern`]，但平铺结果沿
@@ -777,6 +782,7 @@ impl std::hash::Hash for DrawOp {
                 tile,
                 pattern_transform,
                 opacity,
+                rasterize_at,
             } => {
                 40_u8.hash(state);
                 path.hash(state);
@@ -788,6 +794,9 @@ impl std::hash::Hash for DrawOp {
                     v.to_bits().hash(state);
                 }
                 opacity.to_bits().hash(state);
+                rasterize_at
+                    .map(|[rx, ry]| [rx.to_bits(), ry.to_bits()])
+                    .hash(state);
             }
             DrawOp::StrokePattern {
                 path,

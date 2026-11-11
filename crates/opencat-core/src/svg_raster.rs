@@ -21,8 +21,8 @@ pub fn svg_dims(bytes: &[u8]) -> Option<(u32, u32)> {
     (w > 0.0 && h > 0.0).then(|| (w.round() as u32, h.round() as u32))
 }
 
-/// 光栅成预乘 RGBA8888（stride = w*4）。`target` 是 draw 目标尺寸
-/// （shrink-only 由调用方决定）；None 用 intrinsic 尺寸。
+/// 光栅成预乘 RGBA8888（stride = w*4）。`target` 是绘制目标尺寸（可大于
+/// intrinsic：矢量图放大也重光栅）；None 用 intrinsic 尺寸。
 pub fn rasterize_svg(bytes: &[u8], target: Option<(u32, u32)>) -> Option<(Vec<u8>, u32, u32)> {
     let text = svg_text(bytes)?;
     let tree = crate::render::svg::load_tree_markup(text)?;

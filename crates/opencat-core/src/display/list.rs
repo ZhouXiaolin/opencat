@@ -146,6 +146,10 @@ pub struct TextDisplayItem {
     /// `background-clip: text` — resolved background layers to paint through
     /// the glyph outlines instead of `style.color`. `None` = normal solid text.
     pub text_fill: Option<Vec<crate::style::BackgroundFill>>,
+    /// Box the `text_fill` layers map over, in this item's coordinates. Set
+    /// when the layers come from a `background-clip: text` ancestor (the
+    /// ancestor's box); `None` = the text's own glyph-run box.
+    pub text_fill_box: Option<DisplayRect>,
     /// Node background painted as the inline box behind the glyphs (CSS
     /// `background` on a text element — pill/badge chips). Empty when the
     /// layers are routed into `text_fill` (`background-clip: text` paints no
@@ -155,6 +159,12 @@ pub struct TextDisplayItem {
     pub background_blend_mode: BlendMode,
     pub allow_wrap: bool,
     pub truncate: bool,
+    /// 自身折行的基准宽：布局测量用的取整前盒宽（见 `LayoutNode::wrap_width`）。
+    /// `bounds.width` 是取整后的绘制盒宽，只管对齐与背景。
+    pub wrap_width: f32,
+    /// 行内流里的逐行片段（相对 `bounds` 原点）：存在时逐片段单行绘制，
+    /// 不再按 `wrap_width` 折行。
+    pub fragments: Option<std::sync::Arc<[crate::layout::tree::TextFragment]>>,
     pub drop_shadow: Vec<DropShadow>,
     pub text_shadows: Vec<TextShadow>,
     pub text_unit_overrides: Option<TextUnitOverrideBatch>,
@@ -211,6 +221,9 @@ pub struct BitmapDisplayItem {
 pub struct DrawScriptDisplayItem {
     pub bounds: DisplayRect,
     pub commands: Vec<crate::script::canvas_op::CanvasOp>,
+    /// HTML 画布位图 → CSS 盒的缩放（盒尺寸与位图相同时为 None）。命令流在
+    /// 位图空间作画；画布坐标系（filter 长度的解释空间）= 本缩放之后。
+    pub bitmap_scale: Option<(f32, f32)>,
     pub drop_shadow: Vec<DropShadow>,
     pub hidden_subtree: Vec<crate::display::tree::HiddenChildDisplayNode>,
 }

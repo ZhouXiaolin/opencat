@@ -66,6 +66,10 @@ pub struct NodeStyleMutations {
     /// 脚本写的 `display`：`Some(true)` = none（整子树退出布局与绘制，同可见
     /// 窗占位语义）；其余取值 `Some(false)` 撤销脚本隐藏。
     pub display_none: Option<bool>,
+    /// 脚本写的 `visibility`（gsap `autoAlpha` 写 `hidden`/`inherit`）。
+    pub visibility: Option<crate::style::Visibility>,
+    /// 脚本写的 `z-index`（gsap `set(el, {zIndex})` 切场景层级）。
+    pub z_index: Option<i32>,
     pub bg_color: Option<ColorToken>,
     /// 脚本按帧写入的 CSS `background` 原文（渐变/瓦片背景）。静态树只带一份
     /// 样式，动不了的背景层从这条通道进；纯色仍走 `bg_color`。
@@ -123,7 +127,24 @@ pub struct NodeStyleMutations {
     /// Chrome — the filter is applied in the element's local space and the
     /// result is then scaled by ancestor transforms.
     pub text_shadows: Option<Vec<crate::style::TextShadow>>,
+    /// 脚本写入的自定义属性（`style.setProperty('--x', v)`、gsap 补间
+    /// `{"--x": v}`），键带 `--`，后写覆盖。resolve 期挂到变量继承链上，
+    /// 引用它的 var() 声明随之重算。
+    #[serde(default)]
+    pub custom_props: Vec<(String, String)>,
+    /// 单角圆角（左上/右上/右下/左下）：gsap 的 `borderRadius` 补间展开成
+    /// 四个角的长写逐个写入。叠在 `border_radius` 之上。
+    #[serde(default)]
+    pub corner_radii: [Option<f32>; 4],
 }
+
+/// 单角圆角长写，次序同 [`NodeStyleMutations::corner_radii`]。
+pub const CORNER_RADIUS_KEYS: [&str; 4] = [
+    "borderTopLeftRadius",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius",
+];
 
 /// Parse a GSAP-flavoured transform origin into box fractions.
 ///
@@ -549,6 +570,12 @@ impl NodeStyleMutations {
         if let Some(v) = self.opacity {
             style.opacity = Some(v.clamp(0.0, 1.0));
         }
+        if let Some(v) = self.visibility {
+            style.visibility = Some(v);
+        }
+        if let Some(v) = self.z_index {
+            style.z_index = Some(v);
+        }
         if let Some(css) = &self.bg_image {
             let (color, layers) = crate::css::background_from_css(css);
             if let Some(c) = color {
@@ -585,6 +612,15 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.border_radius {
             style.border_radius = Some(BorderRadius::uniform(v));
+        }
+        if self.corner_radii.iter().any(Option::is_some) {
+            let mut radius = style.border_radius.unwrap_or(BorderRadius::uniform(0.0));
+            let [tl, tr, br, bl] = self.corner_radii;
+            radius.top_left = tl.unwrap_or(radius.top_left);
+            radius.top_right = tr.unwrap_or(radius.top_right);
+            radius.bottom_right = br.unwrap_or(radius.bottom_right);
+            radius.bottom_left = bl.unwrap_or(radius.bottom_left);
+            style.border_radius = Some(radius);
         }
         if let Some(v) = self.border_width {
             style.border_width = Some(v);
@@ -865,6 +901,10 @@ fn apply_bg_position_to_layers(style: &mut crate::style::NodeStyle, css: &str) {
     let px_pair =
         if pos_px.iter().all(Option::is_some) { Some([pos_px[0].unwrap(), pos_px[1].unwrap()]) } else { None };
     for layer in &mut style.background_layers {
+        if let crate::style::BackgroundFill::Image { image } = layer {
+            image.position = [0, 1].map(|i| [pos[i], pos_px[i].unwrap_or(0.0)]);
+            continue;
+        }
         if let crate::style::BackgroundFill::ArbitraryGradient { gradient } = layer {
             if let crate::style::ArbitraryGradient::LinearGradient { position, position_px, .. } =
                 gradient
@@ -890,6 +930,17 @@ pub fn apply_node_to_recorder(
     if let Some(none) = m.display_none {
         let value = if none { "none" } else { "block" };
         recorder.write_style_value(id, "display", serde_json::Value::String(value.into()));
+    }
+    if let Some(v) = m.visibility {
+        let value = match v {
+            crate::style::Visibility::Visible => "visible",
+            crate::style::Visibility::Hidden => "hidden",
+            crate::style::Visibility::Inherit => "inherit",
+        };
+        recorder.write_style_value(id, "visibility", serde_json::Value::String(value.into()));
+    }
+    if let Some(v) = m.z_index {
+        recorder.write_style_value(id, "zIndex", serde_json::json!(v));
     }
     if let Some(v) = m.inset_left {
         recorder.record_left(id, v);
@@ -1034,6 +1085,14 @@ pub fn apply_node_to_recorder(
     }
     if let Some(css) = &m.box_shadow_css {
         recorder.write_style_value(id, "boxShadow", serde_json::Value::String(css.clone()));
+    }
+    for (name, value) in &m.custom_props {
+        recorder.write_style_value(id, name, serde_json::Value::String(value.clone()));
+    }
+    for (key, value) in CORNER_RADIUS_KEYS.iter().zip(m.corner_radii) {
+        if let Some(v) = value {
+            recorder.write_style_value(id, key, serde_json::json!(v));
+        }
     }
     if let Some(color) = m.bg_color {
         recorder.record_bg_color(id, color);

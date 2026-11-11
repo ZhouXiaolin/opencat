@@ -685,6 +685,7 @@ fn emit_pattern(
                 tile,
                 pattern_transform,
                 opacity,
+                rasterize_at: None,
             });
         }
     }

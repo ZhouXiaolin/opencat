@@ -52,6 +52,7 @@ pub fn collect_resource_requests_from_parsed(parsed: &ParsedComposition) -> Reso
 /// expanded (every scene / transition endpoint is visited), so sources that
 /// only appear on a single frame are still declared.
 fn collect_sources_static(node: &Node, req: &mut ResourceRequests) {
+    collect_background_images(node, req);
     match node.kind() {
         NodeKind::Div(div) => {
             for child in div.children_ref() {
@@ -123,6 +124,7 @@ pub(crate) fn collect_sources_from_frame_state(
 }
 
 pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut ResourceRequests) {
+    collect_background_images(node, req);
     match node.kind() {
         NodeKind::Div(div) => {
             for child in div.children_ref() {
@@ -170,6 +172,15 @@ pub(crate) fn collect_sources(node: &Node, frame_ctx: &FrameCtx, req: &mut Resou
             collect_sources_from_frame_state(&frame_state_for_root(node, frame_ctx), frame_ctx, req)
         }
         NodeKind::Text(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
+    }
+}
+
+/// CSS `background-image: url(...)` 层声明的位图（任何节点种类都可能带）。
+fn collect_background_images(node: &Node, req: &mut ResourceRequests) {
+    for layer in &node.style_ref().background_layers {
+        if let crate::style::BackgroundFill::Image { image } = layer {
+            req.images.insert(image.source());
+        }
     }
 }
 

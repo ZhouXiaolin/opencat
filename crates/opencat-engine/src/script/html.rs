@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use crate::resource::fetch::{build_http_client, build_preload_runtime, download_bytes};
 use crate::script::V8JsContext;
 use opencat_core::parse::dom::DomElement;
-use opencat_core::parse::html::{HtmlScript, parse_html};
+use opencat_core::parse::html::{HtmlScript, parse_html, scope_composition_css};
 use opencat_core::script::dispatch::{binding_shim_js, dispatch_binding};
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::realm::JS_PLATFORM_SHIM;
@@ -305,16 +305,18 @@ pub fn extract_html_with_base_dir(
         .ok_or_else(|| anyhow::anyhow!("html: no composition root (data-composition-id)"))?;
 
     // 嵌套 composition（`data-composition-src`）：子工程内联进宿主元素，它的
-    // `<style>` 并进同一级联，脚本带时间基准并进同一序列。子工程在浏览器里
-    // 由 hyperframes 的 runtime 单独装载，脚本只看到自己的子树；我们的等价
-    // 做法是让根选择器（`[data-composition-id="…"]`）把样式与查询都收窄到
-    // 子根上（子根被挂进宿主，`page` 层不变）。
+    // `<style>` 按宿主作用域改写后并进同一级联，脚本带时间基准并进同一序列。
+    // 子工程在浏览器里由 hyperframes 的 runtime 单独装载，脚本只看到自己的
+    // 子树；查询面由根选择器（`[data-composition-id="…"]`）收窄到子根上
+    // （子根被挂进宿主，`page` 层不变）。
     let mut scripts = doc.scripts.clone();
     // 子文档 src 脚本的撞车 id 改写文本（归一路径 → 改写后全文），driver
     // 读取时按同键替换——保持「同 src 只估一次」的去重语义。
     let mut src_rewrites = std::collections::HashMap::new();
+    // composition id → 全局起点秒：异步登记的 timeline 按它补 seek。
+    let mut comp_offsets: Vec<(String, f64)> = composition_id(&tree).map(|id| (id, 0.0)).into_iter().collect();
     if !doc.composition_hosts.is_empty() {
-        splice_nested_hosts(&mut tree, &mut css_text, &mut scripts, base, 0.0, &mut src_rewrites)?;
+        splice_nested_hosts(&mut tree, &mut css_text, &mut scripts, base, 0.0, &mut src_rewrites, &mut comp_offsets)?;
     }
 
     // `@import`（子工程 `<style>` 里的 Google Fonts 等）展开 + `@font-face`
@@ -326,7 +328,7 @@ pub fn extract_html_with_base_dir(
 
     let seed = json!({ "meta": meta, "tree": tree, "css": css_text, "html": true });
 
-    let driver = build_html_driver(&scripts, base, &seed, doc.import_map.as_deref(), &src_rewrites)?;
+    let driver = build_html_driver(&scripts, base, &seed, doc.import_map.as_deref(), &src_rewrites, &comp_offsets)?;
     if let Some(path) = std::env::var_os("OC_DUMP_DRIVER") {
         let _ = std::fs::write(&path, &driver);
     }
@@ -348,8 +350,8 @@ pub fn extract_html_with_base_dir(
         &opencat_core::text::empty_font_db(),
         &fallback_refs,
     );
-    for (_, _, bytes) in &css_fonts {
-        db.load_font_data(bytes.clone());
+    for (family, _, bytes) in &css_fonts {
+        opencat_core::fonts::load_css_face(&mut db, bytes.clone(), family);
     }
     let db = std::sync::Arc::new(db);
     let (mut extract, driver) = opencat_core::text::scope_font_db(&db, || -> Result<(Value, String)> {
@@ -384,8 +386,29 @@ pub fn extract_html_with_base_dir(
         ctx.eval(JSX_RUNTIME)?;
         crate::script::bridge::install_asset_bridge(&ctx, base);
         ctx.eval(&driver)?;
-        // 资产读取是微任务（fetch 返回 Promise）：脚本同步体跑完后再排一次
-        // 微任务队列，onLoad 回调才会在 extract 之前落地。
+        // 页面脚本常把「建 DOM / 登记 timeline」放在 async 续体里：
+        // `await document.fonts.ready` / `await fetch(...)` 走微任务，而
+        // `await new Promise(r => setTimeout(r, ...))` 走 rAF 帧队列
+        // （dom_api.js 把 setTimeout 降级到 requestAnimationFrame）。提取期
+        // 没有帧宿主来 drain __ocRafQueue，只跑微任务会让这类续体永久挂起
+        // ——timeline-launch act2 的聊天气泡全段缺失、liquid 的 three 层不亮
+        // 都是这个根因。这里按「微任务 → 帧队列」交替排空，有界 32 轮：
+        // 等库就绪的 setTimeout 循环（如 act2 等 lottie 40 次）也能落定。
+        // drain 只发生在提取期建树阶段；逐帧渲染仍由 realm 的帧宿主冲刷，
+        // 帧内容依旧是 t 的纯函数（frame = f(t)）。
+        for _ in 0..32 {
+            ctx.run_microtasks();
+            let pending = ctx.eval_json(
+                "(function(){ return globalThis.__ocRafQueue ? globalThis.__ocRafQueue.length : 0; })()",
+            )?;
+            if pending.as_u64().unwrap_or(0) == 0 {
+                break;
+            }
+            ctx.eval("globalThis.__ocFlushRaf();")?;
+        }
+        ctx.run_microtasks();
+        // 异步登记的 timeline 补 seek：必须在 async 续体全部落定之后。
+        ctx.eval("globalThis.__ocHtmlSeekLate();")?;
         ctx.run_microtasks();
         let extract = eval_json_string(&ctx, "globalThis.__ocHtmlExtract()")?;
         if let Some(path) = std::env::var_os("OC_DUMP_EXTRACT") {
@@ -420,8 +443,9 @@ fn splice_nested_hosts(
     base_dir: &Path,
     offset: f64,
     src_rewrites: &mut std::collections::HashMap<String, String>,
+    comp_offsets: &mut Vec<(String, f64)>,
 ) -> Result<()> {
-    let mut hosts: Vec<(String, String, f64, Option<f64>)> = Vec::new();
+    let mut hosts: Vec<NestedHost> = Vec::new();
     collect_hosts(root, &mut hosts);
     // 宿主树已占用的 id 集（作者 id + 合成 id）：子文档的作者 id 与之撞车
     // 时整文档一致改写（树内 + CSS id 选择器），子文档脚本照旧按作者 id 查
@@ -429,7 +453,7 @@ fn splice_nested_hosts(
     // 树内 id 与选择器同步，语义不变。
     let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
     collect_ids(root, &mut taken);
-    for (host_id, src, start, host_duration) in hosts {
+    for (host_id, src, start, host_duration, scope) in hosts {
         let text = resolve_external(base_dir, &src)?;
         // 合成 id 带宿主 id 前缀：子文档的 `hf-N` 与宿主的 `hf-N` 会撞在
         // 同一棵树里。作者 id 的撞车改写在 core（parse_html_prefixed 以
@@ -445,6 +469,10 @@ fn splice_nested_hosts(
             anyhow::anyhow!("html: nested composition `{src}` has no composition root")
         })?;
         let sub_offset = offset + start;
+        let sub_comp_id = composition_id(&sub_root);
+        if let Some(id) = &sub_comp_id {
+            comp_offsets.push((id.clone(), sub_offset));
+        }
         // 子文档资产相对子文档目录（hyperframes composition 协议，参考端同
         // 语义）：`./`/`../` 形态的媒体路径按子文档所在目录归一为相对主
         // base_dir——prepare 按 path 直读，不归一就是 `missing host input`
@@ -469,19 +497,21 @@ fn splice_nested_hosts(
         {
             *dur = host_duration;
         }
-        splice_nested_hosts(&mut sub_root, css, scripts, base_dir, sub_offset, src_rewrites)?;
+        splice_nested_hosts(&mut sub_root, css, scripts, base_dir, sub_offset, src_rewrites, comp_offsets)?;
+        // 子文档样式（link 与 `<style>`）按宿主收窄：浏览器端 hyperframes
+        // 装载时同样给每条规则加 composition 作用域前缀。
         for link in &sub.links {
             if link.rel.eq_ignore_ascii_case("stylesheet") {
                 let href = rewrite_rel_path(&link.href, sub_dir);
                 css.push('\n');
-                css.push_str(&resolve_external(base_dir, &href)?);
+                css.push_str(&scope_composition_css(&resolve_external(base_dir, &href)?, &scope));
             }
         }
         // 子文档 CSS 的相对 url(...)（@font-face 的 `../fonts/…` 等）同样
         // 相对子文档目录——按 sub_dir 归一，css_font_faces 才能按主 base_dir
         // 读到（woff2 放行后 pr-to-video 语料暴露）。link href 同语义。
         css.push('\n');
-        css.push_str(&rewrite_css_asset_urls(&sub.css_text, sub_dir));
+        css.push_str(&scope_composition_css(&rewrite_css_asset_urls(&sub.css_text, sub_dir), &scope));
         for script in &sub.scripts {
             let mut script = script.clone();
             script.start += sub_offset;
@@ -504,6 +534,10 @@ fn splice_nested_hosts(
                     }
                 }
             }
+            // 内联 classic 脚本按子组合根收窄查询面（HF 子组合作用域）。
+            if let (Some(id), Some(code), false) = (&sub_comp_id, script.inline.as_mut(), script.module) {
+                *code = wrap_scoped_composition_script(code, id);
+            }
             scripts.push(script);
         }
         // 改写后的子文档 id 并回已占集：同一宿主树的多个 composition 之间
@@ -517,6 +551,122 @@ fn splice_nested_hosts(
         }
     }
     Ok(())
+}
+
+/// hyperframes 子组合脚本作用域（HF `wrapScopedCompositionScript` 同语义，
+/// `packages/core/src/compiler/compositionScoping.ts`）：子文档内联脚本里的
+/// `document` 查询与 gsap 字符串目标收窄到本组合根子树——子组合的 timeline
+/// 动不了宿主上的元素（timeline-launch act4）。外链与 module 脚本不包（HF
+/// 同）。脚本在函数体内执行，顶层声明不再落全局（HF 同）。
+const SCOPED_COMPOSITION_PRELUDE: &str = r#"var __hfRoot = null;
+var __hfFindRoot = function () {
+    if (!__hfRoot) __hfRoot = __hfBaseDocument.querySelector(__hfRootSelector);
+    return __hfRoot;
+};
+var __hfContains = function (node) {
+    var root = __hfFindRoot();
+    return !root || node === root || root.contains(node);
+};
+var __hfQueryAll = function (selector) {
+    var root = __hfFindRoot();
+    if (!root || typeof selector !== 'string') return __hfBaseDocument.querySelectorAll(selector);
+    return Array.prototype.filter.call(__hfBaseDocument.querySelectorAll(selector), __hfContains);
+};
+var __hfQueryOne = function (selector) { return __hfQueryAll(selector)[0] || null; };
+var __hfGetElementById = function (id) {
+    var found = __hfBaseDocument.getElementById(id);
+    if (found && __hfContains(found)) return found;
+    var root = __hfFindRoot();
+    if (!root) return found || null;
+    if (root.id === String(id)) return root;
+    return root.querySelector('[id="' + String(id).replace(/"/g, '\\"') + '"]') || null;
+};
+var __hfDocument = new Proxy(__hfBaseDocument, {
+    get: function (target, prop) {
+        if (prop === 'querySelector') return __hfQueryOne;
+        if (prop === 'querySelectorAll') return __hfQueryAll;
+        if (prop === 'getElementById') return __hfGetElementById;
+        var value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+    },
+});
+var __hfResolveTarget = function (target) {
+    if (typeof target === 'string') return __hfQueryAll(target);
+    if (!Array.isArray(target)) return target;
+    return target.reduce(function (acc, item) {
+        if (typeof item === 'string') return acc.concat(Array.prototype.slice.call(__hfQueryAll(item)));
+        acc.push(item);
+        return acc;
+    }, []);
+};
+var __hfScopedMethod = function (owner, original) {
+    return function (target) {
+        var args = Array.prototype.slice.call(arguments);
+        args[0] = __hfResolveTarget(target);
+        return original.apply(owner, args);
+    };
+};
+var __hfScopeTimeline = function (tl) {
+    if (tl) ['to', 'from', 'fromTo', 'set'].forEach(function (method) {
+        if (typeof tl[method] === 'function') tl[method] = __hfScopedMethod(tl, tl[method]);
+    });
+    return tl;
+};
+var __hfGsap = !__hfBaseGsap ? __hfBaseGsap : new Proxy(__hfBaseGsap, {
+    get: function (target, prop) {
+        if (prop === 'timeline') {
+            return function () { return __hfScopeTimeline(target.timeline.apply(target, arguments)); };
+        }
+        if (prop === 'to' || prop === 'from' || prop === 'fromTo' || prop === 'set') {
+            return __hfScopedMethod(target, target[prop]);
+        }
+        if (prop === 'utils' && target.utils) {
+            return new Proxy(target.utils, {
+                get: function (utils, name) {
+                    if (name === 'toArray') {
+                        return function (first) {
+                            var args = Array.prototype.slice.call(arguments);
+                            args[0] = __hfResolveTarget(first);
+                            return utils.toArray.apply(utils, args);
+                        };
+                    }
+                    if (name === 'selector') {
+                        return function (base) {
+                            var root = (typeof base === 'string' ? __hfQueryOne(base) : base) || __hfFindRoot();
+                            return function (selector) {
+                                if (!root || typeof selector !== 'string') return [];
+                                return Array.prototype.filter.call(__hfBaseDocument.querySelectorAll(selector), function (node) {
+                                    return node === root || root.contains(node);
+                                });
+                            };
+                        };
+                    }
+                    var value = Reflect.get(utils, name, utils);
+                    return typeof value === 'function' ? value.bind(utils) : value;
+                },
+            });
+        }
+        var value = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+    },
+});
+(function (document, gsap) {
+"#;
+
+fn wrap_scoped_composition_script(source: &str, comp_id: &str) -> String {
+    let selector = format!(
+        "[data-composition-id=\"{}\"]",
+        comp_id.replace('\\', "\\\\").replace('"', "\\\"")
+    );
+    let mut out = String::with_capacity(source.len() + SCOPED_COMPOSITION_PRELUDE.len() + 256);
+    out.push_str("(function () {\nvar __hfRootSelector = ");
+    out.push_str(&serde_json::to_string(&selector).unwrap_or_default());
+    out.push_str(";\nvar __hfBaseDocument = document;\n");
+    out.push_str("var __hfBaseGsap = typeof gsap === 'undefined' ? window.gsap : gsap;\n");
+    out.push_str(SCOPED_COMPOSITION_PRELUDE);
+    out.push_str(source);
+    out.push_str("\n}).call(window, __hfDocument, __hfGsap);\n})();\n");
+    out
 }
 
 /// `./`/`../` 开头的相对路径按子文档目录归一为主 base_dir 相对路径；
@@ -591,9 +741,9 @@ fn rewrite_id_selectors(code: &mut String, renames: &std::collections::HashMap<S
 }
 
 /// 子树资产路径按子文档目录归一：`./`/`../` 开头的媒体路径（video/image/
-/// lottie/audio 的 path）相对 `sub_dir` 归一为主 base_dir 相对路径。裸相对
-/// （`assets/…`）与远程 URL 不动——前者按主 base 语义已是现网行为，后者
-/// 无目录语义。
+/// lottie/audio 的 path）与内联 `style` 里的 `url()` 相对 `sub_dir` 归一为主
+/// base_dir 相对路径。裸相对（`assets/…`）与远程 URL 不动——前者按主 base
+/// 语义已是现网行为，后者无目录语义。
 fn rewrite_asset_paths(el: &mut DomElement, sub_dir: &str) {
     let rewrite = |p: &mut Option<String>| {
         if let Some(path) = p {
@@ -606,6 +756,11 @@ fn rewrite_asset_paths(el: &mut DomElement, sub_dir: &str) {
         DomElement::Lottie { path, .. } => rewrite(path),
         DomElement::Audio { path, .. } => rewrite(path),
         _ => {}
+    }
+    if let Some(Some(style)) = el.inline_style_mut()
+        && style.contains("url(")
+    {
+        *style = rewrite_css_asset_urls(style, sub_dir);
     }
     if let Some(children) = el.children_mut() {
         for child in children {
@@ -639,9 +794,19 @@ fn collect_ids(el: &DomElement, out: &mut std::collections::HashSet<String>) {
     }
 }
 
-/// 收集子树里的嵌套 composition 宿主：`(元素 id, 子工程路径, data-start,
-/// data-duration)`。
-fn collect_hosts(el: &DomElement, out: &mut Vec<(String, String, f64, Option<f64>)>) {
+/// 元素的 `data-composition-id`（非空）。
+fn composition_id(el: &DomElement) -> Option<String> {
+    el.html_attrs()
+        .iter()
+        .find(|(name, value)| name == "data-composition-id" && !value.is_empty())
+        .map(|(_, value)| value.clone())
+}
+
+/// 嵌套宿主：(宿主 id, 子文档 src, 起点秒, 宿主槽位时长, 子文档样式作用域选择器)。
+type NestedHost = (String, String, f64, Option<f64>, String);
+
+/// 收集子树里的嵌套 composition 宿主。
+fn collect_hosts(el: &DomElement, out: &mut Vec<NestedHost>) {
     let attrs = el.html_attrs();
     let get = |key: &str| {
         attrs
@@ -654,7 +819,16 @@ fn collect_hosts(el: &DomElement, out: &mut Vec<(String, String, f64, Option<f64
             .and_then(|value| value.trim().parse::<f64>().ok())
             .unwrap_or(0.0);
         let duration = get("data-duration").and_then(|value| value.trim().parse::<f64>().ok());
-        out.push((el.id().to_string(), src.to_string(), start, duration));
+        // 子文档样式的作用域选择器：宿主的 composition id（hyperframes 同形），
+        // 缺省按宿主元素 id。
+        let scope = match get("data-composition-id").filter(|id| !id.is_empty()) {
+            Some(id) => format!(
+                "[data-composition-id=\"{}\"]",
+                id.replace('\\', "\\\\").replace('"', "\\\"")
+            ),
+            None => format!("#{}", el.id()),
+        };
+        out.push((el.id().to_string(), src.to_string(), start, duration, scope));
     }
     for child in el.children() {
         collect_hosts(child, out);
@@ -684,10 +858,9 @@ fn eval_json_string(ctx: &V8JsContext, code: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
 }
 
-/// 每帧 driver：头部内嵌 [`HTML_API_RUNTIME`]（IIFE 幂等，每帧重 eval 即
-/// 树状态重置）→ 重物化种子 → external 守卫重放 → inline 每帧重放 → 尾部
-/// 绝对 seek。gsap 等库定义在 globalThis 上跨帧存活（`__ocResetFrame` 不清
-/// globals），守卫键 `__ocExt<n>` 每帧只估一次。
+/// 每帧 driver：首帧内嵌 [`HTML_API_RUNTIME`]，物化种子并执行全部页面
+/// 脚本，登记 timeline 与 composition 时间断点。后续帧只做帧级 store
+/// 重建、绝对 seek 和 `hf-seek`。`OC_HTML_REPLAY=1` 回退逐帧重放。
 ///
 /// `<script type="module">` 走模块图装载（[`load_html_modules`]）：oxc 降级
 /// 后的源码经 `__ocModuleSources` 注入，原位置以 `__ocRequire(key)` 占位。
@@ -700,6 +873,7 @@ fn build_html_driver(
     seed: &Value,
     import_map: Option<&str>,
     src_rewrites: &std::collections::HashMap<String, String>,
+    comp_offsets: &[(String, f64)],
 ) -> Result<String> {
     let mut body = String::new();
     let mut ext_idx = 0usize;
@@ -769,10 +943,16 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     }
     // HTML_API_RUNTIME 原文直接拼（不进 format! 模板——JS 花括号会被当
     // 占位符解析）；seed JSON 走独立插值。
-    let mut driver = String::from(HTML_API_RUNTIME);
+    let replay = matches!(
+        std::env::var("OC_HTML_REPLAY").as_deref(),
+        Ok("1") | Ok("true") | Ok("on")
+    );
+    let mut driver = String::new();
+    driver.push_str(&format!("globalThis.__ocHtmlReplay = {replay};\n"));
+    driver.push_str("var __ocHtmlInit = globalThis.__ocHtmlReplay || !globalThis.__ocHtmlPageInited;\n");
+    driver.push_str("if (__ocHtmlInit) {\n");
+    driver.push_str(HTML_API_RUNTIME);
     driver.push_str("\n;(function () {\n");
-    driver.push_str("    // jsx 通道的帧重置只在 jsx realm 有意义：html 的模块缓存\n");
-    driver.push_str("    // 必须跨帧保活（见上），故不调 __ocResetFrame。\n");
     driver.push_str("    globalThis.__ocHtmlResetFrame(");
     driver.push_str(&serde_json::to_string(seed)?);
     driver.push_str(");\n");
@@ -781,28 +961,45 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
         driver.push_str(&serde_json::to_string(&module_sources)?);
         driver.push_str(";\n");
     }
+    let offsets: serde_json::Map<String, Value> =
+        comp_offsets.iter().map(|(id, offset)| (id.clone(), json!(offset))).collect();
+    driver.push_str("    globalThis.__ocCompOffsets = ");
+    driver.push_str(&serde_json::to_string(&offsets)?);
+    driver.push_str(";\n");
     driver.push_str(&body);
-    // 每段用「主时间 − 该 composition 的 data-start」驱动，与浏览器里子文档
-    // 自己的时间轴一致；list[0] 是宿主（偏移 0），–ocSeekT 取它保 putImageData
-    // 的键仍是主时间。
-    let time_expr = "(globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0)";
-    driver.push_str("    globalThis.__ocHtmlSeekGroups([");
+    driver.push_str("    globalThis.__ocHtmlPageMarks = [");
     for (index, (offset, mark)) in marks.iter().enumerate() {
         let next = marks
             .get(index + 1)
             .map(|(_, next_mark)| next_mark.clone())
             .unwrap_or_else(|| "globalThis.__ocTimelineCount()".to_string());
-        driver.push_str(&format!("[{time_expr} - ({offset:?}), {mark}, {next}],"));
+        driver.push_str(&format!("[{offset:?}, {mark}, {next}],"));
     }
-    driver.push_str("]);\n");
+    driver.push_str("];\n");
+    driver.push_str("})();\n");
+    driver.push_str("globalThis.__ocHtmlPageInited = true;\n");
+    driver.push_str("}\n");
+    driver.push_str("if (!__ocHtmlInit) globalThis.__ocHtmlBeginFrame();\n");
+    // 每段用「主时间 − 该 composition 的 data-start」驱动，与浏览器里子文档
+    // 自己的时间轴一致；marks[0] 是宿主（偏移 0），–ocSeekT 取它保
+    // putImageData 的键仍是主时间。
+    let time_expr = "(globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0)";
+    driver.push_str("(function () {\n");
+    driver.push_str("    var __ocTime = ");
+    driver.push_str(time_expr);
+    driver.push_str(";\n");
+    driver.push_str("    var __ocGroups = [];\n");
+    driver.push_str("    for (var markIndex = 0; markIndex < globalThis.__ocHtmlPageMarks.length; markIndex++) {\n");
+    driver.push_str("        var markEntry = globalThis.__ocHtmlPageMarks[markIndex];\n");
+    driver.push_str("        __ocGroups.push([__ocTime - markEntry[0], markEntry[1], markEntry[2]]);\n");
+    driver.push_str("    }\n");
+    driver.push_str("    globalThis.__ocHtmlSeekGroups(__ocGroups);\n");
     // hyperframes 播放器协议：页面把整帧重绘挂在 `hf-seek` 上（liquid 的
     // window.addEventListener('hf-seek')）。引擎按段 seek 完毕后派发一次，
     // detail.time = 当前主时间。将来归 hyperframes 适配层。
     // handler 抛异常必须落 stderr：静默吞掉会让持久 renderer 的半帧流
     // （如 transmission RT 创建中断）逐帧复制，排查成本极高。
-    driver.push_str(
-        "    try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (e) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (e && e.stack || e)); }\n",
-    );
+    driver.push_str("    try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); }\n");
     driver.push_str("})();");
     Ok(driver)
 }

@@ -103,6 +103,79 @@ fn v8_to_json(scope: &mut PinScope<'_, '_>, v: Local<Value>) -> anyhow::Result<J
     serde_json::from_str(&text).map_err(|e| anyhow!("v8: JSON round-trip failed: {e}"))
 }
 
+/// `__opencatCallNative` 的参数数组 → `serde_json::Value` 列表。原始值（数字/
+/// 字符串/布尔/null/undefined）逐元素直读，免整包 JSON.stringify + serde 解析
+/// 往返——canvas 热绑定每帧数十万次，往返是单次调用的大头；对象/数组元素
+/// 仍走 [`v8_to_json`]，语义不变。
+fn v8_args_to_json(scope: &mut PinScope<'_, '_>, v: Local<Value>) -> anyhow::Result<Vec<JsonValue>> {
+    let Ok(array) = Local::<v8::Array>::try_from(v) else {
+        return Ok(match v8_to_json(scope, v)? {
+            JsonValue::Array(arr) => arr,
+            other => vec![other],
+        });
+    };
+    let mut out = Vec::with_capacity(array.length() as usize);
+    for i in 0..array.length() {
+        let Some(item) = array.get_index(scope, i) else {
+            out.push(JsonValue::Null);
+            continue;
+        };
+        let value = if item.is_null_or_undefined() {
+            JsonValue::Null
+        } else if item.is_string() {
+            JsonValue::String(item.to_rust_string_lossy(scope))
+        } else if item.is_number() {
+            json_number(item.number_value(scope).unwrap_or(f64::NAN))
+        } else if item.is_boolean() {
+            JsonValue::Bool(item.boolean_value(scope))
+        } else {
+            v8_to_json(scope, item)?
+        };
+        out.push(value);
+    }
+    Ok(out)
+}
+
+/// 数字按 `JSON.stringify` 的文本口径落值：非有限 → null；|n| < 1e21 的整数
+/// 值写成整数文本，serde 读回整数（`u32`/`u8` 参数只认整数形态）；其余浮点。
+fn json_number(n: f64) -> JsonValue {
+    if !n.is_finite() {
+        return JsonValue::Null;
+    }
+    if n.fract() == 0.0 && n.abs() < 1e21 {
+        if n >= 0.0 && n < 18_446_744_073_709_551_616.0 {
+            return JsonValue::from(n as u64);
+        }
+        if n < 0.0 && n >= -9_223_372_036_854_775_808.0 {
+            return JsonValue::from(n as i64);
+        }
+    }
+    serde_json::Number::from_f64(n).map_or(JsonValue::Null, JsonValue::Number)
+}
+
+/// 绑定返回值写回 JS：null/布尔/数字/字符串直设，其余走 [`json_to_v8`]。
+/// 绝大多数绑定返回 null，原路是 `"null"` 序列化 + `JSON.parse` 一圈。
+fn set_return(
+    scope: &mut PinScope<'_, '_>,
+    rv: &mut v8::ReturnValue<'_, Value>,
+    value: &JsonValue,
+) -> anyhow::Result<()> {
+    match value {
+        JsonValue::Null => rv.set_null(),
+        JsonValue::Bool(b) => rv.set_bool(*b),
+        JsonValue::Number(n) => match n.as_i64().and_then(|i| i32::try_from(i).ok()) {
+            Some(i) => rv.set_int32(i),
+            None => rv.set_double(n.as_f64().unwrap_or(f64::NAN)),
+        },
+        JsonValue::String(s) => {
+            let s = V8String::new(scope, s).ok_or_else(|| anyhow!("v8: string allocation failed"))?;
+            rv.set(s.into());
+        }
+        _ => rv.set(json_to_v8(scope, value)?),
+    }
+    Ok(())
+}
+
 fn set_global<'s>(
     scope: &mut PinScope<'s, '_>,
     name: &str,
@@ -152,9 +225,8 @@ fn call_native(
         return;
     };
     let name = args.get(0).to_rust_string_lossy(scope);
-    let args_json = match v8_to_json(scope, args.get(1)) {
-        Ok(JsonValue::Array(arr)) => arr,
-        Ok(other) => vec![other],
+    let args_json = match v8_args_to_json(scope, args.get(1)) {
+        Ok(arr) => arr,
         Err(e) => {
             throw(scope, &format!("script: {e}"));
             return;
@@ -179,10 +251,11 @@ fn call_native(
         }
     };
     match dispatcher(&mut store, &name, &args_json) {
-        Ok(value) => match json_to_v8(scope, &value) {
-            Ok(v) => rv.set(v),
-            Err(e) => throw(scope, &format!("script: {e}")),
-        },
+        Ok(value) => {
+            if let Err(e) = set_return(scope, &mut rv, &value) {
+                throw(scope, &format!("script: {e}"));
+            }
+        }
         Err(e) => throw(scope, &format!("script: {e}")),
     }
 }

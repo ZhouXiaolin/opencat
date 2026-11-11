@@ -3,9 +3,9 @@
 // hyperframes 页面 = 静态 HTML + 页面脚本动态建 DOM + GSAP 时间轴。本运行时
 // 把 html5ever 解析出的种子树（`__ocHtmlSeed`）物化成一份 JS 元素树，页面
 // 脚本在它上面继续构建最终结构；`__ocHtmlExtract()` 把最终树序列化回
-// DomElement JSON。每帧 `__ocHtmlResetFrame` 从种子重物化（脚本重放幂等），
-// `__ocHtmlSeek` 把本帧登记的 GSAP 产物 pause + absolute seek —— write-out
-// 即 seek，frame = f(t)。
+// DomElement JSON。首帧 `__ocHtmlResetFrame` 从种子物化并跑页面脚本；后续帧
+// 文档与 store 里的 DOM 状态原样留用，只绝对 seek 已登记的 GSAP 产物 ——
+// frame = f(t)。
 //
 // 与 jsx 通道的关系：样式写走同一 store 通道（`__write_style_value`），gsap
 // 面按元素对象目标工作（nodeType/tagName/style/classList）。文本内容静态
@@ -26,6 +26,18 @@
     var synthSeq = 0;
     var seed = null;
     var hasStore = typeof __write_style_value === 'function';
+    // 持久文档（init-once，默认；`OC_HTML_REPLAY=1` 走每帧重放的旧路径）：
+    // 页面脚本只跑一次，之后每帧绝对 seek。DOM 状态（内联样式/文本、
+    // canvas 位图、svg 属性）因此跨帧留在 store 里——与浏览器一致：
+    // gsap 只重写在动的补间，已结束补间的终值靠元素自己保持，不以基准
+    // 值回退。seek 之前（构造期）脚本写的自定义属性并进提取的内联样式
+    // （静态树的基准值）；seek 驱动的写入（gsap 补间 `{"--x": v}`、
+    // tl.call 回调）每帧经 store 重放，不进静态树——提取期 computed 读
+    // 不到样式表变量，补间起点是空串，烤进去会把基准值写坏。
+    var seekStarted = false;
+    if (hasStore && !globalThis.__ocHtmlReplay && typeof __persist_frame_state === 'function') {
+        __persist_frame_state();
+    }
 
     // ── style 通道 ────────────────────────────────────────────────
     // store 的键是 GSAP 词表，页面脚本写的是 CSS 词表：差异名在这一层
@@ -68,16 +80,44 @@
         // 取 id 必须延迟：`this.style = makeStyleProxy(this)` 在 id 存取器
         // 定义之前执行，构造期读 `el.id` 恒为 undefined（写全被静默丢弃）。
         function id() { return el.__payload.id; }
+        // 自定义属性（`--x`）记进 __styleBag 供读回；构造期的写入另记进
+        // __customBase，提取期并进内联样式（静态树基准，见 seekStarted）。
+        // texture 的 feel/mask 场景在构造期按帧数据写 `--feel-bg` 等。
+        function custom(name) { return String(name).indexOf('--') === 0; }
+        function bakeCustom(name, value) {
+            if (seekStarted) return;
+            if (value === undefined) delete el.__customBase[name];
+            else el.__customBase[name] = value;
+        }
         return new Proxy({}, {
             get(_t, prop) {
                 if (typeof prop !== 'string') return undefined;
                 if (prop === 'setProperty') {
-                    return function (name, value) { writeStyle(id(), name, value); };
+                    return function (name, value) {
+                        if (custom(name)) {
+                            el.__styleBag[String(name)] = String(value);
+                            bakeCustom(String(name), String(value));
+                        }
+                        writeStyle(id(), name, value);
+                    };
                 }
                 if (prop === 'getPropertyValue') {
-                    return function (name) { return String(readStyle(id(), name)); };
+                    return function (name) {
+                        if (custom(name) && el.__styleBag[String(name)] !== undefined) {
+                            return el.__styleBag[String(name)];
+                        }
+                        return String(readStyle(id(), name));
+                    };
                 }
-                if (prop === 'removeProperty') return function () { return ''; };
+                if (prop === 'removeProperty') {
+                    return function (name) {
+                        if (custom(name)) {
+                            delete el.__styleBag[String(name)];
+                            bakeCustom(String(name), undefined);
+                        }
+                        return '';
+                    };
+                }
                 if (prop === 'cssText') {
                     return function () {
                         var inline = el.__payload.style || '';
@@ -98,6 +138,10 @@
                         if (i < 0) return;
                         var name = decl.slice(0, i).trim();
                         if (!name) return;
+                        if (custom(name)) {
+                            el.__styleBag[name] = decl.slice(i + 1).trim();
+                            bakeCustom(name, decl.slice(i + 1).trim());
+                        }
                         writeStyle(id(), name, decl.slice(i + 1).trim());
                     });
                     return true;
@@ -442,6 +486,9 @@
             style: node.attrs['style'] || ''
         };
         var face = createElementFace(payload);
+        // 写穿锚点：脚本 setAttribute 改的是这个 XML 节点（svgWriteAttr）。
+        face.__svgNode = node;
+        face.__svgRoot = parent.__svgRoot || parent;
         // 带 id 的 svg 内部元素（如 `<defs id="fxdefs">`）按浏览器语义可被
         // getElementById 命中——nodes 表是 getElementById 的唯一查找面。每帧
         // __ocHtmlResetFrame 重建 nodes 后重新走物化，无泄漏。
@@ -462,6 +509,7 @@
     function attachSvgQueryFaces(el, inline) {
         if (!inline || typeof inline !== 'string' || el.__svgKids) return;
         var tree = parseInlineXml(inline);
+        el.__svgXml = tree;
         el.__svgKids = [];
         var kids = tree.kids;
         // inline 是 `<svg>…</svg>` 整体（serialize_subtree / xmlSerialize
@@ -475,6 +523,35 @@
             if (kids[i].tag === '#text') continue;
             el.__svgKids.push(buildSvgQueryFace(kids[i], el));
         }
+    }
+
+    // svg 内部元素的属性写（setAttribute/removeAttribute、gsap attr:）写穿到
+    // inline XML 树：渲染树消费的是提取期快照，整棵 svg 重序列化后经
+    // `__svg_set_markup` 进 store，resolve 按 svg 节点 id 覆盖本帧 markup；
+    // 提取期由 serializeNode 认 __svgDirty。属性名大小写按 XML 原文对齐
+    // （viewBox 之类），新属性保留调用方写法。
+    function svgWriteAttr(face, name, value) {
+        var attrs = face.__svgNode.attrs;
+        var lower = name.toLowerCase();
+        var key = name;
+        for (var k in attrs) {
+            if (k.toLowerCase() === lower) { key = k; break; }
+        }
+        if (value === null) delete attrs[key];
+        else attrs[key] = value;
+        var root = face.__svgRoot;
+        root.__svgDirty = true;
+        if (typeof __svg_set_markup === 'function' && root.__payload && root.__payload.id) {
+            __svg_set_markup(root.__payload.id, svgInlineFromXml(root.__svgXml));
+        }
+    }
+
+    function svgInlineFromXml(tree) {
+        var s = '';
+        tree.kids.forEach(function (kid) {
+            s += kid.text !== undefined ? xmlEscape(kid.text) : xmlSerialize(kid);
+        });
+        return s;
     }
 
     function parseFragment(html) {
@@ -538,6 +615,13 @@
         var out = { type: p.type, id: p.id };
         if (p.className) out.className = p.className;
         var inline = p.style || '';
+        // 构造期脚本写的自定义属性并进内联样式（见 makeStyleProxy）。
+        var customs = Object.keys(el.__customBase);
+        if (customs.length) {
+            inline = (inline ? inline.replace(/;?\s*$/, '; ') : '') + customs.map(function (k) {
+                return k + ': ' + el.__customBase[k];
+            }).join('; ');
+        }
         if (inline) out.style = inline;
         if (p.uaTag) out.uaTag = p.uaTag;
         // 属性表回传（选择器匹配与页内 getAttribute 的输入）。class/style/id
@@ -545,8 +629,10 @@
         var attrPairs = [];
         for (var an in el.__attrs) attrPairs.push([an, el.__attrs[an]]);
         if (attrPairs.length) out.attrs = attrPairs;
-        // svg 整树字符串通道：静态树（Rust 解析端产）与 fragment 路径同字段
-        if (p.inline) out.inline = p.inline;
+        // svg 整树字符串通道：静态树（Rust 解析端产）与 fragment 路径同字段；
+        // 脚本改过内部元素属性的 svg 按 XML 树重序列化（svgWriteAttr）。
+        if (el.__svgDirty) out.inline = svgInlineFromXml(el.__svgXml);
+        else if (p.inline) out.inline = p.inline;
         else if (p.__svgInline) out.inline = p.__svgInline;
         if (p.width !== undefined && p.width !== null) out.width = p.width;
         if (p.height !== undefined && p.height !== null) out.height = p.height;
@@ -564,6 +650,16 @@
             if (p.url) out.url = p.url;
         }
         if (p.duration !== undefined && p.duration !== null) out.duration = p.duration;
+        // 素材内起播偏移（hyperframes 的 data-media-start）：种子 payload 带
+        // serde 连字符键，脚本/片段路径落在属性袋。serde 端 DomElement::Video
+        // 只认专字段，不在这回传即整条丢失——stripe 六个组合的背景视频全从
+        // 素材 0s 起播。
+        if (p.type === 'video') {
+            var mediaStart = el.__attrs['data-media-start'] !== undefined
+                ? parseFloat(el.__attrs['data-media-start'])
+                : p['data-media-start'];
+            if (typeof mediaStart === 'number' && !isNaN(mediaStart)) out['data-media-start'] = mediaStart;
+        }
 
         var elementKids = el.__kids.filter(function (k) { return k.nodeType === 1; });
         var textContent = p.text || '';
@@ -574,12 +670,14 @@
             if (k.nodeType === 3) textKids += k.data;
         });
 
-        // 前后空白裁剪与 html.rs 一致；中间空白保留（CSS 折叠在渲染端）。
+        // 前后空白裁剪与 html.rs 一致：只裁带换行的缩进空白；单个边界空格是
+        // 行内兄弟之间的词间距（`figma <span>motion</span> works`），保留。
+        // 中间空白保留（CSS 折叠在渲染端）。
         // 注意 JS 的 `\s` 含 U+00A0（&nbsp;）——它是不可折叠空格，必须保留，
         // 否则 k3 逐字 span 用 innerHTML="&nbsp;" 占位的空格会消失。
         var allText = (textContent + textKids)
             .replace(/^[ \t\n\r\f]*\n[ \t\n\r\f]*/, '')
-            .replace(/[ \t\n\r\f]*$/, '');
+            .replace(/[ \t\n\r\f]*\n[ \t\n\r\f]*$/, '');
 
         if (elementKids.length === 0) {
             if (p.type === 'div') {
@@ -693,6 +791,7 @@
         this.nodeType = 1;
         this.__payload = payload;
         this.__styleBag = Object.create(null);
+        this.__customBase = Object.create(null);
         this.__kids = []; // element/text faces；种子 children 在物化期填
         this.parentNode = null;
         this.__attrs = Object.create(null); // data-* 等动态属性袋
@@ -910,6 +1009,7 @@
     HtmlElement.prototype.setAttribute = function (name, value) {
         var n = String(name).toLowerCase();
         var v = String(value);
+        if (this.__svgNode) svgWriteAttr(this, String(name), v);
         if (n === 'class') this.__payload.className = v;
         else if (n === 'style') this.__payload.style = v;
         else if (n === 'id') this.id = v;
@@ -933,6 +1033,7 @@
     };
     HtmlElement.prototype.removeAttribute = function (name) {
         var n = String(name).toLowerCase();
+        if (this.__svgNode) svgWriteAttr(this, String(name), null);
         if (n === 'class') this.__payload.className = '';
         else if (n === 'style') this.__payload.style = '';
         else if (n === 'src') delete this.__payload.src;
@@ -1316,6 +1417,7 @@
             if (typeof ctx !== 'undefined' && ctx && typeof ctx.getContext === 'function') {
                 try { ckFace = ctx.getContext(self.__payload.id, '2d'); } catch (e) { ckFace = null; }
             }
+            self.__ckFace = ckFace;
             return ckFace;
         }
         self.__ctx2d = new Proxy({}, {
@@ -1383,13 +1485,20 @@
         });
         return self.__ctx2d;
     };
+    // HTML 规范：canvas 的 width/height 赋值（同值也算）清空位图、重置 2D
+    // 上下文状态。页面整帧重画前先设尺寸（半调背景等）；不丢弃已录命令的
+    // 话，同帧前几遍（脚本重放 + seek 回调）的笔迹全进光栅化。
+    function resetCanvasBitmap(el) {
+        var face = el.__ckFace;
+        if (face && typeof face.__ocResetBitmap === 'function') face.__ocResetBitmap();
+    }
     Object.defineProperty(HtmlElement.prototype, 'width', {
         get: function () { return Number(this.__payload.width) || (this.__payload.type === 'canvas' ? 300 : undefined); },
-        set: function (v) { this.__payload.width = Number(v); },
+        set: function (v) { this.__payload.width = Number(v); resetCanvasBitmap(this); },
     });
     Object.defineProperty(HtmlElement.prototype, 'height', {
         get: function () { return Number(this.__payload.height) || (this.__payload.type === 'canvas' ? 150 : undefined); },
-        set: function (v) { this.__payload.height = Number(v); },
+        set: function (v) { this.__payload.height = Number(v); resetCanvasBitmap(this); },
     });
 
     // ── 种子物化 ─────────────────────────────────────────────────
@@ -1421,18 +1530,9 @@
     }
 
     // ── gsap 包裹 + seek 协议 ─────────────────────────────────────
-    function findGsap() {
-        if (globalThis.gsap) return globalThis.gsap;
-        // UMD gsap 挂 window（shim shim）：提升到 globalThis 让裸标识符可解析。
-        if (typeof window !== 'undefined' && window && window.gsap) {
-            globalThis.gsap = window.gsap;
-            return window.gsap;
-        }
-        return null;
-    }
-
+    // UMD gsap 挂在 shim window 上，由 hoistWindowGlobals 提升到 globalThis。
     function wrapGsap() {
-        var g = findGsap();
+        var g = globalThis.gsap;
         if (!g || g.__ocHtmlWrapped) return;
         g.__ocHtmlWrapped = true;
         ['to', 'from', 'fromTo', 'set'].forEach(function (name) {
@@ -1454,24 +1554,46 @@
     // 只驱动 [from, to) 这段 timeline：嵌套 composition 各有自己的时间
     // 基准（宿主 data-start），driver 按段调用。
     function seekRange(t, from, to) {
+        var registered = new Set(timelines);
         for (var i = from; i < to && i < timelines.length; i++) {
-            var a = timelines[i];
-            try {
-                a.pause();
-                // 不能抑制事件：页面把整帧重绘挂在 timeline 的 onUpdate 上
-                // （k3 的 orbitPills/drawDissolve/hatchGlide 都在这条通道），
-                // suppressEvents=true 会让这些逐帧函数永不执行。
-                a.totalTime(t, false);
-                // 播放头本来就等于 t 时 gsap 会短路、不渲染（首帧 t=0 正是
-                // 这种情况：`tl.set(x, {autoAlpha:0}, 0)` 永远不落地）。先推
-                // 一丁点再回到 t，逼出一次渲染。
-                if (Math.abs(a.totalTime() - t) < 1e-9) {
-                    a.totalTime(t + 1e-4, false);
-                    a.totalTime(t, false);
-                }
-            } catch (e) { /* 单产物失败不拖垮整帧 */ }
+            if (drivenByRegisteredRoot(timelines[i], registered)) continue;
+            seekOne(timelines[i], t);
         }
     }
+
+    // 嵌套子动画（`tl.add(inner)`、`tl.add(gsap.to(...))`）归父 timeline 驱动。
+    // 直接 seek 子项会 pause 它（父 render 跳过 _ts=0 的子项），再把它钉在
+    // 未经父偏移/timeScale 换算的时刻——pr-to-video 的 `inner.timeScale(2.05)`
+    // 整段失效。只 seek 根（父是全局 timeline）；根不在登记表里的孤儿子项
+    // 照旧直驱。
+    function drivenByRegisteredRoot(a, registered) {
+        var g = globalThis.gsap;
+        var globalTl = g && g.globalTimeline;
+        if (!a || !a.parent || a.parent === globalTl) return false;
+        var top = a;
+        while (top.parent && top.parent !== globalTl) top = top.parent;
+        return top !== a && registered.has(top);
+    }
+
+    function seekOne(a, t) {
+        try {
+            a.pause();
+            // 不能抑制事件：页面把整帧重绘挂在 timeline 的 onUpdate 上
+            // （k3 的 orbitPills/drawDissolve/hatchGlide 都在这条通道），
+            // suppressEvents=true 会让这些逐帧函数永不执行。
+            a.totalTime(t, false);
+            // 播放头本来就等于 t 时 gsap 会短路、不渲染（首帧 t=0 正是
+            // 这种情况：`tl.set(x, {autoAlpha:0}, 0)` 永远不落地）。先推
+            // 一丁点再回到 t，逼出一次渲染。
+            if (Math.abs(a.totalTime() - t) < 1e-9) {
+                a.totalTime(t + 1e-4, false);
+                a.totalTime(t, false);
+            }
+        } catch (e) { /* 单产物失败不拖垮整帧 */ }
+    }
+
+    // 本帧同步 seek 覆盖到的 timeline 数（之后新建的属于异步续体）。
+    var seekedCount = 0;
 
     globalThis.__ocTimelineCount = function () { return timelines.length; };
 
@@ -1484,12 +1606,14 @@
     }
 
     globalThis.__ocHtmlSeek = function (t) {
+        seekStarted = true;
         globalThis.__ocSeekT = t;
         seekRange(t, 0, timelines.length);
     };
 
     // [[局部时间, from, to], …]：嵌套 composition 按段用各自的时间基准。
     globalThis.__ocHtmlSeekGroups = function (list) {
+        seekStarted = true;
         for (var i = 0; i < list.length; i++) {
             var g = list[i];
             globalThis.__ocSeekT = g[0];
@@ -1497,11 +1621,49 @@
         }
         // putImageData 的键要用主时间轴的时刻；最后一段是宿主自身。
         globalThis.__ocSeekT = list.length ? list[0][0] : 0;
+        seekedCount = timelines.length;
+    };
+
+    // 异步初始化的 composition（`await document.fonts.ready` / fetch 之后才
+    // 建 timeline）：续体在本帧同步 seek 之后的微任务里才登记。浏览器端
+    // hyperframes 每帧按 `window.__timelines[compId]` 取表 seek，与登记时机
+    // 无关；宿主排空微任务后调这里，补 seek 同步 seek 之后才登记的 timeline，
+    // 时间基准取该 composition 的宿主偏移（`__ocCompOffsets`，driver 注入）。
+    globalThis.__ocHtmlSeekLate = function () {
+        seekStarted = true;
+        var reg = (typeof window === 'object' && window && window.__timelines) || {};
+        var offsets = globalThis.__ocCompOffsets || {};
+        var t = globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0;
+        for (var id in reg) {
+            var tl = reg[id];
+            if (!tl || typeof tl.totalTime !== 'function' || !(id in offsets)) continue;
+            var idx = timelines.indexOf(tl);
+            if (idx >= 0 && idx < seekedCount) continue;
+            seekOne(tl, t - offsets[id]);
+        }
+        seekedCount = timelines.length;
     };
 
     globalThis.__ocHtmlAfterScripts = function () {
+        hoistWindowGlobals();
         wrapGsap(); // 页面自带 gsap 之外的兜底
     };
+
+    // 浏览器里 window 就是全局对象：UMD 插件（CustomEase 等）挂到
+    // `window.X` 后，页面按裸标识符 `X` 引用（spacex/claude-paper 的
+    // `if(window.CustomEase){ gsap.registerPlugin(CustomEase) }`、inspector 的
+    // `typeof CustomEase`）。shim window 是独立对象——裸标识符解析不到，
+    // 抛 ReferenceError 让整个 composition 的 timeline 建不起来。把脚本挂上
+    // 的数据属性提升到 globalThis（不覆盖已有全局；访问器是 shim 自带的
+    // 视口等事实，不搬）。
+    function hoistWindowGlobals() {
+        if (typeof window !== 'object' || !window || window === globalThis) return;
+        Object.keys(window).forEach(function (key) {
+            if (key in globalThis) return;
+            var desc = Object.getOwnPropertyDescriptor(window, key);
+            if (desc && 'value' in desc) globalThis[key] = desc.value;
+        });
+    }
 
     // ── document face ─────────────────────────────────────────────
     // getElementsByTagName 共用体:候选含根自身与全部后裔(含 svg 查询子
@@ -1574,6 +1736,16 @@
         addEventListener: function () {},
         removeEventListener: function () {},
     };
+    // 文档身份跨帧稳定：gsap 首次使用时缓存 `window.document`（`_doc`），之后
+    // 每帧按它查选择器。本文件每帧重 eval，新文档面的闭包指向本帧物化树；
+    // 旧对象留在首帧闭包里，查到的是首帧那批元素面（带上一帧的 `_gsap`
+    // 缓存）——无显式起点的 `to` 补间从上一帧终值起步、逐帧复利（heygen-04
+    // 卡片拖拽跑飞）。本帧的方法与字段灌进同一个对象。
+    if (globalThis.__ocHtmlDocumentFace) {
+        documentFace = Object.assign(globalThis.__ocHtmlDocumentFace, documentFace);
+    } else {
+        globalThis.__ocHtmlDocumentFace = documentFace;
+    }
 
     // ── 帧边界 ────────────────────────────────────────────────────
     // CK 面像素读回按 id 查树内 canvas 的位图尺寸（离屏画布见 dom_api）。
@@ -1617,6 +1789,7 @@
         rootFace = null;
         timelines.length = 0;
         synthSeq = 0;
+        seekStarted = false;
         // 页脚本每帧重放、按同序重建 GL 资源：句柄序归零让句柄逐帧稳定，
         // 执行器按句柄复用 GL 对象（单调句柄会逐帧新建对象，全片 OOM）。
         if (typeof __gl_reset_handles === 'function') __gl_reset_handles();
@@ -1627,6 +1800,14 @@
         rootFace = materializeSeed(seed.tree, null);
         documentFace.documentElement = rootFace;
         documentFace.body = rootFace;
+    };
+
+    // 持久文档的帧首：脚本不重跑，store 里的 DOM 状态原样留用，这里只
+    // 复位帧级计数并重开 GL 流。
+    globalThis.__ocHtmlBeginFrame = function () {
+        seekStarted = true;
+        putSeq = 0;
+        if (typeof __ocGlBeginFrameStreams === 'function') __ocGlBeginFrameStreams();
     };
 
     // 返回对象（宿主统一 JSON.stringify——jsx 的 __ocExtract 同约定；
@@ -1653,12 +1834,25 @@
             display: 'block',
             color: 'rgb(0, 0, 0)',
         };
+        // 自定义属性按 CSS 继承：自身无值时沿祖先链取（脚本写入在 store
+        // 的 mutation 层，样式表定义在初始层）。gsap 补间 `{"--x": v}` 的
+        // 起点就从这里读。
+        function customValue(name) {
+            for (var cur = el; cur; cur = cur.parentNode) {
+                var cid = cur.__payload ? cur.__payload.id : null;
+                if (!cid) continue;
+                var v = readStyle(cid, name);
+                if (v !== '') return String(v);
+            }
+            return '';
+        }
         return new Proxy({}, {
             get(_t, prop) {
                 if (typeof prop !== 'string') return undefined;
                 if (prop === 'getPropertyValue') {
                     return function (name) {
                         var n = String(name);
+                        if (n.indexOf('--') === 0) return customValue(n);
                         if (id) {
                             var v = readStyle(id, n);
                             if (v !== '') return String(v);
@@ -1668,6 +1862,7 @@
                             : '';
                     };
                 }
+                if (prop.indexOf('--') === 0) return customValue(prop);
                 if (id) {
                     var v = readStyle(id, prop);
                     if (v !== '') return String(v);

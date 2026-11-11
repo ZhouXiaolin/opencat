@@ -389,6 +389,29 @@ pub enum TextAlign {
     Right,
 }
 
+/// CSS `vertical-align`：行内流里原子行内盒相对行盒的对齐。
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum VerticalAlign {
+    #[default]
+    Baseline,
+    Top,
+    Middle,
+    Bottom,
+    TextTop,
+    TextBottom,
+    /// `<length>`：基线上移的 px（负值下移）。
+    Shift(f32),
+}
+
+impl std::hash::Hash for VerticalAlign {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let VerticalAlign::Shift(px) = self {
+            px.to_bits().hash(state);
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Default, Hash, serde::Serialize, serde::Deserialize,
 )]
@@ -398,6 +421,16 @@ pub enum ObjectFit {
     Contain,
     Cover,
     Fill,
+}
+
+/// CSS `visibility`（继承属性）。`Inherit` 是脚本显式写回的 `inherit`
+/// （gsap `autoAlpha` 可见时写的就是它），要压过样式表声明的 `hidden`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Visibility {
+    Visible,
+    Hidden,
+    Inherit,
 }
 
 #[derive(
@@ -1166,6 +1199,79 @@ pub enum BackgroundFill {
         #[serde(rename = "gradient")]
         gradient: ArbitraryGradient,
     },
+    /// `background-image: url(...)` 位图层。
+    #[serde(rename = "image")]
+    Image {
+        #[serde(rename = "image")]
+        image: BackgroundImage,
+    },
+}
+
+/// 位图背景层（CSS Backgrounds 3）。尺寸/定位/平铺来自同元素的
+/// `background-size/position/repeat` 长写：它们常与 `background-image` 分处
+/// 不同规则，声明全部落地后由 `apply_background_size_to_layers` 统一回填。
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BackgroundImage {
+    /// 逻辑定位串（文档相对路径或 URL），与 `<img src>` 同口径。
+    pub src: String,
+    pub size: BackgroundImageSize,
+    /// 每轴定位 `[比例, 像素]`：图像左上角 = 盒原点 + (盒 − 图) × 比例 + 像素。
+    pub position: [[f32; 2]; 2],
+    /// `[repeat-x, repeat-y]`。
+    pub repeat: [bool; 2],
+}
+
+impl BackgroundImage {
+    /// 与 `<img src>` 同规则：http(s) 走 URL 通道，其余是文档相对定位串。
+    pub fn source(&self) -> crate::parse::primitives::ImageSource {
+        use crate::parse::primitives::ImageSource;
+        if self.src.starts_with("http://") || self.src.starts_with("https://") {
+            ImageSource::Url(self.src.clone())
+        } else {
+            ImageSource::Path(self.src.clone())
+        }
+    }
+}
+
+impl Default for BackgroundImage {
+    fn default() -> Self {
+        Self {
+            src: String::new(),
+            size: BackgroundImageSize::Auto,
+            position: [[0.0; 2]; 2],
+            repeat: [true; 2],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub enum BackgroundImageSize {
+    #[default]
+    Auto,
+    Cover,
+    Contain,
+    /// 每轴 `Some([比例, 像素])`（比例相对盒尺寸）；`None` 为 auto，按图像宽高比补。
+    Explicit {
+        width: Option<[f32; 2]>,
+        height: Option<[f32; 2]>,
+    },
+}
+
+impl std::hash::Hash for BackgroundImage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.src.hash(state);
+        std::mem::discriminant(&self.size).hash(state);
+        if let BackgroundImageSize::Explicit { width, height } = self.size {
+            for side in [width, height] {
+                side.map(|[f, px]| (f.to_bits(), px.to_bits())).hash(state);
+            }
+        }
+        for [f, px] in self.position {
+            f.to_bits().hash(state);
+            px.to_bits().hash(state);
+        }
+        self.repeat.hash(state);
+    }
 }
 
 impl std::hash::Hash for BackgroundFill {
@@ -1187,6 +1293,7 @@ impl std::hash::Hash for BackgroundFill {
                 }
             }
             BackgroundFill::ArbitraryGradient { gradient } => gradient.hash(state),
+            BackgroundFill::Image { image } => image.hash(state),
         }
     }
 }
@@ -1745,12 +1852,17 @@ impl CssFilter {
         self.ops
             .iter()
             .map(|op| match (op.kind, op.shadow) {
-                (CssFilterKind::DropShadow, Some(s)) => format!(
-                    "drop-shadow({} {} {})",
-                    px(s.offset_x),
-                    px(s.offset_y),
-                    px(s.blur_sigma)
-                ),
+                // Chrome 的 computed 形式：颜色在前，第三长度是模糊半径（=2σ）。
+                (CssFilterKind::DropShadow, Some(s)) => {
+                    let (r, g, b, a) = s.color.rgba();
+                    format!(
+                        "drop-shadow(rgba({r}, {g}, {b}, {}) {} {} {})",
+                        a as f32 / 255.0,
+                        px(s.offset_x),
+                        px(s.offset_y),
+                        px(s.blur_sigma * 2.0)
+                    )
+                }
                 _ => format!(
                     "{}({})",
                     op.kind.css_name(),
@@ -1767,7 +1879,20 @@ impl CssFilter {
         while let Some(open) = rest.find('(') {
             let name = rest[..open].trim();
             let after_open = &rest[open + 1..];
-            let Some(close) = after_open.find(')') else {
+            // 参数可嵌套颜色函数（`drop-shadow(0 2px 8px rgba(0,0,0,.6))`）：
+            // 按括号深度找配对的 `)`。
+            let mut depth = 0usize;
+            let Some(close) = after_open.find(|c| match c {
+                '(' => {
+                    depth += 1;
+                    false
+                }
+                ')' if depth > 0 => {
+                    depth -= 1;
+                    false
+                }
+                c => c == ')',
+            }) else {
                 break;
             };
             let raw_value = after_open[..close].trim();
@@ -1797,17 +1922,29 @@ impl std::hash::Hash for CssFilter {
 fn parse_drop_shadow_args(raw: &str) -> Option<DropShadow> {
     let mut lengths = Vec::new();
     let mut color = ColorToken::Custom(0, 0, 0, 255);
-    for token in raw.split_whitespace() {
-        let token = token.trim();
-        if token.is_empty() {
-            continue;
+    // 颜色函数内部有空白（`rgba(0, 0, 0, 0.5)`）：只在括号外切词。
+    let mut tokens = Vec::new();
+    let (mut depth, mut start) = (0usize, None);
+    for (i, c) in raw.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() && depth == 0 => {
+                tokens.extend(start.take().map(|s| &raw[s..i]));
+                continue;
+            }
+            _ => {}
         }
+        start.get_or_insert(i);
+    }
+    tokens.extend(start.map(|s| &raw[s..]));
+    for token in tokens {
         let trimmed = token.trim_end_matches("px");
         if let Ok(v) = trimmed.parse::<f32>() {
             lengths.push(v);
             continue;
         }
-        color = parse_color_literal(token)?;
+        color = color_token_from_script_string(token)?;
     }
     let (offset_x, offset_y) = match lengths.as_slice() {
         [x, y, ..] => (*x, *y),
@@ -1822,57 +1959,6 @@ fn parse_drop_shadow_args(raw: &str) -> Option<DropShadow> {
         blur_sigma: blur_radius.max(0.0) / 2.0,
         color,
     })
-}
-
-/// 有限颜色字面量集（hex / rgb() / rgba() / 具名常用色）。
-fn parse_color_literal(token: &str) -> Option<ColorToken> {
-    let token = token.trim();
-    let lower = token.to_ascii_lowercase();
-    if lower == "transparent" {
-        return Some(ColorToken::Custom(0, 0, 0, 0));
-    }
-    if let Some(hex) = lower.strip_prefix('#') {
-        let ch = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
-        return Some(match hex.len() {
-            3 => ColorToken::Custom(
-                u8::from_str_radix(&hex[0..1], 16).ok()? * 17,
-                u8::from_str_radix(&hex[1..2], 16).ok()? * 17,
-                u8::from_str_radix(&hex[2..3], 16).ok()? * 17,
-                255,
-            ),
-            4 => ColorToken::Custom(
-                u8::from_str_radix(&hex[0..1], 16).ok()? * 17,
-                u8::from_str_radix(&hex[1..2], 16).ok()? * 17,
-                u8::from_str_radix(&hex[2..3], 16).ok()? * 17,
-                u8::from_str_radix(&hex[3..4], 16).ok()? * 17,
-            ),
-            6 => ColorToken::Custom(ch(0)?, ch(2)?, ch(4)?, 255),
-            8 => ColorToken::Custom(ch(0)?, ch(2)?, ch(4)?, ch(6)?),
-            _ => return None,
-        });
-    }
-    let (name, args) = lower.split_once('(')?;
-    if name != "rgb" && name != "rgba" {
-        return None;
-    }
-    let args = args.strip_suffix(')')?;
-    let parts = args.split([',', '/', ' ']).filter(|p| !p.is_empty());
-    let mut channels = Vec::new();
-    for part in parts {
-        let part = part.trim();
-        if let Some(pct) = part.strip_suffix('%') {
-            channels.push((pct.trim().parse::<f32>().ok()? / 100.0 * 255.0).round() as u8);
-        } else if part.contains('.') {
-            channels.push((part.parse::<f32>().ok()? * 255.0).round() as u8);
-        } else {
-            channels.push(part.parse::<u8>().ok()?);
-        }
-    }
-    match channels.as_slice() {
-        [r, g, b] => Some(ColorToken::Custom(*r, *g, *b, 255)),
-        [r, g, b, a] => Some(ColorToken::Custom(*r, *g, *b, *a)),
-        _ => None,
-    }
 }
 
 fn px(v: f32) -> String {
@@ -2024,6 +2110,8 @@ pub struct NodeStyle {
 
     // Visual
     pub opacity: Option<f32>,
+    /// `None` = 未声明，取父元素的计算值。
+    pub visibility: Option<Visibility>,
     /// CSS `mix-blend-mode` — per-node compositing blend mode. `None` means the
     /// default (`SrcOver`).
     pub blend_mode: Option<BlendMode>,
@@ -2045,6 +2133,10 @@ pub struct NodeStyle {
     /// 盒子无法折 px，原样留存；`apply_background_size_to_layers` 回填进层的
     /// `size_pct`（渲染端优先于 px `size`）。
     pub bg_size_pct: Option<[f32; 2]>,
+    /// 位图层的 `background-size/position/repeat` 长写（回填进 `Image` 层）。
+    pub bg_image_size: Option<BackgroundImageSize>,
+    pub bg_position: Option<[[f32; 2]; 2]>,
+    pub bg_repeat: Option<[bool; 2]>,
     pub border_radius: Option<BorderRadius>,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,
@@ -2060,6 +2152,8 @@ pub struct NodeStyle {
     pub backdrop_filter: CssFilter,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
+    /// `overflow-y: visible` 配裁剪的 `overflow-x`：只裁横向。
+    pub overflow_y_visible: bool,
     pub clip_path: Option<ClipPath>,
     /// CSS `background-clip`. `Text` makes the element's background fill its
     /// glyphs (gradient text); the glyphs otherwise paint with `text_color`.
@@ -2150,6 +2244,26 @@ pub struct NodeStyle {
     pub clip_duration: Option<f64>,
     /// 行内格式化容器（见 ComputedLayoutStyle::inline_flow）。
     pub inline_flow: bool,
+    /// CSS `display` 外部类型为 inline（inline-block/inline-flex/inline-grid）。
+    pub inline_level: bool,
+    /// `display` 为原子行内（inline-block/inline-flex/inline-grid/inline-table）：
+    /// 行内流里整体参与排行、不跨行断开。
+    pub inline_atomic: bool,
+    /// 声明了块级外部类型的 `display`（block/flex/grid 等）：行内标签
+    /// （`span{display:block}`）据此退出行内流。
+    pub display_block_level: bool,
+    /// CSS `vertical-align`（行内流里原子盒的行内对齐）。
+    pub vertical_align: Option<VerticalAlign>,
+    /// 元素上生效的 SVG 绘制声明（fill/stroke 系，按层叠序拼成 `a:b;` 串）。
+    /// 内联 `<svg>` 的 markup 不带页面 CSS，resolve 期注入根元素 style，
+    /// 由 usvg 按继承下发给子图元。
+    pub svg_paint_css: Option<String>,
+    /// 行内流里的文本 run：边界空格是词间距；其余文本节点的脚本写入文本按
+    /// 行首行尾裁掉可折叠空白（`textContent = 'Hello '` 的尾空格不参与对齐）。
+    pub inline_run: bool,
+    /// 自定义属性定义与 var() 依赖声明的重放现场（脚本按帧改写变量时
+    /// resolve 期重算，见 [`crate::css::VarDeps`]）。
+    pub var_deps: Option<Arc<crate::css::VarDeps>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

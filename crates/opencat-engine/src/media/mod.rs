@@ -19,7 +19,7 @@ pub mod video;
 pub mod video_cache;
 
 pub use decode::{AudioTrack, VideoDecodeCache, VideoInfo, decode_audio_to_f32_stereo};
-pub use encode::{Mp4Config, encode_rgba_frames};
+pub use encode::{Mp4Config, concat_video_segments, encode_rgba_frames};
 pub use realtime::VideoRealtimeDecoder;
 pub use video::{
     MediaContext, VideoBitmap, VideoFrameRequest, VideoFrameTiming, VideoPreviewQuality,

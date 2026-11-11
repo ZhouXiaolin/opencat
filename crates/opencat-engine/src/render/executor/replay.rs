@@ -116,7 +116,8 @@ fn apply_global_alpha(paint: &mut Paint, alpha: f32) {
 // ---------------------------------------------------------------------------
 
 /// `DrawOp::FillPattern`/`StrokePattern`：tile 子树按设备密度（tile 尺寸 ×
-/// (CTM ∘ patternTransform) 的 scale 分量）在 skia 离屏重放成 tile 图，再以
+/// (CTM ∘ patternTransform) 的 scale 分量；`rasterize_at` 给定时钉死在指定位
+/// 图分辨率——浏览器 canvas 的位图语义）在 skia 离屏重放成 tile 图，再以
 /// Repeat image shader 平铺出路径填充/描边。shader 局部矩阵即 SVG 的 pattern
 /// 坐标映射：texel → scale(1/sx,1/sy) → translate(tile.xy) → patternTransform
 /// → user space。返回 Ok(false) 表示 shader 不可得，调用方按跳过处理。
@@ -132,6 +133,7 @@ fn fill_pattern_skia(
     pattern_transform: &[f32; 6],
     opacity: f32,
     stroke: Option<&StrokeSpec>,
+    rasterize_at: Option<&[f32; 2]>,
 ) -> Result<bool, DrawError> {
     if opacity <= 0.0 {
         return Ok(true);
@@ -144,6 +146,11 @@ fn fill_pattern_skia(
     if !(sx > 0.0) || !(sy > 0.0) {
         return Ok(true);
     }
+    // 固定分辨率位图：有效密度 = 位图尺寸 / tile 用户尺寸（tile 图缩回用户
+    // 单位后再由 patternTransform/CTM 摆位放大）。
+    let (sx, sy) = rasterize_at.map_or((sx, sy), |[rx, ry]| {
+        (rx / tile.width, ry / tile.height)
+    });
     let tile_w = (tile.width * sx).round() as i32;
     let tile_h = (tile.height * sy).round() as i32;
     if tile_w <= 0 || tile_h <= 0 {
@@ -1172,12 +1179,13 @@ fn replay_op(
             tile,
             pattern_transform,
             opacity,
+            rasterize_at,
         } => {
             // svg `<pattern>`：tile 子树离屏 → Repeat image shader 平铺填充。
             let encoded = &draw.paths[path.0 as usize];
             fill_pattern_skia(
                 canvas, exec, draw, media, encoded, *subtree, tile, pattern_transform, *opacity,
-                None,
+                None, rasterize_at.as_ref(),
             )?;
             Ok(())
         }
@@ -1193,7 +1201,7 @@ fn replay_op(
             let encoded = &draw.paths[path.0 as usize];
             fill_pattern_skia(
                 canvas, exec, draw, media, encoded, *subtree, tile, pattern_transform, *opacity,
-                Some(stroke),
+                Some(stroke), None,
             )?;
             Ok(())
         }
@@ -1252,13 +1260,13 @@ fn replay_op(
                 // 是声明尺寸的 1/scale 倍，补足 dst 再画，保持像素尺寸不变。
                 // 同一资产既走 ImageRect（贡献预缩目标）又走 drawImage 时，
                 // 两条路径都继续以声明尺寸呈现。
-                let decode_scale = media.image_scales.get(*idx).copied().unwrap_or(1.0);
-                if (decode_scale - 1.0).abs() > 1e-6 {
+                let (sx, sy) = media.image_scales.get(*idx).copied().unwrap_or((1.0, 1.0));
+                if (sx - 1.0).abs() > 1e-6 || (sy - 1.0).abs() > 1e-6 {
                     let dst = Rect::new(
                         *x,
                         *y,
-                        *x + sk_image.width() as f32 / decode_scale,
-                        *y + sk_image.height() as f32 / decode_scale,
+                        *x + sk_image.width() as f32 / sx,
+                        *y + sk_image.height() as f32 / sy,
                     );
                     let mut paint = match pid {
                         Some(pid) => paint_from_spec(&draw.paints[pid.0 as usize]),
@@ -1304,13 +1312,13 @@ fn replay_op(
                 // 预缩小解码：src 以声明（原图）坐标给出，按解码缩放比映射到
                 // 解码像素坐标。scale=1（native/lazy）时不变；src 与图像尺寸
                 // 同比缩放，下方采样判定所依据的比值不受影响。
-                let decode_scale = media.image_scales.get(*idx).copied().unwrap_or(1.0);
+                let (sx, sy) = media.image_scales.get(*idx).copied().unwrap_or((1.0, 1.0));
                 let src_rect = src.map(|r| {
                     Rect::new(
-                        r.x * decode_scale,
-                        r.y * decode_scale,
-                        (r.x + r.width) * decode_scale,
-                        (r.y + r.height) * decode_scale,
+                        r.x * sx,
+                        r.y * sy,
+                        (r.x + r.width) * sx,
+                        (r.y + r.height) * sy,
                     )
                 });
                 let dst_rect = Rect::new(dst.x, dst.y, dst.x + dst.width, dst.y + dst.height);

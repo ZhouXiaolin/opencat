@@ -15,6 +15,10 @@ pub struct Canvas {
     pub(crate) style: NodeStyle,
     pub(crate) assets: Vec<CanvasAsset>,
     pub(crate) hidden_children: Vec<Node>,
+    /// HTML 画布位图尺寸（width/height 属性，缺一侧按规范 300×150 补）。
+    /// 绘制坐标在位图空间，渲染时缩放铺满 CSS 盒；`None`（JSX 画布）=
+    /// 绘制坐标即 CSS px。
+    pub(crate) bitmap: Option<(f32, f32)>,
 }
 
 impl Canvas {
@@ -97,6 +101,7 @@ pub fn canvas() -> Canvas {
         style: NodeStyle::default(),
         assets: Vec::new(),
         hidden_children: Vec::new(),
+        bitmap: None,
     }
 }
 

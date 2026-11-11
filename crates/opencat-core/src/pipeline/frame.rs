@@ -91,8 +91,10 @@ pub(crate) fn evaluate_frame_layout(
     drop(_resolve_span);
 
     let provider = DefaultFontProvider::from_arc(font_db.clone());
-    let (layout_tree, _layout_pass) =
+    let (layout_tree, layout_pass) =
         layout_session.compute_layout_with_provider(&element_root, &frame_ctx, &provider)?;
+    #[cfg(not(feature = "profile"))]
+    let _ = layout_pass;
 
     #[cfg(feature = "profile")]
     {
@@ -149,6 +151,8 @@ pub fn render_frame_with_state(
     // (preview scrubbing) expire correctly instead of by call count.
     generated_images.advance_frame(frame_index as u64);
 
+    let phase_debug = std::env::var("OC_PHASE_DEBUG").as_deref() == Ok("1");
+    let phase_started = phase_debug.then(std::time::Instant::now);
     let evaluation = evaluate_frame_layout(
         composition,
         frame_index,
@@ -157,6 +161,7 @@ pub fn render_frame_with_state(
         catalog,
         script,
     )?;
+    let resolve_ms = phase_started.map(|t| t.elapsed().as_millis());
     // Scripts may have generated RGBA images this frame (canvas putImageData
     // / surface auto-bake path). Land them in the pipeline table BEFORE
     // the media plan is built so hosts receive the payloads for this frame.
@@ -184,8 +189,10 @@ pub fn render_frame_with_state(
 
     #[cfg(feature = "profile")]
     let _display_span = span!(target: "render.scene", Level::TRACE, "build_display_tree").entered();
+    let display_started = phase_started.map(|_| std::time::Instant::now());
     let (display_tree, display_stats) =
         display_build_session.build_with_cache(&element_root, &layout_tree, &frame_ctx)?;
+    let display_ms = display_started.map(|t| t.elapsed().as_millis());
     #[cfg(feature = "profile")]
     {
         event!(target: "render.display", Level::TRACE, kind = "display", name = "display_merkle_skipped_subtrees", result = "count", amount = display_stats.subtree_full_hit_subtrees as u64);
@@ -221,6 +228,15 @@ pub fn render_frame_with_state(
     })?;
 
     let frame = builder.finish();
+    if phase_debug {
+        eprintln!(
+            "[phase] frame {} resolve_ms={:?} display_ms={:?} scene_raster_ms={}",
+            frame_index,
+            resolve_ms,
+            display_ms,
+            phase_started.map(|t| t.elapsed().as_millis()).unwrap_or(0)
+        );
+    }
     if std::env::var_os("OC_DBG_STACK").is_some() {
         debug_stack_balance(&frame.ops);
     }

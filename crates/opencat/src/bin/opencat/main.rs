@@ -37,6 +37,15 @@ enum Command {
         /// a comma list. One extraction serves every listed frame.
         #[arg(long, value_name = "SPEC")]
         frames: Option<String>,
+        /// Chunked parallel MP4 render: split the frames into segments, render
+        /// them in up to `N` child processes, then concatenate (audio encoded
+        /// once). Frames are `f(t)`, so segments are independent.
+        #[arg(long, value_name = "N")]
+        jobs: Option<usize>,
+        /// Child mode of `--jobs`: render only frames `start:end` (end
+        /// exclusive) into a video-only MP4 segment.
+        #[arg(long, value_name = "START:END", hide = true)]
+        segment: Option<String>,
     },
     /// Preview a composition in a native window (looped playback with audio).
     View {
@@ -64,7 +73,9 @@ fn main() -> anyhow::Result<()> {
             frame,
             base_dir,
             frames,
-        } => render::render(input, output, frame, base_dir, frames),
+            jobs,
+            segment,
+        } => render::render(input, output, frame, base_dir, frames, jobs, segment),
         Command::View {
             input,
             base_dir,

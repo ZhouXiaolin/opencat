@@ -116,10 +116,11 @@ pub struct EnginePreparedFrameMedia {
     pub images: Vec<Image>,
     pub image_index: HashMap<ImageRef, usize>,
     pub runtime_effects: Vec<PreparedRuntimeEffect>,
-    /// 与 `images` 平行的解码缩放比（解码宽 / 声明原图宽）。预缩小解码时
-    /// 重放按此把 `DrawOp::ImageRect` 的声明坐标系 src 映射到解码像素，并
-    /// 补偿 `DrawOp::Image` 的自然尺寸语义；缺省 1.0（native/lazy，无缩放）。
-    pub image_scales: Vec<f32>,
+    /// 与 `images` 平行的逐轴解码缩放比（解码宽高 / 声明原图宽高；16px 桶
+    /// 逐轴对齐，两轴不等）。预缩小解码时重放按此把 `DrawOp::ImageRect` 的
+    /// 声明坐标系 src 映射到解码像素，并补偿 `DrawOp::Image` 的自然尺寸语义；
+    /// 缺省 (1.0, 1.0)（native/lazy，无缩放）。
+    pub image_scales: Vec<(f32, f32)>,
 }
 
 /// 一个已编译的 runtime effect。`hash` 是宿主线程本地编译 memo 的键，

@@ -125,7 +125,21 @@ impl VideoDecoder {
                 count: num_cpus,
             });
         }
-        let decoder = codec_ctx.decoder().video()?;
+        // WebM 的 VP8/VP9 透明通道走 BlockAdditional 旁路（容器标 `alpha_mode=1`），
+        // ffmpeg 原生解码器丢弃它；libvpx 解码器才出 yuva420p。
+        let alpha_decoder = (stream.metadata().get("alpha_mode") == Some("1"))
+            .then(|| match codec_ctx.id() {
+                codec::Id::VP9 => Some("libvpx-vp9"),
+                codec::Id::VP8 => Some("libvpx"),
+                _ => None,
+            })
+            .flatten()
+            .and_then(ffmpeg::decoder::find_by_name);
+        let has_alpha_plane = alpha_decoder.is_some();
+        let decoder = match alpha_decoder {
+            Some(codec) => codec_ctx.decoder().open_as(codec)?.video()?,
+            None => codec_ctx.decoder().video()?,
+        };
 
         let width = decoder.width();
         let height = decoder.height();
@@ -134,7 +148,11 @@ impl VideoDecoder {
             .checked_mul(time_base.numerator() as i64)
             .map(|duration_ticks| duration_ticks as f64 / time_base.denominator() as f64);
         let keyframe_pts_us = collect_video_keyframe_pts_us(path, stream_index, time_base)?;
-        let source_format = decoder.format();
+        let source_format = if has_alpha_plane {
+            Pixel::YUVA420P
+        } else {
+            decoder.format()
+        };
         // The initial context is built with the effective matrix (author
         // override when present, else the stream's declared one) so the very
         // first frame already converts correctly (per-frame specs that
@@ -451,6 +469,12 @@ impl VideoDecoder {
     ) -> Result<()> {
         let (out_w, out_h) = target_size.unwrap_or((self.width, self.height));
 
+        // libvpx 的 alpha 解码直到出帧才报 yuva420p（参数里仍是 yuv420p）：
+        // 源格式跟随实际帧，旧缩放器作废。
+        if frame.format() != self.source_format {
+            self.source_format = frame.format();
+            self.scalers.clear();
+        }
         let spec = ColorspaceSpec::effective(
             ColorspaceSpec::from_frame(frame),
             self.color_matrix_override,

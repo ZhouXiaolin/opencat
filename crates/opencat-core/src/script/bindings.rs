@@ -128,6 +128,13 @@ macro_rules! for_each_binding {
             Ok(())
         }}
 
+        /// html 持久文档（init-once）声明：DOM 状态跨帧留在 store（见
+        /// `MutationStore::persist_frame_state`）。html_api.js 初始化时调一次。
+        $binding! { cmd $store persist_frame_state () -> () {
+            $store.persist_frame_state();
+            Ok(())
+        }}
+
         /// 真 GL 反射：link 后 three 立刻同步枚举 active uniform/attribute。
         /// 反射器由宿主注入（engine 拿 GL 上下文向驱动问询），core 只转发。
         $binding! { qry $store glsl_reflect (vs: String, fs: String) -> serde_json::Value {
@@ -226,6 +233,14 @@ macro_rules! for_each_binding {
             }));
             $rec . record_draw_op($id, DrawOp::FillPath);
         }}
+        // context2d 的 beginPath + 满圈 arc + fill 合成一次跨界（halftone 语料
+        // 每帧 ~30 万点）。外接矩形与 `canvas_path_add_oval` 同参——JS 侧算好
+        // 再传，f32 值与逐条下发逐位一致。
+        $binding! { node $rec $id canvas_fill_oval_rect ($id: &str, x: f32, y: f32, width: f32, height: f32) {
+            $rec . record_draw_op($id, DrawOp::BeginPath);
+            $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval { x, y, width, height }));
+            $rec . record_draw_op($id, DrawOp::FillPath);
+        }}
         $binding! { node $rec $id canvas_stroke_oval ($id: &str, cx: f32, cy: f32, rx: f32, ry: f32) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddOval {
@@ -233,6 +248,12 @@ macro_rules! for_each_binding {
                 width: rx * 2.0, height: ry * 2.0,
             }));
             $rec . record_draw_op($id, DrawOp::StrokePath);
+        }}
+        // html 通道：脚本改了 inline svg 内部元素属性后整棵重序列化的 markup
+        // （html_api.js svgWriteAttr）。与 g-svg 图表同一个 svg markup 槽，
+        // resolve_svg 按节点 id 取它覆盖提取期快照。
+        $binding! { node $rec $id svg_set_markup ($id: &str, markup: String) {
+            $rec . record_canvas_svg($id, markup)
         }}
         $binding! { node $rec $id canvas_clip_path ($id: &str, anti_alias: bool) {
             $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias, fill_type: Default::default() });
@@ -572,6 +593,9 @@ macro_rules! for_each_binding {
         }}
         $binding! { node $rec $id canvas_clear_line_dash ($id: &str) {
             $rec . record_draw_op($id, DrawOp::ClearLineDash);
+        }}
+        $binding! { node $rec $id canvas_reset ($id: &str) {
+            $rec . reset_canvas($id);
         }}
         $binding! { node $rec $id canvas_set_style_gradient (
             $id: &str, stroke: bool, x0: f32, y0: f32, x1: f32, y1: f32,

@@ -72,10 +72,6 @@
             miterLimit: 10,
             globalAlpha: 1,
             globalCompositeOperation: 'source-over',
-            // 最近发到后端的 blend/filter 值（-1=本帧未发过）。后端 sticky
-            // 状态的镜像：restore() 不回退它（见 restore 内注释）。
-            __ocBlendSent: -1,
-            __ocFilterSent: -1,
             shadowColor: 'rgba(0, 0, 0, 0)',
             shadowBlur: 0,
             shadowOffsetX: 0,
@@ -189,6 +185,8 @@
     // 内容的光栅化（G2 pattern 三瓦片全串成一个的根因）。
     globalThis.__ocInvalidateOffscreenRaster = function (id) {
         delete offscreenRasterCache[id];
+        // 同一时刻 __opencatOffscreenReset 清空了该画布的持久命令流。
+        if (contexts[id]) contexts[id].__ocForgetSent();
     };
     function rasterizeOffscreenCanvas(canvas) {
         var cached = offscreenRasterCache[canvas.__ocOffscreenId];
@@ -230,6 +228,43 @@
         // 整条路径，而流里没有 pattern 对象，core 只能按包围盒铺瓦片。曲线
         // 取控制点、圆弧取整圆——宁大勿小。
         var pathBounds = null;
+        // 本 canvas 命令流里最近一次下发的 sticky 绘制状态（aa/alpha/fill/
+        // shadow/blend/filter；缺键=未发）。执行端 restore 不回退这些状态，
+        // 镜像因此不随 save/restore 回卷——回卷会让 save 块内的下发被快照
+        // 覆盖、后续同值绘制被跳过，后端卡在旧值上（blend 探针 multiply 瓦片
+        // 实证）。命令流清空时作废（`__ocForgetSent`）。同值跳过下发：
+        // halftone 语料每帧 ~30 万次 fill，aa/alpha/shadow/blend/filter 全同值。
+        var sent = {};
+        // 挂起的路径头：beginPath 与紧随其后的空子路径满圈 arc 先不发，fill()
+        // 撞上时合成一次 `__canvas_fill_oval_rect`（op 序列仍是 BeginPath+
+        // AddOval+FillPath，跨界调用 3→1）。其余触碰路径或变换的调用先
+        // flushPath()，流序与逐条下发一致。
+        var beginPending = false;
+        var ovalPending = null;
+
+        function flushPath() {
+            if (beginPending) {
+                beginPending = false;
+                __canvas_begin_path(id);
+            }
+            if (ovalPending) {
+                var o = ovalPending;
+                ovalPending = null;
+                __canvas_path_add_oval(id, o.x, o.y, o.w, o.h);
+            }
+        }
+
+        function sendAlpha(alpha) {
+            if (sent.alpha === alpha) return;
+            sent.alpha = alpha;
+            __canvas_set_global_alpha(id, alpha);
+        }
+
+        function sendFill(color) {
+            if (sent.fill === color) return;
+            sent.fill = color;
+            __canvas_set_fill_style(id, color);
+        }
 
         function expandPathBounds(x0, y0, x1, y1) {
             if (!(x0 <= x1) || !(y0 <= y1)) return;
@@ -262,7 +297,7 @@
         }
 
         function applyStroke() {
-            __canvas_set_anti_alias(id, true);
+            if (!sent.aa) { sent.aa = true; __canvas_set_anti_alias(id, true); }
             if (state.strokeStyle && state.strokeStyle.__ocGradient) {
                 lowerGradientPaint(true, state.strokeStyle);
             } else {
@@ -272,25 +307,26 @@
             __canvas_set_line_cap(id, state.lineCap);
             __canvas_set_line_join(id, state.lineJoin);
             lowerDash();
-            // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
-            // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
-            __canvas_set_global_alpha(id, num(state.globalAlpha));
-            lowerComposite(id, state);
-            lowerShadow(id, state);
+            // 执行端的 alpha 是持久侧状态：按下发镜像比较（不是按 JS state），
+            // 上一个 save/restore 组里的 globalAlpha 不会泄漏到后续绘制。
+            sendAlpha(num(state.globalAlpha));
+            lowerComposite(id, state, sent);
+            lowerShadow(id, state, sent);
         }
 
         function applyFill() {
-            __canvas_set_anti_alias(id, true);
+            if (!sent.aa) { sent.aa = true; __canvas_set_anti_alias(id, true); }
             if (state.fillStyle && state.fillStyle.__ocGradient) {
                 lowerGradientPaint(false, state.fillStyle);
+                // 渐变 shader 盖在填充漆上：下一次纯色必须重发（SetFillStyle
+                // 才清 shader）。
+                delete sent.fill;
             } else {
-                __canvas_set_fill_style(id, cssColor(state.fillStyle));
+                sendFill(cssColor(state.fillStyle));
             }
-            // 必须无条件下发：执行端的 alpha 是持久侧状态，漏发会把上一个
-            // save/restore 组里的 globalAlpha 泄漏到后续所有绘制。
-            __canvas_set_global_alpha(id, num(state.globalAlpha));
-            lowerComposite(id, state);
-            lowerShadow(id, state);
+            sendAlpha(num(state.globalAlpha));
+            lowerComposite(id, state, sent);
+            lowerShadow(id, state, sent);
         }
 
         // Arc 下沉到流的 arc op（oval rect + 带符号 sweep；force_move_to 语义
@@ -306,12 +342,19 @@
                 // 空子路径上的满圈 arc：整圆 = add_oval（closed，fill/stroke
                 // 等价，1 op）。Skia 的 arc_to 在 |sweep|>=2π 产空/回绕几何
                 // （arcsweep 探针实测），半弧链每点 3 op——halftone 语料
-                // 7 万点/帧全走这条，必须走快路。
-                __canvas_path_add_oval(id, cx - rx, cy - ry, rx * 2, ry * 2);
+                // 7 万点/帧全走这条，必须走快路。紧跟 beginPath 时挂起，
+                // 留给 fill() 合成。
+                var oval = { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 };
+                if (beginPending) {
+                    ovalPending = oval;
+                } else {
+                    __canvas_path_add_oval(id, oval.x, oval.y, oval.w, oval.h);
+                }
                 var end = s.start + s.sweep;
                 cur = { x: cx + Math.cos(end) * rx, y: cy + Math.sin(end) * ry, known: true };
                 return;
             }
+            flushPath();
             if (!cur.known) {
                 var sx = cx + Math.cos(s.start) * rx;
                 var sy = cy + Math.sin(s.start) * ry;
@@ -359,7 +402,7 @@
             var alpha = num(state.globalAlpha);
             // pattern 分支在 applyFill 之前返回，透明度得自己下发（ScriptImage
             // 展开成 ImageRect 时沿用执行端 current_alpha）。
-            __canvas_set_global_alpha(id, alpha);
+            sendAlpha(alpha);
             // 浏览器把 shadow 作用在「图案 × 路径」的整体 alpha 上，阴影不能
             // 挂在单次绘制上。图案不透明时轮廓就等于路径本身：用不透明黑漆把
             // 路径填一遍，只给滤镜提供 alpha 轮廓；层内内容被 keep_content=
@@ -367,11 +410,11 @@
             if (num(state.shadowBlur) > 0
                 || num(state.shadowOffsetX) !== 0
                 || num(state.shadowOffsetY) !== 0) {
-                __canvas_set_fill_style(id, '#000');
-                lowerShadow(id, state);
+                sendFill('#000');
+                lowerShadow(id, state, sent);
                 __canvas_begin_shadow_layer(id);
                 // 层内填色不能再叠一次阴影，否则轮廓被模糊两次。
-                __canvas_set_shadow(id, 'rgba(0, 0, 0, 0)', 0, 0, 0);
+                sendShadow(id, sent, 'rgba(0, 0, 0, 0)', 0, 0, 0);
                 __canvas_fill_path(id);
                 __canvas_restore(id);
                 __canvas_restore(id);
@@ -400,6 +443,7 @@
         function setMatrix(next) {
             // Stream ops compose on the right (`CTM · M`), so replacing the
             // matrix lowers to concatenating `inv(cur) · next`.
+            flushPath();
             var delta = matMul(matInverse(matrix), next);
             __canvas_concat(id, [delta.a, delta.b, 0, delta.c, delta.d, 0, delta.e, delta.f, 1]);
             matrix = next;
@@ -421,6 +465,7 @@
                 matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
                 matrixStack.length = 0;
                 stateStack.length = 0;
+                this.__ocForgetSent();
                 // 基 origin 重录：executor CTM 每帧从 identity 开始，只在
                 // 设置时 translate 一次第二帧就丢。JS `matrix` 仍保持相对
                 // 基的 identity——后续 setMatrix 的 delta = inverse(prev)×next
@@ -431,6 +476,23 @@
                 }
             },
 
+            // HTML 规范：canvas 的 width/height 赋值（同值也算）清空位图并
+            // 重置上下文状态。本帧已录命令整体作废，不再进光栅化。
+            __ocResetBitmap() {
+                __canvas_reset(id);
+                cur = { x: 0, y: 0, known: false };
+                pathBounds = null;
+                this.__ocResetFrameState();
+            },
+
+            // 本 canvas 的命令流被清空（帧首 reset_for_frame / 画布重置）：
+            // 下发镜像与挂起的路径头随流作废。
+            __ocForgetSent() {
+                sent = {};
+                beginPending = false;
+                ovalPending = null;
+            },
+
             // dom_api 在拿到录制面后按流布局位置设置（一次即可，之后每帧
             // 自动重录）。幂等：重复调用以首次为准，防二次 translate。
             __ocSetBaseOrigin(x, y) {
@@ -438,6 +500,7 @@
                 var nx = num(x), ny = num(y);
                 if (!nx && !ny) return;
                 baseOrigin = { x: nx, y: ny };
+                flushPath();
                 __canvas_translate(id, nx, ny);
             },
 
@@ -448,6 +511,7 @@
             // `globalAlpha *= opacity` — a stale JS-side alpha multiplies
             // into every following draw.
             save() {
+                flushPath();
                 matrixStack.push(matrix);
                 var snap = Object.assign(freshState(), state);
                 snap.__dash = dash.slice();
@@ -455,36 +519,32 @@
                 __canvas_save(id);
             },
             restore() {
+                flushPath();
                 matrix = matrixStack.pop() || matrix;
                 var snap = stateStack.pop();
                 if (snap) {
                     var savedDash = snap.__dash;
                     delete snap.__dash;
-                    // __oc*Sent 是后端 sticky 状态的镜像：restore 不回退后端，
-                    // 保持**当前**值（不是 save 时刻的快照值）——否则 save 块
-                    // 内的下发被快照回卷，后续同值绘制被跳过、后端卡死在旧
-                    // blend/filter 上（blend 探针 multiply 瓦片实证）。
-                    var keepBlend = state.__ocBlendSent;
-                    var keepFilter = state.__ocFilterSent;
                     for (var k in snap) state[k] = snap[k];
-                    state.__ocBlendSent = keepBlend;
-                    state.__ocFilterSent = keepFilter;
                     dash.length = 0;
                     for (var i = 0; i < savedDash.length; i++) dash.push(savedDash[i]);
                 }
                 __canvas_restore(id);
             },
             translate(x, y) {
+                flushPath();
                 matrix = matMul(matrix, { a: 1, b: 0, c: 0, d: 1, e: num(x), f: num(y) });
                 __canvas_translate(id, num(x), num(y));
             },
             rotate(radians) {
+                flushPath();
                 var cos = Math.cos(num(radians));
                 var sin = Math.sin(num(radians));
                 matrix = matMul(matrix, { a: cos, b: sin, c: -sin, d: cos, e: 0, f: 0 });
                 __canvas_rotate(id, num(radians) * 180 / Math.PI);
             },
             scale(sx, sy) {
+                flushPath();
                 matrix = matMul(matrix, { a: num(sx), b: 0, c: 0, d: num(sy), e: 0, f: 0 });
                 __canvas_scale(id, num(sx), num(sy));
             },
@@ -514,12 +574,14 @@
             // `clearRect(3, 3, 0, 0)` before it knows the glyph box.
             clearRect(x, y, w, h) {
                 if (!(num(w) > 0) || !(num(h) > 0)) return;
+                flushPath();
                 __canvas_save(id);
                 __canvas_clip_rect(id, num(x), num(y), num(w), num(h), false);
                 __canvas_clear(id, null);
                 __canvas_restore(id);
             },
             fillRect(x, y, w, h) {
+                flushPath();
                 if (state.fillStyle && state.fillStyle.__ocPattern) {
                     // fillRect 不动调用方的当前路径：借用一条临时矩形路径
                     // 做裁剪，包围盒也临时替换，画完还原。
@@ -548,6 +610,7 @@
                 __canvas_fill_rect(id, num(x), num(y), num(w), num(h), cssColor(state.fillStyle));
             },
             strokeRect(x, y, w, h) {
+                flushPath();
                 if (state.strokeStyle && state.strokeStyle.__ocGradient) {
                     applyStroke();
                     __canvas_begin_path(id);
@@ -595,7 +658,12 @@
             },
 
             // ── paths ──
-            beginPath() { pathBounds = null; cur = { x: 0, y: 0, known: false }; __canvas_begin_path(id); },
+            beginPath() {
+                flushPath();
+                pathBounds = null;
+                cur = { x: 0, y: 0, known: false };
+                beginPending = true;
+            },
             // HTML 2D dash surface over the same `dash` the stroke lowering
             // consumes (`lowerDash`); [] restores the solid line.
             setLineDash(segments) {
@@ -685,13 +753,15 @@
                     },
                 };
             },
-            closePath() { __canvas_close_path(id); },
+            closePath() { flushPath(); __canvas_close_path(id); },
             moveTo(x, y) {
+                flushPath();
                 expandPathBounds(num(x), num(y), num(x), num(y));
                 cur = { x: num(x), y: num(y), known: true };
                 __canvas_move_to(id, num(x), num(y));
             },
             lineTo(x, y) {
+                flushPath();
                 expandPathBounds(num(x), num(y), num(x), num(y));
                 cur = { x: num(x), y: num(y), known: true };
                 __canvas_line_to(id, num(x), num(y));
@@ -744,11 +814,13 @@
                 cur = { x: t2x, y: t2y, known: true };
             },
             rect(x, y, w, h) {
+                flushPath();
                 expandPathBounds(num(x), num(y), num(x) + num(w), num(y) + num(h));
                 cur = { x: num(x), y: num(y), known: true };
                 __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
             },
             quadraticCurveTo(cpx, cpy, x, y) {
+                flushPath();
                 expandPathBounds(
                     Math.min(num(cpx), num(x)), Math.min(num(cpy), num(y)),
                     Math.max(num(cpx), num(x)), Math.max(num(cpy), num(y))
@@ -756,6 +828,7 @@
                 __canvas_quad_to(id, num(cpx), num(cpy), num(x), num(y));
             },
             bezierCurveTo(c1x, c1y, c2x, c2y, x, y) {
+                flushPath();
                 expandPathBounds(
                     Math.min(num(c1x), num(c2x), num(x)), Math.min(num(c1y), num(c2y), num(y)),
                     Math.max(num(c1x), num(c2x), num(x)), Math.max(num(c1y), num(c2y), num(y))
@@ -785,9 +858,23 @@
                 lowerArc(num(x), num(y), num(radiusX), num(radiusY), s);
             },
             clip() {
+                flushPath();
                 __canvas_clip_path(id, true);
             },
             fill(path) {
+                if (ovalPending && !(path && path._ops)
+                    && !(state.fillStyle && state.fillStyle.__ocPattern)) {
+                    // beginPath + 满圈 arc + fill：一次跨界录 BeginPath+AddOval+
+                    // FillPath（与逐条下发同参同序；fill 不消耗路径，执行端
+                    // 当前路径仍是这个圆，后续 stroke() 照描）。
+                    var o = ovalPending;
+                    beginPending = false;
+                    ovalPending = null;
+                    applyFill();
+                    __canvas_fill_oval_rect(id, o.x, o.y, o.w, o.h);
+                    return;
+                }
+                flushPath();
                 if (path && path._ops && typeof __ocReplayPathOps === 'function') {
                     __ocReplayPathOps(id, path);
                 }
@@ -799,6 +886,7 @@
                 __canvas_fill_path(id);
             },
             stroke(path) {
+                flushPath();
                 if (path && path._ops && typeof __ocReplayPathOps === 'function') {
                     __ocReplayPathOps(id, path);
                 }
@@ -824,6 +912,7 @@
 
             // ── shapes (direct, no path needed) ──
             fillCircle(cx, cy, r) {
+                flushPath();
                 applyFill();
                 __canvas_fill_circle(id, num(cx), num(cy), num(r));
             },
@@ -879,6 +968,7 @@
             bakeTextPath(text, x, y) {
                 var t = String(text);
                 if (t === '') return false;
+                flushPath();
                 // Horizontal alignment is composed here: the shape payload
                 // measures the advance, and the baked path origin shifts to
                 // the anchor the browser would use. `start`/`end` map to
@@ -1116,10 +1206,12 @@
     // Canvas shadows have no Skia op: core expands this sticky state around
     // every fill/stroke as SaveLayer(DropShadow, keep_content:false) + the
     // real draw (helpers.rs `push_shadowed`). It is executor-side persistent
-    // state, so it must ride along with each paint — same rule as globalAlpha.
-    function lowerShadow(id, state) {
-        __canvas_set_shadow(
+    // state, so it must ride along with each paint — same rule as globalAlpha
+    // (sent against the context's `sent` mirror, same-value sends skipped).
+    function lowerShadow(id, state, sent) {
+        sendShadow(
             id,
+            sent,
             cssColor(state.shadowColor),
             num(state.shadowBlur),
             num(state.shadowOffsetX),
@@ -1127,22 +1219,31 @@
         );
     }
 
+    function sendShadow(id, sent, color, blur, dx, dy) {
+        if (sent.shadowColor === color && sent.shadowBlur === blur
+            && sent.shadowDx === dx && sent.shadowDy === dy) return;
+        sent.shadowColor = color;
+        sent.shadowBlur = blur;
+        sent.shadowDx = dx;
+        sent.shadowDy = dy;
+        __canvas_set_shadow(id, color, blur, dx, dy);
+    }
+
     // globalCompositeOperation / ctx.filter likewise ride along with each
     // paint as executor-side persistent state: composite folds into the fill/
     // stroke paint, `blur` wraps each draw in a SaveLayer(Blur) (helpers.rs
-    // `push_painted`). 下发按需：`__oc*Sent` 记最近发到后端的值（后端 sticky
-    // 状态只被这两条 op 改写，restore 不动它），同值跳过——halftone 语料
-    // 每帧 ~30 万次 fill，每 draw 两条默认值 op 会把流撑大 1/3。
-    function lowerComposite(id, state) {
+    // `push_painted`). 下发按需：同值跳过（镜像 `sent` 见 makeContext2d）——
+    // halftone 语料每帧 ~30 万次 fill，每 draw 两条默认值 op 会把流撑大 1/3。
+    function lowerComposite(id, state, sent) {
         var blend = compositeMode(state);
-        if (state.__ocBlendSent !== blend) {
+        if (sent.blend !== blend) {
             __canvas_set_blend_mode(id, blend);
-            state.__ocBlendSent = blend;
+            sent.blend = blend;
         }
         var sigma = filterSigma(state);
-        if (state.__ocFilterSent !== sigma) {
+        if (sent.filter !== sigma) {
             __canvas_set_ctx_filter(id, sigma);
-            state.__ocFilterSent = sigma;
+            sent.filter = sigma;
         }
     }
 
@@ -1234,6 +1335,13 @@
         // fillPattern 重铺同一 PNG 字节。canvas 内容以 putImageData/draw
         // 追加时 id 不变，缓存失效由 rasterizeOffscreenCanvas 的调用点按
         // 「首像素化后只读」约定处理（2D pattern 源正是如此）。
+    };
+    // 宿主每帧 reset_for_frame 清空帧级 canvas 命令流后调用（realm 的
+    // apply_frame_ctx，所有通道一个落点）：只作废下发镜像，上下文状态不动
+    // ——html 通道不调 `__ocResetContext2d`，状态跨帧保持同浏览器画布。
+    // 离屏画布的流跨帧持久，作废只多一次冗余下发（顺带兜住 LRU 驱逐）。
+    globalThis.__ocContext2dNewFrame = function () {
+        for (var key in contexts) contexts[key].__ocForgetSent();
     };
     // Offscreen canvases (`document.createElement('canvas')`) share this
     // recorder: dom_api hands us a synthetic id, we hand back the same

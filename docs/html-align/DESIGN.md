@@ -73,6 +73,31 @@ release 渲染视频 vs 同工程 `renders/*_swgl.mp4` 的 k3diff，gate 不退�
 - C：video/audio 时间轴语义深化、多工程扩量（codex → HF-heygen-stripe）。
 - D：three/WebGL shader/lottie 工程与重字体工程。
 
+## 分层收束（2026-11-10 用户口径，待分批迁移）
+
+用户口径：**core = 与浏览器标准一致的 HTML / JS / CSS**，
+**自有格式（jsx + hyperframes 扩展）= 单独一层**（适配层 / engine）。
+当前主体已合规：子组合作用域（`wrapScopedCompositionScript`）、
+`data-composition-src` 嵌套展开、CSS 作用域前缀、脚本时间基准、
+`hf-seek`、`__timelines` 全在 `crates/opencat-engine/src/script/html.rs`
+（适配层），core 不解释 HF 语义。
+
+**存量分层债**（core 里仍残留 HF 专有语义，迁移需全量门禁回归，分批做）：
+
+| 位置 | 残留语义 | 迁移目标 |
+|---|---|---|
+| `parse/html.rs` 根选择（≈685、703、728、777） | `data-composition-id` 决定合成根、`<template>` 透明展开、子文档裸选择器改指子根 | engine `splice_nested_hosts` / `scope_composition_css` 调用侧 |
+| `parse/dom.rs` `data-start` / `data-duration` 字段（≈48–51、132–141） | 可见窗半开 `[start,end)` = hyperframes 时间窗协议 | 适配层产出的 IR 字段；core 只认通用「可见窗」 |
+| `resolve/resolve.rs` 末帧不隐藏（≈140） | hyperframes「终止瞬间」语义 | 同上 |
+| `media/types.rs` 注释（≈133） | `data-start` 语义说明 | 随字段迁移 |
+
+迁移判据（沿用 ARCHITECTURE.md §2）：core 可**生成**协议字节但永不**解释**
+领域语义。`data-*` 属性本身是标准 HTML 属性（应留在 core 的属性表里），
+要迁出的是「读到 `data-composition-*` 就改变树结构 / 可见窗」的**解释逻辑**。
+
+**不改变渲染结果的重构，必须与修复批次分开提交**，避免回归归因困难。
+每批迁移后跑 s28 同口径全量门禁（24 例 k3diff + 耗时/内存榜）确认逐位一致。
+
 ## 已知缺口挂账
 
 - 行内多行混排（真 IFC）= 既有 Paragraph 批次缺口，非本分支新增。

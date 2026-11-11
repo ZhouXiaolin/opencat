@@ -57,7 +57,7 @@ impl OffscreenMedia {
             if let Ok(image) = video.encoded_image(key, bytes) {
                 let idx = images.len();
                 images.push(image);
-                scales.push(1.0);
+                scales.push((1.0, 1.0));
                 index.insert(image_ref, idx);
             }
         }
@@ -92,7 +92,7 @@ impl OffscreenMedia {
             };
             let idx = images.len();
             images.push(image);
-            scales.push(1.0);
+            scales.push((1.0, 1.0));
             index.insert(image_ref, idx);
         }
 

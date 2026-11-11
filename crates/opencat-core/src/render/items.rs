@@ -10,15 +10,16 @@ use crate::display::list::{
 use crate::ir::draw_op::{
     ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, Radii4, Rect4,
 };
+use crate::ir::asset_id::asset_id_for_image;
 use crate::ir::draw_types::ImageRef;
 use crate::ir::draw_types::{
     EncodedPath, FillType, PaintId, PathOp,
 };
 use crate::media::VideoFrameRequest;
-use crate::probe::catalog::VideoInfoMeta;
+use crate::probe::catalog::{PreparedResourceCatalog, VideoInfoMeta};
 use crate::render::builder::DrawOpBuilder;
 use crate::style::{
-    BackgroundFill, BorderRadius, BorderStyle, ColorToken,
+    BackgroundFill, BackgroundImage, BackgroundImageSize, BorderRadius, BorderStyle, ColorToken,
     ObjectFit, RadialExtent, RadialShape,
 };
 
@@ -95,6 +96,9 @@ pub fn background_fill_to_fill_spec(fill: &BackgroundFill, rect: Rect) -> FillSp
             let shader = arbitrary_gradient_to_shader_spec(gradient, rect);
             FillSpec::Shader(shader)
         }
+        // 位图层不是 paint：盒背景走 `draw_background_image`，其余消费端
+        // （`background-clip:text` 字形填充等）按空层处理。
+        BackgroundFill::Image { .. } => FillSpec::Solid([0.0; 4]),
     }
 }
 
@@ -590,6 +594,7 @@ fn draw_per_side_borders(
 /// glyphs (`TextDisplayItem::background`).
 pub(crate) fn paint_background_box(
     builder: &mut DrawOpBuilder,
+    catalog: &PreparedResourceCatalog,
     bounds: DisplayRect,
     background: &[BackgroundFill],
     border_radius: &BorderRadius,
@@ -602,6 +607,10 @@ pub(crate) fn paint_background_box(
     let radii = effective_corner_radius(&rect, border_radius);
     let has_radius = radii.iter().any(|&r| r > 0.0);
     for background in background.iter().rev() {
+        if let BackgroundFill::Image { image } = background {
+            draw_background_image(builder, catalog, image, bounds, border_radius, blend_mode);
+            continue;
+        }
         // 带 `background-position`/`size` 的层只画被定位出来的那一块。
         let tile = layer_tile_rect(background, rect).unwrap_or(rect);
         let paint_spec = background_fill_to_paint_spec(background, tile, blend_mode);
@@ -617,6 +626,108 @@ pub(crate) fn paint_background_box(
     }
 }
 
+/// 位图层瓦片数上限：极小图 auto 尺寸平铺整盒会炸出海量绘制命令
+/// （应走图像 shader，当前语料不涉及），超限整层跳过。
+const MAX_BACKGROUND_TILES: usize = 4096;
+
+/// 位图背景层：按 `background-size/position/repeat` 求瓦片后逐块 `ImageRect`，
+/// 裁到盒子（含圆角）。资产不在目录里（运行期才出现的定位串）时跳过——宿主
+/// 拿不到字节，同浏览器加载失败的空层。
+fn draw_background_image(
+    builder: &mut DrawOpBuilder,
+    catalog: &PreparedResourceCatalog,
+    image: &BackgroundImage,
+    bounds: DisplayRect,
+    border_radius: &BorderRadius,
+    blend_mode: BlendMode,
+) {
+    let Some(asset_id) = asset_id_for_image(&image.source()) else {
+        return;
+    };
+    let (iw, ih) = catalog.dimensions(&asset_id);
+    let (bw, bh) = (bounds.width, bounds.height);
+    if iw == 0 || ih == 0 || bw <= 0.0 || bh <= 0.0 {
+        return;
+    }
+    let (iw, ih) = (iw as f32, ih as f32);
+    // CSS Backgrounds 3 §3.9：cover/contain 等比缩放；显式尺寸单轴 auto 按宽高比补。
+    let (w, h) = match image.size {
+        BackgroundImageSize::Auto => (iw, ih),
+        BackgroundImageSize::Cover => {
+            let s = (bw / iw).max(bh / ih);
+            (iw * s, ih * s)
+        }
+        BackgroundImageSize::Contain => {
+            let s = (bw / iw).min(bh / ih);
+            (iw * s, ih * s)
+        }
+        BackgroundImageSize::Explicit { width, height } => {
+            let side = |[frac, px]: [f32; 2], extent: f32| extent * frac + px;
+            match (width, height) {
+                (Some(w), Some(h)) => (side(w, bw), side(h, bh)),
+                (Some(w), None) => {
+                    let w = side(w, bw);
+                    (w, w * ih / iw)
+                }
+                (None, Some(h)) => {
+                    let h = side(h, bh);
+                    (h * iw / ih, h)
+                }
+                (None, None) => (iw, ih),
+            }
+        }
+    };
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let [pos_x, pos_y] = image.position;
+    let anchor_x = bounds.x + (bw - w) * pos_x[0] + pos_x[1];
+    let anchor_y = bounds.y + (bh - h) * pos_y[0] + pos_y[1];
+    // 平铺轴从锚点向两侧铺满盒子；不平铺轴只放锚点那一块。
+    let span = |anchor: f32, tile: f32, start: f32, extent: f32, repeat: bool| {
+        if !repeat {
+            return (anchor, 1usize);
+        }
+        let first = anchor - ((anchor - start) / tile).ceil() * tile;
+        let count = ((start + extent - first) / tile).ceil().max(1.0) as usize;
+        (first, count)
+    };
+    let (x0, nx) = span(anchor_x, w, bounds.x, bw, image.repeat[0]);
+    let (y0, ny) = span(anchor_y, h, bounds.y, bh, image.repeat[1]);
+    if nx.saturating_mul(ny) > MAX_BACKGROUND_TILES {
+        return;
+    }
+
+    let paint = (blend_mode != BlendMode::SrcOver).then(|| {
+        builder.intern_paint(PaintSpec {
+            fill: FillSpec::Solid([0.0, 0.0, 0.0, 1.0]),
+            anti_alias: true,
+            blend_mode,
+            ..Default::default()
+        })
+    });
+    builder.push(DrawOp::Save);
+    clip_bounds(builder, bounds, border_radius);
+    for row in 0..ny {
+        for col in 0..nx {
+            builder.push(DrawOp::ImageRect {
+                image: ImageRef::Static {
+                    asset_id: asset_id.key.clone(),
+                },
+                src: None,
+                dst: Rect4 {
+                    x: x0 + col as f32 * w,
+                    y: y0 + row as f32 * h,
+                    width: w,
+                    height: h,
+                },
+                paint,
+            });
+        }
+    }
+    builder.push(DrawOp::Restore);
+}
+
 pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), RenderError> {
     let style = &item.paint;
     let has_any_border = style.border_width.is_some()
@@ -630,8 +741,7 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
 
     let bounds = item.bounds;
     let rect = kurbo_rect(bounds);
-    let radii = effective_corner_radius(&rect, &style.border_radius);
-    let has_radius = radii.iter().any(|&r| r > 0.0);
+    let catalog = ctx.catalog;
 
     let builder = &mut ctx.builder;
     builder.push(DrawOp::Save);
@@ -642,22 +752,14 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
     // Re-emitting it here would blur the backdrop twice for every element that
     // also paints a background, so this item-level pass deliberately does not.
 
-    if !style.background.is_empty() {
-        // CSS 多层背景：第一层最靠近观察者（最上），从最后一层画到第一层。
-        for background in style.background.iter().rev() {
-            let tile = layer_tile_rect(background, rect).unwrap_or(rect);
-            let paint_spec = background_fill_to_paint_spec(background, tile, style.blend_mode);
-            let paint_id = builder.intern_paint(paint_spec);
-            if has_radius && tile == rect {
-                push_draw_rrect(builder, tile, radii, paint_id);
-            } else {
-                builder.push(DrawOp::Rect {
-                    rect: rect_to_rect4(tile),
-                    paint: paint_id,
-                });
-            }
-        }
-    }
+    paint_background_box(
+        builder,
+        catalog,
+        bounds,
+        &style.background,
+        &style.border_radius,
+        style.blend_mode,
+    );
 
     for shadow in &style.inset_shadow {
         draw_inset_shadow(builder, bounds, &style.border_radius, shadow);
@@ -725,6 +827,11 @@ pub(crate) struct LocalPaintState {
     /// Canvas 2D shadow state (sticky until overwritten). Translated here,
     /// in core, into a `SaveLayer` + `DropShadow` wrapper — never emitted.
     pub(crate) shadow: Option<CanvasShadow>,
+    /// 画布当前变换（相对画布坐标系 = 命令流起点）与 save 栈。`ctx.filter`
+    /// 的长度在画布坐标系解释、不随 CTM 缩放（Chromium CompositedDraw：
+    /// identity 下 saveLayer 再恢复 CTM 画图元），包裹层据此补偿。
+    pub(crate) ctm: kurbo::Affine,
+    pub(crate) ctm_stack: Vec<kurbo::Affine>,
 }
 
 /// Canvas 2D shadow (`shadowColor` / `shadowBlur` / `shadowOffsetX/Y`).
@@ -761,6 +868,8 @@ impl Default for LocalPaintState {
             filter_sigma: 0.0,
             shadow: None,
             anti_alias: true,
+            ctm: kurbo::Affine::IDENTITY,
+            ctm_stack: Vec::new(),
         }
     }
 }
@@ -1104,8 +1213,8 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
     clip_bounds(builder, item.bounds, &style.border_radius);
 
     if !style.background.is_empty() {
-        // 多层背景：按声明顺序从底到顶绘制。
-        for bg in &style.background {
+        // CSS 多层背景：第一层最靠近观察者，从末层画起（底色在末层）。
+        for bg in style.background.iter().rev() {
             let paint = background_fill_to_paint_spec(bg, dst, BlendMode::SrcOver);
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::Rect {
@@ -1170,8 +1279,8 @@ pub fn render_lottie(
     clip_bounds(builder, item.bounds, &style.border_radius);
 
     if !style.background.is_empty() {
-        // 多层背景：按声明顺序从底到顶绘制。
-        for bg in &style.background {
+        // CSS 多层背景：第一层最靠近观察者，从末层画起（底色在末层）。
+        for bg in style.background.iter().rev() {
             let paint = background_fill_to_paint_spec(bg, dst, BlendMode::SrcOver);
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::Rect {

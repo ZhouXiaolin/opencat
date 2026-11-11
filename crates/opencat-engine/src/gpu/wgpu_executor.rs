@@ -412,11 +412,18 @@ impl WgpuStreamExecutor {
     /// Edge/Dawn 同后端族）；`OC_WGPU_BACKEND` 可强制（dx12/vulkan/gl）。
     fn ensure_runtime(&mut self) -> Result<()> {
         if self.rt.is_none() {
+            // 三 GPU 栈统一 D3D：GL 流执行器与 Skia 都跑在 ANGLE(D3D11) 会话
+            // 上，wgpu 在 Windows 也钉 DX12——PRIMARY 会按枚举序落 Vulkan，
+            // 与另外两栈不同族。非 Windows 维持 PRIMARY（Metal/Vulkan）。
+            #[cfg(target_os = "windows")]
+            let default_backends = wgpu::Backends::DX12;
+            #[cfg(not(target_os = "windows"))]
+            let default_backends = wgpu::Backends::PRIMARY;
             let backends = match std::env::var("OC_WGPU_BACKEND").ok().as_deref() {
                 Some("vulkan") => wgpu::Backends::VULKAN,
                 Some("dx12") => wgpu::Backends::DX12,
                 Some("gl") => wgpu::Backends::GL,
-                _ => wgpu::Backends::PRIMARY,
+                _ => default_backends,
             };
             let instance = Instance::new(InstanceDescriptor {
                 backends,

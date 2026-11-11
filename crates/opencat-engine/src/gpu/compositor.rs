@@ -400,27 +400,16 @@ pub fn import_texture(
     // ANGLE 下 Skia 对借入的 GL 纹理**画不出来**：`read_pixels` 能读回正确
     // 像素、同一位置的 `draw_rect` 正常落帧，只有 `draw_image` 静默无输出
     // （纹理内容、尺寸、alpha、裁剪、坐标均已排除；ANGLE 之前走 WGL 时
-    // 无此问题）。零拷贝导入在这里不可用，改为一次性回读把纹理包成 raster
-    // image——语义不变（同样的 Premul 字节、同样的 origin 处理），代价是
-    // 每帧每 canvas 一次 8MB 回读。
-    let mut px = vec![0u8; (width as usize) * (height as usize) * 4];
-    let info = ImageInfo::new(
-        (width as i32, height as i32),
-        ColorType::RGBA8888,
-        AlphaType::Premul,
-        None,
-    );
-    if !img.read_pixels_with_context(
-        Some(&mut *skia),
-        &info,
-        &mut px,
-        (width as usize) * 4,
-        (0, 0),
-        skia_safe::image::CachingHint::Allow,
-    ) {
-        return Err(anyhow!("GPU 纹理回读失败（{width}x{height}）"));
-    }
-    let data = skia_safe::Data::new_copy(&px);
-    skia_safe::images::raster_from_data(&info, data, (width as usize) * 4)
-        .ok_or_else(|| anyhow!("raster_from_data 失败（{width}x{height}）"))
+    // 无此问题）。绕法：借入后立刻 `TextureFromImage`——GPU 内一次拷贝把
+    // 内容转成 Skia **自有**纹理，绘制不再经过 external 代理。曾在此处
+    // 回读 8MB 再 `raster_from_data`（绘制时又上传回 GPU）：同样的字节、
+    // 同样的 origin 处理，但一次 GPU→CPU→GPU 双往返；全 GPU 化后这里
+    // 必须保持零 CPU。
+    gpu::images::texture_from_image(
+        skia,
+        &img,
+        gpu::Mipmapped::No,
+        gpu::Budgeted::Yes,
+    )
+    .ok_or_else(|| anyhow!("texture_from_image 失败（{width}x{height}）"))
 }

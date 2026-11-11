@@ -559,9 +559,17 @@ fn with_resolved_font<R>(
     if families.is_empty() {
         families.push(fontdb::Family::SansSerif);
     }
+    // 400 请求按 Chrome 旧算法映射到族内 (400,500) 最小中间权重（与测量
+    // 腿 `chrome_query_weight` 同口径，保证绘制 face == 测量 face）。
+    let mapped_weight = families.iter().find_map(|f| match f {
+        fontdb::Family::Name(name) => {
+            Some(crate::text::chrome_query_weight(&db, name, weight as u16))
+        }
+        _ => None,
+    });
     let query = fontdb::Query {
         families: &families,
-        weight: fontdb::Weight(weight as u16),
+        weight: fontdb::Weight(mapped_weight.unwrap_or(weight as u16)),
         style: fontdb::Style::Normal,
         stretch: fontdb::Stretch::Normal,
     };

@@ -1028,14 +1028,37 @@ fn text_attrs<'a>(style: &'a ComputedTextStyle, db: &fontdb::Database) -> Attrs<
     } else {
         0.0
     };
+    // 400 请求在族内有 (400,500) 中间权重 face 时按 Chrome 旧算法落它
+    // （见 `chrome_query_weight`）；通用族由 fontdb 兜底，不走映射。
+    let weight = match (&family, style.font_weight.0) {
+        (cosmic_text::Family::Name(name), w) => chrome_query_weight(db, name, w),
+        (_, w) => w,
+    };
     Attrs::new()
         .family(family)
-        .weight(cosmic_text::Weight(style.font_weight.0))
+        .weight(cosmic_text::Weight(weight))
         .style(match style.font_style {
             crate::style::FontStyle::Normal => cosmic_text::Style::Normal,
             crate::style::FontStyle::Italic => cosmic_text::Style::Italic,
         })
         .letter_spacing(letter_spacing_em)
+}
+
+/// fontdb 0.24 按 CSS Fonts 4 的 `(400..450) && 族内有 500 → 500` 特判选
+/// face；Chrome 实际用旧算法：400 请求落在族内第一个 >400 的 face。
+/// figma 语料的 TT Norms Pro Normal `usWeightClass=450`——浏览器用它，
+/// spec 算法跳 500（字宽 +1.2%，整行文字横向重影）。测量与绘制两侧都在
+/// 查询前把 400 请求映射到族内 (400,500) 区间的最小权重，精确复刻。
+pub(crate) fn chrome_query_weight(db: &fontdb::Database, family_name: &str, weight: u16) -> u16 {
+    if weight != 400 {
+        return weight;
+    }
+    db.faces()
+        .filter(|f| f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(family_name)))
+        .map(|f| f.weight.0)
+        .filter(|w| *w > 400 && *w < 500)
+        .min()
+        .unwrap_or(weight)
 }
 
 /// Compute a stable u64 key from a cosmic-text CacheKey.

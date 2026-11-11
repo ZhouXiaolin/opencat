@@ -619,22 +619,45 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
             }
         }
         if let ElementKind::Svg(svg) = &element.kind {
-            let fallback_w = svg
-                .width
-                .map(Dimension::length)
-                .or_else(|| svg.intrinsic_size.map(|(w, _)| Dimension::length(w)));
-            let fallback_h = svg
-                .height
-                .map(Dimension::length)
-                .or_else(|| svg.intrinsic_size.map(|(_, h)| Dimension::length(h)));
-            if style.size.width.is_auto() {
-                if let Some(w) = fallback_w {
-                    style.size.width = w;
+            let w_auto = style.size.width.is_auto();
+            let h_auto = style.size.height.is_auto();
+            if svg.width.is_none() && svg.height.is_none() {
+                // 仅 viewBox（width/height 属性全缺）：无固有尺寸、只有固有
+                // 比例。一维 auto 时按比例推另一维——浏览器 `width:100%;
+                // height:auto` 的高 = 宽 ÷ 比例；把 viewBox 高度当 px 回填
+                // 会把标志压扁（figma act11 logo）。两维都 auto 时维持下方
+                // 固有回填（无 CSS 落 viewBox 尺寸，近似浏览器 100% 宽）。
+                if w_auto != h_auto
+                    && let Some((iw, ih)) = svg.intrinsic_size
+                    && iw > 0.0
+                    && ih > 0.0
+                {
+                    style.aspect_ratio = Some(iw / ih);
+                    if h_auto {
+                        style.size.height = Dimension::auto();
+                    }
+                    if w_auto {
+                        style.size.width = Dimension::auto();
+                    }
                 }
-            }
-            if style.size.height.is_auto() {
-                if let Some(h) = fallback_h {
-                    style.size.height = h;
+            } else {
+                let fallback_w = svg
+                    .width
+                    .map(Dimension::length)
+                    .or_else(|| svg.intrinsic_size.map(|(w, _)| Dimension::length(w)));
+                let fallback_h = svg
+                    .height
+                    .map(Dimension::length)
+                    .or_else(|| svg.intrinsic_size.map(|(_, h)| Dimension::length(h)));
+                if w_auto {
+                    if let Some(w) = fallback_w {
+                        style.size.width = w;
+                    }
+                }
+                if h_auto {
+                    if let Some(h) = fallback_h {
+                        style.size.height = h;
+                    }
                 }
             }
         }
@@ -1302,6 +1325,27 @@ fn inline_formatting_pass(
         }
     }
 
+    if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("3") {
+        let desc: Vec<String> = items
+            .iter()
+            .zip(&ordered)
+            .map(|(item, el)| match item {
+                inline::InlineItem::Text { text, nowrap, .. } => {
+                    format!("T(nowrap={nowrap})[{:?}..]", &text[..text.len().min(24)])
+                }
+                inline::InlineItem::Atomic { width, height, .. } => {
+                    format!("A({width}x{height}) id={}", el.style.id)
+                }
+                _ => "S".into(),
+            })
+            .collect();
+        eprintln!(
+            "[ifc] id={} el_nowrap={} wrap_w={wrap_width} content_w={content_w} items=[{}]",
+            element.style.id,
+            text.no_wrap,
+            desc.join(" | ")
+        );
+    }
     let ifc = inline::layout_inline(&items, wrap_width, align_width, text, text.text_align, font_db);
 
     for ((child, margin), placement) in children.iter_mut().zip(margins).zip(&ifc.placements) {

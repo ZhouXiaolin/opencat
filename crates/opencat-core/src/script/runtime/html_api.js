@@ -693,19 +693,32 @@
             return out;
         }
 
-        // 有 element 子节点：
-        if (p.type === 'div') {
+        // 有 element 子节点：【BISECT-A】interleaveKids 临时回退旧形态
+        //（div 文本并成单 P 首子、id 维持 `:t`），验证 inspector 点阵退化。
+        function interleaveKids() {
             var kids = [];
-            if (allText) kids.push({ type: 'p', id: p.id + ':t', text: allText });
-            elementKids.forEach(function (k) { kids.push(serializeNode(k)); });
-            out.children = kids;
+            var allText = '';
+            el.__kids.forEach(function (k) {
+                if (k.nodeType === 3) { allText += k.data; }
+            });
+            var hasElement = el.__kids.some(function (k) { return k.nodeType === 1; });
+            if (!hasElement) {
+                kids.push({ type: 'p', id: p.id + ':t', text: allText });
+            } else {
+                if (allText) kids.push({ type: 'p', id: p.id + ':t', text: allText });
+                el.__kids.forEach(function (k) {
+                    if (k.nodeType === 1) kids.push(serializeNode(k));
+                });
+            }
+            return kids;
+        }
+        if (p.type === 'div') {
+            out.children = interleaveKids();
             return out;
         }
         // p/span 承载文本却有了元素子节点 → 降级 div + 文本 P 首子
         out.type = 'div';
-        var downgraded = [{ type: 'p', id: p.id + ':t', text: allText }];
-        elementKids.forEach(function (k) { downgraded.push(serializeNode(k)); });
-        out.children = downgraded;
+        out.children = interleaveKids();
         return out;
     }
 
@@ -1294,12 +1307,22 @@
         return !!parsed && matchesSelector(this, parsed);
     };
 
-    // innerHTML 读回（调试用途为主）
+    // innerHTML 读回（调试用途为主）。匿名文本 run（引擎合成 P，uaTag 缺席）
+    // 序列化成裸文本：浏览器 DOM 里裸文本就是 text node，包成 `<p>` 会让
+    // innerHTML 往返（gsap clone 卡片等）把行内 run 变成块级真 p——布局
+    // 随之从行内流退化成块级堆叠（figma act2 高亮短语折行断裂的根因）。
+    function isSyntheticTextRun(el) {
+        return el.__payload.type === 'p' && !el.__payload.uaTag;
+    }
     function serializeHtml(el) {
         var s = String(el.__payload.text || '');
         el.__kids.forEach(function (k) {
             if (k.nodeType === 3) s += k.data.replace(/&/g, '&amp;').replace(/</g, '&lt;');
             else if (k.nodeType === 1) {
+                if (isSyntheticTextRun(k)) {
+                    s += serializeHtml(k);
+                    return;
+                }
                 s += '<' + elTag(k);
                 if (k.__payload.className) s += ' class="' + k.__payload.className + '"';
                 s += '>';

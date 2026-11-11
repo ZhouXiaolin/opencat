@@ -307,13 +307,16 @@ fn segments(items: &[InlineItem<'_>], m: &mut Measurer<'_, '_>) -> Vec<Segment> 
     let mut prev = 0usize;
     for (pos, kind) in unicode_linebreak::linebreaks(&joined) {
         let forced = kind == BreakOpportunity::Mandatory && pos < joined.len();
-        // nowrap run 内部的可选断点作废（段继续延伸）。
+        // nowrap 侧的可选断点作废（段继续延伸）。white-space 可继承：断点两
+        // 侧任一 run 是 nowrap（如 `.hl{white-space:nowrap}` 内的 stem span 与
+        // 兄弟直接文本）都不可断——figma act2 的高亮短语正是跨界空格断行。
         if !forced
             && pos > 0
             && pos < joined.len()
             && let (Some(before), Some(after)) = (span_at(pos - 1), span_at(pos))
-            && before == after
-            && matches!(items[spans[before].0], InlineItem::Text { nowrap: true, .. })
+            && [before, after].into_iter().any(|span| {
+                matches!(items[spans[span].0], InlineItem::Text { nowrap: true, .. })
+            })
         {
             continue;
         }

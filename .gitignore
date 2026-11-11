@@ -13,6 +13,7 @@ __pycache__/
 .zcode/
 .commandcode/
 .cache/
+.opencat/
 # 本地草稿：k3diff/对比输出（~200M）、agent 任务记录、临时探针文件
 /build/
 /.pi/

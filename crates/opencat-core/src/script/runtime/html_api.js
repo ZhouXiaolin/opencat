@@ -1581,14 +1581,24 @@
             // 不能抑制事件：页面把整帧重绘挂在 timeline 的 onUpdate 上
             // （k3 的 orbitPills/drawDissolve/hatchGlide 都在这条通道），
             // suppressEvents=true 会让这些逐帧函数永不执行。
-            a.totalTime(t, false);
-            // 播放头本来就等于 t 时 gsap 会短路、不渲染（首帧 t=0 正是
-            // 这种情况：`tl.set(x, {autoAlpha:0}, 0)` 永远不落地）。先推
-            // 一丁点再回到 t，逼出一次渲染。
+            // 短路判定必须读 seek **前**的播放头：seek 后 gsap 在 render
+            // 里用 _roundPrecise 把 _tTime 舍入到 1e-7，getter 几乎总等于
+            // t；且逐帧 t=k/fps 在 k 能被 fps 约到整值时（30fps 每 3 帧）
+            // 舍入差恰好为 0，旧写法（seek 后判定）每 3 帧多做 2 次渲染，
+            // canvas 位图被本帧终值重绘成 fresh——与 swgl 参考的单次 seek
+            // （onUpdate 吃上一帧终值，stale-1frame）差出一帧相位。
             if (Math.abs(a.totalTime() - t) < 1e-9) {
+                // 强制渲染但**只正向**：先登记的 zero-duration set（如
+                // inspector 的 tl.set(canvas,{x:60}) 与后置的 tl.set(canvas,
+                // {x:40}) 同位 0）在回退（t→0）时被 gsap 反向"重置"成各自的
+                // init 捕获值，错值（60/40）固化全程且不再重渲——浏览器
+                // 语义是构造期 immediateRender 已定终态、seek(0) 是 no-op。
+                // 停在 t+1e-4（0.1ms，下帧正常覆盖）即可触发 onUpdate 且
+                // 保持正向渲染的终态。
                 a.totalTime(t + 1e-4, false);
-                a.totalTime(t, false);
+                return;
             }
+            a.totalTime(t, false);
         } catch (e) { /* 单产物失败不拖垮整帧 */ }
     }
 

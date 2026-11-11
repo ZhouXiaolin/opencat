@@ -44,8 +44,13 @@ release 渲染视频 vs 同工程 `renders/*_swgl.mp4` 的 k3diff，gate 不退�
    产字节与树，不解释绘制）。解析器 = html5ever + markup5ever_rcdom。
 3. **seek 协议 = 包裹 gsap 工厂**：driver 在页面脚本执行前 patch
    `gsap.timeline/to/from/fromTo/set`，登记所有产物；脚本跑完后统一
-   `pause + seek(t, suppressEvents=true)`。页脚本每帧重跑，天然满足
-   write-out IS seek；`window.__timelines` 注册值并入登记表。
+   `pause + seekOne(t)`（`suppressEvents=false`——页面把整帧重绘挂在
+   timeline 的 onUpdate 上，抑制事件会让逐帧函数永不执行）。播放头已≈t
+   时（首帧 t=0、同 t 重复 seek）正向 nudge 到 t+1e-4 强制一次渲染、
+   不回退——反向 seek 会把同位 zero-duration set 重置成 init 捕获值；
+   正常逐帧推进恰好单次渲染 = swgl 的 stale-1frame 语义（master 连续
+   补间的 onUpdate 消费上一帧终值）。`window.__timelines` 注册值并入
+   登记表。
 4. **CSS 级联升级**：`compute_node_style` 加 `SelectorContext`
    （祖先链 + 前兄链 + tag 别名），支持后代/子/相邻/通用组合器与 `*`；
    伪元素/伪类继续丢弃（k3 无伪元素；14/21 伪元素推后续批次）。

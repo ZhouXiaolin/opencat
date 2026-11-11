@@ -147,8 +147,13 @@ pub fn load_faces_into_db(
         let bytes = bytes_by_id
             .get(&face.id)
             .ok_or_else(|| anyhow!("font `{}`: bytes not loaded", face.id))?;
-        db.load_font_data(decode_woff2_if_needed(bytes.clone()));
         let family = face.family.clone().unwrap_or_else(|| face.id.clone());
+        let bytes = decode_woff2_if_needed(bytes.clone());
+        if manifest.css_faces {
+            load_css_face(&mut db, bytes, &family);
+        } else {
+            db.load_font_data(bytes);
+        }
         index.id_to_family.insert(face.id.clone(), family);
     }
 
@@ -171,6 +176,24 @@ pub fn load_faces_into_db(
     }
 
     Ok((db, index))
+}
+
+/// 装入一条 `@font-face` 的字体字节。族名是该面的匹配键（浏览器语义：
+/// `font-family:'CodeBlackHF'` 命中 src 指向的 Archivo Black 文件）；fontdb
+/// 只认文件内部族名，这里把声明族名补进面信息族名表首位。内部名保留，
+/// 同名声明（多数 Google Fonts）不受影响。
+pub fn load_css_face(db: &mut fontdb::Database, bytes: Vec<u8>, family: &str) {
+    let ids = db.load_font_source(fontdb::Source::Binary(std::sync::Arc::new(bytes)));
+    for id in ids {
+        let Some(info) = db.face(id) else { continue };
+        if info.families.iter().any(|(name, _)| name == family) {
+            continue;
+        }
+        let mut info = info.clone();
+        info.families.insert(0, (family.to_string(), fontdb::Language::English_UnitedStates));
+        db.remove_face(id);
+        db.push_face_info(info);
+    }
 }
 
 /// Merge manifest faces into an existing database (e.g. engine defaults).

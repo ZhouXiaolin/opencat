@@ -54,10 +54,15 @@ pub(crate) fn text_fill_specs(
     let bg_box = text_background_box(item, lines);
     let rect = display_rect_to_kurbo(bg_box);
     // CSS 多层背景：第一层最靠近观察者（最上），先铺底层、文字实色最后压顶。
+    // 带 `background-position`/`size` 的层映射到被定位出来的那块 tile 上
+    // （与 `paint_background_box` 同口径；tile 外 Clamp 延展边缘色）。
     let mut fills: Vec<FillSpec> = layers
         .iter()
         .rev()
-        .map(|layer| super::background_fill_to_fill_spec(layer, rect))
+        .map(|layer| {
+            let tile = super::gradient::layer_tile_rect(layer, rect).unwrap_or(rect);
+            super::background_fill_to_fill_spec(layer, tile)
+        })
         .collect();
     let color = super::color_token_to_rgba(&item.style.color);
     if color[3] > 0.0 {
@@ -76,11 +81,15 @@ pub(crate) fn text_fill_specs(
 /// the content box is the text's advance width, not the element's laid-out
 /// width — mapping the gradient over the full element would squash the whole
 /// sweep into the leading glyphs. Falls back to the element box when no line
-/// was shaped.
+/// was shaped. Layers inherited from a clip:text ancestor map over that
+/// ancestor's box (`text_fill_box`).
 fn text_background_box(
     item: &TextDisplayItem,
     lines: &[crate::text::TextLine],
 ) -> DisplayRect {
+    if let Some(rect) = item.text_fill_box {
+        return rect;
+    }
     let mut box_ = item.bounds;
     let mut min_x = f32::INFINITY;
     let mut max_x = f32::NEG_INFINITY;
@@ -232,7 +241,7 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
     let raster = rasterize_glyphs(
         &item.text,
         &item.style,
-        item.bounds.width,
+        item.wrap_width,
         item.allow_wrap,
         item.truncate,
         ctx.font_db,
@@ -353,7 +362,7 @@ fn render_text_with_unit_overrides(
     let raster = rasterize_glyphs(
         &item.text,
         &item.style,
-        item.bounds.width,
+        item.wrap_width,
         item.allow_wrap,
         false,
         ctx.font_db,
@@ -623,6 +632,7 @@ pub fn render_text_with_shadows(
     if item.text_fill.is_none() {
         super::paint_background_box(
             &mut ctx.builder,
+            ctx.catalog,
             item.bounds,
             &item.background,
             &item.background_border_radius,
@@ -751,6 +761,31 @@ fn render_blurred_shadow_chain(
 }
 
 fn render_text_body(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), RenderError> {
+    // 行内流片段：逐片段单行绘制。片段行盒已按所在行的基线落位，单行排版
+    // 的基线就落在行盒顶 + 自身 ascent（layout::inline 同一度量）。
+    if let Some(fragments) = &item.fragments
+        && item.text_unit_overrides.is_none()
+    {
+        for fragment in fragments.iter() {
+            let Some(text) = item.text.get(fragment.start..fragment.end) else {
+                continue;
+            };
+            let mut piece = item.clone();
+            piece.fragments = None;
+            piece.text = text.to_string();
+            piece.bounds = DisplayRect {
+                x: item.bounds.x + fragment.rect.x,
+                y: item.bounds.y + fragment.rect.y,
+                width: fragment.rect.width,
+                height: fragment.rect.height,
+            };
+            piece.allow_wrap = false;
+            piece.truncate = false;
+            piece.style.text_align = crate::style::TextAlign::Left;
+            render_text(ctx, &piece)?;
+        }
+        return Ok(());
+    }
     if item.text_unit_overrides.is_some() {
         render_text_with_unit_overrides(ctx, item)
     } else {

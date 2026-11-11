@@ -19,11 +19,13 @@ while [ $# -gt 0 ]; do
 done
 [ $# -gt 0 ] || { echo "usage: $0 [--timeout s] [--mem mb] -- cmd..." >&2; exit 2; }
 
-# 私有提交（MB）；PowerShell 不可用时退回 tasklist 工作集。
+# 私有提交（MB），按进程树合计（`--jobs` 分块渲染的子进程一并计入）；
+# PowerShell 不可用时退回 tasklist 工作集（只看根进程）。
+TREE_MEM_PS1=$(cygpath -w "$(dirname "$0")/tree-mem.ps1" 2>/dev/null || echo "$(dirname "$0")/tree-mem.ps1")
 mem_mb() {
     local m
-    m=$(powershell -NoProfile -Command "(Get-Process -Id $1 -ErrorAction SilentlyContinue).PrivateMemorySize64" 2>/dev/null | tr -d '\r ')
-    if [ -n "$m" ]; then
+    m=$(powershell -NoProfile -ExecutionPolicy Bypass -File "$TREE_MEM_PS1" -Root "$1" 2>/dev/null | tr -d '\r ')
+    if [ -n "$m" ] && [ "$m" -gt 0 ] 2>/dev/null; then
         echo $((m / 1048576))
         return
     fi

@@ -107,6 +107,12 @@ pub trait MutationRecorder {
     /// 预驻留渐变等）。见 `script::canvas_op`。
     fn record_canvas_op(&mut self, id: &str, cmd: crate::script::canvas_op::CanvasOp);
 
+    /// canvas 位图重置（HTML：`canvas.width/height` 赋值清空位图）：丢弃该
+    /// 节点本帧已录的全部命令。默认 no-op：不录 canvas 命令的录制器无需关心。
+    fn reset_canvas(&mut self, id: &str) {
+        let _ = id;
+    }
+
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32);
 
     /// 本帧某个 canvas 节点录到了 SVG markup（g-svg 渲染器产 `<svg>` 子树而

@@ -275,6 +275,7 @@ pub mod opcode {
         ],                                                      // 49 SAVE_BACKDROP_LAYER
         &[
             f("path", 4), f("subtree", 4), f("tile", 16), f("transform", 24), f("opacity", 4),
+            f("flags", 1), f("rasterize_at", 8),
         ],                                                      // 50 FILL_PATTERN
         &[],                                                    // 51 (unused)
         &[
@@ -2108,6 +2109,7 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             tile,
             pattern_transform,
             opacity,
+            rasterize_at,
         } => {
             write_op_header(buf, opcode::FILL_PATTERN);
             write_u32(buf, path.0);
@@ -2119,6 +2121,12 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                 write_f32(buf, *v);
             }
             write_f32(buf, *opacity);
+            // 位图语义的固定光栅化分辨率；None 时占位 0（web 端按 flags 回退
+            // 设备密度行为）。
+            write_u8(buf, u8::from(rasterize_at.is_some()));
+            let [rx, ry] = rasterize_at.unwrap_or([0.0, 0.0]);
+            write_f32(buf, rx);
+            write_f32(buf, ry);
         }
 
         DrawOp::StrokePattern {

@@ -20,26 +20,102 @@ use lightningcss::traits::Parse;
 use lightningcss::traits::ToCss;
 use lightningcss::values::color::{CssColor, HueInterpolationMethod, OKLAB, SRGB};
 use lightningcss::values::length::LengthValue;
+use lightningcss::vendor_prefix::VendorPrefix;
 
 use super::EvalContext;
 
-/// 把可能含 var()/calc() 的声明化简成强类型；typed 声明原样返回。
-pub fn resolve_to_typed(
-    prop: &Property<'static>,
-    vars: &HashMap<String, TokenList<'static>>,
-    ctx: &EvalContext,
-) -> Vec<Property<'static>> {
-    match prop {
-        Property::Unparsed(unparsed) => resolve_unparsed(unparsed, vars, ctx),
-        // typed 值内部按 lightningcss 语义不可能再含 var（含则必为
-        // Unparsed），直接透传。
-        other => vec![other.clone()],
+/// `var()` 的取值面（键去 `--` 前缀）：层叠期是元素的计算表，resolve 期
+/// 是自定义属性的继承链（脚本按帧写入的值挂在链上，见 [`super::VarLink`]）。
+pub trait VarSource {
+    fn var(&self, key: &str) -> Option<&TokenList<'static>>;
+}
+
+impl VarSource for HashMap<String, TokenList<'static>> {
+    fn var(&self, key: &str) -> Option<&TokenList<'static>> {
+        self.get(key)
     }
 }
 
-fn resolve_unparsed(
+/// 把可能含 var()/calc() 的声明化简成强类型；typed 声明原样返回。
+pub fn resolve_to_typed<V: VarSource + ?Sized>(
+    prop: &Property<'static>,
+    vars: &V,
+    ctx: &EvalContext,
+) -> Vec<Property<'static>> {
+    match prop {
+        // 含 var() 的简写替换后才知道是简写，同样要展开。
+        Property::Unparsed(unparsed) => resolve_unparsed(unparsed, vars, ctx)
+            .into_iter()
+            .flat_map(expand_shorthand)
+            .collect(),
+        // typed 值内部按 lightningcss 语义不可能再含 var（含则必为
+        // Unparsed），直接透传。
+        other => expand_shorthand(other.clone()),
+    }
+}
+
+/// 简写展开成长写：两条腿（paint 的 NodeStyle 与 taffy）只认长写，整条
+/// 简写会静默丢弃。语料里 99 处 `place-items:center`（丢掉即 grid/flex
+/// 容器里的定尺寸子盒全落左上角）、`border-bottom` 分隔线、`grid-row:1`
+/// 叠放（丢掉即自动排进第二行）、`font:` 简写。
+fn expand_shorthand(prop: Property<'static>) -> Vec<Property<'static>> {
+    match prop {
+        Property::PlaceItems(v) => vec![
+            Property::AlignItems(v.align, VendorPrefix::None),
+            Property::JustifyItems(v.justify),
+        ],
+        Property::PlaceContent(v) => vec![
+            Property::AlignContent(v.align, VendorPrefix::None),
+            Property::JustifyContent(v.justify, VendorPrefix::None),
+        ],
+        Property::PlaceSelf(v) => vec![
+            Property::AlignSelf(v.align, VendorPrefix::None),
+            Property::JustifySelf(v.justify),
+        ],
+        Property::GridRow(v) => vec![Property::GridRowStart(v.start), Property::GridRowEnd(v.end)],
+        Property::GridColumn(v) => {
+            vec![Property::GridColumnStart(v.start), Property::GridColumnEnd(v.end)]
+        }
+        Property::GridArea(v) => vec![
+            Property::GridRowStart(v.row_start),
+            Property::GridColumnStart(v.column_start),
+            Property::GridRowEnd(v.row_end),
+            Property::GridColumnEnd(v.column_end),
+        ],
+        Property::BorderTop(v) => vec![
+            Property::BorderTopWidth(v.width),
+            Property::BorderTopStyle(v.style),
+            Property::BorderTopColor(v.color),
+        ],
+        Property::BorderRight(v) => vec![
+            Property::BorderRightWidth(v.width),
+            Property::BorderRightStyle(v.style),
+            Property::BorderRightColor(v.color),
+        ],
+        Property::BorderBottom(v) => vec![
+            Property::BorderBottomWidth(v.width),
+            Property::BorderBottomStyle(v.style),
+            Property::BorderBottomColor(v.color),
+        ],
+        Property::BorderLeft(v) => vec![
+            Property::BorderLeftWidth(v.width),
+            Property::BorderLeftStyle(v.style),
+            Property::BorderLeftColor(v.color),
+        ],
+        Property::Font(v) => vec![
+            Property::FontFamily(v.family),
+            Property::FontSize(v.size),
+            Property::FontStyle(v.style),
+            Property::FontWeight(v.weight),
+            Property::LineHeight(v.line_height),
+        ],
+        other => vec![other],
+    }
+}
+
+fn resolve_unparsed<V: VarSource + ?Sized>(
     unparsed: &UnparsedProperty<'static>,
-    vars: &HashMap<String, TokenList<'static>>,
+    vars: &V,
     ctx: &EvalContext,
 ) -> Vec<Property<'static>> {
     let Some(literal) = eval_token_list(&unparsed.value, vars, ctx, 0) else {
@@ -70,9 +146,9 @@ fn unparse_name(unparsed: &UnparsedProperty<'static>) -> String {
 }
 
 /// 递归展开 var() 引用；函数与其余 token 原样保留（子层照常替换）。
-fn substitute_vars(
+fn substitute_vars<V: VarSource + ?Sized>(
     tokens: &TokenList<'static>,
-    vars: &HashMap<String, TokenList<'static>>,
+    vars: &V,
     ctx: &EvalContext,
     depth: u8,
 ) -> Option<TokenList<'static>> {
@@ -98,9 +174,9 @@ fn substitute_vars(
 }
 
 /// 替换 + 化简：颜色归一成 hex 字面，calc/color-mix 折叠成单 token。
-fn eval_token_list(
+fn eval_token_list<V: VarSource + ?Sized>(
     tokens: &TokenList<'static>,
-    vars: &HashMap<String, TokenList<'static>>,
+    vars: &V,
     ctx: &EvalContext,
     depth: u8,
 ) -> Option<TokenList<'static>> {
@@ -132,14 +208,14 @@ fn eval_token_list(
     Some(TokenList(out))
 }
 
-fn lookup_var(
+fn lookup_var<V: VarSource + ?Sized>(
     var: &Variable<'static>,
-    vars: &HashMap<String, TokenList<'static>>,
+    vars: &V,
     ctx: &EvalContext,
     depth: u8,
 ) -> Option<TokenList<'static>> {
     let key = var.name.ident.0.trim_start_matches("--");
-    if let Some(value) = vars.get(key)
+    if let Some(value) = vars.var(key)
         && !is_guaranteed_invalid(value)
     {
         return substitute_vars(value, vars, ctx, depth + 1);
@@ -305,21 +381,42 @@ fn eval_calc(tokens: &TokenList<'static>, ctx: &EvalContext) -> Option<TokenOrVa
             }
             TokenOrValue::Length(len) => Some(CV::Px(length_to_px(len.clone(), ctx)?)),
             TokenOrValue::Token(Token::ParenthesisBlock) => {
-                // 括号子表达式：递归到 CloseParenthesis。
-                let inner_end = items[*pos..]
-                    .iter()
-                    .position(|t| matches!(t, TokenOrValue::Token(Token::CloseParenthesis)))?;
+                // 括号子表达式：递归到配对的 CloseParenthesis。TokenList 把
+                // 括号块摊平成开/闭 token，嵌套时第一个闭括号属于内层
+                // （`(540 + var(--z) * (var(--ox) - var(--cx))) * 1px`）。
+                let mut depth = 0usize;
+                let inner_end = items[*pos..].iter().position(|t| match t {
+                    TokenOrValue::Token(Token::ParenthesisBlock) => {
+                        depth += 1;
+                        false
+                    }
+                    TokenOrValue::Token(Token::CloseParenthesis) if depth == 0 => true,
+                    TokenOrValue::Token(Token::CloseParenthesis) => {
+                        depth -= 1;
+                        false
+                    }
+                    _ => false,
+                })?;
                 let inner = TokenList(items[*pos..*pos + inner_end].to_vec());
                 *pos += inner_end + 1;
-                match eval_calc(&inner, ctx)? {
-                    TokenOrValue::Token(Token::Number { value, .. }) => Some(CV::Num(value)),
-                    TokenOrValue::Token(Token::Percentage { unit_value, .. }) => {
-                        Some(CV::Pct(unit_value))
-                    }
-                    TokenOrValue::Length(l) => Some(CV::Px(length_to_px(l, ctx)?)),
-                    _ => None,
-                }
+                calc_result_operand(eval_calc(&inner, ctx)?, ctx)
             }
+            // 变量展开出来的嵌套 `calc()`（`--z: calc(...)` 再被 calc 引用）。
+            TokenOrValue::Function(func) if func.name.0.eq_ignore_ascii_case("calc") => {
+                calc_result_operand(eval_calc(&func.arguments, ctx)?, ctx)
+            }
+            _ => None,
+        }
+    }
+
+    fn calc_result_operand(value: TokenOrValue<'static>, ctx: &EvalContext) -> Option<CV> {
+        match value {
+            TokenOrValue::Token(Token::Number { value, .. }) => Some(CV::Num(value)),
+            TokenOrValue::Token(Token::Percentage { unit_value, .. }) => Some(CV::Pct(unit_value)),
+            TokenOrValue::Token(Token::Dimension { value, unit, .. }) => {
+                dimension_to_deg(value, &unit).map(CV::Deg)
+            }
+            TokenOrValue::Length(l) => Some(CV::Px(length_to_px(l, ctx)?)),
             _ => None,
         }
     }
@@ -431,6 +528,9 @@ fn dimension_to_px(value: f32, unit: &str, ctx: &EvalContext) -> Option<f32> {
         "vh" => value * ctx.viewport.1 / 100.0,
         "vmin" => value * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
         "vmax" => value * ctx.viewport.0.max(ctx.viewport.1) / 100.0,
+        // 容器查询单位：语料的 query container 恒为合成帧尺寸的根。
+        "cqw" => value * ctx.viewport.0 / 100.0,
+        "cqh" => value * ctx.viewport.1 / 100.0,
         _ => return None,
     })
 }
@@ -444,6 +544,8 @@ fn length_to_px(len: LengthValue, ctx: &EvalContext) -> Option<f32> {
         LengthValue::Vh(v) => v * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(v) => v * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
         LengthValue::Vmax(v) => v * ctx.viewport.0.max(ctx.viewport.1) / 100.0,
+        LengthValue::Cqw(v) => v * ctx.viewport.0 / 100.0,
+        LengthValue::Cqh(v) => v * ctx.viewport.1 / 100.0,
         _ => return None,
     })
 }
@@ -484,6 +586,13 @@ pub(crate) fn serialize_tokens(tokens: &TokenList<'static>) -> Option<String> {
     Some(out)
 }
 
+/// 自定义属性值的字面文本（颜色归一成 hex、calc 化简）；仍含 var() 等
+/// 不可静态求值的值返回 None。
+pub(crate) fn literal_text(tokens: &TokenList<'static>, ctx: &EvalContext) -> Option<String> {
+    let none: HashMap<String, TokenList<'static>> = HashMap::new();
+    serialize_tokens(&eval_token_list(tokens, &none, ctx, 0)?)
+}
+
 fn serialize_into(items: &[TokenOrValue<'static>], out: &mut String) -> Option<()> {
     for item in items {
         match item {
@@ -491,7 +600,12 @@ fn serialize_into(items: &[TokenOrValue<'static>], out: &mut String) -> Option<(
             TokenOrValue::Length(LengthValue::Px(v)) => {
                 out.push_str(&format!("{v}px"));
             }
-            TokenOrValue::Length(_) => return None,
+            // 其余单位（vw/em/rem/cqw…）原样带单位回写，交给重解析按属性语义
+            // 换算。曾经整条返回 None：`border:0.3cqw solid var(--green)` 这类
+            // 「长度 + var」声明整条丢弃（stripe 视频窗的绿框缺失）。
+            TokenOrValue::Length(len) => {
+                out.push_str(&len.to_css_string(PrinterOptions::default()).ok()?);
+            }
             TokenOrValue::Color(_) => return None, // eval 已把颜色归一成 hex 字面
             TokenOrValue::Function(func) => {
                 out.push_str(func.name.0.as_ref());

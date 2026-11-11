@@ -13,9 +13,11 @@ const NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/NotoColorEmoji.t
 const NOTO_SANS_SC_FAMILY: &str = "Noto Sans SC";
 
 /// html 通道默认品牌字体面：hyperframes 语料的页面声明 `Inter` /
-/// `JetBrains Mono` 族但不带 @font-face——swgl 参考环境的运行时注入了这两族
-/// 的 webfont（实测参考标题字重 ≥700 落 700 面：Inter 只有 400/500/600/700，
-/// 没有 800/900）。文档自带同族 @font-face 时以文档为准，不注入。
+/// `JetBrains Mono` 族但不带 @font-face——HF 渲染器运行时注入这两族的
+/// webfont（`packages/core/src/fonts/deterministicFonts.ts`：Inter 内置
+/// 400/700/900，联网再从 Google Fonts 补齐其它字重）。inspector 的 DOM 文本
+/// `font-weight: 900` 在两份参考里实测都是 Inter 900 面。文档自带同族
+/// @font-face 时以文档为准，不注入。
 pub struct HtmlDefaultFontFace {
     pub family: &'static str,
     pub file: &'static str,
@@ -28,6 +30,8 @@ pub fn html_default_font_faces() -> Vec<HtmlDefaultFontFace> {
         HtmlDefaultFontFace { family: "Inter", file: "Inter-500.ttf", bytes: include_bytes!("../../../assets/Inter-500.ttf") },
         HtmlDefaultFontFace { family: "Inter", file: "Inter-600.ttf", bytes: include_bytes!("../../../assets/Inter-600.ttf") },
         HtmlDefaultFontFace { family: "Inter", file: "Inter-700.ttf", bytes: include_bytes!("../../../assets/Inter-700.ttf") },
+        HtmlDefaultFontFace { family: "Inter", file: "Inter-800.ttf", bytes: include_bytes!("../../../assets/Inter-800.ttf") },
+        HtmlDefaultFontFace { family: "Inter", file: "Inter-900.ttf", bytes: include_bytes!("../../../assets/Inter-900.ttf") },
         HtmlDefaultFontFace { family: "JetBrains Mono", file: "JetBrainsMono-Regular.ttf", bytes: include_bytes!("../../../assets/JetBrainsMono-Regular.ttf") },
         HtmlDefaultFontFace { family: "JetBrains Mono", file: "JetBrainsMono-500.ttf", bytes: include_bytes!("../../../assets/JetBrainsMono-500.ttf") },
         HtmlDefaultFontFace { family: "JetBrains Mono", file: "JetBrainsMono-Bold.ttf", bytes: include_bytes!("../../../assets/JetBrainsMono-Bold.ttf") },

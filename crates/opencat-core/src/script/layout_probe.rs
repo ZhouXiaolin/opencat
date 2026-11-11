@@ -56,6 +56,13 @@ thread_local! {
     /// A measuring pass re-enters the resolver; only the outermost scope may
     /// measure, nested ones run without a probe.
     static DEPTH: Cell<u32> = const { Cell::new(0) };
+    /// Layout session shared by every measuring pass (across scopes and
+    /// frames). Typing loops write one letter and read `offsetWidth` per
+    /// iteration (claude-paper's chat-response: ~100 passes per frame); with a
+    /// fresh session each pass rebuilt the taffy tree and re-shaped every text
+    /// node. Reused, only the written text node and its ancestors are dirty.
+    static SESSION: RefCell<crate::layout::LayoutSession> =
+        RefCell::new(crate::layout::LayoutSession::new());
 }
 
 /// Give the scripts run inside `f` a synchronous-layout probe over `node`.
@@ -82,6 +89,13 @@ pub(crate) fn with_scope<R>(
         live.borrow_mut().pop();
     });
     out
+}
+
+/// 当前是否处在同步布局的测量遍历内（resolver 重入，见 [`DEPTH`]）。
+/// 几何查询按 CSSOM 事实作答：测量里不应用 html 可见窗剪枝（浏览器里
+/// `visibility: hidden` 的元素仍有布局盒），见 `clip_window_hides`。
+pub(crate) fn measuring() -> bool {
+    DEPTH.with(|depth| depth.get()) > 0
 }
 
 /// Box of `id` in the current scope, laid out with the store's current state.
@@ -159,9 +173,12 @@ fn measure(scope: &ProbeScope, mutations: StyleMutations) -> Option<HashMap<Stri
     DEPTH.with(|depth| depth.set(depth.get() - 1));
     let element = resolved.ok()?;
     let provider = crate::text::DefaultFontProvider::from_arc(fonts);
-    let mut session = crate::layout::LayoutSession::new();
-    let (tree, _) = session
-        .compute_layout_with_provider(&element, &scope.frame_ctx, &provider)
+    let (tree, _) = SESSION
+        .with(|session| {
+            session
+                .borrow_mut()
+                .compute_layout_with_provider(&element, &scope.frame_ctx, &provider)
+        })
         .ok()?;
     let mut out = HashMap::default();
     collect(&tree.root, (0.0, 0.0), &mut out);

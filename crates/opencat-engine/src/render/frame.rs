@@ -310,7 +310,7 @@ fn prepare_frame(
         })?;
         let idx = sk_images.len();
         sk_images.push(sk_image);
-        image_scales.push(1.0);
+        image_scales.push((1.0, 1.0));
         image_index.insert(image_ref, idx);
     }
 
@@ -343,7 +343,7 @@ fn prepare_frame(
                     })?;
                 if std::env::var_os("OC_TRACE_VIDEO").is_some() {
                     eprintln!(
-                        "[video] {asset_id} t={} target={target:?} -> {}x{} scale={scale} bytes={}",
+                        "[video] {asset_id} t={} target={target:?} -> {}x{} scale={scale:?} bytes={}",
                         *time_micros as f64 / 1_000_000.0,
                         frame.width,
                         frame.height,
@@ -414,7 +414,7 @@ fn prepare_frame(
             }
             let idx = sk_images.len();
             sk_images.push(sk_image);
-            image_scales.push(1.0);
+            image_scales.push((1.0, 1.0));
             image_index.insert(image_ref, idx);
             continue;
         }
@@ -451,7 +451,7 @@ fn prepare_frame(
         };
         let idx = sk_images.len();
         sk_images.push(sk_image);
-        image_scales.push(1.0);
+        image_scales.push((1.0, 1.0));
         image_index.insert(image_ref, idx);
     }
 

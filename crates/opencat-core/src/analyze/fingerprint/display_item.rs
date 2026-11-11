@@ -32,8 +32,24 @@ impl Hash for TextFp<'_> {
                 format!("{layer:?}").hash(state);
             }
         }
+        self.0
+            .text_fill_box
+            .map(|r| [r.x, r.y, r.width, r.height].map(F32Hash))
+            .hash(state);
         self.0.allow_wrap.hash(state);
         self.0.truncate.hash(state);
+        // 折行基准宽（取整前盒宽）：同文本不同折行宽 = 不同像素。
+        F32Hash(self.0.wrap_width).hash(state);
+        // 行内片段决定每段字形的落位（同文本不同折行 = 不同像素）。
+        if let Some(fragments) = &self.0.fragments {
+            for f in fragments.iter() {
+                f.start.hash(state);
+                f.end.hash(state);
+                [f.rect.x, f.rect.y, f.rect.width, f.rect.height]
+                    .map(F32Hash)
+                    .hash(state);
+            }
+        }
         self.0.drop_shadow.hash(state);
         self.0.text_shadows.hash(state);
         F32Hash(self.0.visual_expand_x).hash(state);
@@ -100,6 +116,7 @@ impl Hash for DisplayItemFp<'_> {
             DisplayItem::DrawScript(script) => {
                 3_u8.hash(state);
                 script.commands.hash(state);
+                script.bitmap_scale.map(|(x, y)| (x.to_bits(), y.to_bits())).hash(state);
                 script.drop_shadow.hash(state);
                 script.hidden_subtree.len().hash(state);
                 for child in &script.hidden_subtree {

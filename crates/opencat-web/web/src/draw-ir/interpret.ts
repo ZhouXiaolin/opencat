@@ -478,23 +478,30 @@ export function renderEncodedDrawFrame(
           // svg `<pattern>`: tile picture recording repeated via a picture
           // shader. The tile pixel scale mirrors the engine: (ctm x pattern
           // transform)'s scale part drives the recording resolution; the
-          // shader local matrix maps user space onto the tile.
+          // shader local matrix maps user space onto the tile. `rasterizeAt`
+          // pins the recording resolution to a fixed bitmap size (browser
+          // canvas bitmap semantics) instead of the device-derived scale.
           const pathId = p.u32();
           const subtree = p.u32();
           const tile = readRect4(p);
           const pt = [p.f32(), p.f32(), p.f32(), p.f32(), p.f32(), p.f32()];
           const opacity = p.f32();
+          const rasterizeFlag = p.u8();
+          const rasterizeAt = rasterizeFlag ? [p.f32(), p.f32()] : null;
           const ctm = targetCanvas.getTotalMatrix();
           const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
           const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
           const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
           const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
           if (!(sx > 0) || !(sy > 0) || tile.width <= 0 || tile.height <= 0 || opacity <= 0) break;
-          const tileW = Math.max(1, Math.round(tile.width * sx));
-          const tileH = Math.max(1, Math.round(tile.height * sy));
+          const [sxT, syT] = rasterizeAt
+            ? [rasterizeAt[0] / tile.width, rasterizeAt[1] / tile.height]
+            : [sx, sy];
+          const tileW = Math.max(1, Math.round(tile.width * sxT));
+          const tileH = Math.max(1, Math.round(tile.height * syT));
           const recorder = new CK.PictureRecorder();
           const tileCanvas = recorder.beginRecording(CK.XYWHRect(0, 0, tileW, tileH));
-          tileCanvas.scale(sx, sy);
+          tileCanvas.scale(sxT, syT);
           // pattern tile replay must not touch the shared mask layer marks
           // (replay.rs sets mask_replay for the tile offscreen too).
           maskReplayDepth++;
@@ -503,7 +510,7 @@ export function renderEncodedDrawFrame(
           recorder.delete();
           const localMatrix = CK.Matrix.multiply(
             CK.Matrix.multiply(ptM, CK.Matrix.translated(tile.x, tile.y)),
-            CK.Matrix.scaled(1 / sx, 1 / sy),
+            CK.Matrix.scaled(1 / sxT, 1 / syT),
           );
           const shader = tilePicture.makeShader?.(
             CK.TileMode.Repeat,

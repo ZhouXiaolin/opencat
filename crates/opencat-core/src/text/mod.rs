@@ -562,6 +562,49 @@ pub fn measure_text(
     }
 }
 
+/// 单行（不折行）文本的行盒度量，行内格式化（`layout::inline`）用。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LineMeasure {
+    /// 前进宽（含行尾空格）。
+    pub width: f32,
+    /// 基线距行盒顶：ascent + 半行距。与 `rasterize_glyphs` 同一 cosmic 排版，
+    /// 同一字符串单独绘制时基线就落在行盒顶 + 此值。
+    pub baseline: f32,
+    pub line_height: f32,
+}
+
+/// 量单行文本的前进宽与行盒基线（不折行，不设宽度下限）。
+pub fn measure_line(
+    text: &str,
+    style: &ComputedTextStyle,
+    font_db: &fontdb::Database,
+) -> LineMeasure {
+    let line_height = style.resolved_line_height_px();
+    let metrics = Metrics::new(style.text_px, line_height);
+    let transformed = apply_text_transform(text, style.text_transform);
+    let attrs = text_attrs(style, font_db);
+    with_shape_font_system(font_db, style.font_generic, text_prefers_emoji(text), |font_system| {
+        let mut buffer = Buffer::new(font_system, metrics);
+        buffer.set_size(None, None);
+        buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
+        buffer.shape_until_scroll(font_system, false);
+        // 无字形的空行没有 ascent，基线退到行盒中线附近（只影响空 run）。
+        let mut out = LineMeasure {
+            width: 0.0,
+            baseline: line_height * 0.5,
+            line_height,
+        };
+        if let Some(run) = buffer.layout_runs().next() {
+            out.width = run.line_w;
+            if !run.glyphs.is_empty() {
+                out.baseline = run.line_y - run.line_top;
+            }
+            out.line_height = run.line_height;
+        }
+        out
+    })
+}
+
 // ── Glyph rasterization ────────────────────────────────────────────────────
 
 /// os2 表的 ySubscriptYOffset / ySuperscriptYOffset（设计单位，i16 大端，
@@ -1018,10 +1061,13 @@ pub fn apply_text_transform(text: &str, transform: TextTransform) -> String {
 }
 
 pub fn compute_line_x_shift(line_w: f32, container_w: f32, align: TextAlign) -> f32 {
+    // 剩余空间为负（内容溢出行盒，宽度揭示式打字机）时，CSS 的
+    // center/right 都退化为 start 对齐——负位移会把字形推出溢出裁剪盒。
+    let free = (container_w - line_w).max(0.0);
     match align {
         TextAlign::Left => 0.0,
-        TextAlign::Center => (container_w - line_w) * 0.5,
-        TextAlign::Right => container_w - line_w,
+        TextAlign::Center => free * 0.5,
+        TextAlign::Right => free,
     }
 }
 

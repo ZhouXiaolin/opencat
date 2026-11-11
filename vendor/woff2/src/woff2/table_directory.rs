@@ -83,12 +83,14 @@ impl Woff2TableDirectory {
         while let Some(&table) = tables_iter.next() {
             match table.tag {
                 GLYF_TAG => {
-                    let next_table = tables_iter
-                        .next()
+                    // The spec wants `loca` right after `glyf`, but browsers (OTS + the reference
+                    // decoder) look it up by tag. Real fonts ship with tables in between
+                    // (GalaxieCopernicus-Book: glyf, head, hhea, hmtx, loca).
+                    let next_table = self
+                        .tables
+                        .iter()
+                        .find(|t| t.tag == LOCA_TAG)
                         .ok_or(WriteTablesError::MissingLocaTable)?;
-                    if next_table.tag != LOCA_TAG {
-                        return Err(WriteTablesError::MissingLocaTable);
-                    }
                     if next_table.transformed != table.transformed {
                         return Err(WriteTablesError::GlyfLocaDifferentTransform);
                     }
@@ -126,8 +128,12 @@ impl Woff2TableDirectory {
                         );
                     }
                 }
-                // we handle `loca` table with `glyf` above
-                LOCA_TAG => return Err(WriteTablesError::MissingGlyfTable),
+                // `loca` is written together with `glyf` above
+                LOCA_TAG => {
+                    if !self.tables.iter().any(|t| t.tag == GLYF_TAG) {
+                        return Err(WriteTablesError::MissingGlyfTable);
+                    }
+                }
                 HEAD_TAG => {
                     let offset = out_buffer.len();
                     let src = &decompressed_tables[table.get_source_range()];

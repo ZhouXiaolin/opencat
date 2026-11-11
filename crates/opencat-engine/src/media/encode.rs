@@ -268,6 +268,88 @@ pub fn encode_rgba_frames(
     }
 }
 
+/// 分块并行渲染的拼接：各段是同一编码参数的纯视频（段首即 IDR），按序
+/// 平移时间戳写进同一路视频流（不重编码）；音轨在这里统一编码。
+pub fn concat_video_segments(
+    segments: &[PathBuf],
+    output_path: impl AsRef<Path>,
+    fps: u32,
+    audio_track: Option<&AudioTrack>,
+) -> Result<()> {
+    use ffmpeg::Rescale;
+
+    ffmpeg::init()?;
+    let output_path = output_path.as_ref();
+    let first = segments.first().ok_or_else(|| anyhow!("no segments to concatenate"))?;
+    let mut output = format::output(output_path).with_context(|| {
+        format!("failed to create output context for {}", output_path.display())
+    })?;
+    let video_index = {
+        let input = format::input(first)
+            .with_context(|| format!("failed to open segment {}", first.display()))?;
+        let source = input
+            .streams()
+            .best(ffmpeg::media::Type::Video)
+            .ok_or_else(|| anyhow!("segment {} has no video stream", first.display()))?;
+        let mut stream = output.add_stream(ffmpeg::encoder::find(codec::Id::None))?;
+        stream.set_parameters(source.parameters());
+        // 容器间的 codec tag 不通用，交给 mp4 muxer 重选。
+        unsafe {
+            (*stream.parameters().as_mut_ptr()).codec_tag = 0;
+        }
+        stream.set_time_base(source.time_base());
+        stream.set_rate(Rational(fps as i32, 1));
+        stream.set_avg_frame_rate(Rational(fps as i32, 1));
+        stream.index()
+    };
+    let audio_context = match audio_track {
+        Some(track) if !track.is_empty() => {
+            Some(create_audio_output_context(&mut output, output_path, track)?)
+        }
+        _ => None,
+    };
+    output.write_header()?;
+
+    // muxer 可能在写头时改流时间基，帧长按写头后的取。
+    let out_time_base = output
+        .stream(video_index)
+        .ok_or_else(|| anyhow!("output video stream missing"))?
+        .time_base();
+    let frame_duration = 1_i64.rescale(Rational(1, fps as i32), out_time_base);
+    let mut offset = 0_i64;
+    for segment in segments {
+        let mut input = format::input(segment)
+            .with_context(|| format!("failed to open segment {}", segment.display()))?;
+        let (source_index, source_time_base) = {
+            let source = input
+                .streams()
+                .best(ffmpeg::media::Type::Video)
+                .ok_or_else(|| anyhow!("segment {} has no video stream", segment.display()))?;
+            (source.index(), source.time_base())
+        };
+        let mut frames = 0_i64;
+        for (stream, mut packet) in input.packets() {
+            if stream.index() != source_index {
+                continue;
+            }
+            packet.rescale_ts(source_time_base, out_time_base);
+            packet.set_pts(packet.pts().map(|pts| pts + offset));
+            packet.set_dts(packet.dts().map(|dts| dts + offset));
+            packet.set_position(-1);
+            packet.set_stream(video_index);
+            packet.write_interleaved(&mut output)?;
+            frames += 1;
+        }
+        offset += frames * frame_duration;
+    }
+
+    if let Some(audio_context) = audio_context {
+        write_audio_track(audio_context, &mut output)?;
+    }
+    output.write_trailer()?;
+    Ok(())
+}
+
 fn select_video_encoder() -> Result<ffmpeg::Codec> {
     const SOFTWARE_H264_ENCODERS: [&str; 2] = ["libx264", "libopenh264"];
 

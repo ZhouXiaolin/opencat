@@ -50,6 +50,12 @@ pub struct SelectorContext<'a> {
     /// 父元素的计算字号：`em` 单位的求值基准（HTML 通道由 DOM 构建期的
     /// 字号栈给出；None 时 em 按 rem 基准，JSX 通道保持原语义）。
     pub parent_font_px: Option<f32>,
+    /// 父元素的计算自定义属性表：自定义属性沿祖先链继承（HTML 通道由 DOM
+    /// 构建期的变量栈给出；None 时以样式表根变量为起点，JSX 通道保持原语义）。
+    pub inherited_vars: Option<&'a super::CssVars>,
+    /// 树形层叠（HTML 通道）的根节点：根变量表归它所有，resolve 期的变量
+    /// 继承链以它为底。JSX 通道无树，不建链。
+    pub tree_root: bool,
 }
 
 /// 对一个节点收集全部命中声明并按层叠序排列（无树上下文的旧入口）。
@@ -143,6 +149,9 @@ struct SubjectInfo<'a> {
     id: &'a str,
     classes: &'a ahash::HashSet<&'a str>,
     attrs: &'a [(String, String)],
+    /// 文档根（`:root` 只命中它）。无树上下文的 JSX 通道每个节点都按根
+    /// 处理——那里没有继承，`:root` 变量只能靠逐节点命中送达。
+    is_root: bool,
 }
 
 fn subject_info<'a>(
@@ -151,6 +160,7 @@ fn subject_info<'a>(
     classes: &'a ahash::HashSet<&'a str>,
     aliases: &'a [&'a str],
     attrs: &'a [(String, String)],
+    is_root: bool,
 ) -> SubjectInfo<'a> {
     let mut tags = vec![tag];
     // 引擎节点名 → HTML 标签名对齐（text 在 DOM 里由 span 承载）。
@@ -168,6 +178,7 @@ fn subject_info<'a>(
         id: element_id,
         classes,
         attrs,
+        is_root,
     }
 }
 
@@ -212,7 +223,14 @@ fn selector_matches(
     let Some((compounds, combinators)) = split_selector(selector) else {
         return false;
     };
-    let subject = subject_info(tag, element_id, classes, ctx.tag_aliases, ctx.subject_attrs);
+    let subject = subject_info(
+        tag,
+        element_id,
+        classes,
+        ctx.tag_aliases,
+        ctx.subject_attrs,
+        ctx.ancestors.is_empty(),
+    );
     match_chain(&compounds, &combinators, 0, 0, &subject, ctx)
 }
 
@@ -231,9 +249,9 @@ fn match_chain(
     let matched = if depth == 0 {
         compound_matches_parts(&compounds[idx], subject)
     } else {
-        ctx.ancestors
-            .get(depth - 1)
-            .is_some_and(|node| compound_matches_node(&compounds[idx], node))
+        ctx.ancestors.get(depth - 1).is_some_and(|node| {
+            compound_matches_node(&compounds[idx], node, depth == ctx.ancestors.len())
+        })
     };
     if !matched {
         return false;
@@ -254,6 +272,7 @@ fn match_chain(
                         id: prev.id,
                         classes: &classes,
                         attrs: prev.attrs,
+                        is_root: false,
                     };
                     compound_matches_parts(&compounds[idx + 1], &info)
                         && idx + 1 == compounds.len() - 1
@@ -268,6 +287,7 @@ fn match_chain(
                         id: prev.id,
                         classes: &classes,
                         attrs: prev.attrs,
+                        is_root: false,
                     };
                     compound_matches_parts(&compounds[idx + 1], &info)
                         && idx + 1 == compounds.len() - 1
@@ -288,7 +308,7 @@ fn compound_matches_parts(parts: &[&Component<'static>], info: &SubjectInfo<'_>)
         }
         Component::ID(id) => info.id == id.0.as_ref(),
         Component::Class(name) => info.classes.contains(name.0.as_ref()),
-        Component::Root => true,
+        Component::Root => info.is_root,
         Component::Negation(inner) => !inner
             .iter()
             .any(|s| compound_matches(s, info)),
@@ -383,13 +403,18 @@ fn attr_value_matches(
     }
 }
 
-fn compound_matches_node(parts: &[&Component<'static>], node: &SelectorNode<'_>) -> bool {
+fn compound_matches_node(
+    parts: &[&Component<'static>],
+    node: &SelectorNode<'_>,
+    is_root: bool,
+) -> bool {
     let classes: ahash::HashSet<&str> = node.classes.split_whitespace().collect();
     let info = SubjectInfo {
         tags: vec![node.tag],
         id: node.id,
         classes: &classes,
         attrs: node.attrs,
+        is_root,
     };
     compound_matches_parts(parts, &info)
 }

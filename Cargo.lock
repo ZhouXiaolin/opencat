@@ -3551,6 +3551,7 @@ dependencies = [
  "tiny-skia-path 0.12.0",
  "tracing",
  "tracing-subscriber",
+ "unicode-linebreak",
  "unicode-script",
  "unicode-segmentation",
  "usvg",

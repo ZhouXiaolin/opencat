@@ -341,6 +341,24 @@ impl DomElement {
             _ => &[],
         }
     }
+
+    /// 内联 `style` 属性原文（可变）。嵌套 composition 展开时改写其中的
+    /// 相对 `url()`。
+    pub fn inline_style_mut(&mut self) -> Option<&mut Option<String>> {
+        match self {
+            DomElement::Div { style, .. }
+            | DomElement::P { style, .. }
+            | DomElement::Span { style, .. }
+            | DomElement::Canvas { style, .. }
+            | DomElement::Image { style, .. }
+            | DomElement::Video { style, .. }
+            | DomElement::Lottie { style, .. }
+            | DomElement::Path { style, .. }
+            | DomElement::Svg { style, .. }
+            | DomElement::Tl { style, .. } => Some(style),
+            DomElement::Transition { .. } | DomElement::Audio { .. } => None,
+        }
+    }
 }
 
 /// HTML 标签 → 静态字符串（tag 选择器输入需要 `&'static str`）。
@@ -354,23 +372,231 @@ fn css_tag_static(tag: &str) -> &'static str {
     TAGS.iter().find(|t| **t == tag).copied().unwrap_or("div")
 }
 
-/// 行内级子元素判定（HTML 行内格式化）：当前覆盖文本片段（`<span>` 及
-/// b/strong/i/em/u/small/mark/code 映射），带元素子节点的行内标签仍按
-/// 块级 Div 承载，不进入行内流。
-fn inline_level_child(el: &DomElement) -> bool {
-    // `<span>` 只有纯文本时降级成 Span；带元素子节点（逐字 span 套逐字 span）
-    // 时是 ua_tag="span" 的 Div —— 两者都是行内层级。
-    match el {
-        DomElement::Span { .. } => true,
-        DomElement::Div { ua_tag, .. } => ua_tag.as_deref() == Some("span"),
-        _ => false,
+/// HTML UA 表里默认 `display: inline`（或替换元素 inline-block）的标签。
+const INLINE_TAGS: &[&str] = &[
+    "span", "a", "b", "strong", "i", "em", "u", "s", "small", "mark", "code", "label", "sub",
+    "sup", "abbr", "cite", "q", "time", "kbd", "var", "samp", "button",
+];
+
+/// 行内格式化的子项分级（按级联后的 `display`；未声明时取 HTML 标签默认）。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FlowLevel {
+    /// 块级盒：所在容器不建立行内流。
+    Block,
+    /// 行内级：文本 run、行内元素、原子行内盒。
+    Inline,
+    /// 不在流里（绝对定位、display:none），不影响容器判定。
+    OutOfFlow,
+}
+
+fn flow_level(el: &DomElement, ctx: &DomContext<'_>) -> FlowLevel {
+    if anonymous_text_run(el) {
+        return FlowLevel::Inline;
+    }
+    let none: &[(String, String)] = &[];
+    let (id, tag, class, inline_style, attrs) = match el {
+        DomElement::Span { id, class, style, ua_tag, .. } => {
+            (id.as_str(), ua_tag.as_deref().unwrap_or("span"), class, style, none)
+        }
+        DomElement::Div { id, class, style, ua_tag, attrs, .. } => (
+            id.as_str(),
+            ua_tag.as_deref().map(css_tag_static).unwrap_or("div"),
+            class,
+            style,
+            attrs.as_slice(),
+        ),
+        DomElement::P { id, class, style, ua_tag, .. } => {
+            (id.as_str(), ua_tag.as_deref().unwrap_or("p"), class, style, none)
+        }
+        DomElement::Image { id, class, style, .. } => (id.as_str(), "image", class, style, none),
+        DomElement::Svg { id, class, style, .. } => (id.as_str(), "svg", class, style, none),
+        DomElement::Canvas { id, class, style, .. } => (id.as_str(), "canvas", class, style, none),
+        DomElement::Video { id, class, style, .. } => (id.as_str(), "video", class, style, none),
+        _ => return FlowLevel::Block,
+    };
+    let style = resolve_style_for(id, tag, class.as_deref(), inline_style.as_deref(), attrs, ctx);
+    if style.css_layout.as_ref().is_some_and(|css| {
+        css.0.display == taffy::prelude::Display::None
+            || css.0.position == taffy::prelude::Position::Absolute
+    }) {
+        return FlowLevel::OutOfFlow;
+    }
+    // 替换元素（img/svg/canvas/video）默认是原子行内盒。
+    let default_inline = INLINE_TAGS.contains(&tag)
+        || matches!(
+            el,
+            DomElement::Image { .. } | DomElement::Svg { .. } | DomElement::Canvas { .. } | DomElement::Video { .. }
+        );
+    if style.inline_level || (!style.display_block_level && default_inline) {
+        FlowLevel::Inline
+    } else {
+        FlowLevel::Block
     }
 }
 
+/// 容器是否建立行内流：在流子项全为行内级，且至少有一个行内元素（纯文本
+/// 容器在降级期已成文本节点）。`ctx` 的祖先链须已压入容器本身。
+fn establishes_inline_flow(children: &[DomElement], ctx: &mut DomContext<'_>) -> bool {
+    // 廉价预筛：没有任何可能行内的元素子项就不必逐个级联。
+    let candidate = children.iter().any(|c| {
+        matches!(
+            c,
+            DomElement::Span { .. }
+                | DomElement::Div { .. }
+                | DomElement::Image { .. }
+                | DomElement::Svg { .. }
+                | DomElement::Canvas { .. }
+                | DomElement::Video { .. }
+        )
+    });
+    if !candidate {
+        return false;
+    }
+    let mut has_element = false;
+    let mut siblings: Vec<CssNodeInfo> = Vec::new();
+    for child in children {
+        ctx.prev_siblings = siblings.clone();
+        match flow_level(child, ctx) {
+            FlowLevel::Block => return false,
+            FlowLevel::Inline => has_element |= !anonymous_text_run(child),
+            FlowLevel::OutOfFlow => {}
+        }
+        siblings.push(CssNodeInfo::of(child));
+    }
+    has_element
+}
+
 /// 匿名文本 run：html 前端把混排里的裸文本包成无标签的合成 P（真 `<p>`
-/// 与 h1-h6 都带 ua_tag）。它在行内流里与行内元素同排。
+/// 与 h1-h6 都带 ua_tag）。它在行内流里与行内元素同排；`<br>` 同属行内。
 fn anonymous_text_run(el: &DomElement) -> bool {
-    matches!(el, DomElement::P { ua_tag: None, .. })
+    matches!(el, DomElement::P { ua_tag: None, .. }) || line_break(el)
+}
+
+/// `<br>` 的降级产物（html.rs `Lowered::Break`）。
+fn line_break(el: &DomElement) -> bool {
+    matches!(el, DomElement::P { ua_tag: Some(tag), .. } if tag == "br")
+}
+
+/// hyperframes 时间窗协议：计时元素（`data-start`）在窗内由运行时显式置
+/// 可见——作者惯用 `.clip { visibility: hidden }` 防首帧闪现（heygen-04），
+/// 窗外 resolve 期整子树退出。脚本写入（gsap autoAlpha）照常压过它。
+fn timed_clip_visible(style: &mut NodeStyle, ctx: &DomContext<'_>) {
+    if ctx.html_frontend && style.clip_start.is_some() {
+        style.visibility = Some(crate::style::Visibility::Visible);
+    }
+}
+
+/// 纯（可折叠）空白的匿名文本 run；`&nbsp;` 不可折叠，不算空白。
+fn blank_text_run(el: &DomElement) -> bool {
+    matches!(el, DomElement::P { ua_tag: None, text, .. }
+        if text.chars().all(|c| c.is_whitespace() && c != '\u{a0}'))
+}
+
+/// 匿名文本 run 裁掉行首（`lead`）/行尾（`trail`）的可折叠空白。
+fn trim_run(el: &mut DomElement, lead: bool, trail: bool) {
+    if let DomElement::P { ua_tag: None, text, .. } = el {
+        let ws = |c: char| c.is_whitespace() && c != '\u{a0}';
+        let trimmed = match (lead, trail) {
+            (true, true) => text.trim_matches(ws),
+            (true, false) => text.trim_start_matches(ws),
+            (false, true) => text.trim_end_matches(ws),
+            (false, false) => text.as_str(),
+        };
+        if trimmed.len() != text.len() {
+            *text = trimmed.to_string();
+        }
+    }
+}
+
+/// 行内流的首尾：两端的空白 run 丢弃，首个 run 裁头、末个 run 裁尾。
+fn trim_flow_edges(mut children: Vec<DomElement>) -> Vec<DomElement> {
+    while children.first().is_some_and(blank_text_run) {
+        children.remove(0);
+    }
+    while children.last().is_some_and(blank_text_run) {
+        children.pop();
+    }
+    if let Some(first) = children.first_mut() {
+        trim_run(first, true, false);
+    }
+    if let Some(last) = children.last_mut() {
+        trim_run(last, false, true);
+    }
+    children
+}
+
+/// 行内流的空白折叠跨过脱流子盒（绝对定位不打断折叠）：行首、行尾、或
+/// 前一在流项已以空白结尾的空白 run 丢弃。输入是 (是否空白 run, 节点)。
+fn collapse_flow_spaces(children: Vec<(bool, Node)>) -> Vec<(bool, Node)> {
+    use crate::parse::node::NodeKind;
+    use crate::style::Position;
+    let in_flow = |node: &Node| node.style_ref().position != Some(Position::Absolute);
+    let mut keep = vec![true; children.len()];
+    let mut after_space = true;
+    for (slot, (blank, node)) in children.iter().enumerate() {
+        if !in_flow(node) {
+            continue;
+        }
+        if *blank {
+            keep[slot] = !after_space;
+            after_space = true;
+        } else {
+            after_space = matches!(node.kind(), NodeKind::Text(t) if t.content().ends_with(' '));
+        }
+    }
+    for (slot, (blank, node)) in children.iter().enumerate().rev() {
+        if !in_flow(node) {
+            continue;
+        }
+        if !*blank {
+            break;
+        }
+        keep[slot] = false;
+    }
+    children.into_iter().zip(keep).filter_map(|(child, keep)| keep.then_some(child)).collect()
+}
+
+/// 行内流按 `<br>` 分行，每行包成 `display:inline-block` 的匿名行盒；
+/// 不足两行返回 `None`（原样保留）。行首行尾的空白 run 按浏览器语义去掉。
+fn wrap_lines(id: &str, children: &[DomElement]) -> Option<Vec<DomElement>> {
+    let blank = blank_text_run;
+    let lines: Vec<&[DomElement]> = children
+        .split(line_break)
+        .map(|mut seg| {
+            while let [first, rest @ ..] = seg
+                && blank(first)
+            {
+                seg = rest;
+            }
+            while let [rest @ .., last] = seg
+                && blank(last)
+            {
+                seg = rest;
+            }
+            seg
+        })
+        .filter(|seg| !seg.is_empty())
+        .collect();
+    if lines.len() < 2 {
+        return None;
+    }
+    Some(
+        lines
+            .into_iter()
+            .enumerate()
+            .map(|(n, seg)| DomElement::Div {
+                id: format!("{id}:line{n}"),
+                class: None,
+                style: Some("display:inline-block".to_string()),
+                duration: None,
+                data_start: None,
+                data_duration: None,
+                ua_tag: None,
+                attrs: Vec::new(),
+                children: seg.to_vec(),
+            })
+            .collect(),
+    )
 }
 
 /// 级联匹配上下文链上的节点快照（owned：build_node 消费所有权前提取）。
@@ -454,6 +680,8 @@ pub fn composition_from_dom(
             .unwrap_or_default(),
         html_frontend: doc.html_frontend,
         font_px: Vec::new(),
+        vars: Vec::new(),
+        in_inline_flow: false,
     };
     let mut ctx = ctx;
     // 音频池元素也占 id 命名空间（`<audio>` 是文档元素）。
@@ -541,6 +769,12 @@ struct DomContext<'a> {
     html_frontend: bool,
     /// 祖先计算字号栈（HTML 前端）：栈顶是父元素字号，`em` 单位按它求值。
     font_px: Vec<f32>,
+    /// 祖先计算自定义属性栈：栈顶是父元素的计算表（自定义属性继承）。
+    /// `ancestors` 同步 push/pop；`:root` 只命中空祖先链的根，根变量
+    /// 靠它送达整棵树。
+    vars: Vec<crate::css::CssVars>,
+    /// 父元素建立了行内流（子文本节点是行内 run）。
+    in_inline_flow: bool,
 }
 
 /// 树内 `<audio>` 收进音频池（保持文档顺序）；其余子树继续下探。
@@ -609,6 +843,28 @@ fn resolve_style_for(
     attrs: &[(String, String)],
     ctx: &DomContext<'_>,
 ) -> NodeStyle {
+    resolve_style_vars_for(el_id, tag, class, inline_style, attrs, ctx).0
+}
+
+/// HTML 文本叶按 `white-space` 折行（初始值 `normal`）。盒宽归布局算法：
+/// flex 子项的 min/max-content 贡献与 `max-width` 钳制都由 taffy 给出。
+/// JSX 前端沿用「标题默认单行」（见 `NodeStyle::wrap_text`）。
+fn wrap_html_text(style: &mut NodeStyle, ctx: &DomContext<'_>) {
+    if ctx.html_frontend && !style.no_wrap {
+        style.wrap_text = true;
+    }
+}
+
+/// 同 [`resolve_style_for`]，并带回元素的计算自定义属性表（容器元素压进
+/// 变量栈，供子元素继承）。
+fn resolve_style_vars_for(
+    el_id: &str,
+    tag: &str,
+    class: Option<&str>,
+    inline_style: Option<&str>,
+    attrs: &[(String, String)],
+    ctx: &DomContext<'_>,
+) -> (NodeStyle, crate::css::CssVars) {
     let aliases = ctx.tag_aliases.clone();
     // 栈是远→近（根在最底），级联匹配要近→远（[0] = 父）。
     let ancestor_views: Vec<crate::css::SelectorNode<'_>> = ctx
@@ -639,8 +895,10 @@ fn resolve_style_for(
         tag_aliases: &aliases,
         subject_attrs: attrs,
         parent_font_px: parent_font_px(ctx),
+        inherited_vars: ctx.vars.last(),
+        tree_root: ctx.vars.is_empty(),
     };
-    let mut style = crate::parse::elements::resolve_style_ctx(
+    let (mut style, vars) = crate::parse::elements::resolve_style_ctx(
         ctx.css,
         class.unwrap_or(""),
         inline_style,
@@ -654,7 +912,7 @@ fn resolve_style_for(
     {
         manifest.apply_font_refs_to_style(index, &mut style);
     }
-    style
+    (style, vars)
 }
 
 /// 父元素计算字号（HTML 前端）：根元素的父字号是浏览器默认 16px。
@@ -699,33 +957,17 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             } else {
                 ua_tag.as_deref().map(css_tag_static).unwrap_or("div")
             };
-            let mut style = resolve_style_for(&id, tag, class.as_deref(), inline_style.as_deref(), &attrs, ctx);
+            let (mut style, vars) =
+                resolve_style_vars_for(&id, tag, class.as_deref(), inline_style.as_deref(), &attrs, ctx);
             // tag 别名只作用于根节点（html 前端根 = body/html）。
             ctx.tag_aliases.clear();
             // HTML 可见窗协议属性（docs/html-align/DESIGN.md）。
             style.clip_start = data_start;
             style.clip_duration = data_duration;
-            // 行内格式化：HTML 前端的块级盒，子节点全为行内级（span 等与匿名
-            // 文本 run）且至少有一个行内元素时建立行内流（布局端串接重排，
-            // taffy 无 IFC）。纯文本容器走 Text 节点路径；flex/grid 容器的子
-            // 节点是 flex/grid 项，不进行内流。
-            let flex_or_grid = style.css_layout.as_ref().is_some_and(|css| {
-                matches!(
-                    css.0.display,
-                    taffy::prelude::Display::Flex | taffy::prelude::Display::Grid
-                )
-            });
-            style.inline_flow = ctx.html_frontend
-                && !flex_or_grid
-                && children.iter().any(inline_level_child)
-                && children
-                    .iter()
-                    .all(|child| inline_level_child(child) || anonymous_text_run(child));
+            timed_clip_visible(&mut style, ctx);
             attach_driver(&mut style, &id, ctx)?;
             // 子元素的 em 基准：本元素字号（未声明则继承父字号）。
             let own_font_px = parent_font_px(ctx).map(|parent| style.text_px.unwrap_or(parent));
-            let mut div_node = div();
-            div_node.style = style;
             let mut self_info = CssNodeInfo::of(&DomElement::Div {
                 id: id.clone(),
                 class: class.clone(),
@@ -741,21 +983,73 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 self_info.tag = tag.to_string();
             }
             ctx.ancestors.push(self_info);
+            ctx.vars.push(vars);
             if let Some(px) = own_font_px {
                 ctx.font_px.push(px);
             }
             let saved_siblings = std::mem::take(&mut ctx.prev_siblings);
+            // 行内格式化：HTML 前端的块级盒，在流子项全为行内级（文本 run、
+            // 行内元素、原子行内盒）且至少有一个行内元素时建立行内流（布局
+            // 端折行重排，taffy 无 IFC）。纯文本容器走 Text 节点路径；flex/grid
+            // 容器的子节点是 flex/grid 项，不进行内流。
+            let flex_or_grid = style.css_layout.as_ref().is_some_and(|css| {
+                matches!(
+                    css.0.display,
+                    taffy::prelude::Display::Flex | taffy::prelude::Display::Grid
+                )
+            });
+            style.inline_flow =
+                ctx.html_frontend && !flex_or_grid && establishes_inline_flow(&children, ctx);
+            // `<br>` 切开的行内流：每行包成一个匿名行盒（inline-block 行内流
+            // 容器）在本元素里竖排。行高由 taffy 原生计入（父盒按真实行数
+            // 居中），各行再按 text-align 定位（resolve 期 shrink-to-fit +
+            // auto 边距）。行内 pass 只会单行串接。
+            let children = match style.inline_flow.then(|| wrap_lines(&id, &children)).flatten() {
+                Some(lines) => {
+                    style.inline_flow = false;
+                    lines
+                }
+                None => children,
+            };
+            // 行内兄弟之间的纯空白 run（html.rs 折成的单空格）只在行内流里
+            // 占位；块/flex/grid 子项之间的空白不产盒。行首行尾的可折叠空白
+            // 按 CSS 删除（行内流只有首尾两端，其余容器每个 run 自成一行）。
+            let children = if style.inline_flow {
+                trim_flow_edges(children)
+            } else {
+                children
+                    .into_iter()
+                    .filter(|child| !blank_text_run(child))
+                    .map(|mut child| {
+                        trim_run(&mut child, true, true);
+                        child
+                    })
+                    .collect()
+            };
+            let mut div_node = div();
+            div_node.style = style;
+            let saved_flow = std::mem::replace(&mut ctx.in_inline_flow, div_node.style.inline_flow);
             let mut sibling_infos: Vec<CssNodeInfo> = Vec::new();
+            let mut built = Vec::with_capacity(children.len());
             for child in children {
                 ctx.prev_siblings = sibling_infos.clone();
                 let child_info = CssNodeInfo::of(&child);
-                div_node = div_node.child(build_node(child, ctx)?);
+                let blank = blank_text_run(&child);
+                built.push((blank, build_node(child, ctx)?));
                 sibling_infos.push(child_info);
             }
+            if div_node.style.inline_flow {
+                built = collapse_flow_spaces(built);
+            }
+            for (_, node) in built {
+                div_node = div_node.child(node);
+            }
+            ctx.in_inline_flow = saved_flow;
             ctx.prev_siblings = saved_siblings;
             if own_font_px.is_some() {
                 ctx.font_px.pop();
             }
+            ctx.vars.pop();
             ctx.ancestors.pop();
             Ok(Node::new(div_node))
         }
@@ -778,6 +1072,8 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 &[],
                 ctx,
             );
+            style.inline_run = ctx.in_inline_flow;
+            wrap_html_text(&mut style, ctx);
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = text(content);
             text_node.style = style;
@@ -799,6 +1095,8 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 &[],
                 ctx,
             );
+            style.inline_run = ctx.in_inline_flow;
+            wrap_html_text(&mut style, ctx);
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = span(content);
             text_node.style = style;
@@ -840,6 +1138,12 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             }
             let mut canvas_node = canvas();
             canvas_node.style = style;
+            // 位图尺寸 = width/height 属性（缺一侧按 HTML 默认 300×150）：
+            // 绘制坐标在位图空间，CSS 盒另给尺寸时整体缩放铺满（inspector
+            // 1600×1220 位图 → 4320×3300 盒）。
+            if width.is_some() || height.is_some() {
+                canvas_node.bitmap = Some((width.unwrap_or(300.0), height.unwrap_or(150.0)));
+            }
             // Hidden picture subtree: children rasterize offscreen and are only
             // reachable through `canvas.getSubTree().makeShader(...)`.
             for child in children {
@@ -898,6 +1202,13 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
         } => {
             let mut style =
                 resolve_style_for(&id, "video", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            // 计时媒体同是 clip：窗外隐藏（timeline 的 act4 根级视频 21.0–26.7s
+            // 窗外仍盖在 act5 之上）。
+            if ctx.html_frontend {
+                style.clip_start = data_start;
+                style.clip_duration = data_duration;
+                timed_clip_visible(&mut style, ctx);
+            }
             attach_driver(&mut style, &id, ctx)?;
             let source = match url {
                 Some(u) => VideoSource::Url(u),

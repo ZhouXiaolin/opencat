@@ -1,8 +1,10 @@
+mod inline;
 pub mod tree;
 
 #[cfg(feature = "profile")]
 use tracing::Level;
 
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use anyhow::Result;
@@ -19,7 +21,7 @@ use taffy::{
 
 use crate::{
     FrameCtx,
-    layout::tree::{LayoutNode, LayoutOutputFingerprint, LayoutRect, LayoutTree},
+    layout::tree::{LayoutNode, LayoutOutputFingerprint, LayoutRect, LayoutTree, TextFragment},
     parse::primitives::{AlignItems, JustifyContent, Position},
     resolve::{
         style::text_element_allows_wrap,
@@ -34,6 +36,10 @@ struct TextMeasureContext {
     style: ComputedTextStyle,
     allow_wrap: bool,
 }
+
+/// AbsSizeFix 热启动缓存条目的存活帧数（半秒 @30fps）。过期后由 want 重新
+/// 推导：仍需要的值会再登记（多一趟 solve），不再需要的解除预置。
+const FIX_CACHE_TTL: u64 = 30;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LayoutPassStats {
@@ -75,6 +81,13 @@ pub struct LayoutSession {
     root: Option<CachedLayoutNode>,
     cached_layout_tree: Option<LayoutTree>,
     last_layout_size: Option<(i32, i32)>,
+    /// AbsSizeFix 跨帧热启动：上帧收敛的定长（结构未变时 NodeId 稳定）。
+    /// 预置为本帧初始样式后，want 推导与现值一致、不再登记 fix——免去逐帧
+    /// 2–4 趟整树重排（stripe 每帧 17 会话×4 轮=68 次求解的减速根因）。
+    /// 结构重建即清空；want 随输入变化时照常登记并刷新缓存，自纠偏。`seen`
+    /// 只在登记时刷新：超过 `FIX_CACHE_TTL` 帧未登记的条目过期（节点不再
+    /// 产出 fix 时预置不能永久钉住尺寸）。
+    fix_cache: HashMap<taffy::NodeId, (Option<f32>, Option<f32>, u64)>,
 }
 
 impl LayoutSession {
@@ -84,6 +97,7 @@ impl LayoutSession {
             root: None,
             cached_layout_tree: None,
             last_layout_size: None,
+            fix_cache: HashMap::new(),
         }
     }
 
@@ -134,37 +148,109 @@ impl LayoutSession {
                 "layout_resolve"
             )
             .entered();
-            self.taffy.compute_layout_with_measure(
-                root_id,
-                taffy::geometry::Size {
-                    width: AvailableSpace::Definite(frame_ctx.width as f32),
-                    height: AvailableSpace::Definite(frame_ctx.height as f32),
-                },
-                |inputs: taffy::LayoutInput, _node_id, node_context, _style| {
-                    taffy::LayoutOutput::from_outer_size(measure_node(
-                        inputs.known_dimensions,
-                        inputs.available_space,
-                        node_context,
-                        font_db,
-                    ))
-                },
-            )?;
-
-            let layout_tree = LayoutTree {
-                root: build_layout_tree_at(
+            let viewport = LayoutRect {
+                x: 0.0,
+                y: 0.0,
+                width: frame_ctx.width as f32,
+                height: frame_ctx.height as f32,
+            };
+            let mut fixes = Vec::new();
+            let solve_started = std::time::Instant::now();
+            // 热启动预置：上帧收敛的 AbsSizeFix 定长先行写入，首趟 want 即
+            // 与现值一致、不再登记 fix——稳态帧单趟收敛（原本逐帧 2–4 趟）。
+            for (node, (width, height, _seen)) in self.fix_cache.iter() {
+                let Ok(style) = self.taffy.style(*node) else {
+                    continue;
+                };
+                let mut style = style.clone();
+                if let Some(width) = width {
+                    style.size.width = Dimension::length(*width);
+                }
+                if let Some(height) = height {
+                    style.size.height = Dimension::length(*height);
+                }
+                let _ = self.taffy.set_style(*node, style);
+            }
+            self.compute_taffy(root_id, frame_ctx, font_db)?;
+            let mut tree_root =
+                build_layout_tree_at(root, &self.taffy, root_id, font_db, (0.0, 0.0), viewport, &mut fixes)?;
+            // 静态父盒里的绝对定位盒按真包含块定尺寸（AbsSizeFix）：写成定长
+            // 再排一趟。嵌套时外层改尺寸会改变内层的包含块，逐趟收敛；改写只
+            // 存活于本次求解，结束后恢复原样式，taffy 树始终是声明值。
+            let mut originals: Vec<(taffy::NodeId, Style)> = Vec::new();
+            let mut fix_rounds = 0usize;
+            let mut round_fix_counts: Vec<usize> = Vec::new();
+            for _ in 0..4 {
+                if fixes.is_empty() {
+                    break;
+                }
+                fix_rounds += 1;
+                round_fix_counts.push(fixes.len());
+                for fix in fixes.drain(..) {
+                    let mut style = self.taffy.style(fix.node)?.clone();
+                    if !originals.iter().any(|(node, _)| *node == fix.node) {
+                        originals.push((fix.node, style.clone()));
+                    }
+                    if let Some(width) = fix.width {
+                        style.size.width = Dimension::length(width);
+                    }
+                    if let Some(height) = fix.height {
+                        style.size.height = Dimension::length(height);
+                    }
+                    if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("2") {
+                        let l = self.taffy.layout(fix.node).map(|l| l.size).ok();
+                        eprintln!(
+                            "[apply] node={:?} set=({:?},{:?}) style_h={:?} min_h={:?} aspect={:?} laid={:?}",
+                            fix.node,
+                            fix.width,
+                            fix.height,
+                            self.taffy.style(fix.node).map(|s| s.size.height),
+                            self.taffy.style(fix.node).map(|s| s.min_size.height),
+                            self.taffy.style(fix.node).map(|s| s.aspect_ratio),
+                            l
+                        );
+                    }
+                    self.taffy.set_style(fix.node, style)?;
+                    // 热启动缓存：登记即刷新（结构重建已清空，陈旧 NodeId 由
+                    // 预置侧的 style() Err 跳过）。
+                    self.fix_cache
+                        .insert(fix.node, (fix.width, fix.height, frame_ctx.frame as u64));
+                }
+                self.compute_taffy(root_id, frame_ctx, font_db)?;
+                tree_root = build_layout_tree_at(
                     root,
                     &self.taffy,
                     root_id,
                     font_db,
                     (0.0, 0.0),
-                    LayoutRect {
-                        x: 0.0,
-                        y: 0.0,
-                        width: frame_ctx.width as f32,
-                        height: frame_ctx.height as f32,
-                    },
-                )?,
-            };
+                    viewport,
+                    &mut fixes,
+                )?;
+            }
+            for (node, style) in originals {
+                self.taffy.set_style(node, style)?;
+            }
+            // 过期条目清除：seen 只在登记时刷新。收敛节点由预置兜住、每
+            // TTL 帧重新登记一次（多一趟 solve，摊销可忽略）；不再产出 fix
+            // 的节点（inset 改 auto 等）最迟 TTL 帧后解除钉住。
+            self.fix_cache.retain(|_, (_, _, seen)| {
+                (frame_ctx.frame as u64).saturating_sub(*seen) <= FIX_CACHE_TTL
+            });
+
+            // 诊断（`OC_LAYOUT_DEBUG=1`）：每帧求解轮数与墙钟。fix 轮数>0
+            // 表示该帧多跑一整套 taffy 求解+建树（inspector/stripe 减速排查面）。
+            if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("1") {
+                eprintln!(
+                    "[layout] frame {} rounds={} fixes={:?} solve_ms={} dirty={}",
+                    frame_ctx.frame,
+                    fix_rounds,
+                    round_fix_counts,
+                    solve_started.elapsed().as_millis(),
+                    stats.layout_dirty_nodes
+                );
+            }
+
+            let layout_tree = LayoutTree { root: tree_root };
             self.cached_layout_tree = Some(layout_tree.clone());
             self.last_layout_size = Some(viewport_size);
             return Ok((layout_tree, stats));
@@ -177,6 +263,30 @@ impl LayoutSession {
                 .clone(),
             stats,
         ))
+    }
+
+    fn compute_taffy(
+        &mut self,
+        root_id: taffy::NodeId,
+        frame_ctx: &FrameCtx,
+        font_db: &fontdb::Database,
+    ) -> Result<()> {
+        self.taffy.compute_layout_with_measure(
+            root_id,
+            taffy::geometry::Size {
+                width: AvailableSpace::Definite(frame_ctx.width as f32),
+                height: AvailableSpace::Definite(frame_ctx.height as f32),
+            },
+            |inputs: taffy::LayoutInput, _node_id, node_context, _style| {
+                taffy::LayoutOutput::from_outer_size(measure_node(
+                    inputs.known_dimensions,
+                    inputs.available_space,
+                    node_context,
+                    font_db,
+                ))
+            },
+        )?;
+        Ok(())
     }
 
     pub fn compute_layout_with_provider(
@@ -194,6 +304,7 @@ impl LayoutSession {
         stats: &mut LayoutPassStats,
     ) -> Result<taffy::NodeId> {
         self.taffy = TaffyTree::new();
+        self.fix_cache.clear();
         let (root_id, cache_root) = build_taffy_subtree(&mut self.taffy, root, 0)?;
         stats.structure_rebuild = true;
         stats.layout_dirty_nodes = count_nodes(root);
@@ -790,27 +901,6 @@ fn resolve_grid_axis_placement(
     }
 }
 
-fn build_layout_tree(
-    element: &ElementNode,
-    taffy: &TaffyTree<TextMeasureContext>,
-    node_id: taffy::NodeId,
-    font_db: &fontdb::Database,
-) -> Result<LayoutNode> {
-    build_layout_tree_at(
-        element,
-        taffy,
-        node_id,
-        font_db,
-        (0.0, 0.0),
-        LayoutRect {
-            x: 0.0,
-            y: 0.0,
-            width: 0.0,
-            height: 0.0,
-        },
-    )
-}
-
 /// 单轴绝对定位求解：`start`/`end` 是 left/right 或 top/bottom，`size` 是元素
 /// 该轴尺寸，`static_pos` 是两侧都为 auto 时的静态位置。None = 交给 taffy 原值。
 fn resolve_abs_axis(
@@ -851,6 +941,42 @@ struct AbsCtx {
     cb: LayoutRect,
 }
 
+/// 静态父盒里绝对定位盒的尺寸修正：taffy 按直接父盒拉伸/折算它的尺寸，
+/// 父盒是 0 高的静态包装层（`.clip` 一类）时整棵子树塌成 0 高。值是按真
+/// 包含块求出的、写回 taffy `size` 的定长（None = 该轴不改）。
+struct AbsSizeFix {
+    node: taffy::NodeId,
+    width: Option<f32>,
+    height: Option<f32>,
+}
+
+/// 绝对定位盒在真包含块下的该轴 border-box 尺寸：两端 inset 都给定且尺寸
+/// auto 时由包含块拉伸，百分比尺寸按包含块折算；其余与包含块无关（None）。
+/// `pb` 是该轴 padding+border，content-box 时百分比尺寸要加回它。
+fn abs_border_box_len(
+    start: taffy::style::LengthPercentageAuto,
+    end: taffy::style::LengthPercentageAuto,
+    size: Dimension,
+    cb_len: f32,
+    (margin_start, margin_end): (f32, f32),
+    pb: f32,
+    content_box: bool,
+) -> Option<f32> {
+    use taffy::style::{ExpandedDimension as D, ExpandedLengthPercentageAuto as E};
+    let resolve = |v: taffy::style::LengthPercentageAuto| match v.expand() {
+        E::Length(px) => Some(px),
+        E::Percent(p) => Some(p * cb_len),
+        _ => None,
+    };
+    match size.expand() {
+        D::Auto => Some(
+            (cb_len - resolve(start)? - resolve(end)? - margin_start - margin_end).max(0.0),
+        ),
+        D::Percent(p) => Some(p * cb_len + if content_box { pb } else { 0.0 }),
+        _ => None,
+    }
+}
+
 fn build_layout_tree_at(
     element: &ElementNode,
     taffy: &TaffyTree<TextMeasureContext>,
@@ -858,6 +984,7 @@ fn build_layout_tree_at(
     font_db: &fontdb::Database,
     origin: (f32, f32),
     containing_block: LayoutRect,
+    fixes: &mut Vec<AbsSizeFix>,
 ) -> Result<LayoutNode> {
     let layout = taffy.layout(node_id)?;
     let mut children = Vec::new();
@@ -899,13 +1026,13 @@ fn build_layout_tree_at(
         cb: if positioned { padding_box } else { containing_block },
     };
 
-    // 子盒左右 margin（行内串接要计入；taffy 的块布局把它们算进了纵向流）。
-    let mut inline_margins: Vec<(f32, f32)> = Vec::new();
+    // 子盒 margin（行内排行要计入；taffy 的块布局把它们算进了纵向流）。
+    let mut inline_margins: Vec<taffy::geometry::Rect<f32>> = Vec::new();
     for ((_, element_child), taffy_child) in
         ordered_children(element).into_iter().zip(taffy_children)
     {
         let margin = taffy.layout(taffy_child)?.margin;
-        inline_margins.push((margin.left, margin.right));
+        inline_margins.push(margin);
         let mut child = build_layout_tree_at(
             element_child,
             taffy,
@@ -913,12 +1040,72 @@ fn build_layout_tree_at(
             font_db,
             child_ctx.origin,
             child_ctx.cb,
+            fixes,
         )?;
         // 静态父盒不是包含块：按最近非 static 祖先（或视口）重算绝对定位坐标。
         if !positioned
             && effective_position(element_child) == Position::Absolute
             && let Some(css) = element_child.style.css_layout.as_ref()
         {
+            // 尺寸同理按真包含块求：与 taffy 现值不同就登记修正，由
+            // compute_layout_with_font_db 写回样式重排（本趟坐标仍按现尺寸）。
+            let child_layout = taffy.layout(taffy_child)?;
+            let content_box = css.0.box_sizing == taffy::style::BoxSizing::ContentBox;
+            let pb_x = child_layout.padding.left
+                + child_layout.padding.right
+                + child_layout.border.left
+                + child_layout.border.right;
+            let pb_y = child_layout.padding.top
+                + child_layout.padding.bottom
+                + child_layout.border.top
+                + child_layout.border.bottom;
+            let want = |bb: Option<f32>, current: f32, pb: f32| {
+                // 0.5px：taffy 布局取整噪声不触发尺寸修正（同 inline-height）。
+                bb.filter(|bb| (bb - current).abs() > 0.5)
+                    .map(|bb| if content_box { (bb - pb).max(0.0) } else { bb })
+            };
+            let width = want(
+                abs_border_box_len(
+                    css.0.inset.left,
+                    css.0.inset.right,
+                    css.0.size.width,
+                    child_ctx.cb.width,
+                    (margin.left, margin.right),
+                    pb_x,
+                    content_box,
+                ),
+                child.rect.width,
+                pb_x,
+            );
+            let height = want(
+                abs_border_box_len(
+                    css.0.inset.top,
+                    css.0.inset.bottom,
+                    css.0.size.height,
+                    child_ctx.cb.height,
+                    (margin.top, margin.bottom),
+                    pb_y,
+                    content_box,
+                ),
+                child.rect.height,
+                pb_y,
+            );
+            if width.is_some() || height.is_some() {
+                if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("2") {
+                    eprintln!(
+                        "[fix] abs-static id={} width={:?} height={:?} cur={:?}",
+                        element_child.style.id,
+                        width,
+                        height,
+                        (child.rect.width, child.rect.height)
+                    );
+                }
+                fixes.push(AbsSizeFix {
+                    node: taffy_child,
+                    width,
+                    height,
+                });
+            }
             if let Some(x) = resolve_abs_axis(
                 css.0.inset.left,
                 css.0.inset.right,
@@ -945,108 +1132,343 @@ fn build_layout_tree_at(
         children.push(child);
     }
 
-    // HTML 行内格式化（docs/html-align/DESIGN.md）：taffy 没有 IFC，行内级
-    // 子节点会按块级竖排。这里按浏览器行语义串接：子节点 x 逐段累加、
-    // y 顶对齐到内容区上沿；容器 auto 尺寸改为行内容总宽/高。绝对定位
-    // 子节点不参与行流，保持 taffy 结果。
+    // HTML 行内格式化（layout::inline）：taffy 没有 IFC，这里按容器最终内容
+    // 宽把在流子项折行、基线对齐；容器 auto 高度回写 taffy 重排（父盒与后续
+    // 兄弟随之下移）。绝对定位子节点不参与行流，保持 taffy 结果。
+    let mut node_baseline = None;
     if element.style.layout.inline_flow && !children.is_empty() {
-        let left = layout.border.left + layout.padding.left;
-        let top = layout.border.top + layout.padding.top;
-        let mut content_w = 0.0f32;
-        let mut content_h = 0.0f32;
-        let mut has_in_flow = false;
-        for ((child, (_, child_element)), &(margin_left, margin_right)) in children
-            .iter_mut()
-            .zip(ordered_children(element))
-            .zip(&inline_margins)
-        {
-            if child_element.style.layout.position == Position::Absolute {
-                continue;
-            }
-            has_in_flow = true;
-            // 行内子盒是 shrink-to-fit：taffy 的块布局会把它们拉成父宽（逐字
-            // span 的表面宽度全等，字间距全错），这里按自身文本重新量宽。
-            if !child_element.style.layout.inline_flow
-                && child_element.style.layout.width.is_none()
-                && child_element.style.layout.width_percent.is_none()
-                && !css_definite_size(child_element).0
-                && let ElementKind::Text(text) = &child_element.kind
-                && !text_element_allows_wrap(child_element)
-            {
-                child.rect.width = crate::text::measure_text(
-                    &text.text,
-                    &text.text_style,
-                    f32::INFINITY,
-                    false,
-                    font_db,
-                )
-                .width;
-            }
-            child.rect.x = left + content_w + margin_left;
-            child.rect.y = top;
-            content_w += margin_left + child.rect.width + margin_right;
-            content_h = content_h.max(child.rect.height);
-        }
-        if has_in_flow {
-            let layout_style = &element.style.layout;
-            // 绝对定位盒的尺寸归 taffy：inset 全给定时它已经拉伸到包含块，
-            // 我们按内容收缩会把两三行的居中文本盒压成内容高（k3 的
-            // `.tickbox .txt{inset:0}`）。
-            let abs_box = layout_style.position == Position::Absolute;
-            let (css_width, css_height) = css_definite_size(element);
-            if !abs_box
-                && layout_style.width.is_none()
-                && layout_style.width_percent.is_none()
-                && !css_width
-            {
-                rect.width = left + content_w + layout.padding.right + layout.border.right;
-            }
-            if !abs_box
-                && layout_style.height.is_none()
-                && layout_style.height_percent.is_none()
-                && !css_height
-            {
-                rect.height = top + content_h + layout.padding.bottom + layout.border.bottom;
-            }
-            // 容器有显式高度且 align-items:center（`.tickbox .txt` 的 flex 居中）
-            // 时，行内容在内容区内垂直居中——行内 pass 顶对齐会把它贴到上沿。
-            let centered = element
-                .style
-                .css_layout
-                .as_ref()
-                .is_some_and(|css| css.0.align_items == Some(taffy::prelude::AlignItems::CENTER));
-            let spare = rect.height - top - content_h - layout.padding.bottom - layout.border.bottom;
-            let spare_w = rect.width - left - content_w - layout.padding.right - layout.border.right;
-            let h_center = element
-                .style
-                .css_layout
-                .as_ref()
-                .is_some_and(|css| css.0.justify_content == Some(taffy::prelude::JustifyContent::CENTER));
-            for (child, (_, child_element)) in children.iter_mut().zip(ordered_children(element)) {
-                if child_element.style.layout.position == Position::Absolute {
-                    continue;
-                }
-                if centered && spare > 0.0 {
-                    child.rect.y += spare * 0.5;
-                }
-                if h_center && spare_w > 0.0 {
-                    child.rect.x += spare_w * 0.5;
-                }
-            }
-        }
+        node_baseline = inline_formatting_pass(
+            element,
+            layout,
+            unrounded_content_width(taffy.unrounded_layout(node_id)),
+            node_id,
+            &mut rect,
+            &mut children,
+            &inline_margins,
+            font_db,
+            fixes,
+            containing_block,
+        );
     }
 
-    let output_fingerprint = layout_output_fingerprint(rect, &children);
+    let wrap_width = matches!(element.kind, ElementKind::Text(_))
+        .then(|| taffy.unrounded_layout(node_id).size.width);
+    let output_fingerprint = layout_output_fingerprint(rect, &children, None, wrap_width);
 
     Ok(LayoutNode {
         id: element.style.id.clone(),
         rect,
         output_fingerprint,
         children,
+        inline_fragments: None,
+        baseline: node_baseline,
+        wrap_width,
     })
 }
 
-fn layout_output_fingerprint(rect: LayoutRect, children: &[LayoutNode]) -> LayoutOutputFingerprint {
+/// 取整前的内容盒宽。折行按它判定：像素取整会把收缩适配的盒宽砍掉不足
+/// 1px（1416.95 → 1416），拿取整宽折行，恰好放下的末段就被挤到下一行。
+/// 浏览器的布局单位是 1/64px，折行不受像素网格影响。
+fn unrounded_content_width(layout: &taffy::Layout) -> f32 {
+    (layout.size.width
+        - layout.border.left
+        - layout.border.right
+        - layout.padding.left
+        - layout.padding.right)
+        .max(0.0)
+}
+
+/// 行内流容器的折行排版（见 [`inline`]）：子盒落位、跨行文本片段、容器
+/// auto 高度（与 taffy 现值不同就登记 [`AbsSizeFix`] 重排）。返回容器末行
+/// 基线（相对 rect 顶）。`content_w` 是取整前的内容盒宽。
+#[allow(clippy::too_many_arguments)]
+fn inline_formatting_pass(
+    element: &ElementNode,
+    layout: &taffy::Layout,
+    content_w: f32,
+    node_id: taffy::NodeId,
+    rect: &mut LayoutRect,
+    children: &mut [LayoutNode],
+    margins: &[taffy::geometry::Rect<f32>],
+    font_db: &fontdb::Database,
+    fixes: &mut Vec<AbsSizeFix>,
+    containing_block: LayoutRect,
+) -> Option<f32> {
+    use inline::{InlineItem, Placement};
+
+    let left = layout.border.left + layout.padding.left;
+    let top = layout.border.top + layout.padding.top;
+    let right = layout.padding.right + layout.border.right;
+    let bottom = layout.padding.bottom + layout.border.bottom;
+    let ordered: Vec<&ElementNode> = ordered_children(element)
+        .into_iter()
+        .map(|(_, child)| child)
+        .collect();
+
+    let items: Vec<InlineItem<'_>> = children
+        .iter()
+        .zip(&ordered)
+        .zip(margins)
+        .map(|((child, child_el), margin)| {
+            if effective_position(child_el) == Position::Absolute {
+                return InlineItem::Skip;
+            }
+            match &child_el.kind {
+                ElementKind::Text(text)
+                    if !child_el.style.layout.inline_atomic && !has_inline_box_edges(child_el) =>
+                {
+                    InlineItem::Text {
+                        text: &text.text,
+                        style: &text.text_style,
+                        nowrap: text.text_style.no_wrap,
+                    }
+                }
+                _ => {
+                    let baseline =
+                        atomic_baseline(child_el, child, font_db).unwrap_or(child.rect.height);
+                    InlineItem::Atomic {
+                        width: margin.left + child.rect.width + margin.right,
+                        height: margin.top + child.rect.height + margin.bottom,
+                        baseline: margin.top + baseline,
+                        align: child_el.style.layout.vertical_align,
+                    }
+                }
+            }
+        })
+        .collect();
+    if items.iter().all(|item| matches!(item, InlineItem::Skip)) {
+        return None;
+    }
+
+    let text = &element.style.text;
+    let nowrap_container = text.no_wrap || element.style.layout.truncate;
+    let mut wrap_width = if nowrap_container { f32::INFINITY } else { content_w };
+    let mut align_width = content_w;
+
+    // CSS §10.3.7 收缩适配：absolute 盒 auto 宽、左 inset 给定、右 inset auto
+    // 时，可用宽 = 包含块 − left − 横向 margin。taffy 的 absolute 量宽传整个
+    // 包含块宽（stripe 的 `left:50%` 标题因此不折行、撑满一整行）。行内流里
+    // 自量 min/max-content 补上：盒宽 = min(max(min-content, 可用宽),
+    // max-content)，折行与 text-align 都按盒宽，盒宽差值登记修正重排。
+    let css = element.style.css_layout.as_ref();
+    let content_box = css.is_some_and(|css| css.0.box_sizing == taffy::style::BoxSizing::ContentBox);
+    let mut width_fix = None;
+    if !nowrap_container
+        && effective_position(element) == Position::Absolute
+        && !css_definite_size(element).0
+        && css.is_some_and(|css| {
+            !css.0.inset.left.is_auto() && css.0.inset.right.is_auto() && css.0.size.width.is_auto()
+        })
+    {
+        let left_px = match css.expect("checked above").0.inset.left.expand() {
+            taffy::style::ExpandedLengthPercentageAuto::Length(px) => Some(px),
+            taffy::style::ExpandedLengthPercentageAuto::Percent(p) => {
+                Some(p * containing_block.width)
+            }
+            _ => None,
+        };
+        if let Some(left_px) = left_px {
+            let avail = (containing_block.width - left_px - layout.margin.left - layout.margin.right)
+                .max(0.0);
+            let mut min_c = 0.0f32;
+            let mut max_c = 0.0f32;
+            for (item, child_el) in items.iter().zip(&ordered) {
+                if effective_position(child_el) == Position::Absolute {
+                    continue;
+                }
+                match item {
+                    InlineItem::Atomic { width, .. } => {
+                        min_c = min_c.max(*width);
+                        max_c += *width;
+                    }
+                    InlineItem::Text { text, style, nowrap } => {
+                        let w = crate::text::measure_line(text, style, font_db).width;
+                        if *nowrap {
+                            min_c = min_c.max(w);
+                        } else {
+                            min_c = min_c.max(text_min_content_width(text, style, font_db));
+                        }
+                        max_c += w;
+                    }
+                    InlineItem::Skip => {}
+                }
+            }
+            let used = min_c.max(avail).min(max_c);
+            if (used - content_w).abs() > 0.5 {
+                wrap_width = used;
+                align_width = used;
+                width_fix = Some(if content_box { used.max(0.0) } else { (used + left + right).max(0.0) });
+            }
+        }
+    }
+
+    let ifc = inline::layout_inline(&items, wrap_width, align_width, text, text.text_align, font_db);
+
+    for ((child, margin), placement) in children.iter_mut().zip(margins).zip(&ifc.placements) {
+        match placement {
+            Placement::Atomic { x, y } => {
+                child.rect.x = left + x + margin.left;
+                child.rect.y = top + y + margin.top;
+            }
+            Placement::Text(frags) if !frags.is_empty() => {
+                let x0 = frags.iter().map(|f| f.x).fold(f32::INFINITY, f32::min);
+                let y0 = frags.iter().map(|f| f.y).fold(f32::INFINITY, f32::min);
+                let x1 = frags.iter().map(|f| f.x + f.width).fold(f32::NEG_INFINITY, f32::max);
+                let y1 = frags.iter().map(|f| f.y + f.height).fold(f32::NEG_INFINITY, f32::max);
+                child.rect = LayoutRect {
+                    x: left + x0,
+                    y: top + y0,
+                    width: x1 - x0,
+                    height: y1 - y0,
+                };
+                let last = frags.last().expect("non-empty fragments");
+                child.baseline = Some(last.y - y0 + last.baseline);
+                // 单片段也走片段绘制：不折行、按片段行盒落基线，与排行一致。
+                child.inline_fragments = Some(
+                    frags
+                        .iter()
+                        .map(|f| TextFragment {
+                            start: f.range.start,
+                            end: f.range.end,
+                            rect: LayoutRect {
+                                x: f.x - x0,
+                                y: f.y - y0,
+                                width: f.width,
+                                height: f.height,
+                            },
+                        })
+                        .collect(),
+                );
+            }
+            _ => continue,
+        }
+        child.output_fingerprint = layout_output_fingerprint(
+            child.rect,
+            &child.children,
+            child.inline_fragments.as_deref(),
+            child.wrap_width,
+        );
+    }
+
+    // 容器 auto 高度 = 行盒高之和。两端 inset 都给定的绝对定位盒由包含块
+    // 拉伸（k3 的 `.tickbox .txt{inset:0}`），高度归 taffy。
+    let layout_style = &element.style.layout;
+    let (_, css_height) = css_definite_size(element);
+    let inset_stretched = effective_position(element) == Position::Absolute
+        && css.is_some_and(|css| !css.0.inset.top.is_auto() && !css.0.inset.bottom.is_auto());
+    if !inset_stretched
+        && layout_style.height.is_none()
+        && layout_style.height_percent.is_none()
+        && !css_height
+    {
+        let height = top + ifc.height + bottom;
+        let height_diff = (height - rect.height).abs();
+        // 阈值 0.5px：taffy 布局取整（layout.size 四舍五入到整像素），fix 值
+        // 与取整值的亚像素差（如 59.904 vs 60.0）永远满足 0.01——循环打满
+        // 上限、每帧全量重登记（stripe 每帧 17 会话×4 轮的减速根因）。
+        // Chrome 同样做布局取整，≤0.5px 视为取整噪声不重排。
+        if height_diff > 0.5 || width_fix.is_some() {
+            if height_diff > 0.5 {
+                rect.height = height;
+            }
+            let size = if content_box {
+                (height - top - bottom).max(0.0)
+            } else {
+                height
+            };
+            if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("2") {
+                eprintln!(
+                    "[fix] inline-height id={} width={width_fix:?} h_bb={height} rect_h={} d={height_diff} size={size} padb=({top},{bottom})",
+                    element.style.id,
+                    rect.height,
+                );
+            }
+            fixes.push(AbsSizeFix {
+                node: node_id,
+                width: width_fix,
+                height: Some(size),
+            });
+        }
+    } else if let Some(width) = width_fix {
+        if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("2") {
+            eprintln!("[fix] inline-width id={} width={width:?}", element.style.id);
+        }
+        fixes.push(AbsSizeFix {
+            node: node_id,
+            width: Some(width),
+            height: None,
+        });
+    }
+    Some(top + ifc.last_baseline)
+}
+
+/// 文本元素自带横向盒边（padding/border/margin）：作为整体（原子）排行，
+/// 不跨行断开。
+fn has_inline_box_edges(element: &ElementNode) -> bool {
+    let zero = taffy::style::LengthPercentage::length(0.0);
+    let zero_auto = taffy::style::LengthPercentageAuto::length(0.0);
+    element.style.css_layout.as_ref().is_some_and(|css| {
+        css.0.padding.left != zero
+            || css.0.padding.right != zero
+            || css.0.border.left != zero
+            || css.0.border.right != zero
+            || css.0.margin.left != zero_auto
+            || css.0.margin.right != zero_auto
+    })
+}
+
+/// 原子行内盒的基线（相对其 border box 顶）：末个行盒的基线（flex 容器取
+/// 首项）；没有行盒或 overflow 非 visible 时 `None`，按 CSS 落到 margin
+/// box 底边。
+fn atomic_baseline(
+    element: &ElementNode,
+    node: &LayoutNode,
+    font_db: &fontdb::Database,
+) -> Option<f32> {
+    if element.style.visual.clip_contents {
+        return None;
+    }
+    if let Some(baseline) = node.baseline {
+        return Some(baseline);
+    }
+    match &element.kind {
+        ElementKind::Text(text) => {
+            let m = crate::text::measure_line(&text.text, &text.text_style, font_db);
+            // 自身折行的文本取末行：行数按盒高折算。
+            let lines = (node.rect.height / m.line_height).floor().max(1.0);
+            Some((lines - 1.0) * m.line_height + m.baseline)
+        }
+        ElementKind::Div(_) => {
+            let flex = element
+                .style
+                .css_layout
+                .as_ref()
+                .is_some_and(|css| css.0.display == taffy::prelude::Display::Flex);
+            let in_flow: Vec<(&ElementNode, &LayoutNode)> = ordered_children(element)
+                .into_iter()
+                .map(|(_, child)| child)
+                .zip(&node.children)
+                .filter(|(child, _)| effective_position(child) != Position::Absolute)
+                .collect();
+            let pick = |&(child, child_node): &(&ElementNode, &LayoutNode)| {
+                atomic_baseline(child, child_node, font_db).map(|b| child_node.rect.y + b)
+            };
+            if flex {
+                in_flow.iter().find_map(pick)
+            } else {
+                in_flow.iter().rev().find_map(pick)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn layout_output_fingerprint(
+    rect: LayoutRect,
+    children: &[LayoutNode],
+    fragments: Option<&[TextFragment]>,
+    wrap_width: Option<f32>,
+) -> LayoutOutputFingerprint {
     let mut record_size_hasher = ahash::AHasher::default();
     F32Bits(rect.width).hash(&mut record_size_hasher);
     F32Bits(rect.height).hash(&mut record_size_hasher);
@@ -1057,6 +1479,18 @@ fn layout_output_fingerprint(rect: LayoutRect, children: &[LayoutNode]) -> Layou
     F32Bits(rect.y).hash(&mut local_hasher);
     F32Bits(rect.width).hash(&mut local_hasher);
     F32Bits(rect.height).hash(&mut local_hasher);
+    if let Some(fragments) = fragments {
+        for f in fragments {
+            f.start.hash(&mut local_hasher);
+            f.end.hash(&mut local_hasher);
+            F32Bits(f.rect.x).hash(&mut local_hasher);
+            F32Bits(f.rect.y).hash(&mut local_hasher);
+            F32Bits(f.rect.width).hash(&mut local_hasher);
+            F32Bits(f.rect.height).hash(&mut local_hasher);
+        }
+    }
+    // 同一取整盒宽下，取整前的宽不同 = 折行可能不同。
+    wrap_width.map(F32Bits).hash(&mut local_hasher);
     let local = local_hasher.finish();
 
     let mut subtree_hasher = ahash::AHasher::default();

@@ -561,6 +561,10 @@ impl<C: JsContext> ScriptRealm<C> {
     ) -> Result<()> {
         self.ctx
             .with_store_mut(|s| s.reset_for_frame(frame_ctx.current_frame, frame_ctx.fps));
+        // 帧级 canvas 命令流刚被清空：context2d 的下发镜像随流作废（镜像以
+        // 「流里已有该值」为前提跳过同值下发）。
+        self.ctx
+            .eval("if (globalThis.__ocContext2dNewFrame) globalThis.__ocContext2dNewFrame();")?;
 
         // 脚本侧 DOM 覆盖层：结构是帧级的，节点身份是 realm 级的。这里按
         // 本帧声明树重建默认子级视图（动态节点表保持不动——插件会复用
@@ -699,6 +703,10 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // the frame hooks draw with it. Draining BEFORE the hooks puts the
         // surface in place on the very first frame.
         self.ctx.run_microtasks();
+        // html 通道：异步初始化的 composition 在微任务里才建 timeline，
+        // 排空后补 seek（见 html_api.js `__ocHtmlSeekLate`）。
+        self.ctx
+            .eval("if (globalThis.__ocHtmlSeekLate) globalThis.__ocHtmlSeekLate();")?;
         // A promise continuation only queues; it does not draw yet. The G2
         // render loop starts its draw pass after a `Promise.all` resolves, so
         // one checkpoint after the driver is not enough. The queue itself is

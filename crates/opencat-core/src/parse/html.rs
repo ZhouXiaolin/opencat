@@ -883,6 +883,95 @@ fn split_selector_list(s: &str) -> Vec<&str> {
     parts
 }
 
+/// 子 composition 样式作用域（hyperframes compiler `scopeCssToComposition`
+/// 同语义）：每条样式规则的每个选择器前缀 `{scope} `（后代组合子），子文档
+/// 样式只在宿主子树内生效——各场景同名类（variables 的 `.glass-card` 在
+/// scene-02/04/06 各有定义）不再按源序互相覆盖。裸 `*` 保持全局；
+/// `@keyframes`/`@font-face` 等体内与嵌套规则不动，`@media`/`@supports` 等
+/// 分组体内照常收窄。改写过的 prelude 丢弃注释，其余字节不动。
+pub fn scope_composition_css(css: &str, scope: &str) -> String {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Block {
+        Group,
+        Style,
+        Opaque,
+    }
+    let bytes = css.as_bytes();
+    let mut out = String::with_capacity(css.len() + css.len() / 8);
+    let mut stack: Vec<Block> = Vec::new();
+    let (mut from, mut i) = (0, 0);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i = css[i + 2..].find("*/").map_or(bytes.len(), |p| i + p + 4);
+                continue;
+            }
+            q @ (b'"' | b'\'') => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != q {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'{' => {
+                let prelude = &css[from..i];
+                let block = match prelude.trim_start().strip_prefix('@') {
+                    Some(at) => {
+                        let name = at.split(|c: char| !(c.is_alphanumeric() || c == '-')).next();
+                        let group = ["media", "supports", "layer", "container"];
+                        match name {
+                            Some(n) if group.iter().any(|g| n.eq_ignore_ascii_case(g)) => Block::Group,
+                            _ => Block::Opaque,
+                        }
+                    }
+                    None if matches!(stack.last(), None | Some(Block::Group)) => Block::Style,
+                    None => Block::Opaque,
+                };
+                if block == Block::Style {
+                    out.push_str(&scope_selector_list(prelude, scope));
+                } else {
+                    out.push_str(prelude);
+                }
+                out.push('{');
+                stack.push(block);
+                from = i + 1;
+            }
+            b'}' | b';' => {
+                out.push_str(&css[from..=i]);
+                if bytes[i] == b'}' {
+                    stack.pop();
+                }
+                from = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    out.push_str(&css[from.min(css.len())..]);
+    out
+}
+
+fn scope_selector_list(prelude: &str, scope: &str) -> String {
+    let lead = &prelude[..prelude.len() - prelude.trim_start().len()];
+    let mut clean = String::with_capacity(prelude.len());
+    let mut rest = prelude;
+    while let Some(p) = rest.find("/*") {
+        clean.push_str(&rest[..p]);
+        clean.push(' ');
+        rest = rest[p + 2..].find("*/").map_or("", |q| &rest[p + q + 4..]);
+    }
+    clean.push_str(rest);
+    let parts: Vec<String> = split_selector_list(&clean)
+        .into_iter()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| if s == "*" { s.to_string() } else { format!("{scope} {s}") })
+        .collect();
+    if parts.is_empty() {
+        return prelude.to_string();
+    }
+    format!("{lead}{} ", parts.join(", "))
+}
+
 fn tag_of(handle: &Handle) -> Option<String> {
     let node = handle.borrow();
     match &node.data {
@@ -1190,12 +1279,25 @@ fn assemble_children(
                 let mut text = collapse_ws(&raw, pre);
                 // 行内元素的首尾空白不能裁：`<span> token</span>` 的空格在浏览器
                 // 里参与行内排版（k3 的「Every token」空格就在第二个 span 里）。
-                if !pre && !inline {
-                    if index == 0 {
-                        text = text.trim_start().to_string();
-                    }
-                    if index == last {
-                        text = text.trim_end().to_string();
+                // 块容器只裁首个 run 的头、末个 run 的尾（行首行尾）；与行内兄弟
+                // 相邻的边界空白折成一个空格保留（`figma <span>motion</span>
+                // works`），纯空白 run 同理成单空格——非行内流容器在 dom.rs
+                // 丢弃它（flex/块子项之间的空白不产盒）。
+                if !pre {
+                    let keep_lead = inline || index != 0;
+                    let keep_trail = inline || index != last;
+                    let ws = |c: char| c.is_whitespace() && c != '\u{a0}';
+                    if text.is_empty() {
+                        if keep_lead && keep_trail && !raw.is_empty() {
+                            text.push(' ');
+                        }
+                    } else {
+                        if keep_lead && raw.starts_with(ws) {
+                            text.insert(0, ' ');
+                        }
+                        if keep_trail && raw.ends_with(ws) {
+                            text.push(' ');
+                        }
                     }
                 }
                 if text.is_empty() {
@@ -1213,12 +1315,14 @@ fn assemble_children(
             }
             Lowered::Break => {
                 let id = state.assign_id(None);
+                // ua_tag="br" 是行内流分行的标记（dom.rs `line_break`）：文本
+                // "\n" 经 JS DOM 往返会被首尾空白裁剪吞掉，uaTag 原样回传。
                 out.push(DomElement::P {
                     id,
                     class: None,
                     style: None,
                     text: "\n".to_string(),
-                    ua_tag: None,
+                    ua_tag: Some("br".to_string()),
                     duration: None,
                 });
             }

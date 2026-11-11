@@ -29,6 +29,48 @@ pub fn render_draw_script(
 ) -> Result<(), RenderError> {
     let mut state = LocalPaintState::default();
 
+    // 浏览器 canvas 位图语义：命令流在 `width×height` 属性的位图分辨率上
+    // 作画（inspector 1600×1220），CSS 盒（4320×3300）整体线性缩放显示。
+    // 矢量直放是"无限分辨率"语义，AA 与浏览器位图缩放不同构——inspector
+    // 半调点阵段全帧 p8 41%→6%（1030:1040 帧段实测）。位图尺寸只在 html
+    // parse 设置（`bitmap_scale.is_some()` 即 html 信号），JSX canvas 不走。
+    if let Some((sx, sy)) = item.bitmap_scale {
+        let (bw, bh) = (item.bounds.width / sx, item.bounds.height / sy);
+        let subtree = ctx.builder.record_subtree(|b| {
+            for command in &item.commands {
+                match command {
+                    CanvasOp::Op(DrawOp::DrawSubtreePicture { .. })
+                    | CanvasOp::RuntimeEffect { .. } => {}
+                    other => lower_canvas_op(b, other, &mut state)?,
+                }
+            }
+            Ok::<(), RenderError>(())
+        })?;
+        let path = ctx.builder.intern_path(crate::ir::draw_types::EncodedPath {
+            fill_type: Default::default(),
+            ops: vec![PathOp::AddRect {
+                x: item.bounds.x,
+                y: item.bounds.y,
+                width: item.bounds.width,
+                height: item.bounds.height,
+            }],
+        });
+        ctx.builder.push(DrawOp::FillPattern {
+            path,
+            subtree,
+            tile: Rect4 {
+                x: 0.0,
+                y: 0.0,
+                width: bw,
+                height: bh,
+            },
+            pattern_transform: [sx, 0.0, 0.0, sy, 0.0, 0.0],
+            opacity: 1.0,
+            rasterize_at: Some([bw, bh]),
+        });
+        return Ok(());
+    }
+
     let needs_alpha_layer = item
         .commands
         .iter()
@@ -58,6 +100,9 @@ pub fn render_draw_script(
             height: item.bounds.height,
         }));
         ctx.builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+    }
+    if let Some((x, y)) = item.bitmap_scale {
+        ctx.builder.push(DrawOp::Scale { x, y });
     }
 
     for command in &item.commands {
@@ -277,6 +322,7 @@ pub(crate) fn execute_draw_op(
     match op {
         // ── Stack management ──────────────────────────────────────────
         DrawOp::Save => {
+            state.ctm_stack.push(state.ctm);
             b.push(DrawOp::Save);
         }
         DrawOp::SaveLayer {
@@ -285,6 +331,7 @@ pub(crate) fn execute_draw_op(
             alpha,
             ..
         } => {
+            state.ctm_stack.push(state.ctm);
             b.push(DrawOp::SaveLayer {
                 bounds: *bounds,
                 paint: *paint,
@@ -300,6 +347,7 @@ pub(crate) fn execute_draw_op(
             tile,
             pattern_transform,
             opacity,
+            rasterize_at,
         } => {
             b.push(DrawOp::FillPattern {
                 path: *path,
@@ -307,6 +355,7 @@ pub(crate) fn execute_draw_op(
                 tile: *tile,
                 pattern_transform: *pattern_transform,
                 opacity: *opacity,
+                rasterize_at: *rasterize_at,
             });
         }
         // svg `<pattern>` stroke — same forwarding contract.
@@ -349,20 +398,35 @@ pub(crate) fn execute_draw_op(
             });
         }
         DrawOp::Restore => {
+            if let Some(ctm) = state.ctm_stack.pop() {
+                state.ctm = ctm;
+            }
             b.push(DrawOp::Restore);
         }
         DrawOp::RestoreToCount { count } => {
+            // 画布自身的 save 计数（1 = 基）：弹到栈深 count-1。
+            let keep = (*count).max(1) as usize - 1;
+            if state.ctm_stack.len() > keep {
+                state.ctm = state.ctm_stack[keep];
+                state.ctm_stack.truncate(keep);
+            }
             b.push(DrawOp::RestoreToCount { count: *count });
         }
 
         // ── Transforms ────────────────────────────────────────────────
         DrawOp::Translate { x, y } => {
+            state.ctm *= kurbo::Affine::translate((*x as f64, *y as f64));
             b.push(DrawOp::Translate { x: *x, y: *y });
         }
         DrawOp::Scale { x, y } => {
+            state.ctm *= kurbo::Affine::scale_non_uniform(*x as f64, *y as f64);
             b.push(DrawOp::Scale { x: *x, y: *y });
         }
         DrawOp::Rotate { degrees, cx, cy } => {
+            state.ctm *= kurbo::Affine::rotate_about(
+                (*degrees as f64).to_radians(),
+                kurbo::Point::new(*cx as f64, *cy as f64),
+            );
             b.push(DrawOp::Rotate {
                 degrees: *degrees,
                 cx: *cx,
@@ -370,9 +434,13 @@ pub(crate) fn execute_draw_op(
             });
         }
         DrawOp::Skew { sx, sy } => {
+            state.ctm *= kurbo::Affine::skew(*sx as f64, *sy as f64);
             b.push(DrawOp::Skew { sx: *sx, sy: *sy });
         }
         DrawOp::Concat { matrix } => {
+            // 列主序 3×3（replay 的 Matrix::new_all 映射），透视分量忽略。
+            let m = matrix.map(|v| v as f64);
+            state.ctm *= kurbo::Affine::new([m[0], m[1], m[3], m[4], m[6], m[7]]);
             b.push(DrawOp::Concat { matrix: *matrix });
         }
 
@@ -690,7 +758,9 @@ pub(crate) fn execute_draw_op(
 /// `ctx.filter` 外层：`SaveLayer(Blur)`，层漆带当前 composite blend——浏览器
 /// per-draw 语义 = 原语先经 filter 再按 `globalCompositeOperation` 合成。
 /// 层内为空内容，内层 draw 的 blend 对空层是恒等的，blend 只应用一次。
-/// shadow 内层沿用 [`push_shadowed`]。
+/// filter 长度在画布坐标系解释（Chromium CompositedDraw 在 identity 下开
+/// 层）：CTM 非恒等时先乘逆矩阵回到画布坐标系开层，层内再乘回 CTM 画图元。
+/// CTM 不可逆时图元本就不可见，不补偿。shadow 内层沿用 [`push_shadowed`]。
 fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
     if state.filter_sigma > 0.0 {
         let paint_id =
@@ -698,13 +768,21 @@ fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
                 state.filter_sigma,
                 state.blend_mode,
             ));
+        let ctm = state.ctm;
+        let compensate = ctm != kurbo::Affine::IDENTITY && ctm.determinant().abs() > 1e-12;
         b.push(DrawOp::Save);
+        if compensate {
+            b.push(DrawOp::Concat { matrix: affine_concat_matrix(ctm.inverse()) });
+        }
         b.push(DrawOp::SaveLayer {
             bounds: None,
             paint: Some(paint_id),
             alpha: 1.0,
             backdrop: false,
         });
+        if compensate {
+            b.push(DrawOp::Concat { matrix: affine_concat_matrix(ctm) });
+        }
         push_shadowed(b, state.shadow, draw);
         // Save 与 SaveLayer 各配一个 Restore（同 push_shadowed 的双弹）。
         b.push(DrawOp::Restore);
@@ -712,6 +790,12 @@ fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
     } else {
         push_shadowed(b, state.shadow, draw);
     }
+}
+
+/// kurbo 仿射 → `DrawOp::Concat` 的列主序 3×3。
+fn affine_concat_matrix(m: kurbo::Affine) -> [f32; 9] {
+    let [a, b, c, d, e, f] = m.as_coeffs();
+    [a as f32, b as f32, 0.0, c as f32, d as f32, 0.0, e as f32, f as f32, 1.0]
 }
 
 // ── Canvas 2D 翻译层 ─────────────────────────────────────────────────
@@ -854,13 +938,17 @@ pub(crate) fn lower_canvas_op(
                 dy: 0.0,
             });
             let paint_id = shadow_layer_paint_id(b, sh);
+            // CTM 栈与调用方收尾的两个 Restore 配平（Save、SaveLayer 各一层）。
+            state.ctm_stack.push(state.ctm);
             b.push(DrawOp::Save);
             if sh.dx != 0.0 || sh.dy != 0.0 {
+                state.ctm *= kurbo::Affine::translate((sh.dx as f64, sh.dy as f64));
                 b.push(DrawOp::Translate {
                     x: sh.dx,
                     y: sh.dy,
                 });
             }
+            state.ctm_stack.push(state.ctm);
             b.push(DrawOp::SaveLayer {
                 bounds: None,
                 paint: Some(paint_id),

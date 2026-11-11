@@ -28,6 +28,8 @@ ahash = "0.8"
 hashbrown = "0.17"
 kurbo = "0.13.1"
 unicode-segmentation = "1.13"
+# 行内格式化断行（UAX#14，layout::inline），与 cosmic-text 0.19 内部同版本。
+unicode-linebreak = "0.1.5"
 # Version cosmic-text 0.19 pins internally; needed to implement its `Fallback`
 # trait (BrowserEmojiFirstFallback in text/mod.rs).
 unicode-script = "0.5"

@@ -47,6 +47,10 @@ pub struct ComputedStyle {
 #[derive(Clone, Debug, Default)]
 pub struct InheritedStyle {
     pub text: ComputedTextStyle,
+    /// 父元素的计算 `visibility: hidden`。
+    pub hidden: bool,
+    /// 自定义属性继承链（脚本按帧改写变量时 var() 依赖声明据此重算）。
+    pub vars: Option<std::sync::Arc<crate::css::VarLink>>,
 }
 
 impl InheritedStyle {
@@ -70,7 +74,13 @@ impl InheritedStyle {
                 || style.layout.flex_direction == FlexDirection::ColReverse)
                 && style.layout.align_items == AlignItems::Stretch);
         text.wrap_text = parent_has_inline_constraint && parent_stacks_text_vertically;
-        Self { text }
+        Self { text, hidden: style.visual.hidden, vars: None }
+    }
+
+    /// 子元素继承的自定义属性链（本元素 resolve 期挂好的那一环）。
+    pub fn with_vars(mut self, vars: Option<std::sync::Arc<crate::css::VarLink>>) -> Self {
+        self.vars = vars;
+        self
     }
 }
 
@@ -105,6 +115,12 @@ pub struct ComputedLayoutStyle {
     /// span 的 div 是一行行内内容；布局端在 taffy 之后按 advance 串接
     /// 重排（taffy 无行内流）。浏览器语义的真实现，非近似节点。
     pub inline_flow: bool,
+    /// CSS `display` 外部类型为 inline（inline-block 等）。
+    pub inline_level: bool,
+    /// 原子行内盒（inline-block/inline-flex/…）：行内流里整体排行。
+    pub inline_atomic: bool,
+    /// 行内流里原子盒的 `vertical-align`。
+    pub vertical_align: crate::style::VerticalAlign,
     pub grid_template_columns: Option<u16>,
     pub grid_template_rows: Option<u16>,
     pub grid_auto_flow: Option<GridAutoFlow>,
@@ -137,6 +153,9 @@ pub struct ComputedLayoutStyle {
 #[derive(Clone, Debug)]
 pub struct ComputedVisualStyle {
     pub opacity: f32,
+    /// 计算 `visibility: hidden`：不画自己（盒子仍占布局），子元素可以
+    /// 用 `visible` 重新显示。
+    pub hidden: bool,
     pub blend_mode: BlendMode,
     pub background: Vec<BackgroundFill>,
     /// CSS `background-clip`. Only `Text` is acted on (gradient-filled glyphs).
@@ -160,6 +179,8 @@ pub struct ComputedVisualStyle {
     pub backdrop_filter: CssFilter,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
+    /// `clip_contents` 只作用于横向（`overflow-x:clip; overflow-y:visible`）。
+    pub clip_x_only: bool,
     pub clip_path: Option<ClipPath>,
     pub transforms: Vec<Transform>,
     /// Static `transform-origin` anchor (fractions of the box). Defaults to centre.

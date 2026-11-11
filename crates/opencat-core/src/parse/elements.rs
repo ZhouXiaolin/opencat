@@ -768,10 +768,11 @@ pub(crate) fn resolve_style(
         tag,
         &crate::css::SelectorContext::default(),
     )
+    .0
 }
 
 /// 带树上下文的样式解析（docs/html-align/DESIGN.md）：祖先/前兄链供组合器
-/// 选择器匹配。
+/// 选择器匹配。同时返回元素的计算自定义属性表（子元素继承的起点）。
 pub(crate) fn resolve_style_ctx(
     css: Option<&crate::css::CssEngine>,
     class_name: &str,
@@ -779,29 +780,29 @@ pub(crate) fn resolve_style_ctx(
     node_id: &str,
     tag: &str,
     sel_ctx: &crate::css::SelectorContext<'_>,
-) -> NodeStyle {
+) -> (NodeStyle, crate::css::CssVars) {
     match css {
         Some(engine) => {
-            let mut style = engine.compute_node_style_ctx(class_name, node_id, tag, sel_ctx);
-            if let Some(text) = inline_style {
-                engine.apply_inline_style(&mut style, text, sel_ctx.parent_font_px);
-            }
-            style
+            engine.compute_node_style_ctx(class_name, node_id, tag, sel_ctx, inline_style)
         }
         None => {
             let mut style = NodeStyle {
                 id: node_id.to_string(),
                 ..NodeStyle::default()
             };
+            let mut vars = sel_ctx.inherited_vars.cloned().unwrap_or_default();
             if let Some(text) = inline_style {
                 match crate::css::CssEngine::from_css_text("", crate::css::EvalContext::default()) {
-                    Ok(engine) => {
-                        engine.apply_inline_style(&mut style, text, sel_ctx.parent_font_px)
-                    }
+                    Ok(engine) => engine.apply_inline_style(
+                        &mut style,
+                        text,
+                        sel_ctx.parent_font_px,
+                        &mut vars,
+                    ),
                     Err(err) => log::warn!("css: 内联 style 引擎不可用：{err}"),
                 }
             }
-            style
+            (style, vars)
         }
     }
 }

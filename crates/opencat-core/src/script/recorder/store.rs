@@ -256,6 +256,11 @@ struct StyleStore {
     initial_styles: HashMap<String, HashMap<String, serde_json::Value>>,
     /// 文本写入计数（单调，不随帧清零）：布局探针据此判断同步布局是否过期。
     text_writes: u64,
+    /// html 持久文档（init-once）模式：样式表跨帧保留——脚本只跑一次，
+    /// 已结束补间写下的终值就是浏览器里内联样式的当前值，清掉会让
+    /// 淡出/位移过的元素在后续帧回到基准值。REPLAY 模式保持 false
+    /// （每帧重放脚本，帧级清空）。见 [`MutationStore::persist_frame_state`]。
+    persistent: bool,
 }
 
 impl StyleStore {
@@ -265,7 +270,9 @@ impl StyleStore {
 
     /// 每帧重建面清空（initial_styles 是 realm 级，不清）。
     fn clear_frame(&mut self) {
-        self.styles.clear();
+        if !self.persistent {
+            self.styles.clear();
+        }
     }
 
     /// Set a base-style value (from Tailwind/resolve) for later reading.
@@ -312,6 +319,15 @@ impl StyleStore {
         add_f32!("height", height);
         add_f32!("gap", gap);
         add_f32!("flexGrow", flex_grow);
+        // 圆角：gsap 的 `borderRadius` 补间按四个角的长写读起点。
+        if let Some(radius) = style.border_radius {
+            props.insert("borderRadius".into(), json!(radius.top_left));
+            let corners =
+                [radius.top_left, radius.top_right, radius.bottom_right, radius.bottom_left];
+            for (key, value) in crate::script::mutations::CORNER_RADIUS_KEYS.iter().zip(corners) {
+                props.insert((*key).into(), json!(value));
+            }
+        }
         // Same text form `read_style_value` returns, so a script reading the
         // CSS-declared dasharray sees the value the style sheet declared.
         if let Some(dash) = style.stroke_dasharray {
@@ -344,7 +360,7 @@ impl StyleStore {
             }
         }
         if !style.css_filter.is_empty() {
-            props.insert("filter".into(), css_filter_to_value(&style.css_filter));
+            props.insert("filter".into(), json!(style.css_filter.to_css_string()));
         }
         if let Some(clip_path) = style.clip_path {
             props.insert("clipPath".into(), json!(clip_path.to_css_string()));
@@ -382,6 +398,13 @@ impl StyleStore {
         if let Some(ref s) = style.svg_path {
             props.insert("morphSVG".into(), json!(s));
         }
+        // 元素自身定义的自定义属性：gsap 补间 `{"--x": v}` 从 computed 值
+        // 起步（继承值由 JS 侧沿祖先链读）。
+        if let Some(deps) = &style.var_deps {
+            for (name, text) in &deps.own_text {
+                props.insert(name.clone(), json!(text));
+            }
+        }
 
         if !props.is_empty() {
             self.initial_styles.insert(id.to_string(), props);
@@ -417,6 +440,13 @@ impl StyleStore {
                 "strokeDashoffset" => mutations.stroke_dashoffset.map(|f| json!(f)),
                 "strokeWidth" => mutations.stroke_width.map(|f| json!(f)),
                 "borderRadius" => mutations.border_radius.map(|f| json!(f)),
+                corner if crate::script::mutations::CORNER_RADIUS_KEYS.contains(&corner) => {
+                    crate::script::mutations::CORNER_RADIUS_KEYS
+                        .iter()
+                        .position(|key| *key == corner)
+                        .and_then(|slot| mutations.corner_radii[slot].or(mutations.border_radius))
+                        .map(|f| json!(f))
+                }
                 "borderWidth" => mutations.border_width.map(|f| json!(f)),
                 "textSize" => mutations.text_px.map(|f| json!(f)),
                 "letterSpacing" => mutations.letter_spacing.map(|f| json!(f)),
@@ -460,8 +490,10 @@ impl StyleStore {
                 // CSS text form, the shape CSSPlugin parses on init.
                 "transform" => Some(json!(css_transform_string(&mutations.transforms))),
                 "cssText" => None,
+                // CSS 文本形式：CSSPlugin 按数字位置配对起止串，读回对象
+                //（"[object Object]"）会让每个函数从 0 起步（saturate(0) 发灰）。
                 "filter" => (!mutations.css_filter.is_empty())
-                    .then(|| css_filter_to_value(&mutations.css_filter)),
+                    .then(|| json!(mutations.css_filter.to_css_string())),
                 "clipPath" | "clip-path" => mutations
                     .clip_path
                     .map(|clip_path| json!(clip_path.to_css_string())),
@@ -513,6 +545,12 @@ impl StyleStore {
                     .text_shadows
                     .as_ref()
                     .map(|shadows| crate::script::mutations::text_shadows_to_value(shadows)),
+                custom if custom.starts_with("--") => mutations
+                    .custom_props
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| name == custom)
+                    .map(|(_, value)| json!(value)),
                 _ => None,
             };
             if v.is_some() {
@@ -538,6 +576,19 @@ impl StyleStore {
             _ => None,
         };
         let entry = self.styles.entry(id.to_string()).or_default();
+        // 自定义属性（`--x`）：原文入表，resolve 期挂上变量继承链重算 var()。
+        if property.starts_with("--") {
+            let text = match &value {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Null => String::new(),
+                other => other.to_string(),
+            };
+            entry.custom_props.retain(|(name, _)| name != property);
+            if !text.trim().is_empty() {
+                entry.custom_props.push((property.to_string(), text));
+            }
+            return;
+        }
         match property {
             // ── f32 ──
             "opacity" => {
@@ -547,6 +598,25 @@ impl StyleStore {
                 entry.display_none = value
                     .as_str()
                     .map(|s| s.trim().eq_ignore_ascii_case("none"));
+            }
+            // 空串 = 撤销内联写入，回落到样式表声明。
+            "visibility" => {
+                use crate::style::Visibility;
+                entry.visibility = value.as_str().map(str::trim).and_then(|s| {
+                    if s.is_empty() {
+                        None
+                    } else if s.eq_ignore_ascii_case("visible") {
+                        Some(Visibility::Visible)
+                    } else if s.eq_ignore_ascii_case("hidden") || s.eq_ignore_ascii_case("collapse") {
+                        Some(Visibility::Hidden)
+                    } else {
+                        Some(Visibility::Inherit)
+                    }
+                });
+            }
+            // `auto`/空串 = 撤销写入，回落到样式表声明。
+            "zIndex" => {
+                entry.z_index = num_from_value(&value).map(|v| v.round() as i32);
             }
             // GSAP names (`x`/`y`) accepted too: the imperative `getNode(id).x(v)`
             // proxy forwards the raw property name, while the timeline property
@@ -699,6 +769,13 @@ impl StyleStore {
             }
             "borderRadius" => {
                 entry.border_radius = num_from_value(&value);
+            }
+            corner if crate::script::mutations::CORNER_RADIUS_KEYS.contains(&corner) => {
+                let slot = crate::script::mutations::CORNER_RADIUS_KEYS
+                    .iter()
+                    .position(|key| *key == corner)
+                    .unwrap_or_default();
+                entry.corner_radii[slot] = num_from_value(&value);
             }
             "borderWidth" => {
                 entry.border_width = num_from_value(&value);
@@ -953,6 +1030,11 @@ struct CanvasStreams {
     /// `entry`）。帧级 `canvases` 清空后仍可光栅化。
     offscreen_canvases: HashMap<String, CanvasMutations>,
     offscreen_recency: std::collections::VecDeque<String>,
+    /// html 持久文档模式：位图/svg markup 跨帧保留（浏览器画布语义）。
+    /// 「本帧有人写 = 页面重画」→ 丢弃旧内容重录；「没人写」→ 沿用
+    /// 上一帧的流。`touched` 是本帧已重画的 id 集，`clear_frame` 清空。
+    persistent: bool,
+    touched: std::collections::HashSet<String>,
 }
 
 impl CanvasStreams {
@@ -990,6 +1072,11 @@ impl CanvasStreams {
             }
             return self.offscreen_canvases.get_mut(id).unwrap();
         }
+        // 持久文档：本帧首次写 = 页面重画这块画布（或整棵 svg 重序列化），
+        // 上一帧保留下来的内容作废。
+        if self.persistent && self.touched.insert(id.to_string()) {
+            self.canvases.remove(id);
+        }
         self.canvases.entry(id.to_string()).or_default()
     }
 
@@ -1009,12 +1096,17 @@ impl CanvasStreams {
     /// `<svg inline>` 元素渲染。不进 chart 缓存——SVG 每帧重建，且缓存整体
     /// 在批次 F（图表常驻）退役。
     fn set_svg(&mut self, node_id: &str, markup: String) {
-        self.canvases.entry(node_id.to_string()).or_default().svg = Some(markup);
+        self.entry(node_id).svg = Some(markup);
     }
 
-    /// 每帧重建面清空（离屏 LRU 是跨帧持久，不清）。
+    /// 每帧重建面清空（离屏 LRU 是跨帧持久，不清）。持久文档只清「本帧
+    /// 已重画」标记，内容留给没被重画的画布沿用。
     fn clear_frame(&mut self) {
-        self.canvases.clear();
+        if self.persistent {
+            self.touched.clear();
+        } else {
+            self.canvases.clear();
+        }
     }
 }
 
@@ -1575,11 +1667,27 @@ impl MutationStore {
     /// initial_styles、pending_generated_images 等 realm 级
     /// 字段保持原位。调用方（realm `run_frame`、resolve `push_script_scope`）
     /// 均为"录完即取、取后即弃"，take 与原快照语义等价且无深拷贝。
+    /// 持久文档的状态要留给下一帧，改走克隆。
     pub fn take_mutations(&mut self) -> StyleMutations {
+        if self.style.persistent {
+            return StyleMutations {
+                mutations: self.style.styles.clone(),
+                canvas_mutations: self.canvases.canvases.clone(),
+            };
+        }
         StyleMutations {
             mutations: std::mem::take(&mut self.style.styles),
             canvas_mutations: std::mem::take(&mut self.canvases.canvases),
         }
+    }
+
+    /// html 持久文档（init-once）声明：页面脚本只跑一次，之后每帧只做
+    /// 绝对 seek。DOM 状态（内联样式/文本、canvas 位图、svg 属性 markup）
+    /// 因此跨帧留在 store 里——与浏览器一致：gsap 只重写在动的补间，
+    /// 已结束补间的终值靠元素自己保持。REPLAY 模式不声明，维持帧级清空。
+    pub fn persist_frame_state(&mut self) {
+        self.style.persistent = true;
+        self.canvases.persistent = true;
     }
 
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
@@ -1619,7 +1727,45 @@ impl MutationStore {
     /// Unified write: set any animatable property from (id, property_name, JSON value).
     /// Centralizes all property→field mapping in one place.
     pub fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value) {
+        let value = self.font_relative_to_px(id, property, value);
         self.style.write_style_value(id, property, value)
+    }
+
+    /// 字体相对长度（`em`）按元素字号折成 px（CSS Values §5.1.1）。gsap
+    /// 补间 `width: "1.25em"` 逐帧写出 `"0.55em"`；属性通道只认 px，带 em
+    /// 的值原先整条丢弃，元素停在样式表初值（inspector 的 👀 宽度停在 0，
+    /// 被 `overflow:hidden` 裁没）。`font-size` 的 em 相对父字号，不在通路上。
+    fn font_relative_to_px(
+        &self,
+        id: &str,
+        property: &str,
+        value: serde_json::Value,
+    ) -> serde_json::Value {
+        let is_length = matches!(
+            property,
+            "width" | "height" | "left" | "top" | "right" | "bottom" | "gap" | "letterSpacing"
+        ) || property.starts_with("margin")
+            || property.starts_with("padding");
+        if !is_length {
+            return value;
+        }
+        let Some(em) = value
+            .as_str()
+            .and_then(|s| s.trim().strip_suffix("em"))
+            .and_then(|n| n.trim().parse::<f32>().ok())
+        else {
+            return value;
+        };
+        // 字号优先级：本帧写入 > 声明 > 计算继承。
+        let font_px = self
+            .read_style_value(id, "textSize")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
+            .or_else(|| self.tree_text.text_styles.get(id).map(|s| s.text_px));
+        match font_px {
+            Some(px) if px > 0.0 => serde_json::json!(em * px),
+            _ => value,
+        }
     }
 
     /// 文本写入计数：布局探针的同步布局失效键。
@@ -1875,6 +2021,10 @@ impl MutationRecorder for MutationStore {
 
     fn record_canvas_op(&mut self, id: &str, cmd: crate::script::canvas_op::CanvasOp) {
         self.canvas_entry(id).commands.push(cmd);
+    }
+
+    fn reset_canvas(&mut self, id: &str) {
+        self.canvas_entry(id).commands.clear();
     }
 
 

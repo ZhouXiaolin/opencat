@@ -85,6 +85,7 @@ impl DisplayBuildSession {
             frame_ctx,
             self.root.take(),
             &mut stats,
+            None,
         )?;
 
         self.root = Some(cached);
@@ -103,6 +104,43 @@ fn cached_matches(cached: &CachedDisplayNode, element: &ElementNode, layout: &La
         && cached.paint_input_subtree == element.fingerprints.paint_input_subtree
         && cached.layout_output_subtree == layout.output_fingerprint.subtree
         && cached.node_count == element.fingerprints.node_count
+}
+
+/// `background-clip: text` 容器（非文本叶）的背景下传给后代文字作字形填充：
+/// 容器自身不画背景，后代 Text 以容器盒为映射盒。`rect` 是容器盒在当前
+/// 节点坐标系里的位置（逐层按子节点布局偏移平移；中间节点的 CSS 变换不计）。
+#[derive(Clone, Copy)]
+struct ClipTextFill<'a> {
+    layers: &'a [crate::style::BackgroundFill],
+    rect: DisplayRect,
+}
+
+impl<'a> ClipTextFill<'a> {
+    /// 节点自身是 clip:text 容器时开新上下文，否则沿用上层的。
+    fn for_node(element: &'a ElementNode, layout: &LayoutNode, inherited: Option<Self>) -> Option<Self> {
+        let visual = &element.style.visual;
+        if visual.background_clip == crate::style::BackgroundClip::Text
+            && !visual.background.is_empty()
+            && !matches!(element.kind, ElementKind::Text(_))
+        {
+            return Some(Self {
+                layers: &visual.background,
+                rect: DisplayRect { x: 0.0, y: 0.0, width: layout.rect.width, height: layout.rect.height },
+            });
+        }
+        inherited
+    }
+
+    fn for_child(self, child_layout: &LayoutNode) -> Self {
+        Self {
+            rect: DisplayRect {
+                x: self.rect.x - child_layout.rect.x,
+                y: self.rect.y - child_layout.rect.y,
+                ..self.rect
+            },
+            ..self
+        }
+    }
 }
 
 fn refresh_paint_epochs(node: &mut DisplayNode, frame: u64) {
@@ -126,12 +164,14 @@ fn refresh_paint_epochs(node: &mut DisplayNode, frame: u64) {
     node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(node);
 }
 
-fn patch_cached_subtree_apply(
+fn patch_cached_subtree_apply<'a>(
     mut cached: CachedDisplayNode,
-    element: &ElementNode,
+    element: &'a ElementNode,
     layout: &LayoutNode,
     frame_ctx: &FrameCtx,
+    clip_text: Option<ClipTextFill<'a>>,
 ) -> CachedDisplayNode {
+    let own_clip_text = ClipTextFill::for_node(element, layout, clip_text);
     let mut child_map: HashMap<ElementId, CachedDisplayNode> = cached
         .children
         .into_iter()
@@ -158,13 +198,19 @@ fn patch_cached_subtree_apply(
             built_children.push(prev.node.clone());
             cached_children.push(prev);
         } else {
-            let patched = patch_cached_subtree_apply(prev, child_elem, child_layout, frame_ctx);
+            let patched = patch_cached_subtree_apply(
+                prev,
+                child_elem,
+                child_layout,
+                frame_ctx,
+                own_clip_text.map(|c| c.for_child(child_layout)),
+            );
             built_children.push(patched.node.clone());
             cached_children.push(patched);
         }
     }
 
-    let node = assemble_display_node(element, layout, frame_ctx, built_children);
+    let node = assemble_display_node(element, layout, frame_ctx, built_children, clip_text);
 
     cached.apply_input_subtree = element.fingerprints.apply_input_subtree;
     cached.node = node;
@@ -172,14 +218,17 @@ fn patch_cached_subtree_apply(
     cached
 }
 
-fn update_or_build(
-    element: &ElementNode,
+fn update_or_build<'a>(
+    element: &'a ElementNode,
     layout: &LayoutNode,
     frame_ctx: &FrameCtx,
     cached: Option<CachedDisplayNode>,
     stats: &mut DisplayBuildStats,
+    clip_text: Option<ClipTextFill<'a>>,
 ) -> Result<(DisplayNode, CachedDisplayNode)> {
-    if let Some(entry) = cached.as_ref() {
+    // clip:text 容器下的后代：字形填充取决于容器的背景与相对位置，不在自身
+    // 指纹里，缓存命中会留旧填充——整棵重建（这类子树只有几个文字节点）。
+    if let Some(entry) = cached.as_ref().filter(|_| clip_text.is_none()) {
         if !crate::ablate::ablated(crate::ablate::Ablation::DisplayMerkle)
             && cached_matches(entry, element, layout)
         {
@@ -195,7 +244,7 @@ fn update_or_build(
 
             stats.apply_only_nodes += entry.node_count;
             let entry = cached.expect("just checked Some");
-            let patched = patch_cached_subtree_apply(entry, element, layout, frame_ctx);
+            let patched = patch_cached_subtree_apply(entry, element, layout, frame_ctx, None);
             return Ok((patched.node.clone(), patched));
         }
     }
@@ -228,15 +277,22 @@ fn update_or_build(
     let mut built_children: Vec<DisplayNode> = Vec::with_capacity(child_pairs.len());
     let mut cached_children_next: Vec<CachedDisplayNode> = Vec::with_capacity(child_pairs.len());
 
+    let own_clip_text = ClipTextFill::for_node(element, layout, clip_text);
     for (child_element, child_layout) in child_pairs {
         let prev = cached_children_by_id.remove(&child_element.id);
-        let (child_node, child_cached) =
-            update_or_build(child_element, child_layout, frame_ctx, prev, stats)?;
+        let (child_node, child_cached) = update_or_build(
+            child_element,
+            child_layout,
+            frame_ctx,
+            prev,
+            stats,
+            own_clip_text.map(|c| c.for_child(child_layout)),
+        )?;
         built_children.push(child_node);
         cached_children_next.push(child_cached);
     }
 
-    let node = assemble_display_node(element, layout, frame_ctx, built_children);
+    let node = assemble_display_node(element, layout, frame_ctx, built_children, clip_text);
     stats.rebuilt_nodes += 1;
 
     let cached_entry = CachedDisplayNode {
@@ -320,6 +376,7 @@ fn assemble_display_node(
     layout: &LayoutNode,
     frame_ctx: &FrameCtx,
     built_children: Vec<DisplayNode>,
+    clip_text: Option<ClipTextFill<'_>>,
 ) -> DisplayNode {
     let bounds = DisplayRect {
         x: 0.0,
@@ -336,20 +393,27 @@ fn assemble_display_node(
     let border_left_w = visual.border_left_width.unwrap_or(uniform_border);
 
     let clip = if visual.clip_contents {
-        let inner_bounds = DisplayRect {
+        let mut inner_bounds = DisplayRect {
             x: bounds.x + border_left_w,
             y: bounds.y + border_top_w,
             width: (bounds.width - border_left_w - border_right_w).max(0.0),
             height: (bounds.height - border_top_w - border_bottom_w).max(0.0),
         };
         let outer_radius = visual.border_radius;
-        let inner_radius = crate::style::BorderRadius {
+        let mut inner_radius = crate::style::BorderRadius {
             top_left: (outer_radius.top_left - border_top_w.max(border_left_w)).max(0.0),
             top_right: (outer_radius.top_right - border_top_w.max(border_right_w)).max(0.0),
             bottom_right: (outer_radius.bottom_right - border_bottom_w.max(border_right_w))
                 .max(0.0),
             bottom_left: (outer_radius.bottom_left - border_bottom_w.max(border_left_w)).max(0.0),
         };
+        // 只裁横向：纵向放开（远超画面的矩形），圆角不适用。
+        if visual.clip_x_only {
+            const UNBOUNDED: f32 = 1.0e6;
+            inner_bounds.y = -UNBOUNDED;
+            inner_bounds.height = 2.0 * UNBOUNDED;
+            inner_radius = crate::style::BorderRadius::default();
+        }
         Some(DisplayClip {
             bounds: inner_bounds,
             border_radius: inner_radius,
@@ -359,7 +423,13 @@ fn assemble_display_node(
     };
     let paint_clip = visual
         .clip_path
-        .map(|clip_path| display_clip_for_clip_path(clip_path, bounds));
+        .map(|clip_path| display_clip_for_clip_path(clip_path, bounds))
+        // 文本叶节点的 overflow:hidden 裁它自己的字形（宽度揭示式打字机）。
+        // `clip` 只包子节点，文本叶没有子节点。
+        .or_else(|| match element.kind {
+            ElementKind::Text(_) => clip.clone(),
+            _ => None,
+        });
 
     let (children, hidden_subtree) = if matches!(&element.kind, ElementKind::Canvas(_)) {
         let owner_id = element.style.id.clone();
@@ -376,23 +446,34 @@ fn assemble_display_node(
     };
 
     let hidden_is_empty = hidden_subtree.is_empty();
-    let item = display_item_for_node(
-        element,
-        bounds,
-        frame_ctx,
-        if hidden_is_empty {
-            Vec::new()
-        } else {
-            hidden_subtree.clone()
-        },
-    );
+    // `visibility: hidden`：盒子、变换、不透明度照常作用于子树（子元素可以
+    // `visible` 重新显示），只有自身的绘制（背景/边框/阴影/文字/位图/
+    // 画布命令/背景滤镜）不出。
+    let item = if visual.hidden {
+        DisplayItem::Rect(RectDisplayItem { bounds, paint: RectPaintStyle::default() })
+    } else {
+        display_item_for_node(
+            element,
+            bounds,
+            frame_ctx,
+            if hidden_is_empty {
+                Vec::new()
+            } else {
+                hidden_subtree.clone()
+            },
+            clip_text,
+            layout.inline_fragments.clone(),
+            layout.wrap_width,
+        )
+    };
 
-    let draw_slot = if element.draw_slot.commands.is_empty() {
+    let draw_slot = if element.draw_slot.commands.is_empty() || visual.hidden {
         None
     } else {
         Some(DrawScriptDisplayItem {
             bounds,
             commands: element.draw_slot.commands.clone(),
+            bitmap_scale: None,
             drop_shadow: Vec::new(),
             hidden_subtree: if hidden_is_empty {
                 Vec::new()
@@ -427,10 +508,16 @@ fn assemble_display_node(
         css_filter_image: crate::render::css_filter_image_filter(
             &element.style.visual.css_filter,
         ),
-        backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
-        backdrop_filter_image: crate::render::css_filter_image_filter(
-            &element.style.visual.backdrop_filter,
-        ),
+        backdrop_blur_sigma: element
+            .style
+            .visual
+            .backdrop_blur_sigma
+            .filter(|_| !visual.hidden),
+        backdrop_filter_image: if visual.hidden {
+            None
+        } else {
+            crate::render::css_filter_image_filter(&element.style.visual.backdrop_filter)
+        },
         paint_clip,
         clip,
         item,
@@ -495,17 +582,38 @@ fn resolve_clip_length(value: LengthPercentage, axis: f32) -> f32 {
     }
 }
 
+/// HTML 画布：脚本在位图空间（width/height 属性）作画，浏览器把位图缩放
+/// 铺满 CSS 盒（object-fit 默认 fill）。盒尺寸与位图不同时返回缩放比
+/// （bounds 原点是盒左上角），渲染时在命令流之前施加；相同时为 None。
+fn canvas_bitmap_scale(
+    canvas: &crate::resolve::tree::ElementCanvas,
+    bounds: DisplayRect,
+) -> Option<(f32, f32)> {
+    canvas.bitmap.and_then(|(bw, bh)| {
+        let (sx, sy) = (bounds.width / bw, bounds.height / bh);
+        (bw > 0.0 && bh > 0.0 && ((sx - 1.0).abs() > 1e-6 || (sy - 1.0).abs() > 1e-6))
+            .then_some((sx, sy))
+    })
+}
+
 fn display_item_for_node(
     element: &ElementNode,
     bounds: DisplayRect,
     frame_ctx: &FrameCtx,
     hidden_subtree: Vec<HiddenChildDisplayNode>,
+    clip_text: Option<ClipTextFill<'_>>,
+    fragments: Option<std::sync::Arc<[crate::layout::tree::TextFragment]>>,
+    wrap_width: Option<f32>,
 ) -> DisplayItem {
     match &element.kind {
         ElementKind::Div(_) => DisplayItem::Rect(RectDisplayItem {
             bounds,
             paint: RectPaintStyle {
-                background: element.style.visual.background.clone(),
+                // clip:text 容器的背景只透过后代文字显示（见 ClipTextFill）。
+                background: match element.style.visual.background_clip {
+                    crate::style::BackgroundClip::Text => Vec::new(),
+                    _ => element.style.visual.background.clone(),
+                },
                 blend_mode: element.style.visual.blend_mode,
                 border_radius: element.style.visual.border_radius,
                 border_width: element.style.visual.border_width,
@@ -555,18 +663,21 @@ fn display_item_for_node(
                 text.text_unit_overrides.as_ref(),
                 text.text_style.text_px,
             );
-            let text_fill = match element.style.visual.background_clip {
+            let (text_fill, text_fill_box) = match element.style.visual.background_clip {
                 crate::style::BackgroundClip::Text
                     if !element.style.visual.background.is_empty() =>
                 {
-                    Some(element.style.visual.background.clone())
+                    (Some(element.style.visual.background.clone()), None)
                 }
-                _ => None,
+                _ => match clip_text {
+                    Some(fill) => (Some(fill.layers.to_vec()), Some(fill.rect)),
+                    None => (None, None),
+                },
             };
             // A normal (non clip:text) background paints as the inline box
             // behind the glyphs — pills/badges (`bg-[rgba(...)]` on `<p>`).
             let node_background = match element.style.visual.background_clip {
-                crate::style::BackgroundClip::Text if !text_fill.is_none() => Vec::new(),
+                crate::style::BackgroundClip::Text => Vec::new(),
                 _ => element.style.visual.background.clone(),
             };
             DisplayItem::Text(TextDisplayItem {
@@ -574,11 +685,14 @@ fn display_item_for_node(
                 text: text.text.clone(),
                 style: text.text_style.clone(),
                 text_fill,
+                text_fill_box,
                 background: node_background,
                 background_border_radius: element.style.visual.border_radius,
                 background_blend_mode: element.style.visual.blend_mode,
                 allow_wrap: text_element_allows_wrap(element),
                 truncate: element.style.layout.truncate,
+                wrap_width: wrap_width.unwrap_or(bounds.width),
+                fragments,
                 drop_shadow: element.style.visual.drop_shadow.clone(),
                 text_shadows: element.style.visual.text_shadows.clone(),
                 text_unit_overrides: text.text_unit_overrides.clone(),
@@ -639,6 +753,7 @@ fn display_item_for_node(
         ElementKind::Canvas(canvas) => DisplayItem::DrawScript(DrawScriptDisplayItem {
             bounds,
             commands: canvas.commands.clone(),
+            bitmap_scale: canvas_bitmap_scale(canvas, bounds),
             drop_shadow: element.style.visual.drop_shadow.clone(),
             hidden_subtree,
         }),

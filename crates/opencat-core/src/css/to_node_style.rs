@@ -17,7 +17,7 @@ use lightningcss::properties::border::{Border, BorderSideWidth, LineStyle};
 use lightningcss::properties::border_radius::BorderRadius as CssBorderRadius;
 use lightningcss::properties::box_shadow::BoxShadow as CssBoxShadow;
 use lightningcss::properties::custom::{CustomProperty, CustomPropertyName};
-use lightningcss::properties::display::{Display, DisplayInside};
+use lightningcss::properties::display::{Display, DisplayInside, DisplayOutside};
 use lightningcss::properties::effects::{BlendMode as CssBlendMode, Filter, FilterList};
 use lightningcss::properties::flex::{FlexDirection as CssFlexDirection, FlexWrap as CssFlexWrap};
 use lightningcss::properties::font::{
@@ -85,6 +85,11 @@ fn lp_to_len_percent(lp: &LengthPercentage, ctx: &EvalContext) -> Option<LenPerc
             LengthValue::Em(v) => LenPercent::Px(v * ctx.em_base),
             LengthValue::Vw(v) => LenPercent::Px(v * ctx.viewport.0 / 100.0),
             LengthValue::Vh(v) => LenPercent::Px(v * ctx.viewport.1 / 100.0),
+            // 容器查询单位：hyperframes 语料的 query container 全部落在
+            // 合成帧尺寸的 composition 根上，基准取视口与浏览器一致
+            // （真·嵌套 container 暂无语料，不支持）。
+            LengthValue::Cqw(v) => LenPercent::Px(v * ctx.viewport.0 / 100.0),
+            LengthValue::Cqh(v) => LenPercent::Px(v * ctx.viewport.1 / 100.0),
             _ => return None,
         },
         LengthPercentage::Percentage(p) => LenPercent::Pct(p.0),
@@ -132,18 +137,63 @@ pub fn apply_property(
     prop: &Property<'static>,
     ctx: &EvalContext,
 ) {
+    // SVG 绘制属性（可继承）原文留底：内联 `<svg>` 的根元素注入用
+    // （NodeStyle::svg_paint_css）。按层叠序追加，同属性后者胜出。按属性 id
+    // 判定：`stroke-width: 1.8` 这类无单位值走 Unparsed 变体，同样留底。
+    if matches!(
+        prop.property_id(),
+        PropertyId::Fill
+            | PropertyId::FillRule
+            | PropertyId::FillOpacity
+            | PropertyId::Stroke
+            | PropertyId::StrokeOpacity
+            | PropertyId::StrokeWidth
+            | PropertyId::StrokeLinecap
+            | PropertyId::StrokeLinejoin
+            | PropertyId::StrokeMiterlimit
+            | PropertyId::StrokeDasharray
+            | PropertyId::StrokeDashoffset
+    ) && let Ok(css) = prop.to_css_string(false, PrinterOptions::default())
+    {
+        let slot = style.svg_paint_css.get_or_insert_with(String::new);
+        slot.push_str(&css);
+        slot.push(';');
+    }
     match prop {
         // ---- 布局 ----
         Property::Display(d) => match d {
             Display::Pair(pair) => {
                 style.is_flex = matches!(pair.inside, DisplayInside::Flex(_));
                 style.is_grid = matches!(pair.inside, DisplayInside::Grid);
+                style.inline_level = pair.outside == DisplayOutside::Inline;
+                // inline 的内部类型是 flow 才是可断行的行内盒；flow-root
+                // （inline-block）/flex/grid/table 都是原子盒。
+                style.inline_atomic =
+                    style.inline_level && !matches!(pair.inside, DisplayInside::Flow);
+                style.display_block_level = !style.inline_level;
             }
             _ => {
                 style.is_flex = false;
                 style.is_grid = false;
+                style.inline_level = false;
+                style.inline_atomic = false;
+                style.display_block_level = true;
             }
         },
+        Property::VerticalAlign(v) => {
+            use lightningcss::properties::font::{VerticalAlign as CssVa, VerticalAlignKeyword as K};
+            use crate::style::VerticalAlign as Va;
+            style.vertical_align = Some(match v {
+                CssVa::Keyword(K::Top) => Va::Top,
+                CssVa::Keyword(K::Middle) => Va::Middle,
+                CssVa::Keyword(K::Bottom) => Va::Bottom,
+                CssVa::Keyword(K::TextTop) => Va::TextTop,
+                CssVa::Keyword(K::TextBottom) => Va::TextBottom,
+                // sub/super 的偏移依字体度量，按基线近似。
+                CssVa::Keyword(_) => Va::Baseline,
+                CssVa::Length(lp) => lp_to_px(lp, ctx).map_or(Va::Baseline, Va::Shift),
+            });
+        }
         Property::FlexDirection(v, _) => {
             style.flex_direction = Some(match v {
                 CssFlexDirection::Row => FlexDirection::Row,
@@ -277,14 +327,28 @@ pub fn apply_property(
                 v.x,
                 OverflowKeyword::Hidden | OverflowKeyword::Clip
             );
+            style.overflow_y_visible = !matches!(v.y, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+        }
+        // 单轴长写（打字揭示 `overflow-x:clip; overflow-y:visible`）。
+        Property::OverflowX(k) => {
+            style.overflow_hidden = matches!(k, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+        }
+        Property::OverflowY(k) => {
+            style.overflow_y_visible = !matches!(k, OverflowKeyword::Hidden | OverflowKeyword::Clip);
         }
         Property::BackgroundColor(c) => style.bg_color = color_token(c),
         // `background` 简写（hyperframes 页面的主力写法：`background:#010101`
         // / `background:repeating-linear-gradient(...)`）。lightningcss 只
         // 在 longhand 才拆成 BackgroundColor/BackgroundImage，简写整条进这里。
         Property::Background(layers) => {
-            for bg in layers {
+            for (index, bg) in layers.iter().enumerate() {
                 style.bg_color = color_token(&bg.color);
+                if index == 0 {
+                    // 简写同时重置位图层的尺寸/定位/平铺长写。
+                    style.bg_image_size = Some(bg_image_size(&bg.size));
+                    style.bg_position = Some(bg_position_parts(&bg.position));
+                    style.bg_repeat = Some(bg_repeat_axes(&bg.repeat));
+                }
                 if let Some(fill) = image_to_fill(&bg.image) {
                     style.background_layers.push(fill);
                 }
@@ -297,12 +361,25 @@ pub fn apply_property(
                 }
             }
         }
+        Property::BackgroundPosition(positions) => {
+            if let Some(position) = positions.first() {
+                style.bg_position = Some(bg_position_parts(position));
+            }
+        }
+        Property::BackgroundRepeat(repeats) => {
+            if let Some(repeat) = repeats.first() {
+                style.bg_repeat = Some(bg_repeat_axes(repeat));
+            }
+        }
         Property::BackgroundClip(v, _) => {
             if v.iter().any(|c| matches!(c, BackgroundClip::Text)) {
                 style.background_clip = crate::style::BackgroundClip::Text;
             }
         }
         Property::BackgroundSize(sizes) => {
+            if let Some(size) = sizes.first() {
+                style.bg_image_size = Some(bg_image_size(size));
+            }
             if let Some(BackgroundSize::Explicit { width, height }) = sizes.first() {
                 // 百分比尺寸解析期没有盒子，按口径原样留存（占盒比例），
                 // `apply_background_size_to_layers` 回填进层的 `size_pct`。
@@ -349,6 +426,13 @@ pub fn apply_property(
             }
         }
         Property::Opacity(v) => style.opacity = Some(v.0),
+        Property::Visibility(v) => {
+            use lightningcss::properties::display::Visibility as CssVisibility;
+            style.visibility = Some(match v {
+                CssVisibility::Visible => crate::style::Visibility::Visible,
+                CssVisibility::Hidden | CssVisibility::Collapse => crate::style::Visibility::Hidden,
+            });
+        }
         Property::MixBlendMode(v) => style.blend_mode = blend_to_cat(*v),
         Property::Filter(list, _) => style.css_filter = filter_list_to_css_filter(list, ctx),
         Property::BackdropFilter(list, _) => {
@@ -390,6 +474,23 @@ pub fn apply_property(
             }
         }
         Property::Transform(list, _) => apply_transform(style, list, ctx),
+        // 独立 `translate` 属性（CSS Transforms 2）：hyperframes 语料的
+        // studio 偏移走 `translate: var(--hf-studio-offset-x, 0px) ...`，
+        // 不消费即整条丢弃、元素少一个 px 级位移。规范合成序 = translate
+        // 最外层（先于 `transform` 列表），与声明先后无关——追加后挪到队首。
+        Property::Translate(translate) => {
+            use lightningcss::properties::transform::Translate;
+            if let Translate::XYZ { x, y, z } = translate {
+                let mut fns = vec![CssTransform::Translate(x.clone(), y.clone())];
+                if len_to_px(z, ctx) != 0.0 {
+                    fns.push(CssTransform::TranslateZ(z.clone()));
+                }
+                let before = style.transforms.len();
+                apply_transform(style, &TransformList(fns), ctx);
+                let added = style.transforms.len() - before;
+                style.transforms.rotate_right(added);
+            }
+        }
         // 独立变换属性（CSS Transforms 2）。tailwind v4 的 `rotate-[x]` /
         // `scale-[x]` 直接产出它们，不是 `transform` 简写的一部分。
         Property::Rotate(rotate) => {
@@ -565,7 +666,8 @@ pub fn apply_property(
                 .collect();
         }
         Property::WhiteSpace(v) => {
-            style.no_wrap = matches!(v, WhiteSpace::NoWrap);
+            // `pre` 同样不自动折行（只在源文本的换行处断）。
+            style.no_wrap = matches!(v, WhiteSpace::NoWrap | WhiteSpace::Pre);
             style.wrap_text = matches!(v, WhiteSpace::Normal | WhiteSpace::PreWrap);
         }
         Property::TextOverflow(v, _) => {
@@ -1058,6 +1160,20 @@ fn generic_to_cat(generic: &GenericFontFamily) -> Option<GenericFamily> {
 /// 尺寸不能在 `BackgroundSize` 分支里就地写进渐变，而是在整份声明应用完后
 /// 统一回填：缺 size 的渐变层补上盒子的 tile 尺寸。
 pub fn apply_background_size_to_layers(style: &mut crate::style::NodeStyle) {
+    // 位图层：长写按层叠结果整组覆盖（层本身只带 src 与初始值）。
+    for layer in &mut style.background_layers {
+        if let BackgroundFill::Image { image } = layer {
+            if let Some(size) = style.bg_image_size {
+                image.size = size;
+            }
+            if let Some(position) = style.bg_position {
+                image.position = position;
+            }
+            if let Some(repeat) = style.bg_repeat {
+                image.repeat = repeat;
+            }
+        }
+    }
     let px = style.bg_size;
     let pct = style.bg_size_pct;
     if px.is_none() && pct.is_none() {
@@ -1094,8 +1210,69 @@ pub fn apply_background_size_to_layers(style: &mut crate::style::NodeStyle) {
 fn image_to_fill(image: &Image) -> Option<BackgroundFill> {
     match image {
         Image::Gradient(g) => gradient_to_fill(g),
+        Image::Url(url) => {
+            // data: URI 不走资源通道（宿主按定位串取字节），跳过。
+            let src = url.url.trim();
+            (!src.is_empty() && !src.starts_with("data:")).then(|| BackgroundFill::Image {
+                image: crate::style::BackgroundImage {
+                    src: src.to_string(),
+                    ..Default::default()
+                },
+            })
+        }
         _ => None,
     }
+}
+
+/// `background-size` → 位图层尺寸。
+fn bg_image_size(size: &BackgroundSize) -> crate::style::BackgroundImageSize {
+    use crate::style::BackgroundImageSize as S;
+    let side = |v: &LengthPercentageOrAuto| match v {
+        LengthPercentageOrAuto::LengthPercentage(lp) => {
+            let (f, px) = lp_split(lp);
+            Some([f, px])
+        }
+        LengthPercentageOrAuto::Auto => None,
+    };
+    match size {
+        BackgroundSize::Cover => S::Cover,
+        BackgroundSize::Contain => S::Contain,
+        BackgroundSize::Explicit { width, height } => match (side(width), side(height)) {
+            (None, None) => S::Auto,
+            (width, height) => S::Explicit { width, height },
+        },
+    }
+}
+
+/// `background-position` → 每轴 `[比例, 像素]`（比例落在「盒 − 图」的剩余
+/// 空间里；`right 10px` 是 `100% − 10px`）。
+fn bg_position_parts(
+    position: &lightningcss::properties::background::BackgroundPosition,
+) -> [[f32; 2]; 2] {
+    let pos: CssPositionValue = position.into();
+    let x = match &pos.x {
+        PositionComponent::Center => [0.5, 0.0],
+        PositionComponent::Length(lp) => lp_split(lp).into(),
+        PositionComponent::Side { side, offset } => {
+            let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
+            if matches!(side, HorizontalPositionKeyword::Right) { [1.0 - f, -p] } else { [f, p] }
+        }
+    };
+    let y = match &pos.y {
+        PositionComponent::Center => [0.5, 0.0],
+        PositionComponent::Length(lp) => lp_split(lp).into(),
+        PositionComponent::Side { side, offset } => {
+            let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
+            if matches!(side, VerticalPositionKeyword::Bottom) { [1.0 - f, -p] } else { [f, p] }
+        }
+    };
+    [x, y]
+}
+
+/// `background-repeat` → `[repeat-x, repeat-y]`（space/round 近似为 repeat）。
+fn bg_repeat_axes(repeat: &lightningcss::properties::background::BackgroundRepeat) -> [bool; 2] {
+    use lightningcss::properties::background::BackgroundRepeatKeyword as K;
+    [!matches!(repeat.x, K::NoRepeat), !matches!(repeat.y, K::NoRepeat)]
 }
 
 fn gradient_to_fill(g: &Gradient) -> Option<BackgroundFill> {
@@ -1365,6 +1542,8 @@ fn length_value_to_px(v: &LengthValue, ctx: &EvalContext) -> f32 {
         LengthValue::Vh(x) => x * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(x) => x * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
         LengthValue::Vmax(x) => x * ctx.viewport.0.max(ctx.viewport.1) / 100.0,
+        LengthValue::Cqw(x) => x * ctx.viewport.0 / 100.0,
+        LengthValue::Cqh(x) => x * ctx.viewport.1 / 100.0,
         LengthValue::Pt(x) => x * 96.0 / 72.0,
         LengthValue::In(x) => x * 96.0,
         LengthValue::Cm(x) => x * 96.0 / 2.54,
@@ -1392,8 +1571,14 @@ fn lp_split(lp: &LengthPercentage) -> (f32, f32) {
 fn apply_shorthand_box(fill: &mut crate::style::BackgroundFill, bg: &Background) {
     use crate::style::ArbitraryGradient;
     use lightningcss::properties::background::{BackgroundRepeatKeyword, BackgroundSize};
-    use lightningcss::values::position::{HorizontalPositionKeyword, VerticalPositionKeyword};
 
+    // 位图层：简写的尺寸/定位/平铺整组落到层上。
+    if let crate::style::BackgroundFill::Image { image } = fill {
+        image.size = bg_image_size(&bg.size);
+        image.position = bg_position_parts(&bg.position);
+        image.repeat = bg_repeat_axes(&bg.repeat);
+        return;
+    }
     if !matches!(bg.repeat.x, BackgroundRepeatKeyword::NoRepeat)
         || !matches!(bg.repeat.y, BackgroundRepeatKeyword::NoRepeat)
     {
@@ -1432,27 +1617,9 @@ fn apply_shorthand_box(fill: &mut crate::style::BackgroundFill, bg: &Background)
         *size_pct = pct_ok.then_some(pct);
     }
 
-    let pos: lightningcss::values::position::Position = (&bg.position).into();
-    let x = match &pos.x {
-        PositionComponent::Center => (0.5, 0.0),
-        PositionComponent::Length(lp) => lp_split(lp),
-        PositionComponent::Side { side, offset } => {
-            let base = f32::from(matches!(side, HorizontalPositionKeyword::Right));
-            let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
-            (base - f, -p)
-        }
-    };
-    let y = match &pos.y {
-        PositionComponent::Center => (0.5, 0.0),
-        PositionComponent::Length(lp) => lp_split(lp),
-        PositionComponent::Side { side, offset } => {
-            let base = f32::from(matches!(side, VerticalPositionKeyword::Bottom));
-            let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
-            (base - f, -p)
-        }
-    };
-    *position = Some([x.0, y.0]);
-    *position_px = Some([x.1, y.1]);
+    let [x, y] = bg_position_parts(&bg.position);
+    *position = Some([x[0], y[0]]);
+    *position_px = Some([x[1], y[1]]);
 }
 
 /// 脚本按帧写进 `el.style.background` 的 CSS 文本 → 颜色 + 背景层。

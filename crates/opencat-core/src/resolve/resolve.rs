@@ -163,6 +163,19 @@ fn script_display_none(style: &NodeStyle, cx: &ResolveContext<'_>) -> bool {
         .unwrap_or(false)
 }
 
+/// 脚本显式解锁（gsap `set(el, {display:"block"})`）：浏览器里内联
+/// `display:block` 覆盖样式表的 `display:none`；静态级联烤死的 taffy
+/// `None` 须同步翻回，否则元素永远无盒（texture 的 domain-warp canvas
+/// `set(display:block)` 后整段流体不可见）。store 只留布尔，恢复值按
+/// 块处理（`display:flex`/`inline` 的显式恢复挂账）。
+fn script_display_unlocked(style: &NodeStyle, cx: &ResolveContext<'_>) -> bool {
+    cx.mutation_stack
+        .iter()
+        .rev()
+        .find_map(|m| m.mutations.get(&style.id).and_then(|n| n.display_none))
+        == Some(false)
+}
+
 /// HTML 可见窗判定：`t = frame/fps`（合成全局秒）落在半开窗外即隐藏。
 /// 窗终点在合成末尾 ± 半帧内视为「终止瞬间持有」，永不隐藏。
 ///
@@ -208,7 +221,7 @@ fn hidden_clip_placeholder(cx: &mut ResolveContext<'_>) -> ElementNode {
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Div(ElementDiv),
-        style: compute_style(&style, cx.inherited_style),
+        style: compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx)),
         children: Vec::new(),
         draw_slot: ElementDrawSlot::default(),
         fingerprints: Default::default(),
@@ -251,7 +264,7 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
     let result = (|| {
         let mut style = timeline.style_ref().clone();
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
         // A timeline's segments are placed on its OWN clock. A top-level
         // timeline starts at composition zero; one nested inside a scene starts
@@ -377,7 +390,7 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Div(ElementDiv),
-        style: compute_style(&style, cx.inherited_style),
+        style: compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx)),
         children: Vec::new(),
         draw_slot: ElementDrawSlot::default(),
         fingerprints: Default::default(),
@@ -407,7 +420,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             "node id is required for div nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
         let mut children = Vec::new();
         for child in div.children_ref() {
@@ -441,7 +454,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
                 .to_string();
             if !content.is_empty() {
                 let slot_style = NodeStyle { id: slot_id.clone(), ..NodeStyle::default() };
-                let slot_computed = compute_style(&slot_style, &inherited_style);
+                let slot_computed = compute_style(&slot_style, &inherited_style, script_display_unlocked(&slot_style, cx));
                 let text_unit_overrides = script_split_overrides(cx, &slot_id, &content);
                 children.push(ElementNode {
                     id: cx.ids.alloc(),
@@ -547,7 +560,7 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             "node id is required for text nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
 
         // 脚本写入的文本与 DOM 构建期同一空白语义：行内 run 之外按行首行尾
         // 裁掉可折叠空白（`&nbsp;` 不可折叠）。
@@ -589,7 +602,7 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
             "node id is required for canvas nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
 
         for asset in canvas.assets_ref() {
             let target = cx.assets.resolve_image(&asset.source)?;
@@ -694,7 +707,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             "node id is required for video nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
 
         let locator = match video.source() {
@@ -771,7 +784,7 @@ fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             "node id is required for image nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
 
         let asset_id = cx.assets.resolve_image(image.source())?;
         let (width, height) = cx.assets.dimensions(&asset_id);
@@ -805,7 +818,7 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
             "node id is required for lottie nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
 
         // Bundle identity is source-based: same locator → same bundle.
         let bundle_id = cx.assets.resolve_lottie(lottie.source())?;
@@ -855,7 +868,7 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         );
         ensure!(!path.data().is_empty(), "path data must not be empty");
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
@@ -904,7 +917,7 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             "node id is required for svg nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style);
+        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         // 脚本改过内部元素属性的 html inline svg：本帧重序列化的 markup
         // 覆盖提取期快照（html_api.js svgWriteAttr → `svg_set_markup`）。
         let markup_override = cx
@@ -1391,7 +1404,11 @@ fn script_split_overrides(
     })
 }
 
-fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> ComputedStyle {
+fn compute_style(
+    style: &NodeStyle,
+    inherited_style: &InheritedStyle,
+    display_unlock: bool,
+) -> ComputedStyle {
     let text = resolve_text_style(&inherited_style.text, style);
     ComputedStyle {
         layout: ComputedLayoutStyle {
@@ -1514,7 +1531,16 @@ fn compute_style(style: &NodeStyle, inherited_style: &InheritedStyle) -> Compute
         },
         text,
         id: style.id.clone(),
-        css_layout: style.css_layout.clone(),
+        css_layout: {
+            let mut css = style.css_layout.clone();
+            if display_unlock
+                && let Some(c) = css.as_mut()
+                && c.0.display == taffy::prelude::Display::None
+            {
+                c.0.display = taffy::prelude::Display::Block;
+            }
+            css
+        },
     }
 }
 

@@ -698,10 +698,6 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // the frame hooks draw with it. Draining BEFORE the hooks puts the
         // surface in place on the very first frame.
         self.ctx.run_microtasks();
-        // html 通道：异步初始化的 composition 在微任务里才建 timeline，
-        // 排空后补 seek（见 html_api.js `__ocHtmlSeekLate`）。
-        self.ctx
-            .eval("if (globalThis.__ocHtmlSeekLate) globalThis.__ocHtmlSeekLate();")?;
         // A promise continuation only queues; it does not draw yet. The G2
         // render loop starts its draw pass after a `Promise.all` resolves, so
         // one checkpoint after the driver is not enough. The queue itself is

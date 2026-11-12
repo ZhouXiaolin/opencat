@@ -410,12 +410,8 @@ pub fn extract_html_with_base_dir(
             ctx.eval("globalThis.__ocFlushRaf();")?;
         }
         ctx.run_microtasks();
-        // 异步登记的 timeline 补 seek：必须在 async 续体全部落定之后。
-        ctx.eval("globalThis.__ocHtmlSeekLate();")?;
-        ctx.run_microtasks();
-        // 虚拟 rAF 驱动（OC_VTIME=1）不需要提取期动作：play/lagSmoothing
-        // 都挂在 driver 逐帧段（渲染进程的 realm 是全新重建，JS 状态不跨
-        // 进程，提取期调用无效）。
+        // 动画驱动 = 虚拟 rAF（driver 逐帧段 setClock + 帧宿主 flush +
+        // 幂等补 play）；构建期只负责把 async 续体落定、树提出来。
         let extract = eval_json_string(&ctx, "globalThis.__ocHtmlExtract()")?;
         if let Some(path) = std::env::var_os("OC_DUMP_EXTRACT") {
             let _ = std::fs::write(&path, serde_json::to_string_pretty(&extract)?);
@@ -867,8 +863,8 @@ fn eval_json_string(ctx: &V8JsContext, code: &str) -> Result<Value> {
 }
 
 /// 每帧 driver：首帧内嵌 [`HTML_API_RUNTIME`]，物化种子并执行全部页面
-/// 脚本，登记 timeline 与 composition 时间断点。后续帧只做帧级 store
-/// 重建、绝对 seek 和 `hf-seek`。`OC_HTML_REPLAY=1` 回退逐帧重放。
+/// 脚本（init-once）。后续帧 = 虚拟 rAF 的一次 tick：`__ocSetClock(t)` +
+/// 帧宿主 flush + 注册表 timeline 按幕锚点幂等 play（播放器语义）。
 ///
 /// `<script type="module">` 走模块图装载（[`load_html_modules`]）：oxc 降级
 /// 后的源码经 `__ocModuleSources` 注入，原位置以 `__ocRequire(key)` 占位。
@@ -885,10 +881,6 @@ fn build_html_driver(
 ) -> Result<String> {
     let mut body = String::new();
     let mut ext_idx = 0usize;
-    // 每个脚本执行前的 timeline 计数断点，配它所属 composition 的时间基准：
-    // 尾部按段 seek，让嵌套 composition 用 `主时间 − data-start` 驱动自己的
-    // timeline（浏览器里它们是各自独立的文档时间轴）。
-    let mut marks: Vec<(f64, String)> = Vec::new();
     let mut seen_src: Vec<&str> = Vec::new();
     // module 入口按文档序收集；require 占位语句与装载产物一一对应。
     let module_entries: Vec<(usize, &HtmlScript)> = scripts
@@ -899,11 +891,6 @@ fn build_html_driver(
     let (module_sources, module_requires) =
         load_html_modules(&module_entries, base_dir, import_map)?;
     for (index, script) in scripts.iter().enumerate() {
-        let mark = format!("__ocB{index}");
-        body.push_str(&format!(
-            "var {mark} = globalThis.__ocTimelineCount();\n"
-        ));
-        marks.push((script.start, mark));
         if script.module {
             let slot = module_entries
                 .iter()
@@ -951,28 +938,12 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     }
     // HTML_API_RUNTIME 原文直接拼（不进 format! 模板——JS 花括号会被当
     // 占位符解析）；seed JSON 走独立插值。
-    let mut replay = matches!(
-        std::env::var("OC_HTML_REPLAY").as_deref(),
-        Ok("1") | Ok("true") | Ok("on")
-    );
-    // 虚拟 rAF 驱动（OC_VTIME=1）：每帧 __ocSetClock(t) + 帧宿主 flush 一次
-    // tick，timeline 交给自然播放（__ocVtimeBegin），seek 链旁路。语义上它
-    // 就是持久 init-once 的连续化——REPLAY 每帧重放与之不相容，强制关。
-    let vtime = matches!(
-        std::env::var("OC_VTIME").as_deref(),
-        Ok("1") | Ok("true")
-    );
-    if vtime {
-        replay = false;
-    }
     // 计数探针（临时诊断）：realm 无墙钟，只能数调用量。包 __write_style_value
     // 计数，每 5 帧向 __ocLogs 落一条（OC_TRACE_JSLOGS 时倒 stderr）。
     let trace_js = std::env::var_os("OC_TRACE_JS").is_some();
     let mut driver = String::new();
-    driver.push_str(&format!(
-        "globalThis.__ocHtmlReplay = {replay};\nglobalThis.__ocTraceJs = {trace_js};\nglobalThis.__ocVtime = {vtime};\n"
-    ));
-    driver.push_str("var __ocHtmlInit = globalThis.__ocHtmlReplay || !globalThis.__ocHtmlPageInited;\n");
+    driver.push_str(&format!("globalThis.__ocTraceJs = {trace_js};\n"));
+    driver.push_str("var __ocHtmlInit = !globalThis.__ocHtmlPageInited;\n");
     driver.push_str("if (__ocHtmlInit) {\n");
     driver.push_str(HTML_API_RUNTIME);
     driver.push_str("\n;(function () {\n");
@@ -990,15 +961,6 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str(&serde_json::to_string(&offsets)?);
     driver.push_str(";\n");
     driver.push_str(&body);
-    driver.push_str("    globalThis.__ocHtmlPageMarks = [");
-    for (index, (offset, mark)) in marks.iter().enumerate() {
-        let next = marks
-            .get(index + 1)
-            .map(|(_, next_mark)| next_mark.clone())
-            .unwrap_or_else(|| "globalThis.__ocTimelineCount()".to_string());
-        driver.push_str(&format!("[{offset:?}, {mark}, {next}],"));
-    }
-    driver.push_str("];\n");
     driver.push_str("})();\n");
     driver.push_str("globalThis.__ocHtmlPageInited = true;\n");
     driver.push_str("}\n");
@@ -1009,80 +971,48 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
         driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocProbeInstalled) { globalThis.__ocProbeInstalled = true; var __ocRawWrite = globalThis.__write_style_value; globalThis.__ocNWrite = 0; globalThis.__write_style_value = function (id, k, v) { globalThis.__ocNWrite++; return __ocRawWrite(id, k, v); }; }\n");
         driver.push_str("if (globalThis.__ocTraceJs && typeof globalThis.__ocNWrite === 'undefined') { globalThis.__ocNWrite = 0; globalThis.__ocNSeek = 0; }\n");
     }
-    // 每段用「主时间 − 该 composition 的 data-start」驱动，与浏览器里子文档
-    // 自己的时间轴一致；marks[0] 是宿主（偏移 0），–ocSeekT 取它保
-    // putImageData 的键仍是主时间。
+    // 每帧 = 虚拟 rAF 的一次 tick：钟到本帧时刻，realm 帧宿主紧随的 flush
+    // 跑一次 gsap tick（dt=帧间隔），timeline 自然播放，onUpdate/tl.call
+    // 自然越过触发（appendChild 类 DOM 生长与浏览器同语义）。
+    // __ocSeekT 同步跟钟：putImageData 生成图键（html_api）与视频供帧对齐
+    // （webgl_api）都读它。
     let time_expr = "(globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0)";
-    // 诊断开关（临时）：跳过 seek / hf-seek 以分离 driver_fn 的耗时构成。
-    let skip_seek = matches!(
-        std::env::var("OC_SKIP_SEEK").as_deref(),
-        Ok("1") | Ok("true")
-    );
-    let skip_hf = matches!(
-        std::env::var("OC_SKIP_HFSEEK").as_deref(),
-        Ok("1") | Ok("true")
-    );
-    driver.push_str(&format!(
-        "globalThis.__ocSkipSeek = {skip_seek};\nglobalThis.__ocSkipHfseek = {skip_hf};\n"
-    ));
     driver.push_str("(function () {\n");
     driver.push_str("    var __ocTime = ");
     driver.push_str(time_expr);
     driver.push_str(";\n");
-    driver.push_str("    var __ocGroups = [];\n");
-    driver.push_str("    for (var markIndex = 0; markIndex < globalThis.__ocHtmlPageMarks.length; markIndex++) {\n");
-    driver.push_str("        var markEntry = globalThis.__ocHtmlPageMarks[markIndex];\n");
-    driver.push_str("        __ocGroups.push([__ocTime - markEntry[0], markEntry[1], markEntry[2]]);\n");
-    driver.push_str("    }\n");
-    if vtime {
-        // 虚拟 rAF 驱动：钟到本帧时刻；realm 帧宿主紧随的 flush 跑一次
-        // gsap tick（dt=帧间隔），timeline 自然播放，onUpdate/tl.call 自然
-        // 越过触发（appendChild 类 DOM 生长与浏览器同语义）。marks 分段
-        // seek 整条旁路。__ocSeekT 同步跟钟：putImageData 生成图键
-        // （html_api）与视频供帧对齐（webgl_api）都读它，恒 0 会撞键。
-        driver.push_str("    globalThis.__ocSetClock(__ocTime);\n");
-        driver.push_str("    globalThis.__ocSeekT = __ocTime;\n");
-        // 播放器语义（每帧幂等）：注册表 timeline 按幕锚点交给自然播放。
-        // 渲染进程的 realm 是全新重建（提取只传树 JSON，JS 状态不跨进程），
-        // play 必须发生在渲染进程——挂在逐帧段覆盖 async 续体后到者
-        // （init 后每帧只有 3 轮排空，act2 类 40 次 setTimeout 轮询跨多帧
-        // 才落定，一次性调用会漏）。幕锚点=data-start（__ocCompOffsets）：
-        // 浏览器端播放器「到幕起点才 play 该幕」→ gsap.delayedCall(at, play)，
-        // 全部立即 play 会把后面的幕提前到 0。lagSmoothing(0)：虚拟钟一次
-        // 可跨秒级 dt（首帧/中途起渲），gsap 默认把 >500ms 的 dt 拉回 33ms，
-        // 动画落后钟 33ms×N 永不追上。
-        driver.push_str("    if (!globalThis.__ocVtimePending) globalThis.__ocVtimePending = {};\n");
-        // ticker.wake() 每帧强制：gsap ticker 在感知不到活跃动画时 sleep
-        // （停 rAF 自续），sleep 间隙后偶发的大 dt 直推会跳过中间时刻的
-        // tl.call（appendChild 类 DOM 生长整段丢失）。每帧唤醒保证 tick
-        // 每帧恰好一次、dt=帧间隔。
-        driver.push_str("    if (globalThis.gsap) { if (!globalThis.__ocVtimeLag) { globalThis.__ocVtimeLag = true; try { globalThis.gsap.ticker.lagSmoothing(0); } catch (error) {} } try { globalThis.gsap.ticker.wake(); } catch (error) {} }\n");
-        driver.push_str("    (function () {\n");
-        driver.push_str("        var reg = (typeof window === 'object' && window && window.__timelines) || {};\n");
-        driver.push_str("        var pend = globalThis.__ocVtimePending;\n");
-        driver.push_str("        var offs = globalThis.__ocCompOffsets || {};\n");
-        driver.push_str("        var g = globalThis.gsap;\n");
-        driver.push_str("        for (var id in reg) {\n");
-        driver.push_str("            if (pend[id]) continue;\n");
-        driver.push_str("            var tl = reg[id];\n");
-        driver.push_str("            if (!tl || typeof tl.play !== 'function') continue;\n");
-        driver.push_str("            pend[id] = true;\n");
-        driver.push_str("            var at = Number(offs[id]);\n");
-        driver.push_str("            if (!(at > 0)) { try { tl.play(); } catch (error) {} }\n");
-        driver.push_str("            else if (g && typeof g.delayedCall === 'function') { g.delayedCall(at, function (t2) { return function () { try { t2.play(); } catch (error) {} }; }(tl)); }\n");
-        driver.push_str("            else { try { tl.play(); } catch (error) {} }\n");
-        driver.push_str("        }\n");
-        driver.push_str("    })();\n");
-    } else {
-        driver.push_str("    if (!globalThis.__ocSkipSeek) globalThis.__ocHtmlSeekGroups(__ocGroups);\n");
-    }
-    // hyperframes 播放器协议：页面把整帧重绘挂在 `hf-seek` 上（liquid 的
-    // window.addEventListener('hf-seek')）。引擎按段 seek 完毕后派发一次，
-    // detail.time = 当前主时间。将来归 hyperframes 适配层。
-    // handler 抛异常必须落 stderr：静默吞掉会让持久 renderer 的半帧流
-    // （如 transmission RT 创建中断）逐帧复制，排查成本极高。
-    driver.push_str("    if (!globalThis.__ocSkipHfseek) { try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); } }\n");
-    driver.push_str("    if (globalThis.__ocTraceJs) { globalThis.__ocNFrame = (globalThis.__ocNFrame || 0) + 1; if (globalThis.__ocNFrame % 5 === 0) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('[jstrace] tl=' + (globalThis.__ocTimelineCount ? globalThis.__ocTimelineCount() : -1) + ' write5f=' + globalThis.__ocNWrite + ' t=' + Math.round(__ocTime * 1000)); globalThis.__ocNWrite = 0; } }\n");
+    driver.push_str("    globalThis.__ocSetClock(__ocTime);\n");
+    driver.push_str("    globalThis.__ocSeekT = __ocTime;\n");
+    // 播放器语义（每帧幂等）：注册表 timeline 按幕锚点交给自然播放。
+    // 渲染进程的 realm 是全新重建（提取只传树 JSON，JS 状态不跨进程），
+    // play 必须发生在渲染进程——挂在逐帧段覆盖 async 续体后到者
+    // （init 后每帧只有 3 轮排空，act2 类 40 次 setTimeout 轮询跨多帧
+    // 才落定，一次性调用会漏）。幕锚点=data-start（__ocCompOffsets）：
+    // 浏览器端播放器「到幕起点才 play 该幕」→ gsap.delayedCall(at, play)，
+    // 全部立即 play 会把后面的幕提前到 0。lagSmoothing(0)：虚拟钟一次
+    // 可跨秒级 dt（首帧/中途起渲），gsap 默认把 >500ms 的 dt 拉回 33ms，
+    // 动画落后钟 33ms×N 永不追上。ticker.wake() 每帧强制：gsap ticker 在
+    // 感知不到活跃动画时 sleep（停 rAF 自续），sleep 间隙后偶发的大 dt
+    // 直推会跳过中间时刻的 tl.call——每帧唤醒保证 tick 每帧恰好一次。
+    driver.push_str("    if (!globalThis.__ocVtimePending) globalThis.__ocVtimePending = {};\n");
+    driver.push_str("    if (globalThis.gsap) { if (!globalThis.__ocVtimeLag) { globalThis.__ocVtimeLag = true; try { globalThis.gsap.ticker.lagSmoothing(0); } catch (error) {} } try { globalThis.gsap.ticker.wake(); } catch (error) {} }\n");
+    driver.push_str("    (function () {\n");
+    driver.push_str("        var reg = (typeof window === 'object' && window && window.__timelines) || {};\n");
+    driver.push_str("        var pend = globalThis.__ocVtimePending;\n");
+    driver.push_str("        var offs = globalThis.__ocCompOffsets || {};\n");
+    driver.push_str("        var g = globalThis.gsap;\n");
+    driver.push_str("        for (var id in reg) {\n");
+    driver.push_str("            if (pend[id]) continue;\n");
+    driver.push_str("            var tl = reg[id];\n");
+    driver.push_str("            if (!tl || typeof tl.play !== 'function') continue;\n");
+    driver.push_str("            pend[id] = true;\n");
+    driver.push_str("            var at = Number(offs[id]);\n");
+    driver.push_str("            if (!(at > 0)) { try { tl.play(); } catch (error) {} }\n");
+    driver.push_str("            else if (g && typeof g.delayedCall === 'function') { g.delayedCall(at, function (t2) { return function () { try { t2.play(); } catch (error) {} }; }(tl)); }\n");
+    driver.push_str("            else { try { tl.play(); } catch (error) {} }\n");
+    driver.push_str("        }\n");
+    driver.push_str("    })();\n");
+    driver.push_str("    if (globalThis.__ocTraceJs) { globalThis.__ocNFrame = (globalThis.__ocNFrame || 0) + 1; if (globalThis.__ocNFrame % 5 === 0) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('[jstrace] write5f=' + globalThis.__ocNWrite + ' t=' + Math.round(__ocTime * 1000)); globalThis.__ocNWrite = 0; } }\n");
     driver.push_str("})();");
     Ok(driver)
 }

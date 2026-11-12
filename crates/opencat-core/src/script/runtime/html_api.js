@@ -22,20 +22,20 @@
     // 本文件每帧重 eval，闭包里的数组会随之重建，而 gsap 的包装器只装一次
     // （旧闭包仍持有它），新帧写进旧数组 → 产物永不回收，整片渲染顶到 V8
     // 堆上限（~110 帧即 OOM）。
-    var timelines = globalThis.__ocHtmlTimelines || (globalThis.__ocHtmlTimelines = []);
     var synthSeq = 0;
     var seed = null;
     var hasStore = typeof __write_style_value === 'function';
-    // 持久文档（init-once，默认；`OC_HTML_REPLAY=1` 走每帧重放的旧路径）：
-    // 页面脚本只跑一次，之后每帧绝对 seek。DOM 状态（内联样式/文本、
-    // canvas 位图、svg 属性）因此跨帧留在 store 里——与浏览器一致：
-    // gsap 只重写在动的补间，已结束补间的终值靠元素自己保持，不以基准
-    // 值回退。seek 之前（构造期）脚本写的自定义属性并进提取的内联样式
-    // （静态树的基准值）；seek 驱动的写入（gsap 补间 `{"--x": v}`、
-    // tl.call 回调）每帧经 store 重放，不进静态树——提取期 computed 读
-    // 不到样式表变量，补间起点是空串，烤进去会把基准值写坏。
+    // 持久文档（init-once）：页面脚本只跑一次，之后每帧由虚拟 rAF 驱动
+    // （引擎 setClock(t) + 每帧一次 tick，注册表 timeline 由播放器语义
+    // play——见 driver 逐帧段）。DOM 状态（内联样式/文本、canvas 位图、
+    // svg 属性）因此跨帧留在 store 里——与浏览器一致：gsap 只重写在动的
+    // 补间，已结束补间的终值靠元素自己保持，不以基准值回退。构造期脚本
+    // 写的自定义属性并进提取的内联样式（静态树的基准值）；tick 驱动的
+    // 写入（gsap 补间 `{"--x": v}`、tl.call 回调）每帧经 store 重放，
+    // 不进静态树——提取期 computed 读不到样式表变量，补间起点是空串，
+    // 烤进去会把基准值写坏。
     var seekStarted = false;
-    if (hasStore && !globalThis.__ocHtmlReplay && typeof __persist_frame_state === 'function') {
+    if (hasStore && typeof __persist_frame_state === 'function') {
         __persist_frame_state();
     }
 
@@ -1552,137 +1552,22 @@
         return el;
     }
 
-    // ── gsap 包裹 + seek 协议 ─────────────────────────────────────
+    // ── hyperframes 播放器协议 ────────────────────────────────────
     // UMD gsap 挂在 shim window 上，由 hoistWindowGlobals 提升到 globalThis。
-    function wrapGsap() {
-        var g = globalThis.gsap;
-        if (!g || g.__ocHtmlWrapped) return;
-        g.__ocHtmlWrapped = true;
-        ['to', 'from', 'fromTo', 'set'].forEach(function (name) {
-            var orig = g[name];
-            g[name] = function () {
-                var anim = orig.apply(g, arguments);
-                if (anim) timelines.push(anim);
-                return anim;
-            };
-        });
-        var origTimeline = g.timeline;
-        g.timeline = function () {
-            var tl = origTimeline.apply(g, arguments);
-            if (tl) timelines.push(tl);
-            return tl;
-        };
-    }
-
-    // 只驱动 [from, to) 这段 timeline：嵌套 composition 各有自己的时间
-    // 基准（宿主 data-start），driver 按段调用。
-    function seekRange(t, from, to) {
-        var registered = new Set(timelines);
-        for (var i = from; i < to && i < timelines.length; i++) {
-            if (drivenByRegisteredRoot(timelines[i], registered)) continue;
-            seekOne(timelines[i], t);
-        }
-    }
-
-    // 嵌套子动画（`tl.add(inner)`、`tl.add(gsap.to(...))`）归父 timeline 驱动。
-    // 直接 seek 子项会 pause 它（父 render 跳过 _ts=0 的子项），再把它钉在
-    // 未经父偏移/timeScale 换算的时刻——pr-to-video 的 `inner.timeScale(2.05)`
-    // 整段失效。只 seek 根（父是全局 timeline）；根不在登记表里的孤儿子项
-    // 照旧直驱。
-    function drivenByRegisteredRoot(a, registered) {
-        var g = globalThis.gsap;
-        var globalTl = g && g.globalTimeline;
-        if (!a || !a.parent || a.parent === globalTl) return false;
-        var top = a;
-        while (top.parent && top.parent !== globalTl) top = top.parent;
-        return top !== a && registered.has(top);
-    }
-
-    function seekOne(a, t) {
-        try {
-            a.pause();
-            // 不能抑制事件：页面把整帧重绘挂在 timeline 的 onUpdate 上
-            // （k3 的 orbitPills/drawDissolve/hatchGlide 都在这条通道），
-            // suppressEvents=true 会让这些逐帧函数永不执行。
-            // 短路判定必须读 seek **前**的播放头：seek 后 gsap 在 render
-            // 里用 _roundPrecise 把 _tTime 舍入到 1e-7，getter 几乎总等于
-            // t；且逐帧 t=k/fps 在 k 能被 fps 约到整值时（30fps 每 3 帧）
-            // 舍入差恰好为 0，旧写法（seek 后判定）每 3 帧多做 2 次渲染，
-            // canvas 位图被本帧终值重绘成 fresh——与 swgl 参考的单次 seek
-            // （onUpdate 吃上一帧终值，stale-1frame）差出一帧相位。
-            if (Math.abs(a.totalTime() - t) < 1e-9) {
-                // 强制渲染但**只正向**：先登记的 zero-duration set（如
-                // inspector 的 tl.set(canvas,{x:60}) 与后置的 tl.set(canvas,
-                // {x:40}) 同位 0）在回退（t→0）时被 gsap 反向"重置"成各自的
-                // init 捕获值，错值（60/40）固化全程且不再重渲——浏览器
-                // 语义是构造期 immediateRender 已定终态、seek(0) 是 no-op。
-                // 停在 t+1e-4（0.1ms，下帧正常覆盖）即可触发 onUpdate 且
-                // 保持正向渲染的终态。
-                a.totalTime(t + 1e-4, false);
-                return;
-            }
-            a.totalTime(t, false);
-        } catch (e) { /* 单产物失败不拖垮整帧 */ }
-    }
-
-    // 本帧同步 seek 覆盖到的 timeline 数（之后新建的属于异步续体）。
-    var seekedCount = 0;
-
-    globalThis.__ocTimelineCount = function () { return timelines.length; };
-
-    // hyperframes 编译器给页面预置 timeline 注册表（compositionScoping 的
+    // 动画驱动 = 虚拟 rAF（JS_PLATFORM_SHIM 队列）：引擎每帧 setClock(t) 后
+    // flush 一次，gsap ticker 自然推进全部活跃 tween；页面注册表
+    // （window.__timelines）里的 paused timeline 由 driver 逐帧段按幕锚点
+    // play（播放器语义）——不再逐库 seek。
+    // hyperframes 编译器给页面预置注册表（compositionScoping 的
     // `window.__timelines = window.__timelines || {}`，页面脚本直接
     // `window.__timelines[id] = tl` 不自建——codex-five-hour 语料）。
-    // 引擎等价预置；seek 走内部 timelines 列表，此表只是页面的登记处。
+    // 引擎等价预置；driver 每帧幂等补 play（见 build_html_driver）。
     if (typeof globalThis.window === 'object' && globalThis.window) {
         globalThis.window.__timelines = globalThis.window.__timelines || {};
     }
 
-    globalThis.__ocHtmlSeek = function (t) {
-        seekStarted = true;
-        globalThis.__ocSeekT = t;
-        seekRange(t, 0, timelines.length);
-    };
-
-    // [[局部时间, from, to], …]：嵌套 composition 按段用各自的时间基准。
-    globalThis.__ocHtmlSeekGroups = function (list) {
-        seekStarted = true;
-        for (var i = 0; i < list.length; i++) {
-            var g = list[i];
-            globalThis.__ocSeekT = g[0];
-            seekRange(g[0], g[1], g[2]);
-        }
-        // putImageData 的键要用主时间轴的时刻；最后一段是宿主自身。
-        globalThis.__ocSeekT = list.length ? list[0][0] : 0;
-        seekedCount = timelines.length;
-    };
-
-    // 异步初始化的 composition（`await document.fonts.ready` / fetch 之后才
-    // 建 timeline）：续体在本帧同步 seek 之后的微任务里才登记。浏览器端
-    // hyperframes 每帧按 `window.__timelines[compId]` 取表 seek，与登记时机
-    // 无关；宿主排空微任务后调这里，补 seek 同步 seek 之后才登记的 timeline，
-    // 时间基准取该 composition 的宿主偏移（`__ocCompOffsets`，driver 注入）。
-    globalThis.__ocHtmlSeekLate = function () {
-        // 虚拟 rAF 驱动（OC_VTIME=1）下旁路：timeline 已交给自然播放，
-        // 每帧补 seek 会把播放头每帧拉回旧时刻，与 tick 推进互相打架。
-        if (globalThis.__ocVtime) return;
-        seekStarted = true;
-        var reg = (typeof window === 'object' && window && window.__timelines) || {};
-        var offsets = globalThis.__ocCompOffsets || {};
-        var t = globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0;
-        for (var id in reg) {
-            var tl = reg[id];
-            if (!tl || typeof tl.totalTime !== 'function' || !(id in offsets)) continue;
-            var idx = timelines.indexOf(tl);
-            if (idx >= 0 && idx < seekedCount) continue;
-            seekOne(tl, t - offsets[id]);
-        }
-        seekedCount = timelines.length;
-    };
-
     globalThis.__ocHtmlAfterScripts = function () {
         hoistWindowGlobals();
-        wrapGsap(); // 页面自带 gsap 之外的兜底
     };
 
     // 浏览器里 window 就是全局对象：UMD 插件（CustomEase 等）挂到
@@ -1795,14 +1680,6 @@
     };
     globalThis.__ocHtmlResetFrame = function (seedJson) {
         if (seedJson) seed = seedJson;
-        // 上一帧的 gsap 产物要 kill 掉：它们挂在 gsap 的全局时间线上并强引用
-        // 本帧的 DOM 面，不杀就逐帧累积（整片渲染会顶到 V8 堆上限）。
-        for (var i = 0; i < timelines.length; i++) {
-            var old = timelines[i];
-            if (old && typeof old.kill === 'function') {
-                try { old.kill(); } catch (e) { /* 已失效的时间线忽略 */ }
-            }
-        }
         // lottie-web（bodymovin）把每个 `loadAnimation` 注册进 animationManager
         // 的闭包注册表且永不清理；嵌套子页的内联脚本每帧重放都调一次
         // loadAnimation，注册表逐帧持有整个 SVG renderer（timeline-launch /
@@ -1823,9 +1700,7 @@
         } catch (e) { /* lottie 未加载时跳过 */ }
         nodes = Object.create(null);
         rootFace = null;
-        timelines.length = 0;
         synthSeq = 0;
-        seekStarted = false;
         // 页脚本每帧重放、按同序重建 GL 资源：句柄序归零让句柄逐帧稳定，
         // 执行器按句柄复用 GL 对象（单调句柄会逐帧新建对象，全片 OOM）。
         if (typeof __gl_reset_handles === 'function') __gl_reset_handles();

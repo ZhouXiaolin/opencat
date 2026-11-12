@@ -618,22 +618,15 @@ impl GpuRenderSession {
     }
 }
 
-/// Vulkan 渲染会话：Skia 的光栅走 Vulkan backend（SwiftShader）。
-///
-/// **零拷贝**：ANGLE（Vulkan 后端）执行 WebGL2 流 → 导出 VkImage →
-/// Skia（建在 ANGLE 的 `VkDevice` 上）直接采样。GL 流不再回读位图——
-/// 3D 段「gl-stream 回读」的成本（300ms+/帧）整体消失。
-///
-/// 与 [`GpuRenderSession`] 的差别：合成目标是 Skia 自建的 Vulkan 渲染
-/// 目标（无 PBO 双缓冲，每帧同步读回）；GL 状态重置不需要（Skia 不在
-/// GL 上下文里）。
+/// Vulkan 渲染会话：`OC_ANGLE_SWIFTSHADER` 走独立 VkSession 与 GL 流 CPU
+/// 回读；否则 Skia 与 ANGLE 共用 VkDevice，ANGLE 的 WebGL2 流输出纹理经
+/// VkImage 直接采样。最终合成帧仍同步读回 RGBA 给编码器。
 #[cfg(target_os = "linux")]
 pub struct VkRenderSession {
     compositor: crate::gpu::compositor::GpuCompositor,
     /// Vulkan 会话：零拷贝时建在 ANGLE 的 device/queue 上，否则独立。
     session: std::sync::Arc<crate::gpu::vk::VkSession>,
-    /// GL 会话（ANGLE Vulkan）：WebGL2 流的执行端，也是 VkImage 的产地。
-    /// `None` = 零拷贝关闭（GL 流走 CPU 回读）。
+    /// GL 会话（ANGLE Vulkan）：WebGL2 流的执行端。
     gl_session: Option<crate::gpu::session::GlSession>,
     gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor,
     wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor,
@@ -648,16 +641,12 @@ pub struct VkRenderSession {
 impl VkRenderSession {
     /// 建 Vulkan 渲染会话。
     ///
-    /// 调用方须先设好 `VK_ICD_FILENAMES`（指向 SwiftShader ICD）——
-    /// 它是进程级的，Skia / ANGLE / wgpu 三家必须看到同一个 ICD。
+    /// 调用方须先设好 `VK_ICD_FILENAMES`——它是进程级的，Skia / ANGLE /
+    /// wgpu 三家必须看到同一个 ICD。
     pub fn new(width: u32, height: u32) -> Result<Self> {
-        // 零拷贝路径（实验性，OC_VK_ZERO_COPY=1）：Skia 建在 ANGLE 的
-        // VkDevice 上，GL 流导出 VkImage 直接采样。**当前不可用**：ANGLE
-        // 的 device 是 ICD 级句柄，Skia 经它建资源会触发 SwiftShader 内部
-        // ASSERT（ud2→SIGILL，栈不可解析）。Chrome 对同类问题走 external
-        // memory（本 ANGLE 构建未暴露），留作后续课题。默认走独立 VkDevice
-        // + GL 流 CPU 回读。
-        let zero_copy = std::env::var_os("OC_VK_ZERO_COPY").is_some();
+        // 后端选择：SwiftShader 当前走独立 VkSession + GL 流 CPU 回读；
+        // llvmpipeline 走共享 VkDevice + 纹理零拷贝。
+        let zero_copy = std::env::var_os("OC_ANGLE_SWIFTSHADER").is_none();
         let (session, gl_session, queue_family) = if zero_copy {
             let gl_session = crate::gpu::session::GlSession::offscreen()?;
             let angle = gl_session.angle_context().ok_or_else(|| {
@@ -688,43 +677,6 @@ impl VkRenderSession {
             width,
             height,
         )?;
-        if zero_copy && std::env::var_os("OC_VK_PROBE").is_some() {
-            // 迷你探针：Skia 在 ANGLE 的 device 上建上下文→画→读回，逐段
-            // 打印，定位 SwiftShader ASSERT 的确切步骤。
-            eprintln!("[vk-probe] step1: compositor ok");
-            let mut skia = session.backend_probe_context()?;
-            eprintln!("[vk-probe] step2: make_vulkan ok");
-            let info = skia_safe::ImageInfo::new(
-                (64, 64),
-                skia_safe::ColorType::RGBA8888,
-                skia_safe::AlphaType::Premul,
-                None,
-            );
-            let surface = skia_safe::gpu::surfaces::render_target(
-                &mut skia,
-                skia_safe::gpu::Budgeted::Yes,
-                &info,
-                None,
-                skia_safe::gpu::SurfaceOrigin::TopLeft,
-                None,
-                None,
-                None,
-            );
-            eprintln!("[vk-probe] step3: render_target ok={}", surface.is_some());
-            let mut surface = surface.ok_or_else(|| anyhow!("probe render_target 失败"))?;
-            surface.canvas().clear(skia_safe::Color::RED);
-            eprintln!("[vk-probe] step4: clear ok");
-            skia.flush_and_submit();
-            eprintln!("[vk-probe] step5: submit ok");
-            let mut px = vec![0u8; 64 * 64 * 4];
-            let ok = surface.read_pixels(
-                &info,
-                &mut px,
-                64 * 4,
-                (0, 0),
-            );
-            eprintln!("[vk-probe] step6: read_pixels ok={ok} px0={:?}", &px[..8]);
-        }
         Ok(Self {
             compositor,
             session,
@@ -753,18 +705,11 @@ impl VkRenderSession {
         }
         let render = pipeline.render_frame(frame_index)?;
         let t_script = t0.map(|t| t.elapsed());
-        if std::env::var_os("OC_VK_PROBE").is_some() {
-            eprintln!("[vk-probe] f{frame_index}: script done");
-        }
         let mut frame = render.draw;
         let mut media_plan = render.media;
-        let zero_copy = self.gl_session.is_some();
         if let Some(gl) = &self.gl_session {
             // 流的执行必须在 ANGLE 上下文 current 时进行（脚本阶段可能切走）。
             gl.make_current()?;
-            if std::env::var_os("OC_VK_PROBE").is_some() {
-                eprintln!("[vk-probe] f{frame_index}: angle current again");
-            }
             if let Some(gpu) = &render.gpu {
                 let has_webgpu = gpu
                     .streams
@@ -796,17 +741,11 @@ impl VkRenderSession {
                         &self.textures,
                         true,
                     )?;
-                    // ANGLE 的命令还躺在自己的 command buffer 里。flush 把它
-                    // 提交到 Skia 共用的那个 VkQueue 上——同队列按提交序执行，
-                    // Skia 的采样一定看到渲染完的纹理。`OC_VK_GL_FINISH` 兜底。
+                    // 共享 VkQueue 没有跨 API 隐式顺序。ANGLE 的命令完成
+                    // 前 Skia 不能采样导出纹理；finish 建立这个同步点。
                     use glow::HasContext as _;
                     unsafe {
-                        gl.gl().flush();
-                    }
-                    if std::env::var_os("OC_VK_GL_FINISH").is_some() {
-                        unsafe {
-                            gl.gl().finish();
-                        }
+                        gl.gl().finish();
                     }
                 }
             }
@@ -815,9 +754,6 @@ impl VkRenderSession {
             crate::render::cpu_execute_gpu_streams(&pipeline.textures, &mut media_plan, gpu)?;
         }
         let t_streams = t0.map(|t| t.elapsed());
-        if std::env::var_os("OC_VK_PROBE").is_some() {
-            eprintln!("[vk-probe] f{frame_index}: streams done (zero_copy={zero_copy})");
-        }
         let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
             .generated_images
             .iter()
@@ -846,9 +782,6 @@ impl VkRenderSession {
             )
             .map_err(|e| anyhow!("{e}"))?;
             let _ = skia;
-        }
-        if std::env::var_os("OC_VK_PROBE").is_some() {
-            eprintln!("[vk-probe] f{frame_index}: compose done");
         }
         let t_draw = t0.map(|t| t.elapsed());
         let rgba = self.compositor.finish_frame_blocking()?;

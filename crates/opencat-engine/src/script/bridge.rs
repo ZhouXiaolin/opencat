@@ -109,13 +109,6 @@ pub(crate) fn release_reflector_session() {
 /// current → 反射 → RAII 恢复，主渲染路径的 current 不再被打断。
 pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
     ctx.set_glsl_reflector(Box::new(|vs, fs| {
-        // 诊断开关：跳过反射（建独立 ANGLE 会话编译 shader），隔离
-        // SwiftShader 多 device 状态问题。
-        if std::env::var_os("OC_SKIP_REFLECTOR").is_some() {
-            return Ok(serde_json::json!({
-                "uniforms": [], "attributes": [],
-            }));
-        }
         let key = (vs.to_string(), fs.to_string());
         if let Some(hit) = REFLECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
             return Ok(hit);

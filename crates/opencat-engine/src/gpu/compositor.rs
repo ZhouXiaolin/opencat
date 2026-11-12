@@ -38,8 +38,9 @@ pub struct GpuCompositor {
     skia: gpu::DirectContext,
     /// 包裹目标纹理的 Skia surface（每帧复用）。
     surface: Surface,
-    /// 合成目标：原生纹理 + FBO + 双缓冲读回。
-    target: crate::gpu::Target,
+    /// 合成目标：原生纹理 + FBO + 双缓冲读回。Vulkan 变体为 None
+    /// （Skia 自建渲染目标，无外部目标可持）。
+    target: Option<crate::gpu::Target>,
     width: u32,
     height: u32,
 }
@@ -59,23 +60,46 @@ impl GpuCompositor {
         height: u32,
     ) -> Result<Self> {
         let mut skia = backend.make_direct_context()?;
-        let target = {
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            {
-                crate::gpu::Target::new(
+        // Vulkan 变体：Skia 自建渲染目标（Vulkan 路径上不与宿主共享 image
+        // 内存，无外部纹理可包装）。其余变体包装宿主的目标纹理。
+        #[cfg(target_os = "linux")]
+        let (target, surface) = match &backend {
+            CompositorBackend::Vulkan { .. } => {
+                let surface = backend.wrap_vulkan_target(&mut skia, width, height)?;
+                (None, surface)
+            }
+            _ => {
+                let target = crate::gpu::Target::new(
                     gl.ok_or_else(|| anyhow!("GL 平台必须携带 glow 上下文"))?,
                     native,
                     width,
                     height,
-                )?
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let _ = gl;
-                crate::gpu::Target::new(native, width, height)?
+                )?;
+                let surface = backend.wrap_target(&mut skia, &target, width, height)?;
+                (Some(target), surface)
             }
         };
-        let surface = backend.wrap_target(&mut skia, &target, width, height)?;
+        #[cfg(not(target_os = "linux"))]
+        let (target, surface) = {
+            let target = {
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = gl;
+                    crate::gpu::Target::new(native, width, height)?
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    crate::gpu::Target::new(
+                        gl.ok_or_else(|| anyhow!("GL 平台必须携带 glow 上下文"))?,
+                        native,
+                        width,
+                        height,
+                    )?
+                }
+            };
+            let surface = backend.wrap_target(&mut skia, &target, width, height)?;
+            (Some(target), surface)
+        };
 
         Ok(Self {
             skia,
@@ -92,7 +116,7 @@ impl GpuCompositor {
 
     /// 合成目标 FBO id（调试用）。
     pub fn fbo(&self) -> u32 {
-        self.target.fbo()
+        self.target.as_ref().map(|t| t.fbo()).unwrap_or(0)
     }
 
     pub fn height(&self) -> u32 {
@@ -138,10 +162,14 @@ impl GpuCompositor {
             .flush_and_submit_surface(&mut self.surface, Some(gpu::SyncCpu::No));
         // 帧头等上一帧 blit：Metal 跨队列无隐式顺序，不等就会与 Skia 本帧
         // 对同一纹理的重绘并发（GL 靠 context FIFO 天然免掉这一步）。
-        self.target.wait_inflight();
-        if self.target.has_readback() {
+        // Vulkan 变体无外部目标（Skia 自建渲染目标），走同步读回。
+        let Some(target) = self.target.as_mut() else {
+            return Ok(Some(self.read_pixels()?));
+        };
+        target.wait_inflight();
+        if target.has_readback() {
             // 取回上一帧 + 发起本帧。读回路径只把传输移出关键路径，帧序不变。
-            let out = self.target.readback();
+            let out = target.readback();
             // GL 上裸读回解绑了 FBO，Skia 的状态缓存却仍以为它绑着——下一帧
             // 会把 DrawOp 发到空目标上（实测表现为 Skia 读回全零、画面冻结
             // 在旧帧）。读回后必须让 Skia 丢弃缓存，重新查询绑定。
@@ -224,6 +252,14 @@ pub enum CompositorBackend {
     /// Metal：一块系统 MTLDevice，wgpu 与 Skia 各自的队列共享它。
     #[cfg(target_os = "macos")]
     Metal { device: u64, queue: u64 },
+    /// Vulkan（Linux）：Skia 的 Vulkan backend，设备来自 SwiftShader ICD。
+    ///
+    /// 与 GL 变体的关键差别：Skia 自建渲染目标（`render_target`），
+    /// 不包装外部纹理——Vulkan 路径上 Skia 与宿主不共享同一份 image
+    /// 内存，跨 API 零拷贝做不到（这正是统一到 Vulkan 后 ANGLE 的 GL
+    /// 输出纹理进不来 Skia 的原因）。
+    #[cfg(target_os = "linux")]
+    Vulkan { session: std::sync::Arc<crate::gpu::vk::VkSession> },
 }
 
 impl CompositorBackend {
@@ -249,6 +285,9 @@ impl CompositorBackend {
                 gpu::direct_contexts::make_metal(&backend, None)
                     .ok_or_else(|| anyhow!("Skia make_metal 失败"))
             }
+            #[cfg(target_os = "linux")]
+            Self::Vulkan { session } => gpu::direct_contexts::make_vulkan(session.backend(), None)
+                .ok_or_else(|| anyhow!("Skia make_vulkan 失败")),
         }
     }
 
@@ -291,6 +330,37 @@ impl CompositorBackend {
             None,
         )
         .ok_or_else(|| anyhow!("wrap_backend_render_target 失败"))
+    }
+
+    /// Vulkan 变体：让 Skia 自建渲染目标。
+    ///
+    /// Vulkan 路径上没有「宿主纹理 + Skia 共享」这回事（跨 API 不能零拷贝
+    /// 共享 image 内存），所以由 Skia 自己分配渲染目标，读回走
+    /// `read_pixels`。
+    #[cfg(target_os = "linux")]
+    fn wrap_vulkan_target(
+        &self,
+        skia: &mut gpu::DirectContext,
+        width: u32,
+        height: u32,
+    ) -> Result<Surface> {
+        let info = ImageInfo::new(
+            (width as i32, height as i32),
+            ColorType::RGBA8888,
+            AlphaType::Premul,
+            None,
+        );
+        gpu::surfaces::render_target(
+            skia,
+            gpu::Budgeted::Yes,
+            &info,
+            None,
+            SurfaceOrigin::TopLeft,
+            None,
+            None,
+            None,
+        )
+        .ok_or_else(|| anyhow!("Skia Vulkan render_target 失败"))
     }
 }
 

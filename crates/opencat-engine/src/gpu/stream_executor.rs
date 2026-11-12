@@ -656,9 +656,21 @@ impl<'a> Replay<'a> {
         let gl = self.gl;
         // 句柄→GL 对象与 shader/program 元数据表都在 executor 上跨流持久
         // （持久 renderer 的后续帧流没有创建命令）；state 只留帧内状态机。
+        //
+        // 但 program 是 GL 全局状态，跨帧保持——浏览器里 uniform 落在
+        // 当前 program 上，three 的流是增量的（程序没变就不重发
+        // useProgram）。帧内状态机必须继承客户端影子的当前 program，
+        // 否则流首的 uniform 找不到程序（"uniform 命令出现在
+        // USE_PROGRAM 之前"）。restore_default_state 已把真 GL 绑回同一
+        // 程序，继承与真状态一致。
         let mut state = ReplayState {
-            program: None,
-            program_key: None,
+            program: ex
+                .client
+                .cur_program_key
+                .as_ref()
+                .and_then(|k| ex.program_cache.get(k))
+                .map(|e| e.program),
+            program_key: ex.client.cur_program_key.clone(),
         };
 
         let trace = self.trace;
@@ -1876,7 +1888,7 @@ impl<'a> Replay<'a> {
         let key = state
             .program_key
             .as_ref()
-            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前"))?;
+            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前（{name}）"))?;
         GpuStreamExecutor::resolve_uniform_on(ex, self.gl, key, name)
     }
 

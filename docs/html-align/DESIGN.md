@@ -109,3 +109,60 @@ release 渲染视频 vs 同工程 `renders/*_swgl.mp4` 的 k3diff，gate 不退�
 - `offsetWidth` 用布局探针预测链路（scope_boxes），合成盒（fit-content）
   首期近似：文本内在宽 + padding + border。
 - k3 无 @font-face，字体走系统回退链（Arial），与 swgl 参考同机字体假设。
+
+## GL 执行端：ANGLE 落地（2026-11-11）
+
+拍板（用户口径）：**WebGL 标准路径走 ANGLE**，不按端各做一遍对齐。
+core 的 GL stream → engine 的桌面 GL 转换层因此可以整体省掉——
+ANGLE 严格按 WebGL/GLES 语义校验参数，与 web 端（Chrome）同源。
+
+### 各端来源
+
+| 端 | ANGLE 来源 | 设备 | 说明 |
+|---|---|---|---|
+| Windows | 静态 mozangle | D3D11 | 原有路径，无运行时 DLL 依赖 |
+| Windows | 动态 `OC_ANGLE_DIR` | Vulkan+SwiftShader | 与 swgl 参考同渲染器 |
+| Linux | 动态 `OC_ANGLE_DIR` | Vulkan+硬件 GPU | **日常渲染**（GPU 优先） |
+| Linux | 动态 `OC_ANGLE_DIR` | Vulkan+SwiftShader | 与 swgl 参考同渲染器（`OC_ANGLE_SWIFTSHADER=1`） |
+
+mozangle 的 `egl` feature **只支持 Windows**（其 build.rs 硬断言非 Windows
+平台不支持 EGL 构建），且它打包的是 D3D11 后端——Linux 走官方 ANGLE 动态库
+（取自 Electron 发行包，`tools/angle-linux/fetch.sh`）。两端共用同一个 ANGLE
+实现，GL 流语义不随平台漂移。
+
+### Linux 上的两个真问题
+
+1. **原生 GL 不认 GLSL ES 300**：Mesa 桌面 GL 编译 three 的 ES 300 shader
+   直接失败（`syntax error, unexpected NEW_IDENTIFIER`）。ANGLE 是 GLES3
+   上下文，ES 300 原文直接编译——这正是 mozangle 当初被选中的原因。
+2. **帧内状态机与跨帧客户端影子脱节**：three 的流是增量的（程序没变就不重发
+   `useProgram`），而执行器每帧把帧内 `program_key` 重置为 `None` → 流首的
+   uniform 找不到程序（`uniform 命令出现在 USE_PROGRAM 之前`）。修复：帧内
+   状态机继承 `ex.client.cur_program_key`（program 是跨帧的 GL 全局状态，
+   `restore_default_state` 已把真 GL 绑回同一程序）。
+
+### 实测归因（vfx 1920×1080，SwiftShader，MP4 路径）
+
+| 阶段 | 耗时/帧 | 占比 |
+|---|---|---|
+| script（V8 + HTML 布局） | ~40ms | 4% |
+| gl-stream（GL 命令流执行） | ~1.5ms | 0.15% |
+| **compose（Skia 合成）** | **~930ms** | **94%** |
+| readback（PBO 双缓冲读回） | ~1.3ms | 0.1% |
+
+结论：**Skia 合成占 94%**——它是 ANGLE 上的光栅化成本，GL 命令流本身
+只占 0.15%。换硬件 ANGLE 直接砍掉这 94%（软件→硬件光栅）。
+
+### 当前分数（vfx-heygen-combined，788 帧）
+
+- 全片 **avg_p8 = 0.1516**（门限 0.02）——Linux 上从「一帧渲不出」到
+  全片可比的第一个基线。
+- 分布：f0-249 严重（p8 0.29~0.54，3D 折射段）、f300+ 良好（p8 0.004~0.07，
+  2D 段基本达标）。
+- 剩余主要差异：3D 段文字几何位置（左亮边缘差 145px），非 GL 语义——
+  折射/色散/bloom/字形本身逐位对齐。
+
+### 已知环境限制
+
+ANGLE + **NVIDIA** Vulkan 驱动在编译 shader 时崩（`NVVM compilation failed`
+后 SIGSEGV，驱动 bug，非本仓代码）。AMD RADV 与 lavapipe 正常。

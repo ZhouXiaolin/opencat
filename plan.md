@@ -149,3 +149,242 @@ Error: script eval: ReferenceError: Request is not defined
     注意 stash 陷阱：`git checkout stash@{0} --` 恢复了过时 WIP（已归零重打补丁）。
   - 探针清单（收尾删）：`_probe.html` `_mini-svg.html` `_mini-gl.html` `_mini-gl2.html`
     `_probe2/3/4.html` `_probeN.html`。
+
+## 八、批次③：全线 Vulkan 统一（2026-11-12 起，当前优先）
+
+**拍板（2026-11-12）**：Linux / Windows / macOS 三端都用 Vulkan 启用 GPU 管线；
+GL 与 Metal 路径退役。
+
+**动机**：Docker 打包后是纯 CPU 环境，没有 GPU 驱动。SwiftShader（Chrome/ANGLE
+用的 CPU Vulkan 实现）是唯一能同时喂饱 Skia、ANGLE、wgpu 三家的底座——三者都
+说 Vulkan，就不必各写一份 CPU 光栅路径，也不必「一端一端地做对齐」。
+
+### 已验证的前提（2026-11-12 实测）
+
+1. **三平台官方预编译包都带 Vulkan**（rust-skia 0.153.3，`rust-skia/skia-binaries`
+   releases）：`x86_64-unknown-linux-gnu-…-vulkan-…`、`x86_64-apple-darwin-…-vulkan-…`、
+   `x86_64-pc-windows-msvc-…-vulkan-…` 均存在——改 feature 不会回退源码编译。
+2. **Skia Vulkan backend 在 SwiftShader 上可建可渲**：`ash` 建 instance/device/queue
+   → `skia_safe::gpu::direct_contexts::make_vulkan` → `render_target` 画矩形，
+   读回像素精确为 `[255,0,0,255]`。
+3. **Skia Vulkan 与 GL 路径逐位一致**：vfx-heygen-combined f305，Vulkan vs GL
+   `p8 = 0.0`（逐位相同），两者对参考帧的差异也相同（`p8 = 0.0363`，残差是已知
+   dy=+10 几何偏移，修正后 0.01）。
+4. **ANGLE 暴露 `EGL_ANGLE_vulkan_image = YES`**：这是 WebGL 纹理能与 Skia
+   Vulkan backend 跨 API 零拷贝共享的前提（实测自 ANGLE Vulkan 后端的 EGL
+   扩展列表）。
+5. **wgpu 可在同一 SwiftShader ICD 上建设备**：adapter = `SwiftShader Device
+   (Subzero) (Cpu) backend=Vulkan`。
+
+### 本批次要做的事
+
+- **V1 预编译包本地化**（已完成）：`tools/skia-binaries/fetch.sh` 拉官方包到
+  `~/skia-binaries/`，`SKIA_BINARIES_URL` 指向本地 `file://` 地址。改
+  `skia-safe` 的 feature 后 key 会变，必须重跑该脚本，否则回退源码编译。
+- **V2 Vulkan 会话**（已完成）：`gpu::vk::VkSession`（ash 0.38 的句柄模型与旧版
+  不同：`Handle::as_raw()`）+ `gpu::vk::bootstrap_icd()` 统一 ICD。
+- **V3 Skia Vulkan 合成路径**（已完成，Linux）：`CompositorBackend::Vulkan` +
+  `OC_SKIA_BACKEND=vulkan` 开关；`VkRenderSession` 走 Skia 自建渲染目标。
+- **V4 WebGL 纹理跨 API 导入**（已完成，lavapipe 实测）：用
+  `EGL_ANGLE_vulkan_image` 把 ANGLE 的 VkImage 交给 Skia 的
+  `backend_render_targets::make_vulkan`，替掉 GL 纹理 `make_gl` 导入；同光栅器
+  下与独立 VkSession 逐字节一致。SwiftShader 上的零拷贝仍卡在 JIT SIGILL。
+（2026-11-12 复测：此句失效。SwiftShader 零拷贝已完整跑通 788 帧；见
+「SwiftShader 全片速度复测」。）
+- **V5 GL/Metal 退役**：删 `gpu/gl.rs`、`gpu/win32.rs`、`gpu/metal.rs`、
+  `gpu/egl.rs` 与 `present/{linux,win32,macos}.rs` 的 GL/Metal 分支；
+  `present/` 改走 Vulkan + 窗口 surface。
+- **V6 Windows/macOS 迁移**：Windows 的 ANGLE 走 Vulkan 后端（不再 D3D11）；
+  macOS 需要 MoltenVK（Vulkan on Metal）——无 MoltenVK 则 macOS 无 Vulkan。
+- **V7 单帧 tile 并行**（已验证，默认关）：帧级 flume + rayon 并行在
+  lavapipe 零拷贝下 96s / 10.4GiB，相对串行 98s / 3.05GiB 无收益——光栅器
+  线程已吃满 CPU。保留 `OC_PAR_JOBS` 开关，默认串行；单帧 tile 分块不再作为
+  当前加速杠杆。
+
+### 纪律
+
+- 每步都跑 k3diff 门：vfx-heygen-combined 全片 `avg_p8` 与基线（0.1516）
+  不得劣化；k3-promo 保持 PASS（0.01385）。
+- `OC_VK_ZERO_COPY` 打开时，WebGL 流输出纹理经 VkImage 导入 Skia；关闭时走
+  CPU 位图回读。最终合成帧仍同步读回给编码器，该读回不是纹理间零拷贝的目标。
+
+### V4/V7 实测（2026-11-12 深夜，lavapipe 零拷贝打通）
+
+**三个真根因修复（全部已验）**：
+
+1. `vulkan_handles()` 出参 `queue_family` 用了 `u32`——ANGLE 按 EGLAttrib
+   （64 位）写，多写 4 字节溢出到相邻栈变量；编译器布局一变就把
+   `gipa` 砸成垃圾值（`0x710800000000` 型）。出参一律改 `u64`。
+2. ICD dispatch 两处错：Mesa 系 ICD（lavapipe）只导出
+   `vk_icdGetInstanceProcAddr`（硬编码 dlsym `vkGetInstanceProcAddr` 拿
+   不到）；ICD 库路径改从 `VK_ICD_FILENAMES` 首个 json 的
+   `ICD.library_path` 解析（裸文件名走 dlopen 搜索，含 `/` 相对 json 目录）。
+   device 级函数仍按驱动分派：SwiftShader 走 ICD gipa，lavapipe 的
+   instance/device 是 loader 级句柄，走 loader 的 `vkGetDeviceProcAddr`，
+   并以 `BackendContext max_api_version=1.1` 兜住 loader 对 1.2/1.3 核心
+   命令的 NULL 门控。
+3. `FrameRenderer::new` 先建 `GpuRenderSession` 再被 Vk 分支遮蔽丢弃——其
+   ANGLE 会话 Drop 调 `eglTerminate`，杀死共享 display：零拷贝路径
+   `make_current` 报 0x3001（EGL_NOT_INITIALIZED），ANGLE 的 VkDevice 连带
+   销毁，Skia VMA 析构撞死 device（ICD 内解引用 `0x2881`）。双症状同源，
+   先判别 `OC_SKIA_BACKEND` 再建会话即除。
+
+**零拷贝链路验证**：k3-promo f10，lavapipe 零拷贝 PNG 与独立 VkSession
+PNG **逐字节一致**（md5 相同）；探针 `OC_VK_PROBE=1` 六步全绿。
+
+**vfx-heygen-combined 全片 788 帧（1920×1080@30，26.267s）实测**：
+
+| 配置 | 耗时 | 峰值 RSS | avg_p8（vs swgl 参考） |
+|---|---|---|---|
+| SwiftShader 串行（CPU 回读，旧基线） | 333s | 3.14GiB | 0.1681 |
+| lavapipe 零拷贝 串行 | **98s** | **3.05GiB** | 0.3794 ❌ |
+| lavapipe 零拷贝 OC_PAR_JOBS=3 | 96s | 10.4GiB | — |
+
+- 串行稳态分解（lavapipe 零拷贝）：script=12.4ms gl-stream=32.7ms
+  draw=59.3ms readback=17.9ms，avg 122.4ms/帧。零拷贝把 gl-stream 从
+  310ms 砍到 33ms——**速度 3.4 倍的来源就是砍工作量，不是并行**。
+- `OC_PAR_JOBS=3`（flume+rayon 帧级并行，每 worker 独立 pipeline）无收益：
+  光栅器线程已吃满 CPU，内存反而 3.4 倍。帧级并行保留作开关，默认串行。
+- **像素门 FAIL**：avg_p8=0.3794 远超基线 0.1516。分歧集中在 ANGLE 光栅的
+  WebGL 3D 开场（f0-199，p0 低至 0.11）；非 WebGL 段 mae≈0.24——llvmpipe
+  与 SwiftShader 的光栅精度/AA 不同，ANGLE-on-Vulkan(llvmpipe) 与参考
+  ANGLE-on-swgl 逐位分歧。SwiftShader-Vulkan 与 swgl 同族，故 0.1681 接近。
+  零拷贝导入本身无损（同光栅器下逐字节一致）。
+
+**拍板（2026-11-12）**：接受 llvmpipeline（lavapipe）作为当前 Vulkan 后端，
+以 98s / 3.05GiB 的速度与内存两门为准；像素门按「同光栅器下零拷贝无损、
+非 WebGL 段逐位一致」验收，WebGL 3D 开场与 swgl 参考的类间差异暂不阻塞
+本批提交。下一步研究 SwiftShader JIT 的 SIGILL：目标是让 ANGLE 与 Skia 同跑
+SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内存收益。
+`OC_SKIP_REFLECTOR` / `OC_VK_PROBE` / `OC_TRACE_VK_PROC` 等探针按诊断开关
+保留，不按死代码清理。
+
+### JIT 研究（2026-11-12，提交后）
+
+**复测结论：此前记录的「SwiftShader 零拷贝卡在 JIT SIGILL」已经不可考。**
+当前提交在 k3-promo f10 上用 `OC_VK_ZERO_COPY=1` +
+`OC_ANGLE_SWIFTSHADER=1` 完整跑通六步探针：Skia make_vulkan → render_target
+→ clear → submit → read_pixels → 合成，无 SIGILL、无 panic。进程里出现
+`/memfd:swiftshader_jit`，说明 Subzero/Reactor JIT 正在执行。
+
+**短样本实测（vfx-heygen-combined，PNG 序列）**：
+
+| 样本 | 帧数 | 后端 | elapsed | peak RSS |
+|---|---|---|---|---|
+| f0,1,2,5,10 | 5 | SwiftShader 零拷贝 | 8.00s | 715MiB |
+| f0,1,2,5,10 | 5 | llvmpipe 零拷贝 | 3.30s | 813MiB |
+| f100..780 | 8 | SwiftShader 零拷贝 | 11.81s | 1.21GiB |
+| f100..780 | 8 | llvmpipe 零拷贝 | 8.90s | 1.42GiB |
+
+- f0/1/2 两后端逐字节一致；f5 几乎一致；f10 出现 WebGL 光栅差异。
+- 长尾 f100/200/300/400/780 差异很小；f500/600/700 两后端几乎全画面分歧。
+  SwiftShader 输出在 f500 起大量黑像素，llvmpipe 输出是浅色背景；
+  `OC_KEEP_STREAM_TEX=1` 与 SwiftShader 独立 VkSession（CPU 回读）都复现同一
+  黑像素形态。故这不是零拷贝导入损坏，而是 ANGLE-on-SwiftShader 与
+  ANGLE-on-llvmpipe 在该场景的 GL 流/光栅产物不同。
+- 整片 MP4 路径已复测完成 788 帧，无卡死；此前「2 分钟无输出帧」结论作废。
+  当前待解的是连续长片 f511 后的像素漂移，不是 JIT SIGILL 或编码队列卡死。
+
+**JIT 边界**：
+
+- SwiftShader：Electron 自带 `libvk_swiftshader.so` 是 Subzero/Reactor 后端；
+  upstream 文档说明 CMake 默认 LLVM、Chrome GN 默认 Subzero（二进制更小）。
+  二进制里可见 `ThreadCount` / `AffinityMask` / Subzero translation 开关字样，
+  但发布库无符号、无运行时环境变量文档；不从字符串猜开关。
+- llvmpipe：`libvulkan_lvp.so` 链接 `LLVM*MCJIT*` 系列符号，shader 由 LLVM JIT
+  编译；Mesa 文档只稳定暴露 shader cache 开关（`MESA_SHADER_CACHE_*`）与调试
+  用 `LP_NO_RAST`，没有可安全加速生产渲染的 JIT 调优旋钮。
+- 结论：当前可执行的加速杠杆仍是「少做一次 CPU 回读」（零拷贝）与后端选择，
+  不是改 JIT。要同时拿回 swgl 像素等价，下一步应定位 f500–700 的 ANGLE GL
+  流差异，并单独诊断整片 MP4 连续渲染路径。
+
+### SwiftShader 全片速度复测（2026-11-12）
+
+复测配置：`OC_SKIA_BACKEND=vulkan`、`OC_ANGLE_DIR=tools/angle-linux`、
+`OC_ANGLE_SWIFTSHADER=1`、
+`VK_ICD_FILENAMES=tools/angle-linux/vk_swiftshader_icd.json`，不带
+`OC_VK_ZERO_COPY`（独立 VkSession + GL 流 CPU 回读）。这是旧基线里能完整
+跑完的 SwiftShader 路径；新加的零拷贝开关在 SwiftShader 上另测。
+
+**vfx-heygen-combined 全片 788 帧实测**：
+
+| 后端 | 配置 | 耗时 | 峰值 RSS | avg_p8 | mae_mean |
+|---|---|---|---|---|---|
+| llvmpipeline | 零拷贝，串行 | 110s | 3045MiB | 0.37788 | 48.4752 |
+| SwiftShader | 独立 VkSession，CPU 回读 | **306s** | **3133MiB** | **0.16805** | **5.3721** |
+| SwiftShader | 纹理零拷贝，共享 ANGLE VkDevice | 385s | 3079MiB | 0.43607 | 62.3621 |
+
+- SwiftShader 墙钟 305.96s、用户态 3148.01s、约 10.7 核占用；输出
+  `ffprobe` 为 1920×1080@30、26.266667s、788 帧，文件大小 76M。
+- 与同轮 llvmpipeline 相比：SwiftShader 慢 **2.78 倍**，峰值 RSS 高 88MiB；
+  但 `avg_p8` 0.16805 对 0.37788、mae 5.37 对 48.48，像素显著更接近 swgl
+  参考。速度门（2–3min）不达标。
+- SwiftShader 纹理零拷贝**已完整跑完 788 帧**：墙钟 384.32s、用户态
+  4113.49s、约 11.1 核占用，`ffprobe` 为 1920×1080@30、26.266667s、788 帧。
+  此前按前 67 帧外推的 24.5min、79 帧停止结论作废。逐帧均值：script 15.3ms、
+  gl-stream 5.0ms、draw 52.6ms、readback 412.7ms、total 485.7ms；f0–99
+  readback 1840ms/帧，f100–199 796ms/帧，f200–299 52ms/帧，f300 后约
+  86–135ms/帧。纹理零拷贝在 SwiftShader 上比 CPU 回读慢 79s，比 llvmpipeline
+  零拷贝慢 3.5 倍。
+- 像素门禁：SwiftShader 零拷贝 f0–510 与 CPU 回读逐帧接近；f511 起整片灰白，
+  k3diff f511 `p8=0.98923`、`mae=243.86`。连续 PNG f500–539 与 MP4 segment
+  500:540 的短窗口复测里，零拷贝与 CPU 回读逐字节一致。长片从 f0 连续执行到
+  f511 后出现状态漂移，短样本不能代表全片相位。
+- 归因复测（2026-11-12）：`OC_SKIP_REFLECTOR=1` 会改变像素相位。该开关下，
+  独立 VkSession + CPU 回读与共享 VkDevice + 纹理零拷贝的 `--segment 0:540`
+  都在 f511 灰白；全片独立 VkSession 仅设该开关也灰白，耗时从 306s 降到
+  91s、峰值 RSS 2962MiB、788 帧完整。关反射器不能用来验证零拷贝像素。
+- 严格对照（正常反射器、同样 `--segment 0:540`）：独立 VkSession + CPU 回读
+  226s、3108MiB，f510/f511 与全片正确基线逐字节一致；共享 VkDevice + 纹理
+  零拷贝 311s、3105MiB，f511 仍灰白。故 f511 漂移确属 ANGLE→Skia 纹理导入
+  路径，不是 segment、反射器或最终合成帧读回。
+- 速度归因：反射器开启时，SwiftShader 零拷贝 `--segment 0:540` 前 100 帧
+  readback 均值 2188.7ms；关闭反射器时均值 39.7ms，段耗时 60s、2913MiB。
+  反射器创建第二个离屏 ANGLE 会话，是前段 2s/帧 readback 的来源。
+  `OC_VK_GL_FINISH=1`、`OC_KEEP_STREAM_TEX=1`、`OC_FORCE_CPU_STREAM=1`、
+  Skia 资源缓存清理都不改变 f510/f511 像素。
+- 结论：当前要速度用 llvmpipeline 零拷贝；要像素接近参考用 SwiftShader CPU
+  回读，但耗时约 5min。SwiftShader 纹理零拷贝能完成全片，但速度不达标；
+  后续要同时处理两条独立问题：GLSL 反射器的第二 ANGLE 会话（速度），以及
+  ANGLE→Skia 借入纹理在 f511 后的状态漂移（像素）。不要改最终合成帧读回。
+
+### llvmpipeline `avg_p8` 归因与同步修复（2026-11-12，提交前）
+
+**结论**：llvmpipeline 零拷贝的 `avg_p8` 差距主要来自 ANGLE 与 Skia 共用
+`VkQueue` 时缺少跨 API 同步。GL 流只调 `glFlush()` 时，Skia 可能采样到尚未
+完成的 `VkImage`；`glFinish()` 建立同步点后，零拷贝全片几乎回到 CPU 回读
+的像素结果。最终合成帧读回给编码器保持不变。
+
+**全片 vfx-heygen-combined 788 帧实测**：
+
+| 配置 | 耗时 | 峰值 RSS | avg_p8 | mae_mean |
+|---|---:|---:|---:|---:|
+| llvmpipeline 零拷贝，仅 `glFlush()` | 110s | 3045MiB | 0.37788 | 48.4752 |
+| llvmpipeline CPU 回读 | 107s | 3418MiB | 0.17949 | 6.4315 |
+| SwiftShader CPU 回读 | 306s | 3133MiB | 0.16805 | 5.3721 |
+| llvmpipeline 零拷贝，默认 `glFinish()` | 106s | 3076MiB | **0.16278** | **5.7612** |
+
+- `k3diff` 产物：`out/k3diff-vfx-full-102303/`、
+  `out/k3diff-vfx-lvp-cpu-full/`、`out/k3diff-vfx-swiftshader-full-103621/`、
+  `out/k3diff-vfx-lvp-zc-finish-full/`。
+- 0:540 长段对照：默认零拷贝 `avg_p8=0.32589`、`mae=20.12`；
+  `glFinish()` 后 `avg_p8=0.22971`、`mae=7.46`。逐帧与 CPU 回读重合；
+  f4、f405–407、f492–497、f514–539 的整屏灰白漂移消失。
+- 短段 0:12 中，零拷贝与 CPU 回读的 FBO 字节、MP4 均逐字节一致。漂移需要
+  连续帧积累，说明问题不是单次 `VkImage` 导入格式或 ANGLE 光栅内容。
+- f40–99 等剩余高差异在 CPU 回读与 `glFinish()` 零拷贝中同幅存在，归因为
+  ANGLE-on-llvmpipe 与 swgl 参考的光栅/AA 精度差异，不是纹理零拷贝。
+
+**代码收口**：
+
+- 保留两条生产路径：`OC_ANGLE_SWIFTSHADER=1` 走独立 `VkSession` + GL 流
+  CPU 回读；不设时走 llvmpipeline 共享 `VkDevice` + 纹理零拷贝。
+- 纹理零拷贝路径默认 `glFinish()`。最终合成帧仍由
+  `GpuCompositor::finish_frame_blocking()` 同步读回给编码器。
+- 移除 SwiftShader 零拷贝实验链路与诊断开关：`OC_VK_ZERO_COPY`、
+  `OC_VK_PROBE`、`OC_VK_GL_FINISH`、`OC_SKIP_REFLECTOR`、
+  `OC_TRACE_VK_PROC`、`OC_TRACE_VK_IMAGE`、`OC_TRACE_ANGLE_EXT`、
+  ICD dispatch 专用解析与探针上下文。
+- 这是当前后端选择，不是对 SwiftShader 零拷贝的永久禁令；后续可单独研究。
+- 当前任务转为：在保留速度与内存收益的前提下，继续核对 llvmpipeline 光栅
+  与 swgl 参考的剩余类间差异。

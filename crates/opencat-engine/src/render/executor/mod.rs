@@ -4,7 +4,7 @@ pub(crate) mod replay;
 
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_types::ImageRef;
-use skia_safe::{Canvas, Image, Paint, PathBuilder, RuntimeEffect};
+use skia_safe::{Canvas, Image, ImageInfo, Paint, PathBuilder, RuntimeEffect, Surface};
 
 #[cfg(target_os = "linux")]
 use skia_safe::skottie::Animation;
@@ -71,6 +71,12 @@ pub struct EngineDrawExecutor {
     /// mask 子树重放深度：重放期间子树自己的 SaveLayer/Restore 不得触碰
     /// layer_marks（否则子树的配平 Restore 会弹掉主流程的层基准）。
     pub(crate) mask_replay: u32,
+    /// 帧内挂接的 GPU 合成 context（裸指针）：瓦片等离屏面优先建 GPU 后端，
+    /// 与主合成面同 context、快照即 GPU 纹理零拷贝贴回。由
+    /// `VkRenderSession::execute_render` 在 `compositor.split()` 后挂接、块尾
+    /// 撤下——借用期由挂接方保证（瓦片重放期间主 canvas 不被触碰）。
+    /// `None`（CPU 会话/测试）时离屏面退回 CPU raster，语义不变。
+    pub(crate) gpu_ctx: Option<*mut skia_safe::gpu::DirectContext>,
 }
 
 impl EngineDrawExecutor {
@@ -88,7 +94,27 @@ impl EngineDrawExecutor {
             mask_stack: Vec::new(),
             layer_marks: Vec::new(),
             mask_replay: 0,
+            gpu_ctx: None,
         }
+    }
+
+    /// 在挂接的 GPU context 上建离屏面；未挂接（CPU 会话/测试）返回 `None`，
+    /// 调用方退回 CPU raster。
+    pub(crate) fn gpu_surface(&self, info: &ImageInfo) -> Option<Surface> {
+        let ctx = unsafe { &mut *self.gpu_ctx? };
+        // sample_count=0（解析 AA）：MSAA 8x 实测反而灾难性偏差（f545 mae
+        // 7.5→31.9、p32 0.1%→39.6%，resolve 权重与位图语义不符）；解析 AA
+        // 与 CPU raster 仅边缘过渡带小幅差（p32 0.1% vs 参考）。
+        skia_safe::gpu::surfaces::render_target(
+            ctx,
+            skia_safe::gpu::Budgeted::Yes,
+            info,
+            None,
+            skia_safe::gpu::SurfaceOrigin::TopLeft,
+            None,
+            None,
+            None,
+        )
     }
 
     pub fn begin_frame(&mut self) {

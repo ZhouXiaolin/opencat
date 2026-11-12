@@ -867,6 +867,10 @@ impl VkRenderSession {
 
         {
             let (canvas, skia) = self.compositor.split();
+            // 帧内把合成 context 挂给 executor：canvas 位图/pattern 瓦片等
+            // 离屏面优先建 GPU 后端，与主合成面同 context、零拷贝贴回。块尾
+            // 撤下（借用只在瓦片重放期间被解引用）。
+            executor.gpu_ctx = Some(skia as *mut _);
             canvas.clear(skia_safe::Color::TRANSPARENT);
             let mut resolver = VkResolver {
                 skia,
@@ -886,6 +890,7 @@ impl VkRenderSession {
                 canvas,
             )
             .map_err(|e| anyhow!("{e}"))?;
+            executor.gpu_ctx = None;
             let _ = skia;
         }
         let t_draw = t0.map(|t| t.elapsed());

@@ -159,8 +159,14 @@ fn fill_pattern_skia(
 
     // tile 内容按设备像素密度重放（内容内嵌的 DrawPath 同一执行链）。
     // pattern 内容的 alpha 与引用处透明度无关（opacity 在 shader 上）。
+    // 离屏面优先 GPU 后端（挂接的合成 context）：快照即 GPU 纹理，shader
+    // 平铺回主面零拷贝；halftone 级逐点椭圆重放走 GPU。无 GPU context 时
+    // 退回 CPU raster，语义不变。
     let info = ImageInfo::new((tile_w, tile_h), ColorType::RGBA8888, AlphaType::Premul, None);
-    let Some(mut surface) = surfaces::raster(&info, None, None) else {
+    let Some(mut surface) = exec
+        .gpu_surface(&info)
+        .or_else(|| surfaces::raster(&info, None, None))
+    else {
         return Ok(false);
     };
     {

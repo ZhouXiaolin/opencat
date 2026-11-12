@@ -20,6 +20,13 @@ __pycache__/
 /json/
 /cctest.c
 
+# ANGLE Linux 运行时（官方 ANGLE 构建 + SwiftShader ICD，取自 Electron 发行包）。
+# 14M 二进制不入库——按 tools/angle-linux/fetch.sh 重新获取。
+tools/angle-linux/libEGL.so
+tools/angle-linux/libGLESv2.so
+tools/angle-linux/libvk_swiftshader.so
+tools/angle-linux/libvulkan.so.1
+
 # 大体积素材不入库（Solaren：先不上传）——文件保留在本地磁盘，源头可从参考仓库重拷。
 # 参考仓库（组合源码 + swgl 参考视频）：/Users/solaren/Projects/hyperframes-launches
 #   · 同名同路径的直接拷：cp <ref>/<示例>/<相对路径> examples/<示例>/<相对路径>
@@ -146,3 +153,6 @@ examples/xxx.xml
 # 开发过程文档
 docs/ablation/
 docs/g2-align/
+
+# 预编译包由 docker/fetch-prebuilt.sh 下载，不入库
+docker/prebuilt/

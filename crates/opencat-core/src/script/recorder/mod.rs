@@ -153,6 +153,10 @@ pub trait MutationRecorder {
     fn set_text_styles(&mut self, _styles: &std::collections::HashMap<String, crate::style::ComputedTextStyle>) {}
     fn text_style(&self, _id: &str) -> Option<&crate::style::ComputedTextStyle> { None }
 
+    /// 合成帧视口（`cqw`/`cqh` 写入折 px 的基准）。每帧随 frame_ctx 注入；
+    /// 不 shape 的 recorder 保持默认 no-op。
+    fn set_viewport(&mut self, _width: f32, _height: f32) {}
+
     /// 声明文本节点下所有动态叶子的字节区间（含祖先链）。渲染桥据此把
     /// wrapper 上的样式变更换算成该元素的 `TextUnitOverrideBatch`。
     fn text_leaf_ranges(&mut self, _id: &str) -> Vec<(Vec<String>, usize, usize)> {

@@ -81,6 +81,9 @@ pub struct HtmlDocument {
     pub composition_hosts: Vec<CompositionHost>,
     /// 元素 id → 协议属性（含根与嵌套宿主）。
     pub protos: HashMap<String, ElementProto>,
+    /// `::before`/`::after` 伪元素规则（从 css_text 抽出，见
+    /// [`extract_pseudo_rules`]）。dom 构建期对命中的宿主元素合成伪节点。
+    pub pseudo_rules: Vec<PseudoRuleRaw>,
     /// 撞车改写的作者 id → 树内 id（只在嵌套子文档非空）。engine 拿它同步
     /// 子文档脚本文本里的 `#id` 选择器。
     pub id_renames: HashMap<String, String>,
@@ -781,11 +784,18 @@ pub fn parse_html_prefixed_excluded(
         (Some(root), false) => rewrite_document_selectors(css_text, root.id()),
         _ => css_text,
     };
+    // 伪元素规则在 css_text 定稿（含子文档 id 改写）后抽取：宿主选择器
+    // 与树内 id 一致。命中宿主的伪节点在此**直接合成进树**（::before 首
+    // 插 / ::after 尾插，声明走 inline style 通道）——下游 JSON/JSONL/
+    // dom/布局/渲染全链按普通 Div 对待，零改动。
+    let pseudo_rules = extract_pseudo_rules(&css_text);
+    let root = root.map(|r| apply_pseudo_rules(r, &pseudo_rules));
 
     Ok(HtmlDocument {
         meta,
         root,
         css_text,
+        pseudo_rules,
         scripts: state.scripts,
         links: state.links,
         import_map: state.import_map,
@@ -793,6 +803,230 @@ pub fn parse_html_prefixed_excluded(
         protos: state.protos,
         id_renames: state.renames,
     })
+}
+
+/// 递归合成伪元素节点。同宿主同伪类型的多条规则按文档序合并声明
+/// （`decls1;decls2`，inline 通道后者胜 = 级联源序语义）。
+///
+/// 限制（语料核对后留档）：host 只支持单 compound（`#id`/`.a.b`/`tag`，
+/// 无组合器——`.resp ul li::before` 弹点形态不合成）；`content` 判定任一
+/// 命中规则生成盒即合成（`content:none`/缺省的 reset 规则天然不触发）；
+/// `content:"文本"` 只按生成空盒处理，文本本身不渲染（语料全是
+/// `content:""`）。
+fn apply_pseudo_rules(el: DomElement, rules: &[PseudoRuleRaw]) -> DomElement {
+    let DomElement::Div {
+        id,
+        class,
+        style,
+        duration,
+        data_start,
+        data_duration,
+        ua_tag,
+        attrs,
+        children,
+    } = el
+    else {
+        return el;
+    };
+
+    let mut children = children;
+    if !rules.is_empty() {
+        let tag = ua_tag.as_deref().unwrap_or("div");
+        let mut decls_before: Vec<String> = Vec::new();
+        let mut decls_after: Vec<String> = Vec::new();
+        for rule in rules {
+            if !pseudo_host_matches(&rule.host, &id, class.as_deref(), tag) {
+                continue;
+            }
+            if !content_generates_box(&rule.decls) {
+                continue;
+            }
+            if rule.pseudo == "::before" {
+                decls_before.push(rule.decls.clone());
+            } else {
+                decls_after.push(rule.decls.clone());
+            }
+        }
+        let mk = |kind: &str, decls: String| DomElement::Div {
+            id: format!("{id}{kind}"),
+            class: None,
+            style: Some(decls),
+            duration: None,
+            data_start: None,
+            data_duration: None,
+            ua_tag: None,
+            attrs: vec![("data-oc-pseudo".to_string(), kind.to_string())],
+            children: Vec::new(),
+        };
+        if !decls_before.is_empty() {
+            children.insert(0, mk("::before", decls_before.join(";")));
+        }
+        if !decls_after.is_empty() {
+            children.push(mk("::after", decls_after.join(";")));
+        }
+    }
+
+    let children = children
+        .into_iter()
+        .map(|c| apply_pseudo_rules(c, rules))
+        .collect();
+    DomElement::Div {
+        id,
+        class,
+        style,
+        duration,
+        data_start,
+        data_duration,
+        ua_tag,
+        attrs,
+        children,
+    }
+}
+
+/// 单 compound 宿主选择器（`#id`/`.a.b`/`tag` 混合）匹配：含空白、组合器
+/// 或通配的形态一律不命中（语料里此类是无 `content` 的 reset，天然被
+/// content 门卫拦下；这里再拦一道防误配）。
+fn pseudo_host_matches(host: &str, id: &str, class: Option<&str>, tag: &str) -> bool {
+    if host.is_empty()
+        || host.contains(char::is_whitespace)
+        || host.contains('>')
+        || host.contains('+')
+        || host.contains('~')
+        || host.contains('*')
+    {
+        return false;
+    }
+    let classes: ahash::HashSet<&str> = class.unwrap_or("").split_whitespace().collect();
+    let mut has_part = false;
+    let mut rest = host;
+    while !rest.is_empty() {
+        let matched = match rest.as_bytes()[0] {
+            b'#' => {
+                let end = rest[1..]
+                    .find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+                    .map(|i| i + 1)
+                    .unwrap_or(rest.len());
+                let hit = &rest[1..end] == id;
+                rest = &rest[end..];
+                has_part = true;
+                hit
+            }
+            b'.' => {
+                let end = rest[1..]
+                    .find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+                    .map(|i| i + 1)
+                    .unwrap_or(rest.len());
+                let hit = classes.contains(&rest[1..end]);
+                rest = &rest[end..];
+                has_part = true;
+                hit
+            }
+            c if c.is_ascii_alphanumeric() || c == b'_' => {
+                let end = rest
+                    .find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+                    .unwrap_or(rest.len());
+                let hit = rest[..end].eq_ignore_ascii_case(tag);
+                rest = &rest[end..];
+                has_part = true;
+                hit
+            }
+            _ => return false,
+        };
+        if !matched {
+            return false;
+        }
+    }
+    has_part
+}
+
+/// `content` 声明是否生成盒：引号值（`""`/`"x"`）生成；`none`/`normal`/
+/// 缺省/函数值（`attr(..)` 等）不生成。取**首个** content 声明（语料的
+/// 伪规则单值）。
+fn content_generates_box(decls: &str) -> bool {
+    let lower = decls.to_ascii_lowercase();
+    let Some(pos) = lower.find("content:") else {
+        return false;
+    };
+    let rest = &lower[pos + "content:".len()..];
+    let end = rest.find([';', '}']).unwrap_or(rest.len());
+    let value = rest[..end].trim();
+    if value.len() >= 2
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
+    {
+        return true;
+    }
+    !matches!(value, "" | "none" | "normal")
+}
+
+/// 一条 `::before`/`::after` 伪元素规则（文本级，声明原样留存）。
+#[derive(Debug, Clone)]
+pub struct PseudoRuleRaw {
+    /// 宿主选择器（去尾 `::before`/`::after` 后的文本，如 `#ou-root`、
+    /// `.resp ul li`）。dom 端匹配：简单复合（id/class/tag 单 compound）
+    /// 精确匹配；带组合器/通配的形态不命中（语料里此类是无 `content`
+    /// 的 box-sizing reset，天然不生成盒）。
+    pub host: String,
+    pub pseudo: &'static str,
+    /// 声明块原文（`{`…`}` 内部，含尾 `}` 前）。走 inline style 通道。
+    pub decls: String,
+}
+
+/// 从 css 文本抽出 `::before`/`::after` 规则（lightningcss 侧这些分支
+/// 照旧被 supported_selectors 丢弃，此处是补充载体）。文本级扫描与
+/// [`rewrite_document_selectors`] 同一骨架：`{` 前看 prelude，prelude 按
+/// `,` 拆选择器列表，伪元素项单独抽出（宿主 + 声明块原文）。声明走
+/// inline style 通道进伪节点，级联/绘制零改动。
+///
+/// 限制（语料核对后留档）：`content:none`/缺省在 dom 端拦下（不生成盒，
+/// `#x *::before` 的 reset 规则因此天然跳过）；`content:"文本"` 只按生成
+/// 盒处理，文本本身不渲染（语料全是 `content:""`）；带组合器宿主（
+/// `.resp ul li::before` 的弹点）不合成，挂账。
+fn extract_pseudo_rules(css: &str) -> Vec<PseudoRuleRaw> {
+    let mut out = Vec::new();
+    let bytes = css.as_bytes();
+    let mut from = 0usize;
+    while let Some(brace) = css[from..].find('{') {
+        let open = from + brace;
+        // prelude：上一个 `}`/`;` 之后到 `{`。
+        let prelude_start = css[..open]
+            .rfind(|c| c == '}' || c == ';')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prelude = &css[prelude_start..open];
+        // 配对 `}`（字符串/注释里的花括号在语料声明里不出现，单层扫描够用）。
+        let Some(close_rel) = css[open..].find('}') else { break };
+        let close = open + close_rel;
+        let decls = css[open + 1..close].trim().to_string();
+        from = close + 1;
+
+        for item in prelude.split(',') {
+            let sel = item.trim();
+            let Some((host, pseudo)) = split_pseudo_selector(sel) else {
+                continue;
+            };
+            out.push(PseudoRuleRaw {
+                host: host.trim().to_string(),
+                pseudo,
+                decls: decls.clone(),
+            });
+        }
+    }
+    out
+}
+
+/// `sel` 以 `::before`/`::after` 结尾时返回 (宿主选择器, 伪元素名)。
+/// 大小写不敏感（CSS 伪元素名不区分）；老式单冒号 `:before` 不认（语料
+/// 全部双冒号，且单冒号形态与伪类选择器歧义）。
+fn split_pseudo_selector(sel: &str) -> Option<(&str, &'static str)> {
+    let lower = sel.to_ascii_lowercase();
+    if lower.ends_with("::after") {
+        Some((&sel[..sel.len() - 7], "::after"))
+    } else if lower.ends_with("::before") {
+        Some((&sel[..sel.len() - 8], "::before"))
+    } else {
+        None
+    }
 }
 
 /// CSS 文本里的 id 选择器改写：`#old` → `#prefixold`。只在改写集非空时有

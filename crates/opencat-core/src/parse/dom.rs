@@ -959,6 +959,23 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             };
             let (mut style, vars) =
                 resolve_style_vars_for(&id, tag, class.as_deref(), inline_style.as_deref(), &attrs, ctx);
+            // CSS 画布传播（css-backgrounds 文档根语义）：html/body 规则的
+            // 背景传播到画布，与根元素自身声明的背景无关。tag 别名把
+            // `html,body{…}` 压进根元素级联后，作者 id/inline 声明（如
+            // `#root{background:transparent}`）会按 specificity 压掉传播色，
+            // 页面失去底色（body 无独立节点，传播只能落根盒）。作者通道
+            // 声明背景时，把 tag 通道的纯色追回为最底层（resolve 端层序：
+            // 末层最远先画）。渐变画布/`html{A} body{B}` 分写形态语料未涉及。
+            if is_html_root {
+                // 作者通道：tag 换 "div" 且临时摘掉别名，html/body 裸规则不命中。
+                let aliases = std::mem::take(&mut ctx.tag_aliases);
+                let author = resolve_style_vars_for(&id, "div", class.as_deref(), inline_style.as_deref(), &attrs, ctx).0;
+                if author.bg_color.is_some() || !author.background_layers.is_empty() {
+                    let tag_only = resolve_style_vars_for("", "body", None, None, &[], ctx).0;
+                    style.bg_canvas_color = tag_only.bg_color;
+                }
+                ctx.tag_aliases = aliases;
+            }
             // tag 别名只作用于根节点（html 前端根 = body/html）。
             ctx.tag_aliases.clear();
             // HTML 可见窗协议属性（docs/html-align/DESIGN.md）。

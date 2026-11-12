@@ -43,6 +43,12 @@ pub struct NodeStyleMutations {
     pub inset_top: Option<f32>,
     pub inset_right: Option<f32>,
     pub inset_bottom: Option<f32>,
+    /// 脚本写的百分比 inset（包含块的分数，`"87%"` → 0.87），与 px inset
+    /// 互斥。镜像 `width_pct`/`height_pct` 先例。
+    pub inset_left_pct: Option<f32>,
+    pub inset_top_pct: Option<f32>,
+    pub inset_right_pct: Option<f32>,
+    pub inset_bottom_pct: Option<f32>,
     pub width: Option<f32>,
     pub height: Option<f32>,
     /// 脚本写的百分比尺寸（包含块的分数，`"70%"` → 0.7），与 px 尺寸互斥。
@@ -380,6 +386,18 @@ impl NodeStyleMutations {
         if let Some(v) = self.inset_bottom {
             style.inset_bottom = Some(LengthPercentageAuto::length(v));
         }
+        if let Some(p) = self.inset_left_pct {
+            style.inset_left = Some(LengthPercentageAuto::percent(p));
+        }
+        if let Some(p) = self.inset_top_pct {
+            style.inset_top = Some(LengthPercentageAuto::percent(p));
+        }
+        if let Some(p) = self.inset_right_pct {
+            style.inset_right = Some(LengthPercentageAuto::percent(p));
+        }
+        if let Some(p) = self.inset_bottom_pct {
+            style.inset_bottom = Some(LengthPercentageAuto::percent(p));
+        }
         if let Some(v) = self.width {
             style.width = Some(v);
             style.width_percent = None;
@@ -473,6 +491,18 @@ impl NodeStyleMutations {
             }
             if let Some(v) = self.inset_bottom {
                 t.inset.bottom = TaffyLPA::length(v);
+            }
+            if let Some(p) = self.inset_left_pct {
+                t.inset.left = TaffyLPA::percent(p);
+            }
+            if let Some(p) = self.inset_top_pct {
+                t.inset.top = TaffyLPA::percent(p);
+            }
+            if let Some(p) = self.inset_right_pct {
+                t.inset.right = TaffyLPA::percent(p);
+            }
+            if let Some(p) = self.inset_bottom_pct {
+                t.inset.bottom = TaffyLPA::percent(p);
             }
             if let Some(v) = self.width {
                 t.size.width = Dimension::length(v);
@@ -953,6 +983,19 @@ pub fn apply_node_to_recorder(
     }
     if let Some(v) = m.inset_bottom {
         recorder.record_bottom(id, v);
+    }
+    // 百分比 inset 同走通用写通道（镜像尺寸 pct 先例）。
+    if let Some(p) = m.inset_left_pct {
+        recorder.write_style_value(id, "left", serde_json::json!(format!("{}%", p * 100.0)));
+    }
+    if let Some(p) = m.inset_top_pct {
+        recorder.write_style_value(id, "top", serde_json::json!(format!("{}%", p * 100.0)));
+    }
+    if let Some(p) = m.inset_right_pct {
+        recorder.write_style_value(id, "right", serde_json::json!(format!("{}%", p * 100.0)));
+    }
+    if let Some(p) = m.inset_bottom_pct {
+        recorder.write_style_value(id, "bottom", serde_json::json!(format!("{}%", p * 100.0)));
     }
     if let Some(v) = m.width {
         recorder.record_width(id, v);

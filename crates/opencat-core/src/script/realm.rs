@@ -579,6 +579,9 @@ impl<C: JsContext> ScriptRealm<C> {
                 s.set_text_styles(&text_styles);
             });
         }
+        // 容器查询单位（`cqw`/`cqh`）写入折 px 的视口基准（合成帧尺寸）。
+        self.ctx
+            .with_store_mut(|s| s.set_viewport(frame_ctx.width as f32, frame_ctx.height as f32));
 
         // Reset the Math.random call index so each frame starts with the same
         // random sequence at the same frame number.

@@ -1058,6 +1058,9 @@ fn replay_op(
         DrawOp::Rect { rect, paint: pid } => {
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
+            if std::env::var_os("OC_TRACE_DRAW").is_some() {
+                eprintln!("[rect] {rect:?} color={:?} shader={}", paint.color4f(), paint.shader().is_some());
+            }
             canvas.draw_rect(
                 Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height),
                 &paint,

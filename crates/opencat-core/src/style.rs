@@ -2127,6 +2127,11 @@ pub struct NodeStyle {
     /// 多层时按声明顺序叠加（第一层在最底）。CSS 语义下 `bg_color` 与渐变层
     /// 共存：resolve 时 `bg_color` 作为 Solid 层沉到所有 image 层之下。
     pub background_layers: Vec<BackgroundFill>,
+    /// 文档画布传播色（css-backgrounds 的 html/body 背景传播）：仅 HTML 根
+    /// 节点在作者通道（id/class/inline）声明背景时由 DOM 构建期写入。语义是
+    /// 画布底色，与根元素自身背景无关——resolve 时排在所有背景层之后
+    /// （最远，最先画），作者半透明背景正确地叠在其上。
+    pub bg_canvas_color: Option<ColorToken>,
     /// `bg-[length:Wpx_Hpx]`，绑定到最近添加的背景层（grid 等瓦片背景）。
     pub bg_size: Option<[f32; 2]>,
     /// `background-size` 的百分比声明（占盒宽高比例，0.5 = 50%）。解析期没有

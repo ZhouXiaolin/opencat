@@ -532,10 +532,6 @@ impl<C: JsContext> ScriptRealm<C> {
             self.ctx
                 .eval(&format!("globalThis.OC_G2_RENDERER = {:?};", v))?;
         }
-        if let Ok(v) = std::env::var("OC_RAF_PASSES") {
-            self.ctx
-                .eval(&format!("globalThis.OC_RAF_PASSES = {:?};", v))?;
-        }
         // Demo slug for the g2 example-batch runner composition.
         if let Ok(v) = std::env::var("OC_G2_DEMO") {
             self.ctx

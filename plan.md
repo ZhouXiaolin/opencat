@@ -311,15 +311,24 @@ SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内�
 |---|---|---|---|---|---|
 | llvmpipeline | 零拷贝，串行 | 110s | 3045MiB | 0.37788 | 48.4752 |
 | SwiftShader | 独立 VkSession，CPU 回读 | **306s** | **3133MiB** | **0.16805** | **5.3721** |
+| SwiftShader | 纹理零拷贝，共享 ANGLE VkDevice | 385s | 3079MiB | 0.43607 | 62.3621 |
 
 - SwiftShader 墙钟 305.96s、用户态 3148.01s、约 10.7 核占用；输出
   `ffprobe` 为 1920×1080@30、26.266667s、788 帧，文件大小 76M。
 - 与同轮 llvmpipeline 相比：SwiftShader 慢 **2.78 倍**，峰值 RSS 高 88MiB；
   但 `avg_p8` 0.16805 对 0.37788、mae 5.37 对 48.48，像素显著更接近 swgl
   参考。速度门（2–3min）不达标。
-- SwiftShader **零拷贝**连续 MP4 另测：前 67 帧稳定 1.87s/帧，readback 占
-  1.85s/帧，RSS 从 1.1GiB 涨到 1.65GiB；按此外推 788 帧约 24.5min，故在
-  79 帧处主动停止。16 帧跳帧 PNG 短样本两条 SwiftShader 路径都只要 11.71s，
-  说明慢的是连续帧/编码队列路径，不是单帧 f(t) 本身。
+- SwiftShader 纹理零拷贝**已完整跑完 788 帧**：墙钟 384.32s、用户态
+  4113.49s、约 11.1 核占用，`ffprobe` 为 1920×1080@30、26.266667s、788 帧。
+  此前按前 67 帧外推的 24.5min、79 帧停止结论作废。逐帧均值：script 15.3ms、
+  gl-stream 5.0ms、draw 52.6ms、readback 412.7ms、total 485.7ms；f0–99
+  readback 1840ms/帧，f100–199 796ms/帧，f200–299 52ms/帧，f300 后约
+  86–135ms/帧。纹理零拷贝在 SwiftShader 上比 CPU 回读慢 79s，比 llvmpipeline
+  零拷贝慢 3.5 倍。
+- 像素门禁：SwiftShader 零拷贝 f0–510 与 CPU 回读逐帧接近；f511 起整片灰白，
+  k3diff f511 `p8=0.98923`、`mae=243.86`。连续 PNG f500–539 与 MP4 segment
+  500:540 的短窗口复测里，零拷贝与 CPU 回读逐字节一致。长片从 f0 连续执行到
+  f511 后出现状态漂移，短样本不能代表全片相位。
 - 结论：当前要速度用 llvmpipeline 零拷贝；要像素接近参考用 SwiftShader CPU
-  回读，但耗时约 5min。SwiftShader 零拷贝仍不是可交付的全片路径。
+  回读，但耗时约 5min。SwiftShader 纹理零拷贝能完成全片，但速度与长片像素
+  都不达标；下一步诊断共享 VkDevice 下的纹理同步与生命周期。

@@ -189,6 +189,8 @@ GL 与 Metal 路径退役。
   `EGL_ANGLE_vulkan_image` 把 ANGLE 的 VkImage 交给 Skia 的
   `backend_render_targets::make_vulkan`，替掉 GL 纹理 `make_gl` 导入；同光栅器
   下与独立 VkSession 逐字节一致。SwiftShader 上的零拷贝仍卡在 JIT SIGILL。
+（2026-11-12 复测：此句失效。SwiftShader 零拷贝已完整跑通 788 帧；见
+「SwiftShader 全片速度复测」。）
 - **V5 GL/Metal 退役**：删 `gpu/gl.rs`、`gpu/win32.rs`、`gpu/metal.rs`、
   `gpu/egl.rs` 与 `present/{linux,win32,macos}.rs` 的 GL/Metal 分支；
   `present/` 改走 Vulkan + 窗口 surface。
@@ -203,8 +205,8 @@ GL 与 Metal 路径退役。
 
 - 每步都跑 k3diff 门：vfx-heygen-combined 全片 `avg_p8` 与基线（0.1516）
   不得劣化；k3-promo 保持 PASS（0.01385）。
-- 跨 API 零拷贝未落地前，Vulkan 路径的 WebGL 流走 CPU 位图回读（功能正确，
-  性能差）——这是过渡态，不是终点。
+- `OC_VK_ZERO_COPY` 打开时，WebGL 流输出纹理经 VkImage 导入 Skia；关闭时走
+  CPU 位图回读。最终合成帧仍同步读回给编码器，该读回不是纹理间零拷贝的目标。
 
 ### V4/V7 实测（2026-11-12 深夜，lavapipe 零拷贝打通）
 
@@ -280,9 +282,8 @@ SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内�
   `OC_KEEP_STREAM_TEX=1` 与 SwiftShader 独立 VkSession（CPU 回读）都复现同一
   黑像素形态。故这不是零拷贝导入损坏，而是 ANGLE-on-SwiftShader 与
   ANGLE-on-llvmpipe 在该场景的 GL 流/光栅产物不同。
-- 整片 MP4 路径在 SwiftShader 零拷贝下 2 分钟无输出帧、RSS 从 1GiB 增至
-  2.2GiB；PNG 短样本与长尾样本都正常。下一步要查 788 帧连续状态与编码队列，
-  而不是把问题归给 JIT SIGILL。
+- 整片 MP4 路径已复测完成 788 帧，无卡死；此前「2 分钟无输出帧」结论作废。
+  当前待解的是连续长片 f511 后的像素漂移，不是 JIT SIGILL 或编码队列卡死。
 
 **JIT 边界**：
 
@@ -329,6 +330,20 @@ SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内�
   k3diff f511 `p8=0.98923`、`mae=243.86`。连续 PNG f500–539 与 MP4 segment
   500:540 的短窗口复测里，零拷贝与 CPU 回读逐字节一致。长片从 f0 连续执行到
   f511 后出现状态漂移，短样本不能代表全片相位。
+- 归因复测（2026-11-12）：`OC_SKIP_REFLECTOR=1` 会改变像素相位。该开关下，
+  独立 VkSession + CPU 回读与共享 VkDevice + 纹理零拷贝的 `--segment 0:540`
+  都在 f511 灰白；全片独立 VkSession 仅设该开关也灰白，耗时从 306s 降到
+  91s、峰值 RSS 2962MiB、788 帧完整。关反射器不能用来验证零拷贝像素。
+- 严格对照（正常反射器、同样 `--segment 0:540`）：独立 VkSession + CPU 回读
+  226s、3108MiB，f510/f511 与全片正确基线逐字节一致；共享 VkDevice + 纹理
+  零拷贝 311s、3105MiB，f511 仍灰白。故 f511 漂移确属 ANGLE→Skia 纹理导入
+  路径，不是 segment、反射器或最终合成帧读回。
+- 速度归因：反射器开启时，SwiftShader 零拷贝 `--segment 0:540` 前 100 帧
+  readback 均值 2188.7ms；关闭反射器时均值 39.7ms，段耗时 60s、2913MiB。
+  反射器创建第二个离屏 ANGLE 会话，是前段 2s/帧 readback 的来源。
+  `OC_VK_GL_FINISH=1`、`OC_KEEP_STREAM_TEX=1`、`OC_FORCE_CPU_STREAM=1`、
+  Skia 资源缓存清理都不改变 f510/f511 像素。
 - 结论：当前要速度用 llvmpipeline 零拷贝；要像素接近参考用 SwiftShader CPU
-  回读，但耗时约 5min。SwiftShader 纹理零拷贝能完成全片，但速度与长片像素
-  都不达标；下一步诊断共享 VkDevice 下的纹理同步与生命周期。
+  回读，但耗时约 5min。SwiftShader 纹理零拷贝能完成全片，但速度不达标；
+  后续要同时处理两条独立问题：GLSL 反射器的第二 ANGLE 会话（速度），以及
+  ANGLE→Skia 借入纹理在 f511 后的状态漂移（像素）。不要改最终合成帧读回。

@@ -753,7 +753,7 @@ impl VkRenderSession {
         })
     }
 
-    /// 渲染一帧并读回 RGBA。
+    /// 渲染一帧并读回 RGBA（单帧/PNG/预热路径的整帧薄壳）。
     pub fn render_frame(
         &mut self,
         pipeline: &mut crate::EnginePipeline,
@@ -762,36 +762,58 @@ impl VkRenderSession {
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         frame_index: u32,
     ) -> Result<Vec<u8>> {
+        let render = pipeline.render_frame(frame_index)?;
+        self.execute_render(
+            render,
+            executor,
+            generated_cache,
+            media_ctx,
+            &pipeline.textures,
+            pipeline.loader_arc(),
+            frame_index,
+        )
+    }
+
+    /// 执行阶段（调用方线程 = ANGLE/Skia 上下文所在线程）：GL 流执行 +
+    /// Skia 合成 + 同步读回。帧是纯数据（[`opencat_core::ir::RenderFrame`]），
+    /// 与 script 阶段经 flume 通道分线程衔接。`media_ctx`（视频解码/图像
+    /// 光栅缓存）只属于本阶段；loader/textures 是 open 后只读的 Arc 共享。
+    #[allow(clippy::too_many_arguments)]
+    pub fn execute_render(
+        &mut self,
+        render: opencat_core::ir::RenderFrame,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        media_ctx: &mut MediaContext,
+        pipeline_textures: &std::sync::Arc<crate::gpu::TextureRegistry>,
+        loader: &std::sync::Arc<crate::resource::loader::EngineLoader>,
+        frame_index: u32,
+    ) -> Result<Vec<u8>> {
         let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
         let t0 = timing.then(std::time::Instant::now);
         if let Some(gl) = &self.gl_session {
             gl.make_current()?;
         }
-        let render = pipeline.render_frame(frame_index)?;
-        let t_script = t0.map(|t| t.elapsed());
+        let t_script: Option<std::time::Duration> = None;
         let mut frame = render.draw;
         let mut media_plan = render.media;
-        if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM")
-            && let Some(gpu) = &render.gpu
-        {
-            dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
-        }
-        if std::env::var_os("OC_TRACE_STREAMS").is_some() {
-            match &render.gpu {
-                Some(gpu) => {
-                    eprintln!("[streams] f{frame_index} n={}", gpu.streams.len());
-                    for s in &gpu.streams {
-                        eprintln!(
-                            "[streams]   {:?} {}x{} backend={:?}",
-                            s.target_id, s.width, s.height, s.backend
-                        );
-                    }
+        if let Some(gpu) = render.gpu.as_ref() {
+            if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM") {
+                dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
+            }
+            if std::env::var_os("OC_TRACE_STREAMS").is_some() {
+                eprintln!("[streams] f{frame_index} n={}", gpu.streams.len());
+                for s in &gpu.streams {
+                    eprintln!(
+                        "[streams]   {:?} {}x{} backend={:?}",
+                        s.target_id, s.width, s.height, s.backend
+                    );
                 }
-                None => eprintln!("[streams] f{frame_index} none"),
             }
         }
         if let Some(gl) = &self.gl_session {
-            // 流的执行必须在 ANGLE 上下文 current 时进行（脚本阶段可能切走）。
+            // 流的执行必须在 ANGLE 上下文 current 时进行（produce 阶段可能
+            // 切走；跨线程后 current 本就归本线程，不跨线程 make/还）。
             gl.make_current()?;
             if let Some(gpu) = &render.gpu {
                 let has_webgpu = gpu
@@ -834,7 +856,7 @@ impl VkRenderSession {
             }
         } else if let Some(gpu) = &render.gpu {
             // 零拷贝关闭：GL 流由 ANGLE 执行后立刻回读位图（过渡态）。
-            crate::render::cpu_execute_gpu_streams(&pipeline.textures, &mut media_plan, gpu)?;
+            crate::render::cpu_execute_gpu_streams(pipeline_textures, &mut media_plan, gpu)?;
         }
         let t_streams = t0.map(|t| t.elapsed());
         let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
@@ -854,7 +876,7 @@ impl VkRenderSession {
             crate::render::frame::execute_render_frame_with_gpu(
                 &mut frame,
                 &media_plan,
-                pipeline.loader(),
+                loader,
                 crate::render::frame::FrameExec {
                     executor,
                     media_ctx,
@@ -1182,23 +1204,114 @@ pub fn render_from_source_with_base(
                 (info.width, info.height)
             };
 
-            let mut executor = crate::render::executor::EngineDrawExecutor::new();
-            let mut renderer = FrameRenderer::new(
-                &mut pipeline,
-                &mut media_ctx,
-                &mut executor,
-                &mut generated_cache,
-                frame_count,
-                aligned_info.0,
-                aligned_info.1,
-            )?;
+            if !crate::gpu::requested() {
+                // CPU 后端：无 GPU 执行线程可拆，走串行 FrameRenderer。
+                let mut executor = crate::render::executor::EngineDrawExecutor::new();
+                let mut renderer = FrameRenderer::new(
+                    &mut pipeline,
+                    &mut media_ctx,
+                    &mut executor,
+                    &mut generated_cache,
+                    frame_count,
+                    aligned_info.0,
+                    aligned_info.1,
+                )?;
+                // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
+                // hf-seek 等）与连续渲染不同，预热后段内各帧与整片同相位。
+                if range.start > 0 {
+                    renderer.render_frame_blocking(range.start - 1)?;
+                }
+                let start = range.start;
+                encode_rgba_frames(
+                    output_path,
+                    aligned_info.0,
+                    aligned_info.1,
+                    info.fps,
+                    range.end - range.start,
+                    mp4_config,
+                    audio_track.as_ref(),
+                    |_, _| {},
+                    |encode_index| renderer.render_for_encode(start + encode_index),
+                )?;
+                return Ok(());
+            }
+
+            // ── flume 三级流水线（GPU 路径）────────────────────────────
+            // script（主线程；V8 isolate 非 Send 不能搬家）→ gpu 执行线程
+            // （ANGLE/Skia 上下文 + media_ctx 归它所有）→ x264（编码在
+            // `encode_rgba_frames` 内与渲染交错）。帧序 = channel FIFO，
+            // 各阶段内部严格串行——frame=f(t) 确定性不变。loader/textures
+            // 是 open 后只读的 Arc 共享；背压 2 帧：script 最多超前执行 2 帧。
+            let loader_arc = pipeline.loader_arc().clone();
+            let textures = pipeline.textures.clone();
+            let composition_fps = info.fps;
+            // Skia 的 GrDirectContext 非 Send（rust-skia 保守禁跨线程）——
+            // session/缓存全部在 gpu 线程内创建，主线程零 GPU 状态。
+            let (tx_frame, rx_frame) =
+                flume::bounded::<(u32, opencat_core::ir::RenderFrame, bool)>(2);
+            let (tx_px, rx_px) = flume::bounded::<Vec<u8>>(2);
+            let gpu_error: std::sync::Arc<std::sync::Mutex<Option<String>>> =
+                std::sync::Arc::default();
+
             // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
             // hf-seek 等）与连续渲染不同，预热后段内各帧与整片同相位。
+            // 预热帧的 script 在主线程先行产出，经通道带 discard 标志送达。
             if range.start > 0 {
-                renderer.render_frame_blocking(range.start - 1)?;
+                let warm = pipeline.render_frame(range.start - 1)?;
+                tx_frame.send((range.start - 1, warm, true))?;
             }
-            let start = range.start;
-            encode_rgba_frames(
+
+            let gpu_err_slot = gpu_error.clone();
+            let gpu_handle = std::thread::Builder::new()
+                .name("oc-gpu-exec".into())
+                .spawn(move || {
+                    let mut session = match VkRenderSession::new(aligned_info.0, aligned_info.1)
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            *gpu_err_slot.lock().unwrap() = Some(format!("会话创建: {e:#}"));
+                            return;
+                        }
+                    };
+                    let mut media_ctx = MediaContext::new();
+                    media_ctx.set_composition_fps(composition_fps);
+                    let mut executor = crate::render::executor::EngineDrawExecutor::new();
+                    let mut generated_cache = generated_image_cache_from_env();
+                    while let Ok((f, rf, discard)) = rx_frame.recv() {
+                        let outcome = session.execute_render(
+                            rf,
+                            &mut executor,
+                            &mut generated_cache,
+                            &mut media_ctx,
+                            &textures,
+                            &loader_arc,
+                            f,
+                        );
+                        match outcome {
+                            Ok(px) => {
+                                if !discard && tx_px.send(px).is_err() {
+                                    break; // 编码端提前收场
+                                }
+                            }
+                            Err(e) => {
+                                *gpu_err_slot.lock().unwrap() = Some(format!("f{f}: {e:#}"));
+                                break;
+                            }
+                        }
+                    }
+                    // tx_px 随闭包结束 drop：script 端 send 失败、编码端
+                    // recv 失败，都能感知收场。
+                })?;
+
+            // script 推进嵌在 frame_fn 里：编码器每要一帧像素前，先在主
+            // 线程 render 一帧 script——V8 的 38ms 与 gpu 线程的 85ms 重叠
+            // （render 期间 gpu 在执行上一帧；recv 阻塞等像素时同理）。若
+            // script 独立循环先行，rx_px 窗口填满后 gpu/script 相互等待而
+            // encode_rgba_frames 还未启动——死锁。
+            let mut script_next = range.start;
+            let mut script_error: Option<anyhow::Error> = None;
+            let range_end = range.end;
+            let encode_result = encode_rgba_frames(
                 output_path,
                 aligned_info.0,
                 aligned_info.1,
@@ -1207,8 +1320,45 @@ pub fn render_from_source_with_base(
                 mp4_config,
                 audio_track.as_ref(),
                 |_, _| {},
-                |encode_index| renderer.render_for_encode(start + encode_index),
-            )?;
+                |_encode_index| {
+                    if let Some(e) = script_error.as_ref() {
+                        anyhow::bail!("script 阶段: {e:#}");
+                    }
+                    if script_next < range_end {
+                        match pipeline.render_frame(script_next) {
+                            Ok(rf) => {
+                                if tx_frame.send((script_next, rf, false)).is_err() {
+                                    // gpu 线程已死：错误在槽位，recv 会立刻失败
+                                }
+                            }
+                            Err(e) => {
+                                script_error = Some(anyhow!("script 阶段 f{}: {e:#}", script_next));
+                                anyhow::bail!("script 阶段 f{}: {e:#}", script_next);
+                            }
+                        }
+                        script_next += 1;
+                    }
+                    if let Some(e) = gpu_error.lock().unwrap().as_ref() {
+                        anyhow::bail!("gpu 执行线程: {e}");
+                    }
+                    let px =
+                        rx_px.recv().map_err(|_| anyhow!("gpu 执行线程提前收场（无更多像素）"))?;
+                    Ok(Some(px))
+                },
+            );
+            // 收场：script 已推进完（或中途错），tx_frame 随作用域 drop 让
+            // gpu 线程 recv None 自然退出。
+            drop(tx_frame);
+            let _ = gpu_handle.join();
+            let gpu_err = gpu_error.lock().unwrap().take();
+            // 根因优先：script/gpu 的错误盖过编码错误（后者多半是前者引起）。
+            if let Some(e) = script_error {
+                return Err(e);
+            }
+            if let Some(e) = gpu_err {
+                return Err(anyhow!("gpu 执行线程: {e}"));
+            }
+            encode_result?;
         }
     }
 

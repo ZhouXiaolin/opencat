@@ -393,11 +393,13 @@ pub fn extract_html_with_base_dir(
         // （dom_api.js 把 setTimeout 降级到 requestAnimationFrame）。提取期
         // 没有帧宿主来 drain __ocRafQueue，只跑微任务会让这类续体永久挂起
         // ——timeline-launch act2 的聊天气泡全段缺失、liquid 的 three 层不亮
-        // 都是这个根因。这里按「微任务 → 帧队列」交替排空，有界 32 轮：
-        // 等库就绪的 setTimeout 循环（如 act2 等 lottie 40 次）也能落定。
+        // 都是这个根因。这里按「微任务 → 帧队列」交替排空。单 pass 后每轮
+        // flush 只跑一批：一条 setTimeout 轮询链每轮恰好推进一次
+        // （await 续体走微任务，下一个 setTimeout 入队等下一轮），轮数须盖过
+        // 页面里最长的轮询（act2 等 lottie 40 次）——有界 64 轮。
         // drain 只发生在提取期建树阶段；逐帧渲染仍由 realm 的帧宿主冲刷，
         // 帧内容依旧是 t 的纯函数（frame = f(t)）。
-        for _ in 0..32 {
+        for _ in 0..64 {
             ctx.run_microtasks();
             let pending = ctx.eval_json(
                 "(function(){ return globalThis.__ocRafQueue ? globalThis.__ocRafQueue.length : 0; })()",
@@ -411,6 +413,9 @@ pub fn extract_html_with_base_dir(
         // 异步登记的 timeline 补 seek：必须在 async 续体全部落定之后。
         ctx.eval("globalThis.__ocHtmlSeekLate();")?;
         ctx.run_microtasks();
+        // 虚拟 rAF 驱动（OC_VTIME=1）不需要提取期动作：play/lagSmoothing
+        // 都挂在 driver 逐帧段（渲染进程的 realm 是全新重建，JS 状态不跨
+        // 进程，提取期调用无效）。
         let extract = eval_json_string(&ctx, "globalThis.__ocHtmlExtract()")?;
         if let Some(path) = std::env::var_os("OC_DUMP_EXTRACT") {
             let _ = std::fs::write(&path, serde_json::to_string_pretty(&extract)?);
@@ -946,16 +951,26 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     }
     // HTML_API_RUNTIME 原文直接拼（不进 format! 模板——JS 花括号会被当
     // 占位符解析）；seed JSON 走独立插值。
-    let replay = matches!(
+    let mut replay = matches!(
         std::env::var("OC_HTML_REPLAY").as_deref(),
         Ok("1") | Ok("true") | Ok("on")
     );
+    // 虚拟 rAF 驱动（OC_VTIME=1）：每帧 __ocSetClock(t) + 帧宿主 flush 一次
+    // tick，timeline 交给自然播放（__ocVtimeBegin），seek 链旁路。语义上它
+    // 就是持久 init-once 的连续化——REPLAY 每帧重放与之不相容，强制关。
+    let vtime = matches!(
+        std::env::var("OC_VTIME").as_deref(),
+        Ok("1") | Ok("true")
+    );
+    if vtime {
+        replay = false;
+    }
     // 计数探针（临时诊断）：realm 无墙钟，只能数调用量。包 __write_style_value
     // 计数，每 5 帧向 __ocLogs 落一条（OC_TRACE_JSLOGS 时倒 stderr）。
     let trace_js = std::env::var_os("OC_TRACE_JS").is_some();
     let mut driver = String::new();
     driver.push_str(&format!(
-        "globalThis.__ocHtmlReplay = {replay};\nglobalThis.__ocTraceJs = {trace_js};\n"
+        "globalThis.__ocHtmlReplay = {replay};\nglobalThis.__ocTraceJs = {trace_js};\nglobalThis.__ocVtime = {vtime};\n"
     ));
     driver.push_str("var __ocHtmlInit = globalThis.__ocHtmlReplay || !globalThis.__ocHtmlPageInited;\n");
     driver.push_str("if (__ocHtmlInit) {\n");
@@ -1019,7 +1034,48 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("        var markEntry = globalThis.__ocHtmlPageMarks[markIndex];\n");
     driver.push_str("        __ocGroups.push([__ocTime - markEntry[0], markEntry[1], markEntry[2]]);\n");
     driver.push_str("    }\n");
-    driver.push_str("    if (!globalThis.__ocSkipSeek) globalThis.__ocHtmlSeekGroups(__ocGroups);\n");
+    if vtime {
+        // 虚拟 rAF 驱动：钟到本帧时刻；realm 帧宿主紧随的 flush 跑一次
+        // gsap tick（dt=帧间隔），timeline 自然播放，onUpdate/tl.call 自然
+        // 越过触发（appendChild 类 DOM 生长与浏览器同语义）。marks 分段
+        // seek 整条旁路。__ocSeekT 同步跟钟：putImageData 生成图键
+        // （html_api）与视频供帧对齐（webgl_api）都读它，恒 0 会撞键。
+        driver.push_str("    globalThis.__ocSetClock(__ocTime);\n");
+        driver.push_str("    globalThis.__ocSeekT = __ocTime;\n");
+        // 播放器语义（每帧幂等）：注册表 timeline 按幕锚点交给自然播放。
+        // 渲染进程的 realm 是全新重建（提取只传树 JSON，JS 状态不跨进程），
+        // play 必须发生在渲染进程——挂在逐帧段覆盖 async 续体后到者
+        // （init 后每帧只有 3 轮排空，act2 类 40 次 setTimeout 轮询跨多帧
+        // 才落定，一次性调用会漏）。幕锚点=data-start（__ocCompOffsets）：
+        // 浏览器端播放器「到幕起点才 play 该幕」→ gsap.delayedCall(at, play)，
+        // 全部立即 play 会把后面的幕提前到 0。lagSmoothing(0)：虚拟钟一次
+        // 可跨秒级 dt（首帧/中途起渲），gsap 默认把 >500ms 的 dt 拉回 33ms，
+        // 动画落后钟 33ms×N 永不追上。
+        driver.push_str("    if (!globalThis.__ocVtimePending) globalThis.__ocVtimePending = {};\n");
+        // ticker.wake() 每帧强制：gsap ticker 在感知不到活跃动画时 sleep
+        // （停 rAF 自续），sleep 间隙后偶发的大 dt 直推会跳过中间时刻的
+        // tl.call（appendChild 类 DOM 生长整段丢失）。每帧唤醒保证 tick
+        // 每帧恰好一次、dt=帧间隔。
+        driver.push_str("    if (globalThis.gsap) { if (!globalThis.__ocVtimeLag) { globalThis.__ocVtimeLag = true; try { globalThis.gsap.ticker.lagSmoothing(0); } catch (error) {} } try { globalThis.gsap.ticker.wake(); } catch (error) {} }\n");
+        driver.push_str("    (function () {\n");
+        driver.push_str("        var reg = (typeof window === 'object' && window && window.__timelines) || {};\n");
+        driver.push_str("        var pend = globalThis.__ocVtimePending;\n");
+        driver.push_str("        var offs = globalThis.__ocCompOffsets || {};\n");
+        driver.push_str("        var g = globalThis.gsap;\n");
+        driver.push_str("        for (var id in reg) {\n");
+        driver.push_str("            if (pend[id]) continue;\n");
+        driver.push_str("            var tl = reg[id];\n");
+        driver.push_str("            if (!tl || typeof tl.play !== 'function') continue;\n");
+        driver.push_str("            pend[id] = true;\n");
+        driver.push_str("            var at = Number(offs[id]);\n");
+        driver.push_str("            if (!(at > 0)) { try { tl.play(); } catch (error) {} }\n");
+        driver.push_str("            else if (g && typeof g.delayedCall === 'function') { g.delayedCall(at, function (t2) { return function () { try { t2.play(); } catch (error) {} }; }(tl)); }\n");
+        driver.push_str("            else { try { tl.play(); } catch (error) {} }\n");
+        driver.push_str("        }\n");
+        driver.push_str("    })();\n");
+    } else {
+        driver.push_str("    if (!globalThis.__ocSkipSeek) globalThis.__ocHtmlSeekGroups(__ocGroups);\n");
+    }
     // hyperframes 播放器协议：页面把整帧重绘挂在 `hf-seek` 上（liquid 的
     // window.addEventListener('hf-seek')）。引擎按段 seek 完毕后派发一次，
     // detail.time = 当前主时间。将来归 hyperframes 适配层。

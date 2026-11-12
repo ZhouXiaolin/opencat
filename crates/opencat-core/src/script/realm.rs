@@ -723,6 +723,14 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 self.ctx.run_microtasks();
                 self.ctx.eval("__ocFlushRaf();")?;
             }
+            // hyperframes 播放器协议（协议事件面，非库级 seek 适配）：liquid
+            // 等 WebGL 自绘语料把整帧重绘挂在 window 'hf-seek' 上——它们没有
+            // 自己的 rAF 循环，rAF 直驱不经过它们。rAF flush 后按当前虚拟钟
+            // 派发一次，使页面 adapter 在 frame-end 读回 GL 画之前完成本帧
+            // 重绘。静默吞掉 handler 异常会让每帧停在首帧且无据可查。
+            self.ctx.eval(
+                "if (globalThis.__ocMode !== 'extract') { try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: (globalThis.__ocClockMs() || 0) / 1000 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); } }",
+            )?;
             // Native web GL: rAF callbacks have issued the real WebGL draw
             // calls; read the canvas drawing buffers into the generated-image
             // channel before the frame's media plan is built.

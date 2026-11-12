@@ -24,12 +24,16 @@ use glow::HasContext;
 struct CurrentContextGuard {
     #[cfg(target_os = "windows")]
     saved: Option<crate::gpu::angle::CurrentBinding>,
+    // Linux 走 ANGLE 时用 ANGLE 的现场接口；回退原生 EGL 时用 EGL 的。
     #[cfg(target_os = "linux")]
     saved: Option<(
-        khronos_egl::Display,
-        khronos_egl::Surface,
-        khronos_egl::Surface,
-        khronos_egl::Context,
+        Option<crate::gpu::angle::CurrentBinding>,
+        Option<(
+            khronos_egl::Display,
+            khronos_egl::Surface,
+            khronos_egl::Surface,
+            khronos_egl::Context,
+        )>,
     )>,
 }
 
@@ -43,8 +47,16 @@ impl CurrentContextGuard {
         }
         #[cfg(target_os = "linux")]
         {
+            // 会话底座决定用哪套现场接口：ANGLE 会话用 ANGLE 的
+            // CurrentBinding（EGL 调用面同形），原生 EGL 会话用 EGL 的。
+            let angle_saved = crate::gpu::session::GlSession::current_angle_binding();
+            let egl_saved = if angle_saved.is_none() {
+                crate::gpu::egl::EglContext::get_current_context()
+            } else {
+                None
+            };
             Ok(Self {
-                saved: crate::gpu::egl::EglContext::get_current_context(),
+                saved: Some((angle_saved, egl_saved)),
             })
         }
     }
@@ -59,10 +71,17 @@ impl Drop for CurrentContextGuard {
             tracing::warn!("GL 现场恢复失败: {e}");
         }
         #[cfg(target_os = "linux")]
-        if let Some((display, draw, read, context)) = self.saved.take()
-            && let Err(e) = crate::gpu::egl::EglContext::make_current_raw(display, draw, read, context)
-        {
-            tracing::warn!("GL 现场恢复失败: {e}");
+        if let Some((angle_saved, egl_saved)) = self.saved.take() {
+            if let Some(binding) = angle_saved {
+                if let Err(e) = binding.restore() {
+                    tracing::warn!("GL 现场恢复失败: {e}");
+                }
+            } else if let Some((display, draw, read, context)) = egl_saved
+                && let Err(e) =
+                    crate::gpu::egl::EglContext::make_current_raw(display, draw, read, context)
+            {
+                tracing::warn!("GL 现场恢复失败: {e}");
+            }
         }
     }
 }
@@ -90,6 +109,13 @@ pub(crate) fn release_reflector_session() {
 /// current → 反射 → RAII 恢复，主渲染路径的 current 不再被打断。
 pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
     ctx.set_glsl_reflector(Box::new(|vs, fs| {
+        // 诊断开关：跳过反射（建独立 ANGLE 会话编译 shader），隔离
+        // SwiftShader 多 device 状态问题。
+        if std::env::var_os("OC_SKIP_REFLECTOR").is_some() {
+            return Ok(serde_json::json!({
+                "uniforms": [], "attributes": [],
+            }));
+        }
         let key = (vs.to_string(), fs.to_string());
         if let Some(hit) = REFLECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
             return Ok(hit);

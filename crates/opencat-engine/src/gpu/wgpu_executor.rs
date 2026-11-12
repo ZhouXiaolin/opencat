@@ -412,6 +412,12 @@ impl WgpuStreamExecutor {
     /// Edge/Dawn 同后端族）；`OC_WGPU_BACKEND` 可强制（dx12/vulkan/gl）。
     fn ensure_runtime(&mut self) -> Result<()> {
         if self.rt.is_none() {
+            // Vulkan 后端要与 Skia / ANGLE 共用同一份 SwiftShader ICD——
+            // 否则三家各用各的实现，纹理与命令流无法跨后端共享。
+            #[cfg(target_os = "linux")]
+            if matches!(std::env::var("OC_WGPU_BACKEND").as_deref(), Ok("vulkan")) {
+                crate::gpu::vk::bootstrap_icd();
+            }
             let backends = match std::env::var("OC_WGPU_BACKEND").ok().as_deref() {
                 Some("vulkan") => wgpu::Backends::VULKAN,
                 Some("dx12") => wgpu::Backends::DX12,

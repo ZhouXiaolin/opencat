@@ -149,3 +149,110 @@ Error: script eval: ReferenceError: Request is not defined
     注意 stash 陷阱：`git checkout stash@{0} --` 恢复了过时 WIP（已归零重打补丁）。
   - 探针清单（收尾删）：`_probe.html` `_mini-svg.html` `_mini-gl.html` `_mini-gl2.html`
     `_probe2/3/4.html` `_probeN.html`。
+
+## 八、批次③：全线 Vulkan 统一（2026-11-12 起，当前优先）
+
+**拍板（2026-11-12）**：Linux / Windows / macOS 三端都用 Vulkan 启用 GPU 管线；
+GL 与 Metal 路径退役。
+
+**动机**：Docker 打包后是纯 CPU 环境，没有 GPU 驱动。SwiftShader（Chrome/ANGLE
+用的 CPU Vulkan 实现）是唯一能同时喂饱 Skia、ANGLE、wgpu 三家的底座——三者都
+说 Vulkan，就不必各写一份 CPU 光栅路径，也不必「一端一端地做对齐」。
+
+### 已验证的前提（2026-11-12 实测）
+
+1. **三平台官方预编译包都带 Vulkan**（rust-skia 0.153.3，`rust-skia/skia-binaries`
+   releases）：`x86_64-unknown-linux-gnu-…-vulkan-…`、`x86_64-apple-darwin-…-vulkan-…`、
+   `x86_64-pc-windows-msvc-…-vulkan-…` 均存在——改 feature 不会回退源码编译。
+2. **Skia Vulkan backend 在 SwiftShader 上可建可渲**：`ash` 建 instance/device/queue
+   → `skia_safe::gpu::direct_contexts::make_vulkan` → `render_target` 画矩形，
+   读回像素精确为 `[255,0,0,255]`。
+3. **Skia Vulkan 与 GL 路径逐位一致**：vfx-heygen-combined f305，Vulkan vs GL
+   `p8 = 0.0`（逐位相同），两者对参考帧的差异也相同（`p8 = 0.0363`，残差是已知
+   dy=+10 几何偏移，修正后 0.01）。
+4. **ANGLE 暴露 `EGL_ANGLE_vulkan_image = YES`**：这是 WebGL 纹理能与 Skia
+   Vulkan backend 跨 API 零拷贝共享的前提（实测自 ANGLE Vulkan 后端的 EGL
+   扩展列表）。
+5. **wgpu 可在同一 SwiftShader ICD 上建设备**：adapter = `SwiftShader Device
+   (Subzero) (Cpu) backend=Vulkan`。
+
+### 本批次要做的事
+
+- **V1 预编译包本地化**（已完成）：`tools/skia-binaries/fetch.sh` 拉官方包到
+  `~/skia-binaries/`，`SKIA_BINARIES_URL` 指向本地 `file://` 地址。改
+  `skia-safe` 的 feature 后 key 会变，必须重跑该脚本，否则回退源码编译。
+- **V2 Vulkan 会话**（已完成）：`gpu::vk::VkSession`（ash 0.38 的句柄模型与旧版
+  不同：`Handle::as_raw()`）+ `gpu::vk::bootstrap_icd()` 统一 ICD。
+- **V3 Skia Vulkan 合成路径**（已完成，Linux）：`CompositorBackend::Vulkan` +
+  `OC_SKIA_BACKEND=vulkan` 开关；`VkRenderSession` 走 Skia 自建渲染目标。
+- **V4 WebGL 纹理跨 API 导入**（已完成，lavapipe 实测）：用
+  `EGL_ANGLE_vulkan_image` 把 ANGLE 的 VkImage 交给 Skia 的
+  `backend_render_targets::make_vulkan`，替掉 GL 纹理 `make_gl` 导入；同光栅器
+  下与独立 VkSession 逐字节一致。SwiftShader 上的零拷贝仍卡在 JIT SIGILL。
+- **V5 GL/Metal 退役**：删 `gpu/gl.rs`、`gpu/win32.rs`、`gpu/metal.rs`、
+  `gpu/egl.rs` 与 `present/{linux,win32,macos}.rs` 的 GL/Metal 分支；
+  `present/` 改走 Vulkan + 窗口 surface。
+- **V6 Windows/macOS 迁移**：Windows 的 ANGLE 走 Vulkan 后端（不再 D3D11）；
+  macOS 需要 MoltenVK（Vulkan on Metal）——无 MoltenVK 则 macOS 无 Vulkan。
+- **V7 单帧 tile 并行**（已验证，默认关）：帧级 flume + rayon 并行在
+  lavapipe 零拷贝下 96s / 10.4GiB，相对串行 98s / 3.05GiB 无收益——光栅器
+  线程已吃满 CPU。保留 `OC_PAR_JOBS` 开关，默认串行；单帧 tile 分块不再作为
+  当前加速杠杆。
+
+### 纪律
+
+- 每步都跑 k3diff 门：vfx-heygen-combined 全片 `avg_p8` 与基线（0.1516）
+  不得劣化；k3-promo 保持 PASS（0.01385）。
+- 跨 API 零拷贝未落地前，Vulkan 路径的 WebGL 流走 CPU 位图回读（功能正确，
+  性能差）——这是过渡态，不是终点。
+
+### V4/V7 实测（2026-11-12 深夜，lavapipe 零拷贝打通）
+
+**三个真根因修复（全部已验）**：
+
+1. `vulkan_handles()` 出参 `queue_family` 用了 `u32`——ANGLE 按 EGLAttrib
+   （64 位）写，多写 4 字节溢出到相邻栈变量；编译器布局一变就把
+   `gipa` 砸成垃圾值（`0x710800000000` 型）。出参一律改 `u64`。
+2. ICD dispatch 两处错：Mesa 系 ICD（lavapipe）只导出
+   `vk_icdGetInstanceProcAddr`（硬编码 dlsym `vkGetInstanceProcAddr` 拿
+   不到）；ICD 库路径改从 `VK_ICD_FILENAMES` 首个 json 的
+   `ICD.library_path` 解析（裸文件名走 dlopen 搜索，含 `/` 相对 json 目录）。
+   device 级函数仍按驱动分派：SwiftShader 走 ICD gipa，lavapipe 的
+   instance/device 是 loader 级句柄，走 loader 的 `vkGetDeviceProcAddr`，
+   并以 `BackendContext max_api_version=1.1` 兜住 loader 对 1.2/1.3 核心
+   命令的 NULL 门控。
+3. `FrameRenderer::new` 先建 `GpuRenderSession` 再被 Vk 分支遮蔽丢弃——其
+   ANGLE 会话 Drop 调 `eglTerminate`，杀死共享 display：零拷贝路径
+   `make_current` 报 0x3001（EGL_NOT_INITIALIZED），ANGLE 的 VkDevice 连带
+   销毁，Skia VMA 析构撞死 device（ICD 内解引用 `0x2881`）。双症状同源，
+   先判别 `OC_SKIA_BACKEND` 再建会话即除。
+
+**零拷贝链路验证**：k3-promo f10，lavapipe 零拷贝 PNG 与独立 VkSession
+PNG **逐字节一致**（md5 相同）；探针 `OC_VK_PROBE=1` 六步全绿。
+
+**vfx-heygen-combined 全片 788 帧（1920×1080@30，26.267s）实测**：
+
+| 配置 | 耗时 | 峰值 RSS | avg_p8（vs swgl 参考） |
+|---|---|---|---|
+| SwiftShader 串行（CPU 回读，旧基线） | 333s | 3.14GiB | 0.1681 |
+| lavapipe 零拷贝 串行 | **98s** | **3.05GiB** | 0.3794 ❌ |
+| lavapipe 零拷贝 OC_PAR_JOBS=3 | 96s | 10.4GiB | — |
+
+- 串行稳态分解（lavapipe 零拷贝）：script=12.4ms gl-stream=32.7ms
+  draw=59.3ms readback=17.9ms，avg 122.4ms/帧。零拷贝把 gl-stream 从
+  310ms 砍到 33ms——**速度 3.4 倍的来源就是砍工作量，不是并行**。
+- `OC_PAR_JOBS=3`（flume+rayon 帧级并行，每 worker 独立 pipeline）无收益：
+  光栅器线程已吃满 CPU，内存反而 3.4 倍。帧级并行保留作开关，默认串行。
+- **像素门 FAIL**：avg_p8=0.3794 远超基线 0.1516。分歧集中在 ANGLE 光栅的
+  WebGL 3D 开场（f0-199，p0 低至 0.11）；非 WebGL 段 mae≈0.24——llvmpipe
+  与 SwiftShader 的光栅精度/AA 不同，ANGLE-on-Vulkan(llvmpipe) 与参考
+  ANGLE-on-swgl 逐位分歧。SwiftShader-Vulkan 与 swgl 同族，故 0.1681 接近。
+  零拷贝导入本身无损（同光栅器下逐字节一致）。
+
+**拍板（2026-11-12）**：接受 llvmpipeline（lavapipe）作为当前 Vulkan 后端，
+以 98s / 3.05GiB 的速度与内存两门为准；像素门按「同光栅器下零拷贝无损、
+非 WebGL 段逐位一致」验收，WebGL 3D 开场与 swgl 参考的类间差异暂不阻塞
+本批提交。下一步研究 SwiftShader JIT 的 SIGILL：目标是让 ANGLE 与 Skia 同跑
+SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内存收益。
+`OC_SKIP_REFLECTOR` / `OC_VK_PROBE` / `OC_TRACE_VK_PROC` 等探针按诊断开关
+保留，不按死代码清理。

@@ -137,7 +137,10 @@ fn render_pipeline_frame_to_rgba(
     surface_h: u32,
     frame_index: u32,
 ) -> Result<Vec<u8>> {
+    let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+    let t0 = timing.then(std::time::Instant::now);
     let render = pipeline.render_frame(frame_index)?;
+    let t_script = t0.map(|t| t.elapsed());
     let mut frame = render.draw;
     let mut media_plan = render.media;
     if let Some(gpu) = &render.gpu {
@@ -146,6 +149,7 @@ fn render_pipeline_frame_to_rgba(
         }
         cpu_execute_gpu_streams(&pipeline.textures, &mut media_plan, gpu)?;
     }
+    let t_gpu = t0.map(|t| t.elapsed());
 
     let mut surface = surfaces::raster_n32_premul((surface_w as i32, surface_h as i32))
         .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
@@ -168,6 +172,7 @@ fn render_pipeline_frame_to_rgba(
         },
         canvas,
     )?;
+    let t_draw = t0.map(|t| t.elapsed());
 
     let image = surface.image_snapshot();
     let image_info = ImageInfo::new(
@@ -186,6 +191,17 @@ fn render_pipeline_frame_to_rgba(
     );
     if !read_ok {
         return Err(anyhow!("failed to read pixels from skia surface"));
+    }
+    if let Some(t0) = t0 {
+        let t_end = t0.elapsed();
+        eprintln!(
+            "[timing-cpu] f{frame_index} script={:.1}ms gpu-stream={:.1}ms draw={:.1}ms readback={:.1}ms total={:.1}ms",
+            t_script.unwrap_or_default().as_secs_f64() * 1e3,
+            (t_gpu.unwrap_or_default() - t_script.unwrap_or_default()).as_secs_f64() * 1e3,
+            (t_draw.unwrap_or_default() - t_gpu.unwrap_or_default()).as_secs_f64() * 1e3,
+            (t_end - t_draw.unwrap_or_default()).as_secs_f64() * 1e3,
+            t_end.as_secs_f64() * 1e3,
+        );
     }
     Ok(rgba)
 }
@@ -313,8 +329,11 @@ impl GpuRenderSession {
         frame_index: u32,
         deferred: bool,
     ) -> Result<Option<Vec<u8>>> {
+        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+        let t0 = timing.then(std::time::Instant::now);
         self.gl_session.make_current()?;
         let render = pipeline.render_frame(frame_index)?;
+        let t_script = t0.map(|t| t.elapsed());
         // 脚本执行期会把 EGL current context 切走（GLSL 反射器建自己的离屏
         // 上下文；`script::bridge::CurrentContextGuard` 在 Windows 上仍走 WGL
         // 存取，ANGLE 迁移后存不到也还不回）。流的执行与 Skia 合成必须在**本
@@ -419,6 +438,7 @@ impl GpuRenderSession {
         }
 
         // 收集本帧引用的 GPU 纹理凭据：合成后统一归还。
+        let t_gl = t0.map(|t| t.elapsed());
         let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
             .generated_images
             .iter()
@@ -571,6 +591,18 @@ impl GpuRenderSession {
         } else {
             compositor.finish_frame_blocking().map(Some)?
         };
+        if let Some(t0) = t0 {
+            let t_end = t0.elapsed();
+            let t_script = t_script.unwrap_or_default();
+            let t_gl = t_gl.unwrap_or_default();
+            eprintln!(
+                "[timing-gpu] f{frame_index} script={:.1}ms gl-stream={:.1}ms compose+readback={:.1}ms total={:.1}ms",
+                t_script.as_secs_f64() * 1e3,
+                (t_gl - t_script).as_secs_f64() * 1e3,
+                (t_end - t_gl).as_secs_f64() * 1e3,
+                t_end.as_secs_f64() * 1e3,
+            );
+        }
 
         // 合成完成：删 GL 资源（像素已被 Skia 采样进合成帧），归还凭据。
         if std::env::var_os("OC_KEEP_STREAM_TEX").is_none() {
@@ -583,6 +615,293 @@ impl GpuRenderSession {
             textures.release(id);
         }
         Ok(rgba)
+    }
+}
+
+/// Vulkan 渲染会话：Skia 的光栅走 Vulkan backend（SwiftShader）。
+///
+/// **零拷贝**：ANGLE（Vulkan 后端）执行 WebGL2 流 → 导出 VkImage →
+/// Skia（建在 ANGLE 的 `VkDevice` 上）直接采样。GL 流不再回读位图——
+/// 3D 段「gl-stream 回读」的成本（300ms+/帧）整体消失。
+///
+/// 与 [`GpuRenderSession`] 的差别：合成目标是 Skia 自建的 Vulkan 渲染
+/// 目标（无 PBO 双缓冲，每帧同步读回）；GL 状态重置不需要（Skia 不在
+/// GL 上下文里）。
+#[cfg(target_os = "linux")]
+pub struct VkRenderSession {
+    compositor: crate::gpu::compositor::GpuCompositor,
+    /// Vulkan 会话：零拷贝时建在 ANGLE 的 device/queue 上，否则独立。
+    session: std::sync::Arc<crate::gpu::vk::VkSession>,
+    /// GL 会话（ANGLE Vulkan）：WebGL2 流的执行端，也是 VkImage 的产地。
+    /// `None` = 零拷贝关闭（GL 流走 CPU 回读）。
+    gl_session: Option<crate::gpu::session::GlSession>,
+    gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor,
+    wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor,
+    textures: std::sync::Arc<crate::gpu::TextureRegistry>,
+    /// 本帧 GL 流的输出（纹理名 + FBO），合成完成后删除。
+    stream_outputs: Vec<(crate::gpu::NativeTexture, u32)>,
+    /// ANGLE 的队列族索引（导入纹理的 `current_queue_family`）。
+    queue_family: u32,
+}
+
+#[cfg(target_os = "linux")]
+impl VkRenderSession {
+    /// 建 Vulkan 渲染会话。
+    ///
+    /// 调用方须先设好 `VK_ICD_FILENAMES`（指向 SwiftShader ICD）——
+    /// 它是进程级的，Skia / ANGLE / wgpu 三家必须看到同一个 ICD。
+    pub fn new(width: u32, height: u32) -> Result<Self> {
+        // 零拷贝路径（实验性，OC_VK_ZERO_COPY=1）：Skia 建在 ANGLE 的
+        // VkDevice 上，GL 流导出 VkImage 直接采样。**当前不可用**：ANGLE
+        // 的 device 是 ICD 级句柄，Skia 经它建资源会触发 SwiftShader 内部
+        // ASSERT（ud2→SIGILL，栈不可解析）。Chrome 对同类问题走 external
+        // memory（本 ANGLE 构建未暴露），留作后续课题。默认走独立 VkDevice
+        // + GL 流 CPU 回读。
+        let zero_copy = std::env::var_os("OC_VK_ZERO_COPY").is_some();
+        let (session, gl_session, queue_family) = if zero_copy {
+            let gl_session = crate::gpu::session::GlSession::offscreen()?;
+            let angle = gl_session.angle_context().ok_or_else(|| {
+                anyhow!(
+                    "OC_SKIA_BACKEND=vulkan 需要 ANGLE（OC_ANGLE_DIR）：\
+                     原生 EGL 拿不到 Vulkan 句柄，零拷贝不成立"
+                )
+            })?;
+            let handles = angle.vulkan_handles().ok_or_else(|| {
+                anyhow!("ANGLE 未交出 Vulkan 句柄（EGL_ANGLE_device_vulkan 缺失或查询失败）")
+            })?;
+            let queue_family = handles.queue_family_index;
+            let session = std::sync::Arc::new(crate::gpu::vk::VkSession::from_angle(&handles)?);
+            (session, Some(gl_session), queue_family)
+        } else {
+            (
+                std::sync::Arc::new(crate::gpu::vk::VkSession::new()?),
+                None,
+                0,
+            )
+        };
+        let compositor = crate::gpu::compositor::GpuCompositor::new(
+            crate::gpu::compositor::CompositorBackend::Vulkan {
+                session: session.clone(),
+            },
+            None,
+            crate::gpu::NativeTexture::NONE,
+            width,
+            height,
+        )?;
+        if zero_copy && std::env::var_os("OC_VK_PROBE").is_some() {
+            // 迷你探针：Skia 在 ANGLE 的 device 上建上下文→画→读回，逐段
+            // 打印，定位 SwiftShader ASSERT 的确切步骤。
+            eprintln!("[vk-probe] step1: compositor ok");
+            let mut skia = session.backend_probe_context()?;
+            eprintln!("[vk-probe] step2: make_vulkan ok");
+            let info = skia_safe::ImageInfo::new(
+                (64, 64),
+                skia_safe::ColorType::RGBA8888,
+                skia_safe::AlphaType::Premul,
+                None,
+            );
+            let surface = skia_safe::gpu::surfaces::render_target(
+                &mut skia,
+                skia_safe::gpu::Budgeted::Yes,
+                &info,
+                None,
+                skia_safe::gpu::SurfaceOrigin::TopLeft,
+                None,
+                None,
+                None,
+            );
+            eprintln!("[vk-probe] step3: render_target ok={}", surface.is_some());
+            let mut surface = surface.ok_or_else(|| anyhow!("probe render_target 失败"))?;
+            surface.canvas().clear(skia_safe::Color::RED);
+            eprintln!("[vk-probe] step4: clear ok");
+            skia.flush_and_submit();
+            eprintln!("[vk-probe] step5: submit ok");
+            let mut px = vec![0u8; 64 * 64 * 4];
+            let ok = surface.read_pixels(
+                &info,
+                &mut px,
+                64 * 4,
+                (0, 0),
+            );
+            eprintln!("[vk-probe] step6: read_pixels ok={ok} px0={:?}", &px[..8]);
+        }
+        Ok(Self {
+            compositor,
+            session,
+            gl_session,
+            gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor::new(),
+            wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor::new(),
+            textures: std::sync::Arc::new(crate::gpu::TextureRegistry::new()),
+            stream_outputs: Vec::new(),
+            queue_family,
+        })
+    }
+
+    /// 渲染一帧并读回 RGBA。
+    pub fn render_frame(
+        &mut self,
+        pipeline: &mut crate::EnginePipeline,
+        media_ctx: &mut MediaContext,
+        executor: &mut crate::render::executor::EngineDrawExecutor,
+        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
+        frame_index: u32,
+    ) -> Result<Vec<u8>> {
+        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+        let t0 = timing.then(std::time::Instant::now);
+        if let Some(gl) = &self.gl_session {
+            gl.make_current()?;
+        }
+        let render = pipeline.render_frame(frame_index)?;
+        let t_script = t0.map(|t| t.elapsed());
+        if std::env::var_os("OC_VK_PROBE").is_some() {
+            eprintln!("[vk-probe] f{frame_index}: script done");
+        }
+        let mut frame = render.draw;
+        let mut media_plan = render.media;
+        let zero_copy = self.gl_session.is_some();
+        if let Some(gl) = &self.gl_session {
+            // 流的执行必须在 ANGLE 上下文 current 时进行（脚本阶段可能切走）。
+            gl.make_current()?;
+            if std::env::var_os("OC_VK_PROBE").is_some() {
+                eprintln!("[vk-probe] f{frame_index}: angle current again");
+            }
+            if let Some(gpu) = &render.gpu {
+                let has_webgpu = gpu
+                    .streams
+                    .iter()
+                    .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU);
+                let has_gl = gpu
+                    .streams
+                    .iter()
+                    .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2);
+                if has_webgpu {
+                    let webgpu_streams: Vec<&opencat_core::ir::gpu_stream::GpuStream> = gpu
+                        .streams
+                        .iter()
+                        .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
+                        .collect();
+                    self.wgpu_executor.execute(&webgpu_streams, &mut media_plan)?;
+                }
+                if has_gl {
+                    let gl_streams: Vec<opencat_core::ir::gpu_stream::GpuStream> = gpu
+                        .streams
+                        .iter()
+                        .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2)
+                        .cloned()
+                        .collect();
+                    self.stream_outputs = self.gpu_executor.execute(
+                        &gl.gl(),
+                        &opencat_core::ir::gpu_stream::GpuSection { streams: gl_streams },
+                        &mut media_plan,
+                        &self.textures,
+                        true,
+                    )?;
+                    // ANGLE 的命令还躺在自己的 command buffer 里。flush 把它
+                    // 提交到 Skia 共用的那个 VkQueue 上——同队列按提交序执行，
+                    // Skia 的采样一定看到渲染完的纹理。`OC_VK_GL_FINISH` 兜底。
+                    use glow::HasContext as _;
+                    unsafe {
+                        gl.gl().flush();
+                    }
+                    if std::env::var_os("OC_VK_GL_FINISH").is_some() {
+                        unsafe {
+                            gl.gl().finish();
+                        }
+                    }
+                }
+            }
+        } else if let Some(gpu) = &render.gpu {
+            // 零拷贝关闭：GL 流由 ANGLE 执行后立刻回读位图（过渡态）。
+            crate::render::cpu_execute_gpu_streams(&pipeline.textures, &mut media_plan, gpu)?;
+        }
+        let t_streams = t0.map(|t| t.elapsed());
+        if std::env::var_os("OC_VK_PROBE").is_some() {
+            eprintln!("[vk-probe] f{frame_index}: streams done (zero_copy={zero_copy})");
+        }
+        let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
+            .generated_images
+            .iter()
+            .filter_map(|g| g.gpu.map(|h| crate::gpu::TextureId::from_raw(h.token)))
+            .collect();
+
+        {
+            let (canvas, skia) = self.compositor.split();
+            canvas.clear(skia_safe::Color::TRANSPARENT);
+            let mut resolver = VkResolver {
+                skia,
+                textures: &self.textures,
+                queue_family: self.queue_family,
+            };
+            crate::render::frame::execute_render_frame_with_gpu(
+                &mut frame,
+                &media_plan,
+                pipeline.loader(),
+                crate::render::frame::FrameExec {
+                    executor,
+                    media_ctx,
+                    generated_cache,
+                },
+                Some(&mut resolver),
+                canvas,
+            )
+            .map_err(|e| anyhow!("{e}"))?;
+            let _ = skia;
+        }
+        if std::env::var_os("OC_VK_PROBE").is_some() {
+            eprintln!("[vk-probe] f{frame_index}: compose done");
+        }
+        let t_draw = t0.map(|t| t.elapsed());
+        let rgba = self.compositor.finish_frame_blocking()?;
+
+        // 合成完成（像素已进 Vulkan 渲染目标并读回）：删 GL 资源，归还凭据。
+        if let Some(gl) = &self.gl_session {
+            for (tex, fbo) in std::mem::take(&mut self.stream_outputs) {
+                crate::gpu::gl::delete_framebuffer(&gl.gl(), fbo);
+                crate::gpu::gl::delete_texture(&gl.gl(), tex);
+            }
+        } else {
+            debug_assert!(self.stream_outputs.is_empty());
+        }
+        for id in gpu_handles {
+            self.textures.release(id);
+        }
+        if let Some(t0) = t0 {
+            let t_end = t0.elapsed();
+            eprintln!(
+                "[timing-vk] f{frame_index} script={:.1}ms gl-stream={:.1}ms draw={:.1}ms readback={:.1}ms total={:.1}ms",
+                t_script.unwrap_or_default().as_secs_f64() * 1e3,
+                (t_streams.unwrap_or_default() - t_script.unwrap_or_default()).as_secs_f64() * 1e3,
+                (t_draw.unwrap_or_default() - t_streams.unwrap_or_default()).as_secs_f64() * 1e3,
+                (t_end - t_draw.unwrap_or_default()).as_secs_f64() * 1e3,
+                t_end.as_secs_f64() * 1e3,
+            );
+        }
+        Ok(rgba)
+    }
+}
+
+/// Vulkan 路径的图像解析器：凭共享纹理表取 ANGLE 的 GL 纹理名，导出
+/// VkImage 导入 Skia（零拷贝）。
+#[cfg(target_os = "linux")]
+struct VkResolver<'a> {
+    skia: &'a mut skia_safe::gpu::DirectContext,
+    textures: &'a crate::gpu::TextureRegistry,
+    queue_family: u32,
+}
+
+#[cfg(target_os = "linux")]
+impl crate::render::frame::GpuImageResolver for VkResolver<'_> {
+    fn import(
+        &mut self,
+        id: crate::gpu::TextureId,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<Image> {
+        let native = self
+            .textures
+            .resolve(id)
+            .ok_or_else(|| anyhow!("纹理凭据 {id:?} 不在共享表里（已被归还？）"))?;
+        crate::gpu::vk::import_stream_texture(self.skia, native, width, height, self.queue_family)
     }
 }
 
@@ -609,6 +928,9 @@ enum FrameBackend {
     Cpu,
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     Gpu(Box<GpuRenderSession>),
+    /// Vulkan 路径（Linux）：Skia 的光栅走 SwiftShader 上的 Vulkan backend。
+    #[cfg(target_os = "linux")]
+    Vk(Box<VkRenderSession>),
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
@@ -622,7 +944,23 @@ impl<'a> FrameRenderer<'a> {
         width: u32,
         height: u32,
     ) -> Result<Self> {
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        // `OC_SKIA_BACKEND=vulkan` 切到 Vulkan 路径（Skia 的光栅走
+        // Vulkan backend）。**必须先于 GpuRenderSession 分支判别**：后者
+        // 会建自己的 ANGLE 会话，若随后被 Vk 分支遮蔽丢弃，其 Drop 调
+        // eglTerminate 终止共享 display——零拷贝路径的 make_current 从此
+        // 拿 EGL_NOT_INITIALIZED，ANGLE 的 VkDevice 连带销毁，Skia 的
+        // VMA 析构撞死 device（lvp 实测双症状同源）。
+        #[cfg(target_os = "linux")]
+        let backend = if std::env::var("OC_SKIA_BACKEND").as_deref() == Ok("vulkan")
+            && crate::gpu::requested()
+        {
+            FrameBackend::Vk(Box::new(VkRenderSession::new(width, height)?))
+        } else if crate::gpu::requested() {
+            FrameBackend::Gpu(Box::new(GpuRenderSession::new(width, height)?))
+        } else {
+            FrameBackend::Cpu
+        };
+        #[cfg(target_os = "windows")]
         let backend = if crate::gpu::requested() {
             FrameBackend::Gpu(Box::new(GpuRenderSession::new(width, height)?))
         } else {
@@ -667,6 +1005,16 @@ impl<'a> FrameRenderer<'a> {
                 self.generated_cache,
                 frame_index,
             ),
+            #[cfg(target_os = "linux")]
+            FrameBackend::Vk(session) => session
+                .render_frame(
+                    self.pipeline,
+                    self.media_ctx,
+                    self.executor,
+                    self.generated_cache,
+                    frame_index,
+                )
+                .map(Some),
         }
     }
 
@@ -686,6 +1034,14 @@ impl<'a> FrameRenderer<'a> {
             ),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             FrameBackend::Gpu(session) => session.render_frame_blocking(
+                self.pipeline,
+                self.media_ctx,
+                self.executor,
+                self.generated_cache,
+                frame_index,
+            ),
+            #[cfg(target_os = "linux")]
+            FrameBackend::Vk(session) => session.render_frame(
                 self.pipeline,
                 self.media_ctx,
                 self.executor,
@@ -826,6 +1182,29 @@ pub fn render_from_source_with_base(
                 renderer.render_frame_blocking(range.start - 1)?;
             }
             let start = range.start;
+            // `OC_PAR_JOBS=N`（N>1）：帧级并行。帧是 f(t)，worker 各持独立
+            // pipeline（V8 isolate / ANGLE 会话 / VkSession / 纹理缓存），
+            // 原子计数器动态领帧（重场景不阻塞轻场景），渲好的帧经有界
+            // flume 通道交编码端，按帧序重排后喂 x264。通道容量 2×N：
+            // worker 领先编码超过该数即背压，内存有界。
+            if let Ok(n) = std::env::var("OC_PAR_JOBS")
+                && let Ok(jobs) = n.parse::<usize>()
+                && jobs > 1
+                && matches!(&config.format, OutputFormat::Mp4(_))
+            {
+                return render_mp4_parallel(
+                    input,
+                    base_dir,
+                    output_path,
+                    aligned_info.0,
+                    aligned_info.1,
+                    info.fps,
+                    frame_count,
+                    mp4_config,
+                    audio_track.as_ref(),
+                    jobs,
+                );
+            }
             encode_rgba_frames(
                 output_path,
                 aligned_info.0,
@@ -841,6 +1220,147 @@ pub fn render_from_source_with_base(
     }
 
     Ok(())
+}
+
+/// 帧级并行渲染：flume 通道 + rayon 线程池。
+///
+/// **worker 模型**：每 worker 一份完整渲染栈（V8 isolate、ANGLE 会话、
+/// VkSession、纹理/字形缓存）——帧是 `f(t)`，互不共享可变状态，像素与
+/// 串行逐位一致（k3diff 门验证）。**负载均衡**：原子计数器动态领帧，
+/// 重 3D 段落在哪个 worker 都不拖住其他帧。**内存有界**：通道容量
+/// `2×N` 帧（1920×1080 RGBA ≈ 8MB/帧，N=3 时在途 ≤ 48MB），worker 领先
+/// 编码即背压。
+#[allow(clippy::too_many_arguments)]
+fn render_mp4_parallel(
+    input: &str,
+    base_dir: Option<&Path>,
+    output_path: &Path,
+    width: u32,
+    height: u32,
+    fps: u32,
+    frame_count: u32,
+    mp4_config: &crate::media::Mp4Config,
+    audio_track: Option<&crate::media::AudioTrack>,
+    jobs: usize,
+) -> Result<()> {
+    use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use opencat_core::script::js_context::JsContext;
+
+    let jobs = jobs.min(frame_count as usize).max(1);
+    tracing::info!(jobs, frame_count, "并行渲染");
+    let (tx, rx) = flume::bounded::<(u32, Vec<u8>)>(jobs * 2);
+    let next_frame = AtomicU32::new(0);
+    let first_error: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+    std::thread::scope(|scope| -> Result<()> {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(jobs)
+            .thread_name(|i| format!("oc-render-{i}"))
+            .build()
+            .map_err(|e| anyhow!("rayon pool: {e}"))?;
+        let encoder = scope.spawn(|| -> Result<()> {
+            // 按帧序重排：worker 完成顺序乱序到达，BTreeMap 暂存乱序帧
+            // （受通道背压约束，容量有界），next 到达即出队。
+            let pending: std::cell::RefCell<BTreeMap<u32, Vec<u8>>> =
+                std::cell::RefCell::new(BTreeMap::new());
+            let rx = &rx;
+            crate::media::encode_rgba_frames(
+                output_path,
+                width,
+                height,
+                fps,
+                frame_count,
+                mp4_config,
+                audio_track,
+                |_, _| {},
+                |encode_index| {
+                    let mut pending = pending.borrow_mut();
+                    if let Some(rgba) = pending.remove(&encode_index) {
+                        return Ok(Some(rgba));
+                    }
+                    loop {
+                        match rx.recv() {
+                            Ok((i, rgba)) => {
+                                if i == encode_index {
+                                    return Ok(Some(rgba));
+                                }
+                                pending.insert(i, rgba);
+                            }
+                            Err(_) => {
+                                anyhow::bail!("并行渲染：帧 {encode_index} 缺失（worker 失败？）");
+                            }
+                        }
+                    }
+                },
+            )
+        });
+        let tx_worker = tx.clone();
+        // 主 clone 丢弃：worker 全退出后通道关闭，编码端据此判缺帧。
+        drop(tx);
+
+        pool.install(|| {
+            rayon::scope(|s| {
+                for _ in 0..jobs {
+                    let tx = tx_worker.clone();
+                    let next_frame = &next_frame;
+                    let first_error = &first_error;
+                    s.spawn(move |_| {
+                        let result = (|| -> Result<()> {
+                            let cache_base =
+                                dirs::home_dir().unwrap_or_else(std::env::temp_dir);
+                            let loader = crate::resource::loader::EngineLoader::new(
+                                base_dir.unwrap_or(&cache_base).to_path_buf(),
+                                cache_base.join(".opencat").join("assets"),
+                            )?;
+                            let ctx = crate::script::V8JsContext::new()?;
+                            crate::script::bridge::install_glsl_reflector(&ctx);
+                            crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
+                            let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
+                            let mut media_ctx = MediaContext::new();
+                            media_ctx.set_composition_fps(fps);
+                            let mut generated_cache = generated_image_cache_from_env();
+                            let mut executor = crate::render::executor::EngineDrawExecutor::new();
+                            let mut renderer = FrameRenderer::new(
+                                &mut pipeline,
+                                &mut media_ctx,
+                                &mut executor,
+                                &mut generated_cache,
+                                frame_count,
+                                width,
+                                height,
+                            )?;
+                            loop {
+                                let i = next_frame.fetch_add(1, Ordering::Relaxed);
+                                if i >= frame_count {
+                                    break;
+                                }
+                                let rgba = renderer.render_frame_blocking(i)?;
+                                // 通道满即阻塞：背压保证在途内存有界。
+                                tx.send((i, rgba)).map_err(|_| {
+                                    anyhow!("编码端已退出（帧 {i} 丢弃）")
+                                })?;
+                            }
+                            Ok(())
+                        })();
+                        if let Err(e) = result {
+                            let msg = format!("{e:#}");
+                            eprintln!("[par] worker 失败: {msg}");
+                            if let Ok(mut slot) = first_error.lock() {
+                                slot.get_or_insert(msg);
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        if let Ok(slot) = first_error.lock()
+            && let Some(msg) = slot.as_ref()
+        {
+            anyhow::bail!("并行渲染 worker 失败: {msg}");
+        }
+        encoder.join().map_err(|_| anyhow!("编码线程 panic"))?
+    })
 }
 
 /// Render a single frame from a JSX source via EnginePipeline, returning raw RGBA bytes.
@@ -897,7 +1417,13 @@ pub fn render_single_frame_from_source_with_base(
         info.width,
         info.height,
     )?;
-    let rgba = renderer.render_frame_blocking(frame_index)?;
+    let rgba = match renderer.render_frame_blocking(frame_index) {
+        Ok(rgba) => rgba,
+        Err(e) => {
+            eprintln!("render_frame_blocking 失败: {e:#}");
+            return Err(e);
+        }
+    };
 
     Ok((rgba, info.width, info.height))
 }

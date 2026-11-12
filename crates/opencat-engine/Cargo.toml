@@ -18,6 +18,8 @@ naga = { path = "../../vendor/naga", features = ["glsl-in", "glsl-out"] }
 # 0.23 pinned: cosmic-text 0.19.0 (latest) still requires fontdb 0.23
 fontdb = "0.23.0"
 anyhow.workspace = true
+flume.workspace = true
+rayon.workspace = true
 image = { version = "0.25.10", features = ["webp"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -43,7 +45,6 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json", "r
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 pollster = "1.0.1"
 wgpu = "30.0.1"
-mozangle = { version = "0.7.1", features = ["egl"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # EGL 上下文/表面管理（`dynamic` 运行时加载 libEGL.so.1，无需 pkg-config
@@ -51,7 +52,38 @@ mozangle = { version = "0.7.1", features = ["egl"] }
 # eglGetProcAddress），所以 Linux 用 EGL 而不是 GLX。
 khronos-egl = { version = "6", features = ["dynamic"] }
 libc = "0.2"
-skia-safe = { version = "0.153.3", features = ["binary-cache", "gl", "skottie"] }
+# Vulkan 载入与设备创建（gpu::vk）：「Skia / ANGLE / wgpu 三后端统一跑在
+# Vulkan SwiftShader」的底座——同一份 SwiftShader ICD 同时喂给三者。
+# ash 0.38 的句柄模型与 API 与旧版不同，改版要核对 src/instance.rs。
+ash = "0.38"
+# skia-bindings 的裸 C 入口：skia-safe 0.153.3 没有封装 Vulkan 纹理的导入
+# （`gpu::backend_textures::make_vulkan` 不存在），但底层
+# `C_GrBackendTexture_newVk` 在生成的 bindings.rs 里可用——「三后端统一到
+# Vulkan」要用它把 ANGLE 的 VkImage 包成 Skia 的 backend texture。
+# 依赖它**不改变** skia-safe 的 feature 组合，所以不影响预编译包的 key。
+skia-bindings = "0.153.3"
+# `vulkan` 是「Skia / ANGLE / wgpu 三后端统一跑在 Vulkan SwiftShader」
+# 的第一步：Skia 的 Vulkan backend 只在这个 feature 下编译进来。
+# 这组 feature 恰好命中 rust-skia 官方预编译包
+# `x86_64-unknown-linux-gnu-egl-ganesh-gl-jpegd-jpege-pdf-skottie-svg-textlayout-vulkan-wayland-webpd-webpe-x11`
+# （见 ~/.zshrc 的 SKIA_BINARIES_URL），改 feature 会让 skia-bindings
+# 回退到全量源码编译，所以不要增删这里的 feature。
+skia-safe = { version = "0.153.3", features = [
+    "binary-cache",
+    "embed-icudtl",
+    "pdf",
+    "jpeg",
+    "ganesh",
+    "gl",
+    "egl",
+    "vulkan",
+    "x11",
+    "wayland",
+    "textlayout",
+    "svg",
+    "skottie",
+    "webp",
+] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.27.0"
@@ -73,6 +105,10 @@ core-graphics-types = "0.2.0"
 # Native Lottie is disabled on Windows too — see
 # `render::executor::EngineDrawExecutor::ensure_lottie_animations`.
 skia-safe = { version = "0.153.3", features = ["binary-cache", "gl"] }
+# ANGLE 静态后端（D3D11）：`gpu/angle.rs` 只在 Windows 编译，而 mozangle 的
+# `egl` feature 在非 Windows 平台会 panic（build.rs 硬断言），所以本依赖
+# 必须是 Windows-only。
+mozangle = { version = "0.7.1", features = ["egl"] }
 # WGL 隐藏窗口与 GL 入口解析（gpu/win32.rs）。
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",

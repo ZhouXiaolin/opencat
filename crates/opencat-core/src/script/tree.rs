@@ -87,9 +87,19 @@ pub struct TreeOverlay {
     overrides: HashMap<String, Vec<String>>,
     /// 帧级：子 → 父，随视图维护。
     parents: HashMap<String, String>,
+    /// html 持久文档（init-once）：视图覆盖与挂载关系是节点状态，跨帧
+    /// 保留——`appendChild` 挂上的气泡、`removeChild` 摘掉的子级和浏览器
+    /// 里一样持续存在，下一帧 begin_frame 不再蒸发。非持久（jsx/g 通道
+    /// 每帧全新 realm）维持帧级清空。
+    persistent: bool,
 }
 
 impl TreeOverlay {
+    /// 声明持久文档（init-once）：挂载关系跨帧保留。
+    pub fn set_persistent(&mut self, persistent: bool) {
+        self.persistent = persistent;
+    }
+
     /// 开始新的一帧：清掉帧级结构，装入本帧声明树。
     pub fn begin_frame(&mut self, declared: &[DeclaredNode]) {
         self.static_children.clear();
@@ -98,8 +108,10 @@ impl TreeOverlay {
         self.static_tags.clear();
         self.static_class.clear();
         self.static_ids.clear();
-        self.overrides.clear();
-        self.parents.clear();
+        if !self.persistent {
+            self.overrides.clear();
+            self.parents.clear();
+        }
 
         let mut ordered: Vec<&DeclaredNode> = declared.iter().collect();
         ordered.sort_by_key(|n| n.order);

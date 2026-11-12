@@ -1764,6 +1764,29 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u32(buf, encode_color_u8(*color));
         }
 
+        // wire 无变长 op：展开为逐点等效序列（仅外部 ocir 传输/schema 路径
+        // 走这里；渲染主路径 RenderFrame 内存直传，不经过编码）。
+        DrawOp::FillOvalBatch { rects, colors, count } => {
+            for i in 0..*count as usize {
+                let c4 = i * 4;
+                let r4 = i * 4;
+                write_op_header(buf, opcode::SET_FILL_STYLE);
+                write_u32(buf, encode_color_u8(crate::ir::draw_op::ColorU8 {
+                    r: colors[c4],
+                    g: colors[c4 + 1],
+                    b: colors[c4 + 2],
+                    a: colors[c4 + 3],
+                }));
+                write_op_header(buf, opcode::BEGIN_PATH);
+                write_op_header(buf, opcode::PATH_ADD_OVAL_OP);
+                write_f32(buf, rects[r4]);
+                write_f32(buf, rects[r4 + 1]);
+                write_f32(buf, rects[r4 + 2]);
+                write_f32(buf, rects[r4 + 3]);
+                write_op_header(buf, opcode::FILL_PATH);
+            }
+        }
+
         DrawOp::SetStrokeStyle { color } => {
             write_op_header(buf, opcode::SET_STROKE_STYLE);
             write_u32(buf, encode_color_u8(*color));

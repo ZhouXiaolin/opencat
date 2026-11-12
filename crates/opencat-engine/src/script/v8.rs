@@ -696,6 +696,61 @@ fn stderr_log(
     rv.set(v8::undefined(scope).into());
 }
 
+/// `__ocCanvasFillOvalBatch(id, rects, colors, n)` — canvas 2D 批量椭圆填充
+/// 的二进制快路。`rects` 是 n×4 的 Float32Array（x, y, w, h），`colors` 是
+/// n×4 的 Uint8Array（r, g, b, a）。与逐点快路落同一条 op 序列
+/// （SetFillStyle+BeginPath+AddOval+FillPath），位图逐位一致；一次跨界
+/// memcpy 替代每点两次 Value 化调用（halftone 语料每帧 ~30 万点）。
+fn fill_oval_batch(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        throw(scope, "fillOvalBatch: realm native state missing");
+        return;
+    };
+    let node_id = args.get(0).to_rust_string_lossy(scope);
+    let rects: Local<v8::Float32Array> = match args.get(1).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "fillOvalBatch: `rects` must be a Float32Array");
+            return;
+        }
+    };
+    let colors: Local<v8::Uint8Array> = match args.get(2).try_into() {
+        Ok(array) => array,
+        Err(_) => {
+            throw(scope, "fillOvalBatch: `colors` must be a Uint8Array");
+            return;
+        }
+    };
+    let count = args.get(3).to_number(scope).map(|n| n.value()).unwrap_or(0.0);
+    if !(count >= 0.0 && count <= 1.0e7) {
+        throw(scope, "fillOvalBatch: bad count");
+        return;
+    }
+    let count = count as usize;
+    let mut rect_bytes = vec![0u8; rects.byte_length()];
+    let copied = v8::ArrayBufferView::copy_contents(&rects, &mut rect_bytes);
+    rect_bytes.truncate(copied);
+    let mut color_bytes = vec![0u8; colors.byte_length()];
+    let copied = v8::ArrayBufferView::copy_contents(&colors, &mut color_bytes);
+    color_bytes.truncate(copied);
+    // f32 从拷贝的 u8 buffer 逐个转（x86 小端，from_le_bytes 编译成直接
+    // load；120 万次/帧在 ns 级）。此后数据 Arc 化进一条 op，全链零深拷贝。
+    let rects_f32: Vec<f32> = rect_bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect();
+    let Ok(mut store) = state.store.lock() else {
+        throw(scope, "fillOvalBatch: store lock poisoned");
+        return;
+    };
+    store.record_fill_oval_batch(&node_id, rects_f32, color_bytes, count);
+    rv.set(v8::undefined(scope).into());
+}
+
 /// `__opencatImageDecodeInto(src, surfaceId)` — decode an encoded image
 /// (webp/png/jpeg, the GLTFLoader texture payload) straight into a session
 /// surface; resolves to `{width, height}` or `null` on decode failure.
@@ -971,6 +1026,11 @@ impl JsContext for V8JsContext {
             let stderr = Function::new(scope, stderr_log)
                 .ok_or_else(|| anyhow!("v8: failed to create __ocStderr"))?;
             set_global(scope, "__ocStderr", stderr.into())?;
+
+            // Canvas 2D 批量椭圆填充（二进制快路，同 putImageData 形状）。
+            let obatch = Function::new(scope, fill_oval_batch)
+                .ok_or_else(|| anyhow!("v8: failed to create __ocCanvasFillOvalBatch"))?;
+            set_global(scope, "__ocCanvasFillOvalBatch", obatch.into())?;
             Ok(())
         })
     }

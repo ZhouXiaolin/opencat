@@ -1,466 +1,194 @@
-<div align="center">
-
 # OpenCat
 
-### Write videos in JSX, render with Rust, one command to MP4.
+用 JSX 描述画面、布局与动画，Rust + Skia 渲染，FFmpeg 编码成 MP4。一条命令出片，
+不需要浏览器，不需要截图，也不需要显卡。
 
-<p align="center">
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-edition_2024-ce422b?style=flat-square" />
-  <img alt="Skia" src="https://img.shields.io/badge/Skia-GPU-24c8db?style=flat-square" />
-  <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-encode-2c5282?style=flat-square" />
-  <img alt="WASM" src="https://img.shields.io/badge/WASM-CanvasKit-805ad5?style=flat-square" />
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2f855a?style=flat-square" />
-  <img alt="Stars" src="https://img.shields.io/github/stars/ZhouXiaolin/opencat?style=flat-square&color=805ad5" />
-  <a href="https://zread.ai/ZhouXiaolin/opencat"><img alt="zread" src="https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff" /></a>
-</p>
+## 构建
 
-<p align="center">
-  <a href="README.md">English</a> · <a href="README_ZH.md">中文</a>
-</p>
+前提：
 
-  <video width="60%" controls autoplay loop muted playsinline src="https://github.com/user-attachments/assets/e3263ec6-a36c-4b73-ba4c-c0e6b64b86ee"></video>
+- Rust 工具链（edition 2024）。
+- FFmpeg 开发库（编码 MP4 用，由 `pkg-config` 自动查找）：
 
-</div>
+```sh
+sudo apt install \
+  libavcodec-dev libavformat-dev libavutil-dev \
+  libavfilter-dev libswscale-dev libswresample-dev
+```
 
-JSX defines scenes, animations, and layouts. Skia GPU renders, FFmpeg encodes to MP4 — deterministic, cross-platform, cross-machine consistent. No Chromium snapshots, no Puppeteer, no bloated Web rendering pipeline.
+编译 CLI：
 
-A video is just JSX (below is scene A of [`examples/k3-promo`](examples/k3-promo) — entry `index.jsx`, scenes in `scenes/` — the spot above):
+```sh
+cargo build --release -p opencat
+```
+
+产物是 `target/release/opencat`。
+
+## 快速开始
+
+```sh
+opencat render hello.jsx hello.mp4        # 整片
+opencat render hello.jsx hello.png 45     # 第 45 帧
+opencat view hello.jsx                    # 原生窗口预览
+```
+
+`render` 的第二个参数可以是文件，也可以是帧号；输出路径以 `.png` 结尾时只渲染一帧。
+输入文件里的相对资源路径按该文件所在目录解析，产物在别处时加 `--base-dir`。
+
+## 直接渲染 hyperframes 工程
+
+opencat 也能直接吃 hyperframes 的原始 `.html` 工程。不改文件，不先打包：
+
+```sh
+opencat render project/index.html out.mp4
+opencat render project/index.html frame.png 30 --base-dir project
+```
+
+进度：
+
+- **已支持**：`data-composition-*` 组合协议、`[start, end)` 可见窗、嵌套
+  composition、CSS 组合器级联、`<video>` 抽帧、远程脚本与字体的抓取和缓存、
+  canvas / SKSL / three。
+- **动画**：页面里的 GSAP timeline 被包成 paused + 按帧 seek，结果只取决于帧号。
+- **对齐**：k3-promo 已通过验收；hyperframes-launch、HF-heygen-stripe、
+  inspector-launch、vfx-heygen-combined 都能整片渲染。与参考视频的差异像素
+  比例（p8）：stripe 4.23%、inspector 7.94%；vfx-heygen-combined 的 2D 段
+  0.004–0.07，3D 折射段仍偏高。
+- **缺口**：`::before` / `::after`、`mask-image`、`@keyframes` 尚未绘制；
+  `offsetWidth` 用布局探针近似。
+
+## JSX 示例
+
+### 1. 最小合成
 
 ```jsx
-import { gsap } from 'gsap';
 import { useGSAP } from 'opencat/runtime';
 
-export const meta = { width: 1920, height: 1080, fps: 30, duration: 16.4667 };
+// 尺寸、帧率、时长只在这里声明
+export const meta = { width: 1920, height: 1080, fps: 30, duration: 4 };
 
-function StageCanvas({ id }) {
-  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
-}
-
-function SceneA() {
-  useGSAP((ctx, t) => {
-    var T = t;                               // seconds over the whole 16.4667s
-    if (T >= 0.75 && T < 4.62) {
-      gsap.timeline()
-        .set('azoom', { scale: 1.07 }, 0.933)
-        .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
-        .fromTo('atitlegrp', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
-    }
+export default function Hello() {
+  useGSAP((ctx) => {
+    ctx.from('title', { opacity: 0, y: 60, duration: 0.8, ease: 'power3.out' });
+    ctx.from('subtitle', { opacity: 0, y: 24, duration: 0.8, delay: 0.3, ease: 'power2.out' });
   });
+
   return (
-    <div id="sceneA" class="absolute inset-0 z-[2] opacity-0">
-      <div id="azoom" class="absolute inset-0 [transform-origin:50%_50%]">
-        <div id="afield" class="absolute inset-0"><StageCanvas id="afield-canvas" /></div>
-        <div id="atitlegrp" class="absolute left-[755px] top-[444px] w-[467px] h-[185px] opacity-0">
-          <div id="a-sel" class="absolute inset-0 border-[1px] border-white/25"></div>
-          <text id="aline1" class="absolute text-[#d8d8da] text-[63.6426px] tracking-[-0.8px] leading-none">Every token</text>
-        </div>
-      </div>
+    <div id="root" class="relative w-[1920px] h-[1080px] bg-slate-950 overflow-hidden">
+      <text id="title" class="absolute left-0 top-[430px] w-[1920px] text-center text-[120px] font-bold text-white">
+        Hello OpenCat
+      </text>
+      <text id="subtitle" class="absolute left-0 top-[600px] w-[1920px] text-center text-[40px] text-slate-400">
+        JSX 进，MP4 出
+      </text>
+    </div>
+  );
+}
+```
+
+`class` 里的 tailwind 类名会编译成普通 CSS，交给内置的 CSS 引擎排版。
+动画写在 `useGSAP` 里，时间单位是秒。
+
+### 2. 多场景与转场
+
+```jsx
+function Scene1() {
+  return (
+    <div id="scene1" duration="4" class="absolute inset-0 bg-slate-900">
+      <text class="absolute left-[160px] top-[460px] text-[96px] text-white">第一幕</text>
     </div>
   );
 }
 
-export default function K3Promo() {
-  return <div id="root" class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden"><SceneA /></div>;
+function Scene2() {
+  return (
+    <div id="scene2" duration="4" class="absolute inset-0 bg-indigo-950">
+      <text class="absolute left-[160px] top-[460px] text-[96px] text-white">第二幕</text>
+    </div>
+  );
+}
+
+export default function Main() {
+  return (
+    <tl id="main-tl" class="absolute inset-0">
+      <Scene1 />
+      <transition from="scene1" to="scene2" effect="fade" duration="0.6" />
+      <Scene2 />
+    </tl>
+  );
 }
 ```
 
-```bash
-cd examples/k3-promo
-npm install        # bun install works too
-npm run build      # vite: bundles JSX, embeds the compiled CSS, renders → dist/video.mp4
-```
+场景根节点的 `duration` 决定它在时间轴上占多长。场景内的时钟从 0 开始，
+场景内的 `useGSAP` 不需要自己算起始时间。内置转场有 fade、slide、wipe、
+clock_wipe、iris、light_leak。
 
-MP4 ready. No browser, no screenshots, no GUI needed (the vite plugin renders through the `opencat` binary, resolved from `PATH` or `OPENCAT_BIN`).
-
-
-## Why OpenCat
-
-| | OpenCat | Remotion / HyperFrames |
-|---|---------|------------------------|
-| **Render** | Rust native GPU (Skia) | Chrome snapshot |
-| **Speed** | 10x | Baseline |
-| **Deployment** | Any environment / pure CLI | Requires Chromium |
-| **Animation** | Real GSAP — the official npm package runs in-engine | Direct GSAP / anime.js |
-| **Browser render** | WASM + CanvasKit | Native |
-| **Deterministic** | ✅ Cross-machine consistent | ❌ |
-| **AI-friendly** | Declarative JSX | JSX/HTML, more complex |
-
-Remotion reuses the Web ecosystem, but Chrome snapshot has inherent limitations — constrained GPU access, high memory overhead, capped frame rates, and Chromium required in deployment. OpenCat calls GPU and FFmpeg natively, with an order of magnitude higher performance ceiling.
-
-## Capabilities
-
-### Real GSAP — the official package, in-engine
-
-The official gsap 3.x source runs inside the engine (V8) on a deterministic seek clock: tweens are `g(t)`, evaluated per frame — the ticker never touches wall-clock time. Non-interactive official plugins are bundled (eases, SplitText, MorphSVG, DrawSVG, MotionPath, ScrambleText, Physics2D/PhysicsProps, Flip, CustomEase, …); scroll/pointer-driven plugins are excluded by design — input events cannot be a pure function of t.
-
-```js
-import { gsap } from 'gsap';
-import { SplitText } from 'gsap/SplitText';
-
-// Declarative timeline — scene A of examples/k3-promo (scenes/scene-a.jsx).
-// Tween targets are node ids; every frame evaluates the timeline at t.
-gsap.timeline()
-  .set('azoom', { scale: 1.07 }, 0.933)
-  .to('azoom', { scale: 0.9417, duration: 3.667, ease: 'none' }, 0.933)
-  .to(['afield', 'afieldp'], { opacity: 0.35, duration: 0.4333, ease: 'power1.inOut' }, 1.9667)
-  .fromTo('apwrap', { opacity: 0 }, { opacity: 1, duration: 0.2, ease: 'power1.inOut' }, 3.03);
-
-// Official SplitText — the same package gsap ships. Wrappers are real nodes.
-var chars = new SplitText(document.getElementById('otxt'), { type: 'chars' }).chars;
-var tl = gsap.timeline();
-chars.forEach(function (p, i) {
-  tl.fromTo(p, { opacity: 0, x: (i - 6.5) * 21 },
-    { opacity: 1, x: 0, duration: 0.43, ease: 'power2.out' }, 7.5663);
-});
-```
-
-### Multi-scene timelines + transitions
-
-```jsx
-<tl id="main-tl">
-  <Scene1 />                                             {/* duration="4" on its root */}
-  <transition from="scene1" to="scene2" effect="fade" duration="0.6" />
-  <Scene2 />                                             {/* duration="4" on its root */}
-</tl>
-```
-
-Each scene is a component whose root carries the `duration`. A scene's hooks bind to that scene's clock, so `ctx.current.time` starts at 0 when the scene becomes visible — no manual start-time bookkeeping, and transitions do not shift it.
-
-Built-in: fade / slide / wipe / clock_wipe / iris / light_leak, with custom GLSL shader support.
-
-### Components — reusable building blocks
-
-Any JSX function is a component. `k3-promo` hoists shared building blocks out of the node tree (`scenes/shared.jsx`) — props replace the old template parameters:
-
-```jsx
-function StageCanvas({ id }) {
-  return <canvas id={id} class="absolute inset-0 w-[1920px] h-[1080px]" />;
-}
-function Cdot({ id, s, c }) {
-  return <div id={id} class={'absolute w-[' + s + '] h-[' + s + '] bg-[' + c + ']'} />;
-}
-
-// call sites pass only the differences
-<StageCanvas id="afield-canvas" />
-<Cdot id="a-tl" s="13px" c="#d8d8da" />
-```
-
-Components compose by nesting, and `props.children` composes markup from the call site:
+### 3. 组件与 props
 
 ```jsx
 function Card({ bg, title, children }) {
-  return <div class={'w-[400px] rounded-xl p-6 ' + bg}>
-    <text class="text-[20px] font-bold">{title}</text>
-    {children}
-  </div>;
+  return (
+    <div class={'w-[420px] rounded-2xl p-8 ' + bg}>
+      <text class="text-[28px] font-bold text-slate-900">{title}</text>
+      {children}
+    </div>
+  );
 }
-<Card bg="bg-white" title="Hello">
-  <text class="text-gray-500">Card content.</text>
+
+<Card bg="bg-white" title="卡片标题">
+  <text class="mt-3 text-[20px] text-slate-500">props.children 从调用处组合。</text>
 </Card>
 ```
 
-### WASM rendering in the browser
+任何 JSX 函数都是组件，`props.children` 组合调用处的标记。
 
-```ts
-import { initWasm, preloadAssets, getRendererOrThrow, exportMp4 } from 'opencat-web';
+### 更多能力
 
-await initWasm();
-const catalog = await preloadAssets(jsxContent);
-const renderer = getRendererOrThrow();
-renderer.build_frame(jsxContent, frameNumber, canvas, catalog);
-await exportMp4({ /* ... */ });
+- **GSAP**：官方 `gsap` 包在引擎内运行，时间轴按帧求值，结果只与 `t` 有关。
+- **Canvas 与 SKSL**：`<canvas>` 节点接受 CanvasKit API，自定义效果用
+  `CK.RuntimeEffect.Make(SKSL)`。
+- **3D**：官方 `three` 包直接运行，`WebGLRenderer` 的输出合成进画面。
+- **音频与字幕**：多轨混音自动合成，SRT 字幕跨场景显示。
+
+## Docker 镜像
+
+镜像里运行纯 CPU 渲染（ANGLE + SwiftShader），不需要显卡与 X11。
+
+准备与构建：
+
+```sh
+git submodule update --init --recursive
+sh docker/fetch-prebuilt.sh                 # 下载 Skia 与 V8 预编译包
+DOCKER_BUILDKIT=1 docker build -t opencat:bookworm .
 ```
 
-Pure WASM + CanvasKit, no server required.
+运行：
 
-### Canvas drawing + SKSL effects
-
-Every `<canvas>` node is a real canvas: the official CanvasKit API surface (`CK.MakeCanvasSurface`, `Paint`, `RuntimeEffect`, …) draws straight into the composition, and the node's CSS box, transforms and effects still apply on top. The engine accepts the official CanvasKit signatures and lowers them to a draw-operation stream — replayed natively by the Rust renderer, and in the browser by real canvaskit.wasm. Custom per-pixel effects are hand-written **SKSL through `CK.RuntimeEffect.Make`** — the only effect path, and the same one a browser would run:
-
-```js
-// examples/inspector-launch — an SKSL halftone background
-var fx = CK.RuntimeEffect.Make(SKSL_SOURCE);           // compiled once, cached
-var paint = new CK.Paint();
-paint.setStyle(CK.PaintStyle.Fill);
-paint.setShader(fx.makeShader([ax, ay, bx, by, blend, phase]));  // uniforms
-canvas.drawRect([0, 0, 1920, 1080], paint);
+```sh
+docker run --rm \
+  -v "$PWD":/work -w /work \
+  opencat:bookworm \
+  render hello.jsx out.mp4
 ```
 
-A canvas subtree — layout, images, text, video — composites into the scene through the surface pipeline (canvas target → surface → picture); pixel buffers never cross the JS bridge. Reference: `examples/inspector-launch/inspector-launch.jsx`, `examples/hyperframes-launch`; guide: `skills/opencat-creator/references/canvaskit.md`.
+构建参数、预编译包的来源与镜像内的环境变量写在 `docker/README.md`。
 
-### More
+## CLI
 
-- **3D scenes**: `import * as THREE from 'three'` — the official package executes as-is; the `WebGLRenderer` output is captured into the scene graph and rendered natively in Rust (and replayed with real three in the browser). GLTF/GLB via `GLTFLoader`, textures, custom shaders
-- **Standard CSS layout**：`class="flex items-center justify-center gap-4"` compiles to plain CSS via tailwindcss and runs through the built-in CSS engine (selector matching, cascade, var/calc/color-mix); the `style` attribute accepts full declarations
-- **Audio mixing**：multi-track, scene-attached, auto-mix to output
-- **Subtitle engine**：SRT parsing, cross-scene persistent display
-- **SVG**: file (`src`) and inline markup (`inline`) channels, scaled to the node box
-- **Deterministic rendering**：`value = f(time)`, consistent across machines
-
-## Quick start
-
-```bash
-# Render MP4 (the spot above) — bundle + embed CSS + render in one command
-cd examples/k3-promo && npm install && npm run build    # → dist/video.mp4
-
-# Desktop player for live preview (macOS / Windows / Linux)
-cargo run --release --bin opencat -- view path/to/input.jsx
+```sh
+opencat render <input.jsx> [output] [frame] [--base-dir DIR] [--frames SPEC] [--jobs N]
+opencat view   <input.jsx> [--base-dir DIR] [--scale S]
 ```
 
-The CLI is `opencat render <input>` / `opencat view <input>`; the legacy bare form `opencat input.jsx` still works. Pass `--base-dir` when rendering a build artifact outside the project (relative asset paths resolve against the input file's directory by default).
-
-> Web (WASM): `cd crates/opencat-web/web && npm run build`, requires `Cross-Origin-Isolated` environment.
-
-### Vite project template
-
-For standalone projects, scaffold a vite-based workspace where tailwind compilation and rendering are one command:
-
-```bash
-# Scaffold (from the OpenCat checkout; zero deps)
-node packages/create-opencat/bin.mjs my-video
-
-cd my-video
-bun install        # or npm install
-npm run build      # bundles the entry with the compiled CSS embedded → dist/video.mp4
-```
-
-Preview: `opencat view dist/index.bundle.jsx --base-dir src` (the bundle carries the embedded stylesheet).
-
-The generator copies `packages/create-opencat/template/`: a vite config with an inline plugin that (1) bundles the entry with esbuild — real npm packages such as `lucide-react` resolve here, and `react`/`react/jsx-runtime` are aliased to a shim that serializes `<svg>` subtrees into the engine's `<svg inline>` channel — (2) compiles tailwind classes into standard CSS in memory and embeds it in the bundle as `export const css`, so the bundle is single-file self-contained, and (3) shells out to `opencat render` on the bundle. The `opencat` binary is resolved from `OPENCAT_BIN` or `PATH`. Build artifacts (bundle + video) land in `dist/`. Assets and fonts must live under `src/` — the engine resolves relative paths against the entry file's directory, and the plugin passes `--base-dir <entry dir>` when rendering the bundle from `dist/`.
-
-### Engine / Web alignment (k3diff pixel metrics)
-
-Hard pixel metrics (`mae`/`maxd`/`p8`, not SSIM) — the verdict comes from `tools/k3diff.py`: render both sides to MP4 and diff the videos. Native side: `opencat render`. Web side: `crates/opencat-web-oracle` drives the harness page headlessly via ChromeDriver (wasm facade + CanvasKit) and hands back a per-range H.264 MP4; diff it against the native render or the original reference video. Beyond the spot compositions, a shader-effect registry ([`docs/shaders-align`](docs/shaders-align), 200+ presets) pins engine↔web↔compute pixel parity per preset.
-
-```bash
-# 1) build web facade (wasm + JS + web-demuxer.wasm → dist/)
-cd crates/opencat-web/web && npm run build && cd -
-#    (the build regenerates ocir-schema.generated.ts / gl-opcodes.generated.js
-#     from the Rust op tables first - hand-editing them is pointless)
-
-# 2) media used by the oracle compositions (loads http://127.0.0.1:8080/...)
-#    serve your mp4/png/mp3 tree on :8080
-```
-
-<details>
-<summary><strong>Architecture</strong></summary>
-
-```
-JSX ──→ Taffy layout ──→ Skia render ──→ encode → MP4
-              ↑
-         V8 animation scripts
-```
-
-**Dual pipeline：** Rust (GPU) + FFmpeg → MP4 | WASM + CanvasKit (WebGL) → Canvas / MP4
-
-**Incremental rendering：** Resolve → Layout → Display，Merkle Tree skips unchanged subtrees + Scene Snapshot zero-cost reuse.
-
-```
-opencat
-├── crates/
-│   ├── opencat-core/        # JSX runtime (V8), layout (Taffy), text (cosmic-text), CSS engine
-│   ├── opencat-engine/      # Skia render, three rasterizer, FFmpeg encode, V8 host
-│   ├── opencat-web/         # WASM: browser render + MP4 export
-│   ├── opencat-web-oracle/  # headless web renderer — the alignment oracle
-│   ├── opencat/             # CLI: render / view
-│   └── faac/                # AAC encoder binding
-├── packages/create-opencat/ # vite project template
-├── web/                     # Web video editor
-└── examples/                # Example projects
-```
-
-</details>
-
-## Build from source
-
-### Prerequisites
-
-- **Rust toolchain** (edition 2024). Install via [rustup](https://rustup.rs/):
-  ```bash
-  rustup install nightly  # edition 2024 requires nightly as of early 2025
-  ```
-
-- **FFmpeg dev libraries** (for MP4 encoding). The crate [`ffmpeg-next`](https://crates.io/crates/ffmpeg-next) discovers FFmpeg via `pkg-config` — no manual path configuration is needed on standard systems.
-
-  <details open>
-  <summary><strong>Linux (Ubuntu / Debian)</strong></summary>
-
-  ```bash
-  sudo apt install \
-    libavcodec-dev libavformat-dev libavutil-dev \
-    libavfilter-dev libswscale-dev
-  ```
-
-  Minimum version: FFmpeg 6.x. Verify:
-
-  ```bash
-  ffmpeg -version
-  ```
-
-  On this system: **FFmpeg 7.1.1** is installed and all dev packages are present.
-
-  </details>
-
-  <details>
-  <summary><strong>macOS</strong></summary>
-
-  ```bash
-  brew install ffmpeg
-  ```
-
-  Homebrew installs ffmpeg to `/opt/homebrew` (Apple Silicon) or `/usr/local` (Intel). Set `FFMPEG_DIR` to point to the Homebrew prefix:
-
-  ```bash
-  # Apple Silicon (M1/M2/M3/M4)
-  export FFMPEG_DIR=/opt/homebrew
-
-  # Intel Mac
-  export FFMPEG_DIR=/usr/local
-  ```
-
-  If `pkg-config` cannot automatically find the ffmpeg libs, set `FFMPEG_DIR` to specify the path. Add the export to your shell config (`~/.zshrc` / `~/.bashrc`) to persist it.
-
-  Verify:
-
-  ```bash
-  ls $FFMPEG_DIR/lib/libavcodec.*
-  ```
-
-  </details>
-
-  <details>
-  <summary><strong>Windows</strong></summary>
-
-  Download FFmpeg dev packages from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) or `vcpkg install ffmpeg`. Then set:
-
-  ```powershell
-  $env:FFMPEG_DIR = "C:\path\to\ffmpeg"
-  ```
-
-  </details>
-
-- **OpenGL / EGL dev libraries** (Linux, for Skia GPU rendering):
-
-  ```bash
-  sudo apt install libegl-dev libgles-dev libgl1-mesa-dev libx11-dev
-  ```
-
-  macOS provides Metal via the system SDK (no manual install). Windows provides OpenGL via the system driver.
-
-  `opencat view` (the desktop preview player) creates its GL context via **EGL** on Linux, matching the prebuilt Skia backend. It currently requires an **X11** window handle, so on a Wayland session it runs through **XWayland** (set `WAYLAND_DISPLAY=` only if auto-selection fails). Native Wayland (`wl_surface`) support is not wired up yet.
-
-- **Fontconfig dev library** (Linux):
-
-  ```bash
-  sudo apt install libfontconfig-dev
-  ```
-
-### Windows: two required linker flags
-
-The pre-built Skia and V8 binaries are built with **incompatible C runtimes**, so a plain
-`cargo build` on Windows fails to link. Both fixes go in `~/.cargo/config.toml`
-(or `.cargo/config.toml` in the repo):
-
-```toml
-[target.x86_64-pc-windows-msvc]
-rustflags = [
-  "-C", "link-arg=/STACK:16777216",
-  "-C", "link-arg=/FORCE:MULTIPLE",
-]
-```
-
-**`/STACK:16777216`** — `ffmpeg-sys-next`'s build script runs bindgen over the full FFmpeg
-header set, which recurses deeper than the 1 MiB Windows default main-thread stack
-(`SizeOfStackReserve` in the PE header). Without this the build script dies with
-`STATUS_STACK_OVERFLOW` (exit `0xc00000fd`).
-
-**`/FORCE:MULTIPLE`** — `rusty_v8.lib` carries a `/DEFAULTLIB:libcmt.lib` directive
-(static CRT); `skia.lib` carries `/DEFAULTLIB:msvcrt.lib` + `msvcprt.lib` (dynamic CRT).
-Both directives are baked into the prebuilt binaries and cannot be changed by Cargo
-features or environment variables. Each library defines its own `std::terminate`, so the
-link fails with `LNK2005` / `LNK1169`. This flag tells the linker to pick one
-implementation instead of erroring.
-
-> **Known risk:** the two STL implementations are mixed in one executable. Ordinary
-> rendering and JS `try`/`catch` are verified working, but the behaviour of C++ exceptions
-> crossing between the Skia and V8 sides is undefined. If you hit inexplicable crashes,
-> suspect this flag first. The clean fix is building V8 from source with a dynamic CRT
-> (`EXTRA_GN_ARGS="is_component_build=true"`), which takes hours and is not wired up yet.
-
-### Skia
-
-Skia is pulled in via [`skia-safe`](https://crates.io/crates/skia-safe) with the **`binary-cache`** feature enabled. This causes `skia-bindings` to download a pre-built Skia binary at build time — no local compilation or static package download is required.
-
-- **Linux**: `gl` backend (OpenGL)
-- **macOS**: `metal` backend (Metal)
-- **Extra**: `skottie` for Lottie animation support
-
-The pre-built binaries are cached in `~/.cargo/skia-binaries/` after the first build.
-
-### Build commands
-
-**CLI (MP4 rendering):**
-
-```bash
-cargo build --release --bin opencat
-```
-
-The binary is at `target/release/opencat`. Render a video:
-
-```bash
-opencat render examples/k3-promo/dist/index.bundle.jsx
-```
-
-**Desktop preview player (macOS / Windows / Linux):**
-
-```bash
-cargo run --release --bin opencat -- view path/to/input.jsx
-```
-
-**Web (WASM):**
-
-```bash
-cd crates/opencat-web && npm run build
-```
-
-Requires `wasm-pack` and a `Cross-Origin-Isolated` environment to run.
-
-### Verification
-
-Check that the build picked up the correct FFmpeg and Skia versions:
-
-```bash
-cargo run --bin opencat -- --version
-```
-
-No `ffmpegDir` or `SKIA_BINARIES_URL` environment variables are needed in a standard setup — everything is resolved through `pkg-config` and the `binary-cache` feature. If you do use a non-standard FFmpeg path, set `FFMPEG_DIR` before building.
-
-## Who is it for
-
-- **AI video pipelines**: model outputs JSX, engine renders video, lowest integration cost
-- **Web apps**: in-browser video rendering/editing, no server needed
-- **Procedural animation**: deterministic GPU-accelerated rendering, consistent across machines
-- **Batch production**: component-based video, swap props = swap a new video
-
-## Reference
-
-- [JSX Format Reference](skills/opencat-creator/references/jsx-format.md)
-- [Animation System](skills/opencat-creator/references/animations.md)
-- [Transitions](skills/opencat-creator/references/transitions.md)
-- [Canvas API](skills/opencat-creator/references/canvaskit.md)
-- [Three.js Scenes](skills/opencat-creator/references/three.md)
-- [Templates](skills/opencat-creator/references/templates.md)
-- [Design Principles](skills/opencat-creator/references/design-principles.md)
-
-## Community
-
-- Bugs / Feature requests → [Open an Issue](https://github.com/ZhouXiaolin/opencat/issues)
-- Linux Do Discussion → [OpenCat Community](https://linux.do/t/topic/2090262/7)
-
-## Star History
-
-[![Star History](https://api.star-history.com/svg?repos=ZhouXiaolin/opencat&type=Date)](https://www.star-history.com/#ZhouXiaolin/opencat&Date)
-
-## License
-
-MIT License
+| 参数 | 说明 |
+|---|---|
+| `output` | 默认 `out/<stem>.mp4`；以 `.png` 结尾时渲染单帧 |
+| `frame` | 单帧渲染的帧号 |
+| `--frames` | 渲染 PNG 序列，`start:end[:step]` 或逗号列表 |
+| `--jobs` | 分块多进程渲染后再拼接，`N` 为进程数 |
+| `--base-dir` | 相对资源路径的根目录，默认是输入文件所在目录 |
+| `--scale` | `view` 的预览比例，(0, 1] |
+
+## 许可
+
+MIT

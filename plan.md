@@ -296,3 +296,30 @@ SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内�
 - 结论：当前可执行的加速杠杆仍是「少做一次 CPU 回读」（零拷贝）与后端选择，
   不是改 JIT。要同时拿回 swgl 像素等价，下一步应定位 f500–700 的 ANGLE GL
   流差异，并单独诊断整片 MP4 连续渲染路径。
+
+### SwiftShader 全片速度复测（2026-11-12）
+
+复测配置：`OC_SKIA_BACKEND=vulkan`、`OC_ANGLE_DIR=tools/angle-linux`、
+`OC_ANGLE_SWIFTSHADER=1`、
+`VK_ICD_FILENAMES=tools/angle-linux/vk_swiftshader_icd.json`，不带
+`OC_VK_ZERO_COPY`（独立 VkSession + GL 流 CPU 回读）。这是旧基线里能完整
+跑完的 SwiftShader 路径；新加的零拷贝开关在 SwiftShader 上另测。
+
+**vfx-heygen-combined 全片 788 帧实测**：
+
+| 后端 | 配置 | 耗时 | 峰值 RSS | avg_p8 | mae_mean |
+|---|---|---|---|---|---|
+| llvmpipeline | 零拷贝，串行 | 110s | 3045MiB | 0.37788 | 48.4752 |
+| SwiftShader | 独立 VkSession，CPU 回读 | **306s** | **3133MiB** | **0.16805** | **5.3721** |
+
+- SwiftShader 墙钟 305.96s、用户态 3148.01s、约 10.7 核占用；输出
+  `ffprobe` 为 1920×1080@30、26.266667s、788 帧，文件大小 76M。
+- 与同轮 llvmpipeline 相比：SwiftShader 慢 **2.78 倍**，峰值 RSS 高 88MiB；
+  但 `avg_p8` 0.16805 对 0.37788、mae 5.37 对 48.48，像素显著更接近 swgl
+  参考。速度门（2–3min）不达标。
+- SwiftShader **零拷贝**连续 MP4 另测：前 67 帧稳定 1.87s/帧，readback 占
+  1.85s/帧，RSS 从 1.1GiB 涨到 1.65GiB；按此外推 788 帧约 24.5min，故在
+  79 帧处主动停止。16 帧跳帧 PNG 短样本两条 SwiftShader 路径都只要 11.71s，
+  说明慢的是连续帧/编码队列路径，不是单帧 f(t) 本身。
+- 结论：当前要速度用 llvmpipeline 零拷贝；要像素接近参考用 SwiftShader CPU
+  回读，但耗时约 5min。SwiftShader 零拷贝仍不是可交付的全片路径。

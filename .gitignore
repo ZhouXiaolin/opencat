@@ -153,3 +153,6 @@ examples/xxx.xml
 # 开发过程文档
 docs/ablation/
 docs/g2-align/
+
+# 预编译包由 docker/fetch-prebuilt.sh 下载，不入库
+docker/prebuilt/

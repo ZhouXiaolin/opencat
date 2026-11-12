@@ -123,6 +123,7 @@ impl VideoDecoder {
             codec_ctx.set_threading(Config {
                 kind: Type::Frame,
                 count: num_cpus,
+                ..Default::default()
             });
         }
         // WebM 的 VP8/VP9 透明通道走 BlockAdditional 旁路（容器标 `alpha_mode=1`），
@@ -853,6 +854,7 @@ pub fn decode_audio_to_f32_stereo(path: &Path, target_rate: u32) -> Result<Audio
         codec_ctx.set_threading(Config {
             kind: Type::Frame,
             count: num_cpus,
+            ..Default::default()
         });
     }
     let mut decoder = codec_ctx.decoder().audio()?;

@@ -339,14 +339,21 @@ impl StyleStore {
         // Inset quads — `read_style_value` exposes them as left/top/right/bottom,
         // so the initial seeding has to carry the same keys or a fresh
         // `getBoundingClientRect` would read 0 for class-declared insets.
+        // 百分比声明同形种子化（`"87%"` 文本），补间从声明值起步。
         for (key, value) in [
             ("left", style.inset_left),
             ("top", style.inset_top),
             ("right", style.inset_right),
             ("bottom", style.inset_bottom),
         ] {
-            if let Some(crate::style::LengthPercentageAuto::Length(v)) = value {
-                props.insert(key.into(), json!(v));
+            match value {
+                Some(crate::style::LengthPercentageAuto::Length(v)) => {
+                    props.insert(key.into(), json!(v));
+                }
+                Some(crate::style::LengthPercentageAuto::Percent(p)) => {
+                    props.insert(key.into(), json!(format!("{}%", p * 100.0)));
+                }
+                _ => {}
             }
         }
         for op in &style.css_filter.ops {
@@ -461,10 +468,22 @@ impl StyleStore {
                     .or_else(|| mutations.height_pct.map(|p| json!(format!("{}%", p * 100.0)))),
                 "gap" => mutations.gap.map(|f| json!(f)),
                 "flexGrow" => mutations.flex_grow.map(|f| json!(f)),
-                "left" => mutations.inset_left.map(|f| json!(f)),
-                "top" => mutations.inset_top.map(|f| json!(f)),
-                "right" => mutations.inset_right.map(|f| json!(f)),
-                "bottom" => mutations.inset_bottom.map(|f| json!(f)),
+                "left" => mutations
+                    .inset_left
+                    .map(|f| json!(f))
+                    .or_else(|| mutations.inset_left_pct.map(|p| json!(format!("{}%", p * 100.0)))),
+                "top" => mutations
+                    .inset_top
+                    .map(|f| json!(f))
+                    .or_else(|| mutations.inset_top_pct.map(|p| json!(format!("{}%", p * 100.0)))),
+                "right" => mutations
+                    .inset_right
+                    .map(|f| json!(f))
+                    .or_else(|| mutations.inset_right_pct.map(|p| json!(format!("{}%", p * 100.0)))),
+                "bottom" => mutations
+                    .inset_bottom
+                    .map(|f| json!(f))
+                    .or_else(|| mutations.inset_bottom_pct.map(|p| json!(format!("{}%", p * 100.0)))),
                 // Transform components — so a tween written without an
                 // explicit `from` (e.g. `.to('obl',{x:L})`) starts from the
                 // value currently set on the node, as GSAP does.
@@ -718,16 +737,24 @@ impl StyleStore {
                 }
             }
             "left" => {
-                entry.inset_left = num_from_value(&value);
+                entry.inset_left_pct = pct_from_value(&value);
+                entry.inset_left =
+                    entry.inset_left_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "top" => {
-                entry.inset_top = num_from_value(&value);
+                entry.inset_top_pct = pct_from_value(&value);
+                entry.inset_top =
+                    entry.inset_top_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "right" => {
-                entry.inset_right = num_from_value(&value);
+                entry.inset_right_pct = pct_from_value(&value);
+                entry.inset_right =
+                    entry.inset_right_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "bottom" => {
-                entry.inset_bottom = num_from_value(&value);
+                entry.inset_bottom_pct = pct_from_value(&value);
+                entry.inset_bottom =
+                    entry.inset_bottom_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "width" => {
                 entry.width_pct = pct_from_value(&value);
@@ -1387,6 +1414,9 @@ pub struct MutationStore {
     /// that scene would run that much early. `None` = derive from the frame.
     time_override_secs: Option<f64>,
     fps: u32,
+    /// 合成帧视口（`cqw`/`cqh` 折 px 的基准）。realm 每帧 `apply_frame_ctx`
+    /// 时注入；`(0,0)` = 未注入，容器单位写入按原值丢弃（与旧行为一致）。
+    viewport: (f32, f32),
 }
 
 impl MutationStore {
@@ -1731,8 +1761,10 @@ impl MutationStore {
         self.style.write_style_value(id, property, value)
     }
 
-    /// 字体相对长度（`em`）按元素字号折成 px（CSS Values §5.1.1）。gsap
-    /// 补间 `width: "1.25em"` 逐帧写出 `"0.55em"`；属性通道只认 px，带 em
+    /// 字体相对长度（`em`）按元素字号折成 px（CSS Values §5.1.1）；容器
+    /// 查询单位（`cqw`/`cqh`）按合成帧视口折 px（语料的 query container
+    /// 恒为合成帧根，与 css/eval 的口径一致）。gsap 补间
+    /// `width: "1.25em"` 逐帧写出 `"0.55em"`；属性通道只认 px，带单位
     /// 的值原先整条丢弃，元素停在样式表初值（inspector 的 👀 宽度停在 0，
     /// 被 `overflow:hidden` 裁没）。`font-size` 的 em 相对父字号，不在通路上。
     fn font_relative_to_px(
@@ -1749,9 +1781,21 @@ impl MutationStore {
         if !is_length {
             return value;
         }
-        let Some(em) = value
-            .as_str()
-            .and_then(|s| s.trim().strip_suffix("em"))
+        let text = value.as_str().map(str::trim);
+        // cqw/cqh：视口基准（合成帧尺寸），与字号无关，先于 em 判定。
+        for (suffix, base) in [("cqw", self.viewport.0), ("cqh", self.viewport.1)] {
+            if let Some(n) = text
+                .and_then(|s| s.strip_suffix(suffix))
+                .and_then(|n| n.trim().parse::<f32>().ok())
+            {
+                if base > 0.0 {
+                    return serde_json::json!(n * base / 100.0);
+                }
+                return value;
+            }
+        }
+        let Some(em) = text
+            .and_then(|s| s.strip_suffix("em"))
             .and_then(|n| n.trim().parse::<f32>().ok())
         else {
             return value;
@@ -2100,6 +2144,9 @@ impl MutationRecorder for MutationStore {
     }
     fn set_text_styles(&mut self, styles: &HashMap<String, crate::style::ComputedTextStyle>) {
         self.tree_text.text_styles = styles.clone();
+    }
+    fn set_viewport(&mut self, width: f32, height: f32) {
+        self.viewport = (width, height);
     }
     fn text_style(&self, id: &str) -> Option<&crate::style::ComputedTextStyle> {
         self.tree_text.text_styles.get(id)

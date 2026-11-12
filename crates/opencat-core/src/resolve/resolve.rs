@@ -1557,45 +1557,47 @@ fn compute_style(
 fn resolve_background(style: &NodeStyle) -> Vec<crate::style::BackgroundFill> {
     use crate::style::BackgroundFill;
 
-    if !style.background_layers.is_empty() {
+    let mut layers = if !style.background_layers.is_empty() {
         let mut layers = style.background_layers.clone();
         if let Some(color) = style.bg_color {
             layers.push(BackgroundFill::Solid { color });
         }
-        return layers;
-    }
-
-    if let (Some(center), Some(from), Some(to)) = (
+        layers
+    } else if let (Some(center), Some(from), Some(to)) = (
         style.bg_gradient_radial_center,
         style.bg_gradient_from,
         style.bg_gradient_to,
     ) {
-        return vec![BackgroundFill::radial_from_via_to(
+        vec![BackgroundFill::radial_from_via_to(
             center,
             from,
             style.bg_gradient_via,
             to,
-        )];
-    }
-
-    if let (Some(direction), Some(from), Some(to)) = (
+        )]
+    } else if let (Some(direction), Some(from), Some(to)) = (
         style.bg_gradient_direction,
         style.bg_gradient_from,
         style.bg_gradient_to,
     ) {
-        return vec![BackgroundFill::linear_from_via_to(
+        vec![BackgroundFill::linear_from_via_to(
             direction,
             from,
             style.bg_gradient_via,
             to,
-        )];
+        )]
+    } else if let Some(color) = style.bg_color {
+        vec![BackgroundFill::Solid { color }]
+    } else {
+        Vec::new()
+    };
+
+    // 文档画布传播色（HTML 根节点专用）：排在所有层之后（最远，最先画），
+    // 作者背景——包括半透明纯色——正确地叠在画布底色之上。
+    if let Some(color) = style.bg_canvas_color {
+        layers.push(BackgroundFill::Solid { color });
     }
 
-    if let Some(color) = style.bg_color {
-        return vec![BackgroundFill::Solid { color }];
-    }
-
-    Vec::new()
+    layers
 }
 
 fn collect_visual_script_targets(node: &Node, registry: &mut ScriptTargetRegistry) {

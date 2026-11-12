@@ -256,3 +256,43 @@ PNG **逐字节一致**（md5 相同）；探针 `OC_VK_PROBE=1` 六步全绿。
 SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内存收益。
 `OC_SKIP_REFLECTOR` / `OC_VK_PROBE` / `OC_TRACE_VK_PROC` 等探针按诊断开关
 保留，不按死代码清理。
+
+### JIT 研究（2026-11-12，提交后）
+
+**复测结论：此前记录的「SwiftShader 零拷贝卡在 JIT SIGILL」已经不可考。**
+当前提交在 k3-promo f10 上用 `OC_VK_ZERO_COPY=1` +
+`OC_ANGLE_SWIFTSHADER=1` 完整跑通六步探针：Skia make_vulkan → render_target
+→ clear → submit → read_pixels → 合成，无 SIGILL、无 panic。进程里出现
+`/memfd:swiftshader_jit`，说明 Subzero/Reactor JIT 正在执行。
+
+**短样本实测（vfx-heygen-combined，PNG 序列）**：
+
+| 样本 | 帧数 | 后端 | elapsed | peak RSS |
+|---|---|---|---|---|
+| f0,1,2,5,10 | 5 | SwiftShader 零拷贝 | 8.00s | 715MiB |
+| f0,1,2,5,10 | 5 | llvmpipe 零拷贝 | 3.30s | 813MiB |
+| f100..780 | 8 | SwiftShader 零拷贝 | 11.81s | 1.21GiB |
+| f100..780 | 8 | llvmpipe 零拷贝 | 8.90s | 1.42GiB |
+
+- f0/1/2 两后端逐字节一致；f5 几乎一致；f10 出现 WebGL 光栅差异。
+- 长尾 f100/200/300/400/780 差异很小；f500/600/700 两后端几乎全画面分歧。
+  SwiftShader 输出在 f500 起大量黑像素，llvmpipe 输出是浅色背景；
+  `OC_KEEP_STREAM_TEX=1` 与 SwiftShader 独立 VkSession（CPU 回读）都复现同一
+  黑像素形态。故这不是零拷贝导入损坏，而是 ANGLE-on-SwiftShader 与
+  ANGLE-on-llvmpipe 在该场景的 GL 流/光栅产物不同。
+- 整片 MP4 路径在 SwiftShader 零拷贝下 2 分钟无输出帧、RSS 从 1GiB 增至
+  2.2GiB；PNG 短样本与长尾样本都正常。下一步要查 788 帧连续状态与编码队列，
+  而不是把问题归给 JIT SIGILL。
+
+**JIT 边界**：
+
+- SwiftShader：Electron 自带 `libvk_swiftshader.so` 是 Subzero/Reactor 后端；
+  upstream 文档说明 CMake 默认 LLVM、Chrome GN 默认 Subzero（二进制更小）。
+  二进制里可见 `ThreadCount` / `AffinityMask` / Subzero translation 开关字样，
+  但发布库无符号、无运行时环境变量文档；不从字符串猜开关。
+- llvmpipe：`libvulkan_lvp.so` 链接 `LLVM*MCJIT*` 系列符号，shader 由 LLVM JIT
+  编译；Mesa 文档只稳定暴露 shader cache 开关（`MESA_SHADER_CACHE_*`）与调试
+  用 `LP_NO_RAST`，没有可安全加速生产渲染的 JIT 调优旋钮。
+- 结论：当前可执行的加速杠杆仍是「少做一次 CPU 回读」（零拷贝）与后端选择，
+  不是改 JIT。要同时拿回 swgl 像素等价，下一步应定位 f500–700 的 ANGLE GL
+  流差异，并单独诊断整片 MP4 连续渲染路径。

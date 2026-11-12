@@ -514,7 +514,7 @@ fn dimension_to_deg(value: f32, unit: &str) -> Option<f32> {
     })
 }
 
-fn dimension_to_px(value: f32, unit: &str, ctx: &EvalContext) -> Option<f32> {
+pub(crate) fn dimension_to_px(value: f32, unit: &str, ctx: &EvalContext) -> Option<f32> {
     Some(match unit.to_ascii_lowercase().as_str() {
         "px" => value,
         "rem" => value * ctx.rem_base,
@@ -535,7 +535,7 @@ fn dimension_to_px(value: f32, unit: &str, ctx: &EvalContext) -> Option<f32> {
     })
 }
 
-fn length_to_px(len: LengthValue, ctx: &EvalContext) -> Option<f32> {
+pub(crate) fn length_to_px(len: LengthValue, ctx: &EvalContext) -> Option<f32> {
     Some(match len {
         LengthValue::Px(v) => v,
         LengthValue::Rem(v) => v * ctx.rem_base,

@@ -5,27 +5,40 @@
 //! 部崩），ANGLE 严格按 WebGL/GLES 语义校验参数（无效参数返回错误而不崩
 //! 驱动）。
 //!
-//! 两种 ANGLE 来源，EGL 调用面一致（全部经 `eglGetProcAddress` 解析）：
-//! - 静态（mozangle，仅 Windows，D3D11 后端），无运行时 DLL 依赖；
-//! - 动态（`OC_ANGLE_DIR` 指向官方 ANGLE Linux 构建），Vulkan 后端。
-//!
-//! Linux 上没有 mozangle 路径：mozangle 的 `egl` feature 只支持 Windows
-//! （其 build.rs 硬断言非 Windows 平台不支持 EGL 构建），且它打包的是
-//! D3D11 后端。Linux 走官方 ANGLE 动态库，语义面与 Windows 的动态路径
-//! 相同——两端共用同一个 ANGLE 实现，GL 流语义不随平台漂移。
+//! ANGLE 来源唯一：动态（`OC_ANGLE_DIR` 指向 ANGLE 构建目录），Vulkan
+//! 后端（硬件 GPU 或 SwiftShader）。静态 mozangle（D3D11）已随三栈统一
+//! Vulkan 退役——D3D11 后端不能导出 VkImage（零拷贝链的前提），保留两套
+//! 后端只会让 Windows 渲染语义分叉。
 //!
 //! pbuffer 用 1×1：流执行的落点是纹理/FBO，surface 只承担上下文的可当前
 //! 性，尺寸无意义。
 
 use std::ffi::{CString, c_char, c_void};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Result, anyhow};
+
+/// 会话创建全局串行锁：并发 `eglInitialize` 同一 display 在静态链接的
+/// ANGLE 里内部 abort（exit 2173、无任何输出）——串行路径从没并发建过
+/// 会话，多线程并行渲染（render_mp4_parallel 池线程各建一套）首次触发。
+/// 只串行化创建段；上下文建好仍线程仿射，每帧使用不经过这把锁。
+static SESSION_INIT_LOCK: Mutex<()> = Mutex::new(());
+
+/// 池线程预热用：首帧执行也须串行（见 SESSION_INIT_LOCK 文档与
+/// `PoolSlot` 首帧预热的注释）。
+pub(crate) fn session_init_lock() -> std::sync::MutexGuard<'static, ()> {
+    SESSION_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 type Display = *const c_void;
 type Config = *const c_void;
 type Context = *const c_void;
 type Surface = *const c_void;
+
+/// 存活会话数。EGLDisplay 按属性是单例——多线程并行渲染的各会话共享它，
+/// 收场时**只有最后一个** drop 才能 eglTerminate（并发 terminate 同一
+/// display 实测挂死在 DLL 卸载）。
+static SESSION_ALIVE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 // eglext_angle.h / egl.h 枚举（字面值 + 出处注释；bindings 没收全）。
 const EGL_NONE: i32 = 0x3038;
@@ -43,7 +56,6 @@ const EGL_PLATFORM_ANGLE_ANGLE: u32 = 0x3202;
 const EGL_PLATFORM_ANGLE_TYPE_ANGLE: i32 = 0x3203;
 const EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE: i32 = 0x3204;
 const EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE: i32 = 0x3205;
-const EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE: i32 = 0x3208;
 const EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE: i32 = 0x3209;
 const EGL_PLATFORM_ANGLE_DEVICE_TYPE_HARDWARE_ANGLE: i32 = 0x320A;
 const EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE: i32 = 0x3450;
@@ -104,8 +116,6 @@ enum AngleDevice {
     /// Vulkan 后端 + SwiftShader 设备（CPU 软件光栅）：与 swgl 参考
     /// （Chrome `--use-angle=swiftshader`）同一渲染器，像素级对齐用。
     VulkanSwiftShader,
-    /// D3D11 后端：Windows 静态 mozangle 的唯一后端。
-    D3D11,
 }
 
 static EGL: OnceLock<std::result::Result<Egl, String>> = OnceLock::new();
@@ -208,6 +218,31 @@ fn load_egl() -> std::result::Result<Egl, String> {
             unsafe extern "system" fn(Display, i32, *mut c_void) -> u32,
         >(sym))
     }
+    /// 从动态加载的 libEGL 模块导出表取符号（Windows：无 libc dlsym）。
+    /// `module == 0`（无模块句柄）返回 `None`。
+    #[cfg(target_os = "windows")]
+    unsafe fn resolve_module_sym(module: usize, name: &str) -> Option<*const c_void> {
+        if module == 0 {
+            return None;
+        }
+        let cname: Vec<u8> = name.bytes().chain(std::iter::once(0)).collect();
+        let p = windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+            module as *mut _,
+            cname.as_ptr(),
+        );
+        if p.is_none() {
+            None
+        } else {
+            Some(std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                *const c_void,
+            >(p.unwrap()))
+        }
+    }
+    #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
+    unsafe fn resolve_module_sym(_module: usize, _name: &str) -> Option<*const c_void> {
+        None
+    }
     let get_proc: unsafe extern "system" fn(*const c_char) -> *const c_void;
     let module: usize;
     let device;
@@ -226,24 +261,10 @@ fn load_egl() -> std::result::Result<Egl, String> {
             };
         }
         None => {
-            #[cfg(not(target_os = "windows"))]
-            {
-                return Err(
-                    "angle: 本平台无静态 ANGLE（mozangle 仅 Windows），须设 OC_ANGLE_DIR \
-                     指向含 libEGL/libGLESv2/vk_swiftshader 的目录"
-                        .to_string(),
-                );
-            }
-            #[cfg(target_os = "windows")]
-            {
-            unsafe extern "system" fn static_get_proc(name: *const c_char) -> *const c_void {
-                let name = unsafe { std::ffi::CStr::from_ptr(name) };
-                mozangle::egl::get_proc_address(name.to_str().unwrap_or(""))
-            }
-            get_proc = static_get_proc;
-            module = 0;
-            device = AngleDevice::D3D11;
-            }
+            return Err(
+                "angle: 须设 OC_ANGLE_DIR 指向含 libEGL/libGLESv2/vk_swiftshader 的目录"
+                    .to_string(),
+            );
         }
     }
     macro_rules! resolve {
@@ -267,7 +288,6 @@ fn load_egl() -> std::result::Result<Egl, String> {
     }
     // 设备查询入口：Electron 的 ANGLE 把 `eglQueryDisplayAttribEXT` 等
     // 直接导出在 libEGL.so 里，但 `eglGetProcAddress` 不返回它们——只能
-    // dlsym。Windows 静态 mozangle 无设备路径（D3D11，不需要）。
     #[cfg(target_os = "linux")]
     unsafe fn dlsym_sym(module: usize, name: &std::ffi::CStr) -> *const c_void {
         if module == 0 {
@@ -298,9 +318,26 @@ fn load_egl() -> std::result::Result<Egl, String> {
     #[cfg(target_os = "linux")]
     let query_device_attrib = dlsym_opt!("eglQueryDeviceAttribEXT", unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32);
     #[cfg(not(target_os = "linux"))]
-    let query_display_attrib = unsafe { resolve_opt_query_display_attrib(get_proc) };
+    let query_display_attrib_raw = unsafe {
+        let core = get_proc(c"eglQueryDisplayAttrib".as_ptr().cast());
+        let khr = get_proc(c"eglQueryDisplayAttribKHR".as_ptr().cast());
+        let sym = if core.is_null() { khr } else { core };
+        if sym.is_null() {
+            // eglGetProcAddress 不返回设备查询入口（实测 ANGLE 只在模块
+            // 导出表里），从 libEGL 导出表直接取。
+            resolve_module_sym(module, "eglQueryDisplayAttribEXT")
+        } else {
+            Some(sym)
+        }
+    };
     #[cfg(not(target_os = "linux"))]
-    let query_device_attrib: Option<unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32> = None;
+    let query_display_attrib = query_display_attrib_raw.map(|p| unsafe {
+        std::mem::transmute::<*const c_void, unsafe extern "system" fn(Display, i32, *mut c_void) -> u32>(p)
+    });
+    #[cfg(not(target_os = "linux"))]
+    let query_device_attrib = unsafe { resolve_module_sym(module, "eglQueryDeviceAttribEXT") }.map(|p| unsafe {
+        std::mem::transmute::<*const c_void, unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32>(p)
+    });
     Ok(Egl {
         get_proc,
         module,
@@ -354,8 +391,19 @@ pub struct AngleVulkanHandles {
 impl AngleContext {
     /// 建 ANGLE 离屏上下文并 make current（glow 的入口解析要求 current）。
     pub fn offscreen() -> Result<Self> {
+        // 创建段全程串行（见 SESSION_INIT_LOCK 文档）。
+        let init_guard = SESSION_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let egl = egl()?;
-        let attribs: Vec<i32> = match egl.device {
+        // 动态 ANGLE 走 Vulkan。`OC_ANGLE_GPU=1` 是旧开关的兼容别名：
+        // 与 `OC_ANGLE_SWIFTSHADER` 互斥地选硬件设备。
+        let device = if std::env::var_os("OC_ANGLE_GPU").is_some()
+            && std::env::var_os("OC_ANGLE_SWIFTSHADER").is_none()
+        {
+            AngleDevice::VulkanHardware
+        } else {
+            egl.device
+        };
+        let attribs: Vec<i32> = match device {
             AngleDevice::VulkanHardware => vec![
                 EGL_PLATFORM_ANGLE_TYPE_ANGLE,
                 EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE,
@@ -368,15 +416,6 @@ impl AngleContext {
                 EGL_PLATFORM_ANGLE_TYPE_VULKAN_ANGLE,
                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_ANGLE,
                 EGL_PLATFORM_ANGLE_DEVICE_TYPE_SWIFTSHADER_ANGLE,
-                EGL_NONE,
-            ],
-            AngleDevice::D3D11 => vec![
-                EGL_PLATFORM_ANGLE_TYPE_ANGLE,
-                EGL_PLATFORM_ANGLE_TYPE_D3D11_ANGLE,
-                EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE,
-                3,
-                EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE,
-                0,
                 EGL_NONE,
             ],
         };
@@ -447,6 +486,7 @@ impl AngleContext {
                 surface,
             };
             ctx.make_current()?;
+            SESSION_ALIVE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(ctx)
         }
     }
@@ -527,15 +567,21 @@ impl AngleContext {
 impl Drop for AngleContext {
     fn drop(&mut self) {
         let Ok(egl) = egl() else { return };
+        // 拆解全程串行（与会话创建同一把锁）：共享 display 的并发拆解与
+        // 并发创建一样不可靠。terminate 只留给最后一个会话。
+        let init_guard = SESSION_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             (egl.make_current)(self.display, std::ptr::null(), std::ptr::null(), std::ptr::null());
             (egl.destroy_surface)(self.display, self.surface);
             (egl.destroy_context)(self.display, self.context);
-            (egl.terminate)(self.display);
+            if SESSION_ALIVE.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
+                (egl.terminate)(self.display);
+            }
             // 线程态一并释放：SwiftShader 的工作线程须在 ExitProcess 杀线程
             // 之前收尾，否则进程退出卡死在 DLL 卸载里。
             (egl.release_thread)();
         }
+        drop(init_guard);
     }
 }
 
@@ -661,4 +707,26 @@ pub fn export_vulkan_image(texture: u32) -> Option<AngleVulkanImage> {
             create_info,
         })
     }
+}
+
+/// 当前上下文的设备指纹（VENDOR/RENDERER/VERSION）。glow 0.13 没暴露
+/// glGetString，直接经 ANGLE 解析原生入口。并行渲染排障用。
+pub fn gl_info() -> Option<(String, String, String)> {
+    let p = load_proc("glGetString");
+    if p.is_null() {
+        return None;
+    }
+    let get: unsafe extern "system" fn(u32) -> *const u8 = unsafe { std::mem::transmute(p) };
+    let s = |name: u32| -> String {
+        let ptr = unsafe { get(name) };
+        if ptr.is_null() {
+            return "?".to_string();
+        }
+        let bytes = unsafe { std::ffi::CStr::from_ptr(ptr.cast()) };
+        bytes.to_string_lossy().into_owned()
+    };
+    const VENDOR: u32 = 0x1F00;
+    const RENDERER: u32 = 0x1F01;
+    const VERSION: u32 = 0x1F02;
+    Some((s(VENDOR), s(RENDERER), s(VERSION)))
 }

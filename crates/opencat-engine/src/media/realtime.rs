@@ -60,6 +60,25 @@ const MAX_CATCH_UP_FRAMES: usize = 64;
 /// 只有约 1.4×，而不是 3×——所以分片数不必多，够覆盖同时可见的素材即可。
 const MAX_DECODE_SHARDS: usize = 1;
 
+/// 离线并行渲染的窗口参数。预览用上面的常量；预解池的 behind 必须盖住
+/// 轮转钉扎的在途帧号差（worker 最多落后派发前沿 ~3*workers 帧），字节
+/// 预算相应放宽——窗口帧是裸 RGBA，1080p 一帧 8MB。
+struct WindowParams {
+    behind_frames: usize,
+    ahead_frames: usize,
+    budget_bytes: usize,
+}
+
+impl Default for WindowParams {
+    fn default() -> Self {
+        Self {
+            behind_frames: BEHIND_FRAMES,
+            ahead_frames: AHEAD_FRAMES,
+            budget_bytes: WINDOW_BUDGET_BYTES,
+        }
+    }
+}
+
 /// 窗口命中时交给调用方的帧。
 pub struct CachedVideoFrame {
     pub data: Arc<Vec<u8>>,
@@ -102,6 +121,7 @@ struct WindowSet {
     frame_dur_us: i64,
     /// 命中容差，取半个帧间隔：足以吸收浮点漂移，又绝不会跨到相邻帧。
     tolerance_us: i64,
+    params: WindowParams,
 }
 
 struct Shared {
@@ -162,6 +182,21 @@ impl VideoRealtimeDecoder {
         }
     }
 
+    /// 离线并行渲染的预解池：一条解码线程 + 放宽的窗口。`workers` 是后端
+    /// 渲染线程数，决定 behind 保留量（轮转在途帧号差）。质量取 Realtime，
+    /// 与串行离线渲染的 MediaContext 默认一致（只影响 seek 策略，不影响像素）。
+    pub fn spawn_offline(fps: u32, workers: usize) -> Self {
+        let params = WindowParams {
+            behind_frames: workers * 3 + 4,
+            ahead_frames: AHEAD_FRAMES,
+            budget_bytes: 256 << 20,
+        };
+        Self {
+            shards: vec![Shard::spawn_with(fps, VideoPreviewQuality::Realtime, 0, params)],
+            assignments: Mutex::new(HashMap::new()),
+        }
+    }
+
     /// `path` 落在哪个分片。首次见到该素材时按轮转分配。
     fn shard_for(&self, path: &Path) -> Option<&Shard> {
         let mut assignments = self.assignments.lock().ok()?;
@@ -210,6 +245,15 @@ impl VideoRealtimeDecoder {
 impl Shard {
     /// 起一个解码线程。`index` 只用于线程名，便于在 profiler 里区分分片。
     fn spawn(fps: u32, quality: VideoPreviewQuality, index: usize) -> Self {
+        Self::spawn_with(fps, quality, index, WindowParams::default())
+    }
+
+    fn spawn_with(
+        fps: u32,
+        quality: VideoPreviewQuality,
+        index: usize,
+        params: WindowParams,
+    ) -> Self {
         let frame_dur_us = (1_000_000.0 / fps.max(1) as f64).round() as i64;
         let shared = Arc::new(Shared {
             window: Mutex::new(WindowSet {
@@ -218,6 +262,7 @@ impl Shard {
                 // 容差取半个帧间隔：最近帧总在半个帧间隔内，所以容差绝不会把请求
                 // 甩给相邻的那一帧。
                 tolerance_us: frame_dur_us / 2,
+                params,
             }),
             ready: Condvar::new(),
         });
@@ -375,7 +420,7 @@ impl WindowSet {
         let Some(asset) = self.assets.get_mut(path) else {
             return;
         };
-        let behind_limit = asset.target_us - BEHIND_FRAMES as i64 * self.frame_dur_us;
+        let behind_limit = asset.target_us - self.params.behind_frames as i64 * self.frame_dur_us;
         while let Some(front) = asset.frames.front() {
             if front.pts_us >= behind_limit {
                 break;
@@ -445,6 +490,8 @@ fn pump_one(
         };
         let frame_dur_us = set.frame_dur_us;
         let tolerance_us = set.tolerance_us;
+        let ahead_frames = set.params.ahead_frames;
+        let budget_bytes = set.params.budget_bytes;
 
         let filled = {
             let asset = set.assets.entry(path.to_path_buf()).or_default();
@@ -474,7 +521,7 @@ fn pump_one(
             let ahead = asset.frames.iter().filter(|f| f.pts_us >= target_us).count();
             // 窗口满了只该停止「往前多解」，不该停止「追上播放头」：播放头那一帧
             // 还没解出来时停手，主线程就永远等不到它，只能等到超时。
-            covered && (ahead >= AHEAD_FRAMES || asset.bytes >= WINDOW_BUDGET_BYTES)
+            covered && (ahead >= ahead_frames || asset.bytes >= budget_bytes)
         };
         set.trim(path);
         if filled {

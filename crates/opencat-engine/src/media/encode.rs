@@ -24,9 +24,13 @@ use ffmpeg_next::{
 
 use crate::media::decode::AudioTrack;
 
+#[derive(Clone)]
 pub struct Mp4Config {
     pub crf: u8,
     pub preset: String,
+    /// libx264 编码线程数；`None` = ffmpeg 默认（按核数自动，单进程渲染正合适）。
+    /// 多线程并行渲染时每段钳小，避免 N 个 worker × 24 编码线程超额。
+    pub threads: Option<u32>,
 }
 
 impl Default for Mp4Config {
@@ -34,6 +38,7 @@ impl Default for Mp4Config {
         Self {
             crf: 18,
             preset: "fast".to_string(),
+            threads: None,
         }
     }
 }
@@ -176,6 +181,9 @@ pub fn encode_rgba_frames(
     if video_codec.id() == codec::Id::H264 {
         encode_options.set("crf", &config.crf.to_string());
         encode_options.set("preset", &config.preset);
+        if let Some(threads) = config.threads {
+            encode_options.set("threads", &threads.to_string());
+        }
     }
     let video_encoder = video_encoder_ctx.open_as_with(video_codec, encode_options)?;
     let video_packet_time_base = nominal_time_base;

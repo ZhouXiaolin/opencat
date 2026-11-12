@@ -24,6 +24,7 @@ use html5ever::{Attribute, LocalName, Namespace, ParseOpts, QualName, parse_docu
 use serde_json::{Value, json};
 
 use crate::parse::dom::DomElement;
+use crate::parse::protocol;
 
 /// 页面 `<script>`：外链（src 相对工程根或远程 URL）或内联文本。
 #[derive(Debug, Clone)]
@@ -53,18 +54,6 @@ pub struct CompositionHost {
     pub src: String,
 }
 
-/// 降级期记录的元素协议属性（data-composition-* / 尺寸 / 时长）。DomElement
-/// 不保留这些 data-*，按 id 建副索引供根选择与嵌套拼接。
-#[derive(Debug, Default, Clone)]
-pub struct ElementProto {
-    pub composition_id: Option<String>,
-    pub width: Option<f64>,
-    pub height: Option<f64>,
-    pub duration: Option<f64>,
-    pub fps: Option<f64>,
-    pub src: Option<String>,
-}
-
 /// 一份 .html 的解析产物。
 #[derive(Debug, Clone, Default)]
 pub struct HtmlDocument {
@@ -79,8 +68,9 @@ pub struct HtmlDocument {
     /// 多个 importmap 后者覆盖前者——这里语料只有一个，原文级合并不做）。
     pub import_map: Option<String>,
     pub composition_hosts: Vec<CompositionHost>,
-    /// 元素 id → 协议属性（含根与嵌套宿主）。
-    pub protos: HashMap<String, ElementProto>,
+    /// 元素 id → 协议属性（含根与嵌套宿主）。属性的唯一表示在扩展层
+    /// （`parse::protocol::ElementProtocol`）。
+    pub protos: HashMap<String, protocol::ElementProtocol>,
     /// `::before`/`::after` 伪元素规则（从 css_text 抽出，见
     /// [`extract_pseudo_rules`]）。dom 构建期对命中的宿主元素合成伪节点。
     pub pseudo_rules: Vec<PseudoRuleRaw>,
@@ -406,6 +396,13 @@ impl Attrs<'_> {
     }
 }
 
+/// 标准层只提供原始属性；协议语义（哪些属性、怎么解释）归扩展层。
+impl protocol::AttrSource for Attrs<'_> {
+    fn attr(&self, name: &str) -> Option<&str> {
+        self.get(name)
+    }
+}
+
 fn is_pre_tag(tag: &str) -> bool {
     matches!(tag, "pre" | "listing" | "textarea" | "plaintext")
 }
@@ -495,7 +492,7 @@ struct LoweringState {
     renames: HashMap<String, String>,
     used_ids: HashSet<String>,
     hosts: Vec<CompositionHost>,
-    protos: HashMap<String, ElementProto>,
+    protos: HashMap<String, protocol::ElementProtocol>,
     css_chunks: Vec<String>,
     scripts: Vec<HtmlScript>,
     links: Vec<HtmlLink>,
@@ -559,23 +556,9 @@ impl LoweringState {
     }
 
     fn record_proto(&mut self, id: &str, view: &Attrs<'_>) {
-        let composition_id = view
-            .get("data-composition-id")
-            .map(str::to_string)
-            .filter(|s| !s.is_empty());
-        let src = view
-            .get("data-composition-src")
-            .map(str::to_string)
-            .filter(|s| !s.is_empty());
-        let proto = ElementProto {
-            composition_id,
-            width: view.f64("data-width"),
-            height: view.f64("data-height"),
-            duration: view.f64("data-duration"),
-            fps: view.f64("data-fps"),
-            src: src.clone(),
-        };
-        if let Some(src) = src {
+        // 协议属性的读法只有一处（扩展层）：标准层不认识 hyperframes 词汇。
+        let proto = protocol::ElementProtocol::read(view);
+        if let Some(src) = proto.composition_src.clone() {
             self.hosts.push(CompositionHost {
                 id: id.to_string(),
                 src,
@@ -1310,7 +1293,9 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
 
     let inline_style = view.get("style").map(str::to_string);
     let class = view.get("class").map(str::to_string);
-    let duration = view.f64("data-duration");
+    // 协议属性一次性读出（扩展层）：时间窗 / 媒体相位 / 着色矩阵。
+    let proto = protocol::ElementProtocol::read(&view);
+    let duration = proto.duration;
 
     let element = match tag.as_str() {
         "img" => DomElement::Image {
@@ -1339,13 +1324,11 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
                 path: src.clone().filter(|s| !is_http_url(s)),
                 url: src.filter(|s| is_http_url(s)),
                 duration,
-                data_start: view.f64("data-start"),
-                data_duration: view.f64("data-duration"),
-                data_media_start: view.f64("data-media-start"),
-                data_color_matrix: None,
-                hide_after_end: view
-                    .get("data-hide-after-end")
-                    .map(|v| v.is_empty() || v == "true"),
+                data_start: proto.start,
+                data_duration: proto.duration,
+                data_media_start: proto.media_start,
+                data_color_matrix: proto.color_matrix.clone(),
+                hide_after_end: proto.hide_after_end,
                 looping: view.get("loop").map(|v| v.is_empty() || v == "true"),
                 children,
             }
@@ -1417,8 +1400,8 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
                     duration,
                     // 可见窗协议（section/div 通用 fallback 路径）：k3 的
                     // 场景容器全走这里，clip window 语义靠它。
-                    data_start: view.f64("data-start"),
-                    data_duration: view.f64("data-duration"),
+                    data_start: proto.start,
+                    data_duration: proto.duration,
                     // 真标签名进级联（section/button/li… 的 tag 选择器）。
                     ua_tag: Some(tag),
                     // 原文属性进级联（`[data-composition-id="…"]` 等）。

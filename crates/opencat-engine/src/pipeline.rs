@@ -45,7 +45,8 @@ pub struct EnginePipelineHost {
     /// Core pipeline (pure derivation; no loader access).
     pub pipeline: CorePipeline,
     /// Engine-owned resource owner: cached asset handles, fetcher, providers.
-    pub loader: EngineLoader,
+    /// Arc 共享：并行渲染的池线程要读缓存句柄/字节（只读，open 后不再写）。
+    pub loader: Arc<EngineLoader>,
     /// 共享纹理登记处：GPU 流输出纹理与合成目标纹理的存活都归它管。
     /// 生产方（GPU 执行器）与消费方（GPU 合成器、预览器）共用同一个。
     pub textures: std::sync::Arc<crate::gpu::TextureRegistry>,
@@ -62,9 +63,9 @@ impl EnginePipelineHost {
         &self.loader
     }
 
-    /// Mutable borrow of the engine resource owner.
-    pub fn loader_mut(&mut self) -> &mut EngineLoader {
-        &mut self.loader
+    /// 共享所有权克隆：并行渲染池线程各持一份（生命周期与管线解耦）。
+    pub fn loader_arc(&self) -> &Arc<EngineLoader> {
+        &self.loader
     }
 
     /// Delegate: composition info (width/height/fps/duration/audio plan).
@@ -286,7 +287,7 @@ fn open_parsed_host_owned_with_fonts(
 
     Ok(EnginePipelineHost {
         pipeline,
-        loader,
+        loader: Arc::new(loader),
         textures,
     })
 }

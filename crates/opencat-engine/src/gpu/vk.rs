@@ -263,6 +263,30 @@ impl VkSession {
         // 语义等价。**仅白名单命令走这条路**——instance/device 级函数若
         // gipa 拒绝，用别的 loader 解析会跨 loader 段错误（实测），宁可
         // 返回 NULL 让 Skia 走降级。
+        /// Windows：解析与 ANGLE libEGL 同目录的 vulkan-1.dll。ANGLE 用
+        /// 绝对路径加载自带的 loader，`LoadLibraryA("vulkan-1.dll")` 走标准
+        /// 搜索序会命中 System32 的系统 loader——device 句柄不是它注册的，
+        /// 其 gdpa 一调就段错误（实测）。必须用 ANGLE 同目录的那份。
+        #[cfg(target_os = "windows")]
+        fn angle_loader() -> windows_sys::Win32::Foundation::HMODULE {
+            use windows_sys::Win32::System::LibraryLoader as W;
+            unsafe {
+                let egl = W::GetModuleHandleA(c"libEGL.dll".as_ptr() as *const u8);
+                if egl.is_null() {
+                    return std::ptr::null_mut();
+                }
+                let mut buf = [0u8; 512];
+                let n = W::GetModuleFileNameA(egl, buf.as_mut_ptr(), buf.len() as u32) as usize;
+                let path = String::from_utf8_lossy(&buf[..n.min(buf.len())]).into_owned();
+                let dir = match path.rfind('\\') {
+                    Some(i) => &path[..i],
+                    None => return std::ptr::null_mut(),
+                };
+                let full = format!("{dir}\\vulkan-1.dll");
+                let mut cname: Vec<u8> = full.bytes().chain(std::iter::once(0)).collect();
+                W::LoadLibraryA(cname.as_ptr())
+            }
+        };
         const GLOBAL_COMMANDS: [&str; 5] = [
             "vkEnumerateInstanceExtensionProperties",
             "vkEnumerateInstanceLayerProperties",
@@ -294,7 +318,25 @@ impl VkSession {
                 let p = libc::dlsym(handle, cname.as_ptr());
                 if p.is_null() { std::ptr::null() } else { p as *const std::ffi::c_void }
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "windows")]
+            unsafe {
+                // 优先 ANGLE 同目录的 loader（与 device 句柄同源）；全局
+                // 命令语义与 loader 无关，但用同一份最稳。
+                let mut handle = (angle_loader)();
+                if handle.is_null() {
+                    handle = windows_sys::Win32::System::LibraryLoader::LoadLibraryA(
+                        c"vulkan-1.dll".as_ptr() as *const u8,
+                    );
+                }
+                if handle.is_null() {
+                    return std::ptr::null();
+                }
+                let cname: Vec<u8> = name.bytes().chain(std::iter::once(0)).collect();
+                windows_sys::Win32::System::LibraryLoader::GetProcAddress(handle, cname.as_ptr())
+                    .map(|f| std::mem::transmute::<unsafe extern "system" fn() -> isize, *const std::ffi::c_void>(f))
+                    .unwrap_or(std::ptr::null())
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
             {
                 let _ = name;
                 std::ptr::null()
@@ -307,8 +349,9 @@ impl VkSession {
         // loader 级 gdpa：**不能**经 ANGLE gipa 取——ANGLE 对部分 device
         // 命令有自己的 interpose（trace 里 vkQueueSubmit 与其他函数来自
         // 不同模块），Skia/VMA 拿到混合 dispatch 后析构崩在 ICD 内。
-        // 直接 dlsym 真实 loader（ANGLE 自带 libvulkan.so.1，进程内已加载）
-        // 的 vkGetDeviceProcAddr，device 句柄本就是它注册的，函数表单一。
+        // 直接 dlsym 真实 loader（ANGLE 自带 libvulkan.so.1 / vulkan-1.dll，
+        // 进程内已加载）的 vkGetDeviceProcAddr，device 句柄本就是它注册的，
+        // 函数表单一。
         let loader_gdpa: Option<PfnGetDeviceProcAddr> = unsafe {
             #[cfg(target_os = "linux")]
             {
@@ -335,14 +378,31 @@ impl VkSession {
                     }
                 }
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(target_os = "windows")]
             {
-                let p = gipa(instance, c"vkGetDeviceProcAddr".as_ptr());
-                if p.is_null() {
+                let mut handle = (angle_loader)();
+                if handle.is_null() {
+                    handle = windows_sys::Win32::System::LibraryLoader::LoadLibraryA(
+                        c"vulkan-1.dll".as_ptr() as *const u8,
+                    );
+                }
+                if handle.is_null() {
                     None
                 } else {
-                    Some(std::mem::transmute::<*const std::ffi::c_void, PfnGetDeviceProcAddr>(p))
+                    windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+                        handle,
+                        c"vkGetDeviceProcAddr".as_ptr() as *const u8,
+                    )
+                    .map(|f| {
+                        std::mem::transmute::<unsafe extern "system" fn() -> isize, PfnGetDeviceProcAddr>(f)
+                    })
                 }
+            }
+            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+            {
+                let _ = &gipa;
+                let _ = instance;
+                None
             }
         };
 

@@ -9,6 +9,7 @@ pub mod jsx_transform;
 pub mod elements;
 pub mod node;
 pub mod preflight;
+pub mod protocol;
 pub mod primitives;
 pub mod time;
 pub mod transition;

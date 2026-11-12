@@ -60,14 +60,16 @@ impl GpuCompositor {
         height: u32,
     ) -> Result<Self> {
         let mut skia = backend.make_direct_context()?;
-        // Vulkan 变体：Skia 自建渲染目标（Vulkan 路径上不与宿主共享 image
-        // 内存，无外部纹理可包装）。其余变体包装宿主的目标纹理。
-        #[cfg(target_os = "linux")]
+        // Vulkan 变体：Skia 自建渲染目标（Vulkan 路径上 Skia 的合成目标
+        // 自管，ANGLE 的流输出纹理经 VkImage 导入采样）。其余变体包装
+        // 宿主的目标纹理。
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         let (target, surface) = match &backend {
             CompositorBackend::Vulkan { .. } => {
                 let surface = backend.wrap_vulkan_target(&mut skia, width, height)?;
                 (None, surface)
             }
+            #[cfg(target_os = "linux")]
             _ => {
                 let target = crate::gpu::Target::new(
                     gl.ok_or_else(|| anyhow!("GL 平台必须携带 glow 上下文"))?,
@@ -79,23 +81,11 @@ impl GpuCompositor {
                 (Some(target), surface)
             }
         };
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
         let (target, surface) = {
             let target = {
-                #[cfg(target_os = "macos")]
-                {
-                    let _ = gl;
-                    crate::gpu::Target::new(native, width, height)?
-                }
-                #[cfg(target_os = "windows")]
-                {
-                    crate::gpu::Target::new(
-                        gl.ok_or_else(|| anyhow!("GL 平台必须携带 glow 上下文"))?,
-                        native,
-                        width,
-                        height,
-                    )?
-                }
+                let _ = gl;
+                crate::gpu::Target::new(native, width, height)?
             };
             let surface = backend.wrap_target(&mut skia, &target, width, height)?;
             (Some(target), surface)
@@ -243,32 +233,30 @@ impl Drop for GpuCompositor {
 /// 分支里创建（GL 需要 `&Renderer3d` 上锁，Metal 只需要两个裸句柄）。
 pub enum CompositorBackend {
     /// GL：Skia 与命令流执行器共享同一上下文——GL 入口解析跟会话同源
-    /// （ANGLE 用 eglGetProcAddress，WGL 用 wglGetProcAddress；调用方保证
-    /// context 已 current）。
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    /// （Linux EGL/libGL；调用方保证 context 已 current）。
+    /// 仅 Linux 保留：Windows 的预编译包无 GL 符号（三栈统一 Vulkan）。
+    #[cfg(target_os = "linux")]
     Gl {
         loader: std::sync::Arc<dyn Fn(&str) -> *const std::ffi::c_void + Send + Sync>,
     },
     /// Metal：一块系统 MTLDevice，wgpu 与 Skia 各自的队列共享它。
     #[cfg(target_os = "macos")]
     Metal { device: u64, queue: u64 },
-    /// Vulkan（Linux）：Skia 的 Vulkan backend，设备来自 SwiftShader ICD。
+    /// Vulkan：Skia 的 Vulkan backend，设备来自 ANGLE 共享（零拷贝）或
+    /// 独立 ICD。
     ///
     /// 与 GL 变体的关键差别：Skia 自建渲染目标（`render_target`），
-    /// 不包装外部纹理——Vulkan 路径上 Skia 与宿主不共享同一份 image
-    /// 内存，跨 API 零拷贝做不到（这正是统一到 Vulkan 后 ANGLE 的 GL
-    /// 输出纹理进不来 Skia 的原因）。
-    #[cfg(target_os = "linux")]
+    /// 不包装外部纹理；ANGLE 的流输出纹理经 VkImage 导入（零拷贝）。
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     Vulkan { session: std::sync::Arc<crate::gpu::vk::VkSession> },
 }
 
 impl CompositorBackend {
     fn make_direct_context(&self) -> Result<gpu::DirectContext> {
         match self {
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            #[cfg(target_os = "linux")]
             Self::Gl { loader } => {
-                // 入口与会话同源（Windows：ANGLE→eglGetProcAddress / WGL→
-                // wglGetProcAddress；Linux：EGL/libGL）。
+                // 入口与会话同源（Linux：EGL/libGL）。
                 let interface = gpu::gl::Interface::new_load_with(|name| (loader)(name))
                     .ok_or_else(|| anyhow!("Skia GL 接口构建失败（会话入口缺失？）"))?;
                 gpu::direct_contexts::make_gl(interface, None)
@@ -285,12 +273,13 @@ impl CompositorBackend {
                 gpu::direct_contexts::make_metal(&backend, None)
                     .ok_or_else(|| anyhow!("Skia make_metal 失败"))
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             Self::Vulkan { session } => gpu::direct_contexts::make_vulkan(session.backend(), None)
                 .ok_or_else(|| anyhow!("Skia make_vulkan 失败")),
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn wrap_target(
         &self,
         skia: &mut gpu::DirectContext,
@@ -298,7 +287,7 @@ impl CompositorBackend {
         width: u32,
         height: u32,
     ) -> Result<Surface> {
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        #[cfg(target_os = "linux")]
         let brt = gpu::backend_render_targets::make_gl(
             (width as i32, height as i32),
             0usize,
@@ -337,7 +326,7 @@ impl CompositorBackend {
     /// Vulkan 路径上没有「宿主纹理 + Skia 共享」这回事（跨 API 不能零拷贝
     /// 共享 image 内存），所以由 Skia 自己分配渲染目标，读回走
     /// `read_pixels`。
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn wrap_vulkan_target(
         &self,
         skia: &mut gpu::DirectContext,
@@ -369,11 +358,14 @@ impl CompositorBackend {
 ///
 /// 只借用 Skia 的 `DirectContext` 与共享登记处。
 /// 纹理的存活由登记处保证：本帧合成完成后宿主才 `release` 凭据。
+/// 仅 Linux（Windows 无 GL Skia 符号，Vulkan 路径用 [`crate::render::VkResolver`]）。
+#[cfg(target_os = "linux")]
 pub struct CompositorResolver<'a> {
     pub skia: &'a mut gpu::DirectContext,
     pub textures: &'a TextureRegistry,
 }
 
+#[cfg(target_os = "linux")]
 impl crate::render::frame::GpuImageResolver for CompositorResolver<'_> {
     fn import(
         &mut self,
@@ -412,13 +404,15 @@ impl crate::render::frame::GpuImageResolver for CompositorResolver<'_> {
 ///
 /// 纹理必须在 image 的整个采样期内存活——调用方保证
 /// （凭据在本帧合成完成后再 `release`）。
+/// 仅 Linux/Metal：Windows 无 GL Skia 符号（Vulkan 路径走 vk::import_stream_texture）。
+#[cfg(not(target_os = "windows"))]
 pub fn import_texture(
     skia: &mut gpu::DirectContext,
     native: NativeTexture,
     width: u32,
     height: u32,
 ) -> Result<skia_safe::Image> {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     let backend_tex = unsafe {
         let info = gpu::gl::TextureInfo {
             target: crate::gpu::gl::TEXTURE_2D,
@@ -447,9 +441,9 @@ pub fn import_texture(
     // GL 纹理是 bottom-left 原点（FBO 渲染行序自底向上）；Metal 是 top-left。
     // wgpu 时代写死 TopLeft 是对的（wgpu NDC 即 top-left），GL 执行器接手后
     // 必须按后端区分，否则合成帧竖直翻转（实测 tracer 全帧上下颠倒）。
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     let origin = SurfaceOrigin::BottomLeft;
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     let origin = SurfaceOrigin::TopLeft;
     let img = gpu::images::borrow_texture_from(
         skia,

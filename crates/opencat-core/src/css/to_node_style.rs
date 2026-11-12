@@ -16,7 +16,9 @@ use lightningcss::properties::background::{Background, BackgroundClip, Backgroun
 use lightningcss::properties::border::{Border, BorderSideWidth, LineStyle};
 use lightningcss::properties::border_radius::BorderRadius as CssBorderRadius;
 use lightningcss::properties::box_shadow::BoxShadow as CssBoxShadow;
-use lightningcss::properties::custom::{CustomProperty, CustomPropertyName};
+use lightningcss::properties::custom::{
+    CustomProperty, CustomPropertyName, Function, Token, TokenList, TokenOrValue, Variable,
+};
 use lightningcss::properties::display::{Display, DisplayInside, DisplayOutside};
 use lightningcss::properties::effects::{BlendMode as CssBlendMode, Filter, FilterList};
 use lightningcss::properties::flex::{FlexDirection as CssFlexDirection, FlexWrap as CssFlexWrap};
@@ -54,7 +56,8 @@ use crate::style::{
     TextShadow as CatTextShadow, TextTransform, Transform as CatTransform, TransformOrigin,
 };
 
-use super::eval::{css_color_to_f32, serialize_tokens};
+use super::eval::{css_color_to_f32, dimension_to_px, length_to_px, serialize_tokens};
+use super::VarSource;
 use super::EvalContext;
 
 fn warn_unsupported(pid: PropertyId, why: &str) {
@@ -723,13 +726,28 @@ pub fn apply_property(
 
         // lightningcss alpha.72 属性表缺项（object-fit 等）解析为 Custom，
         // 这里逐个识别引擎支持的；未知项照常告警。
-        Property::Custom(cp) => apply_custom_property(style, cp),
+        Property::Custom(cp) => apply_custom_property(style, cp, &EmptyVars, ctx),
 
         other => warn_unsupported(other.property_id(), "第一阶段未接入"),
     }
 }
 
-fn apply_custom_property(style: &mut crate::style::NodeStyle, cp: &CustomProperty<'static>) {
+/// 无变量可查的 var 源（自定义属性分支的兜底）。
+struct EmptyVars;
+
+impl VarSource for EmptyVars {
+    fn var(&self, _key: &str) -> Option<&TokenList<'static>> {
+        None
+    }
+}
+
+/// lightningcss 属性表缺项的属性（Custom）落到 NodeStyle。
+pub fn apply_custom_property<V: VarSource + ?Sized>(
+    style: &mut crate::style::NodeStyle,
+    cp: &CustomProperty<'static>,
+    vars: &V,
+    ctx: &EvalContext,
+) {
     let CustomPropertyName::Unknown(name) = &cp.name else {
         return;
     };
@@ -747,9 +765,136 @@ fn apply_custom_property(style: &mut crate::style::NodeStyle, cp: &CustomPropert
                 };
             }
         }
+        // `-webkit-text-stroke: <length> <color>`：webkit 专有属性，
+        // lightningcss 属性表无此项（落 Custom）。描边画在填充之下（webkit
+        // 绘制序），渲染端已有通路，缺的只是这里的一次搬运。语料 9 处
+        // （texture 4 / frame-md 3 / spacex 1 / claude-paper 1）。
+        "-webkit-text-stroke" | "text-stroke" => {
+            apply_text_stroke(style, cp, vars, ctx);
+        }
         other => {
             log::warn!("css: {other} 暂不支持（lightningcss 属性表缺项），已跳过");
         }
+    }
+}
+
+/// `-webkit-text-stroke` → `NodeStyle::text_stroke`。
+///
+/// 语法：`<length> <color>`。宽度可省（`-webkit-text-stroke: 0` = 无描边）；
+/// 颜色可省（= currentcolor，描边宽度为 0 时无差别）。颜色可以是
+/// `rgb()/rgba()` 函数、十六进制、具名色，或 `var(--x)`（取自定义属性）。
+fn apply_text_stroke<V: VarSource + ?Sized>(
+    style: &mut crate::style::NodeStyle,
+    cp: &CustomProperty<'static>,
+    vars: &V,
+    ctx: &EvalContext,
+) {
+    let mut width: Option<f32> = None;
+    let mut color: Option<ColorToken> = None;
+    for item in cp.value.0.iter() {
+        match item {
+            TokenOrValue::Token(Token::Dimension { value, unit, .. }) if width.is_none() => {
+                width = dimension_to_px(*value, unit, ctx);
+            }
+            // 无单位数字当 px（`-webkit-text-stroke: 0`）。
+            TokenOrValue::Token(Token::Number { value, .. }) if width.is_none() => {
+                width = Some(*value);
+            }
+            TokenOrValue::Length(len) if width.is_none() => {
+                width = length_to_px(len.clone(), ctx);
+            }
+            TokenOrValue::Color(c) => color = color_token(c),
+            TokenOrValue::Function(f) => color = color_from_function(f),
+            TokenOrValue::Var(v) => color = color_from_var(v, vars),
+            _ => {}
+        }
+    }
+    let Some(width) = width else {
+        log::warn!("css: -webkit-text-stroke 缺宽度，已跳过");
+        return;
+    };
+    if width <= 0.0 {
+        // 宽度 0 = 不描边（`text-stroke: 0` 是显式关闭）。
+        style.text_stroke = None;
+        return;
+    }
+    let color = color.unwrap_or(ColorToken::Custom(0, 0, 0, 255));
+    style.text_stroke = Some(crate::style::TextStroke { width, color });
+}
+
+/// `rgb()/rgba()` 函数 → 颜色。自定义属性的值是原始 token 列表，函数体
+/// 没有被 lightningcss 解析成 `CssColor`，这里自己读分量。
+fn color_from_function(f: &Function<'static>) -> Option<ColorToken> {
+    let name = f.name.0.to_ascii_lowercase();
+    if name != "rgb" && name != "rgba" {
+        return None;
+    }
+    let mut comps: Vec<f32> = Vec::new();
+    for item in f.arguments.0.iter() {
+        match item {
+            TokenOrValue::Token(Token::Number { value, .. }) => comps.push(*value),
+            TokenOrValue::Token(Token::Percentage { unit_value, .. }) => {
+                comps.push(*unit_value * 255.0 / 100.0)
+            }
+            _ => {}
+        }
+    }
+    if comps.len() < 3 {
+        return None;
+    }
+    let alpha = if comps.len() >= 4 {
+        (comps[3].clamp(0.0, 1.0) * 255.0).round() as u8
+    } else {
+        255
+    };
+    let ch = |v: f32| v.clamp(0.0, 255.0).round() as u8;
+    Some(ColorToken::Custom(ch(comps[0]), ch(comps[1]), ch(comps[2]), alpha))
+}
+
+/// `var(--x)` → 颜色：查自定义属性表，再按同样的 token 规则读色。
+fn color_from_var<V: VarSource + ?Sized>(
+    v: &Variable<'static>,
+    vars: &V,
+) -> Option<ColorToken> {
+    let key = v.name.ident.0.trim_start_matches("--");
+    let list = vars.var(key)?;
+    for item in list.0.iter() {
+        match item {
+            TokenOrValue::Color(c) => return color_token(c),
+            TokenOrValue::Function(f) => return color_from_function(f),
+            TokenOrValue::Token(Token::Hash(h)) => return hex_color(&h),
+            TokenOrValue::Token(Token::IDHash(h)) => return hex_color(&h),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `#rgb` / `#rrggbb` → 颜色。
+fn hex_color(hex: &str) -> Option<ColorToken> {
+    let h = hex.trim_start_matches('#');
+    let byte = |s: &str| u8::from_str_radix(s, 16).ok();
+    match h.len() {
+        3 => {
+            let r = byte(&h[0..1])?;
+            let g = byte(&h[1..2])?;
+            let b = byte(&h[2..3])?;
+            Some(ColorToken::Custom(r * 17, g * 17, b * 17, 255))
+        }
+        6 => {
+            let r = byte(&h[0..2])?;
+            let g = byte(&h[2..4])?;
+            let b = byte(&h[4..6])?;
+            Some(ColorToken::Custom(r, g, b, 255))
+        }
+        8 => {
+            let r = byte(&h[0..2])?;
+            let g = byte(&h[2..4])?;
+            let b = byte(&h[4..6])?;
+            let a = byte(&h[6..8])?;
+            Some(ColorToken::Custom(r, g, b, a))
+        }
+        _ => None,
     }
 }
 

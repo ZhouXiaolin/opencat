@@ -35,11 +35,14 @@ enum LinuxBackend {
 }
 
 impl GlSession {
-    /// Linux 侧的 ANGLE 上下文（ANGLE 路径才有）。
+    /// 本会话的 ANGLE 上下文（ANGLE 路径才有）。
     ///
     /// Vulkan 合成路径凭它查 ANGLE 的 Vulkan 句柄（零拷贝的前提）。
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub fn angle_context(&self) -> Option<&crate::gpu::angle::AngleContext> {
+        #[cfg(target_os = "windows")]
+        return Some(&self.angle);
+        #[cfg(target_os = "linux")]
         match &self.linux_backend {
             LinuxBackend::Angle(angle) => Some(angle),
             LinuxBackend::Egl(_) => None,

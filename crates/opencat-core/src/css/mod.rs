@@ -90,7 +90,7 @@ fn apply_value<V: VarSource + ?Sized>(
     match property {
         // lightningcss 属性表缺项（object-fit 等）也是 Custom：
         // 喂给 paint 腿做关键字识别，布局腿无语义、跳过。
-        Property::Custom(_) => to_node_style::apply_property(style, property, ctx),
+        Property::Custom(cp) => to_node_style::apply_custom_property(style, cp, vars, ctx),
         other => {
             for typed in eval::resolve_to_typed(other, vars, ctx) {
                 // 布局腿直通 taffy；paint 腿继续喂 NodeStyle 既有字段。

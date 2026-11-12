@@ -29,6 +29,18 @@ const NULL_HANDLE: u32 = 0xFFFF_FFFF;
 /// 一条流的命令帧字段（`GpuStream.ops` 的内层结构）。
 use opencat_core::ir::GpuOpFrame;
 
+/// 一次流执行的输出：颜色纹理 + 挂着它的 FBO（含深度附件）+ 尺寸。
+/// 携带尺寸是为了归还 [`GpuStreamExecutor::recycle`] 复用池时按 canvas
+/// 校验——1080p RGBA8 + DEPTH24_STENCIL8 的建/销在 Vulkan 驱动是同步
+/// 内存分配重操作，逐帧新建会把并行广播放大成千次分配。
+#[derive(Clone)]
+pub struct StreamOutput {
+    pub tex: crate::gpu::NativeTexture,
+    pub fbo: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Default)]
 pub struct GpuStreamExecutor {
     /// 内容 hash → 编译好的程序（跨帧/跨流复用）。
@@ -83,6 +95,12 @@ pub struct GpuStreamExecutor {
     /// 是独立 GL 上下文，状态互不可见；执行器共用一份 GL 上下文，靠这里
     /// 在流边界换入换出。
     clients: HashMap<String, ClientGlState>,
+    /// 流输出的复用池（按 canvas 一格）：合成/读回完成后 [`recycle`] 归还，
+    /// 下一帧同尺寸直接复用，免逐帧建销纹理+FBO+深度缓冲。
+    out_pool: HashMap<String, StreamOutput>,
+    /// 本帧已交付 outputs 的 canvas 序（与 outputs 同序）；[`recycle`] 按
+    /// 序号把归还的输出版回 [`out_pool`] 对应格。
+    out_pending: Vec<String>,
 }
 
 /// GL 命令流客户端的"最后一次设置"状态。帧尾必须恢复到这个影子而不是
@@ -279,8 +297,11 @@ impl GpuStreamExecutor {
         plan: &mut FrameMediaPlan,
         textures: &crate::gpu::TextureRegistry,
         gpu_mode: bool,
-    ) -> Result<Vec<(crate::gpu::NativeTexture, u32)>> {
+    ) -> Result<Vec<StreamOutput>> {
         let mut outputs = Vec::new();
+        // 本帧交付账本重开：上一帧的 pending 只有在该帧输出被 recycle 时
+        // 有效；调用方丢弃（KEEP_STREAM_TEX 调试语义 / 错误路径）即作废。
+        self.out_pending.clear();
         if section.streams.is_empty() {
             // 没有任何流 = 本会话 GL 状态没被流碰过。restore 的一堆绑定
             // 调用反而会踩掉 Skia 的状态缓存，直接早退。
@@ -307,6 +328,15 @@ impl GpuStreamExecutor {
         Ok(outputs)
     }
 
+    /// 把合成/读回消费完的流输出归还复用池（替代删除），按本帧交付序
+    /// 版回各 canvas 的格。异常路径下 pending 与 outputs 不齐时残余丢弃
+    /// ——池缺失只损失复用，不损正确性（下次重建）。
+    pub fn recycle(&mut self, outputs: Vec<StreamOutput>) {
+        for (key, out) in self.out_pending.drain(..).zip(outputs) {
+            self.out_pool.insert(key, out);
+        }
+    }
+
     fn execute_stream(
         &mut self,
         gl: &Arc<glow::Context>,
@@ -314,7 +344,7 @@ impl GpuStreamExecutor {
         plan: &mut FrameMediaPlan,
         textures: &crate::gpu::TextureRegistry,
         gpu_mode: bool,
-    ) -> Result<Vec<(crate::gpu::NativeTexture, u32)>> {
+    ) -> Result<Vec<StreamOutput>> {
         let ops = &stream.ops.ops;
         let bytes: &[u8] = &stream.ops.bytes;
         let ranges: &[opencat_core::ir::draw_types::TableRange] = &stream.ops.byte_ranges;
@@ -327,12 +357,22 @@ impl GpuStreamExecutor {
         // 无条件把真状态拉回客户端影子，增量命令的起点重新可信。
         restore_default_state(self, gl);
 
-        // 输出纹理 + FBO：流画到自己的附件上（合成按占位 z 序采样）。
-        let out_tex = crate::gpu::gl::create_texture_rgba8(gl, stream.width, stream.height)
-            .ok_or_else(|| anyhow!("gpu stream: 输出纹理创建失败"))?;
-        let out_fbo =
-            crate::gpu::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
-                .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
+        // 输出纹理 + FBO：流画到自己的附件上（合成按占位 z 序采样）。优先
+        // 从复用池取同 canvas 上一次的槽（尺寸一致即复用，FBO 的颜色/深度
+        // 附件都在）——1080p 的纹理+深度缓冲建/销是驱动同步分配，逐帧来
+        // 会把并行放大成千次。
+        let (out_tex, out_fbo) = match self.out_pool.remove(&stream.target_id) {
+            Some(out) if out.width == stream.width && out.height == stream.height => {
+                (out.tex, out.fbo)
+            }
+            Some(out) => {
+                // 同 canvas 换了分辨率：弃旧建新。
+                crate::gpu::gl::delete_framebuffer(gl, out.fbo);
+                crate::gpu::gl::delete_texture(gl, out.tex);
+                stream_output(gl, stream)?
+            }
+            None => stream_output(gl, stream)?,
+        };
         self.stream_out_fbo = out_fbo;
 
         // 常规帧的流不含 bindFramebuffer（three 的 rt 绑定走缓存不重发）；
@@ -363,6 +403,9 @@ impl GpuStreamExecutor {
         let trace = std::env::var("OC_TRACE_GL")
             .map(|v| v == stream.target_id)
             .unwrap_or(false);
+        if trace {
+            eprintln!("[gl] ===== stream {}", stream.target_id);
+        }
         if std::env::var_os("OC_DEBUG_CLEAN_STATE").is_some() {
             unsafe {
                 gl.disable(glow::CULL_FACE);
@@ -372,7 +415,7 @@ impl GpuStreamExecutor {
                 gl.disable(glow::SCISSOR_TEST);
             }
         }
-        let mut r = Replay { gl, ops, bytes, ranges, trace };
+        let mut r = Replay { gl, ops, bytes, ranges, trace, target: stream.target_id.clone() };
         let st = r.run(self)?;
         if std::env::var_os("OC_DETACH_FBO").is_some() {
             unsafe {
@@ -418,8 +461,11 @@ impl GpuStreamExecutor {
                         .collect::<Vec<_>>()
                 );
             }
-            crate::gpu::gl::delete_framebuffer(gl, out_fbo);
-            crate::gpu::gl::delete_texture(gl, out_tex);
+            // 输出直接归还复用池（没进 plan，没人消费它）。
+            self.out_pool.insert(
+                stream.target_id.clone(),
+                StreamOutput { tex: out_tex, fbo: out_fbo, width: stream.width, height: stream.height },
+            );
             let _ = st;
             return Ok(Vec::new());
         };
@@ -427,8 +473,9 @@ impl GpuStreamExecutor {
         let mut outputs = Vec::new();
         let gpu_mode = gpu_mode && std::env::var_os("OC_FORCE_CPU_STREAM").is_none();
         if gpu_mode {
-            // 纹理登记到共享表；GL 资源的删除由调用方在合成完成后做
-            // （outputs 携带 (纹理名, FBO)——调用点持有 current 上下文）。
+            // 纹理登记到共享表；GL 资源的回收由调用方在合成完成后做
+            // （outputs 携带尺寸——调用方 [`GpuStreamExecutor::recycle`]
+            // 归还复用池，调用点持有 current 上下文）。
             let native = crate::gpu::NativeTexture::from_raw(out_tex.raw());
             let token = textures.publish(native, Box::new(()));
             entry.rgba = Arc::from(Vec::new());
@@ -444,7 +491,8 @@ impl GpuStreamExecutor {
             entry.gpu = Some(opencat_core::ir::generated_image::GpuImageHandle {
                 token: token.raw(),
             });
-            outputs.push((native, out_fbo));
+            self.out_pending.push(stream.target_id.clone());
+            outputs.push(StreamOutput { tex: native, fbo: out_fbo, width: stream.width, height: stream.height });
             // 调试：dump 流输出纹理字节（与 CPU readback 路径对比用）。
             if let Some(dir) = std::env::var_os("OC_DUMP_STREAM_OUTPUT") {
                 let rgba = readback_sync(gl, out_fbo, stream.width, stream.height)?;
@@ -468,12 +516,26 @@ impl GpuStreamExecutor {
             }
             entry.rgba = Arc::from(rgba);
             entry.gpu = None;
-            crate::gpu::gl::delete_framebuffer(gl, out_fbo);
-            crate::gpu::gl::delete_texture(gl, out_tex);
+            // 像素已读回，输出直接归还复用池。
+            self.out_pool.insert(
+                stream.target_id.clone(),
+                StreamOutput { tex: out_tex, fbo: out_fbo, width: stream.width, height: stream.height },
+            );
         }
         let _ = st;
         Ok(outputs)
     }
+}
+
+/// 新建一条流的输出（颜色纹理 + 挂深度附件的 FBO）。仅复用池没有可用
+/// 槽（或尺寸不符）时走到这里。
+fn stream_output(gl: &Arc<glow::Context>, stream: &GpuStream) -> Result<(crate::gpu::NativeTexture, u32)> {
+    let out_tex = crate::gpu::gl::create_texture_rgba8(gl, stream.width, stream.height)
+        .ok_or_else(|| anyhow!("gpu stream: 输出纹理创建失败"))?;
+    let out_fbo =
+        crate::gpu::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
+            .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
+    Ok((out_tex, out_fbo))
 }
 
 /// 流执行结束:把共享 GL 上下文恢复到近默认态。
@@ -644,6 +706,8 @@ struct Replay<'a> {
     ranges: &'a [opencat_core::ir::draw_types::TableRange],
     /// 调试：`OC_TRACE_GL=<target_id>` 时打印本流每条命令。
     trace: bool,
+    /// 流所属 canvas（target_id）：错误信息定位用。
+    target: String,
 }
 
 struct ReplayState {
@@ -686,7 +750,21 @@ impl<'a> Replay<'a> {
                         .find(|(_, v)| *v == opcode)
                         .map(|(n, _)| *n)
                         .unwrap_or("UNKNOWN");
-                    eprintln!("[gl] {start:>5} {name}");
+                    let arg = match opcode {
+                        gl_opcode::PROGRAM_USE
+                        | gl_opcode::PROGRAM_CREATE
+                        | gl_opcode::PROGRAM_LINK
+                        | gl_opcode::PROGRAM_DELETE => {
+                            format!(" pid={}", u32::from_le_bytes(self.ops[p..p + 4].try_into().unwrap()))
+                        }
+                        gl_opcode::SHADER_CREATE => format!(
+                            " kind={} sid={}",
+                            u16::from_le_bytes(self.ops[p..p + 2].try_into().unwrap()),
+                            u32::from_le_bytes(self.ops[p + 2..p + 6].try_into().unwrap())
+                        ),
+                        _ => String::new(),
+                    };
+                    eprintln!("[gl] {start:>5} {name}{arg}");
                 }
                 match opcode {
                     gl_opcode::SHADER_CREATE => {
@@ -1874,7 +1952,7 @@ impl<'a> Replay<'a> {
         let key = state
             .program_key
             .as_ref()
-            .ok_or_else(|| anyhow!("attrib 命令出现在 USE_PROGRAM 之前"))?;
+            .ok_or_else(|| anyhow!("attrib 命令出现在 USE_PROGRAM 之前（canvas={}）", self.target))?;
         GpuStreamExecutor::resolve_attrib_on(ex, self.gl, key, name)
     }
 
@@ -1888,7 +1966,12 @@ impl<'a> Replay<'a> {
         let key = state
             .program_key
             .as_ref()
-            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前（{name}）"))?;
+            .ok_or_else(|| {
+                anyhow!(
+                    "uniform 命令出现在 USE_PROGRAM 之前（{name}，canvas={}）",
+                    self.target
+                )
+            })?;
         GpuStreamExecutor::resolve_uniform_on(ex, self.gl, key, name)
     }
 
@@ -1903,7 +1986,7 @@ impl<'a> Replay<'a> {
         let key = state
             .program_key
             .as_ref()
-            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前"))?;
+            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前（canvas={}）", self.target))?;
         let types = &ex.entry(key)?.uniform_types;
         Ok(types.get(name).copied().or_else(|| {
             let base = name.strip_suffix(']').and_then(|n| n.rsplit_once('[')).map(|(b, _)| b)?;

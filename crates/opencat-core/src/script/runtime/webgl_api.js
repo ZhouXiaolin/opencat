@@ -433,7 +433,64 @@
         var shaderSource = {}; // shader handle → source text
         var shaderKind = {}; // shader handle → 'v' | 'f'
         var programShaders = {}; // 'pid:v' / 'pid:f' → shader handle
+        var attribBinds = {}; // pid → [[index, name], ...]（link 前固定 attrib 槽位）
         var errors = [];
+
+        // 本帧已补发定义的 shader/program 句柄（并行回放：别的执行线程看
+        // 不到本帧的创建史，useProgram 前必须把定义整段补进本帧流；执行端
+        // 对重复定义幂等覆盖、编译产物按源码键复用——串行路径行为不变）。
+        var emittedShaders = {};
+        var emittedPrograms = {};
+
+        // 把 pid 的完整定义（建 shader/源码/编译、建程/挂接/attrib 表/link）
+        // 补进当前帧流。只在 useProgram 与帧头（影子程序续用）两个点调用。
+        var ensureProgramDefined = function (pid) {
+            if (!pid || emittedPrograms[pid]) return;
+            var sv = programShaders[pid + ':v'];
+            var sf = programShaders[pid + ':f'];
+            if (sv === undefined && sf === undefined) return;
+            emittedPrograms[pid] = true;
+            var defShader = function (sid) {
+                if (sid === undefined || emittedShaders[sid]) return;
+                emittedShaders[sid] = true;
+                var e0 = new Encoder(6);
+                e0.u16(shaderKind[sid] === 'v' ? GL.VERTEX_SHADER : GL.FRAGMENT_SHADER).u32(sid);
+                emit(streamId, GLOP.SHADER_CREATE, e0.done(GLOP.SHADER_CREATE));
+                var range = internString(streamId, shaderSource[sid] || '');
+                var e1 = new Encoder(8);
+                e1.u32(sid).u32(range);
+                emit(streamId, GLOP.SHADER_SOURCE, e1.done(GLOP.SHADER_SOURCE));
+                var e2 = new Encoder(4);
+                e2.u32(sid);
+                emit(streamId, GLOP.COMPILE_SHADER, e2.done(GLOP.COMPILE_SHADER));
+            };
+            defShader(sv);
+            defShader(sf);
+            var ec = new Encoder(4);
+            ec.u32(pid);
+            emit(streamId, GLOP.PROGRAM_CREATE, ec.done(GLOP.PROGRAM_CREATE));
+            if (sv !== undefined) {
+                var ev = new Encoder(8);
+                ev.u32(pid).u32(sv);
+                emit(streamId, GLOP.PROGRAM_ATTACH, ev.done(GLOP.PROGRAM_ATTACH));
+            }
+            if (sf !== undefined) {
+                var eft = new Encoder(8);
+                eft.u32(pid).u32(sf);
+                emit(streamId, GLOP.PROGRAM_ATTACH, eft.done(GLOP.PROGRAM_ATTACH));
+            }
+            var binds = attribBinds[pid];
+            if (binds) {
+                for (var i = 0; i < binds.length; i++) {
+                    var eb = new Encoder(12);
+                    eb.u32(pid).u32(binds[i][0] >>> 0).u32(internString(streamId, binds[i][1]));
+                    emit(streamId, GLOP.BIND_ATTRIB_LOCATION, eb.done(GLOP.BIND_ATTRIB_LOCATION));
+                }
+            }
+            var el = new Encoder(4);
+            el.u32(pid);
+            emit(streamId, GLOP.PROGRAM_LINK, el.done(GLOP.PROGRAM_LINK));
+        };
 
         // 绘制缓冲尺寸 = canvas 的 width/height 内容属性（HTML 语义：布局
         // 与 getContext 无关）。属性可在建上下文之后被改写（three 的
@@ -456,6 +513,26 @@
         self.__beginFrameStream = function () {
             var wh = surfaceSize();
             __gl_stream_begin(streamId, wh[0], wh[1], 0, attrsBits, originX, originY);
+            // 新帧新守卫；上一帧的当前程序若续用（本帧以 uniform 开头、无
+            // USE），定义+绑定都要补进本帧流：并行轮转下执行端影子可能缺失
+            // 或过期，流必须自足。串行重绑同一程序是 GL 空操作，像素不变。
+            emittedShaders = {};
+            emittedPrograms = {};
+            if (curProgramId) {
+                if (programShaders[curProgramId + ':v'] !== undefined
+                    || programShaders[curProgramId + ':f'] !== undefined) {
+                    ensureProgramDefined(curProgramId);
+                    var eu = new Encoder(4);
+                    eu.u32(curProgramId);
+                    emit(streamId, GLOP.PROGRAM_USE, eu.done(GLOP.PROGRAM_USE));
+                }
+            } else {
+                // 显式解绑也要进流：并行执行端影子可能停在旧程序上，
+                // 无程序时浏览器不画，影子残留会画出错误内容。
+                var eu0 = new Encoder(4);
+                eu0.u32(0xffffffff);
+                emit(streamId, GLOP.PROGRAM_USE, eu0.done(GLOP.PROGRAM_USE));
+            }
         };
         self.__beginFrameStream();
 
@@ -650,6 +727,7 @@
 
         self.useProgram = function (program) {
             curProgramId = program === null || program === undefined ? 0 : resId(program, 'useProgram');
+            ensureProgramDefined(curProgramId);
             var e = new Encoder(4);
             e.u32(resId(program, 'useProgram'));
             emit(streamId, GLOP.PROGRAM_USE, e.done(GLOP.PROGRAM_USE));
@@ -1685,8 +1763,11 @@
             emit(streamId, GLOP.UNIFORM_BLOCK_BINDING, e.done(GLOP.UNIFORM_BLOCK_BINDING));
         };
         self.bindAttribLocation = function (program, index, name) {
+            var pid = resId(program, 'bindAttribLocation');
+            var binds = attribBinds[pid] || (attribBinds[pid] = []);
+            binds.push([index >>> 0, String(name)]);
             var e = new Encoder(12);
-            e.u32(resId(program, 'bindAttribLocation')).u32(index >>> 0).u32(internString(streamId, String(name)));
+            e.u32(pid).u32(index >>> 0).u32(internString(streamId, String(name)));
             emit(streamId, GLOP.BIND_ATTRIB_LOCATION, e.done(GLOP.BIND_ATTRIB_LOCATION));
         };
         self.makeXRCompatible = function () {

@@ -19,6 +19,7 @@ use crate::resource::fetch::{build_http_client, build_preload_runtime, download_
 use crate::script::V8JsContext;
 use opencat_core::parse::dom::DomElement;
 use opencat_core::parse::html::{HtmlScript, parse_html, scope_composition_css};
+use opencat_core::parse::protocol;
 use opencat_core::script::dispatch::{binding_shim_js, dispatch_binding};
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::realm::JS_PLATFORM_SHIM;
@@ -655,7 +656,8 @@ var __hfGsap = !__hfBaseGsap ? __hfBaseGsap : new Proxy(__hfBaseGsap, {
 
 fn wrap_scoped_composition_script(source: &str, comp_id: &str) -> String {
     let selector = format!(
-        "[data-composition-id=\"{}\"]",
+        "[{}=\"{}\"]",
+        protocol::attr::COMPOSITION_ID,
         comp_id.replace('\\', "\\\\").replace('"', "\\\"")
     );
     let mut out = String::with_capacity(source.len() + SCOPED_COMPOSITION_PRELUDE.len() + 256);
@@ -798,7 +800,7 @@ fn collect_ids(el: &DomElement, out: &mut std::collections::HashSet<String>) {
 fn composition_id(el: &DomElement) -> Option<String> {
     el.html_attrs()
         .iter()
-        .find(|(name, value)| name == "data-composition-id" && !value.is_empty())
+        .find(|(name, value)| name == protocol::attr::COMPOSITION_ID && !value.is_empty())
         .map(|(_, value)| value.clone())
 }
 
@@ -814,16 +816,17 @@ fn collect_hosts(el: &DomElement, out: &mut Vec<NestedHost>) {
             .find(|(name, _)| name == key)
             .map(|(_, value)| value.as_str())
     };
-    if let Some(src) = get("data-composition-src").filter(|src| !src.is_empty()) {
-        let start = get("data-start")
+    if let Some(src) = get(protocol::attr::COMPOSITION_SRC).filter(|src| !src.is_empty()) {
+        let start = get(protocol::attr::START)
             .and_then(|value| value.trim().parse::<f64>().ok())
             .unwrap_or(0.0);
-        let duration = get("data-duration").and_then(|value| value.trim().parse::<f64>().ok());
+        let duration = get(protocol::attr::DURATION).and_then(|value| value.trim().parse::<f64>().ok());
         // 子文档样式的作用域选择器：宿主的 composition id（hyperframes 同形），
         // 缺省按宿主元素 id。
-        let scope = match get("data-composition-id").filter(|id| !id.is_empty()) {
+        let scope = match get(protocol::attr::COMPOSITION_ID).filter(|id| !id.is_empty()) {
             Some(id) => format!(
-                "[data-composition-id=\"{}\"]",
+                "[{}=\"{}\"]",
+                protocol::attr::COMPOSITION_ID,
                 id.replace('\\', "\\\\").replace('"', "\\\"")
             ),
             None => format!("#{}", el.id()),
@@ -947,8 +950,13 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
         std::env::var("OC_HTML_REPLAY").as_deref(),
         Ok("1") | Ok("true") | Ok("on")
     );
+    // 计数探针（临时诊断）：realm 无墙钟，只能数调用量。包 __write_style_value
+    // 计数，每 5 帧向 __ocLogs 落一条（OC_TRACE_JSLOGS 时倒 stderr）。
+    let trace_js = std::env::var_os("OC_TRACE_JS").is_some();
     let mut driver = String::new();
-    driver.push_str(&format!("globalThis.__ocHtmlReplay = {replay};\n"));
+    driver.push_str(&format!(
+        "globalThis.__ocHtmlReplay = {replay};\nglobalThis.__ocTraceJs = {trace_js};\n"
+    ));
     driver.push_str("var __ocHtmlInit = globalThis.__ocHtmlReplay || !globalThis.__ocHtmlPageInited;\n");
     driver.push_str("if (__ocHtmlInit) {\n");
     driver.push_str(HTML_API_RUNTIME);
@@ -980,10 +988,28 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("globalThis.__ocHtmlPageInited = true;\n");
     driver.push_str("}\n");
     driver.push_str("if (!__ocHtmlInit) globalThis.__ocHtmlBeginFrame();\n");
+    if trace_js {
+        // 计数器安装一次；__write_style_value 是全部样式写入的唯一宿主出口
+        // （html_api.js 的 writeStyle/setProperty 都经它）。
+        driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocProbeInstalled) { globalThis.__ocProbeInstalled = true; var __ocRawWrite = globalThis.__write_style_value; globalThis.__ocNWrite = 0; globalThis.__write_style_value = function (id, k, v) { globalThis.__ocNWrite++; return __ocRawWrite(id, k, v); }; }\n");
+        driver.push_str("if (globalThis.__ocTraceJs && typeof globalThis.__ocNWrite === 'undefined') { globalThis.__ocNWrite = 0; globalThis.__ocNSeek = 0; }\n");
+    }
     // 每段用「主时间 − 该 composition 的 data-start」驱动，与浏览器里子文档
     // 自己的时间轴一致；marks[0] 是宿主（偏移 0），–ocSeekT 取它保
     // putImageData 的键仍是主时间。
     let time_expr = "(globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0)";
+    // 诊断开关（临时）：跳过 seek / hf-seek 以分离 driver_fn 的耗时构成。
+    let skip_seek = matches!(
+        std::env::var("OC_SKIP_SEEK").as_deref(),
+        Ok("1") | Ok("true")
+    );
+    let skip_hf = matches!(
+        std::env::var("OC_SKIP_HFSEEK").as_deref(),
+        Ok("1") | Ok("true")
+    );
+    driver.push_str(&format!(
+        "globalThis.__ocSkipSeek = {skip_seek};\nglobalThis.__ocSkipHfseek = {skip_hf};\n"
+    ));
     driver.push_str("(function () {\n");
     driver.push_str("    var __ocTime = ");
     driver.push_str(time_expr);
@@ -993,13 +1019,14 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("        var markEntry = globalThis.__ocHtmlPageMarks[markIndex];\n");
     driver.push_str("        __ocGroups.push([__ocTime - markEntry[0], markEntry[1], markEntry[2]]);\n");
     driver.push_str("    }\n");
-    driver.push_str("    globalThis.__ocHtmlSeekGroups(__ocGroups);\n");
+    driver.push_str("    if (!globalThis.__ocSkipSeek) globalThis.__ocHtmlSeekGroups(__ocGroups);\n");
     // hyperframes 播放器协议：页面把整帧重绘挂在 `hf-seek` 上（liquid 的
     // window.addEventListener('hf-seek')）。引擎按段 seek 完毕后派发一次，
     // detail.time = 当前主时间。将来归 hyperframes 适配层。
     // handler 抛异常必须落 stderr：静默吞掉会让持久 renderer 的半帧流
     // （如 transmission RT 创建中断）逐帧复制，排查成本极高。
-    driver.push_str("    try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); }\n");
+    driver.push_str("    if (!globalThis.__ocSkipHfseek) { try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: globalThis.__ocSeekT || 0 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); } }\n");
+    driver.push_str("    if (globalThis.__ocTraceJs) { globalThis.__ocNFrame = (globalThis.__ocNFrame || 0) + 1; if (globalThis.__ocNFrame % 5 === 0) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('[jstrace] tl=' + (globalThis.__ocTimelineCount ? globalThis.__ocTimelineCount() : -1) + ' write5f=' + globalThis.__ocNWrite + ' t=' + Math.round(__ocTime * 1000)); globalThis.__ocNWrite = 0; } }\n");
     driver.push_str("})();");
     Ok(driver)
 }

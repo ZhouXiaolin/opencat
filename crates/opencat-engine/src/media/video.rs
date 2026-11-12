@@ -189,6 +189,12 @@ impl MediaContext {
         self.realtime = Some(Arc::new(decoder));
     }
 
+    /// 挂共享预解池（离线并行渲染：多个 worker 槽共用同一条解码线程的
+    /// 帧窗口，取帧命中窗口即零等待）。
+    pub fn attach_realtime_decoder(&mut self, decoder: Arc<VideoRealtimeDecoder>) {
+        self.realtime = Some(decoder);
+    }
+
     /// 预热一个视频素材：打开、探测、解一帧丢掉，让解码线程在开播前就位。
     ///
     /// 第一次解一个 1080p 素材要 ~300ms，落在播放中间就是一帧的卡顿，还会连锁

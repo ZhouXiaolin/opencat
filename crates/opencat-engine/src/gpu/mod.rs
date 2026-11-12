@@ -30,13 +30,12 @@ pub mod gl;
 pub mod metal;
 #[cfg(target_os = "linux")]
 pub mod egl;
-// Vulkan 会话（SwiftShader 上的 Vulkan device + Skia Vulkan backend）：
-// 与 ANGLE、wgpu 共用同一个 SwiftShader ICD，构成「三后端统一跑在
-// Vulkan 软件光栅」的底座。
-#[cfg(target_os = "linux")]
+// Vulkan 会话：ANGLE 共享 VkDevice（零拷贝）或独立 ICD 上的 Skia Vulkan
+// backend。三栈统一（Skia/ANGLE/wgpu 全 Vulkan）的底座。
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod vk;
 mod registry;
-// ANGLE 后端：Windows 静态（mozangle）或动态（OC_ANGLE_DIR），Linux 动态
+// ANGLE 后端：动态加载（OC_ANGLE_DIR），Vulkan 后端，三平台一致
 // （官方 ANGLE Linux 构建，OC_ANGLE_DIR）——两端共用同一个 ANGLE 实现，
 // WebGL 语义不随平台漂移。
 #[cfg(any(target_os = "windows", target_os = "linux"))]

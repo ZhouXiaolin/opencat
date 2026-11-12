@@ -408,20 +408,17 @@ impl WgpuStreamExecutor {
         }
     }
 
-    /// 惰性建设备：首个 WebGPU 流触发。Windows 默认 DX12（与 ref 腿
-    /// Edge/Dawn 同后端族）；`OC_WGPU_BACKEND` 可强制（dx12/vulkan/gl）。
+    /// 惰性建设备：首个 WebGPU 流触发。三栈统一 Vulkan：Windows/Linux 默认
+    /// VULKAN（与 Skia/ANGLE 同族）；`OC_WGPU_BACKEND` 可强制（dx12/vulkan/gl）
+    /// 作对齐诊断的逃生口。
     fn ensure_runtime(&mut self) -> Result<()> {
         if self.rt.is_none() {
-            // 三 GPU 栈统一 D3D：GL 流执行器与 Skia 都跑在 ANGLE(D3D11) 会话
-            // 上，wgpu 在 Windows 也钉 DX12——PRIMARY 会按枚举序落 Vulkan，
-            // 与另外两栈不同族。非 Windows 维持 PRIMARY（Metal/Vulkan）。
-            #[cfg(target_os = "windows")]
-            let default_backends = wgpu::Backends::DX12;
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let default_backends = wgpu::Backends::VULKAN;
+            #[cfg(not(any(target_os = "windows", target_os = "linux")))]
             let default_backends = wgpu::Backends::PRIMARY;
             // Vulkan 后端要与 Skia / ANGLE 共用同一份 SwiftShader ICD——
             // 否则三家各用各的实现，纹理与命令流无法跨后端共享。
-            #[cfg(target_os = "linux")]
             if matches!(std::env::var("OC_WGPU_BACKEND").as_deref(), Ok("vulkan")) {
                 crate::gpu::vk::bootstrap_icd();
             }

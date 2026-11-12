@@ -2637,18 +2637,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libz-sys"
-version = "1.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff20308ecabd635a2dc1dd5834a86c462cca20efba1d5d3ddab1f8aea3455cb2"
-dependencies = [
- "cc",
- "libc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
 name = "lightningcss"
 version = "1.0.0-alpha.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2889,19 +2877,6 @@ checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
 dependencies = [
  "num-traits",
  "pxfm",
-]
-
-[[package]]
-name = "mozangle"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5892d91814b6681a2406067efec53abe9ba4fe8748dcd99e4f5a96a99a05ac0"
-dependencies = [
- "bindgen 0.72.1",
- "cc",
- "gl_generator",
- "libz-sys",
- "walkdir",
 ]
 
 [[package]]
@@ -3605,7 +3580,6 @@ dependencies = [
  "khronos-egl",
  "libc",
  "metal",
- "mozangle",
  "naga 0.14.0",
  "nom-exif",
  "num_cpus",
@@ -3615,7 +3589,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "skia-bindings",
  "skia-safe",
  "tempfile",
  "tokio",

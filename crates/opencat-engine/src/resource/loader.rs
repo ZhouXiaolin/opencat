@@ -87,7 +87,7 @@ impl EngineLoader {
                         .block_on(self.fetcher.fetch_bytes(&id, url))
                         .with_context(|| format!("fetch font `{}` url `{url}`", face.id))?;
                     let path = cache_file_path(&cache_dir, &id);
-                    std::fs::write(&path, &bytes)?;
+                    write_cache_atomic(&path, &bytes)?;
                     bytes
                 }
             };
@@ -119,7 +119,7 @@ impl EngineLoader {
                 .with_context(|| format!("font `{}` bytes missing", face.id))?;
             let id = AssetId::new(ResourceKind::Font, font_asset_id(&face.source));
             let path = cache_file_path(&self.cache_dir, &id);
-            std::fs::write(&path, bytes)
+            write_cache_atomic(&path, bytes)
                 .with_context(|| format!("write font cache {}", path.display()))?;
             self.handles
                 .insert(id, EngineAssetHandle { cached_path: path });
@@ -431,6 +431,26 @@ fn lottie_asset_id(s: &LottieSource) -> AssetId {
         LottieSource::Path(p) => AssetId::new(ResourceKind::Image, p.clone()),
         LottieSource::Url(u) => asset_id_for_url(u),
     }
+}
+
+/// 并发安全的缓存写入：临时名+rename。并行渲染的多线程/多进程可能同时写
+/// 同一缓存条目，裸写会交错损坏。Windows 上目标被他人读开着时 rename 报
+/// PermissionDenied——短暂重试后退化直写（旧的竞态窗口不因并行而更糟）。
+fn write_cache_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".tmp{}", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, bytes)?;
+    for _ in 0..8 {
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => return Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    std::fs::write(path, bytes)
 }
 
 /// 本地资产进缓存。返回 `false` = 源文件不存在（已跳过）：浏览器语义里

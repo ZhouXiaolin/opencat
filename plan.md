@@ -347,3 +347,44 @@ SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内�
   回读，但耗时约 5min。SwiftShader 纹理零拷贝能完成全片，但速度不达标；
   后续要同时处理两条独立问题：GLSL 反射器的第二 ANGLE 会话（速度），以及
   ANGLE→Skia 借入纹理在 f511 后的状态漂移（像素）。不要改最终合成帧读回。
+
+### llvmpipeline `avg_p8` 归因与同步修复（2026-11-12，提交前）
+
+**结论**：llvmpipeline 零拷贝的 `avg_p8` 差距主要来自 ANGLE 与 Skia 共用
+`VkQueue` 时缺少跨 API 同步。GL 流只调 `glFlush()` 时，Skia 可能采样到尚未
+完成的 `VkImage`；`glFinish()` 建立同步点后，零拷贝全片几乎回到 CPU 回读
+的像素结果。最终合成帧读回给编码器保持不变。
+
+**全片 vfx-heygen-combined 788 帧实测**：
+
+| 配置 | 耗时 | 峰值 RSS | avg_p8 | mae_mean |
+|---|---:|---:|---:|---:|
+| llvmpipeline 零拷贝，仅 `glFlush()` | 110s | 3045MiB | 0.37788 | 48.4752 |
+| llvmpipeline CPU 回读 | 107s | 3418MiB | 0.17949 | 6.4315 |
+| SwiftShader CPU 回读 | 306s | 3133MiB | 0.16805 | 5.3721 |
+| llvmpipeline 零拷贝，默认 `glFinish()` | 106s | 3076MiB | **0.16278** | **5.7612** |
+
+- `k3diff` 产物：`out/k3diff-vfx-full-102303/`、
+  `out/k3diff-vfx-lvp-cpu-full/`、`out/k3diff-vfx-swiftshader-full-103621/`、
+  `out/k3diff-vfx-lvp-zc-finish-full/`。
+- 0:540 长段对照：默认零拷贝 `avg_p8=0.32589`、`mae=20.12`；
+  `glFinish()` 后 `avg_p8=0.22971`、`mae=7.46`。逐帧与 CPU 回读重合；
+  f4、f405–407、f492–497、f514–539 的整屏灰白漂移消失。
+- 短段 0:12 中，零拷贝与 CPU 回读的 FBO 字节、MP4 均逐字节一致。漂移需要
+  连续帧积累，说明问题不是单次 `VkImage` 导入格式或 ANGLE 光栅内容。
+- f40–99 等剩余高差异在 CPU 回读与 `glFinish()` 零拷贝中同幅存在，归因为
+  ANGLE-on-llvmpipe 与 swgl 参考的光栅/AA 精度差异，不是纹理零拷贝。
+
+**代码收口**：
+
+- 保留两条生产路径：`OC_ANGLE_SWIFTSHADER=1` 走独立 `VkSession` + GL 流
+  CPU 回读；不设时走 llvmpipeline 共享 `VkDevice` + 纹理零拷贝。
+- 纹理零拷贝路径默认 `glFinish()`。最终合成帧仍由
+  `GpuCompositor::finish_frame_blocking()` 同步读回给编码器。
+- 移除 SwiftShader 零拷贝实验链路与诊断开关：`OC_VK_ZERO_COPY`、
+  `OC_VK_PROBE`、`OC_VK_GL_FINISH`、`OC_SKIP_REFLECTOR`、
+  `OC_TRACE_VK_PROC`、`OC_TRACE_VK_IMAGE`、`OC_TRACE_ANGLE_EXT`、
+  ICD dispatch 专用解析与探针上下文。
+- 这是当前后端选择，不是对 SwiftShader 零拷贝的永久禁令；后续可单独研究。
+- 当前任务转为：在保留速度与内存收益的前提下，继续核对 llvmpipeline 光栅
+  与 swgl 参考的剩余类间差异。

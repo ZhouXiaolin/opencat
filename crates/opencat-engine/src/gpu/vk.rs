@@ -1,17 +1,7 @@
-//! Vulkan 会话：SwiftShader 上的 Vulkan 设备 + Skia Vulkan backend 上下文。
+//! Vulkan 会话：独立 VkDevice 或 ANGLE 共享 VkDevice 上的 Skia backend。
 //!
-//! **为什么统一到 Vulkan**：Docker 打包后是纯 CPU 环境，没有 GPU 驱动。
-//! SwiftShader 是 Chrome/ANGLE 用的 CPU Vulkan 实现——只要供给它一个
-//! ICD，Skia（Vulkan backend）、ANGLE（Vulkan backend）、wgpu（Vulkan
-//! backend）三家就能跑在同一套软件光栅上，不必各写一份 CPU 路径。
-//!
-//! **ICD 选择**：`VK_ICD_FILENAMES` 指向 SwiftShader ICD
-//! （见 `tools/angle-linux/fetch.sh`）。本模块不自己设这个变量——它是
-//! 进程级的，三家后端必须看到同一个 ICD，所以由宿主统一设。
-//!
-//! **设备选择**：优先 SwiftShader（`device_name` 含 "SwiftShader"），
-//! 因为目标是「纯 CPU 也能跑」；没有 SwiftShader 时退回第一个物理设备，
-//! 便于开发机上用真 GPU 对照。
+//! `VK_ICD_FILENAMES` 是进程级变量；Skia / ANGLE / wgpu 必须看到同一份
+//! ICD 清单，由宿主统一设置。
 //!
 //! **线程纪律**：Vulkan device 与 queue 非线程安全，会话建与用同线程。
 
@@ -19,20 +9,10 @@ use anyhow::{Result, anyhow};
 use ash::vk::Handle;
 use skia_safe::gpu::vk;
 
-/// 进程级 Vulkan 引导：让 Skia / ANGLE / wgpu 三家看到同一份 SwiftShader ICD。
+/// 进程级 Vulkan 引导：让 Skia / ANGLE / wgpu 三家看到同一份 ICD。
 ///
-/// **为什么必须统一**：Docker 打包后是纯 CPU 环境，唯一可用的 Vulkan 实现
-/// 是 SwiftShader。三家若各自指向不同的 ICD（或一家用硬件、一家用软件），
-/// 纹理与命令流就无法跨后端共享，「统一到 Vulkan」就失去意义。
-///
-/// **谁设什么**：
-/// - `OC_ANGLE_DIR`：官方 ANGLE Linux 构建目录（含 `libEGL.so`、
-///   `libGLESv2.so`、`libvk_swiftshader.so` 与 `vk_swiftshader_icd.json`）。
-/// - `OC_ANGLE_SWIFTSHADER`：让 ANGLE 选 SwiftShader 设备（而非硬件 GPU）。
-/// - `VK_ICD_FILENAMES`：Vulkan loader 的 ICD 清单——Skia 与 wgpu 读它。
-///
-/// 本函数只做一件事：若调用方没设 `VK_ICD_FILENAMES`，就从 `OC_ANGLE_DIR`
-/// 推出同目录的 ICD 并设上。已设的值不动（调用方可能指向别的 ICD）。
+/// 若调用方没设 `VK_ICD_FILENAMES`，就从 `OC_ANGLE_DIR` 推出同目录的
+/// `vk_swiftshader_icd.json` 并设上。已设的值不动。
 ///
 /// 幂等，可重复调。
 pub fn bootstrap_icd() {
@@ -47,7 +27,7 @@ pub fn bootstrap_icd() {
         tracing::warn!(
             path = %icd.display(),
             "OC_ANGLE_DIR 下无 vk_swiftshader_icd.json：Skia/wgpu 的 Vulkan loader \
-             将回退系统默认 ICD（SwiftShader 需显式指定）"
+             将回退系统默认 ICD"
         );
         return;
     }
@@ -247,13 +227,6 @@ impl VkSession {
         &self.inner.backend
     }
 
-    /// 独立 Skia DirectContext（探针/诊断用；正常路径由 GpuCompositor 建）。
-    #[cfg(target_os = "linux")]
-    pub fn backend_probe_context(&self) -> Result<skia_safe::gpu::DirectContext> {
-        skia_safe::gpu::direct_contexts::make_vulkan(&self.inner.backend, None)
-            .ok_or_else(|| anyhow!("probe: make_vulkan 失败"))
-    }
-
     /// 从 ANGLE 交出的 Vulkan 句柄建 Skia 会话（零拷贝的前提）。
     ///
     /// **为什么不能用 [`VkSession::new`]**：ANGLE 的 Vulkan 后端自己建
@@ -268,18 +241,6 @@ impl VkSession {
     /// instance 由 ANGLE 自带的 libvulkan 创建，跨 loader 调用直接段错误
     /// （实测 Skia 在 vkEnumerateDeviceExtensionProperties 内崩）。
     pub fn from_angle(handles: &super::angle::AngleVulkanHandles) -> Result<Self> {
-        let trace_proc = std::env::var_os("OC_TRACE_VK_PROC").is_some();
-        if trace_proc {
-            eprintln!(
-                "[vk-proc] from_angle: instance={:p} device={:p} queue={:p} family={} gipa={:p} module={:#x}",
-                handles.instance,
-                handles.device,
-                handles.queue,
-                handles.queue_family_index,
-                handles.get_instance_proc_addr,
-                handles.loader_module,
-            );
-        }
         let instance = ash::vk::Instance::from_raw(handles.instance as u64);
         let physical = ash::vk::PhysicalDevice::from_raw(handles.physical_device as u64);
         let device = ash::vk::Device::from_raw(handles.device as u64);
@@ -295,14 +256,6 @@ impl VkSession {
         ) -> *const std::ffi::c_void;
         let gipa: PfnGetInstanceProcAddr =
             unsafe { std::mem::transmute(handles.get_instance_proc_addr) };
-        let icd_gipa: PfnGetInstanceProcAddr = unsafe {
-            if handles.icd_get_instance_proc_addr.is_null() {
-                return Err(anyhow!("ANGLE 未提供 SwiftShader ICD 的 vkGetInstanceProcAddr"));
-            }
-            std::mem::transmute::<*mut std::ffi::c_void, PfnGetInstanceProcAddr>(
-                handles.icd_get_instance_proc_addr,
-            )
-        };
         // 全局命令兜底：ANGLE 的 gipa 是 libGLESv2 内部的 dispatch（ANGLE
         // 的 Vulkan 后端编译在 libGLESv2 里），不认全局命令（返回 NULL，
         // Skia 会直接调用 → 段错误）。全局命令**不带任何 ANGLE 句柄参数**，
@@ -317,9 +270,8 @@ impl VkSession {
             "vkCreateInstance",
             "vkGetInstanceProcAddr",
         ];
-        let gipa_ptr = handles.get_instance_proc_addr;
         let dlsym_global = move |name: &str| -> *const std::ffi::c_void {
-            if gipa_ptr.is_null() || !GLOBAL_COMMANDS.contains(&name) {
+            if !GLOBAL_COMMANDS.contains(&name) {
                 return std::ptr::null();
             }
             #[cfg(target_os = "linux")]
@@ -327,7 +279,6 @@ impl VkSession {
                 let Ok(cname) = std::ffi::CString::new(name) else {
                     return std::ptr::null();
                 };
-                let _ = gipa_ptr;
                 let handle = libc::dlopen(
                     c"libvulkan.so.1".as_ptr().cast(),
                     libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_NOLOAD,
@@ -341,9 +292,6 @@ impl VkSession {
                     return std::ptr::null();
                 }
                 let p = libc::dlsym(handle, cname.as_ptr());
-                if trace_proc {
-                    eprintln!("[vk-proc] dlsym({name})={:p}", p);
-                }
                 if p.is_null() { std::ptr::null() } else { p as *const std::ffi::c_void }
             }
             #[cfg(not(target_os = "linux"))]
@@ -352,48 +300,8 @@ impl VkSession {
                 std::ptr::null()
             }
         };
-        // 设备级 dispatch 按驱动分派：SwiftShader 的 VkDevice 是 ICD 级
-        // 句柄（ANGLE 绕过 loader 建 device），只有 SwiftShader 自己的
-        // dispatch 认它；正规驱动（lavapipe 等）的 instance/device 由
-        // ANGLE 自带 loader 建，是 loader 级句柄——ICD dispatch 对它们
-        // 一律拒绝（Mesa 会校验句柄），必须走 loader 的
-        // vkGetDeviceProcAddr。1.2/1.3 核心函数被 loader 按 ANGLE 实例的
-        // 1.1 API 门控成 NULL，由 BackendContext 的 max_api_version=1.1
-        // 兜住（Skia 不再索要）。
-        #[repr(C)]
-        struct PhysDevicePropsProbe {
-            api_version: u32,
-            driver_version: u32,
-            vendor_id: u32,
-            device_id: u32,
-            device_type: u32,
-            device_name: [u8; 256],
-            _rest: [u8; 1024],
-        }
-        type PfnGetPhysProps =
-            unsafe extern "system" fn(ash::vk::PhysicalDevice, *mut std::ffi::c_void);
-        let use_icd_dispatch = unsafe {
-            let p = gipa(instance, c"vkGetPhysicalDeviceProperties".as_ptr());
-            if p.is_null() {
-                return Err(anyhow!("ANGLE gipa 缺 vkGetPhysicalDeviceProperties"));
-            }
-            let f: PfnGetPhysProps = std::mem::transmute(p);
-            let mut props: PhysDevicePropsProbe = std::mem::zeroed();
-            f(physical, &mut props as *mut _ as *mut std::ffi::c_void);
-            let name = std::ffi::CStr::from_bytes_until_nul(&props.device_name)
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            if trace_proc {
-                let av = props.api_version;
-                eprintln!(
-                    "[vk-proc] physical device = {name:?} api={}.{}.{}",
-                    av >> 22,
-                    (av >> 12) & 0xfff,
-                    av & 0xfff
-                );
-            }
-            name.contains("SwiftShader")
-        };
+        // device 句柄由 ANGLE 自带 loader 注册。设备级函数走同一个 loader
+        // 的 vkGetDeviceProcAddr，避免混合 dispatch。
         type PfnGetDeviceProcAddr =
             unsafe extern "system" fn(ash::vk::Device, *const i8) -> *const std::ffi::c_void;
         // loader 级 gdpa：**不能**经 ANGLE gipa 取——ANGLE 对部分 device
@@ -441,7 +349,6 @@ impl VkSession {
         let get_proc = move |of: vk::GetProcOf| -> vk::GetProcResult {
             let name = unsafe { of.name() };
             let name = name.to_str().unwrap_or("");
-            let trace_proc = std::env::var_os("OC_TRACE_VK_PROC").is_some();
             match of {
                 vk::GetProcOf::Instance(_, _) => unsafe {
                     let p = gipa(instance, name.as_ptr() as *const i8);
@@ -450,17 +357,12 @@ impl VkSession {
                     } else {
                         p as *const std::ffi::c_void
                     };
-                    if trace_proc {
-                        eprintln!("[vk-proc] instance {name} = {:p}", p as *const std::os::raw::c_void);
-                    }
                     if p.is_null() { std::ptr::null() } else { p as *const std::ffi::c_void }
                 },
                 vk::GetProcOf::Device(_, _) => unsafe {
-                    // 设备级命令按驱动分派（见上方 use_icd_dispatch）。
-                    let p = match (use_icd_dispatch, loader_gdpa) {
-                        (true, _) => icd_gipa(instance, name.as_ptr() as *const i8),
-                        (false, Some(f)) => f(device, name.as_ptr() as *const i8),
-                        (false, None) => {
+                    let p = match loader_gdpa {
+                        Some(f) => f(device, name.as_ptr() as *const i8),
+                        None => {
                             // 无 loader 可用（理论上不发生）：退回 ANGLE dispatch。
                             let p = gipa(instance, c"vkGetDeviceProcAddr".as_ptr());
                             if p.is_null() {
@@ -471,9 +373,6 @@ impl VkSession {
                             }
                         }
                     };
-                    if trace_proc {
-                        eprintln!("[vk-proc] device {name} = {:p}", p as *const std::os::raw::c_void);
-                    }
                     if p.is_null() {
                         std::ptr::null()
                     } else {
@@ -494,10 +393,8 @@ impl VkSession {
                     queue_index as usize,
                 ),
                 get_proc,
-                // ANGLE 实例钉在 Vulkan 1.1，loader 级 gdpa 对 1.2/1.3 核心
-                // 命令一律 NULL（lavapipe 实测 36 个）。显式声明 1.1 面，
-                // Skia 便不再索要这些入口。SwiftShader 走 ICD dispatch，
-                // 函数全量可得，1.1 面同样成立（全片串行验证过）。
+                // ANGLE 实例钉在 Vulkan 1.1；显式声明 1.1 面，Skia 便不
+                // 再索要 loader 门控成 NULL 的 1.2/1.3 核心入口。
                 Some(vk::Version::new(1, 1, 0)),
             )
             .build()
@@ -577,16 +474,6 @@ pub fn import_stream_texture(
     let exported = super::angle::export_vulkan_image(native.raw() as u32)
         .ok_or_else(|| anyhow!("ANGLE 导出 VkImage 失败（扩展缺失或纹理无效）"))?;
     let meta = exported.meta()?;
-    let trace = std::env::var_os("OC_TRACE_VK_IMAGE").is_some();
-    if trace {
-        eprintln!(
-            "[vk-import] tex={} {width}x{height} format={:#x} mip={} usage={:#x} \
-             tiling={:#x} initial_layout={:#x}",
-            native.raw(), meta.format, meta.mip_levels, meta.usage, meta.tiling,
-            meta.initial_layout
-        );
-    }
-
     let layout_raw = if meta.initial_layout == ash::vk::ImageLayout::UNDEFINED.as_raw() as u32 {
         ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL.as_raw() as u32
     } else {

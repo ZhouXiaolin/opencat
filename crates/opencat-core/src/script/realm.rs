@@ -776,6 +776,12 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 .eval("if (typeof __ocLogs !== 'undefined') __ocLogs.length = 0;")?;
         }
 
+        // canvas 批积攒的帧尾 flush：drawHalftone 这类「画完整帧不再触发
+        // 其他 canvas 调用」的循环把点全憋在 JS 批数组里，批必须进本帧
+        // op 流（take 之前）。无批积攒的工程下是空表遍历（无开销）。
+        self.ctx
+            .eval("if (globalThis.__ocFlushCanvasBatches) globalThis.__ocFlushCanvasBatches();")?;
+
         // Consuming transfer: the store's frame-level mutations move out
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
         // the next run_frame anyway), so the per-frame deep clone of every

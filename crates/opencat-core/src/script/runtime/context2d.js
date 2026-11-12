@@ -242,7 +242,117 @@
         var beginPending = false;
         var ovalPending = null;
 
+        // 满圈点的批量积攒面：快路 fill 不再逐点跨界，矩形/色进批数组，
+        // flush 时一次 `__ocCanvasFillOvalBatch`（TypedArray 二进制通道，
+        // 落流与逐点同序同参，位图逐位一致）。halftone 语料每帧 ~30 万点，
+        // 每点两次 Value 化跨界是毫秒级热点；批把跨界压到 4096 点一次。
+        // 色解析只认 rgba()/#hex（受限模板，语料实际面）；解析失败的点
+        // 退回逐点快路（同语义，只慢）。flush 时机 = 任何触碰流序/状态的
+        // 调用（flushPath/send*/绘制类/save/restore/变换）+ 帧尾
+        // （`__ocFlushCanvasBatches`，批点必须进本帧 op 流）。
+        var batchRects = null;
+        var batchColors = null;
+        var batchN = 0;
+        var batchFillLast = '';
+        var BATCH_CAP = 4096;
+
+        function batchFlush() {
+            if (!batchN) return;
+            var n = batchN;
+            batchN = 0;
+            // 状态面与逐点路径的 applyFill 同形（aa/alpha/composite/shadow，
+            // 镜像同值跳过）——批展开 op 之前先落状态，流序与逐点一致。
+            // 先清计数再走 send*（它们开头会 batchFlush，已幂等）；buffer
+            // 复用不释放（halftone 每帧 ~74 次 flush，跨界同步拷走后才回填）。
+            if (!sent.aa) { sent.aa = true; __canvas_set_anti_alias(id, true); }
+            sendAlpha(num(state.globalAlpha));
+            lowerComposite(id, state, sent);
+            lowerShadow(id, state, sent);
+            __ocCanvasFillOvalBatch(
+                id,
+                batchRects.subarray(0, n * 4),
+                batchColors.subarray(0, n * 4),
+                n
+            );
+            sent.fill = batchFillLast;
+        }
+
+        function batchDiscard() {
+            batchRects = null;
+            batchColors = null;
+            batchN = 0;
+        }
+
+        // 受限色解析 → [r,g,b,a]，不认识的格式返回 null（调用方退回逐点）。
+        // rgba() 走手写字符扫描（halftone 每点一次，正则 exec 是微秒级、
+        // 30 万次/帧会吃掉两百毫秒）；hex 走 parseInt。
+        function batchColor(v) {
+            if (v === undefined || v === null) return null;
+            var s = String(v).trim();
+            var c0 = s.charCodeAt(0);
+            if (c0 === 35) { // '#'
+                var hex = s.length === 4
+                    ? s[1] + s[1] + s[2] + s[2] + s[3] + s[3]
+                    : (s.length === 7 || s.length === 9 ? s.slice(1, 7) : null);
+                if (!hex) return null;
+                var h = parseInt(hex, 16);
+                if (!(h >= 0)) return null;
+                var a = s.length === 9 ? parseInt(s.slice(7, 9), 16) : 255;
+                if (!(a >= 0)) return null;
+                return [(h >> 16) & 255, (h >> 8) & 255, h & 255, a];
+            }
+            if (c0 === 114 && s.length > 10 && s.charCodeAt(1) === 103
+                && s.charCodeAt(2) === 98 && s.charCodeAt(3) === 97
+                && s.charCodeAt(4) === 40) { // rgba(
+                var out = [0, 0, 0, 0];
+                var p = 5;
+                var n = s.length;
+                for (var k = 0; k < 4; k++) {
+                    while (p < n && (s.charCodeAt(p) === 32 || s.charCodeAt(p) === 9)) p++;
+                    var start = p;
+                    var seenDot = false;
+                    while (p < n) {
+                        var ch = s.charCodeAt(p);
+                        if (ch === (k < 3 ? 44 : 41)) break; // ',' or ')'
+                        if (ch >= 48 && ch <= 57) { p++; continue; }
+                        if (ch === 46 && !seenDot) { seenDot = true; p++; continue; }
+                        return null;
+                    }
+                    if (p === start || p >= n) return null;
+                    var fv = parseFloat(s.slice(start, p));
+                    if (!(fv >= 0)) return null;
+                    out[k] = k < 3
+                        ? (fv > 255 ? 255 : Math.round(fv))
+                        : (fv > 1 ? 255 : Math.round(fv * 255));
+                    p++;
+                }
+                if (p !== n) return null;
+                return out;
+            }
+            return null;
+        }
+
+        function batchPush(o, fillStr, rgba) {
+            if (!batchRects) {
+                batchRects = new Float32Array(BATCH_CAP * 4);
+                batchColors = new Uint8Array(BATCH_CAP * 4);
+            }
+            if (batchN >= BATCH_CAP) batchFlush();
+            var b4 = batchN * 4;
+            batchRects[b4] = o.x;
+            batchRects[b4 + 1] = o.y;
+            batchRects[b4 + 2] = o.w;
+            batchRects[b4 + 3] = o.h;
+            batchColors[b4] = rgba[0];
+            batchColors[b4 + 1] = rgba[1];
+            batchColors[b4 + 2] = rgba[2];
+            batchColors[b4 + 3] = rgba[3];
+            batchN++;
+            batchFillLast = fillStr;
+        }
+
         function flushPath() {
+            batchFlush();
             if (beginPending) {
                 beginPending = false;
                 __canvas_begin_path(id);
@@ -255,12 +365,14 @@
         }
 
         function sendAlpha(alpha) {
+            batchFlush();
             if (sent.alpha === alpha) return;
             sent.alpha = alpha;
             __canvas_set_global_alpha(id, alpha);
         }
 
         function sendFill(color) {
+            batchFlush();
             if (sent.fill === color) return;
             sent.fill = color;
             __canvas_set_fill_style(id, color);
@@ -297,6 +409,7 @@
         }
 
         function applyStroke() {
+            batchFlush();
             if (!sent.aa) { sent.aa = true; __canvas_set_anti_alias(id, true); }
             if (state.strokeStyle && state.strokeStyle.__ocGradient) {
                 lowerGradientPaint(true, state.strokeStyle);
@@ -315,6 +428,7 @@
         }
 
         function applyFill() {
+            batchFlush();
             if (!sent.aa) { sent.aa = true; __canvas_set_anti_alias(id, true); }
             if (state.fillStyle && state.fillStyle.__ocGradient) {
                 lowerGradientPaint(false, state.fillStyle);
@@ -452,6 +566,9 @@
         return {
             state: state,
 
+            // 批 flush 手柄（`__ocFlushCanvasBatches` 帧尾遍历用）。
+            __flushBatch: batchFlush,
+
             // Per-frame reset: the executor's CTM starts at identity every
             // frame, so the JS-tracked matrix must too — the first absolute
             // `setTransform` of a frame otherwise lowers to a delta against
@@ -486,11 +603,13 @@
             },
 
             // 本 canvas 的命令流被清空（帧首 reset_for_frame / 画布重置）：
-            // 下发镜像与挂起的路径头随流作废。
+            // 下发镜像与挂起的路径头随流作废。未 flush 的批点属于已清掉的
+            // 流，一并作废（帧尾 flush 在此之前已把批落进本帧流）。
             __ocForgetSent() {
                 sent = {};
                 beginPending = false;
                 ovalPending = null;
+                batchDiscard();
             },
 
             // dom_api 在拿到录制面后按流布局位置设置（一次即可，之后每帧
@@ -625,6 +744,7 @@
             // 位图绘制：3 参（默认自然尺寸）/ 5 参（缩放）/ 9 参（源矩形）。
             // 编码字节随 op 一起进记录器，由 execute_draw_op 内联进帧字节表。
             drawImage(image, ...args) {
+                batchFlush();
                 var bytes, nw, nh;
                 if (image && image.__ocImageArray) {
                     bytes = image.__ocImageArray;
@@ -659,7 +779,18 @@
 
             // ── paths ──
             beginPath() {
-                flushPath();
+                // 批点横跨 beginPath 安全（每点几何+色在积攒时已冻结）：
+                // 这里只落挂起路径头（语义同 flushPath，但不 flush 批——
+                // halftone 每点 beginPath，flushPath 会把批冲成每点一次）。
+                if (beginPending) {
+                    beginPending = false;
+                    __canvas_begin_path(id);
+                }
+                if (ovalPending) {
+                    var o0 = ovalPending;
+                    ovalPending = null;
+                    __canvas_path_add_oval(id, o0.x, o0.y, o0.w, o0.h);
+                }
                 pathBounds = null;
                 cur = { x: 0, y: 0, known: false };
                 beginPending = true;
@@ -864,12 +995,21 @@
             fill(path) {
                 if (ovalPending && !(path && path._ops)
                     && !(state.fillStyle && state.fillStyle.__ocPattern)) {
-                    // beginPath + 满圈 arc + fill：一次跨界录 BeginPath+AddOval+
-                    // FillPath（与逐条下发同参同序；fill 不消耗路径，执行端
-                    // 当前路径仍是这个圆，后续 stroke() 照描）。
+                    // beginPath + 满圈 arc + fill：色可受限解析时进批（不跨
+                    // 界，flush 时一次落同一条 op 序列）；解析失败退回逐点
+                    // 快路（一次跨界录 BeginPath+AddOval+FillPath，与逐条
+                    // 下发同参同序；fill 不消耗路径，执行端当前路径仍是
+                    // 这个圆，后续 stroke() 照描）。
                     var o = ovalPending;
                     beginPending = false;
                     ovalPending = null;
+                    var fillStr = cssColor(state.fillStyle);
+                    var rgba = batchColor(fillStr);
+                    if (rgba) {
+                        batchPush(o, fillStr, rgba);
+                        return;
+                    }
+                    batchFlush();
                     applyFill();
                     __canvas_fill_oval_rect(id, o.x, o.y, o.w, o.h);
                     return;
@@ -1342,6 +1482,12 @@
     // 离屏画布的流跨帧持久，作废只多一次冗余下发（顺带兜住 LRU 驱逐）。
     globalThis.__ocContext2dNewFrame = function () {
         for (var key in contexts) contexts[key].__ocForgetSent();
+    };
+    // 帧尾批 flush（realm run_frame 尾、op 流 take 之前调用）：批点必须
+    // 进本帧 op 流，否则 drawHalftone 这类「画完整帧不触发其他 canvas 调用」
+    // 的循环把 30 万点全憋在 JS 数组里，帧界作废=整帧位图丢失。
+    globalThis.__ocFlushCanvasBatches = function () {
+        for (var key in contexts) contexts[key].__flushBatch();
     };
     // Offscreen canvases (`document.createElement('canvas')`) share this
     // recorder: dom_api hands us a synthetic id, we hand back the same

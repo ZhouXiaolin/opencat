@@ -309,6 +309,18 @@ pub enum DrawOp {
     /// Fill the current path with the current fill paint.
     FillPath,
 
+    /// 批量椭圆填充（canvas 2D `beginPath+满圈 arc+fill` 点列的紧凑形，
+    /// halftone 语料每帧 ~30 万点）。一条 op 持整批数据，执行端展开逐点
+    /// 「设填充色 + 椭圆路径 + 填充」——与逐条 `SetFillStyle+BeginPath+
+    /// AddOval+FillPath` 的位图逐位一致，但 op 流/翻译/fingerprint 五层
+    /// 全部从 480 万条/帧 降到 count 条/帧。rects 每 4 个 f32 一点
+    /// (x, y, w, h)，colors 每 4 个 u8 一点 (r, g, b, a)。
+    FillOvalBatch {
+        rects: std::sync::Arc<[f32]>,
+        colors: std::sync::Arc<[u8]>,
+        count: u32,
+    },
+
     /// Stroke the current path with the current stroke paint.
     StrokePath,
 
@@ -625,6 +637,16 @@ impl std::hash::Hash for DrawOp {
                 p.hash(state);
             }
             DrawOp::FillPath => 20_u8.hash(state),
+            DrawOp::FillOvalBatch { rects, colors, count } => {
+                51_u8.hash(state);
+                count.hash(state);
+                for v in rects.iter() {
+                    v.to_bits().hash(state);
+                }
+                for v in colors.iter() {
+                    v.hash(state);
+                }
+            }
             DrawOp::StrokePath => 21_u8.hash(state),
             DrawOp::ClipPath { anti_alias, fill_type: _ } => {
                 22_u8.hash(state);

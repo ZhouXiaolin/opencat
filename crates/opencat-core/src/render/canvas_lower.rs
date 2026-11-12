@@ -525,6 +525,15 @@ pub(crate) fn execute_draw_op(
             b.push(DrawOp::Path(path_op.clone()));
         }
         DrawOp::FillPath => push_painted(b, state, DrawOp::FillPath),
+        // 批量椭圆：整批一条透传（shadow/blend 包装同逐点 FillPath——阴影
+        // 状态机在翻译层随 draw 展开，批展开在执行端）。
+        DrawOp::FillOvalBatch { rects, colors, count } => {
+            push_painted(b, state, DrawOp::FillOvalBatch {
+                rects: rects.clone(),
+                colors: colors.clone(),
+                count: *count,
+            });
+        }
         DrawOp::StrokePath => push_painted(b, state, DrawOp::StrokePath),
         DrawOp::ClipPath { anti_alias, fill_type } => {
             b.push(DrawOp::ClipPath {

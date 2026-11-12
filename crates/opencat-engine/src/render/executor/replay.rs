@@ -1012,6 +1012,38 @@ fn replay_op(
             }
             Ok(())
         }
+        DrawOp::FillOvalBatch { rects, colors, count } => {
+            // 批量椭圆展开：逐点「设填充色 + 椭圆路径 + 填充」，与逐条
+            // SetFillStyle+BeginPath+AddOval+FillPath 位图一致。逐条每点
+            // 的 SetFillStyle 会清 shader 并覆盖色（含 alpha），FillPath
+            // 再乘 globalAlpha——这里对齐：清一次 shader，每点 set_color
+            // 后 alpha = 点 alpha × globalAlpha（apply_global_alpha 同式）。
+            let mut paint = exec.current_fill_paint.clone();
+            paint.set_shader(None::<skia_safe::Shader>);
+            let global = exec.current_alpha;
+            for i in 0..*count as usize {
+                let c4 = i * 4;
+                let r4 = i * 4;
+                paint.set_color(skia_safe::Color::from_argb(
+                    colors[c4 + 3],
+                    colors[c4],
+                    colors[c4 + 1],
+                    colors[c4 + 2],
+                ));
+                let a = (colors[c4 + 3] as f32 / 255.0) * global;
+                paint.set_alpha((a * 255.0).round() as u8);
+                canvas.draw_oval(
+                    skia_safe::Rect::new(
+                        rects[r4],
+                        rects[r4 + 1],
+                        rects[r4] + rects[r4 + 2],
+                        rects[r4 + 1] + rects[r4 + 3],
+                    ),
+                    &paint,
+                );
+            }
+            Ok(())
+        }
         DrawOp::StrokePath => {
             if let Some(pb) = &exec.current_path {
                 let path = pb.snapshot();

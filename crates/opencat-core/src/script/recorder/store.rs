@@ -1420,6 +1420,30 @@ pub struct MutationStore {
 }
 
 impl MutationStore {
+    /// Canvas 2D 批量椭圆填充：`beginPath + 满圈 arc + fill` 点列的一次
+    /// 跨界落流（halftone 语料每帧 ~30 万点，逐点 Value 化是毫秒级热点）。
+    /// 一条 [`DrawOp::FillOvalBatch`] 持整批数据（Arc 共享，零深拷贝），
+    /// 执行端展开逐点绘制——与逐条 op 序列位图一致，op 流/翻译/fingerprint
+    /// 各层从 480 万条/帧降到 count 条/帧。rects 每 4 个 f32 一点
+    /// (x, y, w, h)，colors 每 4 个 u8 一点 (r, g, b, a)。
+    pub fn record_fill_oval_batch(
+        &mut self,
+        node_id: &str,
+        rects: Vec<f32>,
+        colors: Vec<u8>,
+        count: usize,
+    ) {
+        debug_assert!(rects.len() >= count * 4 && colors.len() >= count * 4);
+        self.record_draw_op(
+            node_id,
+            crate::ir::draw_op::DrawOp::FillOvalBatch {
+                rects: std::sync::Arc::from(rects),
+                colors: std::sync::Arc::from(colors),
+                count: count as u32,
+            },
+        );
+    }
+
     /// Record a script-generated RGBA image (canvas `putImageData` path) and
     /// return its draw payload. The pixels go to the generated-image table;
     /// the caller records the matching
@@ -1718,6 +1742,9 @@ impl MutationStore {
     pub fn persist_frame_state(&mut self) {
         self.style.persistent = true;
         self.canvases.persistent = true;
+        // 脚本侧 DOM 覆盖层的挂载关系（appendChild/removeChild 的产物）同属
+        // 节点状态，跨帧保留（见 TreeOverlay::persistent）。
+        self.tree_text.tree.set_persistent(true);
     }
 
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {

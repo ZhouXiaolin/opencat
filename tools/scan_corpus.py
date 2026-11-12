@@ -10,13 +10,13 @@ ENV = {**os.environ,
        "OC_ANGLE_DIR": r"F:\OpenCat\out\swangle",
        "OC_ANGLE_GPU": "1",
        "PATH": r"C:\ffmpeg-9.0.2\ffmpeg-9.0.2-full_build-shared\bin;" + os.environ["PATH"]}
-RENDER_TIMEOUT = 900   # 门禁：单工程渲染 15 分钟
+RENDER_TIMEOUT = 3600  # 门禁：单工程渲染 1 小时（inspector 历史 2.3-3.5s/帧）
 DIFF_TIMEOUT = 600
 
 def run(cmd, timeout, log):
     with open(log, "w", encoding="utf-8", errors="replace") as f:
         p = subprocess.run(cmd, stdout=f, stderr=subprocess.STDOUT,
-                           timeout=timeout, cwd=r"F:\OpenCat")
+                           timeout=timeout, cwd=r"F:\OpenCat", env=ENV)
     return p.returncode
 
 def main(names):
@@ -60,7 +60,7 @@ def main(names):
             print(f"{name}: DIFF TIMEOUT", flush=True)
             continue
         sj = os.path.join(OUT, f"{name}-diff", "summary.json")
-        m = json.load(open(sj)) if os.path.exists(sj) else {}
+        m = (json.load(open(sj)).get("agg") or {}) if os.path.exists(sj) else {}
         entry = {"secs": secs, "mae": m.get("mae_mean"), "p8": m.get("avg_p8"),
                  "frames": m.get("frames")}
         results[name] = entry

@@ -1663,6 +1663,9 @@
     // 无关；宿主排空微任务后调这里，补 seek 同步 seek 之后才登记的 timeline，
     // 时间基准取该 composition 的宿主偏移（`__ocCompOffsets`，driver 注入）。
     globalThis.__ocHtmlSeekLate = function () {
+        // 虚拟 rAF 驱动（OC_VTIME=1）下旁路：timeline 已交给自然播放，
+        // 每帧补 seek 会把播放头每帧拉回旧时刻，与 tick 推进互相打架。
+        if (globalThis.__ocVtime) return;
         seekStarted = true;
         var reg = (typeof window === 'object' && window && window.__timelines) || {};
         var offsets = globalThis.__ocCompOffsets || {};

@@ -185,28 +185,24 @@ pub const JS_PLATFORM_SHIM: &str = r#"
         return globalThis.__ocRafNextId++;
     };
     globalThis.cancelAnimationFrame = function () {};
-    /* Run the queued frame callbacks.
-       One flush is one composition frame: the queue as it stands when the
-       host asks, plus a bounded number of follow-up passes for callbacks that
-       were queued *while* running. g's canvas keeps re-registering its draw
-       loop at the end of every frame, so "queue is empty" never happens; the
-       cap is what stops one host frame from rendering forever. Three passes
-       cover g-canvaskit's draw pass plus the two nested
-       `requestAnimationFrame` steps its ready protocol uses before the render
-       promise resolves. */
+    /* Run the queued frame callbacks exactly once (one batch, one pass).
+       Callbacks registered *while* running (gsap's ticker re-arms itself
+       every tick, g's canvas re-registers its draw loop) stay in the queue
+       for the *next* flush — the host calls `__ocFlushRaf` once per frame,
+       so a self-re-arming tick advances exactly one dt per frame, matching
+       the browser's one-rAF-per-frame contract. Extraction-time loops that
+       need multiple passes (promise chains, setTimeout polling) call it
+       repeatedly; the frame host's drain loop already does (realm frame
+       + html extract). An in-JS cap would silently advance gsap's clock
+       multiple frames per host frame — that bug is why the cap is gone. */
     globalThis.__ocFlushRaf = function () {
-        var cap = 3;
-        if (globalThis.OC_RAF_PASSES) cap = Number(globalThis.OC_RAF_PASSES) || 3;
-        for (var pass = 0; pass < cap; pass++) {
-            var batch = globalThis.__ocRafQueue;
-            globalThis.__ocRafQueue = [];
-            if (!batch.length) break;
-            for (var i = 0; i < batch.length; i++) {
-                try {
-                    batch[i](globalThis.__ocClockMs());
-                } catch (e) {
-                    if (typeof __ocStderr === 'function') __ocStderr('raf callback threw: ' + (e && e.stack || e));
-                }
+        var batch = globalThis.__ocRafQueue;
+        globalThis.__ocRafQueue = [];
+        for (var i = 0; i < batch.length; i++) {
+            try {
+                batch[i](globalThis.__ocClockMs());
+            } catch (e) {
+                if (typeof __ocStderr === 'function') __ocStderr('raf callback threw: ' + (e && e.stack || e));
             }
         }
     };

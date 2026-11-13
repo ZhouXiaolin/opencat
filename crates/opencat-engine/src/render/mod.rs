@@ -1265,6 +1265,28 @@ pub fn render_from_source_with_base(
                 let warm = pipeline.render_frame(range.start - 1)?;
                 tx_frame.send((range.start - 1, warm, true))?;
             }
+            // 首真帧先行产出：编码器首轮回调里 render(下一帧) 与 gpu 线程
+            // 执行本帧重叠。没有这一步 recv 等的就是自己刚 send 的帧——
+            // gpu 段（~96ms）整个串行到 script 段（~270ms）之后，流水线
+            // 退化为逐帧串行（370ms/帧）；错开一帧后稳态节奏回到
+            // max(script, gpu) ≈ 270ms/帧。帧序 = 双通道 FIFO，确定性不变。
+            {
+                let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+                let ts = timing.then(std::time::Instant::now);
+                match pipeline.render_frame(range.start) {
+                    Ok(rf) => {
+                        if let Some(t) = ts {
+                            eprintln!(
+                                "[timing-script] f{} script={:.1}ms",
+                                range.start,
+                                t.elapsed().as_secs_f64() * 1e3
+                            );
+                        }
+                        tx_frame.send((range.start, rf, false))?;
+                    }
+                    Err(e) => return Err(anyhow!("script 阶段 f{}: {e:#}", range.start)),
+                }
+            }
 
             let gpu_err_slot = gpu_error.clone();
             let gpu_handle = std::thread::Builder::new()
@@ -1309,11 +1331,11 @@ pub fn render_from_source_with_base(
                 })?;
 
             // script 推进嵌在 frame_fn 里：编码器每要一帧像素前，先在主
-            // 线程 render 一帧 script——V8 的 38ms 与 gpu 线程的 85ms 重叠
-            // （render 期间 gpu 在执行上一帧；recv 阻塞等像素时同理）。若
-            // script 独立循环先行，rx_px 窗口填满后 gpu/script 相互等待而
-            // encode_rgba_frames 还未启动——死锁。
-            let mut script_next = range.start;
+            // 线程 render **下一帧**（首帧已在上面先行产出）——render(N+1)
+            // 与 gpu 线程执行 N 重叠，随后 recv 拿 N 的像素（此时早已完成）。
+            // 若 script 独立循环先行，rx_px 窗口填满后 gpu/script 相互等待
+            // 而 encode_rgba_frames 还未启动——死锁。
+            let mut script_next = range.start + 1;
             let mut script_error: Option<anyhow::Error> = None;
             let range_end = range.end;
             let encode_result = encode_rgba_frames(
@@ -1330,8 +1352,17 @@ pub fn render_from_source_with_base(
                         anyhow::bail!("script 阶段: {e:#}");
                     }
                     if script_next < range_end {
+                        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+                        let ts = timing.then(std::time::Instant::now);
                         match pipeline.render_frame(script_next) {
                             Ok(rf) => {
+                                if let Some(t) = ts {
+                                    eprintln!(
+                                        "[timing-script] f{} script={:.1}ms",
+                                        script_next,
+                                        t.elapsed().as_secs_f64() * 1e3
+                                    );
+                                }
                                 if tx_frame.send((script_next, rf, false)).is_err() {
                                     // gpu 线程已死：错误在槽位，recv 会立刻失败
                                 }

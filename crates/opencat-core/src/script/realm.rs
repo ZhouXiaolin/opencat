@@ -716,13 +716,17 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 "script_drain_microtasks"
             )
             .entered();
+            let drain_timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+            let d0 = drain_timing.then(std::time::Instant::now);
             self.ctx.eval(
                 "if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();",
             )?;
+            let d_hooks = d0.map(|t| t.elapsed());
             for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
                 self.ctx.eval("__ocFlushRaf();")?;
             }
+            let d_raf = d0.map(|t| t.elapsed());
             // hyperframes 播放器协议（协议事件面，非库级 seek 适配）：liquid
             // 等 WebGL 自绘语料把整帧重绘挂在 window 'hf-seek' 上——它们没有
             // 自己的 rAF 循环，rAF 直驱不经过它们。rAF flush 后按当前虚拟钟
@@ -731,12 +735,24 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             self.ctx.eval(
                 "if (globalThis.__ocMode !== 'extract') { try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: (globalThis.__ocClockMs() || 0) / 1000 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); } }",
             )?;
+            let d_seek = d0.map(|t| t.elapsed());
             // Native web GL: rAF callbacks have issued the real WebGL draw
             // calls; read the canvas drawing buffers into the generated-image
             // channel before the frame's media plan is built.
             self.ctx.eval(
                 "if (globalThis.__ocNativeCanvasFrameEnd) globalThis.__ocNativeCanvasFrameEnd();",
             )?;
+            if let (Some(t0), Some(hooks), Some(raf), Some(seek)) = (d0, d_hooks, d_raf, d_seek) {
+                let end = t0.elapsed();
+                eprintln!(
+                    "[timing-drain] hooks={:.1}ms raf-flush={:.1}ms hf-seek={:.1}ms frame-end={:.1}ms total={:.1}ms",
+                    hooks.as_secs_f64() * 1e3,
+                    (raf - hooks).as_secs_f64() * 1e3,
+                    (seek - raf).as_secs_f64() * 1e3,
+                    (end - seek).as_secs_f64() * 1e3,
+                    end.as_secs_f64() * 1e3,
+                );
+            }
         }
         // SVG-subtree capture: SVG-family chart renderers (g-svg) paint no
         // pixels — their output is an `<svg>` subtree under the container,
@@ -795,6 +811,19 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // the next run_frame anyway), so the per-frame deep clone of every
         // canvas DrawOp disappears here and at the resolve-side snapshot.
         let snap = self.ctx.with_store_mut(|s| s.take_mutations());
+        if std::env::var_os("OC_FRAME_TIMING").is_some() {
+            let canvas_cmds: usize = snap
+                .canvas_mutations
+                .values()
+                .map(|m| m.commands.len())
+                .sum();
+            eprintln!(
+                "[timing-ops] style-nodes={} canvas-ids={} canvas-cmds={}",
+                snap.mutations.len(),
+                snap.canvas_mutations.len(),
+                canvas_cmds,
+            );
+        }
         snap.apply_to_recorder(recorder);
         Ok(())
     }

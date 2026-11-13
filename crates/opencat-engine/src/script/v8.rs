@@ -696,6 +696,21 @@ fn stderr_log(
     rv.set(v8::undefined(scope).into());
 }
 
+/// `__ocWallMs()` — 宿主墙钟毫秒。realm 内所有时钟面（performance.now/
+/// Date.now）都绑虚拟钟（frame=f(t) 确定性），性能测量探针需要一个
+/// 不进确定性的出口——只在测量分支被调用，正常渲染路径不存在。
+fn wall_clock(
+    scope: &mut PinScope<'_, '_>,
+    _args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64() * 1e3)
+        .unwrap_or(0.0);
+    rv.set(v8::Number::new(scope, ms).into());
+}
+
 /// `__ocCanvasFillOvalBatch(id, rects, colors, n)` — canvas 2D 批量椭圆填充
 /// 的二进制快路。`rects` 是 n×4 的 Float32Array（x, y, w, h），`colors` 是
 /// n×4 的 Uint8Array（r, g, b, a）。与逐点快路落同一条 op 序列
@@ -1026,6 +1041,11 @@ impl JsContext for V8JsContext {
             let stderr = Function::new(scope, stderr_log)
                 .ok_or_else(|| anyhow!("v8: failed to create __ocStderr"))?;
             set_global(scope, "__ocStderr", stderr.into())?;
+
+            // 测量探针用墙钟（见 wall_clock 文档）。
+            let wall = Function::new(scope, wall_clock)
+                .ok_or_else(|| anyhow!("v8: failed to create __ocWallMs"))?;
+            set_global(scope, "__ocWallMs", wall.into())?;
 
             // Canvas 2D 批量椭圆填充（二进制快路，同 putImageData 形状）。
             let obatch = Function::new(scope, fill_oval_batch)

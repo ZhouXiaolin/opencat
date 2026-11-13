@@ -2115,6 +2115,9 @@ pub struct NodeStyle {
     /// CSS `mix-blend-mode` — per-node compositing blend mode. `None` means the
     /// default (`SrcOver`).
     pub blend_mode: Option<BlendMode>,
+    /// CSS `background-blend-mode` — blend used between the element's own
+    /// background layers. `None` means `normal` (`SrcOver`).
+    pub background_blend_mode: Option<BlendMode>,
     pub bg_color: Option<ColorToken>,
     pub bg_gradient_from: Option<ColorToken>,
     pub bg_gradient_via: Option<ColorToken>,

@@ -772,6 +772,34 @@ pub fn apply_custom_property<V: VarSource + ?Sized>(
         "-webkit-text-stroke" | "text-stroke" => {
             apply_text_stroke(style, cp, vars, ctx);
         }
+        "background-blend-mode" => {
+            if let Some(text) = crate::css::eval::serialize_tokens(&cp.value) {
+                let mode = match text.trim() {
+                    "normal" => Some(BlendMode::SrcOver),
+                    "multiply" => Some(BlendMode::Multiply),
+                    "screen" => Some(BlendMode::Screen),
+                    "overlay" => Some(BlendMode::Overlay),
+                    "darken" => Some(BlendMode::Darken),
+                    "lighten" => Some(BlendMode::Lighten),
+                    "color-dodge" => Some(BlendMode::ColorDodge),
+                    "color-burn" => Some(BlendMode::ColorBurn),
+                    "hard-light" => Some(BlendMode::HardLight),
+                    "soft-light" => Some(BlendMode::SoftLight),
+                    "difference" => Some(BlendMode::Difference),
+                    "exclusion" => Some(BlendMode::Exclusion),
+                    "hue" => Some(BlendMode::Hue),
+                    "saturation" => Some(BlendMode::Saturation),
+                    "color" => Some(BlendMode::Color),
+                    "luminosity" => Some(BlendMode::Luminosity),
+                    _ => None,
+                };
+                if let Some(mode) = mode {
+                    style.background_blend_mode = Some(mode);
+                } else {
+                    log::warn!("css: background-blend-mode 值 {text} 无法识别，已跳过");
+                }
+            }
+        }
         other => {
             log::warn!("css: {other} 暂不支持（lightningcss 属性表缺项），已跳过");
         }

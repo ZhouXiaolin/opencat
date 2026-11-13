@@ -613,8 +613,13 @@ fn serialize_into(items: &[TokenOrValue<'static>], out: &mut String) -> Option<(
                 serialize_into(&func.arguments.0, out)?;
                 out.push(')');
             }
+            TokenOrValue::Url(url) => {
+                out.push_str("url(\"");
+                out.push_str(&url.url);
+                out.push_str("\")");
+            }
             TokenOrValue::Var(_) | TokenOrValue::Env(_) => return None,
-            TokenOrValue::DashedIdent(_) | TokenOrValue::Url(_) | TokenOrValue::AnimationName(_) => {
+            TokenOrValue::DashedIdent(_) | TokenOrValue::AnimationName(_) => {
                 return None
             }
             TokenOrValue::Angle(a) => out.push_str(&format!("{}deg", a.to_degrees())),

@@ -927,7 +927,20 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             .find_map(|m| m.svg_markup_for(&style.id));
         let inline = markup_override
             .or(svg.inline())
-            .map(|markup| inherit_svg_paint(markup, style.svg_paint_css.as_deref(), &computed));
+            .map(|markup| {
+                // 内部元素绘制注入在覆盖落地之后：脚本改写的 markup 由 JS
+                // 侧重序列化、不带页面层叠，注入补上 CSS 瞄准的绘制声明；
+                // 内联/脚本已写的属性注入时跳过（层叠序正确）。
+                let markup = match svg.inner_paint.as_ref() {
+                    Some(ip) => crate::parse::html::inject_markup_paint(
+                        markup,
+                        &ip.sheet,
+                        &ip.host_ancestors,
+                    ),
+                    None => markup.to_string(),
+                };
+                inherit_svg_paint(&markup, style.svg_paint_css.as_deref(), &computed)
+            });
         let intrinsic_size = match &inline {
             Some(markup) => crate::render::svg::load_tree_markup(markup)
                 .map(|t| crate::render::svg::tree_size(&t)),
@@ -1483,6 +1496,7 @@ fn compute_style(
                 Some(crate::style::Visibility::Inherit) | None => inherited_style.hidden,
             },
             blend_mode: style.blend_mode.unwrap_or_default(),
+            background_blend_mode: style.background_blend_mode.unwrap_or_default(),
             background: resolve_background(style),
             background_clip: style.background_clip,
             fill: style

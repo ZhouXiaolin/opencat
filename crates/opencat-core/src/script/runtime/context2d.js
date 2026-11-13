@@ -1102,30 +1102,6 @@
             },
             shapeGlyphsUncached(text, font) {
                 var shaped = __canvas_glyph_paths(text, font.size, font.family, font.weight);
-                if (shaped && shaped.color === true) {
-                    // 彩色字形（emoji）：glyph outline 面拿不到彩图，改走段落
-                    // 位图通道（`__canvas_draw_paragraph`，与 CanvasKit
-                    // Paragraph 同源）。度量同取段落通道，行盒/基线与浏览器
-                    // 一致；调用方见 `color` 标记改画位图。
-                    if (typeof __canvas_measure_paragraph !== 'function'
-                        || typeof __canvas_draw_paragraph !== 'function') {
-                        throw new Error(
-                            'fillText: color/emoji text needs the paragraph bindings (text: "'
-                            + String(text).slice(0, 40) + '")'
-                        );
-                    }
-                    var m = __canvas_measure_paragraph(
-                        String(text), font.size, font.family, font.weight
-                    ) || {};
-                    return {
-                        color: true,
-                        glyphs: [],
-                        positions: [],
-                        width: Number(m.width) || 0,
-                        ascent: Number(m.ascent) || 0,
-                        descent: Number(m.descent) || 0,
-                    };
-                }
                 return shaped;
             },
             // Shared path-baking for fillText/strokeText: shape once, then
@@ -1182,17 +1158,6 @@
                 // around the rounded device baseline; skewed text is not snapped.
                 if (matrix.b === 0 && matrix.d !== 0) {
                     by = (Math.round(matrix.d * by + matrix.f) - matrix.f) / matrix.d;
-                }
-                if (shaped.color === true) {
-                    // 彩色字形走位图（绑定约定 y 是段落顶，基线 = 顶 + ascent）。
-                    // strokeText 同样落到位图：彩图字形没有 outline 可描，静默
-                    // 描边比整帧失败更接近浏览器观察值。
-                    var col = typeof state.fillStyle === 'string' ? state.fillStyle : '#000000';
-                    __canvas_draw_paragraph(
-                        id, t, f.size, f.family, Math.round(f.weight) || 400, col,
-                        bx, by - ascent, Number(shaped.width) || 0, ascent + descent
-                    );
-                    return true;
                 }
                 __canvas_begin_path(id);
                 pathFlat(id, textFlat(shaped), bx, by);
@@ -1257,7 +1222,10 @@
             // 树内 canvas 可读；尺寸各自从所属节点表取。
             getImageData(sx, sy, sw, sh) {
                 var canvas = (typeof __ocOffscreenById === 'function' ? __ocOffscreenById(id) : null)
-                    || (typeof __ocHtmlCanvasById === 'function' ? __ocHtmlCanvasById(id) : null);
+                    || (typeof __ocHtmlCanvasById === 'function' ? __ocHtmlCanvasById(id) : null)
+                    || (typeof __ocHtmlOffscreenById === 'function' ? __ocHtmlOffscreenById(id) : null)
+                    || (typeof __ocShadowCanvasById === 'function' ? __ocShadowCanvasById(id) : null)
+                    || (typeof __ocRecordingSurfaceById === 'function' ? __ocRecordingSurfaceById(id) : null);
                 if (!canvas) throw new Error('getImageData: no readable canvas for ' + id);
                 var cw = Math.max(1, Math.ceil(canvas.width > 0 ? canvas.width : 1));
                 var ch = Math.max(1, Math.ceil(canvas.height > 0 ? canvas.height : 1));
@@ -1519,11 +1487,11 @@
     // recorder: dom_api hands us a synthetic id, we hand back the same
     // descriptor-wrapped face as `ctx.getContext`. Cached by id so repeated
     // getContext calls return the same object (Web identity semantics).
+    globalThis.__ocMakeContext2d = function (id) {
+        return ctx.getContext(id, '2d');
+    };
     globalThis.__ocMakeOffscreenContext2d = function (id) {
-        var face = ctx.getContext(id, '2d');
-        // 浏览器 2D 上下文都有 `.canvas` 反指（G2 heatmap 渲染器拿
-        // ctx.canvas.toDataURL() 消费离屏产物）。face 由 makeContext2d
-        // 缓存共享，defineProperty 一次即可。
+        var face = globalThis.__ocMakeContext2d(id);
         if (face && face.canvas === undefined) {
             Object.defineProperty(face, 'canvas', {
                 get: function () { return globalThis.__ocOffscreenById(id); },

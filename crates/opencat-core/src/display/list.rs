@@ -232,6 +232,7 @@ pub struct DrawScriptDisplayItem {
 pub struct RectPaintStyle {
     pub background: Vec<BackgroundFill>,
     pub blend_mode: BlendMode,
+    pub background_blend_mode: BlendMode,
     pub border_radius: BorderRadius,
     pub border_width: Option<f32>,
     pub border_top_width: Option<f32>,

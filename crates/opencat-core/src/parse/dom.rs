@@ -1331,11 +1331,33 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             } else {
                 PathBuf::from(src)
             };
+            // svg 内部元素的绘制注入现场：inline markup 不携带页面层叠，
+            // `.pchart .pfill{fill:…}` 这类瞄准内部 path 的规则要靠注入。
+            // 注入本体在 resolve 期执行（脚本 markup 覆盖之后），这里只把
+            // 样式表与祖先链（远→近，翻转成匹配要的近→远）挂上节点。
+            let inner_paint = match (inline.as_ref(), ctx.css) {
+                (Some(_), Some(engine)) => Some(std::sync::Arc::new(
+                    crate::parse::html::SvgInnerPaintCtx {
+                        sheet: engine.sheet_arc(),
+                        host_ancestors: std::sync::Arc::new(
+                            ctx.ancestors
+                                .iter()
+                                .rev()
+                                .map(|n| {
+                                    (n.tag.clone(), n.id.clone(), n.classes.clone(), n.attrs.clone())
+                                })
+                                .collect(),
+                        ),
+                    },
+                )),
+                _ => None,
+            };
             let mut svg_node = crate::parse::primitives::svg(resolved_src);
             svg_node.inline = inline;
             svg_node.width = width;
             svg_node.height = height;
             svg_node.preserve_aspect_ratio = preserve_aspect_ratio;
+            svg_node.inner_paint = inner_paint;
             svg_node.style = style;
             Ok(Node::new(svg_node))
         }

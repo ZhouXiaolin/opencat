@@ -758,7 +758,7 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
         bounds,
         &style.background,
         &style.border_radius,
-        style.blend_mode,
+        style.background_blend_mode,
     );
 
     for shadow in &style.inset_shadow {

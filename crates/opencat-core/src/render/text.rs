@@ -8,7 +8,7 @@ use crate::ir::GeneratedImageId;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{EncodedPath, FillType, ImageRef, PathOp};
 use crate::script::TextUnitOverride;
-use crate::style::TextStroke;
+use crate::style::{BackgroundFill, TextStroke};
 use crate::text::{
     GlyphData, apply_text_transform, compute_line_x_shift, describe_text_unit_ranges,
     ranges_overlap, rasterize_glyphs,
@@ -238,6 +238,13 @@ fn build_glyph_path(commands: &[Command], scale: f32) -> EncodedPath {
 }
 
 pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), RenderError> {
+    if let Some(layers) = item.text_fill.as_ref()
+        && layers
+            .iter()
+            .any(|layer| matches!(layer, BackgroundFill::Image { .. }))
+    {
+        return render_clipped_background_text(ctx, item, layers);
+    }
     let raster = rasterize_glyphs(
         &item.text,
         &item.style,
@@ -350,6 +357,132 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
             }
         }
     }
+    Ok(())
+}
+
+fn render_clipped_background_text(
+    ctx: &mut RenderCtx,
+    item: &TextDisplayItem,
+    layers: &[BackgroundFill],
+) -> Result<(), RenderError> {
+    let raster = rasterize_glyphs(
+        &item.text,
+        &item.style,
+        item.wrap_width,
+        item.allow_wrap,
+        item.truncate,
+        ctx.font_db,
+    );
+    let bg_box = clipped_text_ink_box(item, &raster);
+    ctx.builder.push(DrawOp::Save);
+    emit_glyph_clip(ctx, item, &raster);
+    super::paint_background_box(
+        &mut ctx.builder,
+        ctx.catalog,
+        bg_box,
+        layers,
+        &item.background_border_radius,
+        item.background_blend_mode,
+    );
+    ctx.builder.push(DrawOp::Restore);
+    Ok(())
+}
+
+fn clipped_text_ink_box(
+    item: &TextDisplayItem,
+    raster: &crate::text::TextRasterization,
+) -> DisplayRect {
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for line in &raster.lines {
+        let line_x_shift =
+            compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);
+        for pos in &line.positions {
+            let Some(GlyphData::Outline(commands, upem)) = raster.glyphs.get(&pos.cache_key) else {
+                continue;
+            };
+            let draw_scale = item.style.text_px / *upem;
+            let unscale = *upem / item.style.text_px;
+            let (bx, by, bw, bh) = outline_bounds(commands, unscale);
+            let gx = item.bounds.x + line_x_shift + pos.x + bx * draw_scale;
+            let gy = item.bounds.y + pos.y + by * draw_scale;
+            if bw <= 0.0 || bh <= 0.0 {
+                continue;
+            }
+            min_x = min_x.min(gx);
+            min_y = min_y.min(gy);
+            max_x = max_x.max(gx + bw * draw_scale);
+            max_y = max_y.max(gy + bh * draw_scale);
+        }
+    }
+    if min_x.is_finite() && max_x > min_x && max_y > min_y {
+        DisplayRect {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x,
+            height: max_y - min_y,
+        }
+    } else {
+        text_background_box(item, &raster.lines)
+    }
+}
+
+fn emit_glyph_clip(
+    ctx: &mut RenderCtx,
+    item: &TextDisplayItem,
+    raster: &crate::text::TextRasterization,
+) -> Result<(), RenderError> {
+    ctx.builder.push(DrawOp::BeginPath);
+    for line in &raster.lines {
+        let line_x_shift =
+            compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);
+        for pos in &line.positions {
+            let Some(glyph_data) = raster.glyphs.get(&pos.cache_key) else {
+                continue;
+            };
+            let abs_x = item.bounds.x + line_x_shift + pos.x;
+            let abs_y = item.bounds.y + pos.y;
+            let builder = &mut ctx.builder;
+            let GlyphData::Outline(commands, upem) = glyph_data else {
+                continue;
+            };
+            let draw_scale = item.style.text_px / *upem;
+            for command in commands {
+                let unscale = *upem / item.style.text_px;
+                let s = unscale * draw_scale;
+                let map = |p: (f32, f32)| (p.0 * s + abs_x, -p.1 * s + abs_y);
+                let op = match command {
+                    Command::MoveTo(p) => {
+                        let (x, y) = map((p.x, p.y));
+                        PathOp::MoveTo { x, y }
+                    }
+                    Command::LineTo(p) => {
+                        let (x, y) = map((p.x, p.y));
+                        PathOp::LineTo { x, y }
+                    }
+                    Command::QuadTo(c, p) => {
+                        let (cx, cy) = map((c.x, c.y));
+                        let (x, y) = map((p.x, p.y));
+                        PathOp::QuadTo { cx, cy, x, y }
+                    }
+                    Command::CurveTo(c1, c2, p) => {
+                        let (c1x, c1y) = map((c1.x, c1.y));
+                        let (c2x, c2y) = map((c2.x, c2.y));
+                        let (x, y) = map((p.x, p.y));
+                        PathOp::CubicTo { c1x, c1y, c2x, c2y, x, y }
+                    }
+                    Command::Close => PathOp::Close,
+                };
+                builder.push(DrawOp::Path(op));
+            }
+        }
+    }
+    ctx.builder.push(DrawOp::ClipPath {
+        anti_alias: true,
+        fill_type: FillType::Winding,
+    });
     Ok(())
 }
 

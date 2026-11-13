@@ -10,5 +10,6 @@ pub mod bridge;
 pub mod html;
 pub mod jsx;
 pub mod offscreen;
+pub mod omp;
 
 pub use v8::V8JsContext;

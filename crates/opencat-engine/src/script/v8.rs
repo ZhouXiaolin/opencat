@@ -817,6 +817,139 @@ fn image_decode_into(
     }
 }
 
+/// `__ocOmpPrep(ir)` — @omp 编译缓存（提取期守卫第一步）。ir = 提取期
+/// 注入的 `{loop, fns, args, captures}`。true = 骨架可跑；false = 编译
+/// 失败（条目毒化，后续帧直接短路），原循环照跑。
+fn omp_prep(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let ir = v8_to_json(scope, args.get(0));
+    match ir {
+        Ok(j) => rv.set_bool(crate::script::omp::omp_prep(&j)),
+        Err(_) => rv.set_bool(false),
+    }
+}
+
+/// `__ocOmpTake(ir, ...args, skeleton)` — @omp 循环派发入口（提取期把
+/// 标注的 for 包进
+/// `if (!(... && __ocOmpPrep(ir) && __ocOmpTake(ir, args, skeleton)))`）。
+/// 返回 true = 循环被旁路（Rust rayon 已直推 op 流）；false = 降级，原
+/// 循环照跑。任何失败都回落 false，不抛异常——降级语义是「pragma 未被
+/// 编译器处理」。prng 类 args 是页面函数（闭包值），不做 JSON 化——骨架
+/// 已按原序预采进末位的 Float64Array。
+fn omp_take(
+    scope: &mut PinScope<'_, '_>,
+    args: v8::FunctionCallbackArguments<'_>,
+    mut rv: v8::ReturnValue<'_, Value>,
+) {
+    let Some(state) = native_state(scope) else {
+        rv.set_bool(false);
+        return;
+    };
+    let Ok(ir) = v8_to_json(scope, args.get(0)) else {
+        rv.set_bool(false);
+        return;
+    };
+    let arg_names: Vec<String> = ir
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let captures = ir.get("captures");
+    let is_prng = |name: &str| {
+        captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("prng")
+    };
+    let is_ctx = |name: &str| {
+        captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("ctx")
+    };
+    let n_args = arg_names.len();
+    let mut rest: Vec<JsonValue> = Vec::with_capacity(n_args);
+    for (k, name) in arg_names.iter().enumerate() {
+        if is_prng(name) {
+            rest.push(JsonValue::Null); // 函数值不可 JSON 化；骨架已预采
+            continue;
+        }
+        if is_ctx(name) {
+            // html 通道的 ctx 是垫片 Proxy（html_api `getContext` 返回面，
+            // get 钩子转发到 core 的 context2d face）：JSON.stringify 对
+            // Proxy 走目标 ownKeys 序列化得 `{}`，具名属性直读才经钩子到
+            // 真 face。take 只需要这两个键。
+            let v = args.get(k as i32 + 1);
+            // Proxy 不是 JSObject：to_object 对它恒等返回（ToObject 语义），
+            // 随后的 get 走 [[Get]] 陷阱 = 垫片钩子。
+            let face = v.to_object(scope);
+            let node_id = face.and_then(|o| {
+                V8String::new(scope, "__ocNodeId").and_then(|key| {
+                    o.get(scope, key.into()).and_then(|val| {
+                        val.is_string().then(|| val.to_rust_string_lossy(scope))
+                    })
+                })
+            });
+            let global_alpha = face.and_then(|o| {
+                V8String::new(scope, "state").and_then(|key| {
+                    o.get(scope, key.into()).and_then(|st| st.to_object(scope)).and_then(|st| {
+                        V8String::new(scope, "globalAlpha").and_then(|gk| {
+                            st.get(scope, gk.into()).and_then(|ga| {
+                                ga.is_number().then(|| ga.number_value(scope)).flatten()
+                            })
+                        })
+                    })
+                })
+            });
+            rest.push(match node_id {
+                Some(id) => serde_json::json!({
+                    "__ocNodeId": id,
+                    "state": { "globalAlpha": global_alpha.unwrap_or(1.0) },
+                }),
+                None => JsonValue::Null, // 读不到 = 不是 ctx face → 毒化
+            });
+            continue;
+        }
+        let v = args.get(k as i32 + 1);
+        let json = if v.is_null_or_undefined() {
+            Ok(JsonValue::Null)
+        } else if v.is_string() {
+            Ok(JsonValue::String(v.to_rust_string_lossy(scope)))
+        } else if v.is_number() {
+            Ok(json_number(v.number_value(scope).unwrap_or(f64::NAN)))
+        } else if v.is_boolean() {
+            Ok(JsonValue::Bool(v.boolean_value(scope)))
+        } else {
+            v8_to_json(scope, v)
+        };
+        match json {
+            Ok(j) => rest.push(j),
+            Err(_) => {
+                rv.set_bool(false);
+                return;
+            }
+        }
+    }
+    // 末位 = 采集骨架（Float64Array；无采集时是 null）。
+    let mut prng: Vec<f64> = Vec::new();
+    let skel = args.get(n_args as i32 + 1);
+    if let Ok(fa) = v8::Local::<v8::Float64Array>::try_from(skel) {
+        let mut bytes = vec![0u8; fa.byte_length()];
+        let copied = v8::ArrayBufferView::copy_contents(&fa, &mut bytes);
+        bytes.truncate(copied);
+        prng = bytes
+            .chunks_exact(8)
+            .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+            .collect();
+    }
+    let taken = match state.store.lock() {
+        Ok(mut store) => crate::script::omp::omp_take(&mut store, &ir, &rest, &prng),
+        Err(_) => false,
+    };
+    rv.set_bool(taken);
+}
+
 // ── V8JsContext ──────────────────────────────────────────────────────
 
 /// V8-backed [`JsContext`]: one isolate + one context per pipeline.
@@ -1051,6 +1184,14 @@ impl JsContext for V8JsContext {
             let obatch = Function::new(scope, fill_oval_batch)
                 .ok_or_else(|| anyhow!("v8: failed to create __ocCanvasFillOvalBatch"))?;
             set_global(scope, "__ocCanvasFillOvalBatch", obatch.into())?;
+
+            // @omp 循环派发（script/omp.rs；未命中 native 时 JS 侧降级跑原循环）。
+            let omp = Function::new(scope, omp_take)
+                .ok_or_else(|| anyhow!("v8: failed to create __ocOmpTake"))?;
+            set_global(scope, "__ocOmpTake", omp.into())?;
+            let omp_prep = Function::new(scope, omp_prep)
+                .ok_or_else(|| anyhow!("v8: failed to create __ocOmpPrep"))?;
+            set_global(scope, "__ocOmpPrep", omp_prep.into())?;
             Ok(())
         })
     }

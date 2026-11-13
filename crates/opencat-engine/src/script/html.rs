@@ -965,11 +965,20 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("globalThis.__ocHtmlPageInited = true;\n");
     driver.push_str("}\n");
     driver.push_str("if (!__ocHtmlInit) globalThis.__ocHtmlBeginFrame();\n");
+    // driver_fn 全程时间戳（trace 模式）：profile 的 driver_fn span 与之对照。
+    driver.push_str("if (globalThis.__ocTraceJs) globalThis.__ocDfT0 = __ocWallMs();\n");
     if trace_js {
         // 计数器安装一次；__write_style_value 是全部样式写入的唯一宿主出口
         // （html_api.js 的 writeStyle/setProperty 都经它）。
         driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocProbeInstalled) { globalThis.__ocProbeInstalled = true; var __ocRawWrite = globalThis.__write_style_value; globalThis.__ocNWrite = 0; globalThis.__write_style_value = function (id, k, v) { globalThis.__ocNWrite++; return __ocRawWrite(id, k, v); }; }\n");
         driver.push_str("if (globalThis.__ocTraceJs && typeof globalThis.__ocNWrite === 'undefined') { globalThis.__ocNWrite = 0; globalThis.__ocNSeek = 0; }\n");
+        // rAF flush 探针：逐回调墙钟计时（__ocWallMs 是宿主注入的测量出口，
+        // 不进确定性）。gsap tick/页面 draw 全在 flush 的 batch 里——这个
+        // 分解直接回答「每帧 JS 时间花在哪个回调」。
+        driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocRafProbe) { globalThis.__ocRafProbe = true; var __ocRawFlush = globalThis.__ocFlushRaf; globalThis.__ocFlushRaf = function () { var batch = globalThis.__ocRafQueue; globalThis.__ocRafQueue = []; var total = 0, parts = []; for (var i = 0; i < batch.length; i++) { var nm = String(batch[i].name || ('cb' + i)).slice(0, 20); var t0 = __ocWallMs(); try { batch[i](globalThis.__ocClockMs()); } catch (e) { if (typeof __ocStderr === 'function') __ocStderr('raf callback threw: ' + (e && e.stack || e)); } var dt = __ocWallMs() - t0; total += dt; var hit = false; for (var j = 0; j < parts.length; j++) if (parts[j][0] === nm) { parts[j][1] += dt; parts[j][2]++; hit = true; break; } if (!hit) parts.push([nm, dt, 1]); } var s = (globalThis.__ocRafStats = globalThis.__ocRafStats || []); s.push(total); if (s.length >= 30) { var sum = 0; for (var k = 0; k < s.length; k++) sum += s[k]; if (typeof __ocStderr === 'function') __ocStderr('[raf] 30f avg=' + (sum / s.length).toFixed(1) + 'ms last: ' + parts.map(function (p) { return p[0] + '=' + p[1].toFixed(1) + 'ms x' + p[2]; }).join(' ')); s.length = 0; } }; }\n");
+        // beginFrame / ticker.wake 探针：driver_fn 265ms 的分段定位。
+        driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocBeginProbe) { globalThis.__ocBeginProbe = true; var __ocRawBegin = globalThis.__ocHtmlBeginFrame; globalThis.__ocHtmlBeginFrame = function () { var t0 = __ocWallMs(); var r = __ocRawBegin.apply(this, arguments); var dt = __ocWallMs() - t0; globalThis.__ocBeginN = (globalThis.__ocBeginN || 0) + 1; if (globalThis.__ocBeginN % 30 === 1 || dt > 20) { if (typeof __ocStderr === 'function') __ocStderr('[beginFrame] call#' + globalThis.__ocBeginN + ' dt=' + dt.toFixed(1) + 'ms'); } return r; }; }\n");
+        driver.push_str("if (globalThis.__ocTraceJs && globalThis.gsap && !globalThis.__ocWakeProbe) { globalThis.__ocWakeProbe = true; var __ocRawWake = globalThis.gsap.ticker.wake; globalThis.gsap.ticker.wake = function () { var t0 = __ocWallMs(); var r = __ocRawWake.apply(this, arguments); var dt = __ocWallMs() - t0; globalThis.__ocWakeN = (globalThis.__ocWakeN || 0) + 1; if (globalThis.__ocWakeN % 30 === 1 || dt > 20) { if (typeof __ocStderr === 'function') __ocStderr('[wake] call#' + globalThis.__ocWakeN + ' dt=' + dt.toFixed(1) + 'ms'); } return r; }; }\n");
     }
     // 每帧 = 虚拟 rAF 的一次 tick：钟到本帧时刻，realm 帧宿主紧随的 flush
     // 跑一次 gsap tick（dt=帧间隔），timeline 自然播放，onUpdate/tl.call
@@ -1013,6 +1022,7 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("        }\n");
     driver.push_str("    })();\n");
     driver.push_str("    if (globalThis.__ocTraceJs) { globalThis.__ocNFrame = (globalThis.__ocNFrame || 0) + 1; if (globalThis.__ocNFrame % 5 === 0) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('[jstrace] write5f=' + globalThis.__ocNWrite + ' t=' + Math.round(__ocTime * 1000)); globalThis.__ocNWrite = 0; } }\n");
+    driver.push_str("    if (globalThis.__ocTraceJs && globalThis.__ocDfT0) { var __dfdt = __ocWallMs() - globalThis.__ocDfT0; globalThis.__ocDfN = (globalThis.__ocDfN || 0) + 1; globalThis.__ocDfSum = (globalThis.__ocDfSum || 0) + __dfdt; if (globalThis.__ocDfN % 30 === 0) { if (typeof __ocStderr === 'function') __ocStderr('[driver] 30f avg=' + (globalThis.__ocDfSum / globalThis.__ocDfN).toFixed(1) + 'ms'); globalThis.__ocDfN = 0; globalThis.__ocDfSum = 0; } }\n");
     driver.push_str("})();");
     Ok(driver)
 }

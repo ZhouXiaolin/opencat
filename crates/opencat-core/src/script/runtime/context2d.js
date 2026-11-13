@@ -161,6 +161,9 @@
     // the outer start, so a ccw arc lowers to a negative sweep from the same
     // start (Skia and CanvasKit arcs both take signed sweeps) — flipping it to
     // a cw region-equivalent would jump the contour.
+    // 返回复用的 scratch（调用方同步消费，不持引用）——halftone 语料
+    // 每点一次 arc，逐点新对象是每帧 ~7 万个堆分配的 GC 压力源。
+    var sweepScratch = { start: 0, sweep: 0 };
     function normalizeSweep(start, end, counterclockwise) {
         var sweep = num(end) - num(start);
         var tau = Math.PI * 2;
@@ -171,7 +174,9 @@
             while (sweep < 0) sweep += tau;
             while (sweep > tau) sweep -= tau;
         }
-        return { start: num(start), sweep: sweep };
+        sweepScratch.start = num(start);
+        sweepScratch.sweep = sweep;
+        return sweepScratch;
     }
 
     // 离屏 canvas（`document.createElement('canvas')`，`__oc_offscreen_` id）
@@ -283,72 +288,85 @@
             batchN = 0;
         }
 
-        // 受限色解析 → [r,g,b,a]，不认识的格式返回 null（调用方退回逐点）。
-        // rgba() 走手写字符扫描（halftone 每点一次，正则 exec 是微秒级、
-        // 30 万次/帧会吃掉两百毫秒）；hex 走 parseInt。
+        // 受限色解析 → 写进 batchScratch[0..4]，不认识返回 false（调用方退
+        // 回逐点）。rgba() 走手写字符扫描（halftone 每点一次，正则 exec 是
+        // 微秒级、30 万次/帧会吃掉两百毫秒）；hex 走 parseInt；手写整数化
+        // （不 slice/parseFloat——每点 5 个临时字符串+数组是 GC 压力源）。
+        var batchScratch = [0, 0, 0, 0];
         function batchColor(v) {
-            if (v === undefined || v === null) return null;
+            if (v === undefined || v === null) return false;
             var s = String(v).trim();
             var c0 = s.charCodeAt(0);
+            var out = batchScratch;
             if (c0 === 35) { // '#'
                 var hex = s.length === 4
                     ? s[1] + s[1] + s[2] + s[2] + s[3] + s[3]
                     : (s.length === 7 || s.length === 9 ? s.slice(1, 7) : null);
-                if (!hex) return null;
+                if (!hex) return false;
                 var h = parseInt(hex, 16);
-                if (!(h >= 0)) return null;
+                if (!(h >= 0)) return false;
                 var a = s.length === 9 ? parseInt(s.slice(7, 9), 16) : 255;
-                if (!(a >= 0)) return null;
-                return [(h >> 16) & 255, (h >> 8) & 255, h & 255, a];
+                if (!(a >= 0)) return false;
+                out[0] = (h >> 16) & 255;
+                out[1] = (h >> 8) & 255;
+                out[2] = h & 255;
+                out[3] = a;
+                return true;
             }
             if (c0 === 114 && s.length > 10 && s.charCodeAt(1) === 103
                 && s.charCodeAt(2) === 98 && s.charCodeAt(3) === 97
                 && s.charCodeAt(4) === 40) { // rgba(
-                var out = [0, 0, 0, 0];
                 var p = 5;
                 var n = s.length;
                 for (var k = 0; k < 4; k++) {
                     while (p < n && (s.charCodeAt(p) === 32 || s.charCodeAt(p) === 9)) p++;
                     var start = p;
                     var seenDot = false;
+                    var scaled = k === 3; // alpha 分量是 0..1
+                    var fv = 0;
+                    var frac = 0;
                     while (p < n) {
                         var ch = s.charCodeAt(p);
                         if (ch === (k < 3 ? 44 : 41)) break; // ',' or ')'
-                        if (ch >= 48 && ch <= 57) { p++; continue; }
+                        if (ch >= 48 && ch <= 57) { fv = fv * 10 + (ch - 48); if (seenDot) { frac += 1; } p++; continue; }
                         if (ch === 46 && !seenDot) { seenDot = true; p++; continue; }
-                        return null;
+                        return false;
                     }
-                    if (p === start || p >= n) return null;
-                    var fv = parseFloat(s.slice(start, p));
-                    if (!(fv >= 0)) return null;
-                    out[k] = k < 3
-                        ? (fv > 255 ? 255 : Math.round(fv))
-                        : (fv > 1 ? 255 : Math.round(fv * 255));
+                    if (p === start || p >= n) return false;
+                    // frac：小数位计数。fv 按「数字串逐位拼」拿到了整数部分×10^frac 的值——
+                    // 除回 10^frac 得到原值（无 slice/parseFloat 分配）。
+                    var v2 = frac > 0 ? fv / Math.pow(10, frac) : fv;
+                    if (!(v2 >= 0)) return false;
+                    out[k] = scaled
+                        ? (v2 > 1 ? 255 : Math.round(v2 * 255))
+                        : (v2 > 255 ? 255 : Math.round(v2));
                     p++;
                 }
-                if (p !== n) return null;
-                return out;
+                if (p !== n) return false;
+                return true;
             }
-            return null;
+            return false;
         }
 
-        function batchPush(o, fillStr, rgba) {
+        function batchPush(o, fillStr) {
             if (!batchRects) {
                 batchRects = new Float32Array(BATCH_CAP * 4);
                 batchColors = new Uint8Array(BATCH_CAP * 4);
             }
+            if (!batchColor(fillStr)) return false;
             if (batchN >= BATCH_CAP) batchFlush();
             var b4 = batchN * 4;
             batchRects[b4] = o.x;
             batchRects[b4 + 1] = o.y;
             batchRects[b4 + 2] = o.w;
             batchRects[b4 + 3] = o.h;
-            batchColors[b4] = rgba[0];
-            batchColors[b4 + 1] = rgba[1];
-            batchColors[b4 + 2] = rgba[2];
-            batchColors[b4 + 3] = rgba[3];
+            batchColors[b4] = batchScratch[0];
+            batchColors[b4 + 1] = batchScratch[1];
+            batchColors[b4 + 2] = batchScratch[2];
+            batchColors[b4 + 3] = batchScratch[3];
             batchN++;
             batchFillLast = fillStr;
+            return true;
         }
 
         function flushPath() {
@@ -449,6 +467,9 @@
         // arc_to 无线可续、几何消失。弧落点记回 cur（arcTo 接在 arc 后可续）。
         // 满圈（|sweep|>=2π，canvas 规范钳为整圆）拆两个半弧链接——Skia 的
         // arc_to 在 |sweep|>=2π 产空/回绕几何（arcsweep 探针实测）。
+        // 挂起 oval 的复用载体（fill()/flushPath 同步消费后即置 null，
+        // 快路保证同一时刻最多一个挂起）。
+        var ovalScratch = { x: 0, y: 0, w: 0, h: 0 };
         function lowerArc(cx, cy, rx, ry, s) {
             var sweep = s.sweep;
             var full = Math.abs(sweep) >= Math.PI * 2 - 1e-6;
@@ -458,14 +479,17 @@
                 // （arcsweep 探针实测），半弧链每点 3 op——halftone 语料
                 // 7 万点/帧全走这条，必须走快路。紧跟 beginPath 时挂起，
                 // 留给 fill() 合成。
-                var oval = { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 };
+                ovalScratch.x = cx - rx;
+                ovalScratch.y = cy - ry;
+                ovalScratch.w = rx * 2;
+                ovalScratch.h = ry * 2;
                 if (beginPending) {
-                    ovalPending = oval;
+                    ovalPending = ovalScratch;
                 } else {
-                    __canvas_path_add_oval(id, oval.x, oval.y, oval.w, oval.h);
+                    __canvas_path_add_oval(id, ovalScratch.x, ovalScratch.y, ovalScratch.w, ovalScratch.h);
                 }
                 var end = s.start + s.sweep;
-                cur = { x: cx + Math.cos(end) * rx, y: cy + Math.sin(end) * ry, known: true };
+                cur.x = cx + Math.cos(end) * rx; cur.y = cy + Math.sin(end) * ry; cur.known = true;
                 return;
             }
             flushPath();
@@ -473,7 +497,7 @@
                 var sx = cx + Math.cos(s.start) * rx;
                 var sy = cy + Math.sin(s.start) * ry;
                 expandPathBounds(sx, sy, sx, sy);
-                cur = { x: sx, y: sy, known: true };
+                cur.x = sx; cur.y = sy; cur.known = true;
                 __canvas_move_to(id, sx, sy);
             }
             if (full) {
@@ -484,7 +508,7 @@
                 __canvas_path_add_arc(id, cx - rx, cy - ry, rx * 2, ry * 2, s.start, sweep);
             }
             var end = s.start + s.sweep;
-            cur = { x: cx + Math.cos(end) * rx, y: cy + Math.sin(end) * ry, known: true };
+            cur.x = cx + Math.cos(end) * rx; cur.y = cy + Math.sin(end) * ry; cur.known = true;
         }
 
         // 图案填充。浏览器里 `fillStyle = createPattern(图, 'repeat')` 是「按
@@ -597,7 +621,7 @@
             // 重置上下文状态。本帧已录命令整体作废，不再进光栅化。
             __ocResetBitmap() {
                 __canvas_reset(id);
-                cur = { x: 0, y: 0, known: false };
+                cur.x = 0; cur.y = 0; cur.known = false;
                 pathBounds = null;
                 this.__ocResetFrameState();
             },
@@ -792,7 +816,7 @@
                     __canvas_path_add_oval(id, o0.x, o0.y, o0.w, o0.h);
                 }
                 pathBounds = null;
-                cur = { x: 0, y: 0, known: false };
+                cur.x = 0; cur.y = 0; cur.known = false;
                 beginPending = true;
             },
             // HTML 2D dash surface over the same `dash` the stroke lowering
@@ -888,13 +912,13 @@
             moveTo(x, y) {
                 flushPath();
                 expandPathBounds(num(x), num(y), num(x), num(y));
-                cur = { x: num(x), y: num(y), known: true };
+                cur.x = num(x); cur.y = num(y); cur.known = true;
                 __canvas_move_to(id, num(x), num(y));
             },
             lineTo(x, y) {
                 flushPath();
                 expandPathBounds(num(x), num(y), num(x), num(y));
-                cur = { x: num(x), y: num(y), known: true };
+                cur.x = num(x); cur.y = num(y); cur.known = true;
                 __canvas_line_to(id, num(x), num(y));
             },
             // 流里只有弧段没有 arcTo：按 canvas 规范求切点，降级成
@@ -942,12 +966,12 @@
                     Math.atan2(t2y - cy0, t2x - cx0),
                     cross > 0
                 );
-                cur = { x: t2x, y: t2y, known: true };
+                cur.x = t2x; cur.y = t2y; cur.known = true;
             },
             rect(x, y, w, h) {
                 flushPath();
                 expandPathBounds(num(x), num(y), num(x) + num(w), num(y) + num(h));
-                cur = { x: num(x), y: num(y), known: true };
+                cur.x = num(x); cur.y = num(y); cur.known = true;
                 __canvas_path_add_rect(id, num(x), num(y), num(w), num(h));
             },
             quadraticCurveTo(cpx, cpy, x, y) {
@@ -1004,9 +1028,7 @@
                     beginPending = false;
                     ovalPending = null;
                     var fillStr = cssColor(state.fillStyle);
-                    var rgba = batchColor(fillStr);
-                    if (rgba) {
-                        batchPush(o, fillStr, rgba);
+                    if (batchPush(o, fillStr)) {
                         return;
                     }
                     batchFlush();

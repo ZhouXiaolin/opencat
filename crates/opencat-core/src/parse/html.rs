@@ -772,7 +772,7 @@ pub fn parse_html_prefixed_excluded(
     // 插 / ::after 尾插，声明走 inline style 通道）——下游 JSON/JSONL/
     // dom/布局/渲染全链按普通 Div 对待，零改动。
     let pseudo_rules = extract_pseudo_rules(&css_text);
-    let root = root.map(|r| apply_pseudo_rules(r, &pseudo_rules));
+    let mut root = root.map(|r| apply_pseudo_rules(r, &pseudo_rules));
 
     Ok(HtmlDocument {
         meta,
@@ -1131,7 +1131,18 @@ pub fn scope_composition_css(css: &str, scope: &str) -> String {
             }
             b'{' => {
                 let prelude = &css[from..i];
-                let block = match prelude.trim_start().strip_prefix('@') {
+                // 分类用去注释视图：注释被扫描器跳过但不推进 from，紧贴
+                // @规则 的注释会混进 prelude——`/* … */ @font-face` 被误判
+                // 成样式规则加了作用域前缀，整条 @font-face 变非法 CSS
+                // （Copernicus 断链的根因）。
+                let mut plain = String::with_capacity(prelude.len());
+                let mut rest = prelude;
+                while let Some(p) = rest.find("/*") {
+                    plain.push_str(&rest[..p]);
+                    rest = rest[p + 2..].find("*/").map_or("", |q| &rest[p + q + 4..]);
+                }
+                plain.push_str(rest);
+                let block = match plain.trim_start().strip_prefix('@') {
                     Some(at) => {
                         let name = at.split(|c: char| !(c.is_alphanumeric() || c == '-')).next();
                         let group = ["media", "supports", "layer", "container"];
@@ -1650,6 +1661,234 @@ fn xml_escape(text: &str, attr: bool) -> String {
             '"' if attr => out.push_str("&quot;"),
             c => out.push(c),
         }
+    }
+    out
+}
+
+// ---- SVG 内部元素的页面 CSS 绘制属性注入 -------------------------------
+
+/// svg 绘制属性清单（与 `css/to_node_style.rs` 的 `svg_paint_css` 留底
+/// 同一套）：只有这些值得往内部元素的 style 属性里注入。
+fn is_svg_paint_property(prop: &lightningcss::properties::Property<'static>) -> bool {
+    use lightningcss::properties::PropertyId;
+    matches!(
+        prop.property_id(),
+        PropertyId::Fill
+            | PropertyId::FillRule
+            | PropertyId::FillOpacity
+            | PropertyId::Stroke
+            | PropertyId::StrokeOpacity
+            | PropertyId::StrokeWidth
+            | PropertyId::StrokeLinecap
+            | PropertyId::StrokeLinejoin
+            | PropertyId::StrokeMiterlimit
+            | PropertyId::StrokeDasharray
+            | PropertyId::StrokeDashoffset
+            // 不透明度也注入：语料用 CSS opacity:0 停驻「未画」基准态，
+            // 脚本补间再按帧改写（内联/脚本写过的属性注入时跳过，见下）。
+            | PropertyId::Opacity
+    )
+}
+
+fn markup_unescape(text: &str) -> String {
+    text.replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+/// svg 内部元素绘制注入的现场：样式表 + 宿主 DomElement 祖先链（近→远）。
+/// build 期挂在 [`crate::parse::primitives::Svg`] 节点上，resolve 期在脚本
+/// markup 覆盖落地之后再注入——覆盖 markup 由 JS 侧重序列化，不带页面层叠。
+pub struct SvgInnerPaintCtx {
+    pub sheet: std::sync::Arc<crate::css::CssStylesheet>,
+    pub host_ancestors: std::sync::Arc<Vec<(String, String, String, Vec<(String, String)>)>>,
+}
+
+/// markup 单遍扫描：起始标签处解析 tag/id/class/属性表，跑级联匹配，把
+/// 命中的绘制声明并进 style 属性后原样发出；其余文本逐字复制。祖先链
+/// 供后代选择器回溯（`.pchart .pfill`）；兄弟链不追踪（语料近似，与
+/// cascade 的 HTML 通道同口径）。
+pub(crate) fn inject_markup_paint(
+    markup: &str,
+    sheet: &crate::css::CssStylesheet,
+    host_ancestors: &[(String, String, String, Vec<(String, String)>)],
+) -> String {
+    use crate::css::{match_rules_ctx, SelectorContext, SelectorNode};
+    use lightningcss::printer::PrinterOptions;
+
+    let mut out = String::with_capacity(markup.len() + 128);
+    let mut ancestors: Vec<(String, String, String, Vec<(String, String)>)> =
+        host_ancestors.to_vec();
+    let bytes = markup.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'<' {
+            // 文本或 '<' 后的非标签残段：找到下一个 '<' 整段复制。
+            let next = markup[i..].find('<').map_or(markup.len(), |at| i + at);
+            out.push_str(&markup[i..next]);
+            i = next;
+            continue;
+        }
+        if markup[i..].starts_with("</") {
+            let Some(end) = markup[i..].find('>') else {
+                out.push_str(&markup[i..]);
+                break;
+            };
+            out.push_str(&markup[i..=i + end]);
+            i += end + 1;
+            ancestors.pop();
+            continue;
+        }
+        // `<!`/`<?`：原样复制整段。
+        if bytes[i + 1] == b'!' || bytes[i + 1] == b'?' {
+            let next = markup[i..].find('>').map_or(markup.len(), |at| i + at + 1);
+            out.push_str(&markup[i..next]);
+            i = next;
+            continue;
+        }
+        // 起始标签：tag 名 + 属性表，直至 '>' 或 '/>'。
+        let tag_start = i + 1;
+        let mut j = tag_start;
+        while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'-' || bytes[j] == b'_' || bytes[j] == b':') {
+            j += 1;
+        }
+        // 匹配用小写（HTML 通道约定）；序列化保留原文——SVG 是大小写敏感
+        // 的 XML，linearGradient 小写后 usvg 拒绝解析。
+        let tag = markup[tag_start..j].to_string();
+        let tag_lower = tag.to_ascii_lowercase();
+        let mut attrs: Vec<(String, String)> = Vec::new();
+        let mut self_closing = false;
+        loop {
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j >= bytes.len() {
+                break;
+            }
+            if bytes[j] == b'>' {
+                j += 1;
+                break;
+            }
+            if bytes[j] == b'/' && markup[j..].starts_with("/>") {
+                self_closing = true;
+                j += 2;
+                break;
+            }
+            let name_start = j;
+            while j < bytes.len() && bytes[j] != b'=' && bytes[j] != b'>' && !bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            let name = &markup[name_start..j];
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                j += 1;
+                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < bytes.len() && (bytes[j] == b'"' || bytes[j] == b'\'') {
+                    let quote = bytes[j];
+                    j += 1;
+                    let val_start = j;
+                    while j < bytes.len() && bytes[j] != quote {
+                        j += 1;
+                    }
+                    let value = markup_unescape(&markup[val_start..j]);
+                    j = (j + 1).min(bytes.len());
+                    attrs.push((name.to_string(), value));
+                    continue;
+                }
+                let val_start = j;
+                while j < bytes.len() && !bytes[j].is_ascii_whitespace() && bytes[j] != b'>' {
+                    j += 1;
+                }
+                attrs.push((name.to_string(), markup_unescape(&markup[val_start..j])));
+            } else if !name.is_empty() {
+                attrs.push((name.to_string(), String::new()));
+            } else {
+                j += 1;
+            }
+        }
+
+        let attr = |name: &str| attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        let id = attr("id").unwrap_or("").to_string();
+        let class = attr("class").unwrap_or("").to_string();
+
+        if tag_lower != "style" && tag_lower != "script" {
+            let classes: ahash::HashSet<&str> = class.split_whitespace().collect();
+            let ancestor_nodes: Vec<SelectorNode<'_>> = ancestors
+                .iter()
+                .map(|(t, i, c, a)| SelectorNode {
+                    tag: t,
+                    id: i,
+                    classes: c,
+                    attrs: a,
+                })
+                .collect();
+            let ctx = SelectorContext {
+                ancestors: &ancestor_nodes,
+                ..SelectorContext::default()
+            };
+            // 现有 style 里的属性名（小写）：内联/脚本写过的属性优先于
+            // 注入的样式表声明（与浏览器层叠一致），注入只补缺。
+            let have: ahash::HashSet<String> = attrs
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("style"))
+                .map(|(_, v)| {
+                    v.split(';')
+                        .filter_map(|d| d.split(':').next())
+                        .map(|n| n.trim().to_ascii_lowercase())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut decls = String::new();
+            for applied in match_rules_ctx(sheet, &class, &id, &tag_lower, &ctx) {
+                if !is_svg_paint_property(&applied.property) {
+                    continue;
+                }
+                if let Ok(css) = applied.property.to_css_string(false, PrinterOptions::default()) {
+                    if let Some(name) = css.split(':').next() {
+                        let name = name.trim().to_ascii_lowercase();
+                        if have.contains(&name) {
+                            continue;
+                        }
+                    }
+                    decls.push_str(&css);
+                    decls.push(';');
+                }
+            }
+            if !decls.is_empty() {
+                if let Some(existing) = attrs.iter_mut().find(|(k, _)| k == "style") {
+                    if !existing.1.trim_end().ends_with(';') && !existing.1.is_empty() {
+                        existing.1.push(';');
+                    }
+                    existing.1.push_str(&decls);
+                } else {
+                    attrs.push(("style".to_string(), decls));
+                }
+            }
+        }
+
+        // 重新序列化起始标签（属性值已按标记转义回去）。
+        out.push('<');
+        out.push_str(&tag);
+        for (k, v) in &attrs {
+            out.push(' ');
+            out.push_str(k);
+            out.push_str("=\"");
+            out.push_str(&xml_escape(v, true));
+            out.push('"');
+        }
+        if self_closing {
+            out.push_str("/>");
+        } else {
+            out.push('>');
+            ancestors.push((tag_lower, id, class, attrs));
+        }
+        i = j;
     }
     out
 }

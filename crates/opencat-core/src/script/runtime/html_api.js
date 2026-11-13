@@ -17,6 +17,7 @@
     globalThis.__ocHtmlChannel = true;
 
     var nodes = Object.create(null); // id → element face
+    var htmlOffscreenById = Object.create(null);
     var rootFace = null;
     // 本帧登记的 gsap 产物（timeline 或顶层补间）。必须挂在 globalThis 上：
     // 本文件每帧重 eval，闭包里的数组会随之重建，而 gsap 的包装器只装一次
@@ -98,6 +99,7 @@
                             el.__styleBag[String(name)] = String(value);
                             bakeCustom(String(name), String(value));
                         }
+                        svgStyleWrite(el, name, value);
                         writeStyle(id(), name, value);
                     };
                 }
@@ -128,7 +130,9 @@
                     };
                 }
                 var v = readStyle(id(), prop);
-                return v === '' ? (el.__styleBag[prop] !== undefined ? el.__styleBag[prop] : '') : v;
+                if (v === '' && el.__styleBag[prop] !== undefined) v = el.__styleBag[prop];
+                if (v === '' && el.__svgNode) v = svgStyleRead(el, prop);
+                return v;
             },
             set(_t, prop, value) {
                 if (typeof prop !== 'string') return false;
@@ -147,6 +151,7 @@
                     return true;
                 }
                 el.__styleBag[prop] = value;
+                svgStyleWrite(el, prop, value);
                 writeStyle(id(), prop, value);
                 return true;
             },
@@ -554,6 +559,50 @@
         return s;
     }
 
+    // svg 内部 face 的 style 写（gsap CSSPlugin 的 `style.strokeDashoffset = v`）
+    // 写穿到 inline XML：这些元素不是渲染树节点，store 里的样式突变无人
+    // 消费——只有重序列化 markup（svgWriteAttr → __svg_set_markup）才能
+    // 到达 resolve 的本帧覆盖。属性名 camelCase → dash-case（usvg 按 CSS
+    // 属性名解析 style）。
+    function svgStyleDash(prop) {
+        return String(prop).replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); });
+    }
+    function svgStyleWrite(el, name, value) {
+        if (!el || !el.__svgNode || !el.__svgNode.attrs) return;
+        var dash = svgStyleDash(name).toLowerCase();
+        var decls = [];
+        var seen = false;
+        (el.__svgNode.attrs['style'] || '').split(';').forEach(function (d) {
+            var i = d.indexOf(':');
+            if (i <= 0) return;
+            var k = d.slice(0, i).trim();
+            if (!k || k.toLowerCase() === dash) {
+                if (k.toLowerCase() === dash && !seen) {
+                    seen = true;
+                    if (value !== null && value !== '') decls.push(k + ': ' + value);
+                }
+                return;
+            }
+            decls.push(k + ':' + d.slice(i + 1).trim());
+        });
+        if (!seen && value !== null && value !== '') decls.push(svgStyleDash(name) + ': ' + value);
+        svgWriteAttr(el, 'style', decls.join('; '));
+    }
+    function svgStyleRead(el, prop) {
+        if (!el || !el.__svgNode || !el.__svgNode.attrs) return '';
+        var dash = svgStyleDash(prop).toLowerCase();
+        var style = el.__svgNode.attrs['style'] || '';
+        var parts = style.split(';');
+        for (var i = parts.length - 1; i >= 0; i--) {
+            var at = parts[i].indexOf(':');
+            if (at <= 0) continue;
+            if (parts[i].slice(0, at).trim().toLowerCase() === dash) {
+                return parts[i].slice(at + 1).trim();
+            }
+        }
+        return '';
+    }
+
     function parseFragment(html) {
         var out = []; // [{tag, attrs, text}]
         var s = String(html == null ? '' : html);
@@ -693,23 +742,33 @@
             return out;
         }
 
-        // 有 element 子节点：【BISECT-A】interleaveKids 临时回退旧形态
-        //（div 文本并成单 P 首子、id 维持 `:t`），验证 inspector 点阵退化。
+        // 有 element 子节点：文本 run 按原位交错合成 P（匿名行内盒），元素
+        // 子节点原序保留——Chrome 把容器内联文本按 DOM 位置做成匿名 flex
+        // item / 行内盒，并成单 P 首子会把 `<span>C</span> Export to Canva`
+        // 的文字排到图标前面（claude-design s3 菜单行图标/文案换位）。与
+        // 静态种子路径（parse/html.rs 按位交错 + 独立 id）同语义。首个 run
+        // 维持 `:t` 惯例，后续 `:t1`、`:t2`…。行内兄弟间的单空格是词间距，
+        // 保留；带换行的缩进空白（flex/block 子项之间）裁掉。
         function interleaveKids() {
             var kids = [];
-            var allText = '';
+            var run = p.text || '';
+            var runIndex = 0;
+            var flush = function () {
+                var text = run
+                    .replace(/^[ \t\n\r\f]*\n[ \t\n\r\f]*/, '')
+                    .replace(/[ \t\n\r\f]*\n[ \t\n\r\f]*$/, '');
+                if (text) {
+                    kids.push({ type: 'p', id: p.id + (runIndex === 0 ? ':t' : ':t' + runIndex), text: text });
+                }
+                runIndex += 1;
+                run = '';
+            };
             el.__kids.forEach(function (k) {
-                if (k.nodeType === 3) { allText += k.data; }
+                if (k.nodeType === 3) { run += k.data; return; }
+                flush();
+                kids.push(serializeNode(k));
             });
-            var hasElement = el.__kids.some(function (k) { return k.nodeType === 1; });
-            if (!hasElement) {
-                kids.push({ type: 'p', id: p.id + ':t', text: allText });
-            } else {
-                if (allText) kids.push({ type: 'p', id: p.id + ':t', text: allText });
-                el.__kids.forEach(function (k) {
-                    if (k.nodeType === 1) kids.push(serializeNode(k));
-                });
-            }
+            flush();
             return kids;
         }
         if (p.type === 'div') {
@@ -1376,14 +1435,9 @@
         return el;
     }
 
-    // canvas 元素：getContext('2d') → ctx.surface 面（其返回值本身就是 2D
-    // 上下文：fillText/measureText/getImageData 直接可用）。页面脚本常先设
-    // canvas.width/height 再画再 getImageData —— 代理层每次访问按当前
-    // payload 尺寸惰性重建 surface，保证读回矩形永不越界。
-    //
-    // 像素写入（putImageData）两条腿：surface 有真字形栅格、没有上传通道，
-    // 树内 canvas 的像素因此走 `__opencatPutImageData` 记成帧内生成图；
-    // 离屏 canvas（createElement 出来、没挂进文档）只被读回，不必合成。
+    // canvas 元素：2D 绘制统一录进 CONTEXT2D_RUNTIME 的 DrawOp 流。
+    // fillText 录成 glyph path，getImageData 在消费点回放 path 成像素。
+    // 未挂树 canvas 用 `__oc_offscreen_` 前缀进持久 op 流。
     var putSeq = 0;
     // 树内的 canvas 有父节点；`createElement("canvas")` 出来、只当离屏栅格用
     // 的那张从不 append，parentNode 恒为 null —— 只有前者需要合成。
@@ -1413,32 +1467,23 @@
         }
         if (k !== '2d') return null;
         if (self.__ctx2d) return self.__ctx2d;
-        if (typeof ctx === 'undefined' || !ctx || typeof ctx.surface !== 'function') return null;
-        var surf = null;
-        function ensure() {
-            var w = Math.max(1, Number(self.__payload.width) || 300);
-            var h = Math.max(1, Number(self.__payload.height) || 150);
-            if (!surf || surf.__ocW !== w || surf.__ocH !== h) {
-                // 每张 canvas 一张自己的 surface：ctx.surface 按尺寸共享，
-                // 同尺寸的两张 canvas 会互相覆写像素（k3 的离屏 ox 与树内
-                // hcanvas 正是这种情况）。
-                var key = 'html-canvas:' + self.__payload.id + ':' + w + 'x' + h;
-                surf = (typeof ctx.__surfaceById === 'function')
-                    ? ctx.__surfaceById(key, w, h)
-                    : ctx.surface(w, h);
-                surf.__ocW = w;
-                surf.__ocH = h;
-            }
-            return surf;
+        if (typeof ctx === 'undefined' || !ctx || typeof ctx.getContext !== 'function') return null;
+        var streamId = isAttached(self)
+            ? String(self.__payload.id)
+            : '__oc_offscreen_html_' + String(self.__payload.id).replace(/[^A-Za-z0-9_:-]/g, '_');
+        if (!isAttached(self)) {
+            self.__offscreenId = streamId;
+            htmlOffscreenById[streamId] = self;
         }
-        // 树内的 canvas 走 core 的 2D 命令流（CONTEXT2D_RUNTIME：路径/圆弧/
-        // 渐变/drawImage 都映射成 DrawOp）；离屏 canvas 仍用 surface（像素
-        // 读回 getImageData 只有它支持）。像素写入两侧都走 putImageData。
         var ckFace = null;
         function ensureCk() {
             if (ckFace) return ckFace;
-            if (typeof ctx !== 'undefined' && ctx && typeof ctx.getContext === 'function') {
-                try { ckFace = ctx.getContext(self.__payload.id, '2d'); } catch (e) { ckFace = null; }
+            try { ckFace = ctx.getContext(streamId, '2d'); } catch (e) { ckFace = null; }
+            if (ckFace && !isAttached(self)) {
+                Object.defineProperty(ckFace, 'canvas', {
+                    get: function () { return self; },
+                    configurable: true,
+                });
             }
             self.__ckFace = ckFace;
             return ckFace;
@@ -1456,19 +1501,17 @@
                 if (prop === 'putImageData') {
                     return function (img, dx, dy) {
                         if (!img || !img.data || typeof __opencatPutImageData !== 'function') return;
-                        if (!isAttached(self)) return;
                         var src = img.data;
                         var u8 = src instanceof Uint8Array
                             ? src
                             : new Uint8Array(src.buffer, src.byteOffset, src.byteLength);
                         putSeq += 1;
-                        // 生成图按内容寻址：同键不同像素是硬错误。键里带帧
-                        // 时刻；提取期 t<0 的那一遍干跑不出图。
+                        // 内容寻址键包含帧时刻与像素序号；同帧重复写入或
+                        // 跨帧同序号写入不同像素都不会撞 id。
                         var t = Number(globalThis.__ocSeekT);
-                        if (!(t >= 0)) return;
                         __opencatPutImageData(
-                            self.__payload.id,
-                            'html-put:' + self.__payload.id + ':' + t + ':' + putSeq,
+                            streamId,
+                            'html-put:' + streamId + ':' + t + ':' + putSeq,
                             u8,
                             Number(dx) || 0,
                             Number(dy) || 0,
@@ -1478,31 +1521,23 @@
                     };
                 }
                 if (prop === 'getImageData') {
-                    // 挂树画布的笔迹在 CK 命令流里：读回走 CK 面（重放本帧
-                    // 已录命令）；未挂树的离屏元素读 surface。
-                    var reader = (isAttached(self) ? ensureCk() : null) || ensure();
+                    var reader = ensureCk();
+                    if (!reader) throw new Error('getImageData: 2D recording face unavailable');
                     return reader.getImageData.bind(reader);
                 }
-                if (prop === 'width' || prop === 'height') {
-                    var own = ensure()[prop];
-                    return typeof own === 'function' ? own.bind(ensure()) : own;
-                }
-                var c = isAttached(self) ? ensureCk() : null;
+                var c = ensureCk();
                 if (c && c[prop] !== undefined) {
                     var cv = c[prop];
                     return typeof cv === 'function' ? cv.bind(c) : cv;
                 }
-                var s = ensure();
-                var v = s[prop];
-                return typeof v === 'function' ? v.bind(s) : v;
+                return undefined;
             },
             set: function (_t, prop, value) {
-                var c = isAttached(self) ? ensureCk() : null;
+                var c = ensureCk();
                 if (c && c[prop] !== undefined) {
                     c[prop] = value;
                     return true;
                 }
-                ensure()[prop] = value;
                 return true;
             },
         });
@@ -1514,6 +1549,7 @@
     function resetCanvasBitmap(el) {
         var face = el.__ckFace;
         if (face && typeof face.__ocResetBitmap === 'function') face.__ocResetBitmap();
+        htmlOffscreenReset(el);
     }
     Object.defineProperty(HtmlElement.prototype, 'width', {
         get: function () { return Number(this.__payload.width) || (this.__payload.type === 'canvas' ? 300 : undefined); },
@@ -1670,6 +1706,9 @@
 
     // ── 帧边界 ────────────────────────────────────────────────────
     // CK 面像素读回按 id 查树内 canvas 的位图尺寸（离屏画布见 dom_api）。
+    globalThis.__ocHtmlOffscreenById = function (id) {
+        return htmlOffscreenById[String(id)] || null;
+    };
     globalThis.__ocHtmlCanvasById = function (id) {
         var el = nodes[String(id)];
         if (!el || !el.__payload) return null;
@@ -1678,6 +1717,14 @@
             height: Number(el.__payload.height) || 150,
         };
     };
+    function htmlOffscreenReset(el) {
+        var id = el.__offscreenId;
+        if (!id) return;
+        if (typeof __opencatOffscreenReset === 'function') __opencatOffscreenReset(id);
+        if (typeof globalThis.__ocInvalidateOffscreenRaster === 'function') {
+            globalThis.__ocInvalidateOffscreenRaster(id);
+        }
+    }
     globalThis.__ocHtmlResetFrame = function (seedJson) {
         if (seedJson) seed = seedJson;
         // lottie-web（bodymovin）把每个 `loadAnimation` 注册进 animationManager

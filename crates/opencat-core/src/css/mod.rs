@@ -17,7 +17,7 @@ mod stylesheet;
 mod to_node_style;
 mod to_taffy;
 
-pub use cascade::{SelectorContext, SelectorNode};
+pub use cascade::{match_rules_ctx, SelectorContext, SelectorNode};
 pub use eval::VarSource;
 pub use property_semantics::{origin_px_to_fractions, parse_css_transform};
 pub use to_node_style::{background_from_css, box_shadow_from_css};
@@ -332,8 +332,16 @@ fn parse_inline_block(
 
 /// 从一段 CSS 文本构建的样式引擎。
 pub struct CssEngine {
-    sheet: CssStylesheet,
+    sheet: Arc<CssStylesheet>,
     ctx: EvalContext,
+}
+
+impl CssEngine {
+    /// 底层样式表（svg 内部元素绘制注入等跨元素匹配用）。Arc 供解析期把
+    /// 注入现场挂到节点上、resolve 期复用。
+    pub fn sheet_arc(&self) -> Arc<CssStylesheet> {
+        Arc::clone(&self.sheet)
+    }
 }
 
 /// UA 兜底样式表：HTML 语义标签的浏览器默认字形（字号/字重/斜体）。
@@ -360,7 +368,7 @@ fn ua_sheet() -> &'static CssStylesheet {
 impl CssEngine {
     pub fn from_css_text(css: &str, ctx: EvalContext) -> anyhow::Result<Self> {
         Ok(Self {
-            sheet: CssStylesheet::parse(css)?,
+            sheet: Arc::new(CssStylesheet::parse(css)?),
             ctx,
         })
     }

@@ -264,9 +264,7 @@
             return this._size;
         }
 
-        /* 文字基线盒。度量绑定 `__canvas_measure_paragraph` 缺席时（web 重放
-           无该绑定）按 Skia 常见比例兜底——过渡面，批次 B 统一走 core 文本
-           引擎后由真度量供给。 */
+        /* 文字基线盒：shape 绑定缺席时按 Skia 常见比例兜底。 */
         getMetrics() {
             const measured = typeof __canvas_measure_paragraph === 'function'
                 ? __canvas_measure_paragraph('', this._size, 'sans-serif', 400)
@@ -926,8 +924,8 @@
                 tileY: 'clamp',
             };
         }
-        /* surface 句柄（ctx.surface 产出）：session 级像素，不跨线 —— 要当
-           纹理采样先 getImageData + putImageData 走 generated image。 */
+        /* 解码位图句柄（createImageBitmap 产出）：session 级像素，不跨线 ——
+           要当纹理采样先 getImageData + putImageData 走 generated image。 */
         if (c.__opencatSurface === true) {
             throw new Error(who
                 + ': a surface is a session buffer and cannot be a shader child — '
@@ -963,22 +961,48 @@
         return { family, size, weight, color: style.color };
     }
 
+    function shapePayload(text, size, family, weight) {
+        if (typeof __canvas_glyph_paths !== 'function') return null;
+        const shaped = __canvas_glyph_paths(text, size, family, Math.round(weight) || 400) || {};
+        const glyphMap = Object.create(null);
+        for (const glyph of shaped.glyphs || []) glyphMap[glyph.k] = glyph.ops;
+        return { ...shaped, glyphMap };
+    }
+
+    function glyphPath(shaped, bx, by) {
+        const path = new Path();
+        for (const pos of shaped.positions || []) {
+            const ops = shaped.glyphMap[pos.k];
+            if (!ops) continue;
+            const gx = bx + pos.x;
+            const gy = by + pos.y;
+            for (const op of ops) {
+                switch (op[0]) {
+                    case 0: path.moveTo(gx + op[1], gy + op[2]); break;
+                    case 1: path.lineTo(gx + op[1], gy + op[2]); break;
+                    case 2: path.quadTo(gx + op[1], gy + op[2], gx + op[3], gy + op[4]); break;
+                    case 3: path.cubicTo(gx + op[1], gy + op[2], gx + op[3], gy + op[4], gx + op[5], gy + op[6]); break;
+                    case 4: path.close(); break;
+                    default: throw new Error(`glyphPath: unknown glyph op ${op[0]}`);
+                }
+            }
+        }
+        return path;
+    }
+
     function paragraphMetricsOf(text, textStyle) {
         const style = paragraphStyleOf(textStyle);
         /* 批次 B：优先 shape 绑定——glyph path 载荷 + 真排版度量，度量与
            绘制同源。绑定缺席（旧宿主）时落回 surface 的 kern-free 简排。 */
-        if (typeof __canvas_glyph_paths === 'function') {
-            const shaped = __canvas_glyph_paths(text, style.size, style.family, Math.round(style.weight) || 400) || {};
-            const glyphMap = {};
-            for (const g of shaped.glyphs || []) glyphMap[g.k] = g.ops;
+        const shaped = shapePayload(text, style.size, style.family, style.weight);
+        if (shaped) {
             const ascent = toFiniteNumber(shaped.ascent, style.size * 0.8);
             const descent = toFiniteNumber(shaped.descent, style.size * 0.2);
             return {
                 ...style,
                 shaped: true,
-                glyphMap,
+                glyphMap: shaped.glyphMap,
                 positions: shaped.positions || [],
-                colorOnly: shaped.color === true,
                 width: toFiniteNumber(shaped.width, 0),
                 height: ascent + descent,
                 ascent,
@@ -1393,10 +1417,10 @@
                 return { __opencatImageFilter: true, sigmaX: sigmaX, sigmaY: sigmaY, mode: mode };
             },
         },
-        /* ── Paragraph 签名面（过渡：位图贴回，批次 B 换血 cosmic-text→path）──
-           g 系渲染器（@antv/g-canvaskit）经此面排版文字。度量走真字体绑定
-           `__canvas_measure_paragraph`；绘制经 Canvas.drawParagraph 把文字
-           光栅成帧内生成位图贴回节点 DrawOp 流（g2-para 通道）。签名与
+        /* ── Paragraph 签名面（shape→Path）──
+           g 系渲染器（@antv/g-canvaskit）经此面排版文字。度量与绘制都吃
+           `__canvas_glyph_paths`；Canvas.drawParagraph 把文字烘成 Path。
+           签名与
            canvaskit-wasm 的 Paragraph 一致：layout/getMaxWidth/getHeight/
            getLineMetrics/getRectsForRange/delete。 */
         ParagraphStyle: function ParagraphStyle(style) {
@@ -1733,27 +1757,15 @@
             },
 
             drawText(str, x, y, paint, font) {
+                const text = String(str);
+                if (!text) return this;
                 const resolvedPaint = ensurePaint(paint);
                 const resolvedFont = ensureFont(font);
-                __canvas_draw_text(
-                    id,
-                    String(str),
-                    [
-                        toFiniteNumber(x),
-                        toFiniteNumber(y),
-                        resolvedFont._size,
-                        resolvedFont._scaleX,
-                        resolvedFont._skewX,
-                        resolvedPaint._strokeWidth
-                    ],
-                    colorToCss(resolvedPaint._color),
-                    [
-                        resolvedPaint._antiAlias,
-                        resolvedPaint._style === CanvasKit.PaintStyle.Stroke,
-                        resolvedFont._subpixel
-                    ],
-                    fontEdgingName(resolvedFont._edging)
-                );
+                const shaped = shapePayload(text, resolvedFont._size, 'sans-serif', 400);
+                if (!shaped) {
+                    throw new Error('drawText: glyph shaping binding unavailable');
+                }
+                this.drawPath(glyphPath(shaped, toFiniteNumber(x), toFiniteNumber(y)), resolvedPaint);
                 return this;
             },
 
@@ -2057,11 +2069,9 @@
                 return this;
             },
 
-            /* 段落绘制（批次 B 转路径）：shape 载荷烘成一个 Path 一次
-               drawPath——glyph 位置平移进 path 坐标，DrawOp 流里只剩
-               path，两端各自重放（web 零文本栈）。基线 = y + ascent
-               （官方 drawParagraph 的 y 是段落顶）。emoji（ColorImage）
-               段落走生成图位图——Generated 是 core 宪法允许的先例。 */
+            /* 段落绘制：shape 载荷烘成一个 Path 一次 drawPath。DrawOp 流
+               里只剩 path，两端各自重放（web 零文本栈）。基线 = y + ascent
+               （官方 drawParagraph 的 y 是段落顶）。 */
             drawParagraph(paragraph, x, y) {
                 if (!(paragraph instanceof ParagraphImpl)) {
                     throw new Error('drawParagraph expects a CanvasKit.Paragraph');
@@ -2075,44 +2085,12 @@
                     // 缺席 = 宿主装配损坏，loud fail 不静默回位图。
                     throw new Error('drawParagraph: glyph shaping binding unavailable');
                 }
-                if (m.colorOnly) {
-                    __canvas_draw_paragraph(
-                        id,
-                        text,
-                        m.size,
-                        m.family,
-                        Math.round(m.weight) || 400,
-                        colorToCss(color),
-                        toFiniteNumber(x),
-                        toFiniteNumber(y),
-                        m.width,
-                        m.height
-                    );
-                    return this;
-                }
                 const bx = toFiniteNumber(x);
                 const by = toFiniteNumber(y) + m.ascent;
-                const path = new Path();
-                for (const pos of m.positions) {
-                    const ops = m.glyphMap[pos.k];
-                    if (!ops) continue;
-                    const gx = bx + pos.x;
-                    const gy = by + pos.y;
-                    for (const op of ops) {
-                        switch (op[0]) {
-                            case 0: path.moveTo(gx + op[1], gy + op[2]); break;
-                            case 1: path.lineTo(gx + op[1], gy + op[2]); break;
-                            case 2: path.quadTo(gx + op[1], gy + op[2], gx + op[3], gy + op[4]); break;
-                            case 3: path.cubicTo(gx + op[1], gy + op[2], gx + op[3], gy + op[4], gx + op[5], gy + op[6]); break;
-                            case 4: path.close(); break;
-                            default: throw new Error(`drawParagraph: unknown glyph op ${op[0]}`);
-                        }
-                    }
-                }
                 const paint = new Paint();
                 paint.setColor(color);
                 paint.setAntiAlias(true);
-                this.drawPath(path, paint);
+                this.drawPath(glyphPath(m, bx, by), paint);
                 return this;
             },
         };
@@ -2159,353 +2137,64 @@
         return canvasCache[id];
     };
 
-    /* ══ Offscreen 2D surface facade (k3 dissolve port) ══════════════════
-       Backed by `opencat_core::text::surface` — real-font glyph
-       rasterization (swash over the scoped fontdb), kern-free hmtx advances
-       with trailing letter-spacing, and canvas-2D ink-box metrics. Pixel
-       readback goes through the engine's binary native
-       `__opencatSurfaceRead` (ArrayBuffer; no JSON marshaling).
-
-       Supported 2D subset (exactly what the reference drawDissolve uses):
-       save / restore / translate / scale(sx,1) / clearRect / fillStyle /
-       font / letterSpacing / textBaseline='alphabetic' / measureText /
-       fillText / getImageData. Rotated or y-scaled text is rejected. */
+    /* 解码位图句柄：createImageBitmap 用会话 surface 承载已解码 RGBA。
+       2D 文本不在这里光栅化；fillText/drawText/drawParagraph 统一录
+       Path/DrawOp，getImageData 只在消费点回放这些 Path。 */
     const surfaceCache = {};
-
-    /* CSS font shorthand (css-fonts-4 §2): `[style] [variant] [weight]
-       [stretch] size[/line-height] family`. TinySDF sets exactly
-       "normal normal 24px sans-serif", so the leading keyword slots must be
-       tolerated instead of demanding a numeric weight. Only the weight and
-       size reach the rasterizer; style/variant/stretch are parsed and
-       dropped (upright small-caps/stretch text is not in the surface
-       subset — see the file header). */
-    function parseCssFont(font) {
-        const src = String(font).trim().replace(/\s+/g, ' ');
-        const tokens = src.split(' ');
-        let i = 0;
-        let weight = 400;
-        const WEIGHTS = { normal: 400, bold: 700, bolder: 700, lighter: 300 };
-        while (i < tokens.length) {
-            const tok = tokens[i].toLowerCase();
-            if (/^(italic|oblique(\s+[-0-9.]+deg)?|small-caps|ultra-condensed|extra-condensed|condensed|semi-condensed|semi-expanded|expanded|extra-expanded|ultra-expanded)$/.test(tok)) {
-                i += 1;
-                continue;
-            }
-            if (Object.prototype.hasOwnProperty.call(WEIGHTS, tok)) {
-                weight = WEIGHTS[tok];
-                i += 1;
-                continue;
-            }
-            // css-fonts-4 的 font-weight 是 1..1000 的任意整数（Inter 的
-            // 变量轴常写 720/840），不能只认 100 的整倍数：否则 "720 92px
-            // Inter" 会把 720 当字号，正文被放大 8 倍。
-            if (/^[1-9][0-9]{0,3}$/.test(tok) && parseInt(tok, 10) <= 1000) {
-                weight = parseInt(tok, 10);
-                i += 1;
-                continue;
-            }
-            break;
-        }
-        const sizeTok = tokens[i] || '';
-        const sm = /^([0-9.]+)(px|pt|em|rem|%)?(?:\/[-0-9.a-z%]+)?$/.exec(sizeTok);
-        if (!sm || !tokens[i + 1]) {
-            throw new Error('unsupported font shorthand: ' + font);
-        }
-        const UNIT = { px: 1, pt: 4 / 3, em: 16, rem: 16, '%': 0.16 };
-        const size = parseFloat(sm[1]) * (UNIT[(sm[2] || 'px').toLowerCase()] || 1);
-        // 整条族栈原样交给排版引擎按顺序选面（浏览器语义）；只取首名会让
-        // `"Inter", "Helvetica Neue", Arial, sans-serif` 落到兜底 generic 面，
-        // 测量结果与正文排版用的面不一致。
-        // 整条族栈原样交给排版引擎按顺序选面（浏览器语义）；只取首名会让
-        // `"Inter", "Helvetica Neue", Arial, sans-serif` 落到兜底 generic 面，
-        // 测量结果与正文排版用的面不一致。
-        const family = tokens.slice(i + 1).join(' ').trim();
-        if (!family) {
-            throw new Error('unsupported font shorthand: ' + font);
-        }
-        return { weight, size, family };
-    }
-
-    function makeSurface(id, w, h) {
-        const state = {
-            font: '400 16px sans-serif',
-            letterSpacing: '0px',
-            fillStyle: '#000',
-            textBaseline: 'alphabetic',
-            textAlign: 'left'
-        };
-        // translate + scale subset: fillText device position is
-        // (tx + a*x, ty + sy*y); the x-scale also squeezes glyphs (scale_x).
-        // sy 只服务 fill(Path2D)（等比缩放路径）；字形栅格没有 y 缩放，
-        // fillText 仍在 sy===1 下受支持（sy!==1 时抛错）。
-        const matrix = { tx: 0, ty: 0, a: 1, sy: 1 };
-        const stack = [];
-        // font+letterSpacing and fillStyle are parsed with a regex / string
-        // scan on every fillText. Cache the parsed forms, invalidated by the
-        // setters, so the hot path (canvas-close calls fillText ~13k times a
-        // frame) stays on the precomputed values.
-        let specCache = null;
-        let fillCssCache = null;
-        function fontSpec() {
-            if (
-                specCache !== null &&
-                specCache.font === state.font &&
-                specCache.letterSpacing === state.letterSpacing
-            ) {
-                return specCache.spec;
-            }
-            const f = parseCssFont(state.font);
-            const ls = parseFloat(String(state.letterSpacing));
-            const spec = {
-                weight: f.weight,
-                size: f.size,
-                family: f.family,
-                letterSpacing: Number.isFinite(ls) ? ls : 0
-            };
-            specCache = { font: state.font, letterSpacing: state.letterSpacing, spec };
-            return spec;
-        }
-        // fillStyle 的两种形态：CSS 颜色字符串，或 createLinearGradient 的
-        // 返回值（只支持线性渐变；轴向声明在 gradient 上）。
-        function makeGradient(x0, y0, x1, y1) {
-            const g = {
-                __opencatGradient: true,
-                x0: toFiniteNumber(x0), y0: toFiniteNumber(y0),
-                x1: toFiniteNumber(x1), y1: toFiniteNumber(y1),
-                stops: [],
-                addColorStop(offset, color) {
-                    g.stops.push([toFiniteNumber(offset), String(color)]);
-                    return g;
-                }
-            };
-            return g;
-        }
-        function fillShape(x, y, w, h, radius) {
-            const style = state.fillStyle;
-            let flat = [];
-            let color = '#000000';
-            if (style && style.__opencatGradient) {
-                for (let i = 0; i < style.stops.length; i += 1) {
-                    const [off, css] = style.stops[i];
-                    const rgba = normalizeColor(css);
-                    flat.push(off, rgba[0], rgba[1], rgba[2], rgba[3]);
-                }
-            } else {
-                color = colorToCss(style);
-            }
-            const g = style && style.__opencatGradient ? style : { x0: 0, y0: 0, x1: 1, y1: 0 };
-            __surface_fill_shape(
-                id,
-                matrix.tx + matrix.a * toFiniteNumber(x),
-                matrix.ty + toFiniteNumber(y),
-                toFiniteNumber(w) * matrix.a,
-                toFiniteNumber(h),
-                toFiniteNumber(radius),
-                g.x0, g.y0, g.x1, g.y1,
-                flat,
-                color
-            );
-        }
-
+    function makeDecodedSurface(id, w, h) {
         return {
             __opencatSurface: true,
             id: id,
-            /* three 的 CanvasTexture/上传路径读 image.width/height 推导
-               texImage2D 的 6 参形态,并校验尺寸——表面创建时已知。 */
             width: w,
             height: h,
-            save() {
-                stack.push({ tx: matrix.tx, ty: matrix.ty, a: matrix.a, sy: matrix.sy });
-            },
-            restore() {
-                const s = stack.pop();
-                if (s) { matrix.tx = s.tx; matrix.ty = s.ty; matrix.a = s.a; matrix.sy = s.sy; }
-            },
-            translate(x, y) {
-                matrix.tx += matrix.a * toFiniteNumber(x);
-                matrix.ty += matrix.sy * toFiniteNumber(y);
-            },
-            scale(sx, sy) {
-                // Web 标准：sy 缺省/非法时取 sx。
-                const x = toFiniteNumber(sx, 1);
-                const y = toFiniteNumber(sy, x);
-                matrix.a *= x;
-                matrix.sy *= y;
-            },
-            // fill(Path2D)：路径顶点与渐变轴都在用户空间，flat verbs 编码与
-            // `__oc_path_from_svg` 一致（0=moveTo 1=lineTo 2=quadTo
-            // 3=cubicTo 4=close）。字形栅格不支持 y 缩放，fillText 另处守卫。
-            fill(path) {
-                if (!path || !Array.isArray(path._ops)) {
-                    throw new Error('surface fill: expected a Path2D');
-                }
-                const flat = [];
-                for (const op of path._ops) {
-                    switch (op[0]) {
-                        case 'moveTo': flat.push(0, op[1], op[2]); break;
-                        case 'lineTo': flat.push(1, op[1], op[2]); break;
-                        case 'quadTo': flat.push(2, op[1], op[2], op[3], op[4]); break;
-                        case 'cubicTo': flat.push(3, op[1], op[2], op[3], op[4], op[5], op[6]); break;
-                        case 'close': flat.push(4); break;
-                        default: throw new Error('surface fill: unsupported path op ' + op[0]);
-                    }
-                }
-                const style = state.fillStyle;
-                let ax = 0, ay = 0, bx = 0, by = 0;
-                let stops = [];
-                let color = '#000000';
-                if (style && style.__opencatGradient) {
-                    ax = style.x0; ay = style.y0;
-                    bx = style.x1; by = style.y1;
-                    for (const [off, css] of style.stops) {
-                        const rgba = normalizeColor(css);
-                        stops.push(off, rgba[0], rgba[1], rgba[2], rgba[3]);
-                    }
-                } else {
-                    color = colorToCss(style);
-                }
-                __surface_fill_path(
-                    id, flat,
-                    matrix.tx, matrix.ty, matrix.a, matrix.sy,
-                    ax, ay, bx, by,
-                    stops, color
-                );
-            },
-            clearRect(x, y, w, h) {
-                __surface_clear(id, toFiniteNumber(x), toFiniteNumber(y), toFiniteNumber(w), toFiniteNumber(h));
-            },
-            /* fillRect / roundRect 都走同一个 binding：圆角半径 + 线性渐变轴 +
-               色标表。fillStyle 是字符串时按纯色，是 gradient 对象时按色标。 */
-            fillRect(x, y, w, h) {
-                fillShape(x, y, w, h, 0);
-            },
-            roundRect(x, y, w, h, radius) {
-                fillShape(x, y, w, h, radius);
-            },
-            createLinearGradient(x0, y0, x1, y1) {
-                return makeGradient(x0, y0, x1, y1);
-            },
-            measureText(text) {
-                const f = fontSpec();
-                const m = __surface_measure_text(String(text), f.family, f.weight, f.size, f.letterSpacing);
-                return {
-                    width: m.width,
-                    actualBoundingBoxLeft: m.ink_left,
-                    actualBoundingBoxRight: m.ink_right,
-                    actualBoundingBoxAscent: m.ink_ascent,
-                    actualBoundingBoxDescent: m.ink_descent,
-                    fontBoundingBoxAscent: m.font_ascent,
-                    fontBoundingBoxDescent: m.font_descent
-                };
-            },
-            fillText(text, x, y) {
-                // 字形栅格只有 x 缩放（scale_x）；y 缩放的文字位置会错，loud
-                // fail 不静默画歪。
-                if (matrix.sy !== 1) {
-                    throw new Error('surface fillText: only scale(sx, 1) text is supported');
-                }
-                // surface 内部只按 alphabetic 基线合成：其余取值在这里换算成
-                // 基线 y（浏览器语义 = em 盒的上缘/中心/下缘）。
-                let by = toFiniteNumber(y);
-                const baseline = String(state.textBaseline || 'alphabetic');
-                if (baseline !== 'alphabetic') {
-                    const mt = this.measureText(String(text));
-                    const asc = Number(mt.fontBoundingBoxAscent) || 0;
-                    const desc = Number(mt.fontBoundingBoxDescent) || 0;
-                    if (baseline === 'top' || baseline === 'hanging') by += asc;
-                    else if (baseline === 'middle') by += (asc - desc) / 2;
-                    else if (baseline === 'bottom' || baseline === 'ideographic') by -= desc;
-                    else throw new Error('surface fillText: unsupported textBaseline ' + baseline);
-                }
-                // textAlign 在用户空间里左移锚点（浏览器语义：advance 宽度
-                // 的一半 / 全部），再交给矩阵变换。
-                let ax = toFiniteNumber(x);
-                const align = String(state.textAlign || 'left');
-                if (align !== 'left' && align !== 'start') {
-                    const adv = Number(this.measureText(String(text)).width) || 0;
-                    if (align === 'center') ax -= adv / 2;
-                    else if (align === 'right' || align === 'end') ax -= adv;
-                    else throw new Error('surface fillText: unsupported textAlign ' + align);
-                }
-                const f = fontSpec();
-                const css = fillCssCache !== null ? fillCssCache : (fillCssCache = colorToCss(state.fillStyle));
-                __surface_fill_text(
-                    id,
-                    String(text),
-                    matrix.tx + matrix.a * ax,
-                    matrix.ty + by,
-                    f.family,
-                    f.weight,
-                    f.size,
-                    f.letterSpacing,
-                    matrix.a,
-                    css
-                );
-            },
-            getImageData(x, y, w, h) {
+            getImageData(x, y, ww, hh) {
                 if (typeof __opencatSurfaceReadInto !== 'function') {
                     throw new Error('getImageData: engine native __opencatSurfaceReadInto unavailable');
                 }
-                const ww = Math.round(toFiniteNumber(w));
-                const hh = Math.round(toFiniteNumber(h));
-                // Fill-in-place: the engine native writes bytes into this
-                // preallocated buffer (a returning-native form leaks QuickJS
-                // GC objects at runtime teardown).
-                const u8 = new Uint8Array(Math.max(0, ww * hh * 4));
-                __opencatSurfaceReadInto(id, toFiniteNumber(x), toFiniteNumber(y), ww, hh, u8);
-                return {
-                    width: ww,
-                    height: hh,
-                    data: new Uint8ClampedArray(u8.buffer)
-                };
+                const rx = Math.round(toFiniteNumber(x));
+                const ry = Math.round(toFiniteNumber(y));
+                const rw = Math.max(0, Math.round(toFiniteNumber(ww)));
+                const rh = Math.max(0, Math.round(toFiniteNumber(hh)));
+                const u8 = new Uint8Array(rw * rh * 4);
+                __opencatSurfaceReadInto(id, rx, ry, rw, rh, u8);
+                return { width: rw, height: rh, data: new Uint8ClampedArray(u8.buffer) };
             },
-            /* ── Render target 执行（§render target）────────────────────
-               已退役：效果内核只走官方 RuntimeEffect（SKSL）——像素处理
-               需要逐字节访问时用 getImageData（读）与 putImageData（写）。 */
-            get font() { return state.font; },
-            set font(v) { state.font = String(v); specCache = null; },
-            get letterSpacing() { return state.letterSpacing; },
-            set letterSpacing(v) { state.letterSpacing = String(v); specCache = null; },
-            get fillStyle() { return state.fillStyle; },
-            set fillStyle(v) { state.fillStyle = v; fillCssCache = null; },
-            get textBaseline() { return state.textBaseline; },
-            set textBaseline(v) { state.textBaseline = String(v); },
-            get textAlign() { return state.textAlign; },
-            set textAlign(v) { state.textAlign = String(v); }
         };
     }
-
-    /* 内部：按 id 取或建一张 surface 句柄。id 由 ctx.surface 生成（尺寸派生），
-       脚本不再直接持有它。adopt=true 时 surface 已由宿主建好并写入像素（解码
-       位图），只包句柄——再 create 会把像素清零（GLB 贴图全黑的根因）。 */
     function surfaceById(id, w, h, adopt) {
         id = String(id);
         if (!surfaceCache[id]) {
             if (!adopt) __surface_create(id, toFiniteNumber(w), toFiniteNumber(h));
-            surfaceCache[id] = makeSurface(id, w, h);
+            surfaceCache[id] = makeDecodedSurface(id, toFiniteNumber(w), toFiniteNumber(h));
         }
         return surfaceCache[id];
     }
 
-    // ── ctx.surface: the standard offscreen 2D text surface ─────────
-    // Same facade (real-font fillText / measureText / getImageData over the
-    // scoped fontdb), exposed under its own name. The surface is a session
-    // pixel buffer: read it with getImageData, upload it with canvas
-    // putImageData — official Canvas2D semantics.
-    ctx.surface = function (w, h) {
+    // ── ctx.surface / OffscreenCanvas: 2D 命令录制面 ───────────────
+    // 页面脚本拿到的是 context2d.js 的 descriptor-wrapped face；文字经
+    // __canvas_glyph_paths 烘成 Path，getImageData 在消费点由 engine 用
+    // Skia 重放这些 Path 成像素。这里不再有逐字形光栅表面。
+    var recordingSurfaceSeq = 0;
+    function recordingSurface(w, h) {
         const ww = Math.max(1, Math.round(toFiniteNumber(w)));
         const hh = Math.max(1, Math.round(toFiniteNumber(h)));
-        return surfaceById('surface-' + ww + 'x' + hh, ww, hh);
-    };
-
-    // asset_api 的 createImageBitmap 垫用同一条 surface 通道：解码位图和
-    // 手绘 surface 是同一种对象，texImage2D 的上传桥只认一种形态。
+        recordingSurfaceSeq += 1;
+        const id = '__oc_offscreen_surface_' + recordingSurfaceSeq;
+        const sizes = globalThis.__ocRecordingSurfaceSizes || (globalThis.__ocRecordingSurfaceSizes = Object.create(null));
+        sizes[id] = { width: ww, height: hh };
+        globalThis.__ocRecordingSurfaceById = function (surfaceId) {
+            return sizes[String(surfaceId)] || null;
+        };
+        const face = ctx.getContext(id, '2d');
+        Object.defineProperty(face, 'canvas', {
+            get: function () { return { width: ww, height: hh }; },
+            configurable: true,
+        });
+        return face;
+    }
+    ctx.surface = recordingSurface;
     ctx.__surfaceById = surfaceById;
 
-    // ── OffscreenCanvas: the standard web spelling of `ctx.surface` ──
-    // `new OffscreenCanvas(w, h).getContext('2d')` is how a browser script
-    // allocates a detached 2D drawing surface; here it resolves to the same
-    // facade `ctx.surface(w, h)` returns, so both spellings share one target.
     function OffscreenCanvas(w, h) {
         const ww = Math.max(1, Math.round(toFiniteNumber(w)));
         const hh = Math.max(1, Math.round(toFiniteNumber(h)));
@@ -2515,13 +2204,9 @@
             if (kind !== '2d') {
                 throw new Error("OffscreenCanvas.getContext: only '2d' is supported, got '" + kind + "'");
             }
-            return ctx.surface(ww, hh);
+            return recordingSurface(ww, hh);
         };
     }
-    // Keep the browser's real OffscreenCanvas reachable: the WebGL recorder
-    // facade below replaces the global, but the web host can run a real GL
-    // context on the composition canvas (standard HTML semantics) and must
-    // still be able to allocate the backing OffscreenCanvas.
     if (typeof globalThis.OffscreenCanvas === 'function' && !globalThis.__ocRealOffscreenCanvas) {
         globalThis.__ocRealOffscreenCanvas = globalThis.OffscreenCanvas;
     }

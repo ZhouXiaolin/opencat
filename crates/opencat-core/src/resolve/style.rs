@@ -6,6 +6,16 @@ use crate::style::{
     TransformOrigin,
 };
 
+/// 绝对定位盒的宽度是否确定。CSS §10.3.7：`left` 与 `right` 都非 auto 且
+/// `width` 为 auto 时，宽度由包含块 − left − right 解出（taffy 已按此定
+/// 尺寸），不是 shrink-to-fit。
+fn absolute_definite_width(layout: &ComputedLayoutStyle) -> bool {
+    let definite = |v: Option<crate::style::LengthPercentageAuto>| {
+        matches!(v, Some(crate::style::LengthPercentageAuto::Length(_)) | Some(crate::style::LengthPercentageAuto::Percent(_)))
+    };
+    definite(layout.inset_left) && definite(layout.inset_right)
+}
+
 /// 文本是否允许换行。布局测量与显示树构建共用同一条判定。
 ///
 /// `truncate`/`white-space: nowrap` 强制单行；绝对定位且宽度不确定的元素
@@ -20,8 +30,10 @@ pub fn text_element_allows_wrap(element: &crate::resolve::tree::ElementNode) -> 
         return false;
     }
 
-    let has_definite_width =
-        element.style.layout.width.is_some() || element.style.layout.width_percent.is_some();
+    let has_definite_width = element.style.layout.width.is_some()
+        || element.style.layout.width_percent.is_some()
+        || (element.style.layout.position == Position::Absolute
+            && absolute_definite_width(&element.style.layout));
 
     if element.style.layout.position == Position::Absolute && !has_definite_width {
         return false;
@@ -56,12 +68,15 @@ pub struct InheritedStyle {
 impl InheritedStyle {
     pub fn for_child(style: &ComputedStyle) -> Self {
         let mut text = style.text.clone();
-        let container_has_definite_width =
-            style.layout.width.is_some() || style.layout.width_percent.is_some();
+        let container_has_definite_width = style.layout.width.is_some()
+            || style.layout.width_percent.is_some()
+            || (style.layout.position == Position::Absolute
+                && absolute_definite_width(&style.layout));
         // `position: absolute` with `width: auto` resolves via CSS shrink-to-fit —
         // its width comes from its own content, not from the containing block.
         // Inline-width constraints from ancestors must stop at such a boundary,
         // otherwise `wrap_text` leaks past it and breaks shrink-to-fit for text.
+        // The left+right inset case (§10.3.7) has a definite width and keeps it.
         let breaks_width_inheritance =
             style.layout.position == Position::Absolute && !container_has_definite_width;
         let parent_has_inline_constraint = if breaks_width_inheritance {
@@ -157,6 +172,8 @@ pub struct ComputedVisualStyle {
     /// 用 `visible` 重新显示。
     pub hidden: bool,
     pub blend_mode: BlendMode,
+    /// CSS `background-blend-mode` between this element's background layers.
+    pub background_blend_mode: BlendMode,
     pub background: Vec<BackgroundFill>,
     /// CSS `background-clip`. Only `Text` is acted on (gradient-filled glyphs).
     pub background_clip: crate::style::BackgroundClip,

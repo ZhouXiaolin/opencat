@@ -233,51 +233,6 @@ macro_rules! for_each_binding {
                 paint: None,
             });
         }}
-        // ── Node: 段落文本（canvas_api.js CanvasKit 垫片的 Paragraph 位图通道）
-        //    段落先在离屏 surface 上度量+绘制，再作帧生成图贴回——与语料
-        //    其余文本同一像素路径。其余 canvas 绘制走上面的 `__canvas_*`
-        //    绑定；fillText 的文本转路径走 `canvas_glyph_paths`。
-        $binding! { cmd $store canvas_draw_paragraph (node_id: String, text: String, size: f32, family: String, weight: u32, color: String, x: f32, y: f32, width: f32, height: f32) -> bool {
-            if text.trim().is_empty() {
-                return Ok(false);
-            }
-            let color = $crate::script::helpers::parse_color(&color, "drawParagraph")?;
-            // One canvas node carries many labels (axis ticks, legends, …), and
-            // each is its own bitmap at its own position. Give every label a
-            // distinct surface: a shared per-node buffer would have the last
-            // write clobber the earlier ones, and the content-addressed image
-            // key would then collide on differing sizes.
-            let surface_id = format!("g2-para:{node_id}:{text}:{size}:{weight}:{x}:{y}");
-            $crate::text::surface::surface_create_or_resize(&surface_id, width as u32, height as u32)?;
-            $crate::text::surface::surface_clear(&surface_id, 0.0, 0.0, width as f64, height as f64)?;
-            $crate::text::surface::surface_fill_text(
-                &surface_id,
-                &text,
-                0.0,
-                size as f64,
-                &family,
-                weight as u32,
-                size as f64,
-                0.0,
-                1.0,
-                [color.r as f32 / 255.0, color.g as f32 / 255.0, color.b as f32 / 255.0, color.a as f32 / 255.0],
-            )?;
-            // The label's own identity is the key: same text+size+position
-            // across frames reuses one image, a different label gets another.
-            let key = format!("g2-paragraph:{surface_id}");
-            let image_id = $crate::ir::GeneratedImageId::from_key(&key);
-            let rgba = $crate::text::surface::surface_rgba_arc(&surface_id)?;
-            $store.record_frame_generated_image(
-                &node_id,
-                image_id,
-                x,
-                y,
-                width as u32,
-                height as u32,
-                rgba,
-            );
-            Ok(true)
-        }}
         $binding! { pure canvas_measure_paragraph (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
             let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight as u32, size as f64, 0.0)?;
             // g-canvaskit shifts text by `paragraph.getHeight()` to honour
@@ -647,22 +602,6 @@ macro_rules! for_each_binding {
                 paint: PaintId(u32::MAX),
             });
             Ok::<_, anyhow::Error>(())
-        }}
-        $binding! { node $rec $id canvas_draw_text ($id: &str, text: String, values: Vec<f32>, color: String, flags: Vec<bool>, font_edging: String) {
-            if values.len() < 6 {
-                Err($crate::script::helpers::script_error("drawText", "expected text values [x, y, fontSize, scaleX, skewX, strokeWidth]".to_string()))
-            } else if flags.len() < 3 {
-                Err($crate::script::helpers::script_error("drawText", "expected text flags [antiAlias, stroke, fontSubpixel]".to_string()))
-            } else {
-                let _color = $crate::script::helpers::parse_color(&color, "drawText")?;
-                let _font_edging = font_edging_from_name(&font_edging)
-                    .ok_or_else(|| $crate::script::helpers::script_error("drawText", format!("unsupported font edging `{font_edging}`")))?;
-                let _ = (text, values, flags);
-                // 占位（CanvasKit 垫片 drawText 的兼容入口，不落 op）：真
-                // 文本绘制走 `canvas_glyph_paths`（fillText 转路径）与
-                // `canvas_draw_paragraph`（段落位图）。
-                Ok::<_, anyhow::Error>(())
-            }
         }}
         $binding! { node $rec $id canvas_fill_rect ($id: &str, x: f32, y: f32, width: f32, height: f32, color: String) {
             let color = $crate::script::helpers::parse_color(&color, "fillRect")?;
@@ -1143,56 +1082,6 @@ macro_rules! for_each_binding {
         //    （canvas 2D 子集 + run/sweep/bake，见 text::surface）
         $binding! { pure surface_create (id: String, width: f64, height: f64) -> bool {
             Ok($crate::text::surface::surface_create(&id, width as u32, height as u32).is_ok())
-        }}
-        $binding! { pure surface_clear (id: String, x: f64, y: f64, w: f64, h: f64) -> bool {
-            Ok($crate::text::surface::surface_clear(&id, x, y, w, h).is_ok())
-        }}
-        // 圆角矩形 / 线性渐变填充：`stops` 是 [offset, r, g, b, a] 扁平数组
-        // （offset 0..1，分量 0..1），空 = 纯色 `color`。轴 = (ax,ay)->(bx,by)。
-        $binding! { pure surface_fill_shape (id: String, x: f64, y: f64, w: f64, h: f64, radius: f64, ax: f64, ay: f64, bx: f64, by: f64, stops: Vec<f64>, color: String) -> bool {
-            let c = $crate::script::helpers::parse_color(&color, "surface.fillShape")?;
-            let flat = [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0];
-            let mut parsed: Vec<(f32, [f32; 4])> = Vec::with_capacity(stops.len() / 5);
-            for chunk in stops.chunks_exact(5) {
-                parsed.push((chunk[0] as f32, [chunk[1] as f32, chunk[2] as f32, chunk[3] as f32, chunk[4] as f32]));
-            }
-            if parsed.is_empty() {
-                parsed.push((0.0, flat));
-            }
-            Ok($crate::text::surface::surface_fill_shape(
-                &id, x, y, w, h, radius, ([ax, ay], [bx, by]), &parsed,
-            ).is_ok())
-        }}
-        // 路径填充（canvas fill(Path2D) 语义）：`flat` 是 [verb, 坐标…] 编码
-        // （0=moveTo 1=lineTo 2=quadTo 3=cubicTo 4=close）；设备 =
-        // translate(tx,ty)∘scale(sx,sy)；渐变轴在用户空间随同一矩阵变换。
-        // `stops` 空表 = 纯色 `color`，非空 = [offset,r,g,b,a] 扁平数组。
-        // 失败传播成 script error：静默 false 会把空纹理伪装成成功。
-        $binding! { pure surface_fill_path (id: String, flat: Vec<f64>, tx: f64, ty: f64, sx: f64, sy: f64, ax: f64, ay: f64, bx: f64, by: f64, stops: Vec<f64>, color: String) -> bool {
-            let c = $crate::script::helpers::parse_color(&color, "surface.fillPath")?;
-            let flat_color = [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0];
-            let mut parsed: Vec<(f32, [f32; 4])> = Vec::with_capacity(stops.len() / 5);
-            for chunk in stops.chunks_exact(5) {
-                parsed.push((chunk[0] as f32, [chunk[1] as f32, chunk[2] as f32, chunk[3] as f32, chunk[4] as f32]));
-            }
-            if parsed.is_empty() {
-                parsed.push((0.0, flat_color));
-            }
-            $crate::text::surface::surface_fill_path(
-                &id, &flat, tx, ty, sx, sy, ([ax, ay], [bx, by]), &parsed,
-            )?;
-            Ok(true)
-        }}
-        $binding! { pure surface_measure_text (text: String, family: String, weight: u32, size_px: f64, letter_spacing_px: f64) -> $crate::text::surface::InkMetrics {
-            let metrics = $crate::text::surface::surface_measure_text(&text, &family, weight, size_px, letter_spacing_px)?;
-            Ok(metrics)
-        }}
-        $binding! { pure surface_fill_text (id: String, text: String, x: f64, y: f64, family: String, weight: u32, size_px: f64, letter_spacing_px: f64, scale_x: f64, color: String) -> bool {
-            let c = $crate::script::helpers::parse_color(&color, "surface.fillText")?;
-            Ok($crate::text::surface::surface_fill_text(
-                &id, &text, x, y, &family, weight, size_px, letter_spacing_px, scale_x,
-                [c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0, c.a as f32 / 255.0],
-            ).is_ok())
         }}
         $binding! { pure util_random_seeded (seed: f32) -> f32 {
             Ok(random_from_seed(seed))

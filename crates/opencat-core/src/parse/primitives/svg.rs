@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use crate::parse::html::SvgInnerPaintCtx;
 use crate::style::{NodeStyle, impl_node_style_api};
 
 /// `<svg src="…">` / `<svg inline>`：SVG 作为一个元素渲染（PLAN §4）。
@@ -15,6 +17,9 @@ pub struct Svg {
     pub(crate) width: Option<f32>,
     pub(crate) height: Option<f32>,
     pub(crate) preserve_aspect_ratio: Option<String>,
+    /// 内部元素绘制注入现场（样式表 + 宿主祖先链）：脚本改写 markup 的
+    /// 覆盖发生在 resolve 期，注入必须跟到覆盖之后，故现场随节点走。
+    pub(crate) inner_paint: Option<Arc<SvgInnerPaintCtx>>,
     pub(crate) style: NodeStyle,
 }
 
@@ -51,6 +56,7 @@ pub fn svg(src: impl Into<PathBuf>) -> Svg {
         width: None,
         height: None,
         preserve_aspect_ratio: None,
+        inner_paint: None,
         style: NodeStyle::default(),
     }
 }

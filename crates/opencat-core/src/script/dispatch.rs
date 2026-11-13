@@ -15,9 +15,7 @@ use crate::ir::draw_op::{ColorF32, DRRectSpec, DrawOp, Radii4, Rect4};
 use crate::ir::draw_types::{ImageRef, PaintId, PathOp};
 use crate::script::animate::state::random_from_seed;
 use crate::script::recorder::{MutationRecorder, MutationStore};
-use crate::script::{
-    font_edging_from_name, line_cap_from_name, line_join_from_name, object_fit_from_name,
-};
+use crate::script::{line_cap_from_name, line_join_from_name, object_fit_from_name};
 use crate::text::measure_script_text_width;
 
 /// 把 node binding body 的多形态（`()` 与 `anyhow::Result<()>`）归一为 `Result<()>`。

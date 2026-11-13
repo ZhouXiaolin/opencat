@@ -206,9 +206,8 @@
     function shadowContext2d(canvas) {
         // 图表库（@antv/g TextService）拿这个 2D 桩做布局测量——桩值直接
         // 进布局（G2 pie 的 legend 占位、outside 标签锚点、axis auto
-        // padding），桩错布局就错。走真测量：解析 CSS font 简写 →
-        // surface_measure_text（与 CanvasKit 面的 measureText 同源，
-        // generic family 由 fontdb 解析）。
+        // padding），桩错布局就错。走 shape 载荷的 outline 度量；绘制录
+        // 进 context2d 的 Path 流，消费点再回放成像素。
         function parseShadowFont(font) {
             var sizeM = /([0-9.]+)\s*px/.exec(font);
             var size = sizeM ? parseFloat(sizeM[1]) : 10;
@@ -218,39 +217,55 @@
             var family = famM ? famM[1].split(',')[0].replace(/["']/g, '').trim() : 'sans-serif';
             return { family: family, weight: weight, size: size };
         }
-        // g 系 TextService 的垂直度量不走 measureText 字段，靠像素扫描：
-        // fillRect 涂红底、fillText 画黑字、getImageData 逐行找墨（pixi 同
-        // 源算法）。桩不产真像素，但扫描的停止行必须与浏览器逐行等价，否则
-        // ascent/descent 全错、文本节点高度错、轴 autoPadding 跟着错。墨带
-        // 模型：记住最近一次 fillText 的墨行区间 [baseline-ink_ascent,
-        // baseline+ink_descent)，getImageData 合成红底+墨行。
-        // 墨带模型只够"找行"式的布局测量。真读像素的调用方（g-webgl 的
-        // TinySDF 文字图集：真画字形 → getImageData 读回位图）需要真像素。
-        // 于是把绘制序列记下来，getImageData 时按序重放进宿主提供的一次性
-        // 2D surface（canvas_api 的 ctx.surface，真字体光栅）再取像素——
-        // 语义与浏览器一致："读回你画的东西"。
-        var raster = { red: false, ink: null };
-        var ops = [];
+        // g 系 TextService 的垂直度量靠像素扫描：fillRect 涂红底、
+        // fillText 画黑字、getImageData 逐行找墨（pixi 同源算法）。
+        // 桩不直接合成像素；绘制序列录成 Path/DrawOp，getImageData
+        // 在消费点由 engine 用 Skia 重放后回读。
+        var offscreenSeq = (globalThis.__ocShadowCanvasSeq || 0) + 1;
+        globalThis.__ocShadowCanvasSeq = offscreenSeq;
+        var streamId = '__oc_offscreen_shadow_' + offscreenSeq;
+        var recorded = (typeof globalThis.__ocMakeContext2d === 'function')
+            ? globalThis.__ocMakeContext2d(streamId)
+            : null;
+        var canvasSize = {
+            width: Math.max(1, (canvas && canvas.width) | 0),
+            height: Math.max(1, (canvas && canvas.height) | 0),
+        };
+        var shadowSizes = globalThis.__ocShadowCanvasSizes || (globalThis.__ocShadowCanvasSizes = Object.create(null));
+        shadowSizes[streamId] = canvasSize;
+        globalThis.__ocShadowCanvasById = function (id) {
+            return shadowSizes[String(id)] || null;
+        };
         var dash = [];
-        function replayIntoSurface(w, h) {
-            var s = globalThis.ctx.surface(w, h);
-            s.clearRect(0, 0, w, h);
-            for (var i = 0; i < ops.length; i++) {
-                var op = ops[i];
-                if (op.font) s.font = op.font;
-                if (op.fill) s.fillStyle = op.fill;
-                if (op.baseline) s.textBaseline = op.baseline;
-                if (op.align) s.textAlign = op.align;
-                if (op.k === 't') s.fillText(op.text, op.x, op.y);
-                else if (op.k === 'r') s.fillRect(op.x, op.y, op.w, op.h);
-                else if (op.k === 'c') s.clearRect(op.x, op.y, op.w, op.h);
-            }
-            return s;
-        }
         function shadowMeasure(text) {
             var f = parseShadowFont(String(this.font || '10px sans-serif'));
-            if (typeof __surface_measure_text === 'function') {
-                return __surface_measure_text(String(text), f.family, f.weight, f.size, 0);
+            if (typeof __canvas_glyph_paths === 'function') {
+                var shaped = __canvas_glyph_paths(String(text), f.size, f.family, f.weight) || {};
+                var byGlyph = {};
+                var gs = shaped.glyphs || [];
+                for (var i = 0; i < gs.length; i++) byGlyph[gs[i].k] = gs[i].ops;
+                var minY = 0, maxY = 0, minX = 0, maxX = 0;
+                for (var p = 0; p < (shaped.positions || []).length; p++) {
+                    var pos = shaped.positions[p];
+                    var ops = byGlyph[pos.k];
+                    if (!ops) continue;
+                    for (var j = 0; j < ops.length; j++) {
+                        var op = ops[j];
+                        for (var c = 1; c + 1 < op.length; c += 2) {
+                            minX = Math.min(minX, pos.x + Number(op[c]));
+                            maxX = Math.max(maxX, pos.x + Number(op[c]));
+                            minY = Math.min(minY, pos.y + Number(op[c + 1]));
+                            maxY = Math.max(maxY, pos.y + Number(op[c + 1]));
+                        }
+                    }
+                }
+                return {
+                    width: Number(shaped.width) || 0,
+                    ink_left: -minX, ink_right: maxX,
+                    ink_ascent: -minY, ink_descent: maxY,
+                    font_ascent: Number(shaped.baselineAscent) || Number(shaped.ascent) || 0,
+                    font_descent: Number(shaped.baselineDescent) || Number(shaped.descent) || 0,
+                };
             }
             return { width: String(text).length * 8, ink_ascent: 0, ink_descent: 0 };
         }
@@ -269,50 +284,35 @@
                 };
             },
             fillText: function (text, x, y) {
-                var m = shadowMeasure.call(this, text);
-                raster.ink = [y - m.ink_ascent, y + m.ink_descent];
-                ops.push({ k: 't', text: String(text), x: x, y: y, font: this.font, fill: this.fillStyle, baseline: this.textBaseline, align: this.textAlign });
+                if (!recorded) return;
+                recorded.font = this.font;
+                recorded.fillStyle = this.fillStyle;
+                recorded.textBaseline = this.textBaseline;
+                recorded.textAlign = this.textAlign;
+                recorded.fillText(String(text), x, y);
             },
-            strokeText: function () {},
+            strokeText: function (text, x, y) {
+                if (!recorded) return;
+                recorded.font = this.font;
+                recorded.strokeStyle = this.strokeStyle;
+                recorded.textBaseline = this.textBaseline;
+                recorded.textAlign = this.textAlign;
+                recorded.strokeText(String(text), x, y);
+            },
             clearRect: function (x, y, w, h) {
-                raster.red = false;
-                raster.ink = null;
-                ops.length = 0;
+                if (!recorded) return;
+                recorded.clearRect(x, y, w, h);
             },
             fillRect: function (x, y, w, h) {
-                raster.red = true;
-                raster.ink = null;
-                ops.push({ k: 'r', x: x, y: y, w: w, h: h, fill: this.fillStyle });
+                if (!recorded) return;
+                recorded.fillStyle = this.fillStyle;
+                recorded.fillRect(x, y, w, h);
             },
             getImageData: function (x, y, w, h) {
-                if (globalThis.ctx && typeof globalThis.ctx.surface === 'function' && ops.length) {
-                    // 重放走画布自身的尺寸（浏览器里画布内容属性即像素缓冲
-                    // 尺寸；读区域可以超出内容区，浏览器会补透明）。
-                    var cw = Math.max(1, (canvas && canvas.width) | 0);
-                    var ch = Math.max(1, (canvas && canvas.height) | 0);
-                    var img;
-                    try {
-                        img = replayIntoSurface(cw, ch).getImageData(x, y, w, h);
-                    } catch (e) {
-                        var z0 = new Uint8ClampedArray(Math.max(0, w | 0) * Math.max(0, h | 0) * 4);
-                        return { width: w, height: h, data: z0 };
-                    }
-                    return img;
-                }
-                var data = new Uint8ClampedArray(Math.max(0, w | 0) * Math.max(0, h | 0) * 4);
-                for (var r = 0; r < h; r++) {
-                    var inked = raster.ink && y + r >= raster.ink[0] && y + r < raster.ink[1];
-                    var base = r * w * 4;
-                    for (var c = 0; c < w; c++) {
-                        if (inked) {
-                            data[base + c * 4 + 3] = 255;
-                        } else if (raster.red) {
-                            data[base + c * 4] = 255;
-                            data[base + c * 4 + 3] = 255;
-                        }
-                    }
-                }
-                return { width: w, height: h, data: data };
+                canvasSize.width = Math.max(1, (canvas && canvas.width) | 0);
+                canvasSize.height = Math.max(1, (canvas && canvas.height) | 0);
+                if (recorded) return recorded.getImageData(x, y, w, h);
+                return { width: w, height: h, data: new Uint8ClampedArray(Math.max(0, w | 0) * Math.max(0, h | 0) * 4) };
             },
             strokeRect: function () {},
             beginPath: function () {},
@@ -781,9 +781,12 @@
             // key 必须 frame-unique：同一离屏 id 多次 putImageData 时以
             // 自增序号区分（同 id 同像素幂等，异像素 hard error）。
             node.__ocPutSeq = (node.__ocPutSeq || 0) + 1;
+            var frame = (typeof ctx !== 'undefined' && ctx && ctx.current)
+                ? Number(ctx.current.frame) || 0
+                : 0;
             __opencatPutImageData(
                 node.__ocOffscreenId,
-                node.__ocOffscreenId + ':' + node.__ocPutSeq,
+                node.__ocOffscreenId + ':' + frame + ':' + node.__ocPutSeq,
                 u8, Math.floor(dx || 0), Math.floor(dy || 0), img.width, img.height
             );
         };

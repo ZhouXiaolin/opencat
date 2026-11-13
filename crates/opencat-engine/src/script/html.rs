@@ -930,7 +930,10 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
                 ext_idx += 1;
             }
             (None, Some(code)) => {
-                body.push_str(code);
+                // @omp 提取期变换：标注的 for 包进 __ocOmpTake 守卫
+                // （无标注/解析失败零改动，原文本直拼）。
+                let code = crate::script::omp::transform(code);
+                body.push_str(&code);
                 body.push_str("\nglobalThis.__ocHtmlAfterScripts();\n");
             }
             (None, None) => {}
@@ -980,6 +983,20 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
         driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocBeginProbe) { globalThis.__ocBeginProbe = true; var __ocRawBegin = globalThis.__ocHtmlBeginFrame; globalThis.__ocHtmlBeginFrame = function () { var t0 = __ocWallMs(); var r = __ocRawBegin.apply(this, arguments); var dt = __ocWallMs() - t0; globalThis.__ocBeginN = (globalThis.__ocBeginN || 0) + 1; if (globalThis.__ocBeginN % 30 === 1 || dt > 20) { if (typeof __ocStderr === 'function') __ocStderr('[beginFrame] call#' + globalThis.__ocBeginN + ' dt=' + dt.toFixed(1) + 'ms'); } return r; }; }\n");
         driver.push_str("if (globalThis.__ocTraceJs && globalThis.gsap && !globalThis.__ocWakeProbe) { globalThis.__ocWakeProbe = true; var __ocRawWake = globalThis.gsap.ticker.wake; globalThis.gsap.ticker.wake = function () { var t0 = __ocWallMs(); var r = __ocRawWake.apply(this, arguments); var dt = __ocWallMs() - t0; globalThis.__ocWakeN = (globalThis.__ocWakeN || 0) + 1; if (globalThis.__ocWakeN % 30 === 1 || dt > 20) { if (typeof __ocStderr === 'function') __ocStderr('[wake] call#' + globalThis.__ocWakeN + ' dt=' + dt.toFixed(1) + 'ms'); } return r; }; }\n");
     }
+    // @omp 对拍采样器（OC_OMP_VERIFY=1）：包装 Math.sin/cos/exp/hypot 与
+    // Number.prototype.toFixed(3)，采真实调用参数域（大参数 sin 的
+    // payne-hanek 归约、toFixed 的十进制舍入是 rayon 原生实现逐位对齐的
+    // 关键面）。采样满后按批 dump 浮点十六进制位型到 stderr，Rust 侧
+    // libm 同输入对比。只在测量分支安装，正常渲染零开销。
+    driver.push_str(&format!(
+        "globalThis.__ocOmpVerify = {};\n",
+        std::env::var_os("OC_OMP_VERIFY").is_some()
+    ));
+    driver.push_str("if (globalThis.__ocOmpVerify && !globalThis.__ocOmpSampler) { globalThis.__ocOmpSampler = true; var __ocOmpS = (globalThis.__ocOmpSamples = { sin: [], cos: [], exp: [], hypot: [], fix: [] }); var __ocOmpCap = 1500; ['sin', 'cos', 'exp'].forEach(function (name) { var raw = Math[name]; var buf = __ocOmpS[name]; Math[name] = function (x) { var r = raw(x); if (buf.length < __ocOmpCap) { buf.push(x, r); } return r; }; }); var __ocRawH = Math.hypot; var __ocHbuf = __ocOmpS.hypot; Math.hypot = function (x, y) { var r = __ocRawH(x, y); if (__ocHbuf.length < __ocOmpCap * 3) { __ocHbuf.push(x, y, r); } return r; }; var __ocRawFix = Number.prototype.toFixed; Number.prototype.toFixed = function (d) { var r = __ocRawFix.apply(this, arguments); if (d === 3 && __ocOmpS.fix.length < __ocOmpCap * 2) { __ocOmpS.fix.push(this.valueOf(), r); } return r; }; }\n");
+    driver.push_str("if (globalThis.__ocOmpVerify && globalThis.__ocOmpSamples && !globalThis.__ocOmpDumper) { globalThis.__ocOmpDumper = true; var __ocF64 = new Float64Array(1); var __ocU32 = new Uint32Array(__ocF64.buffer); globalThis.__ocOmpBits = function (v) { if (typeof v !== 'number' || !isFinite(v)) return String(v); __ocF64[0] = v; return __ocU32[1].toString(16) + '_' + __ocU32[0].toString(16); }; globalThis.__ocOmpDump = function () { var S = globalThis.__ocOmpSamples; var bits = globalThis.__ocOmpBits; ['sin', 'cos', 'exp'].forEach(function (name) { var buf = S[name]; for (var j = 0; j + 1 < buf.length; j += 2) { if (typeof __ocStderr === 'function') __ocStderr('[omp:' + name + '] ' + buf[j] + ' ' + bits(buf[j]) + ' ' + bits(buf[j + 1])); } S[name] = []; }); var hb = S.hypot; for (var j = 0; j + 2 < hb.length; j += 3) { if (typeof __ocStderr === 'function') __ocStderr('[omp:hypot] ' + hb[j] + ' ' + hb[j + 1] + ' ' + bits(hb[j]) + ' ' + bits(hb[j + 1]) + ' ' + bits(hb[j + 2])); } S.hypot = []; for (var j = 0; j + 1 < S.fix.length; j += 2) { if (typeof __ocStderr === 'function') __ocStderr('[omp:fix] ' + S.fix[j] + ' ' + S.fix[j + 1]); } S.fix = []; }; }\n");
+    // 每帧段在 beginFrame 前检查采样是否已满，满则 dump（60 帧窗口的
+    // 真实参数域足够覆盖 halftone 的相位滑动范围）。
+    driver.push_str("if (globalThis.__ocOmpVerify && globalThis.__ocOmpSamples && globalThis.__ocOmpSamples.sin.length >= 1500 && globalThis.__ocOmpDump) { globalThis.__ocOmpDump(); }\n");
     // 每帧 = 虚拟 rAF 的一次 tick：钟到本帧时刻，realm 帧宿主紧随的 flush
     // 跑一次 gsap tick（dt=帧间隔），timeline 自然播放，onUpdate/tl.call
     // 自然越过触发（appendChild 类 DOM 生长与浏览器同语义）。

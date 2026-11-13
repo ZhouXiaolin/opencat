@@ -590,6 +590,10 @@
         return {
             state: state,
 
+            // 画布节点 id（@omp native 派发 `__ocOmpTake` 的目标画布出口；
+            // 垫片内部 id 面，非浏览器语义）。
+            __ocNodeId: id,
+
             // 批 flush 手柄（`__ocFlushCanvasBatches` 帧尾遍历用）。
             __flushBatch: batchFlush,
 

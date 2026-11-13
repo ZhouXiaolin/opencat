@@ -20,6 +20,9 @@ fontdb = "0.23.0"
 anyhow.workspace = true
 flume.workspace = true
 rayon.workspace = true
+# @omp halftone 原生实现的超越函数（musl fdlibm 血统，V8 ieee754.cc
+# 同源；OC_OMP_VERIFY 对拍 sin/cos/exp ≤1 ulp、hypot ≤2 ulp）。
+libm = "0.2"
 image = { version = "0.25.10", features = ["webp"] }
 serde.workspace = true
 serde_json.workspace = true

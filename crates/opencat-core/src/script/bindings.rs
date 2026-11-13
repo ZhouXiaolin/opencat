@@ -31,7 +31,8 @@
 //!
 //! 1. Find the right section below (node / cmd / qry / pure)
 //! 2. Copy an existing line and fill in the name, params, and body
-//! 3. Make sure the engine's `bindings/mod.rs` imports any types/fns used
+//! 3. New types referenced unqualified in a body must be imported in
+//!    `script/dispatch.rs` — the expansion site where names resolve
 //!
 //! Examples:
 //! ```ignore
@@ -60,21 +61,20 @@
 //! }}
 //! ```
 //!
-//! Usage in engine:
-//! ```ignore
-//! for_each_binding!($rec $id $store $binding);
-//! ```
+//! Consumed in `script/dispatch.rs` with two auxiliary macros: `handle`
+//! (name dispatch inside `dispatch_binding`) and `emit` (JS shim text in
+//! `binding_shim_js`). Entry order is irrelevant — dispatch matches by name.
 
 #[macro_export]
 macro_rules! for_each_binding {
     ($rec:ident $id:ident $store:ident $binding:ident) => {
-        // ── Node: unified style write (1 entry, replaces 38 individual record_*) ─
+        // ── Node: unified style write（样式写唯一入口，html/jsx 垫片共用）────
 
         $binding! { node $rec $id write_style_value ($id: &str, property: String, value: serde_json::Value) {
             $rec . write_style_value($id, &property, value);
         }}
 
-        // ── Node: canvas commands (53 entries) ─────────────────────────────
+        // ── Node: canvas commands（context2d / canvas_api 垫片的 `__canvas_*` 面）
 
         $binding! { node $rec $id canvas_save ($id: &str) {
             $rec . record_draw_op($id, DrawOp::Save);
@@ -99,48 +99,6 @@ macro_rules! for_each_binding {
             $rec . record_draw_op($id, DrawOp::Path(PathOp::AddRect { x, y, width, height }));
             $rec . record_draw_op($id, DrawOp::ClipPath { anti_alias, fill_type: Default::default() });
         }}
-        // ── Cmd: GPU 命令流录制（webgl_api.js 的 WebGL2 录制面）──────────
-
-        $binding! { cmd $store gl_stream_begin (target_id: String, width: u32, height: u32, backend: u8, attrs_bits: u8, x: f32, y: f32) -> () {
-            $store . gl_stream_begin(&target_id, width, height, backend, attrs_bits, x, y);
-            Ok(())
-        }}
-
-        /// JS 侧编码好的整条命令（[opcode][payload]）原样追加——core 不解释。
-        $binding! { cmd $store gl_stream_emit (target_id: String, cmd: Vec<u8>) -> () {
-            $store . gl_stream_emit(&target_id, cmd)
-        }}
-
-        /// intern 大块数据（buffer/纹理/shader 源码），返回 range id。
-        $binding! { cmd $store gl_stream_intern (target_id: String, data: Vec<u8>) -> u32 {
-            $store . gl_stream_intern(&target_id, data)
-        }}
-
-        /// 分配 GL 资源句柄（realm 级单调）。
-        $binding! { cmd $store gl_alloc_handle () -> u32 {
-            Ok($store.gl_alloc_handle())
-        }}
-
-        /// 句柄序归零（html 通道帧首：页脚本每帧重放、按同序重建资源——
-        /// 句柄逐帧稳定，执行器按句柄复用 GL 对象而不是逐帧新建泄漏）。
-        $binding! { cmd $store gl_reset_handles () -> () {
-            $store.gl_reset_handles();
-            Ok(())
-        }}
-
-        /// html 持久文档（init-once）声明：DOM 状态跨帧留在 store（见
-        /// `MutationStore::persist_frame_state`）。html_api.js 初始化时调一次。
-        $binding! { cmd $store persist_frame_state () -> () {
-            $store.persist_frame_state();
-            Ok(())
-        }}
-
-        /// 真 GL 反射：link 后 three 立刻同步枚举 active uniform/attribute。
-        /// 反射器由宿主注入（engine 拿 GL 上下文向驱动问询），core 只转发。
-        $binding! { qry $store glsl_reflect (vs: String, fs: String) -> serde_json::Value {
-            $store.glsl_reflect(&vs, &fs)
-        }}
-
         $binding! { node $rec $id canvas_draw_line ($id: &str, x0: f32, y0: f32, x1: f32, y1: f32) {
             $rec . record_draw_op($id, DrawOp::BeginPath);
             $rec . record_draw_op($id, DrawOp::Path(PathOp::MoveTo { x: x0, y: y0 }));
@@ -275,14 +233,10 @@ macro_rules! for_each_binding {
                 paint: None,
             });
         }}
-        // ── Node: G2 chart (AntV) — text paragraphs and rendered text images
-        //    The G2 runtime shim (`g2/g2_api.js`) routes G2's draw calls through
-        //    the regular `__canvas_*` bindings above. Text is the one exception:
-        //    g-canvaskit draws through CanvasKit Paragraphs, and OpenCat's real
-        //    text rasterizer is the offscreen surface (`ctx.ly.surface`).
-        //    So a paragraph is measured + drawn on a surface and composited as
-        //    a frame-scoped generated image — same pixel path as every other
-        //    text in the composition.
+        // ── Node: 段落文本（canvas_api.js CanvasKit 垫片的 Paragraph 位图通道）
+        //    段落先在离屏 surface 上度量+绘制，再作帧生成图贴回——与语料
+        //    其余文本同一像素路径。其余 canvas 绘制走上面的 `__canvas_*`
+        //    绑定；fillText 的文本转路径走 `canvas_glyph_paths`。
         $binding! { cmd $store canvas_draw_paragraph (node_id: String, text: String, size: f32, family: String, weight: u32, color: String, x: f32, y: f32, width: f32, height: f32) -> bool {
             if text.trim().is_empty() {
                 return Ok(false);
@@ -338,17 +292,12 @@ macro_rules! for_each_binding {
             }))
         }}
 
-        //    批次 B 文本转路径：文本 shape 成 glyph outline path 载荷，facade
-        //    把整段烘成一个 Path 一次 drawPath——DrawOp 流里只剩 path，两端
-        //    （engine Skia / web 真 CK）各画同一份 path，web 零文本栈，且度
-        //    量与绘制同源（此前度量走 surface 的 kern-free 简排、绘制走
-        //    swash 位图，两者互不认识）。positions 的 y 以首行基线为原点；
-        //    outline 命令由 swash 按请求字号生成（cache_key 含 font_size），
-        //    已是 px 域，只翻 y（字体 y-up → 屏幕 y-down；与 render/text.rs
-        //    的 build_glyph_path 同构——那边乘 upem/px 是为按设计单位 intern
-        //    共享 path，此处按 size 逐份发放，直接 px 直出）。ColorImage
-        //    （emoji）不走 path：置 color 标记，facade 回退既有位图通道
-        //    （core 不解释 payload）。
+        //    文本转路径：fillText 把文本 shape 成 glyph outline 载荷后整段
+        //    烘成一个 Path 一次 drawPath——度量与绘制同源（同一 swash
+        //    shape）。positions 的 y 以首行基线为原点；outline 命令按请求
+        //    字号生成（cache_key 含 font_size），已是 px 域，只翻 y（字体
+        //    y-up → 屏幕 y-down）。ColorImage（emoji）不走 path：置 color
+        //    标记，垫片回退位图通道（core 不解释 payload）。
         $binding! { pure canvas_glyph_paths (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
             // Generic `sans-serif` must resolve through fontdb's registered
             // sans-serif family (engine: Noto Sans SC), not as a literal
@@ -430,11 +379,9 @@ macro_rules! for_each_binding {
             }))
         }}
 
-        //    CanvasKit.Image.MakeFromEncoded → drawImage。过渡落地：字节在
-        //    绑定侧经宿主 decoder 解码为 RGBA，走帧生成图通道贴回（与
-        //    `g2-para` 位图同构，z 序经 DrawOp::Image 保持）。批次 B 文本
-        //    换血时把 image mark 一并转 `ImageRef::Encoded` 真通道
-        //    （BytesRangeId 直通，两端重放零解码分歧）。
+        //    CanvasKit 垫片 `Image.MakeFromEncoded` → drawImage 的位图通道：
+        //    字节在绑定侧经宿主 decoder 解码为 RGBA，走帧生成图通道贴回
+        //    （与段落位图同构，z 序经 DrawOp::Image 保持）。
         $binding! { cmd $store canvas_draw_image_encoded (node_id: String, data: Vec<u8>, x: f32, y: f32, alpha: f32, anti_alias: bool) -> bool {
             let _ = (alpha, anti_alias);
             if data.is_empty() {
@@ -450,11 +397,10 @@ macro_rules! for_each_binding {
             Ok(true)
         }}
 
-        //    CanvasKit.makePathFromSVGString：SVG path 片段 → usvg 解析 →
-        //    绝对段命令 flat 数组（0=moveTo 1=lineTo 2=quadTo 3=cubicTo
-        //    4=close，后随坐标）。复用 svg-align 管线（markup 解析 + 段
-        //    提取），取树根首个 path 节点。裸 path data（非 <svg> 文档，
-        //    即 Path2D(string) / new Path2D(d) 的标准输入）走 kurbo
+        //    CanvasKit 垫片的 `makePathFromSVGString` / `Path2D(string)`：
+        //    SVG path 片段 → usvg 解析 → 绝对段命令 flat 数组（0=moveTo
+        //    1=lineTo 2=quadTo 3=cubicTo 4=close，后随坐标），取树根首个
+        //    path 节点。裸 path data（非 <svg> 文档）走 kurbo
         //    BezPath::from_svg（与 path_measure 同源，相对命令/HVST/A 全
         //    部折算为绝对 M/L/Q/C/Z）。
         $binding! { pure oc_path_from_svg (svg: String) -> Option<Vec<f64>> {
@@ -712,7 +658,9 @@ macro_rules! for_each_binding {
                 let _font_edging = font_edging_from_name(&font_edging)
                     .ok_or_else(|| $crate::script::helpers::script_error("drawText", format!("unsupported font edging `{font_edging}`")))?;
                 let _ = (text, values, flags);
-                // TODO: Phase 2 — draw text via glyph ops
+                // 占位（CanvasKit 垫片 drawText 的兼容入口，不落 op）：真
+                // 文本绘制走 `canvas_glyph_paths`（fillText 转路径）与
+                // `canvas_draw_paragraph`（段落位图）。
                 Ok::<_, anyhow::Error>(())
             }
         }}
@@ -801,9 +749,8 @@ macro_rules! for_each_binding {
             Ok::<_, anyhow::Error>(())
         }}
         $binding! { node $rec $id canvas_draw_points ($id: &str, mode: String, points: Vec<f32>) {
-            // Phase 2 limitation: drawPoints not yet supported with DrawOp pipeline.
-            // Points require f32_pool allocation in DrawOpBuilder which is not accessible
-            // from the MutationRecorder trait. Will be fixed in Phase 3.
+            // 占位（CanvasKit 垫片 drawPoints 的兼容入口）：DrawOp 无点列
+            // 形态（点列需 f32 池内联），当前不落 op。
             let _ = (points, mode);
             Ok::<_, anyhow::Error>(())
         }}
@@ -880,6 +827,48 @@ macro_rules! for_each_binding {
                 },
             );
             Ok::<_, anyhow::Error>(())
+        }}
+
+        // ── Cmd: GPU 命令流录制（webgl_api.js 的 WebGL2 录制面）──────────
+
+        $binding! { cmd $store gl_stream_begin (target_id: String, width: u32, height: u32, backend: u8, attrs_bits: u8, x: f32, y: f32) -> () {
+            $store . gl_stream_begin(&target_id, width, height, backend, attrs_bits, x, y);
+            Ok(())
+        }}
+
+        /// JS 侧编码好的整条命令（[opcode][payload]）原样追加——core 不解释。
+        $binding! { cmd $store gl_stream_emit (target_id: String, cmd: Vec<u8>) -> () {
+            $store . gl_stream_emit(&target_id, cmd)
+        }}
+
+        /// intern 大块数据（buffer/纹理/shader 源码），返回 range id。
+        $binding! { cmd $store gl_stream_intern (target_id: String, data: Vec<u8>) -> u32 {
+            $store . gl_stream_intern(&target_id, data)
+        }}
+
+        /// 分配 GL 资源句柄（realm 级单调）。
+        $binding! { cmd $store gl_alloc_handle () -> u32 {
+            Ok($store.gl_alloc_handle())
+        }}
+
+        /// 句柄序归零（html 通道帧首：页脚本每帧重放、按同序重建资源——
+        /// 句柄逐帧稳定，执行器按句柄复用 GL 对象而不是逐帧新建泄漏）。
+        $binding! { cmd $store gl_reset_handles () -> () {
+            $store.gl_reset_handles();
+            Ok(())
+        }}
+
+        /// html 持久文档（init-once）声明：DOM 状态跨帧留在 store（见
+        /// `MutationStore::persist_frame_state`）。html_api.js 初始化时调一次。
+        $binding! { cmd $store persist_frame_state () -> () {
+            $store.persist_frame_state();
+            Ok(())
+        }}
+
+        /// 真 GL 反射：link 后 three 立刻同步枚举 active uniform/attribute。
+        /// 反射器由宿主注入（engine 拿 GL 上下文向驱动问询），core 只转发。
+        $binding! { qry $store glsl_reflect (vs: String, fs: String) -> serde_json::Value {
+            $store.glsl_reflect(&vs, &fs)
         }}
 
         // ── Cmd: scene clock override ───────────────────────────────────────
@@ -1108,22 +1097,7 @@ macro_rules! for_each_binding {
             })
         }}
 
-        $binding! { node $rec $id write_style_value ($id: &str, property: String, value: serde_json::Value) {
-            $rec . write_style_value($id, &property, value);
-        }}
-
-        // ── Pure: no store (4 entries: text measure, random, graphemes, easing) ─
-        // Local data mirror for offline `fetch` shims: chart libraries fetch
-        // remote JSON/CSV; the harness mirrors those files under
-        // `<base-dir>/assets/` and the JS shim maps URL → filename first.
-        // Goes through the same asset reader as three's FileLoader
-        // (base_dir join), so the path stays relative to --base-dir.
-        $binding! { cmd $store asset_fetch (name: String) -> String {
-            let bytes = $store.asset_read(&format!("assets/{}", name))?;
-            let text = String::from_utf8(bytes)
-                .map_err(|e| anyhow::anyhow!("asset_fetch: assets/{name} is not utf-8: {e}"))?;
-            Ok(text)
-        }}
+        // ── Cmd: 资产与媒体像素（img/video face 的 `__ocPixels` 供给）──────
         // 编码图像的自然尺寸（`Image` 元素的 naturalWidth/naturalHeight）。
         // 解码器由宿主注入；失败返回空表（JS 侧当作加载失败）。
         $binding! { cmd $store image_probe (data: Vec<u8>) -> Vec<f32> {
@@ -1161,6 +1135,7 @@ macro_rules! for_each_binding {
             }
         }}
 
+        // ── Pure: no store（文本度量 / 随机 / surface / 几何）───────────────
         $binding! { pure canvas_measure_text (text: String, font_size: f32, font_scale_x: f32, _font_skew_x: f32, _font_subpixel: bool, _font_edging: String) -> f32 {
             Ok(measure_script_text_width(&text, font_size, font_scale_x))
         }}

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
-use crate::script::V8JsContext;
+use crate::script::EngineJsContext;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::jsx::ENTRY_SPEC;
 use opencat_core::parse::jsx_transform;
@@ -92,7 +92,7 @@ fn split_bundle_segments(input: &str) -> Vec<(String, &str)> {
 /// the host-side half of the JSX frontend contract — hosts without a JS realm
 /// (wasm) receive the pair over the bridge and run `from_extract` themselves.
 pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Value, String)> {
-    let mut ctx = V8JsContext::new()?;
+    let mut ctx = EngineJsContext::new()?;
     // Realm bootstrap + the runtime slice the extract pass needs. The load
     // order mirrors `ScriptRealm::ensure_runtime` (style/canvas/three before
     // the JSX runtime) so the real-package builtins can forward to
@@ -174,7 +174,7 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
 }
 
 /// Evaluate `code`, expect a JSON-encodable value, and parse it back.
-fn eval_json_string(ctx: &V8JsContext, code: &str) -> Result<Value> {
+fn eval_json_string(ctx: &EngineJsContext, code: &str) -> Result<Value> {
     let wrapped = format!("JSON.stringify({code})");
     let raw = ctx.eval_json(&wrapped)?;
     let text = raw

@@ -1110,7 +1110,7 @@ pub fn probe_composition_with_base(
     input: &str,
     base_dir: Option<&Path>,
 ) -> Result<(u32, u32, Option<crate::media::AudioTrack>)> {
-    use crate::script::V8JsContext;
+    use crate::script::EngineJsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -1120,7 +1120,7 @@ pub fn probe_composition_with_base(
         base_dir.unwrap_or(&cache_base).to_path_buf(),
         cache_base.join(".opencat").join("assets"),
     )?;
-    let ctx = V8JsContext::new()?;
+    let ctx = EngineJsContext::new()?;
     crate::script::bridge::install_glsl_reflector(&ctx);
     crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
     let pipeline = crate::pipeline::open(input, loader, ctx)?;
@@ -1136,7 +1136,7 @@ pub fn render_from_source_with_base(
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
 ) -> Result<()> {
-    use crate::script::V8JsContext;
+    use crate::script::EngineJsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -1149,7 +1149,7 @@ pub fn render_from_source_with_base(
         base_dir.unwrap_or(&cache_base).to_path_buf(),
         cache_dir,
     )?;
-    let ctx = V8JsContext::new()?;
+    let ctx = EngineJsContext::new()?;
     crate::script::bridge::install_glsl_reflector(&ctx);
     crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
@@ -1415,7 +1415,7 @@ pub fn render_single_frame_from_source_with_base(
     base_dir: Option<&Path>,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    use crate::script::V8JsContext;
+    use crate::script::EngineJsContext;
     use opencat_core::pipeline::Pipeline;
     use opencat_core::script::js_context::JsContext;
 
@@ -1427,7 +1427,7 @@ pub fn render_single_frame_from_source_with_base(
         base_dir.unwrap_or(&cache_base).to_path_buf(),
         cache_dir,
     )?;
-    let ctx = V8JsContext::new()?;
+    let ctx = EngineJsContext::new()?;
     crate::script::bridge::install_glsl_reflector(&ctx);
     crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
     let mut pipeline = crate::pipeline::open(input, loader, ctx)?;

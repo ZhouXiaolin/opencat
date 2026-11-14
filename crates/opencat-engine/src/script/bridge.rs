@@ -107,8 +107,8 @@ pub(crate) fn release_reflector_session() {
 /// 把反射器装进脚本 realm 的 store。反射用本线程常驻的独立离屏 GL 会话
 /// （thread_local——反射只发生在脚本执行线程）；每次反射 save → make
 /// current → 反射 → RAII 恢复，主渲染路径的 current 不再被打断。
-pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
-    ctx.set_glsl_reflector(Box::new(|vs, fs| {
+pub fn install_glsl_reflector(ctx: &crate::script::EngineJsContext) {
+    opencat_core::script::js_context::JsContext::set_glsl_reflector(ctx, Box::new(|vs, fs| {
         let key = (vs.to_string(), fs.to_string());
         if let Some(hit) = REFLECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
             return Ok(hit);
@@ -136,9 +136,9 @@ pub fn install_glsl_reflector(ctx: &crate::script::V8JsContext) {
 /// createImageBitmap 垫的后端）。路径语义与声明式 `<image path=>` 一致：
 /// 逻辑相对路径对 base_dir join。解码走 image crate（default features 含
 /// png/jpeg，另开 webp）。
-pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::path::Path) {
+pub fn install_asset_bridge(ctx: &crate::script::EngineJsContext, base_dir: &std::path::Path) {
     let root = base_dir.to_path_buf();
-    ctx.set_asset_reader(Box::new(move |path| {
+    opencat_core::script::js_context::JsContext::set_asset_reader(ctx, Box::new(move |path| {
         // 远程 URL（DRACOLoader 运行时拉解码器之类）：与外部脚本同一条
         // 抓取 + 磁盘缓存通道（`.oc-cache/net`），同输入逐字节可复现。
         if path.starts_with("https://") || path.starts_with("http://") {
@@ -147,7 +147,7 @@ pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::pa
         let full = root.join(path);
         std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
     }));
-    ctx.set_image_decoder(Box::new(|bytes| {
+    opencat_core::script::js_context::JsContext::set_image_decoder(ctx, Box::new(|bytes| {
         // SVG 先走 resvg 光栅（`<img src=*.svg>` 位图语义，见 svg_raster
         // 模块注释）；image-rs 不认 svg 文本。预乘 RGBA 与 image-rs 的
         // to_rgba8 输出同底色系（透明区域全零）。
@@ -165,7 +165,7 @@ pub fn install_asset_bridge(ctx: &crate::script::V8JsContext, base_dir: &std::pa
     // 下代价可忽略。帧缓存让逐帧重放的同时刻请求命中缓存。
     let pool_root = base_dir.to_path_buf();
     let pool = std::sync::Mutex::new(crate::media::MediaContext::new());
-    ctx.set_video_frame_decoder(Box::new(move |path, time_secs| {
+    opencat_core::script::js_context::JsContext::set_video_frame_decoder(ctx, Box::new(move |path, time_secs| {
         let full = pool_root.join(path);
         let mut guard = pool.lock().expect("video frame pool poisoned");
         let (data, w, h, _cached) = guard.get_video_frame(

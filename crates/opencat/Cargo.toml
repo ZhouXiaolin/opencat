@@ -4,11 +4,17 @@ version.workspace = true
 edition.workspace = true
 
 [features]
+# JS 运行时切换面转发（opencat-engine 同名 feature；default V8）。
+# 切 quickjs = --no-default-features --features js-quickjs（feature 互斥
+# 无法在 cargo 语法内表达，双开会被 engine 的 compile_error 拒编译）。
+default = ["js-v8"]
+js-v8 = ["opencat-engine/js-v8"]
+js-quickjs = ["opencat-engine/js-quickjs"]
 profile = ["opencat-core/profile"]
 
 [dependencies]
 opencat-core = { path = "../opencat-core" }
-opencat-engine = { path = "../opencat-engine" }
+opencat-engine = { path = "../opencat-engine", default-features = false }
 
 anyhow.workspace = true
 clap = { version = "4", features = ["derive"] }

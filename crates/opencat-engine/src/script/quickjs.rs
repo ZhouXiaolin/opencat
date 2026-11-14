@@ -211,7 +211,15 @@ fn omp_take_native<'js>(
     let mut reds: Vec<f64> = Vec::new();
     let mut taken = match store.lock() {
         Ok(mut store) => {
-            crate::script::omp::omp_take(&mut store, &ir, &rest, &prng, &mut writes, &mut reds)
+            crate::script::omp::omp_take(
+                &mut store,
+                &ir,
+                &rest,
+                std::sync::Arc::from(Vec::<crate::script::omp::protocol::SharedBuf>::new()),
+                &prng,
+                &mut writes,
+                &mut reds,
+            )
         }
         Err(_) => false,
     };

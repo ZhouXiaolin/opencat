@@ -37,11 +37,51 @@ pub struct RowOut {
     pub ovals: Vec<f64>,
 }
 
+/// TypedArray 快照的 binary 旁路槽（copy-in 的字节流面）：plain capture
+/// 树里探到的 TypedArray 不再走 JSON 文本（`{"0":…}` 逐元素串化 + 字典
+/// 读），host 侧 `copy_contents` 一次 memcpy 进快照，args_json 只留描述
+/// 符；worker 按描述符从 `FrameEnv.shared` 重建真 TypedArray——索引读
+/// 回到快路径，字节逐位无损（同 `float_roundtrip` 合同）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SharedKind {
+    F64,
+    F32,
+    U8Clamped,
+    U8,
+    I8,
+    U16,
+    I16,
+    U32,
+    I32,
+}
+
+impl SharedKind {
+    /// 元素字节数。
+    pub fn elem_size(self) -> usize {
+        match self {
+            Self::F64 => 8,
+            Self::F32 | Self::U32 | Self::I32 => 4,
+            Self::U16 | Self::I16 => 2,
+            Self::U8Clamped | Self::U8 | Self::I8 => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SharedBuf {
+    pub kind: SharedKind,
+    pub data: Arc<[u8]>,
+}
+
 /// 一次 execute 的帧环境（每帧构造一次，全团队共享只读）。
 pub struct FrameEnv {
     /// plain/ctx/array/prng 参数已令牌化的 JSON 数组文本（绑定层产出；
-    /// array 槽 = `{"__ocOmpArr": k}`，prng 槽 = null）。
+    /// array 槽 = `{"__ocOmpArr": k}`，prng 槽 = null；plain 树里的
+    /// TypedArray = `{"__ocOmpShared": {"slot": k, "len": N}}` 描述符，
+    /// 字节在 `shared[k]`）。
     pub args_json: Arc<str>,
+    /// binary 旁路槽（与 args_json 描述符的 slot 序对齐）。
+    pub shared: Arc<[SharedBuf]>,
     /// 预采池。行 i 的段 = `[i*stride, (i+1)*stride)`；stride=0 = 无采集。
     pub prng: Arc<[f64]>,
     pub stride: usize,
@@ -324,6 +364,7 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
     return __ocPrngBuf[__ocPrngCur++];
   }}
   let __ocSlots = new Float64Array(1 << 16), __ocN = 0;
+  let __ocOut = null;
   function __ocSlotsGrow(need) {{
     let m = __ocSlots.length;
     while (m < need) m *= 2;
@@ -335,6 +376,9 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
   // worker，行末只 flush 每槽终值）。协议锁定帧初值 0（Acc = 0+Σ），
   // 缓冲复现任意 Set/Acc 组合的槽终值，flush 全按 Set 产出（acc=0）。
   // mark 数组去重 + list 保插入序：同槽 4 次合 1，写量缩 4 倍。
+  // 缓冲按 (worker, 数组槽) 常驻——按行分配全长 Float64Array + Uint8Array
+  // 再丢弃是分配churn大头（222 行/帧 × 全长 10MB 级），行末只按 dirty
+  // list 清零（O(脏) 非 O(全长)），Acc 的「帧初值 0」由槽清零保证。
   const __ocBufs = [], __ocMarks = [], __ocLists = [];
   function __ocBuf(a, len) {{
     let b = __ocBufs[a];
@@ -374,27 +418,39 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
       const list = __ocLists[a];
       if (!list) continue;
       const buf = __ocBufs[a];
+      const marks = __ocMarks[a];
       for (let k = 0; k < list.length; k++) {{
         if (__ocN + 4 > __ocSlots.length) __ocSlotsGrow(__ocN + 4);
+        const i = list[k];
         __ocSlots[__ocN] = a;
-        __ocSlots[__ocN + 1] = list[k];
+        __ocSlots[__ocN + 1] = i;
         __ocSlots[__ocN + 2] = 0;
-        __ocSlots[__ocN + 3] = buf[list[k]];
+        __ocSlots[__ocN + 3] = buf[i];
         __ocN += 4;
+        // 槽清零：Acc 的帧初值 0 合同 + mark 复位（O(脏) 非 O(全长)）。
+        buf[i] = 0;
+        marks[i] = 0;
       }}
-      __ocBufs[a] = null;
-      __ocMarks[a] = null;
-      __ocLists[a] = null;
+      list.length = 0;
     }}
 {red_emit_src}{dangling_check}    // 行产出 = 单段 Float64Array：头 [n_slots, n_ovals] + slots 四元组
     // + ovals 七元组。一次 copy_contents 跨 API，host 按头分段。
+    // out 缓冲按 worker 常驻 grow-only：Rust 侧在同行 worker 的下一次
+    // run_row 之前已 copy_contents 完毕（行执行逐 worker 串行），复用安全。
     const nv = __ocOvals.length;
-    const out = new Float64Array(2 + __ocN + nv);
+    const need = 2 + __ocN + nv;
+    if (!__ocOut || __ocOut.length < need) {{
+      let m = 1 << 16;
+      while (m < need) m *= 2;
+      __ocOut = new Float64Array(m);
+    }}
+    const out = __ocOut;
     out[0] = __ocN / 4;
     out[1] = nv / 7;
     if (__ocN > 0) out.set(__ocSlots.subarray(0, __ocN), 2);
     if (nv > 0) out.set(__ocOvals, 2 + __ocN);
-    return out;
+    // subarray 视图：length = 已用量（Rust 侧 copy_contents 只拷已用段）。
+    return out.subarray(0, need);
   }}
   return {{
     __ocHeader,

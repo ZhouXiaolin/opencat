@@ -13,7 +13,7 @@ use std::sync::{
 
 use flume::Sender;
 
-use super::protocol::{Bundle, FrameEnv, JsWorker, RowOut};
+use super::protocol::{Bundle, FrameEnv, JsWorker, RowOut, SharedBuf};
 
 type Job = Box<dyn FnOnce(&mut dyn JsWorker) + Send + 'static>;
 
@@ -72,6 +72,7 @@ pub fn execute(
     team: &Team,
     bundle: &Bundle,
     args_json: &Arc<str>,
+    shared: Arc<[SharedBuf]>,
     prng: Arc<[f64]>,
     sched: &Schedule,
 ) -> Result<Vec<Option<RowOut>>, String> {
@@ -84,12 +85,20 @@ pub fn execute(
             kinds: bundle.kinds.clone(),
         };
         let env_args = args_json.clone();
+        let env_shared = shared.clone();
         team.run(Box::new(move |w| {
             let r = (|| {
                 if w.eval_bundle(&bundle).is_err() {
                     return Err("bundle eval failed".into());
                 }
-                let env = FrameEnv { args_json: env_args, prng: Arc::from(Vec::new()), stride: 0 };
+                // header 同样装载 capture 帧（TA 描述符在这里也要重建——
+                // header 体可读 capture 值）；prng/stride 与 header 无关。
+                let env = FrameEnv {
+                    args_json: env_args,
+                    shared: env_shared,
+                    prng: Arc::from(Vec::new()),
+                    stride: 0,
+                };
                 w.run_header(&bundle, &env)
             })();
             let _ = htx.send(r);
@@ -120,13 +129,14 @@ pub fn execute(
             let len = base + usize::from(wi < rem);
             let (lo, hi) = (start, start + len);
             start = hi;
-            let (bundle, env_args, prng, stride, rtx, ys) = (
+            let (bundle, env_args, shared, prng, stride, rtx, ys) = (
                 Bundle {
                     key: bundle.key.clone(),
                     src: bundle.src.clone(),
                     kinds: bundle.kinds.clone(),
                 },
                 args_json.clone(),
+                shared.clone(),
                 prng.clone(),
                 stride,
                 rtx.clone(),
@@ -134,7 +144,7 @@ pub fn execute(
             );
             team.run(Box::new(move |w| {
                 for ri in lo..hi {
-                    let r = run_one(w, &bundle, &env_args, &prng, stride, ri, ys[ri]);
+                    let r = run_one(w, &bundle, &env_args, &shared, &prng, stride, ri, ys[ri]);
                     if rtx.send(r.map(|o| (ri, o))).is_err() {
                         return;
                     }
@@ -145,13 +155,14 @@ pub fn execute(
         // dynamic/auto：atomic 拉取（chunk 粒度，缺省 1）。
         let chunk = sched.chunk.max(1);
         for _ in 0..workers.min(n) {
-            let (bundle, env_args, prng, stride, rtx, next_row, ys) = (
+            let (bundle, env_args, shared, prng, stride, rtx, next_row, ys) = (
                 Bundle {
                     key: bundle.key.clone(),
                     src: bundle.src.clone(),
                     kinds: bundle.kinds.clone(),
                 },
                 args_json.clone(),
+                shared.clone(),
                 prng.clone(),
                 stride,
                 rtx.clone(),
@@ -166,7 +177,8 @@ pub fn execute(
                     }
                     let hi = (ri + chunk).min(ys.len());
                     for r0 in ri..hi {
-                        let r = run_one(w, &bundle, &env_args, &prng, stride, r0, ys[r0]);
+                        let r =
+                            run_one(w, &bundle, &env_args, &shared, &prng, stride, r0, ys[r0]);
                         if rtx.send(r.map(|o| (r0, o))).is_err() {
                             return;
                         }
@@ -192,6 +204,7 @@ fn run_one(
     w: &mut dyn JsWorker,
     bundle: &Bundle,
     args_json: &Arc<str>,
+    shared: &Arc<[SharedBuf]>,
     prng: &Arc<[f64]>,
     stride: usize,
     row: usize,
@@ -200,6 +213,11 @@ fn run_one(
     if w.eval_bundle(bundle).is_err() {
         return Err("bundle eval failed".into());
     }
-    let env = FrameEnv { args_json: args_json.clone(), prng: prng.clone(), stride };
+    let env = FrameEnv {
+        args_json: args_json.clone(),
+        shared: shared.clone(),
+        prng: prng.clone(),
+        stride,
+    };
     w.run_row(bundle, &env, row, row_val)
 }

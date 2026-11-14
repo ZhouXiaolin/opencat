@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use v8::PinScope;
 
-use super::protocol::{Bundle, FrameEnv, IsolateWrite, JsWorker, RowOut};
+use super::protocol::{Bundle, FrameEnv, IsolateWrite, JsWorker, RowOut, SharedBuf, SharedKind};
 use crate::script::v8::ensure_v8_initialized;
 
 /// 从活的 TryCatch 提取 `message\nstack`（v8.rs 同款；宏化因为 TryCatch
@@ -122,7 +122,7 @@ impl JsWorker for V8Worker {
         v8::scope!(let handle_scope, isolate);
         let context = v8::Local::new(handle_scope, &context);
         let scope = &mut v8::ContextScope::new(handle_scope, context);
-        let inst = ensure_caps(bundles, bundle, scope, &env.args_json)?;
+        let inst = ensure_caps(bundles, bundle, scope, env)?;
 
         let header = v8::Local::new(scope, &inst.header);
         v8::tc_scope!(let tc, scope);
@@ -157,7 +157,7 @@ impl JsWorker for V8Worker {
         v8::scope!(let handle_scope, isolate);
         let context = v8::Local::new(handle_scope, &context);
         let scope = &mut v8::ContextScope::new(handle_scope, context);
-        let inst = ensure_caps(bundles, bundle, scope, &env.args_json)?;
+        let inst = ensure_caps(bundles, bundle, scope, env)?;
 
         // 行预采段 → Float64Array（拷贝行段；stride=0 跳过）。
         let mut prng_row = None;
@@ -233,12 +233,14 @@ impl JsWorker for V8Worker {
 /// capture 装载：bundle 顶层 let 的帧值。同一帧的所有行共享同一
 /// `Arc<str>`（args_json）——指针相等即已装载，跳过 set_caps 与 JSON
 /// 重解析；换帧（指针不同）才解析一次并按槽序赋值。Prng 槽由 JS 侧
-/// 模板强制赋 `__ocNext`（v_i 占位被忽略）。
+/// 模板强制赋 `__ocNext`（v_i 占位被忽略）。装载时解析树里的 TypedArray
+/// 描述符（`{"__ocOmpShared": {slot, len}}`）由 [`rebuild_shared`] 从
+/// `env.shared` 换成真 TypedArray。
 fn ensure_caps<'a>(
     bundles: &'a mut HashMap<String, BundleInst>,
     bundle: &Bundle,
     scope: &mut PinScope<'_, '_>,
-    args_json: &std::sync::Arc<str>,
+    env: &FrameEnv,
 ) -> Result<&'a mut BundleInst, String> {
     let Some(inst) = bundles.get_mut(bundle.key.as_ref()) else {
         return Err("bundle not evaluated".into());
@@ -246,11 +248,11 @@ fn ensure_caps<'a>(
     if inst
         .caps_key
         .as_ref()
-        .is_some_and(|k| std::sync::Arc::ptr_eq(k, args_json))
+        .is_some_and(|k| std::sync::Arc::ptr_eq(k, &env.args_json))
     {
         return Ok(inst);
     }
-    let Some(s) = v8::String::new(scope, args_json.as_ref()) else {
+    let Some(s) = v8::String::new(scope, env.args_json.as_ref()) else {
         return Err("args string alloc failed".into());
     };
     let Some(parsed) = v8::json::parse(scope, s) else {
@@ -264,6 +266,7 @@ fn ensure_caps<'a>(
         let Some(v) = arr.get_index(scope, i) else {
             return Err(format!("arg {i} missing"));
         };
+        let v = rebuild_shared(scope, v, &env.shared)?;
         args.push(v);
     }
     let set_caps = v8::Local::new(scope, &inst.set_caps);
@@ -275,8 +278,124 @@ fn ensure_caps<'a>(
         return Err(caught!(tc, "setCaps"));
     }
     let inst = bundles.get_mut(bundle.key.as_ref()).expect("inst re-borrow");
-    inst.caps_key = Some(args_json.clone());
+    inst.caps_key = Some(env.args_json.clone());
     Ok(inst)
+}
+
+/// 解析树里的 TypedArray 描述符 → 从 `env.shared` 重建真 TypedArray：
+/// per-worker 字节克隆 + 独立 backing store（v1 快照语义——行函数对 TA
+/// 的写不出 worker，写回只有 Set/Acc 令牌通道；f64 8 字节对齐由分配器
+/// 保证）。非描述符的容器递归替换成员；描述符字段异常 = 行错误 → 毒化。
+fn rebuild_shared<'s>(
+    scope: &mut PinScope<'s, '_>,
+    v: v8::Local<'s, v8::Value>,
+    shared: &[SharedBuf],
+) -> Result<v8::Local<'s, v8::Value>, String> {
+    if !v.is_object() {
+        return Ok(v);
+    }
+    let Ok(obj) = v8::Local::<v8::Object>::try_from(v) else {
+        return Err("shared: object cast".into());
+    };
+    let key = v8::String::new(scope, "__ocOmpShared").ok_or("shared: key alloc")?;
+    let Some(dv) = obj.get(scope, key.into()) else {
+        return Err("shared: desc get".into());
+    };
+    if !dv.is_undefined() {
+        // 描述符节点：字段全由 walker 产出（JSON.parse 面无非 own 键），
+        // 直接解，不猜。
+        let Ok(d) = v8::Local::<v8::Object>::try_from(dv) else {
+            return Err("shared: desc not object".into());
+        };
+        let num = |name: &str| -> Result<usize, String> {
+            let k = v8::String::new(scope, name).ok_or("shared: key alloc")?;
+            let val = d.get(scope, k.into()).ok_or("shared: field get")?;
+            val.number_value(scope)
+                .map(|n| n as usize)
+                .ok_or_else(|| format!("shared: {name} not number"))
+        };
+        let slot = num("slot")?;
+        let len = num("len")?;
+        let buf = shared.get(slot).ok_or("shared: slot out of range")?;
+        if buf.data.len() != len * buf.kind.elem_size() {
+            return Err("shared: byte size mismatch".into());
+        }
+        let bytes: Box<[u8]> = buf.data.to_vec().into_boxed_slice();
+        let bs = v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes);
+        let ab = v8::ArrayBuffer::with_backing_store(scope, &bs.make_shared());
+        let ta: v8::Local<v8::Value> = match buf.kind {
+            SharedKind::F64 => v8::Float64Array::new(scope, ab, 0, len)
+                .ok_or("shared: f64 view alloc")?
+                .into(),
+            SharedKind::F32 => v8::Float32Array::new(scope, ab, 0, len)
+                .ok_or("shared: f32 view alloc")?
+                .into(),
+            SharedKind::U8Clamped => v8::Uint8ClampedArray::new(scope, ab, 0, len)
+                .ok_or("shared: u8c view alloc")?
+                .into(),
+            SharedKind::U8 => v8::Uint8Array::new(scope, ab, 0, len)
+                .ok_or("shared: u8 view alloc")?
+                .into(),
+            SharedKind::I8 => v8::Int8Array::new(scope, ab, 0, len)
+                .ok_or("shared: i8 view alloc")?
+                .into(),
+            SharedKind::U16 => v8::Uint16Array::new(scope, ab, 0, len)
+                .ok_or("shared: u16 view alloc")?
+                .into(),
+            SharedKind::I16 => v8::Int16Array::new(scope, ab, 0, len)
+                .ok_or("shared: i16 view alloc")?
+                .into(),
+            SharedKind::U32 => v8::Uint32Array::new(scope, ab, 0, len)
+                .ok_or("shared: u32 view alloc")?
+                .into(),
+            SharedKind::I32 => v8::Int32Array::new(scope, ab, 0, len)
+                .ok_or("shared: i32 view alloc")?
+                .into(),
+        };
+        return Ok(ta);
+    }
+    if v.is_array() {
+        let Ok(arr) = v8::Local::<v8::Array>::try_from(v) else {
+            return Err("shared: array cast".into());
+        };
+        for i in 0..arr.length() {
+            let Some(e) = arr.get_index(scope, i) else {
+                return Err("shared: elem get".into());
+            };
+            if e.is_object() {
+                let r = rebuild_shared(scope, e, shared)?;
+                if arr.set_index(scope, i, r).is_none() {
+                    return Err("shared: elem set".into());
+                }
+            }
+        }
+        return Ok(v);
+    }
+    // plain object：JSON.parse 产物，own enumerable 键逐一换成员。
+    let Some(names) = obj.get_own_property_names(
+        scope,
+        v8::GetPropertyNamesArgs {
+            mode: v8::KeyCollectionMode::OwnOnly,
+            ..Default::default()
+        },
+    ) else {
+        return Err("shared: own names".into());
+    };
+    for i in 0..names.length() {
+        let Some(nv) = names.get_index(scope, i) else {
+            return Err("shared: name get".into());
+        };
+        let Some(val) = obj.get(scope, nv) else {
+            return Err("shared: member get".into());
+        };
+        if val.is_object() {
+            let r = rebuild_shared(scope, val, shared)?;
+            if obj.set(scope, nv, r).is_none() {
+                return Err("shared: member set".into());
+            }
+        }
+    }
+    Ok(v)
 }
 
 /// 进程级常驻团队（惰性：首次 isolate 派发时起线程池）。worker 数 =

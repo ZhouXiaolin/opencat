@@ -19,7 +19,7 @@
 //!   状态经 isolate data slot 取回。
 
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::anyhow;
 use serde_json::Value as JsonValue;
@@ -30,6 +30,8 @@ use v8::{
 
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::recorder::MutationStore;
+
+use crate::script::omp::protocol::{SharedBuf, SharedKind};
 
 // ── V8 platform lifecycle ────────────────────────────────────────────
 
@@ -105,6 +107,259 @@ fn v8_to_json(scope: &mut PinScope<'_, '_>, v: Local<Value>) -> anyhow::Result<J
     };
     let text = s.to_rust_string_lossy(scope);
     serde_json::from_str(&text).map_err(|e| anyhow!("v8: JSON round-trip failed: {e}"))
+}
+
+/// omp plain 实参树里的 TypedArray 节点 → binary 快照 + 描述符。字节经
+/// `copy_contents` 一次 memcpy 进 `SharedBuf`（逐位无损，同
+/// `float_roundtrip` 合同）；JSON 面只留 `{"__ocOmpShared": {slot, len}}`，
+/// worker 侧（v8_team `rebuild_shared`）按描述符从 `env.shared` 重建真
+/// TypedArray。detach/短拷等异常 → Err = 调用点回落 [`v8_to_json`] 老路。
+fn omp_ta_shared(
+    scope: &mut PinScope<'_, '_>,
+    v: Local<Value>,
+    shared: &mut Vec<SharedBuf>,
+) -> Result<JsonValue, ()> {
+    let kind = if v.is_float64_array() {
+        SharedKind::F64
+    } else if v.is_float32_array() {
+        SharedKind::F32
+    } else if v.is_uint8_clamped_array() {
+        SharedKind::U8Clamped
+    } else if v.is_uint8_array() {
+        SharedKind::U8
+    } else if v.is_int8_array() {
+        SharedKind::I8
+    } else if v.is_uint16_array() {
+        SharedKind::U16
+    } else if v.is_int16_array() {
+        SharedKind::I16
+    } else if v.is_uint32_array() {
+        SharedKind::U32
+    } else if v.is_int32_array() {
+        SharedKind::I32
+    } else {
+        return Err(());
+    };
+    let Ok(view) = Local::<v8::ArrayBufferView>::try_from(v) else {
+        return Err(());
+    };
+    let byte_len = view.byte_length();
+    let mut bytes = vec![0u8; byte_len];
+    let copied = view.copy_contents(&mut bytes);
+    if copied != byte_len {
+        return Err(());
+    }
+    let len = copied / kind.elem_size();
+    let slot = shared.len();
+    shared.push(SharedBuf { kind, data: bytes.into() });
+    Ok(serde_json::json!({ "__ocOmpShared": { "slot": slot, "len": len } }))
+}
+
+/// omp plain 实参树 walker：TypedArray 节点转描述符（[`omp_ta_shared`]），
+/// 其余按 JSON.stringify 语义递归——own enumerable（整数键升序在前、
+/// ConvertToString）、getter 取值、对象成员的 function/undefined 值省略
+/// （Ok(None)）、数组空洞与函数元素 → null、非有限数 → null。不可处理
+/// 面（toJSON 可调用、Date、环、深度超限）Err = 调用点整子树回落
+/// [`v8_to_json`] 老路：stringify 对环抛 TypeError → Null，与旧路径同值。
+/// `visited` = identity hash 栈（hash 碰撞 = 假阳性回落，安全侧）。
+fn omp_plain_walk(
+    scope: &mut PinScope<'_, '_>,
+    v: Local<Value>,
+    shared: &mut Vec<SharedBuf>,
+    visited: &mut Vec<i32>,
+    depth: usize,
+) -> Result<Option<JsonValue>, ()> {
+    if v.is_typed_array() {
+        return omp_ta_shared(scope, v, shared).map(Some);
+    }
+    if v.is_undefined() || v.is_function() {
+        return Ok(None);
+    }
+    if v.is_null() {
+        return Ok(Some(JsonValue::Null));
+    }
+    if v.is_string() {
+        return Ok(Some(JsonValue::String(v.to_rust_string_lossy(scope))));
+    }
+    if v.is_number() {
+        return Ok(Some(json_number(v.number_value(scope).unwrap_or(f64::NAN))));
+    }
+    if v.is_boolean() {
+        return Ok(Some(JsonValue::Bool(v.boolean_value(scope))));
+    }
+    // stringify 特例与超限：整子树回落 stringify 老路。
+    if v.is_date() || depth > 64 {
+        return Err(());
+    }
+    let Ok(obj) = Local::<v8::Object>::try_from(v) else {
+        return Err(());
+    };
+    let hash = obj.get_identity_hash().get();
+    if visited.contains(&hash) {
+        return Err(());
+    }
+    // toJSON（含原型链）是 stringify 特例，walker 不复刻 → 回落。
+    let Some(tj) = v8::String::new(scope, "toJSON").and_then(|k| obj.get(scope, k.into())) else {
+        return Err(());
+    };
+    if tj.is_function() {
+        return Err(());
+    }
+    visited.push(hash);
+    let done = |visited: &mut Vec<i32>| visited.pop();
+    if v.is_array() {
+        let Ok(arr) = Local::<v8::Array>::try_from(v) else {
+            done(visited);
+            return Err(());
+        };
+        let mut items = Vec::with_capacity(arr.length() as usize);
+        for i in 0..arr.length() {
+            let Some(e) = arr.get_index(scope, i) else {
+                done(visited);
+                return Err(());
+            };
+            match omp_plain_walk(scope, e, shared, visited, depth + 1) {
+                Ok(Some(j)) => items.push(j),
+                Ok(None) => items.push(JsonValue::Null),
+                Err(()) => {
+                    done(visited);
+                    return Err(());
+                }
+            }
+        }
+        done(visited);
+        return Ok(Some(JsonValue::Array(items)));
+    }
+    // plain object：own enumerable string 键（V8 整数索引升序在前 = stringify
+    // 键序）。
+    let Some(names) = obj.get_own_property_names(
+        scope,
+        v8::GetPropertyNamesArgs {
+            mode: v8::KeyCollectionMode::OwnOnly,
+            ..Default::default()
+        },
+    ) else {
+        done(visited);
+        return Err(());
+    };
+    let mut map = serde_json::Map::new();
+    for i in 0..names.length() {
+        let Some(nv) = names.get_index(scope, i) else {
+            done(visited);
+            return Err(());
+        };
+        let Some(ns) = nv.to_string(scope) else {
+            done(visited);
+            return Err(());
+        };
+        let key = ns.to_rust_string_lossy(scope);
+        let Some(val) = obj.get(scope, nv) else {
+            done(visited);
+            return Err(());
+        };
+        if val.is_function() || val.is_undefined() {
+            continue; // stringify 省略该键
+        }
+        match omp_plain_walk(scope, val, shared, visited, depth + 1) {
+            Ok(Some(j)) => {
+                map.insert(key, j);
+            }
+            Ok(None) => {}
+            Err(()) => {
+                done(visited);
+                return Err(());
+            }
+        }
+    }
+    done(visited);
+    Ok(Some(JsonValue::Object(map)))
+}
+
+/// 写回应用的目标槽（omp take 后 [[Set]] 通道）：TypedArray 且语义可
+/// 精确复刻 → 直写 backing store；其余（JS Array 的 length/hole 语义、
+/// 整型 TA 的 modulo 转换面）保留 V8 API 路径零风险。
+enum OmpApplyTarget<'s> {
+    Typed { ptr: *mut u8, kind: SharedKind, len: usize },
+    Obj(Local<'s, Object>),
+    None,
+}
+
+/// 槽目标解析（每帧每槽一次）：f64/U8Clamped TA 直写；detach（null 指针）
+/// 与其余 TA kind 落 API 路径。
+fn omp_apply_target<'s>(
+    scope: &mut PinScope<'s, '_>,
+    v: Local<'_, Value>,
+) -> OmpApplyTarget<'s> {
+    let kind = if v.is_float64_array() {
+        SharedKind::F64
+    } else if v.is_uint8_clamped_array() {
+        SharedKind::U8Clamped
+    } else {
+        return match v.to_object(scope) {
+            Some(o) => OmpApplyTarget::Obj(o),
+            None => OmpApplyTarget::None,
+        };
+    };
+    let Ok(ta) = Local::<v8::TypedArray>::try_from(v) else {
+        return match v.to_object(scope) {
+            Some(o) => OmpApplyTarget::Obj(o),
+            None => OmpApplyTarget::None,
+        };
+    };
+    let ptr = ta.data() as *mut u8;
+    if ptr.is_null() {
+        return match v.to_object(scope) {
+            Some(o) => OmpApplyTarget::Obj(o),
+            None => OmpApplyTarget::None,
+        };
+    }
+    OmpApplyTarget::Typed { ptr, kind, len: ta.length() }
+}
+
+/// ES ToUint8Clamp（`Uint8ClampedArray[i] = v` 的数值语义）：NaN→0、
+/// ≤0→0、≥255→255、round-half-to-even。规范步序逐条复刻。
+fn omp_to_u8_clamp(v: f64) -> u8 {
+    if v.is_nan() || v <= 0.0 {
+        return 0;
+    }
+    if v >= 255.0 {
+        return 255;
+    }
+    let f = v.floor();
+    let rem = v - f;
+    let m = if rem > 0.5 {
+        f + 1.0
+    } else if rem < 0.5 {
+        f
+    } else if (f as i64) % 2 == 0 {
+        f
+    } else {
+        f + 1.0
+    };
+    m as u8
+}
+
+/// TypedArray 元素直写（f64/U8Clamped 语义同值复刻）：f64 无转换（Acc =
+/// 读旧值 f64 相加写回，与 get_index/number_value + set_index 同值）；
+/// U8Clamped 读旧值 u8→f64 精确，写回过 ToUint8Clamp。idx OOB = no-op
+/// （ES 越界写，与 V8 [[Set]] 一致）。backing store 是 external 内存，
+/// GC 不搬家；同帧页面代码不运行，无 detach 竞态。
+fn omp_typed_write(ptr: *mut u8, kind: SharedKind, idx: usize, acc: bool, val: f64) {
+    unsafe {
+        match kind {
+            SharedKind::F64 => {
+                let p = ptr as *mut f64;
+                *p.add(idx) = if acc { *p.add(idx) + val } else { val };
+            }
+            SharedKind::U8Clamped => {
+                let cur = f64::from(*ptr.add(idx));
+                *ptr.add(idx) =
+                    omp_to_u8_clamp(if acc { cur + val } else { val });
+            }
+            // 其余 kind 不进直写面（omp_apply_target 已过滤）。
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// `__opencatCallNative` 的参数数组 → `serde_json::Value` 列表。原始值（数字/
@@ -877,6 +1132,7 @@ fn omp_take(
     };
     let n_args = arg_names.len();
     let mut rest: Vec<JsonValue> = Vec::with_capacity(n_args);
+    let mut shared: Vec<SharedBuf> = Vec::new();
     for (k, name) in arg_names.iter().enumerate() {
         if is_prng(name) {
             rest.push(JsonValue::Null); // 函数值不可 JSON 化；骨架已预采
@@ -949,7 +1205,15 @@ fn omp_take(
         } else if v.is_boolean() {
             Ok(JsonValue::Bool(v.boolean_value(scope)))
         } else {
-            v8_to_json(scope, v)
+            // plain 树：TypedArray 走 binary 旁路（描述符 + 快照），其余
+            // walker 复刻 stringify 语义；不可处理面回落 v8_to_json 老路
+            // （同值——环 → stringify 抛 → Null）。
+            let mut visited = Vec::new();
+            match omp_plain_walk(scope, v, &mut shared, &mut visited, 0) {
+                Ok(Some(j)) => Ok(j),
+                Ok(None) => Ok(JsonValue::Null),
+                Err(()) => v8_to_json(scope, v),
+            }
         };
         match json {
             Ok(j) => rest.push(j),
@@ -973,44 +1237,69 @@ fn omp_take(
     }
     let mut writes: Vec<crate::script::omp::protocol::IsolateWrite> = Vec::new();
     let mut reds: Vec<f64> = Vec::new();
+    let shared: Arc<[SharedBuf]> = Arc::from(shared);
     let mut taken = match state.store.lock() {
         Ok(mut store) => {
-            crate::script::omp::omp_take(&mut store, &ir, &rest, &prng, &mut writes, &mut reds)
+            crate::script::omp::omp_take(&mut store, &ir, &rest, shared, &prng, &mut writes, &mut reds)
         }
         Err(_) => false,
     };
-    // isolate 腿的写回：take=true 时按行序把 Set/Acc 四元组应用到真数组
-    // （ES [[Get]]/[[Set]] 语义——JS Array 与 TypedArray 通吃）。此时骨架
-    // 已旁路原循环、prng 已按行预采消耗，应用失败无法干净降级——上行已
-    // 校验对象性，这里的失败路径只为防御（false = fallback 复跑原循环）。
+    // isolate 腿的写回：take=true 时按行序把 Set/Acc 四元组应用到真数组。
+    // 槽目标预解析（每槽一次）：f64/U8Clamped TA 直写 backing store——
+    // 60 万次 [[Set]] API 写 ≈ 34ns/次是活跃帧剩余大头；其余槽走 API
+    // 老路。此时骨架已旁路原循环、prng 已按行预采消耗，应用失败无法干净
+    // 降级——上行已校验对象性，这里的失败路径只为防御（false = fallback
+    // 复跑原循环）。
+    let apply_t0 =
+        (std::env::var("OC_OMP_TRACE").ok().as_deref() == Some("1")).then(std::time::Instant::now);
     if taken {
+        let mut targets: Vec<OmpApplyTarget<'_>> = Vec::with_capacity(n_args);
+        for i in 0..n_args as i32 {
+            targets.push(omp_apply_target(scope, args.get(i + 1)));
+        }
         for w in &writes {
-            let Some(obj) = args.get(w.arg as i32 + 1).to_object(scope) else {
-                taken = false;
-                break;
-            };
-            let cur = if w.acc {
-                match obj
-                    .get_index(scope, w.idx)
-                    .and_then(|v| v.number_value(scope))
-                {
-                    Some(c) => c + w.val,
-                    None => {
+            match targets.get(w.arg) {
+                Some(OmpApplyTarget::Typed { ptr, kind, len }) => {
+                    if (w.idx as usize) < *len {
+                        omp_typed_write(*ptr, *kind, w.idx as usize, w.acc, w.val);
+                    }
+                }
+                Some(OmpApplyTarget::Obj(obj)) => {
+                    let cur = if w.acc {
+                        match obj
+                            .get_index(scope, w.idx)
+                            .and_then(|v| v.number_value(scope))
+                        {
+                            Some(c) => c + w.val,
+                            None => {
+                                taken = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        w.val
+                    };
+                    if obj
+                        .set_index(scope, w.idx, v8::Number::new(scope, cur).into())
+                        .is_none()
+                    {
                         taken = false;
                         break;
                     }
                 }
-            } else {
-                w.val
-            };
-            if obj
-                .set_index(scope, w.idx, v8::Number::new(scope, cur).into())
-                .is_none()
-            {
-                taken = false;
-                break;
+                _ => {
+                    taken = false;
+                    break;
+                }
             }
         }
+    }
+    if let Some(t0) = apply_t0 {
+        eprintln!(
+            "[omp] isolate apply wall: {:?} for {} writes",
+            t0.elapsed(),
+            writes.len()
+        );
     }
     // reduction 面：take=true 且有 red 终值 → 返回折叠值数组（守卫把它
     // 赋给 `__ocOmpRed`，else 臂按 ir.reduction 展开序取 `__ocOmpRed[k]`

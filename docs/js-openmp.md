@@ -218,13 +218,26 @@ JS 原生），行产出为 op 缓冲，host 按行序直推命令流（如
 
 ### 6.4 快照浮点合同（copy-in 逐位无损）
 
-plain capture 的值走「页面活值 → host 序列化文本 → worker 解析」往返。
+plain capture 的值走「页面活值 → host 序列化 → worker 解析」往返。
 合同：**f64 往返必须逐位无损**（正确舍入）。Rust 侧的硬约束：
 `serde_json` 必须启用 `float_roundtrip`——默认 feature 的快速解析算法
 对边界值可错 1 ulp（smallpt 实锤：方向向量分量 `...9491` 进 worker 变
 `...9493`，只有球缘擦边射线翻转命中 → 稀疏像素分歧，极难归因）。
 判定「快照无损」必须对全部 capture 值做逐位（bits）比较，抽点相等
 不构成证据。
+
+**TypedArray 不走文本**：plain 树里探到的 TypedArray 由 host
+`copy_contents` 一次 memcpy 进 `FrameEnv.shared`（`SharedBuf { kind,
+data: Arc<[u8]> }` 快照，逐位无损天然成立）；args_json 该节点只留描述
+符 `{"__ocOmpShared": {"slot": k, "len": N}}`（N = 元素数，字节长 =
+N × 元素大小）。worker 装载 capture 时按描述符从 `shared[k]` 重建同
+类型 TypedArray（每 worker 独立字节克隆 + 独立 backing store——v1 快
+照语义，行函数对它的写不出 worker，写回只有 §6.2 的 Set/Acc 通道）。
+`__ocOmpShared` 是保留键：页面数据若在 capture 实参树里自带同名键会
+与协议冲突（与 `__ocOmpArr` 同一约定）。walker 的其余面按
+JSON.stringify 语义复刻（own enumerable、getter 取值、函数值省略、
+NaN→null）；toJSON/Date/环等特例整子树回落 JSON 老路（环 → stringify
+抛错 → null），回落决策只依赖树形不依赖帧数据，字节确定。
 
 ## 7. worker 适配面（引擎无关性的切面）
 
@@ -243,7 +256,11 @@ trait JsWorker:        run_row(row, &FrameEnv) -> Result<RowOut>
 2. `run_row` 传入行号与 prng 行段；行函数产出 `RowOut`
    `{ slots, ops, red }` 三通道。
 3. 数据面 = 结构化克隆（number/string/bool/null/plain array/plain
-   object/Float64Array 段），无跨实例共享对象。
+   object/Float64Array 段），无跨实例共享对象。装载 capture 时把
+   args_json 树里的 `__ocOmpShared` 描述符换回 `env.shared[slot]` 的
+   TypedArray（§6.4）；不支持 binary 槽的适配层可以直接把描述符当
+   plain 对象喂给 worker——但那会读不到数据，等价于标注面未覆盖该
+   实参形态，应报错毒化。
 4. 引擎内 `Math.*` 逐位一致由「同引擎同源码」保证。
 
 ## 8. 降级语义

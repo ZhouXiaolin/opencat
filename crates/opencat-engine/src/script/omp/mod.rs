@@ -323,6 +323,7 @@ pub fn omp_take(
     store: &mut MutationStore,
     ir: &JsonValue,
     args: &[JsonValue],
+    shared: Arc<[protocol::SharedBuf]>,
     prng: &[f64],
     writes: &mut Vec<protocol::IsolateWrite>,
     reds: &mut Vec<f64>,
@@ -353,7 +354,7 @@ pub fn omp_take(
         if let Ok(f) = std::env::var("OC_OMP_DUMP_BUNDLE") {
             std::fs::write(&f, bundle.src.as_bytes()).ok();
         }
-        return take_isolate(&key, ir, &bundle, args, prng, store, writes, reds);
+        return take_isolate(&key, ir, &bundle, args, shared, prng, store, writes, reds);
     }
     let arg_kinds = &prog.arg_kinds;
     if args.len() != prog.arg_names.len() {
@@ -643,6 +644,7 @@ fn take_isolate(
     ir: &JsonValue,
     bundle: &Arc<protocol::Bundle>,
     args: &[JsonValue],
+    shared: Arc<[protocol::SharedBuf]>,
     prng: &[f64],
     store: &mut MutationStore,
     writes: &mut Vec<protocol::IsolateWrite>,
@@ -697,7 +699,8 @@ fn take_isolate(
         _ => team::Schedule { r#static: false, chunk: 1, num_threads },
     };
     let t0 = std::time::Instant::now();
-    let slots = match team::execute(global_team(), bundle, &args_json, Arc::from(prng), &sched) {
+    let slots = match team::execute(global_team(), bundle, &args_json, shared, Arc::from(prng), &sched)
+    {
         Ok(s) => s,
         Err(e) => {
             poison(key, &format!("isolate exec: {e}"));

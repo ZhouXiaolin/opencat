@@ -1,511 +1,203 @@
-# vfx 原始 html 直渲对齐计划
+# hyperframes-launches 语料对齐计划
 
-分支 `feat/html5ever-hyperframes`。终极目标：**用 OpenCat 的 core/engine 完美执行 hyperframes 原始 html**。
+> 2026-11-14 重写。旧版过程记录（vfx 直渲计划、Vulkan 批次、五项修复等）
+> 见 git 历史（4d3ba8ac 及此前）。本文件只保留：口径、现状、缺陷清单、
+> 流程纪律。以当前工作树与本轮实测为准，不引用旧 avg_p8 基线。
 
-**总目标（2026-11-06 拍板）：至少四个工程 index.html 直渲 + 各自 swgl 参考 k3diff avg_p8 < 0.02：**
-`k3-promo`（已达标 0.0175 全片 html 版）、`vfx-heygen-combined`（本计划主体）、`hyperframes-launch`（hf）、
-`liquid-brand-refraction`。
+## 一、目标与验收口径
 
-- 渲染输入：`F:/hyperframes-launches/vfx-heygen-combined/index.html`（1617 行，未做任何改动）
-- 参考：`F:/hyperframes-launches/vfx-heygen-combined/renders/vfx-heygen-combined_2026-10-05_swgl.mp4`
-  （1920×1080@30，788 帧 / 26.267s）
-- 门：`python tools/k3diff.py <ref> <our> --out <dir>`，**avg_p8 < 0.02**
-- 不写测试；只用 k3diff。`examples/vfx-heygen-combined`（jsx 移植版）不参与本计划，它的分数与本目标无关。
+目标：opencat（硬件 Vulkan，`render_one.sh` 配置）渲染
+`~/Projects/hyperframes-launches` 全部 23 个带 `*swgl*.mp4` 参考
+的 example，与参考视觉一致。
 
-**GL 执行端拍板（2026-11-06）：engine 的 WebGL 命令流执行换 `mozangle`（servo 维护的 ANGLE crate，
-Windows D3D11 后端），不再直调桌面 GL。** 动机：PMREM（three r147 半浮点 RT 多 pass 预滤波）在
-WGL/NVIDIA 桌面 GL 上驱动层段错误（`gl.create_vertex_array()` 内部崩，OC_GL_TRACE 定位实证）；
-ANGLE 严格按 WebGL/GLES 语义校验参数（无效参数返回错误不崩驱动），且语义贴近 swgl 参考实现。
+判定优先级（从高到低）：
 
-## 一、起点（2026-11-06 实测）
+1. **有 vs 无**：整段场景、文字、图标、贴纸、按钮缺失或多余——必须修。
+2. **形态与位置**：卡片几何、版式结构、竖排/弧形文字、堆叠布局——必须修。
+3. **内容正确性**：文案、字标、标签色、列表标记、空格——必须修。
+4. **动画与相位**：打字/回放序列相位、平移相位差、次要图标形态——酌情修。
+5. **噪点不优先**：噪声种子、颗粒、AA、字体栅格、混沌/渐变背景造成的
+   指标劣化（如 vfx 0.164 / inspector 0.146 / figma 0.119 的高 avg_p8）
+   不是对齐问题，**不为压指标改渲染路径**。
 
-**当前一帧都渲不出。** 原样命令与报错：
+指标（`avg_p8`/`mae`/ffmpeg `ssim`/结构 `d4`/`ncc`/`shift`）只作定位辅助，
+**验收以 `walk_sheet.py` 并排目视为准**。
 
+## 二、现状（2026-11-14，run4）
+
+23 例全部 `rc=0`。聚合榜 `out/vulkan-sweep/summary.json`、结构采样
+`structure_probe.json`、并排图 `contact/`（`scripts/walk_sheet.py` 重建）。
+
+**A 级——达标 13 例**（并排目视一致，残余为噪声/AA/微偏移，不再投入）：
+`vfx-heygen-combined`、`inspector-launch`、`figma-launch`、
+`hyperframes-launch`、`texture-launch-video`（纹理字已恢复，剩微偏移）、
+`website-to-hyperframes`、`sfx-music-launch`、`variables-launch`、
+`liquid-brand-refraction`、`heygen-apple-motion--hero/01/03/04`。
+
+**B 级——有真实缺陷 10 例**，见下节。
+
+已落地不可回退的修复（run4 验证）：绝对定位 definite-width 换行、
+interleaveKids 真 DOM 序、svg 内部绘制注入（resolve 期）、svg face 的
+style 写穿、@font-face 作用域分类去注释、markup 大小写保留、
+canvas2d 文本一律字形 Path + DrawOp（绘制阶段禁止 surface 位图）。
+
+## 三、B 级缺陷清单与修复顺序
+
+每项：症状（帧号）→ 疑似方向 → 验收帧。修完一例即在「现状」销号，
+并重跑该例 `compare_one.sh` + `walk_sheet.py` 目视确认。
+
+### 1. frame-md-launch-storyboard（最大遗留）
+- f258：黑卡几何偏移；多出 `## Style Prompt` 大标题；缺左侧竖排
+  `Written for` 文字。
+- f1231：文本块整体偏高；右上泄漏 `Frame 542 (composition id:
+  storyboard)` 调试小字（参考无——查是渲染端 overlay 还是语料 DOM）。
+- f1033/f1549：卡片略小（比例/边距）。
+- 注：f1231 的 `## Hero Band` 参考同样有，是场景内容，非缺陷。
+- 验收帧：258 / 516 / 1033 / 1231 / 1549。
+
+### 2. codex-five-hour-limit-replica
+- f0/f87：`ChatGPT`/`Codex` 字标缺失（只剩图形 logo）——查文字加载
+  时序与字体。
+- f261/f347：输入框打字文本缺失（`SPeak`、`…restriction for plUs`）。
+- f521/f608：`End the five hour limit…` 贴纸缺失。
+- f434 起：发送箭头（黑圆↑）缺失。
+- 人物与卡片位置已一致。
+- 验收帧：0 / 87 / 261 / 347 / 434 / 521 / 608。
+
+### 3. spacex-launch
+- f1015：`$1.0T` 估值卡空卡——先查相位（数字是否晚出现）再查缺失。
+- f507：聊天列表项目符号圆点缺失（文字在，`list-style` 标记没画）。
+- f338：Thinking 动画点图标缺失（次要）。
+- 验收帧：338 / 507 / 577 / 848 / 1015。
+
+### 4. HF-heygen-stripe
+- f829：叠字动画——参考 `pays/discovers/provisions` 竖排三行渐隐，
+  我们挤成一行互相叠盖成乱码（查行的换行/定位与 stagger 时序）。
+- f497：终端命令打字相位（`stripe projects add heygen/api` 只打到
+  `stripe`）——相位类，排后。
+- 验收帧：166 / 331 / 497 / 829 / 1160。
+
+### 5. k3-promo
+- f70：选择框内 `Every token of context` 文字缺失。
+- f493：片尾 `K3` 字标只剩图标（同类字标缺失，与 codex 合并排查）。
+- 平移动画横向相位差（shift=43）为相位非形态，不单独立项。
+- 验收帧：70 / 141 / 211 / 282 / 493。
+
+### 6. cloud-render-launch
+- f163：我们提前进入像素怪物白底场景（参考仍为暗色聊天窗）——场景
+  切换时序。
+- f814：w00 进度条参考青色已填充，我们空条（查进度宽度动画/颜色）。
+- 细线与字重差为既有记录，酌情。
+- 验收帧：163 / 325 / 496 / 814 / 1136。
+
+### 7. heygen-apple-motion--02-bouncy-ui
+- f156/f259/f311：通知/聊天气泡的头像圆缺失。
+- f311：`+ Opportunity` 参考粉色、我们黑色（查颜色继承/变量）。
+- f156：弧形文字间距偏宽。
+- 验收帧：52 / 104 / 156 / 259 / 311。
+
+### 8. pr-to-video-launch
+- f899：片尾 `Create your PR video today` 中彩色 span 前后空格丢失
+  （渲染成 `yourPR videotoday`）——疑似文本节点间空白合并，可能是
+  通用缺陷，修在解析/序列化层并全语料回归。
+- 验收帧：128 / 514 / 642 / 899。
+
+### 9. claude-design-send-hyperframes-launch（遗留已降级为动画细节）
+- f1287：均衡器条参考高低起伏动画，我们一排等高平条。
+- f1056：连接器行 hover 高亮缺失。
+- 曲线渐画细节、弹窗微位差。
+- 验收帧：211 / 422 / 633 / 1056 / 1287。
+
+### 10. timeline-launch（观察项，不立项）
+- f431：聊天回放瞬态差（参考数值 pill vs 我们文本气泡）。若修 2/8 时
+  顺手可查，否则搁置。
+
+## 四、流程与工具
+
+```bash
+# 单例渲染（硬件 Vulkan 配置见脚本头注释）
+out/vulkan-sweep/scripts/render_one.sh <slug>
+# 单例对比（k3diff + SSIM，含 trim/shortest 修正）
+out/vulkan-sweep/scripts/compare_one.sh <slug>
+# 全量并排目视（23 例 × 8 帧，覆盖 contact/）
+python3 out/vulkan-sweep/scripts/walk_sheet.py
+# 批次完成后全量回归
+out/vulkan-sweep/scripts/run_sweep.sh && out/vulkan-sweep/scripts/summarize.py
 ```
-$ ./target/release/opencat.exe render F:/hyperframes-launches/vfx-heygen-combined/index.html out/x.png 0
-Error: html: nested composition (data-composition-src) not supported yet (1 host(s))
-```
 
-把 `data-composition-src` 属性临时改名（工程目录内 `_probe.html`，探针）后继续推进，暴露下一层阻塞：
-
-```
-Error: failed to download asset from https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js
-  ... tunnel error: unsuccessful        # 代理抖动，重试后通过
-Error: script eval: ReferenceError: Request is not defined
-    at mc.load (<anonymous>:1148:499169)
-    at GLTFLoader.load (<anonymous>:1790:11)
-```
-
-所以当前的阻塞是三层串起来的，不是渲染质量问题：
-
-1. **`data-composition-src` 嵌套未实现** —— `#vfx-intro` 引 `compositions/vfx-text-cursor.html`
-   （794 行，`data-start=0`、`data-duration=6.48`，覆盖 0–194 帧，占全片 25%）。
-2. **CDN 依赖无离线保障** —— html 头部引 8 个远程脚本：gsap 3.14.2、three r147 及其
-   DRACOLoader / GLTFLoader / CopyShader / LuminosityHighPassShader / EffectComposer /
-   RenderPass / ShaderPass / UnrealBloomPass。网络抖一次整帧渲染就失败，全片渲染不可复现。
-3. **运行时缺 Web 平台面** —— three 的 FileLoader 需要 `Request`/`fetch`（读 `models/iphone.glb`）；
-   再往上 `new THREE.WebGLRenderer({canvas})` 需要 `canvas.getContext('webgl'|'webgl2')`。
-
-## 二、目标工程的渲染依赖清单（从 index.html 读出）
-
-| 元素 | 依赖能力 | 现状 |
-| --- | --- | --- |
-| `#vfx-intro` → `compositions/vfx-text-cursor.html` | 嵌套 composition（子时间轴 + 窗口） | ❌ 硬报错 |
-| `<video id="bg-video" src="assets/bg.mp4" data-start="5.58" data-duration="5">` | video 解码 + 帧同步 + 窗口 | ❌ 未接 |
-| `<canvas id="theater">` + three r147 WebGLRenderer + EffectComposer/UnrealBloomPass | GL 上下文 + 后处理链 | ❌ html 通道无 GL |
-| `<canvas id="chromatic-canvas">` / `#portal-canvas` | GLSL shader（全屏场） | ❌ |
-| `<canvas id="chromatic-cap" layoutsubtree>` + 内嵌 `<section>` | canvas 承载 DOM 子树（新 API） | ❌ 未支持 |
-| `<img>` ×3（png/svg）、`captures/heygen-mobile/screen-strip.png` | 图片/SVG 光栅 | ✅ 大体可用 |
-| 内联 `<svg><path>` 图标 | svg 通道 | ✅ 已有 svg-align 能力 |
-| CSS 布局/渐变/滤镜（`filter: blur/drop-shadow`） | html 通道 CSS | ⚠️ 部分（filter 未全） |
-| 页面脚本（1000+ 行：时间线、shader、打字、DOM 动画） | JS DOM + MutationStore | ✅ 可用（k3 已验证） |
-
-## 三、里程碑（按阻塞顺序，不按工作量）
-
-### M0 渲出第一帧（解除三层阻塞）
-- [ ] **M0.1 嵌套 composition**：宿主 div 按 `data-start/duration/width/height` 挂载子文档，
-      子文档的脚本在自己的 realm 里跑（或共享 realm + 时间轴命名空间隔离），子时间轴按
-      `t_local = t_host - start` 驱动，窗口外不进渲染。判据：`_probe.html` 恢复原属性后能出图。
-- [ ] **M0.2 依赖可复现**：CDN 脚本预取进磁盘缓存，并提供「工程内 vendor 目录优先」的解析顺序；
-      判据：断网重渲同一帧成功，且缓存命中时耗时 < 1s。
-- [ ] **M0.3 `fetch`/`Request`/`Headers`/`XMLHttpRequest` 最小面**：至少覆盖 three FileLoader 的
-      二进制加载路径（本地文件 + 缓存 + http(s)），返回 ArrayBuffer/Blob 语义正确。
-- [ ] **M0.4 `canvas.getContext('webgl2'|'webgl')`**：桥到引擎既有 GL 通道（jsx 通道已有 GL stream
-      DrawOp），支持 three 用到的子集：buffer/texture/program/uniform/framebuffer/readPixels。
-      **这是最大的一块**，先做「能出图」，不追求完整 API。
-- 判据：第 0/100/300/700 帧能渲出图 × 无错误 × 与参考同区段目视同构。
-
-### M1 逐场景点亮（每场景独立判据）
-按时间顺序，每段先「有 vs 无」，再「对不对」：
-
-- [ ] 0–194 帧：intro（`vfx-text-cursor` 子工程）—— 依赖 M0.1；先对 DOM/文本，再对光线场。
-- [ ] 167–317 帧：`bg-video` 素材（5.58s 起 5s）—— 依赖 video 通道。
-- [ ] 全片：`#theater` iPhone 场景 —— 依赖 M0.3/M0.4；先对几何/构图，再对光照/色相，
-      最后对 bloom（UnrealBloomPass 的参数与权重）。
-- [ ] 400–500 帧：chromatic-split 全屏 shader。
-- [ ] 尾段：portal shader + CTA。
-
-### M2 结构与低频对齐（每段 p8 收敛）
-- [ ] 段级指标表（每 50 帧）作为唯一进度表，每次全片渲染后追加。
-- [ ] 先消「整块缺失/位置错」，再消「色带/亮度差」（可用低通 p8 作为结构指标）。
-
-### M3 颗粒与位级
-- [ ] intro 的 `fract(sin(gx*489+gy*647+progress*1527.168)*492)` sin-hash 颗粒：
-      参考由 SwiftShader(swgl) 渲，我们的 GL 后端浮点近似可能不同。
-      **先测同一像素的参考值 vs 我们值**，再决定是「对齐实现」还是「标为已知地板」。
-
-## 四、顺带解决的余下问题（撞到就修，不单独立项）
-
-- [ ] `letterSpacing` 进 canvas mock 的 measureText（k3 遗留；vfx 打字场景同样依赖测量）。
-- [ ] `@font-face` / 工程内字体（vfx html 用 `font-family: Inter, system-ui, ...`，系统无 Inter）。
-- [ ] `filter: blur()/drop-shadow()`（时间线大量进出场用）。
-- [ ] `<canvas layoutsubtree>` 的 DOM 子树承载。
-- [ ] 视频通道（`<video>` + data-start/duration + muted + 逐帧 seek）。
-- [ ] html 通道的 k3 不退化：全局改动后 k3-promo/engine 必须仍 ≈0.0124（当前 0.0175 全片 html 版）。
+- 清单与参考路径：`out/vulkan-sweep/manifest.txt`。
+- 单帧验证产物放 `out/vulkan-sweep/fix<N>/`，一例一目录，含并排 compare 图。
+- 每轮修复结束把结论更新进「现状」小节，不重开过程记录。
 
 ## 五、纪律
 
-- 只认 k3diff；全片渲染约 3 分钟、比对约 1 分钟，改完先单帧定位。
-- 单帧：`./target/release/opencat.exe render <html> out.png <frame>`
-- 任何全局改动（布局/文本/GL/脚本宿主）都跑 `SKIP_BUILD=1 ./scripts/regression-gate.sh` 三例。
-- 探针一律落在工程内 `_probe*.html` 或 `OC_*` 环境变量，收尾即删；
-  `grep -rn "OC_[A-Z]" crates/` 与工程内 `_probe*` 都必须清零。
-- 每完成一个里程碑，把该段典型帧的并排图存 `out/vfx-align/`，指标写进本文底部。
+1. 视觉一致即好；随机数、噪点、采样、AA 差异不投入。
+2. 修「有 vs 无」优先于修「颜色与噪点」；先修共因（字标缺失、span
+   空格、列表标记可能同源），再修单例。
+3. 无效补丁立即撤销（如 `:not()` 探针），不保留无收益代码。
+4. 2D 文本保持字形 Path 纪律；不在绘制阶段光栅化。
+5. 不引用旧 avg_p8 基线；对比只用本轮产物。
+6. 中文交流；`rg` 优先；不写不必要的代码。
 
-## 六、风险（先摆明）
+## 六、完成定义
 
-1. **M0.4 体量最大**：three r147 依赖的 WebGL 面不小（含 framebuffer 链、浮点纹理、readPixels），
-   可能要和 jsx 通道的 GL 实现合并，才不至于写两套。
-2. **swgl 是软件光栅**：即使 shader 逻辑一致，浮点/精度差异也会让 sin-hash 颗粒、bloom 阈值不同。
-   全片 2% 的达成与否很可能卡在 M3，而不是布局。
-3. **离线可复现**是硬前置：网络抖动会让「同一份代码渲出不同结果」，这比任何视觉差距都危险。
+1. B 级 10 例按上表逐项销号，`walk_sheet.py` 目视达标；
+2. 全量 `run_sweep.sh` 回归 `rc=0` 且 A 级 13 例指标无回归
+   （±0.001 量级）；`summary.json` 重建；
+3. 本文件「现状」更新为 23/23 达标。
 
-## 七、进度记录
+## 七、@omp 标注语料分支（2026-11-14）
 
-- 2026-11-06 起点：一帧不出。阻塞①嵌套 composition（硬报错）②CDN 依赖无离线保障
-  ③`Request is not defined`（three FileLoader）④html 通道无 GL 上下文。工程内探针 `_probe.html` 已建（收尾删）。
-- 2026-11-06 上半场（本会话）：M0 大块已过，进入渲染链排雷。
-  - 上会话遗留改动确认可用：M0.1 嵌套 composition（splice + 分段 seek）、属性选择器全量、
-    `getContext('webgl')` 桥进 core 录制面、fetch/Blob 资产垫进 html 通道。
-  - 修 extract 回传：JS serializeNode 的 `src` 按 http(s) 分流成 `path`/`url`（serde 端 DomElement::Image/Video
-    只认这两个字段；静态 seed 的 path/url 原样带回）——img 首个报错由此而来。
-  - 缺资产降级（浏览器 onerror 语义）：本地文件缺失 loader 跳过 + 1×1 透明 PNG 占位进缓存注册
-    handle，prepare 不再 fail-fast。首个实例：`captures/heygen-mobile/screen-strip.png` 工程缺失
-    （HANDOFF.md 列了但目录空）；JS 面被页面自己的 `complete && naturalHeight > screenH` 防御吞掉，
-    drawImage 不触发。**strip 段内容差异记 M1 段落债**（参考里手机屏是真实捕获页面）。
-  - svg img 链路：imagesize 不认 svg 字节 → core 新增 `svg_raster`（usvg 尺寸 + resvg 光栅成预乘
-    RGBA，vendor 依赖，text feature 关）；probe 分流 + `static_image_scaled` 解码分流。`_mini-svg`
-    探针验证通过。**挂账：img 无 CSS 尺寸时布局塌 0（ImageMeta 固有尺寸未接布局）**。
-  - **vfx index.html f0/60/100/300/700 全部出图（exit 0）**，但内容差距大：f60/f100 全黑
-    （intro 子工程在宿主内未渲染——下一段主敌）；f300 红块 vs 参考打字机（参考 f300 仍在 intro，
-    时间轴与 data-duration 语义待核）；f700 灰 vs 参考 portal。M1 逐场景点亮从 intro 开始。
-  - **回归门（ANGLE 切换后）**：k3-promo/engine **PASS 0.01241（与基线逐位一致）**；web 三例
-    ChromeDriver 缺失（环境）。**vfx jsx 28.59→86.3%、hf engine 6.69→10.06% 恶化，未提交**：
-    归因实验（GL 5 文件回 HEAD → vfx jsx 回 0.28589 基线）证明恶化全来自 ANGLE 执行端；
-    tagAsWebGL2 已限定 html 通道（`__ocHtmlChannel`），限定后 jsx f300 逐位不变——
-    **根因在 ANGLE×three r152「WebGL1 判定」命令流路径**（three 场景不渲染，liquid shader
-    正常；蓝噪声场占位）。下一批：修 three r152 WebGL1 语义流在 ANGLE GLES3 上的绘制
-    （候选：GLSL100 shader 直编的行为差 / OES_VAO 扩展面 / 纹理上传语义）。
-    注意 stash 陷阱：`git checkout stash@{0} --` 恢复了过时 WIP（已归零重打补丁）。
-  - 探针清单（收尾删）：`_probe.html` `_mini-svg.html` `_mini-gl.html` `_mini-gl2.html`
-    `_probe2/3/4.html` `_probeN.html`。
+fork `ZhouXiaolin/hyperframes-launches`（upstream=heygen-com），本地
+remote 已切：origin=自己 fork、upstream=公司仓；分支
+`feat/omp-annotations`。
 
-## 八、批次③：全线 Vulkan 统一（2026-11-12 起，当前优先）
+扫描 76 个候选循环后只标 1 处：`inspector-launch/index.html:2319` 半调
+点阵网格（`// @omp parallel for`，每帧 ~225 行 × 77,836 点，isolate
+垫片腿）。其余候选全是 GSAP 时间轴构建循环（一次性 DOM 操作）、GLSL
+字符串或超 ctx 垫片面（canvas-close 的 fillText 逐格+lastFill 跨行残
+留）——不标。
 
-**拍板（2026-11-12）**：Linux / Windows / macOS 三端都用 Vulkan 启用 GPU 管线；
-GL 与 Metal 路径退役。
+**ABAB 全片实测**（同机交替，vulkan 硬件管线；判别必须显式 `[ "$x" = off ]`
+——`[ -n "$x" ]` 对 on/off 标签都为真曾导致四轮全 off 的假数据）：
 
-**动机**：Docker 打包后是纯 CPU 环境，没有 GPU 驱动。SwiftShader（Chrome/ANGLE
-用的 CPU Vulkan 实现）是唯一能同时喂饱 Skia、ANGLE、wgpu 三家的底座——三者都
-说 Vulkan，就不必各写一份 CPU 光栅路径，也不必「一端一端地做对齐」。
-
-### 已验证的前提（2026-11-12 实测）
-
-1. **三平台官方预编译包都带 Vulkan**（rust-skia 0.153.3，`rust-skia/skia-binaries`
-   releases）：`x86_64-unknown-linux-gnu-…-vulkan-…`、`x86_64-apple-darwin-…-vulkan-…`、
-   `x86_64-pc-windows-msvc-…-vulkan-…` 均存在——改 feature 不会回退源码编译。
-2. **Skia Vulkan backend 在 SwiftShader 上可建可渲**：`ash` 建 instance/device/queue
-   → `skia_safe::gpu::direct_contexts::make_vulkan` → `render_target` 画矩形，
-   读回像素精确为 `[255,0,0,255]`。
-3. **Skia Vulkan 与 GL 路径逐位一致**：vfx-heygen-combined f305，Vulkan vs GL
-   `p8 = 0.0`（逐位相同），两者对参考帧的差异也相同（`p8 = 0.0363`，残差是已知
-   dy=+10 几何偏移，修正后 0.01）。
-4. **ANGLE 暴露 `EGL_ANGLE_vulkan_image = YES`**：这是 WebGL 纹理能与 Skia
-   Vulkan backend 跨 API 零拷贝共享的前提（实测自 ANGLE Vulkan 后端的 EGL
-   扩展列表）。
-5. **wgpu 可在同一 SwiftShader ICD 上建设备**：adapter = `SwiftShader Device
-   (Subzero) (Cpu) backend=Vulkan`。
-
-### 本批次要做的事
-
-- **V1 预编译包本地化**（已完成）：`tools/skia-binaries/fetch.sh` 拉官方包到
-  `~/skia-binaries/`，`SKIA_BINARIES_URL` 指向本地 `file://` 地址。改
-  `skia-safe` 的 feature 后 key 会变，必须重跑该脚本，否则回退源码编译。
-- **V2 Vulkan 会话**（已完成）：`gpu::vk::VkSession`（ash 0.38 的句柄模型与旧版
-  不同：`Handle::as_raw()`）+ `gpu::vk::bootstrap_icd()` 统一 ICD。
-- **V3 Skia Vulkan 合成路径**（已完成，Linux）：`CompositorBackend::Vulkan` +
-  `OC_SKIA_BACKEND=vulkan` 开关；`VkRenderSession` 走 Skia 自建渲染目标。
-- **V4 WebGL 纹理跨 API 导入**（已完成，lavapipe 实测）：用
-  `EGL_ANGLE_vulkan_image` 把 ANGLE 的 VkImage 交给 Skia 的
-  `backend_render_targets::make_vulkan`，替掉 GL 纹理 `make_gl` 导入；同光栅器
-  下与独立 VkSession 逐字节一致。SwiftShader 上的零拷贝仍卡在 JIT SIGILL。
-（2026-11-12 复测：此句失效。SwiftShader 零拷贝已完整跑通 788 帧；见
-「SwiftShader 全片速度复测」。）
-- **V5 GL/Metal 退役**：删 `gpu/gl.rs`、`gpu/win32.rs`、`gpu/metal.rs`、
-  `gpu/egl.rs` 与 `present/{linux,win32,macos}.rs` 的 GL/Metal 分支；
-  `present/` 改走 Vulkan + 窗口 surface。
-- **V6 Windows/macOS 迁移**：Windows 的 ANGLE 走 Vulkan 后端（不再 D3D11）；
-  macOS 需要 MoltenVK（Vulkan on Metal）——无 MoltenVK 则 macOS 无 Vulkan。
-- **V7 单帧 tile 并行**（已验证，默认关）：帧级 flume + rayon 并行在
-  lavapipe 零拷贝下 96s / 10.4GiB，相对串行 98s / 3.05GiB 无收益——光栅器
-  线程已吃满 CPU。保留 `OC_PAR_JOBS` 开关，默认串行；单帧 tile 分块不再作为
-  当前加速杠杆。
-
-### 纪律
-
-- 每步都跑 k3diff 门：vfx-heygen-combined 全片 `avg_p8` 与基线（0.1516）
-  不得劣化；k3-promo 保持 PASS（0.01385）。
-- `OC_VK_ZERO_COPY` 打开时，WebGL 流输出纹理经 VkImage 导入 Skia；关闭时走
-  CPU 位图回读。最终合成帧仍同步读回给编码器，该读回不是纹理间零拷贝的目标。
-
-### V4/V7 实测（2026-11-12 深夜，lavapipe 零拷贝打通）
-
-**三个真根因修复（全部已验）**：
-
-1. `vulkan_handles()` 出参 `queue_family` 用了 `u32`——ANGLE 按 EGLAttrib
-   （64 位）写，多写 4 字节溢出到相邻栈变量；编译器布局一变就把
-   `gipa` 砸成垃圾值（`0x710800000000` 型）。出参一律改 `u64`。
-2. ICD dispatch 两处错：Mesa 系 ICD（lavapipe）只导出
-   `vk_icdGetInstanceProcAddr`（硬编码 dlsym `vkGetInstanceProcAddr` 拿
-   不到）；ICD 库路径改从 `VK_ICD_FILENAMES` 首个 json 的
-   `ICD.library_path` 解析（裸文件名走 dlopen 搜索，含 `/` 相对 json 目录）。
-   device 级函数仍按驱动分派：SwiftShader 走 ICD gipa，lavapipe 的
-   instance/device 是 loader 级句柄，走 loader 的 `vkGetDeviceProcAddr`，
-   并以 `BackendContext max_api_version=1.1` 兜住 loader 对 1.2/1.3 核心
-   命令的 NULL 门控。
-3. `FrameRenderer::new` 先建 `GpuRenderSession` 再被 Vk 分支遮蔽丢弃——其
-   ANGLE 会话 Drop 调 `eglTerminate`，杀死共享 display：零拷贝路径
-   `make_current` 报 0x3001（EGL_NOT_INITIALIZED），ANGLE 的 VkDevice 连带
-   销毁，Skia VMA 析构撞死 device（ICD 内解引用 `0x2881`）。双症状同源，
-   先判别 `OC_SKIA_BACKEND` 再建会话即除。
-
-**零拷贝链路验证**：k3-promo f10，lavapipe 零拷贝 PNG 与独立 VkSession
-PNG **逐字节一致**（md5 相同）；探针 `OC_VK_PROBE=1` 六步全绿。
-
-**vfx-heygen-combined 全片 788 帧（1920×1080@30，26.267s）实测**：
-
-| 配置 | 耗时 | 峰值 RSS | avg_p8（vs swgl 参考） |
+| 例 | omp off | omp on | 加速 |
 |---|---|---|---|
-| SwiftShader 串行（CPU 回读，旧基线） | 333s | 3.14GiB | 0.1681 |
-| lavapipe 零拷贝 串行 | **98s** | **3.05GiB** | 0.3794 ❌ |
-| lavapipe 零拷贝 OC_PAR_JOBS=3 | 96s | 10.4GiB | — |
+| inspector-launch | 159.3s（均值） | 52.9s（均值） | **3.01×** |
+| k3-promo（试标后撤销） | 18.9s（均值） | 19.15s（均值） | ~1.0×（持平） |
 
-- 串行稳态分解（lavapipe 零拷贝）：script=12.4ms gl-stream=32.7ms
-  draw=59.3ms readback=17.9ms，avg 122.4ms/帧。零拷贝把 gl-stream 从
-  310ms 砍到 33ms——**速度 3.4 倍的来源就是砍工作量，不是并行**。
-- `OC_PAR_JOBS=3`（flume+rayon 帧级并行，每 worker 独立 pipeline）无收益：
-  光栅器线程已吃满 CPU，内存反而 3.4 倍。帧级并行保留作开关，默认串行。
-- **像素门 FAIL**：avg_p8=0.3794 远超基线 0.1516。分歧集中在 ANGLE 光栅的
-  WebGL 3D 开场（f0-199，p0 低至 0.11）；非 WebGL 段 mae≈0.24——llvmpipe
-  与 SwiftShader 的光栅精度/AA 不同，ANGLE-on-Vulkan(llvmpipe) 与参考
-  ANGLE-on-swgl 逐位分歧。SwiftShader-Vulkan 与 swgl 同族，故 0.1681 接近。
-  零拷贝导入本身无损（同光栅器下逐字节一致）。
+k3 on 值是 copy-in/copy-out 三步优化后的数字。优化前（isolate 首版）
+k3 on 为 36.3s（0.55× 负收益），根因是 dissolve 逐像素循环 ~45 活跃帧
+每帧 copy-in `DIS.mask`/`dist`（各 2.6MB Float64Array）+ copy-out 60 万
+次数组写。三步优化（引擎侧，对协议面通用）：
 
-**拍板（2026-11-12）**：接受 llvmpipeline（lavapipe）作为当前 Vulkan 后端，
-以 98s / 3.05GiB 的速度与内存两门为准；像素门按「同光栅器下零拷贝无损、
-非 WebGL 段逐位一致」验收，WebGL 3D 开场与 swgl 参考的类间差异暂不阻塞
-本批提交。下一步研究 SwiftShader JIT 的 SIGILL：目标是让 ANGLE 与 Skia 同跑
-SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内存收益。
-`OC_SKIP_REFLECTOR` / `OC_VK_PROBE` / `OC_TRACE_VK_PROC` 等探针按诊断开关
-保留，不按死代码清理。
+1. **行缓冲常驻**：bundle 里 Set/Acc 行缓冲按 (worker, 槽) 复用，行末
+   只按 dirty list 清零（O(脏) 非 O(全长)）；行产出缓冲 grow-only +
+   `subarray` 视图。k3 take wall 193ms → 105ms。
+2. **TypedArray 二进制旁路**：plain capture 树里的 TypedArray 不再走
+   JSON 文本（`{"0":…}` 逐元素串化），host `copy_contents` 一次 memcpy
+   进 `FrameEnv.shared`（`SharedBuf`，raw 字节 + 元素类型；**不引入
+   postcard/serde 编解码——载荷的最优编解码就是不解码**），args_json
+   只留 `{"__ocOmpShared": {slot, len}}` 描述符；worker 装载时按描述符
+   重建真 TypedArray（每 worker 字节克隆 + 独立 backing store，v1 快
+   照语义）。walker 按 JSON.stringify 语义复刻，toJSON/Date/环回落
+   JSON 老路。take wall 105ms → 6.5ms。
+3. **写回直写**：Set/Acc 应用面按槽预解析——f64/U8Clamped TypedArray
+   直接写 backing store（U8Clamped 复刻 ES ToUint8Clamp
+   round-half-to-even），JS Array 与其余类型保留 V8 API 路径。apply
+   21ms → 1.7ms。
 
-### JIT 研究（2026-11-12，提交后）
+优化后 k3 活跃帧开销 ~8ms/帧，与 8 线程并行收益相抵（~1.0×）。教训
+维持：**短活跃窗 + 大 TypedArray 进出面的循环不标注**（标注无害但无
+益）；k3 语料标注已撤销。inspector（ctx 垫片 ovals 通道，无 writes）
+不受三步影响，3.01× 完整保持。
 
-**复测结论：此前记录的「SwiftShader 零拷贝卡在 JIT SIGILL」已经不可考。**
-当前提交在 k3-promo f10 上用 `OC_VK_ZERO_COPY=1` +
-`OC_ANGLE_SWIFTSHADER=1` 完整跑通六步探针：Skia make_vulkan → render_target
-→ clear → submit → read_pixels → 合成，无 SIGILL、无 panic。进程里出现
-`/memfd:swiftshader_jit`，说明 Subzero/Reactor JIT 正在执行。
+验证链（全部 step3 后二进制）：k3 f420:470 双腿 50/50 PNG 逐字节一致；
+step3 直写面 f424:434 双腿 10/10 一致；quickjs feature 腿 `cargo check`
+干净；inspector 无毒化、oval 数正常。
 
-**短样本实测（vfx-heygen-combined，PNG 序列）**：
+**k3 负收益教训**（首版实测，已由三步优化消解大半）：短活跃窗 +
+copy-in/out 重负载的循环标注前必须 ABAB。
 
-| 样本 | 帧数 | 后端 | elapsed | peak RSS |
-|---|---|---|---|---|
-| f0,1,2,5,10 | 5 | SwiftShader 零拷贝 | 8.00s | 715MiB |
-| f0,1,2,5,10 | 5 | llvmpipe 零拷贝 | 3.30s | 813MiB |
-| f100..780 | 8 | SwiftShader 零拷贝 | 11.81s | 1.21GiB |
-| f100..780 | 8 | llvmpipe 零拷贝 | 8.90s | 1.42GiB |
-
-- f0/1/2 两后端逐字节一致；f5 几乎一致；f10 出现 WebGL 光栅差异。
-- 长尾 f100/200/300/400/780 差异很小；f500/600/700 两后端几乎全画面分歧。
-  SwiftShader 输出在 f500 起大量黑像素，llvmpipe 输出是浅色背景；
-  `OC_KEEP_STREAM_TEX=1` 与 SwiftShader 独立 VkSession（CPU 回读）都复现同一
-  黑像素形态。故这不是零拷贝导入损坏，而是 ANGLE-on-SwiftShader 与
-  ANGLE-on-llvmpipe 在该场景的 GL 流/光栅产物不同。
-- 整片 MP4 路径已复测完成 788 帧，无卡死；此前「2 分钟无输出帧」结论作废。
-  当前待解的是连续长片 f511 后的像素漂移，不是 JIT SIGILL 或编码队列卡死。
-
-**JIT 边界**：
-
-- SwiftShader：Electron 自带 `libvk_swiftshader.so` 是 Subzero/Reactor 后端；
-  upstream 文档说明 CMake 默认 LLVM、Chrome GN 默认 Subzero（二进制更小）。
-  二进制里可见 `ThreadCount` / `AffinityMask` / Subzero translation 开关字样，
-  但发布库无符号、无运行时环境变量文档；不从字符串猜开关。
-- llvmpipe：`libvulkan_lvp.so` 链接 `LLVM*MCJIT*` 系列符号，shader 由 LLVM JIT
-  编译；Mesa 文档只稳定暴露 shader cache 开关（`MESA_SHADER_CACHE_*`）与调试
-  用 `LP_NO_RAST`，没有可安全加速生产渲染的 JIT 调优旋钮。
-- 结论：当前可执行的加速杠杆仍是「少做一次 CPU 回读」（零拷贝）与后端选择，
-  不是改 JIT。要同时拿回 swgl 像素等价，下一步应定位 f500–700 的 ANGLE GL
-  流差异，并单独诊断整片 MP4 连续渲染路径。
-
-### SwiftShader 全片速度复测（2026-11-12）
-
-复测配置：`OC_SKIA_BACKEND=vulkan`、`OC_ANGLE_DIR=tools/angle-linux`、
-`OC_ANGLE_SWIFTSHADER=1`、
-`VK_ICD_FILENAMES=tools/angle-linux/vk_swiftshader_icd.json`，不带
-`OC_VK_ZERO_COPY`（独立 VkSession + GL 流 CPU 回读）。这是旧基线里能完整
-跑完的 SwiftShader 路径；新加的零拷贝开关在 SwiftShader 上另测。
-
-**vfx-heygen-combined 全片 788 帧实测**：
-
-| 后端 | 配置 | 耗时 | 峰值 RSS | avg_p8 | mae_mean |
-|---|---|---|---|---|---|
-| llvmpipeline | 零拷贝，串行 | 110s | 3045MiB | 0.37788 | 48.4752 |
-| SwiftShader | 独立 VkSession，CPU 回读 | **306s** | **3133MiB** | **0.16805** | **5.3721** |
-| SwiftShader | 纹理零拷贝，共享 ANGLE VkDevice | 385s | 3079MiB | 0.43607 | 62.3621 |
-
-- SwiftShader 墙钟 305.96s、用户态 3148.01s、约 10.7 核占用；输出
-  `ffprobe` 为 1920×1080@30、26.266667s、788 帧，文件大小 76M。
-- 与同轮 llvmpipeline 相比：SwiftShader 慢 **2.78 倍**，峰值 RSS 高 88MiB；
-  但 `avg_p8` 0.16805 对 0.37788、mae 5.37 对 48.48，像素显著更接近 swgl
-  参考。速度门（2–3min）不达标。
-- SwiftShader 纹理零拷贝**已完整跑完 788 帧**：墙钟 384.32s、用户态
-  4113.49s、约 11.1 核占用，`ffprobe` 为 1920×1080@30、26.266667s、788 帧。
-  此前按前 67 帧外推的 24.5min、79 帧停止结论作废。逐帧均值：script 15.3ms、
-  gl-stream 5.0ms、draw 52.6ms、readback 412.7ms、total 485.7ms；f0–99
-  readback 1840ms/帧，f100–199 796ms/帧，f200–299 52ms/帧，f300 后约
-  86–135ms/帧。纹理零拷贝在 SwiftShader 上比 CPU 回读慢 79s，比 llvmpipeline
-  零拷贝慢 3.5 倍。
-- 像素门禁：SwiftShader 零拷贝 f0–510 与 CPU 回读逐帧接近；f511 起整片灰白，
-  k3diff f511 `p8=0.98923`、`mae=243.86`。连续 PNG f500–539 与 MP4 segment
-  500:540 的短窗口复测里，零拷贝与 CPU 回读逐字节一致。长片从 f0 连续执行到
-  f511 后出现状态漂移，短样本不能代表全片相位。
-- 归因复测（2026-11-12）：`OC_SKIP_REFLECTOR=1` 会改变像素相位。该开关下，
-  独立 VkSession + CPU 回读与共享 VkDevice + 纹理零拷贝的 `--segment 0:540`
-  都在 f511 灰白；全片独立 VkSession 仅设该开关也灰白，耗时从 306s 降到
-  91s、峰值 RSS 2962MiB、788 帧完整。关反射器不能用来验证零拷贝像素。
-- 严格对照（正常反射器、同样 `--segment 0:540`）：独立 VkSession + CPU 回读
-  226s、3108MiB，f510/f511 与全片正确基线逐字节一致；共享 VkDevice + 纹理
-  零拷贝 311s、3105MiB，f511 仍灰白。故 f511 漂移确属 ANGLE→Skia 纹理导入
-  路径，不是 segment、反射器或最终合成帧读回。
-- 速度归因：反射器开启时，SwiftShader 零拷贝 `--segment 0:540` 前 100 帧
-  readback 均值 2188.7ms；关闭反射器时均值 39.7ms，段耗时 60s、2913MiB。
-  反射器创建第二个离屏 ANGLE 会话，是前段 2s/帧 readback 的来源。
-  `OC_VK_GL_FINISH=1`、`OC_KEEP_STREAM_TEX=1`、`OC_FORCE_CPU_STREAM=1`、
-  Skia 资源缓存清理都不改变 f510/f511 像素。
-- 结论：当前要速度用 llvmpipeline 零拷贝；要像素接近参考用 SwiftShader CPU
-  回读，但耗时约 5min。SwiftShader 纹理零拷贝能完成全片，但速度不达标；
-  后续要同时处理两条独立问题：GLSL 反射器的第二 ANGLE 会话（速度），以及
-  ANGLE→Skia 借入纹理在 f511 后的状态漂移（像素）。不要改最终合成帧读回。
-
-### llvmpipeline `avg_p8` 归因与同步修复（2026-11-12，提交前）
-
-**结论**：llvmpipeline 零拷贝的 `avg_p8` 差距主要来自 ANGLE 与 Skia 共用
-`VkQueue` 时缺少跨 API 同步。GL 流只调 `glFlush()` 时，Skia 可能采样到尚未
-完成的 `VkImage`；`glFinish()` 建立同步点后，零拷贝全片几乎回到 CPU 回读
-的像素结果。最终合成帧读回给编码器保持不变。
-
-**全片 vfx-heygen-combined 788 帧实测**：
-
-| 配置 | 耗时 | 峰值 RSS | avg_p8 | mae_mean |
-|---|---:|---:|---:|---:|
-| llvmpipeline 零拷贝，仅 `glFlush()` | 110s | 3045MiB | 0.37788 | 48.4752 |
-| llvmpipeline CPU 回读 | 107s | 3418MiB | 0.17949 | 6.4315 |
-| SwiftShader CPU 回读 | 306s | 3133MiB | 0.16805 | 5.3721 |
-| llvmpipeline 零拷贝，默认 `glFinish()` | 106s | 3076MiB | **0.16278** | **5.7612** |
-
-- `k3diff` 产物：`out/k3diff-vfx-full-102303/`、
-  `out/k3diff-vfx-lvp-cpu-full/`、`out/k3diff-vfx-swiftshader-full-103621/`、
-  `out/k3diff-vfx-lvp-zc-finish-full/`。
-- 0:540 长段对照：默认零拷贝 `avg_p8=0.32589`、`mae=20.12`；
-  `glFinish()` 后 `avg_p8=0.22971`、`mae=7.46`。逐帧与 CPU 回读重合；
-  f4、f405–407、f492–497、f514–539 的整屏灰白漂移消失。
-- 短段 0:12 中，零拷贝与 CPU 回读的 FBO 字节、MP4 均逐字节一致。漂移需要
-  连续帧积累，说明问题不是单次 `VkImage` 导入格式或 ANGLE 光栅内容。
-- f40–99 等剩余高差异在 CPU 回读与 `glFinish()` 零拷贝中同幅存在，归因为
-  ANGLE-on-llvmpipe 与 swgl 参考的光栅/AA 精度差异，不是纹理零拷贝。
-
-**代码收口**：
-
-- 保留两条生产路径：`OC_ANGLE_SWIFTSHADER=1` 走独立 `VkSession` + GL 流
-  CPU 回读；不设时走 llvmpipeline 共享 `VkDevice` + 纹理零拷贝。
-- 纹理零拷贝路径默认 `glFinish()`。最终合成帧仍由
-  `GpuCompositor::finish_frame_blocking()` 同步读回给编码器。
-- 移除 SwiftShader 零拷贝实验链路与诊断开关：`OC_VK_ZERO_COPY`、
-  `OC_VK_PROBE`、`OC_VK_GL_FINISH`、`OC_SKIP_REFLECTOR`、
-  `OC_TRACE_VK_PROC`、`OC_TRACE_VK_IMAGE`、`OC_TRACE_ANGLE_EXT`、
-  ICD dispatch 专用解析与探针上下文。
-- 这是当前后端选择，不是对 SwiftShader 零拷贝的永久禁令；后续可单独研究。
-- 当前任务转为：在保留速度与内存收益的前提下，继续核对 llvmpipeline 光栅
-  与 swgl 参考的剩余类间差异。
-
-### 硬件 Vulkan 全语料扫描与形态优先对齐（2026-11-13）
-
-本轮用 `target/release/opencat --features profile` 直接渲染
-`hyperframes-launches` 中全部 23 个带 `*swgl*.mp4` 的 example。硬件配置实测落在
-AMD Radeon 610M / RADV：`LD_PRELOAD=tools/angle-linux/libvulkan.so.1`、
-`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json`、
-`OC_SKIA_BACKEND=vulkan`、`OC_ANGLE_DIR=tools/angle-linux`、`OC_GPU_PIPELINE=1`。
-每例受 `systemd-run --user --scope -p MemoryMax=12G` 保护；渲染日志含
-`Render profile`。产物与脚本在 `out/vulkan-sweep/`，清单见
-`out/vulkan-sweep/manifest.txt`，榜单见 `out/vulkan-sweep/summary.json`。
-
-**指标**：全部 23 例完成 `tools/k3diff.py`（`avg_p8`、`mae`）、
-ffmpeg `ssim_stats.txt`，以及 `out/vulkan-sweep/scripts/structure_probe.py`
-的 12 帧结构采样（`d4`、SSIM、边缘 IoU、NCC、位移）。本轮最终产物
-`out/vulkan-sweep/summary.json` 与 `structure_probe.json` 的严格 `avg_p8`
-最差：`vfx-heygen-combined 0.1643`、`claude-design-send-hyperframes-launch 0.1621`、
-`inspector-launch 0.1460`、`figma-launch 0.1213`、
-`frame-md-launch-storyboard 0.0959`、`texture-launch-video 0.0756`。
-形态采样最差：`claude-design-send-hyperframes-launch d4=0.1583/ssim=0.7399`、
-`texture-launch-video d4=0.1170/ssim=0.7603/ncc=0.7026/shift=7.2`、
-`vfx-heygen-combined d4=0.0794`、`frame-md-launch-storyboard d4=0.0766/ssim=0.7729/shift=18.8`、
-`figma-launch d4=0.0702`、`cloud-render-launch shift=15.2`。
-23 例日志都含 `Render profile` 且 `rc=0`；视频、k3diff、SSIM 与结构指标齐全。
-`k3-promo` 输出 495 帧而参考 494 帧；k3diff 按 494 帧截断，
-`compare_one.sh` 也已给 ffmpeg SSIM 加 `trim` 与 `shortest`，避免末帧重复。
-最终审计：23 个清单视频全部有效，23 份渲染日志全部 `rc=0` 且带
-`Render profile`，23 份 k3diff 与 23 份 SSIM 统计齐全；清理了一个不属于
-清单的 48 字节空探测视频 `-brand-refraction.mp4`。
-
-**`:not()` 探针结论**：`frame-md-launch-storyboard` 的 `## Style Prompt`
-曾怀疑来自 `gsap.set(".mz h1, .mz h2:not(.section)", …)` 被简易选择器丢弃。
-临时给 `html_api.js` 加 `:not(.class)` 后，连续 0:620 段对照仅把
-`avg_p8` 从 0.06535 改到 0.06437，12 帧 `d4` 从 0.09076 改到 0.09074，
-并排图里原始 Markdown 仍可见。故该补丁已撤销；不把它当作形态修复。
-`frame-md` 的根因另查文本隐藏/时间轴与卡片版式。
-
-**并排目视**（`out/vulkan-sweep/contact/`）：
-
-- 高 `avg_p8` 但形态一致：`vfx-heygen-combined` 的紫底噪点、色散文字、光晕
-  形状一致；`inspector-launch` 的网格、面板、标题位置一致；`figma-launch`
-  的弹窗、截图、标题位置一致。按用户口径，这些噪点、AA、字体栅格差异不优先。
-- `texture-launch-video`：并排图里 f188 蓝色纹理 `feel` 与 f282 的
-  `PAVING STONES` 纹理字已经出现；f376 液态背景形态一致，仍有小幅文字相位差。
-  位图裁字修复已反映在本轮视频中，不再按「纹理层缺失」推进。
-- `frame-md-launch-storyboard`：右侧出现 `## Style Prompt` 原始 Markdown，
-  左侧竖排说明与圆角卡片缺失；多帧标题、段落布局不同。
-- `claude-design-send-hyperframes-launch`：提示文字右溢、面板内容残缺、
-  文案与按钮内容不同、弹窗位置错位。
-- `HF-heygen-stripe`：f829 参考把 `pays/discovers/provisions` 叠在
-  `The agent` 右侧，渲染为一行乱码；f497 终端内容缺字；f0/f1160 细线形态差。
-- `cloud-render-launch`：进度条颜色、细线与若干文本字重差大，主版式一致。
-- `codex-five-hour-limit-replica`：ChatGPT/Codex 文字标签、输入内容、
-  `End the five hour limit` 贴纸缺失，人物与卡片位置一致。
-
-**对齐优先级**：先修「有 vs 无 / 整体形态与位置」，再修颜色与噪点。
-1. `claude-design-send-hyperframes-launch`：结构 `d4` 与 `avg_p8` 双高，先修
-   提示文字截断、面板内容、按钮文案与弹窗位置。
-2. `frame-md-launch-storyboard`：Markdown 标题仍以 `##` 原样出现，竖排标题与
-   圆角卡片缺失；先修文本替换、段落换行和卡片版式。
-3. `texture-launch-video`：纹理字形态已恢复；只追 f376 等帧的液态背景与文字
-   相位，不回退位图裁字路径。
-4. `HF-heygen-stripe`：叠字动画与时间轴内容。
-5. `codex-five-hour-limit-replica`：文字标签与贴纸。
-
-**canvas2d 文本纪律（2026-11-13）**：`canvas2d.js` 这一块指 HTML canvas 2D
-运行时面（`context2d.js` / `canvas_api.js` / `dom_api.js` / `html_api.js`），
-不是同名外部文件。当前工作树已把 `fillText`/`strokeText`/`drawText`/
-`drawParagraph` 统一录成 `__canvas_glyph_paths` 的字形 `Path` + DrawOp；
-`getImageData` 只在消费点重放这些 Path 后回读像素。旧的 `ctx.surface`
-文本光栅、`__canvas_draw_paragraph`、`__canvas_draw_text` 与
-`surface_fill_text` 绑定已退役。保持该纪律：文本先留矢量 picture/path，
-不得在绘制阶段 surface 出位图。
-
-本批只以当前工作树、上述产物和本轮实测为准；不引用旧 `avg_p8` 基线。
-
-### claude-design-send 对齐修复（2026-11-14）
-
-合并远端 dev（@omp/SoA 向量执行器）后，按 handoff 优先级修
-`claude-design-send-hyperframes-launch`，四项根因修复全部落地：
-
-1. **绝对定位 definite-width 换行**（resolve/style.rs）：CSS §10.3.7——
-   `left`/`right` 都非 auto 且 `width:auto` 时宽度由包含块解出，不是
-   shrink-to-fit。`text_element_allows_wrap` 与 `InheritedStyle::for_child`
-   的定宽判定补上这一支，f211 提示文字三行换行与参考一致。
-2. **interleaveKids 真 DOM 序**（html_api.js）：BISECT-A 兜底把散文本并进
-   第一个 P，破坏 flex/inline 次序；改为逐节点按序 flush 文本 run，f1056
-   连接菜单图标/文字次序恢复。
-3. **svg 内部元素绘制注入**（parse/html.rs + parse/dom.rs + resolve/resolve.rs）：
-   inline `<svg>` 的 markup 不携带页面层叠，`.pchart .pfill{fill:…}` 这类
-   瞄准内部 path 的规则不注入就画成默认黑实心。`inject_markup_paint` 单遍
-   扫描 markup 并级联匹配；注入现场（`SvgInnerPaintCtx`：Arc 样式表 + 宿主
-   祖先链）挂在 Svg 节点上，**resolve 期在脚本 markup 覆盖落地之后**执行
-   （build 期注入会被 GSAP 的 `__svg_set_markup` 整树覆盖冲掉——踩过）。
-   合并策略：内联/脚本已写的属性跳过（浏览器层叠序），`opacity` 也入注入
-   表（CSS `opacity:0` 停驻「未画」基准，脚本补间按帧改写）。
-   另修：markup 重序列化保留标签原文大小写——SVG 是大小写敏感的 XML，
-   `to_ascii_lowercase` 把 `linearGradient` 写成小写后 usvg 拒析
-   （f1332 `inline svg markup is invalid`）。
-4. **svg face 的 style 写穿**（html_api.js）：GSAP 对 svg 内部元素补间
-   `style.strokeDashoffset` 落在 store 里无人消费（内部 path 不是渲染树
-   节点）；`makeStyleProxy` 的 set/setProperty/get 对带 `__svgNode` 的
-   face 走 `svgStyleWrite/Read`——camelCase→dash-case 合并进节点
-   style 属性，经 `svgWriteAttr → __svg_set_markup` 到达 resolve 覆盖。
-   f633 珊瑚曲线恢复（起点值读取仍是空→GSAP 取 0，画线动画变为
-   4.14s 整段浮现而非 1.15s 渐画——形态可接受，动画细节遗留）。
-5. **@font-face 被作用域改写破坏**（parse/html.rs scope_composition_css）：
-   紧贴 `@font-face` 的 `/* 注释 */` 混进 prelude，分类误判成样式规则，
-   产出 `[data-composition-id="sq"] @font-face` 非法 CSS——Copernicus/
-   Galaxien 全场丢失，数字用回退字体渲染出「逐字变暗+字距散开」伪影。
-   分类改用去注释视图。f633 标题/数字/词标全部恢复衬线，字距与亮度均匀。
-
-f633 形态现状：`Live throughput` 衬线标题、`2.4M/99.98%/41ms` 紧密均匀、
-珊瑚曲线 + 暖色面积填充、composer 占位与光标——与参考一致。遗留：曲线
-渐画动画细节、弹窗位置小幅差。
-
-**run4 全语料回归（2026-11-14，含上述五项修复）**：23 例全部 `rc=0`，
-零回归。`claude-design-send` avg_p8 0.1621→0.1587、mae 8.00→7.48、
-d4 0.1583→0.1555、ssim 0.7399→0.7432；`figma-launch` 0.1213→0.1191
-（@font-face 修复的外溢收益）；`codex` 0.0231→0.0216；其余各例
-±0.0001 持平。聚合榜 `out/vulkan-sweep/summary.json` 已按新产物重建。
+inspector 验证链全过：trace 无毒化、f620 双腿 md5 一致、seg 600:630
+双腿逐字节一致、全片 k3diff avg_p8 0.1459（run4 0.1460，零回归）。

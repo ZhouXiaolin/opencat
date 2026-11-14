@@ -2,11 +2,8 @@
 //! isolate，线程独占（建/用/弃同线程，无共享无锁——OwnedIsolate 的
 //! !Send 恰好把这条纪律钉进类型系统）。与主 realm 的 `script/v8.rs`
 //! （V8JsContext）平行——本文件是 omp 面唯一带 v8 类型的模块，切换引擎 =
-//! 重新实现 `protocol::JsWorker` 并让 `global_team()` 指向新工厂。
-//!
-//! quickjs/Hermes 适配者对照：bundle eval（IIFE → 句柄四件）、行调用
-//! （行值 + 令牌化实参 → flat slots 数组）、无跨实例共享（数据全走
-//! JSON/数值段拷贝）。
+//! 重新实现 `protocol::JsWorker` 并让 `global_team()` 指向新工厂
+//! （quickjs 版见 `rq_team.rs`）。
 
 use std::collections::HashMap;
 
@@ -283,9 +280,8 @@ fn ensure_caps<'a>(
 }
 
 /// 进程级常驻团队（惰性：首次 isolate 派发时起线程池）。worker 数 =
-/// CPU 核数；引擎切换点 = 这个工厂（feature：js-v8 缺省 / js-quickjs /
-/// js-hermes——见 Cargo.toml features 注释）。
-#[cfg(feature = "js-v8")]
+/// CPU 物理核数；引擎切换点 = 这个工厂（js-v8 → 本文件 / js-quickjs →
+/// rq_team.rs——见 Cargo.toml features 注释）。
 pub fn global_team() -> &'static super::team::Team {
     static TEAM: std::sync::LazyLock<super::team::Team> = std::sync::LazyLock::new(|| {
         // 物理核而非逻辑核：8C/16T 机器上 16 isolate 满载时每行被 SMT
@@ -295,14 +291,4 @@ pub fn global_team() -> &'static super::team::Team {
         super::team::Team::new(n, || Box::new(V8Worker::new()))
     });
     &TEAM
-}
-
-#[cfg(all(feature = "js-quickjs", not(feature = "js-v8")))]
-pub fn global_team() -> &'static super::team::Team {
-    compile_error!("js-quickjs worker 尚未实现：实现 protocol::JsWorker 的 quickjs 版后接入")
-}
-
-#[cfg(all(feature = "js-hermes", not(feature = "js-v8")))]
-pub fn global_team() -> &'static super::team::Team {
-    compile_error!("js-hermes worker 尚未实现：实现 protocol::JsWorker 的 hermes 版后接入")
 }

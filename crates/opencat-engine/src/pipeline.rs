@@ -25,13 +25,13 @@ use opencat_core::parse::primitives::LottieSource;
 
 use crate::EnginePipeline;
 use crate::fonts::engine_default_font_faces;
-use crate::script::V8JsContext;
+use crate::script::EngineJsContext;
 use crate::resource::loader::EngineLoader;
 
 /// Core pipeline opened by the engine through the explicit lifecycle
 /// (`CompositionDraft` → `HostInputs` → `prepare` →
 /// [`opencat_core::lifecycle::PreparedComposition::open_pipeline`]).
-type CorePipeline = DefaultPipeline<V8JsContext>;
+type CorePipeline = DefaultPipeline<EngineJsContext>;
 
 /// Engine host: owns the core pipeline **and** the engine resource owner.
 ///
@@ -104,7 +104,7 @@ impl EnginePipelineHost {
 /// collect declarative [`ResourceRequests`] → fetch/cache media bytes →
 /// probe media metadata locally → hand typed metadata to core prepare.
 /// Core alone merges fonts and opens the pipeline.
-pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Result<EnginePipeline> {
+pub fn open(input: &str, mut loader: EngineLoader, scripts: EngineJsContext) -> Result<EnginePipeline> {
     // Both remaining frontends (JSONL text, JSX) parse through source_io into a
     // self-contained ParsedComposition (tree extracted, driver embedded as the
     // script source). The host then fetches document font bytes + registers
@@ -145,7 +145,7 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: V8JsContext) -> Resu
 pub(crate) fn open_parsed_host_owned(
     parsed: ParsedComposition,
     loader: EngineLoader,
-    scripts: V8JsContext,
+    scripts: EngineJsContext,
     font_bytes: Vec<Vec<u8>>,
 ) -> Result<EnginePipelineHost> {
     // 调用方都是 CPU 消费器（render.rs 的测试直接调
@@ -162,7 +162,7 @@ pub(crate) fn open_parsed_host_owned(
 fn open_parsed_host_owned_with_fonts(
     parsed: ParsedComposition,
     mut loader: EngineLoader,
-    scripts: V8JsContext,
+    scripts: EngineJsContext,
     font_bytes: Vec<Vec<u8>>,
     font_bytes_by_face_id: std::collections::HashMap<String, Vec<u8>>,
 ) -> Result<EnginePipelineHost> {

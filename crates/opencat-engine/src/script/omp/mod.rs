@@ -12,8 +12,11 @@ pub mod simd_kernel;
 pub mod compile;
 pub mod parse;
 pub mod protocol;
+#[cfg(feature = "js-quickjs")]
+pub mod rq_team;
 pub mod team;
 pub mod transform;
+#[cfg(feature = "js-v8")]
 pub mod v8_team;
 pub mod vm;
 pub mod vm_soa;
@@ -34,6 +37,12 @@ use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 
 use compile::{CaptureKind, Program};
 use vm::Value;
+
+// isolate 团队工厂：引擎二选一（js-v8 → V8Worker / js-quickjs → RqWorker）。
+#[cfg(feature = "js-v8")]
+use v8_team::global_team;
+#[cfg(feature = "js-quickjs")]
+use rq_team::global_team;
 
 struct CacheEntry {
     program: Arc<Program>,
@@ -688,7 +697,7 @@ fn take_isolate(
         _ => team::Schedule { r#static: false, chunk: 1, num_threads },
     };
     let t0 = std::time::Instant::now();
-    let slots = match team::execute(v8_team::global_team(), bundle, &args_json, Arc::from(prng), &sched) {
+    let slots = match team::execute(global_team(), bundle, &args_json, Arc::from(prng), &sched) {
         Ok(s) => s,
         Err(e) => {
             poison(key, &format!("isolate exec: {e}"));

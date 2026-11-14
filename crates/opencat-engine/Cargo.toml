@@ -4,18 +4,16 @@ version.workspace = true
 edition.workspace = true
 
 [features]
-# JS 运行时切换面（默认 V8）。omp worker 工厂（omp/v8_team::global_team）
-# 与主 realm（script/v8.rs V8JsContext）都按 feature 选实现：
+# JS 运行时切换面（默认 V8）。omp worker 工厂（omp/{v8_team,rq_team}::
+# global_team）与主 realm（script/v8.rs V8JsContext / script/quickjs.rs
+# RqJsContext）都按 feature 选实现：
 #   js-v8      = rusty_v8（现状，default）
-#   js-quickjs = rquickjs（预留——worker 实现 = protocol::JsWorker 的
-#                quickjs 版，团队/调度/协议零改动）
-#   js-hermes  = Hermes（预留，同上）
-# 切换 = --no-default-features --features js-quickjs 一类组合；实现落地
-# 前这些 feature 只是占位（选中即编译报错指向待实现点）。
+#   js-quickjs = rquickjs（RqWorker + RqJsContext，团队/调度/协议零改动）
+# 切换 = --no-default-features --features js-quickjs（互斥由 js_context.rs
+# 的 compile_error 钉死；opencat 顶层有同名转发 feature，同姿势）。
 default = ["js-v8"]
-js-v8 = []
-js-quickjs = []
-js-hermes = []
+js-v8 = ["dep:v8"]
+js-quickjs = ["dep:rquickjs"]
 # std::simd lane kernel 栈（omp/simd_kernel.rs）：nightly-only（portable_simd
 # 仍是 feature gate）。default off——CI 跑 stable 不挂；本地 nightly 全量开
 # （--features simd）。feature off 时 `parallel for simd` 照常工作（isolate
@@ -69,7 +67,8 @@ ffmpeg-next = "9.0.0"
 # V8 is the engine's script backend (was rquickjs). The crate links a
 # prebuilt V8 (no source build on this machine) and pulls in the
 # `use_custom_libcxx` libc++ ABI match for the prebuilt binary.
-v8 = { version = "152.2.0", features = ["use_custom_libcxx"] }
+v8 = { version = "152.2.0", optional = true, features = ["use_custom_libcxx"] }
+rquickjs = { version = "0.14.0", optional = true, features = ["futures"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "socks"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 pollster = "1.0.1"

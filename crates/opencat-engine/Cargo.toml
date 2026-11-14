@@ -3,6 +3,23 @@ name = "opencat-engine"
 version.workspace = true
 edition.workspace = true
 
+[features]
+# JS 运行时切换面（默认 V8）。omp worker 工厂（omp/{v8_team,rq_team}::
+# global_team）与主 realm（script/v8.rs V8JsContext / script/quickjs.rs
+# RqJsContext）都按 feature 选实现：
+#   js-v8      = rusty_v8（现状，default）
+#   js-quickjs = rquickjs（RqWorker + RqJsContext，团队/调度/协议零改动）
+# 切换 = --no-default-features --features js-quickjs（互斥由 js_context.rs
+# 的 compile_error 钉死；opencat 顶层有同名转发 feature，同姿势）。
+default = ["js-v8"]
+js-v8 = ["dep:v8"]
+js-quickjs = ["dep:rquickjs"]
+# std::simd lane kernel 栈（omp/simd_kernel.rs）：nightly-only（portable_simd
+# 仍是 feature gate）。default off——CI 跑 stable 不挂；本地 nightly 全量开
+# （--features simd）。feature off 时 `parallel for simd` 照常工作（isolate
+# 后端，simd 构造对纯算术循环结果等价），feature on = lane kernel + 对拍。
+simd = []
+
 [lib]
 path = "src/lib.rs"
 
@@ -20,6 +37,13 @@ fontdb = "0.23.0"
 anyhow.workspace = true
 flume.workspace = true
 rayon.workspace = true
+# @omp 提取期变换前端（标注定位 / ScopeTree 自由标识符分析 / span 级重写）。
+# 版本与 opencat-core 的 jsx_transform 同批（lockstep 0.153.0）。
+oxc_allocator.workspace = true
+oxc_ast.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
 # @omp halftone 原生实现的超越函数（musl fdlibm 血统，V8 ieee754.cc
 # 同源；OC_OMP_VERIFY 对拍 sin/cos/exp ≤1 ulp、hypot ≤2 ulp）。
 libm = "0.2"
@@ -43,7 +67,8 @@ ffmpeg-next = "9.0.0"
 # V8 is the engine's script backend (was rquickjs). The crate links a
 # prebuilt V8 (no source build on this machine) and pulls in the
 # `use_custom_libcxx` libc++ ABI match for the prebuilt binary.
-v8 = { version = "152.2.0", features = ["use_custom_libcxx"] }
+v8 = { version = "152.2.0", optional = true, features = ["use_custom_libcxx"] }
+rquickjs = { version = "0.14.0", optional = true, features = ["futures"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "socks"] }
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "fs"] }
 pollster = "1.0.1"

@@ -70,4 +70,33 @@ pub trait JsContext: Sized {
         let _ = code;
         Ok(serde_json::Value::Null)
     }
+
+    /// Install the engine's GLSL reflection bridge in the realm's store.
+    fn set_glsl_reflector(
+        &self,
+        f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
+    ) {
+        self.with_store_mut(|store| store.set_glsl_reflector(f));
+    }
+
+    /// Install the document-relative asset read bridge in the realm's store.
+    fn set_asset_reader(&self, f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>) {
+        self.with_store_mut(|store| store.set_asset_reader(f));
+    }
+
+    /// Install the encoded-image decode bridge in the realm's store.
+    fn set_image_decoder(
+        &self,
+        f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
+    ) {
+        self.with_store_mut(|store| store.set_image_decoder(f));
+    }
+
+    /// Install the (path, media time) video-frame decode bridge in the store.
+    fn set_video_frame_decoder(
+        &self,
+        f: Box<dyn Fn(&str, f64) -> anyhow::Result<(Vec<u8>, u32, u32)> + Send>,
+    ) {
+        self.with_store_mut(|store| store.set_video_frame_decoder(f));
+    }
 }

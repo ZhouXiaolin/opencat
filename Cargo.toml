@@ -22,7 +22,9 @@ edition = "2024"
 [workspace.dependencies]
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# float_roundtrip：默认快速解析对边界值可错 1 ulp（smallpt cam 分量实锤），
+# 引擎的浮点 capture 走 v8 stringify → serde 解析往返，必须正确舍入。
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 oxc_allocator = "0.153.0"
 oxc_ast = "0.153.0"
 oxc_codegen = "0.153.0"

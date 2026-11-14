@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=960" />
+    <title>@omp simd corpus</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 960px;
+        height: 540px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      [data-composition-id="omp-simd-v1"] {
+        position: relative;
+        width: 960px;
+        height: 540px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #sd-canvas {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 384px;
+        height: 384px;
+        transform: translate(-50%, -50%);
+        background: #000;
+        will-change: transform;
+      }
+
+      #sd-caption {
+        position: absolute;
+        left: 50%;
+        bottom: 48px;
+        transform: translateX(-50%);
+        color: #9aa3ad;
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 18px;
+        letter-spacing: 0.08em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      class="comp"
+      data-composition-id="omp-simd-v1"
+      data-width="960"
+      data-height="540"
+      data-start="0"
+      data-duration="5"
+    >
+      <canvas id="sd-canvas" class="clip" width="192" height="192" data-start="0" data-duration="5" data-track-index="0"></canvas>
+      <div id="sd-caption" class="clip" data-start="0" data-duration="5" data-track-index="1">// @omp parallel for simd</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      // ── @omp simd 语料（TR15 §18.5 映射的双腿对拍面）────────────────────
+      //
+      // 曼德博：直线算术 + 内层 canonical for（x 列）+ escape 循环（i，
+      // if-break 逐点深度不同）——lane kernel 的全部白名单面。
+      //
+      // 双腿逐位一致的结构性论证：
+      //   迭代计数 n 由「浮点比较 > 4」的分界决定，lane 域每 lane 是同一
+      //   IEEE f64 运算序（乘加次序与标量逐点一致，无重结合）→ 两腿的 n
+      //   逐位一致 → count[] 逐位一致 → 色映射整数 → 画布逐位一致。
+      //   phase 是 plain capture（两腿同值直传），无 prng（simd 白名单拒
+      //   prng——动画相位只吃 plain）。
+      //   JS 腿（Chrome 直跑 / OC_OMP_DISABLE=1）= 原循环逐点；引擎腿
+      //   feature off = isolate 团队逐点，feature on = f64x8 lane——三面
+      //   同算法同序，seg 帧 md5 必须全等。
+
+      window.__timelines = window.__timelines || {};
+
+      const W = 192;
+      const H = 192;
+      const MAXIT = 96;
+      const count = new Float64Array(W * H); // 迭代计数（Set 通道）
+      const anim = { phase: 0 };
+
+      function traceFrame() {
+        const ph = anim.phase;
+        // @omp parallel for simd
+        for (let y = 0; y < H; y += 1) {
+          const cy = -1.2 + (y / H) * 2.4 + ph * 0.2;
+          for (let x = 0; x < W; x += 1) {
+            const cx = -1.8 + (x / W) * 2.7 + ph * 0.1;
+            let zr = 0;
+            let zi = 0;
+            let n = 0;
+            for (let i = 0; i < MAXIT; i += 1) {
+              const t = zr * zr - zi * zi + cx;
+              zi = 2 * zr * zi + cy;
+              zr = t;
+              if (zr * zr + zi * zi > 4) {
+                break;
+              }
+              n += 1;
+            }
+            count[y * W + x] = n;
+          }
+        }
+      }
+
+      function paint() {
+        const scale = 1 / MAXIT;
+        for (let y = 0; y < H; y += 1) {
+          for (let x = 0; x < W; x += 1) {
+            const n = count[y * W + x];
+            const r = Math.floor(n * scale * 255);
+            const g = Math.floor((MAXIT - n) * scale * 255);
+            ctx.fillStyle = `rgb(${r}, ${g}, 64)`;
+            ctx.fillRect(x, y, 1, 1);
+          }
+        }
+      }
+
+      const canvas = document.getElementById("sd-canvas");
+      const ctx = canvas.getContext("2d");
+
+      function draw() {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, W, H);
+        traceFrame();
+        paint();
+      }
+
+      draw();
+
+      const tl = gsap.timeline({ paused: true });
+      tl.call(() => draw(), null, 0);
+      tl.to(anim, { phase: 1, duration: 5, ease: "none", onUpdate: draw });
+      window.__timelines["omp-simd-v1"] = tl;
+    </script>
+  </body>
+</html>

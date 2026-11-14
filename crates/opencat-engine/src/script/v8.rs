@@ -36,9 +36,13 @@ use opencat_core::script::recorder::MutationStore;
 /// Initialize the process-wide V8 platform exactly once. `V8::initialize` is
 /// global state, so every isolate in the process shares it; it is never
 /// disposed because realms come and go for the whole process lifetime.
-fn ensure_v8_initialized() {
+pub(crate) fn ensure_v8_initialized() {
     static INIT: OnceLock<()> = OnceLock::new();
     INIT.get_or_init(|| {
+        // 诊断开关：进程级 V8 flags（如 --always-opt 强制全函数优化）。
+        if let Ok(f) = std::env::var("OC_V8_FLAGS") {
+            v8::V8::set_flags_from_string(&f);
+        }
         let platform = v8::new_default_platform(0, false).make_shared();
         v8::V8::initialize_platform(platform);
         v8::V8::initialize();
@@ -868,11 +872,35 @@ fn omp_take(
     let is_ctx = |name: &str| {
         captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("ctx")
     };
+    let is_array = |name: &str| {
+        captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("array")
+    };
     let n_args = arg_names.len();
     let mut rest: Vec<JsonValue> = Vec::with_capacity(n_args);
     for (k, name) in arg_names.iter().enumerate() {
         if is_prng(name) {
             rest.push(JsonValue::Null); // 函数值不可 JSON 化；骨架已预采
+            continue;
+        }
+        if is_array(name) {
+            // 数组槽不过 isolate（copy-in 零字节）：实参以令牌替代，写回
+            // 由 take 产出的 writes 在下方应用到真数组。要求实参是对象
+            // （Array / TypedArray）——上行校验，失败走降级（take 未发生）。
+            // len 随令牌走：worker 行缓冲按它分配。
+            let av = args.get(k as i32 + 1);
+            let len = av
+                .to_object(scope)
+                .and_then(|obj| {
+                    let key = V8String::new(scope, "length")?;
+                    obj.get(scope, key.into())
+                })
+                .and_then(|lv| lv.number_value(scope))
+                .unwrap_or(0.0);
+            if len <= 0.0 {
+                rv.set_bool(false);
+                return;
+            }
+            rest.push(serde_json::json!({ "__ocOmpArr": k, "len": len as u64 }));
             continue;
         }
         if is_ctx(name) {
@@ -943,10 +971,57 @@ fn omp_take(
             .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
             .collect();
     }
-    let taken = match state.store.lock() {
-        Ok(mut store) => crate::script::omp::omp_take(&mut store, &ir, &rest, &prng),
+    let mut writes: Vec<crate::script::omp::protocol::IsolateWrite> = Vec::new();
+    let mut reds: Vec<f64> = Vec::new();
+    let mut taken = match state.store.lock() {
+        Ok(mut store) => {
+            crate::script::omp::omp_take(&mut store, &ir, &rest, &prng, &mut writes, &mut reds)
+        }
         Err(_) => false,
     };
+    // isolate 腿的写回：take=true 时按行序把 Set/Acc 四元组应用到真数组
+    // （ES [[Get]]/[[Set]] 语义——JS Array 与 TypedArray 通吃）。此时骨架
+    // 已旁路原循环、prng 已按行预采消耗，应用失败无法干净降级——上行已
+    // 校验对象性，这里的失败路径只为防御（false = fallback 复跑原循环）。
+    if taken {
+        for w in &writes {
+            let Some(obj) = args.get(w.arg as i32 + 1).to_object(scope) else {
+                taken = false;
+                break;
+            };
+            let cur = if w.acc {
+                match obj
+                    .get_index(scope, w.idx)
+                    .and_then(|v| v.number_value(scope))
+                {
+                    Some(c) => c + w.val,
+                    None => {
+                        taken = false;
+                        break;
+                    }
+                }
+            } else {
+                w.val
+            };
+            if obj
+                .set_index(scope, w.idx, v8::Number::new(scope, cur).into())
+                .is_none()
+            {
+                taken = false;
+                break;
+            }
+        }
+    }
+    // reduction 面：take=true 且有 red 终值 → 返回折叠值数组（守卫把它
+    // 赋给 `__ocOmpRed`，else 臂按 ir.reduction 展开序取 `__ocOmpRed[k]`
+    // 写回页面变量）。true/null（无 red）照旧走布尔。
+    if taken && !reds.is_empty() {
+        match set_return(scope, &mut rv, &serde_json::json!(reds)) {
+            Ok(()) => return,
+            Err(_) => rv.set_bool(false), // 返回面失败 = fallback 复跑原循环
+        }
+        return;
+    }
     rv.set_bool(taken);
 }
 

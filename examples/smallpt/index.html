@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920" />
+    <title>smallpt — @omp corpus</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      [data-composition-id="smallpt-v1"] {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #pt-canvas {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 1024px;
+        height: 768px;
+        transform: translate(-50%, -50%);
+        background: #000;
+        will-change: transform;
+      }
+
+      #pt-caption {
+        position: absolute;
+        left: 50%;
+        bottom: 84px;
+        transform: translateX(-50%);
+        color: #9aa3ad;
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 22px;
+        letter-spacing: 0.08em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      class="comp"
+      data-composition-id="smallpt-v1"
+      data-width="1920"
+      data-height="1080"
+      data-start="0"
+      data-duration="5"
+    >
+      <canvas id="pt-canvas" class="clip" width="1024" height="768" data-start="0" data-duration="5" data-track-index="0"></canvas>
+      <div id="pt-caption" class="clip" data-start="0" data-duration="5" data-track-index="1">smallpt &middot; Kevin Beason 2008 &middot; // @omp parallel for schedule(dynamic, 1)</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      // ── smallpt（Kevin Beason 2008）JS 直译 ─────────────────────────────
+      // C 原文形态 → JS 惯用面：Vec = [x,y,z]、Ray = [o,d]、
+      // Sphere = { rad, p, e, c, refl }。算子对应：
+      //   vadd=+  vsub=-  vmul=*(标量)  vmult=mult(逐分量)
+      //   vnorm=norm()  vdot=dot  vcross=operator%
+      // C 的成员方法改为顶层 function 声明（sphereIntersect(s, r)），
+      // sphere 对象保持纯数据——omp 提取面的函数闭包只认 `function name(`。
+
+      window.__timelines = window.__timelines || {};
+
+      const w = 1024;
+      const h = 768;
+      const samps = 1; // C 无参运行：atoi 缺省 samps=1 → 2×2 子像素 × 1 = 4 spp
+
+      function vec3(x, y, z) {
+        return [x, y, z];
+      }
+      function vadd(a, b) {
+        return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+      }
+      function vsub(a, b) {
+        return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+      }
+      function vmul(a, s) {
+        return [a[0] * s, a[1] * s, a[2] * s];
+      }
+      function vmult(a, b) {
+        return [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
+      }
+      function vdot(a, b) {
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+      }
+      function vcross(a, b) {
+        return [
+          a[1] * b[2] - a[2] * b[1],
+          a[2] * b[0] - a[0] * b[2],
+          a[0] * b[1] - a[1] * b[0]
+        ];
+      }
+      function vnorm(a) {
+        return vmul(a, 1 / Math.sqrt(vdot(a, a)));
+      }
+
+      // glibc erand48 精确复刻：48 位 LCG X' = (0x5DEECE66D·X + 0xB) mod 2^48，
+      // 返回 X/2^48。Xi 是 3×16 位肢体（低→高，与 C 的 unsigned short[3] 同布局）；
+      // 各乘积 < 2^31，全程 f64 精确无舍入，两实现逐位一致。
+      function erand48(Xi) {
+        let r0 = 0xe66d * Xi[0] + 0xb;
+        let r1 = 0xe66d * Xi[1] + 0xdeec * Xi[0] + Math.floor(r0 / 65536);
+        let r2 = 0xe66d * Xi[2] + 0xdeec * Xi[1] + 0x5 * Xi[0] + Math.floor(r1 / 65536);
+        Xi[0] = r0 & 0xffff;
+        Xi[1] = r1 & 0xffff;
+        Xi[2] = r2 & 0xffff;
+        return Xi[0] / 281474976710656 + Xi[1] / 4294967296 + Xi[2] / 65536;
+      }
+
+      function clamp(x) {
+        return x < 0 ? 0 : x > 1 ? 1 : x;
+      }
+      function toInt(x) {
+        return (Math.pow(clamp(x), 1 / 2.2) * 255 + 0.5) | 0;
+      }
+
+      // Sphere.intersect：返回距离，未命中 0（解 t²d·d + 2t(o-p)·d + (o-p)·(o-p) - R² = 0）。
+      function sphereIntersect(s, r) {
+        const op = vsub(s.p, r[0]);
+        const b = vdot(op, r[1]);
+        let det = b * b - vdot(op, op) + s.rad * s.rad;
+        if (det < 0) {
+          return 0;
+        }
+        det = Math.sqrt(det);
+        const t0 = b - det;
+        if (t0 > 1e-4) {
+          return t0;
+        }
+        const t1 = b + det;
+        return t1 > 1e-4 ? t1 : 0;
+      }
+
+      function intersect(r) {
+        let t = 1e20;
+        let id = -1;
+        // C 自后向前（i=n→0）+ 严格 d<t；平局仅影响恰等距球——场景无共面球，
+        // 正向迭代等价。
+        for (let i = 0; i < spheres.length; i += 1) {
+          const d = sphereIntersect(spheres[i], r);
+          if (d && d < t) {
+            t = d;
+            id = i;
+          }
+        }
+        return [t, id];
+      }
+
+      function radiance(r, depth, Xi) {
+        const hit = intersect(r);
+        if (hit[1] < 0) {
+          return vec3(0, 0, 0); // miss → black
+        }
+        const t = hit[0];
+        const obj = spheres[hit[1]];
+        const x = vadd(r[0], vmul(r[1], t));
+        const n = vnorm(vsub(x, obj.p));
+        const nl = vdot(n, r[1]) < 0 ? n : vmul(n, -1);
+        let f = obj.c;
+        const p = f[0] > f[1] && f[0] > f[2] ? f[0] : f[1] > f[2] ? f[1] : f[2]; // max refl
+        depth += 1;
+        if (depth > 5) {
+          if (erand48(Xi) < p) {
+            f = vmul(f, 1 / p); // R.R.
+          } else {
+            return obj.e;
+          }
+        }
+        if (obj.refl === "DIFF") {
+          // Ideal DIFFUSE reflection
+          const r1 = 2 * Math.PI * erand48(Xi);
+          const r2 = erand48(Xi);
+          const r2s = Math.sqrt(r2);
+          const wv = nl;
+          const u = vnorm(vcross(Math.abs(wv[0]) > 0.1 ? vec3(0, 1, 0) : vec3(1, 0, 0), wv));
+          const v = vcross(wv, u);
+          const d = vnorm(
+            vadd(
+              vadd(vmul(u, Math.cos(r1) * r2s), vmul(v, Math.sin(r1) * r2s)),
+              vmul(wv, Math.sqrt(1 - r2))
+            )
+          );
+          return vadd(obj.e, vmult(f, radiance([x, d], depth, Xi)));
+        }
+        if (obj.refl === "SPEC") {
+          // Ideal SPECULAR reflection
+          return vadd(
+            obj.e,
+            vmult(f, radiance([x, vsub(r[1], vmul(n, 2 * vdot(n, r[1])))], depth, Xi))
+          );
+        }
+        // Ideal dielectric REFRACTION
+        const reflRay = [x, vsub(r[1], vmul(n, 2 * vdot(n, r[1])))];
+        const into = vdot(n, nl) > 0; // Ray from outside going in?
+        const nc = 1;
+        const nt = 1.5;
+        const nnt = into ? nc / nt : nt / nc;
+        const ddn = vdot(r[1], nl);
+        const cos2t = 1 - nnt * nnt * (1 - ddn * ddn);
+        if (cos2t < 0) {
+          // Total internal reflection
+          return vadd(obj.e, vmult(f, radiance(reflRay, depth, Xi)));
+        }
+        const tdir = vnorm(
+          vsub(vmul(r[1], nnt), vmul(n, (into ? 1 : -1) * (ddn * nnt + Math.sqrt(cos2t))))
+        );
+        const a = nt - nc;
+        const b = nt + nc;
+        const R0 = (a * a) / (b * b);
+        const cc = 1 - (into ? -ddn : vdot(tdir, n));
+        const Re = R0 + (1 - R0) * cc * cc * cc * cc * cc;
+        const Tr = 1 - Re;
+        const P = 0.25 + 0.5 * Re;
+        const RP = Re / P;
+        const TP = Tr / (1 - P);
+        if (depth > 2) {
+          // Russian roulette
+          return erand48(Xi) < P
+            ? vadd(obj.e, vmult(f, vmul(radiance(reflRay, depth, Xi), RP)))
+            : vadd(obj.e, vmult(f, vmul(radiance([x, tdir], depth, Xi), TP)));
+        }
+        return vadd(
+          obj.e,
+          vmult(
+            f,
+            vadd(
+              vmul(radiance(reflRay, depth, Xi), Re),
+              vmul(radiance([x, tdir], depth, Xi), Tr)
+            )
+          )
+        );
+      }
+
+      // Scene: radius, position, emission, color, material —— 与 C 逐项一致。
+      const spheres = [
+        { rad: 1e5, p: vec3(1e5 + 1, 40.8, 81.6), e: vec3(0, 0, 0), c: vec3(0.75, 0.25, 0.25), refl: "DIFF" }, // Left
+        { rad: 1e5, p: vec3(-1e5 + 99, 40.8, 81.6), e: vec3(0, 0, 0), c: vec3(0.25, 0.25, 0.75), refl: "DIFF" }, // Rght
+        { rad: 1e5, p: vec3(50, 40.8, 1e5), e: vec3(0, 0, 0), c: vec3(0.75, 0.75, 0.75), refl: "DIFF" }, // Back
+        { rad: 1e5, p: vec3(50, 40.8, -1e5 + 170), e: vec3(0, 0, 0), c: vec3(0, 0, 0), refl: "DIFF" }, // Frnt
+        { rad: 1e5, p: vec3(50, 1e5, 81.6), e: vec3(0, 0, 0), c: vec3(0.75, 0.75, 0.75), refl: "DIFF" }, // Botm
+        { rad: 1e5, p: vec3(50, -1e5 + 81.6, 81.6), e: vec3(0, 0, 0), c: vec3(0.75, 0.75, 0.75), refl: "DIFF" }, // Top
+        { rad: 16.5, p: vec3(27, 16.5, 47), e: vec3(0, 0, 0), c: vec3(0.999, 0.999, 0.999), refl: "SPEC" }, // Mirr
+        { rad: 16.5, p: vec3(73, 16.5, 78), e: vec3(0, 0, 0), c: vec3(0.999, 0.999, 0.999), refl: "REFR" }, // Glas
+        { rad: 600, p: vec3(50, 681.6 - 0.27, 81.6), e: vec3(12, 12, 12), c: vec3(0, 0, 0), refl: "DIFF" } // Lite
+      ];
+
+      const cam = [vec3(50, 52, 295.6), vnorm(vec3(0, -0.042612, -1))];
+      const cx = vec3((w * 0.5135) / h, 0, 0);
+      const cy = vmul(vnorm(vcross(cx, cam[1])), 0.5135);
+      const c = new Float64Array(w * h * 3);
+      let r = vec3(0, 0, 0); // C: Vec r —— @omp private(r)
+
+      // 逐帧场景动画：镜球/玻璃球沿 x 对流换位（一整周期），幂等 f(t)。
+      const anim = { phase: 0 };
+      function applyScene() {
+        const k = Math.sin(anim.phase * Math.PI * 2);
+        spheres[6].p[0] = 27 + k * 20;
+        spheres[7].p[0] = 73 - k * 20;
+      }
+
+      // 渲染热循环——标注与 C 原文 pragma 同构：
+      //   #pragma omp parallel for schedule(dynamic, 1) private(r)
+      // 行内 PRNG 种子 Xi={0,0,y*y*y} 与 C 相同（行间零耦合，行并行确定性）。
+      function traceFrame() {
+        // @omp parallel for schedule(dynamic, 1) private(r)
+        for (let y = 0; y < h; y += 1) {
+          const Xi = [0, 0, y * y * y];
+          for (let x = 0; x < w; x += 1) {
+            const i = (h - y - 1) * w + x;
+            for (let sy = 0; sy < 2; sy += 1) {
+              for (let sx = 0; sx < 2; sx += 1) {
+                r = vec3(0, 0, 0); // C 的 `sx++, r=Vec()` 逗号式落体首
+                for (let s = 0; s < samps; s += 1) {
+                  const r1 = 2 * erand48(Xi), dx = r1 < 1 ? Math.sqrt(r1) - 1 : 1 - Math.sqrt(2 - r1);
+                  const r2 = 2 * erand48(Xi), dy = r2 < 1 ? Math.sqrt(r2) - 1 : 1 - Math.sqrt(2 - r2);
+                  const d = vadd(
+                    vadd(
+                      vmul(cx, ((sx + 0.5 + dx) / 2 + x) / w - 0.5),
+                      vmul(cy, ((sy + 0.5 + dy) / 2 + y) / h - 0.5)
+                    ),
+                    cam[1]
+                  );
+                  r = vadd(r, vmul(radiance([vadd(cam[0], vmul(d, 140)), vnorm(d)], 0, Xi), 1 / samps));
+                }
+                c[i * 3] += clamp(r[0]) * 0.25;
+                c[i * 3 + 1] += clamp(r[1]) * 0.25;
+                c[i * 3 + 2] += clamp(r[2]) * 0.25;
+              }
+            }
+          }
+        }
+      }
+
+      // C 的 PPM 写出对应物：gamma 编码逐像素上画布。缓冲行 rb=h-y-1（视 y=0
+      // 在底）↔ 画布行同序（画布 y=0 在顶=视顶），直接同位落笔。
+      function paintPixels() {
+        for (let i = 0; i < w * h; i += 1) {
+          const x = i % w;
+          const y = (i / w) | 0;
+          ctx.fillStyle = `rgb(${toInt(c[i * 3])}, ${toInt(c[i * 3 + 1])}, ${toInt(c[i * 3 + 2])})`;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+
+      const canvas = document.getElementById("pt-canvas");
+      const ctx = canvas.getContext("2d");
+
+      function draw() {
+        applyScene();
+        c.fill(0); // 每帧从零累计（帧 = f(t)，realm 持久下必须幂等）
+        traceFrame();
+        paintPixels();
+      }
+
+      draw();
+
+      const tl = gsap.timeline({ paused: true });
+      tl.call(() => draw(), null, 0);
+      tl.to(anim, { phase: 1, duration: 5, ease: "none", onUpdate: draw });
+      window.__timelines["smallpt-v1"] = tl;
+    </script>
+  </body>
+</html>

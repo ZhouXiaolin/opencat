@@ -297,7 +297,7 @@ fn parse_rgba_template(
     }
 
     // 1) 前缀 rgba(（可带前导空格）。
-    while cur.is_empty() && !pull_lit(&mut cur, &items, &mut item_i) {
+    if cur.is_empty() && !pull_lit(&mut cur, &items, &mut item_i) {
         return Err("template must start with rgba(".into());
     }
     let t = cur
@@ -315,19 +315,16 @@ fn parse_rgba_template(
     let mut fixed_dsts: Vec<u16> = Vec::new();
     for seg_i in 0..4 {
         if seg_i > 0 {
-            loop {
-                while cur.first().is_some_and(|&c| c == b' ' || c == b'\t') {
-                    cur.remove(0);
-                }
-                if cur.is_empty() && !pull_lit(&mut cur, &items, &mut item_i) {
-                    return Err("rgba separator missing".into());
-                }
-                if cur[0] == b',' {
-                    cur.remove(0);
-                    break;
-                }
+            while cur.first().is_some_and(|&c| c == b' ' || c == b'\t') {
+                cur.remove(0);
+            }
+            if cur.is_empty() && !pull_lit(&mut cur, &items, &mut item_i) {
                 return Err("rgba separator missing".into());
             }
+            if cur[0] != b',' {
+                return Err("rgba separator missing".into());
+            }
+            cur.remove(0);
         }
         while cur.first().is_some_and(|&c| c == b' ' || c == b'\t') {
             cur.remove(0);
@@ -375,16 +372,13 @@ fn parse_rgba_template(
     }
 
     // 3) 右括号。
-    loop {
-        while cur.first().is_some_and(|&c| c == b' ' || c == b'\t') {
-            cur.remove(0);
-        }
-        if cur.is_empty() && !pull_lit(&mut cur, &items, &mut item_i) {
-            return Err("rgba close paren missing".into());
-        }
-        if cur[0] == b')' {
-            break;
-        }
+    while cur.first().is_some_and(|&c| c == b' ' || c == b'\t') {
+        cur.remove(0);
+    }
+    if cur.is_empty() && !pull_lit(&mut cur, &items, &mut item_i) {
+        return Err("rgba close paren missing".into());
+    }
+    if cur[0] != b')' {
         return Err("rgba close paren missing".into());
     }
     if segs.len() != 4 {

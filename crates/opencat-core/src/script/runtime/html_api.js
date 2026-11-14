@@ -931,6 +931,9 @@
                 // 子节点 `<id>:t`；提取期写过文本的元素即使为空也保留该子
                 // 节点（__textDynamic），渲染期的突变才有落点。
                 self.__textDynamic = true;
+                if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') {
+                    __ocStderr('[tc-set] id=' + self.__payload.id + ' type=' + self.__payload.type + ' hasStore=' + hasStore + ' len=' + text.length);
+                }
                 if (hasStore && self.__payload.id) {
                     var target = self.__payload.type === 'div'
                         ? self.__payload.id + ':t'
@@ -938,6 +941,14 @@
                     __write_style_value(target, 'text', text);
                 }
             },
+            enumerable: true,
+        });
+        // innerText 与 textContent 同义（渲染感知的差异——隐藏元素返回空、
+        // <br> 转换行——对打字动画/置词场景无观测差异）。缺这个 setter 时
+        // `el.innerText = v` 落成普通实例属性，DOM 不变且读回是假象。
+        Object.defineProperty(this, 'innerText', {
+            get: function () { return self.textContent; },
+            set: function (v) { self.textContent = v; },
             enumerable: true,
         });
         Object.defineProperty(this, 'children', {
@@ -1019,6 +1030,64 @@
         }
     }
 
+    // ── 运行期结构上报（appendChild 通道）─────────────────────────
+    // 提取期快照定型的渲染树看不见逐帧长出的子树（tl.call 里 appendChild
+    // 挂上的气泡等）。提取完成后任何结构写都把宿主的当前 element 子树
+    // 整体序列化上报：resolve 期按它重建宿主的 children（宿主祖先链随行，
+    // CSS 后代选择器如 `[data-composition-id] .user-row .bubble` 才能命中；
+    // 子树走完整 build_node 链路，store 里的样式突变按 face id 命中）。
+    // 挂载关系是节点状态：persistent 文档跨帧留在 store，非持久每帧随
+    // 重放的脚本自然重建。
+    var extractDone = false;
+    function mountedToRoot(el) {
+        var cur = el;
+        while (cur) {
+            if (cur === rootFace) return true;
+            cur = cur.parentNode;
+        }
+        return false;
+    }
+    function subtreeHasCompositionSrc(el) {
+        var attrs = el.__attrs;
+        if (attrs && attrs['data-composition-src'] !== undefined) return true;
+        var kids = el.__kids;
+        for (var i = 0; kids && i < kids.length; i++) {
+            if (kids[i].nodeType === 1 && subtreeHasCompositionSrc(kids[i])) return true;
+        }
+        return false;
+    }
+    function recordTreeChange(host) {
+        if ((!extractDone && !globalThis.__ocHtmlExtractDone) || !host
+            || !host.__payload || !host.__payload.id) return;
+        if (!mountedToRoot(host)) return;
+        if (subtreeHasCompositionSrc(host)) return;
+        if (typeof __html_set_children !== 'function') return;
+        var chain = [];
+        var cur = host;
+        while (cur && cur.nodeType === 1 && cur.__payload) {
+            var attrs = [];
+            for (var an in cur.__attrs) attrs.push([an, cur.__attrs[an]]);
+            chain.push({
+                tag: cur.__payload.uaTag || cur.__payload.type || 'div',
+                id: cur.__payload.id,
+                class: cur.__payload.className || '',
+                attrs: attrs,
+            });
+            cur = cur.parentNode;
+        }
+        var kids = [];
+        for (var i = 0; i < host.__kids.length; i++) {
+            if (host.__kids[i].nodeType === 1) kids.push(serializeNode(host.__kids[i]));
+        }
+        try {
+            __html_set_children(host.__payload.id, chain, kids);
+        } catch (e) {
+            if (typeof __ocLogs !== 'undefined') {
+                __ocLogs.push('set_children threw: ' + (e && e.message || e));
+            }
+        }
+    }
+
     HtmlElement.prototype.appendChild = function (child) {
         if (!child) return child;
         if (child instanceof FragmentFace) {
@@ -1030,6 +1099,7 @@
         detach(child);
         child.parentNode = this;
         this.__kids.push(child);
+        recordTreeChange(this);
         return child;
     };
     HtmlElement.prototype.insertBefore = function (child, ref) {
@@ -1045,11 +1115,16 @@
         var i = this.__kids.indexOf(ref);
         if (i < 0) { child.parentNode = this; this.__kids.push(child); }
         else { child.parentNode = this; this.__kids.splice(i, 0, child); }
+        recordTreeChange(this);
         return child;
     };
     HtmlElement.prototype.removeChild = function (child) {
         var i = this.__kids.indexOf(child);
-        if (i >= 0) { this.__kids.splice(i, 1); child.parentNode = null; }
+        if (i >= 0) {
+            this.__kids.splice(i, 1);
+            child.parentNode = null;
+            recordTreeChange(this);
+        }
         return child;
     };
     HtmlElement.prototype.replaceChild = function (nu, old) {
@@ -1343,7 +1418,49 @@
     Object.defineProperty(HtmlElement.prototype, 'offsetLeft', { get: function () { return boxOf(this).left; } });
     Object.defineProperty(HtmlElement.prototype, 'offsetTop', { get: function () { return boxOf(this).top; } });
     Object.defineProperty(HtmlElement.prototype, 'clientWidth', { get: function () { return boxOf(this).width; } });
-    Object.defineProperty(HtmlElement.prototype, 'clientHeight', { get: function () { return boxOf(this).height; } });
+    Object.defineProperty(HtmlElement.prototype, 'clientHeight', {
+        get: function () {
+            var b = boxOf(this);
+            if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') {
+                __ocStderr('[clientH] id=' + this.__payload.id + ' h=' + b.height.toFixed(1) + ' top=' + b.top.toFixed(1));
+            }
+            return b.height;
+        },
+    });
+    // scrollHeight/Width：内容包围盒（含 overflow:hidden 裁掉的部分）。
+    // 被裁剪的子树在 taffy 布局里仍有位置——递归取后代盒的视口
+    // bottom/right 对元素自身 top/left 的偏移，与自身盒取 max。刚 append
+    // 尚未布局的子树盒为空，量到的是上一次布局的内容高——push 类测量晚
+    // 一步由下一次 append 补上，与帧级批布局语义一致。
+    function contentExtent(el) {
+        var box = boxOf(el);
+        var bottom = box.top + box.height;
+        var right = box.left + box.width;
+        var kids = el.__kids;
+        for (var i = 0; kids && i < kids.length; i++) {
+            if (kids[i].nodeType !== 1) continue;
+            var sub = contentExtent(kids[i]);
+            if (sub.bottom > bottom) bottom = sub.bottom;
+            if (sub.right > right) right = sub.right;
+        }
+        return { bottom: bottom, right: right };
+    }
+    Object.defineProperty(HtmlElement.prototype, 'scrollHeight', {
+        get: function () {
+            var box = boxOf(this);
+            var ext = contentExtent(this);
+            if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') {
+                __ocStderr('[scrollH] id=' + this.__payload.id + ' h=' + box.height.toFixed(1) + ' top=' + box.top.toFixed(1) + ' extBottom=' + ext.bottom.toFixed(1));
+            }
+            return Math.max(box.height, ext.bottom - box.top);
+        },
+    });
+    Object.defineProperty(HtmlElement.prototype, 'scrollWidth', {
+        get: function () {
+            var box = boxOf(this);
+            return Math.max(box.width, contentExtent(this).right - box.left);
+        },
+    });
     // offsetLeft/Top 是视口坐标，等价于以 body 为偏移父：挂在文档树上的元素
     // 统一回 body，游离元素回 null（浏览器语义）。gsap 据它判断元素在不在
     // 文档里，null 会走「临时挂到根上量 transform 再插回」的分支。
@@ -1378,12 +1495,20 @@
         el.__kids.forEach(function (k) {
             if (k.nodeType === 3) s += k.data.replace(/&/g, '&amp;').replace(/</g, '&lt;');
             else if (k.nodeType === 1) {
+                // svg 子树：face 不展开 kids，整体走 __svgInline（inner 往返
+                // 后 path 才不丢——figma act2 echo 克隆的 X logo）。
+                if (k.__payload.__svgInline !== undefined) {
+                    s += k.__payload.__svgInline;
+                    return;
+                }
                 if (isSyntheticTextRun(k)) {
                     s += serializeHtml(k);
                     return;
                 }
                 s += '<' + elTag(k);
                 if (k.__payload.className) s += ' class="' + k.__payload.className + '"';
+                // inline style 参与渲染（echo 克隆的 av 渐变头像），往返必须带回。
+                if (k.__payload.style) s += ' style="' + String(k.__payload.style).replace(/"/g, '&quot;') + '"';
                 s += '>';
                 s += serializeHtml(k);
                 s += '</' + elTag(k) + '>';
@@ -1771,6 +1896,12 @@
     // 返回对象（宿主统一 JSON.stringify——jsx 的 __ocExtract 同约定；
     // 这里若先 stringify 会被双重包裹成 String，from_extract 读不到 tree）。
     globalThis.__ocHtmlExtract = function () {
+        // 提取完成后的结构写（运行期 appendChild）才走上报通道；提取期
+        // 建树阶段的 appendChild 由随后的 serializeNode(rootFace) 自然
+        // 覆盖，上报是多余的。渲染进程的 realm 不跑 extract——driver 的
+        // init 段尾（页面脚本执行完、timeline 注册完）置同一标志。
+        extractDone = true;
+        globalThis.__ocHtmlExtractDone = true;
         return {
             html: true,
             meta: seed ? seed.meta : {},

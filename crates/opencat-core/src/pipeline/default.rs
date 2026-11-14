@@ -150,6 +150,7 @@ fn build_pipeline_state<S: JsContext>(
         .duration(parsed.duration)
         .root(move |_ctx| root_node.clone())
         .audio_sources(parsed.audio_sources)
+        .html_build(parsed.html_build)
         .build()?;
 
     let audio_plan = crate::media::collect_audio_plan(&composition);

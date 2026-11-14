@@ -83,6 +83,7 @@ pub(crate) fn evaluate_frame_layout(
             catalog,
             None,
             script,
+            composition.html_build.clone(),
         )
     })?;
     #[cfg(feature = "profile")]
@@ -204,6 +205,25 @@ pub fn render_frame_with_state(
     let _ = display_stats;
     let mut annotated = annotate_display_tree(&display_tree);
     compute_display_tree_fingerprints(&mut annotated);
+    // 临时调试（OC_DBG_DISPLAY=1）：打印 display 层所有带 transform 的节点。
+    if std::env::var_os("OC_DBG_DISPLAY").is_some() {
+        fn dump_display(n: &crate::display::tree::DisplayNode, depth: usize) {
+            if !n.transform.transforms.is_empty() {
+                eprintln!(
+                    "[dbg-display] num={} depth={} transforms={:?} local_m4={} filter={}",
+                    n.element_id.0,
+                    depth,
+                    n.transform.transforms,
+                    n.transform.local_m4.is_some(),
+                    n.css_filter_image.is_some()
+                );
+            }
+            for c in &n.children {
+                dump_display(c, depth + 1);
+            }
+        }
+        dump_display(&display_tree.root, 0);
+    }
     #[cfg(feature = "profile")]
     drop(_display_span);
 
@@ -228,6 +248,62 @@ pub fn render_frame_with_state(
     })?;
 
     let frame = builder.finish();
+    // 临时调试（OC_DBG_OPS=1：大位移统计；=2：dump 一帧的中段 op 序列；
+    // =3：气泡 RRect 的全局累计位移——变换栈模拟）。
+    if let Ok(mode) = std::env::var("OC_DBG_OPS") {
+        match mode.as_str() {
+            "3" => {
+                let mut stack: Vec<(f32, f32)> = Vec::new();
+                let (mut tx, mut ty) = (0.0f32, 0.0f32);
+                for (i, op) in frame.ops.iter().enumerate() {
+                    match op {
+                        crate::ir::draw_op::DrawOp::Save
+                        | crate::ir::draw_op::DrawOp::SaveLayer { .. }
+                        | crate::ir::draw_op::DrawOp::SaveBackdropLayer { .. } => {
+                            stack.push((tx, ty));
+                        }
+                        crate::ir::draw_op::DrawOp::Restore => {
+                            if let Some((x, y)) = stack.pop() {
+                                tx = x;
+                                ty = y;
+                            }
+                        }
+                        crate::ir::draw_op::DrawOp::Translate { x, y } => {
+                            tx += x;
+                            ty += y;
+                        }
+                        crate::ir::draw_op::DrawOp::RRect { rect, .. } => {
+                            if rect.width > 590.0 && rect.width < 600.0 {
+                                eprintln!(
+                                    "[dbg-rr] f{f} depth={d} acc=({tx:.1},{ty:.1}) rect={rect:?}",
+                                    f = frame_ctx.frame,
+                                    d = stack.len(),
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "2" => {
+                for (i, op) in frame.ops.iter().enumerate().skip(140).take(120) {
+                    let dbg = format!("{:?}", op);
+                    eprintln!("[dbg-ops2] op[{i}] = {}", &dbg[..dbg.len().min(72)]);
+                }
+            }
+            _ => {
+                let mut shown = 0;
+                for (i, op) in frame.ops.iter().enumerate() {
+                    if let crate::ir::draw_op::DrawOp::Translate { x, y } = op {
+                        if (*y < -400.0 || *x < -400.0) && shown < 8 {
+                            shown += 1;
+                            eprintln!("[dbg-ops] op[{i}] Translate x={x} y={y}");
+                        }
+                    }
+                }
+            }
+        }
+    }
     if phase_debug {
         eprintln!(
             "[phase] frame {} resolve_ms={:?} display_ms={:?} scene_raster_ms={}",

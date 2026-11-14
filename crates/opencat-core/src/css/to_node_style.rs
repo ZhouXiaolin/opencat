@@ -86,6 +86,10 @@ fn lp_to_len_percent(lp: &LengthPercentage, ctx: &EvalContext) -> Option<LenPerc
             LengthValue::Px(v) => LenPercent::Px(*v),
             LengthValue::Rem(v) => LenPercent::Px(v * ctx.rem_base),
             LengthValue::Em(v) => LenPercent::Px(v * ctx.em_base),
+            // `1ch` = "0" 字形的 advance。级联期拿不到字体度量，取等宽编码
+            // 字体的通用值 0.6em（JetBrains Mono/SF Mono/Menlo 的实测值；
+            // 打字机 reveal、`Nch` 宽度动画是 ch 的主用场景，均为等宽字体）。
+            LengthValue::Ch(v) => LenPercent::Px(v * 0.6 * ctx.em_base),
             LengthValue::Vw(v) => LenPercent::Px(v * ctx.viewport.0 / 100.0),
             LengthValue::Vh(v) => LenPercent::Px(v * ctx.viewport.1 / 100.0),
             // 容器查询单位：hyperframes 语料的 query container 全部落在
@@ -1711,6 +1715,8 @@ fn length_value_to_px(v: &LengthValue, ctx: &EvalContext) -> f32 {
         LengthValue::Px(x) => *x,
         LengthValue::Rem(x) => x * ctx.rem_base,
         LengthValue::Em(x) => x * ctx.em_base,
+        // 1ch ≈ 0.6em（等宽字体 "0" 的 advance，见 lp_to_len_percent 注释）。
+        LengthValue::Ch(x) => x * 0.6 * ctx.em_base,
         LengthValue::Vw(x) => x * ctx.viewport.0 / 100.0,
         LengthValue::Vh(x) => x * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(x) => x * ctx.viewport.0.min(ctx.viewport.1) / 100.0,

@@ -109,10 +109,13 @@ fn cached_matches(cached: &CachedDisplayNode, element: &ElementNode, layout: &La
 /// `background-clip: text` 容器（非文本叶）的背景下传给后代文字作字形填充：
 /// 容器自身不画背景，后代 Text 以容器盒为映射盒。`rect` 是容器盒在当前
 /// 节点坐标系里的位置（逐层按子节点布局偏移平移；中间节点的 CSS 变换不计）。
+/// `blend_mode` 随层下传（texture 语料的 `.feel-word` 把 blend 挂在容器上，
+/// 文本元素自身样式没有——blend 丢失会让顶层渐变以 SrcOver 盖死纹理层）。
 #[derive(Clone, Copy)]
 struct ClipTextFill<'a> {
     layers: &'a [crate::style::BackgroundFill],
     rect: DisplayRect,
+    blend_mode: crate::canvas::paint::BlendMode,
 }
 
 impl<'a> ClipTextFill<'a> {
@@ -126,6 +129,7 @@ impl<'a> ClipTextFill<'a> {
             return Some(Self {
                 layers: &visual.background,
                 rect: DisplayRect { x: 0.0, y: 0.0, width: layout.rect.width, height: layout.rect.height },
+                blend_mode: visual.background_blend_mode,
             });
         }
         inherited
@@ -665,6 +669,7 @@ fn display_item_for_node(
                 text.text_unit_overrides.as_ref(),
                 text.text_style.text_px,
             );
+            let mut background_blend_mode = element.style.visual.background_blend_mode;
             let (text_fill, text_fill_box) = match element.style.visual.background_clip {
                 crate::style::BackgroundClip::Text
                     if !element.style.visual.background.is_empty() =>
@@ -672,7 +677,12 @@ fn display_item_for_node(
                     (Some(element.style.visual.background.clone()), None)
                 }
                 _ => match clip_text {
-                    Some(fill) => (Some(fill.layers.to_vec()), Some(fill.rect)),
+                    Some(fill) => {
+                        // 层来自 clip:text 容器：blend 也是容器的（容器层叠
+                        // 的一部分，见 ClipTextFill 注释）。
+                        background_blend_mode = fill.blend_mode;
+                        (Some(fill.layers.to_vec()), Some(fill.rect))
+                    }
                     None => (None, None),
                 },
             };
@@ -690,7 +700,7 @@ fn display_item_for_node(
                 text_fill_box,
                 background: node_background,
                 background_border_radius: element.style.visual.border_radius,
-                background_blend_mode: element.style.visual.background_blend_mode,
+                background_blend_mode,
                 allow_wrap: text_element_allows_wrap(element),
                 truncate: element.style.layout.truncate,
                 wrap_width: wrap_width.unwrap_or(bounds.width),

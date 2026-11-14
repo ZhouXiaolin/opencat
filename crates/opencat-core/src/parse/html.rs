@@ -1452,8 +1452,13 @@ fn lower_children(handle: &Handle, state: &mut LoweringState, pre: bool) -> Resu
             SinkData::Comment => {}
             SinkData::Element { .. } => {
                 if tag_of(&kid).as_deref() == Some("br") {
+                    // 断点切开累积器：先 flush 已积累的 run，否则后续文本
+                    // 续接到同一累积器，`needs<br>different` 粘成一词。
+                    if acc_dirty {
+                        items.push(Lowered::TextRun(std::mem::take(&mut text_acc)));
+                        acc_dirty = false;
+                    }
                     items.push(Lowered::Break);
-                    acc_dirty = true;
                     continue;
                 }
                 // `<template>` 内容透明展开：hyperframes 把整个子 composition
@@ -1560,27 +1565,36 @@ fn assemble_children(
 }
 
 /// 文本承载元素的自有文本：run 序列合并（首末裁剪，内部保单空格）。
+/// `<br>` 段落分隔：每段独立折叠再以 '\n' 相接——`needs<br>different`
+/// 的 br 前后无空白，兼作断行与词分隔，整段折叠会把它吃成粘连词；
+/// '\n' 由 cosmic 排版当硬换行。
 fn collect_inline_text(items: &[Lowered], keep_raw: bool, trim: bool) -> String {
-    let mut parts: Vec<&str> = Vec::new();
+    let mut segs: Vec<String> = vec![String::new()];
     for item in items {
-        if let Lowered::TextRun(raw) = item {
-            parts.push(raw);
+        match item {
+            Lowered::TextRun(raw) => segs.last_mut().unwrap().push_str(raw),
+            Lowered::Break => segs.push(String::new()),
+            Lowered::Element(_) => {}
         }
     }
-    if parts.is_empty() {
+    if segs.iter().all(String::is_empty) {
         return String::new();
     }
-    let joined = parts.concat();
-    if keep_raw {
-        return joined;
-    }
-    let mut text = collapse_ws(&joined, false);
+    let joined = if keep_raw {
+        segs.join("\n")
+    } else {
+        segs.iter()
+            .map(|seg| collapse_ws(seg, false))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     if trim {
-        return text.trim().to_string();
+        return joined.trim().to_string();
     }
     // 行内元素保留首尾空白（`<span> token</span>` 的空格参与行内排版）：
     // collapse_ws 会丢掉行首空白，这里按原串补回一个空格。
-    if joined.starts_with(char::is_whitespace) {
+    let mut text = joined;
+    if items.first().is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.starts_with(char::is_whitespace))) {
         text.insert(0, ' ');
     }
     text
@@ -1717,10 +1731,14 @@ pub(crate) fn inject_markup_paint(
 ) -> String {
     use crate::css::{match_rules_ctx, SelectorContext, SelectorNode};
     use lightningcss::printer::PrinterOptions;
+    use lightningcss::properties::PropertyId;
 
     let mut out = String::with_capacity(markup.len() + 128);
     let mut ancestors: Vec<(String, String, String, Vec<(String, String)>)> =
         host_ancestors.to_vec();
+    // markup 的第一个绘制元素是 svg 根：根上页面 CSS 的 opacity 由渲染树
+    // DisplayNode 层应用（见下方过滤），注入只服务子元素。
+    let mut at_root = true;
     let bytes = markup.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -1849,6 +1867,16 @@ pub(crate) fn inject_markup_paint(
                 if !is_svg_paint_property(&applied.property) {
                     continue;
                 }
+                // 根元素的 opacity 不能注入：它由渲染树 DisplayNode 层承担
+                // （CSS 声明与脚本 mutation 同层叠加，补间按帧生效）。注入
+                // 进 markup 会被 usvg 读成 group opacity（内层 SaveLayer），
+                // 与外层双重应用；且脚本对 svg 根的补间写在 store（根 face
+                // 无 __svgNode，不走 markup 重写），永远推翻不了烤死的值
+                // ——figma act9 光标的 opacity 恒 0 全黑即此。子元素没有
+                // 渲染树节点，markup 注入是唯一通道，opacity 照旧。
+                if at_root && matches!(applied.property.property_id(), PropertyId::Opacity) {
+                    continue;
+                }
                 if let Ok(css) = applied.property.to_css_string(false, PrinterOptions::default()) {
                     if let Some(name) = css.split(':').next() {
                         let name = name.trim().to_ascii_lowercase();
@@ -1870,6 +1898,7 @@ pub(crate) fn inject_markup_paint(
                     attrs.push(("style".to_string(), decls));
                 }
             }
+            at_root = false;
         }
 
         // 重新序列化起始标签（属性值已按标记转义回去）。

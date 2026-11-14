@@ -122,6 +122,10 @@ pub trait MutationRecorder {
         let _ = (canvas_id, markup);
     }
 
+    /// 运行期 `appendChild` 上报的宿主子树覆盖（html 通道）。默认 no-op：
+    /// 不承载 DOM 结构的录制器（布局探针、预计算快照）无需关心。
+    fn record_child_override(&mut self, _host_id: &str, _override: crate::script::mutations::ChildOverride) {}
+
     fn record_canvas_runtime_effect(
         &mut self,
         id: &str,

@@ -965,6 +965,9 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str(&body);
     driver.push_str("})();\n");
     driver.push_str("globalThis.__ocHtmlPageInited = true;\n");
+    // init 段尾 = 渲染进程的「提取完成」：此后 appendChild/insertBefore/
+    // removeChild 把宿主子树序列化上报（渲染 realm 不跑 __ocHtmlExtract）。
+    driver.push_str("globalThis.__ocHtmlExtractDone = true;\n");
     driver.push_str("}\n");
     driver.push_str("if (!__ocHtmlInit) globalThis.__ocHtmlBeginFrame();\n");
     // driver_fn 全程时间戳（trace 模式）：profile 的 driver_fn span 与之对照。
@@ -972,7 +975,7 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     if trace_js {
         // 计数器安装一次；__write_style_value 是全部样式写入的唯一宿主出口
         // （html_api.js 的 writeStyle/setProperty 都经它）。
-        driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocProbeInstalled) { globalThis.__ocProbeInstalled = true; var __ocRawWrite = globalThis.__write_style_value; globalThis.__ocNWrite = 0; globalThis.__write_style_value = function (id, k, v) { globalThis.__ocNWrite++; return __ocRawWrite(id, k, v); }; }\n");
+        driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocProbeInstalled) { globalThis.__ocProbeInstalled = true; var __ocRawWrite = globalThis.__write_style_value; globalThis.__ocNWrite = 0; globalThis.__ocTrN = 0; globalThis.__write_style_value = function (id, k, v) { globalThis.__ocNWrite++; try { if (String(id) === 'thread' && globalThis.__ocTrN < 25) { globalThis.__ocTrN++; if (typeof __ocStderr === 'function') __ocStderr('[wtr-thread] #' + globalThis.__ocTrN + ' ' + k + '=' + String(v).slice(0, 90)); } } catch (e) {} return __ocRawWrite(id, k, v); }; }\n");
         driver.push_str("if (globalThis.__ocTraceJs && typeof globalThis.__ocNWrite === 'undefined') { globalThis.__ocNWrite = 0; globalThis.__ocNSeek = 0; }\n");
         // rAF flush 探针：逐回调墙钟计时（__ocWallMs 是宿主注入的测量出口，
         // 不进确定性）。gsap tick/页面 draw 全在 flush 的 batch 里——这个
@@ -1019,6 +1022,12 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     // 动画落后钟 33ms×N 永不追上。ticker.wake() 每帧强制：gsap ticker 在
     // 感知不到活跃动画时 sleep（停 rAF 自续），sleep 间隙后偶发的大 dt
     // 直推会跳过中间时刻的 tl.call——每帧唤醒保证 tick 每帧恰好一次。
+    // play 前做幕时钟对齐：async 链（fonts/fetch/setTimeout 轮询）在渲染
+    // realm 跨帧落定，tl 进 __timelines 时钟可能已过幕起点 at，play() 从
+    // 0 自然播会让整幕滞后 (钟-at)。对齐 = play 后 seek(钟-at)（回调不抑
+    // 制：跨过的 tl.call 依序触发，appendChild 类 DOM 生长一次到位，与浏
+    // 览器逐帧语义同终点）。中途起渲（首帧钟已 > at）同理，不再注册
+    // delayedCall（那会把触发推到 钟+at）。
     driver.push_str("    if (!globalThis.__ocVtimePending) globalThis.__ocVtimePending = {};\n");
     driver.push_str("    if (globalThis.gsap) { if (!globalThis.__ocVtimeLag) { globalThis.__ocVtimeLag = true; try { globalThis.gsap.ticker.lagSmoothing(0); } catch (error) {} } try { globalThis.gsap.ticker.wake(); } catch (error) {} }\n");
     driver.push_str("    (function () {\n");
@@ -1026,16 +1035,25 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("        var pend = globalThis.__ocVtimePending;\n");
     driver.push_str("        var offs = globalThis.__ocCompOffsets || {};\n");
     driver.push_str("        var g = globalThis.gsap;\n");
+    driver.push_str("        var __ocNow = function () { return (globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0); };\n");
+    driver.push_str("        var __ocPlayAct = function (tl, at, id) {\n");
+    driver.push_str("            try { tl.play(); } catch (error) {}\n");
+    driver.push_str("            try { var late = __ocNow() - at; if (late > 0.0001 && typeof tl.seek === 'function') tl.seek(late, false); } catch (error) { if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') __ocStderr('[seek-err] ' + id + ' :: ' + (error && (error.stack || error.message || String(error)))); }\n");
+    driver.push_str("            if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') { var __ocLate = __ocNow() - at; __ocStderr('[act-play] ' + id + ' now=' + __ocNow().toFixed(3) + ' late=' + __ocLate.toFixed(3) + ' tltime=' + (typeof tl.time === 'function' ? tl.time().toFixed(3) : '?')); }\n");
+    driver.push_str("        };\n");
     driver.push_str("        for (var id in reg) {\n");
     driver.push_str("            if (pend[id]) continue;\n");
     driver.push_str("            var tl = reg[id];\n");
     driver.push_str("            if (!tl || typeof tl.play !== 'function') continue;\n");
     driver.push_str("            pend[id] = true;\n");
     driver.push_str("            var at = Number(offs[id]);\n");
-    driver.push_str("            if (!(at > 0)) { try { tl.play(); } catch (error) {} }\n");
-    driver.push_str("            else if (g && typeof g.delayedCall === 'function') { g.delayedCall(at, function (t2) { return function () { try { t2.play(); } catch (error) {} }; }(tl)); }\n");
-    driver.push_str("            else { try { tl.play(); } catch (error) {} }\n");
+    driver.push_str("            if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') __ocStderr('[act] ' + id + ' at=' + at + ' now=' + __ocNow().toFixed(3));\n");
+    driver.push_str("            if (!(at > 0)) { __ocPlayAct(tl, 0, id); }\n");
+    driver.push_str("            else if (__ocNow() >= at) { __ocPlayAct(tl, at, id); }\n");
+    driver.push_str("            else if (g && typeof g.delayedCall === 'function') { g.delayedCall(at, function (t2, at2) { return function () { __ocPlayAct(t2, at2, id); }; }(tl, at)); }\n");
+    driver.push_str("            else { __ocPlayAct(tl, at, id); }\n");
     driver.push_str("        }\n");
+    driver.push_str("        if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') { var __regKeys = []; for (var rk in reg) __regKeys.push(rk); var __rootTl = reg['root']; __ocStderr('[tick] f=' + (globalThis.__ocNFrame || 0) + ' now=' + __ocNow().toFixed(3) + ' reg=[' + __regKeys.join(',') + '] rootTime=' + (__rootTl && typeof __rootTl.time === 'function' ? __rootTl.time().toFixed(3) : '?')); }\n");
     driver.push_str("    })();\n");
     driver.push_str("    if (globalThis.__ocTraceJs) { globalThis.__ocNFrame = (globalThis.__ocNFrame || 0) + 1; if (globalThis.__ocNFrame % 5 === 0) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('[jstrace] write5f=' + globalThis.__ocNWrite + ' t=' + Math.round(__ocTime * 1000)); globalThis.__ocNWrite = 0; } }\n");
     driver.push_str("    if (globalThis.__ocTraceJs && globalThis.__ocDfT0) { var __dfdt = __ocWallMs() - globalThis.__ocDfT0; globalThis.__ocDfN = (globalThis.__ocDfN || 0) + 1; globalThis.__ocDfSum = (globalThis.__ocDfSum || 0) + __dfdt; if (globalThis.__ocDfN % 30 === 0) { if (typeof __ocStderr === 'function') __ocStderr('[driver] 30f avg=' + (globalThis.__ocDfSum / globalThis.__ocDfN).toFixed(1) + 'ms'); globalThis.__ocDfN = 0; globalThis.__ocDfSum = 0; } }\n");

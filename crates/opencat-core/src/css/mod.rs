@@ -331,6 +331,7 @@ fn parse_inline_block(
 }
 
 /// 从一段 CSS 文本构建的样式引擎。
+#[derive(Clone)]
 pub struct CssEngine {
     sheet: Arc<CssStylesheet>,
     ctx: EvalContext,

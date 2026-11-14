@@ -388,3 +388,124 @@ SwiftShader-Vulkan，恢复像素等价，同时保住零拷贝的速度与内�
 - 这是当前后端选择，不是对 SwiftShader 零拷贝的永久禁令；后续可单独研究。
 - 当前任务转为：在保留速度与内存收益的前提下，继续核对 llvmpipeline 光栅
   与 swgl 参考的剩余类间差异。
+
+### 硬件 Vulkan 全语料扫描与形态优先对齐（2026-11-13）
+
+本轮用 `target/release/opencat --features profile` 直接渲染
+`hyperframes-launches` 中全部 23 个带 `*swgl*.mp4` 的 example。硬件配置实测落在
+AMD Radeon 610M / RADV：`LD_PRELOAD=tools/angle-linux/libvulkan.so.1`、
+`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json`、
+`OC_SKIA_BACKEND=vulkan`、`OC_ANGLE_DIR=tools/angle-linux`、`OC_GPU_PIPELINE=1`。
+每例受 `systemd-run --user --scope -p MemoryMax=12G` 保护；渲染日志含
+`Render profile`。产物与脚本在 `out/vulkan-sweep/`，清单见
+`out/vulkan-sweep/manifest.txt`，榜单见 `out/vulkan-sweep/summary.json`。
+
+**指标**：全部 23 例完成 `tools/k3diff.py`（`avg_p8`、`mae`）、
+ffmpeg `ssim_stats.txt`，以及 `out/vulkan-sweep/scripts/structure_probe.py`
+的 12 帧结构采样（`d4`、SSIM、边缘 IoU、NCC、位移）。本轮最终产物
+`out/vulkan-sweep/summary.json` 与 `structure_probe.json` 的严格 `avg_p8`
+最差：`vfx-heygen-combined 0.1643`、`claude-design-send-hyperframes-launch 0.1621`、
+`inspector-launch 0.1460`、`figma-launch 0.1213`、
+`frame-md-launch-storyboard 0.0959`、`texture-launch-video 0.0756`。
+形态采样最差：`claude-design-send-hyperframes-launch d4=0.1583/ssim=0.7399`、
+`texture-launch-video d4=0.1170/ssim=0.7603/ncc=0.7026/shift=7.2`、
+`vfx-heygen-combined d4=0.0794`、`frame-md-launch-storyboard d4=0.0766/ssim=0.7729/shift=18.8`、
+`figma-launch d4=0.0702`、`cloud-render-launch shift=15.2`。
+23 例日志都含 `Render profile` 且 `rc=0`；视频、k3diff、SSIM 与结构指标齐全。
+`k3-promo` 输出 495 帧而参考 494 帧；k3diff 按 494 帧截断，
+`compare_one.sh` 也已给 ffmpeg SSIM 加 `trim` 与 `shortest`，避免末帧重复。
+最终审计：23 个清单视频全部有效，23 份渲染日志全部 `rc=0` 且带
+`Render profile`，23 份 k3diff 与 23 份 SSIM 统计齐全；清理了一个不属于
+清单的 48 字节空探测视频 `-brand-refraction.mp4`。
+
+**`:not()` 探针结论**：`frame-md-launch-storyboard` 的 `## Style Prompt`
+曾怀疑来自 `gsap.set(".mz h1, .mz h2:not(.section)", …)` 被简易选择器丢弃。
+临时给 `html_api.js` 加 `:not(.class)` 后，连续 0:620 段对照仅把
+`avg_p8` 从 0.06535 改到 0.06437，12 帧 `d4` 从 0.09076 改到 0.09074，
+并排图里原始 Markdown 仍可见。故该补丁已撤销；不把它当作形态修复。
+`frame-md` 的根因另查文本隐藏/时间轴与卡片版式。
+
+**并排目视**（`out/vulkan-sweep/contact/`）：
+
+- 高 `avg_p8` 但形态一致：`vfx-heygen-combined` 的紫底噪点、色散文字、光晕
+  形状一致；`inspector-launch` 的网格、面板、标题位置一致；`figma-launch`
+  的弹窗、截图、标题位置一致。按用户口径，这些噪点、AA、字体栅格差异不优先。
+- `texture-launch-video`：并排图里 f188 蓝色纹理 `feel` 与 f282 的
+  `PAVING STONES` 纹理字已经出现；f376 液态背景形态一致，仍有小幅文字相位差。
+  位图裁字修复已反映在本轮视频中，不再按「纹理层缺失」推进。
+- `frame-md-launch-storyboard`：右侧出现 `## Style Prompt` 原始 Markdown，
+  左侧竖排说明与圆角卡片缺失；多帧标题、段落布局不同。
+- `claude-design-send-hyperframes-launch`：提示文字右溢、面板内容残缺、
+  文案与按钮内容不同、弹窗位置错位。
+- `HF-heygen-stripe`：f829 参考把 `pays/discovers/provisions` 叠在
+  `The agent` 右侧，渲染为一行乱码；f497 终端内容缺字；f0/f1160 细线形态差。
+- `cloud-render-launch`：进度条颜色、细线与若干文本字重差大，主版式一致。
+- `codex-five-hour-limit-replica`：ChatGPT/Codex 文字标签、输入内容、
+  `End the five hour limit` 贴纸缺失，人物与卡片位置一致。
+
+**对齐优先级**：先修「有 vs 无 / 整体形态与位置」，再修颜色与噪点。
+1. `claude-design-send-hyperframes-launch`：结构 `d4` 与 `avg_p8` 双高，先修
+   提示文字截断、面板内容、按钮文案与弹窗位置。
+2. `frame-md-launch-storyboard`：Markdown 标题仍以 `##` 原样出现，竖排标题与
+   圆角卡片缺失；先修文本替换、段落换行和卡片版式。
+3. `texture-launch-video`：纹理字形态已恢复；只追 f376 等帧的液态背景与文字
+   相位，不回退位图裁字路径。
+4. `HF-heygen-stripe`：叠字动画与时间轴内容。
+5. `codex-five-hour-limit-replica`：文字标签与贴纸。
+
+**canvas2d 文本纪律（2026-11-13）**：`canvas2d.js` 这一块指 HTML canvas 2D
+运行时面（`context2d.js` / `canvas_api.js` / `dom_api.js` / `html_api.js`），
+不是同名外部文件。当前工作树已把 `fillText`/`strokeText`/`drawText`/
+`drawParagraph` 统一录成 `__canvas_glyph_paths` 的字形 `Path` + DrawOp；
+`getImageData` 只在消费点重放这些 Path 后回读像素。旧的 `ctx.surface`
+文本光栅、`__canvas_draw_paragraph`、`__canvas_draw_text` 与
+`surface_fill_text` 绑定已退役。保持该纪律：文本先留矢量 picture/path，
+不得在绘制阶段 surface 出位图。
+
+本批只以当前工作树、上述产物和本轮实测为准；不引用旧 `avg_p8` 基线。
+
+### claude-design-send 对齐修复（2026-11-14）
+
+合并远端 dev（@omp/SoA 向量执行器）后，按 handoff 优先级修
+`claude-design-send-hyperframes-launch`，四项根因修复全部落地：
+
+1. **绝对定位 definite-width 换行**（resolve/style.rs）：CSS §10.3.7——
+   `left`/`right` 都非 auto 且 `width:auto` 时宽度由包含块解出，不是
+   shrink-to-fit。`text_element_allows_wrap` 与 `InheritedStyle::for_child`
+   的定宽判定补上这一支，f211 提示文字三行换行与参考一致。
+2. **interleaveKids 真 DOM 序**（html_api.js）：BISECT-A 兜底把散文本并进
+   第一个 P，破坏 flex/inline 次序；改为逐节点按序 flush 文本 run，f1056
+   连接菜单图标/文字次序恢复。
+3. **svg 内部元素绘制注入**（parse/html.rs + parse/dom.rs + resolve/resolve.rs）：
+   inline `<svg>` 的 markup 不携带页面层叠，`.pchart .pfill{fill:…}` 这类
+   瞄准内部 path 的规则不注入就画成默认黑实心。`inject_markup_paint` 单遍
+   扫描 markup 并级联匹配；注入现场（`SvgInnerPaintCtx`：Arc 样式表 + 宿主
+   祖先链）挂在 Svg 节点上，**resolve 期在脚本 markup 覆盖落地之后**执行
+   （build 期注入会被 GSAP 的 `__svg_set_markup` 整树覆盖冲掉——踩过）。
+   合并策略：内联/脚本已写的属性跳过（浏览器层叠序），`opacity` 也入注入
+   表（CSS `opacity:0` 停驻「未画」基准，脚本补间按帧改写）。
+   另修：markup 重序列化保留标签原文大小写——SVG 是大小写敏感的 XML，
+   `to_ascii_lowercase` 把 `linearGradient` 写成小写后 usvg 拒析
+   （f1332 `inline svg markup is invalid`）。
+4. **svg face 的 style 写穿**（html_api.js）：GSAP 对 svg 内部元素补间
+   `style.strokeDashoffset` 落在 store 里无人消费（内部 path 不是渲染树
+   节点）；`makeStyleProxy` 的 set/setProperty/get 对带 `__svgNode` 的
+   face 走 `svgStyleWrite/Read`——camelCase→dash-case 合并进节点
+   style 属性，经 `svgWriteAttr → __svg_set_markup` 到达 resolve 覆盖。
+   f633 珊瑚曲线恢复（起点值读取仍是空→GSAP 取 0，画线动画变为
+   4.14s 整段浮现而非 1.15s 渐画——形态可接受，动画细节遗留）。
+5. **@font-face 被作用域改写破坏**（parse/html.rs scope_composition_css）：
+   紧贴 `@font-face` 的 `/* 注释 */` 混进 prelude，分类误判成样式规则，
+   产出 `[data-composition-id="sq"] @font-face` 非法 CSS——Copernicus/
+   Galaxien 全场丢失，数字用回退字体渲染出「逐字变暗+字距散开」伪影。
+   分类改用去注释视图。f633 标题/数字/词标全部恢复衬线，字距与亮度均匀。
+
+f633 形态现状：`Live throughput` 衬线标题、`2.4M/99.98%/41ms` 紧密均匀、
+珊瑚曲线 + 暖色面积填充、composer 占位与光标——与参考一致。遗留：曲线
+渐画动画细节、弹窗位置小幅差。
+
+**run4 全语料回归（2026-11-14，含上述五项修复）**：23 例全部 `rc=0`，
+零回归。`claude-design-send` avg_p8 0.1621→0.1587、mae 8.00→7.48、
+d4 0.1583→0.1555、ssim 0.7399→0.7432；`figma-launch` 0.1213→0.1191
+（@font-face 修复的外溢收益）；`codex` 0.0231→0.0216；其余各例
+±0.0001 持平。聚合榜 `out/vulkan-sweep/summary.json` 已按新产物重建。

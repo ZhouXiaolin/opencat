@@ -48,6 +48,9 @@ struct ProbeScope {
     frame_ctx: FrameCtx,
     script_frame_ctx: ScriptFrameCtx,
     assets: PreparedResourceCatalog,
+    /// 构建上下文快照（resolve 侧 child override 重建子树用）。探针测量
+    /// 要看到挂载后的结构，否则 appendChild 后量出的宿主高度缺子树。
+    html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
     cache: RefCell<Option<(u64, HashMap<String, AbsBox>)>>,
 }
 
@@ -71,6 +74,7 @@ pub(crate) fn with_scope<R>(
     frame_ctx: FrameCtx,
     script_frame_ctx: ScriptFrameCtx,
     assets: PreparedResourceCatalog,
+    html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
     f: impl FnOnce() -> R,
 ) -> R {
     if DEPTH.with(|depth| depth.get()) > 0 {
@@ -81,6 +85,7 @@ pub(crate) fn with_scope<R>(
         frame_ctx,
         script_frame_ctx,
         assets,
+        html_build,
         cache: RefCell::new(None),
     };
     LIVE.with(|live| live.borrow_mut().push(Rc::new(scope)));
@@ -168,6 +173,7 @@ fn measure(scope: &ProbeScope, mutations: StyleMutations) -> Option<HashMap<Stri
             &mut assets,
             None,
             &mut host,
+            scope.html_build.clone(),
         )
     });
     DEPTH.with(|depth| depth.set(depth.get() - 1));

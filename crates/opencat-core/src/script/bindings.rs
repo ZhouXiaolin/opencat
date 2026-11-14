@@ -804,6 +804,18 @@ macro_rules! for_each_binding {
             Ok(())
         }}
 
+        /// 运行期 `appendChild` 的宿主子树上报（html 通道）：JS 侧把宿主
+        /// 当前的 element 子树整体序列化（DomElement JSON，与 extract 的
+        /// tree 同形）连同宿主祖先链一起交给 store，resolve 期按它重建
+        /// 宿主的 children（走完整 build_node 链路，CSS/继承不缺位）。
+        $binding! { cmd $store html_set_children (host_id: String, chain: Vec<crate::script::mutations::ChainNode>, children: Vec<serde_json::Value>) -> () {
+            $store.record_child_override(
+                &host_id,
+                crate::script::mutations::ChildOverride { chain, children },
+            );
+            Ok(())
+        }}
+
         /// 真 GL 反射：link 后 three 立刻同步枚举 active uniform/attribute。
         /// 反射器由宿主注入（engine 拿 GL 上下文向驱动问询），core 只转发。
         $binding! { qry $store glsl_reflect (vs: String, fs: String) -> serde_json::Value {

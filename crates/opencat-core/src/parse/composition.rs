@@ -81,6 +81,8 @@ pub struct Composition {
     pub frames: u32,
     pub root: Arc<RootComponent>,
     pub audio_sources: Arc<Vec<CompositionAudioSource>>,
+    /// html 前端的构建上下文快照（运行期 appendChild 的子树重建用）。
+    pub html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
 }
 
 pub struct CompositionBuilder {
@@ -91,6 +93,7 @@ pub struct CompositionBuilder {
     duration: Option<f64>,
     root: Option<Arc<RootComponent>>,
     audio_sources: Vec<CompositionAudioSource>,
+    html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
 }
 
 impl Composition {
@@ -104,6 +107,7 @@ impl Composition {
             duration: None,
             root: None,
             audio_sources: Vec::new(),
+            html_build: None,
         }
     }
 
@@ -135,6 +139,7 @@ impl Composition {
             frames: self.frames,
             root: self.root.clone(),
             audio_sources: self.audio_sources.clone(),
+            html_build: self.html_build.clone(),
         }
     }
 }
@@ -169,6 +174,11 @@ impl CompositionBuilder {
         I: IntoIterator<Item = CompositionAudioSource>,
     {
         self.audio_sources = sources.into_iter().collect();
+        self
+    }
+
+    pub fn html_build(mut self, ctx: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>) -> Self {
+        self.html_build = ctx;
         self
     }
 
@@ -218,6 +228,7 @@ impl CompositionBuilder {
             frames,
             root,
             audio_sources: Arc::new(self.audio_sources),
+            html_build: self.html_build,
         })
     }
 }

@@ -982,6 +982,9 @@ impl StyleStore {
             // ── strings ──
             "text" => {
                 if let Some(s) = value.as_str() {
+                    if std::env::var_os("OC_DBG_TSLOT").is_some() && id.contains("composer") {
+                        eprintln!("[dbg-wtext] id={id} len={}", s.len());
+                    }
                     entry.text_content = Some(s.to_string());
                     self.text_writes += 1;
                 }
@@ -1388,6 +1391,25 @@ struct TreeAndText {
     tree: TreeOverlay,
 }
 
+/// 运行期 `appendChild` 的宿主子树覆盖（html 通道）。与样式同语义：
+/// 挂载关系是节点状态，持久文档跨帧保留，非持久随帧清空。
+#[derive(Default)]
+struct ChildOverrides {
+    map: HashMap<String, crate::script::mutations::ChildOverride>,
+    persistent: bool,
+    /// 结构变化计数：布局探针的缓存键并入它（text 不变而结构变了，
+    /// 挂载后的量高必须重测）。
+    version: u64,
+}
+
+impl ChildOverrides {
+    fn clear_frame(&mut self) {
+        if !self.persistent {
+            self.map.clear();
+        }
+    }
+}
+
 /// 面向绑定层（bindings.rs / js_context.rs）的统一录制面。内部按域拆六个
 /// 子 store（样式 / canvas 流 / GL 流 / 宿主桥 / 生成图像 / 树与文本）+ 帧钟；
 /// 每个 pub 方法转发对应子 store，方法签名即绑定层 API 契约。
@@ -1399,6 +1421,7 @@ pub struct MutationStore {
     bridges: HostBridges,
     generated: GeneratedImages,
     tree_text: TreeAndText,
+    children: ChildOverrides,
     current_frame: u32,
     /// Scene-local frame override. The JSX frontend emits ONE root driver whose
     /// store frame is the composition frame, but each `<tl>` scene has its own
@@ -1727,11 +1750,13 @@ impl MutationStore {
             return StyleMutations {
                 mutations: self.style.styles.clone(),
                 canvas_mutations: self.canvases.canvases.clone(),
+                child_overrides: self.children.map.clone(),
             };
         }
         StyleMutations {
             mutations: std::mem::take(&mut self.style.styles),
             canvas_mutations: std::mem::take(&mut self.canvases.canvases),
+            child_overrides: std::mem::take(&mut self.children.map),
         }
     }
 
@@ -1745,6 +1770,7 @@ impl MutationStore {
         // 脚本侧 DOM 覆盖层的挂载关系（appendChild/removeChild 的产物）同属
         // 节点状态，跨帧保留（见 TreeOverlay::persistent）。
         self.tree_text.tree.set_persistent(true);
+        self.children.persistent = true;
     }
 
     fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
@@ -1860,15 +1886,20 @@ impl MutationStore {
     }
 
     pub fn text_writes(&self) -> u64 {
-        self.style.text_writes
+        // 探针缓存键：文本写入数 + 结构变化计数（child override 挂载
+        // 改变宿主子树，同帧后续量高必须重建）。
+        self.style.text_writes.wrapping_add(self.children.version << 32)
     }
 
     /// 本帧到目前为止的样式突变（不消耗、不含 canvas 流）：布局探针按它
-    /// 现场布局，即浏览器同步布局看到的 DOM 状态。
+    /// 现场布局，即浏览器同步布局看到的 DOM 状态。child_overrides 一并
+    /// 快照——挂载后的宿主高度必须含已挂子树，否则 push-up 类逻辑
+    /// （量 thread 再上移）量到缺子树的高度。
     pub fn style_snapshot(&self) -> StyleMutations {
         StyleMutations {
             mutations: self.style.styles.clone(),
             canvas_mutations: HashMap::new(),
+            child_overrides: self.children.map.clone(),
         }
     }
 
@@ -1877,6 +1908,16 @@ impl MutationStore {
 impl MutationRecorder for MutationStore {
     fn record_canvas_svg(&mut self, canvas_id: &str, markup: String) {
         self.set_canvas_svg(canvas_id, markup);
+    }
+    fn record_child_override(
+        &mut self,
+        host_id: &str,
+        child_override: crate::script::mutations::ChildOverride,
+    ) {
+        // 同 key 重插也算结构变化（同一帧多次 append 到同一宿主，
+        // 每次上报都是新子树）。
+        self.children.map.insert(host_id.to_string(), child_override);
+        self.children.version += 1;
     }
     fn record_opacity(&mut self, id: &str, v: f32) {
         self.entry(id).opacity = Some(v);
@@ -2133,6 +2174,7 @@ impl MutationRecorder for MutationStore {
         self.style.clear_frame();
         self.canvases.clear_frame();
         self.gl.clear_frame();
+        self.children.clear_frame();
         self.current_frame = current_frame;
         self.frame_override = None;
         self.time_override_secs = None;
@@ -2143,6 +2185,7 @@ impl MutationRecorder for MutationStore {
         StyleMutations {
             mutations: self.style.styles.clone(),
             canvas_mutations: self.canvases.canvases.clone(),
+            child_overrides: self.children.map.clone(),
         }
     }
 

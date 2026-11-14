@@ -456,6 +456,8 @@ fn length_px(v: &LengthValue, ctx: &EvalContext) -> Option<f32> {
         LengthValue::Px(px) => Some(*px),
         LengthValue::Rem(r) => Some(r * ctx.rem_base),
         LengthValue::Em(e) => Some(e * ctx.em_base),
+        // 1ch ≈ 0.6em（等宽字体 "0" 的 advance，见 to_node_style 注释）。
+        LengthValue::Ch(c) => Some(c * 0.6 * ctx.em_base),
         // vw/vh：视频画布即视口。
         LengthValue::Vw(v) => Some(v * ctx.viewport.0 / 100.0),
         LengthValue::Vh(v) => Some(v * ctx.viewport.1 / 100.0),

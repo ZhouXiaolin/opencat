@@ -257,11 +257,11 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
     // One interned paint per fill layer (usually exactly one solid). Gradient
     // text (`background-clip: text`) yields several, painted bottom-up.
     // `-webkit-text-stroke` paints sit UNDER the fills (webkit paint order).
-    let stroke_paint_id = item
-        .style
-        .text_stroke
-        .as_ref()
-        .map(|stroke| ctx.builder.intern_paint(glyph_stroke_paint(stroke)));
+    // Stroke width is a screen-px measure: the plain branch draws glyphs under
+    // `Scale(draw_scale)` (glyph-local upem space) so the width must be divided
+    // by draw_scale there; the gradient branch bakes placement into the path
+    // and draws under identity, keeping the screen width as-is.
+    let stroke_paint = item.style.text_stroke.clone();
     let paint_ids = {
         let builder = &mut ctx.builder;
         text_fill_specs(item, &raster.lines)
@@ -287,6 +287,15 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
                 GlyphData::Outline(commands, upem) => {
                     let draw_scale = item.style.text_px / *upem;
                     let unscale = *upem / item.style.text_px;
+                    let stroke_paint_id = stroke_paint.as_ref().map(|stroke| {
+                        let mut spec = glyph_stroke_paint(stroke);
+                        if let Some(ref mut st) = spec.stroke
+                            && !text_fill_is_shader(item)
+                        {
+                            st.width *= unscale;
+                        }
+                        builder.intern_paint(spec)
+                    });
                     // A shader fill lives in the *current* CTM, so a per-glyph
                     // translate/scale would move and resize the gradient for
                     // every glyph (visible as banding). Gradient text therefore

@@ -540,6 +540,8 @@ pub(crate) fn length_to_px(len: LengthValue, ctx: &EvalContext) -> Option<f32> {
         LengthValue::Px(v) => v,
         LengthValue::Rem(v) => v * ctx.rem_base,
         LengthValue::Em(v) => v * ctx.em_base,
+        // 1ch ≈ 0.6em（等宽字体 "0" 的 advance，见 to_node_style 注释）。
+        LengthValue::Ch(v) => v * 0.6 * ctx.em_base,
         LengthValue::Vw(v) => v * ctx.viewport.0 / 100.0,
         LengthValue::Vh(v) => v * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(v) => v * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
@@ -648,8 +650,12 @@ fn serialize_token(token: &Token<'static>, out: &mut String) -> Option<()> {
             out.push_str(s);
         }
         Token::Number { value, .. } => out.push_str(&format_css_number(*value)),
+        // lightningcss 的 Token::Percentage.unit_value 是分数（48% → 0.48，
+        // 见 values/percentage.rs「stored as their computed value」）；
+        // 回写必须 ×100，否则 "0.48%" 重解析成 0.0048——渐变停靠点、
+        // background-position 等全部被压缩 100 倍（frame-md 卡片渐变案）。
         Token::Percentage { unit_value, .. } => {
-            out.push_str(&format_css_number(*unit_value));
+            out.push_str(&format_css_number(*unit_value * 100.0));
             out.push('%');
         }
         Token::Dimension { value, unit, .. } => {

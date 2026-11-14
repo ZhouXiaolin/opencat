@@ -810,7 +810,19 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
         // the next run_frame anyway), so the per-frame deep clone of every
         // canvas DrawOp disappears here and at the resolve-side snapshot.
-        let snap = self.ctx.with_store_mut(|s| s.take_mutations());
+        let snap = self.ctx.with_store_mut(|s| {
+            let tc = s
+                .snapshot_mutations()
+                .mutations
+                .get("composer-text:t")
+                .and_then(|m| m.text_content.clone());
+            if std::env::var_os("OC_DBG_TSLOT").is_some() {
+                if let Some(v) = &tc {
+                    eprintln!("[dbg-store] composer-text:t text={v:?}");
+                }
+            }
+            s.take_mutations()
+        });
         if std::env::var_os("OC_FRAME_TIMING").is_some() {
             let canvas_cmds: usize = snap
                 .canvas_mutations

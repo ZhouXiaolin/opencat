@@ -823,12 +823,39 @@ pub struct CanvasMutations {
 
 // ── Style mutations collection ────────────────────────────────────
 
+/// 运行期 `appendChild` 上报的宿主子树覆盖。浏览器里挂载即结构，提取期
+/// 快照定型的渲染树看不见逐帧长出的子树；JS 侧把宿主的当前子树整体
+/// 序列化上报，resolve 期按它重建宿主的 children（CSS 匹配用 chain 做
+/// 宿主祖先上下文，子树本身走完整 build_node 链路）。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildOverride {
+    /// 宿主祖先链（近→远：宿主自身在最前），CSS 后代选择器的匹配栈。
+    pub chain: Vec<ChainNode>,
+    /// 宿主 element 子节点的 DomElement JSON（html_api serializeNode 产物，
+    /// 与 extract 的 tree 同形）。
+    pub children: Vec<serde_json::Value>,
+}
+
+/// 祖先链节点：CSS 匹配所需的最小面（复合选择器的 tag/id/class/属性）。
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChainNode {
+    pub tag: String,
+    pub id: String,
+    pub class: String,
+    #[serde(default)]
+    pub attrs: Vec<(String, String)>,
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StyleMutations {
     pub mutations: HashMap<String, NodeStyleMutations>,
     #[serde(skip)]
     pub canvas_mutations: HashMap<String, CanvasMutations>,
+    #[serde(skip)]
+    pub child_overrides: HashMap<String, ChildOverride>,
 }
 
 impl StyleMutations {
@@ -837,7 +864,9 @@ impl StyleMutations {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.mutations.is_empty() && self.canvas_mutations.is_empty()
+        self.mutations.is_empty()
+            && self.canvas_mutations.is_empty()
+            && self.child_overrides.is_empty()
     }
 
     pub fn apply_to_node(&self, node_style: &mut crate::style::NodeStyle, id: &str) {
@@ -885,6 +914,9 @@ impl StyleMutations {
                 recorder.record_canvas_svg(&canvas_id, markup);
             }
         }
+        for (host_id, child_override) in self.child_overrides {
+            recorder.record_child_override(&host_id, child_override);
+        }
     }
 
     /// Borrowing form for hosts whose mutations outlive one apply
@@ -905,6 +937,9 @@ impl StyleMutations {
             if let Some(markup) = &canvas_mutations.svg {
                 recorder.record_canvas_svg(canvas_id, markup.clone());
             }
+        }
+        for (host_id, child_override) in &self.child_overrides {
+            recorder.record_child_override(host_id, child_override.clone());
         }
     }
 }

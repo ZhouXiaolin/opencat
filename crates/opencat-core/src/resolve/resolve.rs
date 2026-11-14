@@ -33,6 +33,8 @@ use crate::{
 
 use crate::ir::draw_op::DrawOp;
 
+use std::collections::{HashMap, HashSet};
+
 use std::sync::Arc;
 
 use crate::css::VarLink;
@@ -59,6 +61,10 @@ struct ResolveContext<'a> {
 
     script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
+    /// html 前端的构建上下文（运行期 appendChild 的子树重建用）。None =
+    /// 结构不可变通道（jsx），child_overrides 不会出现。Arc 传递：布局
+    /// 探针的 thread_local scope 不能存调用栈借用。
+    html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
 }
 
 pub fn resolve_ui_tree(
@@ -76,6 +82,7 @@ pub fn resolve_ui_tree(
         assets,
         mutations,
         script_runtime,
+        None,
     )
 }
 
@@ -86,6 +93,7 @@ pub fn resolve_ui_tree_with_script_cache(
     assets: &mut PreparedResourceCatalog,
     mutations: Option<&StyleMutations>,
     script_runtime: &mut dyn ScriptHost,
+    html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
 ) -> Result<ElementNode> {
     let mut ids = ElementIdAllocator::default();
     let inherited_style = InheritedStyle::default();
@@ -115,6 +123,7 @@ pub fn resolve_ui_tree_with_script_cache(
 
         script_runtime,
         mutation_stack: &mut mutation_stack,
+        html_build,
     };
     // resolve_build includes script_run_frame (push_script_scope runs inside);
     // subtract script_run_frame for the pure tree-construction cost.
@@ -131,6 +140,21 @@ pub fn resolve_ui_tree_with_script_cache(
     compute_element_input_fingerprints(&mut root);
     #[cfg(feature = "profile")]
     drop(_fp_span);
+    // 临时调试（OC_DBG_NODE=<id>）：dump 该 face 的 resolve 产物样式。
+    if let Some(target) = std::env::var_os("OC_DBG_NODE") {
+        fn dump_node(n: &ElementNode, target: &str, depth: usize) {
+            if n.style.id == target {
+                eprintln!(
+                    "[dbg-node] id={} num={} depth={} transforms={:?} css_filter={:?} opacity={:?}",
+                    n.style.id, n.id.0, depth, n.style.visual.transforms, n.style.visual.css_filter, n.style.visual.opacity
+                );
+            }
+            for c in &n.children {
+                dump_node(c, target, depth + 1);
+            }
+        }
+        dump_node(&root, &target.to_string_lossy(), 0);
+    }
     Ok(root)
 }
 
@@ -292,6 +316,7 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
 
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
+            html_build: cx.html_build.clone(),
         };
         let children = resolve_frame_state_as_children(&frame_state, &mut child_cx)?;
 
@@ -324,6 +349,7 @@ fn resolve_with_script_frame_ctx(
 
         script_runtime: &mut *cx.script_runtime,
         mutation_stack: &mut *cx.mutation_stack,
+        html_build: cx.html_build.clone(),
     };
     resolve_node_optional(node, &mut child_cx)
         .map(|opt| opt.unwrap_or_else(|| empty_root_div(&mut child_cx)))
@@ -422,36 +448,61 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
+        // 运行期 appendChild 的宿主子树覆盖：JS 树是挂载态的权威，提取期
+        // 快照看不见 tl.call 里逐帧挂上的节点。命中即按上报列表整体重建
+        // children（浏览器语义：children 完全由 DOM 决定）。
+        let child_override = cx
+            .mutation_stack
+            .iter()
+            .rev()
+            .find_map(|m| m.child_overrides.get(&style.id))
+            .cloned();
         let mut children = Vec::new();
-        for child in div.children_ref() {
-            let mut child_cx = ResolveContext {
-                frame_ctx: cx.frame_ctx,
-                script_frame_ctx: cx.script_frame_ctx,
-                ids: &mut *cx.ids,
-                inherited_style: &inherited_style,
-                assets: &mut *cx.assets,
+        if let (Some(ov), Some(build)) = (&child_override, cx.html_build.clone()) {
+            children = rebuild_children(&ov, &build, &inherited_style, cx)?;
+        } else {
+            for child in div.children_ref() {
+                let mut child_cx = ResolveContext {
+                    frame_ctx: cx.frame_ctx,
+                    script_frame_ctx: cx.script_frame_ctx,
+                    ids: &mut *cx.ids,
+                    inherited_style: &inherited_style,
+                    assets: &mut *cx.assets,
 
-                script_runtime: &mut *cx.script_runtime,
-                mutation_stack: &mut *cx.mutation_stack,
-            };
-            if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
-                children.push(child);
+                    script_runtime: &mut *cx.script_runtime,
+                    mutation_stack: &mut *cx.mutation_stack,
+                    html_build: cx.html_build.clone(),
+                };
+                if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
+                    children.push(child);
+                }
             }
         }
 
         // 渲染期 textContent 写入落在 `<id>:t`（html_api.js 的 setter）。种子里
         // 没有这个文本子节点时（提取期从未写过文本），按浏览器语义现场新建，
         // 继承本元素的文本样式；写入替换全部子节点——种子里声明的文本 run
-        // （解析期合成的 P）不能留着与新文本叠印。
+        // （解析期合成的 P）不能留着与新文本叠印。child override 命中时
+        // 跳过：上报列表由 JS 树序列化，textContent 已在序列化里合成 `:t`。
         let slot_id = format!("{}:t", style.id);
-        if !div.children_ref().iter().any(|child| child.style_ref().id == slot_id)
+        if std::env::var_os("OC_DBG_TSLOT").is_some() && slot_id.contains("composer") {
+            let has_slot = div.children_ref().iter().any(|child| child.style_ref().id == slot_id);
+            let has_ov = child_override.is_some();
+            let stack_hit = text_content_from_stack(cx.mutation_stack, &slot_id);
+            eprintln!(
+                "[dbg-tslot] f={} slot={slot_id} has_slot={has_slot} child_override={has_ov} stack={stack_hit:?}",
+                cx.frame_ctx.frame
+            );
+        }
+        if child_override.is_none()
+            && !div.children_ref().iter().any(|child| child.style_ref().id == slot_id)
             && let Some(content) = text_content_from_stack(cx.mutation_stack, &slot_id)
         {
             children.clear();
-            // 写入替换全部子节点：新文本是本元素唯一的行，首尾空白不占位。
-            let content = content
-                .trim_matches(|c: char| c.is_whitespace() && c != '\u{a0}')
-                .to_string();
+            // 浏览器 textContent 语义：写入原文不裁空白——空 span 种子
+            // （脚本打字机）降级成 div 后文本落这个槽，尾空格是它与行内
+            // 兄弟（链接 span）的词间距（figma act9 的 "frame figma.com"）。
+            let content = content.to_string();
             if !content.is_empty() {
                 let slot_style = NodeStyle { id: slot_id.clone(), ..NodeStyle::default() };
                 let slot_computed = compute_style(&slot_style, &inherited_style, script_display_unlocked(&slot_style, cx));
@@ -551,6 +602,84 @@ fn shrink_inline_level_child(child: &mut ElementNode, align: crate::style::TextA
     }
 }
 
+/// 运行期 appendChild 的宿主子树重建。上报的 children JSON（与 extract
+/// 的 tree 同形的 DomElement）是这一帧宿主子树的全量；build_node 用留存
+/// 的构建上下文（css/manifest/base_dir）与上报的宿主祖先链（CSS 后代
+/// 选择器的匹配栈，如 `[data-composition-id] .user-row .bubble`），产物
+/// 继续走 resolve_node——store 的样式突变按 face id 命中（gsap 对挂载
+/// 前 face 的 set/tween 照常生效），继承从宿主计算样式下发。
+fn rebuild_children(
+    ov: &crate::script::mutations::ChildOverride,
+    build: &crate::parse::document::HtmlBuildCtx,
+    inherited_style: &InheritedStyle,
+    cx: &mut ResolveContext<'_>,
+) -> Result<Vec<ElementNode>> {
+    if ov.children.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dom_elements: Vec<crate::parse::dom::DomElement> = ov
+        .children
+        .iter()
+        .cloned()
+        .map(serde_json::from_value)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|e| anyhow::anyhow!("html child override: decode: {e}"))?;
+    let font_index = build.manifest.build_family_index();
+    let empty_scripts: HashMap<String, Vec<crate::parse::document::DeclaredScript>> =
+        HashMap::new();
+    let mut dom_ctx = crate::parse::dom::DomContext {
+        base_dir: build.base_dir.as_deref(),
+        css: build.css.as_deref(),
+        manifest: Some(&build.manifest),
+        font_index: Some(&font_index),
+        scripts_by_parent: &empty_scripts,
+        element_ids: HashSet::new(),
+        tl_ids: HashSet::new(),
+        ancestors: ov
+            .chain
+            .iter()
+            .map(|c| crate::parse::dom::CssNodeInfo {
+                tag: c.tag.clone(),
+                id: c.id.clone(),
+                classes: c.class.clone(),
+                attrs: c.attrs.clone(),
+            })
+            .collect(),
+        prev_siblings: Vec::new(),
+        tag_aliases: Vec::new(),
+        html_frontend: build.html_frontend,
+        font_px: Vec::new(),
+        vars: Vec::new(),
+        in_inline_flow: false,
+    };
+    let mut nodes = Vec::with_capacity(dom_elements.len());
+    for el in dom_elements {
+        nodes.push(crate::parse::dom::build_node(el, &mut dom_ctx)?);
+    }
+    let mut children = Vec::with_capacity(nodes.len());
+    for node in &nodes {
+        let node = match node {
+            Some(n) => n,
+            None => continue,
+        };
+        let mut child_cx = ResolveContext {
+            frame_ctx: cx.frame_ctx,
+            script_frame_ctx: cx.script_frame_ctx,
+            ids: &mut *cx.ids,
+            inherited_style,
+            assets: &mut *cx.assets,
+
+            script_runtime: &mut *cx.script_runtime,
+            mutation_stack: &mut *cx.mutation_stack,
+            html_build: cx.html_build.clone(),
+        };
+        if let Some(child) = resolve_node_optional(node, &mut child_cx)? {
+            children.push(child);
+        }
+    }
+    Ok(children)
+}
+
 fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(text, text.style_ref(), cx)?;
     let result = (|| {
@@ -562,17 +691,45 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
         let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
 
-        // 脚本写入的文本与 DOM 构建期同一空白语义：行内 run 之外按行首行尾
-        // 裁掉可折叠空白（`&nbsp;` 不可折叠）。
+        // 脚本写入的文本按浏览器 textContent 语义原样保留：打字机语料
+        // （figma act9 的 t1 尾空格）证明它是行内兄弟的词间距，裁掉会粘连。
         let content = match text_content_from_stack(cx.mutation_stack, &style.id) {
-            Some(written) if !style.inline_run => written
-                .trim_matches(|c: char| c.is_whitespace() && c != '\u{a0}')
-                .to_string(),
             Some(written) => written,
             None => text.content().to_string(),
         };
 
         let text_unit_overrides = script_split_overrides(cx, &style.id, &content);
+
+        // flex/grid 容器上的自有文本（`<h2 class="…flex…">title</h2>`）：
+        // 浏览器把文字包成匿名 item 参与主/交叉轴对齐；Text 叶子贴盒顶
+        // 绘制，容器声明的 align/justify 全部失效（texture 语料的
+        // `.shader-card-copy` 字被钉在卡顶）。包一层真容器让 taffy 原生
+        // 对齐；元素身份（style.id/draw_slot/定位声明）留在壳上，与脚本
+        // 目标及 textContent 槽（`<id>:t`）语义一致。
+        let anonymous = computed.layout.is_flex || computed.layout.is_grid;
+        let draw_slot = draw_slot_for(&style.id, cx.mutation_stack);
+        if anonymous {
+            let inner = ElementNode {
+                id: cx.ids.alloc(),
+                kind: ElementKind::Text(ElementText {
+                    text: content,
+                    text_style: computed.text.clone(),
+                    text_unit_overrides,
+                }),
+                style: anonymous_text_item(&computed),
+                children: Vec::new(),
+                draw_slot: ElementDrawSlot::default(),
+                fingerprints: Default::default(),
+            };
+            return Ok(ElementNode {
+                id: cx.ids.alloc(),
+                kind: ElementKind::Div(ElementDiv),
+                style: computed,
+                children: vec![inner],
+                draw_slot,
+                fingerprints: Default::default(),
+            });
+        }
 
         Ok(ElementNode {
             id: cx.ids.alloc(),
@@ -583,7 +740,7 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             }),
             style: computed,
             children: Vec::new(),
-            draw_slot: draw_slot_for(&style.id, cx.mutation_stack),
+            draw_slot,
             fingerprints: Default::default(),
         })
     })();
@@ -591,6 +748,75 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         cx.mutation_stack.pop();
     }
     result
+}
+
+/// flex/grid 容器上自有文本的匿名 item 样式：剥掉容器/定位/尺寸/边距/
+/// 背景与元素盒视觉（背景边框阴影变换 opacity 都作用在壳上），文本排版
+/// 样式（字体字号行高对齐、text-shadow）原样保留。
+fn anonymous_text_item(computed: &ComputedStyle) -> ComputedStyle {
+    let mut inner = computed.clone();
+    inner.id = format!("{}:anon", computed.id);
+    let layout = &mut inner.layout;
+    layout.is_flex = false;
+    layout.is_grid = false;
+    layout.position = crate::style::Position::Relative;
+    layout.positioned = false;
+    layout.inset_left = None;
+    layout.inset_top = None;
+    layout.inset_right = None;
+    layout.inset_bottom = None;
+    layout.width = None;
+    layout.width_percent = None;
+    layout.height = None;
+    layout.height_percent = None;
+    layout.max_width = None;
+    layout.min_width = None;
+    layout.min_height = None;
+    layout.auto_size = true;
+    layout.margin_top = LengthPercentageAuto::Length(0.0);
+    layout.margin_right = LengthPercentageAuto::Length(0.0);
+    layout.margin_bottom = LengthPercentageAuto::Length(0.0);
+    layout.margin_left = LengthPercentageAuto::Length(0.0);
+    layout.inline_flow = false;
+    layout.inline_level = false;
+    layout.inline_atomic = false;
+    layout.order = 0;
+    layout.z_index = 0;
+    layout.aspect_ratio = None;
+    let visual = &mut inner.visual;
+    visual.background.clear();
+    visual.box_shadow.clear();
+    visual.inset_shadow.clear();
+    visual.drop_shadow.clear();
+    visual.border_radius = crate::style::BorderRadius::default();
+    visual.border_width = None;
+    visual.border_top_width = None;
+    visual.border_right_width = None;
+    visual.border_bottom_width = None;
+    visual.border_left_width = None;
+    visual.border_color = None;
+    visual.border_style = None;
+    visual.clip_contents = false;
+    visual.clip_x_only = false;
+    visual.clip_path = None;
+    visual.transforms.clear();
+    visual.opacity = 1.0;
+    visual.css_filter = Default::default();
+    visual.backdrop_blur_sigma = None;
+    visual.backdrop_filter = Default::default();
+    if let Some(css) = inner.css_layout.as_mut() {
+        let t = &mut css.0;
+        t.display = taffy::prelude::Display::Block;
+        t.position = taffy::prelude::Position::Relative;
+        t.inset = taffy::prelude::Rect::auto();
+        t.margin = taffy::prelude::Rect::zero();
+        t.size = taffy::prelude::Size::auto();
+        t.min_size = taffy::prelude::Size::auto();
+        t.max_size = taffy::prelude::Size::auto();
+        t.flex_basis = taffy::prelude::Dimension::auto();
+        t.aspect_ratio = None;
+    }
+    inner
 }
 
 fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
@@ -690,6 +916,7 @@ fn resolve_hidden_children(
 
             script_runtime: &mut *cx.script_runtime,
             mutation_stack: &mut *cx.mutation_stack,
+            html_build: cx.html_build.clone(),
         };
         if let Some(child_node) = resolve_node_optional(child, &mut child_cx)? {
             children.push(child_node);
@@ -746,6 +973,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
 
                 script_runtime: &mut *cx.script_runtime,
                 mutation_stack: &mut *cx.mutation_stack,
+                html_build: cx.html_build.clone(),
             };
             if let Some(child) = resolve_node_optional(child, &mut child_cx)? {
                 children.push(child);
@@ -1103,6 +1331,7 @@ where
             *cx.frame_ctx,
             *cx.script_frame_ctx,
             (*cx.assets).clone(),
+            cx.html_build.clone(),
             || push_script_scope(style, cx),
         )
     } else {

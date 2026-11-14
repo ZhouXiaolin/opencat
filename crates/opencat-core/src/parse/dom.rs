@@ -279,6 +279,18 @@ impl DomElement {
         }
     }
 
+    /// HTML 可见窗协议的绝对起点（`data-start`，秒）。timeline 场景的段长
+    /// 锚定读它（build_timeline）；窗外隐藏由 resolve 的 clip_window_hides
+    /// 按组合全局秒判定。
+    pub fn data_start(&self) -> Option<f64> {
+        match self {
+            DomElement::Div { data_start, .. } | DomElement::Video { data_start, .. } => {
+                *data_start
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_tl(&self) -> bool {
         matches!(self, DomElement::Tl { .. })
     }
@@ -305,7 +317,16 @@ impl DomElement {
                 Some("h6") => "h6",
                 _ => "p",
             },
-            DomElement::Span { .. } => "span",
+            // 行内 UA 标签（b/strong/i/em/u）保留原标签：UA 兜底表的
+            // 字重/斜体规则按标签匹配，一律返回 "span" 会让它们失效
+            // （figma 语料的 `· 301K` 粗体丢失）。其余标签无 UA 规则，
+            // 维持 "span" 兜底。
+            DomElement::Span { ua_tag, .. } => match ua_tag.as_deref() {
+                Some("b") | Some("strong") | Some("i") | Some("em") | Some("u") => {
+                    css_tag_static(ua_tag.as_deref().unwrap_or("span"))
+                }
+                _ => "span",
+            },
             DomElement::Canvas { .. } => "canvas",
             DomElement::Image { .. } => "image",
             DomElement::Video { .. } => "video",
@@ -437,17 +458,18 @@ fn flow_level(el: &DomElement, ctx: &DomContext<'_>) -> FlowLevel {
 /// 容器是否建立行内流：在流子项全为行内级，且至少有一个行内元素（纯文本
 /// 容器在降级期已成文本节点）。`ctx` 的祖先链须已压入容器本身。
 fn establishes_inline_flow(children: &[DomElement], ctx: &mut DomContext<'_>) -> bool {
-    // 廉价预筛：没有任何可能行内的元素子项就不必逐个级联。
+    // 廉价预筛：没有任何可能行内的元素子项就不必逐个级联。`<br>` 的降级
+    // 产物（P + ua_tag）也触发——纯文本 + br 的容器没有任何行内元素，但
+    // br 正是行内流要处理的断点（`needs<br>different` 不入行内流就会被
+    // 当块级堆叠，行距里多出一个空行盒）。
     let candidate = children.iter().any(|c| {
-        matches!(
-            c,
-            DomElement::Span { .. }
-                | DomElement::Div { .. }
-                | DomElement::Image { .. }
-                | DomElement::Svg { .. }
-                | DomElement::Canvas { .. }
-                | DomElement::Video { .. }
-        )
+        matches!(c, DomElement::Span { .. }
+            | DomElement::Div { .. }
+            | DomElement::Image { .. }
+            | DomElement::Svg { .. }
+            | DomElement::Canvas { .. }
+            | DomElement::Video { .. })
+            || line_break(c)
     });
     if !candidate {
         return false;
@@ -458,7 +480,7 @@ fn establishes_inline_flow(children: &[DomElement], ctx: &mut DomContext<'_>) ->
         ctx.prev_siblings = siblings.clone();
         match flow_level(child, ctx) {
             FlowLevel::Block => return false,
-            FlowLevel::Inline => has_element |= !anonymous_text_run(child),
+            FlowLevel::Inline => has_element |= !anonymous_text_run(child) || line_break(child),
             FlowLevel::OutOfFlow => {}
         }
         siblings.push(CssNodeInfo::of(child));
@@ -693,7 +715,7 @@ pub fn composition_from_dom(
     collect_ids(doc.root.as_ref(), &mut ctx)?;
 
     let mut root = match doc.root {
-        Some(root) => build_node(root, &mut ctx)?,
+        Some(root) => build_node(root, &mut ctx)?.ok_or_else(|| anyhow::anyhow!("no root element found"))?,
         None => anyhow::bail!("no root element found"),
     };
 
@@ -732,6 +754,17 @@ pub fn composition_from_dom(
 
     Ok(ParsedComposition {
         font_manifest: manifest.cloned().unwrap_or_default(),
+        // html 前端的构建上下文快照：运行期 appendChild 的宿主子树重建
+        // （resolve 期按 store 的 child_overrides 走 build_node）要与主树
+        // 同一套级联输入。jsx 通道结构不可变，None。
+        html_build: doc.html_frontend.then(|| {
+            std::sync::Arc::new(crate::parse::document::HtmlBuildCtx {
+                css: css.map(|engine| std::sync::Arc::new(engine.clone())),
+                manifest: manifest.cloned().unwrap_or_default(),
+                base_dir: base_dir.map(|p| p.to_path_buf()),
+                html_frontend: true,
+            })
+        }),
         width: doc.width,
         height: doc.height,
         fps: doc.fps,
@@ -750,31 +783,31 @@ pub fn composition_from_dom(
     })
 }
 
-struct DomContext<'a> {
-    base_dir: Option<&'a Path>,
-    css: Option<&'a crate::css::CssEngine>,
-    manifest: Option<&'a crate::fonts::FontManifest>,
-    font_index: Option<&'a crate::fonts::FontFamilyIndex>,
-    scripts_by_parent: &'a HashMap<String, Vec<DeclaredScript>>,
-    element_ids: HashSet<String>,
-    tl_ids: HashSet<String>,
+pub(crate) struct DomContext<'a> {
+    pub(crate) base_dir: Option<&'a Path>,
+    pub(crate) css: Option<&'a crate::css::CssEngine>,
+    pub(crate) manifest: Option<&'a crate::fonts::FontManifest>,
+    pub(crate) font_index: Option<&'a crate::fonts::FontFamilyIndex>,
+    pub(crate) scripts_by_parent: &'a HashMap<String, Vec<DeclaredScript>>,
+    pub(crate) element_ids: HashSet<String>,
+    pub(crate) tl_ids: HashSet<String>,
     /// 级联匹配栈（docs/html-align/DESIGN.md）：祖先链（近→远）由 build_node
     /// DFS push/pop；前兄链由父分支的子循环维护。
-    ancestors: Vec<CssNodeInfo>,
-    prev_siblings: Vec<CssNodeInfo>,
+    pub(crate) ancestors: Vec<CssNodeInfo>,
+    pub(crate) prev_siblings: Vec<CssNodeInfo>,
     /// 当前待装配节点的 tag 别名（html 前端根 = body/html），装配后清空。
-    tag_aliases: Vec<&'static str>,
+    pub(crate) tag_aliases: Vec<&'static str>,
     /// HTML 前端（docs/html-align/DESIGN.md）：开启行内格式化标记——
     /// 子节点全为 span 的 div 是行内内容容器，布局端串接重排。
-    html_frontend: bool,
+    pub(crate) html_frontend: bool,
     /// 祖先计算字号栈（HTML 前端）：栈顶是父元素字号，`em` 单位按它求值。
-    font_px: Vec<f32>,
+    pub(crate) font_px: Vec<f32>,
     /// 祖先计算自定义属性栈：栈顶是父元素的计算表（自定义属性继承）。
     /// `ancestors` 同步 push/pop；`:root` 只命中空祖先链的根，根变量
     /// 靠它送达整棵树。
-    vars: Vec<crate::css::CssVars>,
+    pub(crate) vars: Vec<crate::css::CssVars>,
     /// 父元素建立了行内流（子文本节点是行内 run）。
-    in_inline_flow: bool,
+    pub(crate) in_inline_flow: bool,
 }
 
 /// 树内 `<audio>` 收进音频池（保持文档顺序）；其余子树继续下探。
@@ -936,7 +969,7 @@ fn attach_driver(
 
 /// DOM 元素 → Node（含子树递归）。逻辑与旧 builder.build_node_inner 一致，
 /// 数据源从扁平表换成直接的树。
-fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> {
+pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Option<Node>> {
     match el {
         DomElement::Div {
             id,
@@ -1052,7 +1085,9 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 ctx.prev_siblings = sibling_infos.clone();
                 let child_info = CssNodeInfo::of(&child);
                 let blank = blank_text_run(&child);
-                built.push((blank, build_node(child, ctx)?));
+                if let Some(node) = build_node(child, ctx)? {
+                    built.push((blank, node));
+                }
                 sibling_infos.push(child_info);
             }
             if div_node.style.inline_flow {
@@ -1068,7 +1103,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             }
             ctx.vars.pop();
             ctx.ancestors.pop();
-            Ok(Node::new(div_node))
+            Ok(Some(Node::new(div_node)))
         }
         // HTML 语义的文本标签：p=块级段落、span=行内片段（批次②起 p/span
         // 共用同一文本节点机制，p 的 UA margin 取 0 保版式零漂移；真标签
@@ -1094,7 +1129,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = text(content);
             text_node.style = style;
-            Ok(Node::new(text_node))
+            Ok(Some(Node::new(text_node)))
         }
         DomElement::Span {
             id,
@@ -1117,7 +1152,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             attach_driver(&mut style, &id, ctx)?;
             let mut text_node = span(content);
             text_node.style = style;
-            Ok(Node::new(text_node))
+            Ok(Some(Node::new(text_node)))
         }
         DomElement::Canvas {
             id,
@@ -1164,9 +1199,11 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             // Hidden picture subtree: children rasterize offscreen and are only
             // reachable through `canvas.getSubTree().makeShader(...)`.
             for child in children {
-                canvas_node = canvas_node.hidden_child(build_node(child, ctx)?);
+                if let Some(node) = build_node(child, ctx)? {
+                    canvas_node = canvas_node.hidden_child(node);
+                }
             }
-            Ok(Node::new(canvas_node))
+            Ok(Some(Node::new(canvas_node)))
         }
         DomElement::Image {
             id,
@@ -1200,7 +1237,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 }
             };
             image_node.style = style;
-            Ok(Node::new(image_node))
+            Ok(Some(Node::new(image_node)))
         }
         DomElement::Video {
             id,
@@ -1255,9 +1292,11 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             video_node = video_node.with_timing(timing);
             video_node.style = style;
             for child in children {
-                video_node = video_node.child(build_node(child, ctx)?);
+                if let Some(node) = build_node(child, ctx)? {
+                    video_node = video_node.child(node);
+                }
             }
-            Ok(Node::new(video_node))
+            Ok(Some(Node::new(video_node)))
         }
         DomElement::Lottie {
             id,
@@ -1286,7 +1325,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             };
             lottie_node = lottie_node.with_timing(VideoFrameTiming::default());
             lottie_node.style = style;
-            Ok(Node::new(lottie_node))
+            Ok(Some(Node::new(lottie_node)))
         }
         DomElement::Path {
             id,
@@ -1305,7 +1344,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 path_node.set_view_box(vb);
             }
             path_node.style = style;
-            Ok(Node::new(path_node))
+            Ok(Some(Node::new(path_node)))
         }
         DomElement::Svg {
             id,
@@ -1359,7 +1398,7 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
             svg_node.preserve_aspect_ratio = preserve_aspect_ratio;
             svg_node.inner_paint = inner_paint;
             svg_node.style = style;
-            Ok(Node::new(svg_node))
+            Ok(Some(Node::new(svg_node)))
         }
         DomElement::Tl {
             id,
@@ -1427,16 +1466,46 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
 
             // Adjacent scenes need not declare a transition: without one the
             // two scenes cut straight from one to the next.
+            //
+            // data-start 锚定：相邻场景都声明绝对起点时，段长取「下一起点 −
+            // 游标」的差，窗间重叠量插 cut 段（重叠期间两窗都活跃，入场景
+            // 整画盖住出场景）。纯窗长平铺会把后窗整体推迟重叠量（frame-md
+            // scene-07/08 的 tween 相位滞后 0.64s/0.35s）；hyperframes 排布
+            // 的总长 = Σ窗长 − Σ重叠（60.254 = 65.404 − 5.15），同样只有差
+            // 分锚定能对上。尾段窗长扣掉前一个过渡的占用；场景窗长经
+            // scene_window 的 before/after 拓宽精确恢复声明值，声明窗外
+            // （gap、尾段）由 clip_window_hides 隐藏。
+            let windows: Vec<(Option<f64>, Option<f64>)> = scenes
+                .iter()
+                .map(|scene| (scene.data_start(), scene.duration()))
+                .collect();
             let mut tl_builder = timeline();
+            let mut cursor_secs = 0.0;
+            let mut before_secs = 0.0;
             for (index, scene) in scenes.into_iter().enumerate() {
-                let duration = scene.duration().ok_or_else(|| {
+                let duration = windows[index].1.ok_or_else(|| {
                     anyhow::anyhow!(
                         "timeline sequence `{}` is missing a duration",
-                        scene.id()
+                        child_ids[index]
                     )
                 })?;
-                let node = build_node(scene, ctx)?;
-                tl_builder = tl_builder.sequence(duration, node);
+                let next_start = windows.get(index + 1).and_then(|(start, _)| *start);
+                let (seg_len, overlap) =
+                    match (windows[index].0, next_start) {
+                        // 两端都声明起点：段长差分锚定，窗间重叠量留给 cut。
+                        (Some(cur), Some(next)) if next > cur => {
+                            (next - cursor_secs, Some((cur + duration - next).max(0.0)))
+                        }
+                        // 锚定链的尾段：窗长扣掉前一个过渡占的时间。
+                        (Some(_), None) => (duration - before_secs, None),
+                        // 未声明起点的场景保持窗长平铺（原行为）。
+                        _ => (duration, None),
+                    };
+                let Some(node) = build_node(scene, ctx)? else {
+                    continue;
+                };
+                tl_builder = tl_builder.sequence(seg_len, node);
+                cursor_secs += seg_len;
 
                 let Some(next_id) = child_ids.get(index + 1) else {
                     continue;
@@ -1444,20 +1513,28 @@ fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Result<Node> 
                 let key = (child_ids[index].clone(), next_id.clone());
                 if let Some(transition) = transitions_by_pair.get(&key) {
                     tl_builder = tl_builder.transition(build_transition(transition)?);
+                    cursor_secs += transition.duration().unwrap_or(0.0);
+                    before_secs = transition.duration().unwrap_or(0.0);
+                } else if let Some(overlap) = overlap.filter(|seconds| *seconds > 1e-9) {
+                    tl_builder = tl_builder.transition(cut().timing(Easing::Linear, overlap));
+                    cursor_secs += overlap;
+                    before_secs = overlap;
                 }
             }
 
             let timeline_node: Node = tl_builder.into();
             let mut kind = timeline_node.kind().clone();
             *kind.style_mut() = style;
-            Ok(Node::new(kind))
+            Ok(Some(Node::new(kind)))
         }
         DomElement::Transition { .. } => anyhow::bail!(
             "transition element must be a direct child of a `tl` node"
         ),
-        DomElement::Audio { .. } => anyhow::bail!(
-            "audio element must live in the audio pool or be attached via `attach`; it does not render"
-        ),
+        // audio 与 video 同类容错：正常路径被 harvest 收进音频池，但
+        // seed 物化的 face 树把 audio 带进上报子树（运行期 appendChild
+        // 重建）时会到达这里。audio 不渲染（解码走音频池），跳过不产
+        // 节点；bail 会让整帧渲染炸掉。
+        DomElement::Audio { .. } => Ok(None),
     }
 }
 

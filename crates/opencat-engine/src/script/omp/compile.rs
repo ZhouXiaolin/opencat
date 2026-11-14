@@ -111,6 +111,19 @@ pub struct Program {
     /// runtime 用它枚举外层变量序列（行并行维度）。
     pub header_start: u32,
     pub header_ys_slot: u16,
+    /// OpenMP `schedule` 子句的运行映射（runtime 派发端读；编译器不感知）。
+    pub schedule: Schedule,
+}
+
+/// OpenMP `schedule(kind[, chunk])` → 行分块策略。Auto = rayon 自适应
+/// work-stealing 缺省（dynamic 语义）；Static = 等分禁窃取（均匀行负载
+/// 最优）；Dynamic(chunk) = 按 chunk 行粒度拉取。indexed 保序产出——
+/// 调度只影响负载分布，不影响任何字节。
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Schedule {
+    Auto,
+    Static,
+    Dynamic(u64),
 }
 
 // ── 静态检查 ────────────────────────────────────────────────────────
@@ -244,7 +257,8 @@ fn collect_calls_expr(e: &Expr, out: &mut Vec<String>) {
 }
 
 /// 收集帧内所有本地绑定名（参数 + let + for 头变量，扁平）。
-fn collect_locals_stmts(stmts: &[Stmt], out: &mut Vec<String>) {
+/// transform 的隐式 shared 分析复用（pub(crate)）。
+pub(crate) fn collect_locals_stmts(stmts: &[Stmt], out: &mut Vec<String>) {
     for s in stmts {
         match s {
             Stmt::Let(n, _) => out.push(n.clone()),
@@ -263,7 +277,8 @@ fn collect_locals_stmts(stmts: &[Stmt], out: &mut Vec<String>) {
 }
 
 /// 收集自由 Ident 引用（不在 locals 里的裸标识符；Math 除外）。
-fn collect_free_idents_stmts(stmts: &[Stmt], locals: &[String], out: &mut Vec<String>) {
+/// transform 的隐式 shared 分析复用（pub(crate)）。
+pub(crate) fn collect_free_idents_stmts(stmts: &[Stmt], locals: &[String], out: &mut Vec<String>) {
     for s in stmts {
         match s {
             Stmt::Let(_, e) => collect_free_idents_expr(e, locals, out),
@@ -348,11 +363,15 @@ const MATH_WHITELIST: &[(&str, MathFn)] = &[
 // ── 编译入口 ────────────────────────────────────────────────────────
 
 /// 编译入口。`fns` 是 transform 传递闭包抽取的（超集）页面函数源码。
+/// `private_names` 是 OpenMP `private` 子句名单——每个名字一个主帧局部槽，
+/// 未初始化（读未写 = undefined，OpenMP private 语义）；行并行下每行一份
+/// 槽位拷贝，行间零共享。
 pub fn compile(
     loop_src: &str,
     fns: &[(String, String)],
     arg_names: &[String],
     arg_kinds: &[CaptureKind],
+    private_names: &[String],
 ) -> Result<Program, String> {
     if arg_names.len() != arg_kinds.len() {
         return Err("args/kinds length mismatch".into());
@@ -412,6 +431,7 @@ pub fn compile(
             n_slots: 0,
             header_start: 0,
             header_ys_slot: 0,
+            schedule: Schedule::Auto,
         },
         scope: HashMap::new(),
         fn_src: &fn_src,
@@ -422,11 +442,18 @@ pub fn compile(
         cond_depth: 0,
         in_fn: false,
     };
-    // 主帧作用域：args 原序（全局槽）+ 外层循环变量（全局槽）。
+    // 主帧作用域：args 原序（全局槽）+ 外层循环变量（全局槽）+ private 局部槽。
     for (i, n) in arg_names.iter().enumerate() {
         c.scope.insert(n.clone(), GLOBAL_FLAG | i as u16);
     }
     c.scope.insert(var.clone(), GLOBAL_FLAG | n_args);
+    for n in private_names {
+        if c.scope.contains_key(n) {
+            return Err(format!("private `{n}` conflicts with capture or loop variable"));
+        }
+        let s = c.temp();
+        c.scope.insert(n.clone(), s);
+    }
     c.compile_stmts(&body)?;
     c.emit(Op::Halt);
 
@@ -504,6 +531,7 @@ impl Program {
             n_slots: 0,
             header_start: 0,
             header_ys_slot: 0,
+            schedule: Schedule::Auto,
         }
     }
 }

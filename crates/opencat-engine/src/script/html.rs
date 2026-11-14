@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
 use crate::resource::fetch::{build_http_client, build_preload_runtime, download_bytes};
-use crate::script::V8JsContext;
+use crate::script::EngineJsContext;
 use opencat_core::parse::dom::DomElement;
 use opencat_core::parse::html::{HtmlScript, parse_html, scope_composition_css};
 use opencat_core::parse::protocol;
@@ -356,7 +356,7 @@ pub fn extract_html_with_base_dir(
     }
     let db = std::sync::Arc::new(db);
     let (mut extract, driver) = opencat_core::text::scope_font_db(&db, || -> Result<(Value, String)> {
-        let mut ctx = V8JsContext::new()?;
+        let mut ctx = EngineJsContext::new()?;
         ctx.eval(
             "globalThis.ctx = globalThis.ctx || {\
              global:{time:0, duration:0, frame:0}, current:{time:0, duration:0, frame:0}, \
@@ -853,7 +853,7 @@ fn find_element_mut<'a>(el: &'a mut DomElement, id: &str) -> Option<&'a mut DomE
 }
 
 /// 评估 `code`，期望 JSON 字符串并解析回 `Value`。
-fn eval_json_string(ctx: &V8JsContext, code: &str) -> Result<Value> {
+fn eval_json_string(ctx: &EngineJsContext, code: &str) -> Result<Value> {
     let wrapped = format!("JSON.stringify({code})");
     let raw = ctx.eval_json(&wrapped)?;
     let text = raw
@@ -931,9 +931,8 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
             }
             (None, Some(code)) => {
                 // @omp 提取期变换：标注的 for 包进 __ocOmpTake 守卫
-                // （无标注/解析失败零改动，原文本直拼）。
-                let code = crate::script::omp::transform(code);
-                body.push_str(&code);
+                // （无标注/解析失败零改动，原文本直拼）。纯文本变换，引擎无关。
+                body.push_str(&crate::script::omp::transform(code));
                 body.push_str("\nglobalThis.__ocHtmlAfterScripts();\n");
             }
             (None, None) => {}

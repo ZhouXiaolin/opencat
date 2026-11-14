@@ -156,3 +156,8 @@ docs/g2-align/
 
 # 预编译包由 docker/fetch-prebuilt.sh 下载，不入库
 docker/prebuilt/
+
+# 引擎本地缓存（字体 vendor + CDN 快照），按工程显式忽略
+examples/omp-reduction/.oc-cache/
+examples/omp-simd/.oc-cache/
+examples/smallpt/.oc-cache/

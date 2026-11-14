@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow};
 use std::sync::Arc;
 
 use opencat::{
-    EngineDrawExecutor, EngineLoader, GeneratedImageCache, MediaContext, V8JsContext,
+    EngineDrawExecutor, EngineLoader, EngineJsContext, GeneratedImageCache, MediaContext,
     build_audio_track_from_pipeline, duration_secs_to_frames, generated_image_cache_from_env,
     open,
 };
@@ -388,7 +388,7 @@ pub fn view(input: PathBuf, base_dir_arg: Option<PathBuf>, scale_arg: Option<f32
     let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let cache_dir = cache_base.join(".opencat").join("assets");
     let loader = EngineLoader::new(base_dir, cache_dir).context("failed to create loader")?;
-    let ctx = V8JsContext::new().context("failed to create js context")?;
+    let ctx = EngineJsContext::new().context("failed to create js context")?;
     let mut pipeline = open(&source_text, loader, ctx).context("failed to open pipeline")?;
     let info = pipeline.info().clone();
     let total_frames = duration_secs_to_frames(info.duration, info.fps).max(1);

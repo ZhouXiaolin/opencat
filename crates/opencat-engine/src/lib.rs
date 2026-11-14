@@ -4,6 +4,10 @@
 //! Public surface is host-owned: open/render/inspect/execute against an
 //! explicit lifecycle pipeline. Core internals are not re-exported for tests.
 
+// std::simd lane kernel 栈（omp/simd_kernel.rs）的 nightly 门：仅 `simd`
+// feature 开启时启用（default off，CI stable 不挂）。
+#![cfg_attr(feature = "simd", feature(portable_simd))]
+
 pub mod fonts;
 // GPU 全家（原生 FFI 落点 / 离屏 GL 会话 / Skia 合成器 / WebGL 命令流执行器 /
 // 用户开关）。macOS 的离线渲染走 CPU 路径，预览的 Metal 合成在 present 平台

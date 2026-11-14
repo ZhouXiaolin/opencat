@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=960" />
+    <title>@omp reduction corpus</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 960px;
+        height: 540px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      [data-composition-id="omp-reduction-v1"] {
+        position: relative;
+        width: 960px;
+        height: 540px;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #rd-canvas {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 384px;
+        height: 192px;
+        transform: translate(-50%, -50%);
+        background: #000;
+        will-change: transform;
+      }
+
+      #rd-caption {
+        position: absolute;
+        left: 50%;
+        bottom: 64px;
+        transform: translateX(-50%);
+        color: #9aa3ad;
+        font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+        font-size: 18px;
+        letter-spacing: 0.08em;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      class="comp"
+      data-composition-id="omp-reduction-v1"
+      data-width="960"
+      data-height="540"
+      data-start="0"
+      data-duration="5"
+    >
+      <canvas id="rd-canvas" class="clip" width="384" height="192" data-start="0" data-duration="5" data-track-index="0"></canvas>
+      <div id="rd-caption" class="clip" data-start="0" data-duration="5" data-track-index="1">// @omp parallel for reduction(+:acc) reduction(*:mix)</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script>
+      // ── @omp reduction 语料（TR15 §8.10 映射的双腿对拍面）───────────────
+      //
+      // 双腿逐位一致的结构性论证（缺一即对拍失败，不许「大致相等」）：
+      //   + 归约：行副本起 0，项全为整数（%97 < 97，行和 ≤ 38208，总计
+      //     ≤ 7.3M ≪ 2^53）——整数加法满足结合律，序贯累加（JS 腿）与
+      //     行副本左折叠（isolate 腿）逐位一致。
+      //   * 归约：因子 ∈ {2, 0.5, 1} 全为 2 的幂（192 行：×2 至多 64 次、
+      //     ×0.5 至多 64 次，指数带 [0,64] 无溢出下溢）——2 的幂乘法精确
+      //     且可结合，两种合并序逐位一致。
+      //   rows[y] = s：Set 通道按行序应用，两腿同值。
+      // 换浮点项（如 Math.sin）即破精确性——那是实现面收紧的已知边界
+      // （docs/js-openmp.md §3.4），语料不覆盖。
+
+      window.__timelines = window.__timelines || {};
+
+      const W = 384;
+      const H = 192;
+      const rows = new Float64Array(H); // 每行和（Set 通道）
+      let acc = 0; // reduction(+:acc)
+      let mix = 1; // reduction(*:mix)
+      const anim = { phase: 0 };
+
+      function traceFrame() {
+        // 整数相位：帧间唯一变化源（画面 f(t)），% 语义精确的前提。
+        const ph = Math.floor(anim.phase * 24);
+        // @omp parallel for reduction(+:acc) reduction(*:mix)
+        for (let y = 0; y < H; y += 1) {
+          let s = 0;
+          for (let x = 0; x < W; x += 1) {
+            s += (x * 7 + y * 13 + ph * 31) % 97;
+          }
+          acc += s;
+          mix *= y % 3 === 0 ? 2 : y % 3 === 1 ? 0.5 : 1;
+          rows[y] = s;
+        }
+      }
+
+      function paint() {
+        // 横带：每行和映射色相带——行内容两腿必逐位一致的面。
+        for (let y = 0; y < H; y += 1) {
+          const v = rows[y] % 97;
+          ctx.fillStyle = `rgb(${Math.floor(v * 2.6)}, ${Math.floor((97 - v) * 2.6)}, 64)`;
+          ctx.fillRect(0, y, W, 1);
+        }
+        // 角标块：折叠终值 acc/mix 的可视面——归约通道接错（静默丢折叠、
+        // 写 undefined）时此块变色/消失，f 帧 md5 立刻爆。
+        ctx.fillStyle = `rgb(${acc % 256}, ${Math.floor((mix * 16) % 256)}, 255)`;
+        ctx.fillRect(W - 56, H - 56, 56, 56);
+        ctx.fillStyle = `rgb(${Math.floor((acc * 7) % 256)}, 255, ${Math.floor((mix * 3) % 256)})`;
+        ctx.fillRect(0, 0, 24, 24);
+      }
+
+      const canvas = document.getElementById("rd-canvas");
+      const ctx = canvas.getContext("2d");
+
+      function draw() {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, W, H);
+        acc = 0; // 每帧从 initializer 起步（realm 持久下必须幂等）
+        mix = 1;
+        traceFrame();
+        paint();
+      }
+
+      draw();
+
+      const tl = gsap.timeline({ paused: true });
+      tl.call(() => draw(), null, 0);
+      tl.to(anim, { phase: 1, duration: 5, ease: "none", onUpdate: draw });
+      window.__timelines["omp-reduction-v1"] = tl;
+    </script>
+  </body>
+</html>

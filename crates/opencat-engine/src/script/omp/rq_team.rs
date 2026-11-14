@@ -35,6 +35,10 @@ struct BundleInst {
 impl RqWorker {
     pub fn new() -> Self {
         let runtime = Runtime::new().expect("rquickjs runtime");
+        // QuickJS 默认 JS 栈 256 KiB——比 V8（~1 MiB）小很多，递归语料
+        // （smallpt 的 radiance）会在 worker 里抛 Maximum call stack size
+        // exceeded，整条循环静默降级成串行。对齐到 1 MiB 以上。
+        runtime.set_max_stack_size(4 * 1024 * 1024);
         let context = Context::full(&runtime).expect("rquickjs context");
         Self { runtime, context, bundles: HashMap::new() }
     }

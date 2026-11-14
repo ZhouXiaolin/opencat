@@ -76,9 +76,10 @@ pub struct SharedBuf {
 /// 一次 execute 的帧环境（每帧构造一次，全团队共享只读）。
 pub struct FrameEnv {
     /// plain/ctx/array/prng 参数已令牌化的 JSON 数组文本（绑定层产出；
-    /// array 槽 = `{"__ocOmpArr": k}`，prng 槽 = null；plain 树里的
-    /// TypedArray = `{"__ocOmpShared": {"slot": k, "len": N}}` 描述符，
-    /// 字节在 `shared[k]`）。
+    /// array 槽 = `{"__ocOmpArr": k}`，prng 槽 = null；array_rw 槽 =
+    /// 帧初快照（plain 树里的 TypedArray = `{"__ocOmpShared":
+    /// {"slot": k, "len": N}}` 描述符，字节在 `shared[k]`；plain 数组 =
+    /// JSON 文本））。
     pub args_json: Arc<str>,
     /// binary 旁路槽（与 args_json 描述符的 slot 序对齐）。
     pub shared: Arc<[SharedBuf]>,
@@ -96,12 +97,18 @@ pub enum SlotKind {
     Prng,
     /// Set/Acc 数组——worker 把该槽绑到令牌对象（`__ocOmpArr` = 槽位）。
     Array,
+    /// 读写数组（written-and-read）——槽实参 = 帧初快照（TypedArray 走
+    /// binary 旁路描述符，plain 数组走 JSON 文本），worker 每行从快照
+    /// 切片起步（行间零污染），Set/Acc 写穿工作副本（行内
+    /// read-after-write = 串行语义），host 按行序应用到真数组。
+    ArrayRw,
     /// canvas 2D 上下文——worker 把该槽绑到垫片 recorder（行内记
     /// fillStyle/满圈 arc，fill 时量化入 ovals 段；实参 JSON 被忽略）。
     Ctx,
 }
 
 /// worker bundle：行函数 + 页面函数闭包 + shim，一次 eval、多帧复用。
+#[derive(Clone)]
 pub struct Bundle {
     /// ir 全文（bundle 缓存键）。
     pub key: Arc<str>,
@@ -147,6 +154,7 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
         let name = name.as_str().ok_or("args item not a string")?;
         let kind = match captures.get(name).and_then(|v| v.as_str()) {
             Some("array") => SlotKind::Array,
+            Some("array_rw") => SlotKind::ArrayRw,
             Some("prng") => SlotKind::Prng,
             Some("ctx") => SlotKind::Ctx,
             _ => SlotKind::Plain,
@@ -289,9 +297,10 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
     return false;
   }
   function __ocCtx() {
-    return {
+    const c = {
       state: { globalAlpha: 1 },
-      fillStyle: "rgba(0, 0, 0, 0)",
+      __ocStyle: "\u0023000000",
+      __ocStyleSet: false,
       __ocPend: null,
       beginPath() { this.__ocPend = null; },
       arc(x, y, r, a0, a1, ccw) {
@@ -306,14 +315,26 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
       fill() {
         const o = this.__ocPend;
         if (!o) throw new Error("omp ctx: fill without pending oval");
+        // 串行语义里 fillStyle 跨迭代继承 = 行间依赖，并行不可复现；要求
+        // 本迭代先设色，否则整条循环毒化回退串行（像素与串行一致）。
+        if (!this.__ocStyleSet) throw new Error("omp ctx: fill before fillStyle in this iteration");
         this.__ocPend = null;
-        const c = [0, 0, 0, 0];
-        if (!__ocBatchColor(this.fillStyle, c)) {
-          throw new Error("omp ctx: unsupported fillStyle " + this.fillStyle);
+        const col = [0, 0, 0, 0];
+        if (!__ocBatchColor(this.__ocStyle, col)) {
+          throw new Error("omp ctx: unsupported fillStyle " + this.__ocStyle);
         }
-        __ocOvals.push(o[0], o[1], o[2], c[0], c[1], c[2], c[3]);
+        __ocOvals.push(o[0], o[1], o[2], col[0], col[1], col[2], col[3]);
       },
     };
+    Object.defineProperty(c, "fillStyle", {
+      get() { return this.__ocStyle; },
+      set(v) { this.__ocStyle = v; this.__ocStyleSet = true; },
+    });
+    // 词表外的诚实失败面（零每-op 拦截开销）：**方法**调用落 plain 对象
+    // 缺方法 = TypeError throw → 行错误毒化（免费）；**属性**读得
+    // undefined——由 §6 强制双腿对拍兜住（Proxy get/set 陷阱实测
+    // inspector 语料 +14ms/帧 ≈ +48% take wall，2026-11-15 否决）。
+    return c;
   }"#
         .to_string()
     };
@@ -325,11 +346,50 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
         ),
         None => String::new(),
     };
+    // rw 槽：`__ocSnapK` = 帧初快照（set_caps 切片），行函数体每行从快照
+    // 重新切片起步——行间零污染（工作副本的写不出本行），行内
+    // read-after-write 由 Set/Acc 写穿保证。
+    let rw_slots: Vec<usize> = kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, k)| **k == SlotKind::ArrayRw)
+        .map(|(i, _)| i)
+        .collect();
+    // 行首复位：fillStyle 的「本迭代已设色」标志不得跨行残留（每 worker
+    // 复用同一个垫片对象——不复位就等于允许跨行继承，那正是串行里不可
+    // 并行的依赖）。
+    let row_reset = ctx_names
+        .iter()
+        .map(|n| format!("    {n}.__ocStyleSet = false;\n"))
+        .collect::<String>();
+    // rw 槽行首重置：从快照重新切片 + 重挂槽位标记（slice 不带 expando）。
+    // 这是「行 i 的写对行 j 不可见」的构造性保证。
+    let rw_reset = rw_slots
+        .iter()
+        .map(|i| {
+            let n = &params[*i];
+            format!(
+                "    {n} = __ocSnap{i}.slice(); {n}.__ocOmpArr = {i}; {n}.__ocSnap = 1;\n"
+            )
+        })
+        .collect::<String>();
+    // 采集守卫（运行期机械面，T2 静态审计的替代）：骨架按「每个调用点
+    // 每行一次」静态预采，行体条件调用/内层循环调用会让实际消费数偏离
+    // 段长——采集流错位是静默错像的源头，行末计数不符即毒化降级。
+    // （超消费由 __ocNext 的 overrun throw 兜住；这里兜少消费。）
+    let prng_guard = if kinds.contains(&SlotKind::Prng) {
+        r#"    if (__ocPrngBuf !== null && __ocPrngCur !== __ocPrngBuf.length) {
+      throw new Error("omp prng: row consumed " + __ocPrngCur + " of " + __ocPrngBuf.length + " presampled values");
+    }
+"#
+        .to_string()
+    } else {
+        String::new()
+    };
     // capture 槽 = IIFE 顶层声明（原名）：页面函数与行体自由引用解析到
     // 这里，__ocSetCaps 按帧赋值一次（ctx 槽除外——垫片常驻，实参忽略）。
     // fn 一次性声明在 IIFE 顶层——唯一 closure，V8 feedback vector 跨帧
     // 累积（行频重建 closure 会让每行重走 warmup，实测占掉一半墙钟）。
-    let has_ctx = kinds.contains(&SlotKind::Ctx);
     let mut decl_parts: Vec<String> = params
         .iter()
         .enumerate()
@@ -338,6 +398,9 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
             _ => format!("let {n};"),
         })
         .collect();
+    for i in &rw_slots {
+        decl_parts.push(format!("let __ocSnap{i};"));
+    }
     if !red_vars.is_empty() {
         decl_parts.push(red_decls);
     }
@@ -348,6 +411,9 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
         set_body.push(match kinds[i] {
             SlotKind::Prng => format!("  {name} = __ocNext;"),
             SlotKind::Ctx => continue,
+            SlotKind::ArrayRw => format!(
+                "  {name} = {v};\n  __ocSnap{i} = {name}.slice();\n  {name}.__ocOmpArr = {i}; {name}.__ocSnap = 1;"
+            ),
             _ => format!("  {name} = {v};"),
         });
     }
@@ -391,13 +457,17 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
   }}
   function __ocOmpSet(tok, i, v) {{
     const a = tok.__ocOmpArr;
-    __ocBuf(a, tok.len)[i] = v;
+    __ocBuf(a, tok.len !== undefined ? tok.len : tok.length)[i] = v;
     if (!__ocMarks[a][i]) {{ __ocMarks[a][i] = 1; __ocLists[a].push(i); }}
+    // rw 槽写穿工作副本（行内 read-after-write = 串行语义）；写-only
+    // 令牌无 __ocSnap 标记，跳过。
+    if (tok.__ocSnap) tok[i] = v;
   }}
   function __ocOmpAcc(tok, i, v) {{
     const a = tok.__ocOmpArr;
-    __ocBuf(a, tok.len)[i] += v;
+    __ocBuf(a, tok.len !== undefined ? tok.len : tok.length)[i] += v;
     if (!__ocMarks[a][i]) {{ __ocMarks[a][i] = 1; __ocLists[a].push(i); }}
+    if (tok.__ocSnap) tok[i] += v;
   }}
 {ctx_shim_src}
 {fn_src}
@@ -406,51 +476,54 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
 {set_body}
   }}
   function __ocHeader() {{
-    const ys = [];
-    for ({header}) {{ ys.push({var}); }}
-    return ys;
+    const __ocYs = [];
+    for ({header}) {{ __ocYs.push({var}); }}
+    return __ocYs;
   }}
   function __ocRow({var}) {{
     __ocN = 0;
     __ocOvals.length = 0;
-{private}{red_init_src}{body}
-    for (let a = 0; a < __ocLists.length; a++) {{
-      const list = __ocLists[a];
-      if (!list) continue;
-      const buf = __ocBufs[a];
-      const marks = __ocMarks[a];
-      for (let k = 0; k < list.length; k++) {{
+{row_reset}{rw_reset}{private}{red_init_src}{body}
+{prng_guard}    for (let __ocA = 0; __ocA < __ocLists.length; __ocA++) {{
+      const __ocL = __ocLists[__ocA];
+      if (!__ocL) continue;
+      const __ocB = __ocBufs[__ocA];
+      const __ocMk = __ocMarks[__ocA];
+      for (let __ocK = 0; __ocK < __ocL.length; __ocK++) {{
         if (__ocN + 4 > __ocSlots.length) __ocSlotsGrow(__ocN + 4);
-        const i = list[k];
-        __ocSlots[__ocN] = a;
-        __ocSlots[__ocN + 1] = i;
+        const __ocI = __ocL[__ocK];
+        __ocSlots[__ocN] = __ocA;
+        __ocSlots[__ocN + 1] = __ocI;
         __ocSlots[__ocN + 2] = 0;
-        __ocSlots[__ocN + 3] = buf[i];
+        __ocSlots[__ocN + 3] = __ocB[__ocI];
         __ocN += 4;
         // 槽清零：Acc 的帧初值 0 合同 + mark 复位（O(脏) 非 O(全长)）。
-        buf[i] = 0;
-        marks[i] = 0;
+        __ocB[__ocI] = 0;
+        __ocMk[__ocI] = 0;
       }}
-      list.length = 0;
+      __ocL.length = 0;
     }}
 {red_emit_src}{dangling_check}    // 行产出 = 单段 Float64Array：头 [n_slots, n_ovals] + slots 四元组
     // + ovals 七元组。一次 copy_contents 跨 API，host 按头分段。
     // out 缓冲按 worker 常驻 grow-only：Rust 侧在同行 worker 的下一次
     // run_row 之前已 copy_contents 完毕（行执行逐 worker 串行），复用安全。
-    const nv = __ocOvals.length;
-    const need = 2 + __ocN + nv;
-    if (!__ocOut || __ocOut.length < need) {{
+    // 本函数所有模板局部量一律 `__oc` 前缀——行体是插在同一函数作用域里的，
+    // 裸名（旧版的 out/a/i/k/buf/need…）会遮蔽用户 capture 与循环变量，
+    // 使其变成 TDZ（`Cannot access 'out' before initialization`）。
+    const __ocNv = __ocOvals.length;
+    const __ocNeed = 2 + __ocN + __ocNv;
+    if (!__ocOut || __ocOut.length < __ocNeed) {{
       let m = 1 << 16;
-      while (m < need) m *= 2;
+      while (m < __ocNeed) m *= 2;
       __ocOut = new Float64Array(m);
     }}
-    const out = __ocOut;
-    out[0] = __ocN / 4;
-    out[1] = nv / 7;
-    if (__ocN > 0) out.set(__ocSlots.subarray(0, __ocN), 2);
-    if (nv > 0) out.set(__ocOvals, 2 + __ocN);
+    const __ocRowOut = __ocOut;
+    __ocRowOut[0] = __ocN / 4;
+    __ocRowOut[1] = __ocNv / 7;
+    if (__ocN > 0) __ocRowOut.set(__ocSlots.subarray(0, __ocN), 2);
+    if (__ocNv > 0) __ocRowOut.set(__ocOvals, 2 + __ocN);
     // subarray 视图：length = 已用量（Rust 侧 copy_contents 只拷已用段）。
-    return out.subarray(0, need);
+    return __ocRowOut.subarray(0, __ocNeed);
   }}
   return {{
     __ocHeader,

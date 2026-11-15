@@ -145,8 +145,12 @@ pub fn resolve_ui_tree_with_script_cache(
         fn dump_node(n: &ElementNode, target: &str, depth: usize) {
             if n.style.id == target {
                 eprintln!(
-                    "[dbg-node] id={} num={} depth={} w={:?} h={:?} transforms={:?} css_filter={:?} opacity={:?}",
-                    n.style.id, n.id.0, depth, n.style.layout.width, n.style.layout.height, n.style.visual.transforms, n.style.visual.css_filter, n.style.visual.opacity
+                    "[dbg-node] id={} num={} depth={} transforms={:?} opacity={:?} pos={:?} positioned={} inset_t={:?} inset_l={:?} margin_t={:?} w={:?} h={:?} pt={:?} cl={:?}",
+                    n.style.id, n.id.0, depth, n.style.visual.transforms, n.style.visual.opacity,
+                    n.style.layout.position, n.style.layout.positioned, n.style.layout.inset_top, n.style.layout.inset_left,
+                    n.style.layout.margin_top,
+                    n.style.layout.width, n.style.layout.height, n.style.layout.padding_top,
+                    n.style.css_layout.as_ref().map(|l| (&l.0.position, &l.0.size, &l.0.inset, &l.0.margin))
                 );
             }
             for c in &n.children {

@@ -128,10 +128,10 @@ pub(crate) struct Clauses {
     schedule: Option<String>,
     collapse: Option<u64>,
     num_threads: Option<u64>,
-    /// simd 构造（`parallel for simd` / `for simd`）：`for simd`（无
-    /// parallel）按 TR15 是串行单元+向量提示，实现上映射同一后端——行独
-    /// 立循环的行并行与串行字节确定等价（docs/js-openmp.md §2 收紧说明）。
-    simd: bool,
+    // simd 构造（`parallel for simd` / `for simd`）不采纳（2026-11-15）：
+    // lane kernel 后端已删，行体含 js↔rust 通道（ctx 垫片/数组写回）时
+    // lane 模型与 TR15 §18.5「SIMDizable 限制 + C++ 禁异常」正面冲突。
+    // 两形态同未识别标注：原循环照跑（docs/js-openmp.md §12）。
 }
 
 /// 解析标注行的子句序列（子句间空白或可选逗号分隔）。遇到本实现不支持的
@@ -211,7 +211,7 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
                 match inner?.trim() {
                     "shared" => {}
                     "none" => out.default_none = true,
-                    _ => return None, // default(private/firstprivate)：5.1+，不支持
+                    _ => return no("default(private/firstprivate) unsupported"),
                 }
             }
             // 运行形态子句：校验语法，原文记入 ir（runtime 映射 schedule；
@@ -219,19 +219,21 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
             "schedule" => {
                 let s = inner?;
                 if s.contains(':') {
-                    return None; // monotonic:/nonmonotonic:/simd: 修饰符不支持
+                    return no("schedule modifier (monotonic:/nonmonotonic:/simd:) unsupported");
                 }
                 let mut parts = s.split(',');
                 let kind = parts.next().unwrap_or("").trim();
                 if !matches!(kind, "static" | "dynamic" | "guided" | "auto" | "runtime") {
-                    return None;
+                    return no(format!("schedule kind `{kind}` unknown"));
                 }
                 let mut norm = kind.to_string();
                 if let Some(chunk) = parts.next() {
                     let chunk = chunk.trim();
                     match chunk.parse::<u64>() {
                         Ok(v) if v > 0 => norm = format!("{kind},{v}"),
-                        _ => return None,
+                        _ => {
+                            return no(format!("schedule chunk `{chunk}` not a positive integer"))
+                        }
                     }
                 }
                 if parts.next().is_some() || out.schedule.replace(norm).is_some() {
@@ -241,13 +243,15 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
             "reduction" => {
                 let s = inner?;
                 let Some((op_raw, list_raw)) = s.split_once(':') else {
-                    return None; // TR15 语法 reduction(op: list)，无冒号 = 非法
+                    return no("reduction needs `op:list`");
                 };
                 let op = op_raw.trim().to_string();
                 if !matches!(op.as_str(), "+" | "*") {
-                    return None; // v1：+ 与 *（docs/js-openmp.md §3.4）
+                    return no(format!("reduction op `{op}` unsupported"));
                 }
-                let names = parse_clause_list(list_raw.trim())?;
+                let Some(names) = parse_clause_list(list_raw.trim()) else {
+                    return no("reduction variable list invalid");
+                };
                 if names.is_empty() {
                     return None;
                 }
@@ -268,9 +272,11 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
             }
             "collapse" | "num_threads" => {
                 let v = inner?.trim();
-                let Ok(n) = v.parse::<u64>() else { return None };
+                let Ok(n) = v.parse::<u64>() else {
+                    return no(format!("{name} value `{v}` not an integer"));
+                };
                 if n == 0 {
-                    return None;
+                    return no(format!("{name} value 0 invalid"));
                 }
                 if name == "collapse" {
                     if out.collapse.replace(n).is_some() {
@@ -282,8 +288,10 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
             }
             // 已认识的正式子句但本实现不支持 → 整条标注不处理。
             "lastprivate" | "linear" | "ordered" | "if" | "allocate" | "order"
-            | "proc_bind" | "copyin" | "nowait" => return None,
-            _ => return None,
+            | "proc_bind" | "copyin" | "nowait" => {
+                return no(format!("clause `{name}` unsupported"))
+            }
+            _ => return no(format!("clause `{name}` unknown")),
         }
     }
     Some(out)
@@ -359,6 +367,36 @@ pub(crate) struct LoopSite {
     pub row_body: String,
     /// 数组写回目标名（`c[i] = / c[i] +=` 的 c），首次出现序。
     pub array_names: Vec<String>,
+    /// 写回数组中同时被读的名字（array_rw 快照通道）。
+    pub array_rw_names: Vec<String>,
+}
+
+use std::cell::RefCell;
+
+thread_local! {
+    /// 最近一次拒绝的原因（分析期单线程；`transform` 在出口取走打印）。
+    static REJECT: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// 记下原因并返回 `None`——`Option` 链路上的统一「拒绝」出口。
+fn no<T>(msg: impl Into<String>) -> Option<T> {
+    REJECT.with(|r| *r.borrow_mut() = Some(msg.into()));
+    None
+}
+
+fn take_reject() -> String {
+    REJECT
+        .with(|r| r.borrow_mut().take())
+        .unwrap_or_else(|| "unspecified".into())
+}
+
+/// 字节偏移 → 1 起行号（只在拒绝路径调用，不计性能）。
+fn line_of(source: &str, off: usize) -> usize {
+    source[..off.min(source.len())]
+        .bytes()
+        .filter(|b| *b == b'\n')
+        .count()
+        + 1
 }
 
 /// oxc 一次 parse + semantic，产出全部标注位。解析失败 = None（调用方
@@ -367,7 +405,7 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
     let allocator = Allocator::new();
     let parsed = Parser::new(&allocator, source, SourceType::jsx()).parse();
     if parsed.diagnostics.has_errors() {
-        return None;
+        return no("oxc parse diagnostics have errors");
     }
     let program = parsed.program;
     // 0.153 的 new() 只建 scoping 不建节点库（AstNodes 恒空），for 定位与
@@ -383,9 +421,10 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
         }
         let cspan = comment.span;
         let text = span_text(source, cspan);
-        // construct 面（TR15 §6/§11）：`@omp parallel for [simd]` 与
-        // `@omp for simd`。裸 `@omp for` 不是独立合法形态，不处理。
-        let Some((rel, clauses_text, simd_flag)) = find_construct(text) else {
+        // construct 面（TR15 §18.1+§19.6.1 combined）：`@omp parallel for`。
+        // simd 变体不采纳，同未识别标注（见 Clauses 注释）；裸 `@omp for`
+        // 不是独立合法形态，不处理。
+        let Some((rel, clauses_text)) = find_construct(text) else {
             continue;
         };
         if text[..rel].trim() != "//" {
@@ -395,11 +434,20 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
         if !source[line_start..cspan.start as usize].trim().is_empty() {
             continue;
         }
-        let Some(mut clauses) = parse_clauses(clauses_text) else {
+        let Some(clauses) = parse_clauses(clauses_text) else {
+            eprintln!(
+                "[omp] annotation at line {} rejected: {}",
+                line_of(source, cspan.start as usize),
+                take_reject()
+            );
             continue;
         };
-        clauses.simd = simd_flag;
         let Some(fs) = find_next_for(&semantic, cspan.end as usize, source) else {
+            eprintln!(
+                "[omp] annotation at line {} rejected: {}",
+                line_of(source, cspan.start as usize),
+                take_reject()
+            );
             continue;
         };
         let annotation_line_end = source[cspan.end as usize..]
@@ -408,6 +456,11 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
         let Some(site) =
             build_site(source, &program, &semantic, fs, clauses, annotation_line_end)
         else {
+            eprintln!(
+                "[omp] annotation at line {} rejected: {}",
+                line_of(source, cspan.start as usize),
+                take_reject()
+            );
             continue;
         };
         sites.push(site);
@@ -415,33 +468,13 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
     Some(sites)
 }
 
-/// construct 识别：返回 (construct 起点字节, 子句文本, 是否 simd)。
-/// `@omp parallel for [simd]` / `@omp for simd`；两个字面量互不前缀包含，
-/// 无重叠歧义。simd 是 construct 尾词（后随空白/逗号/行尾），词间空白
-/// 允许。
-fn find_construct(text: &str) -> Option<(usize, &str, bool)> {
-    let rel_p = text.find("@omp parallel for");
-    let rel_s = text.find("@omp for simd");
-    match (rel_p, rel_s) {
-        (None, None) => None,
-        (None, Some(s)) => Some((s, &text[s + "@omp for simd".len()..], true)),
-        (Some(p), s) => {
-            if let Some(s) = s {
-                if s < p {
-                    return Some((s, &text[s + "@omp for simd".len()..], true));
-                }
-            }
-            let rest = &text[p + "@omp parallel for".len()..];
-            // 可选 simd 尾词（词边界：后随空白/逗号/行尾）。
-            let ws = rest.len() - rest.trim_start().len();
-            if let Some(tail) = rest[ws..].strip_prefix("simd") {
-                if tail.is_empty() || tail.starts_with(|c: char| c.is_whitespace() || c == ',') {
-                    return Some((p, &rest[ws + 4..], true));
-                }
-            }
-            Some((p, rest, false))
-        }
-    }
+/// construct 识别：返回 (construct 起点字节, 子句文本)。唯一字面量
+/// `@omp parallel for`（simd 变体不采纳——`for simd` 不匹配任何字面量；
+/// `parallel for simd` 的尾词落进子句文本，被 parse_clauses 以未知子句
+/// 拒绝并留 trace 行，整条不处理）。
+fn find_construct(text: &str) -> Option<(usize, &str)> {
+    let rel = text.find("@omp parallel for")?;
+    Some((rel, &text[rel + "@omp parallel for".len()..]))
 }
 
 /// comment 之后的第一个 ForStatement，二者之间源文本全空白。
@@ -466,10 +499,12 @@ fn find_next_for<'a>(
             best = Some(fs);
         }
     }
-    let fs = best?;
+    let Some(fs) = best else {
+        return no("no canonical for-loop follows the annotation");
+    };
     let between = &source[after..fs.span.start as usize];
     if !between.trim().is_empty() {
-        return None;
+        return no("non-whitespace between annotation and loop");
     }
     Some(fs)
 }
@@ -681,13 +716,15 @@ fn build_site(
     let loop_span = fs.span;
     let mut levels = Vec::new();
     if !collect_levels(source, fs, &mut levels) {
-        return None;
+        return no("non-canonical loop nest (init/test/update + block body required)");
     }
 
     // 内层 body span（零参骨架采集只认内层——外层调用会破坏每行采集数
     // 均一）。逐层 span 重算：由 header/body 文本在外层源中定位太绕，直接
     // 顺着 AST 再走一遍拿最后一层的 block span。
-    let inner_span = innermost_body_span(fs)?;
+    let Some(inner_span) = innermost_body_span(fs) else {
+        return no("innermost loop body is not a block");
+    };
 
     let mut free = free_idents_within(semantic, scoping, loop_span);
     let mut fn_srcs: Vec<(String, String)> = Vec::new();
@@ -750,11 +787,46 @@ fn build_site(
         .collect();
     let ctx_names = ctx_user_names(semantic, scoping, loop_span);
 
+    // ctx 面白名单已删（2026-11-15 opaque-body 收束）：循环体对引擎是不
+    // 透明 JS，Rust 侧不判断内容——垫片词表即实现面，词表外的成员读写由
+    // 垫片 Proxy 陷阱运行期 throw（行错误 → 毒化降级），绝不静默 undefined。
+    // 保留的唯一定态拒绝 = 下面的跳行全局状态（确定性合同，非语料判断）。
+
+    // 确定性合同：跳行不可复现的全局状态（时间/随机）——并行下每个 worker
+    // 各有一套，与串行结果无法对齐。这是合同不是语料判断，保留静态拒绝。
+    for node in semantic.nodes().iter() {
+        let AstKind::CallExpression(call) = node.kind() else {
+            continue;
+        };
+        if !span_within(loop_span, call.span) {
+            continue;
+        }
+        let Expression::StaticMemberExpression(sme) = &call.callee else {
+            continue;
+        };
+        let Expression::Identifier(obj) = &sme.object else {
+            continue;
+        };
+        let prop = sme.property.name.as_str();
+        if matches!(
+            (obj.name.as_str(), prop),
+            ("Math", "random") | ("Date", "now") | ("performance", "now")
+        ) {
+            return no(format!(
+                "cross-row state: `{}.{prop}()` inside the loop",
+                obj.name
+            ));
+        }
+    }
+
     // 数组写回面：`name[expr] = v` / `name[expr] += v` → bundle 行函数内
-    // 改写为 Set/Acc 记录调用（行缓冲 + host 按行序应用；数组 copy-in 零
-    // 字节）。限制（如实拒绝整条标注）：`++`/`--` 同族、其余复合写
-    // （`-=` 等）、对写回数组的任何下标**读**（token 不进 worker，读了
-    // 拿 undefined，宁可诚实降级）。
+    // 改写为 Set/Acc 记录调用。写-only 槽 = copy-in 零字节令牌（行缓冲 +
+    // host 按行序应用）；**读写槽（written-and-read）= array_rw 快照通道**
+    // （2026-11-15 判据面删除，不再拒绝）：槽实参 = 帧初快照（TypedArray
+    // 走 binary 旁路描述符，plain 数组走 JSON 文本），worker 每行从快照
+    // 切片起步（行间零污染），Set/Acc 写穿工作副本（行内 read-after-write
+    // = 串行语义），host 按行序应用到真数组。限制（如实拒绝整条标注）：
+    // `++`/`--` 同族、其余复合写（`-=` 等）。
     let mut array_writes: Vec<(Span, Span, Span, String, bool)> = Vec::new();
     let mut write_obj_spans: Vec<Span> = Vec::new();
     for node in semantic.nodes().iter() {
@@ -771,7 +843,15 @@ fn build_site(
                 };
                 let is_acc = ae.operator == AssignmentOperator::Addition;
                 if !is_acc && ae.operator != AssignmentOperator::Assign {
-                    return None;
+                    return no(format!(
+                        "compound write `{}[..] {}= ..` unsupported",
+                        id.name, ae.operator.as_str()
+                    ));
+                }
+                // 链式写 `a[i] = b[j] = v`：三条写记录的 span 嵌套，降序
+                // 替换会错位产出乱码——如实拒绝（改写成平行语句即可标注）。
+                if matches!(&ae.right, Expression::AssignmentExpression(_)) {
+                    return no("chained array write `a[i] = b[j] = v` unsupported");
                 }
                 write_obj_spans.push(id.span);
                 array_writes.push((
@@ -791,7 +871,7 @@ fn build_site(
                 }
                 if let SimpleAssignmentTarget::ComputedMemberExpression(cme) = &ue.argument {
                     if matches!(&cme.object, Expression::Identifier(_)) {
-                        return None;
+                        return no("`++`/`--` on an array element unsupported");
                     }
                 }
             }
@@ -802,6 +882,9 @@ fn build_site(
     for (_, _, _, name, _) in &array_writes {
         push_unique(&mut array_names, name);
     }
+    // 读写检测：写回名单里的名字在 span 内还有非写回目标的引用出现 →
+    // array_rw（快照通道），不再拒绝。
+    let mut array_rw_names: Vec<String> = Vec::new();
     for name in &array_names {
         for node in semantic.nodes().iter() {
             let AstKind::IdentifierReference(id) = node.kind() else {
@@ -813,13 +896,14 @@ fn build_site(
             {
                 continue;
             }
-            return None; // 下标读
+            push_unique(&mut array_rw_names, name);
+            break;
         }
     }
     // Set/Acc 文本级改写（外层体拷贝上按相对 span 降序替换——头无写回，
     // 体块起点不受平移影响）。
     let Statement::BlockStatement(outer_block) = &fs.body else {
-        return None;
+        return no("loop body is not a block");
     };
     let body_start = outer_block.span.start as usize + 1;
     let body_end = outer_block.span.end as usize - 1;
@@ -871,6 +955,7 @@ fn build_site(
         loop_var,
         row_body,
         array_names,
+        array_rw_names,
     })
 }
 
@@ -947,11 +1032,18 @@ fn build_skeleton(levels: &[(String, String)], prng_calls: &[String]) -> String 
 /// 标注（原样保留，循环照跑）。
 pub fn transform(source: &str) -> Cow<'_, str> {
     if !source.contains("@omp") {
+        super::mark_route("explain", "@omp not found");
         return Cow::Borrowed(source);
     }
     let Some(sites) = analyze(source) else {
+        let why = take_reject();
+        super::mark_route("explain", &why);
         return Cow::Borrowed(source);
     };
+    if sites.is_empty() {
+        // 标存在但全部被拒（原因已逐条打过）：路由仍是「不并行」。
+        super::mark_route("explain", "every annotation rejected");
+    }
     let mut out = String::with_capacity(source.len() + 1024);
     let mut cursor = 0usize;
     let mut changed = false;
@@ -962,6 +1054,11 @@ pub fn transform(source: &str) -> Cow<'_, str> {
         // 产物定位：annotation 行尾 = loop 前最后一个非空白位置之前的行。
         // 为精确起见 LoopSite 记录 annotation_line_end（见 analyze）。
         let Some((wrapper, else_arm)) = build_wrapper(site) else {
+            eprintln!(
+                "[omp] loop at line {} rejected: {}",
+                line_of(source, site.loop_start),
+                take_reject()
+            );
             // 变换失败：标注行原样保留，继续下一处。
             let keep_end = site.annotation_line_end;
             if keep_end > cursor {
@@ -1030,7 +1127,7 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
                 && !clauses.private.contains(f)
                 && !is_red(f)
             {
-                return None;
+                return no(format!("default(none): free `{f}` not listed"));
             }
         }
     } else {
@@ -1045,13 +1142,18 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
         push_cap(&mut arg_names, n);
     }
 
-    // capture 分类：数组写回 → array；成员调用/fillStyle 赋值 → ctx；
-    // 零参调用 → prng；plain。
+    // capture 分类：数组写回 → array（写-only 令牌）/ array_rw（快照
+    // 通道）；成员调用/fillStyle 赋值 → ctx；零参调用 → prng；plain。
     let mut captures = serde_json::Map::new();
     let mut prng_names: Vec<String> = Vec::new();
     for n in &arg_names {
         if site.array_names.iter().any(|a| a == n) {
-            captures.insert(n.clone(), JsonValue::String("array".into()));
+            let kind = if site.array_rw_names.iter().any(|a| a == n) {
+                "array_rw"
+            } else {
+                "array"
+            };
+            captures.insert(n.clone(), JsonValue::String(kind.into()));
         } else if site.ctx_names.iter().any(|c| c == n) {
             captures.insert(n.clone(), JsonValue::String("ctx".into()));
         } else if site.prng_candidates.iter().any(|p| p == n) {
@@ -1069,7 +1171,7 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
         "null".to_string()
     } else {
         if site.prng_inner_occ.is_empty() {
-            return None;
+            return no("prng captured but no inner call site recorded");
         }
         build_skeleton(&site.levels, &site.prng_inner_occ)
     };
@@ -1123,15 +1225,15 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
     }
     if let Some(n) = clauses.collapse {
         if n as usize > site.levels.len() {
-            return None;
+            return no(format!(
+                "collapse({n}) exceeds nest depth {}",
+                site.levels.len()
+            ));
         }
         fields.push(("collapse".to_string(), JsonValue::Number(n.into())));
     }
     if let Some(n) = clauses.num_threads {
         fields.push(("num_threads".to_string(), JsonValue::Number(n.into())));
-    }
-    if clauses.simd {
-        fields.push(("simd".to_string(), JsonValue::Bool(true)));
     }
     Some((JsonValue::Object(serde_json::Map::from_iter(fields)), skeleton))
 }
@@ -1197,26 +1299,17 @@ fn build_wrapper(site: &LoopSite) -> Option<(String, Option<String>)> {
 mod tests {
     use super::*;
 
-    /// simd 构造两面：`parallel for simd` 尾词与独立 `for simd`，ir.simd
-    /// 落字段；plain 标注不带该字段。
+    /// simd 构造不采纳（2026-11-15）：`parallel for simd` 与 `for simd`
+    /// 两形态同未识别标注——零站点、源码原样（原循环照跑）。
     #[test]
-    fn transform_simd_constructs() {
+    fn transform_simd_constructs_not_adopted() {
         let src_a = "function draw() {\n  // @omp parallel for simd\n  for (let y = 0; y < 4; y += 1) {\n    acc[y] = y * 2;\n  }\n}\n";
-        let Some(sites) = analyze(src_a) else { panic!("analyze a") };
-        assert_eq!(sites.len(), 1);
-        let (ir, _) = build_ir(&sites[0]).expect("build_ir a");
-        assert_eq!(ir.get("simd").and_then(|v| v.as_bool()), Some(true), "{ir}");
+        let out_a = transform(src_a);
+        assert_eq!(out_a, src_a, "simd tail word = unknown clause → whole annotation unprocessed");
 
         let src_b = "function draw() {\n  // @omp for simd\n  for (let y = 0; y < 4; y += 1) {\n    acc[y] = y * 2;\n  }\n}\n";
-        let Some(sites_b) = analyze(src_b) else { panic!("analyze b") };
-        assert_eq!(sites_b.len(), 1);
-        let (ir_b, _) = build_ir(&sites_b[0]).expect("build_ir b");
-        assert_eq!(ir_b.get("simd").and_then(|v| v.as_bool()), Some(true), "{ir_b}");
-
-        // 尾词词边界：`simdfoo` 不是 simd 构造。
-        let src_c = "function draw() {\n  // @omp parallel for simdfoo\n  for (let y = 0; y < 4; y += 1) {\n    acc[y] = y * 2;\n  }\n}\n";
-        let sites_c = analyze(src_c).unwrap_or_default();
-        assert!(sites_c.is_empty() || build_ir(&sites_c[0]).unwrap().0.get("simd").is_none());
+        let out_b = transform(src_b);
+        assert_eq!(out_b, src_b, "`@omp for simd` matches no construct literal → untouched");
     }
 
     #[test]
@@ -1255,24 +1348,9 @@ mod tests {
         assert_eq!(sites.len(), 1);
         let site = &sites[0];
         let Some((ir, _skeleton)) = build_ir(site) else { panic!("build_ir") };
-        let arg_names: Vec<String> = ir["args"].as_array().unwrap()
-            .iter().map(|v| v.as_str().unwrap().to_string()).collect();
-        let arg_kinds: Vec<crate::script::omp::compile::CaptureKind> = arg_names.iter()
-            .map(|n| match ir["captures"].get(n).and_then(|v| v.as_str()) {
-                Some("prng") => crate::script::omp::compile::CaptureKind::Prng,
-                Some("ctx") => crate::script::omp::compile::CaptureKind::Ctx,
-                _ => crate::script::omp::compile::CaptureKind::Plain,
-            }).collect();
-        let fn_list: Vec<(String, String)> = ir["fns"].as_object().unwrap()
-            .iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string())).collect();
-        let loop_src = ir["loop"].as_str().unwrap().to_string();
-        let prog = crate::script::omp::compile::compile(
-            &loop_src, &fn_list, &arg_names, &arg_kinds, &["r".to_string()],
-        )
-        .expect("private loop must compile");
-        assert_eq!(prog.arg_names, vec!["ctx".to_string()]);
-        assert!(prog.n_slots >= 1);
-        assert_eq!(prog.n_globals, 2); // ctx + y
+        // 单一后端：capture 面即验收面（opcode 编译面已删）。
+        assert_eq!(ir["args"], serde_json::json!(["ctx"]));
+        assert_eq!(ir["captures"]["ctx"], "ctx");
     }
 
     /// 正式子句不支持面：lastprivate / default 未知值 → 整条标注不处理
@@ -1296,7 +1374,7 @@ mod tests {
     fn transform_default_none_requires_explicit_list() {
         let mk = |shared: &str| {
             format!(
-                "function draw() {{\n  // @omp parallel for default(none) {shared}\n  for (let y = 0; y < h; y += 1) {{\n    ctx.fillStyle = `rgba(1, 1, 1, 1)`;\n    ctx.fillRect(0, y, w, 1);\n  }}\n}}\n"
+                "function draw() {{\n  // @omp parallel for default(none) {shared}\n  for (let y = 0; y < h; y += 1) {{\n    ctx.fillStyle = `rgba(1, 1, 1, 1)`;\n    ctx.beginPath();\n    ctx.arc(0, y, 1, 0, 6.283, false);\n    ctx.fill();\n  }}\n}}\n"
             )
         };
         let missing = mk("shared(ctx)");
@@ -1387,30 +1465,7 @@ mod tests {
             .iter()
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
-        let arg_kinds: Vec<crate::script::omp::compile::CaptureKind> = arg_names
-            .iter()
-            .map(|n| match caps.get(n).and_then(|v| v.as_str()) {
-                Some("prng") => crate::script::omp::compile::CaptureKind::Prng,
-                Some("ctx") => crate::script::omp::compile::CaptureKind::Ctx,
-                _ => crate::script::omp::compile::CaptureKind::Plain,
-            })
-            .collect();
-        let fn_list: Vec<(String, String)> = fns
-            .iter()
-            .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
-            .collect();
-        let loop_src = ir["loop"].as_str().unwrap().to_string();
-        let prog = crate::script::omp::compile::compile(
-            &loop_src,
-            &fn_list,
-            &arg_names,
-            &arg_kinds,
-            &[],
-        )
-        .expect("corpus loop must compile");
-        assert_eq!(prog.loop_var, "y");
-        assert_eq!(prog.arg_names.len(), 14);
-        assert!(prog.header_start > 0);
+        assert_eq!(arg_names.len(), 14);
     }
 
     /// smallpt 语料实分析：递归 radiance 抽取 + 隐式 shared 精确名单。
@@ -1445,6 +1500,39 @@ mod tests {
 
     fn caps_str(ir: &JsonValue) -> &serde_json::Map<String, JsonValue> {
         ir["captures"].as_object().unwrap()
+    }
+
+    /// 链式数组写 = 嵌套 span，降序替换会错位——如实拒绝（identity）。
+    #[test]
+    fn transform_chained_array_write_is_identity() {
+        let src =
+            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { px[y] = px[y + 1] = 1; }\n";
+        assert_eq!(&*transform(src), src);
+    }
+
+    /// 判据面已删（2026-11-15 opaque-body 收束）：白名单外的 ctx 成员与
+    /// 读写数组不再静态拒绝——前者由 worker 垫片 Proxy 陷阱运行期 throw
+    /// （未知成员 = 行错误毒化），后者走 array_rw 快照通道。保留的唯一
+    /// 定态拒绝 = 跳行全局状态（确定性合同，非语料判断）。
+    #[test]
+    fn transform_criteria_dissolved_to_runtime_guards() {
+        // 读写数组：照变换，captures 分类 array_rw（快照通道）。
+        let rw_src =
+            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { out[y] = out[y - 1] + 1; }\n";
+        let out = transform(rw_src);
+        assert!(
+            out.contains("__ocOmpPrep("),
+            "rw array must still take over: {out}"
+        );
+        assert!(out.contains("\"array_rw\""), "{out}");
+        // ctx 白名单已删：fillRect 循环照变换——不支持面由垫片运行期 throw。
+        let fr_src =
+            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { ctx.fillRect(0, y, 1, 1); }\n";
+        assert!(transform(fr_src).contains("__ocOmpPrep("));
+        // 跳行全局状态：仍 identity。
+        let rnd =
+            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { acc += Math.random(); }\n";
+        assert_eq!(&*transform(rnd), rnd);
     }
 
     /// html 里最后一个无 src 的 `<script>` 块文本（与 html.rs 的 inline

@@ -413,7 +413,15 @@ pub fn extract_html_with_base_dir(
         // 页面里最长的轮询（act2 等 lottie 40 次）——有界 64 轮。
         // drain 只发生在提取期建树阶段；逐帧渲染仍由 realm 的帧宿主冲刷，
         // 帧内容依旧是 t 的纯函数（frame = f(t)）。
-        for _ in 0..64 {
+        for round in 0..64 {
+            // 虚拟钟 setTimeout 的提取期水位：提取期钟恒 0，带 delay 的
+            // setTimeout 续体（页面库轮询）靠这里按 16ms/轮推进——与旧
+            // 「每 drain 轮一步」的推进能力同量级。渲染 realm 全新重建，
+            // 水位不跨进程，逐帧判定回到真钟（__ocClockMs）。
+            let _ = ctx.eval(&format!(
+                "if (globalThis.__ocVirtTimerAdvance) globalThis.__ocVirtTimerAdvance({});",
+                (round + 1) * 16
+            ));
             ctx.run_microtasks();
             let pending = ctx.eval_json(
                 "(function(){ return globalThis.__ocRafQueue ? globalThis.__ocRafQueue.length : 0; })()",
@@ -896,6 +904,13 @@ fn build_html_driver(
     let mut body = String::new();
     let mut ext_idx = 0usize;
     let mut seen_src: Vec<&str> = Vec::new();
+    // 文档 URL 面（G13）：location.href 的 file 形态——产物内联脚本的
+    // `new URL('./public', location.href).pathname`（remotion_staticBase）
+    // 与 webpack publicPath 都从这里推导。Windows 盘符路径归一正斜杠。
+    let base_url_dir = format!(
+        "file:///{}/",
+        base_dir.to_string_lossy().replace('\\', "/").trim_start_matches('/')
+    );
     // module 入口按文档序收集；require 占位语句与装载产物一一对应。
     let module_entries: Vec<(usize, &HtmlScript)> = scripts
         .iter()
@@ -935,10 +950,21 @@ fn build_html_driver(
                 // 元素（gsap 的字体/样式嗅探）会占用合成 id 序，导致后续帧
                 // 的 id 整体漂移。用 __ocExtPhase 把它们隔离到独立命名空间，
                 // 主命名空间的 id 才两阶段一致。
+                // document.currentScript 前置：webpack publicPath 推导读
+                // `document.currentScript.src`（G12/路线 C' 的唯一引擎依赖
+                // 面）。按 location.href 的目录归一成 file URL。
+                let script_url = format!(
+                    "{}{}",
+                    base_url_dir,
+                    src.replace('\\', "/").trim_start_matches("./")
+                );
                 body.push_str(&format!(
                     "if (!globalThis.__ocExt{}) {{ globalThis.__ocExt{} = true; \
-globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
-                    ext_idx, ext_idx, code
+globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: 'SCRIPT' }};\n{}\nglobalThis.__ocExtPhase = false; }}\n",
+                    ext_idx,
+                    ext_idx,
+                    serde_json::to_string(&script_url)?,
+                    code
                 ));
                 body.push_str("globalThis.__ocHtmlAfterScripts();\n");
                 ext_idx += 1;
@@ -963,6 +989,19 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     driver.push_str("if (__ocHtmlInit) {\n");
     driver.push_str(HTML_API_RUNTIME);
     driver.push_str("\n;(function () {\n");
+    // G13：文档 URL 面在任何文档脚本执行前就位（浏览器的 goto 语义）。
+    // JS_PLATFORM_SHIM 已建 location 对象（空 href 静态形态），这里只填值。
+    // pathname 同步填目录形态（尾斜杠），`location.pathname` 直接读者拿到
+    // 与浏览器一致（带前导斜杠）的目录。
+    let base_pathname = format!(
+        "/{}",
+        base_dir.to_string_lossy().replace('\\', "/").trim_start_matches('/')
+    );
+    driver.push_str(&format!(
+        "    if (globalThis.location) {{ globalThis.location.href = {href}; globalThis.location.pathname = {path}; }}\n",
+        href = serde_json::to_string(&format!("{}index.html", base_url_dir))?,
+        path = serde_json::to_string(&base_pathname)?,
+    ));
     driver.push_str("    globalThis.__ocHtmlResetFrame(");
     driver.push_str(&serde_json::to_string(seed)?);
     driver.push_str(");\n");

@@ -36,12 +36,6 @@ path = "src/bin/opencat/main.rs"
 name = "opencat-frames"
 path = "src/bin/opencat-frames.rs"
 
-# @omp 对拍台：读 V8 采样探针的 `[omp:<fn>]` stderr 行，libm 同输入
-# 复算，逐位对比。inspector halftone rayon 派发的 go/no-go 门。
-[[bin]]
-name = "opencat-omp-verify"
-path = "src/bin/opencat-omp-verify.rs"
-
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
 rodio = "0.22.2"
 

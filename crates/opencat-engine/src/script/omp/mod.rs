@@ -1,16 +1,15 @@
-//! `@omp` 通用循环派发 runtime：解析+编译缓存 → args 解码 → rayon 行并行
-//! → op 流直推。
+//! `@omp` 通用循环派发 runtime：bundle 缓存 → args 解码 → worker 行并行
+//! → 写回/ovals 按行序落地。
 //!
-//! 全链确定性三保证：rayon indexed `par_iter().map().collect()` 保序产出
-//! （alpha 叠层敏感）；f64 运算无归约无 race（行间零共享可变状态）；同
-//! 参数两跑逐位一致（帧=f(t) 不变）。任何失败（编译/解码/头部枚举/行执
-//! 行/采集数不整除）都毒化缓存条目 → 后续帧 prep 直接 false → 骨架不再
-//! 跑 → fallback 循环语义纯净（PRNG 不被无谓消耗）。
+//! 单一后端：行体仍是 JS，跑在 worker 引擎（V8 或 QuickJS）的独立实例里，
+//! 由 `team` 派发。Rust 侧只做判定、搬运、按序应用。
+//!
+//! 全链确定性三保证：行产出按行号槽位合并（调度不影响字节）；f64 运算
+//! 无归约无 race（行间零共享可变状态）；同参数两跑逐位一致（帧=f(t)）。
+//! 任何失败（bundle 构建/解码/头部枚举/行执行/采集数不整除）都毒化缓存
+//! 条目 → 后续帧 prep 直接 false → 骨架不再跑 → fallback 循环语义纯净
+//! （PRNG 不被无谓消耗）。
 
-#[cfg(feature = "simd")]
-pub mod simd_kernel;
-pub mod compile;
-pub mod parse;
 pub mod protocol;
 #[cfg(feature = "js-quickjs")]
 pub mod rq_team;
@@ -18,16 +17,13 @@ pub mod team;
 pub mod transform;
 #[cfg(feature = "js-v8")]
 pub mod v8_team;
-pub mod vm;
-pub mod vm_soa;
 
 pub use transform::transform;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
-use rayon::prelude::*;
 use serde_json::Value as JsonValue;
 
 use opencat_core::canvas::paint::BlendMode;
@@ -35,8 +31,6 @@ use opencat_core::ir::draw_op::{ColorU8, DrawOp};
 use opencat_core::script::canvas_op::CanvasOp;
 use opencat_core::script::recorder::{MutationRecorder, MutationStore};
 
-use compile::{CaptureKind, Program};
-use vm::Value;
 
 // isolate 团队工厂：引擎二选一（js-v8 → V8Worker / js-quickjs → RqWorker）。
 #[cfg(feature = "js-v8")]
@@ -45,105 +39,70 @@ use v8_team::global_team;
 use rq_team::global_team;
 
 struct CacheEntry {
-    program: Arc<Program>,
     poisoned: bool,
-    /// SoA 向量执行面（prepare 失败 = None → 标量 VM 兜底）。
-    soa: Option<Arc<vm_soa::SoaPlan>>,
-    /// isolate 团队面（no-ctx 循环的通用后端：完整 JS 语义含递归，
-    /// 数组写回走 Set/Acc 通道）。ctx 循环归 opcode/SoA 面。
+    /// worker 团队面（唯一后端：完整 JS 语义含递归与 ctx，数组写回走
+    /// Set/Acc 通道）。`None` 只出现在毒化条目里。
     iso: Option<Arc<protocol::Bundle>>,
+}
+
+/// `schedule(kind[, chunk])` 文本 → 行派发形态。transform 存子句原文
+/// （如 `"dynamic,1"`），这里解析一次。
+#[derive(Clone, Copy)]
+pub(crate) enum Schedule {
+    /// 连续区间预分，倾向不窃取。
+    Static,
+    /// chunk 行粒度拉取。
+    Dynamic(u32),
+    /// guided / auto / runtime / 缺省：自适应。
+    Auto,
+}
+
+fn parse_schedule(ir: &JsonValue) -> Schedule {
+    let Some(text) = ir.get("schedule").and_then(|v| v.as_str()) else {
+        return Schedule::Auto;
+    };
+    let mut parts = text.split(',');
+    let kind = parts.next().unwrap_or("").trim();
+    let chunk = parts.next().and_then(|v| v.trim().parse::<u32>().ok());
+    match (kind, chunk) {
+        ("static", _) => Schedule::Static,
+        ("dynamic", c) => Schedule::Dynamic(c.unwrap_or(1).max(1)),
+        _ => Schedule::Auto,
+    }
 }
 
 static CACHE: LazyLock<Mutex<HashMap<String, CacheEntry>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// std::simd lane kernel 缓存（`parallel for simd` 专属；`simd` feature
-/// 门控——off 时 simd 构造走 isolate 后端，对纯算术循环结果等价）。值
-/// None = 行执行/对拍失败的 poison 条目：后续帧 prep 命中即回落 isolate
-/// （不毒化主 CACHE——isolate 语义等价，只是慢些）。
-#[cfg(feature = "simd")]
-static SIMD_CACHE: LazyLock<Mutex<HashMap<String, Option<Arc<simd_kernel::Kernel>>>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// `OC_OMP_TRACE=1`：native 接手时打一行（只打首次）——冒烟/性能跑前确认
-/// 循环真走了 rayon 腿而非静默降级。
-static TRACE_HIT: AtomicBool = AtomicBool::new(false);
-
-fn trace_take(n_rows: usize, n_ovals: usize) {
-    if !TRACE_HIT.swap(true, Ordering::SeqCst) {
-        eprintln!("[omp] took over: {n_rows} rows, {n_ovals} ovals");
-    }
-}
-
 fn cache_lock() -> MutexGuard<'static, HashMap<String, CacheEntry>> {
     CACHE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-#[cfg(feature = "simd")]
-fn simd_cache_lock() -> MutexGuard<'static, HashMap<String, Option<Arc<simd_kernel::Kernel>>>> {
-    SIMD_CACHE.lock().unwrap_or_else(|e| e.into_inner())
+thread_local! {
+    /// 本线程最近一次路由决定（`explain` = 没有可接管的构造）。
+    static ROUTE: RefCell<Option<&'static str>> = const { RefCell::new(None) };
 }
 
-/// ir 对象（`{loop, fns, args, captures}`）→ 编译产物。提取期在 irobj 里
-/// 传入的形态恒定，字段缺失即编译失败（降级）。
-fn compile_ir(ir: &JsonValue) -> Result<Program, String> {
-    let loop_src = ir.get("loop").and_then(|v| v.as_str()).ok_or("missing `loop`")?;
-    let args: Vec<String> = ir
-        .get("args")
-        .and_then(|v| v.as_array())
-        .ok_or("missing `args`")?
-        .iter()
-        .map(|v| v.as_str().map(|s| s.to_string()).ok_or("non-string arg name"))
-        .collect::<Result<_, _>>()?;
-    let fns_obj = ir
-        .get("fns")
-        .and_then(|v| v.as_object())
-        .ok_or("missing `fns`")?;
-    let mut fns: Vec<(String, String)> = Vec::with_capacity(fns_obj.len());
-    for (k, v) in fns_obj {
-        let src = v.as_str().ok_or_else(|| format!("fn `{k}` source not a string"))?;
-        fns.push((k.clone(), src.to_string()));
-    }
-    let captures = ir.get("captures").and_then(|v| v.as_object());
-    let arg_kinds: Vec<CaptureKind> = args
-        .iter()
-        .map(|n| match captures.and_then(|c| c.get(n)).and_then(|v| v.as_str()) {
-            Some("prng") => CaptureKind::Prng,
-            Some("ctx") => CaptureKind::Ctx,
-            _ => CaptureKind::Plain,
-        })
-        .collect();
-    let private: Vec<String> = ir
-        .get("private")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .map(|v| v.as_str().map(|s| s.to_string()).ok_or("non-string private name"))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-    let mut program = compile::compile(loop_src, &fns, &args, &arg_kinds, &private)?;
-    // schedule 子句 → 行分块策略（编译器不感知；ir 缺省 = Auto）。
-    // dynamic,1 =「共享队列逐行拉取」——rayon work-stealing 缺省即此形态
-    // （min_len 缺省就是 1，with_min_len(1) 是空操作），映射 Auto。
-    program.schedule = parse_schedule(ir);
-    Ok(program)
-}
-
-fn parse_schedule(ir: &JsonValue) -> compile::Schedule {
-    match ir.get("schedule").and_then(|v| v.as_str()) {
-        Some("static") => compile::Schedule::Static,
-        Some(s) if s.starts_with("dynamic") => {
-            let chunk = s.split(',').nth(1).and_then(|c| c.trim().parse().ok()).unwrap_or(1);
-            if chunk > 1 {
-                compile::Schedule::Dynamic(chunk)
-            } else {
-                compile::Schedule::Auto
-            }
+/// 记下路由决定并打一行（同名不重打；`explain` 不覆盖已定的真路由）。
+/// `OC_OMP_ROUTE=0` 静音。
+fn mark_route(name: &'static str, why: &str) {
+    ROUTE.with(|r| {
+        let mut slot = r.borrow_mut();
+        if *slot == Some(name) || (name == "explain" && slot.is_some()) {
+            return;
         }
-        _ => compile::Schedule::Auto,
-    }
+        *slot = Some(name);
+        drop(slot);
+        if std::env::var("OC_OMP_ROUTE").ok().as_deref() == Some("0") {
+            return;
+        }
+        eprintln!("[omp] route: {name} ({why})");
+    });
+}
+
+/// 当前路由：`isolate` / `explain` / `degraded`。
+pub fn route() -> &'static str {
+    ROUTE.with(|r| r.borrow().unwrap_or("explain"))
 }
 
 fn poison(key: &str, reason: &str) {
@@ -151,36 +110,8 @@ fn poison(key: &str, reason: &str) {
     if let Some(e) = cache.get_mut(key) {
         e.poisoned = true;
     }
+    mark_route("degraded", reason);
     eprintln!("[omp] take failed, poisoned: {reason}");
-}
-
-/// OpenMP `schedule` → rayon 行分块派发（indexed 保序产出，调度只影响
-/// 负载分布不影响字节）。static = 等分禁窃取（均匀行负载最优）；
-/// dynamic(chunk) = chunk 行粒度拉取；guided/auto/runtime = rayon 自适应。
-macro_rules! rows_collect {
-    ($n:expr, $sched:expr, $f:expr) => {
-        match $sched {
-            compile::Schedule::Static => {
-                let chunk = ($n).div_ceil(rayon::current_num_threads().max(1));
-                (0..$n)
-                    .into_par_iter()
-                    .with_max_len(chunk)
-                    .map($f)
-                    .collect::<Result<Vec<_>, String>>()
-            }
-            compile::Schedule::Dynamic(chunk) => {
-                (0..$n)
-                    .into_par_iter()
-                    .with_min_len(chunk.max(1) as usize)
-                    .map($f)
-                    .collect::<Result<Vec<_>, String>>()
-            }
-            _ => (0..$n)
-                .into_par_iter()
-                .map($f)
-                .collect::<Result<Vec<_>, String>>(),
-        }
-    };
 }
 
 /// `__ocOmpPrep(ir)` — 编译并缓存。true = 骨架可跑；false = 本帧与后续帧
@@ -188,133 +119,29 @@ macro_rules! rows_collect {
 /// 全降级（seg 对拍的 JS 腿用）。
 pub fn omp_prep(ir: &JsonValue) -> bool {
     if std::env::var("OC_OMP_DISABLE").ok().as_deref() == Some("1") {
+        mark_route("degraded", "OC_OMP_DISABLE=1");
         return false;
     }
     let key = ir.to_string();
-    // 分流：simd 构造 + feature on → lane kernel 栈（直线算术循环的正统
-    // 实现面）。白名单外形态 prepare 拒绝 → poison 本表（None 条目）回落
-    // isolate，不毒化主 CACHE——isolate 对纯算术循环语义等价。
-    #[cfg(feature = "simd")]
-    if ir.get("simd").and_then(|v| v.as_bool()) == Some(true) {
-        let mut sc = simd_cache_lock();
-        if let Some(slot) = sc.get(&key) {
-            if slot.is_some() {
-                return true;
-            }
-            // poison 条目：fall through isolate（条目保留，拒绝日志只打一次）。
-        } else {
-            match simd_kernel::prepare(ir) {
-                Ok(k) => {
-                    sc.insert(key, Some(k));
-                    return true;
-                }
-                Err(e) => {
-                    sc.insert(key.clone(), None);
-                    eprintln!("[omp] simd kernel skipped, isolate backend: {e}");
-                }
-            }
-        }
-    }
     let mut cache = cache_lock();
     if let Some(e) = cache.get(&key) {
         return !e.poisoned;
     }
-    // 分流：无 ctx capture → isolate 团队后端（通用 JS 语义，数组写回走
-    // Set/Acc；不走 opcode 编译器——递归等超白名单形态在 isolate 下合法，
-    // smallpt 即此案）。有 ctx → opcode/SoA 面（op 流落点）。
-    let has_ctx = ir
-        .get("captures")
-        .and_then(|c| c.as_object())
-        .map_or(false, |m| m.values().any(|v| v.as_str() == Some("ctx")));
-    // 分流：isolate 团队优先（S5 起含 ctx 垫片面——ctx 循环也上 isolate，
-    // V8 JIT 行函数 + 8 物理核行并行快于 SoA op 解释）；bundle 构建（结构
-    // 面）失败才回 opcode/SoA 编译器（ctx 循环）或毒化（无 ctx = SoA 面没
-    // 有 op 流落点，原语义）。
+    // 单一后端：isolate 团队（行体仍是 JS，V8 JIT 执行）。bundle 构建失败即
+    // 毒化——降级到原循环语义，PRNG 不再被无谓消耗。
     match protocol::build_bundle(ir) {
         Ok(b) => {
-            cache.insert(key, CacheEntry {
-                program: Arc::new(Program::empty()),
-                poisoned: false,
-                soa: None,
-                iso: Some(Arc::new(b)),
-            });
-            return true;
-        }
-        Err(e) if !has_ctx => {
-            cache.insert(key, CacheEntry {
-                program: Arc::new(Program::empty()),
-                poisoned: true,
-                soa: None,
-                iso: None,
-            });
-            eprintln!("[omp] isolate bundle build failed, degraded: {e}");
-            return false;
-        }
-        Err(_) => {} // ctx 循环：回 SoA 编译器兜底（不毒化）
-    }
-    match compile_ir(ir) {
-        Ok(program) => {
-            // 无 ctx capture 的标注走不了 native（op 流没有落点）——毒化
-            // 拒绝，否则骨架会消耗 PRNG 而 take 恒 false → fallback 发散。
-            if !program.arg_kinds.contains(&CaptureKind::Ctx) {
-                cache.insert(key, CacheEntry {
-                    program: Arc::new(Program::empty()),
-                    poisoned: true,
-                    soa: None,
-                    iso: None,
-                });
-                eprintln!("[omp] no ctx capture, degraded");
-                return false;
-            }
-            let soa = match vm_soa::prepare(&program) {
-                Ok(plan) => Some(Arc::new(plan)),
-                Err(e) => {
-                    eprintln!("[omp] soa prepare skipped, scalar vm backend: {e}");
-                    None
-                }
-            };
-            cache.insert(key, CacheEntry {
-                program: Arc::new(program),
-                poisoned: false,
-                soa,
-                iso: None,
-            });
+            mark_route("isolate", "bundle built");
+            cache.insert(key, CacheEntry { poisoned: false, iso: Some(Arc::new(b)) });
             true
         }
         Err(e) => {
-            cache.insert(key, CacheEntry {
-                program: Arc::new(Program::empty()),
-                poisoned: true,
-                soa: None,
-                iso: None,
-            });
-            eprintln!("[omp] compile failed, degraded: {e}");
+            cache.insert(key, CacheEntry { poisoned: true, iso: None });
+            mark_route("degraded", &format!("bundle build failed: {e}"));
+            eprintln!("[omp] bundle build failed, degraded: {e}");
             false
         }
     }
-}
-
-fn json_to_value(j: &JsonValue) -> Option<Value> {
-    Some(match j {
-        JsonValue::Number(n) => Value::Num(n.as_f64()?),
-        JsonValue::String(s) => Value::Str(s.as_str().into()),
-        JsonValue::Bool(b) => Value::Bool(*b),
-        JsonValue::Null => Value::Null,
-        JsonValue::Array(items) => {
-            let mut vs = Vec::with_capacity(items.len());
-            for it in items {
-                vs.push(json_to_value(it)?);
-            }
-            Value::Arr(Arc::new(vs))
-        }
-        JsonValue::Object(map) => {
-            let mut fs = Vec::with_capacity(map.len());
-            for (k, v) in map {
-                fs.push((k.clone(), json_to_value(v)?));
-            }
-            Value::Obj(Arc::new(fs))
-        }
-    })
 }
 
 /// `__ocOmpTake(ir, ...args, skeleton)` — native 循环体派发。true = 循环被
@@ -329,16 +156,7 @@ pub fn omp_take(
     reds: &mut Vec<f64>,
 ) -> bool {
     let key = ir.to_string();
-    // simd lane kernel 分流（prep 缓存命中时）：产出 = IsolateWrite 同款
-    // 四元组，应用面（v8.rs）零改动。
-    #[cfg(feature = "simd")]
-    {
-        let sim = simd_cache_lock().get(&key).cloned().flatten();
-        if let Some(kernel) = sim {
-            return take_simd(&key, ir, kernel, args, prng, writes);
-        }
-    }
-    let (prog, soa, iso) = {
+    let iso = {
         let cache = cache_lock();
         let Some(entry) = cache.get(&key) else {
             return false;
@@ -346,7 +164,7 @@ pub fn omp_take(
         if entry.poisoned {
             return false;
         }
-        (entry.program.clone(), entry.soa.clone(), entry.iso.clone())
+        entry.iso.clone()
     };
     // isolate 团队分支（含 ctx 垫片面）：产出数组写回四元组（按行序填
     // 入 writes，调用方应用到真数组）+ ctx ovals 直推 FillOvalBatch。
@@ -356,284 +174,8 @@ pub fn omp_take(
         }
         return take_isolate(&key, ir, &bundle, args, shared, prng, store, writes, reds);
     }
-    let arg_kinds = &prog.arg_kinds;
-    if args.len() != prog.arg_names.len() {
-        poison(&key, "args length mismatch");
-        return false;
-    }
-    // @omp 派发面要求一个 ctx capture——没有它 op 流没有落点。
-    let Some(ctx_pos) = arg_kinds.iter().position(|k| *k == CaptureKind::Ctx) else {
-        return false;
-    };
-    let Some(node_id) = args[ctx_pos].get("__ocNodeId").and_then(|v| v.as_str()) else {
-        poison(&key, "ctx missing __ocNodeId");
-        return false;
-    };
-    let global_alpha = args[ctx_pos]
-        .get("state")
-        .and_then(|s| s.get("globalAlpha"))
-        .and_then(|v| v.as_f64())
-        .unwrap_or(1.0);
-
-    // 全局帧：args 原序 + 外层循环变量槽（逐行覆写）。
-    let mut globals: Vec<Value> = Vec::with_capacity(prog.n_globals as usize);
-    for (i, k) in arg_kinds.iter().enumerate() {
-        globals.push(match k {
-            CaptureKind::Prng => Value::Prng,
-            CaptureKind::Ctx => {
-                Value::Ctx { node_id: node_id.to_string(), global_alpha }
-            }
-            CaptureKind::Plain => match json_to_value(&args[i]) {
-                Some(v) => v,
-                None => {
-                    poison(&key, "arg value not representable");
-                    return false;
-                }
-            },
-        });
-    }
-    globals.push(Value::Undef);
-    let loop_var_slot = (prog.n_globals - 1) as usize;
-
-    // 头部枚举 ys（行维度）。
-    let ys = match vm::run_header(&prog, &globals) {
-        Ok(y) => y,
-        Err(e) => {
-            poison(&key, &format!("header eval: {e}"));
-            return false;
-        }
-    };
-    let n_outer = ys.len();
-    if n_outer == 0 {
-        // 空循环：native 与 JS 同为无操作，旁路且不落 op。
-        return true;
-    }
-    // 采集数必须按行均分（编译期已禁「内层头引用外层变量 + 采集」，
-    // 结构性保证每行采集数一致；不整除即语义错位，毒化）。
-    if prng.len() % n_outer != 0 {
-        poison(&key, &format!("capture count {} not divisible by {} rows", prng.len(), n_outer));
-        return false;
-    }
-    let stride = prng.len() / n_outer;
-
-    // 行执行：SoA 向量后端优先（liangyi ExecutionPlan 形态），标量 VM 兜底。
-    enum Backend<'a> {
-        Soa {
-            plan: &'a vm_soa::SoaPlan,
-            n_inner: usize,
-        },
-        Vm,
-    }
-    let backend = if let Some(plan) = soa.as_deref() {
-        // 迭代数每帧一次（行常量语义）；骨架 stride 必须恰为
-        // cap_count × n_inner，否则采集错位。
-        match vm_soa::probe_n_inner(&prog, plan, &globals) {
-            Ok(n_inner) if stride == plan.cap_count * n_inner => {
-                Backend::Soa { plan, n_inner }
-            }
-            Ok(n_inner) => {
-                poison(
-                    &key,
-                    &format!(
-                        "soa stride mismatch: {} != cap {} × inner {}",
-                        stride, plan.cap_count, n_inner
-                    ),
-                );
-                return false;
-            }
-            Err(e) => {
-                poison(&key, &format!("soa probe: {e}"));
-                return false;
-            }
-        }
-    } else {
-        Backend::Vm
-    };
-
-    // rayon indexed 行并行：保序产出（alpha 叠层敏感），行间零共享；
-    // schedule 子句决定分块策略。
-    let take_t0 = std::time::Instant::now();
-    let rows: Vec<vm::FacetState> = match backend {
-        Backend::Soa { plan, n_inner } => match rows_collect!(n_outer, prog.schedule, |ri| {
-            let mut g = globals.clone();
-            g[loop_var_slot] = Value::Num(ys[ri]);
-            let row_prng = &prng[ri * stride..(ri + 1) * stride];
-            let mut facet = vm::FacetState::default();
-            vm_soa::run_row(&prog, plan, g, row_prng, n_inner, &mut facet)?;
-            Ok(facet)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                poison(&key, &format!("soa row exec: {e}"));
-                return false;
-            }
-        },
-        Backend::Vm => match rows_collect!(n_outer, prog.schedule, |ri| {
-            let mut g = globals.clone();
-            g[loop_var_slot] = Value::Num(ys[ri]);
-            let row_prng: &[f64] = if stride == 0 {
-                &[]
-            } else {
-                &prng[ri * stride..(ri + 1) * stride]
-            };
-            vm::run_row(&prog, g, row_prng)
-        }) {
-            Ok(r) => r,
-            Err(e) => {
-                poison(&key, &format!("row exec: {e}"));
-                return false;
-            }
-        },
-    };
-
-    let mut rects: Vec<f32> = Vec::new();
-    let mut colors: Vec<u8> = Vec::new();
-    let mut count = 0usize;
-    for f in rows {
-        rects.extend_from_slice(&f.rects);
-        colors.extend_from_slice(&f.colors);
-        count += f.count;
-    }
-    if count == 0 {
-        return true;
-    }
-    if std::env::var("OC_OMP_TRACE").ok().as_deref() == Some("1") {
-        trace_take(n_outer, count);
-        eprintln!("[omp] take wall: {:?} for {n_outer} rows × {count} ovals", take_t0.elapsed());
-    }
-    // 与垫片 batchFlush 同序同值的状态面：aa / alpha / blend(source-over,
-    // wire 3) / filter(none) / shadow(全零)。执行端是持久 sticky 状态，
-    // 无条件下发同值幂等，op 流语义等价（像素逐位一致由 seg 对拍判定）。
-    store.record_draw_op(&node_id, DrawOp::SetAntiAlias { enabled: true });
-    store.record_draw_op(&node_id, DrawOp::SetGlobalAlpha {
-        alpha: global_alpha.clamp(0.0, 1.0) as f32,
-    });
-    store.record_draw_op(&node_id, DrawOp::SetBlendMode { mode: BlendMode::SrcOver });
-    store.record_canvas_op(&node_id, CanvasOp::SetCtxFilter { sigma: 0.0 });
-    store.record_canvas_op(&node_id, CanvasOp::SetShadow {
-        color: ColorU8 { r: 0, g: 0, b: 0, a: 0 },
-        blur: 0.0,
-        dx: 0.0,
-        dy: 0.0,
-    });
-    store.record_fill_oval_batch(&node_id, rects, colors, count);
-    true
-}
-
-/// std::simd lane kernel 腿（`parallel for simd`，feature 门控）：header
-/// 标量枚举 → 8-y 批打包（lane = 8 个外层迭代，尾批 NaN 补位）→ lane 域
-/// 批间 rayon 并行 → 写产出按批序展开（= IsolateWrite 四元组）。simd 栈
-/// 无 prng/ctx capture（prepare 白名单拒绝）——args 全是 plain 数字与数
-/// 组令牌。任何失败 poison 本表（None 条目）→ 本帧 fallback 原循环，后
-/// 续帧 prep 命中条目回落 isolate（语义等价）。
-#[cfg(feature = "simd")]
-fn take_simd(
-    key: &str,
-    ir: &JsonValue,
-    kernel: Arc<simd_kernel::Kernel>,
-    args: &[JsonValue],
-    prng: &[f64],
-    writes: &mut Vec<protocol::IsolateWrite>,
-) -> bool {
-    let _ = prng; // prng capture 在 prepare 被拒——恒空
-    // plain 实参解码（数组槽 = 令牌对象，跳过不进值面——写产出按通道回
-    // IsolateWrite.arg 落到真数组）。
-    let caps = ir.get("captures").and_then(|c| c.as_object());
-    let arg_names = ir.get("args").and_then(|a| a.as_array());
-    let mut flat = Vec::with_capacity(args.len());
-    for (i, a) in args.iter().enumerate() {
-        let name = arg_names.and_then(|ns| ns.get(i)).and_then(|n| n.as_str());
-        if name.and_then(|n| caps.and_then(|c| c.get(n))).and_then(|v| v.as_str()) == Some("array")
-        {
-            continue;
-        }
-        match a.as_f64() {
-            Some(v) => flat.push(v),
-            None => {
-                simd_poison(key, "args not all numeric");
-                return false;
-            }
-        }
-    }
-    let take_t0 = std::time::Instant::now();
-    let ys = match simd_kernel::header_ys(&kernel, &flat) {
-        Ok(ys) => ys,
-        Err(e) => {
-            simd_poison(key, &format!("header enum: {e}"));
-            return false;
-        }
-    };
-    let n_rows = ys.len();
-    if n_rows == 0 {
-        return true;
-    }
-    let verify = std::env::var("OC_OMP_VERIFY").ok().as_deref() == Some("1");
-    // 8-y 批打包；批间 rayon indexed 保序（写产出按批序展开 = 行序语义）。
-    let n_batches = n_rows.div_ceil(8);
-    let batch_rows = rows_collect!(n_batches, parse_schedule(ir), |bi| {
-        let slice = &ys[bi * 8..(bi * 8 + 8).min(n_rows)];
-        let mut lane = simd_kernel::run_row(&kernel, slice, &flat)?;
-        if verify {
-            // 对拍面：产出按 (channel, idx, acc, val 位型) 全序排序后逐位
-            // 比（同 idx 多写的应用序不进键——最终态由值字节锁定）；lane
-            // 原序保留照常组包。
-            let mut scalar = simd_kernel::run_row_verify(&kernel, slice, &flat)?;
-            let mut lane_sorted = lane.clone();
-            sort_sim_writes(&mut lane_sorted);
-            sort_sim_writes(&mut scalar);
-            if lane_sorted.len() != scalar.len()
-                || lane_sorted.iter().zip(&scalar).any(|(a, b)| {
-                    a.channel != b.channel
-                        || a.idx != b.idx
-                        || a.acc != b.acc
-                        || a.val.to_bits() != b.val.to_bits()
-                })
-            {
-                return Err("lane/scalar verify mismatch".into());
-            }
-        }
-        Ok(lane)
-    });
-    let Ok(batch_rows) = batch_rows else {
-        let e = batch_rows.unwrap_err();
-        simd_poison(key, &format!("row exec: {e}"));
-        return false;
-    };
-    let mut n_writes = 0usize;
-    for row in batch_rows {
-        for w in row {
-            // 尾批 NaN 补位 lane 的哨兵写丢弃（对 TypedArray 本就无效）。
-            if w.idx == u32::MAX {
-                continue;
-            }
-            let Some(arg) = kernel.array_arg_pos(w.channel) else {
-                simd_poison(key, "write channel out of range");
-                return false;
-            };
-            writes.push(protocol::IsolateWrite { arg, idx: w.idx, acc: w.acc, val: w.val });
-            n_writes += 1;
-        }
-    }
-    if std::env::var("OC_OMP_TRACE").ok().as_deref() == Some("1") {
-        let _ = trace_take(n_rows, n_writes);
-        eprintln!(
-            "[omp] simd take wall: {:?} for {n_rows} rows ({n_batches} batches × 8) × {n_writes} writes",
-            take_t0.elapsed()
-        );
-    }
-    true
-}
-
-#[cfg(feature = "simd")]
-fn sort_sim_writes(ws: &mut [simd_kernel::SimWrite]) {
-    ws.sort_by_key(|w| (w.channel, w.idx, w.acc, w.val.to_bits()));
-}
-
-#[cfg(feature = "simd")]
-fn simd_poison(key: &str, reason: &str) {
-    let mut sc = simd_cache_lock();
-    sc.insert(key.to_string(), None);
-    eprintln!("[omp] simd take failed, isolate fallback next frames: {reason}");
+    // prep 通过即 iso 为 Some（上面已早返回）；能到这里只剩降级路径。
+    false
 }
 
 /// isolate 团队腿（no-ctx）：实参校验（长度 + Array 槽令牌）→ FrameEnv
@@ -650,15 +192,26 @@ fn take_isolate(
     writes: &mut Vec<protocol::IsolateWrite>,
     reds: &mut Vec<f64>,
 ) -> bool {
+    // QuickJS 腿没有 `rebuild_shared`（rq_team 无 TypedArray 零拷贝通道）：
+    // 带描述符的行会让 `let out;` 停在 TDZ，行一跑就抛「out is not
+    // initialized」。在入口诚实拒绝，原因直接可读。
+    #[cfg(not(feature = "js-v8"))]
+    if args.iter().any(|a| a.get("__ocOmpShared").is_some()) {
+        poison(key, "quickjs leg: TypedArray capture needs v8 zero-copy shared");
+        return false;
+    }
     let n_args = ir.get("args").and_then(|a| a.as_array()).map_or(0, |a| a.len());
     if args.len() != n_args {
         poison(key, "args length mismatch");
         return false;
     }
     // Array 槽实参 = 令牌对象 `{"__ocOmpArr": k}`（k = 槽位号，v8.rs 绑定
-    // 侧以令牌替代真数组——数组本体不过 isolate，copy-in 零字节）。ctx 槽
-    // 实参 = `{"__ocNodeId", "state"}` JSON（worker 侧垫片常驻，实参只供
-    // host 读 op 流落点）。
+    // 侧以令牌替代真数组——数组本体不过 isolate，copy-in 零字节）。rw 槽
+    // 实参 = 帧初快照：TypedArray 走 binary 旁路描述符（plain capture
+    // 同路，v8 腿 rebuild_shared 重建），plain 数组走 JSON 文本；其余形态
+    // （null / 对象串化物）= 快照不可信 → 毒化。ctx 槽实参 =
+    // `{"__ocNodeId", "state"}` JSON（worker 侧垫片常驻，实参只供 host
+    // 读 op 流落点）。
     let mut ctx_node_id: Option<String> = None;
     let mut ctx_alpha = 1.0f64;
     for (i, k) in bundle.kinds.iter().enumerate() {
@@ -666,6 +219,14 @@ fn take_isolate(
             protocol::SlotKind::Array => {
                 if args[i].get("__ocOmpArr").and_then(|v| v.as_u64()) != Some(i as u64) {
                     poison(key, &format!("array slot {i} token mismatch"));
+                    return false;
+                }
+            }
+            protocol::SlotKind::ArrayRw => {
+                let snapshot_ok =
+                    args[i].get("__ocOmpShared").is_some() || args[i].is_array();
+                if !snapshot_ok {
+                    poison(key, &format!("rw array slot {i} needs a snapshot (shared descriptor or plain array)"));
                     return false;
                 }
             }
@@ -692,11 +253,22 @@ fn take_isolate(
         }
     };
 
-    let num_threads = ir.get("num_threads").and_then(|v| v.as_u64()).map(|v| v as usize);
+    // num_threads 子句优先；ICV 环境量 OC_OMP_NUM_THREADS 是其缺省
+    // （TR15 §7.7 的 ICV 语义，docs/js-openmp.md §12 T1 项）。
+    let num_threads = ir
+        .get("num_threads")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .or_else(|| {
+            std::env::var("OC_OMP_NUM_THREADS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|n| *n > 0)
+        });
     let sched = match parse_schedule(ir) {
-        compile::Schedule::Static => team::Schedule { r#static: true, chunk: 1, num_threads },
-        compile::Schedule::Dynamic(c) => team::Schedule { r#static: false, chunk: c as usize, num_threads },
-        _ => team::Schedule { r#static: false, chunk: 1, num_threads },
+        Schedule::Static => team::Schedule { r#static: true, chunk: 1, num_threads },
+        Schedule::Dynamic(c) => team::Schedule { r#static: false, chunk: c as usize, num_threads },
+        Schedule::Auto => team::Schedule { r#static: false, chunk: 1, num_threads },
     };
     let t0 = std::time::Instant::now();
     let slots = match team::execute(global_team(), bundle, &args_json, shared, Arc::from(prng), &sched)
@@ -736,7 +308,7 @@ fn take_isolate(
     let mut oval_rects: Vec<f32> = Vec::new();
     let mut oval_colors: Vec<u8> = Vec::new();
     let mut oval_count = 0usize;
-    for row in slots.into_iter().flatten() {
+    for row in slots {
         for w in row.writes {
             if has_red && w.arg >= 1000 {
                 let k = w.arg - 1000;
@@ -811,6 +383,10 @@ fn take_isolate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn empty_shared() -> Arc<[protocol::SharedBuf]> {
+        Arc::from(Vec::new())
+    }
     use crate::script::omp::transform;
 
     /// 语料形循环：嵌套两层 + 页面函数闭包 + PRNG 采集 + rgba 模板 +
@@ -827,33 +403,20 @@ mod tests {
     }
 
     #[test]
-    fn compile_corpus_like_loop() {
-        // clamp 是 smooth 的传递闭包——fns 缺它必须编译失败（降级面）。
-        let ir_missing = corpus_like_ir();
-        assert!(compile_ir(&ir_missing).is_err(), "missing callee must fail");
-        let ir_full = serde_json::json!({
-            "loop": ir_missing["loop"],
-            "fns": {
-                "smooth": ir_missing["fns"]["smooth"],
-                "clamp": "function clamp(v, lo, hi) {\n  return Math.max(lo, Math.min(hi, v));\n}"
-            },
-            "args": ir_missing["args"], "captures": ir_missing["captures"]
-        });
-        let prog = compile_ir(&ir_full).expect("compile with clamp");
-        assert_eq!(prog.arg_names.len(), 5);
-        assert_eq!(prog.arg_kinds[3], CaptureKind::Prng);
-        assert_eq!(prog.arg_kinds[4], CaptureKind::Ctx);
-        assert_eq!(prog.loop_var, "y");
-        assert_eq!(prog.n_globals, 6);
-        assert!(!prog.fns.is_empty());
-        assert!(prog.header_start > 0);
+    fn schedule_text_parses_to_dispatch() {
+        let s = |t: &str| parse_schedule(&serde_json::json!({ "schedule": t }));
+        assert!(matches!(s("static,2"), Schedule::Static));
+        assert!(matches!(s("dynamic,4"), Schedule::Dynamic(4)));
+        assert!(matches!(s("dynamic"), Schedule::Dynamic(1)));
+        assert!(matches!(s("guided"), Schedule::Auto));
+        assert!(matches!(parse_schedule(&serde_json::json!({})), Schedule::Auto));
     }
 
     #[test]
     fn transform_emits_prep_guard() {
         // 带 ctx 成员调用的 bare 标注（OpenMP 缺省 default(shared)）：守卫
         // 照发；无 ctx capture 的循环由 omp_prep 毒化拒绝并打日志。
-        let src = "// @omp parallel for shared(a, ctx)\nfor (let i = 0; i < 3; i += 1) {\n  ctx.fillRect(a, i, 1, 1);\n}\n";
+        let src = "// @omp parallel for shared(a, ctx)\nfor (let i = 0; i < 3; i += 1) {\n  ctx.beginPath();\n  ctx.arc(a, i, 1, 0, 6.283, false);\n  ctx.fill();\n}\n";
         let out = transform::transform(src);
         let s = &*out;
         assert!(s.contains("__ocOmpPrep("));
@@ -883,7 +446,7 @@ mod tests {
             let mut store = MutationStore::default();
             let mut writes = Vec::new();
             let mut reds = Vec::new();
-            assert!(omp_take(&mut store, &ir, &args, &[], &mut writes, &mut reds));
+            assert!(omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
             assert!(reds.is_empty(), "no reduction clause → no folded values");
             writes
         };
@@ -924,9 +487,9 @@ mod tests {
         let mut store = MutationStore::default();
         let mut writes = Vec::new();
         let mut reds = Vec::new();
-        assert!(!omp_take(&mut store, &ir, &args, &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
         // 毒化后同 ir 二次 take 直接 false（缓存短路）。
-        assert!(!omp_take(&mut store, &ir, &args, &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
     }
 
     /// reduction 端到端（TR15 §8.10 映射）：行私有副本起 initializer，行末
@@ -948,7 +511,7 @@ mod tests {
         let mut store = MutationStore::default();
         let mut writes = Vec::new();
         let mut reds = Vec::new();
-        assert!(omp_take(&mut store, &ir, &[], &[], &mut writes, &mut reds));
+        assert!(omp_take(&mut store, &ir, &[], empty_shared(), &[], &mut writes, &mut reds));
         assert!(writes.is_empty(), "no array slots → no writes");
         assert_eq!(reds, vec![21.0, 4096.0]);
     }
@@ -970,7 +533,7 @@ mod tests {
         let mut store = MutationStore::default();
         let mut writes = Vec::new();
         let mut reds = Vec::new();
-        assert!(!omp_take(&mut store, &ir, &[], &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &[], empty_shared(), &[], &mut writes, &mut reds));
         assert!(reds.is_empty());
     }
 
@@ -997,7 +560,7 @@ mod tests {
         let mut store = MutationStore::default();
         let mut writes = Vec::new();
         let mut reds = Vec::new();
-        assert!(omp_take(&mut store, &ir, &args, &[], &mut writes, &mut reds));
+        assert!(omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
         assert!(writes.is_empty(), "no array slots → no writes");
         assert_eq!(reds, vec![3.0], "0+1+2 left-fold");
     }
@@ -1021,8 +584,166 @@ mod tests {
         let mut store = MutationStore::default();
         let mut writes = Vec::new();
         let mut reds = Vec::new();
-        assert!(!omp_take(&mut store, &ir, &args, &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
         // 毒化后同 ir 二次 take 直接 false（缓存短路）。
-        assert!(!omp_take(&mut store, &ir, &args, &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+    }
+
+    /// rw 数组槽端到端（快照通道，2026-11-15 判据面删除后启用）：实参 =
+    /// plain JSON 快照，每行从快照切片起步（行间零污染），Set 写穿 +
+    /// flush 按行序产出终值。所有行都写下标 0 且读到的都是帧初快照
+    /// ——若行首重置失效，值会依赖 worker 调度历史（测试即不稳定）。
+    #[test]
+    fn isolate_team_rw_array_snapshot_end_to_end() {
+        let ir = serde_json::json!({
+            "header": "let y = 0; y < 3; y += 1",
+            "var": "y",
+            "body": "  __ocOmpSet(out, 0, out[0] + y + 1);\n",
+            "fns": {},
+            "args": ["out"],
+            "captures": { "out": "array_rw" }
+        });
+        assert!(omp_prep(&ir), "rw array loop must take the isolate path");
+        let args = vec![serde_json::json!([10.0, 20.0, 30.0])];
+        let run = || {
+            let mut store = MutationStore::default();
+            let mut writes = Vec::new();
+            let mut reds = Vec::new();
+            assert!(omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+            writes
+        };
+        let a = run();
+        let b = run();
+        assert_eq!(a.len(), 3, "one write per row");
+        for (ri, w) in a.iter().enumerate() {
+            assert_eq!((w.arg, w.idx, w.acc), (0, 0, false));
+            assert_eq!(w.val, 11.0 + ri as f64, "row {ri} must read the pristine snapshot");
+        }
+        assert_eq!(a, b, "two runs must be bit-identical");
+    }
+
+    /// rw 槽快照形态校验：null（读取失败的绑定产物）必须毒化。
+    #[test]
+    fn isolate_team_rw_array_bad_snapshot_poisons() {
+        let ir = serde_json::json!({
+            "header": "let y = 0; y < 2; y += 1",
+            "var": "y",
+            "body": "  __ocOmpSet(out, y, out[y]);\n",
+            "fns": {},
+            "args": ["out"],
+            "captures": { "out": "array_rw" }
+        });
+        assert!(omp_prep(&ir));
+        let args = vec![JsonValue::Null];
+        let mut store = MutationStore::default();
+        let mut writes = Vec::new();
+        let mut reds = Vec::new();
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+    }
+
+    /// 采集守卫（运行期机械面）：骨架按「每调用点每行一次」静态预采，
+    /// 行体实际消费不符（条件分支少调用）= 采集流错位——行末计数不符
+    /// 即毒化，绝不静默。超消费向由 __ocNext overrun 兜住（一并覆盖）。
+    #[test]
+    fn isolate_team_prng_consumption_guard_poisons() {
+        // 少消费：段长 2（4 行 × 2 预采），行体只调一次。
+        let under = serde_json::json!({
+            "header": "let y = 0; y < 4; y += 1",
+            "var": "y",
+            "body": "  const t = random();\n  __ocOmpSet(out, y, t);\n",
+            "fns": {},
+            "args": ["random", "out"],
+            "captures": { "random": "prng", "out": "array" }
+        });
+        assert!(omp_prep(&under));
+        let args = vec![JsonValue::Null, serde_json::json!({ "__ocOmpArr": 1, "len": 4 })];
+        let pool: Vec<f64> = (0..8).map(|i| i as f64).collect();
+        let mut store = MutationStore::default();
+        let mut writes = Vec::new();
+        let mut reds = Vec::new();
+        assert!(!omp_take(&mut store, &under, &args, empty_shared(), &pool, &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &under, &args, empty_shared(), &pool, &mut writes, &mut reds));
+
+        // 超消费：段长 1，行体调两次（__ocNext overrun throw）。
+        let over = serde_json::json!({
+            "header": "let y = 0; y < 4; y += 1",
+            "var": "y",
+            "body": "  const t = random() + random();\n  __ocOmpSet(out, y, t);\n",
+            "fns": {},
+            "args": ["random", "out"],
+            "captures": { "random": "prng", "out": "array" }
+        });
+        assert!(omp_prep(&over));
+        let args2 = vec![JsonValue::Null, serde_json::json!({ "__ocOmpArr": 1, "len": 4 })];
+        let pool1: Vec<f64> = (0..4).map(|i| i as f64).collect();
+        assert!(!omp_take(&mut store, &over, &args2, empty_shared(), &pool1, &mut writes, &mut reds));
+    }
+
+    /// ctx 词表外**方法**调用 = TypeError（plain 对象缺方法自然 throw，
+    /// 零拦截开销）→ 行错误毒化；白名单静态判据已删（2026-11-15）。
+    /// **属性**写不拦截（见 §6.3）——单独测一步钉死这个语义。
+    #[test]
+    fn isolate_team_ctx_unknown_member_poisons() {
+        // 未知方法 ctx.stroke() → TypeError → 毒化。
+        let ir = serde_json::json!({
+            "header": "let y = 0; y < 2; y += 1",
+            "var": "y",
+            "body": "  ctx.beginPath();\n  ctx.arc(y, y, 2, 0, Math.PI * 2);\n  ctx.stroke();\n",
+            "fns": {},
+            "args": ["ctx"],
+            "captures": { "ctx": "ctx" }
+        });
+        assert!(omp_prep(&ir));
+        let args = vec![serde_json::json!({
+            "__ocNodeId": "node-x",
+            "state": { "globalAlpha": 1.0 }
+        })];
+        let mut store = MutationStore::default();
+        let mut writes = Vec::new();
+        let mut reds = Vec::new();
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+
+        // 属性写（ctx.lineWidth = 3）是静默 no-op，不毒化——拦截它需要
+        // Proxy set 陷阱，实测 inspector 语料 +48% take wall，否决。
+        let wr = serde_json::json!({
+            "header": "let y = 0; y < 2; y += 1",
+            "var": "y",
+            "body": "  ctx.lineWidth = 3;\n  ctx.fillStyle = '#808080';\n  ctx.beginPath();\n  ctx.arc(y, y, 2, 0, Math.PI * 2);\n  ctx.fill();\n",
+            "fns": {},
+            "args": ["ctx"],
+            "captures": { "ctx": "ctx" }
+        });
+        assert!(omp_prep(&wr));
+        let mut writes2 = Vec::new();
+        let mut reds2 = Vec::new();
+        assert!(
+            omp_take(&mut store, &wr, &args, empty_shared(), &[], &mut writes2, &mut reds2),
+            "property writes must stay un-intercepted (zero per-op overhead)"
+        );
+    }
+
+    /// T2 溶解的机械面（js-openmp.md §12）：break 指向已不存在的巢层
+    /// （canonical 禁令）在 bundle 行函数作用域 = SyntaxError，bundle
+    /// eval 失败毒化——无静态审计，机械成立。指向体内内层巢的 break
+    /// 是合法 JS，语义照常（不经此路径）。
+    #[test]
+    fn isolate_team_break_out_of_nest_poisons_at_eval() {
+        let ir = serde_json::json!({
+            "header": "let y = 0; y < 2; y += 1",
+            "var": "y",
+            "body": "  if (y > 0) break;\n  __ocOmpSet(out, y, 1);\n",
+            "fns": {},
+            "args": ["out"],
+            "captures": { "out": "array" }
+        });
+        assert!(omp_prep(&ir), "transform does not audit break; prep passes");
+        let args = vec![serde_json::json!({ "__ocOmpArr": 0, "len": 2 })];
+        let mut store = MutationStore::default();
+        let mut writes = Vec::new();
+        let mut reds = Vec::new();
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
+        assert!(!omp_take(&mut store, &ir, &args, empty_shared(), &[], &mut writes, &mut reds));
     }
 }

@@ -14,11 +14,6 @@ edition.workspace = true
 default = ["js-v8"]
 js-v8 = ["dep:v8"]
 js-quickjs = ["dep:rquickjs"]
-# std::simd lane kernel 栈（omp/simd_kernel.rs）：nightly-only（portable_simd
-# 仍是 feature gate）。default off——CI 跑 stable 不挂；本地 nightly 全量开
-# （--features simd）。feature off 时 `parallel for simd` 照常工作（isolate
-# 后端，simd 构造对纯算术循环结果等价），feature on = lane kernel + 对拍。
-simd = []
 
 [lib]
 path = "src/lib.rs"
@@ -28,10 +23,6 @@ opencat-core = { path = "../opencat-core" }
 # GL 函数面（WebGL 同名 API 形状）：离屏会话、合成器、GPU 命令流执行器
 # 共用一份 glow 上下文，会话建立时构建一次。
 glow = "0.13.1"
-# vendor/naga fork 分支 feat/glsl-es300-to-desktop330：GLSL ES 300 → 桌面
-# GLSL 330 core 的转换底座（front::glsl → IR → back::glsl 官方链），取代
-# 只换版本行的词法降级。glsl-in/glsl-out 是最小 feature 面。
-naga = { path = "../../vendor/naga", features = ["glsl-in", "glsl-out"] }
 # 0.23 pinned: cosmic-text 0.19.0 (latest) still requires fontdb 0.23
 fontdb = "0.23.0"
 anyhow.workspace = true

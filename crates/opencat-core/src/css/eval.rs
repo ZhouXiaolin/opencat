@@ -528,9 +528,8 @@ pub(crate) fn dimension_to_px(value: f32, unit: &str, ctx: &EvalContext) -> Opti
         "vh" => value * ctx.viewport.1 / 100.0,
         "vmin" => value * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
         "vmax" => value * ctx.viewport.0.max(ctx.viewport.1) / 100.0,
-        // 容器查询单位：语料的 query container 恒为合成帧尺寸的根。
-        "cqw" => value * ctx.viewport.0 / 100.0,
-        "cqh" => value * ctx.viewport.1 / 100.0,
+        "cqw" => value * ctx.query_size().0 / 100.0,
+        "cqh" => value * ctx.query_size().1 / 100.0,
         _ => return None,
     })
 }
@@ -546,8 +545,8 @@ pub(crate) fn length_to_px(len: LengthValue, ctx: &EvalContext) -> Option<f32> {
         LengthValue::Vh(v) => v * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(v) => v * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
         LengthValue::Vmax(v) => v * ctx.viewport.0.max(ctx.viewport.1) / 100.0,
-        LengthValue::Cqw(v) => v * ctx.viewport.0 / 100.0,
-        LengthValue::Cqh(v) => v * ctx.viewport.1 / 100.0,
+        LengthValue::Cqw(v) => v * ctx.query_size().0 / 100.0,
+        LengthValue::Cqh(v) => v * ctx.query_size().1 / 100.0,
         _ => return None,
     })
 }

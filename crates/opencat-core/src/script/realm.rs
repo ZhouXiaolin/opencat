@@ -631,6 +631,16 @@ impl<C: JsContext> ScriptRealm<C> {
 }
 
 impl<C: JsContext> ScriptHost for ScriptRealm<C> {
+    fn text_styles(&self) -> &HashMap<String, crate::style::ComputedTextStyle> {
+        static EMPTY: std::sync::OnceLock<
+            HashMap<String, crate::style::ComputedTextStyle>,
+        > = std::sync::OnceLock::new();
+        self.target_registry
+            .as_ref()
+            .map(|registry| &registry.text_styles)
+            .unwrap_or_else(|| EMPTY.get_or_init(Default::default))
+    }
+
     fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
         self.ensure_runtime()?;
         let id = driver_id_from_source(source);

@@ -191,15 +191,40 @@ fn pct_from_value(value: &serde_json::Value) -> Option<f32> {
 fn num_from_value(value: &serde_json::Value) -> Option<f32> {
     match value {
         serde_json::Value::Number(n) => n.as_f64().map(|v| v as f32),
-        serde_json::Value::String(text) => text
-            .trim()
-            .strip_suffix("px")
-            .unwrap_or(text.trim())
-            .trim()
-            .parse::<f32>()
-            .ok(),
+        serde_json::Value::String(text) => {
+            let text = text.trim();
+            let bare = text.strip_suffix("px").unwrap_or(text).trim();
+            bare.parse::<f32>().ok()
+        }
         _ => None,
     }
+}
+
+/// CSS `font-family` 的脚本写值取首个可解析族名（逗号分隔的族栈按浏览器
+/// 顺序试，后续族不在字体库时由排版层逐族回退）。
+fn font_family_from_value(value: &serde_json::Value) -> Option<String> {
+    let text = value.as_str()?.trim();
+    if text.starts_with("var(") {
+        return None;
+    }
+    let name = text.split(',').next()?.trim();
+    let cleaned = name.trim_matches(|c| c == '"' || c == '\'');
+    (!cleaned.is_empty()).then(|| cleaned.to_string())
+}
+
+/// CSS `font-family` 的完整族栈。脚本写 `var(--x)` 时返回 None：字面
+/// `var` 不是族名，不能顶掉继承的声明族栈。
+pub(crate) fn font_stack_from_value(value: &serde_json::Value) -> Option<Vec<String>> {
+    let text = value.as_str()?.trim();
+    if text.starts_with("var(") {
+        return None;
+    }
+    let stack: Vec<String> = text
+        .split(',')
+        .map(|name| name.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+        .filter(|name| !name.is_empty())
+        .collect();
+    (!stack.is_empty()).then_some(stack)
 }
 
 /// `stroke-dasharray` 的脚本侧取值 → `StrokeDash`。
@@ -313,8 +338,12 @@ impl StyleStore {
         add_f32!("strokeWidth", stroke_width);
         add_f32!("borderWidth", border_width);
         add_f32!("textSize", text_px);
+        if let Some(v) = &style.font_family {
+            props.insert("fontFamily".into(), json!(v));
+        }
         add_f32!("letterSpacing", letter_spacing);
         add_f32!("lineHeight", line_height);
+        props.insert("whiteSpace".into(), json!(if style.no_wrap { "nowrap" } else { "normal" }));
         add_f32!("width", width);
         add_f32!("height", height);
         add_f32!("gap", gap);
@@ -456,8 +485,12 @@ impl StyleStore {
                 }
                 "borderWidth" => mutations.border_width.map(|f| json!(f)),
                 "textSize" => mutations.text_px.map(|f| json!(f)),
+                "fontFamily" => mutations.font_family.clone().map(serde_json::Value::String),
                 "letterSpacing" => mutations.letter_spacing.map(|f| json!(f)),
                 "lineHeight" => mutations.line_height.map(|f| json!(f)),
+                "whiteSpace" => mutations
+                    .white_space_nowrap
+                    .map(|v| json!(if v { "nowrap" } else { "normal" })),
                 "width" if mutations.width_auto => Some(json!("auto")),
                 "width" => mutations
                     .width
@@ -854,6 +887,10 @@ impl StyleStore {
             "textSize" => {
                 entry.text_px = num_from_value(&value);
             }
+            "fontFamily" => {
+                entry.font_family = font_family_from_value(&value);
+                entry.font_stack = font_stack_from_value(&value);
+            }
             "letterSpacing" => {
                 entry.letter_spacing = num_from_value(&value);
             }
@@ -999,6 +1036,12 @@ impl StyleStore {
             "textAlign" => {
                 if let Some(s) = value.as_str() {
                     entry.text_align = text_align_from_name(s);
+                }
+            }
+            "whiteSpace" => {
+                if let Some(s) = value.as_str() {
+                    let s = s.trim().to_ascii_lowercase();
+                    entry.white_space_nowrap = Some(s == "nowrap");
                 }
             }
 
@@ -1894,7 +1937,8 @@ impl MutationStore {
 
     /// 字体相对长度（`em`）按元素字号折成 px（CSS Values §5.1.1）；容器
     /// 查询单位（`cqw`/`cqh`）按合成帧视口折 px（语料的 query container
-    /// 恒为合成帧根，与 css/eval 的口径一致）。gsap 补间
+    /// 恒为合成帧根，与 css/eval 的口径一致）。视口相对单位（`vw`/`vh`）
+    /// 与 `rem`/`pt` 等也在这里折 px。gsap 补间
     /// `width: "1.25em"` 逐帧写出 `"0.55em"`；属性通道只认 px，带单位
     /// 的值原先整条丢弃，元素停在样式表初值（inspector 的 👀 宽度停在 0，
     /// 被 `overflow:hidden` 裁没）。`font-size` 的 em 相对父字号，不在通路上。
@@ -1907,40 +1951,26 @@ impl MutationStore {
         let is_length = matches!(
             property,
             "width" | "height" | "left" | "top" | "right" | "bottom" | "gap" | "letterSpacing"
+                | "textSize"
         ) || property.starts_with("margin")
             || property.starts_with("padding");
         if !is_length {
             return value;
         }
         let text = value.as_str().map(str::trim);
-        // cqw/cqh：视口基准（合成帧尺寸），与字号无关，先于 em 判定。
-        for (suffix, base) in [("cqw", self.viewport.0), ("cqh", self.viewport.1)] {
-            if let Some(n) = text
-                .and_then(|s| s.strip_suffix(suffix))
-                .and_then(|n| n.trim().parse::<f32>().ok())
-            {
-                if base > 0.0 {
-                    return serde_json::json!(n * base / 100.0);
-                }
-                return value;
-            }
-        }
-        let Some(em) = text
-            .and_then(|s| s.strip_suffix("em"))
-            .and_then(|n| n.trim().parse::<f32>().ok())
-        else {
+        let Some(text) = text else {
             return value;
         };
-        // 字号优先级：本帧写入 > 声明 > 计算继承。
+        // 字号基准：本帧写入 > 声明 > 计算继承 > 根字号。
         let font_px = self
             .read_style_value(id, "textSize")
             .and_then(|v| v.as_f64())
             .map(|v| v as f32)
-            .or_else(|| self.tree_text.text_styles.get(id).map(|s| s.text_px));
-        match font_px {
-            Some(px) if px > 0.0 => serde_json::json!(em * px),
-            _ => value,
-        }
+            .or_else(|| self.tree_text.text_styles.get(id).map(|s| s.text_px))
+            .unwrap_or(16.0);
+        crate::css::css_text_to_px(text, font_px, self.viewport, None)
+            .map(|px| serde_json::json!(px))
+            .unwrap_or(value)
     }
 
     /// 文本写入计数：布局探针的同步布局失效键。
@@ -2298,6 +2328,62 @@ impl MutationRecorder for MutationStore {
     }
     fn text_style(&self, id: &str) -> Option<&crate::style::ComputedTextStyle> {
         self.tree_text.text_styles.get(id)
+    }
+
+    fn effective_text_style(&self, id: &str) -> crate::style::ComputedTextStyle {
+        let mut style = self
+            .tree_text
+            .text_styles
+            .get(id)
+            .cloned()
+            .unwrap_or_default();
+        let sources: Vec<&str> = id
+            .strip_suffix(":t")
+            .map(|parent| vec![parent, id])
+            .unwrap_or_else(|| vec![id]);
+        for source in sources {
+            let inherited = self.tree_text.text_styles.get(source);
+            let read_f32 = |property: &str| {
+                self.read_style_value(source, property)
+                    .and_then(|v| v.as_f64())
+                    .map(|v| v as f32)
+            };
+            if let Some(px) = read_f32("textSize") {
+                style.text_px = px;
+            }
+            if let Some(px) = read_f32("letterSpacing") {
+                style.letter_spacing = px;
+            }
+            if let Some(scale) = read_f32("lineHeight") {
+                style.line_height = scale;
+            }
+            if let Some(serde_json::Value::String(family)) =
+                self.read_style_value(source, "fontFamily")
+            {
+                if !family.starts_with("var(") {
+                    style.font_family = Some(family.clone());
+                    style.font_stack =
+                        font_stack_from_value(&serde_json::Value::String(family.clone()))
+                            .unwrap_or_else(|| vec![family]);
+                }
+            }
+            if let Some(weight) = read_f32("fontWeight") {
+                style.font_weight = crate::style::FontWeight(weight as u16);
+            }
+            if let Some(serde_json::Value::String(space)) =
+                self.read_style_value(source, "whiteSpace")
+            {
+                style.no_wrap = space.eq_ignore_ascii_case("nowrap");
+            }
+            if let Some(inherited) = inherited {
+                style.font_generic = inherited.font_generic;
+                style.font_style = inherited.font_style;
+                style.wrap_text = inherited.wrap_text;
+                style.text_transform = inherited.text_transform;
+                style.text_stroke = inherited.text_stroke;
+            }
+        }
+        style
     }
     fn text_leaf_ranges(&mut self, id: &str) -> Vec<(Vec<String>, usize, usize)> {
         self.tree_text.tree.leaf_ranges(id)

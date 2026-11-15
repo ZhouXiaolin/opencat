@@ -463,9 +463,8 @@ fn length_px(v: &LengthValue, ctx: &EvalContext) -> Option<f32> {
         LengthValue::Vh(v) => Some(v * ctx.viewport.1 / 100.0),
         LengthValue::Vmin(v) => Some(v * ctx.viewport.0.min(ctx.viewport.1) / 100.0),
         LengthValue::Vmax(v) => Some(v * ctx.viewport.0.max(ctx.viewport.1) / 100.0),
-        // 容器查询单位：语料的 query container 恒为合成帧尺寸的根。
-        LengthValue::Cqw(v) => Some(v * ctx.viewport.0 / 100.0),
-        LengthValue::Cqh(v) => Some(v * ctx.viewport.1 / 100.0),
+        LengthValue::Cqw(v) => Some(v * ctx.query_size().0 / 100.0),
+        LengthValue::Cqh(v) => Some(v * ctx.query_size().1 / 100.0),
         _ => None,
     }
 }

@@ -668,6 +668,8 @@ fn rebuild_children(
             .map(|link| link.flatten())
             .into_iter()
             .collect(),
+        query_container: inherited_style.query_container.into_iter().collect(),
+        content_box: Vec::new(),
         in_inline_flow: false,
     };
     // 行内流按重建后的子项重判：宿主在静态树里是空容器（`#xcaptext` 这类
@@ -1361,6 +1363,7 @@ where
             *cx.script_frame_ctx,
             (*cx.assets).clone(),
             cx.html_build.clone(),
+            cx.script_runtime.text_styles().clone(),
             || push_script_scope(style, cx),
         )
     } else {
@@ -1682,6 +1685,8 @@ fn compute_style(
 ) -> ComputedStyle {
     let text = resolve_text_style(&inherited_style.text, style);
     ComputedStyle {
+        container_type: style.container_type,
+        query_container: style.query_container.or(inherited_style.query_container),
         layout: ComputedLayoutStyle {
             position: style.position.unwrap_or_default(),
             positioned: style.position.is_some(),
@@ -1779,6 +1784,7 @@ fn compute_style(
             css_filter: style.css_filter.clone(),
             backdrop_blur_sigma: style.backdrop_blur_sigma,
             backdrop_filter: style.backdrop_filter.clone(),
+            mask_image: style.mask_image.clone(),
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             clip_x_only: style.overflow_hidden && style.overflow_y_visible,
@@ -1788,6 +1794,7 @@ fn compute_style(
             transform_origin: style.transform_origin.unwrap_or_default(),
             perspective: style.perspective,
             transform_style_preserve_3d: style.transform_style_preserve_3d.unwrap_or(false),
+            backface_visibility_hidden: style.backface_visibility_hidden.unwrap_or(false),
             box_shadow: style
                 .box_shadow
                 .iter()
@@ -1924,6 +1931,13 @@ fn collect_visual_script_targets_at(
         // 盒子查询要整形，整形要样式：声明树上的计算文本样式（声明值 +
         // 沿祖先继承）。脚本逐帧改写的祖先字号不在其中——那是 mutation 层。
         registry.text_styles.insert(id.to_string(), text_style.clone());
+        if matches!(node.kind(), NodeKind::Text(_)) {
+            let Some(parent) = parent else { return; };
+            let slot = format!("{parent}:t");
+            if !id.ends_with(":t") {
+                registry.text_styles.insert(slot, text_style.clone());
+            }
+        }
     }
     let child_parent = (!id.is_empty()).then_some(id);
     let inherited = &text_style;

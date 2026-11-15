@@ -980,8 +980,20 @@ macro_rules! for_each_binding {
         // 空时按字素切（调用方要整元素盒）。盒子是墨迹边界，与浏览器对
         // 文本元素报的紧致 inline 盒同义。
         $binding! { qry $store text_element_boxes (id: String, ranges: Vec<(u32, u32)>) -> Vec<serde_json::Value> {
-            let text = $store.get_text_source(&id).map(|s| s.text.clone()).unwrap_or_default();
-            let style = $store.text_style(&id).cloned().unwrap_or_default();
+            let mut text = $store
+                .read_style_value(&id, "text")
+                .and_then(|v| v.as_str().map(str::to_string))
+                .or_else(|| $store.get_text_source(&id).map(|s| s.text.clone()))
+                .unwrap_or_default();
+            if text.is_empty() {
+                let slot = format!("{id}:t");
+                text = $store
+                    .read_style_value(&slot, "text")
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .or_else(|| $store.get_text_source(&slot).map(|s| s.text.clone()))
+                    .unwrap_or_default();
+            }
+            let style = $store.effective_text_style(&id);
             let read_f32 = |key: &str| -> f32 {
                 $store.read_style_value(&id, key).and_then(|v| v.as_f64()).map(|v| v as f32).unwrap_or(0.0)
             };
@@ -1006,6 +1018,39 @@ macro_rules! for_each_binding {
                     "height": b.height,
                 }))
                 .collect())
+        }}
+
+        $binding! { cmd $store register_measured_text (id: String, text_id: String, text: String) -> () {
+            $store.register_text_source(
+                &id,
+                crate::script::ScriptTextSource {
+                    text: text.clone(),
+                    kind: crate::script::ScriptTextSourceKind::TextNode,
+                },
+            );
+            $store.register_text_source(
+                &text_id,
+                crate::script::ScriptTextSource {
+                    text,
+                    kind: crate::script::ScriptTextSourceKind::TextNode,
+                },
+            );
+            Ok(())
+        }}
+
+        $binding! { qry $store measure_text_px (id: String, text: String) -> f32 {
+            let style = $store.effective_text_style(&id);
+            let db = crate::text::script_font_db();
+            let boxes = crate::text::script_text_boxes(
+                &text,
+                &style,
+                (0.0, 0.0),
+                f32::MAX,
+                false,
+                &db,
+                &[0..text.len()],
+            );
+            Ok(boxes.first().map(|b| b.width).unwrap_or(0.0))
         }}
 
         $binding! { qry $store read_style_value (id: String, property: String) -> Option<serde_json::Value> {

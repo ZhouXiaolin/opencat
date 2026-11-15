@@ -1949,6 +1949,7 @@ pub(crate) fn inject_markup_paint(
                 .collect();
             let ctx = SelectorContext {
                 ancestors: &ancestor_nodes,
+                query_container: None,
                 ..SelectorContext::default()
             };
             // 现有 style 里的属性名（小写）：内联/脚本写过的属性优先于

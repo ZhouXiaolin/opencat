@@ -56,6 +56,9 @@ pub struct SelectorContext<'a> {
     /// 树形层叠（HTML 通道）的根节点：根变量表归它所有，resolve 期的变量
     /// 继承链以它为底。JSX 通道无树，不建链。
     pub tree_root: bool,
+    /// 最近尺寸查询容器的内容盒尺寸。CSS `cqw`/`cqh` 按它求值。
+    /// 无尺寸查询容器时回退到合成视口。
+    pub query_container: Option<(f32, f32)>,
 }
 
 /// 对一个节点收集全部命中声明并按层叠序排列（无树上下文的旧入口）。

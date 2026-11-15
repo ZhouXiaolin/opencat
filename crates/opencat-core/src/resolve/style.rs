@@ -51,6 +51,10 @@ pub struct ComputedStyle {
     /// CSS 布局腿直通产物（`css::to_taffy`），布局消费端的第一优先输入；
     /// 旧类名路径为 `None`。
     pub css_layout: Option<CssLayout>,
+    /// CSS `container-type`：本元素建立尺寸查询容器。
+    pub container_type: Option<crate::style::ContainerType>,
+    /// 最近祖先尺寸查询容器的内容盒尺寸；`cqw`/`cqh` 的求值基准。
+    pub query_container: Option<(f32, f32)>,
 }
 
 /// Only properties in this struct are allowed to flow from parent to child.
@@ -63,6 +67,8 @@ pub struct InheritedStyle {
     pub hidden: bool,
     /// 自定义属性继承链（脚本按帧改写变量时 var() 依赖声明据此重算）。
     pub vars: Option<std::sync::Arc<crate::css::VarLink>>,
+    /// 最近尺寸查询容器（含祖先链）的内容盒尺寸。
+    pub query_container: Option<(f32, f32)>,
 }
 
 impl InheritedStyle {
@@ -89,7 +95,12 @@ impl InheritedStyle {
                 || style.layout.flex_direction == FlexDirection::ColReverse)
                 && style.layout.align_items == AlignItems::Stretch);
         text.wrap_text = parent_has_inline_constraint && parent_stacks_text_vertically;
-        Self { text, hidden: style.visual.hidden, vars: None }
+        Self {
+            text,
+            hidden: style.visual.hidden,
+            vars: None,
+            query_container: style.query_container,
+        }
     }
 
     /// 子元素继承的自定义属性链（本元素 resolve 期挂好的那一环）。
@@ -198,6 +209,8 @@ pub struct ComputedVisualStyle {
     pub backdrop_blur_sigma: Option<f32>,
     /// CSS `backdrop-filter` 的非 blur 算子（blur 走 `backdrop_blur_sigma`）。
     pub backdrop_filter: CssFilter,
+    /// CSS `mask-image`：本元素及其子树合成后按它裁剪 alpha。
+    pub mask_image: Option<crate::style::MaskImage>,
     pub object_fit: ObjectFit,
     pub clip_contents: bool,
     /// `clip_contents` 只作用于横向（`overflow-x:clip; overflow-y:visible`）。
@@ -213,6 +226,8 @@ pub struct ComputedVisualStyle {
     pub perspective: Option<f32>,
     /// CSS `transform-style: preserve-3d` — children share this node's 3-D space.
     pub transform_style_preserve_3d: bool,
+    /// CSS `backface-visibility: hidden` — skip this node when it faces away.
+    pub backface_visibility_hidden: bool,
     pub box_shadow: Vec<BoxShadow>,
     pub inset_shadow: Vec<InsetShadow>,
     pub drop_shadow: Vec<DropShadow>,

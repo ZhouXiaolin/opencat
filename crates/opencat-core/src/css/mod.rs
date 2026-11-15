@@ -12,6 +12,7 @@
 
 mod cascade;
 mod eval;
+mod eval_units;
 mod property_semantics;
 mod stylesheet;
 mod to_node_style;
@@ -19,6 +20,7 @@ mod to_taffy;
 
 pub use cascade::{match_rules_ctx, SelectorContext, SelectorNode};
 pub use eval::VarSource;
+pub use eval_units::to_px as css_text_to_px;
 pub use property_semantics::{origin_px_to_fractions, parse_css_transform};
 pub use to_node_style::{background_from_css, box_shadow_from_css};
 pub use stylesheet::CssStylesheet;
@@ -28,6 +30,7 @@ use std::sync::Arc;
 
 use crate::style::NodeStyle;
 use lightningcss::properties::Property;
+use lightningcss::properties::contain::ContainerType;
 use lightningcss::properties::custom::{CustomPropertyName, TokenList};
 
 /// 元素的计算自定义属性表（键去 `--` 前缀，与 lookup_var 的取用约定一致）。
@@ -40,6 +43,9 @@ pub type CssVars = HashMap<String, lightningcss::properties::custom::TokenList<'
 pub struct EvalContext {
     /// 合成画布尺寸，`vw`/`vh`/`vmin`/`vmax` 的基准。
     pub viewport: (f32, f32),
+    /// 最近尺寸查询容器的内容盒尺寸，`cqw`/`cqh` 的基准。
+    /// 无查询容器时按 CSS 规范回退到小视口尺寸。
+    pub query_container: Option<(f32, f32)>,
     /// `1rem` 对应的像素值。视频合成没有 DOM 根字号，固定 16px
     /// （与浏览器默认一致，tailwind 的 `--spacing: 0.25rem` 依赖它）。
     pub rem_base: f32,
@@ -52,9 +58,16 @@ impl Default for EvalContext {
     fn default() -> Self {
         Self {
             viewport: (1920.0, 1080.0),
+            query_container: None,
             rem_base: 16.0,
             em_base: 16.0,
         }
+    }
+}
+
+impl EvalContext {
+    pub fn query_size(&self) -> (f32, f32) {
+        self.query_container.unwrap_or(self.viewport)
     }
 }
 
@@ -88,6 +101,16 @@ fn apply_value<V: VarSource + ?Sized>(
     ctx: &EvalContext,
 ) {
     match property {
+        Property::ContainerType(kind) => {
+            style.container_type = match kind {
+                ContainerType::InlineSize => Some(crate::style::ContainerType::InlineSize),
+                ContainerType::Size => Some(crate::style::ContainerType::Size),
+                _ => None,
+            };
+        }
+        Property::MaskImage(images, _) => {
+            style.mask_image = to_node_style::mask_image_from_css(images.first());
+        }
         // lightningcss 属性表缺项（object-fit 等）也是 Custom：
         // 喂给 paint 腿做关键字识别，布局腿无语义、跳过。
         Property::Custom(cp) => to_node_style::apply_custom_property(style, cp, vars, ctx),
@@ -362,6 +385,10 @@ impl CssEngine {
     pub fn sheet_arc(&self) -> Arc<CssStylesheet> {
         Arc::clone(&self.sheet)
     }
+
+    pub fn viewport(&self) -> (f32, f32) {
+        self.ctx.viewport
+    }
 }
 
 /// UA 兜底样式表：HTML 语义标签的浏览器默认字形（字号/字重/斜体）。
@@ -458,7 +485,10 @@ impl CssEngine {
             &mut taffy_style,
             &decls,
             &mut vars,
-            &self.ctx,
+            &EvalContext {
+                query_container: ctx.query_container,
+                ..self.ctx
+            },
             ctx.parent_font_px,
         );
         to_node_style::apply_background_size_to_layers(&mut style);
@@ -469,7 +499,10 @@ impl CssEngine {
             style.var_deps = VarDeps::capture(
                 &decls,
                 ctx.tree_root.then_some(&self.sheet.root_vars),
-                &self.ctx,
+                &EvalContext {
+                    query_container: ctx.query_container,
+                    ..self.ctx
+                },
                 ctx.parent_font_px,
             )
             .map(Arc::new);

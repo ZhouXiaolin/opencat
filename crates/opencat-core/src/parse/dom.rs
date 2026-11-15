@@ -705,6 +705,8 @@ pub fn composition_from_dom(
         html_frontend: doc.html_frontend,
         font_px: Vec::new(),
         vars: Vec::new(),
+        query_container: Vec::new(),
+        content_box: Vec::new(),
         in_inline_flow: false,
     };
     let mut ctx = ctx;
@@ -808,6 +810,10 @@ pub(crate) struct DomContext<'a> {
     /// `ancestors` 同步 push/pop；`:root` 只命中空祖先链的根，根变量
     /// 靠它送达整棵树。
     pub(crate) vars: Vec<crate::css::CssVars>,
+    /// 最近尺寸查询容器尺寸栈：容器自身声明的确定尺寸在解析期可折算。
+    pub(crate) query_container: Vec<(f32, f32)>,
+    /// 祖先内容盒尺寸栈（绝对定位 inset 相对最近定位祖先）。
+    pub(crate) content_box: Vec<(f32, f32)>,
     /// 父元素建立了行内流（子文本节点是行内 run）。
     pub(crate) in_inline_flow: bool,
 }
@@ -932,6 +938,7 @@ fn resolve_style_vars_for(
         parent_font_px: parent_font_px(ctx),
         inherited_vars: ctx.vars.last(),
         tree_root: ctx.vars.is_empty(),
+        query_container: ctx.query_container.last().copied(),
     };
     let (mut style, vars) = crate::parse::elements::resolve_style_ctx(
         ctx.css,
@@ -954,6 +961,72 @@ fn resolve_style_vars_for(
 fn parent_font_px(ctx: &DomContext<'_>) -> Option<f32> {
     ctx.html_frontend
         .then(|| ctx.font_px.last().copied().unwrap_or(16.0))
+}
+
+/// 尺寸查询容器在解析期可确定的内容盒尺寸。声明的宽高直接取用；绝对定位
+/// 且四边 inset 确定时按父内容盒减去 inset 与 padding 折算。其他布局形态
+/// 回退到父查询容器尺寸（CSS 容器单位对 auto 尺寸依赖布局结果，语料只用
+/// 确定尺寸容器）。
+fn container_declared_size(style: &NodeStyle, parent: (f32, f32)) -> (f32, f32) {
+    let inset = |v: Option<crate::style::LengthPercentageAuto>, len: f32| match v {
+        Some(crate::style::LengthPercentageAuto::Length(px)) => Some(px),
+        Some(crate::style::LengthPercentageAuto::Percent(p)) => Some(p * len),
+        _ => None,
+    };
+    let horizontal = inset(style.inset_left, parent.0)
+        .zip(inset(style.inset_right, parent.0))
+        .map(|(left, right)| (parent.0 - left - right).max(0.0));
+    let vertical = inset(style.inset_top, parent.1)
+        .zip(inset(style.inset_bottom, parent.1))
+        .map(|(top, bottom)| (parent.1 - top - bottom).max(0.0));
+    let width = style
+        .width
+        .or_else(|| style.width_percent.map(|p| p * parent.0))
+        .or(horizontal)
+        .unwrap_or(parent.0);
+    let height = style
+        .height
+        .or_else(|| style.height_percent.map(|p| p * parent.1))
+        .or(vertical)
+        .unwrap_or(parent.1);
+    let padding_x = style.padding_left.unwrap_or(0.0) + style.padding_right.unwrap_or(0.0);
+    let padding_y = style.padding_top.unwrap_or(0.0) + style.padding_bottom.unwrap_or(0.0);
+    (
+        (width - padding_x).max(0.0),
+        (height - padding_y).max(0.0),
+    )
+}
+
+/// 子元素绝对定位 inset 的包含块：本元素声明的内容盒。auto 尺寸沿用父盒。
+fn container_child_box(style: &NodeStyle, parent: (f32, f32)) -> (f32, f32) {
+    let horizontal = match (style.inset_left, style.inset_right) {
+        (Some(crate::style::LengthPercentageAuto::Length(left)), Some(crate::style::LengthPercentageAuto::Length(right))) => {
+            Some((parent.0 - left - right).max(0.0))
+        }
+        _ => None,
+    };
+    let vertical = match (style.inset_top, style.inset_bottom) {
+        (Some(crate::style::LengthPercentageAuto::Length(top)), Some(crate::style::LengthPercentageAuto::Length(bottom))) => {
+            Some((parent.1 - top - bottom).max(0.0))
+        }
+        _ => None,
+    };
+    let width = style
+        .width
+        .or_else(|| style.width_percent.map(|p| p * parent.0))
+        .or(horizontal)
+        .unwrap_or(parent.0);
+    let height = style
+        .height
+        .or_else(|| style.height_percent.map(|p| p * parent.1))
+        .or(vertical)
+        .unwrap_or(parent.1);
+    let padding_x = style.padding_left.unwrap_or(0.0) + style.padding_right.unwrap_or(0.0);
+    let padding_y = style.padding_top.unwrap_or(0.0) + style.padding_bottom.unwrap_or(0.0);
+    (
+        (width - padding_x).max(0.0),
+        (height - padding_y).max(0.0),
+    )
 }
 
 fn attach_driver(
@@ -1039,6 +1112,23 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             if let Some(px) = own_font_px {
                 ctx.font_px.push(px);
             }
+            if style.container_type.is_some() {
+                let parent = ctx.query_container.last().copied().unwrap_or_else(|| {
+                    let css = ctx.css.map(|engine| engine.viewport()).unwrap_or((1920.0, 1080.0));
+                    css
+                });
+                let containing_block = ctx.content_box.last().copied().unwrap_or(parent);
+                let declared = container_declared_size(&style, containing_block);
+                ctx.query_container.push(declared);
+            }
+            let child_box = container_child_box(
+                &style,
+                ctx.content_box
+                    .last()
+                    .copied()
+                    .unwrap_or_else(|| ctx.css.map(|engine| engine.viewport()).unwrap_or((1920.0, 1080.0))),
+            );
+            ctx.content_box.push(child_box);
             let saved_siblings = std::mem::take(&mut ctx.prev_siblings);
             // 行内格式化：HTML 前端的块级盒，在流子项全为行内级（文本 run、
             // 行内元素、原子行内盒）且至少有一个行内元素时建立行内流（布局
@@ -1079,6 +1169,7 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
                     .collect()
             };
             let mut div_node = div();
+            let is_query_container = style.container_type.is_some();
             div_node.style = style;
             let saved_flow = std::mem::replace(&mut ctx.in_inline_flow, div_node.style.inline_flow);
             let mut sibling_infos: Vec<CssNodeInfo> = Vec::new();
@@ -1103,6 +1194,10 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             if own_font_px.is_some() {
                 ctx.font_px.pop();
             }
+            if is_query_container {
+                ctx.query_container.pop();
+            }
+            ctx.content_box.pop();
             ctx.vars.pop();
             ctx.ancestors.pop();
             Ok(Some(Node::new(div_node)))

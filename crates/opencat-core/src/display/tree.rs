@@ -33,6 +33,8 @@ pub struct DisplayNode {
     /// CSS `backdrop-filter` 非 blur 算子的折算产物（blur 走
     /// `backdrop_blur_sigma`）。
     pub backdrop_filter_image: Option<ImageFilterSpec>,
+    /// CSS `mask-image` 折算出的渐变填充；绘制期以 DstIn 罩回本元素层。
+    pub mask_image: Option<crate::style::BackgroundFill>,
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,

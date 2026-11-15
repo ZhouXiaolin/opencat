@@ -80,6 +80,14 @@ pub trait ScriptHost {
         recorder: &mut dyn MutationRecorder,
     ) -> Result<()>;
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry);
+    /// 声明树的计算文本样式（脚本写入未施加）。同步布局探针把它带进
+    /// 重入的 resolver，使文本盒测量按当前样式而非默认字号整形。
+    fn text_styles(&self) -> &std::collections::HashMap<String, crate::style::ComputedTextStyle> {
+        static EMPTY: std::sync::OnceLock<
+            std::collections::HashMap<String, crate::style::ComputedTextStyle>,
+        > = std::sync::OnceLock::new();
+        EMPTY.get_or_init(Default::default)
+    }
     /// Set base style values (from Tailwind/className) for all visible nodes.
     fn set_style_defaults(
         &mut self,

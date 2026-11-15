@@ -97,6 +97,7 @@ pub fn display_recorded_subtree_fingerprint(
     node.input_fingerprints
         .paint_input_subtree
         .hash(&mut hasher);
+    node.mask_image.hash(&mut hasher);
     DisplayRecordedFingerprint::from_display_node(node).hash(&mut hasher);
     node.draw_slot.is_some().hash(&mut hasher);
     if let Some(slot) = &node.draw_slot {
@@ -197,6 +198,8 @@ fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
     node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
     node.backdrop_filter_image.hash(hasher);
     node.transform.transforms.hash(hasher);
+    node.transform.backface_hidden.hash(hasher);
+    node.transform.rotation_m4.map(|m| m.0.map(F32Hash)).hash(hasher);
 }
 
 

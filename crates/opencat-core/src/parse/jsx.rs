@@ -49,6 +49,7 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
                         meta_f64(&meta, "width", 1920.0) as f32,
                         meta_f64(&meta, "height", 1080.0) as f32,
                     ),
+                    query_container: None,
                     rem_base: 16.0,
                     em_base: 16.0,
                 },

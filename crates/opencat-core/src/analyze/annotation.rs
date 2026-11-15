@@ -37,6 +37,8 @@ pub struct AnnotatedDisplayNode {
     pub css_filter_image: Option<ImageFilterSpec>,
     pub backdrop_blur_sigma: Option<f32>,
     pub backdrop_filter_image: Option<ImageFilterSpec>,
+    /// CSS `mask-image` 渐变填充；层 Restore 前以 DstIn 罩回。
+    pub mask_image: Option<crate::style::BackgroundFill>,
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
@@ -62,6 +64,8 @@ pub struct DrawCompositeSemantics<'a> {
     /// Non-blur ops of CSS `backdrop-filter` folded at build time (blur
     /// rides `backdrop_blur_sigma`).
     pub backdrop_filter_image: Option<&'a ImageFilterSpec>,
+    /// CSS `mask-image` 渐变填充；层 Restore 前以 DstIn 罩回。
+    pub mask_image: Option<&'a crate::style::BackgroundFill>,
     /// The node's own border-box radius — CSS clips a backdrop-filter to the
     /// rounded border box, so the filtered backdrop needs it at draw time.
     pub backdrop_border_radius: BorderRadius,
@@ -131,6 +135,7 @@ impl AnnotatedDisplayNode {
             css_filter_image: self.css_filter_image.as_ref(),
             backdrop_blur_sigma: self.backdrop_blur_sigma,
             backdrop_filter_image: self.backdrop_filter_image.as_ref(),
+            mask_image: self.mask_image.as_ref(),
             backdrop_border_radius,
         }
     }
@@ -186,6 +191,7 @@ fn annotate_display_node(
         css_filter_image: node.css_filter_image.clone(),
         backdrop_blur_sigma: node.backdrop_blur_sigma,
         backdrop_filter_image: node.backdrop_filter_image.clone(),
+        mask_image: node.mask_image.clone(),
         paint_clip: node.paint_clip.clone(),
         clip: node.clip.clone(),
         item: node.item.clone(),

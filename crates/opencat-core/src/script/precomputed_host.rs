@@ -10,6 +10,7 @@ use std::collections::HashMap;
 /// Web side runs scripts natively in JS and passes mutations via insert().
 pub struct PrecomputedScriptHost {
     mutations: HashMap<ScriptDriverId, StyleMutations>,
+    text_styles: std::collections::HashMap<String, crate::style::ComputedTextStyle>,
 }
 
 impl PrecomputedScriptHost {
@@ -17,6 +18,7 @@ impl PrecomputedScriptHost {
     pub fn new() -> Self {
         Self {
             mutations: HashMap::new(),
+            text_styles: Default::default(),
         }
     }
 
@@ -24,7 +26,17 @@ impl PrecomputedScriptHost {
     pub fn from_single(mutations: StyleMutations) -> Self {
         let mut map = HashMap::new();
         map.insert(ScriptDriverId(0), mutations);
-        Self { mutations: map }
+        Self {
+            mutations: map,
+            text_styles: Default::default(),
+        }
+    }
+
+    pub fn set_text_styles(
+        &mut self,
+        styles: std::collections::HashMap<String, crate::style::ComputedTextStyle>,
+    ) {
+        self.text_styles = styles;
     }
 
     /// Insert mutations for a specific script driver.
@@ -47,6 +59,10 @@ impl Default for PrecomputedScriptHost {
 }
 
 impl ScriptHost for PrecomputedScriptHost {
+    fn text_styles(&self) -> &HashMap<String, crate::style::ComputedTextStyle> {
+        &self.text_styles
+    }
+
     fn install(&mut self, source: &str) -> Result<ScriptDriverId> {
         Ok(crate::script::driver_id_from_source(source))
     }
@@ -74,7 +90,9 @@ impl ScriptHost for PrecomputedScriptHost {
         Ok(())
     }
 
-    fn set_target_registry(&mut self, _registry: ScriptTargetRegistry) {}
+    fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {
+        self.text_styles = registry.text_styles;
+    }
 
     fn set_style_defaults(
         &mut self,

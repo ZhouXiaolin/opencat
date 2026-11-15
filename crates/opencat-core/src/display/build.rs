@@ -375,6 +375,46 @@ pub(crate) fn local_m4(
     Some(pivot.mul(&m).mul(&unpivot))
 }
 
+/// The rotation-only part of the node's transform chain. CSS
+/// `backface-visibility` turns on the element's front-face normal; pure
+/// translations do not change that normal.
+pub(crate) fn rotation_m4(
+    transforms: &[crate::style::Transform],
+    origin: crate::style::TransformOrigin,
+    bounds: DisplayRect,
+) -> Option<Mat4> {
+    use crate::style::Transform;
+
+    let has_rotation = transforms.iter().any(|t| {
+        matches!(
+            t,
+            Transform::RotateXDeg { .. }
+                | Transform::RotateYDeg { .. }
+                | Transform::Rotate3 { .. }
+        )
+    });
+    if !has_rotation {
+        return None;
+    }
+    let mut m = Mat4::IDENTITY;
+    let (ox, oy) = origin.point(bounds.width, bounds.height);
+    let pivot = Mat4::translate(ox, oy, 0.0);
+    let unpivot = Mat4::translate(-ox, -oy, 0.0);
+    for t in transforms {
+        m = m.mul(&match *t {
+            Transform::RotateXDeg { value } => Mat4::rotate_x_deg(value),
+            Transform::RotateYDeg { value } => Mat4::rotate_y_deg(value),
+            Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            } => Mat4::rotate3(rotation_x, rotation_y, perspective),
+            _ => Mat4::IDENTITY,
+        });
+    }
+    Some(pivot.mul(&m).mul(&unpivot))
+}
+
 fn assemble_display_node(
     element: &ElementNode,
     layout: &LayoutNode,
@@ -503,8 +543,14 @@ fn assemble_display_node(
                 transforms: transforms.clone(),
                 origin: element.style.visual.transform_origin,
                 local_m4: local_m4(&transforms, element.style.visual.transform_origin, bounds),
+                rotation_m4: rotation_m4(
+                    &transforms,
+                    element.style.visual.transform_origin,
+                    bounds,
+                ),
                 perspective: element.style.visual.perspective,
                 preserve_3d: element.style.visual.transform_style_preserve_3d,
+                backface_hidden: element.style.visual.backface_visibility_hidden,
             }
         },
         element_id: element.id,
@@ -522,6 +568,7 @@ fn assemble_display_node(
         } else {
             crate::render::css_filter_image_filter(&element.style.visual.backdrop_filter)
         },
+        mask_image: element.style.visual.mask_image.as_ref().map(|mask| mask.fill.clone()),
         paint_clip,
         clip,
         item,

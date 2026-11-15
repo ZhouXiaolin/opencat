@@ -266,6 +266,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         node.css_filter_image.as_ref(),
         node.backdrop_filter_image.as_ref(),
         node.backdrop_blur_sigma,
+        None,
         Some(bounds),
         node.transform.bounds,
         backdrop_radius,

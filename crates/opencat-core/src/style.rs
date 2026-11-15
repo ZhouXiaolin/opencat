@@ -320,6 +320,29 @@ pub enum LengthPercentageAuto {
     Percent(f32),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContainerType {
+    InlineSize,
+    Size,
+}
+
+/// CSS `mask-image` 的第一层渐变遮罩。只携带标准 CSS 可表达的线性渐变；
+/// 其余 mask 形态按 CSS 错误恢复忽略。遮罩按元素边框盒求值，绘制期用
+/// `DstIn` 把渐变 alpha 罩回该元素的合成子树。
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MaskImage {
+    pub fill: BackgroundFill,
+}
+
+impl Eq for MaskImage {}
+
+impl std::hash::Hash for MaskImage {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fill.hash(state);
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
@@ -2049,6 +2072,10 @@ pub struct NodeStyle {
     /// taffy 样式（`css::to_taffy`），布局消费端优先用它，绕开下方
     /// tailwind 时代的特化形状。旧类名路径不产生此字段，仍是 `None`。
     pub css_layout: Option<CssLayout>,
+    /// CSS `container-type`：本元素建立尺寸查询容器。
+    pub container_type: Option<ContainerType>,
+    /// 最近祖先尺寸查询容器的内容盒尺寸。CSS `cqw`/`cqh` 按它求值。
+    pub query_container: Option<(f32, f32)>,
 
     // Positioning
     pub position: Option<Position>,
@@ -2165,6 +2192,8 @@ pub struct NodeStyle {
     /// CSS `backdrop-filter` 中非 blur 的算子（saturate/brightness/…）。
     /// blur 不放这里：两遍法需要 `backdrop_blur_sigma` 单独承载，放进来会被应用两次。
     pub backdrop_filter: CssFilter,
+    /// CSS `mask-image`：本元素及其子树合成后按它裁剪 alpha。
+    pub mask_image: Option<MaskImage>,
     pub object_fit: Option<ObjectFit>,
     pub overflow_hidden: bool,
     /// `overflow-y: visible` 配裁剪的 `overflow-x`：只裁横向。
@@ -2190,6 +2219,9 @@ pub struct NodeStyle {
     /// transforms project through an ancestor's `perspective` — only the
     /// *nesting* of a rotated child inside a rotated parent needs this flag.
     pub transform_style_preserve_3d: Option<bool>,
+    /// CSS `backface-visibility: hidden`. The element is not painted when its
+    /// own 3-D transform turns its front face away from the viewer.
+    pub backface_visibility_hidden: Option<bool>,
 
     // SVG / Path (Tailwind align: fill-*, stroke-*)
     pub fill_color: Option<ColorToken>,

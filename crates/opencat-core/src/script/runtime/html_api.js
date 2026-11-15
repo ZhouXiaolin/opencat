@@ -140,6 +140,9 @@
             set(_t, prop, value) {
                 if (typeof prop !== 'string') return false;
                 if (prop === 'cssText') {
+                    el.__payload.style = String(value);
+                    el.__styleBag = Object.create(null);
+                    el.__customBase = Object.create(null);
                     String(value).split(';').forEach(function (decl) {
                         var i = decl.indexOf(':');
                         if (i < 0) return;
@@ -1048,16 +1051,18 @@
                 if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') {
                     __ocStderr('[tc-set] id=' + self.__payload.id + ' type=' + self.__payload.type + ' hasStore=' + hasStore + ' len=' + text.length);
                 }
-                // 提取期不写 store：seed 快照本身会带着 payload.text，写一条
-                // `''` 反而是永久生效的「清空子节点」——`mk()` 先
-                // `innerHTML=''` 再 `appendChild(img)` 的元素会被它按帧清空，
-                // 后挂的子树整块不出现（heygen 光标的手形图标）。
-                if (hasStore && self.__payload.id
-                    && (extractDone || globalThis.__ocHtmlExtractDone)) {
+                if (hasStore && self.__payload.id) {
                     var target = self.__payload.type === 'div'
                         ? self.__payload.id + ':t'
                         : self.__payload.id;
                     __write_style_value(target, 'text', text);
+                    if (typeof __register_measured_text === 'function') {
+                        var measuredId = self.__payload.id;
+                        var measuredTextId = self.__payload.type === 'div'
+                            ? measuredId + ':t'
+                            : measuredId;
+                        __register_measured_text(measuredId, measuredTextId, text);
+                    }
                 }
             },
             enumerable: true,
@@ -1279,7 +1284,7 @@
         var v = String(value);
         if (this.__svgNode) svgWriteAttr(this, String(name), v);
         if (n === 'class') { this.__payload.className = v; reportClassChange(this); }
-        else if (n === 'style') this.__payload.style = v;
+        else if (n === 'style') this.style.cssText = v;
         else if (n === 'id') this.id = v;
         else if (n === 'src') this.__payload.src = v;
         else if (n === 'data-start') this.__payload.data_start = parseFloat(v);
@@ -1476,6 +1481,7 @@
     // pillDims）据它算位置，恒回 0 会让所有这类定位偏掉。
     function boxOf(el) {
         var id = el.__payload.id;
+        var declaredText = el.__payload.text || '';
         var raw = (typeof __read_box === 'function' && __read_box(id)) || {};
         var box = {
             left: Number(raw.left) || 0,
@@ -1490,6 +1496,38 @@
                 box.top = Number(laid.top) || 0;
                 box.width = Number(laid.width) || 0;
                 box.height = Number(laid.height) || 0;
+            }
+        }
+        if (box.width === 0 && typeof __text_element_boxes === 'function') {
+            var ownInk = (__text_element_boxes(id, []) || [])[0];
+            if (ownInk && Number(ownInk.width) > 0) {
+                box.width = Number(ownInk.width);
+                box.height = Math.max(box.height, Number(ownInk.height) || 0);
+            }
+        }
+        if (box.width === 0 && typeof __measure_text_px === 'function'
+            && declaredText) {
+            box.width = Number(__measure_text_px(id, declaredText)) || 0;
+        }
+        // `div` 的文本 run 序列化成 `<id>:t` 子节点；同步布局探针没有它
+        // 的布局盒时，用该 run 的字形墨迹盒作为行内元素的 CSSOM 矩形。
+        var slot = id + ':t';
+        if ((box.width === 0 || box.height === 0) && typeof __read_layout_box === 'function') {
+            var slotLaid = __read_layout_box(slot);
+            if (slotLaid) {
+                box.left = Number(slotLaid.left) || 0;
+                box.top = Number(slotLaid.top) || 0;
+                box.width = Number(slotLaid.width) || 0;
+                box.height = Number(slotLaid.height) || 0;
+            }
+        }
+        if ((box.width === 0 || box.height === 0) && typeof __text_element_boxes === 'function') {
+            var slotInk = (__text_element_boxes(slot, []) || [])[0];
+            if (slotInk) {
+                box.left = Number(slotInk.left) || 0;
+                box.top = Number(slotInk.top) || 0;
+                box.width = Number(slotInk.width) || 0;
+                box.height = Number(slotInk.height) || 0;
             }
         }
         return box;

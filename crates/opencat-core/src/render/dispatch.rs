@@ -9,7 +9,7 @@ use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, Pain
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
 use crate::geom::Mat4;
 use crate::ir::draw_op::{DrawOp, Rect4};
-use crate::ir::draw_types::{DrawOpRange, PathOp};
+use crate::ir::draw_types::{DrawOpRange, PaintId, PathOp};
 use crate::media::VideoFrameRequest;
 use crate::parse::transition::{SlideDirection, TransitionKind, WipeDirection};
 use crate::render::builder::DrawOpBuilder;
@@ -19,7 +19,10 @@ use super::{RenderCtx, RenderError};
 
 // ── Display Item dispatch ──────────────────────────────────────────────
 
-pub fn render_display_item(ctx: &mut RenderCtx, item: &DisplayItem) -> Result<(), RenderError> {
+pub fn render_display_item(
+    ctx: &mut RenderCtx,
+    item: &DisplayItem,
+) -> Result<(), RenderError> {
     render_display_item_direct(ctx, item)
 }
 
@@ -90,6 +93,8 @@ pub(crate) struct BackdropLayerState {
     uses_layer: bool,
     has_backdrop_clip: bool,
     has_content_layer: bool,
+    mask_paint: Option<PaintId>,
+    mask_rect: Option<Rect4>,
 }
 
 pub(crate) fn save_composite_layer(
@@ -98,6 +103,7 @@ pub(crate) fn save_composite_layer(
     css_filter_image: Option<&ImageFilterSpec>,
     backdrop_filter_image: Option<&ImageFilterSpec>,
     backdrop_blur: Option<f32>,
+    mask_image: Option<&crate::style::BackgroundFill>,
     bounds: Option<DisplayRect>,
     backdrop_bounds: DisplayRect,
     backdrop_radius: BorderRadius,
@@ -108,8 +114,12 @@ pub(crate) fn save_composite_layer(
     // identity 且七种颜色算子恒可折算——判定等价，见 H1）。
     let uses_backdrop_filter = backdrop_filter_image.is_some();
     let uses_css_filter = css_filter_image.is_some();
-    let uses_layer =
-        opacity < 1.0 || backdrop_sigma.is_some() || uses_backdrop_filter || uses_css_filter;
+    let uses_mask = mask_image.is_some();
+    let uses_layer = opacity < 1.0
+        || backdrop_sigma.is_some()
+        || uses_backdrop_filter
+        || uses_css_filter
+        || uses_mask;
     let mut has_backdrop_clip = false;
     let mut has_content_layer = false;
     if uses_layer {
@@ -243,10 +253,26 @@ pub(crate) fn save_composite_layer(
             });
         }
     }
+    let mask_paint = mask_image.map(|fill| {
+        let bounds = DisplayRect { x: 0.0, y: 0.0, ..backdrop_bounds };
+        let mut paint = super::items::background_fill_to_paint_spec(
+            fill,
+            super::items::kurbo_rect(bounds),
+            crate::canvas::paint::BlendMode::DstIn,
+        );
+        match &mut paint.fill {
+            FillSpec::Solid(color) => *color = [0.0, 0.0, 0.0, color[3]],
+            FillSpec::Shader(shader) => clear_shader_colors(shader),
+        }
+        builder.intern_paint(paint)
+    });
+    let mask_rect = mask_image.map(|_| display_rect_to_rect4(DisplayRect { x: 0.0, y: 0.0, ..backdrop_bounds }));
     BackdropLayerState {
         uses_layer,
         has_backdrop_clip,
         has_content_layer,
+        mask_paint,
+        mask_rect,
     }
 }
 
@@ -262,6 +288,20 @@ pub(crate) fn restore_backdrop_blur_layer(builder: &mut DrawOpBuilder, state: &B
     }
 }
 
+/// CSS 遮罩取图像的 alpha 通道：色标 RGB 清零，只保留 alpha。
+fn clear_shader_colors(shader: &mut crate::canvas::paint::ShaderSpec) {
+    use crate::canvas::paint::ShaderSpec;
+    let colors = match shader {
+        ShaderSpec::LinearGradient { colors, .. }
+        | ShaderSpec::RadialGradient { colors, .. }
+        | ShaderSpec::SweepGradient { colors, .. } => colors,
+        _ => return,
+    };
+    for color in colors.iter_mut() {
+        *color = [0.0, 0.0, 0.0, color[3]];
+    }
+}
+
 #[derive(Clone, Debug)]
 struct ApplyPlan<'a> {
     transform: &'a DisplayTransform,
@@ -269,6 +309,7 @@ struct ApplyPlan<'a> {
     css_filter_image: Option<&'a ImageFilterSpec>,
     backdrop_filter_image: Option<&'a ImageFilterSpec>,
     backdrop_blur_sigma: Option<f32>,
+    mask_image: Option<&'a crate::style::BackgroundFill>,
     backdrop_border_radius: BorderRadius,
     layer_bounds: DisplayRect,
 }
@@ -281,6 +322,7 @@ impl<'a> ApplyPlan<'a> {
             css_filter_image: draw.css_filter_image,
             backdrop_filter_image: draw.backdrop_filter_image,
             backdrop_blur_sigma: draw.backdrop_blur_sigma,
+            mask_image: draw.mask_image,
             backdrop_border_radius: draw.backdrop_border_radius,
             layer_bounds,
         }
@@ -289,6 +331,8 @@ impl<'a> ApplyPlan<'a> {
 
 struct ApplyFrame {
     layer_state: BackdropLayerState,
+    mask_paint: Option<PaintId>,
+    mask_rect: Option<Rect4>,
 }
 
 fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
@@ -302,17 +346,28 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
     } else {
         Some(plan.layer_bounds)
     };
-    let layer_state = save_composite_layer(
+    let mut layer_state = save_composite_layer(
         builder,
         plan.opacity,
         plan.css_filter_image,
         plan.backdrop_filter_image,
         plan.backdrop_blur_sigma,
+        plan.mask_image,
         layer_bounds,
         plan.transform.bounds,
         plan.backdrop_border_radius,
     );
-    ApplyFrame { layer_state }
+    let mask_paint = layer_state.mask_paint.take();
+    let mask_rect = layer_state.mask_rect.take();
+    if mask_paint.is_some() {
+        builder.push(DrawOp::SaveLayer {
+            bounds: mask_rect,
+            paint: None,
+            alpha: 1.0,
+            backdrop: false,
+        });
+    }
+    ApplyFrame { layer_state, mask_paint, mask_rect }
 }
 
 /// Whether this node opens a 3-D context of its own, or is transformed into
@@ -365,6 +420,19 @@ fn node_abs(space: Space3, transform: &DisplayTransform) -> Option<Space3> {
             ))
             .compose(local),
     )
+}
+
+/// CSS `backface-visibility: hidden`: a node whose own 3-D transform turns
+/// its front face away is skipped before it emits any draw ops.
+fn is_backfacing(space: Space3, transform: &DisplayTransform) -> bool {
+    if !transform.backface_hidden {
+        return false;
+    }
+    let Some(rotation) = transform.rotation_m4 else {
+        return false;
+    };
+    let normal = space.abs.mul(&rotation);
+    normal.0[10] <= 0.0
 }
 
 /// Enter a node's own 3-D space: the `Concat` that takes the enclosing draw-op
@@ -430,6 +498,10 @@ fn child_space(ctx: &mut RenderCtx, node: Space3, transform: &DisplayTransform) 
 }
 
 fn emit_apply_suffix(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
+    if let (Some(paint), Some(rect)) = (frame.mask_paint, frame.mask_rect) {
+        builder.push(DrawOp::Restore);
+        builder.push(DrawOp::Rect { rect, paint });
+    }
     restore_backdrop_blur_layer(builder, &frame.layer_state);
     builder.push(DrawOp::Restore);
 }
@@ -540,6 +612,9 @@ fn render_reused_subtree(
     if !item_visible_at_frame(ctx, &node.item) {
         return Ok(());
     }
+    if is_backfacing(ctx.space3, &node.transform) {
+        return Ok(());
+    }
 
     let layer_bounds = tree.layer_bounds(handle);
     let apply_plan = ApplyPlan::from_draw_composite(draw, layer_bounds);
@@ -598,6 +673,9 @@ fn render_live_subtree(
         return Ok(());
     }
     if !item_visible_at_frame(ctx, &node.item) {
+        return Ok(());
+    }
+    if is_backfacing(ctx.space3, &node.transform) {
         return Ok(());
     }
 

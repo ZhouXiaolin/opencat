@@ -118,6 +118,11 @@ pub struct DisplayTransform {
     pub perspective: Option<f32>,
     /// CSS `transform-style: preserve-3d`.
     pub preserve_3d: bool,
+    /// CSS `backface-visibility: hidden`.
+    pub backface_hidden: bool,
+    /// Rotation-only part of `local_m4`. `backface-visibility` must ignore
+    /// `translateZ`, which moves a face without turning it away.
+    pub rotation_m4: Option<crate::geom::Mat4>,
 }
 
 #[derive(Clone, Debug)]

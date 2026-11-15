@@ -117,10 +117,14 @@ pub struct NodeStyleMutations {
     pub transform_origin: Option<crate::style::TransformOrigin>,
     pub text_color: Option<ColorToken>,
     pub text_px: Option<f32>,
+    pub font_family: Option<String>,
+    /// 脚本写入 `font-family` 成功解析出的完整族栈；`None` 表示沿用声明值。
+    pub font_stack: Option<Vec<String>>,
     pub font_weight: Option<FontWeight>,
     pub letter_spacing: Option<f32>,
     pub text_align: Option<TextAlign>,
     pub line_height: Option<f32>,
+    pub white_space_nowrap: Option<bool>,
     pub box_shadow: Option<BoxShadow>,
     pub box_shadow_color: Option<ColorToken>,
     pub inset_shadow: Option<InsetShadow>,
@@ -702,6 +706,10 @@ impl NodeStyleMutations {
         if let Some(v) = self.text_px {
             style.text_px = Some(v);
         }
+        if let Some(v) = &self.font_family {
+            style.font_family = Some(v.clone());
+            style.font_stack = self.font_stack.clone().unwrap_or_else(|| vec![v.clone()]);
+        }
         if let Some(v) = self.font_weight {
             style.font_weight = Some(v);
         }
@@ -713,6 +721,9 @@ impl NodeStyleMutations {
         }
         if let Some(v) = self.line_height {
             style.line_height = Some(v);
+        }
+        if let Some(v) = self.white_space_nowrap {
+            style.no_wrap = v;
         }
         if let Some(css) = &self.box_shadow_css {
             (style.box_shadow, style.inset_shadow) = crate::css::box_shadow_from_css(css);
@@ -1119,6 +1130,9 @@ pub fn apply_node_to_recorder(
     if let Some(v) = m.text_px {
         recorder.record_text_size(id, v);
     }
+    if let Some(v) = &m.font_family {
+        recorder.write_style_value(id, "fontFamily", serde_json::json!(v));
+    }
     if let Some(v) = m.letter_spacing {
         recorder.record_letter_spacing(id, v);
     }
@@ -1148,6 +1162,13 @@ pub fn apply_node_to_recorder(
     }
     if let Some(w) = m.font_weight {
         recorder.record_font_weight(id, w);
+    }
+    if let Some(v) = m.white_space_nowrap {
+        recorder.write_style_value(
+            id,
+            "whiteSpace",
+            serde_json::json!(if v { "nowrap" } else { "normal" }),
+        );
     }
     if let Some(sh) = m.box_shadow {
         recorder.record_box_shadow(id, sh);

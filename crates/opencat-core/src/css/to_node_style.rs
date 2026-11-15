@@ -33,7 +33,9 @@ use lightningcss::properties::svg::SVGPaint;
 use lightningcss::properties::text::{
     Spacing, TextAlign as CssTextAlign, TextDecorationLine, TextTransformCase, WhiteSpace,
 };
-use lightningcss::properties::transform::{Transform as CssTransform, TransformList};
+use lightningcss::properties::transform::{
+    BackfaceVisibility, Transform as CssTransform, TransformList,
+};
 use lightningcss::properties::{Property, PropertyId};
 use lightningcss::stylesheet::PrinterOptions;
 use lightningcss::traits::ToCss;
@@ -92,11 +94,8 @@ fn lp_to_len_percent(lp: &LengthPercentage, ctx: &EvalContext) -> Option<LenPerc
             LengthValue::Ch(v) => LenPercent::Px(v * 0.6 * ctx.em_base),
             LengthValue::Vw(v) => LenPercent::Px(v * ctx.viewport.0 / 100.0),
             LengthValue::Vh(v) => LenPercent::Px(v * ctx.viewport.1 / 100.0),
-            // 容器查询单位：hyperframes 语料的 query container 全部落在
-            // 合成帧尺寸的 composition 根上，基准取视口与浏览器一致
-            // （真·嵌套 container 暂无语料，不支持）。
-            LengthValue::Cqw(v) => LenPercent::Px(v * ctx.viewport.0 / 100.0),
-            LengthValue::Cqh(v) => LenPercent::Px(v * ctx.viewport.1 / 100.0),
+            LengthValue::Cqw(v) => LenPercent::Px(v * ctx.query_size().0 / 100.0),
+            LengthValue::Cqh(v) => LenPercent::Px(v * ctx.query_size().1 / 100.0),
             _ => return None,
         },
         LengthPercentage::Percentage(p) => LenPercent::Pct(p.0),
@@ -557,6 +556,10 @@ pub fn apply_property(
             use lightningcss::properties::transform::TransformStyle;
             style.transform_style_preserve_3d =
                 Some(matches!(transform_style, TransformStyle::Preserve3d));
+        }
+        Property::BackfaceVisibility(visibility, _) => {
+            style.backface_visibility_hidden =
+                Some(matches!(visibility, BackfaceVisibility::Hidden));
         }
         // lightningcss 1.0.0-alpha.72 的 `enum_property!` 按 kebab 拼关键字，
         // 把 `Preserve3d` 拼成 `preserve3d`，与规范的 `preserve-3d` 不符，
@@ -1444,6 +1447,12 @@ fn image_to_fill(image: &Image) -> Option<BackgroundFill> {
     }
 }
 
+/// `mask-image` 的第一层渐变。CSS 遮罩用图像的 alpha 通道；标准线性渐变
+/// 的黑/透明色标直接给出 alpha 曲线，复用背景渐变的求值结构。
+pub fn mask_image_from_css(image: Option<&Image>) -> Option<crate::style::MaskImage> {
+    image.and_then(image_to_fill).map(|fill| crate::style::MaskImage { fill })
+}
+
 /// `background-size` → 位图层尺寸。
 fn bg_image_size(size: &BackgroundSize) -> crate::style::BackgroundImageSize {
     use crate::style::BackgroundImageSize as S;
@@ -1764,8 +1773,8 @@ fn length_value_to_px(v: &LengthValue, ctx: &EvalContext) -> f32 {
         LengthValue::Vh(x) => x * ctx.viewport.1 / 100.0,
         LengthValue::Vmin(x) => x * ctx.viewport.0.min(ctx.viewport.1) / 100.0,
         LengthValue::Vmax(x) => x * ctx.viewport.0.max(ctx.viewport.1) / 100.0,
-        LengthValue::Cqw(x) => x * ctx.viewport.0 / 100.0,
-        LengthValue::Cqh(x) => x * ctx.viewport.1 / 100.0,
+        LengthValue::Cqw(x) => x * ctx.query_size().0 / 100.0,
+        LengthValue::Cqh(x) => x * ctx.query_size().1 / 100.0,
         LengthValue::Pt(x) => x * 96.0 / 72.0,
         LengthValue::In(x) => x * 96.0,
         LengthValue::Cm(x) => x * 96.0 / 2.54,

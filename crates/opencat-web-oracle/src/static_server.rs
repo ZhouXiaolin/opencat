@@ -166,13 +166,19 @@ impl StaticRoutes {
             if rest.is_empty() || rest.contains("..") {
                 return None;
             }
-            for candidate in [
+            let mut candidates = vec![
                 self.repo.join("assets").join(&rest),
                 self.repo.join("examples").join(&rest),
                 self.repo.join(&rest),
-            ] {
+            ];
+            // 语料不在 repo 内时 baseDir 相对 repo 父目录解析（
+            // hyperframes-launches 与本仓库平级，见 envelope 的 baseDir 映射）。
+            if let Some(parent) = self.repo.parent() {
+                candidates.push(parent.join(&rest));
+            }
+            for candidate in &candidates {
                 if candidate.is_file() {
-                    return Some(candidate);
+                    return Some(candidate.clone());
                 }
             }
             // Nothing matched; hand back the repo assets pool so the caller

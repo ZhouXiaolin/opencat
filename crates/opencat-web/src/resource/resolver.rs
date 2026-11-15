@@ -19,6 +19,14 @@ pub async fn fetch_url(url: &str) -> Result<Vec<u8>> {
 
 /// Probe image dimensions from raw bytes (host-owned, issue #40).
 fn probe_image(bytes: &[u8]) -> Result<opencat_core::probe::ImageMeta> {
+    // svg 走 usvg 的画布尺寸（width/height/viewBox 归一）；imagesize 不认。
+    // 与 engine probe.rs 同语义。
+    if let Some((w, h)) = opencat_core::svg_asset::svg_dims(bytes) {
+        return Ok(opencat_core::probe::ImageMeta {
+            width: w,
+            height: h,
+        });
+    }
     let dims = imagesize::blob_size(bytes).context("imagesize: failed to read image dimensions")?;
     Ok(opencat_core::probe::ImageMeta {
         width: dims.width as u32,

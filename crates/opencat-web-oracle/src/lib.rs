@@ -49,11 +49,17 @@ pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<
         opencat_engine::script::html::extract_html_with_base_dir(source, base_dir)?;
     // Repo-relative baseDir (`examples/<example>`): the static server maps
     // `/assets/<baseDir>/...` back under the repo root, so an absolute
-    // host path would leak into the URL.
+    // host path would leak into the URL. Compositions outside the repo
+    // (hyperframes-launches is a sibling of it) resolve against the repo's
+    // parent instead — the static server mirrors that fallback.
     let base_dir = base_dir.map(|p| {
-        repo_root()
-            .ok()
-            .and_then(|root| p.strip_prefix(&root).ok().map(|rel| rel.to_path_buf()))
+        let root = repo_root().ok();
+        root.as_deref()
+            .and_then(|r| p.strip_prefix(r).ok().map(|rel| rel.to_path_buf()))
+            .or_else(|| {
+                let parent = root.as_deref().and_then(Path::parent);
+                parent.and_then(|parent| p.strip_prefix(parent).ok().map(|rel| rel.to_path_buf()))
+            })
             .unwrap_or_else(|| p.to_path_buf())
     });
     Ok(serde_json::to_string(&json!({

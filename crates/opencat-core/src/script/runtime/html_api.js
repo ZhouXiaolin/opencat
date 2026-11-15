@@ -249,6 +249,9 @@
         // 引擎节点名 → HTML 语义（CSS tag 选择器输入）
         if (t === 'text') return 'span';
         if (t === 'image') return 'img';
+        // 引擎归一成 div 但原文标签不同的节点（游离 head face 等）按原文
+        // 标签匹配选择器——浏览器里 <head> 的 tag 就是 head。
+        if (t === 'div' && el.__payload.uaTag) return String(el.__payload.uaTag).toLowerCase();
         return t;
     }
 
@@ -710,13 +713,31 @@
             if (typeof mediaStart === 'number' && !isNaN(mediaStart)) out['data-media-start'] = mediaStart;
         }
 
-        var elementKids = el.__kids.filter(function (k) { return k.nodeType === 1; });
-        var textContent = p.text || '';
+        var sc = serializeChildren(el);
+        if (sc.kids.length) {
+            out.children = sc.kids;
+            // p/span 承载文本却有了元素子节点 → 降级 div + 文本 P 首子
+            if (sc.hasElement && p.type !== 'div') out.type = 'div';
+        } else if (!sc.hasElement && p.type !== 'div') {
+            // p/span/text 承载文本
+            if (sc.allText || p.type === 'p' || p.type === 'span' || p.type === 'text') {
+                out.text = sc.allText;
+            }
+        }
+        return out;
+    }
 
-        // 动态文本子节点（createTextNode → appendChild）并进 textContent 池
+    // el 的 children 表示（serializeNode 与 recordTreeChange 增量上报共用，
+    // 两路必须同语义——否则提取期快照与运行期 child_override 对子树的理解
+    // 分叉：remotion 语料动态文本行消失的根因就是增量路只收元素子，文本
+    // 节点整类蒸发成 `[]`）。
+    function serializeChildren(el) {
+        var p = el.__payload;
+        var hasElement = false;
         var textKids = '';
         el.__kids.forEach(function (k) {
-            if (k.nodeType === 3) textKids += k.data;
+            if (k.nodeType === 1) hasElement = true;
+            else if (k.nodeType === 3) textKids += k.data;
         });
 
         // 前后空白裁剪与 html.rs 一致：只裁带换行的缩进空白；单个边界空格是
@@ -724,22 +745,16 @@
         // 中间空白保留（CSS 折叠在渲染端）。
         // 注意 JS 的 `\s` 含 U+00A0（&nbsp;）——它是不可折叠空格，必须保留，
         // 否则 k3 逐字 span 用 innerHTML="&nbsp;" 占位的空格会消失。
-        var allText = (textContent + textKids)
+        var allText = ((p.text || '') + textKids)
             .replace(/^[ \t\n\r\f]*\n[ \t\n\r\f]*/, '')
             .replace(/[ \t\n\r\f]*\n[ \t\n\r\f]*$/, '');
 
-        if (elementKids.length === 0) {
-            if (p.type === 'div') {
-                if (allText || el.__textDynamic) {
-                    out.children = [{ type: 'p', id: p.id + ':t', text: allText }];
-                }
-            } else {
-                // p/span/text 承载文本
-                if (allText || p.type === 'p' || p.type === 'span' || p.type === 'text') {
-                    out.text = allText;
-                }
+        var kids = [];
+        if (!hasElement) {
+            if (p.type === 'div' && (allText || el.__textDynamic)) {
+                kids.push({ type: 'p', id: p.id + ':t', text: allText });
             }
-            return out;
+            return { kids: kids, allText: allText, hasElement: false };
         }
 
         // 有 element 子节点：文本 run 按原位交错合成 P（匿名行内盒），元素
@@ -749,45 +764,70 @@
         // 静态种子路径（parse/html.rs 按位交错 + 独立 id）同语义。首个 run
         // 维持 `:t` 惯例，后续 `:t1`、`:t2`…。行内兄弟间的单空格是词间距，
         // 保留；带换行的缩进空白（flex/block 子项之间）裁掉。
-        function interleaveKids() {
-            var kids = [];
-            var run = p.text || '';
-            var runIndex = 0;
-            var flush = function () {
-                var text = run
-                    .replace(/^[ \t\n\r\f]*\n[ \t\n\r\f]*/, '')
-                    .replace(/[ \t\n\r\f]*\n[ \t\n\r\f]*$/, '');
-                if (text) {
-                    kids.push({ type: 'p', id: p.id + (runIndex === 0 ? ':t' : ':t' + runIndex), text: text });
-                }
-                runIndex += 1;
-                run = '';
-            };
-            el.__kids.forEach(function (k) {
-                if (k.nodeType === 3) { run += k.data; return; }
-                flush();
-                kids.push(serializeNode(k));
-            });
+        var run = p.text || '';
+        var runIndex = 0;
+        var flush = function () {
+            var text = run
+                .replace(/^[ \t\n\r\f]*\n[ \t\n\r\f]*/, '')
+                .replace(/[ \t\n\r\f]*\n[ \t\n\r\f]*$/, '');
+            if (text) {
+                kids.push({ type: 'p', id: p.id + (runIndex === 0 ? ':t' : ':t' + runIndex), text: text });
+            }
+            runIndex += 1;
+            run = '';
+        };
+        el.__kids.forEach(function (k) {
+            if (k.nodeType === 3) { run += k.data; return; }
             flush();
-            return kids;
-        }
-        if (p.type === 'div') {
-            out.children = interleaveKids();
-            return out;
-        }
-        // p/span 承载文本却有了元素子节点 → 降级 div + 文本 P 首子
-        out.type = 'div';
-        out.children = interleaveKids();
-        return out;
+            kids.push(serializeNode(k));
+        });
+        flush();
+        return { kids: kids, allText: allText, hasElement: true };
     }
 
     // ── 元素 face ─────────────────────────────────────────────────
-    function HtmlText(data) {
-        this.nodeType = 3;
-        this.nodeName = '#text';
+    // react-dom 19 的 commit 路径会触碰：nodeValue（commitTextUpdate）、
+    // ownerDocument（getRootNode/contains 语义链）。nodeValue 写必须上报
+    // 宿主（文本池化在 serializeNode 里并进宿主的 text 槽）——G8 打字机
+    // 类动态文本就落这里。
+    function HtmlTextNodeFace(type, name, data) {
+        this.nodeType = type;
+        this.nodeName = name;
         this.data = String(data);
         this.parentNode = null;
     }
+    HtmlTextNodeFace.prototype.toString = function () { return this.data; };
+    // configurable: true——本文件每帧重 eval，defineProperty 二次执行不可炸。
+    Object.defineProperty(HtmlTextNodeFace.prototype, 'nodeValue', {
+        configurable: true,
+        get: function () { return this.data; },
+        set: function (v) {
+            this.data = String(v == null ? '' : v);
+            var host = this.parentNode;
+            if (host && host.nodeType === 1) recordTreeChange(host);
+        },
+    });
+    Object.defineProperty(HtmlTextNodeFace.prototype, 'textContent', {
+        configurable: true,
+        get: function () { return this.data; },
+        set: function (v) { this.nodeValue = v; },
+    });
+    Object.defineProperty(HtmlTextNodeFace.prototype, 'ownerDocument', {
+        configurable: true,
+        get: function () { return typeof documentFace === 'object' && documentFace ? documentFace : null; },
+    });
+    function HtmlText(data) {
+        HtmlTextNodeFace.call(this, 3, '#text', data);
+    }
+    HtmlText.prototype = Object.create(HtmlTextNodeFace.prototype);
+    HtmlText.prototype.constructor = HtmlText;
+    // react-dom 的 commitPlacement 走 insertBefore/appendChild，注释节点
+    // 只占位（React Suspense/Fragment 边界用），渲染语义无像素。
+    function CommentFace(data) {
+        HtmlTextNodeFace.call(this, 8, '#comment', data);
+    }
+    CommentFace.prototype = Object.create(HtmlTextNodeFace.prototype);
+    CommentFace.prototype.constructor = CommentFace;
 
     function FragmentFace() {
         this.nodeType = 11;
@@ -1075,10 +1115,7 @@
             });
             cur = cur.parentNode;
         }
-        var kids = [];
-        for (var i = 0; i < host.__kids.length; i++) {
-            if (host.__kids[i].nodeType === 1) kids.push(serializeNode(host.__kids[i]));
-        }
+        var kids = serializeChildren(host).kids;
         try {
             __html_set_children(host.__payload.id, chain, kids);
         } catch (e) {
@@ -1138,6 +1175,44 @@
         var cur = other;
         while (cur) { if (cur === this) return true; cur = cur.parentNode; }
         return false;
+    };
+    // react-dom 的 DOM 面探测（getRootForHostInstance、commit 卸载路径）。
+    // ownerDocument 延迟读 documentFace（构造期它还没赋值）。configurable:
+    // true——本文件每帧重 eval，重复 defineProperty 不可再炸（dataset 已有
+    // 既有实现，见下方 datasetKey 区）。
+    Object.defineProperty(HtmlElement.prototype, 'ownerDocument', {
+        configurable: true,
+        get: function () { return typeof documentFace === 'object' && documentFace ? documentFace : null; },
+    });
+    Object.defineProperty(HtmlElement.prototype, 'isConnected', {
+        configurable: true,
+        get: function () {
+            var cur = this;
+            while (cur && cur.parentNode) cur = cur.parentNode;
+            return cur === rootFace;
+        },
+    });
+    HtmlElement.prototype.remove = function () {
+        if (this.parentNode) this.parentNode.removeChild(this);
+    };
+    HtmlElement.prototype.replaceChildren = function () {
+        while (this.__kids.length) this.removeChild(this.__kids[this.__kids.length - 1]);
+        for (var i = 0; i < arguments.length; i++) this.appendChild(arguments[i]);
+    };
+    HtmlElement.prototype.closest = function (sel) {
+        var parsed = parseSelector(sel);
+        if (!parsed) return null;
+        var cur = this;
+        while (cur) {
+            if (cur.nodeType === 1 && matchesSelector(cur, parsed)) return cur;
+            cur = cur.parentNode;
+        }
+        return null;
+    };
+    HtmlElement.prototype.getRootNode = function () {
+        var cur = this;
+        while (cur && cur.parentNode) cur = cur.parentNode;
+        return cur;
     };
     HtmlElement.prototype.cloneNode = function () {
         var payload = {};
@@ -1771,6 +1846,9 @@
         head: null,
         title: '',
         readyState: 'complete',
+        // react-dom 的 commitBeforeMutationEffects 读 activeElement（焦点
+        // 恢复链）；无焦点语义给 null（浏览器 body 无焦点时同值）。
+        activeElement: null,
         // JS_PLATFORM_SHIM 的空 query 静态形态；页面脚本 document.location。
         location: (typeof globalThis.location === 'object' && globalThis.location) || null,
         getElementById: function (id) {
@@ -1780,19 +1858,23 @@
         // 浏览器语义：document.querySelector 能匹配文档根元素（html/body）。
         // 种子树里 rootFace 代理 html/body，候选集要含根自身，否则
         // hyperframes 页面 `document.querySelector('[data-composition-id=…]')`
-        // 拿到 null（根就是 composition 宿主）。
+        // 拿到 null（根就是 composition 宿主）。游离 head face 也在候选里
+        // （style-loader 的 `document.querySelector("head")` 注入点）。
+        docCandidates: function () {
+            var all = [rootFace].concat(walkAll(rootFace, []));
+            if (this.head && this.head !== rootFace) all.push(this.head);
+            return all;
+        },
         querySelector: function (sel) {
             var parsed = parseSelector(sel);
             if (!parsed) return null;
-            var all = [rootFace].concat(walkAll(rootFace, []));
-            var list = all.filter(function (el) { return matchesSelector(el, parsed); });
+            var list = this.docCandidates().filter(function (el) { return matchesSelector(el, parsed); });
             return list.length ? list[0] : null;
         },
         querySelectorAll: function (sel) {
             var parsed = parseSelector(sel);
             if (!parsed) return [];
-            var all = [rootFace].concat(walkAll(rootFace, []));
-            return all.filter(function (el) { return matchesSelector(el, parsed); });
+            return this.docCandidates().filter(function (el) { return matchesSelector(el, parsed); });
         },
         getElementsByTagName: function (tag) { return byTagNames([rootFace], tag); },
         createElement: function (tag) {
@@ -1814,9 +1896,34 @@
             return this.createElement(tag);
         },
         createTextNode: function (text) { return new HtmlText(text); },
+        createComment: function (text) { return new CommentFace(text); },
         createDocumentFragment: function () { return new FragmentFace(); },
         addEventListener: function () {},
         removeEventListener: function () {},
+        // react-dom / 页面库的探测面。fonts.ready 每帧被 seekToFrame await
+        // （`document.fonts.ready.then(() => true)`）——永不 reject 的已决
+        // Promise 即浏览器终态（无墙钟加载语义）。
+        fonts: {
+            ready: Promise.resolve(),
+            check: function () { return true; },
+            load: function () { return Promise.resolve([]); },
+            addEventListener: function () {},
+            removeEventListener: function () {},
+            has: function () { return true; },
+        },
+        dispatchEvent: function () { return true; },
+        getElementsByClassName: function (cls) {
+            var wanted = String(cls || '').split(/\s+/).filter(Boolean);
+            if (!wanted.length) return [];
+            var all = [rootFace].concat(walkAll(rootFace, []));
+            return all.filter(function (el) {
+                var have = String((el.__payload && el.__payload.className) || '').split(/\s+/).filter(Boolean);
+                return wanted.every(function (w) { return have.indexOf(w) >= 0; });
+            });
+        },
+        // webpack publicPath 的读点（document.currentScript.src）。默认 null；
+        // driver 对每个 src 型脚本前置同形对象（html.rs build_html_driver）。
+        currentScript: null,
     };
     // 文档身份跨帧稳定：gsap 首次使用时缓存 `window.document`（`_doc`），之后
     // 每帧按它查选择器。本文件每帧重 eval，新文档面的闭包指向本帧物化树；
@@ -1883,6 +1990,19 @@
         rootFace = materializeSeed(seed.tree, null);
         documentFace.documentElement = rootFace;
         documentFace.body = rootFace;
+        // head：html 通道没有解析态 <head>（样式在提取期并进 css_text），
+        // 但页面库（style-loader 的 injectCSS、字体注入）要 document.head
+        // 可 appendChild。给游离 face（不挂 rootFace——画面树零污染；
+        // mountedToRoot 判定让它的结构写不上报）。
+        var headFace = createElementFace({
+            type: 'div',
+            uaTag: 'head',
+            id: 'oc-doc-head',
+            className: '',
+            style: 'display:none',
+        });
+        nodes[headFace.__payload.id] = headFace;
+        documentFace.head = headFace;
     };
 
     // 持久文档的帧首：脚本不重跑，store 里的 DOM 状态原样留用，这里只
@@ -1902,10 +2022,30 @@
         // init 段尾（页面脚本执行完、timeline 注册完）置同一标志。
         extractDone = true;
         globalThis.__ocHtmlExtractDone = true;
+        // CSS-in-JS 收集：页面库运行时建 `<style>` 元素（style-loader 的
+        // CSS import、styled-components 等）append 到 document.head/根子树
+        // ——html 通道的级联在提取期只有静态 css_text，运行时注入若无
+        // 通道整类样式丢失（remotion 语料 .root 背景/字号全黑屏的根因）。
+        // 按级联顺序并进 css 尾层（head 内 append 顺序=源序）。
+        var runtimeCss = '';
+        function collectStyle(el, depth) {
+            if (!el || depth > 24) return;
+            var kids = el.__kids || [];
+            for (var i = 0; i < kids.length; i++) {
+                var k = kids[i];
+                if (k.nodeType !== 1) continue;
+                var tag = String((k.__payload && (k.__payload.uaTag || k.__payload.type)) || '').toLowerCase();
+                if (tag === 'style') runtimeCss += (k.textContent || '') + '\n';
+                collectStyle(k, depth + 1);
+            }
+        }
+        collectStyle(documentFace.head, 0);
+        if (documentFace.head !== rootFace) collectStyle(rootFace, 0);
+        var baseCss = seed ? seed.css : '';
         return {
             html: true,
             meta: seed ? seed.meta : {},
-            css: seed ? seed.css : '',
+            css: runtimeCss ? (baseCss ? baseCss + '\n' + runtimeCss : runtimeCss) : baseCss,
             // from_extract 的 tree 是 `Vec<DomElement>`（多根约定）：单根包数组。
             tree: [serializeNode(rootFace)],
         };
@@ -1980,4 +2120,167 @@
     }
     var ocWin = ocWinFor();
     if (ocWin) ocWin.document = documentFace;
+
+    // ── react-dom / scheduler 全局垫 ─────────────────────────────
+    // React 19 scheduler 用 MessageChannel 派发 work loop（无它则 setState
+    // 永不被调度）。垫片把 port2.postMessage 排进 rAF 队列：注册当帧、
+    // 帧宿主下一批 flush 执行——确定性异步，无墙钟。
+    if (typeof globalThis.MessageChannel !== 'function') {
+        globalThis.MessageChannel = function () {
+            var port1 = {
+                onmessage: null,
+                postMessage: function () {},
+            };
+            var port2 = {
+                onmessage: null,
+                postMessage: function (msg) {
+                    globalThis.requestAnimationFrame(function () {
+                        if (typeof port1.onmessage === 'function') port1.onmessage({ data: msg });
+                    });
+                },
+            };
+            this.port1 = port1;
+            this.port2 = port2;
+        };
+    }
+    if (typeof globalThis.queueMicrotask !== 'function') {
+        globalThis.queueMicrotask = function (fn) { return Promise.resolve().then(fn); };
+    }
+    if (typeof globalThis.matchMedia !== 'function') {
+        globalThis.matchMedia = function (query) {
+            return {
+                matches: false, media: String(query), onchange: null,
+                addEventListener: function () {}, removeEventListener: function () {},
+                addListener: function () {}, removeListener: function () {},
+                dispatchEvent: function () { return false; },
+            };
+        };
+    }
+    if (typeof globalThis.IntersectionObserver !== 'function') {
+        globalThis.IntersectionObserver = function (cb) {
+            this.observe = function () {};
+            this.unobserve = function () {};
+            this.disconnect = function () {};
+            this.takeRecords = function () { return []; };
+            void cb;
+        };
+    }
+    if (typeof globalThis.BroadcastChannel !== 'function') {
+        // OffthreadVideo 的抽帧频道（渲染器注入 window.remotion_broadcastChannel
+        // 同语义）。离线引擎无跨 tab 面：postMessage 无人收听即 no-op。
+        globalThis.BroadcastChannel = function (name) {
+            this.name = String(name);
+            this.onmessage = null;
+            this.postMessage = function () {};
+            this.close = function () {};
+            this.addEventListener = function () {};
+            this.removeEventListener = function () {};
+        };
+    }
+    // Web storage（memory 版）：remotion 的 getInitialFrameState、页面库的
+    // 状态持久化都直接读。离线渲染无跨帧持久语义，进程内 Map 即浏览器
+    // 「会话内」行为的真子集。
+    function makeStorage() {
+        var m = {};
+        return {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(m, String(k)) ? m[String(k)] : null; },
+            setItem: function (k, v) { m[String(k)] = String(v); },
+            removeItem: function (k) { delete m[String(k)]; },
+            clear: function () { m = {}; },
+            key: function (i) { var ks = Object.keys(m); return i >= 0 && i < ks.length ? ks[i] : null; },
+            get length() { return Object.keys(m).length; },
+        };
+    }
+    if (!globalThis.localStorage) globalThis.localStorage = makeStorage();
+    if (!globalThis.sessionStorage) globalThis.sessionStorage = makeStorage();
+
+    // shimWindow 的调度面镜像：remotion/页面库混用裸调用与 window.* 形态。
+    if (ocWin) {
+        if (!ocWin.requestAnimationFrame) ocWin.requestAnimationFrame = globalThis.requestAnimationFrame;
+        if (!ocWin.cancelAnimationFrame) ocWin.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+        if (!ocWin.setTimeout) ocWin.setTimeout = function (fn, ms) { return globalThis.setTimeout(fn, ms); };
+        if (!ocWin.clearTimeout) ocWin.clearTimeout = function (id) { return globalThis.clearTimeout(id); };
+        if (!ocWin.setInterval) ocWin.setInterval = function (fn, ms) { return globalThis.setInterval(fn, ms); };
+        if (!ocWin.clearInterval) ocWin.clearInterval = function (id) { return globalThis.clearInterval(id); };
+        if (!ocWin.queueMicrotask) ocWin.queueMicrotask = globalThis.queueMicrotask;
+        if (!ocWin.MessageChannel) ocWin.MessageChannel = globalThis.MessageChannel;
+        if (!ocWin.matchMedia) ocWin.matchMedia = globalThis.matchMedia;
+        if (!ocWin.BroadcastChannel) ocWin.BroadcastChannel = globalThis.BroadcastChannel;
+        if (!ocWin.self) ocWin.self = ocWin;
+        if (!ocWin.localStorage) ocWin.localStorage = globalThis.localStorage;
+        if (!ocWin.sessionStorage) ocWin.sessionStorage = globalThis.sessionStorage;
+        // React 19 的 root 默认 onUncaughtError/onCaughtError 走
+        // window.reportError——不装的话错误在 React 内部二次抛出并被吞，
+        // commit 阶段的根因无从可见。
+        if (!ocWin.reportError) {
+            ocWin.reportError = function (e) {
+                var m = e && e.stack || String(e);
+                (globalThis.__ocLogs = globalThis.__ocLogs || []).push('reportError: ' + m);
+                if (typeof __ocStderr === 'function') __ocStderr('[reportError] ' + m);
+            };
+        }
+        if (!ocWin.getSelection) ocWin.getSelection = function () { return null; };
+    }
+    // react-dom 19 的 instance 判定走 nodeType 数值，但页面/第三方库常见
+    // instanceof——给 pass-through 构造（face 对象 instanceof 恒 false，
+    // 至少 `value instanceof Object`/try-catch 探测不炸）。
+    ['Node', 'Element', 'HTMLElement', 'Text', 'Comment', 'DocumentFragment', 'SVGElement', 'ShadowRoot', 'HTMLIFrameElement'].forEach(function (n) {
+        if (typeof globalThis[n] !== 'function') {
+            globalThis[n] = new Function('return function ' + n + '() { throw new TypeError("Illegal constructor: ' + n + ' is not supported in this renderer"); }')();
+        }
+        // react-dom 的探测形态是 `elem instanceof window.HTMLIFrameElement`
+        // （getActiveElementDeep）——window 面必须同步有。
+        if (ocWin && !ocWin[n]) ocWin[n] = globalThis[n];
+    });
+
+    // ── 真延迟 setTimeout（web 平台语义补全）────────────────────
+    // dom_api 的降级版丢 delay 参数（每 pass 一步）：页面库的
+    // `await new Promise(r => setTimeout(r, 300))` 变成下一帧就跑——
+    // delayRender 类超时保护、节流、防抖的语义全错。这里按虚拟钟排程：
+    // due 未到不执行，flush 前先跑到期表。0ms 也越批（浏览器定时器最小
+    // 一步）。__ocVirtTimerAdvance 是提取期水位（html.rs 的 drain 循环
+    // 推进——提取期钟恒 0，轮询类续体靠水位落定）；渲染 realm 全新
+    // 重建，水位不跨进程，逐帧判定回到真钟。
+    if (!globalThis.__ocVirtTimersInstalled) {
+        globalThis.__ocVirtTimersInstalled = true;
+        var __ocTimerSeq = 0;
+        var __ocTimers = [];
+        var __ocTimerFloor = 0;
+        globalThis.__ocVirtTimerAdvance = function (ms) {
+            if (ms > __ocTimerFloor) __ocTimerFloor = ms;
+        };
+        globalThis.setTimeout = function (fn, ms) {
+            var id = ++__ocTimerSeq;
+            var delay = Number(ms);
+            __ocTimers.push({
+                id: id,
+                due: Math.max(globalThis.__ocClockMs ? globalThis.__ocClockMs() : 0, __ocTimerFloor)
+                    + (delay > 0 ? delay : 1),
+                fn: fn,
+            });
+            return id;
+        };
+        globalThis.clearTimeout = function (id) {
+            for (var i = 0; i < __ocTimers.length; i++) {
+                if (__ocTimers[i].id === id) { __ocTimers.splice(i, 1); return; }
+            }
+        };
+        globalThis.__ocRunDueTimers = function () {
+            var now = Math.max(globalThis.__ocClockMs ? globalThis.__ocClockMs() : 0, __ocTimerFloor);
+            for (var i = 0; i < __ocTimers.length;) {
+                if (__ocTimers[i].due <= now) {
+                    var t = __ocTimers.splice(i, 1)[0];
+                    try { t.fn(); } catch (e) {
+                        (globalThis.__ocLogs = globalThis.__ocLogs || []).push('timer threw: ' + (e && e.stack || e));
+                    }
+                } else i++;
+            }
+        };
+        var __ocRawFlushVirt = globalThis.__ocFlushRaf;
+        globalThis.__ocFlushRaf = function () { globalThis.__ocRunDueTimers(); __ocRawFlushVirt(); };
+        if (ocWin && !ocWin.setTimeout) {
+            ocWin.setTimeout = function (fn, ms) { return globalThis.setTimeout(fn, ms); };
+            ocWin.clearTimeout = function (id) { return globalThis.clearTimeout(id); };
+        }
+    }
 })();

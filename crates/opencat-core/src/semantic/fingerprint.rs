@@ -334,6 +334,10 @@ impl Hash for PaintStyleInput<'_> {
         style.border_bottom_width.map(F32Hash).hash(state);
         style.border_left_width.map(F32Hash).hash(state);
         style.border_color.hash(state);
+        style.border_top_color.hash(state);
+        style.border_right_color.hash(state);
+        style.border_bottom_color.hash(state);
+        style.border_left_color.hash(state);
         style.stroke_color.hash(state);
         style.stroke_width.map(F32Hash).hash(state);
         style.stroke_dasharray.hash(state);
@@ -383,6 +387,7 @@ impl Hash for TextPaintInput<'_> {
         style.text_transform.hash(state);
         style.wrap_text.hash(state);
         style.line_through.hash(state);
+        style.underline.hash(state);
     }
 }
 

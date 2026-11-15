@@ -335,10 +335,14 @@ pub fn apply_property(
                 OverflowKeyword::Hidden | OverflowKeyword::Clip
             );
             style.overflow_y_visible = !matches!(v.y, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+            style.overflow_visible = matches!(v.x, OverflowKeyword::Visible);
         }
         // 单轴长写（打字揭示 `overflow-x:clip; overflow-y:visible`）。
         Property::OverflowX(k) => {
             style.overflow_hidden = matches!(k, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+            if matches!(k, OverflowKeyword::Visible) {
+                style.overflow_visible = true;
+            }
         }
         Property::OverflowY(k) => {
             style.overflow_y_visible = !matches!(k, OverflowKeyword::Hidden | OverflowKeyword::Clip);
@@ -405,7 +409,15 @@ pub fn apply_property(
                 }
             }
         }
-        Property::BorderColor(v) => style.border_color = color_token(&v.top),
+        // `border-color: a b c d` 展开成四条边的槽位；`border_top_color` 等
+        // 都是 `Option`，没声明的边走 `border_color` 的统一色。
+        Property::BorderColor(v) => {
+            style.border_color = color_token(&v.top);
+            style.border_top_color = color_token(&v.top);
+            style.border_right_color = color_token(&v.right);
+            style.border_bottom_color = color_token(&v.bottom);
+            style.border_left_color = color_token(&v.left);
+        }
         Property::BorderWidth(v) => border_side(&mut style.border_width, &v.top, ctx),
         Property::BorderTopWidth(v) => border_side(&mut style.border_top_width, v, ctx),
         Property::BorderRightWidth(v) => border_side(&mut style.border_right_width, v, ctx),
@@ -413,11 +425,11 @@ pub fn apply_property(
         Property::BorderLeftWidth(v) => border_side(&mut style.border_left_width, v, ctx),
         Property::BorderStyle(v) => style.border_style = line_style_to_cat(&v.top),
         // 分边单属性：tailwind 的 `border-t` / `border-b-[#232326]` 产出这些
-        // 形态。样式是全局的（内部模型只有一条），颜色/宽度按边落位。
-        Property::BorderTopColor(v) => style.border_color = color_token(v),
-        Property::BorderRightColor(v) => style.border_color = color_token(v),
-        Property::BorderBottomColor(v) => style.border_color = color_token(v),
-        Property::BorderLeftColor(v) => style.border_color = color_token(v),
+        // 形态，颜色/宽度按边落位。
+        Property::BorderTopColor(v) => style.border_top_color = color_token(v),
+        Property::BorderRightColor(v) => style.border_right_color = color_token(v),
+        Property::BorderBottomColor(v) => style.border_bottom_color = color_token(v),
+        Property::BorderLeftColor(v) => style.border_left_color = color_token(v),
         Property::BorderTopStyle(v) => style.border_style = line_style_to_cat(v),
         Property::BorderRightStyle(v) => style.border_style = line_style_to_cat(v),
         Property::BorderBottomStyle(v) => style.border_style = line_style_to_cat(v),
@@ -442,6 +454,14 @@ pub fn apply_property(
         }
         Property::MixBlendMode(v) => style.blend_mode = blend_to_cat(*v),
         Property::Filter(list, _) => style.css_filter = filter_list_to_css_filter(list, ctx),
+        // `clip-path: inset(...)`（s4 均衡器的揭示裁切）。序列化回 CSS 文本
+        // 再走 `ClipPath::parse_css`——只在脚本通道里存在的能力，样式表
+        // 此前整条落空，被裁的元素从头到尾全露。
+        Property::ClipPath(clip, _) => {
+            if let Ok(css) = clip.to_css_string(PrinterOptions::default()) {
+                style.clip_path = crate::style::ClipPath::parse_css(&css);
+            }
+        }
         Property::BackdropFilter(list, _) => {
             if let FilterList::Filters(filters) = list {
                 for filter in filters {
@@ -629,7 +649,17 @@ pub fn apply_property(
         }
         Property::LineHeight(v) => match v {
             CssLineHeight::Number(n) => style.line_height = Some(*n),
-            CssLineHeight::Length(lp) => style.line_height_px = lp_to_px(lp, ctx),
+            // `line-height: <em|%>` 是与本元素字号挂钩的倍数。级联期折成
+            // px 会把当时字号焊死：脚本随后改 `font-size`（heygen `.txt`
+            // 的 `line-height:1em` + JS 设 60px），行盒停在 16px，字顶被
+            // 顶出盒外 20px。存倍数，按 text_px 折算。
+            CssLineHeight::Length(lp) => match lp {
+                LengthPercentage::Dimension(LengthValue::Em(n)) => {
+                    style.line_height = Some(*n)
+                }
+                LengthPercentage::Percentage(p) => style.line_height = Some(p.0 / 100.0),
+                _ => style.line_height_px = lp_to_px(lp, ctx),
+            },
             CssLineHeight::Normal => {}
         },
         Property::LetterSpacing(v) => {
@@ -657,9 +687,17 @@ pub fn apply_property(
                 | CssTextAlign::JustifyAll => return,
             });
         }
-        Property::TextDecorationLine(lines, _) => {
-            // `line-through` 有渲染载体；underline/overline 暂无，忽略即可。
+        Property::TextDecorationLine(lines, _)
+        | Property::TextDecoration(
+            lightningcss::properties::text::TextDecoration { line: lines, .. },
+            _,
+        ) => {
+            // 简写 `text-decoration: underline` 产 TextDecoration 变体（lightningcss
+            // finalize 拼装），子属性产 TextDecorationLine——两条都要接。
+            // 下划线与 line-through 都有渲染载体（字形基线 + post 表
+            // underlinePosition/Thickness）；overline 暂无。
             style.line_through = lines.contains(TextDecorationLine::LineThrough);
+            style.underline = lines.contains(TextDecorationLine::Underline);
         }
         Property::TextShadow(shadows) => {
             style.text_shadows = shadows
@@ -934,7 +972,12 @@ fn hex_color(hex: &str) -> Option<ColorToken> {
 fn apply_border(style: &mut crate::style::NodeStyle, v: &Border, ctx: &EvalContext) {
     border_side(&mut style.border_width, &v.width, ctx);
     style.border_style = line_style_to_cat(&v.style);
-    style.border_color = color_token(&v.color);
+    let color = color_token(&v.color);
+    style.border_color = color;
+    style.border_top_color = color;
+    style.border_right_color = color;
+    style.border_bottom_color = color;
+    style.border_left_color = color;
 }
 
 fn padding_longhand(slot: &mut Option<f32>, v: &LengthPercentageOrAuto, ctx: &EvalContext) {

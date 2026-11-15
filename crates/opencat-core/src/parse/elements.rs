@@ -92,6 +92,11 @@ pub enum JsonLine {
         query_count: Option<usize>,
         #[serde(rename = "aspectRatio")]
         aspect_ratio: Option<String>,
+        /// HTML `<img width height>` 属性的内在尺寸（呈现提示）。
+        #[serde(default)]
+        width: Option<f32>,
+        #[serde(default)]
+        height: Option<f32>,
         duration: Option<f64>,
     },
     #[serde(rename = "audio")]
@@ -465,6 +470,8 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
             query,
             query_count,
             aspect_ratio,
+            width,
+            height,
             duration,
         } => (
             parent_id,
@@ -477,6 +484,8 @@ fn line_to_element(line: JsonLine) -> (Option<String>, DomElement) {
                 query,
                 query_count,
                 aspect_ratio,
+                width,
+                height,
                 duration,
             },
         ),

@@ -606,7 +606,12 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
         // 时按固有宽高比推出来（浏览器 `width:650px; height:auto` 语义）。
         // taffy 没有 replaced 语义，不给 aspect_ratio 就会塌成 0。
         if let ElementKind::Bitmap(bitmap) = &element.kind {
-            let (iw, ih) = (bitmap.width as f32, bitmap.height as f32);
+            // `<img width height>` 属性的呈现提示：强于素材固有尺寸，弱于
+            // CSS。缺这条时属性完全落空（s3 的手形光标按素材 32px 排版，
+            // 参考里是 140px）。
+            let (iw, ih) = bitmap
+                .attr_size
+                .unwrap_or((bitmap.width as f32, bitmap.height as f32));
             if iw > 0.0 && ih > 0.0 {
                 let w_auto = style.size.width.is_auto();
                 let h_auto = style.size.height.is_auto();
@@ -623,21 +628,26 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
             let h_auto = style.size.height.is_auto();
             if svg.width.is_none() && svg.height.is_none() {
                 // 仅 viewBox（width/height 属性全缺）：无固有尺寸、只有固有
-                // 比例。一维 auto 时按比例推另一维——浏览器 `width:100%;
+                // 比例。按比例推 auto 的那一维——浏览器 `width:100%;
                 // height:auto` 的高 = 宽 ÷ 比例；把 viewBox 高度当 px 回填
-                // 会把标志压扁（figma act11 logo）。两维都 auto 时维持下方
-                // 固有回填（无 CSS 落 viewBox 尺寸，近似浏览器 100% 宽）。
-                if w_auto != h_auto
-                    && let Some((iw, ih)) = svg.intrinsic_size
+                // 会把标志压扁（figma act11 logo）。两维都 auto：SVG2 根元素
+                // 的 `width` 默认取 `100%`（浏览器语义：标志按宿主盒满铺），
+                // 高由比例推出——不落这条，svg 停在 0×0，整张图不画（spacex
+                // 字标/菜单图标全是无尺寸 viewBox-only svg）。
+                if let Some((iw, ih)) = svg.intrinsic_size
                     && iw > 0.0
                     && ih > 0.0
                 {
                     style.aspect_ratio = Some(iw / ih);
+                    if w_auto {
+                        style.size.width = if h_auto {
+                            Dimension::percent(100.0)
+                        } else {
+                            Dimension::auto()
+                        };
+                    }
                     if h_auto {
                         style.size.height = Dimension::auto();
-                    }
-                    if w_auto {
-                        style.size.width = Dimension::auto();
                     }
                 }
             } else {
@@ -811,21 +821,28 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
             },
             ..base_style(element)
         },
-        ElementKind::Bitmap(bitmap) => Style {
-            size: taffy::geometry::Size {
-                width: resolve_dimension(
-                    layout.width,
-                    layout.width_percent,
-                    Dimension::length(bitmap.width as f32),
-                ),
-                height: resolve_dimension(
-                    layout.height,
-                    layout.height_percent,
-                    Dimension::length(bitmap.height as f32),
-                ),
-            },
-            ..base_style(element)
-        },
+        ElementKind::Bitmap(bitmap) => {
+            // `<img width height>` 属性的呈现提示不如 CSS 强，但强于素材自身
+            // 的内在尺寸。
+            let (default_w, default_h) = bitmap
+                .attr_size
+                .unwrap_or((bitmap.width as f32, bitmap.height as f32));
+            Style {
+                size: taffy::geometry::Size {
+                    width: resolve_dimension(
+                        layout.width,
+                        layout.width_percent,
+                        Dimension::length(default_w),
+                    ),
+                    height: resolve_dimension(
+                        layout.height,
+                        layout.height_percent,
+                        Dimension::length(default_h),
+                    ),
+                },
+                ..base_style(element)
+            }
+        }
         ElementKind::Lottie(lottie) => Style {
             size: taffy::geometry::Size {
                 width: resolve_dimension(

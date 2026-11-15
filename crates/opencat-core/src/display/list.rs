@@ -240,6 +240,11 @@ pub struct RectPaintStyle {
     pub border_bottom_width: Option<f32>,
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    /// 分边颜色（top/right/bottom/left），`None` 的边走 `border_color`。
+    pub border_top_color: Option<ColorToken>,
+    pub border_right_color: Option<ColorToken>,
+    pub border_bottom_color: Option<ColorToken>,
+    pub border_left_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
     pub box_shadow: Vec<BoxShadow>,
     pub inset_shadow: Vec<InsetShadow>,
@@ -257,6 +262,11 @@ pub struct BitmapPaintStyle {
     pub border_bottom_width: Option<f32>,
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    /// 分边颜色（top/right/bottom/left），`None` 的边走 `border_color`。
+    pub border_top_color: Option<ColorToken>,
+    pub border_right_color: Option<ColorToken>,
+    pub border_bottom_color: Option<ColorToken>,
+    pub border_left_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
     pub box_shadow: Vec<BoxShadow>,
     pub inset_shadow: Vec<InsetShadow>,
@@ -289,6 +299,9 @@ pub struct SvgDisplayItem {
     pub src: std::path::PathBuf,
     pub inline: Option<String>,
     pub preserve_aspect_ratio: Option<String>,
+    /// 按视口裁剪内容。内联 svg 的浏览器默认（UA 样式 `svg:not(:root)
+    /// {overflow:hidden}`）是裁；作者显式 `overflow: visible` 时置 false。
+    pub clip_overflow: bool,
 }
 
 #[derive(Clone, Copy, Debug)]

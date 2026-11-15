@@ -33,22 +33,135 @@ mod svg_text;
 // ---------------------------------------------------------------------------
 
 /// 进程级树缓存：一个 svg 路径解析一次。渲染进程是短命的（一条命令一组
-/// 帧），Mutex 争用可以忽略。
-static TREE_CACHE: OnceLock<Mutex<HashMap<PathBuf, Arc<usvg::Tree>>>> = OnceLock::new();
+/// 帧），Mutex 争用可以忽略。键带解析字体库身份（见 parse_tree）。
+static TREE_CACHE: OnceLock<Mutex<HashMap<(PathBuf, usize), Arc<usvg::Tree>>>> = OnceLock::new();
 
-/// 内联 markup（`<svg inline>`）的树缓存：键是 markup 内容的哈希——同一
-/// 图标每帧重建字符串，哈希稳定即命中，免逐帧重解析。
-static INLINE_TREE_CACHE: OnceLock<Mutex<HashMap<u64, Arc<usvg::Tree>>>> = OnceLock::new();
+/// 内联 markup（`<svg inline>`）的树缓存：键是 (markup 内容哈希, 解析字
+/// 体库身份)——同一图标每帧重建字符串，哈希稳定即命中，免逐帧重解析。
+static INLINE_TREE_CACHE: OnceLock<Mutex<HashMap<(u64, usize), Arc<usvg::Tree>>>> = OnceLock::new();
+
+/// scoped 文档库（core 文本栈的 fontdb 0.23）→ usvg 解析侧 fontdb 0.24
+/// 的换轨缓存：键是 0.23 库的 Arc 指针，entry 同时持 0.23 克隆（指针不被
+/// 释放复用）与 0.24 换轨产物——同一文档库只换轨一次。
+static USVG_DB_CACHE: OnceLock<Mutex<HashMap<usize, (Arc<fontdb::Database>, Arc<usvg::fontdb::Database>)>>> = OnceLock::new();
+
+/// 把 scoped 库的全部 face 字节复刻进 usvg 侧 0.24 库。fontdb 双版本并存
+/// （0.23=cosmic-text 0.19，0.24=usvg 0.48），Arc 无法共享；换轨只取字节
+/// （File 读盘、Binary 克隆，按来源去重），五个 generic 族注册名从 0.23
+/// 侧镜像——两边对 `serif` 等兜底的解析一致。
+fn usvg_db_of(doc: &Arc<fontdb::Database>) -> Arc<usvg::fontdb::Database> {
+    let id = Arc::as_ptr(doc) as usize;
+    if let Some((_, db)) = USVG_DB_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .ok()
+        .and_then(|c| c.get(&id).cloned())
+    {
+        return db;
+    }
+    let mut db = usvg::fontdb::Database::new();
+    let mut seen_files = std::collections::HashSet::new();
+    let mut seen_bins = std::collections::HashSet::new();
+    for face in doc.faces() {
+        match &face.source {
+            fontdb::Source::File(path) => {
+                if seen_files.insert(path.clone()) {
+                    db.load_font_file(path).ok();
+                }
+            }
+            fontdb::Source::Binary(bytes) => {
+                if seen_bins.insert(std::ptr::from_ref(bytes.as_ref())) {
+                    db.load_font_data(bytes.as_ref().as_ref().to_vec());
+                }
+            }
+            fontdb::Source::SharedFile(_, bytes) => {
+                if seen_bins.insert(std::ptr::from_ref(bytes.as_ref())) {
+                    db.load_font_data(bytes.as_ref().as_ref().to_vec());
+                }
+            }
+        }
+    }
+    for family in [
+        fontdb::Family::Serif,
+        fontdb::Family::SansSerif,
+        fontdb::Family::Monospace,
+        fontdb::Family::Cursive,
+        fontdb::Family::Fantasy,
+    ] {
+        let name = doc.family_name(&family).to_string();
+        match family {
+            fontdb::Family::Serif => db.set_serif_family(name),
+            fontdb::Family::SansSerif => db.set_sans_serif_family(name),
+            fontdb::Family::Monospace => db.set_monospace_family(name),
+            fontdb::Family::Cursive => db.set_cursive_family(name),
+            fontdb::Family::Fantasy => db.set_fantasy_family(name),
+            _ => {}
+        }
+    }
+    let db = Arc::new(db);
+    if let Ok(mut c) = USVG_DB_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        c.insert(id, (doc.clone(), db.clone()));
+    }
+    db
+}
 
 fn parse_tree(text: &str, resources_dir: Option<PathBuf>) -> Option<usvg::Tree> {
     let mut opt = usvg::Options::default();
     opt.resources_dir = resources_dir;
-    // resvg CLI 默认加载系统字体；text→glyph path 的对齐质量归 P5。
-    opt.fontdb = Arc::new({
-        let mut db = usvg::fontdb::Database::new();
-        db.load_system_fonts();
-        db
-    });
+    // 解析字体库：fork 版 usvg 在解析期就做文本布局（tree/text.rs convert
+    // → layout_text + flatten），布局失败整个 `<text>` 节点被静默丢弃。
+    // 库里没有的族不能只落系统字体——frame 渲染/resolve 都在 `scope_font_db`
+    // 作用域内（pipeline/frame.rs），inline svg 必须借它看见文档 @font-face
+    // （frame-md 手写标注 'Just Another Hand' 消失的根因）。作用域缺席时
+    // （img 语义 rasterize_svg、探测直调）回系统扫描：浏览器里 `<img>` svg
+    // 本就隔离文档字体，系统字体是那边的正确口径。
+    let scoped = crate::text::script_font_db();
+    opt.fontdb = if scoped.is_empty() {
+        Arc::new({
+            let mut db = usvg::fontdb::Database::new();
+            db.load_system_fonts();
+            db
+        })
+    } else {
+        usvg_db_of(&scoped)
+    };
+    // 永不失败的 select_font：fork usvg 对族全 miss 丢整个 `<text>` 节点
+    // （fonts_cache 无 entry → span 跳过，per-char fallback 根本不触发）。
+    // default 查询 miss 后按浏览器口径补：栈内 generic 按声明序 → 注册
+    // sans → 任一 face。Linear 流反正用 core 文本栈重排（svg_text 模块），
+    // 这里只为布局存活与 flatten 产物正确。
+    opt.font_resolver = usvg::FontResolver {
+        select_font: Box::new(|font, db| {
+            let default = usvg::FontResolver::default_font_selector();
+            default(font, db).or_else(|| {
+                let generics: Vec<usvg::fontdb::Family> = font
+                    .families()
+                    .iter()
+                    .filter_map(|f| match f {
+                        usvg::FontFamily::Serif => Some(usvg::fontdb::Family::Serif),
+                        usvg::FontFamily::SansSerif => Some(usvg::fontdb::Family::SansSerif),
+                        usvg::FontFamily::Monospace => Some(usvg::fontdb::Family::Monospace),
+                        _ => None,
+                    })
+                    .collect();
+                for family in &generics {
+                    let id = db.query(&usvg::fontdb::Query {
+                        families: std::slice::from_ref(family),
+                        ..Default::default()
+                    });
+                    if id.is_some() {
+                        return id;
+                    }
+                }
+                db.query(&usvg::fontdb::Query {
+                    families: &[usvg::fontdb::Family::SansSerif],
+                    ..Default::default()
+                })
+                .or_else(|| db.faces().next().map(|f| f.id))
+            })
+        }),
+        select_fallback: usvg::FontResolver::default_fallback_selector(),
+    };
     if let Ok(tree) = usvg::Tree::from_str(text, &opt) {
         return Some(tree);
     }
@@ -94,14 +207,21 @@ fn patch_zero_size_root(text: &str) -> String {
 
 /// 解析并缓存一棵树。`src` 是 svg 文件路径；相对引用（`<image href>`）相对
 /// 它自身目录解析（PLAN §4），由 `resources_dir` 保证。
+///
+/// 缓存键带解析字体库身份（Arc 指针；entry 持 Arc 引用计数，指针不可能
+/// 被释放复用）——同一文件/markup 在不同文档字体集下解析出的树不同
+/// （fork usvg 解析期文本布局，见 parse_tree）。
 pub fn load_tree(src: &Path) -> Option<Arc<usvg::Tree>> {
+    let db = crate::text::script_font_db();
+    let db_id = Arc::as_ptr(&db) as usize;
+    let key = (src.to_path_buf(), db_id);
     let cache = TREE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(tree) = cache.lock().ok()?.get(src) {
+    if let Some(tree) = cache.lock().ok()?.get(&key) {
         return Some(tree.clone());
     }
     let text = std::fs::read_to_string(src).ok()?;
     let tree = Arc::new(parse_tree(&text, src.parent().map(|d| d.to_path_buf()))?);
-    cache.lock().ok()?.insert(src.to_path_buf(), tree.clone());
+    cache.lock().ok()?.insert(key, tree.clone());
     Some(tree)
 }
 
@@ -109,18 +229,102 @@ pub fn load_tree(src: &Path) -> Option<Arc<usvg::Tree>> {
 /// resources_dir（外部引用无处可解，lucide/react 图标也不需要）。
 pub fn load_tree_markup(markup: &str) -> Option<Arc<usvg::Tree>> {
     use std::hash::{Hash, Hasher};
+    let db = crate::text::script_font_db();
+    let db_id = Arc::as_ptr(&db) as usize;
     let key = {
         let mut h = std::hash::DefaultHasher::new();
         markup.hash(&mut h);
-        h.finish()
+        (h.finish(), db_id)
     };
     let cache = INLINE_TREE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     if let Some(tree) = cache.lock().ok()?.get(&key) {
         return Some(tree.clone());
     }
-    let tree = Arc::new(parse_tree(markup, None)?);
+    let normalized = normalize_style_transforms(markup);
+    let tree = Arc::new(parse_tree(&normalized, None)?);
     cache.lock().ok()?.insert(key, tree.clone());
     Some(tree)
+}
+
+/// 把 style 属性里的 CSS 语法 `transform` 折成 SVG 1.1 属性语法。
+///
+/// usvg 的 transform 解析器只认 SVG 语法（无单位、无 `translate3d`），而
+/// 脚本（gsap CSSPlugin）写进 style 的是 CSS 语法
+/// （`translate(6597px, 904.5px) scale(1.03, 1.03)`）。不折算时 usvg 解析
+/// 失败、整个 transform 被丢掉，元素落回用户坐标原点——codex `#send`
+/// 的脉冲帧（`svgOrigin` 补间）里整组按钮跑到画布外消失。
+fn normalize_style_transforms(markup: &str) -> String {
+    if !markup.contains("transform:") {
+        return markup.to_string();
+    }
+    let mut out = String::with_capacity(markup.len());
+    let mut rest = markup;
+    while let Some(i) = rest.find("style=\"") {
+        let (head, tail) = rest.split_at(i + "style=\"".len());
+        out.push_str(head);
+        let Some(end) = tail.find('"') else {
+            out.push_str(tail);
+            return out;
+        };
+        let (value, after) = tail.split_at(end);
+        out.push_str(&rewrite_transform_decls(value));
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+fn rewrite_transform_decls(value: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut changed = false;
+    for decl in value.split(';') {
+        let Some((name, decl_value)) = decl.split_once(':') else {
+            if !decl.trim().is_empty() {
+                parts.push(decl.trim().to_string());
+            }
+            continue;
+        };
+        if !name.trim().eq_ignore_ascii_case("transform") {
+            parts.push(format!("{}: {}", name.trim(), decl_value.trim()));
+            continue;
+        }
+        let parsed = crate::css::parse_css_transform(decl_value.trim());
+        match transforms_to_svg(&parsed) {
+            Some(svg) => {
+                parts.push(format!("transform: {svg}"));
+                changed = true;
+            }
+            None => parts.push(format!("transform: {}", decl_value.trim())),
+        }
+    }
+    if changed { parts.join("; ") } else { value.to_string() }
+}
+
+fn transforms_to_svg(transforms: &[crate::style::Transform]) -> Option<String> {
+    use crate::style::Transform as T;
+    let mut parts: Vec<String> = Vec::new();
+    for t in transforms {
+        match t {
+            T::Translate { x, y } => parts.push(format!("translate({x} {y})")),
+            T::TranslateX { value } => parts.push(format!("translate({value} 0)")),
+            T::TranslateY { value } => parts.push(format!("translate(0 {value})")),
+            T::Scale { value } => parts.push(format!("scale({value})")),
+            T::ScaleX { value } => parts.push(format!("scale({value} 1)")),
+            T::ScaleY { value } => parts.push(format!("scale(1 {value})")),
+            T::RotateDeg { value } => parts.push(format!("rotate({value})")),
+            T::SkewXDeg { value } => parts.push(format!("skewX({value})")),
+            T::SkewYDeg { value } => parts.push(format!("skewY({value})")),
+            T::SkewDeg { x, y } => parts.push(format!("skewX({x}) skewY({y})")),
+            // SVG 1.1 属性语法表达不了 3D 与百分比平移，按 2D 投影丢弃。
+            T::Rotate3 { .. }
+            | T::TranslateZ { .. }
+            | T::RotateXDeg { .. }
+            | T::RotateYDeg { .. }
+            | T::TranslateXPercent { .. }
+            | T::TranslateYPercent { .. } => {}
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
 }
 
 /// svg 的 intrinsic 渲染尺寸（`tree.size()`，width/height/viewBox 归一后的
@@ -138,7 +342,22 @@ pub fn tree_size(tree: &usvg::Tree) -> (f32, f32) {
 ///
 /// usvg 已把根 viewBox→viewport 的映射（含 preserveAspectRatio）编码进根
 /// group 的 `abs_transform`，所以这里只做 tree.size()→dst 的盒子缩放。
-pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4) {
+pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4, clip_overflow: bool) {
+    if std::env::var("OC_SVG_TEXT_DEBUG").is_ok() {
+        fn walk(g: &usvg::Group, out: &mut Vec<String>) {
+            for n in g.children() {
+                match n {
+                    usvg::Node::Text(t) => out.push(format!("Text({:?})", t.chunks().iter().map(|c| c.text()).collect::<Vec<_>>())),
+                    usvg::Node::Group(sub) => walk(sub, out),
+                    usvg::Node::Path(_) => out.push("Path".into()),
+                    usvg::Node::Image(_) => out.push("Image".into()),
+                }
+            }
+        }
+        let mut kinds = Vec::new();
+        walk(tree.root(), &mut kinds);
+        eprintln!("[svg] emit nodes: {:?}", kinds);
+    }
     let (tw, th) = tree_size(tree);
     if tw <= 0.0 || th <= 0.0 || dst.width <= 0.0 || dst.height <= 0.0 {
         return;
@@ -147,15 +366,19 @@ pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4) {
         ts: Transform::identity(),
     };
     builder.push(DrawOp::Save);
-    // svg 元素自身是视口：内容裁在盒子里（overflow:hidden 语义）。
-    builder.push(DrawOp::BeginPath);
-    builder.push(DrawOp::Path(PathOp::AddRect {
-        x: dst.x,
-        y: dst.y,
-        width: dst.width,
-        height: dst.height,
-    }));
-    builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+    // svg 元素自身是视口：内容裁在盒子里（UA 样式的 overflow:hidden 语义）。
+    // 作者显式 `overflow: visible` 时不裁（codex 的 `#typed` 层把 viewBox
+    // 外的字形露在盒外）。
+    if clip_overflow {
+        builder.push(DrawOp::BeginPath);
+        builder.push(DrawOp::Path(PathOp::AddRect {
+            x: dst.x,
+            y: dst.y,
+            width: dst.width,
+            height: dst.height,
+        }));
+        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+    }
     concat(builder, &mut state, {
         Transform::from_scale(dst.width / tw, dst.height / th)
             .pre_translate(dst.x, dst.y)

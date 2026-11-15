@@ -1208,12 +1208,18 @@
                         }
                     }
                 }
+                // fontBoundingBox* 是字体盒（em 盒）上下缘，不是 ink 盒。
+                // 缺这两个字段时页面算出的基线是 NaN：k3 的 `setType` 用它
+                // 求 `top`（`(1 - (fbAsc + fbDesc)) / 2 + fbAsc`），写成
+                // `NaNpx` 后整个标题定位失效、文字整段不出现。
                 return {
                     width: Number(shaped.width) || 0,
                     actualBoundingBoxLeft: ink ? -minX : 0,
                     actualBoundingBoxRight: ink ? maxX : 0,
                     actualBoundingBoxAscent: ink ? -minY : 0,
                     actualBoundingBoxDescent: ink ? maxY : 0,
+                    fontBoundingBoxAscent: Number(shaped.baselineAscent) || Number(shaped.ascent) || 0,
+                    fontBoundingBoxDescent: Number(shaped.baselineDescent) || Number(shaped.descent) || 0,
                 };
             },
             // 光栅化回读（g-lite measureFont 逐像素扫 ascent/descent、heatmap

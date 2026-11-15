@@ -118,6 +118,24 @@ pub struct FontFamilyIndex {
     pub id_to_family: HashMap<String, String>,
 }
 
+/// 该字体面是否覆盖 Basic Latin（`A` 可映射到非 0 字形）。
+///
+/// Google Fonts 的 `@font-face` 把同一族按 `unicode-range` 切成
+/// `latin`（U+0000-00FF）与 `latin-ext` 两份子集，浏览器按字符挑子集。
+/// 我们不做逐字符子集选择——fontdb 按 (族, 字重, 风格) 取**先注册**的
+/// 面，`latin-ext` 先注册时 ASCII 无字形，整串字落到系统兜底字体
+/// （spacex 语料 .ph/.lbl 的 500 字重整段变衬线）。注册顺序上让覆盖
+/// Basic Latin 的子集优先即可与实际语料一致。
+pub fn covers_basic_latin(bytes: &[u8]) -> bool {
+    let Some(font) = swash::FontRef::from_index(bytes, 0) else {
+        return false;
+    };
+    let map = font.charmap();
+    // 子集面会带零星的 Basic Latin 码位（`latin-ext` 含 `A`/空格），
+    // 单点判据不够——按 ASCII 大小写字母与数字各一点取样。
+    ['A', 'a', '0'].iter().all(|c| map.map(*c) != 0)
+}
+
 /// woff2（`wOF2` magic）→ TTF 字节。woff 1.0 不处理（语料未命中）。
 /// 解码失败原样返回——fontdb 随后按自己的方式报错，错误不在这层吞掉
 /// 语义（与浏览器「坏字体面跳过」的容错差异记录在案）。

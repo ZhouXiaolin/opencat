@@ -788,102 +788,167 @@ pub fn parse_html_prefixed_excluded(
     })
 }
 
+/// 祖先路径条目：组合器宿主（`.resp ul li::before`）右起匹配用。
+struct AncNode {
+    id: String,
+    class: Option<String>,
+    tag: String,
+}
+
 /// 递归合成伪元素节点。同宿主同伪类型的多条规则按文档序合并声明
 /// （`decls1;decls2`，inline 通道后者胜 = 级联源序语义）。
 ///
-/// 限制（语料核对后留档）：host 只支持单 compound（`#id`/`.a.b`/`tag`，
-/// 无组合器——`.resp ul li::before` 弹点形态不合成）；`content` 判定任一
-/// 命中规则生成盒即合成（`content:none`/缺省的 reset 规则天然不触发）；
-/// `content:"文本"` 只按生成空盒处理，文本本身不渲染（语料全是
-/// `content:""`）。
+/// host 支持后代（空白）与子代（`>`）组合器：右起 compound 命中元素
+/// 自身，其余沿祖先链回溯（`#f4-root .resp ul li::before` 的弹点）。
+/// `content` 判定任一命中规则生成盒即合成（`content:none`/缺省的 reset
+/// 规则天然不触发）；`content:"文本"` 只按生成空盒处理，文本本身不渲染
+/// （语料全是 `content:""`）。
 fn apply_pseudo_rules(el: DomElement, rules: &[PseudoRuleRaw]) -> DomElement {
-    let DomElement::Div {
-        id,
-        class,
-        style,
-        duration,
-        data_start,
-        data_duration,
-        ua_tag,
-        attrs,
-        children,
-    } = el
-    else {
-        return el;
-    };
-
-    let mut children = children;
-    if !rules.is_empty() {
-        let tag = ua_tag.as_deref().unwrap_or("div");
-        let mut decls_before: Vec<String> = Vec::new();
-        let mut decls_after: Vec<String> = Vec::new();
-        for rule in rules {
-            if !pseudo_host_matches(&rule.host, &id, class.as_deref(), tag) {
-                continue;
-            }
-            if !content_generates_box(&rule.decls) {
-                continue;
-            }
-            if rule.pseudo == "::before" {
-                decls_before.push(rule.decls.clone());
-            } else {
-                decls_after.push(rule.decls.clone());
-            }
-        }
-        let mk = |kind: &str, decls: String| DomElement::Div {
-            id: format!("{id}{kind}"),
-            class: None,
-            style: Some(decls),
-            duration: None,
-            data_start: None,
-            data_duration: None,
-            ua_tag: None,
-            attrs: vec![("data-oc-pseudo".to_string(), kind.to_string())],
-            children: Vec::new(),
+    fn walk(el: DomElement, rules: &[PseudoRuleRaw], path: &mut Vec<AncNode>) -> DomElement {
+        let DomElement::Div {
+            id,
+            class,
+            style,
+            duration,
+            data_start,
+            data_duration,
+            ua_tag,
+            attrs,
+            children,
+        } = el
+        else {
+            return el;
         };
-        if !decls_before.is_empty() {
-            children.insert(0, mk("::before", decls_before.join(";")));
-        }
-        if !decls_after.is_empty() {
-            children.push(mk("::after", decls_after.join(";")));
-        }
-    }
 
-    let children = children
-        .into_iter()
-        .map(|c| apply_pseudo_rules(c, rules))
-        .collect();
-    DomElement::Div {
-        id,
-        class,
-        style,
-        duration,
-        data_start,
-        data_duration,
-        ua_tag,
-        attrs,
-        children,
+        let mut children = children;
+        if !rules.is_empty() {
+            let tag = ua_tag.as_deref().unwrap_or("div");
+            let mut decls_before: Vec<String> = Vec::new();
+            let mut decls_after: Vec<String> = Vec::new();
+            for rule in rules {
+                if !pseudo_host_matches(&rule.host, &id, class.as_deref(), tag, path) {
+                    continue;
+                }
+                if !content_generates_box(&rule.decls) {
+                    continue;
+                }
+                if rule.pseudo == "::before" {
+                    decls_before.push(rule.decls.clone());
+                } else {
+                    decls_after.push(rule.decls.clone());
+                }
+            }
+            let mk = |kind: &str, decls: String| DomElement::Div {
+                id: format!("{id}{kind}"),
+                class: None,
+                style: Some(decls),
+                duration: None,
+                data_start: None,
+                data_duration: None,
+                ua_tag: None,
+                attrs: vec![("data-oc-pseudo".to_string(), kind.to_string())],
+                children: Vec::new(),
+            };
+            if !decls_before.is_empty() {
+                children.insert(0, mk("::before", decls_before.join(";")));
+            }
+            if !decls_after.is_empty() {
+                children.push(mk("::after", decls_after.join(";")));
+            }
+        }
+
+        path.push(AncNode {
+            id: id.clone(),
+            class: class.clone(),
+            tag: ua_tag.as_deref().unwrap_or("div").to_string(),
+        });
+        let children = children
+            .into_iter()
+            .map(|c| walk(c, rules, path))
+            .collect();
+        path.pop();
+        DomElement::Div {
+            id,
+            class,
+            style,
+            duration,
+            data_start,
+            data_duration,
+            ua_tag,
+            attrs,
+            children,
+        }
     }
+    let mut path = Vec::new();
+    walk(el, rules, &mut path)
 }
 
-/// 单 compound 宿主选择器（`#id`/`.a.b`/`tag` 混合）匹配：含空白、组合器
-/// 或通配的形态一律不命中（语料里此类是无 `content` 的 reset，天然被
-/// content 门卫拦下；这里再拦一道防误配）。
-fn pseudo_host_matches(host: &str, id: &str, class: Option<&str>, tag: &str) -> bool {
-    if host.is_empty()
-        || host.contains(char::is_whitespace)
-        || host.contains('>')
-        || host.contains('+')
-        || host.contains('~')
-        || host.contains('*')
-    {
+/// 宿主选择器匹配：尾部 compound 命中元素自身，前面的 compound 按组合器
+/// 沿 `ancestors`（由外到内）右起回溯。空选择器、悬空组合器不命中。
+fn pseudo_host_matches(
+    host: &str,
+    id: &str,
+    class: Option<&str>,
+    tag: &str,
+    ancestors: &[AncNode],
+) -> bool {
+    let host = host.trim();
+    if host.is_empty() {
         return false;
     }
+    // `>` 归一成独立 token，其余按空白切（`a>b` 与 `a > b` 等价）。
+    let norm = host.replace('>', " > ");
+    let tokens: Vec<&str> = norm.split_whitespace().collect();
+    let Some(last) = tokens.last() else {
+        return false;
+    };
+    if *last == ">" || !compound_matches(last, id, class, tag) {
+        return false;
+    }
+    let mut cursor = ancestors.len();
+    let mut i = tokens.len() - 1;
+    while i > 0 {
+        if tokens[i - 1] == ">" {
+            if i < 2 || cursor == 0 {
+                return false;
+            }
+            cursor -= 1;
+            let a = &ancestors[cursor];
+            if !compound_matches(tokens[i - 2], &a.id, a.class.as_deref(), &a.tag) {
+                return false;
+            }
+            i -= 2;
+        } else {
+            let mut found = false;
+            while cursor > 0 {
+                cursor -= 1;
+                let a = &ancestors[cursor];
+                if compound_matches(tokens[i - 1], &a.id, a.class.as_deref(), &a.tag) {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return false;
+            }
+            i -= 1;
+        }
+    }
+    true
+}
+
+/// 单个 compound（`#id`/`.a.b`/`tag`/`*` 混合）匹配：所有部分必须命中。
+fn compound_matches(host: &str, id: &str, class: Option<&str>, tag: &str) -> bool {
     let classes: ahash::HashSet<&str> = class.unwrap_or("").split_whitespace().collect();
     let mut has_part = false;
     let mut rest = host;
     while !rest.is_empty() {
         let matched = match rest.as_bytes()[0] {
+            b'*' => {
+                rest = &rest[1..];
+                has_part = true;
+                true
+            }
             b'#' => {
                 let end = rest[1..]
                     .find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
@@ -1324,6 +1389,11 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
             query: None,
             query_count: None,
             aspect_ratio: None,
+            // `width`/`height` 属性是 HTML 呈现提示：不影响 CSS 尺寸的优先级，
+            // 只补素材没有的内在尺寸（`<img width="140">` 的 SVG 素材自带
+            // 32px，缺这条就按 32px 排版，光标只剩一个点）。
+            width: view.f64("width").map(|v| v as f32),
+            height: view.f64("height").map(|v| v as f32),
             duration,
         },
         "video" => {
@@ -1591,11 +1661,17 @@ fn collect_inline_text(items: &[Lowered], keep_raw: bool, trim: bool) -> String 
     if trim {
         return joined.trim().to_string();
     }
-    // 行内元素保留首尾空白（`<span> token</span>` 的空格参与行内排版）：
-    // collapse_ws 会丢掉行首空白，这里按原串补回一个空格。
+    // 行内元素保留首尾空白（`<span> token</span>` / `<span>token </span>`
+    // 的空格参与行内排版）：collapse_ws 把首尾空白折叠丢弃，这里按原串
+    // 各补回一个空格。只认可折叠空白——`&nbsp;`（U+00A0）collapse_ws
+    // 原样保留，不算，否则会多补一个普通空格。
+    let foldable = |c: char| c.is_whitespace() && c != '\u{a0}';
     let mut text = joined;
-    if items.first().is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.starts_with(char::is_whitespace))) {
+    if items.first().is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.starts_with(foldable))) {
         text.insert(0, ' ');
+    }
+    if items.last().is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.ends_with(foldable))) {
+        text.push(' ');
     }
     text
 }
@@ -1685,6 +1761,16 @@ fn xml_escape(text: &str, attr: bool) -> String {
 /// 同一套）：只有这些值得往内部元素的 style 属性里注入。
 fn is_svg_paint_property(prop: &lightningcss::properties::Property<'static>) -> bool {
     use lightningcss::properties::PropertyId;
+    use lightningcss::traits::ToCss;
+    // lightningcss 不认识的 SVG 表现属性落在 Custom(Unknown(…))：
+    // text-anchor 决定文本布局的锚点（usvg 的 presentation 属性），
+    // 不注入则逐字定位的标题按 start 排、字距错位。
+    if let PropertyId::Custom(name) = prop.property_id()
+        && let Ok(name) = name.to_css_string(lightningcss::printer::PrinterOptions::default())
+        && name == "text-anchor"
+    {
+        return true;
+    }
     matches!(
         prop.property_id(),
         PropertyId::Fill
@@ -1701,6 +1787,19 @@ fn is_svg_paint_property(prop: &lightningcss::properties::Property<'static>) -> 
             // 不透明度也注入：语料用 CSS opacity:0 停驻「未画」基准态，
             // 脚本补间再按帧改写（内联/脚本写过的属性注入时跳过，见下）。
             | PropertyId::Opacity
+            // 文本系：usvg 解析期做文本布局（font/字号/字重决定字形与
+            // 排版），页面 CSS 的 `.wm text{font-family;font-weight;
+            // font-size}` 不注入，`<text>` 落默认小字号——codex 字标
+            // 「字母成一排小点」的根因。text-anchor 同为文本布局输入。
+            | PropertyId::FontFamily
+            | PropertyId::FontSize
+            | PropertyId::FontWeight
+            | PropertyId::FontStyle
+            | PropertyId::LetterSpacing
+            // CSS filter：usvg 把 presentation 属性的 filter 函数列表
+            // （drop-shadow()/blur() 等）编译成 filter 链；不注入则白字
+            // 落在白底上不可见（codex headline `#hl text{filter:drop-shadow…}`）。
+            | PropertyId::Filter(..)
     )
 }
 
@@ -1756,7 +1855,9 @@ pub(crate) fn inject_markup_paint(
             };
             out.push_str(&markup[i..=i + end]);
             i += end + 1;
-            ancestors.pop();
+            if !ancestors.is_empty() {
+                ancestors.remove(0);
+            }
             continue;
         }
         // `<!`/`<?`：原样复制整段。
@@ -1915,7 +2016,12 @@ pub(crate) fn inject_markup_paint(
             out.push_str("/>");
         } else {
             out.push('>');
-            ancestors.push((tag_lower, id, class, attrs));
+            if !self_closing {
+                // 祖先链近→远（[0] = 父）：markup 扫描是外层先入栈，插入到
+                // 链首才是「更近的祖先」。追加到尾部会让子选择器回溯方向
+                // 反掉——两级以上选择器（作用域前缀 + 类）永不命中。
+                ancestors.insert(0, (tag_lower, id, class, attrs));
+            }
         }
         i = j;
     }

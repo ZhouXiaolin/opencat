@@ -23,6 +23,9 @@ pub enum ImageSource {
 pub struct Image {
     source: ImageSource,
     pub(crate) style: NodeStyle,
+    /// `<img width height>` 属性给的内在尺寸（HTML 的呈现提示）：CSS 尺寸
+    /// 优先，属性次之，都没有才用素材自身像素尺寸。
+    pub(crate) attr_size: Option<(f32, f32)>,
 }
 
 impl Image {
@@ -61,6 +64,15 @@ impl Image {
         self
     }
 
+    pub fn attr_size(mut self, width: f32, height: f32) -> Self {
+        self.attr_size = Some((width, height));
+        self
+    }
+
+    pub(crate) fn attr_size_ref(&self) -> Option<(f32, f32)> {
+        self.attr_size
+    }
+
     pub fn source(&self) -> &ImageSource {
         &self.source
     }
@@ -74,6 +86,7 @@ pub fn image() -> Image {
     Image {
         source: ImageSource::Unset,
         style: NodeStyle::default(),
+        attr_size: None,
     }
 }
 

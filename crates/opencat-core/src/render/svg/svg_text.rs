@@ -69,7 +69,8 @@ fn baseline_shift(m: &FontTextMetrics, span: &usvg::TextSpan) -> f32 {
 }
 
 /// 进程级 SVG 字形字体库：系统字体扫描一次。与 usvg 解析侧（parse_tree
-/// 的 fontdb）同一来源，family 匹配结果一致。
+/// 的 fontdb）同一来源，family 匹配结果一致。仅作文档字体作用域缺席时
+/// 的兜底（探测/示例直调 emit_svg）。
 fn svg_font_db() -> &'static fontdb::Database {
     static DB: OnceLock<fontdb::Database> = OnceLock::new();
     DB.get_or_init(|| {
@@ -95,7 +96,22 @@ pub(super) fn render_text(
         return;
     }
 
-    let db = svg_font_db();
+    // 渲染路径的文档字体库来自外层 `scope_font_db`（pipeline/frame 包整棵
+    // 树的 render）——svg `<text>` 的 shaping 必须看见 @font-face web 字体
+    // （frame-md 手写标注 'Just Another Hand' 消失的根因）。缺席或空库
+    // （探测直调 emit_svg）回系统扫描。
+    let scoped = crate::text::script_font_db();
+    let db: &fontdb::Database = if scoped.is_empty() { svg_font_db() } else { &scoped };
+    if std::env::var("OC_SVG_TEXT_DEBUG").is_ok() {
+        let first = text.chunks().first().map(|c| c.text().to_string()).unwrap_or_default();
+        eprintln!("[svg_text] chunks={} first={:?} scoped_faces={}", text.chunks().len(), first, scoped.faces().count());
+        if let Some(chunk) = text.chunks().first() {
+            for span in chunk.spans() {
+                let s = span_style(span, db);
+                eprintln!("[svg_text] span families={:?} -> family={:?} stack={:?} generic={:?}", span.font().families(), s.font_family, s.font_stack, s.font_generic);
+            }
+        }
+    }
     // shape 全部 chunk（纯函数，一次），顺带探测 color 字形（COLR/emoji
     // 位图）。color 字形回退 usvg 布局：flatten 时由 usvg 的 skrifa
     // painter 嵌成 SVG 子树，与 resvg 逐位同源；swash 的 ColorImage
@@ -492,10 +508,14 @@ fn emit_deco_line(
 }
 
 /// usvg span 样式 → core 文本样式（shaping 输入）。family 解析按 usvg
-/// 语义：name 栈逐个 fontdb query，全部 miss 落 Serif 兜底（usvg
-/// default_font_selector 同款），把**命中的 face family 名**交给 shaping——
-/// cosmic-text 的 script fallback 会选别的 face，字形与度量都会漂。
-/// fill/stroke 颜色不走这里（paint 直接从 usvg::Fill/Stroke 转）。
+/// 语义：name 栈逐个 fontdb query，把**命中的 face family 名**交给
+/// shaping——cosmic-text 的 script fallback 会选别的 face，字形与度量
+/// 都会漂。fill/stroke 颜色不走这里（paint 直接从 usvg::Fill/Stroke 转）。
+///
+/// query miss 不是终点：generic 族在裸 fontdb 里映射空串（`set_*_family`
+/// 无人调用），name 栈全 miss 时 query 恒 None——把命名栈与首个 generic
+/// 交给 text_attrs 的 installed() 过滤 + 注册 generic 名解析兜底，否则
+/// 整条文本消失（frame-md 手写标注 'Just Another Hand' 的根因）。
 fn span_style(span: &usvg::TextSpan, db: &fontdb::Database) -> ComputedTextStyle {
     let font = span.font();
     let mut families: Vec<fontdb::Family> = font
@@ -535,10 +555,30 @@ fn span_style(span: &usvg::TextSpan, db: &fontdb::Database) -> ComputedTextStyle
         .query(&query)
         .and_then(|id| db.face(id))
         .and_then(|face| face.families.first().map(|(name, _)| name.clone()));
+    // query miss 兜底：命名栈原序 + 首个可映射 generic（cursive/fantasy
+    // 不建模，跳过——text_attrs 的默认 SansSerif 接管）。
+    let mut font_stack = Vec::new();
+    let mut font_generic = None;
+    for f in font.families() {
+        match f {
+            usvg::FontFamily::Named(n) => font_stack.push(n.clone()),
+            usvg::FontFamily::Serif if font_generic.is_none() => {
+                font_generic = Some(crate::style::GenericFamily::Serif);
+            }
+            usvg::FontFamily::SansSerif if font_generic.is_none() => {
+                font_generic = Some(crate::style::GenericFamily::SansSerif);
+            }
+            usvg::FontFamily::Monospace if font_generic.is_none() => {
+                font_generic = Some(crate::style::GenericFamily::Monospace);
+            }
+            _ => {}
+        }
+    }
     ComputedTextStyle {
         text_px: span.font_size().get(),
         font_family: family,
-        font_generic: None,
+        font_stack,
+        font_generic,
         font_weight: FontWeight(font.weight()),
         font_style: match font.style() {
             usvg::FontStyle::Normal => FontStyle::Normal,

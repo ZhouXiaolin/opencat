@@ -238,7 +238,21 @@ fn css_font_faces(
             out.push((face.family.clone(), rel, bytes));
         }
     }
-    Ok((out, declared))
+    // 同族多子集（`latin` / `latin-ext` 的 unicode-range 切分）按「覆盖
+    // Basic Latin 的面优先」稳定排序：fontdb 取该 (族, 字重, 风格) 下先
+    // 注册的面，子集顺序反过来会让 ASCII 落到无字形的面上（见
+    // `fonts::covers_basic_latin`）。
+    let covers: Vec<bool> = out
+        .iter()
+        .map(|(_, _, bytes)| opencat_core::fonts::covers_basic_latin(bytes))
+        .collect();
+    let mut order: Vec<usize> = (0..out.len()).collect();
+    order.sort_by_key(|i| (&out[*i].0, !covers[*i]));
+    let sorted = order
+        .into_iter()
+        .map(|i| out[i].clone())
+        .collect::<Vec<_>>();
+    Ok((sorted, declared))
 }
 
 /// 页面声明了某字体族却没带 @font-face 时，补引擎内置品牌字体面
@@ -1026,32 +1040,32 @@ globalThis.__ocExtPhase = true;\n{}\nglobalThis.__ocExtPhase = false; }}\n",
     // realm 跨帧落定，tl 进 __timelines 时钟可能已过幕起点 at，play() 从
     // 0 自然播会让整幕滞后 (钟-at)。对齐 = play 后 seek(钟-at)（回调不抑
     // 制：跨过的 tl.call 依序触发，appendChild 类 DOM 生长一次到位，与浏
-    // 览器逐帧语义同终点）。中途起渲（首帧钟已 > at）同理，不再注册
-    // delayedCall（那会把触发推到 钟+at）。
-    driver.push_str("    if (!globalThis.__ocVtimePending) globalThis.__ocVtimePending = {};\n");
+    // 览器逐帧语义同终点）。中途起渲（首帧钟已 > at）同理。到点判定只看
+    // 虚拟钟：跳帧渲染（`--frames 166,331`、抽帧 sweep）里 gsap 全局钟只
+    // 走了两个 tick，`delayedCall(8.8, …)` 永不触发，该幕整段停在 t=0
+    // （`Three commands` 标题不出现）。每帧 driver 都会进来，钟过 at 的
+    // 下一次调用就地 play + seek 补上。
+    driver.push_str("    if (!globalThis.__ocVtimePlayed) globalThis.__ocVtimePlayed = {};\n");
     driver.push_str("    if (globalThis.gsap) { if (!globalThis.__ocVtimeLag) { globalThis.__ocVtimeLag = true; try { globalThis.gsap.ticker.lagSmoothing(0); } catch (error) {} } try { globalThis.gsap.ticker.wake(); } catch (error) {} }\n");
     driver.push_str("    (function () {\n");
     driver.push_str("        var reg = (typeof window === 'object' && window && window.__timelines) || {};\n");
-    driver.push_str("        var pend = globalThis.__ocVtimePending;\n");
+    driver.push_str("        var played = globalThis.__ocVtimePlayed;\n");
     driver.push_str("        var offs = globalThis.__ocCompOffsets || {};\n");
-    driver.push_str("        var g = globalThis.gsap;\n");
-    driver.push_str("        var __ocNow = function () { return (globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0); };\n");
+        driver.push_str("        var __ocNow = function () { return (globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0); };\n");
     driver.push_str("        var __ocPlayAct = function (tl, at, id) {\n");
     driver.push_str("            try { tl.play(); } catch (error) {}\n");
     driver.push_str("            try { var late = __ocNow() - at; if (late > 0.0001 && typeof tl.seek === 'function') tl.seek(late, false); } catch (error) { if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') __ocStderr('[seek-err] ' + id + ' :: ' + (error && (error.stack || error.message || String(error)))); }\n");
     driver.push_str("            if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') { var __ocLate = __ocNow() - at; __ocStderr('[act-play] ' + id + ' now=' + __ocNow().toFixed(3) + ' late=' + __ocLate.toFixed(3) + ' tltime=' + (typeof tl.time === 'function' ? tl.time().toFixed(3) : '?')); }\n");
     driver.push_str("        };\n");
     driver.push_str("        for (var id in reg) {\n");
-    driver.push_str("            if (pend[id]) continue;\n");
+    driver.push_str("            if (played[id]) continue;\n");
     driver.push_str("            var tl = reg[id];\n");
     driver.push_str("            if (!tl || typeof tl.play !== 'function') continue;\n");
-    driver.push_str("            pend[id] = true;\n");
-    driver.push_str("            var at = Number(offs[id]);\n");
+    driver.push_str("            var at = Number(offs[id]) || 0;\n");
+    driver.push_str("            if (at > 0 && __ocNow() < at) continue;\n");
+    driver.push_str("            played[id] = true;\n");
     driver.push_str("            if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') __ocStderr('[act] ' + id + ' at=' + at + ' now=' + __ocNow().toFixed(3));\n");
-    driver.push_str("            if (!(at > 0)) { __ocPlayAct(tl, 0, id); }\n");
-    driver.push_str("            else if (__ocNow() >= at) { __ocPlayAct(tl, at, id); }\n");
-    driver.push_str("            else if (g && typeof g.delayedCall === 'function') { g.delayedCall(at, function (t2, at2) { return function () { __ocPlayAct(t2, at2, id); }; }(tl, at)); }\n");
-    driver.push_str("            else { __ocPlayAct(tl, at, id); }\n");
+    driver.push_str("            __ocPlayAct(tl, at, id);\n");
     driver.push_str("        }\n");
     driver.push_str("        if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') { var __regKeys = []; for (var rk in reg) __regKeys.push(rk); var __rootTl = reg['root']; __ocStderr('[tick] f=' + (globalThis.__ocNFrame || 0) + ' now=' + __ocNow().toFixed(3) + ' reg=[' + __regKeys.join(',') + '] rootTime=' + (__rootTl && typeof __rootTl.time === 'function' ? __rootTl.time().toFixed(3) : '?')); }\n");
     driver.push_str("    })();\n");

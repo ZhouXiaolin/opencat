@@ -12,34 +12,47 @@ fn svg_text(bytes: &[u8]) -> Option<&str> {
     text.trim_start().starts_with('<').then_some(text)
 }
 
+/// img 语义的字体作用域：显式置空文档字体作用域，parse_tree 落回系统
+/// 扫描。浏览器里 `<img>` svg 是隔离文档——@font-face web 字体不可见，
+/// 只认系统/内部资源；不隔离的话脚本桥（Image 解码发生在 frame 的
+/// scope_font_db 内）会把文档字体泄漏进 img svg。
+fn with_img_font_scope<R>(f: impl FnOnce() -> R) -> R {
+    let empty = std::sync::Arc::new(fontdb::Database::new());
+    crate::text::scope_font_db(&empty, f)
+}
+
 /// intrinsic 尺寸（width/height/viewBox 归一后的画布尺寸）。非 svg 字节
 /// 或解析失败返回 None（调用方落回位图探测）。
 pub fn svg_dims(bytes: &[u8]) -> Option<(u32, u32)> {
-    let text = svg_text(bytes)?;
-    let tree = crate::render::svg::load_tree_markup(text)?;
-    let (w, h) = crate::render::svg::tree_size(&tree);
-    (w > 0.0 && h > 0.0).then(|| (w.round() as u32, h.round() as u32))
+    with_img_font_scope(|| {
+        let text = svg_text(bytes)?;
+        let tree = crate::render::svg::load_tree_markup(text)?;
+        let (w, h) = crate::render::svg::tree_size(&tree);
+        (w > 0.0 && h > 0.0).then(|| (w.round() as u32, h.round() as u32))
+    })
 }
 
 /// 光栅成预乘 RGBA8888（stride = w*4）。`target` 是绘制目标尺寸（可大于
 /// intrinsic：矢量图放大也重光栅）；None 用 intrinsic 尺寸。
 pub fn rasterize_svg(bytes: &[u8], target: Option<(u32, u32)>) -> Option<(Vec<u8>, u32, u32)> {
-    let text = svg_text(bytes)?;
-    let tree = crate::render::svg::load_tree_markup(text)?;
-    let (tw, th) = crate::render::svg::tree_size(&tree);
-    if tw <= 0.0 || th <= 0.0 {
-        return None;
-    }
-    let (w, h) = target.unwrap_or((tw.round() as u32, th.round() as u32));
-    if w == 0 || h == 0 {
-        return None;
-    }
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h)?;
-    let (fw, fh) = (w as f32, h as f32);
-    resvg::render(
-        &tree,
-        resvg::tiny_skia::Transform::from_scale(fw / tw, fh / th),
-        &mut pixmap.as_mut(),
-    );
-    Some((pixmap.take().to_vec(), w, h))
+    with_img_font_scope(|| {
+        let text = svg_text(bytes)?;
+        let tree = crate::render::svg::load_tree_markup(text)?;
+        let (tw, th) = crate::render::svg::tree_size(&tree);
+        if tw <= 0.0 || th <= 0.0 {
+            return None;
+        }
+        let (w, h) = target.unwrap_or((tw.round() as u32, th.round() as u32));
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(w, h)?;
+        let (fw, fh) = (w as f32, h as f32);
+        resvg::render(
+            &tree,
+            resvg::tiny_skia::Transform::from_scale(fw / tw, fh / th),
+            &mut pixmap.as_mut(),
+        );
+        Some((pixmap.take().to_vec(), w, h))
+    })
 }

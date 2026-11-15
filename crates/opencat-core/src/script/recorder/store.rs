@@ -458,6 +458,7 @@ impl StyleStore {
                 "textSize" => mutations.text_px.map(|f| json!(f)),
                 "letterSpacing" => mutations.letter_spacing.map(|f| json!(f)),
                 "lineHeight" => mutations.line_height.map(|f| json!(f)),
+                "width" if mutations.width_auto => Some(json!("auto")),
                 "width" => mutations
                     .width
                     .map(|f| json!(f))
@@ -757,8 +758,27 @@ impl StyleStore {
                     entry.inset_bottom_pct.is_none().then(|| num_from_value(&value)).flatten();
             }
             "width" => {
-                entry.width_pct = pct_from_value(&value);
-                entry.width = entry.width_pct.is_none().then(|| num_from_value(&value)).flatten();
+                // 长度解析不出时保持上一次写入：浏览器对无效值（GSAP 拼出
+                // 的 `autopx`）原样忽略，写成空声明会回落到样式表的
+                // `width: 0`（打字机文本整段不可见）。
+                let text = value.as_str().map(str::trim);
+                if matches!(text, Some("auto")) {
+                    entry.width_auto = true;
+                    entry.width = None;
+                    entry.width_pct = None;
+                } else if let Some(p) = pct_from_value(&value) {
+                    entry.width_auto = false;
+                    entry.width_pct = Some(p);
+                    entry.width = None;
+                } else if let Some(v) = num_from_value(&value) {
+                    entry.width_auto = false;
+                    entry.width = Some(v);
+                    entry.width_pct = None;
+                } else if matches!(text, None | Some("")) {
+                    entry.width_auto = false;
+                    entry.width = None;
+                    entry.width_pct = None;
+                }
             }
             "height" => {
                 entry.height_pct = pct_from_value(&value);
@@ -911,7 +931,10 @@ impl StyleStore {
                     entry.stroke_color = color_token_from_script_string(s);
                 }
             }
-            "textColor" => {
+            "textColor" | "color" => {
+                // CSS `color` 就是文字色（可继承）；HTML 文本的补间都写这个
+                // 属性（`tl.to(amount,{color:'#1f9d57'})`），只认 CamelCase
+                // 别名会让补间静默落空。
                 if let Some(s) = value.as_str() {
                     entry.text_color = color_token_from_script_string(s);
                 }
@@ -982,9 +1005,6 @@ impl StyleStore {
             // ── strings ──
             "text" => {
                 if let Some(s) = value.as_str() {
-                    if std::env::var_os("OC_DBG_TSLOT").is_some() && id.contains("composer") {
-                        eprintln!("[dbg-wtext] id={id} len={}", s.len());
-                    }
                     entry.text_content = Some(s.to_string());
                     self.text_writes += 1;
                 }
@@ -1811,7 +1831,65 @@ impl MutationStore {
     /// Centralizes all property→field mapping in one place.
     pub fn write_style_value(&mut self, id: &str, property: &str, value: serde_json::Value) {
         let value = self.font_relative_to_px(id, property, value);
+        let value = self.transform_viewport_to_px(property, value);
         self.style.write_style_value(id, property, value)
+    }
+
+    /// `transform` 串里的视口相对长度（`vw`/`vh`/`cqw`/`cqh`）折成 px。
+    /// 变换函数的单位解析在 `css::parse_css_transform`（无上下文的纯换算），
+    /// `translateZ(13vw)` 这类参数在那里按 0 落空——脚本拼的 3D 环形排布
+    /// 整圈压回 z=0，所有词条叠在同一处。
+    fn transform_viewport_to_px(
+        &self,
+        property: &str,
+        value: serde_json::Value,
+    ) -> serde_json::Value {
+        if property != "transform" || self.viewport.0 <= 0.0 {
+            return value;
+        }
+        let Some(text) = value.as_str() else {
+            return value;
+        };
+        if !["vw", "vh", "cqw", "cqh"].iter().any(|u| text.contains(u)) {
+            return value;
+        }
+        let mut out = String::with_capacity(text.len());
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let c = bytes[i] as char;
+            if c.is_ascii_digit() || c == '.' || c == '-' || c == '+' {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && ((bytes[i] as char).is_ascii_digit() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                let number = &text[start..i];
+                let rest = &text[i..];
+                let (unit_len, base) = if rest.starts_with("cqw") {
+                    (3, self.viewport.0)
+                } else if rest.starts_with("cqh") {
+                    (3, self.viewport.1)
+                } else if rest.starts_with("vw") {
+                    (2, self.viewport.0)
+                } else if rest.starts_with("vh") {
+                    (2, self.viewport.1)
+                } else {
+                    (0, 0.0)
+                };
+                match (unit_len, number.parse::<f32>()) {
+                    (len, Ok(v)) if len > 0 && base > 0.0 => {
+                        out.push_str(&format!("{}px", v * base / 100.0));
+                        i += len;
+                    }
+                    _ => out.push_str(number),
+                }
+                continue;
+            }
+            out.push(c);
+            i += 1;
+        }
+        serde_json::json!(out)
     }
 
     /// 字体相对长度（`em`）按元素字号折成 px（CSS Values §5.1.1）；容器

@@ -54,6 +54,11 @@ pub struct NodeStyleMutations {
     /// 脚本写的百分比尺寸（包含块的分数，`"70%"` → 0.7），与 px 尺寸互斥。
     pub width_pct: Option<f32>,
     pub height_pct: Option<f32>,
+    /// 脚本写 `width: auto`（打字机揭示收尾的 GSAP 收笔）。三个尺寸字段
+    /// 都为 None 表示「没写」，只有这个标志显式把宽度还原成 auto——否则
+    /// 样式表的 `width: 0` 继续生效，打出来的字整段不可见。
+    #[serde(default)]
+    pub width_auto: bool,
     pub padding: Option<f32>,
     pub padding_x: Option<f32>,
     pub padding_y: Option<f32>,
@@ -406,6 +411,10 @@ impl NodeStyleMutations {
             style.width = None;
             style.width_percent = Some(p);
         }
+        if self.width_auto {
+            style.width = None;
+            style.width_percent = None;
+        }
         if let Some(v) = self.height {
             style.height = Some(v);
             style.height_percent = None;
@@ -509,6 +518,9 @@ impl NodeStyleMutations {
             }
             if let Some(p) = self.width_pct {
                 t.size.width = Dimension::percent(p);
+            }
+            if self.width_auto {
+                t.size.width = Dimension::auto();
             }
             if let Some(v) = self.height {
                 t.size.height = Dimension::length(v);
@@ -1041,6 +1053,9 @@ pub fn apply_node_to_recorder(
     // 百分比尺寸走通用写通道：活写与重放共用 store 的同一条写臂。
     if let Some(p) = m.width_pct {
         recorder.write_style_value(id, "width", serde_json::json!(format!("{}%", p * 100.0)));
+    }
+    if m.width_auto {
+        recorder.write_style_value(id, "width", serde_json::json!("auto"));
     }
     if let Some(p) = m.height_pct {
         recorder.write_style_value(id, "height", serde_json::json!(format!("{}%", p * 100.0)));

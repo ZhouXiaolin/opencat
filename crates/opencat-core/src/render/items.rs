@@ -297,6 +297,7 @@ fn build_stroke_paint(
     p
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_node_border(
     builder: &mut DrawOpBuilder,
     rect: &Rect,
@@ -307,12 +308,21 @@ pub fn draw_node_border(
     border_bottom_width: Option<f32>,
     border_left_width: Option<f32>,
     border_color: Option<ColorToken>,
+    border_side_colors: [Option<ColorToken>; 4],
     border_style: Option<BorderStyle>,
     blur_sigma: Option<f32>,
 ) {
-    let Some(color) = border_color else {
+    // 分边颜色缺省时回落到统一色；统一色也没写时（只有 `border-top-color`
+    // 一条长写）用第一条已声明的边色补齐，等价于 CSS 的 currentColor 近似。
+    let base = border_color.map(|c| color_token_to_rgba(&c));
+    let sides = border_side_colors.map(|c| c.map(|c| color_token_to_rgba(&c)).or(base));
+    let Some(seed) = sides[0].or(sides[1]).or(sides[2]).or(sides[3]) else {
         return;
     };
+    let side_colors = sides.map(|c| c.unwrap_or(seed));
+    if side_colors.iter().all(|c| c[3] <= 0.0) {
+        return;
+    }
     let uniform = border_width.unwrap_or(0.0);
     let top_w = border_top_width.unwrap_or(uniform);
     let right_w = border_right_width.unwrap_or(uniform);
@@ -323,12 +333,36 @@ pub fn draw_node_border(
     }
 
     let stroke_style = border_style.unwrap_or_default();
-    let rgba = color_token_to_rgba(&color);
+
+    // 四条边同色走整圈填充（抗锯齿质量最好）；分边异色只能逐边描。
+    if side_colors != [side_colors[0]; 4] {
+        draw_per_side_borders(
+            builder,
+            rect,
+            radius,
+            top_w,
+            right_w,
+            bottom_w,
+            left_w,
+            &side_colors,
+            &stroke_style,
+            blur_sigma,
+        );
+        return;
+    }
 
     match stroke_style {
         BorderStyle::Solid => {
             draw_border_fill_ring(
-                builder, rect, radius, top_w, right_w, bottom_w, left_w, &rgba, blur_sigma,
+                builder,
+                rect,
+                radius,
+                top_w,
+                right_w,
+                bottom_w,
+                left_w,
+                &side_colors[0],
+                blur_sigma,
             );
         }
         BorderStyle::Dashed | BorderStyle::Dotted => {
@@ -340,7 +374,7 @@ pub fn draw_node_border(
                 right_w,
                 bottom_w,
                 left_w,
-                &rgba,
+                &side_colors,
                 &stroke_style,
                 blur_sigma,
             );
@@ -422,7 +456,7 @@ fn draw_per_side_borders(
     right_w: f32,
     bottom_w: f32,
     left_w: f32,
-    color: &[f32; 4],
+    colors: &[[f32; 4]; 4],
     border_style: &BorderStyle,
     blur_sigma: Option<f32>,
 ) {
@@ -436,7 +470,7 @@ fn draw_per_side_borders(
     let r_br = radii[2];
     let r_bl = radii[3];
 
-    if top_w > 0.0 {
+    if top_w > 0.0 && colors[0][3] > 0.0 {
         let y = top + top_w / 2.0;
         let x0 = if top_w == left_w && r_tl > 0.0 {
             left + r_tl
@@ -453,7 +487,7 @@ fn draw_per_side_borders(
             right
         };
         if x1 > x0 {
-            let paint = build_stroke_paint(color, top_w, border_style, blur_sigma);
+            let paint = build_stroke_paint(&colors[0], top_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::Line {
                 x0,
@@ -465,7 +499,7 @@ fn draw_per_side_borders(
         }
     }
 
-    if right_w > 0.0 {
+    if right_w > 0.0 && colors[1][3] > 0.0 {
         let x = right - right_w / 2.0;
         let y0 = if right_w == top_w && r_tr > 0.0 {
             top + r_tr
@@ -482,7 +516,7 @@ fn draw_per_side_borders(
             bottom
         };
         if y1 > y0 {
-            let paint = build_stroke_paint(color, right_w, border_style, blur_sigma);
+            let paint = build_stroke_paint(&colors[1], right_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::Line {
                 x0: x,
@@ -494,7 +528,7 @@ fn draw_per_side_borders(
         }
     }
 
-    if bottom_w > 0.0 {
+    if bottom_w > 0.0 && colors[2][3] > 0.0 {
         let y = bottom - bottom_w / 2.0;
         let x0 = if bottom_w == left_w && r_bl > 0.0 {
             left + r_bl
@@ -511,7 +545,7 @@ fn draw_per_side_borders(
             right
         };
         if x1 > x0 {
-            let paint = build_stroke_paint(color, bottom_w, border_style, blur_sigma);
+            let paint = build_stroke_paint(&colors[2], bottom_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::Line {
                 x0,
@@ -523,7 +557,7 @@ fn draw_per_side_borders(
         }
     }
 
-    if left_w > 0.0 {
+    if left_w > 0.0 && colors[3][3] > 0.0 {
         let x = left + left_w / 2.0;
         let y0 = if left_w == top_w && r_tl > 0.0 {
             top + r_tl
@@ -540,7 +574,7 @@ fn draw_per_side_borders(
             bottom
         };
         if y1 > y0 {
-            let paint = build_stroke_paint(color, left_w, border_style, blur_sigma);
+            let paint = build_stroke_paint(&colors[3], left_w, border_style, blur_sigma);
             let paint_id = builder.intern_paint(paint);
             builder.push(DrawOp::Line {
                 x0: x,
@@ -557,7 +591,9 @@ fn draw_per_side_borders(
                            cy: f32,
                            corner_r: f32,
                            width: f32,
-                           start_deg: f32| {
+                           start_deg: f32,
+                           sweep_deg: f32,
+                           color: &[f32; 4]| {
         let arc_r = (corner_r - width / 2.0).max(0.0);
         if arc_r <= 0.0 {
             return;
@@ -568,23 +604,47 @@ fn draw_per_side_borders(
         builder.push(DrawOp::Arc {
             rect: rect_to_rect4(oval),
             start: start_deg,
-            sweep: 90.0,
+            sweep: sweep_deg,
             use_center: false,
             paint: paint_id,
         });
     };
 
+    // 圆角两侧各占 45°（CSS 的斜接缝落在 45° 方向）。两色相同时仍画整段
+    // 90°，免得两段圆弧的接缝在抗锯齿下显出一条细线。
+    let draw_corner = |builder: &mut DrawOpBuilder,
+                       cx: f32,
+                       cy: f32,
+                       corner_r: f32,
+                       width: f32,
+                       start_deg: f32,
+                       first: usize,
+                       second: usize| {
+        let (a, b) = (colors[first], colors[second]);
+        if a == b {
+            draw_corner_arc(builder, cx, cy, corner_r, width, start_deg, 90.0, &a);
+        } else {
+            if a[3] > 0.0 {
+                draw_corner_arc(builder, cx, cy, corner_r, width, start_deg, 45.0, &a);
+            }
+            if b[3] > 0.0 {
+                draw_corner_arc(builder, cx, cy, corner_r, width, start_deg + 45.0, 45.0, &b);
+            }
+        }
+    };
+
+    // 角邻居下标：0=上 1=右 2=下 3=左。
     if r_tl > 0.0 && top_w > 0.0 && top_w == left_w {
-        draw_corner_arc(builder, left + r_tl, top + r_tl, r_tl, top_w, 180.0);
+        draw_corner(builder, left + r_tl, top + r_tl, r_tl, top_w, 180.0, 3, 0);
     }
     if r_tr > 0.0 && top_w > 0.0 && top_w == right_w {
-        draw_corner_arc(builder, right - r_tr, top + r_tr, r_tr, top_w, 270.0);
+        draw_corner(builder, right - r_tr, top + r_tr, r_tr, top_w, 270.0, 0, 1);
     }
     if r_br > 0.0 && bottom_w > 0.0 && bottom_w == right_w {
-        draw_corner_arc(builder, right - r_br, bottom - r_br, r_br, bottom_w, 0.0);
+        draw_corner(builder, right - r_br, bottom - r_br, r_br, bottom_w, 0.0, 1, 2);
     }
     if r_bl > 0.0 && bottom_w > 0.0 && bottom_w == left_w {
-        draw_corner_arc(builder, left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0);
+        draw_corner(builder, left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0, 2, 3);
     }
 }
 
@@ -775,6 +835,12 @@ pub fn render_rect(ctx: &mut RenderCtx, item: &RectDisplayItem) -> Result<(), Re
         style.border_bottom_width,
         style.border_left_width,
         style.border_color,
+        [
+            style.border_top_color,
+            style.border_right_color,
+            style.border_bottom_color,
+            style.border_left_color,
+        ],
         style.border_style,
         None,
     );
@@ -978,6 +1044,7 @@ pub fn render_svg(ctx: &mut RenderCtx, item: &SvgDisplayItem) -> Result<(), Rend
             width: b.width() as f32,
             height: b.height() as f32,
         },
+        item.clip_overflow,
     );
     Ok(())
 }
@@ -1240,6 +1307,12 @@ pub fn render_bitmap(ctx: &mut RenderCtx, item: &BitmapDisplayItem) -> Result<()
         style.border_bottom_width,
         style.border_left_width,
         style.border_color,
+        [
+            style.border_top_color,
+            style.border_right_color,
+            style.border_bottom_color,
+            style.border_left_color,
+        ],
         style.border_style,
         None,
     );
@@ -1316,6 +1389,12 @@ pub fn render_lottie(
         style.border_bottom_width,
         style.border_left_width,
         style.border_color,
+        [
+            style.border_top_color,
+            style.border_right_color,
+            style.border_bottom_color,
+            style.border_left_color,
+        ],
         style.border_style,
         None,
     );

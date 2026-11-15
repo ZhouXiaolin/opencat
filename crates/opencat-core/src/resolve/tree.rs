@@ -62,6 +62,8 @@ pub struct ElementBitmap {
     pub asset_id: AssetId,
     pub width: u32,
     pub height: u32,
+    /// `<img width height>` 属性给的内在尺寸（CSS 未给尺寸时优先于素材像素）。
+    pub attr_size: Option<(f32, f32)>,
     pub video_timing: Option<VideoFrameTiming>,
 }
 

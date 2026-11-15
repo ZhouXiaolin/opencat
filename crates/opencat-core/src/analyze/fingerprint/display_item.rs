@@ -194,6 +194,7 @@ impl Hash for TextStyleFp<'_> {
         style.line_height_px.map(F32Hash).hash(state);
         style.text_transform.hash(state);
         style.line_through.hash(state);
+        style.underline.hash(state);
     }
 }
 
@@ -210,6 +211,10 @@ impl Hash for RectPaintFp<'_> {
         paint.border_bottom_width.map(F32Hash).hash(state);
         paint.border_left_width.map(F32Hash).hash(state);
         paint.border_color.hash(state);
+        paint.border_top_color.hash(state);
+        paint.border_right_color.hash(state);
+        paint.border_bottom_color.hash(state);
+        paint.border_left_color.hash(state);
         paint.border_style.hash(state);
         paint.box_shadow.hash(state);
         paint.inset_shadow.hash(state);
@@ -230,6 +235,10 @@ impl Hash for BitmapPaintFp<'_> {
         paint.border_bottom_width.map(F32Hash).hash(state);
         paint.border_left_width.map(F32Hash).hash(state);
         paint.border_color.hash(state);
+        paint.border_top_color.hash(state);
+        paint.border_right_color.hash(state);
+        paint.border_bottom_color.hash(state);
+        paint.border_left_color.hash(state);
         paint.border_style.hash(state);
         paint.box_shadow.hash(state);
         paint.inset_shadow.hash(state);

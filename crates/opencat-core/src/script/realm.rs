@@ -816,11 +816,6 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 .mutations
                 .get("composer-text:t")
                 .and_then(|m| m.text_content.clone());
-            if std::env::var_os("OC_DBG_TSLOT").is_some() {
-                if let Some(v) = &tc {
-                    eprintln!("[dbg-store] composer-text:t text={v:?}");
-                }
-            }
             s.take_mutations()
         });
         if std::env::var_os("OC_FRAME_TIMING").is_some() {

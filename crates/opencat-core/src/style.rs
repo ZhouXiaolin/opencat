@@ -2152,6 +2152,13 @@ pub struct NodeStyle {
     pub border_bottom_width: Option<f32>,
     pub border_left_width: Option<f32>,
     pub border_color: Option<ColorToken>,
+    /// 分边颜色（CSS `border-top-color` 等）。`None` 的边走 `border_color`。
+    /// 语料的 spinner 写法是 `border: 3px solid transparent` 再加两条边
+    /// 上色：单色模型会把整圈画成亮色，分边才画得出弧段。
+    pub border_top_color: Option<ColorToken>,
+    pub border_right_color: Option<ColorToken>,
+    pub border_bottom_color: Option<ColorToken>,
+    pub border_left_color: Option<ColorToken>,
     pub border_style: Option<BorderStyle>,
     pub css_filter: CssFilter,
     pub backdrop_blur_sigma: Option<f32>,
@@ -2162,6 +2169,11 @@ pub struct NodeStyle {
     pub overflow_hidden: bool,
     /// `overflow-y: visible` 配裁剪的 `overflow-x`：只裁横向。
     pub overflow_y_visible: bool,
+    /// 作者显式声明 `overflow: visible`（`svg.layer{overflow:visible}`）。
+    /// 内联 svg 是视口，浏览器的 UA 样式给它 `overflow: hidden`，所以
+    /// 「未声明」与「声明 visible」必须区分：只有显式 visible 才允许内容
+    /// 溢出盒外（codex 的 `#typed` 层靠它露出 viewBox 外的字形）。
+    pub overflow_visible: bool,
     pub clip_path: Option<ClipPath>,
     /// CSS `background-clip`. `Text` makes the element's background fill its
     /// glyphs (gradient text); the glyphs otherwise paint with `text_color`.
@@ -2218,6 +2230,8 @@ pub struct NodeStyle {
     pub line_height_px: Option<f32>,
     pub text_transform: Option<TextTransform>,
     pub line_through: bool,
+    /// CSS `text-decoration-line: underline`（含 `text-decoration` 简写）。
+    pub underline: bool,
     /// CSS `white-space: nowrap` (`whitespace-nowrap`). When `true`, this node's text
     /// never breaks lines even inside a definite-width container — it overflows.
     pub no_wrap: bool,
@@ -2300,6 +2314,7 @@ pub struct ComputedTextStyle {
     /// its container has a definite width (overflowing instead of wrapping).
     pub no_wrap: bool,
     pub line_through: bool,
+    pub underline: bool,
     /// CSS `-webkit-text-stroke` (inherited like other font properties).
     pub text_stroke: Option<TextStroke>,
 }
@@ -2321,6 +2336,7 @@ impl std::hash::Hash for ComputedTextStyle {
         self.wrap_text.hash(state);
         self.no_wrap.hash(state);
         self.line_through.hash(state);
+        self.underline.hash(state);
         self.text_stroke.hash(state);
     }
 }
@@ -2343,6 +2359,7 @@ impl Default for ComputedTextStyle {
             wrap_text: false,
             no_wrap: false,
             line_through: false,
+            underline: false,
             text_stroke: None,
         }
     }
@@ -2388,6 +2405,10 @@ pub fn resolve_text_style(parent: &ComputedTextStyle, style: &NodeStyle) -> Comp
         // CSS `white-space` is inherited.
         no_wrap: style.no_wrap || parent.no_wrap,
         line_through: style.line_through,
+        // underline 沿文本样式链传播（近似 CSS 装饰线穿透行内子盒）：
+        // `<div class=u>text</div>` 的匿名 run（class=None、空 tag）拿不到
+        // `.u` 规则，不继承就没线。`none` 显式重置因此不阻断，语料无比场景。
+        underline: style.underline || parent.underline,
         text_stroke: style.text_stroke.or(parent.text_stroke),
     }
 }

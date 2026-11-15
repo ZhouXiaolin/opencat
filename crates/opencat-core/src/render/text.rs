@@ -272,6 +272,29 @@ pub fn render_text(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), Re
 
     let builder = &mut ctx.builder;
 
+    // CSS `text-decoration-line: underline`：矩形挂行基线（post 表
+    // underlinePosition/Thickness，与 svg 文本路径同源语义），画在字形下。
+    // 颜色取首个 fill 层（浏览器默认 text-decoration-color: currentColor）。
+    if item.style.underline
+        && let Some(m) = raster.metrics
+        && m.stroke_size > 0.0
+        && let Some(&paint_id) = paint_ids.first()
+    {
+        for line in &raster.lines {
+            let line_x_shift =
+                compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);
+            builder.push(DrawOp::Rect {
+                rect: Rect4 {
+                    x: item.bounds.x + line_x_shift,
+                    y: item.bounds.y + line.y - m.underline_offset,
+                    width: line.width,
+                    height: m.stroke_size,
+                },
+                paint: paint_id,
+            });
+        }
+    }
+
     for line in &raster.lines {
         let line_x_shift =
             compute_line_x_shift(line.width, item.bounds.width, item.style.text_align);

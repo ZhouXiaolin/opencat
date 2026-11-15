@@ -118,6 +118,8 @@ pub enum DomElement {
         query_count: Option<usize>,
         #[serde(rename = "aspectRatio")]
         aspect_ratio: Option<String>,
+        width: Option<f32>,
+        height: Option<f32>,
         duration: Option<f64>,
     },
     #[serde(rename = "video")]
@@ -457,7 +459,7 @@ fn flow_level(el: &DomElement, ctx: &DomContext<'_>) -> FlowLevel {
 
 /// 容器是否建立行内流：在流子项全为行内级，且至少有一个行内元素（纯文本
 /// 容器在降级期已成文本节点）。`ctx` 的祖先链须已压入容器本身。
-fn establishes_inline_flow(children: &[DomElement], ctx: &mut DomContext<'_>) -> bool {
+pub(crate) fn establishes_inline_flow(children: &[DomElement], ctx: &mut DomContext<'_>) -> bool {
     // 廉价预筛：没有任何可能行内的元素子项就不必逐个级联。`<br>` 的降级
     // 产物（P + ua_tag）也触发——纯文本 + br 的容器没有任何行内元素，但
     // br 正是行内流要处理的断点（`needs<br>different` 不入行内流就会被
@@ -1116,9 +1118,12 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             ua_tag,
             ..
         } => {
+            // 匿名 run（ua_tag=None）不进 tag 级联：浏览器里匿名盒不匹配
+            // tag 选择器，作者 `p{position:absolute}` 不能打到裸文本上
+            // （空 tag 不命中任何 type selector）。
             let mut style = resolve_style_for(
                 &id,
-                ua_tag.as_deref().unwrap_or("p"),
+                ua_tag.as_deref().unwrap_or(""),
                 class.as_deref(),
                 inline_style.as_deref(),
                 &[],
@@ -1214,6 +1219,8 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             query,
             query_count,
             aspect_ratio,
+            width,
+            height,
             ..
         } => {
             let mut style =
@@ -1237,6 +1244,9 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
                 }
             };
             image_node.style = style;
+            if let (Some(width), Some(height)) = (width, height) {
+                image_node = image_node.attr_size(width, height);
+            }
             Ok(Some(Node::new(image_node)))
         }
         DomElement::Video {

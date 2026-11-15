@@ -209,6 +209,25 @@ impl VarLink {
         let scripted = scripted || parent.as_ref().is_some_and(|link| link.scripted);
         Arc::new(Self { vars, parent, scripted })
     }
+
+    /// 折叠成一张继承表（自远而近覆写）。运行期结构重建（html 子树的
+    /// `child_overrides`）只有这条链、没有解析期的 `CssVars` 栈，重建
+    /// 子树要按同样的继承值求 `var(--x)`。
+    pub fn flatten(&self) -> CssVars {
+        let mut chain: Vec<&VarLink> = Vec::new();
+        let mut link = Some(self);
+        while let Some(current) = link {
+            chain.push(current);
+            link = current.parent.as_deref();
+        }
+        let mut out = CssVars::new();
+        for current in chain.into_iter().rev() {
+            for (key, value) in current.vars.iter() {
+                out.insert(key.clone(), value.clone());
+            }
+        }
+        out
+    }
 }
 
 impl VarSource for VarLink {
@@ -358,6 +377,7 @@ const UA_CSS: &str = concat!(
     "h6 { font-size: 10.72px; font-weight: 700; }\n",
     "b, strong { font-weight: 700; }\n",
     "i, em { font-style: italic; }\n",
+    "u, ins { text-decoration: underline; }\n",
 );
 
 fn ua_sheet() -> &'static CssStylesheet {

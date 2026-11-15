@@ -145,8 +145,8 @@ pub fn resolve_ui_tree_with_script_cache(
         fn dump_node(n: &ElementNode, target: &str, depth: usize) {
             if n.style.id == target {
                 eprintln!(
-                    "[dbg-node] id={} num={} depth={} transforms={:?} css_filter={:?} opacity={:?}",
-                    n.style.id, n.id.0, depth, n.style.visual.transforms, n.style.visual.css_filter, n.style.visual.opacity
+                    "[dbg-node] id={} num={} depth={} w={:?} h={:?} transforms={:?} css_filter={:?} opacity={:?}",
+                    n.style.id, n.id.0, depth, n.style.layout.width, n.style.layout.height, n.style.visual.transforms, n.style.visual.css_filter, n.style.visual.opacity
                 );
             }
             for c in &n.children {
@@ -288,7 +288,7 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
     let result = (|| {
         let mut style = timeline.style_ref().clone();
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let mut computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
         // A timeline's segments are placed on its OWN clock. A top-level
         // timeline starts at composition zero; one nested inside a scene starts
@@ -378,6 +378,10 @@ fn timeline_fill_wrapper(child: ElementNode, id: ElementId) -> ElementNode {
     style.visual.border_bottom_width = None;
     style.visual.border_left_width = None;
     style.visual.border_color = None;
+    style.visual.border_top_color = None;
+    style.visual.border_right_color = None;
+    style.visual.border_bottom_color = None;
+    style.visual.border_left_color = None;
     style.visual.border_style = None;
     style.visual.box_shadow.clear();
     style.visual.inset_shadow.clear();
@@ -446,7 +450,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             "node id is required for div nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let mut computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
         // 运行期 appendChild 的宿主子树覆盖：JS 树是挂载态的权威，提取期
         // 快照看不见 tl.call 里逐帧挂上的节点。命中即按上报列表整体重建
@@ -459,7 +463,11 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             .cloned();
         let mut children = Vec::new();
         if let (Some(ov), Some(build)) = (&child_override, cx.html_build.clone()) {
-            children = rebuild_children(&ov, &build, &inherited_style, cx)?;
+            let (rebuilt, inline_flow) = rebuild_children(&ov, &build, &inherited_style, cx)?;
+            children = rebuilt;
+            if inline_flow {
+                computed.layout.inline_flow = true;
+            }
         } else {
             for child in div.children_ref() {
                 let mut child_cx = ResolveContext {
@@ -485,15 +493,6 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
         // （解析期合成的 P）不能留着与新文本叠印。child override 命中时
         // 跳过：上报列表由 JS 树序列化，textContent 已在序列化里合成 `:t`。
         let slot_id = format!("{}:t", style.id);
-        if std::env::var_os("OC_DBG_TSLOT").is_some() && slot_id.contains("composer") {
-            let has_slot = div.children_ref().iter().any(|child| child.style_ref().id == slot_id);
-            let has_ov = child_override.is_some();
-            let stack_hit = text_content_from_stack(cx.mutation_stack, &slot_id);
-            eprintln!(
-                "[dbg-tslot] f={} slot={slot_id} has_slot={has_slot} child_override={has_ov} stack={stack_hit:?}",
-                cx.frame_ctx.frame
-            );
-        }
         if child_override.is_none()
             && !div.children_ref().iter().any(|child| child.style_ref().id == slot_id)
             && let Some(content) = text_content_from_stack(cx.mutation_stack, &slot_id)
@@ -613,9 +612,9 @@ fn rebuild_children(
     build: &crate::parse::document::HtmlBuildCtx,
     inherited_style: &InheritedStyle,
     cx: &mut ResolveContext<'_>,
-) -> Result<Vec<ElementNode>> {
+) -> Result<(Vec<ElementNode>, bool)> {
     if ov.children.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), false));
     }
     let dom_elements: Vec<crate::parse::dom::DomElement> = ov
         .children
@@ -635,11 +634,22 @@ fn rebuild_children(
         scripts_by_parent: &empty_scripts,
         element_ids: HashSet::new(),
         tl_ids: HashSet::new(),
+        // 上报链是近→远（宿主自身在最前），`DomContext.ancestors` 是远→近
+        // （根在最底）——级联匹配把栈 `rev()` 后取 `[0]` 当父节点，顺序
+        // 反了会让选择器认错父级：子工程 `[data-composition-id=…] .x`
+        // 作用域规则整片落空（spacex 连接器 t≥2s 整场失样式）。链顶是
+        // 文档根，与静态建树同口径按 html 前端记成 `body` 标签。
         ancestors: ov
             .chain
             .iter()
-            .map(|c| crate::parse::dom::CssNodeInfo {
-                tag: c.tag.clone(),
+            .rev()
+            .enumerate()
+            .map(|(depth, c)| crate::parse::dom::CssNodeInfo {
+                tag: if build.html_frontend && depth == 0 {
+                    "body".to_string()
+                } else {
+                    c.tag.clone()
+                },
                 id: c.id.clone(),
                 classes: c.class.clone(),
                 attrs: c.attrs.clone(),
@@ -648,10 +658,23 @@ fn rebuild_children(
         prev_siblings: Vec::new(),
         tag_aliases: Vec::new(),
         html_frontend: build.html_frontend,
-        font_px: Vec::new(),
-        vars: Vec::new(),
+        // 继承面：重建子树落在宿主的计算值之下（宿主自己的声明已在
+        // 静态树里求过），只带头字号与自定义属性两张继承表——`.ic svg`
+        // 的 `stroke:var(--menu-ink)`、`em` 基准都靠它们。
+        font_px: vec![inherited_style.text.text_px],
+        vars: inherited_style
+            .vars
+            .as_ref()
+            .map(|link| link.flatten())
+            .into_iter()
+            .collect(),
         in_inline_flow: false,
     };
+    // 行内流按重建后的子项重判：宿主在静态树里是空容器（`#xcaptext` 这类
+    // 置词目标），种子阶段没有可读的子项，inline_flow 恒为 false——覆盖落地
+    // 后文本 run 与行内元素必须同排，不能各占一行（VO 字幕被拆成三行）。
+    let inline_flow =
+        build.html_frontend && crate::parse::dom::establishes_inline_flow(&dom_elements, &mut dom_ctx);
     let mut nodes = Vec::with_capacity(dom_elements.len());
     for el in dom_elements {
         nodes.push(crate::parse::dom::build_node(el, &mut dom_ctx)?);
@@ -677,7 +700,7 @@ fn rebuild_children(
             children.push(child);
         }
     }
-    Ok(children)
+    Ok((children, inline_flow))
 }
 
 fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
@@ -795,6 +818,10 @@ fn anonymous_text_item(computed: &ComputedStyle) -> ComputedStyle {
     visual.border_bottom_width = None;
     visual.border_left_width = None;
     visual.border_color = None;
+    visual.border_top_color = None;
+    visual.border_right_color = None;
+    visual.border_bottom_color = None;
+    visual.border_left_color = None;
     visual.border_style = None;
     visual.clip_contents = false;
     visual.clip_x_only = false;
@@ -934,7 +961,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             "node id is required for video nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let mut computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
 
         let locator = match video.source() {
@@ -986,6 +1013,7 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
                 asset_id,
                 width: info.width,
                 height: info.height,
+                attr_size: None,
                 video_timing: Some(timing_for_script_frame_ctx(
                     video.timing(),
                     cx.script_frame_ctx,
@@ -1023,6 +1051,7 @@ fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNo
                 asset_id,
                 width,
                 height,
+                attr_size: image.attr_size_ref(),
                 video_timing: None,
             }),
             style: computed.clone(),
@@ -1738,6 +1767,10 @@ fn compute_style(
             border_bottom_width: style.border_bottom_width,
             border_left_width: style.border_left_width,
             border_color: style.border_color,
+            border_top_color: style.border_top_color,
+            border_right_color: style.border_right_color,
+            border_bottom_color: style.border_bottom_color,
+            border_left_color: style.border_left_color,
             stroke_color: style.stroke_color,
             stroke_width: style.stroke_width,
             stroke_dasharray: style.stroke_dasharray,
@@ -1749,6 +1782,7 @@ fn compute_style(
             object_fit: style.object_fit.unwrap_or_default(),
             clip_contents: style.overflow_hidden,
             clip_x_only: style.overflow_hidden && style.overflow_y_visible,
+            overflow_visible: style.overflow_visible,
             clip_path: style.clip_path,
             transforms: style.transforms.clone(),
             transform_origin: style.transform_origin.unwrap_or_default(),

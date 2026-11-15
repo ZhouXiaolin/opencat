@@ -185,6 +185,10 @@ pub struct ComputedVisualStyle {
     pub border_bottom_width: Option<f32>,
     pub border_left_width: Option<f32>,
     pub border_color: Option<crate::style::ColorToken>,
+    pub border_top_color: Option<crate::style::ColorToken>,
+    pub border_right_color: Option<crate::style::ColorToken>,
+    pub border_bottom_color: Option<crate::style::ColorToken>,
+    pub border_left_color: Option<crate::style::ColorToken>,
     pub stroke_color: Option<crate::style::ColorToken>,
     pub stroke_width: Option<f32>,
     pub stroke_dasharray: Option<crate::style::StrokeDash>,
@@ -198,6 +202,9 @@ pub struct ComputedVisualStyle {
     pub clip_contents: bool,
     /// `clip_contents` 只作用于横向（`overflow-x:clip; overflow-y:visible`）。
     pub clip_x_only: bool,
+    /// 作者显式写了 `overflow: visible`（见 [`NodeStyle::overflow_visible`]）。
+    /// 内联 svg 默认按视口裁剪，只有这个标记为真时才让内容溢出盒外。
+    pub overflow_visible: bool,
     pub clip_path: Option<ClipPath>,
     pub transforms: Vec<Transform>,
     /// Static `transform-origin` anchor (fractions of the box). Defaults to centre.

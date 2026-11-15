@@ -59,6 +59,9 @@
         if (!hasStore || !id) return;
         var k = styleKey(key);
         var v = value;
+        if (!seekStarted && k === 'opacity' && globalThis.__ocOpSnap && globalThis.__ocOpSnap[id] !== undefined) {
+            (globalThis.__ocOpStale || (globalThis.__ocOpStale = {}))[id] = true;
+        }
         if (k === 'border') {
             // `border: 1px solid rgba(...)` 拆成 store 的宽度 + 颜色两字段
             var str = String(v);
@@ -131,7 +134,7 @@
                 }
                 var v = readStyle(id(), prop);
                 if (v === '' && el.__styleBag[prop] !== undefined) v = el.__styleBag[prop];
-                if (v === '' && el.__svgNode) v = svgStyleRead(el, prop);
+                if (v === '' && el.__svgNode) v = svgComputedValue(el, prop);
                 return v;
             },
             set(_t, prop, value) {
@@ -245,8 +248,17 @@
     }
 
     function elTag(el) {
-        var t = String(el.__payload.type || 'div').toLowerCase();
+        // 真实 HTML 标签在 `uaTag`（`<i>`/`<span>` 的引擎节点类都是 div）。
+        // 只读 `type` 时 `querySelectorAll('.trk i')` 一条都命中不了——
+        // gsap 静默跳过整组进度条（cloud-render 的青色填充永不出现）。
+        var p = el.__payload || {};
+        var t = String(p.uaTag || p.type || 'div').toLowerCase();
+        // svg 内部面（`<text>`/`<image>`/`<g>`）的 type 就是真实标签名，不能
+        // 走下面的 HTML 语义归一——`#wm-c-0 text` 必须命中 svg 的 text 元素，
+        // 归一成 span 后选择器永远 0 命中（gsap 的 fill 补间静默跳过）。
+        if (el.__svgNode) return t;
         // 引擎节点名 → HTML 语义（CSS tag 选择器输入）
+        if (p.uaTag) return t;
         if (t === 'text') return 'span';
         if (t === 'image') return 'img';
         return t;
@@ -465,7 +477,10 @@
                 var attrs = {};
                 var are = /([^\s=/>]+)\s*=\s*"([^"]*)"/g, am;
                 while ((am = are.exec(inner))) attrs[am[1]] = decodeEntities(am[2]);
-                var bareRest = inner.replace(/([^\s=/>]+)\s*=\s*"[^"]*"/g, '');
+                // 裸属性（`vector-effect="non-scaling-stroke"` 之外的布尔式写
+                // 法）只看标签名之后的部分——整段参与会把标签名本身收成
+                // `path=""`，重序列化后污染每个元素的标记。
+                var bareRest = inner.slice(m[1].length).replace(/([^\s=/>]+)\s*=\s*"[^"]*"/g, '');
                 var bare = bareRest.split(/\s+/);
                 for (var b = 0; b < bare.length; b++) {
                     if (bare[b] && !(bare[b] in attrs)) attrs[bare[b]] = '';
@@ -603,6 +618,66 @@
         return '';
     }
 
+    // svg 内部元素的 `transform` 呈现属性折成 2×3 矩阵串。浏览器把属性
+    // transform 计入 computed transform，gsap 的 `_parseTransform` 从那里
+    // 读元素当前 x/y；只回 `none` 时它认为元素在原点上，随后写下的
+    // `translate(0,0) scale(…)` 覆盖属性 transform，元素整个跳到画布外
+    // （codex `#send` 的脉冲动画从 translate(6597 904.5) 跳到原点）。
+    function svgAttrTransformMatrix(el) {
+        var t = el && el.__svgNode ? el.__svgNode.attrs['transform'] : undefined;
+        if (t === undefined || t === null || String(t).trim() === '') return 'none';
+        var m = [1, 0, 0, 1, 0, 0];
+        function mul(a, b) {
+            return [
+                a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1],
+                a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3],
+                a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5],
+            ];
+        }
+        var re = /([a-zA-Z]+)\s*\(([^)]*)\)/g, mm;
+        while ((mm = re.exec(String(t)))) {
+            var name = mm[1].toLowerCase();
+            var args = mm[2].split(/[\s,]+/).filter(function (s) { return s !== ''; })
+                .map(function (s) { return parseFloat(s); });
+            var n = null;
+            if (name === 'translate') n = [1, 0, 0, 1, args[0] || 0, args[1] || 0];
+            else if (name === 'scale') {
+                var sx = args.length ? args[0] : 1, sy = args.length > 1 ? args[1] : sx;
+                n = [sx, 0, 0, sy, 0, 0];
+            } else if (name === 'rotate') {
+                var a = (args[0] || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+                n = [c, s, -s, c, 0, 0];
+                if (args.length > 2) {
+                    n = mul(mul([1, 0, 0, 1, args[1] || 0, args[2] || 0], n),
+                        [1, 0, 0, 1, -(args[1] || 0), -(args[2] || 0)]);
+                }
+            } else if (name === 'matrix') {
+                n = [args[0] || 0, args[1] || 0, args[2] || 0, args[3] || 0, args[4] || 0, args[5] || 0];
+            } else if (name === 'skewx') n = [1, 0, Math.tan((args[0] || 0) * Math.PI / 180), 1, 0, 0];
+            else if (name === 'skewy') n = [1, Math.tan((args[0] || 0) * Math.PI / 180), 0, 1, 0, 0];
+            if (n) m = mul(m, n);
+        }
+        return 'matrix(' + m.join(', ') + ')';
+    }
+
+    // svg 内部 face 的 computed 值：style 属性优先，其次呈现属性，
+    // transform 属性折成矩阵串。浏览器把这三层都计入 computed style，
+    // gsap 的补间起点从这里读（`tl.to('#wm-c-0 text', {fill:'rgb(27,25,29)'})`
+    // 读不到起点就整条跳过，字标停在源里的紫）。
+    function svgComputedValue(el, name) {
+        if (!el || !el.__svgNode) return '';
+        var sv = svgStyleRead(el, name);
+        if (sv !== '') return sv;
+        if (name === 'transform') return svgAttrTransformMatrix(el);
+        var attrs = el.__svgNode.attrs || {};
+        var dash = String(name).replace(/[A-Z]/g, function (c) {
+            return '-' + c.toLowerCase();
+        }).toLowerCase();
+        var av = attrs[dash];
+        if (av === undefined) av = attrs[name];
+        return av === undefined || av === null ? '' : String(av);
+    }
+
     function parseFragment(html) {
         var out = []; // [{tag, attrs, text}]
         var s = String(html == null ? '' : html);
@@ -630,11 +705,16 @@
                 // 弹到同名标签为止（不校验嵌套，语料形态简单）
                 var name = close[1].toLowerCase();
                 for (var d = stack.length - 1; d >= 0; d--) {
-                    if (stack[d].tag === name) { stack.length = d; break; }
+                    if (stack[d].tagLower === name) { stack.length = d; break; }
                 }
                 i = lt + close[0].length;
                 continue;
             }
+            // svg 子树里的名字是大小写敏感的 XML（`viewBox`/`linearGradient`），
+            // 而 HTML tokenizer 会把名字整个小写——小写后的 markup 进 usvg 不认
+            // viewBox，整张图不画（innerHTML 注入的字标/图标全消失）。子树内保留
+            // 作者写法，只另存小写键给闭合匹配用；子树外照旧归一。
+            var inSvg = stack.some(function (n) { return n.tagLower === 'svg'; });
             var open = /^<\s*([a-zA-Z][\w-]*)((?:\s+[\w-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)\s*>/.exec(s.slice(lt));
             if (!open) {
                 // 不是标签（比如 `< ` 字面量）→ 文本
@@ -642,15 +722,18 @@
                 i = lt + 1;
                 continue;
             }
-            var node = { tag: open[1].toLowerCase(), attrs: {}, kids: [] };
+            var tagLower = open[1].toLowerCase();
+            // svg 元素自身的属性（`viewBox`）与子树内的一样大小写敏感。
+            var keepCase = inSvg || tagLower === 'svg';
+            var node = { tag: inSvg ? open[1] : tagLower, tagLower: tagLower, attrs: {}, kids: [] };
             var attrRe = /([\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
             var am;
             while ((am = attrRe.exec(open[2]))) {
                 var v = am[2] !== undefined ? am[2] : am[3] !== undefined ? am[3] : am[4] !== undefined ? am[4] : '';
-                node.attrs[am[1].toLowerCase()] = decodeEntities(v);
+                node.attrs[keepCase ? am[1] : am[1].toLowerCase()] = decodeEntities(v);
             }
             emit(node);
-            if (!open[3] && !VOID_TAGS[node.tag]) stack.push(node);
+            if (!open[3] && !VOID_TAGS[tagLower]) stack.push(node);
             i = lt + open[0].length;
         }
         return out;
@@ -897,7 +980,7 @@
         });
         Object.defineProperty(this, 'className', {
             get: function () { return self.__payload.className || ''; },
-            set: function (v) { self.__payload.className = String(v || ''); },
+            set: function (v) { self.__payload.className = String(v || ''); reportClassChange(self); },
             enumerable: true,
         });
         Object.defineProperty(this, 'tagName', { get: function () { return elTag(self).toUpperCase(); } });
@@ -906,8 +989,39 @@
             get: function () { return serializeHtml(self); },
             set: function (v) {
                 self.__kids = [];
+                // 浏览器语义：innerHTML 整体替换子节点。宿主自带的文本字段
+                // 也归零——否则 serializeNode 的文本 run 会把它当首段拼进去
+                // （上一句字幕与新子树的文字叠印）。
+                self.__payload.text = '';
+                self.__textDynamic = false;
                 var frag = parseFragment(v);
                 frag.forEach(function (n) { self.__kids.push(materializeFragmentNode(n, self)); });
+                // 提取期之后（帧内 gsap `tl.add(()=>{el.innerHTML=…})` 置词）
+                // 的子树替换必须进 store：渲染树消费的是提取期种子，不报结构
+                // 变更就整段不出现（spacex 的 VO 字幕 pill 只剩空底）。纯文本
+                // 片段没有 element 子节点，走 textContent 同一条文本通道。
+                var hasElement = false;
+                for (var i = 0; i < self.__kids.length; i++) {
+                    if (self.__kids[i].nodeType === 1) { hasElement = true; break; }
+                }
+                if (hasElement) {
+                    var sent = recordTreeChange(self);
+                    // 文本通道残留：上一句纯文本 innerHTML / textContent 写进
+                    // `<id>:t` 的内容比覆盖列表优先（resolve_text 先查 store），
+                    // 不跟着改就与新的首段 run 叠印（字幕前一句压在新句上）。
+                    // 只在覆盖真正上报后补写：提取期不报结构，写 `:t` 反而会
+                    // 让 resolve 清空种子子节点（任务列表整片消失）。
+                    if (sent && hasStore && self.__payload.id && self.__payload.type === 'div') {
+                        var slot = self.__payload.id + ':t';
+                        var firstKid = (serializeNode(self).children || [])[0];
+                        var runText = firstKid && firstKid.id === slot ? (firstKid.text || '') : '';
+                        __write_style_value(slot, 'text', runText);
+                    }
+                    return;
+                }
+                var text = '';
+                for (var j = 0; j < self.__kids.length; j++) text += self.__kids[j].data;
+                self.textContent = text;
             },
             enumerable: true,
         });
@@ -934,7 +1048,12 @@
                 if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') {
                     __ocStderr('[tc-set] id=' + self.__payload.id + ' type=' + self.__payload.type + ' hasStore=' + hasStore + ' len=' + text.length);
                 }
-                if (hasStore && self.__payload.id) {
+                // 提取期不写 store：seed 快照本身会带着 payload.text，写一条
+                // `''` 反而是永久生效的「清空子节点」——`mk()` 先
+                // `innerHTML=''` 再 `appendChild(img)` 的元素会被它按帧清空，
+                // 后挂的子树整块不出现（heygen 光标的手形图标）。
+                if (hasStore && self.__payload.id
+                    && (extractDone || globalThis.__ocHtmlExtractDone)) {
                     var target = self.__payload.type === 'div'
                         ? self.__payload.id + ':t'
                         : self.__payload.id;
@@ -1058,10 +1177,10 @@
     }
     function recordTreeChange(host) {
         if ((!extractDone && !globalThis.__ocHtmlExtractDone) || !host
-            || !host.__payload || !host.__payload.id) return;
-        if (!mountedToRoot(host)) return;
-        if (subtreeHasCompositionSrc(host)) return;
-        if (typeof __html_set_children !== 'function') return;
+            || !host.__payload || !host.__payload.id) return false;
+        if (!mountedToRoot(host)) return false;
+        if (subtreeHasCompositionSrc(host)) return false;
+        if (typeof __html_set_children !== 'function') return false;
         var chain = [];
         var cur = host;
         while (cur && cur.nodeType === 1 && cur.__payload) {
@@ -1075,17 +1194,19 @@
             });
             cur = cur.parentNode;
         }
-        var kids = [];
-        for (var i = 0; i < host.__kids.length; i++) {
-            if (host.__kids[i].nodeType === 1) kids.push(serializeNode(host.__kids[i]));
-        }
+        // 与提取期同形：整宿主序列化后取 children——文本 run 按原位交错成
+        // 合成 P（`<span class="clay">$1 trillion</span>` 两边的文案就靠它）。
+        // 只发 element 子节点会把行内文本整段丢掉（VO 字幕只剩高亮词）。
+        var kids = serializeNode(host).children || [];
         try {
             __html_set_children(host.__payload.id, chain, kids);
         } catch (e) {
             if (typeof __ocLogs !== 'undefined') {
                 __ocLogs.push('set_children threw: ' + (e && e.message || e));
             }
+            return false;
         }
+        return true;
     }
 
     HtmlElement.prototype.appendChild = function (child) {
@@ -1157,7 +1278,7 @@
         var n = String(name).toLowerCase();
         var v = String(value);
         if (this.__svgNode) svgWriteAttr(this, String(name), v);
-        if (n === 'class') this.__payload.className = v;
+        if (n === 'class') { this.__payload.className = v; reportClassChange(this); }
         else if (n === 'style') this.__payload.style = v;
         else if (n === 'id') this.id = v;
         else if (n === 'src') this.__payload.src = v;
@@ -1181,7 +1302,7 @@
     HtmlElement.prototype.removeAttribute = function (name) {
         var n = String(name).toLowerCase();
         if (this.__svgNode) svgWriteAttr(this, String(name), null);
-        if (n === 'class') this.__payload.className = '';
+        if (n === 'class') { this.__payload.className = ''; reportClassChange(this); }
         else if (n === 'style') this.__payload.style = '';
         else if (n === 'src') delete this.__payload.src;
         else delete this.__attrs[n];
@@ -1304,6 +1425,16 @@
         return { x: 0, y: 0, width: 0, height: 0 };
     };
 
+    // 类名变更上报：渲染树吃的是提取期种子，类名只存在 JS 侧时
+    // `.arg.pill2` 这类「同一节点换类名」的样式永远不出现（stripe 终端
+    // 里 `tl.call(()=>arg1.classList.add('pill2'))` 的绿药丸底色）。
+    // 上报父宿主的 children 让 resolve 重建兄弟序列并按新类名重新层叠。
+    function reportClassChange(el) {
+        var p = el && el.parentNode;
+        if (p && p.nodeType === 1) { recordTreeChange(p); }
+        else if (el) { recordTreeChange(el); }
+    }
+
     function attachClassList(el) {
         var face = {
             add: function () {
@@ -1313,6 +1444,7 @@
                     if (c && cls.indexOf(c) < 0) cls.push(c);
                 }
                 el.__payload.className = cls.join(' ');
+                reportClassChange(el);
             },
             remove: function () {
                 var cls = elClasses(el);
@@ -1321,6 +1453,7 @@
                     if (at >= 0) cls.splice(at, 1);
                 }
                 el.__payload.className = cls.join(' ');
+                reportClassChange(el);
             },
             toggle: function (c, force) {
                 var cls = elClasses(el);
@@ -1329,6 +1462,7 @@
                 if (want && at < 0) { cls.push(String(c)); }
                 else if (!want && at >= 0) cls.splice(at, 1);
                 el.__payload.className = cls.join(' ');
+                reportClassChange(el);
                 return want;
             },
             contains: function (c) { return elClasses(el).indexOf(String(c)) >= 0; },
@@ -1521,11 +1655,22 @@
         if (node.text !== undefined) return new HtmlText(node.text);
         // svg 子树：整体字符串化进 inline，不展开 JS 子树
         if (node.tag === 'svg') {
+            // `width`/`height` 是 svg 的内在尺寸（`<svg width="48">`）：只带
+            // markup 不带属性，布局拿不到尺寸，svg 退成父盒 100%——父容器
+            // 是 shrink-to-fit 的绝对定位盒子时直接量出 0 宽（heygen 头像
+            // 整块不出现）。百分比留给 CSS 走，不在这里折。
+            var svgLen = function (name) {
+                var m = /^\s*(\d+(?:\.\d+)?)(?:px)?\s*$/.exec(String(node.attrs[name] || ''));
+                return m ? parseFloat(m[1]) : undefined;
+            };
             var svgPayload = {
                 type: 'svg',
                 id: node.attrs['id'] || nextSynthId('svg'),
                 className: node.attrs['class'] || '',
                 style: node.attrs['style'] || '',
+                width: svgLen('width'),
+                height: svgLen('height'),
+                preserveAspectRatio: node.attrs['preserveAspectRatio'],
                 __svgInline: xmlSerialize(node),
             };
             delete node.attrs['id'];
@@ -1935,6 +2080,11 @@
             }
             return '';
         }
+        // svg 内部 face：浏览器把属性（stroke/fill/transform/opacity）也计入
+        // computed style。
+        function svgValue(name) {
+            return svgComputedValue(el, name);
+        }
         return new Proxy({}, {
             get(_t, prop) {
                 if (typeof prop !== 'string') return undefined;
@@ -1946,17 +2096,44 @@
                             var v = readStyle(id, n);
                             if (v !== '') return String(v);
                         }
+                        var sv = svgValue(n);
+                        if (sv !== '') return sv;
                         return Object.prototype.hasOwnProperty.call(defaults, n)
                             ? defaults[n]
                             : '';
                     };
                 }
                 if (prop.indexOf('--') === 0) return customValue(prop);
+                // `from` 补间的终点值靠"读当前值"拿：gsap 先建 startAt（写
+                // 起点）再读终点，两次读之间 store 已被起点污染 → 终点读成
+                // 起点（opacity from 恒 0）。浏览器里起点经合成层延迟落地，
+                // 读到的仍是补间前的值。构造期对 opacity 留一次读值快照：
+                // 写入后紧接的那一次读返回快照，之后恢复实时值。
+                if (prop === 'opacity' && id) {
+                    var stale = globalThis.__ocOpStale || (globalThis.__ocOpStale = {});
+                    if (stale[id]) {
+                        delete stale[id];
+                        var snap = (globalThis.__ocOpSnap || {})[id];
+                        delete (globalThis.__ocOpSnap || {})[id];
+                        if (snap !== undefined) return snap;
+                    }
+                }
+                var __ret;
                 if (id) {
                     var v = readStyle(id, prop);
-                    if (v !== '') return String(v);
+                    if (v !== '') __ret = String(v);
                 }
-                return Object.prototype.hasOwnProperty.call(defaults, prop) ? defaults[prop] : '';
+                if (__ret === undefined) {
+                    var sv = svgValue(prop);
+                    if (sv !== '') __ret = sv;
+                }
+                if (__ret === undefined) {
+                    __ret = Object.prototype.hasOwnProperty.call(defaults, prop) ? defaults[prop] : '';
+                }
+                if (prop === 'opacity' && id && !seekStarted) {
+                    (globalThis.__ocOpSnap || (globalThis.__ocOpSnap = {}))[id] = __ret;
+                }
+                return __ret;
             },
         });
     }

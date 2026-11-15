@@ -116,11 +116,12 @@ pub(crate) fn box_for(id: &str, store: &MutationStore) -> Option<AbsBox> {
         let boxes = measure(&scope, store.style_snapshot())?;
         *scope.cache.borrow_mut() = Some((key, boxes));
     }
-    scope
+    let out = scope
         .cache
         .borrow()
         .as_ref()
-        .and_then(|(_, boxes)| boxes.get(id).cloned())
+        .and_then(|(_, boxes)| boxes.get(id).cloned());
+    out
 }
 
 /// Does this source ever ask for geometry? Under-reporting only makes the

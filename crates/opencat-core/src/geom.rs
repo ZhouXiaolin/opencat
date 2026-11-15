@@ -14,10 +14,7 @@ pub fn convex_hull(mut pts: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
     if pts.len() <= 2 {
         return pts;
     }
-    pts.sort_by(|a, b| {
-        a.partial_cmp(b)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    pts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     pts.dedup();
     if pts.len() <= 2 {
         return pts;
@@ -62,9 +59,15 @@ pub fn min_area_rect(points: &[[f64; 2]]) -> Option<(f64, f64, f64)> {
     if hull.len() <= 2 {
         // Degenerate: axis-aligned box around whatever we have.
         let minx = points.iter().map(|p| p[0]).fold(f64::INFINITY, f64::min);
-        let maxx = points.iter().map(|p| p[0]).fold(f64::NEG_INFINITY, f64::max);
+        let maxx = points
+            .iter()
+            .map(|p| p[0])
+            .fold(f64::NEG_INFINITY, f64::max);
         let miny = points.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
-        let maxy = points.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max);
+        let maxy = points
+            .iter()
+            .map(|p| p[1])
+            .fold(f64::NEG_INFINITY, f64::max);
         return Some((0.0, maxx - minx, maxy - miny));
     }
     let n = hull.len();
@@ -80,8 +83,12 @@ pub fn min_area_rect(points: &[[f64; 2]]) -> Option<(f64, f64, f64)> {
         let ux = [edge[0] / len, edge[1] / len];
         // Perpendicular axis (upright in a y-up frame).
         let uy = [-ux[1], ux[0]];
-        let (mut min_u, mut max_u, mut min_v, mut max_v) =
-            (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_u, mut max_u, mut min_v, mut max_v) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
         for p in &hull {
             let du = p[0] * ux[0] + p[1] * ux[1];
             let dv = p[0] * uy[0] + p[1] * uy[1];
@@ -348,5 +355,3 @@ pub fn invert3(m: [f32; 9]) -> Option<[f32; 9]> {
         (a * e - b * d) * inv,
     ])
 }
-
-

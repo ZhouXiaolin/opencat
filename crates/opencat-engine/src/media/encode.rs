@@ -288,9 +288,14 @@ pub fn concat_video_segments(
 
     ffmpeg::init()?;
     let output_path = output_path.as_ref();
-    let first = segments.first().ok_or_else(|| anyhow!("no segments to concatenate"))?;
+    let first = segments
+        .first()
+        .ok_or_else(|| anyhow!("no segments to concatenate"))?;
     let mut output = format::output(output_path).with_context(|| {
-        format!("failed to create output context for {}", output_path.display())
+        format!(
+            "failed to create output context for {}",
+            output_path.display()
+        )
     })?;
     let video_index = {
         let input = format::input(first)
@@ -311,9 +316,11 @@ pub fn concat_video_segments(
         stream.index()
     };
     let audio_context = match audio_track {
-        Some(track) if !track.is_empty() => {
-            Some(create_audio_output_context(&mut output, output_path, track)?)
-        }
+        Some(track) if !track.is_empty() => Some(create_audio_output_context(
+            &mut output,
+            output_path,
+            track,
+        )?),
         _ => None,
     };
     output.write_header()?;

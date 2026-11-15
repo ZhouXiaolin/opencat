@@ -95,15 +95,23 @@ pub fn parse_css_transform(text: &str) -> Vec<Transform> {
                     (Some(x), _, Some(y), _) => out.push(Transform::Translate { x, y }),
                     (Some(x), _, _, pct_y @ Some(_)) => {
                         out.push(Transform::TranslateX { value: x });
-                        out.push(Transform::TranslateYPercent { value: pct_y.unwrap() });
+                        out.push(Transform::TranslateYPercent {
+                            value: pct_y.unwrap(),
+                        });
                     }
                     (_, pct_x @ Some(_), Some(y), _) => {
-                        out.push(Transform::TranslateXPercent { value: pct_x.unwrap() });
+                        out.push(Transform::TranslateXPercent {
+                            value: pct_x.unwrap(),
+                        });
                         out.push(Transform::TranslateY { value: y });
                     }
                     (_, pct_x @ Some(_), _, pct_y @ Some(_)) => {
-                        out.push(Transform::TranslateXPercent { value: pct_x.unwrap() });
-                        out.push(Transform::TranslateYPercent { value: pct_y.unwrap() });
+                        out.push(Transform::TranslateXPercent {
+                            value: pct_x.unwrap(),
+                        });
+                        out.push(Transform::TranslateYPercent {
+                            value: pct_y.unwrap(),
+                        });
                     }
                     _ => {}
                 }
@@ -178,10 +186,18 @@ pub fn parse_css_transform(text: &str) -> Vec<Transform> {
             "perspective" => set_rotate3(&mut out, &mut rotate3, 2, px_or(first)),
             "rotatex" if fold => set_rotate3(&mut out, &mut rotate3, 0, deg_or(first)),
             "rotatey" if fold => set_rotate3(&mut out, &mut rotate3, 1, deg_or(first)),
-            "rotatex" => out.push(Transform::RotateXDeg { value: deg_or(first) }),
-            "rotatey" => out.push(Transform::RotateYDeg { value: deg_or(first) }),
-            "rotatez" => out.push(Transform::RotateDeg { value: deg_or(first) }),
-            "translatez" => out.push(Transform::TranslateZ { value: px_or(first) }),
+            "rotatex" => out.push(Transform::RotateXDeg {
+                value: deg_or(first),
+            }),
+            "rotatey" => out.push(Transform::RotateYDeg {
+                value: deg_or(first),
+            }),
+            "rotatez" => out.push(Transform::RotateDeg {
+                value: deg_or(first),
+            }),
+            "translatez" => out.push(Transform::TranslateZ {
+                value: px_or(first),
+            }),
             _ => {}
         }
         rest = &rest[open + close + 1..];

@@ -315,5 +315,3 @@ fn format_image_source(source: &ImageSource) -> String {
         }
     }
 }
-
-

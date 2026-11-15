@@ -74,9 +74,7 @@ impl<S: JsContext> DefaultPipeline<S> {
                     children: Vec::new(),
                 },
             },
-            generated_images: GeneratedImageTable::with_max_age(
-                DEFAULT_GENERATED_IMAGE_MAX_AGE,
-            ),
+            generated_images: GeneratedImageTable::with_max_age(DEFAULT_GENERATED_IMAGE_MAX_AGE),
         })
     }
 
@@ -128,8 +126,6 @@ impl<S: JsContext> DefaultPipeline<S> {
             &mut self.scripts,
         )
     }
-
-
 }
 
 /// Build the pipeline state shared by every entry: the [`Composition`] (with
@@ -192,5 +188,3 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
         Ok(RenderFrame { draw, media, gpu })
     }
 }
-
-

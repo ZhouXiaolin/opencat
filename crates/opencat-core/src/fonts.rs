@@ -208,7 +208,10 @@ pub fn load_css_face(db: &mut fontdb::Database, bytes: Vec<u8>, family: &str) {
             continue;
         }
         let mut info = info.clone();
-        info.families.insert(0, (family.to_string(), fontdb::Language::English_UnitedStates));
+        info.families.insert(
+            0,
+            (family.to_string(), fontdb::Language::English_UnitedStates),
+        );
         db.remove_face(id);
         db.push_face_info(info);
     }
@@ -339,5 +342,3 @@ pub fn font_asset_id(source: &FontSource) -> String {
         FontSource::Url(u) => format!("font:url:{u}"),
     }
 }
-
-

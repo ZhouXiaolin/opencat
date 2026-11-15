@@ -53,7 +53,9 @@ pub fn compile_offscreen_commands(
     for command in &canvas.commands {
         match command {
             // 离屏 2D 流不含子树/运行时效果（那些来自 DOM 树展开）。
-            crate::script::canvas_op::CanvasOp::Op(crate::ir::draw_op::DrawOp::DrawSubtreePicture { .. })
+            crate::script::canvas_op::CanvasOp::Op(
+                crate::ir::draw_op::DrawOp::DrawSubtreePicture { .. },
+            )
             | crate::script::canvas_op::CanvasOp::RuntimeEffect { .. } => {}
             other => lower_canvas_op(&mut builder, other, &mut state)?,
         }

@@ -5,14 +5,10 @@ use crate::display::list::DisplayRect;
 use crate::ir::draw_op::{DRRectSpec, DrawOp};
 use crate::ir::draw_types::PaintId;
 use crate::render::builder::DrawOpBuilder;
-use crate::style::{
-    BorderRadius, BoxShadow, CssFilter,
-    CssFilterKind, DropShadow, InsetShadow,
-};
+use crate::style::{BorderRadius, BoxShadow, CssFilter, CssFilterKind, DropShadow, InsetShadow};
 
 use super::RenderError;
 use super::ctx::RenderCtx;
-
 
 use super::items::{
     CanvasShadow, clip_bounds, color_token_to_rgba, effective_corner_radius, kurbo_rect,
@@ -501,4 +497,3 @@ pub fn draw_item_drop_shadow(
     ctx.builder.push(DrawOp::Restore);
     result
 }
-

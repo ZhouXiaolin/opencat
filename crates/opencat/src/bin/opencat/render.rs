@@ -29,7 +29,12 @@ pub fn render(
     let result = if let Some(spec) = frames {
         let list = parse_frames(&spec)?;
         std::fs::create_dir_all(&output)?;
-        println!("Rendering {} frames: {} -> {}/", list.len(), input.display(), output);
+        println!(
+            "Rendering {} frames: {} -> {}/",
+            list.len(),
+            input.display(),
+            output
+        );
         let config = EncodingConfig::png_frames(list);
         opencat_core::profile::run_from_env(|| {
             render_from_source_with_base(&source, base_dir, &output, &config)

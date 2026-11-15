@@ -42,6 +42,16 @@ pub mod attr {
     pub const HIDE_AFTER_END: &str = "data-hide-after-end";
 }
 
+/// 播放器每帧 seek 事件。自绘 WebGL 语料监听此事件重绘整帧。
+pub const SEEK_EVENT: &str = "hf-seek";
+
+/// 派发当前虚拟钟的 seek 事件。只由 hyperframes 协议层生成。
+pub fn seek_event_js() -> String {
+    format!(
+        "if (globalThis.__ocMode !== 'extract') {{ try {{ globalThis.dispatchEvent(new CustomEvent('{SEEK_EVENT}', {{ detail: {{ time: (globalThis.__ocClockMs() || 0) / 1000 }} }})); }} catch (error) {{ (globalThis.__ocLogs = globalThis.__ocLogs || []).push('{SEEK_EVENT} handler threw: ' + (error && error.stack || error)); }} }}"
+    )
+}
+
 /// 属性读取源：标准层只提供原始属性，协议层负责语义。
 pub trait AttrSource {
     fn attr(&self, name: &str) -> Option<&str>;

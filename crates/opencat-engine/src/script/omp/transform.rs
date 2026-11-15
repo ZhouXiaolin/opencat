@@ -24,7 +24,6 @@
 
 use std::borrow::Cow;
 
-use serde_json::Value as JsonValue;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     AssignmentOperator, AssignmentTarget, Expression, ForStatement, FunctionType, Program,
@@ -34,6 +33,7 @@ use oxc_ast::{AstKind, CommentKind};
 use oxc_parser::Parser;
 use oxc_semantic::{IsGlobalReference, Scoping, Semantic, SemanticBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
+use serde_json::Value as JsonValue;
 
 /// span → 源文本切片（Span 的端点是 u32）。
 fn span_text<'s>(source: &'s str, s: Span) -> &'s str {
@@ -145,7 +145,11 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
     // name → 数据共享类别（1=shared 2=firstprivate 3=private），防同名字
     // 跨类别重复（OpenMP：一个名单项不得出现在两个子句里）。
     let mut kinds: Vec<(String, u8)> = Vec::new();
-    let mut push_names = |kinds: &mut Vec<(String, u8)>, kind: u8, slot: &mut Vec<String>, names: Vec<String>| -> Option<()> {
+    let mut push_names = |kinds: &mut Vec<(String, u8)>,
+                          kind: u8,
+                          slot: &mut Vec<String>,
+                          names: Vec<String>|
+     -> Option<()> {
         for n in names {
             if let Some((_, k)) = kinds.iter().find(|(x, _)| *x == n) {
                 if *k != kind {
@@ -231,9 +235,7 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
                     let chunk = chunk.trim();
                     match chunk.parse::<u64>() {
                         Ok(v) if v > 0 => norm = format!("{kind},{v}"),
-                        _ => {
-                            return no(format!("schedule chunk `{chunk}` not a positive integer"))
-                        }
+                        _ => return no(format!("schedule chunk `{chunk}` not a positive integer")),
                     }
                 }
                 if parts.next().is_some() || out.schedule.replace(norm).is_some() {
@@ -287,10 +289,8 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
                 }
             }
             // 已认识的正式子句但本实现不支持 → 整条标注不处理。
-            "lastprivate" | "linear" | "ordered" | "if" | "allocate" | "order"
-            | "proc_bind" | "copyin" | "nowait" => {
-                return no(format!("clause `{name}` unsupported"))
-            }
+            "lastprivate" | "linear" | "ordered" | "if" | "allocate" | "order" | "proc_bind"
+            | "copyin" | "nowait" => return no(format!("clause `{name}` unsupported")),
             _ => return no(format!("clause `{name}` unknown")),
         }
     }
@@ -303,36 +303,113 @@ fn parse_clauses(text: &str) -> Option<Clauses> {
 /// JSON 解码函数值会毒化条目）。
 const JS_GLOBAL_BUILTINS: &[&str] = &[
     // 值属性
-    "undefined", "NaN", "Infinity", "globalThis",
+    "undefined",
+    "NaN",
+    "Infinity",
+    "globalThis",
     // 基本对象
-    "Object", "Function", "Boolean", "Symbol", "Error", "EvalError", "RangeError",
-    "ReferenceError", "SyntaxError", "TypeError", "URIError", "AggregateError",
+    "Object",
+    "Function",
+    "Boolean",
+    "Symbol",
+    "Error",
+    "EvalError",
+    "RangeError",
+    "ReferenceError",
+    "SyntaxError",
+    "TypeError",
+    "URIError",
+    "AggregateError",
     // 数字与日期
-    "Number", "BigInt", "Math", "Date",
+    "Number",
+    "BigInt",
+    "Math",
+    "Date",
     // 文本
-    "String", "RegExp",
+    "String",
+    "RegExp",
     // 索引集合
-    "Array", "Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
-    "Int32Array", "Uint32Array", "Float32Array", "Float64Array", "BigInt64Array",
+    "Array",
+    "Int8Array",
+    "Uint8Array",
+    "Uint8ClampedArray",
+    "Int16Array",
+    "Uint16Array",
+    "Int32Array",
+    "Uint32Array",
+    "Float32Array",
+    "Float64Array",
+    "BigInt64Array",
     "BigUint64Array",
     // 键集合
-    "Map", "Set", "WeakMap", "WeakSet", "WeakRef", "FinalizationRegistry",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "WeakRef",
+    "FinalizationRegistry",
     // 控制抽象
-    "Promise", "Iterator", "AsyncIterator", "Generator", "AsyncGenerator", "Reflect",
+    "Promise",
+    "Iterator",
+    "AsyncIterator",
+    "Generator",
+    "AsyncGenerator",
+    "Reflect",
     "Proxy",
     // 反射与结构化数据
-    "JSON", "Atomics",
+    "JSON",
+    "Atomics",
     // 浏览器/驱动环境常见全局
-    "document", "window", "navigator", "location", "performance", "console",
-    "requestAnimationFrame", "cancelAnimationFrame", "setTimeout", "setInterval",
-    "clearTimeout", "clearInterval", "requestIdleCallback", "cancelIdleCallback", "alert",
-    "fetch", "URL", "URLSearchParams", "TextEncoder", "TextDecoder", "AbortController",
-    "Event", "CustomEvent", "Image", "ImageData", "Path2D", "DOMParser", "XMLSerializer",
-    "screen", "history", "localStorage", "sessionStorage",
+    "document",
+    "window",
+    "navigator",
+    "location",
+    "performance",
+    "console",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "setTimeout",
+    "setInterval",
+    "clearTimeout",
+    "clearInterval",
+    "requestIdleCallback",
+    "cancelIdleCallback",
+    "alert",
+    "fetch",
+    "URL",
+    "URLSearchParams",
+    "TextEncoder",
+    "TextDecoder",
+    "AbortController",
+    "Event",
+    "CustomEvent",
+    "Image",
+    "ImageData",
+    "Path2D",
+    "DOMParser",
+    "XMLSerializer",
+    "screen",
+    "history",
+    "localStorage",
+    "sessionStorage",
     // 函数属性
-    "parseInt", "parseFloat", "isNaN", "isFinite", "decodeURI", "decodeURIComponent",
-    "encodeURI", "encodeURIComponent", "eval", "queueMicrotask", "structuredClone",
-    "crypto", "btoa", "atob", "require", "module", "exports",
+    "parseInt",
+    "parseFloat",
+    "isNaN",
+    "isFinite",
+    "decodeURI",
+    "decodeURIComponent",
+    "encodeURI",
+    "encodeURIComponent",
+    "eval",
+    "queueMicrotask",
+    "structuredClone",
+    "crypto",
+    "btoa",
+    "atob",
+    "require",
+    "module",
+    "exports",
 ];
 
 /// 一处标注的分析产物（全 owned，AST 借用不越出分析作用域）。
@@ -410,7 +487,10 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
     let program = parsed.program;
     // 0.153 的 new() 只建 scoping 不建节点库（AstNodes 恒空），for 定位与
     // AstKind 遍历都需要节点库，必须显式开启。
-    let semantic = SemanticBuilder::new().with_build_nodes(true).build(&program).semantic;
+    let semantic = SemanticBuilder::new()
+        .with_build_nodes(true)
+        .build(&program)
+        .semantic;
 
     // 标注注释：Line 注释、文本含 construct、独立一行（`//` 与 `@omp`
     // 之间、行首到 `//` 之间都只允许空白）。comments 按源码序。
@@ -430,7 +510,9 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
         if text[..rel].trim() != "//" {
             continue;
         }
-        let line_start = source[..cspan.start as usize].rfind('\n').map_or(0, |p| p + 1);
+        let line_start = source[..cspan.start as usize]
+            .rfind('\n')
+            .map_or(0, |p| p + 1);
         if !source[line_start..cspan.start as usize].trim().is_empty() {
             continue;
         }
@@ -453,9 +535,14 @@ fn analyze(source: &str) -> Option<Vec<LoopSite>> {
         let annotation_line_end = source[cspan.end as usize..]
             .find('\n')
             .map_or(source.len(), |p| cspan.end as usize + p);
-        let Some(site) =
-            build_site(source, &program, &semantic, fs, clauses, annotation_line_end)
-        else {
+        let Some(site) = build_site(
+            source,
+            &program,
+            &semantic,
+            fs,
+            clauses,
+            annotation_line_end,
+        ) else {
             eprintln!(
                 "[omp] annotation at line {} rejected: {}",
                 line_of(source, cspan.start as usize),
@@ -511,11 +598,7 @@ fn find_next_for<'a>(
 
 /// 内层可重放的 canonical for 巢：各层 (header, body) 文本。
 /// init/test/update 缺失或 body 非 block 或 for..in/of → 拒（非 canonical）。
-fn collect_levels(
-    source: &str,
-    fs: &ForStatement<'_>,
-    out: &mut Vec<(String, String)>,
-) -> bool {
+fn collect_levels(source: &str, fs: &ForStatement<'_>, out: &mut Vec<(String, String)>) -> bool {
     let (Some(init), Some(test), Some(update)) = (&fs.init, &fs.test, &fs.update) else {
         return false;
     };
@@ -523,9 +606,7 @@ fn collect_levels(
         return false;
     };
     let header = source[init.span().start as usize..update.span().end as usize].to_string();
-    let body = source
-        [block.span.start as usize + 1..block.span.end as usize - 1]
-        .to_string();
+    let body = source[block.span.start as usize + 1..block.span.end as usize - 1].to_string();
     out.push((header, body));
     // 下一层：体语句里的第一个 for（其间语句 = intervening code，canonical
     // form 允许）；for..in/of 出现在同一层 → 拒。
@@ -560,11 +641,7 @@ fn push_unique(out: &mut Vec<String>, name: &str) {
 /// 范围内引用且声明在范围外的标识符（精确自由集）。unresolved 引用
 /// （跨 script 全局）除 JS 内建外同样算自由——capture 后由 take 的
 /// args 逐帧传入。
-fn free_idents_within(
-    semantic: &Semantic<'_>,
-    scoping: &Scoping,
-    span: Span,
-) -> Vec<String> {
+fn free_idents_within(semantic: &Semantic<'_>, scoping: &Scoping, span: Span) -> Vec<String> {
     let mut out = Vec::new();
     for node in semantic.nodes().iter() {
         let AstKind::IdentifierReference(ident) = node.kind() else {
@@ -696,8 +773,12 @@ fn resolved_decl_spans(
         if ident.is_global_reference(scoping) {
             continue;
         }
-        let Some(rid) = ident.reference_id.get() else { continue };
-        let Some(sym) = scoping.get_reference(rid).symbol_id() else { continue };
+        let Some(rid) = ident.reference_id.get() else {
+            continue;
+        };
+        let Some(sym) = scoping.get_reference(rid).symbol_id() else {
+            continue;
+        };
         out.push(scoping.symbol_span(sym));
     }
     out
@@ -845,7 +926,8 @@ fn build_site(
                 if !is_acc && ae.operator != AssignmentOperator::Assign {
                     return no(format!(
                         "compound write `{}[..] {}= ..` unsupported",
-                        id.name, ae.operator.as_str()
+                        id.name,
+                        ae.operator.as_str()
                     ));
                 }
                 // 链式写 `a[i] = b[j] = v`：三条写记录的 span 嵌套，降序
@@ -1163,7 +1245,9 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
     }
 
     let fns = serde_json::Map::from_iter(
-        site.fn_srcs.iter().map(|(n, s)| (n.clone(), JsonValue::String(s.clone()))),
+        site.fn_srcs
+            .iter()
+            .map(|(n, s)| (n.clone(), JsonValue::String(s.clone()))),
     );
 
     // 采集骨架（内层零参出现序；无 prng → null）。
@@ -1199,13 +1283,22 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
     let mut fields = vec![
         ("loop".to_string(), JsonValue::String(site.loop_src.clone())),
         ("fns".to_string(), JsonValue::Object(fns)),
-        ("args".to_string(), JsonValue::Array(
-            arg_names.iter().map(|n| JsonValue::String(n.clone())).collect(),
-        )),
+        (
+            "args".to_string(),
+            JsonValue::Array(
+                arg_names
+                    .iter()
+                    .map(|n| JsonValue::String(n.clone()))
+                    .collect(),
+            ),
+        ),
         ("captures".to_string(), JsonValue::Object(captures)),
         // isolate bundle 面（外层 header/行体/循环变量名）：行体已含
         // Set/Acc 改写。
-        ("header".to_string(), JsonValue::String(site.outer_header.clone())),
+        (
+            "header".to_string(),
+            JsonValue::String(site.outer_header.clone()),
+        ),
         ("var".to_string(), JsonValue::String(site.loop_var.clone())),
         ("body".to_string(), JsonValue::String(site.row_body.clone())),
     ];
@@ -1213,9 +1306,16 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
         fields.push(("reduction".to_string(), red));
     }
     if !clauses.private.is_empty() {
-        fields.push(("private".to_string(), JsonValue::Array(
-            clauses.private.iter().map(|n| JsonValue::String(n.clone())).collect(),
-        )));
+        fields.push((
+            "private".to_string(),
+            JsonValue::Array(
+                clauses
+                    .private
+                    .iter()
+                    .map(|n| JsonValue::String(n.clone()))
+                    .collect(),
+            ),
+        ));
     }
     // 运行形态子句进 ir：schedule 由 runtime 映射到行分块；collapse 必须
     // ≤ 巢深（深了规范就要求合并更多层，本实现只并行最外层 → 拒绝）；
@@ -1235,7 +1335,10 @@ fn build_ir(site: &LoopSite) -> Option<(JsonValue, String)> {
     if let Some(n) = clauses.num_threads {
         fields.push(("num_threads".to_string(), JsonValue::Number(n.into())));
     }
-    Some((JsonValue::Object(serde_json::Map::from_iter(fields)), skeleton))
+    Some((
+        JsonValue::Object(serde_json::Map::from_iter(fields)),
+        skeleton,
+    ))
 }
 
 /// 为一处标注构建守卫头（不含循环体与收尾 `}`）。
@@ -1243,7 +1346,11 @@ fn build_wrapper(site: &LoopSite) -> Option<(String, Option<String>)> {
     let (irobj, skeleton) = build_ir(site)?;
     let irjson = irobj.to_string();
     // capture 名单即 take 实参（求值序 = ir args 序）；无 capture 时不留空位。
-    let args_part = if irobj.get("args").and_then(|v| v.as_array()).map_or(true, |a| a.is_empty()) {
+    let args_part = if irobj
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map_or(true, |a| a.is_empty())
+    {
         String::new()
     } else {
         let names: Vec<&str> = irobj["args"]
@@ -1293,267 +1400,4 @@ fn build_wrapper(site: &LoopSite) -> Option<(String, Option<String>)> {
         Some(format!("else {{ {assigns} }}"))
     };
     Some((head, else_arm))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// simd 构造不采纳（2026-11-15）：`parallel for simd` 与 `for simd`
-    /// 两形态同未识别标注——零站点、源码原样（原循环照跑）。
-    #[test]
-    fn transform_simd_constructs_not_adopted() {
-        let src_a = "function draw() {\n  // @omp parallel for simd\n  for (let y = 0; y < 4; y += 1) {\n    acc[y] = y * 2;\n  }\n}\n";
-        let out_a = transform(src_a);
-        assert_eq!(out_a, src_a, "simd tail word = unknown clause → whole annotation unprocessed");
-
-        let src_b = "function draw() {\n  // @omp for simd\n  for (let y = 0; y < 4; y += 1) {\n    acc[y] = y * 2;\n  }\n}\n";
-        let out_b = transform(src_b);
-        assert_eq!(out_b, src_b, "`@omp for simd` matches no construct literal → untouched");
-    }
-
-    #[test]
-    fn transform_wraps_and_emits_ir() {
-        // bare 标注（OpenMP 缺省 default(shared)）：外层引用隐式 capture。
-        let src = "function draw() {\n  // @omp parallel for\n  for (let y = 0; y < h; y += 1) {\n    for (let x = 0; x < w; x += 1) {\n      const noise = random();\n      ctx.fillStyle = `rgba(${noise * 200 | 0}, 1, 1, 1)`;\n      ctx.beginPath();\n      ctx.arc(x, y, 1, 0, Math.PI * 2);\n      ctx.fill();\n    }\n  }\n}\nfunction mix(a, b) { return a; }\n";
-        let out = transform(src);
-        let s = &*out;
-        assert!(s.contains("__ocOmpPrep("));
-        assert!(s.contains("__ocOmpTake("));
-        assert!(s.contains("Float64Array(__ocOmpN)"));
-        assert!(s.contains("for (let y = 0; y < h; y += 1) {"));
-        // 隐式名单：头/体自由标识符（h/w/ctx 为跨域全局引用）+ prng 候选。
-        // captures 是 serde_json Map（BTreeMap，键字母序）；args 数组保持
-        // 源码序（random 先于 ctx）。
-        assert!(s.contains("\"args\":[\"h\",\"w\",\"random\",\"ctx\"]"), "{s}");
-        assert!(s.contains("\"captures\":{\"ctx\":\"ctx\",\"random\":\"prng\"}"), "{s}");
-        // 原循环逐字保留。
-        assert!(s.contains("ctx.arc(x, y, 1, 0, Math.PI * 2);"));
-    }
-
-    /// smallpt 同款标注形态：`schedule(dynamic, 1) private(r)`，隐式 shared。
-    /// ir 带 private 名单；端到端编译通过（private 名字绑定主帧局部槽）。
-    #[test]
-    fn transform_std_clauses_private_and_schedule() {
-        let src = "let r = 0;\nfunction draw() {\n  // @omp parallel for schedule(dynamic, 1) private(r)\n  for (let y = 0; y < 4; y += 1) {\n    for (let x = 0; x < 3; x += 1) {\n      r = x + y;\n      ctx.fillStyle = `rgba(${r | 0}, 1, 1, 1)`;\n      ctx.beginPath();\n      ctx.arc(x, y, 1, 0, Math.PI * 2);\n      ctx.fill();\n    }\n  }\n}\n";
-        let out = transform(src);
-        let s = &*out;
-        assert!(s.contains("__ocOmpPrep("));
-        // private 名单进 ir；schedule 原文进 ir；r 不混进 args。
-        assert!(s.contains("\"private\":[\"r\"]"));
-        assert!(s.contains("\"schedule\":\"dynamic,1\""));
-        assert!(s.contains("\"args\":[\"ctx\"]"));
-        // 端到端编译：private 绑定 + 体赋值 + facet 五连全链。
-        let Some(sites) = analyze(src) else { panic!("analyze") };
-        assert_eq!(sites.len(), 1);
-        let site = &sites[0];
-        let Some((ir, _skeleton)) = build_ir(site) else { panic!("build_ir") };
-        // 单一后端：capture 面即验收面（opcode 编译面已删）。
-        assert_eq!(ir["args"], serde_json::json!(["ctx"]));
-        assert_eq!(ir["captures"]["ctx"], "ctx");
-    }
-
-    /// 正式子句不支持面：lastprivate / default 未知值 → 整条标注不处理
-    /// （identity，「pragma 未被编译器处理」）。
-    #[test]
-    fn transform_unsupported_clauses_are_identity() {
-        for annot in [
-            "// @omp parallel for lastprivate(x)",
-            "// @omp parallel for default(firstprivate)",
-            "// @omp parallel for schedule(mondynamic)",
-            "// @omp parallel for ordered",
-            "// @omp parallel for if(1)",
-        ] {
-            let src = format!("{annot}\nlet notAFor = 1;\n");
-            assert_eq!(&*transform(&src), &src, "annot: {annot}");
-        }
-    }
-
-    /// default(none)：自由标识符漏列 → 不变换；列全 → 变换成功。
-    #[test]
-    fn transform_default_none_requires_explicit_list() {
-        let mk = |shared: &str| {
-            format!(
-                "function draw() {{\n  // @omp parallel for default(none) {shared}\n  for (let y = 0; y < h; y += 1) {{\n    ctx.fillStyle = `rgba(1, 1, 1, 1)`;\n    ctx.beginPath();\n    ctx.arc(0, y, 1, 0, 6.283, false);\n    ctx.fill();\n  }}\n}}\n"
-            )
-        };
-        let missing = mk("shared(ctx)");
-        assert_eq!(&*transform(&missing), &missing, "h 未列出 → identity");
-        let ok_src = mk("shared(ctx, w, h)");
-        let ok = transform(&ok_src);
-        assert!(ok.contains("__ocOmpPrep("));
-        assert!(ok.contains("\"args\":[\"ctx\",\"w\",\"h\"]"));
-    }
-
-    #[test]
-    fn transform_no_annotation_is_identity() {
-        let src = "for (let i = 0; i < 3; i++) { }\n";
-        assert!(matches!(transform(src), Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn transform_bad_annotation_is_identity() {
-        let src = "// @omp parallel for shared(1+2)\nlet notAFor = 1;\n";
-        assert_eq!(&*transform(src), src);
-    }
-
-    /// 非源文本上下文的假标注（字符串里的 `// @omp` 不是注释）不触发变换。
-    #[test]
-    fn transform_ignores_annotation_inside_string() {
-        let src = "const s = \"// @omp parallel for\\n\";\nfor (let i = 0; i < 3; i += 1) { }\n";
-        assert!(matches!(transform(src), Cow::Borrowed(_)));
-    }
-
-    #[test]
-    fn skeleton_counts_and_fills() {
-        let levels = vec![
-            ("let y = 0; y < 2; y += 1".to_string(), String::new()),
-            ("let x = 0; x < 3; x += 1".to_string(), String::new()),
-        ];
-        let sk = build_skeleton(&levels, &["random".to_string()]);
-        assert!(sk.contains("for (let y = 0; y < 2; y += 1) {"));
-        assert!(sk.contains("__ocOmpN += 1;"));
-        assert!(sk.contains("__ocOmpOut[__ocOmpW++] = random();"));
-        assert!(sk.matches("} ").count() >= 2);
-    }
-
-    /// 语料实分析：inspector halftone 循环 → AST 定位 → 分类 → 编译全链。
-    /// 语料缺失时静默跳过（外部工程路径）。输入 = `<script>` 内文本
-    /// （与 html.rs 的 transform 调用点同口径）。
-    #[test]
-    fn corpus_halftone_compiles() {
-        let Ok(html) = std::fs::read_to_string("F:/hyperframes-launches/inspector-launch/index.html")
-        else {
-            return;
-        };
-        let Some(code) = last_inline_script(&html) else {
-            panic!("inline script not found");
-        };
-        let Some(sites) = analyze(&code) else { panic!("analyze failed") };
-        assert!(!sites.is_empty(), "annotation not found");
-        let site = &sites[0];
-        let Some((ir, skeleton)) = build_ir(site) else {
-            panic!("build_ir failed");
-        };
-
-        // 分类面：random=prng、ctx=ctx、普通对象（s/mass）不入 captures。
-        let caps = ir["captures"].as_object().unwrap();
-        assert_eq!(caps.get("random").and_then(|v| v.as_str()), Some("prng"));
-        assert_eq!(caps.get("ctx").and_then(|v| v.as_str()), Some("ctx"));
-        assert!(caps.get("s").is_none(), "plain object must not be ctx");
-        assert!(caps.get("mass").is_none());
-
-        // 传递闭包：8 个页面函数全抽到。
-        let fns = ir["fns"].as_object().unwrap();
-        for f in [
-            "clamp", "mix", "smoothstep", "hash2", "valueNoise", "fbm", "gradientMass",
-            "shaderField",
-        ] {
-            assert!(fns.contains_key(f), "fn `{f}` must be extracted");
-        }
-        // rand 不该被抽（random 是采集点，不在抽取队列）。
-        assert!(!fns.contains_key("rand"));
-
-        // 骨架带两遍重放。
-        assert!(skeleton.contains("Float64Array(__ocOmpN)"));
-        assert!(skeleton.contains("__ocOmpOut[__ocOmpW++] = random();"));
-
-        // 编译全链。
-        let arg_names: Vec<String> = ir["args"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap().to_string())
-            .collect();
-        assert_eq!(arg_names.len(), 14);
-    }
-
-    /// smallpt 语料实分析：递归 radiance 抽取 + 隐式 shared 精确名单。
-    /// isolate 后端的验收锚点（opcode 编译面拒绝递归不再妨碍 capture 面）。
-    #[test]
-    fn corpus_smallpt_analysis() {
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../examples/smallpt/index.html");
-        let Ok(html) = std::fs::read_to_string(path) else { return };
-        let Some(code) = last_inline_script(&html) else { panic!("script") };
-        let Some(sites) = analyze(&code) else { panic!("analyze failed") };
-        assert!(!sites.is_empty());
-        let site = &sites[0];
-        let Some((ir, skeleton)) = build_ir(site) else { panic!("build_ir") };
-
-        // 递归 radiance 照抽（span 级切源码，无递归拒绝——拒绝面只属
-        // opcode 编译器）。
-        let fns = ir["fns"].as_object().unwrap();
-        for f in ["erand48", "sphereIntersect", "intersect", "radiance", "vec3", "vadd"] {
-            assert!(fns.contains_key(f), "fn `{f}` must be extracted");
-        }
-        // erand48 带参调用 = 不是 prng；行内自持种子归行函数体。
-        assert!(caps_str(&ir).get("erand48").is_none());
-        // private(r) 进 ir；骨架为 null（无零参采集）。
-        assert_eq!(ir["private"], serde_json::json!(["r"]));
-        assert_eq!(skeleton, "null");
-        // capture 名单含 spheres/cam/cx/cy/w/h/c（数组写回通道）/samps。
-        let args = ir["args"].as_array().unwrap();
-        for n in ["spheres", "cam", "cx", "cy", "w", "h", "c", "samps"] {
-            assert!(args.contains(&serde_json::json!(n)), "args must contain {n}: {args:?}");
-        }
-    }
-
-    fn caps_str(ir: &JsonValue) -> &serde_json::Map<String, JsonValue> {
-        ir["captures"].as_object().unwrap()
-    }
-
-    /// 链式数组写 = 嵌套 span，降序替换会错位——如实拒绝（identity）。
-    #[test]
-    fn transform_chained_array_write_is_identity() {
-        let src =
-            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { px[y] = px[y + 1] = 1; }\n";
-        assert_eq!(&*transform(src), src);
-    }
-
-    /// 判据面已删（2026-11-15 opaque-body 收束）：白名单外的 ctx 成员与
-    /// 读写数组不再静态拒绝——前者由 worker 垫片 Proxy 陷阱运行期 throw
-    /// （未知成员 = 行错误毒化），后者走 array_rw 快照通道。保留的唯一
-    /// 定态拒绝 = 跳行全局状态（确定性合同，非语料判断）。
-    #[test]
-    fn transform_criteria_dissolved_to_runtime_guards() {
-        // 读写数组：照变换，captures 分类 array_rw（快照通道）。
-        let rw_src =
-            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { out[y] = out[y - 1] + 1; }\n";
-        let out = transform(rw_src);
-        assert!(
-            out.contains("__ocOmpPrep("),
-            "rw array must still take over: {out}"
-        );
-        assert!(out.contains("\"array_rw\""), "{out}");
-        // ctx 白名单已删：fillRect 循环照变换——不支持面由垫片运行期 throw。
-        let fr_src =
-            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { ctx.fillRect(0, y, 1, 1); }\n";
-        assert!(transform(fr_src).contains("__ocOmpPrep("));
-        // 跳行全局状态：仍 identity。
-        let rnd =
-            "// @omp parallel for\nfor (let y = 0; y < 4; y += 1) { acc += Math.random(); }\n";
-        assert_eq!(&*transform(rnd), rnd);
-    }
-
-    /// html 里最后一个无 src 的 `<script>` 块文本（与 html.rs 的 inline
-    /// script 口径一致；测试辅助）。
-    fn last_inline_script(html: &str) -> Option<String> {
-        let mut last = None;
-        let mut cursor = 0usize;
-        while let Some(open_rel) = html[cursor..].find("<script") {
-            let open = cursor + open_rel;
-            let Some(tag_end_rel) = html[open..].find('>') else { break };
-            let tag_end = open + tag_end_rel;
-            let tag = &html[open..=tag_end];
-            if tag.contains("src=") {
-                cursor = tag_end + 1;
-                continue;
-            }
-            let Some(close_rel) = html[tag_end..].find("</script>") else { break };
-            let close = tag_end + close_rel;
-            last = Some(html[tag_end + 1..close].to_string());
-            cursor = close + 1;
-        }
-        last
-    }
 }

@@ -1,6 +1,6 @@
+use opencat_core::ir::RenderFrame;
 use opencat_core::ir::draw_encoding::encode_ir_envelope;
 use opencat_core::ir::draw_frame::DrawFrameScratch;
-use opencat_core::ir::RenderFrame;
 
 /// Error wrapper bridging encoding failures into std::error::Error / JsValue.
 #[derive(Debug)]

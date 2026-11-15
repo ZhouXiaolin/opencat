@@ -1,5 +1,6 @@
 use crate::{
     analyze::{DisplayAnalysisTable, DisplayNodeAnalysis, fingerprint},
+    canvas::paint::ImageFilterSpec,
     display::{
         list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem},
         tree::{
@@ -9,7 +10,6 @@ use crate::{
     layout::tree::LayoutOutputFingerprint,
     semantic::fingerprint::ElementInputFingerprints,
     style::BorderRadius,
-    canvas::paint::ImageFilterSpec,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -111,7 +111,6 @@ impl AnnotatedDisplayTree {
     pub fn layer_bounds(&self, handle: AnnotatedNodeHandle) -> DisplayRect {
         self.layer_bounds[handle.0]
     }
-
 }
 
 impl AnnotatedDisplayNode {
@@ -215,13 +214,15 @@ fn annotate_display_node(
     // CSS filter 的绘制区域是 filter region：`drop-shadow()` 的阴影落在
     // 元素框之外，合成层的 bounds 必须扩到能容纳它，否则阴影被裁掉。
     // 与 style.rs `shadow_outsets` 同公式（extent = σ·3），从折算链的
-     // DropShadow 参数重算——identity 算子不进折算产物（透明/零参阴影
-     // 不产出像素，bounds 不扩无视觉差）。
+    // DropShadow 参数重算——identity 算子不进折算产物（透明/零参阴影
+    // 不产出像素，bounds 不扩无视觉差）。
     let mut filter_stack: Vec<&ImageFilterSpec> =
         annotated.css_filter_image.as_ref().into_iter().collect();
     while let Some(filter) = filter_stack.pop() {
         match filter {
-            ImageFilterSpec::DropShadow { dx, dy, sigma_x, .. } => {
+            ImageFilterSpec::DropShadow {
+                dx, dy, sigma_x, ..
+            } => {
                 let extent = sigma_x * 3.0;
                 let left = (extent - dx).max(0.0);
                 let top = (extent - dy).max(0.0);
@@ -268,4 +269,3 @@ fn compute_node_fingerprint(handle: AnnotatedNodeHandle, tree: &mut AnnotatedDis
         },
     );
 }
-

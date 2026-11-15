@@ -16,5 +16,3 @@ fn xorshift32(seed: u32) -> u32 {
     x ^= x << 5;
     x
 }
-
-

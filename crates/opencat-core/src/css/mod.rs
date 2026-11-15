@@ -18,12 +18,12 @@ mod stylesheet;
 mod to_node_style;
 mod to_taffy;
 
-pub use cascade::{match_rules_ctx, SelectorContext, SelectorNode};
+pub use cascade::{SelectorContext, SelectorNode, match_rules_ctx};
 pub use eval::VarSource;
 pub use eval_units::to_px as css_text_to_px;
 pub use property_semantics::{origin_px_to_fractions, parse_css_transform};
-pub use to_node_style::{background_from_css, box_shadow_from_css};
 pub use stylesheet::CssStylesheet;
+pub use to_node_style::{background_from_css, box_shadow_from_css};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -158,7 +158,10 @@ impl VarDeps {
             if let Property::Custom(custom) = property
                 && let CustomPropertyName::Custom(name) = &custom.name
             {
-                own.insert(name.0.trim_start_matches("--").to_string(), custom.value.clone());
+                own.insert(
+                    name.0.trim_start_matches("--").to_string(),
+                    custom.value.clone(),
+                );
             }
         }
         let dependent: HashSet<String> = decls
@@ -177,7 +180,11 @@ impl VarDeps {
             .filter(|p| touched_names(p).iter().any(|name| dependent.contains(name)))
             .map(|p| (*p).clone())
             .collect();
-        let touches = |name: &str| replay.iter().any(|p| touched_names(p).iter().any(|n| n == name));
+        let touches = |name: &str| {
+            replay
+                .iter()
+                .any(|p| touched_names(p).iter().any(|n| n == name))
+        };
         let own_text = own
             .iter()
             .filter_map(|(key, tokens)| {
@@ -211,7 +218,10 @@ fn touched_names(property: &Property<'static>) -> Vec<String> {
     if let Some(longhands) = id.longhands() {
         names.extend(longhands.iter().map(|l| l.name().to_string()));
     }
-    if matches!(names[0].as_str(), "transform" | "translate" | "rotate" | "scale") {
+    if matches!(
+        names[0].as_str(),
+        "transform" | "translate" | "rotate" | "scale"
+    ) {
         names.push(TRANSFORM_FAMILY.to_string());
     }
     names
@@ -230,7 +240,11 @@ pub struct VarLink {
 impl VarLink {
     pub fn push(parent: Option<Arc<VarLink>>, vars: Arc<CssVars>, scripted: bool) -> Arc<Self> {
         let scripted = scripted || parent.as_ref().is_some_and(|link| link.scripted);
-        Arc::new(Self { vars, parent, scripted })
+        Arc::new(Self {
+            vars,
+            parent,
+            scripted,
+        })
     }
 
     /// 折叠成一张继承表（自远而近覆写）。运行期结构重建（html 子树的
@@ -273,7 +287,11 @@ pub fn parse_custom_value(name: &str, value: &str) -> Option<TokenList<'static>>
     let id = PropertyId::Custom(CustomPropertyName::Custom(
         lightningcss::values::ident::DashedIdent(name.to_string().into()),
     ));
-    match Property::parse_string(id, value, lightningcss::stylesheet::ParserOptions::default()) {
+    match Property::parse_string(
+        id,
+        value,
+        lightningcss::stylesheet::ParserOptions::default(),
+    ) {
         Ok(Property::Custom(custom)) => Some(custom.value.into_owned()),
         _ => None,
     }
@@ -356,9 +374,7 @@ fn apply_declarations(
 
 /// 内联 `style` 文本解析成声明块。与样式表同一策略：声明块借用输入文本，
 /// 泄漏一份换 'static（节点级小文本，量级可忽略）。解析失败整段忽略。
-fn parse_inline_block(
-    css: &str,
-) -> Option<lightningcss::declaration::DeclarationBlock<'static>> {
+fn parse_inline_block(css: &str) -> Option<lightningcss::declaration::DeclarationBlock<'static>> {
     let owned: &'static str = Box::leak(css.to_string().into_boxed_str());
     match lightningcss::declaration::DeclarationBlock::parse_string(
         owned,
@@ -450,8 +466,7 @@ impl CssEngine {
         ctx: &cascade::SelectorContext<'_>,
         inline_style: Option<&str>,
     ) -> (NodeStyle, CssVars) {
-        let matched =
-            cascade::match_rules_ctx(&self.sheet, class_name, element_id, tag, ctx);
+        let matched = cascade::match_rules_ctx(&self.sheet, class_name, element_id, tag, ctx);
         // UA 兜底层压进 layer 0：作者规则（unlayered = usize::MAX 或任何
         // 显式 @layer）在层叠键上天然压过它，同 specificity 时 `text-4xl`
         // 这类作者字号照常覆盖 h2 的 UA 字号。去重是「后者胜」且不重排，
@@ -477,7 +492,10 @@ impl CssEngine {
             .iter()
             .map(|decl| &decl.property)
             .chain(inline.iter().flat_map(|block| {
-                block.declarations.iter().chain(block.important_declarations.iter())
+                block
+                    .declarations
+                    .iter()
+                    .chain(block.important_declarations.iter())
             }))
             .collect();
         apply_declarations(
@@ -536,10 +554,15 @@ impl CssEngine {
             .iter()
             .chain(block.important_declarations.iter())
             .collect();
-        apply_declarations(style, &mut taffy_style, &decls, vars, &self.ctx, parent_font_px);
+        apply_declarations(
+            style,
+            &mut taffy_style,
+            &decls,
+            vars,
+            &self.ctx,
+            parent_font_px,
+        );
         to_node_style::apply_background_size_to_layers(style);
         style.css_layout = Some(crate::style::CssLayout(taffy_style));
     }
 }
-
-

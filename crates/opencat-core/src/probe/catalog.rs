@@ -1,9 +1,11 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 
 pub use crate::ir::asset_id::{AssetId, ResourceKind};
 use crate::lottie::LottieMeta;
 pub use crate::parse::primitives::VideoSource;
 use crate::parse::primitives::{AudioSource, ImageSource, LottieSource};
+use crate::svg_asset::SvgDocument;
 
 /// One unique Lottie source locator — bundle identity is source-based.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -17,6 +19,8 @@ pub struct ResourceRequests {
     pub videos: HashSet<VideoSource>,
     pub audios: HashSet<AudioSource>,
     pub lotties: HashSet<LottieRequest>,
+    /// File-backed `<svg src>` documents (inline svg carries its markup).
+    pub svgs: HashSet<PathBuf>,
 }
 
 /// Probe / prepare result: validated resource metadata keyed by canonical
@@ -27,6 +31,8 @@ pub struct PreparedResourceCatalog {
     pub videos: HashMap<AssetId, VideoInfoMeta>,
     pub audios: HashSet<AssetId>,
     pub lotties: HashMap<AssetId, LottieMeta>,
+    /// Host-supplied SVG documents (markup + external `<image href>` bytes).
+    pub svgs: HashMap<AssetId, SvgDocument>,
     /// Pipeline-internal alias -> canonical `AssetId` bindings. Aliases are
     /// resolved to canonical IDs before any `DrawOp`/`FrameMediaPlan` leaves
     /// the pipeline, so hosts never observe an alias. The catalog itself does
@@ -63,6 +69,11 @@ impl VideoInfoMeta {
 }
 
 impl PreparedResourceCatalog {
+    /// Host-supplied SVG document by canonical id.
+    pub fn svg(&self, id: &AssetId) -> Option<&SvgDocument> {
+        self.svgs.get(id)
+    }
+
     /// Resolve an image source to its canonical AssetId.
     pub fn resolve_image(&self, src: &ImageSource) -> anyhow::Result<AssetId> {
         match crate::ir::asset_id::asset_id_for_image(src) {
@@ -216,5 +227,3 @@ pub enum CanonicalKind {
     Audio,
     Lottie,
 }
-
-

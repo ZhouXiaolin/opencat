@@ -17,7 +17,6 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use glow::HasContext;
 
-
 /// 当前线程 GL 上下文的 RAII 现场：[`Self::save`] 记下 current，drop 时
 /// 恢复。无线程绑定上下文时 save 成功、drop 不做任何事（与现状一致：
 /// 本来就没有可恢复的东西）。
@@ -108,28 +107,31 @@ pub(crate) fn release_reflector_session() {
 /// （thread_local——反射只发生在脚本执行线程）；每次反射 save → make
 /// current → 反射 → RAII 恢复，主渲染路径的 current 不再被打断。
 pub fn install_glsl_reflector(ctx: &crate::script::EngineJsContext) {
-    opencat_core::script::js_context::JsContext::set_glsl_reflector(ctx, Box::new(|vs, fs| {
-        let key = (vs.to_string(), fs.to_string());
-        if let Some(hit) = REFLECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
-            return Ok(hit);
-        }
-        let reflected = REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
-            let mut slot = cell.borrow_mut();
-            // guard 活到闭包尾：首建分支（GlSession::offscreen 构造即
-            // make current）与后续反射都被覆盖，离开时现场归位。
-            let _guard = CurrentContextGuard::save()?;
-            if slot.is_none() {
-                let session = crate::gpu::session::GlSession::offscreen()?;
-                let gl = session.gl();
-                *slot = Some((session, gl));
+    opencat_core::script::js_context::JsContext::set_glsl_reflector(
+        ctx,
+        Box::new(|vs, fs| {
+            let key = (vs.to_string(), fs.to_string());
+            if let Some(hit) = REFLECT_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+                return Ok(hit);
             }
-            let (session, gl) = slot.as_ref().expect("reflect session");
-            session.make_current()?;
-            reflect_program_gl(gl, vs, fs)
-        })?;
-        REFLECT_CACHE.with(|c| c.borrow_mut().insert(key, reflected.clone()));
-        Ok(reflected)
-    }));
+            let reflected = REFLECT.with(|cell| -> anyhow::Result<serde_json::Value> {
+                let mut slot = cell.borrow_mut();
+                // guard 活到闭包尾：首建分支（GlSession::offscreen 构造即
+                // make current）与后续反射都被覆盖，离开时现场归位。
+                let _guard = CurrentContextGuard::save()?;
+                if slot.is_none() {
+                    let session = crate::gpu::session::GlSession::offscreen()?;
+                    let gl = session.gl();
+                    *slot = Some((session, gl));
+                }
+                let (session, gl) = slot.as_ref().expect("reflect session");
+                session.make_current()?;
+                reflect_program_gl(gl, vs, fs)
+            })?;
+            REFLECT_CACHE.with(|c| c.borrow_mut().insert(key, reflected.clone()));
+            Ok(reflected)
+        }),
+    );
 }
 
 /// 装资产读取器 + 图像解码器（three FileLoader 的 fetch 垫与 GLTFLoader 的
@@ -138,47 +140,57 @@ pub fn install_glsl_reflector(ctx: &crate::script::EngineJsContext) {
 /// png/jpeg，另开 webp）。
 pub fn install_asset_bridge(ctx: &crate::script::EngineJsContext, base_dir: &std::path::Path) {
     let root = base_dir.to_path_buf();
-    opencat_core::script::js_context::JsContext::set_asset_reader(ctx, Box::new(move |path| {
-        // 远程 URL（DRACOLoader 运行时拉解码器之类）：与外部脚本同一条
-        // 抓取 + 磁盘缓存通道（`.oc-cache/net`），同输入逐字节可复现。
-        if path.starts_with("https://") || path.starts_with("http://") {
-            return crate::script::html::fetch_remote_bytes(&root, path).map(|(_, bytes)| bytes);
-        }
-        let full = root.join(path);
-        std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
-    }));
-    opencat_core::script::js_context::JsContext::set_image_decoder(ctx, Box::new(|bytes| {
-        // SVG 先走 resvg 光栅（`<img src=*.svg>` 位图语义，见 svg_raster
-        // 模块注释）；image-rs 不认 svg 文本。预乘 RGBA 与 image-rs 的
-        // to_rgba8 输出同底色系（透明区域全零）。
-        if let Some((rgba, w, h)) = opencat_core::svg_raster::rasterize_svg(bytes, None) {
-            return Ok((w, h, rgba));
-        }
-        let img = image::load_from_memory(bytes)
-            .map_err(|e| anyhow::anyhow!("image decode: {e}"))?;
-        let rgba = img.to_rgba8().into_raw();
-        Ok((img.width(), img.height(), rgba))
-    }));
+    opencat_core::script::js_context::JsContext::set_asset_reader(
+        ctx,
+        Box::new(move |path| {
+            // 远程 URL（DRACOLoader 运行时拉解码器之类）：与外部脚本同一条
+            // 抓取 + 磁盘缓存通道（`.oc-cache/net`），同输入逐字节可复现。
+            if path.starts_with("https://") || path.starts_with("http://") {
+                return crate::script::html::fetch_remote_bytes(&root, path)
+                    .map(|(_, bytes)| bytes);
+            }
+            let full = root.join(path);
+            std::fs::read(&full).map_err(|e| anyhow::anyhow!("asset `{path}`: {e}"))
+        }),
+    );
+    opencat_core::script::js_context::JsContext::set_image_decoder(
+        ctx,
+        Box::new(|bytes| {
+            // SVG 先走 resvg 光栅（`<img src=*.svg>` 位图语义，见 media::svg
+            // 模块注释）；image-rs 不认 svg 文本。预乘 RGBA 与 image-rs 的
+            // to_rgba8 输出同底色系（透明区域全零）。
+            if let Some((rgba, w, h)) = crate::media::svg::rasterize_svg(bytes, None) {
+                return Ok((w, h, rgba));
+            }
+            let img =
+                image::load_from_memory(bytes).map_err(|e| anyhow::anyhow!("image decode: {e}"))?;
+            let rgba = img.to_rgba8().into_raw();
+            Ok((img.width(), img.height(), rgba))
+        }),
+    );
     // 视频帧解码（three VideoTexture 的 face 像素源）：自持一个独立解码池，
     // 与渲染管线的 MediaContext 互不借用——管线池按渲染帧预取，JS 侧按
     // (asset, 媒体时刻) 惰性取帧；同一 mp4 两路解码在语料规模（数个短片段）
     // 下代价可忽略。帧缓存让逐帧重放的同时刻请求命中缓存。
     let pool_root = base_dir.to_path_buf();
     let pool = std::sync::Mutex::new(crate::media::MediaContext::new());
-    opencat_core::script::js_context::JsContext::set_video_frame_decoder(ctx, Box::new(move |path, time_secs| {
-        let full = pool_root.join(path);
-        let mut guard = pool.lock().expect("video frame pool poisoned");
-        let (data, w, h, _cached) = guard.get_video_frame(
-            &full,
-            crate::media::VideoFrameRequest {
-                composition_time_secs: time_secs,
-                timing: Default::default(),
-                quality: crate::media::VideoPreviewQuality::Exact,
-                target_size: None,
-            },
-        )?;
-        Ok((data.to_vec(), w, h))
-    }));
+    opencat_core::script::js_context::JsContext::set_video_frame_decoder(
+        ctx,
+        Box::new(move |path, time_secs| {
+            let full = pool_root.join(path);
+            let mut guard = pool.lock().expect("video frame pool poisoned");
+            let (data, w, h, _cached) = guard.get_video_frame(
+                &full,
+                crate::media::VideoFrameRequest {
+                    composition_time_secs: time_secs,
+                    timing: Default::default(),
+                    quality: crate::media::VideoPreviewQuality::Exact,
+                    target_size: None,
+                },
+            )?;
+            Ok((data.to_vec(), w, h))
+        }),
+    );
 }
 
 /// 真 GL 反射：编译→link→按序枚举 active uniform/attribute/uniform 块。
@@ -190,7 +202,9 @@ fn reflect_program_gl(
 ) -> anyhow::Result<serde_json::Value> {
     unsafe {
         let compile = |ty: u32, src: &str| -> Result<glow::Shader> {
-            let sh = gl.create_shader(ty).map_err(|e| anyhow!("create_shader: {e}"))?;
+            let sh = gl
+                .create_shader(ty)
+                .map_err(|e| anyhow!("create_shader: {e}"))?;
             gl.shader_source(sh, src);
             gl.compile_shader(sh);
             if !gl.get_shader_compile_status(sh) {

@@ -128,11 +128,7 @@ pub fn render_frame_with_state(
     last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     generated_images: &mut crate::ir::GeneratedImageTable,
-) -> Result<(
-    DrawOpFrame,
-    FrameMediaPlan,
-    Option<crate::ir::GpuSection>,
-)> {
+) -> Result<(DrawOpFrame, FrameMediaPlan, Option<crate::ir::GpuSection>)> {
     #[cfg(feature = "profile")]
     let _frame_span = span!(
         target: "render.pipeline",

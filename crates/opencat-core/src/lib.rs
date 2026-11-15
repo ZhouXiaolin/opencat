@@ -1,7 +1,5 @@
 //! opencat-core — 纯数据 + trait + 算法，零 IO/平台依赖。
 
-
-
 pub mod ablate;
 pub(crate) mod analyze;
 pub mod cache;
@@ -21,12 +19,12 @@ pub mod pipeline;
 pub mod probe;
 pub mod profile;
 pub(crate) mod render;
+pub mod render_offscreen;
 pub mod resolve;
 pub mod script;
-pub mod render_offscreen;
-pub mod svg_raster;
 pub(crate) mod semantic;
 pub mod style;
+pub mod svg_asset;
 pub mod text;
 pub mod time;
 
@@ -39,11 +37,11 @@ pub use self::lifecycle::{
 pub use self::media::{
     AudioPlan, AudioSegment, VideoFrameRequest, VideoFrameTiming, collect_audio_plan,
 };
+pub use self::parse::ParsedComposition;
 pub use self::parse::node::Node;
 pub use self::parse::preflight::{
     collect_resource_requests, collect_resource_requests_from_parsed,
 };
-pub use self::parse::ParsedComposition;
 pub use self::pipeline::{DefaultPipeline, FrameElementRect, Pipeline};
 pub use self::probe::{AudioSource, ImageSource};
 pub use self::script::{

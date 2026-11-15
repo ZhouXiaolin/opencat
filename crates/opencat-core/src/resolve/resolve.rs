@@ -8,9 +8,7 @@ use crate::{
     media::VideoFrameTiming,
     parse::{
         node::NodeKind,
-        primitives::{
-            Canvas, Div, Image, Lottie, Path, Svg, Text, Video, VideoSource,
-        },
+        primitives::{Canvas, Div, Image, Lottie, Path, Svg, Text, Video, VideoSource},
         time::TimelineNode,
         time::{FrameState, TimelineOrigin, frame_state_for_root_at},
     },
@@ -20,8 +18,7 @@ use crate::{
         style::{ComputedLayoutStyle, ComputedStyle, ComputedVisualStyle, InheritedStyle},
         tree::{
             ElementBitmap, ElementCanvas, ElementDiv, ElementDrawSlot, ElementId, ElementKind,
-            ElementLottie, ElementNode, ElementSvg, ElementSvgPath, ElementText,
-            ElementTimeline,
+            ElementLottie, ElementNode, ElementSvg, ElementSvgPath, ElementText, ElementTimeline,
             ElementTimelineTransition,
         },
     },
@@ -146,11 +143,25 @@ pub fn resolve_ui_tree_with_script_cache(
             if n.style.id == target {
                 eprintln!(
                     "[dbg-node] id={} num={} depth={} transforms={:?} opacity={:?} pos={:?} positioned={} inset_t={:?} inset_l={:?} margin_t={:?} w={:?} h={:?} pt={:?} cl={:?}",
-                    n.style.id, n.id.0, depth, n.style.visual.transforms, n.style.visual.opacity,
-                    n.style.layout.position, n.style.layout.positioned, n.style.layout.inset_top, n.style.layout.inset_left,
+                    n.style.id,
+                    n.id.0,
+                    depth,
+                    n.style.visual.transforms,
+                    n.style.visual.opacity,
+                    n.style.layout.position,
+                    n.style.layout.positioned,
+                    n.style.layout.inset_top,
+                    n.style.layout.inset_left,
                     n.style.layout.margin_top,
-                    n.style.layout.width, n.style.layout.height, n.style.layout.padding_top,
-                    n.style.css_layout.as_ref().map(|l| (&l.0.position, &l.0.size, &l.0.inset, &l.0.margin))
+                    n.style.layout.width,
+                    n.style.layout.height,
+                    n.style.layout.padding_top,
+                    n.style.css_layout.as_ref().map(|l| (
+                        &l.0.position,
+                        &l.0.size,
+                        &l.0.inset,
+                        &l.0.margin
+                    ))
                 );
             }
             for c in &n.children {
@@ -266,7 +277,11 @@ fn hidden_clip_placeholder(cx: &mut ResolveContext<'_>) -> ElementNode {
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Div(ElementDiv),
-        style: compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx)),
+        style: compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        ),
         children: Vec::new(),
         draw_slot: ElementDrawSlot::default(),
         fingerprints: Default::default(),
@@ -309,7 +324,11 @@ fn resolve_timeline(timeline: &TimelineNode, cx: &mut ResolveContext<'_>) -> Res
     let result = (|| {
         let mut style = timeline.style_ref().clone();
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let mut computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let mut computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
         // A timeline's segments are placed on its OWN clock. A top-level
         // timeline starts at composition zero; one nested inside a scene starts
@@ -441,7 +460,11 @@ fn empty_root_div(cx: &mut ResolveContext<'_>) -> ElementNode {
     ElementNode {
         id: cx.ids.alloc(),
         kind: ElementKind::Div(ElementDiv),
-        style: compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx)),
+        style: compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        ),
         children: Vec::new(),
         draw_slot: ElementDrawSlot::default(),
         fingerprints: Default::default(),
@@ -471,7 +494,11 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             "node id is required for div nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let mut computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let mut computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
         // 运行期 appendChild 的宿主子树覆盖：JS 树是挂载态的权威，提取期
         // 快照看不见 tl.call 里逐帧挂上的节点。命中即按上报列表整体重建
@@ -515,7 +542,10 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
         // 跳过：上报列表由 JS 树序列化，textContent 已在序列化里合成 `:t`。
         let slot_id = format!("{}:t", style.id);
         if child_override.is_none()
-            && !div.children_ref().iter().any(|child| child.style_ref().id == slot_id)
+            && !div
+                .children_ref()
+                .iter()
+                .any(|child| child.style_ref().id == slot_id)
             && let Some(content) = text_content_from_stack(cx.mutation_stack, &slot_id)
         {
             children.clear();
@@ -524,8 +554,15 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             // 兄弟（链接 span）的词间距（figma act9 的 "frame figma.com"）。
             let content = content.to_string();
             if !content.is_empty() {
-                let slot_style = NodeStyle { id: slot_id.clone(), ..NodeStyle::default() };
-                let slot_computed = compute_style(&slot_style, &inherited_style, script_display_unlocked(&slot_style, cx));
+                let slot_style = NodeStyle {
+                    id: slot_id.clone(),
+                    ..NodeStyle::default()
+                };
+                let slot_computed = compute_style(
+                    &slot_style,
+                    &inherited_style,
+                    script_display_unlocked(&slot_style, cx),
+                );
                 let text_unit_overrides = script_split_overrides(cx, &slot_id, &content);
                 children.push(ElementNode {
                     id: cx.ids.alloc(),
@@ -696,8 +733,8 @@ fn rebuild_children(
     // 行内流按重建后的子项重判：宿主在静态树里是空容器（`#xcaptext` 这类
     // 置词目标），种子阶段没有可读的子项，inline_flow 恒为 false——覆盖落地
     // 后文本 run 与行内元素必须同排，不能各占一行（VO 字幕被拆成三行）。
-    let inline_flow =
-        build.html_frontend && crate::parse::dom::establishes_inline_flow(&dom_elements, &mut dom_ctx);
+    let inline_flow = build.html_frontend
+        && crate::parse::dom::establishes_inline_flow(&dom_elements, &mut dom_ctx);
     let mut nodes = Vec::with_capacity(dom_elements.len());
     for el in dom_elements {
         nodes.push(crate::parse::dom::build_node(el, &mut dom_ctx)?);
@@ -735,7 +772,11 @@ fn resolve_text(text: &Text, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
             "node id is required for text nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
 
         // 脚本写入的文本按浏览器 textContent 语义原样保留：打字机语料
         // （figma act9 的 t1 尾空格）证明它是行内兄弟的词间距，裁掉会粘连。
@@ -878,7 +919,11 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
             "node id is required for canvas nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
 
         for asset in canvas.assets_ref() {
             let target = cx.assets.resolve_image(&asset.source)?;
@@ -919,7 +964,10 @@ fn resolve_canvas(canvas: &Canvas, cx: &mut ResolveContext<'_>) -> Result<Elemen
                 preserve_aspect_ratio: None,
                 intrinsic_size: None,
             }),
-            None => ElementKind::Canvas(ElementCanvas { commands, bitmap: canvas.bitmap }),
+            None => ElementKind::Canvas(ElementCanvas {
+                commands,
+                bitmap: canvas.bitmap,
+            }),
         };
 
         Ok(ElementNode {
@@ -984,7 +1032,11 @@ fn resolve_video(video: &Video, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             "node id is required for video nodes before rendering"
         );
         let vars = apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let mut computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let mut computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
         let inherited_style = InheritedStyle::for_child(&computed).with_vars(vars);
 
         let locator = match video.source() {
@@ -1063,7 +1115,11 @@ fn resolve_image(image: &Image, cx: &mut ResolveContext<'_>) -> Result<ElementNo
             "node id is required for image nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
 
         let asset_id = cx.assets.resolve_image(image.source())?;
         let (width, height) = cx.assets.dimensions(&asset_id);
@@ -1098,7 +1154,11 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
             "node id is required for lottie nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
 
         // Bundle identity is source-based: same locator → same bundle.
         let bundle_id = cx.assets.resolve_lottie(lottie.source())?;
@@ -1137,7 +1197,6 @@ fn resolve_lottie(lottie: &Lottie, cx: &mut ResolveContext<'_>) -> Result<Elemen
     result
 }
 
-
 fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
     let pushed = push_script_scope_for_visible_subtree(path, path.style_ref(), cx)?;
     let result = (|| {
@@ -1148,7 +1207,11 @@ fn resolve_path(path: &Path, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
         );
         ensure!(!path.data().is_empty(), "path data must not be empty");
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
 
         let (path_data, view_box) = if let Some(svg_path) = &computed.visual.svg_path {
             let pd = vec![svg_path.clone()];
@@ -1197,7 +1260,11 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             "node id is required for svg nodes before rendering"
         );
         apply_style_layers(&mut style, cx.inherited_style, cx.mutation_stack);
-        let computed = compute_style(&style, cx.inherited_style, script_display_unlocked(&style, cx));
+        let computed = compute_style(
+            &style,
+            cx.inherited_style,
+            script_display_unlocked(&style, cx),
+        );
         // 脚本改过内部元素属性的 html inline svg：本帧重序列化的 markup
         // 覆盖提取期快照（html_api.js svgWriteAttr → `svg_set_markup`）。
         let markup_override = cx
@@ -1205,28 +1272,26 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             .iter()
             .rev()
             .find_map(|m| m.svg_markup_for(&style.id));
-        let inline = markup_override
-            .or(svg.inline())
-            .map(|markup| {
-                // 内部元素绘制注入在覆盖落地之后：脚本改写的 markup 由 JS
-                // 侧重序列化、不带页面层叠，注入补上 CSS 瞄准的绘制声明；
-                // 内联/脚本已写的属性注入时跳过（层叠序正确）。
-                let markup = match svg.inner_paint.as_ref() {
-                    Some(ip) => crate::parse::html::inject_markup_paint(
-                        markup,
-                        &ip.sheet,
-                        &ip.host_ancestors,
-                    ),
-                    None => markup.to_string(),
-                };
-                inherit_svg_paint(&markup, style.svg_paint_css.as_deref(), &computed)
-            });
+        let inline = markup_override.or(svg.inline()).map(|markup| {
+            // 内部元素绘制注入在覆盖落地之后：脚本改写的 markup 由 JS
+            // 侧重序列化、不带页面层叠，注入补上 CSS 瞄准的绘制声明；
+            // 内联/脚本已写的属性注入时跳过（层叠序正确）。
+            let markup = match svg.inner_paint.as_ref() {
+                Some(ip) => {
+                    crate::parse::html::inject_markup_paint(markup, &ip.sheet, &ip.host_ancestors)
+                }
+                None => markup.to_string(),
+            };
+            inherit_svg_paint(&markup, style.svg_paint_css.as_deref(), &computed)
+        });
         let intrinsic_size = match &inline {
             Some(markup) => crate::render::svg::load_tree_markup(markup)
                 .map(|t| crate::render::svg::tree_size(&t)),
-            None => {
-                crate::render::svg::load_tree(svg.src()).map(|t| crate::render::svg::tree_size(&t))
-            }
+            None => cx
+                .assets
+                .svg(&crate::ir::asset_id::asset_id_for_svg(svg.src()))
+                .and_then(|doc| doc.tree())
+                .map(|t| crate::render::svg::tree_size(&t)),
         };
 
         Ok(ElementNode {
@@ -1306,16 +1371,20 @@ fn inherit_svg_paint(markup: &str, paint_css: Option<&str>, computed: &ComputedS
         let close = markup.as_bytes()[value_start - 1];
         if let Some(len) = markup[value_start..end].find(close as char) {
             let value_end = value_start + len;
-            return format!(
-                "{};{}{}",
-                &markup[..value_end],
-                decls,
-                &markup[value_end..]
-            );
+            return format!("{};{}{}", &markup[..value_end], decls, &markup[value_end..]);
         }
     }
-    let insert_at = if markup[..end].ends_with('/') { end - 1 } else { end };
-    format!("{} style=\"{}\"{}", &markup[..insert_at], decls, &markup[insert_at..])
+    let insert_at = if markup[..end].ends_with('/') {
+        end - 1
+    } else {
+        end
+    };
+    format!(
+        "{} style=\"{}\"{}",
+        &markup[..insert_at],
+        decls,
+        &markup[insert_at..]
+    )
 }
 
 fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<bool> {
@@ -1558,7 +1627,9 @@ fn scripted_vars(stack: &[StyleMutations], id: &str) -> crate::css::CssVars {
         return vars;
     }
     for mutations in stack {
-        let Some(mutation) = mutations.get(id) else { continue };
+        let Some(mutation) = mutations.get(id) else {
+            continue;
+        };
         for (name, value) in &mutation.custom_props {
             if let Some(tokens) = crate::css::parse_custom_value(name, value) {
                 vars.insert(name.trim_start_matches("--").to_string(), tokens);
@@ -1942,18 +2013,24 @@ fn collect_visual_script_targets_at(
             NodeKind::Text(text) => text.content().to_string(),
             _ => String::new(),
         };
-        registry.declared_nodes.push(crate::script::tree::DeclaredNode {
-            id: id.to_string(),
-            parent: parent.unwrap_or("").to_string(),
-            order,
-            tag: node_tag_name(node),
-            text,
-        });
+        registry
+            .declared_nodes
+            .push(crate::script::tree::DeclaredNode {
+                id: id.to_string(),
+                parent: parent.unwrap_or("").to_string(),
+                order,
+                tag: node_tag_name(node),
+                text,
+            });
         // 盒子查询要整形，整形要样式：声明树上的计算文本样式（声明值 +
         // 沿祖先继承）。脚本逐帧改写的祖先字号不在其中——那是 mutation 层。
-        registry.text_styles.insert(id.to_string(), text_style.clone());
+        registry
+            .text_styles
+            .insert(id.to_string(), text_style.clone());
         if matches!(node.kind(), NodeKind::Text(_)) {
-            let Some(parent) = parent else { return; };
+            let Some(parent) = parent else {
+                return;
+            };
             let slot = format!("{parent}:t");
             if !id.ends_with(":t") {
                 registry.text_styles.insert(slot, text_style.clone());
@@ -2016,5 +2093,3 @@ fn node_tag_name(node: &Node) -> String {
     }
     .to_string()
 }
-
-

@@ -15,6 +15,7 @@ pub mod decode;
 pub mod encode;
 pub mod realtime;
 pub mod seek;
+pub mod svg;
 pub mod video;
 pub mod video_cache;
 

@@ -15,11 +15,13 @@ use anyhow::Result;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
+use crate::fonts::FontManifest;
 use crate::parse::ParsedComposition;
 use crate::parse::document::DeclaredScript;
-use crate::parse::dom::{DomAudio, DomDocument, DomElement, composition_from_dom, parse_audio_source};
+use crate::parse::dom::{
+    DomAudio, DomDocument, DomElement, composition_from_dom, parse_audio_source,
+};
 use crate::parse::elements::JsonLine;
-use crate::fonts::FontManifest;
 
 /// Entry-module specifier used as the module-system root.
 pub const ENTRY_SPEC: &str = "<entry>";
@@ -34,35 +36,46 @@ fn meta_f64(meta: &Value, key: &str, default: f64) -> f64 {
 /// `tree` 是主通道：JSX 运行时在提取期物化的 DOM 树，直接进共享 DOM 装配。
 /// `lines` 是遗留文本通道（JSONL 行形，[`JsonLine`] 文本序列化格式）：测试
 /// 夹具与 wasm 桥从这里注入文本文档，经 `composition_from_lines` 分组成树。
-pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
+pub fn from_extract(
+    extract: &Value,
+    driver: &str,
+    base_dir: Option<&Path>,
+) -> Result<ParsedComposition> {
     let meta = extract.get("meta").cloned().unwrap_or(Value::Null);
     let font_manifest = font_manifest_from_extract(extract, &meta)?;
 
     // `export const css = \`...\``（tailwindcss CLI 编译产物或手写样式表）：
     // class 解析一律走标准 CSS 引擎；没有 css 时用空样式表，等价于无样式。
     let css_engine = match extract.get("css").and_then(Value::as_str) {
-        Some(css_text) => {
-            Some(crate::css::CssEngine::from_css_text(
-                css_text,
-                crate::css::EvalContext {
-                    viewport: (
-                        meta_f64(&meta, "width", 1920.0) as f32,
-                        meta_f64(&meta, "height", 1080.0) as f32,
-                    ),
-                    query_container: None,
-                    rem_base: 16.0,
-                    em_base: 16.0,
-                },
-            )?)
-        }
+        Some(css_text) => Some(crate::css::CssEngine::from_css_text(
+            css_text,
+            crate::css::EvalContext {
+                viewport: (
+                    meta_f64(&meta, "width", 1920.0) as f32,
+                    meta_f64(&meta, "height", 1080.0) as f32,
+                ),
+                query_container: None,
+                rem_base: 16.0,
+                em_base: 16.0,
+            },
+        )?),
         None => {
-            eprintln!("jsx: extract css MISSING; keys={:?}", extract.as_object().map(|o| o.keys().collect::<Vec<_>>()));
+            eprintln!(
+                "jsx: extract css MISSING; keys={:?}",
+                extract.as_object().map(|o| o.keys().collect::<Vec<_>>())
+            );
             None
         }
     };
 
     let Some(tree) = extract.get("tree") else {
-        return from_extract_lines(extract, driver, base_dir, &font_manifest, css_engine.as_ref());
+        return from_extract_lines(
+            extract,
+            driver,
+            base_dir,
+            &font_manifest,
+            css_engine.as_ref(),
+        );
     };
 
     let mut doc = DomDocument {
@@ -71,7 +84,10 @@ pub fn from_extract(extract: &Value, driver: &str, base_dir: Option<&Path>) -> R
         fps: meta_f64(&meta, "fps", 30.0) as i32,
         duration: meta_f64(&meta, "duration", 3.0),
         // HTML 前端标记（docs/html-align/DESIGN.md）：payload 显式携带。
-        html_frontend: extract.get("html").and_then(Value::as_bool).unwrap_or(false),
+        html_frontend: extract
+            .get("html")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
         ..DomDocument::default()
     };
     doc.audio = audio_from_extract(extract)?;
@@ -127,13 +143,7 @@ fn from_extract_lines(
         });
     }
     let audio = audio_from_extract(extract)?;
-    crate::parse::elements::composition_from_lines(
-        lines,
-        audio,
-        base_dir,
-        Some(font_manifest),
-        css,
-    )
+    crate::parse::elements::composition_from_lines(lines, audio, base_dir, Some(font_manifest), css)
 }
 
 /// `export const audio = [{ id, path | url, duration? }]` — a global audio
@@ -202,8 +212,12 @@ pub fn audio_from_extract(extract: &Value) -> Result<Vec<DomAudio>> {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty());
         let Some(audio_id) = audio_id else { continue };
-        let node_id = site.get("nodeId").and_then(Value::as_str).unwrap_or_default();
-        let Some((id, (path, url), duration)) = pool.iter().find(|(id, _, _)| id == audio_id) else {
+        let node_id = site
+            .get("nodeId")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let Some((id, (path, url), duration)) = pool.iter().find(|(id, _, _)| id == audio_id)
+        else {
             anyhow::bail!(
                 "audioId `{audio_id}` (on `{node_id}`) is not declared in `export const audio`"
             );
@@ -294,7 +308,10 @@ pub fn font_manifest_from_extract(extract: &Value, meta: &Value) -> Result<FontM
             Some("emoji") => Some(FontRole::Emoji),
             Some(other) => anyhow::bail!("jsx fonts: unknown role `{other}`"),
         };
-        let source = match (face.get("path").and_then(Value::as_str), face.get("url").and_then(Value::as_str)) {
+        let source = match (
+            face.get("path").and_then(Value::as_str),
+            face.get("url").and_then(Value::as_str),
+        ) {
             (Some(path), None) => {
                 if path.is_empty() {
                     anyhow::bail!("jsx fonts `{id}`: path must be non-empty");

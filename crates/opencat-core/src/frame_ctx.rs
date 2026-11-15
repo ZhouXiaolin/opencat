@@ -123,5 +123,3 @@ impl ScriptFrameCtx {
         }
     }
 }
-
-

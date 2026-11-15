@@ -170,11 +170,7 @@ impl TimelineOrigin {
     }
 }
 
-pub fn frame_state_for_root_at(
-    root: &Node,
-    ctx: &FrameCtx,
-    origin: TimelineOrigin,
-) -> FrameState {
+pub fn frame_state_for_root_at(root: &Node, ctx: &FrameCtx, origin: TimelineOrigin) -> FrameState {
     match root.kind() {
         NodeKind::Timeline(timeline) => frame_state_for_timeline(timeline, ctx, origin),
         NodeKind::Div(_) => FrameState::Scene {
@@ -242,12 +238,12 @@ fn frame_state_for_timeline(
     // composition timestamp. The seconds start is kept exact so the scene clock
     // does not inherit the frame quantization of the boundary.
     let scene_window = |index: usize| -> (u32, f64, u32) {
-        let before = if index > 0 && matches!(segments[index - 1], TimelineSegment::Transition { .. })
-        {
-            (seg_frames[index - 1], segments[index - 1].duration_secs())
-        } else {
-            (0, 0.0)
-        };
+        let before =
+            if index > 0 && matches!(segments[index - 1], TimelineSegment::Transition { .. }) {
+                (seg_frames[index - 1], segments[index - 1].duration_secs())
+            } else {
+                (0, 0.0)
+            };
         let after = if index + 1 < segments.len()
             && matches!(segments[index + 1], TimelineSegment::Transition { .. })
         {
@@ -317,8 +313,7 @@ fn frame_state_for_timeline(
     // Past the last segment: hold its scene at the end of its own window.
     match segments.last() {
         Some(TimelineSegment::Scene { scene, .. }) => {
-            let (window_start, window_start_secs, window_frames) =
-                scene_window(segments.len() - 1);
+            let (window_start, window_start_secs, window_frames) = scene_window(segments.len() - 1);
             FrameState::Scene {
                 scene: scene.clone(),
                 script_frame_ctx: ScriptFrameCtx::for_window(
@@ -356,5 +351,3 @@ fn transition_progress(frame: u32, duration_in_frames: u32, easing: &Easing) -> 
     let t = (frame as f32 / duration_in_frames as f32).clamp(0.0, 1.0);
     easing.apply(t).clamp(0.0, 1.0)
 }
-
-

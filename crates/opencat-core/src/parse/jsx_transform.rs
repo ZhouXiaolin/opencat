@@ -23,16 +23,16 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use oxc_allocator::{Allocator, Box as ArenaBox, GetAllocator, TakeIn, Vec as ArenaVec};
 use oxc_ast::ast::{
-    Argument, AssignmentOperator, AssignmentTarget, BindingIdentifier, BindingPattern,
-    Declaration, ExportAllDeclaration, ExportDefaultDeclarationKind, Expression,
-    IdentifierName, IdentifierReference, ImportDeclarationSpecifier, MemberExpression,
-    ModuleExportName, SimpleAssignmentTarget, Statement, VariableDeclarationKind,
+    Argument, AssignmentOperator, AssignmentTarget, BindingIdentifier, BindingPattern, Declaration,
+    ExportAllDeclaration, ExportDefaultDeclarationKind, Expression, IdentifierName,
+    IdentifierReference, ImportDeclarationSpecifier, MemberExpression, ModuleExportName,
+    SimpleAssignmentTarget, Statement, VariableDeclarationKind,
 };
 use oxc_ast::builder::AstBuilder;
 use oxc_codegen::Codegen;
 use oxc_diagnostics::OxcDiagnostic;
 use oxc_parser::Parser;
-use oxc_span::{GetSpan, SourceType, Span, SPAN};
+use oxc_span::{GetSpan, SPAN, SourceType, Span};
 use oxc_transformer::{JsxOptions, JsxRuntime, TransformOptions, Transformer};
 
 /// 降级产物：`code` 直接进 V8；`requires` 交给宿主按模块图解析；`exports`
@@ -71,7 +71,9 @@ pub fn transform(source: &str) -> Result<Transformed> {
         ..JsxOptions::default()
     };
     // JSX transformer 的遍历依赖 scope_id/reference_id（parser 不填），先跑语义分析。
-    let semantic = oxc_semantic::SemanticBuilder::new().build(&program).semantic;
+    let semantic = oxc_semantic::SemanticBuilder::new()
+        .build(&program)
+        .semantic;
     let transformer = Transformer::new(&allocator, Path::new("entry.jsx"), &options)
         .build_with_scoping(semantic.into_scoping(), &mut program);
     if transformer.diagnostics.has_errors() {
@@ -114,7 +116,10 @@ pub fn transform(source: &str) -> Result<Transformed> {
                             kept.push(Statement::FunctionDeclaration(f));
                         }
                         None => kept.push(export_assign(
-                            &ast, "default", Expression::FunctionExpression(f), span,
+                            &ast,
+                            "default",
+                            Expression::FunctionExpression(f),
+                            span,
                         )),
                     },
                     ExportDefaultDeclarationKind::ClassDeclaration(c) => match c.id.as_ref() {
@@ -123,7 +128,10 @@ pub fn transform(source: &str) -> Result<Transformed> {
                             kept.push(Statement::ClassDeclaration(c));
                         }
                         None => kept.push(export_assign(
-                            &ast, "default", Expression::ClassExpression(c), span,
+                            &ast,
+                            "default",
+                            Expression::ClassExpression(c),
+                            span,
                         )),
                     },
                     // 其余全部按表达式形态处理（继承自 Expression）；非表达式
@@ -249,7 +257,11 @@ pub fn transform(source: &str) -> Result<Transformed> {
             "(async () => {{\n{out}\n}})().catch(function (e) {{ if (typeof __ocStderr === 'function') __ocStderr('oc-tla: ' + (e && e.message)); }});"
         );
     }
-    Ok(Transformed { code: out, requires, exports })
+    Ok(Transformed {
+        code: out,
+        requires,
+        exports,
+    })
 }
 
 /// 一条 import 声明 → 若干 prelude 绑定语句（const 形态，与旧实现对齐）。
@@ -371,13 +383,8 @@ fn export_assign<'a>(
         ast,
     );
     let target = AssignmentTarget::from(SimpleAssignmentTarget::from(member));
-    let assign = Expression::new_assignment_expression(
-        span,
-        AssignmentOperator::Assign,
-        target,
-        value,
-        ast,
-    );
+    let assign =
+        Expression::new_assignment_expression(span, AssignmentOperator::Assign, target, value, ast);
     Statement::new_expression_statement(span, assign, ast)
 }
 
@@ -427,7 +434,10 @@ fn span_loc(source: &str, span: Span) -> String {
     let offset = (span.start as usize).min(source.len());
     let before = &source[..offset];
     let line = before.matches('\n').count() + 1;
-    let col = before.rsplit('\n').next().map_or(1, |l| l.chars().count() + 1);
+    let col = before
+        .rsplit('\n')
+        .next()
+        .map_or(1, |l| l.chars().count() + 1);
     format!("{line}:{col}")
 }
 
@@ -438,5 +448,3 @@ fn diag_loc(source: &str, diag: &OxcDiagnostic) -> String {
         .map(|l| span_loc(source, l.span()))
         .unwrap_or_default()
 }
-
-

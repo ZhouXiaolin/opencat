@@ -1205,13 +1205,27 @@ pub fn record_path_flat(
         let verb = flat[i] as i64;
         i += 1;
         let op = match verb {
-            0 => PathOp::MoveTo { x: at(i, dx), y: at(i + 1, dy) },
-            1 => PathOp::LineTo { x: at(i, dx), y: at(i + 1, dy) },
-            2 => PathOp::QuadTo { cx: at(i, dx), cy: at(i + 1, dy), x: at(i + 2, dx), y: at(i + 3, dy) },
+            0 => PathOp::MoveTo {
+                x: at(i, dx),
+                y: at(i + 1, dy),
+            },
+            1 => PathOp::LineTo {
+                x: at(i, dx),
+                y: at(i + 1, dy),
+            },
+            2 => PathOp::QuadTo {
+                cx: at(i, dx),
+                cy: at(i + 1, dy),
+                x: at(i + 2, dx),
+                y: at(i + 3, dy),
+            },
             3 => PathOp::CubicTo {
-                c1x: at(i, dx), c1y: at(i + 1, dy),
-                c2x: at(i + 2, dx), c2y: at(i + 3, dy),
-                x: at(i + 4, dx), y: at(i + 5, dy),
+                c1x: at(i, dx),
+                c1y: at(i + 1, dy),
+                c2x: at(i + 2, dx),
+                c2y: at(i + 3, dy),
+                x: at(i + 4, dx),
+                y: at(i + 5, dy),
             },
             4 => PathOp::Close,
             other => anyhow::bail!("unknown path verb {other}"),

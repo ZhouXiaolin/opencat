@@ -11,7 +11,11 @@ use crate::style::{
 /// 尺寸），不是 shrink-to-fit。
 fn absolute_definite_width(layout: &ComputedLayoutStyle) -> bool {
     let definite = |v: Option<crate::style::LengthPercentageAuto>| {
-        matches!(v, Some(crate::style::LengthPercentageAuto::Length(_)) | Some(crate::style::LengthPercentageAuto::Percent(_)))
+        matches!(
+            v,
+            Some(crate::style::LengthPercentageAuto::Length(_))
+                | Some(crate::style::LengthPercentageAuto::Percent(_))
+        )
     };
     definite(layout.inset_left) && definite(layout.inset_right)
 }

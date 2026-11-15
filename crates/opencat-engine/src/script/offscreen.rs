@@ -16,15 +16,15 @@ use std::collections::HashMap;
 
 use skia_safe::{AlphaType, ColorType, Data, ImageInfo, surfaces};
 
+use opencat_core::ir::GeneratedImageId;
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::DrawOp;
 use opencat_core::ir::draw_types::{BytesRangeId, ImageRef};
-use opencat_core::ir::GeneratedImageId;
 
 use crate::media::video::MediaContext;
 use crate::render::executor::EngineDrawExecutor;
-use crate::render::executor::replay::replay_frame;
 use crate::render::executor::EnginePreparedFrameMedia;
+use crate::render::executor::replay::replay_frame;
 
 /// 离屏光栅化错误（engine 绑定层转成 JS 异常文案）。
 pub type OffscreenError = String;
@@ -35,7 +35,10 @@ struct OffscreenMedia {
 }
 
 impl OffscreenMedia {
-    fn build(frame: &DrawOpFrame, store: &mut opencat_core::script::recorder::MutationStore) -> Self {
+    fn build(
+        frame: &DrawOpFrame,
+        store: &mut opencat_core::script::recorder::MutationStore,
+    ) -> Self {
         let mut video = MediaContext::default();
         let mut images = Vec::new();
         let mut index = HashMap::new();
@@ -83,11 +86,9 @@ impl OffscreenMedia {
                 AlphaType::Unpremul,
                 None,
             );
-            let Some(image) = skia_safe::images::raster_from_data(
-                &info,
-                Data::new_copy(&*rgba),
-                w as usize * 4,
-            ) else {
+            let Some(image) =
+                skia_safe::images::raster_from_data(&info, Data::new_copy(&*rgba), w as usize * 4)
+            else {
                 continue;
             };
             let idx = images.len();
@@ -149,13 +150,8 @@ pub fn rasterize_offscreen(
     {
         let canvas = surface.canvas();
         canvas.clear(skia_safe::Color4f::new(0.0, 0.0, 0.0, 0.0));
-        crate::render::executor::replay::replay_frame(
-            &mut exec,
-            canvas,
-            frame,
-            &media.inner,
-        )
-        .map_err(|e| format!("offscreen rasterize: {e}"))?;
+        crate::render::executor::replay::replay_frame(&mut exec, canvas, frame, &media.inner)
+            .map_err(|e| format!("offscreen rasterize: {e}"))?;
     }
     let mut pix = vec![0_u8; info.compute_min_byte_size()];
     if !surface.read_pixels(&info, &mut pix, info.min_row_bytes(), (0, 0)) {

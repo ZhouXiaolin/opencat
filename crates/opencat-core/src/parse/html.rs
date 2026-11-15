@@ -18,7 +18,7 @@ use std::rc::Rc;
 use anyhow::Result;
 use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::tree_builder::{
-    ElementFlags, ElemName, NextParserState, NodeOrText, QuirksMode, TreeSink,
+    ElemName, ElementFlags, NextParserState, NodeOrText, QuirksMode, TreeSink,
 };
 use html5ever::{Attribute, LocalName, Namespace, ParseOpts, QualName, parse_document};
 use serde_json::{Value, json};
@@ -414,8 +414,7 @@ fn has_pre_inline_style(style: Option<&str>) -> bool {
             let Some((prop, value)) = decl.split_once(':') else {
                 return false;
             };
-            prop.trim() == "white-space"
-                && value.trim().trim_start_matches('-').starts_with("pre")
+            prop.trim() == "white-space" && value.trim().trim_start_matches('-').starts_with("pre")
         })
     })
 }
@@ -455,16 +454,40 @@ enum Lowered {
 
 const SKIP_TAGS: &[&str] = &["meta", "title", "head", "base", "noscript", "template"];
 const CONTAINER_TAGS: &[&str] = &[
-    "div", "section", "main", "header", "footer", "aside", "nav", "article", "figure",
-    "figcaption", "ul", "ol", "li", "table", "thead", "tbody", "tr", "td", "th",
-    "button", "form", "label", "a", "blockquote", "hr", "body", "html",
+    "div",
+    "section",
+    "main",
+    "header",
+    "footer",
+    "aside",
+    "nav",
+    "article",
+    "figure",
+    "figcaption",
+    "ul",
+    "ol",
+    "li",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "td",
+    "th",
+    "button",
+    "form",
+    "label",
+    "a",
+    "blockquote",
+    "hr",
+    "body",
+    "html",
 ];
 
 /// 文本承载标签 → CSS 层叠的 ua_tag。
 fn text_bearing_tag(tag: &str) -> Option<&'static str> {
     const TAGS: &[&str] = &[
-        "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "b", "strong", "i", "em", "u",
-        "small", "mark", "code",
+        "p", "h1", "h2", "h3", "h4", "h5", "h6", "span", "b", "strong", "i", "em", "u", "small",
+        "mark", "code",
     ];
     TAGS.iter().find(|t| **t == tag).copied()
 }
@@ -514,7 +537,9 @@ fn scan_authored_ids(text: &str) -> Vec<String> {
                 continue;
             }
         };
-        let Some(end) = after[1..].find(quote as char) else { break };
+        let Some(end) = after[1..].find(quote as char) else {
+            break;
+        };
         let id = after[1..][..end].trim().to_string();
         if !id.is_empty() {
             out.push(id);
@@ -537,7 +562,9 @@ impl LoweringState {
                     candidate = format!("{}{}-{}", self.id_prefix, id, n);
                     n += 1;
                 }
-                self.renames.entry(id.to_string()).or_insert(candidate.clone());
+                self.renames
+                    .entry(id.to_string())
+                    .or_insert(candidate.clone());
                 candidate
             } else {
                 id.to_string()
@@ -578,11 +605,7 @@ pub fn parse_html(input: &str, fps_default: i32) -> Result<HtmlDocument> {
 /// 嵌套 composition 会把子文档的树挂进宿主文档，两棵树共用一个 id 命名空间；
 /// 每个文档的合成计数都从 1 开始，直接拼接会撞 id。作者 id 不受影响
 /// （子文档脚本仍按原 id 查询自己的子树）。
-pub fn parse_html_prefixed(
-    input: &str,
-    fps_default: i32,
-    id_prefix: &str,
-) -> Result<HtmlDocument> {
+pub fn parse_html_prefixed(input: &str, fps_default: i32, id_prefix: &str) -> Result<HtmlDocument> {
     parse_html_prefixed_excluded(input, fps_default, id_prefix, &Default::default())
 }
 
@@ -604,7 +627,10 @@ pub fn parse_html_prefixed_excluded(
     let rewrite: HashSet<String> = if id_prefix.is_empty() || taken.is_empty() {
         HashSet::new()
     } else {
-        scan_authored_ids(input).into_iter().filter(|id| taken.contains(id)).collect()
+        scan_authored_ids(input)
+            .into_iter()
+            .filter(|id| taken.contains(id))
+            .collect()
     };
 
     let sink = OpenCtHtmlSink {
@@ -695,8 +721,7 @@ pub fn parse_html_prefixed_excluded(
             } = &mut root
             {
                 if let (Some(w), Some(h)) = (proto.width, proto.height) {
-                    let sizing =
-                        format!("width:{}px;height:{}px;position:relative", w, h);
+                    let sizing = format!("width:{}px;height:{}px;position:relative", w, h);
                     *inline_style = Some(match inline_style.take() {
                         Some(existing) => format!("{existing};{sizing}"),
                         None => sizing,
@@ -862,10 +887,7 @@ fn apply_pseudo_rules(el: DomElement, rules: &[PseudoRuleRaw]) -> DomElement {
             class: class.clone(),
             tag: ua_tag.as_deref().unwrap_or("div").to_string(),
         });
-        let children = children
-            .into_iter()
-            .map(|c| walk(c, rules, path))
-            .collect();
+        let children = children.into_iter().map(|c| walk(c, rules, path)).collect();
         path.pop();
         DomElement::Div {
             id,
@@ -1043,7 +1065,9 @@ fn extract_pseudo_rules(css: &str) -> Vec<PseudoRuleRaw> {
             .unwrap_or(0);
         let prelude = &css[prelude_start..open];
         // 配对 `}`（字符串/注释里的花括号在语料声明里不出现，单层扫描够用）。
-        let Some(close_rel) = css[open..].find('}') else { break };
+        let Some(close_rel) = css[open..].find('}') else {
+            break;
+        };
         let close = open + close_rel;
         let decls = css[open + 1..close].trim().to_string();
         from = close + 1;
@@ -1113,7 +1137,9 @@ fn rewrite_css_ids(css: String, rewrite: &HashSet<String>, prefix: &str) -> Stri
 fn rewrite_document_selectors(css: String, root_id: &str) -> String {
     let is_document = |s: &str| {
         let t = s.trim();
-        ["html", "body", ":root"].iter().any(|k| t.eq_ignore_ascii_case(k))
+        ["html", "body", ":root"]
+            .iter()
+            .any(|k| t.eq_ignore_ascii_case(k))
     };
     let mut out = String::with_capacity(css.len());
     let mut from = 0;
@@ -1125,7 +1151,13 @@ fn rewrite_document_selectors(css: String, root_id: &str) -> String {
                 if parts.iter().any(|p| is_document(p)) {
                     let rebuilt: Vec<String> = parts
                         .iter()
-                        .map(|p| if is_document(p) { format!("#{root_id}") } else { p.trim().to_string() })
+                        .map(|p| {
+                            if is_document(p) {
+                                format!("#{root_id}")
+                            } else {
+                                p.trim().to_string()
+                            }
+                        })
                         .collect();
                     out.push_str(&rebuilt.join(", "));
                 } else {
@@ -1209,10 +1241,14 @@ pub fn scope_composition_css(css: &str, scope: &str) -> String {
                 plain.push_str(rest);
                 let block = match plain.trim_start().strip_prefix('@') {
                     Some(at) => {
-                        let name = at.split(|c: char| !(c.is_alphanumeric() || c == '-')).next();
+                        let name = at
+                            .split(|c: char| !(c.is_alphanumeric() || c == '-'))
+                            .next();
                         let group = ["media", "supports", "layer", "container"];
                         match name {
-                            Some(n) if group.iter().any(|g| n.eq_ignore_ascii_case(g)) => Block::Group,
+                            Some(n) if group.iter().any(|g| n.eq_ignore_ascii_case(g)) => {
+                                Block::Group
+                            }
                             _ => Block::Opaque,
                         }
                     }
@@ -1257,7 +1293,13 @@ fn scope_selector_list(prelude: &str, scope: &str) -> String {
         .into_iter()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| if s == "*" { s.to_string() } else { format!("{scope} {s}") })
+        .map(|s| {
+            if s == "*" {
+                s.to_string()
+            } else {
+                format!("{scope} {s}")
+            }
+        })
         .collect();
     if parts.is_empty() {
         return prelude.to_string();
@@ -1357,9 +1399,7 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
     state.record_proto(&id, &view);
 
     let items = lower_children(handle, state, pre)?;
-    let has_element_children = items
-        .iter()
-        .any(|i| matches!(i, Lowered::Element(_)));
+    let has_element_children = items.iter().any(|i| matches!(i, Lowered::Element(_)));
     let inline = matches!(
         tag.as_str(),
         "span" | "a" | "b" | "i" | "em" | "strong" | "small" | "code" | "label"
@@ -1667,10 +1707,16 @@ fn collect_inline_text(items: &[Lowered], keep_raw: bool, trim: bool) -> String 
     // 原样保留，不算，否则会多补一个普通空格。
     let foldable = |c: char| c.is_whitespace() && c != '\u{a0}';
     let mut text = joined;
-    if items.first().is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.starts_with(foldable))) {
+    if items
+        .first()
+        .is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.starts_with(foldable)))
+    {
         text.insert(0, ' ');
     }
-    if items.last().is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.ends_with(foldable))) {
+    if items
+        .last()
+        .is_some_and(|i| matches!(i, Lowered::TextRun(raw) if raw.ends_with(foldable)))
+    {
         text.push(' ');
     }
     text
@@ -1828,7 +1874,7 @@ pub(crate) fn inject_markup_paint(
     sheet: &crate::css::CssStylesheet,
     host_ancestors: &[(String, String, String, Vec<(String, String)>)],
 ) -> String {
-    use crate::css::{match_rules_ctx, SelectorContext, SelectorNode};
+    use crate::css::{SelectorContext, SelectorNode, match_rules_ctx};
     use lightningcss::printer::PrinterOptions;
     use lightningcss::properties::PropertyId;
 
@@ -1870,7 +1916,12 @@ pub(crate) fn inject_markup_paint(
         // 起始标签：tag 名 + 属性表，直至 '>' 或 '/>'。
         let tag_start = i + 1;
         let mut j = tag_start;
-        while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'-' || bytes[j] == b'_' || bytes[j] == b':') {
+        while j < bytes.len()
+            && (bytes[j].is_ascii_alphanumeric()
+                || bytes[j] == b'-'
+                || bytes[j] == b'_'
+                || bytes[j] == b':')
+        {
             j += 1;
         }
         // 匹配用小写（HTML 通道约定）；序列化保留原文——SVG 是大小写敏感
@@ -1896,7 +1947,11 @@ pub(crate) fn inject_markup_paint(
                 break;
             }
             let name_start = j;
-            while j < bytes.len() && bytes[j] != b'=' && bytes[j] != b'>' && !bytes[j].is_ascii_whitespace() {
+            while j < bytes.len()
+                && bytes[j] != b'='
+                && bytes[j] != b'>'
+                && !bytes[j].is_ascii_whitespace()
+            {
                 j += 1;
             }
             let name = &markup[name_start..j];
@@ -1932,7 +1987,12 @@ pub(crate) fn inject_markup_paint(
             }
         }
 
-        let attr = |name: &str| attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str());
+        let attr = |name: &str| {
+            attrs
+                .iter()
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.as_str())
+        };
         let id = attr("id").unwrap_or("").to_string();
         let class = attr("class").unwrap_or("").to_string();
 
@@ -1979,7 +2039,10 @@ pub(crate) fn inject_markup_paint(
                 if at_root && matches!(applied.property.property_id(), PropertyId::Opacity) {
                     continue;
                 }
-                if let Ok(css) = applied.property.to_css_string(false, PrinterOptions::default()) {
+                if let Ok(css) = applied
+                    .property
+                    .to_css_string(false, PrinterOptions::default())
+                {
                     if let Some(name) = css.split(':').next() {
                         let name = name.trim().to_ascii_lowercase();
                         if have.contains(&name) {

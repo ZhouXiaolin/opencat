@@ -121,5 +121,3 @@ pub trait ScriptHost {
         None
     }
 }
-
-

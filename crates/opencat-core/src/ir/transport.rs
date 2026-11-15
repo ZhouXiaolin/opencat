@@ -18,7 +18,7 @@
 // deterministic for a fixed input and level, so encode-then-compress is stable.
 // ---------------------------------------------------------------------------
 
-use super::draw_encoding::{IR_MAGIC};
+use super::draw_encoding::IR_MAGIC;
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::inflate::decompress_to_vec;
 
@@ -113,5 +113,3 @@ pub fn decompress_ir_envelope(bytes: &[u8]) -> Result<Vec<u8>, TransportError> {
     }
     Ok(ocir)
 }
-
-

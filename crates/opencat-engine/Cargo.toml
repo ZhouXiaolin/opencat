@@ -39,14 +39,14 @@ oxc_span.workspace = true
 # 同源；OC_OMP_VERIFY 对拍 sin/cos/exp ≤1 ulp、hypot ≤2 ulp）。
 libm = "0.2"
 image = { version = "0.25.10", features = ["webp"] }
+resvg = { path = "../../vendor/resvg/crates/resvg", default-features = false, features = [
+    "raster-images",
+] }
 serde.workspace = true
 serde_json.workspace = true
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["registry"] }
 num_cpus = "1.17.0"
 dirs = "7.0.0"
-
-tempfile = "3"
 
 # Host-owned resource probing (issue #40)
 imagesize = "=0.15.0"

@@ -405,5 +405,3 @@ fn element_kind_tag(kind: &ElementKind) -> u8 {
         ElementKind::Lottie(_) => 6,
     }
 }
-
-

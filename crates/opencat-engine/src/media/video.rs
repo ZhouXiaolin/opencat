@@ -74,8 +74,13 @@ const SVG_RASTER_CACHE: usize = 16;
 
 /// svg 字节 → 预乘 RGBA 的 skia 图（`target` 为 None 时取 intrinsic 尺寸）。
 fn rasterize_svg_image(encoded: &[u8], target: Option<(u32, u32)>) -> Option<Image> {
-    let (rgba, w, h) = opencat_core::svg_raster::rasterize_svg(encoded, target)?;
-    let info = ImageInfo::new((w as i32, h as i32), ColorType::RGBA8888, AlphaType::Premul, None);
+    let (rgba, w, h) = crate::media::svg::rasterize_svg(encoded, target)?;
+    let info = ImageInfo::new(
+        (w as i32, h as i32),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
     images::raster_from_data(&info, Data::new_copy(&rgba), w as usize * 4)
         // 光栅失败/零覆盖的兜底检查：尺寸必须对上。
         .filter(|img| img.width() == w as i32 && img.height() == h as i32)
@@ -347,7 +352,13 @@ impl MediaContext {
             AlphaType::Unpremul,
             None,
         );
-        if !image.read_pixels(&info, pixels.as_mut_slice(), width as usize * 4, (0, 0), CachingHint::Allow) {
+        if !image.read_pixels(
+            &info,
+            pixels.as_mut_slice(),
+            width as usize * 4,
+            (0, 0),
+            CachingHint::Allow,
+        ) {
             anyhow::bail!("failed to read decoded embedded image pixels");
         }
         Ok((Arc::new(pixels), width, height))
@@ -412,7 +423,8 @@ impl MediaContext {
                     None => {
                         let image = rasterize_svg_image(&encoded, None);
                         if image.is_some() {
-                            self.svg_sources.insert(path.to_path_buf(), Arc::from(encoded));
+                            self.svg_sources
+                                .insert(path.to_path_buf(), Arc::from(encoded));
                         }
                         image
                     }
@@ -428,8 +440,11 @@ impl MediaContext {
             let Some((tw, th)) = target else {
                 return Ok((lazy, (1.0, 1.0)));
             };
-            let bucket = |v: u32| v.div_ceil(TARGET_SIZE_ALIGN).clamp(1, SVG_RASTER_MAX / TARGET_SIZE_ALIGN)
-                * TARGET_SIZE_ALIGN;
+            let bucket = |v: u32| {
+                v.div_ceil(TARGET_SIZE_ALIGN)
+                    .clamp(1, SVG_RASTER_MAX / TARGET_SIZE_ALIGN)
+                    * TARGET_SIZE_ALIGN
+            };
             let (bw, bh) = (bucket(tw), bucket(th));
             if (bw, bh) == (w0, h0) {
                 return Ok((lazy, (1.0, 1.0)));
@@ -439,8 +454,9 @@ impl MediaContext {
             if let Some(cached) = self.svg_rasters.get_cloned(&key) {
                 return Ok((cached, scale));
             }
-            let image = rasterize_svg_image(&svg, Some((bw, bh)))
-                .ok_or_else(|| anyhow!("failed to rasterize svg {}x{}: {}", bw, bh, path.display()))?;
+            let image = rasterize_svg_image(&svg, Some((bw, bh))).ok_or_else(|| {
+                anyhow!("failed to rasterize svg {}x{}: {}", bw, bh, path.display())
+            })?;
             self.svg_rasters.insert(key, image.clone());
             return Ok((image, scale));
         }
@@ -453,8 +469,14 @@ impl MediaContext {
         if let Some(cached) = self.scaled_images.get(&key) {
             return Ok((cached.clone(), scale));
         }
-        let mut surface = surfaces::raster_n32_premul((bw as i32, bh as i32))
-            .ok_or_else(|| anyhow!("failed to allocate {}x{} surface for {}", bw, bh, path.display()))?;
+        let mut surface = surfaces::raster_n32_premul((bw as i32, bh as i32)).ok_or_else(|| {
+            anyhow!(
+                "failed to allocate {}x{} surface for {}",
+                bw,
+                bh,
+                path.display()
+            )
+        })?;
         let sampling = SamplingOptions {
             use_cubic: true,
             cubic: CubicResampler::mitchell(),
@@ -489,7 +511,10 @@ impl MediaContext {
             return Ok(image.clone());
         }
         let img = image::load_from_memory(encoded).map_err(|e| {
-            anyhow!("failed to decode embedded image ({} bytes): {e}", encoded.len())
+            anyhow!(
+                "failed to decode embedded image ({} bytes): {e}",
+                encoded.len()
+            )
         })?;
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
@@ -571,5 +596,3 @@ fn load_image_bitmap(path: &Path) -> Result<(Arc<Vec<u8>>, u32, u32)> {
 
     Ok((Arc::new(pixels), width, height))
 }
-
-

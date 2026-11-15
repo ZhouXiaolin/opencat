@@ -71,10 +71,10 @@ ENV LIBCLANG_PATH=/usr/lib/llvm-20/lib \
 WORKDIR /app
 COPY . .
 
-# vendor/naga、vendor/resvg 是 git submodule；Skia 归档必须随上下文带入。
-RUN test -f vendor/naga/Cargo.toml && test -f vendor/resvg/Cargo.toml \
+# vendor/resvg 是 git submodule；Skia 归档必须随上下文带入。
+RUN test -f vendor/resvg/Cargo.toml \
  && ls docker/prebuilt/skia-binaries-*.tar.gz >/dev/null \
- || (echo "缺少 vendor submodule 或 docker/prebuilt/skia-binaries-*.tar.gz" >&2; exit 1)
+ || (echo "缺少 vendor/resvg 或 docker/prebuilt/skia-binaries-*.tar.gz" >&2; exit 1)
 
 # 传空值时必须 unset：v8 的 build.rs 看到变量存在就会当镜像地址用。
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

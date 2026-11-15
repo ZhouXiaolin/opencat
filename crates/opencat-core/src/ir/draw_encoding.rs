@@ -202,94 +202,149 @@ pub mod opcode {
     /// mystery). `schema_gen` consumes the same table to emit the TypeScript
     /// `OPCODE_FIELDS` layout description.
     pub const OP_FIELDS: [&[OpField]; 57] = [
-        &[],                                                    // 0  SAVE
-        &[
-            f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4),
-        ],                                                      // 1  SAVE_LAYER
-        &[],                                                    // 2  RESTORE
-        &[f("count", 4)],                                       // 3  RESTORE_TO_COUNT
-        &[f("x", 4), f("y", 4)],                                // 4  TRANSLATE
-        &[f("x", 4), f("y", 4)],                                // 5  SCALE
-        &[f("degrees", 4), f("cx", 4), f("cy", 4)],             // 6  ROTATE
-        &[f("sx", 4), f("sy", 4)],                              // 7  SKEW
-        &[f("matrix", 36)],                                     // 8  CONCAT
-        &[f("color", 4)],                                       // 9  SET_FILL_STYLE
-        &[f("color", 4)],                                       // 10 SET_STROKE_STYLE
-        &[f("width", 4)],                                       // 11 SET_LINE_WIDTH
-        &[f("cap", 4)],                                         // 12 SET_LINE_CAP
-        &[f("join", 4)],                                        // 13 SET_LINE_JOIN
-        &[f("start", 4), f("len", 4), f("phase", 4)],           // 14 SET_LINE_DASH
-        &[],                                                    // 15 CLEAR_LINE_DASH
-        &[f("alpha", 4)],                                       // 16 SET_GLOBAL_ALPHA
-        &[f("enabled", 1)],                                     // 17 SET_ANTI_ALIAS
-        &[],                                                    // 18 BEGIN_PATH
-        &[],                                                    // 19 PATH_OP (v5 only; unused in v6)
-        &[],                                                    // 20 FILL_PATH
-        &[],                                                    // 21 STROKE_PATH
-        &[f("anti_alias", 1), f("fill_type", 1)],               // 22 CLIP_PATH
-        &[f("color", 16)],                                      // 23 CLEAR
-        &[f("paint", 4)],                                       // 24 PAINT
-        &[f("rect", 16), f("paint", 4)],                        // 25 RECT
-        &[f("rect", 16), f("radii", 16), f("paint", 4)],        // 26 R_RECT
-        &[f("outer", 32), f("inner", 32), f("paint", 4)],       // 27 D_RRECT
-        &[f("rect", 16), f("paint", 4)],                        // 28 OVAL
+        &[],                                                             // 0  SAVE
+        &[f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4)], // 1  SAVE_LAYER
+        &[],                                                             // 2  RESTORE
+        &[f("count", 4)],                                                // 3  RESTORE_TO_COUNT
+        &[f("x", 4), f("y", 4)],                                         // 4  TRANSLATE
+        &[f("x", 4), f("y", 4)],                                         // 5  SCALE
+        &[f("degrees", 4), f("cx", 4), f("cy", 4)],                      // 6  ROTATE
+        &[f("sx", 4), f("sy", 4)],                                       // 7  SKEW
+        &[f("matrix", 36)],                                              // 8  CONCAT
+        &[f("color", 4)],                                                // 9  SET_FILL_STYLE
+        &[f("color", 4)],                                                // 10 SET_STROKE_STYLE
+        &[f("width", 4)],                                                // 11 SET_LINE_WIDTH
+        &[f("cap", 4)],                                                  // 12 SET_LINE_CAP
+        &[f("join", 4)],                                                 // 13 SET_LINE_JOIN
+        &[f("start", 4), f("len", 4), f("phase", 4)],                    // 14 SET_LINE_DASH
+        &[],                                                             // 15 CLEAR_LINE_DASH
+        &[f("alpha", 4)],                                                // 16 SET_GLOBAL_ALPHA
+        &[f("enabled", 1)],                                              // 17 SET_ANTI_ALIAS
+        &[],                                                             // 18 BEGIN_PATH
+        &[],                                              // 19 PATH_OP (v5 only; unused in v6)
+        &[],                                              // 20 FILL_PATH
+        &[],                                              // 21 STROKE_PATH
+        &[f("anti_alias", 1), f("fill_type", 1)],         // 22 CLIP_PATH
+        &[f("color", 16)],                                // 23 CLEAR
+        &[f("paint", 4)],                                 // 24 PAINT
+        &[f("rect", 16), f("paint", 4)],                  // 25 RECT
+        &[f("rect", 16), f("radii", 16), f("paint", 4)],  // 26 R_RECT
+        &[f("outer", 32), f("inner", 32), f("paint", 4)], // 27 D_RRECT
+        &[f("rect", 16), f("paint", 4)],                  // 28 OVAL
         &[f("cx", 4), f("cy", 4), f("radius", 4), f("paint", 4)], // 29 CIRCLE
         &[
-            f("rect", 16), f("start", 4), f("sweep", 4), f("use_center", 1), f("paint", 4),
-        ],                                                      // 30 ARC
-        &[f("x0", 4), f("y0", 4), f("x1", 4), f("y1", 4), f("paint", 4)], // 31 LINE
-        &[f("mode", 4), f("start", 4), f("len", 4), f("paint", 4)],       // 32 POINTS
-        &[f("path", 4), f("paint", 4)],                         // 33 DRAW_PATH
-        &[
-            f("tag", 1), f("id_slot", 12), f("x", 4), f("y", 4), f("paint", 4),
-        ],                                                      // 34 IMAGE
-        &[
-            f("tag", 1), f("id_slot", 12), f("has_src", 1), f("src", 16), f("dst", 16),
+            f("rect", 16),
+            f("start", 4),
+            f("sweep", 4),
+            f("use_center", 1),
             f("paint", 4),
-        ],                                                      // 35 IMAGE_RECT
+        ], // 30 ARC
         &[
-            f("effect", 4), f("uniforms", 4), f("children_start", 4), f("children_len", 4),
+            f("x0", 4),
+            f("y0", 4),
+            f("x1", 4),
+            f("y1", 4),
+            f("paint", 4),
+        ], // 31 LINE
+        &[f("mode", 4), f("start", 4), f("len", 4), f("paint", 4)], // 32 POINTS
+        &[f("path", 4), f("paint", 4)],                   // 33 DRAW_PATH
+        &[
+            f("tag", 1),
+            f("id_slot", 12),
+            f("x", 4),
+            f("y", 4),
+            f("paint", 4),
+        ], // 34 IMAGE
+        &[
+            f("tag", 1),
+            f("id_slot", 12),
+            f("has_src", 1),
+            f("src", 16),
             f("dst", 16),
-        ],                                                      // 36 RUNTIME_EFFECT
-        &[f("start_op", 4), f("op_len", 4)],                    // 37 REPLAY_RANGE
-        &[f("subtree", 4), f("x", 4), f("y", 4)],               // 38 DRAW_SUBTREE_PICTURE
-        &[f("bundle_id", 4), f("frame", 4), f("dst", 16)],      // 39 LOTTIE_RECT
-        &[f("x", 4), f("y", 4)],                                // 40 PATH_MOVE_TO
-        &[f("x", 4), f("y", 4)],                                // 41 PATH_LINE_TO
-        &[f("cx", 4), f("cy", 4), f("x", 4), f("y", 4)],        // 42 PATH_QUAD_TO
+            f("paint", 4),
+        ], // 35 IMAGE_RECT
         &[
-            f("c1x", 4), f("c1y", 4), f("c2x", 4), f("c2y", 4), f("x", 4), f("y", 4),
-        ],                                                      // 43 PATH_CUBIC_TO
-        &[],                                                    // 44 PATH_CLOSE
+            f("effect", 4),
+            f("uniforms", 4),
+            f("children_start", 4),
+            f("children_len", 4),
+            f("dst", 16),
+        ], // 36 RUNTIME_EFFECT
+        &[f("start_op", 4), f("op_len", 4)],              // 37 REPLAY_RANGE
+        &[f("subtree", 4), f("x", 4), f("y", 4)],         // 38 DRAW_SUBTREE_PICTURE
+        &[f("bundle_id", 4), f("frame", 4), f("dst", 16)], // 39 LOTTIE_RECT
+        &[f("x", 4), f("y", 4)],                          // 40 PATH_MOVE_TO
+        &[f("x", 4), f("y", 4)],                          // 41 PATH_LINE_TO
+        &[f("cx", 4), f("cy", 4), f("x", 4), f("y", 4)],  // 42 PATH_QUAD_TO
+        &[
+            f("c1x", 4),
+            f("c1y", 4),
+            f("c2x", 4),
+            f("c2y", 4),
+            f("x", 4),
+            f("y", 4),
+        ], // 43 PATH_CUBIC_TO
+        &[],                                              // 44 PATH_CLOSE
         &[f("x", 4), f("y", 4), f("width", 4), f("height", 4)], // 45 PATH_ADD_RECT
         &[
-            f("x", 4), f("y", 4), f("width", 4), f("height", 4), f("radius", 4),
-        ],                                                      // 46 PATH_ADD_RRECT
+            f("x", 4),
+            f("y", 4),
+            f("width", 4),
+            f("height", 4),
+            f("radius", 4),
+        ], // 46 PATH_ADD_RRECT
         &[f("x", 4), f("y", 4), f("width", 4), f("height", 4)], // 47 PATH_ADD_OVAL
         &[
-            f("x", 4), f("y", 4), f("width", 4), f("height", 4), f("start_angle", 4),
+            f("x", 4),
+            f("y", 4),
+            f("width", 4),
+            f("height", 4),
+            f("start_angle", 4),
             f("sweep_angle", 4),
-        ],                                                      // 48 PATH_ADD_ARC
+        ], // 48 PATH_ADD_ARC
         &[
-            f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4), f("radii", 16),
-        ],                                                      // 49 SAVE_BACKDROP_LAYER
+            f("flags", 1),
+            f("bounds", 16),
+            f("paint", 4),
+            f("alpha", 4),
+            f("radii", 16),
+        ], // 49 SAVE_BACKDROP_LAYER
         &[
-            f("path", 4), f("subtree", 4), f("tile", 16), f("transform", 24), f("opacity", 4),
-            f("flags", 1), f("rasterize_at", 8),
-        ],                                                      // 50 FILL_PATTERN
-        &[],                                                    // 51 (unused)
+            f("path", 4),
+            f("subtree", 4),
+            f("tile", 16),
+            f("transform", 24),
+            f("opacity", 4),
+            f("flags", 1),
+            f("rasterize_at", 8),
+        ], // 50 FILL_PATTERN
+        &[],                                              // 51 (unused)
         &[
-            f("path", 4), f("subtree", 4), f("tile", 16), f("transform", 24), f("opacity", 4),
-            f("width", 4), f("cap", 1), f("join", 1), f("miter", 4),
-        ],                                                      // 52 STROKE_PATTERN
-        &[f("subtree", 4), f("kind", 1), f("region", 16)],      // 53 MASK_CLIP
+            f("path", 4),
+            f("subtree", 4),
+            f("tile", 16),
+            f("transform", 24),
+            f("opacity", 4),
+            f("width", 4),
+            f("cap", 1),
+            f("join", 1),
+            f("miter", 4),
+        ], // 52 STROKE_PATTERN
+        &[f("subtree", 4), f("kind", 1), f("region", 16)], // 53 MASK_CLIP
         &[
-            f("stroke", 1), f("start", 8), f("end", 8), f("pool_start", 4), f("len", 4),
-        ],                                                      // 54 SET_STYLE_LINEAR_GRADIENT
+            f("stroke", 1),
+            f("start", 8),
+            f("end", 8),
+            f("pool_start", 4),
+            f("len", 4),
+        ], // 54 SET_STYLE_LINEAR_GRADIENT
         &[
-            f("stroke", 1), f("circles", 24), f("pool_start", 4), f("len", 4),
-        ],                                                      // 55 SET_STYLE_RADIAL_GRADIENT
-        &[f("mode", 1)],                                        // 56 SET_BLEND_MODE
+            f("stroke", 1),
+            f("circles", 24),
+            f("pool_start", 4),
+            f("len", 4),
+        ], // 55 SET_STYLE_RADIAL_GRADIENT
+        &[f("mode", 1)],                                  // 56 SET_BLEND_MODE
     ];
 
     const fn f(name: &'static str, bytes: u16) -> OpField {
@@ -1590,10 +1645,7 @@ const BLEND_MODE_WIRE: [BlendMode; 29] = [
 ];
 
 pub(crate) fn encode_blend_mode(mode: BlendMode) -> u8 {
-    BLEND_MODE_WIRE
-        .iter()
-        .position(|m| *m == mode)
-        .unwrap_or(3) as u8
+    BLEND_MODE_WIRE.iter().position(|m| *m == mode).unwrap_or(3) as u8
 }
 
 /// `encode_blend_mode` 的逆映射（script 绑定从 wire 编号还原枚举）。
@@ -1682,7 +1734,11 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
         // radii (tl, tr, br, bl) — CSS clips the filtered backdrop to the
         // rounded border box.
         // ===================================================================
-        DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
+        DrawOp::SaveBackdropLayer {
+            bounds,
+            radius,
+            paint,
+        } => {
             write_op_header(buf, opcode::SAVE_BACKDROP_LAYER);
             let mut flags: u8 = 0;
             if bounds.is_some() {
@@ -1766,17 +1822,24 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
 
         // wire 无变长 op：展开为逐点等效序列（仅外部 ocir 传输/schema 路径
         // 走这里；渲染主路径 RenderFrame 内存直传，不经过编码）。
-        DrawOp::FillOvalBatch { rects, colors, count } => {
+        DrawOp::FillOvalBatch {
+            rects,
+            colors,
+            count,
+        } => {
             for i in 0..*count as usize {
                 let c4 = i * 4;
                 let r4 = i * 4;
                 write_op_header(buf, opcode::SET_FILL_STYLE);
-                write_u32(buf, encode_color_u8(crate::ir::draw_op::ColorU8 {
-                    r: colors[c4],
-                    g: colors[c4 + 1],
-                    b: colors[c4 + 2],
-                    a: colors[c4 + 3],
-                }));
+                write_u32(
+                    buf,
+                    encode_color_u8(crate::ir::draw_op::ColorU8 {
+                        r: colors[c4],
+                        g: colors[c4 + 1],
+                        b: colors[c4 + 2],
+                        a: colors[c4 + 3],
+                    }),
+                );
                 write_op_header(buf, opcode::BEGIN_PATH);
                 write_op_header(buf, opcode::PATH_ADD_OVAL_OP);
                 write_f32(buf, rects[r4]);
@@ -1873,7 +1936,10 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
 
         DrawOp::StrokePath => write_op_header(buf, opcode::STROKE_PATH),
 
-        DrawOp::ClipPath { anti_alias, fill_type } => {
+        DrawOp::ClipPath {
+            anti_alias,
+            fill_type,
+        } => {
             write_op_header(buf, opcode::CLIP_PATH);
             write_u8(buf, if *anti_alias { 1 } else { 0 });
             write_u8(buf, *fill_type as u8);
@@ -2195,7 +2261,6 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
                  before binary encoding"
             );
         }
-
     }
     // v6: no trailing pad — the next op starts immediately after this op's
     // fixed-length payload.
@@ -2309,5 +2374,3 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-

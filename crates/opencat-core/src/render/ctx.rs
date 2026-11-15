@@ -31,4 +31,3 @@ pub struct RenderCtx<'a> {
     /// 3-D tree, and it changes every frame.
     pub space3: crate::render::dispatch::Space3,
 }
-

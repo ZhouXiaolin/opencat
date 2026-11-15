@@ -49,5 +49,3 @@ pub fn resolve_lottie_frame(
     let frame = meta.in_frame + time_secs as f32 * meta.fps;
     Some(frame.clamp(meta.in_frame, (meta.out_frame - 1.0).max(meta.in_frame)))
 }
-
-

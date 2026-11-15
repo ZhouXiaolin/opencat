@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 
 use crate::resource::fetch::{build_http_client, build_preload_runtime, download_bytes};
 use crate::script::EngineJsContext;
+use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::dom::DomElement;
 use opencat_core::parse::html::{HtmlScript, parse_html, scope_composition_css};
 use opencat_core::parse::protocol;
@@ -28,7 +29,6 @@ use opencat_core::script::runtime::{
     GL_OPCODES_RUNTIME, HTML_API_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
     WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
 };
-use opencat_core::parse::ParsedComposition;
 
 /// Parse an HTML composition source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
@@ -77,7 +77,9 @@ fn fetch_remote_text(base_dir: &Path, url: &str) -> Result<String> {
 
 /// [`fetch_remote_text`] 的字节版：返回（缓存文件相对 base_dir 的路径，字节）。
 pub(crate) fn fetch_remote_bytes(base_dir: &Path, url: &str) -> Result<(PathBuf, Vec<u8>)> {
-    let rel = Path::new(".oc-cache").join("net").join(cache_file_name(url));
+    let rel = Path::new(".oc-cache")
+        .join("net")
+        .join(cache_file_name(url));
     let path = base_dir.join(&rel);
     if let Ok(bytes) = std::fs::read(&path) {
         return Ok((rel, bytes));
@@ -169,11 +171,7 @@ fn css_font_faces(
     css: &str,
 ) -> Result<(Vec<(String, PathBuf, Vec<u8>)>, Vec<String>)> {
     let sheet = opencat_core::css::CssStylesheet::parse(css)?;
-    let declared: Vec<String> = sheet
-        .font_faces
-        .iter()
-        .map(|f| f.family.clone())
-        .collect();
+    let declared: Vec<String> = sheet.font_faces.iter().map(|f| f.family.clone()).collect();
     let mut out: Vec<(String, PathBuf, Vec<u8>)> = Vec::new();
     for face in &sheet.font_faces {
         // woff2 放行（解码见下）；woff 1.0（zlib per-table）语料未命中，仍跳过。
@@ -278,7 +276,9 @@ fn append_default_html_fonts(
         let dir = base_dir.join(".oc-cache").join("fonts");
         let path = dir.join(face.file);
         if !path.exists() {
-            if let Err(err) = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, face.bytes)) {
+            if let Err(err) =
+                std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, face.bytes))
+            {
                 eprintln!("html: 默认字体 `{family}` 缓存失败，跳过：{err:#}");
                 continue;
             }
@@ -293,10 +293,7 @@ fn append_default_html_fonts(
 
 /// 评估页面脚本并提取最终树：返回 extract payload（`{meta, css, tree, html}`）
 /// 加每帧 driver 源。
-pub fn extract_html_with_base_dir(
-    input: &str,
-    base_dir: Option<&Path>,
-) -> Result<(Value, String)> {
+pub fn extract_html_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Value, String)> {
     let doc = parse_html(input, 30)?;
     let base = base_dir.unwrap_or_else(|| Path::new("."));
 
@@ -329,9 +326,20 @@ pub fn extract_html_with_base_dir(
     // 读取时按同键替换——保持「同 src 只估一次」的去重语义。
     let mut src_rewrites = std::collections::HashMap::new();
     // composition id → 全局起点秒：异步登记的 timeline 按它补 seek。
-    let mut comp_offsets: Vec<(String, f64)> = composition_id(&tree).map(|id| (id, 0.0)).into_iter().collect();
+    let mut comp_offsets: Vec<(String, f64)> = composition_id(&tree)
+        .map(|id| (id, 0.0))
+        .into_iter()
+        .collect();
     if !doc.composition_hosts.is_empty() {
-        splice_nested_hosts(&mut tree, &mut css_text, &mut scripts, base, 0.0, &mut src_rewrites, &mut comp_offsets)?;
+        splice_nested_hosts(
+            &mut tree,
+            &mut css_text,
+            &mut scripts,
+            base,
+            0.0,
+            &mut src_rewrites,
+            &mut comp_offsets,
+        )?;
     }
 
     // `@import`（子工程 `<style>` 里的 Google Fonts 等）展开 + `@font-face`
@@ -343,7 +351,14 @@ pub fn extract_html_with_base_dir(
 
     let seed = json!({ "meta": meta, "tree": tree, "css": css_text, "html": true });
 
-    let driver = build_html_driver(&scripts, base, &seed, doc.import_map.as_deref(), &src_rewrites, &comp_offsets)?;
+    let driver = build_html_driver(
+        &scripts,
+        base,
+        &seed,
+        doc.import_map.as_deref(),
+        &src_rewrites,
+        &comp_offsets,
+    )?;
     if let Some(path) = std::env::var_os("OC_DUMP_DRIVER") {
         let _ = std::fs::write(&path, &driver);
     }
@@ -369,9 +384,11 @@ pub fn extract_html_with_base_dir(
         opencat_core::fonts::load_css_face(&mut db, bytes.clone(), family);
     }
     let db = std::sync::Arc::new(db);
-    let (mut extract, driver) = opencat_core::text::scope_font_db(&db, || -> Result<(Value, String)> {
-        let mut ctx = EngineJsContext::new()?;
-        ctx.eval(
+    let (mut extract, driver) = opencat_core::text::scope_font_db(
+        &db,
+        || -> Result<(Value, String)> {
+            let mut ctx = EngineJsContext::new()?;
+            ctx.eval(
             "globalThis.ctx = globalThis.ctx || {\
              global:{time:0, duration:0, frame:0}, current:{time:0, duration:0, frame:0}, \
              __currentCanvasTarget:'',\
@@ -379,67 +396,68 @@ pub fn extract_html_with_base_dir(
          };\
          globalThis.__opencatDrivers = globalThis.__opencatDrivers || Object.create(null);",
         )?;
-        ctx.install_dispatcher(dispatch_binding)?;
-        ctx.eval(&binding_shim_js())?;
-        ctx.eval(CANVAS_API_RUNTIME)?;
-        ctx.eval(JS_PLATFORM_SHIM)?;
-        ctx.eval(DOM_API_RUNTIME)?;
-        ctx.eval(CONTEXT2D_RUNTIME)?;
-        // WebGL2/WebGPU 录制面：three 的 WebGLRenderer 走 ctx.getContext
-        // （GL_OPCODES 先装，WEBGL_API 引用 GLOP.*）。顺序与 realm 一致。
-        ctx.eval(GL_OPCODES_RUNTIME)?;
-        ctx.eval(WEBGL_API_RUNTIME)?;
-        ctx.eval(WEBGPU_API_RUNTIME)?;
-        ctx.eval(NODE_STYLE_RUNTIME)?;
-        ctx.eval(TREE_API_RUNTIME)?;
-        ctx.eval(ANIMATION_RUNTIME)?;
-        // 网络加载垫（fetch/Blob/URL/createImageBitmap）：html 页面的 three
-        // GLTFLoader 等走这条通道读 `<base_dir>` 下的资产。
-        ctx.eval(ASSET_API_RUNTIME)?;
-        // 模块装载（__ocRequire/__ocModuleSources）：`<script type="module">`
-        // 的降级产物在提取期就要可执行。
-        ctx.eval(JSX_RUNTIME)?;
-        crate::script::bridge::install_asset_bridge(&ctx, base);
-        ctx.eval(&driver)?;
-        // 页面脚本常把「建 DOM / 登记 timeline」放在 async 续体里：
-        // `await document.fonts.ready` / `await fetch(...)` 走微任务，而
-        // `await new Promise(r => setTimeout(r, ...))` 走 rAF 帧队列
-        // （dom_api.js 把 setTimeout 降级到 requestAnimationFrame）。提取期
-        // 没有帧宿主来 drain __ocRafQueue，只跑微任务会让这类续体永久挂起
-        // ——timeline-launch act2 的聊天气泡全段缺失、liquid 的 three 层不亮
-        // 都是这个根因。这里按「微任务 → 帧队列」交替排空。单 pass 后每轮
-        // flush 只跑一批：一条 setTimeout 轮询链每轮恰好推进一次
-        // （await 续体走微任务，下一个 setTimeout 入队等下一轮），轮数须盖过
-        // 页面里最长的轮询（act2 等 lottie 40 次）——有界 64 轮。
-        // drain 只发生在提取期建树阶段；逐帧渲染仍由 realm 的帧宿主冲刷，
-        // 帧内容依旧是 t 的纯函数（frame = f(t)）。
-        for round in 0..64 {
-            // 虚拟钟 setTimeout 的提取期水位：提取期钟恒 0，带 delay 的
-            // setTimeout 续体（页面库轮询）靠这里按 16ms/轮推进——与旧
-            // 「每 drain 轮一步」的推进能力同量级。渲染 realm 全新重建，
-            // 水位不跨进程，逐帧判定回到真钟（__ocClockMs）。
-            let _ = ctx.eval(&format!(
-                "if (globalThis.__ocVirtTimerAdvance) globalThis.__ocVirtTimerAdvance({});",
-                (round + 1) * 16
-            ));
-            ctx.run_microtasks();
-            let pending = ctx.eval_json(
+            ctx.install_dispatcher(dispatch_binding)?;
+            ctx.eval(&binding_shim_js())?;
+            ctx.eval(CANVAS_API_RUNTIME)?;
+            ctx.eval(JS_PLATFORM_SHIM)?;
+            ctx.eval(DOM_API_RUNTIME)?;
+            ctx.eval(CONTEXT2D_RUNTIME)?;
+            // WebGL2/WebGPU 录制面：three 的 WebGLRenderer 走 ctx.getContext
+            // （GL_OPCODES 先装，WEBGL_API 引用 GLOP.*）。顺序与 realm 一致。
+            ctx.eval(GL_OPCODES_RUNTIME)?;
+            ctx.eval(WEBGL_API_RUNTIME)?;
+            ctx.eval(WEBGPU_API_RUNTIME)?;
+            ctx.eval(NODE_STYLE_RUNTIME)?;
+            ctx.eval(TREE_API_RUNTIME)?;
+            ctx.eval(ANIMATION_RUNTIME)?;
+            // 网络加载垫（fetch/Blob/URL/createImageBitmap）：html 页面的 three
+            // GLTFLoader 等走这条通道读 `<base_dir>` 下的资产。
+            ctx.eval(ASSET_API_RUNTIME)?;
+            // 模块装载（__ocRequire/__ocModuleSources）：`<script type="module">`
+            // 的降级产物在提取期就要可执行。
+            ctx.eval(JSX_RUNTIME)?;
+            crate::script::bridge::install_asset_bridge(&ctx, base);
+            ctx.eval(&driver)?;
+            // 页面脚本常把「建 DOM / 登记 timeline」放在 async 续体里：
+            // `await document.fonts.ready` / `await fetch(...)` 走微任务，而
+            // `await new Promise(r => setTimeout(r, ...))` 走 rAF 帧队列
+            // （dom_api.js 把 setTimeout 降级到 requestAnimationFrame）。提取期
+            // 没有帧宿主来 drain __ocRafQueue，只跑微任务会让这类续体永久挂起
+            // ——timeline-launch act2 的聊天气泡全段缺失、liquid 的 three 层不亮
+            // 都是这个根因。这里按「微任务 → 帧队列」交替排空。单 pass 后每轮
+            // flush 只跑一批：一条 setTimeout 轮询链每轮恰好推进一次
+            // （await 续体走微任务，下一个 setTimeout 入队等下一轮），轮数须盖过
+            // 页面里最长的轮询（act2 等 lottie 40 次）——有界 64 轮。
+            // drain 只发生在提取期建树阶段；逐帧渲染仍由 realm 的帧宿主冲刷，
+            // 帧内容依旧是 t 的纯函数（frame = f(t)）。
+            for round in 0..64 {
+                // 虚拟钟 setTimeout 的提取期水位：提取期钟恒 0，带 delay 的
+                // setTimeout 续体（页面库轮询）靠这里按 16ms/轮推进——与旧
+                // 「每 drain 轮一步」的推进能力同量级。渲染 realm 全新重建，
+                // 水位不跨进程，逐帧判定回到真钟（__ocClockMs）。
+                let _ = ctx.eval(&format!(
+                    "if (globalThis.__ocVirtTimerAdvance) globalThis.__ocVirtTimerAdvance({});",
+                    (round + 1) * 16
+                ));
+                ctx.run_microtasks();
+                let pending = ctx.eval_json(
                 "(function(){ return globalThis.__ocRafQueue ? globalThis.__ocRafQueue.length : 0; })()",
             )?;
-            if pending.as_u64().unwrap_or(0) == 0 {
-                break;
+                if pending.as_u64().unwrap_or(0) == 0 {
+                    break;
+                }
+                ctx.eval("globalThis.__ocFlushRaf();")?;
             }
-            ctx.eval("globalThis.__ocFlushRaf();")?;
-        }
-        ctx.run_microtasks();
-        // 动画驱动 = 虚拟 rAF（driver 逐帧段 setClock + 帧宿主 flush +
-        // 幂等补 play）；构建期只负责把 async 续体落定、树提出来。
-        let extract = eval_json_string(&ctx, "globalThis.__ocHtmlExtract()")?;
-        if let Some(path) = std::env::var_os("OC_DUMP_EXTRACT") {
-            let _ = std::fs::write(&path, serde_json::to_string_pretty(&extract)?);
-        }
-        Ok((extract, driver))
-    })?;
+            ctx.run_microtasks();
+            // 动画驱动 = 虚拟 rAF（driver 逐帧段 setClock + 帧宿主 flush +
+            // 幂等补 play）；构建期只负责把 async 续体落定、树提出来。
+            let extract = eval_json_string(&ctx, "globalThis.__ocHtmlExtract()")?;
+            if let Some(path) = std::env::var_os("OC_DUMP_EXTRACT") {
+                let _ = std::fs::write(&path, serde_json::to_string_pretty(&extract)?);
+            }
+            Ok((extract, driver))
+        },
+    )?;
     if !css_fonts.is_empty() {
         let faces: Vec<Value> = css_fonts
             .iter()
@@ -521,21 +539,35 @@ fn splice_nested_hosts(
         {
             *dur = host_duration;
         }
-        splice_nested_hosts(&mut sub_root, css, scripts, base_dir, sub_offset, src_rewrites, comp_offsets)?;
+        splice_nested_hosts(
+            &mut sub_root,
+            css,
+            scripts,
+            base_dir,
+            sub_offset,
+            src_rewrites,
+            comp_offsets,
+        )?;
         // 子文档样式（link 与 `<style>`）按宿主收窄：浏览器端 hyperframes
         // 装载时同样给每条规则加 composition 作用域前缀。
         for link in &sub.links {
             if link.rel.eq_ignore_ascii_case("stylesheet") {
                 let href = rewrite_rel_path(&link.href, sub_dir);
                 css.push('\n');
-                css.push_str(&scope_composition_css(&resolve_external(base_dir, &href)?, &scope));
+                css.push_str(&scope_composition_css(
+                    &resolve_external(base_dir, &href)?,
+                    &scope,
+                ));
             }
         }
         // 子文档 CSS 的相对 url(...)（@font-face 的 `../fonts/…` 等）同样
         // 相对子文档目录——按 sub_dir 归一，css_font_faces 才能按主 base_dir
         // 读到（woff2 放行后 pr-to-video 语料暴露）。link href 同语义。
         css.push('\n');
-        css.push_str(&scope_composition_css(&rewrite_css_asset_urls(&sub.css_text, sub_dir), &scope));
+        css.push_str(&scope_composition_css(
+            &rewrite_css_asset_urls(&sub.css_text, sub_dir),
+            &scope,
+        ));
         for script in &sub.scripts {
             let mut script = script.clone();
             script.start += sub_offset;
@@ -559,7 +591,9 @@ fn splice_nested_hosts(
                 }
             }
             // 内联 classic 脚本按子组合根收窄查询面（HF 子组合作用域）。
-            if let (Some(id), Some(code), false) = (&sub_comp_id, script.inline.as_mut(), script.module) {
+            if let (Some(id), Some(code), false) =
+                (&sub_comp_id, script.inline.as_mut(), script.module)
+            {
                 *code = wrap_scoped_composition_script(code, id);
             }
             scripts.push(script);
@@ -796,8 +830,14 @@ fn rewrite_asset_paths(el: &mut DomElement, sub_dir: &str) {
 
 /// 子树可见窗起点平移 `offset` 秒（嵌套 composition 局部时间 → 全局）。
 fn shift_clip_starts(el: &mut DomElement, offset: f64) {
-    if let DomElement::Div { data_start: Some(start), .. }
-    | DomElement::Video { data_start: Some(start), .. } = el
+    if let DomElement::Div {
+        data_start: Some(start),
+        ..
+    }
+    | DomElement::Video {
+        data_start: Some(start),
+        ..
+    } = el
     {
         *start += offset;
     }
@@ -843,7 +883,8 @@ fn collect_hosts(el: &DomElement, out: &mut Vec<NestedHost>) {
         let start = get(protocol::attr::START)
             .and_then(|value| value.trim().parse::<f64>().ok())
             .unwrap_or(0.0);
-        let duration = get(protocol::attr::DURATION).and_then(|value| value.trim().parse::<f64>().ok());
+        let duration =
+            get(protocol::attr::DURATION).and_then(|value| value.trim().parse::<f64>().ok());
         // 子文档样式的作用域选择器：宿主的 composition id（hyperframes 同形），
         // 缺省按宿主元素 id。
         let scope = match get(protocol::attr::COMPOSITION_ID).filter(|id| !id.is_empty()) {
@@ -909,7 +950,10 @@ fn build_html_driver(
     // 与 webpack publicPath 都从这里推导。Windows 盘符路径归一正斜杠。
     let base_url_dir = format!(
         "file:///{}/",
-        base_dir.to_string_lossy().replace('\\', "/").trim_start_matches('/')
+        base_dir
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim_start_matches('/')
     );
     // module 入口按文档序收集；require 占位语句与装载产物一一对应。
     let module_entries: Vec<(usize, &HtmlScript)> = scripts
@@ -960,7 +1004,9 @@ fn build_html_driver(
                 );
                 body.push_str(&format!(
                     "if (!globalThis.__ocExt{}) {{ globalThis.__ocExt{} = true; \
-globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: 'SCRIPT' }};\n{}\nglobalThis.__ocExtPhase = false; }}\n",
+globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: 'SCRIPT', \
+closest: function (sel) {{ return document.querySelector(sel); }} }};\n{}\n\
+globalThis.__ocExtPhase = false; }}\n",
                     ext_idx,
                     ext_idx,
                     serde_json::to_string(&script_url)?,
@@ -970,6 +1016,14 @@ globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: '
                 ext_idx += 1;
             }
             (None, Some(code)) => {
+                // 内联脚本的 currentScript：浏览器里是脚本元素本身，`src` 为空、
+                // `closest` 沿祖先查找。driver 把脚本拍平成一个字符串，祖先树
+                // 只在 document 里，按选择器返回首个命中（语料的用法是同 id 的
+                // composition 根）。
+                body.push_str(
+                    "document.currentScript = { src: '', tagName: 'SCRIPT', \
+closest: function (sel) { return document.querySelector(sel); } };\n",
+                );
                 // @omp 提取期变换：标注的 for 包进 __ocOmpTake 守卫
                 // （无标注/解析失败零改动，原文本直拼）。纯文本变换，引擎无关。
                 body.push_str(&crate::script::omp::transform(code));
@@ -995,7 +1049,10 @@ globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: '
     // 与浏览器一致（带前导斜杠）的目录。
     let base_pathname = format!(
         "/{}",
-        base_dir.to_string_lossy().replace('\\', "/").trim_start_matches('/')
+        base_dir
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim_start_matches('/')
     );
     driver.push_str(&format!(
         "    if (globalThis.location) {{ globalThis.location.href = {href}; globalThis.location.pathname = {path}; }}\n",
@@ -1010,8 +1067,10 @@ globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: '
         driver.push_str(&serde_json::to_string(&module_sources)?);
         driver.push_str(";\n");
     }
-    let offsets: serde_json::Map<String, Value> =
-        comp_offsets.iter().map(|(id, offset)| (id.clone(), json!(offset))).collect();
+    let offsets: serde_json::Map<String, Value> = comp_offsets
+        .iter()
+        .map(|(id, offset)| (id.clone(), json!(offset)))
+        .collect();
     driver.push_str("    globalThis.__ocCompOffsets = ");
     driver.push_str(&serde_json::to_string(&offsets)?);
     driver.push_str(";\n");
@@ -1087,10 +1146,12 @@ globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: '
     driver.push_str("    if (!globalThis.__ocVtimePlayed) globalThis.__ocVtimePlayed = {};\n");
     driver.push_str("    if (globalThis.gsap) { if (!globalThis.__ocVtimeLag) { globalThis.__ocVtimeLag = true; try { globalThis.gsap.ticker.lagSmoothing(0); } catch (error) {} } try { globalThis.gsap.ticker.wake(); } catch (error) {} }\n");
     driver.push_str("    (function () {\n");
-    driver.push_str("        var reg = (typeof window === 'object' && window && window.__timelines) || {};\n");
+    driver.push_str(
+        "        var reg = (typeof window === 'object' && window && window.__timelines) || {};\n",
+    );
     driver.push_str("        var played = globalThis.__ocVtimePlayed;\n");
     driver.push_str("        var offs = globalThis.__ocCompOffsets || {};\n");
-        driver.push_str("        var __ocNow = function () { return (globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0); };\n");
+    driver.push_str("        var __ocNow = function () { return (globalThis.ctx && globalThis.ctx.current ? globalThis.ctx.current.time : 0); };\n");
     driver.push_str("        var __ocPlayAct = function (tl, at, id) {\n");
     driver.push_str("            try { tl.play(); } catch (error) {}\n");
     driver.push_str("            try { var late = __ocNow() - at; if (late > 0.0001 && typeof tl.seek === 'function') tl.seek(late, false); } catch (error) { if (globalThis.__ocTraceJs && typeof __ocStderr === 'function') __ocStderr('[seek-err] ' + id + ' :: ' + (error && (error.stack || error.message || String(error)))); }\n");
@@ -1139,8 +1200,7 @@ fn load_html_modules(
     }
     let mut sources: serde_json::Map<String, Value> = serde_json::Map::new();
     let mut require_stmts: Vec<String> = Vec::new();
-    let mut queue: std::collections::VecDeque<(String, String)> =
-        std::collections::VecDeque::new();
+    let mut queue: std::collections::VecDeque<(String, String)> = std::collections::VecDeque::new();
     for (slot, (_, script)) in entries.iter().enumerate() {
         let (key, source) = match &script.src {
             Some(src) => (module_key(src), resolve_external(base_dir, src)?),

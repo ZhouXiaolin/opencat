@@ -1,12 +1,9 @@
 use crate::canvas::Rect;
-use crate::canvas::paint::{
-    ShaderSpec, TileMode,
-};
+use crate::canvas::paint::{ShaderSpec, TileMode};
 use crate::style::{
-    ArbitraryGradient, GradientDirection, GradientLength, GradientStop, RadialExtent, RadialShape, StopUnit,
+    ArbitraryGradient, GradientDirection, GradientLength, GradientStop, RadialExtent, RadialShape,
+    StopUnit,
 };
-
-
 
 use super::items::color_token_to_rgba;
 
@@ -156,8 +153,7 @@ pub(crate) fn build_linear_gradient(
     box_: GradientBox,
 ) -> ShaderSpec {
     let (from_box, to_box) = linear_endpoints(box_.w, box_.h, angle_deg, direction);
-    let full_len =
-        ((to_box.0 - from_box.0).powi(2) + (to_box.1 - from_box.1).powi(2)).sqrt();
+    let full_len = ((to_box.0 - from_box.0).powi(2) + (to_box.1 - from_box.1).powi(2)).sqrt();
 
     let dev = stop_device_positions(stops, full_len);
 
@@ -309,17 +305,7 @@ pub(crate) fn build_radial_gradient(
 
     // Map the shader's unit circle (center (0,0), radius 1) onto the ellipse of
     // radii (rx, ry) centered at the box-space center.
-    let m = [
-        rx,
-        0.0,
-        box_.ox + cx,
-        0.0,
-        ry,
-        box_.oy + cy,
-        0.0,
-        0.0,
-        1.0,
-    ];
+    let m = [rx, 0.0, box_.ox + cx, 0.0, ry, box_.oy + cy, 0.0, 0.0, 1.0];
 
     ShaderSpec::RadialGradient {
         center: [0.0, 0.0],
@@ -379,7 +365,10 @@ fn build_sweep_gradient(
 
 /// Convert an arbitrary CSS-syntax gradient into a canvas `ShaderSpec` mapped
 /// onto the node `rect` (or its `background-size` tile).
-pub(crate) fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, rect: Rect) -> ShaderSpec {
+pub(crate) fn arbitrary_gradient_to_shader_spec(
+    gradient: &ArbitraryGradient,
+    rect: Rect,
+) -> ShaderSpec {
     match gradient {
         ArbitraryGradient::LinearGradient {
             angle_deg,
@@ -457,7 +446,14 @@ pub(crate) fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, re
             } else {
                 TileMode::Clamp
             };
-            build_sweep_gradient(*angle_deg, center.unwrap_or([0.5, 0.5]), stops, *repeat, tile_mode, box_)
+            build_sweep_gradient(
+                *angle_deg,
+                center.unwrap_or([0.5, 0.5]),
+                stops,
+                *repeat,
+                tile_mode,
+                box_,
+            )
         }
         ArbitraryGradient::Turbulence {
             base_frequency,
@@ -480,4 +476,3 @@ pub(crate) fn arbitrary_gradient_to_shader_spec(gradient: &ArbitraryGradient, re
 }
 
 // ── Script conversion ────────────────────────────────────────────────
-

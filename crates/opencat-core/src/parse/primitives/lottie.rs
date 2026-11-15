@@ -74,5 +74,3 @@ pub fn lottie() -> Lottie {
         style: NodeStyle::default(),
     }
 }
-
-

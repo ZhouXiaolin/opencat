@@ -253,5 +253,3 @@ fn append_backend_span_node(
         append_backend_span_node(out, frame_count, aggregate, *child_key);
     }
 }
-
-

@@ -52,15 +52,15 @@ use lightningcss::values::position::{
 use crate::canvas::paint::BlendMode;
 use crate::style::{
     ArbitraryGradient, BackgroundFill, BorderRadius, BoxShadow as CatBoxShadow, ColorToken,
-    CssFilter, CssFilterKind,
-    CssFilterOp, FlexDirection, FlexWrap, GenericFamily, GradientDirection, GradientStop,
-    InsetShadow, JustifyContent, LengthPercentageAuto, StopUnit, TextAlign,
-    TextShadow as CatTextShadow, TextTransform, Transform as CatTransform, TransformOrigin,
+    CssFilter, CssFilterKind, CssFilterOp, FlexDirection, FlexWrap, GenericFamily,
+    GradientDirection, GradientStop, InsetShadow, JustifyContent, LengthPercentageAuto, StopUnit,
+    TextAlign, TextShadow as CatTextShadow, TextTransform, Transform as CatTransform,
+    TransformOrigin,
 };
 
-use super::eval::{css_color_to_f32, dimension_to_px, length_to_px, serialize_tokens};
-use super::VarSource;
 use super::EvalContext;
+use super::VarSource;
+use super::eval::{css_color_to_f32, dimension_to_px, length_to_px, serialize_tokens};
 
 fn warn_unsupported(pid: PropertyId, why: &str) {
     let name = pid
@@ -187,8 +187,10 @@ pub fn apply_property(
             }
         },
         Property::VerticalAlign(v) => {
-            use lightningcss::properties::font::{VerticalAlign as CssVa, VerticalAlignKeyword as K};
             use crate::style::VerticalAlign as Va;
+            use lightningcss::properties::font::{
+                VerticalAlign as CssVa, VerticalAlignKeyword as K,
+            };
             style.vertical_align = Some(match v {
                 CssVa::Keyword(K::Top) => Va::Top,
                 CssVa::Keyword(K::Middle) => Va::Middle,
@@ -298,7 +300,9 @@ pub fn apply_property(
         Property::Position(v) => {
             // static 是初始值，记 None（非包含块）；relative 才是显式定位。
             style.position = match v {
-                CssPosition::Absolute | CssPosition::Fixed => Some(crate::style::Position::Absolute),
+                CssPosition::Absolute | CssPosition::Fixed => {
+                    Some(crate::style::Position::Absolute)
+                }
                 CssPosition::Relative => Some(crate::style::Position::Relative),
                 CssPosition::Static => None,
                 CssPosition::Sticky(_) => return,
@@ -329,11 +333,9 @@ pub fn apply_property(
             }
         }
         Property::Overflow(v) => {
-            style.overflow_hidden = matches!(
-                v.x,
-                OverflowKeyword::Hidden | OverflowKeyword::Clip
-            );
-            style.overflow_y_visible = !matches!(v.y, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+            style.overflow_hidden = matches!(v.x, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+            style.overflow_y_visible =
+                !matches!(v.y, OverflowKeyword::Hidden | OverflowKeyword::Clip);
             style.overflow_visible = matches!(v.x, OverflowKeyword::Visible);
         }
         // 单轴长写（打字揭示 `overflow-x:clip; overflow-y:visible`）。
@@ -344,7 +346,8 @@ pub fn apply_property(
             }
         }
         Property::OverflowY(k) => {
-            style.overflow_y_visible = !matches!(k, OverflowKeyword::Hidden | OverflowKeyword::Clip);
+            style.overflow_y_visible =
+                !matches!(k, OverflowKeyword::Hidden | OverflowKeyword::Clip);
         }
         Property::BackgroundColor(c) => style.bg_color = color_token(c),
         // `background` 简写（hyperframes 页面的主力写法：`background:#010101`
@@ -525,9 +528,9 @@ pub fn apply_property(
                 && (*x, *y) == (0.0, 0.0)
                 && *z == 1.0
             {
-                style
-                    .transforms
-                    .push(CatTransform::RotateDeg { value: angle.to_degrees() });
+                style.transforms.push(CatTransform::RotateDeg {
+                    value: angle.to_degrees(),
+                });
             }
         }
         Property::Scale(scale) => {
@@ -565,10 +568,8 @@ pub fn apply_property(
         // 把 `Preserve3d` 拼成 `preserve3d`，与规范的 `preserve-3d` 不符，
         // 于是这个值落到 Unparsed。按原文补救。
         Property::Unparsed(unparsed) => {
-            if matches!(
-                unparsed.property_id,
-                PropertyId::TransformStyle(_)
-            ) && serialize_tokens(&unparsed.value).as_deref() == Some("preserve-3d")
+            if matches!(unparsed.property_id, PropertyId::TransformStyle(_))
+                && serialize_tokens(&unparsed.value).as_deref() == Some("preserve-3d")
             {
                 style.transform_style_preserve_3d = Some(true);
             } else {
@@ -657,9 +658,7 @@ pub fn apply_property(
             // 的 `line-height:1em` + JS 设 60px），行盒停在 16px，字顶被
             // 顶出盒外 20px。存倍数，按 text_px 折算。
             CssLineHeight::Length(lp) => match lp {
-                LengthPercentage::Dimension(LengthValue::Em(n)) => {
-                    style.line_height = Some(*n)
-                }
+                LengthPercentage::Dimension(LengthValue::Em(n)) => style.line_height = Some(*n),
                 LengthPercentage::Percentage(p) => style.line_height = Some(p.0 / 100.0),
                 _ => style.line_height_px = lp_to_px(lp, ctx),
             },
@@ -685,9 +684,9 @@ pub fn apply_property(
                 CssTextAlign::Left | CssTextAlign::Start => TextAlign::Left,
                 CssTextAlign::Right | CssTextAlign::End => TextAlign::Right,
                 CssTextAlign::Center => TextAlign::Center,
-                CssTextAlign::Justify
-                | CssTextAlign::MatchParent
-                | CssTextAlign::JustifyAll => return,
+                CssTextAlign::Justify | CssTextAlign::MatchParent | CssTextAlign::JustifyAll => {
+                    return;
+                }
             });
         }
         Property::TextDecorationLine(lines, _)
@@ -762,8 +761,7 @@ pub fn apply_property(
                         .get(1)
                         .and_then(|v| lp_to_px(v, ctx))
                         .filter(|gap| *gap > 0.0);
-                    style.stroke_dasharray =
-                        Some(crate::style::StrokeDash::from_pair(dash, gap));
+                    style.stroke_dasharray = Some(crate::style::StrokeDash::from_pair(dash, gap));
                 }
             }
         }
@@ -921,14 +919,16 @@ fn color_from_function(f: &Function<'static>) -> Option<ColorToken> {
         255
     };
     let ch = |v: f32| v.clamp(0.0, 255.0).round() as u8;
-    Some(ColorToken::Custom(ch(comps[0]), ch(comps[1]), ch(comps[2]), alpha))
+    Some(ColorToken::Custom(
+        ch(comps[0]),
+        ch(comps[1]),
+        ch(comps[2]),
+        alpha,
+    ))
 }
 
 /// `var(--x)` → 颜色：查自定义属性表，再按同样的 token 规则读色。
-fn color_from_var<V: VarSource + ?Sized>(
-    v: &Variable<'static>,
-    vars: &V,
-) -> Option<ColorToken> {
+fn color_from_var<V: VarSource + ?Sized>(v: &Variable<'static>, vars: &V) -> Option<ColorToken> {
     let key = v.name.ident.0.trim_start_matches("--");
     let list = vars.var(key)?;
     for item in list.0.iter() {
@@ -1088,7 +1088,11 @@ fn align_self_to_cat(v: &CssAlignSelf) -> Option<crate::style::AlignItems> {
     }
 }
 
-fn apply_border_radius(style: &mut crate::style::NodeStyle, v: &CssBorderRadius, ctx: &EvalContext) {
+fn apply_border_radius(
+    style: &mut crate::style::NodeStyle,
+    v: &CssBorderRadius,
+    ctx: &EvalContext,
+) {
     // 字段是 Size2D<LengthPercentage>（x, y 圆角）；NodeStyle 只有 px 形态，
     // 椭圆圆角取 x。百分比圆角在这里还没有盒尺寸可依，按「贴到半高/半宽」
     // 处理：给一个远大于任何盒的 px，绘制侧按像素圆角裁到半尺寸即为浏览器
@@ -1176,11 +1180,21 @@ fn filter_list_to_css_filter(list: &FilterList<'static>, ctx: &EvalContext) -> C
                 Filter::Blur(radius) => {
                     CssFilterOp::new(CssFilterKind::Blur, len_to_px(radius, ctx))
                 }
-                Filter::Brightness(n) => CssFilterOp::new(CssFilterKind::Brightness, number_or_percentage(n)),
-                Filter::Contrast(n) => CssFilterOp::new(CssFilterKind::Contrast, number_or_percentage(n)),
-                Filter::Saturate(n) => CssFilterOp::new(CssFilterKind::Saturate, number_or_percentage(n)),
-                Filter::Grayscale(n) => CssFilterOp::new(CssFilterKind::Grayscale, number_or_percentage(n)),
-                Filter::Invert(n) => CssFilterOp::new(CssFilterKind::Invert, number_or_percentage(n)),
+                Filter::Brightness(n) => {
+                    CssFilterOp::new(CssFilterKind::Brightness, number_or_percentage(n))
+                }
+                Filter::Contrast(n) => {
+                    CssFilterOp::new(CssFilterKind::Contrast, number_or_percentage(n))
+                }
+                Filter::Saturate(n) => {
+                    CssFilterOp::new(CssFilterKind::Saturate, number_or_percentage(n))
+                }
+                Filter::Grayscale(n) => {
+                    CssFilterOp::new(CssFilterKind::Grayscale, number_or_percentage(n))
+                }
+                Filter::Invert(n) => {
+                    CssFilterOp::new(CssFilterKind::Invert, number_or_percentage(n))
+                }
                 Filter::Sepia(n) => CssFilterOp::new(CssFilterKind::Sepia, number_or_percentage(n)),
                 Filter::HueRotate(angle) => {
                     CssFilterOp::new(CssFilterKind::HueRotate, angle.to_degrees())
@@ -1224,10 +1238,7 @@ fn apply_transform(style: &mut crate::style::NodeStyle, list: &TransformList, ct
     for t in &list.0 {
         match t {
             CssTransform::Translate(x, y) => {
-                let (Some(tx), Some(ty)) = (
-                    lp_component(x, ctx),
-                    lp_component(y, ctx),
-                ) else {
+                let (Some(tx), Some(ty)) = (lp_component(x, ctx), lp_component(y, ctx)) else {
                     continue;
                 };
                 match (tx, ty) {
@@ -1293,24 +1304,24 @@ fn apply_transform(style: &mut crate::style::NodeStyle, list: &TransformList, ct
                     style.transforms.push(CatTransform::ScaleY { value: sy });
                 }
             }
-            CssTransform::ScaleX(x) => style
-                .transforms
-                .push(CatTransform::ScaleX { value: number_or_percentage(x) }),
-            CssTransform::ScaleY(y) => style
-                .transforms
-                .push(CatTransform::ScaleY { value: number_or_percentage(y) }),
-            CssTransform::Rotate(angle) => style
-                .transforms
-                .push(CatTransform::RotateDeg { value: angle.to_degrees() }),
-            CssTransform::TranslateZ(z) => style
-                .transforms
-                .push(CatTransform::TranslateZ { value: len_to_px(z, ctx) }),
-            CssTransform::RotateX(angle) => style
-                .transforms
-                .push(CatTransform::RotateXDeg { value: angle.to_degrees() }),
-            CssTransform::RotateY(angle) => style
-                .transforms
-                .push(CatTransform::RotateYDeg { value: angle.to_degrees() }),
+            CssTransform::ScaleX(x) => style.transforms.push(CatTransform::ScaleX {
+                value: number_or_percentage(x),
+            }),
+            CssTransform::ScaleY(y) => style.transforms.push(CatTransform::ScaleY {
+                value: number_or_percentage(y),
+            }),
+            CssTransform::Rotate(angle) => style.transforms.push(CatTransform::RotateDeg {
+                value: angle.to_degrees(),
+            }),
+            CssTransform::TranslateZ(z) => style.transforms.push(CatTransform::TranslateZ {
+                value: len_to_px(z, ctx),
+            }),
+            CssTransform::RotateX(angle) => style.transforms.push(CatTransform::RotateXDeg {
+                value: angle.to_degrees(),
+            }),
+            CssTransform::RotateY(angle) => style.transforms.push(CatTransform::RotateYDeg {
+                value: angle.to_degrees(),
+            }),
             _ => {}
         }
     }
@@ -1355,18 +1366,17 @@ fn position_to_origin(pos: &CssPositionValue, ctx: &EvalContext) -> Option<Trans
         VerticalPositionKeyword::Top => Some(0.0),
         VerticalPositionKeyword::Bottom => Some(1.0),
     };
-    Some(TransformOrigin::from_axes(comp(&pos.x, h, ctx)?, comp(&pos.y, v, ctx)?))
+    Some(TransformOrigin::from_axes(
+        comp(&pos.x, h, ctx)?,
+        comp(&pos.y, v, ctx)?,
+    ))
 }
 
 /// 字体栈是否以通用 `sans-serif` 结尾（tailwind `font-sans` 的产物形态）。
 /// 是则交给文档默认族，与 `font-sans` 的既有语义一致。
 fn is_generic_sans_stack(list: &[CssFontFamily]) -> bool {
-    list.iter().any(|f| {
-        matches!(
-            f,
-            CssFontFamily::Generic(GenericFontFamily::SansSerif)
-        )
-    })
+    list.iter()
+        .any(|f| matches!(f, CssFontFamily::Generic(GenericFontFamily::SansSerif)))
 }
 
 fn generic_to_cat(generic: &GenericFontFamily) -> Option<GenericFamily> {
@@ -1450,7 +1460,9 @@ fn image_to_fill(image: &Image) -> Option<BackgroundFill> {
 /// `mask-image` 的第一层渐变。CSS 遮罩用图像的 alpha 通道；标准线性渐变
 /// 的黑/透明色标直接给出 alpha 曲线，复用背景渐变的求值结构。
 pub fn mask_image_from_css(image: Option<&Image>) -> Option<crate::style::MaskImage> {
-    image.and_then(image_to_fill).map(|fill| crate::style::MaskImage { fill })
+    image
+        .and_then(image_to_fill)
+        .map(|fill| crate::style::MaskImage { fill })
 }
 
 /// `background-size` → 位图层尺寸。
@@ -1484,7 +1496,11 @@ fn bg_position_parts(
         PositionComponent::Length(lp) => lp_split(lp).into(),
         PositionComponent::Side { side, offset } => {
             let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
-            if matches!(side, HorizontalPositionKeyword::Right) { [1.0 - f, -p] } else { [f, p] }
+            if matches!(side, HorizontalPositionKeyword::Right) {
+                [1.0 - f, -p]
+            } else {
+                [f, p]
+            }
         }
     };
     let y = match &pos.y {
@@ -1492,7 +1508,11 @@ fn bg_position_parts(
         PositionComponent::Length(lp) => lp_split(lp).into(),
         PositionComponent::Side { side, offset } => {
             let (f, p) = offset.as_ref().map(lp_split).unwrap_or((0.0, 0.0));
-            if matches!(side, VerticalPositionKeyword::Bottom) { [1.0 - f, -p] } else { [f, p] }
+            if matches!(side, VerticalPositionKeyword::Bottom) {
+                [1.0 - f, -p]
+            } else {
+                [f, p]
+            }
         }
     };
     [x, y]
@@ -1501,7 +1521,10 @@ fn bg_position_parts(
 /// `background-repeat` → `[repeat-x, repeat-y]`（space/round 近似为 repeat）。
 fn bg_repeat_axes(repeat: &lightningcss::properties::background::BackgroundRepeat) -> [bool; 2] {
     use lightningcss::properties::background::BackgroundRepeatKeyword as K;
-    [!matches!(repeat.x, K::NoRepeat), !matches!(repeat.y, K::NoRepeat)]
+    [
+        !matches!(repeat.x, K::NoRepeat),
+        !matches!(repeat.y, K::NoRepeat),
+    ]
 }
 
 fn gradient_to_fill(g: &Gradient) -> Option<BackgroundFill> {
@@ -1536,7 +1559,10 @@ fn linear_to_fill(
                 _ => GradientDirection::ToTop,
             }),
         ),
-        LineDirection::Corner { horizontal, vertical } => (
+        LineDirection::Corner {
+            horizontal,
+            vertical,
+        } => (
             None,
             Some(match (horizontal, vertical) {
                 (HorizontalPositionKeyword::Right, VerticalPositionKeyword::Bottom) => {
@@ -1567,16 +1593,14 @@ fn radial_to_fill(
     repeat: bool,
 ) -> Option<BackgroundFill> {
     use lightningcss::values::gradient::{Circle, Ellipse, EndingShape};
-    
 
     let (shape, radii, extent) = match &rg.shape {
         EndingShape::Circle(c) => (
             crate::style::RadialShape::Circle,
             match c {
-                Circle::Radius(r) => Some([
-                    length_to_gradient_length(r),
-                    length_to_gradient_length(r),
-                ]),
+                Circle::Radius(r) => {
+                    Some([length_to_gradient_length(r), length_to_gradient_length(r)])
+                }
                 Circle::Extent(_) => None,
             },
             match c {
@@ -1619,9 +1643,7 @@ fn radial_to_fill(
 
 /// CSS `at <position>` 解析为单位盒内比例（与 radial/conic 共用；像素位置
 /// 暂按比例近似，语料只用到百分比形态）。
-fn css_position_ratio(
-    position: &lightningcss::values::position::Position,
-) -> [f32; 2] {
+fn css_position_ratio(position: &lightningcss::values::position::Position) -> [f32; 2] {
     use lightningcss::values::position::{PositionComponent, VerticalPositionKeyword};
     let x = match &position.x {
         PositionComponent::Center => 0.5,
@@ -1630,7 +1652,10 @@ fn css_position_ratio(
             length_value_to_px(d, &EvalContext::default())
         }
         PositionComponent::Side { side, .. } => {
-            if matches!(side, lightningcss::values::position::HorizontalPositionKeyword::Right) {
+            if matches!(
+                side,
+                lightningcss::values::position::HorizontalPositionKeyword::Right
+            ) {
                 1.0
             } else {
                 0.0
@@ -1686,7 +1711,7 @@ fn conic_items_to_stops(
         };
         let color = css_color_to_f32(&stop.color)?;
         let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-        
+
         use lightningcss::values::percentage::DimensionPercentage;
         let (pos, unit) = match &stop.position {
             Some(DimensionPercentage::Percentage(p)) => (p.0, StopUnit::Fraction),
@@ -1724,11 +1749,11 @@ fn length_to_gradient_length(l: &Length) -> crate::style::GradientLength {
     }
 }
 
-fn length_percentage_to_gradient_length(
-    lp: &LengthPercentage,
-) -> crate::style::GradientLength {
+fn length_percentage_to_gradient_length(lp: &LengthPercentage) -> crate::style::GradientLength {
     match lp {
-        LengthPercentage::Percentage(p) => crate::style::GradientLength::Percent { value: p.0 * 100.0 },
+        LengthPercentage::Percentage(p) => {
+            crate::style::GradientLength::Percent { value: p.0 * 100.0 }
+        }
         LengthPercentage::Dimension(d) => crate::style::GradientLength::Px {
             value: length_value_to_px(d, &EvalContext::default()),
         },
@@ -1894,13 +1919,11 @@ pub fn background_from_css(
         _ => {}
     }
     if layers.is_empty() {
-        if let Ok(Property::Background(bgs)) =
-            Property::parse_string(
-                PropertyId::Background,
-                leaked,
-                lightningcss::stylesheet::ParserOptions::default(),
-            )
-        {
+        if let Ok(Property::Background(bgs)) = Property::parse_string(
+            PropertyId::Background,
+            leaked,
+            lightningcss::stylesheet::ParserOptions::default(),
+        ) {
             for bg in bgs.iter() {
                 color = color.or_else(|| color_token(&bg.color));
                 if let Some(mut fill) = image_to_fill(&bg.image) {

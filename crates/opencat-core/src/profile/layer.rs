@@ -326,4 +326,3 @@ pub fn profile_render<T>(
         Ok((f()?, None))
     }
 }
-

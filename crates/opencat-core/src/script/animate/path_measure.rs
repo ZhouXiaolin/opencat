@@ -93,5 +93,3 @@ impl PathMeasureEntry {
         })
     }
 }
-
-

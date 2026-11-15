@@ -1,15 +1,7 @@
-use crate::canvas::paint::{
-    BlendMode, FillSpec, PaintSpec, PaintStyle,
-};
-use crate::display::list::{
-    DisplayRect, TimelineDisplayItem, TimelineTransitionDisplay,
-};
-use crate::ir::draw_op::{
-    DrawOp, Rect4,
-};
-use crate::ir::draw_types::{
-    ChildRange, DrawOpRange, PathOp, RuntimeEffectChildRef,
-};
+use crate::canvas::paint::{BlendMode, FillSpec, PaintSpec, PaintStyle};
+use crate::display::list::{DisplayRect, TimelineDisplayItem, TimelineTransitionDisplay};
+use crate::ir::draw_op::{DrawOp, Rect4};
+use crate::ir::draw_types::{ChildRange, DrawOpRange, PathOp, RuntimeEffectChildRef};
 use crate::parse::gl_transition;
 use crate::parse::transition::{
     GlTransition, LightLeakTransition, SlideDirection, TransitionKind, WipeDirection,
@@ -18,7 +10,6 @@ use crate::render::builder::DrawOpBuilder;
 
 use super::RenderError;
 use super::ctx::RenderCtx;
-
 
 use super::items::{kurbo_rect, rect_to_rect4};
 
@@ -51,7 +42,10 @@ fn render_transition_overlay(
                 width: clip_rect4.width,
                 height: clip_rect4.height,
             }));
-            builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
+            builder.push(DrawOp::ClipPath {
+                anti_alias: false,
+                fill_type: Default::default(),
+            });
         }
         TransitionKind::ClockWipe => {
             let sweep = (1.0 - p) * 360.0;
@@ -76,7 +70,10 @@ fn render_transition_overlay(
                     width: bounded_rect4.width,
                     height: bounded_rect4.height,
                 }));
-                builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
+                builder.push(DrawOp::ClipPath {
+                    anti_alias: false,
+                    fill_type: Default::default(),
+                });
                 builder.push(DrawOp::Arc {
                     rect: bounded_rect4,
                     start: -90.0,
@@ -231,7 +228,10 @@ pub fn render_timeline(ctx: &mut RenderCtx, item: &TimelineDisplayItem) -> Resul
             width: rect4.width,
             height: rect4.height,
         }));
-        ctx.builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
+        ctx.builder.push(DrawOp::ClipPath {
+            anti_alias: false,
+            fill_type: Default::default(),
+        });
 
         ctx.builder.push(DrawOp::SaveLayer {
             bounds: Some(rect4),
@@ -529,7 +529,6 @@ pub(crate) fn render_gl_transition(
 }
 
 // ── Bitmap ───────────────────────────────────────────────────────────
-
 
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};

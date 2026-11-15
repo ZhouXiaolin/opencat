@@ -29,17 +29,11 @@ pub enum CanvasOp {
 
     /// `putImageData`：像素直写。翻译层 intern `PaintSpec{blend_mode: Src}`
     /// （替换而非叠加，防底色透出）后发标准 `ImageRect`。
-    PutImage {
-        image: ImageRef,
-        dst: Rect4,
-    },
+    PutImage { image: ImageRef, dst: Rect4 },
 
     /// `setLineDash`：录制面没有 f32 池，翻译层 intern 区间后发标准
     /// `SetLineDash`（空列表的「实线」语义由绑定层转 `ClearLineDash`）。
-    SetLineDash {
-        intervals: Vec<f32>,
-        phase: f32,
-    },
+    SetLineDash { intervals: Vec<f32>, phase: f32 },
 
     /// `createLinearGradient` 的裸 stops（平铺 offset,r,g,b,a 五元组），
     /// 翻译层 intern 后发标准 `SetStyleLinearGradient`。
@@ -84,9 +78,7 @@ pub enum CanvasOp {
     /// `ctx.filter: blur(R)`（sticky）：翻译层记入漆状态，把后续
     /// fill/stroke 每笔包进 `SaveLayer(Blur)`（层漆带当前 composite
     /// blend）。sigma=R 直传（CSS blur 的 R 即标准差）。
-    SetCtxFilter {
-        sigma: f32,
-    },
+    SetCtxFilter { sigma: f32 },
 }
 
 impl std::hash::Hash for CanvasOp {
@@ -96,7 +88,12 @@ impl std::hash::Hash for CanvasOp {
                 0_u8.hash(state);
                 op.hash(state);
             }
-            CanvasOp::Image { bytes, src, dst, alpha } => {
+            CanvasOp::Image {
+                bytes,
+                src,
+                dst,
+                alpha,
+            } => {
                 1_u8.hash(state);
                 bytes.hash(state);
                 src.hash(state);

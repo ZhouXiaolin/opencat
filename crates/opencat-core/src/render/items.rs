@@ -1,20 +1,15 @@
 use crate::canvas::Rect;
 use crate::canvas::paint::{
-    BlendMode, BlurStyle, FillSpec, MaskFilterSpec, PaintSpec, PaintStyle,
-    PathEffectSpec, StrokeCap, StrokeJoin, StrokeSpec, TileMode,
+    BlendMode, BlurStyle, FillSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec,
+    StrokeCap, StrokeJoin, StrokeSpec, TileMode,
 };
 use crate::display::list::{
-    BitmapDisplayItem, DisplayRect, RectDisplayItem,
-    SvgDisplayItem, SvgPathDisplayItem,
-};
-use crate::ir::draw_op::{
-    ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, Radii4, Rect4,
+    BitmapDisplayItem, DisplayRect, RectDisplayItem, SvgDisplayItem, SvgPathDisplayItem,
 };
 use crate::ir::asset_id::asset_id_for_image;
+use crate::ir::draw_op::{ColorU8, DRRectSpec, DrawOp, LineCap, LineJoin, Radii4, Rect4};
 use crate::ir::draw_types::ImageRef;
-use crate::ir::draw_types::{
-    EncodedPath, FillType, PaintId, PathOp,
-};
+use crate::ir::draw_types::{EncodedPath, FillType, PaintId, PathOp};
 use crate::media::VideoFrameRequest;
 use crate::probe::catalog::{PreparedResourceCatalog, VideoInfoMeta};
 use crate::render::builder::DrawOpBuilder;
@@ -26,12 +21,10 @@ use crate::style::{
 use super::RenderError;
 use super::ctx::RenderCtx;
 
-
 use super::canvas_lower::svg_path_to_ops;
 use super::gradient::{
     GradientBox, RadialParams, arbitrary_gradient_to_shader_spec, build_linear_gradient,
-    layer_tile_rect,
-    build_radial_gradient,
+    build_radial_gradient, layer_tile_rect,
 };
 use super::shadow_filter::{draw_box_shadow, draw_inset_shadow, draw_item_drop_shadow};
 
@@ -78,7 +71,8 @@ pub fn background_fill_to_fill_spec(fill: &BackgroundFill, rect: Rect) -> FillSp
         BackgroundFill::Solid { color } => FillSpec::Solid(color_token_to_rgba(color)),
         BackgroundFill::LinearGradient { direction, stops } => {
             let box_ = GradientBox::from_rect(&rect);
-            let shader = build_linear_gradient(None, Some(*direction), stops, false, TileMode::Clamp, box_);
+            let shader =
+                build_linear_gradient(None, Some(*direction), stops, false, TileMode::Clamp, box_);
             FillSpec::Shader(shader)
         }
         BackgroundFill::RadialGradient { center, stops } => {
@@ -211,7 +205,12 @@ fn push_rrect_path(builder: &mut DrawOpBuilder, r: Rect4, radii: Radii4) {
     builder.push(DrawOp::Path(PathOp::Close));
 }
 
-pub(crate) fn push_draw_rrect(builder: &mut DrawOpBuilder, rect: Rect, radii: [f32; 4], paint_id: PaintId) {
+pub(crate) fn push_draw_rrect(
+    builder: &mut DrawOpBuilder,
+    rect: Rect,
+    radii: [f32; 4],
+    paint_id: PaintId,
+) {
     builder.push(DrawOp::RRect {
         rect: rect_to_rect4(rect),
         radii: radii_to_radii4(radii),
@@ -224,7 +223,10 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
     let radii = effective_corner_radius(&rect, border_radius);
     if radii.iter().any(|&r| r > 0.0) {
         push_rrect_path(builder, rect_to_rect4(rect), radii_to_radii4(radii));
-        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+        builder.push(DrawOp::ClipPath {
+            anti_alias: true,
+            fill_type: Default::default(),
+        });
     } else {
         let r4 = rect_to_rect4(rect);
         builder.push(DrawOp::BeginPath);
@@ -234,10 +236,12 @@ pub fn clip_bounds(builder: &mut DrawOpBuilder, bounds: DisplayRect, border_radi
             width: r4.width,
             height: r4.height,
         }));
-        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+        builder.push(DrawOp::ClipPath {
+            anti_alias: true,
+            fill_type: Default::default(),
+        });
     }
 }
-
 
 fn apply_blur_effect(spec: &mut PaintSpec, blur_sigma: Option<f32>) {
     if let Some(sigma) = blur_sigma
@@ -641,10 +645,28 @@ fn draw_per_side_borders(
         draw_corner(builder, right - r_tr, top + r_tr, r_tr, top_w, 270.0, 0, 1);
     }
     if r_br > 0.0 && bottom_w > 0.0 && bottom_w == right_w {
-        draw_corner(builder, right - r_br, bottom - r_br, r_br, bottom_w, 0.0, 1, 2);
+        draw_corner(
+            builder,
+            right - r_br,
+            bottom - r_br,
+            r_br,
+            bottom_w,
+            0.0,
+            1,
+            2,
+        );
     }
     if r_bl > 0.0 && bottom_w > 0.0 && bottom_w == left_w {
-        draw_corner(builder, left + r_bl, bottom - r_bl, r_bl, bottom_w, 90.0, 2, 3);
+        draw_corner(
+            builder,
+            left + r_bl,
+            bottom - r_bl,
+            r_bl,
+            bottom_w,
+            90.0,
+            2,
+            3,
+        );
     }
 }
 
@@ -1021,12 +1043,14 @@ pub(crate) fn rect4_xywh(x: f32, y: f32, w: f32, h: f32) -> Rect4 {
     }
 }
 
-
 /// `<svg src>` / `<svg inline>`：加载（缓存）树并展开为 DrawOp 段（PLAN §4）。
 pub fn render_svg(ctx: &mut RenderCtx, item: &SvgDisplayItem) -> Result<(), RenderError> {
     let tree = match &item.inline {
         Some(markup) => crate::render::svg::load_tree_markup(markup),
-        None => crate::render::svg::load_tree(&item.src),
+        None => ctx
+            .catalog
+            .svg(&crate::ir::asset_id::asset_id_for_svg(&item.src))
+            .and_then(|doc| doc.tree()),
     };
     let Some(tree) = tree else {
         return Err(RenderError::MissingResource(match &item.inline {
@@ -1153,7 +1177,6 @@ pub fn render_svg_path(ctx: &mut RenderCtx, item: &SvgPathDisplayItem) -> Result
 }
 
 // ── Timeline ─────────────────────────────────────────────────────────
-
 
 pub(crate) fn fitted_rect(src_width: f32, src_height: f32, dst: &Rect, cover: bool) -> Rect {
     let iw = src_width as f64;
@@ -1439,9 +1462,3 @@ pub fn render_bitmap_with_shadows(
 
     Ok(())
 }
-
-
-
-
-
-

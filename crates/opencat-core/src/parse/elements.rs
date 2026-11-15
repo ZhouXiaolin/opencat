@@ -4,7 +4,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::parse::document::{DeclaredScript, ParsedComposition};
-use crate::parse::dom::{DomAudio, DomDocument, DomElement, composition_from_dom, parse_audio_source};
+use crate::parse::dom::{
+    DomAudio, DomDocument, DomElement, composition_from_dom, parse_audio_source,
+};
 use crate::style::NodeStyle;
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
@@ -231,8 +233,6 @@ pub enum JsonLine {
     },
 }
 
-
-
 /// 文本格式装配：JSONL 行形（[`JsonLine`]，文本序列化格式）按 `parentId`
 /// 分组成 [`DomDocument`]，再走共享 DOM 装配。`audio` 是文档级音频池
 /// （JSX `export const audio` 解析产物）；测试夹具与遗留文本入口从这里进。
@@ -288,7 +288,10 @@ fn lines_to_dom(lines: Vec<JsonLine>) -> anyhow::Result<DomDocument> {
             } => {
                 let decl = resolve_script_declaration(src, path)?;
                 if let Some(parent_id) = parent_id {
-                    doc.scripts_by_parent.entry(parent_id).or_default().push(decl);
+                    doc.scripts_by_parent
+                        .entry(parent_id)
+                        .or_default()
+                        .push(decl);
                 } else {
                     doc.global_scripts.push(decl);
                 }
@@ -350,7 +353,11 @@ fn lines_to_dom(lines: Vec<JsonLine>) -> anyhow::Result<DomDocument> {
 
     let mut assembled = Vec::with_capacity(roots.len());
     for root in roots {
-        assembled.push(attach_children(root, &mut by_parent, &mut transitions_by_parent)?);
+        assembled.push(attach_children(
+            root,
+            &mut by_parent,
+            &mut transitions_by_parent,
+        )?);
     }
     // 残留 transition = parent 从未作为元素出现（或非 tl），先于根判定报错。
     if let Some((parent_id, _)) = transitions_by_parent.iter().next() {
@@ -815,5 +822,3 @@ pub(crate) fn resolve_style_ctx(
         }
     }
 }
-
-

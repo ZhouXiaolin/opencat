@@ -278,8 +278,15 @@ pub enum FilterPrimKind {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LightSpec {
-    Distant { azimuth: f32, elevation: f32 },
-    Point { x: f32, y: f32, z: f32 },
+    Distant {
+        azimuth: f32,
+        elevation: f32,
+    },
+    Point {
+        x: f32,
+        y: f32,
+        z: f32,
+    },
     Spot {
         x: f32,
         y: f32,
@@ -298,8 +305,15 @@ pub enum TransferFn {
     Identity,
     Table(Vec<f32>),
     Discrete(Vec<f32>),
-    Linear { slope: f32, intercept: f32 },
-    Gamma { amplitude: f32, exponent: f32, offset: f32 },
+    Linear {
+        slope: f32,
+        intercept: f32,
+    },
+    Gamma {
+        amplitude: f32,
+        exponent: f32,
+        offset: f32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -763,7 +777,10 @@ impl PartialEq for ShaderSpec {
                     && asa.to_bits() == bsa.to_bits()
                     && aea.to_bits() == bea.to_bits()
                     && ast.len() == bst.len()
-                    && ast.iter().zip(bst.iter()).all(|(a, b)| a.to_bits() == b.to_bits())
+                    && ast
+                        .iter()
+                        .zip(bst.iter())
+                        .all(|(a, b)| a.to_bits() == b.to_bits())
                     && acol.len() == bcol.len()
                     && acol.iter().zip(bcol.iter()).all(|(ca, cb)| {
                         ca.iter()
@@ -835,9 +852,7 @@ impl Hash for ShaderSpec {
                 tile,
                 origin,
             } => {
-                base_frequency
-                    .iter()
-                    .for_each(|v| v.to_bits().hash(state));
+                base_frequency.iter().for_each(|v| v.to_bits().hash(state));
                 num_octaves.hash(state);
                 seed.hash(state);
                 if let Some(t) = tile {
@@ -881,7 +896,8 @@ fn focal_eq(a: &Option<[f32; 3]>, b: &Option<[f32; 3]>) -> bool {
     }
 }
 
-fn matrix_eq(a: &Option<[f32; 9]>, b: &Option<[f32; 9]>) -> bool {    match (a, b) {
+fn matrix_eq(a: &Option<[f32; 9]>, b: &Option<[f32; 9]>) -> bool {
+    match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => a
             .iter()

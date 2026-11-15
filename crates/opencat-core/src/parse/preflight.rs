@@ -108,7 +108,8 @@ fn collect_sources_static(node: &Node, vars: Option<&Arc<VarLink>>, req: &mut Re
                 }
             }
         }
-        NodeKind::Text(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
+        NodeKind::Svg(svg) => collect_svg_source(svg, req),
+        NodeKind::Text(_) | NodeKind::Path(_) => {}
     }
 }
 
@@ -180,15 +181,22 @@ pub(crate) fn collect_sources(
                 collect_sources(child, frame_ctx, child_vars.as_ref(), req);
             }
         }
-        NodeKind::Timeline(_) => {
-            collect_sources_from_frame_state(
-                &frame_state_for_root(node, frame_ctx),
-                frame_ctx,
-                child_vars.as_ref(),
-                req,
-            )
-        }
-        NodeKind::Text(_) | NodeKind::Path(_) | NodeKind::Svg(_) => {}
+        NodeKind::Timeline(_) => collect_sources_from_frame_state(
+            &frame_state_for_root(node, frame_ctx),
+            frame_ctx,
+            child_vars.as_ref(),
+            req,
+        ),
+        NodeKind::Svg(svg) => collect_svg_source(svg, req),
+        NodeKind::Text(_) | NodeKind::Path(_) => {}
+    }
+}
+
+/// 文件形态的 `<svg src>`：宿主取回字节交回 core 解析。内联 markup 已在
+/// 树里，不是资源。
+fn collect_svg_source(svg: &crate::parse::primitives::Svg, req: &mut ResourceRequests) {
+    if svg.inline().is_none() && !svg.src().as_os_str().is_empty() {
+        req.svgs.insert(svg.src().clone());
     }
 }
 
@@ -252,5 +260,3 @@ fn video_visible_at_frame(video: &Video, frame_ctx: &FrameCtx) -> bool {
     }
     .is_visible()
 }
-
-

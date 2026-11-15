@@ -2,7 +2,6 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-
 use crate::parse::primitives::{
     AudioSource, ImageSource, LottieSource, OpenverseQuery, VideoSource,
 };
@@ -22,6 +21,9 @@ pub enum ResourceKind {
     Font,
     /// External script file. Host supplies raw text; core never reads files.
     Script,
+    /// `<svg src>` document. Host supplies markup plus the bytes of external
+    /// `<image href>` references; core parses it into DrawOps.
+    Svg,
 }
 
 /// Canonical, core-generated identity for one external resource.
@@ -95,6 +97,8 @@ pub fn kind_from_canonical_str(key: &str) -> ResourceKind {
         ResourceKind::Font
     } else if key.starts_with("script:") {
         ResourceKind::Script
+    } else if key.starts_with("svg:") {
+        ResourceKind::Svg
     } else {
         // image path ids are bare; `url:` and `openverse:` are image sources.
         ResourceKind::Image
@@ -193,6 +197,11 @@ pub fn asset_id_for_lottie(src: &LottieSource) -> Option<AssetId> {
     }
 }
 
+/// Canonical `AssetId` for a `<svg src>` document.
+pub fn asset_id_for_svg(src: &Path) -> AssetId {
+    AssetId::new(ResourceKind::Svg, format!("svg:path:{}", path_str(src)))
+}
+
 pub fn stable_hash(value: &str) -> u64 {
     // std's SipHash with fixed zero keys — NOT AHasher::default(). ahash's
     // default constructor seeds randomly per process (DoS protection), so
@@ -205,5 +214,3 @@ pub fn stable_hash(value: &str) -> u64 {
     value.hash(&mut hasher);
     hasher.finish()
 }
-
-

@@ -8,8 +8,7 @@ use crate::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
             DisplayTransform, DrawScriptDisplayItem, LottieDisplayItem, RectDisplayItem,
-            RectPaintStyle, SvgDisplayItem, SvgPathDisplayItem, SvgPathPaintStyle,
-            TextDisplayItem,
+            RectPaintStyle, SvgDisplayItem, SvgPathDisplayItem, SvgPathPaintStyle, TextDisplayItem,
             TimelineDisplayItem, TimelineTransitionDisplay,
         },
         tree::{DisplayNode, DisplayTree, HiddenChildDisplayNode},
@@ -120,7 +119,11 @@ struct ClipTextFill<'a> {
 
 impl<'a> ClipTextFill<'a> {
     /// 节点自身是 clip:text 容器时开新上下文，否则沿用上层的。
-    fn for_node(element: &'a ElementNode, layout: &LayoutNode, inherited: Option<Self>) -> Option<Self> {
+    fn for_node(
+        element: &'a ElementNode,
+        layout: &LayoutNode,
+        inherited: Option<Self>,
+    ) -> Option<Self> {
         let visual = &element.style.visual;
         if visual.background_clip == crate::style::BackgroundClip::Text
             && !visual.background.is_empty()
@@ -128,7 +131,12 @@ impl<'a> ClipTextFill<'a> {
         {
             return Some(Self {
                 layers: &visual.background,
-                rect: DisplayRect { x: 0.0, y: 0.0, width: layout.rect.width, height: layout.rect.height },
+                rect: DisplayRect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: layout.rect.width,
+                    height: layout.rect.height,
+                },
                 blend_mode: visual.background_blend_mode,
             });
         }
@@ -388,9 +396,7 @@ pub(crate) fn rotation_m4(
     let has_rotation = transforms.iter().any(|t| {
         matches!(
             t,
-            Transform::RotateXDeg { .. }
-                | Transform::RotateYDeg { .. }
-                | Transform::Rotate3 { .. }
+            Transform::RotateXDeg { .. } | Transform::RotateYDeg { .. } | Transform::Rotate3 { .. }
         )
     });
     if !has_rotation {
@@ -494,7 +500,10 @@ fn assemble_display_node(
     // `visible` 重新显示），只有自身的绘制（背景/边框/阴影/文字/位图/
     // 画布命令/背景滤镜）不出。
     let item = if visual.hidden {
-        DisplayItem::Rect(RectDisplayItem { bounds, paint: RectPaintStyle::default() })
+        DisplayItem::Rect(RectDisplayItem {
+            bounds,
+            paint: RectPaintStyle::default(),
+        })
     } else {
         display_item_for_node(
             element,
@@ -534,8 +543,7 @@ fn assemble_display_node(
         transform: {
             // 百分比位移在解析期没有盒子尺寸，这里按边界盒折算成 px；
             // 渲染端与 local_m4 只消费 px 变体。
-            let transforms =
-                resolve_percent_transforms(&element.style.visual.transforms, bounds);
+            let transforms = resolve_percent_transforms(&element.style.visual.transforms, bounds);
             DisplayTransform {
                 translation_x: layout.rect.x,
                 translation_y: layout.rect.y,
@@ -555,9 +563,7 @@ fn assemble_display_node(
         },
         element_id: element.id,
         opacity: element.style.visual.opacity,
-        css_filter_image: crate::render::css_filter_image_filter(
-            &element.style.visual.css_filter,
-        ),
+        css_filter_image: crate::render::css_filter_image_filter(&element.style.visual.css_filter),
         backdrop_blur_sigma: element
             .style
             .visual
@@ -568,7 +574,12 @@ fn assemble_display_node(
         } else {
             crate::render::css_filter_image_filter(&element.style.visual.backdrop_filter)
         },
-        mask_image: element.style.visual.mask_image.as_ref().map(|mask| mask.fill.clone()),
+        mask_image: element
+            .style
+            .visual
+            .mask_image
+            .as_ref()
+            .map(|mask| mask.fill.clone()),
         paint_clip,
         clip,
         item,
@@ -586,9 +597,12 @@ pub(crate) fn resolve_percent_transforms(
     bounds: DisplayRect,
 ) -> Vec<crate::style::Transform> {
     use crate::style::Transform;
-    let has_percent = transforms
-        .iter()
-        .any(|t| matches!(t, Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. }));
+    let has_percent = transforms.iter().any(|t| {
+        matches!(
+            t,
+            Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. }
+        )
+    });
     if !has_percent {
         return transforms.to_vec();
     }
@@ -880,5 +894,3 @@ fn conservative_text_visual_expansion(
     }
     (max_x.ceil(), max_y.ceil())
 }
-
-

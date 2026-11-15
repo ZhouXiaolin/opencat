@@ -632,5 +632,3 @@ fn parse_gsap_elastic(input: &str, is_in: bool) -> Option<Easing> {
         Some(Easing::ElasticOut)
     }
 }
-
-

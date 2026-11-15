@@ -4,9 +4,8 @@
 //! WebGL2 命令 ≈ OpenGL ES 调用序列——执行不是翻译，是直调。程序惰性编译
 //! 于 `PROGRAM_USE`（three 在 JS 侧已展开 shader 模板，流里就是最终源码）。
 //! uniform / attribute 按 (program, name) 寻址：真 location 由驱动 link 后
-//! 才定。core 的 `getAttribLocation` 返回**扫描序号**，这里按同一扫描规则
-//! （[`scan_declarations`]，必须与 webgl_api.js 的 collectDecls 同序）映射
-//! 回真名再取真 location。
+//! 才定。core 的反射带驱动真 location（缺失时退回 active-attrib 枚举序），
+//! 这里按 link 后的 `glGetActiveAttrib` 序还原名字。
 //!
 //! 内容寻址缓存跨帧：不变纹理/程序不重传、不重编译（core 的 intern 去重
 //! 传输，这里去重上载）。
@@ -18,10 +17,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use glow::HasContext;
 
-use opencat_core::ir::gpu_stream::{gl_opcode, GpuSection, GpuStream};
+use opencat_core::ir::gpu_stream::{GpuSection, GpuStream, gl_opcode};
 use opencat_core::ir::media_plan::FrameMediaPlan;
 
 const NULL_HANDLE: u32 = 0xFFFF_FFFF;
@@ -415,13 +414,22 @@ impl GpuStreamExecutor {
                 gl.disable(glow::SCISSOR_TEST);
             }
         }
-        let mut r = Replay { gl, ops, bytes, ranges, trace, target: stream.target_id.clone() };
+        let mut r = Replay {
+            gl,
+            ops,
+            bytes,
+            ranges,
+            trace,
+            target: stream.target_id.clone(),
+        };
         let st = r.run(self)?;
         if std::env::var_os("OC_DETACH_FBO").is_some() {
             unsafe {
                 gl.bind_framebuffer(
                     glow::FRAMEBUFFER,
-                    Some(glow::NativeFramebuffer(std::num::NonZeroU32::new(out_fbo).unwrap())),
+                    Some(glow::NativeFramebuffer(
+                        std::num::NonZeroU32::new(out_fbo).unwrap(),
+                    )),
                 );
                 gl.framebuffer_texture_2d(
                     glow::FRAMEBUFFER,
@@ -435,7 +443,12 @@ impl GpuStreamExecutor {
         }
         if std::env::var_os("OC_DEBUG_FILL_RED").is_some() {
             unsafe {
-                gl.bind_framebuffer(glow::FRAMEBUFFER, Some(glow::NativeFramebuffer(std::num::NonZeroU32::new(out_fbo).unwrap())));
+                gl.bind_framebuffer(
+                    glow::FRAMEBUFFER,
+                    Some(glow::NativeFramebuffer(
+                        std::num::NonZeroU32::new(out_fbo).unwrap(),
+                    )),
+                );
                 gl.clear_color(1.0, 0.0, 0.0, 1.0);
                 gl.clear(glow::COLOR_BUFFER_BIT);
                 gl.bind_framebuffer(glow::FRAMEBUFFER, None);
@@ -464,7 +477,12 @@ impl GpuStreamExecutor {
             // 输出直接归还复用池（没进 plan，没人消费它）。
             self.out_pool.insert(
                 stream.target_id.clone(),
-                StreamOutput { tex: out_tex, fbo: out_fbo, width: stream.width, height: stream.height },
+                StreamOutput {
+                    tex: out_tex,
+                    fbo: out_fbo,
+                    width: stream.width,
+                    height: stream.height,
+                },
             );
             let _ = st;
             return Ok(Vec::new());
@@ -488,11 +506,15 @@ impl GpuStreamExecutor {
                     token.raw()
                 );
             }
-            entry.gpu = Some(opencat_core::ir::generated_image::GpuImageHandle {
-                token: token.raw(),
-            });
+            entry.gpu =
+                Some(opencat_core::ir::generated_image::GpuImageHandle { token: token.raw() });
             self.out_pending.push(stream.target_id.clone());
-            outputs.push(StreamOutput { tex: native, fbo: out_fbo, width: stream.width, height: stream.height });
+            outputs.push(StreamOutput {
+                tex: native,
+                fbo: out_fbo,
+                width: stream.width,
+                height: stream.height,
+            });
             // 调试：dump 流输出纹理字节（与 CPU readback 路径对比用）。
             if let Some(dir) = std::env::var_os("OC_DUMP_STREAM_OUTPUT") {
                 let rgba = readback_sync(gl, out_fbo, stream.width, stream.height)?;
@@ -519,7 +541,12 @@ impl GpuStreamExecutor {
             // 像素已读回，输出直接归还复用池。
             self.out_pool.insert(
                 stream.target_id.clone(),
-                StreamOutput { tex: out_tex, fbo: out_fbo, width: stream.width, height: stream.height },
+                StreamOutput {
+                    tex: out_tex,
+                    fbo: out_fbo,
+                    width: stream.width,
+                    height: stream.height,
+                },
             );
         }
         let _ = st;
@@ -529,12 +556,14 @@ impl GpuStreamExecutor {
 
 /// 新建一条流的输出（颜色纹理 + 挂深度附件的 FBO）。仅复用池没有可用
 /// 槽（或尺寸不符）时走到这里。
-fn stream_output(gl: &Arc<glow::Context>, stream: &GpuStream) -> Result<(crate::gpu::NativeTexture, u32)> {
+fn stream_output(
+    gl: &Arc<glow::Context>,
+    stream: &GpuStream,
+) -> Result<(crate::gpu::NativeTexture, u32)> {
     let out_tex = crate::gpu::gl::create_texture_rgba8(gl, stream.width, stream.height)
         .ok_or_else(|| anyhow!("gpu stream: 输出纹理创建失败"))?;
-    let out_fbo =
-        crate::gpu::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
-            .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
+    let out_fbo = crate::gpu::gl::create_framebuffer(gl, out_tex, stream.width, stream.height)
+        .ok_or_else(|| anyhow!("gpu stream: 输出 FBO 创建失败"))?;
     Ok((out_tex, out_fbo))
 }
 
@@ -586,9 +615,14 @@ fn restore_default_state(ex: &mut GpuStreamExecutor, gl: &Arc<glow::Context>) {
             ex.client.cur_element = None;
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
         } else {
-            let eh = ex.client.cur_vao.and_then(|v| ex.vao_element.get(&v).copied());
+            let eh = ex
+                .client
+                .cur_vao
+                .and_then(|v| ex.vao_element.get(&v).copied());
             ex.client.cur_element = eh;
-            if let Some(h) = eh && let Some(buf) = ex.obj_buffers.get(&h) {
+            if let Some(h) = eh
+                && let Some(buf) = ex.obj_buffers.get(&h)
+            {
                 gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(*buf));
             }
         }
@@ -615,9 +649,13 @@ fn restore_default_state(ex: &mut GpuStreamExecutor, gl: &Arc<glow::Context>) {
             gl.bind_texture(glow::TEXTURE_2D, None);
             gl.bind_sampler(glow::TEXTURE0 + unit, None);
         }
-        ex.client.tex_binds.retain(|(_, _, h)| ex.obj_textures.contains_key(h));
+        ex.client
+            .tex_binds
+            .retain(|(_, _, h)| ex.obj_textures.contains_key(h));
         for (unit, target, h) in &ex.client.tex_binds {
-            if *unit < 8 && let Some(tex) = ex.obj_textures.get(h) {
+            if *unit < 8
+                && let Some(tex) = ex.obj_textures.get(h)
+            {
                 gl.active_texture(glow::TEXTURE0 + unit);
                 gl.bind_texture(*target, Some(*tex));
             }
@@ -755,7 +793,10 @@ impl<'a> Replay<'a> {
                         | gl_opcode::PROGRAM_CREATE
                         | gl_opcode::PROGRAM_LINK
                         | gl_opcode::PROGRAM_DELETE => {
-                            format!(" pid={}", u32::from_le_bytes(self.ops[p..p + 4].try_into().unwrap()))
+                            format!(
+                                " pid={}",
+                                u32::from_le_bytes(self.ops[p..p + 4].try_into().unwrap())
+                            )
                         }
                         gl_opcode::SHADER_CREATE => format!(
                             " kind={} sid={}",
@@ -889,13 +930,14 @@ impl<'a> Replay<'a> {
                             {
                                 ex.vao_element.insert(v, handle);
                             }
-                            Some(*ex.obj_buffers.entry(handle).or_insert_with(|| {
-                                gl.create_buffer().expect("create_buffer")
-                            }))
+                            Some(
+                                *ex.obj_buffers
+                                    .entry(handle)
+                                    .or_insert_with(|| gl.create_buffer().expect("create_buffer")),
+                            )
                         };
                         if target as u32 == glow::ARRAY_BUFFER {
-                            ex.client.array_buffer =
-                                (handle != NULL_HANDLE).then_some(handle);
+                            ex.client.array_buffer = (handle != NULL_HANDLE).then_some(handle);
                         }
                         gl.bind_buffer(dt, buf);
                     }
@@ -910,7 +952,10 @@ impl<'a> Replay<'a> {
                                 .take(6)
                                 .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
                                 .collect();
-                            eprintln!("       bufferData target={target} len={} head={head:?}", data.len());
+                            eprintln!(
+                                "       bufferData target={target} len={} head={head:?}",
+                                data.len()
+                            );
                         }
                         let buf = ex
                             .bound_buffer(target as u32)
@@ -920,7 +965,11 @@ impl<'a> Replay<'a> {
                         // COPY_WRITE_BUFFER(0x8F37)：枚举直传桌面 GL 是
                         // INVALID_ENUM，buffer 全空——SDF 文字因此错位。
                         gl.bind_buffer(desktop_buffer_target(target as u32), Some(buf));
-                        gl.buffer_data_u8_slice(desktop_buffer_target(target as u32), data, usage as u32);
+                        gl.buffer_data_u8_slice(
+                            desktop_buffer_target(target as u32),
+                            data,
+                            usage as u32,
+                        );
                     }
                     gl_opcode::BUFFER_DATA_NULL => {
                         let target = rd_u16(self.ops, &mut p);
@@ -931,7 +980,11 @@ impl<'a> Replay<'a> {
                             .and_then(|h| ex.obj_buffers.get(&h).copied())
                             .ok_or_else(|| anyhow!("BUFFER_DATA_NULL 无客户端绑定 buffer"))?;
                         gl.bind_buffer(desktop_buffer_target(target as u32), Some(buf));
-                        gl.buffer_data_size(desktop_buffer_target(target as u32), size as i32, usage as u32);
+                        gl.buffer_data_size(
+                            desktop_buffer_target(target as u32),
+                            size as i32,
+                            usage as u32,
+                        );
                     }
                     gl_opcode::VAO_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
@@ -948,7 +1001,11 @@ impl<'a> Replay<'a> {
                                 gl.create_vertex_array().expect("create_vertex_array")
                             }))
                         };
-                        ex.client.cur_vao = if handle == NULL_HANDLE { None } else { Some(handle) };
+                        ex.client.cur_vao = if handle == NULL_HANDLE {
+                            None
+                        } else {
+                            Some(handle)
+                        };
                         gl.bind_vertex_array(vao);
                         // 绑定后按账本重挂 element：不信任驱动保留的 VAO
                         // 状态（会被共享上下文的其他使用者踩掉）。
@@ -1060,9 +1117,15 @@ impl<'a> Replay<'a> {
                         let data = self.tail_i32(&mut p, count)?;
                         let loc = self.uniform_loc(ex, &state, range)?;
                         match self.uniform_type(ex, &state, range)? {
-                            Some(glow::INT_VEC2 | glow::BOOL_VEC2) => gl.uniform_2_i32_slice(loc.as_ref(), &data),
-                            Some(glow::INT_VEC3 | glow::BOOL_VEC3) => gl.uniform_3_i32_slice(loc.as_ref(), &data),
-                            Some(glow::INT_VEC4 | glow::BOOL_VEC4) => gl.uniform_4_i32_slice(loc.as_ref(), &data),
+                            Some(glow::INT_VEC2 | glow::BOOL_VEC2) => {
+                                gl.uniform_2_i32_slice(loc.as_ref(), &data)
+                            }
+                            Some(glow::INT_VEC3 | glow::BOOL_VEC3) => {
+                                gl.uniform_3_i32_slice(loc.as_ref(), &data)
+                            }
+                            Some(glow::INT_VEC4 | glow::BOOL_VEC4) => {
+                                gl.uniform_4_i32_slice(loc.as_ref(), &data)
+                            }
                             _ => gl.uniform_1_i32_slice(loc.as_ref(), &data),
                         }
                     }
@@ -1081,9 +1144,9 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::TEXTURE_CREATE => {
                         let handle = rd_u32(self.ops, &mut p);
-                        ex.obj_textures.entry(handle).or_insert_with(|| {
-                            gl.create_texture().expect("create_texture")
-                        });
+                        ex.obj_textures
+                            .entry(handle)
+                            .or_insert_with(|| gl.create_texture().expect("create_texture"));
                     }
                     gl_opcode::TEXTURE_ACTIVE => {
                         let unit = rd_u8(self.ops, &mut p);
@@ -1093,17 +1156,18 @@ impl<'a> Replay<'a> {
                     gl_opcode::TEXTURE_BIND => {
                         let target = rd_u16(self.ops, &mut p);
                         let handle = rd_u32(self.ops, &mut p);
-                        let tex = if handle == NULL_HANDLE {
-                            None
-                        } else {
-                            Some(*ex.obj_textures.entry(handle).or_insert_with(|| {
-                                gl.create_texture().expect("create_texture")
-                            }))
-                        };
+                        let tex =
+                            if handle == NULL_HANDLE {
+                                None
+                            } else {
+                                Some(*ex.obj_textures.entry(handle).or_insert_with(|| {
+                                    gl.create_texture().expect("create_texture")
+                                }))
+                            };
                         let bind = (ex.client.active_unit, target as u32, handle);
-                        ex.client.tex_binds.retain(|b| {
-                            b.0 != bind.0 || b.1 != bind.1
-                        });
+                        ex.client
+                            .tex_binds
+                            .retain(|b| b.0 != bind.0 || b.1 != bind.1);
                         if handle != NULL_HANDLE {
                             ex.client.tex_binds.push(bind);
                         }
@@ -1132,7 +1196,9 @@ impl<'a> Replay<'a> {
                         let has_data = rd_u8(self.ops, &mut p);
                         let range = rd_u32(self.ops, &mut p);
                         if trace {
-                            eprintln!("       texImage2D {w}x{h} has_data={has_data} range={range}");
+                            eprintln!(
+                                "       texImage2D {w}x{h} has_data={has_data} range={range}"
+                            );
                         }
                         let mut data = if has_data != 0 {
                             Some(self.range_bytes(range)?.to_vec())
@@ -1179,15 +1245,26 @@ impl<'a> Replay<'a> {
                         if ex.texture_cache.get(&slot) != Some(&content_key) {
                             gl.bind_texture(texture_bind_target(target as u32), Some(tex));
                             gl.tex_image_2d(
-                                target as u32, level, internal, w as i32, h as i32, 0,
-                                format as u32, ty as u32, data.as_deref(),
+                                target as u32,
+                                level,
+                                internal,
+                                w as i32,
+                                h as i32,
+                                0,
+                                format as u32,
+                                ty as u32,
+                                data.as_deref(),
                             );
                             // ANGLE（Chrome）把单 level 纹理的 mip 选择钳回
                             // base level（D3D SRV 的 mip 范围语义）；桌面 GL
                             // 无此钳制——mip 模式 sampler 对缺失 level 实测
                             // 采出 (0,0,0,1)，SDF 文字因此成实心块。
                             if level == 0 {
-                                gl.tex_parameter_i32(texture_bind_target(target as u32), glow::TEXTURE_MAX_LEVEL, 0);
+                                gl.tex_parameter_i32(
+                                    texture_bind_target(target as u32),
+                                    glow::TEXTURE_MAX_LEVEL,
+                                    0,
+                                );
                             }
                             ex.texture_cache.insert(slot, content_key);
                         }
@@ -1261,12 +1338,18 @@ impl<'a> Replay<'a> {
                         let tex = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*ex.obj_textures
-                                .get(&handle)
-                                .ok_or_else(|| anyhow!("FBO 附着未知纹理 {handle}"))?)
+                            Some(
+                                *ex.obj_textures
+                                    .get(&handle)
+                                    .ok_or_else(|| anyhow!("FBO 附着未知纹理 {handle}"))?,
+                            )
                         };
                         gl.framebuffer_texture_2d(
-                            target as u32, attachment as u32, textarget as u32, tex, level,
+                            target as u32,
+                            attachment as u32,
+                            textarget as u32,
+                            tex,
+                            level,
                         );
                     }
                     gl_opcode::VIEWPORT => {
@@ -1287,9 +1370,19 @@ impl<'a> Replay<'a> {
                     }
                     gl_opcode::CLEAR => {
                         let bits = rd_u8(self.ops, &mut p);
-                        let mask = (if bits & 1 != 0 { glow::COLOR_BUFFER_BIT } else { 0 })
-                            | (if bits & 2 != 0 { glow::DEPTH_BUFFER_BIT } else { 0 })
-                            | (if bits & 4 != 0 { glow::STENCIL_BUFFER_BIT } else { 0 });
+                        let mask = (if bits & 1 != 0 {
+                            glow::COLOR_BUFFER_BIT
+                        } else {
+                            0
+                        }) | (if bits & 2 != 0 {
+                            glow::DEPTH_BUFFER_BIT
+                        } else {
+                            0
+                        }) | (if bits & 4 != 0 {
+                            glow::STENCIL_BUFFER_BIT
+                        } else {
+                            0
+                        });
                         gl.clear(mask);
                     }
                     gl_opcode::ENABLE => {
@@ -1323,11 +1416,13 @@ impl<'a> Replay<'a> {
                         let dst_rgb = rd_u16(self.ops, &mut p);
                         let src_a = rd_u16(self.ops, &mut p);
                         let dst_a = rd_u16(self.ops, &mut p);
-                        ex.client.blend_func = (
-                            src_rgb as u32, dst_rgb as u32, src_a as u32, dst_a as u32,
-                        );
+                        ex.client.blend_func =
+                            (src_rgb as u32, dst_rgb as u32, src_a as u32, dst_a as u32);
                         gl.blend_func_separate(
-                            src_rgb as u32, dst_rgb as u32, src_a as u32, dst_a as u32,
+                            src_rgb as u32,
+                            dst_rgb as u32,
+                            src_a as u32,
+                            dst_a as u32,
                         );
                     }
                     gl_opcode::BLEND_EQUATION_SEPARATE => {
@@ -1358,8 +1453,16 @@ impl<'a> Replay<'a> {
                             .ok_or_else(|| anyhow!("TEX_IMAGE_3D 无客户端绑定纹理"))?;
                         gl.bind_texture(target as u32, Some(tex));
                         gl.tex_image_3d(
-                            target as u32, level, internal, w as i32, h as i32, d as i32, 0,
-                            format as u32, ty as u32, data.as_deref(),
+                            target as u32,
+                            level,
+                            internal,
+                            w as i32,
+                            h as i32,
+                            d as i32,
+                            0,
+                            format as u32,
+                            ty as u32,
+                            data.as_deref(),
                         );
                     }
                     gl_opcode::TEX_SUB_IMAGE_2D => {
@@ -1406,12 +1509,16 @@ impl<'a> Replay<'a> {
                         }
                         gl.bind_texture(texture_bind_target(target as u32), Some(tex));
                         gl.tex_sub_image_2d(
-                            target as u32, level, x, y, w as i32, h as i32,
-                            format as u32, ty as u32,
+                            target as u32,
+                            level,
+                            x,
+                            y,
+                            w as i32,
+                            h as i32,
+                            format as u32,
+                            ty as u32,
                             if has_data != 0 {
-                                glow::PixelUnpackData::Slice(
-                                    data.as_deref().unwrap_or(&[]),
-                                )
+                                glow::PixelUnpackData::Slice(data.as_deref().unwrap_or(&[]))
                             } else {
                                 glow::PixelUnpackData::BufferOffset(0)
                             },
@@ -1450,7 +1557,12 @@ impl<'a> Replay<'a> {
                             .bound_renderbuffer(glow::RENDERBUFFER)
                             .and_then(|rh| ex.obj_renderbuffers.get(&rh).copied())
                             .ok_or_else(|| anyhow!("RENDERBUFFER_STORAGE 无客户端绑定渲染缓冲"))?;
-                        gl.renderbuffer_storage(glow::RENDERBUFFER, internal as u32, w as i32, h as i32);
+                        gl.renderbuffer_storage(
+                            glow::RENDERBUFFER,
+                            internal as u32,
+                            w as i32,
+                            h as i32,
+                        );
                     }
                     gl_opcode::COLOR_MASK => {
                         let r = rd_u8(self.ops, &mut p);
@@ -1490,7 +1602,13 @@ impl<'a> Replay<'a> {
                         let internal = rd_i32(self.ops, &mut p);
                         let w = rd_u32(self.ops, &mut p);
                         let h = rd_u32(self.ops, &mut p);
-                        gl.tex_storage_2d(target as u32, levels, internal as u32, w as i32, h as i32);
+                        gl.tex_storage_2d(
+                            target as u32,
+                            levels,
+                            internal as u32,
+                            w as i32,
+                            h as i32,
+                        );
                     }
                     gl_opcode::TEX_STORAGE_3D => {
                         let target = rd_u16(self.ops, &mut p);
@@ -1499,7 +1617,14 @@ impl<'a> Replay<'a> {
                         let w = rd_u32(self.ops, &mut p);
                         let h = rd_u32(self.ops, &mut p);
                         let d = rd_u32(self.ops, &mut p);
-                        gl.tex_storage_3d(target as u32, levels, internal as u32, w as i32, h as i32, d as i32);
+                        gl.tex_storage_3d(
+                            target as u32,
+                            levels,
+                            internal as u32,
+                            w as i32,
+                            h as i32,
+                            d as i32,
+                        );
                     }
                     gl_opcode::TEX_SUB_IMAGE_3D => {
                         let target = rd_u16(self.ops, &mut p);
@@ -1525,8 +1650,16 @@ impl<'a> Replay<'a> {
                             .ok_or_else(|| anyhow!("TEX_SUB_IMAGE_3D 无客户端绑定纹理"))?;
                         gl.bind_texture(target as u32, Some(tex));
                         gl.tex_sub_image_3d(
-                            target as u32, level, x, y, z, w as i32, h as i32, d as i32,
-                            format as u32, ty as u32,
+                            target as u32,
+                            level,
+                            x,
+                            y,
+                            z,
+                            w as i32,
+                            h as i32,
+                            d as i32,
+                            format as u32,
+                            ty as u32,
                             if has_data != 0 {
                                 glow::PixelUnpackData::Slice(data.as_deref().unwrap_or(&[]))
                             } else {
@@ -1541,9 +1674,11 @@ impl<'a> Replay<'a> {
                         let buf = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*ex.obj_buffers.entry(handle).or_insert_with(|| {
-                                gl.create_buffer().expect("create_buffer")
-                            }))
+                            Some(
+                                *ex.obj_buffers
+                                    .entry(handle)
+                                    .or_insert_with(|| gl.create_buffer().expect("create_buffer")),
+                            )
                         };
                         gl.bind_buffer_base(target as u32, index, buf);
                     }
@@ -1561,7 +1696,11 @@ impl<'a> Replay<'a> {
                         let offset = rd_i32(self.ops, &mut p);
                         let primcount = rd_i32(self.ops, &mut p);
                         gl.draw_elements_instanced(
-                            mode as u32, count, ty as u32, offset, primcount,
+                            mode as u32,
+                            count,
+                            ty as u32,
+                            offset,
+                            primcount,
                         );
                     }
                     gl_opcode::VERTEX_ATTRIB_NFV => {
@@ -1593,16 +1732,15 @@ impl<'a> Replay<'a> {
                             Some(entry) => {
                                 gl.uniform_block_binding(entry.program, block_index, binding);
                             }
-                            None => bail!(
-                                "gpu stream: program {program} 未编译，块绑定无处落"
-                            ),
+                            None => bail!("gpu stream: program {program} 未编译，块绑定无处落"),
                         }
                     }
                     gl_opcode::BIND_ATTRIB_LOCATION => {
                         let program = rd_u32(self.ops, &mut p);
                         let index = rd_u32(self.ops, &mut p);
                         let name_range = rd_u32(self.ops, &mut p);
-                        let name = String::from_utf8_lossy(self.range_bytes(name_range)?).to_string();
+                        let name =
+                            String::from_utf8_lossy(self.range_bytes(name_range)?).to_string();
                         // link 前生效：真 program 在 USE 时惰性编译，这里
                         // 只记账，编译时统一重放（program_key_for）。
                         ex.program_attrib_binds
@@ -1668,8 +1806,7 @@ impl<'a> Replay<'a> {
                         let sfail = rd_u16(self.ops, &mut p);
                         let dpfail = rd_u16(self.ops, &mut p);
                         let dppass = rd_u16(self.ops, &mut p);
-                        ex.client.stencil_op =
-                            (sfail as u32, dpfail as u32, dppass as u32);
+                        ex.client.stencil_op = (sfail as u32, dpfail as u32, dppass as u32);
                         gl.stencil_op(sfail as u32, dpfail as u32, dppass as u32);
                     }
                     gl_opcode::STENCIL_MASK => {
@@ -1741,13 +1878,14 @@ impl<'a> Replay<'a> {
                     gl_opcode::SAMPLER_BIND => {
                         let unit = rd_u32(self.ops, &mut p);
                         let handle = rd_u32(self.ops, &mut p);
-                        let smp = if handle == NULL_HANDLE {
-                            None
-                        } else {
-                            Some(*ex.obj_samplers.entry(handle).or_insert_with(|| {
-                                gl.create_sampler().expect("create_sampler")
-                            }))
-                        };
+                        let smp =
+                            if handle == NULL_HANDLE {
+                                None
+                            } else {
+                                Some(*ex.obj_samplers.entry(handle).or_insert_with(|| {
+                                    gl.create_sampler().expect("create_sampler")
+                                }))
+                            };
                         gl.bind_sampler(unit, smp);
                     }
                     gl_opcode::SAMPLER_PARAM_I => {
@@ -1843,9 +1981,11 @@ impl<'a> Replay<'a> {
                         let buf = if handle == NULL_HANDLE {
                             None
                         } else {
-                            Some(*ex.obj_buffers.entry(handle).or_insert_with(|| {
-                                gl.create_buffer().expect("create_buffer")
-                            }))
+                            Some(
+                                *ex.obj_buffers
+                                    .entry(handle)
+                                    .or_insert_with(|| gl.create_buffer().expect("create_buffer")),
+                            )
                         };
                         gl.bind_buffer_range(target as u32, index, buf, offset, size);
                     }
@@ -1871,7 +2011,16 @@ impl<'a> Replay<'a> {
                             gl_mask |= glow::STENCIL_BUFFER_BIT;
                         }
                         gl.blit_framebuffer(
-                            sx0, sy0, sx1, sy1, dx0, dy0, dx1, dy1, gl_mask, filter as u32,
+                            sx0,
+                            sy0,
+                            sx1,
+                            sy1,
+                            dx0,
+                            dy0,
+                            dx1,
+                            dy1,
+                            gl_mask,
+                            filter as u32,
                         );
                     }
                     gl_opcode::DRAW_ELEMENTS => {
@@ -1949,10 +2098,12 @@ impl<'a> Replay<'a> {
             let loc: u32 = idx.parse()?;
             return Ok(Some(loc));
         }
-        let key = state
-            .program_key
-            .as_ref()
-            .ok_or_else(|| anyhow!("attrib 命令出现在 USE_PROGRAM 之前（canvas={}）", self.target))?;
+        let key = state.program_key.as_ref().ok_or_else(|| {
+            anyhow!(
+                "attrib 命令出现在 USE_PROGRAM 之前（canvas={}）",
+                self.target
+            )
+        })?;
         GpuStreamExecutor::resolve_attrib_on(ex, self.gl, key, name)
     }
 
@@ -1963,15 +2114,12 @@ impl<'a> Replay<'a> {
         name_range: u32,
     ) -> Result<Option<glow::UniformLocation>> {
         let name = std::str::from_utf8(self.range_bytes(name_range)?)?;
-        let key = state
-            .program_key
-            .as_ref()
-            .ok_or_else(|| {
-                anyhow!(
-                    "uniform 命令出现在 USE_PROGRAM 之前（{name}，canvas={}）",
-                    self.target
-                )
-            })?;
+        let key = state.program_key.as_ref().ok_or_else(|| {
+            anyhow!(
+                "uniform 命令出现在 USE_PROGRAM 之前（{name}，canvas={}）",
+                self.target
+            )
+        })?;
         GpuStreamExecutor::resolve_uniform_on(ex, self.gl, key, name)
     }
 
@@ -1983,13 +2131,18 @@ impl<'a> Replay<'a> {
         name_range: u32,
     ) -> Result<Option<u32>> {
         let name = std::str::from_utf8(self.range_bytes(name_range)?)?;
-        let key = state
-            .program_key
-            .as_ref()
-            .ok_or_else(|| anyhow!("uniform 命令出现在 USE_PROGRAM 之前（canvas={}）", self.target))?;
+        let key = state.program_key.as_ref().ok_or_else(|| {
+            anyhow!(
+                "uniform 命令出现在 USE_PROGRAM 之前（canvas={}）",
+                self.target
+            )
+        })?;
         let types = &ex.entry(key)?.uniform_types;
         Ok(types.get(name).copied().or_else(|| {
-            let base = name.strip_suffix(']').and_then(|n| n.rsplit_once('[')).map(|(b, _)| b)?;
+            let base = name
+                .strip_suffix(']')
+                .and_then(|n| n.rsplit_once('['))
+                .map(|(b, _)| b)?;
             types.get(base).copied()
         }))
     }
@@ -2062,11 +2215,12 @@ impl GpuStreamExecutor {
             Some(idx) => {
                 let index: usize = idx.parse()?;
                 let entry = self.entry(key)?;
-                entry
-                    .attrib_names
-                    .get(index)
-                    .cloned()
-                    .ok_or_else(|| anyhow!("attrib 序号 {index} 超出扫描范围 {}", entry.attrib_names.len()))?
+                entry.attrib_names.get(index).cloned().ok_or_else(|| {
+                    anyhow!(
+                        "attrib 序号 {index} 超出扫描范围 {}",
+                        entry.attrib_names.len()
+                    )
+                })?
             }
             None => name.to_string(),
         };
@@ -2122,7 +2276,9 @@ fn compile_program_entry(
             fs_src
         };
         let compile = |ty: u32, src: &str| -> Result<glow::Shader> {
-            let sh = gl.create_shader(ty).map_err(|e| anyhow!("create_shader: {e}"))?;
+            let sh = gl
+                .create_shader(ty)
+                .map_err(|e| anyhow!("create_shader: {e}"))?;
             gl.shader_source(sh, &swiftshader_math(src));
             gl.compile_shader(sh);
             if !gl.get_shader_compile_status(sh) {
@@ -2261,96 +2417,6 @@ fn swiftshader_math(src: &str) -> String {
     out.insert_str(at, SW_MATH_PRELUDE);
     out
 }
-
-/// GLSL 声明扫描（剥注释 → 按 `;` 分段 → 关键字匹配 → 名字提取）。
-///
-/// 必须与 core webgl_api.js 的 collectDecls 同序同规则：声明序、去重、
-/// 数组名剥 `[..]`（数组与裸名各出现一次——attributes 场景 three 只用
-/// 裸名，这里与 JS 相同地保留首次出现顺序）。
-fn scan_declarations(src: &str, kind: &str) -> Vec<String> {
-    let text = strip_glsl_comments(src);
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for statement in text.split(';') {
-        let stmt = statement.trim();
-        if stmt.is_empty() {
-            continue;
-        }
-        // 词界匹配关键字（uniform / attribute / in）。
-        let first_word = stmt.split_whitespace().next().unwrap_or("");
-        let (want, rest) = if first_word == kind {
-            (true, stmt[kind.len()..].trim_start())
-        } else if kind == "attribute" && first_word == "in" {
-            (true, stmt[2..].trim_start())
-        } else {
-            (false, stmt)
-        };
-        if !want {
-            continue;
-        }
-        // 跳过精度限定符。
-        let mut tokens = rest.split_whitespace().peekable();
-        if let Some(&t) = tokens.peek() {
-            if t == "highp" || t == "mediump" || t == "lowp" {
-                tokens.next();
-            }
-        }
-        // 类型 token。
-        let _type = tokens.next();
-        // 名字列表（逗号分隔，数组剥 [..]）。
-        let tail = tokens.collect::<Vec<_>>().join(" ");
-        for decl in tail.split(',') {
-            let base = decl.trim().split('[').next().unwrap_or("").trim();
-            if base.is_empty() || base.contains('(') {
-                continue;
-            }
-            if kind == "uniform" {
-                // 数组：`[0]` 名与裸名都进列表（与 JS 相同）。
-                let raw = decl.trim();
-                if raw.contains('[') {
-                    if seen.insert(format!("{base}[0]")) {
-                        out.push(format!("{base}[0]"));
-                    }
-                    if seen.insert(base.to_string()) {
-                        out.push(base.to_string());
-                    }
-                } else if seen.insert(base.to_string()) {
-                    out.push(base.to_string());
-                }
-            } else if seen.insert(base.to_string()) {
-                out.push(base.to_string());
-            }
-        }
-    }
-    out
-}
-
-fn strip_glsl_comments(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let bytes = src.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            if let Some(end) = src[i + 2..].find("*/") {
-                i += 2 + end + 2;
-                out.push(' ');
-                continue;
-            }
-            break;
-        }
-        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-            if let Some(end) = src[i..].find('\n') {
-                i += end;
-                continue;
-            }
-            break;
-        }
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-    out
-}
-
 
 /// 把 WebGL2 允许、桌面 GL 3.3 core 已移除的"未定尺基础格式"
 /// （ALPHA / LUMINANCE / LUMINANCE_ALPHA / RGB）摊平成 RGBA8。

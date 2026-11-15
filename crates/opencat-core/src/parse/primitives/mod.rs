@@ -9,12 +9,12 @@ mod text;
 mod video;
 
 pub use crate::style::{AlignItems, JustifyContent, Position};
-pub use svg::{Svg, svg};
 pub use audio::AudioSource;
 pub use canvas::{Canvas, CanvasAsset, canvas};
 pub use div::{Div, div};
 pub use image::{Image, ImageSource, OpenverseQuery, image};
 pub use lottie::{Lottie, LottieSource, lottie};
 pub use path::{Path, path};
+pub use svg::{Svg, svg};
 pub use text::{Text, TextTag, span, text};
 pub use video::{Video, VideoSource, video, video_url};

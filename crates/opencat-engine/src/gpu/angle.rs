@@ -90,7 +90,8 @@ struct Egl {
     query_display_attrib: Option<unsafe extern "system" fn(Display, i32, *mut c_void) -> u32>,
     /// `eglQueryDeviceAttribEXT`：EGLDevice 属性（Vulkan 句柄从这里取）。
     query_device_attrib: Option<unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32>,
-    choose_config: unsafe extern "system" fn(Display, *const i32, *mut Config, i32, *mut i32) -> u32,
+    choose_config:
+        unsafe extern "system" fn(Display, *const i32, *mut Config, i32, *mut i32) -> u32,
     create_context: unsafe extern "system" fn(Display, Config, Context, *const i32) -> Context,
     create_pbuffer_surface: unsafe extern "system" fn(Display, Config, *const i32) -> Surface,
     make_current: unsafe extern "system" fn(Display, Surface, Surface, Context) -> u32,
@@ -121,7 +122,9 @@ enum AngleDevice {
 static EGL: OnceLock<std::result::Result<Egl, String>> = OnceLock::new();
 
 fn egl() -> Result<&'static Egl> {
-    EGL.get_or_init(load_egl).as_ref().map_err(|e| anyhow!("{e}"))
+    EGL.get_or_init(load_egl)
+        .as_ref()
+        .map_err(|e| anyhow!("{e}"))
 }
 
 /// 动态 ANGLE：加载目录里的 libEGL，取出 `eglGetProcAddress` 作为后续
@@ -150,7 +153,11 @@ fn load_dynamic_angle(
         let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         // ALTERED_SEARCH_PATH：libEGL 的依赖（libGLESv2）按它自己的目录解析。
         let module = unsafe {
-            LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), LOAD_WITH_ALTERED_SEARCH_PATH)
+            LoadLibraryExW(
+                wide.as_ptr(),
+                std::ptr::null_mut(),
+                LOAD_WITH_ALTERED_SEARCH_PATH,
+            )
         };
         if module.is_null() {
             return Err(format!("angle: failed to load {}", path.display()));
@@ -313,10 +320,18 @@ fn load_egl() -> std::result::Result<Egl, String> {
         }};
     }
     #[cfg(target_os = "linux")]
-    let query_display_attrib = unsafe { resolve_opt_query_display_attrib(get_proc) }
-        .or_else(|| dlsym_opt!("eglQueryDisplayAttribEXT", unsafe extern "system" fn(Display, i32, *mut c_void) -> u32));
+    let query_display_attrib =
+        unsafe { resolve_opt_query_display_attrib(get_proc) }.or_else(|| {
+            dlsym_opt!(
+                "eglQueryDisplayAttribEXT",
+                unsafe extern "system" fn(Display, i32, *mut c_void) -> u32
+            )
+        });
     #[cfg(target_os = "linux")]
-    let query_device_attrib = dlsym_opt!("eglQueryDeviceAttribEXT", unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32);
+    let query_device_attrib = dlsym_opt!(
+        "eglQueryDeviceAttribEXT",
+        unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32
+    );
     #[cfg(not(target_os = "linux"))]
     let query_display_attrib_raw = unsafe {
         let core = get_proc(c"eglQueryDisplayAttrib".as_ptr().cast());
@@ -332,12 +347,19 @@ fn load_egl() -> std::result::Result<Egl, String> {
     };
     #[cfg(not(target_os = "linux"))]
     let query_display_attrib = query_display_attrib_raw.map(|p| unsafe {
-        std::mem::transmute::<*const c_void, unsafe extern "system" fn(Display, i32, *mut c_void) -> u32>(p)
+        std::mem::transmute::<
+            *const c_void,
+            unsafe extern "system" fn(Display, i32, *mut c_void) -> u32,
+        >(p)
     });
     #[cfg(not(target_os = "linux"))]
-    let query_device_attrib = unsafe { resolve_module_sym(module, "eglQueryDeviceAttribEXT") }.map(|p| unsafe {
-        std::mem::transmute::<*const c_void, unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32>(p)
-    });
+    let query_device_attrib =
+        unsafe { resolve_module_sym(module, "eglQueryDeviceAttribEXT") }.map(|p| unsafe {
+            std::mem::transmute::<
+                *const c_void,
+                unsafe extern "system" fn(*mut c_void, i32, *mut c_void) -> u32,
+            >(p)
+        });
     Ok(Egl {
         get_proc,
         module,
@@ -433,7 +455,10 @@ impl AngleContext {
             }
             let (mut major, mut minor) = (0, 0);
             if (egl.initialize)(display, &mut major, &mut minor) == 0 {
-                return Err(anyhow!("angle: eglInitialize failed ({:#x})", (egl.get_error)()));
+                return Err(anyhow!(
+                    "angle: eglInitialize failed ({:#x})",
+                    (egl.get_error)()
+                ));
             }
 
             // RGBA8 + pbuffer + GLES3 可渲染。
@@ -452,8 +477,13 @@ impl AngleContext {
             ];
             let mut config: Config = std::ptr::null();
             let mut num_config = 0;
-            if (egl.choose_config)(display, config_attrs.as_ptr(), &mut config, 1, &mut num_config)
-                == 0
+            if (egl.choose_config)(
+                display,
+                config_attrs.as_ptr(),
+                &mut config,
+                1,
+                &mut num_config,
+            ) == 0
                 || num_config < 1
             {
                 return Err(anyhow!(
@@ -463,12 +493,20 @@ impl AngleContext {
             }
 
             // GLES 3.0 上下文（WebGL2 的后端语义面）。
-            let context_attrs =
-                [EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 0, EGL_NONE];
+            let context_attrs = [
+                EGL_CONTEXT_MAJOR_VERSION,
+                3,
+                EGL_CONTEXT_MINOR_VERSION,
+                0,
+                EGL_NONE,
+            ];
             let context =
                 (egl.create_context)(display, config, std::ptr::null(), context_attrs.as_ptr());
             if context.is_null() {
-                return Err(anyhow!("angle: eglCreateContext failed ({:#x})", (egl.get_error)()));
+                return Err(anyhow!(
+                    "angle: eglCreateContext failed ({:#x})",
+                    (egl.get_error)()
+                ));
             }
 
             // 1×1 pbuffer（占位 surface，尺寸无语义）。
@@ -496,7 +534,10 @@ impl AngleContext {
         let egl = egl()?;
         unsafe {
             if (egl.make_current)(self.display, self.surface, self.surface, self.context) == 0 {
-                return Err(anyhow!("angle: make_current failed ({:#x})", (egl.get_error)()));
+                return Err(anyhow!(
+                    "angle: make_current failed ({:#x})",
+                    (egl.get_error)()
+                ));
             }
         }
         Ok(())
@@ -523,7 +564,12 @@ impl AngleContext {
         unsafe {
             let mut dev_handle: u64 = 0;
             let query_display = egl.query_display_attrib?;
-            if query_display(self.display, EGL_DEVICE_EXT, &mut dev_handle as *mut u64 as *mut c_void) == 0 {
+            if query_display(
+                self.display,
+                EGL_DEVICE_EXT,
+                &mut dev_handle as *mut u64 as *mut c_void,
+            ) == 0
+            {
                 return None;
             }
             let device = dev_handle as *mut c_void;
@@ -560,9 +606,7 @@ impl AngleContext {
             })
         }
     }
-
 }
-
 
 impl Drop for AngleContext {
     fn drop(&mut self) {
@@ -571,7 +615,12 @@ impl Drop for AngleContext {
         // 并发创建一样不可靠。terminate 只留给最后一个会话。
         let init_guard = SESSION_INIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
-            (egl.make_current)(self.display, std::ptr::null(), std::ptr::null(), std::ptr::null());
+            (egl.make_current)(
+                self.display,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+            );
             (egl.destroy_surface)(self.display, self.surface);
             (egl.destroy_context)(self.display, self.context);
             if SESSION_ALIVE.fetch_sub(1, std::sync::atomic::Ordering::Relaxed) == 1 {
@@ -616,7 +665,10 @@ impl CurrentBinding {
         let egl = egl()?;
         unsafe {
             if (egl.make_current)(self.display, self.draw, self.read, self.context) == 0 {
-                return Err(anyhow!("angle: restore current failed ({:#x})", (egl.get_error)()));
+                return Err(anyhow!(
+                    "angle: restore current failed ({:#x})",
+                    (egl.get_error)()
+                ));
             }
         }
         Ok(())
@@ -662,14 +714,26 @@ pub fn export_vulkan_image(texture: u32) -> Option<AngleVulkanImage> {
             if p.is_null() {
                 return None;
             }
-            std::mem::transmute::<*const c_void, unsafe extern "system" fn(Display, Context, u32, *const c_void, *const i32) -> *mut c_void>(p)
+            std::mem::transmute::<
+                *const c_void,
+                unsafe extern "system" fn(
+                    Display,
+                    Context,
+                    u32,
+                    *const c_void,
+                    *const i32,
+                ) -> *mut c_void,
+            >(p)
         };
         let export_vk = {
             let p = (egl.get_proc)(c"eglExportVkImageANGLE".as_ptr().cast());
             if p.is_null() {
                 return None;
             }
-            std::mem::transmute::<*const c_void, unsafe extern "system" fn(Display, *mut c_void, *mut c_void, *mut c_void) -> i32>(p)
+            std::mem::transmute::<
+                *const c_void,
+                unsafe extern "system" fn(Display, *mut c_void, *mut c_void, *mut c_void) -> i32,
+            >(p)
         };
         let display = (egl.get_current_display)();
         let context = (egl.get_current_context)();

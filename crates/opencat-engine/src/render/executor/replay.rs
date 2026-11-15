@@ -6,7 +6,9 @@ use opencat_core::canvas::paint::{BlendMode, StrokeCap, StrokeJoin, StrokeSpec};
 use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::ir::draw_op::{DRRectSpec, Radii4};
 use opencat_core::ir::draw_op::{DrawOp, LineCap as OpLineCap, LineJoin as OpLineJoin, PointMode};
-use opencat_core::ir::draw_types::{DrawOpRange, ImageRef, PathOp, RuntimeEffectChildRef, SubtreeId};
+use opencat_core::ir::draw_types::{
+    DrawOpRange, ImageRef, PathOp, RuntimeEffectChildRef, SubtreeId,
+};
 use skia_safe::{
     AlphaType, Canvas, ColorType, CubicResampler, Data, FilterMode, Image, ImageInfo, Matrix,
     MipmapMode, Paint, PathBuilder, Picture, PictureRecorder, Point, RRect, Rect, SamplingOptions,
@@ -148,9 +150,7 @@ fn fill_pattern_skia(
     }
     // 固定分辨率位图：有效密度 = 位图尺寸 / tile 用户尺寸（tile 图缩回用户
     // 单位后再由 patternTransform/CTM 摆位放大）。
-    let (sx, sy) = rasterize_at.map_or((sx, sy), |[rx, ry]| {
-        (rx / tile.width, ry / tile.height)
-    });
+    let (sx, sy) = rasterize_at.map_or((sx, sy), |[rx, ry]| (rx / tile.width, ry / tile.height));
     let tile_w = (tile.width * sx).round() as i32;
     let tile_h = (tile.height * sy).round() as i32;
     if tile_w <= 0 || tile_h <= 0 {
@@ -162,7 +162,12 @@ fn fill_pattern_skia(
     // 离屏面优先 GPU 后端（挂接的合成 context）：快照即 GPU 纹理，shader
     // 平铺回主面零拷贝；halftone 级逐点椭圆重放走 GPU。无 GPU context 时
     // 退回 CPU raster，语义不变。
-    let info = ImageInfo::new((tile_w, tile_h), ColorType::RGBA8888, AlphaType::Premul, None);
+    let info = ImageInfo::new(
+        (tile_w, tile_h),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
     let Some(mut surface) = exec
         .gpu_surface(&info)
         .or_else(|| surfaces::raster(&info, None, None))
@@ -275,7 +280,12 @@ fn mask_push_skia(
             let mask_canvas = surface.canvas();
             mask_canvas.concat(&m);
             mask_canvas.clip_rect(
-                Rect::new(region.x, region.y, region.x + region.width, region.y + region.height),
+                Rect::new(
+                    region.x,
+                    region.y,
+                    region.x + region.width,
+                    region.y + region.height,
+                ),
                 Some(skia_safe::ClipOp::Intersect),
                 true,
             );
@@ -309,7 +319,8 @@ fn mask_push_skia(
         px[3] = c;
     }
     let minfo = ImageInfo::new((fw, fh), ColorType::RGBA8888, AlphaType::Premul, None);
-    if let Some(img) = skia_safe::images::raster_from_data(&minfo, Data::new_copy(&buf), fw as usize * 4)
+    if let Some(img) =
+        skia_safe::images::raster_from_data(&minfo, Data::new_copy(&buf), fw as usize * 4)
     {
         exec.mask_stack.push(img);
     }
@@ -389,8 +400,7 @@ fn build_backdrop_pictures(
         }
         let mut recorder = PictureRecorder::new();
         // cull 只参与 bounds 估计，op 可画出界：给一个覆盖任意合成的巨矩形。
-        let rec_canvas =
-            recorder.begin_recording(Rect::new(-1.0e6, -1.0e6, 1.0e6, 1.0e6), false);
+        let rec_canvas = recorder.begin_recording(Rect::new(-1.0e6, -1.0e6, 1.0e6, 1.0e6), false);
         replay_range(
             exec,
             rec_canvas,
@@ -402,13 +412,9 @@ fn build_backdrop_pictures(
             },
         )?;
         drop(rec_canvas);
-        pictures.push(
-            recorder
-                .finish_recording_as_picture(None)
-                .ok_or_else(|| {
-                    DrawError("backdrop 前缀录制失败（recorder 处于无效状态）".to_string())
-                })?,
-        );
+        pictures.push(recorder.finish_recording_as_picture(None).ok_or_else(|| {
+            DrawError("backdrop 前缀录制失败（recorder 处于无效状态）".to_string())
+        })?);
     }
     exec.backdrop_building = false;
     Ok(pictures)
@@ -676,25 +682,26 @@ fn replay_op(
                     // The layer alpha must compose with the paint (it used to
                     // be dropped whenever a paint was present, which made
                     // filtered layers render fully opaque).
-            let spec = &draw.paints[pid.0 as usize];
-            let mut sk_paint = paint_from_spec(spec);
-            // feImage：引用子树先离屏光栅化成图（paint_from_spec 内部构建
-            // filter 时图还没就位，这里显式重建并覆盖）。
-            if spec.image_filter.as_ref().is_some_and(filter_chain_has_image) {
-                let images = render_filter_images(
-                    exec,
-                    draw,
-                    media,
-                    spec.image_filter.as_ref().unwrap(),
-                );
-                super::paint::set_filter_images(images);
-                let imf = spec
-                    .image_filter
-                    .as_ref()
-                    .and_then(build_skia_image_filter);
-                sk_paint.set_image_filter(imf);
-                super::paint::clear_filter_images();
-            }
+                    let spec = &draw.paints[pid.0 as usize];
+                    let mut sk_paint = paint_from_spec(spec);
+                    // feImage：引用子树先离屏光栅化成图（paint_from_spec 内部构建
+                    // filter 时图还没就位，这里显式重建并覆盖）。
+                    if spec
+                        .image_filter
+                        .as_ref()
+                        .is_some_and(filter_chain_has_image)
+                    {
+                        let images = render_filter_images(
+                            exec,
+                            draw,
+                            media,
+                            spec.image_filter.as_ref().unwrap(),
+                        );
+                        super::paint::set_filter_images(images);
+                        let imf = spec.image_filter.as_ref().and_then(build_skia_image_filter);
+                        sk_paint.set_image_filter(imf);
+                        super::paint::clear_filter_images();
+                    }
                     if *alpha < 1.0 {
                         apply_global_alpha(&mut sk_paint, *alpha);
                     }
@@ -733,7 +740,11 @@ fn replay_op(
             }
             Ok(())
         }
-        DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
+        DrawOp::SaveBackdropLayer {
+            bounds,
+            radius,
+            paint,
+        } => {
             if std::env::var_os("OC_NO_BACKDROP").is_some() {
                 let sk_rect = bounds.map(|r| Rect::new(r.x, r.y, r.x + r.width, r.y + r.height));
                 canvas.save_layer_alpha(sk_rect, 255);
@@ -761,8 +772,9 @@ fn replay_op(
             // picture offscreen, filters it, then composites, which matches
             // "blur what is already beneath" exactly.
             let slot = exec.backdrop_next;
-            let use_snapshot =
-                !exec.backdrop_building && backdrop.is_some() && slot < exec.backdrop_pictures.len();
+            let use_snapshot = !exec.backdrop_building
+                && backdrop.is_some()
+                && slot < exec.backdrop_pictures.len();
             if !exec.backdrop_building {
                 exec.backdrop_next += 1;
             }
@@ -847,13 +859,15 @@ fn replay_op(
             exec.current_fill_paint.set_color(c);
             // A solid style switch replaces any gradient paint (browser
             // fillStyle/strokeStyle assignment semantics).
-            exec.current_fill_paint.set_shader(None::<skia_safe::Shader>);
+            exec.current_fill_paint
+                .set_shader(None::<skia_safe::Shader>);
             Ok(())
         }
         DrawOp::SetStrokeStyle { color } => {
             let c = skia_safe::Color::from_argb(color.a, color.r, color.g, color.b);
             exec.current_stroke_paint.set_color(c);
-            exec.current_stroke_paint.set_shader(None::<skia_safe::Shader>);
+            exec.current_stroke_paint
+                .set_shader(None::<skia_safe::Shader>);
             Ok(())
         }
         DrawOp::SetStyleLinearGradient {
@@ -1018,7 +1032,11 @@ fn replay_op(
             }
             Ok(())
         }
-        DrawOp::FillOvalBatch { rects, colors, count } => {
+        DrawOp::FillOvalBatch {
+            rects,
+            colors,
+            count,
+        } => {
             // 批量椭圆展开：逐点「设填充色 + 椭圆路径 + 填充」，与逐条
             // SetFillStyle+BeginPath+AddOval+FillPath 位图一致。逐条每点
             // 的 SetFillStyle 会清 shader 并覆盖色（含 alpha），FillPath
@@ -1061,7 +1079,10 @@ fn replay_op(
             }
             Ok(())
         }
-        DrawOp::ClipPath { anti_alias, fill_type } => {
+        DrawOp::ClipPath {
+            anti_alias,
+            fill_type,
+        } => {
             if let Some(mut pb) = exec.current_path.take() {
                 let mut path = pb.detach();
                 path.set_fill_type(match fill_type {
@@ -1097,7 +1118,11 @@ fn replay_op(
             let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
             apply_global_alpha(&mut paint, exec.current_alpha);
             if std::env::var_os("OC_TRACE_DRAW").is_some() {
-                eprintln!("[rect] {rect:?} color={:?} shader={}", paint.color4f(), paint.shader().is_some());
+                eprintln!(
+                    "[rect] {rect:?} color={:?} shader={}",
+                    paint.color4f(),
+                    paint.shader().is_some()
+                );
             }
             canvas.draw_rect(
                 Rect::new(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height),
@@ -1225,8 +1250,17 @@ fn replay_op(
             // svg `<pattern>`：tile 子树离屏 → Repeat image shader 平铺填充。
             let encoded = &draw.paths[path.0 as usize];
             fill_pattern_skia(
-                canvas, exec, draw, media, encoded, *subtree, tile, pattern_transform, *opacity,
-                None, rasterize_at.as_ref(),
+                canvas,
+                exec,
+                draw,
+                media,
+                encoded,
+                *subtree,
+                tile,
+                pattern_transform,
+                *opacity,
+                None,
+                rasterize_at.as_ref(),
             )?;
             Ok(())
         }
@@ -1241,8 +1275,17 @@ fn replay_op(
             // svg `<pattern>` 描边：同 FillPattern，平铺结果沿描边样式。
             let encoded = &draw.paths[path.0 as usize];
             fill_pattern_skia(
-                canvas, exec, draw, media, encoded, *subtree, tile, pattern_transform, *opacity,
-                Some(stroke), None,
+                canvas,
+                exec,
+                draw,
+                media,
+                encoded,
+                *subtree,
+                tile,
+                pattern_transform,
+                *opacity,
+                Some(stroke),
+                None,
             )?;
             Ok(())
         }
@@ -1267,25 +1310,30 @@ fn replay_op(
                     media.image_index.get(image),
                     exec.current_alpha,
                     canvas.local_clip_bounds(),
-                    media.image_index.get(image).map(|i| (media.images[*i].width(), media.images[*i].height())),
-                {
-                    let px = media.image_index.get(image)
-                        .and_then(|i| media.images[*i].peek_pixels());
-                    px.map(|p| {
-                        let d = p.bytes().unwrap_or(&[]);
-                        let nz = d.chunks_exact(4).filter(|c| c[0] | c[1] | c[2] != 0).count();
-                        (d.len(), nz)
-                    })
-                }
+                    media
+                        .image_index
+                        .get(image)
+                        .map(|i| (media.images[*i].width(), media.images[*i].height())),
+                    {
+                        let px = media
+                            .image_index
+                            .get(image)
+                            .and_then(|i| media.images[*i].peek_pixels());
+                        px.map(|p| {
+                            let d = p.bytes().unwrap_or(&[]);
+                            let nz = d
+                                .chunks_exact(4)
+                                .filter(|c| c[0] | c[1] | c[2] != 0)
+                                .count();
+                            (d.len(), nz)
+                        })
+                    }
                 );
             }
             if std::env::var_os("OC_DEBUG_DRAW_RECT").is_some() {
                 let mut p = Paint::default();
                 p.set_color(skia_safe::Color::RED);
-                canvas.draw_rect(
-                    Rect::new(*x, *y, *x + 1920.0, *y + 1080.0),
-                    &p,
-                );
+                canvas.draw_rect(Rect::new(*x, *y, *x + 1920.0, *y + 1080.0), &p);
                 return Ok(());
             }
             let skip_video = matches!(image, ImageRef::VideoFrame { .. })
@@ -1328,7 +1376,12 @@ fn replay_op(
                 } else if std::env::var_os("OC_DEBUG_IMAGERECT").is_some() {
                     let mut paint = Paint::default();
                     apply_global_alpha(&mut paint, exec.current_alpha);
-                    let dst = Rect::new(*x, *y, *x + sk_image.width() as f32, *y + sk_image.height() as f32);
+                    let dst = Rect::new(
+                        *x,
+                        *y,
+                        *x + sk_image.width() as f32,
+                        *y + sk_image.height() as f32,
+                    );
                     canvas.draw_image_rect_with_sampling_options(
                         sk_image,
                         None,
@@ -1450,21 +1503,13 @@ fn replay_op(
                     let mut paint = paint_from_spec(&draw.paints[pid.0 as usize]);
                     apply_global_alpha(&mut paint, exec.current_alpha);
                     canvas.draw_image_rect_with_sampling_options(
-                        sk_image,
-                        src_arg,
-                        dst_rect,
-                        sampling,
-                        &paint,
+                        sk_image, src_arg, dst_rect, sampling, &paint,
                     );
                 } else {
                     let mut paint = Paint::default();
                     apply_global_alpha(&mut paint, exec.current_alpha);
                     canvas.draw_image_rect_with_sampling_options(
-                        sk_image,
-                        src_arg,
-                        dst_rect,
-                        sampling,
-                        &paint,
+                        sk_image, src_arg, dst_rect, sampling, &paint,
                     );
                 }
             }
@@ -1509,8 +1554,7 @@ fn replay_op(
                                 // 与 `uv = xy - rect.xy` 对齐 —— 用本地矩阵平移
                                 // dst.xy，使 child.eval(uv) 取到"该矩形自己的"
                                 // 像素（与 lambda CPU 后端 ChildImage 采样一致）。
-                                let mut local =
-                                    skia_safe::Matrix::new_identity();
+                                let mut local = skia_safe::Matrix::new_identity();
                                 local.set_translate((-dst.x, -dst.y));
                                 if let Some(shader) = skia_safe::shaders::image(
                                     &media.images[*idx],
@@ -1714,5 +1758,3 @@ fn drrect_to_skia(spec: &DRRectSpec) -> RRect {
     );
     RRect::new_rect_radii(rect, &radii4_to_vectors(&spec.radii))
 }
-
-

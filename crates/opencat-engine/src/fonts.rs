@@ -26,15 +26,51 @@ pub struct HtmlDefaultFontFace {
 
 pub fn html_default_font_faces() -> Vec<HtmlDefaultFontFace> {
     vec![
-        HtmlDefaultFontFace { family: "Inter", file: "Inter-400.ttf", bytes: include_bytes!("../../../assets/Inter-400.ttf") },
-        HtmlDefaultFontFace { family: "Inter", file: "Inter-500.ttf", bytes: include_bytes!("../../../assets/Inter-500.ttf") },
-        HtmlDefaultFontFace { family: "Inter", file: "Inter-600.ttf", bytes: include_bytes!("../../../assets/Inter-600.ttf") },
-        HtmlDefaultFontFace { family: "Inter", file: "Inter-700.ttf", bytes: include_bytes!("../../../assets/Inter-700.ttf") },
-        HtmlDefaultFontFace { family: "Inter", file: "Inter-800.ttf", bytes: include_bytes!("../../../assets/Inter-800.ttf") },
-        HtmlDefaultFontFace { family: "Inter", file: "Inter-900.ttf", bytes: include_bytes!("../../../assets/Inter-900.ttf") },
-        HtmlDefaultFontFace { family: "JetBrains Mono", file: "JetBrainsMono-Regular.ttf", bytes: include_bytes!("../../../assets/JetBrainsMono-Regular.ttf") },
-        HtmlDefaultFontFace { family: "JetBrains Mono", file: "JetBrainsMono-500.ttf", bytes: include_bytes!("../../../assets/JetBrainsMono-500.ttf") },
-        HtmlDefaultFontFace { family: "JetBrains Mono", file: "JetBrainsMono-Bold.ttf", bytes: include_bytes!("../../../assets/JetBrainsMono-Bold.ttf") },
+        HtmlDefaultFontFace {
+            family: "Inter",
+            file: "Inter-400.ttf",
+            bytes: include_bytes!("../../../assets/Inter-400.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "Inter",
+            file: "Inter-500.ttf",
+            bytes: include_bytes!("../../../assets/Inter-500.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "Inter",
+            file: "Inter-600.ttf",
+            bytes: include_bytes!("../../../assets/Inter-600.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "Inter",
+            file: "Inter-700.ttf",
+            bytes: include_bytes!("../../../assets/Inter-700.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "Inter",
+            file: "Inter-800.ttf",
+            bytes: include_bytes!("../../../assets/Inter-800.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "Inter",
+            file: "Inter-900.ttf",
+            bytes: include_bytes!("../../../assets/Inter-900.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "JetBrains Mono",
+            file: "JetBrainsMono-Regular.ttf",
+            bytes: include_bytes!("../../../assets/JetBrainsMono-Regular.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "JetBrains Mono",
+            file: "JetBrainsMono-500.ttf",
+            bytes: include_bytes!("../../../assets/JetBrainsMono-500.ttf"),
+        },
+        HtmlDefaultFontFace {
+            family: "JetBrains Mono",
+            file: "JetBrainsMono-Bold.ttf",
+            bytes: include_bytes!("../../../assets/JetBrainsMono-Bold.ttf"),
+        },
     ]
 }
 
@@ -78,10 +114,8 @@ pub fn engine_font_fallback_dirs() -> Vec<PathBuf> {
 /// New code should use [`engine_default_font_faces`] with
 /// `HostInputs::with_base_font_faces`.
 pub fn engine_default_font_db() -> Arc<fontdb::Database> {
-    let mut db = opencat_core::text::font_db_from_bytes(
-        &engine_default_font_faces(),
-        NOTO_SANS_SC_FAMILY,
-    );
+    let mut db =
+        opencat_core::text::font_db_from_bytes(&engine_default_font_faces(), NOTO_SANS_SC_FAMILY);
     for dir in engine_font_fallback_dirs() {
         db.load_fonts_dir(dir);
     }

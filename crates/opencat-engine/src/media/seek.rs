@@ -127,5 +127,3 @@ pub fn build_decode_slice_plan(
     }
     plan
 }
-
-

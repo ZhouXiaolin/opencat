@@ -43,12 +43,10 @@ impl<'de> serde::Deserialize<'de> for ColorToken {
                 f.write_str("a color name string or RGBA object")
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<ColorToken, E> {
-                color_token_from_script_name(v)
-                    .ok_or_else(|| de::Error::unknown_variant(v, &[]))
+                color_token_from_script_name(v).ok_or_else(|| de::Error::unknown_variant(v, &[]))
             }
             fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<ColorToken, E> {
-                color_token_from_script_name(v)
-                    .ok_or_else(|| de::Error::unknown_variant(v, &[]))
+                color_token_from_script_name(v).ok_or_else(|| de::Error::unknown_variant(v, &[]))
             }
             fn visit_map<A>(self, map: A) -> Result<ColorToken, A::Error>
             where
@@ -497,9 +495,7 @@ pub enum TextTransform {
 /// `monospace`, `system-ui`, …). Browsers resolve a missing glyph through the
 /// stack's generics with fontconfig's per-generic preference order; opencat
 /// mirrors that by letting the shaper reorder its fallback list by this class.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GenericFamily {
     Serif,
@@ -600,7 +596,9 @@ impl std::hash::Hash for StrokeDash {
 /// CSS `background-clip`. `Text` is the one case the renderer acts on: the
 /// element's background paints through the glyph outlines instead of behind
 /// them (the `bg-clip-text` + `text-transparent` gradient-wordmark idiom).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum BackgroundClip {
     #[default]
@@ -886,7 +884,9 @@ pub enum GradientDirection {
 }
 
 /// 渐变停止点位置的单位。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum StopUnit {
     /// 归一化比例，`pos` 位于 `0..1`（相对渐变线长度，或重复渐变的周期）。
@@ -921,7 +921,9 @@ impl std::hash::Hash for GradientStop {
 }
 
 /// 径向渐变的形状。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum RadialShape {
     Circle,
@@ -931,7 +933,9 @@ pub enum RadialShape {
 }
 
 /// 径向渐变的 extent 关键字。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "camelCase")]
 pub enum RadialExtent {
     ClosestSide,
@@ -1007,7 +1011,11 @@ pub enum ArbitraryGradient {
         #[serde(rename = "position", default, skip_serializing_if = "Option::is_none")]
         position: Option<[f32; 2]>,
         /// `background-position` 的像素形态（绝对值）。
-        #[serde(rename = "positionPx", default, skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "positionPx",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
         position_px: Option<[f32; 2]>,
         /// `background-size` 的百分比形态（占盒宽高的比例），优先于 `size`。
         #[serde(rename = "sizePct", default, skip_serializing_if = "Option::is_none")]
@@ -1614,7 +1622,12 @@ pub struct TransformOrigin {
 
 impl Default for TransformOrigin {
     fn default() -> Self {
-        Self { x: 0.5, y: 0.5, x_px: 0.0, y_px: 0.0 }
+        Self {
+            x: 0.5,
+            y: 0.5,
+            x_px: 0.0,
+            y_px: 0.0,
+        }
     }
 }
 
@@ -1651,7 +1664,10 @@ impl TransformOrigin {
                 } else {
                     (a, b)
                 };
-                Some(Self::from_axes(parse_origin_axis(h)?, parse_origin_axis(v)?))
+                Some(Self::from_axes(
+                    parse_origin_axis(h)?,
+                    parse_origin_axis(v)?,
+                ))
             }
             _ => None,
         }
@@ -3339,5 +3355,3 @@ pub fn color_token_from_script_string(name: &str) -> Option<ColorToken> {
     let a = (hsla.a.clamp(0.0, 1.0) * 255.0).round() as u8;
     Some(ColorToken::Custom(r, g, b, a))
 }
-
-

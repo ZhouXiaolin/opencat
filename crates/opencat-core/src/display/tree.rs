@@ -1,8 +1,8 @@
+use crate::canvas::paint::ImageFilterSpec;
 use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScriptDisplayItem};
 use crate::layout::tree::LayoutOutputFingerprint;
 use crate::resolve::tree::ElementId;
 use crate::semantic::fingerprint::ElementInputFingerprints;
-use crate::canvas::paint::ImageFilterSpec;
 
 #[derive(Clone, Debug)]
 pub struct DisplayTree {

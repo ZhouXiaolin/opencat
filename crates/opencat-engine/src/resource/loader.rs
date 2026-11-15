@@ -9,14 +9,14 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 
+use opencat_core::fonts::{FontManifest, font_asset_id};
 use opencat_core::ir::asset_id::{
-    AssetId, ResourceKind, asset_id_for_audio, asset_id_for_image,
-    asset_id_for_lottie, asset_id_for_url,
-    asset_id_for_video,
+    AssetId, ResourceKind, asset_id_for_audio, asset_id_for_image, asset_id_for_lottie,
+    asset_id_for_svg, asset_id_for_url, asset_id_for_video,
 };
 use opencat_core::parse::primitives::{AudioSource, ImageSource, LottieSource, VideoSource};
 use opencat_core::probe::catalog::ResourceRequests;
-use opencat_core::fonts::{FontManifest, font_asset_id};
+use opencat_core::svg_asset::SvgDocument;
 
 use crate::resource::fetch::{EngineFetcher, build_preload_runtime};
 use crate::resource::path_store::cache_file_path;
@@ -205,7 +205,6 @@ impl EngineLoader {
             }
         }
     }
-
 }
 
 impl EngineLoader {
@@ -226,8 +225,10 @@ impl EngineLoader {
                         copy_local_to_cache(std::path::Path::new(p), &base_dir, &cache_dir, &id)?
                     }
                     ImageSource::Query(q) => {
-                        let search_id =
-                            AssetId::new(ResourceKind::Image, format!("openverse:search:{}", q.query));
+                        let search_id = AssetId::new(
+                            ResourceKind::Image,
+                            format!("openverse:search:{}", q.query),
+                        );
                         let search_url = build_openverse_search_url(q);
                         let search_bytes = self
                             .fetcher
@@ -271,9 +272,7 @@ impl EngineLoader {
                         let _ = self.fetcher.fetch_bytes(&id, u).await?;
                         true
                     }
-                    AudioSource::Path(p) => {
-                        copy_local_to_cache(p, &base_dir, &cache_dir, &id)?
-                    }
+                    AudioSource::Path(p) => copy_local_to_cache(p, &base_dir, &cache_dir, &id)?,
                     AudioSource::Unset => false,
                 };
                 if loaded {
@@ -314,9 +313,7 @@ impl EngineLoader {
                 // Core prepare only receives LottieMeta.dependencies, never these bytes.
                 if let Ok(primary) = std::fs::read(&cached_path) {
                     if let Ok(json) = std::str::from_utf8(&primary) {
-                        if let Ok(deps) =
-                            crate::probe::scan_lottie_dependencies(json)
-                        {
+                        if let Ok(deps) = crate::probe::scan_lottie_dependencies(json) {
                             let primary_dir = match &lottie_req.source {
                                 LottieSource::Path(p) => {
                                     let full = if std::path::Path::new(p).is_relative() {
@@ -336,8 +333,7 @@ impl EngineLoader {
                                 if file_name.starts_with("http://")
                                     || file_name.starts_with("https://")
                                 {
-                                    let _ =
-                                        self.fetcher.fetch_bytes(&dep_id, &file_name).await?;
+                                    let _ = self.fetcher.fetch_bytes(&dep_id, &file_name).await?;
                                     let path = cache_file_path(&cache_dir, &dep_id);
                                     new_handles.push((dep_id, path));
                                 } else if let Some(dir) = &primary_dir {
@@ -348,15 +344,9 @@ impl EngineLoader {
                                         base_dir.join(&file_name),
                                         base_dir.join("images").join(&file_name),
                                     ];
-                                    if let Some(src) =
-                                        candidates.into_iter().find(|c| c.is_file())
+                                    if let Some(src) = candidates.into_iter().find(|c| c.is_file())
                                     {
-                                        copy_local_to_cache(
-                                            &src,
-                                            &base_dir,
-                                            &cache_dir,
-                                            &dep_id,
-                                        )?;
+                                        copy_local_to_cache(&src, &base_dir, &cache_dir, &dep_id)?;
                                         let path = cache_file_path(&cache_dir, &dep_id);
                                         new_handles.push((dep_id, path));
                                     }
@@ -364,6 +354,13 @@ impl EngineLoader {
                             }
                         }
                     }
+                }
+            }
+
+            for src in &req.svgs {
+                let id = asset_id_for_svg(src);
+                if copy_local_to_cache(std::path::Path::new(src), &base_dir, &cache_dir, &id)? {
+                    new_handles.push((id.clone(), cache_file_path(&cache_dir, &id)));
                 }
             }
 
@@ -388,8 +385,11 @@ impl EngineLoader {
         }
         let png = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
         let mut bytes = Vec::new();
-        png.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
-            .context("encode 1x1 placeholder png")?;
+        png.write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
+        .context("encode 1x1 placeholder png")?;
         let path = cache_file_path(&self.cache_dir, id);
         std::fs::write(&path, bytes)
             .with_context(|| format!("write image placeholder {}", path.display()))?;
@@ -400,6 +400,50 @@ impl EngineLoader {
 
     pub fn handle(&self, id: &AssetId) -> Option<&EngineAssetHandle> {
         self.handles.get(id)
+    }
+
+    /// 取回 `<svg src>` 文档并预读其外部 `<image href>`：markup 与引用
+    /// 字节一起交回 core。取不到文档、或缺某个引用都不算失败——渲染期
+    /// 按 404 语义处理（缺文档=整项 MissingResource，缺引用=丢该 image）。
+    pub fn load_svg_document(&mut self, src: &Path) -> Option<SvgDocument> {
+        let id = asset_id_for_svg(src);
+        let bytes = self.handles.get(&id)?.read_bytes().ok()?.into_owned();
+        let markup = std::str::from_utf8(&bytes).ok()?;
+        let resolved = if src.is_relative() {
+            self._base_dir.join(src)
+        } else {
+            src.to_path_buf()
+        };
+        let mut refs = std::collections::HashMap::new();
+        for href in opencat_core::svg_asset::external_refs(markup) {
+            if let Some(bytes) = self.fetch_svg_ref(&resolved, &href) {
+                refs.insert(href, std::sync::Arc::from(bytes.into_boxed_slice()));
+            }
+        }
+        Some(SvgDocument::new(markup, refs))
+    }
+
+    /// 一个外部 href 的字节：http(s) 走 fetch 缓存，其余按路径相对 svg
+    /// 自身目录、再退文档 base 目录解析。
+    fn fetch_svg_ref(&mut self, svg: &Path, href: &str) -> Option<Vec<u8>> {
+        if href.starts_with("http://") || href.starts_with("https://") {
+            let id = AssetId::new(ResourceKind::Svg, format!("svg:ref:{href}"));
+            return self
+                .runtime
+                .block_on(self.fetcher.fetch_bytes(&id, href))
+                .ok();
+        }
+        let rel = Path::new(href);
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Some(dir) = svg.parent() {
+            candidates.push(dir.join(rel));
+        }
+        candidates.push(self._base_dir.join(rel));
+        candidates.push(rel.to_path_buf());
+        candidates
+            .into_iter()
+            .find(|path| path.is_file())
+            .and_then(|path| std::fs::read(path).ok())
     }
 }
 
@@ -456,7 +500,12 @@ fn write_cache_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// 本地资产进缓存。返回 `false` = 源文件不存在（已跳过）：浏览器语义里
 /// `<img>`/`<video>` 404 是 onerror + 空内容，页面脚本普遍探测
 /// `complete`/`naturalWidth` 再消费，不能让整个渲染硬失败。
-fn copy_local_to_cache(src: &Path, base_dir: &Path, cache_dir: &Path, id: &AssetId) -> Result<bool> {
+fn copy_local_to_cache(
+    src: &Path,
+    base_dir: &Path,
+    cache_dir: &Path,
+    id: &AssetId,
+) -> Result<bool> {
     let resolved = if src.is_relative() {
         base_dir.join(src)
     } else {
@@ -545,5 +594,3 @@ fn parse_openverse_response(bytes: &[u8]) -> Result<String> {
         .find_map(|r| r.url.or(r.thumbnail))
         .ok_or_else(|| anyhow!("Openverse returned no image"))
 }
-
-

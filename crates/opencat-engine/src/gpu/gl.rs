@@ -142,10 +142,26 @@ pub fn create_texture_rgba8(gl: &glow::Context, width: u32, height: u32) -> Opti
         // 是**不完整**的：FBO 回读仍拿得到内容，但采样一律返回 (0,0,0,1)。
         // 桌面 NVIDIA 对此宽容，ANGLE/D3D11 严格——被 Skia 采样的纹理
         // 必须显式给非 mipmap 过滤。
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MIN_FILTER, glow::LINEAR as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_MAG_FILTER, glow::LINEAR as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE as i32);
-        gl.tex_parameter_i32(glow::TEXTURE_2D, glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE as i32);
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MIN_FILTER,
+            glow::LINEAR as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_MAG_FILTER,
+            glow::LINEAR as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_S,
+            glow::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameter_i32(
+            glow::TEXTURE_2D,
+            glow::TEXTURE_WRAP_T,
+            glow::CLAMP_TO_EDGE as i32,
+        );
         gl.bind_texture(glow::TEXTURE_2D, None);
         Some(NativeTexture::from_raw(tex.0.get() as u64))
     }
@@ -178,7 +194,12 @@ pub struct Target {
 
 impl Target {
     /// 用 `tex` 作颜色附件建目标。
-    pub fn new(gl: Arc<glow::Context>, tex: NativeTexture, width: u32, height: u32) -> Result<Self> {
+    pub fn new(
+        gl: Arc<glow::Context>,
+        tex: NativeTexture,
+        width: u32,
+        height: u32,
+    ) -> Result<Self> {
         let fbo = create_framebuffer(&gl, tex, width, height)
             .ok_or_else(|| anyhow!("创建 FBO 失败（GL 入口缺失或 FBO 不完整）"))?;
         let readback = ReadbackPixels::new(&gl, fbo, width, height);
@@ -225,9 +246,7 @@ impl Target {
 
     /// 取回**上一帧**的像素，并为当前帧发起一次读回。首帧返回 `None`。
     pub fn readback(&mut self) -> Option<Vec<u8>> {
-        self.readback
-            .as_mut()
-            .and_then(|rb| rb.read_frame())
+        self.readback.as_mut().and_then(|rb| rb.read_frame())
     }
 }
 
@@ -321,7 +340,10 @@ impl ReadbackPixels {
             // PBO 读回失败（INVALID_OPERATION）留下的错误标志是粘滞的：不先
             // 清掉，下面的 get_error 读到的是旧账，会把成功的同步读回也判死。
             gl.get_error();
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(self.fbo))));
+            gl.bind_framebuffer(
+                glow::READ_FRAMEBUFFER,
+                Some(glow::NativeFramebuffer(nz(self.fbo))),
+            );
             gl.read_buffer(glow::COLOR_ATTACHMENT0);
             gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
             let mut out = vec![0u8; self.width as usize * self.height as usize * 4];
@@ -348,7 +370,10 @@ impl ReadbackPixels {
         unsafe {
             let gl = &self.gl;
             gl.bind_buffer(glow::PIXEL_PACK_BUFFER, self.slots[slot]);
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(glow::NativeFramebuffer(nz(self.fbo))));
+            gl.bind_framebuffer(
+                glow::READ_FRAMEBUFFER,
+                Some(glow::NativeFramebuffer(nz(self.fbo))),
+            );
             // 读缓冲是 FBO 的状态，Skia 未必留在 `COLOR_ATTACHMENT0` 上。
             gl.read_buffer(glow::COLOR_ATTACHMENT0);
             // 目标指针为 null 即「写进当前绑定的 PBO」，立即返回。
@@ -373,12 +398,8 @@ impl ReadbackPixels {
         unsafe {
             let gl = &self.gl;
             gl.bind_buffer(glow::PIXEL_PACK_BUFFER, self.slots[slot]);
-            let ptr = gl.map_buffer_range(
-                glow::PIXEL_PACK_BUFFER,
-                0,
-                bytes as i32,
-                GL_MAP_READ_BIT,
-            );
+            let ptr =
+                gl.map_buffer_range(glow::PIXEL_PACK_BUFFER, 0, bytes as i32, GL_MAP_READ_BIT);
             let out = if ptr.is_null() {
                 None
             } else {

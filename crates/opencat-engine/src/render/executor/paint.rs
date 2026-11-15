@@ -3,14 +3,14 @@ use opencat_core::canvas::paint::{
     ImageFilterSpec, LightSpec, MaskFilterSpec, PaintSpec, PaintStyle, PathEffectSpec, ShaderSpec,
     StrokeCap, StrokeJoin, TileMode, TransferFn,
 };
+use skia_safe::image::BitDepth;
 use skia_safe::{
     AlphaType, BlendMode as SkBlendMode, BlurStyle as SkBlurStyle, Color, ColorChannel,
-    ColorFilter, ColorType, Data, FilterMode, Image, ImageFilter, ImageInfo, Matrix, MaskFilter,
+    ColorFilter, ColorType, Data, FilterMode, Image, ImageFilter, ImageInfo, MaskFilter, Matrix,
     MipmapMode, Paint, PaintStyle as SkPaintStyle, PathEffect, PictureRecorder, SamplingOptions,
-    Shader, TileMode as SkTileMode, color_filters, gradient_shader, image_filters, scalar,
-    shaders, surfaces,
+    Shader, TileMode as SkTileMode, color_filters, gradient_shader, image_filters, scalar, shaders,
+    surfaces,
 };
-use skia_safe::image::BitDepth;
 
 /// feImage 的子树光栅图缓存：执行端在展开 filter 前预渲染填充，feImage
 /// 分支取用。SaveLayer 处理是单线程递归的，thread_local 即可；成对
@@ -549,16 +549,11 @@ fn chain_crop_rect(
     Some(image_filters::CropRect::from(rect))
 }
 
-fn build_filter_prim(
-    chain: &FilterChainSpec,
-    idx: usize,
-    out_srgb: bool,
-) -> Option<ImageFilter> {
+fn build_filter_prim(chain: &FilterChainSpec, idx: usize, out_srgb: bool) -> Option<ImageFilter> {
     let p = chain.primitives.get(idx)?;
     let crop = chain_crop_rect(chain, p);
-    let input_of = |i: &FilterInput| -> Option<ImageFilter> {
-        build_filter_input(chain, i, p.srgb)
-    };
+    let input_of =
+        |i: &FilterInput| -> Option<ImageFilter> { build_filter_input(chain, i, p.srgb) };
     // 各臂输出的原生域：消费 source 的 prim = primitive 的 cs；
     // Flood 的 shader 输出恒 sRGB 数值，输出转换按此选方向，避免对
     // 已是 sRGB 的值再 γ⁻¹（feBlend+feFlood 簇全图变亮的根因）。
@@ -570,10 +565,7 @@ fn build_filter_prim(
             input_of(in1),
             crop,
         ),
-        FilterPrimKind::ColorMatrix {
-            row_major,
-            input,
-        } => {
+        FilterPrimKind::ColorMatrix { row_major, input } => {
             // SVG spec：unpremul 域线性矩阵，skia 矩阵 filter 同域同 clamp。
             image_filters::color_filter(
                 color_filters::matrix_row_major(row_major, None),
@@ -667,7 +659,16 @@ fn build_filter_prim(
                     input_of(input),
                     crop,
                 ),
-                LightSpec::Spot { x, y, z, points_at_x, points_at_y, points_at_z, specular_exponent, limiting_cone_angle } => {
+                LightSpec::Spot {
+                    x,
+                    y,
+                    z,
+                    points_at_x,
+                    points_at_y,
+                    points_at_z,
+                    specular_exponent,
+                    limiting_cone_angle,
+                } => {
                     // SVG limitingConeAngle 单位为度；skia 内部自行 DegreesToRadians。
                     image_filters::spot_lit_diffuse(
                         (*x, *y, *z),
@@ -773,7 +774,16 @@ fn build_filter_prim(
                     input_of(input),
                     crop,
                 ),
-                LightSpec::Spot { x, y, z, points_at_x, points_at_y, points_at_z, specular_exponent: spot_exponent, limiting_cone_angle } => {
+                LightSpec::Spot {
+                    x,
+                    y,
+                    z,
+                    points_at_x,
+                    points_at_y,
+                    points_at_z,
+                    specular_exponent: spot_exponent,
+                    limiting_cone_angle,
+                } => {
                     // 同 spot_lit_diffuse：cutoff 单位为度。
                     image_filters::spot_lit_specular(
                         (*x, *y, *z),
@@ -817,7 +827,12 @@ fn build_filter_prim(
             {
                 // filter 树坐标 = user space，画布不能 translate（会偏移链内
                 // crop rect）；平移交给 from_picture 的 matrix。
-                let cull = skia_safe::Rect::new(src.x0 as f32, src.y0 as f32, src.x1 as f32, src.y1 as f32);
+                let cull = skia_safe::Rect::new(
+                    src.x0 as f32,
+                    src.y0 as f32,
+                    src.x1 as f32,
+                    src.y1 as f32,
+                );
                 let c = recorder.begin_recording(cull, false);
                 let mut paint = Paint::default();
                 paint.set_image_filter(input_of(input));
@@ -967,9 +982,11 @@ fn transfer_table(f: &TransferFn) -> [u8; 256] {
                 }
             }
             TransferFn::Linear { slope, intercept } => slope * x + intercept,
-            TransferFn::Gamma { amplitude, exponent, offset } => {
-                amplitude * x.powf(*exponent) + offset
-            }
+            TransferFn::Gamma {
+                amplitude,
+                exponent,
+                offset,
+            } => amplitude * x.powf(*exponent) + offset,
         };
         *out = (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     }
@@ -1008,5 +1025,3 @@ fn build_path_effect(spec: &PathEffectSpec) -> Option<PathEffect> {
         PathEffectSpec::Dash { intervals, phase } => PathEffect::dash(intervals, *phase),
     }
 }
-
-

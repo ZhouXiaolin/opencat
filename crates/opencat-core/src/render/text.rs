@@ -83,10 +83,7 @@ pub(crate) fn text_fill_specs(
 /// sweep into the leading glyphs. Falls back to the element box when no line
 /// was shaped. Layers inherited from a clip:text ancestor map over that
 /// ancestor's box (`text_fill_box`).
-fn text_background_box(
-    item: &TextDisplayItem,
-    lines: &[crate::text::TextLine],
-) -> DisplayRect {
+fn text_background_box(item: &TextDisplayItem, lines: &[crate::text::TextLine]) -> DisplayRect {
     if let Some(rect) = item.text_fill_box {
         return rect;
     }
@@ -503,7 +500,14 @@ fn emit_glyph_clip(
                         let (c1x, c1y) = map((c1.x, c1.y));
                         let (c2x, c2y) = map((c2.x, c2.y));
                         let (x, y) = map((p.x, p.y));
-                        PathOp::CubicTo { c1x, c1y, c2x, c2y, x, y }
+                        PathOp::CubicTo {
+                            c1x,
+                            c1y,
+                            c2x,
+                            c2y,
+                            x,
+                            y,
+                        }
                     }
                     Command::Close => PathOp::Close,
                 };
@@ -869,9 +873,7 @@ pub fn render_text_with_shadows(
 /// Per-level SaveLayer bounds outsets for a chained (nested) shadow stack: the
 /// outsets at index `i` are the component-wise max over `shadows[i..]`, because
 /// level `i`'s layer output contains every deeper shadow as well.
-fn suffix_max_outsets(
-    shadows: &[&crate::style::TextShadow],
-) -> Vec<(f32, f32, f32, f32)> {
+fn suffix_max_outsets(shadows: &[&crate::style::TextShadow]) -> Vec<(f32, f32, f32, f32)> {
     let mut suffix: Vec<(f32, f32, f32, f32)> = Vec::with_capacity(shadows.len());
     let mut acc: Option<(f32, f32, f32, f32)> = None;
     for shadow in shadows.iter().rev() {
@@ -957,5 +959,3 @@ fn render_text_body(ctx: &mut RenderCtx, item: &TextDisplayItem) -> Result<(), R
         render_text(ctx, item)
     }
 }
-
-

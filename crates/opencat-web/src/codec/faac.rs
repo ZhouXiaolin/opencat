@@ -122,5 +122,3 @@ fn aac_sample_rate_index(sample_rate: u32) -> u8 {
         _ => 11,
     }
 }
-
-

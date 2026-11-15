@@ -8,15 +8,14 @@ use anyhow::{Context, Result, anyhow};
 use std::sync::Arc;
 
 use opencat::{
-    EngineDrawExecutor, EngineLoader, EngineJsContext, GeneratedImageCache, MediaContext,
-    build_audio_track_from_pipeline, duration_secs_to_frames, generated_image_cache_from_env,
-    open,
+    EngineDrawExecutor, EngineJsContext, EngineLoader, GeneratedImageCache, MediaContext,
+    build_audio_track_from_pipeline, duration_secs_to_frames, generated_image_cache_from_env, open,
 };
 use opencat_core::script::js_context::JsContext;
 use opencat_engine::present::{PreviewFrame, PreviewPresenter, WindowHandle};
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 #[cfg(target_os = "linux")]
 use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -41,7 +40,9 @@ impl Iterator for AudioRenderSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let total = self.loop_sample_frames.saturating_mul(self.channels.get() as usize);
+        let total = self
+            .loop_sample_frames
+            .saturating_mul(self.channels.get() as usize);
         if total == 0 {
             return Some(0.0);
         }
@@ -282,8 +283,8 @@ impl ApplicationHandler for SeeApp {
         // 这样 3D 输出纹理对本节点的 Skia 有效，合成时零拷贝导入。必须在
         // 首帧渲染前完成（`preset` 只设一次）。后端不支持时保持懒初始化
         //（走 CPU 读回）。
-        let mut presenter = match window_handle(&window).and_then(|handle| {
-            unsafe { PreviewPresenter::for_window(handle, &self.pipeline, self.width, self.height) }
+        let mut presenter = match window_handle(&window).and_then(|handle| unsafe {
+            PreviewPresenter::for_window(handle, &self.pipeline, self.width, self.height)
         }) {
             Ok(presenter) => presenter,
             Err(error) => {
@@ -299,17 +300,15 @@ impl ApplicationHandler for SeeApp {
         }
         std::thread::sleep(Duration::from_millis(100));
 
-        self.audio_playback = match AudioPlayback::new(
-            self.audio_samples.clone(),
-            self.loop_sample_frames,
-        ) {
-            Ok(playback) => playback,
-            Err(error) => {
-                eprintln!("failed to start audio playback: {error:#}");
-                event_loop.exit();
-                return;
-            }
-        };
+        self.audio_playback =
+            match AudioPlayback::new(self.audio_samples.clone(), self.loop_sample_frames) {
+                Ok(playback) => playback,
+                Err(error) => {
+                    eprintln!("failed to start audio playback: {error:#}");
+                    event_loop.exit();
+                    return;
+                }
+            };
         self.next_tick = self
             .audio_playback
             .as_ref()
@@ -385,7 +384,8 @@ pub fn view(input: PathBuf, base_dir_arg: Option<PathBuf>, scale_arg: Option<f32
     if !(scale > 0.0 && scale <= 1.0) {
         return Err(anyhow!("--scale must be in (0, 1], got {scale}"));
     }
-    let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let cache_base =
+        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let cache_dir = cache_base.join(".opencat").join("assets");
     let loader = EngineLoader::new(base_dir, cache_dir).context("failed to create loader")?;
     let ctx = EngineJsContext::new().context("failed to create js context")?;
@@ -426,7 +426,8 @@ pub fn view(input: PathBuf, base_dir_arg: Option<PathBuf>, scale_arg: Option<f32
     let executor = EngineDrawExecutor::new();
     let generated_cache = generated_image_cache_from_env();
 
-    let audio_track = build_audio_track_from_pipeline(&pipeline).context("failed to premix audio track")?;
+    let audio_track =
+        build_audio_track_from_pipeline(&pipeline).context("failed to premix audio track")?;
     let loop_sample_frames = composition_sample_frames(
         total_frames,
         fps,

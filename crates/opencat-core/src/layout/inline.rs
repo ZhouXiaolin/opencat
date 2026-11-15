@@ -54,7 +54,10 @@ pub(crate) struct Fragment {
 pub(crate) enum Placement {
     Text(Vec<Fragment>),
     /// 原子盒 margin box 左上角（容器内容区坐标）。
-    Atomic { x: f32, y: f32 },
+    Atomic {
+        x: f32,
+        y: f32,
+    },
     Skip,
 }
 
@@ -117,7 +120,8 @@ impl Measurer<'_, '_> {
         if trimmed.is_empty() {
             return 0.0;
         }
-        self.text(item, range.start..range.start + trimmed.len()).width
+        self.text(item, range.start..range.start + trimmed.len())
+            .width
     }
 
     fn part_width(&mut self, item: usize, range: Range<usize>) -> f32 {
@@ -301,7 +305,11 @@ fn segments(items: &[InlineItem<'_>], m: &mut Measurer<'_, '_>) -> Vec<Segment> 
         }
         spans.push((index, start..joined.len()));
     }
-    let span_at = |pos: usize| spans.iter().position(|(_, r)| r.start <= pos && pos < r.end);
+    let span_at = |pos: usize| {
+        spans
+            .iter()
+            .position(|(_, r)| r.start <= pos && pos < r.end)
+    };
 
     let mut out = Vec::new();
     let mut prev = 0usize;
@@ -314,9 +322,9 @@ fn segments(items: &[InlineItem<'_>], m: &mut Measurer<'_, '_>) -> Vec<Segment> 
             && pos > 0
             && pos < joined.len()
             && let (Some(before), Some(after)) = (span_at(pos - 1), span_at(pos))
-            && [before, after].into_iter().any(|span| {
-                matches!(items[spans[span].0], InlineItem::Text { nowrap: true, .. })
-            })
+            && [before, after]
+                .into_iter()
+                .any(|span| matches!(items[spans[span].0], InlineItem::Text { nowrap: true, .. }))
         {
             continue;
         }

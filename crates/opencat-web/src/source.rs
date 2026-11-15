@@ -12,7 +12,10 @@ use opencat_core::parse::document::ParsedComposition;
 /// the host supplies them via
 /// [`opencat_core::lifecycle::HostInputs::insert_document_font`] and core
 /// prepare merges them over the base font database (#19).
-pub fn parse_source(input: &str, _base_font_db: &fontdb::Database) -> anyhow::Result<ParsedComposition> {
+pub fn parse_source(
+    input: &str,
+    _base_font_db: &fontdb::Database,
+) -> anyhow::Result<ParsedComposition> {
     let trimmed = input.trim_start();
     if !trimmed.starts_with('{') {
         anyhow::bail!(

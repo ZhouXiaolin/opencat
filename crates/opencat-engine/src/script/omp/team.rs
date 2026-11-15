@@ -54,7 +54,11 @@ impl Team {
         let default_n = n.max(1);
         let mut pools = HashMap::new();
         pools.insert(default_n, Arc::new(build_pool(default_n)));
-        Self { factory, default_n, pools: Mutex::new(pools) }
+        Self {
+            factory,
+            default_n,
+            pools: Mutex::new(pools),
+        }
     }
 
     fn pool(&self, n: usize) -> Arc<rayon::ThreadPool> {
@@ -109,7 +113,10 @@ pub fn execute(
     prng: Arc<[f64]>,
     sched: &Schedule,
 ) -> Result<Vec<RowOut>, String> {
-    let nw = sched.num_threads.filter(|&k| k > 0).unwrap_or(team.default_n);
+    let nw = sched
+        .num_threads
+        .filter(|&k| k > 0)
+        .unwrap_or(team.default_n);
     let ys = team.run(nw, {
         let bundle = bundle.clone();
         let env_args = args_json.clone();
@@ -134,7 +141,11 @@ pub fn execute(
         return Ok(Vec::new());
     }
     if prng.len() % n != 0 {
-        return Err(format!("prng count {} not divisible by {} rows", prng.len(), n));
+        return Err(format!(
+            "prng count {} not divisible by {} rows",
+            prng.len(),
+            n
+        ));
     }
     let stride = prng.len() / n;
     let ys = Arc::new(ys);

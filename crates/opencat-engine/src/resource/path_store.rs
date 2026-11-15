@@ -47,8 +47,6 @@ impl AssetPathStore {
     }
 }
 
-
-
 /// 生成 cache 文件路径。统一 `.bin` 扩展名 —— 运行时不依赖扩展名，
 /// 格式由文件内容（image/video container header）决定。
 pub fn cache_file_path(cache_dir: &Path, id: &AssetId) -> PathBuf {

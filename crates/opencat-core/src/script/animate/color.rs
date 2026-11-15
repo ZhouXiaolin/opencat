@@ -189,5 +189,3 @@ pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     let b = (hue_to_rgb(h_norm - 1.0 / 3.0) * 255.0).round() as u8;
     (r, g, b)
 }
-
-

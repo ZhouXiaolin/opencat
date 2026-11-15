@@ -230,7 +230,8 @@ impl DomElement {
     pub fn id(&self) -> &str {
         match self {
             DomElement::Div { id, .. }
-            | DomElement::P { id, .. } | DomElement::Span { id, .. }
+            | DomElement::P { id, .. }
+            | DomElement::Span { id, .. }
             | DomElement::Canvas { id, .. }
             | DomElement::Image { id, .. }
             | DomElement::Video { id, .. }
@@ -268,7 +269,8 @@ impl DomElement {
     pub fn duration(&self) -> Option<f64> {
         match self {
             DomElement::Div { duration, .. }
-            | DomElement::P { duration, .. } | DomElement::Span { duration, .. }
+            | DomElement::P { duration, .. }
+            | DomElement::Span { duration, .. }
             | DomElement::Canvas { duration, .. }
             | DomElement::Image { duration, .. }
             | DomElement::Video { duration, .. }
@@ -387,10 +389,43 @@ impl DomElement {
 /// HTML 标签 → 静态字符串（tag 选择器输入需要 `&'static str`）。
 fn css_tag_static(tag: &str) -> &'static str {
     const TAGS: &[&str] = &[
-        "div", "section", "main", "header", "footer", "aside", "nav", "article", "figure",
-        "figcaption", "ul", "ol", "li", "table", "thead", "tbody", "tr", "td", "th", "button",
-        "form", "label", "a", "blockquote", "hr", "body", "html", "p", "span", "b", "strong",
-        "i", "em", "u", "small", "mark", "code",
+        "div",
+        "section",
+        "main",
+        "header",
+        "footer",
+        "aside",
+        "nav",
+        "article",
+        "figure",
+        "figcaption",
+        "ul",
+        "ol",
+        "li",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "td",
+        "th",
+        "button",
+        "form",
+        "label",
+        "a",
+        "blockquote",
+        "hr",
+        "body",
+        "html",
+        "p",
+        "span",
+        "b",
+        "strong",
+        "i",
+        "em",
+        "u",
+        "small",
+        "mark",
+        "code",
     ];
     TAGS.iter().find(|t| **t == tag).copied().unwrap_or("div")
 }
@@ -418,26 +453,68 @@ fn flow_level(el: &DomElement, ctx: &DomContext<'_>) -> FlowLevel {
     }
     let none: &[(String, String)] = &[];
     let (id, tag, class, inline_style, attrs) = match el {
-        DomElement::Span { id, class, style, ua_tag, .. } => {
-            (id.as_str(), ua_tag.as_deref().unwrap_or("span"), class, style, none)
-        }
-        DomElement::Div { id, class, style, ua_tag, attrs, .. } => (
+        DomElement::Span {
+            id,
+            class,
+            style,
+            ua_tag,
+            ..
+        } => (
+            id.as_str(),
+            ua_tag.as_deref().unwrap_or("span"),
+            class,
+            style,
+            none,
+        ),
+        DomElement::Div {
+            id,
+            class,
+            style,
+            ua_tag,
+            attrs,
+            ..
+        } => (
             id.as_str(),
             ua_tag.as_deref().map(css_tag_static).unwrap_or("div"),
             class,
             style,
             attrs.as_slice(),
         ),
-        DomElement::P { id, class, style, ua_tag, .. } => {
-            (id.as_str(), ua_tag.as_deref().unwrap_or("p"), class, style, none)
-        }
-        DomElement::Image { id, class, style, .. } => (id.as_str(), "image", class, style, none),
-        DomElement::Svg { id, class, style, .. } => (id.as_str(), "svg", class, style, none),
-        DomElement::Canvas { id, class, style, .. } => (id.as_str(), "canvas", class, style, none),
-        DomElement::Video { id, class, style, .. } => (id.as_str(), "video", class, style, none),
+        DomElement::P {
+            id,
+            class,
+            style,
+            ua_tag,
+            ..
+        } => (
+            id.as_str(),
+            ua_tag.as_deref().unwrap_or("p"),
+            class,
+            style,
+            none,
+        ),
+        DomElement::Image {
+            id, class, style, ..
+        } => (id.as_str(), "image", class, style, none),
+        DomElement::Svg {
+            id, class, style, ..
+        } => (id.as_str(), "svg", class, style, none),
+        DomElement::Canvas {
+            id, class, style, ..
+        } => (id.as_str(), "canvas", class, style, none),
+        DomElement::Video {
+            id, class, style, ..
+        } => (id.as_str(), "video", class, style, none),
         _ => return FlowLevel::Block,
     };
-    let style = resolve_style_for(id, tag, class.as_deref(), inline_style.as_deref(), attrs, ctx);
+    let style = resolve_style_for(
+        id,
+        tag,
+        class.as_deref(),
+        inline_style.as_deref(),
+        attrs,
+        ctx,
+    );
     if style.css_layout.as_ref().is_some_and(|css| {
         css.0.display == taffy::prelude::Display::None
             || css.0.position == taffy::prelude::Position::Absolute
@@ -448,7 +525,10 @@ fn flow_level(el: &DomElement, ctx: &DomContext<'_>) -> FlowLevel {
     let default_inline = INLINE_TAGS.contains(&tag)
         || matches!(
             el,
-            DomElement::Image { .. } | DomElement::Svg { .. } | DomElement::Canvas { .. } | DomElement::Video { .. }
+            DomElement::Image { .. }
+                | DomElement::Svg { .. }
+                | DomElement::Canvas { .. }
+                | DomElement::Video { .. }
         );
     if style.inline_level || (!style.display_block_level && default_inline) {
         FlowLevel::Inline
@@ -465,13 +545,15 @@ pub(crate) fn establishes_inline_flow(children: &[DomElement], ctx: &mut DomCont
     // br 正是行内流要处理的断点（`needs<br>different` 不入行内流就会被
     // 当块级堆叠，行距里多出一个空行盒）。
     let candidate = children.iter().any(|c| {
-        matches!(c, DomElement::Span { .. }
-            | DomElement::Div { .. }
-            | DomElement::Image { .. }
-            | DomElement::Svg { .. }
-            | DomElement::Canvas { .. }
-            | DomElement::Video { .. })
-            || line_break(c)
+        matches!(
+            c,
+            DomElement::Span { .. }
+                | DomElement::Div { .. }
+                | DomElement::Image { .. }
+                | DomElement::Svg { .. }
+                | DomElement::Canvas { .. }
+                | DomElement::Video { .. }
+        ) || line_break(c)
     });
     if !candidate {
         return false;
@@ -518,7 +600,10 @@ fn blank_text_run(el: &DomElement) -> bool {
 
 /// 匿名文本 run 裁掉行首（`lead`）/行尾（`trail`）的可折叠空白。
 fn trim_run(el: &mut DomElement, lead: bool, trail: bool) {
-    if let DomElement::P { ua_tag: None, text, .. } = el {
+    if let DomElement::P {
+        ua_tag: None, text, ..
+    } = el
+    {
         let ws = |c: char| c.is_whitespace() && c != '\u{a0}';
         let trimmed = match (lead, trail) {
             (true, true) => text.trim_matches(ws),
@@ -577,7 +662,11 @@ fn collapse_flow_spaces(children: Vec<(bool, Node)>) -> Vec<(bool, Node)> {
         }
         keep[slot] = false;
     }
-    children.into_iter().zip(keep).filter_map(|(child, keep)| keep.then_some(child)).collect()
+    children
+        .into_iter()
+        .zip(keep)
+        .filter_map(|(child, keep)| keep.then_some(child))
+        .collect()
 }
 
 /// 行内流按 `<br>` 分行，每行包成 `display:inline-block` 的匿名行盒；
@@ -719,7 +808,9 @@ pub fn composition_from_dom(
     collect_ids(doc.root.as_ref(), &mut ctx)?;
 
     let mut root = match doc.root {
-        Some(root) => build_node(root, &mut ctx)?.ok_or_else(|| anyhow::anyhow!("no root element found"))?,
+        Some(root) => {
+            build_node(root, &mut ctx)?.ok_or_else(|| anyhow::anyhow!("no root element found"))?
+        }
         None => anyhow::bail!("no root element found"),
     };
 
@@ -860,7 +951,8 @@ fn harvest_audio(
 }
 
 /// id 唯一性校验（一次性 DFS，替代旧扁平表上的 validate_unique_ids）。
-fn collect_ids(el: Option<&DomElement>, ctx: &mut DomContext<'_>) -> anyhow::Result<()> {    let Some(el) = el else { return Ok(()) };
+fn collect_ids(el: Option<&DomElement>, ctx: &mut DomContext<'_>) -> anyhow::Result<()> {
+    let Some(el) = el else { return Ok(()) };
     if el.id().is_empty() {
         return Ok(()); // transition 无 id
     }
@@ -991,24 +1083,23 @@ fn container_declared_size(style: &NodeStyle, parent: (f32, f32)) -> (f32, f32) 
         .unwrap_or(parent.1);
     let padding_x = style.padding_left.unwrap_or(0.0) + style.padding_right.unwrap_or(0.0);
     let padding_y = style.padding_top.unwrap_or(0.0) + style.padding_bottom.unwrap_or(0.0);
-    (
-        (width - padding_x).max(0.0),
-        (height - padding_y).max(0.0),
-    )
+    ((width - padding_x).max(0.0), (height - padding_y).max(0.0))
 }
 
 /// 子元素绝对定位 inset 的包含块：本元素声明的内容盒。auto 尺寸沿用父盒。
 fn container_child_box(style: &NodeStyle, parent: (f32, f32)) -> (f32, f32) {
     let horizontal = match (style.inset_left, style.inset_right) {
-        (Some(crate::style::LengthPercentageAuto::Length(left)), Some(crate::style::LengthPercentageAuto::Length(right))) => {
-            Some((parent.0 - left - right).max(0.0))
-        }
+        (
+            Some(crate::style::LengthPercentageAuto::Length(left)),
+            Some(crate::style::LengthPercentageAuto::Length(right)),
+        ) => Some((parent.0 - left - right).max(0.0)),
         _ => None,
     };
     let vertical = match (style.inset_top, style.inset_bottom) {
-        (Some(crate::style::LengthPercentageAuto::Length(top)), Some(crate::style::LengthPercentageAuto::Length(bottom))) => {
-            Some((parent.1 - top - bottom).max(0.0))
-        }
+        (
+            Some(crate::style::LengthPercentageAuto::Length(top)),
+            Some(crate::style::LengthPercentageAuto::Length(bottom)),
+        ) => Some((parent.1 - top - bottom).max(0.0)),
         _ => None,
     };
     let width = style
@@ -1023,17 +1114,10 @@ fn container_child_box(style: &NodeStyle, parent: (f32, f32)) -> (f32, f32) {
         .unwrap_or(parent.1);
     let padding_x = style.padding_left.unwrap_or(0.0) + style.padding_right.unwrap_or(0.0);
     let padding_y = style.padding_top.unwrap_or(0.0) + style.padding_bottom.unwrap_or(0.0);
-    (
-        (width - padding_x).max(0.0),
-        (height - padding_y).max(0.0),
-    )
+    ((width - padding_x).max(0.0), (height - padding_y).max(0.0))
 }
 
-fn attach_driver(
-    style: &mut NodeStyle,
-    el_id: &str,
-    ctx: &DomContext<'_>,
-) -> anyhow::Result<()> {
+fn attach_driver(style: &mut NodeStyle, el_id: &str, ctx: &DomContext<'_>) -> anyhow::Result<()> {
     if let Some(decls) = ctx.scripts_by_parent.get(el_id)
         && let Some(driver) = script_driver_from_decls(decls.clone())?
     {
@@ -1065,8 +1149,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             } else {
                 ua_tag.as_deref().map(css_tag_static).unwrap_or("div")
             };
-            let (mut style, vars) =
-                resolve_style_vars_for(&id, tag, class.as_deref(), inline_style.as_deref(), &attrs, ctx);
+            let (mut style, vars) = resolve_style_vars_for(
+                &id,
+                tag,
+                class.as_deref(),
+                inline_style.as_deref(),
+                &attrs,
+                ctx,
+            );
             // CSS 画布传播（css-backgrounds 文档根语义）：html/body 规则的
             // 背景传播到画布，与根元素自身声明的背景无关。tag 别名把
             // `html,body{…}` 压进根元素级联后，作者 id/inline 声明（如
@@ -1077,7 +1167,15 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             if is_html_root {
                 // 作者通道：tag 换 "div" 且临时摘掉别名，html/body 裸规则不命中。
                 let aliases = std::mem::take(&mut ctx.tag_aliases);
-                let author = resolve_style_vars_for(&id, "div", class.as_deref(), inline_style.as_deref(), &attrs, ctx).0;
+                let author = resolve_style_vars_for(
+                    &id,
+                    "div",
+                    class.as_deref(),
+                    inline_style.as_deref(),
+                    &attrs,
+                    ctx,
+                )
+                .0;
                 if author.bg_color.is_some() || !author.background_layers.is_empty() {
                     let tag_only = resolve_style_vars_for("", "body", None, None, &[], ctx).0;
                     style.bg_canvas_color = tag_only.bg_color;
@@ -1114,7 +1212,10 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             }
             if style.container_type.is_some() {
                 let parent = ctx.query_container.last().copied().unwrap_or_else(|| {
-                    let css = ctx.css.map(|engine| engine.viewport()).unwrap_or((1920.0, 1080.0));
+                    let css = ctx
+                        .css
+                        .map(|engine| engine.viewport())
+                        .unwrap_or((1920.0, 1080.0));
                     css
                 });
                 let containing_block = ctx.content_box.last().copied().unwrap_or(parent);
@@ -1123,10 +1224,11 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             }
             let child_box = container_child_box(
                 &style,
-                ctx.content_box
-                    .last()
-                    .copied()
-                    .unwrap_or_else(|| ctx.css.map(|engine| engine.viewport()).unwrap_or((1920.0, 1080.0))),
+                ctx.content_box.last().copied().unwrap_or_else(|| {
+                    ctx.css
+                        .map(|engine| engine.viewport())
+                        .unwrap_or((1920.0, 1080.0))
+                }),
             );
             ctx.content_box.push(child_box);
             let saved_siblings = std::mem::take(&mut ctx.prev_siblings);
@@ -1146,7 +1248,11 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             // 容器）在本元素里竖排。行高由 taffy 原生计入（父盒按真实行数
             // 居中），各行再按 text-align 定位（resolve 期 shrink-to-fit +
             // auto 边距）。行内 pass 只会单行串接。
-            let children = match style.inline_flow.then(|| wrap_lines(&id, &children)).flatten() {
+            let children = match style
+                .inline_flow
+                .then(|| wrap_lines(&id, &children))
+                .flatten()
+            {
                 Some(lines) => {
                     style.inline_flow = false;
                     lines
@@ -1263,8 +1369,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             height,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "canvas", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "canvas",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             // canvas 的 width/height 属性是固有尺寸（CSS 未给尺寸时生效），
             // 与浏览器一致：属性只提供默认盒，CSS 的 width/height 优先。
@@ -1318,8 +1430,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             height,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "image", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "image",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             let source = parse_image_source(path, url, query, query_count, aspect_ratio)?;
             let mut image_node = image();
@@ -1359,8 +1477,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             children,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "video", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "video",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             // 计时媒体同是 clip：窗外隐藏（timeline 的 act4 根级视频 21.0–26.7s
             // 窗外仍盖在 act5 之上）。
             if ctx.html_frontend {
@@ -1376,9 +1500,7 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             let color_matrix = match data_color_matrix.as_deref() {
                 None => None,
                 Some(token) => VideoColorMatrix::parse_token(token).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "dataColorMatrix must be auto, bt601, or bt709 (got `{token}`)"
-                    )
+                    anyhow::anyhow!("dataColorMatrix must be auto, bt601, or bt709 (got `{token}`)")
                 })?,
             };
             let timing = VideoFrameTiming {
@@ -1411,8 +1533,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             url,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "div",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             let source = match (path, url) {
                 (Some(p), None) => crate::parse::primitives::LottieSource::Path(p),
@@ -1440,8 +1568,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             view_box,
             ..
         } => {
-            let mut style =
-                resolve_style_for(&id, "path", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "path",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             let view_box = view_box.as_deref().map(parse_view_box_attr).transpose()?;
             let mut path_node = path(d);
@@ -1464,8 +1598,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
         } => {
             // 选择器按 svg 标签匹配（`#cursor svg { width: 100% }` 这类后代
             // 类型选择器）；按 div 匹配会让 svg 的 CSS 尺寸整条落空。
-            let mut style =
-                resolve_style_for(&id, "svg", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "svg",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
             // 内联 markup 不落盘、无文件语义：src 仅在文件模式参与 base_dir 解析。
             let resolved_src = if inline.is_some() {
@@ -1480,20 +1620,25 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             // 注入本体在 resolve 期执行（脚本 markup 覆盖之后），这里只把
             // 样式表与祖先链（远→近，翻转成匹配要的近→远）挂上节点。
             let inner_paint = match (inline.as_ref(), ctx.css) {
-                (Some(_), Some(engine)) => Some(std::sync::Arc::new(
-                    crate::parse::html::SvgInnerPaintCtx {
+                (Some(_), Some(engine)) => {
+                    Some(std::sync::Arc::new(crate::parse::html::SvgInnerPaintCtx {
                         sheet: engine.sheet_arc(),
                         host_ancestors: std::sync::Arc::new(
                             ctx.ancestors
                                 .iter()
                                 .rev()
                                 .map(|n| {
-                                    (n.tag.clone(), n.id.clone(), n.classes.clone(), n.attrs.clone())
+                                    (
+                                        n.tag.clone(),
+                                        n.id.clone(),
+                                        n.classes.clone(),
+                                        n.attrs.clone(),
+                                    )
                                 })
                                 .collect(),
                         ),
-                    },
-                )),
+                    }))
+                }
                 _ => None,
             };
             let mut svg_node = crate::parse::primitives::svg(resolved_src);
@@ -1512,7 +1657,14 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             children,
             ..
         } => {
-            let mut style = resolve_style_for(&id, "div", class.as_deref(), inline_style.as_deref(), &[], ctx);
+            let mut style = resolve_style_for(
+                &id,
+                "div",
+                class.as_deref(),
+                inline_style.as_deref(),
+                &[],
+                ctx,
+            );
             attach_driver(&mut style, &id, ctx)?;
 
             // 子元素分流：场景 vs transition（保持文档顺序）。
@@ -1532,8 +1684,11 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             }
 
             let child_ids: Vec<String> = scenes.iter().map(|c| c.id().to_string()).collect();
-            let child_positions: HashMap<String, usize> =
-                child_ids.iter().enumerate().map(|(i, id)| (id.clone(), i)).collect();
+            let child_positions: HashMap<String, usize> = child_ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| (id.clone(), i))
+                .collect();
 
             let mut transitions_by_pair: HashMap<(String, String), DomElement> = HashMap::new();
             for t in transitions {
@@ -1552,7 +1707,10 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
                     );
                 };
                 if to_idx != from_idx + 1 {
-                    let next_id = child_ids.get(from_idx + 1).map(String::as_str).unwrap_or("<end>");
+                    let next_id = child_ids
+                        .get(from_idx + 1)
+                        .map(String::as_str)
+                        .unwrap_or("<end>");
                     anyhow::bail!(
                         "transition `{from}` -> `{to}` is not between adjacent children (expected `{from}` -> `{next_id}`)"
                     );
@@ -1561,11 +1719,7 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
                     .insert((from.clone(), to.clone()), t)
                     .is_some()
                 {
-                    anyhow::bail!(
-                        "duplicate transition declared for `{}` -> `{}`",
-                        from,
-                        to
-                    );
+                    anyhow::bail!("duplicate transition declared for `{}` -> `{}`", from, to);
                 }
             }
 
@@ -1595,17 +1749,16 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
                     )
                 })?;
                 let next_start = windows.get(index + 1).and_then(|(start, _)| *start);
-                let (seg_len, overlap) =
-                    match (windows[index].0, next_start) {
-                        // 两端都声明起点：段长差分锚定，窗间重叠量留给 cut。
-                        (Some(cur), Some(next)) if next > cur => {
-                            (next - cursor_secs, Some((cur + duration - next).max(0.0)))
-                        }
-                        // 锚定链的尾段：窗长扣掉前一个过渡占的时间。
-                        (Some(_), None) => (duration - before_secs, None),
-                        // 未声明起点的场景保持窗长平铺（原行为）。
-                        _ => (duration, None),
-                    };
+                let (seg_len, overlap) = match (windows[index].0, next_start) {
+                    // 两端都声明起点：段长差分锚定，窗间重叠量留给 cut。
+                    (Some(cur), Some(next)) if next > cur => {
+                        (next - cursor_secs, Some((cur + duration - next).max(0.0)))
+                    }
+                    // 锚定链的尾段：窗长扣掉前一个过渡占的时间。
+                    (Some(_), None) => (duration - before_secs, None),
+                    // 未声明起点的场景保持窗长平铺（原行为）。
+                    _ => (duration, None),
+                };
                 let Some(node) = build_node(scene, ctx)? else {
                     continue;
                 };
@@ -1632,9 +1785,9 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             *kind.style_mut() = style;
             Ok(Some(Node::new(kind)))
         }
-        DomElement::Transition { .. } => anyhow::bail!(
-            "transition element must be a direct child of a `tl` node"
-        ),
+        DomElement::Transition { .. } => {
+            anyhow::bail!("transition element must be a direct child of a `tl` node")
+        }
         // audio 与 video 同类容错：正常路径被 harvest 收进音频池，但
         // seed 物化的 face 树把 audio 带进上报子树（运行期 appendChild
         // 重建）时会到达这里。audio 不渲染（解码走音频池），跳过不产
@@ -1672,14 +1825,22 @@ fn build_transition(transition: &DomElement) -> anyhow::Result<Transition> {
         "cut" | "none" => Ok(cut().timing(easing, duration)),
         "clock_wipe" => Ok(clock_wipe().timing(easing, duration)),
         "iris" => Ok(iris().timing(easing, duration)),
-        "slide" => match direction.as_deref().map(normalize_transition_name).as_deref() {
+        "slide" => match direction
+            .as_deref()
+            .map(normalize_transition_name)
+            .as_deref()
+        {
             None | Some("from_left") => Ok(slide().from_left().timing(easing, duration)),
             Some("from_right") => Ok(slide().from_right().timing(easing, duration)),
             Some("from_top") => Ok(slide().from_top().timing(easing, duration)),
             Some("from_bottom") => Ok(slide().from_bottom().timing(easing, duration)),
             Some(direction) => Err(anyhow::anyhow!("unsupported slide direction `{direction}`")),
         },
-        "wipe" => match direction.as_deref().map(normalize_transition_name).as_deref() {
+        "wipe" => match direction
+            .as_deref()
+            .map(normalize_transition_name)
+            .as_deref()
+        {
             None | Some("from_left") => Ok(wipe().from_left().timing(easing, duration)),
             Some("from_right") => Ok(wipe().from_right().timing(easing, duration)),
             Some("from_top") => Ok(wipe().from_top().timing(easing, duration)),
@@ -1743,7 +1904,10 @@ fn normalize_transition_name(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
 }
 
-fn resolve_audio_source(audio: DomAudio, ctx: &DomContext<'_>) -> anyhow::Result<CompositionAudioSource> {
+fn resolve_audio_source(
+    audio: DomAudio,
+    ctx: &DomContext<'_>,
+) -> anyhow::Result<CompositionAudioSource> {
     let attachment = if ctx.tl_ids.contains(audio.attach.as_str()) {
         AudioAttachment::Timeline
     } else if ctx.element_ids.contains(audio.attach.as_str()) {
@@ -1782,10 +1946,14 @@ fn parse_image_source(
     .count();
 
     if sources == 0 {
-        return Err(anyhow::anyhow!("image node requires one of: path, url, query"));
+        return Err(anyhow::anyhow!(
+            "image node requires one of: path, url, query"
+        ));
     }
     if sources > 1 {
-        return Err(anyhow::anyhow!("image node accepts only one source: path, url, or query"));
+        return Err(anyhow::anyhow!(
+            "image node accepts only one source: path, url, or query"
+        ));
     }
 
     if let Some(path) = path {

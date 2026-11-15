@@ -47,4 +47,3 @@ impl DisplayAnalysisTable {
         self.nodes.is_empty()
     }
 }
-

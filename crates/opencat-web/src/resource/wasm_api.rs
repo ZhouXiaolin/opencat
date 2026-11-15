@@ -10,11 +10,11 @@ use std::cell::RefCell;
 use wasm_bindgen::prelude::*;
 
 use anyhow::Context;
+use opencat_core::fonts::{FontSource, font_asset_id};
+use opencat_core::ir::asset_id::{AssetId, ResourceKind};
 use opencat_core::ir::asset_id::{asset_id_for_url, kind_from_canonical_str};
 use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::LottieSource;
-use opencat_core::ir::asset_id::{AssetId, ResourceKind};
-use opencat_core::fonts::{FontSource, font_asset_id};
 use opencat_core::probe::catalog::PreparedResourceCatalog;
 
 use crate::resource::blob_store::BlobStore;
@@ -62,7 +62,10 @@ fn font_manifest_from_source(source: &str) -> anyhow::Result<opencat_core::fonts
     let extract = envelope
         .get("extract")
         .ok_or_else(|| anyhow::anyhow!("web font manifest: envelope missing `extract`"))?;
-    let meta = extract.get("meta").cloned().unwrap_or(serde_json::Value::Null);
+    let meta = extract
+        .get("meta")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     opencat_core::parse::jsx::font_manifest_from_extract(extract, &meta)
 }
 
@@ -283,8 +286,7 @@ fn parse_lottie_meta(json: &str) -> anyhow::Result<opencat_core::lottie::LottieM
         assets: Vec<LottieAsset>,
     }
 
-    let root: LottieRoot =
-        serde_json::from_str(json).context("parse lottie json for meta")?;
+    let root: LottieRoot = serde_json::from_str(json).context("parse lottie json for meta")?;
 
     let dependencies = {
         let mut names = Vec::new();

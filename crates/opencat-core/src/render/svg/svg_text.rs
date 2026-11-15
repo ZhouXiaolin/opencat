@@ -43,9 +43,7 @@ fn baseline_shift(m: &FontTextMetrics, span: &usvg::TextSpan) -> f32 {
     shift += match span.alignment_baseline() {
         usvg::AlignmentBaseline::Auto | usvg::AlignmentBaseline::Baseline => {
             match span.dominant_baseline() {
-                usvg::DominantBaseline::Central => {
-                    m.ascent - (m.ascent - m.descent) * 0.5
-                }
+                usvg::DominantBaseline::Central => m.ascent - (m.ascent - m.descent) * 0.5,
                 usvg::DominantBaseline::Middle => m.x_height * 0.5,
                 usvg::DominantBaseline::Hanging => m.ascent * 0.8,
                 usvg::DominantBaseline::Mathematical => m.ascent * 0.5,
@@ -101,14 +99,33 @@ pub(super) fn render_text(
     // （frame-md 手写标注 'Just Another Hand' 消失的根因）。缺席或空库
     // （探测直调 emit_svg）回系统扫描。
     let scoped = crate::text::script_font_db();
-    let db: &fontdb::Database = if scoped.is_empty() { svg_font_db() } else { &scoped };
+    let db: &fontdb::Database = if scoped.is_empty() {
+        svg_font_db()
+    } else {
+        &scoped
+    };
     if std::env::var("OC_SVG_TEXT_DEBUG").is_ok() {
-        let first = text.chunks().first().map(|c| c.text().to_string()).unwrap_or_default();
-        eprintln!("[svg_text] chunks={} first={:?} scoped_faces={}", text.chunks().len(), first, scoped.faces().count());
+        let first = text
+            .chunks()
+            .first()
+            .map(|c| c.text().to_string())
+            .unwrap_or_default();
+        eprintln!(
+            "[svg_text] chunks={} first={:?} scoped_faces={}",
+            text.chunks().len(),
+            first,
+            scoped.faces().count()
+        );
         if let Some(chunk) = text.chunks().first() {
             for span in chunk.spans() {
                 let s = span_style(span, db);
-                eprintln!("[svg_text] span families={:?} -> family={:?} stack={:?} generic={:?}", span.font().families(), s.font_family, s.font_stack, s.font_generic);
+                eprintln!(
+                    "[svg_text] span families={:?} -> family={:?} stack={:?} generic={:?}",
+                    span.font().families(),
+                    s.font_family,
+                    s.font_stack,
+                    s.font_generic
+                );
             }
         }
     }
@@ -368,7 +385,9 @@ fn layout_chunk(
         if thick <= 0.0 {
             continue;
         }
-        let flat = run.iter().all(|p| p.rotate == 0.0 && p.y == start_y + seg.shift);
+        let flat = run
+            .iter()
+            .all(|p| p.rotate == 0.0 && p.y == start_y + seg.shift);
         for (dy_dec, style) in lines.into_iter().flatten() {
             if flat {
                 let w = seg.width * stretch;
@@ -449,7 +468,10 @@ fn layout_chunk(
         }
     }
 
-    (start_x + base + pen + dxs.last().copied().unwrap_or(0.0), start_y)
+    (
+        start_x + base + pen + dxs.last().copied().unwrap_or(0.0),
+        start_y,
+    )
 }
 
 /// 一段装饰线矩形：基线原点 (cx, cy)，随 rot 旋转（同 glyph_ops 的旋转
@@ -593,13 +615,7 @@ fn span_style(span: &usvg::TextSpan, db: &fontdb::Database) -> ComputedTextStyle
 
 /// 轮廓（px 域，y 向上，相对 baseline）→ 旋转/平移后的 PathOp（y 向下系）。
 /// 旋转绕 baseline 原点，正角顺时针；`xscale` 供 SpacingAndGlyphs 拉伸。
-fn glyph_ops(
-    outline: &[Command],
-    rotate_deg: f32,
-    xscale: f32,
-    tx: f32,
-    ty: f32,
-) -> Vec<PathOp> {
+fn glyph_ops(outline: &[Command], rotate_deg: f32, xscale: f32, tx: f32, ty: f32) -> Vec<PathOp> {
     let (sin, cos) = if rotate_deg == 0.0 {
         (0.0, 1.0)
     } else {

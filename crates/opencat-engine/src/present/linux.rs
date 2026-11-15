@@ -7,16 +7,16 @@
 
 use std::ffi::c_void;
 
-use anyhow::{Result, anyhow};
 use crate::gpu::TextureRegistry;
 use crate::gpu::egl::EglContext;
+use anyhow::{Result, anyhow};
 use skia_safe::{
     ColorType,
     gpu::{self, SurfaceOrigin, backend_render_targets, gl},
 };
 
-use crate::render::frame::GpuImageResolver;
 use crate::gpu::compositor::CompositorResolver;
+use crate::render::frame::GpuImageResolver;
 
 /// 宿主窗口句柄。两者都来自 `raw-window-handle` 的 Xlib 句柄。
 pub struct WindowHandle {
@@ -119,10 +119,7 @@ impl Presenter {
     pub fn with_canvas_and_resolver(
         &mut self,
         textures: &TextureRegistry,
-        f: &mut dyn FnMut(
-            &mut skia_safe::Canvas,
-            Option<&mut dyn GpuImageResolver>,
-        ) -> Result<()>,
+        f: &mut dyn FnMut(&mut skia_safe::Canvas, Option<&mut dyn GpuImageResolver>) -> Result<()>,
     ) -> Result<()> {
         // canvas 与 skia 是不同字段，可并存借用（同 `GpuCompositor::split`）。
         let surface = self.current_surface.as_mut().ok_or_else(|| {

@@ -199,7 +199,8 @@ fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
     node.backdrop_filter_image.hash(hasher);
     node.transform.transforms.hash(hasher);
     node.transform.backface_hidden.hash(hasher);
-    node.transform.rotation_m4.map(|m| m.0.map(F32Hash)).hash(hasher);
+    node.transform
+        .rotation_m4
+        .map(|m| m.0.map(F32Hash))
+        .hash(hasher);
 }
-
-

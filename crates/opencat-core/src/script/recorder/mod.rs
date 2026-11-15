@@ -6,8 +6,8 @@
 
 mod store;
 
-pub(crate) use store::css_filter_to_value;
 pub use store::MutationStore;
+pub(crate) use store::css_filter_to_value;
 
 use crate::ir::draw_op::DrawOp;
 use crate::script::ScriptTextSource;
@@ -124,7 +124,12 @@ pub trait MutationRecorder {
 
     /// 运行期 `appendChild` 上报的宿主子树覆盖（html 通道）。默认 no-op：
     /// 不承载 DOM 结构的录制器（布局探针、预计算快照）无需关心。
-    fn record_child_override(&mut self, _host_id: &str, _override: crate::script::mutations::ChildOverride) {}
+    fn record_child_override(
+        &mut self,
+        _host_id: &str,
+        _override: crate::script::mutations::ChildOverride,
+    ) {
+    }
 
     fn record_canvas_runtime_effect(
         &mut self,
@@ -148,14 +153,24 @@ pub trait MutationRecorder {
     /// Script-side DOM overlay (dynamic nodes + per-frame child views).
     /// Recorders that do not model a tree return `None` and the tree bindings
     /// report that they are unavailable.
-    fn tree_overlay(&self) -> Option<&crate::script::tree::TreeOverlay> { None }
-    fn tree_overlay_mut(&mut self) -> Option<&mut crate::script::tree::TreeOverlay> { None }
+    fn tree_overlay(&self) -> Option<&crate::script::tree::TreeOverlay> {
+        None
+    }
+    fn tree_overlay_mut(&mut self) -> Option<&mut crate::script::tree::TreeOverlay> {
+        None
+    }
 
     /// Resolved text style per declared node, from the declarative tree.
     /// `getBoundingClientRect` shapes text to answer a box, and shaping needs
     /// the style; recorders that do not shape keep the default no-op.
-    fn set_text_styles(&mut self, _styles: &std::collections::HashMap<String, crate::style::ComputedTextStyle>) {}
-    fn text_style(&self, _id: &str) -> Option<&crate::style::ComputedTextStyle> { None }
+    fn set_text_styles(
+        &mut self,
+        _styles: &std::collections::HashMap<String, crate::style::ComputedTextStyle>,
+    ) {
+    }
+    fn text_style(&self, _id: &str) -> Option<&crate::style::ComputedTextStyle> {
+        None
+    }
     fn effective_text_style(&self, _id: &str) -> crate::style::ComputedTextStyle {
         Default::default()
     }

@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use rquickjs::{Array, Context, Ctx, Function, Object, Persistent, Runtime, TypedArray, Value, function::Args};
+use rquickjs::{
+    Array, Context, Ctx, Function, Object, Persistent, Runtime, TypedArray, Value, function::Args,
+};
 
 use super::protocol::{Bundle, FrameEnv, IsolateWrite, JsWorker, RowOut};
 use crate::script::quickjs::{exception, from_json};
@@ -40,7 +42,11 @@ impl RqWorker {
         // exceeded，整条循环静默降级成串行。对齐到 1 MiB 以上。
         runtime.set_max_stack_size(4 * 1024 * 1024);
         let context = Context::full(&runtime).expect("rquickjs context");
-        Self { runtime, context, bundles: HashMap::new() }
+        Self {
+            runtime,
+            context,
+            bundles: HashMap::new(),
+        }
     }
 }
 
@@ -59,7 +65,8 @@ fn call_variadic<'js, R: rquickjs::FromJs<'js>>(
 ) -> Result<R, String> {
     let mut args = Args::new(ctx.clone(), argv.len());
     for a in argv {
-        args.push_arg(a).map_err(|_| "arg push failed".to_string())?;
+        args.push_arg(a)
+            .map_err(|_| "arg push failed".to_string())?;
     }
     args.apply(f).map_err(|_| "call failed".to_string())
 }
@@ -72,7 +79,11 @@ fn ensure_caps<'a>(
     args_json: &Arc<str>,
 ) -> Result<&'a mut BundleInst, String> {
     if let Some(inst) = bundles.get_mut(bundle.key.as_ref()) {
-        if inst.caps_key.as_ref().is_some_and(|k| Arc::ptr_eq(k, args_json)) {
+        if inst
+            .caps_key
+            .as_ref()
+            .is_some_and(|k| Arc::ptr_eq(k, args_json))
+        {
             return Ok(inst);
         }
     }
@@ -92,8 +103,11 @@ fn ensure_caps<'a>(
     let f: Function = set_caps
         .restore(ctx)
         .map_err(|_| "setCaps restore failed".to_string())?;
-    let _: Value = call_variadic(ctx, &f, argv).map_err(|_| exception(ctx, "setCaps").to_string())?;
-    let inst = bundles.get_mut(bundle.key.as_ref()).expect("inst re-borrow");
+    let _: Value =
+        call_variadic(ctx, &f, argv).map_err(|_| exception(ctx, "setCaps").to_string())?;
+    let inst = bundles
+        .get_mut(bundle.key.as_ref())
+        .expect("inst re-borrow");
     inst.caps_key = Some(args_json.clone());
     Ok(inst)
 }
@@ -109,7 +123,8 @@ impl JsWorker for RqWorker {
             let value: Value = ctx
                 .eval(src.as_ref())
                 .map_err(|_| exception(&ctx, "bundle eval").to_string())?;
-            let obj = Object::from_value(value).map_err(|_| "bundle result not object".to_string())?;
+            let obj =
+                Object::from_value(value).map_err(|_| "bundle result not object".to_string())?;
             let member = |name: &str| -> Result<Persistent<Function<'static>>, String> {
                 let f: Function = obj
                     .get(name)
@@ -129,7 +144,9 @@ impl JsWorker for RqWorker {
     }
 
     fn run_header(&mut self, bundle: &Bundle, env: &FrameEnv) -> Result<Vec<f64>, String> {
-        let Self { context, bundles, .. } = self;
+        let Self {
+            context, bundles, ..
+        } = self;
         context.with(|ctx| -> Result<Vec<f64>, String> {
             let inst = ensure_caps(&ctx, bundles, bundle, &env.args_json)?;
             let header: Function = inst
@@ -137,7 +154,9 @@ impl JsWorker for RqWorker {
                 .clone()
                 .restore(&ctx)
                 .map_err(|_| "header restore failed".to_string())?;
-            let result: Value = header.call(()).map_err(|_| exception(&ctx, "header").to_string())?;
+            let result: Value = header
+                .call(())
+                .map_err(|_| exception(&ctx, "header").to_string())?;
             let arr =
                 Array::from_value(result).map_err(|_| "header result not array".to_string())?;
             let mut ys = Vec::with_capacity(arr.len());
@@ -159,7 +178,9 @@ impl JsWorker for RqWorker {
         row: usize,
         row_val: f64,
     ) -> Result<RowOut, String> {
-        let Self { context, bundles, .. } = self;
+        let Self {
+            context, bundles, ..
+        } = self;
         context.with(|ctx| -> Result<RowOut, String> {
             let inst = ensure_caps(&ctx, bundles, bundle, &env.args_json)?;
 

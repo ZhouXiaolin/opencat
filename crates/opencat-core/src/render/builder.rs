@@ -176,5 +176,3 @@ impl DrawOpBuilder {
 pub struct RangeMarker {
     start: u32,
 }
-
-

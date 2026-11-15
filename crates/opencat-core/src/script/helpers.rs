@@ -88,7 +88,9 @@ fn default_tile_mode() -> TileModeName {
 impl ScriptChildSpec {
     /// SKSL / wire 侧的 child 形态（putImageData 烘成的 generated image 或
     /// 静态资产/子树 picture）。
-    pub fn to_script_child(&self) -> anyhow::Result<crate::ir::draw_types::ScriptRuntimeEffectChild> {
+    pub fn to_script_child(
+        &self,
+    ) -> anyhow::Result<crate::ir::draw_types::ScriptRuntimeEffectChild> {
         let child = match self {
             ScriptChildSpec::Image { asset_id, .. } => {
                 crate::ir::draw_types::ScriptRuntimeEffectChild::Image(
@@ -117,5 +119,3 @@ impl ScriptChildSpec {
 pub fn parse_script_children(json: &str) -> Result<Vec<ScriptChildSpec>, anyhow::Error> {
     serde_json::from_str(json).map_err(|e| anyhow::anyhow!("children_json decode: {e}"))
 }
-
-

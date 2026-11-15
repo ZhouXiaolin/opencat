@@ -8,17 +8,17 @@
 //! 求值层已把 var()/calc() 化简成字面值，这里只面对强类型；无法换算的
 //! 单位（em 等需要排版上下文）按既有惯例退回 auto/初始值。
 
+use lightningcss::properties::Property;
+use lightningcss::properties::align::ContentPosition as ContentPositionKeyword;
 use lightningcss::properties::align::{
     AlignContent, AlignItems, AlignSelf, ContentDistribution, GapValue, JustifyContent,
     JustifyItems, JustifySelf, SelfPosition,
 };
-use lightningcss::properties::align::ContentPosition as ContentPositionKeyword;
 use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword};
 use lightningcss::properties::grid::{
     GridAutoFlow as CssGridAutoFlow, GridLine, RepeatCount, TrackBreadth, TrackListItem, TrackSize,
 };
 use lightningcss::properties::size::{MaxSize, Size};
-use lightningcss::properties::Property;
 use lightningcss::values::length::{LengthPercentage, LengthPercentageOrAuto, LengthValue};
 
 use super::EvalContext;
@@ -91,8 +91,18 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
         Property::Inset(v) => {
             // `inset: 0` 简写（tailwind inset-0 / inset-x-* 的产物）。
             apply_inset(&mut style.inset.top, &mut style.margin.top, &v.top, ctx);
-            apply_inset(&mut style.inset.right, &mut style.margin.right, &v.right, ctx);
-            apply_inset(&mut style.inset.bottom, &mut style.margin.bottom, &v.bottom, ctx);
+            apply_inset(
+                &mut style.inset.right,
+                &mut style.margin.right,
+                &v.right,
+                ctx,
+            );
+            apply_inset(
+                &mut style.inset.bottom,
+                &mut style.margin.bottom,
+                &v.bottom,
+                ctx,
+            );
             apply_inset(&mut style.inset.left, &mut style.margin.left, &v.left, ctx);
         }
         Property::Width(v) => {
@@ -131,13 +141,9 @@ pub(crate) fn apply_property(style: &mut Style, p: &Property, ctx: &EvalContext)
         }
         Property::MarginTop(v) => style.margin.top = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO),
         Property::MarginRight(v) => style.margin.right = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO),
-        Property::MarginBottom(v) => {
-            style.margin.bottom = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO)
-        }
+        Property::MarginBottom(v) => style.margin.bottom = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO),
         Property::MarginLeft(v) => style.margin.left = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO),
-        Property::MarginInlineEnd(v) => {
-            style.margin.right = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO)
-        }
+        Property::MarginInlineEnd(v) => style.margin.right = lpa(v, ctx).unwrap_or(TaffyLPA::ZERO),
         Property::FlexDirection(v, _) => {
             use lightningcss::properties::flex::FlexDirection as Css;
             style.flex_direction = match v {
@@ -312,9 +318,17 @@ fn map_align_items(v: &AlignItems) -> Option<TaffyAlignItems> {
     let keyword = match v {
         AlignItems::Normal | AlignItems::Stretch => AlignItemsKeyword::Stretch,
         AlignItems::BaselinePosition(_) => AlignItemsKeyword::Baseline,
-        AlignItems::SelfPosition { value, .. } => return self_keyword(value).map(|k| TaffyAlignItems { keyword: k, safety: AlignmentSafety::Unsafe }),
+        AlignItems::SelfPosition { value, .. } => {
+            return self_keyword(value).map(|k| TaffyAlignItems {
+                keyword: k,
+                safety: AlignmentSafety::Unsafe,
+            });
+        }
     };
-    Some(TaffyAlignItems { keyword, safety: AlignmentSafety::Unsafe })
+    Some(TaffyAlignItems {
+        keyword,
+        safety: AlignmentSafety::Unsafe,
+    })
 }
 
 fn map_align_self(v: &AlignSelf) -> Option<TaffyAlignItems> {
@@ -322,7 +336,10 @@ fn map_align_self(v: &AlignSelf) -> Option<TaffyAlignItems> {
         AlignSelf::Auto => None,
         AlignSelf::Normal | AlignSelf::Stretch => Some(TaffyAlignItems::STRETCH),
         AlignSelf::BaselinePosition(_) => Some(TaffyAlignItems::BASELINE),
-        AlignSelf::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems { keyword: k, safety: AlignmentSafety::Unsafe }),
+        AlignSelf::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems {
+            keyword: k,
+            safety: AlignmentSafety::Unsafe,
+        }),
     }
 }
 
@@ -330,7 +347,10 @@ fn map_justify_items(v: &JustifyItems) -> Option<TaffyAlignItems> {
     match v {
         JustifyItems::Normal | JustifyItems::Stretch => Some(TaffyAlignItems::STRETCH),
         JustifyItems::BaselinePosition(_) => Some(TaffyAlignItems::BASELINE),
-        JustifyItems::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems { keyword: k, safety: AlignmentSafety::Unsafe }),
+        JustifyItems::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems {
+            keyword: k,
+            safety: AlignmentSafety::Unsafe,
+        }),
         _ => None,
     }
 }
@@ -340,7 +360,10 @@ fn map_justify_self(v: &JustifySelf) -> Option<TaffyAlignItems> {
         JustifySelf::Auto => None,
         JustifySelf::Normal | JustifySelf::Stretch => Some(TaffyAlignItems::STRETCH),
         JustifySelf::BaselinePosition(_) => Some(TaffyAlignItems::BASELINE),
-        JustifySelf::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems { keyword: k, safety: AlignmentSafety::Unsafe }),
+        JustifySelf::SelfPosition { value, .. } => self_keyword(value).map(|k| TaffyAlignItems {
+            keyword: k,
+            safety: AlignmentSafety::Unsafe,
+        }),
         _ => None,
     }
 }
@@ -439,9 +462,7 @@ fn track_max(b: &TrackBreadth, ctx: &EvalContext) -> MaxTrackSizingFunction {
 fn map_grid_line(line: &GridLine) -> taffy::style::GridPlacement {
     match line {
         GridLine::Auto => taffy::style::GridPlacement::Auto,
-        GridLine::Line { index, .. } => {
-            taffy::style::GridPlacement::from_line_index(*index as i16)
-        }
+        GridLine::Line { index, .. } => taffy::style::GridPlacement::from_line_index(*index as i16),
         GridLine::Span { index, .. } => {
             taffy::style::GridPlacement::from_span(u16::try_from((*index).max(0)).unwrap_or(1))
         }
@@ -535,15 +556,15 @@ fn apply_inset(
 fn lpa(v: &LengthPercentageOrAuto, ctx: &EvalContext) -> Option<TaffyLPA> {
     match v {
         LengthPercentageOrAuto::Auto => Some(TaffyLPA::auto()),
-        LengthPercentageOrAuto::LengthPercentage(inner) => {
-            lp(inner, ctx).map(TaffyLPA::from)
-        }
+        LengthPercentageOrAuto::LengthPercentage(inner) => lp(inner, ctx).map(TaffyLPA::from),
     }
 }
 
-
 /// 边框宽度 → taffy 长度；非长度值（thin/medium/thick）按 CSS 计算值取中。
-fn side_px(v: &lightningcss::properties::border::BorderSideWidth, ctx: &EvalContext) -> taffy::style::LengthPercentage {
+fn side_px(
+    v: &lightningcss::properties::border::BorderSideWidth,
+    ctx: &EvalContext,
+) -> taffy::style::LengthPercentage {
     use lightningcss::properties::border::BorderSideWidth;
     match v {
         BorderSideWidth::Length(l) => taffy::style::LengthPercentage::length(match l {
@@ -565,9 +586,9 @@ fn dim(v: &LengthPercentageOrAuto, ctx: &EvalContext) -> Dimension {
 
 fn dim_lp(v: &LengthPercentage, ctx: &EvalContext) -> Dimension {
     match v {
-        LengthPercentage::Dimension(unit) => {
-            length_px(unit, ctx).map(Dimension::length).unwrap_or_else(Dimension::auto)
-        }
+        LengthPercentage::Dimension(unit) => length_px(unit, ctx)
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
         LengthPercentage::Percentage(p) => Dimension::percent(p.0),
         // 纯像素/纯百分比的 calc（`calc(1.78em + 82px)`）化简后落地；px 与 %
         // 混合 taffy 表达不了，退回 auto。
@@ -583,9 +604,9 @@ fn dim_lp(v: &LengthPercentage, ctx: &EvalContext) -> Dimension {
 /// 等关键字表达不了，退回 auto（taffy 对 auto min 本身就有 content 语义）。
 fn size_lpa(v: &Size, ctx: &EvalContext) -> TaffyLPA {
     match v {
-        Size::LengthPercentage(inner) => {
-            lp(inner, ctx).map(TaffyLPA::from).unwrap_or_else(TaffyLPA::auto)
-        }
+        Size::LengthPercentage(inner) => lp(inner, ctx)
+            .map(TaffyLPA::from)
+            .unwrap_or_else(TaffyLPA::auto),
         _ => TaffyLPA::auto(),
     }
 }
@@ -593,9 +614,9 @@ fn size_lpa(v: &Size, ctx: &EvalContext) -> TaffyLPA {
 /// max-width/max-height：`none` → auto。
 fn max_size_lpa(v: &MaxSize, ctx: &EvalContext) -> TaffyLPA {
     match v {
-        MaxSize::LengthPercentage(inner) => {
-            lp(inner, ctx).map(TaffyLPA::from).unwrap_or_else(TaffyLPA::auto)
-        }
+        MaxSize::LengthPercentage(inner) => lp(inner, ctx)
+            .map(TaffyLPA::from)
+            .unwrap_or_else(TaffyLPA::auto),
         _ => TaffyLPA::auto(),
     }
 }
@@ -610,9 +631,7 @@ fn gap_value(v: &GapValue, ctx: &EvalContext) -> TaffyLP {
 /// padding 落到 taffy 时 auto 无意义，按浏览器行为记 0。
 fn lpa_to_lp(v: &LengthPercentageOrAuto, ctx: &EvalContext) -> TaffyLP {
     match v {
-        LengthPercentageOrAuto::LengthPercentage(inner) => {
-            lp(inner, ctx).unwrap_or(TaffyLP::ZERO)
-        }
+        LengthPercentageOrAuto::LengthPercentage(inner) => lp(inner, ctx).unwrap_or(TaffyLP::ZERO),
         _ => TaffyLP::ZERO,
     }
 }

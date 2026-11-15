@@ -9,7 +9,6 @@
 //! 坐标推导等需要绝对矩阵时从它读，op 流里的 Concat 与它同步推进。
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use tiny_skia_path::{PathSegment, Transform};
@@ -32,18 +31,18 @@ mod svg_text;
 // Tree 加载与缓存
 // ---------------------------------------------------------------------------
 
-/// 进程级树缓存：一个 svg 路径解析一次。渲染进程是短命的（一条命令一组
-/// 帧），Mutex 争用可以忽略。键带解析字体库身份（见 parse_tree）。
-static TREE_CACHE: OnceLock<Mutex<HashMap<(PathBuf, usize), Arc<usvg::Tree>>>> = OnceLock::new();
-
 /// 内联 markup（`<svg inline>`）的树缓存：键是 (markup 内容哈希, 解析字
 /// 体库身份)——同一图标每帧重建字符串，哈希稳定即命中，免逐帧重解析。
+/// 文件文档（`<svg src>`）的树挂在宿主交回的
+/// [`crate::svg_asset::SvgDocument`] 上，不走这里。
 static INLINE_TREE_CACHE: OnceLock<Mutex<HashMap<(u64, usize), Arc<usvg::Tree>>>> = OnceLock::new();
 
 /// scoped 文档库（core 文本栈的 fontdb 0.23）→ usvg 解析侧 fontdb 0.24
 /// 的换轨缓存：键是 0.23 库的 Arc 指针，entry 同时持 0.23 克隆（指针不被
 /// 释放复用）与 0.24 换轨产物——同一文档库只换轨一次。
-static USVG_DB_CACHE: OnceLock<Mutex<HashMap<usize, (Arc<fontdb::Database>, Arc<usvg::fontdb::Database>)>>> = OnceLock::new();
+static USVG_DB_CACHE: OnceLock<
+    Mutex<HashMap<usize, (Arc<fontdb::Database>, Arc<usvg::fontdb::Database>)>>,
+> = OnceLock::new();
 
 /// 把 scoped 库的全部 face 字节复刻进 usvg 侧 0.24 库。fontdb 双版本并存
 /// （0.23=cosmic-text 0.19，0.24=usvg 0.48），Arc 无法共享；换轨只取字节
@@ -99,21 +98,32 @@ fn usvg_db_of(doc: &Arc<fontdb::Database>) -> Arc<usvg::fontdb::Database> {
         }
     }
     let db = Arc::new(db);
-    if let Ok(mut c) = USVG_DB_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+    if let Ok(mut c) = USVG_DB_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+    {
         c.insert(id, (doc.clone(), db.clone()));
     }
     db
 }
 
-fn parse_tree(text: &str, resources_dir: Option<PathBuf>) -> Option<usvg::Tree> {
+fn parse_tree(text: &str, hrefs: &HashMap<String, Arc<[u8]>>) -> Option<usvg::Tree> {
     let mut opt = usvg::Options::default();
-    opt.resources_dir = resources_dir;
+    // 外部 `<image href>` 只认宿主预读交回的字节。core 不读盘、不联网；
+    // 缺席的引用让 usvg 丢弃该 image 节点（浏览器 404 语义）。
+    opt.image_href_resolver = usvg::ImageHrefResolver {
+        resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+        resolve_string: Box::new(move |href, opts| {
+            let bytes = hrefs.get(href)?;
+            image_kind_of(href, bytes, opts)
+        }),
+    };
     // 解析字体库：fork 版 usvg 在解析期就做文本布局（tree/text.rs convert
     // → layout_text + flatten），布局失败整个 `<text>` 节点被静默丢弃。
     // 库里没有的族不能只落系统字体——frame 渲染/resolve 都在 `scope_font_db`
     // 作用域内（pipeline/frame.rs），inline svg 必须借它看见文档 @font-face
     // （frame-md 手写标注 'Just Another Hand' 消失的根因）。作用域缺席时
-    // （img 语义 rasterize_svg、探测直调）回系统扫描：浏览器里 `<img>` svg
+    // （img 语义 parse_img、探测直调）回系统扫描：浏览器里 `<img>` svg
     // 本就隔离文档字体，系统字体是那边的正确口径。
     let scoped = crate::text::script_font_db();
     opt.fontdb = if scoped.is_empty() {
@@ -172,6 +182,31 @@ fn parse_tree(text: &str, resources_dir: Option<PathBuf>) -> Option<usvg::Tree> 
     usvg::Tree::from_str(&patch_zero_size_root(text), &opt).ok()
 }
 
+/// 预读交回的编码字节 → usvg image kind。字节格式由魔数判定；文本形态
+/// 按嵌套 svg 解析（SVG 规范：嵌套文档忽略其外部引用）。
+fn image_kind_of(href: &str, bytes: &[u8], opt: &usvg::Options) -> Option<ImageKind> {
+    let bitmap = |kind: fn(Arc<Vec<u8>>) -> ImageKind| Some(kind(Arc::new(bytes.to_vec())));
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return bitmap(ImageKind::PNG);
+    }
+    if bytes.starts_with(&[0xFF, 0xD8]) {
+        return bitmap(ImageKind::JPEG);
+    }
+    if bytes.starts_with(b"GIF8") {
+        return bitmap(ImageKind::GIF);
+    }
+    if bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        return bitmap(ImageKind::WEBP);
+    }
+    if std::str::from_utf8(bytes).is_ok_and(|text| text.trim_start().starts_with('<')) {
+        return usvg::Tree::from_data_nested(bytes, opt)
+            .ok()
+            .map(ImageKind::SVG);
+    }
+    log::warn!("svg: `{href}` is not a PNG, JPEG, GIF, WebP or SVG image");
+    None
+}
+
 /// 根 `<svg …>` 标签里 width/height 为 0 时替换为 1(引号双形态)。其余
 /// 原样返回——重试只发生在首次解析失败之后,不影响正常形态。
 fn patch_zero_size_root(text: &str) -> String {
@@ -205,28 +240,17 @@ fn patch_zero_size_root(text: &str) -> String {
     format!("{}{}{}", &text[..name_end], patched, &text[head_end..])
 }
 
-/// 解析并缓存一棵树。`src` 是 svg 文件路径；相对引用（`<image href>`）相对
-/// 它自身目录解析（PLAN §4），由 `resources_dir` 保证。
-///
-/// 缓存键带解析字体库身份（Arc 指针；entry 持 Arc 引用计数，指针不可能
-/// 被释放复用）——同一文件/markup 在不同文档字体集下解析出的树不同
-/// （fork usvg 解析期文本布局，见 parse_tree）。
-pub fn load_tree(src: &Path) -> Option<Arc<usvg::Tree>> {
-    let db = crate::text::script_font_db();
-    let db_id = Arc::as_ptr(&db) as usize;
-    let key = (src.to_path_buf(), db_id);
-    let cache = TREE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Some(tree) = cache.lock().ok()?.get(&key) {
-        return Some(tree.clone());
-    }
-    let text = std::fs::read_to_string(src).ok()?;
-    let tree = Arc::new(parse_tree(&text, src.parent().map(|d| d.to_path_buf()))?);
-    cache.lock().ok()?.insert(key, tree.clone());
-    Some(tree)
+/// 解析宿主交回的文档（markup + 外部引用字节）。缓存由
+/// [`crate::svg_asset::SvgDocument`] 持有。
+pub(crate) fn parse_document(
+    markup: &str,
+    hrefs: &HashMap<String, Arc<[u8]>>,
+) -> Option<usvg::Tree> {
+    parse_tree(markup, hrefs)
 }
 
 /// 解析内联 svg markup 并按内容哈希缓存。内联串没有文件语义：无
-/// resources_dir（外部引用无处可解，lucide/react 图标也不需要）。
+/// 外部引用（lucide/react 图标是自包含的）。
 pub fn load_tree_markup(markup: &str) -> Option<Arc<usvg::Tree>> {
     use std::hash::{Hash, Hasher};
     let db = crate::text::script_font_db();
@@ -241,7 +265,7 @@ pub fn load_tree_markup(markup: &str) -> Option<Arc<usvg::Tree>> {
         return Some(tree.clone());
     }
     let normalized = normalize_style_transforms(markup);
-    let tree = Arc::new(parse_tree(&normalized, None)?);
+    let tree = Arc::new(parse_tree(&normalized, &HashMap::new())?);
     cache.lock().ok()?.insert(key, tree.clone());
     Some(tree)
 }
@@ -297,7 +321,11 @@ fn rewrite_transform_decls(value: &str) -> String {
             None => parts.push(format!("transform: {}", decl_value.trim())),
         }
     }
-    if changed { parts.join("; ") } else { value.to_string() }
+    if changed {
+        parts.join("; ")
+    } else {
+        value.to_string()
+    }
 }
 
 fn transforms_to_svg(transforms: &[crate::style::Transform]) -> Option<String> {
@@ -347,7 +375,10 @@ pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4, clip
         fn walk(g: &usvg::Group, out: &mut Vec<String>) {
             for n in g.children() {
                 match n {
-                    usvg::Node::Text(t) => out.push(format!("Text({:?})", t.chunks().iter().map(|c| c.text()).collect::<Vec<_>>())),
+                    usvg::Node::Text(t) => out.push(format!(
+                        "Text({:?})",
+                        t.chunks().iter().map(|c| c.text()).collect::<Vec<_>>()
+                    )),
                     usvg::Node::Group(sub) => walk(sub, out),
                     usvg::Node::Path(_) => out.push("Path".into()),
                     usvg::Node::Image(_) => out.push("Image".into()),
@@ -377,11 +408,13 @@ pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4, clip
             width: dst.width,
             height: dst.height,
         }));
-        builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+        builder.push(DrawOp::ClipPath {
+            anti_alias: true,
+            fill_type: Default::default(),
+        });
     }
     concat(builder, &mut state, {
-        Transform::from_scale(dst.width / tw, dst.height / th)
-            .pre_translate(dst.x, dst.y)
+        Transform::from_scale(dst.width / tw, dst.height / th).pre_translate(dst.x, dst.y)
     });
     render_group(builder, &mut state, tree.root());
     builder.push(DrawOp::Restore);
@@ -397,7 +430,14 @@ pub fn emit_svg(builder: &mut DrawOpBuilder, tree: &usvg::Tree, dst: Rect4, clip
         }
         eprintln!("[svg] paths:");
         for (i, p) in builder.paths_debug().iter().enumerate() {
-            eprintln!("  [{}] fill={:?} first={:?} last={:?} n={}", i, p.fill_type, p.ops.first(), p.ops.last(), p.ops.len());
+            eprintln!(
+                "  [{}] fill={:?} first={:?} last={:?} n={}",
+                i,
+                p.fill_type,
+                p.ops.first(),
+                p.ops.last(),
+                p.ops.len()
+            );
         }
     }
 }
@@ -420,21 +460,13 @@ fn concat(builder: &mut DrawOpBuilder, state: &mut EmitState, t: Transform) {
 // 组与节点遍历（参考 resvg render.rs）
 // ---------------------------------------------------------------------------
 
-fn render_nodes(
-    builder: &mut DrawOpBuilder,
-    state: &mut EmitState,
-    parent: &usvg::Group,
-) {
+fn render_nodes(builder: &mut DrawOpBuilder, state: &mut EmitState, parent: &usvg::Group) {
     for node in parent.children() {
         render_node(builder, state, node);
     }
 }
 
-fn render_node(
-    builder: &mut DrawOpBuilder,
-    state: &mut EmitState,
-    node: &usvg::Node,
-) {
+fn render_node(builder: &mut DrawOpBuilder, state: &mut EmitState, node: &usvg::Node) {
     match node {
         usvg::Node::Group(group) => {
             render_group(builder, state, group);
@@ -469,14 +501,22 @@ fn clip_shape_count(group: &usvg::Group) -> usize {
         .sum()
 }
 
-fn render_group(
-    builder: &mut DrawOpBuilder,
-    state: &mut EmitState,
-    group: &usvg::Group,
-) {
+fn render_group(builder: &mut DrawOpBuilder, state: &mut EmitState, group: &usvg::Group) {
     let outer_ts = state.ts;
     if std::env::var("OC_SVG_DEBUG").is_ok() {
-        eprintln!("[svg] group ts={:?} isolate={} children={}", (group.transform().sx, group.transform().kx, group.transform().ky, group.transform().sy, group.transform().tx, group.transform().ty), group.should_isolate(), group.children().len());
+        eprintln!(
+            "[svg] group ts={:?} isolate={} children={}",
+            (
+                group.transform().sx,
+                group.transform().kx,
+                group.transform().ky,
+                group.transform().sy,
+                group.transform().tx,
+                group.transform().ty
+            ),
+            group.should_isolate(),
+            group.children().len()
+        );
     }
     // 多子形状的 clipPath 转 mask（见 emit_clip）需要层载体（DstIn 挂在
     // SaveLayer 上），非隔离组此时也要走隔离路径。
@@ -675,7 +715,12 @@ fn emit_clip_as_mask(builder: &mut DrawOpBuilder, clip: &usvg::ClipPath) {
     builder.push(DrawOp::MaskClip {
         subtree,
         kind: 1,
-        region: Rect4 { x, y, width: w, height: h },
+        region: Rect4 {
+            x,
+            y,
+            width: w,
+            height: h,
+        },
     });
 }
 
@@ -768,7 +813,12 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
             path.is_visible(),
             path.fill().is_some(),
             path.stroke().map(|s| s.width().get()),
-            t.sx, t.kx, t.ky, t.sy, t.tx, t.ty,
+            t.sx,
+            t.kx,
+            t.ky,
+            t.sy,
+            t.tx,
+            t.ty,
             path.data().bounds()
         );
     }
@@ -827,14 +877,28 @@ fn render_path(builder: &mut DrawOpBuilder, path: &usvg::Path) {
                 }
             }
             if let Some(ps) = pattern_stroke {
-                emit_pattern(builder, path, ps.paint(), ps.opacity(), fill_type, pattern_stroke_spec);
+                emit_pattern(
+                    builder,
+                    path,
+                    ps.paint(),
+                    ps.opacity(),
+                    fill_type,
+                    pattern_stroke_spec,
+                );
             } else if let Some(ref s) = stroke {
                 emit(builder, s);
             }
         }
         usvg::PaintOrder::StrokeAndFill => {
             if let Some(ps) = pattern_stroke {
-                emit_pattern(builder, path, ps.paint(), ps.opacity(), fill_type, pattern_stroke_spec);
+                emit_pattern(
+                    builder,
+                    path,
+                    ps.paint(),
+                    ps.opacity(),
+                    fill_type,
+                    pattern_stroke_spec,
+                );
             } else if let Some(ref s) = stroke {
                 emit(builder, s);
             }
@@ -893,25 +957,25 @@ fn emit_pattern(
     };
     let opacity = opacity.get();
     if let Some(stroke) = stroke {
-            builder.push(DrawOp::StrokePattern {
-                path: path_id,
-                subtree,
-                tile,
-                pattern_transform,
-                opacity,
-                stroke,
-            });
-        } else {
-            builder.push(DrawOp::FillPattern {
-                path: path_id,
-                subtree,
-                tile,
-                pattern_transform,
-                opacity,
-                rasterize_at: None,
-            });
-        }
+        builder.push(DrawOp::StrokePattern {
+            path: path_id,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            stroke,
+        });
+    } else {
+        builder.push(DrawOp::FillPattern {
+            path: path_id,
+            subtree,
+            tile,
+            pattern_transform,
+            opacity,
+            rasterize_at: None,
+        });
     }
+}
 
 /// tiny-skia path 段 → PathOp。所有段都是绝对坐标（usvg 归一）。
 fn path_ops(data: &tiny_skia_path::Path) -> Vec<PathOp> {
@@ -1030,9 +1094,7 @@ fn paint_to_fill(paint: &usvg::Paint, opacity: usvg::Opacity) -> Option<FillSpec
             // 焦点圆 (fx, fy, fr)：usvg 已把缺省 fx/fy 归一化为 cx/cy、
             // fr 归一化为 0，与 cx/cy/r 同值时按普通 radial 处理。
             let focal = [rg.fx(), rg.fy(), rg.fr().get()];
-            let is_trivial = focal[0] == rg.cx()
-                && focal[1] == rg.cy()
-                && focal[2] == 0.0;
+            let is_trivial = focal[0] == rg.cx() && focal[1] == rg.cy() && focal[2] == 0.0;
             Some(FillSpec::Shader(ShaderSpec::RadialGradient {
                 center: [rg.cx(), rg.cy()],
                 radius: rg.r().get(),
@@ -1141,7 +1203,10 @@ fn ts_matrix(t: &Transform) -> Option<[f32; 9]> {
 /// 引用；usvg 解析器已把缺省 `in` 与悬空引用归一化为前驱 result，树里到达的
 /// `Reference` 全部可解析（查不到时按规范兜底 SourceGraphic）。feImage 需要
 /// 子树光栅化合成，首版整个 filter 降级返回 None（同未挂，无回归）。
-fn emit_filter_chain(builder: &mut DrawOpBuilder, filter: &usvg::filter::Filter) -> Option<FilterChainSpec> {
+fn emit_filter_chain(
+    builder: &mut DrawOpBuilder,
+    filter: &usvg::filter::Filter,
+) -> Option<FilterChainSpec> {
     let prims = filter.primitives();
     if prims.is_empty() {
         return None;
@@ -1185,15 +1250,20 @@ fn emit_filter_chain(builder: &mut DrawOpBuilder, filter: &usvg::filter::Filter)
                     usvg::filter::TransferFunction::Table(v) => TransferFn::Table(v.clone()),
                     usvg::filter::TransferFunction::Discrete(v) => TransferFn::Discrete(v.clone()),
                     usvg::filter::TransferFunction::Linear { slope, intercept } => {
-                        TransferFn::Linear { slope: *slope, intercept: *intercept }
-                    }
-                    usvg::filter::TransferFunction::Gamma { amplitude, exponent, offset } => {
-                        TransferFn::Gamma {
-                            amplitude: *amplitude,
-                            exponent: *exponent,
-                            offset: *offset,
+                        TransferFn::Linear {
+                            slope: *slope,
+                            intercept: *intercept,
                         }
                     }
+                    usvg::filter::TransferFunction::Gamma {
+                        amplitude,
+                        exponent,
+                        offset,
+                    } => TransferFn::Gamma {
+                        amplitude: *amplitude,
+                        exponent: *exponent,
+                        offset: *offset,
+                    },
                 };
                 FilterPrimKind::ComponentTransfer {
                     fns: [
@@ -1318,9 +1388,7 @@ fn emit_filter_chain(builder: &mut DrawOpBuilder, filter: &usvg::filter::Filter)
                         Ok::<(), ()>(())
                     })
                     .expect("subtree recording cannot fail");
-                FilterPrimKind::Image {
-                    subtree: subtree.0,
-                }
+                FilterPrimKind::Image { subtree: subtree.0 }
             }
         };
         primitives.push(FilterPrimSpec {
@@ -1330,7 +1398,10 @@ fn emit_filter_chain(builder: &mut DrawOpBuilder, filter: &usvg::filter::Filter)
                 (r.x() + r.width()) as f64,
                 (r.y() + r.height()) as f64,
             )),
-            srgb: matches!(p.color_interpolation(), usvg::filter::ColorInterpolation::SRGB),
+            srgb: matches!(
+                p.color_interpolation(),
+                usvg::filter::ColorInterpolation::SRGB
+            ),
             kind,
         });
     }
@@ -1364,10 +1435,26 @@ fn color_matrix_values(kind: &usvg::filter::ColorMatrixKind) -> [f32; 20] {
             // | 0.213-0.213s  0.715+0.285s  0.072-0.072s 0 0 |
             // | 0.213-0.213s  0.715-0.715s  0.072+0.928s 0 0 |
             [
-                0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s, 0.0, 0.0,
-                0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s, 0.0, 0.0,
-                0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s, 0.0, 0.0,
-                0.0, 0.0, 0.0, 1.0, 0.0,
+                0.213 + 0.787 * s,
+                0.715 - 0.715 * s,
+                0.072 - 0.072 * s,
+                0.0,
+                0.0,
+                0.213 - 0.213 * s,
+                0.715 + 0.285 * s,
+                0.072 - 0.072 * s,
+                0.0,
+                0.0,
+                0.213 - 0.213 * s,
+                0.715 - 0.715 * s,
+                0.072 + 0.928 * s,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
             ]
         }
         usvg::filter::ColorMatrixKind::HueRotate(deg) => {
@@ -1375,20 +1462,31 @@ fn color_matrix_values(kind: &usvg::filter::ColorMatrixKind) -> [f32; 20] {
             let (c, s) = (rad.cos(), rad.sin());
             // 规范 hueRotate 矩阵。
             [
-                0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715,
-                0.072 - c * 0.072 + s * 0.928, 0.0, 0.0,
-                0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140,
-                0.072 - c * 0.072 - s * 0.283, 0.0, 0.0,
-                0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715,
-                0.072 + c * 0.928 + s * 0.072, 0.0, 0.0,
-                0.0, 0.0, 0.0, 1.0, 0.0,
+                0.213 + c * 0.787 - s * 0.213,
+                0.715 - c * 0.715 - s * 0.715,
+                0.072 - c * 0.072 + s * 0.928,
+                0.0,
+                0.0,
+                0.213 - c * 0.213 + s * 0.143,
+                0.715 + c * 0.285 + s * 0.140,
+                0.072 - c * 0.072 - s * 0.283,
+                0.0,
+                0.0,
+                0.213 - c * 0.213 - s * 0.787,
+                0.715 - c * 0.715 + s * 0.715,
+                0.072 + c * 0.928 + s * 0.072,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
             ]
         }
         usvg::filter::ColorMatrixKind::LuminanceToAlpha => [
-            0.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 0.0, 0.0,
-            0.2125, 0.7154, 0.0721, 0.0, 0.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.2125,
+            0.7154, 0.0721, 0.0, 0.0,
         ],
     }
 }
@@ -1399,9 +1497,11 @@ fn light_spec(src: usvg::filter::LightSource) -> LightSpec {
             azimuth: l.azimuth,
             elevation: l.elevation,
         },
-        usvg::filter::LightSource::PointLight(l) => {
-            LightSpec::Point { x: l.x, y: l.y, z: l.z }
-        }
+        usvg::filter::LightSource::PointLight(l) => LightSpec::Point {
+            x: l.x,
+            y: l.y,
+            z: l.z,
+        },
         usvg::filter::LightSource::SpotLight(l) => LightSpec::Spot {
             x: l.x,
             y: l.y,
@@ -1448,7 +1548,9 @@ fn render_image(builder: &mut DrawOpBuilder, state: &mut EmitState, image: &usvg
             // 嵌套 svg：root transform 已含摆放，直接递归。
             render_group(builder, state, tree.root());
         }
-        ImageKind::JPEG(data) | ImageKind::PNG(data) | ImageKind::GIF(data)
+        ImageKind::JPEG(data)
+        | ImageKind::PNG(data)
+        | ImageKind::GIF(data)
         | ImageKind::WEBP(data) => {
             // Core 是纯协议层：编码字节原样进 bytes 表，解码与重采样归
             // engine（与 Static 通道同一分层）。resvg 端同构于

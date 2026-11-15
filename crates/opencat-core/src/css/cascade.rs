@@ -68,7 +68,13 @@ pub fn match_rules(
     element_id: &str,
     tag: &str,
 ) -> Vec<AppliedDeclaration> {
-    match_rules_ctx(sheet, class_name, element_id, tag, &SelectorContext::default())
+    match_rules_ctx(
+        sheet,
+        class_name,
+        element_id,
+        tag,
+        &SelectorContext::default(),
+    )
 }
 
 /// 带树上下文的命中收集。
@@ -82,9 +88,11 @@ pub fn match_rules_ctx(
     let classes: ahash::HashSet<&str> = class_name.split_whitespace().collect();
     let mut out: Vec<AppliedDeclaration> = Vec::new();
     for rule in &sheet.rules {
-        if !rule.selectors.iter().any(|sel| {
-            selector_matches(sel, &classes, element_id, tag, ctx)
-        }) {
+        if !rule
+            .selectors
+            .iter()
+            .any(|sel| selector_matches(sel, &classes, element_id, tag, ctx))
+        {
             continue;
         }
         let specificity = rule
@@ -312,12 +320,11 @@ fn compound_matches_parts(parts: &[&Component<'static>], info: &SubjectInfo<'_>)
         Component::ID(id) => info.id == id.0.as_ref(),
         Component::Class(name) => info.classes.contains(name.0.as_ref()),
         Component::Root => info.is_root,
-        Component::Negation(inner) => !inner
+        Component::Negation(inner) => !inner.iter().any(|s| compound_matches(s, info)),
+        Component::AttributeInNoNamespaceExists { local_name, .. } => info
+            .attrs
             .iter()
-            .any(|s| compound_matches(s, info)),
-        Component::AttributeInNoNamespaceExists { local_name, .. } => {
-            info.attrs.iter().any(|(name, _)| name == local_name.as_ref())
-        }
+            .any(|(name, _)| name == local_name.as_ref()),
         Component::AttributeInNoNamespace {
             local_name,
             operator,
@@ -371,33 +378,43 @@ fn attr_value_matches(
         // `~=`：空格分词的任一 token 相等。
         AttrSelectorOperator::Includes => actual.split_whitespace().any(|word| cmp(word, value)),
         // `|=`：相等或以 `value-` 开头（语言子标签）。
-        AttrSelectorOperator::DashMatch => cmp(actual, value) || {
-            let mut prefix = String::with_capacity(value.len() + 1);
-            prefix.push_str(value);
-            prefix.push('-');
-            if insensitive {
-                actual.to_ascii_lowercase().starts_with(&prefix.to_ascii_lowercase())
-            } else {
-                actual.starts_with(&prefix)
+        AttrSelectorOperator::DashMatch => {
+            cmp(actual, value) || {
+                let mut prefix = String::with_capacity(value.len() + 1);
+                prefix.push_str(value);
+                prefix.push('-');
+                if insensitive {
+                    actual
+                        .to_ascii_lowercase()
+                        .starts_with(&prefix.to_ascii_lowercase())
+                } else {
+                    actual.starts_with(&prefix)
+                }
             }
-        },
+        }
         AttrSelectorOperator::Prefix => {
             if insensitive {
-                actual.to_ascii_lowercase().starts_with(&value.to_ascii_lowercase())
+                actual
+                    .to_ascii_lowercase()
+                    .starts_with(&value.to_ascii_lowercase())
             } else {
                 actual.starts_with(value)
             }
         }
         AttrSelectorOperator::Suffix => {
             if insensitive {
-                actual.to_ascii_lowercase().ends_with(&value.to_ascii_lowercase())
+                actual
+                    .to_ascii_lowercase()
+                    .ends_with(&value.to_ascii_lowercase())
             } else {
                 actual.ends_with(value)
             }
         }
         AttrSelectorOperator::Substring => {
             if insensitive {
-                actual.to_ascii_lowercase().contains(&value.to_ascii_lowercase())
+                actual
+                    .to_ascii_lowercase()
+                    .contains(&value.to_ascii_lowercase())
             } else {
                 actual.contains(value)
             }
@@ -424,16 +441,14 @@ fn compound_matches_node(
 
 /// :not() 内部也只支持同样的单 compound 语义。
 fn compound_matches(selector: &Selector<'static>, info: &SubjectInfo<'_>) -> bool {
-    selector
-        .iter_raw_match_order()
-        .all(|comp| match comp {
-            Component::ExplicitUniversalType => true,
-            Component::LocalName(name) => {
-                let n: &str = name.lower_name.as_ref();
-                info.tags.iter().any(|t| *t == n)
-            }
-            Component::ID(id) => info.id == id.0.as_ref(),
-            Component::Class(name) => info.classes.contains(name.0.as_ref()),
-            _ => false,
-        })
+    selector.iter_raw_match_order().all(|comp| match comp {
+        Component::ExplicitUniversalType => true,
+        Component::LocalName(name) => {
+            let n: &str = name.lower_name.as_ref();
+            info.tags.iter().any(|t| *t == n)
+        }
+        Component::ID(id) => info.id == id.0.as_ref(),
+        Component::Class(name) => info.classes.contains(name.0.as_ref()),
+        _ => false,
+    })
 }

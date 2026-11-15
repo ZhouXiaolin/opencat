@@ -19,10 +19,7 @@ use super::{RenderCtx, RenderError};
 
 // ── Display Item dispatch ──────────────────────────────────────────────
 
-pub fn render_display_item(
-    ctx: &mut RenderCtx,
-    item: &DisplayItem,
-) -> Result<(), RenderError> {
+pub fn render_display_item(ctx: &mut RenderCtx, item: &DisplayItem) -> Result<(), RenderError> {
     render_display_item_direct(ctx, item)
 }
 
@@ -72,7 +69,8 @@ fn render_display_item_direct(ctx: &mut RenderCtx, item: &DisplayItem) -> Result
         }
         DisplayItem::Svg(item) => {
             #[cfg(feature = "profile")]
-            let _span = span!(target: "render.backend", Level::TRACE, "draw_item_svg_file").entered();
+            let _span =
+                span!(target: "render.backend", Level::TRACE, "draw_item_svg_file").entered();
             super::render_svg(ctx, item)
         }
     }
@@ -183,7 +181,10 @@ pub(crate) fn save_composite_layer(
                 width: bounds_rect4.width,
                 height: bounds_rect4.height,
             }));
-            builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
+            builder.push(DrawOp::ClipPath {
+                anti_alias: false,
+                fill_type: Default::default(),
+            });
             has_backdrop_clip = true;
             // Backdrop semantics: the blur applies to what's beneath this
             // node's bounds; the node's own subtree paints unfiltered inside.
@@ -254,7 +255,11 @@ pub(crate) fn save_composite_layer(
         }
     }
     let mask_paint = mask_image.map(|fill| {
-        let bounds = DisplayRect { x: 0.0, y: 0.0, ..backdrop_bounds };
+        let bounds = DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            ..backdrop_bounds
+        };
         let mut paint = super::items::background_fill_to_paint_spec(
             fill,
             super::items::kurbo_rect(bounds),
@@ -266,7 +271,13 @@ pub(crate) fn save_composite_layer(
         }
         builder.intern_paint(paint)
     });
-    let mask_rect = mask_image.map(|_| display_rect_to_rect4(DisplayRect { x: 0.0, y: 0.0, ..backdrop_bounds }));
+    let mask_rect = mask_image.map(|_| {
+        display_rect_to_rect4(DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            ..backdrop_bounds
+        })
+    });
     BackdropLayerState {
         uses_layer,
         has_backdrop_clip,
@@ -367,7 +378,11 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
             backdrop: false,
         });
     }
-    ApplyFrame { layer_state, mask_paint, mask_rect }
+    ApplyFrame {
+        layer_state,
+        mask_paint,
+        mask_rect,
+    }
 }
 
 /// Whether this node opens a 3-D context of its own, or is transformed into
@@ -864,7 +879,10 @@ fn render_transition_composite(
                 width: clip.width,
                 height: clip.height,
             }));
-            ctx.builder.push(DrawOp::ClipPath { anti_alias: false, fill_type: Default::default() });
+            ctx.builder.push(DrawOp::ClipPath {
+                anti_alias: false,
+                fill_type: Default::default(),
+            });
             ctx.builder.push(DrawOp::ReplayRange { range: to_range });
             ctx.builder.push(DrawOp::Restore);
         }
@@ -885,9 +903,7 @@ fn render_transition_composite(
             );
         }
         TransitionKind::Gl(effect) => {
-            super::render_gl_transition(
-                ctx, from_range, to_range, progress, effect, bounds,
-            );
+            super::render_gl_transition(ctx, from_range, to_range, progress, effect, bounds);
         }
         TransitionKind::ClockWipe => {
             let bounds_rect4 = display_rect_to_rect4(bounds);
@@ -980,7 +996,10 @@ pub(crate) fn clip_bounds_with_radius(
             height: rect.height,
         }));
     }
-    builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+    builder.push(DrawOp::ClipPath {
+        anti_alias: true,
+        fill_type: Default::default(),
+    });
 }
 
 #[cfg(feature = "profile")]
@@ -1164,5 +1183,3 @@ pub(crate) fn apply_transform(builder: &mut DrawOpBuilder, transform: &DisplayTr
         }
     }
 }
-
-

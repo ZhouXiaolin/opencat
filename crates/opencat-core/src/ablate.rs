@@ -43,7 +43,9 @@ fn mask() -> u32 {
         let Ok(value) = std::env::var("OC_ABLATE") else {
             return 0;
         };
-        let all = TOKENS.iter().fold(0, |mask, (variant, _)| mask | 1 << *variant as u32);
+        let all = TOKENS
+            .iter()
+            .fold(0, |mask, (variant, _)| mask | 1 << *variant as u32);
         let mut mask = 0;
         for token in value.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             if token == "all" {
@@ -65,11 +67,10 @@ pub fn ablated(which: Ablation) -> bool {
 }
 
 /// 当前激活的消融 token，供 profile 头部自描述。
-pub fn active() -> Vec<&'static str> {    TOKENS
+pub fn active() -> Vec<&'static str> {
+    TOKENS
         .iter()
         .filter(|(variant, _)| ablated(*variant))
         .map(|(_, name)| *name)
         .collect()
 }
-
-

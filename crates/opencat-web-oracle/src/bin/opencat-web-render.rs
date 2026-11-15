@@ -64,8 +64,14 @@ fn parse_ranges(spec: &str) -> Result<Vec<(u32, u32)>> {
         let (a, b) = part
             .split_once('-')
             .ok_or_else(|| anyhow!("invalid range `{part}` (expected `a-b`)"))?;
-        let start: u32 = a.trim().parse().with_context(|| format!("range `{part}`"))?;
-        let end: u32 = b.trim().parse().with_context(|| format!("range `{part}`"))?;
+        let start: u32 = a
+            .trim()
+            .parse()
+            .with_context(|| format!("range `{part}`"))?;
+        let end: u32 = b
+            .trim()
+            .parse()
+            .with_context(|| format!("range `{part}`"))?;
         if end < start {
             bail!("range `{part}` is reversed");
         }
@@ -127,7 +133,10 @@ fn run(cli: &Cli) -> Result<()> {
         .with_context(|| format!("extract JSX for the web oracle ({})", input.display()))?;
     let (width, height, fps, total_frames) = composition_meta(&source, base_dir)?;
     let start = cli.start.min(total_frames.saturating_sub(1));
-    let end = cli.end.unwrap_or(total_frames.saturating_sub(1)).min(total_frames.saturating_sub(1));
+    let end = cli
+        .end
+        .unwrap_or(total_frames.saturating_sub(1))
+        .min(total_frames.saturating_sub(1));
     if end < start {
         bail!("frame range {start}..={end} is empty");
     }
@@ -167,10 +176,14 @@ fn run(cli: &Cli) -> Result<()> {
         let mut rendered = Vec::with_capacity(segments.len());
         let mut result: Result<()> = Ok(());
         for (seg_start, seg_end) in &segments {
-            match browser.render_frames_to_mp4(&envelope, *seg_start, *seg_end).await {
+            match browser
+                .render_frames_to_mp4(&envelope, *seg_start, *seg_end)
+                .await
+            {
                 Ok(mp4) => rendered.push((*seg_start, *seg_end, mp4)),
                 Err(err) => {
-                    result = Err(err).with_context(|| format!("web render frames {seg_start}..={seg_end}"));
+                    result = Err(err)
+                        .with_context(|| format!("web render frames {seg_start}..={seg_end}"));
                     break;
                 }
             }
@@ -223,9 +236,7 @@ fn run(cli: &Cli) -> Result<()> {
 
     if rendered.len() == 1 {
         let (_, _, mp4) = &rendered[0];
-        let seg_path = cli
-            .out
-            .with_extension("raw.mp4");
+        let seg_path = cli.out.with_extension("raw.mp4");
         fs::write(&seg_path, &mp4.mp4).with_context(|| format!("write {}", seg_path.display()))?;
         let status = std::process::Command::new("ffmpeg")
             .args(["-v", "error", "-y", "-i"])
@@ -238,9 +249,7 @@ fn run(cli: &Cli) -> Result<()> {
         match status {
             Ok(status) if status.success() => {}
             status => {
-                eprintln!(
-                    "warning: ffmpeg VUI tag failed ({status:?}); wrote untagged bitstream"
-                );
+                eprintln!("warning: ffmpeg VUI tag failed ({status:?}); wrote untagged bitstream");
                 fs::write(&cli.out, &mp4.mp4)
                     .with_context(|| format!("write {}", cli.out.display()))?;
             }
@@ -348,7 +357,10 @@ fn run(cli: &Cli) -> Result<()> {
         let _ = fs::remove_file(&seg_path);
     }
     if !status.success() {
-        bail!("ffmpeg segment concatenation failed (exit {:?})", status.code());
+        bail!(
+            "ffmpeg segment concatenation failed (exit {:?})",
+            status.code()
+        );
     }
     println!(
         "Done: {} ({} frames in {} segments)",

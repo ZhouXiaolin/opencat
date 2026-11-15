@@ -1,19 +1,14 @@
-use crate::display::list::{
-    DisplayItem, DrawScriptDisplayItem,
-};
+use crate::canvas::paint::BlendMode;
+use crate::display::list::{DisplayItem, DrawScriptDisplayItem};
 use crate::display::tree::{DisplayNode, HiddenChildDisplayNode};
 use crate::ir::GeneratedImageTable;
-use crate::ir::draw_op::{
-    ColorU8, DrawOp, Rect4,
-};
-use crate::canvas::paint::BlendMode;
+use crate::ir::draw_op::{ColorU8, DrawOp, Rect4};
 use crate::ir::draw_types::ImageRef;
 use crate::ir::draw_types::{
-    ChildRange, PathOp, RuntimeEffectChildRef,
-    ScriptRuntimeEffectChild, SubtreeId,
+    ChildRange, PathOp, RuntimeEffectChildRef, ScriptRuntimeEffectChild, SubtreeId,
 };
-use crate::script::canvas_op::CanvasOp;
 use crate::render::builder::DrawOpBuilder;
+use crate::script::canvas_op::CanvasOp;
 
 use super::RenderError;
 use super::ctx::RenderCtx;
@@ -99,7 +94,10 @@ pub fn render_draw_script(
             width: item.bounds.width,
             height: item.bounds.height,
         }));
-        ctx.builder.push(DrawOp::ClipPath { anti_alias: true, fill_type: Default::default() });
+        ctx.builder.push(DrawOp::ClipPath {
+            anti_alias: true,
+            fill_type: Default::default(),
+        });
     }
     if let Some((x, y)) = item.bitmap_scale {
         ctx.builder.push(DrawOp::Scale { x, y });
@@ -391,7 +389,11 @@ pub(crate) fn execute_draw_op(
         }
         // Not produced by the canvas script API (only by the renderer's own
         // backdrop-filter emission), but pass it through faithfully.
-        DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
+        DrawOp::SaveBackdropLayer {
+            bounds,
+            radius,
+            paint,
+        } => {
             b.push(DrawOp::SaveBackdropLayer {
                 bounds: *bounds,
                 radius: *radius,
@@ -481,7 +483,12 @@ pub(crate) fn execute_draw_op(
             state.line_dash_phase = 0.0;
             b.push(DrawOp::ClearLineDash);
         }
-        DrawOp::SetStyleLinearGradient { stroke, start, end, stops } => {
+        DrawOp::SetStyleLinearGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
             b.push(DrawOp::SetStyleLinearGradient {
                 stroke: *stroke,
                 start: *start,
@@ -490,7 +497,12 @@ pub(crate) fn execute_draw_op(
             });
         }
         // Same forwarding for the radial form (createRadialGradient).
-        DrawOp::SetStyleRadialGradient { stroke, start, end, stops } => {
+        DrawOp::SetStyleRadialGradient {
+            stroke,
+            start,
+            end,
+            stops,
+        } => {
             b.push(DrawOp::SetStyleRadialGradient {
                 stroke: *stroke,
                 start: *start,
@@ -528,15 +540,26 @@ pub(crate) fn execute_draw_op(
         DrawOp::FillPath => push_painted(b, state, DrawOp::FillPath),
         // 批量椭圆：整批一条透传（shadow/blend 包装同逐点 FillPath——阴影
         // 状态机在翻译层随 draw 展开，批展开在执行端）。
-        DrawOp::FillOvalBatch { rects, colors, count } => {
-            push_painted(b, state, DrawOp::FillOvalBatch {
-                rects: rects.clone(),
-                colors: colors.clone(),
-                count: *count,
-            });
+        DrawOp::FillOvalBatch {
+            rects,
+            colors,
+            count,
+        } => {
+            push_painted(
+                b,
+                state,
+                DrawOp::FillOvalBatch {
+                    rects: rects.clone(),
+                    colors: colors.clone(),
+                    count: *count,
+                },
+            );
         }
         DrawOp::StrokePath => push_painted(b, state, DrawOp::StrokePath),
-        DrawOp::ClipPath { anti_alias, fill_type } => {
+        DrawOp::ClipPath {
+            anti_alias,
+            fill_type,
+        } => {
             b.push(DrawOp::ClipPath {
                 anti_alias: *anti_alias,
                 fill_type: *fill_type,
@@ -773,16 +796,17 @@ pub(crate) fn execute_draw_op(
 /// CTM 不可逆时图元本就不可见，不补偿。shadow 内层沿用 [`push_shadowed`]。
 fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
     if state.filter_sigma > 0.0 {
-        let paint_id =
-            b.intern_paint(crate::render::shadow_filter::ctx_filter_layer_paint(
-                state.filter_sigma,
-                state.blend_mode,
-            ));
+        let paint_id = b.intern_paint(crate::render::shadow_filter::ctx_filter_layer_paint(
+            state.filter_sigma,
+            state.blend_mode,
+        ));
         let ctm = state.ctm;
         let compensate = ctm != kurbo::Affine::IDENTITY && ctm.determinant().abs() > 1e-12;
         b.push(DrawOp::Save);
         if compensate {
-            b.push(DrawOp::Concat { matrix: affine_concat_matrix(ctm.inverse()) });
+            b.push(DrawOp::Concat {
+                matrix: affine_concat_matrix(ctm.inverse()),
+            });
         }
         b.push(DrawOp::SaveLayer {
             bounds: None,
@@ -791,7 +815,9 @@ fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
             backdrop: false,
         });
         if compensate {
-            b.push(DrawOp::Concat { matrix: affine_concat_matrix(ctm) });
+            b.push(DrawOp::Concat {
+                matrix: affine_concat_matrix(ctm),
+            });
         }
         push_shadowed(b, state.shadow, draw);
         // Save 与 SaveLayer 各配一个 Restore（同 push_shadowed 的双弹）。
@@ -805,7 +831,9 @@ fn push_painted(b: &mut DrawOpBuilder, state: &LocalPaintState, draw: DrawOp) {
 /// kurbo 仿射 → `DrawOp::Concat` 的列主序 3×3。
 fn affine_concat_matrix(m: kurbo::Affine) -> [f32; 9] {
     let [a, b, c, d, e, f] = m.as_coeffs();
-    [a as f32, b as f32, 0.0, c as f32, d as f32, 0.0, e as f32, f as f32, 1.0]
+    [
+        a as f32, b as f32, 0.0, c as f32, d as f32, 0.0, e as f32, f as f32, 1.0,
+    ]
 }
 
 // ── Canvas 2D 翻译层 ─────────────────────────────────────────────────
@@ -826,7 +854,12 @@ pub(crate) fn lower_canvas_op(
         // 图章）：globalAlpha<1 或 composite≠SrcOver 时 intern 对应漆——Skia
         // 的 drawImageRect 会把漆 alpha 乘到图像上；全默认不发漆，保持无漆
         // 快路径。
-        CanvasOp::Image { bytes, src, dst, alpha } => {
+        CanvasOp::Image {
+            bytes,
+            src,
+            dst,
+            alpha,
+        } => {
             let data = b.intern_bytes(bytes);
             let paint = (*alpha < 1.0 || state.blend_mode != BlendMode::SrcOver).then(|| {
                 b.intern_paint(crate::canvas::paint::PaintSpec {
@@ -953,10 +986,7 @@ pub(crate) fn lower_canvas_op(
             b.push(DrawOp::Save);
             if sh.dx != 0.0 || sh.dy != 0.0 {
                 state.ctm *= kurbo::Affine::translate((sh.dx as f64, sh.dy as f64));
-                b.push(DrawOp::Translate {
-                    x: sh.dx,
-                    y: sh.dy,
-                });
+                b.push(DrawOp::Translate { x: sh.dx, y: sh.dy });
             }
             state.ctm_stack.push(state.ctm);
             b.push(DrawOp::SaveLayer {
@@ -1021,4 +1051,3 @@ pub(crate) fn svg_path_to_ops(svg: &str) -> Option<Vec<PathOp>> {
     }
     Some(ops)
 }
-

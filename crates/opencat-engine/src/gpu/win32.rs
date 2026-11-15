@@ -100,7 +100,9 @@ impl WglContext {
                 wglDeleteContext(glrc);
                 ReleaseDC(hwnd, hdc);
             }
-            return Err(anyhow!("wglMakeCurrent failed while creating Win32 context"));
+            return Err(anyhow!(
+                "wglMakeCurrent failed while creating Win32 context"
+            ));
         }
 
         let opengl32 = unsafe { LoadLibraryA(c"opengl32.dll".as_ptr() as *const u8) };

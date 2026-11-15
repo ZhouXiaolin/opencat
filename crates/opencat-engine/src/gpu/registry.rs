@@ -65,10 +65,13 @@ impl TextureRegistry {
         self.entries
             .lock()
             .expect("texture registry poisoned")
-            .insert(id, Entry {
-                native,
-                _keepalive: keepalive,
-            });
+            .insert(
+                id,
+                Entry {
+                    native,
+                    _keepalive: keepalive,
+                },
+            );
         TextureId(id)
     }
 

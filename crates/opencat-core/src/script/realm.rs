@@ -21,8 +21,8 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
-    JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
-    GL_OPCODES_RUNTIME, WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
+    GL_OPCODES_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME,
+    WEBGPU_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -632,9 +632,8 @@ impl<C: JsContext> ScriptRealm<C> {
 
 impl<C: JsContext> ScriptHost for ScriptRealm<C> {
     fn text_styles(&self) -> &HashMap<String, crate::style::ComputedTextStyle> {
-        static EMPTY: std::sync::OnceLock<
-            HashMap<String, crate::style::ComputedTextStyle>,
-        > = std::sync::OnceLock::new();
+        static EMPTY: std::sync::OnceLock<HashMap<String, crate::style::ComputedTextStyle>> =
+            std::sync::OnceLock::new();
         self.target_registry
             .as_ref()
             .map(|registry| &registry.text_styles)
@@ -728,9 +727,8 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             .entered();
             let drain_timing = std::env::var_os("OC_FRAME_TIMING").is_some();
             let d0 = drain_timing.then(std::time::Instant::now);
-            self.ctx.eval(
-                "if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();",
-            )?;
+            self.ctx
+                .eval("if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();")?;
             let d_hooks = d0.map(|t| t.elapsed());
             for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
@@ -742,9 +740,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             // 自己的 rAF 循环，rAF 直驱不经过它们。rAF flush 后按当前虚拟钟
             // 派发一次，使页面 adapter 在 frame-end 读回 GL 画之前完成本帧
             // 重绘。静默吞掉 handler 异常会让每帧停在首帧且无据可查。
-            self.ctx.eval(
-                "if (globalThis.__ocMode !== 'extract') { try { globalThis.dispatchEvent(new CustomEvent('hf-seek', { detail: { time: (globalThis.__ocClockMs() || 0) / 1000 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('hf-seek handler threw: ' + (error && error.stack || error)); } }",
-            )?;
+            self.ctx.eval(&crate::parse::protocol::seek_event_js())?;
             let d_seek = d0.map(|t| t.elapsed());
             // Native web GL: rAF callbacks have issued the real WebGL draw
             // calls; read the canvas drawing buffers into the generated-image
@@ -850,7 +846,8 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
     }
 
     fn take_frame_generated_images(&mut self) -> Vec<crate::ir::FrameGeneratedImage> {
-        self.ctx.with_store_mut(|s| s.take_pending_generated_images())
+        self.ctx
+            .with_store_mut(|s| s.take_pending_generated_images())
     }
 
     fn take_gpu_streams(&mut self) -> Option<crate::ir::GpuSection> {
@@ -917,7 +914,12 @@ impl<C: JsContext> ScriptRealm<C> {
             let key = format!("gpu:{}:{:016x}", stream.target_id, hf.finish());
             let image_id = crate::ir::GeneratedImageId::from_key(&key);
             #[cfg(feature = "profile")]
-            eprintln!("OCEXPORT stream {} id {} ops_bytes {}", stream.target_id, image_id.0, stream.ops.len());
+            eprintln!(
+                "OCEXPORT stream {} id {} ops_bytes {}",
+                stream.target_id,
+                image_id.0,
+                stream.ops.len()
+            );
             self.ctx.with_store_mut(|s| {
                 s.record_frame_generated_image_deferred(
                     &stream.target_id,

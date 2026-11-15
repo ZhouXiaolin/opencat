@@ -14,19 +14,19 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use opencat_core::ir::RenderFrame;
-use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
-use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
-use opencat_core::parse::ParsedComposition;
-use opencat_core::pipeline::DefaultPipeline;
 use opencat_core::fonts::font_asset_id;
+use opencat_core::ir::RenderFrame;
 use opencat_core::ir::asset_id::asset_id_for_lottie;
+use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, ResourceKind};
+use opencat_core::parse::ParsedComposition;
+use opencat_core::parse::preflight::collect_resource_requests_from_parsed;
 use opencat_core::parse::primitives::LottieSource;
+use opencat_core::pipeline::DefaultPipeline;
 
 use crate::EnginePipeline;
 use crate::fonts::engine_default_font_faces;
-use crate::script::EngineJsContext;
 use crate::resource::loader::EngineLoader;
+use crate::script::EngineJsContext;
 
 /// Core pipeline opened by the engine through the explicit lifecycle
 /// (`CompositionDraft` → `HostInputs` → `prepare` →
@@ -104,7 +104,11 @@ impl EnginePipelineHost {
 /// collect declarative [`ResourceRequests`] → fetch/cache media bytes →
 /// probe media metadata locally → hand typed metadata to core prepare.
 /// Core alone merges fonts and opens the pipeline.
-pub fn open(input: &str, mut loader: EngineLoader, scripts: EngineJsContext) -> Result<EnginePipeline> {
+pub fn open(
+    input: &str,
+    mut loader: EngineLoader,
+    scripts: EngineJsContext,
+) -> Result<EnginePipeline> {
     // Both remaining frontends (JSONL text, JSX) parse through source_io into a
     // self-contained ParsedComposition (tree extracted, driver embedded as the
     // script source). The host then fetches document font bytes + registers
@@ -142,23 +146,6 @@ pub fn open(input: &str, mut loader: EngineLoader, scripts: EngineJsContext) -> 
 /// [`CompositionDraft::requirements`]. Ordinary image bytes stay on the host;
 /// prepare only consumes [`ImageMeta`] (and peers). Document font bytes are
 /// content-level inputs keyed by the stable font AssetId.
-pub(crate) fn open_parsed_host_owned(
-    parsed: ParsedComposition,
-    loader: EngineLoader,
-    scripts: EngineJsContext,
-    font_bytes: Vec<Vec<u8>>,
-) -> Result<EnginePipelineHost> {
-    // 调用方都是 CPU 消费器（render.rs 的测试直接调
-    // `render_pipeline_frame_to_rgba`），所以 GPU 管线恒关。
-    open_parsed_host_owned_with_fonts(
-        parsed,
-        loader,
-        scripts,
-        font_bytes,
-        Default::default(),
-    )
-}
-
 fn open_parsed_host_owned_with_fonts(
     parsed: ParsedComposition,
     mut loader: EngineLoader,
@@ -214,6 +201,17 @@ fn open_parsed_host_owned_with_fonts(
         }
     }
 
+    // SVG documents: host fetches markup, pre-reads external `<image href>`
+    // bytes, core parses both into DrawOps. A missing document is skipped —
+    // render reports MissingResource for that item only.
+    for src in &requests.svgs {
+        if let Some(document) = loader.load_svg_document(src) {
+            inputs
+                .insert_svg(opencat_core::ir::asset_id::asset_id_for_svg(src), document)
+                .map_err(prepare_err)?;
+        }
+    }
+
     // Lottie: read primary JSON bytes → parse locally → insert metadata.
     for req in &requests.lotties {
         let Some(bundle_id) = asset_id_for_lottie(&req.source) else {
@@ -221,12 +219,10 @@ fn open_parsed_host_owned_with_fonts(
         };
         // Lottie primary JSON is cached under the source key (path or url id).
         let source_id = match &req.source {
-            LottieSource::Path(p) => {
-                opencat_core::ir::asset_id::AssetId::new(
-                    opencat_core::ir::asset_id::ResourceKind::Image,
-                    p.clone(),
-                )
-            }
+            LottieSource::Path(p) => opencat_core::ir::asset_id::AssetId::new(
+                opencat_core::ir::asset_id::ResourceKind::Image,
+                p.clone(),
+            ),
             LottieSource::Url(u) => opencat_core::ir::asset_id::asset_id_for_url(u),
             LottieSource::Unset => continue,
         };
@@ -295,5 +291,3 @@ fn open_parsed_host_owned_with_fonts(
 fn prepare_err(err: PrepareError) -> anyhow::Error {
     anyhow::anyhow!(err)
 }
-
-

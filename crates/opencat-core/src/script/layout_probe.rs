@@ -155,7 +155,12 @@ fn collect(
     if !node.id.is_empty() {
         out.insert(
             node.id.clone(),
-            AbsBox { x, y, width: node.rect.width, height: node.rect.height },
+            AbsBox {
+                x,
+                y,
+                width: node.rect.width,
+                height: node.rect.height,
+            },
         );
     }
     for child in &node.children {

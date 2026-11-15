@@ -116,7 +116,10 @@ impl Hash for DisplayItemFp<'_> {
             DisplayItem::DrawScript(script) => {
                 3_u8.hash(state);
                 script.commands.hash(state);
-                script.bitmap_scale.map(|(x, y)| (x.to_bits(), y.to_bits())).hash(state);
+                script
+                    .bitmap_scale
+                    .map(|(x, y)| (x.to_bits(), y.to_bits()))
+                    .hash(state);
                 script.drop_shadow.hash(state);
                 script.hidden_subtree.len().hash(state);
                 for child in &script.hidden_subtree {

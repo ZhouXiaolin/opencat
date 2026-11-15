@@ -508,7 +508,6 @@ pub enum DrawOp {
         end: [f32; 3],
         stops: F32Range,
     },
-
 }
 
 // ---------------------------------------------------------------------------
@@ -531,7 +530,11 @@ impl std::hash::Hash for DrawOp {
                 alpha.to_bits().hash(state);
                 backdrop.hash(state);
             }
-            DrawOp::SaveBackdropLayer { bounds, radius, paint } => {
+            DrawOp::SaveBackdropLayer {
+                bounds,
+                radius,
+                paint,
+            } => {
                 49_u8.hash(state);
                 bounds.hash(state);
                 for r in radius {
@@ -637,7 +640,11 @@ impl std::hash::Hash for DrawOp {
                 p.hash(state);
             }
             DrawOp::FillPath => 20_u8.hash(state),
-            DrawOp::FillOvalBatch { rects, colors, count } => {
+            DrawOp::FillOvalBatch {
+                rects,
+                colors,
+                count,
+            } => {
                 51_u8.hash(state);
                 count.hash(state);
                 for v in rects.iter() {
@@ -648,7 +655,10 @@ impl std::hash::Hash for DrawOp {
                 }
             }
             DrawOp::StrokePath => 21_u8.hash(state),
-            DrawOp::ClipPath { anti_alias, fill_type: _ } => {
+            DrawOp::ClipPath {
+                anti_alias,
+                fill_type: _,
+            } => {
                 22_u8.hash(state);
                 anti_alias.hash(state);
             }

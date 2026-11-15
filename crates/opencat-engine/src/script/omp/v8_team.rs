@@ -59,7 +59,11 @@ impl V8Worker {
             let ctx = v8::Context::new(handle_scope, Default::default());
             v8::Global::new(handle_scope, ctx)
         };
-        Self { isolate, context, bundles: HashMap::new() }
+        Self {
+            isolate,
+            context,
+            bundles: HashMap::new(),
+        }
     }
 }
 
@@ -75,7 +79,9 @@ impl JsWorker for V8Worker {
             return Ok(());
         }
         let context = self.context.clone();
-        let Self { isolate, bundles, .. } = self;
+        let Self {
+            isolate, bundles, ..
+        } = self;
         v8::scope!(let handle_scope, isolate);
         let context = v8::Local::new(handle_scope, &context);
         let scope = &mut v8::ContextScope::new(handle_scope, context);
@@ -111,14 +117,23 @@ impl JsWorker for V8Worker {
         let set_prng = member("__ocSetPrng")?;
         bundles.insert(
             bundle.key.to_string(),
-            BundleInst { header, row, set_caps, next, set_prng, caps_key: None },
+            BundleInst {
+                header,
+                row,
+                set_caps,
+                next,
+                set_prng,
+                caps_key: None,
+            },
         );
         Ok(())
     }
 
     fn run_header(&mut self, bundle: &Bundle, env: &FrameEnv) -> Result<Vec<f64>, String> {
         let context = self.context.clone();
-        let Self { isolate, bundles, .. } = self;
+        let Self {
+            isolate, bundles, ..
+        } = self;
         v8::scope!(let handle_scope, isolate);
         let context = v8::Local::new(handle_scope, &context);
         let scope = &mut v8::ContextScope::new(handle_scope, context);
@@ -153,7 +168,9 @@ impl JsWorker for V8Worker {
         row_val: f64,
     ) -> Result<RowOut, String> {
         let context = self.context.clone();
-        let Self { isolate, bundles, .. } = self;
+        let Self {
+            isolate, bundles, ..
+        } = self;
         v8::scope!(let handle_scope, isolate);
         let context = v8::Local::new(handle_scope, &context);
         let scope = &mut v8::ContextScope::new(handle_scope, context);
@@ -271,13 +288,12 @@ fn ensure_caps<'a>(
     }
     let set_caps = v8::Local::new(scope, &inst.set_caps);
     v8::tc_scope!(let tc, scope);
-    if set_caps
-        .call(tc, v8::undefined(tc).into(), &args)
-        .is_none()
-    {
+    if set_caps.call(tc, v8::undefined(tc).into(), &args).is_none() {
         return Err(caught!(tc, "setCaps"));
     }
-    let inst = bundles.get_mut(bundle.key.as_ref()).expect("inst re-borrow");
+    let inst = bundles
+        .get_mut(bundle.key.as_ref())
+        .expect("inst re-borrow");
     inst.caps_key = Some(env.args_json.clone());
     Ok(inst)
 }

@@ -24,17 +24,17 @@
 //! 能力探测一律走返回值：入口缺失时 [`gl::create_framebuffer`] 与
 //! [`gl::ReadbackPixels::new`] 返回 `None`，调用方据此回退。
 
+#[cfg(target_os = "linux")]
+pub mod egl;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod gl;
 #[cfg(target_os = "macos")]
 pub mod metal;
-#[cfg(target_os = "linux")]
-pub mod egl;
 // Vulkan 会话：ANGLE 共享 VkDevice（零拷贝）或独立 ICD 上的 Skia Vulkan
 // backend。三栈统一（Skia/ANGLE/wgpu 全 Vulkan）的底座。
+mod registry;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod vk;
-mod registry;
 // ANGLE 后端：动态加载（OC_ANGLE_DIR），Vulkan 后端，三平台一致
 // （官方 ANGLE Linux 构建，OC_ANGLE_DIR）——两端共用同一个 ANGLE 实现，
 // WebGL 语义不随平台漂移。
@@ -43,9 +43,9 @@ pub mod angle;
 #[cfg(target_os = "windows")]
 pub mod win32;
 
+pub mod compositor;
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub mod session;
-pub mod compositor;
 pub mod stream_executor;
 /// WebGPU 命令流执行器（`wgpu_opcode` → wgpu crate 一对一映射）。
 pub mod wgpu_executor;

@@ -18,6 +18,7 @@ use js_sys::Object;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
+use opencat_core::fonts::font_asset_id;
 use opencat_core::ir::CompositionInfo;
 use opencat_core::ir::RenderFrame;
 use opencat_core::ir::draw_frame::DrawFrameScratch;
@@ -27,7 +28,6 @@ use opencat_core::lifecycle::{CompositionDraft, HostInputs, PrepareError, Resour
 use opencat_core::pipeline::Pipeline;
 use opencat_core::pipeline::default::DefaultPipeline;
 use opencat_core::probe::catalog::ResourceRequests;
-use opencat_core::fonts::font_asset_id;
 use opencat_core::script::js_context::JsContext;
 
 use crate::js_context::WebJsContext;
@@ -168,19 +168,20 @@ impl WebRenderer {
         // Extract the media plan BEFORE encoding (encoding mutates draw internals).
         let plan_json = media_plan_to_json(&render.media);
 
-        let ocir = crate::consumer::encode_render_frame_envelope(
-            &mut render,
-            &mut self.scratch,
-        )
-        .map_err(|e| JsValue::from_str(&e.0))?;
+        let ocir = crate::consumer::encode_render_frame_envelope(&mut render, &mut self.scratch)
+            .map_err(|e| JsValue::from_str(&e.0))?;
 
         // Build JS object: { ir: Uint8Array, mediaPlan: string, frame: number }
         let obj = Object::new();
         let ir_array = js_sys::Uint8Array::from(&ocir[..]);
         js_sys::Reflect::set(&obj, &JsValue::from_str("ir"), &ir_array)
             .map_err(|_| JsValue::from_str("build_frame_ir: failed to set ir"))?;
-        js_sys::Reflect::set(&obj, &JsValue::from_str("mediaPlan"), &JsValue::from_str(&plan_json))
-            .map_err(|_| JsValue::from_str("build_frame_ir: failed to set mediaPlan"))?;
+        js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("mediaPlan"),
+            &JsValue::from_str(&plan_json),
+        )
+        .map_err(|_| JsValue::from_str("build_frame_ir: failed to set mediaPlan"))?;
         js_sys::Reflect::set(
             &obj,
             &JsValue::from_str("frame"),
@@ -412,14 +413,7 @@ async fn open_design_pipeline(
     default_sans_sc: Option<&[u8]>,
     default_color_emoji: Option<&[u8]>,
     extra_fonts: &[Vec<u8>],
-) -> Result<
-    (
-        CompositionInfo,
-        DefaultPipeline<WebJsContext>,
-        String,
-    ),
-    JsValue,
-> {
+) -> Result<(CompositionInfo, DefaultPipeline<WebJsContext>, String), JsValue> {
     // 1. Fetch all declared resources into the thread-local BlobStore and the
     //    Skottie provider store. `preload_assets` is the existing web fetch
     //    path (fetch/Blob/cache, font_store, Lottie bundle hydration, Openverse
@@ -444,7 +438,8 @@ async fn open_design_pipeline(
     let parsed = crate::source::parse_source(source, &opencat_core::text::empty_font_db())
         .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
     let draft = CompositionDraft::from_parsed(parsed);
-    let requests = opencat_core::parse::preflight::collect_resource_requests_from_parsed(draft.parsed());
+    let requests =
+        opencat_core::parse::preflight::collect_resource_requests_from_parsed(draft.parsed());
 
     // 4. Read the catalog built by preload_assets (host-probed metadata).
     //    No re-probing needed — the host already extracted metadata during fetch.
@@ -461,20 +456,28 @@ async fn open_design_pipeline(
         match req.kind {
             ResourceKind::Image => {
                 if let Some(meta) = probed.images.get(&req.asset_id).copied() {
-                    inputs.insert_image(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
+                    inputs
+                        .insert_image(req.asset_id.clone(), meta)
+                        .map_err(prepare_js_err)?;
                 }
             }
             ResourceKind::Video => {
                 if let Some(meta) = probed.videos.get(&req.asset_id).copied() {
-                    inputs.insert_video(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
+                    inputs
+                        .insert_video(req.asset_id.clone(), meta)
+                        .map_err(prepare_js_err)?;
                 }
             }
             ResourceKind::Audio => {
-                inputs.insert_audio(req.asset_id.clone()).map_err(prepare_js_err)?;
+                inputs
+                    .insert_audio(req.asset_id.clone())
+                    .map_err(prepare_js_err)?;
             }
             ResourceKind::Lottie => {
                 if let Some(meta) = probed.lotties.get(&req.asset_id).cloned() {
-                    inputs.insert_lottie(req.asset_id.clone(), meta).map_err(prepare_js_err)?;
+                    inputs
+                        .insert_lottie(req.asset_id.clone(), meta)
+                        .map_err(prepare_js_err)?;
                 }
             }
             ResourceKind::Font | ResourceKind::Script => {}
@@ -501,9 +504,7 @@ async fn open_design_pipeline(
             let url = &key["script:url:".len()..];
             let bytes = crate::resource::fetch::fetch_bytes(url)
                 .await
-                .map_err(|e| {
-                    JsValue::from_str(&format!("open_design script url `{url}`: {e}"))
-                })?;
+                .map_err(|e| JsValue::from_str(&format!("open_design script url `{url}`: {e}")))?;
             String::from_utf8(bytes).map_err(|e| {
                 JsValue::from_str(&format!("open_design script url `{url}` utf8: {e}"))
             })?
@@ -556,5 +557,3 @@ async fn open_design_pipeline(
 fn prepare_js_err(err: PrepareError) -> JsValue {
     JsValue::from_str(&format!("open_design prepare: {err}"))
 }
-
-

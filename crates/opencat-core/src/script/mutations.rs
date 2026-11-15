@@ -221,7 +221,9 @@ fn transform_slots(t: &Transform) -> &'static [usize] {
 /// independent of the order the script happened to set the properties in.
 fn matrix_rank(t: &Transform) -> u8 {
     match t {
-        Transform::TranslateX { .. } | Transform::TranslateY { .. } | Transform::Translate { .. } => 0,
+        Transform::TranslateX { .. }
+        | Transform::TranslateY { .. }
+        | Transform::Translate { .. } => 0,
         Transform::TranslateZ { .. } => 0,
         Transform::TranslateXPercent { .. } | Transform::TranslateYPercent { .. } => 0,
         Transform::RotateDeg { .. } | Transform::Rotate3 { .. } => 1,
@@ -243,10 +245,9 @@ fn split_components(t: &Transform) -> Vec<Transform> {
             Transform::TranslateX { value: x },
             Transform::TranslateY { value: y },
         ],
-        Transform::Scale { value } => vec![
-            Transform::ScaleX { value },
-            Transform::ScaleY { value },
-        ],
+        Transform::Scale { value } => {
+            vec![Transform::ScaleX { value }, Transform::ScaleY { value }]
+        }
         Transform::SkewDeg { x, y } => vec![
             Transform::SkewXDeg { value: x },
             Transform::SkewYDeg { value: y },
@@ -272,10 +273,11 @@ impl NodeStyleMutations {
     /// opener: +37 px vs the reference frame).
     pub fn push_transform(&mut self, t: Transform) {
         let incoming_slots = transform_slots(&t);
-        let collides = self
-            .transforms
-            .iter()
-            .any(|e| transform_slots(e).iter().any(|s| incoming_slots.contains(s)));
+        let collides = self.transforms.iter().any(|e| {
+            transform_slots(e)
+                .iter()
+                .any(|s| incoming_slots.contains(s))
+        });
         if !collides {
             // Fast path — no overlap, so keep the write atomic (`Scale`, etc.).
             // Splitting a lone `scale` into scaleX·scaleY changes the rendered
@@ -340,8 +342,11 @@ impl NodeStyleMutations {
                 Rotate3Field::RotationY => (0.0, value, 0.0),
                 Rotate3Field::Perspective => (0.0, 0.0, value),
             };
-            self.transforms
-                .push(Transform::Rotate3 { rotation_x, rotation_y, perspective });
+            self.transforms.push(Transform::Rotate3 {
+                rotation_x,
+                rotation_y,
+                perspective,
+            });
             // Same fixed CSS build order as `push_transform` — `Rotate3` sits
             // with the rotations (rank 1).
             self.transforms.sort_by_key(|e| matrix_rank(e));
@@ -366,17 +371,20 @@ impl NodeStyleMutations {
     /// *without* an explicit `from` (e.g. `.to('obl',{x: L})`) can read the
     /// current value it should start from, instead of defaulting to 0.
     pub fn read_transform_value(&self, property: &str) -> Option<f32> {
-        self.transforms.iter().rev().find_map(|t| match (property, t) {
-            ("x" | "translateX", Transform::TranslateX { value }) => Some(*value),
-            ("y" | "translateY", Transform::TranslateY { value }) => Some(*value),
-            ("scale" | "scaleX", Transform::ScaleX { value }) => Some(*value),
-            ("scale" | "scaleY", Transform::ScaleY { value }) => Some(*value),
-            ("scale", Transform::Scale { value }) => Some(*value),
-            ("rotation" | "rotate", Transform::RotateDeg { value }) => Some(*value),
-            ("skewX", Transform::SkewXDeg { value }) => Some(*value),
-            ("skewY", Transform::SkewYDeg { value }) => Some(*value),
-            _ => None,
-        })
+        self.transforms
+            .iter()
+            .rev()
+            .find_map(|t| match (property, t) {
+                ("x" | "translateX", Transform::TranslateX { value }) => Some(*value),
+                ("y" | "translateY", Transform::TranslateY { value }) => Some(*value),
+                ("scale" | "scaleX", Transform::ScaleX { value }) => Some(*value),
+                ("scale" | "scaleY", Transform::ScaleY { value }) => Some(*value),
+                ("scale", Transform::Scale { value }) => Some(*value),
+                ("rotation" | "rotate", Transform::RotateDeg { value }) => Some(*value),
+                ("skewX", Transform::SkewXDeg { value }) => Some(*value),
+                ("skewY", Transform::SkewYDeg { value }) => Some(*value),
+                _ => None,
+            })
     }
 
     pub fn apply_to(&self, style: &mut crate::style::NodeStyle) {
@@ -772,9 +780,7 @@ impl NodeStyleMutations {
 
 /// Serialize a text-shadow stack to the JSON form used by the script
 /// `textShadow` write channel: `[[x, y, blurSigma, "color"], ...]`.
-pub fn text_shadows_to_value(
-    shadows: &[crate::style::TextShadow],
-) -> serde_json::Value {
+pub fn text_shadows_to_value(shadows: &[crate::style::TextShadow]) -> serde_json::Value {
     serde_json::Value::Array(
         shadows
             .iter()
@@ -810,11 +816,11 @@ pub fn text_shadows_from_value(value: &serde_json::Value) -> Option<Vec<crate::s
             )
         } else if let Some(obj) = item.as_object() {
             let get_f = |keys: &[&str]| -> Option<f32> {
-                keys.iter().find_map(|k| obj.get(*k).and_then(|v| v.as_f64())).map(|v| v as f32)
+                keys.iter()
+                    .find_map(|k| obj.get(*k).and_then(|v| v.as_f64()))
+                    .map(|v| v as f32)
             };
-            let color_str = obj
-                .get("color")
-                .and_then(|v| v.as_str())?;
+            let color_str = obj.get("color").and_then(|v| v.as_str())?;
             (
                 get_f(&["offsetX", "x"])?,
                 get_f(&["offsetY", "y"])?,
@@ -833,7 +839,6 @@ pub fn text_shadows_from_value(value: &serde_json::Value) -> Option<Vec<crate::s
     }
     Some(out)
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct CanvasMutations {
@@ -902,7 +907,11 @@ impl StyleMutations {
         self.canvas_mutations.get(id)
     }
 
-    pub fn apply_to_canvas(&self, commands: &mut Vec<crate::script::canvas_op::CanvasOp>, id: &str) {
+    pub fn apply_to_canvas(
+        &self,
+        commands: &mut Vec<crate::script::canvas_op::CanvasOp>,
+        id: &str,
+    ) {
         if let Some(mutation) = self.canvas_mutations.get(id) {
             commands.extend(mutation.commands.iter().cloned());
         }
@@ -911,9 +920,7 @@ impl StyleMutations {
     /// 本帧该 canvas 节点录到的 SVG markup（g-svg 渲染器产物）。多层
     /// mutation 时后写的覆盖先写的（每帧最多一次捕获）。
     pub fn svg_markup_for(&self, id: &str) -> Option<&str> {
-        self.canvas_mutations
-            .get(id)
-            .and_then(|m| m.svg.as_deref())
+        self.canvas_mutations.get(id).and_then(|m| m.svg.as_deref())
     }
 
     pub fn text_content_for(&self, id: &str) -> Option<&str> {
@@ -986,16 +993,22 @@ fn apply_bg_position_to_layers(style: &mut crate::style::NodeStyle, css: &str) {
             pos[i] = 1.0;
         }
     }
-    let px_pair =
-        if pos_px.iter().all(Option::is_some) { Some([pos_px[0].unwrap(), pos_px[1].unwrap()]) } else { None };
+    let px_pair = if pos_px.iter().all(Option::is_some) {
+        Some([pos_px[0].unwrap(), pos_px[1].unwrap()])
+    } else {
+        None
+    };
     for layer in &mut style.background_layers {
         if let crate::style::BackgroundFill::Image { image } = layer {
             image.position = [0, 1].map(|i| [pos[i], pos_px[i].unwrap_or(0.0)]);
             continue;
         }
         if let crate::style::BackgroundFill::ArbitraryGradient { gradient } = layer {
-            if let crate::style::ArbitraryGradient::LinearGradient { position, position_px, .. } =
-                gradient
+            if let crate::style::ArbitraryGradient::LinearGradient {
+                position,
+                position_px,
+                ..
+            } = gradient
             {
                 if let Some(pair) = px_pair {
                     *position_px = Some(pair);
@@ -1124,7 +1137,8 @@ pub fn apply_node_to_recorder(
     }
     if let Some(v) = m.stroke_dasharray {
         recorder.record_stroke_dasharray(id, v);
-    }    if let Some(v) = m.stroke_dashoffset {
+    }
+    if let Some(v) = m.stroke_dashoffset {
         recorder.record_stroke_dashoffset(id, v);
     }
     if let Some(v) = m.text_px {
@@ -1329,7 +1343,12 @@ pub fn script_color_from_value(value: &str) -> Option<crate::ir::draw_op::ColorU
     // （black）。浏览器里 Canvas2D 把它当非法值忽略、沿用上一次 fillStyle，
     // 而 g-lite 默认 `color` 就是黑色，两者在离屏缺省下同解。
     if value.trim().eq_ignore_ascii_case("currentcolor") {
-        return Some(crate::ir::draw_op::ColorU8 { r: 0, g: 0, b: 0, a: 255 });
+        return Some(crate::ir::draw_op::ColorU8 {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        });
     }
 
     let color = crate::style::color_token_from_script_name(value).map(|color| color.rgba());
@@ -1456,5 +1475,3 @@ pub fn parse_drrect_coords(coords: &[f32]) -> Option<DrRectCoords> {
         coords[8], coords[9],
     ))
 }
-
-

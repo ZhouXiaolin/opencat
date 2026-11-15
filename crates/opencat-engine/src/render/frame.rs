@@ -1,14 +1,14 @@
-use opencat_core::ir::draw_frame::DrawOpFrame;
 use opencat_core::cache::lru::BoundedLruCache;
-use std::collections::HashMap;
-use opencat_core::ir::draw_types::ImageRef;
-use opencat_core::ir::media_plan::FrameMediaPlan;
 use opencat_core::ir::GeneratedImageId;
 use opencat_core::ir::asset_id::{AssetId, ResourceKind};
+use opencat_core::ir::draw_frame::DrawOpFrame;
+use opencat_core::ir::draw_types::ImageRef;
+use opencat_core::ir::media_plan::FrameMediaPlan;
 use skia_safe::{AlphaType, Canvas, ColorType, Data, Image, ImageInfo, RuntimeEffect, images};
+use std::collections::HashMap;
 
-use crate::render::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
 use crate::media::MediaContext;
+use crate::render::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrameMedia};
 
 /// GPU 图像句柄的解析器（GPU 管线用）。
 ///
@@ -92,10 +92,7 @@ impl std::fmt::Display for MediaError {
                 write!(f, "media error: missing Lottie bundle `{bundle_id}`")
             }
             MediaError::ImageDecodeFailed { asset_id, detail } => {
-                write!(
-                    f,
-                    "media error: image `{asset_id}` decode failed: {detail}"
-                )
+                write!(f, "media error: image `{asset_id}` decode failed: {detail}")
             }
             MediaError::VideoFrameDecodeFailed { asset_id, detail } => {
                 write!(
@@ -180,7 +177,8 @@ fn validate_image_handles(
                 }
             }
             // Static bucket only carries external images.
-            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
+            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {
+            }
         }
     }
     Ok(())
@@ -265,25 +263,24 @@ fn prepare_frame(
         match image_ref {
             ImageRef::Static { asset_id } => {
                 let aid = AssetId::new(ResourceKind::Image, asset_id.clone());
-                let handle = loader.handle(&aid).ok_or_else(|| {
-                    MediaError::MissingImage {
+                let handle = loader
+                    .handle(&aid)
+                    .ok_or_else(|| MediaError::MissingImage {
                         asset_id: asset_id.clone(),
-                    }
-                })?;
-                let path = handle.local_path().ok_or_else(|| {
-                    MediaError::ImageDecodeFailed {
+                    })?;
+                let path = handle
+                    .local_path()
+                    .ok_or_else(|| MediaError::ImageDecodeFailed {
                         asset_id: asset_id.clone(),
                         detail: "no local path for handle".into(),
+                    })?;
+                let target = plan.image_draw_sizes.get(image_ref).copied();
+                let (sk_image, scale) = video.static_image_scaled(path, target).map_err(|e| {
+                    MediaError::ImageDecodeFailed {
+                        asset_id: asset_id.clone(),
+                        detail: e.to_string(),
                     }
                 })?;
-                let target = plan.image_draw_sizes.get(image_ref).copied();
-                let (sk_image, scale) =
-                    video.static_image_scaled(path, target).map_err(|e| {
-                        MediaError::ImageDecodeFailed {
-                            asset_id: asset_id.clone(),
-                            detail: e.to_string(),
-                        }
-                    })?;
                 let idx = sk_images.len();
                 sk_images.push(sk_image);
                 image_scales.push(scale);
@@ -292,7 +289,8 @@ fn prepare_frame(
             // Static bucket only carries external images; video refs live in
             // `plan.video_frames`, generated refs in `plan.generated_images`,
             // encoded refs in `plan.encoded_images`.
-            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {}
+            ImageRef::VideoFrame { .. } | ImageRef::Generated { .. } | ImageRef::Encoded { .. } => {
+            }
         }
     }
 
@@ -386,14 +384,14 @@ fn prepare_frame(
         // GPU-resident pixels: import the wgpu texture zero-copy. No CPU
         // upload, no cache — the texture lives only for this frame.
         if let Some(handle) = entry.gpu {
-            let resolver = gpu.as_deref_mut().ok_or_else(|| {
-                MediaError::GeneratedImageDecodeFailed {
-                    id: entry.id,
-                    detail: "plan carries a GPU image handle but the CPU pipeline \
+            let resolver =
+                gpu.as_deref_mut()
+                    .ok_or_else(|| MediaError::GeneratedImageDecodeFailed {
+                        id: entry.id,
+                        detail: "plan carries a GPU image handle but the CPU pipeline \
                              is active (set OC_GPU_PIPELINE=0, or drop the handle)"
-                        .into(),
-                }
-            })?;
+                            .into(),
+                    })?;
             if std::env::var_os("OC_TRACE_DRAW").is_some() {
                 eprintln!(
                     "[import] generated {:?} {}x{} token={}",
@@ -401,16 +399,19 @@ fn prepare_frame(
                 );
             }
             let id = crate::gpu::TextureId::from_raw(handle.token);
-            let sk_image = resolver.import(id, entry.width, entry.height).map_err(|e| {
-                MediaError::GeneratedImageDecodeFailed {
+            let sk_image = resolver
+                .import(id, entry.width, entry.height)
+                .map_err(|e| MediaError::GeneratedImageDecodeFailed {
                     id: entry.id,
                     detail: format!("GPU texture import failed: {e}"),
-                }
-            })?;
+                })?;
             if std::env::var_os("OC_TRACE_DRAW").is_some() {
                 let mut px = vec![0u8; 4 * 4];
                 let _ = &mut px;
-                eprintln!("[import] Skia 采样 @960,540 px={:?}", resolver.debug_sample(&sk_image));
+                eprintln!(
+                    "[import] Skia 采样 @960,540 px={:?}",
+                    resolver.debug_sample(&sk_image)
+                );
             }
             let idx = sk_images.len();
             sk_images.push(sk_image);
@@ -464,7 +465,6 @@ fn prepare_frame(
             sksl: effect_ref.sksl.clone(),
         });
     }
-
 
     Ok(EnginePreparedFrameMedia {
         images: sk_images,
@@ -616,5 +616,3 @@ fn prefetch_frame_media(
         );
     }
 }
-
-

@@ -121,10 +121,7 @@ fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, f
             buf.extend_from_slice(&r.start.to_le_bytes());
             buf.extend_from_slice(&r.len.to_le_bytes());
         }
-        let _ = std::fs::write(
-            dir.join(format!("gpu-frame{frame_index}-s{si}.bin")),
-            &buf,
-        );
+        let _ = std::fs::write(dir.join(format!("gpu-frame{frame_index}-s{si}.bin")), &buf);
     }
 }
 
@@ -257,7 +254,10 @@ impl GpuRenderSession {
         // 合成目标纹理：RGBA8 + FBO，Skia 的 wrap_backend_render_target 用。
         let native = crate::gpu::gl::create_texture_rgba8(&gl, width, height)
             .ok_or_else(|| anyhow!("创建合成目标纹理失败"))?;
-        let composite_tex = CompositeTexture { gl: gl.clone(), tex: native };
+        let composite_tex = CompositeTexture {
+            gl: gl.clone(),
+            tex: native,
+        };
 
         // Skia 合成器（共享同一 GL 上下文；入口解析跟会话同源）。
         let compositor = crate::gpu::compositor::GpuCompositor::new(
@@ -364,7 +364,10 @@ impl GpuRenderSession {
             t_script,
         )?;
         if std::env::var_os("OC_TRACE_FRAME_TIME").is_some() {
-            eprintln!("[frametime] f{frame_index} wall={}ms", frame_wall.elapsed().as_millis());
+            eprintln!(
+                "[frametime] f{frame_index} wall={}ms",
+                frame_wall.elapsed().as_millis()
+            );
         }
         Ok(out)
     }
@@ -412,10 +415,7 @@ impl GpuRenderSession {
                     for s in &gpu.streams {
                         eprintln!(
                             "[streams]   {:?} {}x{} backend={:?}",
-                            s.target_id,
-                            s.width,
-                            s.height,
-                            s.backend
+                            s.target_id, s.width, s.height, s.backend
                         );
                     }
                 }
@@ -448,7 +448,8 @@ impl GpuRenderSession {
                     .iter()
                     .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
                     .collect();
-                self.wgpu_executor.execute(&webgpu_streams, &mut media_plan)?;
+                self.wgpu_executor
+                    .execute(&webgpu_streams, &mut media_plan)?;
             }
             if has_gl {
                 gpu_stream_ran = true;
@@ -470,20 +471,21 @@ impl GpuRenderSession {
                     )?;
                 } else {
                     let filtered;
-                    let section: &opencat_core::ir::gpu_stream::GpuSection = match std::env::var("OC_ONLY_STREAM") {
-                        Ok(only) => {
-                            filtered = opencat_core::ir::gpu_stream::GpuSection {
-                                streams: gpu
-                                    .streams
-                                    .iter()
-                                    .filter(|s| s.target_id == only)
-                                    .cloned()
-                                    .collect(),
-                            };
-                            &filtered
-                        }
-                        Err(_) => gpu,
-                    };
+                    let section: &opencat_core::ir::gpu_stream::GpuSection =
+                        match std::env::var("OC_ONLY_STREAM") {
+                            Ok(only) => {
+                                filtered = opencat_core::ir::gpu_stream::GpuSection {
+                                    streams: gpu
+                                        .streams
+                                        .iter()
+                                        .filter(|s| s.target_id == only)
+                                        .cloned()
+                                        .collect(),
+                                };
+                                &filtered
+                            }
+                            Err(_) => gpu,
+                        };
                     stream_outputs = self.gpu_executor.execute(
                         &self.gl_session.gl(),
                         section,
@@ -526,7 +528,9 @@ impl GpuRenderSession {
                 ];
                 let mut on = Vec::new();
                 for (n, c) in caps {
-                    if gl.is_enabled(c) { on.push(n); }
+                    if gl.is_enabled(c) {
+                        on.push(n);
+                    }
                 }
                 let mut vp = [0i32; 4];
                 gl.get_parameter_i32_slice(glow::VIEWPORT, &mut vp);
@@ -540,46 +544,49 @@ impl GpuRenderSession {
                 }
                 let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
                 gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-                eprintln!("[glstate] f{frame_index} on={on:?} viewport={vp:?} scissor={sc:?} fbo={fbo} prog={prog} err={err:?} compFbo={} status={status:?}", compositor.fbo());
+                eprintln!(
+                    "[glstate] f{frame_index} on={on:?} viewport={vp:?} scissor={sc:?} fbo={fbo} prog={prog} err={err:?} compFbo={} status={status:?}",
+                    compositor.fbo()
+                );
             }
         }
         if gpu_stream_ran {
             compositor.reset_backend_state();
-                    use glow::HasContext as _;
-                let gl = self.gl_session.gl();
-                unsafe {
-                    gl.disable(glow::SCISSOR_TEST);
-                    gl.disable(glow::RASTERIZER_DISCARD);
-                    gl.disable(glow::DEPTH_TEST);
-                    gl.disable(glow::STENCIL_TEST);
-                    gl.disable(glow::BLEND);
-                    gl.disable(glow::CULL_FACE);
-                    gl.disable(glow::DITHER);
-                    gl.disable(glow::POLYGON_OFFSET_FILL);
-                    gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE);
-                    gl.disable(glow::SAMPLE_COVERAGE);
-                    gl.bind_vertex_array(None);
-                    gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                    gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
-                    gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-                    gl.bind_renderbuffer(glow::RENDERBUFFER, None);
-                    gl.use_program(None);
-                    gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
-                    gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
-                    gl.depth_mask(true);
-                    gl.stencil_mask(0xFFFFFFFF);
-                    gl.color_mask(true, true, true, true);
-                    for u in 0..8 {
-                        gl.active_texture(glow::TEXTURE0 + u);
-                        gl.bind_texture(glow::TEXTURE_2D, None);
-                        gl.bind_texture(glow::TEXTURE_CUBE_MAP, None);
-                        gl.bind_sampler(u, None);
-                    }
-                    gl.active_texture(glow::TEXTURE0);
-                    gl.blend_equation(glow::FUNC_ADD);
-                    gl.blend_func(glow::ONE, glow::ZERO);
-                    gl.viewport(0, 0, compositor.width() as i32, compositor.height() as i32);
-                    gl.color_mask(true, true, true, true);
+            use glow::HasContext as _;
+            let gl = self.gl_session.gl();
+            unsafe {
+                gl.disable(glow::SCISSOR_TEST);
+                gl.disable(glow::RASTERIZER_DISCARD);
+                gl.disable(glow::DEPTH_TEST);
+                gl.disable(glow::STENCIL_TEST);
+                gl.disable(glow::BLEND);
+                gl.disable(glow::CULL_FACE);
+                gl.disable(glow::DITHER);
+                gl.disable(glow::POLYGON_OFFSET_FILL);
+                gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE);
+                gl.disable(glow::SAMPLE_COVERAGE);
+                gl.bind_vertex_array(None);
+                gl.bind_buffer(glow::ARRAY_BUFFER, None);
+                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                gl.bind_renderbuffer(glow::RENDERBUFFER, None);
+                gl.use_program(None);
+                gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
+                gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
+                gl.depth_mask(true);
+                gl.stencil_mask(0xFFFFFFFF);
+                gl.color_mask(true, true, true, true);
+                for u in 0..8 {
+                    gl.active_texture(glow::TEXTURE0 + u);
+                    gl.bind_texture(glow::TEXTURE_2D, None);
+                    gl.bind_texture(glow::TEXTURE_CUBE_MAP, None);
+                    gl.bind_sampler(u, None);
+                }
+                gl.active_texture(glow::TEXTURE0);
+                gl.blend_equation(glow::FUNC_ADD);
+                gl.blend_func(glow::ONE, glow::ZERO);
+                gl.viewport(0, 0, compositor.width() as i32, compositor.height() as i32);
+                gl.color_mask(true, true, true, true);
             }
         }
 
@@ -594,30 +601,29 @@ impl GpuRenderSession {
             canvas.clear(skia_safe::Color::TRANSPARENT);
             let mut resolver = crate::gpu::compositor::CompositorResolver { skia, textures };
             if std::env::var_os("OC_DEBUG_PRERECT").is_some() {
-                let paint = skia_safe::Paint::new(skia_safe::Color4f::new(0.0, 0.0, 1.0, 1.0), None);
+                let paint =
+                    skia_safe::Paint::new(skia_safe::Color4f::new(0.0, 0.0, 1.0, 1.0), None);
                 canvas.draw_rect(skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0), &paint);
             }
             if std::env::var_os("OC_DEBUG_SKIP_FRAME").is_none() {
-            crate::render::frame::execute_render_frame_with_gpu(
-                &mut frame,
-                &media_plan,
-                loader,
-                crate::render::frame::FrameExec {
-                    executor,
-                    media_ctx,
-                    generated_cache,
-                },
-                Some(&mut resolver),
-                canvas,
-            )
-            .map_err(|e| anyhow!("{e}"))?;
+                crate::render::frame::execute_render_frame_with_gpu(
+                    &mut frame,
+                    &media_plan,
+                    loader,
+                    crate::render::frame::FrameExec {
+                        executor,
+                        media_ctx,
+                        generated_cache,
+                    },
+                    Some(&mut resolver),
+                    canvas,
+                )
+                .map_err(|e| anyhow!("{e}"))?;
             }
             if std::env::var_os("OC_DEBUG_FULLRECT").is_some() {
-                let paint = skia_safe::Paint::new(skia_safe::Color4f::new(1.0, 0.0, 0.0, 1.0), None);
-                canvas.draw_rect(
-                    skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0),
-                    &paint,
-                );
+                let paint =
+                    skia_safe::Paint::new(skia_safe::Color4f::new(1.0, 0.0, 0.0, 1.0), None);
+                canvas.draw_rect(skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0), &paint);
             }
             if std::env::var_os("OC_TRACE_CANVAS").is_some() {
                 eprintln!(
@@ -634,13 +640,31 @@ impl GpuRenderSession {
             unsafe {
                 gl.bind_framebuffer(glow::FRAMEBUFFER, None);
                 let mut px = [0u8; 4];
-                gl.read_pixels(0, 0, 1, 1, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut px[..]));
+                gl.read_pixels(
+                    0,
+                    0,
+                    1,
+                    1,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelPackData::Slice(&mut px[..]),
+                );
                 let mut px2 = [0u8; 4];
-                gl.read_pixels(960, 540, 1, 1, glow::RGBA, glow::UNSIGNED_BYTE, glow::PixelPackData::Slice(&mut px2[..]));
+                gl.read_pixels(
+                    960,
+                    540,
+                    1,
+                    1,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelPackData::Slice(&mut px2[..]),
+                );
                 let max_tex = gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE);
                 let max_rb = gl.get_parameter_i32(glow::MAX_RENDERBUFFER_SIZE);
                 let err = gl.get_error();
-                eprintln!("[defaultfb] px00={px:?} pxcenter={px2:?} maxTex={max_tex} maxRb={max_rb} err={err:?}");
+                eprintln!(
+                    "[defaultfb] px00={px:?} pxcenter={px2:?} maxTex={max_tex} maxRb={max_rb} err={err:?}"
+                );
             }
         }
         let rgba = if deferred {
@@ -830,7 +854,8 @@ impl VkRenderSession {
                         .iter()
                         .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
                         .collect();
-                    self.wgpu_executor.execute(&webgpu_streams, &mut media_plan)?;
+                    self.wgpu_executor
+                        .execute(&webgpu_streams, &mut media_plan)?;
                 }
                 if has_gl {
                     let gl_streams: Vec<opencat_core::ir::gpu_stream::GpuStream> = gpu
@@ -841,7 +866,9 @@ impl VkRenderSession {
                         .collect();
                     self.stream_outputs = self.gpu_executor.execute(
                         &gl.gl(),
-                        &opencat_core::ir::gpu_stream::GpuSection { streams: gl_streams },
+                        &opencat_core::ir::gpu_stream::GpuSection {
+                            streams: gl_streams,
+                        },
                         &mut media_plan,
                         &self.textures,
                         true,
@@ -1292,8 +1319,7 @@ pub fn render_from_source_with_base(
             let gpu_handle = std::thread::Builder::new()
                 .name("oc-gpu-exec".into())
                 .spawn(move || {
-                    let mut session = match VkRenderSession::new(aligned_info.0, aligned_info.1)
-                    {
+                    let mut session = match VkRenderSession::new(aligned_info.0, aligned_info.1) {
                         Ok(s) => s,
                         Err(e) => {
                             *gpu_err_slot.lock().unwrap() = Some(format!("会话创建: {e:#}"));
@@ -1377,8 +1403,9 @@ pub fn render_from_source_with_base(
                     if let Some(e) = gpu_error.lock().unwrap().as_ref() {
                         anyhow::bail!("gpu 执行线程: {e}");
                     }
-                    let px =
-                        rx_px.recv().map_err(|_| anyhow!("gpu 执行线程提前收场（无更多像素）"))?;
+                    let px = rx_px
+                        .recv()
+                        .map_err(|_| anyhow!("gpu 执行线程提前收场（无更多像素）"))?;
                     Ok(Some(px))
                 },
             );
@@ -1561,5 +1588,3 @@ impl EncodingConfig {
         }
     }
 }
-
-

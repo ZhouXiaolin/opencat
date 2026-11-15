@@ -24,7 +24,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use crate::ir::asset_id::{
-    AssetId, asset_id_for_audio, asset_id_for_image, asset_id_for_lottie,
+    AssetId, asset_id_for_audio, asset_id_for_image, asset_id_for_lottie, asset_id_for_svg,
     asset_id_for_video,
 };
 // `ResourceKind` is brought into scope by the `pub use` above (single source in
@@ -127,6 +127,21 @@ impl HostRequirements {
             requests.push(ResourceRequest {
                 asset_id: id,
                 kind: ResourceKind::Lottie,
+            });
+        }
+
+        // File-backed `<svg src>`: host fetches markup and the bytes of its
+        // external `<image href>` references, core parses it into DrawOps.
+        // Absence is a per-item render error, not a prepare failure — an
+        // unfetchable svg must not take the whole page down.
+        for src in &raw.svgs {
+            let id = asset_id_for_svg(src);
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            requests.push(ResourceRequest {
+                asset_id: id,
+                kind: ResourceKind::Svg,
             });
         }
 
@@ -278,6 +293,20 @@ impl HostInputs {
         Ok(())
     }
 
+    /// Provide a file-backed `<svg src>` document: markup plus the bytes of
+    /// its external `<image href>` references (see
+    /// [`crate::svg_asset::external_refs`]). `data:` URIs are decoded by core
+    /// and never appear in `refs`. Duplicate ids error.
+    pub fn insert_svg(
+        &mut self,
+        id: AssetId,
+        document: crate::svg_asset::SvgDocument,
+    ) -> Result<(), PrepareError> {
+        self.record_supply(&id)?;
+        self.catalog.svgs.insert(id, document);
+        Ok(())
+    }
+
     /// Explicitly confirm a declared asset as absent with a structured reason.
     /// The host has checked and determined the resource is definitively
     /// unavailable (e.g. "not found", "access denied", "timeout"). Core
@@ -362,7 +391,8 @@ pub fn prepare(
             | ResourceKind::Video
             | ResourceKind::Lottie
             | ResourceKind::Font
-            | ResourceKind::Script => {}
+            | ResourceKind::Script
+            | ResourceKind::Svg => {}
         }
     }
 
@@ -449,10 +479,7 @@ fn prepare_font_db(
 /// last, so document/base families keep priority in query matching. Emoji
 /// presentation stays on the color face via `BrowserEmojiFirstFallback`
 /// (text/mod.rs), which the shaper consults for every run shaped from this db.
-fn extend_db_with_fallback_dirs(
-    db: fontdb::Database,
-    inputs: &HostInputs,
-) -> fontdb::Database {
+fn extend_db_with_fallback_dirs(db: fontdb::Database, inputs: &HostInputs) -> fontdb::Database {
     let mut db = db;
     for dir in &inputs.font_fallback_dirs {
         db.load_fonts_dir(dir);
@@ -484,6 +511,7 @@ fn validate_inputs(
                 .keys()
                 .chain(inputs.catalog.audios.iter())
                 .chain(inputs.catalog.lotties.keys())
+                .chain(inputs.catalog.svgs.keys())
                 .chain(inputs.document_fonts.keys())
                 .chain(inputs.script_texts.keys()),
         )
@@ -505,6 +533,7 @@ fn validate_inputs(
                     if inputs.catalog.videos.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.lotties.contains_key(&req.asset_id)
+                        || inputs.catalog.svgs.contains_key(&req.asset_id)
                         || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
@@ -532,6 +561,7 @@ fn validate_inputs(
                     if inputs.catalog.images.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
                         || inputs.catalog.lotties.contains_key(&req.asset_id)
+                        || inputs.catalog.svgs.contains_key(&req.asset_id)
                         || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
@@ -571,6 +601,7 @@ fn validate_inputs(
                     if inputs.catalog.images.contains_key(&req.asset_id)
                         || inputs.catalog.videos.contains_key(&req.asset_id)
                         || inputs.catalog.audios.contains(&req.asset_id)
+                        || inputs.catalog.svgs.contains_key(&req.asset_id)
                         || inputs.document_fonts.contains_key(&req.asset_id)
                     {
                         return Err(PrepareError::InvalidMetadata {
@@ -646,6 +677,9 @@ fn validate_inputs(
                 }
                 Some(_) => {}
             },
+            // Optional: absence surfaces at render time as `MissingResource`
+            // (browser 404 semantics), so prepare never blocks on it.
+            ResourceKind::Svg => {}
         }
     }
 
@@ -820,5 +854,3 @@ fn walk_script_drivers(node: &crate::parse::node::Node, f: &mut dyn FnMut(&Scrip
         | NodeKind::Svg(_) => {}
     }
 }
-
-

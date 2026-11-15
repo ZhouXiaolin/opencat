@@ -192,7 +192,12 @@ impl VideoRealtimeDecoder {
             budget_bytes: 256 << 20,
         };
         Self {
-            shards: vec![Shard::spawn_with(fps, VideoPreviewQuality::Realtime, 0, params)],
+            shards: vec![Shard::spawn_with(
+                fps,
+                VideoPreviewQuality::Realtime,
+                0,
+                params,
+            )],
             assignments: Mutex::new(HashMap::new()),
         }
     }
@@ -398,7 +403,6 @@ impl Shard {
             set = guard;
         }
     }
-
 }
 
 impl WindowSet {
@@ -456,7 +460,13 @@ fn apply_command(
             // 记下提示先后：同一帧里主线程也按这个顺序取帧。
             hint_order.retain(|p| p != &path);
             hint_order.push(path.clone());
-            hints.insert(path, Hint { time_secs, target_size });
+            hints.insert(
+                path,
+                Hint {
+                    time_secs,
+                    target_size,
+                },
+            );
         }
     }
 }
@@ -510,7 +520,8 @@ fn pump_one(
             let covered = asset.covers(target_us, tolerance_us);
             // 播放头在窗口之前，或在前方很远：直接跳过去。前方的小距离靠顺序解码
             // 追上——seek 比顺序解码贵得多，逐帧跳过时每次都 seek 会拖垮预览。
-            if !covered && (asset.next_us > target_us || target_us - asset.next_us > SEEK_RESET_US) {
+            if !covered && (asset.next_us > target_us || target_us - asset.next_us > SEEK_RESET_US)
+            {
                 asset.next_us = target_us;
             }
             // 已有的帧不重复解，只往前走。
@@ -518,7 +529,11 @@ fn pump_one(
                 asset.next_us += frame_dur_us;
             }
 
-            let ahead = asset.frames.iter().filter(|f| f.pts_us >= target_us).count();
+            let ahead = asset
+                .frames
+                .iter()
+                .filter(|f| f.pts_us >= target_us)
+                .count();
             // 窗口满了只该停止「往前多解」，不该停止「追上播放头」：播放头那一帧
             // 还没解出来时停手，主线程就永远等不到它，只能等到超时。
             covered && (ahead >= ahead_frames || asset.bytes >= budget_bytes)
@@ -533,7 +548,8 @@ fn pump_one(
 
     // 解码失败（损坏文件、解码器耗尽等）时保留窗口现状：主线程会走同步路径并把
     // 真正的错误报给调用方。
-    let Ok((bitmap, _)) = ctx.frame_rgba_at_time_sized(path, at_us as f64 / 1_000_000.0, target_size)
+    let Ok((bitmap, _)) =
+        ctx.frame_rgba_at_time_sized(path, at_us as f64 / 1_000_000.0, target_size)
     else {
         return false;
     };
@@ -557,5 +573,3 @@ fn pump_one(
     shared.ready.notify_all();
     true
 }
-
-

@@ -22,8 +22,8 @@
 //! 拥有上下文的同一线程上串行执行（`GlSession` 建与用同线程），每帧前
 //! `make_current` 一次即可；无锁。
 
-use anyhow::{Result, anyhow};
 use crate::gpu::{NativeTexture, TextureId, TextureRegistry};
+use anyhow::{Result, anyhow};
 use skia_safe::gpu::SurfaceOrigin;
 use skia_safe::{AlphaType, ColorType, ImageInfo, Surface, gpu};
 
@@ -248,7 +248,9 @@ pub enum CompositorBackend {
     /// 与 GL 变体的关键差别：Skia 自建渲染目标（`render_target`），
     /// 不包装外部纹理；ANGLE 的流输出纹理经 VkImage 导入（零拷贝）。
     #[cfg(any(target_os = "windows", target_os = "linux"))]
-    Vulkan { session: std::sync::Arc<crate::gpu::vk::VkSession> },
+    Vulkan {
+        session: std::sync::Arc<crate::gpu::vk::VkSession>,
+    },
 }
 
 impl CompositorBackend {
@@ -303,11 +305,7 @@ impl CompositorBackend {
             let info = gpu::mtl::TextureInfo::new(target.texture().raw() as gpu::mtl::Handle);
             gpu::backend_render_targets::make_mtl((width as i32, height as i32), &info)
         };
-        #[cfg(not(any(
-            target_os = "windows",
-            target_os = "linux",
-            target_os = "macos"
-        )))]
+        #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
         let brt = unreachable!();
 
         gpu::surfaces::wrap_backend_render_target(
@@ -469,11 +467,6 @@ pub fn import_texture(
     // 回读 8MB 再 `raster_from_data`（绘制时又上传回 GPU）：同样的字节、
     // 同样的 origin 处理，但一次 GPU→CPU→GPU 双往返；全 GPU 化后这里
     // 必须保持零 CPU。
-    gpu::images::texture_from_image(
-        skia,
-        &img,
-        gpu::Mipmapped::No,
-        gpu::Budgeted::Yes,
-    )
-    .ok_or_else(|| anyhow!("texture_from_image 失败（{width}x{height}）"))
+    gpu::images::texture_from_image(skia, &img, gpu::Mipmapped::No, gpu::Budgeted::Yes)
+        .ok_or_else(|| anyhow!("texture_from_image 失败（{width}x{height}）"))
 }

@@ -208,7 +208,8 @@ impl Target {
         let mut out = Vec::with_capacity(row_len * self.height as usize);
         let base = buffer.contents() as *const u8;
         for row in 0..self.height as usize {
-            let src = unsafe { std::slice::from_raw_parts(base.add(row * self.bytes_per_row), row_len) };
+            let src =
+                unsafe { std::slice::from_raw_parts(base.add(row * self.bytes_per_row), row_len) };
             out.extend_from_slice(src);
         }
         out

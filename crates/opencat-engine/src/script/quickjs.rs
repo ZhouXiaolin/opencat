@@ -23,7 +23,9 @@ pub(crate) fn exception(ctx: &Ctx<'_>, label: &str) -> anyhow::Error {
     if let Ok(object) = Object::from_value(caught.clone())
         && let Some(exception) = Exception::from_object(object)
     {
-        let message = exception.message().unwrap_or_else(|| "uncaught exception".into());
+        let message = exception
+            .message()
+            .unwrap_or_else(|| "uncaught exception".into());
         let stack = exception.stack().unwrap_or_default();
         return anyhow!("{label}: {message}\n{stack}");
     }
@@ -77,7 +79,10 @@ pub(crate) fn from_json<'js>(ctx: &Ctx<'js>, value: JsonValue) -> anyhow::Result
     match value {
         JsonValue::Null => Ok(Value::new_null(ctx.clone())),
         JsonValue::Bool(value) => Ok(value.into_js(ctx)?),
-        JsonValue::Number(number) => Ok(Value::new_number(ctx.clone(), number.as_f64().unwrap_or_default())),
+        JsonValue::Number(number) => Ok(Value::new_number(
+            ctx.clone(),
+            number.as_f64().unwrap_or_default(),
+        )),
         JsonValue::String(value) => Ok(value.into_js(ctx)?),
         JsonValue::Array(items) => {
             let array = Array::new(ctx.clone())?;
@@ -210,17 +215,15 @@ fn omp_take_native<'js>(
     let mut writes: Vec<crate::script::omp::protocol::IsolateWrite> = Vec::new();
     let mut reds: Vec<f64> = Vec::new();
     let mut taken = match store.lock() {
-        Ok(mut store) => {
-            crate::script::omp::omp_take(
-                &mut store,
-                &ir,
-                &rest,
-                std::sync::Arc::from(Vec::<crate::script::omp::protocol::SharedBuf>::new()),
-                &prng,
-                &mut writes,
-                &mut reds,
-            )
-        }
+        Ok(mut store) => crate::script::omp::omp_take(
+            &mut store,
+            &ir,
+            &rest,
+            std::sync::Arc::from(Vec::<crate::script::omp::protocol::SharedBuf>::new()),
+            &prng,
+            &mut writes,
+            &mut reds,
+        ),
         Err(_) => false,
     };
     // isolate 腿写回：take=true 时按行序把 Set/Acc 四元组应用到真数组
@@ -262,13 +265,18 @@ fn omp_take_native<'js>(
 }
 
 fn string_arg(args: &[Value<'_>], index: usize) -> anyhow::Result<String> {
-    args.get(index).ok_or_else(|| anyhow!("missing string argument {index}"))?
-        .as_string().ok_or_else(|| anyhow!("argument {index} is not a string"))?
-        .to_string().map_err(Into::into)
+    args.get(index)
+        .ok_or_else(|| anyhow!("missing string argument {index}"))?
+        .as_string()
+        .ok_or_else(|| anyhow!("argument {index} is not a string"))?
+        .to_string()
+        .map_err(Into::into)
 }
 
 fn number_arg(args: &[Value<'_>], index: usize) -> f64 {
-    args.get(index).and_then(|value| value.as_number()).unwrap_or_default()
+    args.get(index)
+        .and_then(|value| value.as_number())
+        .unwrap_or_default()
 }
 
 fn u8_bytes(value: &Value<'_>) -> anyhow::Result<Vec<u8>> {
@@ -334,13 +342,20 @@ fn raster_canvas(store: &Store, args: &[Value<'_>]) -> anyhow::Result<usize> {
     let id = string_arg(args, 0)?;
     let (width, height) = (number_arg(args, 1), number_arg(args, 2));
     let mut guard = store.lock().map_err(|e| anyhow!("store lock: {e}"))?;
-    let empty = guard.canvas_commands(&id).is_none_or(|canvas| canvas.commands.is_empty());
+    let empty = guard
+        .canvas_commands(&id)
+        .is_none_or(|canvas| canvas.commands.is_empty());
     let (width, height, rgba) = if empty {
         (width.max(1.0) as u32, height.max(1.0) as u32, Vec::new())
     } else {
         let canvas = guard.canvas_commands(&id).cloned().unwrap();
-        crate::script::offscreen::rasterize_canvas_commands(&canvas, width as f32, height as f32, &mut guard)
-            .map_err(anyhow::Error::msg)?
+        crate::script::offscreen::rasterize_canvas_commands(
+            &canvas,
+            width as f32,
+            height as f32,
+            &mut guard,
+        )
+        .map_err(anyhow::Error::msg)?
     };
     copy_out(args.get(3).unwrap(), &rgba)?;
     let _ = width;
@@ -351,7 +366,9 @@ fn raster_canvas_png(store: &Store, args: &[Value<'_>]) -> anyhow::Result<usize>
     let id = string_arg(args, 0)?;
     let (width, height) = (number_arg(args, 1), number_arg(args, 2));
     let mut guard = store.lock().map_err(|e| anyhow!("store lock: {e}"))?;
-    let empty = guard.canvas_commands(&id).is_none_or(|canvas| canvas.commands.is_empty());
+    let empty = guard
+        .canvas_commands(&id)
+        .is_none_or(|canvas| canvas.commands.is_empty());
     let (_, _, bytes) = if empty {
         let w = width.max(1.0) as u32;
         let h = height.max(1.0) as u32;
@@ -360,8 +377,13 @@ fn raster_canvas_png(store: &Store, args: &[Value<'_>]) -> anyhow::Result<usize>
         (w, h, png)
     } else {
         let canvas = guard.canvas_commands(&id).cloned().unwrap();
-        crate::script::offscreen::rasterize_canvas_commands_png(&canvas, width as f32, height as f32, &mut guard)
-            .map_err(anyhow::Error::msg)?
+        crate::script::offscreen::rasterize_canvas_commands_png(
+            &canvas,
+            width as f32,
+            height as f32,
+            &mut guard,
+        )
+        .map_err(anyhow::Error::msg)?
     };
     copy_out(args.get(3).unwrap(), &bytes)?;
     Ok(bytes.len())
@@ -394,7 +416,12 @@ impl JsContext for RqJsContext {
             ctx.globals().set("ctx", object.clone())?;
             Ok(Persistent::save(&ctx, object))
         })?;
-        Ok(Self { context, store, ctx_obj, runtime })
+        Ok(Self {
+            context,
+            store,
+            ctx_obj,
+            runtime,
+        })
     }
 
     fn eval(&self, code: &str) -> anyhow::Result<()> {
@@ -434,8 +461,9 @@ impl JsContext for RqJsContext {
         let store = self.store.clone();
         self.context.with(|ctx| -> anyhow::Result<()> {
             let native_store = store.clone();
-            let dispatcher: Box<dyn Fn(&mut MutationStore, &str, &[JsonValue]) -> anyhow::Result<JsonValue>> =
-                Box::new(dispatcher);
+            let dispatcher: Box<
+                dyn Fn(&mut MutationStore, &str, &[JsonValue]) -> anyhow::Result<JsonValue>,
+            > = Box::new(dispatcher);
             // ctx 以 clone 被 move 进闭包（Ctx 注入参数是调用期 HRTB，与
             // 注册期 'js 的返回类型无法统一）——from_json 产物借用 clone 的
             // 生命周期 = 注册 'js，IntoJsFunc 才有具体返回类型。
@@ -444,139 +472,254 @@ impl JsContext for RqJsContext {
                 let call_args = match arg_json(&args) {
                     Ok(JsonValue::Array(items)) => items,
                     Ok(other) => vec![other],
-                    Err(e) => return Err(JsError::new_from_js_message("script", "args", &e.to_string())),
+                    Err(e) => {
+                        return Err(JsError::new_from_js_message(
+                            "script",
+                            "args",
+                            &e.to_string(),
+                        ));
+                    }
                 };
-                let mut guard = native_store.lock().map_err(|e| JsError::new_from_js_message("script", "lock", &e.to_string()))?;
-                let out = dispatcher(&mut guard, &name, &call_args).map_err(|e| JsError::new_from_js_message("script", "script", &e.to_string()))?;
-                from_json(&native_ctx, out).map_err(|e| JsError::new_from_js_message("script", "out", &e.to_string()))
+                let mut guard = native_store
+                    .lock()
+                    .map_err(|e| JsError::new_from_js_message("script", "lock", &e.to_string()))?;
+                let out = dispatcher(&mut guard, &name, &call_args).map_err(|e| {
+                    JsError::new_from_js_message("script", "script", &e.to_string())
+                })?;
+                from_json(&native_ctx, out)
+                    .map_err(|e| JsError::new_from_js_message("script", "out", &e.to_string()))
             };
-            ctx.globals().set("__opencatCallNative", Function::new(ctx.clone(), native)?)?;
+            ctx.globals()
+                .set("__opencatCallNative", Function::new(ctx.clone(), native)?)?;
 
             let globals = ctx.globals();
             let put_store = store.clone();
-            globals.set("__opencatPutImageData", Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                put_image_data(&put_store, &args).map_err(|e| JsError::new_from_js_message("putImageData", "args", &e.to_string()))
-            })?)?;
+            globals.set(
+                "__opencatPutImageData",
+                Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
+                    put_image_data(&put_store, &args).map_err(|e| {
+                        JsError::new_from_js_message("putImageData", "args", &e.to_string())
+                    })
+                })?,
+            )?;
 
             let read = Function::new(ctx.clone(), |Rest(args): Rest<Value>| {
-                surface_read_into(&args).map_err(|e| JsError::new_from_js_message("surface.read", "args", &e.to_string()))
+                surface_read_into(&args).map_err(|e| {
+                    JsError::new_from_js_message("surface.read", "args", &e.to_string())
+                })
             })?;
             globals.set("__opencatSurfaceReadInto", read)?;
 
             let raster_store = store.clone();
             let raster = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                raster_canvas(&raster_store, &args).map_err(|e| JsError::new_from_js_message("rasterCanvas", "args", &e.to_string()))
+                raster_canvas(&raster_store, &args).map_err(|e| {
+                    JsError::new_from_js_message("rasterCanvas", "args", &e.to_string())
+                })
             })?;
             globals.set("__opencatRasterCanvas", raster)?;
 
             let png_store = store.clone();
             let png = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                raster_canvas_png(&png_store, &args).map_err(|e| JsError::new_from_js_message("rasterCanvasPNG", "args", &e.to_string()))
+                raster_canvas_png(&png_store, &args).map_err(|e| {
+                    JsError::new_from_js_message("rasterCanvasPNG", "args", &e.to_string())
+                })
             })?;
             globals.set("__opencatRasterCanvasPNG", png)?;
 
             let reset_store = store.clone();
             let reset = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                let id = string_arg(&args, 0).map_err(|e| JsError::new_from_js_message("offscreenReset", "id", &e.to_string()))?;
-                reset_store.lock().map_err(|e| JsError::new_from_js_message("offscreenReset", "lock", &e.to_string()))?.reset_offscreen_canvas(&id);
+                let id = string_arg(&args, 0).map_err(|e| {
+                    JsError::new_from_js_message("offscreenReset", "id", &e.to_string())
+                })?;
+                reset_store
+                    .lock()
+                    .map_err(|e| {
+                        JsError::new_from_js_message("offscreenReset", "lock", &e.to_string())
+                    })?
+                    .reset_offscreen_canvas(&id);
                 Ok::<(), JsError>(())
             })?;
             globals.set("__opencatOffscreenReset", reset)?;
 
             let path_store = store.clone();
             let path = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                let id = string_arg(&args, 0).map_err(|e| JsError::new_from_js_message("canvas.pathFlat", "id", &e.to_string()))?;
-                let flat = f64_bytes(args.get(1).unwrap())
-                    .map_err(|e| JsError::new_from_js_message("canvas.pathFlat", "flat", &e.to_string()))?;
-                let flat: Vec<f64> = flat.chunks_exact(8).map(|b| f64::from_le_bytes(b.try_into().unwrap())).collect();
-                let mut guard = path_store.lock().map_err(|e| JsError::new_from_js_message("canvas.pathFlat", "lock", &e.to_string()))?;
+                let id = string_arg(&args, 0).map_err(|e| {
+                    JsError::new_from_js_message("canvas.pathFlat", "id", &e.to_string())
+                })?;
+                let flat = f64_bytes(args.get(1).unwrap()).map_err(|e| {
+                    JsError::new_from_js_message("canvas.pathFlat", "flat", &e.to_string())
+                })?;
+                let flat: Vec<f64> = flat
+                    .chunks_exact(8)
+                    .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
+                    .collect();
+                let mut guard = path_store.lock().map_err(|e| {
+                    JsError::new_from_js_message("canvas.pathFlat", "lock", &e.to_string())
+                })?;
                 opencat_core::script::bindings::record_path_flat(
                     &mut *guard,
                     &id,
                     &flat,
                     number_arg(&args, 2),
                     number_arg(&args, 3),
-                ).map_err(|e| JsError::new_from_js_message("canvas.pathFlat", "record", &e.to_string()))
+                )
+                .map_err(|e| {
+                    JsError::new_from_js_message("canvas.pathFlat", "record", &e.to_string())
+                })
             })?;
             globals.set("__opencatCanvasPathFlat", path)?;
 
             let gl_store = store.clone();
             let gl = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                let id = string_arg(&args, 0).map_err(|e| JsError::new_from_js_message("gl.intern", "id", &e.to_string()))?;
-                let bytes = u8_bytes(args.get(1).unwrap())
-                    .map_err(|e| JsError::new_from_js_message("gl.intern", "bytes", &e.to_string()))?;
-                gl_store.lock().map_err(|e| JsError::new_from_js_message("gl.intern", "lock", &e.to_string()))?
-                    .gl_stream_intern(&id, bytes).map(|range| range as i32)
-                    .map_err(|e| JsError::new_from_js_message("gl.intern", "record", &e.to_string()))
+                let id = string_arg(&args, 0)
+                    .map_err(|e| JsError::new_from_js_message("gl.intern", "id", &e.to_string()))?;
+                let bytes = u8_bytes(args.get(1).unwrap()).map_err(|e| {
+                    JsError::new_from_js_message("gl.intern", "bytes", &e.to_string())
+                })?;
+                gl_store
+                    .lock()
+                    .map_err(|e| JsError::new_from_js_message("gl.intern", "lock", &e.to_string()))?
+                    .gl_stream_intern(&id, bytes)
+                    .map(|range| range as i32)
+                    .map_err(|e| {
+                        JsError::new_from_js_message("gl.intern", "record", &e.to_string())
+                    })
             })?;
             globals.set("__opencatGLIntern", gl)?;
 
             let stat_store = store.clone();
             let stat = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                let path = string_arg(&args, 0).map_err(|e| JsError::new_from_js_message("asset.stat", "path", &e.to_string()))?;
-                Ok::<i32, JsError>(stat_store.lock().map_err(|e| JsError::new_from_js_message("asset.stat", "lock", &e.to_string()))?
-                    .asset_read(&path).map(|bytes| bytes.len() as i32).unwrap_or(-1))
+                let path = string_arg(&args, 0).map_err(|e| {
+                    JsError::new_from_js_message("asset.stat", "path", &e.to_string())
+                })?;
+                Ok::<i32, JsError>(
+                    stat_store
+                        .lock()
+                        .map_err(|e| {
+                            JsError::new_from_js_message("asset.stat", "lock", &e.to_string())
+                        })?
+                        .asset_read(&path)
+                        .map(|bytes| bytes.len() as i32)
+                        .unwrap_or(-1),
+                )
             })?;
             globals.set("__opencatAssetStat", stat)?;
 
             let asset_store = store.clone();
             let asset = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                let path = string_arg(&args, 0).map_err(|e| JsError::new_from_js_message("asset.read", "path", &e.to_string()))?;
-                let bytes = asset_store.lock().map_err(|e| JsError::new_from_js_message("asset.read", "lock", &e.to_string()))?
-                    .asset_read(&path).map_err(|e| JsError::new_from_js_message("asset.read", "bytes", &e.to_string()))?;
-                copy_out(args.get(1).unwrap(), &bytes).map_err(|e| JsError::new_from_js_message("asset.read", "out", &e.to_string()))?;
+                let path = string_arg(&args, 0).map_err(|e| {
+                    JsError::new_from_js_message("asset.read", "path", &e.to_string())
+                })?;
+                let bytes = asset_store
+                    .lock()
+                    .map_err(|e| {
+                        JsError::new_from_js_message("asset.read", "lock", &e.to_string())
+                    })?
+                    .asset_read(&path)
+                    .map_err(|e| {
+                        JsError::new_from_js_message("asset.read", "bytes", &e.to_string())
+                    })?;
+                copy_out(args.get(1).unwrap(), &bytes).map_err(|e| {
+                    JsError::new_from_js_message("asset.read", "out", &e.to_string())
+                })?;
                 Ok::<i32, JsError>(bytes.len() as i32)
             })?;
             globals.set("__opencatAssetReadInto", asset)?;
 
             let decode_store = store.clone();
             let decode_ctx = ctx.clone();
-            let decode = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| -> Result<Value, JsError> {
-                let result = (|| -> anyhow::Result<Option<(u32, u32)>> {
-                    let bytes = u8_bytes(args.first().unwrap())
-                        .map_err(|e| anyhow!("src must be a Uint8Array: {e}"))?;
-                    let surface_id = string_arg(&args, 1)?;
-                    let store = decode_store.lock().map_err(|e| anyhow!("store lock: {e}"))?;
-                    let Ok((width, height, rgba)) = store.image_decode(&bytes) else {
-                        return Ok(None);
-                    };
-                    if opencat_core::text::surface::surface_create_or_resize(&surface_id, width, height).is_err()
-                        || opencat_core::text::surface::surface_write_rgba(&surface_id, width, height, rgba).is_err() {
-                        return Ok(None);
+            let decode = Function::new(
+                ctx.clone(),
+                move |Rest(args): Rest<Value>| -> Result<Value, JsError> {
+                    let result = (|| -> anyhow::Result<Option<(u32, u32)>> {
+                        let bytes = u8_bytes(args.first().unwrap())
+                            .map_err(|e| anyhow!("src must be a Uint8Array: {e}"))?;
+                        let surface_id = string_arg(&args, 1)?;
+                        let store = decode_store
+                            .lock()
+                            .map_err(|e| anyhow!("store lock: {e}"))?;
+                        let Ok((width, height, rgba)) = store.image_decode(&bytes) else {
+                            return Ok(None);
+                        };
+                        if opencat_core::text::surface::surface_create_or_resize(
+                            &surface_id,
+                            width,
+                            height,
+                        )
+                        .is_err()
+                            || opencat_core::text::surface::surface_write_rgba(
+                                &surface_id,
+                                width,
+                                height,
+                                rgba,
+                            )
+                            .is_err()
+                        {
+                            return Ok(None);
+                        }
+                        Ok(Some((width, height)))
+                    })();
+                    match result {
+                        Ok(Some((width, height))) => Ok(from_json(
+                            &decode_ctx,
+                            serde_json::json!({"width": width, "height": height}),
+                        )
+                        .unwrap()),
+                        Ok(None) => Ok(Value::new_null(decode_ctx.clone())),
+                        Err(e) => Err(JsError::new_from_js_message(
+                            "image.decode",
+                            "args",
+                            &e.to_string(),
+                        )),
                     }
-                    Ok(Some((width, height)))
-                })();
-                match result {
-                    Ok(Some((width, height))) => Ok(from_json(&decode_ctx, serde_json::json!({"width": width, "height": height})).unwrap()),
-                    Ok(None) => Ok(Value::new_null(decode_ctx.clone())),
-                    Err(e) => Err(JsError::new_from_js_message("image.decode", "args", &e.to_string())),
-                }
-            })?;
+                },
+            )?;
             globals.set("__opencatImageDecodeInto", decode)?;
 
             let oval_store = store.clone();
             let ovals = Function::new(ctx.clone(), move |Rest(args): Rest<Value>| {
-                let id = string_arg(&args, 0).map_err(|e| JsError::new_from_js_message("fillOvalBatch", "id", &e.to_string()))?;
-                let rects = f32_bytes(args.get(1).unwrap())
-                    .map_err(|e| JsError::new_from_js_message("fillOvalBatch", "rects", &e.to_string()))?;
-                let colors = u8_bytes(args.get(2).unwrap())
-                    .map_err(|e| JsError::new_from_js_message("fillOvalBatch", "colors", &e.to_string()))?;
+                let id = string_arg(&args, 0).map_err(|e| {
+                    JsError::new_from_js_message("fillOvalBatch", "id", &e.to_string())
+                })?;
+                let rects = f32_bytes(args.get(1).unwrap()).map_err(|e| {
+                    JsError::new_from_js_message("fillOvalBatch", "rects", &e.to_string())
+                })?;
+                let colors = u8_bytes(args.get(2).unwrap()).map_err(|e| {
+                    JsError::new_from_js_message("fillOvalBatch", "colors", &e.to_string())
+                })?;
                 let count = number_arg(&args, 3) as usize;
-                let rects: Vec<f32> = rects.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
-                oval_store.lock().map_err(|e| JsError::new_from_js_message("fillOvalBatch", "lock", &e.to_string()))?
+                let rects: Vec<f32> = rects
+                    .chunks_exact(4)
+                    .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+                    .collect();
+                oval_store
+                    .lock()
+                    .map_err(|e| {
+                        JsError::new_from_js_message("fillOvalBatch", "lock", &e.to_string())
+                    })?
                     .record_fill_oval_batch(&id, rects, colors, count);
                 Ok::<(), JsError>(())
             })?;
             globals.set("__ocCanvasFillOvalBatch", ovals)?;
 
-            globals.set("__ocStderr", Function::new(ctx.clone(), |message: String| {
-                eprintln!("[js] {message}");
-                Ok::<(), JsError>(())
-            })?)?;
-            globals.set("__ocWallMs", Function::new(ctx.clone(), || {
-                Ok::<f64, JsError>(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs_f64() * 1e3).unwrap_or_default())
-            })?)?;
+            globals.set(
+                "__ocStderr",
+                Function::new(ctx.clone(), |message: String| {
+                    eprintln!("[js] {message}");
+                    Ok::<(), JsError>(())
+                })?,
+            )?;
+            globals.set(
+                "__ocWallMs",
+                Function::new(ctx.clone(), || {
+                    Ok::<f64, JsError>(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64() * 1e3)
+                            .unwrap_or_default(),
+                    )
+                })?,
+            )?;
             let prep = Function::new(ctx.clone(), |ir: Value| -> Result<bool, JsError> {
                 let j = to_json(&ir)
                     .map_err(|e| JsError::new_from_js_message("omp.prep", "ir", &e.to_string()))?;

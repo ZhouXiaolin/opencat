@@ -7,9 +7,9 @@
 
 use std::collections::HashMap;
 
-use lightningcss::properties::custom::{Token, TokenList, TokenOrValue};
 use lightningcss::properties::Property;
-use lightningcss::rules::{supports::SupportsCondition, CssRule};
+use lightningcss::properties::custom::{Token, TokenList, TokenOrValue};
+use lightningcss::rules::{CssRule, supports::SupportsCondition};
 use lightningcss::selector::{Component, Selector, SelectorList};
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::traits::{ParseWithOptions, ToCss};
@@ -204,7 +204,10 @@ fn supports_condition_holds(condition: &SupportsCondition) -> bool {
         SupportsCondition::Or(list) => list.iter().any(supports_condition_holds),
         SupportsCondition::Declaration { value, .. } => {
             let v: &str = value.as_ref();
-            v.contains("color-mix") || v.contains("oklab") || v.contains("oklch") || v.contains("lab(")
+            v.contains("color-mix")
+                || v.contains("oklab")
+                || v.contains("oklch")
+                || v.contains("lab(")
         }
         SupportsCondition::Selector(_) | SupportsCondition::Unknown(_) => false,
     }
@@ -263,20 +266,16 @@ fn parsed_component_to_tokens(comp: &ParsedComponent<'static>) -> TokenList<'sta
                     tokens.push(TokenOrValue::Length(unit.clone()));
                 }
             }
-            ParsedComponent::Percentage(p) => {
-                tokens.push(TokenOrValue::Token(Token::Percentage {
-                    has_sign: false,
-                    unit_value: p.0,
-                    int_value: None,
-                }))
-            }
-            ParsedComponent::Number(n) => {
-                tokens.push(TokenOrValue::Token(Token::Number {
-                    has_sign: *n < 0.0,
-                    value: *n,
-                    int_value: None,
-                }))
-            }
+            ParsedComponent::Percentage(p) => tokens.push(TokenOrValue::Token(Token::Percentage {
+                has_sign: false,
+                unit_value: p.0,
+                int_value: None,
+            })),
+            ParsedComponent::Number(n) => tokens.push(TokenOrValue::Token(Token::Number {
+                has_sign: *n < 0.0,
+                value: *n,
+                int_value: None,
+            })),
             ParsedComponent::Color(c) => tokens.push(TokenOrValue::Color(c.clone())),
             other => {
                 // 复杂 initial 值（Image/Transform 等）先序列化回字符串再按

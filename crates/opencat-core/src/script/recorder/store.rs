@@ -3,10 +3,8 @@ use std::collections::HashMap;
 
 use super::MutationRecorder;
 use crate::script::ScriptTextSource;
+use crate::script::mutations::{CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations};
 use crate::script::tree::TreeOverlay;
-use crate::script::mutations::{
-    CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations,
-};
 use crate::script::{
     align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
     inset_shadow_from_name, justify_content_from_name, object_fit_from_name, position_from_name,
@@ -17,7 +15,6 @@ use crate::style::{
     FlexDirection, FontWeight, InsetShadow, JustifyContent, NodeStyle, ObjectFit, Position,
     TextAlign, Transform, TransformOrigin, color_token_from_script_string,
 };
-
 
 /// 一条 WebGL/WebGPU 命令流的录制中间态（frame 级，reset 清空）。
 ///
@@ -221,7 +218,11 @@ pub(crate) fn font_stack_from_value(value: &serde_json::Value) -> Option<Vec<Str
     }
     let stack: Vec<String> = text
         .split(',')
-        .map(|name| name.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+        .map(|name| {
+            name.trim()
+                .trim_matches(|c| c == '"' || c == '\'')
+                .to_string()
+        })
         .filter(|name| !name.is_empty())
         .collect();
     (!stack.is_empty()).then_some(stack)
@@ -343,7 +344,10 @@ impl StyleStore {
         }
         add_f32!("letterSpacing", letter_spacing);
         add_f32!("lineHeight", line_height);
-        props.insert("whiteSpace".into(), json!(if style.no_wrap { "nowrap" } else { "normal" }));
+        props.insert(
+            "whiteSpace".into(),
+            json!(if style.no_wrap { "nowrap" } else { "normal" }),
+        );
         add_f32!("width", width);
         add_f32!("height", height);
         add_f32!("gap", gap);
@@ -351,9 +355,16 @@ impl StyleStore {
         // 圆角：gsap 的 `borderRadius` 补间按四个角的长写读起点。
         if let Some(radius) = style.border_radius {
             props.insert("borderRadius".into(), json!(radius.top_left));
-            let corners =
-                [radius.top_left, radius.top_right, radius.bottom_right, radius.bottom_left];
-            for (key, value) in crate::script::mutations::CORNER_RADIUS_KEYS.iter().zip(corners) {
+            let corners = [
+                radius.top_left,
+                radius.top_right,
+                radius.bottom_right,
+                radius.bottom_left,
+            ];
+            for (key, value) in crate::script::mutations::CORNER_RADIUS_KEYS
+                .iter()
+                .zip(corners)
+            {
                 props.insert((*key).into(), json!(value));
             }
         }
@@ -420,11 +431,17 @@ impl StyleStore {
             props.insert("fill".into(), json!("none"));
         } else if let Some(ref c) = style.fill_color {
             let (r, g, b, a) = c.rgba();
-            props.insert("fill".into(), json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)));
+            props.insert(
+                "fill".into(),
+                json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)),
+            );
         }
         if let Some(ref c) = style.stroke_color {
             let (r, g, b, a) = c.rgba();
-            props.insert("stroke".into(), json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)));
+            props.insert(
+                "stroke".into(),
+                json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a)),
+            );
         }
         add_color!("backgroundColor", bg_color);
         add_color!("textColor", text_color);
@@ -492,32 +509,38 @@ impl StyleStore {
                     .white_space_nowrap
                     .map(|v| json!(if v { "nowrap" } else { "normal" })),
                 "width" if mutations.width_auto => Some(json!("auto")),
-                "width" => mutations
-                    .width
-                    .map(|f| json!(f))
-                    .or_else(|| mutations.width_pct.map(|p| json!(format!("{}%", p * 100.0)))),
-                "height" => mutations
-                    .height
-                    .map(|f| json!(f))
-                    .or_else(|| mutations.height_pct.map(|p| json!(format!("{}%", p * 100.0)))),
+                "width" => mutations.width.map(|f| json!(f)).or_else(|| {
+                    mutations
+                        .width_pct
+                        .map(|p| json!(format!("{}%", p * 100.0)))
+                }),
+                "height" => mutations.height.map(|f| json!(f)).or_else(|| {
+                    mutations
+                        .height_pct
+                        .map(|p| json!(format!("{}%", p * 100.0)))
+                }),
                 "gap" => mutations.gap.map(|f| json!(f)),
                 "flexGrow" => mutations.flex_grow.map(|f| json!(f)),
-                "left" => mutations
-                    .inset_left
-                    .map(|f| json!(f))
-                    .or_else(|| mutations.inset_left_pct.map(|p| json!(format!("{}%", p * 100.0)))),
-                "top" => mutations
-                    .inset_top
-                    .map(|f| json!(f))
-                    .or_else(|| mutations.inset_top_pct.map(|p| json!(format!("{}%", p * 100.0)))),
-                "right" => mutations
-                    .inset_right
-                    .map(|f| json!(f))
-                    .or_else(|| mutations.inset_right_pct.map(|p| json!(format!("{}%", p * 100.0)))),
-                "bottom" => mutations
-                    .inset_bottom
-                    .map(|f| json!(f))
-                    .or_else(|| mutations.inset_bottom_pct.map(|p| json!(format!("{}%", p * 100.0)))),
+                "left" => mutations.inset_left.map(|f| json!(f)).or_else(|| {
+                    mutations
+                        .inset_left_pct
+                        .map(|p| json!(format!("{}%", p * 100.0)))
+                }),
+                "top" => mutations.inset_top.map(|f| json!(f)).or_else(|| {
+                    mutations
+                        .inset_top_pct
+                        .map(|p| json!(format!("{}%", p * 100.0)))
+                }),
+                "right" => mutations.inset_right.map(|f| json!(f)).or_else(|| {
+                    mutations
+                        .inset_right_pct
+                        .map(|p| json!(format!("{}%", p * 100.0)))
+                }),
+                "bottom" => mutations.inset_bottom.map(|f| json!(f)).or_else(|| {
+                    mutations
+                        .inset_bottom_pct
+                        .map(|p| json!(format!("{}%", p * 100.0)))
+                }),
                 // Transform components — so a tween written without an
                 // explicit `from` (e.g. `.to('obl',{x:L})`) starts from the
                 // value currently set on the node, as GSAP does.
@@ -538,7 +561,11 @@ impl StyleStore {
                         (0.0, _) => format!("{px}px"),
                         _ => format!("calc({}% + {px}px)", frac * 100.0),
                     };
-                    Some(json!(format!("{} {}", axis(o.x, o.x_px), axis(o.y, o.y_px))))
+                    Some(json!(format!(
+                        "{} {}",
+                        axis(o.x, o.x_px),
+                        axis(o.y, o.y_px)
+                    )))
                 }
                 // CSS text form, the shape CSSPlugin parses on init.
                 "transform" => Some(json!(css_transform_string(&mutations.transforms))),
@@ -558,13 +585,12 @@ impl StyleStore {
                     mutations.backdrop_blur_sigma.map(|f| json!(f))
                 }
                 // colors (serialize as "#RRGGBBAA" or "transparent")
-                "fill" => mutations
-                    .fill_none
-                    .then(|| json!("none"))
-                    .or_else(|| mutations.fill_color.as_ref().map(|c| {
+                "fill" => mutations.fill_none.then(|| json!("none")).or_else(|| {
+                    mutations.fill_color.as_ref().map(|c| {
                         let (r, g, b, a) = c.rgba();
                         json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
-                    })),
+                    })
+                }),
                 "stroke" => mutations.stroke_color.as_ref().map(|c| {
                     let (r, g, b, a) = c.rgba();
                     json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
@@ -660,7 +686,8 @@ impl StyleStore {
                         None
                     } else if s.eq_ignore_ascii_case("visible") {
                         Some(Visibility::Visible)
-                    } else if s.eq_ignore_ascii_case("hidden") || s.eq_ignore_ascii_case("collapse") {
+                    } else if s.eq_ignore_ascii_case("hidden") || s.eq_ignore_ascii_case("collapse")
+                    {
                         Some(Visibility::Hidden)
                     } else {
                         Some(Visibility::Inherit)
@@ -710,17 +737,26 @@ impl StyleStore {
             // one projective transform (see `Transform::Rotate3`).
             "rotationX" | "rotateX" => {
                 if let Some(v) = num_from_value(&value) {
-                    entry.write_rotate3_field(crate::script::mutations::Rotate3Field::RotationX, v as f32);
+                    entry.write_rotate3_field(
+                        crate::script::mutations::Rotate3Field::RotationX,
+                        v as f32,
+                    );
                 }
             }
             "rotationY" | "rotateY" => {
                 if let Some(v) = num_from_value(&value) {
-                    entry.write_rotate3_field(crate::script::mutations::Rotate3Field::RotationY, v as f32);
+                    entry.write_rotate3_field(
+                        crate::script::mutations::Rotate3Field::RotationY,
+                        v as f32,
+                    );
                 }
             }
             "transformPerspective" => {
                 if let Some(v) = num_from_value(&value) {
-                    entry.write_rotate3_field(crate::script::mutations::Rotate3Field::Perspective, v as f32);
+                    entry.write_rotate3_field(
+                        crate::script::mutations::Rotate3Field::Perspective,
+                        v as f32,
+                    );
                 }
             }
             "skewX" => {
@@ -772,23 +808,35 @@ impl StyleStore {
             }
             "left" => {
                 entry.inset_left_pct = pct_from_value(&value);
-                entry.inset_left =
-                    entry.inset_left_pct.is_none().then(|| num_from_value(&value)).flatten();
+                entry.inset_left = entry
+                    .inset_left_pct
+                    .is_none()
+                    .then(|| num_from_value(&value))
+                    .flatten();
             }
             "top" => {
                 entry.inset_top_pct = pct_from_value(&value);
-                entry.inset_top =
-                    entry.inset_top_pct.is_none().then(|| num_from_value(&value)).flatten();
+                entry.inset_top = entry
+                    .inset_top_pct
+                    .is_none()
+                    .then(|| num_from_value(&value))
+                    .flatten();
             }
             "right" => {
                 entry.inset_right_pct = pct_from_value(&value);
-                entry.inset_right =
-                    entry.inset_right_pct.is_none().then(|| num_from_value(&value)).flatten();
+                entry.inset_right = entry
+                    .inset_right_pct
+                    .is_none()
+                    .then(|| num_from_value(&value))
+                    .flatten();
             }
             "bottom" => {
                 entry.inset_bottom_pct = pct_from_value(&value);
-                entry.inset_bottom =
-                    entry.inset_bottom_pct.is_none().then(|| num_from_value(&value)).flatten();
+                entry.inset_bottom = entry
+                    .inset_bottom_pct
+                    .is_none()
+                    .then(|| num_from_value(&value))
+                    .flatten();
             }
             "width" => {
                 // 长度解析不出时保持上一次写入：浏览器对无效值（GSAP 拼出
@@ -815,7 +863,11 @@ impl StyleStore {
             }
             "height" => {
                 entry.height_pct = pct_from_value(&value);
-                entry.height = entry.height_pct.is_none().then(|| num_from_value(&value)).flatten();
+                entry.height = entry
+                    .height_pct
+                    .is_none()
+                    .then(|| num_from_value(&value))
+                    .flatten();
             }
             "padding" => {
                 entry.padding = num_from_value(&value);
@@ -1155,7 +1207,8 @@ impl CanvasStreams {
         if id.starts_with("__oc_offscreen_") {
             // 先摸 entry 再动 recency（避免同时可变借用两个 map）。
             if !self.offscreen_canvases.contains_key(id) {
-                self.offscreen_canvases.insert(id.to_string(), CanvasMutations::default());
+                self.offscreen_canvases
+                    .insert(id.to_string(), CanvasMutations::default());
             }
             self.offscreen_recency.retain(|k| k != id);
             self.offscreen_recency.push_back(id.to_string());
@@ -1291,8 +1344,7 @@ impl GlStreams {
             .find(|s| s.target_id == target_id)
             .ok_or_else(|| anyhow::anyhow!("gl intern: no stream open for canvas '{target_id}'"))?;
         for (i, range) in stream.byte_ranges.iter().enumerate() {
-            let existing =
-                &stream.bytes[range.start as usize..(range.start + range.len) as usize];
+            let existing = &stream.bytes[range.start as usize..(range.start + range.len) as usize];
             if existing.len() == data.len() && existing == data.as_slice() {
                 return Ok(i as u32);
             }
@@ -1400,7 +1452,11 @@ impl HostBridges {
     }
 
     /// 取视频帧 RGBA（文档相对路径，媒体时刻秒）；未注入宿主时明确报错。
-    fn video_frame_decode(&self, path: &str, time_secs: f64) -> anyhow::Result<(Vec<u8>, u32, u32)> {
+    fn video_frame_decode(
+        &self,
+        path: &str,
+        time_secs: f64,
+    ) -> anyhow::Result<(Vec<u8>, u32, u32)> {
         match &self.video_frame_decoder {
             Some(f) => f(path, time_secs),
             None => anyhow::bail!("video_frame_decode `{path}`: no video decoder host"),
@@ -1722,7 +1778,8 @@ impl MutationStore {
         x: f32,
         y: f32,
     ) {
-        self.gl.begin(target_id, width, height, backend, attrs_bits, x, y);
+        self.gl
+            .begin(target_id, width, height, backend, attrs_bits, x, y);
     }
 
     /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。帧被清而流头
@@ -1950,7 +2007,14 @@ impl MutationStore {
     ) -> serde_json::Value {
         let is_length = matches!(
             property,
-            "width" | "height" | "left" | "top" | "right" | "bottom" | "gap" | "letterSpacing"
+            "width"
+                | "height"
+                | "left"
+                | "top"
+                | "right"
+                | "bottom"
+                | "gap"
+                | "letterSpacing"
                 | "textSize"
         ) || property.starts_with("margin")
             || property.starts_with("padding");
@@ -1986,17 +2050,23 @@ impl MutationStore {
         };
         let transforms: Vec<Transform> =
             serde_json::from_value(serde_json::Value::Array(declared)).ok()?;
-        let bounds = crate::display::list::DisplayRect { x: 0.0, y: 0.0, width, height };
-        Some(css_transform_string(&crate::display::build::resolve_percent_transforms(
-            &transforms,
-            bounds,
-        )))
+        let bounds = crate::display::list::DisplayRect {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        };
+        Some(css_transform_string(
+            &crate::display::build::resolve_percent_transforms(&transforms, bounds),
+        ))
     }
 
     pub fn text_writes(&self) -> u64 {
         // 探针缓存键：文本写入数 + 结构变化计数（child override 挂载
         // 改变宿主子树，同帧后续量高必须重建）。
-        self.style.text_writes.wrapping_add(self.children.version << 32)
+        self.style
+            .text_writes
+            .wrapping_add(self.children.version << 32)
     }
 
     /// 本帧到目前为止的样式突变（不消耗、不含 canvas 流）：布局探针按它
@@ -2010,7 +2080,6 @@ impl MutationStore {
             child_overrides: self.children.map.clone(),
         }
     }
-
 }
 
 impl MutationRecorder for MutationStore {
@@ -2024,7 +2093,9 @@ impl MutationRecorder for MutationStore {
     ) {
         // 同 key 重插也算结构变化（同一帧多次 append 到同一宿主，
         // 每次上报都是新子树）。
-        self.children.map.insert(host_id.to_string(), child_override);
+        self.children
+            .map
+            .insert(host_id.to_string(), child_override);
         self.children.version += 1;
     }
     fn record_opacity(&mut self, id: &str, v: f32) {
@@ -2034,39 +2105,51 @@ impl MutationRecorder for MutationStore {
         self.entry(id).push_transform(Transform::Translate { x, y });
     }
     fn record_translate_x(&mut self, id: &str, v: f32) {
-        self.entry(id).push_transform(Transform::TranslateX { value: v });
+        self.entry(id)
+            .push_transform(Transform::TranslateX { value: v });
     }
     fn record_translate_y(&mut self, id: &str, v: f32) {
-        self.entry(id).push_transform(Transform::TranslateY { value: v });
+        self.entry(id)
+            .push_transform(Transform::TranslateY { value: v });
     }
     fn record_translate_x_percent(&mut self, id: &str, pct: f32) {
-        self.entry(id).push_transform(Transform::TranslateXPercent { value: pct });
+        self.entry(id)
+            .push_transform(Transform::TranslateXPercent { value: pct });
     }
     fn record_translate_y_percent(&mut self, id: &str, pct: f32) {
-        self.entry(id).push_transform(Transform::TranslateYPercent { value: pct });
+        self.entry(id)
+            .push_transform(Transform::TranslateYPercent { value: pct });
     }
     fn record_scale(&mut self, id: &str, v: f32) {
         self.entry(id).push_transform(Transform::Scale { value: v });
     }
     fn record_scale_x(&mut self, id: &str, v: f32) {
-        self.entry(id).push_transform(Transform::ScaleX { value: v });
+        self.entry(id)
+            .push_transform(Transform::ScaleX { value: v });
     }
     fn record_scale_y(&mut self, id: &str, v: f32) {
-        self.entry(id).push_transform(Transform::ScaleY { value: v });
+        self.entry(id)
+            .push_transform(Transform::ScaleY { value: v });
     }
     fn record_rotate(&mut self, id: &str, deg: f32) {
-        self.entry(id).push_transform(Transform::RotateDeg { value: deg });
+        self.entry(id)
+            .push_transform(Transform::RotateDeg { value: deg });
     }
     fn record_rotate3(&mut self, id: &str, rotation_x: f32, rotation_y: f32, perspective: f32) {
-        self.entry(id).write_rotate3_field(Rotate3Field::RotationX, rotation_x);
-        self.entry(id).write_rotate3_field(Rotate3Field::RotationY, rotation_y);
-        self.entry(id).write_rotate3_field(Rotate3Field::Perspective, perspective);
+        self.entry(id)
+            .write_rotate3_field(Rotate3Field::RotationX, rotation_x);
+        self.entry(id)
+            .write_rotate3_field(Rotate3Field::RotationY, rotation_y);
+        self.entry(id)
+            .write_rotate3_field(Rotate3Field::Perspective, perspective);
     }
     fn record_skew_x(&mut self, id: &str, deg: f32) {
-        self.entry(id).push_transform(Transform::SkewXDeg { value: deg });
+        self.entry(id)
+            .push_transform(Transform::SkewXDeg { value: deg });
     }
     fn record_skew_y(&mut self, id: &str, deg: f32) {
-        self.entry(id).push_transform(Transform::SkewYDeg { value: deg });
+        self.entry(id)
+            .push_transform(Transform::SkewYDeg { value: deg });
     }
     fn record_skew(&mut self, id: &str, x_deg: f32, y_deg: f32) {
         self.entry(id)
@@ -2246,7 +2329,6 @@ impl MutationRecorder for MutationStore {
     fn reset_canvas(&mut self, id: &str) {
         self.canvas_entry(id).commands.clear();
     }
-
 
     fn record_draw_picture(&mut self, target_id: &str, owner_id: &str, x: f32, y: f32) {
         self.record_draw_op(

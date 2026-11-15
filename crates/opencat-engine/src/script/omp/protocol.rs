@@ -147,7 +147,11 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
         .get("args")
         .and_then(|v| v.as_array())
         .ok_or("args missing")?;
-    let captures = ir.get("captures").and_then(|v| v.as_object()).unwrap_or(&serde_json::Map::new()).clone();
+    let captures = ir
+        .get("captures")
+        .and_then(|v| v.as_object())
+        .unwrap_or(&serde_json::Map::new())
+        .clone();
     let mut kinds = Vec::with_capacity(args.len());
     let mut params = Vec::with_capacity(args.len());
     for (k, name) in args.iter().enumerate() {
@@ -162,9 +166,18 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
         kinds.push(kind);
         params.push(name.to_string());
     }
-    let header = ir.get("header").and_then(|v| v.as_str()).ok_or("header missing")?;
-    let var = ir.get("var").and_then(|v| v.as_str()).ok_or("var missing")?;
-    let body = ir.get("body").and_then(|v| v.as_str()).ok_or("body missing")?;
+    let header = ir
+        .get("header")
+        .and_then(|v| v.as_str())
+        .ok_or("header missing")?;
+    let var = ir
+        .get("var")
+        .and_then(|v| v.as_str())
+        .ok_or("var missing")?;
+    let body = ir
+        .get("body")
+        .and_then(|v| v.as_str())
+        .ok_or("body missing")?;
     if var.is_empty() {
         return Err("loop var not parsed".into());
     }
@@ -368,9 +381,7 @@ pub fn build_bundle(ir: &JsonValue) -> Result<Bundle, String> {
         .iter()
         .map(|i| {
             let n = &params[*i];
-            format!(
-                "    {n} = __ocSnap{i}.slice(); {n}.__ocOmpArr = {i}; {n}.__ocSnap = 1;\n"
-            )
+            format!("    {n} = __ocSnap{i}.slice(); {n}.__ocOmpArr = {i}; {n}.__ocSnap = 1;\n")
         })
         .collect::<String>();
     // 采集守卫（运行期机械面，T2 静态审计的替代）：骨架按「每个调用点

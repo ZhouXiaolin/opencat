@@ -153,13 +153,7 @@ impl JsContext for WebJsContext {
         natives.push(native_canvas.into_js_value());
 
         let read = Closure::wrap(Box::new(
-            |a: JsValue,
-             b: JsValue,
-             c: JsValue,
-             d: JsValue,
-             e: JsValue,
-             f: JsValue|
-             -> JsValue {
+            |a: JsValue, b: JsValue, c: JsValue, d: JsValue, e: JsValue, f: JsValue| -> JsValue {
                 let args = js_sys::Array::new();
                 for v in [a, b, c, d, e, f] {
                     args.push(&v);
@@ -168,7 +162,9 @@ impl JsContext for WebJsContext {
                 JsValue::UNDEFINED
             },
         )
-            as Box<dyn FnMut(JsValue, JsValue, JsValue, JsValue, JsValue, JsValue) -> JsValue>);
+            as Box<
+                dyn FnMut(JsValue, JsValue, JsValue, JsValue, JsValue, JsValue) -> JsValue,
+            >);
         let _ = js_sys::Reflect::set(
             &global,
             &JsValue::from_str("__opencatSurfaceReadInto"),
@@ -218,7 +214,9 @@ fn put_image_data(store: &Rc<RefCell<MutationStore>>, args: &JsValue) {
     let node_id = str_arg(args, 0);
     let key = str_arg(args, 1);
     let Some(pixels) = bytes_arg(args, 2) else {
-        web_sys::console::error_1(&JsValue::from_str("putImageData: `pixels` must be a Uint8Array"));
+        web_sys::console::error_1(&JsValue::from_str(
+            "putImageData: `pixels` must be a Uint8Array",
+        ));
         return;
     };
     let (x, y, w, h) = (
@@ -284,7 +282,9 @@ fn surface_read_into(args: &JsValue) {
         num_arg(args, 4),
     );
     let Some(out) = bytes_arg(args, 5) else {
-        web_sys::console::error_1(&JsValue::from_str("surface.read: `out` must be a Uint8Array"));
+        web_sys::console::error_1(&JsValue::from_str(
+            "surface.read: `out` must be a Uint8Array",
+        ));
         return;
     };
     match opencat_core::text::surface::surface_get_rgba(&id, x, y, w, h) {

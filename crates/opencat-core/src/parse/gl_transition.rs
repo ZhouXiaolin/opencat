@@ -670,5 +670,3 @@ fn is_inlineable_global(trimmed: &str) -> Option<(String, String)> {
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
-
-

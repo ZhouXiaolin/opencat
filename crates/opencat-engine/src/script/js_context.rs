@@ -8,4 +8,3 @@ pub type EngineJsContext = crate::script::v8::V8JsContext;
 
 #[cfg(feature = "js-quickjs")]
 pub type EngineJsContext = crate::script::quickjs::RqJsContext;
-

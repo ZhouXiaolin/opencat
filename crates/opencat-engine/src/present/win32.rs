@@ -93,8 +93,8 @@ impl Presenter {
 
     pub fn present_frame(&mut self) -> Result<()> {
         use windows_sys::Win32::Graphics::Gdi::{
-            GetDC, ReleaseDC, StretchDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-            SRCCOPY,
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, GetDC, ReleaseDC, SRCCOPY,
+            StretchDIBits,
         };
 
         let (w, h) = self.surface_size;
@@ -162,9 +162,10 @@ impl Presenter {
             Option<&mut dyn crate::render::frame::GpuImageResolver>,
         ) -> Result<()>,
     ) -> Result<()> {
-        let surface = self.current_surface.as_mut().ok_or_else(|| {
-            anyhow!("skia canvas requested before Vulkan surface was ready")
-        })?;
+        let surface = self
+            .current_surface
+            .as_mut()
+            .ok_or_else(|| anyhow!("skia canvas requested before Vulkan surface was ready"))?;
         #[allow(invalid_reference_casting)]
         let canvas: &mut skia_safe::Canvas =
             unsafe { &mut *(surface.canvas() as *const _ as *mut skia_safe::Canvas) };

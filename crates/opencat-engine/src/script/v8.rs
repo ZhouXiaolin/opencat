@@ -24,8 +24,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use anyhow::anyhow;
 use serde_json::Value as JsonValue;
 use v8::{
-    Context, Function, Global, Local, Object, PinScope, Script, SharedIsolate,
-    String as V8String, Value,
+    Context, Function, Global, Local, Object, PinScope, Script, SharedIsolate, String as V8String,
+    Value,
 };
 
 use opencat_core::script::js_context::JsContext;
@@ -151,7 +151,10 @@ fn omp_ta_shared(
     }
     let len = copied / kind.elem_size();
     let slot = shared.len();
-    shared.push(SharedBuf { kind, data: bytes.into() });
+    shared.push(SharedBuf {
+        kind,
+        data: bytes.into(),
+    });
     Ok(serde_json::json!({ "__ocOmpShared": { "slot": slot, "len": len } }))
 }
 
@@ -279,17 +282,18 @@ fn omp_plain_walk(
 /// 精确复刻 → 直写 backing store；其余（JS Array 的 length/hole 语义、
 /// 整型 TA 的 modulo 转换面）保留 V8 API 路径零风险。
 enum OmpApplyTarget<'s> {
-    Typed { ptr: *mut u8, kind: SharedKind, len: usize },
+    Typed {
+        ptr: *mut u8,
+        kind: SharedKind,
+        len: usize,
+    },
     Obj(Local<'s, Object>),
     None,
 }
 
 /// 槽目标解析（每帧每槽一次）：f64/U8Clamped TA 直写；detach（null 指针）
 /// 与其余 TA kind 落 API 路径。
-fn omp_apply_target<'s>(
-    scope: &mut PinScope<'s, '_>,
-    v: Local<'_, Value>,
-) -> OmpApplyTarget<'s> {
+fn omp_apply_target<'s>(scope: &mut PinScope<'s, '_>, v: Local<'_, Value>) -> OmpApplyTarget<'s> {
     let kind = if v.is_float64_array() {
         SharedKind::F64
     } else if v.is_uint8_clamped_array() {
@@ -313,7 +317,11 @@ fn omp_apply_target<'s>(
             None => OmpApplyTarget::None,
         };
     }
-    OmpApplyTarget::Typed { ptr, kind, len: ta.length() }
+    OmpApplyTarget::Typed {
+        ptr,
+        kind,
+        len: ta.length(),
+    }
 }
 
 /// ES ToUint8Clamp（`Uint8ClampedArray[i] = v` 的数值语义）：NaN→0、
@@ -353,8 +361,7 @@ fn omp_typed_write(ptr: *mut u8, kind: SharedKind, idx: usize, acc: bool, val: f
             }
             SharedKind::U8Clamped => {
                 let cur = f64::from(*ptr.add(idx));
-                *ptr.add(idx) =
-                    omp_to_u8_clamp(if acc { cur + val } else { val });
+                *ptr.add(idx) = omp_to_u8_clamp(if acc { cur + val } else { val });
             }
             // 其余 kind 不进直写面（omp_apply_target 已过滤）。
             _ => unreachable!(),
@@ -366,7 +373,10 @@ fn omp_typed_write(ptr: *mut u8, kind: SharedKind, idx: usize, acc: bool, val: f
 /// 字符串/布尔/null/undefined）逐元素直读，免整包 JSON.stringify + serde 解析
 /// 往返——canvas 热绑定每帧数十万次，往返是单次调用的大头；对象/数组元素
 /// 仍走 [`v8_to_json`]，语义不变。
-fn v8_args_to_json(scope: &mut PinScope<'_, '_>, v: Local<Value>) -> anyhow::Result<Vec<JsonValue>> {
+fn v8_args_to_json(
+    scope: &mut PinScope<'_, '_>,
+    v: Local<Value>,
+) -> anyhow::Result<Vec<JsonValue>> {
     let Ok(array) = Local::<v8::Array>::try_from(v) else {
         return Ok(match v8_to_json(scope, v)? {
             JsonValue::Array(arr) => arr,
@@ -427,7 +437,8 @@ fn set_return(
             None => rv.set_double(n.as_f64().unwrap_or(f64::NAN)),
         },
         JsonValue::String(s) => {
-            let s = V8String::new(scope, s).ok_or_else(|| anyhow!("v8: string allocation failed"))?;
+            let s =
+                V8String::new(scope, s).ok_or_else(|| anyhow!("v8: string allocation failed"))?;
             rv.set(s.into());
         }
         _ => rv.set(json_to_v8(scope, value)?),
@@ -469,7 +480,6 @@ struct NativeState {
 fn native_state(scope: &PinScope<'_, '_>) -> Option<Rc<NativeState>> {
     scope.get_slot::<Rc<NativeState>>().cloned()
 }
-
 
 // ── Native entry points ──────────────────────────────────────────────
 
@@ -607,7 +617,10 @@ fn surface_read_into(
         }
     };
     if out.byte_length() < bytes.len() {
-        throw(scope, "surface.read: destination Uint8Array smaller than region");
+        throw(
+            scope,
+            "surface.read: destination Uint8Array smaller than region",
+        );
         return;
     }
     let destination = out.data() as *mut u8;
@@ -667,7 +680,10 @@ fn raster_canvas(
     if empty_canvas {
         let need = (w as f32 * h as f32) as usize * 4;
         if out.byte_length() < need {
-            throw(scope, "rasterCanvas: destination Uint8Array smaller than canvas");
+            throw(
+                scope,
+                "rasterCanvas: destination Uint8Array smaller than canvas",
+            );
             return;
         }
         return;
@@ -675,16 +691,20 @@ fn raster_canvas(
     let Some(canvas) = store.canvas_commands(&id).cloned() else {
         unreachable!("canvas_commands vanished between empty check and clone");
     };
-    let (width, height, rgba) =
-        match crate::script::offscreen::rasterize_canvas_commands(&canvas, w as f32, h as f32, &mut store) {
-            Ok(result) => result,
-            Err(e) => {
-                throw(scope, &format!("rasterCanvas: {e}"));
-                return;
-            }
-        };
+    let (width, height, rgba) = match crate::script::offscreen::rasterize_canvas_commands(
+        &canvas, w as f32, h as f32, &mut store,
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            throw(scope, &format!("rasterCanvas: {e}"));
+            return;
+        }
+    };
     if out.byte_length() < rgba.len() {
-        throw(scope, "rasterCanvas: destination Uint8Array smaller than canvas");
+        throw(
+            scope,
+            "rasterCanvas: destination Uint8Array smaller than canvas",
+        );
         return;
     }
     // Read-only binding (getImageData/probes): rasterize and copy out. No
@@ -758,7 +778,9 @@ fn canvas_path_flat(
         throw(scope, "canvas.pathFlat: store lock poisoned");
         return;
     };
-    if let Err(e) = opencat_core::script::bindings::record_path_flat(&mut *store, &id, &flat, dx, dy) {
+    if let Err(e) =
+        opencat_core::script::bindings::record_path_flat(&mut *store, &id, &flat, dx, dy)
+    {
         throw(scope, &format!("canvas.pathFlat: {e}"));
     }
 }
@@ -804,10 +826,14 @@ fn raster_canvas_png(
     };
     if empty_canvas {
         let (iw, ih) = ((w as u32).max(1), (h as u32).max(1));
-        let png = crate::script::offscreen::encode_rgba_png(iw, ih, &vec![0u8; (iw * ih * 4) as usize])
-            .unwrap_or_else(|_| vec![0u8; 8]);
+        let png =
+            crate::script::offscreen::encode_rgba_png(iw, ih, &vec![0u8; (iw * ih * 4) as usize])
+                .unwrap_or_else(|_| vec![0u8; 8]);
         if out.byte_length() < png.len() {
-            throw(scope, "rasterCanvasPNG: destination Uint8Array smaller than PNG");
+            throw(
+                scope,
+                "rasterCanvasPNG: destination Uint8Array smaller than PNG",
+            );
             return;
         }
         let destination = out.data() as *mut u8;
@@ -831,7 +857,10 @@ fn raster_canvas_png(
         }
     };
     if out.byte_length() < png.len() {
-        throw(scope, "rasterCanvasPNG: destination Uint8Array smaller than PNG");
+        throw(
+            scope,
+            "rasterCanvasPNG: destination Uint8Array smaller than PNG",
+        );
         return;
     }
     let destination = out.data() as *mut u8;
@@ -932,7 +961,10 @@ fn asset_read_into(
         }
     };
     if out.byte_length() < bytes.len() {
-        throw(scope, "asset.read: destination Uint8Array smaller than asset");
+        throw(
+            scope,
+            "asset.read: destination Uint8Array smaller than asset",
+        );
         return;
     }
     let destination = out.data() as *mut u8;
@@ -999,7 +1031,11 @@ fn fill_oval_batch(
             return;
         }
     };
-    let count = args.get(3).to_number(scope).map(|n| n.value()).unwrap_or(0.0);
+    let count = args
+        .get(3)
+        .to_number(scope)
+        .map(|n| n.value())
+        .unwrap_or(0.0);
     if !(count >= 0.0 && count <= 1.0e7) {
         throw(scope, "fillOvalBatch: bad count");
         return;
@@ -1121,15 +1157,12 @@ fn omp_take(
         })
         .unwrap_or_default();
     let captures = ir.get("captures");
-    let is_prng = |name: &str| {
-        captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("prng")
-    };
-    let is_ctx = |name: &str| {
-        captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("ctx")
-    };
-    let is_array = |name: &str| {
-        captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("array")
-    };
+    let is_prng =
+        |name: &str| captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("prng");
+    let is_ctx =
+        |name: &str| captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("ctx");
+    let is_array =
+        |name: &str| captures.and_then(|c| c.get(name)).and_then(|v| v.as_str()) == Some("array");
     let n_args = arg_names.len();
     let mut rest: Vec<JsonValue> = Vec::with_capacity(n_args);
     let mut shared: Vec<SharedBuf> = Vec::new();
@@ -1170,20 +1203,21 @@ fn omp_take(
             let face = v.to_object(scope);
             let node_id = face.and_then(|o| {
                 V8String::new(scope, "__ocNodeId").and_then(|key| {
-                    o.get(scope, key.into()).and_then(|val| {
-                        val.is_string().then(|| val.to_rust_string_lossy(scope))
-                    })
+                    o.get(scope, key.into())
+                        .and_then(|val| val.is_string().then(|| val.to_rust_string_lossy(scope)))
                 })
             });
             let global_alpha = face.and_then(|o| {
                 V8String::new(scope, "state").and_then(|key| {
-                    o.get(scope, key.into()).and_then(|st| st.to_object(scope)).and_then(|st| {
-                        V8String::new(scope, "globalAlpha").and_then(|gk| {
-                            st.get(scope, gk.into()).and_then(|ga| {
-                                ga.is_number().then(|| ga.number_value(scope)).flatten()
+                    o.get(scope, key.into())
+                        .and_then(|st| st.to_object(scope))
+                        .and_then(|st| {
+                            V8String::new(scope, "globalAlpha").and_then(|gk| {
+                                st.get(scope, gk.into()).and_then(|ga| {
+                                    ga.is_number().then(|| ga.number_value(scope)).flatten()
+                                })
                             })
                         })
-                    })
                 })
             });
             rest.push(match node_id {
@@ -1239,9 +1273,15 @@ fn omp_take(
     let mut reds: Vec<f64> = Vec::new();
     let shared: Arc<[SharedBuf]> = Arc::from(shared);
     let mut taken = match state.store.lock() {
-        Ok(mut store) => {
-            crate::script::omp::omp_take(&mut store, &ir, &rest, shared, &prng, &mut writes, &mut reds)
-        }
+        Ok(mut store) => crate::script::omp::omp_take(
+            &mut store,
+            &ir,
+            &rest,
+            shared,
+            &prng,
+            &mut writes,
+            &mut reds,
+        ),
         Err(_) => false,
     };
     // isolate 腿的写回：take=true 时按行序把 Set/Acc 四元组应用到真数组。
@@ -1338,14 +1378,22 @@ impl V8JsContext {
         &self,
         f: Box<dyn Fn(&str, &str) -> anyhow::Result<serde_json::Value> + Send>,
     ) {
-        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        let mut guard = self
+            .natives
+            .store
+            .lock()
+            .expect("script store lock poisoned");
         guard.set_glsl_reflector(f);
     }
 
     /// 注入资产读取器（文档相对路径 → 字节）。见
     /// [`crate::gpu::stream_executor::install_asset_bridge`]。
     pub fn set_asset_reader(&self, f: Box<dyn Fn(&str) -> anyhow::Result<Vec<u8>> + Send>) {
-        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        let mut guard = self
+            .natives
+            .store
+            .lock()
+            .expect("script store lock poisoned");
         guard.set_asset_reader(f);
     }
 
@@ -1355,7 +1403,11 @@ impl V8JsContext {
         &self,
         f: Box<dyn Fn(&[u8]) -> anyhow::Result<(u32, u32, Vec<u8>)> + Send>,
     ) {
-        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        let mut guard = self
+            .natives
+            .store
+            .lock()
+            .expect("script store lock poisoned");
         guard.set_image_decoder(f);
     }
 
@@ -1365,7 +1417,11 @@ impl V8JsContext {
         &self,
         f: Box<dyn Fn(&str, f64) -> anyhow::Result<(Vec<u8>, u32, u32)> + Send>,
     ) {
-        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        let mut guard = self
+            .natives
+            .store
+            .lock()
+            .expect("script store lock poisoned");
         guard.set_video_frame_decoder(f);
     }
 
@@ -1375,8 +1431,8 @@ impl V8JsContext {
     /// the realm is throwaway and the only output is a value.
     pub fn eval_json(&self, code: &str) -> anyhow::Result<JsonValue> {
         self.with_scope(|scope| -> anyhow::Result<JsonValue> {
-            let src =
-                V8String::new(scope, code).ok_or_else(|| anyhow!("v8: string allocation failed"))?;
+            let src = V8String::new(scope, code)
+                .ok_or_else(|| anyhow!("v8: string allocation failed"))?;
             v8::tc_scope!(let tc, scope);
             let Some(script) = Script::compile(tc, src, None) else {
                 return Err(anyhow!(caught!(tc, "script eval")));
@@ -1438,8 +1494,8 @@ impl JsContext for V8JsContext {
 
     fn eval(&self, code: &str) -> anyhow::Result<()> {
         self.with_scope(|scope| -> anyhow::Result<()> {
-            let src =
-                V8String::new(scope, code).ok_or_else(|| anyhow!("v8: string allocation failed"))?;
+            let src = V8String::new(scope, code)
+                .ok_or_else(|| anyhow!("v8: string allocation failed"))?;
             v8::tc_scope!(let tc, scope);
             let Some(script) = Script::compile(tc, src, None) else {
                 return Err(anyhow!(caught!(tc, "script eval")));
@@ -1477,7 +1533,11 @@ impl JsContext for V8JsContext {
             v8::tc_scope!(let tc, scope);
             let receiver = v8::undefined(tc);
             let ok = function.call(tc, receiver.into(), &[]).is_some();
-            if ok { Ok(()) } else { Err(anyhow!(caught!(tc, name))) }
+            if ok {
+                Ok(())
+            } else {
+                Err(anyhow!(caught!(tc, name)))
+            }
         })
     }
 
@@ -1561,7 +1621,11 @@ impl JsContext for V8JsContext {
     }
 
     fn with_store_mut<R>(&self, f: impl FnOnce(&mut MutationStore) -> R) -> R {
-        let mut guard = self.natives.store.lock().expect("script store lock poisoned");
+        let mut guard = self
+            .natives
+            .store
+            .lock()
+            .expect("script store lock poisoned");
         f(&mut guard)
     }
 

@@ -11,8 +11,8 @@ mod v8;
 mod quickjs;
 
 pub mod bridge;
-mod js_context;
 pub mod html;
+mod js_context;
 pub mod jsx;
 pub mod offscreen;
 pub mod omp;

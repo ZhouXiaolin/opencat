@@ -71,12 +71,6 @@ usvg = { path = "../../vendor/resvg/crates/usvg", default-features = false, feat
 ] }
 # usvg 路径数据类型（PathSegment/Transform），与 usvg 锁同一 0.12。
 tiny-skia-path = "0.12.0"
-# svg_raster（`<img src=*.svg>` 的位图光栅）：skia codec 不认 svg 字节，
-# 走 resvg 光栅成预乘 RGBA。text 关闭（corpus 的 svg img 均为 path 图形，
-# 撞到带文本的再开）；raster-images 让 svg 内嵌位图引用不丢。
-resvg = { path = "../../vendor/resvg/crates/resvg", default-features = false, features = [
-    "raster-images",
-] }
 # 标准 CSS 解析器：css::style_engine 用它吃下 tailwindcss CLI 编译产物与手写
 # CSS。lightningcss 保留 var() 引用（退化为 UnparsedProperty + TokenList），
 # 求值（var/calc/color-mix）由本 crate 的 css::eval 负责。into_owned 把

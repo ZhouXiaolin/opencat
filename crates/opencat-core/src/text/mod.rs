@@ -464,7 +464,10 @@ fn with_shape_font_system<R>(
             let mut system = FontSystem::new_with_locale_and_db_and_fallback(
                 "en-US".to_string(),
                 db.clone(),
-                ShapingFallback { generic, emoji_first },
+                ShapingFallback {
+                    generic,
+                    emoji_first,
+                },
             );
             return f(&mut system);
         }
@@ -487,7 +490,10 @@ fn with_shape_font_system<R>(
                 let system = FontSystem::new_with_locale_and_db_and_fallback(
                     "en-US".to_string(),
                     db.clone(),
-                    ShapingFallback { generic, emoji_first },
+                    ShapingFallback {
+                        generic,
+                        emoji_first,
+                    },
                 );
                 cache.entries.push((generic, emoji_first, system));
                 cache.entries.len() - 1
@@ -537,8 +543,11 @@ pub fn measure_text(
 
     let transformed = apply_text_transform(text, style.text_transform);
     let attrs = text_attrs(style, font_db);
-    let (measured_width, mut measured_height) =
-        with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(text), |font_system| {
+    let (measured_width, mut measured_height) = with_shape_font_system(
+        &font_db,
+        style.font_generic,
+        text_prefers_emoji(text),
+        |font_system| {
             let mut buffer = Buffer::new(font_system, metrics);
             buffer.set_size(layout_width, None);
             buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
@@ -551,7 +560,8 @@ pub fn measure_text(
                 measured_height = measured_height.max(run.line_top + run.line_height);
             }
             (measured_width, measured_height)
-        });
+        },
+    );
     if measured_height < line_height {
         measured_height = line_height;
     }
@@ -583,26 +593,31 @@ pub fn measure_line(
     let metrics = Metrics::new(style.text_px, line_height);
     let transformed = apply_text_transform(text, style.text_transform);
     let attrs = text_attrs(style, font_db);
-    with_shape_font_system(font_db, style.font_generic, text_prefers_emoji(text), |font_system| {
-        let mut buffer = Buffer::new(font_system, metrics);
-        buffer.set_size(None, None);
-        buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
-        buffer.shape_until_scroll(font_system, false);
-        // 无字形的空行没有 ascent，基线退到行盒中线附近（只影响空 run）。
-        let mut out = LineMeasure {
-            width: 0.0,
-            baseline: line_height * 0.5,
-            line_height,
-        };
-        if let Some(run) = buffer.layout_runs().next() {
-            out.width = run.line_w;
-            if !run.glyphs.is_empty() {
-                out.baseline = run.line_y - run.line_top;
+    with_shape_font_system(
+        font_db,
+        style.font_generic,
+        text_prefers_emoji(text),
+        |font_system| {
+            let mut buffer = Buffer::new(font_system, metrics);
+            buffer.set_size(None, None);
+            buffer.set_text(&transformed, &attrs, Shaping::Advanced, None);
+            buffer.shape_until_scroll(font_system, false);
+            // 无字形的空行没有 ascent，基线退到行盒中线附近（只影响空 run）。
+            let mut out = LineMeasure {
+                width: 0.0,
+                baseline: line_height * 0.5,
+                line_height,
+            };
+            if let Some(run) = buffer.layout_runs().next() {
+                out.width = run.line_w;
+                if !run.glyphs.is_empty() {
+                    out.baseline = run.line_y - run.line_top;
+                }
+                out.line_height = run.line_height;
             }
-            out.line_height = run.line_height;
-        }
-        out
-    })
+            out
+        },
+    )
 }
 
 // ── Glyph rasterization ────────────────────────────────────────────────────
@@ -626,9 +641,8 @@ fn os2_typo(font: swash::FontRef) -> Option<(i16, i16)> {
 }
 
 fn os2_subsuper(font: swash::FontRef, upem: f32) -> (i16, i16) {
-    const FALLBACK: fn(f32) -> (i16, i16) = |upem| {
-        ((upem / 0.2).round() as i16, (upem / 0.4).round() as i16)
-    };
+    const FALLBACK: fn(f32) -> (i16, i16) =
+        |upem| ((upem / 0.2).round() as i16, (upem / 0.4).round() as i16);
     let Some(t) = font.table(swash::tag_from_bytes(b"OS/2")) else {
         return FALLBACK(upem);
     };
@@ -674,8 +688,11 @@ pub fn rasterize_glyphs(
     let metrics = Metrics::new(style.text_px, line_height);
 
     let attrs = text_attrs(style, font_db);
-    let (glyphs, lines, font_metrics) =
-        with_shape_font_system(&font_db, style.font_generic, text_prefers_emoji(&rendered), |font_system| {
+    let (glyphs, lines, font_metrics) = with_shape_font_system(
+        &font_db,
+        style.font_generic,
+        text_prefers_emoji(&rendered),
+        |font_system| {
             let mut buffer = Buffer::new(font_system, metrics);
             buffer.set_size(layout_width, None);
             buffer.set_text(&rendered, &attrs, Shaping::Advanced, None);
@@ -692,16 +709,18 @@ pub fn rasterize_glyphs(
                     for glyph in run.glyphs {
                         let physical = glyph.physical((0.0, 0.0), 1.0);
                         if font_metrics.is_none()
-                            && let Some(f) = font_system
-                                .get_font(physical.cache_key.font_id, physical.cache_key.font_weight)
+                            && let Some(f) = font_system.get_font(
+                                physical.cache_key.font_id,
+                                physical.cache_key.font_weight,
+                            )
                         {
                             let sw = f.as_swash();
                             let raw = sw.metrics(&[]);
                             let m = raw.scale(style.text_px);
                             let (sub_du, super_du) = os2_subsuper(sw, raw.units_per_em as f32);
                             let k = style.text_px / raw.units_per_em as f32;
-                            let (typo_asc, typo_desc) =
-                                os2_typo(sw).map_or((m.ascent, m.descent), |(a, d)| {
+                            let (typo_asc, typo_desc) = os2_typo(sw)
+                                .map_or((m.ascent, m.descent), |(a, d)| {
                                     (a as f32 * k, -d as f32 * k)
                                 });
                             font_metrics = Some(FontTextMetrics {
@@ -777,7 +796,8 @@ pub fn rasterize_glyphs(
             });
 
             (glyphs, lines, font_metrics)
-        });
+        },
+    );
 
     TextRasterization {
         glyphs,
@@ -908,7 +928,9 @@ pub fn script_text_boxes(
                 }
                 advance = pos.x;
             }
-            if line.positions.iter().any(|p| p.byte_range.start >= start) || line.positions.is_empty() {
+            if line.positions.iter().any(|p| p.byte_range.start >= start)
+                || line.positions.is_empty()
+            {
                 x = origin.0 + line_x_shift + advance;
                 y = origin.1 + line.y;
                 break;
@@ -1054,7 +1076,11 @@ pub(crate) fn chrome_query_weight(db: &fontdb::Database, family_name: &str, weig
         return weight;
     }
     db.faces()
-        .filter(|f| f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(family_name)))
+        .filter(|f| {
+            f.families
+                .iter()
+                .any(|(n, _)| n.eq_ignore_ascii_case(family_name))
+        })
         .map(|f| f.weight.0)
         .filter(|w| *w > 400 && *w < 500)
         .min()
@@ -1266,5 +1292,3 @@ impl FontProvider for DefaultFontProvider {
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
-
-

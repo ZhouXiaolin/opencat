@@ -80,5 +80,3 @@ pub fn optional_secs_to_duration_micros(secs: Option<f64>) -> Option<DurationMic
 pub fn ms_to_duration_micros(ms: u64) -> DurationMicros {
     DurationMicros(ms.saturating_mul(1_000))
 }
-
-

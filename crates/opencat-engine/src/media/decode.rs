@@ -160,10 +160,8 @@ impl VideoDecoder {
         // disagree with this fall back to the key-mismatch rebuild in
         // `scaler_for`). AVCodecContext colorspace is populated from the
         // container metadata by the demuxer/parser before the first decode.
-        let initial_spec = ColorspaceSpec::effective(
-            ColorspaceSpec::from_codec(&decoder),
-            color_matrix_override,
-        );
+        let initial_spec =
+            ColorspaceSpec::effective(ColorspaceSpec::from_codec(&decoder), color_matrix_override);
         let mut scalers = VecDeque::with_capacity(MAX_SCALERS_PER_DECODER);
         scalers.push_back((
             (width, height, initial_spec),
@@ -341,7 +339,8 @@ impl VideoDecoder {
         }
 
         loop {
-            let ahead_ok = self.ahead_source.is_some() && self.ahead_pts_secs > self.current_pts_secs;
+            let ahead_ok =
+                self.ahead_source.is_some() && self.ahead_pts_secs > self.current_pts_secs;
             if !ahead_ok {
                 // Drain the decoder even after packet exhaustion: a
                 // frame-threaded decoder can still hold frames that were not
@@ -503,7 +502,12 @@ impl VideoDecoder {
         Ok(())
     }
 
-    fn scaler_for(&mut self, out_w: u32, out_h: u32, spec: ColorspaceSpec) -> Result<&mut YuvRgbScaler> {
+    fn scaler_for(
+        &mut self,
+        out_w: u32,
+        out_h: u32,
+        spec: ColorspaceSpec,
+    ) -> Result<&mut YuvRgbScaler> {
         if let Some(idx) = self
             .scalers
             .iter()
@@ -528,8 +532,7 @@ impl VideoDecoder {
             if self.scalers.len() >= MAX_SCALERS_PER_DECODER {
                 self.scalers.pop_front();
             }
-            self.scalers
-                .push_back(((out_w, out_h, spec), scaler));
+            self.scalers.push_back(((out_w, out_h, spec), scaler));
         }
         Ok(&mut self.scalers.back_mut().expect("scaler just pushed").1)
     }
@@ -640,15 +643,23 @@ impl YuvRgbScaler {
             let src_fmt: sys::AVPixelFormat = src_format.into();
             // bindgen's `AVPixelFormat` is a repr(C) int enum; the numeric id
             // feeds the "src_format" AVOption.
-            set_opt(ptr, "src_format", i64::from(unsafe {
-                std::mem::transmute::<sys::AVPixelFormat, std::os::raw::c_int>(src_fmt)
-            }));
+            set_opt(
+                ptr,
+                "src_format",
+                i64::from(unsafe {
+                    std::mem::transmute::<sys::AVPixelFormat, std::os::raw::c_int>(src_fmt)
+                }),
+            );
             set_opt(ptr, "dstw", i64::from(dst_w));
             set_opt(ptr, "dsth", i64::from(dst_h));
             let dst_fmt: sys::AVPixelFormat = dst_format.into();
-            set_opt(ptr, "dst_format", i64::from(unsafe {
-                std::mem::transmute::<sys::AVPixelFormat, std::os::raw::c_int>(dst_fmt)
-            }));
+            set_opt(
+                ptr,
+                "dst_format",
+                i64::from(unsafe {
+                    std::mem::transmute::<sys::AVPixelFormat, std::os::raw::c_int>(dst_fmt)
+                }),
+            );
             set_opt(ptr, "flags", i64::from(flags.bits()));
             // srcRange semantics (libswscale/swscale.h): 1 = jpeg/full, 0 =
             // mpeg/limited. Untagged sources keep the built-in default.
@@ -732,7 +743,8 @@ impl VideoDecodeCache {
         if self.color_matrix_overrides.get(path) == Some(&matrix) {
             return;
         }
-        self.color_matrix_overrides.insert(path.to_path_buf(), matrix);
+        self.color_matrix_overrides
+            .insert(path.to_path_buf(), matrix);
         self.decoders.remove(path);
     }
 
@@ -772,9 +784,7 @@ impl VideoDecodeCache {
                     VideoDecoder::open_with_matrix(path, override_matrix)?
                 }
             }
-            DecoderLaneSelection::OpenNew => {
-                VideoDecoder::open_with_matrix(path, override_matrix)?
-            }
+            DecoderLaneSelection::OpenNew => VideoDecoder::open_with_matrix(path, override_matrix)?,
         };
 
         let frame = decoder.get_frame_at_time(target_time_secs, quality, target_size)?;
@@ -969,8 +979,9 @@ fn hf_extract_roundtrip(packed: &mut [u8], width: u32, height: u32) {
                     }
                     let i = (yy * w + xx) * 4;
                     let (r, g, b) = (packed[i] as f32, packed[i + 1] as f32, packed[i + 2] as f32);
-                    y_plane[yy * w + xx] =
-                        (0.299 * r + 0.587 * g + 0.114 * b).round().clamp(0.0, 255.0) as u8;
+                    y_plane[yy * w + xx] = (0.299 * r + 0.587 * g + 0.114 * b)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
                     sum_cb += -0.168736 * r - 0.331264 * g + 0.5 * b;
                     sum_cr += 0.5 * r - 0.418688 * g - 0.081312 * b;
                     n += 1.0;
@@ -989,7 +1000,9 @@ fn hf_extract_roundtrip(packed: &mut [u8], width: u32, height: u32) {
             let cb = u_plane[crow + xx / 2] as f32 - 128.0;
             let cr = v_plane[crow + xx / 2] as f32 - 128.0;
             packed[i] = (yv + 1.402 * cr).round().clamp(0.0, 255.0) as u8;
-            packed[i + 1] = (yv - 0.344136 * cb - 0.714136 * cr).round().clamp(0.0, 255.0) as u8;
+            packed[i + 1] = (yv - 0.344136 * cb - 0.714136 * cr)
+                .round()
+                .clamp(0.0, 255.0) as u8;
             packed[i + 2] = (yv + 1.772 * cb).round().clamp(0.0, 255.0) as u8;
         }
     }
@@ -1015,11 +1028,5 @@ fn pixel_format_has_alpha(format: Pixel) -> bool {
     };
     // SAFETY: `descriptor()` returned a non-null descriptor from
     // `av_pix_fmt_desc_get`, which points at static FFmpeg format metadata.
-    unsafe {
-        (*desc.as_ptr()).flags & ffmpeg::sys::AV_PIX_FMT_FLAG_ALPHA as u64 != 0
-    }
+    unsafe { (*desc.as_ptr()).flags & ffmpeg::sys::AV_PIX_FMT_FLAG_ALPHA as u64 != 0 }
 }
-
-
-
-

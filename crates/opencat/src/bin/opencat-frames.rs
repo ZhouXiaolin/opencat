@@ -10,8 +10,12 @@ use opencat_engine::render::{EncodingConfig, render_from_source_with_base};
 
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let input = args.next().expect("usage: opencat-frames <input> <out-dir>");
-    let out_dir = args.next().expect("usage: opencat-frames <input> <out-dir>");
+    let input = args
+        .next()
+        .expect("usage: opencat-frames <input> <out-dir>");
+    let out_dir = args
+        .next()
+        .expect("usage: opencat-frames <input> <out-dir>");
     let source = std::fs::read_to_string(&input)?;
     let base_dir = Path::new(&input).parent();
     std::fs::create_dir_all(&out_dir)?;

@@ -215,7 +215,10 @@ fn handle_static_request(mut stream: TcpStream, routes: &StaticRoutes) -> Result
         // every frame's PNG without each overwriting the last.
         let file = raw_path
             .split_once('?')
-            .and_then(|(_, q)| q.strip_prefix("f=").map(|n| format!("opencat-oracle-blob-{n}.bin")))
+            .and_then(|(_, q)| {
+                q.strip_prefix("f=")
+                    .map(|n| format!("opencat-oracle-blob-{n}.bin"))
+            })
             .unwrap_or_else(|| "opencat-oracle-blob.bin".to_string());
         let path = std::env::temp_dir().join(file);
         return handle_oracle_video_post_at(&mut stream, &request, &buffer[header_end..len], &path);
@@ -268,11 +271,7 @@ pub(crate) fn oracle_video_path() -> PathBuf {
     std::env::temp_dir().join("opencat-oracle-video.mp4")
 }
 
-fn handle_oracle_video_post(
-    stream: &mut TcpStream,
-    head: &str,
-    body_prefix: &[u8],
-) -> Result<()> {
+fn handle_oracle_video_post(stream: &mut TcpStream, head: &str, body_prefix: &[u8]) -> Result<()> {
     handle_oracle_video_post_at(stream, head, body_prefix, &oracle_video_path())
 }
 

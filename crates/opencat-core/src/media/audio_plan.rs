@@ -19,7 +19,8 @@ use crate::parse::composition::{AudioAttachment, Composition};
 use crate::parse::node::{Node, NodeKind};
 use crate::parse::time::TimelineSegment;
 use crate::time::{
-    DurationMicros, DurationRange, FrameIndex, RationalFrameRate, TimestampMicros, frames_to_timestamp_micros, secs_to_micros,
+    DurationMicros, DurationRange, FrameIndex, RationalFrameRate, TimestampMicros,
+    frames_to_timestamp_micros, secs_to_micros,
 };
 
 /// Whole-composition audio schedule: one segment per attached source.
@@ -191,5 +192,3 @@ fn find_scene_timing_in_node(node: &Node, scene_id: &str, ctx: &FrameCtx) -> Opt
         _ => None,
     }
 }
-
-

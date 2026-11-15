@@ -57,9 +57,8 @@ static LIBGL: OnceLock<usize> = OnceLock::new();
 fn libgl() -> usize {
     *LIBGL.get_or_init(|| {
         for soname in [b"libGL.so.1\0".as_ptr(), b"libGL.so\0".as_ptr()] {
-            let handle = unsafe {
-                libc::dlopen(soname as *const _, libc::RTLD_LAZY | libc::RTLD_GLOBAL)
-            };
+            let handle =
+                unsafe { libc::dlopen(soname as *const _, libc::RTLD_LAZY | libc::RTLD_GLOBAL) };
             if !handle.is_null() {
                 return handle as usize;
             }
@@ -194,8 +193,8 @@ impl EglContext {
     /// 当前线程绑定着的 (display, draw, read, context)；任一缺失（无线程
     /// 绑定）时返回 `None`。现场恢复用（`script::bridge` 的
     /// `CurrentContextGuard`）。
-    pub fn get_current_context()
-    -> Option<(egl::Display, egl::Surface, egl::Surface, egl::Context)> {
+    pub fn get_current_context() -> Option<(egl::Display, egl::Surface, egl::Surface, egl::Context)>
+    {
         let egl = EGL
             .get_or_init(|| unsafe { egl::DynamicInstance::<egl::EGL1_5>::load_required().ok() })
             .as_ref()?;

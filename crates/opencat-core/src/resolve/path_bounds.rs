@@ -58,5 +58,3 @@ pub fn compute_view_box(path_data: &[String]) -> Result<[f32; 4]> {
         (max_y - min_y) as f32,
     ])
 }
-
-

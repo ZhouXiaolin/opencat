@@ -12,8 +12,8 @@ use taffy::{
     AvailableSpace, TaffyTree,
     prelude::{
         AlignContent as TaffyAlignContent, Dimension, FromFr,
-        JustifyContent as TaffyJustifyContent, LengthPercentageAuto as TaffyLPA, Style,
-        TaffyAuto, TaffyGridLine,
+        JustifyContent as TaffyJustifyContent, LengthPercentageAuto as TaffyLPA, Style, TaffyAuto,
+        TaffyGridLine,
     },
     style::TrackSizingFunction,
     style_helpers::{flex, span},
@@ -101,8 +101,6 @@ impl LayoutSession {
         }
     }
 
-    
-
     pub fn compute_layout_with_font_db(
         &mut self,
         root: &ElementNode,
@@ -172,8 +170,15 @@ impl LayoutSession {
                 let _ = self.taffy.set_style(*node, style);
             }
             self.compute_taffy(root_id, frame_ctx, font_db)?;
-            let mut tree_root =
-                build_layout_tree_at(root, &self.taffy, root_id, font_db, (0.0, 0.0), viewport, &mut fixes)?;
+            let mut tree_root = build_layout_tree_at(
+                root,
+                &self.taffy,
+                root_id,
+                font_db,
+                (0.0, 0.0),
+                viewport,
+                &mut fixes,
+            )?;
             // 静态父盒里的绝对定位盒按真包含块定尺寸（AbsSizeFix）：写成定长
             // 再排一趟。嵌套时外层改尺寸会改变内层的包含块，逐趟收敛；改写只
             // 存活于本次求解，结束后恢复原样式，taffy 树始终是声明值。
@@ -319,12 +324,6 @@ impl Default for LayoutSession {
         Self::new()
     }
 }
-
-
-
-
-
-
 
 fn measure_node(
     known_dimensions: taffy::geometry::Size<Option<f32>>,
@@ -587,12 +586,17 @@ fn effective_position(element: &ElementNode) -> Position {
 /// CSS 直通腿给定的宽/高（非 auto）。NodeStyle 的 width/height 镜像不含
 /// calc/em 这类尺寸，它们只落在 `css_layout` 里。
 fn css_definite_size(element: &ElementNode) -> (bool, bool) {
-    element.style.css_layout.as_ref().map_or((false, false), |css| {
-        (!css.0.size.width.is_auto(), !css.0.size.height.is_auto())
-    })
+    element
+        .style
+        .css_layout
+        .as_ref()
+        .map_or((false, false), |css| {
+            (!css.0.size.width.is_auto(), !css.0.size.height.is_auto())
+        })
 }
 
-fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &element.style.layout;
+fn taffy_style_for_element(element: &ElementNode) -> Style {
+    let layout = &element.style.layout;
     // 标准直通腿：CSS 路径产出的 taffy 样式整体克隆。border 宽度也已在
     // `css::to_taffy` 落好（含 thin/medium/thick），不再用 paint 腿的
     // f32 镜像覆盖——那会把关键字宽度压成 0。固有尺寸（Bitmap/Lottie/
@@ -757,11 +761,7 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
             },
             size: match layout.position {
                 Position::Absolute => taffy::geometry::Size {
-                    width: resolve_dimension(
-                        layout.width,
-                        layout.width_percent,
-                        Dimension::auto(),
-                    ),
+                    width: resolve_dimension(layout.width, layout.width_percent, Dimension::auto()),
                     height: resolve_dimension(
                         layout.height,
                         layout.height_percent,
@@ -808,16 +808,8 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
         },
         ElementKind::Text(_) => Style {
             size: taffy::geometry::Size {
-                width: resolve_dimension(
-                    layout.width,
-                    layout.width_percent,
-                    Dimension::auto(),
-                ),
-                height: resolve_dimension(
-                    layout.height,
-                    layout.height_percent,
-                    Dimension::auto(),
-                ),
+                width: resolve_dimension(layout.width, layout.width_percent, Dimension::auto()),
+                height: resolve_dimension(layout.height, layout.height_percent, Dimension::auto()),
             },
             ..base_style(element)
         },
@@ -865,16 +857,8 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
                 .unwrap_or((Dimension::auto(), Dimension::auto()));
             Style {
                 size: taffy::geometry::Size {
-                    width: resolve_dimension(
-                        layout.width,
-                        layout.width_percent,
-                        default_size.0,
-                    ),
-                    height: resolve_dimension(
-                        layout.height,
-                        layout.height_percent,
-                        default_size.1,
-                    ),
+                    width: resolve_dimension(layout.width, layout.width_percent, default_size.0),
+                    height: resolve_dimension(layout.height, layout.height_percent, default_size.1),
                 },
                 ..base_style(element)
             }
@@ -893,16 +877,8 @@ fn taffy_style_for_element(element: &ElementNode) -> Style {    let layout = &el
                 .unwrap_or((Dimension::auto(), Dimension::auto()));
             Style {
                 size: taffy::geometry::Size {
-                    width: resolve_dimension(
-                        layout.width,
-                        layout.width_percent,
-                        default_size.0,
-                    ),
-                    height: resolve_dimension(
-                        layout.height,
-                        layout.height_percent,
-                        default_size.1,
-                    ),
+                    width: resolve_dimension(layout.width, layout.width_percent, default_size.0),
+                    height: resolve_dimension(layout.height, layout.height_percent, default_size.1),
                 },
                 ..base_style(element)
             }
@@ -1009,9 +985,9 @@ fn abs_border_box_len(
         _ => None,
     };
     match size.expand() {
-        D::Auto => Some(
-            (cb_len - resolve(start)? - resolve(end)? - margin_start - margin_end).max(0.0),
-        ),
+        D::Auto => {
+            Some((cb_len - resolve(start)? - resolve(end)? - margin_start - margin_end).max(0.0))
+        }
         D::Percent(p) => Some(p * cb_len + if content_box { pb } else { 0.0 }),
         _ => None,
     }
@@ -1052,18 +1028,26 @@ fn build_layout_tree_at(
     let padding_box = LayoutRect {
         x: origin.0 + rect.x + layout.border.left + layout.padding.left,
         y: origin.1 + rect.y + layout.border.top + layout.padding.top,
-        width: (rect.width - layout.border.left - layout.border.right
+        width: (rect.width
+            - layout.border.left
+            - layout.border.right
             - layout.padding.left
             - layout.padding.right)
             .max(0.0),
-        height: (rect.height - layout.border.top - layout.border.bottom
+        height: (rect.height
+            - layout.border.top
+            - layout.border.bottom
             - layout.padding.top
             - layout.padding.bottom)
             .max(0.0),
     };
     let child_ctx = AbsCtx {
         origin: (origin.0 + rect.x, origin.1 + rect.y),
-        cb: if positioned { padding_box } else { containing_block },
+        cb: if positioned {
+            padding_box
+        } else {
+            containing_block
+        },
     };
 
     // 子盒 margin（行内排行要计入；taffy 的块布局把它们算进了纵向流）。
@@ -1282,7 +1266,11 @@ fn inline_formatting_pass(
 
     let text = &element.style.text;
     let nowrap_container = text.no_wrap || element.style.layout.truncate;
-    let mut wrap_width = if nowrap_container { f32::INFINITY } else { content_w };
+    let mut wrap_width = if nowrap_container {
+        f32::INFINITY
+    } else {
+        content_w
+    };
     let mut align_width = content_w;
 
     // CSS §10.3.7 收缩适配：absolute 盒 auto 宽、左 inset 给定、右 inset auto
@@ -1291,7 +1279,8 @@ fn inline_formatting_pass(
     // 自量 min/max-content 补上：盒宽 = min(max(min-content, 可用宽),
     // max-content)，折行与 text-align 都按盒宽，盒宽差值登记修正重排。
     let css = element.style.css_layout.as_ref();
-    let content_box = css.is_some_and(|css| css.0.box_sizing == taffy::style::BoxSizing::ContentBox);
+    let content_box =
+        css.is_some_and(|css| css.0.box_sizing == taffy::style::BoxSizing::ContentBox);
     let mut width_fix = None;
     if !nowrap_container
         && effective_position(element) == Position::Absolute
@@ -1308,8 +1297,9 @@ fn inline_formatting_pass(
             _ => None,
         };
         if let Some(left_px) = left_px {
-            let avail = (containing_block.width - left_px - layout.margin.left - layout.margin.right)
-                .max(0.0);
+            let avail =
+                (containing_block.width - left_px - layout.margin.left - layout.margin.right)
+                    .max(0.0);
             let mut min_c = 0.0f32;
             let mut max_c = 0.0f32;
             for (item, child_el) in items.iter().zip(&ordered) {
@@ -1321,7 +1311,11 @@ fn inline_formatting_pass(
                         min_c = min_c.max(*width);
                         max_c += *width;
                     }
-                    InlineItem::Text { text, style, nowrap } => {
+                    InlineItem::Text {
+                        text,
+                        style,
+                        nowrap,
+                    } => {
                         let w = crate::text::measure_line(text, style, font_db).width;
                         if *nowrap {
                             min_c = min_c.max(w);
@@ -1337,7 +1331,11 @@ fn inline_formatting_pass(
             if (used - content_w).abs() > 0.5 {
                 wrap_width = used;
                 align_width = used;
-                width_fix = Some(if content_box { used.max(0.0) } else { (used + left + right).max(0.0) });
+                width_fix = Some(if content_box {
+                    used.max(0.0)
+                } else {
+                    (used + left + right).max(0.0)
+                });
             }
         }
     }
@@ -1363,7 +1361,14 @@ fn inline_formatting_pass(
             desc.join(" | ")
         );
     }
-    let ifc = inline::layout_inline(&items, wrap_width, align_width, text, text.text_align, font_db);
+    let ifc = inline::layout_inline(
+        &items,
+        wrap_width,
+        align_width,
+        text,
+        text.text_align,
+        font_db,
+    );
 
     for ((child, margin), placement) in children.iter_mut().zip(margins).zip(&ifc.placements) {
         match placement {
@@ -1374,8 +1379,14 @@ fn inline_formatting_pass(
             Placement::Text(frags) if !frags.is_empty() => {
                 let x0 = frags.iter().map(|f| f.x).fold(f32::INFINITY, f32::min);
                 let y0 = frags.iter().map(|f| f.y).fold(f32::INFINITY, f32::min);
-                let x1 = frags.iter().map(|f| f.x + f.width).fold(f32::NEG_INFINITY, f32::max);
-                let y1 = frags.iter().map(|f| f.y + f.height).fold(f32::NEG_INFINITY, f32::max);
+                let x1 = frags
+                    .iter()
+                    .map(|f| f.x + f.width)
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let y1 = frags
+                    .iter()
+                    .map(|f| f.y + f.height)
+                    .fold(f32::NEG_INFINITY, f32::max);
                 child.rect = LayoutRect {
                     x: left + x0,
                     y: top + y0,
@@ -1440,8 +1451,7 @@ fn inline_formatting_pass(
             if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("2") {
                 eprintln!(
                     "[fix] inline-height id={} width={width_fix:?} h_bb={height} rect_h={} d={height_diff} size={size} padb=({top},{bottom})",
-                    element.style.id,
-                    rect.height,
+                    element.style.id, rect.height,
                 );
             }
             fixes.push(AbsSizeFix {
@@ -1739,5 +1749,3 @@ fn map_align_content(value: JustifyContent) -> TaffyAlignContent {
         JustifyContent::Stretch => TaffyAlignContent::STRETCH,
     }
 }
-
-

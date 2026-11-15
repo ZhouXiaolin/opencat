@@ -137,8 +137,8 @@ impl VkSession {
         let queue_info = ash::vk::DeviceQueueCreateInfo::default()
             .queue_family_index(queue_index)
             .queue_priorities(&priority);
-        let device_info =
-            ash::vk::DeviceCreateInfo::default().queue_create_infos(std::slice::from_ref(&queue_info));
+        let device_info = ash::vk::DeviceCreateInfo::default()
+            .queue_create_infos(std::slice::from_ref(&queue_info));
         let device = unsafe { instance.create_device(physical, &device_info, None) }
             .map_err(|e| anyhow!("Vulkan create_device 失败: {e}"))?;
         let queue = unsafe { device.get_device_queue(queue_index, 0) };
@@ -250,10 +250,8 @@ impl VkSession {
         if handles.get_instance_proc_addr.is_null() {
             return Err(anyhow!("ANGLE 未提供 vkGetInstanceProcAddr"));
         }
-        type PfnGetInstanceProcAddr = unsafe extern "system" fn(
-            ash::vk::Instance,
-            *const i8,
-        ) -> *const std::ffi::c_void;
+        type PfnGetInstanceProcAddr =
+            unsafe extern "system" fn(ash::vk::Instance, *const i8) -> *const std::ffi::c_void;
         let gipa: PfnGetInstanceProcAddr =
             unsafe { std::mem::transmute(handles.get_instance_proc_addr) };
         // 全局命令兜底：ANGLE 的 gipa 是 libGLESv2 内部的 dispatch（ANGLE
@@ -308,7 +306,10 @@ impl VkSession {
                     libc::RTLD_LAZY | libc::RTLD_LOCAL | libc::RTLD_NOLOAD,
                 );
                 let handle = if handle.is_null() {
-                    libc::dlopen(c"libvulkan.so.1".as_ptr().cast(), libc::RTLD_LAZY | libc::RTLD_LOCAL)
+                    libc::dlopen(
+                        c"libvulkan.so.1".as_ptr().cast(),
+                        libc::RTLD_LAZY | libc::RTLD_LOCAL,
+                    )
                 } else {
                     handle
                 };
@@ -316,7 +317,11 @@ impl VkSession {
                     return std::ptr::null();
                 }
                 let p = libc::dlsym(handle, cname.as_ptr());
-                if p.is_null() { std::ptr::null() } else { p as *const std::ffi::c_void }
+                if p.is_null() {
+                    std::ptr::null()
+                } else {
+                    p as *const std::ffi::c_void
+                }
             }
             #[cfg(target_os = "windows")]
             unsafe {
@@ -333,7 +338,12 @@ impl VkSession {
                 }
                 let cname: Vec<u8> = name.bytes().chain(std::iter::once(0)).collect();
                 windows_sys::Win32::System::LibraryLoader::GetProcAddress(handle, cname.as_ptr())
-                    .map(|f| std::mem::transmute::<unsafe extern "system" fn() -> isize, *const std::ffi::c_void>(f))
+                    .map(|f| {
+                        std::mem::transmute::<
+                            unsafe extern "system" fn() -> isize,
+                            *const std::ffi::c_void,
+                        >(f)
+                    })
                     .unwrap_or(std::ptr::null())
             }
             #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -374,7 +384,10 @@ impl VkSession {
                     if p.is_null() {
                         None
                     } else {
-                        Some(std::mem::transmute::<*mut std::ffi::c_void, PfnGetDeviceProcAddr>(p))
+                        Some(std::mem::transmute::<
+                            *mut std::ffi::c_void,
+                            PfnGetDeviceProcAddr,
+                        >(p))
                     }
                 }
             }
@@ -394,7 +407,10 @@ impl VkSession {
                         c"vkGetDeviceProcAddr".as_ptr() as *const u8,
                     )
                     .map(|f| {
-                        std::mem::transmute::<unsafe extern "system" fn() -> isize, PfnGetDeviceProcAddr>(f)
+                        std::mem::transmute::<
+                            unsafe extern "system" fn() -> isize,
+                            PfnGetDeviceProcAddr,
+                        >(f)
                     })
                 }
             }
@@ -417,7 +433,11 @@ impl VkSession {
                     } else {
                         p as *const std::ffi::c_void
                     };
-                    if p.is_null() { std::ptr::null() } else { p as *const std::ffi::c_void }
+                    if p.is_null() {
+                        std::ptr::null()
+                    } else {
+                        p as *const std::ffi::c_void
+                    }
                 },
                 vk::GetProcOf::Device(_, _) => unsafe {
                     let p = match loader_gdpa {
@@ -528,7 +548,7 @@ pub fn import_stream_texture(
     queue_family: u32,
 ) -> Result<skia_safe::Image> {
     use skia_safe::gpu::{
-        backend_textures, ganesh::vk::vk_types::ImageInfo as SkVkImageInfo, images, SurfaceOrigin,
+        SurfaceOrigin, backend_textures, ganesh::vk::vk_types::ImageInfo as SkVkImageInfo, images,
     };
 
     let exported = super::angle::export_vulkan_image(native.raw() as u32)
@@ -556,11 +576,7 @@ pub fn import_stream_texture(
     info.image_usage_flags = meta.usage;
 
     let backend_tex = unsafe {
-        backend_textures::make_vk(
-            (width as i32, height as i32),
-            &info,
-            "gpu-stream-output",
-        )
+        backend_textures::make_vk((width as i32, height as i32), &info, "gpu-stream-output")
     };
     // GL 纹理是 bottom-left 原点（FBO 行序自底向上），与 GL 后端导入一致。
     images::borrow_texture_from(

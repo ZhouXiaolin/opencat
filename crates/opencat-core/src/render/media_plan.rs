@@ -4,7 +4,9 @@ use std::sync::Arc;
 
 use crate::ir::draw_frame::DrawOpFrame;
 use crate::ir::draw_op::{DrawOp, Rect4};
-use crate::ir::draw_types::{BytesRangeId, DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId};
+use crate::ir::draw_types::{
+    BytesRangeId, DrawOpRange, ImageRef, RuntimeEffectChildRef, SubtreeId,
+};
 use crate::ir::generated_image::{GeneratedImageId, GeneratedImageTable};
 use crate::ir::media_plan::{FrameEncodedImage, FrameGeneratedImage, FrameMediaPlan};
 
@@ -117,9 +119,7 @@ impl MediaCollector {
     /// 2×2 行列式的面积 scale（sqrt|det|，双轴同值近似）。
     fn apply_transform_op(&mut self, op: &DrawOp) {
         match op {
-            DrawOp::Save
-            | DrawOp::SaveLayer { .. }
-            | DrawOp::SaveBackdropLayer { .. } => {
+            DrawOp::Save | DrawOp::SaveLayer { .. } | DrawOp::SaveBackdropLayer { .. } => {
                 let current = self.current_scale;
                 self.scale_stack.push(current);
             }
@@ -206,11 +206,17 @@ pub fn build_media_plan(
                  core must intern bytes before emitting ImageRef::Encoded"
             )
         };
-        let Some(bytes) = frame.bytes.get(range.start as usize..(range.start + range.len) as usize)
+        let Some(bytes) = frame
+            .bytes
+            .get(range.start as usize..(range.start + range.len) as usize)
         else {
             panic!("BytesRangeId {data:?} range out of bounds in the frame byte table")
         };
-        let (width, height) = collector.encoded_sizes.get(&data).copied().unwrap_or((0, 0));
+        let (width, height) = collector
+            .encoded_sizes
+            .get(&data)
+            .copied()
+            .unwrap_or((0, 0));
         encoded_images.push(FrameEncodedImage {
             data,
             width,
@@ -379,7 +385,9 @@ fn op_paint(op: &DrawOp) -> Option<crate::ir::draw_types::PaintId> {
         | DrawOp::Line { paint, .. }
         | DrawOp::Points { paint, .. }
         | DrawOp::DrawPath { paint, .. }
-        | DrawOp::ImageRect { paint: Some(paint), .. } => Some(*paint),
+        | DrawOp::ImageRect {
+            paint: Some(paint), ..
+        } => Some(*paint),
         _ => None,
     }
 }
@@ -409,5 +417,3 @@ fn collect_paint_filter(
         }
     }
 }
-
-

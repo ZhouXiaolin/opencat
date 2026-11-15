@@ -168,7 +168,10 @@ pub fn extract_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<(Va
         serde_json::to_string(&modules)?
     ))?;
     ctx.eval(&driver)?;
-    let extract = eval_json_string(&ctx, &format!("globalThis.__ocExtract({})", json!(ENTRY_SPEC)))?;
+    let extract = eval_json_string(
+        &ctx,
+        &format!("globalThis.__ocExtract({})", json!(ENTRY_SPEC)),
+    )?;
 
     Ok((extract, driver))
 }

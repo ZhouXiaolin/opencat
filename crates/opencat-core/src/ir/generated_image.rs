@@ -236,7 +236,12 @@ impl GeneratedImageTable {
     /// idempotency semantics are identical to [`Self::insert`] (empty == empty
     /// is the idempotent case, so a static scene keeps its content-addressed
     /// id alive across frames).
-    pub fn insert_placeholder(&mut self, id: GeneratedImageId, width: u32, height: u32) -> Result<()> {
+    pub fn insert_placeholder(
+        &mut self,
+        id: GeneratedImageId,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
         self.insert_impl(id, width, height, Arc::from(Vec::new()), None, false)
     }
 
@@ -336,5 +341,3 @@ impl fmt::Display for GeneratedImageCollision {
 }
 
 impl std::error::Error for GeneratedImageCollision {}
-
-

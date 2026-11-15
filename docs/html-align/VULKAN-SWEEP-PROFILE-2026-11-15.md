@@ -226,11 +226,51 @@ OC_GPU_PIPELINE=1
 ### 8.4 剩余队列
 
 - `timeline-launch`：f371/f431 聊天回放瞬态内容差，继续观察，不投入。
-- `texture-launch-video`：底部小参数标签多余，面积极小，低优先。
 - `vfx-heygen-combined`、`inspector-launch`、`claude-design-send-hyperframes-launch`、`figma-launch`：噪点、半调、渐变、采样或参考侧模糊，形态一致，不投入。
 - `HF-heygen-stripe` f1160 与 `spacex-launch` 残余片尾/白场相位：片尾空帧或瞬态，不作为主要形态差异。
 
-### 8.5 代码验证
+### 8.5 `display:none` 静态隐藏收束
+
+`texture-launch-video` 的底部小标签来自 `.texture-meta` 的样式表
+`display: none`。参考 HTML 把三个 `.meta-pill` 声明为隐藏；脚本没有把
+`.texture-meta` 改回可见。opencat 旧版把 `display:none` 写进
+`taffy::Style`，但 resolve 仍解析整棵子树并进入显示树，因此白药丸可见。
+
+这是 core 的标准 CSS 能力缺口，不是 hyperframes 特例。修复在
+`resolve_node` 收束：样式表烤出的 `css_layout` 是 `Display::None` 且没有脚本
+`display:block` 解锁时，整棵子树退出布局与绘制。脚本显式
+`display:block` 仍按内联优先解锁。`#domain-warp-canvas` 的
+`set(display:block)` 路径保持有效。离屏 canvas 命令由脚本 store 直接
+光栅化，不依赖显示树；`vfx-heygen-combined` 的 `CanvasTexture` 纹理源
+不受影响。
+
+证据：
+
+- f38 裁剪：修复前 `out/texture-tag-probe/f38-test-crop.png` 有三枚白药丸；
+  参考 `out/texture-tag-probe/f38-ref-crop.png` 没有。
+- 修复后 f38 裁剪：`out/texture-tag-probe/f38-ref-fixed-crop2.png` 与
+  `out/texture-tag-probe/f38-test-fixed2-crop.png` 目视一致，白药丸消失。
+- 干净 release 二进制重渲 `texture-launch-video`：`rc=0`。
+
+归档旧 sweep 到 `out/vulkan-sweep/archive-20261115-display-none/` 后，按同一
+硬件 Vulkan + profile 配置再跑 23 例。日志
+`out/vulkan-sweep/sweep-parallel-display-none.log` 为
+`RENDER/COMPARE/STRUCT ALL OK`。
+
+| 项 | 结果 |
+|---|---|
+| 渲染 `rc=0` | 23 |
+| `Render profile:` 日志 | 23 |
+| k3diff `summary.json` | 23 |
+| ffmpeg `ssim_stats.txt` | 23 |
+| align `align.json` | 23 |
+
+与归档逐例对比：`shape`、`shift_max`、`local_max` 均不变；`texture-launch-video`
+的 `avg_p8` 从 0.068098 降到 0.067439，ffmpeg SSIM 从 0.961088 升到
+0.961513。`pr-to-video-launch` 与 `frame-md-launch-storyboard` 有 ±0.001 内
+的编码/采样波动；其余指标不变。没有形态级回归。
+
+### 8.6 代码验证
 
 - `cargo check -p opencat-core --features profile`：0 error。
 - `cargo build --release --bin opencat --features profile`：0 error。

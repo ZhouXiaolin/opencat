@@ -26,11 +26,13 @@ struct LottieAsset {
 /// Probe image dimensions from raw bytes.
 pub fn probe_image(bytes: &[u8]) -> Result<ImageMeta> {
     // svg 走 usvg 的画布尺寸（width/height/viewBox 归一）；imagesize 不认。
-    if let Some((w, h)) = opencat_core::svg_raster::svg_dims(bytes) {
-        return Ok(ImageMeta { width: w, height: h });
+    if let Some((w, h)) = opencat_core::svg_asset::svg_dims(bytes) {
+        return Ok(ImageMeta {
+            width: w,
+            height: h,
+        });
     }
-    let dims = imagesize::blob_size(bytes)
-        .context("imagesize: failed to read image dimensions")?;
+    let dims = imagesize::blob_size(bytes).context("imagesize: failed to read image dimensions")?;
     Ok(ImageMeta {
         width: dims.width as u32,
         height: dims.height as u32,
@@ -144,5 +146,3 @@ fn entry_u64(v: &EntryValue) -> Option<u64> {
         _ => None,
     }
 }
-
-

@@ -26,7 +26,8 @@ pub fn build_audio_track_from_pipeline(pipeline: &EnginePipeline) -> Result<Opti
     let sample_rate: u32 = 48_000;
     let channels: u16 = 2;
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
-    let total_sample_frames = ((frame_count as u64 * sample_rate as u64) / info.fps as u64) as usize;
+    let total_sample_frames =
+        ((frame_count as u64 * sample_rate as u64) / info.fps as u64) as usize;
     mixed_samples.resize(total_sample_frames * channels as usize, 0.0f32);
 
     for seg in &plan.segments {

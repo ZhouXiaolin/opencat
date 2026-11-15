@@ -102,7 +102,6 @@ fn build_scene_op(
     OrderedSceneOp::LiveSubtree { handle, children }
 }
 
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum StableNodeReuse {
     /// 足够便宜的叶子，直接重画比 record picture 更划算。
@@ -140,10 +139,10 @@ pub fn analyze_stable_node_reuse(
                 StableNodeReuse::TextSnapshotLeaf
             }
         }
-        DisplayItem::Bitmap(_) | DisplayItem::Lottie(_) | DisplayItem::SvgPath(_)
+        DisplayItem::Bitmap(_)
+        | DisplayItem::Lottie(_)
+        | DisplayItem::SvgPath(_)
         | DisplayItem::Svg(_) => StableNodeReuse::ItemPictureLeaf,
         DisplayItem::DrawScript(_) => StableNodeReuse::DirectLeaf,
     }
 }
-
-

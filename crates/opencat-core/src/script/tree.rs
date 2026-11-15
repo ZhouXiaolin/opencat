@@ -220,7 +220,8 @@ impl TreeOverlay {
             return true;
         }
         if self.static_ids.contains(id) {
-            self.static_class.insert(id.to_string(), class_name.to_string());
+            self.static_class
+                .insert(id.to_string(), class_name.to_string());
             return true;
         }
         false

@@ -177,7 +177,10 @@ impl CompositionBuilder {
         self
     }
 
-    pub fn html_build(mut self, ctx: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>) -> Self {
+    pub fn html_build(
+        mut self,
+        ctx: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
+    ) -> Self {
         self.html_build = ctx;
         self
     }

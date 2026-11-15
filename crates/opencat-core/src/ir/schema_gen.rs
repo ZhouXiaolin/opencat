@@ -10,7 +10,7 @@
 // checked-in file is always freshly written — drift cannot accumulate.
 // ---------------------------------------------------------------------------
 
-use super::draw_encoding::{IR_VERSION, section, opcode};
+use super::draw_encoding::{IR_VERSION, opcode, section};
 use super::gpu_stream::gl_opcode;
 
 /// Return the complete TypeScript source for the OCIR wire-protocol constants
@@ -67,10 +67,10 @@ fn magic_version(ts: &mut String) {
 }
 
 fn transport_constants(ts: &mut String) {
-    use std::fmt::Write;
     use super::transport::{
-        CONTAINER_HEADER_LEN, CODEC_DEFLATE_RAW, IR_COMPRESSED_MAGIC, IR_COMPRESSED_VERSION,
+        CODEC_DEFLATE_RAW, CONTAINER_HEADER_LEN, IR_COMPRESSED_MAGIC, IR_COMPRESSED_VERSION,
     };
+    use std::fmt::Write;
     ts.push_str(
         "// ---------------------------------------------------------------------------\n\
          // Compressed OCIR transport container (issue #46, part 1)\n\
@@ -189,8 +189,14 @@ fn opcode_constants(ts: &mut String) {
         ("FILL_PATTERN", opcode::FILL_PATTERN),
         ("STROKE_PATTERN", opcode::STROKE_PATTERN),
         ("MASK_CLIP", opcode::MASK_CLIP),
-        ("SET_STYLE_LINEAR_GRADIENT", opcode::SET_STYLE_LINEAR_GRADIENT),
-        ("SET_STYLE_RADIAL_GRADIENT", opcode::SET_STYLE_RADIAL_GRADIENT),
+        (
+            "SET_STYLE_LINEAR_GRADIENT",
+            opcode::SET_STYLE_LINEAR_GRADIENT,
+        ),
+        (
+            "SET_STYLE_RADIAL_GRADIENT",
+            opcode::SET_STYLE_RADIAL_GRADIENT,
+        ),
         ("SET_BLEND_MODE", opcode::SET_BLEND_MODE),
         ("PATH_MOVE_TO", opcode::PATH_MOVE_TO_OP),
         ("PATH_LINE_TO", opcode::PATH_LINE_TO_OP),
@@ -261,8 +267,12 @@ fn gl_opcode_constants(ts: &mut String) {
 ",
     );
     for (name, value) in gl_opcode::NAMES.iter() {
-        let _ = write!(ts, "    {}: {},
-", name, value);
+        let _ = write!(
+            ts,
+            "    {}: {},
+",
+            name, value
+        );
     }
     ts.push_str(
         "} as const;
@@ -281,9 +291,11 @@ fn gl_opcode_constants(ts: &mut String) {
             None => ts.push_str("-1"),
         }
     }
-    ts.push_str("] as const;
+    ts.push_str(
+        "] as const;
 
-");
+",
+    );
 }
 
 /// realm 侧 GL opcode 常量对象：`gl-opcodes.generated.js`。由 ocir-schema-gen
@@ -347,15 +359,17 @@ fn path_op_sub_constants(ts: &mut String) {
 }
 
 fn enum_constants(ts: &mut String) {
-    use std::fmt::Write;
     use super::draw_encoding::{
         encode_blend_mode, encode_blur_style, encode_line_cap, encode_line_join,
         encode_path_fill_type, encode_point_mode, encode_stroke_cap, encode_stroke_join,
         encode_tile_mode,
     };
-    use crate::canvas::paint::{BlendMode, BlurStyle, PaintStyle as CkPaintStyle, StrokeCap, StrokeJoin, TileMode};
     use super::draw_op::{LineCap, LineJoin, PointMode};
     use super::draw_types::FillType;
+    use crate::canvas::paint::{
+        BlendMode, BlurStyle, PaintStyle as CkPaintStyle, StrokeCap, StrokeJoin, TileMode,
+    };
+    use std::fmt::Write;
 
     ts.push_str(
         "// ---------------------------------------------------------------------------\n\
@@ -364,7 +378,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // LineCap
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Line cap wire encoding: 0=Butt, 1=Round, 2=Square.\n\
          export const LINE_CAP = {{ BUTT: {}, ROUND: {}, SQUARE: {} }} as const;\n\
          export type LineCap = (typeof LINE_CAP)[keyof typeof LINE_CAP];\n\n",
@@ -374,7 +389,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // LineJoin
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Line join wire encoding: 0=Miter, 1=Round, 2=Bevel.\n\
          export const LINE_JOIN = {{ MITER: {}, ROUND: {}, BEVEL: {} }} as const;\n\
          export type LineJoin = (typeof LINE_JOIN)[keyof typeof LINE_JOIN];\n\n",
@@ -384,7 +400,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // PointMode
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Point mode wire encoding: 0=Points, 1=Lines, 2=Polygon.\n\
          export const POINT_MODE = {{ POINTS: {}, LINES: {}, POLYGON: {} }} as const;\n\
          export type PointMode = (typeof POINT_MODE)[keyof typeof POINT_MODE];\n\n",
@@ -394,7 +411,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // PaintStyle
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Paint style wire encoding: 0=Fill, 1=Stroke.\n\
          export const PAINT_STYLE = {{ FILL: {}, STROKE: {} }} as const;\n\
          export type PaintStyle = (typeof PAINT_STYLE)[keyof typeof PAINT_STYLE];\n\n",
@@ -403,7 +421,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // StrokeCap
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Stroke cap wire encoding: 0=Butt, 1=Round, 2=Square.\n\
          export const STROKE_CAP = {{ BUTT: {}, ROUND: {}, SQUARE: {} }} as const;\n\
          export type StrokeCap = (typeof STROKE_CAP)[keyof typeof STROKE_CAP];\n\n",
@@ -413,7 +432,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // StrokeJoin
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Stroke join wire encoding: 0=Miter, 1=Round, 2=Bevel.\n\
          export const STROKE_JOIN = {{ MITER: {}, ROUND: {}, BEVEL: {} }} as const;\n\
          export type StrokeJoin = (typeof STROKE_JOIN)[keyof typeof STROKE_JOIN];\n\n",
@@ -464,7 +484,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // TileMode
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Tile mode wire encoding: 0=Clamp, 1=Repeat, 2=Mirror, 3=Decal.\n\
          export const TILE_MODE = {{ CLAMP: {}, REPEAT: {}, MIRROR: {}, DECAL: {} }} as const;\n\
          export type TileMode = (typeof TILE_MODE)[keyof typeof TILE_MODE];\n\n",
@@ -475,7 +496,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // BlurStyle
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Blur style wire encoding: 0=Normal, 1=Inner, 2=Solid, 3=Outer.\n\
          export const BLUR_STYLE = {{ NORMAL: {}, INNER: {}, SOLID: {}, OUTER: {} }} as const;\n\
          export type BlurStyle = (typeof BLUR_STYLE)[keyof typeof BLUR_STYLE];\n\n",
@@ -486,7 +508,8 @@ fn enum_constants(ts: &mut String) {
     );
 
     // FillType
-    let _ = write!(ts,
+    let _ = write!(
+        ts,
         "/// Path fill type wire encoding: 0=Winding, 1=EvenOdd.\n\
          export const FILL_TYPE = {{ WINDING: {}, EVEN_ODD: {} }} as const;\n\
          export type FillType = (typeof FILL_TYPE)[keyof typeof FILL_TYPE];\n\n",
@@ -512,5 +535,3 @@ fn enum_constants(ts: &mut String) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-

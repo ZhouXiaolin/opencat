@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
 use opencat_web_oracle::{
-    repo_root, web_envelope_for_oracle, BrowserHarness, BrowserTestEnv, WebAppServer,
+    BrowserHarness, BrowserTestEnv, WebAppServer, repo_root, web_envelope_for_oracle,
 };
 
 #[derive(Parser)]
@@ -47,7 +47,10 @@ fn main() -> Result<()> {
         repo.join(&cli.input)
     };
     let source = std::fs::read_to_string(&input)?;
-    let base_dir = cli.base_dir.clone().or_else(|| input.parent().map(PathBuf::from));
+    let base_dir = cli
+        .base_dir
+        .clone()
+        .or_else(|| input.parent().map(PathBuf::from));
     let envelope = web_envelope_for_oracle(&source, base_dir.as_deref())?;
 
     let Some(env) = BrowserTestEnv::detect()? else {
@@ -95,7 +98,10 @@ async fn run(cli: Cli, envelope: String) -> Result<()> {
     // to "which layer vanished on web".
     let dump_js = format!("__opencatOracle.dumpFrameOps({}, 400)", cli.frame);
     match browser.eval_js(&dump_js).await {
-        Ok(v) => println!("[ok] dumpFrameOps:\n{}", v.replace("\\n", "\n").trim_matches('"')),
+        Ok(v) => println!(
+            "[ok] dumpFrameOps:\n{}",
+            v.replace("\\n", "\n").trim_matches('"')
+        ),
         Err(e) => println!("[FAIL] dumpFrameOps:\n{e}"),
     }
 

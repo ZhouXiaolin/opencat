@@ -11,10 +11,10 @@
 
 use std::collections::HashMap;
 
+use lightningcss::properties::Property;
 use lightningcss::properties::custom::{
     Function, Token, TokenList, TokenOrValue, UnparsedProperty, Variable,
 };
-use lightningcss::properties::Property;
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions};
 use lightningcss::traits::Parse;
 use lightningcss::traits::ToCss;
@@ -74,7 +74,10 @@ fn expand_shorthand(prop: Property<'static>) -> Vec<Property<'static>> {
         ],
         Property::GridRow(v) => vec![Property::GridRowStart(v.start), Property::GridRowEnd(v.end)],
         Property::GridColumn(v) => {
-            vec![Property::GridColumnStart(v.start), Property::GridColumnEnd(v.end)]
+            vec![
+                Property::GridColumnStart(v.start),
+                Property::GridColumnEnd(v.end),
+            ]
         }
         Property::GridArea(v) => vec![
             Property::GridRowStart(v.row_start),
@@ -119,7 +122,10 @@ fn resolve_unparsed<V: VarSource + ?Sized>(
     ctx: &EvalContext,
 ) -> Vec<Property<'static>> {
     let Some(literal) = eval_token_list(&unparsed.value, vars, ctx, 0) else {
-        log::warn!("css: {} 无法求值（var 缺失或不可化简），已丢弃", unparse_name(unparsed));
+        log::warn!(
+            "css: {} 无法求值（var 缺失或不可化简），已丢弃",
+            unparse_name(unparsed)
+        );
         return Vec::new();
     };
     let Some(text) = serialize_tokens(&literal) else {
@@ -129,17 +135,28 @@ fn resolve_unparsed<V: VarSource + ?Sized>(
     // 产出是 Property<'i>，会借用输入文本（token 流内嵌 CowArcStr）；
     // 泄漏声明值文本换 'static，与样式表同策略，量级为单条声明值。
     let leaked: &'static str = Box::leak(text.clone().into_boxed_str());
-    match Property::parse_string(unparsed.property_id.clone(), leaked, ParserOptions::default()) {
+    match Property::parse_string(
+        unparsed.property_id.clone(),
+        leaked,
+        ParserOptions::default(),
+    ) {
         Ok(typed) => vec![typed],
         Err(_) => {
-            log::warn!("css: {} 值 {:?} 无法解析，已丢弃", unparse_name(unparsed), text);
+            log::warn!(
+                "css: {} 值 {:?} 无法解析，已丢弃",
+                unparse_name(unparsed),
+                text
+            );
             Vec::new()
         }
     }
 }
 
 fn unparse_name(unparsed: &UnparsedProperty<'static>) -> String {
-    match unparsed.property_id.to_css_string(PrinterOptions::default()) {
+    match unparsed
+        .property_id
+        .to_css_string(PrinterOptions::default())
+    {
         Ok(name) => name,
         Err(_) => "<prop>".into(),
     }
@@ -258,11 +275,10 @@ fn eval_color_mix(args: &TokenList<'static>) -> Option<Token<'static>> {
         .collect::<Option<Vec<_>>>()?;
     let items = &coerced;
     let space = match (items.first(), items.get(1)) {
-        (Some(TokenOrValue::Token(Token::Ident(i))), Some(TokenOrValue::Token(Token::Ident(s))))
-            if i.eq_ignore_ascii_case("in") =>
-        {
-            s.to_ascii_lowercase()
-        }
+        (
+            Some(TokenOrValue::Token(Token::Ident(i))),
+            Some(TokenOrValue::Token(Token::Ident(s))),
+        ) if i.eq_ignore_ascii_case("in") => s.to_ascii_lowercase(),
         _ => return None,
     };
     // `in <space>` 后应紧跟逗号；颜色段从逗号之后开始。
@@ -490,9 +506,17 @@ fn eval_calc(tokens: &TokenList<'static>, ctx: &EvalContext) -> Option<TokenOrVa
     }
 
     Some(match lhs {
-        CV::Num(v) => TokenOrValue::Token(Token::Number { has_sign: v < 0.0, value: v, int_value: None }),
+        CV::Num(v) => TokenOrValue::Token(Token::Number {
+            has_sign: v < 0.0,
+            value: v,
+            int_value: None,
+        }),
         CV::Px(v) => TokenOrValue::Length(LengthValue::Px(v)),
-        CV::Pct(v) => TokenOrValue::Token(Token::Percentage { has_sign: false, unit_value: v, int_value: None }),
+        CV::Pct(v) => TokenOrValue::Token(Token::Percentage {
+            has_sign: false,
+            unit_value: v,
+            int_value: None,
+        }),
         CV::Deg(v) => TokenOrValue::Token(Token::Dimension {
             has_sign: false,
             value: v,
@@ -569,14 +593,16 @@ pub(super) fn css_color_to_f32(color: &CssColor) -> Option<[f32; 4]> {
 /// token 树，hex 最稳。
 fn rgba_token(rgba: [f32; 4]) -> Token<'static> {
     let ch = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    Token::IDHash(format!(
-        "{:02x}{:02x}{:02x}{:02x}",
-        ch(rgba[0]),
-        ch(rgba[1]),
-        ch(rgba[2]),
-        ch(rgba[3])
+    Token::IDHash(
+        format!(
+            "{:02x}{:02x}{:02x}{:02x}",
+            ch(rgba[0]),
+            ch(rgba[1]),
+            ch(rgba[2]),
+            ch(rgba[3])
+        )
+        .into(),
     )
-    .into())
 }
 
 /// TokenList → CSS 文本。TokenList 本身没有 ToCss 实现；这里只覆盖
@@ -620,9 +646,7 @@ fn serialize_into(items: &[TokenOrValue<'static>], out: &mut String) -> Option<(
                 out.push_str("\")");
             }
             TokenOrValue::Var(_) | TokenOrValue::Env(_) => return None,
-            TokenOrValue::DashedIdent(_) | TokenOrValue::AnimationName(_) => {
-                return None
-            }
+            TokenOrValue::DashedIdent(_) | TokenOrValue::AnimationName(_) => return None,
             TokenOrValue::Angle(a) => out.push_str(&format!("{}deg", a.to_degrees())),
             TokenOrValue::Time(_) | TokenOrValue::Resolution(_) => return None,
             TokenOrValue::UnresolvedColor(_) => return None,

@@ -27,24 +27,21 @@ use opencat_core::ir::draw_types::TableRange;
 use opencat_core::ir::gpu_stream::{GpuStream, wgpu_opcode as W};
 use serde_json::Value;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-    BindingResource, BindingType, BlendState, Buffer, BufferBinding, BufferBindingType,
-    BufferDescriptor, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoder,
-    CommandEncoderDescriptor, CompareFunction, ComputePass, ComputePassDescriptor,
-    ComputePipeline, DepthBiasState, DepthStencilState,
-    DeviceDescriptor, Extent3d, FragmentState, Instance, InstanceDescriptor, LoadOp, MapMode,
-    MultisampleState, Operations, Origin3d, PipelineCompilationOptions, PipelineLayout,
-    PipelineLayoutDescriptor, PollError, PollType, PowerPreference, PrimitiveState,
-    PrimitiveTopology, QuerySet, QuerySetDescriptor, Queue, RenderPass,
-    RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
-    RenderPipeline,
-    RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderModule,
-    ShaderSource, StencilFaceState, StencilOperation, StencilState, StoreOp,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingResource, BindingType, BlendState, Buffer, BufferBinding,
+    BufferBindingType, BufferDescriptor, BufferUsages, Color, ColorTargetState, ColorWrites,
+    CommandEncoder, CommandEncoderDescriptor, CompareFunction, ComputePass, ComputePassDescriptor,
+    ComputePipeline, DepthBiasState, DepthStencilState, DeviceDescriptor, Extent3d, FragmentState,
+    Instance, InstanceDescriptor, LoadOp, MapMode, MultisampleState, Operations, Origin3d,
+    PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, PollError, PollType,
+    PowerPreference, PrimitiveState, PrimitiveTopology, QuerySet, QuerySetDescriptor, Queue,
+    RenderPass, RenderPassColorAttachment, RenderPassDepthStencilAttachment, RenderPassDescriptor,
+    RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor,
+    ShaderModule, ShaderSource, StencilFaceState, StencilOperation, StencilState, StoreOp,
     TexelCopyBufferInfo, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect,
     TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute,
-    VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
+    TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout,
+    VertexFormat, VertexState, VertexStepMode,
 };
 
 // ── 规格名 → wgpu 枚举解析表（wgpu 30 无 FromStr）────────────────────
@@ -458,15 +455,14 @@ impl WgpuStreamExecutor {
                 Some("low") => PowerPreference::LowPower,
                 _ => PowerPreference::HighPerformance,
             };
-            let adapter = pollster::block_on(instance.request_adapter(
-                &wgpu::RequestAdapterOptions {
+            let adapter =
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: power,
                     compatible_surface: None,
                     force_fallback_adapter: false,
                     apply_limit_buckets: false,
-                },
-            ))
-            .map_err(|e| anyhow!("wgpu: request_adapter 失败: {e}"))?;
+                }))
+                .map_err(|e| anyhow!("wgpu: request_adapter 失败: {e}"))?;
             let (device, queue) = pollster::block_on(adapter.request_device(&DeviceDescriptor {
                 label: Some("opencat-wgpu-stream"),
                 required_features: Default::default(),
@@ -503,12 +499,16 @@ impl WgpuStreamExecutor {
         }
         self.ensure_runtime()?;
         // 借用分割：rt / res / frame 三段互不相交，循环内各自独占。
-        let WgpuStreamExecutor { rt, res, frame, out_format, out_usage } = self;
+        let WgpuStreamExecutor {
+            rt,
+            res,
+            frame,
+            out_format,
+            out_usage,
+        } = self;
         let rt = rt.as_ref().expect("runtime checked above");
         for stream in streams {
-            if let Err(e) =
-                execute_stream(rt, res, frame, *out_format, *out_usage, stream, plan)
-            {
+            if let Err(e) = execute_stream(rt, res, frame, *out_format, *out_usage, stream, plan) {
                 bail!(
                     "webgpu stream '{}' ({}x{}): {e:#}",
                     stream.target_id,
@@ -588,10 +588,10 @@ fn execute_stream(
         i += 1;
         // QUEUE_SUBMIT 变长（count 首部）；其余按定长表切。
         let payload: Vec<u8> = if opcode == W::QUEUE_SUBMIT {
-            let count = ops
-                .get(i..i + 4)
-                .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
-                .ok_or_else(|| anyhow!("QUEUE_SUBMIT: count 截断"))? as usize;
+            let count =
+                ops.get(i..i + 4)
+                    .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+                    .ok_or_else(|| anyhow!("QUEUE_SUBMIT: count 截断"))? as usize;
             let total = 4 + 4 * count;
             ops.get(i..i + total)
                 .ok_or_else(|| anyhow!("QUEUE_SUBMIT: payload 截断"))?
@@ -632,11 +632,13 @@ fn execute_stream(
                 // tick 都重发 configure，参数未变则复用——纹理重建会让上
                 // 一轮 fake-resolve 已画内容丢失。
                 let same = out_texture.as_ref().is_some_and(|t| {
-                    t.size() == Extent3d {
-                        width: stream.width,
-                        height: stream.height,
-                        depth_or_array_layers: 1,
-                    } && t.format() == fmt
+                    t.size()
+                        == Extent3d {
+                            width: stream.width,
+                            height: stream.height,
+                            depth_or_array_layers: 1,
+                        }
+                        && t.format() == fmt
                 });
                 if !same {
                     out_texture = Some(rt.device.create_texture(&TextureDescriptor {
@@ -710,7 +712,9 @@ fn execute_stream(
                 let handle = u32(&payload, 0)?;
                 let r = u32(&payload, 4)? as usize;
                 let v: Value = json_at(r, bytes, ranges)?;
-                let size = v.get("size").ok_or_else(|| anyhow!("TEXTURE_CREATE: 缺 size"))?;
+                let size = v
+                    .get("size")
+                    .ok_or_else(|| anyhow!("TEXTURE_CREATE: 缺 size"))?;
                 let dimension = v
                     .get("dimension")
                     .and_then(Value::as_str)
@@ -720,14 +724,9 @@ fn execute_stream(
                 let texture = rt.device.create_texture(&TextureDescriptor {
                     label: None,
                     size: extent_of(size)?,
-                    mip_level_count: v
-                        .get("mipLevelCount")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(1) as u32,
-                    sample_count: v
-                        .get("sampleCount")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(1) as u32,
+                    mip_level_count: v.get("mipLevelCount").and_then(Value::as_u64).unwrap_or(1)
+                        as u32,
+                    sample_count: v.get("sampleCount").and_then(Value::as_u64).unwrap_or(1) as u32,
                     dimension,
                     format: fmt_of(&v)?,
                     // 补 COPY_SRC：录制面声明的 usage 可能缺读回/拷贝位（与
@@ -747,19 +746,43 @@ fn execute_stream(
                 let v: Value = json_at(r, bytes, ranges)?;
                 let sampler = rt.device.create_sampler(&SamplerDescriptor {
                     label: None,
-                    address_mode_u: enum_or(v.get("addressModeU"), spec::address_mode, wgpu::AddressMode::ClampToEdge)?,
-                    address_mode_v: enum_or(v.get("addressModeV"), spec::address_mode, wgpu::AddressMode::ClampToEdge)?,
-                    address_mode_w: enum_or(v.get("addressModeW"), spec::address_mode, wgpu::AddressMode::ClampToEdge)?,
-                    mag_filter: enum_or(v.get("magFilter"), spec::filter_mode, wgpu::FilterMode::Nearest)?,
-                    min_filter: enum_or(v.get("minFilter"), spec::filter_mode, wgpu::FilterMode::Nearest)?,
-                    mipmap_filter: enum_or(v.get("mipmapFilter"), spec::mipmap_filter, wgpu::MipmapFilterMode::Nearest)?,
-                    lod_min_clamp: v.get("lodMinClamp").and_then(Value::as_f64).unwrap_or(0.0) as f32,
-                    lod_max_clamp: v.get("lodMaxClamp").and_then(Value::as_f64).unwrap_or(32.0) as f32,
+                    address_mode_u: enum_or(
+                        v.get("addressModeU"),
+                        spec::address_mode,
+                        wgpu::AddressMode::ClampToEdge,
+                    )?,
+                    address_mode_v: enum_or(
+                        v.get("addressModeV"),
+                        spec::address_mode,
+                        wgpu::AddressMode::ClampToEdge,
+                    )?,
+                    address_mode_w: enum_or(
+                        v.get("addressModeW"),
+                        spec::address_mode,
+                        wgpu::AddressMode::ClampToEdge,
+                    )?,
+                    mag_filter: enum_or(
+                        v.get("magFilter"),
+                        spec::filter_mode,
+                        wgpu::FilterMode::Nearest,
+                    )?,
+                    min_filter: enum_or(
+                        v.get("minFilter"),
+                        spec::filter_mode,
+                        wgpu::FilterMode::Nearest,
+                    )?,
+                    mipmap_filter: enum_or(
+                        v.get("mipmapFilter"),
+                        spec::mipmap_filter,
+                        wgpu::MipmapFilterMode::Nearest,
+                    )?,
+                    lod_min_clamp: v.get("lodMinClamp").and_then(Value::as_f64).unwrap_or(0.0)
+                        as f32,
+                    lod_max_clamp: v.get("lodMaxClamp").and_then(Value::as_f64).unwrap_or(32.0)
+                        as f32,
                     compare: opt_enum(v.get("compare"), spec::compare_function)?,
-                    anisotropy_clamp: v
-                        .get("maxAnisotropy")
-                        .and_then(Value::as_u64)
-                        .unwrap_or(1) as u16,
+                    anisotropy_clamp: v.get("maxAnisotropy").and_then(Value::as_u64).unwrap_or(1)
+                        as u16,
                     border_color: None,
                 });
                 res.samplers.insert(handle, sampler);
@@ -799,7 +822,10 @@ fn execute_stream(
                 let v: Value = json_at(r, bytes, ranges)?;
                 // 派生布局的 bind group 记 desc 与派生源——回放期跨
                 // pipeline 重绑时重建（apply_pass_cmd 的 rebind 分支）。
-                if let Some(owner) = v.get("layout").and_then(|l| l.get("ph")).and_then(Value::as_u64)
+                if let Some(owner) = v
+                    .get("layout")
+                    .and_then(|l| l.get("ph"))
+                    .and_then(Value::as_u64)
                 {
                     res.bind_group_desc.insert(handle, v.clone());
                     res.bg_owner.insert(handle, owner as u32);
@@ -829,13 +855,11 @@ fn execute_stream(
                             .ok_or_else(|| unknown("bindGroupLayout", h))?,
                     ));
                 }
-                let layout = rt
-                    .device
-                    .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: None,
-                        bind_group_layouts: &layouts,
-                        immediate_size: 0,
-                    });
+                let layout = rt.device.create_pipeline_layout(&PipelineLayoutDescriptor {
+                    label: None,
+                    bind_group_layouts: &layouts,
+                    immediate_size: 0,
+                });
                 res.pipeline_layouts.insert(handle, layout);
                 res.kind_of.insert(handle, Kind::PipelineLayout);
             }
@@ -850,10 +874,12 @@ fn execute_stream(
                         code,
                     );
                 }
-                let module = rt.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: None,
-                    source: ShaderSource::Wgsl(code.into()),
-                });
+                let module = rt
+                    .device
+                    .create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: None,
+                        source: ShaderSource::Wgsl(code.into()),
+                    });
                 res.shaders.insert(handle, module);
                 res.shader_codes.insert(handle, code.to_string());
                 res.kind_of.insert(handle, Kind::ShaderModule);
@@ -895,16 +921,16 @@ fn execute_stream(
                         .ok_or_else(|| anyhow!("compute: 缺 module"))?,
                 )?)?;
                 let layout = res.pipeline_layout_ref(v.get("layout"))?;
-                let pipe = rt.device.create_compute_pipeline(
-                    &wgpu::ComputePipelineDescriptor {
+                let pipe = rt
+                    .device
+                    .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                         label: None,
                         layout,
                         module,
                         entry_point: compute.get("entryPoint").and_then(Value::as_str),
                         compilation_options: PipelineCompilationOptions::default(),
                         cache: None,
-                    },
-                );
+                    });
                 res.compute_pipelines.insert(handle, pipe);
                 res.kind_of.insert(handle, Kind::ComputePipeline);
                 // auto 派生 layout 判据与 render pipeline 同构（预扫校验
@@ -980,8 +1006,7 @@ fn execute_stream(
                 if let Some(dir) = std::env::var_os("OC_DUMP_WGPU_STREAM") {
                     let _ = std::fs::create_dir_all(&dir);
                     let _ = std::fs::write(
-                        std::path::Path::new(&dir)
-                            .join(format!("buf-{buffer}.bin")),
+                        std::path::Path::new(&dir).join(format!("buf-{buffer}.bin")),
                         &data,
                     );
                 }
@@ -1044,7 +1069,11 @@ fn execute_stream(
                 frame.encoders.entry(enc).or_default().push(pass);
                 frame.segments.insert(
                     pass,
-                    RecordedPass { kind: SegKind::Render, desc_range: Some(r), cmds: Vec::new() },
+                    RecordedPass {
+                        kind: SegKind::Render,
+                        desc_range: Some(r),
+                        cmds: Vec::new(),
+                    },
                 );
             }
             W::ENC_BEGIN_COMPUTE_PASS => {
@@ -1054,7 +1083,11 @@ fn execute_stream(
                 frame.encoders.entry(enc).or_default().push(pass);
                 frame.segments.insert(
                     pass,
-                    RecordedPass { kind: SegKind::Compute, desc_range: Some(r), cmds: Vec::new() },
+                    RecordedPass {
+                        kind: SegKind::Compute,
+                        desc_range: Some(r),
+                        cmds: Vec::new(),
+                    },
                 );
             }
             W::ENC_COPY_TEXTURE_TO_TEXTURE => {
@@ -1064,7 +1097,8 @@ fn execute_stream(
                 seg.cmds.push((opcode, payload.to_vec()));
                 resolve_copies.push(payload.to_vec());
             }
-            W::ENC_COPY_BUFFER_TO_BUFFER | W::ENC_COPY_TEXTURE_TO_BUFFER
+            W::ENC_COPY_BUFFER_TO_BUFFER
+            | W::ENC_COPY_TEXTURE_TO_BUFFER
             | W::ENC_COPY_BUFFER_TO_TEXTURE => {
                 let enc = u32(&payload, 0)?;
                 let seg = copy_segment(frame, enc)?;
@@ -1075,11 +1109,20 @@ fn execute_stream(
                 let buf = u32(&payload, 4)?;
                 frame.cmd_buffers.insert(buf, enc);
             }
-            W::PASS_SET_PIPELINE | W::PASS_SET_BIND_GROUP | W::PASS_SET_VERTEX_BUFFER
-            | W::PASS_SET_INDEX_BUFFER | W::PASS_SET_VIEWPORT | W::PASS_SET_SCISSOR_RECT
-            | W::PASS_SET_BLEND_CONSTANT | W::PASS_SET_STENCIL_REFERENCE | W::PASS_DRAW
-            | W::PASS_DRAW_INDEXED | W::PASS_DRAW_INDIRECT | W::PASS_DRAW_INDEXED_INDIRECT
-            | W::PASS_DISPATCH_WORKGROUPS | W::PASS_DISPATCH_WORKGROUPS_INDIRECT
+            W::PASS_SET_PIPELINE
+            | W::PASS_SET_BIND_GROUP
+            | W::PASS_SET_VERTEX_BUFFER
+            | W::PASS_SET_INDEX_BUFFER
+            | W::PASS_SET_VIEWPORT
+            | W::PASS_SET_SCISSOR_RECT
+            | W::PASS_SET_BLEND_CONSTANT
+            | W::PASS_SET_STENCIL_REFERENCE
+            | W::PASS_DRAW
+            | W::PASS_DRAW_INDEXED
+            | W::PASS_DRAW_INDIRECT
+            | W::PASS_DRAW_INDEXED_INDIRECT
+            | W::PASS_DISPATCH_WORKGROUPS
+            | W::PASS_DISPATCH_WORKGROUPS_INDIRECT
             | W::PASS_END => {
                 let pass = u32(&payload, 0)?;
                 let p = frame
@@ -1118,9 +1161,12 @@ fn execute_stream(
                 enc.copy_texture_to_texture(
                     TexelCopyTextureInfo {
                         texture: res.texture_ref(h_of(
-                            src_v.get("texture").ok_or_else(|| anyhow!("copy: 缺 source.texture"))?,
+                            src_v
+                                .get("texture")
+                                .ok_or_else(|| anyhow!("copy: 缺 source.texture"))?,
                         )?)?,
-                        mip_level: src_v.get("mipLevel").and_then(Value::as_u64).unwrap_or(0) as u32,
+                        mip_level: src_v.get("mipLevel").and_then(Value::as_u64).unwrap_or(0)
+                            as u32,
                         origin: origin_of(src_v.get("origin")),
                         aspect: TextureAspect::All,
                     },
@@ -1130,7 +1176,11 @@ fn execute_stream(
                         origin: Origin3d::ZERO,
                         aspect: TextureAspect::All,
                     },
-                    Extent3d { width: stream.width, height: stream.height, depth_or_array_layers: 1 },
+                    Extent3d {
+                        width: stream.width,
+                        height: stream.height,
+                        depth_or_array_layers: 1,
+                    },
                 );
             }
             rt.queue.submit([enc.finish()]);
@@ -1171,11 +1221,18 @@ fn copy_segment<'f>(frame: &'f mut FrameState, enc: u32) -> Result<&'f mut Recor
     if !frame.segments.contains_key(&seg_id) {
         frame.segments.insert(
             seg_id,
-            RecordedPass { kind: SegKind::Copy, desc_range: None, cmds: Vec::new() },
+            RecordedPass {
+                kind: SegKind::Copy,
+                desc_range: None,
+                cmds: Vec::new(),
+            },
         );
         frame.encoders.entry(enc).or_default().push(seg_id);
     }
-    frame.segments.get_mut(&seg_id).ok_or_else(|| unknown("copySegment", seg_id))
+    frame
+        .segments
+        .get_mut(&seg_id)
+        .ok_or_else(|| unknown("copySegment", seg_id))
 }
 
 /// 重放 encoder 的全部段并 finish。无任何段时返回 None。
@@ -1198,7 +1255,9 @@ fn finish_encoder(
         .device
         .create_command_encoder(&CommandEncoderDescriptor { label: Some(&name) });
     for seg_id in seg_ids {
-        let Some(seg) = frame.segments.remove(&seg_id) else { continue };
+        let Some(seg) = frame.segments.remove(&seg_id) else {
+            continue;
+        };
         match seg.kind {
             SegKind::Copy => {
                 // encoder 级拷贝段：命令直接打 encoder（纹理拷贝的描述符
@@ -1211,9 +1270,9 @@ fn finish_encoder(
                 }
             }
             SegKind::Render | SegKind::Compute => {
-                let desc_range = seg.desc_range.ok_or_else(|| {
-                    anyhow!("pass 段（kind={:?}）缺 desc_range", seg.kind)
-                })?;
+                let desc_range = seg
+                    .desc_range
+                    .ok_or_else(|| anyhow!("pass 段（kind={:?}）缺 desc_range", seg.kind))?;
                 let v: Value = json_at(desc_range as usize, bytes, ranges)?;
                 // 阶段一：预扫段命令，按 Dawn 的 default-layout 校验判定
                 // 整段是否作废。Dawn 原文（真 Edge 实测，anim 案）：
@@ -1236,8 +1295,7 @@ fn finish_encoder(
                             W::PASS_SET_BIND_GROUP => {
                                 let bg = u32(p, 8)?;
                                 if let Some(cp) = pre {
-                                    let auto =
-                                        res.pipeline_auto.get(&cp).copied().unwrap_or(false);
+                                    let auto = res.pipeline_auto.get(&cp).copied().unwrap_or(false);
                                     if auto && res.bg_owner.get(&bg).copied() != Some(cp) {
                                         eprintln!(
                                             "[wg-enc] validation reject: enc={enc} bind group {bg}（派生源 {:?}）绑 auto pipeline {cp}——丢整个 encoder（对称 Dawn）",
@@ -1269,11 +1327,10 @@ fn finish_encoder(
                     // compute pass：无附件（desc 语料只带 label；timestampWrites
                     // 录制面已 throw，这里不解析附件语义）。命令面是
                     // SET_PIPELINE / SET_BIND_GROUP / DISPATCH(±INDIRECT)。
-                    let mut cpass =
-                        encoder.begin_compute_pass(&ComputePassDescriptor {
-                            label: None,
-                            timestamp_writes: None,
-                        });
+                    let mut cpass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                        label: None,
+                        timestamp_writes: None,
+                    });
                     let mut cur_pipeline = None;
                     for (op, p) in &seg.cmds {
                         apply_compute_pass_cmd(res, &mut cur_pipeline, &mut cpass, *op, p)?;
@@ -1316,7 +1373,10 @@ fn apply_compute_pass_cmd(
         W::PASS_DISPATCH_WORKGROUPS => {
             let (x, y, z) = (u32(p, 4)?, u32(p, 8)?, u32(p, 12)?);
             if std::env::var_os("OC_DUMP_WGPU_STREAM").is_some() {
-                eprintln!("[wg-cpass] dispatch pp={:?} {}x{}x{}", cur_pipeline, x, y, z);
+                eprintln!(
+                    "[wg-cpass] dispatch pp={:?} {}x{}x{}",
+                    cur_pipeline, x, y, z
+                );
             }
             cpass.dispatch_workgroups(x, y, z);
         }
@@ -1349,7 +1409,8 @@ fn apply_encoder_copy(
             let size = u64at(p, 28)?;
             encoder.copy_buffer_to_buffer(src, src_off, dst, dst_off, Some(size));
         }
-        W::ENC_COPY_TEXTURE_TO_TEXTURE | W::ENC_COPY_TEXTURE_TO_BUFFER
+        W::ENC_COPY_TEXTURE_TO_TEXTURE
+        | W::ENC_COPY_TEXTURE_TO_BUFFER
         | W::ENC_COPY_BUFFER_TO_TEXTURE => {
             let v: Value = json_at(u32(p, 4)? as usize, bytes, ranges)?;
             let src_v = v.get("source").ok_or_else(|| anyhow!("copy: 缺 source"))?;
@@ -1427,9 +1488,7 @@ fn bind_missing_vertex_buffers(
     let Some(slots) = res.pipeline_vertex_slots.get(&ph).copied() else {
         return;
     };
-    let missing: Vec<u32> = (0..slots)
-        .filter(|s| !bound_vbs.contains(s))
-        .collect();
+    let missing: Vec<u32> = (0..slots).filter(|s| !bound_vbs.contains(s)).collect();
     if missing.is_empty() {
         return;
     }
@@ -1488,7 +1547,11 @@ fn apply_pass_cmd(
         }
         W::PASS_SET_INDEX_BUFFER => {
             let buffer = res.buffer_ref(u32(p, 4)?)?;
-            let format = if p[8] == 1 { wgpu::IndexFormat::Uint32 } else { wgpu::IndexFormat::Uint16 };
+            let format = if p[8] == 1 {
+                wgpu::IndexFormat::Uint32
+            } else {
+                wgpu::IndexFormat::Uint16
+            };
             let offset = u64at(p, 9)?;
             rpass.set_index_buffer(buffer.slice(offset..), format);
         }
@@ -1529,7 +1592,6 @@ fn apply_pass_cmd(
                     u32(p, 8)?,
                     u32(p, 12)?,
                     u32(p, 16)?,
-
                 );
             }
             bind_missing_vertex_buffers(res, cur_pipeline, bound_vbs, rpass);
@@ -1595,7 +1657,9 @@ impl WgpuResources {
         self.views.get(&h).ok_or_else(|| unknown("textureView", h))
     }
     fn shader_ref(&self, h: u32) -> Result<&ShaderModule> {
-        self.shaders.get(&h).ok_or_else(|| unknown("shaderModule", h))
+        self.shaders
+            .get(&h)
+            .ok_or_else(|| unknown("shaderModule", h))
     }
     fn render_pipeline_ref(&self, h: u32) -> Result<&RenderPipeline> {
         self.render_pipelines
@@ -1608,7 +1672,9 @@ impl WgpuResources {
             .ok_or_else(|| unknown("computePipeline", h))
     }
     fn bind_group_ref(&self, h: u32) -> Result<&BindGroup> {
-        self.bind_groups.get(&h).ok_or_else(|| unknown("bindGroup", h))
+        self.bind_groups
+            .get(&h)
+            .ok_or_else(|| unknown("bindGroup", h))
     }
 
     fn pipeline_layout_ref(&self, v: Option<&Value>) -> Result<Option<&PipelineLayout>> {
@@ -1652,7 +1718,10 @@ impl WgpuResources {
                 .and_then(NonZeroU64::new);
             BindingResource::Buffer(BufferBinding {
                 buffer: self.buffer_ref(h_of(bufv)?)?,
-                offset: resource_v.get("offset").and_then(Value::as_u64).unwrap_or(0),
+                offset: resource_v
+                    .get("offset")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0),
                 size,
             })
         } else if let Some(sv) = resource_v.get("sampler") {
@@ -1714,101 +1783,105 @@ impl WgpuResources {
     /// 建 render pipeline：描述符借用的模块/布局/顶点布局全部在本作用域
     /// 内存活，create 完成即归还。
     // ── G2 mesh shader 的 varying 配对缺陷（批次 G）────────────────────
-// G2 的 mesh GLSL 模板里 vertex 端漏输出 fragment 要的 v_Data/v_Radius/
-// v_StylePacked3_（WGSL 显式 location 后暴露）。WebGPU 规范未定义未供
-// 输入的值：Dawn/D3D12 与 wgpu/D3D12 各自的寄存器残值让 SDF coverage
-// smoothstep(0, fwidth(常量)=0, df) 走不同浮点路径——ref 侧恰出 1.0，
-// 引擎侧恒 0.949（柱面整体 alpha 偏差 4.7%）。命中「fragment 输入未被
-// vertex 供出」时把 coverage 行补成确定值 1.0，匹配 ref 实测行为。
-fn fragment_inputs_missing_vertex_outputs(fs: &str, vs: &str) -> bool {
-    let frag_locs = |src: &str| -> Vec<u32> {
-        let main_at = match src.find("fn main(") {
-            Some(i) => i,
-            None => return Vec::new(),
+    // G2 的 mesh GLSL 模板里 vertex 端漏输出 fragment 要的 v_Data/v_Radius/
+    // v_StylePacked3_（WGSL 显式 location 后暴露）。WebGPU 规范未定义未供
+    // 输入的值：Dawn/D3D12 与 wgpu/D3D12 各自的寄存器残值让 SDF coverage
+    // smoothstep(0, fwidth(常量)=0, df) 走不同浮点路径——ref 侧恰出 1.0，
+    // 引擎侧恒 0.949（柱面整体 alpha 偏差 4.7%）。命中「fragment 输入未被
+    // vertex 供出」时把 coverage 行补成确定值 1.0，匹配 ref 实测行为。
+    fn fragment_inputs_missing_vertex_outputs(fs: &str, vs: &str) -> bool {
+        let frag_locs = |src: &str| -> Vec<u32> {
+            let main_at = match src.find("fn main(") {
+                Some(i) => i,
+                None => return Vec::new(),
+            };
+            let tail = &src[main_at..];
+            let end = tail.find("->").unwrap_or(tail.len());
+            (0..16u32)
+                .filter(|n| tail[..end].contains(&format!("@location({n})")))
+                .collect()
         };
-        let tail = &src[main_at..];
-        let end = tail.find("->").unwrap_or(tail.len());
-        (0..16u32)
-            .filter(|n| tail[..end].contains(&format!("@location({n})")))
-            .collect()
-    };
-    let vert_out_locs = |src: &str| -> Vec<u32> {
-        let out_at = match src.find("struct VertexOutput") {
-            Some(i) => i,
-            None => return Vec::new(),
+        let vert_out_locs = |src: &str| -> Vec<u32> {
+            let out_at = match src.find("struct VertexOutput") {
+                Some(i) => i,
+                None => return Vec::new(),
+            };
+            let tail = &src[out_at..];
+            let end = tail.find('}').map(|i| i + 1).unwrap_or(tail.len());
+            (0..16u32)
+                .filter(|n| tail[..end].contains(&format!("@location({n})")))
+                .collect()
         };
-        let tail = &src[out_at..];
-        let end = tail.find('}').map(|i| i + 1).unwrap_or(tail.len());
-        (0..16u32)
-            .filter(|n| tail[..end].contains(&format!("@location({n})")))
-            .collect()
-    };
-    let fs_locs = frag_locs(fs);
-    let vs_locs = vert_out_locs(vs);
-    !fs_locs.is_empty() && !vs_locs.is_empty() && fs_locs.iter().any(|l| !vs_locs.contains(l))
-}
-
-/// coverage 行补 1：G2 wasm 编译器产物里该行恒为
-/// `opacity_t = smoothstep(0f, <e1>, <e2>);`（唯一），文本级替换。
-fn patch_mesh_coverage(fs: &str) -> String {
-    let mut out = String::with_capacity(fs.len());
-    for line in fs.lines() {
-        let t = line.trim_start();
-        if t.starts_with("opacity_t = smoothstep(") {
-            out.push_str("    opacity_t = 1f;\n");
-        } else {
-            out.push_str(line);
-            out.push('\n');
-        }
+        let fs_locs = frag_locs(fs);
+        let vs_locs = vert_out_locs(vs);
+        !fs_locs.is_empty() && !vs_locs.is_empty() && fs_locs.iter().any(|l| !vs_locs.contains(l))
     }
-    out
-}
 
-/// 顶点入口的参数表文本（`@vertex fn NAME(…) ` 的括号区）。`entry` 给定
-/// 时只取同名入口，否则取全部 @vertex 入口（并集，保守）。找不到结构时
-/// 返回空串——空串扫不出 @location，等于放弃补齐（与误注入相比，放弃是
-/// 安全侧：缺真顶点输入的 pipeline 在 wgpu 创建期就报 invalid，fail-loud）。
-fn vertex_param_region(code: &str, entry: Option<&str>) -> String {
-    let mut regions: Vec<&str> = Vec::new();
-    let mut rest = code;
-    while let Some(pos) = rest.find("@vertex") {
-        let tail = &rest[pos..];
-        let Some(fn_pos) = tail.find("fn ") else { break };
-        let after_fn = &tail[fn_pos + 3..];
-        let name: String = after_fn
-            .trim_start()
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-            .collect();
-        let Some(paren) = after_fn.find('(') else { break };
-        let mut depth = 0usize;
-        let mut close = None;
-        for (i, c) in after_fn[paren..].char_indices() {
-            match c {
-                '(' => depth += 1,
-                ')' => {
-                    depth = depth.saturating_sub(1);
-                    if depth == 0 {
-                        close = Some(paren + i);
-                        break;
-                    }
-                }
-                _ => {}
+    /// coverage 行补 1：G2 wasm 编译器产物里该行恒为
+    /// `opacity_t = smoothstep(0f, <e1>, <e2>);`（唯一），文本级替换。
+    fn patch_mesh_coverage(fs: &str) -> String {
+        let mut out = String::with_capacity(fs.len());
+        for line in fs.lines() {
+            let t = line.trim_start();
+            if t.starts_with("opacity_t = smoothstep(") {
+                out.push_str("    opacity_t = 1f;\n");
+            } else {
+                out.push_str(line);
+                out.push('\n');
             }
         }
-        let Some(close) = close else { break };
-        if entry.is_none_or(|e| e == name) {
-            regions.push(&after_fn[paren + 1..close]);
-            if entry.is_some() {
+        out
+    }
+
+    /// 顶点入口的参数表文本（`@vertex fn NAME(…) ` 的括号区）。`entry` 给定
+    /// 时只取同名入口，否则取全部 @vertex 入口（并集，保守）。找不到结构时
+    /// 返回空串——空串扫不出 @location，等于放弃补齐（与误注入相比，放弃是
+    /// 安全侧：缺真顶点输入的 pipeline 在 wgpu 创建期就报 invalid，fail-loud）。
+    fn vertex_param_region(code: &str, entry: Option<&str>) -> String {
+        let mut regions: Vec<&str> = Vec::new();
+        let mut rest = code;
+        while let Some(pos) = rest.find("@vertex") {
+            let tail = &rest[pos..];
+            let Some(fn_pos) = tail.find("fn ") else {
                 break;
+            };
+            let after_fn = &tail[fn_pos + 3..];
+            let name: String = after_fn
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            let Some(paren) = after_fn.find('(') else {
+                break;
+            };
+            let mut depth = 0usize;
+            let mut close = None;
+            for (i, c) in after_fn[paren..].char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth = depth.saturating_sub(1);
+                        if depth == 0 {
+                            close = Some(paren + i);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
             }
+            let Some(close) = close else { break };
+            if entry.is_none_or(|e| e == name) {
+                regions.push(&after_fn[paren + 1..close]);
+                if entry.is_some() {
+                    break;
+                }
+            }
+            rest = &tail[fn_pos + close..];
         }
-        rest = &tail[fn_pos + close..];
+        regions.join("\n")
     }
-    regions.join("\n")
-}
 
-fn create_render_pipeline(
+    fn create_render_pipeline(
         &mut self,
         device: &wgpu::Device,
         handle: u32,
@@ -1904,14 +1977,16 @@ fn create_render_pipeline(
             if !missing.is_empty() {
                 pairs.push((
                     &fallback_v,
-                    Some(missing
-                        .iter()
-                        .map(|n| VertexAttribute {
-                            format: VertexFormat::Float32x4,
-                            offset: 0,
-                            shader_location: *n,
-                        })
-                        .collect()),
+                    Some(
+                        missing
+                            .iter()
+                            .map(|n| VertexAttribute {
+                                format: VertexFormat::Float32x4,
+                                offset: 0,
+                                shader_location: *n,
+                            })
+                            .collect(),
+                    ),
                 ));
             }
         }
@@ -1939,12 +2014,17 @@ fn create_render_pipeline(
         let mut coverage_patched: Option<wgpu::ShaderModule> = None;
         let fragment = match v.get("fragment") {
             Some(f) if !f.is_null() => {
-                let fs_handle = h_of(f.get("module").ok_or_else(|| anyhow!("fragment: 缺 module"))?)?;
+                let fs_handle = h_of(
+                    f.get("module")
+                        .ok_or_else(|| anyhow!("fragment: 缺 module"))?,
+                )?;
                 let mut fs_module = self.shader_ref(fs_handle)?;
                 // varying 配对缺陷检测（见上方注释）：命中则用补丁版 module
                 if let Some(code) = self.shader_codes.get(&fs_handle) {
                     let vs_handle = h_of(
-                        v.get("vertex").and_then(|x| x.get("module")).unwrap_or(&Value::Null),
+                        v.get("vertex")
+                            .and_then(|x| x.get("module"))
+                            .unwrap_or(&Value::Null),
                     )
                     .unwrap_or(u32::MAX);
                     if let Some(vs_code) = self.shader_codes.get(&vs_handle) {
@@ -1979,16 +2059,25 @@ fn create_render_pipeline(
                             Some(b) if !b.is_null() => {
                                 let comp = |c: &Value| -> Result<wgpu::BlendComponent> {
                                     Ok(wgpu::BlendComponent {
-                                        src_factor: match c.get("srcFactor").and_then(Value::as_str) {
-                                            Some(s) => spec::must("blendFactor", s, spec::blend_factor)?,
+                                        src_factor: match c.get("srcFactor").and_then(Value::as_str)
+                                        {
+                                            Some(s) => {
+                                                spec::must("blendFactor", s, spec::blend_factor)?
+                                            }
                                             None => wgpu::BlendFactor::One,
                                         },
-                                        dst_factor: match c.get("dstFactor").and_then(Value::as_str) {
-                                            Some(s) => spec::must("blendFactor", s, spec::blend_factor)?,
+                                        dst_factor: match c.get("dstFactor").and_then(Value::as_str)
+                                        {
+                                            Some(s) => {
+                                                spec::must("blendFactor", s, spec::blend_factor)?
+                                            }
                                             None => wgpu::BlendFactor::Zero,
                                         },
-                                        operation: match c.get("operation").and_then(Value::as_str) {
-                                            Some(s) => spec::must("blendOp", s, spec::blend_operation)?,
+                                        operation: match c.get("operation").and_then(Value::as_str)
+                                        {
+                                            Some(s) => {
+                                                spec::must("blendOp", s, spec::blend_operation)?
+                                            }
                                             None => wgpu::BlendOperation::Add,
                                         },
                                     })
@@ -2019,8 +2108,7 @@ fn create_render_pipeline(
         };
 
         let primitive_v = v.get("primitive").cloned().unwrap_or(Value::Null);
-        let strip_index_format =
-            opt_enum(primitive_v.get("stripIndexFormat"), spec::index_format)?;
+        let strip_index_format = opt_enum(primitive_v.get("stripIndexFormat"), spec::index_format)?;
         let primitive = PrimitiveState {
             topology: match primitive_v.get("topology").and_then(Value::as_str) {
                 Some(s) => spec::must("topology", s, spec::primitive_topology)?,
@@ -2096,7 +2184,10 @@ fn create_render_pipeline(
                             .get("depthBiasSlopeScale")
                             .and_then(Value::as_f64)
                             .unwrap_or(0.0) as f32,
-                        clamp: d.get("depthBiasClamp").and_then(Value::as_f64).unwrap_or(0.0) as f32,
+                        clamp: d
+                            .get("depthBiasClamp")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0) as f32,
                     },
                 })
             }
@@ -2177,7 +2268,11 @@ fn create_render_pipeline(
                         let at = |k: &str, idx: usize| -> f64 {
                             c.get(k)
                                 .and_then(Value::as_f64)
-                                .or_else(|| c.as_array().and_then(|a| a.get(idx)).and_then(Value::as_f64))
+                                .or_else(|| {
+                                    c.as_array()
+                                        .and_then(|a| a.get(idx))
+                                        .and_then(Value::as_f64)
+                                })
                                 .unwrap_or(0.0)
                         };
                         LoadOp::Clear(Color {
@@ -2200,40 +2295,42 @@ fn create_render_pipeline(
                     d.get("view")
                         .ok_or_else(|| anyhow!("depthStencilAttachment 缺 view"))?,
                 )?)?;
-                let depth_ops = d.get("depthLoadOp").and_then(Value::as_str).map(|op| {
-                    Operations::<f32> {
-                        load: if op == "clear" {
-                            LoadOp::Clear(
-                                d.get("depthClearValue")
-                                    .and_then(Value::as_f64)
-                                    .unwrap_or(1.0) as f32,
-                            )
-                        } else {
-                            LoadOp::Load
-                        },
-                        store: match d.get("depthStoreOp").and_then(Value::as_str) {
-                            Some("discard") => StoreOp::Discard,
-                            _ => StoreOp::Store,
-                        },
-                    }
-                });
-                let stencil_ops = d.get("stencilLoadOp").and_then(Value::as_str).map(|op| {
-                    Operations::<u32> {
-                        load: if op == "clear" {
-                            LoadOp::Clear(
-                                d.get("stencilClearValue")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0) as u32,
-                            )
-                        } else {
-                            LoadOp::Load
-                        },
-                        store: match d.get("stencilStoreOp").and_then(Value::as_str) {
-                            Some("discard") => StoreOp::Discard,
-                            _ => StoreOp::Store,
-                        },
-                    }
-                });
+                let depth_ops =
+                    d.get("depthLoadOp")
+                        .and_then(Value::as_str)
+                        .map(|op| Operations::<f32> {
+                            load: if op == "clear" {
+                                LoadOp::Clear(
+                                    d.get("depthClearValue")
+                                        .and_then(Value::as_f64)
+                                        .unwrap_or(1.0) as f32,
+                                )
+                            } else {
+                                LoadOp::Load
+                            },
+                            store: match d.get("depthStoreOp").and_then(Value::as_str) {
+                                Some("discard") => StoreOp::Discard,
+                                _ => StoreOp::Store,
+                            },
+                        });
+                let stencil_ops =
+                    d.get("stencilLoadOp")
+                        .and_then(Value::as_str)
+                        .map(|op| Operations::<u32> {
+                            load: if op == "clear" {
+                                LoadOp::Clear(
+                                    d.get("stencilClearValue")
+                                        .and_then(Value::as_u64)
+                                        .unwrap_or(0) as u32,
+                                )
+                            } else {
+                                LoadOp::Load
+                            },
+                            store: match d.get("stencilStoreOp").and_then(Value::as_str) {
+                                Some("discard") => StoreOp::Discard,
+                                _ => StoreOp::Store,
+                            },
+                        });
                 Some(RenderPassDepthStencilAttachment {
                     view,
                     depth_ops,
@@ -2277,7 +2374,10 @@ fn constants_of(stage: &Value) -> Result<Vec<(&str, f64)>> {
     let mut out = Vec::new();
     if let Some(map) = stage.get("constants").and_then(Value::as_object) {
         for (k, vv) in map {
-            out.push((k.as_str(), vv.as_f64().ok_or_else(|| anyhow!("常量 {k} 非数值"))?));
+            out.push((
+                k.as_str(),
+                vv.as_f64().ok_or_else(|| anyhow!("常量 {k} 非数值"))?,
+            ));
         }
     }
     Ok(out)
@@ -2308,7 +2408,11 @@ fn readback_rgba(rt: &WgpuRuntime, tex: &Texture, w: u32, h: u32) -> Result<Vec<
                 rows_per_image: None,
             },
         },
-        Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+        Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
     );
     rt.queue.submit([enc.finish()]);
     let (tx, rx) = std::sync::mpsc::channel();
@@ -2360,7 +2464,9 @@ fn u64at(p: &[u8], at: usize) -> Result<u64> {
         .ok_or_else(|| anyhow!("payload 截断"))
 }
 fn range<'a>(bytes: &'a [u8], ranges: &'a [TableRange], id: usize) -> Result<&'a [u8]> {
-    let r = ranges.get(id).ok_or_else(|| anyhow!("range id {id} 越界"))?;
+    let r = ranges
+        .get(id)
+        .ok_or_else(|| anyhow!("range id {id} 越界"))?;
     bytes
         .get(r.start as usize..(r.start + r.len) as usize)
         .ok_or_else(|| anyhow!("range {id} 字节越界"))
@@ -2398,11 +2504,7 @@ fn extent_of(v: &Value) -> Result<Extent3d> {
     // GPUExtent3D 双形：sequence [w, h?, d?] 或 dict {width, height,
     // depthOrArrayLayers}（与 origin_of 同一自由度；录制面 size 走数组）。
     if let Some(a) = v.as_array() {
-        let at = |i: usize| -> u32 {
-            a.get(i)
-                .and_then(Value::as_u64)
-                .unwrap_or(1) as u32
-        };
+        let at = |i: usize| -> u32 { a.get(i).and_then(Value::as_u64).unwrap_or(1) as u32 };
         return Ok(Extent3d {
             width: at(0),
             height: at(1),
@@ -2433,7 +2535,11 @@ fn origin_of(v: Option<&Value>) -> Origin3d {
             })
             .unwrap_or(0)
     };
-    Origin3d { x: at(0), y: at(1), z: at(2) }
+    Origin3d {
+        x: at(0),
+        y: at(1),
+        z: at(2),
+    }
 }
 
 fn view_desc_of(v: &Value) -> Result<TextureViewDescriptor<'_>> {
@@ -2463,11 +2569,7 @@ fn fmt_of(v: &Value) -> Result<TextureFormat> {
 }
 
 /// 必填枚举：JSON 缺字段用 default，给了就按 spec 名解析（解析失败报错）。
-fn enum_or<T: Copy>(
-    v: Option<&Value>,
-    p: fn(&str) -> Option<T>,
-    default: T,
-) -> Result<T> {
+fn enum_or<T: Copy>(v: Option<&Value>, p: fn(&str) -> Option<T>, default: T) -> Result<T> {
     match v.and_then(Value::as_str) {
         Some(s) => p(s).ok_or_else(|| anyhow!("无法解析枚举 '{s}'")),
         None => Ok(default),
@@ -2488,9 +2590,7 @@ fn binding_type_of(e: &Value) -> Result<BindingType> {
                 // WebGPU 规范词汇（GPUBindGroupLayoutEntry.buffer.type）：
                 // 'storage' = 可写存储缓冲（LOAD|STORE），'read-only-storage'
                 // 才是只读。'mutable-storage' 是 g-device-api 方言的历史名。
-                "storage" | "mutable-storage" => {
-                    BufferBindingType::Storage { read_only: false }
-                }
+                "storage" | "mutable-storage" => BufferBindingType::Storage { read_only: false },
                 "read-only-storage" => BufferBindingType::Storage { read_only: true },
                 _ => BufferBindingType::Uniform,
             },
@@ -2505,15 +2605,21 @@ fn binding_type_of(e: &Value) -> Result<BindingType> {
         });
     }
     if let Some(s) = e.get("sampler") {
-        return Ok(BindingType::Sampler(match s.get("type").and_then(Value::as_str).unwrap_or("filtering") {
-            "non-filtering" => SamplerBindingType::NonFiltering,
-            "comparison" => SamplerBindingType::Comparison,
-            _ => SamplerBindingType::Filtering,
-        }));
+        return Ok(BindingType::Sampler(
+            match s.get("type").and_then(Value::as_str).unwrap_or("filtering") {
+                "non-filtering" => SamplerBindingType::NonFiltering,
+                "comparison" => SamplerBindingType::Comparison,
+                _ => SamplerBindingType::Filtering,
+            },
+        ));
     }
     if let Some(t) = e.get("texture") {
         return Ok(BindingType::Texture {
-            sample_type: match t.get("sampleType").and_then(Value::as_str).unwrap_or("float") {
+            sample_type: match t
+                .get("sampleType")
+                .and_then(Value::as_str)
+                .unwrap_or("float")
+            {
                 "unfilterable-float" => TextureSampleType::Float { filterable: false },
                 "depth" => TextureSampleType::Depth,
                 "sint" => TextureSampleType::Sint,
@@ -2522,12 +2628,19 @@ fn binding_type_of(e: &Value) -> Result<BindingType> {
             },
             view_dimension: opt_enum(t.get("viewDimension"), spec::texture_view_dimension)?
                 .unwrap_or(TextureViewDimension::D2),
-            multisampled: t.get("multisampled").and_then(Value::as_bool).unwrap_or(false),
+            multisampled: t
+                .get("multisampled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         });
     }
     if let Some(s) = e.get("storageTexture") {
         return Ok(BindingType::StorageTexture {
-            access: match s.get("access").and_then(Value::as_str).unwrap_or("write-only") {
+            access: match s
+                .get("access")
+                .and_then(Value::as_str)
+                .unwrap_or("write-only")
+            {
                 "read-only" => wgpu::StorageTextureAccess::ReadOnly,
                 "read-write" => wgpu::StorageTextureAccess::ReadWrite,
                 _ => wgpu::StorageTextureAccess::WriteOnly,

@@ -170,5 +170,3 @@ fn clamp_video_time_micros(time_secs: f64, duration: Option<DurationMicros>) -> 
         _ => TimestampMicros(micros),
     }
 }
-
-

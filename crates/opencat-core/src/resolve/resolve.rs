@@ -162,7 +162,12 @@ fn resolve_node(node: &Node, cx: &mut ResolveContext<'_>) -> Result<ElementNode>
     // HTML 可见窗（docs/html-align/DESIGN.md）：`[start, start+duration)`
     // 半开窗外 = 整子树退出布局与绘制（空占位盒）。窗口盖住合成末尾的
     // 拥有「终止瞬间」（hyperframes 语义），末帧不隐藏。
-    if clip_window_hides(node.style_ref(), cx.frame_ctx) || script_display_none(node.style_ref(), cx) {
+    if clip_window_hides(node.style_ref(), cx.frame_ctx)
+        || script_display_none(node.style_ref(), cx)
+    {
+        return Ok(hidden_clip_placeholder(cx));
+    }
+    if static_display_none(node.style_ref(), cx) {
         return Ok(hidden_clip_placeholder(cx));
     }
     match node.kind() {
@@ -185,6 +190,18 @@ fn script_display_none(style: &NodeStyle, cx: &ResolveContext<'_>) -> bool {
         .rev()
         .find_map(|m| m.mutations.get(&style.id).and_then(|n| n.display_none))
         .unwrap_or(false)
+}
+
+/// 样式表里的静态 `display:none`：整棵子树退出布局与绘制。脚本显式
+/// `display:block` 是内联样式，优先级高于样式表，不能一起隐藏。
+fn static_display_none(style: &NodeStyle, cx: &ResolveContext<'_>) -> bool {
+    if script_display_unlocked(style, cx) {
+        return false;
+    }
+    style
+        .css_layout
+        .as_ref()
+        .is_some_and(|css| css.0.display == taffy::prelude::Display::None)
 }
 
 /// 脚本显式解锁（gsap `set(el, {display:"block"})`）：浏览器里内联

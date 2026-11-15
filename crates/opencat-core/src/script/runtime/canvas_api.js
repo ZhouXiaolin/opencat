@@ -1285,7 +1285,7 @@
                     delete() {},
                 };
                 handle.makeShader = function () {
-                    throw new Error('an encoded image cannot be a shader child — declare the asset in JSX (ctx.getImage)');
+                    throw new Error('an encoded image cannot be a shader child — declare the asset in the HTML/JS dist document');
                 };
                 return handle;
             },
@@ -1456,7 +1456,7 @@
             MakeFreeTypeFaceFromData() { return null; },
             MakeFromName() { return null; },
         },
-        /* Official signatures: `canvas` is an id string, a useRef() element
+        /* Official signatures: `canvas` is an id string or a DOM
            handle, or a DOM handle with .id. Returns a recording Surface —
            draw calls land on the canvas node's DrawOp stream. */
         MakeCanvasSurface(canvas) {
@@ -2213,7 +2213,7 @@
     globalThis.OffscreenCanvas = OffscreenCanvas;
 
     // ── Official surface entry: CK.MakeCanvasSurface(id) ─────────────
-    // `canvas` accepts an id string, a useRef() element handle, or a DOM
+    // `canvas` accepts an id string or a DOM
     // handle carrying .id — the official MakeCanvasSurface signature takes a
     // canvas or an id. The returned Surface records: getCanvas() is the
     // CanvasKit Canvas facade whose draw calls land on the canvas node's

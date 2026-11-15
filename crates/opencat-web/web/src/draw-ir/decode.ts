@@ -18,6 +18,7 @@ import {
   PATH_OP_F32_WIDTHS,
 } from '../generated/ocir-schema.generated';
 import type { Canvas, Image } from 'canvaskit-wasm';
+import { decodeGpuSection } from './gpu-stream';
 
 export type EncodedDrawFrame = Uint8Array;
 
@@ -179,6 +180,10 @@ export type DecodedFrame = {
   paths: PathSpec[];
   children: ChildRef[];
   effects: RuntimeEffectSpec[];
+  /// Section 13 (GPU_STREAMS) when the frame carries WebGL2/WebGPU canvas
+  /// content; `null` for 2D-only frames. The executor renders these streams
+  /// and lands pixels in `generatedImageRgba` before CanvasKit replay.
+  gpu: import('./gpu-stream').GpuSection | null;
 };
 
 export class BinaryReader {
@@ -228,6 +233,28 @@ export class BinaryReader {
     const start = this.offset;
     this.offset += len;
     return this.bytes.subarray(start, start + len);
+  }
+
+  /// Skip forward `n` bytes (GPU-stream fixed-size blobs are read as
+  /// subarrays by the caller; the reader only moves the cursor).
+  skip(n: number): void {
+    this.offset += n;
+  }
+
+  /// Consume `n` bytes as a subarray view over the section buffer
+  /// (GPU-stream op/bytes pools are consumed this way — zero copy).
+  take(n: number): Uint8Array {
+    const out = this.bytes.subarray(this.offset, this.offset + n);
+    this.offset += n;
+    return out;
+  }
+
+  /// Length-prefixed UTF-8 string (GPU stream `target_id`).
+  stringWithLen(): string {
+    const len = this.u32();
+    const start = this.offset;
+    this.offset += len;
+    return new TextDecoder().decode(this.bytes.subarray(start, start + len));
   }
 }
 
@@ -435,7 +462,10 @@ export class Payload {
   }
 }
 
-export function decodeFrame(bytes: Uint8Array): DecodedFrame {
+/// Split the OCIR envelope into its section map (id → bytes view, zero-copy).
+/// Exported for the GPU-stream executor entry, which only needs section 13
+/// ahead of the full CanvasKit replay.
+export function splitSections(bytes: Uint8Array): Map<number, Uint8Array> {
   if (bytes.byteLength < 12) {
     throw new Error(`Truncated OpenCat IR envelope: header needs 12 bytes, got ${bytes.byteLength}`);
   }
@@ -474,6 +504,11 @@ export function decodeFrame(bytes: Uint8Array): DecodedFrame {
     }
     sections.set(id, bytes.subarray(offset, offset + len));
   }
+  return sections;
+}
+
+export function decodeFrame(bytes: Uint8Array): DecodedFrame {
+  const sections = splitSections(bytes);
 
   const stringsUtf8 = requireSection(sections, SECTION_STRINGS_UTF8);
   const stringRanges = parseRanges(requireSection(sections, SECTION_STRING_RANGES));
@@ -492,9 +527,14 @@ export function decodeFrame(bytes: Uint8Array): DecodedFrame {
   // each glyph is built lazily inside resolveImage and cached by id.
   parseGeneratedImages(requireSection(sections, SECTION_GENERATED_IMAGES));
 
+  // Section 13 (GPU_STREAMS) is optional — 2D-only frames omit it. The
+  // executor renders these streams before replay; their pixels land in
+  // `generatedImageRgba` under the stream's image id.
+  const gpu = sections.has(SECTION.GPU_STREAMS) ? decodeGpuSection(sections) : null;
+
   return {
     bytes,
-    dataView: view,
+    dataView: new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
     ops: requireSection(sections, SECTION_OPS),
     subtrees: parseSubtrees(requireSection(sections, SECTION_SUBTREES)),
     f32Pool: parseF32Pool(requireSection(sections, SECTION_F32_POOL)),
@@ -505,6 +545,7 @@ export function decodeFrame(bytes: Uint8Array): DecodedFrame {
     paths: parsePaths(requireSection(sections, SECTION_PATHS)),
     children: parseChildren(requireSection(sections, SECTION_CHILDREN), strings),
     effects: parseEffects(requireSection(sections, SECTION_EFFECTS)),
+    gpu,
   };
 }
 

@@ -4,7 +4,7 @@
 //! 是普通元素，`tl`（timeline）与 `transition` 是两个有明确语义的特例节点。
 //! 两类前端都把树直接写进这一层：
 //!
-//! - JSX：`h()` 描述子在提取期物化成树（extract payload 的 `tree` 字段）
+//! - HTML/dist：提取期物化成树（extract payload 的 `tree` 字段）
 //! - XML/JSONL 文本：逐行解析 → 按 `parentId` 分组成树（[`JsonLine`] 因此只是
 //!   文本序列化格式，不再是装配模型）
 //!
@@ -42,20 +42,20 @@ pub enum DomElement {
         class: Option<String>,
         style: Option<String>,
         duration: Option<f64>,
-        /// HTML 前端（docs/html-align/DESIGN.md）的可见窗协议属性：
-        /// `[start, start+duration)` 半开窗外 = Display::None（整子树退出
-        /// 布局与绘制）。JSX 通道不产生，serde default 向后兼容。
+        /// HyperFrames 可见窗协议属性：`[start, start+duration)` 半开窗外 =
+        /// Display::None（整子树退出布局与绘制）。词汇定义在
+        /// `parse::hyperframes`。
         #[serde(default, rename = "data-start")]
         data_start: Option<f64>,
         #[serde(default, rename = "data-duration")]
         data_duration: Option<f64>,
-        /// 原始 HTML 标签（html5ever 前端产；JSX 通道为 None）。保留它是为了
+        /// 原始 HTML 标签（html5ever 前端产）。保留它是为了
         /// 行内/块级判定（`<span>` 带元素子节点时也落 Div 承载）与 CSS tag
         /// 选择器输入。JS 端 payload 原样回传（`uaTag`）。
         #[serde(default, rename = "uaTag")]
         ua_tag: Option<String>,
         /// 原文属性表（文档序）。属性选择器（`[data-composition-id="…"]`）
-        /// 的匹配输入；JSX 通道与脚本新建节点为空。JS 端 payload 原样回传。
+        /// 的匹配输入；脚本新建节点为空。JS 端 payload 原样回传。
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         attrs: Vec<(String, String)>,
         #[serde(default)]
@@ -733,7 +733,7 @@ impl CssNodeInfo {
     }
 }
 
-/// 全局音频池元素（文本格式 `<audio>` 行 / JSX `export const audio`）与树内
+/// 全局音频池元素（文本格式 `<audio>` 行 / 提取结果声明）与树内
 /// `<audio>` 元素共用同一 attach 语义。
 #[derive(Debug, Clone)]
 pub struct DomAudio {
@@ -754,7 +754,7 @@ pub struct DomDocument {
     /// tag 别名（`html, body {}` 规则命中合成根）。
     pub html_frontend: bool,
     pub root: Option<DomElement>,
-    /// `parentId` 挂载的脚本声明（文本格式 `<script parentId>` / JSX 提取的
+/// `parentId` 挂载的脚本声明（文本格式 `<script parentId>` / 提取结果的
     /// 每元素 driver）。
     pub scripts_by_parent: HashMap<String, Vec<DeclaredScript>>,
     pub global_scripts: Vec<DeclaredScript>,
@@ -851,7 +851,7 @@ pub fn composition_from_dom(
         font_manifest: manifest.cloned().unwrap_or_default(),
         // html 前端的构建上下文快照：运行期 appendChild 的宿主子树重建
         // （resolve 期按 store 的 child_overrides 走 build_node）要与主树
-        // 同一套级联输入。jsx 通道结构不可变，None。
+        // 同一套级联输入。声明树的结构由提取结果确定。
         html_build: doc.html_frontend.then(|| {
             std::sync::Arc::new(crate::parse::document::HtmlBuildCtx {
                 css: css.map(|engine| std::sync::Arc::new(engine.clone())),
@@ -981,7 +981,7 @@ fn resolve_style_for(
 
 /// HTML 文本叶按 `white-space` 折行（初始值 `normal`）。盒宽归布局算法：
 /// flex 子项的 min/max-content 贡献与 `max-width` 钳制都由 taffy 给出。
-/// JSX 前端沿用「标题默认单行」（见 `NodeStyle::wrap_text`）。
+/// HTML 文本标题沿用「标题默认单行」（见 `NodeStyle::wrap_text`）。
 fn wrap_html_text(style: &mut NodeStyle, ctx: &DomContext<'_>) {
     if ctx.html_frontend && !style.no_wrap {
         style.wrap_text = true;

@@ -1,14 +1,14 @@
 # OpenCat Video Project
 
-JSX 写合成，tailwind 写样式，npm 组件照常装，一条命令出视频。
+作者侧源码先由 Vite 编译成 HTML/JS dist，再由 opencat 渲染；core 不直接解析 JSX。
 
 ```sh
 bun install       # 或 npm install
 npm run build    # esbuild bundle（嵌入编译后 CSS）+ opencat render → dist/video.mp4
 ```
 
-预览：build 产出 `dist/index.bundle.jsx`（样式已嵌入），
-`opencat view dist/index.bundle.jsx --base-dir src`。
+预览：build 产出 `dist/index.html`，
+`opencat view dist/index.html --base-dir dist`。
 
 ## 前置条件
 

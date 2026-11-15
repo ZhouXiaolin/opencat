@@ -438,6 +438,13 @@ async fn open_design_pipeline(
     let parsed = crate::source::parse_source(source, &opencat_core::text::empty_font_db())
         .map_err(|e| JsValue::from_str(&format!("open_design parse: {e}")))?;
     let draft = CompositionDraft::from_parsed(parsed);
+    let document_base = draft
+        .parsed()
+        .html_build
+        .as_ref()
+        .and_then(|ctx| ctx.base_dir.as_ref())
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let requests =
         opencat_core::parse::preflight::collect_resource_requests_from_parsed(draft.parsed());
 
@@ -447,6 +454,12 @@ async fn open_design_pipeline(
         .ok_or_else(|| JsValue::from_str("open_design: no catalog from preload_assets"))?;
 
     // 5. Build HostInputs from raw font faces + family (core builds fontdb).
+    //    帧外脚本度量（parse 期顶层 `measureText`、session 泵的 realm flush）
+    //    没有帧 scope，core 需要一个兜底库——与 base faces 同源注入，否则
+    //    空库 shape 直接 trap（k3 顶层 type calibration 挂过的就是它）。
+    opencat_core::text::set_script_fallback_db(std::sync::Arc::new(
+        opencat_core::text::font_db_from_bytes(&font_faces, "Noto Sans SC"),
+    ));
     let mut inputs = HostInputs::empty()
         .with_base_font_faces(font_faces)
         .with_sans_serif_family("Noto Sans SC");
@@ -477,6 +490,13 @@ async fn open_design_pipeline(
                 if let Some(meta) = probed.lotties.get(&req.asset_id).cloned() {
                     inputs
                         .insert_lottie(req.asset_id.clone(), meta)
+                        .map_err(prepare_js_err)?;
+                }
+            }
+            ResourceKind::Svg => {
+                if let Some(doc) = probed.svgs.get(&req.asset_id).cloned() {
+                    inputs
+                        .insert_svg(req.asset_id.clone(), doc)
                         .map_err(prepare_js_err)?;
                 }
             }
@@ -546,9 +566,10 @@ async fn open_design_pipeline(
     let prepared = draft.prepare(inputs).map_err(prepare_js_err)?;
     let ctx = <WebJsContext as JsContext>::new()
         .map_err(|e| JsValue::from_str(&format!("open_design js context: {e}")))?;
-    let pipeline = prepared
+    let mut pipeline = prepared
         .open_pipeline(ctx)
         .map_err(|e| JsValue::from_str(&format!("open_design pipeline: {e}")))?;
+    pipeline.set_document_base(&document_base);
 
     let info = pipeline.info().clone();
     Ok((info, pipeline, catalog_json))

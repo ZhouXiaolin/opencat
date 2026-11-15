@@ -190,7 +190,7 @@ fn convert_blur_style(s: BlurStyle) -> SkBlurStyle {
 // ── Shader ────────────────────────────────────────────────────────────
 
 fn build_skia_shader(spec: &ShaderSpec) -> Option<Shader> {
-    // 插值空间由 spec 声明：CSS Images 4（JSX 渐变）要求 premultiplied；
+    // 插值空间由 spec 声明：CSS Images 4 要求 premultiplied；
     // SVG 渐变是 unpremultiplied（Skia 默认，stop-opacity 渐变两端 α
     // 不等时中间色不同）。Skia 默认 unpremul 插值会把 transparent → color
     // 的 RGB 耦合成 color·t²，CSS 侧必须显式开 premul。

@@ -6,7 +6,7 @@ use crate::style::{NodeStyle, impl_node_style_api};
 
 /// `<svg src="…">` / `<svg inline>`：SVG 作为一个元素渲染（PLAN §4）。
 ///
-/// `src` 在 parse 层已相对 jsx base_dir 解析成绝对路径；`inline` 是内联
+/// `src` 在 parse 层已相对文档 base_dir 解析成绝对路径；`inline` 是内联
 /// markup（打包进 bundle 的 react 图标），二者互斥、inline 优先。
 /// `width`/`height` 覆盖 svg 的 intrinsic 尺寸参与布局；
 /// `preserve_aspect_ratio` 保留透传。

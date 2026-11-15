@@ -59,7 +59,7 @@ struct ResolveContext<'a> {
     script_runtime: &'a mut dyn ScriptHost,
     mutation_stack: &'a mut Vec<StyleMutations>,
     /// html 前端的构建上下文（运行期 appendChild 的子树重建用）。None =
-    /// 结构不可变通道（jsx），child_overrides 不会出现。Arc 传递：布局
+    /// 结构不可变通道（声明树），child_overrides 不会出现。Arc 传递：布局
     /// 探针的 thread_local scope 不能存调用栈借用。
     html_build: Option<std::sync::Arc<crate::parse::document::HtmlBuildCtx>>,
 }
@@ -535,7 +535,7 @@ fn resolve_div(div: &Div, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             }
         }
 
-        // 渲染期 textContent 写入落在 `<id>:t`（html_api.js 的 setter）。种子里
+        // 渲染期 textContent 写入落在 `<id>:t`（html_std_api.js 的 setter）。种子里
         // 没有这个文本子节点时（提取期从未写过文本），按浏览器语义现场新建，
         // 继承本元素的文本样式；写入替换全部子节点——种子里声明的文本 run
         // （解析期合成的 P）不能留着与新文本叠印。child override 命中时
@@ -1266,7 +1266,7 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
             script_display_unlocked(&style, cx),
         );
         // 脚本改过内部元素属性的 html inline svg：本帧重序列化的 markup
-        // 覆盖提取期快照（html_api.js svgWriteAttr → `svg_set_markup`）。
+        // 覆盖提取期快照（html_std_api.js svgWriteAttr → `svg_set_markup`）。
         let markup_override = cx
             .mutation_stack
             .iter()
@@ -1323,7 +1323,7 @@ fn resolve_svg(svg: &Svg, cx: &mut ResolveContext<'_>) -> Result<ElementNode> {
 fn inherit_svg_paint(markup: &str, paint_css: Option<&str>, computed: &ComputedStyle) -> String {
     let mut decls = String::new();
     let root_tag_end = markup.find('>').unwrap_or(markup.len());
-    // 根上自带 `color` 属性（JSX 图标垫片）时尊重它，不用层叠色覆盖。
+    // 根上自带 `color` 属性时尊重它，不用层叠色覆盖。
     let has_color_attr = markup[..root_tag_end].contains(" color=");
     let uses_current = !has_color_attr
         && (markup.contains("currentColor")

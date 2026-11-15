@@ -1,6 +1,6 @@
 // Script-side DOM tree: node handles that read and write the overlay.
 //
-// The composition tree is declarative — JSX decides structure. Plugins still
+// The composition tree is declarative — HTML extraction decides structure. Plugins still
 // build nodes (SplitText's char/word/line wrappers) and move children, so the
 // host keeps an overlay: node identity is realm-scoped (a plugin's module-level
 // scratch element outlives one frame), structure is frame-scoped (scripts rerun
@@ -20,7 +20,7 @@
     var handleCache = Object.create(null);
 
     // ── No-store fallback ───────────────────────────────────────────
-    // The JSX extract realm evaluates the module graph once to read the tree;
+    // The HTML extract realm evaluates the document once to read the tree;
     // it has no binding table. Module top level still registers plugins, and
     // CSSPlugin builds scratch elements there (`_tempDiv` for unit probes).
     // Those elements never join the composition, so a detached bag with a

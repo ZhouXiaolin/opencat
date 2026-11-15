@@ -173,7 +173,7 @@
     }
 
     // SVG shape attributes. The composition is declarative, so shape data is
-    // what JSX declared (`d` on a path — animated writes land in the store)
+    // what the document declared (`d` on a path — animated writes land in the store)
     // plus geometry the host derives from the node box.
     function readAttribute(id, name) {
         name = String(name);
@@ -546,7 +546,7 @@
         return targetCache[id];
     };
 
-    // jsx_runtime 的 `h()`：宿主标签的 el 以这个面为原型——ref.current 与
+    // 声明节点的宿主句柄以这个面为原型——
     // `ctx.__domTarget(id)` 是同一对象（同一缓存），gsap/three 消费的
     // HTMLElement 语义与 gsap 目标解析共享一份元素身份。与 __domTarget 的
     // 差别只有验证：h 发生在树物化之前，unknown 是常态而非错误。

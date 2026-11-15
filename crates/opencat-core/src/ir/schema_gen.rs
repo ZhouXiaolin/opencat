@@ -11,7 +11,7 @@
 // ---------------------------------------------------------------------------
 
 use super::draw_encoding::{IR_VERSION, opcode, section};
-use super::gpu_stream::gl_opcode;
+use super::gpu_stream::{GpuBackend, gl_opcode, wgpu_opcode};
 
 /// Return the complete TypeScript source for the OCIR wire-protocol constants
 /// and canonical enum mappings.
@@ -29,6 +29,8 @@ pub fn generate_ocir_schema_ts() -> String {
     opcode_constants(&mut ts);
     ts.push('\n');
     gl_opcode_constants(&mut ts);
+    ts.push('\n');
+    wgpu_opcode_constants(&mut ts);
     ts.push('\n');
     path_op_sub_constants(&mut ts);
     ts.push('\n');
@@ -281,6 +283,102 @@ fn gl_opcode_constants(ts: &mut String) {
          export const GLOP_PAYLOAD_LEN: readonly number[] = [",
     );
     for (i, n) in gl_opcode::PAYLOAD_LEN.iter().enumerate() {
+        if i > 0 {
+            ts.push_str(", ");
+        }
+        match n {
+            Some(v) => {
+                let _ = write!(ts, "{}", v);
+            }
+            None => ts.push_str("-1"),
+        }
+    }
+    ts.push_str(
+        "] as const;
+
+",
+    );
+}
+
+/// WebGPU 指令流段：opcode 常量名表 + payload 长度表 + backend 标识。
+/// authority：ir/gpu_stream.rs `wgpu_opcode`。与 GL 段同构：一条命令 =
+/// `[WOP: u8][WGPU_PAYLOAD_LEN[WOP] payload]`，`-1` = 变长（QUEUE_SUBMIT
+/// 的 count 首部）。wgpu_opcode 侧无常量名表（逐个 const），这里按定义
+/// 序列举——与 Rust 常量一一对齐，drift = 编译错（引用不存在的常量）。
+fn wgpu_opcode_constants(ts: &mut String) {
+    use std::fmt::Write;
+    ts.push_str(
+        "// ---------------------------------------------------------------------------
+         // GPU stream WebGPU opcodes — authority: ir/gpu_stream.rs wgpu_opcode.
+         // One command = `[WOP: u8][WGPU_PAYLOAD_LEN[WOP] payload]`; the only
+         // variable-length entry (QUEUE_SUBMIT, count-prefixed) is `-1`.
+         // ---------------------------------------------------------------------------
+
+         export const WGPU_BACKEND_WEBGL2: number = ",
+    );
+    let _ = write!(ts, "{};\n\n", GpuBackend::WebGL2 as u8);
+    let _ = write!(
+        ts,
+        "         export const WGPU_BACKEND_WEBGPU: number = {};\n\n",
+        GpuBackend::WebGPU as u8
+    );
+    ts.push_str("         export const WGPU = {\n");
+    for (name, value) in [
+        ("BUFFER_CREATE", wgpu_opcode::BUFFER_CREATE),
+        ("TEXTURE_CREATE", wgpu_opcode::TEXTURE_CREATE),
+        ("TEXTURE_VIEW_CREATE", wgpu_opcode::TEXTURE_VIEW_CREATE),
+        ("SAMPLER_CREATE", wgpu_opcode::SAMPLER_CREATE),
+        ("BIND_GROUP_LAYOUT_CREATE", wgpu_opcode::BIND_GROUP_LAYOUT_CREATE),
+        ("BIND_GROUP_CREATE", wgpu_opcode::BIND_GROUP_CREATE),
+        ("PIPELINE_LAYOUT_CREATE", wgpu_opcode::PIPELINE_LAYOUT_CREATE),
+        ("SHADER_MODULE_CREATE", wgpu_opcode::SHADER_MODULE_CREATE),
+        ("RENDER_PIPELINE_CREATE", wgpu_opcode::RENDER_PIPELINE_CREATE),
+        ("COMPUTE_PIPELINE_CREATE", wgpu_opcode::COMPUTE_PIPELINE_CREATE),
+        ("QUERY_SET_CREATE", wgpu_opcode::QUERY_SET_CREATE),
+        ("RENDER_BUNDLE_ENCODER_CREATE", wgpu_opcode::RENDER_BUNDLE_ENCODER_CREATE),
+        ("RESOURCE_DESTROY", wgpu_opcode::RESOURCE_DESTROY),
+        ("CANVAS_CONFIGURE", wgpu_opcode::CANVAS_CONFIGURE),
+        ("CANVAS_GET_CURRENT_TEXTURE", wgpu_opcode::CANVAS_GET_CURRENT_TEXTURE),
+        ("QUEUE_WRITE_BUFFER", wgpu_opcode::QUEUE_WRITE_BUFFER),
+        ("QUEUE_WRITE_TEXTURE", wgpu_opcode::QUEUE_WRITE_TEXTURE),
+        ("QUEUE_SUBMIT", wgpu_opcode::QUEUE_SUBMIT),
+        ("ENC_BEGIN_RENDER_PASS", wgpu_opcode::ENC_BEGIN_RENDER_PASS),
+        ("ENC_COPY_BUFFER_TO_BUFFER", wgpu_opcode::ENC_COPY_BUFFER_TO_BUFFER),
+        ("ENC_COPY_TEXTURE_TO_TEXTURE", wgpu_opcode::ENC_COPY_TEXTURE_TO_TEXTURE),
+        ("ENC_COPY_TEXTURE_TO_BUFFER", wgpu_opcode::ENC_COPY_TEXTURE_TO_BUFFER),
+        ("ENC_COPY_BUFFER_TO_TEXTURE", wgpu_opcode::ENC_COPY_BUFFER_TO_TEXTURE),
+        ("ENC_FINISH", wgpu_opcode::ENC_FINISH),
+        ("PASS_SET_PIPELINE", wgpu_opcode::PASS_SET_PIPELINE),
+        ("PASS_SET_BIND_GROUP", wgpu_opcode::PASS_SET_BIND_GROUP),
+        ("PASS_SET_VERTEX_BUFFER", wgpu_opcode::PASS_SET_VERTEX_BUFFER),
+        ("PASS_SET_INDEX_BUFFER", wgpu_opcode::PASS_SET_INDEX_BUFFER),
+        ("PASS_SET_VIEWPORT", wgpu_opcode::PASS_SET_VIEWPORT),
+        ("PASS_SET_SCISSOR_RECT", wgpu_opcode::PASS_SET_SCISSOR_RECT),
+        ("PASS_SET_BLEND_CONSTANT", wgpu_opcode::PASS_SET_BLEND_CONSTANT),
+        ("PASS_SET_STENCIL_REFERENCE", wgpu_opcode::PASS_SET_STENCIL_REFERENCE),
+        ("PASS_DRAW", wgpu_opcode::PASS_DRAW),
+        ("PASS_DRAW_INDEXED", wgpu_opcode::PASS_DRAW_INDEXED),
+        ("PASS_DRAW_INDIRECT", wgpu_opcode::PASS_DRAW_INDIRECT),
+        ("PASS_DRAW_INDEXED_INDIRECT", wgpu_opcode::PASS_DRAW_INDEXED_INDIRECT),
+        ("PASS_END", wgpu_opcode::PASS_END),
+        ("ENC_BEGIN_COMPUTE_PASS", wgpu_opcode::ENC_BEGIN_COMPUTE_PASS),
+        ("PASS_DISPATCH_WORKGROUPS", wgpu_opcode::PASS_DISPATCH_WORKGROUPS),
+        ("PASS_DISPATCH_WORKGROUPS_INDIRECT", wgpu_opcode::PASS_DISPATCH_WORKGROUPS_INDIRECT),
+    ] {
+        let _ = write!(
+            ts,
+            "    {}: {},
+",
+            name, value
+        );
+    }
+    ts.push_str(
+        "} as const;
+
+         /// Payload length per WGPU opcode; -1 = variable (QUEUE_SUBMIT).
+         export const WGPU_PAYLOAD_LEN: readonly number[] = [",
+    );
+    for (i, n) in wgpu_opcode::PAYLOAD_LEN.iter().enumerate() {
         if i > 0 {
             ts.push_str(", ");
         }

@@ -24,6 +24,7 @@ pub mod layout_probe;
 pub mod mutations;
 pub mod precomputed_host;
 pub mod realm;
+pub mod omp;
 pub mod recorder;
 pub mod runtime;
 pub mod tree;

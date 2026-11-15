@@ -20,7 +20,7 @@
 #   REF_ROOT    原始参考工程根（默认 F:/hyperframes-launches）。
 #               参考 = $REF_ROOT/<example>/renders/<example>_*_swgl.mp4
 #   EXAMPLES    空格分隔示例列表（默认 k3-promo vfx-heygen-combined
-#               hyperframes-launch）
+#               inspector-launch）
 #   MAX_FRAC    avg_p8 门限（默认 0.02）
 #   SKIP_BUILD=1            复用现有 release 二进制
 #   OPENCAT_BIN             覆盖自动解析的 release opencat 路径
@@ -32,15 +32,15 @@
 # 前置：
 #   - cargo / bun / python / ffmpeg 在 PATH
 #   - web facade：(cd crates/opencat-web/web && bun install && bun run build)
-#   - 示例依赖：(cd examples/<n> && bun install)
+#   - 示例 HTML：直接取 $REF_ROOT/<n>/index.html（不再构建 JSX bundle）
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-REF_ROOT="${REF_ROOT:-F:/hyperframes-launches}"
-EXAMPLES=${EXAMPLES:-"k3-promo vfx-heygen-combined hyperframes-launch"}
+REF_ROOT="${REF_ROOT:-/home/solaren/Projects/hyperframes-launches}"
+EXAMPLES=${EXAMPLES:-"k3-promo vfx-heygen-combined inspector-launch"}
 MAX_FRAC="${MAX_FRAC:-0.02}"
 # hyperframes-launch：Chrome WebCodecs 解不了 HEVC 源素材（beat4-clip.mp4 /
 # pill.mp4 / Frame 1&3.mp4），web 侧排除这些窗口；engine 侧全片。
@@ -71,15 +71,12 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
 fi
 export OPENCAT_BIN="${OPENCAT_BIN:-$ROOT/target/release/$EXE}"
 
-# bundle 名随入口文件名（index.jsx → index.bundle.jsx；
-# vfx-heygen-combined.jsx → vfx-heygen-combined.bundle.jsx）。
-find_bundle() {
-    local dist="$1"
-    if [ -f "$dist/index.bundle.jsx" ]; then
-        echo "$dist/index.bundle.jsx"
-        return
+# 原始 hyperframes HTML 是唯一入口；JSX/Remotion 产物先编译成 dist HTML。
+find_entry() {
+    local dir="$1"
+    if [ -f "$dir/index.html" ]; then
+        echo "$dir/index.html"
     fi
-    ls -1 "$dist"/*.bundle.jsx 2>/dev/null | head -1
 }
 
 # ffmpeg select 表达式：排除窗之外的帧，`a-b,c-d` →
@@ -109,23 +106,19 @@ for n in $EXAMPLES; do
     echo "  $n"
     echo "============================================"
 
-    ENGINE_VIDEO="$ROOT/examples/$n/dist/video.mp4"
+    ENGINE_VIDEO="$OUT_BASE/$n-engine.mp4"
     WEB_VIDEO="$OUT_BASE/$n-web.mp4"
+    ENTRY="$REF_ROOT/$n/index.html"
 
-    # 1) bundle + engine 渲染：标准工程流（vite 插件 closeBundle 内渲染）。
-    if [ ! -d "$ROOT/examples/$n/node_modules" ]; then
-        echo "[FAIL] $n: examples/$n/node_modules missing — run (cd examples/$n && bun install)" >&2
-        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(engine-deps)")
+    # 1) engine 直接渲染原始 HTML/dist 文档。
+    if [ ! -f "$ENTRY" ]; then
+        echo "[FAIL] $n: HTML entry missing at $ENTRY" >&2
+        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(entry)")
         continue
     fi
-    if ! (cd "$ROOT/examples/$n" && bun run build); then
-        echo "[FAIL] $n: bundle/engine render failed" >&2
-        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(engine-build)")
-        continue
-    fi
-    if [ ! -f "$ENGINE_VIDEO" ]; then
-        echo "[FAIL] $n: engine video missing at $ENGINE_VIDEO" >&2
-        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(engine-video)")
+    if ! "$ROOT/target/release/$EXE" render "$ENTRY" "$ENGINE_VIDEO" --base-dir "$REF_ROOT/$n"; then
+        echo "[FAIL] $n: engine HTML render failed" >&2
+        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(engine-render)")
         continue
     fi
 
@@ -186,14 +179,8 @@ PYEOF
         REF_CMP="$REF_VIDEO"
     fi
 
-    BUNDLE="$(find_bundle "$ROOT/examples/$n/dist" || true)"
-    if [ -z "$BUNDLE" ]; then
-        echo "[FAIL] $n: no *.bundle.jsx under examples/$n/dist" >&2
-        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(bundle)")
-        continue
-    fi
-    echo "  bundle: $BUNDLE"
-    RENDER_ARGS=( "$BUNDLE" --out "$WEB_VIDEO" --base-dir "$ROOT/examples/$n" )
+    echo "  entry: $ENTRY"
+    RENDER_ARGS=( "$ENTRY" --out "$WEB_VIDEO" --base-dir "$REF_ROOT/$n" )
     if [ -n "$EXCLUDE" ]; then
         RENDER_ARGS+=(--exclude "$EXCLUDE")
     fi

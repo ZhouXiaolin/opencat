@@ -25,7 +25,7 @@ pub struct AppliedDeclaration {
 }
 
 /// 树位置信息：祖先/兄弟链上的一员（HTML 语义标签名 + id + class 串 +
-/// 属性表）。属性表只在 HTML 前端有内容（`data-*` 等原文属性）；JSX 通道
+/// 属性表）。属性表在 HTML 提取结果中有内容（`data-*` 等原文属性）；
 /// 传空切片，属性选择器因此永不命中，行为与引入前一致。
 #[derive(Clone, Copy, Debug)]
 pub struct SelectorNode<'a> {
@@ -36,7 +36,7 @@ pub struct SelectorNode<'a> {
 }
 
 /// 一个节点的级联匹配上下文。空 context（全部缺省）时组合器永不命中，
-/// 行为退化为旧的单 compound 匹配——JSX 通道保持零回归。
+/// 行为退化为旧的单 compound 匹配。
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SelectorContext<'a> {
     /// 祖先链（近→远，[0] = 父）。
@@ -45,16 +45,16 @@ pub struct SelectorContext<'a> {
     pub prev_siblings: &'a [SelectorNode<'a>],
     /// tag 别名：HTML 根节点同时匹配 html/body 规则。
     pub tag_aliases: &'a [&'a str],
-    /// subject 节点自身的属性（`[data-*="…"]` 等；JSX 通道为空）。
+    /// subject 节点自身的属性（`[data-*="…"]` 等；脚本新建节点为空）。
     pub subject_attrs: &'a [(String, String)],
     /// 父元素的计算字号：`em` 单位的求值基准（HTML 通道由 DOM 构建期的
-    /// 字号栈给出；None 时 em 按 rem 基准，JSX 通道保持原语义）。
+    /// 字号栈给出；None 时 em 按 rem 基准）。
     pub parent_font_px: Option<f32>,
     /// 父元素的计算自定义属性表：自定义属性沿祖先链继承（HTML 通道由 DOM
-    /// 构建期的变量栈给出；None 时以样式表根变量为起点，JSX 通道保持原语义）。
+    /// 构建期的变量栈给出；None 时以样式表根变量为起点）。
     pub inherited_vars: Option<&'a super::CssVars>,
     /// 树形层叠（HTML 通道）的根节点：根变量表归它所有，resolve 期的变量
-    /// 继承链以它为底。JSX 通道无树，不建链。
+    /// 继承链以它为底。无树上下文不建链。
     pub tree_root: bool,
     /// 最近尺寸查询容器的内容盒尺寸。CSS `cqw`/`cqh` 按它求值。
     /// 无尺寸查询容器时回退到合成视口。
@@ -160,7 +160,7 @@ struct SubjectInfo<'a> {
     id: &'a str,
     classes: &'a ahash::HashSet<&'a str>,
     attrs: &'a [(String, String)],
-    /// 文档根（`:root` 只命中它）。无树上下文的 JSX 通道每个节点都按根
+    /// 文档根（`:root` 只命中它）。无树上下文每个节点都按根
     /// 处理——那里没有继承，`:root` 变量只能靠逐节点命中送达。
     is_root: bool,
 }

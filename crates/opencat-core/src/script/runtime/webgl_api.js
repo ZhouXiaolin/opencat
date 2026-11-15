@@ -1801,7 +1801,7 @@
     // module 顶层，module 只 eval 一次）帧 1+ 不再走 getContext，而
     // reset_for_frame 每帧清流——流必须有人重开，emit 自动重开缓存的
     // 旧头救不了头外的 origin/尺寸变化。html 通道帧首（__ocHtmlResetFrame）
-    // 调用；jsx 通道每帧全量重放必经 getContext，此表为空、开销为零。
+    // 调用；常规文档每帧全量重放必经 getContext，此表为空、开销为零。
     // begin 幂等：同帧后续 getContext 的显式重开只是更新流头。
     globalThis.__ocGlBeginFrameStreams = function () {
         for (var k in contexts) contexts[k].__beginFrameStream();
@@ -2005,10 +2005,9 @@
     // sampler2DArray（GLES3 专属语法），GLES3 上下文编译必炸。执行端只有
     // WebGL2（webgl_api 提升规则同款），所以把录制 face 的原型链挂到补定义
     // 的全局构造器上，让 instanceof 探测走真。
-    // 作用域限 html 通道（globalThis.__ocHtmlChannel，html_api.js 置位）：
-    // jsx 通道的 three r152 一直按「WebGL1 判定 + 录制面提升 webgl2」组合
-    // 跑（vfx jsx 基线 26.22%），全面切 WebGL2 判定会改命令流语义组合，
-    // three 场景绘制静默失败（实测 vfx jsx 26%→86%）。
+    // 作用域限 html 通道（globalThis.__ocHtmlChannel，html_std_api.js 置位）：
+    // 历史 three r152 基线按「WebGL1 判定 + 录制面提升 webgl2」组合跑；
+    // 全面切 WebGL2 判定会改命令流语义组合，three 场景绘制静默失败。
     function tagAsWebGL2(rec) {
         if (!globalThis.__ocHtmlChannel) return;
         if (typeof globalThis.WebGL2RenderingContext !== 'function') {

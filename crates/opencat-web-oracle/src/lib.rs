@@ -2,7 +2,7 @@
 //!
 //! ChromeDriver opens the in-crate harness page (`web/test-oracle.html`),
 //! which loads the opencat.js facade (wasm + CanvasKit) and renders frames of
-//! a host-extracted JSX envelope. Two transports are exposed:
+//! a host-extracted HTML/JS dist envelope. Two transports are exposed:
 //! - **hex** (sampled oracle): one frame per call, CanvasKit `readPixels` → raw
 //!   RGBA hex. Exact, but ships 16.6 MB of hex per 1920×1080 frame and grows the
 //!   page JS heap without bound → the tab OOMs after a few hundred frames.
@@ -34,12 +34,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, anyhow};
 use serde_json::json;
 
-/// The web bridge has no JS realm, so the oracle page receives the
-/// host-extracted JSX envelope (`{extract, driver}`); wasm-side `from_extract`
-/// rebuilds the composition from it. `base_dir` resolves relative `import`s
-/// during extraction.
+/// The web bridge has no extraction realm, so the oracle page receives the
+/// host-extracted HTML envelope (`{extract, driver}`); wasm-side `from_extract`
+/// rebuilds the composition from it. `base_dir` resolves relative scripts,
+/// styles, modules and assets during extraction.
 pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<String> {
-    let (extract, driver) = opencat_engine::script::jsx::extract_with_base_dir(source, base_dir)?;
+    let trimmed = source.trim_start();
+    if !trimmed.starts_with('<') {
+        return Err(anyhow!(
+            "web oracle accepts HTML/dist documents only; compile JSX/Remotion sources to HTML/JS first"
+        ));
+    }
+    let (extract, driver) =
+        opencat_engine::script::html::extract_html_with_base_dir(source, base_dir)?;
     // Repo-relative baseDir (`examples/<example>`): the static server maps
     // `/assets/<baseDir>/...` back under the repo root, so an absolute
     // host path would leak into the URL.
@@ -52,6 +59,7 @@ pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<
     Ok(serde_json::to_string(&json!({
         "extract": extract,
         "driver": driver,
+        "html": true,
         // Composition-relative resource paths (`assets/...`) resolve against
         // this prefix; the oracle asset reader turns them into `/assets/`
         // URLs that the static server maps back under `repo/<baseDir>/...`.

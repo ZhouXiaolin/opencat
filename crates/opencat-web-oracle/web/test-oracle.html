@@ -44,15 +44,16 @@
         RenderSession,
       } from '/wasm/opencat.js';
 
-      // The oracle runs inside a real Chrome with WebGL2. Composition canvases
-      // use a real OffscreenCanvas context there instead of the command
-      // recorder: the browser executes three's original GL calls and the
-      // frame-end hook reads the drawing buffer into the generated-image
-      // channel.
-      globalThis.__ocNativeWebGL = true;
-      // WebGPU 同构（shaders 语料）：真 navigator.gpu + 真 OffscreenCanvas
-      // 'webgpu' 上下文，webgpu_api.js 只路由 getContext + 帧末同步回读。
-      globalThis.__ocNativeWebGPU = true;
+      // The oracle runs inside a real Chrome. The recorded WebGL2/WebGPU
+      // streams (OCIR section 13) replay through the browser-native
+      // executors bundled in the facade (RenderSession →
+      // executeGpuStreamsForFrame). The legacy "native" path — the browser
+      // executing the page's own GL/WGPU calls with a frame-end readback —
+      // stays reachable only via query params (?nativeGL=1 / ?nativeGPU=1)
+      // for stream-vs-native probes.
+      const q = new URLSearchParams(location.search);
+      globalThis.__ocNativeWebGL = q.get('nativeGL') === '1';
+      globalThis.__ocNativeWebGPU = q.get('nativeGPU') === '1';
 
       const canvas = document.getElementById('frame');
       // Scene-cut detection canvas. Created HERE at page load, not inside
@@ -94,8 +95,8 @@
       let compositionBaseDir = '';
 
       function parseCompositionInfo(source) {
-        // The host hands over the extracted JSX envelope:
-        // {extract: {meta, fonts, lines}, driver, baseDir}.
+        // The host hands over the extracted HTML envelope:
+        // {extract: {meta, css, tree, html}, driver, baseDir, html: true}.
         const envelope = JSON.parse(source);
         const meta = (envelope.extract && envelope.extract.meta) || {};
         compositionBaseDir = String(envelope.baseDir || '').replace(/\/+$/, '');
@@ -304,6 +305,7 @@
           width: comp.width,
           height: comp.height,
           bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.30)),
+          colorRange: 'studio',
           framerate: fps,
           latencyMode: 'quality',
         };
@@ -482,6 +484,40 @@
       // Module-scope helpers exposed for the harness's eval_js debug channel
       // (webdriver eval runs in a separate script context and cannot see
       // module imports).
+      // web-step 分步钩子：把 create 与 draw 拆开，挂死可二分。
+      // session() 复刻 RenderSession.open() 的子步序列并逐步打旗标——
+      // kickSession 立即返回（harness eval 恒 awaitPromise，不能等它），
+      // 挂死时用 flags() 轮询看到最后完成的子步。
+      globalThis.__ocDbg = {
+        marks: null,
+        async session(envelope) {
+          const F = this.marks = {};
+          const t0 = performance.now();
+          const mark = (k) => { F[k] = Math.round(performance.now() - t0); };
+          clearBlobs();
+          mark('blobs');
+          await clearVideoCache();
+          mark('vcache');
+          const renderer = getRendererOrThrow();
+          const catalogJson = await renderer.open_design(envelope);
+          mark('open');
+          await prepareCatalogVideoSources(catalogJson);
+          mark('prep');
+          for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0));
+          mark('pump');
+          return 'open-replica done';
+        },
+        kickSession(envelope) {
+          this.session(envelope).catch((e) => { this.marks.error = String(e && e.stack || e); });
+          return 'kicked';
+        },
+        flags() { return JSON.stringify(this.marks); },
+        async drawOnly(frame) {
+          if (!session) throw new Error('no session; run __ocDbg.session first');
+          await session.drawFrame(frame);
+          return 'drawOnly ' + frame + ' done';
+        },
+      };
       globalThis.__opencatOracle = {
         renderFrame, renderFramesToMp4, drawFrame,
         getRendererOrThrow, getReusableSurface, releaseReusableSurface,

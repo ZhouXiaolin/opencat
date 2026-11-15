@@ -333,7 +333,7 @@ pub enum ShaderSpec {
         colors: Vec<[f32; 4]>,
         tile_mode: TileMode,
         local_matrix: Option<[f32; 9]>,
-        /// 停靠点插值空间。CSS Images 4（JSX 渐变）要求 premul；SVG/resvg
+        /// 停靠点插值空间。CSS Images 4 要求 premul；SVG/resvg
         /// 是 unpremul（stop-opacity 渐变两端 α 不等时中间色不同）。
         interpolate_premul: bool,
     },

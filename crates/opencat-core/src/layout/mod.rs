@@ -153,7 +153,10 @@ impl LayoutSession {
                 height: frame_ctx.height as f32,
             };
             let mut fixes = Vec::new();
-            let solve_started = std::time::Instant::now();
+            // 诊断计时挂 debug 开关：std Instant 在 wasm32 平台 panic（无
+            // 时间源），不能无条件取墙钟。
+            let layout_debug = std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("1");
+            let solve_started = layout_debug.then(std::time::Instant::now);
             // 热启动预置：上帧收敛的 AbsSizeFix 定长先行写入，首趟 want 即
             // 与现值一致、不再登记 fix——稳态帧单趟收敛（原本逐帧 2–4 趟）。
             for (node, (width, height, _seen)) in self.fix_cache.iter() {
@@ -244,13 +247,13 @@ impl LayoutSession {
 
             // 诊断（`OC_LAYOUT_DEBUG=1`）：每帧求解轮数与墙钟。fix 轮数>0
             // 表示该帧多跑一整套 taffy 求解+建树（inspector/stripe 减速排查面）。
-            if std::env::var("OC_LAYOUT_DEBUG").as_deref() == Ok("1") {
+            if layout_debug {
                 eprintln!(
                     "[layout] frame {} rounds={} fixes={:?} solve_ms={} dirty={}",
                     frame_ctx.frame,
                     fix_rounds,
                     round_fix_counts,
-                    solve_started.elapsed().as_millis(),
+                    solve_started.map(|t| t.elapsed().as_millis()).unwrap_or(0),
                     stats.layout_dirty_nodes
                 );
             }

@@ -1,4 +1,5 @@
-// 把裸 `.jsx` 示例预构建成**单文件多模块段**的 `<example>/dist/<name>.bundle.jsx`。
+// 历史工具：把裸 `.jsx` 示例预构建成单文件多模块段。当前引擎已退役直接
+// JSX 入口；作者侧源码应先由 Vite 编译成 HTML/JS dist，本脚本只供旧语料维护。
 //
 // 裸 `.jsx` 没有 vite 工程流：入口源码本身不做打包（引擎的 oxc 前端负责
 // JSX → h、import → `__ocRequire`），本脚本只把它与项目侧 gsap/three 的

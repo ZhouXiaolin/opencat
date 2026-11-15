@@ -35,7 +35,7 @@ pub enum JsonLine {
         #[serde(rename = "className", alias = "class")]
         class_name: Option<String>,
         /// Inline `style` attribute, already serialized to CSS declaration
-        /// text by the JSX runtime. Wins over class rules, per CSS cascade.
+        /// text by the HTML extractor. Wins over class rules, per CSS cascade.
         style: Option<String>,
         duration: Option<f64>,
     },
@@ -127,7 +127,7 @@ pub enum JsonLine {
         duration: Option<f64>,
         /// Media window, timing and color-matrix overrides, mirroring the
         /// markup `data-*` attributes on `<video>`. Both the kebab-case
-        /// markup spelling and the camelCase JSX spelling are accepted.
+        /// markup spelling and the camelCase HTML attribute spelling are accepted.
         /// All optional; absent fields keep the legacy behaviour (window
         /// opens at 0s, auto color matrix, node holds its last frame).
         #[serde(rename = "data-start", alias = "dataStart")]
@@ -235,7 +235,7 @@ pub enum JsonLine {
 
 /// 文本格式装配：JSONL 行形（[`JsonLine`]，文本序列化格式）按 `parentId`
 /// 分组成 [`DomDocument`]，再走共享 DOM 装配。`audio` 是文档级音频池
-/// （JSX `export const audio` 解析产物）；测试夹具与遗留文本入口从这里进。
+/// （提取结果音频声明的解析产物）；文本入口从这里进。
 pub(crate) fn composition_from_lines(
     lines: Vec<JsonLine>,
     audio: Vec<DomAudio>,

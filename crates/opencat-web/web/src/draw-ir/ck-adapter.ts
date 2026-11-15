@@ -248,7 +248,7 @@ export function buildShader(CK: CanvasKit, fill: GradientFillSpec | ShaderSpec, 
   if (fill.type === 'turbulence') {
     return buildTurbulenceShader(CK, fill, dispose);
   }
-  // CSS Images 4 (JSX gradients) interpolates stops in premultiplied space
+  // CSS Images 4 interpolates stops in premultiplied space
   // (flags bit 1); SVG/resvg semantics are unpremul — the encoded
   // interpolatePremul byte picks per-shader. ShaderSpec children without the
   // field default to premul.

@@ -186,7 +186,7 @@ pub trait MutationRecorder {
     }
     fn current_frame(&self) -> u32;
     /// Frame used to evaluate tween progress: the scene-local override when set
-    /// (JSX `<tl>` scenes), otherwise the composition frame.
+    /// (timeline windows), otherwise the composition frame.
     fn script_frame(&self) -> u32;
     fn set_frame_override(&mut self, frame: Option<u32>);
     /// Time in seconds used to evaluate tween progress. Kept separate from the

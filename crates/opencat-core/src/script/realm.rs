@@ -21,8 +21,8 @@ use crate::script::js_context::JsContext;
 use crate::script::recorder::MutationRecorder;
 use crate::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
-    GL_OPCODES_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME,
-    WEBGPU_API_RUNTIME,
+    DIST_MODULE_RUNTIME, GL_OPCODES_RUNTIME, HTML_STD_API_RUNTIME, HYPERFRAMES_API_RUNTIME,
+    NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
 };
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
@@ -31,7 +31,7 @@ use crate::script::{
 // JS platform globals V8 does not ship (TextEncoder/TextDecoder/Blob) plus
 // the realm clock facilities every library runs on: a synchronous rAF queue,
 // the virtual clock (`frame = f(t)` — every clock read inside the realm sees
-// it), and `performance`/`Date` rewired to that clock. Public because the JSX
+// it), and `performance`/`Date` rewired to that clock. Public because the HTML
 // extract realm (a throwaway realm built before the pipeline realm) needs the
 // same `requestAnimationFrame` queue: the gsap bundle calls `_wake()` at eval
 // time, which schedules one tick.
@@ -513,12 +513,13 @@ impl<C: JsContext> ScriptRealm<C> {
         // engine's asset natives) — self-guarded, a no-op without them.
         self.ctx.eval(ASSET_API_RUNTIME)?;
         self.ctx.eval(ANIMATION_RUNTIME)?;
-        // JSX frontend: h() + use* registry + module loader. Pure-XML
-        // compositions simply never call into it. The `gsap` package is NOT
-        // installed here: it is project-supplied (its own segment of the
-        // single-file bundle) and the per-composition driver injects it into
-        // __ocModuleSources.
-        self.ctx.eval(JSX_RUNTIME)?;
+        // HyperFrames 扩展层先提供窄接口，HTML 标准层随后读取它；同在
+        // core，分文件装配。标准层不读 `data-*` 协议。
+        self.ctx.eval(HYPERFRAMES_API_RUNTIME)?;
+        self.ctx.eval(HTML_STD_API_RUNTIME)?;
+        // HTML/JS dist module table. Author JSX/Remotion sources are compiled
+        // to HTML/JS dist before they reach this renderer.
+        self.ctx.eval(DIST_MODULE_RUNTIME)?;
         if let Some(registry) = &self.target_registry {
             apply_target_registry(&self.ctx, registry)?;
         }
@@ -588,11 +589,9 @@ impl<C: JsContext> ScriptRealm<C> {
             }
         });
 
-        // Two clocks, two namespaces. `ctx.global` is the whole composition;
-        // `ctx.current` is the scene this script belongs to. Outside a timeline
-        // the two are equal. JSX hooks overwrite `ctx.current` per hook (see
-        // jsx_runtime.js) so a hook always reads its own scene's clock even on
-        // a frame that renders a different scene.
+        // `ctx.global` is the composition clock. `ctx.current` is the active
+        // scene clock. The HTML driver keeps both equal unless a composition
+        // window binds a local clock.
         self.ctx.set_ctx_field(
             "global",
             json!({
@@ -727,8 +726,6 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             .entered();
             let drain_timing = std::env::var_os("OC_FRAME_TIMING").is_some();
             let d0 = drain_timing.then(std::time::Instant::now);
-            self.ctx
-                .eval("if (globalThis.__ocMode !== 'extract') globalThis.__ocRunFrameHooks();")?;
             let d_hooks = d0.map(|t| t.elapsed());
             for _ in 0..MICROTASK_DRAIN_PASSES.min(3) {
                 self.ctx.run_microtasks();
@@ -736,11 +733,11 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
             }
             let d_raf = d0.map(|t| t.elapsed());
             // hyperframes 播放器协议（协议事件面，非库级 seek 适配）：liquid
-            // 等 WebGL 自绘语料把整帧重绘挂在 window 'hf-seek' 上——它们没有
+            // 等 WebGL 自绘语料把整帧重绘挂在播放器事件上——它们没有
             // 自己的 rAF 循环，rAF 直驱不经过它们。rAF flush 后按当前虚拟钟
             // 派发一次，使页面 adapter 在 frame-end 读回 GL 画之前完成本帧
             // 重绘。静默吞掉 handler 异常会让每帧停在首帧且无据可查。
-            self.ctx.eval(&crate::parse::protocol::seek_event_js())?;
+            self.ctx.eval(&crate::parse::hyperframes::seek_event_js())?;
             let d_seek = d0.map(|t| t.elapsed());
             // Native web GL: rAF callbacks have issued the real WebGL draw
             // calls; read the canvas drawing buffers into the generated-image

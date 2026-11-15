@@ -1,7 +1,9 @@
 //! JS runtime source files used by both engine and web.
 //!
-//! These are evaluated in-order by the script host to set up the
-//! user-facing API (`ctx.getNode()`, `ctx.animate()`, etc.).
+//! core is a deterministic video renderer, not a browser engine. These files
+//! implement the input-language compatibility surface that a compiled
+//! HTML/JS dist needs; frames remain `frame = f(t)` and animation writes remain
+//! `animate = g(t)`.
 //!
 //! ## Evaluation order
 //! 1. `ANIMATION_BOOTSTRAP` — global `__opencatAnimation` + plugin registry
@@ -50,18 +52,15 @@ pub const DOM_API_RUNTIME: &str = include_str!("dom_api.js");
 // calls `ctx.getContext` defined here.
 pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
 
-// HTML frontend（标准 HTML 面 + hyperframes 扩展面，同在 core）：把 html5ever
-// 种子树物化成 JS 元素树、重放页面脚本、按绝对 seek 协议包裹 gsap 工厂、
-// 最后经 `__ocHtmlExtract` 序列化回树。自包含 IIFE——每帧 driver 内嵌整段
-// （re-eval = state reset）。hyperframes 私有词汇只在本文件与
-// `parse::protocol` 出现，标准 DOM 面不读 `data-*` 协议。
-pub const HTML_API_RUNTIME: &str = include_str!("html_api.js");
-
-// JSX frontend (`parse::jsx`): element factory + `use*` registry + module
-// loader, installed in every script realm (the per-frame driver produced by
-// `parse::jsx` depends on them). The JSX->h() transform lives in Rust
-// (`parse::jsx_transform`, oxc); the old JS scanner is retired.
-pub const JSX_RUNTIME: &str = include_str!("jsx_runtime.js");
+// HTML 标准层：输入语义按 W3C / 浏览器 DOM 解释，但 core 不是浏览器内核。
+// 标准层不读取 hyperframes 私有 `data-*` 协议，只经窄接口调用扩展钩子。
+pub const HTML_STD_API_RUNTIME: &str = include_str!("html_std_api.js");
+// HyperFrames 扩展层：core 内但与标准层分离。只放组合协议、可见时间窗、
+// `hf-seek`、`window.__timelines` 等框架私有语义。
+pub const HYPERFRAMES_API_RUNTIME: &str = include_str!("hyperframes_api.js");
+// HTML/JS dist 的模块运行面：`__ocRequire` / `module.exports` / 帧复位。
+// 作者侧 JSX/Remotion 源码先由打包器编译成 HTML/JS dist，不直接进 core。
+pub const DIST_MODULE_RUNTIME: &str = include_str!("dist_module_runtime.js");
 
 // Animation runtime: the ocTarget bridge support only — the property registry
 // (bootstrap) + property descriptors (properties/) + the bridge's three helper

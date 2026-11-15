@@ -46,6 +46,9 @@ pub struct Team {
     factory: Arc<dyn Fn() -> Box<dyn JsWorker> + Send + Sync>,
     default_n: usize,
     pools: Mutex<HashMap<usize, Arc<rayon::ThreadPool>>>,
+    /// worker 是否支持 ArrayRw 快照重建（`rebuild_shared`）——v8 零拷贝
+    /// 通道有、quickjs 没有；core 入口按此拒绝而非毒化在行中间。
+    shared: bool,
 }
 
 impl Team {
@@ -58,7 +61,14 @@ impl Team {
             factory,
             default_n,
             pools: Mutex::new(pools),
+            shared: false,
         }
+    }
+
+    /// 声明 worker 具备 `rebuild_shared`（v8 腿、web worker 腿）。
+    pub fn with_shared(mut self, yes: bool) -> Self {
+        self.shared = yes;
+        self
     }
 
     fn pool(&self, n: usize) -> Arc<rayon::ThreadPool> {
@@ -196,4 +206,34 @@ fn run_one(
         stride,
     };
     w.run_row(bundle, &env, row, row_val)
+}
+
+/// 数据面（core）经此注入 rayon isolate 团队：TeamSched → 本 crate 的
+/// Schedule 同字段直转。
+impl opencat_core::script::omp::OmpTeam for Team {
+    fn supports_shared(&self) -> bool {
+        self.shared
+    }
+
+    fn execute(
+        &self,
+        bundle: &Bundle,
+        args_json: &Arc<str>,
+        shared: Arc<[SharedBuf]>,
+        prng: Arc<[f64]>,
+        sched: &opencat_core::script::omp::TeamSched,
+    ) -> Result<Vec<RowOut>, String> {
+        execute(
+            self,
+            bundle,
+            args_json,
+            shared,
+            prng,
+            &Schedule {
+                r#static: sched.r#static,
+                chunk: sched.chunk,
+                num_threads: sched.num_threads,
+            },
+        )
+    }
 }

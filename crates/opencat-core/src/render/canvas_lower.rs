@@ -28,7 +28,7 @@ pub fn render_draw_script(
     // 作画（inspector 1600×1220），CSS 盒（4320×3300）整体线性缩放显示。
     // 矢量直放是"无限分辨率"语义，AA 与浏览器位图缩放不同构——inspector
     // 半调点阵段全帧 p8 41%→6%（1030:1040 帧段实测）。位图尺寸只在 html
-    // parse 设置（`bitmap_scale.is_some()` 即 html 信号），JSX canvas 不走。
+    // parse 设置（`bitmap_scale.is_some()` 即 html 信号）。
     if let Some((sx, sy)) = item.bitmap_scale {
         let (bw, bh) = (item.bounds.width / sx, item.bounds.height / sy);
         let subtree = ctx.builder.record_subtree(|b| {

@@ -480,7 +480,7 @@ fn line_of(source: &str, off: usize) -> usize {
 /// identity 返回——「pragma 未被编译器处理」）。
 fn analyze(source: &str) -> Option<Vec<LoopSite>> {
     let allocator = Allocator::new();
-    let parsed = Parser::new(&allocator, source, SourceType::jsx()).parse();
+    let parsed = Parser::new(&allocator, source, SourceType::mjs()).parse();
     if parsed.diagnostics.has_errors() {
         return no("oxc parse diagnostics have errors");
     }

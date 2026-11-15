@@ -1542,12 +1542,9 @@ pub struct MutationStore {
     tree_text: TreeAndText,
     children: ChildOverrides,
     current_frame: u32,
-    /// Scene-local frame override. The JSX frontend emits ONE root driver whose
-    /// store frame is the composition frame, but each `<tl>` scene has its own
-    /// clock. The JSX runtime sets this around every hook and every timeline
-    /// flush so tween progress is evaluated against the scene's local frame
-    /// (matching XML node scripts, whose realm already runs with a
-    /// `for_segment` frame). `None` = use `current_frame` as-is.
+    /// Scene-local frame override. The HTML driver may bind a composition
+    /// window's local clock; otherwise `current_frame` is the composition
+    /// frame under `frame = f(t)`.
     frame_override: Option<u32>,
     /// Scene-local time override in seconds. Tween progress advances by elapsed
     /// time, and a scene window may start between frames (a `<tl>` boundary is

@@ -1,3 +1,14 @@
+import { installRasterCanvasReplay } from './raster-replay';
+import { installOmpRunner } from './omp/omp-runner';
+
+// Offscreen-canvas pixel readback for the stub canvas realm: the wasm native
+// `__opencatRasterCanvas` hands its compiled OCIR frame to this hook. Install
+// once at module load — the hook resolves CanvasKit lazily at call time.
+installRasterCanvasReplay();
+// @omp 团队执行体：Rust `WebOmpTeam` 经全局 `__ocOmpExecute` 派发（同上，
+// 模块加载时装一次；Rust natives 在 dispatcher 安装期注册）。
+installOmpRunner();
+
 export type {
   AudioPlan,
   AudioPlanSegment,

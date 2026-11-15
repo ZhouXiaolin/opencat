@@ -1427,7 +1427,7 @@ impl V8JsContext {
 
     /// Evaluate `code` and marshal the result back as JSON.
     ///
-    /// Used by the JSX frontend host pass (transform + tree extraction), where
+    /// Used by the HTML extraction host pass, where
     /// the realm is throwaway and the only output is a value.
     pub fn eval_json(&self, code: &str) -> anyhow::Result<JsonValue> {
         self.with_scope(|scope| -> anyhow::Result<JsonValue> {

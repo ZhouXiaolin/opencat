@@ -1,10 +1,10 @@
 //! HTML 前端（docs/html-align/DESIGN.md）：html5ever 解析 hyperframes
 //! .html 工程，降级成 DomElement 种子 + 侧通道（css/scripts/links/meta）。
 //!
-//! 与 JSX 前端的分工：JSX 的树由 JS 物化，这里由 Rust 解析出「种子」——
-//! 同一份 DomElement serde 形的 JSON，交给 JS realm 物化成带 DOM API 的
-//! 元素面，页面 `<script>` 在其上动态建 DOM，最终树仍从 JS 提取回
-//! `from_extract`。本模块只负责把静态 HTML 文本变成那颗种子。
+//! core 把标准 HTML 文本解析成 `DomElement` 种子；HyperFrames 私有属性的
+//! 词汇与解释集中在 `parse::hyperframes`。种子 JSON 交给 JS realm 物化成
+//! 带 DOM API 的元素面，页面 `<script>` 在其上动态建 DOM，最终树由
+//! `parse::extract` 装配。core 是确定性视频渲染器，不是浏览器内核。
 //!
 //! 降级规则（批次 A 语料近似，详见 DESIGN.md §文本降级）：
 //! - 仅文本子节点 → 该元素直接承载 text（P/Span 按 UA 标签映射）；
@@ -24,7 +24,7 @@ use html5ever::{Attribute, LocalName, Namespace, ParseOpts, QualName, parse_docu
 use serde_json::{Value, json};
 
 use crate::parse::dom::DomElement;
-use crate::parse::protocol;
+use crate::parse::hyperframes;
 
 /// 页面 `<script>`：外链（src 相对工程根或远程 URL）或内联文本。
 #[derive(Debug, Clone)]
@@ -47,7 +47,7 @@ pub struct HtmlLink {
     pub href: String,
 }
 
-/// `data-composition-src` 宿主：host 元素 id → 子工程文件路径。
+/// HyperFrames 组合宿主：host 元素 id → 子工程文件路径。
 #[derive(Debug, Clone)]
 pub struct CompositionHost {
     pub id: String,
@@ -57,7 +57,7 @@ pub struct CompositionHost {
 /// 一份 .html 的解析产物。
 #[derive(Debug, Clone, Default)]
 pub struct HtmlDocument {
-    /// `{width,height,fps,duration}`（data-width/height/fps/duration，含默认）。
+    /// `{width,height,fps,duration}`（HyperFrames 合成尺寸/时长，含默认）。
     pub meta: Value,
     pub root: Option<DomElement>,
     /// `<style>` 文本按文档序拼接（head 与 body 内联均收）。
@@ -69,8 +69,8 @@ pub struct HtmlDocument {
     pub import_map: Option<String>,
     pub composition_hosts: Vec<CompositionHost>,
     /// 元素 id → 协议属性（含根与嵌套宿主）。属性的唯一表示在扩展层
-    /// （`parse::protocol::ElementProtocol`）。
-    pub protos: HashMap<String, protocol::ElementProtocol>,
+    /// （`parse::hyperframes::ElementProtocol`）。
+    pub protos: HashMap<String, hyperframes::ElementProtocol>,
     /// `::before`/`::after` 伪元素规则（从 css_text 抽出，见
     /// [`extract_pseudo_rules`]）。dom 构建期对命中的宿主元素合成伪节点。
     pub pseudo_rules: Vec<PseudoRuleRaw>,
@@ -397,7 +397,7 @@ impl Attrs<'_> {
 }
 
 /// 标准层只提供原始属性；协议语义（哪些属性、怎么解释）归扩展层。
-impl protocol::AttrSource for Attrs<'_> {
+impl hyperframes::AttrSource for Attrs<'_> {
     fn attr(&self, name: &str) -> Option<&str> {
         self.get(name)
     }
@@ -515,7 +515,7 @@ struct LoweringState {
     renames: HashMap<String, String>,
     used_ids: HashSet<String>,
     hosts: Vec<CompositionHost>,
-    protos: HashMap<String, protocol::ElementProtocol>,
+    protos: HashMap<String, hyperframes::ElementProtocol>,
     css_chunks: Vec<String>,
     scripts: Vec<HtmlScript>,
     links: Vec<HtmlLink>,
@@ -584,7 +584,7 @@ impl LoweringState {
 
     fn record_proto(&mut self, id: &str, view: &Attrs<'_>) {
         // 协议属性的读法只有一处（扩展层）：标准层不认识 hyperframes 词汇。
-        let proto = protocol::ElementProtocol::read(view);
+        let proto = hyperframes::ElementProtocol::read(view);
         if let Some(src) = proto.composition_src.clone() {
             self.hosts.push(CompositionHost {
                 id: id.to_string(),
@@ -1410,7 +1410,7 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
     let inline_style = view.get("style").map(str::to_string);
     let class = view.get("class").map(str::to_string);
     // 协议属性一次性读出（扩展层）：时间窗 / 媒体相位 / 着色矩阵。
-    let proto = protocol::ElementProtocol::read(&view);
+    let proto = hyperframes::ElementProtocol::read(&view);
     let duration = proto.duration;
 
     let element = match tag.as_str() {

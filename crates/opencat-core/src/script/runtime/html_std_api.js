@@ -1,20 +1,41 @@
-// HTML 前端文档面（docs/html-align/DESIGN.md）。
+// HTML 标准 DOM 面（core 标准层）。
 //
-// hyperframes 页面 = 静态 HTML + 页面脚本动态建 DOM + GSAP 时间轴。本运行时
-// 把 html5ever 解析出的种子树（`__ocHtmlSeed`）物化成一份 JS 元素树，页面
-// 脚本在它上面继续构建最终结构；`__ocHtmlExtract()` 把最终树序列化回
-// DomElement JSON。首帧 `__ocHtmlResetFrame` 从种子物化并跑页面脚本；后续帧
-// 文档与 store 里的 DOM 状态原样留用，只绝对 seek 已登记的 GSAP 产物 ——
-// frame = f(t)。
-//
-// 与 jsx 通道的关系：样式写走同一 store 通道（`__write_style_value`），gsap
-// 面按元素对象目标工作（nodeType/tagName/style/classList）。文本内容静态
-// （seed 期定稿）；textContent tween 挂账（DESIGN.md 批次 B）。
+// 这个文件解释 W3C / 浏览器 DOM 的输入语义：元素、属性、样式、选择器、
+// 文本节点、媒体元素、canvas/GL 查询面、序列化。core 是确定性视频渲染器，
+// 不是浏览器内核；帧由 `frame = f(t)` 重建，动画由 `animate = g(t)` 写入。
+// HyperFrames 的组合协议与播放器语义在 `hyperframes_api.js`，标准层只经
+// 窄接口调用扩展钩子。
 (function () {
     'use strict';
-    // html 通道标记：webgl_api 的 tagAsWebGL2 以此限定作用域（jsx 通道的
-    // three 走既有「WebGL1 判定 + 录制面提升」组合）。
+    if (globalThis.__ocHtmlStd) return;
+    // html 通道标记：webgl_api 的 tagAsWebGL2 以此限定作用域。
     globalThis.__ocHtmlChannel = true;
+
+    // 扩展层钩子：标准层不认识 hyperframes 私有词汇，只调用这些函数。
+    var extension = globalThis.__ocHyperframes || {
+        attr: {},
+        readProtocol: function () { return {}; },
+        isProtocolAttr: function () { return false; },
+        readSeedProtocol: function (payload) { return payload; },
+        readElementAttr: function () { return null; },
+        getElementAttr: function () { return undefined; },
+        writeSerializeAttrs: function () {},
+        serializeVideo: function () {},
+        installTimelinesRegistry: function () {},
+    };
+    globalThis.__ocHtmlStd = {
+        extension: extension,
+        nodes: nodes,
+        setSeed: function (value) { seed = value; },
+        getSeed: function () { return seed; },
+        setRootFace: function (value) { rootFace = value; },
+        getRootFace: function () { return rootFace; },
+        hasStore: function () { return hasStore; },
+        isSeekStarted: function () { return seekStarted; },
+        beginSeek: function () { seekStarted = true; },
+        nextSynthId: function () { return synthSeq++; },
+        offscreenById: htmlOffscreenById,
+    };
 
     var nodes = Object.create(null); // id → element face
     var htmlOffscreenById = Object.create(null);
@@ -775,8 +796,9 @@
         if (p.width !== undefined && p.width !== null) out.width = p.width;
         if (p.height !== undefined && p.height !== null) out.height = p.height;
         if (p.preserveAspectRatio) out.preserveAspectRatio = p.preserveAspectRatio;
-        if (p.data_start !== undefined && p.data_start !== null) out['data-start'] = p.data_start;
-        if (p.data_duration !== undefined && p.data_duration !== null) out['data-duration'] = p.data_duration;
+        if (extension) {
+            extension.writeSerializeAttrs(p, out);
+        }
         // src 按 http(s) 前缀分流 path/url（与 parse/html.rs 的 img/video
         // 解析同语义，serde 端 DomElement 只认这两个字段）；静态 seed 的
         // path/url 原样带回。
@@ -788,16 +810,9 @@
             if (p.url) out.url = p.url;
         }
         if (p.duration !== undefined && p.duration !== null) out.duration = p.duration;
-        // 素材内起播偏移（hyperframes 的 data-media-start）：种子 payload 带
-        // serde 连字符键，脚本/片段路径落在属性袋。serde 端 DomElement::Video
-        // 只认专字段，不在这回传即整条丢失——stripe 六个组合的背景视频全从
-        // 素材 0s 起播。
-        if (p.type === 'video') {
-            var mediaStart = el.__attrs['data-media-start'] !== undefined
-                ? parseFloat(el.__attrs['data-media-start'])
-                : p['data-media-start'];
-            if (typeof mediaStart === 'number' && !isNaN(mediaStart)) out['data-media-start'] = mediaStart;
-        }
+        // 视频扩展字段（可见时间窗、媒体相位、着色矩阵、终帧可见性）由
+        // HyperFrames 层序列化；标准层不写协议属性名字面量。
+        if (p.type === 'video') extension.serializeVideo(el, p, out);
 
         var sc = serializeChildren(el);
         if (sc.kids.length) {
@@ -946,7 +961,7 @@
         return new HtmlElement(payload);
     }
 
-    // 媒体元素（video/audio）的最小面：取帧时刻由引擎按 data-start 驱动
+    // 媒体元素（video/audio）的最小面：取帧时刻由引擎按媒体时间驱动
     // （frame = f(t)），页面的 play/pause/currentTime 不改变取帧。play 返回
     // 已兑现的 Promise——与浏览器自动播放成功同形（页面普遍 `.catch`）。
     function attachMediaFace(el) {
@@ -999,8 +1014,8 @@
         if (payload && payload.attrs) {
             for (var ai = 0; ai < payload.attrs.length; ai++) {
                 var an = String(payload.attrs[ai][0]).toLowerCase();
-                // 有专字段的属性不复刻（class/style/id/src）。data-start/
-                // data-duration 有专字段但也留一份原文进 __attrs：dataset
+                // 有专字段的属性不复刻（class/style/id/src）。扩展协议属性
+                // 也留一份原文进 __attrs：dataset
                 // 与属性选择器都从这读。
                 if (an === 'class' || an === 'style' || an === 'id' || an === 'src') continue;
                 this.__attrs[an] = String(payload.attrs[ai][1]);
@@ -1198,7 +1213,7 @@
     // 提取期快照定型的渲染树看不见逐帧长出的子树（tl.call 里 appendChild
     // 挂上的气泡等）。提取完成后任何结构写都把宿主的当前 element 子树
     // 整体序列化上报：resolve 期按它重建宿主的 children（宿主祖先链随行，
-    // CSS 后代选择器如 `[data-composition-id] .user-row .bubble` 才能命中；
+    // CSS 后代选择器如 `组合根下的 `.user-row .bubble`` 才能命中；
     // 子树走完整 build_node 链路，store 里的样式突变按 face id 命中）。
     // 挂载关系是节点状态：persistent 文档跨帧留在 store，非持久每帧随
     // 重放的脚本自然重建。
@@ -1213,7 +1228,8 @@
     }
     function subtreeHasCompositionSrc(el) {
         var attrs = el.__attrs;
-        if (attrs && attrs['data-composition-src'] !== undefined) return true;
+        if (attrs && extension &&
+            attrs[extension.attr.COMPOSITION_SRC] !== undefined) return true;
         var kids = el.__kids;
         for (var i = 0; kids && i < kids.length; i++) {
             if (kids[i].nodeType === 1 && subtreeHasCompositionSrc(kids[i])) return true;
@@ -1365,8 +1381,11 @@
         else if (n === 'style') this.style.cssText = v;
         else if (n === 'id') this.id = v;
         else if (n === 'src') this.__payload.src = v;
-        else if (n === 'data-start') this.__payload.data_start = parseFloat(v);
-        else if (n === 'data-duration') this.__payload.data_duration = parseFloat(v);
+        else if (extension && extension.isProtocolAttr(n)) {
+            var proto = extension.readElementAttr(n, v);
+            if (proto) Object.assign(this.__payload, proto);
+            else this.__attrs[n] = v;
+        }
         else this.__attrs[n] = v;
     };
     HtmlElement.prototype.getAttribute = function (name) {
@@ -1375,8 +1394,10 @@
         if (n === 'style') return this.__payload.style || null;
         if (n === 'id') return this.__payload.id;
         if (n === 'src') return this.__payload.src || null;
-        if (n === 'data-start') return this.__payload.data_start !== undefined ? String(this.__payload.data_start) : null;
-        if (n === 'data-duration') return this.__payload.data_duration !== undefined ? String(this.__payload.data_duration) : null;
+        if (extension) {
+            var protoValue = extension.getElementAttr(this.__payload, n);
+            if (protoValue !== undefined) return protoValue;
+        }
         return Object.prototype.hasOwnProperty.call(this.__attrs, n) ? this.__attrs[n] : null;
     };
     HtmlElement.prototype.hasAttribute = function (name) {
@@ -1441,7 +1462,7 @@
     };
 
     // dataset:__attrs 里 data-* 的 camelCase 视图;写走 setAttribute 保证
-    // 与选择器/序列化同源(data-start/duration 构造期已留原文进 __attrs)。
+    // 与选择器/序列化同源（扩展协议属性构造期已留原文进 __attrs）。
     function datasetKey(name) {
         return 'data-' + String(name).replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); });
     }
@@ -1809,8 +1830,11 @@
         for (var a in node.attrs) {
             if (a === 'src') payload.src = node.attrs[a];
             else if (a === 'id') payload.id = node.attrs[a];
-            else if (a === 'data-start') payload.data_start = parseFloat(node.attrs[a]);
-            else if (a === 'data-duration') payload.data_duration = parseFloat(node.attrs[a]);
+            else if (extension && extension.isProtocolAttr(a)) {
+                var proto = extension.readElementAttr(a, node.attrs[a]);
+                if (proto) Object.assign(payload, proto);
+                else bag[a] = node.attrs[a];
+            }
             else bag[a] = node.attrs[a];
         }
         var el = createElementFace(payload);
@@ -1947,17 +1971,11 @@
     });
 
     // ── 种子物化 ─────────────────────────────────────────────────
-    // serde 的连字符键（"data-start"）归一成 JS 侧驼峰字段。
+    // 协议字段归一由 HyperFrames 扩展层提供；标准层不写属性名。
     function normalizeSeedPayload(p) {
-        if (p.data_start === undefined && p['data-start'] !== undefined) {
-            var v = parseFloat(p['data-start']);
-            if (!isNaN(v)) p.data_start = v;
-        }
-        if (p.data_duration === undefined && p['data-duration'] !== undefined) {
-            var v2 = parseFloat(p['data-duration']);
-            if (!isNaN(v2)) p.data_duration = v2;
-        }
-        return p;
+        return extension
+            ? extension.readSeedProtocol(p)
+            : p;
     }
 
     function materializeSeed(payload, parent) {
@@ -1974,18 +1992,11 @@
         return el;
     }
 
-    // ── hyperframes 播放器协议 ────────────────────────────────────
+    // ── 扩展层安装钩子 ────────────────────────────────────────────
     // UMD gsap 挂在 shim window 上，由 hoistWindowGlobals 提升到 globalThis。
-    // 动画驱动 = 虚拟 rAF（JS_PLATFORM_SHIM 队列）：引擎每帧 setClock(t) 后
-    // flush 一次，gsap ticker 自然推进全部活跃 tween；页面注册表
-    // （window.__timelines）里的 paused timeline 由 driver 逐帧段按幕锚点
-    // play（播放器语义）——不再逐库 seek。
-    // hyperframes 编译器给页面预置注册表（compositionScoping 的
-    // `window.__timelines = window.__timelines || {}`，页面脚本直接
-    // `window.__timelines[id] = tl` 不自建——codex-five-hour 语料）。
-    // 引擎等价预置；driver 每帧幂等补 play（见 build_html_driver）。
-    if (typeof globalThis.window === 'object' && globalThis.window) {
-        globalThis.window.__timelines = globalThis.window.__timelines || {};
+    // 动画驱动由虚拟 rAF 与页面脚本完成。框架私有注册表由扩展层安装。
+    if (extension) {
+        extension.installTimelinesRegistry(globalThis.window);
     }
 
     globalThis.__ocHtmlAfterScripts = function () {
@@ -2009,6 +2020,30 @@
     }
 
     // ── document face ─────────────────────────────────────────────
+    // 宿主判别：导航宿主（浏览器）的 `globalThis.location` 是真导航面——
+    // 写 href 就是真实页面导航，G13 的文档 URL 只能进合成面。shim 宿主
+    // （V8/quickjs 的 JS_PLATFORM_SHIM location 是普通对象）可直写。
+    // 能力位由 web wasm 宿主在 dispatcher 安装时声明；shim 宿主不声明。
+    var __ocLocationIsNav = globalThis.__ocHtmlLocationIsNav === true;
+    var __ocHostLocation = (typeof globalThis.location === 'object' && globalThis.location) || null;
+    var __ocDocLocation = __ocLocationIsNav
+        ? { href: '', pathname: '/', search: '', hash: '', origin: '' }
+        : __ocHostLocation;
+    // G13 文档 URL 面的填充入口：driver 在文档脚本执行前调用。
+    // 导航宿主：只进 documentFace.location（作者脚本从 `document.location`
+    // 读到合成文档 URL；裸 `location` 保持宿主真面，与浏览器同形）。
+    // shim 宿主：直写 shim location（现行为不变）。
+    globalThis.__ocHtmlSetLocationFace = function (href, pathname) {
+        if (__ocLocationIsNav) {
+            __ocDocLocation.href = href;
+            __ocDocLocation.pathname = pathname;
+            return;
+        }
+        if (__ocHostLocation) {
+            __ocHostLocation.href = href;
+            __ocHostLocation.pathname = pathname;
+        }
+    };
     // getElementsByTagName 共用体:候选含根自身与全部后裔(含 svg 查询子
     // 面,walkAll 已覆盖)。tag 匹配与选择器引擎同语义(elTag 归一),`*`
     // 通配。返回静态数组——HTML 的 live list 本通道无消费者。
@@ -2035,16 +2070,17 @@
         // react-dom 的 commitBeforeMutationEffects 读 activeElement（焦点
         // 恢复链）；无焦点语义给 null（浏览器 body 无焦点时同值）。
         activeElement: null,
-        // JS_PLATFORM_SHIM 的空 query 静态形态；页面脚本 document.location。
-        location: (typeof globalThis.location === 'object' && globalThis.location) || null,
+        // 导航宿主给合成 location 小面（`document.location.href` 读 G13
+        // 文档 URL）；shim 宿主即 JS_PLATFORM_SHIM 的 location。
+        location: __ocDocLocation,
         getElementById: function (id) {
             var el = nodes[String(id)];
             return el === undefined ? null : el;
         },
         // 浏览器语义：document.querySelector 能匹配文档根元素（html/body）。
         // 种子树里 rootFace 代理 html/body，候选集要含根自身，否则
-        // hyperframes 页面 `document.querySelector('[data-composition-id=…]')`
-        // 拿到 null（根就是 composition 宿主）。游离 head face 也在候选里
+        // 组合根页面 `document.querySelector(...)`
+        // 拿到 null（根就是宿主）。游离 head face 也在候选里
         // （style-loader 的 `document.querySelector("head")` 注入点）。
         docCandidates: function () {
             var all = [rootFace].concat(walkAll(rootFace, []));
@@ -2199,8 +2235,8 @@
         if (typeof __ocGlBeginFrameStreams === 'function') __ocGlBeginFrameStreams();
     };
 
-    // 返回对象（宿主统一 JSON.stringify——jsx 的 __ocExtract 同约定；
-    // 这里若先 stringify 会被双重包裹成 String，from_extract 读不到 tree）。
+    // 返回对象（宿主统一 JSON.stringify；这里若先 stringify 会被双重
+    // 包裹成 String，from_extract 读不到 tree）。
     globalThis.__ocHtmlExtract = function () {
         // 提取完成后的结构写（运行期 appendChild）才走上报通道；提取期
         // 建树阶段的 appendChild 由随后的 serializeNode(rootFace) 自然
@@ -2323,12 +2359,38 @@
         ocWinFor().getComputedStyle = computedStyleFor;
     }
 
-    // document 覆盖（dom_api 的 chart 面给 jsx 用；HTML 前端换皮）。
+    // document 覆盖（HTML 文档输入面换皮；core 仍是视频渲染器，不是浏览器）。
     // gsap 从 `window.document` 缓存 doc（`Ie=window, Le=Ie.document`），
     // 所以 shimWindow 这层必须一起换——它藏在 `globalThis.__ocWindow`
     // （dom_api 的 shimWindow 是其 IIFE 局部变量，外面摸不到）。
-    globalThis.document = documentFace;
-    // 模块工厂（jsx_runtime 的 new Function）把 document 形参绑到
+    // 浏览器宿主里 `document` 是只读访问器（getter-only）：直接赋值会抛
+    // TypeError。这里只重定义自身属性描述符；不可配置时保留宿主 document，
+    // 合成面仍通过 `__ocDocument` 与 shim window 供作者脚本使用。
+    function defineMutable(target, name, value) {
+        try {
+            Object.defineProperty(target, name, {
+                configurable: true,
+                writable: true,
+                value: value,
+            });
+        } catch (e) {
+            if (!Object.prototype.hasOwnProperty.call(target, name)) {
+                throw e;
+            }
+        }
+    }
+    try {
+        Object.defineProperty(globalThis, 'document', {
+            configurable: true,
+            writable: true,
+            value: documentFace,
+        });
+    } catch (e) {
+        if (!Object.prototype.hasOwnProperty.call(globalThis, 'document')) {
+            throw e;
+        }
+    }
+    // dist 模块工厂的 `new Function` 把 document 形参绑到
     // `__ocDocument || document`——dom_api 的 chart 面对未知 id 会抛
     // "unknown id"（liquid 语料 module 里 getElementById 中止的根因）；
     // html 通道这里必须换皮成 documentFace。
@@ -2337,7 +2399,32 @@
         return typeof globalThis.__ocWindow === 'object' ? globalThis.__ocWindow : null;
     }
     var ocWin = ocWinFor();
-    if (ocWin) ocWin.document = documentFace;
+    if (ocWin) {
+        try {
+            Object.defineProperty(ocWin, 'document', {
+                configurable: true,
+                writable: true,
+                value: documentFace,
+            });
+        } catch (e) {
+            if (!Object.prototype.hasOwnProperty.call(ocWin, 'document')) {
+                throw e;
+            }
+        }
+    }
+    // 浏览器原生 document 的 `currentScript` 是原型上的只读访问器；页面
+    // driver 每个脚本段都会写它。把合成 document 本身的可写同名属性装到
+    // 宿主 document 上，供那些仍从裸 `document` 读的库使用。
+    var hostDocument = globalThis.document;
+    if (hostDocument && hostDocument !== documentFace) {
+        defineMutable(hostDocument, 'currentScript', documentFace.currentScript);
+    }
+    globalThis.__ocHtmlSetCurrentScript = function (value) {
+        documentFace.currentScript = value;
+        if (hostDocument && hostDocument !== documentFace) {
+            defineMutable(hostDocument, 'currentScript', value);
+        }
+    };
 
     // ── react-dom / scheduler 全局垫 ─────────────────────────────
     // React 19 scheduler 用 MessageChannel 派发 work loop（无它则 setState
@@ -2459,7 +2546,15 @@
     // 一步）。__ocVirtTimerAdvance 是提取期水位（html.rs 的 drain 循环
     // 推进——提取期钟恒 0，轮询类续体靠水位落定）；渲染 realm 全新
     // 重建，水位不跨进程，逐帧判定回到真钟。
-    if (!globalThis.__ocVirtTimersInstalled) {
+    //
+    // 导航宿主（真浏览器）不装：wasm realm 与页面共一个 global，覆盖
+    // `globalThis.setTimeout` 会劫持页面/harness 自己的定时器，而虚拟钟
+    // 的到期表只在 realm flush（帧内）推进——帧外的任何
+    // `await new Promise(r => setTimeout(r, 0))`（渲染半环的 open 后泵、
+    // warmup 泵）从此永不落定，主线程闲等死锁（omp-reduction web 腿
+    // drawFrame 挂死根因）。浏览器里原生定时器本来就是正确语义，逐帧
+    // 确定性由 build_frame_ir 的种子与帧驱动保证，不靠拦截时钟。
+    if (!globalThis.__ocVirtTimersInstalled && globalThis.__ocHtmlLocationIsNav !== true) {
         globalThis.__ocVirtTimersInstalled = true;
         var __ocTimerSeq = 0;
         var __ocTimers = [];

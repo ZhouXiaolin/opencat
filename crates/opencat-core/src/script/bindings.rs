@@ -208,7 +208,7 @@ macro_rules! for_each_binding {
             $rec . record_draw_op($id, DrawOp::StrokePath);
         }}
         // html 通道：脚本改了 inline svg 内部元素属性后整棵重序列化的 markup
-        // （html_api.js svgWriteAttr）。与 g-svg 图表同一个 svg markup 槽，
+        // （html_std_api.js svgWriteAttr）。与 g-svg 图表同一个 svg markup 槽，
         // resolve_svg 按节点 id 取它覆盖提取期快照。
         $binding! { node $rec $id svg_set_markup ($id: &str, markup: String) {
             $rec . record_canvas_svg($id, markup)
@@ -798,7 +798,7 @@ macro_rules! for_each_binding {
         }}
 
         /// html 持久文档（init-once）声明：DOM 状态跨帧留在 store（见
-        /// `MutationStore::persist_frame_state`）。html_api.js 初始化时调一次。
+        /// `MutationStore::persist_frame_state`）。html_std_api.js 初始化时调一次。
         $binding! { cmd $store persist_frame_state () -> () {
             $store.persist_frame_state();
             Ok(())
@@ -823,10 +823,8 @@ macro_rules! for_each_binding {
         }}
 
         // ── Cmd: scene clock override ───────────────────────────────────────
-        // The JSX frontend emits ONE root driver whose store frame is the
-        // composition frame. Inside a `<tl>` each scene has its own clock, so
-        // the JSX runtime sets the scene-local frame around every hook and every
-        // timeline flush. `-1` clears it (fall back to the composition frame).
+        // The HTML driver may bind a scene-local frame around a composition
+        // window. `-1` clears it and returns to the composition frame.
         // Tween progress (`animate_create` / `animate_value`) reads this frame.
         $binding! { cmd $store set_script_frame (frame: i32) -> bool {
             $store.set_frame_override(if frame < 0 { None } else { Some(frame as u32) });

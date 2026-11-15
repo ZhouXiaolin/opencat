@@ -21,8 +21,8 @@ use opencat_web_oracle::{
     about = "Render a composition to MP4 on the web stack (wasm + CanvasKit, headless Chrome)"
 )]
 struct Cli {
-    /// Composition source (.jsx, repo-relative or absolute) — usually the
-    /// compiled `dist/<stem>.bundle.jsx`.
+    /// HTML/JS dist document (repo-relative or absolute). JSX/Remotion sources
+    /// must be compiled to HTML/JS before they reach the renderer.
     input: PathBuf,
 
     /// Output MP4 path.
@@ -100,8 +100,8 @@ fn kept_segments(first: u32, last: u32, ranges: &[(u32, u32)]) -> Vec<(u32, u32)
 fn composition_meta(source: &str, base_dir: Option<&Path>) -> Result<(u32, u32, u32, u32)> {
     // (width, height, fps, frames) through the engine's own parse — same
     // header the native renderer resolves.
-    let parsed = opencat_engine::script::jsx::parse_with_base_dir(source, base_dir)
-        .context("parse composition")?;
+    let parsed = opencat_engine::script::html::parse_with_base_dir(source, base_dir)
+        .context("parse HTML composition")?;
     let fps = parsed.fps.max(1) as u32;
     let frames = opencat_core::frame_ctx::duration_secs_to_frames(parsed.duration, fps).max(1);
     Ok((
@@ -130,7 +130,7 @@ fn run(cli: &Cli) -> Result<()> {
     let base_dir = base_dir.as_deref();
 
     let envelope = web_envelope_for_oracle(&source, base_dir)
-        .with_context(|| format!("extract JSX for the web oracle ({})", input.display()))?;
+        .with_context(|| format!("extract HTML for the web oracle ({})", input.display()))?;
     let (width, height, fps, total_frames) = composition_meta(&source, base_dir)?;
     let start = cli.start.min(total_frames.saturating_sub(1));
     let end = cli
@@ -227,11 +227,17 @@ fn run(cli: &Cli) -> Result<()> {
     // a uniform +16 level shift (k3 web avg_p8 0.9889, hf web 0.9744), not a
     // rendering difference. Without ffmpeg on PATH, fall back to the raw
     // untagged bitstream with a loud warning.
+    // MEASURED (k3 f200): the headless soft encoder converts canvas RGB with
+    // FULL range — canvas RGB 6 lands as Y=6-7 in the bitstream (limited
+    // would be Y≈21, as the engine's ffmpeg leg produces). Tag the VUI
+    // accordingly; the earlier `video_full_range_flag=0` assumption crushed
+    // every Y<16 sample to decode-black (k3 ghost columns / grade noise
+    // vanished, 180-239 avg_p8 0.16 → 0.008 after the fix).
     const COLOR_BSF: &[&str] = &[
         "-bsf:v",
-        "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=0",
+        "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=1",
         "-color_range",
-        "tv",
+        "pc",
     ];
 
     if rendered.len() == 1 {

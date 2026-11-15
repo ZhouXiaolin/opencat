@@ -1,13 +1,16 @@
 //! HTML 前端宿主侧（engine）：docs/html-align/DESIGN.md。
 //!
-//! 与 `jsx.rs` 同构的提取宿主：html5ever 种子树灌进一次性 V8 realm，页面
+//! HTML 文档提取宿主：html5ever 种子树灌进一次性 V8 realm，页面
 //! 脚本（本地相对路径 / 远程抓取+磁盘缓存）在种子上构建最终树，
 //! `__ocHtmlExtract()` 把最终树序列化回 DomElement JSON，交给
-//! `parse::jsx::from_extract`（`html` 标记已在那条链路打通）。
+//! `parse::extract::from_extract`（`html` 标记已在那条链路打通）。
 //!
-//! 每帧 driver 自包含 [`HTML_API_RUNTIME`]：重物化种子树 → 重放页面脚本
+//! 每帧 driver 自包含 HTML 标准层 + HyperFrames 扩展层：重物化种子树 → 重放页面脚本
 //! （external 守卫只估一次，gsap 等库跨帧存活）→ wrap 过的 gsap 产物
 //! pause + 绝对 seek —— write-out 即 seek，`frame = f(t)`。
+//!
+//! core 是确定性视频渲染器，不是浏览器内核。这里解释的是 HTML/JS 输入语义；
+//! 帧状态仍由 `frame = f(t)` 重建，动画仍由 `animate = g(t)` 写入。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -20,20 +23,20 @@ use crate::script::EngineJsContext;
 use opencat_core::parse::ParsedComposition;
 use opencat_core::parse::dom::DomElement;
 use opencat_core::parse::html::{HtmlScript, parse_html, scope_composition_css};
-use opencat_core::parse::protocol;
+use opencat_core::parse::hyperframes;
 use opencat_core::script::dispatch::{binding_shim_js, dispatch_binding};
 use opencat_core::script::js_context::JsContext;
 use opencat_core::script::realm::JS_PLATFORM_SHIM;
 use opencat_core::script::runtime::{
     ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
-    GL_OPCODES_RUNTIME, HTML_API_RUNTIME, JSX_RUNTIME, NODE_STYLE_RUNTIME, TREE_API_RUNTIME,
-    WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
+    DIST_MODULE_RUNTIME, GL_OPCODES_RUNTIME, HTML_STD_API_RUNTIME, HYPERFRAMES_API_RUNTIME,
+    NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
 };
 
 /// Parse an HTML composition source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
     let (extract, driver) = extract_html_with_base_dir(input, base_dir)?;
-    opencat_core::parse::jsx::from_extract(&extract, &driver, base_dir)
+    opencat_core::parse::extract::from_extract(&extract, &driver, base_dir)
 }
 
 /// 从文件读取 HTML 源并解析；`base_dir` 取文件所在目录。
@@ -366,7 +369,8 @@ pub fn extract_html_with_base_dir(input: &str, base_dir: Option<&Path>) -> Resul
     // 提取 realm：`ScriptRealm::ensure_runtime` 的最小镜像（ctx 全局 +
     // dispatcher + binding shim——V8JsContext 自带 MutationStore，store 绑定
     // 在提取期就是真的，ctx.surface/measureText 可用），然后与 ensure_runtime
-    // 同序的平台面。driver 头部的 HTML_API_RUNTIME 覆盖 document 换皮。
+    // 同序的平台面。driver 头部的 HTML 标准层 + HyperFrames 扩展层一起
+    // 完成 document 换皮与播放器协议装配。
     //
     // hyperframes 页面脚本在提取期就调 measureText（k3 pillDims），而 scoped
     // fontdb 要到 prepare 才装——这里按 engine fallback 目录（含系统字体）
@@ -415,7 +419,7 @@ pub fn extract_html_with_base_dir(input: &str, base_dir: Option<&Path>) -> Resul
             ctx.eval(ASSET_API_RUNTIME)?;
             // 模块装载（__ocRequire/__ocModuleSources）：`<script type="module">`
             // 的降级产物在提取期就要可执行。
-            ctx.eval(JSX_RUNTIME)?;
+            ctx.eval(DIST_MODULE_RUNTIME)?;
             crate::script::bridge::install_asset_bridge(&ctx, base);
             ctx.eval(&driver)?;
             // 页面脚本常把「建 DOM / 登记 timeline」放在 async 续体里：
@@ -714,7 +718,7 @@ var __hfGsap = !__hfBaseGsap ? __hfBaseGsap : new Proxy(__hfBaseGsap, {
 fn wrap_scoped_composition_script(source: &str, comp_id: &str) -> String {
     let selector = format!(
         "[{}=\"{}\"]",
-        protocol::attr::COMPOSITION_ID,
+        hyperframes::attr::COMPOSITION_ID,
         comp_id.replace('\\', "\\\\").replace('"', "\\\"")
     );
     let mut out = String::with_capacity(source.len() + SCOPED_COMPOSITION_PRELUDE.len() + 256);
@@ -863,7 +867,7 @@ fn collect_ids(el: &DomElement, out: &mut std::collections::HashSet<String>) {
 fn composition_id(el: &DomElement) -> Option<String> {
     el.html_attrs()
         .iter()
-        .find(|(name, value)| name == protocol::attr::COMPOSITION_ID && !value.is_empty())
+        .find(|(name, value)| name == hyperframes::attr::COMPOSITION_ID && !value.is_empty())
         .map(|(_, value)| value.clone())
 }
 
@@ -879,18 +883,18 @@ fn collect_hosts(el: &DomElement, out: &mut Vec<NestedHost>) {
             .find(|(name, _)| name == key)
             .map(|(_, value)| value.as_str())
     };
-    if let Some(src) = get(protocol::attr::COMPOSITION_SRC).filter(|src| !src.is_empty()) {
-        let start = get(protocol::attr::START)
+    if let Some(src) = get(hyperframes::attr::COMPOSITION_SRC).filter(|src| !src.is_empty()) {
+        let start = get(hyperframes::attr::START)
             .and_then(|value| value.trim().parse::<f64>().ok())
             .unwrap_or(0.0);
         let duration =
-            get(protocol::attr::DURATION).and_then(|value| value.trim().parse::<f64>().ok());
+            get(hyperframes::attr::DURATION).and_then(|value| value.trim().parse::<f64>().ok());
         // 子文档样式的作用域选择器：宿主的 composition id（hyperframes 同形），
         // 缺省按宿主元素 id。
-        let scope = match get(protocol::attr::COMPOSITION_ID).filter(|id| !id.is_empty()) {
+        let scope = match get(hyperframes::attr::COMPOSITION_ID).filter(|id| !id.is_empty()) {
             Some(id) => format!(
                 "[{}=\"{}\"]",
-                protocol::attr::COMPOSITION_ID,
+                hyperframes::attr::COMPOSITION_ID,
                 id.replace('\\', "\\\\").replace('"', "\\\"")
             ),
             None => format!("#{}", el.id()),
@@ -925,14 +929,14 @@ fn eval_json_string(ctx: &EngineJsContext, code: &str) -> Result<Value> {
     Ok(serde_json::from_str(text)?)
 }
 
-/// 每帧 driver：首帧内嵌 [`HTML_API_RUNTIME`]，物化种子并执行全部页面
+/// 每帧 driver：首帧内嵌 HTML 标准层 + HyperFrames 扩展层，物化种子并执行全部页面
 /// 脚本（init-once）。后续帧 = 虚拟 rAF 的一次 tick：`__ocSetClock(t)` +
 /// 帧宿主 flush + 注册表 timeline 按幕锚点幂等 play（播放器语义）。
 ///
 /// `<script type="module">` 走模块图装载（[`load_html_modules`]）：oxc 降级
 /// 后的源码经 `__ocModuleSources` 注入，原位置以 `__ocRequire(key)` 占位。
-/// 注意 html driver **不调** jsx 的 `__ocResetFrame`——模块 exports 缓存在
-/// JSX_RUNTIME 闭包里跨帧保活（与 jsx 通道的 three 豁免同语义），重跑
+/// 注意 html driver **不调** `__ocResetDistModules`——模块 exports 缓存在
+/// dist 模块表闭包里跨帧保活，重跑
 /// three 的定义体每帧 1.4MB 会拖垮整片渲染。
 fn build_html_driver(
     scripts: &[HtmlScript],
@@ -1002,10 +1006,21 @@ fn build_html_driver(
                     base_url_dir,
                     src.replace('\\', "/").trim_start_matches("./")
                 );
+                // 库文本必须包 IIFE 并用形参遮蔽 `window`/`document`：库在
+                // 全局 scope 求值时会把 `window.document` 捕进自己的顶层
+                // （gsap 3.x 的 `var _win = window`），真浏览器宿主（web
+                // wasm realm 与页面共享 globalThis）的这两个名字是原生
+                // 访问器、换皮被 dom_api 有意跳过——gsap 的选择器查询就
+                // 全打到宿主测试页，target not found 风暴（k3 条形图整段
+                // 缺失）。face 经 `__ocWindow`/`__ocDocument` 注入（engine
+                // 的 shim 宿主里两者与裸名同值，行为不变）；`globalThis`
+                // 传真值，UMD 末尾的 `factory(globalThis)` 挂载不受影响。
                 body.push_str(&format!(
                     "if (!globalThis.__ocExt{}) {{ globalThis.__ocExt{} = true; \
-globalThis.__ocExtPhase = true;\ndocument.currentScript = {{ src: {}, tagName: 'SCRIPT', \
-closest: function (sel) {{ return document.querySelector(sel); }} }};\n{}\n\
+globalThis.__ocExtPhase = true;\nglobalThis.__ocHtmlSetCurrentScript({{ src: {}, tagName: 'SCRIPT', \
+closest: function (sel) {{ return (globalThis.__ocDocument || document).querySelector(sel); }} }});\n\
+(function (window, document, globalThis) {{\n{}\n}})(globalThis.__ocWindow || window, \
+globalThis.__ocDocument || document, globalThis);\n\
 globalThis.__ocExtPhase = false; }}\n",
                     ext_idx,
                     ext_idx,
@@ -1021,19 +1036,27 @@ globalThis.__ocExtPhase = false; }}\n",
                 // 只在 document 里，按选择器返回首个命中（语料的用法是同 id 的
                 // composition 根）。
                 body.push_str(
-                    "document.currentScript = { src: '', tagName: 'SCRIPT', \
-closest: function (sel) { return document.querySelector(sel); } };\n",
+                    "globalThis.__ocHtmlSetCurrentScript({ src: '', tagName: 'SCRIPT', \
+closest: function (sel) { return document.querySelector(sel); } });\n",
                 );
+                // 作者脚本的 `document` 必须是合成文档。V8 shim 全局可直接重定义
+                // `document`（html_std 的 defineProperty 成功），真浏览器宿主的
+                // `document` 是 non-configurable 访问器——换皮被 catch 保留宿主
+                // DOM，作者脚本就会查到宿主测试页而非种子树。与 dist 模块工厂
+                // 的 `new Function(..., 'document')` 形参绑定同构：形参遮蔽宿主，
+                // 两条宿主腿同语义。
                 // @omp 提取期变换：标注的 for 包进 __ocOmpTake 守卫
                 // （无标注/解析失败零改动，原文本直拼）。纯文本变换，引擎无关。
+                body.push_str("(function(document){\n");
                 body.push_str(&crate::script::omp::transform(code));
+                body.push_str("\n})(globalThis.__ocDocument);\n");
                 body.push_str("\nglobalThis.__ocHtmlAfterScripts();\n");
             }
             (None, None) => {}
         }
     }
-    // HTML_API_RUNTIME 原文直接拼（不进 format! 模板——JS 花括号会被当
-    // 占位符解析）；seed JSON 走独立插值。
+    // HTML 标准层与 HyperFrames 扩展层原文直接拼（不进 format! 模板——
+    // JS 花括号会被当占位符解析）；seed JSON 走独立插值。
     // 计数探针（临时诊断）：realm 无墙钟，只能数调用量。包 __write_style_value
     // 计数，每 5 帧向 __ocLogs 落一条（OC_TRACE_JSLOGS 时倒 stderr）。
     let trace_js = std::env::var_os("OC_TRACE_JS").is_some();
@@ -1041,12 +1064,19 @@ closest: function (sel) { return document.querySelector(sel); } };\n",
     driver.push_str(&format!("globalThis.__ocTraceJs = {trace_js};\n"));
     driver.push_str("var __ocHtmlInit = !globalThis.__ocHtmlPageInited;\n");
     driver.push_str("if (__ocHtmlInit) {\n");
-    driver.push_str(HTML_API_RUNTIME);
+    // 扩展层先提供窄接口，标准层随后读取它；两者都在 core，分文件装配。
+    driver.push_str(HYPERFRAMES_API_RUNTIME);
+    driver.push_str("\n");
+    driver.push_str(HTML_STD_API_RUNTIME);
+    driver.push_str("\n");
     driver.push_str("\n;(function () {\n");
     // G13：文档 URL 面在任何文档脚本执行前就位（浏览器的 goto 语义）。
-    // JS_PLATFORM_SHIM 已建 location 对象（空 href 静态形态），这里只填值。
-    // pathname 同步填目录形态（尾斜杠），`location.pathname` 直接读者拿到
-    // 与浏览器一致（带前导斜杠）的目录。
+    // 填充入口收敛到标准层 `__ocHtmlSetLocationFace`：导航宿主（浏览器，
+    // 见 `__ocHtmlLocationIsNav` 能力位）只进 `document.location` 合成面——
+    // 直写 `globalThis.location.href` 会发起真实页面导航，页内渲染随即被
+    // 打断（chromedriver 以 script timeout 收场）；shim 宿主直写 shim
+    // location，语义与旧版一致。pathname 同步填目录形态（尾斜杠），
+    // `location.pathname` 直接读者拿到与浏览器一致（带前导斜杠）的目录。
     let base_pathname = format!(
         "/{}",
         base_dir
@@ -1055,7 +1085,7 @@ closest: function (sel) { return document.querySelector(sel); } };\n",
             .trim_start_matches('/')
     );
     driver.push_str(&format!(
-        "    if (globalThis.location) {{ globalThis.location.href = {href}; globalThis.location.pathname = {path}; }}\n",
+        "    if (globalThis.__ocHtmlSetLocationFace) {{ globalThis.__ocHtmlSetLocationFace({href}, {path}); }}\n",
         href = serde_json::to_string(&format!("{}index.html", base_url_dir))?,
         path = serde_json::to_string(&base_pathname)?,
     ));
@@ -1086,7 +1116,7 @@ closest: function (sel) { return document.querySelector(sel); } };\n",
     driver.push_str("if (globalThis.__ocTraceJs) globalThis.__ocDfT0 = __ocWallMs();\n");
     if trace_js {
         // 计数器安装一次；__write_style_value 是全部样式写入的唯一宿主出口
-        // （html_api.js 的 writeStyle/setProperty 都经它）。
+        // （html_std_api.js 的 writeStyle/setProperty 都经它）。
         driver.push_str("if (globalThis.__ocTraceJs && !globalThis.__ocProbeInstalled) { globalThis.__ocProbeInstalled = true; var __ocRawWrite = globalThis.__write_style_value; globalThis.__ocNWrite = 0; globalThis.__ocTrN = 0; globalThis.__write_style_value = function (id, k, v) { globalThis.__ocNWrite++; try { if (String(id) === 'thread' && globalThis.__ocTrN < 25) { globalThis.__ocTrN++; if (typeof __ocStderr === 'function') __ocStderr('[wtr-thread] #' + globalThis.__ocTrN + ' ' + k + '=' + String(v).slice(0, 90)); } } catch (e) {} return __ocRawWrite(id, k, v); }; }\n");
         driver.push_str("if (globalThis.__ocTraceJs && typeof globalThis.__ocNWrite === 'undefined') { globalThis.__ocNWrite = 0; globalThis.__ocNSeek = 0; }\n");
         // rAF flush 探针：逐回调墙钟计时（__ocWallMs 是宿主注入的测量出口，
@@ -1176,7 +1206,7 @@ closest: function (sel) { return document.querySelector(sel); } };\n",
 }
 
 /// 模块图装载：`<script type="module">` 的入口逐个 BFS——每模块过 oxc
-/// 降级（import → `__ocRequire`、export → `module.exports`，jsx 通道同一
+/// 降级（import → `__ocRequire`、export → `module.exports`，dist 通道同一
 /// 前端），`import.meta` 替换为按模块 key 构造的对象字面量。窄语料：liquid
 /// 只用 `import.meta.url` 取模块相对资产；classic 语境里 `import.meta` 是
 /// early SyntaxError，必须替换（将来要全量 import.meta 语义再上 oxc VisitMut）。
@@ -1219,7 +1249,7 @@ fn load_html_modules(
         if sources.contains_key(&key) {
             continue;
         }
-        let transformed = opencat_core::parse::jsx_transform::transform(&source)?;
+        let transformed = opencat_core::parse::module_transform::transform(&source)?;
         let meta_url = serde_json::to_string(&key)?;
         let code = transformed
             .code
@@ -1272,7 +1302,7 @@ fn resolve_module_spec(
     })
 }
 
-/// 路径 → 模块 key：POSIX 分隔、`./`/`../` 归一。JSX_RUNTIME 的 resolveSpec
+/// 路径 → 模块 key：POSIX 分隔、`./`/`../` 归一。dist 模块表的 resolveSpec
 /// 以 `__ocModuleSources` 键直接命中，key 稳定性即缓存命中的前提。
 fn module_key(path: &str) -> String {
     let mut parts: Vec<&str> = Vec::new();

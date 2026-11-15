@@ -28,10 +28,10 @@
     "web-demuxer": "^4.0.0"
   },
   "devDependencies": {
+    "@webgpu/types": "^0.1.74",
     "canvaskit-wasm": "^0.41.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.13"
   },
-  "dependencies": {
-  }
+  "dependencies": {}
 }

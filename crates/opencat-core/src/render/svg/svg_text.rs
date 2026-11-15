@@ -2,7 +2,7 @@
 //!
 //! usvg 只做解析：x 列表展开成 chunk、span 样式继承求值、字符级
 //! dx/dy/rotate 列表全在解析产物里（`tree.text.rs`）。shaping 与字形轮廓
-//! 换 core 文本栈（cosmic-text + fontdb，与 JSX 文本共用 swash 字形缓存），
+//! 换 core 文本栈（cosmic-text + fontdb，共用 swash 字形缓存），
 //! SVG 定位语义（text-anchor、dx/dy、rotate、textLength）在此实现。
 //!
 //! 竖排（writing-mode: tb）与 textPath（`TextFlow::Path`）尚未接管：出现

@@ -13,6 +13,8 @@ import { getRendererOrThrow, clearBlobs } from './wasm';
 import { clearVideoCache } from './media/video-decoder';
 import { injectVideoFramesForRender, prepareCatalogVideoSources } from './media/video-frame-injector';
 import { renderEncodedDrawFrame } from './draw-ir';
+import { generatedImageRgba } from './draw-ir/decode';
+import { executeGpuStreamsForFrame, disposeGpuExecutors } from './gpu/executors';
 import { getReusableSurface, releaseReusableSurface } from './media/surface';
 import type { CompositionInfo } from './types';
 
@@ -33,6 +35,11 @@ export class RenderSession {
   readonly frames: number;
   private readonly frameOutput?: 'source';
   private surfaceSize: { w: number; h: number } = { w: 0, h: 0 };
+  /// GPU-stream injections from the previous frame that the draw replay
+  /// never consumed (invisible placeholders). Pruned each frame — an
+  /// unconsumed 1080p RGBA slot is ~8MB, and a multi-minute export would
+  /// otherwise pin hundreds of them (the export-OOM class of bug).
+  private gpuInjectedKeys: string[] = [];
 
   private constructor(
     canvas: HTMLCanvasElement | OffscreenCanvas,
@@ -94,16 +101,27 @@ export class RenderSession {
     }
 
     const renderer = getRendererOrThrow();
+    const result = renderer.build_frame_ir(frame);
+    console.info('[df] ir ok frame=', frame, 'irLen=', result.ir.length);
+
+    // GPU streams (OCIR section 13): browser-native WebGL2/WebGPU replay of
+    // the recorded streams, pixels injected into generatedImageRgba before
+    // the CanvasKit replay consumes the Generated placeholders. Unconsumed
+    // injections from the previous frame are pruned first (invisible
+    // placeholders otherwise leak their full RGBA slot per frame).
+    for (const key of this.gpuInjectedKeys) generatedImageRgba.delete(key);
+    this.gpuInjectedKeys = await executeGpuStreamsForFrame(result.ir);
+    console.info('[df] gpu done keys=', this.gpuInjectedKeys.length);
 
     // Headless SwiftShader often cannot import VideoFrame textures via
     // makeImageFromTextureSource. Inject as CPU RGBA so draw-ir can
     // MakeImage() without a GPU texture path.
-    const result = renderer.build_frame_ir(frame);
     await injectVideoFramesForRender({
       mediaPlan: result.mediaPlan,
       quality: 'exact',
       ...(this.frameOutput ? { frameOutput: this.frameOutput } : {}),
     });
+    console.info('[df] video done frame=', frame);
 
     const CK = (globalThis as CanvasKitGlobal).__canvasKit;
     if (!CK) throw new Error('CanvasKit is not initialized');
@@ -118,6 +136,7 @@ export class RenderSession {
 
     renderEncodedDrawFrame(result.ir, surface.getCanvas(), CK, { surface });
     surface.flush();
+    console.info('[df] replay done frame=', frame);
     return { comp, surface, CK };
   }
 
@@ -163,5 +182,6 @@ export class RenderSession {
   /// 释放绑定在 canvas 上的可复用 surface（页面卸载 / 导出收尾）。
   destroy(): void {
     releaseReusableSurface(this.canvas);
+    disposeGpuExecutors();
   }
 }

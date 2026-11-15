@@ -164,11 +164,29 @@ pub fn scope_font_db<R>(db: &Arc<fontdb::Database>, f: impl FnOnce() -> R) -> R 
     })
 }
 
+thread_local! {
+    /// 帧外脚本时机的兜底库。帧内求值有 `scope_font_db` 精确库；但脚本也会
+    /// 在无 scope 的时机触达文本度量（parse 期顶层 `measureText`、session
+    /// 泵里的 realm flush 回调），此时 scoped 查不到——宿主装载完字体后
+    /// 经 [`set_script_fallback_db`] 注入，避免退回空库（cosmic-text 在
+    /// 零 face 库上 shape 直接 panic，wasm trap 还会泄漏脚本桥的借用
+    /// guard，后续所有 binding 报 already_borrowed）。
+    static SCRIPT_FALLBACK_DB: RefCell<Option<Arc<fontdb::Database>>> =
+        const { RefCell::new(None) };
+}
+
+/// 宿主注入帧外脚本度量的兜底字体库（engine: html 默认面+系统目录；
+/// web: base faces）。幂等覆盖。
+pub fn set_script_fallback_db(db: Arc<fontdb::Database>) {
+    SCRIPT_FALLBACK_DB.with(|cell| *cell.borrow_mut() = Some(db));
+}
+
 /// `Arc` 共享的 scoped 字体库。clone 仅增加引用计数，脚本每次 `measureText` /
 /// `fillText` 不再深拷贝整库。
 fn font_db_for_script() -> Arc<fontdb::Database> {
     SCOPED_FONT_DB
         .with(|cell| cell.borrow().clone())
+        .or_else(|| SCRIPT_FALLBACK_DB.with(|cell| cell.borrow().clone()))
         .unwrap_or_else(|| Arc::new(empty_font_db()))
 }
 
@@ -1018,7 +1036,7 @@ fn text_attrs<'a>(style: &'a ComputedTextStyle, db: &fontdb::Database) -> Attrs<
     // 字面族名不在字体库里时不能直接交给 cosmic——它会让未知族落到
     // 库里首个 face（可能是 CJK/符号字体，空格前进宽 ~1em，整行断开）。
     // 与浏览器一致：整条栈都缺时退到通用族。
-    // 先试已解析的族名（JSX 的 manifest face），再按 CSS 族栈顺序找第一个
+    // 先试已解析的族名（字体清单 face），再按 CSS 族栈顺序找第一个
     // 装在字体库里的族——浏览器就是这么选的，k3 的
     // `"Inter","Helvetica Neue",Arial,sans-serif` 落到 Arial。
     let installed = |name: &str| {

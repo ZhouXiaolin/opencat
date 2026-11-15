@@ -109,24 +109,21 @@ pub fn open(
     mut loader: EngineLoader,
     scripts: EngineJsContext,
 ) -> Result<EnginePipeline> {
-    // Both remaining frontends (JSONL text, JSX) parse through source_io into a
-    // self-contained ParsedComposition (tree extracted, driver embedded as the
-    // script source). The host then fetches document font bytes + registers
-    // cache handles; family index / fallback / fontdb merge happen in core
-    // prepare (#19).
+    // HTML/JS dist 是唯一入口：提取宿主把文档树与 driver 装进
+    // ParsedComposition，字体字节与缓存句柄随后由宿主补齐；core prepare
+    // 合并字体库并打开管线。
     let base_dir = loader
         .base_dir()
         .canonicalize()
         .unwrap_or_else(|_| loader.base_dir().to_path_buf());
-    // HTML 前端（docs/html-align/DESIGN.md）：hyperframes 页面按内容嗅探
-    // 分流——源文本以「<」开头即 HTML 通道（doctype/`<html`/注释/`<template`
-    // 包裹的子工程都是）；JSX 是代码，永远以标识符或 import 开头。
-    let looks_html = input.trim_start().starts_with('<');
-    let parsed = if looks_html {
-        crate::script::html::parse_with_base_dir(input, Some(&base_dir))?
-    } else {
-        crate::script::jsx::parse_with_base_dir(input, Some(&base_dir))?
-    };
+    // 退役源级 JSX 入口：作者侧 JSX/Remotion 先由 Vite 等打包器编译成
+    // HTML/JS dist，再按标准 HTML 文档导入。引擎只保留这一条入口。
+    if !input.trim_start().starts_with('<') {
+        anyhow::bail!(
+            "opencat accepts HTML/dist documents only; compile JSX/Remotion sources to HTML/JS first"
+        );
+    }
+    let parsed = crate::script::html::parse_with_base_dir(input, Some(&base_dir))?;
     let font_bytes = loader.load_font_manifest(&parsed.font_manifest)?;
     loader.register_font_handles(&parsed.font_manifest, &font_bytes)?;
     let host = open_parsed_host_owned_with_fonts(

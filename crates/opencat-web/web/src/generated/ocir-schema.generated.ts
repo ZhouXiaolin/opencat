@@ -308,6 +308,63 @@ export const OPCODE_FIELDS: readonly (readonly { name: string; bytes: number }[]
 
 
 // ---------------------------------------------------------------------------
+         // GPU stream WebGPU opcodes — authority: ir/gpu_stream.rs wgpu_opcode.
+         // One command = `[WOP: u8][WGPU_PAYLOAD_LEN[WOP] payload]`; the only
+         // variable-length entry (QUEUE_SUBMIT, count-prefixed) is `-1`.
+         // ---------------------------------------------------------------------------
+
+         export const WGPU_BACKEND_WEBGL2: number = 0;
+
+         export const WGPU_BACKEND_WEBGPU: number = 1;
+
+         export const WGPU = {
+    BUFFER_CREATE: 0,
+    TEXTURE_CREATE: 1,
+    TEXTURE_VIEW_CREATE: 2,
+    SAMPLER_CREATE: 3,
+    BIND_GROUP_LAYOUT_CREATE: 4,
+    BIND_GROUP_CREATE: 5,
+    PIPELINE_LAYOUT_CREATE: 6,
+    SHADER_MODULE_CREATE: 7,
+    RENDER_PIPELINE_CREATE: 8,
+    COMPUTE_PIPELINE_CREATE: 9,
+    QUERY_SET_CREATE: 10,
+    RENDER_BUNDLE_ENCODER_CREATE: 11,
+    RESOURCE_DESTROY: 12,
+    CANVAS_CONFIGURE: 13,
+    CANVAS_GET_CURRENT_TEXTURE: 14,
+    QUEUE_WRITE_BUFFER: 15,
+    QUEUE_WRITE_TEXTURE: 16,
+    QUEUE_SUBMIT: 17,
+    ENC_BEGIN_RENDER_PASS: 18,
+    ENC_COPY_BUFFER_TO_BUFFER: 19,
+    ENC_COPY_TEXTURE_TO_TEXTURE: 20,
+    ENC_COPY_TEXTURE_TO_BUFFER: 21,
+    ENC_COPY_BUFFER_TO_TEXTURE: 22,
+    ENC_FINISH: 23,
+    PASS_SET_PIPELINE: 24,
+    PASS_SET_BIND_GROUP: 25,
+    PASS_SET_VERTEX_BUFFER: 26,
+    PASS_SET_INDEX_BUFFER: 27,
+    PASS_SET_VIEWPORT: 28,
+    PASS_SET_SCISSOR_RECT: 29,
+    PASS_SET_BLEND_CONSTANT: 30,
+    PASS_SET_STENCIL_REFERENCE: 31,
+    PASS_DRAW: 32,
+    PASS_DRAW_INDEXED: 33,
+    PASS_DRAW_INDIRECT: 34,
+    PASS_DRAW_INDEXED_INDIRECT: 35,
+    PASS_END: 36,
+    ENC_BEGIN_COMPUTE_PASS: 37,
+    PASS_DISPATCH_WORKGROUPS: 38,
+    PASS_DISPATCH_WORKGROUPS_INDIRECT: 39,
+} as const;
+
+         /// Payload length per WGPU opcode; -1 = variable (QUEUE_SUBMIT).
+         export const WGPU_PAYLOAD_LEN: readonly number[] = [8, 8, 12, 8, 8, 8, 8, 8, 8, 8, 8, 8, 4, 9, 4, 16, 16, -1, 12, 36, 8, 8, 8, 8, 8, 12, 20, 17, 28, 20, 20, 8, 20, 24, 16, 16, 4, 12, 16, 16] as const;
+
+
+// ---------------------------------------------------------------------------
 // PathOp sub-opcodes (embedded in PATH_OP payload)
 // ---------------------------------------------------------------------------
 

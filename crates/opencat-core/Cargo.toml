@@ -58,7 +58,6 @@ oxc_diagnostics.workspace = true
 oxc_parser.workspace = true
 oxc_semantic.workspace = true
 oxc_span.workspace = true
-oxc_transformer.workspace = true
 rayon.workspace = true
 # SVG 对齐工程（docs/svg-align/PLAN.md）：保留 usvg 做解析，绘制侧自研
 # （Tree→DrawOp）。resvg 以 fork（ZhouXiaolin/resvg）的 git submodule 形态

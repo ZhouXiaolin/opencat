@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 #[command(
     name = "opencat",
     version,
-    about = "Render or preview an OpenCat composition (.jsx)"
+    about = "Render or preview an OpenCat HTML/dist composition"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -21,7 +21,7 @@ struct Cli {
 enum Command {
     /// Render a composition file to MP4, or to a single PNG frame.
     Render {
-        /// Input `.jsx` composition file.
+        /// Input HTML/dist composition document.
         input: PathBuf,
         /// Output path. Defaults to `out/<stem>.mp4`; a `.png` path renders one frame.
         output: Option<String>,
@@ -29,7 +29,7 @@ enum Command {
         frame: Option<u32>,
         /// Directory for relative asset paths (`assets/fonts/...`). Defaults to
         /// the input file's directory. Set it when the input is a build artifact
-        /// living outside the project (e.g. `dist/index.bundle.jsx`).
+        /// living outside the project (e.g. `dist/index.html`).
         #[arg(long, value_name = "DIR")]
         base_dir: Option<PathBuf>,
         /// Render only these frames as a PNG sequence into the `output`
@@ -44,12 +44,12 @@ enum Command {
     },
     /// Preview a composition in a native window (looped playback with audio).
     View {
-        /// Input `.jsx` composition file — the same artifact `render` consumes
-        /// (usually the compiled `dist/<stem>.bundle.jsx`).
+        /// Input HTML/dist composition document — the same artifact `render`
+        /// consumes (usually the compiled `dist/index.html`).
         input: PathBuf,
         /// Directory for relative asset paths (`assets/fonts/...`). Defaults to
         /// the input file's directory. Set it when the input is a build artifact
-        /// living outside the project (e.g. `dist/index.bundle.jsx`).
+        /// living outside the project (e.g. `dist/index.html`).
         #[arg(long, value_name = "DIR")]
         base_dir: Option<PathBuf>,
         /// Preview scale (0, 1]. Defaults to 1.0 (composition resolution).
@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-/// Preserve the legacy bare-invocation form (`opencat input.jsx …`) by injecting the
+/// Preserve the legacy bare-invocation form (`opencat input.html …`) by injecting the
 /// implicit `render` subcommand when the first argument is not itself a known
 /// subcommand or a help/version flag.
 fn default_render_subcommand(mut args: Vec<OsString>) -> Vec<OsString> {

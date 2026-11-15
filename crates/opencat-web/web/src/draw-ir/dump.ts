@@ -24,6 +24,14 @@ export function dumpEncodedFrameOps(encoded: EncodedDrawFrame, limit = 400): str
   const lines: string[] = [];
   const push = (s: string) => lines.push(s);
   push(`ops=${entries.length} subtrees=${frame.subtrees.length} paths=${frame.paths.length} strings=${frame.strings.length}`);
+  // Non-default paints, blend first — a missing/wrong mix-blend-mode on the
+  // wire shows up here without wading through the op stream.
+  const blendNames = ['Clear', 'Src', 'Dst', 'SrcOver', 'DstOver', 'SrcIn', 'DstIn', 'SrcOut', 'DstOut', 'SrcATop', 'DstATop', 'Xor', 'Plus', 'Modulate', 'Screen', 'Overlay', 'Darken', 'Lighten', 'ColorDodge', 'ColorBurn', 'HardLight', 'SoftLight', 'Difference', 'Exclusion', 'Multiply', 'Hue', 'Saturation', 'Color', 'Luminosity'];
+  frame.paints.forEach((sp, i) => {
+    if (sp && sp.blendMode !== 3) {
+      push(`paint[${i}]: blend=${blendNames[sp.blendMode] ?? sp.blendMode}`);
+    }
+  });
   const n = Math.min(entries.length, limit);
   for (let i = 0; i < n; i++) {
     const e = entries[i];
@@ -100,13 +108,19 @@ export function dumpEncodedFrameOps(encoded: EncodedDrawFrame, limit = 400): str
       default: {
         // Wire-authoritative generic dump straight from the OPCODE_FIELDS
         // layout table — new opcodes dump correctly without touching this
-        // file (the third hand-written field-order copy ends here).
+        // file (the third hand-written field-order copy ends here). u8
+        // fields read 1 byte; a 4-byte stride here would overrun mixed-
+        // width payloads (FILL_PATTERN/MASK_CLIP) and throw RangeError.
         const fields = OPCODE_FIELDS[e.opcode] ?? [];
         const parts: string[] = [];
         for (const field of fields) {
           const bytes = field.bytes;
           const width = bytes === 1 ? 'u8' : bytes === 4 ? 'u32' : 'f32x' + bytes / 4;
           parts.push(`${field.name}(${width})`);
+          if (bytes === 1) {
+            p.u8();
+            continue;
+          }
           for (let b = 0; b < bytes; b += 4) p.u32();
         }
         detail = parts.join(' ') || `${e.payloadLen}B`;

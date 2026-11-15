@@ -1,5 +1,5 @@
 //! Throwaway debug driver: step through the harness page calls one by one
-//! and keep full JS stacks. `cargo run --bin web-eval -- <input.jsx> [frame]`
+//! and keep full JS stacks. `cargo run --bin web-eval -- <input.html> [frame]`
 
 use std::path::PathBuf;
 
@@ -86,6 +86,39 @@ async fn run(cli: Cli, envelope: String) -> Result<()> {
                 cli.frame
             ),
         ),
+        (
+            "blend_probe",
+            // Minimal saveLayer(Difference) check on this browser's CanvasKit:
+            // grey backdrop + white layer content must decode to black
+            // (|1-1|=0); SrcOver fallback shows 255. Also probes a
+            // non-fullscreen bounds rect — Skia GL advanced-blend fallbacks
+            // can differ between exact-cover and partial rects.
+            r#"(async () => {
+              const CK = globalThis.__canvasKit;
+              if (!CK) return 'no canvaskit';
+              const out = {};
+              for (const [tag, w, h] of [['full', 64, 64], ['part', 64, 64]]) {
+                const surface = CK.MakeSurface(w, h);
+                const cv = surface.getCanvas();
+                cv.clear(CK.Color4f(0.5, 0.5, 0.5, 1));
+                const bg = new CK.Paint(); bg.setColor(CK.Color4f(1, 1, 1, 1));
+                cv.drawCircle(32, 32, 22, bg);
+                const lp = new CK.Paint(); lp.setBlendMode(CK.BlendMode.Difference);
+                const bounds = CK.LTRBRect(0, 0, w, h);
+                cv.saveLayer(lp, bounds);
+                const fg = new CK.Paint(); fg.setColor(CK.Color4f(1, 1, 1, 1));
+                cv.drawRect(bounds, fg);
+                cv.restore();
+                surface.flush();
+                const img = surface.makeImageSnapshot();
+                const px = img.readPixels(0, 0, { width: w, height: h, colorType: CK.ColorType.RGBA_8888, alphaType: CK.AlphaType.Premul, colorSpace: CK.ColorSpace.SRGB });
+                const i = (32 * 64 + 32) * 4;
+                out[tag] = [px[i], px[i+1], px[i+2]];
+                img.delete(); surface.delete();
+              }
+              return JSON.stringify(out);
+            })()"#.to_string(),
+        ),
     ];
     for (name, js) in &steps {
         match browser.eval_js(js).await {
@@ -96,7 +129,7 @@ async fn run(cli: Cli, envelope: String) -> Result<()> {
 
     // Dump the frame op stream at the requested frame — the IR-level answer
     // to "which layer vanished on web".
-    let dump_js = format!("__opencatOracle.dumpFrameOps({}, 400)", cli.frame);
+    let dump_js = format!("__opencatOracle.dumpFrameOps({}, 9000)", cli.frame);
     match browser.eval_js(&dump_js).await {
         Ok(v) => println!(
             "[ok] dumpFrameOps:\n{}",

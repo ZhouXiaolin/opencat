@@ -46,9 +46,8 @@
     };
     // Bundles commonly alias these at eval time.
     shimWindow.self = shimWindow;
-    // window 事件面从「空操作」升级为真记录 + 派发：hyperframes 通道的
-    // liquid 语料把整帧重绘挂在 `window.addEventListener('hf-seek', …)` 上，
-    // 记录 + 引擎每帧 dispatch 才有画面。无人 dispatch 时行为与空操作一致。
+    // 通用 window 事件记录 + 派发。HyperFrames 私有 `hf-seek` 语义由
+    // `hyperframes_api.js` 扩展层安装，标准层不写事件名字面量。
     var _windowListeners = {};
     shimWindow.addEventListener = function (type, fn) {
         if (typeof fn !== 'function') return;
@@ -68,8 +67,8 @@
                 try {
                     fn.call(shimWindow, ev);
                 } catch (e) {
-                    // 单监听失败不拖垮，但必须留下痕迹：整帧重绘挂在
-                    // hf-seek 上，静默吞掉会让每帧都停在首帧状态且无据可查。
+                    // 单监听失败不拖垮，但必须留下痕迹，避免逐帧重绘失效
+                    // 时每帧停在首帧状态且无据可查。
                     try {
                         (globalThis.__ocLogs = globalThis.__ocLogs || []).push(
                             'window handler ' + ev.type + ' threw: ' + (e && e.stack || e)
@@ -1131,7 +1130,7 @@
 
     // ── 图表宿主容器 ────────────────────────────────────────────────
     // 作者用浏览器写法 `document.querySelector('#chart')` 拿容器，id 指向
-    // JSX 里声明的 <canvas>。容器是影子元素：可 appendChild、私有样式 bag、
+    // 文档里声明的 <canvas>。容器是影子元素：可 appendChild、私有样式 bag、
     // 不进合成树——声明节点句柄的样式写会进合成树，做不到这些。
     // canvas 冒用：图表库自建 `createElement('canvas')` 挂进容器，引擎的
     // 录制 surface 按 canvas 的 id 找 DrawOp 流（makeRecordingSurface →
@@ -1261,7 +1260,7 @@
             if (shadow) return shadow;
             // '#id' 指向声明 canvas 节点：图表宿主容器语义（见
             // ensureCanvasHost）。其余已知 id 保持 element-face 语义；未知
-            // id 兜底成宿主容器（G2 多容器 demo 引用 JSX 里没声明的
+            // id 兜底成宿主容器（G2 多容器 demo 引用文档里没声明的
             // `<div id>`——kChart、focus-context 的副图容器——浏览器里
             // 这些节点由页面 HTML 提供，runner 没法预声明）。
             var registry = (globalThis.ctx && globalThis.ctx.__targetRegistry) || {};
@@ -1339,7 +1338,7 @@
     // canvas 分流）承接，不再有私有 document shim 抢先安装——那会把全
     // realm 的 document 换成元素桩（旧 g2 shim 的违宪形态，已退役）。
     // Web 宿主里 `document` 已存在（宿主页面自己的 DOM），不能替换；作者
-    // 代码通过 `__ocDocument` 拿到合成面，见 jsx_runtime.js 的模块绑定。
+    // 代码通过 `__ocDocument` 拿到合成面，见 dist 模块运行面的形参绑定。
     globalThis.__ocDocument = document;
     globalThis.__ocWindow = shimWindow;
     if (typeof globalThis.document === 'undefined' || !globalThis.document) {
@@ -1439,7 +1438,7 @@
     }
     if (typeof globalThis.requestAnimationFrame !== 'function') {
         globalThis.requestAnimationFrame = function () {
-            throw new Error('requestAnimationFrame is not available in a deterministic renderer; use useEffect(fn) in your component to run per-frame work');
+            throw new Error('requestAnimationFrame is not available in a deterministic renderer; drive frames from the HTML document driver');
         };
         globalThis.cancelAnimationFrame = function () {};
     }

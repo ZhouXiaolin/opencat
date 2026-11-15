@@ -512,7 +512,7 @@ impl CssEngine {
         to_node_style::apply_background_size_to_layers(&mut style);
         style.css_layout = Some(crate::style::CssLayout(taffy_style));
         // 变量继承链只在树形层叠里成立：根节点带根变量表，其余节点只带
-        // 自身定义；无树上下文（JSX 通道）不留重放现场。
+        // 自身定义；无树上下文不留重放现场。
         if ctx.tree_root || ctx.inherited_vars.is_some() {
             style.var_deps = VarDeps::capture(
                 &decls,

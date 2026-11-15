@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "types": ["@webgpu/types"],
     "strict": true,
     "declaration": true,
     "emitDeclarationOnly": true,

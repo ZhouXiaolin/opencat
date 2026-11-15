@@ -423,7 +423,7 @@ pub fn global_team() -> &'static super::team::Team {
         // 打包+降频拖慢 ~4.5x（纯 Rust 对照同现象，非引擎锁）——worker
         // 数钉物理核实测最优（smallpt t8 3.61s vs t16 3.85s）。
         let n = num_cpus::get_physical();
-        super::team::Team::new(n, || Box::new(V8Worker::new()))
+        super::team::Team::new(n, || Box::new(V8Worker::new())).with_shared(true)
     });
     &TEAM
 }

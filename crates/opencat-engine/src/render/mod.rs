@@ -1122,7 +1122,7 @@ impl<'a> FrameRenderer<'a> {
     }
 }
 
-/// Primary render entry: parse JSX → EnginePipeline → encode frames.
+/// Primary render entry: parse HTML/JS dist → EnginePipeline → encode frames.
 pub fn render_from_source(
     source: &str,
     output_path: impl AsRef<Path>,
@@ -1428,7 +1428,7 @@ pub fn render_from_source_with_base(
     Ok(())
 }
 
-/// Render a single frame from a JSX source via EnginePipeline, returning raw RGBA bytes.
+/// Render a single frame from an HTML/JS dist document via EnginePipeline, returning raw RGBA bytes.
 pub fn render_single_frame_from_source(
     source: &str,
     frame_index: u32,

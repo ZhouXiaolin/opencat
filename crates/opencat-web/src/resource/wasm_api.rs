@@ -54,7 +54,7 @@ fn font_manifest_from_source(source: &str) -> anyhow::Result<opencat_core::fonts
     let trimmed = source.trim_start();
     if !trimmed.starts_with('{') {
         anyhow::bail!(
-            "web font manifest: JSX sources are extracted host-side; pass the {{extract, driver}} envelope"
+            "web font manifest: HTML sources are extracted host-side; pass the {{extract, driver}} envelope"
         )
     }
     let envelope: serde_json::Value = serde_json::from_str(trimmed)
@@ -66,7 +66,7 @@ fn font_manifest_from_source(source: &str) -> anyhow::Result<opencat_core::fonts
         .get("meta")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    opencat_core::parse::jsx::font_manifest_from_extract(extract, &meta)
+    opencat_core::parse::extract::font_manifest_from_extract(extract, &meta)
 }
 
 /// 下载 composition source 引用的全部资源，把字节放进 BlobStore，返回 catalog JSON。

@@ -194,7 +194,7 @@ export type ColorFilterSpec =
   | { type: 'srgbToLinearGamma' };
 
 export type MaskFilterSpec = { type: 'blur'; sigma: number; style: number; respectCtm: boolean };
-export type PathEffectSpec = { type: 'dash'; intervals: number[]; phase: number };
+export type PathEffectSpec = { type: 'dash'; intervals: number[] | Float32Array; phase: number };
 export type PathSpec = { fillType: number; ops: PathCommand[] };
 export type PathCommand = { kind: number; values: number[] };
 
@@ -217,7 +217,7 @@ export type DecodedFrame = {
   dataView: DataView;
   ops: Uint8Array;
   subtrees: Uint8Array[];
-  f32Pool: number[];
+  f32Pool: Float32Array;
   rawBytes: Uint8Array;
   byteRanges: Range[];
   strings: string[];
@@ -631,13 +631,19 @@ export function parseOps(ops: Uint8Array): OpEntry[] {
   return entries;
 }
 
-export function parseF32Pool(bytes: Uint8Array): number[] {
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out: number[] = [];
-  for (let offset = 0; offset + 4 <= bytes.byteLength; offset += 4) {
-    out.push(view.getFloat32(offset, true));
+/// F32_POOL 段 → Float32Array 视图（零拷贝）。inspector 语料每帧 ~20 万
+/// f32，逐个 getFloat32+push 进 number[] 实测占解释器段 ~10-20%——视图
+/// 化后解析成本归零。段字节可能非 4 字节对齐（envelope 目录偏移任意），
+/// 未对齐时退化为一次对齐拷贝。
+export function parseF32Pool(bytes: Uint8Array): Float32Array {
+  const count = bytes.byteLength >> 2;
+  if (bytes.byteOffset % 4 === 0) {
+    return new Float32Array(bytes.buffer, bytes.byteOffset, count);
   }
-  return out;
+  const aligned = new Float32Array(count);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = 0; i < count; i++) aligned[i] = view.getFloat32(i * 4, true);
+  return aligned;
 }
 
 export function parseRanges(bytes: Uint8Array): Range[] {

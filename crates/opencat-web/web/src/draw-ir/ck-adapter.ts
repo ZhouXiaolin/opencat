@@ -95,7 +95,7 @@ export type RenderState = {
   lineWidth: number;
   lineCap: number;
   lineJoin: number;
-  lineDash: { intervals: number[]; phase: number } | null;
+  lineDash: { intervals: number[] | Float32Array; phase: number } | null;
   globalAlpha: number;
   /// u8 wire blend enum（SET_BLEND_MODE sticky state，SrcOver=3）。
   blendMode: number;
@@ -204,7 +204,9 @@ export function buildScriptPaint(CK: CanvasKit, state: RenderState, style: 'fill
     paint.setStrokeCap(mapLineCap(CK, state.lineCap));
     paint.setStrokeJoin(mapLineJoin(CK, state.lineJoin));
     if (state.lineDash) {
-      paint.setPathEffect(dispose(CK.PathEffect.MakeDash(state.lineDash.intervals, state.lineDash.phase)));
+      // MakeDash 形参 TS 面是 number[]，JS 运行时接受 Float32Array（F32_POOL
+      // 零拷贝视图已全线跑通）——窄化断言保零拷贝。
+      paint.setPathEffect(dispose(CK.PathEffect.MakeDash(state.lineDash.intervals as number[], state.lineDash.phase)));
     }
   }
   return paint;
@@ -599,7 +601,7 @@ export function buildMaskFilter(CK: CanvasKit, spec: MaskFilterSpec, dispose: Di
 }
 
 export function buildPathEffect(CK: CanvasKit, spec: PathEffectSpec, dispose: Dispose): PathEffect {
-  return dispose(CK.PathEffect.MakeDash(spec.intervals, spec.phase));
+  return dispose(CK.PathEffect.MakeDash(spec.intervals as number[], spec.phase));
 }
 
 export function buildPathById(CK: CanvasKit, frame: DecodedFrame, id: number, pathCache: Map<number, Path>, dispose: Dispose): Path {

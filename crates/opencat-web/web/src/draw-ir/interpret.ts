@@ -450,35 +450,43 @@ export function renderEncodedDrawFrame(
           // 四字节恰为 "OCIR" magic 即证据），每点随机色。
           const cols = frame.rawBytes;
           const pool = frame.f32Pool;
-          const groups = new Map<string, { a: number; rects: number[] }>();
+          // 分组键 = u32 打包（RGBA 四字节）；模板字符串键每点分配一次，
+          // inspector 每帧 6.7 万点实测分组循环占 ~20ms，整数键零分配。
+          const groups = new Map<number, { rects: number[] }>();
           for (let i = 0; i < ovals; i++) {
             const co = colorOff + i * 4;
-            const key = `${cols[co]},${cols[co + 1]},${cols[co + 2]},${cols[co + 3]}`;
+            const key = ((cols[co]! << 24) | (cols[co + 1]! << 16) | (cols[co + 2]! << 8) | cols[co + 3]!) >>> 0;
             let grp = groups.get(key);
             if (!grp) {
-              grp = { a: cols[co + 3]!, rects: [] };
+              grp = { rects: [] };
               groups.set(key, grp);
             }
             const ro = rectOff + i * 4;
             const l = pool[ro], t = pool[ro + 1], w = pool[ro + 2], h = pool[ro + 3];
             // 非有限 rect 会让 skia 崩（GPU 后端 device loss）——池失配时
-            // 丢点并放行其余（位图可见性高于断言，k3diff 门兜底）。
-            if (![l, t, w, h].every((v) => Number.isFinite(v))) continue;
+            // 丢点并放行其余（位图可见性高于断言，k3diff 门兜底）。逐个
+            // 直调替代 [..].every 的数组+闭包分配（每帧 6.7 万次）。
+            if (!Number.isFinite(l) || !Number.isFinite(t) || !Number.isFinite(w) || !Number.isFinite(h)) continue;
             grp.rects.push(l!, t!, w!, h!);
           }
           // 巨型多子路径在 GPU 后端会触发驱动崩溃（66k 子路径单 path →
           // stencil-then-cover 巨路径），按 4096 oval 分块；分块顺序 = 组内
           // 首现序，位图与整块一致。
           const CHUNK = 4096;
+          // paint 跨组复用：状态位（composite/shadow/aa）组间恒同，逐组
+          // 只换色/alpha——此前每组 buildScriptPaint 新分配 + 键字符串
+          // split/Number 解析，1 万组/帧的 churn 占比可观。
+          const paint = dispose(buildScriptPaint(CK, state, 'fill', dispose));
+          // 点色覆盖一切 style state：清 shader（面板 fillStyle 若是渐变，
+          // shader 会盖掉 setColor——engine replay.rs batch 分支同式
+          // set_shader(None)；逐点序列里每点 SetFillStyle 也清 shader）。
+          // 注：drawVertices 顶点扇替代已实验证伪（avg_p8 0.81 vs 0.078，
+          // 顶点光栅化无解析 AA 且 JS 建顶点编组更慢），勿再试。
+          paint.setShader(null);
           for (const [key, grp] of groups) {
-            const [r8, g8, b8, a8] = key.split(',').map(Number);
-            const paint = dispose(buildScriptPaint(CK, state, 'fill', dispose));
-            // 点色覆盖一切 style state：清 shader（面板 fillStyle 若是渐变，
-            // shader 会盖掉 setColor——engine replay.rs batch 分支同式
-            // set_shader(None)；逐点序列里每点 SetFillStyle 也清 shader）。
-            paint.setShader(null);
-            paint.setColor(CK.Color4f(r8! / 255, g8! / 255, b8! / 255, a8! / 255));
-            paint.setAlphaf((a8! / 255) * state.globalAlpha);
+            const a8 = key & 255;
+            paint.setColor(CK.Color4f(((key >>> 24) & 255) / 255, ((key >>> 16) & 255) / 255, ((key >>> 8) & 255) / 255, a8 / 255));
+            paint.setAlphaf((a8 / 255) * state.globalAlpha);
             for (let start = 0; start < grp.rects.length; start += CHUNK * 4) {
               const builder = dispose(new CK.PathBuilder());
               const end = Math.min(grp.rects.length, start + CHUNK * 4);

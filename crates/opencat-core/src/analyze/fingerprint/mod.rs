@@ -28,7 +28,8 @@ use crate::{
     layout::tree::LayoutOutputFingerprint,
 };
 
-use display_item::{DisplayItemFp, F32Hash};
+use crate::fp::FpF32;
+use display_item::DisplayItemFp;
 
 /// subtree picture cache 的 fingerprint。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -42,10 +43,10 @@ impl DisplayClipFingerprint {
         let mut hasher = new_hasher();
         clip.is_some().hash(&mut hasher);
         if let Some(clip) = clip {
-            F32Hash(clip.bounds.x).hash(&mut hasher);
-            F32Hash(clip.bounds.y).hash(&mut hasher);
-            F32Hash(clip.bounds.width).hash(&mut hasher);
-            F32Hash(clip.bounds.height).hash(&mut hasher);
+            FpF32(clip.bounds.x).hash(&mut hasher);
+            FpF32(clip.bounds.y).hash(&mut hasher);
+            FpF32(clip.bounds.width).hash(&mut hasher);
+            FpF32(clip.bounds.height).hash(&mut hasher);
             clip.border_radius.hash(&mut hasher);
         }
         Self(hasher.finish())
@@ -187,20 +188,20 @@ fn hash_display_node_composite_subtree<H: Hasher>(node: &DisplayNode, hasher: &m
 }
 
 fn hash_display_node_composite<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
-    F32Hash(node.transform.translation_x).hash(hasher);
-    F32Hash(node.transform.translation_y).hash(hasher);
-    F32Hash(node.transform.origin.x).hash(hasher);
-    F32Hash(node.transform.origin.y).hash(hasher);
-    F32Hash(node.transform.origin.x_px).hash(hasher);
-    F32Hash(node.transform.origin.y_px).hash(hasher);
-    F32Hash(node.opacity).hash(hasher);
+    FpF32(node.transform.translation_x).hash(hasher);
+    FpF32(node.transform.translation_y).hash(hasher);
+    FpF32(node.transform.origin.x).hash(hasher);
+    FpF32(node.transform.origin.y).hash(hasher);
+    FpF32(node.transform.origin.x_px).hash(hasher);
+    FpF32(node.transform.origin.y_px).hash(hasher);
+    FpF32(node.opacity).hash(hasher);
     node.css_filter_image.hash(hasher);
-    node.backdrop_blur_sigma.map(F32Hash).hash(hasher);
+    node.backdrop_blur_sigma.map(FpF32).hash(hasher);
     node.backdrop_filter_image.hash(hasher);
     node.transform.transforms.hash(hasher);
     node.transform.backface_hidden.hash(hasher);
     node.transform
         .rotation_m4
-        .map(|m| m.0.map(F32Hash))
+        .map(|m| m.0.map(FpF32))
         .hash(hasher);
 }

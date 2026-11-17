@@ -4,24 +4,17 @@ use crate::{
     analyze::fingerprint::hash_hidden_child_display_node,
     display::list::{DisplayItem, TextDisplayItem},
     display::tree::HiddenChildDisplayNode,
-    style::ComputedTextStyle,
+    fp::{FpDim, FpF32},
 };
-
-#[derive(Clone, Copy)]
-pub(super) struct F32Hash(pub(super) f32);
-
-impl Hash for F32Hash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bits().hash(state);
-    }
-}
 
 pub(super) struct TextFp<'a>(pub(super) &'a TextDisplayItem);
 
 impl Hash for TextFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.text.hash(state);
-        TextStyleFp(&self.0.style).hash(state);
+        // ComputedTextStyle 的 display 文本绘制维度（11 字段，语义层同源但
+        // 不含 wrap_text——3b 统一）由 fp_struct! 声明序派生。
+        self.0.style.fp_hash_dim(FpDim::TextPaintDisplay, state);
         // `background-clip: text` gradient layers change the glyph pixels, so
         // they must participate in the paint fingerprint (BackgroundFill is
         // Hash only through its stops; a debug repr is sufficient and cheap
@@ -34,26 +27,26 @@ impl Hash for TextFp<'_> {
         }
         self.0
             .text_fill_box
-            .map(|r| [r.x, r.y, r.width, r.height].map(F32Hash))
+            .map(|r| [r.x, r.y, r.width, r.height].map(FpF32))
             .hash(state);
         self.0.allow_wrap.hash(state);
         self.0.truncate.hash(state);
         // 折行基准宽（取整前盒宽）：同文本不同折行宽 = 不同像素。
-        F32Hash(self.0.wrap_width).hash(state);
+        FpF32(self.0.wrap_width).hash(state);
         // 行内片段决定每段字形的落位（同文本不同折行 = 不同像素）。
         if let Some(fragments) = &self.0.fragments {
             for f in fragments.iter() {
                 f.start.hash(state);
                 f.end.hash(state);
                 [f.rect.x, f.rect.y, f.rect.width, f.rect.height]
-                    .map(F32Hash)
+                    .map(FpF32)
                     .hash(state);
             }
         }
         self.0.drop_shadow.hash(state);
         self.0.text_shadows.hash(state);
-        F32Hash(self.0.visual_expand_x).hash(state);
-        F32Hash(self.0.visual_expand_y).hash(state);
+        FpF32(self.0.visual_expand_x).hash(state);
+        FpF32(self.0.visual_expand_y).hash(state);
         self.0.text_unit_overrides.is_some().hash(state);
         if let Some(batch) = &self.0.text_unit_overrides {
             std::mem::discriminant(&batch.granularity).hash(state);
@@ -76,13 +69,14 @@ impl Hash for DisplayItemFp<'_> {
         match self.0 {
             DisplayItem::Rect(rect) => {
                 0_u8.hash(state);
-                RectPaintFp(&rect.paint).hash(state);
+                // RectPaintStyle 的 impl Hash = Paint 维度（fp_struct! 派生）。
+                rect.paint.hash(state);
             }
             DisplayItem::Timeline(timeline) => {
                 5_u8.hash(state);
-                RectPaintFp(&timeline.paint).hash(state);
+                timeline.paint.hash(state);
                 if let Some(transition) = timeline.transition.as_ref() {
-                    F32Hash(transition.progress).hash(state);
+                    FpF32(transition.progress).hash(state);
                     hash_transition_kind(&transition.kind, state);
                 }
             }
@@ -98,7 +92,7 @@ impl Hash for DisplayItemFp<'_> {
                 bitmap.video_timing.hash(state);
                 bitmap.paint_epoch.hash(state);
                 bitmap.object_fit.hash(state);
-                BitmapPaintFp(&bitmap.paint).hash(state);
+                bitmap.paint.hash(state);
             }
             DisplayItem::Lottie(lottie) => {
                 6_u8.hash(state);
@@ -111,7 +105,7 @@ impl Hash for DisplayItemFp<'_> {
                 lottie.timing.hash(state);
                 lottie.paint_epoch.hash(state);
                 lottie.object_fit.hash(state);
-                BitmapPaintFp(&lottie.paint).hash(state);
+                lottie.paint.hash(state);
             }
             DisplayItem::DrawScript(script) => {
                 3_u8.hash(state);
@@ -131,8 +125,8 @@ impl Hash for DisplayItemFp<'_> {
                 for data in &svg.path_data {
                     data.hash(state);
                 }
-                svg.view_box.map(F32Hash).hash(state);
-                SvgPathPaintFp(&svg.paint).hash(state);
+                svg.view_box.map(FpF32).hash(state);
+                svg.paint.hash(state);
             }
             DisplayItem::Svg(item) => {
                 6_u8.hash(state);
@@ -163,9 +157,9 @@ fn hash_transition_kind<H: Hasher>(kind: &crate::parse::transition::TransitionKi
         }
         crate::parse::transition::TransitionKind::LightLeak(params) => {
             1_u8.hash(state);
-            F32Hash(params.seed).hash(state);
-            F32Hash(params.hue_shift).hash(state);
-            F32Hash(params.mask_scale).hash(state);
+            FpF32(params.seed).hash(state);
+            FpF32(params.hue_shift).hash(state);
+            FpF32(params.mask_scale).hash(state);
         }
         crate::parse::transition::TransitionKind::Gl(effect) => {
             2_u8.hash(state);
@@ -182,83 +176,3 @@ fn hash_transition_kind<H: Hasher>(kind: &crate::parse::transition::TransitionKi
     }
 }
 
-struct TextStyleFp<'a>(&'a ComputedTextStyle);
-
-impl Hash for TextStyleFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.color.hash(state);
-        style.font_weight.hash(state);
-        style.font_style.hash(state);
-        style.text_align.hash(state);
-        F32Hash(style.text_px).hash(state);
-        F32Hash(style.letter_spacing).hash(state);
-        F32Hash(style.line_height).hash(state);
-        style.line_height_px.map(F32Hash).hash(state);
-        style.text_transform.hash(state);
-        style.line_through.hash(state);
-        style.underline.hash(state);
-    }
-}
-
-struct RectPaintFp<'a>(&'a crate::display::list::RectPaintStyle);
-
-impl Hash for RectPaintFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let paint = self.0;
-        paint.background.hash(state);
-        paint.border_radius.hash(state);
-        paint.border_width.map(F32Hash).hash(state);
-        paint.border_top_width.map(F32Hash).hash(state);
-        paint.border_right_width.map(F32Hash).hash(state);
-        paint.border_bottom_width.map(F32Hash).hash(state);
-        paint.border_left_width.map(F32Hash).hash(state);
-        paint.border_color.hash(state);
-        paint.border_top_color.hash(state);
-        paint.border_right_color.hash(state);
-        paint.border_bottom_color.hash(state);
-        paint.border_left_color.hash(state);
-        paint.border_style.hash(state);
-        paint.box_shadow.hash(state);
-        paint.inset_shadow.hash(state);
-        paint.drop_shadow.hash(state);
-    }
-}
-
-pub(super) struct BitmapPaintFp<'a>(pub(super) &'a crate::display::list::BitmapPaintStyle);
-
-impl Hash for BitmapPaintFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let paint = self.0;
-        paint.background.hash(state);
-        paint.border_radius.hash(state);
-        paint.border_width.map(F32Hash).hash(state);
-        paint.border_top_width.map(F32Hash).hash(state);
-        paint.border_right_width.map(F32Hash).hash(state);
-        paint.border_bottom_width.map(F32Hash).hash(state);
-        paint.border_left_width.map(F32Hash).hash(state);
-        paint.border_color.hash(state);
-        paint.border_top_color.hash(state);
-        paint.border_right_color.hash(state);
-        paint.border_bottom_color.hash(state);
-        paint.border_left_color.hash(state);
-        paint.border_style.hash(state);
-        paint.box_shadow.hash(state);
-        paint.inset_shadow.hash(state);
-        paint.drop_shadow.hash(state);
-    }
-}
-
-struct SvgPathPaintFp<'a>(&'a crate::display::list::SvgPathPaintStyle);
-
-impl Hash for SvgPathPaintFp<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let paint = self.0;
-        paint.fill.hash(state);
-        paint.stroke_width.map(F32Hash).hash(state);
-        paint.stroke_color.hash(state);
-        paint.drop_shadow.hash(state);
-        paint.stroke_dasharray.hash(state);
-        paint.stroke_dashoffset.map(F32Hash).hash(state);
-    }
-}

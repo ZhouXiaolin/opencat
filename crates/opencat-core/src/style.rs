@@ -1605,19 +1605,22 @@ impl std::hash::Hash for Transform {
 /// This is a **static** style property, not an animation channel: a script's
 /// `scaleY(...)`/`scale(...)` reads it to know where to pin the node. Defaults to
 /// the box centre (`50% 50%`), matching `apply_transform`'s historical behaviour.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TransformOrigin {
-    /// Horizontal anchor as a fraction of the box width (`0` = left, `1` = right).
-    pub x: f32,
-    /// Vertical anchor as a fraction of the box height (`0` = top, `1` = bottom).
-    pub y: f32,
-    /// Px offset added to the horizontal anchor (`transform-origin: 20px …`).
-    #[serde(default)]
-    pub x_px: f32,
-    /// Px offset added to the vertical anchor (`transform-origin: 50% -390px`).
-    #[serde(default)]
-    pub y_px: f32,
+crate::fp_struct! {
+    @impl_hash [Apply]
+    #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct TransformOrigin {
+        /// Horizontal anchor as a fraction of the box width (`0` = left, `1` = right).
+        pub x: f32 => [Apply] bits,
+        /// Vertical anchor as a fraction of the box height (`0` = top, `1` = bottom).
+        pub y: f32 => [Apply] bits,
+        /// Px offset added to the horizontal anchor (`transform-origin: 20px …`).
+        #[serde(default)]
+        pub x_px: f32 => [Apply] bits,
+        /// Px offset added to the vertical anchor (`transform-origin: 50% -390px`).
+        #[serde(default)]
+        pub y_px: f32 => [Apply] bits,
+    }
 }
 
 impl Default for TransformOrigin {
@@ -2309,35 +2312,35 @@ pub struct NodeStyle {
     pub var_deps: Option<Arc<crate::css::VarDeps>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ComputedTextStyle {
-    pub color: ColorToken,
-    pub text_px: f32,
-    /// Shaping family name; `None` uses generic `sans-serif` (fontdb mapping).
-    pub font_family: Option<String>,
-    /// CSS `font-family` 族栈（按声明顺序，已去引号）。排版层逐个试，第一个
-    /// 装在字体库里的族胜出；全缺时退到 `font_generic`。
-    pub font_stack: Vec<String>,
-    /// Generic-family class of the resolved stack tail; reorders shaping fallback.
-    pub font_generic: Option<GenericFamily>,
-    pub font_weight: FontWeight,
-    /// CSS `font-style`: picks the family's italic face when the manifest
-    /// supplies one. Inherited like the other font properties.
-    pub font_style: FontStyle,
-    pub letter_spacing: f32,
-    pub text_align: TextAlign,
-    pub line_height: f32,
-    pub line_height_px: Option<f32>,
-    pub text_transform: TextTransform,
-    pub wrap_text: bool,
-    /// Set by `whitespace-nowrap`: the text must lay out on a single line even when
-    /// its container has a definite width (overflowing instead of wrapping).
-    pub no_wrap: bool,
-    pub line_through: bool,
-    pub underline: bool,
-    /// CSS `-webkit-text-stroke` (inherited like other font properties).
-    pub text_stroke: Option<TextStroke>,
+crate::fp_struct! {
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ComputedTextStyle {
+        pub color: ColorToken => [TextPaint, TextPaintDisplay],
+        pub text_px: f32 => [TextLayout, TextPaint, TextPaintDisplay] bits,
+        // 字体族解析不进指纹：族表是全量静态资源，族名变化必然伴随
+        // text metrics 之外的手写字段变化（历史行为；3b 复核）。
+        pub font_family: Option<String> => [],
+        pub font_stack: Vec<String> => [],
+        pub font_generic: Option<GenericFamily> => [],
+        pub font_weight: FontWeight => [TextLayout, TextPaint, TextPaintDisplay],
+        /// CSS `font-style`: picks the family's italic face when the manifest
+        /// supplies one. Inherited like the other font properties.
+        pub font_style: FontStyle => [TextLayout, TextPaint, TextPaintDisplay],
+        pub letter_spacing: f32 => [TextLayout, TextPaint, TextPaintDisplay] bits,
+        pub text_align: TextAlign => [TextPaint, TextPaintDisplay],
+        pub line_height: f32 => [TextLayout, TextPaint, TextPaintDisplay] bits,
+        pub line_height_px: Option<f32> => [TextLayout, TextPaint, TextPaintDisplay] opt_bits,
+        pub text_transform: TextTransform => [TextLayout, TextPaint, TextPaintDisplay],
+        pub wrap_text: bool => [TextLayout, TextPaint],
+        /// Set by `whitespace-nowrap`: the text must lay out on a single line even when
+        /// its container has a definite width (overflowing instead of wrapping).
+        pub no_wrap: bool => [TextLayout],
+        pub line_through: bool => [TextPaint, TextPaintDisplay],
+        pub underline: bool => [TextPaint, TextPaintDisplay],
+        // -webkit-text-stroke 不进指纹（历史行为；display 层 stroke 消费未覆盖）。
+        pub text_stroke: Option<TextStroke> => [],
+    }
 }
 
 impl std::hash::Hash for ComputedTextStyle {

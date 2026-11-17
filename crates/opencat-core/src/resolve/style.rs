@@ -114,127 +114,135 @@ impl InheritedStyle {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ComputedLayoutStyle {
-    pub position: Position,
-    /// 显式定位（CSS `relative`/`absolute`/`fixed`）：是绝对定位后代的包含块。
-    /// `position` 把 static 与 relative 都记成 Relative，这一位补上二者之差。
-    pub positioned: bool,
-    pub inset_left: Option<LengthPercentageAuto>,
-    pub inset_top: Option<LengthPercentageAuto>,
-    pub inset_right: Option<LengthPercentageAuto>,
-    pub inset_bottom: Option<LengthPercentageAuto>,
-    pub width: Option<f32>,
-    pub width_percent: Option<f32>,
-    pub height_percent: Option<f32>,
-    pub height: Option<f32>,
-    pub max_width: Option<f32>,
-    pub padding_top: f32,
-    pub padding_right: f32,
-    pub padding_bottom: f32,
-    pub padding_left: f32,
-    pub margin_top: LengthPercentageAuto,
-    pub margin_right: LengthPercentageAuto,
-    pub margin_bottom: LengthPercentageAuto,
-    pub margin_left: LengthPercentageAuto,
-    pub min_height: Option<LengthPercentageAuto>,
-    pub min_width: Option<LengthPercentageAuto>,
-    pub is_flex: bool,
-    pub is_grid: bool,
-    /// 行内格式化（docs/html-align/DESIGN.md）：HTML 前端里子节点全为
-    /// span 的 div 是一行行内内容；布局端在 taffy 之后按 advance 串接
-    /// 重排（taffy 无行内流）。浏览器语义的真实现，非近似节点。
-    pub inline_flow: bool,
-    /// CSS `display` 外部类型为 inline（inline-block 等）。
-    pub inline_level: bool,
-    /// 原子行内盒（inline-block/inline-flex/…）：行内流里整体排行。
-    pub inline_atomic: bool,
-    /// 行内流里原子盒的 `vertical-align`。
-    pub vertical_align: crate::style::VerticalAlign,
-    pub grid_template_columns: Option<u16>,
-    pub grid_template_rows: Option<u16>,
-    pub grid_auto_flow: Option<GridAutoFlow>,
-    pub grid_auto_rows: Option<GridAutoRows>,
-    pub col_start: Option<GridPlacement>,
-    pub col_end: Option<GridPlacement>,
-    pub row_start: Option<GridPlacement>,
-    pub row_end: Option<GridPlacement>,
-    pub auto_size: bool,
-    pub flex_direction: FlexDirection,
-    pub justify_content: JustifyContent,
-    pub align_items: AlignItems,
-    pub flex_wrap: FlexWrap,
-    pub align_content: Option<JustifyContent>,
-    pub align_self: Option<AlignItems>,
-    pub justify_items: Option<AlignItems>,
-    pub justify_self: Option<AlignItems>,
-    pub gap: f32,
-    pub gap_x: Option<f32>,
-    pub gap_y: Option<f32>,
-    pub order: i32,
-    pub aspect_ratio: Option<f32>,
-    pub flex_basis: Option<LengthPercentageAuto>,
-    pub flex_grow: f32,
-    pub flex_shrink: Option<f32>,
-    pub z_index: i32,
-    pub truncate: bool,
+crate::fp_struct! {
+    #[derive(Clone, Debug)]
+    pub struct ComputedLayoutStyle {
+        pub position: Position => [Layout],
+        /// 显式定位（CSS `relative`/`absolute`/`fixed`）：是绝对定位后代的包含块。
+        /// `position` 把 static 与 relative 都记成 Relative，这一位补上二者之差。
+        pub positioned: bool => [Layout],
+        pub inset_left: Option<LengthPercentageAuto> => [Layout],
+        pub inset_top: Option<LengthPercentageAuto> => [Layout],
+        pub inset_right: Option<LengthPercentageAuto> => [Layout],
+        pub inset_bottom: Option<LengthPercentageAuto> => [Layout],
+        pub width: Option<f32> => [Layout] opt_bits,
+        pub width_percent: Option<f32> => [Layout] opt_bits,
+        // height_percent 不进布局指纹（历史行为；3b 复核是否补）。
+        pub height_percent: Option<f32> => [],
+        pub height: Option<f32> => [Layout] opt_bits,
+        pub max_width: Option<f32> => [Layout] opt_bits,
+        pub padding_top: f32 => [Layout] bits,
+        pub padding_right: f32 => [Layout] bits,
+        pub padding_bottom: f32 => [Layout] bits,
+        pub padding_left: f32 => [Layout] bits,
+        pub margin_top: LengthPercentageAuto => [Layout],
+        pub margin_right: LengthPercentageAuto => [Layout],
+        pub margin_bottom: LengthPercentageAuto => [Layout],
+        pub margin_left: LengthPercentageAuto => [Layout],
+        pub min_height: Option<LengthPercentageAuto> => [Layout],
+        pub min_width: Option<LengthPercentageAuto> => [Layout],
+        pub is_flex: bool => [Layout],
+        pub is_grid: bool => [Layout],
+        /// 行内格式化（docs/html-align/DESIGN.md）：HTML 前端里子节点全为
+        /// span 的 div 是一行行内内容；布局端在 taffy 之后按 advance 串接
+        /// 重排（taffy 无行内流）。浏览器语义的真实现，非近似节点。
+        pub inline_flow: bool => [Layout],
+        // inline_level 不进布局指纹（历史行为；3b 复核是否补）。
+        pub inline_level: bool => [],
+        /// 原子行内盒（inline-block/inline-flex/…）：行内流里整体排行。
+        pub inline_atomic: bool => [Layout],
+        /// 行内流里原子盒的 `vertical-align`。
+        pub vertical_align: crate::style::VerticalAlign => [Layout],
+        pub grid_template_columns: Option<u16> => [Layout],
+        pub grid_template_rows: Option<u16> => [Layout],
+        pub grid_auto_flow: Option<GridAutoFlow> => [Layout],
+        pub grid_auto_rows: Option<GridAutoRows> => [Layout],
+        pub col_start: Option<GridPlacement> => [Layout],
+        pub col_end: Option<GridPlacement> => [Layout],
+        pub row_start: Option<GridPlacement> => [Layout],
+        pub row_end: Option<GridPlacement> => [Layout],
+        pub auto_size: bool => [Layout],
+        pub flex_direction: FlexDirection => [Layout],
+        pub justify_content: JustifyContent => [Layout],
+        pub align_items: AlignItems => [Layout],
+        pub flex_wrap: FlexWrap => [Layout],
+        pub align_content: Option<JustifyContent> => [Layout],
+        pub align_self: Option<AlignItems> => [Layout],
+        pub justify_items: Option<AlignItems> => [Layout],
+        pub justify_self: Option<AlignItems> => [Layout],
+        pub gap: f32 => [Layout] bits,
+        pub gap_x: Option<f32> => [Layout] opt_bits,
+        pub gap_y: Option<f32> => [Layout] opt_bits,
+        pub order: i32 => [Layout],
+        pub aspect_ratio: Option<f32> => [Layout] opt_bits,
+        pub flex_basis: Option<LengthPercentageAuto> => [Layout],
+        pub flex_grow: f32 => [Layout] bits,
+        pub flex_shrink: Option<f32> => [Layout] opt_bits,
+        pub z_index: i32 => [Layout],
+        pub truncate: bool => [Layout],
+    }
 }
 
-#[derive(Clone, Debug)]
-pub struct ComputedVisualStyle {
-    pub opacity: f32,
-    /// 计算 `visibility: hidden`：不画自己（盒子仍占布局），子元素可以
-    /// 用 `visible` 重新显示。
-    pub hidden: bool,
-    pub blend_mode: BlendMode,
-    /// CSS `background-blend-mode` between this element's background layers.
-    pub background_blend_mode: BlendMode,
-    pub background: Vec<BackgroundFill>,
-    /// CSS `background-clip`. Only `Text` is acted on (gradient-filled glyphs).
-    pub background_clip: crate::style::BackgroundClip,
-    pub fill: Option<BackgroundFill>,
-    pub border_radius: crate::style::BorderRadius,
-    pub border_width: Option<f32>,
-    pub border_top_width: Option<f32>,
-    pub border_right_width: Option<f32>,
-    pub border_bottom_width: Option<f32>,
-    pub border_left_width: Option<f32>,
-    pub border_color: Option<crate::style::ColorToken>,
-    pub border_top_color: Option<crate::style::ColorToken>,
-    pub border_right_color: Option<crate::style::ColorToken>,
-    pub border_bottom_color: Option<crate::style::ColorToken>,
-    pub border_left_color: Option<crate::style::ColorToken>,
-    pub stroke_color: Option<crate::style::ColorToken>,
-    pub stroke_width: Option<f32>,
-    pub stroke_dasharray: Option<crate::style::StrokeDash>,
-    pub stroke_dashoffset: Option<f32>,
-    pub border_style: Option<crate::style::BorderStyle>,
-    pub css_filter: CssFilter,
-    pub backdrop_blur_sigma: Option<f32>,
-    /// CSS `backdrop-filter` 的非 blur 算子（blur 走 `backdrop_blur_sigma`）。
-    pub backdrop_filter: CssFilter,
-    /// CSS `mask-image`：本元素及其子树合成后按它裁剪 alpha。
-    pub mask_image: Option<crate::style::MaskImage>,
-    pub object_fit: ObjectFit,
-    pub clip_contents: bool,
-    /// `clip_contents` 只作用于横向（`overflow-x:clip; overflow-y:visible`）。
-    pub clip_x_only: bool,
-    /// 作者显式写了 `overflow: visible`（见 [`NodeStyle::overflow_visible`]）。
-    /// 内联 svg 默认按视口裁剪，只有这个标记为真时才让内容溢出盒外。
-    pub overflow_visible: bool,
-    pub clip_path: Option<ClipPath>,
-    pub transforms: Vec<Transform>,
-    /// Static `transform-origin` anchor (fractions of the box). Defaults to centre.
-    pub transform_origin: TransformOrigin,
-    /// CSS `perspective` distance; `None` = children stay orthographic.
-    pub perspective: Option<f32>,
-    /// CSS `transform-style: preserve-3d` — children share this node's 3-D space.
-    pub transform_style_preserve_3d: bool,
-    /// CSS `backface-visibility: hidden` — skip this node when it faces away.
-    pub backface_visibility_hidden: bool,
-    pub box_shadow: Vec<BoxShadow>,
-    pub inset_shadow: Vec<InsetShadow>,
-    pub drop_shadow: Vec<DropShadow>,
-    pub text_shadows: Vec<TextShadow>,
-    pub svg_path: Option<String>,
+crate::fp_struct! {
+    #[derive(Clone, Debug)]
+    pub struct ComputedVisualStyle {
+        pub opacity: f32 => [Apply] bits,
+        /// 计算 `visibility: hidden`：不画自己（盒子仍占布局），子元素可以
+        /// 用 `visible` 重新显示。
+        pub hidden: bool => [Paint],
+        // blend_mode / background_blend_mode 不进元素级指纹（历史行为，
+        // 评审已审计的漏项；3b 补——消费面在 composite/replay 时段）。
+        pub blend_mode: BlendMode => [],
+        pub background_blend_mode: BlendMode => [],
+        pub background: Vec<BackgroundFill> => [Paint],
+        // background_clip 只影响渐变文本填充，display 层 TextFp 经
+        // text_fill 覆盖（历史行为；3b 复核元素级是否补）。
+        pub background_clip: crate::style::BackgroundClip => [],
+        pub fill: Option<BackgroundFill> => [Paint],
+        pub border_radius: crate::style::BorderRadius => [Paint],
+        pub border_width: Option<f32> => [Paint] opt_bits,
+        pub border_top_width: Option<f32> => [Paint] opt_bits,
+        pub border_right_width: Option<f32> => [Paint] opt_bits,
+        pub border_bottom_width: Option<f32> => [Paint] opt_bits,
+        pub border_left_width: Option<f32> => [Paint] opt_bits,
+        pub border_color: Option<crate::style::ColorToken> => [Paint],
+        pub border_top_color: Option<crate::style::ColorToken> => [Paint],
+        pub border_right_color: Option<crate::style::ColorToken> => [Paint],
+        pub border_bottom_color: Option<crate::style::ColorToken> => [Paint],
+        pub border_left_color: Option<crate::style::ColorToken> => [Paint],
+        pub stroke_color: Option<crate::style::ColorToken> => [Paint],
+        pub stroke_width: Option<f32> => [Paint] opt_bits,
+        pub stroke_dasharray: Option<crate::style::StrokeDash> => [Paint],
+        pub stroke_dashoffset: Option<f32> => [Paint] opt_bits,
+        pub border_style: Option<crate::style::BorderStyle> => [Paint],
+        pub css_filter: CssFilter => [Apply],
+        pub backdrop_blur_sigma: Option<f32> => [Apply] opt_bits,
+        /// CSS `backdrop-filter` 的非 blur 算子（blur 走 `backdrop_blur_sigma`）。
+        pub backdrop_filter: CssFilter => [Apply],
+        /// CSS `mask-image`：本元素及其子树合成后按它裁剪 alpha。
+        pub mask_image: Option<crate::style::MaskImage> => [Apply],
+        pub object_fit: ObjectFit => [Paint],
+        pub clip_contents: bool => [Paint],
+        /// `clip_contents` 只作用于横向（`overflow-x:clip; overflow-y:visible`）。
+        pub clip_x_only: bool => [Paint],
+        // overflow_visible 经 display 层 Svg 项的 clip_overflow 体现（历史
+        // 行为；3b 复核元素级是否补）。
+        pub overflow_visible: bool => [],
+        pub clip_path: Option<ClipPath> => [Paint],
+        pub transforms: Vec<Transform> => [Apply],
+        /// Static `transform-origin` anchor (fractions of the box). Defaults to centre.
+        pub transform_origin: TransformOrigin => [Apply],
+        /// CSS `perspective` distance; `None` = children stay orthographic.
+        pub perspective: Option<f32> => [Apply] opt_bits,
+        /// CSS `transform-style: preserve-3d` — children share this node's 3-D space.
+        pub transform_style_preserve_3d: bool => [Apply],
+        /// CSS `backface-visibility: hidden` — skip this node when it faces away.
+        pub backface_visibility_hidden: bool => [Apply],
+        pub box_shadow: Vec<BoxShadow> => [Paint],
+        pub inset_shadow: Vec<InsetShadow> => [Paint],
+        pub drop_shadow: Vec<DropShadow> => [Paint],
+        // text_shadows 进 display 层 TextFp（历史行为）。
+        pub text_shadows: Vec<TextShadow> => [],
+        pub svg_path: Option<String> => [Paint],
+    }
 }

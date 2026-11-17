@@ -233,59 +233,71 @@ pub struct DrawScriptDisplayItem {
     pub hidden_subtree: Vec<crate::display::tree::HiddenChildDisplayNode>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct RectPaintStyle {
-    pub background: Vec<BackgroundFill>,
-    pub blend_mode: BlendMode,
-    pub background_blend_mode: BlendMode,
-    pub border_radius: BorderRadius,
-    pub border_width: Option<f32>,
-    pub border_top_width: Option<f32>,
-    pub border_right_width: Option<f32>,
-    pub border_bottom_width: Option<f32>,
-    pub border_left_width: Option<f32>,
-    pub border_color: Option<ColorToken>,
-    /// 分边颜色（top/right/bottom/left），`None` 的边走 `border_color`。
-    pub border_top_color: Option<ColorToken>,
-    pub border_right_color: Option<ColorToken>,
-    pub border_bottom_color: Option<ColorToken>,
-    pub border_left_color: Option<ColorToken>,
-    pub border_style: Option<BorderStyle>,
-    pub box_shadow: Vec<BoxShadow>,
-    pub inset_shadow: Vec<InsetShadow>,
-    pub drop_shadow: Vec<DropShadow>,
-    pub backdrop_blur_sigma: Option<f32>,
+crate::fp_struct! {
+    @impl_hash [Paint]
+    #[derive(Clone, Debug, Default)]
+    pub struct RectPaintStyle {
+        pub background: Vec<BackgroundFill> => [Paint],
+        // blend_mode / background_blend_mode / backdrop_blur_sigma 不进绘制
+        // 指纹（历史行为，评审已审计的漏项；3b 补——backdrop_blur_sigma 疑
+        // 死字段，3b 一并裁决）。
+        pub blend_mode: BlendMode => [],
+        pub background_blend_mode: BlendMode => [],
+        pub border_radius: BorderRadius => [Paint],
+        pub border_width: Option<f32> => [Paint] opt_bits,
+        pub border_top_width: Option<f32> => [Paint] opt_bits,
+        pub border_right_width: Option<f32> => [Paint] opt_bits,
+        pub border_bottom_width: Option<f32> => [Paint] opt_bits,
+        pub border_left_width: Option<f32> => [Paint] opt_bits,
+        pub border_color: Option<ColorToken> => [Paint],
+        /// 分边颜色（top/right/bottom/left），`None` 的边走 `border_color`。
+        pub border_top_color: Option<ColorToken> => [Paint],
+        pub border_right_color: Option<ColorToken> => [Paint],
+        pub border_bottom_color: Option<ColorToken> => [Paint],
+        pub border_left_color: Option<ColorToken> => [Paint],
+        pub border_style: Option<BorderStyle> => [Paint],
+        pub box_shadow: Vec<BoxShadow> => [Paint],
+        pub inset_shadow: Vec<InsetShadow> => [Paint],
+        pub drop_shadow: Vec<DropShadow> => [Paint],
+        pub backdrop_blur_sigma: Option<f32> => [],
+    }
 }
 
-#[derive(Clone, Debug)]
-pub struct BitmapPaintStyle {
-    pub background: Vec<BackgroundFill>,
-    pub border_radius: BorderRadius,
-    pub border_width: Option<f32>,
-    pub border_top_width: Option<f32>,
-    pub border_right_width: Option<f32>,
-    pub border_bottom_width: Option<f32>,
-    pub border_left_width: Option<f32>,
-    pub border_color: Option<ColorToken>,
-    /// 分边颜色（top/right/bottom/left），`None` 的边走 `border_color`。
-    pub border_top_color: Option<ColorToken>,
-    pub border_right_color: Option<ColorToken>,
-    pub border_bottom_color: Option<ColorToken>,
-    pub border_left_color: Option<ColorToken>,
-    pub border_style: Option<BorderStyle>,
-    pub box_shadow: Vec<BoxShadow>,
-    pub inset_shadow: Vec<InsetShadow>,
-    pub drop_shadow: Vec<DropShadow>,
+crate::fp_struct! {
+    @impl_hash [Paint]
+    #[derive(Clone, Debug)]
+    pub struct BitmapPaintStyle {
+        pub background: Vec<BackgroundFill> => [Paint],
+        pub border_radius: BorderRadius => [Paint],
+        pub border_width: Option<f32> => [Paint] opt_bits,
+        pub border_top_width: Option<f32> => [Paint] opt_bits,
+        pub border_right_width: Option<f32> => [Paint] opt_bits,
+        pub border_bottom_width: Option<f32> => [Paint] opt_bits,
+        pub border_left_width: Option<f32> => [Paint] opt_bits,
+        pub border_color: Option<ColorToken> => [Paint],
+        /// 分边颜色（top/right/bottom/left），`None` 的边走 `border_color`。
+        pub border_top_color: Option<ColorToken> => [Paint],
+        pub border_right_color: Option<ColorToken> => [Paint],
+        pub border_bottom_color: Option<ColorToken> => [Paint],
+        pub border_left_color: Option<ColorToken> => [Paint],
+        pub border_style: Option<BorderStyle> => [Paint],
+        pub box_shadow: Vec<BoxShadow> => [Paint],
+        pub inset_shadow: Vec<InsetShadow> => [Paint],
+        pub drop_shadow: Vec<DropShadow> => [Paint],
+    }
 }
 
-#[derive(Clone, Debug)]
-pub struct SvgPathPaintStyle {
-    pub fill: Option<BackgroundFill>,
-    pub stroke_width: Option<f32>,
-    pub stroke_color: Option<ColorToken>,
-    pub drop_shadow: Vec<DropShadow>,
-    pub stroke_dasharray: Option<crate::style::StrokeDash>,
-    pub stroke_dashoffset: Option<f32>,
+crate::fp_struct! {
+    @impl_hash [Paint]
+    #[derive(Clone, Debug)]
+    pub struct SvgPathPaintStyle {
+        pub fill: Option<BackgroundFill> => [Paint],
+        pub stroke_width: Option<f32> => [Paint] opt_bits,
+        pub stroke_color: Option<ColorToken> => [Paint],
+        pub drop_shadow: Vec<DropShadow> => [Paint],
+        pub stroke_dasharray: Option<crate::style::StrokeDash> => [Paint],
+        pub stroke_dashoffset: Option<f32> => [Paint] opt_bits,
+    }
 }
 
 #[derive(Clone, Debug)]

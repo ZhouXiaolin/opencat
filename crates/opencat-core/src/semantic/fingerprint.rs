@@ -1,11 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use crate::{
-    resolve::{
-        style::{ComputedLayoutStyle, ComputedVisualStyle},
-        tree::{ElementKind, ElementNode},
-    },
-    style::ComputedTextStyle,
+    fp::{FpDim, FpF32},
+    resolve::tree::{ElementKind, ElementNode},
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -21,15 +18,6 @@ pub struct ElementInputFingerprints {
     pub paint_input_subtree: u64,
     pub apply_input_subtree: u64,
     pub node_count: usize,
-}
-
-#[derive(Clone, Copy)]
-struct F32Hash(f32);
-
-impl Hash for F32Hash {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.to_bits().hash(state);
-    }
 }
 
 pub fn compute_element_input_fingerprints(root: &mut ElementNode) -> ElementInputFingerprints {
@@ -109,43 +97,27 @@ struct LayoutInputLocal<'a>(&'a ElementNode);
 
 impl Hash for LayoutInputLocal<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        LayoutStyleInput(&self.0.style.layout).hash(state);
+        // ComputedLayoutStyle 的 Layout 维度字段清单由 fp_struct! 声明序派生。
+        self.0.style.layout.fp_hash_dim(FpDim::Layout, state);
         // CSS 直通腿是布局消费端的第一优先输入；taffy Style 无 Hash，
         // Debug 文本足够稳定（同一份代码产出的字段集合固定）。
         if let Some(css) = &self.0.style.css_layout {
             format!("{:?}", css.0).hash(state);
         }
-        self.0.style.visual.border_width.map(F32Hash).hash(state);
-        self.0
-            .style
-            .visual
-            .border_top_width
-            .map(F32Hash)
-            .hash(state);
-        self.0
-            .style
-            .visual
-            .border_right_width
-            .map(F32Hash)
-            .hash(state);
-        self.0
-            .style
-            .visual
-            .border_bottom_width
-            .map(F32Hash)
-            .hash(state);
-        self.0
-            .style
-            .visual
-            .border_left_width
-            .map(F32Hash)
-            .hash(state);
+        // 边框宽在布局与绘制两个维度都参与（历史行为）；visual 侧的
+        // Paint 标注管绘制维度，这里的布局维度消费跨结构体手写。
+        let visual = &self.0.style.visual;
+        visual.border_width.map(FpF32).hash(state);
+        visual.border_top_width.map(FpF32).hash(state);
+        visual.border_right_width.map(FpF32).hash(state);
+        visual.border_bottom_width.map(FpF32).hash(state);
+        visual.border_left_width.map(FpF32).hash(state);
 
         match &self.0.kind {
             ElementKind::Div(_) | ElementKind::Timeline(_) | ElementKind::Canvas(_) => {}
             ElementKind::Text(text) => {
                 text.text.hash(state);
-                TextLayoutInput(&text.text_style).hash(state);
+                text.text_style.fp_hash_dim(FpDim::TextLayout, state);
             }
             ElementKind::Bitmap(bitmap) => {
                 bitmap.width.hash(state);
@@ -157,12 +129,12 @@ impl Hash for LayoutInputLocal<'_> {
             }
             ElementKind::SvgPath(svg) => {
                 svg.intrinsic_size
-                    .map(|(w, h)| (F32Hash(w), F32Hash(h)))
+                    .map(|(w, h)| (FpF32(w), FpF32(h)))
                     .hash(state);
             }
             ElementKind::Svg(svg) => {
                 svg.intrinsic_size
-                    .map(|(w, h)| (F32Hash(w), F32Hash(h)))
+                    .map(|(w, h)| (FpF32(w), FpF32(h)))
                     .hash(state);
                 svg.src.hash(state);
                 svg.inline.hash(state);
@@ -175,19 +147,20 @@ struct PaintInputLocal<'a>(&'a ElementNode);
 
 impl Hash for PaintInputLocal<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        PaintStyleInput(&self.0.style.visual).hash(state);
+        // ComputedVisualStyle 的 Paint 维度字段清单由 fp_struct! 声明序派生。
+        self.0.style.visual.fp_hash_dim(FpDim::Paint, state);
 
         match &self.0.kind {
             ElementKind::Div(_) => {}
             ElementKind::Timeline(tl) => {
                 if let Some(transition) = &tl.transition {
-                    F32Hash(transition.progress).hash(state);
+                    FpF32(transition.progress).hash(state);
                     std::mem::discriminant(&transition.kind).hash(state);
                 }
             }
             ElementKind::Text(text) => {
                 text.text.hash(state);
-                TextPaintInput(&text.text_style).hash(state);
+                text.text_style.fp_hash_dim(FpDim::TextPaint, state);
                 text.text_unit_overrides.is_some().hash(state);
                 if let Some(batch) = &text.text_unit_overrides {
                     std::mem::discriminant(&batch.granularity).hash(state);
@@ -222,7 +195,7 @@ impl Hash for PaintInputLocal<'_> {
             ElementKind::SvgPath(svg) => {
                 svg.path_data.hash(state);
                 for value in svg.view_box {
-                    F32Hash(value).hash(state);
+                    FpF32(value).hash(state);
                 }
             }
             ElementKind::Svg(svg) => {
@@ -235,161 +208,22 @@ impl Hash for PaintInputLocal<'_> {
     }
 }
 
-/// composite/apply 三字段：opacity / transforms / backdrop_blur_sigma。
+/// composite/apply 维度：opacity / transforms / origin / perspective /
+/// preserve-3d / backface / filter / backdrop / mask（字段清单派生自
+/// ComputedVisualStyle 的 `[Apply]` 标注）。
 ///
 /// 不参与 paint 维度的任何缓存键，仅供 L3 (DisplayBuildSession) 判定
-/// "DisplayNode 子树可整段复用" 时使用 —— DisplayNode 把这三字段烘到自身上,
+/// "DisplayNode 子树可整段复用" 时使用 —— DisplayNode 把这些字段烘到自身上,
 /// 改了就必须刷新对应 DisplayNode。
 struct ApplyInputLocal<'a>(&'a ElementNode);
 
 impl Hash for ApplyInputLocal<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let visual = &self.0.style.visual;
-        F32Hash(visual.opacity).hash(state);
-        visual.transforms.hash(state);
-        F32Hash(visual.transform_origin.x).hash(state);
-        F32Hash(visual.transform_origin.y).hash(state);
-        F32Hash(visual.transform_origin.x_px).hash(state);
-        F32Hash(visual.transform_origin.y_px).hash(state);
-        visual.perspective.map(F32Hash).hash(state);
-        visual.transform_style_preserve_3d.hash(state);
-        visual.backface_visibility_hidden.hash(state);
-        visual.css_filter.hash(state);
-        visual.backdrop_blur_sigma.map(F32Hash).hash(state);
-        visual.backdrop_filter.hash(state);
-        visual.mask_image.hash(state);
-    }
-}
-
-struct LayoutStyleInput<'a>(&'a ComputedLayoutStyle);
-
-impl Hash for LayoutStyleInput<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.position.hash(state);
-        style.positioned.hash(state);
-        style.inset_left.hash(state);
-        style.inset_top.hash(state);
-        style.inset_right.hash(state);
-        style.inset_bottom.hash(state);
-        style.width.map(F32Hash).hash(state);
-        style.width_percent.map(F32Hash).hash(state);
-        style.height.map(F32Hash).hash(state);
-        style.max_width.map(F32Hash).hash(state);
-        F32Hash(style.padding_top).hash(state);
-        F32Hash(style.padding_right).hash(state);
-        F32Hash(style.padding_bottom).hash(state);
-        F32Hash(style.padding_left).hash(state);
-        style.margin_top.hash(state);
-        style.margin_right.hash(state);
-        style.margin_bottom.hash(state);
-        style.margin_left.hash(state);
-        style.min_height.hash(state);
-        style.min_width.hash(state);
-        style.is_flex.hash(state);
-        style.is_grid.hash(state);
-        style.inline_flow.hash(state);
-        style.inline_atomic.hash(state);
-        style.vertical_align.hash(state);
-        style.grid_template_columns.hash(state);
-        style.grid_template_rows.hash(state);
-        style.grid_auto_flow.hash(state);
-        style.grid_auto_rows.hash(state);
-        style.col_start.hash(state);
-        style.col_end.hash(state);
-        style.row_start.hash(state);
-        style.row_end.hash(state);
-        style.auto_size.hash(state);
-        style.flex_direction.hash(state);
-        style.justify_content.hash(state);
-        style.align_items.hash(state);
-        style.flex_wrap.hash(state);
-        style.align_content.hash(state);
-        style.align_self.hash(state);
-        style.justify_items.hash(state);
-        style.justify_self.hash(state);
-        F32Hash(style.gap).hash(state);
-        style.gap_x.map(F32Hash).hash(state);
-        style.gap_y.map(F32Hash).hash(state);
-        style.order.hash(state);
-        style.aspect_ratio.map(F32Hash).hash(state);
-        style.flex_basis.hash(state);
-        F32Hash(style.flex_grow).hash(state);
-        style.flex_shrink.map(F32Hash).hash(state);
-        style.z_index.hash(state);
-        style.truncate.hash(state);
-    }
-}
-
-struct PaintStyleInput<'a>(&'a ComputedVisualStyle);
-
-impl Hash for PaintStyleInput<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.hidden.hash(state);
-        style.background.hash(state);
-        style.fill.hash(state);
-        style.border_radius.hash(state);
-        style.border_width.map(F32Hash).hash(state);
-        style.border_top_width.map(F32Hash).hash(state);
-        style.border_right_width.map(F32Hash).hash(state);
-        style.border_bottom_width.map(F32Hash).hash(state);
-        style.border_left_width.map(F32Hash).hash(state);
-        style.border_color.hash(state);
-        style.border_top_color.hash(state);
-        style.border_right_color.hash(state);
-        style.border_bottom_color.hash(state);
-        style.border_left_color.hash(state);
-        style.stroke_color.hash(state);
-        style.stroke_width.map(F32Hash).hash(state);
-        style.stroke_dasharray.hash(state);
-        style.stroke_dashoffset.map(F32Hash).hash(state);
-        style.border_style.hash(state);
-        style.object_fit.hash(state);
-        style.clip_contents.hash(state);
-        style.clip_x_only.hash(state);
-        style.clip_path.hash(state);
-        style.box_shadow.hash(state);
-        style.inset_shadow.hash(state);
-        style.drop_shadow.hash(state);
-        style.svg_path.hash(state);
-    }
-}
-
-struct TextLayoutInput<'a>(&'a ComputedTextStyle);
-
-impl Hash for TextLayoutInput<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        F32Hash(style.text_px).hash(state);
-        style.font_weight.hash(state);
-        style.font_style.hash(state);
-        F32Hash(style.letter_spacing).hash(state);
-        F32Hash(style.line_height).hash(state);
-        style.line_height_px.map(F32Hash).hash(state);
-        style.text_transform.hash(state);
-        style.wrap_text.hash(state);
-        style.no_wrap.hash(state);
-    }
-}
-
-struct TextPaintInput<'a>(&'a ComputedTextStyle);
-
-impl Hash for TextPaintInput<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let style = self.0;
-        style.color.hash(state);
-        F32Hash(style.text_px).hash(state);
-        style.font_weight.hash(state);
-        style.font_style.hash(state);
-        F32Hash(style.letter_spacing).hash(state);
-        style.text_align.hash(state);
-        F32Hash(style.line_height).hash(state);
-        style.line_height_px.map(F32Hash).hash(state);
-        style.text_transform.hash(state);
-        style.wrap_text.hash(state);
-        style.line_through.hash(state);
-        style.underline.hash(state);
+        // Apply 维度（opacity / transforms / origin / perspective / filter /
+        // backdrop / mask）的 13 项字段清单由 fp_struct! 声明序派生。
+        // 注意：字段序与旧手写序不同 → 哈希值变化，但键只做同输入等值
+        // 比较（纯内存、不序列化），行为不变。
+        self.0.style.visual.fp_hash_dim(FpDim::Apply, state);
     }
 }
 

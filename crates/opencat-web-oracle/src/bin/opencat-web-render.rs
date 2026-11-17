@@ -176,6 +176,14 @@ fn run(cli: &Cli) -> Result<()> {
         } else {
             web_server.url("/test-oracle.html")
         };
+        // 实验开关透传：OC_ORACLE_PAGE_EXTRA=nobatch → URL 追加 `&nobatch`，
+        // 供 test-oracle 页读成 globalThis 开关（性能探针等一次性实验用）。
+        let page_url = match std::env::var("OC_ORACLE_PAGE_EXTRA") {
+            Ok(extra) if !extra.is_empty() => {
+                format!("{page_url}&{}", extra.split(',').map(str::trim).collect::<Vec<_>>().join("&"))
+            }
+            _ => page_url,
+        };
         browser
             .navigate(&page_url)
             .await
@@ -240,12 +248,27 @@ fn run(cli: &Cli) -> Result<()> {
     // accordingly; the earlier `video_full_range_flag=0` assumption crushed
     // every Y<16 sample to decode-black (k3 ghost columns / grade noise
     // vanished, 180-239 avg_p8 0.16 → 0.008 after the fix).
-    const COLOR_BSF: &[&str] = &[
+    // Zero-copy capture leg (?vfcopy=1): the HW GL texture grab converts
+    // RGB→YUV with LIMITED range (RADV texture path — same as the engine's
+    // ffmpeg leg), so the bitstream must be tagged tv. Page (vfcopy) and bin
+    // (OC_ORACLE_VUI_TV=1) switches must be set together.
+    const COLOR_BSF_PC: &[&str] = &[
         "-bsf:v",
         "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=1",
         "-color_range",
         "pc",
     ];
+    const COLOR_BSF_TV: &[&str] = &[
+        "-bsf:v",
+        "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1:video_full_range_flag=0",
+        "-color_range",
+        "tv",
+    ];
+    let color_bsf = if std::env::var("OC_ORACLE_VUI_TV").as_deref() == Ok("1") {
+        COLOR_BSF_TV
+    } else {
+        COLOR_BSF_PC
+    };
 
     if rendered.len() == 1 {
         let (_, _, mp4) = &rendered[0];
@@ -255,7 +278,7 @@ fn run(cli: &Cli) -> Result<()> {
             .args(["-v", "error", "-y", "-i"])
             .arg(&seg_path)
             .args(["-c", "copy"])
-            .args(COLOR_BSF)
+            .args(color_bsf)
             .arg(&cli.out)
             .status();
         let _ = fs::remove_file(&seg_path);
@@ -301,7 +324,7 @@ fn run(cli: &Cli) -> Result<()> {
             .args(["-v", "error", "-y", "-i"])
             .arg(&raw_path)
             .args(["-c", "copy"])
-            .args(COLOR_BSF)
+            .args(color_bsf)
             .arg(&seg_path)
             .status()
             .context("spawn ffmpeg to tag web render segment VUI")?;

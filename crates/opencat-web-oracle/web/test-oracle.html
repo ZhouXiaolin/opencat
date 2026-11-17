@@ -54,6 +54,11 @@
       const q = new URLSearchParams(location.search);
       globalThis.__ocNativeWebGL = q.get('nativeGL') === '1';
       globalThis.__ocNativeWebGPU = q.get('nativeGPU') === '1';
+      // 零拷贝采集：VideoFrame(WebGL canvas) 直采，跳过 snapshot/readPixels/
+      // putImageData（采集侧 -125ms/帧）。仅限 HW GL 腿：纹理抓取按 limited
+      // 转换，bin 侧必须配 OC_ORACLE_VUI_TV=1 同步标 tv。裸旗标形态
+      // （OC_ORACLE_PAGE_EXTRA=vfcopy → &vfcopy）也认。
+      globalThis.__ocVfCopy = q.has('vfcopy');
 
       const canvas = document.getElementById('frame');
       // Live phase probe: console lines only reach the driver after the whole
@@ -466,7 +471,48 @@
               frameSink.getContext('2d', { willReadFrequently: true });
             }
             const tCopy0 = performance.now();
+            if (globalThis.__ocVfCopy) {
+              // 零拷贝：直采 WebGL canvas（GPU 后端纹理抓取）。同任务内
+              // 同步发起——中间插任何宏任务合成都可能让 preserve 关闭的
+              // 交换链被清。必须在 HW GL + OC_ORACLE_VUI_TV=1 下跑。
+              if (frame < 160) tlog(`f${frame} cap-vfcopy`);
+              const vf = new VideoFrame(df.canvas, {
+                timestamp: Math.round((frame * 1_000_000) / fps),
+                duration: Math.round(1_000_000 / fps),
+              });
+              if (frame < 160) tlog(`f${frame} cap-vf`);
+              encoder.encode(vf, { keyFrame: detectSceneCut(frame) || (frame - startFrame) % fps === 0 });
+              vf.close();
+              if (frame < 160) tlog(`f${frame} encoded`);
+              const vfMs = Math.round(performance.now() - tVf0);
+              frameTimings.push({ frame, renderMs, vfMs, queue: encoder.encodeQueueSize });
+              processed += 1;
+              lastFrame = frame;
+              // Backpressure 与主路径逐字一致（MessageChannel yield）。
+              const tBp0 = performance.now();
+              while (encoder.encodeQueueSize > 8) {
+                await new Promise((resolve) => {
+                  let settled = false;
+                  const once = () => {
+                    if (settled) return;
+                    settled = true;
+                    encoder.ondequeue = null;
+                    resolve();
+                  };
+                  encoder.ondequeue = once;
+                  const ch = new MessageChannel();
+                  ch.port1.onmessage = () => { ch.port1.close(); once(); };
+                  ch.port2.postMessage(0);
+                });
+              }
+              bpMs += performance.now() - tBp0;
+              bpHits += 1;
+              if (processed % 25 === 0) tlog(`loop f=${frame} renderMs=${renderMs} bpMs=${Math.round(bpMs)} q=${encoder.encodeQueueSize}`);
+              if (processed % 50 === 0) probe(frame);
+              continue;
+            }
             const snap = df.surface.makeImageSnapshot();
+            if (frame < 160) tlog(`f${frame} cap-snap`);
             const px = snap.readPixels(0, 0, {
               width: df.comp.width,
               height: df.comp.height,
@@ -476,6 +522,7 @@
             });
             snap.delete();
             if (!px) throw new Error(`readPixels null at f${frame}`);
+            if (frame < 160) tlog(`f${frame} cap-read`);
             frameSink.getContext('2d').putImageData(
               new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), df.comp.width, df.comp.height),
               0, 0,
@@ -485,9 +532,9 @@
               timestamp: Math.round((frame * 1_000_000) / fps),
               duration: Math.round(1_000_000 / fps),
             });
+            if (frame < 160) tlog(`f${frame} cap-vf`);
             // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
             // Scene cuts force an IDR immediately (see detectSceneCut above).
-            if (frame < 160) tlog(`f${frame} vf-made`);
             encoder.encode(vf, { keyFrame: detectSceneCut(frame) || (frame - startFrame) % fps === 0 });
             vf.close();
             if (frame < 160) tlog(`f${frame} encoded`);

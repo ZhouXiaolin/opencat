@@ -133,7 +133,7 @@ export class RenderSession {
 
   /// 渲染一帧进可复用 surface。像素读回留给调用方——那是昂贵的、
   /// 传输特定的步骤（hex 读回 / VideoFrame 截取 / ImageBitmap 快照）。
-  async drawFrame(frame: number): Promise<{ comp: CompositionInfo; surface: Surface; CK: CanvasKit }> {
+  async drawFrame(frame: number): Promise<{ comp: CompositionInfo; surface: Surface; CK: CanvasKit; canvas: HTMLCanvasElement | OffscreenCanvas }> {
     const comp = this.comp;
     if (frame < 0 || frame >= this.frames) {
       throw new Error(`frame ${frame} out of range 0..${this.frames - 1}`);
@@ -149,13 +149,14 @@ export class RenderSession {
     }
 
     const renderer = getRendererOrThrow();
-    const result = renderer.build_frame_ir(frame);
     // oracle 实时通道（服务端墙钟是唯一真时标——页内时钟全被 realm shim 接管）。
     const ocLog = (m: string) => {
       try {
         fetch('/oracle-log', { method: 'POST', body: m }).catch(() => {});
       } catch { /* ignore */ }
     };
+    ocLog(`rs f${frame} ir-start`);
+    const result = renderer.build_frame_ir(frame);
     ocLog(`rs f${frame} ir-done`);
 
     // GPU streams (OCIR section 13): browser-native WebGL2/WebGPU replay of
@@ -204,11 +205,13 @@ export class RenderSession {
     const surface = getReusableSurface(CK, this.canvas, undefined, surfaceOpts);
     if (!surface) throw new Error('surface creation failed');
 
+    ocLog(`rs f${frame} ck-start`);
     renderEncodedDrawFrame(result.ir, surface.getCanvas(), CK, { surface });
+    ocLog(`rs f${frame} ck-draw-done`);
     surface.flush();
     ocLog(`rs f${frame} ck-done`);
     assertFrameGates(frame, performance.now() - gateStart);
-    return { comp, surface, CK };
+    return { comp, surface, CK, canvas: this.canvas };
   }
 
   /// Native WebGPU（shaders 语料）warmup：首帧的 build_frame_ir 发起作者

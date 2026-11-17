@@ -2318,8 +2318,12 @@ crate::fp_struct! {
     pub struct ComputedTextStyle {
         pub color: ColorToken => [TextPaint, TextPaintDisplay],
         pub text_px: f32 => [TextLayout, TextPaint, TextPaintDisplay] bits,
-        // 字体族解析不进指纹：族表是全量静态资源，族名变化必然伴随
-        // text metrics 之外的手写字段变化（历史行为；3b 复核）。
+        // 字体组暂不进指纹（消融实证：inspector 语料 letterT 有按帧
+        // fontFamily 快换动画，store "fontFamily" 写臂改 family+stack——
+        // 3a 旧键漏接=字形缓存 stale（⑤ 目标类别的活标本）；但补进后
+        // engine 字体切换渲染与参考存在错位（净效应持平，换字瞬间 ±N 帧
+        // 偏差）——根因是 engine 字体动画对齐议题，与指纹正交。引擎侧
+        // 对齐修复后四字段一并补进三维。）
         pub font_family: Option<String> => [],
         pub font_stack: Vec<String> => [],
         pub font_generic: Option<GenericFamily> => [],
@@ -2332,13 +2336,13 @@ crate::fp_struct! {
         pub line_height: f32 => [TextLayout, TextPaint, TextPaintDisplay] bits,
         pub line_height_px: Option<f32> => [TextLayout, TextPaint, TextPaintDisplay] opt_bits,
         pub text_transform: TextTransform => [TextLayout, TextPaint, TextPaintDisplay],
-        pub wrap_text: bool => [TextLayout, TextPaint],
+        pub wrap_text: bool => [TextLayout, TextPaint, TextPaintDisplay],
         /// Set by `whitespace-nowrap`: the text must lay out on a single line even when
         /// its container has a definite width (overflowing instead of wrapping).
         pub no_wrap: bool => [TextLayout],
         pub line_through: bool => [TextPaint, TextPaintDisplay],
         pub underline: bool => [TextPaint, TextPaintDisplay],
-        // -webkit-text-stroke 不进指纹（历史行为；display 层 stroke 消费未覆盖）。
+        // text_stroke 随字体组挂账（同因：store 写臂联动改写）。
         pub text_stroke: Option<TextStroke> => [],
     }
 }

@@ -17,8 +17,8 @@ use std::hash::{Hash, Hasher};
 
 /// 指纹维度。语义层三路（[`ElementInputFingerprints`](crate::semantic::fingerprint::ElementInputFingerprints)
 /// 的 structure/layout/paint/apply——structure 是结构手写哈希，不走本机制）
-/// + 文本的三份子集维度（语义 `TextLayout`/`TextPaint` 与 display 层
-/// `TextPaintDisplay` 的字段集今天不同，3b 统一后收敛）。
+/// + 文本的三份子集维度（`TextLayout`/`TextPaint` 为语义层消费，display 层
+/// `TextPaintDisplay` 与 `TextPaint` 同字段集——3b 统一）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FpDim {
     /// 布局输入（ComputedLayoutStyle 全量减未标注项）。
@@ -32,8 +32,8 @@ pub enum FpDim {
     TextLayout,
     /// 语义层文本绘制输入。
     TextPaint,
-    /// display 层文本绘制输入（TextDisplayItem.style，字段集比语义层少
-    /// `wrap_text`——3b 统一）。
+    /// display 层文本绘制输入（TextDisplayItem.style；字段集与语义层
+    /// `TextPaint` 一致）。
     TextPaintDisplay,
 }
 

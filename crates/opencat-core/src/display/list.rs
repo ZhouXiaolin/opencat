@@ -238,11 +238,10 @@ crate::fp_struct! {
     #[derive(Clone, Debug, Default)]
     pub struct RectPaintStyle {
         pub background: Vec<BackgroundFill> => [Paint],
-        // blend_mode / background_blend_mode / backdrop_blur_sigma 不进绘制
-        // 指纹（历史行为，评审已审计的漏项；3b 补——backdrop_blur_sigma 疑
-        // 死字段，3b 一并裁决）。
-        pub blend_mode: BlendMode => [],
-        pub background_blend_mode: BlendMode => [],
+        // blend_mode / background_blend_mode 是绘制输入（进 OCIR），3b 补进
+        // Paint 维。
+        pub blend_mode: BlendMode => [Paint],
+        pub background_blend_mode: BlendMode => [Paint],
         pub border_radius: BorderRadius => [Paint],
         pub border_width: Option<f32> => [Paint] opt_bits,
         pub border_top_width: Option<f32> => [Paint] opt_bits,
@@ -259,7 +258,6 @@ crate::fp_struct! {
         pub box_shadow: Vec<BoxShadow> => [Paint],
         pub inset_shadow: Vec<InsetShadow> => [Paint],
         pub drop_shadow: Vec<DropShadow> => [Paint],
-        pub backdrop_blur_sigma: Option<f32> => [],
     }
 }
 

@@ -696,7 +696,6 @@ fn display_item_for_node(
                 box_shadow: element.style.visual.box_shadow.clone(),
                 inset_shadow: element.style.visual.inset_shadow.clone(),
                 drop_shadow: element.style.visual.drop_shadow.clone(),
-                backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
         }),
         ElementKind::Timeline(timeline) => DisplayItem::Timeline(TimelineDisplayItem {
@@ -720,7 +719,6 @@ fn display_item_for_node(
                 box_shadow: element.style.visual.box_shadow.clone(),
                 inset_shadow: element.style.visual.inset_shadow.clone(),
                 drop_shadow: element.style.visual.drop_shadow.clone(),
-                backdrop_blur_sigma: element.style.visual.backdrop_blur_sigma,
             },
             transition: timeline.transition.as_ref().map(|transition| {
                 let mut kind = transition.kind.clone();

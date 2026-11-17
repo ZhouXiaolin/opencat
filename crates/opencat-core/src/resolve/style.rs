@@ -127,8 +127,7 @@ crate::fp_struct! {
         pub inset_bottom: Option<LengthPercentageAuto> => [Layout],
         pub width: Option<f32> => [Layout] opt_bits,
         pub width_percent: Option<f32> => [Layout] opt_bits,
-        // height_percent 不进布局指纹（历史行为；3b 复核是否补）。
-        pub height_percent: Option<f32> => [],
+        pub height_percent: Option<f32> => [Layout] opt_bits,
         pub height: Option<f32> => [Layout] opt_bits,
         pub max_width: Option<f32> => [Layout] opt_bits,
         pub padding_top: f32 => [Layout] bits,
@@ -147,8 +146,7 @@ crate::fp_struct! {
         /// span 的 div 是一行行内内容；布局端在 taffy 之后按 advance 串接
         /// 重排（taffy 无行内流）。浏览器语义的真实现，非近似节点。
         pub inline_flow: bool => [Layout],
-        // inline_level 不进布局指纹（历史行为；3b 复核是否补）。
-        pub inline_level: bool => [],
+        pub inline_level: bool => [Layout],
         /// 原子行内盒（inline-block/inline-flex/…）：行内流里整体排行。
         pub inline_atomic: bool => [Layout],
         /// 行内流里原子盒的 `vertical-align`。
@@ -190,10 +188,10 @@ crate::fp_struct! {
         /// 计算 `visibility: hidden`：不画自己（盒子仍占布局），子元素可以
         /// 用 `visible` 重新显示。
         pub hidden: bool => [Paint],
-        // blend_mode / background_blend_mode 不进元素级指纹（历史行为，
-        // 评审已审计的漏项；3b 补——消费面在 composite/replay 时段）。
-        pub blend_mode: BlendMode => [],
-        pub background_blend_mode: BlendMode => [],
+        // blend_mode / background_blend_mode 是绘制输入（进 OCIR 与合成），
+        // 3b 补进 Paint 维。
+        pub blend_mode: BlendMode => [Paint],
+        pub background_blend_mode: BlendMode => [Paint],
         pub background: Vec<BackgroundFill> => [Paint],
         // background_clip 只影响渐变文本填充，display 层 TextFp 经
         // text_fill 覆盖（历史行为；3b 复核元素级是否补）。

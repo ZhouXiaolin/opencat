@@ -12,9 +12,13 @@ pub(super) struct TextFp<'a>(pub(super) &'a TextDisplayItem);
 impl Hash for TextFp<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.text.hash(state);
-        // ComputedTextStyle 的 display 文本绘制维度（11 字段，语义层同源但
-        // 不含 wrap_text——3b 统一）由 fp_struct! 声明序派生。
+        // ComputedTextStyle 的 display 文本绘制维度由 fp_struct! 声明序派生
+        //（与语义层 TextPaint 同字段集，3b 已统一）。
         self.0.style.fp_hash_dim(FpDim::TextPaintDisplay, state);
+        // 文本元素的盒背景三件套（背景填充/圆角/混合）也是绘制输入（3b 补）。
+        self.0.background.hash(state);
+        self.0.background_border_radius.hash(state);
+        self.0.background_blend_mode.hash(state);
         // `background-clip: text` gradient layers change the glyph pixels, so
         // they must participate in the paint fingerprint (BackgroundFill is
         // Hash only through its stops; a debug repr is sufficient and cheap
@@ -136,6 +140,8 @@ impl Hash for DisplayItemFp<'_> {
                 item.bounds.width.to_bits().hash(state);
                 item.bounds.height.to_bits().hash(state);
                 item.preserve_aspect_ratio.hash(state);
+                // overflow_visible 的 display 侧体现（3b 补）。
+                item.clip_overflow.hash(state);
             }
         }
     }

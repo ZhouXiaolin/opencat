@@ -3,17 +3,15 @@ use std::collections::HashMap;
 
 use super::MutationRecorder;
 use crate::script::ScriptTextSource;
-use crate::script::mutations::{CanvasMutations, NodeStyleMutations, Rotate3Field, StyleMutations};
+use crate::script::mutations::{CanvasMutations, NodeStyleMutations, StyleMutations};
 use crate::script::tree::TreeOverlay;
 use crate::script::{
-    align_items_from_name, box_shadow_from_name, drop_shadow_from_name, flex_direction_from_name,
-    inset_shadow_from_name, justify_content_from_name, object_fit_from_name, position_from_name,
-    text_align_from_name,
+    align_items_from_name, flex_direction_from_name, justify_content_from_name,
+    object_fit_from_name, position_from_name, text_align_from_name,
 };
 use crate::style::{
-    AlignItems, BorderStyle, BoxShadow, ClipPath, ColorToken, CssFilter, CssFilterKind, DropShadow,
-    FlexDirection, FontWeight, InsetShadow, JustifyContent, NodeStyle, ObjectFit, Position,
-    TextAlign, Transform, TransformOrigin, color_token_from_script_string,
+    BorderStyle, ClipPath, CssFilter, CssFilterKind, FontWeight, NodeStyle, Transform,
+    TransformOrigin, color_token_from_script_string,
 };
 
 /// 一条 WebGL/WebGPU 命令流的录制中间态（frame 级，reset 清空）。
@@ -100,20 +98,6 @@ fn css_filter_from_value(value: &serde_json::Value) -> Option<CssFilter> {
     Some(filter)
 }
 
-pub(crate) fn css_filter_to_value(filter: &CssFilter) -> serde_json::Value {
-    json!({
-        "ops": filter.ops.iter().map(|op| {
-            let mut entry = json!({
-                "kind": op.kind.property_name(),
-                "value": op.value,
-            });
-            if let Some(shadow) = op.shadow {
-                entry["shadow"] = serde_json::to_value(shadow).unwrap_or_default();
-            }
-            entry
-        }).collect::<Vec<_>>(),
-    })
-}
 
 /// Serialize the engine's transform list as the CSS matrix string CSSPlugin
 /// reads back (`getComputedStyle(el).transform` → `"matrix(a, b, c, d, e, f)"`).
@@ -298,10 +282,6 @@ struct StyleStore {
 }
 
 impl StyleStore {
-    fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
-        self.styles.entry(id.to_string()).or_default()
-    }
-
     /// 每帧重建面清空（initial_styles 是 realm 级，不清）。
     fn clear_frame(&mut self) {
         if !self.persistent {
@@ -1784,10 +1764,6 @@ impl MutationStore {
         self.children.persistent = true;
     }
 
-    fn entry(&mut self, id: &str) -> &mut NodeStyleMutations {
-        self.style.entry(id)
-    }
-
     /// 浏览器 width/height 赋值语义：画布重置——内容清空、后续绘制从
     /// 空白开始（HTML spec: setting width/height resets the canvas）。
     /// G2 的 OffscreenCanvasCreator 复用同一块离屏画布画多个 pattern 瓦片，
@@ -1984,213 +1960,10 @@ impl MutationRecorder for MutationStore {
             .insert(host_id.to_string(), child_override);
         self.children.version += 1;
     }
-    fn record_opacity(&mut self, id: &str, v: f32) {
-        self.entry(id).opacity = Some(v);
-    }
-    fn record_translate(&mut self, id: &str, x: f32, y: f32) {
-        self.entry(id).push_transform(Transform::Translate { x, y });
-    }
-    fn record_translate_x(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .push_transform(Transform::TranslateX { value: v });
-    }
-    fn record_translate_y(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .push_transform(Transform::TranslateY { value: v });
-    }
-    fn record_translate_x_percent(&mut self, id: &str, pct: f32) {
-        self.entry(id)
-            .push_transform(Transform::TranslateXPercent { value: pct });
-    }
-    fn record_translate_y_percent(&mut self, id: &str, pct: f32) {
-        self.entry(id)
-            .push_transform(Transform::TranslateYPercent { value: pct });
-    }
-    fn record_scale(&mut self, id: &str, v: f32) {
-        self.entry(id).push_transform(Transform::Scale { value: v });
-    }
-    fn record_scale_x(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .push_transform(Transform::ScaleX { value: v });
-    }
-    fn record_scale_y(&mut self, id: &str, v: f32) {
-        self.entry(id)
-            .push_transform(Transform::ScaleY { value: v });
-    }
-    fn record_rotate(&mut self, id: &str, deg: f32) {
-        self.entry(id)
-            .push_transform(Transform::RotateDeg { value: deg });
-    }
-    fn record_rotate3(&mut self, id: &str, rotation_x: f32, rotation_y: f32, perspective: f32) {
-        self.entry(id)
-            .write_rotate3_field(Rotate3Field::RotationX, rotation_x);
-        self.entry(id)
-            .write_rotate3_field(Rotate3Field::RotationY, rotation_y);
-        self.entry(id)
-            .write_rotate3_field(Rotate3Field::Perspective, perspective);
-    }
-    fn record_skew_x(&mut self, id: &str, deg: f32) {
-        self.entry(id)
-            .push_transform(Transform::SkewXDeg { value: deg });
-    }
-    fn record_skew_y(&mut self, id: &str, deg: f32) {
-        self.entry(id)
-            .push_transform(Transform::SkewYDeg { value: deg });
-    }
-    fn record_skew(&mut self, id: &str, x_deg: f32, y_deg: f32) {
-        self.entry(id)
-            .push_transform(Transform::SkewDeg { x: x_deg, y: y_deg });
-    }
-    fn record_left(&mut self, id: &str, v: f32) {
-        self.entry(id).inset_left = Some(v);
-    }
-    fn record_top(&mut self, id: &str, v: f32) {
-        self.entry(id).inset_top = Some(v);
-    }
-    fn record_right(&mut self, id: &str, v: f32) {
-        self.entry(id).inset_right = Some(v);
-    }
-    fn record_bottom(&mut self, id: &str, v: f32) {
-        self.entry(id).inset_bottom = Some(v);
-    }
-    fn record_width(&mut self, id: &str, v: f32) {
-        self.entry(id).width = Some(v);
-    }
-    fn record_height(&mut self, id: &str, v: f32) {
-        self.entry(id).height = Some(v);
-    }
-    fn record_padding(&mut self, id: &str, v: f32) {
-        self.entry(id).padding = Some(v);
-    }
-    fn record_margin(&mut self, id: &str, v: f32) {
-        self.entry(id).margin = Some(v);
-    }
-    fn record_gap(&mut self, id: &str, v: f32) {
-        self.entry(id).gap = Some(v);
-    }
-    fn record_flex_grow(&mut self, id: &str, v: f32) {
-        self.entry(id).flex_grow = Some(v);
-    }
-    fn record_border_radius(&mut self, id: &str, v: f32) {
-        self.entry(id).border_radius = Some(v);
-    }
-    fn record_border_width(&mut self, id: &str, v: f32) {
-        self.entry(id).border_width = Some(v);
-    }
-    fn record_border_top_width(&mut self, id: &str, v: f32) {
-        self.entry(id).border_top_width = Some(v);
-    }
-    fn record_border_right_width(&mut self, id: &str, v: f32) {
-        self.entry(id).border_right_width = Some(v);
-    }
-    fn record_border_bottom_width(&mut self, id: &str, v: f32) {
-        self.entry(id).border_bottom_width = Some(v);
-    }
-    fn record_border_left_width(&mut self, id: &str, v: f32) {
-        self.entry(id).border_left_width = Some(v);
-    }
-    fn record_stroke_width(&mut self, id: &str, v: f32) {
-        self.entry(id).stroke_width = Some(v.max(0.0));
-    }
-    fn record_stroke_dasharray(&mut self, id: &str, v: crate::style::StrokeDash) {
-        self.entry(id).stroke_dasharray = Some(crate::style::StrokeDash {
-            dash: v.dash.max(0.0),
-            gap: v.gap.max(0.0),
-        });
-    }
-    fn record_stroke_dashoffset(&mut self, id: &str, v: f32) {
-        self.entry(id).stroke_dashoffset = Some(v);
-    }
-    fn record_text_size(&mut self, id: &str, v: f32) {
-        self.entry(id).text_px = Some(v);
-    }
-    fn record_letter_spacing(&mut self, id: &str, v: f32) {
-        self.entry(id).letter_spacing = Some(v);
-    }
-    fn record_line_height(&mut self, id: &str, v: f32) {
-        self.entry(id).line_height = Some(v);
-    }
 
-    fn record_position(&mut self, id: &str, pos: Position) {
-        self.entry(id).position = Some(pos);
-    }
-    fn record_flex_direction(&mut self, id: &str, fd: FlexDirection) {
-        self.entry(id).flex_direction = Some(fd);
-    }
-    fn record_justify_content(&mut self, id: &str, jc: JustifyContent) {
-        self.entry(id).justify_content = Some(jc);
-    }
-    fn record_align_items(&mut self, id: &str, ai: AlignItems) {
-        self.entry(id).align_items = Some(ai);
-    }
-    fn record_object_fit(&mut self, id: &str, of: ObjectFit) {
-        self.entry(id).object_fit = Some(of);
-    }
-    fn record_text_align(&mut self, id: &str, ta: TextAlign) {
-        self.entry(id).text_align = Some(ta);
-    }
-    fn record_border_style(&mut self, id: &str, bs: BorderStyle) {
-        self.entry(id).border_style = Some(bs);
-    }
-    fn record_font_weight(&mut self, id: &str, w: FontWeight) {
-        self.entry(id).font_weight = Some(w);
-    }
-    fn record_box_shadow(&mut self, id: &str, sh: BoxShadow) {
-        self.entry(id).box_shadow = Some(sh);
-    }
-    fn record_inset_shadow(&mut self, id: &str, sh: InsetShadow) {
-        self.entry(id).inset_shadow = Some(sh);
-    }
-    fn record_drop_shadow(&mut self, id: &str, sh: DropShadow) {
-        self.entry(id).drop_shadow = Some(sh);
-    }
 
-    fn record_background_image(&mut self, id: &str, css: &str) {
-        self.entry(id).bg_image = Some(css.to_string());
-    }
-    fn record_bg_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).bg_color = Some(color);
-    }
-    fn record_fill_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).fill_color = Some(color);
-    }
-    fn record_stroke_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).stroke_color = Some(color);
-    }
-    fn record_border_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).border_color = Some(color);
-    }
-    fn record_text_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).text_color = Some(color);
-    }
-    fn record_box_shadow_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).box_shadow_color = Some(color);
-    }
-    fn record_inset_shadow_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).inset_shadow_color = Some(color);
-    }
-    fn record_drop_shadow_color(&mut self, id: &str, color: ColorToken) {
-        self.entry(id).drop_shadow_color = Some(color);
-    }
 
-    fn record_transform_origin(&mut self, id: &str, origin: TransformOrigin) {
-        self.entry(id).transform_origin = Some(origin);
-    }
 
-    fn record_text_content(&mut self, id: &str, text: String) {
-        self.entry(id).text_content = Some(text.clone());
-        self.tree_text.text_sources.insert(
-            id.to_string(),
-            ScriptTextSource {
-                text,
-                kind: crate::script::ScriptTextSourceKind::TextNode,
-            },
-        );
-    }
-
-    fn record_svg_path(&mut self, id: &str, data: String) {
-        self.entry(id).svg_path = Some(data);
-    }
 
     fn record_canvas_op(&mut self, id: &str, cmd: crate::script::canvas_op::CanvasOp) {
         self.canvas_entry(id).commands.push(cmd);

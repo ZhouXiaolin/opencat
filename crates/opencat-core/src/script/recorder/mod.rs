@@ -1,21 +1,19 @@
 //! Mutation recorder trait + default `MutationStore` implementation.
 //!
-//! This is the unified interface for accumulating per-frame style/canvas
-//! mutations from a script driver. Both the engine (V8 bindings) and
-//! the web target (wasm-bindgen wrappers) implement / consume this trait.
+//! 统一的脚本→宿主 mutation 录入面（JS binding 桥与 OMP 命令流共用）。
+//! **style 键不走这里**：JS 全走 `write_style_value` 字符串通用口（store 词
+//! 表收归 CSS 标准，见 M2-②），类型化 style record_* 搬运层已随 M2-①
+//! 退役（`run_frame` 直接返回 `StyleMutations` 层序列，合并统一在 resolve
+//! 侧 `apply_mutation_stack`）。本 trait 只承载：canvas / child_override
+//! 命令面 + 帧状态与查询面。
 
 mod store;
 
 pub use store::MutationStore;
-pub(crate) use store::css_filter_to_value;
 
 use crate::ir::draw_op::DrawOp;
 use crate::script::ScriptTextSource;
 use crate::script::mutations::StyleMutations;
-use crate::style::{
-    AlignItems, BorderStyle, BoxShadow, ColorToken, DropShadow, FlexDirection, FontWeight,
-    InsetShadow, JustifyContent, ObjectFit, Position, TextAlign, TransformOrigin,
-};
 
 /// Recorder receives mutation calls from the JS bridge layer.
 ///
@@ -23,74 +21,6 @@ use crate::style::{
 /// HashMaps; platform-specific impls (e.g. wasm-bindgen wrapper) typically
 /// delegate to the default impl after argument conversion.
 pub trait MutationRecorder {
-    fn record_opacity(&mut self, id: &str, v: f32);
-    fn record_translate(&mut self, id: &str, x: f32, y: f32);
-    fn record_translate_x(&mut self, id: &str, v: f32);
-    fn record_translate_y(&mut self, id: &str, v: f32);
-    /// CSS/gsap `translate` 百分比分量（参考元素自身盒，display build 折算）。
-    fn record_translate_x_percent(&mut self, id: &str, pct: f32);
-    fn record_translate_y_percent(&mut self, id: &str, pct: f32);
-    fn record_scale(&mut self, id: &str, v: f32);
-    fn record_scale_x(&mut self, id: &str, v: f32);
-    fn record_scale_y(&mut self, id: &str, v: f32);
-    fn record_rotate(&mut self, id: &str, deg: f32);
-    /// GSAP `rotationX`/`rotationY`/`transformPerspective` folded into one
-    /// projective transform (see `Transform::Rotate3`).
-    fn record_rotate3(&mut self, id: &str, rotation_x: f32, rotation_y: f32, perspective: f32);
-    fn record_skew_x(&mut self, id: &str, deg: f32);
-    fn record_skew_y(&mut self, id: &str, deg: f32);
-    fn record_skew(&mut self, id: &str, x_deg: f32, y_deg: f32);
-    fn record_left(&mut self, id: &str, v: f32);
-    fn record_top(&mut self, id: &str, v: f32);
-    fn record_right(&mut self, id: &str, v: f32);
-    fn record_bottom(&mut self, id: &str, v: f32);
-    fn record_width(&mut self, id: &str, v: f32);
-    fn record_height(&mut self, id: &str, v: f32);
-    fn record_padding(&mut self, id: &str, v: f32);
-    fn record_margin(&mut self, id: &str, v: f32);
-    fn record_gap(&mut self, id: &str, v: f32);
-    fn record_flex_grow(&mut self, id: &str, v: f32);
-    fn record_border_radius(&mut self, id: &str, v: f32);
-    fn record_border_width(&mut self, id: &str, v: f32);
-    fn record_border_top_width(&mut self, id: &str, v: f32);
-    fn record_border_right_width(&mut self, id: &str, v: f32);
-    fn record_border_bottom_width(&mut self, id: &str, v: f32);
-    fn record_border_left_width(&mut self, id: &str, v: f32);
-    fn record_stroke_width(&mut self, id: &str, v: f32);
-    fn record_stroke_dasharray(&mut self, id: &str, v: crate::style::StrokeDash);
-    fn record_stroke_dashoffset(&mut self, id: &str, v: f32);
-    fn record_text_size(&mut self, id: &str, v: f32);
-    fn record_letter_spacing(&mut self, id: &str, v: f32);
-    fn record_line_height(&mut self, id: &str, v: f32);
-
-    fn record_position(&mut self, id: &str, pos: Position);
-    fn record_flex_direction(&mut self, id: &str, fd: FlexDirection);
-    fn record_justify_content(&mut self, id: &str, jc: JustifyContent);
-    fn record_align_items(&mut self, id: &str, ai: AlignItems);
-    fn record_object_fit(&mut self, id: &str, of: ObjectFit);
-    fn record_text_align(&mut self, id: &str, ta: TextAlign);
-    fn record_border_style(&mut self, id: &str, bs: BorderStyle);
-    fn record_font_weight(&mut self, id: &str, w: FontWeight);
-    fn record_box_shadow(&mut self, id: &str, sh: BoxShadow);
-    fn record_inset_shadow(&mut self, id: &str, sh: InsetShadow);
-    fn record_drop_shadow(&mut self, id: &str, sh: DropShadow);
-
-    fn record_bg_color(&mut self, id: &str, color: ColorToken);
-    /// 脚本按帧写入的 CSS `background`/`background-image` 原文（渐变、瓦片
-    /// 背景没有颜色字段可放，由 resolve 侧解析成背景层）。
-    fn record_background_image(&mut self, id: &str, css: &str);
-    fn record_fill_color(&mut self, id: &str, color: ColorToken);
-    fn record_stroke_color(&mut self, id: &str, color: ColorToken);
-    fn record_border_color(&mut self, id: &str, color: ColorToken);
-    fn record_text_color(&mut self, id: &str, color: ColorToken);
-    fn record_box_shadow_color(&mut self, id: &str, color: ColorToken);
-    fn record_inset_shadow_color(&mut self, id: &str, color: ColorToken);
-    fn record_drop_shadow_color(&mut self, id: &str, color: ColorToken);
-
-    fn record_transform_origin(&mut self, id: &str, origin: TransformOrigin);
-    fn record_text_content(&mut self, id: &str, text: String);
-    fn record_svg_path(&mut self, id: &str, data: String);
-
     /// canonical DrawOp 直录（绝大多数绑定走这里；内部包成
     /// [`CanvasOp::Op`] 透传）。
     fn record_draw_op(&mut self, id: &str, cmd: DrawOp) {

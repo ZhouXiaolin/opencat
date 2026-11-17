@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::frame_ctx::ScriptFrameCtx;
 use crate::script::ScriptTextSource;
-use crate::script::recorder::MutationRecorder;
+use crate::script::mutations::StyleMutations;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ScriptDriverId(pub u64);
@@ -72,13 +72,18 @@ pub trait ScriptHost {
     fn install(&mut self, source: &str) -> Result<ScriptDriverId>;
     fn register_text_source(&mut self, node_id: &str, source: ScriptTextSource);
     fn clear_text_sources(&mut self);
+    /// 运行一个脚本 driver 的当前帧，返回它产出的 mutation **层序列**
+    ///（保序）。resolve 侧直接把层 push 进 mutation_stack——合并统一推迟
+    /// 到消费方 `apply_mutation_stack`，不再经过逐字段重编码搬运层
+    /// （`apply_node_to_recorder` 曾在这里有损转码：backdrop_blur_sigma /
+    /// fill_none / font_stack / transform_css+transforms 组合会丢字段）。
+    /// 单层是常态；预计算 host 的多 driver fallback 才会返回多层。
     fn run_frame(
         &mut self,
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
-        recorder: &mut dyn MutationRecorder,
-    ) -> Result<()>;
+    ) -> Result<Vec<StyleMutations>>;
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry);
     /// 声明树的计算文本样式（脚本写入未施加）。同步布局探针把它带进
     /// 重入的 resolver，使文本盒测量按当前样式而非默认字号整形。

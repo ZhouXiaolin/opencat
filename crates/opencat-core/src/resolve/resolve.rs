@@ -1393,27 +1393,24 @@ fn push_script_scope(style: &NodeStyle, cx: &mut ResolveContext<'_>) -> Result<b
     };
 
     let id = cx.script_runtime.install(&driver.source)?;
-    let mut store = crate::script::recorder::MutationStore::default();
     #[cfg(feature = "profile")]
     let _run_frame_span =
         tracing::span!(target: "render.scene", tracing::Level::TRACE, "script_run_frame").entered();
-    cx.script_runtime.run_frame(
+    // 层形态直取：host 返回的 mutation 层直接进 mutation_stack，不再为
+    // 每 scope 建一个 MutationStore 做逐字段重编码搬运（transport 时代
+    // 残留；重编码层有损且每帧深拷贝 canvas DrawOp）。
+    let layers = cx.script_runtime.run_frame(
         id,
         cx.script_frame_ctx,
         (!style.id.is_empty()).then_some(style.id.as_str()),
-        &mut store,
     )?;
     #[cfg(feature = "profile")]
     drop(_run_frame_span);
-    // Consuming take instead of snapshot: this store is created per scope
-    // above and dropped right after, so mem::take is semantically identical
-    // and skips the full deep clone of every canvas DrawOp per frame.
-    let mutations = store.take_mutations();
-    if mutations.is_empty() {
+    if layers.iter().all(crate::script::StyleMutations::is_empty) {
         return Ok(false);
     }
 
-    cx.mutation_stack.push(mutations);
+    cx.mutation_stack.extend(layers);
     Ok(true)
 }
 

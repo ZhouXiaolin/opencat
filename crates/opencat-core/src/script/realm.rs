@@ -25,7 +25,8 @@ use crate::script::runtime::{
     NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
 };
 use crate::script::{
-    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, driver_id_from_source,
+    ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, StyleMutations,
+    driver_id_from_source,
 };
 
 // JS platform globals V8 does not ship (TextEncoder/TextDecoder/Blob) plus
@@ -672,8 +673,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         driver: ScriptDriverId,
         frame_ctx: &ScriptFrameCtx,
         current_node_id: Option<&str>,
-        recorder: &mut dyn MutationRecorder,
-    ) -> Result<()> {
+    ) -> Result<Vec<StyleMutations>> {
         if !self.installed.contains_key(&driver.0) {
             return Err(anyhow!("script driver {} not installed in realm", driver.0));
         }
@@ -813,14 +813,7 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         // zero-copy (apply_frame_ctx's reset_for_frame would clear them at
         // the next run_frame anyway), so the per-frame deep clone of every
         // canvas DrawOp disappears here and at the resolve-side snapshot.
-        let snap = self.ctx.with_store_mut(|s| {
-            let tc = s
-                .snapshot_mutations()
-                .mutations
-                .get("composer-text:t")
-                .and_then(|m| m.text_content.clone());
-            s.take_mutations()
-        });
+        let snap = self.ctx.with_store_mut(|s| s.take_mutations());
         if std::env::var_os("OC_FRAME_TIMING").is_some() {
             let canvas_cmds: usize = snap
                 .canvas_mutations
@@ -834,8 +827,11 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
                 canvas_cmds,
             );
         }
-        snap.apply_to_recorder(recorder);
-        Ok(())
+        // 层形态直取：store 的帧级 mutations 零拷贝移出，resolve 侧直接
+        // 进 mutation_stack——不再 apply_to_recorder 逐字段重编码（有损：
+        // backdrop_blur_sigma/fill_none/font_stack/transform_css 组合会丢）。
+        // apply_frame_ctx 的 reset_for_frame 反正会在下一帧清掉它们。
+        Ok(vec![snap])
     }
 
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {

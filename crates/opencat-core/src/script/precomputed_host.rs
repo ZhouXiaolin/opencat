@@ -1,5 +1,4 @@
 use crate::frame_ctx::ScriptFrameCtx;
-use crate::script::recorder::MutationRecorder;
 use crate::script::{
     ScriptDriverId, ScriptHost, ScriptTargetRegistry, ScriptTextSource, StyleMutations,
 };
@@ -78,16 +77,22 @@ impl ScriptHost for PrecomputedScriptHost {
         driver: ScriptDriverId,
         _frame_ctx: &ScriptFrameCtx,
         _current_node_id: Option<&str>,
-        recorder: &mut dyn MutationRecorder,
-    ) -> Result<()> {
+    ) -> Result<Vec<StyleMutations>> {
         if let Some(mutations) = self.mutations.get(&driver) {
-            mutations.apply_to_recorder_ref(recorder);
-        } else if !self.mutations.is_empty() {
-            for mutations in self.mutations.values() {
-                mutations.apply_to_recorder_ref(recorder);
-            }
+            return Ok(vec![mutations.clone()]);
         }
-        Ok(())
+        if !self.mutations.is_empty() {
+            // Fallback（transport 时代残留语义）：全部层按 driver id 定序
+            // 给出——HashMap 迭代序不定会让 last-wins 字段在层间漂移。
+            // 合并统一由 resolve 侧 mutation_stack 消费方处理。
+            let mut keys: Vec<_> = self.mutations.keys().map(|k| k.0).collect();
+            keys.sort();
+            return Ok(keys
+                .into_iter()
+                .filter_map(|k| self.mutations.get(&ScriptDriverId(k)).cloned())
+                .collect());
+        }
+        Ok(Vec::new())
     }
 
     fn set_target_registry(&mut self, registry: ScriptTargetRegistry) {

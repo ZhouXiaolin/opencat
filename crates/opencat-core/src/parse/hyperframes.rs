@@ -21,8 +21,11 @@ pub mod attr {
 pub const SEEK_EVENT: &str = "hf-seek";
 
 pub fn seek_event_js() -> String {
+    // 帧协议（realm.rs 每帧 rAF flush 后 eval）：按虚拟钟派发一次播放器
+    // seek 事件。历史上带 `__ocMode !== 'extract'` 守卫——提取模式早已
+    // 不存在（全仓零写入点），守卫恒真，删除。
     format!(
-        "if (globalThis.__ocMode !== 'extract') {{ try {{ globalThis.dispatchEvent(new CustomEvent('{SEEK_EVENT}', {{ detail: {{ time: (globalThis.__ocClockMs() || 0) / 1000 }} }})); }} catch (error) {{ (globalThis.__ocLogs = globalThis.__ocLogs || []).push('{SEEK_EVENT} handler threw: ' + (error && error.stack || error)); }} }}"
+        "try {{ globalThis.dispatchEvent(new CustomEvent('{SEEK_EVENT}', {{ detail: {{ time: (globalThis.__ocClockMs() || 0) / 1000 }} }})); }} catch (error) {{ (globalThis.__ocLogs = globalThis.__ocLogs || []).push('{SEEK_EVENT} handler threw: ' + (error && error.stack || error)); }}"
     )
 }
 

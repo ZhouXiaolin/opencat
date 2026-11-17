@@ -88,15 +88,6 @@ pub trait ScriptHost {
         > = std::sync::OnceLock::new();
         EMPTY.get_or_init(Default::default)
     }
-    /// Set base style values (from Tailwind/className) for all visible nodes.
-    fn set_style_defaults(
-        &mut self,
-        _defaults: &std::collections::HashMap<
-            String,
-            std::collections::HashMap<String, serde_json::Value>,
-        >,
-    ) {
-    }
     /// Set base style for a single node from its resolved NodeStyle.
     fn set_initial_style_from_node(&mut self, _id: &str, _style: &crate::style::NodeStyle) {}
     /// Declared text node → its dynamic leaf byte ranges with the wrapper

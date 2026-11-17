@@ -851,25 +851,6 @@ impl<C: JsContext> ScriptHost for ScriptRealm<C> {
         self.pending_gpu.take()
     }
 
-    fn set_style_defaults(
-        &mut self,
-        defaults: &HashMap<String, HashMap<String, serde_json::Value>>,
-    ) {
-        if let Err(err) = self.ensure_runtime() {
-            // Style defaults are best-effort seeding; a missing runtime is
-            // reported on the next install/run_frame.
-            let _ = err;
-            return;
-        }
-        self.ctx.with_store_mut(|s| {
-            for (id, props) in defaults {
-                for (prop, val) in props {
-                    s.set_initial_style(id, prop, val.clone());
-                }
-            }
-        });
-    }
-
     fn set_initial_style_from_node(&mut self, id: &str, style: &crate::style::NodeStyle) {
         if self.ensure_runtime().is_err() {
             return;

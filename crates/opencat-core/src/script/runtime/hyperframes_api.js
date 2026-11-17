@@ -117,13 +117,10 @@
         };
     }
 
-    function seekEventJs() {
-        return "if (globalThis.__ocMode !== 'extract') { try { globalThis.dispatchEvent(new CustomEvent('" +
-            attr.SEEK_EVENT +
-            "', { detail: { time: (globalThis.__ocClockMs() || 0) / 1000 } })); } catch (error) { (globalThis.__ocLogs = globalThis.__ocLogs || []).push('" +
-            attr.SEEK_EVENT +
-            " handler threw: ' + (error && (error.stack || error))); } } }";
-    }
+    // `seekEventJs` 已退役：seek 事件的注入串唯一活实现是 Rust 侧
+    // parse/hyperframes.rs::seek_event_js（realm 每帧 eval）。本 JS 份曾是
+    // `__ocHyperframes` 导出（仓内零消费），其 `__ocMode !== 'extract'`
+    // 守卫恒真（全仓零写入点）——帧协议清单见 docs/realm-protocol.md。
 
     globalThis.__ocHyperframes = {
         attr: attr,
@@ -175,6 +172,5 @@
             installTimelinesRegistry(windowObject);
             installSeekDispatcher(windowObject);
         },
-        seekEventJs: seekEventJs,
     };
 })();

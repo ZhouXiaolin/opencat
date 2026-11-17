@@ -1,3 +1,5 @@
+import { OMP_TA_KINDS, OMP_TA_SIZE } from '../generated/omp-schema.generated';
+
 // @omp 团队执行体（浏览器侧）：engine `v8_team.rs` 的 TS 同码版——同一
 // bundle 源码合同（protocol.rs IIFE：`{__ocHeader, __ocRow, __ocSetCaps,
 // __ocSetPrng, __ocNext}`），Rust `WebOmpTeam` 经全局 `__ocOmpExecute`
@@ -40,19 +42,15 @@ type OcBundleInst = {
   engaged?: boolean;
 };
 
-// kind 码与 Rust `omp_team.rs::kind_code` 对齐（表序即协议）。
-const TA_KINDS: (new (buf: ArrayBufferLike, off: number, len: number) => ArrayLike<number>)[] = [
-  Float64Array,
-  Float32Array,
-  Uint8ClampedArray,
-  Uint8Array,
-  Int8Array,
-  Uint16Array,
-  Int16Array,
-  Uint32Array,
-  Int32Array,
-];
-const TA_SIZE = [8, 4, 4, 1, 1, 2, 2, 4, 4];
+// kind 码 = Rust `SharedKind` 判别值；构造器/字节宽表由 schema_gen 单源
+// 生成（protocol.rs SharedKind::ALL——注意 U8Clamped 每元素 1 字节，旧手
+// 抄表在此槽误写 4，无语料故从未炸门）。worker 引导串同源插值。
+const TA_KINDS = OMP_TA_KINDS;
+const TA_SIZE = OMP_TA_SIZE;
+
+// worker 是 Blob 起的自包含 realm，不能 import——表值插值进引导串（构造
+// 器名单在 worker 全局可直接解析）。
+const OMP_WORKER_TA_DECL = `const TA_KINDS = [${OMP_TA_KINDS.map((c) => c.name).join(',')}]; const TA_SIZE = [${OMP_TA_SIZE.join(',')}];`;
 
 const bundles = new Map<string, OcBundleInst>();
 
@@ -203,8 +201,7 @@ self.onmessage = (e) => {
   const m = e.data;
   if (!m || m.type !== 'init') return;
   try {
-    const TA_KINDS = [Float64Array, Float32Array, Uint8ClampedArray, Uint8Array, Int8Array, Uint16Array, Int16Array, Uint32Array, Int32Array];
-    const TA_SIZE = [8, 4, 4, 1, 1, 2, 2, 4, 4];
+    ${OMP_WORKER_TA_DECL}
     function rebuild(v, bytes, kinds) {
       if (typeof v !== 'object' || v === null) return v;
       const d = v.__ocOmpShared;

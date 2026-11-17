@@ -1,3 +1,4 @@
+import type { FrameMediaPlanWire } from '../generated/media-plan.schema.generated';
 import { getBlobBytes } from '../wasm';
 import {
   getDecodedFrameRgba,
@@ -7,10 +8,8 @@ import {
   type VideoPreviewQuality,
 } from './video-decoder';
 
-interface MediaPlanVideoFrame {
-  assetId: string;
-  timeMicros: number;
-}
+// wire 契约类型由 schema_gen 单源生成（core ir/media_plan.rs wire_spec）。
+type MediaPlanVideoFrame = FrameMediaPlanWire['videoFrames'][number];
 
 interface InjectVideoFramesOptions {
   /** Media plan JSON string from `build_frame_ir` result or `get_frame_plan`. */

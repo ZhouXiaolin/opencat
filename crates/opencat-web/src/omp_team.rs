@@ -14,19 +14,10 @@ use opencat_core::script::omp::{OmpTeam, TeamSched};
 
 pub struct WebOmpTeam;
 
-/// SharedKind → TS runner 的 kind 码（omp-runner.ts 的 TA_KINDS 表序）。
+/// SharedKind → TS runner 的 kind 码。码即判别值（protocol.rs `SharedKind::code`，
+/// TS 表由 schema_gen 生成的 omp-schema.generated.ts 消费——不再手抄表序）。
 fn kind_code(k: SharedKind) -> u32 {
-    match k {
-        SharedKind::F64 => 0,
-        SharedKind::F32 => 1,
-        SharedKind::U8Clamped => 2,
-        SharedKind::U8 => 3,
-        SharedKind::I8 => 4,
-        SharedKind::U16 => 5,
-        SharedKind::I16 => 6,
-        SharedKind::U32 => 7,
-        SharedKind::I32 => 8,
-    }
+    k.code()
 }
 
 fn js_err_string(v: &JsValue) -> String {

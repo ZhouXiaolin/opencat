@@ -166,7 +166,7 @@ impl WebRenderer {
         }
 
         // Extract the media plan BEFORE encoding (encoding mutates draw internals).
-        let plan_json = media_plan_to_json(&render.media);
+        let plan_json = render.media.to_wire_json();
 
         let ocir = crate::consumer::encode_render_frame_envelope(&mut render, &mut self.scratch)
             .map_err(|e| JsValue::from_str(&e.0))?;
@@ -206,7 +206,7 @@ impl WebRenderer {
         let render = pipeline
             .render_frame(frame)
             .map_err(|e| JsValue::from_str(&format!("get_frame_plan render: {e}")))?;
-        Ok(media_plan_to_json(&render.media))
+        Ok(render.media.to_wire_json())
     }
 
     pub async fn decode_audio_file(
@@ -332,70 +332,6 @@ fn audio_plan_to_json(plan: &opencat_core::AudioPlan) -> String {
 
 /// Serialize a [`FrameMediaPlan`] to the JSON shape JS consumes to drive its
 /// own video decoder / image / Lottie fetching.
-fn media_plan_to_json(plan: &FrameMediaPlan) -> String {
-    let video_frames: Vec<Value> = plan
-        .video_frames
-        .iter()
-        .filter_map(|r| match r {
-            ImageRef::VideoFrame {
-                asset_id,
-                time_micros,
-            } => Some(json!({
-                "assetId": asset_id,
-                "timeMicros": time_micros,
-            })),
-            _ => None,
-        })
-        .collect();
-    let images: Vec<Value> = plan
-        .images
-        .iter()
-        .filter_map(|r| match r {
-            ImageRef::Static { asset_id } => Some(json!({ "assetId": asset_id })),
-            _ => None,
-        })
-        .collect();
-    let lottie_bundles: Vec<Value> = plan
-        .lottie_bundles
-        .iter()
-        .map(|id| json!({ "bundleId": id }))
-        .collect();
-    // The media plan only needs ids for cache bookkeeping; full RGBA rides
-    // the OCIR envelope (section 12). Width/height are still useful for
-    // allocation hints without decoding the binary delta.
-    let generated_images: Vec<Value> = plan
-        .generated_images
-        .iter()
-        .map(|g| {
-            json!({
-                "id": g.id.0,
-                "width": g.width,
-                "height": g.height,
-            })
-        })
-        .collect();
-    let video_color_matrices: std::collections::BTreeMap<&str, &str> = plan
-        .video_color_matrices
-        .iter()
-        .map(|(id, m)| {
-            (
-                id.as_str(),
-                match m {
-                    opencat_core::media::VideoColorMatrix::Bt601 => "bt601",
-                    opencat_core::media::VideoColorMatrix::Bt709 => "bt709",
-                },
-            )
-        })
-        .collect();
-    json!({
-        "videoFrames": video_frames,
-        "images": images,
-        "lottieBundles": lottie_bundles,
-        "generatedImages": generated_images,
-        "videoColorMatrices": video_color_matrices,
-    })
-    .to_string()
-}
 
 /// Best-effort `JsValue` → string for error formatting.
 fn js_err(v: &JsValue) -> String {

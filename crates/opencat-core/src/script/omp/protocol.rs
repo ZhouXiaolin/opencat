@@ -44,18 +44,55 @@ pub struct RowOut {
 /// 回到快路径，字节逐位无损（同 `float_roundtrip` 合同）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SharedKind {
-    F64,
-    F32,
-    U8Clamped,
-    U8,
-    I8,
-    U16,
-    I16,
-    U32,
-    I32,
+    F64 = 0,
+    F32 = 1,
+    U8Clamped = 2,
+    U8 = 3,
+    I8 = 4,
+    U16 = 5,
+    I16 = 6,
+    U32 = 7,
+    I32 = 8,
 }
 
 impl SharedKind {
+    /// 全体变体按 wire 码序排列。OMP binary-bypass 槽的 kind 码 = 判别值；
+    /// TS 侧的构造器/字节宽表由 schema_gen 从本清单生成
+    /// （omp-schema.generated.ts）——omp-runner 主线程与 worker 引导串
+    /// 不再手抄（M3-④）。
+    pub const ALL: [SharedKind; 9] = [
+        Self::F64,
+        Self::F32,
+        Self::U8Clamped,
+        Self::U8,
+        Self::I8,
+        Self::U16,
+        Self::I16,
+        Self::U32,
+        Self::I32,
+    ];
+
+    /// wire 码（= 判别值）。
+    #[inline]
+    pub fn code(self) -> u32 {
+        self as u32
+    }
+
+    /// TS 侧 TypedArray 构造器名（schema_gen 生成用）。
+    pub fn ts_ctor(self) -> &'static str {
+        match self {
+            Self::F64 => "Float64Array",
+            Self::F32 => "Float32Array",
+            Self::U8Clamped => "Uint8ClampedArray",
+            Self::U8 => "Uint8Array",
+            Self::I8 => "Int8Array",
+            Self::U16 => "Uint16Array",
+            Self::I16 => "Int16Array",
+            Self::U32 => "Uint32Array",
+            Self::I32 => "Int32Array",
+        }
+    }
+
     /// 元素字节数。
     pub fn elem_size(self) -> usize {
         match self {
@@ -65,6 +102,34 @@ impl SharedKind {
             Self::U8Clamped | Self::U8 | Self::I8 => 1,
         }
     }
+}
+
+#[test]
+fn shared_kind_wire_table() {
+    // wire 码历史契约：omp-runner 旧手抄表（TA_KINDS/TA_SIZE）即本序。
+    // 判别值 = 下标 = 码，三者在构造上锁定。
+    let names: Vec<_> = SharedKind::ALL.iter().map(|k| k.ts_ctor()).collect();
+    assert_eq!(
+        names,
+        [
+            "Float64Array",
+            "Float32Array",
+            "Uint8ClampedArray",
+            "Uint8Array",
+            "Int8Array",
+            "Uint16Array",
+            "Int16Array",
+            "Uint32Array",
+            "Int32Array"
+        ]
+    );
+    for (i, k) in SharedKind::ALL.iter().enumerate() {
+        assert_eq!(k.code(), i as u32);
+    }
+    // 权威字节宽 = elem_size。注意 U8Clamped 每元素 1 字节——旧 TS 手抄
+    // 表在此槽写 4（靠人守的实例漂移，无语料故从未炸门），单源化后即消。
+    let sizes: Vec<_> = SharedKind::ALL.iter().map(|k| k.elem_size()).collect();
+    assert_eq!(sizes, [8, 4, 1, 1, 1, 2, 2, 4, 4]);
 }
 
 #[derive(Debug, Clone)]

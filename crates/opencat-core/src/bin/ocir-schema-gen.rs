@@ -9,12 +9,24 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 fn main() -> std::io::Result<ExitCode> {
+    let generated = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/opencat-web/web/src/generated");
+    std::fs::create_dir_all(&generated)?;
+
     let ts = opencat_core::ir::schema_gen::generate_ocir_schema_ts();
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../crates/opencat-web/web/src/generated/ocir-schema.generated.ts");
-    std::fs::create_dir_all(out.parent().expect("generated 目录的父级"))?;
+    let out = generated.join("ocir-schema.generated.ts");
     std::fs::write(&out, ts)?;
     println!("ocir-schema-gen: {}", out.display());
+
+    let omp = opencat_core::ir::schema_gen::generate_omp_schema_ts();
+    let omp_out = generated.join("omp-schema.generated.ts");
+    std::fs::write(&omp_out, omp)?;
+    println!("ocir-schema-gen: {}", omp_out.display());
+
+    let mp = opencat_core::ir::schema_gen::generate_media_plan_ts();
+    let mp_out = generated.join("media-plan.schema.generated.ts");
+    std::fs::write(&mp_out, mp)?;
+    println!("ocir-schema-gen: {}", mp_out.display());
 
     let js = opencat_core::ir::schema_gen::generate_gl_opcodes_js();
     let js_out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

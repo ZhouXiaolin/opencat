@@ -9,6 +9,7 @@
 /// 语义是 shaders 语料黑帧事故的修复本体，动它必须过 gate。
 
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
+import type { FrameMediaPlanWire } from './generated/media-plan.schema.generated';
 import { getRendererOrThrow, clearBlobs } from './wasm';
 import { clearVideoCache } from './media/video-decoder';
 import { injectVideoFramesForRender, prepareCatalogVideoSources } from './media/video-frame-injector';
@@ -174,9 +175,9 @@ export class RenderSession {
 
     // SVG 位图资产先走浏览器 img 预解码（CanvasKit 无 svg codec）——
     // resolveImage 是同步的，预热必须在回放前完成；命中后零开销。
-    // plan.images 元素形态是 `{assetId}`（见 media_plan_to_json）。
+    // wire 契约类型由 schema_gen 单源生成（core ir/media_plan.rs wire_spec）。
     try {
-      const plan = JSON.parse(result.mediaPlan) as { images?: { assetId: string }[] };
+      const plan = JSON.parse(result.mediaPlan) as FrameMediaPlanWire;
       for (const entry of plan.images ?? []) {
         await warmStaticSvgImage(entry.assetId);
       }

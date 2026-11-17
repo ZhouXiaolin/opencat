@@ -384,12 +384,8 @@ pub fn view(input: PathBuf, base_dir_arg: Option<PathBuf>, scale_arg: Option<f32
     if !(scale > 0.0 && scale <= 1.0) {
         return Err(anyhow!("--scale must be in (0, 1], got {scale}"));
     }
-    let cache_base =
-        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let cache_dir = cache_base.join(".opencat").join("assets");
-    let loader = EngineLoader::new(base_dir, cache_dir).context("failed to create loader")?;
-    let ctx = EngineJsContext::new().context("failed to create js context")?;
-    let mut pipeline = open(&source_text, loader, ctx).context("failed to open pipeline")?;
+    let mut pipeline = opencat_engine::pipeline::open_engine_pipeline(&source_text, Some(&base_dir))
+        .context("failed to open pipeline")?;
     let info = pipeline.info().clone();
     let total_frames = duration_secs_to_frames(info.duration, info.fps).max(1);
     let fps = info.fps.max(1);

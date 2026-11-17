@@ -82,12 +82,19 @@ fn parse_ranges(spec: &str) -> Result<Vec<(u32, u32)>> {
 }
 
 /// Complement of `ranges` within `[first, last]`, as contiguous kept segments.
+///
+/// 排除窗超出组合帧数（`end >= total_frames`）时静默截断到范围内——曾有
+/// 调用传入超范围窗产出倒挂段 `(550, 494)`（b - a + 1 在 u32 下溢），warmup
+/// `drawFrame(550)` 直接撞组合上限。段只可能在 `[first, last]` 内。
 fn kept_segments(first: u32, last: u32, ranges: &[(u32, u32)]) -> Vec<(u32, u32)> {
     let mut segments = Vec::new();
     let mut cursor = first;
     for (start, end) in ranges {
-        if *start > cursor {
-            segments.push((cursor, start.saturating_sub(1)));
+        if *start > last {
+            break;
+        }
+        if *start > cursor && cursor <= last {
+            segments.push((cursor, (*start).saturating_sub(1)));
         }
         cursor = cursor.max(end.saturating_add(1));
     }
@@ -148,8 +155,8 @@ fn run(cli: &Cli) -> Result<()> {
     if segments.is_empty() {
         bail!("frame range {start}..={end} is fully excluded");
     }
-    let kept_frames: u32 = segments.iter().map(|(a, b)| b - a + 1).sum();
-    let excluded_frames = end - start + 1 - kept_frames;
+    let kept_frames: u64 = segments.iter().map(|(a, b)| u64::from(b - a + 1)).sum();
+    let excluded_frames = u64::from(end - start + 1) - kept_frames;
 
     let Some(browser_env) = BrowserTestEnv::detect()? else {
         bail!(

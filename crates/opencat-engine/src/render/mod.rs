@@ -1137,20 +1137,7 @@ pub fn probe_composition_with_base(
     input: &str,
     base_dir: Option<&Path>,
 ) -> Result<(u32, u32, Option<crate::media::AudioTrack>)> {
-    use crate::script::EngineJsContext;
-    use opencat_core::pipeline::Pipeline;
-    use opencat_core::script::js_context::JsContext;
-
-    let cache_base =
-        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let loader = crate::resource::loader::EngineLoader::new(
-        base_dir.unwrap_or(&cache_base).to_path_buf(),
-        cache_base.join(".opencat").join("assets"),
-    )?;
-    let ctx = EngineJsContext::new()?;
-    crate::script::bridge::install_glsl_reflector(&ctx);
-    crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
-    let pipeline = crate::pipeline::open(input, loader, ctx)?;
+    let pipeline = crate::pipeline::open_engine_pipeline(input, base_dir)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
     let audio_track = crate::media::audio::build_audio_track_from_pipeline(&pipeline)?;
@@ -1163,23 +1150,8 @@ pub fn render_from_source_with_base(
     output_path: impl AsRef<Path>,
     config: &EncodingConfig,
 ) -> Result<()> {
-    use crate::script::EngineJsContext;
-    use opencat_core::pipeline::Pipeline;
-    use opencat_core::script::js_context::JsContext;
-
     let output_path = output_path.as_ref();
-    let cache_base =
-        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let cache_dir = cache_base.join(".opencat").join("assets");
-
-    let loader = crate::resource::loader::EngineLoader::new(
-        base_dir.unwrap_or(&cache_base).to_path_buf(),
-        cache_dir,
-    )?;
-    let ctx = EngineJsContext::new()?;
-    crate::script::bridge::install_glsl_reflector(&ctx);
-    crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
-    let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
+    let mut pipeline = crate::pipeline::open_engine_pipeline(input, base_dir)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
 
@@ -1442,22 +1414,7 @@ pub fn render_single_frame_from_source_with_base(
     base_dir: Option<&Path>,
     frame_index: u32,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    use crate::script::EngineJsContext;
-    use opencat_core::pipeline::Pipeline;
-    use opencat_core::script::js_context::JsContext;
-
-    let cache_base =
-        dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let cache_dir = cache_base.join(".opencat").join("assets");
-
-    let loader = crate::resource::loader::EngineLoader::new(
-        base_dir.unwrap_or(&cache_base).to_path_buf(),
-        cache_dir,
-    )?;
-    let ctx = EngineJsContext::new()?;
-    crate::script::bridge::install_glsl_reflector(&ctx);
-    crate::script::bridge::install_asset_bridge(&ctx, loader.base_dir());
-    let mut pipeline = crate::pipeline::open(input, loader, ctx)?;
+    let mut pipeline = crate::pipeline::open_engine_pipeline(input, base_dir)?;
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
 
@@ -1483,7 +1440,6 @@ pub fn render_single_frame_from_source_with_base(
         info.height,
     )?;
     let rgba = match renderer.render_frame_blocking(frame_index) {
-        Ok(rgba) => rgba,
         Ok(rgba) => rgba,
         Err(e) => {
             eprintln!("render_frame_blocking 失败: {e:#}");

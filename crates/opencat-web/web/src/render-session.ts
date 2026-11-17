@@ -149,8 +149,12 @@ export class RenderSession {
     }
 
     const renderer = getRendererOrThrow();
-    // oracle 实时通道（服务端墙钟是唯一真时标——页内时钟全被 realm shim 接管）。
+    // oracle 实时通道（服务端墙钟是唯一真时标——页内时钟全被 realm shim
+    // 接管）。默认关：/oracle-log 端点只在开发 oracle 静态服务存在，生产
+    // dist 里无条件发只会打向宿主页面的同源 404。oracle 页以
+    // `?oraclelog` 开启（test-oracle.html 注入 __ocOracleLog）。
     const ocLog = (m: string) => {
+      if ((globalThis as unknown as Record<string, unknown>).__ocOracleLog !== true) return;
       try {
         fetch('/oracle-log', { method: 'POST', body: m }).catch(() => {});
       } catch { /* ignore */ }

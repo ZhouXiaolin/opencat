@@ -10,6 +10,7 @@
 //! cached bytes for the current [`FrameMediaPlan`] without going through core.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -96,6 +97,27 @@ impl EnginePipelineHost {
     ) -> Result<Vec<opencat_core::pipeline::FrameElementRect>> {
         self.pipeline.inspect_frame(idx)
     }
+}
+
+/// 一站式 engine 管线装配：`EngineLoader`（base_dir + 仓库缓存目录）+
+/// JS ctx（GLSL 反射器 + 资产桥）+ [`open`]。
+///
+/// 装配序列曾四处手抄（probe / render / single-frame PNG / view 预览）并
+/// 各自漂移——view 预览就漏装了反射器与资产桥。新入口一律走这里。
+pub fn open_engine_pipeline(input: &str, base_dir: Option<&Path>) -> Result<EnginePipeline> {
+    use crate::script::bridge::{install_asset_bridge, install_glsl_reflector};
+    use crate::script::EngineJsContext;
+    use opencat_core::script::js_context::JsContext;
+
+    let cache_base = dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    let loader = EngineLoader::new(
+        base_dir.unwrap_or(&cache_base).to_path_buf(),
+        cache_base.join(".opencat").join("assets"),
+    )?;
+    let ctx = EngineJsContext::new()?;
+    install_glsl_reflector(&ctx);
+    install_asset_bridge(&ctx, loader.base_dir());
+    open(input, loader, ctx)
 }
 
 /// Parse a composition and open it on the host-owned resource pipeline.

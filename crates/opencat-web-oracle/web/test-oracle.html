@@ -59,6 +59,9 @@
       // 转换，bin 侧必须配 OC_ORACLE_VUI_TV=1 同步标 tv。裸旗标形态
       // （OC_ORACLE_PAGE_EXTRA=vfcopy → &vfcopy）也认。
       globalThis.__ocVfCopy = q.has('vfcopy');
+      // oracle 实时探针（[oc-live] 墙钟行）默认关：render-session/gl-executor
+      // 的 /oracle-log fetch 只有这里为 true 才发（生产 dist 无该端点）。
+      globalThis.__ocOracleLog = q.has('oraclelog');
 
       const canvas = document.getElementById('frame');
       // Live phase probe: console lines only reach the driver after the whole

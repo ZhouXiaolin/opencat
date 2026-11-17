@@ -297,13 +297,16 @@ export class GlStreamExecutor {
     // GL bottom-origin → composition top-origin: flip rows in place.
     flipRowsVertical(rgba, stream.height);
     generatedImageRgba.set(stream.imageId, { width: stream.width, height: stream.height, rgba });
-    // oracle 实时探针：服务端墙钟裁决每流真实开销（页内时钟被 realm shim 接管）。
-    try {
-      fetch('/oracle-log', {
-        method: 'POST',
-        body: `glx ${stream.targetId.slice(-10)} new=${isNewTarget} ${stream.width}x${stream.height} opBytes=${stream.ops.ops.length} targets=${this.targets.size}`,
-      }).catch(() => {});
-    } catch { /* ignore */ }
+    // oracle 实时探针：服务端墙钟裁决每流真实开销（页内时钟被 realm shim
+    // 接管）。默认关（见 render-session.ts ocLog），oracle 页 `?oraclelog` 开启。
+    if ((globalThis as unknown as Record<string, unknown>).__ocOracleLog === true) {
+      try {
+        fetch('/oracle-log', {
+          method: 'POST',
+          body: `glx ${stream.targetId.slice(-10)} new=${isNewTarget} ${stream.width}x${stream.height} opBytes=${stream.ops.ops.length} targets=${this.targets.size}`,
+        }).catch(() => {});
+      } catch { /* ignore */ }
+    }
   }
 
   /// Release every per-target context (canvas count is bounded but WebGL

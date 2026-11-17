@@ -7,63 +7,6 @@
 import type { Canvas, CanvasKit, Image, ImageFilter, Paint, Path, PathBuilder, Rect, Surface } from 'canvaskit-wasm';
 import { OP } from '../generated/ocir-schema.generated';
 import {
-  OP_SAVE,
-  OP_SAVE_LAYER,
-  OP_SAVE_BACKDROP_LAYER,
-  OP_RESTORE,
-  OP_RESTORE_TO_COUNT,
-  OP_TRANSLATE,
-  OP_SCALE,
-  OP_ROTATE,
-  OP_SKEW,
-  OP_CONCAT,
-  OP_SET_FILL_STYLE,
-  OP_SET_STROKE_STYLE,
-  OP_SET_LINE_WIDTH,
-  OP_SET_LINE_CAP,
-  OP_SET_LINE_JOIN,
-  OP_SET_LINE_DASH,
-  OP_CLEAR_LINE_DASH,
-  OP_SET_GLOBAL_ALPHA,
-  OP_SET_ANTI_ALIAS,
-  OP_SET_BLEND_MODE,
-  OP_BEGIN_PATH,
-  OP_FILL_PATH,
-  OP_STROKE_PATH,
-  OP_CLIP_PATH,
-  OP_CLEAR,
-  OP_PAINT,
-  OP_RECT,
-  OP_R_RECT,
-  OP_D_RRECT,
-  OP_OVAL,
-  OP_CIRCLE,
-  OP_ARC,
-  OP_LINE,
-  OP_POINTS,
-  OP_DRAW_PATH,
-  OP_IMAGE,
-  OP_IMAGE_RECT,
-  OP_RUNTIME_EFFECT,
-  OP_REPLAY_RANGE,
-  OP_DRAW_SUBTREE_PICTURE,
-  OP_FILL_PATTERN,
-  OP_STROKE_PATTERN,
-  OP_FILL_OVAL_BATCH,
-  OP_LOTTIE_RECT,
-  OP_PATH_FIRST,
-  OP_PATH_LAST,
-  OP_PATH_MOVE_TO,
-  OP_PATH_LINE_TO,
-  OP_PATH_QUAD_TO,
-  OP_PATH_CUBIC_TO,
-  OP_PATH_CLOSE,
-  OP_PATH_ADD_RECT,
-  OP_PATH_ADD_RRECT,
-  OP_PATH_ADD_OVAL,
-  OP_PATH_ADD_ARC,
-} from './decode';
-import {
   type DecodedFrame,
   type DecodedImageRef,
   type EncodedDrawFrame,
@@ -233,10 +176,10 @@ export function renderEncodedDrawFrame(
     const executeOp = (entry: OpEntry) => {
       const p = new Payload(opBytes, entry.payloadOffset, entry.payloadLen);
       switch (entry.opcode) {
-        case OP_SAVE:
+        case OP.SAVE:
           targetCanvas.save();
           break;
-        case OP_SAVE_LAYER: {
+        case OP.SAVE_LAYER: {
           const flags = p.u8();
           const bounds = readRect4(p);
           const paintId = p.u32();
@@ -248,7 +191,7 @@ export function renderEncodedDrawFrame(
           targetCanvas.saveLayer(paint ?? undefined, (flags & 0b01) !== 0 ? ckRect(CK, bounds) : null);
           break;
         }
-        case OP_SAVE_BACKDROP_LAYER: {
+        case OP.SAVE_BACKDROP_LAYER: {
           // CSS `backdrop-filter`: same payload as SAVE_LAYER (alpha always
           // 1.0); the paint's image filter applies to what is already drawn
           // beneath the layer bounds, and the layer content stays unfiltered.
@@ -311,28 +254,28 @@ export function renderEncodedDrawFrame(
           targetCanvas.restore();
           break;
         }
-        case OP_RESTORE:
+        case OP.RESTORE:
           // svg `<mask>`：层内容完成后、弹层前把该层 coverage 以 DstIn 罩回。
           // mask 子树重放内部的 Restore 不弹主流程的层基准（mask_replay）。
           if (maskReplayDepth === 0 && maskIsolationDepth === 0) applyMasksTo(targetCanvas);
           targetCanvas.restore();
           break;
-        case OP_RESTORE_TO_COUNT:
+        case OP.RESTORE_TO_COUNT:
           targetCanvas.restoreToCount?.(p.u32());
           break;
-        case OP_TRANSLATE:
+        case OP.TRANSLATE:
           targetCanvas.translate(p.f32(), p.f32());
           break;
-        case OP_SCALE:
+        case OP.SCALE:
           targetCanvas.scale(p.f32(), p.f32());
           break;
-        case OP_ROTATE:
+        case OP.ROTATE:
           targetCanvas.rotate(p.f32(), p.f32(), p.f32());
           break;
-        case OP_SKEW:
+        case OP.SKEW:
           targetCanvas.skew(p.f32(), p.f32());
           break;
-        case OP_CONCAT: {
+        case OP.CONCAT: {
           // Wire layout is column-major (`[h00,h10,h20, h01,h11,h21, h02,
           // h12,h22]`, Mat4::to_homography3); CanvasKit's 9-array concat reads
           // SkMatrix row-major [sx,kx,tx, ky,sy,ty, p0,p1,p2]. Same shuffle
@@ -342,13 +285,13 @@ export function renderEncodedDrawFrame(
           targetCanvas.concat([m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]);
           break;
         }
-        case OP_SET_FILL_STYLE:
+        case OP.SET_FILL_STYLE:
           state.fillColor = colorU32ToF32(p.u32());
           // A solid style switch replaces any gradient (browser fillStyle
           // assignment semantics — replay.rs sets the shader to None).
           state.fillGradient = null;
           break;
-        case OP_SET_STROKE_STYLE:
+        case OP.SET_STROKE_STYLE:
           state.strokeColor = colorU32ToF32(p.u32());
           state.strokeGradient = null;
           break;
@@ -376,16 +319,16 @@ export function renderEncodedDrawFrame(
           else state.fillGradient = grad;
           break;
         }
-        case OP_SET_LINE_WIDTH:
+        case OP.SET_LINE_WIDTH:
           state.lineWidth = p.f32();
           break;
-        case OP_SET_LINE_CAP:
+        case OP.SET_LINE_CAP:
           state.lineCap = p.u32();
           break;
-        case OP_SET_LINE_JOIN:
+        case OP.SET_LINE_JOIN:
           state.lineJoin = p.u32();
           break;
-        case OP_SET_LINE_DASH: {
+        case OP.SET_LINE_DASH: {
           const dashStart = p.u32();
           const dashLen = p.u32();
           state.lineDash = {
@@ -394,22 +337,22 @@ export function renderEncodedDrawFrame(
           };
           break;
         }
-        case OP_CLEAR_LINE_DASH:
+        case OP.CLEAR_LINE_DASH:
           state.lineDash = null;
           break;
-        case OP_SET_GLOBAL_ALPHA:
+        case OP.SET_GLOBAL_ALPHA:
           state.globalAlpha = p.f32();
           break;
-        case OP_SET_ANTI_ALIAS:
+        case OP.SET_ANTI_ALIAS:
           state.antiAlias = p.u8() !== 0;
           break;
-        case OP_SET_BLEND_MODE:
+        case OP.SET_BLEND_MODE:
           // u8 wire blend enum（SET_BLEND_MODE 每帧由 core 下发，见
           // buildScriptPaint 的 setBlendMode）。未知值落到 mapBlendMode 的
           // SrcOver 兜底。
           state.blendMode = p.u8();
           break;
-        case OP_BEGIN_PATH: {
+        case OP.BEGIN_PATH: {
           // The previous builder is stale once a new BEGIN_PATH opens (any
           // snapshot taken from it owns its own memory). Free it now instead
           // of accumulating one wasm PathBuilder per oval of a 66k-op pattern
@@ -418,24 +361,24 @@ export function renderEncodedDrawFrame(
           currentPathBuilder = dispose(new CK.PathBuilder());
           break;
         }
-        case OP_PATH_MOVE_TO:
-        case OP_PATH_LINE_TO:
-        case OP_PATH_QUAD_TO:
-        case OP_PATH_CUBIC_TO:
-        case OP_PATH_CLOSE:
-        case OP_PATH_ADD_RECT:
-        case OP_PATH_ADD_RRECT:
-        case OP_PATH_ADD_OVAL:
-        case OP_PATH_ADD_ARC:
-          applyPathPayload(CK, ensurePathBuilder(), p, entry.opcode - OP_PATH_FIRST);
+        case OP.PATH_MOVE_TO:
+        case OP.PATH_LINE_TO:
+        case OP.PATH_QUAD_TO:
+        case OP.PATH_CUBIC_TO:
+        case OP.PATH_CLOSE:
+        case OP.PATH_ADD_RECT:
+        case OP.PATH_ADD_RRECT:
+        case OP.PATH_ADD_OVAL:
+        case OP.PATH_ADD_ARC:
+          applyPathPayload(CK, ensurePathBuilder(), p, entry.opcode - OP.PATH_MOVE_TO);
           break;
-        case OP_FILL_PATH: {
+        case OP.FILL_PATH: {
           const path = snapshotPath();
           targetCanvas.drawPath(path, scriptPaint('fill'));
           dispose(path);
           break;
         }
-        case OP_FILL_OVAL_BATCH: {
+        case OP.FILL_OVAL_BATCH: {
           // context2d halftone 快路（rects→F32_POOL、colors→BYTES 段）。逐点
           // 序列折叠为「按色分组 → 一路径一填充」：椭圆网格不重叠 → 与逐点
           // 序位图一致（k3diff 门验证）。alpha 数学镜像 engine replay.rs：
@@ -501,13 +444,13 @@ export function renderEncodedDrawFrame(
           }
           break;
         }
-        case OP_STROKE_PATH: {
+        case OP.STROKE_PATH: {
           const path = snapshotPath();
           targetCanvas.drawPath(path, scriptPaint('stroke'));
           dispose(path);
           break;
         }
-        case OP_CLIP_PATH: {
+        case OP.CLIP_PATH: {
           // wire: [u8 anti_alias][u8 fill_type]（与 Rust 侧 draw_encoding 同序）。
           const antiAlias = p.u8() !== 0;
           const fillType = p.u8();
@@ -517,22 +460,22 @@ export function renderEncodedDrawFrame(
           dispose(path);
           break;
         }
-        case OP_CLEAR:
+        case OP.CLEAR:
           targetCanvas.clear(CK.Color4f(p.f32(), p.f32(), p.f32(), p.f32()));
           break;
-        case OP_PAINT:
+        case OP.PAINT:
           targetCanvas.drawPaint(buildPaintById(CK, frame, p.u32(), dispose));
           break;
-        case OP_RECT:
+        case OP.RECT:
           targetCanvas.drawRect(ckRect(CK, readRect4(p)), buildPaintById(CK, frame, p.u32(), dispose));
           break;
-        case OP_R_RECT: {
+        case OP.R_RECT: {
           const rect = readRect4(p);
           const radii = p.f32Array(4);
           targetCanvas.drawRRect(ckRRect(rect, radii), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
-        case OP_D_RRECT: {
+        case OP.D_RRECT: {
           const outer = readDRRect(p);
           const inner = readDRRect(p);
           targetCanvas.drawDRRect(
@@ -542,13 +485,13 @@ export function renderEncodedDrawFrame(
           );
           break;
         }
-        case OP_OVAL:
+        case OP.OVAL:
           targetCanvas.drawOval(ckRect(CK, readRect4(p)), buildPaintById(CK, frame, p.u32(), dispose));
           break;
-        case OP_CIRCLE:
+        case OP.CIRCLE:
           targetCanvas.drawCircle(p.f32(), p.f32(), p.f32(), buildPaintById(CK, frame, p.u32(), dispose));
           break;
-        case OP_ARC: {
+        case OP.ARC: {
           const rect = readRect4(p);
           const arcStart = p.f32();
           const sweep = p.f32();
@@ -556,24 +499,24 @@ export function renderEncodedDrawFrame(
           targetCanvas.drawArc(ckRect(CK, rect), arcStart, sweep, useCenter, buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
-        case OP_LINE:
+        case OP.LINE:
           targetCanvas.drawLine(p.f32(), p.f32(), p.f32(), p.f32(), buildPaintById(CK, frame, p.u32(), dispose));
           break;
-        case OP_POINTS: {
+        case OP.POINTS: {
           const mode = p.u32();
           const pointStart = p.u32();
           const pointsLen = p.u32();
           targetCanvas.drawPoints(mapPointMode(CK, mode), frame.f32Pool.slice(pointStart, pointStart + pointsLen), buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
-        case OP_DRAW_PATH: {
+        case OP.DRAW_PATH: {
           // framePathCache dedupes within the frame; the path (and the builder
           // that snapshotted it) are freed after the surface flush.
           const path = buildPathById(CK, frame, p.u32(), framePathCache, dispose);
           targetCanvas.drawPath(path, buildPaintById(CK, frame, p.u32(), dispose));
           break;
         }
-        case OP_FILL_PATTERN: {
+        case OP.FILL_PATTERN: {
           // svg `<pattern>`: tile picture recording repeated via a picture
           // shader. The tile pixel scale mirrors the engine: (ctm x pattern
           // transform)'s scale part drives the recording resolution; the
@@ -632,7 +575,7 @@ export function renderEncodedDrawFrame(
           tilePicture.delete();
           break;
         }
-        case OP_STROKE_PATTERN: {
+        case OP.STROKE_PATTERN: {
           // svg `<pattern>` stroke: same tile layout + inline stroke params
           // ([f32 width][u8 cap][u8 join][f32 miter]); the repeated tile is
           // stroked along the path instead of filling it.
@@ -688,7 +631,7 @@ export function renderEncodedDrawFrame(
           tilePicture.delete();
           break;
         }
-        case OP_IMAGE: {
+        case OP.IMAGE: {
           const image = readImageRef(p, frame);
           const x = p.f32();
           const y = p.f32();
@@ -711,7 +654,7 @@ export function renderEncodedDrawFrame(
           if (image.type === 'generated') ckImage.delete();
           break;
         }
-        case OP_IMAGE_RECT: {
+        case OP.IMAGE_RECT: {
           const image = readImageRef(p, frame);
           const hasSrc = p.u8() !== 0;
           const src = readRect4(p);
@@ -734,7 +677,7 @@ export function renderEncodedDrawFrame(
           if (image.type === 'generated') ckImage.delete();
           break;
         }
-        case OP_LOTTIE_RECT: {
+        case OP.LOTTIE_RECT: {
           const bundleId = frame.strings[p.u32()] ?? '';
           const lottieFrame = p.f32();
           const dst = readRect4(p);
@@ -754,13 +697,13 @@ export function renderEncodedDrawFrame(
           targetCanvas.restore();
           break;
         }
-        case OP_RUNTIME_EFFECT:
+        case OP.RUNTIME_EFFECT:
           drawRuntimeEffect(CK, targetCanvas, frame, p, executeRangeIsolated, executeSubtreeIsolated, resolveFrameImage, dispose);
           break;
-        case OP_REPLAY_RANGE:
+        case OP.REPLAY_RANGE:
           executeRange(p.u32(), p.u32());
           break;
-        case OP_DRAW_SUBTREE_PICTURE:
+        case OP.DRAW_SUBTREE_PICTURE:
           const subtree = p.u32();
           const x = p.f32();
           const y = p.f32();

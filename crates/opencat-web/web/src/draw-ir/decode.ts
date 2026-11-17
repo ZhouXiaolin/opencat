@@ -38,65 +38,6 @@ const SECTION_EFFECTS = SECTION.EFFECTS;
 const SECTION_SUBTREES = SECTION.SUBTREES;
 const SECTION_GENERATED_IMAGES = SECTION.GENERATED_IMAGES;
 
-export const OP_SAVE = OP.SAVE;
-export const OP_SAVE_LAYER = OP.SAVE_LAYER;
-export const OP_SAVE_BACKDROP_LAYER = OP.SAVE_BACKDROP_LAYER;
-export const OP_RESTORE = OP.RESTORE;
-export const OP_RESTORE_TO_COUNT = OP.RESTORE_TO_COUNT;
-export const OP_TRANSLATE = OP.TRANSLATE;
-export const OP_SCALE = OP.SCALE;
-export const OP_ROTATE = OP.ROTATE;
-export const OP_SKEW = OP.SKEW;
-export const OP_CONCAT = OP.CONCAT;
-export const OP_SET_FILL_STYLE = OP.SET_FILL_STYLE;
-export const OP_SET_STROKE_STYLE = OP.SET_STROKE_STYLE;
-export const OP_SET_LINE_WIDTH = OP.SET_LINE_WIDTH;
-export const OP_SET_LINE_CAP = OP.SET_LINE_CAP;
-export const OP_SET_LINE_JOIN = OP.SET_LINE_JOIN;
-export const OP_SET_LINE_DASH = OP.SET_LINE_DASH;
-export const OP_CLEAR_LINE_DASH = OP.CLEAR_LINE_DASH;
-export const OP_SET_GLOBAL_ALPHA = OP.SET_GLOBAL_ALPHA;
-export const OP_SET_ANTI_ALIAS = OP.SET_ANTI_ALIAS;
-export const OP_SET_BLEND_MODE = OP.SET_BLEND_MODE;
-export const OP_BEGIN_PATH = OP.BEGIN_PATH;
-export const OP_FILL_PATH = OP.FILL_PATH;
-export const OP_STROKE_PATH = OP.STROKE_PATH;
-export const OP_CLIP_PATH = OP.CLIP_PATH;
-export const OP_CLEAR = OP.CLEAR;
-export const OP_PAINT = OP.PAINT;
-export const OP_RECT = OP.RECT;
-export const OP_R_RECT = OP.R_RECT;
-export const OP_D_RRECT = OP.D_RRECT;
-export const OP_OVAL = OP.OVAL;
-export const OP_CIRCLE = OP.CIRCLE;
-export const OP_ARC = OP.ARC;
-export const OP_LINE = OP.LINE;
-export const OP_POINTS = OP.POINTS;
-export const OP_DRAW_PATH = OP.DRAW_PATH;
-export const OP_IMAGE = OP.IMAGE;
-export const OP_IMAGE_RECT = OP.IMAGE_RECT;
-export const OP_RUNTIME_EFFECT = OP.RUNTIME_EFFECT;
-export const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
-export const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
-export const OP_FILL_PATTERN = OP.FILL_PATTERN;
-export const OP_STROKE_PATTERN = OP.STROKE_PATTERN;
-export const OP_FILL_OVAL_BATCH = OP.FILL_OVAL_BATCH;
-export const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
-// v6: each PathOp command is promoted to its own top-level opcode (the old
-// OP_PATH / PATH_OP sub-opcode form is gone). One op = one path command.
-export const OP_PATH_MOVE_TO = OP.PATH_MOVE_TO;
-export const OP_PATH_LINE_TO = OP.PATH_LINE_TO;
-export const OP_PATH_QUAD_TO = OP.PATH_QUAD_TO;
-export const OP_PATH_CUBIC_TO = OP.PATH_CUBIC_TO;
-export const OP_PATH_CLOSE = OP.PATH_CLOSE;
-export const OP_PATH_ADD_RECT = OP.PATH_ADD_RECT;
-export const OP_PATH_ADD_RRECT = OP.PATH_ADD_RRECT;
-export const OP_PATH_ADD_OVAL = OP.PATH_ADD_OVAL;
-export const OP_PATH_ADD_ARC = OP.PATH_ADD_ARC;
-/// Lowest v6 path opcode (records the contiguous path-command range).
-export const OP_PATH_FIRST = OP_PATH_MOVE_TO;
-/// Highest v6 path opcode.
-export const OP_PATH_LAST = OP_PATH_ADD_ARC;
 
 export const NO_PAINT = 0xffff_ffff;
 
@@ -391,25 +332,25 @@ export function validateFrameMedia(frame: DecodedFrame): void {
   const payload = new Payload(frame.ops, 0, frame.ops.byteLength);
   for (const entry of entries) {
     switch (entry.opcode) {
-      case OP_IMAGE: {
+      case OP.IMAGE: {
         const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
         const image = readImageRef(p, frame);
         checkImage(image);
         break;
       }
-      case OP_IMAGE_RECT: {
+      case OP.IMAGE_RECT: {
         const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
         const image = readImageRef(p, frame);
         checkImage(image);
         break;
       }
-      case OP_LOTTIE_RECT: {
+      case OP.LOTTIE_RECT: {
         const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
         const bundleId = frame.strings[p.u32()] ?? '';
         checkLottie(bundleId);
         break;
       }
-      case OP_RUNTIME_EFFECT: {
+      case OP.RUNTIME_EFFECT: {
         const p = new Payload(frame.ops, entry.payloadOffset, entry.payloadLen);
         const effectId = p.u32();
         const spec = frame.effects[effectId];
@@ -425,13 +366,13 @@ export function validateFrameMedia(frame: DecodedFrame): void {
     for (const entry of subOps) {
       const payload = new Payload(frame.subtrees[si], entry.payloadOffset, entry.payloadLen);
       switch (entry.opcode) {
-        case OP_IMAGE:
-        case OP_IMAGE_RECT: {
+        case OP.IMAGE:
+        case OP.IMAGE_RECT: {
           const image = readImageRef(payload, frame);
           checkImage(image);
           break;
         }
-        case OP_LOTTIE_RECT: {
+        case OP.LOTTIE_RECT: {
           const bundleId = frame.strings[payload.u32()] ?? '';
           checkLottie(bundleId);
           break;

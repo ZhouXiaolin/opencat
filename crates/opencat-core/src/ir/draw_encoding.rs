@@ -203,11 +203,14 @@ pub mod opcode {
     /// writes its fields unconditionally and signals absence via a flag byte,
     /// and `ImageRef` always writes tag(1) + id-slot(12), so every slice sums
     /// to a fixed byte count — which is what [`OPCODE_PAYLOAD_LEN`] derives
-    /// from. The table cannot see the hand-written arms of `encode_op`, so
-    /// the claimed drift detection is NOT compile-time: compliance is
-    /// enforced at encode time by the [`OpWriter`] drop assertion (one guard
-    /// per arm), and `schema_gen` consumes the same table to emit the
-    /// TypeScript `OPCODE_FIELDS` layout description.
+    /// from. Compliance of `encode_op` with this table is checked two ways:
+    /// regular ops go through `ocir_regular_op!`, whose const assertion
+    /// verifies the declared field list (names, order, widths) against this
+    /// table **at compile time**; the irregular arms (`SAVE_LAYER`,
+    /// `SAVE_BACKDROP_LAYER`, `FILL_OVAL_BATCH`, `IMAGE`, `IMAGE_RECT`,
+    /// `FILL_PATTERN`) remain runtime-checked by the [`OpWriter`] drop
+    /// assertion (payload length per arm). `schema_gen` consumes the same
+    /// table to emit the TypeScript `OPCODE_FIELDS` layout description.
     pub const OP_FIELDS: [&[OpField]; 57] = [
         &[],                                                             // 0  SAVE
         &[f("flags", 1), f("bounds", 16), f("paint", 4), f("alpha", 4)], // 1  SAVE_LAYER
@@ -1768,6 +1771,97 @@ pub(crate) fn encode_path_fill_type(fill_type: FillType) -> u8 {
 /// [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
 /// v6: each op is `[opcode: u8][fixed-length payload]` with no padding.
 /// `bytes_pool` 以 `frame.bytes` 为基（偏移绝对对齐 TS 侧 BYTES 段）。
+// ---------------------------------------------------------------------------
+// 规整 op 的表驱动编码（M3-④ Step2）
+// ---------------------------------------------------------------------------
+
+/// const 可用的 &str 相等比较（str 的 PartialEq 非 const）。
+const fn ocir_str_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// 编译期看守：宏臂声明的字段清单（名+序+宽）必须与 OP_FIELDS[opcode]
+/// 逐项一致。OP_FIELDS ↔ encode_op 的漂移从「运行时 drop 断言」升级为
+/// 「编译失败」。
+const fn ocir_fields_match(opcode: u16, declared: &[(&str, u16)]) -> bool {
+    let table = opcode::OP_FIELDS[opcode as usize];
+    if table.len() != declared.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < table.len() {
+        if !ocir_str_eq(table[i].name, declared[i].0) || table[i].bytes != declared[i].1 {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// kind → 线上字节数（与 ocir_write_field 的写入宽度单点绑定）。
+macro_rules! ocir_field_bytes {
+    (f32) => { 4u16 };
+    (f32s2) => { 8u16 };
+    (f32s6) => { 24u16 };
+    (f32s9) => { 36u16 };
+    (u32) => { 4u16 };
+    (u8) => { 1u16 };
+    (bool) => { 1u16 };
+    (rect) => { 16u16 };
+    (radii) => { 16u16 };
+    (drrect) => { 32u16 };
+    (coloru8) => { 4u16 };
+    (colorf32) => { 16u16 };
+}
+
+/// kind → 定宽 write 调用（宽度与 ocir_field_bytes 一一对应）。
+macro_rules! ocir_write_field {
+    ($w:expr, f32, $e:expr) => { write_f32($w, $e) };
+    ($w:expr, f32s2, $e:expr) => { write_f32_array::<2>($w, $e) };
+    ($w:expr, f32s6, $e:expr) => { write_f32_array::<6>($w, $e) };
+    ($w:expr, f32s9, $e:expr) => { write_f32_array::<9>($w, $e) };
+    ($w:expr, u32, $e:expr) => { write_u32($w, $e) };
+    ($w:expr, u8, $e:expr) => { write_u8($w, $e) };
+    ($w:expr, bool, $e:expr) => { write_u8($w, u8::from($e)) };
+    ($w:expr, rect, $e:expr) => { write_rect4($w, $e) };
+    ($w:expr, radii, $e:expr) => { write_radii4($w, $e) };
+    ($w:expr, drrect, $e:expr) => { write_drrect_spec($w, $e) };
+    ($w:expr, coloru8, $e:expr) => { write_u32($w, encode_color_u8($e)) };
+    ($w:expr, colorf32, $e:expr) => {{
+        write_f32($w, $e.r);
+        write_f32($w, $e.g);
+        write_f32($w, $e.b);
+        write_f32($w, $e.a);
+    }};
+}
+
+/// 规整编码臂：单点声明 opcode + 字段序列 `(名, kind, 值)`，展开为
+/// ① OP_FIELDS 编译期对账（名/序/宽）+ ② OpWriter 定宽写入。任一侧
+/// 漂移（改表不改臂、改臂不改表、字段重排）都是编译失败。
+/// `$buf` 显式传参：macro_rules 自由标识符按定义点作用域解析。
+macro_rules! ocir_regular_op {
+    ($buf:expr, $opcode:path, { $( ($name:literal, $kind:ident, $e:expr) ),* $(,)? }) => {{
+        const _: () = assert!(
+            ocir_fields_match($opcode, &[ $( ($name, ocir_field_bytes!($kind)) ),* ]),
+            concat!("OCIR field drift vs OP_FIELDS: opcode ", stringify!($opcode)),
+        );
+        #[allow(unused_mut, unused_variables)] // 零字段 op 只留 header，w 不读
+        let mut w = OpWriter::new($buf, $opcode);
+        $( ocir_write_field!(&mut w, $kind, $e); )*
+    }};
+}
+
 fn encode_op(
     op: &DrawOp,
     buf: &mut Vec<u8>,
@@ -1777,11 +1871,15 @@ fn encode_op(
 ) {
     match op {
         // ===================================================================
+        // 规整 op：字段清单由 ocir_regular_op! 与 OP_FIELDS 编译期对账。
+        // 异形 op（条件占位 / 池副作用 / tag 分支）保持手写：
+        // SAVE_LAYER、SAVE_BACKDROP_LAYER、FILL_OVAL_BATCH、IMAGE、
+        // IMAGE_RECT、FILL_PATTERN、DrawSubtreePicture(unreachable)。
+        // ===================================================================
+        // ===================================================================
         // Stack management — zero payload
         // ===================================================================
-        DrawOp::Save => {
-            OpWriter::new(buf, opcode::SAVE);
-        }
+        DrawOp::Save => ocir_regular_op!(buf, opcode::SAVE, {}),
 
         // ===================================================================
         // SaveLayer — fixed 25-byte payload
@@ -1855,63 +1953,43 @@ fn encode_op(
             }
         }
 
-        // ===================================================================
-        // Stack management — zero payload
-        // ===================================================================
-        DrawOp::Restore => {
-            OpWriter::new(buf, opcode::RESTORE);
-        }
+        DrawOp::Restore => ocir_regular_op!(buf, opcode::RESTORE, {}),
 
-        // ===================================================================
-        // RestoreToCount { count: i32 } — 4 byte payload
-        // ===================================================================
-        DrawOp::RestoreToCount { count } => {
-            let mut w = OpWriter::new(buf, opcode::RESTORE_TO_COUNT);
-            write_u32(&mut w, *count as u32);
-        }
+        DrawOp::RestoreToCount { count } => ocir_regular_op!(buf, opcode::RESTORE_TO_COUNT, {
+            ("count", u32, *count as u32),
+        }),
 
-        // ===================================================================
-        // Transforms
-        // ===================================================================
-        DrawOp::Translate { x, y } => {
-            let mut w = OpWriter::new(buf, opcode::TRANSLATE);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
+        DrawOp::Translate { x, y } => ocir_regular_op!(buf, opcode::TRANSLATE, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
 
-        DrawOp::Scale { x, y } => {
-            let mut w = OpWriter::new(buf, opcode::SCALE);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
+        DrawOp::Scale { x, y } => ocir_regular_op!(buf, opcode::SCALE, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
 
-        DrawOp::Rotate { degrees, cx, cy } => {
-            let mut w = OpWriter::new(buf, opcode::ROTATE);
-            write_f32(&mut w, *degrees);
-            write_f32(&mut w, *cx);
-            write_f32(&mut w, *cy);
-        }
+        DrawOp::Rotate { degrees, cx, cy } => ocir_regular_op!(buf, opcode::ROTATE, {
+            ("degrees", f32, *degrees),
+            ("cx", f32, *cx),
+            ("cy", f32, *cy),
+        }),
 
-        DrawOp::Skew { sx, sy } => {
-            let mut w = OpWriter::new(buf, opcode::SKEW);
-            write_f32(&mut w, *sx);
-            write_f32(&mut w, *sy);
-        }
+        DrawOp::Skew { sx, sy } => ocir_regular_op!(buf, opcode::SKEW, {
+            ("sx", f32, *sx),
+            ("sy", f32, *sy),
+        }),
 
-        DrawOp::Concat { matrix } => {
-            let mut w = OpWriter::new(buf, opcode::CONCAT); // 9 x f32
-            for &v in matrix.iter() {
-                write_f32(&mut w, v);
-            }
-        }
+        DrawOp::Concat { matrix } => ocir_regular_op!(buf, opcode::CONCAT, {
+            ("matrix", f32s9, matrix),
+        }),
 
         // ===================================================================
         // Paint state setters
         // ===================================================================
-        DrawOp::SetFillStyle { color } => {
-            let mut w = OpWriter::new(buf, opcode::SET_FILL_STYLE);
-            write_u32(&mut w, encode_color_u8(*color));
-        }
+        DrawOp::SetFillStyle { color } => ocir_regular_op!(buf, opcode::SET_FILL_STYLE, {
+            ("color", coloru8, *color),
+        }),
 
         // 批量椭圆：数据挂池（rects→f32_pool，colors→bytes_pool），op 本体
         // 定宽 4×u32 引用。逐点展开会让 halftone 语料每帧 ~33 万 op 过
@@ -1934,173 +2012,129 @@ fn encode_op(
             write_u32(&mut w, (c * 4) as u32);
         }
 
-        DrawOp::SetStrokeStyle { color } => {
-            let mut w = OpWriter::new(buf, opcode::SET_STROKE_STYLE);
-            write_u32(&mut w, encode_color_u8(*color));
-        }
+        DrawOp::SetStrokeStyle { color } => ocir_regular_op!(buf, opcode::SET_STROKE_STYLE, {
+            ("color", coloru8, *color),
+        }),
 
         DrawOp::SetStyleLinearGradient {
             stroke,
             start,
             end,
             stops,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::SET_STYLE_LINEAR_GRADIENT);
-            write_u8(&mut w, if *stroke { 1 } else { 0 });
-            write_f32(&mut w, start[0]);
-            write_f32(&mut w, start[1]);
-            write_f32(&mut w, end[0]);
-            write_f32(&mut w, end[1]);
-            write_u32(&mut w, stops.start);
-            write_u32(&mut w, stops.len);
-        }
+        } => ocir_regular_op!(buf, opcode::SET_STYLE_LINEAR_GRADIENT, {
+            ("stroke", bool, *stroke),
+            ("start", f32s2, start),
+            ("end", f32s2, end),
+            ("pool_start", u32, stops.start),
+            ("len", u32, stops.len),
+        }),
 
         DrawOp::SetStyleRadialGradient {
             stroke,
             start,
             end,
             stops,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::SET_STYLE_RADIAL_GRADIENT);
-            write_u8(&mut w, if *stroke { 1 } else { 0 });
-            for v in start.iter().chain(end.iter()) {
-                write_f32(&mut w, *v);
-            }
-            write_u32(&mut w, stops.start);
-            write_u32(&mut w, stops.len);
-        }
+        } => ocir_regular_op!(buf, opcode::SET_STYLE_RADIAL_GRADIENT, {
+            ("stroke", bool, *stroke),
+            ("circles", f32s6, &[start[0], start[1], start[2], end[0], end[1], end[2]]),
+            ("pool_start", u32, stops.start),
+            ("len", u32, stops.len),
+        }),
 
-        DrawOp::SetLineWidth { width } => {
-            let mut w = OpWriter::new(buf, opcode::SET_LINE_WIDTH);
-            write_f32(&mut w, *width);
-        }
+        DrawOp::SetLineWidth { width } => ocir_regular_op!(buf, opcode::SET_LINE_WIDTH, {
+            ("width", f32, *width),
+        }),
 
-        DrawOp::SetLineCap { cap } => {
-            let mut w = OpWriter::new(buf, opcode::SET_LINE_CAP);
-            write_u32(&mut w, encode_line_cap(*cap));
-        }
+        DrawOp::SetLineCap { cap } => ocir_regular_op!(buf, opcode::SET_LINE_CAP, {
+            ("cap", u32, encode_line_cap(*cap)),
+        }),
 
-        DrawOp::SetLineJoin { join } => {
-            let mut w = OpWriter::new(buf, opcode::SET_LINE_JOIN);
-            write_u32(&mut w, encode_line_join(*join));
-        }
+        DrawOp::SetLineJoin { join } => ocir_regular_op!(buf, opcode::SET_LINE_JOIN, {
+            ("join", u32, encode_line_join(*join)),
+        }),
 
-        DrawOp::SetLineDash { intervals, phase } => {
-            let mut w = OpWriter::new(buf, opcode::SET_LINE_DASH); // u32 start + u32 len + f32 phase
-            write_u32(&mut w, intervals.start);
-            write_u32(&mut w, intervals.len);
-            write_f32(&mut w, *phase);
-        }
+        DrawOp::SetLineDash { intervals, phase } => ocir_regular_op!(buf, opcode::SET_LINE_DASH, {
+            ("start", u32, intervals.start),
+            ("len", u32, intervals.len),
+            ("phase", f32, *phase),
+        }),
 
-        DrawOp::ClearLineDash => {
+        DrawOp::ClearLineDash => ocir_regular_op!(buf, opcode::CLEAR_LINE_DASH, {}),
 
-            OpWriter::new(buf, opcode::CLEAR_LINE_DASH);
+        DrawOp::SetGlobalAlpha { alpha } => ocir_regular_op!(buf, opcode::SET_GLOBAL_ALPHA, {
+            ("alpha", f32, *alpha),
+        }),
 
-        }
+        DrawOp::SetAntiAlias { enabled } => ocir_regular_op!(buf, opcode::SET_ANTI_ALIAS, {
+            ("enabled", bool, *enabled),
+        }),
 
-        DrawOp::SetGlobalAlpha { alpha } => {
-            let mut w = OpWriter::new(buf, opcode::SET_GLOBAL_ALPHA);
-            write_f32(&mut w, *alpha);
-        }
+        DrawOp::SetBlendMode { mode } => ocir_regular_op!(buf, opcode::SET_BLEND_MODE, {
+            ("mode", u8, encode_blend_mode(*mode)),
+        }),
 
-        DrawOp::SetAntiAlias { enabled } => {
-            let mut w = OpWriter::new(buf, opcode::SET_ANTI_ALIAS);
-            write_u8(&mut w, if *enabled { 1 } else { 0 });
-        }
+        DrawOp::BeginPath => ocir_regular_op!(buf, opcode::BEGIN_PATH, {}),
 
-        DrawOp::SetBlendMode { mode } => {
-            let mut w = OpWriter::new(buf, opcode::SET_BLEND_MODE);
-            write_u8(&mut w, encode_blend_mode(*mode));
-        }
-
-        // ===================================================================
-        // Path construction
-        // ===================================================================
-        DrawOp::BeginPath => {
-            OpWriter::new(buf, opcode::BEGIN_PATH);
-        }
-
+        // PathOp 子命令在 encode_path_op 派发（同样表驱动）。
         DrawOp::Path(path_op) => encode_path_op(buf, path_op),
 
-        DrawOp::FillPath => {
+        DrawOp::FillPath => ocir_regular_op!(buf, opcode::FILL_PATH, {}),
 
-            OpWriter::new(buf, opcode::FILL_PATH);
-
-        }
-
-        DrawOp::StrokePath => {
-
-            OpWriter::new(buf, opcode::STROKE_PATH);
-
-        }
+        DrawOp::StrokePath => ocir_regular_op!(buf, opcode::STROKE_PATH, {}),
 
         DrawOp::ClipPath {
             anti_alias,
             fill_type,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::CLIP_PATH);
-            write_u8(&mut w, if *anti_alias { 1 } else { 0 });
-            write_u8(&mut w, *fill_type as u8);
-        }
+        } => ocir_regular_op!(buf, opcode::CLIP_PATH, {
+            ("anti_alias", bool, *anti_alias),
+            ("fill_type", u8, *fill_type as u8),
+        }),
 
-        // ===================================================================
-        // Drawing — immediate-mode primitives
-        // ===================================================================
-        DrawOp::Clear { color } => {
-            let mut w = OpWriter::new(buf, opcode::CLEAR); // ColorF32: 4 x f32
-            write_f32(&mut w, color.r);
-            write_f32(&mut w, color.g);
-            write_f32(&mut w, color.b);
-            write_f32(&mut w, color.a);
-        }
+        DrawOp::Clear { color } => ocir_regular_op!(buf, opcode::CLEAR, {
+            ("color", colorf32, color),
+        }),
 
-        DrawOp::Paint { paint } => {
-            let mut w = OpWriter::new(buf, opcode::PAINT);
-            write_u32(&mut w, paint.0);
-        }
+        DrawOp::Paint { paint } => ocir_regular_op!(buf, opcode::PAINT, {
+            ("paint", u32, paint.0),
+        }),
 
-        DrawOp::Rect { rect, paint } => {
-            let mut w = OpWriter::new(buf, opcode::RECT); // 4xf32 + u32
-            write_rect4(&mut w, *rect);
-            write_u32(&mut w, paint.0);
-        }
+        DrawOp::Rect { rect, paint } => ocir_regular_op!(buf, opcode::RECT, {
+            ("rect", rect, *rect),
+            ("paint", u32, paint.0),
+        }),
 
-        DrawOp::RRect { rect, radii, paint } => {
-            let mut w = OpWriter::new(buf, opcode::R_RECT); // 4xf32 + 4xf32 + u32
-            write_rect4(&mut w, *rect);
-            write_radii4(&mut w, *radii);
-            write_u32(&mut w, paint.0);
-        }
+        DrawOp::RRect { rect, radii, paint } => ocir_regular_op!(buf, opcode::R_RECT, {
+            ("rect", rect, *rect),
+            ("radii", radii, *radii),
+            ("paint", u32, paint.0),
+        }),
 
         DrawOp::DRRect {
             outer,
             inner,
             paint,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::D_RRECT); // (4+4)xf32 outer + (4+4)xf32 inner + u32
-            write_drrect_spec(&mut w, *outer);
-            write_drrect_spec(&mut w, *inner);
-            write_u32(&mut w, paint.0);
-        }
+        } => ocir_regular_op!(buf, opcode::D_RRECT, {
+            ("outer", drrect, *outer),
+            ("inner", drrect, *inner),
+            ("paint", u32, paint.0),
+        }),
 
-        DrawOp::Oval { rect, paint } => {
-            let mut w = OpWriter::new(buf, opcode::OVAL); // 4xf32 + u32
-            write_rect4(&mut w, *rect);
-            write_u32(&mut w, paint.0);
-        }
+        DrawOp::Oval { rect, paint } => ocir_regular_op!(buf, opcode::OVAL, {
+            ("rect", rect, *rect),
+            ("paint", u32, paint.0),
+        }),
 
         DrawOp::Circle {
             cx,
             cy,
             radius,
             paint,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::CIRCLE); // 3xf32 + u32
-            write_f32(&mut w, *cx);
-            write_f32(&mut w, *cy);
-            write_f32(&mut w, *radius);
-            write_u32(&mut w, paint.0);
-        }
+        } => ocir_regular_op!(buf, opcode::CIRCLE, {
+            ("cx", f32, *cx),
+            ("cy", f32, *cy),
+            ("radius", f32, *radius),
+            ("paint", u32, paint.0),
+        }),
 
         DrawOp::Arc {
             rect,
@@ -2108,15 +2142,13 @@ fn encode_op(
             sweep,
             use_center,
             paint,
-        } => {
-            // Payload: 4xf32(rect) + 2xf32(start,sweep) + 1u8(use_center) + 4u32(paint) = 29
-            let mut w = OpWriter::new(buf, opcode::ARC);
-            write_rect4(&mut w, *rect);
-            write_f32(&mut w, *start);
-            write_f32(&mut w, *sweep);
-            write_u8(&mut w, if *use_center { 1 } else { 0 });
-            write_u32(&mut w, paint.0);
-        }
+        } => ocir_regular_op!(buf, opcode::ARC, {
+            ("rect", rect, *rect),
+            ("start", f32, *start),
+            ("sweep", f32, *sweep),
+            ("use_center", bool, *use_center),
+            ("paint", u32, paint.0),
+        }),
 
         DrawOp::Line {
             x0,
@@ -2124,32 +2156,29 @@ fn encode_op(
             x1,
             y1,
             paint,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::LINE); // 4xf32 + u32
-            write_f32(&mut w, *x0);
-            write_f32(&mut w, *y0);
-            write_f32(&mut w, *x1);
-            write_f32(&mut w, *y1);
-            write_u32(&mut w, paint.0);
-        }
+        } => ocir_regular_op!(buf, opcode::LINE, {
+            ("x0", f32, *x0),
+            ("y0", f32, *y0),
+            ("x1", f32, *x1),
+            ("y1", f32, *y1),
+            ("paint", u32, paint.0),
+        }),
 
         DrawOp::Points {
             mode,
             points,
             paint,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::POINTS); // u32 mode + 2xu32 range + u32 paint
-            write_u32(&mut w, encode_point_mode(*mode));
-            write_u32(&mut w, points.start);
-            write_u32(&mut w, points.len);
-            write_u32(&mut w, paint.0);
-        }
+        } => ocir_regular_op!(buf, opcode::POINTS, {
+            ("mode", u32, encode_point_mode(*mode)),
+            ("start", u32, points.start),
+            ("len", u32, points.len),
+            ("paint", u32, paint.0),
+        }),
 
-        DrawOp::DrawPath { path, paint } => {
-            let mut w = OpWriter::new(buf, opcode::DRAW_PATH); // 2 x u32
-            write_u32(&mut w, path.0);
-            write_u32(&mut w, paint.0);
-        }
+        DrawOp::DrawPath { path, paint } => ocir_regular_op!(buf, opcode::DRAW_PATH, {
+            ("path", u32, path.0),
+            ("paint", u32, paint.0),
+        }),
 
         // ===================================================================
         // Image — tag(1) + id-slot(12) + x(4) + y(4) + paint_id(4)
@@ -2250,45 +2279,35 @@ fn encode_op(
             bundle_id,
             frame,
             dst,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::LOTTIE_RECT);
-            write_u32(&mut w, lookup_string_id(strings, bundle_id));
-            write_f32(&mut w, *frame);
-            write_rect4(&mut w, *dst);
-        }
+        } => ocir_regular_op!(buf, opcode::LOTTIE_RECT, {
+            ("bundle_id", u32, lookup_string_id(strings, bundle_id)),
+            ("frame", f32, *frame),
+            ("dst", rect, *dst),
+        }),
 
-        // ===================================================================
-        // RuntimeEffect — u32 effect + u32 uniforms + 2xu32 children + 4xf32 dst = 32
-        // ===================================================================
         DrawOp::RuntimeEffect {
             effect,
             uniforms,
             children,
             dst,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::RUNTIME_EFFECT);
-            write_u32(&mut w, effect.0);
-            write_u32(&mut w, uniforms.0);
-            write_u32(&mut w, children.start);
-            write_u32(&mut w, children.len);
-            write_rect4(&mut w, *dst);
-        }
+        } => ocir_regular_op!(buf, opcode::RUNTIME_EFFECT, {
+            ("effect", u32, effect.0),
+            ("uniforms", u32, uniforms.0),
+            ("children_start", u32, children.start),
+            ("children_len", u32, children.len),
+            ("dst", rect, *dst),
+        }),
 
-        // ===================================================================
-        // ReplayRange — 2 x u32 = 8
-        // ===================================================================
-        DrawOp::ReplayRange { range } => {
-            let mut w = OpWriter::new(buf, opcode::REPLAY_RANGE);
-            write_u32(&mut w, range.start_op);
-            write_u32(&mut w, range.op_len);
-        }
+        DrawOp::ReplayRange { range } => ocir_regular_op!(buf, opcode::REPLAY_RANGE, {
+            ("start_op", u32, range.start_op),
+            ("op_len", u32, range.op_len),
+        }),
 
-        DrawOp::ReplaySubtreePicture { subtree, x, y } => {
-            let mut w = OpWriter::new(buf, opcode::DRAW_SUBTREE_PICTURE);
-            write_u32(&mut w, subtree.0);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
+        DrawOp::ReplaySubtreePicture { subtree, x, y } => ocir_regular_op!(buf, opcode::DRAW_SUBTREE_PICTURE, {
+            ("subtree", u32, subtree.0),
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
 
         DrawOp::FillPattern {
             path,
@@ -2323,35 +2342,27 @@ fn encode_op(
             pattern_transform,
             opacity,
             stroke,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::STROKE_PATTERN);
-            write_u32(&mut w, path.0);
-            write_u32(&mut w, subtree.0);
-            for v in [tile.x, tile.y, tile.width, tile.height] {
-                write_f32(&mut w, v);
-            }
-            for v in pattern_transform {
-                write_f32(&mut w, *v);
-            }
-            write_f32(&mut w, *opacity);
-            write_f32(&mut w, stroke.width);
-            write_u8(&mut w, stroke.cap as u8);
-            write_u8(&mut w, stroke.join as u8);
-            write_f32(&mut w, stroke.miter_limit);
-        }
+        } => ocir_regular_op!(buf, opcode::STROKE_PATTERN, {
+            ("path", u32, path.0),
+            ("subtree", u32, subtree.0),
+            ("tile", rect, *tile),
+            ("transform", f32s6, pattern_transform),
+            ("opacity", f32, *opacity),
+            ("width", f32, stroke.width),
+            ("cap", u8, stroke.cap as u8),
+            ("join", u8, stroke.join as u8),
+            ("miter", f32, stroke.miter_limit),
+        }),
 
         DrawOp::MaskClip {
             subtree,
             kind,
             region,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::MASK_CLIP);
-            write_u32(&mut w, subtree.0);
-            write_u8(&mut w, *kind);
-            for v in [region.x, region.y, region.width, region.height] {
-                write_f32(&mut w, v);
-            }
-        }
+        } => ocir_regular_op!(buf, opcode::MASK_CLIP, {
+            ("subtree", u32, subtree.0),
+            ("kind", u8, *kind),
+            ("region", rect, *region),
+        }),
 
         DrawOp::DrawSubtreePicture { .. } => {
             unreachable!(
@@ -2376,23 +2387,20 @@ fn encode_op(
 /// sub-opcode form via [`encode_section_path_op`]; only the op stream changes.
 fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
     match path_op {
-        PathOp::MoveTo { x, y } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_MOVE_TO_OP);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
-        PathOp::LineTo { x, y } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_LINE_TO_OP);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
-        PathOp::QuadTo { cx, cy, x, y } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_QUAD_TO_OP);
-            write_f32(&mut w, *cx);
-            write_f32(&mut w, *cy);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
+        PathOp::MoveTo { x, y } => ocir_regular_op!(buf, opcode::PATH_MOVE_TO_OP, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
+        PathOp::LineTo { x, y } => ocir_regular_op!(buf, opcode::PATH_LINE_TO_OP, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
+        PathOp::QuadTo { cx, cy, x, y } => ocir_regular_op!(buf, opcode::PATH_QUAD_TO_OP, {
+            ("cx", f32, *cx),
+            ("cy", f32, *cy),
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
         PathOp::CubicTo {
             c1x,
             c1y,
@@ -2400,56 +2408,50 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             c2y,
             x,
             y,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_CUBIC_TO_OP);
-            write_f32(&mut w, *c1x);
-            write_f32(&mut w, *c1y);
-            write_f32(&mut w, *c2x);
-            write_f32(&mut w, *c2y);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-        }
-        PathOp::Close => {
-            OpWriter::new(buf, opcode::PATH_CLOSE_OP);
-        }
+        } => ocir_regular_op!(buf, opcode::PATH_CUBIC_TO_OP, {
+            ("c1x", f32, *c1x),
+            ("c1y", f32, *c1y),
+            ("c2x", f32, *c2x),
+            ("c2y", f32, *c2y),
+            ("x", f32, *x),
+            ("y", f32, *y),
+        }),
+        PathOp::Close => ocir_regular_op!(buf, opcode::PATH_CLOSE_OP, {}),
         PathOp::AddRect {
             x,
             y,
             width,
             height,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_ADD_RECT_OP);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-            write_f32(&mut w, *width);
-            write_f32(&mut w, *height);
-        }
+        } => ocir_regular_op!(buf, opcode::PATH_ADD_RECT_OP, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+            ("width", f32, *width),
+            ("height", f32, *height),
+        }),
         PathOp::AddRRect {
             x,
             y,
             width,
             height,
             radius,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_ADD_RRECT_OP);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-            write_f32(&mut w, *width);
-            write_f32(&mut w, *height);
-            write_f32(&mut w, *radius);
-        }
+        } => ocir_regular_op!(buf, opcode::PATH_ADD_RRECT_OP, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+            ("width", f32, *width),
+            ("height", f32, *height),
+            ("radius", f32, *radius),
+        }),
         PathOp::AddOval {
             x,
             y,
             width,
             height,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_ADD_OVAL_OP);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-            write_f32(&mut w, *width);
-            write_f32(&mut w, *height);
-        }
+        } => ocir_regular_op!(buf, opcode::PATH_ADD_OVAL_OP, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+            ("width", f32, *width),
+            ("height", f32, *height),
+        }),
         PathOp::AddArc {
             x,
             y,
@@ -2457,15 +2459,14 @@ fn encode_path_op(buf: &mut Vec<u8>, path_op: &PathOp) {
             height,
             start_angle,
             sweep_angle,
-        } => {
-            let mut w = OpWriter::new(buf, opcode::PATH_ADD_ARC_OP);
-            write_f32(&mut w, *x);
-            write_f32(&mut w, *y);
-            write_f32(&mut w, *width);
-            write_f32(&mut w, *height);
-            write_f32(&mut w, *start_angle);
-            write_f32(&mut w, *sweep_angle);
-        }
+        } => ocir_regular_op!(buf, opcode::PATH_ADD_ARC_OP, {
+            ("x", f32, *x),
+            ("y", f32, *y),
+            ("width", f32, *width),
+            ("height", f32, *height),
+            ("start_angle", f32, *start_angle),
+            ("sweep_angle", f32, *sweep_angle),
+        }),
     }
 }
 

@@ -47,11 +47,7 @@ pub trait MutationRecorder {
     fn record_width(&mut self, id: &str, v: f32);
     fn record_height(&mut self, id: &str, v: f32);
     fn record_padding(&mut self, id: &str, v: f32);
-    fn record_padding_x(&mut self, id: &str, v: f32);
-    fn record_padding_y(&mut self, id: &str, v: f32);
     fn record_margin(&mut self, id: &str, v: f32);
-    fn record_margin_x(&mut self, id: &str, v: f32);
-    fn record_margin_y(&mut self, id: &str, v: f32);
     fn record_gap(&mut self, id: &str, v: f32);
     fn record_flex_grow(&mut self, id: &str, v: f32);
     fn record_border_radius(&mut self, id: &str, v: f32);

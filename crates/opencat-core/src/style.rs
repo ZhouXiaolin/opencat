@@ -1848,33 +1848,6 @@ impl CssFilter {
         self.ops.push(CssFilterOp::new(kind, value));
     }
 
-    pub fn set_property(&mut self, property: &str, value: f32) -> bool {
-        let Some(kind) = CssFilterKind::from_property(property) else {
-            return false;
-        };
-        // `drop-shadow` 是复合值，单值 setter 无法表达；浏览器同样把
-        // 单独的 `style.dropShadow = 0.4` 当无效值忽略。
-        if kind == CssFilterKind::DropShadow {
-            return false;
-        }
-        let value = kind.clamp_value(value);
-        if let Some(op) = self.ops.iter_mut().rev().find(|op| op.kind == kind) {
-            op.value = value;
-        } else {
-            self.ops.push(CssFilterOp::new(kind, value));
-        }
-        true
-    }
-
-    pub fn value(&self, property: &str) -> Option<f32> {
-        let kind = CssFilterKind::from_property(property)?;
-        self.ops
-            .iter()
-            .rev()
-            .find(|op| op.kind == kind)
-            .map(|op| op.value)
-    }
-
     pub fn drop_shadow(&self) -> Option<DropShadow> {
         self.ops
             .iter()

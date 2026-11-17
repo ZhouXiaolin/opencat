@@ -60,14 +60,18 @@ pub struct NodeStyleMutations {
     #[serde(default)]
     pub width_auto: bool,
     pub padding: Option<f32>,
-    pub padding_x: Option<f32>,
-    pub padding_y: Option<f32>,
+    /// 脚本单边写 `padding*`（CSS 标准面补齐，gsap 通用 CSS 通道）。
+    pub padding_left: Option<f32>,
+    pub padding_top: Option<f32>,
+    pub padding_right: Option<f32>,
+    pub padding_bottom: Option<f32>,
     pub margin: Option<f32>,
-    pub margin_x: Option<f32>,
-    pub margin_y: Option<f32>,
-    /// 脚本单边写 `marginLeft` / `marginTop`（gsap 网格负 margin 居中）。
+    /// 脚本单边写 `margin*`（`marginBottom`/`marginRight` 语料活补间；
+    /// `marginLeft`/`marginTop` gsap 网格负 margin 居中）。
     pub margin_left: Option<f32>,
     pub margin_top: Option<f32>,
+    pub margin_right: Option<f32>,
+    pub margin_bottom: Option<f32>,
     pub flex_direction: Option<FlexDirection>,
     pub justify_content: Option<JustifyContent>,
     pub align_items: Option<crate::style::AlignItems>,
@@ -313,11 +317,13 @@ impl NodeStyleMutations {
         self.transforms.sort_by_key(|e| matrix_rank(e));
     }
 
-    /// Merge ONE field of the `Rotate3` transform (GSAP `rotationX`,
-    /// `rotationY` or `transformPerspective`). The three GSAP properties fold
-    /// into a single projective transform, so each write replaces only its own
-    /// field and keeps the siblings (per-property last-write-wins). Absent
+    /// Merge ONE field of the `Rotate3` transform. The three fields fold into
+    /// a single projective transform, so each write replaces only its own
+    /// field and keeps the siblings (per-field last-write-wins). Absent
     /// fields default to 0 (`perspective <= 0` = orthographic).
+    ///
+    /// Typed recorder channel (`record_rotate3`); the string-keyed style
+    /// vocabulary no longer carries gsap shorthand keys.
     pub fn write_rotate3_field(&mut self, field: Rotate3Field, value: f32) {
         if let Some(existing) = self
             .transforms
@@ -353,8 +359,8 @@ impl NodeStyleMutations {
         }
     }
 
-    /// Set the transform origin from a GSAP `transformOrigin`/`svgOrigin`
-    /// string. Returns `false` when the string is unparseable (the caller
+    /// Set the transform origin from a CSS `transform-origin` string. Returns
+    /// `false` when the string is unparseable (the caller
     /// leaves the previous origin in place, as GSAP does for a bad value).
     pub fn set_transform_origin(&mut self, value: &str) -> bool {
         match parse_transform_origin(value) {
@@ -441,12 +447,16 @@ impl NodeStyleMutations {
             style.padding_bottom = Some(v);
             style.padding_left = Some(v);
         }
-        if let Some(v) = self.padding_x {
+        if let Some(v) = self.padding_left {
             style.padding_left = Some(v);
+        }
+        if let Some(v) = self.padding_top {
+            style.padding_top = Some(v);
+        }
+        if let Some(v) = self.padding_right {
             style.padding_right = Some(v);
         }
-        if let Some(v) = self.padding_y {
-            style.padding_top = Some(v);
+        if let Some(v) = self.padding_bottom {
             style.padding_bottom = Some(v);
         }
         if let Some(v) = self.margin {
@@ -456,19 +466,17 @@ impl NodeStyleMutations {
             style.margin_bottom = Some(m);
             style.margin_left = Some(m);
         }
-        if let Some(v) = self.margin_x {
-            style.margin_left = Some(LengthPercentageAuto::Length(v));
-            style.margin_right = Some(LengthPercentageAuto::Length(v));
-        }
-        if let Some(v) = self.margin_y {
-            style.margin_top = Some(LengthPercentageAuto::Length(v));
-            style.margin_bottom = Some(LengthPercentageAuto::Length(v));
-        }
         if let Some(v) = self.margin_left {
             style.margin_left = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.margin_top {
             style.margin_top = Some(LengthPercentageAuto::Length(v));
+        }
+        if let Some(v) = self.margin_right {
+            style.margin_right = Some(LengthPercentageAuto::Length(v));
+        }
+        if let Some(v) = self.margin_bottom {
+            style.margin_bottom = Some(LengthPercentageAuto::Length(v));
         }
         if let Some(v) = self.flex_direction {
             style.flex_direction = Some(v);
@@ -548,12 +556,16 @@ impl NodeStyleMutations {
                     left: TaffyLP::length(v),
                 };
             }
-            if let Some(v) = self.padding_x {
+            if let Some(v) = self.padding_left {
                 t.padding.left = TaffyLP::length(v);
+            }
+            if let Some(v) = self.padding_top {
+                t.padding.top = TaffyLP::length(v);
+            }
+            if let Some(v) = self.padding_right {
                 t.padding.right = TaffyLP::length(v);
             }
-            if let Some(v) = self.padding_y {
-                t.padding.top = TaffyLP::length(v);
+            if let Some(v) = self.padding_bottom {
                 t.padding.bottom = TaffyLP::length(v);
             }
             if let Some(v) = self.margin {
@@ -564,19 +576,17 @@ impl NodeStyleMutations {
                     left: TaffyLPA::length(v),
                 };
             }
-            if let Some(v) = self.margin_x {
-                t.margin.left = TaffyLPA::length(v);
-                t.margin.right = TaffyLPA::length(v);
-            }
-            if let Some(v) = self.margin_y {
-                t.margin.top = TaffyLPA::length(v);
-                t.margin.bottom = TaffyLPA::length(v);
-            }
             if let Some(v) = self.margin_left {
                 t.margin.left = TaffyLPA::length(v);
             }
             if let Some(v) = self.margin_top {
                 t.margin.top = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.margin_right {
+                t.margin.right = TaffyLPA::length(v);
+            }
+            if let Some(v) = self.margin_bottom {
+                t.margin.bottom = TaffyLPA::length(v);
             }
             if let Some(v) = self.flex_direction {
                 t.flex_direction = match v {
@@ -1087,26 +1097,33 @@ pub fn apply_node_to_recorder(
     if let Some(v) = m.padding {
         recorder.record_padding(id, v);
     }
-    if let Some(v) = m.padding_x {
-        recorder.record_padding_x(id, v);
-    }
-    if let Some(v) = m.padding_y {
-        recorder.record_padding_y(id, v);
-    }
     if let Some(v) = m.margin {
         recorder.record_margin(id, v);
     }
-    if let Some(v) = m.margin_x {
-        recorder.record_margin_x(id, v);
-    }
-    if let Some(v) = m.margin_y {
-        recorder.record_margin_y(id, v);
-    }
+    // 单边 inset/padding/margin 走通用写通道：活写与重放共用 store 的同一条写臂。
     if let Some(v) = m.margin_left {
         recorder.write_style_value(id, "marginLeft", serde_json::json!(v));
     }
     if let Some(v) = m.margin_top {
         recorder.write_style_value(id, "marginTop", serde_json::json!(v));
+    }
+    if let Some(v) = m.margin_right {
+        recorder.write_style_value(id, "marginRight", serde_json::json!(v));
+    }
+    if let Some(v) = m.margin_bottom {
+        recorder.write_style_value(id, "marginBottom", serde_json::json!(v));
+    }
+    if let Some(v) = m.padding_left {
+        recorder.write_style_value(id, "paddingLeft", serde_json::json!(v));
+    }
+    if let Some(v) = m.padding_top {
+        recorder.write_style_value(id, "paddingTop", serde_json::json!(v));
+    }
+    if let Some(v) = m.padding_right {
+        recorder.write_style_value(id, "paddingRight", serde_json::json!(v));
+    }
+    if let Some(v) = m.padding_bottom {
+        recorder.write_style_value(id, "paddingBottom", serde_json::json!(v));
     }
     if let Some(v) = m.gap {
         recorder.record_gap(id, v);

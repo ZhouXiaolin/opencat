@@ -309,14 +309,6 @@ impl StyleStore {
         }
     }
 
-    /// Set a base-style value (from Tailwind/resolve) for later reading.
-    fn set_initial_style(&mut self, id: &str, property: &str, value: serde_json::Value) {
-        self.initial_styles
-            .entry(id.to_string())
-            .or_default()
-            .insert(property.to_string(), value);
-    }
-
     /// Populate initial styles from a resolved NodeStyle. All animatable
     /// property extraction is centralized here — callers just pass (id, &NodeStyle).
     fn set_initial_style_from_node(&mut self, id: &str, style: &NodeStyle) {
@@ -346,7 +338,7 @@ impl StyleStore {
         add_f32!("strokeDashoffset", stroke_dashoffset);
         add_f32!("strokeWidth", stroke_width);
         add_f32!("borderWidth", border_width);
-        add_f32!("textSize", text_px);
+        add_f32!("fontSize", text_px);
         if let Some(v) = &style.font_family {
             props.insert("fontFamily".into(), json!(v));
         }
@@ -420,7 +412,6 @@ impl StyleStore {
         if let Some(clip_path) = style.clip_path {
             props.insert("clipPath".into(), json!(clip_path.to_css_string()));
         }
-        add_f32!("backdropBlur", backdrop_blur_sigma);
         // 样式表声明的变换以变换数组入种子：computed `transform` 要按元素
         // 布局盒把百分比位移折成 px，盒子只在读取时（布局探针）才有，见
         // [`MutationStore::computed_transform`]。
@@ -428,9 +419,7 @@ impl StyleStore {
             props.insert("transform".into(), json!(style.transforms));
         }
 
-        // colors
-        add_color!("fillColor", fill_color);
-        add_color!("strokeColor", stroke_color);
+        // colors（fill/stroke 的种子在下方 SVG 表现属性段——同名标准键）
         // CSS 的 `fill` / `stroke` 是 SVG 的表现属性，也是 computed style 报
         // 的名字。MorphSVG 读 computed `fill` 决定 fillSafe（填充形状要考虑
         // 绕向，描边形状不用）；`fill: none` 必须报 "none"，不能退化成
@@ -452,7 +441,7 @@ impl StyleStore {
             );
         }
         add_color!("backgroundColor", bg_color);
-        add_color!("textColor", text_color);
+        add_color!("color", text_color);
         add_color!("borderColor", border_color);
 
         // strings
@@ -509,7 +498,7 @@ impl StyleStore {
                         .map(|f| json!(f))
                 }
                 "borderWidth" => mutations.border_width.map(|f| json!(f)),
-                "textSize" => mutations.text_px.map(|f| json!(f)),
+                "fontSize" => mutations.text_px.map(|f| json!(f)),
                 "fontFamily" => mutations.font_family.clone().map(serde_json::Value::String),
                 "letterSpacing" => mutations.letter_spacing.map(|f| json!(f)),
                 "lineHeight" => mutations.line_height.map(|f| json!(f)),
@@ -549,20 +538,18 @@ impl StyleStore {
                         .inset_bottom_pct
                         .map(|p| json!(format!("{}%", p * 100.0)))
                 }),
-                // Transform components — so a tween written without an
-                // explicit `from` (e.g. `.to('obl',{x:L})`) starts from the
-                // value currently set on the node, as GSAP does.
-                "x" | "translateX" | "y" | "translateY" | "scale" | "scaleX" | "scaleY"
-                | "rotation" | "rotate" | "skewX" | "skewY" => {
-                    mutations.read_transform_value(property).map(|f| json!(f))
-                }
+                // Standard CSS `transform` string — the shape CSSPlugin parses
+                // (via computed style) to decompose `from`-tween starting
+                // values, and the only transform write/read form left in the
+                // vocabulary (gsap shorthand keys are retired).
+                "transform" => Some(json!(css_transform_string(&mutations.transforms))),
                 // CSS text, the shape a browser's computed style reports.
                 // CSSPlugin hands this straight to `_applySVGOrigin`, which
                 // does `origin.split(" ")` — an array or a number here throws
                 // `origin.split is not a function` on every SVG tween.
                 // The stored origin is a box fraction plus a px offset per
                 // axis; it goes back out as a percentage, a length, or both.
-                "transformOrigin" | "svgOrigin" => {
+                "transformOrigin" => {
                     let o = mutations.transform_origin.unwrap_or_default();
                     let axis = |frac: f32, px: f32| match (frac, px) {
                         (_, 0.0) => format!("{}%", frac * 100.0),
@@ -575,8 +562,6 @@ impl StyleStore {
                         axis(o.y, o.y_px)
                     )))
                 }
-                // CSS text form, the shape CSSPlugin parses on init.
-                "transform" => Some(json!(css_transform_string(&mutations.transforms))),
                 "cssText" => None,
                 // CSS 文本形式：CSSPlugin 按数字位置配对起止串，读回对象
                 //（"[object Object]"）会让每个函数从 0 起步（saturate(0) 发灰）。
@@ -585,13 +570,15 @@ impl StyleStore {
                 "clipPath" | "clip-path" => mutations
                     .clip_path
                     .map(|clip_path| json!(clip_path.to_css_string())),
-                "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"
-                | "invert" | "saturate" | "sepia" => {
-                    mutations.css_filter.value(property).map(|f| json!(f))
-                }
-                "backdropBlur" | "backdropBlurSigma" => {
-                    mutations.backdrop_blur_sigma.map(|f| json!(f))
-                }
+                // 单边 spacing：gsap from()/补间起点读取（读写对称）。
+                "marginLeft" => mutations.margin_left.map(|f| json!(f)),
+                "marginTop" => mutations.margin_top.map(|f| json!(f)),
+                "marginRight" => mutations.margin_right.map(|f| json!(f)),
+                "marginBottom" => mutations.margin_bottom.map(|f| json!(f)),
+                "paddingLeft" => mutations.padding_left.map(|f| json!(f)),
+                "paddingTop" => mutations.padding_top.map(|f| json!(f)),
+                "paddingRight" => mutations.padding_right.map(|f| json!(f)),
+                "paddingBottom" => mutations.padding_bottom.map(|f| json!(f)),
                 // colors (serialize as "#RRGGBBAA" or "transparent")
                 "fill" => mutations.fill_none.then(|| json!("none")).or_else(|| {
                     mutations.fill_color.as_ref().map(|c| {
@@ -603,19 +590,11 @@ impl StyleStore {
                     let (r, g, b, a) = c.rgba();
                     json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
                 }),
-                "fillColor" => mutations.fill_color.as_ref().map(|c| {
+                "backgroundColor" => mutations.bg_color.as_ref().map(|c| {
                     let (r, g, b, a) = c.rgba();
                     json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
                 }),
-                "strokeColor" => mutations.stroke_color.as_ref().map(|c| {
-                    let (r, g, b, a) = c.rgba();
-                    json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
-                }),
-                "backgroundColor" | "bg" => mutations.bg_color.as_ref().map(|c| {
-                    let (r, g, b, a) = c.rgba();
-                    json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
-                }),
-                "textColor" => mutations.text_color.as_ref().map(|c| {
+                "color" => mutations.text_color.as_ref().map(|c| {
                     let (r, g, b, a) = c.rgba();
                     json!(format!("#{:02x}{:02x}{:02x}{:02x}", r, g, b, a))
                 }),
@@ -628,7 +607,7 @@ impl StyleStore {
                 "background" | "backgroundImage" => mutations.bg_image.as_ref().map(|s| json!(s)),
                 "boxShadow" => mutations.box_shadow_css.as_ref().map(|s| json!(s)),
                 "text" => mutations.text_content.as_ref().map(|s| json!(s)),
-                "textShadow" | "textShadows" => mutations
+                "textShadow" => mutations
                     .text_shadows
                     .as_ref()
                     .map(|shadows| crate::script::mutations::text_shadows_to_value(shadows)),
@@ -706,82 +685,9 @@ impl StyleStore {
             "zIndex" => {
                 entry.z_index = num_from_value(&value).map(|v| v.round() as i32);
             }
-            // GSAP names (`x`/`y`) accepted too: the imperative `getNode(id).x(v)`
-            // proxy forwards the raw property name, while the timeline property
-            // registry normalizes `x`→`translateX` before writing. Accept both so
-            // imperative and tween writes share one mapping (previously `x`/`y`
-            // fell through the match and were silently dropped).
-            "x" | "translateX" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::TranslateX { value: v as f32 });
-                }
-            }
-            "y" | "translateY" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::TranslateY { value: v as f32 });
-                }
-            }
-            "scale" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::Scale { value: v as f32 });
-                }
-            }
-            "scaleX" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::ScaleX { value: v as f32 });
-                }
-            }
-            "scaleY" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::ScaleY { value: v as f32 });
-                }
-            }
-            "rotate" | "rotation" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::RotateDeg { value: v as f32 });
-                }
-            }
-            // GSAP 3D: `rotationX`/`rotationY`/`transformPerspective` fold into
-            // one projective transform (see `Transform::Rotate3`).
-            "rotationX" | "rotateX" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.write_rotate3_field(
-                        crate::script::mutations::Rotate3Field::RotationX,
-                        v as f32,
-                    );
-                }
-            }
-            "rotationY" | "rotateY" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.write_rotate3_field(
-                        crate::script::mutations::Rotate3Field::RotationY,
-                        v as f32,
-                    );
-                }
-            }
-            "transformPerspective" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.write_rotate3_field(
-                        crate::script::mutations::Rotate3Field::Perspective,
-                        v as f32,
-                    );
-                }
-            }
-            "skewX" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::SkewXDeg { value: v as f32 });
-                }
-            }
-            "skewY" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.push_transform(Transform::SkewYDeg { value: v as f32 });
-                }
-            }
-            // GSAP `transformOrigin` / `svgOrigin`. For a node whose box matches
-            // the SVG viewBox (the case in OpenCat's port: one wrapper per mark)
-            // svgOrigin coordinates and box-relative px coincide, so both map to
-            // the same box fraction.
-            "transformOrigin" | "svgOrigin" => {
+            // CSS `transform-origin`（gsap 的 `svgOrigin` 由 CSSPlugin 在浏览器
+            // 侧折进 transform/transform-origin，store 只认标准名）。
+            "transformOrigin" => {
                 if let Some(s) = origin_px.as_deref() {
                     entry.set_transform_origin(s);
                 } else if let Some(arr) = value.as_array() {
@@ -880,26 +786,32 @@ impl StyleStore {
             "padding" => {
                 entry.padding = num_from_value(&value);
             }
-            "paddingX" => {
-                entry.padding_x = num_from_value(&value);
+            "paddingLeft" => {
+                entry.padding_left = num_from_value(&value);
             }
-            "paddingY" => {
-                entry.padding_y = num_from_value(&value);
+            "paddingTop" => {
+                entry.padding_top = num_from_value(&value);
+            }
+            "paddingRight" => {
+                entry.padding_right = num_from_value(&value);
+            }
+            "paddingBottom" => {
+                entry.padding_bottom = num_from_value(&value);
             }
             "margin" => {
                 entry.margin = num_from_value(&value);
-            }
-            "marginX" => {
-                entry.margin_x = num_from_value(&value);
-            }
-            "marginY" => {
-                entry.margin_y = num_from_value(&value);
             }
             "marginLeft" => {
                 entry.margin_left = num_from_value(&value);
             }
             "marginTop" => {
                 entry.margin_top = num_from_value(&value);
+            }
+            "marginRight" => {
+                entry.margin_right = num_from_value(&value);
+            }
+            "marginBottom" => {
+                entry.margin_bottom = num_from_value(&value);
             }
             "gap" => {
                 entry.gap = num_from_value(&value);
@@ -944,7 +856,7 @@ impl StyleStore {
             "strokeDashoffset" => {
                 entry.stroke_dashoffset = num_from_value(&value);
             }
-            "textSize" => {
+            "fontSize" => {
                 entry.text_px = num_from_value(&value);
             }
             "fontFamily" => {
@@ -970,18 +882,12 @@ impl StyleStore {
                     entry.clip_path = clip_path;
                 }
             }
-            "blur" | "blurSigma" | "brightness" | "contrast" | "grayscale" | "hueRotate"
-            | "invert" | "saturate" | "sepia" => {
-                if let Some(v) = num_from_value(&value) {
-                    entry.css_filter.set_property(property, v as f32);
-                }
-            }
-            "backdropBlur" | "backdropBlurSigma" => {
-                entry.backdrop_blur_sigma = num_from_value(&value);
-            }
+            // 单 filter 分量键（`brightness:` 等）不是标准 CSS style 属性——
+            // 标准形态只有 `filter: brightness(...)` 串（上面 `filter` 臂）。
+            // 退役的 gsap registry 曾写分量键，registry 已随 ctx 面退役。
 
             // ── colors ──
-            "bg" | "backgroundColor" => {
+            "backgroundColor" => {
                 if let Some(s) = value.as_str() {
                     entry.bg_color = color_token_from_script_string(s);
                 }
@@ -1005,7 +911,7 @@ impl StyleStore {
                     entry.box_shadow_css = Some(s.to_string());
                 }
             }
-            "fillColor" | "fill" => {
+            "fill" => {
                 if let Some(s) = value.as_str() {
                     // `fill: none` 是「不填充」，不是一种颜色；它必须与
                     // 「没声明 fill」区分开（MorphSVG 的 fillSafe 读这个）。
@@ -1023,12 +929,7 @@ impl StyleStore {
                     entry.stroke_color = color_token_from_script_string(s);
                 }
             }
-            "strokeColor" => {
-                if let Some(s) = value.as_str() {
-                    entry.stroke_color = color_token_from_script_string(s);
-                }
-            }
-            "textColor" | "color" => {
+            "color" => {
                 // CSS `color` 就是文字色（可继承）；HTML 文本的补间都写这个
                 // 属性（`tl.to(amount,{color:'#1f9d57'})`），只认 CamelCase
                 // 别名会让补间静默落空。
@@ -1039,21 +940,6 @@ impl StyleStore {
             "borderColor" => {
                 if let Some(s) = value.as_str() {
                     entry.border_color = color_token_from_script_string(s);
-                }
-            }
-            "shadowColor" => {
-                if let Some(s) = value.as_str() {
-                    entry.box_shadow_color = color_token_from_script_string(s);
-                }
-            }
-            "insetShadowColor" => {
-                if let Some(s) = value.as_str() {
-                    entry.inset_shadow_color = color_token_from_script_string(s);
-                }
-            }
-            "dropShadowColor" => {
-                if let Some(s) = value.as_str() {
-                    entry.drop_shadow_color = color_token_from_script_string(s);
                 }
             }
 
@@ -1117,62 +1003,36 @@ impl StyleStore {
                     entry.svg_path = Some(s.to_string());
                 }
             }
-            "shadow" => {
-                if let Some(s) = value.as_str() {
-                    if let Some(sh) = box_shadow_from_name(s) {
-                        entry.box_shadow = Some(sh);
-                    }
-                }
-            }
-            "insetShadow" => {
-                if let Some(s) = value.as_str() {
-                    if let Some(sh) = inset_shadow_from_name(s) {
-                        entry.inset_shadow = Some(sh);
-                    }
-                }
-            }
-            "dropShadow" => {
-                if let Some(s) = value.as_str() {
-                    if let Some(sh) = drop_shadow_from_name(s) {
-                        entry.drop_shadow = Some(sh);
-                    }
-                }
-            }
             // Overwrite semantics: the script sets the whole text-shadow stack
             // (see NodeStyleMutations::text_shadows).
-            "textShadow" | "textShadows" => {
+            "textShadow" => {
                 if let Some(shadows) = crate::script::mutations::text_shadows_from_value(&value) {
                     entry.text_shadows = Some(shadows);
                 }
             }
 
-            // ── multi-arg as array ──
-            "translate" => {
-                if let Some(arr) = value.as_array() {
-                    if let (Some(x), Some(y)) = (
-                        arr.first().and_then(|v| v.as_f64()),
-                        arr.get(1).and_then(|v| v.as_f64()),
-                    ) {
-                        entry.push_transform(Transform::TranslateX { value: x as f32 });
-                        entry.push_transform(Transform::TranslateY { value: y as f32 });
-                    }
+            _ => {
+                // 宪法 fail-loud：未知键不再静默丢弃（曾经它把 `marginBottom`
+                // 这类补间整段吃掉）。渲染器长跑，逐帧重复会淹没日志——每键
+                // 只警一次。
+                if unknown_key_warn_once(property) {
+                    eprintln!(
+                        "[oc-store] unknown style key ignored: `{property}` (no store arm)"
+                    );
                 }
             }
-            "skew" => {
-                if let Some(arr) = value.as_array() {
-                    if let (Some(x), Some(y)) = (
-                        arr.first().and_then(|v| v.as_f64()),
-                        arr.get(1).and_then(|v| v.as_f64()),
-                    ) {
-                        entry.push_transform(Transform::SkewXDeg { value: x as f32 });
-                        entry.push_transform(Transform::SkewYDeg { value: y as f32 });
-                    }
-                }
-            }
-
-            _ => {}
         }
     }
+}
+
+/// 未知样式键的去重哨兵：每键只警第一次。进程级集合即可——键集是静态词表。
+fn unknown_key_warn_once(property: &str) -> bool {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    static ONCE: std::sync::OnceLock<Mutex<HashSet<String>>> = std::sync::OnceLock::new();
+    let set = ONCE.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut set = set.lock().unwrap();
+    set.insert(property.to_string())
 }
 
 /// canvas op 流：帧级 `canvases` + 离屏持久 LRU。
@@ -1941,11 +1801,6 @@ impl MutationStore {
         self.canvases.entry(id)
     }
 
-    /// Set a base-style value (from Tailwind/resolve) for later reading.
-    pub fn set_initial_style(&mut self, id: &str, property: &str, value: serde_json::Value) {
-        self.style.set_initial_style(id, property, value);
-    }
-
     /// Populate initial styles from a resolved NodeStyle. All animatable
     /// property extraction is centralized here — callers just pass (id, &NodeStyle).
     pub fn set_initial_style_from_node(&mut self, id: &str, style: &NodeStyle) {
@@ -2046,7 +1901,7 @@ impl MutationStore {
                 | "bottom"
                 | "gap"
                 | "letterSpacing"
-                | "textSize"
+                | "fontSize"
         ) || property.starts_with("margin")
             || property.starts_with("padding");
         if !is_length {
@@ -2058,7 +1913,7 @@ impl MutationStore {
         };
         // 字号基准：本帧写入 > 声明 > 计算继承 > 根字号。
         let font_px = self
-            .read_style_value(id, "textSize")
+            .read_style_value(id, "fontSize")
             .and_then(|v| v.as_f64())
             .map(|v| v as f32)
             .or_else(|| self.tree_text.text_styles.get(id).map(|s| s.text_px))
@@ -2207,20 +2062,8 @@ impl MutationRecorder for MutationStore {
     fn record_padding(&mut self, id: &str, v: f32) {
         self.entry(id).padding = Some(v);
     }
-    fn record_padding_x(&mut self, id: &str, v: f32) {
-        self.entry(id).padding_x = Some(v);
-    }
-    fn record_padding_y(&mut self, id: &str, v: f32) {
-        self.entry(id).padding_y = Some(v);
-    }
     fn record_margin(&mut self, id: &str, v: f32) {
         self.entry(id).margin = Some(v);
-    }
-    fn record_margin_x(&mut self, id: &str, v: f32) {
-        self.entry(id).margin_x = Some(v);
-    }
-    fn record_margin_y(&mut self, id: &str, v: f32) {
-        self.entry(id).margin_y = Some(v);
     }
     fn record_gap(&mut self, id: &str, v: f32) {
         self.entry(id).gap = Some(v);
@@ -2457,7 +2300,7 @@ impl MutationRecorder for MutationStore {
                     .and_then(|v| v.as_f64())
                     .map(|v| v as f32)
             };
-            if let Some(px) = read_f32("textSize") {
+            if let Some(px) = read_f32("fontSize") {
                 style.text_px = px;
             }
             if let Some(px) = read_f32("letterSpacing") {

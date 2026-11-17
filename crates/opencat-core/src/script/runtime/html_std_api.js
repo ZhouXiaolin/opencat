@@ -62,16 +62,17 @@
     }
 
     // ── style 通道 ────────────────────────────────────────────────
-    // store 的键是 GSAP 词表，页面脚本写的是 CSS 词表：差异名在这一层
-    // 归一（`fontSize` 与 gsap 的 `textSize` 是同一字段）。
-    var CSS_KEY_ALIAS = { fontSize: 'textSize' };
+    // store 的键 = CSS 标准词表（camelCase）。本层只做 CSSOM 语义的归一：
+    // kebab→camel 与厂商前缀别名（浏览器对 `-webkit-clip-path` 与
+    // `clip-path` 同义；语料页面成对双写两者）。
+    var VENDOR_KEY_ALIAS = { webkitClipPath: 'clipPath' };
     function styleKey(name) {
         name = String(name);
         if (name.indexOf('--') === 0) return name;
         if (name.indexOf('-') >= 0) {
             name = name.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); });
         }
-        return CSS_KEY_ALIAS[name] || name;
+        return VENDOR_KEY_ALIAS[name] || name;
     }
 
     // 纯色判定：`border` 简写拆出来的颜色段要先验证是颜色本身。

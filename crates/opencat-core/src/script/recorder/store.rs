@@ -2330,10 +2330,6 @@ impl MutationRecorder for MutationStore {
         self.entry(id).drop_shadow_color = Some(color);
     }
 
-    fn record_transform(&mut self, id: &str, t: Transform) {
-        self.entry(id).push_transform(t);
-    }
-
     fn record_transform_origin(&mut self, id: &str, origin: TransformOrigin) {
         self.entry(id).transform_origin = Some(origin);
     }

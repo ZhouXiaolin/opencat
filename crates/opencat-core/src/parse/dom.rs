@@ -5,8 +5,8 @@
 //! 两类前端都把树直接写进这一层：
 //!
 //! - HTML/dist：提取期物化成树（extract payload 的 `tree` 字段）
-//! - XML/JSONL 文本：逐行解析 → 按 `parentId` 分组成树（[`JsonLine`] 因此只是
-//!   文本序列化格式，不再是装配模型）
+//! - XML/JSONL 文本：逐行解析 → 按 `parentId` 分组成树（JSONL 只是文本
+//!   序列化格式，不再是装配模型）
 //!
 //! 本层只做一件事：`DomDocument` → `Node` 树（[`composition_from_dom`]）。
 //! 旧的 `ParsedElement` 扁平表 + `build_tree` 装配脚手架已退役。

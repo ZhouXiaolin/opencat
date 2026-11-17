@@ -236,7 +236,6 @@ struct GlyphRaster {
     top: i32,
     width: u32,
     height: u32,
-    data: Arc<[u8]>,
 }
 
 const GLYPH_RASTER_CACHE_CAP: usize = 4096;
@@ -275,7 +274,6 @@ fn glyph_raster(
                 top: p.top,
                 width: p.width,
                 height: p.height,
-                data: Arc::from(image.data.as_slice()),
             }))
         });
     if cache_enabled {

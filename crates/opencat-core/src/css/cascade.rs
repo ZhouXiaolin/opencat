@@ -61,22 +61,6 @@ pub struct SelectorContext<'a> {
     pub query_container: Option<(f32, f32)>,
 }
 
-/// 对一个节点收集全部命中声明并按层叠序排列（无树上下文的旧入口）。
-pub fn match_rules(
-    sheet: &CssStylesheet,
-    class_name: &str,
-    element_id: &str,
-    tag: &str,
-) -> Vec<AppliedDeclaration> {
-    match_rules_ctx(
-        sheet,
-        class_name,
-        element_id,
-        tag,
-        &SelectorContext::default(),
-    )
-}
-
 /// 带树上下文的命中收集。
 pub fn match_rules_ctx(
     sheet: &CssStylesheet,
@@ -191,10 +175,6 @@ fn subject_info<'a>(
         attrs,
         is_root,
     }
-}
-
-fn tags_match(tags: &[&str], name: &str) -> bool {
-    tags.iter().any(|t| *t == name)
 }
 
 /// 把 selector 的 match order 切成 compound 序列与连接组合器序列。

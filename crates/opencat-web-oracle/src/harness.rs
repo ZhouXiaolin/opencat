@@ -4,12 +4,14 @@
 //! `window.__opencatOracle` 合同（TS 侧单一 owner：
 //! `opencat-web/web/src/oracle-contract.ts`）。
 
+use std::collections::BTreeSet;
 use std::{fs, path::PathBuf, process::Child};
 
 use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
 
+use crate::mem_gate::{self, with_memory_gate};
 use crate::static_server::oracle_video_path;
 use crate::webdriver::{
     create_session, find_executable, reserve_port, wait_for_document_ready,
@@ -75,6 +77,8 @@ pub struct BrowserHarness {
     webdriver_url: String,
     session_id: String,
     child: Option<Child>,
+    /// 本会话拉起的 chrome 进程树（系统内存门禁的监视对象）。
+    chrome_pids: BTreeSet<i32>,
 }
 
 impl BrowserHarness {
@@ -82,6 +86,11 @@ impl BrowserHarness {
         let client = Client::builder()
             .build()
             .context("failed to build webdriver HTTP client")?;
+
+        // session 前后 chrome 进程快照差集 = 本会话拉起的浏览器树；这是
+        // 驱动侧内存门禁（mem_gate）的监视对象。共享 chromedriver（外部
+        // CHROMEDRIVER_URL）下其他会话的 chrome 不会被误伤。
+        let chrome_before = mem_gate::snapshot_chrome_pids();
 
         let (webdriver_url, child) = if let Some(url) = &env.webdriver_url {
             (url.clone(), None)
@@ -95,8 +104,17 @@ impl BrowserHarness {
             );
             command
                 .arg(format!("--port={port}"))
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
+                .stdout(std::process::Stdio::null());
+            // HW GL 诊断：VK_LOADER_DEBUG / GPU 进程日志走 chromedriver
+            // stderr 落文件；默认路径保持 null 不污染。
+            if std::env::var("OC_ORACLE_HW_GL").as_deref() == Ok("1") {
+                command.stderr(
+                    std::fs::File::create("/tmp/oc-chromedriver-gl.log")
+                        .context("failed to create chromedriver GL log file")?,
+                );
+            } else {
+                command.stderr(std::process::Stdio::null());
+            }
             let child = command.spawn().context("failed to spawn chromedriver")?;
             wait_for_webdriver_ready(&client, &webdriver_url).await?;
             (webdriver_url, Some(child))
@@ -110,6 +128,7 @@ impl BrowserHarness {
             height,
         )
         .await?;
+        let chrome_pids = mem_gate::session_chrome_pids(&chrome_before);
         webdriver_post(
             &client,
             &webdriver_url,
@@ -131,6 +150,7 @@ impl BrowserHarness {
             webdriver_url,
             session_id,
             child,
+            chrome_pids,
         })
     }
 
@@ -190,13 +210,15 @@ impl BrowserHarness {
     }
 
     pub async fn render_frame(&self, envelope: &str, frame: u32) -> Result<WebFrame> {
-        let result = webdriver_post(
-            &self.client,
-            &self.webdriver_url,
-            &self.session_id,
-            "execute/async",
-            json!({
-                "script": r#"
+        let result = with_memory_gate(
+            &self.chrome_pids,
+            webdriver_post(
+                &self.client,
+                &self.webdriver_url,
+                &self.session_id,
+                "execute/async",
+                json!({
+                    "script": r#"
                     const envelope = arguments[0];
                     const frame = arguments[1];
                     const done = arguments[arguments.length - 1];
@@ -208,8 +230,9 @@ impl BrowserHarness {
                       .then((result) => done({ ok: true, result }))
                       .catch((err) => done({ ok: false, error: String(err && (err.stack || err.message) || err) }));
                 "#,
-                "args": [envelope, frame],
-            }),
+                    "args": [envelope, frame],
+                }),
+            ),
         )
         .await?;
 
@@ -245,13 +268,15 @@ impl BrowserHarness {
         // is drawn but nothing is encoded or muxed — splits render-side memory
         // growth from the encode path when a continuous sweep aborts.
         let render_only = std::env::var("OPENCAT_ORACLE_RENDER_ONLY").is_ok();
-        let result = webdriver_post(
-            &self.client,
-            &self.webdriver_url,
-            &self.session_id,
-            "execute/async",
-            json!({
-                "script": r#"
+        let result = with_memory_gate(
+            &self.chrome_pids,
+            webdriver_post(
+                &self.client,
+                &self.webdriver_url,
+                &self.session_id,
+                "execute/async",
+                json!({
+                    "script": r#"
                     const envelope = arguments[0];
                     const start = arguments[1];
                     const end = arguments[2];
@@ -265,8 +290,9 @@ impl BrowserHarness {
                       .then((result) => done({ ok: true, result }))
                       .catch((err) => done({ ok: false, error: String(err && (err.stack || err.message) || err) }));
                 "#,
-                "args": [envelope, start_frame, end_frame, render_only],
-            }),
+                    "args": [envelope, start_frame, end_frame, render_only],
+                }),
+            ),
         )
         .await?;
 
@@ -362,6 +388,11 @@ impl BrowserHarness {
 
 impl Drop for BrowserHarness {
     fn drop(&mut self) {
+        // 兜底杀浏览器树：正常路径 shutdown() 已 delete session，但异常退
+        // 出（panic / 忘调 shutdown / 连接中途死）只会走到这里。只杀
+        // chromedriver 进程留下孤儿 chrome——它继续慢性吃 GPU/共享内存映
+        // 射直到内核 OOM（mem-gate 只看管渲染请求期间，管不到这个盲区）。
+        crate::mem_gate::kill_tree(&self.chrome_pids);
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();

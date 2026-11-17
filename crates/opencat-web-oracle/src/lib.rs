@@ -23,6 +23,7 @@
 //! （环境探测、页面驱动与响应解析）。
 
 mod harness;
+mod mem_gate;
 mod static_server;
 mod webdriver;
 

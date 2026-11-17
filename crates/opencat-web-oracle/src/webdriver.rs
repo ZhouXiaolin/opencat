@@ -78,6 +78,34 @@ pub(crate) async fn create_session(
         ]
     });
 
+    // OC_ORACLE_HW_GL=1 → WebGL 走 ANGLE-vulkan 硬件（性能腿）：默认路径
+    // 保持 SwiftShader（shaders 对拍两侧必须同 WebGPU/GL 后端，见上注）。
+    // Vulkan env 由调用方注入。实测有效组合（勿回退）：
+    //   env -u LD_PRELOAD VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json
+    //   - 去掉 LD_PRELOAD：系统 loader（1.4.321）可用；preload 旧 libvulkan
+    //     在 GPU 进程里 SIGTRAP×3 → fallback 软件。
+    //   - ICD 必须指系统 RADV（api 1.4.318）；仓库 tools/angle-linux 下的
+    //     radeon_icd.json 不存在，空指会让 loader 只剩 SwiftShader → ANGLE
+    //     申请的 instance 扩展缺失（-7）→ GPU 进程退出 → 全程 CPU 光栅。
+    if std::env::var("OC_ORACLE_HW_GL").as_deref() == Ok("1") {
+        // 硬件 GL：dev/shm 必须放开——禁用时 GL 命令缓冲走 /tmp 回退，
+        // GPU 进程 IPC 慢 4 倍级（实测 draw 560ms→2400ms）。
+        let args = chrome_options["args"].as_array_mut().expect("args array");
+        args.retain(|a| a.as_str() != Some("--disable-dev-shm-usage"));
+        args.push(Value::String("--use-gl=angle".into()));
+        args.push(Value::String("--use-angle=vulkan".into()));
+        // GPU 进程沙箱会阻断 LD_PRELOAD/ICD 的 vulkan 初始化（实测 SIGSEGV×3
+        // → fallback 软件）；engine 侧无沙箱可跑，chrome 侧对齐之。
+        args.push(Value::String("--no-sandbox".into()));
+        // 注：--in-process-gpu 实测无收益（瓶颈不是跨进程 IPC）且启动即崩
+        // （in-proc vulkan 初始化失败 → Chrome instance exited），不挂。
+        // GL 诊断：GPU 进程 vulkan/ANGLE init 失败原因；chromedriver 不转发
+        // chrome stderr（实测空文件），改让 chrome 自写日志文件。
+        args.push(Value::String("--enable-logging".into()));
+        args.push(Value::String("--v=1".into()));
+        args.push(Value::String("--log-file=/tmp/oc-chrome-gl.log".into()));
+    }
+
     if let Some(binary) = chrome_bin {
         chrome_options["binary"] = Value::String(binary.to_string_lossy().to_string());
     }

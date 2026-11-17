@@ -169,8 +169,15 @@ fn run(cli: &Cli) -> Result<()> {
     let rendered: Vec<(u32, u32, opencat_web_oracle::FramesMp4)> = runtime.block_on(async {
         let web_server = WebAppServer::new(&repo)?;
         let browser = BrowserHarness::new(&browser_env, width as i32, height as i32).await?;
+        // HW_GL 腿同款开关：真 GPU 下 CK surface 不 preserve（采集走
+        // snapshot 读回），页面侧以查询参数接收。
+        let page_url = if std::env::var("OC_ORACLE_HW_GL").as_deref() == Ok("1") {
+            web_server.url("/test-oracle.html?nopreserve=1")
+        } else {
+            web_server.url("/test-oracle.html")
+        };
         browser
-            .navigate(&web_server.url("/test-oracle.html"))
+            .navigate(&page_url)
             .await
             .context("navigate test-oracle.html")?;
         let mut rendered = Vec::with_capacity(segments.len());

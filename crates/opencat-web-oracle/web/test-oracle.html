@@ -56,6 +56,17 @@
       globalThis.__ocNativeWebGPU = q.get('nativeGPU') === '1';
 
       const canvas = document.getElementById('frame');
+      // Live phase probe: console lines only reach the driver after the whole
+      // render resolves; POST each stamp to /oracle-log so in-flight timing
+      // (where did the wall-clock go?) is visible while the run is running.
+      const tlog = (msg) => {
+        // performance.timeOrigin-based epoch: the realm shims global Date to
+        // the virtual composition clock (Date.now() → 0 after open_design),
+        // performance stays real in page scope.
+        const line = `${Math.round(performance.timeOrigin + performance.now())} ${msg}`;
+        console.log(`[t0] ${line}`);
+        fetch('/oracle-log', { method: 'POST', body: line }).catch(() => {});
+      };
       // Scene-cut detection canvas. Created HERE at page load, not inside
       // renderFramesToMp4: after open_design the wasm realm patches the main
       // thread's canvas factories and a freshly-created 2D context loses
@@ -72,12 +83,18 @@
       let sessionFor = null;
 
       async function ensureSession(envelope) {
+        // Probe sticky handle: lets web-step `eval` steps reuse the session
+        // (drawFrame etc.) without re-passing the multi-KB envelope through
+        // the command line. Set on every ensure, so it always matches session.
+        globalThis.__ocLastEnv = envelope;
         const comp = compositionInfo(envelope);
         if (sessionFor !== envelope) {
           session?.destroy();
+          tlog("session-create-start");
           session = await RenderSession.create(
             canvas, envelope, comp, comp.frames, { frameOutput: 'source' });
           sessionFor = envelope;
+          tlog("session-create-done");
         }
         return session;
       }
@@ -129,9 +146,11 @@
       }
 
       const ready = (async () => {
+        tlog("page-script");
         setWasmBaseUrl('/wasm/');
         setWorkerBaseUrl('/wasm/');
         await initWasm();
+        tlog("wasm-ready");
         setAssetReader(async (path) => {
           // Composition-relative logical path (`assets/...`). Try the
           // composition base first (authoritative), then the bare path against
@@ -151,6 +170,22 @@
         });
         globalThis.__canvasKit = CK;
         registerVideoGlobals();
+        try {
+          const probe = document.createElement('canvas');
+          const gl = probe.getContext('webgl2');
+          if (gl) {
+            const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+            const renderer = dbg
+              ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)
+              : gl.getParameter(gl.RENDERER);
+            tlog(`gl-renderer ${renderer}`);
+          } else {
+            tlog('gl-renderer none');
+          }
+        } catch (e) {
+          tlog(`gl-renderer err ${e}`);
+        }
+        tlog("ready-done");
       })();
 
       // Open-once state：管线打开收敛进 RenderSession（见 ensureSession）。
@@ -172,9 +207,14 @@
       // surface + CK so callers can read back (hex transport) or encode
       // (video transport) without re-deriving state. Pixel readback is left to
       // the caller — it is the expensive, transport-specific step.
+      // ?nopreserve → 真 GPU 下不 preserve CK surface（采集走 snapshot 读回）。
+      globalThis.__ocSurfaceNoPreserve = location.search.includes('nopreserve');
       async function drawFrame(envelope, frame) {
         const s = await ensureSession(envelope);
-        return s.drawFrame(frame);
+        const t0 = performance.now();
+        const r = await s.drawFrame(frame);
+        if (frame < 160) tlog(`f${frame} inner-draw ${Math.round(performance.now() - t0)}`);
+        return r;
       }
 
       // Native WebGPU warmup（先踢一脚 + 泵 + 重绘，详见 RenderSession）。
@@ -242,7 +282,9 @@
       }
 
       async function renderFramesToMp4(envelope, startFrame, endFrame, renderOnly = false) {
+        tlog("mp4-enter");
         await ready;
+        tlog("mp4-after-ready");
         const comp = compositionInfo(envelope);
         const fps = comp.fps || 30;
         if (typeof VideoEncoder === 'undefined') {
@@ -305,7 +347,10 @@
           width: comp.width,
           height: comp.height,
           bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.30)),
-          colorRange: 'studio',
+          // colorRange 不设：WebCodecs 默认 full——RGB→YUV 按 full 转、mux 标
+          // pc，与 full9/swgl 基线、engine ffmpeg 软编同量阶。设 'studio'
+          // 会让编码器按 limited 压缩而 mux 仍标 pc → 全帧色移 mae≈13
+          // （k3diff avg_p8 0.24→0.87，w2h act3 同型），VAAPI 与软编都遵循。
           framerate: fps,
           latencyMode: 'quality',
         };
@@ -319,6 +364,7 @@
         let encodeError = null;
         const encoder = new VideoEncoder({
           output: (chunk, meta) => {
+            outAt.push(performance.now());
             const data = new Uint8Array(chunk.byteLength);
             chunk.copyTo(data);
             if (meta && meta.decoderConfig && meta.decoderConfig.description) {
@@ -333,7 +379,9 @@
         });
         encoder.configure(config);
 
+        tlog("warmup-start");
         await warmupNativeAsync(envelope, startFrame);
+        tlog("warmup-done");
         let processed = 0;
         // Scene-cut handling: at 0.10 bits/pixel/frame the soft encoder
         // crushes quality on a whole-frame cut — the cut frame (even when the
@@ -389,31 +437,90 @@
         };
         let lastFrame = startFrame;
         const frameTimings = [];
+        // 编码输出节拍：output 回调时间戳 → 排空节奏（真实吞吐 vs 入队节奏）。
+        const outAt = [];
+        const loopT0 = performance.now();
+        let bpMs = 0;
+        let bpHits = 0;
+        // 帧汇聚 offscreen（尺寸跟随源 canvas，跨帧复用）。
+        let frameSink = null;
         try {
           for (let frame = startFrame; frame <= endFrame; frame++) {
             if (encodeError) throw encodeError;
             const tRender0 = performance.now();
-            await drawFrame(envelope, frame);
+            if (frame < 160) tlog(`f${frame} draw-start`);
+            const df = await drawFrame(envelope, frame);
             await settleNativeWebGpuReadback(envelope, frame);
+            if (frame < 160) tlog(`f${frame} draw-done renderMs=${Math.round(performance.now() - tRender0)}`);
             const renderMs = Math.round(performance.now() - tRender0);
             const tVf0 = performance.now();
-            const vf = new VideoFrame(canvas, {
+            // 采集：绕开 DOM canvas 合成器提交路径（drawImage 实测 ~900ms/帧），
+            // CK surface readPixels 直读 skia 帧缓冲 → putImageData 进
+            // offscreen sink（vf-from-sink 实测 ~4ms）。
+            if (!frameSink || frameSink.width !== df.comp.width || frameSink.height !== df.comp.height) {
+              const OCReal = globalThis.__ocRealOffscreenCanvas || OffscreenCanvas;
+              frameSink = new OCReal(df.comp.width, df.comp.height);
+              // willReadFrequently 强制软件 2D canvas：GPU 加速 2D 下
+              // VideoFrame(canvas) 纹理抓取按 limited 转换（SW 腿无此转换，
+              // RADV 腿全帧色移 mae≈13 的根因）。
+              frameSink.getContext('2d', { willReadFrequently: true });
+            }
+            const tCopy0 = performance.now();
+            const snap = df.surface.makeImageSnapshot();
+            const px = snap.readPixels(0, 0, {
+              width: df.comp.width,
+              height: df.comp.height,
+              colorType: df.CK.ColorType.RGBA_8888,
+              alphaType: df.CK.AlphaType.Unpremul,
+              colorSpace: df.CK.ColorSpace.SRGB,
+            });
+            snap.delete();
+            if (!px) throw new Error(`readPixels null at f${frame}`);
+            frameSink.getContext('2d').putImageData(
+              new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), df.comp.width, df.comp.height),
+              0, 0,
+            );
+            if (frame < 160) tlog(`f${frame} sink-copy`);
+            const vf = new VideoFrame(frameSink, {
               timestamp: Math.round((frame * 1_000_000) / fps),
               duration: Math.round(1_000_000 / fps),
             });
             // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
             // Scene cuts force an IDR immediately (see detectSceneCut above).
+            if (frame < 160) tlog(`f${frame} vf-made`);
             encoder.encode(vf, { keyFrame: detectSceneCut(frame) || (frame - startFrame) % fps === 0 });
             vf.close();
+            if (frame < 160) tlog(`f${frame} encoded`);
             const vfMs = Math.round(performance.now() - tVf0);
             frameTimings.push({ frame, renderMs, vfMs, queue: encoder.encodeQueueSize });
             processed += 1;
             lastFrame = frame;
             // Backpressure: never let the encoder queue (and its retained
-            // VideoFrames) grow without bound.
+            // VideoFrames) grow without bound. Yield via MessageChannel —
+            // NOT setTimeout: after open_design the realm shims the global
+            // timer face onto the virtual composition clock (and headless
+            // pages hit Chrome's intensive timer throttling after 5 min),
+            // so a timer-based park here stalls the whole export loop.
+            // ondequeue wins the race when the encoder offers a slot.
+            const tBp0 = performance.now();
             while (encoder.encodeQueueSize > 8) {
-              await new Promise((r) => setTimeout(r, 0));
+              await new Promise((resolve) => {
+                let settled = false;
+                const once = () => {
+                  if (settled) return;
+                  settled = true;
+                  encoder.ondequeue = null;
+                  resolve();
+                };
+                encoder.ondequeue = once;
+                const ch = new MessageChannel();
+                ch.port1.onmessage = () => { ch.port1.close(); once(); };
+                ch.port2.postMessage(0);
+              });
             }
+            bpMs += performance.now() - tBp0;
+            bpHits += 1;
+            if (processed % 25 === 0) tlog(`loop f=${frame} renderMs=${renderMs} bpMs=${Math.round(bpMs)} q=${encoder.encodeQueueSize}`);
             if (processed % 50 === 0) probe(frame);
           }
         } catch (err) {
@@ -427,6 +534,7 @@
           const sum = (k) => frameTimings.reduce((s, r) => s + r[k], 0);
           const max = (k) => frameTimings.reduce((m, r) => Math.max(m, r[k]), 0);
           console.log(`[timing] frames=${n} render avg=${Math.round(sum('renderMs') / n)} max=${max('renderMs')} vf+encode avg=${Math.round(sum('vfMs') / n)} max=${max('vfMs')} queue final=${encoder.encodeQueueSize}`);
+          console.log(`[timing] wall loop=${((performance.now() - loopT0) / 1000).toFixed(1)}s bpMs=${Math.round(bpMs)} bpHits=${bpHits} outputs=${outAt.length}`);
           console.log(`[timing] detail=${JSON.stringify(frameTimings)}`);
         } catch (e) { console.log(`[timing] summarize failed ${e}`); }
 
@@ -435,12 +543,20 @@
         await encoder.flush();
         console.log(`[timing] flush queue=${queueAtFlush} took=${Math.round(performance.now() - flushT0)}ms`);
         encoder.close();
+        // 输出节拍摘要：首尾输出时间 + 中位间隔 + 最长间隔（真实排空节奏）。
+        {
+          const gaps = outAt.slice(1).map((t, i) => t - outAt[i]).sort((a, b) => a - b);
+          if (gaps.length) {
+            console.log(`[timing] outputs first@${Math.round(outAt[0] - loopT0)}ms last@${Math.round(outAt[outAt.length - 1] - loopT0)}ms medianGap=${Math.round(gaps[gaps.length >> 1])}ms maxGap=${Math.round(gaps[gaps.length - 1])}ms`);
+          }
+        }
         if (encodeError) throw encodeError;
         if (chunks.length === 0) throw new Error('WebCodecs produced no chunks');
         if (!avcC) throw new Error('WebCodecs produced no avcC decoder description');
 
         // Mux. Track timescale == fps so each sample is exactly 1 tick long and
         // dts is the (decode-order) frame index; cts comes from the chunk PTS.
+        const muxT0 = performance.now();
         const file = MP4Box.createFile();
         const trackId = file.addTrack({
           timescale: fps,
@@ -458,6 +574,7 @@
           });
           dts += 1;
         }
+        tlog(`mux ${chunks.length} samples took=${Math.round(performance.now() - muxT0)}ms`);
         // Free the compressed samples before the buffer/base64 copies spike;
         // MP4Box addSample already copied the bytes into the track.
         chunks.length = 0;
@@ -465,10 +582,12 @@
         const mp4 = new Uint8Array(file.getBuffer());
 
         probe('post-pre');
+        const postT0 = performance.now();
         const postRes = await fetch('/oracle-video', { method: 'POST', body: mp4 });
         if (!postRes.ok) {
           throw new Error(`oracle-video POST failed: HTTP ${postRes.status} (${mp4.length} bytes)`);
         }
+        tlog(`post ${mp4.length}B took=${Math.round(performance.now() - postT0)}ms`);
 
         return {
           width: comp.width,

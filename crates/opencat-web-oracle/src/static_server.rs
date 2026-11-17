@@ -48,6 +48,10 @@ impl WebAppServer {
         let shutdown = Arc::new(AtomicBool::new(false));
         let server_shutdown = Arc::clone(&shutdown);
         let join = thread::spawn(move || {
+            // 每连接一线程：页面侧 fetch 是并发的（fire-and-forget 相位日志
+            // + 场景切换的资产加载同时进行），而 Chrome 会维持 keep-alive
+            // 空闲连接——单线程 accept 循环会停在一条连接的下一请求读上，
+            // 其余连接永远得不到 accept，整页死锁（r10 实证）。
             for stream in listener.incoming() {
                 if server_shutdown.load(Ordering::Relaxed) {
                     break;
@@ -55,7 +59,11 @@ impl WebAppServer {
 
                 match stream {
                     Ok(stream) => {
-                        let _ = handle_static_request(stream, &routes);
+                        let routes = routes.clone();
+                        let shutdown = Arc::clone(&server_shutdown);
+                        let _ = thread::spawn(move || {
+                            let _ = handle_static_request(stream, &routes);
+                        });
                     }
                     Err(_) => break,
                 }
@@ -84,6 +92,7 @@ impl Drop for WebAppServer {
     }
 }
 
+#[derive(Clone)]
 struct StaticRoutes {
     repo: PathBuf,
 }
@@ -229,6 +238,13 @@ fn handle_static_request(mut stream: TcpStream, routes: &StaticRoutes) -> Result
         let path = std::env::temp_dir().join(file);
         return handle_oracle_video_post_at(&mut stream, &request, &buffer[header_end..len], &path);
     }
+    // Live phase log from the page (`tlog()`): the harness only drains
+    // console lines after the whole render resolves, so in-flight wall-clock
+    // probes (where did the minutes go?) need an out-of-band channel.
+    // Append to a temp file AND eprint — the binary's stderr streams live.
+    if method == "POST" && raw_path.split('?').next() == Some("/oracle-log") {
+        return handle_oracle_log_post(&mut stream, &request, &buffer[header_end..len]);
+    }
     if method != "GET" && method != "HEAD" {
         write_response(
             &mut stream,
@@ -279,6 +295,42 @@ pub(crate) fn oracle_video_path() -> PathBuf {
 
 fn handle_oracle_video_post(stream: &mut TcpStream, head: &str, body_prefix: &[u8]) -> Result<()> {
     handle_oracle_video_post_at(stream, head, body_prefix, &oracle_video_path())
+}
+
+fn handle_oracle_log_post(stream: &mut TcpStream, head: &str, body_prefix: &[u8]) -> Result<()> {
+    let content_length = head
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        })
+        .ok_or_else(|| anyhow!("oracle log POST missing content-length"))?;
+    let mut body = body_prefix.to_vec();
+    let mut chunk = [0_u8; 16_384];
+    while body.len() < content_length {
+        let n = stream.read(&mut chunk)?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    let line = String::from_utf8_lossy(&body);
+    // 页内时戳全被 realm 虚拟时钟接管（Date/performance 均 33.33ms/帧推进），
+    // 真实节拍只能由服务端纪元提供——每行前缀真实毫秒。
+    let wall = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    eprintln!("[oc-live] {wall} {line}");
+    let path = std::env::temp_dir().join("opencat-oracle-live.log");
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = writeln!(f, "{wall} {line}");
+    }
+    write_response(stream, "200 OK", "text/plain", b"ok")?;
+    Ok(())
 }
 
 fn handle_oracle_video_post_at(

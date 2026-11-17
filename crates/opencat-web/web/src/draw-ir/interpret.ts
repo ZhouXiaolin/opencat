@@ -49,6 +49,7 @@ import {
   OP_DRAW_SUBTREE_PICTURE,
   OP_FILL_PATTERN,
   OP_STROKE_PATTERN,
+  OP_FILL_OVAL_BATCH,
   OP_LOTTIE_RECT,
   OP_PATH_FIRST,
   OP_PATH_LAST,
@@ -196,9 +197,37 @@ export function renderEncodedDrawFrame(
       return currentPathBuilder.snapshot();
     };
 
+    // oracle 探针：每帧 op 形态（batch 命中数 vs 逐点 FILL_PATH 数）。
+    // 模块级——executeOp 的闭包层与 renderEncodedDrawFrame 不同。
+    // （声明挪至模块顶部，见 renderEncodedDrawFrame 上方。）
+
+    // Script paint cache. The FillOvalBatch wire expansion (halftone tiles =
+    // one SET_FILL_STYLE + BEGIN_PATH + ADD_OVAL + FILL_PATH per oval, ~66k
+    // ovals in a single inspector pattern subtree) would otherwise allocate a
+    // fresh wasm Paint per FILL_PATH and exhaust the CanvasKit heap before the
+    // flush ever runs (RangeError: offset is out of bounds — a wasm trap).
+    // Scalar state snapshots cheaply identify reuse; gradients can't join the
+    // key (no cheap serialization), so gradient state falls back to per-op
+    // allocation, matching the pre-cache behavior where volume is low.
+    const scriptPaintCache = new Map<string, Paint>();
+    const scriptPaint = (style: 'fill' | 'stroke'): Paint => {
+      const grad = style === 'fill' ? state.fillGradient : state.strokeGradient;
+      if (grad) return dispose(buildScriptPaint(CK, state, style, dispose));
+      const dash = state.lineDash;
+      const key = `${style}|${state.fillColor}|${state.strokeColor}|${state.lineWidth}|${state.lineCap}|${state.lineJoin}|${dash ? dash.intervals.join(',') + '@' + dash.phase : '-'}|${state.globalAlpha}|${state.blendMode}|${state.antiAlias}`;
+      let paint = scriptPaintCache.get(key);
+      if (!paint) {
+        paint = buildScriptPaint(CK, state, style, dispose);
+        scriptPaintCache.set(key, paint);
+      }
+      return paint;
+    };
+
     const executeRange = (rangeStart: number, rangeLen: number) => {
       const end = Math.min(opEntries.length, rangeStart + rangeLen);
-      for (let i = rangeStart; i < end; i++) executeOp(opEntries[i]);
+      for (let i = rangeStart; i < end; i++) {
+        executeOp(opEntries[i]);
+      }
     };
 
     const executeOp = (entry: OpEntry) => {
@@ -380,11 +409,15 @@ export function renderEncodedDrawFrame(
           // SrcOver 兜底。
           state.blendMode = p.u8();
           break;
-        case OP_BEGIN_PATH:
-          // The previous builder (if any) is already registered with the walk
-          // disposer; just start a fresh one.
+        case OP_BEGIN_PATH: {
+          // The previous builder is stale once a new BEGIN_PATH opens (any
+          // snapshot taken from it owns its own memory). Free it now instead
+          // of accumulating one wasm PathBuilder per oval of a 66k-op pattern
+          // tile; the walk disposer's double-delete is caught upstream.
+          currentPathBuilder?.delete();
           currentPathBuilder = dispose(new CK.PathBuilder());
           break;
+        }
         case OP_PATH_MOVE_TO:
         case OP_PATH_LINE_TO:
         case OP_PATH_QUAD_TO:
@@ -398,13 +431,71 @@ export function renderEncodedDrawFrame(
           break;
         case OP_FILL_PATH: {
           const path = snapshotPath();
-          targetCanvas.drawPath(path, dispose(buildScriptPaint(CK, state, 'fill', dispose)));
+          targetCanvas.drawPath(path, scriptPaint('fill'));
           dispose(path);
+          break;
+        }
+        case OP_FILL_OVAL_BATCH: {
+          // context2d halftone 快路（rects→F32_POOL、colors→BYTES 段）。逐点
+          // 序列折叠为「按色分组 → 一路径一填充」：椭圆网格不重叠 → 与逐点
+          // 序位图一致（k3diff 门验证）。alpha 数学镜像 engine replay.rs：
+          // 色覆盖 + alpha = 点 a × globalAlpha；paint 全量携带当前填充状态
+          // （composite/shadow/aa），shader 恒空（批只收纯色快路点）。
+          const rectOff = p.u32();
+          const rectLen = p.u32();
+          const colorOff = p.u32();
+          const ovals = rectLen >> 2;
+          // colors 偏移基 = BYTES 段（frame.rawBytes）——frame.bytes 是整个
+          // envelope（magic+目录+各段），读它会拿 envelope 头当颜色（首组
+          // 四字节恰为 "OCIR" magic 即证据），每点随机色。
+          const cols = frame.rawBytes;
+          const pool = frame.f32Pool;
+          const groups = new Map<string, { a: number; rects: number[] }>();
+          for (let i = 0; i < ovals; i++) {
+            const co = colorOff + i * 4;
+            const key = `${cols[co]},${cols[co + 1]},${cols[co + 2]},${cols[co + 3]}`;
+            let grp = groups.get(key);
+            if (!grp) {
+              grp = { a: cols[co + 3]!, rects: [] };
+              groups.set(key, grp);
+            }
+            const ro = rectOff + i * 4;
+            const l = pool[ro], t = pool[ro + 1], w = pool[ro + 2], h = pool[ro + 3];
+            // 非有限 rect 会让 skia 崩（GPU 后端 device loss）——池失配时
+            // 丢点并放行其余（位图可见性高于断言，k3diff 门兜底）。
+            if (![l, t, w, h].every((v) => Number.isFinite(v))) continue;
+            grp.rects.push(l!, t!, w!, h!);
+          }
+          // 巨型多子路径在 GPU 后端会触发驱动崩溃（66k 子路径单 path →
+          // stencil-then-cover 巨路径），按 4096 oval 分块；分块顺序 = 组内
+          // 首现序，位图与整块一致。
+          const CHUNK = 4096;
+          for (const [key, grp] of groups) {
+            const [r8, g8, b8, a8] = key.split(',').map(Number);
+            const paint = dispose(buildScriptPaint(CK, state, 'fill', dispose));
+            // 点色覆盖一切 style state：清 shader（面板 fillStyle 若是渐变，
+            // shader 会盖掉 setColor——engine replay.rs batch 分支同式
+            // set_shader(None)；逐点序列里每点 SetFillStyle 也清 shader）。
+            paint.setShader(null);
+            paint.setColor(CK.Color4f(r8! / 255, g8! / 255, b8! / 255, a8! / 255));
+            paint.setAlphaf((a8! / 255) * state.globalAlpha);
+            for (let start = 0; start < grp.rects.length; start += CHUNK * 4) {
+              const builder = dispose(new CK.PathBuilder());
+              const end = Math.min(grp.rects.length, start + CHUNK * 4);
+              for (let i = start; i < end; i += 4) {
+                builder.addOval(
+                  CK.XYWHRect(grp.rects[i]!, grp.rects[i + 1]!, grp.rects[i + 2]!, grp.rects[i + 3]!),
+                );
+              }
+              const path = dispose(builder.snapshot());
+              targetCanvas.drawPath(path, paint);
+            }
+          }
           break;
         }
         case OP_STROKE_PATH: {
           const path = snapshotPath();
-          targetCanvas.drawPath(path, dispose(buildScriptPaint(CK, state, 'stroke', dispose)));
+          targetCanvas.drawPath(path, scriptPaint('stroke'));
           dispose(path);
           break;
         }
@@ -489,7 +580,9 @@ export function renderEncodedDrawFrame(
           const rasterizeFlag = p.u8();
           const rasterizeAt = rasterizeFlag ? [p.f32(), p.f32()] : null;
           const ctm = targetCanvas.getTotalMatrix();
-          const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
+          // wire patternTransform 是 SVG affine [a,b,c,d,e,f]（engine
+          // `Matrix::from_affine` 同语义）；SkMatrix 9 元序在槽 2/5 插 0。
+          const ptM = Float32Array.of(pt[0], pt[1], 0, pt[2], pt[3], 0, pt[4], pt[5], 1);
           const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
           const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
           const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
@@ -512,12 +605,15 @@ export function renderEncodedDrawFrame(
             CK.Matrix.multiply(ptM, CK.Matrix.translated(tile.x, tile.y)),
             CK.Matrix.scaled(1 / sxT, 1 / syT),
           );
+          // 签名是 makeShader(tmx, tmy, mode, localMatrix?, tileRect?)：
+          // localMatrix 在第 4 槽、tileRect 在第 5 槽（此前写反 → shader
+          // 恒 undefined → 点阵整段不画）。
           const shader = tilePicture.makeShader?.(
             CK.TileMode.Repeat,
             CK.TileMode.Repeat,
             CK.FilterMode.Linear,
+            localMatrix,
             /* tileRect */ undefined,
-            /* localMatrix */ localMatrix,
           );
           if (shader) {
             const paint = dispose(new CK.Paint());
@@ -542,7 +638,8 @@ export function renderEncodedDrawFrame(
           const strokeJoin = p.u8();
           const strokeMiter = p.f32();
           const ctm = targetCanvas.getTotalMatrix();
-          const ptM = Float32Array.of(pt[0], pt[1], pt[2], pt[3], pt[4], pt[5], 0, 0, 1);
+          // SVG affine → SkMatrix 9 元序（槽 2/5 插 0），同 FILL_PATTERN。
+          const ptM = Float32Array.of(pt[0], pt[1], 0, pt[2], pt[3], 0, pt[4], pt[5], 1);
           const m = CK.Matrix.multiply(ctm as unknown as number[], ptM);
           const sx = Math.sqrt(m[0] * m[0] + m[3] * m[3]);
           const sy = Math.sqrt(m[1] * m[1] + m[4] * m[4]);
@@ -566,8 +663,8 @@ export function renderEncodedDrawFrame(
             CK.TileMode.Repeat,
             CK.TileMode.Repeat,
             CK.FilterMode.Linear,
+            localMatrix,
             /* tileRect */ undefined,
-            /* localMatrix */ localMatrix,
           );
           if (shader) {
             const paint = dispose(new CK.Paint());
@@ -601,6 +698,9 @@ export function renderEncodedDrawFrame(
             );
           }
           targetCanvas.drawImage(ckImage, x, y, paintId === NO_PAINT ? null : buildPaintById(CK, frame, paintId, dispose));
+          // Streaming: generated images (emoji glyphs, GL/wgpu stream targets)
+          // are one-shot per frame — drop the wrapper as soon as it is drawn.
+          if (image.type === 'generated') ckImage.delete();
           break;
         }
         case OP_IMAGE_RECT: {
@@ -623,6 +723,7 @@ export function renderEncodedDrawFrame(
           }
           const sourceRect = hasSrc ? ckRect(CK, src) : imageBounds(CK, ckImage);
           targetCanvas.drawImageRect(ckImage, sourceRect, ckRect(CK, dst), paintId === NO_PAINT ? dispose(new CK.Paint()) : buildPaintById(CK, frame, paintId, dispose));
+          if (image.type === 'generated') ckImage.delete();
           break;
         }
         case OP_LOTTIE_RECT: {

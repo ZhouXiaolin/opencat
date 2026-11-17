@@ -205,11 +205,13 @@ fn reflect_program_gl(
             let sh = gl
                 .create_shader(ty)
                 .map_err(|e| anyhow!("create_shader: {e}"))?;
-            gl.shader_source(sh, src);
+            // 无 `#version` 的页面自定义 shader：ANGLE 会按 ES 3.00 编而失败
+            // （浏览器 WebGL 默认 ES 1.00）。补 `#version 100` 同语义对齐。
+            gl.shader_source(sh, &crate::gpu::stream_executor::ensure_glsl_version(src));
             gl.compile_shader(sh);
             if !gl.get_shader_compile_status(sh) {
                 let log = gl.get_shader_info_log(sh);
-                anyhow::bail!("shader 编译失败: {log}");
+                anyhow::bail!("shader 编译失败: {log}\nlen={}", src.len());
             }
             Ok(sh)
         };

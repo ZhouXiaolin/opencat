@@ -80,6 +80,7 @@ export const OP_REPLAY_RANGE = OP.REPLAY_RANGE;
 export const OP_DRAW_SUBTREE_PICTURE = OP.DRAW_SUBTREE_PICTURE;
 export const OP_FILL_PATTERN = OP.FILL_PATTERN;
 export const OP_STROKE_PATTERN = OP.STROKE_PATTERN;
+export const OP_FILL_OVAL_BATCH = OP.FILL_OVAL_BATCH;
 export const OP_LOTTIE_RECT = OP.LOTTIE_RECT;
 // v6: each PathOp command is promoted to its own top-level opcode (the old
 // OP_PATH / PATH_OP sub-opcode form is gone). One op = one path command.
@@ -137,10 +138,54 @@ export type ImageFilterSpec =
   | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[]; keepContent: boolean }
   | { type: 'colorFilter'; filter: ColorFilterSpec }
   | { type: 'compose'; outer: ImageFilterSpec; inner: ImageFilterSpec }
-  // SVG `<filter>` primitive 链（P4）。线格式是 chain 列表（chainCount 前
-  // 导）；web 侧透传字节流（字段不解构成 CanvasKit filter），保证 reader
-  // 对齐即可。
-  | { type: 'chain'; chains: { output: number; primitives: unknown[] }[] };
+  // SVG `<filter>` primitive 链（P4）。线格式与 Rust `encode_filter_chain`
+  // 严格对称；primitives 按 engine 的 FilterPrimSpec 形态解构（crop = prim
+  // subregion，srgb = color-interpolation-filters），由 ck-adapter 按
+  // engine `build_filter_prim` 的段式语义组装成 CanvasKit filter 树。
+  | { type: 'chain'; chains: FilterChainSpec[] };
+
+export type FilterChainSpec = {
+  output: number;
+  primitives: { crop: [number, number, number, number] | null; srgb: boolean; kind: FilterPrimKindSpec }[];
+  /// filter region（usvg 归一后的 user space）；decode 恒 Some（encode 恒写 1）。
+  sourceCrop: [number, number, number, number] | null;
+};
+
+export type FilterInputSpec =
+  | { type: 'sourceGraphic' }
+  | { type: 'sourceAlpha' }
+  | { type: 'prim'; index: number };
+
+export type TransferFnSpec =
+  | { type: 'identity' }
+  | { type: 'table'; values: number[] }
+  | { type: 'discrete'; values: number[] }
+  | { type: 'linear'; slope: number; intercept: number }
+  | { type: 'gamma'; amplitude: number; exponent: number; offset: number };
+
+export type FilterPrimKindSpec =
+  | { type: 'blend'; mode: number; in1: FilterInputSpec; in2: FilterInputSpec }
+  | { type: 'colorMatrix'; rowMajor: number[]; input: FilterInputSpec }
+  | { type: 'componentTransfer'; fns: TransferFnSpec[]; input: FilterInputSpec }
+  | { type: 'composite'; op: number; k: number[]; in1: FilterInputSpec; in2: FilterInputSpec }
+  | { type: 'convolveMatrix'; order: number[]; kernel: number[]; divisor: number; bias: number; target: number[]; kernelUnitLength: number[]; edge: number; preserveAlpha: boolean; input: FilterInputSpec }
+  | { type: 'diffuseLighting'; surfaceScale: number; diffuseConstant: number; lightingColor: number[]; light: LightSpecSpec; input: FilterInputSpec }
+  | { type: 'displacementMap'; xChannel: number; yChannel: number; scale: number; input: FilterInputSpec; in2: FilterInputSpec }
+  | { type: 'dropShadow'; dx: number; dy: number; sigmaX: number; sigmaY: number; color: number[]; input: FilterInputSpec }
+  | { type: 'flood'; color: number[] }
+  | { type: 'gaussianBlur'; sigmaX: number; sigmaY: number; input: FilterInputSpec }
+  | { type: 'merge'; inputs: FilterInputSpec[] }
+  | { type: 'morphology'; erode: boolean; radiusX: number; radiusY: number; input: FilterInputSpec }
+  | { type: 'offset'; dx: number; dy: number; input: FilterInputSpec }
+  | { type: 'specularLighting'; surfaceScale: number; specularConstant: number; specularExponent: number; lightingColor: number[]; light: LightSpecSpec; input: FilterInputSpec }
+  | { type: 'tile'; input: FilterInputSpec }
+  | { type: 'image'; subtree: number }
+  | { type: 'turbulence'; fractal: boolean; baseFrequency: number[]; numOctaves: number; seed: number; stitch: boolean };
+
+export type LightSpecSpec =
+  | { type: 'distant'; azimuth: number; elevation: number }
+  | { type: 'point'; x: number; y: number; z: number }
+  | { type: 'spot'; x: number; y: number; z: number; pointsAtX: number; pointsAtY: number; pointsAtZ: number; specularExponent: number; limitingConeAngle: number };
 
 export type ColorFilterSpec =
   | { type: 'matrix'; matrix: number[] }
@@ -258,25 +303,11 @@ export class BinaryReader {
   }
 }
 
-// Core-generated color-emoji glyphs (issue #10). In v5+ (issue #45) the OCIR is
-// self-contained — no epoch/delta — so the cache is keyed purely by the glyph id.
-// Full RGBA arrives every frame in section 12. The CanvasKit Image is built
-// lazily from the RGBA on first use and reused across frames.
-export const generatedImageCache = new Map<string, Image>();
-// (The old backdrop two-pass pre-rasterized each layer's op prefix into a
-// scratch surface. That scratch could never draw the frame's video images:
-// `makeImageFromTextureSource` binds them to the main surface's GL context —
-// a CPU raster scratch (or a makeSurface peer, which gets its own context)
-// silently samples recycled texture content instead, observed as a previous
-// video frame bleeding into every backdrop after a video cut. The snapshot is
-// now taken from the main surface itself at the backdrop op — the video image
-// is on its home surface, so the content is always the frame's own.)
-// Churning ids (animated Scene3 placeholders mint a new content-addressed id
-// every frame) must not retain one image per rendered frame. FIFO cap: far
-// above any single frame's distinct generated-image count, so a live image is
-// never evicted mid-frame, while stable ids (glyphs, static scenes) stay hot.
-export const GENERATED_IMAGE_CACHE_CAP = 32;
-
+// Generated pixels (emoji glyphs re-rasterized by core, GL/wgpu stream
+// targets re-executed by the browser-native executors) are re-produced every
+// frame — the pipeline is streaming, there is no per-id image cache. Section
+// 12 / the GPU executors land raw RGBA here, resolveImage builds the one-shot
+// CanvasKit image, and both are dropped as soon as the frame has consumed it.
 export const generatedImageRgba = new Map<string, { width: number; height: number; rgba: Uint8Array }>();
 
 /**
@@ -315,11 +346,12 @@ export function validateFrameMedia(frame: DecodedFrame): void {
     if (image.type === 'static') {
       const bytes = getBlobBytes(image.assetId);
       if (!bytes || bytes.length === 0) {
-        throw new MediaValidationError(
-          'image',
-          image.assetId,
-          `Missing image data for assetId="${image.assetId}"`,
-        );
+        // engine 语义对齐：本地资产缺失降级为「无图渲染」（engine 的
+        // `local asset not found, rendering without it`），resolveImage 落
+        // null 跳过该次绘制。preload 期同源降级已记过 warn，这里不再
+        // 原子失败——vfx 语料的 screen-strip.png 缺失即此形态。
+        console.warn(`[oc] missing image data, rendering without it: assetId="${image.assetId}"`);
+        return;
       }
     } else if (image.type === 'video') {
       const cached = getCachedVideoFrameRgba(image.assetId, image.timeMicros);
@@ -549,10 +581,10 @@ export function decodeFrame(bytes: Uint8Array): DecodedFrame {
   };
 }
 
-/// Decode section 12 and register each glyph's RGBA keyed by id. The CanvasKit
-/// Image is built on first use by resolveImage. Since v5+ is self-contained
-/// (no epoch), a glyph whose id already has an entry is replaced transparently
-/// — the same id always carries the same RGBA from the same RenderFrame.
+/// Decode section 12 and register each glyph's RGBA keyed by id. The
+/// CanvasKit image is built on consumption by resolveImage (streaming, no
+/// cache). Since v5+ is self-contained (no epoch), the same id always carries
+/// the same RGBA from the same RenderFrame.
 export function parseGeneratedImages(section: Uint8Array): void {
   const reader = new BinaryReader(section);
   const count = reader.u32();
@@ -562,7 +594,14 @@ export function parseGeneratedImages(section: Uint8Array): void {
     const height = reader.u32();
     const rgba = reader.bytesWithLen();
     const key = `${id}`;
-    if (!generatedImageCache.has(key)) {
+    // GPU-stream targets (webgl2/wgpu backends) carry real pixels from the
+    // browser-native executors, which run *before* this decode; the core
+    // only registers their id/size here with an empty rgba placeholder
+    // (the pixel bytes never travel through section 12 for those). An
+    // empty placeholder must never clobber an already-injected full
+    // payload — that was silently zeroing every GL stream readback.
+    const existing = generatedImageRgba.get(key);
+    if (!(existing && existing.rgba.length > 0)) {
       generatedImageRgba.set(key, { width, height, rgba });
     }
   }
@@ -760,31 +799,31 @@ export function parseImageFilter(reader: BinaryReader): ImageFilterSpec {
   // `encode_image_filter` / `encode_filter_chain` 严格对称，逐 primitive
   // 读完（web 渲染暂不消费这些字段）。
   const chainCount = reader.u32();
-  const chains: { output: number; primitives: unknown[] }[] = [];
+  const chains: FilterChainSpec[] = [];
   for (let c = 0; c < chainCount; c++) {
     const hasSourceCrop = reader.u8() !== 0;
-    if (hasSourceCrop) reader.f32Array(4);
+    const sourceCrop = hasSourceCrop ? (reader.f32Array(4) as [number, number, number, number]) : null;
     const output = reader.u16();
     const count = reader.u32();
-    const primitives: unknown[] = [];
+    const primitives: FilterChainSpec['primitives'] = [];
     for (let i = 0; i < count; i++) {
       const hasCrop = reader.u8() !== 0;
-      const crop = hasCrop ? reader.f32Array(4) : null;
+      const crop = hasCrop ? (reader.f32Array(4) as [number, number, number, number]) : null;
       const srgb = reader.u8() !== 0;
       primitives.push({ crop, srgb, kind: parseFilterPrimKind(reader) });
     }
-    chains.push({ output, primitives });
+    chains.push({ output, primitives, sourceCrop });
   }
   return { type: 'chain', chains };
 }
 
-export function parseFilterInput(reader: BinaryReader): unknown {
+export function parseFilterInput(reader: BinaryReader): FilterInputSpec {
   const tag = reader.u8();
   if (tag === 2) return { type: 'prim', index: reader.u16() };
   return { type: tag === 1 ? 'sourceAlpha' : 'sourceGraphic' };
 }
 
-export function parseTransferFn(reader: BinaryReader): unknown {
+export function parseTransferFn(reader: BinaryReader): TransferFnSpec {
   const tag = reader.u8();
   if (tag === 0) return { type: 'identity' };
   if (tag === 1 || tag === 2) return { type: tag === 1 ? 'table' : 'discrete', values: readF32Vec(reader) };
@@ -792,7 +831,7 @@ export function parseTransferFn(reader: BinaryReader): unknown {
   return { type: 'gamma', amplitude: reader.f32(), exponent: reader.f32(), offset: reader.f32() };
 }
 
-export function parseLightSpec(reader: BinaryReader): unknown {
+export function parseLightSpec(reader: BinaryReader): LightSpecSpec {
   const tag = reader.u8();
   if (tag === 0) return { type: 'distant', azimuth: reader.f32(), elevation: reader.f32() };
   if (tag === 1) return { type: 'point', x: reader.f32(), y: reader.f32(), z: reader.f32() };
@@ -804,7 +843,7 @@ export function parseLightSpec(reader: BinaryReader): unknown {
   };
 }
 
-export function parseFilterPrimKind(reader: BinaryReader): unknown {
+export function parseFilterPrimKind(reader: BinaryReader): FilterPrimKindSpec {
   const tag = reader.u8();
   switch (tag) {
     case 0: return { type: 'blend', mode: reader.u8(), in1: parseFilterInput(reader), in2: parseFilterInput(reader) };

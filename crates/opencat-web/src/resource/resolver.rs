@@ -89,7 +89,19 @@ pub async fn preload_requests(
         };
         let bytes = match source {
             ImageSource::Url(url) => fetch_url(url).await?,
-            ImageSource::Path(path) => asset_reader::read_path(path).await?,
+            // engine 语义：本地资产缺失降级为「无图渲染」（engine 的
+            // `local asset not found, rendering without it`）——catalog 不登记
+            // 尺寸，回放期 resolve 为空即跳过该次绘制。vfx 语料的
+            // captures/heygen-mobile/screen-strip.png 就是这样一处缺失。
+            ImageSource::Path(path) => match asset_reader::read_path(path).await {
+                Ok(bytes) => bytes,
+                Err(err) => {
+                    web_sys::console::warn_1(
+                        &format!("preload_assets: local asset not found, rendering without it: {path} ({err})").into(),
+                    );
+                    continue;
+                }
+            },
             ImageSource::Query(query) => fetch_openverse_image(query).await?,
             ImageSource::Unset => continue,
         };

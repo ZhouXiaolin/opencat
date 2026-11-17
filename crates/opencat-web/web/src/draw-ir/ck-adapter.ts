@@ -8,6 +8,7 @@ import type {
   Canvas,
   CanvasKit,
   ClipOp,
+  ColorChannel,
   ColorFilter,
   FillType,
   FilterMode,
@@ -42,6 +43,8 @@ import {
   type GradientFillSpec,
   type PaintSpec,
   type ImageFilterSpec,
+  type FilterChainSpec,
+  type FilterInputSpec,
   type ColorFilterSpec,
   type MaskFilterSpec,
   type PathEffectSpec,
@@ -54,9 +57,7 @@ import {
   type ExecuteSubtreeOnCanvas,
   type Payload,
   MediaValidationError,
-  generatedImageCache,
   generatedImageRgba,
-  GENERATED_IMAGE_CACHE_CAP,
   NO_PAINT,
 } from './decode';
 import { getCachedVideoFrameRgba, getCachedVideoFrameSource } from '../media/video-frame-injector';
@@ -109,17 +110,34 @@ export type StyleGradientSpec =
   | { type: 'radial'; start: [number, number, number]; end: [number, number, number]; stops: number[]; colors: number[][] };
 
 const staticImageCache = new Map<string, Image>();
-const effectCache = new Map<bigint, RuntimeEffect>();
-export function cacheGeneratedImage(key: string, image: Image): void {
-  generatedImageCache.set(key, image);
-  if (generatedImageCache.size > GENERATED_IMAGE_CACHE_CAP) {
-    const oldest = generatedImageCache.keys().next().value;
-    if (oldest !== undefined) {
-      generatedImageCache.get(oldest)?.delete();
-      generatedImageCache.delete(oldest);
-    }
+/// 已解码的 SVG 静态图（`<img>` 元素，供 MakeImageFromCanvas）。帧回放
+/// 前由 `warmStaticSvgImage` 按帧 media plan 预热。
+const svgImageCache = new Map<string, HTMLImageElement>();
+
+/**
+ * Pre-decode one SVG static image so the synchronous `resolveImage` can
+ * hand CanvasKit a canvas-backed image (`MakeImageFromEncoded` has no SVG
+ * codec). Idempotent; a failed decode stays a miss and surfaces as the
+ * usual MediaValidationError at replay time. `decode()` completes before
+ * the object URL is revoked, so the element keeps its decoded pixels.
+ */
+export async function warmStaticSvgImage(assetId: string): Promise<void> {
+  if (svgImageCache.has(assetId) || staticImageCache.has(assetId)) return;
+  const bytes = getBlobBytes(assetId);
+  if (!bytes || bytes[0] !== 0x3c /* '<' */) return;
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    svgImageCache.set(assetId, img);
+  } catch {
+    // 保持 miss：回放时报缺，语义与位图解码失败一致。
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
+const effectCache = new Map<bigint, RuntimeEffect>();
 export function initialRenderState(): RenderState {
   return {
     fillColor: [0, 0, 0, 1],
@@ -224,7 +242,15 @@ export function buildStyleGradientShader(CK: CanvasKit, grad: StyleGradientSpec,
   if (grad.type === 'linear') {
     return dispose(CK.Shader.MakeLinearGradient(grad.start, grad.end, colors, grad.stops, CK.TileMode.Clamp, undefined, 1));
   }
-  return dispose(CK.Shader.MakeTwoPointConicalGradient(grad.start, grad.start[2], grad.end, grad.end[2], colors, grad.stops, CK.TileMode.Clamp, undefined, 1));
+  // Two-point conical: radii travel as explicit args, the centers must be
+  // plain [x,y] — CanvasKit marshals start/end through a 4-float wasm scratch
+  // (`C.set(start); C.set(end, 2)`), so 3-element [x,y,r] circles overflow it
+  // with `RangeError: offset is out of bounds`.
+  return dispose(CK.Shader.MakeTwoPointConicalGradient(
+    [grad.start[0], grad.start[1]], grad.start[2],
+    [grad.end[0], grad.end[1]], grad.end[2],
+    colors, grad.stops, CK.TileMode.Clamp, undefined, 1,
+  ));
 }
 
 export function applyFill(CK: CanvasKit, paint: Paint, fill: FillSpec, alpha: number, dispose: Dispose): void {
@@ -372,12 +398,193 @@ export function buildImageFilter(CK: CanvasKit, spec: ImageFilterSpec, dispose: 
     ));
   }
   if (spec.type === 'colorFilter') return dispose(CK.ImageFilter.MakeColorFilter(buildColorFilter(CK, spec.filter, dispose), null));
-  if (spec.type === 'chain') {
-    // 解码侧只保证 reader 对齐（见 ImageFilterSpec chain 注释）；web 重放
-    // 尚不消费链式滤镜，fail-loud 指路。
-    throw new Error('chain image filters are not replayed on web yet');
-  }
+  if (spec.type === 'chain') return buildFilterChains(CK, spec.chains, dispose);
   return dispose(CK.ImageFilter.MakeCompose(buildImageFilter(CK, spec.outer, dispose), buildImageFilter(CK, spec.inner, dispose)));
+}
+
+// ── SVG filter chain（FilterChainSpec → CanvasKit filter 树）────────
+// 语义镜像 engine `executor/paint.rs` 的 build_filter_chain 族：从 output
+// primitive 递归展开，Prim 引用按消费点重复展开（DAG 共享子链独立求值）；
+// 段式色彩空间（per-primitive color-interpolation-filters）用 gamma color
+// filter 在域切换处插桩，链输出恒 sRGB。CanvasKit 这一版的工厂没有
+// cropRect 参数，prim subregion 与 filter region 恒等（usvg 默认）时忽略，
+// 显式 subregion fail-loud。
+
+/// SourceAlpha：输出 (0,0,0,a)（黑体 + alpha）。
+const SOURCE_ALPHA_MATRIX = [
+  0.0, 0.0, 0.0, 0.0, 0.0,
+  0.0, 0.0, 0.0, 0.0, 0.0,
+  0.0, 0.0, 0.0, 0.0, 0.0,
+  0.0, 0.0, 0.0, 1.0, 0.0,
+];
+
+function buildFilterChains(CK: CanvasKit, chains: FilterChainSpec[], dispose: Dispose): ImageFilter {
+  // `url(#a) url(#b)` 从左到右求值：compose(outer, inner) = outer(inner)，
+  // 故从右往左包 compose。input=null 即层快照（backdrop 语义一致）。
+  let acc = buildFilterChain(CK, chains[chains.length - 1], dispose);
+  for (let i = chains.length - 2; i >= 0; i--) {
+    acc = dispose(CK.ImageFilter.MakeCompose(acc, buildFilterChain(CK, chains[i], dispose)));
+  }
+  return acc;
+}
+
+function buildFilterChain(CK: CanvasKit, chain: FilterChainSpec, dispose: Dispose): ImageFilter {
+  if (chain.primitives.length === 0) throw new Error('svg filter chain has no primitives');
+  return buildFilterPrim(CK, chain, chain.output, true, dispose);
+}
+
+function buildFilterInput(
+  CK: CanvasKit,
+  chain: FilterChainSpec,
+  input: FilterInputSpec,
+  wantSrgb: boolean,
+  dispose: Dispose,
+): ImageFilter | null {
+  if (input.type === 'sourceGraphic') {
+    // SourceGraphic = 无 input（层快照）；linear 域消费时插 sRGB→linear。
+    if (wantSrgb) return null;
+    return dispose(CK.ImageFilter.MakeColorFilter(dispose(CK.ColorFilter.MakeSRGBToLinearGamma()), null));
+  }
+  if (input.type === 'sourceAlpha') {
+    // SourceAlpha 只保留 α，色彩空间无关，按 sRGB 计。
+    let f: ImageFilter = dispose(
+      CK.ImageFilter.MakeColorFilter(
+        dispose(CK.ColorFilter.MakeMatrix(SOURCE_ALPHA_MATRIX)),
+        null,
+      ),
+    );
+    if (!wantSrgb) {
+      f = dispose(CK.ImageFilter.MakeColorFilter(dispose(CK.ColorFilter.MakeSRGBToLinearGamma()), f));
+    }
+    return f;
+  }
+  return buildFilterPrim(CK, chain, input.index, wantSrgb, dispose);
+}
+
+function buildFilterPrim(
+  CK: CanvasKit,
+  chain: FilterChainSpec,
+  idx: number,
+  outSrgb: boolean,
+  dispose: Dispose,
+): ImageFilter {
+  const p = chain.primitives[idx];
+  if (!p) throw new Error(`svg filter prim ${idx} out of range`);
+  const region = chain.sourceCrop;
+  if (p.crop && region && !rectClose(p.crop, region)) {
+    // CanvasKit 工厂无 cropRect；显式 prim subregion 不可表达，fail-loud。
+    throw new Error(`svg filter prim subregion not supported on web (${p.crop.join(',')})`);
+  }
+  const inputOf = (i: FilterInputSpec) => buildFilterInput(CK, chain, i, p.srgb, dispose);
+  // 各臂输出的原生域：消费 source 的 prim = primitive 的 cs；Flood 的
+  // shader 输出恒 sRGB 数值（同 engine 的 native_srgb 选择理由）。
+  let nativeSrgb = p.srgb;
+  let inner: ImageFilter | null;
+  switch (p.kind.type) {
+    case 'blend':
+      // engine: blend(mode, dst=in2, src=in1) ↔ MakeBlend(blend, bg, fg)。
+      inner = dispose(CK.ImageFilter.MakeBlend(mapBlendMode(CK, p.kind.mode), inputOf(p.kind.in2), inputOf(p.kind.in1)));
+      break;
+    case 'colorMatrix':
+      inner = dispose(CK.ImageFilter.MakeColorFilter(dispose(CK.ColorFilter.MakeMatrix(p.kind.rowMajor)), inputOf(p.kind.input)));
+      break;
+    case 'componentTransfer':
+      // CanvasKit 无 table color filter（engine 用 table_argb 256 查表）。
+      throw new Error('svg feComponentTransfer is not replayed on web yet');
+    case 'composite': {
+      const op = p.kind.op;
+      if (op > 5) throw new Error(`svg feComposite arithmetic (op ${op}) is not replayed on web yet`);
+      const modes = ['SrcOver', 'SrcIn', 'SrcOut', 'SrcATop', 'Xor', 'Plus'] as const;
+      inner = dispose(
+        CK.ImageFilter.MakeBlend(
+          CK.BlendMode[modes[op] as keyof typeof CK.BlendMode],
+          inputOf(p.kind.in2),
+          inputOf(p.kind.in1),
+        ),
+      );
+      break;
+    }
+    case 'convolveMatrix':
+      throw new Error('svg feConvolveMatrix is not replayed on web yet');
+    case 'diffuseLighting':
+    case 'specularLighting':
+      throw new Error(`svg ${p.kind.type} is not replayed on web yet`);
+    case 'displacementMap':
+      inner = dispose(
+        CK.ImageFilter.MakeDisplacementMap(
+          filterChannel(CK, p.kind.xChannel),
+          filterChannel(CK, p.kind.yChannel),
+          p.kind.scale,
+          inputOf(p.kind.in2),
+          inputOf(p.kind.input),
+        ),
+      );
+      break;
+    case 'dropShadow':
+      inner = dispose(
+        CK.ImageFilter.MakeDropShadow(
+          p.kind.dx,
+          p.kind.dy,
+          p.kind.sigmaX,
+          p.kind.sigmaY,
+          CK.Color4f(p.kind.color[0], p.kind.color[1], p.kind.color[2], p.kind.color[3]),
+          inputOf(p.kind.input),
+        ),
+      );
+      break;
+    case 'flood':
+      nativeSrgb = true;
+      inner = dispose(CK.ImageFilter.MakeShader(dispose(CK.Shader.MakeColor(CK.Color4f(p.kind.color[0], p.kind.color[1], p.kind.color[2], p.kind.color[3]), null))));
+      break;
+    case 'gaussianBlur':
+      inner = dispose(CK.ImageFilter.MakeBlur(p.kind.sigmaX, p.kind.sigmaY, CK.TileMode.Decal, inputOf(p.kind.input)));
+      break;
+    case 'merge': {
+      // merge = 输入按序 SrcOver 叠放（SkImageFilters::Merge 语义），
+      // CanvasKit 无 MakeMerge，用嵌套 MakeBlend 折叠。
+      if (p.kind.inputs.length === 0) throw new Error('svg feMerge has no inputs');
+      let acc: ImageFilter | null = inputOf(p.kind.inputs[0]);
+      for (let i = 1; i < p.kind.inputs.length; i++) {
+        acc = dispose(CK.ImageFilter.MakeBlend(CK.BlendMode.SrcOver, acc, inputOf(p.kind.inputs[i])));
+      }
+      inner = acc;
+      break;
+    }
+    case 'morphology':
+      inner = p.kind.erode
+        ? dispose(CK.ImageFilter.MakeErode(p.kind.radiusX, p.kind.radiusY, inputOf(p.kind.input)))
+        : dispose(CK.ImageFilter.MakeDilate(p.kind.radiusX, p.kind.radiusY, inputOf(p.kind.input)));
+      break;
+    case 'offset':
+      inner = dispose(CK.ImageFilter.MakeOffset(p.kind.dx, p.kind.dy, inputOf(p.kind.input)));
+      break;
+    case 'tile':
+    case 'image':
+      throw new Error(`svg fe${p.kind.type} is not replayed on web yet`);
+    case 'turbulence':
+      throw new Error('svg feTurbulence inside a filter chain is not replayed on web yet');
+  }
+  inner = inner as ImageFilter;
+  // 输出域到消费方要求域的转换（同域零开销）。
+  if (nativeSrgb === outSrgb) return inner;
+  const gamma = nativeSrgb
+    ? dispose(CK.ColorFilter.MakeSRGBToLinearGamma())
+    : dispose(CK.ColorFilter.MakeLinearToSRGBGamma());
+  return dispose(CK.ImageFilter.MakeColorFilter(gamma, inner));
+}
+
+function filterChannel(CK: CanvasKit, c: number): ColorChannel {
+  const names = ['Red', 'Green', 'Blue', 'Alpha'] as const;
+  const name = names[c] ?? 'Alpha';
+  return CK.ColorChannel[name as keyof typeof CK.ColorChannel];
+}
+
+/// prim subregion 与 filter region 恒等判定（emit 侧同源数值，容差只防
+/// f32 往返噪声）。
+function rectClose(a: [number, number, number, number], b: [number, number, number, number]): boolean {
+  const eps = 1e-3;
+  return Math.abs(a[0] - b[0]) < eps && Math.abs(a[1] - b[1]) < eps
+    && Math.abs(a[2] - b[2]) < eps && Math.abs(a[3] - b[3]) < eps;
 }
 
 export function buildColorFilter(CK: CanvasKit, spec: ColorFilterSpec, dispose: Dispose): ColorFilter {
@@ -492,18 +699,30 @@ export function resolveImage(
     if (existing) return existing;
     const bytes = getBlobBytes(image.assetId);
     if (!bytes) return null;
+    // SVG 位图资产：CanvasKit 的编码解码器不认 SVG（Skia 无 svg codec），
+    // 走浏览器 img 解码（与 swgl 参考同一渲染器），字节以 '<' 开头嗅探。
+    // 解码由 warmStaticSvgImage 在帧回放前完成；未预热的资源落 null，
+    // 由调用方走既有 MediaValidationError 报缺。
+    if (bytes[0] === 0x3c /* '<' */) {
+      const img = svgImageCache.get(image.assetId);
+      if (!img) return null;
+      const ckImage = CK.MakeImageFromCanvasImageSource(img as unknown as HTMLCanvasElement);
+      if (ckImage) staticImageCache.set(image.assetId, ckImage);
+      return ckImage;
+    }
     const ckImage = CK.MakeImageFromEncoded(bytes);
     if (ckImage) staticImageCache.set(image.assetId, ckImage);
     return ckImage;
   }
 
   if (image.type === 'generated') {
-    // Core-rasterized color-emoji glyph. The RGBA arrived in section 12;
-    // cache the CanvasKit image by id so each glyph is built exactly once.
-    // Since v5+ is self-contained (no epoch), the id alone is sufficient.
+    // Streaming: generated pixels are re-produced every frame (emoji glyphs
+    // re-rasterized by core, GL/wgpu stream targets re-executed by the
+    // browser-native executors), so the image is built and consumed exactly
+    // once per frame — no cache. The draw sites delete it right after
+    // drawing (`image.type === 'generated'` there), and the rgba slot is
+    // dropped as soon as MakeImage has copied the bytes into wasm memory.
     const key = `${image.id}`;
-    const cached = generatedImageCache.get(key);
-    if (cached) return cached;
     const rgba = generatedImageRgba.get(key);
     if (!rgba) return null;
     const ckImage = CK.MakeImage(
@@ -517,10 +736,7 @@ export function resolveImage(
       rgba.rgba,
       rgba.width * 4,
     );
-    if (ckImage) {
-      cacheGeneratedImage(key, ckImage);
-      generatedImageRgba.delete(key);
-    }
+    generatedImageRgba.delete(key);
     return ckImage;
   }
 
@@ -629,7 +845,11 @@ export function buildRuntimeChildShader(
   if (child.type === 'image') {
     const img = resolveFrameImage(child.image);
     if (!img?.makeShaderOptions) return null;
-    return dispose(img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode.Linear, CK.MipmapMode.None));
+    const shader = img.makeShaderOptions(CK.TileMode.Clamp, CK.TileMode.Clamp, CK.FilterMode.Linear, CK.MipmapMode.None);
+    // Streaming: generated images are one-shot per frame; the shader holds
+    // its own pixel reference, so the image wrapper is dropped right away.
+    if (child.image.type === 'generated') img.delete();
+    return dispose(shader);
   }
   const width = Math.max(1, Math.ceil(dst.x + dst.width));
   const height = Math.max(1, Math.ceil(dst.y + dst.height));

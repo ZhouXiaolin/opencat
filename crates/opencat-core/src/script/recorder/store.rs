@@ -36,6 +36,14 @@ pub struct GpuStreamRecord {
     pub ops: Vec<u8>,
     pub bytes: Vec<u8>,
     pub byte_ranges: Vec<crate::ir::draw_types::TableRange>,
+    /// 帧间窗口 emit 自动重开的流：上一帧流已 take 发走、本帧 clear_frame
+    /// 之前，realm 的异步回调（GLTF onLoad 等）在此窗口 emit 的资源创建
+    /// op（createVertexArray/bufferData…）落在这里。这些 op 是「上一帧
+    /// 发送后、本帧开始前」的状态变化，属于本帧流的开头——clear_frame
+    /// 保留并摘标记。没有它，页面的异步加载类资源创建会被每帧清流吞掉
+    /// （vfx 手机 GLB：构造 op 全丢、VAO_BIND+DE 每帧到达，回放端空 VAO
+    /// 顶替 → drawElements INVALID_OPERATION → 手机只剩细条）。
+    pub inter_frame: bool,
 }
 
 /// 离屏 canvas op 流 LRU 上限（每个 demo 只建 handful，防泄漏足够）。
@@ -1269,6 +1277,10 @@ struct GlStreams {
     /// 资源句柄分配器（realm 级单调，跨帧不复位——buffer/texture/program
     /// 的存活期由脚本侧的 delete 决定，与帧无关）。
     next_handle: u32,
+    /// 本帧流已被 take 发走。true = 此刻处于「上一帧已发、下一帧
+    /// clear_frame 未跑」的帧间窗口——emit 自动重开的流带 inter_frame
+    /// 标记，clear_frame 保留。
+    taken: bool,
 }
 
 impl GlStreams {
@@ -1312,11 +1324,17 @@ impl GlStreams {
     }
 
     /// 追加一条命令字节（`[opcode][payload]`，JS 侧编码）。帧被清而流头
-    /// 还在（持久 renderer 本帧没走 getContext 路径）时按头自动重开。
+    /// 还在（持久 renderer 本帧没走 getContext 路径）时按头自动重开；
+    /// 帧间窗口（上一帧已 take、本帧未 clear）的重开带 inter_frame 标记。
     fn emit(&mut self, target_id: &str, cmd: Vec<u8>) -> anyhow::Result<()> {
         if self.streams.iter().all(|s| s.target_id != target_id) {
             if let Some(&(w, h, backend, attrs, sx, sy)) = self.stream_headers.get(target_id) {
                 self.begin(target_id, w, h, backend, attrs, sx, sy);
+                if self.taken
+                    && let Some(s) = self.streams.iter_mut().find(|s| s.target_id == target_id)
+                {
+                    s.inter_frame = true;
+                }
             }
         }
         let stream = self
@@ -1332,10 +1350,15 @@ impl GlStreams {
     /// 返回 payload 用的 range id（内容寻址去重）。
     fn intern(&mut self, target_id: &str, data: Vec<u8>) -> anyhow::Result<u32> {
         // 与 emit 同一重开语义：帧被清而流头还在（configure 前
-        // 的 fallback 资源 intern）时按头自动重开。
+        // 的 fallback 资源 intern）时按头自动重开；帧间窗口带标记。
         if self.streams.iter().all(|s| s.target_id != target_id) {
             if let Some(&(w, h, backend, attrs, sx, sy)) = self.stream_headers.get(target_id) {
                 self.begin(target_id, w, h, backend, attrs, sx, sy);
+                if self.taken
+                    && let Some(s) = self.streams.iter_mut().find(|s| s.target_id == target_id)
+                {
+                    s.inter_frame = true;
+                }
             }
         }
         let stream = self
@@ -1367,12 +1390,23 @@ impl GlStreams {
 
     /// 本帧录制的全部 GPU 流（消耗性取出）。
     fn take_streams(&mut self) -> Vec<GpuStreamRecord> {
+        self.taken = true;
         std::mem::take(&mut self.streams)
     }
 
-    /// 每帧重建面清空（流头缓存与句柄分配器跨帧持久，不清）。
+    /// 每帧重建面清空（流头缓存与句柄分配器跨帧持久，不清）。帧间窗口
+    /// （taken=true）emit 自动重开的流是上一帧发送后的状态变化，保留为
+    /// 本帧流的开头并摘标记。
     fn clear_frame(&mut self) {
-        self.streams.clear();
+        self.streams.retain_mut(|s| {
+            if s.inter_frame {
+                s.inter_frame = false;
+                true
+            } else {
+                false
+            }
+        });
+        self.taken = false;
     }
 }
 

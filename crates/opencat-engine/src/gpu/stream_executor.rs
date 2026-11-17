@@ -2257,6 +2257,17 @@ impl GpuStreamExecutor {
     }
 }
 
+/// ANGLE GLES3 上下文把无 `#version` 的源当 ES 3.00 编（浏览器 WebGL 与
+/// GLSL ES 规范的默认是 ES 1.00）——页面上游的自定义 shader（varying/
+/// attribute 语法）会直接编译失败（vfx 实证）。显式补 `#version 100` 与
+/// 浏览器默认档同语义；已有 `#version`（含注释/空白前置的合法形式）不动。
+pub(crate) fn ensure_glsl_version(src: &str) -> String {
+    if src.lines().any(|l| l.trim_start().starts_with("#version")) {
+        return src.to_string();
+    }
+    format!("#version 100\n{src}")
+}
+
 fn compile_program_entry(
     gl: &Arc<glow::Context>,
     vs_src: &str,
@@ -2279,7 +2290,7 @@ fn compile_program_entry(
             let sh = gl
                 .create_shader(ty)
                 .map_err(|e| anyhow!("create_shader: {e}"))?;
-            gl.shader_source(sh, &swiftshader_math(src));
+            gl.shader_source(sh, &swiftshader_math(&ensure_glsl_version(src)));
             gl.compile_shader(sh);
             if !gl.get_shader_compile_status(sh) {
                 let log = gl.get_shader_info_log(sh);

@@ -249,6 +249,37 @@ impl JsContext for WebJsContext {
         );
         let _ = js_sys::Reflect::set(&global, &JsValue::from_str("__ocOmpTake"), &fwd);
 
+        // `__ocCanvasFillOvalBatch(id, rects, colors, n)` — context2d 批量
+        // 椭圆填充的二进制通道（engine quickjs.rs/v8.rs 同名 native 的
+        // wasm 侧对位）。TypedArray 直收，落流与逐点同序同参。
+        let oval_store = self.store.clone();
+        let ovals = Closure::wrap(Box::new(
+            move |a: JsValue, b: JsValue, c: JsValue, d: JsValue| -> JsValue {
+                let id = a.as_string().unwrap_or_default();
+                let rects = b
+                    .dyn_into::<js_sys::Float32Array>()
+                    .ok()
+                    .map(|ta| ta.to_vec())
+                    .unwrap_or_default();
+                let colors = c
+                    .dyn_into::<js_sys::Uint8Array>()
+                    .ok()
+                    .map(|ta| ta.to_vec())
+                    .unwrap_or_default();
+                let count = d.as_f64().unwrap_or(0.0) as usize;
+                oval_store
+                    .borrow_mut()
+                    .record_fill_oval_batch(&id, rects, colors, count);
+                JsValue::UNDEFINED
+            },
+        ) as Box<dyn FnMut(JsValue, JsValue, JsValue, JsValue) -> JsValue>);
+        let _ = js_sys::Reflect::set(
+            &global,
+            &JsValue::from_str("__ocCanvasFillOvalBatch"),
+            ovals.as_ref().unchecked_ref(),
+        );
+        natives.push(ovals.into_js_value());
+
         Ok(())
     }
 
@@ -408,6 +439,10 @@ fn raster_canvas(store: &Rc<RefCell<MutationStore>>, args: &JsValue) -> JsValue 
     }
     if empty {
         // All-transparent canvas (out is zero-initialized — nothing to fill).
+        // 诊断：屏幕 CanvasTexture 靠这里回放 2D 命令——空命令=透明黑贴图。
+        web_sys::console::error_1(&JsValue::from_str(&format!(
+            "rasterCanvas: no/empty commands for '{id}' ({w}x{h})"
+        )));
         return JsValue::from(0);
     }
     let Some(canvas) = canvas else {

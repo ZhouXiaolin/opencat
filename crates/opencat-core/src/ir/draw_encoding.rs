@@ -172,6 +172,11 @@ pub mod opcode {
     pub const FILL_PATTERN: u16 = 50;
     /// svg `<pattern>` stroke: same tile layout + inline stroke params.
     pub const STROKE_PATTERN: u16 = 52;
+    /// context2d 批量椭圆填充（halftone 点阵快路）：payload 定宽 4×u32 =
+    /// [rectOff][rectLen][colorOff][colorLen]，rects 挂 F32_POOL、colors 挂
+    /// BYTES 段（绝对偏移）。落流语义与逐点 SetFillStyle+BeginPath+AddOval+
+    /// FillPath 序列逐位一致（context2d.js batchFlush 保证状态先行）。
+    pub const FILL_OVAL_BATCH: u16 = 51;
     /// svg `<mask>`: content subtree → per-pixel coverage clip.
     pub const MASK_CLIP: u16 = 53;
     /// Script linear gradient paint (CSS createLinearGradient): fill or
@@ -318,7 +323,12 @@ pub mod opcode {
             f("flags", 1),
             f("rasterize_at", 8),
         ], // 50 FILL_PATTERN
-        &[],                                              // 51 (unused)
+        &[
+            f("rect_pool_start", 4),
+            f("rect_len", 4),
+            f("color_start", 4),
+            f("color_len", 4),
+        ], // 51 FILL_OVAL_BATCH (pools: rects→F32_POOL, colors→BYTES)
         &[
             f("path", 4),
             f("subtree", 4),
@@ -425,8 +435,17 @@ pub fn encode_draw_sections(
     scratch.f32_pool.extend_from_slice(&frame.f32_pool);
 
     let encoded_ops = &mut scratch.encoded_ops;
+    // bytes 池以 frame.bytes 为基（FillOvalBatch 的 colors 绝对偏移直接可
+    // 用，无需另配 range 表）。
+    let mut bytes_pool = frame.bytes.clone();
     for op in &frame.ops {
-        encode_op(op, encoded_ops, &mut scratch.f32_pool, &frame.strings);
+        encode_op(
+            op,
+            encoded_ops,
+            &mut scratch.f32_pool,
+            &mut bytes_pool,
+            &frame.strings,
+        );
     }
     let encoded_subtrees = &mut scratch.encoded_subtrees;
     write_u32(encoded_subtrees, frame.subtrees.len() as u32);
@@ -435,7 +454,13 @@ pub fn encode_draw_sections(
         write_u32(encoded_subtrees, 0);
         let body_start = encoded_subtrees.len();
         for op in subtree {
-            encode_op(op, encoded_subtrees, &mut scratch.f32_pool, &frame.strings);
+            encode_op(
+                op,
+                encoded_subtrees,
+                &mut scratch.f32_pool,
+                &mut bytes_pool,
+                &frame.strings,
+            );
         }
         let byte_len = (encoded_subtrees.len() - body_start) as u32;
         encoded_subtrees[start..start + 4].copy_from_slice(&byte_len.to_le_bytes());
@@ -458,7 +483,7 @@ pub fn encode_draw_sections(
         ops: std::mem::take(encoded_ops),
         subtrees: std::mem::take(encoded_subtrees),
         f32_pool: f32_pool_out,
-        bytes: frame.bytes.clone(),
+        bytes: bytes_pool,
         byte_ranges: frame.byte_ranges.clone(),
         strings_utf8: std::mem::take(strings_utf8),
         string_ranges: std::mem::take(string_ranges),
@@ -1685,7 +1710,14 @@ pub(crate) fn encode_path_fill_type(fill_type: FillType) -> u8 {
 /// Write a single DrawOp into the binary ops buffer with header format:
 /// [opcode: u16 LE] [flags: u16 LE] [payload_len: u32 LE] [payload...]
 /// v6: each op is `[opcode: u8][fixed-length payload]` with no padding.
-fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: &[String]) {
+/// `bytes_pool` 以 `frame.bytes` 为基（偏移绝对对齐 TS 侧 BYTES 段）。
+fn encode_op(
+    op: &DrawOp,
+    buf: &mut Vec<u8>,
+    f32_pool: &mut Vec<f32>,
+    bytes_pool: &mut Vec<u8>,
+    strings: &[String],
+) {
     match op {
         // ===================================================================
         // Stack management — zero payload
@@ -1820,34 +1852,25 @@ fn encode_op(op: &DrawOp, buf: &mut Vec<u8>, _f32_pool: &mut Vec<f32>, strings: 
             write_u32(buf, encode_color_u8(*color));
         }
 
-        // wire 无变长 op：展开为逐点等效序列（仅外部 ocir 传输/schema 路径
-        // 走这里；渲染主路径 RenderFrame 内存直传，不经过编码）。
+        // 批量椭圆：数据挂池（rects→f32_pool，colors→bytes_pool），op 本体
+        // 定宽 4×u32 引用。逐点展开会让 halftone 语料每帧 ~33 万 op 过
+        // CanvasKit 逐点重放（ANGLE-vulkan 实测 2.3s/帧）；批 op + 消费侧
+        // 按色分组是引擎 draw_oval 循环的 web 同构。
         DrawOp::FillOvalBatch {
             rects,
             colors,
             count,
         } => {
-            for i in 0..*count as usize {
-                let c4 = i * 4;
-                let r4 = i * 4;
-                write_op_header(buf, opcode::SET_FILL_STYLE);
-                write_u32(
-                    buf,
-                    encode_color_u8(crate::ir::draw_op::ColorU8 {
-                        r: colors[c4],
-                        g: colors[c4 + 1],
-                        b: colors[c4 + 2],
-                        a: colors[c4 + 3],
-                    }),
-                );
-                write_op_header(buf, opcode::BEGIN_PATH);
-                write_op_header(buf, opcode::PATH_ADD_OVAL_OP);
-                write_f32(buf, rects[r4]);
-                write_f32(buf, rects[r4 + 1]);
-                write_f32(buf, rects[r4 + 2]);
-                write_f32(buf, rects[r4 + 3]);
-                write_op_header(buf, opcode::FILL_PATH);
-            }
+            write_op_header(buf, opcode::FILL_OVAL_BATCH);
+            let c = *count as usize;
+            let rect_off = f32_pool.len() as u32;
+            f32_pool.extend_from_slice(&rects[..c * 4]);
+            write_u32(buf, rect_off);
+            write_u32(buf, (c * 4) as u32);
+            let color_off = bytes_pool.len() as u32;
+            bytes_pool.extend_from_slice(&colors[..c * 4]);
+            write_u32(buf, color_off);
+            write_u32(buf, (c * 4) as u32);
         }
 
         DrawOp::SetStrokeStyle { color } => {

@@ -13,6 +13,7 @@ import { getRendererOrThrow, clearBlobs } from './wasm';
 import { clearVideoCache } from './media/video-decoder';
 import { injectVideoFramesForRender, prepareCatalogVideoSources } from './media/video-frame-injector';
 import { renderEncodedDrawFrame } from './draw-ir';
+import { warmStaticSvgImage } from './draw-ir/ck-adapter';
 import { generatedImageRgba } from './draw-ir/decode';
 import { executeGpuStreamsForFrame, disposeGpuExecutors } from './gpu/executors';
 import { getReusableSurface, releaseReusableSurface } from './media/surface';
@@ -24,6 +25,52 @@ export interface RenderSessionOptions {
   /// 逐帧注入解码 VideoFrame 的参数分叉：oracle 页 headless SwiftShader
   /// 无法 GPU 纹理导入，需要 `'source'`（CPU RGBA 直出）；dev 应用侧不传。
   frameOutput?: 'source';
+}
+
+// ── 帧预算 / 内存门禁 ──
+// 浏览器侧是流式渲染：每帧的 GL/wgpu 回读、generated 像素、IR 解码都是
+// 一次性消费。任何一处滞留（执行器卡死、缓存失控）都应该显式终止管线并
+// 带出诊断，而不是静默累积直到 chrome 被系统 OOM 击杀。三个门都可用 URL
+// query 覆盖：?frameBudgetMs= / ?heapCapMB= / ?wasmCapMB=。注意 heap 门
+// 只测 JS 堆（performance.memory，Chrome 专有），wasm 门只测 core wasm
+// 线性内存——canvaskit 自身的 wasm 堆在其实例内部，取不到引用。
+const FRAME_BUDGET_MS_DEFAULT = 30_000;
+const HEAP_CAP_MB_DEFAULT = 2048;
+const WASM_CAP_MB_DEFAULT = 4096;
+
+let gateLimits: { budgetMs: number; heapCapBytes: number; wasmCapBytes: number } | null = null;
+
+function getGateLimits(): { budgetMs: number; heapCapBytes: number; wasmCapBytes: number } {
+  gateLimits ??= (() => {
+    const q = new URLSearchParams(location.search);
+    const num = (name: string, dfltMb: number, dfltMs?: number) => {
+      const raw = q.get(name);
+      const v = raw ? Number(raw) : NaN;
+      return Number.isFinite(v) && v > 0 ? v : (dfltMs ?? dfltMb);
+    };
+    return {
+      budgetMs: num('frameBudgetMs', FRAME_BUDGET_MS_DEFAULT, FRAME_BUDGET_MS_DEFAULT),
+      heapCapBytes: num('heapCapMB', HEAP_CAP_MB_DEFAULT) * 1024 * 1024,
+      wasmCapBytes: num('wasmCapMB', WASM_CAP_MB_DEFAULT) * 1024 * 1024,
+    };
+  })();
+  return gateLimits;
+}
+
+function assertFrameGates(frame: number, elapsedMs: number): void {
+  const { budgetMs, heapCapBytes, wasmCapBytes } = getGateLimits();
+  if (elapsedMs > budgetMs) {
+    throw new Error(`[gate] frame ${frame} exceeded budget: ${Math.round(elapsedMs)}ms > ${budgetMs}ms (tune ?frameBudgetMs=)`);
+  }
+  const mem = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+  const heap = mem?.usedJSHeapSize;
+  if (heap !== undefined && heap > heapCapBytes) {
+    throw new Error(`[gate] frame ${frame} JS heap ${Math.round(heap / 1048576)}MB > cap ${Math.round(heapCapBytes / 1048576)}MB (tune ?heapCapMB=)`);
+  }
+  const wasmBytes = (globalThis as { __opencatWasmMemory?: WebAssembly.Memory }).__opencatWasmMemory?.buffer.byteLength;
+  if (wasmBytes !== undefined && wasmBytes > wasmCapBytes) {
+    throw new Error(`[gate] frame ${frame} core wasm memory ${Math.round(wasmBytes / 1048576)}MB > cap ${Math.round(wasmCapBytes / 1048576)}MB (tune ?wasmCapMB=)`);
+  }
 }
 
 export class RenderSession {
@@ -91,6 +138,7 @@ export class RenderSession {
     if (frame < 0 || frame >= this.frames) {
       throw new Error(`frame ${frame} out of range 0..${this.frames - 1}`);
     }
+    const gateStart = performance.now();
 
     this.canvas.width = comp.width;
     this.canvas.height = comp.height;
@@ -102,7 +150,13 @@ export class RenderSession {
 
     const renderer = getRendererOrThrow();
     const result = renderer.build_frame_ir(frame);
-    console.info('[df] ir ok frame=', frame, 'irLen=', result.ir.length);
+    // oracle 实时通道（服务端墙钟是唯一真时标——页内时钟全被 realm shim 接管）。
+    const ocLog = (m: string) => {
+      try {
+        fetch('/oracle-log', { method: 'POST', body: m }).catch(() => {});
+      } catch { /* ignore */ }
+    };
+    ocLog(`rs f${frame} ir-done`);
 
     // GPU streams (OCIR section 13): browser-native WebGL2/WebGPU replay of
     // the recorded streams, pixels injected into generatedImageRgba before
@@ -111,7 +165,19 @@ export class RenderSession {
     // placeholders otherwise leak their full RGBA slot per frame).
     for (const key of this.gpuInjectedKeys) generatedImageRgba.delete(key);
     this.gpuInjectedKeys = await executeGpuStreamsForFrame(result.ir);
-    console.info('[df] gpu done keys=', this.gpuInjectedKeys.length);
+    ocLog(`rs f${frame} gl-done`);
+
+    // SVG 位图资产先走浏览器 img 预解码（CanvasKit 无 svg codec）——
+    // resolveImage 是同步的，预热必须在回放前完成；命中后零开销。
+    // plan.images 元素形态是 `{assetId}`（见 media_plan_to_json）。
+    try {
+      const plan = JSON.parse(result.mediaPlan) as { images?: { assetId: string }[] };
+      for (const entry of plan.images ?? []) {
+        await warmStaticSvgImage(entry.assetId);
+      }
+    } catch {
+      // plan 解析失败交给后续阶段的既有报错路径。
+    }
 
     // Headless SwiftShader often cannot import VideoFrame textures via
     // makeImageFromTextureSource. Inject as CPU RGBA so draw-ir can
@@ -121,7 +187,6 @@ export class RenderSession {
       quality: 'exact',
       ...(this.frameOutput ? { frameOutput: this.frameOutput } : {}),
     });
-    console.info('[df] video done frame=', frame);
 
     const CK = (globalThis as CanvasKitGlobal).__canvasKit;
     if (!CK) throw new Error('CanvasKit is not initialized');
@@ -129,14 +194,20 @@ export class RenderSession {
     // `flush()`: the video transport captures the canvas with
     // `new VideoFrame(canvas)`, which sees a cleared buffer otherwise.
     // （alphaType 不在 WebGLOptions 表里——CanvasKit 忽略未知键，无效果。）
-    const surface = getReusableSurface(CK, this.canvas, undefined, {
-      preserveDrawingBuffer: 1,
-    });
+    // 硬件 GL 下 preserve 迫使每帧 resolve/copy（flush ~2.4s/帧，实测）；
+    // 采集改走 makeImageSnapshot+readPixels（自身强制 resolve，与 preserve
+    // 无关）后，真 GPU 侧可以不 preserve——oracle 页以 __ocSurfaceNoPreserve
+    // 开关。
+    const surfaceOpts = (globalThis as unknown as Record<string, unknown>).__ocSurfaceNoPreserve
+      ? undefined
+      : { preserveDrawingBuffer: 1 };
+    const surface = getReusableSurface(CK, this.canvas, undefined, surfaceOpts);
     if (!surface) throw new Error('surface creation failed');
 
     renderEncodedDrawFrame(result.ir, surface.getCanvas(), CK, { surface });
     surface.flush();
-    console.info('[df] replay done frame=', frame);
+    ocLog(`rs f${frame} ck-done`);
+    assertFrameGates(frame, performance.now() - gateStart);
     return { comp, surface, CK };
   }
 
@@ -149,8 +220,15 @@ export class RenderSession {
   /// 帧——重绘时 done 幂等守卫跳过重绘、帧末钩子读到已画好的交换链。
   async warmupNative(frame: number): Promise<void> {
     await this.drawFrame(frame);
-    // 泵到所有已注册 native WebGPU canvas 拿到首绘（探针归零）；非
-    // WebGPU 设计（无探针）至少泵 150 轮兜底（open 后的既有异步加载）。
+    const drain = (globalThis as any).__ocNativeWebGpuDrain;
+    // 非 WebGPU 语料：无 initialize 异步链，单跑即完整。GL/wgpu 流的
+    // 帧契约是「同帧重执行 = 同一流重放」，而 author script 的 done
+    // 守卫会让第二次 build_frame_ir 的 GL 段缺资源创建 op（three 不重
+    // 跑），持久状态机的 GL executor 会在 TEX_IMAGE_2D 处 miss 绑定而
+    // 炸（vfx 是第一个 GL 流语料，撞上）。WebGPU 语料仍需重绘：首绘
+    // 落在 initialize().then，泵完事件后必须重跑一帧才能画满交换链。
+    if (!drain) return;
+    // 泵到所有已注册 native WebGPU canvas 拿到首绘（探针归零）。
     // 最短轮数是关键：drain()===0 在「零 canvas 注册」时也是真——
     // requestAdapter→getContext 的 IPC 是毫秒-百毫秒级浏览器任务，
     // 30 轮 setTimeout(0) 可能在注册发生前跑完，假归零提前 break，
@@ -159,8 +237,7 @@ export class RenderSession {
     // 黑、后续帧自愈成 ~3.3%）。
     for (let i = 0; i < 600; i++) {
       await new Promise((r) => setTimeout(r, 0));
-      const drain = (globalThis as any).__ocNativeWebGpuDrain;
-      if (i >= 150 && (!drain || drain() === 0)) break;
+      if (i >= 150 && drain() === 0) break;
     }
     await this.drawFrame(frame);
   }

@@ -131,32 +131,33 @@
                 result: null,   // { rgba, w, h } copyTextureToBuffer 原始字节
             };
             nativeCanvases[key] = entry;
+            mountWarmupProbes();
             return facade;
         }
 
-        // 挂载宿主 warmup 探针：还有几个已注册 canvas 未拿到首绘
-        // （getCurrent 未发生）。oracle 页泵事件循环直到归零——真实
-        // requestAdapter/requestDevice 的初始化链是浏览器任务级异步，且
-        // shaders lib 每组件独立 requestAdapter（IPC 毫秒级-百毫秒级），
-        // 固定轮数等不住。
-        globalThis.__ocNativeWebGpuDrain = function () {
-            var pending = 0;
-            for (var k in nativeCanvases) {
-                if (nativeCanvases[k].stats.getCurrent === 0) pending += 1;
-            }
-            return pending;
-        };
-
-        // 挂载宿主 readback 探针：还有几个直读拷贝在 mapAsync 途中（结果
-        // 未落）。oracle 页 encode 循环每帧用它泵宏任务——mapAsync 是
-        // 任务级异步，帧末同步钩子取不到，泵完重绘同帧消费。
-        globalThis.__ocNativeWebGpuReadbackPending = function () {
-            var pending = 0;
-            for (var k in nativeCanvases) {
-                if (nativeCanvases[k].readback && !nativeCanvases[k].result) pending += 1;
-            }
-            return pending;
-        };
+        // 探针惰性挂载：只在首个 native WebGPU canvas 注册时挂到
+        // globalThis。非 WebGPU 语料（无 getContext('webgpu')）保持无探针
+        // ——宿主 warmupNative 用「探针存在」判定是否需要为 WebGPU 异步
+        // 首绘双跑帧；无条件挂载会让 GL 流语料也被双跑，第二次
+        // build_frame_ir 的 GL 段被 author script done 守卫削掉资源创建
+        // op，持久 GL executor 在 TEX_IMAGE_2D 处 miss 绑定而炸（vfx 撞上）。
+        function mountWarmupProbes() {
+            if (globalThis.__ocNativeWebGpuDrain) return;
+            globalThis.__ocNativeWebGpuDrain = function () {
+                var pending = 0;
+                for (var k in nativeCanvases) {
+                    if (nativeCanvases[k].stats.getCurrent === 0) pending += 1;
+                }
+                return pending;
+            };
+            globalThis.__ocNativeWebGpuReadbackPending = function () {
+                var pending = 0;
+                for (var k in nativeCanvases) {
+                    if (nativeCanvases[k].readback && !nativeCanvases[k].result) pending += 1;
+                }
+                return pending;
+            };
+        }
 
         var baseGetContext = ctx.getContext;
         ctx.getContext = function (nodeId, type, attrs, sizeW, sizeH, originX, originY) {

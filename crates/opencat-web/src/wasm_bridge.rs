@@ -468,10 +468,25 @@ async fn open_design_pipeline(
     for req in draft.requirements().requests() {
         match req.kind {
             ResourceKind::Image => {
-                if let Some(meta) = probed.images.get(&req.asset_id).copied() {
-                    inputs
-                        .insert_image(req.asset_id.clone(), meta)
-                        .map_err(prepare_js_err)?;
+                match probed.images.get(&req.asset_id).copied() {
+                    Some(meta) => {
+                        inputs
+                            .insert_image(req.asset_id.clone(), meta)
+                            .map_err(prepare_js_err)?;
+                    }
+                    None => {
+                        // 声明了但 preload 没拿到（本地文件缺失，preload 已
+                        // 降级跳过）：落 1×1 占位元数据让 prepare 过——浏览器
+                        // onerror 语义（空内容 + 页面继续），与 engine 的
+                        // register_missing_placeholder 同源。渲染期 BlobStore
+                        // 无字节 → resolveImage 落 null → 跳过该次绘制。
+                        inputs
+                            .insert_image(
+                                req.asset_id.clone(),
+                                opencat_core::probe::ImageMeta { width: 1, height: 1 },
+                            )
+                            .map_err(prepare_js_err)?;
+                    }
                 }
             }
             ResourceKind::Video => {
@@ -531,6 +546,9 @@ async fn open_design_pipeline(
         } else {
             continue;
         };
+        web_sys::console::error_1(
+            &format!("[script-inject] {} bytes={}", req.asset_id.key, text.len()).into(),
+        );
         inputs
             .insert_script_text(req.asset_id.clone(), text)
             .map_err(prepare_js_err)?;

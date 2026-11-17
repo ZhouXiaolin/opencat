@@ -1,5 +1,6 @@
 import { installRasterCanvasReplay } from './raster-replay';
 import { installOmpRunner } from './omp/omp-runner';
+import { installGlslReflector } from './gpu/glsl-reflect';
 
 // Offscreen-canvas pixel readback for the stub canvas realm: the wasm native
 // `__opencatRasterCanvas` hands its compiled OCIR frame to this hook. Install
@@ -8,6 +9,9 @@ installRasterCanvasReplay();
 // @omp 团队执行体：Rust `WebOmpTeam` 经全局 `__ocOmpExecute` 派发（同上，
 // 模块加载时装一次；Rust natives 在 dispatcher 安装期注册）。
 installOmpRunner();
+// GLSL 反射桥：浏览器真 WebGL2 实现 core 的 glsl_reflector binding（engine
+// 侧由 ANGLE 离屏会话实现同一 binding）。context 惰性建在首次反射时。
+installGlslReflector();
 
 export type {
   AudioPlan,

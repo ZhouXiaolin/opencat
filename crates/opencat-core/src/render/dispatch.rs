@@ -86,11 +86,11 @@ fn display_rect_to_rect4(r: DisplayRect) -> Rect4 {
 }
 
 pub(crate) struct BackdropLayerState {
-    uses_layer: bool,
-    has_backdrop_clip: bool,
-    has_content_layer: bool,
-    mask_paint: Option<PaintId>,
-    mask_rect: Option<Rect4>,
+    pub(crate) uses_layer: bool,
+    pub(crate) has_backdrop_clip: bool,
+    pub(crate) has_content_layer: bool,
+    pub(crate) mask_paint: Option<PaintId>,
+    pub(crate) mask_rect: Option<Rect4>,
 }
 
 pub(crate) fn save_composite_layer(

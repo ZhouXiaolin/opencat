@@ -258,17 +258,30 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         DisplayItem::Rect(rect) => rect.paint.border_radius,
         _ => Default::default(),
     };
-    let layer_state = super::dispatch::save_composite_layer(
+    let mut layer_state = super::dispatch::save_composite_layer(
         ctx.builder,
         node.opacity,
         node.css_filter_image.as_ref(),
         node.backdrop_filter_image.as_ref(),
         node.backdrop_blur_sigma,
-        None,
+        // 隐藏子树节点同样受 CSS `mask-image` 罩层（M4-⑥ 修复：与
+        // dispatch 主路径 emit_apply_prefix/suffix 同语义，原先硬编码
+        // None 丢 mask）。
+        node.mask_image.as_ref(),
         Some(bounds),
         node.transform.bounds,
         backdrop_radius,
     );
+    let mask_paint = layer_state.mask_paint.take();
+    let mask_rect = layer_state.mask_rect.take();
+    if mask_paint.is_some() {
+        ctx.builder.push(DrawOp::SaveLayer {
+            bounds: mask_rect,
+            paint: None,
+            alpha: 1.0,
+            backdrop: false,
+        });
+    }
 
     match &node.item {
         DisplayItem::Rect(rect) => super::render_rect_with_shadows(ctx, rect)?,
@@ -307,6 +320,10 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
 
     if node.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
+    }
+    if let (Some(paint), Some(rect)) = (mask_paint, mask_rect) {
+        ctx.builder.push(DrawOp::Restore);
+        ctx.builder.push(DrawOp::Rect { rect, paint });
     }
     super::dispatch::restore_backdrop_blur_layer(ctx.builder, &layer_state);
     ctx.builder.push(DrawOp::Restore);

@@ -101,6 +101,184 @@ impl RenderTarget for VkRenderTarget {
     }
 }
 
+/// CPU 软光栅目标（三平台通用）：Skia raster surface 直接画，无 GPU 流
+/// 执行器（GPU 命令流走 CPU 回读路径 `cpu_execute_gpu_streams`）。
+pub struct CpuRenderTarget {
+    executor: EngineDrawExecutor,
+    generated_cache: GeneratedImageCache,
+    media_ctx: MediaContext,
+    surface_w: u32,
+    surface_h: u32,
+}
+
+impl CpuRenderTarget {
+    pub fn new(width: u32, height: u32, fps: u32) -> Result<Self> {
+        let mut media_ctx = MediaContext::new();
+        media_ctx.set_composition_fps(fps);
+        Ok(Self {
+            executor: EngineDrawExecutor::new(),
+            generated_cache: generated_image_cache_from_env(),
+            media_ctx,
+            surface_w: width,
+            surface_h: height,
+        })
+    }
+}
+
+impl RenderTarget for CpuRenderTarget {
+    fn execute(&mut self, job: FrameJob<'_>) -> Result<Vec<u8>> {
+        let SessionDeps { loader, textures } = job.deps;
+        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+        let t0 = timing.then(std::time::Instant::now);
+        let mut frame = job.render.draw;
+        let mut media_plan = job.render.media;
+        if let Some(gpu) = &job.render.gpu {
+            if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM") {
+                super::dump_gpu_streams(std::path::Path::new(&dir), gpu, job.label);
+            }
+            super::cpu_execute_gpu_streams(textures, &mut media_plan, gpu)?;
+        }
+        let t_gpu = t0.map(|t| t.elapsed());
+
+        let mut surface = skia_safe::surfaces::raster_n32_premul((
+            self.surface_w as i32,
+            self.surface_h as i32,
+        ))
+        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
+
+        // SAFETY: skia_safe::Canvas wraps a C++ ref-counted object with interior mutability.
+        // All draw methods take &self at the Rust level while mutating internal C++ state.
+        // The surface owns the canvas and no other references exist at this point.
+        #[allow(invalid_reference_casting)]
+        let canvas: &mut skia_safe::Canvas =
+            unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
+
+        super::frame::execute_render_frame(
+            &mut frame,
+            &media_plan,
+            loader,
+            super::frame::FrameExec {
+                executor: &mut self.executor,
+                media_ctx: &mut self.media_ctx,
+                generated_cache: &mut self.generated_cache,
+            },
+            canvas,
+        )?;
+        let t_draw = t0.map(|t| t.elapsed());
+
+        let image = surface.image_snapshot();
+        let image_info = skia_safe::ImageInfo::new(
+            (self.surface_w as i32, self.surface_h as i32),
+            skia_safe::ColorType::RGBA8888,
+            skia_safe::AlphaType::Premul,
+            None,
+        );
+        let mut rgba = vec![0u8; (self.surface_w as usize) * (self.surface_h as usize) * 4];
+        let read_ok = image.read_pixels(
+            &image_info,
+            rgba.as_mut_slice(),
+            self.surface_w as usize * 4,
+            (0, 0),
+            skia_safe::image::CachingHint::Allow,
+        );
+        if !read_ok {
+            return Err(anyhow!("failed to read pixels from skia surface"));
+        }
+        if let Some(t0) = t0 {
+            let t_end = t0.elapsed();
+            // script 分段由编排层打（[timing-script]）；本行只覆盖执行段。
+            eprintln!(
+                "[timing-cpu] f{} gpu-stream={:.1}ms draw={:.1}ms readback={:.1}ms total={:.1}ms",
+                job.label,
+                (t_gpu.unwrap_or_default()).as_secs_f64() * 1e3,
+                (t_draw.unwrap_or_default() - t_gpu.unwrap_or_default()).as_secs_f64() * 1e3,
+                (t_end - t_draw.unwrap_or_default()).as_secs_f64() * 1e3,
+                t_end.as_secs_f64() * 1e3,
+            );
+        }
+        Ok(rgba)
+    }
+}
+
+/// GL 合成目标（Linux）：EGL 离屏会话 + Skia GPU 合成器（原
+/// `GpuRenderSession` 的同步读回路径，PNG/单帧这类一次一帧的调用方）。
+#[cfg(target_os = "linux")]
+pub struct GlRenderTarget {
+    session: super::GpuRenderSession,
+    executor: EngineDrawExecutor,
+    generated_cache: GeneratedImageCache,
+    media_ctx: MediaContext,
+}
+
+#[cfg(target_os = "linux")]
+impl GlRenderTarget {
+    pub fn new(width: u32, height: u32, fps: u32) -> Result<Self> {
+        let mut media_ctx = MediaContext::new();
+        media_ctx.set_composition_fps(fps);
+        Ok(Self {
+            session: super::GpuRenderSession::new(width, height)?,
+            executor: EngineDrawExecutor::new(),
+            generated_cache: generated_image_cache_from_env(),
+            media_ctx,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl RenderTarget for GlRenderTarget {
+    fn execute(&mut self, job: FrameJob<'_>) -> Result<Vec<u8>> {
+        let SessionDeps { loader, .. } = job.deps;
+        // 同步读回本帧（deferred=false）；GL 会话自带纹理登记处（与 Vk
+        // 共享 pipeline.textures 的拓扑不同，逐位保持）。script 分段由
+        // 编排层打，execute 段从本调用起计。
+        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+        let t0 = timing.then(std::time::Instant::now);
+        let px = self.session.execute_frame(
+            job.render,
+            loader,
+            &mut self.media_ctx,
+            &mut self.executor,
+            &mut self.generated_cache,
+            job.label,
+            false,
+            t0,
+            None,
+        )?;
+        Ok(px.expect("同步读回必定产出本帧"))
+    }
+}
+
+/// 按环境判别建执行端（原 `FrameRenderer::new` 的三态判别收编；
+/// `OC_SKIA_BACKEND`/`OC_GPU_PIPELINE` 判别点原样）。
+pub fn make_render_target(width: u32, height: u32, fps: u32) -> Result<Box<dyn RenderTarget>> {
+    // `OC_SKIA_BACKEND=vulkan` 切到 Vulkan 路径（Skia 的光栅走
+    // Vulkan backend）。**必须先于 GL 分支判别**：后者会建自己的 ANGLE
+    // 会话，若随后被 Vk 分支遮蔽丢弃，其 Drop 调 eglTerminate 终止共享
+    // display——零拷贝路径的 make_current 从此拿 EGL_NOT_INITIALIZED，
+    // ANGLE 的 VkDevice 连带销毁，Skia 的 VMA 析构撞死 device（lvp 实测
+    // 双症状同源）。
+    #[cfg(target_os = "linux")]
+    let target: Box<dyn RenderTarget> =
+        if std::env::var("OC_SKIA_BACKEND").as_deref() == Ok("vulkan")
+            && crate::gpu::requested()
+        {
+            Box::new(VkRenderTarget::new(width, height, fps)?)
+        } else if crate::gpu::requested() {
+            Box::new(GlRenderTarget::new(width, height, fps)?)
+        } else {
+            Box::new(CpuRenderTarget::new(width, height, fps)?)
+        };
+    #[cfg(target_os = "windows")]
+    let target: Box<dyn RenderTarget> = if crate::gpu::requested() {
+        Box::new(VkRenderTarget::new(width, height, fps)?)
+    } else {
+        Box::new(CpuRenderTarget::new(width, height, fps)?)
+    };
+    #[cfg(target_os = "macos")]
+    let target: Box<dyn RenderTarget> = Box::new(CpuRenderTarget::new(width, height, fps)?);
+    Ok(target)
+}
+
 /// 三级重叠流水线的执行端运输带（原 GPU 分支手写编排的收编）：
 ///
 /// `script 线程产 RenderFrame → (flume, 背压 2) → 执行线程

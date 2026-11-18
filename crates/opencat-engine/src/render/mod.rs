@@ -1,13 +1,12 @@
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
-use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
 pub mod executor;
 pub mod frame;
 pub mod target;
 
-use target::{SessionDeps, StreamRunner};
+use target::{CpuRenderTarget, FrameJob, RenderTarget, SessionDeps, StreamRunner, make_render_target};
 
 pub use crate::media::Mp4Config;
 
@@ -128,84 +127,6 @@ fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, f
     }
 }
 
-fn render_pipeline_frame_to_rgba(
-    pipeline: &mut crate::EnginePipeline,
-    media_ctx: &mut MediaContext,
-    executor: &mut crate::render::executor::EngineDrawExecutor,
-    generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-    surface_w: u32,
-    surface_h: u32,
-    frame_index: u32,
-) -> Result<Vec<u8>> {
-    let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
-    let t0 = timing.then(std::time::Instant::now);
-    let render = pipeline.render_frame(frame_index)?;
-    let t_script = t0.map(|t| t.elapsed());
-    let mut frame = render.draw;
-    let mut media_plan = render.media;
-    if let Some(gpu) = &render.gpu {
-        if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM") {
-            dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
-        }
-        cpu_execute_gpu_streams(&pipeline.textures, &mut media_plan, gpu)?;
-    }
-    let t_gpu = t0.map(|t| t.elapsed());
-
-    let mut surface = surfaces::raster_n32_premul((surface_w as i32, surface_h as i32))
-        .ok_or_else(|| anyhow!("failed to create skia raster surface"))?;
-
-    // SAFETY: skia_safe::Canvas wraps a C++ ref-counted object with interior mutability.
-    // All draw methods take &self at the Rust level while mutating internal C++ state.
-    // The surface owns the canvas and no other references exist at this point.
-    #[allow(invalid_reference_casting)]
-    let canvas: &mut skia_safe::Canvas =
-        unsafe { &mut *(surface.canvas() as *const skia_safe::Canvas as *mut skia_safe::Canvas) };
-
-    crate::render::frame::execute_render_frame(
-        &mut frame,
-        &media_plan,
-        pipeline.loader(),
-        crate::render::frame::FrameExec {
-            executor,
-            media_ctx,
-            generated_cache,
-        },
-        canvas,
-    )?;
-    let t_draw = t0.map(|t| t.elapsed());
-
-    let image = surface.image_snapshot();
-    let image_info = ImageInfo::new(
-        (surface_w as i32, surface_h as i32),
-        ColorType::RGBA8888,
-        AlphaType::Premul,
-        None,
-    );
-    let mut rgba = vec![0u8; (surface_w as usize) * (surface_h as usize) * 4];
-    let read_ok = image.read_pixels(
-        &image_info,
-        rgba.as_mut_slice(),
-        surface_w as usize * 4,
-        (0, 0),
-        CachingHint::Allow,
-    );
-    if !read_ok {
-        return Err(anyhow!("failed to read pixels from skia surface"));
-    }
-    if let Some(t0) = t0 {
-        let t_end = t0.elapsed();
-        eprintln!(
-            "[timing-cpu] f{frame_index} script={:.1}ms gpu-stream={:.1}ms draw={:.1}ms readback={:.1}ms total={:.1}ms",
-            t_script.unwrap_or_default().as_secs_f64() * 1e3,
-            (t_gpu.unwrap_or_default() - t_script.unwrap_or_default()).as_secs_f64() * 1e3,
-            (t_draw.unwrap_or_default() - t_gpu.unwrap_or_default()).as_secs_f64() * 1e3,
-            (t_end - t_draw.unwrap_or_default()).as_secs_f64() * 1e3,
-            t_end.as_secs_f64() * 1e3,
-        );
-    }
-    Ok(rgba)
-}
-
 /// GPU 合成路径的会话状态（Linux=EGL 的桌面 GL；Windows 三栈统一后无 GL
 /// Skia 符号，走 [`VkRenderSession`]）。
 ///
@@ -216,6 +137,8 @@ fn render_pipeline_frame_to_rgba(
 pub struct GpuRenderSession {
     compositor: crate::gpu::compositor::GpuCompositor,
     /// 合成目标纹理：drop 早于 `gl_session`（字段顺序即 drop 顺序）。
+    /// RAII 保活字段——生命周期语义在 Drop，从不读取。
+    #[allow(dead_code)]
     composite_tex: CompositeTexture,
     gl_session: crate::gpu::session::GlSession,
     /// GPU 命令流执行器（内容缓存跨帧复用）。
@@ -281,98 +204,6 @@ impl GpuRenderSession {
             wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor::new(),
             textures: std::sync::Arc::new(crate::gpu::TextureRegistry::new()),
         })
-    }
-
-    /// 渲染一帧到 GPU 合成目标并读回 RGBA。
-    ///
-    /// 读回走 PBO 双缓冲（[`GpuCompositor::finish_frame`]），所以返回的是
-    /// **上一帧**的像素；首帧返回 `None`，末帧由 `encode_rgba_frames` 多渲染
-    /// 一帧排空。要立刻拿到本帧，用 [`Self::render_frame_blocking`]。
-    pub fn render_frame(
-        &mut self,
-        pipeline: &mut crate::EnginePipeline,
-        media_ctx: &mut MediaContext,
-        executor: &mut crate::render::executor::EngineDrawExecutor,
-        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-        frame_index: u32,
-    ) -> Result<Option<Vec<u8>>> {
-        self.render_frame_inner(
-            pipeline,
-            media_ctx,
-            executor,
-            generated_cache,
-            frame_index,
-            true,
-        )
-    }
-
-    /// 排空本会话在途的末帧：同步读回 surface 现有内容（不再画新东西）。
-    /// 并行管线的 worker 收场用——异步 PBO 的最后一帧没有「下一帧」来
-    /// 发起读回，由这里直接同步取走。调用方须在其 GL 线程上。
-    pub fn flush_blocking(&mut self) -> Result<Vec<u8>> {
-        self.gl_session.make_current()?;
-        self.compositor.finish_frame_blocking()
-    }
-
-    /// 渲染一帧并**同步**读回本帧像素（无延迟）。
-    ///
-    /// 单帧 / PNG 序列这类一次一帧的调用方用它：PBO 的一帧延迟会打乱它们
-    /// 的输出。代价是读回留在关键路径上，逐帧循环请改用
-    /// [`Self::render_frame`]。
-    pub fn render_frame_blocking(
-        &mut self,
-        pipeline: &mut crate::EnginePipeline,
-        media_ctx: &mut MediaContext,
-        executor: &mut crate::render::executor::EngineDrawExecutor,
-        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-        frame_index: u32,
-    ) -> Result<Vec<u8>> {
-        self.render_frame_inner(
-            pipeline,
-            media_ctx,
-            executor,
-            generated_cache,
-            frame_index,
-            false,
-        )
-        .map(|frame| frame.expect("同步读回必定产出本帧"))
-    }
-
-    fn render_frame_inner(
-        &mut self,
-        pipeline: &mut crate::EnginePipeline,
-        media_ctx: &mut MediaContext,
-        executor: &mut crate::render::executor::EngineDrawExecutor,
-        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-        frame_index: u32,
-        deferred: bool,
-    ) -> Result<Option<Vec<u8>>> {
-        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
-        let t0 = timing.then(std::time::Instant::now);
-        let frame_wall = std::time::Instant::now();
-        self.gl_session.make_current()?;
-        // 前端（core 顺序产帧）：script/layout/display + op 流与媒体计划。
-        let render = pipeline.render_frame(frame_index)?;
-        let t_script = t0.map(|t| t.elapsed());
-        let loader = pipeline.loader();
-        let out = self.execute_frame(
-            render,
-            loader,
-            media_ctx,
-            executor,
-            generated_cache,
-            frame_index,
-            deferred,
-            t0,
-            t_script,
-        )?;
-        if std::env::var_os("OC_TRACE_FRAME_TIME").is_some() {
-            eprintln!(
-                "[frametime] f{frame_index} wall={}ms",
-                frame_wall.elapsed().as_millis()
-            );
-        }
-        Ok(out)
     }
 
     /// 后端：执行一帧**已产出**的 [`RenderFrame`]（GL/wgpu 命令流 + Skia
@@ -716,6 +547,9 @@ impl GpuRenderSession {
 pub struct VkRenderSession {
     compositor: crate::gpu::compositor::GpuCompositor,
     /// Vulkan 会话：零拷贝时建在 ANGLE 的 device/queue 上，否则独立。
+    /// 保活字段——VkSession 存活即本会话存活（合成器持有的设备/队列
+    /// 引用依赖它），从不直接读取。
+    #[allow(dead_code)]
     session: std::sync::Arc<crate::gpu::vk::VkSession>,
     /// GL 会话（ANGLE Vulkan）：WebGL2 流的执行端。
     gl_session: Option<crate::gpu::session::GlSession>,
@@ -778,27 +612,6 @@ impl VkRenderSession {
             stream_outputs: Vec::new(),
             queue_family,
         })
-    }
-
-    /// 渲染一帧并读回 RGBA（单帧/PNG/预热路径的整帧薄壳）。
-    pub fn render_frame(
-        &mut self,
-        pipeline: &mut crate::EnginePipeline,
-        media_ctx: &mut MediaContext,
-        executor: &mut crate::render::executor::EngineDrawExecutor,
-        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-        frame_index: u32,
-    ) -> Result<Vec<u8>> {
-        let render = pipeline.render_frame(frame_index)?;
-        self.execute_render(
-            render,
-            executor,
-            generated_cache,
-            media_ctx,
-            &pipeline.textures,
-            pipeline.loader_arc(),
-            frame_index,
-        )
     }
 
     /// 执行阶段（调用方线程 = ANGLE/Skia 上下文所在线程）：GL 流执行 +
@@ -982,149 +795,6 @@ impl crate::render::frame::GpuImageResolver for VkResolver<'_> {
 /// 选择只发生在会话建立时，两种路径逐帧产出同样的 RGBA 尺寸与 alpha 约定
 /// （premul），所以编码分支无需分叉。协作者（pipeline / media_ctx /
 /// executor / generated_cache）构造时借入，渲染调用只传帧号——调用方不再
-/// 逐帧搬运四个 `&mut`；PBO 末帧排空的钳位语义也下沉在这里。
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-struct FrameRenderer<'a> {
-    backend: FrameBackend,
-    pipeline: &'a mut crate::EnginePipeline,
-    media_ctx: &'a mut MediaContext,
-    executor: &'a mut crate::render::executor::EngineDrawExecutor,
-    generated_cache: &'a mut GeneratedImageCache,
-    frame_count: u32,
-    width: u32,
-    height: u32,
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-enum FrameBackend {
-    Cpu,
-    #[cfg(target_os = "linux")]
-    Gpu(Box<GpuRenderSession>),
-    /// Vulkan 路径：Skia 的光栅走 Vulkan backend（Windows=硬件/ANGLE 共享
-    /// device；Linux=SwiftShader/lvp）。
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    Vk(Box<VkRenderSession>),
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-impl<'a> FrameRenderer<'a> {
-    fn new(
-        pipeline: &'a mut crate::EnginePipeline,
-        media_ctx: &'a mut MediaContext,
-        executor: &'a mut crate::render::executor::EngineDrawExecutor,
-        generated_cache: &'a mut GeneratedImageCache,
-        frame_count: u32,
-        width: u32,
-        height: u32,
-    ) -> Result<Self> {
-        // `OC_SKIA_BACKEND=vulkan` 切到 Vulkan 路径（Skia 的光栅走
-        // Vulkan backend）。**必须先于 GpuRenderSession 分支判别**：后者
-        // 会建自己的 ANGLE 会话，若随后被 Vk 分支遮蔽丢弃，其 Drop 调
-        // eglTerminate 终止共享 display——零拷贝路径的 make_current 从此
-        // 拿 EGL_NOT_INITIALIZED，ANGLE 的 VkDevice 连带销毁，Skia 的
-        // VMA 析构撞死 device（lvp 实测双症状同源）。
-        #[cfg(target_os = "linux")]
-        let backend = if std::env::var("OC_SKIA_BACKEND").as_deref() == Ok("vulkan")
-            && crate::gpu::requested()
-        {
-            FrameBackend::Vk(Box::new(VkRenderSession::new(width, height)?))
-        } else if crate::gpu::requested() {
-            FrameBackend::Gpu(Box::new(GpuRenderSession::new(width, height)?))
-        } else {
-            FrameBackend::Cpu
-        };
-        #[cfg(target_os = "windows")]
-        let backend = if crate::gpu::requested() {
-            FrameBackend::Vk(Box::new(VkRenderSession::new(width, height)?))
-        } else {
-            FrameBackend::Cpu
-        };
-        #[cfg(target_os = "macos")]
-        let backend = FrameBackend::Cpu;
-        Ok(Self {
-            backend,
-            pipeline,
-            media_ctx,
-            executor,
-            generated_cache,
-            frame_count,
-            width,
-            height,
-        })
-    }
-
-    /// 编码轨一帧。GPU 路径经 PBO 双缓冲读回，交出的是**上一帧**的像素：
-    /// 首帧返回 `None`，`encode_rgba_frames` 多渲染一帧补齐。多出来的那一帧
-    /// 索引越界：这里钳回末帧，核心把 `frame_index` 钳到末帧，重复渲染一次
-    /// 末帧，只为把在途的末帧读回排空。CPU 路径恒 `Some`。
-    fn render_for_encode(&mut self, encode_index: u32) -> Result<Option<Vec<u8>>> {
-        let frame_index = encode_index.min(self.frame_count.saturating_sub(1));
-        match &mut self.backend {
-            FrameBackend::Cpu => render_pipeline_frame_to_rgba(
-                self.pipeline,
-                self.media_ctx,
-                self.executor,
-                self.generated_cache,
-                self.width,
-                self.height,
-                frame_index,
-            )
-            .map(Some),
-            #[cfg(target_os = "linux")]
-            FrameBackend::Gpu(session) => session.render_frame(
-                self.pipeline,
-                self.media_ctx,
-                self.executor,
-                self.generated_cache,
-                frame_index,
-            ),
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            FrameBackend::Vk(session) => session
-                .render_frame(
-                    self.pipeline,
-                    self.media_ctx,
-                    self.executor,
-                    self.generated_cache,
-                    frame_index,
-                )
-                .map(Some),
-        }
-    }
-
-    /// 渲染一帧并**同步**取回本帧像素（无延迟）。单帧 / PNG 序列这类一次
-    /// 一帧的调用方用它——PBO 的一帧延迟会打乱它们的输出。逐帧编码循环请
-    /// 改用 [`Self::render_for_encode`]。
-    fn render_frame_blocking(&mut self, frame_index: u32) -> Result<Vec<u8>> {
-        match &mut self.backend {
-            FrameBackend::Cpu => render_pipeline_frame_to_rgba(
-                self.pipeline,
-                self.media_ctx,
-                self.executor,
-                self.generated_cache,
-                self.width,
-                self.height,
-                frame_index,
-            ),
-            #[cfg(target_os = "linux")]
-            FrameBackend::Gpu(session) => session.render_frame_blocking(
-                self.pipeline,
-                self.media_ctx,
-                self.executor,
-                self.generated_cache,
-                frame_index,
-            ),
-            #[cfg(any(target_os = "windows", target_os = "linux"))]
-            FrameBackend::Vk(session) => session.render_frame(
-                self.pipeline,
-                self.media_ctx,
-                self.executor,
-                self.generated_cache,
-                frame_index,
-            ),
-        }
-    }
-}
-
 /// Primary render entry: parse HTML/JS dist → EnginePipeline → encode frames.
 pub fn render_from_source(
     source: &str,
@@ -1158,10 +828,6 @@ pub fn render_from_source_with_base(
     let info = pipeline.info().clone();
     let frame_count = duration_secs_to_frames(info.duration, info.fps);
 
-    let mut media_ctx = MediaContext::new();
-    media_ctx.set_composition_fps(info.fps);
-    let mut generated_cache = generated_image_cache_from_env();
-
     // 音轨只有整片 MP4 要：分段由拼接方统一编码，PNG 不带音频。
     let audio_track = match &config.format {
         OutputFormat::Mp4(_) => crate::media::audio::build_audio_track_from_pipeline(&pipeline)?,
@@ -1170,16 +836,8 @@ pub fn render_from_source_with_base(
 
     match &config.format {
         OutputFormat::Png(frames) => {
-            let mut executor = crate::render::executor::EngineDrawExecutor::new();
-            let mut renderer = FrameRenderer::new(
-                &mut pipeline,
-                &mut media_ctx,
-                &mut executor,
-                &mut generated_cache,
-                frame_count,
-                info.width,
-                info.height,
-            )?;
+            let deps = SessionDeps::from_pipeline(&pipeline);
+            let mut target = make_render_target(info.width, info.height, info.fps)?;
             let all: Vec<u32>;
             let frames = match frames {
                 Some(list) => list.as_slice(),
@@ -1189,7 +847,20 @@ pub fn render_from_source_with_base(
                 }
             };
             for &i in frames.iter().filter(|&&i| i < frame_count) {
-                let rgba = renderer.render_frame_blocking(i)?;
+                let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+                let ts = timing.then(std::time::Instant::now);
+                let render = pipeline.render_frame(i)?;
+                if let Some(t) = ts {
+                    eprintln!(
+                        "[timing-script] f{i} script={:.1}ms",
+                        t.elapsed().as_secs_f64() * 1e3
+                    );
+                }
+                let rgba = target.execute(FrameJob {
+                    render,
+                    deps: &deps,
+                    label: i,
+                })?;
                 let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
                     .ok_or_else(|| anyhow!("failed to build PNG image from RGBA frame"))?;
                 let filename = output_path.join(format!("frame_{:04}.png", i));
@@ -1212,21 +883,18 @@ pub fn render_from_source_with_base(
             };
 
             if !crate::gpu::requested() {
-                // CPU 后端：无 GPU 执行线程可拆，走串行 FrameRenderer。
-                let mut executor = crate::render::executor::EngineDrawExecutor::new();
-                let mut renderer = FrameRenderer::new(
-                    &mut pipeline,
-                    &mut media_ctx,
-                    &mut executor,
-                    &mut generated_cache,
-                    frame_count,
-                    aligned_info.0,
-                    aligned_info.1,
-                )?;
+                // CPU 后端：无 GPU 执行线程可拆，串行 script→execute 同步走。
+                let deps = SessionDeps::from_pipeline(&pipeline);
+                let mut target = CpuRenderTarget::new(aligned_info.0, aligned_info.1, info.fps)?;
                 // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
                 // hf-seek 等）与连续渲染不同，预热后段内各帧与整片同相位。
                 if range.start > 0 {
-                    renderer.render_frame_blocking(range.start - 1)?;
+                    let warm = pipeline.render_frame(range.start - 1)?;
+                    target.execute(FrameJob {
+                        render: warm,
+                        deps: &deps,
+                        label: range.start - 1,
+                    })?;
                 }
                 let start = range.start;
                 encode_rgba_frames(
@@ -1238,7 +906,24 @@ pub fn render_from_source_with_base(
                     mp4_config,
                     audio_track.as_ref(),
                     |_, _| {},
-                    |encode_index| renderer.render_for_encode(start + encode_index),
+                    |encode_index| {
+                        let label = start + encode_index;
+                        let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
+                        let ts = timing.then(std::time::Instant::now);
+                        let render = pipeline.render_frame(label)?;
+                        if let Some(t) = ts {
+                            eprintln!(
+                                "[timing-script] f{label} script={:.1}ms",
+                                t.elapsed().as_secs_f64() * 1e3
+                            );
+                        }
+                        let px = target.execute(FrameJob {
+                            render,
+                            deps: &deps,
+                            label,
+                        })?;
+                        Ok(Some(px))
+                    },
                 )?;
                 return Ok(());
             }
@@ -1379,20 +1064,14 @@ pub fn render_single_frame_from_source_with_base(
         );
     }
 
-    let mut media_ctx = MediaContext::new();
-    media_ctx.set_composition_fps(info.fps);
-    let mut executor = crate::render::executor::EngineDrawExecutor::new();
-    let mut generated_cache = generated_image_cache_from_env();
-    let mut renderer = FrameRenderer::new(
-        &mut pipeline,
-        &mut media_ctx,
-        &mut executor,
-        &mut generated_cache,
-        frame_count,
-        info.width,
-        info.height,
-    )?;
-    let rgba = match renderer.render_frame_blocking(frame_index) {
+    let deps = SessionDeps::from_pipeline(&pipeline);
+    let mut target = make_render_target(info.width, info.height, info.fps)?;
+    let render = pipeline.render_frame(frame_index)?;
+    let rgba = match target.execute(FrameJob {
+        render,
+        deps: &deps,
+        label: frame_index,
+    }) {
         Ok(rgba) => rgba,
         Err(e) => {
             eprintln!("render_frame_blocking 失败: {e:#}");

@@ -115,7 +115,7 @@ pub trait MutationRecorder {
     fn script_frame(&self) -> u32;
     fn set_frame_override(&mut self, frame: Option<u32>);
     /// Time in seconds used to evaluate tween progress. Kept separate from the
-    /// frame because tween progress advances by elapsed time, and a `<tl>` scene
+    /// frame because tween progress advances by elapsed time, and a `<timeline>` scene
     /// window can start between frames.
     fn script_time_secs(&self) -> f64;
     fn set_time_override_secs(&mut self, secs: Option<f64>);

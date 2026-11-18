@@ -33,5 +33,17 @@ fn main() -> std::io::Result<ExitCode> {
         .join("src/script/runtime/gl-opcodes.generated.js");
     std::fs::write(&js_out, js)?;
     println!("ocir-schema-gen: {}", js_out.display());
+
+    let wjs = opencat_core::ir::schema_gen::generate_wgpu_opcodes_js();
+    let wjs_out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/script/runtime/wgpu-opcodes.generated.js");
+    std::fs::write(&wjs_out, wjs)?;
+    println!("ocir-schema-gen: {}", wjs_out.display());
+
+    let vocab = opencat_core::ir::schema_gen::generate_protocol_vocab_js();
+    let vocab_out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/script/runtime/protocol-vocab.generated.js");
+    std::fs::write(&vocab_out, vocab)?;
+    println!("ocir-schema-gen: {}", vocab_out.display());
     Ok(ExitCode::SUCCESS)
 }

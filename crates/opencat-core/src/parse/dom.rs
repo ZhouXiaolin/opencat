@@ -1,7 +1,7 @@
 //! DOM 层 —— 统一文档对象模型。
 //!
 //! 作者心智 ≈ HTML：`div`/`text`/`canvas`/`image`/`video`/`lottie`/`path`/`svg`
-//! 是普通元素，`tl`（timeline）与 `transition` 是两个有明确语义的特例节点。
+//! 是普通元素，`timeline` 与 `transition` 是两个有明确语义的特例节点。
 //! 两类前端都把树直接写进这一层：
 //!
 //! - HTML/dist：提取期物化成树（extract payload 的 `tree` 字段）
@@ -185,8 +185,8 @@ pub enum DomElement {
     },
     /// 特例一：timeline。直接子元素是场景（各带 `duration`），其间可穿插
     /// [`DomElement::Transition`]。
-    #[serde(rename = "tl")]
-    Tl {
+    #[serde(rename = "timeline", alias = "tl")]
+    Timeline {
         id: String,
         #[serde(rename = "className", alias = "class")]
         class: Option<String>,
@@ -223,6 +223,10 @@ pub enum DomElement {
         path: Option<String>,
         url: Option<String>,
         duration: Option<f64>,
+        /// 语料背书（hyperframes-launch 等 `<audio data-volume="0.30">`）：
+        /// 元素增益，混音期乘到采样上。
+        #[serde(default, rename = "data-volume")]
+        volume: Option<f64>,
     },
 }
 
@@ -238,7 +242,7 @@ impl DomElement {
             | DomElement::Lottie { id, .. }
             | DomElement::Path { id, .. }
             | DomElement::Svg { id, .. }
-            | DomElement::Tl { id, .. }
+            | DomElement::Timeline { id, .. }
             | DomElement::Audio { id, .. } => id,
             DomElement::Transition { .. } => "",
         }
@@ -249,7 +253,7 @@ impl DomElement {
             DomElement::Div { children, .. }
             | DomElement::Canvas { children, .. }
             | DomElement::Video { children, .. }
-            | DomElement::Tl { children, .. } => children,
+            | DomElement::Timeline { children, .. } => children,
             _ => &[],
         }
     }
@@ -261,7 +265,7 @@ impl DomElement {
             DomElement::Div { children, .. }
             | DomElement::Canvas { children, .. }
             | DomElement::Video { children, .. }
-            | DomElement::Tl { children, .. } => Some(children),
+            | DomElement::Timeline { children, .. } => Some(children),
             _ => None,
         }
     }
@@ -277,7 +281,7 @@ impl DomElement {
             | DomElement::Lottie { duration, .. }
             | DomElement::Path { duration, .. }
             | DomElement::Svg { duration, .. }
-            | DomElement::Tl { duration, .. }
+            | DomElement::Timeline { duration, .. }
             | DomElement::Audio { duration, .. } => *duration,
             DomElement::Transition { .. } => None,
         }
@@ -295,8 +299,8 @@ impl DomElement {
         }
     }
 
-    pub(crate) fn is_tl(&self) -> bool {
-        matches!(self, DomElement::Tl { .. })
+    pub(crate) fn is_timeline(&self) -> bool {
+        matches!(self, DomElement::Timeline { .. })
     }
 
     /// 级联匹配的 tag 输入（与 build_node 各分支的标签语义一致）。
@@ -337,7 +341,7 @@ impl DomElement {
             DomElement::Lottie { .. } => "lottie",
             DomElement::Path { .. } => "path",
             DomElement::Svg { .. } => "svg",
-            DomElement::Tl { .. } => "tl",
+            DomElement::Timeline { .. } => "timeline",
             DomElement::Audio { .. } => "audio",
             DomElement::Transition { .. } => "transition",
         }
@@ -354,7 +358,7 @@ impl DomElement {
             | DomElement::Lottie { class, .. }
             | DomElement::Path { class, .. }
             | DomElement::Svg { class, .. }
-            | DomElement::Tl { class, .. } => class.as_deref(),
+            | DomElement::Timeline { class, .. } => class.as_deref(),
             _ => None,
         }
     }
@@ -380,7 +384,7 @@ impl DomElement {
             | DomElement::Lottie { style, .. }
             | DomElement::Path { style, .. }
             | DomElement::Svg { style, .. }
-            | DomElement::Tl { style, .. } => Some(style),
+            | DomElement::Timeline { style, .. } => Some(style),
             DomElement::Transition { .. } | DomElement::Audio { .. } => None,
         }
     }
@@ -741,6 +745,8 @@ pub struct DomAudio {
     pub attach: String,
     pub source: AudioSource,
     pub duration: Option<f64>,
+    /// 元素增益（`data-volume`）。缺省 = 1.0（不乘）。
+    pub volume: Option<f64>,
 }
 
 /// 一篇 DOM 文档：视口元数据 + 元素树 + 脚本声明 + 音频池。
@@ -784,7 +790,7 @@ pub fn composition_from_dom(
         font_index: font_index.as_ref(),
         scripts_by_parent: &doc.scripts_by_parent,
         element_ids: HashSet::new(),
-        tl_ids: HashSet::new(),
+        timeline_ids: HashSet::new(),
         ancestors: Vec::new(),
         prev_siblings: Vec::new(),
         tag_aliases: doc
@@ -885,7 +891,7 @@ pub(crate) struct DomContext<'a> {
     pub(crate) font_index: Option<&'a crate::fonts::FontFamilyIndex>,
     pub(crate) scripts_by_parent: &'a HashMap<String, Vec<DeclaredScript>>,
     pub(crate) element_ids: HashSet<String>,
-    pub(crate) tl_ids: HashSet<String>,
+    pub(crate) timeline_ids: HashSet<String>,
     /// 级联匹配栈（docs/html-align/DESIGN.md）：祖先链（近→远）由 build_node
     /// DFS push/pop；前兄链由父分支的子循环维护。
     pub(crate) ancestors: Vec<CssNodeInfo>,
@@ -928,6 +934,7 @@ fn harvest_audio(
                 path,
                 url,
                 duration,
+                volume,
             } => {
                 if attach.is_empty() {
                     // 根下直挂的 <audio>（html 顶层 body 级 clip）挂根自身。
@@ -938,6 +945,7 @@ fn harvest_audio(
                     attach,
                     source: parse_audio_source(path, url)?,
                     duration,
+                    volume,
                 });
             }
             mut other => {
@@ -959,8 +967,8 @@ fn collect_ids(el: Option<&DomElement>, ctx: &mut DomContext<'_>) -> anyhow::Res
     if !ctx.element_ids.insert(el.id().to_string()) {
         anyhow::bail!("duplicate id `{}`", el.id());
     }
-    if el.is_tl() {
-        ctx.tl_ids.insert(el.id().to_string());
+    if el.is_timeline() {
+        ctx.timeline_ids.insert(el.id().to_string());
     }
     for child in el.children() {
         collect_ids(Some(child), ctx)?;
@@ -1650,7 +1658,7 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             svg_node.style = style;
             Ok(Some(Node::new(svg_node)))
         }
-        DomElement::Tl {
+        DomElement::Timeline {
             id,
             class,
             style: inline_style,
@@ -1786,7 +1794,7 @@ pub(crate) fn build_node(el: DomElement, ctx: &mut DomContext<'_>) -> anyhow::Re
             Ok(Some(Node::new(kind)))
         }
         DomElement::Transition { .. } => {
-            anyhow::bail!("transition element must be a direct child of a `tl` node")
+            anyhow::bail!("transition element must be a direct child of a `timeline` node")
         }
         // audio 与 video 同类容错：正常路径被 harvest 收进音频池，但
         // seed 物化的 face 树把 audio 带进上报子树（运行期 appendChild
@@ -1908,7 +1916,7 @@ fn resolve_audio_source(
     audio: DomAudio,
     ctx: &DomContext<'_>,
 ) -> anyhow::Result<CompositionAudioSource> {
-    let attachment = if ctx.tl_ids.contains(audio.attach.as_str()) {
+    let attachment = if ctx.timeline_ids.contains(audio.attach.as_str()) {
         AudioAttachment::Timeline
     } else if ctx.element_ids.contains(audio.attach.as_str()) {
         AudioAttachment::Scene {
@@ -1926,6 +1934,7 @@ fn resolve_audio_source(
         source: audio.source,
         attach: attachment,
         duration_secs: audio.duration,
+        volume: audio.volume,
     })
 }
 

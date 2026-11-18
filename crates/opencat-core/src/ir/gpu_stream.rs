@@ -521,7 +521,12 @@ pub mod gl_opcode {
         table[UNIFORM_3F as usize] = Some(16);
         table[UNIFORM_4F as usize] = Some(20);
         table[UNIFORM_1I as usize] = Some(8);
-        // UNIFORM_NF / UNIFORM_NI / UNIFORM_MATRIX_4F: 变长（count 首部）
+        // 变长命令显式 None（count 首部，消费端自行按 count 消费）：
+        // 显式写出与"手漏"可区分，schema 生成物按表原样映射。
+        table[UNIFORM_NF as usize] = None;
+        table[UNIFORM_NI as usize] = None;
+        table[UNIFORM_MATRIX_4F as usize] = None;
+        table[DRAW_BUFFERS as usize] = None;
         // textures
         table[TEXTURE_CREATE as usize] = Some(4);
         table[TEXTURE_DELETE as usize] = Some(4);
@@ -725,6 +730,51 @@ pub mod wgpu_opcode {
 
     pub const MAX_OPCODE: u8 = PASS_DISPATCH_WORKGROUPS_INDIRECT;
 
+    /// (名字, opcode) 全表 —— 与 gl_opcode::NAMES 同构：生成面消费
+    /// （TS WGPU 常量对象、realm wgpu-opcodes.generated.js 均由它迭代产出）。
+    pub const NAMES: &[(&str, u8)] = &[
+        ("BUFFER_CREATE", BUFFER_CREATE),
+        ("TEXTURE_CREATE", TEXTURE_CREATE),
+        ("TEXTURE_VIEW_CREATE", TEXTURE_VIEW_CREATE),
+        ("SAMPLER_CREATE", SAMPLER_CREATE),
+        ("BIND_GROUP_LAYOUT_CREATE", BIND_GROUP_LAYOUT_CREATE),
+        ("BIND_GROUP_CREATE", BIND_GROUP_CREATE),
+        ("PIPELINE_LAYOUT_CREATE", PIPELINE_LAYOUT_CREATE),
+        ("SHADER_MODULE_CREATE", SHADER_MODULE_CREATE),
+        ("RENDER_PIPELINE_CREATE", RENDER_PIPELINE_CREATE),
+        ("COMPUTE_PIPELINE_CREATE", COMPUTE_PIPELINE_CREATE),
+        ("QUERY_SET_CREATE", QUERY_SET_CREATE),
+        ("RENDER_BUNDLE_ENCODER_CREATE", RENDER_BUNDLE_ENCODER_CREATE),
+        ("RESOURCE_DESTROY", RESOURCE_DESTROY),
+        ("CANVAS_CONFIGURE", CANVAS_CONFIGURE),
+        ("CANVAS_GET_CURRENT_TEXTURE", CANVAS_GET_CURRENT_TEXTURE),
+        ("QUEUE_WRITE_BUFFER", QUEUE_WRITE_BUFFER),
+        ("QUEUE_WRITE_TEXTURE", QUEUE_WRITE_TEXTURE),
+        ("QUEUE_SUBMIT", QUEUE_SUBMIT),
+        ("ENC_BEGIN_RENDER_PASS", ENC_BEGIN_RENDER_PASS),
+        ("ENC_COPY_BUFFER_TO_BUFFER", ENC_COPY_BUFFER_TO_BUFFER),
+        ("ENC_COPY_TEXTURE_TO_TEXTURE", ENC_COPY_TEXTURE_TO_TEXTURE),
+        ("ENC_COPY_TEXTURE_TO_BUFFER", ENC_COPY_TEXTURE_TO_BUFFER),
+        ("ENC_COPY_BUFFER_TO_TEXTURE", ENC_COPY_BUFFER_TO_TEXTURE),
+        ("ENC_FINISH", ENC_FINISH),
+        ("PASS_SET_PIPELINE", PASS_SET_PIPELINE),
+        ("PASS_SET_BIND_GROUP", PASS_SET_BIND_GROUP),
+        ("PASS_SET_VERTEX_BUFFER", PASS_SET_VERTEX_BUFFER),
+        ("PASS_SET_INDEX_BUFFER", PASS_SET_INDEX_BUFFER),
+        ("PASS_SET_VIEWPORT", PASS_SET_VIEWPORT),
+        ("PASS_SET_SCISSOR_RECT", PASS_SET_SCISSOR_RECT),
+        ("PASS_SET_BLEND_CONSTANT", PASS_SET_BLEND_CONSTANT),
+        ("PASS_SET_STENCIL_REFERENCE", PASS_SET_STENCIL_REFERENCE),
+        ("PASS_DRAW", PASS_DRAW),
+        ("PASS_DRAW_INDEXED", PASS_DRAW_INDEXED),
+        ("PASS_DRAW_INDIRECT", PASS_DRAW_INDIRECT),
+        ("PASS_DRAW_INDEXED_INDIRECT", PASS_DRAW_INDEXED_INDIRECT),
+        ("PASS_END", PASS_END),
+        ("ENC_BEGIN_COMPUTE_PASS", ENC_BEGIN_COMPUTE_PASS),
+        ("PASS_DISPATCH_WORKGROUPS", PASS_DISPATCH_WORKGROUPS),
+        ("PASS_DISPATCH_WORKGROUPS_INDIRECT", PASS_DISPATCH_WORKGROUPS_INDIRECT),
+    ];
+
     /// 定长 payload 长度表；`None` = 变长（QUEUE_SUBMIT）。
     pub const PAYLOAD_LEN: [Option<u16>; (MAX_OPCODE as usize) + 1] = build_payload_len();
 
@@ -751,7 +801,8 @@ pub mod wgpu_opcode {
         // queue
         table[QUEUE_WRITE_BUFFER as usize] = Some(16);
         table[QUEUE_WRITE_TEXTURE as usize] = Some(16); // dest+data+size+layout ranges
-        // QUEUE_SUBMIT: 变长（count 首部）
+        // QUEUE_SUBMIT: 变长（count 首部）——显式 None，与"手漏"可区分。
+        table[QUEUE_SUBMIT as usize] = None;
         // encoder
         table[ENC_BEGIN_RENDER_PASS as usize] = Some(12);
         table[ENC_COPY_BUFFER_TO_BUFFER as usize] = Some(36);

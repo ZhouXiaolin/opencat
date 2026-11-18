@@ -1421,7 +1421,7 @@ pub struct MutationStore {
     /// frame under `frame = f(t)`.
     frame_override: Option<u32>,
     /// Scene-local time override in seconds. Tween progress advances by elapsed
-    /// time, and a scene window may start between frames (a `<tl>` boundary is
+    /// time, and a scene window may start between frames (a `<timeline>` boundary is
     /// quantized to a frame, the author's placement is not). Without this the
     /// fractional part of the scene start would be dropped, and every tween in
     /// that scene would run that much early. `None` = derive from the frame.

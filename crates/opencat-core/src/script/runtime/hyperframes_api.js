@@ -1,176 +1,86 @@
-// HyperFrames 扩展层（core 内，但不属于 HTML 标准）。
+// HyperFrames 私有扩展层（core 内，但不属于 HTML 标准、也不属于共有扩展）。
 //
-// 这里只放框架私有协议：`data-composition-*`、可见时间窗、`data-media-start`、
-// `data-color-matrix`、`data-hide-after-end`、播放器 `hf-seek` 事件、
-// `window.__timelines` 注册表和 composition 作用域钩子。
+// 共有机制（data-composition-*、可见时间窗、data-media-start、data-volume、
+// data-color-matrix、data-hide-after-end、__timelines 注册表、通用事件行为
+// createEventTarget）定义在 `shared_api.js`。本文件只叠加 HF 私有的
+// data-track-index 属性与 hf-seek 播放器事件（名字 + 每帧派发入口），
+// 并把共有面通过 `__ocHyperframes` 原样暴露，兼容既有消费方。
 //
-// core 是确定性视频渲染器，不是浏览器内核。标准 HTML DOM 输入语义由
-// `html_std_api.js` 解释；本扩展层通过 `globalThis.__ocHyperframes` 把
-// 组合协议挂进标准层，不复制标准实现。
+// hf-seek 事件不做监听隔离：页面 `window.addEventListener('hf-seek', …)`
+// 落进标准 window 事件面（shared 层 createEventTarget），派发也走同一面。
+// 历史上的专用监听表（__ocHfListeners）无人派发、监听永不触发，已退役。
 (function () {
     'use strict';
     if (globalThis.__ocHyperframes) return;
 
-    var attr = Object.freeze({
-        COMPOSITION_ID: 'data-composition-id',
-        COMPOSITION_SRC: 'data-composition-src',
-        START: 'data-start',
-        DURATION: 'data-duration',
-        WIDTH: 'data-width',
-        HEIGHT: 'data-height',
-        FPS: 'data-fps',
-        MEDIA_START: 'data-media-start',
-        COLOR_MATRIX: 'data-color-matrix',
-        HIDE_AFTER_END: 'data-hide-after-end',
-        SEEK_EVENT: 'hf-seek',
-    });
+    var shared = globalThis.__ocShared;
+    if (!shared) throw new Error('shared_api.js must load before hyperframes_api.js');
+    // HF 私有键名与事件名从生成词表取，本层不写字面量。
+    var vocab = globalThis.__ocVocab;
+    if (!vocab) throw new Error('protocol-vocab.generated.js must load before hyperframes_api.js');
 
-    var protocolField = Object.freeze({
-        START: 'data_start',
-        DURATION: 'data_duration',
-    });
+    // HF 独有：播放器 seek 事件。frame=f(t) 驱动每帧在 rAF flush 后按虚拟
+    // 钟派发一次（realm.rs 调 dispatchSeek）；liquid 等 WebGL 自绘语料把整帧
+    // 重绘挂在这个事件上，它们没有自己的 rAF 循环。
+    var SEEK_EVENT = vocab.events.SEEK;
 
-    function readProtocol(node) {
-        var attrs = node && node.attrs ? node.attrs : {};
-        return {
-            compositionId: attrs[attr.COMPOSITION_ID],
-            compositionSrc: attrs[attr.COMPOSITION_SRC],
-            start: parseFloatAttr(attrs[attr.START]),
-            duration: parseFloatAttr(attrs[attr.DURATION]),
-            width: parseFloatAttr(attrs[attr.WIDTH]),
-            height: parseFloatAttr(attrs[attr.HEIGHT]),
-            fps: parseFloatAttr(attrs[attr.FPS]),
-            mediaStart: parseFloatAttr(attrs[attr.MEDIA_START]),
-            colorMatrix: attrs[attr.COLOR_MATRIX],
-            hideAfterEnd: attrs[attr.HIDE_AFTER_END] === undefined
-                ? undefined
-                : attrs[attr.HIDE_AFTER_END] === '' || attrs[attr.HIDE_AFTER_END] === 'true',
-        };
+    // 每帧派发入口：构造事件并经标准 window 事件面派发。单监听异常由共享层
+    // 留痕（__ocLogs），这里只兜装配面缺失等自身错误。
+    function dispatchSeek(timeSecs) {
+        try {
+            globalThis.dispatchEvent(new CustomEvent(SEEK_EVENT, { detail: { time: timeSecs } }));
+        } catch (error) {
+            (globalThis.__ocLogs = globalThis.__ocLogs || []).push(
+                SEEK_EVENT + ' handler threw: ' + (error && (error.stack || error))
+            );
+        }
     }
 
-    function parseFloatAttr(value) {
-        if (value === undefined || value === null || value === '') return undefined;
-        var n = parseFloat(value);
-        return isFinite(n) ? n : undefined;
-    }
-
-    function serializeVideo(el, payload, out) {
+    // opencat 特色 `<transition>` 节点的往返序列化：from/to/effect 是 serde
+    // 必填字段（缺了整份 extract 硬失败），必须无条件回传；可选字段缺省
+    // 不发。脚本建元从 __attrs 取（data-*），seed 物化的 payload 带 serde
+    // 字段名——两条路同一语义，缺省与静态 parse 一致（'' / '' / 'cut'）。
+    function serializeTransition(el, payload, out) {
         var attrs = el && el.__attrs ? el.__attrs : {};
-        var mediaStart = attrs[attr.MEDIA_START] !== undefined
-            ? parseFloat(attrs[attr.MEDIA_START])
-            : payload[attr.MEDIA_START];
-        if (typeof mediaStart === 'number' && !isNaN(mediaStart)) out[attr.MEDIA_START] = mediaStart;
-        if (payload[attr.COLOR_MATRIX] !== undefined && payload[attr.COLOR_MATRIX] !== null) {
-            out[attr.COLOR_MATRIX] = payload[attr.COLOR_MATRIX];
+        // duration 走共有词表（data-duration），其余协议键是 HF 私有。
+        var hf = attr;
+        var pick = function (key, payloadKey) {
+            var raw = attrs[key] !== undefined ? attrs[key] : payload[payloadKey];
+            return raw === undefined || raw === null ? '' : String(raw);
+        };
+        var optNum = function (key, payloadKey) {
+            var raw = pick(key, payloadKey);
+            if (raw === '') return undefined;
+            var n = parseFloat(raw);
+            return isFinite(n) ? n : undefined;
+        };
+        var optStr = function (key, payloadKey) {
+            var raw = pick(key, payloadKey);
+            return raw === '' ? undefined : raw;
+        };
+        out.from = pick(hf.FROM, 'from');
+        out.to = pick(hf.TO, 'to');
+        out.effect = pick(hf.EFFECT, 'effect') || 'cut';
+        if (out.duration === undefined) {
+            var d = optNum(hf.DURATION, 'duration');
+            if (d !== undefined) out.duration = d;
         }
-        if (payload[attr.HIDE_AFTER_END] !== undefined && payload[attr.HIDE_AFTER_END] !== null) {
-            out[attr.HIDE_AFTER_END] = payload[attr.HIDE_AFTER_END];
-        }
+        var v;
+        if ((v = optStr(hf.DIRECTION, 'direction')) !== undefined) out.direction = v;
+        if ((v = optStr(hf.TIMING, 'timing')) !== undefined) out.timing = v;
+        if ((v = optNum(hf.DAMPING, 'damping')) !== undefined) out.damping = v;
+        if ((v = optNum(hf.STIFFNESS, 'stiffness')) !== undefined) out.stiffness = v;
+        if ((v = optNum(hf.MASS, 'mass')) !== undefined) out.mass = v;
+        if ((v = optNum(hf.SEED, 'seed')) !== undefined) out.seed = v;
+        if ((v = optNum(hf.HUE_SHIFT, 'hueShift')) !== undefined) out.hueShift = v;
+        if ((v = optNum(hf.MASK_SCALE, 'maskScale')) !== undefined) out.maskScale = v;
     }
 
-    function installTimelinesRegistry(windowObject) {
-        if (!windowObject || typeof windowObject !== 'object') return;
-        windowObject.__timelines = windowObject.__timelines || {};
-    }
+    var attr = Object.freeze(Object.assign({}, shared.attr, vocab.hfAttr));
 
-    function installSeekDispatcher(windowObject) {
-        if (!windowObject || typeof windowObject !== 'object' || windowObject.__ocHfSeekInstalled) return;
-        windowObject.__ocHfSeekInstalled = true;
-        var add = windowObject.addEventListener;
-        var remove = windowObject.removeEventListener;
-        var dispatch = windowObject.dispatchEvent;
-        var listeners = windowObject.__ocHfListeners || (windowObject.__ocHfListeners = {});
-        windowObject.addEventListener = function (type, fn) {
-            if (type === attr.SEEK_EVENT && typeof fn === 'function') {
-                (listeners[type] = listeners[type] || []).push(fn);
-                return;
-            }
-            if (typeof add === 'function') add.call(this, type, fn);
-        };
-        windowObject.removeEventListener = function (type, fn) {
-            if (type === attr.SEEK_EVENT) {
-                var list = listeners[type];
-                if (list) {
-                    var index = list.indexOf(fn);
-                    if (index >= 0) list.splice(index, 1);
-                }
-                return;
-            }
-            if (typeof remove === 'function') remove.call(this, type, fn);
-        };
-        windowObject.dispatchEvent = function (ev) {
-            var list = ev && listeners[ev.type];
-            if (list) {
-                list.slice().forEach(function (fn) {
-                    try { fn.call(windowObject, ev); }
-                    catch (error) {
-                        (globalThis.__ocLogs = globalThis.__ocLogs || []).push(
-                            attr.SEEK_EVENT + ' handler threw: ' + (error && (error.stack || error))
-                        );
-                    }
-                });
-            }
-            if ((!ev || ev.type !== attr.SEEK_EVENT) && typeof dispatch === 'function') {
-                return dispatch.call(this, ev);
-            }
-            return true;
-        };
-    }
-
-    // `seekEventJs` 已退役：seek 事件的注入串唯一活实现是 Rust 侧
-    // parse/hyperframes.rs::seek_event_js（realm 每帧 eval）。本 JS 份曾是
-    // `__ocHyperframes` 导出（仓内零消费），其 `__ocMode !== 'extract'`
-    // 守卫恒真（全仓零写入点）——帧协议清单见 docs/realm-protocol.md。
-
-    globalThis.__ocHyperframes = {
+    globalThis.__ocHyperframes = Object.assign({}, shared, {
         attr: attr,
-        protocolField: protocolField,
-        readProtocol: readProtocol,
-        isProtocolAttr: function (name) {
-            return name === attr.START || name === attr.DURATION;
-        },
-        readSeedProtocol: function (payload) {
-            if (!payload) return payload;
-            if (payload[protocolField.START] === undefined && payload[attr.START] !== undefined) {
-                var start = parseFloat(payload[attr.START]);
-                if (isFinite(start)) payload[protocolField.START] = start;
-            }
-            if (payload[protocolField.DURATION] === undefined && payload[attr.DURATION] !== undefined) {
-                var duration = parseFloat(payload[attr.DURATION]);
-                if (isFinite(duration)) payload[protocolField.DURATION] = duration;
-            }
-            return payload;
-        },
-        readElementAttr: function (name, value) {
-            if (name === attr.START) return { [protocolField.START]: parseFloat(value) };
-            if (name === attr.DURATION) return { [protocolField.DURATION]: parseFloat(value) };
-            return null;
-        },
-        getElementAttr: function (payload, name) {
-            if (name === attr.START) {
-                return payload[protocolField.START] === undefined
-                    ? null
-                    : String(payload[protocolField.START]);
-            }
-            if (name === attr.DURATION) {
-                return payload[protocolField.DURATION] === undefined
-                    ? null
-                    : String(payload[protocolField.DURATION]);
-            }
-            return undefined;
-        },
-        writeSerializeAttrs: function (payload, out) {
-            if (payload[protocolField.START] !== undefined && payload[protocolField.START] !== null) {
-                out[attr.START] = payload[protocolField.START];
-            }
-            if (payload[protocolField.DURATION] !== undefined && payload[protocolField.DURATION] !== null) {
-                out[attr.DURATION] = payload[protocolField.DURATION];
-            }
-        },
-        serializeVideo: serializeVideo,
-        installTimelinesRegistry: function (windowObject) {
-            installTimelinesRegistry(windowObject);
-            installSeekDispatcher(windowObject);
-        },
-    };
+        dispatchSeek: dispatchSeek,
+        serializeTransition: serializeTransition,
+    });
 })();

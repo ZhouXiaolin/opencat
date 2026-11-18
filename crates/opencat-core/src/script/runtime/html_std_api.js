@@ -3,8 +3,8 @@
 // 这个文件解释 W3C / 浏览器 DOM 的输入语义：元素、属性、样式、选择器、
 // 文本节点、媒体元素、canvas/GL 查询面、序列化。core 是确定性视频渲染器，
 // 不是浏览器内核；帧由 `frame = f(t)` 重建，动画由 `animate = g(t)` 写入。
-// HyperFrames 的组合协议与播放器语义在 `hyperframes_api.js`，标准层只经
-// 窄接口调用扩展钩子。
+// 共有组合协议在 `shared_api.js`，HF 私有扩展在 `hyperframes_api.js`，
+// 标准层只经窄接口调用扩展钩子。
 (function () {
     'use strict';
     if (globalThis.__ocHtmlStd) return;
@@ -12,17 +12,11 @@
     globalThis.__ocHtmlChannel = true;
 
     // 扩展层钩子：标准层不认识 hyperframes 私有词汇，只调用这些函数。
-    var extension = globalThis.__ocHyperframes || {
-        attr: {},
-        readProtocol: function () { return {}; },
-        isProtocolAttr: function () { return false; },
-        readSeedProtocol: function (payload) { return payload; },
-        readElementAttr: function () { return null; },
-        getElementAttr: function () { return undefined; },
-        writeSerializeAttrs: function () {},
-        serializeVideo: function () {},
-        installTimelinesRegistry: function () {},
-    };
+    // manifest 保证 shared/hyperframes 先行装配；缺失即装配错误，fail-loud。
+    if (!globalThis.__ocHyperframes) {
+        throw new Error('hyperframes_api.js must load before html_std_api.js');
+    }
+    var extension = globalThis.__ocHyperframes;
     globalThis.__ocHtmlStd = {
         extension: extension,
         nodes: nodes,
@@ -433,6 +427,9 @@
     var FRAG_TAG_MAP = {
         img: 'image', image: 'image', video: 'video', audio: 'audio',
         canvas: 'canvas', svg: 'svg',
+        // opencat 特色节点（serde 变体名，与 dom.rs 对齐；缺失会让脚本
+        // 建元降级成 div、时间轴/转场语义整条丢失）。
+        timeline: 'timeline', tl: 'timeline', transition: 'transition',
         p: 'p', span: 'span', text: 'span',
         h1: 'p', h2: 'p', h3: 'p', h4: 'p', h5: 'p', h6: 'p',
         i: 'div', b: 'div', strong: 'div', em: 'div', u: 'div', small: 'div',
@@ -743,7 +740,11 @@
             // viewBox，整张图不画（innerHTML 注入的字标/图标全消失）。子树内保留
             // 作者写法，只另存小写键给闭合匹配用；子树外照旧归一。
             var inSvg = stack.some(function (n) { return n.tagLower === 'svg'; });
-            var open = /^<\s*([a-zA-Z][\w-]*)((?:\s+[\w-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)\s*>/.exec(s.slice(lt));
+            // HTML5 tokenizer 接受相邻属性（`class="a"data-start=1`）：引号
+            // 结束后下一个属性名可直接开始，不必有空白。parse5 实测如此。
+            // 旧模式要求每个属性名前有 `\s`，整串不匹配。对齐标准：放宽
+            // 属性名边界，引号值仍由后面 attrRe 单独处理。
+            var open = /^<\s*([a-zA-Z][\w-]*)((?:[\s]+[^\s>]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)\s*>/.exec(s.slice(lt));
             if (!open) {
                 // 不是标签（比如 `< ` 字面量）→ 文本
                 emit({ text: '<' });
@@ -811,9 +812,12 @@
             if (p.url) out.url = p.url;
         }
         if (p.duration !== undefined && p.duration !== null) out.duration = p.duration;
-        // 视频扩展字段（可见时间窗、媒体相位、着色矩阵、终帧可见性）由
-        // HyperFrames 层序列化；标准层不写协议属性名字面量。
-        if (p.type === 'video') extension.serializeVideo(el, p, out);
+        // 扩展字段由扩展层序列化：video（可见时间窗、媒体相位、着色矩阵、
+        // 终帧可见性）与 audio（data-volume）走 serializeVideo；
+        // transition（from/to/effect 协议，serde 必填字段）走 serializeTransition。
+        // 标准层不写协议属性名字面量。
+        if (p.type === 'video' || p.type === 'audio') extension.serializeVideo(el, p, out);
+        if (p.type === 'transition') extension.serializeTransition(el, p, out);
 
         var sc = serializeChildren(el);
         if (sc.kids.length) {
@@ -1365,7 +1369,12 @@
         for (var k in this.__payload) {
             if (Object.prototype.hasOwnProperty.call(this.__payload, k)) payload[k] = this.__payload[k];
         }
-        payload.id = nextSynthId(this.__payload.id);
+        // 标准 DOM 的 cloneNode(true) 保留作者 id：`template.content
+        // .cloneNode(true)` 复制出的节点 id 与原节点相同。引擎旧实现给每
+        // 个克隆体合成 `:N` 后缀，破坏 getElementById / gsap 选择器。
+        // 对齐标准：保留原 id，只有合成节点（无作者 id）才重新生成。
+        var authoredId = this.__payload.id && !/:\d+$/.test(this.__payload.id);
+        payload.id = authoredId ? this.__payload.id : nextSynthId(this.__payload.id);
         var copy = createElementFace(payload);
         var self = this;
         this.__kids.forEach(function (k) {
@@ -2111,6 +2120,13 @@
             };
             var el = createElementFace(payload);
             nodes[payload.id] = el;
+            // 标准 DOM 的 HTMLTemplateElement.content 是 DocumentFragment，
+            // firstChild / cloneNode 走片段的子节点。引擎 innerHTML setter
+            // 已把解析结果放进 __kids，这里给 template 一个自身视图，
+            // 让 content.firstChild 返回模板内容根。
+            if (t === 'template') {
+                Object.defineProperty(el, 'content', { get: function () { return el; } });
+            }
             return el;
         },
         // SVG 命名空间建元（three 的 ImageLoader 内部 `createElementNS(xhtml,

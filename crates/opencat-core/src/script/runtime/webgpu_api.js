@@ -396,48 +396,8 @@
     }
 
     // ── opcodes — authority: ir/gpu_stream.rs wgpu_opcode ──────────
-    var W = {
-        BUFFER_CREATE: 0,
-        TEXTURE_CREATE: 1,
-        TEXTURE_VIEW_CREATE: 2,
-        SAMPLER_CREATE: 3,
-        BIND_GROUP_LAYOUT_CREATE: 4,
-        BIND_GROUP_CREATE: 5,
-        PIPELINE_LAYOUT_CREATE: 6,
-        SHADER_MODULE_CREATE: 7,
-        RENDER_PIPELINE_CREATE: 8,
-        COMPUTE_PIPELINE_CREATE: 9,
-        QUERY_SET_CREATE: 10,
-        RENDER_BUNDLE_ENCODER_CREATE: 11,
-        RESOURCE_DESTROY: 12,
-        CANVAS_CONFIGURE: 13,
-        CANVAS_GET_CURRENT_TEXTURE: 14,
-        QUEUE_WRITE_BUFFER: 15,
-        QUEUE_WRITE_TEXTURE: 16,
-        QUEUE_SUBMIT: 17,
-        ENC_BEGIN_RENDER_PASS: 18,
-        ENC_COPY_BUFFER_TO_BUFFER: 19,
-        ENC_COPY_TEXTURE_TO_TEXTURE: 20,
-        ENC_COPY_TEXTURE_TO_BUFFER: 21,
-        ENC_COPY_BUFFER_TO_TEXTURE: 22,
-        ENC_FINISH: 23,
-        PASS_SET_PIPELINE: 24,
-        PASS_SET_BIND_GROUP: 25,
-        PASS_SET_VERTEX_BUFFER: 26,
-        PASS_SET_INDEX_BUFFER: 27,
-        PASS_SET_VIEWPORT: 28,
-        PASS_SET_SCISSOR_RECT: 29,
-        PASS_SET_BLEND_CONSTANT: 30,
-        PASS_SET_STENCIL_REFERENCE: 31,
-        PASS_DRAW: 32,
-        PASS_DRAW_INDEXED: 33,
-        PASS_DRAW_INDIRECT: 34,
-        PASS_DRAW_INDEXED_INDIRECT: 35,
-        PASS_END: 36,
-        ENC_BEGIN_COMPUTE_PASS: 37,
-        PASS_DISPATCH_WORKGROUPS: 38,
-        PASS_DISPATCH_WORKGROUPS_INDIRECT: 39,
-    };
+    // W 常量与 W_PAYLOAD_LEN 由 manifest 前段 wgpu-opcodes.generated.js
+    // 提供（生成物，与 engine/web 消费端同一张表）；本文件不再手写字面量。
 
     var ALPHA_MODE = { opaque: 0, premultiplied: 1 };
 
@@ -476,6 +436,14 @@
         return this;
     };
     Encoder.prototype.done = function (opcode) {
+        // 步进断言：定长 op 写完的字节数必须与表一致（-1 = 变长，自行消费）。
+        // 写错当场 throw，不等渲染端按表步进时错位整条流。
+        var len = W_PAYLOAD_LEN[opcode];
+        if (len !== undefined && len >= 0 && this.pos - 1 !== len) {
+            throw new Error(
+                'wgpu stream: opcode ' + opcode + ' payload drift (table ' + len + ', wrote ' + (this.pos - 1) + ')'
+            );
+        }
         this.bytes[0] = opcode;
         return this.bytes.subarray(0, this.pos);
     };

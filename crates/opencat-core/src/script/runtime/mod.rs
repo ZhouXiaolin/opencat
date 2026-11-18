@@ -6,19 +6,15 @@
 //! `animate = g(t)`.
 //!
 //! ## Evaluation order
-//! 1. `ANIMATION_BOOTSTRAP` — global `__opencatAnimation` + plugin registry
-//! 2. `ANIMATION_CORE` — tween engine, property interpolation
-//! 3. Core property files (style_props, color, filter) — built-in animatable properties
-//! 4. Core utility (utils) — `ctx.utils.*` helpers
-//! 5. Plugin files (text, scramble_text, split_text, motion_path, morph_svg) — extension plugins
-//! 6. `ANIMATION_FACADE` — `ctx.from/to/fromTo/set()`, `ctx.timeline()`, `flushTimelines`
-//! 7. `NODE_STYLE_RUNTIME` — `ctx.getNode(id).prop(val)` chainable API + DOM property facade
-//! 8. `CANVAS_API_RUNTIME` — the CanvasKit signature facade (`globalThis.CanvasKit` + the `CanvasKitInit` stub)
-//! 11. `DOM_API_RUNTIME` — `document`/`window` 全局与越界 API 报错
+//!
+//! 唯一装配清单见 [`RUNTIME_MANIFEST`]（[`install_runtime`] 按序安装）：
+//! 渲染 realm 与提取 realm 都不得各自排序，顺序不变量写成清单条目注释。
 //!
 //! All files are IIFE-wrapped and assume the existence of native
 //! `__record_*`, `__canvas_*`, `__animate_*`, `__text_source_*`
 //! global functions provided by the host environment.
+
+use crate::script::js_context::JsContext;
 
 pub const NODE_STYLE_RUNTIME: &str = include_str!("node_style.js");
 // Script-side DOM overlay: created nodes + child views of declared nodes.
@@ -32,6 +28,7 @@ pub const CANVAS_API_RUNTIME: &str = include_str!("canvas_api.js");
 // evals it right before WEBGL_API_RUNTIME, whose emit/done opcodes
 // reference GLOP.* instead of digit literals.
 pub const GL_OPCODES_RUNTIME: &str = include_str!("gl-opcodes.generated.js");
+pub const WGPU_OPCODES_RUNTIME: &str = include_str!("wgpu-opcodes.generated.js");
 pub const WEBGL_API_RUNTIME: &str = include_str!("webgl_api.js");
 // WebGPU recording face (`navigator.gpu` + `canvas.getContext('webgpu')`):
 // same stream plumbing as WebGL2, opcodes in `ir::gpu_stream::wgpu_opcode`.
@@ -53,10 +50,13 @@ pub const DOM_API_RUNTIME: &str = include_str!("dom_api.js");
 pub const CONTEXT2D_RUNTIME: &str = include_str!("context2d.js");
 
 // HTML 标准层：输入语义按 W3C / 浏览器 DOM 解释，但 core 不是浏览器内核。
-// 标准层不读取 hyperframes 私有 `data-*` 协议，只经窄接口调用扩展钩子。
+// 标准层不读取扩展 `data-*` 协议，只经窄接口调用扩展钩子。
 pub const HTML_STD_API_RUNTIME: &str = include_str!("html_std_api.js");
-// HyperFrames 扩展层：core 内但与标准层分离。只放组合协议、可见时间窗、
-// `hf-seek`、`window.__timelines` 等框架私有语义。
+// 共有扩展层：HyperFrames 与 opencat 都要用的组合协议机制（data-composition-*、
+// 可见时间窗、data-media-start、data-volume、__timelines 注册表）。
+pub const SHARED_API_RUNTIME: &str = include_str!("shared_api.js");
+// HyperFrames 私有扩展层：只叠加 HF 独有的 data-track-index 与 hf-seek
+// 事件派发；共有面从 `shared_api.js` 继承，经 `__ocHyperframes` 暴露兼容。
 pub const HYPERFRAMES_API_RUNTIME: &str = include_str!("hyperframes_api.js");
 // HTML/JS dist 的模块运行面：`__ocRequire` / `module.exports` / 帧复位。
 // 作者侧 JSX/Remotion 源码先由打包器编译成 HTML/JS dist，不直接进 core。
@@ -91,3 +91,76 @@ pub const ANIMATION_RUNTIME: &str = concat!(
     "\n",
     include_str!("animation/properties/utils.js"),
 );
+
+// JS platform globals V8/QuickJS do not ship (TextEncoder/TextDecoder/Blob)
+// plus the realm clock facilities every library runs on: a synchronous rAF
+// queue, the virtual clock (`frame = f(t)` — every clock read inside the realm
+// sees it), and `performance`/`Date` rewired to that clock. The HTML extract
+// realm needs the same `requestAnimationFrame` queue: the gsap bundle calls
+// `_wake()` at eval time, which schedules one tick.
+pub const JS_PLATFORM_SHIM: &str = include_str!("js_platform_shim.js");
+
+// 扩展协议词表（生成面）：`__ocVocab`（attr/hfAttr/events）。事实源 =
+// parse/shared.rs PROTOCOL_ATTRS + parse/hyperframes.rs HF_ATTRS/HF_EVENTS，
+// ocir-schema-gen 每次 web 构建前重写；Rust/JS 双语言不再各写一遍。
+pub const VOCAB_RUNTIME: &str = include_str!("protocol-vocab.generated.js");
+
+// ── 安装序 manifest（唯一装配清单）─────────────────────────────────────
+// 渲染 realm（script/realm.rs）与提取 realm（engine script/html.rs）都从
+// 这份清单按序安装，不得各自维护顺序：顺序即契约，依赖写成条目注释。
+// 新增段先在此登记（含顺序理由），再落文件。
+pub const RUNTIME_MANIFEST: &[(&str, &str)] = &[
+    // 扩展协议词表最先就位：共有/HF 扩展层从 __ocVocab 取键名。
+    ("vocab", VOCAB_RUNTIME),
+    // 元素双面（ctx.getNode 链式面 / ctx.__domTarget 元素面）。最先装：
+    // DOM 面的 getElementById 派发同一份节点句柄，2D/GL 录制面挂在它的
+    // getContext 转发上。
+    ("node_style", NODE_STYLE_RUNTIME),
+    // CanvasKit 签名面（globalThis.CanvasKit + CanvasKitInit 桩）。
+    ("canvas", CANVAS_API_RUNTIME),
+    // JS 平台全局 + realm 虚拟钟/rAF 设施（真钟擦除在 Date 包装内；
+    // 零纪元 Date 桩不得先于它出现，否则被包装捕获、日期全压成 epoch 0）。
+    ("js_platform", JS_PLATFORM_SHIM),
+    // 共有扩展层：协议词汇表 + 通用行为函数（createEventTarget 等）。
+    // 先于 DOM 面——标准 window 事件面走它。
+    ("shared", SHARED_API_RUNTIME),
+    // DOM 全局 document/window + timer 守卫。在 js_platform（G2 shim 的
+    // rAF polyfill 先占 requestAnimationFrame）与 node_style 之后。
+    ("dom", DOM_API_RUNTIME),
+    // 脚本侧 DOM 覆盖层：在 node_style（声明句柄委托 ctx.__domTarget）与
+    // dom（document.createElement 产出这些句柄）之后。
+    ("tree", TREE_API_RUNTIME),
+    // 2D-context 适配器（node.getContext('2d')）：node_style 的 getContext
+    // 分支经 ctx.getContext 调到这里。
+    ("context2d", CONTEXT2D_RUNTIME),
+    // GL/WGPU opcode 常量与 payload 长度表（WEBGL_API 引用 GLOP.*，
+    // WEBGPU_API 引用 W.*；两侧 done() 消费各自的 PAYLOAD_LEN 做步进断言）
+    // → WebGL2 录制面（链前者的 ctx.getContext）→ WebGPU 录制面（同链）。
+    ("gl_opcodes", GL_OPCODES_RUNTIME),
+    ("wgpu_opcodes", WGPU_OPCODES_RUNTIME),
+    ("webgl", WEBGL_API_RUNTIME),
+    ("webgpu", WEBGPU_API_RUNTIME),
+    // 网络加载垫（fetch/Blob/URL/createImageBitmap，自守卫，宿主缺原生时
+    // 整段 no-op）。gsap/three 的加载链之前就位。
+    ("asset", ASSET_API_RUNTIME),
+    // 动画 runtime（预拼接：bootstrap + core + 内建属性 + utils）。
+    ("animation", ANIMATION_RUNTIME),
+    // HF 私有扩展层：叠加 data-track-index 与 hf-seek 派发入口（dispatchSeek）。
+    // 要求 shared 已装（缺了显式 fail-loud）。
+    ("hyperframes", HYPERFRAMES_API_RUNTIME),
+    // HTML 标准层：读共享/HF 的窄接口；装载末尾装 __timelines 注册表
+    // （window 已在 dom 段就位）。
+    ("html_std", HTML_STD_API_RUNTIME),
+    // dist 模块运行面（__ocRequire / module.exports / 帧复位）。
+    ("dist_module", DIST_MODULE_RUNTIME),
+];
+
+/// 按清单顺序安装整个 runtime 面。任何装配点不再各自排序；安装失败时报出
+/// 段名，fail-loud。
+pub fn install_runtime(ctx: &impl JsContext) -> anyhow::Result<()> {
+    for (name, src) in RUNTIME_MANIFEST {
+        ctx.eval(src)
+            .map_err(|e| anyhow::anyhow!("runtime 段 {name} 安装失败: {e}"))?;
+    }
+    Ok(())
+}

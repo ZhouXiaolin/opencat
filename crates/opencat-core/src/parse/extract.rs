@@ -91,11 +91,13 @@ fn tree_audio_from_extract(extract: &Value) -> Result<Vec<DomAudio>> {
         let path = item.get("path").and_then(Value::as_str).map(str::to_string);
         let url = item.get("url").and_then(Value::as_str).map(str::to_string);
         let duration = item.get("duration").and_then(Value::as_f64);
+        let volume = item.get("volume").and_then(Value::as_f64);
         out.push(DomAudio {
             id,
             attach,
             source: crate::parse::dom::parse_audio_source(path, url)?,
             duration,
+            volume,
         });
     }
     Ok(out)

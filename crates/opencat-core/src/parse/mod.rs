@@ -11,6 +11,7 @@ pub mod module_transform;
 pub mod node;
 pub mod preflight;
 pub mod primitives;
+pub mod shared;
 pub mod time;
 pub mod transition;
 

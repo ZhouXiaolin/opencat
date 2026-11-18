@@ -74,6 +74,16 @@
         return this;
     };
     Encoder.prototype.done = function (opcode) {
+        // 步进断言：定长 op 写完的字节数必须与 GLOP_PAYLOAD_LEN 表一致
+        // （-1 = 变长，自行消费）。写错当场 throw，不等渲染端按表步进时
+        // 错位整条流——ATTRIB_POINTER 的 I 变体曾以 15B 潜伏，靠语料不命中
+        // 才没炸。
+        var len = GLOP_PAYLOAD_LEN[opcode];
+        if (len !== undefined && len >= 0 && this.pos - 1 !== len) {
+            throw new Error(
+                'gl stream: opcode ' + opcode + ' payload drift (table ' + len + ', wrote ' + (this.pos - 1) + ')'
+            );
+        }
         this.bytes[0] = opcode;
         return this.bytes.subarray(0, this.pos);
     };
@@ -1115,7 +1125,10 @@
         self.vertexAttribIPointer = function (nameOrIndex, size, type, stride, offset) {
             if (skipBadAttrib(nameOrIndex)) return;
             var e = new Encoder(16);
-            e.u32(attrNameRange(nameOrIndex, 'vertexAttribIPointer')).u8(size).u16(type).u32(stride).u32(offset);
+            // ATTRIB_POINTER 单一 wire 约定（16B）：I 语义没有 normalized，
+            // 这里写 0 占位，与 vertexAttribPointer 的字段序严格对齐——否则
+            // 15B payload 让消费端按表步进时错位一字节，整条流崩。
+            e.u32(attrNameRange(nameOrIndex, 'vertexAttribIPointer')).u8(size).u16(type).u8(0).u32(stride).u32(offset);
             emit(streamId, GLOP.ATTRIB_POINTER, e.done(GLOP.ATTRIB_POINTER)); // ATTRIB_POINTER，int 语义由着色器签名定
         };
 

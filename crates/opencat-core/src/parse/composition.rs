@@ -22,6 +22,9 @@ pub struct CompositionAudioSource {
     pub source: AudioSource,
     pub attach: AudioAttachment,
     pub duration_secs: Option<f64>,
+    /// 元素增益（`data-volume`），`None` = 1.0（不乘）。混音端（engine 预混、
+    /// web 混音 adapter）消费；与时长同属组合级权威语义，走 [`AudioPlan`]。
+    pub volume: Option<f64>,
 }
 
 impl PartialEq for CompositionAudioSource {
@@ -30,6 +33,7 @@ impl PartialEq for CompositionAudioSource {
             && self.source == other.source
             && self.attach == other.attach
             && self.duration_secs.map(f64::to_bits) == other.duration_secs.map(f64::to_bits)
+            && self.volume.map(f64::to_bits) == other.volume.map(f64::to_bits)
     }
 }
 
@@ -41,6 +45,7 @@ impl Hash for CompositionAudioSource {
         self.source.hash(state);
         self.attach.hash(state);
         self.duration_secs.map(f64::to_bits).hash(state);
+        self.volume.map(f64::to_bits).hash(state);
     }
 }
 
@@ -51,6 +56,7 @@ impl CompositionAudioSource {
             source,
             attach: AudioAttachment::Timeline,
             duration_secs: None,
+            volume: None,
         }
     }
 
@@ -62,11 +68,17 @@ impl CompositionAudioSource {
                 scene_id: scene_id.into(),
             },
             duration_secs: None,
+            volume: None,
         }
     }
 
     pub fn with_duration(mut self, duration_secs: Option<f64>) -> Self {
         self.duration_secs = duration_secs;
+        self
+    }
+
+    pub fn with_volume(mut self, volume: Option<f64>) -> Self {
+        self.volume = volume;
         self
     }
 }

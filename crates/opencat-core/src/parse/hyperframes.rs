@@ -1,113 +1,50 @@
-//! HyperFrames 扩展协议层（core 内，但不属于 HTML 标准）。
+//! HyperFrames 私有扩展协议层（core 内，但不属于 HTML 标准、也不属于共有扩展）。
 //!
-//! 标准层只处理 W3C / 浏览器语义。本模块是 hyperframes 私有属性的唯一
-//! 定义点：组合标识、可见时间窗、合成尺寸、媒体相位、着色矩阵、播放器
-//! `hf-seek` 事件。标准层通过这里的窄接口读取协议，不写协议字面量。
+//! 共有协议（组合标识、可见时间窗、尺寸、媒体相位、音量、__timelines）
+//! 定义在 [`super::shared`]。本模块只放 HF 独有的属性与事件词表；
+//! 播放器 seek 事件的派发实现住 JS 扩展层
+//! `script/runtime/hyperframes_api.js`（`__ocHyperframes.dispatchSeek`，
+//! realm.rs 每帧调入口）。为了兼容既有引用，这里把 shared 的公共项
+//! 原样重导出。
 
-/// 协议属性名。标准层不得再出现这些字面量。
+/// HF 私有词汇表。与共有表同构：同时派生具名常量与
+/// `protocol-vocab.generated.js` 的 `__ocVocab.hfAttr` / `__ocVocab.events`
+/// （ocir-schema-gen 生成）——新增只改表。
+macro_rules! hf_attrs {
+    ($($name:ident => $key:literal),* $(,)?) => {
+        /// (名, data-* 键) 对照——JS 词表的生成事实源。
+        pub const HF_ATTRS: &[(&str, &str)] = &[$((stringify!($name), $key)),*];
+        $(
+            pub const $name: &str = $key;
+        )*
+    };
+}
+
+hf_attrs! {
+    // HF 独有：轨道分层索引。opencat 的 `<timeline>` 用直接子元素顺序表达
+    // 分镜，不需要轨道概念。
+    TRACK_INDEX => "data-track-index",
+    // opencat 特色 `<transition>` 节点的协议属性（往返契约的两侧输入：
+    // 静态 parse 与 JS serializeNode 都从这里取键名）。
+    FROM => "data-from",
+    TO => "data-to",
+    EFFECT => "data-effect",
+    DIRECTION => "data-direction",
+    TIMING => "data-timing",
+    DAMPING => "data-damping",
+    STIFFNESS => "data-stiffness",
+    MASS => "data-mass",
+    SEED => "data-seed",
+    HUE_SHIFT => "data-hueShift",
+    MASK_SCALE => "data-maskScale",
+}
+
+/// HF 私有事件名（JS 派发实现消费生成面，Rust 侧不写事件名字面量）。
+pub const HF_EVENTS: &[(&str, &str)] = &[("SEEK", "hf-seek")];
+
 pub mod attr {
-    pub const COMPOSITION_ID: &str = "data-composition-id";
-    pub const COMPOSITION_SRC: &str = "data-composition-src";
-    pub const START: &str = "data-start";
-    pub const DURATION: &str = "data-duration";
-    pub const WIDTH: &str = "data-width";
-    pub const HEIGHT: &str = "data-height";
-    pub const FPS: &str = "data-fps";
-    pub const MEDIA_START: &str = "data-media-start";
-    pub const COLOR_MATRIX: &str = "data-color-matrix";
-    pub const HIDE_AFTER_END: &str = "data-hide-after-end";
+    pub use super::super::shared::attr::*;
+    pub use super::{DAMPING, DIRECTION, EFFECT, FROM, HUE_SHIFT, MASK_SCALE, MASS, SEED, STIFFNESS, TIMING, TO, TRACK_INDEX};
 }
 
-pub const SEEK_EVENT: &str = "hf-seek";
-
-pub fn seek_event_js() -> String {
-    // 帧协议（realm.rs 每帧 rAF flush 后 eval）：按虚拟钟派发一次播放器
-    // seek 事件。历史上带 `__ocMode !== 'extract'` 守卫——提取模式早已
-    // 不存在（全仓零写入点），守卫恒真，删除。
-    format!(
-        "try {{ globalThis.dispatchEvent(new CustomEvent('{SEEK_EVENT}', {{ detail: {{ time: (globalThis.__ocClockMs() || 0) / 1000 }} }})); }} catch (error) {{ (globalThis.__ocLogs = globalThis.__ocLogs || []).push('{SEEK_EVENT} handler threw: ' + (error && error.stack || error)); }}"
-    )
-}
-
-pub trait AttrSource {
-    fn attr(&self, name: &str) -> Option<&str>;
-    fn num(&self, name: &str) -> Option<f64> {
-        self.attr(name).and_then(|v| v.trim().parse().ok())
-    }
-    fn flag(&self, name: &str) -> Option<bool> {
-        self.attr(name).map(|v| v.is_empty() || v == "true")
-    }
-    fn text(&self, name: &str) -> Option<String> {
-        self.attr(name)
-            .map(str::to_string)
-            .filter(|s| !s.is_empty())
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct ElementProtocol {
-    pub composition_id: Option<String>,
-    pub composition_src: Option<String>,
-    pub start: Option<f64>,
-    pub duration: Option<f64>,
-    pub width: Option<f64>,
-    pub height: Option<f64>,
-    pub fps: Option<f64>,
-    pub media_start: Option<f64>,
-    pub color_matrix: Option<String>,
-    pub hide_after_end: Option<bool>,
-}
-
-impl ElementProtocol {
-    pub fn read(src: &impl AttrSource) -> Self {
-        Self {
-            composition_id: src.text(attr::COMPOSITION_ID),
-            composition_src: src.text(attr::COMPOSITION_SRC),
-            start: src.num(attr::START),
-            duration: src.num(attr::DURATION),
-            width: src.num(attr::WIDTH),
-            height: src.num(attr::HEIGHT),
-            fps: src.num(attr::FPS),
-            media_start: src.num(attr::MEDIA_START),
-            color_matrix: src.text(attr::COLOR_MATRIX),
-            hide_after_end: src.flag(attr::HIDE_AFTER_END),
-        }
-    }
-
-    pub fn window(&self) -> TimeWindow {
-        TimeWindow {
-            start: self.start,
-            duration: self.duration,
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-pub struct TimeWindow {
-    pub start: Option<f64>,
-    pub duration: Option<f64>,
-}
-
-impl TimeWindow {
-    pub fn is_open_ended(&self) -> bool {
-        self.start.is_none()
-    }
-
-    pub fn start_secs(&self) -> f64 {
-        self.start.unwrap_or(0.0)
-    }
-
-    pub fn end_secs(&self) -> Option<f64> {
-        self.duration.map(|d| self.start_secs() + d)
-    }
-
-    pub fn hides(&self, t: f64) -> bool {
-        match self.start {
-            None => false,
-            Some(s) => match self.duration {
-                Some(d) => t < s || t >= s + d,
-                None => t < s,
-            },
-        }
-    }
-}
+pub use super::shared::{AttrSource, ElementProtocol};

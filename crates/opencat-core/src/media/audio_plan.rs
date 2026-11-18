@@ -30,12 +30,34 @@ pub struct AudioPlan {
 }
 
 /// One scheduled audio clip on the composition timeline.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct AudioSegment {
     /// Canonical audio [`AssetId`] (same identity as resource requirements).
     pub asset: AssetId,
     /// Half-open composition range `[start, start + duration)`.
     pub range: DurationRange,
+    /// Element gain (`data-volume`), `None` = 1.0. Mixing hosts multiply this
+    /// into every decoded sample of the segment.
+    pub gain: Option<f64>,
+}
+
+// f64 gain 只参与逐位等价比较——与 AudioPlan 的 Eq 契约保持一致。
+impl PartialEq for AudioSegment {
+    fn eq(&self, other: &Self) -> bool {
+        self.asset == other.asset
+            && self.range == other.range
+            && self.gain.map(f64::to_bits) == other.gain.map(f64::to_bits)
+    }
+}
+
+impl Eq for AudioSegment {}
+
+impl std::hash::Hash for AudioSegment {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.asset.hash(state);
+        self.range.hash(state);
+        self.gain.map(f64::to_bits).hash(state);
+    }
 }
 
 impl AudioSegment {
@@ -99,7 +121,11 @@ pub fn collect_audio_plan(comp: &Composition) -> AudioPlan {
             },
         };
 
-        segments.push(AudioSegment { asset, range });
+        segments.push(AudioSegment {
+            asset,
+            range,
+            gain: source.volume,
+        });
     }
 
     AudioPlan { segments }

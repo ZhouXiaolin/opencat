@@ -46,39 +46,13 @@
     };
     // Bundles commonly alias these at eval time.
     shimWindow.self = shimWindow;
-    // 通用 window 事件记录 + 派发。HyperFrames 私有 `hf-seek` 语义由
-    // `hyperframes_api.js` 扩展层安装，标准层不写事件名字面量。
-    var _windowListeners = {};
-    shimWindow.addEventListener = function (type, fn) {
-        if (typeof fn !== 'function') return;
-        (_windowListeners[String(type)] = _windowListeners[String(type)] || []).push(fn);
-    };
-    shimWindow.removeEventListener = function (type, fn) {
-        var a = _windowListeners[String(type)];
-        if (a) {
-            var i = a.indexOf(fn);
-            if (i >= 0) a.splice(i, 1);
-        }
-    };
-    shimWindow.dispatchEvent = function (ev) {
-        var a = ev && _windowListeners[ev.type];
-        if (a) {
-            a.slice().forEach(function (fn) {
-                try {
-                    fn.call(shimWindow, ev);
-                } catch (e) {
-                    // 单监听失败不拖垮，但必须留下痕迹，避免逐帧重绘失效
-                    // 时每帧停在首帧状态且无据可查。
-                    try {
-                        (globalThis.__ocLogs = globalThis.__ocLogs || []).push(
-                            'window handler ' + ev.type + ' threw: ' + (e && e.stack || e)
-                        );
-                    } catch (e2) { /* 日志通道也不可用时放弃 */ }
-                }
-            });
-        }
-        return true;
-    };
+    // 标准 window 事件面走共享层 createEventTarget：注册/派发语义与扩展
+    // 事件共用一份实现。HyperFrames 私有 `hf-seek` 派发入口由
+    // `hyperframes_api.js` 扩展层提供，标准层不写事件名字面量。
+    var windowEvents = globalThis.__ocShared.createEventTarget(shimWindow);
+    shimWindow.addEventListener = windowEvents.addEventListener;
+    shimWindow.removeEventListener = windowEvents.removeEventListener;
+    shimWindow.dispatchEvent = windowEvents.dispatchEvent;
     if (typeof globalThis.window === 'undefined' || !globalThis.window) {
         globalThis.window = shimWindow;
         globalThis.addEventListener = shimWindow.addEventListener;
@@ -1288,6 +1262,15 @@
                 var canvas = shadowElement('canvas', {});
                 markOffscreenCanvas(canvas);
                 return canvas;
+            }
+            // 标准 DOM 的 HTMLTemplateElement.content 是 DocumentFragment：
+            // `template.innerHTML = "…"` 后的 content.firstChild 应返回
+            // 解析出的第一个节点。引擎 innerHTML setter 已把节点塞进
+            // childNodes，这里给 content 一个自身视图以对齐标准 API。
+            if (String(tag).toLowerCase() === 'template') {
+                var tpl = globalThis.__ocTree.createElement(tag);
+                Object.defineProperty(tpl, 'content', { get: function () { return tpl; } });
+                return tpl;
             }
             return globalThis.__ocTree.createElement(tag);
         },

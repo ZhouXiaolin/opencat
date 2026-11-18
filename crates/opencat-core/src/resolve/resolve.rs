@@ -691,7 +691,7 @@ fn rebuild_children(
         font_index: Some(&font_index),
         scripts_by_parent: &empty_scripts,
         element_ids: HashSet::new(),
-        tl_ids: HashSet::new(),
+        timeline_ids: HashSet::new(),
         // 上报链是近→远（宿主自身在最前），`DomContext.ancestors` 是远→近
         // （根在最底）——级联匹配把栈 `rev()` 后取 `[0]` 当父节点，顺序
         // 反了会让选择器认错父级：子工程 `[data-composition-id=…] .x`
@@ -2086,7 +2086,7 @@ fn node_tag_name(node: &Node) -> String {
         NodeKind::Path(_) => "path",
         NodeKind::Svg(_) => "svg",
         NodeKind::Video(_) => "video",
-        NodeKind::Timeline(_) => "tl",
+        NodeKind::Timeline(_) => "timeline",
     }
     .to_string()
 }

@@ -1414,6 +1414,32 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
     let duration = proto.duration;
 
     let element = match tag.as_str() {
+        // opencat 特色节点：timeline / transition。JSX 通道原生产出
+        // DomElement::Timeline / Transition；标准 HTML 通道此前把它们降为
+        // Div，使 dist 工程无法表达时间轴语义。在此补齐。<timeline> 的直接子
+        // 是场景，其间可穿 <transition>；解析期 build_node 会展开为
+        // Timeline 节点。`tl` 作为旧产物兼容别名保留。
+        "timeline" | "tl" => DomElement::Timeline {
+            id,
+            class,
+            style: inline_style,
+            duration,
+            children,
+        },
+        "transition" => DomElement::Transition {
+            from: view.get(hyperframes::attr::FROM).unwrap_or("").to_string(),
+            to: view.get(hyperframes::attr::TO).unwrap_or("").to_string(),
+            effect: view.get(hyperframes::attr::EFFECT).unwrap_or("cut").to_string(),
+            duration: view.f64(hyperframes::attr::DURATION),
+            direction: view.get(hyperframes::attr::DIRECTION).map(str::to_string),
+            timing: view.get(hyperframes::attr::TIMING).map(str::to_string),
+            damping: view.f64(hyperframes::attr::DAMPING).map(|v| v as f32),
+            stiffness: view.f64(hyperframes::attr::STIFFNESS).map(|v| v as f32),
+            mass: view.f64(hyperframes::attr::MASS).map(|v| v as f32),
+            seed: view.f64(hyperframes::attr::SEED).map(|v| v as f32),
+            hue_shift: view.f64(hyperframes::attr::HUE_SHIFT).map(|v| v as f32),
+            mask_scale: view.f64(hyperframes::attr::MASK_SCALE).map(|v| v as f32),
+        },
         "img" => DomElement::Image {
             id,
             class,
@@ -1462,6 +1488,7 @@ fn lower_element(handle: &Handle, state: &mut LoweringState) -> Result<Option<Do
                 path: src.clone().filter(|s| !is_http_url(s)),
                 url: src.filter(|s| is_http_url(s)),
                 duration,
+                volume: view.f64(hyperframes::attr::VOLUME),
             }
         }
         "canvas" => DomElement::Canvas {

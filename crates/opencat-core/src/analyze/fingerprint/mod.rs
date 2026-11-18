@@ -17,13 +17,9 @@ fn new_hasher() -> ahash::AHasher {
 }
 
 use crate::{
-    analyze::{
-        DisplayAnalysisTable,
-        annotation::{AnnotatedDisplayNode, RecordedNodeSemantics},
-    },
     display::{
         list::{DisplayClip, DisplayItem},
-        tree::{DisplayNode, DisplayRecordedSubtreeFingerprint, HiddenChildDisplayNode},
+        tree::{DisplayNode, DisplayRecordedSubtreeFingerprint, DisplayTree, HiddenChildDisplayNode},
     },
     layout::tree::LayoutOutputFingerprint,
 };
@@ -57,15 +53,6 @@ impl DisplayClipFingerprint {
 pub struct DisplayRecordedFingerprint(pub u64);
 
 impl DisplayRecordedFingerprint {
-    pub fn from_recorded(semantics: &RecordedNodeSemantics<'_>) -> Self {
-        Self::from_parts(
-            semantics.layout_output_fingerprint,
-            semantics.item,
-            semantics.paint_clip,
-            semantics.clip,
-        )
-    }
-
     pub fn from_display_node(node: &DisplayNode) -> Self {
         Self::from_parts(
             node.layout_output_fingerprint,
@@ -113,61 +100,63 @@ pub fn display_recorded_subtree_fingerprint(
     DisplayRecordedSubtreeFingerprint(hasher.finish())
 }
 
-/// 基于已注解节点计算子树 paint fingerprint。
-///
-/// 要求所有后代的 `paint_fingerprint` 已经自底向上填充完成。
-pub(crate) fn annotated_subtree_paint_fingerprint(
-    node: &AnnotatedDisplayNode,
-    analysis: &DisplayAnalysisTable,
-) -> Option<u64> {
+/// 自底向上填充整棵显示树的子树 paint / snapshot 指纹（写回
+/// `DisplayNode.paint_fingerprint` / `snapshot_fingerprint`）。
+pub fn compute_display_tree_fingerprints(tree: &mut DisplayTree) {
+    compute_node_fingerprints(&mut tree.root);
+}
+
+fn compute_node_fingerprints(node: &mut DisplayNode) {
+    let mut child_paints = Vec::with_capacity(node.children.len());
+    let mut child_snapshots = Vec::with_capacity(node.children.len());
+    for child in &mut node.children {
+        compute_node_fingerprints(child);
+        debug_assert!(
+            child.paint_fingerprint.is_some()
+                && child.snapshot_fingerprint.is_some(),
+            "invariant: child subtree must carry both fingerprints after recursion"
+        );
+        child_paints.push(child.paint_fingerprint);
+        child_snapshots.push(child.snapshot_fingerprint);
+    }
+
+    node.paint_fingerprint = subtree_paint_fingerprint(node, &child_paints);
+    node.snapshot_fingerprint = subtree_snapshot_fingerprint(node, &child_snapshots);
+}
+
+/// 子树 paint 指纹：自身 recorded paint + 各子节点 paint 指纹（声明序）。
+fn subtree_paint_fingerprint(node: &DisplayNode, child_paints: &[Option<u64>]) -> Option<u64> {
     let mut hasher = new_hasher();
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
-    for &child_handle in &node.children {
-        let child_fp = analysis.require(child_handle).paint_fingerprint;
-        debug_assert!(
-            child_fp.is_some(),
-            "invariant: stable annotated child must carry paint_fingerprint"
-        );
+    for child_fp in child_paints {
         child_fp.unwrap_or(0).hash(&mut hasher);
     }
     Some(hasher.finish())
 }
 
-/// 基于已注解节点计算 subtree snapshot fingerprint。
-///
-/// 要求所有后代的 `snapshot_fingerprint` 已经自底向上填充完成。
-///
-/// 仅 hash paint 内容（节点自身 paint + 子节点 snapshot_fingerprint 递归），
-/// 不含任何 composite（transform/opacity/blur）。
-/// composite 在 replay 时由 render dispatch 动态 apply。
-pub(crate) fn annotated_subtree_snapshot_fingerprint(
-    node: &AnnotatedDisplayNode,
-    analysis: &DisplayAnalysisTable,
+/// 子树 picture 缓存键指纹：仅 hash paint 内容（节点自身 paint + 子节点
+/// snapshot_fingerprint 递归），不含任何 composite（transform/opacity/blur）
+/// ——composite 在 replay 时由 render dispatch 动态 apply。
+fn subtree_snapshot_fingerprint(
+    node: &DisplayNode,
+    child_snapshots: &[Option<SubtreeSnapshotFingerprint>],
 ) -> Option<SubtreeSnapshotFingerprint> {
     let mut hasher = new_hasher();
-
     hash_node_recorded_paint(node, &mut hasher);
     node.children.len().hash(&mut hasher);
-
-    for &child_handle in &node.children {
-        let child_fp = analysis.require(child_handle).snapshot_fingerprint;
-        debug_assert!(
-            child_fp.is_some(),
-            "invariant: annotated child must carry snapshot_fingerprint"
-        );
+    for child_fp in child_snapshots {
         child_fp
             .unwrap_or(SubtreeSnapshotFingerprint(0))
             .0
             .hash(&mut hasher);
     }
-
     Some(SubtreeSnapshotFingerprint(hasher.finish()))
 }
 
-fn hash_node_recorded_paint<H: Hasher>(node: &AnnotatedDisplayNode, hasher: &mut H) {
+fn hash_node_recorded_paint<H: Hasher>(node: &DisplayNode, hasher: &mut H) {
     node.input_fingerprints.paint_input_subtree.hash(hasher);
-    DisplayRecordedFingerprint::from_recorded(&node.recorded_semantics()).hash(hasher);
+    DisplayRecordedFingerprint::from_display_node(node).hash(hasher);
 }
 
 pub(super) fn hash_hidden_child_display_node<H: Hasher>(

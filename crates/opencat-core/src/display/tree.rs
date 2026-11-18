@@ -1,5 +1,6 @@
+use crate::analyze::fingerprint::SubtreeSnapshotFingerprint;
 use crate::canvas::paint::ImageFilterSpec;
-use crate::display::list::{DisplayClip, DisplayItem, DisplayTransform, DrawScriptDisplayItem};
+use crate::display::list::{DisplayClip, DisplayItem, DisplayRect, DisplayTransform, DrawScriptDisplayItem};
 use crate::layout::tree::LayoutOutputFingerprint;
 use crate::resolve::tree::ElementId;
 use crate::semantic::fingerprint::ElementInputFingerprints;
@@ -38,6 +39,15 @@ pub struct DisplayNode {
     pub paint_clip: Option<DisplayClip>,
     pub clip: Option<DisplayClip>,
     pub item: DisplayItem,
+    /// 合成层 bounds（build 期折算）：自身 visual bounds ∪ children 平移后
+    /// bounds，再按 `filter: drop-shadow()` 外扩（extent = σ·3）。渲染期
+    /// SaveLayer 用；3-D 子树在渲染端降级为无界。
+    pub layer_bounds: DisplayRect,
+    /// 子树 paint 指纹（渲染期自底向上填充，见
+    /// `analyze::fingerprint::compute_display_tree_fingerprints`）。
+    pub paint_fingerprint: Option<u64>,
+    /// 子树 picture 缓存键指纹（与 paint_fingerprint 同轮填充）。
+    pub snapshot_fingerprint: Option<SubtreeSnapshotFingerprint>,
     pub children: Vec<DisplayNode>,
     pub draw_slot: Option<DrawScriptDisplayItem>,
     pub hidden_subtree: Vec<HiddenChildDisplayNode>,

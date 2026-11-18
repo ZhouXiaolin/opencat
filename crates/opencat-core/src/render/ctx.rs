@@ -3,8 +3,8 @@
 //! Carries scene data, frame metadata, and the `DrawOpBuilder` that
 //! all render functions write their draw-ops into.
 
-use crate::analyze::annotation::AnnotatedDisplayTree;
 use crate::analyze::compositor::OrderedSceneProgram;
+use crate::display::tree::DisplayTree;
 use crate::frame_ctx::FrameCtx;
 use crate::ir::GeneratedImageTable;
 use crate::probe::catalog::PreparedResourceCatalog;
@@ -17,8 +17,8 @@ use crate::render::builder::DrawOpBuilder;
 pub struct RenderCtx<'a> {
     pub catalog: &'a PreparedResourceCatalog,
     pub frame_ctx: &'a FrameCtx,
-    pub display_tree: &'a AnnotatedDisplayTree,
-    pub ordered_scene: &'a OrderedSceneProgram,
+    pub display_tree: &'a DisplayTree,
+    pub ordered_scene: &'a OrderedSceneProgram<'a>,
     pub builder: &'a mut DrawOpBuilder,
     pub font_db: &'a fontdb::Database,
     pub hidden_picture_stack: Vec<String>,

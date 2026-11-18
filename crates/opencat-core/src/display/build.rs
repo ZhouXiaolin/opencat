@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 
 use crate::{
     analyze::fingerprint::display_recorded_subtree_fingerprint,
+    canvas::paint::ImageFilterSpec,
     display::{
         list::{
             BitmapDisplayItem, BitmapPaintStyle, DisplayClip, DisplayItem, DisplayRect,
@@ -540,6 +541,9 @@ fn assemble_display_node(
         input_fingerprints: element.fingerprints,
         layout_output_fingerprint: layout.output_fingerprint,
         recorded_subtree_fingerprint: Default::default(),
+        layer_bounds: bounds,
+        paint_fingerprint: None,
+        snapshot_fingerprint: None,
         transform: {
             // 百分比位移在解析期没有盒子尺寸，这里按边界盒折算成 px；
             // 渲染端与 local_m4 只消费 px 变体。
@@ -588,7 +592,46 @@ fn assemble_display_node(
         hidden_subtree,
     };
     node.recorded_subtree_fingerprint = display_recorded_subtree_fingerprint(&node);
+    node.layer_bounds = compute_layer_bounds(&node);
     node
+}
+
+/// 合成层 bounds（build 期折算）：自身 visual bounds ∪ children 平移后
+/// bounds，再按 `filter: drop-shadow()` 外扩（extent = σ·3）。
+fn compute_layer_bounds(node: &DisplayNode) -> DisplayRect {
+    let mut bounds = node.item.visual_bounds();
+    for child in &node.children {
+        let child_bounds = child
+            .layer_bounds
+            .translate(child.transform.translation_x, child.transform.translation_y);
+        bounds = bounds.union(child_bounds);
+    }
+    // CSS filter 的绘制区域是 filter region：`drop-shadow()` 的阴影落在
+    // 元素框之外，合成层的 bounds 必须扩到能容纳它，否则阴影被裁掉。
+    // 与 style.rs `shadow_outsets` 同公式（extent = σ·3），从折算链的
+    // DropShadow 参数重算——identity 算子不进折算产物（透明/零参阴影
+    // 不产出像素，bounds 不扩无视觉差）。
+    let mut filter_stack: Vec<&ImageFilterSpec> = node.css_filter_image.as_ref().into_iter().collect();
+    while let Some(filter) = filter_stack.pop() {
+        match filter {
+            ImageFilterSpec::DropShadow {
+                dx, dy, sigma_x, ..
+            } => {
+                let extent = sigma_x * 3.0;
+                let left = (extent - dx).max(0.0);
+                let top = (extent - dy).max(0.0);
+                let right = (extent + dx).max(0.0);
+                let bottom = (extent + dy).max(0.0);
+                bounds = bounds.outset(left, top, right, bottom);
+            }
+            ImageFilterSpec::Compose(outer, inner) => {
+                filter_stack.push(outer);
+                filter_stack.push(inner);
+            }
+            _ => {}
+        }
+    }
+    bounds
 }
 
 /// 百分比位移按边界盒折算成 px（CSS `translate(50%)` 参考元素自身盒）。

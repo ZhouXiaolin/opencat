@@ -7,8 +7,8 @@ use anyhow::Result;
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
-use crate::analyze::annotation::{annotate_display_tree, compute_display_tree_fingerprints};
 use crate::analyze::compositor::OrderedSceneProgram;
+use crate::analyze::fingerprint::compute_display_tree_fingerprints;
 use crate::display::build::DisplayBuildSession;
 use crate::frame_ctx::{FrameCtx, ScriptFrameCtx};
 use crate::ir::{DrawOpFrame, FrameMediaPlan};
@@ -125,7 +125,6 @@ pub fn render_frame_with_state(
     display_build_session: &mut DisplayBuildSession,
     font_db: &Arc<fontdb::Database>,
     catalog: &mut PreparedResourceCatalog,
-    last_ordered_scene: &mut OrderedSceneProgram,
     script: &mut dyn ScriptHost,
     generated_images: &mut crate::ir::GeneratedImageTable,
 ) -> Result<(DrawOpFrame, FrameMediaPlan, Option<crate::ir::GpuSection>)> {
@@ -199,8 +198,8 @@ pub fn render_frame_with_state(
     }
     #[cfg(not(feature = "profile"))]
     let _ = display_stats;
-    let mut annotated = annotate_display_tree(&display_tree);
-    compute_display_tree_fingerprints(&mut annotated);
+    let mut display_tree = display_tree;
+    compute_display_tree_fingerprints(&mut display_tree);
     // 临时调试（OC_DBG_DISPLAY=1）：打印 display 层所有带 transform 的节点。
     if std::env::var_os("OC_DBG_DISPLAY").is_some() {
         fn dump_display(n: &crate::display::tree::DisplayNode, depth: usize) {
@@ -223,14 +222,13 @@ pub fn render_frame_with_state(
     #[cfg(feature = "profile")]
     drop(_display_span);
 
-    let ordered_scene = OrderedSceneProgram::build(&annotated);
-    *last_ordered_scene = ordered_scene.clone();
+    let ordered_scene = OrderedSceneProgram::build(&display_tree);
 
     let mut builder = DrawOpBuilder::default();
     let mut ctx = RenderCtx {
         catalog: &*catalog,
         frame_ctx: &frame_ctx,
-        display_tree: &annotated,
+        display_tree: &display_tree,
         ordered_scene: &ordered_scene,
         builder: &mut builder,
         font_db: font_db.as_ref(),
@@ -240,7 +238,7 @@ pub fn render_frame_with_state(
     };
 
     crate::text::scope_font_db(font_db, || {
-        crate::render::dispatch::render_display_tree(&mut ctx, &annotated)
+        crate::render::dispatch::render_display_tree(&mut ctx)
     })?;
 
     let frame = builder.finish();

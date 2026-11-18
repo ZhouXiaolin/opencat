@@ -1,12 +1,10 @@
 #[cfg(feature = "profile")]
 use tracing::{Level, event, span};
 
-use crate::analyze::annotation::{
-    AnnotatedDisplayTree, AnnotatedNodeHandle, DrawCompositeSemantics,
-};
-use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
+use crate::analyze::compositor::OrderedSceneOp;
 use crate::canvas::paint::{BlendMode, FillSpec, ImageFilterSpec, PaintSpec, PaintStyle};
 use crate::display::list::{DisplayItem, DisplayRect, DisplayTransform, RectDisplayItem};
+use crate::display::tree::DisplayNode;
 use crate::geom::Mat4;
 use crate::ir::draw_op::{DrawOp, Rect4};
 use crate::ir::draw_types::{DrawOpRange, PaintId, PathOp};
@@ -326,16 +324,22 @@ struct ApplyPlan<'a> {
 }
 
 impl<'a> ApplyPlan<'a> {
-    fn from_draw_composite(draw: DrawCompositeSemantics<'a>, layer_bounds: DisplayRect) -> Self {
+    /// 节点 composite 字段直取（M4-⑥：DrawCompositeSemantics 投影随
+    /// Annotated 层退役）。
+    fn from_node(node: &'a DisplayNode) -> Self {
+        let backdrop_border_radius = match &node.item {
+            DisplayItem::Rect(rect) => rect.paint.border_radius,
+            _ => BorderRadius::default(),
+        };
         Self {
-            transform: draw.transform,
-            opacity: draw.opacity,
-            css_filter_image: draw.css_filter_image,
-            backdrop_filter_image: draw.backdrop_filter_image,
-            backdrop_blur_sigma: draw.backdrop_blur_sigma,
-            mask_image: draw.mask_image,
-            backdrop_border_radius: draw.backdrop_border_radius,
-            layer_bounds,
+            transform: &node.transform,
+            opacity: node.opacity,
+            css_filter_image: node.css_filter_image.as_ref(),
+            backdrop_filter_image: node.backdrop_filter_image.as_ref(),
+            backdrop_blur_sigma: node.backdrop_blur_sigma,
+            mask_image: node.mask_image.as_ref(),
+            backdrop_border_radius,
+            layer_bounds: node.layer_bounds,
         }
     }
 }
@@ -530,12 +534,9 @@ fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
     emit_apply_suffix(builder, frame);
 }
 
-pub fn render_display_tree(
-    ctx: &mut RenderCtx,
-    tree: &AnnotatedDisplayTree,
-) -> Result<(), RenderError> {
+pub fn render_display_tree(ctx: &mut RenderCtx) -> Result<(), RenderError> {
     ctx.space3 = Space3::root();
-    render_scene_op(ctx, &ctx.ordered_scene.root, tree)
+    render_scene_op(ctx, &ctx.ordered_scene.root)
 }
 
 fn item_visible_at_frame(ctx: &RenderCtx, item: &DisplayItem) -> bool {
@@ -553,16 +554,10 @@ fn item_visible_at_frame(ctx: &RenderCtx, item: &DisplayItem) -> bool {
     .is_visible()
 }
 
-fn render_scene_op(
-    ctx: &mut RenderCtx,
-    op: &OrderedSceneOp,
-    tree: &AnnotatedDisplayTree,
-) -> Result<(), RenderError> {
+fn render_scene_op(ctx: &mut RenderCtx, op: &OrderedSceneOp) -> Result<(), RenderError> {
     match op {
-        OrderedSceneOp::ReusedSubtree { handle } => render_reused_subtree(ctx, *handle, tree),
-        OrderedSceneOp::LiveSubtree { handle, children } => {
-            render_live_subtree(ctx, *handle, children, tree)
-        }
+        OrderedSceneOp::ReusedSubtree { node } => render_reused_subtree(ctx, node),
+        OrderedSceneOp::LiveSubtree { node, children } => render_live_subtree(ctx, node, children),
     }
 }
 
@@ -572,21 +567,17 @@ fn render_scene_op(
 /// a larger projected z is nearer the viewer and must be drawn last. The depth
 /// changes every frame, so the ordering lives here rather than in the build-time
 /// `z_index` sort.
-fn render_children(
-    ctx: &mut RenderCtx,
-    children: &[OrderedSceneOp],
-    tree: &AnnotatedDisplayTree,
-) -> Result<(), RenderError> {
+fn render_children(ctx: &mut RenderCtx, children: &[OrderedSceneOp]) -> Result<(), RenderError> {
     if ctx.space3.abs_h.is_none() {
         for child in children {
-            render_scene_op(ctx, child, tree)?;
+            render_scene_op(ctx, child)?;
         }
         return Ok(());
     }
     let mut ordered: Vec<(f32, &OrderedSceneOp)> = children
         .iter()
         .map(|child| {
-            let transform = &tree.node(child.handle()).transform;
+            let transform = &child.node().transform;
             let depth = match transform.local_m4 {
                 Some(_) => {
                     let m = node_abs(ctx.space3, transform)
@@ -609,19 +600,13 @@ fn render_children(
     // untouched.
     ordered.sort_by(|a, b| a.0.total_cmp(&b.0));
     for (_, child) in ordered {
-        render_scene_op(ctx, child, tree)?;
+        render_scene_op(ctx, child)?;
     }
     Ok(())
 }
 
-fn render_reused_subtree(
-    ctx: &mut RenderCtx,
-    handle: AnnotatedNodeHandle,
-    tree: &AnnotatedDisplayTree,
-) -> Result<(), RenderError> {
-    let node = tree.node(handle);
-    let draw = node.draw_composite_semantics();
-    if draw.opacity <= 0.0 {
+fn render_reused_subtree(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(), RenderError> {
+    if node.opacity <= 0.0 {
         return Ok(());
     }
     if !item_visible_at_frame(ctx, &node.item) {
@@ -631,39 +616,32 @@ fn render_reused_subtree(
         return Ok(());
     }
 
-    let layer_bounds = tree.layer_bounds(handle);
-    let apply_plan = ApplyPlan::from_draw_composite(draw, layer_bounds);
+    let apply_plan = ApplyPlan::from_node(node);
     let parent_space = ctx.space3;
     let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
     let node_space = enter_node_space(ctx, apply_plan.transform);
     ctx.space3 = child_space(ctx, node_space, apply_plan.transform);
-    let fingerprint = tree.analysis(handle).snapshot_fingerprint.ok_or_else(|| {
-        RenderError::InvalidArgument(
-            "ReusedSubtree node must have snapshot_fingerprint".to_string(),
-        )
-    })?;
-    let _snapshot_fingerprint = fingerprint;
 
     let has_paint_clip = node.paint_clip.is_some();
     let has_clip = node.clip.is_some();
-    let subtree = OrderedSceneProgram::build_subtree(tree, handle);
 
-    let recorded = node.recorded_semantics();
-
-    if let Some(clip) = &recorded.paint_clip {
+    if let Some(clip) = &node.paint_clip {
         ctx.builder.push(DrawOp::Save);
         let clip_rect4 = display_rect_to_rect4(clip.bounds);
         clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
     }
-    render_display_item(ctx, recorded.item)?;
-    if let Some(clip) = &recorded.clip {
+    render_display_item(ctx, &node.item)?;
+    if let Some(clip) = &node.clip {
         ctx.builder.push(DrawOp::Save);
         let clip_rect4 = display_rect_to_rect4(clip.bounds);
         clip_bounds_with_radius(ctx.builder, clip_rect4, &clip.border_radius);
     }
 
-    // Render children dynamically.
-    render_children(ctx, &subtree.children, tree)?;
+    // Render children dynamically（决策树重建：原 build_subtree 语义 =
+    // 对每个 child 跑一遍 build_scene_op 决策）。
+    let children: Vec<OrderedSceneOp> =
+        node.children.iter().map(crate::analyze::compositor::build_scene_op).collect();
+    render_children(ctx, &children)?;
     if has_clip {
         ctx.builder.push(DrawOp::Restore);
     }
@@ -678,13 +656,10 @@ fn render_reused_subtree(
 
 fn render_live_subtree(
     ctx: &mut RenderCtx,
-    handle: AnnotatedNodeHandle,
+    node: &DisplayNode,
     children: &[OrderedSceneOp],
-    tree: &AnnotatedDisplayTree,
 ) -> Result<(), RenderError> {
-    let node = tree.node(handle);
-    let draw = node.draw_composite_semantics();
-    if draw.opacity <= 0.0 {
+    if node.opacity <= 0.0 {
         return Ok(());
     }
     if !item_visible_at_frame(ctx, &node.item) {
@@ -694,7 +669,7 @@ fn render_live_subtree(
         return Ok(());
     }
 
-    let apply_plan = ApplyPlan::from_draw_composite(draw, tree.layer_bounds(handle));
+    let apply_plan = ApplyPlan::from_node(node);
     let parent_space = ctx.space3;
     let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
     let node_space = enter_node_space(ctx, apply_plan.transform);
@@ -718,11 +693,11 @@ fn render_live_subtree(
         }
 
         let from_marker = ctx.builder.begin_range();
-        render_scene_op(ctx, &children[0], tree)?;
+        render_scene_op(ctx, &children[0])?;
         let from_range = ctx.builder.end_range(from_marker);
 
         let to_marker = ctx.builder.begin_range();
-        render_scene_op(ctx, &children[1], tree)?;
+        render_scene_op(ctx, &children[1])?;
         let to_range = ctx.builder.end_range(to_marker);
 
         #[cfg(feature = "profile")]
@@ -773,7 +748,7 @@ fn render_live_subtree(
         }
     }
 
-    render_children(ctx, children, tree)?;
+    render_children(ctx, children)?;
 
     if node.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);

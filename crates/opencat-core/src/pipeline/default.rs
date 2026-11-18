@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use crate::analyze::annotation::AnnotatedNodeHandle;
-use crate::analyze::compositor::{OrderedSceneOp, OrderedSceneProgram};
 use crate::display::build::DisplayBuildSession;
 use crate::ir::{CompositionInfo, GeneratedImageTable, RenderFrame};
 use crate::layout::LayoutSession;
@@ -36,7 +34,6 @@ pub struct DefaultPipeline<S: JsContext> {
     layout_session: LayoutSession,
     display_build_session: DisplayBuildSession,
     font_db: Arc<fontdb::Database>,
-    last_ordered_scene: OrderedSceneProgram,
     /// Core-rasterized images (color-emoji bitmap glyphs) for the lifetime of
     /// this pipeline. Stable ids make fresh vs reused pipelines produce
     /// identical tables; RGBA is stored here so it is not dropped at text-render
@@ -68,12 +65,6 @@ impl<S: JsContext> DefaultPipeline<S> {
             layout_session: LayoutSession::new(),
             display_build_session: DisplayBuildSession::new(),
             font_db,
-            last_ordered_scene: OrderedSceneProgram {
-                root: OrderedSceneOp::LiveSubtree {
-                    handle: AnnotatedNodeHandle(0),
-                    children: Vec::new(),
-                },
-            },
             generated_images: GeneratedImageTable::with_max_age(DEFAULT_GENERATED_IMAGE_MAX_AGE),
         })
     }
@@ -180,7 +171,6 @@ impl<S: JsContext> Pipeline for DefaultPipeline<S> {
             &mut self.display_build_session,
             &self.font_db,
             &mut self.catalog,
-            &mut self.last_ordered_scene,
             &mut self.scripts,
             &mut self.generated_images,
         )?;

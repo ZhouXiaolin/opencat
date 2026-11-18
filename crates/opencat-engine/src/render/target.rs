@@ -58,6 +58,16 @@ pub trait RenderTarget {
     fn execute(&mut self, job: FrameJob<'_>) -> Result<Vec<u8>>;
 }
 
+/// 工厂产物（`Box<dyn RenderTarget>`）直接当 target 用：StreamRunner 的
+/// `make_target` 闭包走 [`make_render_target`] 时，执行线程拿到的就是
+/// boxed trait 对象——委托 impl 让它与具名 target 同型，backend 判别
+/// 语义（OC_SKIA_BACKEND / gpu::requested）在 Png、MP4、预览三路一致。
+impl RenderTarget for Box<dyn RenderTarget> {
+    fn execute(&mut self, job: FrameJob<'_>) -> Result<Vec<u8>> {
+        (**self).execute(job)
+    }
+}
+
 /// VK 生产路的 [`RenderTarget`] 适配：会话 + 执行线程专属协作者
 /// 全部在此自建（GL/Skia 上下文非 Send，产物不跨线程）。
 #[cfg(any(target_os = "windows", target_os = "linux"))]

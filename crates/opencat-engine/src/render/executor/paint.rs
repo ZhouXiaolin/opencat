@@ -600,6 +600,10 @@ fn build_filter_prim(chain: &FilterChainSpec, idx: usize, out_srgb: bool) -> Opt
                 4 => image_filters::blend(SkBlendMode::Xor, bg, fg, crop),
                 5 => image_filters::blend(SkBlendMode::Plus, bg, fg, crop),
                 6 => image_filters::arithmetic(k[0], k[1], k[2], k[3], true, bg, fg, crop),
+                // op 值域在 core 解析层已封闭（render/svg.rs 的 usvg 枚举
+                // 映射 0-6，无其他产出点）——此臂不可达。若未来扩展 op 值域，
+                // 必须同步把本函数改 fail-loud（web 端 ck-adapter 对未知
+                // primitive 是 throw，静默 None 会让两端像素语义分叉）。
                 _ => return None,
             }
         }

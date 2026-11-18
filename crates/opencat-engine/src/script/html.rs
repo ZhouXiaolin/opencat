@@ -26,12 +26,7 @@ use opencat_core::parse::html::{HtmlScript, parse_html, scope_composition_css};
 use opencat_core::parse::hyperframes;
 use opencat_core::script::dispatch::{binding_shim_js, dispatch_binding};
 use opencat_core::script::js_context::JsContext;
-use opencat_core::script::realm::JS_PLATFORM_SHIM;
-use opencat_core::script::runtime::{
-    ANIMATION_RUNTIME, ASSET_API_RUNTIME, CANVAS_API_RUNTIME, CONTEXT2D_RUNTIME, DOM_API_RUNTIME,
-    DIST_MODULE_RUNTIME, GL_OPCODES_RUNTIME, HTML_STD_API_RUNTIME, HYPERFRAMES_API_RUNTIME,
-    NODE_STYLE_RUNTIME, TREE_API_RUNTIME, WEBGL_API_RUNTIME, WEBGPU_API_RUNTIME,
-};
+use opencat_core::script::runtime::install_runtime;
 
 /// Parse an HTML composition source into a [`ParsedComposition`].
 pub fn parse_with_base_dir(input: &str, base_dir: Option<&Path>) -> Result<ParsedComposition> {
@@ -402,24 +397,9 @@ pub fn extract_html_with_base_dir(input: &str, base_dir: Option<&Path>) -> Resul
         )?;
             ctx.install_dispatcher(dispatch_binding)?;
             ctx.eval(&binding_shim_js())?;
-            ctx.eval(CANVAS_API_RUNTIME)?;
-            ctx.eval(JS_PLATFORM_SHIM)?;
-            ctx.eval(DOM_API_RUNTIME)?;
-            ctx.eval(CONTEXT2D_RUNTIME)?;
-            // WebGL2/WebGPU 录制面：three 的 WebGLRenderer 走 ctx.getContext
-            // （GL_OPCODES 先装，WEBGL_API 引用 GLOP.*）。顺序与 realm 一致。
-            ctx.eval(GL_OPCODES_RUNTIME)?;
-            ctx.eval(WEBGL_API_RUNTIME)?;
-            ctx.eval(WEBGPU_API_RUNTIME)?;
-            ctx.eval(NODE_STYLE_RUNTIME)?;
-            ctx.eval(TREE_API_RUNTIME)?;
-            ctx.eval(ANIMATION_RUNTIME)?;
-            // 网络加载垫（fetch/Blob/URL/createImageBitmap）：html 页面的 three
-            // GLTFLoader 等走这条通道读 `<base_dir>` 下的资产。
-            ctx.eval(ASSET_API_RUNTIME)?;
-            // 模块装载（__ocRequire/__ocModuleSources）：`<script type="module">`
-            // 的降级产物在提取期就要可执行。
-            ctx.eval(DIST_MODULE_RUNTIME)?;
+            // Runtime 安装序唯一来自 manifest（runtime::install_runtime）：
+            // 与渲染 realm 同序，顺序不变量登记在清单条目注释里。
+            opencat_core::script::runtime::install_runtime(&ctx)?;
             crate::script::bridge::install_asset_bridge(&ctx, base);
             ctx.eval(&driver)?;
             // 页面脚本常把「建 DOM / 登记 timeline」放在 async 续体里：
@@ -1064,11 +1044,6 @@ closest: function (sel) { return document.querySelector(sel); } });\n",
     driver.push_str(&format!("globalThis.__ocTraceJs = {trace_js};\n"));
     driver.push_str("var __ocHtmlInit = !globalThis.__ocHtmlPageInited;\n");
     driver.push_str("if (__ocHtmlInit) {\n");
-    // 扩展层先提供窄接口，标准层随后读取它；两者都在 core，分文件装配。
-    driver.push_str(HYPERFRAMES_API_RUNTIME);
-    driver.push_str("\n");
-    driver.push_str(HTML_STD_API_RUNTIME);
-    driver.push_str("\n");
     driver.push_str("\n;(function () {\n");
     // G13：文档 URL 面在任何文档脚本执行前就位（浏览器的 goto 语义）。
     // 填充入口收敛到标准层 `__ocHtmlSetLocationFace`：导航宿主（浏览器，

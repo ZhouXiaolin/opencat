@@ -56,12 +56,14 @@ pub fn build_audio_track_from_pipeline(pipeline: &EnginePipeline) -> Result<Opti
         let copy_frames = end_sample
             .saturating_sub(start_sample)
             .min(clip.sample_frames());
+        // 元素增益（`data-volume`）在混入时逐采样相乘；缺省 1.0 不变。
+        let gain = seg.gain.unwrap_or(1.0) as f32;
         for i in 0..copy_frames {
             let dst = (start_sample + i) * channels as usize;
             let src = i * channels as usize;
             if dst + 1 < mixed_samples.len() && src + 1 < clip.samples.len() {
-                mixed_samples[dst] += clip.samples[src];
-                mixed_samples[dst + 1] += clip.samples[src + 1];
+                mixed_samples[dst] += clip.samples[src] * gain;
+                mixed_samples[dst + 1] += clip.samples[src + 1] * gain;
             }
         }
     }

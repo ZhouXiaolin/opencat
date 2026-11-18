@@ -936,12 +936,12 @@ pub fn render_from_source_with_base(
             // 各阶段内部严格串行——frame=f(t) 确定性不变。loader/textures
             // 是 open 后只读的 Arc 共享；背压 2 帧：script 最多超前执行 2 帧。
             // Skia 的 GrDirectContext 非 Send（rust-skia 保守禁跨线程）——
-            // 执行线程经 StreamRunner 自建 VkRenderTarget（会话/缓存/
-            // media_ctx 归它所有），主线程零 GPU 状态。loader/textures
-            // 是 open 后只读的 Arc 共享（SessionDeps）；背压 2 帧：script
-            // 最多超前执行 2 帧。
+            // 执行线程经 StreamRunner 自建 target（会话/缓存/media_ctx 归
+            // 它所有），主线程零 GPU 状态。backend 判别走唯一工厂（与
+            // Png/预览路同语义：OC_SKIA_BACKEND=vulkan→Vk，否则 GPU→Gl，
+            // 不再硬编 Vk——设 gl 的环境 MP4 路曾仍被压到 Vk）。
             let runner = StreamRunner::spawn(
-                move |_| target::VkRenderTarget::new(aligned_info.0, aligned_info.1, info.fps),
+                move |_| make_render_target(aligned_info.0, aligned_info.1, info.fps),
                 SessionDeps::from_pipeline(&pipeline),
             )?;
 

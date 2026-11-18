@@ -120,10 +120,21 @@
                 "context2d.font: expected '<weight> <size>px <family>', got '" + String(font) + "'"
             );
         }
+        // 族栈整条保留（浏览器 fillText 语义：按栈序找第一个已装的族，
+        // 栈尾 generic 落注册映射）。token-walk 已按空白切碎 family——
+        // join(' ') 恢复（引号内的空格不能丢，CSS 空白折叠成单空格），
+        // 再按逗号分出族栈。kujira 的
+        // `"Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", ..., serif`
+        // 只取首项会落到黑体兜底，整栈才能命中系统里的 Noto Serif CJK。
+        var stack = tokens.slice(familyStart).join(' ')
+            .split(',')
+            .map(function (s) { return s.replace(/["']/g, '').trim(); })
+            .filter(function (s) { return s !== ''; });
         return {
             weight: weight,
             size: size,
-            family: tokens.slice(familyStart).join(',').split(',')[0].replace(/["']/g, '').trim(),
+            family: stack[0] || 'sans-serif',
+            stack: stack,
         };
     }
 
@@ -1090,7 +1101,8 @@
             // 里只剩 path，段落位图通道（__canvas_draw_paragraph）退役出
             // 本面。emoji（color 载荷）不支持，报错指路 CanvasKit Paragraph。
             shapeGlyphs(text, font) {
-                var key = text + '\u0000' + font.size + '\u0000' + font.family + '\u0000' + font.weight;
+                var stackStr = font.stack && font.stack.length ? font.stack.join(',') : String(font.family);
+                var key = text + '\u0000' + font.size + '\u0000' + stackStr + '\u0000' + font.weight;
                 var hit = shapeCache[key];
                 if (hit) return hit;
                 if (shapeCacheSize >= SHAPE_CACHE_CAP) {
@@ -1098,10 +1110,10 @@
                     shapeCacheSize = 0;
                 }
                 shapeCacheSize++;
-                return (shapeCache[key] = this.shapeGlyphsUncached(text, font));
+                return (shapeCache[key] = this.shapeGlyphsUncached(text, font, stackStr));
             },
-            shapeGlyphsUncached(text, font) {
-                var shaped = __canvas_glyph_paths(text, font.size, font.family, font.weight);
+            shapeGlyphsUncached(text, font, stackStr) {
+                var shaped = __canvas_glyph_paths(text, font.size, stackStr || String(font.family), font.weight);
                 return shaped;
             },
             // Shared path-baking for fillText/strokeText: shape once, then

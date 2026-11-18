@@ -1128,6 +1128,14 @@ closest: function (sel) { return document.querySelector(sel); } });\n",
     driver.push_str(";\n");
     driver.push_str("    globalThis.__ocSetClock(__ocTime);\n");
     driver.push_str("    globalThis.__ocSeekT = __ocTime;\n");
+    // hyperframes 播放器桥（每帧幂等）：页面自带 `__player.renderSeek(t)`
+    // 时帧驱动交给它——CLI 采集同语义（seekCompositionTimeline 首选
+    // renderSeek）。页面桥自管绘制（如 kujira 的 FILM.renderFrame(n)），
+    // 与下面的 GSAP 注册表幂等 play 并存（允许 canvas + timeline 混用页）。
+    driver.push_str("    (function () {\n");
+    driver.push_str("        var __ocP = (typeof window === 'object' && window && window.__player) || null;\n");
+    driver.push_str("        if (__ocP && typeof __ocP.renderSeek === 'function') { try { __ocP.renderSeek(__ocTime); } catch (e) { if (typeof __ocStderr === 'function') __ocStderr('[player] renderSeek threw: ' + (e && (e.stack || e))); } }\n");
+    driver.push_str("    })();\n");
     // 播放器语义（每帧幂等）：注册表 timeline 按幕锚点交给自然播放。
     // 渲染进程的 realm 是全新重建（提取只传树 JSON，JS 状态不跨进程），
     // play 必须发生在渲染进程——挂在逐帧段覆盖 async 续体后到者

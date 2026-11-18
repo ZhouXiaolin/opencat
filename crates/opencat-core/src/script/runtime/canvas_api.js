@@ -953,9 +953,12 @@
        的 shape 载荷；emoji（ColorImage）段落走生成图位图。 */
     function paragraphStyleOf(textStyle) {
         const style = textStyle || {};
-        const family = Array.isArray(style.fontFamilies) && style.fontFamilies.length
-            ? String(style.fontFamilies[0]).replace(/["']/g, '')
-            : 'sans-serif';
+        // 族栈整条传宿主（逗号分隔 CSS 栈，canvas_glyph_paths 按栈序解析
+        // ——与 fillText 同语义）；只取首项会让栈内后位命中族丢失。
+        const families = Array.isArray(style.fontFamilies) && style.fontFamilies.length
+            ? style.fontFamilies.map((f) => String(f).replace(/["']/g, '').trim()).filter(Boolean)
+            : ['sans-serif'];
+        const family = families.join(',');
         const size = toFiniteNumber(style.fontSize, 12);
         const weight = toFiniteNumber(style.fontStyle && style.fontStyle.weight, 400);
         return { family, size, weight, color: style.color };

@@ -254,19 +254,28 @@ macro_rules! for_each_binding {
         //    y-up → 屏幕 y-down）。ColorImage（emoji）不走 path：置 color
         //    标记，垫片回退位图通道（core 不解释 payload）。
         $binding! { pure canvas_glyph_paths (text: String, size: f32, family: String, weight: u32) -> serde_json::Value {
-            // Generic `sans-serif` must resolve through fontdb's registered
-            // sans-serif family (engine: Noto Sans SC), not as a literal
-            // name — a literal lookup misses and cosmic-text's fallback
-            // bottom-feeds into Noto Color Emoji, where even '0' has a
-            // color keycap bitmap. `None` → `Family::SansSerif` → the
-            // registered mapping.
-            let family = match family.trim() {
-                "" | "sans-serif" => None,
-                _ => Some(family),
-            };
+            // `family` 是 CSS 族栈（逗号分隔，浏览器 fillText 语义）：
+            // text_attrs 先按栈序找第一个装在 fontdb 里的族（k3 的
+            // `"Inter","Helvetica Neue",Arial,sans-serif` 落 Arial），整栈
+            // 全缺时落到栈尾 generic（serif/sans-serif/monospace）的注册
+            // 映射——generic 名不能当字面族查，否则 cosmic-text 的
+            // bottom-fallback 会喂进 Noto Color Emoji（'0' 都有 color
+            // keycap 位图）。
+            let stack: Vec<String> = family
+                .split(',')
+                .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let font_generic = stack.iter().rev().find_map(|name| match name.as_str() {
+                "serif" => Some($crate::style::GenericFamily::Serif),
+                "sans-serif" => Some($crate::style::GenericFamily::SansSerif),
+                "monospace" => Some($crate::style::GenericFamily::Monospace),
+                _ => None,
+            });
             let style = $crate::style::ComputedTextStyle {
                 text_px: size,
-                font_family: family,
+                font_stack: stack,
+                font_generic,
                 font_weight: $crate::style::FontWeight(weight as u16),
                 ..Default::default()
             };

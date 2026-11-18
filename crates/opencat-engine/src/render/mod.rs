@@ -101,8 +101,8 @@ fn cpu_execute_gpu_streams(
 
 /// 调试用：dump 原始 GPU 流（诊断两链命令分歧）。全片体量过大：默认只落
 /// 前 2 帧；`OC_DUMP_GPU_STREAM_ALL=1` 全量。
-fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, frame_index: u32) {
-    if frame_index >= 2 && std::env::var_os("OC_DUMP_GPU_STREAM_ALL").is_none() {
+fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, label: u32) {
+    if label >= 2 && std::env::var_os("OC_DUMP_GPU_STREAM_ALL").is_none() {
         return;
     }
     let _ = std::fs::create_dir_all(dir);
@@ -123,7 +123,7 @@ fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, f
             buf.extend_from_slice(&r.start.to_le_bytes());
             buf.extend_from_slice(&r.len.to_le_bytes());
         }
-        let _ = std::fs::write(dir.join(format!("gpu-frame{frame_index}-s{si}.bin")), &buf);
+        let _ = std::fs::write(dir.join(format!("gpu-frame{label}-s{si}.bin")), &buf);
     }
 }
 
@@ -223,7 +223,7 @@ impl GpuRenderSession {
         media_ctx: &mut MediaContext,
         executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-        frame_index: u32,
+        label: u32,
         deferred: bool,
         t0: Option<std::time::Instant>,
         t_script: Option<std::time::Duration>,
@@ -240,12 +240,12 @@ impl GpuRenderSession {
         if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM")
             && let Some(gpu) = &render.gpu
         {
-            dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
+            dump_gpu_streams(std::path::Path::new(&dir), gpu, label);
         }
         if std::env::var_os("OC_TRACE_STREAMS").is_some() {
             match &render.gpu {
                 Some(gpu) => {
-                    eprintln!("[streams] f{frame_index} n={}", gpu.streams.len());
+                    eprintln!("[streams] f{label} n={}", gpu.streams.len());
                     for s in &gpu.streams {
                         eprintln!(
                             "[streams]   {:?} {}x{} backend={:?}",
@@ -253,7 +253,7 @@ impl GpuRenderSession {
                         );
                     }
                 }
-                None => eprintln!("[streams] f{frame_index} none"),
+                None => eprintln!("[streams] f{label} none"),
             }
         }
         let mut stream_outputs: Vec<crate::gpu::stream_executor::StreamOutput> = Vec::new();
@@ -379,7 +379,7 @@ impl GpuRenderSession {
                 let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
                 gl.bind_framebuffer(glow::FRAMEBUFFER, None);
                 eprintln!(
-                    "[glstate] f{frame_index} on={on:?} viewport={vp:?} scissor={sc:?} fbo={fbo} prog={prog} err={err:?} compFbo={} status={status:?}",
+                    "[glstate] f{label} on={on:?} viewport={vp:?} scissor={sc:?} fbo={fbo} prog={prog} err={err:?} compFbo={} status={status:?}",
                     compositor.fbo()
                 );
             }
@@ -513,7 +513,7 @@ impl GpuRenderSession {
             let t_script = t_script.unwrap_or_default();
             let t_gl = t_gl.unwrap_or_default();
             eprintln!(
-                "[timing-gpu] f{frame_index} script={:.1}ms gl-stream={:.1}ms compose+readback={:.1}ms total={:.1}ms",
+                "[timing-gpu] f{label} script={:.1}ms gl-stream={:.1}ms compose+readback={:.1}ms total={:.1}ms",
                 t_script.as_secs_f64() * 1e3,
                 (t_gl - t_script).as_secs_f64() * 1e3,
                 (t_end - t_gl).as_secs_f64() * 1e3,
@@ -522,7 +522,7 @@ impl GpuRenderSession {
         }
         if std::env::var_os("OC_TRACE_FRAME_TIME").is_some() {
             eprintln!(
-                "[frametime] f{frame_index} exec_total={}ms",
+                "[frametime] f{label} exec_total={}ms",
                 stream_wall.elapsed().as_millis(),
             );
         }
@@ -618,6 +618,7 @@ impl VkRenderSession {
     /// Skia 合成 + 同步读回。帧是纯数据（[`opencat_core::ir::RenderFrame`]），
     /// 与 script 阶段经 flume 通道分线程衔接。`media_ctx`（视频解码/图像
     /// 光栅缓存）只属于本阶段；loader/textures 是 open 后只读的 Arc 共享。
+    /// `label` 仅作日志/dump 标签（执行语义对「第几帧」零依赖——M4-⑦ 红线）。
     #[allow(clippy::too_many_arguments)]
     pub fn execute_render(
         &mut self,
@@ -627,7 +628,7 @@ impl VkRenderSession {
         media_ctx: &mut MediaContext,
         pipeline_textures: &std::sync::Arc<crate::gpu::TextureRegistry>,
         loader: &std::sync::Arc<crate::resource::loader::EngineLoader>,
-        frame_index: u32,
+        label: u32,
     ) -> Result<Vec<u8>> {
         let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
         let t0 = timing.then(std::time::Instant::now);
@@ -639,10 +640,10 @@ impl VkRenderSession {
         let mut media_plan = render.media;
         if let Some(gpu) = render.gpu.as_ref() {
             if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM") {
-                dump_gpu_streams(std::path::Path::new(&dir), gpu, frame_index);
+                dump_gpu_streams(std::path::Path::new(&dir), gpu, label);
             }
             if std::env::var_os("OC_TRACE_STREAMS").is_some() {
-                eprintln!("[streams] f{frame_index} n={}", gpu.streams.len());
+                eprintln!("[streams] f{label} n={}", gpu.streams.len());
                 for s in &gpu.streams {
                     eprintln!(
                         "[streams]   {:?} {}x{} backend={:?}",
@@ -753,7 +754,7 @@ impl VkRenderSession {
         if let Some(t0) = t0 {
             let t_end = t0.elapsed();
             eprintln!(
-                "[timing-vk] f{frame_index} script={:.1}ms gl-stream={:.1}ms draw={:.1}ms readback={:.1}ms total={:.1}ms",
+                "[timing-vk] f{label} script={:.1}ms gl-stream={:.1}ms draw={:.1}ms readback={:.1}ms total={:.1}ms",
                 t_script.unwrap_or_default().as_secs_f64() * 1e3,
                 (t_streams.unwrap_or_default() - t_script.unwrap_or_default()).as_secs_f64() * 1e3,
                 (t_draw.unwrap_or_default() - t_streams.unwrap_or_default()).as_secs_f64() * 1e3,

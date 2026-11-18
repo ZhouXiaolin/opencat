@@ -655,12 +655,10 @@ fn enum_constants(ts: &mut String) {
         encode_path_fill_type(FillType::EvenOdd),
     );
 
-    // ImageRef tag — not backed by an encode function, hardcoded in encoder logic.
-    ts.push_str(
-        "/// ImageRef tag wire encoding: 0=Static, 1=VideoFrame, 2=Generated.\n\
-         export const IMAGE_REF_TAG = { STATIC: 0, VIDEO_FRAME: 1, GENERATED: 2 } as const;\n\
-         export type ImageRefTag = (typeof IMAGE_REF_TAG)[keyof typeof IMAGE_REF_TAG];\n\n",
-    );
+    // ImageRef tag + id-slot layout — generated from the canonical Rust table
+    // (`draw_encoding::IMAGE_REF_LAYOUT`), so the web decoder and the Rust
+    // encoder cannot drift apart.
+    image_ref_layout(ts);
 
     // ChildRef kind — not backed by an encode function, hardcoded in encoder logic.
     ts.push_str(
@@ -668,6 +666,48 @@ fn enum_constants(ts: &mut String) {
          export const CHILD_REF_KIND = { IMAGE: 0, PICTURE: 1, SHADER: 2, SUBTREE_PICTURE: 3 } as const;\n\
          export type ChildRefKind = (typeof CHILD_REF_KIND)[keyof typeof CHILD_REF_KIND];\n",
     );
+}
+
+// ---------------------------------------------------------------------------
+// ImageRef wire layout → TypeScript
+// ---------------------------------------------------------------------------
+
+/// Emit the ImageRef tag table + per-tag id-slot layout.
+///
+/// Source of truth: `draw_encoding::IMAGE_REF_LAYOUT` (Rust). The decoder
+/// walks the emitted slot fields in wire order, so the id-slot widths live in
+/// exactly one place.
+fn image_ref_layout(ts: &mut String) {
+    use super::draw_encoding::{IMAGE_REF_ID_SLOT_BYTES, IMAGE_REF_LAYOUT};
+    use std::fmt::Write;
+
+    let tags = IMAGE_REF_LAYOUT
+        .iter()
+        .map(|spec| format!("{}: {}", spec.name, spec.tag))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = write!(
+        ts,
+        "/// ImageRef tag wire encoding (source of truth: core `IMAGE_REF_LAYOUT`).\n\
+         export const IMAGE_REF_TAG = {{ {tags} }} as const;\n\
+         export type ImageRefTag = (typeof IMAGE_REF_TAG)[keyof typeof IMAGE_REF_TAG];\n\n\
+         /// Bytes of the ImageRef id-slot that follows the 1-byte tag.\n\
+         export const IMAGE_REF_ID_SLOT_BYTES = {IMAGE_REF_ID_SLOT_BYTES};\n\n\
+         /// One field of an ImageRef id-slot: name + width in bytes.\n\
+         export type ImageRefSlotField = {{ name: string; bytes: number }};\n\n\
+         /// ImageRef id-slot layout per tag: field name + width, in wire order.\n\
+         export const IMAGE_REF_SLOT_LAYOUT: Record<ImageRefTag, ImageRefSlotField[]> = {{\n",
+    );
+    for spec in IMAGE_REF_LAYOUT {
+        let fields = spec
+            .fields
+            .iter()
+            .map(|field| format!("{{ name: '{}', bytes: {} }}", field.name, field.bytes))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = write!(ts, "  {}: [{fields}],\n", spec.tag);
+    }
+    ts.push_str("};\n\n");
 }
 
 // ---------------------------------------------------------------------------

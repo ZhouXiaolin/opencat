@@ -311,25 +311,43 @@ fn clear_shader_colors(shader: &mut crate::canvas::paint::ShaderSpec) {
     }
 }
 
+/// The composite inputs one node contributes to its layer prefix.
+///
+/// Both the main display tree and the hidden-subtree path build one of these
+/// and hand it to [`begin_node_composite`], so the two paths emit the same
+/// Save / transform / layer / mask prefix and the same reverse suffix.
 #[derive(Clone, Debug)]
-struct ApplyPlan<'a> {
-    transform: &'a DisplayTransform,
-    opacity: f32,
-    css_filter_image: Option<&'a ImageFilterSpec>,
-    backdrop_filter_image: Option<&'a ImageFilterSpec>,
-    backdrop_blur_sigma: Option<f32>,
-    mask_image: Option<&'a crate::style::BackgroundFill>,
-    backdrop_border_radius: BorderRadius,
-    layer_bounds: DisplayRect,
+pub(crate) struct NodeCompositeParams<'a> {
+    /// The node's transform — applied between the Save and the layer.
+    pub(crate) transform: &'a DisplayTransform,
+    pub(crate) opacity: f32,
+    pub(crate) css_filter_image: Option<&'a ImageFilterSpec>,
+    pub(crate) backdrop_filter_image: Option<&'a ImageFilterSpec>,
+    pub(crate) backdrop_blur_sigma: Option<f32>,
+    pub(crate) mask_image: Option<&'a crate::style::BackgroundFill>,
+    /// Border radius of the backdrop clip.
+    pub(crate) backdrop_radius: BorderRadius,
+    /// Bounds of the composite layer (`None` = unbounded layer).
+    pub(crate) layer_bounds: Option<DisplayRect>,
+    /// Bounds the backdrop filter is clipped to (the element rect).
+    pub(crate) backdrop_bounds: DisplayRect,
 }
 
-impl<'a> ApplyPlan<'a> {
+impl<'a> NodeCompositeParams<'a> {
     /// 节点 composite 字段直取（M4-⑥：DrawCompositeSemantics 投影随
     /// Annotated 层退役）。
     fn from_node(node: &'a DisplayNode) -> Self {
-        let backdrop_border_radius = match &node.item {
+        let backdrop_radius = match &node.item {
             DisplayItem::Rect(rect) => rect.paint.border_radius,
             _ => BorderRadius::default(),
+        };
+        // A node inside a 3-D context paints outside its own element rect (a
+        // `translateZ` toward the camera magnifies it), so clipping its layer
+        // to `layer_bounds` would cut that overflow off. Drop the bounds there.
+        let layer_bounds = if is_3d(&node.transform) {
+            None
+        } else {
+            Some(node.layer_bounds)
         };
         Self {
             transform: &node.transform,
@@ -338,39 +356,40 @@ impl<'a> ApplyPlan<'a> {
             backdrop_filter_image: node.backdrop_filter_image.as_ref(),
             backdrop_blur_sigma: node.backdrop_blur_sigma,
             mask_image: node.mask_image.as_ref(),
-            backdrop_border_radius,
-            layer_bounds: node.layer_bounds,
+            backdrop_radius,
+            layer_bounds,
+            backdrop_bounds: node.transform.bounds,
         }
     }
 }
 
-struct ApplyFrame {
+/// The composite frame a node opens. Opaque: callers only hand it back to
+/// [`finish_node_composite`], so the layer/mask bookkeeping stays in one
+/// place.
+pub(crate) struct NodeCompositeFrame {
     layer_state: BackdropLayerState,
     mask_paint: Option<PaintId>,
     mask_rect: Option<Rect4>,
 }
 
-fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
+/// Open a node's composite frame: `Save` → transform → composite layer →
+/// mask layer.
+pub(crate) fn begin_node_composite(
+    builder: &mut DrawOpBuilder,
+    params: &NodeCompositeParams<'_>,
+) -> NodeCompositeFrame {
     builder.push(DrawOp::Save);
-    apply_transform(builder, plan.transform);
-    // A node inside a 3-D context paints outside its own element rect (a
-    // `translateZ` toward the camera magnifies it), so clipping its layer to
-    // `layer_bounds` would cut that overflow off. Drop the bounds there.
-    let layer_bounds = if is_3d(plan.transform) {
-        None
-    } else {
-        Some(plan.layer_bounds)
-    };
+    apply_transform(builder, params.transform);
     let mut layer_state = save_composite_layer(
         builder,
-        plan.opacity,
-        plan.css_filter_image,
-        plan.backdrop_filter_image,
-        plan.backdrop_blur_sigma,
-        plan.mask_image,
-        layer_bounds,
-        plan.transform.bounds,
-        plan.backdrop_border_radius,
+        params.opacity,
+        params.css_filter_image,
+        params.backdrop_filter_image,
+        params.backdrop_blur_sigma,
+        params.mask_image,
+        params.layer_bounds,
+        params.backdrop_bounds,
+        params.backdrop_radius,
     );
     let mask_paint = layer_state.mask_paint.take();
     let mask_rect = layer_state.mask_rect.take();
@@ -382,11 +401,22 @@ fn emit_apply_prefix(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> Apply
             backdrop: false,
         });
     }
-    ApplyFrame {
+    NodeCompositeFrame {
         layer_state,
         mask_paint,
         mask_rect,
     }
+}
+
+/// Close a node's composite frame: mask `Restore` + DstIn rect → backdrop
+/// restore → outer `Restore`. The exact reverse of [`begin_node_composite`].
+pub(crate) fn finish_node_composite(builder: &mut DrawOpBuilder, frame: &NodeCompositeFrame) {
+    if let (Some(paint), Some(rect)) = (frame.mask_paint, frame.mask_rect) {
+        builder.push(DrawOp::Restore);
+        builder.push(DrawOp::Rect { rect, paint });
+    }
+    restore_backdrop_blur_layer(builder, &frame.layer_state);
+    builder.push(DrawOp::Restore);
 }
 
 /// Whether this node opens a 3-D context of its own, or is transformed into
@@ -516,24 +546,6 @@ fn child_space(ctx: &mut RenderCtx, node: Space3, transform: &DisplayTransform) 
     space
 }
 
-fn emit_apply_suffix(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
-    if let (Some(paint), Some(rect)) = (frame.mask_paint, frame.mask_rect) {
-        builder.push(DrawOp::Restore);
-        builder.push(DrawOp::Rect { rect, paint });
-    }
-    restore_backdrop_blur_layer(builder, &frame.layer_state);
-    builder.push(DrawOp::Restore);
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn begin_apply_frame(builder: &mut DrawOpBuilder, plan: &ApplyPlan<'_>) -> ApplyFrame {
-    emit_apply_prefix(builder, plan)
-}
-
-fn finish_apply_frame(builder: &mut DrawOpBuilder, frame: &ApplyFrame) {
-    emit_apply_suffix(builder, frame);
-}
-
 pub fn render_display_tree(ctx: &mut RenderCtx) -> Result<(), RenderError> {
     ctx.space3 = Space3::root();
     render_scene_op(ctx, &ctx.ordered_scene.root)
@@ -616,9 +628,9 @@ fn render_reused_subtree(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(), 
         return Ok(());
     }
 
-    let apply_plan = ApplyPlan::from_node(node);
+    let apply_plan = NodeCompositeParams::from_node(node);
     let parent_space = ctx.space3;
-    let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
+    let apply_frame = begin_node_composite(ctx.builder, &apply_plan);
     let node_space = enter_node_space(ctx, apply_plan.transform);
     ctx.space3 = child_space(ctx, node_space, apply_plan.transform);
 
@@ -650,7 +662,7 @@ fn render_reused_subtree(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(), 
     }
 
     ctx.space3 = parent_space;
-    finish_apply_frame(ctx.builder, &apply_frame);
+    finish_node_composite(ctx.builder, &apply_frame);
     Ok(())
 }
 
@@ -669,9 +681,9 @@ fn render_live_subtree(
         return Ok(());
     }
 
-    let apply_plan = ApplyPlan::from_node(node);
+    let apply_plan = NodeCompositeParams::from_node(node);
     let parent_space = ctx.space3;
-    let apply_frame = emit_apply_prefix(ctx.builder, &apply_plan);
+    let apply_frame = begin_node_composite(ctx.builder, &apply_plan);
     let node_space = enter_node_space(ctx, apply_plan.transform);
     ctx.space3 = child_space(ctx, node_space, apply_plan.transform);
 
@@ -723,7 +735,7 @@ fn render_live_subtree(
             ctx.builder.push(DrawOp::Restore);
         }
         ctx.space3 = parent_space;
-        finish_apply_frame(ctx.builder, &apply_frame);
+        finish_node_composite(ctx.builder, &apply_frame);
         return Ok(());
     }
 
@@ -757,7 +769,7 @@ fn render_live_subtree(
         ctx.builder.push(DrawOp::Restore);
     }
     ctx.space3 = parent_space;
-    finish_apply_frame(ctx.builder, &apply_frame);
+    finish_node_composite(ctx.builder, &apply_frame);
     Ok(())
 }
 

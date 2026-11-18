@@ -409,6 +409,112 @@ pub mod opcode {
 }
 
 // ---------------------------------------------------------------------------
+// ImageRef wire layout (tag + id-slot)
+// ---------------------------------------------------------------------------
+
+/// Wire tag of `ImageRef::Static`.
+pub const IMAGE_REF_STATIC: u8 = 0;
+/// Wire tag of `ImageRef::VideoFrame`.
+pub const IMAGE_REF_VIDEO_FRAME: u8 = 1;
+/// Wire tag of `ImageRef::Generated`.
+pub const IMAGE_REF_GENERATED: u8 = 2;
+/// Wire tag of `ImageRef::Encoded`.
+pub const IMAGE_REF_ENCODED: u8 = 3;
+
+/// Bytes of the ImageRef id-slot that follows the 1-byte tag.
+pub const IMAGE_REF_ID_SLOT_BYTES: u16 = 12;
+
+/// One field of an ImageRef id-slot.
+pub struct ImageRefSlotField {
+    /// Field name — also the key of the generated TypeScript metadata.
+    pub name: &'static str,
+    /// Field width in bytes (4 or 8).
+    pub bytes: u16,
+}
+
+/// The wire tag + id-slot layout of one ImageRef variant.
+pub struct ImageRefTagSpec {
+    /// Variant name — the generated TypeScript key (`STATIC`, ...).
+    pub name: &'static str,
+    /// Wire tag value.
+    pub tag: u8,
+    /// Id-slot fields, in wire order.
+    pub fields: &'static [ImageRefSlotField],
+}
+
+/// The ImageRef wire layout table — the single source of truth shared by the
+/// Rust encoder ([`encode_image_ref_slot`]) and the TypeScript schema
+/// generator (`schema_gen`). Every variant is `tag(1) + id-slot(12)`; only
+/// the slot content differs:
+///
+/// | variant    | tag | id-slot                          |
+/// |------------|-----|----------------------------------|
+/// | Static     |  0  | string_id(4) + time_micros(8)    |
+/// | VideoFrame |  1  | string_id(4) + time_micros(8)    |
+/// | Generated  |  2  | generated_id(8) + reserved(4)    |
+/// | Encoded    |  3  | byte_range_id(4) + reserved(8)  |
+///
+/// The table is indexed by tag value (`IMAGE_REF_LAYOUT[tag]`).
+pub const IMAGE_REF_LAYOUT: &[ImageRefTagSpec] = &[
+    ImageRefTagSpec {
+        name: "STATIC",
+        tag: IMAGE_REF_STATIC,
+        fields: &[
+            ImageRefSlotField {
+                name: "string_id",
+                bytes: 4,
+            },
+            ImageRefSlotField {
+                name: "time_micros",
+                bytes: 8,
+            },
+        ],
+    },
+    ImageRefTagSpec {
+        name: "VIDEO_FRAME",
+        tag: IMAGE_REF_VIDEO_FRAME,
+        fields: &[
+            ImageRefSlotField {
+                name: "string_id",
+                bytes: 4,
+            },
+            ImageRefSlotField {
+                name: "time_micros",
+                bytes: 8,
+            },
+        ],
+    },
+    ImageRefTagSpec {
+        name: "GENERATED",
+        tag: IMAGE_REF_GENERATED,
+        fields: &[
+            ImageRefSlotField {
+                name: "generated_id",
+                bytes: 8,
+            },
+            ImageRefSlotField {
+                name: "reserved",
+                bytes: 4,
+            },
+        ],
+    },
+    ImageRefTagSpec {
+        name: "ENCODED",
+        tag: IMAGE_REF_ENCODED,
+        fields: &[
+            ImageRefSlotField {
+                name: "byte_range_id",
+                bytes: 4,
+            },
+            ImageRefSlotField {
+                name: "reserved",
+                bytes: 8,
+            },
+        ],
+    },
+];
+
+// ---------------------------------------------------------------------------
 // Intermediate section payloads (not a second on-wire envelope)
 // ---------------------------------------------------------------------------
 
@@ -1529,30 +1635,95 @@ fn encode_image_ref(
     image: &ImageRef,
     strings: &[String],
 ) -> Result<(), EncodeError> {
-    match image {
-        ImageRef::Static { asset_id } => {
-            write_u8(out, 0);
-            write_u32(out, lookup_string_id_checked(strings, asset_id)?);
-            write_u64(out, 0);
-        }
+    encode_image_ref_slot(out, image, |s| lookup_string_id_checked(strings, s))
+}
+
+/// A value written into one ImageRef id-slot field.
+#[derive(Clone, Copy)]
+enum ImageRefSlotValue {
+    U32(u32),
+    U64(u64),
+}
+
+/// Write one ImageRef wire record: `tag(1) + id-slot(12)`.
+///
+/// The single encoder for all four variants — the op payload path (IMAGE /
+/// IMAGE_RECT) and the runtime-effect children path both go through it, so
+/// the two can no longer drift apart. The slot content comes from
+/// [`IMAGE_REF_LAYOUT`], the same table the TypeScript decoder is generated
+/// from.
+///
+/// `resolve_string` maps an asset id to its frame string-table index. The op
+/// path passes the fail-hard lookup ([`lookup_string_id`], panics on a
+/// missing intern); the children path passes the checked one
+/// ([`lookup_string_id_checked`], returns [`EncodeError`]). Each path keeps
+/// its original error behaviour.
+fn encode_image_ref_slot(
+    out: &mut Vec<u8>,
+    image: &ImageRef,
+    resolve_string: impl Fn(&str) -> Result<u32, EncodeError>,
+) -> Result<(), EncodeError> {
+    let (spec, values): (&ImageRefTagSpec, [(&str, ImageRefSlotValue); 2]) = match image {
+        ImageRef::Static { asset_id } => (
+            &IMAGE_REF_LAYOUT[IMAGE_REF_STATIC as usize],
+            [
+                ("string_id", ImageRefSlotValue::U32(resolve_string(asset_id)?)),
+                ("time_micros", ImageRefSlotValue::U64(0)),
+            ],
+        ),
         ImageRef::VideoFrame {
             asset_id,
             time_micros,
-        } => {
-            write_u8(out, 1);
-            write_u32(out, lookup_string_id_checked(strings, asset_id)?);
-            write_u64(out, *time_micros);
-        }
-        ImageRef::Generated { id } => {
-            write_u8(out, 2);
-            write_u64(out, id.0);
-            write_u32(out, 0);
-        }
-        ImageRef::Encoded { data } => {
-            write_u8(out, 3);
-            write_u32(out, data.0);
-            write_u32(out, 0);
-            write_u32(out, 0);
+        } => (
+            &IMAGE_REF_LAYOUT[IMAGE_REF_VIDEO_FRAME as usize],
+            [
+                ("string_id", ImageRefSlotValue::U32(resolve_string(asset_id)?)),
+                ("time_micros", ImageRefSlotValue::U64(*time_micros)),
+            ],
+        ),
+        ImageRef::Generated { id } => (
+            &IMAGE_REF_LAYOUT[IMAGE_REF_GENERATED as usize],
+            [
+                ("generated_id", ImageRefSlotValue::U64(id.0)),
+                ("reserved", ImageRefSlotValue::U32(0)),
+            ],
+        ),
+        ImageRef::Encoded { data } => (
+            &IMAGE_REF_LAYOUT[IMAGE_REF_ENCODED as usize],
+            [
+                ("byte_range_id", ImageRefSlotValue::U32(data.0)),
+                ("reserved", ImageRefSlotValue::U64(0)),
+            ],
+        ),
+    };
+    let declared: u16 = spec.fields.iter().map(|field| field.bytes).sum();
+    if declared != IMAGE_REF_ID_SLOT_BYTES {
+        return Err(EncodeError(format!(
+            "ImageRef `{}` id-slot is {declared}B, expected {IMAGE_REF_ID_SLOT_BYTES}B",
+            spec.name
+        )));
+    }
+    write_u8(out, spec.tag);
+    for field in spec.fields {
+        let value = values
+            .iter()
+            .find(|(name, _)| *name == field.name)
+            .map(|(_, value)| *value)
+            .ok_or_else(|| {
+                EncodeError(format!(
+                    "ImageRef `{}` slot field `{}` missing",
+                    spec.name, field.name
+                ))
+            })?;
+        match (field.bytes, value) {
+            (4, ImageRefSlotValue::U32(v)) => write_u32(out, v),
+            (8, ImageRefSlotValue::U64(v)) => write_u64(out, v),
+            _ => {
+                return Err(EncodeError(format!(
+                    "ImageRef `{}` slot field `{}` width mismatch",
+                    spec.name, field.name
+                )))
+            }
         }
     }
     Ok(())
@@ -2186,40 +2357,17 @@ fn encode_op(
         //     Static    -> string_id(4) + time_micros=0(8)
         //     VideoFrame -> string_id(4) + time_micros(8)
         //     Generated  -> generated_id(8) + reserved(4)   [resolves RGBA via delta]
+        //     Encoded    -> byte_range_id(4) + reserved(8)
         // ===================================================================
         DrawOp::Image { image, x, y, paint } => {
             // Payload: 1 + 12 + 4 + 4 + 4 = 25
             let mut w = OpWriter::new(buf, opcode::IMAGE);
-            match image {
-                ImageRef::Static { asset_id } => {
-                    write_u8(&mut w, 0); // tag: Static
-                    write_u32(&mut w, lookup_string_id(strings, asset_id));
-                    write_u64(&mut w, 0); // time_micros = 0
-                }
-                ImageRef::VideoFrame {
-                    asset_id,
-                    time_micros,
-                } => {
-                    write_u8(&mut w, 1); // tag: VideoFrame
-                    write_u32(&mut w, lookup_string_id(strings, asset_id));
-                    write_u64(&mut w, *time_micros);
-                }
-                ImageRef::Generated { id } => {
-                    // tag 2 reserved for Generated; RGBA is published separately
-                    // via the generated-image delta (see issue #10). The JS
-                    // decoder resolves the image from its id.
-                    write_u8(&mut w, 2); // tag: Generated
-                    write_u64(&mut w, id.0); // generated id
-                    write_u32(&mut w, 0); // reserved (pad id-slot to 12 bytes)
-                }
-                ImageRef::Encoded { data } => {
-                    // tag 3: bytes-range id into the frame byte table; the
-                    // consumer owns decoding.
-                    write_u8(&mut w, 3);
-                    write_u32(&mut w, data.0);
-                    write_u64(&mut w, 0); // pad id-slot to 12 bytes
-                }
-            }
+            // tag 2 = Generated: RGBA is published separately via the
+            // generated-image delta (see issue #10); the JS decoder resolves
+            // the image from its id. tag 3 = Encoded: bytes-range id into the
+            // frame byte table; the consumer owns decoding.
+            encode_image_ref_slot(&mut w, image, |s| Ok(lookup_string_id(strings, s)))
+                .expect("OCIR image slot encoding failed (layout table drift)");
             write_f32(&mut w, *x);
             write_f32(&mut w, *y);
             write_u32(&mut w, paint.map(|p| p.0).unwrap_or(0xFFFF_FFFF));
@@ -2227,7 +2375,7 @@ fn encode_op(
 
         // ===================================================================
         // ImageRect — tag(1) + id-slot(12) + has_src(1) + src(16) + dst(16) + paint_id(4)
-        //   id-slot layout: see DrawOp::Image (Static/VideoFrame/Generated).
+        //   id-slot layout: see DrawOp::Image (the IMAGE_REF_LAYOUT table).
         // ===================================================================
         DrawOp::ImageRect {
             image,
@@ -2237,31 +2385,8 @@ fn encode_op(
         } => {
             // Payload: 1 + 12 + 1 + 16 + 16 + 4 = 50
             let mut w = OpWriter::new(buf, opcode::IMAGE_RECT);
-            match image {
-                ImageRef::Static { asset_id } => {
-                    write_u8(&mut w, 0); // tag: Static
-                    write_u32(&mut w, lookup_string_id(strings, asset_id));
-                    write_u64(&mut w, 0); // time_micros = 0
-                }
-                ImageRef::VideoFrame {
-                    asset_id,
-                    time_micros,
-                } => {
-                    write_u8(&mut w, 1); // tag: VideoFrame
-                    write_u32(&mut w, lookup_string_id(strings, asset_id));
-                    write_u64(&mut w, *time_micros);
-                }
-                ImageRef::Generated { id } => {
-                    write_u8(&mut w, 2); // tag: Generated
-                    write_u64(&mut w, id.0);
-                    write_u32(&mut w, 0); // reserved
-                }
-                ImageRef::Encoded { data } => {
-                    write_u8(&mut w, 3); // tag: Encoded
-                    write_u32(&mut w, data.0);
-                    write_u64(&mut w, 0); // pad id-slot to 12 bytes
-                }
-            }
+            encode_image_ref_slot(&mut w, image, |s| Ok(lookup_string_id(strings, s)))
+                .expect("OCIR image slot encoding failed (layout table drift)");
             write_u8(&mut w, if src.is_some() { 1 } else { 0 });
             if let Some(s) = src {
                 write_rect4(&mut w, *s);

@@ -9,6 +9,7 @@ import {
   Payload,
   decodeFrame,
   parseOps,
+  readImageRef,
 } from './decode';
 
 export function dumpEncodedFrameOps(encoded: EncodedDrawFrame, limit = 400): string {
@@ -90,17 +91,23 @@ export function dumpEncodedFrameOps(encoded: EncodedDrawFrame, limit = 400): str
       case OP.CIRCLE: detail = `c=[${fx(f32(p, 3))}] paint=${p.u32()}`; break;
       case OP.DRAW_PATH: detail = `path=${p.u32()} paint=${p.u32()}`; break;
       case OP.IMAGE_RECT: {
-        // tag u8 + id-slot 12B (u32 string + u64 time) + src-present u8 +
+        // ImageRef (tag u8 + id-slot 12B) is decoded by the decoder, so the
+        // dump and the replay consume the same bytes; then src-present u8 +
         // src 4xf32 + dst 4xf32 + paint u32 (0xFFFFFFFF = no paint).
-        const tag = p.u8();
-        const asset = frame.strings[p.u32()] ?? '?';
-        const time = p.u64();
+        const image = readImageRef(p, frame);
+        const ref = image.type === 'static'
+          ? `static ${image.assetId}`
+          : image.type === 'video'
+            ? `video ${image.assetId}@${Number(image.timeMicros) / 1e6}s`
+            : image.type === 'generated'
+              ? `generated #${image.id}`
+              : `encoded bytes#${image.byteId}`;
         const hasSrc = p.u8() === 1;
         const src = f32(p, 4);
         const dst = f32(p, 4);
         const paintId = p.u32();
         const paint = paintId === 0xffff_ffff ? '' : ` paint=${paintId}`;
-        detail = `tag=${tag} ${asset}@${Number(time) / 1e6}s src=${hasSrc ? `[${fx(src)}]` : 'none'} dst=[${fx(dst)}]${paint}`;
+        detail = `${ref} src=${hasSrc ? `[${fx(src)}]` : 'none'} dst=[${fx(dst)}]${paint}`;
         break;
       }
       case OP.REPLAY_RANGE: detail = `range=[${p.u32()}+${p.u32()}]`; break;

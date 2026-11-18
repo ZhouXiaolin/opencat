@@ -16,7 +16,11 @@ import {
   CONTAINER_HEADER_LEN,
   OPCODE_PAYLOAD_LEN,
   PATH_OP_F32_WIDTHS,
+  IMAGE_REF_ID_SLOT_BYTES,
+  IMAGE_REF_SLOT_LAYOUT,
+  IMAGE_REF_TAG,
 } from '../generated/ocir-schema.generated';
+import type { ImageRefTag } from '../generated/ocir-schema.generated';
 import type { Canvas, Image } from 'canvaskit-wasm';
 import { decodeGpuSection } from './gpu-stream';
 
@@ -963,41 +967,68 @@ export function readIrGradientStops(reader: BinaryReader): { stops: number[]; co
 }
 
 export function readImageRef(payload: Payload, frame: DecodedFrame): DecodedImageRef {
-  const tag = payload.u8();
-  // Generated images carry a numeric id (not an interned asset string) and a
-  // reserved u32; the RGBA arrives via section 12. Layout mirrors the
-  // Rust encoder: tag(1) + id_u64(8) + reserved(4).
-  if (tag === 2) {
-    const id = payload.u64();
-    payload.u32(); // reserved
-    return { type: 'generated', id };
-  }
-  // Encoded bytes: tag(1) + byte_id_u32(4) + pad to the 12-byte id-slot.
-  if (tag === 3) {
-    const byteId = payload.u32();
-    payload.u64(); // reserved
-    return { type: 'encoded', byteId };
-  }
-  const assetId = frame.strings[payload.u32()] ?? '';
-  const timeMicros = payload.u64();
-  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
+  return decodeImageRef(payload, frame.strings);
 }
 
 export function readImageRefFromReader(reader: BinaryReader, strings: string[]): DecodedImageRef {
-  const tag = reader.u8();
-  if (tag === 2) {
-    const id = reader.u64();
-    reader.u32(); // reserved
-    return { type: 'generated', id };
+  return decodeImageRef(reader, strings);
+}
+
+/// The byte cursor the ImageRef decoder needs. Both [`Payload`] (op payloads)
+/// and [`BinaryReader`] (side tables) satisfy it, so the wire record has
+/// exactly one decoder.
+type ImageRefCursor = {
+  u8(): number;
+  u32(): number;
+  u64(): bigint;
+};
+
+/// Decode one ImageRef wire record: `tag(1) + id-slot(12)`.
+///
+/// The tag and the id-slot field widths come from the generated Rust layout
+/// table (`IMAGE_REF_TAG` / `IMAGE_REF_SLOT_LAYOUT`), so the decoder and the
+/// core encoder read the same bytes by construction.
+function decodeImageRef(cursor: ImageRefCursor, strings: string[]): DecodedImageRef {
+  const tag = cursor.u8();
+  const layout: { name: string; bytes: number }[] | undefined =
+    IMAGE_REF_SLOT_LAYOUT[tag as ImageRefTag];
+  if (!layout) {
+    throw new Error(`Unknown ImageRef tag: ${tag}`);
   }
-  if (tag === 3) {
-    const byteId = reader.u32();
-    reader.u64(); // reserved
-    return { type: 'encoded', byteId };
+  // Generated images carry a numeric id (not an interned asset string) plus
+  // a reserved slot; the RGBA arrives via section 12. Encoded bytes carry a
+  // byte-table range id; the host decodes them.
+  const slot: Record<string, number | bigint> = {};
+  let consumed = 0;
+  for (const field of layout) {
+    if (field.bytes === 4) {
+      slot[field.name] = cursor.u32();
+    } else if (field.bytes === 8) {
+      slot[field.name] = cursor.u64();
+    } else {
+      throw new Error(`Unsupported ImageRef slot field width: ${field.bytes}`);
+    }
+    consumed += field.bytes;
   }
-  const assetId = strings[reader.u32()] ?? '';
-  const timeMicros = reader.u64();
-  return tag === 0 ? { type: 'static', assetId } : { type: 'video', assetId, timeMicros };
+  if (consumed !== IMAGE_REF_ID_SLOT_BYTES) {
+    throw new Error(`ImageRef tag ${tag} id-slot is ${consumed}B, expected ${IMAGE_REF_ID_SLOT_BYTES}B`);
+  }
+  switch (tag) {
+    case IMAGE_REF_TAG.STATIC:
+      return { type: 'static', assetId: strings[slot.string_id as number] ?? '' };
+    case IMAGE_REF_TAG.VIDEO_FRAME:
+      return {
+        type: 'video',
+        assetId: strings[slot.string_id as number] ?? '',
+        timeMicros: slot.time_micros as bigint,
+      };
+    case IMAGE_REF_TAG.GENERATED:
+      return { type: 'generated', id: slot.generated_id as bigint };
+    case IMAGE_REF_TAG.ENCODED:
+      return { type: 'encoded', byteId: slot.byte_range_id as number };
+    default:
+      throw new Error(`Unknown ImageRef tag: ${tag}`);
+  }
 }
 
 // Every CanvasKit object whose lifetime ends with the frame is registered with

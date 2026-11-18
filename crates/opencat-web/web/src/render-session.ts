@@ -2,11 +2,12 @@
 ///
 /// 两个消费方（dev 应用侧 `exportMp4` 的 ExportClip、oracle harness 页的
 /// 采样/整段通道）共用：open-once 管线、comp 边界检查、可复用 CanvasKit
-/// surface、native WebGPU 的 warmup/settle 泵全部在这里，消费方只剩各自的
-/// 编码 adapter（WebAV / 裸 WebCodecs+MP4Box）。
+/// surface 全部在这里，消费方只剩各自的编码 adapter（WebAV / 裸
+/// WebCodecs+MP4Box）。
 ///
-/// 行为契约与拆并前的 oracle 页逐字一致——warmup/settle 的泵轮数与探针
-/// 语义是 shaders 语料黑帧事故的修复本体，动它必须过 gate。
+/// 这里只管生产渲染路径。native WebGPU 的 warmup/settle 探针时序是 oracle
+/// 的 native 探针专属语义，住在 oracle harness 页
+/// （`crates/opencat-web-oracle/web/test-oracle.html`），不进生产 exporter。
 
 import type { CanvasKit, Surface } from 'canvaskit-wasm';
 import type { FrameMediaPlanWire } from './generated/media-plan.schema.generated';
@@ -217,51 +218,6 @@ export class RenderSession {
     ocLog(`rs f${frame} ck-done`);
     assertFrameGates(frame, performance.now() - gateStart);
     return { comp, surface, CK, canvas: this.canvas };
-  }
-
-  /// Native WebGPU（shaders 语料）warmup：首帧的 build_frame_ir 发起作者
-  /// initialize——真实 requestAdapter/requestDevice 的 promise 在浏览器
-  /// 任务队列解析，realm 帧内微任务 drain 推不动；首绘（initialize().then
-  /// 里的 renderFrame delta 0）因此落在帧 0 之后，单帧案就整段全白。
-  /// 修法 = 先踢一脚（跑一次 drawFrame 触发 effect/initialize），泵事件
-  /// 循环让异步链走完（getContext 注册 + 首绘都落定），再重绘同一
-  /// 帧——重绘时 done 幂等守卫跳过重绘、帧末钩子读到已画好的交换链。
-  async warmupNative(frame: number): Promise<void> {
-    await this.drawFrame(frame);
-    const drain = (globalThis as any).__ocNativeWebGpuDrain;
-    // 非 WebGPU 语料：无 initialize 异步链，单跑即完整。GL/wgpu 流的
-    // 帧契约是「同帧重执行 = 同一流重放」，而 author script 的 done
-    // 守卫会让第二次 build_frame_ir 的 GL 段缺资源创建 op（three 不重
-    // 跑），持久状态机的 GL executor 会在 TEX_IMAGE_2D 处 miss 绑定而
-    // 炸（vfx 是第一个 GL 流语料，撞上）。WebGPU 语料仍需重绘：首绘
-    // 落在 initialize().then，泵完事件后必须重跑一帧才能画满交换链。
-    if (!drain) return;
-    // 泵到所有已注册 native WebGPU canvas 拿到首绘（探针归零）。
-    // 最短轮数是关键：drain()===0 在「零 canvas 注册」时也是真——
-    // requestAdapter→getContext 的 IPC 是毫秒-百毫秒级浏览器任务，
-    // 30 轮 setTimeout(0) 可能在注册发生前跑完，假归零提前 break，
-    // 重绘时 inited=false 不画 → 帧末回读空交换链 → 单帧案整段黑帧
-    // （blend/checkerboard/simplex-noise 黑帧根因，动画案表现=帧 0
-    // 黑、后续帧自愈成 ~3.3%）。
-    for (let i = 0; i < 600; i++) {
-      await new Promise((r) => setTimeout(r, 0));
-      if (i >= 150 && drain() === 0) break;
-    }
-    await this.drawFrame(frame);
-  }
-
-  /// Native WebGPU 直读消费：copyTextureToBuffer 的 mapAsync 是任务级
-  /// 异步，帧末同步钩子取不到字节。每帧 drawFrame 后泵宏任务等全部
-  /// 在途直读落定，再重绘同一帧——done 幂等守卫跳过渲染，帧末钩子
-  /// 消费当帧原始字节（发起帧本身不产出记录）。非 WebGPU 语料（探针
-  /// 不存在 / 无在途拷贝）直通零开销。
-  async settleNativeWebGpuReadback(frame: number): Promise<void> {
-    const pend = (globalThis as any).__ocNativeWebGpuReadbackPending;
-    if (!pend || pend() === 0) return;
-    for (let i = 0; i < 600 && pend() > 0; i++) {
-      await new Promise((r) => setTimeout(r, 0));
-    }
-    await this.drawFrame(frame);
   }
 
   /// 释放绑定在 canvas 上的可复用 surface（页面卸载 / 导出收尾）。

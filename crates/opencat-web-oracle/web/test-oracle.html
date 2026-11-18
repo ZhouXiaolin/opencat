@@ -87,8 +87,10 @@
       sceneCanvas.height = 27;
       const sceneCtx = sceneCanvas.getContext('2d', { willReadFrequently: true });
 
-      // 渲染半环（open-once 管线 / 可复用 surface / warmup / settle）的唯一
-      // 实现在 facade 的 RenderSession；页面持有当前 envelope 的单例。
+      // 渲染半环的 open / render 生产部分（open-once 管线 / 可复用 surface）
+      // 在 facade 的 RenderSession；native probe 的 warmup / settle 时序留在
+      // 本 oracle harness 里（生产 RenderSession 不带探针知识）。页面持有
+      // 当前 envelope 的单例。
       let session = null;
       let sessionFor = null;
 
@@ -227,16 +229,54 @@
         return r;
       }
 
-      // Native WebGPU warmup（先踢一脚 + 泵 + 重绘，详见 RenderSession）。
+      // Native WebGPU warmup（先踢一脚 + 泵 + 重绘）。这是 oracle 的
+      // native 探针专属时序——生产 RenderSession 不带这套探针知识。
+      //
+      // 首帧的 build_frame_ir 发起作者 initialize——真实
+      // requestAdapter/requestDevice 的 promise 在浏览器任务队列解析，
+      // realm 帧内微任务 drain 推不动；首绘（initialize().then 里的
+      // renderFrame delta 0）因此落在帧 0 之后，单帧案就整段全白。
+      // 修法 = 先踢一脚（跑一次 drawFrame 触发 effect/initialize），泵事件
+      // 循环让异步链走完（getContext 注册 + 首绘都落定），再重绘同一
+      // 帧——重绘时 done 幂等守卫跳过重绘、帧末钩子读到已画好的交换链。
       async function warmupNativeAsync(envelope, frame) {
         const s = await ensureSession(envelope);
-        await s.warmupNative(frame);
+        await s.drawFrame(frame);
+        const drain = globalThis.__ocNativeWebGpuDrain;
+        // 非 WebGPU 语料：无 initialize 异步链，单跑即完整。GL/wgpu 流的
+        // 帧契约是「同帧重执行 = 同一流重放」，而 author script 的 done
+        // 守卫会让第二次 build_frame_ir 的 GL 段缺资源创建 op（three 不重
+        // 跑），持久状态机的 GL executor 会在 TEX_IMAGE_2D 处 miss 绑定而
+        // 炸（vfx 是第一个 GL 流语料，撞上）。WebGPU 语料仍需重绘：首绘
+        // 落在 initialize().then，泵完事件后必须重跑一帧才能画满交换链。
+        if (!drain) return;
+        // 泵到所有已注册 native WebGPU canvas 拿到首绘（探针归零）。
+        // 最短轮数是关键：drain()===0 在「零 canvas 注册」时也是真——
+        // requestAdapter→getContext 的 IPC 是毫秒-百毫秒级浏览器任务，
+        // 30 轮 setTimeout(0) 可能在注册发生前跑完，假归零提前 break，
+        // 重绘时 inited=false 不画 → 帧末回读空交换链 → 单帧案整段黑帧
+        // （blend/checkerboard/simplex-noise 黑帧根因，动画案表现=帧 0
+        // 黑、后续帧自愈成 ~3.3%）。
+        for (let i = 0; i < 600; i++) {
+          await new Promise((r) => setTimeout(r, 0));
+          if (i >= 150 && drain() === 0) break;
+        }
+        await s.drawFrame(frame);
       }
 
       // Native WebGPU 直读消费（等在途 copyTextureToBuffer 落定后重绘）。
+      // copyTextureToBuffer 的 mapAsync 是任务级异步，帧末同步钩子取不到
+      // 字节。每帧 drawFrame 后泵宏任务等全部在途直读落定，再重绘同一帧
+      // ——done 幂等守卫跳过渲染，帧末钩子消费当帧原始字节（发起帧本身
+      // 不产出记录）。非 WebGPU 语料（探针不存在 / 无在途拷贝）直通零开销。
       async function settleNativeWebGpuReadback(envelope, frame) {
         const s = await ensureSession(envelope);
-        await s.settleNativeWebGpuReadback(frame);
+        const pend = globalThis.__ocNativeWebGpuReadbackPending;
+        if (!pend || pend() === 0) return;
+        for (let i = 0; i < 600 && pend() > 0; i++) {
+          await new Promise((r) => setTimeout(r, 0));
+        }
+        await s.drawFrame(frame);
       }
 
       // Hex transport (sampled oracle): one frame out as raw RGBA hex.

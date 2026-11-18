@@ -385,9 +385,9 @@ export async function exportPngFrame(
   frame: number,
   _resourceMeta: Record<string, ResourceMeta>,
 ): Promise<void> {
-  // 半环走 RenderSession 唯一实现（open→warmup 泵→GPU 流回放→IR 回放）：
-  // 手写管线缺 warmup 泵（WebGPU 单帧首绘空交换链）与 GPU 流注入（含 GL/
-  // WebGPU 段的语料 PNG 缺 GPU 像素），两者都是 oracle 侧已修的 bug 类。
+  // 半环走 RenderSession 唯一实现（open→GPU 流执行/回读→IR 回放）：手写
+  // 管线缺 GPU 流注入（含 GL/WebGPU 段的语料 PNG 缺 GPU 像素）。warmup 泵
+  // 属 oracle harness 的 native probe 时序，不在生产 RenderSession 里。
   const frames = compositionFrameCount(comp);
   const session = await RenderSession.create(
     createIsolatedExportCanvas(comp.width, comp.height),

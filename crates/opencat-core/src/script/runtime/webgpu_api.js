@@ -137,8 +137,8 @@
 
         // 探针惰性挂载：只在首个 native WebGPU canvas 注册时挂到
         // globalThis。非 WebGPU 语料（无 getContext('webgpu')）保持无探针
-        // ——宿主 warmupNative 用「探针存在」判定是否需要为 WebGPU 异步
-        // 首绘双跑帧；无条件挂载会让 GL 流语料也被双跑，第二次
+        // ——oracle harness 的 warmupNativeAsync 用「探针存在」判定是否需要
+        // 为 WebGPU 异步首绘双跑帧；无条件挂载会让 GL 流语料也被双跑，第二次
         // build_frame_ir 的 GL 段被 author script done 守卫削掉资源创建
         // op，持久 GL executor 在 TEX_IMAGE_2D 处 miss 绑定而炸（vfx 撞上）。
         function mountWarmupProbes() {

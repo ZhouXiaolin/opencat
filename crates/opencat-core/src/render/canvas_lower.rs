@@ -250,38 +250,30 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
         return Ok(());
     }
 
-    ctx.builder.push(DrawOp::Save);
-    super::dispatch::apply_transform(ctx.builder, &node.transform);
-
-    let bounds = node.item.visual_bounds();
+    // The hidden subtree shares the main path's composite sequence (Save →
+    // transform → composite layer → mask layer, closed by the reverse mask
+    // Restore+DstIn rect / backdrop restore / outer Restore). Only the bounds
+    // strategy differs: the hidden tree has no 3-D context, so its layer
+    // bounds are the item's visual bounds, while the backdrop bounds are the
+    // node's transform bounds.
     let backdrop_radius = match &node.item {
         DisplayItem::Rect(rect) => rect.paint.border_radius,
         _ => Default::default(),
     };
-    let mut layer_state = super::dispatch::save_composite_layer(
-        ctx.builder,
-        node.opacity,
-        node.css_filter_image.as_ref(),
-        node.backdrop_filter_image.as_ref(),
-        node.backdrop_blur_sigma,
+    let params = super::dispatch::NodeCompositeParams {
+        transform: &node.transform,
+        opacity: node.opacity,
+        css_filter_image: node.css_filter_image.as_ref(),
+        backdrop_filter_image: node.backdrop_filter_image.as_ref(),
+        backdrop_blur_sigma: node.backdrop_blur_sigma,
         // 隐藏子树节点同样受 CSS `mask-image` 罩层（M4-⑥ 修复：与
-        // dispatch 主路径 emit_apply_prefix/suffix 同语义，原先硬编码
-        // None 丢 mask）。
-        node.mask_image.as_ref(),
-        Some(bounds),
-        node.transform.bounds,
+        // dispatch 主路径同语义，原先硬编码 None 丢 mask）。
+        mask_image: node.mask_image.as_ref(),
         backdrop_radius,
-    );
-    let mask_paint = layer_state.mask_paint.take();
-    let mask_rect = layer_state.mask_rect.take();
-    if mask_paint.is_some() {
-        ctx.builder.push(DrawOp::SaveLayer {
-            bounds: mask_rect,
-            paint: None,
-            alpha: 1.0,
-            backdrop: false,
-        });
-    }
+        layer_bounds: Some(node.item.visual_bounds()),
+        backdrop_bounds: node.transform.bounds,
+    };
+    let composite = super::dispatch::begin_node_composite(ctx.builder, &params);
 
     match &node.item {
         DisplayItem::Rect(rect) => super::render_rect_with_shadows(ctx, rect)?,
@@ -321,12 +313,7 @@ fn render_hidden_child_node(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(
     if node.clip.is_some() {
         ctx.builder.push(DrawOp::Restore);
     }
-    if let (Some(paint), Some(rect)) = (mask_paint, mask_rect) {
-        ctx.builder.push(DrawOp::Restore);
-        ctx.builder.push(DrawOp::Rect { rect, paint });
-    }
-    super::dispatch::restore_backdrop_blur_layer(ctx.builder, &layer_state);
-    ctx.builder.push(DrawOp::Restore);
+    super::dispatch::finish_node_composite(ctx.builder, &composite);
     Ok(())
 }
 

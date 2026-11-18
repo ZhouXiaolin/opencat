@@ -461,9 +461,23 @@ export type BlurStyle = (typeof BLUR_STYLE)[keyof typeof BLUR_STYLE];
 export const FILL_TYPE = { WINDING: 0, EVEN_ODD: 1 } as const;
 export type FillType = (typeof FILL_TYPE)[keyof typeof FILL_TYPE];
 
-/// ImageRef tag wire encoding: 0=Static, 1=VideoFrame, 2=Generated.
-export const IMAGE_REF_TAG = { STATIC: 0, VIDEO_FRAME: 1, GENERATED: 2 } as const;
+/// ImageRef tag wire encoding (source of truth: core `IMAGE_REF_LAYOUT`).
+export const IMAGE_REF_TAG = { STATIC: 0, VIDEO_FRAME: 1, GENERATED: 2, ENCODED: 3 } as const;
 export type ImageRefTag = (typeof IMAGE_REF_TAG)[keyof typeof IMAGE_REF_TAG];
+
+/// Bytes of the ImageRef id-slot that follows the 1-byte tag.
+export const IMAGE_REF_ID_SLOT_BYTES = 12;
+
+/// One field of an ImageRef id-slot: name + width in bytes.
+export type ImageRefSlotField = { name: string; bytes: number };
+
+/// ImageRef id-slot layout per tag: field name + width, in wire order.
+export const IMAGE_REF_SLOT_LAYOUT: Record<ImageRefTag, ImageRefSlotField[]> = {
+  0: [{ name: 'string_id', bytes: 4 }, { name: 'time_micros', bytes: 8 }],
+  1: [{ name: 'string_id', bytes: 4 }, { name: 'time_micros', bytes: 8 }],
+  2: [{ name: 'generated_id', bytes: 8 }, { name: 'reserved', bytes: 4 }],
+  3: [{ name: 'byte_range_id', bytes: 4 }, { name: 'reserved', bytes: 8 }],
+};
 
 /// ChildRef kind wire encoding: 0=Image, 1=Picture, 2=Shader, 3=SubtreePicture.
 export const CHILD_REF_KIND = { IMAGE: 0, PICTURE: 1, SHADER: 2, SUBTREE_PICTURE: 3 } as const;

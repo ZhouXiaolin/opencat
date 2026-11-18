@@ -2318,15 +2318,17 @@ crate::fp_struct! {
     pub struct ComputedTextStyle {
         pub color: ColorToken => [TextPaint, TextPaintDisplay],
         pub text_px: f32 => [TextLayout, TextPaint, TextPaintDisplay] bits,
-        // 字体组暂不进指纹（消融实证：inspector 语料 letterT 有按帧
-        // fontFamily 快换动画，store "fontFamily" 写臂改 family+stack——
-        // 3a 旧键漏接=字形缓存 stale（⑤ 目标类别的活标本）；但补进后
-        // engine 字体切换渲染与参考存在错位（净效应持平，换字瞬间 ±N 帧
-        // 偏差）——根因是 engine 字体动画对齐议题，与指纹正交。引擎侧
-        // 对齐修复后四字段一并补进三维。）
-        pub font_family: Option<String> => [],
-        pub font_stack: Vec<String> => [],
-        pub font_generic: Option<GenericFamily> => [],
+        // 字体组四字段（2026-11-18 专项收口，原挂账前提证伪）：inspector
+        // letterT 按帧 fontFamily 快换的 t 字形差，逐帧定位+偏移扫描+
+        // 三态消融实证根因=字体资产环境差（ref=Chrome 系统 Georgia 衬线；
+        // 引擎 fontdb 按确定性设计只装内嵌 Inter/JBM/Noto，族列表
+        // "Fraunces, Georgia, serif" 全落空回 Inter 直角形）——非引擎
+        // 缓存/时序缺陷：family 进 [TextPaintDisplay] 渲染逐位零变化
+        // （切换即时生效，Skia 每帧按当前 style 光栅，无 stale）。四字段
+        // 按 3b「查消费点定维」补进，维度与 font_weight/line_through 同构。
+        pub font_family: Option<String> => [TextLayout, TextPaint, TextPaintDisplay],
+        pub font_stack: Vec<String> => [TextLayout, TextPaint, TextPaintDisplay],
+        pub font_generic: Option<GenericFamily> => [TextLayout, TextPaint, TextPaintDisplay],
         pub font_weight: FontWeight => [TextLayout, TextPaint, TextPaintDisplay],
         /// CSS `font-style`: picks the family's italic face when the manifest
         /// supplies one. Inherited like the other font properties.
@@ -2342,8 +2344,9 @@ crate::fp_struct! {
         pub no_wrap: bool => [TextLayout],
         pub line_through: bool => [TextPaint, TextPaintDisplay],
         pub underline: bool => [TextPaint, TextPaintDisplay],
-        // text_stroke 随字体组挂账（同因：store 写臂联动改写）。
-        pub text_stroke: Option<TextStroke> => [],
+        // 描边是纯绘制属性（render/text.rs stroke_paint），与 line_through/
+        // underline 同构。
+        pub text_stroke: Option<TextStroke> => [TextPaint, TextPaintDisplay],
     }
 }
 

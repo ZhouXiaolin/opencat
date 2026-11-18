@@ -1,12 +1,18 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
     <title>k3-promo</title>
   </head>
   <body>
-    <div id="app">
-      <p>vite 工程占位页。构建产物在 dist/video.mp4；入口 k3-promo.jsx 在目录根部。</p>
+    <!-- 静态组合根：引擎在提取期据此定分辨率/时长/根选择；Solid 只往里
+         填内容（作者侧 Composition 组件在浏览器态仍可独立使用）。 -->
+    <div data-composition-id="main" data-start="0" data-duration="16.4667"
+         data-width="1920" data-height="1080" data-fps="30"
+         class="relative w-[1920px] h-[1080px] bg-[#010101] overflow-hidden">
+      <div id="app"></div>
     </div>
+    <script type="module" src="/src/index.jsx"></script>
   </body>
 </html>

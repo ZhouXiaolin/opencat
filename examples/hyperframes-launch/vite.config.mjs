@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite';
-import opencat from './opencat-plugin.mjs';
+import solid from 'vite-plugin-solid';
+import tailwindcss from '@tailwindcss/vite';
 
-// 本示例是 create-opencat 模板的就地改造：入口保留在目录根部
-// （examples/<dir>/<name>.jsx 的既有约定），资产引用路径无需改动。
+// 标准 web 工程：vite + solid + tailwind。产物是 dist/index.html +
+// assets/*.js，opencat 的 render 按标准 HTML 导入。扩展面只有
+// src/runtime.jsx：Composition、Timeline(<tl>)、Transition(<transition>)。
 export default defineConfig({
-  plugins: [
-    opencat({
-      entry: 'index.jsx',
-      output: 'dist/video.mp4',
-    }),
-  ],
+  plugins: [solid(), tailwindcss()],
+  base: './',
+  build: { outDir: 'dist', emptyOutDir: true },
 });

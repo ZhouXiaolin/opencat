@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* 字体面：标准 CSS @font-face（旧 opencat/runtime 的 `export const fonts`
+   退役）。引擎从 CSS 收集字体清单，base_dir 相对 dist 解析。 */
+@font-face { font-family: k3-sans; src: url('fonts/Inter-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: k3-sans-light; src: url('fonts/Inter-Light.ttf') format('truetype'); font-weight: 300; }
+@font-face { font-family: k3-sans-medium; src: url('fonts/Inter-Medium.ttf') format('truetype'); font-weight: 500; }
+@font-face { font-family: k3-mono; src: url('fonts/JetBrainsMono-Regular.ttf') format('truetype'); }
+@font-face { font-family: k3-mono-bold; src: url('fonts/JetBrainsMono-Bold.ttf') format('truetype'); font-weight: 700; }
+
+/* 页面骨架：1920x1080 固定舞台（语料 index.html 同款）。 */
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: #000; }
+body { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; }
+
+/* 场景窗载体（timed-clip 协议）：引擎按 data-start/duration 在窗外整子树
+   移除，窗内自然可见——不需要 visibility:hidden 门控（动态挂载的 Solid
+   节点不经 Rust parse 的 timed_clip_visible 补丁，门控反而会永久隐藏）。 */
+.clip { position: absolute; inset: 0; overflow: hidden; }

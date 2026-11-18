@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@font-face { font-family: hf-inter; src: url('fonts/Inter-Regular.ttf') format('truetype'); }
+@font-face { font-family: hf-inter-med; src: url('fonts/Inter-Medium.ttf') format('truetype'); font-weight: 500; }
+@font-face { font-family: hf-jbm; src: url('fonts/JetBrainsMono-Regular.ttf') format('truetype'); }
+@font-face { font-family: hf-jbm-bold; src: url('fonts/JetBrainsMono-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: hf-serif; src: url('fonts/InstrumentSerif-Regular.ttf') format('truetype'); }
+@font-face { font-family: hf-serif-it; src: url('fonts/InstrumentSerif-Italic.ttf') format('truetype'); font-style: italic; }
+@font-face { font-family: hf-cg-it; src: url('fonts/CormorantGaramond-MediumItalic.ttf') format('truetype'); font-style: italic; }
+@font-face { font-family: hf-eb-it; src: url('fonts/TimesNewRoman.ttf') format('truetype'); font-style: italic; }
+@font-face { font-family: hf-bebas; src: url('fonts/BebasNeue-Regular.ttf') format('truetype'); }
+
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0a0a0a; }
+.clip { position: absolute; inset: 0; overflow: hidden; }

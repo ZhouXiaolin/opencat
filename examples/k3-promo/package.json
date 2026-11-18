@@ -1,14 +1,19 @@
 {
   "name": "k3-promo",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "scripts": {
+    "dev": "vite",
     "build": "vite build"
   },
-  "devDependencies": {
-    "@tailwindcss/cli": "^4.3.3",
+  "dependencies": {
     "gsap": "^3.13.0",
+    "solid-js": "^1.9.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "tailwindcss": "^4.3.3",
-    "vite": "^6.3.0"
+    "vite": "^6.3.0",
+    "vite-plugin-solid": "^2.11.9"
   }
 }

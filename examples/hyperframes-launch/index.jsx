@@ -2,7 +2,7 @@
    (16 sub-compositions on a 49.77s master) — one continuous 1920x1080 stage.
    Structure mirrors the reference: per-composition components, each with one
    useGSAP hook (hook order = tree order = master timeline order). Every scene
-   sits in a `<tl>`, so a scene's times are its OWN: `ctx.current.time` starts
+   sits in a `<timeline>`, so a scene's times are its OWN: `ctx.current.time` starts
    at 0 where the scene becomes visible and the scene tree is culled outside
    its window. Element reveals the scene window does not cover (the glass-intro
    typewriter, the caption chips) stay per-frame `vis()` gates.
@@ -69,14 +69,14 @@ import CanvasClose from './scenes/canvas-close.jsx';
 function HyperframesLaunch() {
   return (
     <div id="hf-root" className="relative w-[1920px] h-[1080px] bg-[#0a0a0a] overflow-hidden">
-      {/* The master stage is a `<tl>`: 16 sub-compositions on a 49.77s timeline.
+      {/* The master stage is a `<timeline>`: 16 sub-compositions on a 49.77s timeline.
           Each scene declares its own segment length; `ctx.current` inside a
           scene is its local clock, starting at 0 where the scene becomes
           visible. glass-intro and flex-css share a 0.94s fade, which is why
           they overlap in the reference. The rest hard-cut. The 1.13s gap
           between flex-gsap and flex-shader is the reference's own empty beat —
           a blank spacer segment holds it. */}
-      <tl id="hf-tl" className="absolute inset-0">
+      <timeline id="hf-tl" className="absolute inset-0">
         <GlassIntro duration={17.30} />
         {/* The reference hard-cuts at 17.30 — glass-intro's tree is removed and
             flex-css is drawn over it. The overlap still counts as time, so the
@@ -100,7 +100,7 @@ function HyperframesLaunch() {
         <Engine duration={9.04} />
         <Cta duration={4.54} />
         <CanvasClose duration={3.75} />
-      </tl>
+      </timeline>
       <CaptionLayer />
       <audio id="hf-vo" src="assets/voiceover.mp3" attach="hf-root" />
     </div>

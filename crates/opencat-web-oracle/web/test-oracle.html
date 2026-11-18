@@ -42,6 +42,8 @@
         setWasmBaseUrl,
         setWorkerBaseUrl,
         RenderSession,
+        avcCodecString,
+        probeBitrate,
       } from '/wasm/opencat.js';
 
       // The oracle runs inside a real Chrome. The recorded WebGL2/WebGPU
@@ -344,17 +346,14 @@
           };
         }
 
-        const codec = comp.height <= 1088 ? 'avc1.640028' : 'avc1.640033';
-        // 0.30 bits/pixel/frame (≈19 Mbps at 1080p30, clamped to 8 Mbps):
-        // at the earlier 0.10 (~6 Mbps) the soft encoder crushed whole-frame
-        // cuts +8-10 luma even on IDR cut frames (see the scene-cut note
-        // below); 0.30 removes that crush. File size roughly doubles vs
-        // 0.10 — accepted for cut stability.
+        // codec 串与码率公式来自 facade encoder-config 单源（交付路与对拍
+        // 路共用一份）；colorRange 约定注释也随单源走。
+        const codec = avcCodecString(comp.height);
         const config = {
           codec,
           width: comp.width,
           height: comp.height,
-          bitrate: Math.max(8_000_000, Math.round(comp.width * comp.height * fps * 0.30)),
+          bitrate: probeBitrate(comp.width, comp.height, fps),
           // colorRange 不设：WebCodecs 默认 full——RGB→YUV 按 full 转、mux 标
           // pc，与 full9/swgl 基线、engine ffmpeg 软编同量阶。设 'studio'
           // 会让编码器按 limited 压缩而 mux 仍标 pc → 全帧色移 mae≈13

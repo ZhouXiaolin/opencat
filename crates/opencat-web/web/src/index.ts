@@ -93,6 +93,8 @@ export type { ExportProgressStage } from './media/exporter';
 export { RenderSession } from './render-session';
 export type { RenderSessionOptions } from './render-session';
 
+export { avcCodecString, probeBitrate } from './media/encoder-config';
+
 export { ORACLE_METHODS } from './oracle-contract';
 export type { OracleMethod, OracleRenderFrameResult, OracleRenderMp4Result } from './oracle-contract';
 

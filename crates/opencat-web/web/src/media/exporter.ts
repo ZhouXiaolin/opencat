@@ -6,10 +6,8 @@ import {
   type ResourceMeta,
 } from '../types';
 import { createWasmFaacEncoder, getRendererOrThrow } from '../wasm';
-import { injectVideoFramesForRender, prepareCatalogVideoSources } from './video-frame-injector';
-import { renderEncodedDrawFrame } from '../draw-ir';
 import { RenderSession } from '../render-session';
-import { createSurfaceWithFallback } from './surface';
+import { avcCodecString } from './encoder-config';
 import {
   canUseFaacAudioEncoderFallback,
   installFaacAudioEncoderFallback,
@@ -335,7 +333,8 @@ export async function exportMp4(
     height,
     fps,
     bgColor: '#000',
-    videoCodec: 'avc1.42E032',
+    // codec 串与对拍路（oracle 页）共用 encoder-config 单源。
+    videoCodec: avcCodecString(height),
     ...(hasAudio ? { audio: true as const } : { audio: false as const }),
   } as any);
 
@@ -386,39 +385,22 @@ export async function exportPngFrame(
   frame: number,
   _resourceMeta: Record<string, ResourceMeta>,
 ): Promise<void> {
-  const renderer = getRendererOrThrow();
-  const CK = (globalThis as CanvasKitGlobal).__canvasKit;
-  if (!CK) throw new Error('CanvasKit is not initialized');
-
-  // Open the persistent host-owned pipeline (issue #8) for this export path.
-  const catalogJson = await renderer.open_design(jsonlContent);
-  await prepareCatalogVideoSources(catalogJson);
-
-  // One-shot ABI: build_frame_ir returns both OCIR and media plan.
-  const result = renderer.build_frame_ir(frame);
-
-  await injectVideoFramesForRender({
-    mediaPlan: result.mediaPlan,
-    quality: 'exact',
-  });
-
-  const canvas = createIsolatedExportCanvas(comp.width, comp.height);
-  let surface: Surface | null = null;
+  // 半环走 RenderSession 唯一实现（open→warmup 泵→GPU 流回放→IR 回放）：
+  // 手写管线缺 warmup 泵（WebGPU 单帧首绘空交换链）与 GPU 流注入（含 GL/
+  // WebGPU 段的语料 PNG 缺 GPU 像素），两者都是 oracle 侧已修的 bug 类。
+  const frames = compositionFrameCount(comp);
+  const session = await RenderSession.create(
+    createIsolatedExportCanvas(comp.width, comp.height),
+    jsonlContent,
+    comp,
+    frames,
+  );
   try {
-    surface = createSurfaceWithFallback(CK, canvas);
-    if (!surface) throw new Error('createExportSurface failed');
-    const ckCanvas = surface.getCanvas();
-
-    renderEncodedDrawFrame(result.ir, ckCanvas, CK, { surface });
-    surface.flush();
-
-    const blob = await canvasToPngBlob(canvas);
-
-    if (!blob) return;
-
-    downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
+    const { canvas } = await session.drawFrame(frame);
+    const blob = await canvasToPngBlob(canvas as HTMLCanvasElement);
+    if (blob) downloadBlob(blob, `frame_${String(frame).padStart(4, '0')}.png`);
   } finally {
-    surface?.delete();
+    session.destroy();
   }
 }
 

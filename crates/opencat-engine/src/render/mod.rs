@@ -5,6 +5,9 @@ use skia_safe::{AlphaType, ColorType, ImageInfo, image::CachingHint, surfaces};
 
 pub mod executor;
 pub mod frame;
+pub mod target;
+
+use target::{SessionDeps, StreamRunner};
 
 pub use crate::media::Mp4Config;
 
@@ -1246,23 +1249,22 @@ pub fn render_from_source_with_base(
             // `encode_rgba_frames` 内与渲染交错）。帧序 = channel FIFO，
             // 各阶段内部严格串行——frame=f(t) 确定性不变。loader/textures
             // 是 open 后只读的 Arc 共享；背压 2 帧：script 最多超前执行 2 帧。
-            let loader_arc = pipeline.loader_arc().clone();
-            let textures = pipeline.textures.clone();
-            let composition_fps = info.fps;
             // Skia 的 GrDirectContext 非 Send（rust-skia 保守禁跨线程）——
-            // session/缓存全部在 gpu 线程内创建，主线程零 GPU 状态。
-            let (tx_frame, rx_frame) =
-                flume::bounded::<(u32, opencat_core::ir::RenderFrame, bool)>(2);
-            let (tx_px, rx_px) = flume::bounded::<Vec<u8>>(2);
-            let gpu_error: std::sync::Arc<std::sync::Mutex<Option<String>>> =
-                std::sync::Arc::default();
+            // 执行线程经 StreamRunner 自建 VkRenderTarget（会话/缓存/
+            // media_ctx 归它所有），主线程零 GPU 状态。loader/textures
+            // 是 open 后只读的 Arc 共享（SessionDeps）；背压 2 帧：script
+            // 最多超前执行 2 帧。
+            let runner = StreamRunner::spawn(
+                move |_| target::VkRenderTarget::new(aligned_info.0, aligned_info.1, info.fps),
+                SessionDeps::from_pipeline(&pipeline),
+            )?;
 
             // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
             // hf-seek 等）与连续渲染不同，预热后段内各帧与整片同相位。
             // 预热帧的 script 在主线程先行产出，经通道带 discard 标志送达。
             if range.start > 0 {
                 let warm = pipeline.render_frame(range.start - 1)?;
-                tx_frame.send((range.start - 1, warm, true))?;
+                runner.submit(range.start - 1, warm, true);
             }
             // 首真帧先行产出：编码器首轮回调里 render(下一帧) 与 gpu 线程
             // 执行本帧重叠。没有这一步 recv 等的就是自己刚 send 的帧——
@@ -1281,52 +1283,11 @@ pub fn render_from_source_with_base(
                                 t.elapsed().as_secs_f64() * 1e3
                             );
                         }
-                        tx_frame.send((range.start, rf, false))?;
+                        runner.submit(range.start, rf, false);
                     }
                     Err(e) => return Err(anyhow!("script 阶段 f{}: {e:#}", range.start)),
                 }
             }
-
-            let gpu_err_slot = gpu_error.clone();
-            let gpu_handle = std::thread::Builder::new()
-                .name("oc-gpu-exec".into())
-                .spawn(move || {
-                    let mut session = match VkRenderSession::new(aligned_info.0, aligned_info.1) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            *gpu_err_slot.lock().unwrap() = Some(format!("会话创建: {e:#}"));
-                            return;
-                        }
-                    };
-                    let mut media_ctx = MediaContext::new();
-                    media_ctx.set_composition_fps(composition_fps);
-                    let mut executor = crate::render::executor::EngineDrawExecutor::new();
-                    let mut generated_cache = generated_image_cache_from_env();
-                    while let Ok((f, rf, discard)) = rx_frame.recv() {
-                        let outcome = session.execute_render(
-                            rf,
-                            &mut executor,
-                            &mut generated_cache,
-                            &mut media_ctx,
-                            &textures,
-                            &loader_arc,
-                            f,
-                        );
-                        match outcome {
-                            Ok(px) => {
-                                if !discard && tx_px.send(px).is_err() {
-                                    break; // 编码端提前收场
-                                }
-                            }
-                            Err(e) => {
-                                *gpu_err_slot.lock().unwrap() = Some(format!("f{f}: {e:#}"));
-                                break;
-                            }
-                        }
-                    }
-                    // tx_px 随闭包结束 drop：script 端 send 失败、编码端
-                    // recv 失败，都能感知收场。
-                })?;
 
             // script 推进嵌在 frame_fn 里：编码器每要一帧像素前，先在主
             // 线程 render **下一帧**（首帧已在上面先行产出）——render(N+1)
@@ -1361,9 +1322,9 @@ pub fn render_from_source_with_base(
                                         t.elapsed().as_secs_f64() * 1e3
                                     );
                                 }
-                                if tx_frame.send((script_next, rf, false)).is_err() {
-                                    // gpu 线程已死：错误在槽位，recv 会立刻失败
-                                }
+                                // gpu 线程已死时 submit 静默：错误在槽位，
+                                // 下面的 recv 会立刻失败
+                                runner.submit(script_next, rf, false);
                             }
                             Err(e) => {
                                 script_error = Some(anyhow!("script 阶段 f{}: {e:#}", script_next));
@@ -1372,27 +1333,19 @@ pub fn render_from_source_with_base(
                         }
                         script_next += 1;
                     }
-                    if let Some(e) = gpu_error.lock().unwrap().as_ref() {
-                        anyhow::bail!("gpu 执行线程: {e}");
-                    }
-                    let px = rx_px
-                        .recv()
-                        .map_err(|_| anyhow!("gpu 执行线程提前收场（无更多像素）"))?;
+                    runner.check_error()?;
+                    let px = runner.recv_px()?;
                     Ok(Some(px))
                 },
             );
-            // 收场：script 已推进完（或中途错），tx_frame 随作用域 drop 让
-            // gpu 线程 recv None 自然退出。
-            drop(tx_frame);
-            let _ = gpu_handle.join();
-            let gpu_err = gpu_error.lock().unwrap().take();
-            // 根因优先：script/gpu 的错误盖过编码错误（后者多半是前者引起）。
+            // 收场：script 已推进完（或中途错），帧通道随 finish 关闭，
+            // gpu 线程 recv None 自然退出。根因优先：script/gpu 的错误
+            // 盖过编码错误（后者多半是前者引起）。
+            let stream_result = runner.finish();
             if let Some(e) = script_error {
                 return Err(e);
             }
-            if let Some(e) = gpu_err {
-                return Err(anyhow!("gpu 执行线程: {e}"));
-            }
+            stream_result?;
             encode_result?;
         }
     }

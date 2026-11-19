@@ -16,7 +16,7 @@ use crate::render::executor::{DrawError, EngineDrawExecutor, EnginePreparedFrame
 /// 的条目导入为 Skia image（零拷贝：纹理已在显存里）。CPU 管线传 `None`，
 /// 此时任何 GPU 句柄都是硬错误（说明两路径被混用）。
 ///
-/// 实现方是 [`crate::gpu::compositor::CompositorResolver`]（在 GL 锁内调用）。
+/// Vulkan 离线会话和桌面 presenter 各自解析所属设备上的纹理。
 pub trait GpuImageResolver {
     /// `id` 是句柄携带的共享纹理凭据（见
     /// [`opencat_core::ir::generated_image::GpuImageHandle::token`]）。

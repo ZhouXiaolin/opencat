@@ -6,9 +6,8 @@
 //! 驱动）。
 //!
 //! ANGLE 来源唯一：动态（`OC_ANGLE_DIR` 指向 ANGLE 构建目录），Vulkan
-//! 后端（硬件 GPU 或 SwiftShader）。静态 mozangle（D3D11）已随三栈统一
-//! Vulkan 退役——D3D11 后端不能导出 VkImage（零拷贝链的前提），保留两套
-//! 后端只会让 Windows 渲染语义分叉。
+//! backend（硬件 GPU 或 SwiftShader）。静态 mozangle（D3D11）已退出当前
+//! 离线渲染路径；保留两套设备 backend 会让 Windows 渲染语义分叉。
 //!
 //! pbuffer 用 1×1：流执行的落点是纹理/FBO，surface 只承担上下文的可当前
 //! 性，尺寸无意义。
@@ -120,6 +119,22 @@ enum AngleDevice {
 }
 
 static EGL: OnceLock<std::result::Result<Egl, String>> = OnceLock::new();
+
+/// Parse a boolean environment flag without treating `NAME=0` as enabled.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+pub(crate) fn swiftshader_requested() -> bool {
+    env_flag("OC_ANGLE_SWIFTSHADER")
+}
+
+pub(crate) fn hardware_requested() -> bool {
+    env_flag("OC_ANGLE_GPU") && !swiftshader_requested()
+}
 
 fn egl() -> Result<&'static Egl> {
     EGL.get_or_init(load_egl)
@@ -258,10 +273,11 @@ fn load_egl() -> std::result::Result<Egl, String> {
             let (gp, m) = load_dynamic_angle(std::path::Path::new(&dir))?;
             get_proc = gp;
             module = m;
-            // 动态 ANGLE 走 Vulkan 后端。设备由 OC_ANGLE_SWIFTSHADER 选：
-            // 设了走 SwiftShader（CPU 软件光栅，与 swgl 参考同渲染器），
-            // 不设走硬件 GPU（快，日常渲染用）。
-            device = if std::env::var_os("OC_ANGLE_SWIFTSHADER").is_some() {
+            // 动态 ANGLE 走 Vulkan 后端。设备由 OC_ANGLE_SWIFTSHADER 选
+            // （布尔语义，=1/true 才算开，=0/false 等同未设）：开走
+            // SwiftShader（CPU 软件光栅，与 swgl 参考同渲染器），否则
+            // 硬件 GPU（快，日常渲染用）。
+            device = if swiftshader_requested() {
                 AngleDevice::VulkanSwiftShader
             } else {
                 AngleDevice::VulkanHardware
@@ -418,9 +434,7 @@ impl AngleContext {
         let egl = egl()?;
         // 动态 ANGLE 走 Vulkan。`OC_ANGLE_GPU=1` 是旧开关的兼容别名：
         // 与 `OC_ANGLE_SWIFTSHADER` 互斥地选硬件设备。
-        let device = if std::env::var_os("OC_ANGLE_GPU").is_some()
-            && std::env::var_os("OC_ANGLE_SWIFTSHADER").is_none()
-        {
+        let device = if hardware_requested() {
             AngleDevice::VulkanHardware
         } else {
             egl.device

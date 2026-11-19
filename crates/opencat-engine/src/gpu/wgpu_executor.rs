@@ -405,52 +405,32 @@ impl WgpuStreamExecutor {
         }
     }
 
-    /// 惰性建设备：首个 WebGPU 流触发。三栈统一 Vulkan：Windows/Linux 默认
-    /// VULKAN（与 Skia/ANGLE 同族）；`OC_WGPU_BACKEND` 可强制（dx12/vulkan/gl）
-    /// 作对齐诊断的逃生口。
+    /// 惰性建设备：首个 WebGPU 流触发。Windows/Linux 固定使用 Vulkan。
+    /// `OC_ANGLE_SWIFTSHADER` 只选择 Vulkan device，不是 backend。
     fn ensure_runtime(&mut self) -> Result<()> {
         if self.rt.is_none() {
             #[cfg(any(target_os = "windows", target_os = "linux"))]
-            let default_backends = wgpu::Backends::VULKAN;
+            let backends = wgpu::Backends::VULKAN;
             #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-            let default_backends = wgpu::Backends::PRIMARY;
-            // Vulkan 后端要与 Skia / ANGLE 共用同一份 SwiftShader ICD——
-            // 否则三家各用各的实现，纹理与命令流无法跨后端共享。
-            if matches!(std::env::var("OC_WGPU_BACKEND").as_deref(), Ok("vulkan")) {
-                crate::gpu::vk::bootstrap_icd();
-            }
-            let backends = match std::env::var("OC_WGPU_BACKEND").ok().as_deref() {
-                Some("vulkan") => wgpu::Backends::VULKAN,
-                Some("dx12") => wgpu::Backends::DX12,
-                Some("gl") => wgpu::Backends::GL,
-                _ => default_backends,
-            };
+            let backends = wgpu::Backends::PRIMARY;
+            // SwiftShader 配置下，Skia/ANGLE/wgpu 必须看到同一份 ICD。
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            crate::gpu::vk::bootstrap_icd();
             let instance = Instance::new(InstanceDescriptor {
                 backends,
                 flags: wgpu::InstanceFlags::default(),
                 memory_budget_thresholds: Default::default(),
-                // DX12 shader compiler 显式走 DXC（exe 旁 dxcompiler.dll），与
-                // ref 腿浏览器 Dawn 同编译器族；S1c 实测 FXC/DXC 逐位一致，对齐
-                // 残差源在 GPU adapter（见下方 OC_WGPU_POWER），不在编译器。
-                backend_options: wgpu::BackendOptions {
-                    dx12: wgpu::Dx12BackendOptions {
-                        shader_compiler: wgpu::Dx12Compiler::default_dynamic_dxc(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
+                backend_options: Default::default(),
                 display: None,
             });
             // OC_WGPU_POWER=low → LowPower 请求（Optimus 机器取核显），缺省
             // HighPerformance。shaders-align S1c 实锤：headless Edge/Chrome 的
             // WebGPU 固定落核显（Intel UHD630），HighPerformance 拿独显
-            // （NVIDIA MX250）；同段 WGSL 的 hash33 微探针在 NVIDIA 上
-            // （DXBC/DXIL/Vulkan 三路同病）f32 tie 节点整格翻转、核显逐位
-            // IEEE——驱动 fast-math 差异，与 naga/FXC/DXC/precise 无关。对齐
-            // corpus 用 OC_WGPU_POWER=low + OC_WGPU_BACKEND=dx12 钉到与 ref 腿
-            // 同 GPU（注意核显的 Vulkan 路 create_device 段错误，必须 dx12；
-            // 也不能用 enumerate_adapters 过滤——其 adapter 未经 hal 初始化，
-            // request_device 直接段错误）。
+            // （NVIDIA MX250）；同段 WGSL 的 hash33 微探针在 NVIDIA 驱动上
+            // f32 tie 节点整格翻转、核显逐位 IEEE——驱动 fast-math 差异，
+            // 与 shader 编译器开关无关。对齐 corpus 用 OC_WGPU_POWER=low
+            // 选择 Vulkan 物理设备；不能用 enumerate_adapters 过滤——未
+            // 经过 hal 初始化的 adapter 调 request_device 会崩。
             let power = match std::env::var("OC_WGPU_POWER").ok().as_deref() {
                 Some("low") => PowerPreference::LowPower,
                 _ => PowerPreference::HighPerformance,

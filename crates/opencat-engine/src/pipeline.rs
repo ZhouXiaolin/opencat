@@ -48,9 +48,6 @@ pub struct EnginePipelineHost {
     /// Engine-owned resource owner: cached asset handles, fetcher, providers.
     /// Arc 共享：并行渲染的池线程要读缓存句柄/字节（只读，open 后不再写）。
     pub loader: Arc<EngineLoader>,
-    /// 共享纹理登记处：GPU 流输出纹理与合成目标纹理的存活都归它管。
-    /// 生产方（GPU 执行器）与消费方（GPU 合成器、预览器）共用同一个。
-    pub textures: std::sync::Arc<crate::gpu::TextureRegistry>,
 }
 
 impl EnginePipelineHost {
@@ -290,9 +287,6 @@ fn open_parsed_host_owned_with_fonts(
 
     let prepared = draft.prepare(inputs).map_err(prepare_err)?;
     let mut pipeline = prepared.open_pipeline(scripts)?;
-    // 共享纹理登记处：GPU 流输出纹理与合成目标纹理都登记在这里，宿主凭
-    // 句柄取用、归还。谁保活、谁归还全在这一处定（见 opencat-gpu-native）。
-    let textures = std::sync::Arc::new(crate::gpu::TextureRegistry::new());
     // 文档 base 目录：脚本内相对资产路径对它 join——three.js GLTFLoader
     // 相对 URL 语义的 opencat 对应物。
     pipeline.set_document_base(&loader.base_dir().to_string_lossy());
@@ -303,7 +297,6 @@ fn open_parsed_host_owned_with_fonts(
     Ok(EnginePipelineHost {
         pipeline,
         loader: Arc::new(loader),
-        textures,
     })
 }
 

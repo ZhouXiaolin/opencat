@@ -287,15 +287,14 @@ impl GpuStreamExecutor {
 
     /// 执行本帧全部 GPU 流并回填 plan。
     ///
-    /// `gpu_mode`: true = 输出纹理登记到 `textures`（Skia 零拷贝采样），
-    /// false = readback 像素直填 plan（GPU 句柄不产出）。
+    /// `textures = Some` 时，输出纹理登记到该表（Skia 零拷贝采样）。
+    /// `None` 时读回像素并直填 plan（GPU 句柄不产出）。
     pub fn execute(
         &mut self,
         gl: &Arc<glow::Context>,
         section: &GpuSection,
         plan: &mut FrameMediaPlan,
-        textures: &crate::gpu::TextureRegistry,
-        gpu_mode: bool,
+        textures: Option<&crate::gpu::TextureRegistry>,
     ) -> Result<Vec<StreamOutput>> {
         let mut outputs = Vec::new();
         // 本帧交付账本重开：上一帧的 pending 只有在该帧输出被 recycle 时
@@ -314,7 +313,7 @@ impl GpuStreamExecutor {
             let key = stream.target_id.clone();
             let mut saved = self.clients.remove(&key).unwrap_or_default();
             std::mem::swap(&mut self.client, &mut saved);
-            let out = self.execute_stream(gl, stream, plan, textures, gpu_mode);
+            let out = self.execute_stream(gl, stream, plan, textures);
             let updated = std::mem::replace(&mut self.client, saved);
             self.clients.insert(key, updated);
             let out = out?;
@@ -341,8 +340,7 @@ impl GpuStreamExecutor {
         gl: &Arc<glow::Context>,
         stream: &GpuStream,
         plan: &mut FrameMediaPlan,
-        textures: &crate::gpu::TextureRegistry,
-        gpu_mode: bool,
+        textures: Option<&crate::gpu::TextureRegistry>,
     ) -> Result<Vec<StreamOutput>> {
         let ops = &stream.ops.ops;
         let bytes: &[u8] = &stream.ops.bytes;
@@ -489,8 +487,8 @@ impl GpuStreamExecutor {
         };
 
         let mut outputs = Vec::new();
-        let gpu_mode = gpu_mode && std::env::var_os("OC_FORCE_CPU_STREAM").is_none();
-        if gpu_mode {
+        let textures = textures.filter(|_| std::env::var_os("OC_FORCE_CPU_STREAM").is_none());
+        if let Some(textures) = textures {
             // 纹理登记到共享表；GL 资源的回收由调用方在合成完成后做
             // （outputs 携带尺寸——调用方 [`GpuStreamExecutor::recycle`]
             // 归还复用池，调用点持有 current 上下文）。

@@ -1,8 +1,8 @@
-//! EGL 上下文引导与 GL 入口解析（Linux）。
+//! Linux EGL 上下文引导与 GL 入口解析（旧原生 GL 诊断/预览路径）。
 //!
-//! 与 [`super::win32::WglContext`] 同位：宿主（预览器）拿到窗口后在这里建
-//! GL 上下文；wgpu 以外部上下文模式加入，Skia 用 GL 后端，三者共享同一
-//! EGL context，纹理才谈得上零拷贝。
+//! 宿主（预览器）拿到窗口后在这里建
+//! GL 上下文；这是预览/诊断适配器。离线 Engine 不使用该 EGL context，
+//! 其 GPU backend 固定为 Vulkan。
 //!
 //! 离线渲染没有窗口，走 [`EglContext::offscreen`]（默认 display + 1×1
 //! pbuffer，同为 4.6 core）——wgpu 自建的 GL 3.3 上下文实测画不出图元，

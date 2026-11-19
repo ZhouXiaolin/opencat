@@ -122,12 +122,10 @@ RUN printf '%s\n' \
     '{"file_format_version":"1.0.0","ICD":{"library_path":"/opt/opencat/angle/libvk_swiftshader.so","api_version":"1.0.5"}}' \
     > /opt/opencat/angle/vk_swiftshader_icd.json
 
-# 纯 CPU：Skia 合成走 Vulkan backend，设备固定为 SwiftShader；ANGLE 共享同一份 ICD。
+# 纯 CPU：Engine backend 固定为 Vulkan，设备由 ANGLE 与 Vulkan loader 选为 SwiftShader。
 ENV OC_ANGLE_DIR=/opt/opencat/angle \
     OC_ANGLE_SWIFTSHADER=1 \
-    OC_SKIA_BACKEND=vulkan \
     OC_GPU_PIPELINE=1 \
-    OC_WGPU_BACKEND=vulkan \
     VK_ICD_FILENAMES=/opt/opencat/angle/vk_swiftshader_icd.json \
     LD_LIBRARY_PATH=/opt/opencat/angle \
     LANG=C.UTF-8 \

@@ -6,7 +6,7 @@ pub mod executor;
 pub mod frame;
 pub mod target;
 
-use target::{CpuRenderTarget, FrameJob, RenderTarget, SessionDeps, StreamRunner, make_render_target};
+use target::{CpuRenderTarget, FrameJob, RenderTarget, StreamRunner, make_render_target};
 
 pub use crate::media::Mp4Config;
 
@@ -63,10 +63,15 @@ pub struct EncodingConfig {
 /// `surface_w/h` is the surface + `read_pixels` size (MP4 may pass even-aligned
 /// dims). Creates a fresh surface per call (acceptable cost for the offline path).
 /// Generated Skia images are cached by [`GeneratedImageId`] across frames.
-/// CPU 合成路径的 GPU 流执行底座（懒建，线程本地——GL 上下文非线程安全）。
+/// CPU 合成路径的 GPU 流执行底座（懒建，线程本地——GL 上下文非线程安全；
+/// wgpu 设备同槽常驻，避免逐帧重建 adapter/device）。
 thread_local! {
     static CPU_GL: std::cell::RefCell<
-        Option<(crate::gpu::session::GlSession, crate::gpu::stream_executor::GpuStreamExecutor)>,
+        Option<(
+            Option<crate::gpu::session::GlSession>,
+            Option<crate::gpu::stream_executor::GpuStreamExecutor>,
+            crate::gpu::wgpu_executor::WgpuStreamExecutor,
+        )>,
     > = const { std::cell::RefCell::new(None) };
 }
 
@@ -78,9 +83,9 @@ pub fn release_gl_sessions() {
     crate::script::bridge::release_reflector_session();
 }
 
-/// CPU 合成路径的 GPU 流执行：readback 喂占位条目（无零拷贝）。
+/// CPU 合成路径的 GPU 流执行：readback 喂占位条目（无零拷贝）。按 backend
+/// 分派（[`execute_streams_by_backend`]）——WebGPU 流走 wgpu 执行器，不进 GL。
 fn cpu_execute_gpu_streams(
-    textures: &std::sync::Arc<crate::gpu::TextureRegistry>,
     media_plan: &mut opencat_core::ir::media_plan::FrameMediaPlan,
     section: &opencat_core::ir::GpuSection,
 ) -> Result<()> {
@@ -88,15 +93,83 @@ fn cpu_execute_gpu_streams(
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
             *slot = Some((
-                crate::gpu::session::GlSession::offscreen()?,
-                crate::gpu::stream_executor::GpuStreamExecutor::new(),
+                None,
+                None,
+                crate::gpu::wgpu_executor::WgpuStreamExecutor::new(),
             ));
         }
-        let (session, executor) = slot.as_mut().unwrap();
-        session.make_current()?;
-        executor.execute(&session.gl(), section, media_plan, textures, false)?;
+        let (session, executor, wgpu_executor) = slot.as_mut().unwrap();
+        let needs_gl = section
+            .streams
+            .iter()
+            .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2);
+        if needs_gl && session.is_none() {
+            *session = Some(crate::gpu::session::GlSession::offscreen()?);
+            *executor = Some(crate::gpu::stream_executor::GpuStreamExecutor::new());
+        }
+        if let Some(session) = session.as_ref() {
+            session.make_current()?;
+        }
+        execute_streams_by_backend(
+            session.as_ref().map(|session| session.gl()),
+            executor.as_mut(),
+            wgpu_executor,
+            section,
+            media_plan,
+            None,
+        )?;
         Ok(())
     })
+}
+
+/// GPU 流按 backend 分派的唯一入口：WebGPU 流交 `wgpu_executor`（独立 wgpu
+/// 设备，与 GL 上下文零共享状态），WebGL2 流交 GL 执行器；混合帧两者都执行。
+/// `textures = Some` 时，WebGL 输出登记到该表供 Skia 直接采样；`None` 时
+/// 执行器读回像素并回填 plan。返回 GL 输出（调用方合成消费后 recycle）。
+/// WebGPU 的输出由 wgpu 执行器内部回填，无纹理句柄产出。
+fn execute_streams_by_backend(
+    gl: Option<std::sync::Arc<glow::Context>>,
+    gpu_executor: Option<&mut crate::gpu::stream_executor::GpuStreamExecutor>,
+    wgpu_executor: &mut crate::gpu::wgpu_executor::WgpuStreamExecutor,
+    gpu: &opencat_core::ir::GpuSection,
+    plan: &mut opencat_core::ir::media_plan::FrameMediaPlan,
+    textures: Option<&crate::gpu::TextureRegistry>,
+) -> Result<Vec<crate::gpu::stream_executor::StreamOutput>> {
+    let has_webgpu = gpu
+        .streams
+        .iter()
+        .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU);
+    if has_webgpu {
+        let webgpu_streams: Vec<&opencat_core::ir::gpu_stream::GpuStream> = gpu
+            .streams
+            .iter()
+            .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
+            .collect();
+        wgpu_executor.execute(&webgpu_streams, plan)?;
+    }
+    // GL 执行器只收 WebGL2 流；无 WebGPU 流时免 clone 直传整段（空段执行器
+    // 早退，不碰 GL 状态）。
+    let filtered;
+    let gl_section: &opencat_core::ir::gpu_stream::GpuSection = if has_webgpu {
+        filtered = opencat_core::ir::gpu_stream::GpuSection {
+            streams: gpu
+                .streams
+                .iter()
+                .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2)
+                .cloned()
+                .collect(),
+        };
+        &filtered
+    } else {
+        gpu
+    };
+    if gl_section.streams.is_empty() {
+        return Ok(Vec::new());
+    }
+    let gl = gl.ok_or_else(|| anyhow!("WebGL2 stream requires a GL session"))?;
+    let gpu_executor = gpu_executor
+        .ok_or_else(|| anyhow!("WebGL2 stream requires a GL executor"))?;
+    gpu_executor.execute(&gl, gl_section, plan, textures)
 }
 
 /// 调试用：dump 原始 GPU 流（诊断两链命令分歧）。全片体量过大：默认只落
@@ -127,497 +200,65 @@ fn dump_gpu_streams(dir: &std::path::Path, gpu: &opencat_core::ir::GpuSection, l
     }
 }
 
-/// GPU 合成路径的会话状态（Linux=EGL 的桌面 GL；Windows 三栈统一后无 GL
-/// Skia 符号，走 [`VkRenderSession`]）。
-///
-/// 持有离屏 GL 会话与 Skia GPU 合成器。**线程纪律**：GL 上下文非线程安全——
-/// 会话在线程 A 建立就在线程 A 使用（离线渲染的建与用同线程），每帧前
-/// `make_current` 一次；无锁。
-#[cfg(target_os = "linux")]
-pub struct GpuRenderSession {
-    compositor: crate::gpu::compositor::GpuCompositor,
-    /// 合成目标纹理：drop 早于 `gl_session`（字段顺序即 drop 顺序）。
-    /// RAII 保活字段——生命周期语义在 Drop，从不读取。
-    #[allow(dead_code)]
-    composite_tex: CompositeTexture,
-    gl_session: crate::gpu::session::GlSession,
-    /// GPU 命令流执行器（内容缓存跨帧复用）。
-    gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor,
-    /// WebGPU 流执行器（wgpu 一对一映射；独立设备，与 GL 上下文零共享）。
-    wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor,
-    /// 共享纹理登记处（GPU 流输出纹理的取用与归还）。
-    textures: std::sync::Arc<crate::gpu::TextureRegistry>,
-}
-
-/// 合成目标纹理的 RAII（GL 纹理名的删除需要 current 上下文，所以先于
-/// [`GpuRenderSession::gl_session`] drop——字段声明顺序即 drop 顺序）。
-#[cfg(target_os = "linux")]
-struct CompositeTexture {
-    gl: std::sync::Arc<glow::Context>,
-    tex: crate::gpu::NativeTexture,
-}
-
-#[cfg(target_os = "linux")]
-impl Drop for CompositeTexture {
-    fn drop(&mut self) {
-        crate::gpu::gl::delete_texture(&self.gl, self.tex);
-    }
-}
-
-#[cfg(target_os = "linux")]
-impl GpuRenderSession {
-    /// 建一个 `width × height` 的 GPU 合成会话。
-    pub fn new(width: u32, height: u32) -> Result<Self> {
-        // 离屏 GL 会话：构造即 make current。
-        let gl_session = crate::gpu::session::GlSession::offscreen()?;
-        let gl = gl_session.gl();
-        // 设备指纹（并行渲染排障用）：确认 ANGLE 后端实际落在哪个渲染器上。
-        if std::env::var_os("OC_TRACE_GL_INFO").is_some()
-            && let Some((vendor, renderer, version)) = crate::gpu::angle::gl_info()
-        {
-            eprintln!("[glinfo] vendor={vendor} renderer={renderer} version={version}");
-        }
-        // 合成目标纹理：RGBA8 + FBO，Skia 的 wrap_backend_render_target 用。
-        let native = crate::gpu::gl::create_texture_rgba8(&gl, width, height)
-            .ok_or_else(|| anyhow!("创建合成目标纹理失败"))?;
-        let composite_tex = CompositeTexture {
-            gl: gl.clone(),
-            tex: native,
-        };
-
-        // Skia 合成器（共享同一 GL 上下文；入口解析跟会话同源）。
-        let compositor = crate::gpu::compositor::GpuCompositor::new(
-            crate::gpu::compositor::CompositorBackend::Gl {
-                loader: gl_session.skia_loader(),
-            },
-            Some(gl.clone()),
-            native,
-            width,
-            height,
-        )?;
-
-        Ok(Self {
-            compositor,
-            composite_tex,
-            gl_session,
-            gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor::new(),
-            wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor::new(),
-            textures: std::sync::Arc::new(crate::gpu::TextureRegistry::new()),
-        })
-    }
-
-    /// 后端：执行一帧**已产出**的 [`RenderFrame`]（GL/wgpu 命令流 + Skia
-    /// 合成 + 读回）。与前端（`pipeline.render_frame`，顺序依赖的 JS 状态）
-    /// 分离，帧是纯数据 op 流。
-    ///
-    /// `t0` / `t_script` 是前端传入的计时基准（`OC_FRAME_TIMING`
-    /// 的 `[timing-gpu]` 分段）。
-    ///
-    /// 返回 `None` 还在 `deferred=true`（PBO 双缓冲交上一帧）时首帧发生。
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    #[allow(clippy::too_many_arguments)]
-    pub fn execute_frame(
-        &mut self,
-        render: opencat_core::ir::RenderFrame,
-        loader: &crate::resource::loader::EngineLoader,
-        media_ctx: &mut MediaContext,
-        executor: &mut crate::render::executor::EngineDrawExecutor,
-        generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
-        label: u32,
-        deferred: bool,
-        t0: Option<std::time::Instant>,
-        t_script: Option<std::time::Duration>,
-    ) -> Result<Option<Vec<u8>>> {
-        // 脚本执行期会把 EGL current context 切走（GLSL 反射器建自己的离屏
-        // 上下文；`script::bridge::CurrentContextGuard` 在 Windows 上仍走 WGL
-        // 存取，ANGLE 迁移后存不到也还不回）。流的执行与 Skia 合成必须在**本
-        // 会话**的上下文里：否则纹理/FBO 名字与合成目标撞号，合成目标变成
-        // INCOMPLETE_ATTACHMENT，绘制被静默丢弃（表现为随机尺寸的裁剪或全黑）。
-        self.gl_session.make_current()?;
-        let mut frame = render.draw;
-        let mut media_plan = render.media;
-        // 调试用:dump 原始 GPU 流(测试进程加载后离线复现执行器+flush 崩溃)。
-        if let Some(dir) = std::env::var_os("OC_DUMP_GPU_STREAM")
-            && let Some(gpu) = &render.gpu
-        {
-            dump_gpu_streams(std::path::Path::new(&dir), gpu, label);
-        }
-        if std::env::var_os("OC_TRACE_STREAMS").is_some() {
-            match &render.gpu {
-                Some(gpu) => {
-                    eprintln!("[streams] f{label} n={}", gpu.streams.len());
-                    for s in &gpu.streams {
-                        eprintln!(
-                            "[streams]   {:?} {}x{} backend={:?}",
-                            s.target_id, s.width, s.height, s.backend
-                        );
-                    }
-                }
-                None => eprintln!("[streams] f{label} none"),
-            }
-        }
-        let mut stream_outputs: Vec<crate::gpu::stream_executor::StreamOutput> = Vec::new();
-        // 流执行过 = GL 上下文被改过（哪怕占位不可见、输出被丢弃——three
-        // 这类持久 renderer 的不可见帧照常执行命令），Skia 合成前就必须
-        // reset。判据不是 gpu_handles：输出被丢弃的帧 handle 为空。
-        let mut gpu_stream_ran = false;
-        let stream_wall = std::time::Instant::now();
-        if std::env::var_os("OC_DISABLE_GPU_STREAM").is_none()
-            && let Some(gpu) = &render.gpu
-        {
-            // backend 分流：WebGPU 流进 wgpu 执行器（独立设备，与 GL 零共享
-            // 状态）；WebGL2 流走 glow 执行器。语料一帧只有一种 backend
-            //（一个 canvas 一个 renderer），混合帧为防御性支持。
-            let has_webgpu = gpu
-                .streams
-                .iter()
-                .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU);
-            let has_gl = gpu
-                .streams
-                .iter()
-                .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2);
-            if has_webgpu {
-                let webgpu_streams: Vec<&opencat_core::ir::gpu_stream::GpuStream> = gpu
-                    .streams
-                    .iter()
-                    .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
-                    .collect();
-                self.wgpu_executor
-                    .execute(&webgpu_streams, &mut media_plan)?;
-            }
-            if has_gl {
-                gpu_stream_ran = true;
-                if has_webgpu {
-                    let gl_section = opencat_core::ir::gpu_stream::GpuSection {
-                        streams: gpu
-                            .streams
-                            .iter()
-                            .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2)
-                            .cloned()
-                            .collect(),
-                    };
-                    stream_outputs = self.gpu_executor.execute(
-                        &self.gl_session.gl(),
-                        &gl_section,
-                        &mut media_plan,
-                        &self.textures,
-                        true,
-                    )?;
-                } else {
-                    let filtered;
-                    let section: &opencat_core::ir::gpu_stream::GpuSection =
-                        match std::env::var("OC_ONLY_STREAM") {
-                            Ok(only) => {
-                                filtered = opencat_core::ir::gpu_stream::GpuSection {
-                                    streams: gpu
-                                        .streams
-                                        .iter()
-                                        .filter(|s| s.target_id == only)
-                                        .cloned()
-                                        .collect(),
-                                };
-                                &filtered
-                            }
-                            Err(_) => gpu,
-                        };
-                    stream_outputs = self.gpu_executor.execute(
-                        &self.gl_session.gl(),
-                        section,
-                        &mut media_plan,
-                        &self.textures,
-                        true,
-                    )?;
-                }
-            }
-        }
-
-        // 收集本帧引用的 GPU 纹理凭据：合成后统一归还。
-        let t_gl = t0.map(|t| t.elapsed());
-        let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
-            .generated_images
-            .iter()
-            .filter_map(|g| g.gpu.map(|h| crate::gpu::TextureId::from_raw(h.token)))
-            .collect();
-
-        let compositor = &mut self.compositor;
-        let textures = &self.textures;
-
-        // 本帧有 GPU 流执行过 pass（命令流改动了 GL 状态），Skia 缓存的状态
-        // 已失效：两者共享同一 GL 上下文，合成前必须让 Skia 重新查询。
-        if std::env::var_os("OC_TRACE_GLSTATE").is_some() {
-            use glow::HasContext as _;
-            let gl = self.gl_session.gl();
-            unsafe {
-                let caps = [
-                    ("DEPTH_TEST", glow::DEPTH_TEST),
-                    ("STENCIL_TEST", glow::STENCIL_TEST),
-                    ("BLEND", glow::BLEND),
-                    ("CULL_FACE", glow::CULL_FACE),
-                    ("SCISSOR_TEST", glow::SCISSOR_TEST),
-                    ("RASTERIZER_DISCARD", glow::RASTERIZER_DISCARD),
-                    ("FRAMEBUFFER_SRGB", glow::FRAMEBUFFER_SRGB),
-                    ("POLYGON_OFFSET_FILL", glow::POLYGON_OFFSET_FILL),
-                    ("SAMPLE_ALPHA_TO_COVERAGE", glow::SAMPLE_ALPHA_TO_COVERAGE),
-                    ("SAMPLE_COVERAGE", glow::SAMPLE_COVERAGE),
-                ];
-                let mut on = Vec::new();
-                for (n, c) in caps {
-                    if gl.is_enabled(c) {
-                        on.push(n);
-                    }
-                }
-                let mut vp = [0i32; 4];
-                gl.get_parameter_i32_slice(glow::VIEWPORT, &mut vp);
-                let mut sc = [0i32; 4];
-                gl.get_parameter_i32_slice(glow::SCISSOR_BOX, &mut sc);
-                let fbo = gl.get_parameter_i32(glow::FRAMEBUFFER_BINDING);
-                let prog = gl.get_parameter_i32(glow::CURRENT_PROGRAM);
-                let err = gl.get_error();
-                if let Some(nz) = std::num::NonZeroU32::new(compositor.fbo()) {
-                    gl.bind_framebuffer(glow::FRAMEBUFFER, Some(glow::NativeFramebuffer(nz)));
-                }
-                let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
-                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-                eprintln!(
-                    "[glstate] f{label} on={on:?} viewport={vp:?} scissor={sc:?} fbo={fbo} prog={prog} err={err:?} compFbo={} status={status:?}",
-                    compositor.fbo()
-                );
-            }
-        }
-        if gpu_stream_ran {
-            compositor.reset_backend_state();
-            use glow::HasContext as _;
-            let gl = self.gl_session.gl();
-            unsafe {
-                gl.disable(glow::SCISSOR_TEST);
-                gl.disable(glow::RASTERIZER_DISCARD);
-                gl.disable(glow::DEPTH_TEST);
-                gl.disable(glow::STENCIL_TEST);
-                gl.disable(glow::BLEND);
-                gl.disable(glow::CULL_FACE);
-                gl.disable(glow::DITHER);
-                gl.disable(glow::POLYGON_OFFSET_FILL);
-                gl.disable(glow::SAMPLE_ALPHA_TO_COVERAGE);
-                gl.disable(glow::SAMPLE_COVERAGE);
-                gl.bind_vertex_array(None);
-                gl.bind_buffer(glow::ARRAY_BUFFER, None);
-                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
-                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-                gl.bind_renderbuffer(glow::RENDERBUFFER, None);
-                gl.use_program(None);
-                gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
-                gl.pixel_store_i32(glow::PACK_ALIGNMENT, 4);
-                gl.depth_mask(true);
-                gl.stencil_mask(0xFFFFFFFF);
-                gl.color_mask(true, true, true, true);
-                for u in 0..8 {
-                    gl.active_texture(glow::TEXTURE0 + u);
-                    gl.bind_texture(glow::TEXTURE_2D, None);
-                    gl.bind_texture(glow::TEXTURE_CUBE_MAP, None);
-                    gl.bind_sampler(u, None);
-                }
-                gl.active_texture(glow::TEXTURE0);
-                gl.blend_equation(glow::FUNC_ADD);
-                gl.blend_func(glow::ONE, glow::ZERO);
-                gl.viewport(0, 0, compositor.width() as i32, compositor.height() as i32);
-                gl.color_mask(true, true, true, true);
-            }
-        }
-
-        {
-            let (canvas, skia) = compositor.split();
-            // 帧间清屏：合成目标纹理跨帧持久（GpuRenderSession::new 建一次），
-            // 而浏览器语义是每帧在空白画布上重绘——没有全帧不透明背景的合成
-            // （页面根声明 `background: transparent`，或半透明淡出层）会把上
-            // 一帧残影透进当前帧：liquid 整体淡出段 lockup 永不消失、探针里
-            // 半透明矩形叠出「旧色×(1-α) + 新色×α」的根因。CPU 路径每帧新建
-            // surface（零初始化=透明），这里对齐同一语义。
-            canvas.clear(skia_safe::Color::TRANSPARENT);
-            let mut resolver = crate::gpu::compositor::CompositorResolver { skia, textures };
-            if std::env::var_os("OC_DEBUG_PRERECT").is_some() {
-                let paint =
-                    skia_safe::Paint::new(skia_safe::Color4f::new(0.0, 0.0, 1.0, 1.0), None);
-                canvas.draw_rect(skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0), &paint);
-            }
-            if std::env::var_os("OC_DEBUG_SKIP_FRAME").is_none() {
-                crate::render::frame::execute_render_frame_with_gpu(
-                    &mut frame,
-                    &media_plan,
-                    loader,
-                    crate::render::frame::FrameExec {
-                        executor,
-                        media_ctx,
-                        generated_cache,
-                    },
-                    Some(&mut resolver),
-                    canvas,
-                )
-                .map_err(|e| anyhow!("{e}"))?;
-            }
-            if std::env::var_os("OC_DEBUG_FULLRECT").is_some() {
-                let paint =
-                    skia_safe::Paint::new(skia_safe::Color4f::new(1.0, 0.0, 0.0, 1.0), None);
-                canvas.draw_rect(skia_safe::Rect::new(0.0, 0.0, 1920.0, 1080.0), &paint);
-            }
-            if std::env::var_os("OC_TRACE_CANVAS").is_some() {
-                eprintln!(
-                    "[canvas] clip={:?} matrix={:?} saves={}",
-                    canvas.local_clip_bounds(),
-                    canvas.total_matrix(),
-                    canvas.save_count()
-                );
-            }
-        }
-        if std::env::var_os("OC_TRACE_DEFAULT_FB").is_some() {
-            use glow::HasContext as _;
-            let gl = self.gl_session.gl();
-            unsafe {
-                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
-                let mut px = [0u8; 4];
-                gl.read_pixels(
-                    0,
-                    0,
-                    1,
-                    1,
-                    glow::RGBA,
-                    glow::UNSIGNED_BYTE,
-                    glow::PixelPackData::Slice(&mut px[..]),
-                );
-                let mut px2 = [0u8; 4];
-                gl.read_pixels(
-                    960,
-                    540,
-                    1,
-                    1,
-                    glow::RGBA,
-                    glow::UNSIGNED_BYTE,
-                    glow::PixelPackData::Slice(&mut px2[..]),
-                );
-                let max_tex = gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE);
-                let max_rb = gl.get_parameter_i32(glow::MAX_RENDERBUFFER_SIZE);
-                let err = gl.get_error();
-                eprintln!(
-                    "[defaultfb] px00={px:?} pxcenter={px2:?} maxTex={max_tex} maxRb={max_rb} err={err:?}"
-                );
-            }
-        }
-        let rgba = if deferred {
-            let r = compositor.finish_frame()?;
-            r
-        } else {
-            let r = compositor.finish_frame_blocking().map(Some)?;
-            r
-        };
-        if let Some(t0) = t0 {
-            let t_end = t0.elapsed();
-            let t_script = t_script.unwrap_or_default();
-            let t_gl = t_gl.unwrap_or_default();
-            eprintln!(
-                "[timing-gpu] f{label} script={:.1}ms gl-stream={:.1}ms compose+readback={:.1}ms total={:.1}ms",
-                t_script.as_secs_f64() * 1e3,
-                (t_gl - t_script).as_secs_f64() * 1e3,
-                (t_end - t_gl).as_secs_f64() * 1e3,
-                t_end.as_secs_f64() * 1e3,
-            );
-        }
-        if std::env::var_os("OC_TRACE_FRAME_TIME").is_some() {
-            eprintln!(
-                "[frametime] f{label} exec_total={}ms",
-                stream_wall.elapsed().as_millis(),
-            );
-        }
-
-        // 合成完成：像素已被 Skia 采样进合成帧，输出归还复用池（免逐帧
-        // 建销 1080p 纹理+深度缓冲），凭据归还。KEEP_STREAM_TEX 是调试
-        // 语义（纹理保留不回收），outputs 直接丢弃。
-        if std::env::var_os("OC_KEEP_STREAM_TEX").is_none() {
-            self.gpu_executor.recycle(stream_outputs);
-        }
-        for id in gpu_handles {
-            textures.release(id);
-        }
-        Ok(rgba)
-    }
-}
-
-/// Vulkan 渲染会话：`OC_ANGLE_SWIFTSHADER` 走独立 VkSession 与 GL 流 CPU
-/// 回读；否则 Skia 与 ANGLE 共用 VkDevice，ANGLE 的 WebGL2 流输出纹理经
-/// VkImage 直接采样。最终合成帧仍同步读回 RGBA 给编码器。
+/// Vulkan 渲染会话：Skia 固定走 Vulkan。WebGL2 流固定由 ANGLE 执行；
+/// WebGPU 流固定由 wgpu 执行。ANGLE 能交出共享 VkDevice 时，WebGL 输出
+/// 经 VkImage 直接采样；否则 ANGLE 与 Skia 各自持有 Vulkan device，
+/// WebGL 输出先 CPU 回读。`OC_ANGLE_SWIFTSHADER` 只切换 Vulkan device。
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 pub struct VkRenderSession {
+    // 先析构 Skia 合成器，再析构 ANGLE。二者可能共用一个 VkDevice。
     compositor: crate::gpu::compositor::GpuCompositor,
-    /// Vulkan 会话：零拷贝时建在 ANGLE 的 device/queue 上，否则独立。
-    /// 保活字段——VkSession 存活即本会话存活（合成器持有的设备/队列
-    /// 引用依赖它），从不直接读取。
-    #[allow(dead_code)]
-    session: std::sync::Arc<crate::gpu::vk::VkSession>,
-    /// GL 会话（ANGLE Vulkan）：WebGL2 流的执行端。
-    gl_session: Option<crate::gpu::session::GlSession>,
+    /// ANGLE Vulkan 会话：WebGL2 流的执行端。
+    gl_session: crate::gpu::session::GlSession,
     gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor,
     wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor,
-    textures: std::sync::Arc<crate::gpu::TextureRegistry>,
+    textures: crate::gpu::TextureRegistry,
     /// 本帧 GL 流的输出，合成完成后归还复用池。
     stream_outputs: Vec<crate::gpu::stream_executor::StreamOutput>,
     /// ANGLE 的队列族索引（导入纹理的 `current_queue_family`）。
     queue_family: u32,
+    /// ANGLE 与 Skia 是否共享同一个 Vulkan device。
+    zero_copy: bool,
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 impl VkRenderSession {
     /// 建 Vulkan 渲染会话。
     ///
-    /// 调用方须先设好 `VK_ICD_FILENAMES`——它是进程级的，Skia / ANGLE /
-    /// wgpu 三家必须看到同一个 ICD。
+    /// 硬件与 SwiftShader 都走 Vulkan。SwiftShader 配置通过
+    /// `OC_ANGLE_SWIFTSHADER` 选择 device。
     pub fn new(width: u32, height: u32) -> Result<Self> {
-        // 后端选择：SwiftShader 当前走独立 VkSession + GL 流 CPU 回读；
-        // llvmpipeline 走共享 VkDevice + 纹理零拷贝。
-        let zero_copy = std::env::var_os("OC_ANGLE_SWIFTSHADER").is_none();
-        let (session, gl_session, queue_family) = if zero_copy {
-            let gl_session = crate::gpu::session::GlSession::offscreen()?;
-            let angle = gl_session.angle_context().ok_or_else(|| {
-                anyhow!(
-                    "OC_SKIA_BACKEND=vulkan 需要 ANGLE（OC_ANGLE_DIR）：\
-                     原生 EGL 拿不到 Vulkan 句柄，零拷贝不成立"
-                )
-            })?;
-            let handles = angle.vulkan_handles().ok_or_else(|| {
-                anyhow!("ANGLE 未交出 Vulkan 句柄（EGL_ANGLE_device_vulkan 缺失或查询失败）")
-            })?;
+        // ANGLE 是 WebGL2 的唯一执行面。硬件与 SwiftShader 切换它的
+        // Vulkan device；两种配置都必须保留这个会话。
+        let gl_session = crate::gpu::session::GlSession::offscreen()?;
+        let handles = gl_session.angle_context().vulkan_handles();
+        let (session, queue_family, zero_copy) = if let Some(handles) = handles {
             let queue_family = handles.queue_family_index;
-            let session = std::sync::Arc::new(crate::gpu::vk::VkSession::from_angle(&handles)?);
-            (session, Some(gl_session), queue_family)
+            let session = crate::gpu::vk::VkSession::from_angle(&handles)?;
+            (session, queue_family, true)
         } else {
-            (
-                std::sync::Arc::new(crate::gpu::vk::VkSession::new()?),
-                None,
-                0,
-            )
+            tracing::warn!("ANGLE 未交出 Vulkan 句柄；WebGL 保留 ANGLE 执行，输出改走 CPU 回读");
+            let session = crate::gpu::vk::VkSession::new()?;
+            let queue_family = session.queue_index() as u32;
+            (session, queue_family, false)
         };
-        let compositor = crate::gpu::compositor::GpuCompositor::new(
-            crate::gpu::compositor::CompositorBackend::Vulkan {
-                session: session.clone(),
-            },
-            None,
-            crate::gpu::NativeTexture::NONE,
-            width,
-            height,
-        )?;
+        let compositor = crate::gpu::compositor::GpuCompositor::new(session, width, height)?;
         Ok(Self {
             compositor,
-            session,
             gl_session,
             gpu_executor: crate::gpu::stream_executor::GpuStreamExecutor::new(),
             wgpu_executor: crate::gpu::wgpu_executor::WgpuStreamExecutor::new(),
-            textures: std::sync::Arc::new(crate::gpu::TextureRegistry::new()),
+            textures: crate::gpu::TextureRegistry::new(),
             stream_outputs: Vec::new(),
             queue_family,
+            zero_copy,
         })
     }
 
     /// 执行阶段（调用方线程 = ANGLE/Skia 上下文所在线程）：GL 流执行 +
     /// Skia 合成 + 同步读回。帧是纯数据（[`opencat_core::ir::RenderFrame`]），
     /// 与 script 阶段经 flume 通道分线程衔接。`media_ctx`（视频解码/图像
-    /// 光栅缓存）只属于本阶段；loader/textures 是 open 后只读的 Arc 共享。
+    /// 光栅缓存）和纹理登记处只属于本阶段；loader 由执行线程共享。
     /// `label` 仅作日志/dump 标签（执行语义对「第几帧」零依赖——M4-⑦ 红线）。
     #[allow(clippy::too_many_arguments)]
     pub fn execute_render(
@@ -626,15 +267,12 @@ impl VkRenderSession {
         executor: &mut crate::render::executor::EngineDrawExecutor,
         generated_cache: &mut BoundedLruCache<GeneratedImageId, Image>,
         media_ctx: &mut MediaContext,
-        pipeline_textures: &std::sync::Arc<crate::gpu::TextureRegistry>,
-        loader: &std::sync::Arc<crate::resource::loader::EngineLoader>,
+        loader: &crate::resource::loader::EngineLoader,
         label: u32,
     ) -> Result<Vec<u8>> {
         let timing = std::env::var_os("OC_FRAME_TIMING").is_some();
         let t0 = timing.then(std::time::Instant::now);
-        if let Some(gl) = &self.gl_session {
-            gl.make_current()?;
-        }
+        self.gl_session.make_current()?;
         let t_script: Option<std::time::Duration> = None;
         let mut frame = render.draw;
         let mut media_plan = render.media;
@@ -652,55 +290,31 @@ impl VkRenderSession {
                 }
             }
         }
-        if let Some(gl) = &self.gl_session {
-            // 流的执行必须在 ANGLE 上下文 current 时进行（produce 阶段可能
-            // 切走；跨线程后 current 本就归本线程，不跨线程 make/还）。
-            gl.make_current()?;
-            if let Some(gpu) = &render.gpu {
-                let has_webgpu = gpu
+        // 流的执行必须在 ANGLE 上下文 current 时进行（produce 阶段可能
+        // 切走；跨线程后 current 本就归本线程）。
+        self.gl_session.make_current()?;
+        if let Some(gpu) = &render.gpu {
+            self.stream_outputs = execute_streams_by_backend(
+                Some(self.gl_session.gl()),
+                Some(&mut self.gpu_executor),
+                &mut self.wgpu_executor,
+                gpu,
+                &mut media_plan,
+                self.zero_copy.then_some(&self.textures),
+            )?;
+            // 共享 VkQueue 没有跨 API 隐式顺序。ANGLE 的命令完成前
+            // Skia 不能采样导出纹理。无共享 device 时执行器已经同步回读。
+            if self.zero_copy
+                && gpu
                     .streams
                     .iter()
-                    .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU);
-                let has_gl = gpu
-                    .streams
-                    .iter()
-                    .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2);
-                if has_webgpu {
-                    let webgpu_streams: Vec<&opencat_core::ir::gpu_stream::GpuStream> = gpu
-                        .streams
-                        .iter()
-                        .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGPU)
-                        .collect();
-                    self.wgpu_executor
-                        .execute(&webgpu_streams, &mut media_plan)?;
-                }
-                if has_gl {
-                    let gl_streams: Vec<opencat_core::ir::gpu_stream::GpuStream> = gpu
-                        .streams
-                        .iter()
-                        .filter(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2)
-                        .cloned()
-                        .collect();
-                    self.stream_outputs = self.gpu_executor.execute(
-                        &gl.gl(),
-                        &opencat_core::ir::gpu_stream::GpuSection {
-                            streams: gl_streams,
-                        },
-                        &mut media_plan,
-                        &self.textures,
-                        true,
-                    )?;
-                    // 共享 VkQueue 没有跨 API 隐式顺序。ANGLE 的命令完成
-                    // 前 Skia 不能采样导出纹理；finish 建立这个同步点。
-                    use glow::HasContext as _;
-                    unsafe {
-                        gl.gl().finish();
-                    }
+                    .any(|s| s.backend == opencat_core::ir::GpuBackend::WebGL2)
+            {
+                use glow::HasContext as _;
+                unsafe {
+                    self.gl_session.gl().finish();
                 }
             }
-        } else if let Some(gpu) = &render.gpu {
-            // 零拷贝关闭：GL 流由 ANGLE 执行后立刻回读位图（过渡态）。
-            crate::render::cpu_execute_gpu_streams(pipeline_textures, &mut media_plan, gpu)?;
         }
         let t_streams = t0.map(|t| t.elapsed());
         let gpu_handles: Vec<crate::gpu::TextureId> = media_plan
@@ -738,16 +352,11 @@ impl VkRenderSession {
             let _ = skia;
         }
         let t_draw = t0.map(|t| t.elapsed());
-        let rgba = self.compositor.finish_frame_blocking()?;
+        let rgba = self.compositor.finish_frame()?;
 
         // 合成完成（像素已进 Vulkan 渲染目标并读回）：输出归还复用池，归还凭据。
-        if let Some(gl) = &self.gl_session {
-            let outputs = std::mem::take(&mut self.stream_outputs);
-            self.gpu_executor.recycle(outputs);
-            let _ = gl;
-        } else {
-            debug_assert!(self.stream_outputs.is_empty());
-        }
+        let outputs = std::mem::take(&mut self.stream_outputs);
+        self.gpu_executor.recycle(outputs);
         for id in gpu_handles {
             self.textures.release(id);
         }
@@ -791,12 +400,7 @@ impl crate::render::frame::GpuImageResolver for VkResolver<'_> {
     }
 }
 
-/// 逐帧渲染器：CPU 光栅，或（桌面 GL 平台）GPU 合成。
-///
-/// 选择只发生在会话建立时，两种路径逐帧产出同样的 RGBA 尺寸与 alpha 约定
-/// （premul），所以编码分支无需分叉。协作者（pipeline / media_ctx /
-/// executor / generated_cache）构造时借入，渲染调用只传帧号——调用方不再
-/// Primary render entry: parse HTML/JS dist → EnginePipeline → encode frames.
+/// 打开 HTML，逐帧执行并编码。CPU 光栅和 Vulkan 都输出预乘 alpha 的 RGBA。
 pub fn render_from_source(
     source: &str,
     output_path: impl AsRef<Path>,
@@ -837,7 +441,6 @@ pub fn render_from_source_with_base(
 
     match &config.format {
         OutputFormat::Png(frames) => {
-            let deps = SessionDeps::from_pipeline(&pipeline);
             let mut target = make_render_target(info.width, info.height, info.fps)?;
             let all: Vec<u32>;
             let frames = match frames {
@@ -859,7 +462,7 @@ pub fn render_from_source_with_base(
                 }
                 let rgba = target.execute(FrameJob {
                     render,
-                    deps: &deps,
+                    loader: pipeline.loader(),
                     label: i,
                 })?;
                 let img = image::RgbaImage::from_raw(info.width, info.height, rgba)
@@ -885,7 +488,6 @@ pub fn render_from_source_with_base(
 
             if !crate::gpu::requested() {
                 // CPU 后端：无 GPU 执行线程可拆，串行 script→execute 同步走。
-                let deps = SessionDeps::from_pipeline(&pipeline);
                 let mut target = CpuRenderTarget::new(aligned_info.0, aligned_info.1, info.fps)?;
                 // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
                 // hf-seek 等）与连续渲染不同，预热后段内各帧与整片同相位。
@@ -893,7 +495,7 @@ pub fn render_from_source_with_base(
                     let warm = pipeline.render_frame(range.start - 1)?;
                     target.execute(FrameJob {
                         render: warm,
-                        deps: &deps,
+                        loader: pipeline.loader(),
                         label: range.start - 1,
                     })?;
                 }
@@ -920,7 +522,7 @@ pub fn render_from_source_with_base(
                         }
                         let px = target.execute(FrameJob {
                             render,
-                            deps: &deps,
+                            loader: pipeline.loader(),
                             label,
                         })?;
                         Ok(Some(px))
@@ -933,16 +535,15 @@ pub fn render_from_source_with_base(
             // script（主线程；V8 isolate 非 Send 不能搬家）→ gpu 执行线程
             // （ANGLE/Skia 上下文 + media_ctx 归它所有）→ x264（编码在
             // `encode_rgba_frames` 内与渲染交错）。帧序 = channel FIFO，
-            // 各阶段内部严格串行——frame=f(t) 确定性不变。loader/textures
-            // 是 open 后只读的 Arc 共享；背压 2 帧：script 最多超前执行 2 帧。
+            // 各阶段内部严格串行——frame=f(t) 确定性不变。loader 是 open 后
+            // 只读的 Arc 共享，纹理登记处归执行线程；背压 2 帧。
             // Skia 的 GrDirectContext 非 Send（rust-skia 保守禁跨线程）——
             // 执行线程经 StreamRunner 自建 target（会话/缓存/media_ctx 归
-            // 它所有），主线程零 GPU 状态。backend 判别走唯一工厂（与
-            // Png/预览路同语义：OC_SKIA_BACKEND=vulkan→Vk，否则 GPU→Gl，
-            // 不再硬编 Vk——设 gl 的环境 MP4 路曾仍被压到 Vk）。
+            // 它所有），主线程零 GPU 状态。Png、MP4 与单帧统一经工厂选择
+            // Vulkan 或 CPU；硬件与 SwiftShader 不改变 backend。
             let runner = StreamRunner::spawn(
-                move |_| make_render_target(aligned_info.0, aligned_info.1, info.fps),
-                SessionDeps::from_pipeline(&pipeline),
+                move || make_render_target(aligned_info.0, aligned_info.1, info.fps),
+                pipeline.loader_arc().clone(),
             )?;
 
             // 段首预热一帧再丢弃：进程内第一帧的脚本相位（TLA 模块的
@@ -1065,12 +666,11 @@ pub fn render_single_frame_from_source_with_base(
         );
     }
 
-    let deps = SessionDeps::from_pipeline(&pipeline);
     let mut target = make_render_target(info.width, info.height, info.fps)?;
     let render = pipeline.render_frame(frame_index)?;
     let rgba = match target.execute(FrameJob {
         render,
-        deps: &deps,
+        loader: pipeline.loader(),
         label: frame_index,
     }) {
         Ok(rgba) => rgba,
@@ -1175,5 +775,314 @@ impl EncodingConfig {
         Self {
             format: OutputFormat::Png(Some(frames)),
         }
+    }
+}
+
+#[cfg(test)]
+mod backend_dispatch_tests {
+    //! backend 分派回归（批次 A）：WebGPU 流必须进 wgpu 执行器、绝不触碰
+    //! GL 执行器的 loader；执行后占位条目按 CPU readback 回填。
+    use super::execute_streams_by_backend;
+    use opencat_core::ir::draw_types::TableRange;
+    use opencat_core::ir::generated_image::GeneratedImageId;
+    use opencat_core::ir::gpu_stream::gl_opcode as G;
+    use opencat_core::ir::gpu_stream::wgpu_opcode as W;
+    use opencat_core::ir::gpu_stream::{GpuBackend, GpuOpFrame, GpuSection, GpuStream};
+    use opencat_core::ir::media_plan::FrameMediaPlan;
+
+    /// GPU 环境守卫：这组测试跑真实 ANGLE（WebGL2）与 Vulkan（WebGPU），
+    /// 只在渲染开发机上有意义。以 `OC_ANGLE_DIR` 为"渲染开发机"的代理
+    /// 信号——CI 只做编译面检查，无此变量的环境优雅跳过，不当失败。
+    fn gpu_env_available(tag: &str) -> bool {
+        if std::env::var_os("OC_ANGLE_DIR").is_some() {
+            return true;
+        }
+        eprintln!("skipping {tag}: OC_ANGLE_DIR not set (compile-only env)");
+        false
+    }
+
+    /// 手构一条最小 WebGPU 流：configure（bgra8unorm）→ getCurrentTexture →
+    /// view → render pass（纯 clear 红）→ pass end → encoder finish → submit。
+    /// 编码协议见 `webgpu_api.js`（录制端）与 `wgpu_executor.rs`（执行端），
+    /// 两端唯一权威；此处的序列是协议的最小忠实样本。
+    fn webgpu_clear_stream() -> GpuStream {
+        let fmt = b"bgra8unorm";
+        let view_desc = br#"{}"#;
+        let pass_desc = br#"{"colorAttachments":[{"view":{"h":200},"clearValue":{"r":1,"g":0,"b":0,"a":1},"loadOp":"clear","storeOp":"store"}]}"#;
+        // intern 池：三段变长数据按序拼接，ranges 给出各自的流内偏移。
+        let mut bytes: Vec<u8> = Vec::new();
+        let mut ranges: Vec<TableRange> = Vec::new();
+        for seg in [fmt.as_slice(), view_desc, pass_desc] {
+            ranges.push(TableRange {
+                start: bytes.len() as u32,
+                len: seg.len() as u32,
+            });
+            bytes.extend_from_slice(seg);
+        }
+        let (fmt_r, view_r, pass_r) = (0u32, 1u32, 2u32); // range id（数组下标）
+        let le32 = |v: u32| -> Vec<u8> { v.to_le_bytes().to_vec() };
+        let cat = |parts: &[&[u8]]| -> Vec<u8> { parts.concat() };
+
+        let mut ops: Vec<u8> = Vec::new();
+        let mut push = |op: u8, payload: &[u8]| {
+            ops.push(op);
+            ops.extend_from_slice(payload);
+        };
+        // CANVAS_CONFIGURE {format_range, alpha_mode(0=opaque), usage}
+        push(
+            W::CANVAS_CONFIGURE,
+            &cat(&[&le32(fmt_r)[..], &[0][..], &le32(0)[..]]),
+        );
+        // CANVAS_GET_CURRENT_TEXTURE {handle}
+        push(W::CANVAS_GET_CURRENT_TEXTURE, &le32(100));
+        // TEXTURE_VIEW_CREATE {handle, texture, desc_range}
+        push(
+            W::TEXTURE_VIEW_CREATE,
+            &cat(&[&le32(200)[..], &le32(100)[..], &le32(view_r)[..]]),
+        );
+        // ENC_BEGIN_RENDER_PASS {enc, pass, desc_range}
+        push(
+            W::ENC_BEGIN_RENDER_PASS,
+            &cat(&[&le32(1)[..], &le32(2)[..], &le32(pass_r)[..]]),
+        );
+        // PASS_END {pass}
+        push(W::PASS_END, &le32(2));
+        // ENC_FINISH {enc, cmd_buf}
+        push(W::ENC_FINISH, &cat(&[&le32(1)[..], &le32(3)[..]]));
+        // QUEUE_SUBMIT（变长：count 首部）
+        push(W::QUEUE_SUBMIT, &cat(&[&le32(1)[..], &le32(3)[..]]));
+
+        GpuStream {
+            image_id: GeneratedImageId::from_key("test:backend-dispatch:webgpu-clear"),
+            target_id: "fx".into(),
+            width: 8,
+            height: 8,
+            backend: GpuBackend::WebGPU,
+            attrs: Default::default(),
+            ops: GpuOpFrame {
+                ops,
+                bytes,
+                byte_ranges: ranges,
+            },
+        }
+    }
+
+    /// 纯 WebGPU 帧不要求 GL 会话：wgpu 执行器直接回填 CPU readback。
+    #[test]
+    fn webgpu_stream_dispatches_to_wgpu_and_backfills_plan() {
+        if !gpu_env_available("webgpu_dispatch") {
+            return;
+        }
+        let mut wgpu_executor = crate::gpu::wgpu_executor::WgpuStreamExecutor::new();
+        let stream = webgpu_clear_stream();
+        let mut plan = FrameMediaPlan::default();
+        plan.generated_images
+            .push(opencat_core::ir::media_plan::FrameGeneratedImage {
+                id: stream.image_id,
+                width: stream.width,
+                height: stream.height,
+                rgba: std::sync::Arc::from(vec![]),
+                gpu: None,
+            });
+        let section = GpuSection { streams: vec![stream] };
+
+        let outputs =
+            execute_streams_by_backend(None, None, &mut wgpu_executor, &section, &mut plan, None)
+                .expect("webgpu-only frame must execute without a GL session");
+        assert!(outputs.is_empty(), "WebGPU has no GL output handles");
+        let entry = &plan.generated_images[0];
+        assert_eq!(
+            entry.gpu, None,
+            "CPU readback path must not produce GPU handles"
+        );
+        assert_eq!(
+            entry.rgba.len(),
+            (8 * 8 * 4) as usize,
+            "placeholder must be backfilled with full-frame RGBA"
+        );
+        // clear 红（BGRA→RGBA 已在执行端回读转换）。
+        for px in entry.rgba.chunks_exact(4) {
+            assert_eq!(px, &[255, 0, 0, 255], "every pixel must be the clear red");
+        }
+    }
+
+    /// WebGL 的同一输出模式由 `Option<&TextureRegistry>` 表达：`None` 回填
+    /// CPU 像素，`Some` 发布纹理句柄；消费后输出归还复用池，凭据从表中移除。
+    #[test]
+    fn webgl_clear_readback_then_publishes_and_releases_texture() {
+        if !gpu_env_available("webgl_readback_publish") {
+            return;
+        }
+        let mut session = crate::gpu::session::GlSession::offscreen()
+            .expect("offscreen ANGLE session required for this test");
+        session
+            .make_current()
+            .expect("make_current for stream execution");
+        let mut gpu_executor = crate::gpu::stream_executor::GpuStreamExecutor::new();
+        let mut wgpu_executor = crate::gpu::wgpu_executor::WgpuStreamExecutor::new();
+
+        let mut ops = GpuOpFrame::default();
+        let mut clear_color = Vec::with_capacity(4 * std::mem::size_of::<f32>());
+        for channel in [1.0f32, 0.0, 0.0, 1.0] {
+            clear_color.extend_from_slice(&channel.to_le_bytes());
+        }
+        ops.push_cmd(G::CLEAR_COLOR, &clear_color);
+        ops.push_cmd(G::CLEAR, &[1]);
+        let stream = GpuStream {
+            image_id: GeneratedImageId::from_key("test:backend-dispatch:webgl-clear"),
+            target_id: "fx-gl-clear".into(),
+            width: 8,
+            height: 8,
+            backend: GpuBackend::WebGL2,
+            attrs: Default::default(),
+            ops,
+        };
+        let image_id = stream.image_id;
+        let width = stream.width;
+        let height = stream.height;
+        let section = GpuSection {
+            streams: vec![stream],
+        };
+        let mut plan = FrameMediaPlan::default();
+        plan.generated_images
+            .push(opencat_core::ir::media_plan::FrameGeneratedImage {
+                id: image_id,
+                width,
+                height,
+                rgba: std::sync::Arc::from(vec![]),
+                gpu: None,
+            });
+
+        let outputs = execute_streams_by_backend(
+            Some(session.gl()),
+            Some(&mut gpu_executor),
+            &mut wgpu_executor,
+            &section,
+            &mut plan,
+            None,
+        )
+        .expect("WebGL clear must execute through CPU readback");
+        assert!(outputs.is_empty(), "readback path has no GL output handles");
+        {
+            let entry = &plan.generated_images[0];
+            assert_eq!(entry.gpu, None, "readback path must not publish a token");
+            assert_eq!(entry.rgba.len(), (8 * 8 * 4) as usize);
+            for px in entry.rgba.chunks_exact(4) {
+                assert_eq!(px, &[255, 0, 0, 255], "every pixel must be the clear red");
+            }
+        }
+
+        let textures = crate::gpu::TextureRegistry::new();
+        let outputs = execute_streams_by_backend(
+            Some(session.gl()),
+            Some(&mut gpu_executor),
+            &mut wgpu_executor,
+            &section,
+            &mut plan,
+            Some(&textures),
+        )
+        .expect("WebGL clear must execute through zero-copy publication");
+        let token = {
+            let entry = &plan.generated_images[0];
+            let handle = entry
+                .gpu
+                .as_ref()
+                .expect("zero-copy path must publish a token");
+            let token = crate::gpu::TextureId::from_raw(handle.token);
+            assert!(textures.resolve(token).is_some());
+            assert!(entry.rgba.is_empty(), "zero-copy path must not retain pixels");
+            token
+        };
+        assert_eq!(outputs.len(), 1, "zero-copy path must return one GL output");
+
+        gpu_executor.recycle(outputs);
+        textures.release(token);
+        assert!(textures.is_empty(), "texture registry must drain after release");
+    }
+
+    /// 混合帧：WebGPU 清红，WebGL 清绿。各流只回填自己的占位。
+    #[test]
+    fn mixed_frame_executes_both_executors() {
+        if !gpu_env_available("mixed_frame") {
+            return;
+        }
+        let mut session = crate::gpu::session::GlSession::offscreen()
+            .expect("offscreen ANGLE session required for this test");
+        session
+            .make_current()
+            .expect("make_current for stream execution");
+        let mut gpu_executor = crate::gpu::stream_executor::GpuStreamExecutor::new();
+        let mut wgpu_executor = crate::gpu::wgpu_executor::WgpuStreamExecutor::new();
+
+        let webgpu = webgpu_clear_stream();
+        let mut gl_ops = GpuOpFrame::default();
+        let green: Vec<u8> = [0.0f32, 1.0, 0.0, 1.0]
+            .into_iter()
+            .flat_map(f32::to_le_bytes)
+            .collect();
+        gl_ops.push_cmd(G::CLEAR_COLOR, &green);
+        gl_ops.push_cmd(G::CLEAR, &[1]);
+        let webgl = GpuStream {
+            image_id: GeneratedImageId::from_key("test:backend-dispatch:webgl-empty"),
+            target_id: "fx-gl".into(),
+            width: 8,
+            height: 8,
+            backend: GpuBackend::WebGL2,
+            attrs: Default::default(),
+            ops: gl_ops,
+        };
+        let mut plan = FrameMediaPlan::default();
+        for s in [&webgpu, &webgl] {
+            plan.generated_images
+                .push(opencat_core::ir::media_plan::FrameGeneratedImage {
+                    id: s.image_id,
+                    width: s.width,
+                    height: s.height,
+                    rgba: std::sync::Arc::from(vec![]),
+                    gpu: None,
+                });
+        }
+        let section = GpuSection {
+            streams: vec![webgpu, webgl],
+        };
+
+        let outputs = execute_streams_by_backend(
+            Some(session.gl()),
+            Some(&mut gpu_executor),
+            &mut wgpu_executor,
+            &section,
+            &mut plan,
+            None,
+        )
+        .expect("mixed frame must execute on both executors");
+
+        assert!(outputs.is_empty(), "readback must not publish handles");
+        let ids: Vec<_> = section.streams.iter().map(|s| s.image_id).collect();
+        let webgpu_entry = plan
+            .generated_images
+            .iter()
+            .find(|e| e.id == ids[0])
+            .expect("webgpu entry kept");
+        assert_eq!(
+            webgpu_entry.rgba.len(),
+            (8 * 8 * 4) as usize,
+            "webgpu entry must be backfilled by the wgpu executor"
+        );
+        for px in webgpu_entry.rgba.chunks_exact(4) {
+            assert_eq!(
+                px,
+                &[255, 0, 0, 255],
+                "clear red must land on the webgpu entry"
+            );
+        }
+        let gl_entry = plan
+            .generated_images
+            .iter()
+            .find(|e| e.id == ids[1])
+            .expect("gl entry kept");
+        assert!(
+            gl_entry.rgba.is_empty() || gl_entry.rgba[0] != 255,
+            "GL entry must not receive the wgpu clear red"
+        );
     }
 }

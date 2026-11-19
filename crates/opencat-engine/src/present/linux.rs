@@ -1,4 +1,6 @@
-//! Linux 呈现器：EGL（X11）+ Skia GL 后端。
+//! Linux 桌面预览呈现器：EGL（X11）+ Skia GL。
+//!
+//! 这是预览适配器。离线 Engine 渲染固定使用 Vulkan，不经过本模块。
 //!
 //! 窗口的 EGL 上下文由 [`crate::gpu::egl::EglContext`] 建并持有；
 //! 本模块只做 Skia 那一侧。wgpu 以外部上下文模式加入同一 context（见

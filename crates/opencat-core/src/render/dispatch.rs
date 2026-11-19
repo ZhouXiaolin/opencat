@@ -311,43 +311,64 @@ fn clear_shader_colors(shader: &mut crate::canvas::paint::ShaderSpec) {
     }
 }
 
+/// 每条渲染路径取 composite 层 bounds 的策略。这是主树与隐藏子树投影
+/// 之间唯一被允许的差异。
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum LayerBoundsPolicy {
+    /// 主显示树：节点可能进入 3-D 上下文，层 bounds 需为 3-D 外溢让位。
+    MainTree,
+    /// 隐藏子树：没有 3-D 上下文，层 bounds 就是 item 的可视 bounds。
+    HiddenSubtree,
+}
+
 /// The composite inputs one node contributes to its layer prefix.
 ///
 /// Both the main display tree and the hidden-subtree path build one of these
-/// and hand it to [`begin_node_composite`], so the two paths emit the same
-/// Save / transform / layer / mask prefix and the same reverse suffix.
+/// via [`NodeCompositeParams::from_node`] — the single projection from
+/// `DisplayNode` fields — and hand it to [`begin_node_composite`], so the two
+/// paths emit the same Save / transform / layer / mask prefix and the same
+/// reverse suffix. The [`LayerBoundsPolicy`] argument is their only intended
+/// difference.
 #[derive(Clone, Debug)]
 pub(crate) struct NodeCompositeParams<'a> {
     /// The node's transform — applied between the Save and the layer.
-    pub(crate) transform: &'a DisplayTransform,
-    pub(crate) opacity: f32,
-    pub(crate) css_filter_image: Option<&'a ImageFilterSpec>,
-    pub(crate) backdrop_filter_image: Option<&'a ImageFilterSpec>,
-    pub(crate) backdrop_blur_sigma: Option<f32>,
-    pub(crate) mask_image: Option<&'a crate::style::BackgroundFill>,
+    transform: &'a DisplayTransform,
+    opacity: f32,
+    css_filter_image: Option<&'a ImageFilterSpec>,
+    backdrop_filter_image: Option<&'a ImageFilterSpec>,
+    backdrop_blur_sigma: Option<f32>,
+    mask_image: Option<&'a crate::style::BackgroundFill>,
     /// Border radius of the backdrop clip.
-    pub(crate) backdrop_radius: BorderRadius,
+    backdrop_radius: BorderRadius,
     /// Bounds of the composite layer (`None` = unbounded layer).
-    pub(crate) layer_bounds: Option<DisplayRect>,
+    layer_bounds: Option<DisplayRect>,
     /// Bounds the backdrop filter is clipped to (the element rect).
-    pub(crate) backdrop_bounds: DisplayRect,
+    backdrop_bounds: DisplayRect,
 }
 
 impl<'a> NodeCompositeParams<'a> {
-    /// 节点 composite 字段直取（M4-⑥：DrawCompositeSemantics 投影随
-    /// Annotated 层退役）。
-    fn from_node(node: &'a DisplayNode) -> Self {
+    /// `DisplayNode` → composite params 的唯一投影（M4-⑥：主路径与隐藏
+    /// 子树曾各自手填同一组字段，隐藏侧漏过 mask；两路现都走这里）。
+    /// `mask_image` / `backdrop_blur_sigma` 是活语义，两路同样生效；
+    /// `bounds` 是显式的唯一路径差异。
+    pub(crate) fn from_node(node: &'a DisplayNode, bounds: LayerBoundsPolicy) -> Self {
         let backdrop_radius = match &node.item {
             DisplayItem::Rect(rect) => rect.paint.border_radius,
             _ => BorderRadius::default(),
         };
-        // A node inside a 3-D context paints outside its own element rect (a
-        // `translateZ` toward the camera magnifies it), so clipping its layer
-        // to `layer_bounds` would cut that overflow off. Drop the bounds there.
-        let layer_bounds = if is_3d(&node.transform) {
-            None
-        } else {
-            Some(node.layer_bounds)
+        let layer_bounds = match bounds {
+            LayerBoundsPolicy::MainTree => {
+                // A node inside a 3-D context paints outside its own element
+                // rect (a `translateZ` toward the camera magnifies it), so
+                // clipping its layer to `layer_bounds` would cut that overflow
+                // off. Drop the bounds there.
+                if is_3d(&node.transform) {
+                    None
+                } else {
+                    Some(node.layer_bounds)
+                }
+            }
+            LayerBoundsPolicy::HiddenSubtree => Some(node.item.visual_bounds()),
         };
         Self {
             transform: &node.transform,
@@ -628,7 +649,7 @@ fn render_reused_subtree(ctx: &mut RenderCtx, node: &DisplayNode) -> Result<(), 
         return Ok(());
     }
 
-    let apply_plan = NodeCompositeParams::from_node(node);
+    let apply_plan = NodeCompositeParams::from_node(node, LayerBoundsPolicy::MainTree);
     let parent_space = ctx.space3;
     let apply_frame = begin_node_composite(ctx.builder, &apply_plan);
     let node_space = enter_node_space(ctx, apply_plan.transform);
@@ -681,7 +702,7 @@ fn render_live_subtree(
         return Ok(());
     }
 
-    let apply_plan = NodeCompositeParams::from_node(node);
+    let apply_plan = NodeCompositeParams::from_node(node, LayerBoundsPolicy::MainTree);
     let parent_space = ctx.space3;
     let apply_frame = begin_node_composite(ctx.builder, &apply_plan);
     let node_space = enter_node_space(ctx, apply_plan.transform);

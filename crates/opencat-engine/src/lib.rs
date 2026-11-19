@@ -5,9 +5,9 @@
 //! explicit lifecycle pipeline. Core internals are not re-exported for tests.
 
 pub mod fonts;
-// GPU 全家（原生 FFI 落点 / 离屏 GL 会话 / Skia 合成器 / WebGL 命令流执行器 /
-// 用户开关）。macOS 的离线渲染走 CPU 路径，预览的 Metal 合成在 present 平台
-// 模块里自建上下文，不经 gpu::session。
+// GPU 执行与呈现模块。Linux/Windows 离线 GPU 渲染固定使用 Vulkan：WebGL2
+// 经 ANGLE，WebGPU 经 wgpu。macOS 离线 GPU 渲染留待后续 Metal 平台批次；桌面
+// 预览仍由平台 presenter 使用原生图形 API。
 pub mod gpu;
 pub mod media;
 pub mod pipeline;

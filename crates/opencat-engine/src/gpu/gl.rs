@@ -1,22 +1,14 @@
-//! 裸 GL 原语（Windows/WGL、Linux/EGL）：FBO 与 PBO 管理。
+//! WebGL2 命令流使用的裸 GL 原语。
 //!
 //! GL 函数面统一走 [`glow`]（WebGL 同名 API 形状）——本 crate 不再手写
-//! `extern`：`glow::Context` 由调用方在 current 上下文下构建一次
-//! （engine 的 [`crate::gpu::session`]，loader 复用 win32/EGL 的入口解析），
-//! 此后所有原语都携带它。
+//! `extern`：[`crate::gpu::session`] 在 ANGLE 上下文绑定到线程后构建一次
+//! `glow::Context`。调用方把这份函数表传给这里的 GL 操作。
 //!
-//! Skia 的 `wrap_backend_render_target` 需要一个已存在的 FBO id，PBO 双缓冲
-//! 读回（[`ReadbackPixels`]）是 Skia 没有暴露的异步读回——这两件事 Skia 与
-//! GPU 命令流执行器都不管，落在这里。
-//!
-//! 调用线程必须有 current 的 GL 上下文——调用方由 engine 的 GL 会话保证
-//! （预览链不使用本模块：预览画默认帧缓冲，无需 FBO/PBO）。
+//! 本模块创建命令流输出使用的纹理和 FBO。调用线程必须有 current 的 GL
+//! 上下文，供 ANGLE 的 WebGL2 执行器使用。
 
-use std::num::NonZeroU32;
-use std::sync::Arc;
-
-use anyhow::{Result, anyhow};
 use glow::HasContext;
+use std::num::NonZeroU32;
 
 use super::NativeTexture;
 
@@ -25,8 +17,6 @@ use super::NativeTexture;
 fn nz(v: u32) -> NonZeroU32 {
     NonZeroU32::new(v).expect("glow handle 0")
 }
-
-const GL_MAP_READ_BIT: u32 = 0x0001;
 
 /// Skia 的 `gpu::gl::TextureInfo` 要填的目标与内部格式（GL 枚举）。
 ///
@@ -53,9 +43,8 @@ fn depth_renderbuffers() -> &'static std::sync::Mutex<std::collections::HashMap<
 /// FBO 不完整时返回 `None`。成功时 FBO 已解绑（绑回 0），不干扰调用方
 /// 后续的 GL 状态。
 ///
-/// 返回的 id 对调用方**不透明**：它只被塞进 Skia 的 `FramebufferInfo`。
-/// 调用方不得对它做 GL 调用，也不得做算术。深度渲染缓冲由
-/// [`delete_framebuffer`] 一并删除。
+/// 执行器将返回的 id 绑定为流的输出。删除时，
+/// [`delete_framebuffer`] 一并释放其深度附件。
 pub fn create_framebuffer(
     gl: &glow::Context,
     tex: NativeTexture,
@@ -140,7 +129,7 @@ pub fn create_texture_rgba8(gl: &glow::Context, width: u32, height: u32) -> Opti
         );
         // 只填 mip 0 的纹理在 GL 里默认 MIN_FILTER=NEAREST_MIPMAP_LINEAR 下
         // 是**不完整**的：FBO 回读仍拿得到内容，但采样一律返回 (0,0,0,1)。
-        // 桌面 NVIDIA 对此宽容，ANGLE/D3D11 严格——被 Skia 采样的纹理
+        // 桌面 NVIDIA 对此宽容，ANGLE/Vulkan 严格——被 Skia 采样的纹理
         // 必须显式给非 mipmap 过滤。
         gl.tex_parameter_i32(
             glow::TEXTURE_2D,
@@ -174,255 +163,5 @@ pub fn delete_texture(gl: &glow::Context, tex: NativeTexture) {
     }
     unsafe {
         gl.delete_texture(glow::NativeTexture(nz(tex.raw() as u32)));
-    }
-}
-
-/// 一块离屏合成目标：原生纹理 + FBO + 双缓冲读回器。
-///
-/// 建 [`Self::new`] 时要求 GL context current——FBO 与 PBO 都是 context
-/// 资源。drop 时删 FBO；**纹理不归它管**（[`create_texture_rgba8`] 的
-/// 调用方用 [`delete_texture`] 删）。
-pub struct Target {
-    gl: Arc<glow::Context>,
-    tex: NativeTexture,
-    fbo: u32,
-    width: u32,
-    height: u32,
-    /// PBO 双缓冲读回。`None` 表示 GL 入口缺失，调用方退回同步读回。
-    readback: Option<ReadbackPixels>,
-}
-
-impl Target {
-    /// 用 `tex` 作颜色附件建目标。
-    pub fn new(
-        gl: Arc<glow::Context>,
-        tex: NativeTexture,
-        width: u32,
-        height: u32,
-    ) -> Result<Self> {
-        let fbo = create_framebuffer(&gl, tex, width, height)
-            .ok_or_else(|| anyhow!("创建 FBO 失败（GL 入口缺失或 FBO 不完整）"))?;
-        let readback = ReadbackPixels::new(&gl, fbo, width, height);
-        Ok(Self {
-            gl,
-            tex,
-            fbo,
-            width,
-            height,
-            readback,
-        })
-    }
-
-    /// 目标纹理句柄。
-    pub fn texture(&self) -> NativeTexture {
-        self.tex
-    }
-
-    /// FBO id，交给 Skia 的 `FramebufferInfo`。对调用方**不透明**。
-    pub fn fbo(&self) -> u32 {
-        self.fbo
-    }
-
-    pub fn width(&self) -> u32 {
-        self.width
-    }
-
-    pub fn height(&self) -> u32 {
-        self.height
-    }
-
-    /// 是否有 PBO 双缓冲读回。`false` 时调用方走同步读回。
-    pub fn has_readback(&self) -> bool {
-        self.readback.is_some()
-    }
-
-    /// 等上一帧的读回完成。**每帧合成开始前调用**。
-    ///
-    /// GL 的 context 命令流是 FIFO：上一帧的 `glReadPixels` 天然排在渲染
-    /// 之后，CPU 不需要显式等待。此方法只为与
-    /// [`super::metal::Target::wait_inflight`] 接口对齐——Metal 跨队列无
-    /// 隐式顺序，那边必须真等。
-    pub fn wait_inflight(&mut self) {}
-
-    /// 取回**上一帧**的像素，并为当前帧发起一次读回。首帧返回 `None`。
-    pub fn readback(&mut self) -> Option<Vec<u8>> {
-        self.readback.as_mut().and_then(|rb| rb.read_frame())
-    }
-}
-
-impl Drop for Target {
-    fn drop(&mut self) {
-        if self.fbo != 0 {
-            delete_framebuffer(&self.gl, self.fbo);
-        }
-    }
-}
-
-/// 把 FBO 的颜色附件读回 CPU 的双缓冲读回器。
-///
-/// `read_pixels` 同步读回会把 GPU→CPU 的传输放在关键路径上：实测 1920×1080
-/// RGBA 约 11.9ms/帧，占离线渲染每帧的 18%。这里改成 PBO 双缓冲——本帧把
-/// 像素**发起**到 PBO 就返回（实测 0.1ms），传输交给 DMA 引擎，与下一帧的
-/// 渲染重叠；下一帧再来取回上一帧的结果（实测等待 0.0ms）。
-///
-/// 为什么是双缓冲而不是单缓冲：`glReadPixels` 写进 PBO 是异步的，但**同一个
-/// PBO 不能一边被 DMA 写、一边被 map 读**。两个槽轮转，读写才落在不同 PBO 上。
-///
-/// 代价：多一帧延迟，且容量为 2 帧 RGBA（1080p 约 16.6MB）。离线渲染逐帧串行，
-/// 帧序不变，所以输出逐字节不变。
-pub struct ReadbackPixels {
-    gl: Arc<glow::Context>,
-    fbo: u32,
-    width: u32,
-    height: u32,
-    /// 两个 PBO 槽，构造时建好。
-    slots: [Option<glow::NativeBuffer>; 2],
-    /// 已发起、待取回的槽。`None` 表示还没有在途的读回。
-    pending: Option<usize>,
-}
-
-impl ReadbackPixels {
-    /// 建两个 PBO 槽。入口缺失时返回 `None`，调用方退回同步读回。
-    ///
-    /// 必须带 current 的 GL context 调用（PBO 是 context 资源）。
-    pub fn new(gl: &Arc<glow::Context>, fbo: u32, width: u32, height: u32) -> Option<Self> {
-        unsafe {
-            let a = gl.create_buffer().ok()?;
-            let b = gl.create_buffer().ok()?;
-            let bytes = (width as usize * height as usize * 4) as i32;
-            for slot in [&a, &b] {
-                gl.bind_buffer(glow::PIXEL_PACK_BUFFER, Some(*slot));
-                gl.buffer_data_size(glow::PIXEL_PACK_BUFFER, bytes, glow::STREAM_READ);
-            }
-            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
-            Some(Self {
-                gl: gl.clone(),
-                fbo,
-                width,
-                height,
-                slots: [Some(a), Some(b)],
-                pending: None,
-            })
-        }
-    }
-
-    /// 发起本帧的读回，并取回**上一帧**的结果。
-    ///
-    /// 返回 `None` 仅发生在首帧（还没有在途读回可取）。此后每帧都返回上一帧的
-    /// 像素，所以调用方必须容忍一帧延迟（末帧由 `encode_rgba_frames` 多渲染
-    /// 一帧排空）。
-    pub fn read_frame(&mut self) -> Option<Vec<u8>> {
-        let bytes = self.width as usize * self.height as usize * 4;
-
-        // 下一个写入槽必须**先**定：取回会把 `pending` 清空，之后再看就只能
-        // 得到 0，两帧会抢同一个 PBO，双缓冲失效。
-        let next_slot = self.pending.map_or(0, |slot| 1 - slot);
-
-        // 先取回上一帧发起的那次传输。此时它早已在后台完成，map 不阻塞。
-        let out = match self.pending.take() {
-            // PBO map 失败（实测部分 NVIDIA/WGL 组合上 glReadPixels→PBO 报
-            // INVALID_OPERATION，随后 map 出 GL_INVALID_VALUE/null）时退回
-            // 同步读回：慢一帧但内容正确，渲染管线语义不变。
-            Some(slot) => self.collect(slot, bytes).or_else(|| self.read_direct()),
-            None => None,
-        };
-
-        // 再为当前帧发起一次异步读回，落到另一个槽。
-        self.issue(next_slot);
-        self.pending = Some(next_slot);
-        out
-    }
-
-    /// 同步读回当前 FBO（PBO 路径失败时的回退）。
-    fn read_direct(&self) -> Option<Vec<u8>> {
-        unsafe {
-            let gl = &self.gl;
-            // PBO 读回失败（INVALID_OPERATION）留下的错误标志是粘滞的：不先
-            // 清掉，下面的 get_error 读到的是旧账，会把成功的同步读回也判死。
-            gl.get_error();
-            gl.bind_framebuffer(
-                glow::READ_FRAMEBUFFER,
-                Some(glow::NativeFramebuffer(nz(self.fbo))),
-            );
-            gl.read_buffer(glow::COLOR_ATTACHMENT0);
-            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
-            let mut out = vec![0u8; self.width as usize * self.height as usize * 4];
-            gl.read_pixels(
-                0,
-                0,
-                self.width as i32,
-                self.height as i32,
-                glow::RGBA,
-                glow::UNSIGNED_BYTE,
-                glow::PixelPackData::Slice(&mut out),
-            );
-            let err = gl.get_error();
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
-            if err != glow::NO_ERROR {
-                return None;
-            }
-            Some(out)
-        }
-    }
-
-    /// 发起一次异步读回到 `slot`。
-    fn issue(&self, slot: usize) {
-        unsafe {
-            let gl = &self.gl;
-            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, self.slots[slot]);
-            gl.bind_framebuffer(
-                glow::READ_FRAMEBUFFER,
-                Some(glow::NativeFramebuffer(nz(self.fbo))),
-            );
-            // 读缓冲是 FBO 的状态，Skia 未必留在 `COLOR_ATTACHMENT0` 上。
-            gl.read_buffer(glow::COLOR_ATTACHMENT0);
-            // 目标指针为 null 即「写进当前绑定的 PBO」，立即返回。
-            gl.read_pixels(
-                0,
-                0,
-                self.width as i32,
-                self.height as i32,
-                glow::RGBA,
-                glow::UNSIGNED_BYTE,
-                glow::PixelPackData::BufferOffset(0),
-            );
-            gl.bind_framebuffer(glow::READ_FRAMEBUFFER, None);
-            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
-        }
-    }
-
-    /// map 出 `slot` 的像素拷进 `Vec`。
-    ///
-    /// `GL_MAP_READ_BIT` 保证 map 期间那次传输已完成，不必另加栅栏。
-    fn collect(&self, slot: usize, bytes: usize) -> Option<Vec<u8>> {
-        unsafe {
-            let gl = &self.gl;
-            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, self.slots[slot]);
-            let ptr =
-                gl.map_buffer_range(glow::PIXEL_PACK_BUFFER, 0, bytes as i32, GL_MAP_READ_BIT);
-            let out = if ptr.is_null() {
-                None
-            } else {
-                let slice = std::slice::from_raw_parts(ptr as *const u8, bytes);
-                Some(slice.to_vec())
-            };
-            if !ptr.is_null() {
-                gl.unmap_buffer(glow::PIXEL_PACK_BUFFER);
-            }
-            gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
-            out
-        }
-    }
-}
-
-impl Drop for ReadbackPixels {
-    fn drop(&mut self) {
-        unsafe {
-            for slot in self.slots.iter_mut() {
-                if let Some(buf) = slot.take() {
-                    self.gl.delete_buffer(buf);
-                }
-            }
-        }
     }
 }

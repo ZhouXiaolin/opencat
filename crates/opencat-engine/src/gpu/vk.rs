@@ -11,12 +11,16 @@ use skia_safe::gpu::vk;
 
 /// 进程级 Vulkan 引导：让 Skia / ANGLE / wgpu 三家看到同一份 ICD。
 ///
-/// 若调用方没设 `VK_ICD_FILENAMES`，就从 `OC_ANGLE_DIR` 推出同目录的
-/// `vk_swiftshader_icd.json` 并设上。已设的值不动。
+/// 只有显式设置 `OC_ANGLE_SWIFTSHADER` 时，才从 `OC_ANGLE_DIR` 推出
+/// `vk_swiftshader_icd.json`。硬件 Vulkan 默认使用系统 ICD。已设的
+/// `VK_ICD_FILENAMES` 不动。
 ///
 /// 幂等，可重复调。
 pub fn bootstrap_icd() {
     if std::env::var_os("VK_ICD_FILENAMES").is_some() {
+        return;
+    }
+    if !crate::gpu::angle::swiftshader_requested() {
         return;
     }
     let Some(dir) = std::env::var_os("OC_ANGLE_DIR") else {
@@ -105,25 +109,33 @@ impl VkSession {
         let instance = unsafe { entry.create_instance(&create_info, None) }
             .map_err(|e| anyhow!("Vulkan create_instance 失败: {e}"))?;
 
-        // 物理设备：优先 SwiftShader。
+        // 物理设备：默认优先硬件 GPU。只有显式要求 SwiftShader 时，
+        // 才要求软件 device；此时选不到软件 device 必须报错，不能静默
+        // 落到硬件。
         let phys = unsafe { instance.enumerate_physical_devices() }
             .map_err(|e| anyhow!("Vulkan enumerate_physical_devices 失败: {e}"))?;
-        let mut chosen = None;
-        for p in &phys {
-            let props = unsafe { instance.get_physical_device_properties(*p) };
-            let name = unsafe {
-                std::ffi::CStr::from_ptr(props.device_name.as_ptr())
-                    .to_string_lossy()
-                    .into_owned()
-            };
-            tracing::debug!(device = %name, "vulkan 物理设备");
-            if name.contains("SwiftShader") {
-                chosen = Some(*p);
-            }
+        let devices: Vec<_> = phys
+            .iter()
+            .map(|p| {
+                let props = unsafe { instance.get_physical_device_properties(*p) };
+                let name = unsafe {
+                    std::ffi::CStr::from_ptr(props.device_name.as_ptr())
+                        .to_string_lossy()
+                        .into_owned()
+                };
+                (name, props.device_type)
+            })
+            .collect();
+        let selected = choose_physical_device(
+            &devices,
+            crate::gpu::angle::swiftshader_requested(),
+            crate::gpu::angle::hardware_requested(),
+        )?;
+        let physical = phys[selected];
+        {
+            let (name, kind) = &devices[selected];
+            tracing::debug!(device = %name, ?kind, "vulkan 物理设备");
         }
-        let physical = chosen
-            .or_else(|| phys.first().copied())
-            .ok_or_else(|| anyhow!("Vulkan 无可用物理设备"))?;
 
         // 队列族：Skia 要 graphics 队列。
         let families = unsafe { instance.get_physical_device_queue_family_properties(physical) };
@@ -492,6 +504,55 @@ impl VkSession {
     }
 }
 
+fn is_software_device(name: &str, kind: ash::vk::PhysicalDeviceType) -> bool {
+    kind == ash::vk::PhysicalDeviceType::CPU
+        || ["SwiftShader", "lavapipe", "llvmpipe"]
+            .iter()
+            .any(|needle| name.contains(needle))
+}
+
+fn hardware_rank(kind: ash::vk::PhysicalDeviceType) -> u8 {
+    match kind {
+        ash::vk::PhysicalDeviceType::DISCRETE_GPU => 4,
+        ash::vk::PhysicalDeviceType::INTEGRATED_GPU => 3,
+        ash::vk::PhysicalDeviceType::VIRTUAL_GPU => 2,
+        ash::vk::PhysicalDeviceType::OTHER => 1,
+        _ => 0,
+    }
+}
+
+fn choose_physical_device(
+    devices: &[(String, ash::vk::PhysicalDeviceType)],
+    require_swiftshader: bool,
+    require_hardware: bool,
+) -> Result<usize> {
+    if devices.is_empty() {
+        return Err(anyhow!("Vulkan 无可用物理设备"));
+    }
+    if require_swiftshader {
+        return devices
+            .iter()
+            .position(|(name, _)| name.contains("SwiftShader"))
+            .ok_or_else(|| anyhow!("请求了 SwiftShader，但 Vulkan 未提供 SwiftShader device"));
+    }
+    let hardware = devices
+        .iter()
+        .enumerate()
+        .filter(|(_, (name, kind))| !is_software_device(name, *kind))
+        .max_by_key(|(_, (_, kind))| hardware_rank(*kind))
+        .map(|(index, _)| index);
+    if require_hardware {
+        return hardware.ok_or_else(|| anyhow!("请求了硬件 Vulkan，但 Vulkan 未提供硬件 device"));
+    }
+    hardware
+        .or_else(|| {
+            devices
+                .iter()
+                .position(|(name, kind)| is_software_device(name, *kind))
+        })
+        .ok_or_else(|| anyhow!("Vulkan 无可用物理设备"))
+}
+
 /// ANGLE 导出 image 的元数据（从写回的 `VkImageCreateInfo` 解析）。
 #[derive(Debug)]
 pub struct AngleVkImageMeta {
@@ -578,7 +639,7 @@ pub fn import_stream_texture(
     let backend_tex = unsafe {
         backend_textures::make_vk((width as i32, height as i32), &info, "gpu-stream-output")
     };
-    // GL 纹理是 bottom-left 原点（FBO 行序自底向上），与 GL 后端导入一致。
+    // ANGLE 的 GL 纹理是 bottom-left 原点（FBO 行序自底向上），与导入路径一致。
     images::borrow_texture_from(
         skia,
         &backend_tex,
@@ -588,4 +649,40 @@ pub fn import_stream_texture(
         None,
     )
     .ok_or_else(|| anyhow!("borrow_texture_from 失败（Vulkan backend texture）"))
+}
+
+#[cfg(test)]
+mod device_selection_tests {
+    use super::choose_physical_device;
+    use ash::vk::PhysicalDeviceType;
+
+    fn devices() -> Vec<(String, PhysicalDeviceType)> {
+        vec![
+            ("SwiftShader Device".into(), PhysicalDeviceType::CPU),
+            (
+                "AMD Radeon 610M (RADV)".into(),
+                PhysicalDeviceType::INTEGRATED_GPU,
+            ),
+            ("Radeon RX Test".into(), PhysicalDeviceType::DISCRETE_GPU),
+        ]
+    }
+
+    #[test]
+    fn default_prefers_discrete_hardware_over_swiftshader() {
+        let selected = choose_physical_device(&devices(), false, false).unwrap();
+        assert_eq!(selected, 2);
+    }
+
+    #[test]
+    fn swiftshader_flag_selects_software_device() {
+        let selected = choose_physical_device(&devices(), true, false).unwrap();
+        assert_eq!(selected, 0);
+    }
+
+    #[test]
+    fn hardware_request_does_not_silently_select_software() {
+        let software_only = vec![("SwiftShader Device".into(), PhysicalDeviceType::CPU)];
+        let error = choose_physical_device(&software_only, false, true).unwrap_err();
+        assert!(error.to_string().contains("未提供硬件 device"));
+    }
 }

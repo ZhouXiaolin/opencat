@@ -1,4 +1,6 @@
-//! macOS 呈现器：CAMetalLayer + Skia Metal 后端。
+//! macOS 桌面预览呈现器：CAMetalLayer + Skia Metal。
+//!
+//! 这是预览适配器。macOS 离线 Engine 的 Vulkan 路径尚未接入。
 
 use std::ffi::c_void;
 
@@ -137,9 +139,8 @@ impl Presenter {
         Ok(())
     }
 
-    /// Metal 没有 GL 式的共享 context，Skia 与本节点之间不需要重同步状态
-    /// （跨队列顺序由 wgpu 出口的 `poll(Wait)` 与 `metal::Target` 的
-    /// `wait_inflight` 保证），所以为空操作。
+    /// Metal 没有 GL 式的共享 context，Skia 与本节点之间不需要重同步状态，
+    /// 所以为空操作。
     pub fn reset_backend_state(&mut self) {}
 
     pub fn with_canvas_and_resolver(

@@ -55,6 +55,8 @@ pub struct PreviewFrame<'a> {
 /// 宿主窗口上的呈现器。
 pub struct PreviewPresenter {
     inner: platform::Presenter,
+    /// 纹理凭据只由预览执行端持有，core 管线不参与原生纹理交接。
+    textures: crate::gpu::TextureRegistry,
 }
 
 impl PreviewPresenter {
@@ -73,7 +75,10 @@ impl PreviewPresenter {
         height: i32,
     ) -> Result<Self> {
         let inner = unsafe { platform::Presenter::new(window, width, height) }?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            textures: crate::gpu::TextureRegistry::new(),
+        })
     }
 
     /// 渲染一帧并呈现到窗口。
@@ -108,7 +113,7 @@ impl PreviewPresenter {
         }
 
         let loader = pipeline.loader();
-        let textures = &pipeline.textures;
+        let textures = &self.textures;
         let result = self
             .inner
             .with_canvas_and_resolver(textures, &mut |canvas, resolver| {

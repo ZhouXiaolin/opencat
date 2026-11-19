@@ -1,6 +1,12 @@
 # hyperframes-launches 硬件 Vulkan + profile 全量复跑报告
 
-> 2026-11-15 本轮实测。口径：当前工作树、`plan.md`、本轮产物。不引用旧 avg_p8 基线作验收依据。
+> 2026-11-15 本轮实测。口径：当前工作树与本轮产物。不引用旧 avg_p8 基线作验收依据。
+
+> **状态：history。** 本文保留 2026-11-15 的实验记录和数值，不代表当前配置契约。
+> 当前 Linux/Windows 离线 Engine 的 backend 固定为 Vulkan；WebGL2 走 ANGLE/Vulkan；
+> WebGPU 走 wgpu/Vulkan。AMD 与 SwiftShader 是 Vulkan device 选择，不是
+> backend。macOS 留待 ANGLE/wgpu + Metal 的后续平台批次。文中 `OC_SKIA_BACKEND`
+> 是当时记录的环境输入，现已退役；当前 backend 不靠该变量选择。
 
 > 2026-11-15 收束复核：本文第 1–7 节是定位阶段的扫描记录；最终修复与全量回归见第 8 节，以第 8 节为准。
 
@@ -8,7 +14,9 @@
 
 - 编译 `target/release/opencat`，带 `--features profile`。
 - 按 `out/vulkan-sweep/scripts/render_one.sh` 的硬件 Vulkan 配置串行渲染 23 例。
-- 硬件设备是 AMD Radeon 610M（RADV `radeon_icd.json`）。配置用 `OC_SKIA_BACKEND=vulkan`、`OC_ANGLE_DIR`、`OC_GPU_PIPELINE=1`。
+- 设备是 AMD Radeon 610M（RADV `radeon_icd.json`；AMD 是 Vulkan device）。
+  当时还设置了现已退役的 `OC_SKIA_BACKEND=vulkan`；当前配置只用
+  `OC_GPU_PIPELINE=1` 选择 GPU/CPU，Vulkan backend 自身固定。
 - 每例日志含完整 `Render profile`。
 - 对每例 swgl 参考 MP4 做 `tools/k3diff.py`、ffmpeg `ssim` 与 `tools/align_board.py`。
 - 指标含 `avg_p8`、`avg_d4`、`mae`、灰度 SSIM、ffmpeg SSIM、边缘 `shape` IoU、`ncc`、`shift0`、`shift_max`、`local_max`。
@@ -91,18 +99,18 @@
 1. **`spacex-launch`：字号尺度差，优先修。**
    - 验收帧 f985 / f1015：参考的 `$1.0T`、`SPACEX · IMPLIED IPO VALUATION` 与字幕 pill 明显小于本轮渲染。
    - 本轮 `avg_p8` 0.0290、ffmpeg SSIM 0.9781；比旧产物改善 `avg_p8 -0.0160`、SSIM `+0.0324`。
-   - 根因与 `plan.md` 记录一致：嵌套 `container-type` 的 `cqw` 按合成帧视口折，未按 `.vid` 容器宽折，字号与内距约 1.33×。需要布局后二次 resolve。
+   - 根因：嵌套 `container-type` 的 `cqw` 按合成帧视口折，未按 `.vid` 容器宽折，字号与内距约 1.33×。需要布局后二次 resolve。
    - 这是本轮唯一仍有全局尺度偏差的 example。
 
 2. **`HF-heygen-stripe`：mask 边缘渐隐缺失。**
    - f829：参考的 3D 叠字圆鼓上下两行淡出；本轮全不透明，多出 `generates` / `provisions` 等可见词。
    - 这是「有 vs 无」和形态边缘差异，不是噪点。`shape` 0.9866 也低于多数样例。
-   - 根因与 `plan.md` 记录一致：`mask-image: linear-gradient` 未实现；需要 SaveLayer + DstIn 渐变矩形并处理 3D 上下文坐标。
+   - 根因：`mask-image: linear-gradient` 未实现；需要 SaveLayer + DstIn 渐变矩形并处理 3D 上下文坐标。
    - 其余验收帧 f166/f331/f497 已一致；f1 是视频首帧解码/相位差。
 
 3. **`timeline-launch`：聊天回放瞬态内容差。**
    - f371/f431：参考是数值 pill 与 `timing is tricky` 重叠态；本轮是文本气泡态。
-   - 这是短时内容形态差。`plan.md` 已列为观察项，不投入；本轮保留观察结论。
+   - 这是短时内容形态差。已列为观察项，不投入；本轮保留观察结论。
 
 4. **`texture-launch-video`：底部参数标签多余。**
    - f38/f53：本轮多出 `TEXTURE LOOK / #0955 EACH / TEXTURE MASK-TEXT` 小标签。
@@ -188,15 +196,17 @@
 
 归档旧产物到 `out/vulkan-sweep/archive-20261115-164051/` 后，全量重跑。二进制为 `target/release/opencat`，带 `--features profile`。
 
-硬件环境：
+2026-11-15 的历史环境。当前 backend 已固定；AMD 通过 ICD 选择 device：
 
 ```text
 LD_PRELOAD=/home/solaren/Projects/opencat/tools/angle-linux/libvulkan.so.1
 VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json
-OC_SKIA_BACKEND=vulkan
 OC_ANGLE_DIR=/home/solaren/Projects/opencat/tools/angle-linux
 OC_GPU_PIPELINE=1
 ```
+
+该轮日志里记录的 `OC_SKIA_BACKEND=vulkan` 保留在产物中作历史证据。当前命令
+不需要该变量。iOS/macOS 不在本轮范围；macOS 离线 Vulkan 仍未接入。
 
 命令：`JOBS=6 /home/solaren/miniforge3/bin/python3 out/vulkan-sweep/scripts/run_sweep_parallel.py`。日志：`out/vulkan-sweep/sweep-parallel-final.log`。
 

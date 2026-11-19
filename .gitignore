@@ -170,3 +170,6 @@ examples/*/public/fonts/**
 !examples/*/assets/index.md
 !examples/*/public/assets/gsap.min.js
 !examples/*/public/assets/index.md
+
+# wasm 二进制属资源不入库（three.js 解码/物理库，可从官方包重取）
+examples/**/*.wasm

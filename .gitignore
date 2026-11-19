@@ -161,3 +161,12 @@ docker/prebuilt/
 examples/omp-reduction/.oc-cache/
 examples/omp-simd/.oc-cache/
 examples/smallpt/.oc-cache/
+
+# examples 素材目录整体不入库（本地保留；参考仓库可重拷）——gsap.min.js / index.md 等代码与文档除外
+examples/*/assets/**
+examples/*/public/assets/**
+examples/*/public/fonts/**
+!examples/*/assets/gsap.min.js
+!examples/*/assets/index.md
+!examples/*/public/assets/gsap.min.js
+!examples/*/public/assets/index.md

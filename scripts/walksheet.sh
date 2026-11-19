@@ -17,7 +17,7 @@ OUT="${OUT_ROOT:-$ROOT/out/walksheet}"
 mkdir -p "$OUT"
 ENV=(env LD_PRELOAD=$ROOT/tools/angle-linux/libvulkan.so.1
   VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json
-  OC_SKIA_BACKEND=vulkan OC_ANGLE_DIR=$ROOT/tools/angle-linux OC_GPU_PIPELINE=1)
+  OC_ANGLE_DIR=$ROOT/tools/angle-linux OC_GPU_PIPELINE=1)
 TSV=$OUT/summary.tsv
 echo -e "name\trender-exit\tavg_p8\tnote" > "$TSV"
 

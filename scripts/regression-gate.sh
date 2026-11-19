@@ -24,6 +24,10 @@
 #   MAX_FRAC    avg_p8 门限（默认 0.02）
 #   SKIP_BUILD=1            复用现有 release 二进制
 #   OPENCAT_BIN             覆盖自动解析的 release opencat 路径
+#   WEB_ONLY=1              跳过 engine 腿（复用现有 engine 产物，只跑 web 腿）
+#   ENGINE_MAX_S_PER_FRAME  engine 时间门（默认 0.5 s/帧；Vulkan 地板 ~0.13）
+#   WEB_MAX_S_PER_FRAME     web 时间门（默认 1.5 s/帧；soft 地板 ~0.6-0.9）
+#   TIME_SLACK_S            两腿时间预算的固定余量（默认 120s）
 #   CHROME_BIN / CHROMEDRIVER_BIN / CHROMEDRIVER_URL   web 渲染需要
 #   EXCLUDE_<例名去连字符大写>   web 侧排除窗（如 EXCLUDE_HYPERFRAMESLAUNCH）。
 #               默认 hyperframes-launch=213-549,866-905,907-975（Chrome
@@ -46,6 +50,26 @@ MAX_FRAC="${MAX_FRAC:-0.02}"
 # pill.mp4 / Frame 1&3.mp4），web 侧排除这些窗口；engine 侧全片。
 : "${EXCLUDE_HYPERFRAMESLAUNCH:=213-549,866-905,907-975}"
 OUT_BASE="$ROOT/out/gate"
+
+# 时间门禁（2026-11-19）：每腿按 s/帧 预算，到点 SIGTERM（30s 宽限后
+# SIGKILL）判 FAIL——渲染正确但环境劣化（GPU 进程崩溃掉 CPU fallback、
+# 误配 LD_PRELOAD 等）先在时间上暴露。地板实测：engine Vulkan 硬件
+# inspector 1350 帧 ≈3 min（用户实测）≈0.13 s/帧，门 0.5（≈3.7×）；web
+# SwiftShader soft ~0.6-0.9 s/帧，门 1.5。TIME_SLACK_S 盖进程启动/收尾。
+ENGINE_MAX_S_PER_FRAME="${ENGINE_MAX_S_PER_FRAME:-0.5}"
+WEB_MAX_S_PER_FRAME="${WEB_MAX_S_PER_FRAME:-1.5}"
+TIME_SLACK_S="${TIME_SLACK_S:-120}"
+# 1 = 跳过 engine 腿（复用 $OUT_BASE/$n-engine.mp4，只重跑 web 腿）。
+WEB_ONLY="${WEB_ONLY:-0}"
+
+# Linux engine 腿环境缺省（与 scripts/walksheet.sh 同一组；调用方已设则以
+# 调用方为准）。web 腿不继承这组（见 web 渲染处）。
+if [ "$(uname)" = "Linux" ] && [ -z "${OC_ANGLE_DIR:-}" ]; then
+    export OC_ANGLE_DIR="$ROOT/tools/angle-linux"
+    export LD_PRELOAD="$ROOT/tools/angle-linux/libvulkan.so.1"
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json
+    export OC_GPU_PIPELINE=1
+fi
 
 EXE=opencat
 [ -f "$ROOT/target/release/opencat.exe" ] && EXE=opencat.exe
@@ -95,6 +119,20 @@ select_expr() {
     echo "not($joined)"
 }
 
+# 时间门禁判定（s/帧）：打印实测耗时并判门，返回非 0 = 超门。
+time_gate() {
+    local n="$1" side="$2" t0="$3" video="$4" max_spf="$5"
+    local wall frames spf ok
+    wall=$(( $(date +%s) - t0 ))
+    frames=$(ffprobe -v error -show_entries stream=nb_frames -of csv=p=0 "$video" 2>/dev/null | head -1 | tr -d '[:space:]' || true)
+    case "$frames" in ''|*[!0-9]*) frames="$FRAMES_EST" ;; esac
+    [ "$frames" -ge 1 ] 2>/dev/null || frames=1
+    spf=$(awk -v w="$wall" -v n="$frames" 'BEGIN{printf "%.2f", w/n}')
+    ok=$(awk -v w="$wall" -v n="$frames" -v m="$max_spf" 'BEGIN{print (w/n <= m) ? 1 : 0}')
+    echo "  [$n/$side-time] wall=${wall}s frames=$frames -> ${spf}s/frame (gate <=${max_spf}) -> $([ "$ok" = 1 ] && echo PASS || echo FAIL)"
+    [ "$ok" = 1 ]
+}
+
 PASS=0
 FAIL=0
 FAILED_LABELS=()
@@ -110,18 +148,6 @@ for n in $EXAMPLES; do
     WEB_VIDEO="$OUT_BASE/$n-web.mp4"
     ENTRY="$REF_ROOT/$n/index.html"
 
-    # 1) engine 直接渲染原始 HTML/dist 文档。
-    if [ ! -f "$ENTRY" ]; then
-        echo "[FAIL] $n: HTML entry missing at $ENTRY" >&2
-        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(entry)")
-        continue
-    fi
-    if ! "$ROOT/target/release/$EXE" render "$ENTRY" "$ENGINE_VIDEO" --base-dir "$REF_ROOT/$n"; then
-        echo "[FAIL] $n: engine HTML render failed" >&2
-        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(engine-render)")
-        continue
-    fi
-
     REF_VIDEO="$(ls -1 "$REF_ROOT/$n/renders/"*swgl*.mp4 2>/dev/null | sort | tail -1 || true)"
     if [ -z "$REF_VIDEO" ]; then
         echo "[FAIL] $n: swgl reference not found under $REF_ROOT/$n/renders/" >&2
@@ -129,6 +155,30 @@ for n in $EXAMPLES; do
         continue
     fi
     echo "  reference: $REF_VIDEO"
+    ENGINE_OK=1
+    WEB_OK=1
+
+    # 帧数预算 = 参考时长 ×30fps（语料固定 30fps）；两腿时间门禁共用。
+    FRAMES_EST=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$REF_VIDEO" 2>/dev/null \
+        | awk '{printf "%d", ($1 * 30) + 0.5}' || true)
+    [ "$FRAMES_EST" -ge 1 ] 2>/dev/null || FRAMES_EST=1
+
+    if [ "$WEB_ONLY" = "1" ]; then
+        echo "  [web-only] engine leg skipped (reuse $ENGINE_VIDEO)"
+    else
+    # 1) engine 直接渲染原始 HTML/dist 文档。
+    if [ ! -f "$ENTRY" ]; then
+        echo "[FAIL] $n: HTML entry missing at $ENTRY" >&2
+        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(entry)")
+        continue
+    fi
+    ENGINE_T0=$(date +%s)
+    ENGINE_BUDGET_S=$(awk -v f="$FRAMES_EST" -v m="$ENGINE_MAX_S_PER_FRAME" -v s="$TIME_SLACK_S" 'BEGIN{printf "%d", f*m+s}')
+    if ! timeout --kill-after=30 "$ENGINE_BUDGET_S" "$ROOT/target/release/$EXE" render "$ENTRY" "$ENGINE_VIDEO" --base-dir "$REF_ROOT/$n"; then
+        echo "[FAIL] $n: engine HTML render failed (time budget ${ENGINE_BUDGET_S}s)" >&2
+        FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(engine-render)")
+        continue
+    fi
 
     # 2) engine vs swgl（全片）。
     ENGINE_DIFF="$OUT_BASE/k3diff-$n-engine"
@@ -156,6 +206,8 @@ PYEOF
         echo "[FAIL] $n/engine: k3diff gate (avg_p8<=$MAX_FRAC)"
         ENGINE_OK=0
     fi
+    time_gate "$n" engine "$ENGINE_T0" "$ENGINE_VIDEO" "$ENGINE_MAX_S_PER_FRAME" || ENGINE_OK=0
+    fi # WEB_ONLY
 
     # 3) web vs swgl。有排除窗时：web 分段渲染后拼接，参考裁剪到同一窗口集。
     EXCLUDE_VAR="EXCLUDE_$(echo "$n" | tr -d '-' | tr '[:lower:]' '[:upper:]')"
@@ -184,8 +236,15 @@ PYEOF
     if [ -n "$EXCLUDE" ]; then
         RENDER_ARGS+=(--exclude "$EXCLUDE")
     fi
-    if ! "$ROOT/target/release/$WEB_EXE" "${RENDER_ARGS[@]}"; then
-        echo "[FAIL] $n/web: web render failed" >&2
+    # web 腿环境卫生（webdriver.rs 实测有效组合，勿回退）：engine 腿的
+    # LD_PRELOAD 旧 libvulkan 进 Chrome GPU 进程 SIGTRAP×3 → 掉 CPU 光栅
+    # fallback（~2s/帧）甚至 WebGL2 上下文创建失败（vfx 2026-11-19 实证）；
+    # ICD 必须指系统 RADV。OC_ORACLE_HW_GL=1 照常透传（性能腿）。
+    WEB_T0=$(date +%s)
+    WEB_BUDGET_S=$(awk -v f="$FRAMES_EST" -v m="$WEB_MAX_S_PER_FRAME" -v s="$TIME_SLACK_S" 'BEGIN{printf "%d", f*m+s}')
+    if ! env -u LD_PRELOAD VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json \
+            timeout --kill-after=30 "$WEB_BUDGET_S" "$ROOT/target/release/$WEB_EXE" "${RENDER_ARGS[@]}"; then
+        echo "[FAIL] $n: web render failed (time budget ${WEB_BUDGET_S}s)" >&2
         FAIL=$((FAIL+1)); FAILED_LABELS+=("$n(web-render)")
         continue
     fi
@@ -215,6 +274,7 @@ PYEOF
         echo "[FAIL] $n/web: k3diff gate (avg_p8<=$MAX_FRAC)"
         WEB_OK=0
     fi
+    time_gate "$n" web "$WEB_T0" "$WEB_VIDEO" "$WEB_MAX_S_PER_FRAME" || WEB_OK=0
 
     if [ "$ENGINE_OK" -eq 1 ] && [ "$WEB_OK" -eq 1 ]; then
         PASS=$((PASS+1))

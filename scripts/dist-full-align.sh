@@ -19,7 +19,7 @@ mkdir -p "$OUT"
 # GPU 全片渲染需要 ANGLE/Vulkan 环境（同 scripts/walksheet.sh）。
 ENV=(env LD_PRELOAD="$REPO/tools/angle-linux/libvulkan.so.1"
   VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json
-  OC_SKIA_BACKEND=vulkan OC_ANGLE_DIR="$REPO/tools/angle-linux" OC_GPU_PIPELINE=1)
+  OC_ANGLE_DIR="$REPO/tools/angle-linux" OC_GPU_PIPELINE=1)
 
 echo "=== [$STEM] 1/3: render dist -> mp4 ==="
 cargo build -q -p opencat --bin opencat

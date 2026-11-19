@@ -2,9 +2,11 @@
 # 渲染门禁：超时（默认 600s）或提交内存超限（默认 5120 MB）即杀进程树。
 # 用法: ./scripts/render-guard.sh [--timeout 秒] [--mem MB] -- <命令...>
 #
-# 内存口径 = 私有提交（PrivateMemorySize64），不是工作集：ANGLE/D3D11 的
+# 内存口径 = 私有提交（PrivateMemorySize64），不是工作集：ANGLE/Vulkan 的
 # 暂存资源与未触碰的分配只记提交、不进工作集——工作集 2.3G 时提交已顶满
 # 系统提交上限（本机页文件小），表现为 `memory allocation of N bytes failed`。
+# 离线 Engine backend 固定为 Vulkan；ANGLE 承载 WebGL2，wgpu 承载 WebGPU。
+# AMD 与 SwiftShader 是 Vulkan device 选择，不是 backend。
 set -uo pipefail
 
 TIMEOUT=600

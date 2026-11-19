@@ -153,11 +153,11 @@ HTML 词汇之外，core 实现两类扩展：
 
 ## 3. engine：桌面渲染引擎
 
-engine 是 RenderFrame 的执行宿主。三大渲染基础：
+engine 消费 `RenderFrame`，并将合成像素交给编码器。
 
 ### 3.1 渲染基础：skia / mozangle / wgpu（+ glow 绑定层）
 
-engine 是 RenderFrame 的执行宿主。三个渲染后端：
+三个执行模块：
 
 - **Skia**（skia-safe）：执行 2D 绘制流。`EngineDrawExecutor`
   （`render/executor/`）把 `DrawOpFrame` 重放到 Skia canvas；
@@ -178,14 +178,15 @@ engine 是 RenderFrame 的执行宿主。三个渲染后端：
 绑定层（crates.io glow，GL on Whatever）：会话建立时在 current
 mozangle 上下文里加载函数入口（`eglGetProcAddress`），包成类型化的
 `glow::Context`（`HasContext` trait）——就是函数指针表 + 类型安全
-API。`stream_executor` 经 glow 书写 GL 调用，全部真调用落进
-mozangle 执行。去掉 glow 就得手写整套 GL FFI。离屏会话
-（`gpu/session.rs`）、合成器、GPU 流执行器共用同一份 glow 上下文。
+API。`stream_executor` 经 glow 调用 ANGLE。离屏会话
+（`gpu/session.rs`）提供这个函数表。Skia Vulkan 合成器不用这个函数表。
 
-三路产出经 Skia GPU 合成器合成（`gpu/compositor.rs`）。GPU 流输出
-以原生纹理句柄经共享纹理表 `TextureRegistry`（`gpu/registry.rs`）
-零拷贝导入 Skia；每帧末尾只读回一次交给编码器。CPU raster 是显式
-fallback，不是 backend。
+离线工厂创建 Vulkan 执行目标或 CPU 光栅目标（`render/target.rs`）。Vulkan
+合成器（`gpu/compositor.rs`）持有 Skia Vulkan surface 和会话。每帧合成后
+同步读回 RGBA。当 ANGLE 能与 Skia 共享 Vulkan 设备时，WebGL 输出经
+`TextureRegistry`（`gpu/registry.rs`）直接导入 Skia。设备不共享时，ANGLE
+读回像素后再合成。WebGPU 输出由 wgpu 读回像素。桌面 presenter 各自管理
+窗口 surface。
 
 ### 3.2 图形后端：Vulkan
 
@@ -204,7 +205,7 @@ SwiftShader 是 device 选择，不是两个 backend：
 | 平台 | 离线渲染 | 桌面预览 |
 |------|----------|----------|
 | Linux | 固定 Vulkan（mozangle/wgpu/Skia） | EGL(X11) + Skia GL（`present/linux.rs`） |
-| Windows | 固定 Vulkan | win32 presenter |
+| Windows | 固定 Vulkan | Skia Vulkan + Win32 presenter |
 | macOS | **Vulkan 未接入**（挂账） | CAMetalLayer + Skia Metal（`present/macos.rs`） |
 
 ### 3.3 媒体：ffmpeg + faac
@@ -353,12 +354,16 @@ terminate 池再重建——宁杀勿猜（stale worker 会把完成计数永久
 
 - **opencat-web-oracle**：对拍 harness 与 headless 渲染入口
   （`bin/opencat-web-render.rs`）。静态服务设 COOP/COEP（SAB 可用）。
-- **examples**：hyperframes-launch、k3-promo、liquid-brand-refraction
-  三例是对齐语料与验收门载体。
+- **原始 HTML 对齐**：`scripts/regression-gate.sh` 从 `REF_ROOT` 指定的
+  `hyperframes-launches` 目录读取 `k3-promo`、`vfx-heygen-combined` 和
+  `inspector-launch` 的 `index.html`，并与各自的 SWGL 录像比较。
+  仓库内 `examples/` 还包含作者工程，经构建后的 `dist/index.html` 走同一
+  HTML 入口。
 - **scripts**：`walksheet.sh`（全语料逐例 walk_sheet）、
   `render-guard.sh`、`dist-full-align.sh`。
-- 像素判据用 PNG-PNG 真渲染差（k3diff 门）；mp4 对 mp4 的差值大头
-  是双边 H.264 编码噪声，不作为行为判据。
+- SWGL 参考为 MP4。全片用 k3diff 与 FFmpeg SSIM 比较。检查重构时，两次
+  engine 渲染使用同一输入、设备和编码参数。定位单帧像素差时，优先使用
+  PNG，以排除 H.264 编码带来的差异。
 - 唯一存留的对齐数据文档：`docs/html-align/
   VULKAN-SWEEP-PROFILE-2026-11-15.md`。
 

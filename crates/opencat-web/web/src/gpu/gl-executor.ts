@@ -13,8 +13,12 @@
 //   here the real state per context already equals the client's view, so
 //   incremental commands always start from a trustworthy state.
 // - `bindFramebuffer(null)` means the canvas drawing buffer — the default
-//   framebuffer *is* the stream output, so readPixels reads it directly and
-//   the engine's out-FBO + BACK→COLOR_ATTACHMENT0 remapping disappear.
+//   framebuffer *is* the stream output, so the engine's out-FBO +
+//   BACK→COLOR_ATTACHMENT0 remapping disappear. The output stays in the
+//   canvas back buffer: execute() registers the OffscreenCanvas itself into
+//   `generatedImageCanvas` (presentation order, no CPU readback / row flip)
+//   and resolveImage('generated') wraps it via
+//   CK.MakeImageFromCanvasImageSource (see decode.ts for the invariants).
 // - UNPACK_FLIP_Y_WEBGL / UNPACK_ALIGNMENT are native pixelStorei state.
 // - Unsized-base-format uploads (ALPHA/LUMINANCE/RGB) are legal WebGL2.
 // - Shader sources run as-is: the web leg and the swgl reference render in
@@ -30,7 +34,7 @@
 // binds, so texImage/bufferData must resolve their target from the shadow).
 
 import type { GpuStream } from '../draw-ir/gpu-stream';
-import { generatedImageRgba } from '../draw-ir/decode';
+import { generatedImageCanvas } from '../draw-ir/decode';
 import { GLOP, GLOP_PAYLOAD_LEN } from '../generated/ocir-schema.generated';
 import { RealOffscreenCanvas } from '../real-offscreen';
 
@@ -269,9 +273,12 @@ function fnv1a(bytes: Uint8Array): string {
 export class GlStreamExecutor {
   private targets = new Map<string, GlTarget>();
 
-  /// Render one stream and land its pixels in `generatedImageRgba` under the
-  /// stream's image id (top-down, RGBA8). Synchronous — WebGL readPixels on
-  /// the context's own canvas needs no external settle.
+  /// Render one stream and hand its output canvas to the composition layer:
+  /// the OffscreenCanvas itself is registered in `generatedImageCanvas` under
+  /// the stream's image id (presentation order / top-down — no CPU readback,
+  /// no row flip; batch B). Synchronous — the canvas is registered and the
+  /// CanvasKit replay consumes it within one JS task, so the back buffer is
+  /// intact at wrap time (preserveDrawingBuffer:true pins it beyond that).
   execute(stream: GpuStream): void {
     const isNewTarget = !this.targets.has(stream.targetId);
     const t = this.target(stream);
@@ -284,19 +291,21 @@ export class GlStreamExecutor {
     // （vfx f30 四流 mean=0.00、nullBinds=0/drawsAfterNull=0 实证）。
     restoreClientState(t, stream);
     this.executeStream(t, stream);
-    const rgba = new Uint8Array(stream.width * stream.height * 4);
-    // Read the stream output = the canvas drawing buffer. The stream may
-    // leave an internal render-target FBO bound (three/composer multi-pass),
-    // and readPixels reads the *currently bound* framebuffer — the engine
-    // side redirects bindFramebuffer(null) to a dedicated stream-out FBO and
-    // reads exactly that (stream_executor.rs readback_sync); the WebGL
-    // equivalent of that redirect is binding null (the OffscreenCanvas back
-    // buffer) before the readback.
-    t.gl.bindFramebuffer(t.gl.FRAMEBUFFER, null);
-    t.gl.readPixels(0, 0, stream.width, stream.height, t.gl.RGBA, t.gl.UNSIGNED_BYTE, rgba);
-    // GL bottom-origin → composition top-origin: flip rows in place.
-    flipRowsVertical(rgba, stream.height);
-    generatedImageRgba.set(stream.imageId, { width: stream.width, height: stream.height, rgba });
+    // Batch B: no readPixels path anymore. The stream output lives in the
+    // canvas drawing buffer (target() resizes it to stream.width/height);
+    // the consumer snapshots the canvas as an image source (drawImage →
+    // getImageData inside CK.MakeImageFromCanvasImageSource). The context
+    // keeps its recorded premultipliedAlpha attr — do NOT touch context
+    // attrs to chase pixel equality, that shifts blend semantics; if k3diff
+    // reports alpha drift, adapt premul around the CK wrap instead (see
+    // decode.ts `generatedImageCanvas`). Direction: the canvas image source
+    // is top-down presentation order — no flipRowsVertical (the readPixels
+    // bottom-origin flip is gone with the readback itself).
+    generatedImageCanvas.set(stream.imageId, {
+      width: stream.width,
+      height: stream.height,
+      canvas: t.canvas,
+    });
     // oracle 实时探针：服务端墙钟裁决每流真实开销（页内时钟被 realm shim
     // 接管）。默认关（见 render-session.ts ocLog），oracle 页 `?oraclelog` 开启。
     if ((globalThis as unknown as Record<string, unknown>).__ocOracleLog === true) {

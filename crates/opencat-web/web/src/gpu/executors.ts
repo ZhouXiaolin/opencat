@@ -1,7 +1,8 @@
 // GPU-stream executor entry: run a frame's section-13 streams through the
-// browser-native WebGL2 / WebGPU executors, landing pixels in
-// `generatedImageRgba` before the CanvasKit draw-stream replay consumes its
-// `ImageRef::Generated` placeholders.
+// browser-native WebGL2 / WebGPU executors, registering their output in
+// `generatedImageCanvas` (WebGL2: the stream canvas itself) /
+// `generatedImageRgba` (wgpu: CPU readback) before the CanvasKit draw-stream
+// replay consumes its `ImageRef::Generated` placeholders.
 //
 // Mirrors the engine's GpuExecutor split (glow backend / wgpu backend): one
 // executor per backend, resource tables persisting across streams (only the
@@ -19,8 +20,8 @@ let wgpuExecutor: WgpuStreamExecutor | null = null;
 let wgpuInitError: string | null = null;
 
 /// Execute one frame's GPU streams. Returns the image ids the executors
-/// injected into `generatedImageRgba` (the caller prunes unconsumed ones
-/// from the previous frame to bound the map).
+/// registered in `generatedImageCanvas` / `generatedImageRgba` (the caller
+/// prunes unconsumed ones from the previous frame to bound the maps).
 export async function executeGpuStreamsForFrame(irBytes: Uint8Array): Promise<string[]> {
   const gpu = decodeGpuSection(splitSections(irBytes));
   if (!gpu || gpu.streams.length === 0) return [];
@@ -28,7 +29,7 @@ export async function executeGpuStreamsForFrame(irBytes: Uint8Array): Promise<st
   for (const stream of gpu.streams) {
     if (stream.backend === 'webgl2') {
       glExecutor ??= new GlStreamExecutor();
-      // WebGL2 readback (readPixels) is synchronous — pixels are already in.
+      // WebGL2 registration is synchronous — the canvas slot is already in.
       glExecutor.execute(stream);
     } else {
       if (wgpuInitError) throw new Error(`WebGPU stream executor unavailable: ${wgpuInitError}`);

@@ -10,6 +10,8 @@ import type {
   ClipOp,
   ColorChannel,
   ColorFilter,
+  ColorSpace,
+  EmbindEnumEntity,
   FillType,
   FilterMode,
   Image,
@@ -58,6 +60,7 @@ import {
   type Payload,
   MediaValidationError,
   generatedImageRgba,
+  generatedImageCanvas,
   NO_PAINT,
 } from './decode';
 import { getCachedVideoFrameRgba, getCachedVideoFrameSource } from '../media/video-frame-injector';
@@ -125,7 +128,10 @@ export async function warmStaticSvgImage(assetId: string): Promise<void> {
   if (svgImageCache.has(assetId) || staticImageCache.has(assetId)) return;
   const bytes = getBlobBytes(assetId);
   if (!bytes || bytes[0] !== 0x3c /* '<' */) return;
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'image/svg+xml' }));
+  // TS 5.7 的 ArrayBufferLike 严格化：getBlobBytes 的 Uint8Array 视图
+  // buffer 可能是 SharedArrayBuffer，Blob 构造面只收定长 ArrayBuffer 视图
+  // ——这里的字节来自资产缓存（普通拷贝，永不为 SAB），断言收窄。
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/svg+xml' }));
   try {
     const img = new Image();
     img.src = url;
@@ -499,7 +505,9 @@ function buildFilterPrim(
       const modes = ['SrcOver', 'SrcIn', 'SrcOut', 'SrcATop', 'Xor', 'Plus'] as const;
       inner = dispose(
         CK.ImageFilter.MakeBlend(
-          CK.BlendMode[modes[op] as keyof typeof CK.BlendMode],
+          // 单值 enum 成员索引访问在类型面混入梯度 enum 的 number[] 臂；
+          // BlendMode 这六个成员都是单值实体。
+          CK.BlendMode[modes[op] as keyof typeof CK.BlendMode] as EmbindEnumEntity,
           inputOf(p.kind.in2),
           inputOf(p.kind.in1),
         ),
@@ -536,7 +544,8 @@ function buildFilterPrim(
       break;
     case 'flood':
       nativeSrgb = true;
-      inner = dispose(CK.ImageFilter.MakeShader(dispose(CK.Shader.MakeColor(CK.Color4f(p.kind.color[0], p.kind.color[1], p.kind.color[2], p.kind.color[3]), null))));
+      // space=null = canvaskit 缺省 sRGB（运行时接受，类型面未标可空）。
+      inner = dispose(CK.ImageFilter.MakeShader(dispose(CK.Shader.MakeColor(CK.Color4f(p.kind.color[0], p.kind.color[1], p.kind.color[2], p.kind.color[3]), null as unknown as ColorSpace))));
       break;
     case 'gaussianBlur':
       inner = dispose(CK.ImageFilter.MakeBlur(p.kind.sigmaX, p.kind.sigmaY, CK.TileMode.Decal, inputOf(p.kind.input)));
@@ -578,7 +587,9 @@ function buildFilterPrim(
 function filterChannel(CK: CanvasKit, c: number): ColorChannel {
   const names = ['Red', 'Green', 'Blue', 'Alpha'] as const;
   const name = names[c] ?? 'Alpha';
-  return CK.ColorChannel[name as keyof typeof CK.ColorChannel];
+  // 单值 enum 成员的索引访问在类型面混入梯度 enum 的 number[] 臂；
+  // Red/Green/Blue/Alpha 都是单值实体。
+  return CK.ColorChannel[name as keyof typeof CK.ColorChannel] as ColorChannel;
 }
 
 /// prim subregion 与 filter region 恒等判定（emit 侧同源数值，容差只防
@@ -719,12 +730,33 @@ export function resolveImage(
 
   if (image.type === 'generated') {
     // Streaming: generated pixels are re-produced every frame (emoji glyphs
-    // re-rasterized by core, GL/wgpu stream targets re-executed by the
+    // re-rasterized by core, GPU stream targets re-executed by the
     // browser-native executors), so the image is built and consumed exactly
     // once per frame — no cache. The draw sites delete it right after
-    // drawing (`image.type === 'generated'` there), and the rgba slot is
-    // dropped as soon as MakeImage has copied the bytes into wasm memory.
+    // drawing (`image.type === 'generated'` there), and the slot is dropped
+    // as soon as it has been wrapped/copied.
     const key = `${image.id}`;
+    // WebGL2 fast path (batch B): the executor hands over the stream's
+    // OffscreenCanvas itself — presentation order (top-down), no row flip,
+    // no full-frame CPU readback. Invariants (see decode.ts
+    // `generatedImageCanvas`): one-frame-one-consumption (delete on take;
+    // render-session prunes unconsumed ids from the previous frame before
+    // the executors run) and same-task validity (the executor registered
+    // the canvas in this same JS task — the back buffer is intact here).
+    // MakeImageFromCanvasImageSource snapshots the canvas as an image
+    // source (drawImage → getImageData) and declares Unpremul/RGBA_8888/
+    // SRGB. Alpha: the source context kept its recorded premultipliedAlpha
+    // attr — if k3diff rules alpha drift vs the old readPixels path, the
+    // fix point is a premul adaptation around this call (or an explicit
+    // ImageInfo via MakeImage), NOT the context creation attrs.
+    const gpuCanvas = generatedImageCanvas.get(key);
+    if (gpuCanvas) {
+      const ckImage = CK.MakeImageFromCanvasImageSource(gpuCanvas.canvas);
+      generatedImageCanvas.delete(key);
+      return ckImage;
+    }
+    // Fallback (core-rasterized emoji section 12, wgpu CPU readbacks):
+    // raw RGBA bytes → MakeImage with an explicit Unpremul info.
     const rgba = generatedImageRgba.get(key);
     if (!rgba) return null;
     const ckImage = CK.MakeImage(

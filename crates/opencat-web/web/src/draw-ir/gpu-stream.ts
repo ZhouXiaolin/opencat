@@ -5,8 +5,9 @@
 //
 //   u64 image_id            — content-addressed generated-image id; the draw
 //                             stream's `ImageRef::Generated` placeholder cites
-//                             it and the executor's pixels land under the same
-//                             key (`generatedImageRgba` in decode.ts).
+//                             it and the executor's output lands under the same
+//                             key (`generatedImageCanvas` / `generatedImageRgba`
+//                             in decode.ts).
 //   u32 target_id_len | target_id bytes
 //   u32 width | u32 height
 //   u8  backend             — WGPU_BACKEND_WEBGL2 (=0) / WGPU_BACKEND_WEBGPU (=1)

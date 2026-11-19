@@ -12,6 +12,16 @@ import { OMP_TA_KINDS, OMP_TA_SIZE } from '../generated/omp-schema.generated';
 // SharedArrayBuffer 直接可用。同步合同不动：Rust 侧仍同步拿到
 // Float64Array，主线程 spin 只占一个核（oracle 导出本就 CPU 密集）。
 //
+// schedule 合同（对位 engine team.rs 的 rayon 映射，调度只影响负载分布
+// 不影响字节）：`num_threads(n)`（正数）= 池 worker 数上限（可少给不能
+// 多给；团队大小变化 → 杀池重建）；`schedule(static)` = 每 worker 一段
+// 连续行区间（ceil(n/threads)，段内顺序跑、不认领）；`schedule(dynamic,
+// chunk)` / 缺省/auto/guided/runtime = workIdx 原子按 chunk 行块认领
+// （chunk=1 即原 work-stealing 形态）。派发面经 board[9]=static 位、
+// board[10]=chunk 随 phase 一起发布（store-release），worker 观察新
+// phase 必见调度参数。行序输出、PRNG stride、毒化→串行 fallback 全部
+// 与调度无关。
+//
 // caps 通道：caps（argsJson+shared 字节+kinds）每帧可漂移（spacing/相位
 // 等动画量），worker 的 caps 不能冻结在 spawn 帧——主线程每帧把最新
 // caps 写进 SAB 文本/字节区并以 board[8]=capsSeq 原子发布（先写数据后
@@ -103,7 +113,8 @@ function ensureCaps(
 
 // ── worker 池（SAB 任务板）──
 // board（Int32Array，16 字）：[0]phase [1]workIdx [2]rowsDone [3]n
-// [4]stride [5]overflow [6]errRow [7]ready [8]capsSeq [9..15]保留。
+// [4]stride [5]overflow [6]errRow [7]ready [8]capsSeq [9]static 位
+// [10]chunk [11..15]保留。
 // worker→main 消息在本环境被主线程事件循环饿死（spin 期送不出来，
 // terminate 又丢待发消息）——worker 崩溃诊断唯一可靠通道 = catch 路径
 // 把错误全文写进 text 区尾部预留位（见 workerBootstrap），watchdog 同步读。
@@ -113,6 +124,8 @@ function ensureCaps(
 // → results(f64×n×rowStride，每行一个固定槽)。
 type WorkerPool = {
   bundleKey: string;
+  /// 池规模（≤ num_threads 请求；团队大小变化即重建判据之一）。
+  threads: number;
   workers: Worker[];
   sab: SharedArrayBuffer;
   board: Int32Array;
@@ -190,9 +203,10 @@ function writeCaps(
 
 // worker 引导（自包含源码，Blob URL 起 realm）：init 载入 bundle（caps
 // 不在 init 装——走 board[8] 序号驱动的 loadCaps，与派发同一通道）；
-// 空闲 park 在 phase 字上，醒来先按序号刷新 caps，再 work-stealing
-// 认领行、算完写进自己的行槽并 rowsDone+1。行段超槽置 overflow 位；
-// 行体抛错置 errRow。认领前复查 phase（派发换代即弃权）。
+// 空闲 park 在 phase 字上，醒来先按序号刷新 caps，再按调度取行（static
+// = init 时定死的 idx 段；dynamic/缺省 = workIdx 原子按 chunk 块认领），
+// 算完写进自己的行槽并 rowsDone+1。行段超槽置 overflow 位；行体抛错置
+// errRow。认领前复查 phase（派发换代即弃权）。
 function workerBootstrap(): string {
   return `
 try { self.postMessage({ type: 'boot' }); } catch (e) { self.postMessage({ type: 'fail', msg: 'boot: ' + e }); }
@@ -262,10 +276,9 @@ self.onmessage = (e) => {
         if (Atomics.load(board, 8) !== capsSeq) loadCaps();
         const n = Atomics.load(board, 3);
         const stride = Atomics.load(board, 4);
-        for (;;) {
-          if (Atomics.load(board, 0) !== p0) break;
-          const r = Atomics.add(board, 1, 1);
-          if (r >= n) break;
+        const isStatic = Atomics.load(board, 9) === 1;
+        const chunk = Math.max(1, Atomics.load(board, 10));
+        const runRow = (r) => {
           try {
             inst.__ocSetPrng(prng.subarray(r * stride, (r + 1) * stride));
             const copy = inst.__ocRow(ys[r]).slice();
@@ -276,6 +289,29 @@ self.onmessage = (e) => {
             try { self.postMessage({ type: 'rowerr', r, n, msg: String(err).slice(0, 160) }); } catch {}
           }
           Atomics.add(board, 2, 1);
+        };
+        if (isStatic) {
+          // static：连续行段预分（engine team.rs with_max_len(n/ceil(W))
+          // 同构——每 worker 一段 ceil(n/W)，段内顺序跑，不参与认领）。行
+          // 号即输入，段划分不进行体，产出按行槽归位与划分无关。
+          const seg = Math.ceil(n / m.workers);
+          const r0 = m.idx * seg;
+          const r1 = Math.min(r0 + seg, n);
+          for (let r = r0; r < r1; r++) {
+            if (Atomics.load(board, 0) !== p0) break;
+            runRow(r);
+          }
+        } else {
+          // dynamic(chunk)/缺省/auto/guided/runtime：workIdx 原子按 chunk
+          // 行块认领（chunk=1 即原 work-stealing 形态；engine
+          // with_min_len(chunk) 同构）。
+          for (;;) {
+            if (Atomics.load(board, 0) !== p0) break;
+            const c0 = Atomics.add(board, 1, chunk);
+            if (c0 >= n) break;
+            const c1 = Math.min(c0 + chunk, n);
+            for (let r = c0; r < c1; r++) runRow(r);
+          }
         }
       } catch (err) {
         try {
@@ -331,6 +367,18 @@ function killPool(p: WorkerPool | null): void {
   for (const w of p.workers) w.terminate();
 }
 
+/// 池规模解析：`num_threads(n)`（正数）= 上限（可少给不能多给，engine
+/// `filter(|k| k > 0)` 同构——非正即忽略）；`__ocOmpThreads` 是测试/嵌入
+/// 方覆盖钩子，缺省 = 核数面 2..8。返回值 ≥ 1（单 worker 池合法）。
+function resolveThreads(numThreads: number | null): number {
+  const base = (globalThis as unknown as { __ocOmpThreads?: number }).__ocOmpThreads
+    ?? Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+  if (numThreads !== null && Number.isFinite(numThreads) && numThreads > 0) {
+    return Math.max(1, Math.min(base, Math.floor(numThreads)));
+  }
+  return base;
+}
+
 function spawnPool(
   bundleSrc: string,
   bundleKey: string,
@@ -342,13 +390,13 @@ function spawnPool(
   prngCap: number,
   textCap: number,
   bytesCap: number,
+  threads: number,
 ): WorkerPool | null {
   try {
     // worker 侧空闲等待 = 无超时 Atomics.wait（futex park，notify 直接
     // 唤醒不涉任务/定时器；带超时的 wait 依赖定时器，虚拟时钟下不可用）。
     if (typeof SharedArrayBuffer === 'undefined' || typeof Worker === 'undefined' || typeof Atomics.wait !== 'function') return null;
-    const threads = (globalThis as unknown as { __ocOmpThreads?: number }).__ocOmpThreads
-      ?? Math.max(2, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+    const nw = Math.max(1, Math.floor(threads));
     const textOff = 64;
     const bytesOff = textOff + textCap;
     const prngOff = bytesOff + bytesCap;
@@ -357,6 +405,7 @@ function spawnPool(
     const sab = new SharedArrayBuffer(resOff + n * rowStride * 8);
     const p: WorkerPool = {
       bundleKey,
+      threads: nw,
       workers: [],
       sab,
       board: new Int32Array(sab, 0, 16),
@@ -378,7 +427,7 @@ function spawnPool(
     if (!writeCaps(p, argsJson, bytes, kinds)) return null;
     Atomics.store(p.board, 8, 1);
     const url = URL.createObjectURL(new Blob([workerBootstrap()], { type: 'text/javascript' }));
-    for (let i = 0; i < threads; i++) {
+    for (let i = 0; i < nw; i++) {
       const w = new Worker(url);
       w.onmessage = (e) => {
         if (e.data?.type === 'ready') {
@@ -391,7 +440,7 @@ function spawnPool(
         w.postMessage({
           type: 'init', sab, textOff, bytesOff, prngOff, ysOff, resOff,
           nCap: n, rowStride, prngCap, textCap, bytesCap,
-          src: bundleSrc, key: bundleKey,
+          src: bundleSrc, key: bundleKey, idx: i, workers: nw,
         });
       } catch (err) {
         console.info(`[ompw] init postMessage threw: ${err}`);
@@ -442,9 +491,9 @@ export function ompExecute(
   sharedBytes: Uint8Array[],
   sharedKinds: number[],
   prng: Float64Array,
-  _staticFlag: boolean,
-  _chunk: number,
-  _numThreads: number | null,
+  staticFlag: boolean,
+  chunk: number,
+  numThreads: number | null,
 ): Float64Array {
   let inst = bundles.get(bundleKey);
   if (!inst) {
@@ -472,6 +521,11 @@ export function ompExecute(
   }
 
   const measured = rowStrideMeasure.get(bundleKey);
+  // 调度面归一（core TeamSched 同构）：chunk 下界 1；num_threads 正数才
+  // 生效（engine `filter(|k| k > 0)` 同构）。wantThreads 是池重建判据：
+  // 同 bundle 的 num_threads 子句不变，但 __ocOmpThreads 覆盖可漂移。
+  const schedChunk = Math.max(1, Math.floor(chunk) || 1);
+  const wantThreads = resolveThreads(numThreads);
   const budget = capsBudget(argsJson, sharedBytes, sharedKinds);
   // 容量高水位更新（池 spawn/respawn 一律按高水位定容——见 capHighWater 注）。
   const hw = capHighWater.get(bundleKey) ?? { n: 0, prngLen: 0, textNeed: 0, bytesNeed: 0 };
@@ -494,26 +548,27 @@ export function ompExecute(
     rowStrideMeasure.set(bundleKey, measure.max);
     onRealTask(() => {
       if (pool || poolPoisoned) return;
-      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, measure.max, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed);
+      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, measure.max, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed, wantThreads);
       if (!pool) poolPoisoned = true; // 结构性不可用（无 SAB/Worker）→ 不再重试
       else console.info(`[ompw] pool spawned workers=${pool.workers.length} sab=${pool.sab.byteLength}B rowStride=${pool.rowStride}`);
     });
     return out;
   }
 
-  // 池容量不足（行数/prng/行段上界越顶）→ 杀旧池重建（按高水位定容，
-  // 已见振荡不再触发）。text/bytes 不在此查：respawn 判据若用带 ×2+64K
+  // 池容量不足（行数/prng/行段上界越顶）或团队大小变化（num_threads 请求
+  // /覆盖钩子漂移）→ 杀旧池重建（按高水位定容，已见振荡不再触发）。
+  // text/bytes 不在此查：respawn 判据若用带 ×2+64K
   // 公式的 budget，则与 spawn 定容同式——args 每长一字节必然越顶，respawn
   // 风暴（30 帧 6 次）；writeCaps 用裸长度判界并自带 respawn，args 要长
   // 过 64KB 余量才真扩容。
-  if (pool && (pool.nCap < n || pool.prngCap < prng.length || pool.rowStride < measured)) {
-    const why = pool.nCap < n ? `n ${n}>${pool.nCap}` : pool.prngCap < prng.length ? `prng ${prng.length}>${pool.prngCap}` : `rowStride ${measured}>${pool.rowStride}`;
+  if (pool && (pool.nCap < n || pool.prngCap < prng.length || pool.rowStride < measured || pool.threads !== wantThreads)) {
+    const why = pool.nCap < n ? `n ${n}>${pool.nCap}` : pool.prngCap < prng.length ? `prng ${prng.length}>${pool.prngCap}` : pool.rowStride < measured ? `rowStride ${measured}>${pool.rowStride}` : `threads ${pool.threads}->${wantThreads}`;
     console.info(`[ompw] respawn (pool cap exceeded: ${why})`);
     killPool(pool);
     pool = null;
     onRealTask(() => {
       if (pool || poolPoisoned) return;
-      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, measured, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed);
+      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, measured, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed, wantThreads);
       if (!pool) poolPoisoned = true;
       else console.info(`[ompw] pool respawned workers=${pool.workers.length} sab=${pool.sab.byteLength}B rowStride=${pool.rowStride}`);
     });
@@ -547,7 +602,7 @@ export function ompExecute(
     pool = null;
     onRealTask(() => {
       if (pool || poolPoisoned) return;
-      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, measured, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed);
+      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, measured, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed, wantThreads);
       if (!pool) poolPoisoned = true;
     });
     return runSerial(inst, ys, prng, stride);
@@ -561,13 +616,18 @@ export function ompExecute(
   Atomics.store(b, 6, -1);
   Atomics.store(b, 3, n);
   Atomics.store(b, 4, stride);
+  // 调度参数与数据同批发布（先写后推 phase，store-release：观察到新
+  // phase 的 worker 必见 static/chunk）。
+  Atomics.store(b, 9, staticFlag ? 1 : 0);
+  Atomics.store(b, 10, schedChunk);
   p.phase += 1;
   Atomics.store(b, 8, Atomics.load(b, 8) + 1);
   Atomics.store(b, 0, p.phase);
   Atomics.notify(b, 0, Number.POSITIVE_INFINITY);
   if (!p.announced) {
     p.announced = true;
-    console.info(`[ompw] first dispatch n=${n} stride=${stride} workers=${p.workers.length} ready=${readyN}`);
+    const schedTxt = staticFlag ? 'static' : `dynamic,${schedChunk}`;
+    console.info(`[ompw] first dispatch n=${n} stride=${stride} sched=${schedTxt} nt=${numThreads ?? '*'} workers=${p.workers.length} ready=${readyN}`);
   }
   // 主线程不能 Atomics.wait（同步合同）——自旋到 rowsDone==n；看门狗兜
   // worker 死亡（唯一出口：毒化回串行，内容不变）。
@@ -611,7 +671,7 @@ export function ompExecute(
     pool = null;
     onRealTask(() => {
       if (pool || poolPoisoned) return;
-      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, rowStrideMeasure.get(bundleKey) as number, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed);
+      pool = spawnPool(bundleSrc, bundleKey, argsJson, sharedBytes, sharedKinds, hw.n * 2 + 128, rowStrideMeasure.get(bundleKey) as number, hw.prngLen * 2 + 65536, hw.textNeed, hw.bytesNeed, wantThreads);
       if (!pool) poolPoisoned = true;
     });
     return runSerial(inst, ys, prng, stride);

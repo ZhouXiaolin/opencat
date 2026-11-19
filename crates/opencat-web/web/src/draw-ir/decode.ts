@@ -172,7 +172,8 @@ export type DecodedFrame = {
   effects: RuntimeEffectSpec[];
   /// Section 13 (GPU_STREAMS) when the frame carries WebGL2/WebGPU canvas
   /// content; `null` for 2D-only frames. The executor renders these streams
-  /// and lands pixels in `generatedImageRgba` before CanvasKit replay.
+  /// and registers their output in `generatedImageCanvas` (WebGL2) /
+  /// `generatedImageRgba` (wgpu) before CanvasKit replay.
   gpu: import('./gpu-stream').GpuSection | null;
 };
 
@@ -248,12 +249,36 @@ export class BinaryReader {
   }
 }
 
-// Generated pixels (emoji glyphs re-rasterized by core, GL/wgpu stream
-// targets re-executed by the browser-native executors) are re-produced every
-// frame — the pipeline is streaming, there is no per-id image cache. Section
-// 12 / the GPU executors land raw RGBA here, resolveImage builds the one-shot
+// Generated pixels (emoji glyphs re-rasterized by core, GPU stream targets
+// re-executed by the browser-native executors) are re-produced every frame —
+// the pipeline is streaming, there is no per-id image cache. Section 12 / the
+// wgpu executor land raw RGBA here, resolveImage builds the one-shot
 // CanvasKit image, and both are dropped as soon as the frame has consumed it.
 export const generatedImageRgba = new Map<string, { width: number; height: number; rgba: Uint8Array }>();
+
+// Same slot contract for the WebGL2 stream executor, minus the CPU readback
+// (batch B: no readPixels / no row flip / no per-frame 8.3 MB copy): the
+// executor hands over the stream's own OffscreenCanvas — its back buffer in
+// presentation order (top-down) — and resolveImage('generated') wraps it via
+// CK.MakeImageFromCanvasImageSource. Falls back to `generatedImageRgba` when
+// the slot misses (core-rasterized emoji, wgpu readbacks). Invariants:
+// - one frame one consumption: the consumer deletes the entry right after
+//   wrapping it (same as the rgba slot); render-session.ts prunes unconsumed
+//   ids from the previous frame before the executors run again.
+// - same-task validity: the executor registers the canvas and the CanvasKit
+//   replay consumes it within one synchronous JS task (render-session.ts
+//   runs both back to back), so the back buffer is intact at consumption
+//   time; preserveDrawingBuffer:true additionally pins the content beyond
+//   the task (unchanged here — flipping that flag needs re-proving this).
+// - alpha: the context keeps its recorded premultipliedAlpha attr (must NOT
+//   change context attrs — that shifts blend semantics). If k3diff reports
+//   alpha differences vs the old readPixels path, the fix point is a premul
+//   adaptation around MakeImageFromCanvasImageSource (or an explicit
+//   ImageInfo on a MakeImage fallback), not the context attrs.
+export const generatedImageCanvas = new Map<
+  string,
+  { width: number; height: number; canvas: OffscreenCanvas }
+>();
 
 /**
  * Register RGBA for a generated-image id from outside the OCIR envelope —
@@ -506,7 +531,8 @@ export function decodeFrame(bytes: Uint8Array): DecodedFrame {
 
   // Section 13 (GPU_STREAMS) is optional — 2D-only frames omit it. The
   // executor renders these streams before replay; their pixels land in
-  // `generatedImageRgba` under the stream's image id.
+  // `generatedImageCanvas` (WebGL2, the stream canvas itself) or
+  // `generatedImageRgba` (wgpu, CPU readback) under the stream's image id.
   const gpu = sections.has(SECTION.GPU_STREAMS) ? decodeGpuSection(sections) : null;
 
   return {

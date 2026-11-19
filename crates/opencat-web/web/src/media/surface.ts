@@ -6,7 +6,11 @@ export function createSurfaceWithFallback(
   colorSpace?: ColorSpace,
   opts?: WebGLOptions,
 ): Surface | null {
-  if (typeof CK.MakeWebGLCanvasSurface === 'function') {
+  // __ocCkSw=1 → 跳过 WebGL surface 直接 CPU 光栅：SwiftShader GL surface
+  // 的 snapshot/readPixels 过 GPU 进程命令通道是秒级黑洞（test-oracle.html
+  // cksw 注），CPU surface 同路径是进程内 memcpy。
+  const forceSw = (globalThis as Record<string, unknown>).__ocCkSw === true;
+  if (!forceSw && typeof CK.MakeWebGLCanvasSurface === 'function') {
     try {
       const surface = CK.MakeWebGLCanvasSurface(canvas, colorSpace, opts);
       if (surface) return surface;

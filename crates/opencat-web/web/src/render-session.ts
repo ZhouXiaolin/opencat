@@ -16,7 +16,7 @@ import { clearVideoCache } from './media/video-decoder';
 import { injectVideoFramesForRender, prepareCatalogVideoSources } from './media/video-frame-injector';
 import { renderEncodedDrawFrame } from './draw-ir';
 import { warmStaticSvgImage } from './draw-ir/ck-adapter';
-import { generatedImageRgba } from './draw-ir/decode';
+import { generatedImageCanvas, generatedImageRgba } from './draw-ir/decode';
 import { executeGpuStreamsForFrame, disposeGpuExecutors } from './gpu/executors';
 import { getReusableSurface, releaseReusableSurface } from './media/surface';
 import type { CompositionInfo } from './types';
@@ -164,13 +164,23 @@ export class RenderSession {
     ocLog(`rs f${frame} ir-start`);
     const result = renderer.build_frame_ir(frame);
     ocLog(`rs f${frame} ir-done`);
+    if ((globalThis as unknown as Record<string, unknown>).__ocOracleLog === true) {
+      ocLog(`rs f${frame} ir-shape envelopeBytes=${result.ir.byteLength}`);
+    }
 
     // GPU streams (OCIR section 13): browser-native WebGL2/WebGPU replay of
-    // the recorded streams, pixels injected into generatedImageRgba before
-    // the CanvasKit replay consumes the Generated placeholders. Unconsumed
-    // injections from the previous frame are pruned first (invisible
-    // placeholders otherwise leak their full RGBA slot per frame).
-    for (const key of this.gpuInjectedKeys) generatedImageRgba.delete(key);
+    // the recorded streams, output registered into generatedImageCanvas
+    // (WebGL2: the stream canvas itself) / generatedImageRgba (wgpu: CPU
+    // readback) before the CanvasKit replay consumes the Generated
+    // placeholders. Unconsumed injections from the previous frame are
+    // pruned first (invisible placeholders otherwise leak their slot per
+    // frame — and a stale canvas slot would feed this frame's placeholder
+    // with last frame's back-buffer content).
+    for (const key of this.gpuInjectedKeys) {
+      generatedImageRgba.delete(key);
+      generatedImageCanvas.delete(key);
+    }
+    ocLog(`rs f${frame} gl-start`);
     this.gpuInjectedKeys = await executeGpuStreamsForFrame(result.ir);
     ocLog(`rs f${frame} gl-done`);
 

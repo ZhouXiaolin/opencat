@@ -1372,9 +1372,14 @@
         // 标准 DOM 的 cloneNode(true) 保留作者 id：`template.content
         // .cloneNode(true)` 复制出的节点 id 与原节点相同。引擎旧实现给每
         // 个克隆体合成 `:N` 后缀，破坏 getElementById / gsap 选择器。
-        // 对齐标准：保留原 id，只有合成节点（无作者 id）才重新生成。
-        var authoredId = this.__payload.id && !/:\d+$/.test(this.__payload.id);
-        payload.id = authoredId ? this.__payload.id : nextSynthId(this.__payload.id);
+        // 对齐标准：保留原 id，合成节点才重新生成。合成 id 有两种形态：
+        // face 动态合成都以 `:N` 结尾（`base:N` 与 `ext:base:N`），解析期
+        // Rust 合成是 `{prefix}hf-N`（parse/html.rs 编号，无冒号）——后者
+        // 不认会把它当作者 id 保留，多克隆体携带同一 id，树 id 唯一性
+        // 校验直接炸（pr-to-video 语料 8 倍行克隆实证）。
+        var pid = this.__payload.id;
+        var authoredId = pid && !(/:\d+$/.test(pid) || /hf-\d+$/.test(pid));
+        payload.id = authoredId ? pid : nextSynthId(pid);
         var copy = createElementFace(payload);
         var self = this;
         this.__kids.forEach(function (k) {

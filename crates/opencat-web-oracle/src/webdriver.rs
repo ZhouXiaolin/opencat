@@ -69,6 +69,11 @@ pub(crate) async fn create_session(
             "--disable-dev-shm-usage",
             "--ignore-gpu-blocklist",
             "--enable-unsafe-swiftshader",
+            // soft 路径对齐 hyperframes 原生（chunk-P74PW7KR.js software 模式
+            // 强制同旗标）：合成器参与时 SwiftShader 帧回读/抓取疑似要走完整
+            // 合成器帧循环（inspector 实测 capture 相位 ~3.1s/帧 黑洞）。
+            // 不影响 Dawn adapter 选取（shaders 对拍约束），WebGPU 腿不受损。
+            "--disable-gpu-compositing",
             // WebGPU 原生面（shaders 语料 web 腿）：headless 下 navigator.gpu
             // 需要显式开启；ref 腿（shoot.mjs）同旗标，两侧同 adapter。
             // 注意不挂 --use-gl/--use-angle：ANGLE/SwiftShader 组会改变 Dawn

@@ -61,6 +61,11 @@
       // 转换，bin 侧必须配 OC_ORACLE_VUI_TV=1 同步标 tv。裸旗标形态
       // （OC_ORACLE_PAGE_EXTRA=vfcopy → &vfcopy）也认。
       globalThis.__ocVfCopy = q.has('vfcopy');
+      // CK 主 surface 强制 CPU 光栅（MakeSWCanvasSurface）：SwiftShader GL
+      // surface 的 snapshot/readPixels 过 GPU 进程命令通道是秒级黑洞
+      // （inspector 实测 1.3-5.8s/帧），CPU surface 同路径是进程内 memcpy。
+      // 裸旗标形态（OC_ORACLE_PAGE_EXTRA=cksw → &cksw）也认。
+      globalThis.__ocCkSw = q.has('cksw');
       // oracle 实时探针（[oc-live] 墙钟行）默认关：render-session/gl-executor
       // 的 /oracle-log fetch 只有这里为 true 才发（生产 dist 无该端点）。
       globalThis.__ocOracleLog = q.has('oraclelog');
@@ -225,7 +230,7 @@
         const s = await ensureSession(envelope);
         const t0 = performance.now();
         const r = await s.drawFrame(frame);
-        if (frame < 160) tlog(`f${frame} inner-draw ${Math.round(performance.now() - t0)}`);
+        if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} inner-draw ${Math.round(performance.now() - t0)}`);
         return r;
       }
 
@@ -495,10 +500,10 @@
           for (let frame = startFrame; frame <= endFrame; frame++) {
             if (encodeError) throw encodeError;
             const tRender0 = performance.now();
-            if (frame < 160) tlog(`f${frame} draw-start`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} draw-start`);
             const df = await drawFrame(envelope, frame);
             await settleNativeWebGpuReadback(envelope, frame);
-            if (frame < 160) tlog(`f${frame} draw-done renderMs=${Math.round(performance.now() - tRender0)}`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} draw-done renderMs=${Math.round(performance.now() - tRender0)}`);
             const renderMs = Math.round(performance.now() - tRender0);
             const tVf0 = performance.now();
             // 采集：绕开 DOM canvas 合成器提交路径（drawImage 实测 ~900ms/帧），
@@ -517,15 +522,15 @@
               // 零拷贝：直采 WebGL canvas（GPU 后端纹理抓取）。同任务内
               // 同步发起——中间插任何宏任务合成都可能让 preserve 关闭的
               // 交换链被清。必须在 HW GL + OC_ORACLE_VUI_TV=1 下跑。
-              if (frame < 160) tlog(`f${frame} cap-vfcopy`);
+              if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} cap-vfcopy`);
               const vf = new VideoFrame(df.canvas, {
                 timestamp: Math.round((frame * 1_000_000) / fps),
                 duration: Math.round(1_000_000 / fps),
               });
-              if (frame < 160) tlog(`f${frame} cap-vf`);
+              if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} cap-vf`);
               encoder.encode(vf, { keyFrame: detectSceneCut(frame) || (frame - startFrame) % fps === 0 });
               vf.close();
-              if (frame < 160) tlog(`f${frame} encoded`);
+              if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} encoded`);
               const vfMs = Math.round(performance.now() - tVf0);
               frameTimings.push({ frame, renderMs, vfMs, queue: encoder.encodeQueueSize });
               processed += 1;
@@ -553,8 +558,12 @@
               if (processed % 50 === 0) probe(frame);
               continue;
             }
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} cap-snap`);
+            // 拆 read 黑盒：cap-snap→cap-snap-done = makeImageSnapshot（强制
+            // SwiftShader 排空命令队列+光栅+tile 复制），cap-snap-done→cap-read
+            // = readPixels（1080p RGBA 过 GPU 进程回读传输）。
             const snap = df.surface.makeImageSnapshot();
-            if (frame < 160) tlog(`f${frame} cap-snap`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} cap-snap-done`);
             const px = snap.readPixels(0, 0, {
               width: df.comp.width,
               height: df.comp.height,
@@ -564,22 +573,22 @@
             });
             snap.delete();
             if (!px) throw new Error(`readPixels null at f${frame}`);
-            if (frame < 160) tlog(`f${frame} cap-read`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} cap-read`);
             frameSink.getContext('2d').putImageData(
               new ImageData(new Uint8ClampedArray(px.buffer, px.byteOffset, px.length), df.comp.width, df.comp.height),
               0, 0,
             );
-            if (frame < 160) tlog(`f${frame} sink-copy`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} sink-copy`);
             const vf = new VideoFrame(frameSink, {
               timestamp: Math.round((frame * 1_000_000) / fps),
               duration: Math.round(1_000_000 / fps),
             });
-            if (frame < 160) tlog(`f${frame} cap-vf`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} cap-vf`);
             // Keyframe every ~1 s bounds seek cost; intra-only would inflate size.
             // Scene cuts force an IDR immediately (see detectSceneCut above).
             encoder.encode(vf, { keyFrame: detectSceneCut(frame) || (frame - startFrame) % fps === 0 });
             vf.close();
-            if (frame < 160) tlog(`f${frame} encoded`);
+            if (frame < 160 || globalThis.__ocOracleLog) tlog(`f${frame} encoded`);
             const vfMs = Math.round(performance.now() - tVf0);
             frameTimings.push({ frame, renderMs, vfMs, queue: encoder.encodeQueueSize });
             processed += 1;

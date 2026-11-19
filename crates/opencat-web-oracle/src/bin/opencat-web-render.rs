@@ -12,8 +12,9 @@ use std::process::ExitCode;
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
 use opencat_web_oracle::{
-    BrowserHarness, BrowserTestEnv, WebAppServer, repo_root, web_envelope_for_oracle,
+    BrowserHarness, BrowserTestEnv, WebAppServer, repo_root, web_envelope_with_extract,
 };
+use serde_json::Value;
 
 #[derive(Parser)]
 #[command(
@@ -104,19 +105,28 @@ fn kept_segments(first: u32, last: u32, ranges: &[(u32, u32)]) -> Vec<(u32, u32)
     segments
 }
 
-fn composition_meta(source: &str, base_dir: Option<&Path>) -> Result<(u32, u32, u32, u32)> {
-    // (width, height, fps, frames) through the engine's own parse — same
-    // header the native renderer resolves.
-    let parsed = opencat_engine::script::html::parse_with_base_dir(source, base_dir)
-        .context("parse HTML composition")?;
-    let fps = parsed.fps.max(1) as u32;
-    let frames = opencat_core::frame_ctx::duration_secs_to_frames(parsed.duration, fps).max(1);
-    Ok((
-        parsed.width.max(1) as u32,
-        parsed.height.max(1) as u32,
-        fps,
-        frames,
-    ))
+/// (width, height, fps, frames) off the extract payload already built for
+/// the envelope — the same `extract.meta` the wasm side's `from_extract`
+/// reads into `ParsedComposition`, so no second HTML/V8 extraction happens.
+/// Missing or non-numeric fields fail loud: the host extractor always writes
+/// all four, so a miss means a broken payload, not a composition to default.
+fn composition_meta(extract: &Value) -> Result<(u32, u32, u32, u32)> {
+    let meta = extract
+        .get("meta")
+        .context("html extract: missing `meta` object")?;
+    let field = |key: &str| -> Result<f64> {
+        meta.get(key)
+            .and_then(Value::as_f64)
+            .ok_or_else(|| anyhow!("html extract meta: `{key}` missing or not a number"))
+    };
+    // Same casts as `from_extract` -> `ParsedComposition` (saturating f64 ->
+    // i32), then the CLI's `.max(1)` floors and the core
+    // `duration_secs_to_frames` rule — frame-count semantics unchanged.
+    let width = (field("width")? as i32).max(1) as u32;
+    let height = (field("height")? as i32).max(1) as u32;
+    let fps = (field("fps")? as i32).max(1) as u32;
+    let frames = opencat_core::frame_ctx::duration_secs_to_frames(field("duration")?, fps).max(1);
+    Ok((width, height, fps, frames))
 }
 
 fn run(cli: &Cli) -> Result<()> {
@@ -136,9 +146,9 @@ fn run(cli: &Cli) -> Result<()> {
         .or_else(|| input.parent().map(Path::to_path_buf));
     let base_dir = base_dir.as_deref();
 
-    let envelope = web_envelope_for_oracle(&source, base_dir)
+    let (envelope, extract) = web_envelope_with_extract(&source, base_dir)
         .with_context(|| format!("extract HTML for the web oracle ({})", input.display()))?;
-    let (width, height, fps, total_frames) = composition_meta(&source, base_dir)?;
+    let (width, height, fps, total_frames) = composition_meta(&extract)?;
     let start = cli.start.min(total_frames.saturating_sub(1));
     let end = cli
         .end
@@ -183,11 +193,14 @@ fn run(cli: &Cli) -> Result<()> {
         } else {
             web_server.url("/test-oracle.html")
         };
-        // 实验开关透传：OC_ORACLE_PAGE_EXTRA=nobatch → URL 追加 `&nobatch`，
+        // 实验开关透传：OC_ORACLE_PAGE_EXTRA=nobatch → URL 追加查询参数，
         // 供 test-oracle 页读成 globalThis 开关（性能探针等一次性实验用）。
+        // 分隔符按基础 URL 是否已带 query 选择——HW_GL 腿的 ?nopreserve=1
+        // 已开 query，裸路径得用 ? 起头（否则页面 404，oracle 不可用）。
         let page_url = match std::env::var("OC_ORACLE_PAGE_EXTRA") {
             Ok(extra) if !extra.is_empty() => {
-                format!("{page_url}&{}", extra.split(',').map(str::trim).collect::<Vec<_>>().join("&"))
+                let sep = if page_url.contains('?') { '&' } else { '?' };
+                format!("{page_url}{sep}{}", extra.split(',').map(str::trim).collect::<Vec<_>>().join("&"))
             }
             _ => page_url,
         };
@@ -422,5 +435,40 @@ fn main() -> ExitCode {
             eprintln!("error: {err:#}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::composition_meta;
+    use serde_json::json;
+
+    #[test]
+    fn full_meta_maps_to_dimensions_fps_frames() {
+        let extract =
+            json!({ "meta": { "width": 1920, "height": 1080, "fps": 30, "duration": 10.0 } });
+        assert_eq!(composition_meta(&extract).unwrap(), (1920, 1080, 30, 300));
+    }
+
+    #[test]
+    fn fractional_duration_keeps_frame_count_rule() {
+        let extract =
+            json!({ "meta": { "width": 1280, "height": 720, "fps": 60, "duration": 0.1 } });
+        assert_eq!(composition_meta(&extract).unwrap(), (1280, 720, 60, 6));
+    }
+
+    #[test]
+    fn floors_match_the_parsed_composition_path() {
+        // `.max(1)` 下限与 `duration_secs_to_frames` 的非正时长规则保持原样。
+        let extract = json!({ "meta": { "width": 0, "height": -40, "fps": 0, "duration": 0.0 } });
+        assert_eq!(composition_meta(&extract).unwrap(), (1, 1, 1, 1));
+    }
+
+    #[test]
+    fn missing_or_non_numeric_meta_fails_loud() {
+        assert!(composition_meta(&json!({})).is_err());
+        let bad =
+            json!({ "meta": { "width": "1920", "height": 1080, "fps": 30, "duration": 3.0 } });
+        assert!(composition_meta(&bad).is_err());
     }
 }

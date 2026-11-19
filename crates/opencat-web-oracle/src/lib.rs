@@ -33,13 +33,21 @@ pub use static_server::WebAppServer;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// The web bridge has no extraction realm, so the oracle page receives the
 /// host-extracted HTML envelope (`{extract, driver}`); wasm-side `from_extract`
 /// rebuilds the composition from it. `base_dir` resolves relative scripts,
 /// styles, modules and assets during extraction.
 pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<String> {
+    web_envelope_with_extract(source, base_dir).map(|(envelope, _)| envelope)
+}
+
+/// [`web_envelope_for_oracle`] plus the extract payload from the same
+/// extraction: `extract.meta` carries the composition header (width/height/
+/// fps/duration) that wasm-side `from_extract` reads, so callers needing the
+/// metadata take it from here instead of re-running the HTML/V8 extraction.
+pub fn web_envelope_with_extract(source: &str, base_dir: Option<&Path>) -> Result<(String, Value)> {
     let trimmed = source.trim_start();
     if !trimmed.starts_with('<') {
         return Err(anyhow!(
@@ -63,7 +71,7 @@ pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<
             })
             .unwrap_or_else(|| p.to_path_buf())
     });
-    Ok(serde_json::to_string(&json!({
+    let envelope = serde_json::to_string(&json!({
         "extract": extract,
         "driver": driver,
         "html": true,
@@ -71,7 +79,8 @@ pub fn web_envelope_for_oracle(source: &str, base_dir: Option<&Path>) -> Result<
         // this prefix; the oracle asset reader turns them into `/assets/`
         // URLs that the static server maps back under `repo/<baseDir>/...`.
         "baseDir": base_dir.map(|p| p.to_string_lossy().into_owned()),
-    }))?)
+    }))?;
+    Ok((envelope, extract))
 }
 
 pub fn repo_root() -> Result<PathBuf> {

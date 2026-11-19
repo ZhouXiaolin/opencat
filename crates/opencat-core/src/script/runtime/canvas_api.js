@@ -1296,7 +1296,7 @@
                 return image;
             },
         },
-        /* SVG path 字符串 → 官方 Path。usvg 解析（svg-align 管线），段
+        /* SVG path 字符串 → 官方 Path。usvg 解析，段
            命令经 `__oc_path_from_svg` 回来后组装。 */
         makePathFromSVGString(svg) {
             if (typeof __oc_path_from_svg !== 'function') {

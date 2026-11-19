@@ -60,7 +60,3 @@ svg 根元素上参与布局与 CSS，svg 内部不进布局。可用 hooks 见 
 
 多文件：入口里 `import` 相对路径模块（`./scenes/intro.jsx`）即可，esbuild 会
 一并打进 bundle，引擎按模块图逐帧重放。
-
-## 格式参考
-
-OpenCat 仓库 `skills/opencat-creator/references/jsx-format.md`。

@@ -33,6 +33,7 @@ impl std::error::Error for RenderError {}
 
 pub(crate) mod builder;
 pub(crate) mod canvas_lower;
+pub(crate) mod cull;
 pub(crate) mod ctx;
 pub(crate) mod dispatch;
 pub(crate) mod gradient;

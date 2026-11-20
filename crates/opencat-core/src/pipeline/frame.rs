@@ -241,7 +241,15 @@ pub fn render_frame_with_state(
         crate::render::dispatch::render_display_tree(&mut ctx)
     })?;
 
-    let frame = builder.finish();
+    let mut frame = builder.finish();
+    // core 唯一生产 hook：pattern-tile 可见区整理（engine/web 共同消费同一
+    // 裁减结果；合同见 render::cull）。OC_PATTERN_CULL=0 关闭（AB knob），
+    // OC_PATTERN_CULL_STATS=1 按帧打印计数（纯诊断，不进 schema）。
+    let cull_stats =
+        crate::render::cull::cull_pattern_tiles(&mut frame, (frame_ctx.width, frame_ctx.height));
+    if std::env::var_os("OC_PATTERN_CULL_STATS").is_some() {
+        eprintln!("[pattern-cull] frame={frame_index} {cull_stats:?}");
+    }
     // 临时调试（OC_DBG_OPS=1：大位移统计；=2：dump 一帧的中段 op 序列；
     // =3：气泡 RRect 的全局累计位移——变换栈模拟）。
     if let Ok(mode) = std::env::var("OC_DBG_OPS") {
